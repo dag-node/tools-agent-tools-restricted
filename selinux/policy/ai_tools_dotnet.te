@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: GPL-2.0-or-later
-policy_module(ai_tools_dotnet, 0.1.0)
+policy_module(ai_tools_dotnet, 0.2.0)
 
 # ai_tools LAYOUT MODULE: dotnet  (loads with the dotnet integration; labels only)
 #
@@ -7,8 +7,9 @@ policy_module(ai_tools_dotnet, 0.1.0)
 # or artifacts created under a project-typed directory is born ai_tools_project_build_t at any depth (a test project's
 # bin/ under tests/, the artifacts/ root of the .NET 8 layout), so a fresh `dotnet build` does not need a restorecon
 # before its output can run once the buildexec group is loaded. Files created inside inherit the parent directory's
-# type, so the transition is declared for the directory only. unconfined_t gets the same transition: an operator's own
-# build on a claimed tree must not leave output the next session cannot run until a relabel.
+# type, so the transition is declared for the directory only. The operator domains (ai_tools_operator_domain, declared
+# by the base) get the same transition: an operator's own build on a claimed tree must not leave output the next session
+# cannot run until a relabel.
 #
 # NOT A GROUP. This module holds type transitions and file contexts and does not add any permission -- with buildexec
 # off, the two project types are equally non-executable and every other grant the base holds is the same on each --
@@ -23,7 +24,7 @@ policy_module(ai_tools_dotnet, 0.1.0)
 
 require {
     type ai_tools_t;
-    type unconfined_t;
+    attribute ai_tools_operator_domain;
     type ai_tools_project_t;
     type ai_tools_project_build_t;
 }
@@ -31,6 +32,6 @@ require {
 filetrans_pattern(ai_tools_t, ai_tools_project_t, ai_tools_project_build_t, dir, "bin")
 filetrans_pattern(ai_tools_t, ai_tools_project_t, ai_tools_project_build_t, dir, "obj")
 filetrans_pattern(ai_tools_t, ai_tools_project_t, ai_tools_project_build_t, dir, "artifacts")
-filetrans_pattern(unconfined_t, ai_tools_project_t, ai_tools_project_build_t, dir, "bin")
-filetrans_pattern(unconfined_t, ai_tools_project_t, ai_tools_project_build_t, dir, "obj")
-filetrans_pattern(unconfined_t, ai_tools_project_t, ai_tools_project_build_t, dir, "artifacts")
+filetrans_pattern(ai_tools_operator_domain, ai_tools_project_t, ai_tools_project_build_t, dir, "bin")
+filetrans_pattern(ai_tools_operator_domain, ai_tools_project_t, ai_tools_project_build_t, dir, "obj")
+filetrans_pattern(ai_tools_operator_domain, ai_tools_project_t, ai_tools_project_build_t, dir, "artifacts")

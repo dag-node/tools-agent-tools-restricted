@@ -89,7 +89,7 @@ No group is enabled automatically.
 |---|---|---|
 | `tmpmap` | `ai_tools_tmp_t:file map` | NuGet **restore** and **build** — the runtime mmaps a shared-memory mutex under `/tmp/.dotnet/shm`. Also git/SQLite in `/tmp`. |
 | `memfdexec` | `map+execute` on `ai_tools_memfd_t`, the private type a tmpfs `type_transition` gives the memfds the session creates | **building/JIT-ing** an executable — CoreCLR maps generated code and the apphost from a memfd `PROT_EXEC`. `execmem` (base) covers anonymous exec; this covers a file-backed one, and only for a memfd this domain created itself. |
-| `localipc` | unix sockets and FIFOs under `/tmp` and the home state, `connectto` on the domain's own stream sockets, loopback TCP to an ephemeral port, `getsid`, `/proc/sys/net` | **`dotnet test`** (diagnostic socket, test-host connect) and **multi-node MSBuild** (worker pipes); also a dev server and the browser driven against it, a language server |
+| `localipc` | unix sockets and FIFOs under `/tmp` and the home state, `connectto` on the domain's own stream sockets, TCP to an unreserved or ephemeral port (on any address: the grant is by port type), `getsid`, `/proc/sys/net` | **`dotnet test`** (diagnostic socket, test-host connect) and **multi-node MSBuild** (worker pipes); also a dev server and the browser driven against it, a language server |
 | `buildexec` | execute on `ai_tools_project_build_t` (`file { map execute execute_no_trans execmod }`), the base's build-output type | **running** an apphost/testhost/R2R image the agent built |
 
 **The layout module `ai_tools_dotnet` is not a group.** It carries the `bin`/`obj`/`artifacts` transitions
@@ -134,7 +134,7 @@ and one sensitive one — the reasoning that shaped `localipc` and `buildexec`:
 | `self:unix_stream_socket connectto` | Microsoft.Testing.Platform runner → test-host connect | `localipc` |
 | `self:process getsession` | `getsid(2)` from `csc`/`dotnet` | `localipc` |
 | `kernel_read_network_state_symlinks` | `/proc/sys/net/*` at startup | `localipc` |
-| `corenet_tcp_connect_generic_port` | xUnit/VSTest runner → out-of-process test host over loopback TCP | `localipc` |
+| `corenet_tcp_connect_generic_port` | xUnit/VSTest runner → out-of-process test host over loopback TCP (the grant itself is by port type, any address) | `localipc` |
 | `ai_tools_project_build_t:file execute` (+`execmod`/`execute_no_trans`) | running a native host / R2R code built in the tree | `buildexec` |
 
 The `/tmp` socket/FIFO **create** denials have a precise cause: the base `files_tmp_filetrans` transitions new `/tmp`
@@ -144,8 +144,11 @@ workaround avoids the pipes). A named-socket **connect** needs a second grant th
 `create_stream_socket_perms` covers `connect` but **not `connectto`** (the peer permission to a listener),
 so `dotnet test`'s Microsoft.Testing.Platform runner gets `EACCES` reaching its test host over the `.local/share` socket
 even once the socket file exists. `localipc` grants the socket/FIFO transition and management **and**
-`self:unix_stream_socket connectto`; all of it is benign — the sandbox's own processes doing socket/FIFO IPC in their
-own tmp/home, the same class as the file management the base already grants.
+`self:unix_stream_socket connectto`. Creating sockets and FIFOs in the sandbox's own tmp/home is the same class
+as the file management the base already grants. The `connectto` is keyed on the domain, not on the listening process,
+so it reaches any `ai_tools_t` socket whose file DAC lets the session open, another session's included — the shared
+account boundary of [ref-section-x6a9](../../CLAUDE.md#ref-section-x6a9) — and the TCP grant is keyed on the port type,
+so it reaches that port on any address.
 
 `buildexec` is the boundary: **execute on `ai_tools_project_build_t`** is on-disk code run as a new process image. It
 does not grant a new privilege (`execmem` already concedes in-process native code, and `execute_no_trans` keeps
@@ -156,7 +159,7 @@ relocated in place.
 ### The build-output type, and what scoping to it does and does not do
 
 `ai_tools_project_build_t` is a second project type the **base** declares, mirroring every grant it holds
-on `ai_tools_project_t` (`ai_tools_t` manage and `map`, `unconfined_t` manage and relabel, `ai_tools_handback_t`
+on `ai_tools_project_t` (`ai_tools_t` manage and `map`, the operator domains' manage and relabel, `ai_tools_handback_t`
 manage), so a build, an operator's own work, a claim relabel and the ownership handback treat the two types alike.
 The base names **no directory** for it — a base that named `bin/` would carry one toolchain's layout, which the provider
 seam exists to keep out of it — and declares it rather than the group because `semanage fcontext` refuses a type
@@ -178,11 +181,12 @@ whichever integrations a later session enables — validates each name to one pl
 per-project rule beside the project rule, `<dir>(/.*)?/(bin|obj|artifacts)(/.*)?`, so existing output at any depth takes
 the type at claim and at `install-selinux.sh relabel`. The same three names are literals in the layout module:
 `filetrans_pattern` rules in `ai_tools_dotnet.te` type a directory of that name at creation, for `ai_tools_t`
-and for `unconfined_t`, so a fresh build and an operator's own build both land on the type with no relabel, and a static
-rule in `ai_tools_dotnet.fc` covers sandbox clones, which take no per-project rule. The three MUST agree: a name known
-to the manifest alone is typed only at the next relabel, and one known to the policy alone only when it is created.
-The **precedence** of the build rule over the project rule, and the `matchpathcon` check that verifies it on a host, are
-stated in `ai_tools_project_build_pattern` (`relabel.lib.sh`); the same property holds between the two clone rules.
+and for the operator domains (`ai_tools_operator_domain`, see [confinement](confinement.rule.md)), so a fresh build
+and an operator's own build both land on the type with no relabel, and a static rule in `ai_tools_dotnet.fc` covers
+sandbox clones, which take no per-project rule. The three MUST agree: a name known to the manifest alone is typed only
+at the next relabel, and one known to the policy alone only when it is created. The **precedence** of the build rule
+over the project rule, and the `matchpathcon` check that verifies it on a host, are stated
+in `ai_tools_project_build_pattern` (`relabel.lib.sh`); the same property holds between the two clone rules.
 
 What follows from that placement:
 

@@ -74,7 +74,8 @@ on first.
 ```bash
 # Repository
 sudo rpm --import https://rpm.dagnode.com/RPM-GPG-KEY-dag-node
-sudo dnf install https://rpm.dagnode.com/dagnode-release-latest.noarch.rpm
+sudo dnf install https://rpm.dagnode.com/dagnode-release-latest.noarch.rpm         # EL 9, EL 10
+sudo dnf install https://rpm.dagnode.com/fedora/dagnode-release-latest.noarch.rpm  # Fedora 44
 
 # Sandbox
 sudo dnf install ai-tools-selinux ai-tools-agents-claude-code-restricted  # Claude Code
@@ -201,7 +202,8 @@ you type `claude`
             │                                  (DROPS privilege to the unprivileged sandbox
             │                                   account — the wrapper never runs as root)
             └─ systemd transient service      (--pty; RestrictNamespaces=yes, UMask=0007,
-                                               WorkingDirectory=project, NODE_COMPILE_CACHE pinned)
+                                               MemoryMax=8G, TasksMax=1024, WorkingDirectory=project,
+                                               NODE_COMPILE_CACHE pinned)
                  └─ claude runs as ${SANDBOX_USER} in ai_tools_t (SELinux)
                       └─ on Write/Edit → PostToolUse hook (or Stop/SessionStart sweep)
                            └─ ai-tools-handback-client CHOWN <file>   (socket, no sudo)

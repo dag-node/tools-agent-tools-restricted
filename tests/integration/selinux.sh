@@ -251,10 +251,11 @@ fi
 # (8) The build-output type, where the dotnet layout module is loaded. Its static rule must win over the clone rule
 # for a path under one of the named directories and lose everywhere else -- the precedence the narrowing rests
 # on, decided by libselinux from the two rules' stems, which no unit test can read. matchpathcon reads the loaded file
-# contexts, so the paths need not exist; the live half creates a bin/ directory as unconfined_t in the sandbox area
-# and asserts the module's named transition put it on the build type without a restorecon. The ai_tools_t transition
-# and the execute grant need a session and are exercised by selinux/avc/avc-testsuite.sh. Skips when the layout module
-# is not loaded: the base carries the type, the module the mapping.
+# contexts, so the paths need not exist; the live half creates a bin/ directory in the sandbox area as root, which runs
+# in unconfined_t, the shipped operator domain, and asserts the module's named transition put it on the build type
+# without a restorecon. The ai_tools_t transition and the execute grant need a session and are exercised
+# by selinux/avc/avc-testsuite.sh. Skips when the layout module is not loaded: the base carries the type, the module
+# the mapping.
 section "SELinux: the dotnet layout module types build output and only build output"
 
 # type_of <path> : PRINT the SELinux type, or an empty string. Shared with the exec-chain section.
@@ -279,9 +280,9 @@ else
         mkdir "${tprobe}/bin" "${tprobe}/src" 2>/dev/null || true
         bt="$(type_of "${tprobe}/bin")"; st="$(type_of "${tprobe}/src")"
         if [[ "${bt}" == ai_tools_project_build_t && "${st}" == ai_tools_project_t ]]; then
-            pass "a bin/ directory created by unconfined_t is born ai_tools_project_build_t; a sibling stays ai_tools_project_t (named transition, no restorecon)"
+            pass "a bin/ directory created by an operator domain is born ai_tools_project_build_t; a sibling stays ai_tools_project_t (named transition, no restorecon)"
         else
-            fail "created bin/ is ${bt:-none} and src/ is ${st:-none} -- the layout module's unconfined_t transition did not fire"
+            fail "created bin/ is ${bt:-none} and src/ is ${st:-none} -- the layout module's operator-domain transition did not fire"
         fi
         rm -rf "${tprobe}" 2>/dev/null || true
     fi
@@ -430,6 +431,53 @@ else
             fail "${op_name}: ${op_conf} is ${op_type:-none}, not ai_tools_conf_t -- the root helpers cannot read that operator's allowlist, so ownership handback no-ops for every project they own. Fix: sudo ai-tools-admin operators add ${op_name}"
         fi
     done
+fi
+
+# The launch attestation reads selinuxfs itself, and the one claim a fixture cannot prove is that the live kernel
+# answers: the access query carries ai_tools_t under unconfined_r, which the loaded policy must accept
+# (`role unconfined_r types ai_tools_t;` in ai_tools.te), and each gating Boolean file holds the value getsebool prints.
+# A policy that stopped accepting the context would turn every launch under AI_TOOLS_REQUIRE_SELINUX into an unattested
+# refusal with no unit test failing. Read-only.
+section "SELinux: the launch attestation reads the live selinuxfs"
+
+if ! module_loaded; then
+    skip "live attestation read" "the ai_tools module is not loaded"
+elif ! source /usr/local/lib/ai-tools/conf.lib.sh 2>/dev/null \
+        || ! source /usr/local/lib/ai-tools/confinement.lib.sh 2>/dev/null \
+        || ! declare -F ai_tools_confinement_read_attestation_records >/dev/null 2>&1; then
+    skip "live attestation read" "confinement.lib.sh predates the attestation reader"
+else
+    live_records="$(ai_tools_confinement_read_attestation_records /sys/fs/selinux)"
+    live_permissive="$(awk -F'\t' '$1=="permissive"{print $2}' <<<"${live_records}")"
+    # Cross-checked where a tool can say: seinfo lists permissive types; semodule lists the module `semanage permissive
+    # -a` installs. Captured, not piped into grep -q, for the SIGPIPE reason module_loaded states.
+    expected_permissive=""
+    if command -v seinfo >/dev/null 2>&1; then
+        permissive_types="$(seinfo --permissive 2>/dev/null || true)"
+        if grep -qw ai_tools_t <<<"${permissive_types}"; then expected_permissive=yes; else expected_permissive=no; fi
+    elif command -v semodule >/dev/null 2>&1; then
+        loaded_modules="$(semodule -l 2>/dev/null || true)"
+        if grep -qx permissive_ai_tools_t <<<"${loaded_modules}"; then expected_permissive=yes; else expected_permissive=no; fi
+    fi
+    if [[ -z "${live_permissive}" ]]; then
+        fail "the access query for ai_tools_t went unanswered -- every launch under AI_TOOLS_REQUIRE_SELINUX refuses as unattested"
+    elif [[ -z "${expected_permissive}" ]]; then
+        pass "the kernel answers the per-domain mode for ai_tools_t: permissive=${live_permissive} (no seinfo or semodule to cross-check)"
+    elif [[ "${live_permissive}" == "${expected_permissive}" ]]; then
+        pass "the kernel answers the per-domain mode for ai_tools_t: permissive=${live_permissive}, as the policy tools say"
+    else
+        fail "the per-domain mode reads permissive=${live_permissive}; the policy tools say ${expected_permissive}"
+    fi
+    while IFS=$'\t' read -r boolean_name boolean_class _; do
+        [[ "${boolean_class}" == gating ]] || continue
+        live_value="$(awk -F'\t' -v n="${boolean_name}" '$1=="boolean" && $2==n {print $3}' <<<"${live_records}")"
+        getsebool_value="$(getsebool "${boolean_name}" 2>/dev/null | awk '{print $3}' || true)"
+        if [[ -n "${live_value}" && "${live_value}" == "${getsebool_value}" ]]; then
+            pass "${boolean_name} reads ${live_value}, the value getsebool prints"
+        else
+            fail "${boolean_name}: the reader says '${live_value:-unread}', getsebool says '${getsebool_value:-nothing}'"
+        fi
+    done < <(ai_tools_confinement_list_known_booleans)
 fi
 
 finish

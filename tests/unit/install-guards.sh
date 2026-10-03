@@ -231,7 +231,17 @@ if (( GATE_RC == 0 )) && ! grep -q 'MSG-W6B3' <<<"${GATE_OUT}" && grep -q 'syste
 else
     fail "admitted downgrade: rc=${GATE_RC}: ${GATE_OUT}"
 fi
-for line in 'AI_TOOLS_VERSION="0.21.0"' 'AI_TOOLS_VERSION="0.20.5"' 'AI_TOOLS_VERSION="dev"' 'AI_TOOLS_VERSION="@AI_TOOLS_VERSION@"'; do
+# An rpm-installed CLI carries version-release; the same version from any release is a reinstall, not a downgrade,
+# while a newer version is refused whatever its release.
+run_version_gate 'AI_TOOLS_VERSION="0.22.0-1.el10"'
+if (( GATE_RC != 0 )) && grep -q 'MSG-W6B3' <<<"${GATE_OUT}"; then
+    pass "a newer rpm-installed version (version-release) is refused"
+else
+    fail "newer rpm version-release: rc=${GATE_RC}: ${GATE_OUT}"
+fi
+for line in 'AI_TOOLS_VERSION="0.21.0"' 'AI_TOOLS_VERSION="0.21.0-1.el10"' 'AI_TOOLS_VERSION="0.21.0-3.el9"' \
+            'AI_TOOLS_VERSION="0.20.5"' 'AI_TOOLS_VERSION="0.20.5-1.el10"' 'AI_TOOLS_VERSION="dev"' \
+            'AI_TOOLS_VERSION="@AI_TOOLS_VERSION@"'; do
     run_version_gate "${line}"
     if (( GATE_RC == 0 )) && ! grep -qE 'MSG-W6B3|MSG-W7G8' <<<"${GATE_OUT}" && grep -q 'version       : 0.21.0' <<<"${GATE_OUT}"; then
         pass "an installation reading ${line#AI_TOOLS_VERSION=} passes the version gate, the version line printed"

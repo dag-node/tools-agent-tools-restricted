@@ -142,18 +142,21 @@ readonly ALLOWLIST="${AI_TOOLS_RESOLVED_ALLOWLIST}" PROJECTS_UID
 
 # Secret-name matcher (defense in depth): the walk skips every path whose basename matches the secret patterns
 # (_is_secret_name), so a private file such as .env is not re-exposed to the agent group even if the operator forgot
-# to '!'-exclude it. Loaded AFTER the owner resolve, because the loader builds the file path from PROJECTS_HOME: a load
-# ahead of the resolve reads the built-in baseline and marks the set loaded, so the operator's own secret-patterns file
-# is never read. Best-effort -- the '!' allowlist exclusions remain the authoritative control; if the matcher cannot
-# load, fall back to them.
+# to '!'-exclude it. Loaded after the owner resolve, which names the operator's file (ai_tools_load_secret_patterns
+# states what an earlier load reads). Fail-closed: a walk with no matcher would grant the agent's group every path
+# the operator named, so a library that does not load and a present file the loader cannot read each refuse
+# before the first grant (secret-handling.rule.md).
 readonly SECRET_PATTERNS_LIB="/usr/local/lib/ai-tools/secret-patterns.lib.sh"
-_secret_loaded=false
 # shellcheck source=SCRIPTDIR/../../lib/ai-tools/secret-patterns.lib.sh
-if source "${SECRET_PATTERNS_LIB}" 2>/dev/null && ai_tools_load_secret_patterns 2>/dev/null; then
-    _secret_loaded=true
+if ! source "${SECRET_PATTERNS_LIB}" 2>/dev/null || ! declare -F ai_tools_load_secret_patterns >/dev/null 2>&1; then
+    warn MSG-Q6N6 "cannot load ${SECRET_PATTERNS_LIB}, which decides which paths are secrets -- no ACL was granted under ${canonical}; reinstall the ai-tools package"
+    exit 3
+fi
+if ! ai_tools_load_secret_patterns; then
+    warn "the operator's secret-patterns file could not be read, so no ACL was granted under ${canonical}"
+    exit 3
 fi
 _is_secret_name() {
-    ${_secret_loaded} || return 1
     ai_tools_is_secret_basename "$(basename -- "$1")"
 }
 

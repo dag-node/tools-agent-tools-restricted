@@ -58,18 +58,43 @@ import_signing_key() {
 # defined as /usr/bin/gpg) expands to `/usr/bin/gpg gpg ...` -- gpg invoked with argv[1]="gpg", a bogus input filename,
 # so it does not sign the package. Copying that literal `gpg` into the override is why the 0.6.1 el10 RPMs shipped
 # unsigned; here %{__gpg} stands alone.
+#
+# The override follows the contract of the installed rpm's own declaration, read from `rpm --showrc`. rpm 4 (EL9, EL10)
+# declares %__gpg_sign_cmd as a plain macro and hands the file names over as %__plaintext_filename and
+# %__signature_filename; rpm 6 (Fedora 44) declares it parametric, `%__gpg_sign_cmd()`, passes them as %1 (input) and
+# %2 (signature), and defines neither name, so a plain-macro override there reaches gpg with the literal text
+# `%{__plaintext_filename}` as its input file and rpmsign fails. rpm 6 names the key through %_openpgp_sign_id, so both
+# key macros are written; rpm 4 ignores the one it does not read.
 write_rpm_macros() {
     local home="$1" fpr="$2" passfile="$3"
+    local gpg_opts="--batch --no-verbose --no-armor --pinentry-mode loopback --passphrase-file ${passfile} --digest-algo sha256 -u \"%{_gpg_name}\""
+    local sign_cmd
+    # The stock declaration states the contract: a body naming %__plaintext_filename hands the files over by name;
+    # one that does not passes them as arguments. HOME is the scratch dir, which holds no macros file yet, so only
+    # the installed rpm's own declaration is read. The dump is captured whole before it is searched: under pipefail,
+    # `rpm --showrc | grep -q` ends with grep's early exit sending rpm a SIGPIPE, which turns a match into a failed
+    # pipeline and selects the wrong shape; a dump that cannot be read is an error, never a choice.
+    local showrc
+    showrc="$(HOME="${home}" rpm --showrc)" || die "rpm --showrc failed -- cannot tell which signing contract this rpm follows"
+    if grep -q '__plaintext_filename' <<<"${showrc}"; then
+        sign_cmd="%__gpg_sign_cmd %{__gpg} ${gpg_opts} -sbo %{__signature_filename} %{__plaintext_filename}"
+    else
+        sign_cmd="%__gpg_sign_cmd() %{__gpg} ${gpg_opts} -sbo %{shescape:%{2}} -- %{shescape:%{1}}"
+    fi
     cat > "${home}/.rpmmacros" <<EOF
 %_gpg_name ${fpr}
-%__gpg_sign_cmd %{__gpg} --batch --no-verbose --no-armor --pinentry-mode loopback --passphrase-file ${passfile} --digest-algo sha256 -u "%{_gpg_name}" -sbo %{__signature_filename} %{__plaintext_filename}
+%_openpgp_sign_id ${fpr}
+${sign_cmd}
 EOF
 }
 
 # Verify each RPM carries a signature that validates against <pubkey>. Import the key into a throwaway rpmdb, then
-# require `rpmkeys -Kv` to print a cryptographic "Signature ... OK" line: that line appears ONLY when a signature is
-# present AND checks out. An unsigned package has no signature line (only digests) yet still exits 0, so asserting
-# the line -- not the exit code -- is what stops a silent signing no-op from shipping.
+# require `rpmkeys -Kv` to print a cryptographic signature line whose status is OK: that line appears ONLY when a
+# signature is present AND checks out. An unsigned package has no signature line (only digests) yet still exits 0, so
+# asserting the line -- not the exit code -- is what stops a silent signing no-op from shipping. The status is matched
+# at the end of the line because the line's shape differs by rpm generation: rpm 4 prints
+# `Header V4 RSA/SHA256 Signature, key ID <id>: OK` and rpm 6 `Header OpenPGP RSA/SHA256 signature, key fingerprint:
+# <hex>: OK`, a second colon before the status. A digest-only line names no signature and so never matches.
 verify_signatures() {
     local pubkey="$1"; shift
     local verifydb rpm out
@@ -81,8 +106,8 @@ verify_signatures() {
         # which exits 0 with no signature line.
         out="$(rpmkeys --dbpath "${verifydb}" -Kv "${rpm}" 2>&1)" \
             || die "signature check failed for ${rpm}: ${out}"
-        grep -Eqi 'signature[^:]*:[[:space:]]*OK' <<<"${out}" \
-            || die "no valid signature on ${rpm} -- rpmsign produced an unsigned or unverifiable package"
+        grep -Eqi 'signature.*:[[:space:]]*OK[[:space:]]*$' <<<"${out}" \
+            || die "no valid signature on ${rpm} -- rpmsign produced an unsigned or unverifiable package; rpmkeys -Kv said: ${out}"
     done
 }
 

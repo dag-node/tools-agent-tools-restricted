@@ -52,7 +52,7 @@ is written is in `.claude/rules/tests.rule.md`.
 
 For a full package-build, install, and confined-launch smoke test
 in a throwaway container: `make -C packaging rpmtest-rocky9` (or
-`rpmtest-rocky10`).
+`rpmtest-rocky10`, `rpmtest-fedora44`).
 
 ## Linting
 

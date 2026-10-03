@@ -98,7 +98,7 @@ and the `ai-tools-agents` / `ai-tools-integration` umbrellas with their members
 — plus the public key. They extract flat and dnf orders them itself:
 
 ```bash
-unzip ai-tools-el10-vX.Y.Z.zip                 # ai-tools-el9-... to match your platform
+unzip ai-tools-el10-vX.Y.Z.zip                 # el9, el10, or fc44 to match your platform
 sudo rpm --import RPM-GPG-KEY-dag-node         # every release is signed; import once
 rpm --checksig ./*.rpm                         # each line should end in: digests signatures OK
 sudo dnf install ./*.rpm
@@ -124,7 +124,7 @@ between versions.
 | Subpackage | Owns |
 |---|---|
 | `ai-tools-base` | the `ai-tools` user and the `ai-ops` operators group; `/opt/ai-tools` home ROOT and `bin` (plus its default-deny `.gitignore` git guard and `.gitconfig` identity, both `%post`-seeded-if-missing and not rpm-owned, so an erase preserves them); the mode and label contract every agent's config directory carries, but no such directory itself; the shared skills root `/opt/ai-tools/skills` and the pristine skill copies (skills are agent-agnostic, so every agent symlinks into this one place) and `/var/opt/ai-tools` sandbox tree; the static `%ai-ops` sudoers drop-in; the `ai-tools` CLI (project lifecycle); `ai-tools-admin` (operator administration); `ai-tools-launch`, the launch wrapper every agent's command runs; ownership/secret helpers (`ai-tools-chown`, `-setgid`, `-setfacl`, `-unclaim`, `-lockdown`, `-relabel`); the handback socket, daemon, and client; `log.lib.sh`, `msg.lib.sh`, `relabel.lib.sh`, `skip-dirs.lib.sh`, `safe-paths.lib.sh`, `secret-patterns.lib.sh`, `operator.lib.sh`, `control-plane.lib.sh`, `conf.lib.sh`, `providers.lib.sh`, `ancestor-config.lib.sh`; the agent-agnostic confinement shim `/opt/ai-tools/bin/ai-tools-run` and the `%ai-ops` sudoers grant that reaches it; the `agents.d`, `integrations.d`, `session-env.d` and `launch.d` provider directories (base owns the dirs at `0755 root:root`; each member package drops only its own manifest or fragment into them) |
-| `ai-tools-selinux` | the compiled SELinux policy modules in `/usr/share/selinux/packages/ai-tools/` — the core `ai_tools.pp` (the `ai_tools_t` domain and the handback/helper types), each STABLE optional group, and each integration's layout module, every one compiled at package build against the building distribution's policy headers; the `%post`/`%postun` scriptlets that load the core and unload every loaded `ai_tools*` module on erase; the GPL licence text |
+| `ai-tools-selinux` | the compiled SELinux policy modules in `/usr/share/selinux/packages/ai-tools/` — the core `ai_tools.pp` (the `ai_tools_t` domain and the handback/helper types), each STABLE optional group, and each integration's layout module, every one compiled at package build against the building distribution's policy headers, and the `ai_tools.if` interface file under `/usr/share/selinux/devel/include/distributed/`; the `%post`/`%postun` scriptlets that load the core and unload every loaded `ai_tools*` module on erase; the GPL licence text |
 | `ai-tools-integration-nodejs` | nvm under `/opt/ai-tools/.nvm`; the per-sandbox-user Node-version auto-update service and timer; `ai-tools-bootstrap`; the symlink-repoint helper (`ai-tools-launcher-symlink`) and the post-upgrade entrypoint relabel (`ai-tools-relabel-agent`) |
 | `ai-tools-integration-dotnet` | the dotnet session-env fragment (`session-env.d/dotnet.env.sh`), manifest (`integrations.d/dotnet.conf`) and the `dotnet` domain of `ai-tools-admin` (`admin-commands.d/dotnet`), which provisions a writable NuGet cache + read-only shared tools under its own `/opt/ai-tools/integrations/dotnet` state root, covered by the base's single fcontext rule for that tree. No .NET runtime — the host's dotnet is used |
 | `ai-tools-integration-typesafe` | the decide command (`/usr/local/lib/ai-tools/typesafe`, JavaScript the sandbox's Node runs, with no runtime dependency), its session-env fragment (`session-env.d/typesafe.env.sh`) and manifest (`integrations.d/typesafe.conf`), the credential file `/etc/ai-tools/endpoints/typesafe.conf` (`%config(noreplace)`, shipped with the key commented) and its `ai-tools-typesafe.conf(5)` page, the `/opt/ai-tools/integrations/typesafe` state root the usage log lands in, and the pristine copy of the `ai-tools-decide` skill, which its `%post` seeds and links and its `%postun` withdraws |
@@ -229,11 +229,11 @@ up agents installed since.
 
 The home root stays `root:ai-tools 2751`, which the agent (group `ai-tools`)
 cannot write, so bootstrap pre-creates the agent-owned subtrees it must
-populate — `.nvm`, `.cache`, `.npm`, `.local`, each `ai-tools:ai-tools 0750` —
-as root, then runs nvm/Node/npm as the sandbox account, writing only within
-them (`PROFILE=/dev/null` keeps nvm's installer off the root-owned home
-profile). It creates the launcher symlink under the locked `bin` as root; agent
-runtime state does not need seeding — `ai-tools-run` pins `CLAUDE_CONFIG_DIR`
+populate — `.nvm`, `.cache`, `.npm`, each `ai-tools:ai-tools 0750` — as root,
+then runs nvm/Node/npm as the sandbox account, writing only within them
+(`PROFILE=/dev/null` keeps nvm's installer off the root-owned home profile). It
+creates the launcher symlink under the locked `bin` as root; agent runtime
+state does not need seeding — `ai-tools-run` pins `CLAUDE_CONFIG_DIR`
 to the group-writable `.claude`, where claude creates its own state files
 (`.claude.json` included). A re-run reuses an existing toolchain; Node updates
 land inside the agent-owned `.nvm` subtree.
@@ -298,13 +298,16 @@ The core policy module, the **stable** optional groups, and each integration's
 **layout module** ship compiled (`ai_tools.pp`, `ai_tools_<group>.pp`,
 and the layout module's `.pp`) under `%{_datadir}/selinux/packages/ai-tools/`,
 so an RPM install and enabling a stable group both need no policy toolchain.
-Each distribution's RPM carries modules compiled against that distribution's
-policy headers during its own build (the mechanism is the confinement rule's
-*How the policy ships*, in `.claude/rules/confinement.rule.md`).
-`ai-tools-selinux` `%post` loads the **core module only** and applies file
-contexts when `getenforce` is not `Disabled`, and is a no-op otherwise.
-The stable groups are shipped but stay **off**, toggled per host by an operator
-who hits a boundary:
+The `ai_tools.if` interface file ships beside them
+under `%{_datadir}/selinux/devel/include/distributed/`, where a site module
+that declares an operator domain finds `ipp_ai_tools_add_operator_domain`. Each
+distribution's RPM carries modules compiled against that distribution's policy
+headers during its own build (the mechanism is the confinement rule's *How
+the policy ships*, in `.claude/rules/confinement.rule.md`). `ai-tools-selinux`
+`%post` loads the **core module only** and applies file contexts
+when `getenforce` is not `Disabled`, and is a no-op otherwise. The stable
+groups are shipped but stay **off**, toggled per host by an operator who hits
+a boundary:
 
 ```bash
 sudo ai-tools-admin selinux groups
@@ -390,8 +393,8 @@ and no compiled module.
 reads it directly (`%(cat %{_sourcedir}/VERSION)`, also shipped as `Source2`
 so a rebuild from the SRPM alone still resolves it) and the Makefile reads
 the same file, so a release bump touches one place. `Release:` defaults
-to plain `1` (a final `vX.Y.Z` release);
-`make rpm`/`rpmtest-rockyN`/`rpmbase-elN` accept `RPM_RELEASE=<override>` — CI
+to plain `1` (a final `vX.Y.Z` release); `make rpm`, `rpmtest-<distro>`,
+and `rpmbase-<tag>` accept `RPM_RELEASE=<override>` — CI
 passes `0.<run>.git<sha>` for dev builds and `0.rcN` for `vX.Y.Z-rc.N`
 prerelease tags. The leading `0.` is the Fedora pre-release convention,
 so rpm's version comparison ranks any snapshot or RC under the final release
@@ -414,8 +417,9 @@ and publishes it to the signed DNF repository at `https://rpm.dagnode.com/`
 (the "served from a signed repo" install path the README leads with). Two
 properties shape the design:
 
-- **Each project signs its own RPMs, in the matching-EL build container.**
-  `packaging/sign-rpms.sh` runs inside `ai-tools-rpmbase:elN` (not
+- **Each project signs its own RPMs, in the distribution's own build
+  container.** `packaging/sign-rpms.sh` runs inside `ai-tools-rpmbase:<tag>`
+  (`el9`, `el10`, `fc44`; not
   on the Ubuntu runner), so the `rpm`/`gnupg` toolchain that signs matches
   the one that built — no header-signature or macro mismatch. It imports
   the key from a step-scoped secret into a throwaway `GNUPGHOME`, signs
@@ -428,12 +432,13 @@ properties shape the design:
   the packages are immutable once signed. **Signing is mandatory.** The release
   job requires `GPG_SIGNING_KEY`, `GPG_SIGNING_PASSPHRASE`,
   and `RPM_REPO_DISPATCH_TOKEN`, and before building or publishing anything it
-  runs `sign-rpms.sh --selftest` in each matching-EL container — signing
+  runs `sign-rpms.sh --selftest` in each distribution's container — signing
   and verifying a throwaway RPM — so a wrong passphrase or a no-op signing
   toolchain fails the job while the release is still private. A release never
   publishes an unsigned package.
 - **A central repo owns metadata and hosting.** The signed RPMs and the public
-  key attach to the GitHub Release (loose + per-EL zip), then the job notifies
+  key attach to the GitHub Release (loose + one zip per distribution), then
+  the job notifies
   the dedicated `dag-node/rpm` repository via `repository_dispatch`. That repo
   — not this project — runs the single publish pipeline (`createrepo_c`,
   `repomd.xml` signing, GitHub Pages deploy at `rpm.dagnode.com`), serialized

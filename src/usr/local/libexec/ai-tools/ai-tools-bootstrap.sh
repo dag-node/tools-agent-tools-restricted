@@ -506,63 +506,48 @@ seed_managed_assets_step() {
     (( seeded )) || log "managed assets: no agent config directory to seed yet"
 }
 
-# offer_launch_requirements -- on a host where SELinux is enforcing and the ai_tools module is loaded, offer to require
-# both at every launch: AI_TOOLS_REQUIRE_SELINUX refuses a session the ai_tools_t domain would not confine,
-# and AI_TOOLS_REQUIRE_ENTRYPOINT_VERIFY refuses an agent binary that does not carry a pin. Each moves a launch toward
-# LESS access, so the confirm defaults to yes and a run with no terminal writes both; a declined offer writes `no`,
-# so the answer is recorded once rather than asked on every run. A key operator.conf already carries, either way, is
-# the operator's declaration and is not asked about. The entrypoint requirement is offered only while every enabled
-# agent carries a pin -- the relabel ahead of this step writes them -- since it would otherwise refuse that agent's next
-# launch. An untrusted operator.conf is neither asked about nor written, as in choose_agents.
+# offer_launch_requirements -- on a host where SELinux is enforcing and the ai_tools module is loaded, offer the one
+# launch requirement operator.conf does not hold in force by default: AI_TOOLS_REQUIRE_ENTRYPOINT_VERIFY refuses
+# an agent binary that does not carry a pin. (AI_TOOLS_REQUIRE_SELINUX is in force unless the file sets it to no,
+# confinement.lib.sh, so there is no posture to offer.) The switch moves a launch toward LESS access, so the confirm
+# defaults to yes and a run with no terminal writes it; a declined offer writes `no`, so the answer is recorded once
+# rather than asked on every run. A key operator.conf already carries, either way, is the operator's declaration and is
+# not asked about. The requirement is offered only while every enabled agent carries a pin -- the relabel ahead of this
+# step writes them -- since it would otherwise refuse that agent's next launch. An untrusted operator.conf is neither
+# asked about nor written, as in choose_agents.
 offer_launch_requirements() {
-    local conf="${AI_TOOLS_OPERATOR_CONF}" modules agent key answer
-    local pin_lib=/usr/local/lib/ai-tools/entrypoint-verify.lib.sh
-    local -a keys=() unpinned=() lines=()
+    local conf="${AI_TOOLS_OPERATOR_CONF}" modules agent answer
+    local key=AI_TOOLS_REQUIRE_ENTRYPOINT_VERIFY pin_lib=/usr/local/lib/ai-tools/entrypoint-verify.lib.sh
+    local -a unpinned=()
     (( _providers_loaded )) && [[ -f "${conf}" ]] || return 0
     command -v getenforce >/dev/null 2>&1 && [[ "$(getenforce 2>/dev/null)" == Enforcing ]] || return 0
     # Captured before matching: `grep -q` exits on the match and leaves semodule to die of SIGPIPE mid-listing.
     modules="$(semodule -l 2>/dev/null)" || return 0
     grep -qx ai_tools <<< "${modules}" || return 0
     if ! ai_tools_conf_is_trusted "${conf}" 2>/dev/null; then
-        log "launch requirements: ${conf} is not trusted, so neither requirement is asked about or written"
+        log "launch requirements: ${conf} is not trusted, so ${key} is neither asked about nor written"
+        return 0
+    fi
+    ai_tools_conf_read "${conf}" "${key}" && return 0
+    # shellcheck source=SCRIPTDIR/../../lib/ai-tools/entrypoint-verify.lib.sh
+    source "${pin_lib}" 2>/dev/null && declare -F ai_tools_entrypoint_pin_path >/dev/null 2>&1 || return 0
+    while IFS=$'\t' read -r agent _; do
+        [[ -n "${agent}" && ! -f "$(ai_tools_entrypoint_pin_path "${agent}")" ]] && unpinned+=("${agent}")
+    done < <(ai_tools_enabled_agents 2>/dev/null)
+    if (( ${#unpinned[@]} > 0 )); then
+        log "launch requirements: ${key} is not offered while ${unpinned[*]} carries no pin -- run sudo ai-tools-admin system entrypoints relabel, then re-run this command"
         return 0
     fi
 
-    ai_tools_conf_read "${conf}" AI_TOOLS_REQUIRE_SELINUX || keys+=(AI_TOOLS_REQUIRE_SELINUX)
-    if ! ai_tools_conf_read "${conf}" AI_TOOLS_REQUIRE_ENTRYPOINT_VERIFY; then
-        # shellcheck source=SCRIPTDIR/../../lib/ai-tools/entrypoint-verify.lib.sh
-        if source "${pin_lib}" 2>/dev/null && declare -F ai_tools_entrypoint_pin_path >/dev/null 2>&1; then
-            while IFS=$'\t' read -r agent _; do
-                [[ -n "${agent}" && ! -f "$(ai_tools_entrypoint_pin_path "${agent}")" ]] && unpinned+=("${agent}")
-            done < <(ai_tools_enabled_agents 2>/dev/null)
-            if (( ${#unpinned[@]} == 0 )); then
-                keys+=(AI_TOOLS_REQUIRE_ENTRYPOINT_VERIFY)
-            else
-                log "launch requirements: AI_TOOLS_REQUIRE_ENTRYPOINT_VERIFY is not offered while ${unpinned[*]} carries no pin -- run sudo ai-tools-admin system entrypoints relabel, then re-run this command"
-            fi
-        fi
-    fi
-    (( ${#keys[@]} > 0 )) || return 0
-
     require_msg_lib
-    for key in "${keys[@]}"; do
-        case "${key}" in
-            AI_TOOLS_REQUIRE_SELINUX)
-                lines+=("  AI_TOOLS_REQUIRE_SELINUX=yes              refuse a session ai_tools_t would not confine") ;;
-            AI_TOOLS_REQUIRE_ENTRYPOINT_VERIFY)
-                lines+=("  AI_TOOLS_REQUIRE_ENTRYPOINT_VERIFY=yes    refuse an agent binary that carries no pin") ;;
-        esac
-    done
-    ai_tools_msg_block "Require confinement at every launch" \
-        "SELinux is enforcing on this host and the ai_tools policy is loaded. Setting these in ${conf} makes a launch refuse where it would otherwise start a session without them:" \
-        "" "${lines[@]}" "" \
-        "Each can be set back to no in that file; ai-tools-operator.conf(5) states what each refuses."
-    if ai_tools_msg_confirm "Require these at every launch?" y; then answer=yes; else answer=no; fi
-    for key in "${keys[@]}"; do
-        ai_tools_conf_set_key "${conf}" "${key}" "${answer}" \
-            || { warn MSG-N8U6 "could not write ${key}=${answer} into ${conf} -- set the line by hand"; continue; }
-        log "set ${key}=${answer} in ${conf}"
-    done
+    ai_tools_msg_block "Require a verified entrypoint at every launch" \
+        "SELinux is enforcing on this host, the ai_tools policy is loaded, and every enabled agent's entrypoint carries a pin. Setting this in ${conf} makes a launch refuse where it would otherwise start an agent binary no reconcile has pinned:" \
+        "" "  ${key}=yes    refuse an agent binary that carries no pin" "" \
+        "It can be set back to no in that file; ai-tools-operator.conf(5) states what it refuses."
+    if ai_tools_msg_confirm "Require a pinned entrypoint at every launch?" y; then answer=yes; else answer=no; fi
+    ai_tools_conf_set_key "${conf}" "${key}" "${answer}" \
+        || { warn MSG-N8U6 "could not write ${key}=${answer} into ${conf} -- set the line by hand"; return 0; }
+    log "set ${key}=${answer} in ${conf}"
 }
 
 # report_shadowed_operators -- name each enrolled operator whose shell reaches an agent other than the wrapper,
@@ -594,8 +579,8 @@ report_shadowed_operators() {
         "${AI_TOOLS_OPERATORS[@]+"${AI_TOOLS_OPERATORS[@]}"}")
 }
 
-# preflight_toolchain_ownership <home> <user> <group> -- report every path under the toolchain subtrees (.nvm, .npm,
-# .cache, .local under <home>) that <user>:<group> does not own, and return 1 when there is one. The subtrees are
+# preflight_toolchain_ownership <home> <user> <group> -- report every path under the toolchain subtrees (.nvm, .npm
+# and .cache under <home>) that <user>:<group> does not own, and return 1 when there is one. The subtrees are
 # the sandbox account's: nvm and npm write there as that account, and the install step sources nvm.sh as it, so a path
 # another owner holds -- a tree copied from another host as root -- ends that step on nvm's own "Permission denied"
 # with no line naming the cause. Read as root, which traverses the 0750 tree; a subtree that does not exist yet (a first
@@ -604,7 +589,7 @@ report_shadowed_operators() {
 preflight_toolchain_ownership() {
     local home="$1" user="$2" group="$3" sub count sample
     local -a foreign=()
-    for sub in .nvm .npm .cache .local; do
+    for sub in .nvm .npm .cache; do
         [[ -d "${home}/${sub}" ]] || continue
         count="$(find "${home}/${sub}" \( ! -user "${user}" -o ! -group "${group}" \) -printf '.' 2>/dev/null | wc -c)"
         (( count > 0 )) || continue
@@ -630,6 +615,23 @@ preflight_network() {
     (( ${#unreachable[@]} == 0 )) && return 0
     warn MSG-S8B6 "network: no answer from ${unreachable[*]} -- this run applies what needs no download (the account and its home, the launcher links, the labels, the units, the managed assets) and skips the nvm, Node and npm install; connect this host and re-run to install or update the toolchain"
     return 1
+}
+
+# close_unit_search_path -- apply the unit search path layout (ai_tools_ensure_unit_search_path_closed) before the stamp
+# step writes into it, and warn where a path stays open; the run continues.
+close_unit_search_path() {
+    local line
+    local -a changed=() failed=()
+    ai_tools_parse_unit_search_path_report changed failed \
+        < <(ai_tools_ensure_unit_search_path_closed "${SANDBOX_HOME}" "${SANDBOX_USER}" "${SANDBOX_GROUP}" || true)
+    for line in "${changed[@]+"${changed[@]}"}"; do log "unit search path: ${line}"; done
+    if (( ${#failed[@]} > 0 )); then
+        # A twin of install.sh's warning, which defines the code (messaging.rule.md).
+        printf 'MSG-A2Y5\n' >&2
+        warn "the sandbox account's systemd unit search path is not fully closed, so a path listed here could still reach its unconfined --user manager; settle each one and re-run: sudo ai-tools-admin system bootstrap"
+        for line in "${failed[@]}"; do warn "    ${line}"; done
+    fi
+    return 0
 }
 
 # Executed, this provisions a host and needs root. Sourced -- by tests/unit/bootstrap.sh, which drives
@@ -700,6 +702,15 @@ if ! declare -F ai_tools_as_sandbox >/dev/null 2>&1 || ! declare -F ai_tools_nvm
     die MSG-E2X2 "cannot run the sandbox toolchain: ${_sandbox_exec_lib}, ${_toolchain_lib} or the log library did not load, and they are what run that account's files without root's terminal and keep their bytes off it -- reinstall ai-tools-base, then re-run: sudo ai-tools-admin system bootstrap"
 fi
 
+# The unit search path layout (control-plane.lib.sh). Required: a run without it would leave that path the account's.
+_control_plane_lib=/usr/local/lib/ai-tools/control-plane.lib.sh
+# shellcheck source=SCRIPTDIR/../../lib/ai-tools/control-plane.lib.sh
+source "${_control_plane_lib}" 2>/dev/null || true
+if ! declare -F ai_tools_ensure_unit_search_path_closed >/dev/null 2>&1 \
+        || ! declare -F ai_tools_parse_unit_search_path_report >/dev/null 2>&1; then
+    die MSG-Q3P4 "cannot close the sandbox account's systemd unit search path: ${_control_plane_lib} did not load -- reinstall ai-tools-base, then re-run: sudo ai-tools-admin system bootstrap"
+fi
+
 # Which agents this run provisions, decided and written before the first network step: a name given on the command line,
 # the line already in operator.conf, or the operator's answer to the menu. An unknown `--agents` name ends the run here,
 # with no package installed and no line written.
@@ -745,14 +756,17 @@ fi
 # Home root owned root:ai-tools, mode 2751: root owns the control plane and the agent reaches it through group ai-tools;
 # the o+x search bit lets an operator readlink the launcher. The agent cannot create entries in this dir,
 # so the agent-owned subtrees it must write are pre-created here, as root, and chowned to the account: .nvm holds
-# the toolchain, .cache the NODE_COMPILE_CACHE, .npm the npm cache, .local XDG state. nvm/npm then write only within
-# these, never the home root.
+# the toolchain, .cache the NODE_COMPILE_CACHE, .npm the npm cache. nvm/npm then write only within these, never the home
+# root.
 install -d "${SANDBOX_HOME}"
 chown "root:${SANDBOX_GROUP}" "${SANDBOX_HOME}"
 chmod 2751 "${SANDBOX_HOME}"
-for _sub in .nvm .cache .npm .local; do
+for _sub in .nvm .cache .npm; do
     install -d -o "${SANDBOX_USER}" -g "${SANDBOX_GROUP}" -m 0750 "${SANDBOX_HOME}/${_sub}"
 done
+
+# `.local` heads the unit search path chain, which root owns.
+close_unit_search_path
 
 # Resolve the enabled agents -- read AFTER choose_agents, so the set is the one this run just wrote. Each enabled line
 # is "name<TAB>npm_package<TAB>launcher"; collect the packages (installed in step 2) and launchers (symlinked in step
@@ -964,9 +978,7 @@ ln -sfn /usr/lib/systemd/user/nvm-update.timer \
 # is truthful: record it (mtime is all systemd reads), and the next run is the next scheduled window. Written
 # AS the sandbox account into its XDG_DATA_HOME, the path the `--user manager` reads and later updates itself. See
 # .claude/rules/updater.rule.md.
-_stampdir="${SANDBOX_HOME}/.local/share/systemd/timers"
-sudo -u "${SANDBOX_USER}" mkdir -p "${_stampdir}"
-sudo -u "${SANDBOX_USER}" touch "${_stampdir}/stamp-nvm-update.timer"
+sudo -u "${SANDBOX_USER}" touch "${SANDBOX_HOME}/${CP_TIMER_STAMP_DIR}/${CP_UPDATE_TIMER_STAMP}"
 
 # Linger keeps the `--user manager` running without an interactive login, so the timer it holds stays active. Surface
 # a failure so an instance that does not engage linger is visible.

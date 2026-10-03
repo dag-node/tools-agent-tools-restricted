@@ -93,7 +93,10 @@ state (the updater's last-run stamp) reads it and asserts agreement instead. A s
 skipped rather than manufactured; the unit suites drive those against fixtures they own.
 
 The SELinux AVC bring-up tooling is **not** part of this suite: it lives with the policy it supports,
-under `selinux/avc/` (`run.sh` does not dispatch it).
+under `selinux/avc/` (`run.sh` does not dispatch it). `unit/avc-denials.sh` is the exception for the readers
+`avc-denials.sh` judges a run by, which it sources from the checkout: each is driven in the direction that would pass
+a run it should not — an unexercised attempt read as denied, a failed `seinfo` read as enforcing, a trail from another
+run or one without an exit status read as clean.
 
 ## What a test asserts about a message
 
@@ -341,6 +344,9 @@ aborts the test the same way it would abort an unclaim. No live daemon, no SELin
 user before the run, or the owner guard skips it. `secret-patterns.sh` is the odd one out: it sources the shared
 classifier library (`secret-patterns.lib.sh`) and forces the built-in default pattern set, pinning the matcher itself —
 credential names match case-insensitively, while plain configs and build artifacts the toolchain must read do not.
+`control-plane.sh` pins `ai_tools_ensure_unit_search_path_closed` to less access in every direction: the chain ends
+root-owned, an unexpected entry is an error left in place, a symlink ends the descent without creating a directory
+at its target, a non-root caller is refused, and the drift reader tells a clean chain from a failed reading by status.
 `source-modes.sh` and `source-text.sh` are the pair that reads the **repository's own record** rather than any deployed
 artifact, each covering a property no review catches unaided: the exec bit git tracks for every `.sh`, which must agree
 within a directory, and that every tracked text file ends with a newline. Both classify without a maintained list —
@@ -355,7 +361,8 @@ artifact) against fixture `VERSION`/spec files, pinning the tag grammar — fina
 `tools/formatters/fill-comments.sh`, the Emacs-driven formatter for the comment wrap rule, over one fixture carrying
 every shape the tool must fill or leave alone. Filled: a long paragraph inside the column with no line ending on a tie
 word (the checker's `--wrap` mode is the oracle), one indented inside a function body, and a sentence pair the join
-gives one space. Left as written: an aligned table, a doc comment's contract line, a column of three or more spaces,
+gives one space. Left as written: an aligned table, a doc comment's contract line, a config header's `Values:`
+and `Default:` field lines (with the description before them filled and ending there), a column of three or more spaces,
 a table drawn with vertical rules, a heredoc body, the commands a header shows in a fenced block, a CDATA section,
 a `<pre>` block, a linter directive, a commented default, a shebang and a code line. Each of those is a way a formatter
 silently rewrites what a file emits or what a reader reads as a column, and none is visible in review. It also holds
@@ -923,7 +930,14 @@ the directories it names) and escapes a dot; a label registers the project rule 
 among rules sharing a stem the later one is the match; a build rule the store refuses fails the label rather than being
 skipped; a sandbox clone registers neither; and an unlabel drops the build rule it finds by **listing** the local rules
 under the project rule — an older name set included, a sibling project's rule untouched, a pattern with a space parsed
-whole — so no rule outlives the claim on a subtree the confined domain manages.
+whole — so no rule outlives the claim on a subtree the confined domain manages. The project path is a literal inside
+both patterns: `ai_tools_fcontext_literal` escapes every regex metacharacter, a label writes the escaped path,
+and an unlabel removes the escaped rule and the raw one an earlier label wrote, since a `.` or `+` left bare widens
+or breaks the set of paths the rule covers. A label retires those raw rules on an upgraded host, over a fixture tree,
+in each direction that would widen or misreport: only a rule whose raw pattern and type this library writes is removed,
+a rule of another type is left and named for review, and the paths the removed rule matched beside the project are
+relabelled — one reached through a `.` read as `/` included — while a host without a raw rule, or an unlabel
+that removed none, leaves them alone.
 
 Two further sections cover what happens when a rule does **not** register, with `semanage` stubbed as a shell function
 so no policy store is touched. The first asserts the refusal carries `semanage`'s stderr, collapsed to one line,
@@ -1215,6 +1229,10 @@ per swap vector.
   line to read. It is a race, so it can pass by hand and fail in a root run. A predicate captures the producer's output
   first and tests the variable (`grep -q … <<< "${out}"`, `"${out%%$'\n'*}"`), and a file that fails with no `FAIL` line
   is checked for this shape first.
+- **A stub reads the caller's locals.** Bash scopes variables dynamically, so a stub function that reads a variable
+  the case set (`getenforce() { printf '%s' "${selinux_mode}"; }`) sees the `local` of the same name in the function
+  under test, unset there, and `set -u` ends the shell. The case reports a failure the code does not have. A stub reads
+  a name the code under test does not declare, `stub_` prefixed.
 - **Setgid bits survive numeric `chmod`.** GNU coreutils `chmod` with an octal mode does not clear a directory's
   setgid/setuid bit; a testdir under a setgid parent inherits it. Assertions on the rwx bits use `perm()` (low 3 octal
   digits), not raw `stat %a`.

@@ -279,7 +279,7 @@ if runuser -u "${PROJECTS_USER}" -- bash -c \
             AI_TOOLS_MSG_PLAIN=1 \
             bash -c 'cli="$1"; pre="$2"; set --; source "${cli}" >/dev/null 2>&1 || exit 99
                      ai_tools_service_records() { :; }; status_path_order() { return 0; }
-                     status_entrypoint_pins() { return 0; }
+                     status_entrypoint_pins() { return 0; }; status_selinux_attestation() { return 0; }
                      eval "${pre}"; cmd_status' _ "${CLI}" "$1" 2>&1
     }
     reset_fixtures; rm -f "${PINS}"/* "${STALES}"/* "${LABELS}"/*; manifest alpha la yes; link la
@@ -315,6 +315,93 @@ if runuser -u "${PROJECTS_USER}" -- bash -c \
     fi
 else
     skip "status exit" "status_fold absent from ${CLI} (older CLI)"
+fi
+
+# ── The SELinux attestation section returns a fault only where AI_TOOLS_REQUIRE_SELINUX makes it refuse a launch ──
+# `getenforce` and the selinuxfs reader are stubbed after the library is loaded, so its include guard keeps
+# the section's own re-source from restoring the reader. The `operator.conf` fixtures are root-owned, as the trust
+# predicate requires. The stub reads a `stub_*` name: bash scopes dynamically, so a stub reading `attestation_records`
+# would see the section's own unset local of that name rather than the value set here.
+section "status: the SELinux attestation section (unit)"
+REQUIRED_CONF="${TESTDIR}/operator-required.conf"; NOT_REQUIRED_CONF="${TESTDIR}/operator-not-required.conf"
+printf 'AI_TOOLS_REQUIRE_SELINUX=yes\n' > "${REQUIRED_CONF}"; printf 'AI_TOOLS_REQUIRE_SELINUX=no\n' > "${NOT_REQUIRED_CONF}"
+chmod 0644 "${REQUIRED_CONF}" "${NOT_REQUIRED_CONF}"
+# call_attestation_section <records> <operator-conf> [selinux-mode] [module-present] [policy-shipped] : print
+# the section, then `section-status=<n>`. The mode and the two module readers default to a confined host (Enforcing,
+# live, shipped); a case about a host without confinement by its own configuration sets them.
+# shellcheck disable=SC2016  # the $1..$7 are for the inner `bash -c`, not this shell -- do not expand here
+call_attestation_section() {
+    runuser -u "${PROJECTS_USER}" -- env AI_TOOLS_MSG_PLAIN=1 \
+        bash -c 'cli="$1"; lib="$2"; stub_attestation_records="$3"; operator_conf="$4"
+                 stub_selinux_mode="$5"; stub_module_present="$6"; stub_policy_shipped="$7"; set --
+                 source "${cli}" >/dev/null 2>&1 || exit 99
+                 declare -F status_selinux_attestation >/dev/null || exit 98
+                 source "${lib}" 2>/dev/null; declare -F ai_tools_confinement_list_attestation_report >/dev/null || exit 97
+                 declare -F ai_tools_confinement_dac_only_state >/dev/null || exit 97
+                 getenforce() { printf "%s\n" "${stub_selinux_mode}"; }
+                 ai_tools_confinement_read_attestation_records() { printf "%s\n" "${stub_attestation_records}"; }
+                 ai_tools_confinement_read_module_present() { printf "%s" "${stub_module_present}"; }
+                 ai_tools_confinement_read_policy_shipped() { printf "%s" "${stub_policy_shipped}"; }
+                 section_status=0; status_selinux_attestation "${operator_conf}" || section_status=$?
+                 printf "section-status=%s\n" "${section_status}"' \
+        _ "${CLI}" /usr/local/lib/ai-tools/confinement.lib.sh "$1" "$2" "${3:-Enforcing}" "${4:-yes}" "${5:-yes}" 2>&1
+}
+rc=0; out="$(call_attestation_section $'permissive\tyes' "${REQUIRED_CONF}")" || rc=$?
+if [[ "${rc}" -ge 97 ]]; then
+    skip "status attestation" "the installed CLI or confinement library predates the section (rc ${rc})"
+else
+    if grep -qx 'section-status=1' <<<"${out}" && grep -qF 'PERMISSIVE' <<<"${out}"; then
+        pass "a permissive domain under the requirement is a fault, named with its remedy"
+    else
+        fail "permissive under the requirement: $(tr '\n' '|' <<<"${out}")"
+    fi
+    out="$(call_attestation_section $'permissive\tyes' "${NOT_REQUIRED_CONF}")" || true
+    if grep -qx 'section-status=0' <<<"${out}" && grep -qF 'launches are not refused' <<<"${out}"; then
+        pass "the same reading without the requirement is reported and not a fault"
+    else
+        fail "permissive without the requirement: $(tr '\n' '|' <<<"${out}")"
+    fi
+    out="$(call_attestation_section $'permissive\tno\nboolean\tnis_enabled\toff\nboolean\tdomain_can_mmap_files\toff\nboolean\tdomain_can_write_kmsg\toff' \
+               "${REQUIRED_CONF}")" || true
+    if grep -qx 'section-status=0' <<<"${out}"; then
+        pass "an attested host under the requirement is not a fault"
+    else
+        fail "attested host under the requirement: $(tr '\n' '|' <<<"${out}")"
+    fi
+    # A declaration renders its origin, a Boolean outside the registry, and the malformed row, which is a fault under
+    # the requirement.
+    DECLARED_CONF="${TESTDIR}/operator-declared.conf"
+    printf 'AI_TOOLS_REQUIRE_SELINUX=yes\nAI_TOOLS_SELINUX_BOOLEANS=[nis_enabled=on, ai_tools_test_extra=on, bad]\n' > "${DECLARED_CONF}"
+    out="$(call_attestation_section $'permissive\tno\nboolean\tnis_enabled\ton\nboolean\tai_tools_test_extra\ton' \
+               "${DECLARED_CONF}")" || true
+    if grep -qx 'section-status=1' <<<"${out}" && grep -qF 'declared in operator.conf' <<<"${out}" \
+            && grep -qF 'ai_tools_test_extra' <<<"${out}" && grep -qF 'MALFORMED' <<<"${out}"; then
+        pass "a declaration renders its origin, a Boolean outside the registry, and the malformed row as a fault"
+    else
+        fail "declaration rendering: $(tr '\n' '|' <<<"${out}")"
+    fi
+    # A host without SELinux confinement by its own configuration has no domain to attest; under the requirement every
+    # launch runs DAC-only with a warning, which is a fault naming the line that declares the host so.
+    out="$(call_attestation_section '' "${REQUIRED_CONF}" Disabled)" || true
+    if grep -qx 'section-status=1' <<<"${out}" && grep -qF 'SELinux is disabled' <<<"${out}" \
+            && grep -qF 'AI_TOOLS_REQUIRE_SELINUX=no' <<<"${out}"; then
+        pass "SELinux disabled under the requirement is a fault naming AI_TOOLS_REQUIRE_SELINUX=no"
+    else
+        fail "SELinux disabled under the requirement: $(tr '\n' '|' <<<"${out}")"
+    fi
+    out="$(call_attestation_section '' "${REQUIRED_CONF}" Enforcing no no)" || true
+    if grep -qx 'section-status=1' <<<"${out}" && grep -qF 'not installed' <<<"${out}" \
+            && ! grep -qF 'could not be read' <<<"${out}"; then
+        pass "a policy never installed under the requirement is a fault, with no unread rows"
+    else
+        fail "policy never installed under the requirement: $(tr '\n' '|' <<<"${out}")"
+    fi
+    out="$(call_attestation_section '' "${NOT_REQUIRED_CONF}" Enforcing no no)" || true
+    if grep -qx 'section-status=0' <<<"${out}" && grep -qF 'without a warning' <<<"${out}"; then
+        pass "the same host without the requirement is reported and not a fault"
+    else
+        fail "policy never installed without the requirement: $(tr '\n' '|' <<<"${out}")"
+    fi
 fi
 
 finish

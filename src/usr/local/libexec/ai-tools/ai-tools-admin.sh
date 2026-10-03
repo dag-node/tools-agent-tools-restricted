@@ -93,6 +93,7 @@
 set -euo pipefail
 
 readonly SANDBOX_USER="@SANDBOX_USER@"
+readonly SANDBOX_GROUP="@SANDBOX_GROUP@"
 readonly OPERATORS_GROUP="ai-ops"
 readonly OPERATOR_CONF="/etc/ai-tools/operator.conf"
 readonly OPERATOR_LIB="/usr/local/lib/ai-tools/operator.lib.sh"
@@ -2300,6 +2301,7 @@ readonly SERVICES_LIB="/usr/local/lib/ai-tools/services.lib.sh"
 readonly RELABEL_LIB="/usr/local/lib/ai-tools/relabel.lib.sh"
 readonly ENTRYPOINT_VERIFY_LIB="/usr/local/lib/ai-tools/entrypoint-verify.lib.sh"
 readonly TOOLCHAIN_LIB="/usr/local/lib/ai-tools/toolchain.lib.sh"
+readonly CONFINEMENT_LIB="/usr/local/lib/ai-tools/confinement.lib.sh"
 # AI_TOOLS_LAUNCHER_DIR is the hook the CLI and relabel.lib.sh read for the same directory,
 # so tests/unit/admin-status.sh drives this report against fixture links. It moves a report: this tool is reachable only
 # as root, sudo strips the name, and no access decision here reads it.
@@ -2614,6 +2616,174 @@ status_labels() {
     return 0
 }
 
+# status_unit_search_path: the sandbox account's systemd unit search path -- the chain's drift
+# (ai_tools_get_unit_search_path_drift), any unexpected entry on it (ai_tools_find_unexpected_unit_search_path_entries),
+# and the `Persistent=` timer stamp. A root-vantage reading: the chain has no world bits. It reads and does not write.
+# <home> is a parameter so a unit test drives it over a fixture chain.
+status_unit_search_path() {
+    local home="${1:-${CP_HOME:-/opt/ai-tools}}"
+    heading "Sandbox unit search path"
+    if ! declare -F ai_tools_get_unit_search_path_drift >/dev/null 2>&1 \
+            || ! declare -F ai_tools_find_unexpected_unit_search_path_entries >/dev/null 2>&1; then
+        st UNREADABLE "the control-plane library did not load its unit search path readers -- reinstall ai-tools-base"
+        STATUS_UNREADABLE=$(( STATUS_UNREADABLE + 1 ))
+        return 0
+    fi
+    local line path got wanted drift_out drift_rc=0 open=0
+    drift_out="$(ai_tools_get_unit_search_path_drift "${home}" "${SANDBOX_GROUP}")" || drift_rc=$?
+    case "${drift_rc}" in
+        0)  while IFS= read -r line; do
+                [[ -n "${line}" ]] || continue
+                path="${line%% *}"; got="${line#* }"; wanted="${got#* root:}"; got="${got%% root:*}"
+                # An absent directory is a host the provisioning run has not reached, which Provisioning reports; one
+                # that exists at another owner or mode is the state this layout removes, so it counts.
+                if [[ "${got}" == absent ]]; then
+                    st "n/a" "${path}  not created yet -- the provisioning run makes it root:${wanted}"
+                    continue
+                fi
+                open=1
+                st DRIFTED "${path}  is ${got}, not root:${wanted}"
+                STATUS_PROBLEMS=$(( STATUS_PROBLEMS + 1 ))
+            done <<< "${drift_out}"
+            if (( open )); then
+                detail "${SANDBOX_USER}'s --user manager runs unconfined, so a unit left on this path would run with none of the properties a session unit sets"
+                detail "sudo ai-tools-admin system bootstrap"
+            fi ;;
+        1)  st OK "root owns every directory down to ${home}/${CP_UNIT_SEARCH_PATH_CHAIN[-1]}" ;;
+        *)  st UNREADABLE "the unit search path under ${home} could not be read -- reinstall ai-tools-base"
+            STATUS_UNREADABLE=$(( STATUS_UNREADABLE + 1 )) ;;
+    esac
+    while IFS= read -r line; do
+        [[ -n "${line}" ]] || continue
+        st UNEXPECTED "${line}  is on the unit search path and nothing ai-tools ships writes it -- inspect it, then remove it"
+        STATUS_PROBLEMS=$(( STATUS_PROBLEMS + 1 ))
+    done < <(ai_tools_find_unexpected_unit_search_path_entries "${home}")
+    status_update_timer_stamp "${home}"
+    return 0
+}
+
+# status_update_timer_stamp: the `Persistent=` stamp nvm-update.timer keeps (ai_tools_service_evaluate_timer_stamp).
+# Whether the timer is overdue is the Services section's reading.
+status_update_timer_stamp() {
+    local home="${1:-${CP_HOME:-/opt/ai-tools}}"
+    if ! declare -F ai_tools_service_evaluate_timer_stamp >/dev/null 2>&1 \
+            || ! declare -F ai_tools_service_parse_timespan_seconds >/dev/null 2>&1; then
+        st UNREADABLE "the service library did not load its timer-stamp readers -- reinstall ai-tools-base"
+        STATUS_UNREADABLE=$(( STATUS_UNREADABLE + 1 ))
+        return 0
+    fi
+    local stamp="${home}/${CP_TIMER_STAMP_DIR}/${CP_UPDATE_TIMER_STAMP}"
+    local state=ok mtime now skew="" accuracy delay allowance verdict
+    if [[ -L "${stamp}" || ( -e "${stamp}" && ! -f "${stamp}" ) ]]; then
+        state=unreadable
+    elif [[ ! -e "${stamp}" ]]; then
+        state=absent
+    elif ! mtime="$(stat -c %Y -- "${stamp}" 2>/dev/null)" || [[ ! "${mtime}" =~ ^[0-9]+$ ]]; then
+        state=unreadable
+    else
+        now="$(date -u +%s 2>/dev/null || true)"
+        if [[ "${now}" =~ ^[0-9]+$ ]]; then
+            skew=0
+            [[ "${mtime}" -gt "${now}" ]] && skew=$(( mtime - now ))
+        fi
+    fi
+    # An unreadable property leaves its share of the allowance at 0, which only makes the future test stricter.
+    accuracy="$(ai_tools_service_parse_timespan_seconds "$(ai_tools_service_unit_property nvm-update.timer AccuracyUSec sandbox-user)")"
+    delay="$(ai_tools_service_parse_timespan_seconds "$(ai_tools_service_unit_property nvm-update.timer RandomizedDelayUSec sandbox-user)")"
+    allowance=$(( ${accuracy:-0} + ${delay:-0} ))
+    verdict="$(ai_tools_service_evaluate_timer_stamp "${state}" "${skew}" "${allowance}")"
+    case "${verdict}" in
+        ok)     st OK "the update timer's Persistent= stamp" ;;
+        absent) st "n/a" "no Persistent= stamp yet -- the next start of that manager runs a catch-up update" ;;
+        future) st FUTURE "its Persistent= stamp is dated $(( ${skew:-0} / 60 )) min ahead of now, past the timer's own ${allowance}s tolerance"
+                detail "systemd reads that stamp at timer start, so a missed window gets no catch-up run while it stands"
+                detail "check this host's clock, then: sudo systemctl --user -M ${SANDBOX_USER}@.host restart nvm-update.timer"
+                STATUS_PROBLEMS=$(( STATUS_PROBLEMS + 1 )) ;;
+        *)      st "?" "its Persistent= stamp could not be read at ${stamp}" ;;
+    esac
+    return 0
+}
+
+# status_selinux_attestation: render the rows ai_tools_confinement_list_attestation_report prints (confinement.lib.sh):
+# the per-domain mode of ai_tools_t and the Booleans that widen it, read and classified by the launch shim's own
+# functions, so this report, ai-tools status and the launch cannot disagree. A finding counts only where the report's
+# verdict row says AI_TOOLS_REQUIRE_SELINUX is set, since that is when it refuses a launch, and on a host without
+# SELinux confinement by its own configuration (ai_tools_confinement_dac_only_state) only where that key makes every
+# launch warn; elsewhere it is reported as the posture it is. <operator-conf> is a parameter so a unit test drives
+# the counting rule over a fixture.
+status_selinux_attestation() {
+    local operator_conf="${1:-${OPERATOR_CONF}}"
+    heading "SELinux attestation"
+    # shellcheck source=SCRIPTDIR/../../lib/ai-tools/confinement.lib.sh
+    source "${CONFINEMENT_LIB}" 2>/dev/null || true
+    if ! declare -F ai_tools_confinement_list_attestation_report >/dev/null 2>&1 \
+            || ! declare -F ai_tools_confinement_dac_only_state >/dev/null 2>&1; then
+        st UNREADABLE "${CONFINEMENT_LIB} did not load its attestation readers -- reinstall ai-tools-base"
+        STATUS_UNREADABLE=$(( STATUS_UNREADABLE + 1 ))
+        return 0
+    fi
+    local selinux_mode module_present policy_shipped dac_only_state=""
+    selinux_mode="$(getenforce 2>/dev/null || true)"
+    if [[ -z "${selinux_mode}" ]]; then
+        st "n/a" "SELinux is not readable here (getenforce) -- there is no domain to attest"
+        return 0
+    fi
+    module_present="$(ai_tools_confinement_read_module_present "${AI_TOOLS_CONFINEMENT_MODULE_PROBE_PATH}" 2>/dev/null || true)"
+    policy_shipped="$(ai_tools_confinement_read_policy_shipped "${AI_TOOLS_CONFINEMENT_CORE_MODULE_FILE}")"
+    dac_only_state="$(ai_tools_confinement_dac_only_state "${selinux_mode}" "${module_present}" "${policy_shipped}")" \
+        || true
+    if [[ -n "${dac_only_state}" ]]; then
+        case "${dac_only_state}" in
+            disabled) st "n/a" "SELinux is disabled on this host -- there is no domain to attest" ;;
+            *)        st "n/a" "the ai_tools policy is not installed (SELinux ${selinux_mode}) -- there is no domain to attest" ;;
+        esac
+        if ai_tools_confinement_is_selinux_required "${operator_conf}"; then
+            detail "AI_TOOLS_REQUIRE_SELINUX is set, so every launch runs DAC-only and warns that the requirement is not met"
+            detail "declare this host DAC-only:  set AI_TOOLS_REQUIRE_SELINUX=no in ${operator_conf}"
+            detail "or install the policy:       sudo dnf install ai-tools-selinux"
+            STATUS_PROBLEMS=$(( STATUS_PROBLEMS + 1 ))
+        else
+            detail "AI_TOOLS_REQUIRE_SELINUX is not set, so a launch runs DAC-only without a warning"
+        fi
+        return 0
+    fi
+    local -a row
+    local origin_note
+    while IFS=$'\t' read -r -a row; do
+        case "${row[0]}" in
+            domain)   # <yes|no|unread> <remedy|->
+                case "${row[1]}" in
+                    no)  st enforcing "ai_tools_t is enforced as a domain" ;;
+                    yes) st PERMISSIVE "ai_tools_t is a permissive domain -- its denials are logged and not enforced"
+                         detail "${row[2]}" ;;
+                    *)   st "?" "whether ai_tools_t is a permissive domain could not be read" ;;
+                esac ;;
+            boolean)  # <name> <classification> <state> <required> <origin> <opening> <grants> <remedy|->
+                origin_note=""
+                [[ "${row[5]}" == operator.conf ]] && origin_note=", declared in operator.conf"
+                [[ "${row[5]}" == built-in ]] && origin_note=", built in"
+                case "${row[2]}" in
+                    matches) st "${row[3]}" "${row[1]}  required ${row[4]}${origin_note}" ;;
+                    differs) st "${row[3]^^}" "${row[1]}  required ${row[4]}${origin_note} -- opens ${row[7]}"
+                             detail "${row[8]}" ;;
+                    open)    st "${row[3]}" "${row[1]}  opens ${row[7]}" ;;
+                    closed)  st "${row[3]}" "${row[1]}" ;;
+                    malformed) st MALFORMED "${row[1]} in ${operator_conf} has ${row[7]} -- every launch refuses until it is fixed" ;;
+                    *)       st "?" "${row[1]}  could not be read" ;;
+                esac ;;
+            verdict)  # <ok|permissive|boolean|unknown> <required: yes|no>
+                [[ "${row[1]}" == ok ]] && continue
+                if [[ "${row[2]}" == yes ]]; then
+                    detail "AI_TOOLS_REQUIRE_SELINUX is set, so every launch refuses while this stands"
+                    STATUS_PROBLEMS=$(( STATUS_PROBLEMS + 1 ))
+                else
+                    detail "AI_TOOLS_REQUIRE_SELINUX is not set, so launches are not refused for this"
+                fi ;;
+        esac
+    done < <(ai_tools_confinement_list_attestation_report "${operator_conf}")
+    return 0
+}
+
 # status_node_version: the Version section's Node line, from the same verdict the CLI renders
 # (ai_tools_node_version_verdict, toolchain.lib.sh): the active version read off the enabled agents' stable launcher
 # links, and the version the updater's last run recorded shown beside it only where the two differ. Root could read
@@ -2700,6 +2870,8 @@ status() {
         st UNREADABLE "the service registry did not load, so no unit could be read"
     fi
     status_entrypoints
+    status_unit_search_path "${CP_HOME:-/opt/ai-tools}"
+    status_selinux_attestation "${OPERATOR_CONF}"
 
     # Pointers, not duplication: the reports that own the detail this one deliberately does not.
     heading "More"

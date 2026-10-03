@@ -543,6 +543,7 @@ readonly SECRET_PATTERNS_LIB="/usr/local/lib/ai-tools/secret-patterns.lib.sh"
 # launcher link, and the Node version the enabled agents' links name. Loaded by the sections that read it,
 # through toolchain_lib_loaded, since only `status` reads it.
 readonly TOOLCHAIN_LIB="/usr/local/lib/ai-tools/toolchain.lib.sh"
+readonly CONFINEMENT_LIB="/usr/local/lib/ai-tools/confinement.lib.sh"
 # The account whose `systemd --user` units the registry may read live. Naming it does not by itself enable the probe:
 # _ai_tools_service_systemctl still requires root and a working machine transport, and refuses this CLI run
 # as an operator. So an operator's report is unchanged, while `sudo ai-tools status` completes the reads that need root
@@ -4484,6 +4485,88 @@ status_entrypoint_pins() {
     return 0
 }
 
+# status_selinux_attestation [operator-conf] -- render the rows ai_tools_confinement_list_attestation_report prints
+# (confinement.lib.sh): the per-domain mode of ai_tools_t and the Booleans that widen it, read and classified
+# by the launch shim's own functions, so this report, ai-tools-admin status and the launch cannot disagree. Returns 1
+# for a finding only where AI_TOOLS_REQUIRE_SELINUX makes it refuse every launch (the report's verdict row) or makes
+# every launch warn -- a host without SELinux confinement by its own configuration
+# (ai_tools_confinement_dac_only_state), where the shim launches DAC-only and names the key to set -- STATUS_UNREADABLE
+# when the library did not load, and 0 otherwise. The section is omitted where getenforce cannot say.
+status_selinux_attestation() {
+    local operator_conf="${1:-${AI_TOOLS_OPERATOR_CONF:-/etc/ai-tools/operator.conf}}"
+    local selinux_mode module_present policy_shipped dac_only_state=""
+    selinux_mode="$(getenforce 2>/dev/null || true)"
+    [[ -n "${selinux_mode}" ]] || return 0
+    section "SELinux attestation"
+    # shellcheck source=SCRIPTDIR/../lib/ai-tools/confinement.lib.sh
+    source "${CONFINEMENT_LIB}" 2>/dev/null || true
+    if ! declare -F ai_tools_confinement_list_attestation_report >/dev/null 2>&1 \
+            || ! declare -F ai_tools_confinement_dac_only_state >/dev/null 2>&1; then
+        warn MSG-M9H2 "the confinement library ${CONFINEMENT_LIB} did not load its attestation readers -- reinstall ai-tools-base"
+        return "${STATUS_UNREADABLE}"
+    fi
+    module_present="$(ai_tools_confinement_read_module_present "${AI_TOOLS_CONFINEMENT_MODULE_PROBE_PATH}" 2>/dev/null || true)"
+    policy_shipped="$(ai_tools_confinement_read_policy_shipped "${AI_TOOLS_CONFINEMENT_CORE_MODULE_FILE}")"
+    dac_only_state="$(ai_tools_confinement_dac_only_state "${selinux_mode}" "${module_present}" "${policy_shipped}")" \
+        || true
+    if [[ -n "${dac_only_state}" ]]; then
+        case "${dac_only_state}" in
+            disabled) say "  SELinux is disabled on this host -- there is no domain to attest" ;;
+            *)        say "  the ai_tools policy is not installed (SELinux ${selinux_mode}) -- there is no domain to attest" ;;
+        esac
+        if ai_tools_confinement_is_selinux_required "${operator_conf}"; then
+            say "  AI_TOOLS_REQUIRE_SELINUX is set, so every launch runs DAC-only and warns that the requirement is not met"
+            say "      declare this host DAC-only:  set AI_TOOLS_REQUIRE_SELINUX=no in ${operator_conf}"
+            say "      or install the policy:       sudo dnf install ai-tools-selinux"
+            return 1
+        fi
+        say "  ${C_DIM}AI_TOOLS_REQUIRE_SELINUX is not set, so a launch runs DAC-only without a warning${C_RST}"
+        return 0
+    fi
+    local -a row
+    local origin_note section_status=0
+    while IFS=$'\t' read -r -a row; do
+        case "${row[0]}" in
+            domain)   # <yes|no|unread> <remedy|->
+                case "${row[1]}" in
+                    no)  printf '  %-28s %senforcing%s\n' "ai_tools_t" "${C_GRN}" "${C_RST}" ;;
+                    yes) printf '  %-28s %sPERMISSIVE%s %s(its denials are logged and not enforced)%s\n' \
+                             "ai_tools_t" "${C_YEL}" "${C_RST}" "${C_DIM}" "${C_RST}"
+                         say "      ${C_BOLD}${row[2]}${C_RST}" ;;
+                    *)   printf '  %-28s %s? (whether it is a permissive domain could not be read)%s\n' \
+                             "ai_tools_t" "${C_DIM}" "${C_RST}" ;;
+                esac ;;
+            boolean)  # <name> <classification> <state> <required> <origin> <opening> <grants> <remedy|->
+                origin_note=""
+                [[ "${row[5]}" == operator.conf ]] && origin_note=", declared in operator.conf"
+                [[ "${row[5]}" == built-in ]] && origin_note=", built in"
+                case "${row[2]}" in
+                    matches) printf '  %-28s %s%s (required%s)%s\n' "${row[1]}" "${C_DIM}" "${row[3]}" \
+                                 "${origin_note}" "${C_RST}" ;;
+                    differs) printf '  %-28s %s%s%s %s(required %s%s -- opens %s)%s\n' "${row[1]}" "${C_YEL}" \
+                                 "${row[3]^^}" "${C_RST}" "${C_DIM}" "${row[4]}" "${origin_note}" "${row[7]}" "${C_RST}"
+                             say "      ${C_BOLD}${row[8]}${C_RST}" ;;
+                    open)    printf '  %-28s %s %s(opens %s)%s\n' "${row[1]}" "${row[3]}" "${C_DIM}" "${row[7]}" \
+                                 "${C_RST}" ;;
+                    closed)  printf '  %-28s %s%s%s\n' "${row[1]}" "${C_DIM}" "${row[3]}" "${C_RST}" ;;
+                    malformed) printf '  %-28s %sMALFORMED%s %s(%s has %s)%s\n' "${row[1]}" "${C_YEL}" "${C_RST}" \
+                                   "${C_DIM}" "${operator_conf}" "${row[7]}" "${C_RST}"
+                               say "      every launch refuses until it is fixed" ;;
+                    *)       printf '  %-28s %s? (could not be read)%s\n' "${row[1]}" "${C_DIM}" "${C_RST}" ;;
+                esac ;;
+            verdict)  # <ok|permissive|boolean|unknown> <required: yes|no>
+                [[ "${row[1]}" == ok ]] && continue
+                if [[ "${row[2]}" == yes ]]; then
+                    say "  AI_TOOLS_REQUIRE_SELINUX is set, so every launch refuses while this stands"
+                    section_status=1
+                else
+                    say "  ${C_DIM}AI_TOOLS_REQUIRE_SELINUX is not set, so launches are not refused for this${C_RST}"
+                fi ;;
+        esac
+    done < <(ai_tools_confinement_list_attestation_report "${operator_conf}")
+    return "${section_status}"
+}
+
 # status_entrypoint_stale <agent>  -- report, and return 0, when the last reconciliation REFUSED to re-record this
 # agent's pin: the entrypoint changed in a way no update explains, so the pin was deliberately left standing
 # and the next launch refuses. Returns non-zero when there is no such mark, which is the ordinary state.
@@ -4759,6 +4842,7 @@ cmd_status() {
 
     status_path_order      || status_fold $?
     status_entrypoint_pins || status_fold $?
+    status_selinux_attestation "${AI_TOOLS_OPERATOR_CONF:-/etc/ai-tools/operator.conf}" || status_fold $?
 
     # Pointers, not duplication: name the sibling read-only reports (which own their own detail) and where the full
     # command list lives, so `status` is a hub without re-implementing `providers list` or

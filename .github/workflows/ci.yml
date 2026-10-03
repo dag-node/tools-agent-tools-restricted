@@ -78,10 +78,17 @@ jobs:
 
   # Builds the RPMs and runs the full admin -> operator -> agent workflow (bootstrap,
   # operator enrolment, project claim, tests/run.sh all, a confined `claude --version`
-  # session) inside a throwaway Rocky container with systemd as PID 1. Mirrors
-  # `make -C packaging rpmtest-rockyN` -- see packaging/README.md for what this
-  # does and does not cover (no SELinux-enforcing confinement; that still needs an
+  # session) inside a throwaway container of each served distribution with systemd as
+  # PID 1. Mirrors `make -C packaging rpmtest-<distro>` -- see packaging/README.md for what
+  # this does and does not cover (no SELinux-enforcing confinement; that still needs an
   # enforcing host, see the docs/rpm-packaging.md manual gate).
+  #
+  # One matrix arm per served distribution, each a release gate: the release job builds and
+  # publishes exactly these dist tags, so every published package has passed this selftest on
+  # its own distribution at the same commit. `distro` names the make target, `tag` the RPM
+  # dist tag the image is named by (ai-tools-rpmbase:<tag>, the RPMs' .<tag>). Fedora is
+  # pinned to the release its dist tag names (packaging/Makefile), so the arm is as stable a
+  # target as the EL pair; the next Fedora is a new arm, as a new EL major is.
   #
   # Every push/PR run builds a dev/snapshot Release (see the comment on Release: in
   # packaging/ai-tools.spec) and uploads the resulting RPMs as a workflow artifact, so a
@@ -101,7 +108,10 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        el: ["9", "10"]
+        include:
+          - { distro: rocky9,   tag: el9 }
+          - { distro: rocky10,  tag: el10 }
+          - { distro: fedora44, tag: fc44 }
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
@@ -123,8 +133,8 @@ jobs:
         id: relver
         run: echo "release=0.${{ github.run_number }}.git$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
 
-      - name: make -C packaging rpmtest-rocky${{ matrix.el }}
-        run: make -C packaging rpmtest-rocky${{ matrix.el }} RPM_RELEASE=${{ steps.relver.outputs.release }} OCI="sudo podman"
+      - name: make -C packaging rpmtest-${{ matrix.distro }}
+        run: make -C packaging rpmtest-${{ matrix.distro }} RPM_RELEASE=${{ steps.relver.outputs.release }} OCI="sudo podman"
 
       # `if: always()` so a failed selftest still surfaces the RPMs that caused it --
       # those are exactly the artifacts needed to debug the failure. The rpmbase image
@@ -133,8 +143,8 @@ jobs:
       - name: Extract dev RPMs
         if: always()
         run: |
-          sudo podman image exists ai-tools-rpmbase:el${{ matrix.el }} || { echo "no image built; nothing to extract"; exit 0; }
-          cid=$(sudo podman create ai-tools-rpmbase:el${{ matrix.el }})
+          sudo podman image exists ai-tools-rpmbase:${{ matrix.tag }} || { echo "no image built; nothing to extract"; exit 0; }
+          cid=$(sudo podman create ai-tools-rpmbase:${{ matrix.tag }})
           mkdir -p dist-rpms
           sudo podman cp "${cid}":/opt/ai-tools-src/packaging/rpmbuild/RPMS/noarch/. dist-rpms/
           sudo podman rm "${cid}" >/dev/null
@@ -144,61 +154,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
-          name: ai-tools-rpms-el${{ matrix.el }}-${{ steps.relver.outputs.release }}
-          path: dist-rpms/*.rpm
-          if-no-files-found: ignore
-          retention-days: 14
-
-  # Native Fedora smoke test -- INFORMATIONAL, not a release gate. Same build -> install ->
-  # selftest as the EL job (mirrors `make -C packaging rpmtest-fedora`), but Fedora "latest" is a
-  # rolling target: an upstream refpolicy or package change can break this with no change on our
-  # side. `continue-on-error` keeps such a break from failing the workflow or blocking a merge
-  # while still surfacing it, and the `release` job deliberately does NOT list this in `needs`.
-  # A separate job, not a matrix arm of rpm-selftest: Fedora builds one self-contained image
-  # (ai-tools-rpmtest:fedora) via its own make target, with no ai-tools-rpmbase:elN to extract
-  # from. Coverage is packaging/install/DAC only -- SELinux-enforcing confinement is not exercised
-  # (getenforce is Disabled in a container); that still needs an enforcing Fedora host.
-  rpm-selftest-fedora:
-    continue-on-error: true
-    # Pinned like rpm-selftest: this job builds and runs podman containers and needs the same
-    # known-good podman/runc combo (see that job's note on the ancient-crun failure).
-    runs-on: ubuntu-22.04
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-
-      - name: Ensure podman, force the modern runc runtime, and report it
-        run: |
-          command -v podman >/dev/null || { sudo apt-get update && sudo apt-get install -y podman; }
-          sudo mkdir -p /etc/containers/containers.conf.d
-          printf '[engine]\nruntime = "runc"\n' | sudo tee /etc/containers/containers.conf.d/10-runc.conf
-          sudo podman version || true
-          sudo podman info --format 'runtime={{.Host.OCIRuntime.Name}} {{.Host.OCIRuntime.Version}}' 2>/dev/null || true
-
-      - name: Compute dev Release
-        id: relver
-        run: echo "release=0.${{ github.run_number }}.git$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
-
-      - name: make -C packaging rpmtest-fedora
-        run: make -C packaging rpmtest-fedora RPM_RELEASE=${{ steps.relver.outputs.release }} OCI="sudo podman"
-
-      # if: always() so a failed selftest still surfaces the RPMs that caused it. Fedora bakes the
-      # built RPMs into the ai-tools-rpmtest:fedora image (only the run container is `--rm`'d), so
-      # extract from the image like the EL job does from ai-tools-rpmbase:elN.
-      - name: Extract dev RPMs
-        if: always()
-        run: |
-          sudo podman image exists ai-tools-rpmtest:fedora || { echo "no image built; nothing to extract"; exit 0; }
-          cid=$(sudo podman create ai-tools-rpmtest:fedora)
-          mkdir -p dist-rpms
-          sudo podman cp "${cid}":/opt/ai-tools-src/packaging/rpmbuild/RPMS/noarch/. dist-rpms/
-          sudo podman rm "${cid}" >/dev/null
-          sudo chown -R "$(id -u):$(id -g)" dist-rpms
-
-      - name: Upload dev RPM artifacts
-        if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
-        with:
-          name: ai-tools-rpms-fedora-${{ steps.relver.outputs.release }}
+          name: ai-tools-rpms-${{ matrix.tag }}-${{ steps.relver.outputs.release }}
           path: dist-rpms/*.rpm
           if-no-files-found: ignore
           retention-days: 14
@@ -216,6 +172,12 @@ jobs:
     runs-on: ubuntu-22.04
     permissions:
       contents: write
+    env:
+      # The dist tags this job builds, signs, and publishes, one per served distribution; each
+      # names a `make rpmbase-<tag>` target and an rpm-selftest matrix arm, so a tag listed here
+      # has passed the selftest on this commit before the release job starts. dag-node/rpm routes
+      # each package into its served tree by this tag (.el9 -> el/9, .fc44 -> fedora/44).
+      RPM_DIST_TAGS: el9 el10 fc44
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
@@ -300,18 +262,18 @@ jobs:
           sudo podman version || true
           sudo podman info --format 'runtime={{.Host.OCIRuntime.Name}} {{.Host.OCIRuntime.Version}}' 2>/dev/null || true
 
-      # Build the matching-EL images once, up front. Both the signing selftest and the
-      # release-RPM extraction reuse these cached images, so each image is built once. rpmbase-elN,
-      # not rpmtest-rockyN: the `needs: rpm-selftest` dependency already ran and passed the
-      # full selftest on this exact commit.
-      - name: Build EL RPM images
+      # Build each distribution's image once, up front. Both the signing selftest and the
+      # release-RPM extraction reuse these cached images, so each image is built once.
+      # rpmbase-<tag>, not rpmtest-<distro>: the `needs: rpm-selftest` dependency already ran and
+      # passed the full selftest on this exact commit.
+      - name: Build the RPM images
         run: |
-          for el in 9 10; do
-            make -C packaging rpmbase-el${el} OCI="sudo podman" RPM_RELEASE="${{ steps.relmode.outputs.rpm_release }}"
+          for tag in ${RPM_DIST_TAGS}; do
+            make -C packaging rpmbase-${tag} OCI="sudo podman" RPM_RELEASE="${{ steps.relmode.outputs.rpm_release }}"
           done
 
       # Prove the ENTIRE signing chain -- key, passphrase, rpmsign, and signature verification --
-      # on a throwaway RPM inside each matching-EL container, BEFORE any release RPM is built or
+      # on a throwaway RPM inside each distribution's container, BEFORE any release RPM is built or
       # published. A wrong passphrase or a container where rpmsign silently no-ops (the 0.6.1
       # failure mode) fails the job here. The signing key is a step-scoped env var, never baked
       # into an image layer or build cache.
@@ -325,22 +287,22 @@ jobs:
           set -euo pipefail
           # Secrets travel over stdin (printf is a builtin -- no argv exposure), never the
           # container environment: podman records `-e` values in the on-disk container config.
-          for el in 9 10; do
+          for tag in ${RPM_DIST_TAGS}; do
             out="$(printf '%s\n%s\n' "${GPG_SIGNING_PASSPHRASE}" "${GPG_SIGNING_KEY}" \
               | sudo podman run --rm -i \
               --entrypoint /usr/bin/bash \
-              ai-tools-rpmbase:el${el} \
+              ai-tools-rpmbase:${tag} \
               /opt/ai-tools-src/packaging/sign-rpms.sh --secrets-stdin --selftest)"
             printf '%s\n' "${out}"
             grep -q -- '--selftest OK' <<<"${out}" \
-              || { echo "::error::el${el}: sign-rpms.sh --selftest did not run -- its success line is absent"; exit 1; }
+              || { echo "::error::${tag}: sign-rpms.sh --selftest did not run -- its success line is absent"; exit 1; }
           done
 
-      # Sign the RPMs the image built INSIDE the matching-EL container, so the rpm/gnupg toolchain
-      # that signs matches the one that built them (see packaging/sign-rpms.sh), then copy the
-      # SIGNED RPMs out with `podman cp`. `--entrypoint` overrides the image's /sbin/init -- a bare
-      # command is ignored init arguments, and the container would boot the selftest and power off
-      # "successfully" without signing. The success-line assertion pins the workload; the runner
+      # Sign the RPMs the image built INSIDE the distribution's own container, so the rpm/gnupg
+      # toolchain that signs matches the one that built them (see packaging/sign-rpms.sh), then copy
+      # the SIGNED RPMs out with `podman cp`. `--entrypoint` overrides the image's /sbin/init -- a
+      # bare command is ignored init arguments, and the container would boot the selftest and power
+      # off "successfully" without signing. The success-line assertion pins the workload; the runner
       # re-verify in the next step is the fail-closed backstop. sign-rpms.sh writes its own verify
       # public key to a container-local path; the PUBLISHED key is exported on the runner.
       - name: Sign and extract release RPMs (in-container)
@@ -350,20 +312,20 @@ jobs:
         run: |
           set -euo pipefail
           rpmdir=/opt/ai-tools-src/packaging/rpmbuild/RPMS/noarch
-          for el in 9 10; do
-            mkdir -p "dist-rpms/el${el}"
-            cname="ai-tools-sign-el${el}"
+          for tag in ${RPM_DIST_TAGS}; do
+            mkdir -p "dist-rpms/${tag}"
+            cname="ai-tools-sign-${tag}"
             out="$(printf '%s\n%s\n' "${GPG_SIGNING_PASSPHRASE}" "${GPG_SIGNING_KEY}" \
               | sudo podman run -i --name "${cname}" \
               --entrypoint /usr/bin/bash \
-              ai-tools-rpmbase:el${el} -c '
+              ai-tools-rpmbase:${tag} -c '
                 bash /opt/ai-tools-src/packaging/sign-rpms.sh --secrets-stdin /tmp/pubkey.asc \
                   /opt/ai-tools-src/packaging/rpmbuild/RPMS/noarch/*.rpm
               ')"
             printf '%s\n' "${out}"
             grep -q 'signed and verified' <<<"${out}" \
-              || { echo "::error::el${el}: sign-rpms.sh did not run in the sign container"; exit 1; }
-            sudo podman cp "${cname}:${rpmdir}/." "dist-rpms/el${el}/"
+              || { echo "::error::${tag}: sign-rpms.sh did not run in the sign container"; exit 1; }
+            sudo podman cp "${cname}:${rpmdir}/." "dist-rpms/${tag}/"
             sudo podman rm "${cname}" >/dev/null
           done
           sudo chown -R "$(id -u):$(id -g)" dist-rpms
@@ -393,24 +355,30 @@ jobs:
           # signature LINE (`rpmkeys -Kv`), not just a zero exit -- an unsigned package exits 0.
           verifydb="$(mktemp -d)"
           rpmkeys --dbpath "${verifydb}" --import dist-rpms/RPM-GPG-KEY-dag-node
-          for rpm in dist-rpms/el9/*.rpm dist-rpms/el10/*.rpm; do
-            rpmkeys --dbpath "${verifydb}" -Kv "${rpm}" 2>&1 \
-              | grep -Eqi 'signature[^:]*:[[:space:]]*OK' \
-              || { echo "::error::${rpm} is not signed on the runner -- the in-container signing did not persist to the host"; exit 1; }
+          for tag in ${RPM_DIST_TAGS}; do
+            # The per-tag glob must match: a tag whose sign step produced no file is a release
+            # with a distribution missing, and the inner loop would pass it by in silence.
+            compgen -G "dist-rpms/${tag}/*.rpm" >/dev/null \
+              || { echo "::error::no RPMs under dist-rpms/${tag} -- the ${tag} sign step produced none"; exit 1; }
+            for rpm in dist-rpms/"${tag}"/*.rpm; do
+              rpmkeys --dbpath "${verifydb}" -Kv "${rpm}" 2>&1 \
+                | grep -Eqi 'signature.*:[[:space:]]*OK[[:space:]]*$' \
+                || { echo "::error::${rpm} is not signed on the runner -- the in-container signing did not persist to the host"; exit 1; }
+            done
           done
           echo "verified $(find dist-rpms -name '*.rpm' | wc -l) signed RPM(s) on the runner"
 
-      # Both el9 and el10 RPMs land as flat, same-named-prefix assets on one release page
-      # (see the upload step); a per-EL zip removes the "which files go together"
+      # Every distribution's RPMs land as flat, same-named-prefix assets on one release page
+      # (see the upload step); a per-distribution zip removes the "which files go together"
       # ambiguity that creates -- `dnf install ./*.rpm` after unzipping is then unambiguous
-      # by construction, since each archive holds exactly one EL's packages. The runner-exported
-      # public key (dist-rpms/RPM-GPG-KEY-dag-node) rides inside each zip too, so an operator imports
-      # it and installs from one archive offline; rpm.dagnode.com serves it too.
-      - name: Bundle per-EL zip archives
+      # by construction, since each archive holds exactly one distribution's packages. The
+      # runner-exported public key (dist-rpms/RPM-GPG-KEY-dag-node) rides inside each zip too, so an
+      # operator imports it and installs from one archive offline; rpm.dagnode.com serves it too.
+      - name: Bundle per-distribution zip archives
         run: |
           ref="${GITHUB_REF_NAME//\//-}"   # a rehearsal ref can be a branch with slashes
-          for el in 9 10; do
-            (cd "dist-rpms/el${el}" && zip -j "../ai-tools-el${el}-${ref}.zip" ./*.rpm ../RPM-GPG-KEY-dag-node)
+          for tag in ${RPM_DIST_TAGS}; do
+            (cd "dist-rpms/${tag}" && zip -j "../ai-tools-${tag}-${ref}.zip" ./*.rpm ../RPM-GPG-KEY-dag-node)
           done
 
       # Uploaded before the publish steps, so a rehearsal's signed output is inspectable and a
@@ -430,12 +398,10 @@ jobs:
         run: |
           # Attach the runner-exported public key too, so a manual download can verify without
           # reaching rpm.dagnode.com. It was produced + checked in the verify step.
-          assets=(
-            dist-rpms/ai-tools-el9-${GITHUB_REF_NAME}.zip
-            dist-rpms/ai-tools-el10-${GITHUB_REF_NAME}.zip
-            dist-rpms/el9/*.rpm dist-rpms/el10/*.rpm
-            dist-rpms/RPM-GPG-KEY-dag-node
-          )
+          assets=(dist-rpms/RPM-GPG-KEY-dag-node)
+          for tag in ${RPM_DIST_TAGS}; do
+            assets+=("dist-rpms/ai-tools-${tag}-${GITHUB_REF_NAME}.zip" dist-rpms/"${tag}"/*.rpm)
+          done
           # Idempotent: if a later step (e.g. the publish-notify) failed and this workflow is
           # re-run, creating the release again would fail on the already-present tag. Refresh the
           # existing release's assets instead, so re-running the workflow recovers on its own

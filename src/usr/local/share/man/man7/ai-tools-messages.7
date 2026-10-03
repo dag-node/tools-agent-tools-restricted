@@ -210,6 +210,10 @@ unknown projects remove option: ${a}
 ERROR.
 the sandbox account is not an operator and must not own projects
 .TP
+.B MSG-M9H2
+WARNING.
+the confinement library ${CONFINEMENT_LIB} did not load its attestation readers \-\- reinstall ai\-tools\-base
+.TP
 .B MSG-P4D2
 ERROR.
 \-\-yes has no effect with \-\-dry\-run, which neither changes a path nor asks
@@ -1109,6 +1113,10 @@ could not write ${key}=${answer} into ${conf} \-\- set the line by hand
 WARNING.
 signature\-verification library not deployed yet \-\- skipping the check; the nvm\-update timer verifies on its first run
 .TP
+.B MSG-Q3P4
+ERROR.
+cannot close the sandbox account's systemd unit search path: ${_control_plane_lib} did not load \-\- reinstall ai\-tools\-base, then re\-run: sudo ai\-tools\-admin system bootstrap
+.TP
 .B MSG-R5Z3
 ERROR.
 offline, and no toolchain is installed under ${NVM_DIR}: the nvm and Node download needs the network \-\- connect this host, then re\-run: sudo ai\-tools\-admin system bootstrap
@@ -1453,9 +1461,17 @@ stale declaration for ${subject}: its launcher resolves to
 ERROR.
 no enabled agent provides the launcher \e"${launcher_name}\e" \-\- refusing to launch
 .TP
+.B MSG-A3K3
+ERROR.
+refusing to launch \-\- the confinement check did not recognize this host's SELinux state as one that launches, so it cannot show the session would run confined.
+.TP
 .B MSG-A4Q4
 ERROR.
 AI_TOOLS_PROJECT_DIR contains parent\-directory references
+.TP
+.B MSG-A7E7
+ERROR.
+refusing to launch \-\- AI_TOOLS_REQUIRE_SELINUX is set in operator.conf, but this launch could not read ${unread_confinement_inputs:\-an input of the confinement check}, so it cannot show the session would run confined.
 .TP
 .B MSG-D2A4
 ERROR.
@@ -1473,13 +1489,25 @@ AI_TOOLS_PROJECT_DIR is not an existing directory: ${AI_TOOLS_PROJECT_DIR}
 ERROR.
 the agent entrypoint does not match its recorded checksum \-\- refusing to start the session
 .TP
+.B MSG-K6W6
+WARNING.
+ai\-tools\-run: AI_TOOLS_REQUIRE_SELINUX is set in operator.conf, but ${dac_only_reason}, so this session runs with file permissions alone (DAC\-only) and the requirement is not met.
+.TP
 .B MSG-N4P3
 ERROR.
 AI_TOOLS_AGENT_EXEC contains parent\-directory references
 .TP
+.B MSG-P3P8
+ERROR.
+refusing to launch \-\- AI_TOOLS_REQUIRE_SELINUX is set in operator.conf, but the SELinux Boolean ${differing_boolean_names} is not at the value a launch requires (now ${current_assignments}), so ai_tools_t would run under rules this host has not declared.
+.TP
 .B MSG-Z2J9
 ERROR.
 invalid or absent AI_TOOLS_AGENT_EXEC \-\- cannot launch
+.TP
+.B MSG-Z5M5
+ERROR.
+refusing to launch \-\- AI_TOOLS_REQUIRE_SELINUX is set in operator.conf, but ai_tools_t is a permissive domain on this host, so SELinux would log the session's denials and enforce none of them.
 .TP
 .B MSG-Z9C8
 ERROR.
@@ -1555,10 +1583,18 @@ left ${thirdparty} path(s) owned by neither ${PROJECTS_USER} nor @SANDBOX_USER@ 
 WARNING.
 the project directory itself is owned by neither ${PROJECTS_USER} nor @SANDBOX_USER@ \-\- no ACL was applied, and the agent gets no access to this tree
 .TP
+.B MSG-Q6N6
+WARNING.
+cannot load ${SECRET_PATTERNS_LIB}, which decides which paths are secrets \-\- no ACL was granted under ${canonical}; reinstall the ai\-tools package
+.TP
 .B MSG-V3W8
 WARNING.
 setfacl not found \-\- skipping ACL normalization for ${TARGET}
 .SS ai-tools-setgid
+.TP
+.B MSG-B3F5
+WARNING.
+cannot load ${SECRET_PATTERNS_LIB}, which decides which directories are secrets \-\- no directory under ${canonical} was normalized; reinstall the ai\-tools package
 .TP
 .B MSG-B9V2
 WARNING.
@@ -1618,6 +1654,10 @@ ERROR.
 ERROR.
 \-\-unlisted needs an invoking operator (no SUDO_UID) \-\- nothing changed
 .TP
+.B MSG-P5R2
+ERROR.
+cannot load ${SECRET_PATTERNS_LIB}, which decides which paths are secrets \-\- nothing under ${canonical} was changed; reinstall the ai\-tools package
+.TP
 .B MSG-R3C7
 ERROR.
 unknown target group '${TARGET_GROUP}' \-\- nothing changed
@@ -1659,6 +1699,18 @@ switch ${key} in ${file} is neither a yes value (yes, true, 1, on) nor a no valu
 .B MSG-D5N5
 WARNING.
 invalid list, read as the empty list \-\- ${label} (${reason}): ${value}; write it as [a, b]
+.TP
+.B MSG-F6D7
+WARNING.
+the pair list ${key} in ${file} has the item ${item}, which is not <name>=<value> with a value of ${allowed_values_text} \-\- ignored
+.TP
+.B MSG-H7N5
+WARNING.
+switch ${key} in ${file} is neither a yes value (yes, true, 1, on) nor a no value (no, false, 0, off) \-\- read as yes
+.TP
+.B MSG-R8C6
+WARNING.
+the pair list ${key} in ${file} gives ${pair_name} more than once \-\- the first value stands
 .TP
 .B MSG-X6F2
 WARNING.
@@ -1785,6 +1837,10 @@ building ${1:\-this policy module} needs the selinux\-policy\-devel toolchain,
 WARNING.
 SELinux or the ai_tools module is not active \-\- no agent paths to label
 .SS install.sh
+.TP
+.B MSG-A2Y5
+WARNING.
+the sandbox account's systemd unit search path is not fully closed, so a path listed here could still reach its unconfined \-\-user manager; settle each one and re\-run this installer:
 .TP
 .B MSG-A7X8
 WARNING.
@@ -2146,6 +2202,11 @@ cannot open a transient scope for a run as ${account} (systemd\-run \-\-scope di
 .B MSG-W8B7
 WARNING.
 ended a command as ${account} that ${what_ran_over} ${timeout_seconds}s, with every process of its scope ${scope_unit}: $(printf '%q' "$1") \-\- the step did not complete; re\-run it, or set AI_TOOLS_AS_SANDBOX_TIMEOUT=<seconds> for a slower host
+.SS secret-patterns.lib.sh
+.TP
+.B MSG-S4T9
+ERROR.
+the secret\-patterns file ${file} is present and cannot be read as a regular file \-\- the shipped baseline classifies instead, and a helper that changes a tree refuses; make it a readable file, or remove it to keep the baseline
 .SS settings-merge.lib.sh
 .TP
 .B MSG-F9W4

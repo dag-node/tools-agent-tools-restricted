@@ -581,7 +581,10 @@ removes it),
 where this shell finds each enabled agent's launcher, each managed systemd unit
 as OK, SKIPPED, DOWN, FAILED,
 STALE, or not-installed \(em then, per agent whose package declares one, whether its
-entrypoint carries a verified checksum. Read-only.
+entrypoint carries a verified checksum, and, where SELinux is active, whether
+.B ai_tools_t
+is a permissive domain and which of the Booleans that widen it are on.
+Read-only.
 .RS
 .PP
 The launcher reading is the one this command makes from your own shell: it
@@ -592,6 +595,15 @@ reads
 because running it starts an agent as you with none of the sandbox, and names
 .B "ai\-tools\-admin operators add"
 as the repair.
+.PP
+A permissive domain, or a Boolean away from the value a launch requires
+(the set
+.BR ai\-tools\-operator.conf (5)
+lists under
+.BR AI_TOOLS_SELINUX_BOOLEANS ),
+counts as broken only where
+.B AI_TOOLS_REQUIRE_SELINUX
+is set, since that is when it refuses every launch.
 .PP
 Exits 4 when anything is reported broken \(em a shadowed launcher
 included \(em and 5 when a reading it promises could not be made because a

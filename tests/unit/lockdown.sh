@@ -339,4 +339,23 @@ else
     fail "--gate over node_modules: rc=${LD_RC}, .env $(perm "${full}/node_modules/.env"): $(tr '\n' '|' < "${TESTDIR}/gate.err")"
 fi
 
+# A secret-patterns file that is present and cannot be read refuses the sweep before its first write (exit 1,
+# under the library's code): a sweep on the baseline would skip the names the operator wrote, and a `--gate` caller
+# reads exit 0 as every secret locked. Driven through the loader's file hook at a directory, the one unreadable state
+# root meets on any host; the secret is read back at the mode it had.
+unread="${TESTDIR}/unread"
+mkdir -p "${unread}"; chmod 0755 "${unread}"
+mk_allowlist "${proj}" "${full}" "${unread}"
+mk_secret "${unread}/.env"
+mkdir -p "${TESTDIR}/patterns-dir"
+export AI_TOOLS_SECRET_PATTERNS_FILE="${TESTDIR}/patterns-dir"
+run_ld "${unread}" "${TESTDIR}/unread-out" --yes
+unset AI_TOOLS_SECRET_PATTERNS_FILE
+if (( LD_RC == 1 )) && [[ "$(perm "${unread}/.env")" == 644 ]]; then
+    pass "an unreadable secret-patterns file refuses the sweep (exit 1) and locks no path"
+else
+    fail "an unreadable secret-patterns file: rc=${LD_RC}, .env $(perm "${unread}/.env") (want 1, 644)"
+fi
+assert_msg MSG-S4T9 "$(cat "${TESTDIR}/unread-out")" "the refusal names the unreadable file under the library's code"
+
 finish

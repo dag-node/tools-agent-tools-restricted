@@ -260,11 +260,148 @@ if declare -F ai_tools_project_build_pattern >/dev/null 2>&1 \
     else
         fail "row parse of a pattern with a space: '${got}'"
     fi
+
+    # A project path is a literal inside the rule's regex: `.` in app.v1 would also match appXv1, and `+`, `(`, `|`
+    # change which paths the rule covers. The label writes the escaped path; the unlabel removes the escaped rule and
+    # the raw one a host may still hold from before paths were escaped.
+    got="$(ai_tools_fcontext_literal '/home/op/a.b+c(d)|e[f]$^*?{g}\h')"
+    if [[ "${got}" == '/home/op/a\.b\+c\(d\)\|e\[f\]\$\^\*\?\{g\}\\h' ]]; then
+        pass "ai_tools_fcontext_literal escapes every regex metacharacter and leaves the rest"
+    else
+        fail "ai_tools_fcontext_literal: '${got}'"
+    fi
+    CALLS=""; semanage() { CALLS+="$*"$'\n'; return 0; }
+    ai_tools_label_project '/home/op/app.v1+x'
+    if [[ "${CALLS}" == "fcontext -a -t ai_tools_project_t /home/op/app\\.v1\\+x(/.*)?"$'\n'"fcontext -a -t ai_tools_project_build_t -- /home/op/app\\.v1\\+x(/.*)?/(bin|obj)(/.*)?"$'\n' ]]; then
+        pass "a label escapes the project path in both rules"
+    else
+        fail "label calls for a path with metacharacters: ${CALLS//$'\n'/ | }"
+    fi
+    CALLS=""
+    ai_tools_unlabel_project '/home/op/app.v1'
+    if [[ "${CALLS}" == "fcontext -d /home/op/app\\.v1(/.*)?"$'\n'"fcontext -d /home/op/app.v1(/.*)?"$'\n' ]]; then
+        pass "an unlabel removes the escaped rule and the raw rule an earlier label wrote"
+    else
+        fail "unlabel calls for a dotted path: ${CALLS//$'\n'/ | }"
+    fi
     unset -f ai_tools_installed_integrations_declaring ai_tools_relabel_available \
              ai_tools_project_labelled restorecon semanage
     unset CALLS
 else
     skip "build-output rule" "ai_tools_project_build_pattern not defined by ${LIB}"
+fi
+
+# ── Retiring the raw rules an earlier label wrote ─────────────────────────────────────────────
+# A label written before paths were escaped is still in the store of an upgraded host, and its `.` keeps matching paths
+# beside the project -- `app.v1` reaches `appXv1` and, since `.` matches `/` in a file-context regex, `app/v1`. A label
+# retires those rules only where both the pattern (this project's raw encoding) and the type (the one this library
+# writes) say it wrote them, names any other rule for review, and relabels the paths the removed rule matched. Every
+# case here is driven in the direction that would widen or misreport: a rule this library did not write removed, a path
+# the raw rule never matched relabelled, a relabel of the neighbours when no raw rule was removed. semanage
+# and restorecon are stubbed; the fixture tree is real, since the neighbours are found on disk.
+section "relabel: a label retires the raw rules an earlier label wrote (unit)"
+if declare -F _ai_tools_retire_raw_project_rules >/dev/null 2>&1; then
+    mktestdir
+    proj="${TESTDIR}/app.v1"
+    mkdir -p "${proj}/src" "${TESTDIR}/appXv1" "${TESTDIR}/app/v1" "${TESTDIR}/appXXv1" "${TESTDIR}/app.v1x"
+    ai_tools_installed_integrations_declaring() { :; }
+    ai_tools_relabel_available() { return 0; }
+    ai_tools_project_labelled()  { return 0; }
+    RESTORED=""; restorecon() { RESTORED+="$*"$'\n'; return 0; }
+    # rules_listing <project-type>: the store an upgraded host holds -- the raw project rule (typed by the argument),
+    # its raw build rule, a rule under the raw prefix carrying a type this library does not write, the escaped project
+    # rule, and an unrelated rule.
+    rules_listing() {
+        printf '%-60s %-12s %s\n' "${proj}(/.*)?" 'all files' "system_u:object_r:$1:s0"
+        printf '%-60s %-12s %s\n' "${proj}(/.*)?/(bin|obj)(/.*)?" 'all files' 'system_u:object_r:ai_tools_project_build_t:s0'
+        printf '%-60s %-12s %s\n' "${proj}(/.*)?/www(/.*)?" 'all files' 'system_u:object_r:httpd_sys_content_t:s0'
+        printf '%-60s %-12s %s\n' "$(ai_tools_fcontext_literal "${proj}")(/.*)?" 'all files' 'system_u:object_r:ai_tools_project_t:s0'
+        printf '%-60s %-12s %s\n' '/srv/other(/.*)?' 'all files' 'system_u:object_r:ai_tools_project_t:s0'
+    }
+    RAW_TYPE=ai_tools_project_t
+    DELETED=""
+    semanage() {
+        case "$*" in
+            "fcontext -l -C -n") rules_listing "${RAW_TYPE}" ;;
+            "fcontext -d -- "*) local call="$*"; DELETED+="${call#fcontext -d -- }"$'\n' ;;
+        esac
+        return 0
+    }
+    ai_tools_label_project "${proj}" >/dev/null 2>"${TESTDIR}/err"; err="$(<"${TESTDIR}/err")"
+    if [[ "${DELETED}" == "${proj}(/.*)?"$'\n'"${proj}(/.*)?/(bin|obj)(/.*)?"$'\n' ]]; then
+        pass "a label removes the raw project and build rules, and no other rule"
+    else
+        fail "raw rules removed: ${DELETED//$'\n'/ | }"
+    fi
+    if [[ "${err}" == *"left the unescaped rule ${proj}(/.*)?/www(/.*)? (httpd_sys_content_t)"* ]]; then
+        pass "a rule under the raw prefix with a type this library does not write is left and named for review"
+    else
+        fail "the foreign-typed rule was not named for review: ${err//$'\n'/ | }"
+    fi
+    if [[ "${RESTORED}" == "-R -- ${TESTDIR}/app/v1"$'\n'"-R -- ${TESTDIR}/appXv1"$'\n'"-FR ${proj}"$'\n' ]]; then
+        pass "the paths the raw rule matched beside the project (one through a dot read as /) are relabelled, before the project"
+    else
+        fail "restorecon calls: ${RESTORED//$'\n'/ | }"
+    fi
+
+    # The raw project rule carries a type this library does not write: it is left, named, and the neighbours stay alone.
+    RAW_TYPE=httpd_sys_content_t; DELETED=""; RESTORED=""
+    ai_tools_label_project "${proj}" >/dev/null 2>"${TESTDIR}/err"; err="$(<"${TESTDIR}/err")"
+    if [[ "${DELETED}" != *"${proj}(/.*)?"$'\n'* && "${err}" == *"left the unescaped rule ${proj}(/.*)? (httpd_sys_content_t)"* \
+          && "${RESTORED}" == "-FR ${proj}"$'\n' ]]; then
+        pass "a raw project rule of another type is left, named for review, and its neighbours are not relabelled"
+    else
+        fail "foreign raw project rule: deleted ${DELETED//$'\n'/ | }; restored ${RESTORED//$'\n'/ | }; ${err//$'\n'/ | }"
+    fi
+
+    # A host labelled after paths were escaped does not hold a raw rule: the label does not remove a rule or relabel
+    # a neighbour.
+    semanage() {
+        case "$*" in
+            "fcontext -l -C -n") printf '%-60s %-12s %s\n' "$(ai_tools_fcontext_literal "${proj}")(/.*)?" 'all files' \
+                                     'system_u:object_r:ai_tools_project_t:s0' ;;
+            "fcontext -d -- "*) local call="$*"; DELETED+="${call#fcontext -d -- }"$'\n' ;;
+        esac
+        return 0
+    }
+    DELETED=""; RESTORED=""
+    ai_tools_label_project "${proj}" 2>/dev/null
+    if [[ -z "${DELETED}" && "${RESTORED}" == "-FR ${proj}"$'\n' ]]; then
+        pass "with no raw rule in the store a label removes nothing and relabels only the project (control)"
+    else
+        fail "clean store: deleted ${DELETED//$'\n'/ | }; restored ${RESTORED//$'\n'/ | }"
+    fi
+
+    # The unlabel relabels the neighbours only when it removed the raw rule.
+    semanage() { [[ "$*" == "fcontext -d ${proj}(/.*)?" ]]; }
+    RESTORED=""
+    ai_tools_unlabel_project "${proj}" 2>/dev/null
+    if [[ "${RESTORED}" == "-R -- ${TESTDIR}/app/v1"$'\n'"-R -- ${TESTDIR}/appXv1"$'\n'"-FR ${proj}"$'\n' ]]; then
+        pass "an unlabel that removed the raw rule relabels the paths it matched"
+    else
+        fail "unlabel with a raw rule: ${RESTORED//$'\n'/ | }"
+    fi
+    semanage() { [[ "$*" == "fcontext -d $(ai_tools_fcontext_literal "${proj}")(/.*)?" ]]; }
+    RESTORED=""
+    ai_tools_unlabel_project "${proj}" 2>/dev/null
+    if [[ "${RESTORED}" == "-FR ${proj}"$'\n' ]]; then
+        pass "an unlabel that found no raw rule leaves the neighbours alone"
+    else
+        fail "unlabel without a raw rule: ${RESTORED//$'\n'/ | }"
+    fi
+
+    # Only a `.` is enumerated; any other metacharacter is named instead of guessed at.
+    out="$(_ai_tools_raw_rule_matches "${TESTDIR}/c++.v1" 2>&1)"
+    if [[ "${out}" == *"holds a regex metacharacter other than"* && "${out}" != *"${TESTDIR}/"*$'\n'* ]]; then
+        pass "a path holding another metacharacter is named for a manual relabel and yields no path"
+    else
+        fail "metacharacter path: ${out//$'\n'/ | }"
+    fi
+    unset -f ai_tools_installed_integrations_declaring ai_tools_relabel_available ai_tools_project_labelled \
+             restorecon semanage rules_listing
+    unset RESTORED DELETED RAW_TYPE
+else
+    skip "raw rule retirement" "_ai_tools_retire_raw_project_rules not defined by ${LIB}"
 fi
 
 # ── Reporting WHY a file-context rule was refused ─────────────────────────────────────────────

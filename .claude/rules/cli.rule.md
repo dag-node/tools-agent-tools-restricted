@@ -399,6 +399,15 @@ an ordinary account read it — a partial view, the file sink being the authorit
   and repairs it. A mislabel that arises after the recorded run still stops the next launch with the fault
   and the command that clears it.
 
+  **The launch attestation is reported where SELinux is active**, in both reports, from the shim's own reader
+  and verdict: whether `ai_tools_t` is a permissive domain and each Boolean that widens it
+  ([confinement](confinement.rule.md) states the set and the refusals). An unconfined caller can make the read without
+  privilege, so the two vantages read it alike. A finding counts toward the exit status only
+  where `AI_TOOLS_REQUIRE_SELINUX` is set, since only then does it refuse a launch. A host without SELinux confinement
+  by its own configuration — SELinux disabled, or the policy neither live nor on disk, read through the shim's own
+  predicate — has no domain to attest, and is a finding under that key alone, since there every launch runs DAC-only
+  and warns; the line names the setting that declares the host so and the package that installs confinement.
+
   **The unit that does the labelling is reported too, and answers a different question.** `ai-tools-relabel.service` is
   in the registry beside the `.path` that triggers it, because a healthy watcher says only that a run *started* —
   on the upgrade that motivated both records, the watcher was `OK` and the relabel it fired had failed. A `Type=oneshot`
@@ -474,6 +483,7 @@ reports the same host and adds the readings the operator's prints as `?`:
 | whether the installed entrypoint still matches that pin | the toolchain is `0750` and sandbox-owned, so the file cannot be hashed | hashes it and compares, the same comparison the launch shim makes |
 | an agent path's SELinux type | the entrypoint sits in a `0750` toolchain owned by the sandbox account | `stat`s the label itself |
 | an agent's installed version | the same toolchain | reads the `package.json` around the entrypoint (`ai_tools_entrypoint_installed_version`), as data: running the agent's `--version` would execute a file the sandbox account can write ([ref-section-s9t9](updater.rule.md#ref-section-s9t9)) |
+| the sandbox account's systemd unit search path, and the `Persistent=` timer stamp on it | the chain is root-owned without world bits, so an operator outside the sandbox group cannot traverse it, and the stamp sits inside that account's home | reads both: the chain against its declared layout, the stamp's own mtime |
 
 **What keeps them one resource is where the privilege is tested.** `services.lib.sh` offers a live reading to whichever
 caller can make one, so the capability is checked at each read rather than at the dispatch: `sudo ai-tools status`
@@ -493,6 +503,14 @@ that may be hours old; `ai_tools_agent_label_report` reports the type each path 
 since — an out-of-band `restorecon`, a package that reinstalled the binary — is visible without running the reconcile.
 It is **read-only**, which is what makes it safe to call from a report, and its whole difference
 from `ai_tools_label_agent_paths`; that function's header states which calls each one makes.
+
+**The sandbox unit search path is a section of its own, because only root can read it.** A chain directory that exists
+at another owner or mode is `DRIFTED` and counts; an absent one is `n/a`, a host provisioning has not reached;
+and an entry under `.local/share/systemd` other than the stamp directory is `UNEXPECTED` and counts. The drift reader's
+status keeps a failed reading apart from a clean chain. The `Persistent=` timer stamp is read by its mtime
+through `ai_tools_service_evaluate_timer_stamp`, with the tolerance taken from the timer's own accuracy and randomized
+delay; `FUTURE` counts, since a future-dated stamp suppresses the catch-up run a missed window gets. Whether the timer
+is overdue is the Services section's reading alone. The report does not write the stamp.
 
 The report is otherwise the same contract as `status`: it exits 4 when something needs attention and 5 when a library
 base ships did not load, so a section could not make a reading it promises — the two counts `STATUS_PROBLEMS`

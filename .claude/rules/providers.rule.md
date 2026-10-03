@@ -249,6 +249,7 @@ KEY=value            quotes optional; whitespace around the key and `=` trimmed
 KEY="a b"            one layer of matched quotes stripped
 KEY=a, b  c          list items separate on commas AND whitespace, freely mixed
 KEY=[a, b]           the bracketed form of the same list; [] is the empty list
+KEY=[a=on, b=off]    a pair list, where a key takes one: each item a name and one of the key's values
 KEY=value   # why    `#` at the start of a value or after whitespace ends it; inside
                      quotes it is literal, so a value containing one is written "a#b"
 KEY=                 PRESENT with an empty value — distinct from an ABSENT key
@@ -269,6 +270,16 @@ which is acceptable for package data. A **command-line argument** keeps the plai
 by `ai_tools_conf_split`, which does not read brackets: the shell splits `[a, b]` into words and an unquoted `[a,` is
 a glob, so `ai-tools-bootstrap --agents` refuses a bracket by name (`MSG-Y7B6`) rather than reading it as part
 of an agent name.
+
+**A pair list is opt-in per key.** `ai_tools_conf_pair_list` reads a key whose items each carry a value,
+against the values the caller names; an item outside that grammar, or a name given again, is reported and left
+out, and an invalid list reads as empty like every other. How a declaration combines with the caller's defaults is
+the caller's to state — `AI_TOOLS_SELINUX_BOOLEANS` replaces its default, as every list in `operator.conf` does.
+A pair's name is an identifier with a length cap (`ai_tools_conf_pair_name_valid`), so a caller may use it as a path
+component. A key takes pairs where an item has more than one meaningful value and an absent key means something other
+than an empty list: `AI_TOOLS_SELINUX_BOOLEANS` absent means the default requirement. A membership list stays bare,
+since listing a provider already enables it and `agent-codex=no` would be a second spelling of "not listed". A key's
+values have one spelling each, the one the underlying tool takes.
 
 **A provider list item carries its kind.** Each item of `AI_TOOLS_AGENTS`, `AI_TOOLS_INTEGRATIONS`
 and `AI_TOOLS_FILTERS` is written `agent-<name>`, `integration-<name>` or `filter-<name>`, so one word names one thing
@@ -341,8 +352,12 @@ decides what `dnf update` does on a running host:
 `operator.conf` takes `%config(noreplace)`, so an upgrade enables only what the host asked for. A host that set
 `AI_TOOLS_FILTERS=` to turn filtering off still has it off afterwards; under `%config` that line would move to a file no
 resolver reads and filtering would come back on. A dormant option is recoverable at any time, and a silently reverted
-setting is not. `settings.json` takes the directive for the same reason, which is why a newly shipped hook is installed
-but stays uninvoked until its declaration is merged ([claude-settings](claude-settings.rule.md)).
+setting is not. The same holds for a key the shipped file writes set, `AI_TOOLS_SELINUX_BOOLEANS` among them: a release
+that adds a gating pair to that list's default leaves an upgraded host requiring exactly what its own line states,
+and the new pair reaches it as a line in the `.rpmnew`, which `system post-upgrade` shows and does not apply
+([confinement](confinement.rule.md)). `settings.json` takes the directive for the same reason, which is why a newly
+shipped hook is installed but stays uninvoked until its declaration is merged
+([claude-settings](claude-settings.rule.md)).
 
 The cost is that reconciling the `.rpmnew` is manual, so it is signposted: each package's `%post` prints the pointer
 whenever one is present, and `sudo ai-tools-admin system post-upgrade` — which reads the newest copy beside a file,
@@ -394,12 +409,17 @@ an upgraded host only as an `.rpmnew` the operator reconciles by hand. The per-o
 and `secret-patterns`, are seeded once, by `ai-tools-admin operators add` (the two `*_seed` functions in `conf.lib.sh`),
 and no upgrade rewrites them: the header an operator's file carries is the one that shipped on the day that account was
 enrolled, for as long as the account exists. A header written into any of the four therefore states what the file is,
-the one rule a reader needs before writing a line, example lines or one brief line per option beside its commented
-default, and the page that holds the reference — `ai-tools-operator.conf(5)`, `ai-tools-custom-claude-endpoint.conf(5)`,
-`ai-tools-allowed-projects(5)`, `ai-tools-secret-patterns(5)` — and the grammar, the semantics and the worked examples
-live in the page, which the package replaces on every upgrade. A commented default (`#KEY=`) stays in a template: it is
-a setting, and it is what `ai_tools_conf_keys` counts as *mentioned*, which keeps `system post-upgrade` from announcing
-every option as new.
+the one rule a reader needs before writing a line, example lines or one block per option, and the page that holds
+the reference — `ai-tools-operator.conf(5)`, `ai-tools-custom-claude-endpoint.conf(5)`, `ai-tools-allowed-projects(5)`,
+`ai-tools-secret-patterns(5)` — and the grammar, the semantics and the worked examples live in the page,
+which the package replaces on every upgrade. An option's block in a template is a brief description, then a `Values:`
+line and a `Default:` line of their own, then the option's line: a `Values:` or `Default:` line states one value, so it
+is written on one line however long, which the checker's `--config-header` mode does not measure and the comment filler
+does not join into the description it follows. The option's line is either the shipped setting (`KEY=value`,
+for the keys the file ships set) or a commented example (`#KEY=value`), and an example is a value an operator would
+write rather than the empty list, since a present `[]` is an explicit none and equals the default of a list key only
+by coincidence. Either form is what `ai_tools_conf_keys` counts as *mentioned*, which keeps `system post-upgrade`
+from announcing every option as new.
 
 A config header is read in a terminal, which does not reflow it, so it holds to 72 columns, ragged right, with no
 comment line ending on an article, a conjunction, a preposition, or a wh-word — the words `msg.lib.sh` carries

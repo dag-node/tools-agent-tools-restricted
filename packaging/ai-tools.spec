@@ -441,6 +441,13 @@ for pp in $(bash selinux/policy/shipped-modules.sh src/usr/local/lib/ai-tools/in
         %{buildroot}%{_datadir}/selinux/packages/ai-tools/${pp}.pp
     echo "%{_datadir}/selinux/packages/ai-tools/${pp}.pp" >> selinux-files.list
 done
+# The interface a site module calls to make a confined login domain an operator domain
+# (ipp_ai_tools_add_operator_domain). A compiled module carries the rules an interface expanded to and
+# not the interface, so the .if ships on the policy devel include path, in the directory
+# selinux-policy-devel reads third-party interfaces from; install-selinux.sh stages the same file.
+install -D -m 0644 selinux/policy/ai_tools.if \
+    %{buildroot}%{_datadir}/selinux/devel/include/distributed/ai_tools.if
+echo "%{_datadir}/selinux/devel/include/distributed/ai_tools.if" >> selinux-files.list
 
 # ── base: sandbox project workflow tree + operation-log dir ──────────────────
 install -d -m 2750 %{buildroot}/var/opt/ai-tools
@@ -831,6 +838,19 @@ systemctl start ai-tools-handback.socket 2>/dev/null || :
 # with the %post copy; both idempotent. See the %post comment for the container-image caveat.
 chmod 2750 /var/opt/ai-tools 2>/dev/null || :
 chmod 2770 /var/opt/ai-tools/sandbox-projects 2>/dev/null || :
+
+# Close the sandbox account's systemd unit search path (control-plane.lib.sh) on every transition, since the home
+# subtrees are not rpm-owned. Under an explicit bash: the library is bash and a scriptlet runs under /bin/sh.
+if [ -d /opt/ai-tools ] && command -v bash >/dev/null 2>&1; then
+    bash -c '. /usr/local/lib/ai-tools/control-plane.lib.sh 2>/dev/null || exit 0
+             declare -F ai_tools_ensure_unit_search_path_closed >/dev/null 2>&1 || exit 0
+             ai_tools_ensure_unit_search_path_closed /opt/ai-tools ai-tools ai-tools | while read -r verdict rest; do
+                 [ "${verdict}" = error ] && echo "ai-tools-base: WARNING the sandbox systemd unit search path is not fully closed: ${rest}" >&2
+             done' || :
+    if command -v restorecon >/dev/null 2>&1; then
+        restorecon -R /opt/ai-tools/.local >/dev/null 2>&1 || :
+    fi
+fi
 
 # Helper-layout migration (0.10.0): the root helper tree moved
 # /usr/local/sbin/ai-tools -> /usr/local/libexec/ai-tools so ONE layout serves EL and the
@@ -1468,6 +1488,50 @@ fi
 %attr(0644, root, root) %{_datadir}/ai-tools/codex/managed_config.toml
 
 %changelog
+* Fri Oct 03 2026 dagnode <tools@dagnode.com> - 0.23.0-1
+- CHANGE: A launch requires SELinux unless operator.conf sets AI_TOOLS_REQUIRE_SELINUX=no, and under
+  it refuses a permissive ai_tools_t domain, a widening Boolean that is on (nis_enabled,
+  domain_can_mmap_files, domain_can_write_kmsg) and a confinement input it cannot read. A host with
+  SELinux disabled, or without the policy, launches with a warning. Clear the fault the refusal
+  names, or write AI_TOOLS_REQUIRE_SELINUX=no, before the first session after the upgrade.
+- CHANGE: operator.conf ships with AI_TOOLS_REQUIRE_SELINUX=yes and the required Boolean values set
+  as AI_TOOLS_SELINUX_BOOLEANS=[name=on|off], one block per option. A kept operator.conf is left as
+  it is; 'system post-upgrade' names the keys it lacks. A Boolean list an operator writes replaces
+  the built-in set, and a malformed entry refuses the launch until it is fixed.
+- SECURITY: The sandbox account's systemd unit search path (.local/share/systemd under its home) is
+  root-owned and typed read-only to the session, so a unit a session leaves there does not start
+  under its unconfined user manager. The RPM and install.sh close it on every upgrade; 'sudo
+  ai-tools-admin status' reports the path and any unexpected entry on it.
+- SECURITY: ai-tools-chown reads the owner and mode it checks from the pinned inode it then changes.
+  It read them through a second path lookup, so a rename exchange between the two lookups handed
+  root's group write to an operator-owned directory.
+- SECURITY: ai-tools-setgid loads the operator's own secret-patterns file; it read only the built-in
+  baseline, so a directory named by an operator pattern could be regrouped to the sandbox group.
+- SECURITY: Claim, handback, unclaim and lockdown refuse to change a tree while the operator's
+  secret-patterns file is present and unreadable, where the claim-side walks ran with no matcher.
+  An absent or empty file keeps the shipped baseline.
+- SECURITY: The per-project SELinux file-context rules escape the project path: a '.' in app.v1 also
+  matched appXv1, so a sibling path took the project's type. The next claim or relabel of each
+  project retires the unescaped rule an earlier release wrote and relabels what it matched.
+- NEW: Fedora 44 packages (.fc44) are built, signed and published with the EL 9 and EL 10 ones, and
+  rpm.dagnode.com serves them under fedora/44.
+- NEW: Each session runs under a resource profile (MemoryHigh 6G, MemoryMax 8G, no swap, 1024 tasks)
+  and the toolchain update under its own (1G, 2G, 256 tasks), so a runaway process is stopped in
+  its cgroup. A drop-in in /etc/systemd/user/ai-tools-claude-code-.service.d/ changes the session
+  values; docs/sessions/index.md shows one.
+- NEW: 'ai-tools status' and 'sudo ai-tools-admin status' report the SELinux attestation a launch
+  makes: whether ai_tools_t is permissive, each required Boolean's value and origin, and the
+  command that changes it. A finding counts toward the exit status only while SELinux is required.
+- FIX: install.sh refused a checkout of the installed version as a downgrade on an RPM host, since
+  it compared 0.22.0 with 0.22.0-1.el10; the same version is a reinstall.
+- FIX: The SELinux denial drill (selinux/avc) judges each probe by its errno, so a missing tool or a
+  refused connect no longer reads as a denial, renders the ausearch window in the format ausearch
+  parses, confirms enforcement only from a readable seinfo listing, and passes a run only on a probe
+  that ran inside the window and exited 0. The probe no longer writes to the host.
+- DOCS: The 'ai-tools-admin selinux groups' text and the SELinux page state that the localipc
+  group's TCP grant reaches any address on the port, and name the tmpmap group, not the
+  domain_can_mmap_files Boolean, as the fix for a .NET restore.
+
 * Tue Sep 29 2026 dagnode <tools@dagnode.com> - 0.22.0-1
 - CHANGE: 'ai-tools status', 'sudo ai-tools-admin status' and 'ai-tools audit' exit 4 when they
   find something that needs attention and 5 when a reading could not be made, where they exited 1.

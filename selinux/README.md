@@ -32,7 +32,21 @@ A missing transition **fails closed**: if an agent's entrypoint loses its label
 rather than start an unconfined session, and names
 `ai-tools-admin system entrypoints relabel` as the fix. The layer as a whole is
 still optional — a host that never installs the module runs DAC-only,
-which the launch preflight recognises and allows.
+which the launch preflight recognises and allows, with a warning at every
+launch until `AI_TOOLS_REQUIRE_SELINUX=no` in `operator.conf` declares it.
+
+The modules are written and tested against the **targeted** policy
+(`selinux-policy-targeted`) on Enterprise Linux 9 and 10, with operators
+logging in as `unconfined_u`, the default mapping. Another policy type, such
+as `selinux-policy-mls`, is not tested. The operator rules in `ai_tools.te` are
+written on the `ai_tools_operator_domain` attribute, with `unconfined_t` its
+shipped member; a host that confines its operators to a login domain
+(`staff_t`, `user_t`, a site-written domain) adds that domain
+with the `ipp_ai_tools_add_operator_domain` interface, which the package
+installs at `/usr/share/selinux/devel/include/distributed/ai_tools.if`.
+A launch from such a login is not validated yet and fails closed
+where the launch path is denied a read. An `ai-tools-admin selinux` command
+that declares the domain is planned.
 
 You cannot confine a complex app (Node + git + the Bash tool) correctly
 by guessing rules — the rule set must be *observed*. The policy here was
@@ -79,7 +93,7 @@ by default**, each named for the capability it grants:
 | `podman`   | container runtime exec + image storage (still blocked by the namespace filter — see the confinement rule) |
 | `tmpmap`   | mmap of the agent's own `/tmp` files (`dotnet` build, `git`/SQLite in `/tmp`) |
 | `memfdexec` | map+execute of the session's own memfd files, on a private type (.NET apphost/JIT: `dotnet run`, ASP.NET Core, `xunit.v3`); disjoint from `tmpmap` |
-| `localipc` | unix sockets and FIFOs under `/tmp` and the home state, connect to the session's own sockets and to a loopback port (`dotnet test`, multi-node MSBuild, a dev server and its browser) |
+| `localipc` | unix sockets and FIFOs under `/tmp` and the home state, connect to the domain's own sockets and to an unreserved or ephemeral TCP port on any host (`dotnet test`, multi-node MSBuild, a dev server and its browser) |
 | `buildexec` | execute on a project's build output — the directories an integration's manifest names and its layout module types; a script written there runs too — see [dotnet.rule.md](../.claude/rules/dotnet.rule.md) |
 
 Which groups a toolchain needs is its integration manifest's to say
@@ -288,11 +302,31 @@ the log, the agent triggers the denials:
 # 1. AS <you> (root), in a terminal:
 sudo selinux/avc/avc-denials.sh           # -DB, prints the probe cmd, then WAITS
 
-# 2. AS THE AGENT, in a confined claude (approved project):
-bash selinux/avc/avc-denials.sh probe     # every attempt is expected to FAIL
+# 2. AS THE AGENT, in a confined claude (approved project), the command
+#    step 1 printed -- it carries --run-id, --groups and, once root has
+#    verified enforcement, --enforcing-confirmed:
+bash selinux/avc/avc-denials.sh probe --run-id 3f9c0a1b2d4e5f60 --groups tmpmap,localipc --enforcing-confirmed
 
-# 3. back in terminal 1: press Enter   # ausearch + classify, then -B restores
+# 3. back in terminal 1: press Enter   # ausearch + classify, run result,
+#                                      # then -B restores
 ```
+
+The root half exits 0 only when it confirmed enforcement, searched the window,
+and found the probe trail carrying its run id, started inside the window
+and finished with exit 0. Enforcement counts as confirmed when `getenforce`
+reads `Enforcing` and `seinfo --permissive` (setools-console) succeeds and does
+not list `ai_tools_t`; without `seinfo`, or when it fails, the probe command
+omits `--enforcing-confirmed` and the probe asks before it runs.
+A `semodule -l` that fails stops the run, since the probe would otherwise judge
+every group check against an empty group list.
+
+The probe prints a summary line and exits non-zero when a check fails (1)
+or could not run its access (3). Each check reads the errno of its attempt:
+a refusal is `PASS`, an access that succeeds where it should not is `FAIL`,
+and an attempt that failed for another reason — a missing tool, a refused
+connection — is `INCONCLUSIVE`, because it did not test the boundary. Group
+checks are judged against the `--groups` list the root half read
+from the module store. No probe writes to the host.
 
 It hands off to `avc-analyze.sh`, which now sorts denials into **three**
 buckets: **EXPECTED BOUNDARY** (`dontaudit`'d in the core module), **EXPECTED

@@ -119,6 +119,9 @@ if [[ -d "${_pkg_dir}" ]]; then
         while IFS= read -r _mod; do
             check_file "${_pkg_dir}/${_mod}.pp" root root 644
         done <<<"${_want}"
+        # The interface a site module calls (ipp_ai_tools_add_operator_domain) is staged beside the modules,
+        # on the policy devel include path: 644 root:root, read-only data a compiled module does not carry.
+        check_file /usr/share/selinux/devel/include/distributed/ai_tools.if root root 644
     else
         skip "staged policy module set" "shipped-modules.sh not in a checkout beside this suite"
     fi
@@ -284,7 +287,19 @@ if [[ -e /opt/ai-tools/orientation/AGENTS.md ]]; then
 else
     skip "/opt/ai-tools/orientation/AGENTS.md" "shipped orientation not seeded on this host"
 fi
+# The sandbox account's systemd unit search path, read from the library's own declaration
+# (ownership-and-hooks.rule.md).
 _cp_lib=/usr/local/lib/ai-tools/control-plane.lib.sh
+# shellcheck source=/dev/null
+if source "${_cp_lib}" 2>/dev/null && [[ -n "${CP_UNIT_SEARCH_PATH_CHAIN[*]:-}" ]]; then
+    for _rel in "${CP_UNIT_SEARCH_PATH_CHAIN[@]}"; do
+        check_file "/opt/ai-tools/${_rel}" root "${SANDBOX_GROUP}" "${CP_UNIT_SEARCH_PATH_MODES[${_rel}]}"
+    done
+    check_file "/opt/ai-tools/${CP_TIMER_STAMP_DIR}" "${SANDBOX_USER}" "${SANDBOX_GROUP}" "${CP_TIMER_STAMP_DIR_MODE#0}"
+else
+    skip "the sandbox unit search path" "${_cp_lib} does not declare the unit search path chain on this host"
+fi
+
 # shellcheck source=/dev/null
 if source "${_cp_lib}" 2>/dev/null && declare -F ai_tools_agent_config_dirs >/dev/null 2>&1; then
     _cfg_found=0; _codex_cfg_walked=0

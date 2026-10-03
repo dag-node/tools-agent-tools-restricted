@@ -248,6 +248,56 @@ else
     pass "ai_tools_conf_kind_list refuses a key outside the kind table"
 fi
 
+# ai_tools_conf_pair_list reads `<name>=<value>` items against the caller's values. Rows, `;`-separated so an empty
+# field stays a field: <line>;<expected items, joined by spaces, or ABSENT>;<reports expected>. A malformed or repeated
+# item is reported and left out; an invalid list reads empty, as every list does; an absent key leaves the target as it
+# was.
+if declare -F ai_tools_conf_pair_list >/dev/null 2>&1; then
+    pair_conf="${TESTDIR}/pair.conf"
+    while IFS=';' read -r pair_line pair_expected pair_reports; do
+        printf '%s\n' "${pair_line}" > "${pair_conf}"
+        pair_target=(untouched); pair_rc=0
+        # Called in this shell, stderr to a file: a $(...) capture would run it in a subshell and lose the array.
+        ai_tools_conf_pair_list pair_target "${pair_conf}" PAIRS on off 2>"${TESTDIR}/pair.err" || pair_rc=$?
+        pair_stderr="$(<"${TESTDIR}/pair.err")"
+        pair_got="${pair_target[*]+"${pair_target[*]}"}"
+        [[ "${pair_rc}" -eq 1 ]] && pair_got=ABSENT
+        pair_reported="$(grep -c '^MSG-' <<<"${pair_stderr}" || true)"
+        # The rejected count is what a caller refuses on, so it must agree with what was reported.
+        if [[ "${pair_rc}" -eq 0 && "${_ai_tools_conf_pair_list_rejected_count:-}" != "${pair_reports}" \
+              && "${_ai_tools_conf_list_invalid:-0}" -eq 0 ]]; then
+            fail "pair list ${pair_line}: _ai_tools_conf_pair_list_rejected_count=${_ai_tools_conf_pair_list_rejected_count:-unset}, expected ${pair_reports}"
+        fi
+        if [[ "${pair_got}" == "${pair_expected}" && "${pair_reported}" == "${pair_reports}" ]]; then
+            pass "pair list ${pair_line} -> [${pair_got}], ${pair_reported} reported"
+        else
+            fail "pair list ${pair_line} -> [${pair_got}], ${pair_reported} reported; expected [${pair_expected}], ${pair_reports}"
+        fi
+    done <<'ROWS'
+PAIRS=[a=on, b_2=off];a=on b_2=off;0
+PAIRS=a=on b=off;a=on b=off;0
+PAIRS=[];;0
+PAIRS=[a=on, a=off];a=on;1
+PAIRS=[a=yes, b, =on, c=, d=on=off];;5
+PAIRS=[a.b=on, a/b=on, a*=on, A_Z9=off];A_Z9=off;3
+PAIRS=[aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa=on];;1
+PAIRS=[a=on;;1
+OTHER=x;ABSENT;0
+ROWS
+    # The values are the caller's: the same items read against another set.
+    printf 'PAIRS=[a=on, b=low]\n' > "${pair_conf}"
+    pair_target=(); ai_tools_conf_pair_list pair_target "${pair_conf}" PAIRS low high 2>/dev/null
+    if [[ "${pair_target[*]-}" == "b=low" ]]; then pass "pair list values are the caller's: [a=on, b=low] read against low|high -> b=low"
+    else fail "pair list against low|high -> [${pair_target[*]-}]; expected b=low"; fi
+    # The grammar is the shell's IFS-independent split: the same read under the IFS ai-tools sets.
+    printf 'PAIRS=[a=on, b=off]\n' > "${pair_conf}"
+    pair_target=(); (IFS=$'\n\t'; ai_tools_conf_pair_list pair_target "${pair_conf}" PAIRS on off 2>/dev/null; printf '%s|' "${pair_target[@]}") > "${TESTDIR}/pair.out"
+    if [[ "$(<"${TESTDIR}/pair.out")" == "a=on|b=off|" ]]; then pass "pair list reads alike under IFS=\$'\\n\\t'"
+    else fail "pair list under IFS=\$'\\n\\t' -> $(<"${TESTDIR}/pair.out")"; fi
+else
+    skip "pair list" "the library predates ai_tools_conf_pair_list"
+fi
+
 # ai_tools_conf_kind_item is the writer's side: a bare name gains the prefix, a prefixed one is kept, and a name that is
 # not a plain name once prefixed, or a key outside the table, prints nothing. Rows: <KEY> <name> <expected|REFUSED>.
 while IFS=$'\t' read -r key name expected; do
@@ -393,6 +443,34 @@ if declare -F ai_tools_conf_yes >/dev/null 2>&1; then
     fi
 else
     skip "ai_tools_conf_yes" "the deployed conf.lib.sh predates it -- re-run sudo ./install.sh install"
+fi
+
+section "conf: ai_tools_conf_no reads a switch whose default is yes"
+# The mirror for a key in force unless the file turns it off (AI_TOOLS_REQUIRE_SELINUX): only a value the grammar reads
+# as no turns it off. A yes value, an absent key and a value in neither set are not no -- the last reported under its
+# own code, since a mistyped line otherwise relaxes a requirement with no line saying so.
+if declare -F ai_tools_conf_no >/dev/null 2>&1; then
+    yn="${TESTDIR}/switches-no.conf"
+    printf '%s\n' 'A=yes' 'B="true"' 'C=1' "D='1'" 'E=On' 'F=TRUE' \
+                   'G=no' 'H="false"' 'I=0' 'J="0"' 'K=off' 'L=' 'M=ture' > "${yn}"
+    misread=()
+    for key in G H I J K L; do ai_tools_conf_no "${yn}" "${key}" 2>/dev/null || misread+=("${key}"); done
+    for key in A B C D E F M ABSENT; do ai_tools_conf_no "${yn}" "${key}" 2>/dev/null && misread+=("${key}"); done
+    if (( ${#misread[@]} == 0 )); then
+        pass "no, false, 0, off and empty read as no; yes values, absent and unknown do not, quoted or not"
+    else
+        fail "misread switches: ${misread[*]}"
+    fi
+    said="$(ai_tools_conf_no "${yn}" M 2>&1 || true)"
+    assert_msg MSG-H7N5 "${said}" "a value in neither set is reported as read as yes"
+    said="$(ai_tools_conf_no "${yn}" A 2>&1 || true)"
+    if [[ -z "${said}" ]]; then
+        pass "a recognized yes value is read silently"
+    else
+        fail "a recognized yes value was reported: ${said}"
+    fi
+else
+    skip "ai_tools_conf_no" "the deployed conf.lib.sh predates it -- re-run sudo ./install.sh install"
 fi
 
 section "conf: a refusal reports the owner and mode it read"

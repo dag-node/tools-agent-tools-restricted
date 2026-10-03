@@ -103,6 +103,23 @@ for u in "${SHIPPED_USER_UNITS[@]}"; do
     fi
 done
 
+section "The updater unit carries its resource profile"
+
+# nvm-update.service caps a run that grows past what a Node and an npm install take (updater.rule.md). A text check
+# of assignments, like the mount-namespace check: the directives are read by the manager whether or not the host
+# delegates the controllers, so a live reading says nothing about the file.
+if [[ ! -f "${USERUNITDIR}/nvm-update.service" ]]; then
+    skip "nvm-update.service carries its resource profile" "not installed in ${USERUNITDIR}"
+else
+    for directive in MemoryHigh=1G MemoryMax=2G MemorySwapMax=0 TasksMax=256; do
+        if grep -qE "^[[:space:]]*${directive}[[:space:]]*\$" "${USERUNITDIR}/nvm-update.service"; then
+            pass "nvm-update.service sets ${directive}"
+        else
+            fail "nvm-update.service does not set ${directive} -- the updater runs unbounded"
+        fi
+    done
+fi
+
 section "Enablement in the correct instance"
 
 # (1) Handback socket: enabled AND active in the system instance (the privilege bridge the hooks reach). is-enabled is

@@ -183,4 +183,62 @@ else
     fail "classifier left nocasematch enabled -- leaks case-insensitive matching to the caller"
 fi
 
+# (8) A configured file that is PRESENT and the loader refuses to read is a third state, apart from absent and empty:
+# the loader returns 1 under its code with the baseline loaded, so a caller ignoring the status classifies
+# on the baseline (never an empty set) and a helper that reads it refuses. The suite is root, which DAC lets read a file
+# of any mode; the states a root reader meets are a directory, a dangling symlink and a FIFO, which the `-f` check
+# refuses before an open that would block. Absent and empty stay status 0, which is what keeps a fresh enrolment
+# walking.
+[[ -n "${TESTDIR:-}" ]] || mktestdir
+baseline_count="${#_AI_TOOLS_DEFAULT_SECRET_PATTERNS[@]}"
+unreadable_case() {  # <label> <path> -- drive the loader at <path>, expect status 1, the code, and the baseline loaded
+    local label="$1" path="$2" rc=0 err
+    AI_TOOLS_SECRET_PATTERNS_FILE="${path}"; _AI_TOOLS_PATTERNS_LOADED=""
+    # Run in this shell, not a `$(...)`: the loader publishes its result in variables a subshell would lose.
+    ai_tools_load_secret_patterns 2>"${TESTDIR}/loader-err" >/dev/null || rc=$?
+    err="$(cat "${TESTDIR}/loader-err")"
+    if (( rc == 1 )) && [[ "${AI_TOOLS_SECRET_PATTERNS_UNREADABLE}" == "${path}" ]] \
+            && (( ${#AI_TOOLS_SECRET_PATTERNS[@]} == baseline_count )) && ai_tools_is_secret_basename .env; then
+        pass "${label}: the loader returns 1 with the baseline loaded"
+    else
+        fail "${label}: rc=${rc} unreadable='${AI_TOOLS_SECRET_PATTERNS_UNREADABLE}' patterns=${#AI_TOOLS_SECRET_PATTERNS[@]} (want 1, the path, ${baseline_count})"
+    fi
+    assert_msg MSG-S4T9 "${err}" "${label}: the loader names the file under its code"
+}
+mkdir -p "${TESTDIR}/patterns-dir"
+unreadable_case "a directory at the path" "${TESTDIR}/patterns-dir"
+ln -s "${TESTDIR}/no-such-target" "${TESTDIR}/patterns-dangling"
+unreadable_case "a dangling symlink at the path" "${TESTDIR}/patterns-dangling"
+if mkfifo "${TESTDIR}/patterns-fifo" 2>/dev/null; then
+    unreadable_case "a FIFO at the path" "${TESTDIR}/patterns-fifo"
+else
+    skip "a FIFO at the path" "mkfifo failed in ${TESTDIR}"
+fi
+# The two readable states stay status 0: absent and empty load the baseline, a real file loads its own patterns.
+AI_TOOLS_SECRET_PATTERNS_FILE="${TESTDIR}/no-such-file"; _AI_TOOLS_PATTERNS_LOADED=""
+if ai_tools_load_secret_patterns 2>/dev/null && [[ -z "${AI_TOOLS_SECRET_PATTERNS_UNREADABLE}" ]] \
+        && (( ${#AI_TOOLS_SECRET_PATTERNS[@]} == baseline_count )); then
+    pass "an absent file loads the baseline at status 0"
+else
+    fail "an absent file: rc=$? unreadable='${AI_TOOLS_SECRET_PATTERNS_UNREADABLE}' patterns=${#AI_TOOLS_SECRET_PATTERNS[@]}"
+fi
+printf 'only-this\n' > "${TESTDIR}/patterns-one"
+AI_TOOLS_SECRET_PATTERNS_FILE="${TESTDIR}/patterns-one"; _AI_TOOLS_PATTERNS_LOADED=""
+if ai_tools_load_secret_patterns 2>/dev/null && [[ "${AI_TOOLS_SECRET_PATTERNS[*]}" == only-this ]]; then
+    pass "a readable file loads its own patterns at status 0"
+else
+    fail "a readable file: patterns='${AI_TOOLS_SECRET_PATTERNS[*]}' (want only-this)"
+fi
+# The drift report names an unreadable file, since the baseline is then in force for the operator's sessions while their
+# helpers refuse -- the one state the wrapper's journal line would otherwise read as silent agreement.
+if declare -F ai_tools_secret_patterns_drift >/dev/null 2>&1; then
+    AI_TOOLS_SECRET_PATTERNS_FILE="${TESTDIR}/patterns-dir"; _AI_TOOLS_PATTERNS_LOADED=""
+    if out="$(ai_tools_secret_patterns_drift 2>/dev/null)" && [[ "${out}" == *"cannot be read"* ]]; then
+        pass "the drift report names an unreadable file at status 0"
+    else
+        fail "the drift report over an unreadable file: '${out}'"
+    fi
+fi
+unset AI_TOOLS_SECRET_PATTERNS_FILE
+
 finish

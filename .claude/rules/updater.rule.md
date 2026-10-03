@@ -71,14 +71,15 @@ exists. Root starts the timer over the machine transport (`systemctl --user -M S
 the system bus authorizes for root; a `sudo -u` call on the account's own bus is refused there even while the manager is
 healthy ([cli](cli.rule.md)).
 
-**It offers both launch requirements where confinement is in force** (`offer_launch_requirements`). On a host
+**It offers the entrypoint requirement where confinement is in force** (`offer_launch_requirements`). On a host
 where SELinux is enforcing and the `ai_tools` module is loaded, it asks once, through `ai_tools_msg_confirm` defaulting
-to yes, whether to set `AI_TOOLS_REQUIRE_SELINUX` and `AI_TOOLS_REQUIRE_ENTRYPOINT_VERIFY`; the answer is written
-to both through `ai_tools_conf_set_key`, `no` included, so it is asked once rather than on every run. A run with no
-terminal takes the default, since each switch moves a launch toward less access. A key already present, either way, is
-the operator's declaration and is not asked about, and an untrusted `operator.conf` is neither asked about nor written.
-The entrypoint switch is offered only while every enabled agent carries a pin, which the relabel ahead of the step
-writes: offered without one, it would refuse that agent's next launch.
+to yes, whether to set `AI_TOOLS_REQUIRE_ENTRYPOINT_VERIFY`; the answer is written through `ai_tools_conf_set_key`, `no`
+included, so it is asked once rather than on every run. A run with no terminal takes the default, since the switch moves
+a launch toward less access. `AI_TOOLS_REQUIRE_SELINUX` is not offered: it is in force unless `operator.conf` turns it
+off ([confinement](confinement.rule.md)), so there is no posture for a bootstrap to write. A key already present, either
+way, is the operator's declaration and is not asked about, and an untrusted `operator.conf` is neither asked
+about nor written. The entrypoint switch is offered only while every enabled agent carries a pin, which the relabel
+ahead of the step writes: offered without one, it would refuse that agent's next launch.
 
 Starting the timer **pre-seeds its `Persistent=` run-stamp** (`$XDG_DATA_HOME/systemd/timers/ stamp-nvm-update.timer`
 under `/opt/ai-tools`, written as `SANDBOX_USER`) so it begins on its next scheduled window rather than an **immediate
@@ -89,7 +90,9 @@ prior stamp `Persistent=true` would run `nvm-update.service` at once — which r
 chain races the operator's first launch into the mislabel refusal. Provisioning has just installed the current
 toolchain, so recording "last run = now" is truthful; the next run is the next scheduled window. `ai-tools-bootstrap`
 and `install.sh` both seed the stamp before starting the timer (the RPM/dev flows), and each also runs from a neutral
-CWD so the `sudo -u SANDBOX_USER` steps do not inherit an operator directory the account cannot traverse back into.
+CWD so the `sudo -u SANDBOX_USER` steps do not inherit an operator directory the account cannot traverse back into. Each
+closes the unit search path first, which creates the stamp directory
+([ownership-and-hooks](ownership-and-hooks.rule.md)).
 
 It closes by **naming each enrolled operator whose shell reaches an agent other than the wrapper**, read per account
 from a login shell of that account — which needs the root this command already holds (see the PATH ordering section
@@ -264,6 +267,13 @@ not ordered against it and connectivity is handled where it arises, in the run's
 
 The daily window is the host's local time; an operator moves it
 with `sudo systemctl --user -M ai-tools@.host edit nvm-update.timer`.
+
+The unit also caps the run: `MemoryHigh=1G`, `MemoryMax=2G`, `MemorySwapMax=0` and `TasksMax=256`, which a Node install
+and an npm install stay under. A run killed at the limit exits non-zero, which `Restart=on-failure` retries within
+the start limit and the stamp reports as `failed`. The manager applies the four where the host delegates the `memory`
+and `pids` controllers to it (cgroup v2), and accepts them without applying them on cgroup v1; an operator raises one
+with `sudo systemctl --user -M ai-tools@.host edit nvm-update.service`. The session unit's profile, and why either is
+a cap and not a boundary, are in [launch](launch.rule.md).
 
 Each field has a distinct reader. `RESULT` and `EXIT_CODE` are the service's verdict. `FINISHED` carries two: it dates
 that verdict, and its **age** is what `nvm-update.timer` — which can otherwise report only `?` — infers its own health

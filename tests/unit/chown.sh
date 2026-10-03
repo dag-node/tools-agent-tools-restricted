@@ -4,9 +4,10 @@
 # Hermetic unit tests for the deployed ai-tools-chown helper: it acts only on agent (SANDBOX_USER)-owned paths, hands
 # ordinary ones back to <projects-user>:SANDBOX_GROUP with world bits stripped, quarantines secret-named ones
 # to <projects-user>:<projects-user> 600, honors '!' exclusions, refuses paths outside the allowlist, and is TOCTOU-safe
-# (pinned fd, refuses symlink redirection). Installed helper against a /tmp testdir with a dummy allowlist. This test
-# stays out of /var/log to keep its hermetic boundary; the audit-log FILE's ownership and mode are pinned in perms.sh
-# (the written log line itself is not asserted).
+# (pinned fd, refuses symlink redirection, takes the owner and mode from the pinned inode, also under a live
+# `renameat2(RENAME_EXCHANGE)` race). Installed helper against a /tmp testdir with a dummy allowlist. This test stays
+# out of /var/log to keep its hermetic boundary; the audit-log FILE's ownership and mode are pinned in perms.sh (the
+# written log line itself is not asserted).
 
 set -euo pipefail
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")/../lib" && pwd)/harness.sh"
@@ -203,5 +204,147 @@ if [[ "$(stat -c '%U:%G %a' "${loot}")" == "${lbefore}" ]]; then
 else
     fail "symlinked parent redirected handback onto an outside file: now $(stat -c '%U:%G %a' "${loot}")"
 fi
+
+# (13) The owner the apply acts on is the pinned inode's, not the path string's. The helper reads owner and mode through
+# the path before it pins the inode, and a rename exchange can answer those reads from a decoy. The interactive prompt
+# sits between the reads and the pin, so a pty pauses the helper there and the test makes the inode operator-owned
+# before answering yes: the apply must refuse. The control run answers yes without the change and must hand back,
+# which proves the prompt route reached the apply.
+# pty_apply <path> <change-owner-to-or-empty>: run the helper on a pty, wait for its prompt, optionally chown the path,
+# answer yes. Prints "prompted" once the prompt was seen.
+pty_apply() {
+    python3 -I - "${HELPER}" "$1" "${2-}" <<'PY'
+import os, pty, select, sys, time
+helper, path, new_owner = sys.argv[1], sys.argv[2], sys.argv[3]
+pid, fd = pty.fork()
+if pid == 0:
+    os.execv(helper, [helper, path])
+seen, deadline = b"", time.monotonic() + 15
+while b"Apply?" not in seen and time.monotonic() < deadline:
+    if select.select([fd], [], [], 0.5)[0]:
+        try:
+            seen += os.read(fd, 4096)
+        except OSError:
+            break
+if b"Apply?" in seen:
+    print("prompted")
+    if new_owner:
+        user, group = new_owner.split(":")
+        import grp, pwd
+        os.chown(path, pwd.getpwnam(user).pw_uid, grp.getgrnam(group).gr_gid)
+    os.write(fd, b"y\n")
+deadline = time.monotonic() + 15
+while time.monotonic() < deadline:
+    if os.waitpid(pid, os.WNOHANG)[0]:
+        break
+    try:
+        if select.select([fd], [], [], 0.5)[0]:
+            os.read(fd, 4096)
+    except OSError:
+        pass
+else:
+    os.kill(pid, 9)
+PY
+}
+if command -v python3 >/dev/null 2>&1; then
+    ctl="${proj}/pinned-control.txt"; : > "${ctl}"; chown "${SANDBOX_USER}:${SANDBOX_GROUP}" "${ctl}"; chmod 0644 "${ctl}"
+    ctl_seen="$(pty_apply "${ctl}" "")"
+    swp="${proj}/pinned-swap.txt"; : > "${swp}"; chown "${SANDBOX_USER}:${SANDBOX_GROUP}" "${swp}"; chmod 0644 "${swp}"
+    swp_seen="$(pty_apply "${swp}" "${PROJECTS_USER}:${PROJECTS_GROUP}")"
+    if [[ "${ctl_seen}" != prompted || "${swp_seen}" != prompted ]]; then
+        fail "pinned-owner check: the helper did not prompt on a pty (control '${ctl_seen}', swap '${swp_seen}')"
+    elif [[ "$(stat -c '%U:%G %a' "${ctl}")" != "${PROJECTS_USER}:${SANDBOX_GROUP} 640" ]]; then
+        fail "pinned-owner control: a confirmed apply left $(stat -c '%U:%G %a' "${ctl}") (want ${PROJECTS_USER}:${SANDBOX_GROUP} 640)"
+    elif [[ "$(stat -c '%U:%G %a' "${swp}")" == "${PROJECTS_USER}:${PROJECTS_GROUP} 644" ]]; then
+        pass "an inode no longer agent-owned at the pin is refused (owner and mode read from the descriptor)"
+    else
+        fail "the apply acted on an inode the pin found operator-owned: now $(stat -c '%U:%G %a' "${swp}")"
+    fi
+else
+    skip "pinned-owner check" "python3 not installed"
+fi
+
+# (14) The same check under a live rename exchange. The helper reads the identity, then the owner and mode,
+# through separate path lookups, and a racer swapping the path with a decoy can answer them from different inodes
+# before the pin. The decoy is an operator-owned 755 file, so a run that pinned it on the agent file's owner read would
+# hand the operator's file to the agent group, and a run that pinned the agent's 674 file on the decoy's mode read would
+# leave it 670 (the script plan) where its own reads give 660. Neither outcome may occur in any run. The window is a few
+# lookups wide, so this is a stress check that catches a regression with some probability per run; case (13) is
+# the deterministic one. A run that hands the agent file back is required, which proves the racer left the apply
+# reachable.
+# race_exchange <a> <b>: swap <a> and <b> with renameat2(RENAME_EXCHANGE) until killed. `exec` makes the background
+# job's pid the racer's own, so the kill stops it; a racer left running would swap the next run's fixture during setup.
+race_exchange() {
+    exec python3 -I - "$1" "$2" <<'PY'
+import ctypes, os, sys
+libc = ctypes.CDLL(None, use_errno=True)
+a, b = (os.fsencode(p) for p in sys.argv[1:3])
+while True:
+    if libc.renameat2(-100, a, -100, b, 2) != 0:
+        sys.exit("renameat2: " + os.strerror(ctypes.get_errno()))
+PY
+}
+if command -v python3 >/dev/null 2>&1; then
+    rp="${proj}/race.txt"; rq="${proj}/race-decoy.txt"
+    runs=150 handed=0 left=0 racer_errors=0 mixed=""
+    for (( n = 0; n < runs; n++ )); do
+        rm -f "${rp}" "${rq}"
+        : > "${rp}"; chown "${SANDBOX_USER}:${SANDBOX_GROUP}" "${rp}"; chmod 0674 "${rp}"
+        : > "${rq}"; chown "${PROJECTS_USER}:${PROJECTS_GROUP}" "${rq}"; chmod 0755 "${rq}"
+        agent_ino="$(stat -c %i "${rp}")"
+        race_exchange "${rp}" "${rq}" 2>"${TESTDIR}/racer.err" &
+        racer=$!
+        run "${rp}"
+        kill "${racer}" 2>/dev/null || true
+        wait "${racer}" 2>/dev/null || true
+        if kill -0 "${racer}" 2>/dev/null; then
+            fail "rename-exchange race: the racer outlived its kill in run ${n}, so later runs would not be read"
+            break
+        fi
+        [[ -s "${TESTDIR}/racer.err" ]] && racer_errors=$(( racer_errors + 1 ))
+        # The racer stopped at an arbitrary point, so a name may hold either inode: each is identified by its number,
+        # read with its owner and mode in one stat.
+        for f in "${rp}" "${rq}"; do
+            read -r ino state_owner state_mode < <(stat -c '%i %U:%G %a' "${f}")
+            state="${state_owner} ${state_mode}"
+            if [[ "${ino}" == "${agent_ino}" ]]; then
+                case "${state}" in
+                    "${SANDBOX_USER}:${SANDBOX_GROUP} 674") left=$(( left + 1 )) ;;
+                    "${PROJECTS_USER}:${SANDBOX_GROUP} 660") handed=$(( handed + 1 )) ;;
+                    *) mixed+="run ${n}: agent file ${state}; " ;;
+                esac
+            elif [[ "${state}" != "${PROJECTS_USER}:${PROJECTS_GROUP} 755" ]]; then
+                mixed+="run ${n}: operator decoy ${state}; "
+            fi
+        done
+    done
+    rm -f "${rp}" "${rq}"
+    if (( racer_errors > 0 )); then
+        fail "rename-exchange race: the racer failed in ${racer_errors} run(s): $(head -n1 "${TESTDIR}/racer.err")"
+    elif [[ -n "${mixed}" ]]; then
+        fail "rename-exchange race: an apply mixed two inodes -- ${mixed}"
+    elif (( handed == 0 )); then
+        fail "rename-exchange race: no run handed the agent file back in ${runs}, so the apply was never reached"
+    else
+        pass "rename-exchange race: ${runs} runs, ${handed} handed back, ${left} refused, none acted on a mixed read"
+    fi
+else
+    skip "rename-exchange race" "python3 not installed"
+fi
+
+# A present secret-patterns file the loader refuses to read refuses the handback (exit 1, under the library's code):
+# the path stays sandbox-owned, where a classification on a set the operator did not write would hand it back. Driven
+# through the loader's file hook at a directory, the one unreadable state root meets on any host; case (2) is
+# the control, the same shape of path handed back when the file reads.
+unread="${proj}/unread.txt"; : > "${unread}"; chown "${SANDBOX_USER}:${SANDBOX_GROUP}" "${unread}"; chmod 0644 "${unread}"
+mkdir -p "${TESTDIR}/patterns-dir"
+rc=0
+err="$(AI_TOOLS_SECRET_PATTERNS_FILE="${TESTDIR}/patterns-dir" setsid "${HELPER}" "${unread}" < /dev/null 2>&1 >/dev/null)" || rc=$?
+if (( rc == 1 )) && [[ "$(stat -c '%U:%G' "${unread}")" == "${SANDBOX_USER}:${SANDBOX_GROUP}" ]]; then
+    pass "an unreadable secret-patterns file refuses the handback (exit 1) and leaves the path sandbox-owned"
+else
+    fail "an unreadable secret-patterns file: rc=${rc}, path is $(stat -c '%U:%G' "${unread}") (want 1, ${SANDBOX_USER}:${SANDBOX_GROUP})"
+fi
+assert_msg MSG-S4T9 "${err}" "the refusal names the unreadable file under the library's code"
 
 finish

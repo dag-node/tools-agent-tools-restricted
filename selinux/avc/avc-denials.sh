@@ -14,7 +14,7 @@
 #   J    Credentials + lateral: /run/user/<uid>/ runtime   (goals 1, 4)
 #   K    Escalation: user namespace creation               (goal 2)
 #   L    Escalation: /dev/mem, /dev/kmem                   (goal 2)
-#   M    Escalation: write sysrq-trigger, core_pattern     (goal 2)
+#   M    Escalation: sysrq-trigger, core_pattern writes    (goal 2)
 #   N    Escalation: raw block device read                  (goal 2)
 #   O    Escalation: kernel module loading                  (goal 2)
 #   P    Escalation: eBPF program load                     (goal 2)
@@ -44,11 +44,22 @@
 #
 # Flow:
 #   1. (as <you>, root, in a terminal)            sudo selinux/avc/avc-denials.sh
-#        -> disables dontaudit, prints the probe command, WAITS.
-#   2. (in a confined claude, approved project) bash selinux/avc/avc-denials.sh probe
+#        -> disables dontaudit, prints the probe command, WAITS. The command carries `--groups` (the loaded optional
+#           groups, read from the root-only module store) and `--enforcing-confirmed` (Enforcing, and a successful,
+#           well-formed `seinfo --permissive` listing that omits ai_tools_t), the two facts the session cannot read
+#           for itself, plus `--run-id`, which the probe writes into its trail beside its start time and exit status.
+#   2. (in a confined claude, approved project) the printed `bash selinux/avc/avc-denials.sh probe ...`
 #        -> run it, let the turn finish.
+#
+# A check reads the errno of its attempt: EACCES/EPERM is a denial, a missing path a SKIP, and any other failure (an
+# absent tool, a refused connection, malformed input) INCONCLUSIVE, since the access was not exercised. No probe writes
+# to the host: a write check opens an existing file for append without writing, and a create check is access(2) W_OK
+# on the directory -- which SELinux does not audit by default, so its outcome is read from the errno alone.
 #   3. (back in terminal 1)                     press Enter
-#        -> ausearch + classify, then dontaudit is restored.
+#        -> ausearch + classify, then the run result, then dontaudit is restored. The run exits 0 only when
+#           enforcement was confirmed, the window was searched, and the one trail carrying the run id started inside
+#           the window and records exit 0: the audit log alone does not show a probe that never ran or an access that
+#           succeeded.
 #
 # NB: `semodule -DB` is SYSTEM-WIDE -- it unsilences every domain's dontaudit'd denials for the window, not just
 # ai_tools_t. That is fine for a short controlled run (avc-analyze.sh filters to `-su ai_tools_t` anyway); the trap puts
@@ -69,9 +80,71 @@ usage() {
 usage:
   sudo ${BASH_SOURCE[0]##*/}                  # ROOT: -DB bracket + analyze (default)
   bash ${BASH_SOURCE[0]##*/} probe            # AGENT: trigger denials; output -> audits/
+  bash ${BASH_SOURCE[0]##*/} probe --run-id <id> --groups <a,b|none> [--enforcing-confirmed]
+                                             # AGENT: as printed by the root half -- its run, the
+                                             # loaded groups and the enforcement it verified
   bash ${BASH_SOURCE[0]##*/} probe --force    # skip the enforcing+module safety check
+exit status (probe): 0 clean, 1 a check FAILED, 2 aborted before any check, 3 a check was INCONCLUSIVE
+exit status (run):   0 when enforcement was confirmed, the window was searched, and the probe bound to the run
+                     exited 0; 1 otherwise
   bash ${BASH_SOURCE[0]##*/} --check-results  # display the latest probe audit trail
 EOF
+}
+
+# avc_attempt_reason <status> <stderr>: print `allowed` for status 0, `denied` when the stderr names EACCES/EPERM (the
+# shape every tool here prints for a refused open, exec, connect or syscall), `absent` for a missing path, and otherwise
+# `exit <status>: <first stderr line>` -- an absent tool, a malformed input or a refused connection, none
+# of which exercised the access the check names.
+avc_attempt_reason() {
+  local status="$1" stderr="$2" first
+  if [[ "${status}" -eq 0 ]]; then
+    echo allowed
+  elif grep -qiE 'permission denied|operation not permitted|EACCES|EPERM' <<<"${stderr}"; then
+    echo denied
+  elif grep -qiE '^ENOENT:|no such file or directory' <<<"${stderr}"; then
+    echo absent
+  else
+    first="$(head -n1 <<<"${stderr}")"
+    echo "exit ${status}: ${first:-no message}"
+  fi
+}
+
+# avc_permissive_state <seinfo-status> <seinfo-output>: read `seinfo --permissive` output and print `yes` when it lists
+# ai_tools_t, `no` when it is well formed and omits it, and `unknown` for a failed query or output without its
+# `Permissive Types: <n>` header or with a type count other than <n>. Only `no` lets the root half confirm enforcement.
+avc_permissive_state() {
+  local status="$1" output="$2" count listed
+  [[ "${status}" -eq 0 ]] || { echo unknown; return; }
+  count="$(sed -n 's/^Permissive Types: \([0-9][0-9]*\)$/\1/p' <<<"${output}")"
+  [[ "${count}" =~ ^[0-9]+$ ]] || { echo unknown; return; }
+  listed="$(grep -cE '^[[:space:]]+[A-Za-z0-9_]+$' <<<"${output}")"
+  [[ "${listed}" -eq "${count}" ]] || { echo unknown; return; }
+  if grep -qE "^[[:space:]]+${SUBJ}\$" <<<"${output}"; then echo yes; else echo no; fi
+}
+
+# avc_loaded_groups <semodule-list-output>: print the loaded `ai_tools_<name>` modules' <name> parts, comma-joined,
+# from `semodule -l` output (bare names on EL9, a version column on later releases). Prints nothing when only the core
+# is
+# loaded.
+avc_loaded_groups() {
+  awk '{print $1}' <<<"$1" | sed -n 's/^ai_tools_\([a-z0-9_][a-z0-9_]*\)$/\1/p' | paste -sd, -
+}
+
+# avc_probe_status <log> <run-id> <window-start-epoch>: print the exit status the probe recorded in <log> for <run-id>,
+# or print a reason on stderr and return 1 when the log does not carry exactly one record for that run, has no exit
+# status, or started before the window. The log is written by the session, so it is read as data and only the parsed
+# number is printed.
+avc_probe_status() {
+  local log="$1" run_id="$2" window_start="$3" started status
+  [[ -f "${log}" && ! -L "${log}" ]] || { echo "no regular probe log at ${log}" >&2; return 1; }
+  [[ "$(grep -c "^Run id      : ${run_id}\$" "${log}")" -eq 1 ]] \
+    || { echo "the probe log does not name run ${run_id} exactly once" >&2; return 1; }
+  started="$(sed -n 's/^Started     : \([0-9][0-9]*\)$/\1/p' "${log}")"
+  [[ "${started}" =~ ^[0-9]+$ && "${started}" -ge "${window_start}" ]] \
+    || { echo "the probe did not start inside the audit window" >&2; return 1; }
+  status="$(sed -n 's/^Exit status : \([0-9]\)$/\1/p' "${log}")"
+  [[ "${status}" =~ ^[0-9]$ ]] || { echo "the probe log has no exit status (the probe did not finish)" >&2; return 1; }
+  echo "${status}"
 }
 
 ########################################
@@ -101,16 +174,18 @@ do_probe() {
     # and "SELinux disabled" -- a domain transition into ai_tools_t is impossible without SELinux running and the module
     # loaded.  The only remaining question here is enforcing vs permissive.
     #
-    # getenforce reads security_t (selinuxfs).  Under enforcing, ai_tools_t has no security_t read access, so getenforce
-    # and the direct cat both fail -> "unknown". Under permissive no access is blocked, so both CAN read it and return
-    # an explicit "Permissive"/"0".  Therefore, once past the context check:
+    # getenforce reads security_t (selinuxfs), which ai_tools_t is not granted, so under enforcing the read fails
+    # and the mode is "unknown". A failed read is not evidence of enforcement -- any other refusal of the read reads
+    # the same -- so "unknown" is accepted only with `--enforcing-confirmed`, which the root half adds to the command it
+    # prints once it has read Enforcing and found ai_tools_t absent from the permissive list:
     #
-    #   "unknown" = selinuxfs was protected = enforcing              -> allow
-    #   explicit "Enforcing" / "1"          = confirmed              -> allow
-    #   explicit "Permissive" / "0" / "Disabled" = confirmed non-enforcing -> warn
+    #   explicit "Enforcing" / "1"                    = confirmed              -> allow
+    #   "unknown" + `--enforcing-confirmed`           = confirmed by root      -> allow
+    #   "unknown" alone, or "Permissive"/"0"/"Disabled" = not confirmed        -> warn
     _mode="$(getenforce 2>/dev/null || cat /sys/fs/selinux/enforce 2>/dev/null || echo unknown)"
+    [[ "${_mode}" == unknown && "${ENFORCING_CONFIRMED:-0}" -eq 1 ]] && _mode=Enforcing
     case "${_mode}" in
-      Enforcing|1|unknown) : ;;  # confirmed enforcing, or selinuxfs protected (implies enforcing)
+      Enforcing|1) : ;;
       Permissive|Disabled|0|*)
         err "========================================================"
         err " SECURITY WARNING -- probe blocked"
@@ -153,9 +228,10 @@ do_probe() {
     _user="" _uid=""
   fi
 
-  local _ts _logfile
-  _ts="$(date '+%Y-%m-%d_%H-%M-%S')"
-  _logfile="${DIR}/audits/avc-denials-${_ts}.log"
+  local _ts _logfile _started
+  _started="$(date +%s)"
+  _ts="$(date -d "@${_started}" '+%Y-%m-%d_%H-%M-%S')"
+  _logfile="${DIR}/audits/avc-denials-${_ts}${RUN_ID:+-${RUN_ID}}.log"
   mkdir -p "${DIR}/audits"
 
   printf '\033[1;33m[avc-denials]\033[0m Console output is SUPPRESSED during probe execution.\n'
@@ -164,8 +240,13 @@ do_probe() {
   printf '\033[1;36m[avc-denials]\033[0m To review: bash %s --check-results\n' \
     "${BASH_SOURCE[0]##*/}"
 
-  # All output after this line goes to the audit log file only.
+  # All output after this line goes to the audit log file only; the summary at the end goes to the saved console.
+  exec {_console}>&1
   exec >"${_logfile}" 2>&1
+  # The root half binds this log to its run by these two lines and the `Exit status` line in the footer
+  # (avc_probe_status). A probe run without `--run-id` is not bound to any root run.
+  printf 'Run id      : %s\n' "${RUN_ID:-none}"
+  printf 'Started     : %s\n' "${_started}"
 
   # ── Helper functions (output already redirected to log) ───────────────────
   # _R: mask real username/uid in display strings; actual paths used for access are unaffected.
@@ -175,60 +256,159 @@ do_probe() {
     [[ -n "${_uid:-}"  ]] && _s="${_s//${_uid}/[UID]}"
     printf '%s' "${_s}"
   }
-  _why="" _type=""
+  _why="" _type="" _floor="" _group=""
+  N_PASS=0 N_FAIL=0 N_INCONCLUSIVE=0 N_SKIP=0 N_FLOOR=0 N_REPORTED=0
 
-  # check: execute one access attempt and log code / type / rationale / result.
-  check() {
-    local _c="$1" _tag="$2" _desc="$3"; shift 3
-    printf '\n[%s] %s  [%s]\n' "${_c}" "$(_R "${_desc}")" "${_tag}"
+  # _attempt <cmd...>: run one access attempt with its output discarded and its stderr kept. Sets _rc to the attempt's
+  # exit status and _reason to avc_attempt_reason's reading of it, masked.
+  _attempt() {
+    local _err
+    _err="$("$@" </dev/null 2>&1 >/dev/null)"
+    _rc=$?
+    _reason="$(_R "$(avc_attempt_reason "${_rc}" "${_err}")")"
+  }
+
+  # _result <verdict> <text>: print the result line and count it.
+  _result() {
+    case "$1" in
+      PASS)         N_PASS=$((N_PASS + 1)) ;;
+      FAIL)         N_FAIL=$((N_FAIL + 1)) ;;
+      INCONCLUSIVE) N_INCONCLUSIVE=$((N_INCONCLUSIVE + 1)) ;;
+      SKIP)         N_SKIP=$((N_SKIP + 1)) ;;
+      FLOOR)        N_FLOOR=$((N_FLOOR + 1)) ;;
+      REPORTED)     N_REPORTED=$((N_REPORTED + 1)) ;;
+    esac
+    printf '  Result: %s -- %s\n' "$1" "$2"
+  }
+
+  _header() {
+    printf '\n[%s] %s  [%s]\n' "$1" "$(_R "$3")" "$2"
     [[ -n "${_type:-}" ]] && printf '  Type:   %s\n' "${_type}"
     [[ -n "${_why:-}"  ]] && printf '  Why:    %s\n' "${_why}"
-    if "$@" </dev/null >/dev/null 2>&1; then
-      printf '  Result: *** FAIL -- access SUCCEEDED -- investigate immediately ***\n'
+    return 0
+  }
+
+  # _group_expected: 0 when the root half listed ${_group} as loaded, 1 when it listed groups without it, 2
+  # when the probe was not told which groups are loaded (the session cannot read the module store).
+  _group_expected() {
+    [[ -n "${GROUPS_LOADED+set}" ]] || return 2
+    [[ ",${GROUPS_LOADED}," == *",${_group},"* ]]
+  }
+
+  # check: execute one access attempt that the policy must refuse. Set _group first for an access an optional group
+  # grants: the expected outcome then follows the loaded set the root half passed with `--groups`.
+  check() {
+    local _c="$1" _tag="$2" _desc="$3"; shift 3
+    _header "${_c}" "${_tag}" "${_desc}"
+    _attempt "$@"
+    if [[ -n "${_group}" ]]; then
+      local _exp=0; _group_expected || _exp=$?
+      case "${_exp}:${_reason}" in
+        0:allowed) _result PASS "allowed; the ${_group} group is loaded" ;;
+        0:denied)  _result FAIL "denied although the root half listed the ${_group} group as loaded" ;;
+        1:allowed) _result FAIL "access SUCCEEDED with the ${_group} group not loaded -- investigate" ;;
+        1:denied)  _result PASS "denied; the ${_group} group is not loaded" ;;
+        2:allowed) _result REPORTED "allowed (the ${_group} group is loaded, or the boundary has a gap; pass --groups)" ;;
+        2:denied)  _result REPORTED "denied (the ${_group} group is not loaded; pass --groups to assert it)" ;;
+        *:absent)  _result SKIP "the path is absent on this host" ;;
+        *)         _result INCONCLUSIVE "not exercised: ${_reason}" ;;
+      esac
     else
-      printf '  Result: PASS -- denied as expected\n'
+      case "${_reason}" in
+        allowed) _result FAIL "access SUCCEEDED -- investigate immediately" ;;
+        denied)  _result PASS "denied as expected" ;;
+        absent)  _result SKIP "the path is absent on this host" ;;
+        *)       _result INCONCLUSIVE "not exercised: ${_reason}" ;;
+      esac
     fi
-    _why="" _type="" _floor=""
+    _why="" _type="" _floor="" _group=""
   }
 
   # skip_check: record a skipped check (path/tool absent on this system).
   skip_check() {
-    local _c="$1" _tag="$2" _desc="$3" _rsn="$4"
-    printf '\n[%s] %s  [%s]\n' "${_c}" "$(_R "${_desc}")" "${_tag}"
-    [[ -n "${_type:-}" ]] && printf '  Type:   %s\n' "${_type}"
-    [[ -n "${_why:-}"  ]] && printf '  Why:    %s\n' "${_why}"
-    printf '  Result: SKIP -- %s\n' "${_rsn}"
-    _why="" _type="" _floor=""
+    _header "$1" "$2" "$3"
+    _result SKIP "$4"
+    _why="" _type="" _floor="" _group=""
   }
 
-  # floor_check: like check() but when access succeeds it records BASE-POLICY FLOOR instead of FAIL. Use when the grant
-  # comes from a base-policy attribute rule that cannot be removed or overridden from ai_tools.te, and a separate
+  # floor_check: like check() but an access that succeeds is recorded as BASE-POLICY FLOOR instead of FAIL. Use
+  # where the grant comes from a base-policy attribute rule or an interface the module calls on purpose, and a separate
   # mitigation exists. Set _floor (and optionally _type/_why) before calling.
   floor_check() {
     local _c="$1" _tag="$2" _desc="$3"; shift 3
-    printf '\n[%s] %s  [%s]\n' "${_c}" "$(_R "${_desc}")" "${_tag}"
-    [[ -n "${_type:-}"  ]] && printf '  Type:   %s\n' "${_type}"
-    [[ -n "${_why:-}"   ]] && printf '  Why:    %s\n' "${_why}"
-    if "$@" </dev/null >/dev/null 2>&1; then
-      printf '  Result: BASE-POLICY FLOOR -- access succeeds; not fixable from ai_tools.te.\n'
-      [[ -n "${_floor:-}" ]] && printf '  Mitigation: %s\n' "${_floor}"
-    else
-      printf '  Result: PASS -- denied as expected (base policy tightened)\n'
-    fi
-    _why="" _type="" _floor=""
+    _header "${_c}" "${_tag}" "${_desc}"
+    _attempt "$@"
+    case "${_reason}" in
+      allowed) _result FLOOR "access succeeds; granted by the base policy or a deliberate interface"
+               [[ -n "${_floor:-}" ]] && printf '  Mitigation: %s\n' "${_floor}" ;;
+      denied)  _result PASS "denied (base policy tightened)" ;;
+      absent)  _result SKIP "the path is absent on this host" ;;
+      *)       _result INCONCLUSIVE "not exercised: ${_reason}" ;;
+    esac
+    _why="" _type="" _floor="" _group=""
   }
 
-  # check_tcp: attempt TCP connect to 127.0.0.1:<port> and log the result.
+  # _py <operation> <args...>: one syscall-level attempt through python3, which reports the errno the kernel returned
+  # and does not change any file or setting on the host:
+  #   unix <path> <stream|dgram>  connect(2) to a unix socket; no message is sent
+  #   tcp <port>                  connect(2) to 127.0.0.1:<port>; closed at once
+  #   write <path>                open(2) O_WRONLY|O_APPEND without O_CREAT, closed without a write -- the write check
+  #                               on an existing file, which neither truncates nor creates it
+  #   dirwrite <dir>              access(2) W_OK on a directory -- the write check a create would meet, with no entry
+  #                               created
+  # Exits 0 when the call succeeded, and on failure prints "<errno name>: <message>" to stderr and exits 1, so _attempt
+  # reads EACCES/EPERM as a denial and every other errno as not exercised.
+  _py() {
+    python3 -I - "$@" <<'PY'
+import errno, os, socket, sys
+op, args = sys.argv[1], sys.argv[2:]
+try:
+    if op == "unix":
+        kind = socket.SOCK_STREAM if args[1] == "stream" else socket.SOCK_DGRAM
+        s = socket.socket(socket.AF_UNIX, kind); s.settimeout(2)
+        try: s.connect(args[0])
+        finally: s.close()
+    elif op == "tcp":
+        s = socket.socket(); s.settimeout(2)
+        try: s.connect(("127.0.0.1", int(args[0])))
+        finally: s.close()
+    elif op == "write":
+        os.close(os.open(args[0], os.O_WRONLY | os.O_APPEND))
+    elif op == "dirwrite":
+        if not os.path.isdir(args[0]):
+            raise FileNotFoundError(errno.ENOENT, "no such directory", args[0])
+        if not os.access(args[0], os.W_OK):
+            raise PermissionError(errno.EACCES, "Permission denied (access W_OK)", args[0])
+except OSError as e:
+    print(f"{errno.errorcode.get(e.errno, e.errno)}: {e.strerror}", file=sys.stderr); sys.exit(1)
+except socket.timeout:
+    print("ETIMEDOUT: timed out", file=sys.stderr); sys.exit(1)
+PY
+  }
+
+  # check_tcp: connect to 127.0.0.1:<port>. SELinux checks name_connect before a SYN leaves, so EACCES is the policy
+  # refusing the port type, and ECONNREFUSED or a completed connect both mean the policy PERMITTED it -- a refused
+  # connection is a missing listener, not a denial. Set _group for a port type an optional group grants.
   check_tcp() {
     local _c="$1" _port="$2" _label="$3"
-    printf '\n[%s] connect 127.0.0.1:%s (%s)  [SELinux]\n' "${_c}" "${_port}" "${_label}"
-    [[ -n "${_why:-}" ]] && printf '  Why:    %s\n' "${_why}"
-    if timeout 2 bash -c "exec 3<>/dev/tcp/127.0.0.1/${_port}" 2>/dev/null; then
-      printf '  Result: TCP layer connected (SELinux port-type AVC should still be logged -- verify)\n'
-    else
-      printf '  Result: PASS -- connection refused/denied as expected\n'
+    _header "${_c}" SELinux "connect 127.0.0.1:${_port} (${_label})"
+    if ! command -v python3 >/dev/null 2>&1; then
+      _result SKIP "python3 absent (needed to read the connect errno)"
+      _why="" _type="" _group=""; return
     fi
-    _why=""
+    _attempt _py tcp "${_port}"
+    [[ "${_reason}" == ECONNREFUSED:* || "${_reason}" == ETIMEDOUT:* ]] && _reason=allowed
+    local _exp=1
+    [[ -n "${_group}" ]] && { _exp=0; _group_expected || _exp=$?; }
+    case "${_exp}:${_reason}" in
+      0:allowed)   _result PASS "permitted; the ${_group} group grants this port type" ;;
+      2:allowed)   _result REPORTED "permitted (the ${_group} group grants this port type when loaded; pass --groups)" ;;
+      *:allowed)   _result FAIL "name_connect PERMITTED for this port type -- investigate" ;;
+      *:denied)    _result PASS "name_connect denied" ;;
+      *:absent)    _result SKIP "nothing to connect to" ;;
+      *)           _result INCONCLUSIVE "not exercised: ${_reason}" ;;
+    esac
+    _why="" _type="" _group=""
   }
 
   # section: print a labelled section header.
@@ -251,12 +431,16 @@ do_probe() {
   printf '\nCommand output is NOT stored. Only pass/fail results are recorded.\n'
   printf 'User identity in paths masked: /home/%s -> /home/[USER]  /run/user/%s -> /run/user/[UID]\n' \
     "${_user:-USER}" "${_uid:-UID}"
+  printf 'Groups    : %s\n' "${GROUPS_LOADED-not passed (group checks are reported, not asserted)}"
   printf '\nResult codes:\n'
-  printf '  PASS  = denied as expected (policy working correctly)\n'
-  printf '  FAIL  = access SUCCEEDED -- investigate immediately\n'
-  printf '  SKIP  = path/tool absent; no AVC generated (expected)\n'
-  printf '  FLOOR = access succeeds via base-policy attribute grant; not fixable from\n'
-  printf '          ai_tools.te (no SELinux subtract/deny for attribute rules); see Mitigation.\n'
+  printf '  PASS         = the expected outcome: denied with EACCES/EPERM, or allowed where a\n'
+  printf '                 loaded group grants it\n'
+  printf '  FAIL         = the unexpected outcome -- investigate immediately\n'
+  printf '  INCONCLUSIVE = the attempt failed for another reason (absent tool, malformed\n'
+  printf '                 input, refused connection), so the check was not exercised\n'
+  printf '  SKIP         = path/tool absent; no AVC generated (expected)\n'
+  printf '  FLOOR        = access succeeds via a base-policy or deliberate grant; see Mitigation\n'
+  printf '  REPORTED     = a group check run without --groups: the outcome is recorded, not judged\n'
   printf '\nTest code format: [CAT-NNN]\n'
   printf '  GRP=group surface  PRO=/proc  HOM=home  CST=container storage\n'
   printf '  PRT=port  MTA=MTA exec  CRD=credentials  ESC=escalation\n'
@@ -279,26 +463,32 @@ boundary has a gap. These are plain deny (not dontaudit'd); AVCs log without -DB
 
   _type="systemd_systemctl_exec_t (exec)"
   _why="Even read-only, systemctl maps every running service -- databases, backup agents, security tools -- and reveals whether auditd/sshd are active. With write access it can restart or disable security daemons, silencing audit logging entirely."
+  _group=systemd
   check GRP-001 SELinux "exec systemctl status" systemctl --no-pager status
 
   _type="journalctl_exec_t (exec)"
   _why="journald aggregates system-wide logs: auth events, sudo invocations, SSH sessions, and application errors that often include connection strings or API tokens. A reader can reconstruct all user activity and harvest inadvertently logged secrets."
+  _group=systemd
   check GRP-002 SELinux "exec journalctl -n1" journalctl --no-pager -n1
 
   _type="rpm_exec_t (exec)"
   _why="rpm -qa lists every installed package and version, mapping CVE exposure, identifying exploit targets, and revealing the system's patch state -- essential preparation before a privilege-escalation attempt."
+  _group=pkgmgmt
   check GRP-003 SELinux "exec rpm -qa" rpm -qa
 
   _type="bin_t (exec allowed); firewalld_t D-Bus (denied)"
   _why="Listing firewall zones reveals which ports and services are network-exposed. This is the first step in planning lateral movement, identifying targets for exploitation, and determining whether outbound exfiltration routes exist."
+  _group=netadmin
   check GRP-004 SELinux "exec firewall-cmd --list-zones" firewall-cmd --list-zones
 
   _type="NetworkManager_t D-Bus (denied)"
   _why="nmcli exposes all interfaces, IP addresses, active VPN tunnels, and DNS config -- mapping the full network topology from the agent's vantage point for lateral movement and exfiltration route planning."
+  _group=netadmin
   check GRP-005 SELinux "exec nmcli general status" nmcli -t general status
 
   _type="container_runtime_exec_t (exec)"
   _why="podman info reveals the container runtime config, storage driver, and registry list. Container runtime access is a known escape vector and the prerequisite for socket-API abuse (see LAT-002)."
+  _group=podman
   check GRP-006 SELinux "exec podman info" podman info
 
   # tmpmap is a map grant, not an exec: create a /tmp file (born ai_tools_tmp_t) and mmap it. With the group off the map
@@ -306,6 +496,7 @@ boundary has a gap. These are plain deny (not dontaudit'd); AVCs log without -DB
   _type="ai_tools_tmp_t (file map)"
   _why="dotnet build and NuGet restore mmap a shared-memory mutex file under /tmp/.dotnet/shm, and git in a /tmp working tree mmaps its pack/index. Without the optional tmpmap group ai_tools_t has no map on ai_tools_tmp_t, so the mmap is denied. A success here means the tmpmap group is enabled."
   if command -v python3 >/dev/null 2>&1; then
+    _group=tmpmap
     check GRP-007 SELinux "mmap a /tmp file" python3 -c '
 import mmap, os, tempfile
 fd, path = tempfile.mkstemp(dir="/tmp")
@@ -325,6 +516,7 @@ finally:
   _why="A JIT writes generated native code to an anonymous memfd file and maps it PROT_EXEC to run it. Without the optional memfdexec group no tmpfs type_transition applies, so the memfd is born tmpfs_t and ai_tools_t holds execmem (anonymous RWX) but no execute on any file mapping -- the executable mapping is denied and any executable/host project (dotnet run, ASP.NET Core, xunit.v3) fails. A success here means the memfdexec group is enabled."
   if command -v python3 >/dev/null 2>&1 \
         && python3 -c 'import os,sys; sys.exit(0 if hasattr(os,"memfd_create") else 1)' 2>/dev/null; then
+    _group=memfdexec
     check GRP-008 SELinux "mmap a memfd PROT_EXEC" python3 -c '
 import mmap, os
 fd = os.memfd_create("avc-memfdexec")
@@ -344,6 +536,7 @@ finally:
   _type="tmp_t sock_file/fifo_file create + unix_stream_socket connectto"
   _why=".NET opens a diagnostic unix socket and a CLR debug FIFO under /tmp, multi-node MSBuild opens worker pipes there, and Microsoft.Testing.Platform connects its runner to the test host over a unix stream socket. Without the optional localipc SELinux group ai_tools_t cannot create a sock_file/fifo_file in tmp_t, nor connectto its own stream socket, so the IPC fails: dotnet test reports it cannot connect and the build hangs. A success here means localipc is enabled."
   if command -v python3 >/dev/null 2>&1; then
+    _group=localipc
     check GRP-009 SELinux "create + connect a /tmp unix socket, create a FIFO" python3 -c '
 import socket, os, tempfile
 d = tempfile.mkdtemp(dir="/tmp"); p = os.path.join(d, "avc.sock")
@@ -431,6 +624,7 @@ were not actively probed until now. :6443 may be unreserved and appear as NEW."
   check_tcp PRT-004 5432 "postgresql_port_t"
 
   _why="Port 6443 is the Kubernetes API server. Connecting with any available bearer token (often automounted in pods) grants control over the entire cluster: deploy privileged pods, read all secrets, escape to underlying nodes."
+  _group=localipc
   check_tcp PRT-005 6443 "cluster_port_t / unreserved"
 
   section "SECTION F: MTA EXEC" \
@@ -506,7 +700,7 @@ user_runtime_t is the SELinux gate."
       _why="The D-Bus session bus connects to the user's secret-service keyring (stored passwords/tokens), browser automation, and any running application. Connecting here gives full user-session IPC access without knowing any credential."
       check CRD-008 SELinux \
         "$(_R "connect /run/user/${_uid}/bus (D-Bus session socket)")" \
-        bash -c "exec 3<>/run/user/${_uid}/bus"
+        _py unix "/run/user/${_uid}/bus" stream
     else
       _type="user_runtime_t:sock_file"
       _why="D-Bus session socket gives access to the user's keyring and running applications."
@@ -566,16 +760,16 @@ coredumps to an attacker-controlled program running as the crashing process uid.
 sysctl_t / sysctl_kernel_t write is the SELinux gate."
 
   _type="sysctl_t:file (write; not granted)"
-  _why="sysrq-trigger accepts single-character keys: b=reboot, c=crash, o=power-off, f=OOM-kill. 'h' is safe (prints help); SELinux must block the write before the kernel processes it. A PASS here confirms the write path is blocked regardless of key."
+  _why="sysrq-trigger accepts single-character keys: b=reboot, c=crash, o=power-off, f=OOM-kill. The probe opens it for writing and closes it without writing a key, so a gap shows as FAIL without the kernel acting on anything."
   check ESC-004 SELinux \
-    "write /proc/sysrq-trigger ('h'=help; safe key; SELinux must block before kernel sees it)" \
-    bash -c 'printf h > /proc/sysrq-trigger'
+    "open /proc/sysrq-trigger for writing, no key written" \
+    _py write /proc/sysrq-trigger
 
   _type="sysctl_kernel_t:file (write; not granted)"
-  _why="Setting core_pattern to '|/suid-binary %e' means the next suid crash pipes its core to the attacker's handler running as root. This is a well-documented, reliable, no-exploit-needed local privilege escalation requiring only write access to this file."
+  _why="Setting core_pattern to '|/suid-binary %e' means the next suid crash pipes its core to the attacker's handler running as root. This is a well-documented, reliable, no-exploit-needed local privilege escalation requiring only write access to this file. The probe opens it for append and closes it without writing, so the pattern in force is left as it is."
   check ESC-005 SELinux \
-    "write /proc/sys/kernel/core_pattern (suid coredump privesc vector)" \
-    bash -c 'printf "|/bin/false %%e" > /proc/sys/kernel/core_pattern'
+    "open /proc/sys/kernel/core_pattern for append, no write (suid coredump privesc vector)" \
+    _py write /proc/sys/kernel/core_pattern
 
   section "SECTION N: RAW BLOCK DEVICE READ  [goal 2]" \
 "Block device access bypasses all filesystem abstractions: permissions, ACLs,
@@ -638,14 +832,14 @@ delayed payload. user_cron_spool_t and system_cron_spool_t are the SELinux gates
   _type="user_cron_spool_t:dir (write; not granted)"
   _why="Per-user crontab entries execute on schedule as the named user. Writing here plants a payload that persists after session termination, is invisible to the current process tree, and runs even after this agent session ends."
   check PRS-001 SELinux \
-    "write /var/spool/cron/ (user_cron_spool_t; per-user crontab persistence)" \
-    bash -c 'printf "* * * * * id\n" > /var/spool/cron/ai-tools-probe'
+    "write check on /var/spool/cron/, no entry created (user_cron_spool_t; per-user crontab persistence)" \
+    _py dirwrite /var/spool/cron
 
   _type="system_cron_spool_t:dir (write; not granted)"
   _why="System cron drop-ins execute as root or any specified user and survive reboots. They are difficult to detect in a running system and provide persistent privileged code execution without any further vulnerability."
   check PRS-002 SELinux \
-    "write /etc/cron.d/ (system_cron_spool_t; system-wide cron persistence)" \
-    bash -c 'printf "* * * * * root id\n" > /etc/cron.d/ai-tools-probe'
+    "write check on /etc/cron.d/, no entry created (system_cron_spool_t; system-wide cron persistence)" \
+    _py dirwrite /etc/cron.d
 
   section "SECTION R: SHELL STARTUP + LIBRARY PRELOAD  [goal 3]" \
 "Writing to /etc/profile.d/ injects code into every login shell for every user.
@@ -655,14 +849,20 @@ linked process. Both are etc_t; ai_tools_t has read-etc but not write-etc."
   _type="etc_t:dir (write; not granted -- read granted by files_read_etc_files)"
   _why="Files in /etc/profile.d/ are sourced by every interactive login shell for every user including root. Writing here injects code into every subsequent admin session and can capture environment variables (including credentials) at login time."
   check PRS-003 SELinux \
-    "write /etc/profile.d/ (etc_t write; code injected into every login shell)" \
-    bash -c 'printf "# probe\n" > /etc/profile.d/ai-tools-probe.sh'
+    "write check on /etc/profile.d/, no entry created (etc_t write; code injected into every login shell)" \
+    _py dirwrite /etc/profile.d
 
   _type="etc_t:file (write; not granted)"
   _why="/etc/ld.so.preload lists shared libraries loaded into EVERY dynamically-linked process before any other library -- including suid binaries and security tools. Writing a malicious .so here achieves system-wide code injection with no further vulnerability."
-  check PRS-004 SELinux \
-    "write /etc/ld.so.preload (etc_t write; injects .so into every ELF process)" \
-    bash -c 'printf "/tmp/x.so\n" > /etc/ld.so.preload'
+  if [[ -e /etc/ld.so.preload ]]; then
+    check PRS-004 SELinux \
+      "open /etc/ld.so.preload for append, no write (etc_t write; injects .so into every ELF process)" \
+      _py write /etc/ld.so.preload
+  else
+    check PRS-004 SELinux \
+      "write check on /etc, where /etc/ld.so.preload would be created (etc_t write)" \
+      _py dirwrite /etc
+  fi
 
   section "SECTION S: SYSTEMD UNIT PERSISTENCE  [goal 3]" \
 "Systemd unit files define services that start at boot and restart on failure.
@@ -672,8 +872,8 @@ into the service list. systemd_unit_file_t write is the SELinux gate."
   _type="systemd_unit_file_t:dir (write; not granted)"
   _why="A unit in /etc/systemd/system/ starts at every boot, restarts on failure, runs as any specified user, and is logged identically to legitimate services. It is the stealthiest persistence mechanism: requires root to remove and is indistinguishable from system services."
   check PRS-005 SELinux \
-    "write /etc/systemd/system/ (systemd_unit_file_t; reboot-persistent service)" \
-    bash -c 'printf "[Unit]\nDescription=probe\n" > /etc/systemd/system/ai-tools-probe.service'
+    "write check on /etc/systemd/system/, no entry created (systemd_unit_file_t; reboot-persistent service)" \
+    _py dirwrite /etc/systemd/system
 
   section "SECTION T: D-BUS SYSTEM SOCKET  [goal 4]" \
 "The D-Bus system socket /run/dbus/system_bus_socket is the IPC backbone for
@@ -684,9 +884,10 @@ exec'ing their binaries. system_dbusd_var_run_t connectto is the SELinux gate."
   _type="system_dbusd_var_run_t:sock_file (connectto)"
   _why="D-Bus system bus gives direct API access to all system services: NetworkManager (change routing/DNS), firewalld (open ports), systemd-logind (manage sessions), accountsservice (read user details). This bypasses the group policy layer entirely -- no exec of restricted binaries needed."
   if [[ -S /run/dbus/system_bus_socket ]]; then
-    check LAT-001 SELinux \
-      "connect /run/dbus/system_bus_socket (system_dbusd_var_run_t connectto)" \
-      bash -c 'exec 3<>/run/dbus/system_bus_socket'
+    _floor="Connecting is granted to every nsswitch_domain (auth_use_nsswitch in ai_tools.te), so a session reaches the system bus. What it may call there is decided per method by the D-Bus policy and polkit, which this connect does not exercise."
+    floor_check LAT-001 SELinux \
+      "connect /run/dbus/system_bus_socket (system_dbusd_t connectto; no message sent)" \
+      _py unix /run/dbus/system_bus_socket stream
   else
     skip_check LAT-001 SELinux \
       "connect /run/dbus/system_bus_socket" "socket absent"
@@ -705,7 +906,7 @@ the container_runtime_exec_t deny."
   _why="The container daemon socket API allows creating privileged containers that bind-mount the host root filesystem, executing into existing containers holding production secrets, and running arbitrary images. This is the most common container-escape path and needs no binary exec."
   check LAT-002 SELinux \
     "connect /run/podman/podman.sock (container_var_run_t; AVC if socket exists+labelled)" \
-    bash -c 'exec 3<>/run/podman/podman.sock'
+    _py unix /run/podman/podman.sock stream
 
   section "SECTION V: SYSTEMD JOURNAL SOCKET  [goal 4]" \
 "The journal socket accepts structured log messages. Writing to it lets an agent
@@ -715,9 +916,10 @@ syslogd_var_run_t connectto is the SELinux gate."
   _type="syslogd_var_run_t:sock_file (connectto)"
   _why="Writing to the journal socket injects arbitrary log entries with any timestamp, unit name, and priority. An attacker fabricates a false audit trail, masks malicious activity, and confuses incident response. It can also trigger false alerts as a distraction."
   if [[ -S /run/systemd/journal/socket ]]; then
-    check LAT-003 SELinux \
-      "connect /run/systemd/journal/socket (syslogd_var_run_t; forge log entries)" \
-      bash -c 'exec 3<>/run/systemd/journal/socket'
+    _floor="Logging is granted on purpose (the logging interface in ai_tools.te and syslog_client_type), so a session can write journal entries. journald stamps the trusted fields (_PID, _UID, _SYSTEMD_UNIT, _SELINUX_CONTEXT) from the peer's credentials, which a sender cannot set, and a sender cannot remove records."
+    floor_check LAT-003 SELinux \
+      "connect /run/systemd/journal/socket (datagram; no message sent)" \
+      _py unix /run/systemd/journal/socket dgram
   else
     skip_check LAT-003 SELinux \
       "connect /run/systemd/journal/socket" "socket absent"
@@ -775,17 +977,28 @@ manipulate traffic. net_bind_service capability is the SELinux gate."
   printf 'END OF PROBE AUDIT TRAIL\n'
   printf '================================================================\n'
   printf 'Completed : %s UTC\n' "$(date -u '+%Y-%m-%d %H:%M:%S')"
+  local _summary
+  _summary="$(printf 'PASS=%d FAIL=%d INCONCLUSIVE=%d SKIP=%d FLOOR=%d REPORTED=%d' \
+    "${N_PASS}" "${N_FAIL}" "${N_INCONCLUSIVE}" "${N_SKIP}" "${N_FLOOR}" "${N_REPORTED}")"
+  printf 'Summary   : %s\n' "${_summary}"
   printf '\nNext steps:\n'
   printf '  1. Let this turn finish (Stop sweep AVCs land), then press Enter in root terminal.\n'
   printf '  2. Sections A-F: AVCs appear under -DB only (dontaudit'"'"'d). Expected.\n'
-  printf '  3. Sections G-X: AVCs log without -DB and appear as NEW in avc-analyze.\n'
-  printf '     Per confirmed NEW type:\n'
-  printf '       a. Add dontaudit rule to ai_tools.te\n'
-  printf '       b. Add type to BOUNDARY_NAMED_RE in avc-analyze.sh\n'
-  printf '       c. Rebuild: sudo selinux/install-selinux.sh install\n'
-  printf '       d. Re-run until NEW is empty.\n'
-  printf '  4. Any FAIL result requires immediate investigation.\n'
+  printf '  3. Sections G-X: AVCs log without -DB. A confirmed boundary type is added to\n'
+  printf '     BOUNDARY_NAMED_RE in avc-analyze.sh so it files as EXPECTED BOUNDARY. A\n'
+  printf '     dontaudit is for a flood alone: the core policy keeps breach attempts\n'
+  printf '     visible on purpose, and a silenced denial is not evidence the boundary holds.\n'
+  printf '  4. Any FAIL result requires immediate investigation; an INCONCLUSIVE check\n'
+  printf '     did not run its access and needs its prerequisite fixed before it counts.\n'
   printf '================================================================\n'
+
+  # Exit status: 1 when a check FAILED, 3 when none failed and a check was INCONCLUSIVE, 0 otherwise. (2 is the abort
+  # before any check ran.) The trail records it for the root half.
+  local _status=0
+  if (( N_FAIL > 0 )); then _status=1; elif (( N_INCONCLUSIVE > 0 )); then _status=3; fi
+  printf 'Exit status : %d\n' "${_status}"
+  printf '[avc-denials] %s -- full trail: %s\n' "${_summary}" "${_logfile}" >&"${_console}"
+  exit "${_status}"
 }
 
 ########################################
@@ -821,14 +1034,41 @@ do_run() {
     Permissive) note "system is Permissive -- denials will LOG but not BLOCK. Still a valid log test." ;;
     *) err "SELinux appears Disabled -- nothing to verify."; exit 1 ;;
   esac
+  # One read of the module store serves the core check and the group list. A failed read refuses the run: an empty list
+  # would tell the probe that no group is loaded, and every group check would then be judged against that.
+  local modules
+  modules="$(semodule -l 2>&1)" || { err "semodule -l failed; the loaded modules are unknown:"; err "${modules}"; exit 1; }
   # RHEL9 `semodule -l` prints the bare module name (no version column), so match the name at EOL or before whitespace
   # to cover both old and new output.
-  semodule -l 2>/dev/null | grep -qE '^ai_tools($|[[:space:]])' \
+  grep -qE '^ai_tools($|[[:space:]])' <<<"${modules}" \
     || { err "core ai_tools module not loaded (install-selinux.sh install)"; exit 1; }
-  if command -v seinfo >/dev/null 2>&1 && seinfo --permissive -x 2>/dev/null | grep -qw "${SUBJ}"; then
+  # The loaded optional groups, which the session cannot read (the module store is root-only). Passed to the probe
+  # so its group checks assert the outcome this configuration should give.
+  local groups
+  groups="$(avc_loaded_groups "${modules}")"
+
+  # Enforcement is confirmed only from a successful, well-formed seinfo query that omits ai_tools_t; an absent tool
+  # or a failed or malformed query leaves it unconfirmed, and the probe then warns before running.
+  local enforcing_confirmed=0 permissive=unknown seinfo_out seinfo_rc
+  if command -v seinfo >/dev/null 2>&1; then
+    seinfo_out="$(seinfo --permissive -x 2>&1)"; seinfo_rc=$?
+    permissive="$(avc_permissive_state "${seinfo_rc}" "${seinfo_out}")"
+    [[ "${permissive}" == unknown ]] \
+      && err "seinfo --permissive exited ${seinfo_rc} or printed an unexpected listing; ${SUBJ}'s mode is unknown."
+  else
+    err "seinfo not found (setools-console); ${SUBJ}'s permissive state cannot be read."
+  fi
+  if [[ "${permissive}" == yes ]]; then
     note "NOTE: ${SUBJ} is a PERMISSIVE domain -- its denials log but do not block."
     note "      Flip to enforcing (remove 'permissive ai_tools_t;') for a true test."
   fi
+  [[ "$(getenforce 2>/dev/null)" == Enforcing && "${permissive}" == no ]] && enforcing_confirmed=1
+  note "enforcement: getenforce=$(getenforce 2>/dev/null || echo unknown) ${SUBJ}-permissive=${permissive}"
+  note "groups loaded: ${groups:-none}"
+  # The conditional Booleans that widen ai_tools_t without a module change (the confinement rule lists what each
+  # grants), recorded so the run states the policy it verified.
+  note "booleans: $(getsebool nis_enabled domain_can_mmap_files authlogin_nsswitch_use_ldap kerberos_enabled 2>&1 \
+    | tr '\n' ';' || true)"
 
   # auditd must be running; without it ausearch reports an empty result even when denials fire. The group-disabled exec
   # denials (systemctl, rpm, podman) are NOT dontaudit'd and should always appear -- an empty log for those is
@@ -848,14 +1088,22 @@ do_run() {
   restore_dontaudit() { note "restoring dontaudit (semodule -B) ..."; semodule -B >/dev/null 2>&1 && note "dontaudit restored." || err "semodule -B FAILED -- run 'sudo semodule -B' by hand to re-silence."; }
   trap restore_dontaudit EXIT INT TERM
   # Capture START before `semodule -DB`: the policy reload can trigger a log rotation at the exact same second, causing
-  # `ausearch -ts <START>` to miss the new log file.
-  START="$(date '+%m/%d/%Y %H:%M:%S')"
+  # `ausearch -ts <START>` to miss the new log file. Date and time are kept as two words, the form ausearch takes,
+  # and the date in this locale's %x, the format its parser reads.
+  local start_epoch run_id
+  start_epoch="$(date +%s)"
+  START_DATE="$(date -d "@${start_epoch}" '+%x')"
+  START_TIME="$(date -d "@${start_epoch}" '+%H:%M:%S')"
+  run_id="$(od -An -tx1 -N8 /dev/urandom | tr -d ' \n')"
+  [[ "${run_id}" =~ ^[0-9a-f]{16}$ ]] || { err "could not draw a run id from /dev/urandom"; exit 1; }
   step "disabling dontaudit system-wide (semodule -DB) so boundary denials are logged"
   semodule -DB >/dev/null 2>&1 || { err "semodule -DB failed"; exit 1; }
   note "dontaudit disabled."
   echo
   step "ACTION REQUIRED -- in a CONFINED claude (approved project), run:"
-  printf '\n      bash %s/avc-denials.sh probe\n\n' "${DIR}"
+  local probe_flags=" --run-id ${run_id} --groups ${groups:-none}"
+  (( enforcing_confirmed )) && probe_flags+=" --enforcing-confirmed"
+  printf '\n      bash %s/avc-denials.sh probe%s\n\n' "${DIR}" "${probe_flags}"
   note "Let the claude turn finish (so any Stop-sweep AVCs land too)."
   read -r -p $'\033[1;32m[avc-denials]\033[0m press Enter when the probe + turn have finished... ' _ </dev/tty || true
   echo
@@ -863,10 +1111,44 @@ do_run() {
   # flush cycle); without this, ausearch reads the log file before the last few AVCs are written.
   sleep 2
 
-  step "analyzing ai_tools_t denials since ${START}"
-  "${DIR}/avc-analyze.sh" -ts "${START}"
-  # trap restores dontaudit on return.
+  step "analyzing ai_tools_t denials since ${START_DATE} ${START_TIME}"
+  local analyze_rc probe_status probe_logs
+  "${DIR}/avc-analyze.sh" -ts "${START_DATE}" "${START_TIME}"
+  analyze_rc=$?
+
+  # The run passes only when the analysis searched the window and the probe bound to this run finished clean.
+  # avc-analyze.sh reads the audit log alone, which does not show whether the probe ran, ran inside the window, or found
+  # a FAIL: an access that succeeded leaves no AVC.
+  step "run result"
+  shopt -s nullglob
+  probe_logs=("${DIR}"/audits/avc-denials-*-"${run_id}".log)
+  shopt -u nullglob
+  if (( ${#probe_logs[@]} == 1 )); then
+    probe_status="$(avc_probe_status "${probe_logs[0]}" "${run_id}" "${start_epoch}")" || probe_status=""
+  else
+    err "found ${#probe_logs[@]} probe logs for run ${run_id}; expected one."
+    probe_status=""
+  fi
+  case "${probe_status}" in
+    0) note "probe: clean (run ${run_id})" ;;
+    1) err "probe: a check FAILED -- read the trail with --check-results" ;;
+    3) err "probe: a check was INCONCLUSIVE -- its access was not exercised" ;;
+    "") err "probe: no finished probe is bound to run ${run_id}" ;;
+    *) err "probe: exit status ${probe_status}" ;;
+  esac
+  if (( analyze_rc == 0 )); then
+    note "analysis: window searched; review the NEW bucket above"
+  else
+    err "analysis: avc-analyze.sh exited ${analyze_rc}"
+  fi
+  (( enforcing_confirmed )) || err "enforcement: not confirmed by this run"
+  # The EXIT trap restores dontaudit after the return.
+  [[ "${probe_status}" == 0 && "${analyze_rc}" -eq 0 ]] && (( enforcing_confirmed )) && return 0
+  return 1
 }
+
+# Sourced (tests/unit/avc-denials.sh), the file defines its functions and does not dispatch.
+[[ "${BASH_SOURCE[0]}" == "$0" ]] || return 0
 
 case "${1:-}" in
   --check-results) do_check_results ;;
@@ -875,9 +1157,19 @@ case "${1:-}" in
     MODE="${1:-}"
     shift || true
     FORCE=0
+    ENFORCING_CONFIRMED=0
     while [[ "${1:-}" == --* ]]; do
       case "$1" in
         --force) FORCE=1; shift ;;
+        --enforcing-confirmed) ENFORCING_CONFIRMED=1; shift ;;
+        --run-id)
+          [[ "${2:-}" =~ ^[0-9a-f]{16}$ ]] || { err "--run-id takes the 16 hex digits the root half printed"; exit 1; }
+          RUN_ID="$2"
+          shift 2 ;;
+        --groups)
+          [[ "${2:-}" =~ ^[a-z0-9_,]+$ ]] || { err "--groups takes a comma-separated list of group names (or 'none')"; exit 1; }
+          GROUPS_LOADED="$2"; [[ "${GROUPS_LOADED}" == none ]] && GROUPS_LOADED=""
+          shift 2 ;;
         *) err "unknown flag '$1'"; usage; exit 1 ;;
       esac
     done

@@ -307,8 +307,12 @@ version_gate() {
         say "  version       : ${AI_TOOLS_VERSION} over ${installed} (a dev version is not ordered)"
         return 0
     fi
-    lower="$(printf '%s\n' "${installed}" "${AI_TOOLS_VERSION}" | sort -V | head -n1)"
-    if [[ "${installed}" == "${AI_TOOLS_VERSION}" || "${lower}" == "${installed}" ]]; then
+    # An rpm stamps the CLI with version-release (`0.22.0-1.el10`) and this script with the bare version, and sort -V
+    # orders `0.22.0` before `0.22.0-1.el10`, so the release is cut before ordering: rpm refuses a `-` in Version, so
+    # everything from the first `-` on is the release, and the same version is a reinstall whatever release built it.
+    local installed_version="${installed%%-*}"
+    lower="$(printf '%s\n' "${installed_version}" "${AI_TOOLS_VERSION}" | sort -V | head -n1)"
+    if [[ "${installed_version}" == "${AI_TOOLS_VERSION}" || "${lower}" == "${installed_version}" ]]; then
         say "  version       : ${AI_TOOLS_VERSION} over ${installed}"
         return 0
     fi
@@ -546,6 +550,22 @@ ensure_dir() {
     chmod "$(printf '%05o' "$(( 8#${mode} ))")" "${dir}"
     after="$(stat -c '%a %U:%G' "${dir}")"
     [[ "${before}" == absent || "${before}" == "${after}" ]] || log "  ${dir}: ${before} -> ${after}"
+}
+
+# close_unit_search_path <home>: apply the unit search path layout under <home>
+# (ai_tools_ensure_unit_search_path_closed) and log what it changed. A path it could not close is a warning,
+# and the install continues.
+close_unit_search_path() {
+    local home="$1" line
+    local -a changed=() failed=()
+    ai_tools_parse_unit_search_path_report changed failed \
+        < <(ai_tools_ensure_unit_search_path_closed "${home}" "${SANDBOX_USER}" "${SANDBOX_GROUP}" || true)
+    log "systemd unit search path under ${home} (${#changed[@]} director(ies) changed)"
+    for line in "${changed[@]+"${changed[@]}"}"; do log "  ${line}"; done
+    if (( ${#failed[@]} > 0 )); then
+        warn MSG-A2Y5 "the sandbox account's systemd unit search path is not fully closed, so a path listed here could still reach its unconfined --user manager; settle each one and re-run this installer:"
+        for line in "${failed[@]}"; do warn "    ${line}"; done
+    fi
 }
 
 # Make sure `<home>/.config` exists and belongs to the account whose home it is, before the ai-tools config directory is
@@ -806,6 +826,7 @@ stage_selinux_modules() {
         return 0
     fi
     log "/usr/share/selinux/packages/ai-tools/*.pp"
+    log "/usr/share/selinux/devel/include/distributed/ai_tools.if"
     "${selinux_script}" build \
         || die MSG-K9P5 "the SELinux policy modules did not compile (see above); fix the cause and re-run"
 }
@@ -2483,14 +2504,10 @@ do_install() {
     # repoint -> relabel chain races the operator's first launch, so the first claude refuses on a mislabelled
     # entrypoint. The toolchain is current at install time, so "last run = now" is truthful (mtime is all systemd
     # reads). Same fix as ai-tools-bootstrap; see .claude/rules/updater.rule.md. The home is root-owned, so root creates
-    # the account-owned XDG_DATA_HOME path the `--user manager` reads and later updates itself.
-    install -d -o "${SANDBOX_USER}" -g "${SANDBOX_GROUP}" -m 0750 \
-        /opt/ai-tools/.local \
-        /opt/ai-tools/.local/share \
-        /opt/ai-tools/.local/share/systemd \
-        /opt/ai-tools/.local/share/systemd/timers
+    # the stamp directory through close_unit_search_path, which also closes the directories on the way to it.
+    close_unit_search_path "/opt/ai-tools"
     install -o "${SANDBOX_USER}" -g "${SANDBOX_GROUP}" -m 0644 /dev/null \
-        /opt/ai-tools/.local/share/systemd/timers/stamp-nvm-update.timer
+        "/opt/ai-tools/${CP_TIMER_STAMP_DIR}/${CP_UPDATE_TIMER_STAMP}"
     if (( manager_ready )); then
         log "enable nvm-update.timer in ${SANDBOX_USER}'s --user instance"
         user_systemctl "${SANDBOX_USER}" daemon-reload

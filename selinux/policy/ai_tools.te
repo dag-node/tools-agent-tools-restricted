@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: GPL-2.0-or-later
-policy_module(ai_tools, 0.7.0)
+policy_module(ai_tools, 0.9.0)
 
 ########################################
 #
@@ -79,12 +79,26 @@ files_type(ai_tools_project_t)
 type ai_tools_project_build_t;
 files_type(ai_tools_project_build_t)
 
+# The operator domains: the login domains an operator works on a claimed project from. The attribute carries the manage
+# and relabel grants on the two project types (the operator rules in this file) and the layout modules' creation
+# transitions (ai_tools_dotnet.te). The domtrans_pattern and nnp_transition grants stay on unconfined_t and init_t,
+# so a member domain does not enter ai_tools_t by executing the entrypoint. unconfined_t, EL's default login mapping, is
+# the shipped member. A host that confines its logins adds a domain with ipp_ai_tools_add_operator_domain (ai_tools.if)
+# or a CIL typeattributeset statement; the launch path from such a domain is unmeasured (confinement.rule.md).
+attribute ai_tools_operator_domain;
+typeattribute unconfined_t ai_tools_operator_domain;
+
 # The agent's own config/state -- /opt/ai-tools/.claude plus its HOME state trees (.npm, .cache, .local, .config; see
 # ai_tools.fc). A private writable area distinct from the read-only nvm/program tree (usr_t), so the policy need not
 # grant write to usr_t. The <you>-owned control files inside (settings.json, post-tool-hook.sh) stay protected by DAC
 # regardless of label.
 type ai_tools_home_t;
 files_type(ai_tools_home_t)
+
+# The sandbox account's systemd data directory (.local/share/systemd): a unit search path of its unconfined
+# `systemd --user` manager and the Persistent= timer stamps, read-only to the domain (confinement.rule.md).
+type ai_tools_systemd_data_t;
+files_type(ai_tools_systemd_data_t)
 
 # The agent's private temp files. A type_transition relabels everything the agent creates under /tmp to this type, so it
 # gets its own scratch space and cannot read or clobber other domains' tmp_t/user_tmp_t files once enforcing.
@@ -219,6 +233,11 @@ allow ai_tools_t ai_tools_project_t:file map;
 allow ai_tools_t ai_tools_project_build_t:file map;
 allow ai_tools_t ai_tools_home_t:file map;
 
+# Read and search only, so a walk of .local/share is not denied. This module does not grant add_name, remove_name,
+# write, create, rename or unlink on the type anywhere; a write attempt stays audited.
+allow ai_tools_t ai_tools_systemd_data_t:dir { getattr search open read ioctl lock };
+allow ai_tools_t ai_tools_systemd_data_t:file { getattr open read ioctl lock };
+
 # Execute the PostToolUse/Stop hook scripts that live in .claude (ai_tools_home_t). They are interpreted shell,
 # but the kernel still needs file execute on the script the shebang line names. No transition: the hook stays
 # in ai_tools_t.
@@ -273,22 +292,34 @@ allow ai_tools_t ai_tools_log_t:dir { getattr search open add_name write };
 allow ai_tools_t ai_tools_log_t:file { create getattr setattr open append };
 logging_log_filetrans(ai_tools_t, ai_tools_log_t, file)
 
-# <you> (unconfined) keeps full access to, and can relabel (restorecon), the new file types -- relabelling a project
-# to ai_tools_project_t must never lock you out.
-manage_dirs_pattern(unconfined_t, ai_tools_project_t, ai_tools_project_t)
-manage_files_pattern(unconfined_t, ai_tools_project_t, ai_tools_project_t)
-manage_lnk_files_pattern(unconfined_t, ai_tools_project_t, ai_tools_project_t)
-relabel_dirs_pattern(unconfined_t, ai_tools_project_t, ai_tools_project_t)
-relabel_files_pattern(unconfined_t, ai_tools_project_t, ai_tools_project_t)
-manage_dirs_pattern(unconfined_t, ai_tools_project_build_t, ai_tools_project_build_t)
-manage_files_pattern(unconfined_t, ai_tools_project_build_t, ai_tools_project_build_t)
-manage_lnk_files_pattern(unconfined_t, ai_tools_project_build_t, ai_tools_project_build_t)
-relabel_dirs_pattern(unconfined_t, ai_tools_project_build_t, ai_tools_project_build_t)
-relabel_files_pattern(unconfined_t, ai_tools_project_build_t, ai_tools_project_build_t)
+# The operator domains keep full access to, and can relabel (restorecon), the project types -- relabelling a project
+# to ai_tools_project_t must not lock an operator out of their own tree.
+manage_dirs_pattern(ai_tools_operator_domain, ai_tools_project_t, ai_tools_project_t)
+manage_files_pattern(ai_tools_operator_domain, ai_tools_project_t, ai_tools_project_t)
+manage_lnk_files_pattern(ai_tools_operator_domain, ai_tools_project_t, ai_tools_project_t)
+relabel_dirs_pattern(ai_tools_operator_domain, ai_tools_project_t, ai_tools_project_t)
+relabel_files_pattern(ai_tools_operator_domain, ai_tools_project_t, ai_tools_project_t)
+relabel_lnk_files_pattern(ai_tools_operator_domain, ai_tools_project_t, ai_tools_project_t)
+manage_dirs_pattern(ai_tools_operator_domain, ai_tools_project_build_t, ai_tools_project_build_t)
+manage_files_pattern(ai_tools_operator_domain, ai_tools_project_build_t, ai_tools_project_build_t)
+manage_lnk_files_pattern(ai_tools_operator_domain, ai_tools_project_build_t, ai_tools_project_build_t)
+relabel_dirs_pattern(ai_tools_operator_domain, ai_tools_project_build_t, ai_tools_project_build_t)
+relabel_files_pattern(ai_tools_operator_domain, ai_tools_project_build_t, ai_tools_project_build_t)
+relabel_lnk_files_pattern(ai_tools_operator_domain, ai_tools_project_build_t, ai_tools_project_build_t)
+# The account's own types stay on unconfined_t rather than on the attribute. The systemd data type is the unit search
+# path of the account's user manager, which executes what it loads from there, so a member domain is not handed a write
+# to it; the home type is the account's own state, and what a member domain needs of it is decided when a member beyond
+# unconfined_t is measured.
 manage_dirs_pattern(unconfined_t, ai_tools_home_t, ai_tools_home_t)
 manage_files_pattern(unconfined_t, ai_tools_home_t, ai_tools_home_t)
 relabel_dirs_pattern(unconfined_t, ai_tools_home_t, ai_tools_home_t)
 relabel_files_pattern(unconfined_t, ai_tools_home_t, ai_tools_home_t)
+# The account's `--user manager` writes its timer stamps under the systemd data type; stated like the ai_tools_home_t
+# rules beside it, and relabel so a restorecon of the home applies the type.
+manage_dirs_pattern(unconfined_t, ai_tools_systemd_data_t, ai_tools_systemd_data_t)
+manage_files_pattern(unconfined_t, ai_tools_systemd_data_t, ai_tools_systemd_data_t)
+relabel_dirs_pattern(unconfined_t, ai_tools_systemd_data_t, ai_tools_systemd_data_t)
+relabel_files_pattern(unconfined_t, ai_tools_systemd_data_t, ai_tools_systemd_data_t)
 
 ########################################
 # Private temp  (/tmp scratch for git, Node, and the Bash tool)
@@ -308,6 +339,8 @@ allow ai_tools_t tmp_t:dir { getattr search add_name remove_name write };
 # Run the agent, the Bash tool, and git/coreutils
 ########################################
 
+# corecmd_exec_bin also calls files_exec_all_base_ro_files, so the domain executes usr_t and every other
+# base_ro_file_type without a transition; why that does not widen the boundary is in confinement.rule.md.
 corecmd_exec_bin(ai_tools_t)        # /usr/bin/git, rg, coreutils, ...
 corecmd_exec_shell(ai_tools_t)      # the Bash tool
 files_read_usr_files(ai_tools_t)    # read the nvm/node tree under /opt/ai-tools (usr_t)
@@ -375,9 +408,11 @@ allow ai_tools_t self:process { fork sigchld signal signull getsched setsched se
 allow ai_tools_t self:process execmem;   # V8 JIT (writable+executable code pages)
 # Coreutils and sed preset a new file's label with setfscreatecon() before creating it (`sed -i`, cp, mv, install).
 # Without setfscreate that call returns EACCES and libselinux prints a stderr "failed to set default file creation
-# context" warning on every such command. The grant only lets the domain preset the label the files_tmp_filetrans
-# type_transition already assigns, so it does not widen the producible label -- the file is ai_tools_tmp_t either way;
-# this just silences the noise.
+# context" warning on every such command. The grant lets the domain request ANY label for a file it creates; the kernel
+# still checks `create` on the requested type and `add_name` on the directory, so the labels it can produce are
+# the types this module grants create on -- among them ai_tools_home_t, which the domain also executes. A file a session
+# creates inside the project tree with that label is therefore executable there, although the tree's own file contexts
+# give it ai_tools_project_t, which is not: the path does not decide the type of a file the session labels itself.
 allow ai_tools_t self:process setfscreate;
 allow ai_tools_t self:fifo_file rw_fifo_file_perms;
 allow ai_tools_t self:unix_stream_socket create_stream_socket_perms;

@@ -77,21 +77,6 @@ readonly SKIP_DIRS_LIB="/usr/local/lib/ai-tools/skip-dirs.lib.sh"
 source "${SKIP_DIRS_LIB}" 2>/dev/null \
     || ai_tools_skip_find_expr() { AI_TOOLS_SKIP_FIND_EXPR=(); return 0; }
 
-# Secret-name matcher (defense in depth): the walk skips a dir whose basename looks like a secret (e.g. .env),
-# so a private dir is not exposed to the agent group when the operator did not '!'-exclude it. Best-effort, unlike
-# ai-tools-chown's fail-closed load: the '!' exclusions are the authoritative control, so a matcher that will not load
-# leaves the exclusions as the only skip instead of stopping the claim.
-readonly SECRET_PATTERNS_LIB="/usr/local/lib/ai-tools/secret-patterns.lib.sh"
-_secret_loaded=false
-# shellcheck source=SCRIPTDIR/../../lib/ai-tools/secret-patterns.lib.sh
-if source "${SECRET_PATTERNS_LIB}" 2>/dev/null && ai_tools_load_secret_patterns 2>/dev/null; then
-    _secret_loaded=true
-fi
-_is_secret_name() {
-    ${_secret_loaded} || return 1
-    ai_tools_is_secret_basename "$(basename -- "$1")"
-}
-
 # Which paths the operator sealed, and what may be stripped from one (owner-only.lib.sh, the reference for the seal
 # and the strip alike). Required and fail-closed like safe-paths.lib.sh: an unusable library must not leave this walk
 # unable to recognize a sealed directory.
@@ -122,6 +107,26 @@ ai_tools_assert_safe_target "${canonical}" "setgid normalization" || exit 3
 # acts only on dirs the resolved operator or the sandbox account hold.
 ai_tools_resolve_owner "${canonical}" || exit 0
 readonly ALLOWLIST="${AI_TOOLS_RESOLVED_ALLOWLIST}" PROJECTS_UID
+
+# Secret-name matcher (defense in depth): the walk skips a dir whose basename looks like a secret (e.g. .env),
+# so a private dir is not exposed to the agent group when the operator did not '!'-exclude it. Loaded after the owner
+# resolve, which names the operator's file (ai_tools_load_secret_patterns states what an earlier load reads).
+# Fail-closed: a walk with no matcher would give the agent's group every directory the operator named, so a library
+# that does not load and a present file the loader cannot read each refuse before the first change
+# (secret-handling.rule.md).
+readonly SECRET_PATTERNS_LIB="/usr/local/lib/ai-tools/secret-patterns.lib.sh"
+# shellcheck source=SCRIPTDIR/../../lib/ai-tools/secret-patterns.lib.sh
+if ! source "${SECRET_PATTERNS_LIB}" 2>/dev/null || ! declare -F ai_tools_load_secret_patterns >/dev/null 2>&1; then
+    warn MSG-B3F5 "cannot load ${SECRET_PATTERNS_LIB}, which decides which directories are secrets -- no directory under ${canonical} was normalized; reinstall the ai-tools package"
+    exit 3
+fi
+if ! ai_tools_load_secret_patterns; then
+    warn "the operator's secret-patterns file could not be read, so no directory under ${canonical} was normalized"
+    exit 3
+fi
+_is_secret_name() {
+    ai_tools_is_secret_basename "$(basename -- "$1")"
+}
 
 # This run normalizes one project for one operator, so the operator and the project ride as per-run log context
 # (logging.rule.md).

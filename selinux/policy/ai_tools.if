@@ -1,2 +1,25 @@
 # SPDX-License-Identifier: GPL-2.0-or-later
-## <summary>Type-enforcement domain for the ai-tools sandbox account that runs Claude Code. Exports no interfaces.</summary>
+## <summary>Type-enforcement domain for the ai-tools sandbox account that runs a coding agent, and the operator-domain attribute its project grants are written on.</summary>
+
+########################################
+## <summary>
+##	Make a login domain an operator domain: manage and relabel on the project types, and the layout
+##	modules' creation transitions. Membership alone: the domain does not gain an entry into
+##	ai_tools_t or a launch permission. The ipp_ prefix is what Fedora's SELinux/IndependentPolicy
+##	guideline requires of an interface outside the distribution policy, and the name stays apart
+##	from the attribute's because an m4 macro named like the attribute would expand every mention
+##	of the attribute in a .te file.
+## </summary>
+## <param name="domain">
+##	<summary>
+##	The login domain this host confines its operators to (staff_t, a site-written domain).
+##	</summary>
+## </param>
+#
+interface(`ipp_ai_tools_add_operator_domain',`
+	gen_require(`
+		attribute ai_tools_operator_domain;
+	')
+
+	typeattribute $1 ai_tools_operator_domain;
+')

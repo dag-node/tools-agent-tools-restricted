@@ -45,8 +45,8 @@ done
 # Resolve the window. ausearch takes a timestamp as TWO argv words -- `-ts <date> <time>` -- and refuses the single
 # "MM/DD/YYYY HH:MM:SS" token the marker holds with "Hour, Minute, and Second are required". Each end is therefore
 # collected as an ARRAY, and the marker is split on spaces (this script's IFS excludes the space, so an unquoted
-# expansion of it stays one word -- the shape that made a refused search read as a clean one). A keyword such as `today`
-# or `recent` is one word and passes through as itself.
+# expansion of it stays one word -- the shape that made a refused search read as a clean one). window_end then renders
+# each end in the format this locale's ausearch parses.
 TS_ARGV=()
 TE_ARGV=()
 while [[ $# -gt 0 ]]; do
@@ -61,6 +61,32 @@ if [[ ${#TS_ARGV[@]} -eq 0 && -r "${MARKER}" ]]; then
   IFS=' ' read -r -a TS_ARGV < "${MARKER}"
 fi
 [[ ${#TS_ARGV[@]} -gt 0 ]] || TS_ARGV=(today)
+
+# window_end <word>...: set WINDOW_END to the argv words ausearch takes for one end of the window. ausearch parses
+# the date with strptime's %x, the CURRENT locale's date format -- MM/DD/YY under LC_ALL=C, MM/DD/YYYY under en_US --
+# so a date written in one locale is refused by an ausearch running in another, and the marker is written by an agent
+# session whose locale need not be root's. A keyword (`today`, `recent`, ...) passes through; a date and time, as two
+# words or as one word holding both, is re-rendered with date(1) in this process's locale. Returns 1 when date(1) cannot
+# read it or the render is not two words, so an unreadable end refuses instead of searching a window nobody asked for.
+window_end() {
+  local IFS=' ' joined rendered
+  joined="$*"
+  if [[ $# -eq 1 && "${joined}" != *[/:\ ]* ]]; then
+    WINDOW_END=("${joined}")
+    return 0
+  fi
+  rendered="$(date -d "${joined}" '+%x %H:%M:%S' 2>/dev/null)" || return 1
+  read -r -a WINDOW_END <<<"${rendered}"
+  [[ ${#WINDOW_END[@]} -eq 2 ]]
+}
+window_end "${TS_ARGV[@]}" \
+  || { echo "avc-analyze: cannot read the window start '${TS_ARGV[*]}' as a date and time" >&2; exit 1; }
+TS_ARGV=("${WINDOW_END[@]}")
+if [[ ${#TE_ARGV[@]} -gt 0 ]]; then
+  window_end "${TE_ARGV[@]}" \
+    || { echo "avc-analyze: cannot read the window end '${TE_ARGV[*]}' as a date and time" >&2; exit 1; }
+  TE_ARGV=("${WINDOW_END[@]}")
+fi
 
 TS_SHOW="$(IFS=' '; printf '%s' "${TS_ARGV[*]}")"
 TE_SHOW="$(IFS=' '; printf '%s' "${TE_ARGV[*]:-}")"

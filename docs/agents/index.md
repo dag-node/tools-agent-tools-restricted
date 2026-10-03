@@ -11,7 +11,6 @@ on, and where one agent's own settings and environment variables are listed.
 ```bash
 sudo ai-tools-admin system bootstrap                 # asks which agent, and writes the line
 sudo ai-tools-admin system bootstrap --agents agent-<name> # agent-claude-code | agent-codex
-sudo sed -i 's/^#\?AI_TOOLS_REQUIRE_SELINUX=.*/AI_TOOLS_REQUIRE_SELINUX=yes/' /etc/ai-tools/operator.conf
 sudo sed -i 's/^#\?AI_TOOLS_REQUIRE_ENTRYPOINT_VERIFY=.*/AI_TOOLS_REQUIRE_ENTRYPOINT_VERIFY=yes/' /etc/ai-tools/operator.conf
 ```
 
@@ -34,15 +33,17 @@ and the session history among them, and a session of one can start another's
 binary inside itself. Read [Scope](../about/scope.md) before naming a second
 agent; the bootstrap says the same once, on a line naming more than one.
 
-The third and fourth lines are optional and recommended.
-With `AI_TOOLS_REQUIRE_SELINUX=yes` a session starts only where SELinux is
+The third line is optional and recommended once every enabled agent carries
+a pin: with `AI_TOOLS_REQUIRE_ENTRYPOINT_VERIFY=yes` an agent binary that no
+reconcile has pinned does not start, a state the launch would otherwise accept
+turned into a refusal that names its fix
+([Strictness](../system/entrypoint-verification.md#strictness)). SELinux
+confinement is required without a line: a session starts only where SELinux is
 enforcing and the confinement policy is loaded, so a host whose policy drifted
-refuses the launch rather than running the session unconfined;
-with `AI_TOOLS_REQUIRE_ENTRYPOINT_VERIFY=yes` an agent binary that no reconcile
-has pinned does not start. Each turns a state the launch would otherwise accept
-into a refusal that names its fix; see [SELinux
-confinement](../system/selinux.md)
-and [Strictness](../system/entrypoint-verification.md#strictness).
+refuses the launch instead of running the session unconfined, and a host
+without SELinux at all launches with a warning until
+`AI_TOOLS_REQUIRE_SELINUX=no` declares it DAC-only ([SELinux
+confinement](../system/selinux.md)).
 
 Enabling installs and maintains an agent; it does not run one. A session starts
 when an operator types the agent's command in a claimed project,

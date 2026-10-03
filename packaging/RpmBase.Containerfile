@@ -1,19 +1,16 @@
 # SPDX-License-Identifier: AGPL-3.0-only
-# Shared base recipe for the EL (Rocky/RHEL) ai-tools RPM test image. All the common build/test
-# logic lives in this file, parameterized by the EL base image; the per-distro files (Rocky9.Containerfile,
-# Rocky10.Containerfile) are thin pins over the image this builds, so no line here is repeated.
-# Rocky 9/10 minimal both ship microdnf and the same package names this recipe installs, so it
-# builds unchanged across them.
+# Shared base recipe for the ai-tools RPM test image, parameterized by the distribution's base
+# image. All the common build/test logic lives in this file; the per-distro files
+# (Rocky9.Containerfile, Rocky10.Containerfile, Fedora44.Containerfile) are thin pins over the
+# image this builds, so no line here is repeated. Rocky 9/10 minimal and fedora-minimal all ship
+# microdnf and the package names this recipe installs, so it builds unchanged across them; the
+# helper tree lives at ai_libexecdir (/usr/local/libexec/ai-tools), which the Fedora bin/sbin
+# merge leaves untouched, so one install layout serves both families.
 #
-# Fedora is not built from THIS recipe, but only because the base images and dnf front-end differ:
-# it has its own FedoraLatestBase.Containerfile. The helper tree lives at ai_libexecdir
-# (/usr/local/libexec/ai-tools), which the Fedora bin/sbin merge leaves untouched, so the earlier
-# /usr/local/sbin-vs-/usr/local/bin file conflict no longer exists -- one layout serves both.
-#
-# Build a distro image (two steps; the Makefile wraps them as `rpmtest-rocky9` / `-rocky10`):
+# Build a distro image (two steps; the Makefile wraps them as `rpmbase-<tag>` + `rpmtest-<distro>`):
 #   ```bash
-#   podman build -t ai-tools-rpmbase:el9 -f packaging/ELBase.Containerfile \
-#       --build-arg BASE_IMAGE=quay.io/rockylinux/rockylinux:9.8-minimal .
+#   podman build -t ai-tools-rpmbase:el9 -f packaging/RpmBase.Containerfile \
+#       --build-arg BASE_IMAGE=quay.io/rockylinux/rockylinux:9-minimal .
 #   podman build -t ai-tools-rpmtest:el9 -f packaging/Rocky9.Containerfile .
 #   podman run --rm -t --systemd=always ai-tools-rpmtest:el9
 #       # add --privileged if your runtime cannot mount cgroups for the --user manager
@@ -28,22 +25,30 @@
 # suite's DAC/systemd parts, and a DAC-confined `claude --version` session. It does NOT
 # validate SELinux-enforcing confinement: `getenforce` is Disabled in a container, so %post
 # skips `semodule` and the ai_tools_t transition is never exercised -- that needs the
-# enforcing host. This harness is the fast, repeatable pre-check; the box test is the gate.
+# enforcing host. Building the image does compile the policy modules against the base image's
+# own policy headers (the spec's %build), so a policy that no longer compiles on a
+# distribution's refpolicy fails the image. This harness is the fast, repeatable pre-check;
+# the box test is the gate.
 
-# The EL base image to build on. The per-distro files supply this via the Makefile; building
-# this file directly requires `--build-arg BASE_IMAGE=...` (no default, so the distro is explicit).
+# The base image to build on. The Makefile supplies this per distro; building this file directly
+# requires `--build-arg BASE_IMAGE=...` (no default, so the distro is explicit).
 ARG BASE_IMAGE
 FROM ${BASE_IMAGE}
 
-# Empty (the spec's own default Release "1") for a real release; the Makefile's rpmtest-rockyN
+# Empty (the spec's own default Release "1") for a real release; the Makefile's rpmbase-<tag>
 # targets forward their own RPM_RELEASE here so a CI dev build's snapshot Release lands on the
 # RPMs this image produces too -- see packaging/Makefile and the spec's Release: line.
 ARG RPM_RELEASE=""
 
-# Build + test tooling. Rocky 9 and 10 minimal both ship microdnf; add dnf (readable dependency
+# Packages one distribution needs beyond the shared list the install step names, space-separated;
+# the Makefile sets it per base image. fedora-minimal splits script(1) out of util-linux into util-linux-script (EL's
+# util-linux bundles it), and the selftest runs `claude --version` under `script` for a PTY.
+ARG EXTRA_PACKAGES=""
+
+# Build + test tooling. Every base image ships microdnf; add dnf (readable dependency
 # resolution), the rpm build chain + systemd-rpm-macros (for %systemd_*/%sysusers/%_userunitdir),
 # selinux-policy-devel + policycoreutils (the spec's %build compiles the policy modules against
-# THIS image's policy headers, so the EL9 and EL10 images each build their own), createrepo_c (a
+# THIS image's policy headers, so each distro image builds its own), createrepo_c (a
 # local repo so the metapackage resolves its subpackage Requires), systemd as PID 1, and the
 # utilities the workflow uses (script/runuser from util-linux, getenforce from libselinux-utils,
 # git/curl for bootstrap + claim).
@@ -57,13 +62,15 @@ ARG RPM_RELEASE=""
 # scriptlet may ever execute while that secret is present.
 # groff-base renders the decoder block of ai-tools-records(5) for tests/unit/records.sh, which fails
 # without it rather than skipping, so the page is checked on every platform.
-# No package installed here comes from the `extras` repo; disable it so a flaky refresh can't abort the install.
+# No package installed here comes from Rocky's `extras` repo; disable it so a flaky refresh can't
+# abort the install. Fedora's repo files carry no [extras] section, so the sed does not match any line there.
+# The install line is dnf5-portable (no `-v`, numeric booleans), so it runs unchanged on both.
 RUN sed -i '/^\[extras\]/,/^\[/ s/^enabled=1$/enabled=0/' /etc/yum.repos.d/*.repo \
     && microdnf -y install \
         dnf rpm-build rpm-sign gnupg2 systemd-rpm-macros make sed tar gzip findutils createrepo_c \
         selinux-policy-devel policycoreutils \
         systemd dbus-broker sudo shadow-utils passwd util-linux procps-ng libselinux-utils \
-        git curl which glibc-langpack-en groff-base \
+        git curl which glibc-langpack-en groff-base ${EXTRA_PACKAGES} \
     && microdnf clean all
 
 # Source tree for `make rpm` + the test suite. Copy the build inputs explicitly (a
@@ -95,9 +102,8 @@ WORKDIR /opt/ai-tools-src
 # umbrellas and their members (weak Recommends), proving the dependency graph (the transaction
 # table dnf prints is the evidence). install_weak_deps is forced on so the pull is deterministic
 # regardless of the base image's dnf config; it is spelled `=1` (not `=True`) and the command
-# carries no `-v` so the same install line stays portable to dnf5 (dnf5 rejects `-v` and prefers
-# the numeric boolean), which the future FedoraLatestBase recipe reuses. Then enable the units
-# that must be live at boot for the selftest (preset policy may leave them off in a minimal image).
+# does not carry `-v`, which dnf5 rejects. Then enable the units that must be live at boot for the
+# selftest (preset policy may leave them off in a minimal image).
 #
 # The post-install assertion is derived from the BUILT set rather than a hand-kept package list:
 # every subpackage the spec produced must resolve from the metapackage alone, so a subpackage
