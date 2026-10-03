@@ -5,16 +5,16 @@ policy_module(ai_tools_localipc, 0.1.0)
 #
 # Local inter-process communication between the session's own processes, beyond the file and directory management
 # the base grants: unix sockets and FIFOs created under /tmp and under the agent's home state, connecting
-# to the domain's own stream sockets, connecting to an unreserved or ephemeral TCP port, getsid(2), and the /proc/sys/net
-# reads a runtime makes at startup. Kept OUT of the base because the agent itself needs none of it; a workload
-# that spawns a child and talks to it over a socket does -- the .NET runtime's diagnostic socket and CLR debug FIFO,
-# multi-node MSBuild's worker pipes, a test runner reaching its test host, a dev server and the browser driven
-# against it, a language server. Creating a socket or FIFO in the sandbox's own tmp/home is the same class as the file
-# management the base already grants. The two connect grants reach further than the workload needs, because SELinux does
-# not check which process listens: the stream-socket connectto reaches any socket of the shared ai_tools_t domain
-# whose file DAC lets the session open, another session's included; and the TCP grant (the last rule here) is keyed
-# on the destination PORT TYPE, not the address, so it permits a connect to an unreserved or ephemeral port on any host
-# the network allows.
+# to the domain's own stream sockets, connecting to an unreserved or ephemeral TCP port, getsid(2),
+# and the /proc/sys/net reads a runtime makes at startup. Kept OUT of the base because the agent itself needs none
+# of it; a workload that spawns a child and talks to it over a socket does -- the .NET runtime's diagnostic socket
+# and CLR debug FIFO, multi-node MSBuild's worker pipes, a test runner reaching its test host, a dev server
+# and the browser driven against it, a language server. Creating a socket or FIFO in the sandbox's own tmp/home is
+# the same class as the file management the base already grants. The two connect grants reach further than the workload
+# needs, because SELinux does not check which process listens: the stream-socket connectto reaches any socket
+# of the shared ai_tools_t domain whose file DAC lets the session open, another session's included; and the TCP grant
+# (the last rule here) is keyed on the destination PORT TYPE, not the address, so it permits a connect to an unreserved
+# or ephemeral port on any host the network allows.
 #
 # For .NET this pairs with tmpmap (mmap of the /tmp shm mutex), memfdexec (memfd exec for the JIT and apphost creation)
 # and buildexec (running what a build produced); the workload-to-group map is in the dotnet integration's rule.

@@ -262,8 +262,8 @@ if declare -F ai_tools_project_build_pattern >/dev/null 2>&1 \
     fi
 
     # A project path is a literal inside the rule's regex: `.` in app.v1 would also match appXv1, and `+`, `(`, `|`
-    # change which paths the rule covers. The label writes the escaped path; the unlabel removes the escaped rule and
-    # the raw one a host may still hold from before paths were escaped.
+    # change which paths the rule covers. The label writes the escaped path; the unlabel removes the escaped rule
+    # and the raw one a host may still hold from before paths were escaped.
     got="$(ai_tools_fcontext_literal '/home/op/a.b+c(d)|e[f]$^*?{g}\h')"
     if [[ "${got}" == '/home/op/a\.b\+c\(d\)\|e\[f\]\$\^\*\?\{g\}\\h' ]]; then
         pass "ai_tools_fcontext_literal escapes every regex metacharacter and leaves the rest"

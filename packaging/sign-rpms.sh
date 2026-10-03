@@ -60,17 +60,17 @@ import_signing_key() {
 # unsigned; here %{__gpg} stands alone.
 #
 # The override follows the contract of the installed rpm's own declaration, read from `rpm --showrc`. rpm 4 (EL9, EL10)
-# declares %__gpg_sign_cmd as a plain macro and hands the file names over as %__plaintext_filename and
-# %__signature_filename; rpm 6 (Fedora 44) declares it parametric, `%__gpg_sign_cmd()`, passes them as %1 (input) and
-# %2 (signature), and defines neither name, so a plain-macro override there reaches gpg with the literal text
+# declares %__gpg_sign_cmd as a plain macro and hands the file names over as %__plaintext_filename
+# and %__signature_filename; rpm 6 (Fedora 44) declares it parametric, `%__gpg_sign_cmd()`, passes them as %1 (input)
+# and %2 (signature), and defines neither name, so a plain-macro override there reaches gpg with the literal text
 # `%{__plaintext_filename}` as its input file and rpmsign fails. rpm 6 names the key through %_openpgp_sign_id, so both
 # key macros are written; rpm 4 ignores the one it does not read.
 write_rpm_macros() {
     local home="$1" fpr="$2" passfile="$3"
     local gpg_opts="--batch --no-verbose --no-armor --pinentry-mode loopback --passphrase-file ${passfile} --digest-algo sha256 -u \"%{_gpg_name}\""
     local sign_cmd
-    # The stock declaration states the contract: a body naming %__plaintext_filename hands the files over by name;
-    # one that does not passes them as arguments. HOME is the scratch dir, which holds no macros file yet, so only
+    # The stock declaration states the contract: a body naming %__plaintext_filename hands the files over by name; one
+    # that does not passes them as arguments. HOME is the scratch dir, which holds no macros file yet, so only
     # the installed rpm's own declaration is read. The dump is captured whole before it is searched: under pipefail,
     # `rpm --showrc | grep -q` ends with grep's early exit sending rpm a SIGPIPE, which turns a match into a failed
     # pipeline and selects the wrong shape; a dump that cannot be read is an error, never a choice.
@@ -89,12 +89,13 @@ EOF
 }
 
 # Verify each RPM carries a signature that validates against <pubkey>. Import the key into a throwaway rpmdb, then
-# require `rpmkeys -Kv` to print a cryptographic signature line whose status is OK: that line appears ONLY when a
-# signature is present AND checks out. An unsigned package has no signature line (only digests) yet still exits 0, so
-# asserting the line -- not the exit code -- is what stops a silent signing no-op from shipping. The status is matched
-# at the end of the line because the line's shape differs by rpm generation: rpm 4 prints
-# `Header V4 RSA/SHA256 Signature, key ID <id>: OK` and rpm 6 `Header OpenPGP RSA/SHA256 signature, key fingerprint:
-# <hex>: OK`, a second colon before the status. A digest-only line names no signature and so never matches.
+# require `rpmkeys -Kv` to print a cryptographic signature line whose status is OK: that line appears ONLY
+# when a signature is present AND checks out. An unsigned package has no signature line (only digests) yet still exits
+# 0, so asserting the line -- not the exit code -- is what stops a silent signing no-op from shipping. The status is
+# matched at the end of the line because the line's shape differs by rpm generation: rpm 4 prints
+# `Header V4 RSA/SHA256 Signature, key ID <id>: OK` and rpm 6
+# `Header OpenPGP RSA/SHA256 signature, key fingerprint: <hex>: OK`, a second colon before the status. A digest-only
+# line names no signature and so never matches.
 verify_signatures() {
     local pubkey="$1"; shift
     local verifydb rpm out

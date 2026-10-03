@@ -449,8 +449,8 @@ elif ! source /usr/local/lib/ai-tools/conf.lib.sh 2>/dev/null \
 else
     live_records="$(ai_tools_confinement_read_attestation_records /sys/fs/selinux)"
     live_permissive="$(awk -F'\t' '$1=="permissive"{print $2}' <<<"${live_records}")"
-    # Cross-checked where a tool can say: seinfo lists permissive types; semodule lists the module `semanage permissive
-    # -a` installs. Captured, not piped into grep -q, for the SIGPIPE reason module_loaded states.
+    # Cross-checked where a tool can say: seinfo lists permissive types; semodule lists the module
+    # `semanage permissive -a` installs. Captured, not piped into grep -q, for the SIGPIPE reason module_loaded states.
     expected_permissive=""
     if command -v seinfo >/dev/null 2>&1; then
         permissive_types="$(seinfo --permissive 2>/dev/null || true)"

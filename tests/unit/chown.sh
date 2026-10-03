@@ -205,13 +205,13 @@ else
     fail "symlinked parent redirected handback onto an outside file: now $(stat -c '%U:%G %a' "${loot}")"
 fi
 
-# (13) The owner the apply acts on is the pinned inode's, not the path string's. The helper reads owner and mode through
-# the path before it pins the inode, and a rename exchange can answer those reads from a decoy. The interactive prompt
-# sits between the reads and the pin, so a pty pauses the helper there and the test makes the inode operator-owned
-# before answering yes: the apply must refuse. The control run answers yes without the change and must hand back,
-# which proves the prompt route reached the apply.
-# pty_apply <path> <change-owner-to-or-empty>: run the helper on a pty, wait for its prompt, optionally chown the path,
-# answer yes. Prints "prompted" once the prompt was seen.
+# (13) The owner the apply acts on is the pinned inode's, not the path string's. The helper reads owner and mode
+# through the path before it pins the inode, and a rename exchange can answer those reads from a decoy. The interactive
+# prompt sits between the reads and the pin, so a pty pauses the helper there and the test makes the inode
+# operator-owned before answering yes: the apply must refuse. The control run answers yes without the change and must
+# hand back, which proves the prompt route reached the apply. pty_apply <path> <change-owner-to-or-empty>: run
+# the helper on a pty, wait for its prompt, optionally chown the path, answer yes. Prints "prompted" once the prompt was
+# seen.
 pty_apply() {
     python3 -I - "${HELPER}" "$1" "${2-}" <<'PY'
 import os, pty, select, sys, time
