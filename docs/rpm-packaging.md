@@ -394,12 +394,12 @@ reads it directly (`%(cat %{_sourcedir}/VERSION)`, also shipped as `Source2`
 so a rebuild from the SRPM alone still resolves it) and the Makefile reads
 the same file, so a release bump touches one place. `Release:` defaults
 to plain `1` (a final `vX.Y.Z` release); `make rpm`, `rpmtest-<distro>`,
-and `rpmbase-<tag>` accept `RPM_RELEASE=<override>` — CI
-passes `0.<run>.git<sha>` for dev builds and `0.rcN` for `vX.Y.Z-rc.N`
-prerelease tags. The leading `0.` is the Fedora pre-release convention,
-so rpm's version comparison ranks any snapshot or RC under the final release
-that follows it, and a host that installed an RC upgrades cleanly to the final
-via ordinary `dnf`.
+and `rpmbase-<tag>` accept `RPM_RELEASE=<override>` — CI passes
+`0.<run>.git<sha>` for dev builds and `0.rcN` for `vX.Y.Z-rc.N` prerelease
+tags. The leading `0.` is the Fedora pre-release convention, so rpm's version
+comparison ranks any snapshot or RC under the final release that follows it,
+and a host that installed an RC upgrades cleanly to the final via ordinary
+`dnf`.
 
 Runtime dependencies: `ai-tools-base` requires `systemd`, `sudo`, `acl`,
 `python3`, `coreutils`, and `policycoreutils`, and weakly recommends
@@ -419,30 +419,29 @@ properties shape the design:
 
 - **Each project signs its own RPMs, in the distribution's own build
   container.** `packaging/sign-rpms.sh` runs inside `ai-tools-rpmbase:<tag>`
-  (`el9`, `el10`, `fc44`; not
-  on the Ubuntu runner), so the `rpm`/`gnupg` toolchain that signs matches
-  the one that built — no header-signature or macro mismatch. It imports
-  the key from a step-scoped secret into a throwaway `GNUPGHOME`, signs
-  with a fully specified non-interactive `%__gpg_sign_cmd` (loopback pinentry,
-  passphrase from a 0600 file, never argv), then verifies every signature
-  against a throwaway rpmdb. Verification requires `rpmkeys -Kv` to print
-  a cryptographic signature line that validates — not merely a zero exit,
-  which `--checksig` also returns for an *unsigned* package, so a silent
-  `rpmsign` no-op cannot ship. Build provenance stays with the project;
-  the packages are immutable once signed. **Signing is mandatory.** The release
-  job requires `GPG_SIGNING_KEY`, `GPG_SIGNING_PASSPHRASE`,
-  and `RPM_REPO_DISPATCH_TOKEN`, and before building or publishing anything it
-  runs `sign-rpms.sh --selftest` in each distribution's container — signing
-  and verifying a throwaway RPM — so a wrong passphrase or a no-op signing
-  toolchain fails the job while the release is still private. A release never
-  publishes an unsigned package.
+  (`el9`, `el10`, `fc44`; not on the Ubuntu runner), so the `rpm`/`gnupg`
+  toolchain that signs matches the one that built — no header-signature
+  or macro mismatch. It imports the key from a step-scoped secret
+  into a throwaway `GNUPGHOME`, signs with a fully specified non-interactive
+  `%__gpg_sign_cmd` (loopback pinentry, passphrase from a 0600 file, never
+  argv), then verifies every signature against a throwaway rpmdb. Verification
+  requires `rpmkeys -Kv` to print a cryptographic signature line that validates
+  — not merely a zero exit, which `--checksig` also returns for an *unsigned*
+  package, so a silent `rpmsign` no-op cannot ship. Build provenance stays
+  with the project; the packages are immutable once signed. **Signing is
+  mandatory.** The release job requires `GPG_SIGNING_KEY`,
+  `GPG_SIGNING_PASSPHRASE`, and `RPM_REPO_DISPATCH_TOKEN`, and before building
+  or publishing anything it runs `sign-rpms.sh --selftest` in each
+  distribution's container — signing and verifying a throwaway RPM — so a wrong
+  passphrase or a no-op signing toolchain fails the job while the release is
+  still private. A release never publishes an unsigned package.
 - **A central repo owns metadata and hosting.** The signed RPMs and the public
   key attach to the GitHub Release (loose + one zip per distribution), then
-  the job notifies
-  the dedicated `dag-node/rpm` repository via `repository_dispatch`. That repo
-  — not this project — runs the single publish pipeline (`createrepo_c`,
-  `repomd.xml` signing, GitHub Pages deploy at `rpm.dagnode.com`), serialized
-  so concurrent project releases never race the metadata.
+  the job notifies the dedicated `dag-node/rpm` repository
+  via `repository_dispatch`. That repo — not this project — runs the single
+  publish pipeline (`createrepo_c`, `repomd.xml` signing, GitHub Pages deploy
+  at `rpm.dagnode.com`), serialized so concurrent project releases never race
+  the metadata.
 
 Prerelease tags (`vX.Y.Z-rc.N`) run the same sign-and-verify path but publish
 only a GitHub **prerelease** and skip the `dag-node/rpm` notify — the central

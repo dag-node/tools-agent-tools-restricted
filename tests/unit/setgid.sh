@@ -206,4 +206,44 @@ else
 fi
 assert_msg MSG-S4T9 "${err}" "the refusal names the unreadable file under the library's code"
 
+# ── A pinned path whose ancestor is a symlink ────────────────────────────────
+# The state ai_tools_pinned_fd_matches_path refuses (safe-paths.lib.sh), driven through _safe_setgid read
+# out of the installed helper as text: the walk never emits it, since find does not follow the symlink. The directory
+# outside is left as it is; the same function on a real path is the control that it still normalizes.
+section "ai-tools-setgid: a pinned path whose ancestor is a symlink"
+pin_proj="${TESTDIR}/pin-proj"; pin_outside="${TESTDIR}/pin-outside"
+mkdir -p "${pin_proj}/real" "${pin_outside}/inside"
+ln -s "${pin_outside}" "${pin_proj}/link"
+chown -R "${PROJECTS_USER}:${PROJECTS_GROUP}" "${pin_proj}" "${pin_outside}"
+chmod 0750 "${pin_proj}" "${pin_proj}/real" "${pin_outside}" "${pin_outside}/inside"
+# drive_safe_setgid <dir> : _safe_setgid from the installed helper, in a subshell holding the globals it reads.
+drive_safe_setgid() {
+    # shellcheck disable=SC2034  # the extracted function reads the globals set here
+    (
+        set -euo pipefail
+        # shellcheck source=/dev/null
+        source /usr/local/lib/ai-tools/safe-paths.lib.sh
+        # shellcheck source=/dev/null
+        source /usr/local/lib/ai-tools/owner-only.lib.sh
+        ai_tools_log_structured() { :; }
+        SANDBOX_UID="$(id -u "${SANDBOX_USER}")"; GROUP="${SANDBOX_GROUP}"
+        eval "$(extract_function "${HELPER}" _safe_setgid)"
+        _safe_setgid "$1"
+    )
+}
+rc=0; drive_safe_setgid "${pin_proj}/real" || rc=$?
+if (( rc == 0 )) && [[ "$(stat -c '%G' "${pin_proj}/real")" == "${SANDBOX_GROUP}" ]] \
+        && (( (8#$(stat -c '%a' "${pin_proj}/real") & 8#2000) != 0 )); then
+    pass "control: the extracted function normalizes a directory at its real path"
+else
+    fail "control: rc=${rc}, real is $(stat -c '%G %a' "${pin_proj}/real") -- the refusal below is not evidence"
+fi
+rc=0; drive_safe_setgid "${pin_proj}/link/inside" || rc=$?
+if (( rc != 0 )) && [[ "$(stat -c '%G' "${pin_outside}/inside")" == "${PROJECTS_GROUP}" ]] \
+        && (( (8#$(stat -c '%a' "${pin_outside}/inside") & 8#2000) == 0 )); then
+    pass "a directory reached through a symlinked ancestor is refused and left as it was"
+else
+    fail "symlinked ancestor: rc=${rc}, the directory outside is $(stat -c '%G %a' "${pin_outside}/inside") (want a refusal, ${PROJECTS_GROUP}, no setgid)"
+fi
+
 finish

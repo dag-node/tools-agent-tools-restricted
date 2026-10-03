@@ -466,6 +466,45 @@ if command -v runuser >/dev/null 2>&1; then
         fail "ai-tools.projects.remove.inplace acted without a terminal (rc=${rc}, dir gone or de-registered): $(brief "${out}")"
     fi
 
+    # The verb does not run git over the tree. .git/config is the agent's to write, and a ref read as the operator
+    # that meets a missing object fetches it from a promisor remote with the transport that file names -- so the fixture
+    # has the exploit's shape: a partial clone whose HEAD object is gone and whose core.sshCommand writes a marker.
+    # The control makes that read directly and shows the marker appear; the verb, run to its no-terminal decline, leaves
+    # it absent. Runtime half alone: the agent writing .git/config is reachable by design (cli.rule.md, Remove).
+    rmrepo="${rmwork}/rm-repo"; mkdir -p "${rmrepo}"
+    if git -C "${rmrepo}" init -q 2>/dev/null \
+            && git -C "${rmrepo}" -c user.name=t -c user.email=t@t commit -q --allow-empty -m one 2>/dev/null; then
+        rmmarker="${rmwork}/git-ran"
+        printf 'touch %s\nexit 1\n' "${rmmarker}" > "${rmwork}/ssh-stub"
+        rmhead="$(git -C "${rmrepo}" rev-parse HEAD)"
+        git -C "${rmrepo}" update-ref refs/remotes/origin/main "${rmhead}"
+        git -C "${rmrepo}" config remote.origin.url ssh://nowhere.invalid/up
+        git -C "${rmrepo}" config remote.origin.fetch '+refs/heads/*:refs/remotes/origin/*'
+        git -C "${rmrepo}" config remote.origin.promisor true
+        git -C "${rmrepo}" config remote.origin.partialclonefilter blob:none
+        git -C "${rmrepo}" config extensions.partialClone origin
+        git -C "${rmrepo}" config core.sshCommand "bash ${rmwork}/ssh-stub"
+        git -C "${rmrepo}" branch --set-upstream-to=origin/main >/dev/null 2>&1
+        rm -f "${rmrepo}/.git/objects/${rmhead:0:2}/${rmhead:2}"
+        chown -R "${PROJECTS_USER}:${PROJECTS_USER}" "${rmrepo}" "${rmwork}/ssh-stub"
+        runuser -u "${PROJECTS_USER}" -- git -C "${rmrepo}" rev-list --count '@{u}..HEAD' >/dev/null 2>&1 || true
+        if [[ -e "${rmmarker}" ]]; then
+            pass "control: a rev-list over the armed clone runs the configured transport"
+            rm -f "${rmmarker}"
+            printf '%s\n' "${rmrepo}" > "${rmal}"; chown "${PROJECTS_USER}" "${rmal}"
+            out="$(remove_cli "${rmrepo}")" && rc=0 || rc=$?
+            if [[ ! -e "${rmmarker}" ]] && [[ -d "${rmrepo}" ]]; then
+                pass "ai-tools.projects.remove.inplace runs no git over the tree (the configured transport did not run)"
+            else
+                fail "ai-tools.projects.remove.inplace ran git over the tree (marker present: $([[ -e "${rmmarker}" ]] && echo yes || echo no), rc=${rc}): $(brief "${out}")"
+            fi
+        else
+            fail "control: the armed clone did not run the configured transport, so the case proves nothing"
+        fi
+    else
+        skip "ai-tools.projects.remove.inplace runs no git over the tree" "git unavailable"
+    fi
+
     # The deletability pre-flight, which is what keeps a removal from stopping partway. A directory the acting owner can
     # neither write nor enter is the realistic blocker (a sandbox-owned 0700 left by a session), and it must refuse
     # the WHOLE removal up front with the tree still intact -- not delete as far as it can and report a failure.

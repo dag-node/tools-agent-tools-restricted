@@ -775,6 +775,161 @@ else
     fail "has_exclusion did not isolate the exclusion entry"
 fi
 
+# --- The gate's read: ai_tools_conf_allowlist_load + ai_tools_conf_is_path_excluded ---------------
+# The launch wrapper and every walking helper take their two arrays from this loader. Under test is the union rule
+# for an exclusion -- the written form always, the resolved form only through a symlink the sandbox account can neither
+# remove nor replace -- and that any other link refuses the whole read (the section comment in conf.lib.sh states why).
+ld_root="${TESTDIR}/ld"
+mkdir -p "${ld_root}/proj/sub/deep" "${ld_root}/proj/private" "${ld_root}/proj/stale"
+# The owner's sub-link sits in directories only the owner writes, under a sticky /tmp, which the walk accepts.
+chmod 755 "${ld_root}" "${ld_root}/proj"
+ln -s "${ld_root}/proj/sub" "${ld_root}/sub-link"          # the operator's spelling of a carve-out
+ld_al="${TESTDIR}/ld-allowed-projects"
+cat > "${ld_al}" <<EOF
+${ld_root}/proj
+!${ld_root}/proj/private
+!${ld_root}/sub-link/
+!${ld_root}/proj/*.log
+!${ld_root}/gone/../proj/stale
+!relative/entry
+EOF
+declare -a ld_allowed=() ld_excluded=()
+if ai_tools_conf_allowlist_load "${ld_al}" ld_allowed ld_excluded \
+        && [[ "${#ld_allowed[@]}" -eq 1 && "${ld_allowed[0]}" == "${ld_root}/proj" ]]; then
+    pass "load resolves the allow entry and returns 0"
+else
+    fail "load: rc or allowed=(${ld_allowed[*]:-})"
+fi
+ld_has() { local e; for e in "${ld_excluded[@]}"; do [[ "${e}" == "$1" ]] && return 0; done; return 1; }
+if ld_has "${ld_root}/proj/private" && ld_has "${ld_root}/sub-link/" \
+        && ld_has "${ld_root}/proj/*.log" && ld_has "${ld_root}/gone/../proj/stale" && ld_has "relative/entry"; then
+    pass "every exclusion is kept as written, a relative one included"
+else
+    fail "a written exclusion is missing from (${ld_excluded[*]})"
+fi
+if ld_has "${ld_root}/proj/sub" && ld_has "${ld_root}/proj/stale"; then
+    pass "a glob-free exclusion through the owner's symlink, and one with .., gain their resolved form"
+else
+    fail "resolved forms missing from (${ld_excluded[*]})"
+fi
+ld_dupes="$(printf '%s\n' "${ld_excluded[@]}" | sort | uniq -d)"
+if [[ -z "${ld_dupes}" ]] && ! ld_has "${ld_root}/proj/private/"; then
+    pass "an exclusion whose resolved form is its written form is kept once"
+else
+    fail "duplicates or a spurious form: ${ld_dupes:-none} (${ld_excluded[*]})"
+fi
+ld_glob_forms="$(printf '%s\n' "${ld_excluded[@]}" | grep -c '\.log$' || true)"
+if [[ "${ld_glob_forms}" == 1 ]]; then
+    pass "a glob exclusion is kept as written alone"
+else
+    fail "the glob exclusion appears ${ld_glob_forms} time(s)"
+fi
+# The launch wrapper sources the library under IFS=$'\n\t', where a `read` of two space-separated `stat` fields into two
+# variables puts both in the first unless the read pins its own IFS; the same file must load to the same arrays.
+declare -a ld_ifs_allowed=() ld_ifs_excluded=()
+ld_ifs_rc=0; ld_saved_ifs="${IFS}"; IFS=$'\n\t'
+ai_tools_conf_allowlist_load "${ld_al}" ld_ifs_allowed ld_ifs_excluded 2>"${TESTDIR}/ld-ifs.err" || ld_ifs_rc=$?
+IFS="${ld_saved_ifs}"
+if [[ "${ld_ifs_rc}" -eq 0 && "${ld_ifs_allowed[*]}" == "${ld_allowed[*]}" \
+        && "${ld_ifs_excluded[*]}" == "${ld_excluded[*]}" ]]; then
+    pass "the loader reads the same arrays under the launch wrapper's IFS"
+else
+    fail "under the launch wrapper's IFS: rc ${ld_ifs_rc}, excluded=(${ld_ifs_excluded[*]:-}): $(cat "${TESTDIR}/ld-ifs.err")"
+fi
+# A link the sandbox account can change, aimed at the directory a carve-out covers: the owner's own link
+# in a group-writable directory (a claimed project's shape, whoever made the link), and -- as root, where the fixture
+# link can be re-owned -- a link another account holds in a directory it cannot write. Each must refuse the read whole:
+# rc 2, both arrays empty, the code, the link, the reason and the remedy on stderr; the control is the same file minus
+# that line, which the first load of this section reads clean.
+ld_refused() {   # ld_refused <what> <allowlist> <link> <reason-fragment>
+    local -a ld_fa=(x) ld_fe=(y)
+    local rc=0 err
+    ai_tools_conf_allowlist_load "$2" ld_fa ld_fe 2>"${TESTDIR}/ld-refused.err" || rc=$?
+    err="$(cat "${TESTDIR}/ld-refused.err")"
+    if [[ "${rc}" -eq 2 && "${#ld_fa[@]}" -eq 0 && "${#ld_fe[@]}" -eq 0 ]]; then
+        pass "$1 refuses the read: rc 2, both arrays empty"
+    else
+        fail "$1 did not refuse the read: rc ${rc}, allowed=(${ld_fa[*]:-}) excluded=(${ld_fe[*]:-})"
+    fi
+    assert_msg MSG-Y5N6 "${err}" "$1: the refusal carries its code"
+    if grep -qF -- "$3 is a symbolic link $4" <<<"${err}" && grep -qF -- "real path" <<<"${err}"; then
+        pass "$1: the refusal names the link, the reason and the remedy"
+    else
+        fail "$1: the refusal does not name the link, the reason or the remedy: ${err}"
+    fi
+}
+chmod 2770 "${ld_root}/proj"
+ln -s "${ld_root}/proj/private" "${ld_root}/proj/alias"
+cp "${ld_al}" "${ld_al}.writable"; printf '!%s\n' "${ld_root}/proj/alias" >> "${ld_al}.writable"
+ld_refused "an exclusion through the owner's own link in a group-writable directory" "${ld_al}.writable" \
+    "${ld_root}/proj/alias" "under ${ld_root}/proj, a directory with a group or other write bit"
+# The link's own directory is closed and its parent is not: the account renames the holding directory aside, the written
+# path then no longer exists, and the real directory it aimed at stays where it was.
+mkdir -m 755 "${ld_root}/proj/links"; ln -s "${ld_root}/proj/private" "${ld_root}/proj/links/alias"
+cp "${ld_al}" "${ld_al}.ancestor"; printf '!%s\n' "${ld_root}/proj/links/alias" >> "${ld_al}.ancestor"
+ld_refused "an exclusion through the owner's link in a closed directory under a group-writable one" "${ld_al}.ancestor" \
+    "${ld_root}/proj/links/alias" "under ${ld_root}/proj, a directory with a group or other write bit"
+if [[ "${EUID}" -eq 0 ]] && id nobody >/dev/null 2>&1; then
+    mkdir -m 755 "${ld_root}/stable"; ln -s "${ld_root}/proj/private" "${ld_root}/stable/foreign"
+    chown -h nobody "${ld_root}/stable/foreign"
+    cp "${ld_al}" "${ld_al}.foreign"; printf '!%s\n' "${ld_root}/stable/foreign" >> "${ld_al}.foreign"
+    ld_refused "an exclusion through a link another account holds" "${ld_al}.foreign" \
+        "${ld_root}/stable/foreign" "held by uid"
+else
+    skip "an exclusion through a link another account holds refuses the read" "needs root to re-own the fixture link"
+fi
+# A carve-out written as the real path keeps covering it whatever happens to an alias beside it -- the link present,
+# unlinked, or a directory of its name put in its place -- since no entry depends on the link.
+cp "${ld_al}" "${ld_al}.canonical"
+ld_canonical_ok=true
+for ld_alias_state in link removed directory; do
+    case "${ld_alias_state}" in
+        removed)   rm -f "${ld_root}/proj/alias" ;;
+        directory) mkdir "${ld_root}/proj/alias" ;;
+    esac
+    # shellcheck disable=SC2034  # filled and read through their names by the loader and the matcher
+    declare -a ld_ca=() ld_ce=()
+    if ! ai_tools_conf_allowlist_load "${ld_al}.canonical" ld_ca ld_ce \
+            || ! ai_tools_conf_is_path_excluded "${ld_root}/proj/private" ld_ce \
+            || ! ai_tools_conf_is_path_excluded "${ld_root}/proj/private/k" ld_ce; then
+        fail "with the alias ${ld_alias_state}, the real-path carve-out stopped covering ${ld_root}/proj/private"
+        ld_canonical_ok=false
+    fi
+done
+${ld_canonical_ok} && pass "a real-path carve-out covers its directory with the alias present, removed, and replaced by a directory"
+rm -rf "${ld_root}/proj/alias" "${ld_root}/proj/links"; chmod 755 "${ld_root}/proj"
+ld_ok=true
+for p in "${ld_root}/proj/private" "${ld_root}/proj/private/k" "${ld_root}/proj/sub" "${ld_root}/proj/sub/deep" \
+         "${ld_root}/proj/x.log" "${ld_root}/proj/stale/y"; do
+    ai_tools_conf_is_path_excluded "${p}" ld_excluded || { fail "should be excluded: ${p}"; ld_ok=false; }
+done
+for p in "${ld_root}/proj/other" "${ld_root}/proj/x.log/y" "${ld_root}/proj/privateer"; do
+    ai_tools_conf_is_path_excluded "${p}" ld_excluded && { fail "should not be excluded: ${p}"; ld_ok=false; }
+done
+${ld_ok} && pass "the matcher covers a written path, its contents, a resolved path and a glob, and no sibling"
+# shellcheck disable=SC2034  # read through its name by the matcher
+declare -a ld_none=()
+if ! ai_tools_conf_is_path_excluded "${ld_root}/proj" ld_none; then
+    pass "an empty exclusion array excludes no path"
+else
+    fail "an empty exclusion array excluded a path"
+fi
+declare -a ld_a2=(x) ld_e2=(y)
+if ! ai_tools_conf_allowlist_load "${ld_root}" ld_a2 ld_e2 && [[ "${#ld_a2[@]}" -eq 0 && "${#ld_e2[@]}" -eq 0 ]] \
+        && ! ai_tools_conf_allowlist_load "${TESTDIR}/absent-allowlist" ld_a2 ld_e2; then
+    pass "a directory or an absent file returns 1 with both arrays empty"
+else
+    fail "load over a directory or an absent file: rc 0 or arrays (${ld_a2[*]:-}) (${ld_e2[*]:-})"
+fi
+glob_ok=true
+for p in '/a/*.log' '/a/b?' '/a/[cd]'; do
+    ai_tools_conf_path_has_glob_characters "${p}" || { fail "has_glob missed ${p}"; glob_ok=false; }
+done
+for p in '/a/plain' '/a/b]' ''; do
+    ai_tools_conf_path_has_glob_characters "${p}" && { fail "has_glob matched '${p}'"; glob_ok=false; }
+done
+${glob_ok} && pass "has_glob reads *, ? and [ as glob characters and a lone ] or a plain path as none"
+
 # The line-identifying variant returns the VERBATIM source line (comment and all), which is what an anchored sed deletes
 # -- reconstructing it from the path would miss a commented/quoted entry and leave it behind. Two-ended
 # with the boundary suite: the agent cannot write the allowlist.

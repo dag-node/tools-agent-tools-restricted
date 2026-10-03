@@ -71,6 +71,22 @@ world-readable. Which of those a host is has a one-line answer, so the prompt st
 by `AI_TOOLS_ASSUME_YES` or by a verb's `-y`, and a run with no terminal declines and prints the `setfacl` commands (see
 [cli](cli.rule.md), [messaging](messaging.rule.md)).
 
+### `ai_tools_pinned_fd_matches_path <fd> <path>` — the pinned inode is the one at the authorized path <a id="ref-section-u5h4"></a>
+
+Every elevated helper that changes a path — `ai-tools-chown`, `-setgid`, `-setfacl`, `-lockdown` and `-unclaim` — pins
+the inode with an open descriptor, re-reads identity, owner and type from the descriptor, and mutates
+through `/proc/self/fd`. The sandbox account is a group-writer on the tree, so it can rename a directory aside and plant
+a symlink of its name at any instant, and it can start the setgid pass itself through the handback client. The identity
+comparison catches a swapped leaf and not a swapped ancestor, so each helper also requires the kernel's own name
+for the pinned inode to equal the path it authorized, through this predicate, called after the identity check
+and before the owner guard; the predicate's doc comment holds the mechanism. Each call site takes a non-zero status
+as a refusal, so a library that loads without defining it refuses the path the same way.
+
+The guarantee has a runtime half alone: creating the symlink is reachable by design — the agent co-writes the tree —
+so no boundary probe asserts the state is unreachable. `tests/unit/safe-paths.sh` drives the predicate, with a control
+showing the identity reads agreeing on the outside inode, and each helper's unit file drives its pinned-descriptor
+function on the swapped state ([tests](tests.rule.md)).
+
 ## Where the guard runs
 
 Two layers, both fail-closed:

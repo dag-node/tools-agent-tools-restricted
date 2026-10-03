@@ -369,7 +369,7 @@ ai_tools_launch_print_and_exit() {
 # not approved draws the setup menu (create a sandbox clone, claim here, cancel) on a terminal, and is refused without
 # one.
 ai_tools_launch_gate_project() {
-    local name="${AI_TOOLS_LAUNCH_NAME}" cwd allowlist entry dir pat sel
+    local name="${AI_TOOLS_LAUNCH_NAME}" cwd allowlist dir pat sel
     allowlist="${HOME}/.config/ai-tools/allowed-projects"
     if [[ ! -f "${allowlist}" ]]; then
         ai_tools_launch_die MSG-C9S6 "approved-projects allowlist not found" \
@@ -380,39 +380,41 @@ ai_tools_launch_gate_project() {
 
     ai_tools_assert_safe_target "${cwd}" "launch" || exit 1
 
-    local -a allowed=()
-    local -a excluded=()
-    while IFS= read -r entry || [[ -n "${entry}" ]]; do
-        # One shared grammar (conf.lib.sh): whole-line and end-of-line comments, and quotes for a path carrying a space
-        # or a literal `#`. A line that does not yield an entry (blank, or a comment) is skipped.
-        ai_tools_conf_path_entry "${entry}" || continue
-        entry="${_ai_tools_conf_value}"
-        if [[ "${entry}" == '!'* ]]; then
-            excluded+=("${entry:1}")              # strip leading !, keep raw (may contain glob)
-        else
-            dir="$(realpath -e "${entry}" 2>/dev/null)" || continue
-            allowed+=("${dir}")
-        fi
-    done < "${allowlist}"
+    local -a allowed_directories=()
+    local -a exclusion_patterns=()
+    # The one read every reader of the allowlist makes (ai_tools_conf_allowlist_load, conf.lib.sh). A read the library
+    # refuses has already named the entry, the link and the reason on stderr under its own code; the refusal here adds
+    # the remedy.
+    local load_status=0
+    ai_tools_conf_allowlist_load "${allowlist}" allowed_directories exclusion_patterns || load_status=$?
+    case "${load_status}" in
+        0) ;;
+        2) ai_tools_launch_die MSG-Z3Q6 "refusing to launch -- an exclusion in the approved-projects allowlist cannot be resolved: ${allowlist}" \
+               "${name}: the line above names the entry and the symbolic link; a link the sandbox account can remove or replace does not decide what an exclusion covers, so no entry in the file allows a launch" \
+               "${name}: write the entry as the directory's real path, then start again" ;;
+        *) ai_tools_launch_die MSG-X4N6 "approved-projects allowlist cannot be read: ${allowlist}" \
+               "${name}: it must be a regular file this account can read" ;;
+    esac
 
-    # Exclusions are checked first and override allows (mirrors ai-tools-chown). Two shapes reach this, and they are
-    # DIFFERENT situations for the operator standing here, so they are reported apart: a line naming this very directory
-    # is a project someone PARKED -- `ai-tools projects disable`, or the same edit by hand -- and the way back is one
-    # command, while a line covering it from an ancestor (a parent, or a glob) is a subtree deliberately withheld
-    # from a project, where the remedy is to edit that line rather than to re-enable anything. Telling an operator their
-    # parked project is merely "excluded" leaves them to work out which of the two they are in.
-    if [[ "${#excluded[@]}" -gt 0 ]]; then
-        for pat in "${excluded[@]}"; do
+    # Exclusions are checked first and override allows (the match ai_tools_conf_is_path_excluded makes, spelled out here
+    # because the refusal names which line matched and how). Two shapes reach this, and they are DIFFERENT situations
+    # for the operator standing here, so they are reported apart: a line naming this very directory is a project someone
+    # PARKED -- `ai-tools projects disable`, or the same edit by hand -- and the way back is one command, while a line
+    # covering it from an ancestor (a parent, or a glob) is a subtree deliberately withheld from a project,
+    # where the remedy is to edit that line rather than to re-enable anything. Telling an operator their parked project
+    # is merely "excluded" leaves them to work out which of the two they are in.
+    if [[ "${#exclusion_patterns[@]}" -gt 0 ]]; then
+        for pat in "${exclusion_patterns[@]}"; do
             pat="${pat%/}"                         # normalise: strip trailing slash
             if [[ "${cwd}" == ${pat} ]]; then
                 # A line naming this very directory is one of two things, and the same test the CLI applies separates
                 # them: an approved project STRICTLY ENCLOSING makes this a subtree withheld from it, while none makes
                 # it a project that was parked. Exact-match alone cannot tell them apart -- a carve-out names its own
-                # path too. Guarded on the count, not written as "${allowed[@]:-}": an EMPTY array expands that way
-                # to one empty element, and "${dir}/"* is then the pattern /* -- which matches every absolute path,
-                # so a parked project with no approved entries at all would report as carved out of an empty set.
-                if [[ "${#allowed[@]}" -gt 0 ]]; then
-                    for dir in "${allowed[@]}"; do
+                # path too. Guarded on the count, not written as "${allowed_directories[@]:-}": an EMPTY array expands
+                # that way to one empty element, and "${dir}/"* is then the pattern /* -- which matches every absolute
+                # path, so a parked project with no approved entries at all would report as carved out of an empty set.
+                if [[ "${#allowed_directories[@]}" -gt 0 ]]; then
+                    for dir in "${allowed_directories[@]}"; do
                         [[ "${cwd}" == "${dir}/"* ]] || continue
                         ai_tools_launch_die MSG-K8K2 "excluded by '!' rule in approved projects list: $(pwd)" \
                             "${name}: it is carved out of the approved project ${dir}; edit ${allowlist} to change that"
@@ -431,8 +433,8 @@ ai_tools_launch_gate_project() {
     fi
 
     local approved=false
-    if [[ "${#allowed[@]}" -gt 0 ]]; then
-        for dir in "${allowed[@]}"; do
+    if [[ "${#allowed_directories[@]}" -gt 0 ]]; then
+        for dir in "${allowed_directories[@]}"; do
             if [[ "${cwd}" == "${dir}" || "${cwd}" == "${dir}/"* ]]; then
                 approved=true
                 break

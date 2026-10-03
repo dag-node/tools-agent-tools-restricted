@@ -298,6 +298,52 @@ run "${LIB}" "${PROJECTS_USER}" "${parked}" ai_tools_launch_gate_project
 refused "a parked project ('!' on its own path, no approved parent) is refused as disabled" MSG-R2V6
 says "and the refusal names the re-enable" "$(cli_cmd_text ai-tools.projects.enable)"
 
+# A '!' spelled through a symlink is matched as written and, through a link the sandbox account can neither remove
+# nor replace (root's, in root's 755 testdir), as the real path too, so the carve-out it names is refused.
+# Through a link that account could change -- one it holds, or one in a group-writable directory whoever holds it --
+# the read is refused outright, from the approved root as from anywhere under this allowlist (the section comment
+# in conf.lib.sh states why). The library runs here under the wrapper's IFS, so a field read inside it that leaves
+# the split to the caller's IFS refuses every link and fails these cases.
+ln -s "${excluded}" "${TESTDIR}/secret-link"
+allowlist "${approved}" "!${TESTDIR}/secret-link"
+run "${LIB}" "${PROJECTS_USER}" "${excluded}" ai_tools_launch_gate_project
+refused "a carve-out spelled through a root-owned symlink in a root-owned directory refuses the directory it names" MSG-K8K2
+ln -s "${excluded}" "${approved}/agent-link"; chown -h "${SANDBOX_USER}" "${approved}/agent-link"
+allowlist "${approved}" "!${approved}/agent-link"
+run "${LIB}" "${PROJECTS_USER}" "${approved}" ai_tools_launch_gate_project
+refused "a '!' through a symlink the sandbox account holds refuses the launch, the approved root included" MSG-Z3Q6
+says "and the library's report names the link" "${approved}/agent-link"
+assert_msg MSG-Y5N6 "${OUT}" "and carries the library's own code"
+mkdir -m 2770 "${approved}/shared"; ln -s "${excluded}" "${approved}/shared/alias"
+chown -h "${PROJECTS_USER}:${PROJECTS_GROUP}" "${approved}/shared" "${approved}/shared/alias"
+allowlist "${approved}" "!${approved}/shared/alias"
+run "${LIB}" "${PROJECTS_USER}" "${approved}" ai_tools_launch_gate_project
+refused "a '!' through the operator's own symlink in a group-writable directory refuses the launch too" MSG-Z3Q6
+says "and the refusal names the directory's write bit" "a directory with a group or other write bit"
+mkdir -m 755 "${approved}/shared/links"; ln -s "${excluded}" "${approved}/shared/links/alias"
+chown -h "${PROJECTS_USER}:${PROJECTS_GROUP}" "${approved}/shared/links" "${approved}/shared/links/alias"
+allowlist "${approved}" "!${approved}/shared/links/alias"
+run "${LIB}" "${PROJECTS_USER}" "${approved}" ai_tools_launch_gate_project
+refused "a '!' through a symlink in a closed directory under a group-writable one refuses the launch" MSG-Z3Q6
+says "and the refusal names the ancestor's write bit" "under ${approved}/shared, a directory with a group or other write bit"
+# A carve-out written as the real path keeps refusing its directory whatever happens to an alias beside it.
+allowlist "${approved}" "!${excluded}"
+for alias_state in link removed directory; do
+    case "${alias_state}" in
+        removed)   rm -f "${approved}/shared/alias" ;;
+        directory) mkdir "${approved}/shared/alias" ;;
+    esac
+    run "${LIB}" "${PROJECTS_USER}" "${excluded}" ai_tools_launch_gate_project
+    refused "a real-path carve-out is refused with the alias ${alias_state}" MSG-K8K2
+done
+rm -rf "${approved}/shared" "${approved}/agent-link" "${TESTDIR}/secret-link"
+allowlist "${approved}" "!${excluded}" "!${parked}"
+chmod 000 "${allowlist}"
+run "${LIB}" "${PROJECTS_USER}" "${approved}" ai_tools_launch_gate_project
+refused "an allowlist the operator cannot read is refused, naming the file" MSG-X4N6
+says "and the refusal names the allowlist path" "${allowlist}"
+allowlist "${approved}" "!${excluded}" "!${parked}"
+
 allowlist "/etc"
 run "${LIB}" "${PROJECTS_USER}" /etc ai_tools_launch_gate_project
 refused "an allowlisted protected directory is refused by the backstop before the allowlist" MSG-Q6H3

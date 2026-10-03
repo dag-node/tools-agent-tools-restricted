@@ -1488,6 +1488,24 @@ fi
 %attr(0644, root, root) %{_datadir}/ai-tools/codex/managed_config.toml
 
 %changelog
+* Fri Oct 03 2026 dagnode <tools@dagnode.com> - 0.23.1-1
+- SECURITY: The root helpers that change a project's files (the handback, the setgid and ACL passes,
+  lockdown, unclaim) refuse a path whose ancestor was swapped for a symbolic link while they ran.
+  Before, the swap could persuade them to land a group change or an ACL on a directory you own
+  outside the project. No configuration change is needed.
+- SECURITY: 'ai-tools projects remove' no longer runs git in the tree at all. The agent co-writes
+  .git, and git run as you executes what .git/config names: 'git status' runs core.fsmonitor, and in
+  a partial clone a missing object is fetched through core.sshCommand. The deletion warning now
+  tells you to check unpushed commits and uncommitted work yourself before you confirm; the clone
+  kind no longer counts unpushed commits either.
+- SECURITY: A '!' exclusion in allowed-projects spelled through a symbolic link now covers the
+  directory it names, at the launch gate and in every helper, where before only the registry
+  reported it disabled. The link must be one the agent cannot remove, replace or move: the link and
+  every directory above it yours or root's, and none of those directories group- or world-writable
+  (a sticky /tmp aside), so never inside a claimed project. Any other link on the way stops the whole
+  file -- no session starts and no helper acts on any of its entries -- until you write the entry as
+  the real path (MSG-Y5N6 names the link and the path to write).
+
 * Fri Oct 03 2026 dagnode <tools@dagnode.com> - 0.23.0-1
 - CHANGE: A launch requires SELinux unless operator.conf sets AI_TOOLS_REQUIRE_SELINUX=no, and under
   it refuses a permissive ai_tools_t domain, a widening Boolean that is on (nis_enabled,

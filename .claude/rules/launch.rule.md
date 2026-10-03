@@ -80,9 +80,12 @@ gates are what the security model rests on, and every one of them refuses toward
    (backstop, allowlist, claim): such a run stays out of the working tree, so no project grant is implied. It still
    launches the same validated binary confined as `SANDBOX_USER`, with the sandbox home as `WorkingDirectory`.
 7. **Protected-paths backstop, then the allowlist**, both on the `realpath -e`-canonicalized CWD. A session starts only
-   inside an allowed project and never in a CWD carved out by a `!` exclusion. Every allowlist entry is canonicalized
+   inside an allowed project and never in a CWD carved out by a `!` exclusion. Every allow entry is canonicalized
    before matching and the match is exact-or-`/`-prefixed, so a symlink or `..` component cannot smuggle a CWD past
-   the gate and a sibling sharing a name prefix does not match. `ai-tools-chown` parses the same list the same way,
+   the gate and a sibling sharing a name prefix does not match; a `!` entry is matched as written and as the real path
+   the loader resolved for it, so a carve-out spelled through a symlink refuses the directory it names, and a read
+   the loader refuses refuses the launch outright (`MSG-Z3Q6`), wherever the CWD is under that allowlist. The read
+   and the match are [ref-section-d2n3](providers.rule.md#ref-section-d2n3), and `ai-tools-chown` makes the same ones,
    so the launch gate and the ownership handback agree on what is in-project.
 8. **Claim guard** — the project's ownership, label and `safe.directory` gaps, detected read-only.
 
@@ -407,8 +410,11 @@ for re-validation; `AI_TOOLS_PROJECT_DIR` carries the validated project director
 ## Allowlist `!` exclusions are honored by both consumers
 
 `!`-prefixed lines in `allowed-projects` are exclusions and override allows. The wrapper refuses to launch
-with an excluded CWD, and `ai-tools-chown` skips ownership restoration on excluded paths. Keep the two in sync — a plain
-`!`-path also covers its contents; globs match as-is.
+with an excluded CWD, and `ai-tools-chown` skips ownership restoration on excluded paths. One loader and one matcher
+in `conf.lib.sh` keep the two in sync: a plain `!`-path also covers its contents, a glob matches as-is, a glob-free
+`!`-path covers its real path as well where the loader follows the link, and a read the loader refuses leaves neither
+consumer allowing a path under that file ([ref-section-d2n3](providers.rule.md#ref-section-d2n3)). The wrapper's own
+loop over the loaded entries decides the refusal's wording alone.
 
 **The refusal distinguishes the two things a `!` line means**, applying the same test the CLI does (see
 [cli](cli.rule.md)): a line naming the CWD with an approved project **strictly enclosing** it is a carve-out — a subtree

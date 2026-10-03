@@ -28,8 +28,8 @@ fi
 #                [require-selinux] [domain-permissive] [current-boolean-values] [required-boolean-values]
 #                [policy-shipped]
 # Drive the verdict and assert BOTH the echoed token and the 0=launch/1=refuse return. The '|| verdict_status=$?' keeps
-# a refusal (rc 1) non-fatal under `set -e` and captures the status. Each optional input is passed only when given, so
-# a 5-argument call exercises the default a caller without the switch gets.
+# a refusal (rc 1) non-fatal under `set -e` and captures the status. Each optional input is passed only when given,
+# so a 5-argument call exercises the default a caller without the switch gets.
 expect_verdict() {
     local expected_token="$1" expected_status="$2"; shift 2
     local verdict_token verdict_status
@@ -332,8 +332,8 @@ else
 fi
 
 # A further name becomes a path component under selinuxfs, so the reader opens one only in the pair grammar
-# (ai_tools_conf_pair_name_valid, conf.lib.sh beside the lib) and reads a registry name once however often it is
-# passed. The traversal fixture exists and holds a value, so this asserts the name was refused, not that it was absent.
+# (ai_tools_conf_pair_name_valid, conf.lib.sh beside the lib) and reads a registry name once however often it is passed.
+# The traversal fixture exists and holds a value, so this asserts the name was refused, not that it was absent.
 mkdir -p "${TESTDIR}/etc"; printf '1 0' > "${TESTDIR}/etc/shadow"
 printf '1 0' > "${fixture_selinuxfs}/booleans/ai_tools_test_extra"
 CONF_LIB_FOR_READER="$(dirname "${LIB}")/conf.lib.sh"
@@ -366,8 +366,8 @@ expect_verdict require-boolean 1 Enforcing yes ai_tools_exec_t ai_tools_exec_t i
 expect_verdict require-unattested 1 Enforcing yes ai_tools_exec_t ai_tools_exec_t init_t yes no \
     "${CLEAN_BOOLEANS}" "nis_enabled=off domain_can_mmap_files=off domain_can_write_kmsg=off no_such_boolean=on"
 
-# The required set: absent is the built-in requirement, a present declaration is exactly its pairs, as every list in
-# operator.conf replaces its default, and a malformed one keeps the built-in pairs, adds those it read, and carries
+# The required set: absent is the built-in requirement, a present declaration is exactly its pairs, as every list
+# in operator.conf replaces its default, and a malformed one keeps the built-in pairs, adds those it read, and carries
 # the marker no reading satisfies.
 expect_required_values() {  # <description> <expected> <declaration-state> <declared-boolean-values>
     local required_values; required_values="$(ai_tools_confinement_resolve_required_boolean_values "$3" "$4")"

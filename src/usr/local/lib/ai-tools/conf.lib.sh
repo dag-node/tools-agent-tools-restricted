@@ -309,10 +309,10 @@ ai_tools_conf_pair_name_valid() {
 #   <name>=<value> pairs, `[nis_enabled=off, deny_ptrace=on]`. Sets the array to the valid items, as written, in order:
 #   a name ai_tools_conf_pair_name_valid accepts and one of the <value>s, matched exactly. An item that is not one is
 #   reported (MSG-F6D7) and left out; a name given again is reported (MSG-R8C6) and its first value kept. An invalid
-#   list sets the array empty, as ai_tools_conf_list_value does. _ai_tools_conf_pair_list_rejected_count is set to the number
-#   of items left out, and _ai_tools_conf_list_invalid to 1 for an invalid list, so a caller for whom a left-out item
-#   is not the safe reading can refuse on it. Returns 1, leaving the array untouched, for an absent key, so a caller's
-#   defaults stand.
+#   list sets the array empty, as ai_tools_conf_list_value does. _ai_tools_conf_pair_list_rejected_count is set
+#   to the number of items left out, and _ai_tools_conf_list_invalid to 1 for an invalid list, so a caller for whom
+#   a left-out item is not the safe reading can refuse on it. Returns 1, leaving the array untouched, for an absent key,
+#   so a caller's defaults stand.
 ai_tools_conf_pair_list() {
     local out_name="$1" file="$2" key="$3" item pair_name pair_value allowed_value value_allowed kept_names=" "
     local allowed_values_text=""
@@ -735,8 +735,8 @@ _ai_tools_conf_write_line() {
 #   "/home/op/ai works"           quotes carry a space, and make `#` inside them literal
 #   !/home/op/project/vendor      an exclusion; the `!` precedes the quotes: !"/a b"
 #
-# An entry is NOT resolved or validated here: callers canonicalize with realpath and match exclusions as globs, and this
-# only decides what text the line denotes.
+# An entry is NOT resolved or validated by the line parser, which only decides what text the line denotes;
+# ai_tools_conf_allowlist_load is the one read that resolves entries and ai_tools_conf_is_path_excluded the one match.
 
 # ai_tools_conf_path_entry <line> : set _ai_tools_conf_value to the entry <line> denotes and
 #   return 0; return 1 for a line that does not carry an entry (blank, or a whole-line comment), which
@@ -755,6 +755,157 @@ ai_tools_conf_path_entry() {
     [[ -n "${_ai_tools_conf_value}" ]] || return 1
     _ai_tools_conf_value="${negate}${_ai_tools_conf_value}"
     return 0
+}
+
+# ── Allowlist loading and exclusion matching (the gate's own read) ───────────────────────────
+# The launch gate and each root helper that walks a project read the whole file into an allow array and an exclusion
+# array and match a path against them; this is the one implementation of that read and that match, so the gate
+# that refuses a launch and the walk that hands a path back cover one set of paths (providers.rule.md, ref-section-d2n3,
+# states which readers and what each does with a refused read). An allow entry is kept resolved (`realpath -e`)
+# and dropped when it does not resolve, so a symlinked spelling or a trailing slash names the directory. An exclusion is
+# kept AS WRITTEN and, for a line without a glob character, its resolved form beside it, so the match is the UNION
+# of the written and the resolved form: a reader matching the resolved form alone stops covering the written path
+# the moment a component of it becomes a symlink, and one matching the written form alone misses an exclusion
+# the operator spelled through one.
+#
+# The resolution follows a symlink only where the sandbox account can neither remove, replace nor move it: the link
+# and every directory on the way to it are held by root or the file's owner, and no directory on the way has a group
+# or other write bit without the sticky bit, since write on one lets the account rename the link's own directory aside.
+# Any other link REFUSES THE WHOLE READ (return 2, both arrays empty, MSG-Y5N6 naming the link and the real path
+# to write). The sandbox account is a group-writer on every project tree, so a link there is its to change: resolved
+# through such a link, the exclusion would cover whatever the account aimed it at; left as written alone, it would stop
+# covering the real path the operator's own link named the moment the account unlinks the link or puts a directory
+# of its name in its place -- `alias -> private` gone, `private` is allowed again under the enclosing entry. Neither
+# reading is safe, so no entry in the file allows a path until the entry is written as the real path. A link `readlink`
+# does not return, and a chain past 40 links, refuse the same way. A glob stays as written, since realpath would read
+# its metacharacters as a name, and a relative entry stays as written, since it does not name a real path. Every outcome
+# of the read keeps or adds an exclusion, or withdraws every allow -- the direction every allowlist read fails in.
+# What no spelling closes is a rename of the real directory itself inside a tree the account co-writes: an exclusion
+# names a path, and the owner-only mode on the directory is what keeps its contents from the account
+# (secret-handling.rule.md).
+
+# ai_tools_conf_path_has_glob_characters <path> : return 0 when <path> carries a glob character (`*`, `?` or `[`); such
+#   an exclusion is matched as a pattern on the whole path and is never resolved.
+ai_tools_conf_path_has_glob_characters() { [[ "${1-}" == *[*?[]* ]]; }
+
+# _ai_tools_conf_resolve_exclusion_path <abs-path> <uid> : set _ai_tools_conf_value to <abs-path> with every symlink
+#   on the way followed and `.`/`..` collapsed, as realpath -m does, and return 0 when each symlink met is owned
+#   by <uid> or by root and every directory on the way to it is held by <uid> or root with no group or other write bit
+#   unless the sticky bit is set (the reads that make the link one the sandbox account cannot remove, replace or move
+#   aside). Return 1 for a relative path, and -- with _ai_tools_conf_resolve_refusal set to the reason, naming the link
+#   -- for a symlink or a directory on the way to it held by any other account, such a directory with a group or other
+#   write bit and no sticky bit, a link `stat` or `readlink` does not return, or more than 40 links (a loop).
+#   A component that does not exist is kept as written. Results travel in globals rather than on stdout, so the caller
+#   reads them without a subshell.
+_ai_tools_conf_resolve_exclusion_path() {
+    local remaining_path="${1-}" allowlist_owner_uid="${2-}" resolved_path="" component link symlink_target
+    local symlink_owner_uid symlink_count=0 ancestor_directory ancestor_owner_uid ancestor_mode checked_directories=""
+    _ai_tools_conf_value=""; _ai_tools_conf_resolve_refusal=""
+    [[ "${remaining_path}" == /* && -n "${allowlist_owner_uid}" ]] || return 1
+    remaining_path="${remaining_path#/}"
+    while [[ -n "${remaining_path}" ]]; do
+        component="${remaining_path%%/*}"
+        remaining_path="${remaining_path#"${component}"}"; remaining_path="${remaining_path#/}"
+        case "${component}" in
+            ''|.) continue ;;
+            ..)   resolved_path="${resolved_path%/*}"; continue ;;
+        esac
+        link="${resolved_path}/${component}"
+        if [[ -L "${link}" ]]; then
+            symlink_count=$(( symlink_count + 1 ))
+            if (( symlink_count > 40 )); then
+                _ai_tools_conf_resolve_refusal="more than 40 symbolic links are met on the way (a loop) at ${link}"; return 1
+            fi
+            if ! symlink_owner_uid="$(stat -c '%u' -- "${link}" 2>/dev/null)"; then
+                _ai_tools_conf_resolve_refusal="${link} is a symbolic link whose owner cannot be read"; return 1
+            fi
+            if [[ "${symlink_owner_uid}" != "${allowlist_owner_uid}" && "${symlink_owner_uid}" != 0 ]]; then
+                _ai_tools_conf_resolve_refusal="${link} is a symbolic link held by uid ${symlink_owner_uid}, not by the file's owner (uid ${allowlist_owner_uid}) or root"; return 1
+            fi
+            # Every directory on the way to the link, the holding one included, and each read once per call: write
+            # on any of them lets the sandbox account rename the link's own directory aside, after which the written
+            # path no longer exists while the real directory stays where it was. A sticky directory (/tmp) is accepted
+            # with its write bits, since there the kernel lets only an entry's owner rename or unlink it, and every
+            # entry on the way is held by the file's owner or root. IFS is pinned for the read: the launch wrapper
+            # sources this library under IFS=$'\n\t', where the two space-separated fields would land in the uid
+            # variable together and the owner comparison refuse every link.
+            ancestor_directory="${resolved_path:-/}"
+            while :; do
+                if [[ " ${checked_directories} " != *" ${ancestor_directory} "* ]]; then
+                    if ! IFS=' ' read -r ancestor_owner_uid ancestor_mode \
+                            < <(stat -c '%u %a' -- "${ancestor_directory}" 2>/dev/null); then
+                        _ai_tools_conf_resolve_refusal="${link} is a symbolic link under ${ancestor_directory}, whose owner and mode cannot be read"; return 1
+                    fi
+                    if [[ "${ancestor_owner_uid}" != "${allowlist_owner_uid}" && "${ancestor_owner_uid}" != 0 ]]; then
+                        _ai_tools_conf_resolve_refusal="${link} is a symbolic link under ${ancestor_directory}, a directory held by uid ${ancestor_owner_uid}, not by the file's owner (uid ${allowlist_owner_uid}) or root"; return 1
+                    fi
+                    if (( 8#${ancestor_mode} & 8#022 )) && ! (( 8#${ancestor_mode} & 8#1000 )); then
+                        _ai_tools_conf_resolve_refusal="${link} is a symbolic link under ${ancestor_directory}, a directory with a group or other write bit and no sticky bit (mode ${ancestor_mode}), so an account other than its owner can move the link or a directory above it"; return 1
+                    fi
+                    checked_directories+=" ${ancestor_directory}"
+                fi
+                [[ "${ancestor_directory}" == / ]] && break
+                ancestor_directory="${ancestor_directory%/*}"; ancestor_directory="${ancestor_directory:-/}"
+            done
+            if ! symlink_target="$(readlink -- "${link}" 2>/dev/null)" || [[ -z "${symlink_target}" ]]; then
+                _ai_tools_conf_resolve_refusal="${link} is a symbolic link that cannot be read"; return 1
+            fi
+            if [[ "${symlink_target}" == /* ]]; then resolved_path=""; symlink_target="${symlink_target#/}"; fi
+            remaining_path="${symlink_target}${remaining_path:+/${remaining_path}}"
+            continue
+        fi
+        resolved_path="${link}"
+    done
+    _ai_tools_conf_value="${resolved_path:-/}"
+}
+
+# ai_tools_conf_allowlist_load <allowlist-file> <allowed-array> <excluded-array> : fill the two named arrays from
+#   <allowlist-file> as the section comment states -- allow entries resolved; exclusions as written, plus the resolved
+#   form of a glob-free absolute one whose symlinks the sandbox account can neither remove nor replace -- and return 0.
+#   Return 1, both arrays empty, when <allowlist-file> is missing, is a directory or another non-regular file, cannot
+#   be read, or has no readable owner. Return 2, both arrays empty and MSG-Y5N6 on stderr naming the entry
+#   and the link, when a glob-free absolute exclusion meets a symlink _ai_tools_conf_resolve_exclusion_path refuses.
+ai_tools_conf_allowlist_load() {
+    local -n _ai_tools_conf_load_allowed="$2" _ai_tools_conf_load_excluded="$3"
+    local file="${1-}" allowlist_owner_uid line entry resolved
+    _ai_tools_conf_load_allowed=(); _ai_tools_conf_load_excluded=()
+    [[ -f "${file}" && -r "${file}" ]] || return 1
+    allowlist_owner_uid="$(stat -c '%u' -- "${file}" 2>/dev/null)" || return 1
+    while IFS= read -r line || [[ -n "${line}" ]]; do
+        ai_tools_conf_path_entry "${line}" || continue
+        entry="${_ai_tools_conf_value}"
+        if [[ "${entry}" == '!'* ]]; then
+            entry="${entry:1}"
+            _ai_tools_conf_load_excluded+=("${entry}")
+            ai_tools_conf_path_has_glob_characters "${entry}" && continue
+            [[ "${entry}" == /* ]] || continue
+            if ! _ai_tools_conf_resolve_exclusion_path "${entry}" "${allowlist_owner_uid}"; then
+                _ai_tools_conf_load_allowed=(); _ai_tools_conf_load_excluded=()
+                _ai_tools_conf_warn MSG-Y5N6 "exclusion !${entry} in ${file} cannot be resolved -- ${_ai_tools_conf_resolve_refusal}; write the exclusion as the directory's real path, since a link the sandbox account can change cannot be followed; no entry in this file allows a path until the line is fixed"
+                return 2
+            fi
+            resolved="${_ai_tools_conf_value}"
+            [[ "${resolved}" == "${entry%/}" ]] || _ai_tools_conf_load_excluded+=("${resolved}")
+        else
+            resolved="$(realpath -e -- "${entry}" 2>/dev/null)" || continue
+            _ai_tools_conf_load_allowed+=("${resolved}")
+        fi
+    done < "${file}"
+}
+
+# ai_tools_conf_is_path_excluded <abs-path> <excluded-array> : return 0 when an entry of the named array covers
+#   <abs-path>: equal to it, with a glob matched as a pattern against the whole path, or, for an entry without `*`,
+#   an ancestor of it; a trailing slash on an entry is ignored. Return 1 otherwise, and for an empty array.
+ai_tools_conf_is_path_excluded() {
+    local -n _ai_tools_conf_match_excluded="$2"
+    local path="${1-}" pat
+    (( ${#_ai_tools_conf_match_excluded[@]} )) || return 1
+    for pat in "${_ai_tools_conf_match_excluded[@]}"; do
+        pat="${pat%/}"
+        [[ "${path}" == ${pat} ]] && return 0
+        if [[ "${pat}" != *'*'* && "${path}" == "${pat}/"* ]]; then return 0; fi
+    done
+    return 1
 }
 
 # ── Allowlist membership (exact-entry matching) ──────────────────────────────────────────────

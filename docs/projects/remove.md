@@ -44,10 +44,9 @@ directory in the tree, and refuses up front where you cannot, so a removal does
 not stop partway and leave an unregistered fragment behind. The parent
 directory is checked as well, since the last step unlinks the project from it;
 where you cannot write the parent, the refusal names `projects unclaim`
-instead, the parent never having been the project's to hand back. The pass also
-reports uncommitted changes, unpushed commits and a repository with no
-upstream, and goes on, since deleting a scratch repository on purpose is
-legitimate.
+instead, the parent never having been the project's to hand back. The command
+does not read the repository, so unpushed commits and uncommitted changes are
+not reported: check both yourself before you confirm.
 
 ## It confirms twice
 
@@ -74,10 +73,11 @@ removed, the command stops and prints the line to delete by hand.
 
 ## A sandbox clone
 
-Pointed at a clone under the sandbox area, the command warns about any commit
-not yet pushed, asks one default-No confirm, then deletes the clone
-and unregisters it. The remote branch stays for others to merge. `-y` answers
-that one confirm, on the same terms ([Clone](clone.md)).
+Pointed at a clone under the sandbox area, the command asks one default-No
+confirm, then deletes the clone and unregisters it. A commit not yet pushed
+goes with it, and the command does not count them: run `ai-tools projects push`
+first to keep your work ([Push](push.md)). The remote branch stays for others
+to merge. `-y` answers that one confirm, on the same terms ([Clone](clone.md)).
 
 ## For another operator
 

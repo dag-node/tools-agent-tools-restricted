@@ -1,12 +1,13 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: AGPL-3.0-only
 # /usr/local/lib/ai-tools/safe-paths.lib.sh
-# Single source of truth for the system directories the ai-tools elevated helpers must never operate on, plus the guard
-# that enforces it. Defense in depth against an operator config error: the allowlist alone would let a recursive
-# chown/setgid/setfacl/relabel run wherever it points, so a system directory mistakenly added to allowed-projects (or
-# passed to a helper) could be rewritten. This list is the independent backstop -- the launch wrapper, the claim CLI,
-# and every elevated helper refuse a protected target regardless of the allowlist, before acting. Each function states
-# the rule it applies; which consumers call which, and what a failed load does, are in safe-paths.rule.md.
+# Single source of truth for the system directories the ai-tools elevated helpers refuse to operate on, plus the guard
+# that enforces it, and the check that holds a pinned descriptor to the path a helper authorized. Defense in depth
+# against an operator config error: the allowlist alone would let a recursive chown/setgid/setfacl/relabel run wherever
+# it points, so a system directory mistakenly added to allowed-projects (or passed to a helper) could be rewritten. This
+# list is the independent backstop -- the launch wrapper, the claim CLI, and every elevated helper refuse a protected
+# target regardless of the allowlist, before acting. Each function states the rule it applies; which consumers call
+# which, and what a failed load does, are in safe-paths.rule.md.
 #
 # Sourced (not executed) so every consumer shares ONE list and ONE matcher. Deployed 644 root:root (world-readable,
 # and it does not carry any secrets; the operator wrapper, the CLI, and the root helpers all read it) like msg.lib.sh /
@@ -95,6 +96,24 @@ ai_tools_assert_safe_target() {
     declare -F ai_tools_log_warn >/dev/null 2>&1 \
         && ai_tools_log_warn "refused ${operation} on protected path ${resolved_path} (matched ${matched_entry})"
     return 1
+}
+
+# ai_tools_pinned_fd_matches_path <fd> <path> Return 0 when the kernel names the inode <fd> holds open at exactly
+# <path>, read with readlink over /proc/self/fd; return 1 otherwise, and for a closed descriptor or an empty argument.
+#
+# The pre-open identity read through the path and the post-open read from the descriptor catch a leaf swapped
+# for a symlink -- a link has an inode of its own -- and not an ancestor swapped for one before the first read: both
+# lookups then follow the link to one inode outside the project, and agree. <path> is a real path the caller authorized
+# before the open (a walk's root is canonical and find does not follow symlinks; ai-tools-chown resolves its argument
+# with realpath), so the kernel's own name for the pinned inode equals it only while every component is the directory
+# the caller enumerated. A rename since the open and an unlink (a "(deleted)" suffix) mismatch as well, each a refusal
+# the next walk repairs. The sandbox account cannot bind-mount (RestrictNamespaces, no privilege), so it cannot make
+# the kernel name one inode by another path. Which helpers call it, and where in the apply sequence: safe-paths.rule.md.
+ai_tools_pinned_fd_matches_path() {
+    local fd="${1:-}" expected_path="${2:-}" descriptor_path
+    [[ -n "${fd}" && -n "${expected_path}" ]] || return 1
+    descriptor_path="$(readlink -- "/proc/self/fd/${fd}" 2>/dev/null)" || return 1
+    [[ "${descriptor_path}" == "${expected_path}" ]]
 }
 
 # msg.lib is REQUIRED (the refusal renders through it, and the sourcing helpers rely on its ai_tools_msg_confirm):
