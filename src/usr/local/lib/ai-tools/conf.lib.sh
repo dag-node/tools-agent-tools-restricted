@@ -309,9 +309,10 @@ ai_tools_conf_pair_name_valid() {
 #   <name>=<value> pairs, `[nis_enabled=off, deny_ptrace=on]`. Sets the array to the valid items, as written, in order:
 #   a name ai_tools_conf_pair_name_valid accepts and one of the <value>s, matched exactly. An item that is not one is
 #   reported (MSG-F6D7) and left out; a name given again is reported (MSG-R8C6) and its first value kept. An invalid
-#   list sets the array empty, as ai_tools_conf_list_value does. _ai_tools_conf_pair_list_rejected_count is set to the number
-#   of items left out, and _ai_tools_conf_list_invalid to 1 for an invalid list, so a caller for whom a left-out item
-#   is not the safe reading can refuse on it. Returns 1, leaving the array untouched, for an absent key, so a caller's
+#   list sets the array empty, as ai_tools_conf_list_value does. _ai_tools_conf_pair_list_rejected_count is set
+#   to the number of items left out, and _ai_tools_conf_list_invalid to 1 for an invalid list, so a caller for whom
+#   a left-out item is not the safe reading can refuse on it. Returns 1, leaving the array untouched, for an absent key,
+#   so a caller's
 #   defaults stand.
 ai_tools_conf_pair_list() {
     local out_name="$1" file="$2" key="$3" item pair_name pair_value allowed_value value_allowed kept_names=" "
@@ -735,8 +736,8 @@ _ai_tools_conf_write_line() {
 #   "/home/op/ai works"           quotes carry a space, and make `#` inside them literal
 #   !/home/op/project/vendor      an exclusion; the `!` precedes the quotes: !"/a b"
 #
-# An entry is NOT resolved or validated here: callers canonicalize with realpath and match exclusions as globs, and this
-# only decides what text the line denotes.
+# An entry is NOT resolved or validated by the line parser, which only decides what text the line denotes;
+# ai_tools_conf_allowlist_load is the one read that resolves entries and ai_tools_conf_path_excluded the one match.
 
 # ai_tools_conf_path_entry <line> : set _ai_tools_conf_value to the entry <line> denotes and
 #   return 0; return 1 for a line that does not carry an entry (blank, or a whole-line comment), which
@@ -755,6 +756,99 @@ ai_tools_conf_path_entry() {
     [[ -n "${_ai_tools_conf_value}" ]] || return 1
     _ai_tools_conf_value="${negate}${_ai_tools_conf_value}"
     return 0
+}
+
+# ── Allowlist loading and exclusion matching (the gate's own read) ───────────────────────────
+# The launch gate and each root helper that walks a project read the whole file into an allow array and an exclusion
+# array and match a path against them; this is the one implementation of that read and that match, so the gate
+# that refuses a launch and the walk that hands a path back cover one set of paths. An allow entry is kept resolved
+# (`realpath -e`) and dropped when it does not resolve, so a symlinked spelling or a trailing slash names the directory.
+# An exclusion is kept AS WRITTEN and, for a line without a glob character, its resolved form beside it, so the match is
+# the UNION of the written and the resolved form: a reader matching the resolved form alone stops covering the written
+# path the moment a component of it becomes a symlink, and one matching the written form alone misses an exclusion
+# the operator spelled through one.
+#
+# The resolution follows only symlinks the file's owner or root holds. The sandbox account is a group-writer on every
+# project tree, so it can rename a carve-out aside and plant a symlink of its name aimed anywhere; resolved
+# through that link, the exclusion would cover whatever the account chose -- the project root, which parks the project
+# -- so a link held by any other account leaves the entry as written. A glob stays as written, since realpath would read
+# its metacharacters as a name. Every outcome of the read keeps or adds an exclusion, the direction every allowlist read
+# fails in.
+
+# ai_tools_conf_path_has_glob <path> : return 0 when <path> carries a glob character (`*`, `?` or `[`); such
+#   an exclusion is matched as a pattern on the whole path and is never resolved.
+ai_tools_conf_path_has_glob() { [[ "${1-}" == *[*?[]* ]]; }
+
+# _ai_tools_conf_resolve_owned <abs-path> <uid> : print <abs-path> with every symlink on the way followed
+#   and `.`/`..` collapsed, as realpath -m does, and return 0 when each symlink met is owned by <uid> or by root;
+#   return 1 for a relative path, a symlink held by any other account, a link that cannot be read, or more than 40
+#   links (a loop). A component that does not exist is kept as written.
+_ai_tools_conf_resolve_owned() {
+    local rest="${1-}" uid="${2-}" out="" component target owner hops=0
+    [[ "${rest}" == /* && -n "${uid}" ]] || return 1
+    rest="${rest#/}"
+    while [[ -n "${rest}" ]]; do
+        component="${rest%%/*}"
+        rest="${rest#"${component}"}"; rest="${rest#/}"
+        case "${component}" in
+            ''|.) continue ;;
+            ..)   out="${out%/*}"; continue ;;
+        esac
+        if [[ -L "${out}/${component}" ]]; then
+            hops=$(( hops + 1 )); (( hops > 40 )) && return 1
+            owner="$(stat -c '%u' -- "${out}/${component}" 2>/dev/null)" || return 1
+            [[ "${owner}" == "${uid}" || "${owner}" == 0 ]] || return 1
+            target="$(readlink -- "${out}/${component}" 2>/dev/null)" || return 1
+            [[ -n "${target}" ]] || return 1
+            if [[ "${target}" == /* ]]; then out=""; target="${target#/}"; fi
+            rest="${target}${rest:+/${rest}}"
+            continue
+        fi
+        out="${out}/${component}"
+    done
+    printf '%s' "${out:-/}"
+}
+
+# ai_tools_conf_allowlist_load <allowlist-file> <allowed-array> <excluded-array> : fill the two named arrays from
+#   <allowlist-file> as the section comment states -- allow entries resolved; exclusions as written, plus the resolved
+#   form of a glob-free one whose symlinks the file's owner or root holds -- and return 0. Return 1, both arrays
+#   empty, when <allowlist-file> is missing, is a directory or another non-regular file, cannot be read, or has no
+#   readable owner.
+ai_tools_conf_allowlist_load() {
+    local -n _ai_tools_conf_load_allowed="$2" _ai_tools_conf_load_excluded="$3"
+    local file="${1-}" owner line entry resolved
+    _ai_tools_conf_load_allowed=(); _ai_tools_conf_load_excluded=()
+    [[ -f "${file}" && -r "${file}" ]] || return 1
+    owner="$(stat -c '%u' -- "${file}" 2>/dev/null)" || return 1
+    while IFS= read -r line || [[ -n "${line}" ]]; do
+        ai_tools_conf_path_entry "${line}" || continue
+        entry="${_ai_tools_conf_value}"
+        if [[ "${entry}" == '!'* ]]; then
+            entry="${entry:1}"
+            _ai_tools_conf_load_excluded+=("${entry}")
+            ai_tools_conf_path_has_glob "${entry}" && continue
+            resolved="$(_ai_tools_conf_resolve_owned "${entry}" "${owner}")" || continue
+            [[ "${resolved}" == "${entry%/}" ]] || _ai_tools_conf_load_excluded+=("${resolved}")
+        else
+            resolved="$(realpath -e -- "${entry}" 2>/dev/null)" || continue
+            _ai_tools_conf_load_allowed+=("${resolved}")
+        fi
+    done < "${file}"
+}
+
+# ai_tools_conf_path_excluded <abs-path> <excluded-array> : return 0 when an entry of the named array covers
+#   <abs-path>: equal to it, with a glob matched as a pattern against the whole path, or, for an entry without `*`,
+#   an ancestor of it; a trailing slash on an entry is ignored. Return 1 otherwise, and for an empty array.
+ai_tools_conf_path_excluded() {
+    local -n _ai_tools_conf_match_excluded="$2"
+    local path="${1-}" pat
+    (( ${#_ai_tools_conf_match_excluded[@]} )) || return 1
+    for pat in "${_ai_tools_conf_match_excluded[@]}"; do
+        pat="${pat%/}"
+        [[ "${path}" == ${pat} ]] && return 0
+        if [[ "${pat}" != *'*'* && "${path}" == "${pat}/"* ]]; then return 0; fi
+    done
+    return 1
 }
 
 # ── Allowlist membership (exact-entry matching) ──────────────────────────────────────────────

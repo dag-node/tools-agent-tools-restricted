@@ -189,34 +189,17 @@ readonly SANDBOX_UID
 # shellcheck source=SCRIPTDIR/../../lib/ai-tools/conf.lib.sh
 source /usr/local/lib/ai-tools/conf.lib.sh
 
-# ── Allowlist (allow + ! exclude), same parse as ai-tools-chown ──────────────
+# ── Allowlist (allow + ! exclude), the read every helper and the launch gate make ──────────────
 declare -a allowed=()
+# shellcheck disable=SC2034  # filled and read through its name by the conf.lib.sh loader and matcher
 declare -a excluded=()
-while IFS= read -r entry || [[ -n "${entry}" ]]; do
-    # One shared grammar (conf.lib.sh): whole-line and end-of-line comments, and quotes for a path carrying a space
-    # or a literal '#'. A line that does not denote an entry is skipped.
-    ai_tools_conf_path_entry "${entry}" || continue
-    entry="${_ai_tools_conf_value}"
-    if [[ "${entry}" == '!'* ]]; then
-        excluded+=("${entry:1}")                  # keep raw (may contain glob)
-    else
-        d="$(realpath -e "${entry}" 2>/dev/null)" || continue
-        allowed+=("${d}")
-    fi
-done < "${ALLOWLIST}"
+# One shared read (conf.lib.sh): allow entries resolved; exclusions as written and, through symlinks the operator
+# or root owns, resolved beside them. A file that cannot be read leaves both arrays empty, so the target is not allowed.
+ai_tools_conf_allowlist_load "${ALLOWLIST}" allowed excluded || true
 
-# _is_excluded <abs-path>: 0 if the path is covered by a '!' rule. A plain path also covers its contents; a glob matches
-# as-is. Mirrors ai-tools-chown.
-_is_excluded() {
-    local path="$1" pat
-    [[ "${#excluded[@]}" -gt 0 ]] || return 1
-    for pat in "${excluded[@]}"; do
-        pat="${pat%/}"
-        [[ "${path}" == ${pat} ]] && return 0
-        [[ "${pat}" != *'*'* && "${path}" == "${pat}/"* ]] && return 0
-    done
-    return 1
-}
+# _is_excluded <abs-path>: 0 if the path is covered by a '!' rule (ai_tools_conf_path_excluded, conf.lib.sh -- the match
+# every reader of the allowlist makes).
+_is_excluded() { ai_tools_conf_path_excluded "$1" excluded; }
 
 # _is_allowed <abs-path>: 0 if the path is at or under an allowed directory.
 _is_allowed() {

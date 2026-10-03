@@ -165,34 +165,15 @@ if ai_tools_is_secret_basename "$(basename "${canonical}")"; then
 fi
 
 declare -a allowed=()
+# shellcheck disable=SC2034  # filled and read through its name by the conf.lib.sh loader and matcher
 declare -a excluded=()
+# One shared read (conf.lib.sh): allow entries resolved; exclusions as written and, through symlinks the operator
+# or root owns, resolved beside them. A file that cannot be read leaves both arrays empty, so the path is not in-project
+# and is left as it is.
+ai_tools_conf_allowlist_load "${ALLOWLIST}" allowed excluded || true
 
-while IFS= read -r entry || [[ -n "${entry}" ]]; do
-    # One shared grammar (conf.lib.sh): whole-line and end-of-line comments, and quotes for a path carrying a space
-    # or a literal `#`. A line that does not denote an entry is skipped.
-    ai_tools_conf_path_entry "${entry}" || continue
-    entry="${_ai_tools_conf_value}"
-    if [[ "${entry}" == '!'* ]]; then
-        excluded+=("${entry:1}")              # strip leading !, keep raw (may contain glob)
-    else
-        dir="$(realpath -e "${entry}" 2>/dev/null)" || continue
-        allowed+=("${dir}")
-    fi
-done < "${ALLOWLIST}"
-
-# Exclusions are checked first and override allows
-if [[ "${#excluded[@]}" -gt 0 ]]; then
-    for pat in "${excluded[@]}"; do
-        pat="${pat%/}"                         # normalise: strip trailing slash
-        if [[ "${canonical}" == ${pat} ]]; then
-            exit 0                             # excluded -- leave ownership intact
-        fi
-        # For plain paths (no glob), also protect directory contents
-        if [[ "${pat}" != *'*'* && "${canonical}" == "${pat}/"* ]]; then
-            exit 0
-        fi
-    done
-fi
+# Exclusions are checked first and override allows (ai_tools_conf_path_excluded, conf.lib.sh).
+ai_tools_conf_path_excluded "${canonical}" excluded && exit 0   # excluded -- leave ownership intact
 
 # Check if target falls under any allowed directory
 if [[ "${#allowed[@]}" -gt 0 ]]; then
