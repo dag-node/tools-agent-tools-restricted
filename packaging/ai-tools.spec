@@ -1500,11 +1500,11 @@ fi
   kind no longer counts unpushed commits either.
 - SECURITY: A '!' exclusion in allowed-projects spelled through a symbolic link now covers the
   directory it names, at the launch gate and in every helper, where before only the registry
-  reported it disabled. The link must be one the agent cannot remove or replace: yours or root's,
-  in a directory that is yours or root's and not group- or world-writable, so never inside a claimed
-  project. Any other link on the way stops the whole file -- no session starts and no helper acts on
-  any of its entries -- until you write the entry as the real path (MSG-Y5N6 names the link and the
-  path to write).
+  reported it disabled. The link must be one the agent cannot remove, replace or move: the link and
+  every directory above it yours or root's, and none of those directories group- or world-writable
+  (a sticky /tmp aside), so never inside a claimed project. Any other link on the way stops the whole
+  file -- no session starts and no helper acts on any of its entries -- until you write the entry as
+  the real path (MSG-Y5N6 names the link and the path to write).
 
 * Fri Oct 03 2026 dagnode <tools@dagnode.com> - 0.23.0-1
 - CHANGE: A launch requires SELinux unless operator.conf sets AI_TOOLS_REQUIRE_SELINUX=no, and under

@@ -350,16 +350,17 @@ kept as written and, for a glob-free absolute one, as its real path beside it, s
 forms: the resolved form alone stops covering the written path once a component of it becomes a symlink, and the written
 form alone misses an exclusion the operator spelled through one.
 
-The resolution follows a symlink only where the sandbox account can neither remove nor replace it,
-which `_ai_tools_conf_resolve_exclusion_path` reads as the link and the directory holding it each held by the file's
-owner or root, with no group or other write bit on the directory. A link in a tree that account co-writes therefore does
-not decide what an exclusion covers, whoever made it: the loader refuses the whole read (`MSG-Y5N6`, naming the entry,
-the link, the reason and the real path to write), both arrays come back empty, the wrapper refuses the launch
-(`MSG-Z3Q6`) and no helper resolves an owner or acts on a path under that file, until the entry is rewritten as the real
-path. Every outcome of the read keeps or adds an exclusion, or withdraws every allow. What no spelling closes is
-a rename of the real directory itself inside a tree the account co-writes; the owner-only seal is what keeps its
-contents from the account ([ref-definition-e3h3](secret-handling.rule.md#ref-definition-e3h3)). The library's section
-comment carries the reasoning behind the refusal, `tests/unit/conf.sh` drives each outcome of the read,
+The resolution follows a symlink only where the sandbox account can neither remove, replace nor move it,
+which `_ai_tools_conf_resolve_exclusion_path` reads as the link and every directory on the way to it each held
+by the file's owner or root, with no group or other write bit on any of those directories unless its sticky bit is set,
+since write on one lets the account rename the link's own directory aside. A link in a tree that account co-writes
+therefore does not decide what an exclusion covers, whoever made it: the loader refuses the whole read (`MSG-Y5N6`,
+naming the entry, the link, the reason and the real path to write), both arrays come back empty, the wrapper refuses
+the launch (`MSG-Z3Q6`) and no helper resolves an owner or acts on a path under that file, until the entry is rewritten
+as the real path. Every outcome of the read keeps or adds an exclusion, or withdraws every allow. What no spelling
+closes is a rename of the real directory itself inside a tree the account co-writes; the owner-only seal is what keeps
+its contents from the account ([ref-definition-e3h3](secret-handling.rule.md#ref-definition-e3h3)). The library's
+section comment carries the reasoning behind the refusal, `tests/unit/conf.sh` drives each outcome of the read,
 and `tests/unit/launch-wrapper.sh` drives the gate through it.
 
 ### `operator.conf` across an upgrade
