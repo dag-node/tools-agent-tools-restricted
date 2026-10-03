@@ -301,10 +301,9 @@ says "and the refusal names the re-enable" "$(cli_cmd_text ai-tools.projects.ena
 # A '!' spelled through a symlink is matched as written and, through a link the sandbox account can neither remove
 # nor replace (root's, in root's 755 testdir), as the real path too, so the carve-out it names is refused.
 # Through a link that account could change -- one it holds, or one in a group-writable directory whoever holds it --
-# the read is refused outright, from the approved root as from anywhere under this allowlist: left as written alone,
-# the entry would stop covering the directory the operator's link named the moment the account unlinks it or puts
-# a directory in its
-# place.
+# the read is refused outright, from the approved root as from anywhere under this allowlist (the section comment
+# in conf.lib.sh states why). The library runs here under the wrapper's IFS, so a field read inside it that leaves
+# the split to the caller's IFS refuses every link and fails these cases.
 ln -s "${excluded}" "${TESTDIR}/secret-link"
 allowlist "${approved}" "!${TESTDIR}/secret-link"
 run "${LIB}" "${PROJECTS_USER}" "${excluded}" ai_tools_launch_gate_project

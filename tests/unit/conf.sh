@@ -826,6 +826,18 @@ if [[ "${ld_glob_forms}" == 1 ]]; then
 else
     fail "the glob exclusion appears ${ld_glob_forms} time(s)"
 fi
+# The launch wrapper sources the library under IFS=$'\n\t', where a `read` of two space-separated `stat` fields into two
+# variables puts both in the first unless the read pins its own IFS; the same file must load to the same arrays.
+declare -a ld_ifs_allowed=() ld_ifs_excluded=()
+ld_ifs_rc=0; ld_saved_ifs="${IFS}"; IFS=$'\n\t'
+ai_tools_conf_allowlist_load "${ld_al}" ld_ifs_allowed ld_ifs_excluded 2>"${TESTDIR}/ld-ifs.err" || ld_ifs_rc=$?
+IFS="${ld_saved_ifs}"
+if [[ "${ld_ifs_rc}" -eq 0 && "${ld_ifs_allowed[*]}" == "${ld_allowed[*]}" \
+        && "${ld_ifs_excluded[*]}" == "${ld_excluded[*]}" ]]; then
+    pass "the loader reads the same arrays under the launch wrapper's IFS"
+else
+    fail "under the launch wrapper's IFS: rc ${ld_ifs_rc}, excluded=(${ld_ifs_excluded[*]:-}): $(cat "${TESTDIR}/ld-ifs.err")"
+fi
 # A link the sandbox account can change, aimed at the directory a carve-out covers: the owner's own link
 # in a group-writable directory (a claimed project's shape, whoever made the link), and -- as root, where the fixture
 # link can be re-owned -- a link another account holds in a directory it cannot write. Each must refuse the read whole:
@@ -871,6 +883,7 @@ for ld_alias_state in link removed directory; do
         removed)   rm -f "${ld_root}/proj/alias" ;;
         directory) mkdir "${ld_root}/proj/alias" ;;
     esac
+    # shellcheck disable=SC2034  # filled and read through their names by the loader and the matcher
     declare -a ld_ca=() ld_ce=()
     if ! ai_tools_conf_allowlist_load "${ld_al}.canonical" ld_ca ld_ce \
             || ! ai_tools_conf_is_path_excluded "${ld_root}/proj/private" ld_ce \

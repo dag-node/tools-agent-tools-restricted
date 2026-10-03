@@ -821,7 +821,9 @@ _ai_tools_conf_resolve_exclusion_path() {
                 _ai_tools_conf_resolve_refusal="${link} is a symbolic link held by uid ${symlink_owner_uid}, not by the file's owner (uid ${allowlist_owner_uid}) or root"; return 1
             fi
             holding_directory="${resolved_path:-/}"
-            if ! read -r holding_directory_owner_uid holding_directory_mode \
+            # IFS is pinned for the read: the launch wrapper sources this library under IFS=$'\n\t', where the two
+            # space-separated fields would land in the uid variable together and the owner comparison refuse every link.
+            if ! IFS=' ' read -r holding_directory_owner_uid holding_directory_mode \
                     < <(stat -c '%u %a' -- "${holding_directory}" 2>/dev/null); then
                 _ai_tools_conf_resolve_refusal="${link} is a symbolic link in ${holding_directory}, whose owner and mode cannot be read"; return 1
             fi
