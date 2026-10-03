@@ -74,7 +74,8 @@ on first.
 ```bash
 # Repository
 sudo rpm --import https://rpm.dagnode.com/RPM-GPG-KEY-dag-node
-sudo dnf install https://rpm.dagnode.com/dagnode-release-latest.noarch.rpm
+sudo dnf install https://rpm.dagnode.com/dagnode-release-latest.noarch.rpm         # EL 9, EL 10
+sudo dnf install https://rpm.dagnode.com/fedora/dagnode-release-latest.noarch.rpm  # Fedora 44
 
 # Sandbox
 sudo dnf install ai-tools-selinux ai-tools-agents-claude-code-restricted  # Claude Code
