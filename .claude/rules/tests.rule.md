@@ -339,7 +339,12 @@ the ACL mask would leave the residue "gone" and the path more open than before. 
 decision that feeds the helper — the hand-back group — because it publishes **two** results (the group, and the hint
 that no hand-back can run) as globals in its caller's shell rather than on stdout, which a `$(...)`-capturing test
 cannot observe: the assertion is made from a real caller, under `set -u`, so a result the function fails to publish
-aborts the test the same way it would abort an unclaim. No live daemon, no SELinux dependency, no wrapper. Run as root
+aborts the test the same way it would abort an unclaim. `setgid.sh`, `setfacl.sh`, `lockdown.sh` and `unclaim.sh` each
+also drive the installed helper's pinned-descriptor function, read out of the helper as text through `extract_function`
+(`lib/harness.sh`), over a path whose ancestor is a symlink to a directory outside the project — a state the walk itself
+never emits — and assert that directory is left as it was, with the same function on a real path as the control;
+the predicate they share is pinned in `safe-paths.sh`, and why that guarantee carries a runtime half alone is
+[ref-section-u5h4](safe-paths.rule.md#ref-section-u5h4). No live daemon, no SELinux dependency, no wrapper. Run as root
 (needed to set arbitrary ownership and create third-party-owned fixtures). A fixture tree is `chown`ed to the projects
 user before the run, or the owner guard skips it. `secret-patterns.sh` is the odd one out: it sources the shared
 classifier library (`secret-patterns.lib.sh`) and forces the built-in default pattern set, pinning the matcher itself —

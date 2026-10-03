@@ -289,8 +289,9 @@ _is_residue() {
         | grep -q "^\(default:\)\?group:@SANDBOX_GROUP@:"
 }
 
-# _safe_unclaim <path>: clear ACL, regroup, drop group write -- TOCTOU-safe via a pinned fd (see ai-tools-setfacl
-# for the rationale). Owner-guarded on the pinned inode.
+# _safe_unclaim <path>: clear ACL, regroup, drop group write -- TOCTOU-safe via a pinned fd held at <path>
+# (ai_tools_pinned_fd_at_path, safe-paths.lib.sh; see ai-tools-setfacl for the rationale). Owner-guarded on the pinned
+# inode.
 #
 # Returns 0 when the path was changed, 2 when it was refused as a hardlink (the caller counts and reports those), 1
 # for every other skip.
@@ -303,6 +304,7 @@ _safe_unclaim() {
         < <(stat -L -c '%d:%i %u %g %h %F' "/proc/self/fd/${fd}" 2>/dev/null) \
         || { exec {fd}<&-; return 1; }
     if [[ "${got_ident}" != "${expect_ident}" ]]; then exec {fd}<&-; return 1; fi
+    ai_tools_pinned_fd_at_path "${fd}" "${path}" || { exec {fd}<&-; return 1; }
     # Owner guard: only the projects user's or the sandbox account's own files.
     if [[ "${got_uid}" != "${PROJECTS_UID}" && "${got_uid}" != "${SANDBOX_UID}" ]]; then
         exec {fd}<&-; return 1

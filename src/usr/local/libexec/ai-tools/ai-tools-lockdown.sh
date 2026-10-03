@@ -343,8 +343,8 @@ fi
 # _safe_apply <path>: chmod (file 600 / dir 700) and chown to OWNER through a pinned fd, so a symlink/path swap
 # by ai-tools (a group-writer on the project dir) cannot redirect root's chmod/chown onto an arbitrary file. lstat
 # the path, require a regular file (nlink 1, never a hardlink to a sensitive file elsewhere) or a directory, open it,
-# then re-verify the fd resolves to the same inode and type before acting via /proc/self/fd. Mirrors ai-tools-chown's
-# TOCTOU-safe apply.
+# then re-verify the fd resolves to the same inode and type, at <path> (ai_tools_pinned_fd_at_path, safe-paths.lib.sh),
+# before acting via /proc/self/fd. Mirrors ai-tools-chown's TOCTOU-safe apply.
 _safe_apply() {
     local path="$1" expect_ident nlink ftype is_dir mode fd got_ident got_nlink got_ftype
     read -r expect_ident nlink ftype \
@@ -374,6 +374,7 @@ _safe_apply() {
         exec {fd}<&-
         return 1
     fi
+    ai_tools_pinned_fd_at_path "${fd}" "${path}" || { exec {fd}<&-; return 1; }
     # Each call's status is read, and the result is read back from the pinned inode: the caller runs this inside
     # an `if`, where errexit does not apply, so a failed chown or chmod would otherwise report the path as locked.
     local now_uid now_perm
@@ -422,6 +423,7 @@ _safe_seal() {
         < <(stat -L -c '%d:%i %u %G %a %F' "/proc/self/fd/${fd}" 2>/dev/null) \
         || { exec {fd}<&-; return 1; }
     if [[ "${got_ident}" != "${expect_ident}" ]]; then exec {fd}<&-; return 1; fi
+    ai_tools_pinned_fd_at_path "${fd}" "${path}" || { exec {fd}<&-; return 1; }
     # Owner guard, on the pinned inode: only the operator's own or the sandbox account's paths.
     if [[ "${got_uid}" != "${PROJECTS_UID}" && "${got_uid}" != "${SANDBOX_UID}" ]]; then
         exec {fd}<&-; return 1

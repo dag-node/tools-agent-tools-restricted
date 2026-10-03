@@ -239,4 +239,47 @@ else
 fi
 assert_msg MSG-S4T9 "${err}" "the refusal names the unreadable file under the library's code"
 
+# ── A pinned path whose ancestor is a symlink ────────────────────────────────
+# The state ai_tools_pinned_fd_at_path refuses (safe-paths.lib.sh), driven through _safe_setfacl read
+# out of the installed helper as text, since the walk never emits it. The directory outside gains no ACL entry and keeps
+# its group; the same function on a real path is the control that it still grants.
+section "ai-tools-setfacl: a pinned path whose ancestor is a symlink"
+pin_proj="${TESTDIR}/pin-proj"; pin_outside="${TESTDIR}/pin-outside"
+mkdir -p "${pin_proj}/real" "${pin_outside}/inside"
+ln -s "${pin_outside}" "${pin_proj}/link"
+chown -R "${PROJECTS_USER}:${PROJECTS_GROUP}" "${pin_proj}" "${pin_outside}"
+chmod 0750 "${pin_proj}" "${pin_proj}/real" "${pin_outside}" "${pin_outside}/inside"
+# drive_safe_setfacl <path> : _safe_setfacl from the installed helper, in a subshell holding the globals it reads.
+drive_safe_setfacl() {
+    # shellcheck disable=SC2034  # the extracted function reads the globals set here
+    (
+        set -euo pipefail
+        # shellcheck source=/dev/null
+        source /usr/local/lib/ai-tools/safe-paths.lib.sh
+        # shellcheck source=/dev/null
+        source /usr/local/lib/ai-tools/owner-only.lib.sh
+        # shellcheck source=/dev/null
+        source /usr/local/lib/ai-tools/project-permissions.lib.sh
+        SANDBOX_UID="$(id -u "${SANDBOX_USER}")"; GROUP="${SANDBOX_GROUP}"
+        ACL_SPEC=""
+        ai_tools_project_permissions_build_acl_specification ACL_SPEC "${PROJECTS_USER}" "${GROUP}"
+        eval "$(extract_function "${HELPER}" _safe_setfacl)"
+        _safe_setfacl "$1"
+    )
+}
+has_group_acl() { getfacl -p "$1" 2>/dev/null | grep -q "^group:${SANDBOX_GROUP}:"; }
+rc=0; drive_safe_setfacl "${pin_proj}/real" || rc=$?
+if (( rc == 0 )) && has_group_acl "${pin_proj}/real"; then
+    pass "control: the extracted function grants the ACL on a directory at its real path"
+else
+    fail "control: rc=${rc}, real carries '$(getfacl -p "${pin_proj}/real" 2>/dev/null | tr '\n' ' ')' -- the refusal below is not evidence"
+fi
+rc=0; drive_safe_setfacl "${pin_proj}/link/inside" || rc=$?
+if (( rc != 0 )) && ! has_group_acl "${pin_outside}/inside" \
+        && [[ "$(stat -c '%G' "${pin_outside}/inside")" == "${PROJECTS_GROUP}" ]]; then
+    pass "a directory reached through a symlinked ancestor is refused and left as it was"
+else
+    fail "symlinked ancestor: rc=${rc}, the directory outside is $(stat -c '%G' "${pin_outside}/inside") with '$(getfacl -p "${pin_outside}/inside" 2>/dev/null | tr '\n' ' ')' (want a refusal, ${PROJECTS_GROUP}, no entry)"
+fi
+
 finish

@@ -358,4 +358,44 @@ else
 fi
 assert_msg MSG-S4T9 "$(cat "${TESTDIR}/unread-out")" "the refusal names the unreadable file under the library's code"
 
+# ── A pinned path whose ancestor is a symlink ────────────────────────────────
+# The state ai_tools_pinned_fd_at_path refuses (safe-paths.lib.sh), driven through _safe_apply read out of the installed
+# helper as text, since the walk never emits it. The directory outside keeps its mode; the same function on a real path
+# is the control that it still locks.
+section "ai-tools-lockdown: a pinned path whose ancestor is a symlink"
+pin_proj="${TESTDIR}/pin-proj"; pin_outside="${TESTDIR}/pin-outside"
+mkdir -p "${pin_proj}/real" "${pin_outside}/inside"
+ln -s "${pin_outside}" "${pin_proj}/link"
+chown -R "${PROJECTS_USER}:${PROJECTS_GROUP}" "${pin_proj}" "${pin_outside}"
+chmod 0750 "${pin_proj}" "${pin_proj}/real" "${pin_outside}" "${pin_outside}/inside"
+# drive_safe_apply <dir> : _safe_apply from the installed helper, in a subshell holding the globals it reads.
+drive_safe_apply() {
+    # shellcheck disable=SC2034  # the extracted function reads the globals set here
+    (
+        set -euo pipefail
+        # shellcheck source=/dev/null
+        source /usr/local/lib/ai-tools/safe-paths.lib.sh
+        # shellcheck source=/dev/null
+        source /usr/local/lib/ai-tools/owner-only.lib.sh
+        warn() { printf '%s\n' "$*" >&2; }
+        ai_tools_log_structured() { :; }
+        ai_tools_log_sanitize() { printf '%s' "$1"; }
+        OWNER="${PROJECTS_USER}:${PROJECTS_GROUP}"; GATE=false
+        eval "$(extract_function "${HELPER}" _safe_apply)"
+        _safe_apply "$1" 2>/dev/null
+    )
+}
+rc=0; drive_safe_apply "${pin_proj}/real" || rc=$?
+if (( rc == 0 )) && [[ "$(perm "${pin_proj}/real")" == 700 ]]; then
+    pass "control: the extracted function locks a directory at its real path"
+else
+    fail "control: rc=${rc}, real is $(perm "${pin_proj}/real") -- the refusal below is not evidence"
+fi
+rc=0; drive_safe_apply "${pin_proj}/link/inside" || rc=$?
+if (( rc != 0 )) && [[ "$(perm "${pin_outside}/inside")" == 750 ]]; then
+    pass "a directory reached through a symlinked ancestor is refused and left as it was"
+else
+    fail "symlinked ancestor: rc=${rc}, the directory outside is $(perm "${pin_outside}/inside") (want a refusal, 750)"
+fi
+
 finish

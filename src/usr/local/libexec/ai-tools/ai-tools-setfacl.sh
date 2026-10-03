@@ -225,8 +225,8 @@ _is_allowed  "${canonical}" || exit 0
 # _safe_setfacl <path>: apply the ACL to <path>, TOCTOU-safe. The agent is a group- writer on project dirs and could
 # swap an entry for a symlink between the find that enumerates it and the setfacl that acts on it; setfacl would then
 # follow the symlink and ACL an arbitrary target (e.g. /etc) as root. Pin the inode with an open fd and operate
-# through /proc/self/fd, re-checking it is still the same inode -- a swap to a symlink reopens a different inode
-# and fails the identity check. Directories get the access AND default ACL; regular files the access ACL only. Mirrors
+# through /proc/self/fd, re-checking it is still the same inode, at <path> (ai_tools_pinned_fd_at_path,
+# safe-paths.lib.sh). Directories get the access AND default ACL; regular files the access ACL only. Mirrors
 # ai-tools-setgid's pinned-fd apply. Returns 0 on apply, 1 when skipped or on error.
 _safe_setfacl() {
     local path="$1" normalize="${2:-}" expect_ident fd got_ident got_uid got_grp got_mode got_ftype
@@ -240,6 +240,7 @@ _safe_setfacl() {
         exec {fd}<&-
         return 1
     fi
+    ai_tools_pinned_fd_at_path "${fd}" "${path}" || { exec {fd}<&-; return 1; }
     # Owner guard (checked on the pinned inode, TOCTOU-safe): only the projects user's or the sandbox account's own
     # files are eligible; anything else is left untouched. Returns 3, not 1, so the walk can tell a third-party owner
     # from a stat failure and report it. Without that split, a claim whose every path was foreign-owned closes

@@ -185,8 +185,8 @@ _is_allowed  "${canonical}" || exit 0
 # _safe_setgid <dir>: chgrp GROUP (only if it differs) and ensure the setgid bit, TOCTOU-safe. The agent is
 # a group-writer on project dirs and could swap a subdir for a symlink between the find that enumerates it and the chmod
 # that acts on it; chmod/chgrp would then follow the symlink and act on an arbitrary directory as root. Pin the inode
-# with an open fd and operate through /proc/self/fd, re-checking it is still the same directory. Mirrors
-# ai-tools-chown's pinned-fd apply.
+# with an open fd and operate through /proc/self/fd, re-checking it is still the same directory, at <dir>
+# (ai_tools_pinned_fd_at_path, safe-paths.lib.sh). Mirrors ai-tools-chown's pinned-fd apply.
 _safe_setgid() {
     local dir="$1" expect_ident grp mode owner_uid fd got_ident got_ftype got_uid
     read -r expect_ident owner_uid grp mode \
@@ -212,6 +212,7 @@ _safe_setgid() {
         exec {fd}<&-
         return 1
     fi
+    ai_tools_pinned_fd_at_path "${fd}" "${dir}" || { exec {fd}<&-; return 1; }
     # Owner guard (checked on the pinned inode, TOCTOU-safe): only the projects user's or the sandbox account's own dirs
     # are eligible; anything else is left untouched and reported (3, as for a refused path).
     if [[ "${got_uid}" != "${PROJECTS_UID}" && "${got_uid}" != "${SANDBOX_UID}" ]]; then
