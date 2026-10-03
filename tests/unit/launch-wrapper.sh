@@ -320,6 +320,12 @@ allowlist "${approved}" "!${approved}/shared/alias"
 run "${LIB}" "${PROJECTS_USER}" "${approved}" ai_tools_launch_gate_project
 refused "a '!' through the operator's own symlink in a group-writable directory refuses the launch too" MSG-Z3Q6
 says "and the refusal names the directory's write bit" "a directory with a group or other write bit"
+mkdir -m 755 "${approved}/shared/links"; ln -s "${excluded}" "${approved}/shared/links/alias"
+chown -h "${PROJECTS_USER}:${PROJECTS_GROUP}" "${approved}/shared/links" "${approved}/shared/links/alias"
+allowlist "${approved}" "!${approved}/shared/links/alias"
+run "${LIB}" "${PROJECTS_USER}" "${approved}" ai_tools_launch_gate_project
+refused "a '!' through a symlink in a closed directory under a group-writable one refuses the launch" MSG-Z3Q6
+says "and the refusal names the ancestor's write bit" "under ${approved}/shared, a directory with a group or other write bit"
 # A carve-out written as the real path keeps refusing its directory whatever happens to an alias beside it.
 allowlist "${approved}" "!${excluded}"
 for alias_state in link removed directory; do

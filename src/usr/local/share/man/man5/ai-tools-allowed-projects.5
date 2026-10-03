@@ -62,9 +62,10 @@ Blank lines are ignored.
 An allow entry is resolved to its real path before it is compared, so an entry
 reached through a symbolic link or a trailing slash names the directory.
 An exclusion covers the path as written and, where every symbolic link on the
-way is one the sandbox account can neither remove nor replace, its real path
-as well: the link is yours or root's, in a directory that is yours or root's
-and not writable by group or other.
+way is one the sandbox account can neither remove, replace nor move, its real
+path as well: the link and every directory on the way to it are yours or
+root's, and none of those directories is writable by group or other, a sticky
+directory such as /tmp aside.
 Any other symbolic link on the way stops the whole file: no session starts
 and no helper acts on any entry in it until the entry is written as the real
 path, which the refusal names.

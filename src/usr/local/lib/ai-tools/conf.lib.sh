@@ -768,16 +768,17 @@ ai_tools_conf_path_entry() {
 # the moment a component of it becomes a symlink, and one matching the written form alone misses an exclusion
 # the operator spelled through one.
 #
-# The resolution follows a symlink only where the sandbox account can neither remove nor replace it: the link is held
-# by root or the file's owner, and the directory holding it is held by one of them with no group or other write bit. Any
-# other link REFUSES THE WHOLE READ (return 2, both arrays empty, MSG-Y5N6 naming the link and the real path to write).
-# The sandbox account is a group-writer on every project tree, so a link there is its to change: resolved through such
-# a link, the exclusion would cover whatever the account aimed it at; left as written alone, it would stop covering
-# the real path the operator's own link named the moment the account unlinks the link or puts a directory of its name
-# in its place -- `alias -> private` gone, `private` is allowed again under the enclosing entry. Neither reading is
-# safe, so no entry in the file allows a path until the entry is written as the real path. A link `readlink` does not
-# return, and a chain past 40 links, refuse the same way. A glob stays as written, since realpath would read its
-# metacharacters as a name, and a relative entry stays as written, since it does not name a real path. Every outcome
+# The resolution follows a symlink only where the sandbox account can neither remove, replace nor move it: the link
+# and every directory on the way to it are held by root or the file's owner, and no directory on the way has a group
+# or other write bit without the sticky bit, since write on one lets the account rename the link's own directory aside.
+# Any other link REFUSES THE WHOLE READ (return 2, both arrays empty, MSG-Y5N6 naming the link and the real path
+# to write). The sandbox account is a group-writer on every project tree, so a link there is its to change: resolved
+# through such a link, the exclusion would cover whatever the account aimed it at; left as written alone, it would stop
+# covering the real path the operator's own link named the moment the account unlinks the link or puts a directory
+# of its name in its place -- `alias -> private` gone, `private` is allowed again under the enclosing entry. Neither
+# reading is safe, so no entry in the file allows a path until the entry is written as the real path. A link `readlink`
+# does not return, and a chain past 40 links, refuse the same way. A glob stays as written, since realpath would read
+# its metacharacters as a name, and a relative entry stays as written, since it does not name a real path. Every outcome
 # of the read keeps or adds an exclusion, or withdraws every allow -- the direction every allowlist read fails in.
 # What no spelling closes is a rename of the real directory itself inside a tree the account co-writes: an exclusion
 # names a path, and the owner-only mode on the directory is what keeps its contents from the account
@@ -789,15 +790,16 @@ ai_tools_conf_path_has_glob_characters() { [[ "${1-}" == *[*?[]* ]]; }
 
 # _ai_tools_conf_resolve_exclusion_path <abs-path> <uid> : set _ai_tools_conf_value to <abs-path> with every symlink
 #   on the way followed and `.`/`..` collapsed, as realpath -m does, and return 0 when each symlink met is owned
-#   by <uid> or by root and sits in a directory held by <uid> or root that has no group or other write bit (the two
-#   reads that make the link one the sandbox account cannot remove or replace). Return 1 for a relative path, and --
-#   with _ai_tools_conf_resolve_refusal set to the reason, naming the link -- for a symlink or a holding directory
-#   held by any other account, a holding directory with a group or other write bit, a link `stat` or `readlink` does
-#   not return, or more than 40 links (a loop). A component that does not exist is kept as written. Results travel
-#   in globals rather than on stdout, so the caller reads them without a subshell.
+#   by <uid> or by root and every directory on the way to it is held by <uid> or root with no group or other write bit
+#   unless the sticky bit is set (the reads that make the link one the sandbox account cannot remove, replace or move
+#   aside). Return 1 for a relative path, and -- with _ai_tools_conf_resolve_refusal set to the reason, naming the link
+#   -- for a symlink or a directory on the way to it held by any other account, such a directory with a group or other
+#   write bit and no sticky bit, a link `stat` or `readlink` does not return, or more than 40 links (a loop).
+#   A component that does not exist is kept as written. Results travel in globals rather than on stdout, so the caller
+#   reads them without a subshell.
 _ai_tools_conf_resolve_exclusion_path() {
     local remaining_path="${1-}" allowlist_owner_uid="${2-}" resolved_path="" component link symlink_target
-    local symlink_owner_uid symlink_count=0 holding_directory holding_directory_owner_uid holding_directory_mode
+    local symlink_owner_uid symlink_count=0 ancestor_directory ancestor_owner_uid ancestor_mode checked_directories=""
     _ai_tools_conf_value=""; _ai_tools_conf_resolve_refusal=""
     [[ "${remaining_path}" == /* && -n "${allowlist_owner_uid}" ]] || return 1
     remaining_path="${remaining_path#/}"
@@ -820,19 +822,31 @@ _ai_tools_conf_resolve_exclusion_path() {
             if [[ "${symlink_owner_uid}" != "${allowlist_owner_uid}" && "${symlink_owner_uid}" != 0 ]]; then
                 _ai_tools_conf_resolve_refusal="${link} is a symbolic link held by uid ${symlink_owner_uid}, not by the file's owner (uid ${allowlist_owner_uid}) or root"; return 1
             fi
-            holding_directory="${resolved_path:-/}"
-            # IFS is pinned for the read: the launch wrapper sources this library under IFS=$'\n\t', where the two
-            # space-separated fields would land in the uid variable together and the owner comparison refuse every link.
-            if ! IFS=' ' read -r holding_directory_owner_uid holding_directory_mode \
-                    < <(stat -c '%u %a' -- "${holding_directory}" 2>/dev/null); then
-                _ai_tools_conf_resolve_refusal="${link} is a symbolic link in ${holding_directory}, whose owner and mode cannot be read"; return 1
-            fi
-            if [[ "${holding_directory_owner_uid}" != "${allowlist_owner_uid}" && "${holding_directory_owner_uid}" != 0 ]]; then
-                _ai_tools_conf_resolve_refusal="${link} is a symbolic link in ${holding_directory}, a directory held by uid ${holding_directory_owner_uid}, not by the file's owner (uid ${allowlist_owner_uid}) or root"; return 1
-            fi
-            if (( 8#${holding_directory_mode} & 8#022 )); then
-                _ai_tools_conf_resolve_refusal="${link} is a symbolic link in ${holding_directory}, a directory with a group or other write bit (mode ${holding_directory_mode}), so an account other than its owner can remove or replace the link"; return 1
-            fi
+            # Every directory on the way to the link, the holding one included, and each read once per call: write
+            # on any of them lets the sandbox account rename the link's own directory aside, after which the written
+            # path no longer exists while the real directory stays where it was. A sticky directory (/tmp) is accepted
+            # with its write bits, since there the kernel lets only an entry's owner rename or unlink it, and every
+            # entry on the way is held by the file's owner or root. IFS is pinned for the read: the launch wrapper
+            # sources this library under IFS=$'\n\t', where the two space-separated fields would land in the uid
+            # variable together and the owner comparison refuse every link.
+            ancestor_directory="${resolved_path:-/}"
+            while :; do
+                if [[ " ${checked_directories} " != *" ${ancestor_directory} "* ]]; then
+                    if ! IFS=' ' read -r ancestor_owner_uid ancestor_mode \
+                            < <(stat -c '%u %a' -- "${ancestor_directory}" 2>/dev/null); then
+                        _ai_tools_conf_resolve_refusal="${link} is a symbolic link under ${ancestor_directory}, whose owner and mode cannot be read"; return 1
+                    fi
+                    if [[ "${ancestor_owner_uid}" != "${allowlist_owner_uid}" && "${ancestor_owner_uid}" != 0 ]]; then
+                        _ai_tools_conf_resolve_refusal="${link} is a symbolic link under ${ancestor_directory}, a directory held by uid ${ancestor_owner_uid}, not by the file's owner (uid ${allowlist_owner_uid}) or root"; return 1
+                    fi
+                    if (( 8#${ancestor_mode} & 8#022 )) && ! (( 8#${ancestor_mode} & 8#1000 )); then
+                        _ai_tools_conf_resolve_refusal="${link} is a symbolic link under ${ancestor_directory}, a directory with a group or other write bit and no sticky bit (mode ${ancestor_mode}), so an account other than its owner can move the link or a directory above it"; return 1
+                    fi
+                    checked_directories+=" ${ancestor_directory}"
+                fi
+                [[ "${ancestor_directory}" == / ]] && break
+                ancestor_directory="${ancestor_directory%/*}"; ancestor_directory="${ancestor_directory:-/}"
+            done
             if ! symlink_target="$(readlink -- "${link}" 2>/dev/null)" || [[ -z "${symlink_target}" ]]; then
                 _ai_tools_conf_resolve_refusal="${link} is a symbolic link that cannot be read"; return 1
             fi

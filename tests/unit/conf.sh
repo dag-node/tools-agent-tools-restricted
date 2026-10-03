@@ -781,7 +781,8 @@ fi
 # remove nor replace -- and that any other link refuses the whole read (the section comment in conf.lib.sh states why).
 ld_root="${TESTDIR}/ld"
 mkdir -p "${ld_root}/proj/sub/deep" "${ld_root}/proj/private" "${ld_root}/proj/stale"
-chmod 755 "${ld_root}" "${ld_root}/proj"           # the owner's link below sits in a directory only the owner writes
+# The owner's sub-link sits in directories only the owner writes, under a sticky /tmp, which the walk accepts.
+chmod 755 "${ld_root}" "${ld_root}/proj"
 ln -s "${ld_root}/proj/sub" "${ld_root}/sub-link"          # the operator's spelling of a carve-out
 ld_al="${TESTDIR}/ld-allowed-projects"
 cat > "${ld_al}" <<EOF
@@ -861,7 +862,13 @@ chmod 2770 "${ld_root}/proj"
 ln -s "${ld_root}/proj/private" "${ld_root}/proj/alias"
 cp "${ld_al}" "${ld_al}.writable"; printf '!%s\n' "${ld_root}/proj/alias" >> "${ld_al}.writable"
 ld_refused "an exclusion through the owner's own link in a group-writable directory" "${ld_al}.writable" \
-    "${ld_root}/proj/alias" "in ${ld_root}/proj, a directory with a group or other write bit"
+    "${ld_root}/proj/alias" "under ${ld_root}/proj, a directory with a group or other write bit"
+# The link's own directory is closed and its parent is not: the account renames the holding directory aside, the written
+# path then no longer exists, and the real directory it aimed at stays where it was.
+mkdir -m 755 "${ld_root}/proj/links"; ln -s "${ld_root}/proj/private" "${ld_root}/proj/links/alias"
+cp "${ld_al}" "${ld_al}.ancestor"; printf '!%s\n' "${ld_root}/proj/links/alias" >> "${ld_al}.ancestor"
+ld_refused "an exclusion through the owner's link in a closed directory under a group-writable one" "${ld_al}.ancestor" \
+    "${ld_root}/proj/links/alias" "under ${ld_root}/proj, a directory with a group or other write bit"
 if [[ "${EUID}" -eq 0 ]] && id nobody >/dev/null 2>&1; then
     mkdir -m 755 "${ld_root}/stable"; ln -s "${ld_root}/proj/private" "${ld_root}/stable/foreign"
     chown -h nobody "${ld_root}/stable/foreign"
@@ -890,7 +897,7 @@ for ld_alias_state in link removed directory; do
     fi
 done
 ${ld_canonical_ok} && pass "a real-path carve-out covers its directory with the alias present, removed, and replaced by a directory"
-rm -rf "${ld_root}/proj/alias"; chmod 755 "${ld_root}/proj"
+rm -rf "${ld_root}/proj/alias" "${ld_root}/proj/links"; chmod 755 "${ld_root}/proj"
 ld_ok=true
 for p in "${ld_root}/proj/private" "${ld_root}/proj/private/k" "${ld_root}/proj/sub" "${ld_root}/proj/sub/deep" \
          "${ld_root}/proj/x.log" "${ld_root}/proj/stale/y"; do
