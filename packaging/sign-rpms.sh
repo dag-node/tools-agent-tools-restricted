@@ -89,9 +89,12 @@ EOF
 }
 
 # Verify each RPM carries a signature that validates against <pubkey>. Import the key into a throwaway rpmdb, then
-# require `rpmkeys -Kv` to print a cryptographic "Signature ... OK" line: that line appears ONLY when a signature is
-# present AND checks out. An unsigned package has no signature line (only digests) yet still exits 0, so asserting
-# the line -- not the exit code -- is what stops a silent signing no-op from shipping.
+# require `rpmkeys -Kv` to print a cryptographic signature line whose status is OK: that line appears ONLY when a
+# signature is present AND checks out. An unsigned package has no signature line (only digests) yet still exits 0, so
+# asserting the line -- not the exit code -- is what stops a silent signing no-op from shipping. The status is matched
+# at the end of the line because the line's shape differs by rpm generation: rpm 4 prints
+# `Header V4 RSA/SHA256 Signature, key ID <id>: OK` and rpm 6 `Header OpenPGP RSA/SHA256 signature, key fingerprint:
+# <hex>: OK`, a second colon before the status. A digest-only line names no signature and so never matches.
 verify_signatures() {
     local pubkey="$1"; shift
     local verifydb rpm out
@@ -103,8 +106,8 @@ verify_signatures() {
         # which exits 0 with no signature line.
         out="$(rpmkeys --dbpath "${verifydb}" -Kv "${rpm}" 2>&1)" \
             || die "signature check failed for ${rpm}: ${out}"
-        grep -Eqi 'signature[^:]*:[[:space:]]*OK' <<<"${out}" \
-            || die "no valid signature on ${rpm} -- rpmsign produced an unsigned or unverifiable package"
+        grep -Eqi 'signature.*:[[:space:]]*OK[[:space:]]*$' <<<"${out}" \
+            || die "no valid signature on ${rpm} -- rpmsign produced an unsigned or unverifiable package; rpmkeys -Kv said: ${out}"
     done
 }
 

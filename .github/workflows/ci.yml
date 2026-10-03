@@ -362,7 +362,7 @@ jobs:
               || { echo "::error::no RPMs under dist-rpms/${tag} -- the ${tag} sign step produced none"; exit 1; }
             for rpm in dist-rpms/"${tag}"/*.rpm; do
               rpmkeys --dbpath "${verifydb}" -Kv "${rpm}" 2>&1 \
-                | grep -Eqi 'signature[^:]*:[[:space:]]*OK' \
+                | grep -Eqi 'signature.*:[[:space:]]*OK[[:space:]]*$' \
                 || { echo "::error::${rpm} is not signed on the runner -- the in-container signing did not persist to the host"; exit 1; }
             done
           done
