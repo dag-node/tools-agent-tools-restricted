@@ -299,16 +299,19 @@ refused "a parked project ('!' on its own path, no approved parent) is refused a
 says "and the refusal names the re-enable" "$(cli_cmd_text ai-tools.projects.enable)"
 
 # A '!' spelled through a symlink is matched as written and, through a link the operator or root owns, as the real path
-# too, so the carve-out it names is refused; through a link the sandbox account holds the written form alone counts,
-# since that account could aim the link anywhere, so the directory the link names passes.
+# too, so the carve-out it names is refused. Through a link the sandbox account holds the read is refused outright,
+# from the approved root as from anywhere under this allowlist: that account could aim the link anywhere, and left
+# as written alone the entry would stop covering the directory the operator's own link named.
 ln -s "${excluded}" "${TESTDIR}/secret-link"
 allowlist "${approved}" "!${TESTDIR}/secret-link"
 run "${LIB}" "${PROJECTS_USER}" "${excluded}" ai_tools_launch_gate_project
 refused "a carve-out spelled through a root-owned symlink refuses the directory it names" MSG-K8K2
 ln -s "${excluded}" "${approved}/agent-link"; chown -h "${SANDBOX_USER}" "${approved}/agent-link"
 allowlist "${approved}" "!${approved}/agent-link"
-run "${LIB}" "${PROJECTS_USER}" "${excluded}" ai_tools_launch_gate_project
-passed "a '!' through a symlink the sandbox account holds is matched as written alone, so the directory it names passes"
+run "${LIB}" "${PROJECTS_USER}" "${approved}" ai_tools_launch_gate_project
+refused "a '!' through a symlink the sandbox account holds refuses the launch, the approved root included" MSG-Z3Q6
+says "and the library's report names the link" "${approved}/agent-link"
+assert_msg MSG-Y5N6 "${OUT}" "and carries the library's own code"
 rm -f "${approved}/agent-link" "${TESTDIR}/secret-link"
 allowlist "${approved}" "!${excluded}" "!${parked}"
 chmod 000 "${allowlist}"

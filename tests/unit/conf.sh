@@ -779,8 +779,8 @@ fi
 # The launch wrapper and every walking helper take their two arrays from this loader. Under test is the union rule
 # for an exclusion -- the written form always, the resolved form only through symlinks the file's owner or root holds --
 # since a reader resolving through any symlink would let a link the sandbox account plants decide what an exclusion
-# covers, and one never resolving misses an exclusion the operator spelled through a link. The fixture file and its
-# symlinks are this process's, so a link "another account holds" needs root to make and is skipped without it.
+# covers, and one never resolving misses an exclusion the operator spelled through a link. A link another account holds
+# refuses the whole read instead, since neither reading keeps the coverage the operator's own link gave.
 ld_root="${TESTDIR}/ld"
 mkdir -p "${ld_root}/proj/sub/deep" "${ld_root}/proj/private" "${ld_root}/proj/stale"
 ln -s "${ld_root}/proj/sub" "${ld_root}/sub-link"          # the operator's spelling of a carve-out
@@ -791,17 +791,8 @@ ${ld_root}/proj
 !${ld_root}/sub-link/
 !${ld_root}/proj/*.log
 !${ld_root}/gone/../proj/stale
+!relative/entry
 EOF
-# The link another account holds is aimed at the project root, so a loader that followed it would exclude every path
-# under the project; it joins the fixture only where it can be re-owned, since owned by this process it WOULD be
-# followed, and rightly.
-ld_foreign=false
-if [[ "${EUID}" -eq 0 ]] && id nobody >/dev/null 2>&1; then
-    ln -s "${ld_root}/proj" "${ld_root}/proj/agent-link"
-    chown -h nobody "${ld_root}/proj/agent-link"
-    printf '!%s/proj/agent-link\n' "${ld_root}" >> "${ld_al}"
-    ld_foreign=true
-fi
 declare -a ld_allowed=() ld_excluded=()
 if ai_tools_conf_allowlist_load "${ld_al}" ld_allowed ld_excluded \
         && [[ "${#ld_allowed[@]}" -eq 1 && "${ld_allowed[0]}" == "${ld_root}/proj" ]]; then
@@ -811,8 +802,8 @@ else
 fi
 ld_has() { local e; for e in "${ld_excluded[@]}"; do [[ "${e}" == "$1" ]] && return 0; done; return 1; }
 if ld_has "${ld_root}/proj/private" && ld_has "${ld_root}/sub-link/" \
-        && ld_has "${ld_root}/proj/*.log" && ld_has "${ld_root}/gone/../proj/stale"; then
-    pass "every exclusion is kept as written"
+        && ld_has "${ld_root}/proj/*.log" && ld_has "${ld_root}/gone/../proj/stale" && ld_has "relative/entry"; then
+    pass "every exclusion is kept as written, a relative one included"
 else
     fail "a written exclusion is missing from (${ld_excluded[*]})"
 fi
@@ -833,15 +824,34 @@ if [[ "${ld_glob_forms}" == 1 ]]; then
 else
     fail "the glob exclusion appears ${ld_glob_forms} time(s)"
 fi
-if ${ld_foreign}; then
-    if ld_has "${ld_root}/proj/agent-link" && ! ld_has "${ld_root}/proj" \
-            && ! ai_tools_conf_path_excluded "${ld_root}/proj" ld_excluded; then
-        pass "a symlink another account holds is kept as written and not followed, so the root it aims at is not excluded"
-    else
-        fail "a foreign-owned symlink was resolved into an exclusion of ${ld_root}/proj"
-    fi
+# The link another account holds, aimed at the directory the carve-out covers: the state the sandbox account reaches
+# by replacing the operator's `alias -> private` link with its own. As root the fixture link is re-owned; without root,
+# `stat` -- the one read the resolver takes the owner from -- is shadowed for that one path, and the loader's own owner
+# read of the file passes through. Either way the read must refuse whole: rc 2, both arrays empty, the code and the link
+# on stderr; the control is the same file minus that line, which the first load of this section reads clean.
+ld_foreign_link="${ld_root}/proj/agent-link"
+ln -s "${ld_root}/proj/private" "${ld_foreign_link}"
+if [[ "${EUID}" -eq 0 ]] && id nobody >/dev/null 2>&1; then
+    chown -h nobody "${ld_foreign_link}"
 else
-    skip "a symlink another account holds is not followed" "needs root to re-own the fixture link"
+    stat() { if [[ "${*: -1}" == "${ld_foreign_link}" ]]; then printf '65534\n'; else command stat "$@"; fi; }
+fi
+cp "${ld_al}" "${ld_al}.foreign"; printf '!%s\n' "${ld_foreign_link}" >> "${ld_al}.foreign"
+declare -a ld_fa=(x) ld_fe=(y)
+ld_frc=0
+ai_tools_conf_allowlist_load "${ld_al}.foreign" ld_fa ld_fe 2>"${TESTDIR}/ld-foreign.err" || ld_frc=$?
+unset -f stat 2>/dev/null || true
+ld_ferr="$(cat "${TESTDIR}/ld-foreign.err")"
+if [[ "${ld_frc}" -eq 2 && "${#ld_fa[@]}" -eq 0 && "${#ld_fe[@]}" -eq 0 ]]; then
+    pass "an exclusion through a symlink another account holds refuses the read: rc 2, both arrays empty"
+else
+    fail "a foreign-owned symlink did not refuse the read: rc ${ld_frc}, allowed=(${ld_fa[*]:-}) excluded=(${ld_fe[*]:-})"
+fi
+assert_msg MSG-Y5N6 "${ld_ferr}" "the refusal carries its code"
+if grep -qF -- "${ld_foreign_link} is a symbolic link held by uid" <<<"${ld_ferr}"; then
+    pass "and names the link and the uid that holds it"
+else
+    fail "the refusal does not name the link: ${ld_ferr}"
 fi
 ld_ok=true
 for p in "${ld_root}/proj/private" "${ld_root}/proj/private/k" "${ld_root}/proj/sub" "${ld_root}/proj/sub/deep" \

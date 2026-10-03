@@ -768,23 +768,31 @@ ai_tools_conf_path_entry() {
 # path the moment a component of it becomes a symlink, and one matching the written form alone misses an exclusion
 # the operator spelled through one.
 #
-# The resolution follows only symlinks the file's owner or root holds. The sandbox account is a group-writer on every
-# project tree, so it can rename a carve-out aside and plant a symlink of its name aimed anywhere; resolved
-# through that link, the exclusion would cover whatever the account chose -- the project root, which parks the project
-# -- so a link held by any other account leaves the entry as written. A glob stays as written, since realpath would read
-# its metacharacters as a name. Every outcome of the read keeps or adds an exclusion, the direction every allowlist read
-# fails in.
+# The resolution follows only symlinks the file's owner or root holds, and a link held by any other account REFUSES
+# THE WHOLE READ (return 2, both arrays empty, MSG-Y5N6 naming the link). The sandbox account is a group-writer on every
+# project tree, so it can rename a carve-out aside and plant a symlink of its name aimed anywhere: resolved
+# through that link, the exclusion would cover whatever the account chose, and left as written alone, it would stop
+# covering the real path the operator's own link named -- the account replaces `alias -> private` with a link of its own
+# to the same target, and `private` is allowed again under the enclosing entry. Neither reading is safe, so no entry
+# in the file allows a path until the link is removed or the entry is written as the real path. A link `readlink`
+# does not return, and a chain past 40 links, refuse the same way. A glob stays as written, since realpath would read
+# its metacharacters as a name, and a relative entry stays as written, since it does not name a real path. Every
+# outcome of the read keeps or adds an exclusion, or withdraws every allow -- the direction every allowlist read fails
+# in.
 
 # ai_tools_conf_path_has_glob <path> : return 0 when <path> carries a glob character (`*`, `?` or `[`); such
 #   an exclusion is matched as a pattern on the whole path and is never resolved.
 ai_tools_conf_path_has_glob() { [[ "${1-}" == *[*?[]* ]]; }
 
-# _ai_tools_conf_resolve_owned <abs-path> <uid> : print <abs-path> with every symlink on the way followed
-#   and `.`/`..` collapsed, as realpath -m does, and return 0 when each symlink met is owned by <uid> or by root;
-#   return 1 for a relative path, a symlink held by any other account, a link that cannot be read, or more than 40
-#   links (a loop). A component that does not exist is kept as written.
+# _ai_tools_conf_resolve_owned <abs-path> <uid> : set _ai_tools_conf_value to <abs-path> with every symlink
+#   on the way followed and `.`/`..` collapsed, as realpath -m does, and return 0 when each symlink met is owned
+#   by <uid> or by root. Return 1 for a relative path, and -- with _ai_tools_conf_resolve_refusal set to the reason,
+#   naming the link -- for a symlink held by any other account, a link `stat` or `readlink` does not return,
+#   or more than 40 links (a loop). A component that does not exist is kept as written. Results travel in globals
+#   rather than on stdout, so the caller reads them without a subshell.
 _ai_tools_conf_resolve_owned() {
-    local rest="${1-}" uid="${2-}" out="" component target owner hops=0
+    local rest="${1-}" uid="${2-}" out="" component target owner hops=0 link
+    _ai_tools_conf_value=""; _ai_tools_conf_resolve_refusal=""
     [[ "${rest}" == /* && -n "${uid}" ]] || return 1
     rest="${rest#/}"
     while [[ -n "${rest}" ]]; do
@@ -794,26 +802,36 @@ _ai_tools_conf_resolve_owned() {
             ''|.) continue ;;
             ..)   out="${out%/*}"; continue ;;
         esac
-        if [[ -L "${out}/${component}" ]]; then
-            hops=$(( hops + 1 )); (( hops > 40 )) && return 1
-            owner="$(stat -c '%u' -- "${out}/${component}" 2>/dev/null)" || return 1
-            [[ "${owner}" == "${uid}" || "${owner}" == 0 ]] || return 1
-            target="$(readlink -- "${out}/${component}" 2>/dev/null)" || return 1
-            [[ -n "${target}" ]] || return 1
+        link="${out}/${component}"
+        if [[ -L "${link}" ]]; then
+            hops=$(( hops + 1 ))
+            if (( hops > 40 )); then
+                _ai_tools_conf_resolve_refusal="more than 40 symbolic links are met on the way (a loop) at ${link}"; return 1
+            fi
+            if ! owner="$(stat -c '%u' -- "${link}" 2>/dev/null)"; then
+                _ai_tools_conf_resolve_refusal="${link} is a symbolic link whose owner cannot be read"; return 1
+            fi
+            if [[ "${owner}" != "${uid}" && "${owner}" != 0 ]]; then
+                _ai_tools_conf_resolve_refusal="${link} is a symbolic link held by uid ${owner}, not by the file's owner (uid ${uid}) or root"; return 1
+            fi
+            if ! target="$(readlink -- "${link}" 2>/dev/null)" || [[ -z "${target}" ]]; then
+                _ai_tools_conf_resolve_refusal="${link} is a symbolic link that cannot be read"; return 1
+            fi
             if [[ "${target}" == /* ]]; then out=""; target="${target#/}"; fi
             rest="${target}${rest:+/${rest}}"
             continue
         fi
-        out="${out}/${component}"
+        out="${link}"
     done
-    printf '%s' "${out:-/}"
+    _ai_tools_conf_value="${out:-/}"
 }
 
 # ai_tools_conf_allowlist_load <allowlist-file> <allowed-array> <excluded-array> : fill the two named arrays from
 #   <allowlist-file> as the section comment states -- allow entries resolved; exclusions as written, plus the resolved
-#   form of a glob-free one whose symlinks the file's owner or root holds -- and return 0. Return 1, both arrays
-#   empty, when <allowlist-file> is missing, is a directory or another non-regular file, cannot be read, or has no
-#   readable owner.
+#   form of a glob-free absolute one whose symlinks the file's owner or root holds -- and return 0. Return 1, both
+#   arrays empty, when <allowlist-file> is missing, is a directory or another non-regular file, cannot be read,
+#   or has no readable owner. Return 2, both arrays empty and MSG-Y5N6 on stderr naming the entry and the link, when
+#   a glob-free absolute exclusion meets a symlink held by another account, one that cannot be read, or a loop.
 ai_tools_conf_allowlist_load() {
     local -n _ai_tools_conf_load_allowed="$2" _ai_tools_conf_load_excluded="$3"
     local file="${1-}" owner line entry resolved
@@ -827,7 +845,13 @@ ai_tools_conf_allowlist_load() {
             entry="${entry:1}"
             _ai_tools_conf_load_excluded+=("${entry}")
             ai_tools_conf_path_has_glob "${entry}" && continue
-            resolved="$(_ai_tools_conf_resolve_owned "${entry}" "${owner}")" || continue
+            [[ "${entry}" == /* ]] || continue
+            if ! _ai_tools_conf_resolve_owned "${entry}" "${owner}"; then
+                _ai_tools_conf_load_allowed=(); _ai_tools_conf_load_excluded=()
+                _ai_tools_conf_warn MSG-Y5N6 "exclusion !${entry} in ${file} cannot be resolved -- ${_ai_tools_conf_resolve_refusal}; no entry in this file allows a path until the link is removed or the entry is written as the real path"
+                return 2
+            fi
+            resolved="${_ai_tools_conf_value}"
             [[ "${resolved}" == "${entry%/}" ]] || _ai_tools_conf_load_excluded+=("${resolved}")
         else
             resolved="$(realpath -e -- "${entry}" 2>/dev/null)" || continue
