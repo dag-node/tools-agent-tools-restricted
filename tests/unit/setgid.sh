@@ -207,7 +207,7 @@ fi
 assert_msg MSG-S4T9 "${err}" "the refusal names the unreadable file under the library's code"
 
 # ── A pinned path whose ancestor is a symlink ────────────────────────────────
-# The state ai_tools_pinned_fd_at_path refuses (safe-paths.lib.sh), driven through _safe_setgid read
+# The state ai_tools_pinned_fd_matches_path refuses (safe-paths.lib.sh), driven through _safe_setgid read
 # out of the installed helper as text: the walk never emits it, since find does not follow the symlink. The directory
 # outside is left as it is; the same function on a real path is the control that it still normalizes.
 section "ai-tools-setgid: a pinned path whose ancestor is a symlink"

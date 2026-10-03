@@ -96,34 +96,19 @@ _ai_tools_operator_allowlist() {
 }
 
 # ai_tools_allowlist_covers <allowlist-file> <canonical-path>: succeed when the allowlist allows the path and no '!'
-# exclusion overrides it. Each line is read through the shared grammar (ai_tools_conf_path_entry in conf.lib.sh:
-# whole-line and end-of-line comments, one quote layer, the leading '!' kept), so a commented or quoted line denotes
-# the same path here as in every other reader of the file; without the parser no line denotes an entry and no path is
-# covered. Exclusions are checked first and win; a plain (non-glob) allow/exclude path also covers its contents. Allow
-# entries are realpath-resolved so a symlinked project root matches its canonical target. The helpers' own walks
-# (`ai-tools-{chown,setgid,setfacl,unclaim,lockdown}`) parse the same grammar and apply the same exclusion-first rule
-# per subpath.
+# exclusion overrides it. The file is read and the exclusions matched by the one loader and matcher every reader shares
+# (ai_tools_conf_allowlist_load / ai_tools_conf_is_path_excluded, conf.lib.sh), so a line denotes the same paths here
+# as in the launch gate and in the helpers' own walks; without the library no path is covered, and a read the loader
+# refuses -- an exclusion met a symlink another account holds -- covers none either. Exclusions are checked first
+# and win; a plain (non-glob) allow path also covers its contents.
 ai_tools_allowlist_covers() {
-    local file="$1" path="$2" line entry dir pat
-    [[ -f "${file}" ]] || return 1
-    declare -F ai_tools_conf_path_entry >/dev/null 2>&1 || return 1
-    local -a allowed=() excluded=()
-    while IFS= read -r line || [[ -n "${line}" ]]; do
-        ai_tools_conf_path_entry "${line}" || continue
-        entry="${_ai_tools_conf_value}"
-        if [[ "${entry}" == '!'* ]]; then
-            excluded+=("${entry:1}")                       # strip '!', keep raw (may glob)
-        else
-            dir="$(realpath -e "${entry}" 2>/dev/null)" || continue
-            allowed+=("${dir}")
-        fi
-    done < "${file}"
-    for pat in "${excluded[@]}"; do
-        pat="${pat%/}"
-        [[ "${path}" == ${pat} ]] && return 1
-        [[ "${pat}" != *'*'* && "${path}" == "${pat}/"* ]] && return 1
-    done
-    for dir in "${allowed[@]}"; do
+    local file="$1" path="$2" dir
+    declare -F ai_tools_conf_allowlist_load >/dev/null 2>&1 || return 1
+    # shellcheck disable=SC2034  # exclusion_patterns is filled and read through its name by the conf.lib.sh loader and matcher
+    local -a allowed_directories=() exclusion_patterns=()
+    ai_tools_conf_allowlist_load "${file}" allowed_directories exclusion_patterns || return 1
+    ai_tools_conf_is_path_excluded "${path}" exclusion_patterns && return 1
+    for dir in "${allowed_directories[@]}"; do
         [[ "${path}" == "${dir}" || "${path}" == "${dir}/"* ]] && return 0
     done
     return 1

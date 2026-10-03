@@ -98,8 +98,8 @@ ai_tools_assert_safe_target() {
     return 1
 }
 
-# ai_tools_pinned_fd_at_path <fd> <path> Return 0 when the kernel names the inode <fd> holds open at exactly <path>,
-# read with readlink over /proc/self/fd; return 1 otherwise, and for a closed descriptor or an empty argument.
+# ai_tools_pinned_fd_matches_path <fd> <path> Return 0 when the kernel names the inode <fd> holds open at exactly
+# <path>, read with readlink over /proc/self/fd; return 1 otherwise, and for a closed descriptor or an empty argument.
 #
 # The pre-open identity read through the path and the post-open read from the descriptor catch a leaf swapped
 # for a symlink -- a link has an inode of its own -- and not an ancestor swapped for one before the first read: both
@@ -109,11 +109,11 @@ ai_tools_assert_safe_target() {
 # the caller enumerated. A rename since the open and an unlink (a "(deleted)" suffix) mismatch as well, each a refusal
 # the next walk repairs. The sandbox account cannot bind-mount (RestrictNamespaces, no privilege), so it cannot make
 # the kernel name one inode by another path. Which helpers call it, and where in the apply sequence: safe-paths.rule.md.
-ai_tools_pinned_fd_at_path() {
-    local fd="${1:-}" path="${2:-}" at
-    [[ -n "${fd}" && -n "${path}" ]] || return 1
-    at="$(readlink -- "/proc/self/fd/${fd}" 2>/dev/null)" || return 1
-    [[ "${at}" == "${path}" ]]
+ai_tools_pinned_fd_matches_path() {
+    local fd="${1:-}" expected_path="${2:-}" descriptor_path
+    [[ -n "${fd}" && -n "${expected_path}" ]] || return 1
+    descriptor_path="$(readlink -- "/proc/self/fd/${fd}" 2>/dev/null)" || return 1
+    [[ "${descriptor_path}" == "${expected_path}" ]]
 }
 
 # msg.lib is REQUIRED (the refusal renders through it, and the sourcing helpers rely on its ai_tools_msg_confirm):

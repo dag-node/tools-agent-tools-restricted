@@ -359,9 +359,9 @@ fi
 assert_msg MSG-S4T9 "$(cat "${TESTDIR}/unread-out")" "the refusal names the unreadable file under the library's code"
 
 # ── A pinned path whose ancestor is a symlink ────────────────────────────────
-# The state ai_tools_pinned_fd_at_path refuses (safe-paths.lib.sh), driven through _safe_apply read out of the installed
-# helper as text, since the walk never emits it. The directory outside keeps its mode; the same function on a real path
-# is the control that it still locks.
+# The state ai_tools_pinned_fd_matches_path refuses (safe-paths.lib.sh), driven through _safe_apply read
+# out of the installed helper as text, since the walk never emits it. The directory outside keeps its mode; the same
+# function on a real path is the control that it still locks.
 section "ai-tools-lockdown: a pinned path whose ancestor is a symlink"
 pin_proj="${TESTDIR}/pin-proj"; pin_outside="${TESTDIR}/pin-outside"
 mkdir -p "${pin_proj}/real" "${pin_outside}/inside"

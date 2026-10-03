@@ -775,6 +775,116 @@ else
     fail "has_exclusion did not isolate the exclusion entry"
 fi
 
+# --- The gate's read: ai_tools_conf_allowlist_load + ai_tools_conf_is_path_excluded ---------------
+# The launch wrapper and every walking helper take their two arrays from this loader. Under test is the union rule
+# for an exclusion -- the written form always, the resolved form only through symlinks the file's owner or root holds --
+# since a reader resolving through any symlink would let a link the sandbox account plants decide what an exclusion
+# covers, and one never resolving misses an exclusion the operator spelled through a link. A link another account holds
+# refuses the whole read instead, since neither reading keeps the coverage the operator's own link gave.
+ld_root="${TESTDIR}/ld"
+mkdir -p "${ld_root}/proj/sub/deep" "${ld_root}/proj/private" "${ld_root}/proj/stale"
+ln -s "${ld_root}/proj/sub" "${ld_root}/sub-link"          # the operator's spelling of a carve-out
+ld_al="${TESTDIR}/ld-allowed-projects"
+cat > "${ld_al}" <<EOF
+${ld_root}/proj
+!${ld_root}/proj/private
+!${ld_root}/sub-link/
+!${ld_root}/proj/*.log
+!${ld_root}/gone/../proj/stale
+!relative/entry
+EOF
+declare -a ld_allowed=() ld_excluded=()
+if ai_tools_conf_allowlist_load "${ld_al}" ld_allowed ld_excluded \
+        && [[ "${#ld_allowed[@]}" -eq 1 && "${ld_allowed[0]}" == "${ld_root}/proj" ]]; then
+    pass "load resolves the allow entry and returns 0"
+else
+    fail "load: rc or allowed=(${ld_allowed[*]:-})"
+fi
+ld_has() { local e; for e in "${ld_excluded[@]}"; do [[ "${e}" == "$1" ]] && return 0; done; return 1; }
+if ld_has "${ld_root}/proj/private" && ld_has "${ld_root}/sub-link/" \
+        && ld_has "${ld_root}/proj/*.log" && ld_has "${ld_root}/gone/../proj/stale" && ld_has "relative/entry"; then
+    pass "every exclusion is kept as written, a relative one included"
+else
+    fail "a written exclusion is missing from (${ld_excluded[*]})"
+fi
+if ld_has "${ld_root}/proj/sub" && ld_has "${ld_root}/proj/stale"; then
+    pass "a glob-free exclusion through the owner's symlink, and one with .., gain their resolved form"
+else
+    fail "resolved forms missing from (${ld_excluded[*]})"
+fi
+ld_dupes="$(printf '%s\n' "${ld_excluded[@]}" | sort | uniq -d)"
+if [[ -z "${ld_dupes}" ]] && ! ld_has "${ld_root}/proj/private/"; then
+    pass "an exclusion whose resolved form is its written form is kept once"
+else
+    fail "duplicates or a spurious form: ${ld_dupes:-none} (${ld_excluded[*]})"
+fi
+ld_glob_forms="$(printf '%s\n' "${ld_excluded[@]}" | grep -c '\.log$' || true)"
+if [[ "${ld_glob_forms}" == 1 ]]; then
+    pass "a glob exclusion is kept as written alone"
+else
+    fail "the glob exclusion appears ${ld_glob_forms} time(s)"
+fi
+# The link another account holds, aimed at the directory the carve-out covers: the state the sandbox account reaches
+# by replacing the operator's `alias -> private` link with its own. As root the fixture link is re-owned; without root,
+# `stat` -- the one read the resolver takes the owner from -- is shadowed for that one path, and the loader's own owner
+# read of the file passes through. Either way the read must refuse whole: rc 2, both arrays empty, the code and the link
+# on stderr; the control is the same file minus that line, which the first load of this section reads clean.
+ld_foreign_link="${ld_root}/proj/agent-link"
+ln -s "${ld_root}/proj/private" "${ld_foreign_link}"
+if [[ "${EUID}" -eq 0 ]] && id nobody >/dev/null 2>&1; then
+    chown -h nobody "${ld_foreign_link}"
+else
+    stat() { if [[ "${*: -1}" == "${ld_foreign_link}" ]]; then printf '65534\n'; else command stat "$@"; fi; }
+fi
+cp "${ld_al}" "${ld_al}.foreign"; printf '!%s\n' "${ld_foreign_link}" >> "${ld_al}.foreign"
+declare -a ld_fa=(x) ld_fe=(y)
+ld_frc=0
+ai_tools_conf_allowlist_load "${ld_al}.foreign" ld_fa ld_fe 2>"${TESTDIR}/ld-foreign.err" || ld_frc=$?
+unset -f stat 2>/dev/null || true
+ld_ferr="$(cat "${TESTDIR}/ld-foreign.err")"
+if [[ "${ld_frc}" -eq 2 && "${#ld_fa[@]}" -eq 0 && "${#ld_fe[@]}" -eq 0 ]]; then
+    pass "an exclusion through a symlink another account holds refuses the read: rc 2, both arrays empty"
+else
+    fail "a foreign-owned symlink did not refuse the read: rc ${ld_frc}, allowed=(${ld_fa[*]:-}) excluded=(${ld_fe[*]:-})"
+fi
+assert_msg MSG-Y5N6 "${ld_ferr}" "the refusal carries its code"
+if grep -qF -- "${ld_foreign_link} is a symbolic link held by uid" <<<"${ld_ferr}"; then
+    pass "and names the link and the uid that holds it"
+else
+    fail "the refusal does not name the link: ${ld_ferr}"
+fi
+ld_ok=true
+for p in "${ld_root}/proj/private" "${ld_root}/proj/private/k" "${ld_root}/proj/sub" "${ld_root}/proj/sub/deep" \
+         "${ld_root}/proj/x.log" "${ld_root}/proj/stale/y"; do
+    ai_tools_conf_is_path_excluded "${p}" ld_excluded || { fail "should be excluded: ${p}"; ld_ok=false; }
+done
+for p in "${ld_root}/proj/other" "${ld_root}/proj/x.log/y" "${ld_root}/proj/privateer"; do
+    ai_tools_conf_is_path_excluded "${p}" ld_excluded && { fail "should not be excluded: ${p}"; ld_ok=false; }
+done
+${ld_ok} && pass "the matcher covers a written path, its contents, a resolved path and a glob, and no sibling"
+# shellcheck disable=SC2034  # read through its name by the matcher
+declare -a ld_none=()
+if ! ai_tools_conf_is_path_excluded "${ld_root}/proj" ld_none; then
+    pass "an empty exclusion array excludes no path"
+else
+    fail "an empty exclusion array excluded a path"
+fi
+declare -a ld_a2=(x) ld_e2=(y)
+if ! ai_tools_conf_allowlist_load "${ld_root}" ld_a2 ld_e2 && [[ "${#ld_a2[@]}" -eq 0 && "${#ld_e2[@]}" -eq 0 ]] \
+        && ! ai_tools_conf_allowlist_load "${TESTDIR}/absent-allowlist" ld_a2 ld_e2; then
+    pass "a directory or an absent file returns 1 with both arrays empty"
+else
+    fail "load over a directory or an absent file: rc 0 or arrays (${ld_a2[*]:-}) (${ld_e2[*]:-})"
+fi
+glob_ok=true
+for p in '/a/*.log' '/a/b?' '/a/[cd]'; do
+    ai_tools_conf_path_has_glob_characters "${p}" || { fail "has_glob missed ${p}"; glob_ok=false; }
+done
+for p in '/a/plain' '/a/b]' ''; do
+    ai_tools_conf_path_has_glob_characters "${p}" && { fail "has_glob matched '${p}'"; glob_ok=false; }
+done
+${glob_ok} && pass "has_glob reads *, ? and [ as glob characters and a lone ] or a plain path as none"
+
 # The line-identifying variant returns the VERBATIM source line (comment and all), which is what an anchored sed deletes
 # -- reconstructing it from the path would miss a commented/quoted entry and leave it behind. Two-ended
 # with the boundary suite: the agent cannot write the allowlist.

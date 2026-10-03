@@ -364,7 +364,7 @@ fi
 assert_msg MSG-S4T9 "${err}" "the refusal names the unreadable file under the library's code"
 
 # ── A pinned path whose ancestor is a symlink ────────────────────────────────
-# The state ai_tools_pinned_fd_at_path refuses (safe-paths.lib.sh), driven through _safe_unclaim read
+# The state ai_tools_pinned_fd_matches_path refuses (safe-paths.lib.sh), driven through _safe_unclaim read
 # out of the installed helper as text, since the walk never emits it. The directory outside keeps its group, mode
 # and setgid bit; the same function on a real path is the control that it still reverts.
 section "ai-tools-unclaim: a pinned path whose ancestor is a symlink"

@@ -304,7 +304,15 @@ falling back to a private parser; the resolver's load is fail-closed by conseque
 denotes an entry and no path is covered. The CLI, the relabel helper, and the launch wrapper's post-claim confirm
 additionally decide **membership** through `ai_tools_conf_allowlist_has_entry`/`_has_exclusion` (and `_matching_lines` /
 `_exclusion_lines` for the raw lines), which parse each line with the same grammar and compare realpath-normalized
-values, so a commented or quoted entry is never mistaken for unlisted.
+values, so a commented or quoted entry is never mistaken for unlisted. The gate-side readers — the launch wrapper
+and each walking helper — take their two arrays from `ai_tools_conf_allowlist_load` and match
+through `ai_tools_conf_is_path_excluded`: allow entries resolved, and a glob-free `!` entry both as written
+and resolved, where the resolution follows only symlinks the file's owner or root holds, so a symlink the sandbox
+account plants in a tree it co-writes does not decide what an exclusion covers. A link on the way held by another
+account refuses the read instead (`MSG-Y5N6`, naming the entry and the link): both arrays come back empty,
+so the wrapper refuses the launch (`MSG-Z3Q6`) and no helper resolves an owner or acts, until the link is removed
+or the entry rewritten as the real path. Every outcome of that read keeps or adds an exclusion, or withdraws every
+allow; the library's section comment states the reasoning.
 
 The same library owns the **editing** of that file — `_state`, `_add`, `_remove`, `_enable`, `_disable` — because all
 three of its writers (the CLI, the `ai-tools-allowlist` root helper, and `install.sh`) must agree with its readers

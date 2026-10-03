@@ -1715,6 +1715,10 @@ the pair list ${key} in ${file} gives ${pair_name} more than once \-\- the first
 .B MSG-X6F2
 WARNING.
 invalid list, read as the empty list \-\- ${key} in ${file} holds ${unprefixed[*]}, not written as ${prefix}<name>; this rewrites a bare name and names any it cannot: sudo ai\-tools\-admin system post\-upgrade
+.TP
+.B MSG-Y5N6
+WARNING.
+exclusion !${entry} in ${file} cannot be resolved \-\- ${_ai_tools_conf_resolve_refusal}; no entry in this file allows a path until the link is removed or the entry is written as the real path
 .SS install-selinux.sh
 .TP
 .B MSG-A5N2
@@ -2118,6 +2122,14 @@ excluded by '!' rule in approved projects list: $(pwd)
 .B MSG-W4X4
 ERROR.
 refusing to launch \-\- ${cwd} is not fully claimed for the sandbox
+.TP
+.B MSG-X4N6
+ERROR.
+approved\-projects allowlist cannot be read: ${allowlist}
+.TP
+.B MSG-Z3Q6
+ERROR.
+refusing to launch \-\- an exclusion in the approved\-projects allowlist cannot be resolved: ${allowlist}
 .TP
 .B MSG-Z6F8
 ERROR.
