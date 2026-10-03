@@ -3503,11 +3503,12 @@ cmd_project_remove() {
     fi
 
     # ── Git safety report: what deleting this loses. Reported, never refused -- a scratch repository with uncommitted
-    # work is a legitimate thing to delete on purpose. ──
+    # work is a legitimate thing to delete on purpose. The agent co-writes .git, so its config and hooks are the agent's
+    # to set, and this runs as the operator: only ref reads that run no configured command are made -- rev-parse
+    # and rev-list -- and uncommitted changes are not counted, since `git status` refreshes the index, which runs
+    # core.fsmonitor (cli.rule.md). ──
     if git -C "${d}" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
-        local dirty upstream ahead
-        dirty="$(git -C "${d}" status --porcelain 2>/dev/null | wc -l)"
-        (( dirty )) && warn "${dirty} uncommitted change(s) in this repository"
+        local upstream ahead
         if upstream="$(git -C "${d}" rev-parse --abbrev-ref '@{u}' 2>/dev/null)"; then
             ahead="$(git -C "${d}" rev-list --count "${upstream}..HEAD" 2>/dev/null || echo 0)"
             (( ahead )) && warn "${ahead} commit(s) not pushed to ${upstream}"

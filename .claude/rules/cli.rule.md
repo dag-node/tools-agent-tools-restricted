@@ -945,6 +945,12 @@ by re-reading the file rather than trusting `sed`, and names the line to delete 
 file into the allowlist's own directory, which the operator may not be able to write). The filesystem hand-back
 an unclaim performs is not run over files about to be deleted.
 
+The git report before the confirmations runs as the operator over a `.git` the agent co-writes, so it makes only the ref
+reads that run no configured command — `rev-parse` and `rev-list`, for the upstream and the unpushed count — and does
+not count uncommitted changes: `git status` refreshes the index, which runs the `core.fsmonitor` command the agent can
+write into `.git/config`. That is the invariant [ref-section-s9t9](updater.rule.md#ref-section-s9t9) states, applied
+to this verb.
+
 It confirms twice — a default-no prompt, then `ai_tools_msg_challenge` for the project's name — and neither is answered
 by a run with no terminal or by `AI_TOOLS_ASSUME_YES`; with `-y` a `path` argument is required, so an unattended removal
 cannot inherit the directory it started in. The unknown-option refusal does not enumerate `-y`: a caller who mistyped
