@@ -184,8 +184,9 @@ declare -a allowed_directories=()
 # shellcheck disable=SC2034  # filled and read through its name by the conf.lib.sh loader and matcher
 declare -a exclusion_patterns=()
 # One shared read (conf.lib.sh): allow entries resolved; exclusions as written and, through symlinks the operator
-# or root owns, resolved beside them. A file that cannot be read, or whose exclusion meets a symlink another account
-# holds (refused under the library's own code), leaves both arrays empty, so the project is not allowed.
+# or root owns, resolved beside them. A file that cannot be read, or whose exclusion is written through a symlink
+# the sandbox account can remove or replace (refused under the library's own code), leaves both arrays empty,
+# so the project is not allowed.
 ai_tools_conf_allowlist_load "${ALLOWLIST}" allowed_directories exclusion_patterns || true
 
 # _is_excluded <abs-path>: 0 if covered by a '!' rule (ai_tools_conf_is_path_excluded, conf.lib.sh -- the match every

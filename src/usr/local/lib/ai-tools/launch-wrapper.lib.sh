@@ -384,15 +384,15 @@ ai_tools_launch_gate_project() {
     local -a exclusion_patterns=()
     # One shared read (ai_tools_conf_allowlist_load, conf.lib.sh): allow entries resolved; exclusions as written
     # and, through symlinks the operator or root owns, resolved beside them. The root helpers read the same two arrays.
-    # A read the library refuses -- an exclusion met a symlink held by another account -- has already named the entry
-    # and the link on stderr under its own code; the refusal here adds the remedy.
+    # A read the library refuses -- an exclusion written through a symlink the sandbox account can remove or replace --
+    # has already named the entry and the link on stderr under its own code; the refusal here adds the remedy.
     local load_status=0
     ai_tools_conf_allowlist_load "${allowlist}" allowed_directories exclusion_patterns || load_status=$?
     case "${load_status}" in
         0) ;;
         2) ai_tools_launch_die MSG-Z3Q6 "refusing to launch -- an exclusion in the approved-projects allowlist cannot be resolved: ${allowlist}" \
-               "${name}: the line above names the entry and the symbolic link; a link that is neither yours nor root's does not decide what an exclusion covers, so no entry in the file allows a launch" \
-               "${name}: remove the link, or write the entry as the directory's real path, then start again" ;;
+               "${name}: the line above names the entry and the symbolic link; a link the sandbox account can remove or replace does not decide what an exclusion covers, so no entry in the file allows a launch" \
+               "${name}: write the entry as the directory's real path, then start again" ;;
         *) ai_tools_launch_die MSG-X4N6 "approved-projects allowlist cannot be read: ${allowlist}" \
                "${name}: it must be a regular file this account can read" ;;
     esac
