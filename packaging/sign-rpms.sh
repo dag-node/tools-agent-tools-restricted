@@ -71,8 +71,12 @@ write_rpm_macros() {
     local sign_cmd
     # The stock declaration states the contract: a body naming %__plaintext_filename hands the files over by name;
     # one that does not passes them as arguments. HOME is the scratch dir, which holds no macros file yet, so only
-    # the installed rpm's own declaration is read.
-    if HOME="${home}" rpm --showrc | grep -q '__plaintext_filename'; then
+    # the installed rpm's own declaration is read. The dump is captured whole before it is searched: under pipefail,
+    # `rpm --showrc | grep -q` ends with grep's early exit sending rpm a SIGPIPE, which turns a match into a failed
+    # pipeline and selects the wrong shape; a dump that cannot be read is an error, never a choice.
+    local showrc
+    showrc="$(HOME="${home}" rpm --showrc)" || die "rpm --showrc failed -- cannot tell which signing contract this rpm follows"
+    if grep -q '__plaintext_filename' <<<"${showrc}"; then
         sign_cmd="%__gpg_sign_cmd %{__gpg} ${gpg_opts} -sbo %{__signature_filename} %{__plaintext_filename}"
     else
         sign_cmd="%__gpg_sign_cmd() %{__gpg} ${gpg_opts} -sbo %{shescape:%{2}} -- %{shescape:%{1}}"
