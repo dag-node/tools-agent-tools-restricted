@@ -778,10 +778,7 @@ fi
 # --- The gate's read: ai_tools_conf_allowlist_load + ai_tools_conf_is_path_excluded ---------------
 # The launch wrapper and every walking helper take their two arrays from this loader. Under test is the union rule
 # for an exclusion -- the written form always, the resolved form only through a symlink the sandbox account can neither
-# remove nor replace -- since a reader resolving through any symlink would let a link that account plants decide
-# what an exclusion covers, and one never resolving misses an exclusion the operator spelled through a link. Any other
-# link refuses the whole read, since neither reading keeps the coverage the operator's own link gave once the account
-# can unlink it or put a directory of its name in its place.
+# remove nor replace -- and that any other link refuses the whole read (the section comment in conf.lib.sh states why).
 ld_root="${TESTDIR}/ld"
 mkdir -p "${ld_root}/proj/sub/deep" "${ld_root}/proj/private" "${ld_root}/proj/stale"
 chmod 755 "${ld_root}" "${ld_root}/proj"           # the owner's link below sits in a directory only the owner writes

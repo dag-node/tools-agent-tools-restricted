@@ -99,8 +99,8 @@ _ai_tools_operator_allowlist() {
 # exclusion overrides it. The file is read and the exclusions matched by the one loader and matcher every reader shares
 # (ai_tools_conf_allowlist_load / ai_tools_conf_is_path_excluded, conf.lib.sh), so a line denotes the same paths here
 # as in the launch gate and in the helpers' own walks; without the library no path is covered, and a read the loader
-# refuses -- an exclusion written through a symlink the sandbox account can remove or replace -- covers none either.
-# Exclusions are checked first and win; a plain (non-glob) allow path also covers its contents.
+# refuses covers none either. Exclusions are checked first and win; a plain (non-glob) allow path also covers its
+# contents.
 ai_tools_allowlist_covers() {
     local file="$1" path="$2" dir
     declare -F ai_tools_conf_allowlist_load >/dev/null 2>&1 || return 1

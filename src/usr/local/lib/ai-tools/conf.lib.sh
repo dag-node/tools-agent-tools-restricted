@@ -312,8 +312,7 @@ ai_tools_conf_pair_name_valid() {
 #   list sets the array empty, as ai_tools_conf_list_value does. _ai_tools_conf_pair_list_rejected_count is set
 #   to the number of items left out, and _ai_tools_conf_list_invalid to 1 for an invalid list, so a caller for whom
 #   a left-out item is not the safe reading can refuse on it. Returns 1, leaving the array untouched, for an absent key,
-#   so a caller's
-#   defaults stand.
+#   so a caller's defaults stand.
 ai_tools_conf_pair_list() {
     local out_name="$1" file="$2" key="$3" item pair_name pair_value allowed_value value_allowed kept_names=" "
     local allowed_values_text=""
@@ -761,11 +760,12 @@ ai_tools_conf_path_entry() {
 # ── Allowlist loading and exclusion matching (the gate's own read) ───────────────────────────
 # The launch gate and each root helper that walks a project read the whole file into an allow array and an exclusion
 # array and match a path against them; this is the one implementation of that read and that match, so the gate
-# that refuses a launch and the walk that hands a path back cover one set of paths. An allow entry is kept resolved
-# (`realpath -e`) and dropped when it does not resolve, so a symlinked spelling or a trailing slash names the directory.
-# An exclusion is kept AS WRITTEN and, for a line without a glob character, its resolved form beside it, so the match is
-# the UNION of the written and the resolved form: a reader matching the resolved form alone stops covering the written
-# path the moment a component of it becomes a symlink, and one matching the written form alone misses an exclusion
+# that refuses a launch and the walk that hands a path back cover one set of paths (providers.rule.md, ref-section-d2n3,
+# states which readers and what each does with a refused read). An allow entry is kept resolved (`realpath -e`)
+# and dropped when it does not resolve, so a symlinked spelling or a trailing slash names the directory. An exclusion is
+# kept AS WRITTEN and, for a line without a glob character, its resolved form beside it, so the match is the UNION
+# of the written and the resolved form: a reader matching the resolved form alone stops covering the written path
+# the moment a component of it becomes a symlink, and one matching the written form alone misses an exclusion
 # the operator spelled through one.
 #
 # The resolution follows a symlink only where the sandbox account can neither remove nor replace it: the link is held

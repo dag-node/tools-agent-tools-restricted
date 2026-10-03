@@ -305,16 +305,8 @@ denotes an entry and no path is covered. The CLI, the relabel helper, and the la
 additionally decide **membership** through `ai_tools_conf_allowlist_has_entry`/`_has_exclusion` (and `_matching_lines` /
 `_exclusion_lines` for the raw lines), which parse each line with the same grammar and compare realpath-normalized
 values, so a commented or quoted entry is never mistaken for unlisted. The gate-side readers — the launch wrapper
-and each walking helper — take their two arrays from `ai_tools_conf_allowlist_load` and match
-through `ai_tools_conf_is_path_excluded`: allow entries resolved, and a glob-free `!` entry both as written
-and resolved, where the resolution follows a symlink only where the sandbox account can neither remove nor replace it —
-the link held by the file's owner or root, in a directory held by one of them with no group or other write bit —
-so a link in a tree that account co-writes does not decide what an exclusion covers, whoever made it. Such a link
-refuses the read instead (`MSG-Y5N6`, naming the entry, the link, the reason and the real path to write): both arrays
-come back empty, so the wrapper refuses the launch (`MSG-Z3Q6`) and no helper resolves an owner or acts, until the entry
-is rewritten as the real path. Every outcome of that read keeps or adds an exclusion, or withdraws every allow;
-the library's section comment states the reasoning, and the rename of a real directory that no path-named exclusion
-closes.
+and each walking helper — take their two arrays from one loader and one matcher ([The gate-side read
+of `allowed-projects`](#the-gate-side-read-of-allowed-projects)).
 
 The same library owns the **editing** of that file — `_state`, `_add`, `_remove`, `_enable`, `_disable` — because all
 three of its writers (the CLI, the `ai-tools-allowlist` root helper, and `install.sh`) must agree with its readers
@@ -348,6 +340,27 @@ in [ownership-and-hooks](ownership-and-hooks.rule.md) keep their built-in defaul
 (`nvm-update.sh`, `ai-tools-launch`), where an inherited `IFS` would read `"a b"` as one item — for a provider allowlist
 that reads as "no such provider", a wrong verdict that disables a configured agent with only a warning.
 `tests/unit/conf.sh` drives the splitter under that IFS.
+
+### The gate-side read of `allowed-projects` <a id="ref-section-d2n3"></a>
+
+The launch wrapper and each root helper that walks a project take their allow array and their exclusion array
+from `ai_tools_conf_allowlist_load` and match a path through `ai_tools_conf_is_path_excluded`, so the gate that refuses
+a launch and the walk that hands a path back cover one set of paths. An allow entry is kept resolved. An exclusion is
+kept as written and, for a glob-free absolute one, as its real path beside it, so the match is the union of the two
+forms: the resolved form alone stops covering the written path once a component of it becomes a symlink, and the written
+form alone misses an exclusion the operator spelled through one.
+
+The resolution follows a symlink only where the sandbox account can neither remove nor replace it,
+which `_ai_tools_conf_resolve_exclusion_path` reads as the link and the directory holding it each held by the file's
+owner or root, with no group or other write bit on the directory. A link in a tree that account co-writes therefore does
+not decide what an exclusion covers, whoever made it: the loader refuses the whole read (`MSG-Y5N6`, naming the entry,
+the link, the reason and the real path to write), both arrays come back empty, the wrapper refuses the launch
+(`MSG-Z3Q6`) and no helper resolves an owner or acts on a path under that file, until the entry is rewritten as the real
+path. Every outcome of the read keeps or adds an exclusion, or withdraws every allow. What no spelling closes is
+a rename of the real directory itself inside a tree the account co-writes; the owner-only seal is what keeps its
+contents from the account ([ref-definition-e3h3](secret-handling.rule.md#ref-definition-e3h3)). The library's section
+comment carries the reasoning behind the refusal, `tests/unit/conf.sh` drives each outcome of the read,
+and `tests/unit/launch-wrapper.sh` drives the gate through it.
 
 ### `operator.conf` across an upgrade
 

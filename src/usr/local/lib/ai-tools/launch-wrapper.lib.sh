@@ -382,10 +382,9 @@ ai_tools_launch_gate_project() {
 
     local -a allowed_directories=()
     local -a exclusion_patterns=()
-    # One shared read (ai_tools_conf_allowlist_load, conf.lib.sh): allow entries resolved; exclusions as written
-    # and, through symlinks the operator or root owns, resolved beside them. The root helpers read the same two arrays.
-    # A read the library refuses -- an exclusion written through a symlink the sandbox account can remove or replace --
-    # has already named the entry and the link on stderr under its own code; the refusal here adds the remedy.
+    # The one read every reader of the allowlist makes (ai_tools_conf_allowlist_load, conf.lib.sh). A read the library
+    # refuses has already named the entry, the link and the reason on stderr under its own code; the refusal here adds
+    # the remedy.
     local load_status=0
     ai_tools_conf_allowlist_load "${allowlist}" allowed_directories exclusion_patterns || load_status=$?
     case "${load_status}" in
