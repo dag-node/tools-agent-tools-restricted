@@ -2868,7 +2868,7 @@ status_selinux_attestation() {
                     differs) st "${row[3]^^}" "${row[1]}  required: ${row[4]}${origin_note}, ${enforcement_note}${effect_note:+ -- ${effect_note}}"
                              detail "${row[8]}" ;;
                     open)    st "${row[3]}" "${row[1]}  ${effect_note}" ;;
-                    closed)  st "${row[3]}" "${row[1]}" ;;
+                    closed)  st "${row[3]}" "${row[1]}${effect_note:+  ${effect_note/, allows/, would allow}}" ;;
                     malformed) st MALFORMED "${row[1]} in ${operator_conf} has ${row[7]} -- every launch refuses until it is fixed" ;;
                     *)       st "?" "${row[1]}  could not be read" ;;
                 esac ;;
