@@ -35,6 +35,13 @@ codex login --device-auth
 The login is stored under `/opt/ai-tools/.codex`, the sandbox account's Codex
 home, and every operator's session on the host uses that one identity.
 
+A session that ends within seconds of `codex`
+with `workspace routing discovery unauthorized (401)` has a login the account
+revoked -- "Log out of all sessions" on chatgpt.com does that -- or one
+that has expired, and `codex login status` still reports a login. Run
+the device-code login again from a claimed project; the host does not need
+a repair.
+
 ## What a Codex session gets, and does not
 
 A Codex session is confined as a Claude Code session is: it runs as the sandbox

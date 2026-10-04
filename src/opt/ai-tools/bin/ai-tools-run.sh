@@ -792,10 +792,22 @@ systemd-run --user --pty --quiet \
 
 if (( session_exit_status != 0 && SECONDS - session_start_seconds < 5 )); then
     audit warning "session unit ${session_unit_name} exited with status ${session_exit_status} at startup"
+    # The agent's own output went to the pty, so this shim cannot read which of the two it was and the warning names
+    # both, each with its step. The re-login step is the agent's: a manifest declaring `login_command` has it named
+    # as a command (codex, whose login is a subcommand); one declaring none takes its login inside a session.
+    agent_login_command="$(ai_tools_agent_manifest_field "${agent_name}" login_command 2>/dev/null || true)"
+    if [[ -n "${agent_login_command}" ]]; then
+        early_exit_login_lines=(
+            "If it printed an error of its own, the agent refused to start: 'unauthorized' or '401' means its stored login was revoked or has expired -- log in again from a claimed project:"
+            "  ${agent_login_command}" )
+    else
+        early_exit_login_lines=(
+            "If it printed an error of its own, the agent refused to start: 'unauthorized' or '401' means its stored login was revoked or has expired -- log in again from a session." )
+    fi
     ai_tools_msg_warn \
         "ai-tools-run: the session exited with status ${session_exit_status} almost immediately." \
-        "If it ended with no output, the sandbox toolchain may be incompletely" \
-        "installed -- reprovision it as root, then relaunch:"
-    printf '  sudo ai-tools-admin system bootstrap\n' >&2
+        "${early_exit_login_lines[@]}" \
+        "If it ended with no output, the sandbox toolchain may be incompletely installed -- reprovision it as root, then relaunch:" \
+        '  sudo ai-tools-admin system bootstrap'
 fi
 exit "${session_exit_status}"

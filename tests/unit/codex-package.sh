@@ -86,6 +86,10 @@ section "codex.conf: what the readers parse out of it"
     && pass "default_enable=no: the package ships disabled" || fail "default_enable is '$(field default_enable)', expected no"
 [[ "$(field display_name)" == "Codex" ]] \
     && pass "display_name=Codex" || fail "display_name is '$(field display_name)'"
+# The value is printed verbatim by ai-tools-run's early-exit warning, so it is the documented login, whole.
+[[ "$(field login_command)" == "codex login --device-auth" ]] \
+    && pass "login_command names the device-code login the early-exit warning prints" \
+    || fail "login_command is '$(field login_command)', expected 'codex login --device-auth'"
 
 # handback=none is the hybrid: the shim's session-end sweep runs, and the package's hooks add cadence on top.
 if [[ "$(field handback)" == "none" ]] && ai_tools_agent_sweeps_at_exit "$(field handback)"; then

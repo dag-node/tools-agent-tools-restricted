@@ -54,6 +54,7 @@ is the vendor's; the containment is the host's.
 | `launcher` | `codex` | `ai-tools-launcher-symlink` (which link it may write), `ai-tools-run` (which executables may start a session) |
 | `launcher_target` | the vendor binary's path inside the version directory, under `…/@openai/codex-linux-x64/vendor/x86_64-unknown-linux-musl/bin/codex` | `ai-tools-bootstrap`, `nvm-update` — where `<version-dir>/bin/codex` is re-linked after each install ([providers](providers.rule.md)) |
 | `display_name` | `Codex` | the launch banner, the unit description |
+| `login_command` | `codex login --device-auth` | `ai-tools-run` — the warning after a session ends within seconds of starting, which is how a revoked login ends one (see [Quirks](#quirks)) |
 | `handback` | `none` | `ai-tools-run` — the shim sweeps the project at session end (see [Handback](#handback-the-shims-sweep-is-the-guarantee-the-hooks-are-the-cadence)) |
 | `config_dir` | `.codex` | the control-plane mode/label set, and `→ ai_tools_home_t`; the pins set `CODEX_HOME` there |
 | `memory_file` | `AGENTS.md` | where the shared orientation text is linked — the global-scope instructions codex reads first ([shipped-assets](shipped-assets.rule.md)) |
@@ -337,6 +338,13 @@ and no entrypoint provenance on the npm channel. Egress is not controlled by thi
   on bubblewrap — the shape that ships is the one that does not.
 - **`codex features list` loads the whole configuration without a credential and does not open a socket**, so it is
   the credential-free check that a managed file parses on this release.
+- **A revoked login ends the session at startup, and `codex login status` does not see it.** Codex (0.156 and later)
+  gates the TUI bootstrap on a workspace-routing call to the vendor, and a token the account has revoked — "Log
+  out of all sessions" on chatgpt.com — answers 401 there, so the session exits 1 within seconds
+  with `account/read failed during TUI bootstrap: … workspace routing discovery unauthorized (401)`.
+  `codex login status` reads the cached token's own expiry alone and still reports a login. The remedy is
+  the device-code login the Codex page documents, which the shim's early-exit warning names from `login_command`; no
+  file of this project's is involved.
 
 ## Deferred
 
