@@ -2811,7 +2811,7 @@ status_update_timer_stamp() {
 # the counting rule over a fixture.
 status_selinux_attestation() {
     local operator_conf="${1:-${OPERATOR_CONF}}"
-    heading "SELinux attestation"
+    heading "SELinux status"
     # shellcheck source=SCRIPTDIR/../../lib/ai-tools/confinement.lib.sh
     source "${CONFINEMENT_LIB}" 2>/dev/null || true
     if ! declare -F ai_tools_confinement_list_attestation_report >/dev/null 2>&1 \
@@ -2846,7 +2846,8 @@ status_selinux_attestation() {
         return 0
     fi
     local -a row
-    local origin_note
+    local origin_note effect_note enforcement_note="not enforced"
+    ai_tools_confinement_is_selinux_required "${operator_conf}" && enforcement_note="launch blocked"
     while IFS=$'\t' read -r -a row; do
         case "${row[0]}" in
             domain)   # <yes|no|unread> <remedy|->
@@ -2858,13 +2859,15 @@ status_selinux_attestation() {
                 esac ;;
             boolean)  # <name> <classification> <state> <required> <origin> <opening> <grants> <remedy|->
                 origin_note=""
-                [[ "${row[5]}" == operator.conf ]] && origin_note=", declared in operator.conf"
+                [[ "${row[5]}" == operator.conf ]] && origin_note=", operator.conf"
                 [[ "${row[5]}" == built-in ]] && origin_note=", built in"
+                effect_note=""
+                [[ "${row[6]}" == on || "${row[6]}" == off ]] && effect_note="when ${row[6]}, allows ${row[7]}"
                 case "${row[2]}" in
-                    matches) st "${row[3]}" "${row[1]}  required ${row[4]}${origin_note}" ;;
-                    differs) st "${row[3]^^}" "${row[1]}  required ${row[4]}${origin_note} -- opens ${row[7]}"
+                    matches) st "${row[3]}" "${row[1]}  required: ${row[4]}${origin_note}" ;;
+                    differs) st "${row[3]^^}" "${row[1]}  required: ${row[4]}${origin_note}, ${enforcement_note}${effect_note:+ -- ${effect_note}}"
                              detail "${row[8]}" ;;
-                    open)    st "${row[3]}" "${row[1]}  opens ${row[7]}" ;;
+                    open)    st "${row[3]}" "${row[1]}  ${effect_note}" ;;
                     closed)  st "${row[3]}" "${row[1]}" ;;
                     malformed) st MALFORMED "${row[1]} in ${operator_conf} has ${row[7]} -- every launch refuses until it is fixed" ;;
                     *)       st "?" "${row[1]}  could not be read" ;;
@@ -2875,7 +2878,7 @@ status_selinux_attestation() {
                     detail "AI_TOOLS_REQUIRE_SELINUX is set, so every launch refuses while this stands"
                     STATUS_PROBLEMS=$(( STATUS_PROBLEMS + 1 ))
                 else
-                    detail "AI_TOOLS_REQUIRE_SELINUX is not set, so launches are not refused for this"
+                    detail "AI_TOOLS_REQUIRE_SELINUX is no, so launches are not refused for this"
                 fi ;;
         esac
     done < <(ai_tools_confinement_list_attestation_report "${operator_conf}")
