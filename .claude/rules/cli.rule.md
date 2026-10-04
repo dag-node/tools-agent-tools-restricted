@@ -404,12 +404,12 @@ an ordinary account read it — a partial view, the file sink being the authorit
   ([confinement](confinement.rule.md) states the set and the refusals). An unconfined caller can make the read without
   privilege, so the two vantages read it alike. A finding counts toward the exit status only
   where `AI_TOOLS_REQUIRE_SELINUX` is set, since only then does it refuse a launch. Each Boolean row names the value
-  a launch requires and whether that requirement is in force there (`launch blocked`) or not (`not enforced`), and its
-  value keeps normal contrast whichever it reads: `off` is a reading, not a disabled control. A host without SELinux
-  confinement by its own configuration — SELinux disabled, or the policy neither live nor on disk, read
-  through the shim's own predicate — has no domain to attest, and is a finding under that key alone, since there every
-  launch runs DAC-only and warns; the line names the setting that declares the host so and the package that installs
-  confinement.
+  a launch requires and whether that requirement is in force there (`launch blocked`) or not (`not enforced`), a row
+  whose rules are shut names what it would allow once opened, and every value keeps normal contrast whichever it reads:
+  `off` is a reading, not a disabled control. A host without SELinux confinement by its own configuration — SELinux
+  disabled, or the policy neither live nor on disk, read through the shim's own predicate — has no domain to attest,
+  and is a finding under that key alone, since there every launch runs DAC-only and warns; the line names the setting
+  that declares the host so and the package that installs confinement.
 
   **The unit that does the labelling is reported too, and answers a different question.** `ai-tools-relabel.service` is
   in the registry beside the `.path` that triggers it, because a healthy watcher says only that a run *started* —

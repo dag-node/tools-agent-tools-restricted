@@ -369,6 +369,15 @@ else
     else
         fail "attested host under the requirement: $(tr '\n' '|' <<<"${out}")"
     fi
+    # A Boolean whose rules are shut names what it would allow once opened, so its row does not read as a failed one.
+    out="$(call_attestation_section $'permissive\tno\nboolean\tauthlogin_nsswitch_use_ldap\toff\nboolean\tdeny_ptrace\ton' \
+               "${NOT_REQUIRED_CONF}")" || true
+    if grep -qF 'off (when on, would allow LDAP connects' <<<"${out}" \
+            && grep -qF 'on (when off, would allow ptrace)' <<<"${out}"; then
+        pass "a Boolean with its rules shut names what it would allow, whichever value opens it"
+    else
+        fail "closed Boolean rows: $(tr '\n' '|' <<<"${out}")"
+    fi
     # A declaration renders its origin, a Boolean outside the registry, and the malformed row, which is a fault under
     # the requirement.
     DECLARED_CONF="${TESTDIR}/operator-declared.conf"

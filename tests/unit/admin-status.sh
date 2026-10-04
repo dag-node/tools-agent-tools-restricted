@@ -206,6 +206,13 @@ else
     else
         fail "clean attestation under the requirement: $(tr '\n' '|' <<<"${out}")"
     fi
+    out="$(call_attestation_section Enforcing $'permissive\tno\nboolean\tauthlogin_nsswitch_use_ldap\toff' \
+               "${NOT_REQUIRED_CONF}")" || true
+    if grep -qF 'authlogin_nsswitch_use_ldap  when on, would allow LDAP connects' <<<"${out}"; then
+        pass "a Boolean with its rules shut names what it would allow"
+    else
+        fail "closed Boolean row: $(tr '\n' '|' <<<"${out}")"
+    fi
     out="$(call_attestation_section Enforcing $'permissive\tyes\nboolean\tnis_enabled\toff\nboolean\tdomain_can_mmap_files\ton' \
                "${REQUIRED_CONF}")" || true
     if grep -qx 'problems=1' <<<"${out}" && grep -qF '[PERMISSIVE]' <<<"${out}" && grep -qF '[ON]' <<<"${out}" \

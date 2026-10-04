@@ -4542,7 +4542,12 @@ status_selinux_attestation() {
                              say "      ${C_BOLD}${row[8]}${C_RST}" ;;
                     open)    printf '  %-28s %s %s(%s)%s\n' "${row[1]}" "${row[3]}" "${C_DIM}" "${effect_note}" \
                                  "${C_RST}" ;;
-                    closed)  printf '  %-28s %s\n' "${row[1]}" "${row[3]}" ;;
+                    closed)  if [[ -n "${effect_note}" ]]; then
+                                 printf '  %-28s %s %s(%s)%s\n' "${row[1]}" "${row[3]}" "${C_DIM}" \
+                                     "${effect_note/, allows/, would allow}" "${C_RST}"
+                             else
+                                 printf '  %-28s %s\n' "${row[1]}" "${row[3]}"
+                             fi ;;
                     malformed) printf '  %-28s %sMALFORMED%s %s(%s has %s)%s\n' "${row[1]}" "${C_YEL}" "${C_RST}" \
                                    "${C_DIM}" "${operator_conf}" "${row[7]}" "${C_RST}"
                                say "      every launch refuses until it is fixed" ;;
