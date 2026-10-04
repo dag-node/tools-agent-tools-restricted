@@ -157,6 +157,17 @@ Unset for an agent whose npm launcher is the executable itself.
 .B display_name
 What the launch banner and the session unit call the agent.
 .TP
+.B login_command
+The command an operator runs inside a claimed project to log the agent in
+again.
+A session whose stored login the vendor has revoked or expired ends within
+seconds of starting, so
+.B ai-tools-run
+names this command in the warning it prints after such an exit, beside
+the reprovisioning step.
+Unset for an agent that takes its login inside a session; the warning then
+says so without naming a command.
+.TP
 .B launch_hook
 .B yes
 when the agent package ships a launch hook,

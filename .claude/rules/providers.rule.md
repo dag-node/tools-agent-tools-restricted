@@ -32,15 +32,18 @@ in the privileged scripts that read it:
   and the name `ai-tools-run` matches an executable against to decide whether it may launch), optionally
   `launcher_target` (the executable that launcher is re-linked at, for a package whose own launcher is a shim — see
   [`launcher_target`](#launcher_target--where-the-versioned-launcher-points)), `display_name` (what the launch banner
-  and the unit description call it), `handback` (which side converges ownership), `entrypoint_fcontext` and `config_dir`
-  (the two paths it declares to SELinux), `skills_dir` / `subagents_dir` (where inside its config directory it reads
-  each shared asset kind, so the shared copies can be symlinked in — see [shipped-assets](shipped-assets.rule.md)),
-  `memory_file` (the filename that agent's product reads as user-scope instructions, where the shared orientation text
-  is linked), `managed_files` (the kept-across-upgrade files its product reads from a fixed path outside the control
-  plane — each one a plain name directly under `/etc/<name>/`, shipped with a pristine copy of the same name
-  under `/usr/share/ai-tools/<name>/` that the two status reports compare the live file against — reported, never
-  enforced, since no such file holds a guarantee; codex's `/etc/codex` pair is the instance,
-  [agent-codex](agent-codex.rule.md)), `default_enable`, and — optionally — the three release-verification fields.
+  and the unit description call it), optionally `login_command` (the re-login command `ai-tools-run` names
+  in the warning it prints after a session ends within seconds of starting, for an agent whose login is a subcommand
+  rather than a prompt inside the session), `handback` (which side converges ownership), `entrypoint_fcontext`
+  and `config_dir` (the two paths it declares to SELinux), `skills_dir` / `subagents_dir` (where inside its config
+  directory it reads each shared asset kind, so the shared copies can be symlinked in — see
+  [shipped-assets](shipped-assets.rule.md)), `memory_file` (the filename that agent's product reads as user-scope
+  instructions, where the shared orientation text is linked), `managed_files` (the kept-across-upgrade files its product
+  reads from a fixed path outside the control plane — each one a plain name directly under `/etc/<name>/`, shipped
+  with a pristine copy of the same name under `/usr/share/ai-tools/<name>/` that the two status reports compare the live
+  file against — reported, never enforced, since no such file holds a guarantee; codex's `/etc/codex` pair is
+  the instance, [agent-codex](agent-codex.rule.md)), `default_enable`, and — optionally — the three release-verification
+  fields.
 - integrations: `default_enable`, and optionally the three keys the SELinux layer reads — `build_output_dirs` (the
   directory names that hold the toolchain's build output, which `relabel.lib.sh` reads from every installed manifest
   through `ai_tools_installed_integrations_declaring` and maps to the build-output type), `selinux_layout_module` (the
