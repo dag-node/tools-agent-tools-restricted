@@ -647,25 +647,27 @@ left it in and an `install` run against a fixture would install from it if the g
 from dispatch through the registry to each treatment (see [providers](providers.rule.md)
 and [claude-settings](claude-settings.rule.md)). It asserts which treatment each file got — the settings JSON merged
 with its permission rules intact and a dated `.bak` written first, `operator.conf` reported and byte-identical
-afterwards, the sudoers grant shown and neither written nor dropped (its fixture is a grant of everything to everyone,
-so a silent adoption fails loudly), a kept file the registry does not name found by its directory with neither a value
-nor the copy's content printed, the removal command offered only where the file mentions every option the copy documents
-and carries the same comment prose (a re-wrapped comment is the same prose, a reworded one is not), a copy dated
-before the installation named as such, a copy byte-identical to its file reported as such with its removal offered,
-earlier `.bak`/`.shipped` copies listed in the order they were made and left in place, and an ask entry the kept
-`settings.json` lacks named with no `.rpmnew` waiting and the file left as written, a key an agent's managed file lacks
-against its shipped copy named with the `sudoedit` merge and the file left as written, the rules a kept `settings.json`
-lacks named while a reordered list, a moved key and regrouped hooks are not, a provider list an earlier release wrote
-bare rewritten with no `.rpmnew` waiting while a name no installed manifest or rule set matches stays as written,
-and `--check` held to the record stream `ai-tools-records(5)` states — one row per finding under its code with the item
-its collector gives, read by column name off the header, exit 4 with a finding, no output and exit 0 on a clean host,
-the no-action findings under `--all` alone, and one `error` row and exit 5 for a collector that exits non-zero, driven
-by a failing `cut` stub ahead of the copies collector on `PATH` — and no write — plus the property every case shares:
-the `.rpmnew` survives the run and is named as the operator's to delete, the case where the merge leaves the two files
-matching included. Every run is under `setsid`, so each prompt takes its own default: that is the unattended behaviour
-and what makes an interactive command reproducible. The agent-side half of the pair is already deployed:
-`boundary/access.sh` covers `settings.json` and the helper directory, `boundary/providers.sh` and `boundary/filters.sh`
-cover `operator.conf`, and `boundary/sudo.sh` covers the grant, so no input this command reads is agent-writable.
+afterwards, its merge opened against a root-only merge copy with the host's values carried in, present only while
+a merge is pending, so `OPERATORS` is not among the differences, the sudoers grant shown and neither written nor dropped
+(its fixture is a grant of everything to everyone, so a silent adoption fails loudly), a kept file the registry does not
+name found by its directory with neither a value nor the copy's content printed, the removal command offered only
+where the file mentions every option the copy documents and carries the same comment prose (a re-wrapped comment is
+the same prose, a reworded one is not), a copy dated before the installation named as such, a copy byte-identical to its
+file reported as such with its removal offered, earlier `.bak`/`.shipped` copies listed in the order they were made
+and left in place, and an ask entry the kept `settings.json` lacks named with no `.rpmnew` waiting and the file left
+as written, a key an agent's managed file lacks against its shipped copy named with the `sudoedit` merge and the file
+left as written, the rules a kept `settings.json` lacks named while a reordered list, a moved key and regrouped hooks
+are not, a provider list an earlier release wrote bare rewritten with no `.rpmnew` waiting while a name no installed
+manifest or rule set matches stays as written, and `--check` held to the record stream `ai-tools-records(5)` states —
+one row per finding under its code with the item its collector gives, read by column name off the header, exit 4
+with a finding, no output and exit 0 on a clean host, the no-action findings under `--all` alone, and one `error` row
+and exit 5 for a collector that exits non-zero, driven by a failing `cut` stub ahead of the copies collector on `PATH` —
+and no write — plus the property every case shares: the `.rpmnew` survives the run and is named as the operator's
+to delete, the case where the merge leaves the two files matching included. Every run is under `setsid`, so each prompt
+takes its own default: that is the unattended behaviour and what makes an interactive command reproducible.
+The agent-side half of the pair is already deployed: `boundary/access.sh` covers `settings.json` and the helper
+directory, `boundary/providers.sh` and `boundary/filters.sh` cover `operator.conf`, and `boundary/sudo.sh` covers
+the grant, so no input this command reads is agent-writable.
 
 `admin-commands.sh` pins the seam that lets a provider package add a domain to `ai-tools-admin` (see
 [providers](providers.rule.md)). What it drives is a dispatch that **execs a file as root**, so every assertion targets

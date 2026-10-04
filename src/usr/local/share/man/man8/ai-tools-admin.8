@@ -435,6 +435,17 @@ command that compares it.
 A reported configuration file is never printed, since one may hold a
 credential; the report names the options it lacks, the keys you set, and
 whether the comments differ.
+Its merge command opens your file beside its
+.I .rpmnew\-merge
+copy, the package copy with every value your file sets carried in, written
+readable by root alone beside the
+.IR .rpmnew ,
+so the comparison shows what the new version changed rather than each value
+you chose.
+It is removed once no merge is pending for it; a merge copy another account
+owns is left as it is.
+A copy that differs only in your values is offered for removal without
+a merge.
 The merge confirms and writes a dated backup before changing anything.
 Each file closes by naming its reference copy
 as yours to delete, and prints the command that deletes it only when your

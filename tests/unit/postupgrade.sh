@@ -424,6 +424,103 @@ else
     fail "a template differing only in the list form of its commented defaults was reported: ${out}"
 fi
 
+# ── (E2b) operator.conf: the merge opens the copy with the host's values carried in ────────────────────────
+# The host's settings differ from the template by design, so a merge against the raw copy shows each of them
+# as a difference the operator has to review and leave. The right-hand pane is therefore <file>.rpmnew-merge, the copy
+# with every value the file sets carried in -- a set key and a commented default alike -- so what differs is
+# what the version changed. It is written root-only, since a kept KEY=value file may hold a credential, and does not
+# outlive the .rpmnew it is made from.
+reset_root
+printf '# Host options.\nOPERATORS="alice"\nAI_TOOLS_AGENTS=[agent-acme]\n' > "${CONF}"
+printf '# Host options.\nOPERATORS=[]\n#AI_TOOLS_AGENTS=[]\n\n# The option this version introduces.\n#NEW_OPTION="b"\n' \
+    > "${CONF}.rpmnew"
+cp "${CONF}" "${TESTDIR}/pre.conf"
+cp "${CONF}.rpmnew" "${TESTDIR}/pre.rpmnew"
+out="$(run_pu)"
+merge_copy="${CONF}.rpmnew-merge"
+if [[ "${out}" == *"sudoedit ${CONF} ${merge_copy}"* \
+      && "${out}" == *"then remove ${CONF}.rpmnew and ${merge_copy}"* ]]; then
+    pass "the merge opens the file beside the copy carrying the host's values, and names both copies to remove"
+else
+    fail "the merge does not open the merge copy, or does not name it for removal: ${out}"
+fi
+merge_diff="$(diff "${CONF}" "${merge_copy}" 2>&1 || true)"
+if [[ -f "${merge_copy}" ]] && grep -qx 'OPERATORS="alice"' "${merge_copy}" \
+      && grep -qx 'AI_TOOLS_AGENTS=\[agent-acme\]' "${merge_copy}" \
+      && grep -q '^> #NEW_OPTION=' <<< "${merge_diff}" && ! grep -q '^<' <<< "${merge_diff}"; then
+    pass "the merge copy carries a set key and a commented default, so only the version's own changes differ"
+else
+    fail "the merge copy still differs in the host's values: ${merge_diff}"
+fi
+if [[ "$(stat -c '%u %a' "${merge_copy}" 2>/dev/null)" == "0 600" ]]; then
+    pass "the merge copy is 0600 root"
+else
+    fail "the merge copy is readable beyond root: $(stat -c '%U %a' "${merge_copy}" 2>&1)"
+fi
+if cmp -s "${CONF}" "${TESTDIR}/pre.conf" && cmp -s "${CONF}.rpmnew" "${TESTDIR}/pre.rpmnew"; then
+    pass "neither the file nor the package copy is written"
+else
+    fail "the file or its .rpmnew changed"
+fi
+# A copy that differs only in the values the host sets does not add an option or prose, so its removal is offered, no
+# merge is, and the merge copy the previous run wrote is removed rather than left with the host's values in it.
+printf '# Host options.\nOPERATORS=[]\n#AI_TOOLS_AGENTS=[]\n' > "${CONF}.rpmnew"
+out="$(run_pu)"
+if [[ "${out}" == *"only in the values set here"* && "${out}" != *"sudoedit ${CONF} "* \
+      && "${out}" == *"sudo rm ${CONF}.rpmnew"* && ! -e "${merge_copy}" ]]; then
+    pass "a copy differing only in the host's values offers its removal, no merge, and leaves no merge copy"
+else
+    fail "a copy differing only in the host's values was offered as a merge, or a merge copy was left: ${out}"
+fi
+# Once the operator removes the .rpmnew, the next run removes the merge copy made from it, and names it.
+printf 'OPERATORS="alice"\n' > "${merge_copy}"
+rm -f "${CONF}.rpmnew"
+out="$(run_pu)"
+if [[ ! -e "${merge_copy}" && "${out}" == *"removed ${merge_copy}"* ]]; then
+    pass "a merge copy whose package copy is gone is removed and named"
+else
+    fail "a merge copy outlived its package copy: ${out}"
+fi
+
+# A from-source host compares against a dated .shipped, which stays as recovery material, so its merge copy is
+# <copy>-merge too and lives only while a merge is pending: once the file carries what the copy added, the next run
+# removes it and names it. A same-named file another account owns is not this command's to remove.
+reset_root
+printf '# Host options.\nOPERATORS="alice"' > "${CONF}"
+printf '# Host options.\n#OPERATORS=[]\n' > "${CONF}.20200101.shipped"
+out="$(run_pu)"
+if [[ "${out}" == *"only in the values set here"* && "${out}" != *"sudoedit ${CONF} "* ]]; then
+    pass "a file without a final newline that differs from its copy only in its values is not offered a merge"
+else
+    fail "a missing final newline was offered as a merge: ${out}"
+fi
+printf '# Host options.\n#OPERATORS=[]\n\n# The option this version introduces.\n#NEW_OPTION="b"\n' \
+    > "${CONF}.20200102.shipped"
+touch -d '2020-01-02' "${CONF}.20200102.shipped"; touch -d '2020-01-01' "${CONF}.20200101.shipped"
+out="$(run_pu)"
+shipped_merge="${CONF}.20200102.shipped-merge"
+if [[ "${out}" == *"sudoedit ${CONF} ${shipped_merge}"* && "$(stat -c '%u %a' "${shipped_merge}" 2>/dev/null)" == "0 600" ]]
+then
+    pass "a .shipped copy's merge opens a 0600 root merge copy beside it"
+else
+    fail "a .shipped copy did not get its merge copy: ${out}"
+fi
+printf '# Host options.\nOPERATORS="alice"\n\n# The option this version introduces.\n#NEW_OPTION="b"\n' > "${CONF}"
+out="$(run_pu)"
+if [[ ! -e "${shipped_merge}" && "${out}" == *"removed ${shipped_merge}"* && -f "${CONF}.20200102.shipped" ]]; then
+    pass "once the merge is done the merge copy is removed and named, and the .shipped copy stays"
+else
+    fail "a merge copy outlived its pending merge, or the .shipped copy was removed: ${out}"
+fi
+printf 'OPERATORS="planted"\n' > "${CONF}.rpmnew-merge"
+chown 65534 "${CONF}.rpmnew-merge"
+out="$(run_pu)"
+if [[ -f "${CONF}.rpmnew-merge" && "${out}" != *"removed ${CONF}.rpmnew-merge"* ]]; then
+    pass "a merge copy another account owns is left as it is"
+else
+    fail "removed a merge copy root did not write: ${out}"
+fi
+
 # ── (E3) A kept file another package ships: found, reported, and never printed ─────────────────────
 # The registry is base's, so an integration's endpoint file is found by the directory it sits in. It carries a key,
 # so neither its value nor the copy's content may reach the output.
