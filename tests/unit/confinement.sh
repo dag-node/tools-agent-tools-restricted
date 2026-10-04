@@ -423,7 +423,7 @@ expect_row "a differing Boolean carries its remedy" \
 expect_row "an unread required Boolean has no remedy" \
     $'boolean\tdomain_can_mmap_files\tunread\tunread\toff\tbuilt-in\ton\tmap on every file type, the access the tmpmap group exists to add\t-'
 expect_row "an advisory false-branch Boolean read on is closed" \
-    $'boolean\tdeny_ptrace\tclosed\ton\t-\t-\toff\tptrace, which this Boolean denies while on\t-'
+    $'boolean\tdeny_ptrace\tclosed\ton\t-\t-\toff\tptrace\t-'
 expect_row "a declared Boolean outside the registry is listed from the declaration" \
     $'boolean\tmy_extra\tunread\tunread\ton\toperator.conf\t-\tdeclared in AI_TOOLS_SELINUX_BOOLEANS\t-'
 expect_row "the malformed marker is a row of its own" \

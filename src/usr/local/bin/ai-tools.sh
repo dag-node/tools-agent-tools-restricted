@@ -4484,7 +4484,7 @@ status_selinux_attestation() {
     local selinux_mode module_present policy_shipped dac_only_state=""
     selinux_mode="$(getenforce 2>/dev/null || true)"
     [[ -n "${selinux_mode}" ]] || return 0
-    section "SELinux attestation"
+    section "SELinux status"
     # shellcheck source=SCRIPTDIR/../lib/ai-tools/confinement.lib.sh
     source "${CONFINEMENT_LIB}" 2>/dev/null || true
     if ! declare -F ai_tools_confinement_list_attestation_report >/dev/null 2>&1 \
@@ -4511,7 +4511,11 @@ status_selinux_attestation() {
         return 0
     fi
     local -a row
-    local origin_note section_status=0
+    local origin_note effect_note enforcement_note section_status=0
+    # A value keeps normal contrast whatever it reads, since off is a reading and not a disabled control; only the note
+    # beside it is dim. Whether a requirement is enforced is known ahead of the verdict row, so each row can say it.
+    enforcement_note="not enforced"
+    ai_tools_confinement_is_selinux_required "${operator_conf}" && enforcement_note="launch blocked"
     while IFS=$'\t' read -r -a row; do
         case "${row[0]}" in
             domain)   # <yes|no|unread> <remedy|->
@@ -4525,17 +4529,20 @@ status_selinux_attestation() {
                 esac ;;
             boolean)  # <name> <classification> <state> <required> <origin> <opening> <grants> <remedy|->
                 origin_note=""
-                [[ "${row[5]}" == operator.conf ]] && origin_note=", declared in operator.conf"
+                [[ "${row[5]}" == operator.conf ]] && origin_note=", operator.conf"
                 [[ "${row[5]}" == built-in ]] && origin_note=", built in"
+                effect_note=""
+                [[ "${row[6]}" == on || "${row[6]}" == off ]] && effect_note="when ${row[6]}, allows ${row[7]}"
                 case "${row[2]}" in
-                    matches) printf '  %-28s %s%s (required%s)%s\n' "${row[1]}" "${C_DIM}" "${row[3]}" \
-                                 "${origin_note}" "${C_RST}" ;;
-                    differs) printf '  %-28s %s%s%s %s(required %s%s -- opens %s)%s\n' "${row[1]}" "${C_YEL}" \
-                                 "${row[3]^^}" "${C_RST}" "${C_DIM}" "${row[4]}" "${origin_note}" "${row[7]}" "${C_RST}"
+                    matches) printf '  %-28s %s %s(required: %s%s)%s\n' "${row[1]}" "${row[3]}" "${C_DIM}" \
+                                 "${row[4]}" "${origin_note}" "${C_RST}" ;;
+                    differs) printf '  %-28s %s%s%s %s(required: %s%s, %s%s)%s\n' "${row[1]}" "${C_YEL}" "${row[3]^^}" \
+                                 "${C_RST}" "${C_DIM}" "${row[4]}" "${origin_note}" "${enforcement_note}" \
+                                 "${effect_note:+ -- ${effect_note}}" "${C_RST}"
                              say "      ${C_BOLD}${row[8]}${C_RST}" ;;
-                    open)    printf '  %-28s %s %s(opens %s)%s\n' "${row[1]}" "${row[3]}" "${C_DIM}" "${row[7]}" \
+                    open)    printf '  %-28s %s %s(%s)%s\n' "${row[1]}" "${row[3]}" "${C_DIM}" "${effect_note}" \
                                  "${C_RST}" ;;
-                    closed)  printf '  %-28s %s%s%s\n' "${row[1]}" "${C_DIM}" "${row[3]}" "${C_RST}" ;;
+                    closed)  printf '  %-28s %s\n' "${row[1]}" "${row[3]}" ;;
                     malformed) printf '  %-28s %sMALFORMED%s %s(%s has %s)%s\n' "${row[1]}" "${C_YEL}" "${C_RST}" \
                                    "${C_DIM}" "${operator_conf}" "${row[7]}" "${C_RST}"
                                say "      every launch refuses until it is fixed" ;;
@@ -4547,7 +4554,7 @@ status_selinux_attestation() {
                     say "  AI_TOOLS_REQUIRE_SELINUX is set, so every launch refuses while this stands"
                     section_status=1
                 else
-                    say "  ${C_DIM}AI_TOOLS_REQUIRE_SELINUX is not set, so launches are not refused for this${C_RST}"
+                    say "  ${C_DIM}AI_TOOLS_REQUIRE_SELINUX is no, so launches are not refused for this${C_RST}"
                 fi ;;
         esac
     done < <(ai_tools_confinement_list_attestation_report "${operator_conf}")
