@@ -271,17 +271,23 @@ fi
 # leave it 670 (the script plan) where its own reads give 660. Neither outcome may occur in any run. The window is a few
 # lookups wide, so this is a stress check that catches a regression with some probability per run; case (13) is
 # the deterministic one. A run that hands the agent file back is required, which proves the racer left the apply
-# reachable.
-# race_exchange <a> <b>: swap <a> and <b> with renameat2(RENAME_EXCHANGE) until killed. `exec` makes the background
-# job's pid the racer's own, so the kill stops it; a racer left running would swap the next run's fixture during setup.
+# reachable. Runs alternate between a racer that swaps without pause, the most pressure on the window, and one that
+# pauses up to a millisecond after each swap: against the first alone a host may refuse every run, which is correct
+# and leaves the reachability proof to chance.
+# race_exchange <a> <b> <pause>: swap <a> and <b> with renameat2(RENAME_EXCHANGE) until killed, sleeping a random
+# 0..1 ms after each swap when <pause> is 1. `exec` makes the background job's pid the racer's own, so the kill stops
+# it; a racer left running would swap the next run's fixture during setup.
 race_exchange() {
-    exec python3 -I - "$1" "$2" <<'PY'
-import ctypes, os, sys
+    exec python3 -I - "$1" "$2" "$3" <<'PY'
+import ctypes, os, random, sys, time
 libc = ctypes.CDLL(None, use_errno=True)
 a, b = (os.fsencode(p) for p in sys.argv[1:3])
+pause = sys.argv[3] == "1"
 while True:
     if libc.renameat2(-100, a, -100, b, 2) != 0:
         sys.exit("renameat2: " + os.strerror(ctypes.get_errno()))
+    if pause:
+        time.sleep(random.random() / 1000)
 PY
 }
 if command -v python3 >/dev/null 2>&1; then
@@ -292,7 +298,7 @@ if command -v python3 >/dev/null 2>&1; then
         : > "${rp}"; chown "${SANDBOX_USER}:${SANDBOX_GROUP}" "${rp}"; chmod 0674 "${rp}"
         : > "${rq}"; chown "${PROJECTS_USER}:${PROJECTS_GROUP}" "${rq}"; chmod 0755 "${rq}"
         agent_ino="$(stat -c %i "${rp}")"
-        race_exchange "${rp}" "${rq}" 2>"${TESTDIR}/racer.err" &
+        race_exchange "${rp}" "${rq}" "$(( n % 2 ))" 2>"${TESTDIR}/racer.err" &
         racer=$!
         run "${rp}"
         kill "${racer}" 2>/dev/null || true

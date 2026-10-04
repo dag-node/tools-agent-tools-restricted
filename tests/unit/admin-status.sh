@@ -169,7 +169,7 @@ fi
 # guard keeps the section's own re-source from restoring the reader. Each case prints the section and the problem count.
 # The stubs read `stub_*` names: bash scopes dynamically, so a stub reading `selinux_mode` would see the section's own
 # unset local of that name rather than the value set here.
-section "ai-tools-admin status: the SELinux attestation section (unit)"
+section "ai-tools-admin status: the SELinux status section (unit)"
 CONFINEMENT_LIB_INSTALLED="/usr/local/lib/ai-tools/confinement.lib.sh"
 REQUIRED_CONF="${TESTDIR}/operator-required.conf"; NOT_REQUIRED_CONF="${TESTDIR}/operator-not-required.conf"
 printf 'AI_TOOLS_REQUIRE_SELINUX=yes\n' > "${REQUIRED_CONF}"
@@ -206,16 +206,25 @@ else
     else
         fail "clean attestation under the requirement: $(tr '\n' '|' <<<"${out}")"
     fi
+    out="$(call_attestation_section Enforcing $'permissive\tno\nboolean\tauthlogin_nsswitch_use_ldap\toff' \
+               "${NOT_REQUIRED_CONF}")" || true
+    if grep -qF 'authlogin_nsswitch_use_ldap  when on, would allow LDAP connects' <<<"${out}"; then
+        pass "a Boolean with its rules shut names what it would allow"
+    else
+        fail "closed Boolean row: $(tr '\n' '|' <<<"${out}")"
+    fi
     out="$(call_attestation_section Enforcing $'permissive\tyes\nboolean\tnis_enabled\toff\nboolean\tdomain_can_mmap_files\ton' \
                "${REQUIRED_CONF}")" || true
     if grep -qx 'problems=1' <<<"${out}" && grep -qF '[PERMISSIVE]' <<<"${out}" && grep -qF '[ON]' <<<"${out}" \
+            && grep -qF 'domain_can_mmap_files  required: off, built in, launch blocked -- when on, allows map' <<<"${out}" \
             && grep -qF 'every launch refuses' <<<"${out}"; then
         pass "a permissive domain and a gating Boolean on count once under the requirement, each named with its remedy"
     else
         fail "faults under the requirement: $(tr '\n' '|' <<<"${out}")"
     fi
-    out="$(call_attestation_section Enforcing $'permissive\tyes' "${NOT_REQUIRED_CONF}")" || true
-    if grep -qx 'problems=0' <<<"${out}" && grep -qF 'launches are not refused' <<<"${out}"; then
+    out="$(call_attestation_section Enforcing $'permissive\tyes\nboolean\tnis_enabled\ton' "${NOT_REQUIRED_CONF}")" || true
+    if grep -qx 'problems=0' <<<"${out}" && grep -qF 'launches are not refused' <<<"${out}" \
+            && grep -qF 'nis_enabled  required: off, built in, not enforced' <<<"${out}"; then
         pass "the same fault without the requirement is reported and not counted"
     else
         fail "fault without the requirement: $(tr '\n' '|' <<<"${out}")"
@@ -232,8 +241,8 @@ else
     printf 'AI_TOOLS_REQUIRE_SELINUX=yes\nAI_TOOLS_SELINUX_BOOLEANS=[nis_enabled=on, ai_tools_test_extra=on, bad]\n' > "${DECLARED_CONF}"
     out="$(call_attestation_section Enforcing $'permissive\tno\nboolean\tnis_enabled\ton\nboolean\tai_tools_test_extra\ton' \
                "${DECLARED_CONF}")" || true
-    if grep -qx 'problems=1' <<<"${out}" && grep -qF 'nis_enabled  required on, declared in operator.conf' <<<"${out}" \
-            && grep -qF 'ai_tools_test_extra  required on, declared in operator.conf' <<<"${out}" \
+    if grep -qx 'problems=1' <<<"${out}" && grep -qF 'nis_enabled  required: on, operator.conf' <<<"${out}" \
+            && grep -qF 'ai_tools_test_extra  required: on, operator.conf' <<<"${out}" \
             && grep -qF '[MALFORMED]' <<<"${out}"; then
         pass "a declaration names its Booleans as declared, lists one outside the registry, and its malformed entry counts"
     else

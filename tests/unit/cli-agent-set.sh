@@ -322,7 +322,7 @@ fi
 # the section's own re-source from restoring the reader. The `operator.conf` fixtures are root-owned, as the trust
 # predicate requires. The stub reads a `stub_*` name: bash scopes dynamically, so a stub reading `attestation_records`
 # would see the section's own unset local of that name rather than the value set here.
-section "status: the SELinux attestation section (unit)"
+section "status: the SELinux status section (unit)"
 REQUIRED_CONF="${TESTDIR}/operator-required.conf"; NOT_REQUIRED_CONF="${TESTDIR}/operator-not-required.conf"
 printf 'AI_TOOLS_REQUIRE_SELINUX=yes\n' > "${REQUIRED_CONF}"; printf 'AI_TOOLS_REQUIRE_SELINUX=no\n' > "${NOT_REQUIRED_CONF}"
 chmod 0644 "${REQUIRED_CONF}" "${NOT_REQUIRED_CONF}"
@@ -355,8 +355,9 @@ else
     else
         fail "permissive under the requirement: $(tr '\n' '|' <<<"${out}")"
     fi
-    out="$(call_attestation_section $'permissive\tyes' "${NOT_REQUIRED_CONF}")" || true
-    if grep -qx 'section-status=0' <<<"${out}" && grep -qF 'launches are not refused' <<<"${out}"; then
+    out="$(call_attestation_section $'permissive\tyes\nboolean\tnis_enabled\ton' "${NOT_REQUIRED_CONF}")" || true
+    if grep -qx 'section-status=0' <<<"${out}" && grep -qF 'launches are not refused' <<<"${out}" \
+            && grep -qF '(required: off, built in, not enforced -- when on, allows bind' <<<"${out}"; then
         pass "the same reading without the requirement is reported and not a fault"
     else
         fail "permissive without the requirement: $(tr '\n' '|' <<<"${out}")"
@@ -368,13 +369,22 @@ else
     else
         fail "attested host under the requirement: $(tr '\n' '|' <<<"${out}")"
     fi
+    # A Boolean whose rules are shut names what it would allow once opened, so its row does not read as a failed one.
+    out="$(call_attestation_section $'permissive\tno\nboolean\tauthlogin_nsswitch_use_ldap\toff\nboolean\tdeny_ptrace\ton' \
+               "${NOT_REQUIRED_CONF}")" || true
+    if grep -qF 'off (when on, would allow LDAP connects' <<<"${out}" \
+            && grep -qF 'on (when off, would allow ptrace)' <<<"${out}"; then
+        pass "a Boolean with its rules shut names what it would allow, whichever value opens it"
+    else
+        fail "closed Boolean rows: $(tr '\n' '|' <<<"${out}")"
+    fi
     # A declaration renders its origin, a Boolean outside the registry, and the malformed row, which is a fault under
     # the requirement.
     DECLARED_CONF="${TESTDIR}/operator-declared.conf"
     printf 'AI_TOOLS_REQUIRE_SELINUX=yes\nAI_TOOLS_SELINUX_BOOLEANS=[nis_enabled=on, ai_tools_test_extra=on, bad]\n' > "${DECLARED_CONF}"
     out="$(call_attestation_section $'permissive\tno\nboolean\tnis_enabled\ton\nboolean\tai_tools_test_extra\ton' \
                "${DECLARED_CONF}")" || true
-    if grep -qx 'section-status=1' <<<"${out}" && grep -qF 'declared in operator.conf' <<<"${out}" \
+    if grep -qx 'section-status=1' <<<"${out}" && grep -qF '(required: on, operator.conf' <<<"${out}" \
             && grep -qF 'ai_tools_test_extra' <<<"${out}" && grep -qF 'MALFORMED' <<<"${out}"; then
         pass "a declaration renders its origin, a Boolean outside the registry, and the malformed row as a fault"
     else

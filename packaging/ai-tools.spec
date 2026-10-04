@@ -1488,6 +1488,22 @@ fi
 %attr(0644, root, root) %{_datadir}/ai-tools/codex/managed_config.toml
 
 %changelog
+* Sun Oct 04 2026 dagnode <tools@dagnode.com> - 0.23.2-1
+- CHANGE: The SELinux section of 'ai-tools status' and 'ai-tools-admin status' is headed "SELinux
+  status" and says, per Boolean, the value a launch requires, whether a difference blocks the launch
+  or is not enforced, and what an open Boolean allows. Values are no longer dimmed. Update a script
+  that matches the old wording.
+- FIX: 'ai-tools-admin system post-upgrade' opens operator.conf beside the new version's copy with
+  your own values carried in, so the comparison shows only what the version changed. A copy that
+  differs only in your values is offered for removal without a merge.
+- FIX: When a session ends within seconds of starting, the warning now names the agent's re-login
+  beside the reprovisioning step. A Codex login revoked by "Log out of all sessions" on chatgpt.com
+  ends every session with 'workspace routing discovery unauthorized (401)'; run
+  'codex login --device-auth' from a claimed project.
+- DOCS: The operator.conf comments for AI_TOOLS_REQUIRE_SELINUX and AI_TOOLS_SELINUX_BOOLEANS state
+  which states each setting refuses or launches. The file is kept on upgrade, so the new comments
+  arrive as operator.conf.rpmnew; 'sudo ai-tools-admin system post-upgrade' shows them.
+
 * Fri Oct 03 2026 dagnode <tools@dagnode.com> - 0.23.1-1
 - SECURITY: The root helpers that change a project's files (the handback, the setgid and ACL passes,
   lockdown, unclaim) refuse a path whose ancestor was swapped for a symbolic link while they ran.

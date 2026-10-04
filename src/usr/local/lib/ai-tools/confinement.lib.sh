@@ -23,9 +23,10 @@
 _AI_TOOLS_CONFINEMENT_LIB_LOADED=1
 
 # The Booleans that gate rules for ai_tools_t in the base policy, one row per Boolean, as `sesearch -A -s ai_tools_t`
-# lists them on the supported policy: <name>|<gating|advisory>|<opening value>|<what the open rules grant>. The opening
-# value is the one under which the conditional rules apply: `on` for a true branch, `off` for a false one. A gating row
-# is one the stock policy keeps closed, so opening it is a change on the host: by default a launch
+# lists them on the supported policy: <name>|<gating|advisory>|<opening value>|<what the open rules grant>, the last
+# written to read after `allows`, since the status reports render it as `when <opening value>, allows <grant>`.
+# The opening value is the one under which the conditional rules apply: `on` for a true branch, `off` for a false one.
+# A gating row is one the stock policy keeps closed, so opening it is a change on the host: by default a launch
 # under AI_TOOLS_REQUIRE_SELINUX requires it at its other value. An advisory row is open by default or supported by this
 # project, and the status reports show it. AI_TOOLS_SELINUX_BOOLEANS replaces a default requirement or adds one
 # (ai_tools_confinement_resolve_required_boolean_values).
@@ -40,7 +41,7 @@ readonly -a AI_TOOLS_CONFINEMENT_BOOLEANS=(
     "domain_kernel_load_modules|advisory|on|a request that the kernel load a module"
     "nscd_use_shm|advisory|on|use of the nscd shared memory"
     "domain_fd_use|advisory|on|use of file descriptors other domains hold"
-    "deny_ptrace|advisory|off|ptrace, which this Boolean denies while on"
+    "deny_ptrace|advisory|off|ptrace"
 )
 
 # ai_tools_confinement_list_known_booleans -- print the registry as tab-separated rows,

@@ -32,15 +32,18 @@ in the privileged scripts that read it:
   and the name `ai-tools-run` matches an executable against to decide whether it may launch), optionally
   `launcher_target` (the executable that launcher is re-linked at, for a package whose own launcher is a shim — see
   [`launcher_target`](#launcher_target--where-the-versioned-launcher-points)), `display_name` (what the launch banner
-  and the unit description call it), `handback` (which side converges ownership), `entrypoint_fcontext` and `config_dir`
-  (the two paths it declares to SELinux), `skills_dir` / `subagents_dir` (where inside its config directory it reads
-  each shared asset kind, so the shared copies can be symlinked in — see [shipped-assets](shipped-assets.rule.md)),
-  `memory_file` (the filename that agent's product reads as user-scope instructions, where the shared orientation text
-  is linked), `managed_files` (the kept-across-upgrade files its product reads from a fixed path outside the control
-  plane — each one a plain name directly under `/etc/<name>/`, shipped with a pristine copy of the same name
-  under `/usr/share/ai-tools/<name>/` that the two status reports compare the live file against — reported, never
-  enforced, since no such file holds a guarantee; codex's `/etc/codex` pair is the instance,
-  [agent-codex](agent-codex.rule.md)), `default_enable`, and — optionally — the three release-verification fields.
+  and the unit description call it), optionally `login_command` (the re-login command `ai-tools-run` names
+  in the warning it prints after a session ends within seconds of starting, for an agent whose login is a subcommand
+  rather than a prompt inside the session), `handback` (which side converges ownership), `entrypoint_fcontext`
+  and `config_dir` (the two paths it declares to SELinux), `skills_dir` / `subagents_dir` (where inside its config
+  directory it reads each shared asset kind, so the shared copies can be symlinked in — see
+  [shipped-assets](shipped-assets.rule.md)), `memory_file` (the filename that agent's product reads as user-scope
+  instructions, where the shared orientation text is linked), `managed_files` (the kept-across-upgrade files its product
+  reads from a fixed path outside the control plane — each one a plain name directly under `/etc/<name>/`, shipped
+  with a pristine copy of the same name under `/usr/share/ai-tools/<name>/` that the two status reports compare the live
+  file against — reported, never enforced, since no such file holds a guarantee; codex's `/etc/codex` pair is
+  the instance, [agent-codex](agent-codex.rule.md)), `default_enable`, and — optionally — the three release-verification
+  fields.
 - integrations: `default_enable`, and optionally the three keys the SELinux layer reads — `build_output_dirs` (the
   directory names that hold the toolchain's build output, which `relabel.lib.sh` reads from every installed manifest
   through `ai_tools_installed_integrations_declaring` and maps to the build-output type), `selinux_layout_module` (the
@@ -388,14 +391,18 @@ whenever one is present, and `sudo ai-tools-admin system post-upgrade` — which
 the package's `.rpmnew` or the `.shipped` a from-source install leaves ([claude-settings](claude-settings.rule.md) holds
 the rule) — names the options the new version documents that the file does not mention, the keys the host sets
 for itself, and whether the comment prose differs, and gives the `sudoedit` merge that opens the two side by side,
-the package copy on the right. It prints neither file: a kept `KEY=value` file may hold a credential. It leaves this
-file's prose and options as written and the copy in place as the baseline the operator edits from, and prints
-the command that removes the copy only when every option is mentioned and the prose is the same, since otherwise
-the copy still holds something the file lacks. A copy dated before the installation is named as an earlier version's
-template. The same treatment reaches a kept `*.conf` another package ships under `/etc/ai-tools`, which the command
-finds by its directory rather than by name. An additive merge could append an option block the file lacks, but it could
-never correct the prose of one already there, so `ai-tools-operator.conf(5)` is the single current statement
-of what an option means and the file points at the man page rather than restating it.
+the package copy on the right with every value the file sets carried in: `<copy>-merge`, written `0600` root beside
+the `.rpmnew` or `.shipped` copy and removed by a run that does not find a merge pending for it, so the comparison shows
+what the version changed rather than every value the host sets, `OPERATORS` among them. A copy that differs only
+in those values is offered for removal without a merge. It prints neither file: a kept `KEY=value` file may hold
+a credential. It leaves this file's prose and options as written and the copy in place as the baseline the operator
+edits from, and prints the command that removes the copy only when every option is mentioned and the prose is the same,
+since otherwise the copy still holds something the file lacks. A copy dated before the installation is named
+as an earlier version's template. The same treatment reaches a kept `*.conf` another package ships
+under `/etc/ai-tools`, which the command finds by its directory rather than by name. An additive merge could append
+an option block the file lacks, but it could never correct the prose of one already there,
+so `ai-tools-operator.conf(5)` is the single current statement of what an option means and the file points at the man
+page rather than restating it.
 
 **The one rewrite it makes is the kind prefix.** A provider list an earlier release wrote with bare names is invalid
 under [the kind prefix](#the-shared-config-grammar-conflibsh), so every session start refuses until it changes;

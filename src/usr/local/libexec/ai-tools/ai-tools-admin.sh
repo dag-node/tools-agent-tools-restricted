@@ -1247,7 +1247,8 @@ entrypoints_relabel() {
 #           file lacks means a shipped hook installs but no event invokes it. The permission arrays
 #           are the host's and stay exactly as written (claude-settings.rule.md).
 #   keyval  reported, never rewritten. An absent key already means its default, so a stale file
-#           costs knowledge rather than behaviour, and its layout is the operator's own prose.
+#           costs knowledge rather than behaviour, and its layout is the operator's own prose. Its
+#           merge opens <copy>-merge, the package copy with the file's own values carried in.
 #   review  shown only. A tool does not merge the sudo grant.
 #   show    a file the registry does not name: named with the command that compares it, never printed, since
 #           a kept config of another package may hold a credential (endpoints/typesafe.conf holds an API key).
@@ -1320,7 +1321,11 @@ _pu_leave() {
         _pu_say ok "nothing is left to carry over -- remove the copy when you are ready:"
         _pu_say info "  sudo rm ${rpmnew}"
     else
-        _pu_say act "carry over what you want by hand, then remove ${rpmnew}"
+        if [[ -f "${rpmnew}-merge" ]]; then
+            _pu_say act "carry over what you want by hand, then remove ${rpmnew} and ${rpmnew}-merge"
+        else
+            _pu_say act "carry over what you want by hand, then remove ${rpmnew}"
+        fi
     fi
 }
 
@@ -1459,26 +1464,111 @@ _pu_prose() {
         2>/dev/null | tr -s '[:space:]' ' '
 }
 
+# _pu_set_keys <array-name> <file>: each key <file> assigns, once, in file order. A commented default is not a key
+# the file sets.
+_pu_set_keys() {
+    local -n _pu_set_out="$1"
+    local line key
+    _pu_set_out=()
+    while IFS= read -r line || [[ -n "${line}" ]]; do
+        line="${line#"${line%%[![:space:]]*}"}"
+        [[ -z "${line}" || "${line}" == '#'* || "${line}" != *=* ]] && continue
+        key="${line%%=*}"; key="${key%"${key##*[![:space:]]}"}"
+        [[ "${key}" =~ ^[A-Za-z_][A-Za-z0-9_]*$ && " ${_pu_set_out[*]} " != *" ${key} "* ]] && _pu_set_out+=("${key}")
+    done < "$2"
+}
+
 # _pu_own_keys <array-name> <deployed> <rpmnew>: the keys the deployed file sets whose value the copy does not set
 # the same way -- the operator's own settings, which is what most of such a difference is. Names only: a kept config may
 # hold a credential, so no value is printed or kept beyond the comparison.
 _pu_own_keys() {
     local -n _pu_own_out="$1"
-    local deployed="$2" rpmnew="$3" line key live shipped
+    local deployed="$2" rpmnew="$3" key live shipped
     local -a set_keys=()
     _pu_own_out=()
-    while IFS= read -r line || [[ -n "${line}" ]]; do
-        line="${line#"${line%%[![:space:]]*}"}"
-        [[ -z "${line}" || "${line}" == '#'* || "${line}" != *=* ]] && continue
-        key="${line%%=*}"; key="${key%"${key##*[![:space:]]}"}"
-        [[ "${key}" =~ ^[A-Za-z_][A-Za-z0-9_]*$ && " ${set_keys[*]} " != *" ${key} "* ]] && set_keys+=("${key}")
-    done < "${deployed}"
+    _pu_set_keys set_keys "${deployed}"
     for key in "${set_keys[@]}"; do
         live="$(ai_tools_conf_get "${deployed}" "${key}")" || true
         if shipped="$(ai_tools_conf_get "${rpmnew}" "${key}")" && [[ "${shipped}" == "${live}" ]]; then
             continue
         fi
         _pu_own_out+=("${key}")
+    done
+}
+
+# _pu_merge_copy <out-var> <deployed> <rpmnew>: write <rpmnew>-merge, the package copy with this host's settings carried
+# in, and set <out-var> to its path. Each key the live file sets replaces the copy's first line for that key, set
+# or commented, with the live file's own line, and a later assignment of the key in the copy is dropped. The merge then
+# shows the options and prose the version changed, and not each value the host chose, which differs from the template
+# by design and would otherwise be a difference to review and leave. A key the copy does not mention is not carried:
+# the live line then stands alone on the left, which is a difference worth seeing. The copy sits beside the package copy
+# it is made from -- an .rpmnew, or the .shipped a from-source install leaves -- and exists only while a merge is
+# pending: each run removes the ones it did not rewrite (_pu_prune_merge_copies). It is 0600 root whatever the live
+# file's mode, since it carries the live values and a kept KEY=value file may hold a credential, and its name does not
+# end in .rpmnew or .shipped, so no scan here reads it as a package copy. The comparison with the live file ignores
+# trailing newlines, so a file without a final one is not offered a merge for it. Returns 0 with the copy written
+# and recorded in _PU_MERGE_WRITTEN, 2 with no copy when it would equal the live file -- the package copy then differs
+# only in the host's values -- and 1 with <out-var> empty when it could not be written.
+_pu_merge_copy() {
+    local -n _pu_merge_out="$1"
+    local deployed="$2" rpmnew="$3" line key trimmed scratch
+    local -a set_keys=()
+    local -A live_line=() carried_keys=()
+    _pu_merge_out=""
+    _pu_set_keys set_keys "${deployed}"
+    while IFS= read -r line || [[ -n "${line}" ]]; do
+        trimmed="${line#"${line%%[![:space:]]*}"}"
+        [[ -z "${trimmed}" || "${trimmed}" == '#'* || "${trimmed}" != *=* ]] && continue
+        key="${trimmed%%=*}"; key="${key%"${key##*[![:space:]]}"}"
+        [[ " ${set_keys[*]} " == *" ${key} "* ]] && live_line["${key}"]="${line}"
+    done < "${deployed}"
+    # mktemp creates the file 0600 and owned by this root process, before a line of the live file is written to it.
+    scratch="$(mktemp "${rpmnew%/*}/.${rpmnew##*/}-merge.XXXXXX" 2>/dev/null)" || return 1
+    while IFS= read -r line || [[ -n "${line}" ]]; do
+        if [[ "${line}" =~ ^[[:space:]]*#[[:space:]]?([A-Za-z_][A-Za-z0-9_]*)= ]]; then
+            key="${BASH_REMATCH[1]}"
+            if [[ -n "${live_line[${key}]+set}" && -z "${carried_keys[${key}]+set}" ]]; then
+                printf '%s\n' "${live_line[${key}]}"; carried_keys["${key}"]=1; continue
+            fi
+        elif [[ "${line}" =~ ^[[:space:]]*([A-Za-z_][A-Za-z0-9_]*)[[:space:]]*= ]]; then
+            key="${BASH_REMATCH[1]}"
+            if [[ -n "${live_line[${key}]+set}" ]]; then
+                [[ -n "${carried_keys[${key}]+set}" ]] && continue
+                printf '%s\n' "${live_line[${key}]}"; carried_keys["${key}"]=1; continue
+            fi
+        fi
+        printf '%s\n' "${line}"
+    done < "${rpmnew}" > "${scratch}" || { rm -f "${scratch}"; return 1; }
+    if [[ "$(< "${deployed}")" == "$(< "${scratch}")" ]]; then
+        rm -f "${scratch}"
+        return 2
+    fi
+    mv -f "${scratch}" "${rpmnew}-merge" 2>/dev/null || { rm -f "${scratch}"; return 1; }
+    _PU_MERGE_WRITTEN+=("${rpmnew}-merge")
+    _pu_merge_out="${rpmnew}-merge"
+}
+
+# The merge copies this run wrote, so the closing prune keeps them.
+_PU_MERGE_WRITTEN=()
+
+# _pu_prune_merge_copies <root>: remove each root-owned <copy>-merge under the scanned locations that this run did not
+# write, naming it. A merge copy carries the live file's values, so it exists only while the report asks for a merge:
+# once the operator has merged, removed the package copy, or a .shipped copy stays behind as recovery material, the next
+# run removes it. A same-named file of another owner -- one the sandbox account placed in its own config directory -- is
+# not this command's to remove and is left as it is. Removal unlinks the name and does not follow it.
+_pu_prune_merge_copies() {
+    local root="$1" dir copy written
+    local -a copies=()
+    for dir in "${POSTUPGRADE_DIRS[@]}"; do
+        [[ -d "${root}${dir}" ]] || continue
+        mapfile -t -O "${#copies[@]}" copies < <(find "${root}${dir}" -maxdepth 3 -type f -uid 0 \
+            \( -name '*.rpmnew-merge' -o -name '*.shipped-merge' \) 2>/dev/null | sort -u)
+    done
+    for copy in "${copies[@]+"${copies[@]}"}"; do
+        for written in "${_PU_MERGE_WRITTEN[@]+"${_PU_MERGE_WRITTEN[@]}"}"; do
+            [[ "${copy}" == "${written}" ]] && continue 2
+        done
+        rm -f "${copy}" && printf '%s• removed %s -- no merge is pending for it%s\n' "${_PU_DIM}" "${copy}" "${_PU_RST}"
     done
 }
 
@@ -1512,8 +1602,15 @@ _pu_keyval() {
             _pu_say act "the comments differ from this version's"
         fi
     fi
-    _pu_say info "merge into the left (live file); new changes are on the right:"
-    printf '      %s\n' "$(_pu_merge_command "${deployed}" "${rpmnew}")"
+    local merge_copy merge_status=0
+    _pu_merge_copy merge_copy "${deployed}" "${rpmnew}" || merge_status=$?
+    case "${merge_status}" in
+        0)  _pu_say info "merge into the left (live file); the right is this version's copy with the values set here carried in, so each difference is one the version made:"
+            printf '      %s\n' "$(_pu_merge_command "${deployed}" "${merge_copy}")" ;;
+        2)  _pu_say ok "the copy differs from the file only in the values set here" ;;
+        *)  _pu_say info "merge into the left (live file); the right is this version's copy as shipped, so keep the left side of each key set here:"
+            printf '      %s\n' "$(_pu_merge_command "${deployed}" "${rpmnew}")" ;;
+    esac
     if (( carried )); then _pu_leave "${rpmnew}"; else _pu_leave "${rpmnew}" merged; fi
 }
 
@@ -2255,6 +2352,7 @@ _pu_report() {
     _pu_key_gaps "${root}"
     _pu_asset_report "${root}"
     _pu_sidecars "${root}" "${references[@]+"${references[@]}"}"
+    _pu_prune_merge_copies "${root}"
     printf '\n'
     # The closing line takes the colour of the worst line above it: red for an error, yellow for anything else to act
     # on. A copy identical to its file is not something to act on, so it does not colour the line; it is named
@@ -2713,7 +2811,7 @@ status_update_timer_stamp() {
 # the counting rule over a fixture.
 status_selinux_attestation() {
     local operator_conf="${1:-${OPERATOR_CONF}}"
-    heading "SELinux attestation"
+    heading "SELinux status"
     # shellcheck source=SCRIPTDIR/../../lib/ai-tools/confinement.lib.sh
     source "${CONFINEMENT_LIB}" 2>/dev/null || true
     if ! declare -F ai_tools_confinement_list_attestation_report >/dev/null 2>&1 \
@@ -2748,7 +2846,8 @@ status_selinux_attestation() {
         return 0
     fi
     local -a row
-    local origin_note
+    local origin_note effect_note enforcement_note="not enforced"
+    ai_tools_confinement_is_selinux_required "${operator_conf}" && enforcement_note="launch blocked"
     while IFS=$'\t' read -r -a row; do
         case "${row[0]}" in
             domain)   # <yes|no|unread> <remedy|->
@@ -2760,14 +2859,16 @@ status_selinux_attestation() {
                 esac ;;
             boolean)  # <name> <classification> <state> <required> <origin> <opening> <grants> <remedy|->
                 origin_note=""
-                [[ "${row[5]}" == operator.conf ]] && origin_note=", declared in operator.conf"
+                [[ "${row[5]}" == operator.conf ]] && origin_note=", operator.conf"
                 [[ "${row[5]}" == built-in ]] && origin_note=", built in"
+                effect_note=""
+                [[ "${row[6]}" == on || "${row[6]}" == off ]] && effect_note="when ${row[6]}, allows ${row[7]}"
                 case "${row[2]}" in
-                    matches) st "${row[3]}" "${row[1]}  required ${row[4]}${origin_note}" ;;
-                    differs) st "${row[3]^^}" "${row[1]}  required ${row[4]}${origin_note} -- opens ${row[7]}"
+                    matches) st "${row[3]}" "${row[1]}  required: ${row[4]}${origin_note}" ;;
+                    differs) st "${row[3]^^}" "${row[1]}  required: ${row[4]}${origin_note}, ${enforcement_note}${effect_note:+ -- ${effect_note}}"
                              detail "${row[8]}" ;;
-                    open)    st "${row[3]}" "${row[1]}  opens ${row[7]}" ;;
-                    closed)  st "${row[3]}" "${row[1]}" ;;
+                    open)    st "${row[3]}" "${row[1]}  ${effect_note}" ;;
+                    closed)  st "${row[3]}" "${row[1]}${effect_note:+  ${effect_note/, allows/, would allow}}" ;;
                     malformed) st MALFORMED "${row[1]} in ${operator_conf} has ${row[7]} -- every launch refuses until it is fixed" ;;
                     *)       st "?" "${row[1]}  could not be read" ;;
                 esac ;;
@@ -2777,7 +2878,7 @@ status_selinux_attestation() {
                     detail "AI_TOOLS_REQUIRE_SELINUX is set, so every launch refuses while this stands"
                     STATUS_PROBLEMS=$(( STATUS_PROBLEMS + 1 ))
                 else
-                    detail "AI_TOOLS_REQUIRE_SELINUX is not set, so launches are not refused for this"
+                    detail "AI_TOOLS_REQUIRE_SELINUX is no, so launches are not refused for this"
                 fi ;;
         esac
     done < <(ai_tools_confinement_list_attestation_report "${operator_conf}")
