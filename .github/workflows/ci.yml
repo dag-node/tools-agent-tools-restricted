@@ -218,12 +218,15 @@ jobs:
           GPG_SIGNING_PASSPHRASE: ${{ secrets.GPG_SIGNING_PASSPHRASE }}
           RPM_REPO_DISPATCH_TOKEN: ${{ secrets.RPM_REPO_DISPATCH_TOKEN }}
         run: |
+          # Each message names the fix: the secret belongs to the `release` environment of this
+          # repository, and the operator sets it with `gh secret set` (docs/development/release.md,
+          # "Guardrails behind the process").
           [[ -n "${GPG_SIGNING_KEY}" ]] \
-            || { echo "::error::GPG_SIGNING_KEY not set -- releases are signed; set the dag-node org signing key (GPG-HINTS.md)"; exit 1; }
+            || { echo "::error::GPG_SIGNING_KEY is empty: the release environment holds no secret of that name. Set the signing-subkey export: gh secret set GPG_SIGNING_KEY --env release -R ${GITHUB_REPOSITORY} < signing-subkey.asc"; exit 1; }
           [[ -n "${GPG_SIGNING_PASSPHRASE}" ]] \
-            || { echo "::error::GPG_SIGNING_PASSPHRASE not set -- the org signing key is passphrase-protected (GPG-HINTS.md)"; exit 1; }
+            || { echo "::error::GPG_SIGNING_PASSPHRASE is empty: the release environment holds no secret of that name. Set the signing subkey's passphrase: gh secret set GPG_SIGNING_PASSPHRASE --env release -R ${GITHUB_REPOSITORY}"; exit 1; }
           [[ -n "${RPM_REPO_DISPATCH_TOKEN}" ]] \
-            || { echo "::error::RPM_REPO_DISPATCH_TOKEN not set -- required to publish the signed repo at rpm.dagnode.com (GPG-HINTS.md)"; exit 1; }
+            || { echo "::error::RPM_REPO_DISPATCH_TOKEN is empty: the release environment holds no secret of that name. Set a fine-grained token with contents: write on dag-node/rpm, which the publish to rpm.dagnode.com dispatches with: gh secret set RPM_REPO_DISPATCH_TOKEN --env release -R ${GITHUB_REPOSITORY}"; exit 1; }
           # The container stdin protocol reads the passphrase as the first line; a multi-line
           # value would silently truncate there and corrupt the key read that follows.
           [[ "${GPG_SIGNING_PASSPHRASE}" != *$'\n'* ]] \
@@ -235,14 +238,14 @@ jobs:
           gnupghome="$(mktemp -d -p /dev/shm 2>/dev/null || mktemp -d)"
           trap 'rm -rf "${gnupghome}"' EXIT
           printf '%s\n' "${GPG_SIGNING_KEY}" | GNUPGHOME="${gnupghome}" gpg --batch --quiet --import \
-            || { echo "::error::GPG_SIGNING_KEY did not import -- it is not a usable ASCII-armored key (GPG-HINTS.md)"; exit 1; }
+            || { echo "::error::GPG_SIGNING_KEY did not import: the value is not an ASCII-armored key block. Export the signing subkey with gpg --armor --export-secret-subkeys '<subkey-fpr>!' and set it again: gh secret set GPG_SIGNING_KEY --env release -R ${GITHUB_REPOSITORY} < signing-subkey.asc"; exit 1; }
           GNUPGHOME="${gnupghome}" gpg --batch --with-colons --list-secret-keys | grep -q '^sec:' \
-            || { echo "::error::GPG_SIGNING_KEY carries no secret key -- set the signing-subkey export, gpg --export-secret-subkeys '<subkey-fpr>!' (GPG-HINTS.md)"; exit 1; }
+            || { echo "::error::GPG_SIGNING_KEY carries no secret key: the value is a public key, or an export without the secret part. Export the signing subkey with gpg --armor --export-secret-subkeys '<subkey-fpr>!' and set it again: gh secret set GPG_SIGNING_KEY --env release -R ${GITHUB_REPOSITORY} < signing-subkey.asc"; exit 1; }
 
           # Surface the HTTP status so an operator can tell a bad token (401) from a missing
           # grant/repo (403/404) at a glance -- gh prints "(HTTP NNN)" on stderr.
           if ! resp="$(GH_TOKEN="${RPM_REPO_DISPATCH_TOKEN}" gh api repos/dag-node/rpm --jq .full_name 2>&1)"; then
-            echo "::error::RPM_REPO_DISPATCH_TOKEN cannot reach dag-node/rpm: ${resp} -- invalid, expired, or lacking access; fix it before releasing (GPG-HINTS.md)"
+            echo "::error::RPM_REPO_DISPATCH_TOKEN cannot read dag-node/rpm: ${resp}. The token is invalid, expired, or lacks access. Create a fine-grained token with contents: write on dag-node/rpm and set it: gh secret set RPM_REPO_DISPATCH_TOKEN --env release -R ${GITHUB_REPOSITORY}"
             exit 1
           fi
 
@@ -416,8 +419,8 @@ jobs:
       # this project never writes the repo directly -- it triggers the pipeline via repository_dispatch
       # (a workflow_call reusable workflow cannot own another repo's Pages deploy: it runs in the
       # caller's context). The token (a fine-grained PAT/App token with contents:write on
-      # dag-node/rpm, see GPG-HINTS.md) is required and already vetted in preflight, so this step
-      # only handles a transient dispatch failure.
+      # dag-node/rpm, a secret of the release environment) is required and already vetted in
+      # preflight, so this step only handles a transient dispatch failure.
       # Final tags only: dag-node/rpm serves ^vX.Y.Z$ tags, so notifying on an `-rc` tag would
       # rebuild the repo just to drop the RC. RCs ship as GitHub prerelease assets.
       - name: Notify central RPM repository (rpm.dagnode.com)

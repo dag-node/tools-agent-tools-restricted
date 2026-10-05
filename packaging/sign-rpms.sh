@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # Sign release RPMs with the dag-node org signing key and export the matching public key. Runs INSIDE the matching-EL
 # build container (ai-tools-rpmbase:elN) so the rpm/gnupg toolchain that signs is the same one that built the packages
-# -- see the org playbook in github-org-dag-node/GPG-HINTS.md and docs/rpm-packaging.md. The release workflow invokes it
+# -- see docs/rpm-packaging.md. The release workflow invokes it
 # over the freshly built RPMs before publishing, so every published package carries a header signature an operator
 # verifies with `rpm --import RPM-GPG-KEY-dag-node`.
 #
@@ -167,9 +167,9 @@ main() {
     fi
 
     [[ -n "${GPG_SIGNING_KEY:-}" ]] \
-        || die "GPG_SIGNING_KEY is empty -- set the dag-node org signing key as a CI secret (GPG-HINTS.md)"
+        || die "GPG_SIGNING_KEY is empty: pass the signing-subkey export in the environment, or on stdin with --secrets-stdin (in CI it is a secret of the release environment)"
     [[ -n "${GPG_SIGNING_PASSPHRASE:-}" ]] \
-        || die "GPG_SIGNING_PASSPHRASE is empty -- the org signing key is passphrase-protected (GPG-HINTS.md)"
+        || die "GPG_SIGNING_PASSPHRASE is empty: pass the signing subkey's passphrase in the environment, or as the first stdin line with --secrets-stdin (in CI it is a secret of the release environment)"
     command -v gpg     >/dev/null 2>&1 || die "gpg not found (install gnupg2)"
     command -v rpmsign >/dev/null 2>&1 || die "rpmsign not found (install rpm-sign)"
     command -v rpmkeys >/dev/null 2>&1 || die "rpmkeys not found (install rpm-sign)"

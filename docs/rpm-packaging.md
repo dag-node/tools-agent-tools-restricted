@@ -450,8 +450,9 @@ three secrets belong to the `release` environment, whose deployment policy
 admits only a `v*.*.*` tag and so refuses every branch and pull-request run.
 The process is [Branching and release](development/release.md).
 
-The signing key and the environment secrets (`GPG_SIGNING_KEY`,
-`GPG_SIGNING_PASSPHRASE`, `RPM_REPO_DISPATCH_TOKEN`) are in the org playbook
-`GPG-HINTS.md`; the central repository's architecture, layout, and DNS/Pages
-setup are in `RPM-REPO-HINTS.md` — kept out of this project so its docs stay
-scoped to the package build.
+The signing key itself and the central repository's hosting are administered
+outside this project, which keeps these docs scoped to the package build.
+What this project needs of them is the three environment secrets
+(`GPG_SIGNING_KEY`, `GPG_SIGNING_PASSPHRASE`, `RPM_REPO_DISPATCH_TOKEN`), set
+as [Branching and release](development/release.md) describes under its
+guardrails.
