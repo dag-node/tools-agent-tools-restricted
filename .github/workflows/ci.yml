@@ -5,8 +5,9 @@ on:
     branches: [main, develop]
     tags: ["v*.*.*"]
   pull_request:
-  # Manual trigger so the workflow can be exercised from any branch (the podman/systemd
+  # Manual trigger so the check jobs can be exercised from any branch (the podman/systemd
   # container path is runner-sensitive and should be testable without touching develop).
+  # The release job runs on a tag alone and ignores it.
   workflow_dispatch:
 
 # Least-privilege default for every job. shellcheck and rpm-selftest only read the repo;
@@ -159,14 +160,16 @@ jobs:
           if-no-files-found: ignore
           retention-days: 14
 
-  # Release tags publish; workflow_dispatch rehearses the identical build+sign+verify path with
-  # the publish steps skipped (tag-gated per step). The channel follows the tag, never the branch:
-  # vX.Y.Z -> GitHub Release + rpm.dagnode.com, vX.Y.Z-rc.N -> GitHub prerelease only. Process
-  # contract: docs/development/release.md. Never runs on pull_request -- fork PRs must not
-  # see the signing secret.
+  # Release tags publish. The channel follows the tag, never the branch: vX.Y.Z -> GitHub
+  # Release + rpm.dagnode.com, vX.Y.Z-rc.N -> GitHub prerelease only, and an rc is the proof of a
+  # pipeline change. Process contract: docs/development/release.md. Runs on a v*.*.* tag alone,
+  # never on pull_request or workflow_dispatch, and reads its secrets from the `release`
+  # environment, whose deployment policy admits such a tag and nothing else: a fork PR or a
+  # branch run cannot reference the environment and so cannot see the signing key.
   release:
-    if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
+    if: startsWith(github.ref, 'refs/tags/v')
     needs: [shellcheck, typesafe-client, rpm-selftest]
+    environment: release
     # Pinned like rpm-selftest: this job builds and signs RPMs inside podman containers,
     # so it needs the same known-good podman/crun combo (see that job's note).
     runs-on: ubuntu-22.04
@@ -181,29 +184,22 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
-      # Tag-only: a rehearsal has no version identity. check-version.sh relaxes the %changelog
-      # match for `-rc.N` tags; recovery for a mismatch is fix VERSION/%changelog and re-tag.
+      # check-version.sh relaxes the %changelog match for `-rc.N` tags; recovery for a mismatch
+      # is fix VERSION/%changelog and re-tag.
       - name: Verify tag, VERSION, and %changelog agree
-        if: startsWith(github.ref, 'refs/tags/v')
         run: bash packaging/check-version.sh "${GITHUB_REF_NAME}"
 
       # RC tags build with the Fedora prerelease Release 0.rcN (< the final "1", > the previous
       # release); final tags leave it empty. Allowlist: a dashed tag that is not vX.Y.Z-rc.N
-      # fails here. A rehearsal gets its own 0.<run>.rehearsal.git<sha> Release: its RPMs are
-      # signed with the real key, so they must never share a NEVRA with a publishable release --
-      # a leaked rehearsal artifact cannot impersonate the official X.Y.Z-1 package.
+      # fails here.
       - name: Classify the tag and compute RPM_RELEASE
         id: relmode
         run: |
           prerelease=false rpm_release=""
-          if [[ "${GITHUB_REF}" == refs/tags/v* ]]; then
-            if [[ "${GITHUB_REF_NAME}" == *-* ]]; then
-              [[ "${GITHUB_REF_NAME}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+-rc\.([0-9]+)$ ]] \
-                || { echo "::error::prerelease tag ${GITHUB_REF_NAME} is not vX.Y.Z-rc.N"; exit 1; }
-              prerelease=true rpm_release="0.rc${BASH_REMATCH[1]}"
-            fi
-          else
-            rpm_release="0.${GITHUB_RUN_NUMBER}.rehearsal.git$(git rev-parse --short HEAD)"
+          if [[ "${GITHUB_REF_NAME}" == *-* ]]; then
+            [[ "${GITHUB_REF_NAME}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+-rc\.([0-9]+)$ ]] \
+              || { echo "::error::prerelease tag ${GITHUB_REF_NAME} is not vX.Y.Z-rc.N"; exit 1; }
+            prerelease=true rpm_release="0.rc${BASH_REMATCH[1]}"
           fi
           echo "prerelease=${prerelease}" >> "$GITHUB_OUTPUT"
           echo "rpm_release=${rpm_release}" >> "$GITHUB_OUTPUT"
@@ -376,13 +372,12 @@ jobs:
       # operator imports it and installs from one archive offline; rpm.dagnode.com serves it too.
       - name: Bundle per-distribution zip archives
         run: |
-          ref="${GITHUB_REF_NAME//\//-}"   # a rehearsal ref can be a branch with slashes
           for tag in ${RPM_DIST_TAGS}; do
-            (cd "dist-rpms/${tag}" && zip -j "../ai-tools-${tag}-${ref}.zip" ./*.rpm ../RPM-GPG-KEY-dag-node)
+            (cd "dist-rpms/${tag}" && zip -j "../ai-tools-${tag}-${GITHUB_REF_NAME}.zip" ./*.rpm ../RPM-GPG-KEY-dag-node)
           done
 
-      # Uploaded before the publish steps, so a rehearsal's signed output is inspectable and a
-      # failed publish still leaves the verified RPMs downloadable.
+      # Uploaded before the publish steps, so a failed publish still leaves the verified RPMs
+      # downloadable.
       - name: Upload signed RPMs as a workflow artifact
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
@@ -391,7 +386,6 @@ jobs:
           retention-days: 14
 
       - name: Create GitHub Release
-        if: startsWith(github.ref, 'refs/tags/v')
         env:
           GH_TOKEN: ${{ github.token }}
           PRERELEASE: ${{ steps.relmode.outputs.prerelease }}
@@ -427,7 +421,7 @@ jobs:
       # Final tags only: dag-node/rpm serves ^vX.Y.Z$ tags, so notifying on an `-rc` tag would
       # rebuild the repo just to drop the RC. RCs ship as GitHub prerelease assets.
       - name: Notify central RPM repository (rpm.dagnode.com)
-        if: startsWith(github.ref, 'refs/tags/v') && !contains(github.ref_name, '-')
+        if: ${{ !contains(github.ref_name, '-') }}
         env:
           GH_TOKEN: ${{ secrets.RPM_REPO_DISPATCH_TOKEN }}
         run: |
