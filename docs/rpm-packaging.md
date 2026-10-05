@@ -445,12 +445,13 @@ properties shape the design:
 
 Prerelease tags (`vX.Y.Z-rc.N`) run the same sign-and-verify path but publish
 only a GitHub **prerelease** and skip the `dag-node/rpm` notify — the central
-repo serves final tags only. A `workflow_dispatch` run rehearses the identical
-path with every publish step skipped, leaving the signed output as a workflow
-artifact. The process is [Branching and release](development/release.md).
+repo serves final tags only. The release job runs on those tags alone: its
+three secrets belong to the `release` environment, whose deployment policy
+admits only a `v*.*.*` tag and so refuses every branch and pull-request run.
+The process is [Branching and release](development/release.md).
 
-The signing key and org secrets (`GPG_SIGNING_KEY`, `GPG_SIGNING_PASSPHRASE`,
-`RPM_REPO_DISPATCH_TOKEN`) are in the org playbook `GPG-HINTS.md`; the central
-repository's architecture, layout, and DNS/Pages setup are
-in `RPM-REPO-HINTS.md` — kept out of this project so its docs stay scoped
-to the package build.
+The signing key and the environment secrets (`GPG_SIGNING_KEY`,
+`GPG_SIGNING_PASSPHRASE`, `RPM_REPO_DISPATCH_TOKEN`) are in the org playbook
+`GPG-HINTS.md`; the central repository's architecture, layout, and DNS/Pages
+setup are in `RPM-REPO-HINTS.md` — kept out of this project so its docs stay
+scoped to the package build.

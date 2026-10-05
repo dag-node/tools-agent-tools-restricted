@@ -83,8 +83,8 @@ these in `ai-tools-selftest.service`'s `Environment=` or invoke
 
 ## Releasing
 
-The release process — branch model, tag grammar, RC prereleases, the dispatch
-rehearsal, and the channel rule — is
+The release process — branch model, tag grammar, RC prereleases,
+and the channel rule — is
 [`docs/development/release.md`](../docs/development/release.md).
 The packaging-side tooling for it:
 

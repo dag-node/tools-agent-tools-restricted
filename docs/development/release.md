@@ -44,8 +44,8 @@ the tag, so no other input could carry the decision.
       GitHub prerelease: RPMs X.Y.Z-0.rcN            == testing channel
                 |
                 |  last RC is green: finalize %changelog,
-                |  merge develop -> main (the ONE merge per release),
-                |  tag vX.Y.Z on main
+                |  PR develop -> main, merged with a merge commit
+                |  (the ONE merge per release), tag vX.Y.Z on main
                 v
       +---------------------+
       | release job (final) |
@@ -64,11 +64,6 @@ the tag, so no other input could carry the decision.
                 v
              main -> tag vX.Y.Z+1 -> stable, then merge main back
                                      into develop
-
-
-      (any time, any branch)
-      workflow_dispatch -> rehearsal: the full build+sign+verify path runs,
-      publish steps are skipped, signed output lands as a workflow artifact
 ```
 
 Tag shape, RPM `Release`, and destination at a glance:
@@ -76,7 +71,6 @@ Tag shape, RPM `Release`, and destination at a glance:
 | Trigger              | RPM Version-Release   | Published to                                    |
 |----------------------|-----------------------|-------------------------------------------------|
 | push / PR (no tag)   | `X.Y.Z-0.<run>.git<sha>` | workflow artifact only                       |
-| `workflow_dispatch`  | `X.Y.Z-0.<run>.rehearsal.git<sha>` | workflow artifact only (rehearsal)  |
 | tag `vX.Y.Z-rc.N`    | `X.Y.Z-0.rcN`         | GitHub **prerelease**                           |
 | tag `vX.Y.Z`         | `X.Y.Z-1`             | GitHub Release + `rpm.dagnode.com` (stable)     |
 
@@ -168,19 +162,12 @@ the channel follows the tag and not the branch.
 
 ## For maintainers: cutting a release
 
-### 0. Rehearse after touching the pipeline
-
-```bash
-gh workflow run ci.yml --ref develop
-```
-
-A `workflow_dispatch` run executes the real release path — clean build,
-in-container signing of real RPMs, `podman cp` extraction, runner-side
-`rpmkeys -Kv` verification — with the publish steps (`Create GitHub Release`,
-the dag-node/rpm notify) skipped, and uploads the signed output as a workflow
-artifact. Use it whenever `ci.yml`, `sign-rpms.sh`, or `packaging/` change: it
-proves the plumbing without version identity or publish. It is not a substitute
-for an RC — a rehearsal tests the pipeline, an RC tests a release candidate.
+The release job runs on a `v*.*.*` tag and nowhere else: the signing key lives
+in an environment only such a tag can reference, so there is no dry run
+of the signing path from a branch. A change to `ci.yml`, `sign-rpms.sh`
+or `packaging/` is proven by the next rc tag, which runs the identical path
+and publishes only a prerelease. `workflow_dispatch` still runs the check jobs,
+`rpm-selftest` included, from any branch.
 
 ### 1. Cut a release candidate (tag on `develop`)
 
@@ -188,7 +175,7 @@ for an RC — a rehearsal tests the pipeline, an RC tests a release candidate.
 echo 0.6.3 > packaging/VERSION
 git commit -am "chore(release): bump VERSION to 0.6.3"
 git push
-git tag v0.6.3-rc.1 && git push origin v0.6.3-rc.1
+git tag -s v0.6.3-rc.1 -m "v0.6.3-rc.1" && git push origin v0.6.3-rc.1
 ```
 
 An RC carries the *next* version (SemVer: `0.6.3-rc.1` sorts after the released
@@ -207,11 +194,21 @@ merges, no re-tags.
 vi packaging/ai-tools.spec        # finalize the %changelog entry for 0.6.3
 git commit -am "chore(release): finalize %changelog for 0.6.3"
 git push
+gh pr create --base main --head develop --title "release: 0.6.3" --body ""
+gh pr merge --merge --admin           # a merge commit, through the admin bypass
 git switch main && git pull
-git merge develop
-git push
-git tag v0.6.3 && git push origin v0.6.3
+git tag -s v0.6.3 -m "v0.6.3" && git push origin v0.6.3
 ```
+
+`main` takes changes only through a pull request with a review and a green
+`shellcheck`, and refuses a direct push. The release merge is that pull
+request, from `develop`, merged with a merge commit so `main` keeps `develop`'s
+history. The author cannot approve their own review, so the merge goes
+through the bypass the Admin role holds for pull requests: the merge button
+offers it, and `--admin` is the same bypass from the terminal; either way
+the audit log records it. The tag is signed: the tag ruleset restricts creation
+to maintainers and makes a tag immutable for everyone, and the environment
+that holds the signing key admits a `v*.*.*` tag alone.
 
 The final tag points at the last green RC's content plus only the `%changelog`
 finalization — no functional commits slip in between `rc.N` and final,
@@ -246,9 +243,9 @@ git push -u origin fix/ATR-260922-agent-package-repair   # the PR targets main
 
 A fix to something already published is cut from the release **tag** and its PR
 targets `main`, not `develop`, which by then carries the next minor.
-After the merge, tag `vX.Y.Z+1` on `main`: the release job publishes it exactly
-as it does any final tag, and `check-version.sh` holds it to the same
-agreement.
+After the merge, tag `vX.Y.Z+1` on `main` with `git tag -s`: the release job
+publishes it exactly as it does any final tag, and `check-version.sh` holds it
+to the same agreement.
 
 Three rules decide whether that costs one patch or two.
 
@@ -280,28 +277,37 @@ The job is fail-closed and idempotent: signing or verification failure stops it
 before anything is public, and re-running the workflow refreshes release assets
 (`gh release upload --clobber`) and re-fires the notify rather than
 duplicating. A tag/`VERSION`/`%changelog` mismatch is fixed by committing
-the correction and re-tagging; a pipeline defect is fixed on `develop`, proven
-with a rehearsal, then released as the next `rc.N` — never by iterating merges
-to `main`.
+the correction and re-tagging; a pipeline defect is fixed on `develop`
+and proven by the next `rc.N` — never by iterating merges to `main`.
 
 ## Guardrails behind the process
 
-Signing is mandatory and preflight-checked before anything builds; fork PRs
-never see the signing secret (the release job runs only on tags
-and `workflow_dispatch`); `v*` tag creation is restricted to maintainers
-by a ruleset. Details
+Signing is mandatory and preflight-checked before anything builds. The signing
+key, its passphrase and the dispatch token are secrets of the `release`
+environment, which the release job declares and whose deployment policy admits
+a `v*.*.*` tag alone: the policy refuses the environment to a run on a branch
+or a pull request, from a fork or not, so such a run reads none of them.
+`v*.*.*` tag creation is restricted to the maintainers team by a ruleset,
+and a second ruleset refuses an update, a deletion or a force-push of such
+a tag for everyone. Details
 in [ref-section-a6s8](../rpm-packaging.md#ref-section-a6s8).
-
-Rehearsal RPMs are signed with the real key, so they carry the distinct Release
-`0.<run>.rehearsal.git<sha>` — a leaked rehearsal artifact can never share
-a NEVRA with, and so never impersonate, a published `X.Y.Z-1` package.
 
 One-time setup (repo admin), in GitHub Settings:
 
-- **Rules → Rulesets → New tag ruleset** — enforcement *Active*, target tags
-  matching `v*`, restrict *creation*, *update*, and *deletion*, bypass list
-  *Repository admin* only. The tag is the entire release authority
-  under that one rule, so it gets `main`-level protection.
+- **Rules → Rulesets** — three rulesets, enforcement *Active*. `main`: a pull
+  request with one approval and the `shellcheck` check, no deletion, no force
+  push; bypass list *Repository admin*, for pull requests only. Tags matching
+  `v*.*.*`: one ruleset restricting *creation*, bypass list the maintainers
+  team; a second restricting *update*, *deletion* and *force push*,
+  with an empty bypass list, so a published tag is immutable for everyone.
+  The tag is the entire release authority under [The one rule that decides
+  everything else](#the-one-rule-that-decides-everything-else), so it gets
+  `main`-level protection.
+- **Environments → `release`** — deployment branches and tags: *Selected*, tag
+  pattern `v*.*.*`, no required reviewers. Its secrets are `GPG_SIGNING_KEY`
+  (the signing-subkey export), `GPG_SIGNING_PASSPHRASE`
+  and `RPM_REPO_DISPATCH_TOKEN`; the release job declares the environment. No
+  organization secret of those names exists.
 - **Actions → General** — default workflow permissions *Read repository
   contents* (the release job requests `contents: write` explicitly); leave
   "Allow GitHub Actions to create and approve pull requests" off; require
