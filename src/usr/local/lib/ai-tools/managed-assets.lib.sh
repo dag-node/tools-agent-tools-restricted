@@ -13,11 +13,9 @@
 # through the group, which the mode does not give a write. Every run brings a managed asset it keeps back to those,
 # so a copy of the tree that changed an owner or a mode does not leave one the group read is refused on.
 # `x-ai-tools-version` is a monotonic integer bumped once per release, and a newer shipped version is what drives
-# the update offer. An asset carrying `x-ai-tools-integration: <name>` belongs to that integration's package: the seeder
-# places it only while the integration's manifest is installed and trusted, and moves a live copy aside when it is not,
-# so the three seed paths agree on which host holds it whatever the pristine root carries. Sourced (never executed)
+# the update offer, and `x-ai-tools-integration` ties an asset to an integration's manifest. Sourced (never executed)
 # by install.sh, ai-tools-bootstrap and base's %post, all root, after msg.lib.sh and conf.lib.sh. The placement chain,
-# the versioning scheme, and withdrawal are in shipped-assets.rule.md.
+# the versioning scheme, the integration binding and withdrawal are in shipped-assets.rule.md.
 
 # Withdrawing an asset needs its own step: the seeder only adds and updates, and the live roots are not rpm-owned,
 # so a name this project stops shipping stays live on an upgraded host until it is named here.
@@ -115,8 +113,7 @@ ai_tools_asset_is_managed() {
 }
 
 # Print the integration a managed asset's marker binds it to (`x-ai-tools-integration: <name>`); empty when it is bound
-# to none. Returns 0 either way: the callers run under `set -e`, where an assignment takes the status of the command
-# substitution, so a reader that exits non-zero on an unbound asset ends the install at the first base skill.
+# to none. Returns 0 either way, since the callers assign it under `set -e` (ref-section-c3u9).
 ai_tools_asset_integration() {
     local line
     line="$(grep -m1 -E '^x-ai-tools-integration:' "$1" 2>/dev/null)" || return 0
@@ -126,12 +123,9 @@ ai_tools_asset_integration() {
     printf '%s\n' "${line}"
 }
 
-# _ai_tools_integration_installed <name>: succeed when the integration's manifest, `integrations.d/<name>.conf`, is
-# installed and passes the trust predicate, as does the directory holding it. The manifest is the integration package's
-# own data (ai-tools-providers(5)), so its presence is what "installed" means on a packaged host and on a from-source
-# one alike, and the directory is the one providers.lib.sh reads under the same root-only override. A name outside
-# the provider charset, a conf.lib.sh that did not load, and an absent or untrusted manifest or directory each read
-# as not installed, which costs the host the asset and does not place one.
+# _ai_tools_integration_installed <name>: succeed when `<dir>/<name>.conf` and `<dir>` pass ai_tools_conf_is_trusted,
+# where <dir> is the integrations directory providers.lib.sh reads (AI_TOOLS_INTEGRATIONS_DIR, root-only). Fails
+# on a name outside the provider charset and when conf.lib.sh is not loaded.
 _ai_tools_integration_installed() {
     local name="$1" dir="${AI_TOOLS_INTEGRATIONS_DIR:-/usr/local/lib/ai-tools/integrations.d}"
     [[ "${name}" =~ ^[a-z][a-z0-9-]*$ ]] || return 1
@@ -215,10 +209,8 @@ ai_tools_seed_managed_assets() {
                 _ai_tools_ma_say "${name} skipped (source not ai-tools-managed)"
                 continue
             fi
-            # An asset bound to an integration is on a host only while that integration is installed, and the manifest
-            # decides it; the pristine copy does not: a from-source install copies the whole tree, and rpm leaves
-            # a pristine file no package owns, so the copy is there on hosts the integration is not. The live copy such
-            # a host still holds is moved aside under the same marker gate as a withdrawal.
+            # An asset bound to an integration follows its manifest, whatever the pristine root holds
+            # (shipped-assets.rule.md).
             integration="$(ai_tools_asset_integration "${marker}")"
             if [[ -n "${integration}" ]] && ! _ai_tools_integration_installed "${integration}"; then
                 _ai_tools_ma_say "${name} skipped (integration ${integration} not installed)"

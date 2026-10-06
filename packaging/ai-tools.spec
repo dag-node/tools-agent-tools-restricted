@@ -1068,9 +1068,7 @@ chmod 2770 /opt/ai-tools/integrations/typesafe 2>/dev/null || :
 # first install it runs before this package's files are on disk, and an agent's %%post links what
 # the shared root holds at that moment -- so this package places its own asset, with the same lib
 # under an explicit bash and the same pre-answered confirm (base's %%post says why). Every other
-# skill in the datadir is already at its live version, so the pass leaves it alone. The skill's
-# marker binds it to this integration, so the seeder places it only while this package's manifest
-# is installed and moves a stale live copy aside on a host where it is not.
+# skill in the datadir is already at its live version, so the pass leaves it alone.
 if command -v bash >/dev/null 2>&1; then
     AI_TOOLS_ASSUME_YES=1 bash -c '. /usr/local/lib/ai-tools/msg.lib.sh; . /usr/local/lib/ai-tools/conf.lib.sh; . /usr/local/lib/ai-tools/managed-assets.lib.sh; . /usr/local/lib/ai-tools/control-plane.lib.sh; ai_tools_seed_managed_assets "$1" /opt/ai-tools ai-tools skills; ai_tools_agent_asset_dirs skills_dir | while read -r agent dir; do ai_tools_link_shared_assets /opt/ai-tools/skills "${dir}" ai-tools "$1/skills/README.md"; done' _ %{_datadir}/ai-tools || :
 fi

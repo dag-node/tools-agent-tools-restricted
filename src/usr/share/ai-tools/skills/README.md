@@ -36,9 +36,8 @@ x-ai-tools-updated: 2026-07-28
 Shipped now: `ai-tools-technical-docs` (the writing standard for every artifact — docs, comments, changelogs, commit
 messages, runtime output), `ai-tools-engineering-principles`, and `ai-tools-capable-systems-governance`, all
 from the base package; and `ai-tools-typesafe-filter`, which the `ai-tools-integration-typesafe` package ships
-and withdraws with itself. A skill an integration package ships declares `x-ai-tools-integration: <name>` in its
-frontmatter: the seeder places it while that integration's manifest is installed and moves a live copy aside where it is
-not, so a host without the integration does not list a skill whose command it lacks.
+and withdraws with itself. A skill an integration package ships adds `x-ai-tools-integration: <name>`
+to the frontmatter, and is then on a host only while that integration is installed.
 
 A skill may be more than one file. Put supporting material in a subdirectory beside `SKILL.md` and point at it
 from there — `ai-tools-capable-systems-governance/references/framework.md` is its full normative text, kept

@@ -150,16 +150,10 @@ it into every enabled agent's skills directory itself — base's and the agents'
 files are on disk on a first install — and its `%postun` on final erase withdraws the live copy
 with `ai_tools_withdraw_asset` and re-runs the linker, which drops each agent's link to a target that is gone.
 
-Its frontmatter carries `x-ai-tools-integration: typesafe`, which binds the asset to this manifest: the seeder places it
-only while `integrations.d/typesafe.conf` is installed and trusted, and moves a live copy aside where it is not. That is
-what makes the three seed paths agree on which host holds the skill. A from-source install copies the whole pristine
-root, and rpm leaves a pristine copy no package owns on a host that moved from a source install to packages without this
-one, so without the binding a host lists a skill whose command it does not have; with it, the manifest decides,
-and the stale pristine copy is inert. The placement chain and the marker gate are
-[shipped-assets](shipped-assets.rule.md); `tests/unit/managed-assets.sh` drives the binding over a fixture manifest,
-and `tests/unit/typesafe.sh` holds the shipped skill's name and binding to this manifest. The previous name,
-`ai-tools-decide`, is on the retired list, so an upgraded host's live copy under it is moved aside before the new name
-is seeded.
+Its frontmatter carries `x-ai-tools-integration: typesafe`, so every seed path, `install.sh` included, places it only
+where `integrations.d/typesafe.conf` is installed, and a session on a host without the decide command is not offered
+the skill ([ref-section-k4q2](shipped-assets.rule.md#ref-section-k4q2)). The previous name, `ai-tools-decide`, is
+on the retired list, so an upgraded host's live copy under it is moved aside.
 
 ## Templates, measurement, and what is deferred
 

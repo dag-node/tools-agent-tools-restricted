@@ -27,10 +27,9 @@
 #   6. THE ORIENTATION LINK IS NON-DISPLACING, and links under a name that is not the source's.
 #      It lands on the one path each agent reads as user-scope instructions, so a link placed over
 #      an operator's own file there would silently replace what every session on the host loads.
-#   7. AN ASSET BOUND TO AN INTEGRATION FOLLOWS THE MANIFEST, not the pristine copy. The copy is on
-#      hosts the integration is not (a from-source install copies the whole tree; rpm leaves a file
-#      no package owns), so without the gate every session lists a skill whose command the host
-#      lacks. Driven with the manifest absent, present, untrusted, and removed after a seed.
+#   7. AN ASSET BOUND TO AN INTEGRATION FOLLOWS ITS MANIFEST (shipped-assets.rule.md), whatever
+#      the source root holds. Driven with the manifest absent, present, untrusted, and removed after
+#      a seed, since an absent gate leaves every session listing a skill whose command the host lacks.
 #
 # Drives the INSTALLED library against fixtures in its own /tmp testdir: every root is an argument, so no case reads
 # or writes /usr/share/ai-tools, /opt/ai-tools, or any live asset. Needs root -- the seeder chowns what it places
