@@ -1,10 +1,11 @@
 ---
-name: ai-tools-decide
+name: ai-tools-typesafe-filter
 # ai-tools managed asset — provenance/versioning (RFC-draft lifecycle); the frontmatter name is stable.
 x-ai-tools-managed: true
+x-ai-tools-integration: typesafe
 x-ai-tools-status: draft
-x-ai-tools-version: 1
-x-ai-tools-updated: 2026-09-23
+x-ai-tools-version: 2
+x-ai-tools-updated: 2026-10-06
 description: "Use when a listing runs longer than the task needs — a search with more than about 30 hits, a `git log`, a checker's findings, a failing build's diagnostics — the task fits one sentence, and the criterion applies to each line on its own. Hands the listing to a bounded classifier and prints the lines that bear on the task; falls back to the full listing on any error. Not for a question about the listing as a whole (which finding is the odd one out, which diagnostic is the root cause), not for security or permission questions, not for a claim that a set is complete, and not a substitute for the check a task owes."
 ---
 

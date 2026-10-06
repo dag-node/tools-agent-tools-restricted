@@ -15,7 +15,7 @@ With the `typesafe` integration enabled, a session that meets a long listing —
 a grep with sixty hits, a `git log`, a checker's findings, a build log — can
 hand it to TypeSafe's classifier with the task in one sentence and get back
 the lines that bear on it. The agent runs the decide command itself, guided
-by the `ai-tools-decide` skill the package ships:
+by the `ai-tools-typesafe-filter` skill the package ships:
 
 ```bash
 grep -rn 'resolve_owner' src tests | node /usr/local/lib/ai-tools/typesafe/decide.mjs filter --config "$AI_TOOLS_TYPESAFE_CONF" --usage-log "$AI_TOOLS_TYPESAFE_USAGE_LOG" --task "rename resolve_owner in every caller"

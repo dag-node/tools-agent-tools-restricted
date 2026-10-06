@@ -28,8 +28,9 @@ read a kind leaves that field unset, and does not take links of that kind.
 
 The shipped set is the `ai-tools-reference-architect` subagent; the skills `ai-tools-technical-docs` (the writing
 standard for every artifact), `ai-tools-engineering-principles`, and `ai-tools-capable-systems-governance`;
-and the orientation text. `ai-tools-decide` is the one skill a provider package ships rather than base: it belongs
-to `ai-tools-integration-typesafe` ([typesafe](typesafe.rule.md)).
+and the orientation text. `ai-tools-typesafe-filter` is the one skill a provider package ships rather than base: it
+belongs to `ai-tools-integration-typesafe` ([typesafe](typesafe.rule.md)) and is bound to it ([An asset bound
+to an integration](#an-asset-bound-to-an-integration)).
 
 ## The orientation text
 
@@ -175,13 +176,16 @@ with `x-ai-tools-updated`. A development cycle that edits an asset several times
 released packages only, so the version the seeder compares against a live copy tracks releases, and the first edit
 of a cycle is the one that bumps it. `x-ai-tools-managed: true` is the provenance marker the seeder gates on.
 `x-ai-tools-status` tracks the RFC-draft lifecycle (`draft` while an asset is still being refined). A single version is
-installed at a time, so the stable name always resolves to the latest.
+installed at a time, so the stable name always resolves to the latest. `x-ai-tools-integration: <name>` ties an asset
+to an integration ([An asset bound to an integration](#an-asset-bound-to-an-integration)).
 
 ## Withdrawing an asset
 
-Dropping a name from `src/` withdraws it from **new** installs only. The seeder adds and updates and never removes,
-and the live roots are not rpm-owned, so an upgraded host keeps a withdrawn asset — and keeps offering it to every
-session — until it is named in `AI_TOOLS_RETIRED_ASSETS` (`managed-assets.lib.sh`) as a `<kind>/<name>` entry.
+Dropping a name from `src/` withdraws it from **new** installs only. The seeder adds and updates, and moves a live copy
+aside only for an asset [bound to an integration](#an-asset-bound-to-an-integration) the host does not have; the live
+roots are not rpm-owned, so an upgraded host keeps a withdrawn asset — and keeps offering it to every session — until it
+is named in `AI_TOOLS_RETIRED_ASSETS` (`managed-assets.lib.sh`) as a `<kind>/<name>` entry. A renamed asset is withdrawn
+under its old name the same way, with the new name seeded beside it.
 
 `ai_tools_remove_retired_assets` runs after the seeder in all three provisioning paths (`install.sh`,
 `ai-tools-bootstrap`, base's `%post`). It gates on the same `x-ai-tools-managed` marker the seeder claims
@@ -231,6 +235,9 @@ frontmatter carries `x-ai-tools-managed: true`, so an operator's own agent/skill
 - **present + same-or-older version** → the content is left as it is, and the ownership and modes a seeded copy has
   (`root:SANDBOX_GROUP`, files `640`, directories `750`, an inherited setgid cleared) are applied again where they
   drifted, which the report names — the same on a kept older version;
+- **bound to an integration** (`x-ai-tools-integration`) → seeded by the other cases while that integration's manifest
+  is installed and trusted, and otherwise skipped with a live managed copy moved aside (see [An asset bound
+  to an integration](#an-asset-bound-to-an-integration));
 - **a withdrawn name** → skipped outright, before any of the other cases (see [Withdrawing
   an asset](#withdrawing-an-asset)).
 
@@ -260,6 +267,20 @@ withdraws the live copy with `ai_tools_withdraw_asset`, the per-asset step the r
 from, and re-runs the linker so each agent's link to the gone target is dropped. This mirrors
 the `.gitignore`/`.gitconfig` reseed (see [ownership-and-hooks](ownership-and-hooks.rule.md) for the control-plane
 ownership model).
+
+### An asset bound to an integration <a id="ref-section-k4q2"></a>
+
+An asset a provider package ships declares `x-ai-tools-integration: <name>`, and the host holds it exactly where it
+holds that integration. The seeder places it through the other cases while the manifest `integrations.d/<name>.conf`
+and its directory pass `ai_tools_conf_is_trusted`; otherwise it skips the asset and moves a live managed copy aside
+with `ai_tools_withdraw_asset`, so the marker gate and the `retired/` copy are the withdrawal's. An absent manifest,
+an untrusted one and a name outside the provider charset each read as not installed, which removes the asset and does
+not place one.
+
+The manifest decides because the pristine copy is present on hosts without the integration: a from-source install copies
+the whole pristine root, and a host that moved from a source install to packages keeps a pristine copy no package owns.
+The seeder reads the directory the provider resolver reads, under the same root-only override
+(`AI_TOOLS_INTEGRATIONS_DIR`), so `install.sh`, `ai-tools-bootstrap` and the scriptlets reach one answer.
 
 ## SELinux
 

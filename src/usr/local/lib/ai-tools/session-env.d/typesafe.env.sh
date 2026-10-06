@@ -2,9 +2,9 @@
 # shellcheck shell=bash
 # /usr/local/lib/ai-tools/session-env.d/typesafe.env.sh
 # Session environment for the typesafe integration: the credential file and the usage log the decide command is pointed
-# at with `--config` and `--usage-log`, which the ai-tools-decide skill passes from these two variables. ai-tools-run
-# sources this when `integration-typesafe` is named in /etc/ai-tools/operator.conf (AI_TOOLS_INTEGRATIONS). It
-# self-gates on the credential file's presence, so a host whose package is gone while the name stays sets neither
+# at with `--config` and `--usage-log`, which the ai-tools-typesafe-filter skill passes from these two variables.
+# ai-tools-run sources this when `integration-typesafe` is named in /etc/ai-tools/operator.conf (AI_TOOLS_INTEGRATIONS).
+# It self-gates on the credential file's presence, so a host whose package is gone while the name stays sets neither
 # variable, and a session outside the integration passes an empty `--config` that the command refuses with exit 3.
 #
 # The two values are paths, never the credential: the command reads the key from the file at call time, as the sandbox
