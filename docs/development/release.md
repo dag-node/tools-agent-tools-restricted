@@ -287,9 +287,11 @@ key, its passphrase and the dispatch token are secrets of the `release`
 environment, which the release job declares and whose deployment policy admits
 a `v*.*.*` tag alone: the policy refuses the environment to a run on a branch
 or a pull request, from a fork or not, so such a run reads none of them.
-`v*.*.*` tag creation is restricted to the maintainers team by a ruleset,
-and a second ruleset refuses an update, a deletion or a force-push of such
-a tag for everyone. Details
+The release job pins the org signing key by its primary fingerprint and refuses
+any other key before it signs a package, so a wrong secret fails the release
+before any artifact is public. `v*.*.*` tag creation is restricted
+to the maintainers team by a ruleset, and a second ruleset refuses an update,
+a deletion or a force-push of such a tag for everyone. Details
 in [ref-section-a6s8](../rpm-packaging.md#ref-section-a6s8).
 
 One-time setup (repo admin), in GitHub Settings:

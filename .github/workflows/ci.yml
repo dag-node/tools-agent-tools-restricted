@@ -209,14 +209,20 @@ jobs:
       # GitHub Release is already public, where a hard failure only strands a half-published
       # release. Signing is MANDATORY: every published RPM must carry a verifiable dag-node
       # signature, so a missing or unusable secret fails the release here instead of shipping
-      # unsigned. This step proves the key imports with a usable secret and the dispatch token
-      # reaches dag-node/rpm; the passphrase and the full rpmsign+verify chain are proven by the real
-      # in-container selftest, which also runs before anything is built or published.
+      # unsigned. This step proves the key imports with a usable secret, is the org signing key,
+      # and the dispatch token reaches dag-node/rpm; the passphrase and the full rpmsign+verify chain
+      # are proven by the real in-container selftest, which also runs before anything is built or
+      # published.
       - name: Preflight release prerequisites
         env:
           GPG_SIGNING_KEY: ${{ secrets.GPG_SIGNING_KEY }}
           GPG_SIGNING_PASSPHRASE: ${{ secrets.GPG_SIGNING_PASSPHRASE }}
           RPM_REPO_DISPATCH_TOKEN: ${{ secrets.RPM_REPO_DISPATCH_TOKEN }}
+          # The org signing key, pinned by its PRIMARY fingerprint -- the one rpm.dagnode.com serves
+          # and docs/rpm-packaging.md publishes. A subkey rotation keeps the primary, so this pin
+          # survives one; a different primary is a different key, and a planned primary rotation
+          # changes this line in the same reviewed change.
+          ORG_SIGNING_PRIMARY_FPR: 67F42DC18BF764B42D82F14256D2F802CF9832E4
         run: |
           # Each message names the fix: the secret belongs to the `release` environment of this
           # repository, and the operator sets it with `gh secret set` (docs/development/release.md,
@@ -241,6 +247,17 @@ jobs:
             || { echo "::error::GPG_SIGNING_KEY did not import: the value is not an ASCII-armored key block. Export the signing subkey with gpg --armor --export-secret-subkeys '<subkey-fpr>!' and set it again: gh secret set GPG_SIGNING_KEY --env release -R ${GITHUB_REPOSITORY} < signing-subkey.asc"; exit 1; }
           GNUPGHOME="${gnupghome}" gpg --batch --with-colons --list-secret-keys | grep -q '^sec:' \
             || { echo "::error::GPG_SIGNING_KEY carries no secret key: the value is a public key, or an export without the secret part. Export the signing subkey with gpg --armor --export-secret-subkeys '<subkey-fpr>!' and set it again: gh secret set GPG_SIGNING_KEY --env release -R ${GITHUB_REPOSITORY} < signing-subkey.asc"; exit 1; }
+
+          # State the imported key's identity -- fingerprints are public, the served key file
+          # carries them -- and refuse any key but the pinned one before a single RPM is signed
+          # with it. Signed by another key, the RPMs would pass the runner's self-consistent
+          # re-verify and publish, and dag-node/rpm would then drop them as not the org key's,
+          # behind a tag that cannot move.
+          have="$(GNUPGHOME="${gnupghome}" gpg --batch --with-colons --list-secret-keys | awk -F: '$1=="fpr"{print $10; exit}')"
+          echo "imported signing key: primary ${have}"
+          GNUPGHOME="${gnupghome}" gpg --batch --with-colons --list-keys "${have}" | awk -F: '$1=="sub"{s=1; next} $1=="fpr" && s {print "  subkey " $10; s=0}'
+          [[ "${have}" == "${ORG_SIGNING_PRIMARY_FPR}" ]] \
+            || { echo "::error::GPG_SIGNING_KEY is key ${have}, not the org signing key ${ORG_SIGNING_PRIMARY_FPR} whose public part rpm.dagnode.com serves. A different primary is a different key, not a rotation: set the export of the org key's signing subkey. A planned primary rotation changes ORG_SIGNING_PRIMARY_FPR in this workflow in the same change"; exit 1; }
 
           # Surface the HTTP status so an operator can tell a bad token (401) from a missing
           # grant/repo (403/404) at a glance -- gh prints "(HTTP NNN)" on stderr.
