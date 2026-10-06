@@ -5,7 +5,7 @@ paths:
   - "src/etc/ai-tools/endpoints/typesafe.conf"
   - "src/usr/local/lib/ai-tools/typesafe/**"
   - "src/usr/local/share/man/man5/ai-tools-typesafe.conf.5"
-  - "src/usr/share/ai-tools/skills/ai-tools-decide/**"
+  - "src/usr/share/ai-tools/skills/ai-tools-typesafe-filter/**"
   - "tests/unit/typesafe.sh"
   - "tools/generators/typesafe-client.sh"
   - "tools/generators/typesafe-client.pin"
@@ -22,8 +22,8 @@ with the listing on stdin; the command prints the kept lines in full and one sum
 and exits non-zero with one stderr line and no result on any failure, so the listing the session already holds is always
 the fallback. It is an **integration on the provider seam** ([providers](providers.rule.md)): a manifest, a session-env
 fragment, and the `default_enable=no` that keeps it off until an operator names `integration-typesafe`
-in `AI_TOOLS_INTEGRATIONS`, because a call sends listing lines off the host. The shipped `ai-tools-decide` skill is
-what tells an agent when the command is worth running and what it does not replace.
+in `AI_TOOLS_INTEGRATIONS`, because a call sends listing lines off the host. The shipped `ai-tools-typesafe-filter`
+skill is what tells an agent when the command is worth running and what it does not replace.
 
 ## The call path
 
@@ -144,13 +144,22 @@ repository and arrives here as `generate` on its tag.
 
 ## The skill this package ships
 
-`ai-tools-decide` lives in the shared pristine root with the base's skills, since the seeder reads one root,
+`ai-tools-typesafe-filter` lives in the shared pristine root with the base's skills, since the seeder reads one root,
 and `ai-tools-integration-typesafe` owns its directory (base `%exclude`s it). The package's `%post` seeds it and links
 it into every enabled agent's skills directory itself — base's and the agents' scriptlets run before this package's
 files are on disk on a first install — and its `%postun` on final erase withdraws the live copy
 with `ai_tools_withdraw_asset` and re-runs the linker, which drops each agent's link to a target that is gone.
-The placement chain and the marker gate are [shipped-assets](shipped-assets.rule.md). A from-source install copies
-the whole pristine root, so `install.sh` seeds it with the rest.
+
+Its frontmatter carries `x-ai-tools-integration: typesafe`, which binds the asset to this manifest: the seeder places it
+only while `integrations.d/typesafe.conf` is installed and trusted, and moves a live copy aside where it is not. That is
+what makes the three seed paths agree on which host holds the skill. A from-source install copies the whole pristine
+root, and rpm leaves a pristine copy no package owns on a host that moved from a source install to packages without this
+one, so without the binding a host lists a skill whose command it does not have; with it, the manifest decides,
+and the stale pristine copy is inert. The placement chain and the marker gate are
+[shipped-assets](shipped-assets.rule.md); `tests/unit/managed-assets.sh` drives the binding over a fixture manifest,
+and `tests/unit/typesafe.sh` holds the shipped skill's name and binding to this manifest. The previous name,
+`ai-tools-decide`, is on the retired list, so an upgraded host's live copy under it is moved aside before the new name
+is seeded.
 
 ## Templates, measurement, and what is deferred
 

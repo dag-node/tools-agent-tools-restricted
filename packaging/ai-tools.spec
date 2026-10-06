@@ -193,7 +193,7 @@ Lets a sandboxed session hand a long listing (a grep, a git log, a checker's fin
 TypeSafe's bounded classifier and get back the lines that bear on the task it states: the decide
 command under /usr/local/lib/ai-tools/typesafe, its session-env fragment and manifest, the
 root-owned credential file /etc/ai-tools/endpoints/typesafe.conf (shipped with the key commented),
-and the ai-tools-decide skill every enabled agent lists. Off until `integration-typesafe` is
+and the ai-tools-typesafe-filter skill every enabled agent lists. Off until `integration-typesafe` is
 named in operator.conf AI_TOOLS_INTEGRATIONS and the key is set.
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -1063,12 +1063,14 @@ fi
 # rpm on EL10 drops the setgid bit %%attr declares on a directory, so the state root's mode is
 # re-asserted here (the usage log inside it is then group-owned by the sandbox group).
 chmod 2770 /opt/ai-tools/integrations/typesafe 2>/dev/null || :
-# Seed the ai-tools-decide skill this package ships into the shared skills root and link it into
-# every enabled agent's skills directory. Base's %%post seeds the same datadir, but on a first
-# install it runs before this package's files are on disk, and an agent's %%post links what the
-# shared root holds at that moment -- so this package places its own asset, with the same lib
+# Seed the ai-tools-typesafe-filter skill this package ships into the shared skills root and link
+# it into every enabled agent's skills directory. Base's %%post seeds the same datadir, but on a
+# first install it runs before this package's files are on disk, and an agent's %%post links what
+# the shared root holds at that moment -- so this package places its own asset, with the same lib
 # under an explicit bash and the same pre-answered confirm (base's %%post says why). Every other
-# skill in the datadir is already at its live version, so the pass leaves it alone.
+# skill in the datadir is already at its live version, so the pass leaves it alone. The skill's
+# marker binds it to this integration, so the seeder places it only while this package's manifest
+# is installed and moves a stale live copy aside on a host where it is not.
 if command -v bash >/dev/null 2>&1; then
     AI_TOOLS_ASSUME_YES=1 bash -c '. /usr/local/lib/ai-tools/msg.lib.sh; . /usr/local/lib/ai-tools/conf.lib.sh; . /usr/local/lib/ai-tools/managed-assets.lib.sh; . /usr/local/lib/ai-tools/control-plane.lib.sh; ai_tools_seed_managed_assets "$1" /opt/ai-tools ai-tools skills; ai_tools_agent_asset_dirs skills_dir | while read -r agent dir; do ai_tools_link_shared_assets /opt/ai-tools/skills "${dir}" ai-tools "$1/skills/README.md"; done' _ %{_datadir}/ai-tools || :
 fi
@@ -1077,10 +1079,10 @@ fi
 # On final erase, withdraw the skill this package seeded: the live copy is not rpm-owned, so it
 # is moved to /opt/ai-tools/retired the way base withdraws a dropped asset, and each agent's link
 # to it goes in the linker's pass over links whose target is gone. An operator's own
-# ai-tools-decide (no managed marker) is kept. The credential file and the state root stay, as
-# every integration's state does.
+# ai-tools-typesafe-filter (no managed marker) is kept. The credential file and the state root
+# stay, as every integration's state does.
 if [ "$1" -eq 0 ] && [ -r /usr/local/lib/ai-tools/managed-assets.lib.sh ] && command -v bash >/dev/null 2>&1; then
-    bash -c '. /usr/local/lib/ai-tools/msg.lib.sh; . /usr/local/lib/ai-tools/conf.lib.sh; . /usr/local/lib/ai-tools/managed-assets.lib.sh; . /usr/local/lib/ai-tools/control-plane.lib.sh; ai_tools_withdraw_asset /opt/ai-tools skills ai-tools-decide "package removed"; ai_tools_agent_asset_dirs skills_dir | while read -r agent dir; do ai_tools_link_shared_assets /opt/ai-tools/skills "${dir}" ai-tools; done' || :
+    bash -c '. /usr/local/lib/ai-tools/msg.lib.sh; . /usr/local/lib/ai-tools/conf.lib.sh; . /usr/local/lib/ai-tools/managed-assets.lib.sh; . /usr/local/lib/ai-tools/control-plane.lib.sh; ai_tools_withdraw_asset /opt/ai-tools skills ai-tools-typesafe-filter "package removed"; ai_tools_agent_asset_dirs skills_dir | while read -r agent dir; do ai_tools_link_shared_assets /opt/ai-tools/skills "${dir}" ai-tools; done' || :
 fi
 
 %post -n ai-tools-agents-claude-code-restricted
@@ -1380,7 +1382,7 @@ fi
 # sits in the same datadir, since the seeder reads one pristine root; that package owns its
 # directory and base excludes it here.
 %{_datadir}/ai-tools/skills
-%exclude %{_datadir}/ai-tools/skills/ai-tools-decide
+%exclude %{_datadir}/ai-tools/skills/ai-tools-typesafe-filter
 %{_datadir}/ai-tools/subagents
 %{_datadir}/ai-tools/orientation
 # /opt/ai-tools/.gitignore and .gitconfig are deliberately NOT listed here: rpm-owning them
@@ -1435,7 +1437,7 @@ fi
 %dir %attr(2770, root, ai-tools) /opt/ai-tools/integrations/typesafe
 # The pristine copy of the skill this package ships, under the shared skills datadir base owns
 # (base %%excludes this one directory). Seeded live and linked by this package's %%post.
-%{_datadir}/ai-tools/skills/ai-tools-decide
+%{_datadir}/ai-tools/skills/ai-tools-typesafe-filter
 
 %files -n ai-tools-agents
 # Umbrella metapackage: no files of its own; weakly pulls the ai-tools-agents-* members.

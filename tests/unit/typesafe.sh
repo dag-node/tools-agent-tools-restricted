@@ -124,4 +124,32 @@ else
     skip "vendored files against the pin" "not a checkout (no ${GENERATOR})"
 fi
 
+# ── 5. The shipped skill is bound to this manifest ───────────────────────────────────────────────
+# The seeder places an asset carrying `x-ai-tools-integration` only while the named manifest is installed
+# (tests/unit/managed-assets.sh drives the gate); what this pins is that the skill this package ships names THIS
+# manifest, under the name its directory carries, so a rename or a retyped binding fails here rather than as a skill
+# every host silently stops seeding.
+SKILL_DIR="${ROOT}/src/usr/share/ai-tools/skills/ai-tools-typesafe-filter"
+if [[ -r "${SKILL_DIR}/SKILL.md" ]]; then
+    skill_name="$(grep -m1 -E '^name:' "${SKILL_DIR}/SKILL.md" | sed -E 's/^name:[[:space:]]*//')"
+    if [[ "${skill_name}" == "$(basename "${SKILL_DIR}")" ]]; then
+        pass "the skill's frontmatter name equals its directory name (${skill_name})"
+    else
+        fail "the skill's frontmatter name '${skill_name}' differs from its directory $(basename "${SKILL_DIR}")"
+    fi
+    bound_to="$(grep -m1 -E '^x-ai-tools-integration:' "${SKILL_DIR}/SKILL.md" | sed -E 's/^x-ai-tools-integration:[[:space:]]*//')"
+    if [[ "${bound_to}" == "$(basename "${MANIFEST}" .conf)" ]]; then
+        pass "the skill is bound to this integration's manifest (x-ai-tools-integration: ${bound_to})"
+    else
+        fail "the skill's x-ai-tools-integration is '${bound_to}', not $(basename "${MANIFEST}" .conf)"
+    fi
+    if grep -qE '^x-ai-tools-managed:[[:space:]]*true[[:space:]]*$' "${SKILL_DIR}/SKILL.md"; then
+        pass "the skill carries the managed marker the seeder claims by"
+    else
+        fail "the skill does not carry x-ai-tools-managed: true"
+    fi
+else
+    skip "the shipped skill's binding" "not a source checkout (no ${SKILL_DIR}/SKILL.md)"
+fi
+
 finish

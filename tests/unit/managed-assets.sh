@@ -27,6 +27,10 @@
 #   6. THE ORIENTATION LINK IS NON-DISPLACING, and links under a name that is not the source's.
 #      It lands on the one path each agent reads as user-scope instructions, so a link placed over
 #      an operator's own file there would silently replace what every session on the host loads.
+#   7. AN ASSET BOUND TO AN INTEGRATION FOLLOWS THE MANIFEST, not the pristine copy. The copy is on
+#      hosts the integration is not (a from-source install copies the whole tree; rpm leaves a file
+#      no package owns), so without the gate every session lists a skill whose command the host
+#      lacks. Driven with the manifest absent, present, untrusted, and removed after a seed.
 #
 # Drives the INSTALLED library against fixtures in its own /tmp testdir: every root is an argument, so no case reads
 # or writes /usr/share/ai-tools, /opt/ai-tools, or any live asset. Needs root -- the seeder chowns what it places
@@ -276,6 +280,91 @@ if [[ -f "${LIVE}/skills/ai-tools-zzz-seeded/SKILL.md" ]] && [[ ! -d "${LIVE}/re
     pass "an asset that is not withdrawn is untouched, and retired/ is not created for nothing"
 else
     fail "the withdrawal pass acted on an asset that is not withdrawn: ${out}"
+fi
+
+# ── An asset bound to an integration ─────────────────────────────────────────────
+# Property 7. The marker names the integration; its manifest in the integrations directory is what "installed" means,
+# and the directory is the resolver's own root-only hook, so a fixture directory stands in for the host's. A manifest
+# the trust predicate refuses reads as not installed, the direction every other provider input takes.
+if ! declare -F ai_tools_asset_integration >/dev/null 2>&1; then
+    skip "integration-bound asset" "the installed library predates x-ai-tools-integration"
+else
+    INTEGRATIONS="${TESTDIR}/integrations.d"
+    # write_bound_skill <root> <name> <version> <integration> [managed] -- a skill whose marker binds it
+    # to an integration.
+    write_bound_skill() {
+        local root="$1" name="$2" version="$3" integration="$4" managed="${5:-true}"
+        mkdir -p "${root}/skills/${name}"
+        {
+            printf -- '---\n'
+            printf 'name: %s\n' "${name}"
+            [[ "${managed}" == "true" ]] && printf 'x-ai-tools-managed: true\n'
+            printf 'x-ai-tools-integration: %s\n' "${integration}"
+            printf 'x-ai-tools-version: %s\n' "${version}"
+            printf -- '---\nbody of %s v%s\n' "${name}" "${version}"
+        } > "${root}/skills/${name}/SKILL.md"
+    }
+    # seed_bound -- the seeder over skills alone, reading the fixture integrations directory.
+    seed_bound() { AI_TOOLS_INTEGRATIONS_DIR="${INTEGRATIONS}" AI_TOOLS_ASSUME_YES=1 \
+        ai_tools_seed_managed_assets "${SHIPPED}" "${LIVE}" root skills; }
+
+    reset_roots
+    rm -rf "${INTEGRATIONS}"; mkdir -m 755 "${INTEGRATIONS}"
+    write_bound_skill "${SHIPPED}" ai-tools-bound 1 acme
+    write_skill "${SHIPPED}" ai-tools-unbound 1
+    out="$(seed_bound 2>&1)" || true
+    if [[ ! -e "${LIVE}/skills/ai-tools-bound" ]] && grep -q "ai-tools-bound skipped (integration acme not installed)" <<<"${out}"; then
+        pass "a bound asset is not seeded while its integration's manifest is absent, and the skip names the integration"
+    else
+        fail "a bound asset was seeded without its integration, or the skip was not reported: ${out}"
+    fi
+    if [[ -f "${LIVE}/skills/ai-tools-unbound/SKILL.md" ]]; then
+        pass "an unbound asset beside it is seeded as before"
+    else
+        fail "the gate stopped an unbound asset: ${out}"
+    fi
+
+    printf 'default_enable=no\n' > "${INTEGRATIONS}/acme.conf"; chmod 644 "${INTEGRATIONS}/acme.conf"
+    out="$(seed_bound 2>&1)" || true
+    if [[ "$(asset_version "${LIVE}/skills/ai-tools-bound/SKILL.md")" == "1" ]]; then
+        pass "a bound asset is seeded once its integration's manifest is installed"
+    else
+        fail "a bound asset was not seeded with the manifest present: ${out}"
+    fi
+
+    chmod 664 "${INTEGRATIONS}/acme.conf"
+    out="$(seed_bound 2>&1)" || true
+    if [[ ! -e "${LIVE}/skills/ai-tools-bound" ]] && grep -q "ai-tools-bound withdrawn (integration acme not installed)" <<<"${out}"; then
+        pass "a group-writable manifest reads as not installed, and the live copy is moved aside with the reason"
+    else
+        fail "an untrusted manifest kept the bound asset live: ${out}"
+    fi
+    mapfile -t retired < <(find "${LIVE}/retired" -maxdepth 1 -name "ai-tools-bound.*.retired" 2>/dev/null)
+    if (( ${#retired[@]} == 1 )) && [[ -f "${retired[0]}/SKILL.md" ]]; then
+        pass "the copy moved aside is preserved under retired/, as a withdrawal's is"
+    else
+        fail "the bound asset's live copy was not preserved: ${out}"
+    fi
+
+    chmod 644 "${INTEGRATIONS}/acme.conf"
+    out="$(seed_bound 2>&1)" || true
+    rm -f "${INTEGRATIONS}/acme.conf"
+    out="$(seed_bound 2>&1)" || true
+    if [[ ! -e "${LIVE}/skills/ai-tools-bound" ]] && grep -q "ai-tools-bound withdrawn (integration acme not installed)" <<<"${out}"; then
+        pass "a live copy is moved aside once the manifest is removed, so an erased integration takes its skill with it"
+    else
+        fail "the live copy outlived its integration's manifest: ${out}"
+    fi
+
+    reset_roots
+    write_bound_skill "${SHIPPED}" ai-tools-bound 1 acme
+    write_bound_skill "${LIVE}" ai-tools-bound 1 acme notmanaged
+    out="$(seed_bound 2>&1)" || true
+    if [[ -f "${LIVE}/skills/ai-tools-bound/SKILL.md" ]] && grep -q "kept (operator's own" <<<"${out}"; then
+        pass "an operator's own asset under a bound name is kept and reported when the integration is absent"
+    else
+        fail "an unmanaged asset under a bound name was moved: ${out}"
+    fi
 fi
 
 # ── Orientation: a fixed-name asset, linked under each agent's own filename ──────

@@ -13,9 +13,11 @@
 # through the group, which the mode does not give a write. Every run brings a managed asset it keeps back to those,
 # so a copy of the tree that changed an owner or a mode does not leave one the group read is refused on.
 # `x-ai-tools-version` is a monotonic integer bumped once per release, and a newer shipped version is what drives
-# the update offer. Sourced (never executed) by install.sh, ai-tools-bootstrap and base's %post, all root,
-# after msg.lib.sh and conf.lib.sh. The placement chain, the versioning scheme, and withdrawal are
-# in shipped-assets.rule.md.
+# the update offer. An asset carrying `x-ai-tools-integration: <name>` belongs to that integration's package: the seeder
+# places it only while the integration's manifest is installed and trusted, and moves a live copy aside when it is not,
+# so the three seed paths agree on which host holds it whatever the pristine root carries. Sourced (never executed)
+# by install.sh, ai-tools-bootstrap and base's %post, all root, after msg.lib.sh and conf.lib.sh. The placement chain,
+# the versioning scheme, and withdrawal are in shipped-assets.rule.md.
 
 # Withdrawing an asset needs its own step: the seeder only adds and updates, and the live roots are not rpm-owned,
 # so a name this project stops shipping stays live on an upgraded host until it is named here.
@@ -77,6 +79,7 @@ readonly AI_TOOLS_RETIRED_ASSETS=(
     "skills/ai-tools-docs-usage"
     "skills/ai-tools-docs-comments"
     "skills/ai-tools-docs-changelog"
+    "skills/ai-tools-decide"            # renamed ai-tools-typesafe-filter; the typesafe package seeds the new name
 )
 
 # True when <kind>/<name> is withdrawn. Read by BOTH passes, which is what keeps the two from depending on the order
@@ -109,6 +112,26 @@ ai_tools_asset_version() {
 # True when the marker file declares this asset ai-tools-managed.
 ai_tools_asset_is_managed() {
     grep -qE '^x-ai-tools-managed:[[:space:]]*true[[:space:]]*$' "$1" 2>/dev/null
+}
+
+# Print the integration a managed asset's marker binds it to (`x-ai-tools-integration: <name>`); empty when it is bound
+# to none.
+ai_tools_asset_integration() {
+    grep -m1 -E '^x-ai-tools-integration:' "$1" 2>/dev/null \
+        | sed -E 's/^x-ai-tools-integration:[[:space:]]*//; s/[[:space:]]+$//'
+}
+
+# _ai_tools_integration_installed <name>: succeed when the integration's manifest, `integrations.d/<name>.conf`, is
+# installed and passes the trust predicate, as does the directory holding it. The manifest is the integration package's
+# own data (ai-tools-providers(5)), so its presence is what "installed" means on a packaged host and on a from-source
+# one alike, and the directory is the one providers.lib.sh reads under the same root-only override. A name outside
+# the provider charset, a conf.lib.sh that did not load, and an absent or untrusted manifest or directory each read
+# as not installed, which costs the host the asset and does not place one.
+_ai_tools_integration_installed() {
+    local name="$1" dir="${AI_TOOLS_INTEGRATIONS_DIR:-/usr/local/lib/ai-tools/integrations.d}"
+    [[ "${name}" =~ ^[a-z][a-z0-9-]*$ ]] || return 1
+    declare -F ai_tools_conf_is_trusted >/dev/null 2>&1 || return 1
+    ai_tools_conf_is_trusted "${dir}" && ai_tools_conf_is_trusted "${dir}/${name}.conf"
 }
 
 # _ai_tools_own_asset <dst> <group>: bring a live asset to the ownership and modes a seeded copy has -- root:<group>,
@@ -155,7 +178,7 @@ ai_tools_seed_managed_assets() {
     local src_root="$1" live_root="$2" group="$3"; shift 3
     _ai_tools_require_kinds ai_tools_seed_managed_assets "$@" || return 1
     local -a kinds=( "$@" )
-    local kind src_glob src marker name dst dst_marker cur new
+    local kind src_glob src marker name dst dst_marker cur new integration
     for kind in "${kinds[@]}"; do
         [[ -d "${src_root}/${kind}" ]] || continue
         install -d -o root -g "${group}" -m 750 "${live_root}/${kind}"
@@ -185,6 +208,16 @@ ai_tools_seed_managed_assets() {
             if [[ -d "${src}" ]]; then marker="${src%/}/SKILL.md"; else marker="${src}"; fi
             if ! ai_tools_asset_is_managed "${marker}"; then
                 _ai_tools_ma_say "${name} skipped (source not ai-tools-managed)"
+                continue
+            fi
+            # An asset bound to an integration is on a host only while that integration is installed, and the manifest
+            # decides it; the pristine copy does not: a from-source install copies the whole tree, and rpm leaves
+            # a pristine file no package owns, so the copy is there on hosts the integration is not. The live copy such
+            # a host still holds is moved aside under the same marker gate as a withdrawal.
+            integration="$(ai_tools_asset_integration "${marker}")"
+            if [[ -n "${integration}" ]] && ! _ai_tools_integration_installed "${integration}"; then
+                _ai_tools_ma_say "${name} skipped (integration ${integration} not installed)"
+                ai_tools_withdraw_asset "${live_root}" "${kind}" "${name}" "integration ${integration} not installed"
                 continue
             fi
             dst="${live_root}/${kind}/${name}"
