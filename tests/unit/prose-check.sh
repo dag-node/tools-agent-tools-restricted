@@ -147,10 +147,6 @@ reports positional-reference TEST-PC-67-positional.md \
 reports positional-reference TEST-PC-68-positional-paren.md \
     "An explicit answer at the end of the install (below) puts the line back."
 reports positional-reference TEST-PC-69-positional-placement.md "The details are printed plain below the box."
-# A reftag is a prefix, a dash, and a four-character id; a prefix followed by anything else is a reftag a search will
-# not find. The bare `ref-` prefix opens ordinary words and is not read.
-reports reference-shape TEST-PC-71-reference-shape.md "The owner rule [ref-section-k7q](../cli.rule.md#x) holds."
-reports reference-shape TEST-PC-72-reference-shape-code.md "The refusal prints MSG-12 and stops."
 
 # ── ...and stays silent on the corrected form, which is the half a widened pattern breaks ─────
 silent TEST-PC-06-fronted-quantifier-ok.md "The helper does not take a path argument."
@@ -166,10 +162,6 @@ reports nothing TEST-PC-81-nothing-granted.md "A claim over a sealed directory g
 reports nothing TEST-PC-82-nothing-returned.md "The helper returns nothing when the two agree."
 reports nothing TEST-PC-83-nothing-run.md "A comment between the two runs nothing."
 silent TEST-PC-70-positional-threshold.md "A comment line stays below 120 columns, and a box within 80."
-silent TEST-PC-73-reference-ok.md \
-    "The owner rule [ref-section-j9l2](../cli.rule.md#ref-section-j9l2) holds, and the message carries MSG-F6Z3."
-# shellcheck disable=SC2016
-silent TEST-PC-74-reference-tool-name.md 'Run `ref-index.py` before a commit.'
 # A cost claim backed by a frequency, and one backed by a bounded operation named as the subject. Both carry a cost
 # word, so each fails if the backing half of the check stops being applied.
 silent TEST-PC-08-cost-frequency.md "It runs once per restart, not per connection, so the relabel is cheap."

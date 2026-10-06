@@ -204,19 +204,13 @@ PREDICTED_ACTION = re.compile(
 POSITIONAL_REFERENCE = re.compile(r"\b(above|below)\b(?!\s+\d)", re.I)
 
 # A reftag is a prefix, a dash, and a letter-digit-letter-digit id, lowercase for a place in a document
-# (`ref-section-t3w4`) and uppercase in the code family (`FN-Q2H8`, `NOTE-A5H9`, `MSG-F6Z3`, `URI-Q4Q6`); ref-index.py
-# beside this file states the grammar and the kinds. A prefix followed by anything else is a reftag a search will not
-# find, so it is reported at the prefix. The bare `ref-` prefix is not read: it opens ordinary words (`ref-index.py`),
-# where `ref-<kind>-` does not.
+# (`ref-section-t3w4`) and uppercase in the code family (`FN-Q2H8`, `NOTE-A5H9`, `MSG-F6Z3`, `URI-Q4Q6`);
+# the ai-tools-reftags skill's ref-index.py states the grammar and the kinds, and reports a malformed one. This file
+# knows the shape for one reason: a reftag link's destination is generated (a relative path and an anchor), so a line
+# holding one is measured without it; see `document_line_findings`.
 _REFTAG_KINDS = (r"section|table|diagram|listing|figure|equation|algorithm|chart|graph|image"
                  r"|picture|scheme|theorem|lemma|definition|proof|appendix|footnote|caption|list"
                  r"|callout|abstract|bibliography|nomenclature")
-# The id is a letter, a digit, a letter, a digit, in the family's case.
-REFERENCE_SHAPE = re.compile(rf"\bref-(?:{_REFTAG_KINDS})-(?![a-z][0-9][a-z][0-9]\b)[\w-]*"
-                             r"|\b(?:FN|NOTE|MSG|URI)-(?![A-Z][0-9][A-Z][0-9]\b)[\w-]*")
-
-# A reftag link's destination is generated (a relative path and an anchor), so a line holding one is measured without
-# it; see `document_line_findings`.
 REFTAG_LINK = re.compile(rf"(\[(?:ref-(?:{_REFTAG_KINDS})-[a-z][0-9][a-z][0-9]"
                          r"|(?:FN|NOTE|MSG|URI)-[A-Z][0-9][A-Z][0-9])\])\([^)]*\)")
 
@@ -406,12 +400,6 @@ DEFAULT_CHECKS = [
     ("nothing", hidden_scope_nothing, "name the absent input"),
     ("positional-reference", POSITIONAL_REFERENCE,
      "name the section, function, or file the reader goes to"),
-    # Two remedies, because the token is as often a PLACEHOLDER as a mistyped reftag: a usage line or a function
-    # signature writes `MSG-CODE` where the id goes, and minting a reftag for it would put a live id into a slot
-    # that names an argument.
-    ("reference-shape", REFERENCE_SHAPE,
-     "write the reftag in full (prefix, dash, four-character id), "
-     "or drop the reftag shape if this names an argument rather than a target"),
     ("unbacked-cost", unbacked_cost, "name the frequency or the bounded operation"),
     ("predicted-action", PREDICTED_ACTION, "state what the system does, or give the instruction"),
 ]

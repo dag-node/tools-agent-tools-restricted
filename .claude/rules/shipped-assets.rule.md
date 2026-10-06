@@ -27,7 +27,9 @@ are Claude Code's (`SKILL.md`, subagent frontmatter) and are not standardized ac
 read a kind leaves that field unset, and does not take links of that kind.
 
 The shipped set is the `ai-tools-reference-architect` subagent; the skills `ai-tools-technical-docs` (the writing
-standard for every artifact), `ai-tools-engineering-principles`, and `ai-tools-capable-systems-governance`;
+standard for every artifact, with `prose-check.py` and its `references/` beside the entry file), `ai-tools-reftags` (the
+cross-reference grammar and `ref-index.py`, which this repository's own tooling drives
+through `tools/generators/ref-index.sh`), `ai-tools-engineering-principles`, and `ai-tools-capable-systems-governance`;
 and the orientation text. `ai-tools-typesafe-filter` is the one skill a provider package ships rather than base: it
 belongs to `ai-tools-integration-typesafe` ([typesafe](typesafe.rule.md)) and is bound to it ([An asset bound
 to an integration](#an-asset-bound-to-an-integration)).

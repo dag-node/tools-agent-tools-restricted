@@ -95,10 +95,9 @@ under [`docs/`](docs/index.md) are the operator's tier instead, and change
 when a command, a configuration key, or a guarantee does.
 
 A reference into another file names a reftag rather than a position;
-the grammar is in the `ai-tools-technical-docs` skill,
-and `.claude/references.md` is the generated index. After adding, moving,
-or deleting a labelled target or a reference, regenerate the index and check
-the tree:
+the grammar is in the `ai-tools-reftags` skill, and `.claude/references.md` is
+the generated index. After adding, moving, or deleting a labelled target
+or a reference, regenerate the index and check the tree:
 
 ```bash
 bash tools/generators/ref-index.sh generate

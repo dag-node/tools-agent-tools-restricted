@@ -38,5 +38,4 @@ a hyphen is not a valid identifier; every other tool is named with hyphens.
 
 A tool that drives a script shipped inside a skill stays thin and names this
 repository's paths, leaving the script itself argument-driven. `ref-index.sh`
-over the `ai-tools-technical-docs` skill's `ref-index.py` is the worked
-example.
+over the `ai-tools-reftags` skill's `ref-index.py` is the worked example.
