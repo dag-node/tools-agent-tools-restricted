@@ -206,6 +206,21 @@ else
     fail "a same-version asset was not reported up to date: ${out}"
 fi
 
+# A marker with no version line reads as an empty version and returns 0: the seeder assigns the result under `set -e`,
+# where a non-zero status from the grep pipeline would end the whole provisioning run on that one asset. The read is
+# driven in a fresh strict-mode shell, which is where the status counts.
+reset_roots
+mkdir -p "${LIVE}/skills/ai-tools-unversioned"
+printf -- '---\nname: ai-tools-unversioned\nx-ai-tools-managed: true\n---\nbody\n' \
+    > "${LIVE}/skills/ai-tools-unversioned/SKILL.md"
+out="$(bash -c 'set -euo pipefail; . "$1"; v="$(ai_tools_asset_version "$2")"; printf "version=[%s] survived" "${v}"' \
+    _ "${LIB_DIR}/managed-assets.lib.sh" "${LIVE}/skills/ai-tools-unversioned/SKILL.md" 2>&1)" || true
+if [[ "${out}" == "version=[] survived" ]]; then
+    pass "a marker with no version line reads as empty under set -e without ending the shell"
+else
+    fail "reading a marker with no version line ended the shell or printed a version: ${out}"
+fi
+
 # ── A withdrawn name is never seeded ─────────────────────────────────────────────
 # Property 3, in the state that occurs: the source root STILL CARRIES the withdrawn asset, because rpm has not
 # yet removed the previous package's files. Both directions are driven -- the live root missing it (which is

@@ -1,12 +1,11 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: AGPL-3.0-only
 # tests/unit/references.sh
-# Unit test for ref-index.py, the cross-reference tool shipped beside the ai-tools-technical-docs skill,
-# and for the index it keeps. A reference names a reftag, and the reftag resolves to the target's current place,
-# so the guarantee under test is that a target which moved, was renamed, or was deleted is REPORTED; a reference left
-# pointing at the old place is the defect. Each finding `check` can make is driven with a fixture it MUST report
-# and with the corrected form it MUST stay silent on, so neither a check that stopped firing nor one widened
-# into reporting good prose survives.
+# Unit test for ref-index.py, the cross-reference tool the ai-tools-reftags skill ships, and for the index it keeps.
+# A reference names a reftag, and the reftag resolves to the target's current place, so the guarantee under test is
+# that a target which moved, was renamed, or was deleted is REPORTED; a reference left pointing at the old place is
+# the defect. Each finding `check` can make is driven with a fixture it MUST report and with the corrected form it MUST
+# stay silent on, so neither a check that stopped firing nor one widened into reporting good prose survives.
 #
 # The first section holds the tree to its committed index: the index is regenerated and diffed
 # against .claude/references.md, and `check` runs over every tracked file. Both read the checkout
@@ -30,9 +29,9 @@ section "references: cross-reference reftags and the index (unit)"
 
 RI=""
 for candidate in \
-    "${ROOT}/src/usr/share/ai-tools/skills/ai-tools-technical-docs/ref-index.py" \
-    "/usr/share/ai-tools/skills/ai-tools-technical-docs/ref-index.py" \
-    "/opt/ai-tools/skills/ai-tools-technical-docs/ref-index.py"; do
+    "${ROOT}/src/usr/share/ai-tools/skills/ai-tools-reftags/ref-index.py" \
+    "/usr/share/ai-tools/skills/ai-tools-reftags/ref-index.py" \
+    "/opt/ai-tools/skills/ai-tools-reftags/ref-index.py"; do
     [[ -r "${candidate}" ]] && { RI="${candidate}"; break; }
 done
 
@@ -363,5 +362,22 @@ if [[ -r "${WRAPPER}" ]] && git -C "${ROOT}" rev-parse --is-inside-work-tree >/d
 else
     skip "TEST-RI-18-messages" "not a git checkout with tools/generators/ref-index.sh"
 fi
+
+# ── malformed: a reftag prefix not followed by a well-formed id ───────────────────────────────
+# A prefix followed by anything but a four-character id is a reftag no search finds, in a document's prose
+# and in a source file's comments; a code line carries the bare prefix as a pattern or a string, and a backticked span
+# or a fence shows the shape without being read. The bare `ref-` prefix opens ordinary words and is not read.
+fixture docs/short.md 'The owner rule [ref-section-k7q](a.md#x) holds.'
+reports malformed TEST-RI-19-malformed-prose docs/short.md
+fixture docs/code-short.md 'The refusal prints MSG-12 and stops.'
+reports malformed TEST-RI-19-malformed-code-family docs/code-short.md
+fixture src/comment.sh '#!/usr/bin/env bash' '# The refusal prints MSG-12 and stops.' 'true'
+reports malformed TEST-RI-19-malformed-comment src/comment.sh
+fixture src/pattern.sh '#!/usr/bin/env bash' 'code_re="MSG-[A-Z][0-9][A-Z][0-9]"' 'prefix="MSG-"' 'true'
+silent TEST-RI-19-malformed-code-line-exempt src/pattern.sh
+fixture docs/shown.md 'A code is `MSG-CODE` in a usage line, and `ref-index.py` is the tool.' '' \
+    '```text' 'die MSG-CODE "the message"' '```' '' \
+    'The owner rule [ref-section-a1b2](a.md#ref-section-a1b2) holds.'
+silent TEST-RI-19-malformed-quoted-exempt docs/a.md docs/shown.md
 
 finish

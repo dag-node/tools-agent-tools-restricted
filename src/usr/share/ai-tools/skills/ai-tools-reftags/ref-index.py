@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: AGPL-3.0-only
-# ref-index.py -- the cross-reference tool for the reftags the skill's "A reference names a reftag,
-# not a position" section defines. It ships beside the SKILL.md stating the grammar, versioned
-# with it, and it does not carry a repository path: the files to read and the index to write
-# are arguments.
+# ref-index.py -- the cross-reference tool for the reftags the ai-tools-reftags skill's "A reference
+# names a reftag, not a position" section defines. It ships beside the SKILL.md stating the grammar,
+# versioned with it, and it does not carry a repository path: the files to read and the index to
+# write are arguments.
 #
 # Seeded assets are mode 640, so run it through its interpreter:
 #
-#     python3 /opt/ai-tools/skills/ai-tools-technical-docs/ref-index.py <command> ...
+#     python3 /opt/ai-tools/skills/ai-tools-reftags/ref-index.py <command> ...
 #
 # A REFTAG is a prefix, a dash, and an ID of the form letter, digit, letter, digit (`c8b2`;
 # 67,600 of them), which keeps a plain word or number out of the id position. `new` draws from
@@ -104,8 +104,9 @@
 #   check FILE... [--retired]       report a duplicate reftag or id, an undefined or same-file
 #                                   reference, a misplaced anchor, a caption with no block
 #                                   following it, a destination that is missing or stale,
-#                                   a relative link whose file or heading is gone, and a
-#                                   retired reftag defined again; exit 1 on any report
+#                                   a relative link whose file or heading is gone, a retired
+#                                   reftag defined again, and a reftag whose id is malformed;
+#                                   exit 1 on any report
 
 import argparse
 import datetime
@@ -195,6 +196,17 @@ EMIT_CALL = re.compile(r"(?:^|[;|&(){}]|\b(?:then|else|elif|do)\b|!)\s*([\w.-]+)
 CONTINUED_CODE = re.compile(rf"MSG-{UPPER_ID}[ \t]*\\$")
 LINK_SITE = re.compile(rf"\[({PROSE_TOKEN}|{URI_TOKEN}|{CODE_TOKEN})\]\(([^)]*)\)")
 BARE_SITE = re.compile(rf"\[({PROSE_TOKEN}|{URI_TOKEN}|{CODE_TOKEN})\]")
+# A prefix followed by anything but a well-formed id is a reftag no search finds, so `check`
+# reports it at the prefix. Each alternative is a prefix whose next characters are NOT the id
+# form closed by a boundary; the bare `ref-` prefix is not read, since it opens ordinary words
+# (`ref-index.py`), where `ref-<kind>-` does not. A fixture names a well-formed token in its
+# code (`MSG-M3N4`), so the report is for the mistyped and the truncated.
+MALFORMED = re.compile(
+    rf"(?<![\w-])(?:ref-(?:{'|'.join(PROSE_KINDS)})-(?!{LOWER_ID}(?![\w-]))"
+    rf"|(?:URI|{'|'.join(CODE_KINDS)})-(?!{UPPER_ID}(?![\w-])))[\w-]*")
+# The source lines the malformed check reads: a comment opener, where a block-comment continuation
+# is a `*` followed by a space, so a case arm (`*)`) is the code line it is.
+MALFORMED_SCOPE = re.compile(r"^\s*(#|//|/\*|\*\s|--\s|;|<!--|\"\"\")")
 
 FENCE = re.compile(r"^\s*(```|~~~)")
 BACKTICK_SPAN = re.compile(r"`[^`]*`")
@@ -572,6 +584,26 @@ def link_findings(paths):
                     yield path, number, target, f"no heading or anchor #{fragment} in {resolved}{hint}"
 
 
+def malformed_findings(paths):
+    """Yield (path, line, token) for each reftag prefix not followed by a well-formed id.
+
+    Read outside fenced blocks and backticked spans like a reference, so a document may show
+    the shape it warns against. A source file contributes its comment lines alone, the scope
+    the prose checker reads: a code line carries the bare prefix legitimately -- a pattern
+    (`MSG-[A-Z]`), a string a message is built from (`"MSG-"`), a fixture of the malformed shape
+    under test -- where a comment or a document carries a reftag only to cite one.
+    """
+    for path in paths:
+        lines = read_lines(path)
+        if lines is None:
+            continue
+        for number, text in readable_lines(path, lines):
+            if not is_markdown(path) and not MALFORMED_SCOPE.match(text):
+                continue
+            for match in MALFORMED.finditer(text):
+                yield path, number, match.group(0)
+
+
 def escape_cell(value):
     """Return the value with each pipe escaped, so it does not open a table column."""
     return value.replace("|", r"\|")
@@ -843,8 +875,16 @@ def command_check(args):
     for path, number, target, reason in link_findings(args.paths):
         count += 1
         print(f"{path}:{number}: link [{target}] -- {reason}")
+    # Two remedies, because the token is as often a PLACEHOLDER as a mistyped reftag: a usage line
+    # or a function signature writes `MSG-CODE` where the id goes, and minting a reftag for it
+    # would put a live id into a slot that names an argument.
+    for path, number, token in malformed_findings(args.paths):
+        count += 1
+        print(f"{path}:{number}: malformed [{token}] -- write the reftag in full (prefix, dash, "
+              f"four-character id), or drop the reftag shape if this names an argument rather "
+              f"than a target")
     if count:
-        print(f"\n{count} finding(s). See the ai-tools-technical-docs skill.")
+        print(f"\n{count} finding(s). See the ai-tools-reftags skill.")
     return 1 if count else 0
 
 
@@ -896,7 +936,7 @@ def main():
     relink.set_defaults(run=command_relink)
 
     check = commands.add_parser("check", help="report a duplicate, undefined, misplaced, missing, "
-                                              "stale, or resurrected reference")
+                                              "stale, resurrected, or malformed reference")
     check.add_argument("paths", nargs="+", help="files to read")
     check.add_argument("--retired", metavar="PATH", help=retired_help)
     check.set_defaults(run=command_check)

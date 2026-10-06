@@ -73,9 +73,9 @@ from how the code is organised; they are not a fixed taxonomy and not a one-file
   and its generated reftag link, never a position (`above`, `below`), a line number, or a heading anchor, since each
   of those changes when text moves. Within one file a section is cited by its title as a jump link: a reader takes
   a rule in one pass, and a reftag inside it is a detour the tool reports. The grammar, the kinds, and the tool are
-  in the technical-docs skill's reference section
-  [ref-section-h9b7](../../src/usr/share/ai-tools/skills/ai-tools-technical-docs/SKILL.md#ref-section-h9b7); the index
-  is `.claude/references.md`, regenerated with the tree.
+  the `ai-tools-reftags` skill's, stated in its reference rule
+  [ref-section-h9b7](../../src/usr/share/ai-tools/skills/ai-tools-reftags/SKILL.md#ref-section-h9b7); the index is
+  `.claude/references.md`, regenerated with the tree.
 
 ## Sections
 

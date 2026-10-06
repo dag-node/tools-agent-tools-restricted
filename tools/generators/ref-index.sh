@@ -22,7 +22,7 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-TOOL="${ROOT}/src/usr/share/ai-tools/skills/ai-tools-technical-docs/ref-index.py"
+TOOL="${ROOT}/src/usr/share/ai-tools/skills/ai-tools-reftags/ref-index.py"
 INDEX=".claude/references.md"
 # Retired reftags: `generate` records what the tree dropped before it rewrites the index, and `new` and `check` read
 # the file, so an id that reached a log line is never drawn again. Each row carries the release it was retired
@@ -45,11 +45,11 @@ files() {
 }
 mint_files() { files; if [[ -d "${WIP_ISSUES}" ]]; then find "${WIP_ISSUES}" -name '*.md' -type f; fi; }
 
-# What a runtime message may not carry: a URL, a Markdown link, or an HTML anchor. The rule is the skill's -- output
-# carries a reftag, which resolves through the index, where a link is unresolvable in `journalctl` and ages faster than
-# the code -- and this check is REPOSITORY-side because it reads a message string: `prose-check.py` skips a quoted span
-# by design, and knowing that a code in the first argument makes an emit call is repository knowledge that the shipped
-# tools do not carry.
+# What a runtime message may not carry: a URL, a Markdown link, or an HTML anchor. The rule is the reftags skill's --
+# output carries a reftag, which resolves through the index, where a link is unresolvable in `journalctl` and ages
+# faster than the code -- and this check is REPOSITORY-side because it reads a message string: `prose-check.py` skips
+# a quoted span by design, and knowing that a code in the first argument makes an emit call is repository knowledge
+# that the shipped tools do not carry.
 #
 # Matching reads the ASCII DELIMITER a link needs -- a scheme's `://`, a `mailto:`, a Markdown `[text](target)`,
 # an `<a>` tag -- which is what makes it complete: a URI permits most of Unicode in a host or a path, while every scheme
@@ -92,7 +92,7 @@ message_links() {
         findings=$((findings + 1))
     done < <(message_rows "$@")
     if (( findings )); then
-        printf '\n%d message-link finding(s). See the ai-tools-technical-docs skill.\n' "${findings}"
+        printf '\n%d message-link finding(s). See the ai-tools-reftags skill.\n' "${findings}"
         return 1
     fi
 }

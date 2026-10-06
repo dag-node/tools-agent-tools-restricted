@@ -419,27 +419,28 @@ carrying a separator at the same column, and a second fix is a no-op with `check
 in either order. A table inside a heredoc body is the data's and is left, while a here-string, an arithmetic shift,
 a `<<` in a string and an operator no later line closes open no heredoc, so a table after one is still read; a file
 holding an escape sequence is refused through the shared reader and reported, with the file beside it still checked.
-`references.sh` is a third: it drives `ref-index.py`, the cross-reference tool shipped beside the checker, and holds
-the tree to its committed index. A reference names a reftag and the reftag resolves to where the target now is,
-so what the file asserts is that a target which moved, was renamed, or was deleted is reported and never silently
+`references.sh` is a third: it drives `ref-index.py`, the cross-reference tool the `ai-tools-reftags` skill ships,
+and holds the tree to its committed index. A reference names a reftag and the reftag resolves to where the target now
+is, so what the file asserts is that a target which moved, was renamed, or was deleted is reported and never silently
 pointed at its old place: through the repository wrapper `tools/generators/ref-index.sh` it regenerates the index
 and diffs it against `.claude/references.md` and runs `check` over every tracked file, both skipped outside a git
 checkout; then each finding `check` makes — a duplicate reftag, an id shared by two kinds, a reference with no target,
-a same-file reference, a caption with no block after it, a reftag link that is missing or stale, and an ordinary link
-whose file or heading is gone — is driven against a fixture it must report and the corrected form it must stay silent
-on, with `relink` asserted to produce that form, `generate` for its row shape, its order, the example row a quoted
-reftag reserves, and the empty tree, `new` for each family's form, and `where` for the span each kind's syntax gives.
-An empty tree is a valid index, so the lockstep half is green before the first reftag. Its last section drives the one
-finding the **wrapper** holds rather than the shipped tool — a runtime message carrying a URL, a Markdown link,
-or an HTML anchor ([messaging](messaging.rule.md)) — which is repository knowledge on both counts: the emit chokepoints
-are this tree's, and a message string is not prose, so the checker that skips a quoted span never reads it. Each link
-shape is driven with the resolvable form beside it, a non-ASCII URL among them, since matching is on the ASCII delimiter
-a link needs and not on what a URI may contain; the pair that must stay silent is an ordinary message a looser pattern
-would report — a page name in parentheses, and an option set carrying a pipe. Every case id in this file
-and in `prose-check.sh` carries the `TEST-` prefix, so a result line is told from a reftag or a message code
-at a glance. `cli-verbs.sh` is the same shape one layer in: a pure text check that the CLI's four **gating tables** —
-`OPERATOR_VERBS`, `ROOT_ALLOWED_VERBS`, `BOOTSTRAP_EXEMPT_VERBS`, `FOR_ALLOWED_VERBS` — still describe the verbs it
-dispatches. The failure it exists for is silent and one-directional: a verb added to the dispatcher and forgotten
+a same-file reference, a caption with no block after it, a reftag link that is missing or stale, an ordinary link
+whose file or heading is gone, and a reftag prefix with no well-formed id after it in a document or a source comment —
+is driven against a fixture it must report and the corrected form it must stay silent on, with `relink` asserted
+to produce that form, `generate` for its row shape, its order, the example row a quoted reftag reserves, and the empty
+tree, `new` for each family's form, and `where` for the span each kind's syntax gives. An empty tree is a valid index,
+so the lockstep half is green before the first reftag. Its last section drives the one finding the **wrapper** holds
+rather than the shipped tool — a runtime message carrying a URL, a Markdown link, or an HTML anchor
+([messaging](messaging.rule.md)) — which is repository knowledge on both counts: the emit chokepoints are this tree's,
+and a message string is not prose, so the checker that skips a quoted span never reads it. Each link shape is driven
+with the resolvable form beside it, a non-ASCII URL among them, since matching is on the ASCII delimiter a link needs
+and not on what a URI may contain; the pair that must stay silent is an ordinary message a looser pattern would report —
+a page name in parentheses, and an option set carrying a pipe. Every case id in this file and in `prose-check.sh`
+carries the `TEST-` prefix, so a result line is told from a reftag or a message code at a glance. `cli-verbs.sh` is
+the same shape one layer in: a pure text check that the CLI's four **gating tables** — `OPERATOR_VERBS`,
+`ROOT_ALLOWED_VERBS`, `BOOTSTRAP_EXEMPT_VERBS`, `FOR_ALLOWED_VERBS` — still describe the verbs it dispatches.
+The failure it exists for is silent and one-directional: a verb added to the dispatcher and forgotten
 in `OPERATOR_VERBS` runs for an unenrolled caller, with no message to say so until a root helper refuses it midway.
 So every dispatched verb must be classified — operator-acting, or in the informational set the test names — no verb may
 be both operator-acting and root-allowed, no table may name a verb the dispatcher no longer has, and the help must list

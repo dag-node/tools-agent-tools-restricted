@@ -3,8 +3,8 @@ name: ai-tools-technical-docs
 # ai-tools managed asset — provenance/versioning (RFC-draft lifecycle); the frontmatter name is stable.
 x-ai-tools-managed: true
 x-ai-tools-status: draft
-x-ai-tools-version: 8
-x-ai-tools-updated: 2026-09-24
+x-ai-tools-version: 9
+x-ai-tools-updated: 2026-10-06
 description: >
   Technical writing standard for every software engineering artifact. Use when writing or
   editing README and usage guides, `CLAUDE.md` / `AGENTS.md`, `*.rule.md`, file and module headers,
@@ -15,17 +15,19 @@ description: >
   for usage docs, current-state specification for reference docs, contract-only for doc
   comments, operator-gain framing for changelogs, and short pointer-style commit messages.
   Trigger on any request to write or edit documentation, comments, commit messages, or change
-  records.
+  records. Cross-reference reftags and their tool are the `ai-tools-reftags` skill's.
 ---
 
 # Technical writing standard
 
-One standard covers every artifact. The universal rules hold everywhere; each artifact type adds its own structure,
-altitude, and reader.
+One standard covers every artifact the description names. The universal rules hold everywhere; each artifact type adds
+its own structure, altitude, and reader.
 
-Applies to: README and usage guides; `CLAUDE.md`, `AGENTS.md`, `*.rule.md`, file and module headers; design notes,
-architecture docs, ADRs; doc comments and docstrings; changelogs, release notes, migration guides; man pages; commit
-messages, pull requests, issue descriptions; error messages and log messages.
+The detail sits beside this file, read when the task calls for it: [Rewriting existing prose](references/rewriting.md)
+before editing a sentence someone else wrote, [Artifact rules](references/artifacts.md) for the full form of each
+artifact with its examples, [The figures in detail](references/figures.md) for the cases each rule turns on, [Running
+the checker](references/checks.md) for `prose-check.py`'s modes and widths, and `references/man-pages.md` before writing
+a man page.
 
 ## Core principle
 
@@ -43,8 +45,7 @@ this tiebreaker exists to prevent.
 The **load-bearing** rules outrank plainness, because breaking one changes what the prose claims rather than how it
 reads. They are named here by their own titles, so the set resolves without a paraphrase to interpret:
 
-- [Rewriting existing prose](#rewriting-existing-prose) and [Carry four things through every
-  edit](#carry-four-things-through-every-edit)
+- [Rewriting existing prose](references/rewriting.md) and its rule *Carry four things through every edit*
 - *Name the fail direction from the branch that decides it*
 - *Label every example of prose this standard rules out*
 - [One home per fact, and a pointer everywhere else](#one-home-per-fact-and-a-pointer-everywhere-else)
@@ -65,8 +66,6 @@ Name the reader first; it sets altitude more than any other choice.
 | Error, notice, log line | whoever is at the terminal now | what happened and what to do |
 
 Mechanism belongs to the developer surfaces. An operator surface states the effect and links to the mechanism.
-
----
 
 # Universal rules
 
@@ -127,29 +126,10 @@ The defect is the hiding, not the word: `nothing is exempt` in a file that termi
 to work out the scope of a sweep, where `no cgroup under the account is exempt` states it. Name the thing, and the same
 goes for `everything`, `anything`, and `all of them`.
 
-**Where `nothing` is the object of an output verb, it names an empty result and is the right word.**
-`Prints nothing when the set in force matches the baseline` states what a caller reads; there is no absent *input*
-to name. The exempt verbs are the ones whose object **is** the output — `prints`, `writes`, `emits`, `reports`,
-`renders`, `says`, `yields`, `outputs` — and the exemption reaches only the verb that governs the word.
-
-- In style: `Prints nothing when the set in force matches the baseline.`
-- Off style: `The sweep prints a summary, and nothing is exempt.` — the output verb is in the other clause, so the scope
-  is still unnamed: `no cgroup under the account is exempt`.
-
-Three shapes sit outside the exemption, and each is a claim to write differently:
-
-- **`grants nothing`** reads like the others and is not one of them. What is granted is an authority over some scope,
-  which the sentence still owes the reader.
-- **`returns nothing`** says what a caller gets *back*, which in shell is a status and in most languages is `void` —
-  so the phrase is seldom true and never states what was written. Name the stream: `prints nothing`.
-- **`runs nothing`, `loading nothing`** name an empty *effect* rather than an empty output. Write the effect:
-  `is not executed`, `without loading a module`.
-
-**Where the actor is a person, `nothing` is often the right word and the replacement is not.** "what you have to do
-about it (almost always nothing)" is an action the reader takes; `none` reads as a count of some set the sentence never
-named. Keep the sentence and mark the line
-`prose-check: ignore` — in Markdown as `<!-- prose-check: ignore -->`, which the checker reads and
-the rendered page does not show.
+Where `nothing` is the object of an output verb — `prints nothing when the set in force matches the baseline` — it names
+an empty result and is the right word; `grants nothing`, `returns nothing` and `runs nothing` are not
+of that kind, and a person who has nothing to do keeps the word under a `prose-check: ignore` marker. The cases are
+in [The figures in detail](references/figures.md).
 
 **Name the party behind a pronoun that a clause has separated from it.** The defect is the distance, not the pronoun:
 once a clause stands between pronoun and party, `them` leaves the reader to work out which party is meant.
@@ -172,21 +152,11 @@ the plain one: *verified against* `systemd.exec(5)`, not *corroborated from* it.
 in a second language, and the formal word costs them without adding precision. `prose-check.py` does not report this
 class, so the final pass reads for it.
 
-**A term of art in the reader's domain is a domain term, however ordinary it looks.** *maintenance*, *permission*,
-*mask*, *grant*, *traverse*, *weak dependency* have settled meanings in systems and operations prose, so they stay fixed
-under [Consistent domain terms](#consistent-domain-terms-varied-ordinary-nouns). Keep them: substituting a near-synonym
-(*upkeep* for *maintenance*) costs the reader a term they already know.
-
-**Some verbs name no operation.** *convey*, *leverage*, *utilize*, *facilitate*, *handle* describe an unspecified
-relationship, so a reader cannot check them against the code. Say which operation it is: **permits** or **grants**
-for an access decision, **transmits**, **sends**, or **routes** for a message, **displays**, **renders**, or **shows**
-for output, **states**, **describes**, or **specifies** for an explanation. `--x` on a directory *permits traversal*; it
-does not *convey* anything. A word with a settled meaning in one domain keeps it there — `convey` is the GPL's own term
-for distributing a work, and licensing prose is where it belongs.
-
-*attribution* is the same case as a noun: name the thing. An **audit trail** or **provenance** records who acted,
-a **root cause** explains why something failed, an **attribute** or **field** is data on an object, and a **label** is
-what a row in a report carries.
+**A term of art in the reader's domain is a domain term, however ordinary it looks** — *maintenance*, *permission*,
+*mask*, *traverse*, *weak dependency* — and stays fixed. **Some verbs name no operation**: *convey*, *leverage*,
+*utilize*, *facilitate*, *handle* describe an unspecified relationship, so say which operation it is — *permits*
+for an access decision, *sends* for a message, *renders* for output, *states* for an explanation. Both lists are in [The
+figures in detail](references/figures.md).
 
 ### Name real mechanisms
 
@@ -215,38 +185,21 @@ out what to do about it.
 
 Turning a negation positive is sound over a set provably disjoint from the one the negation excluded, and nowhere else;
 where that does not hold, keep the negation and write it with `does not`. Editing prose that already exists is governed
-by [Rewriting existing prose](#rewriting-existing-prose), which is the section to read before touching a sentence
-someone else wrote.
+by [Rewriting existing prose](references/rewriting.md), which is the file to read before touching a sentence someone
+else wrote.
 
 Keep this structural: no praise, no intensifiers, no tone words, and never overstate a guarantee. No single sentence
 looks upbeat; across a corpus the effect accumulates, and the documentation reads as capable and dependable.
 
 **Write a negation with `does not`.** Fronting the quantifier instead — `writes no entry`, `takes no argument` —
-attaches the negative to the object instead of the verb. It reads formal to archaic, and it is the determiner statutes
-are built from (*no person shall*, *no warranty is given*). The fronted form is the shorter one, and the longer one wins
-anyway: the razor takes the fewest words that stay clear.
+attaches the negative to the object instead of the verb, which is the determiner statutes are built from. The rule
+in one line: write `X does not Y`, or `X has no Y`; avoid `X Ys no Z`. A stative claim takes it too
+(`a checkout has no compiled module`, not `carries no compiled module`), and the object's number follows the code, since
+`does not take any path arguments` and `does not take a path argument` are different claims about arity. The cases are
+in [The figures in detail](references/figures.md).
 
 - In style: `does not write any entries`, `does not take a path argument`
 - Off style: `writes no entries`, `takes no path argument`
-
-**The rule in one line: write `X does not Y`, or `X has no Y`; avoid `X Ys no Z`.** `has no` is the plain existential
-and does not need a rewrite — it is one of the four verbs the check leaves alone, with `is`, `was` and `had` —
-so a stative claim has two ordinary forms and no reason to reach for the third.
-
-**A stative claim takes the rule too, and is where it is missed.** `writes no entries` and `takes no path argument` are
-actions with a caller-supplied object, which is the easy case; the shape that survives a redraft describes
-what an artifact *has* — `a checkout carries no compiled module`, `the header registers no entry`. Fronting reads
-as natural there. It is the same figure, in a declarative rather than a procedural sentence.
-
-- In style: `a checkout has no compiled module`, `the header does not register an entry`
-- Off style: `a checkout carries no compiled module`, `the header registers no entry`
-
-**The object's number follows the code, not a preference.** `does not take any path arguments`
-and `does not take a path argument` are different claims about arity — a variadic parameter against a single one —
-so the signature decides which is true. A definite object keeps its article: `does not increment the counter`.
-
-The same applies to `nothing` as a subject or object, which the checklist already catches: name the absent input
-instead.
 
 ### Keep severity proportionate
 
@@ -266,8 +219,6 @@ a statement about the quality of what it pulls in.
 Leave out legal phrasing (hereby, pursuant to, thereunder, entitlement, standing, void), aphorisms and slogans,
 philosophical framing, and marketing language.
 
-- In style: `Returns an empty collection when no items match.`
-- Off style: `An empty request cannot produce a result.`
 - In style: `Returns 401 when the request is unauthenticated.`
 - Off style: `A caller lacking identity receives no authorization.`
 
@@ -280,16 +231,16 @@ why: the constraint that forced the choice, the alternative rejected, the foot-g
 the content worth keeping.
 
 Write it in the same register as everything else, because this is the register that slips. Explaining why attracts every
-figure in [Rhetorical figures](#rhetorical-figures): contrast ("rather than", "instead of"), metaphor ("spends
-the signal"), definition ("a check that cannot fail is not a check"). Each states the reason as a figure instead
-of a mechanism, so a reader cannot check it against the code.
+figure the table of figures [ref-section-r3a2](references/figures.md#ref-section-r3a2) names: contrast ("rather than",
+"instead of"), metaphor ("spends the signal"), definition ("a check that cannot fail is not a check"). Each states
+the reason as a figure instead of a mechanism, so a reader cannot check it against the code.
 
 Name the mechanism the reason rests on, and the constraint behind it — an external requirement, a kernel quirk,
 an ordering dependency. A "so that ⟨outcome⟩" clause is the usual join. A because-, so-that-, or rather-than-sentence is
 the cue to re-read it against that table. Run the check while drafting.
 
-This governs how a reason is **phrased**, and it is not a rule about mood: a passage whose job is to tell the next
-writer what to do opens with the instruction, and the reason follows it.
+This governs how a reason is **phrased**, not the mood: a passage whose job is to tell the next writer what to do opens
+with the instruction, and the reason follows it.
 
 **Attach purpose where the reason is non-obvious, and nowhere else.** A named construction turns into a slot a writer
 fills, and a document whose every sentence makes a causal claim reads as though none of them does. Three tests
@@ -316,7 +267,7 @@ Keep sentences short and single-idea. Avoid mirrored clauses that a reader must 
 
 Describe current behaviour: "Returns the current session", "Loads the configuration". Use the passive only where it is
 substantially clearer, and "will" only for genuinely future or conditional behaviour. Changelogs are the exception;
-[Changelogs, release notes, migration guides](#changelogs-release-notes-migration-guides) covers them.
+the changelog rule [ref-section-y8q9](references/artifacts.md#ref-section-y8q9) covers them.
 
 ### Consistent domain terms, varied ordinary nouns <a id="ref-section-g2r3"></a>
 
@@ -372,125 +323,40 @@ Two habits do most of the work:
 
 **Write the shape, not the count.** A count of what the code declares — four log levels, two buckets, seven options —
 goes stale on the next addition, and it goes stale in a file far from the one that changed. Name the set instead: *the
-log levels the writer emits* holds however many the code grows to.
-
-**A word that implies a count is a count.** *both*, *the two*, *either*, *the pair*, *neither* fix the size of a set
-as firmly as a numeral, and they break the same way: a third config file, a third sink, a third verdict turns *seeds
-both* into a sentence that is wrong about what it describes and does not point at the member it left out. They also fail
-more quietly than a numeral, because *both* reads as a pronoun rather than as a claim. Name what is counted — *seeds
-the operator's config files*, *writes to every sink the logger holds* — and keep the closed-set word only where the set
-is closed **by construction** and named in the same sentence, as *both halves of a pinned-fd check* is by the check
-having a before and an after.
+log levels the writer emits* holds however many the code grows to. **A word that implies a count is a count**: *both*,
+*the two*, *either*, *the pair*, *neither* fix the size of a set as firmly as a numeral and fail more quietly, since
+*both* reads as a pronoun. Name what is counted — *seeds the operator's config files* — and keep the closed-set word
+only where the set is closed **by construction** and named in the same sentence, as *both halves of a pinned-fd check*
+is by the check having a before and an after.
 
 **Length is a symptom, never a budget.** Prose that approaches the size of the code it describes usually means the code
 has stopped being self-descriptive; the fix is to make the code say it. Short prose is not automatically finished prose
 either: the only test is whether every remaining sentence still carries a fact. A longer header is correct precisely
 when the code cannot be made clearer — a kernel quirk, an ordering constraint, a workaround for a defect elsewhere —
-and the point of the prose is to name that constraint.
-
-Judge each file on its own. A header at a good altitude stays as it is, and a change that merely touches a file edits
-only the passages it invalidates. On a header that has grown past its purpose, expand it first to surface what matters,
-then reduce to purpose and the load-bearing why.
+and the point of the prose is to name that constraint. Judge each file on its own: a header at a good altitude stays
+as it is, and a change that merely touches a file edits only the passages it invalidates.
 
 ### Self-contained
 
 Prose is read without the conversation that produced it. Name the concrete mechanism; leave out session shorthand,
 internal labels, ticket tags, and "as discussed" back-references.
 
-### A reference names a reftag, not a position <a id="ref-section-h9b7"></a>
+### A reference names its target, not a position
 
-A table, a diagram, a listing, or a section that prose in another file refers to carries a reftag, and the reference is
-a link whose text is the reftag: `the owner rule [ref-section-j5r7](../cli.rule.md#ref-section-j5r7)`. The sentence
-states the fact in its own words, the reftag says where the full statement lives, and the name lives at the target
-and in the index. A path, a line number, a heading anchor, and a position in the document are the things that move,
-so the prose carries none of them: the link's destination is generated, checked against where the target now is,
-and rewritten when it moves. Print manuals and papers apply the same rule to figures and tables: a reference names
-the numbered caption, not the place on the page.
+A sentence that refers to another file's section, table, or listing names the target by a stable label, and the link's
+destination is generated from where the target now is. A path, a line number, a heading anchor, and a position
+in the document are the things that move, so the prose carries none of them. The positional words are for measurements
+(`a load above 80%`, `a count below zero`); a placement on the screen takes another word (`under the box`,
+`the parent directory`). `prose-check.py` excuses a number after the word and reports every other use.
 
-A reftag is a prefix, a dash, and an id of the form letter, digit, letter, digit: `w7a7`, which keeps a plain word
-or number out of the id position. The id is drawn at random, so a reader does not read an order into it, and one id
-names one thing across all families, whatever the prefix; two things are never related by sharing one. A match is always
-the full reftag, prefix and dash included: an id alone is a shape generated names and key material take too. Lowercase
-names a place in a document, which renders as a link; UPPERCASE names a key that lives in code, in output,
-or in a registry and is found by a search on the token. The target carries the reftag as an anchor and the reference is
-a link, the split every markup system makes:
-
-| Family | Reftag | Target |
-|---|---|---|
-| a place in a document, by kind | `ref-section-h3b7`, `ref-table-z4m9` | a heading closed by an anchor, `## Two project models <a id="ref-section-h3b7"></a>`, or an anchor and a bold caption on the line before the block, `<a id="ref-table-z4m9"></a>**Altitudes and who owns which fact**` |
-| function doc, comment note | `FN-Q2H8`, `NOTE-A5H9` | a comment line, `FN-Q2H8: <function name>` |
-| runtime message | `MSG-F6Z3` | the emit call: the token as the command's first argument, then the quoted message it labels, `die MSG-F6Z3 "not a claimed project"`, the message read off the next line where a backslash breaks the call between them. A code in a later argument, or before a string opening with an expansion, cites the message instead — which is how a test names the code it expects |
-| resource identifier | `URI-Q4Q6` | one link definition line, `[URI-Q4Q6]: https://… "name"` |
-
-The kinds a document reftag may name, and what each one is, are declared in `ref-index.py` and printed by `kinds`,
-so a writer picks one without reading the tool; this project uses `section`, `table`, `diagram`, and `listing`.
-A target's name is its heading text, its bold caption, the text after the colon, or the message's first line. A document
-cites any family as `[reftag](destination)`, where the destination is the relative path and anchor for a document
-target, the file alone for a code target, and the URI itself; a source comment cites by the bare reftag.
-
-A message code names a **situation**: a refusal that exits non-zero, a warning a test asserts, a guidance screen,
-the outcome a question produced. A question itself, a flow headline, and a per-tick progress line are renderings,
-and take none. The code is the identity a test asserts and the token a user types into a search engine when the message
-is on their screen, so it stays fixed through every rewording of the message: a rewrite keeps the code, and a new code
-is minted only for a new situation, with the old one retired. The index records the message's current first line beside
-the code and the word that emits it. Runtime output carries a reftag and no URL, Markdown link, or HTML anchor: a link
-in a log line is unresolvable in `journalctl` and ages faster than the code, where the reftag resolves
-through the index. A quoted string that opens with an expansion (`assert_msg MSG-F6Z3 "$out"`) does not name a message,
-so that site is a reference, which is how a test cites a code beside the output it captured.
-
-Mint a reftag the first time another file refers to the referent, and not before: a reftag exists for a fact whose home
-is another file, so reftags stay rarer than links to a file as a whole. Within one file, cite a section by its title
-as a jump link, `[Title](#its-slug)`, and a table by what it lists: a reader takes a file in one pass, and a reftag
-inside it is a detour, which the tool reports. The tool reports the jump link too once its heading has left the file,
-with the hint to cite the reftag, which is how a file follows a section that moved out. A reference to something without
-a reftag is fixed by minting one, and a paragraph carrying more than one reference is the shape to refuse: the sentence
-reads complete without following the link. The sections of this file carry reftags ahead of a citation, as the one
-exception: they are general principles, cited from other files and other projects.
-
-**A reftag belongs to the principle a referent states, not to its wording.** A rewrite that keeps the principle keeps
-the reftag: rewording the prose, reflowing it, moving the section within its file, and retitling it all leave the id
-alone, because every citation and every log line already naming it goes on resolving. **Whether the principle survived
-is a judgement the writer makes**, by reading the old referent against the new one — a changed title is evidence and not
-the test, and a title reformulated over the same principle is no change at all.
-
-Retire an id when the referent leaves the tree, or when what it states has changed substantially enough that a reader
-following an old citation would land on a different claim; that is a new referent, and it takes a new id. A retirement
-recorded beside a live row stating the same principle is the shape to look for: the id churned under a referent
-that survived, which spends the retired id and strands every reference made before the change. Where a draft mints an id
-and the writer reaches for the minter again over the same principle, the first id stands.
-
-A document's own navigation does not take a reftag. A contents line and a jump to one of the document's sections are
-ordinary links, `[Upgrade behaviour](#upgrade-behaviour)`, whose text is the title and whose fragment is the heading's
-own slug; a link to another file as a whole, `[launch](launch.rule.md)`, is the same. Both are checked with the reftags,
-since a renamed heading breaks a contents line silently.
+The label is a **reftag**, and the grammar — the families, the message codes a runtime message carries, when an id is
+minted and when it is retired — and `ref-index.py`, which mints, indexes, checks and relinks them, are
+the `ai-tools-reftags` skill's. Within one file, cite a section by its title as a jump link, `[Title](#its-slug)`.
+The sections of this standard carry reftags ahead of a citation, as the one exception: they are general principles,
+cited from other files and other projects.
 
 - In style: `The umask rule [ref-section-m7g9](../cli.rule.md#ref-section-m7g9) re-runs the create and clone rows.`
 - Off style: `The section below re-runs the create and clone rows.`
-
-`ref-index.py` ships beside this file. `kinds` prints the registry, `new <family>` mints a reftag, `generate` writes
-the index, `where <reftag>` prints the target's live `file:line`, `relink` rewrites every destination
-from where the targets are, and `check` reports a reftag defined twice, an id shared by two kinds, a reference with no
-target or to a target in its own file, a caption with no block after it, a destination that is missing or stale,
-an ordinary link whose file or heading is gone, and a retired reftag defined again:
-
-```bash
-python3 /opt/ai-tools/skills/ai-tools-technical-docs/ref-index.py check <file>...
-```
-
-A fenced block and a backticked span are not read, so a document may show a reftag it does not define; the index lists
-such a reftag as an example, which reserves its id. A line carrying `ref-index: ignore` is not read either, and a file
-carrying `ref-index: ignore-file` as a whole comment line is not read at all, which is how a test holds its fixtures.
-
-A reftag that leaves the tree is retired, and its id stays taken. `retire` appends each index row the tree no longer
-defines to a retired file, with the date and the release the tree is at, and `new` reads that file as well as the index;
-`generate` is stateless, so a repository runs `retire` ahead of it. A message code lands in a durable audit trail,
-and an id drawn again for another situation would make an old journal line resolve to the wrong one. The release column
-is what a row's age is counted in: a repository drops a row once its release is a few stable releases behind, by hand.
-The retired file is history: a session reads the index for current state and does not read the retired file.
-
-The positional words are for measurements (`a load above 80%`, `a count below zero`); a placement on the screen takes
-another word (`under the box`, `the parent directory`). `prose-check.py` excuses a number after the word and reports
-every other use, and reports a reftag whose id is malformed.
 
 ### Resolve a doc/code conflict while writing, in the right direction <a id="ref-section-p6c5"></a>
 
@@ -509,108 +375,23 @@ Ask when which of the three applies is genuinely unclear, rather than committing
 
 ## The three axes
 
-Purpose, style, and tense constrain different things, and compose:
-
-- **Purpose** — *what to include*: the guarantee a behaviour provides.
-- **Spec style** — *how to phrase it*: terse, factual, normative where it prescribes.
-- **Current state** — *tense and frame*: what is, rather than what changed.
-
-RFCs are full of purpose: "receivers MUST ignore unknown fields *so that* the format stays forward-compatible" is
-purpose, spec style, and present tense at once. Friction appears only when purpose is written as **history**
-or as a **predicted human action**. A "so that ⟨invariant⟩" clause on a fact about what the code does is one way
-to attach it — see the limit on it under [Rationale is
+Purpose (*what to include*: the guarantee a behaviour provides), spec style (*how to phrase it*: terse, factual,
+normative where it prescribes) and current state (*tense and frame*: what is, rather than what changed) constrain
+different things, and compose. RFCs are full of purpose: "receivers MUST ignore unknown fields *so that* the format
+stays forward-compatible" is purpose, spec style, and present tense at once. Friction appears only when purpose is
+written as **history** or as a **predicted human action**. A "so that ⟨invariant⟩" clause on a fact about what the code
+does is one way to attach it — see the limit on it under [Rationale is
 the payload](#rationale-is-the-payload--state-it-as-a-mechanism-not-as-a-figure).
 
----
+# Rewriting existing prose
 
-# Rewriting existing prose <a id="ref-section-q9p8"></a>
-
-Every writing rule in this standard governs a first draft, where the claim is in the writer's head and only the words
-are in question. Editing prose that already exists is a different operation: the claim is already in the sentence,
-and the job of the edit is to keep it. The rules for that are collected here, because a rewrite pass reads one section
-and then changes several hundred sentences.
-
-**A rewrite changes the wording, not the claim.** What remains states what the original stated — same subject, same set,
-same number, same modality — and does not add anything the original did not say. Where the new wording cannot carry
-the claim, leave the sentence unchanged: a style rule that cannot be applied without retiring a guarantee does not
-apply.
-
-## Rewrite from the source, not from the flagged token <a id="ref-section-e8b7"></a>
-
-A finding names a symptom, and every rule here is about the claim, so:
-
-1. Open what the sentence describes — the code, or the invariant it states.
-2. Settle any disagreement between the two in the direction [Resolve a doc/code
-   conflict](#resolve-a-doccode-conflict-while-writing-in-the-right-direction) sets.
-3. Write the sentence again from that source.
-4. Leave the reported token out of the result.
-
-Substituting a synonym for that token instead clears the check and keeps the defect:
-
-| `grants nothing` becomes | and | |
-|---|---|---|
-| `confers no authority` | the grep is clear, a domain term is now a legal one, and the quantifier is still fronted | ✗ |
-| `granted no path` | both default checks are clear, and the same figure sits in another inflection for a later pass to find | ✗ |
-| `uses a grant the caller already holds` | read off the code in one pass | ✓ |
-
-Reading the source also answers what no rule decides in the abstract — arity among them.
-
-**Review the whole sentence, not only the flagged token.** A check highlights one word, yet the rest of the sentence
-came from the same pass and is equally likely to be wrong. Before moving on, re-read the count, the mechanism name,
-and the fail direction that stand beside the token. Do not treat a corrected token as evidence that the sentence has
-been reviewed.
-
-## Carry four things through every edit <a id="ref-section-z4d3"></a>
-
-Check each one before accepting a rewrite. A change that moves any of them has changed the claim.
-
-- **The set.** Rewrite over the set the original named. `carries no secrets` → `does not carry any secrets`, never
-  `contains only settings`: a setting can be a token, so the second stops justifying the `644` mode the first was
-  written to justify.
-- **The number.** Keep a plural plural and a singular singular. `does not carry any secrets` says the contents
-  and the secrets do not intersect, where the narrowed `must not hold a secret` says only that one of them is absent.
-- **The modality.** Keep `never`, `always`, `cannot`, `only`, and `must` where the original used one, and name the guard
-  that backs it in the same sentence. Do not trade an absolute for `not`; [Back an absolute with its
-  check](#back-an-absolute-with-its-check) has the cases where the absolute itself goes.
-- **Every fact, and no new ones.** Account for each fact in the old sentence before deleting it.
-  `stable, and leaks nothing regardless of who runs it` → `stable whoever runs it` drops a disclosure claim. No
-  vocabulary check sees that, so read the two versions side by side.
-
-## Keep the sentence and raise the finding
-
-Leave a sentence as it stands, and report the conflict, when it states any of:
-
-- a **security boundary** — what a mode permits, what a file may hold, who may act, what a refusal refuses;
-- an **invariant in an always-loaded layer** — a root `CLAUDE.md`, a rule file, a prohibition addressed to an agent;
-  a weakened guarantee is still read as a guarantee;
-- an **identity or disclosure claim** — what a value leaks, what an output carries.
-
-"This rewrite would weaken an invariant" is a finding: report it and leave the sentence as it stands. Readability is not
-a reason to weaken a guarantee.
-
-## Run the checks a rewrite needs <a id="ref-section-g5n4"></a>
-
-Run both, on the files the pass touched and on the diff it produced:
-
-```bash
-python3 /opt/ai-tools/skills/ai-tools-technical-docs/prose-check.py --all <file>...
-python3 /opt/ai-tools/skills/ai-tools-technical-docs/prose-check.py --kept <base>
-```
-
-`--all` catches a figure moved into an inflection the default checks leave alone. `--kept` compares the two sides
-of the diff and reports a dropped term, a narrowed number, and a weakened modality — three of the four that [Carry four
-things through every edit](#carry-four-things-through-every-edit) names. The fourth, a dropped fact, has no check,
-so read for it. Both modes report and neither decides: whether two sets are disjoint is not a question a regex answers.
-
-Two points about running the checks:
-
-- **For a multi-part change, baseline each pass at the tip of the previous part.** `--kept` accepts any revision range,
-  so `--kept <rev>` reports only the findings belonging to the part in hand, rather than every change since the branch
-  point.
-- **To see what the edit itself added, use `--new <revision>` rather than comparing two runs.** It pairs findings
-  by content, where a line-wise comparison of two runs treats every finding that merely moved as new.
-
----
+Every writing rule in this standard governs a first draft. Editing prose that already exists is a different operation:
+the claim is already in the sentence, and the job of the edit is to keep it. **A rewrite changes the wording, not
+the claim** — same subject, same set, same number, same modality, every fact and no new ones — and where the new wording
+cannot carry the claim, the sentence stays as it is; one stating a security boundary, an invariant in an always-loaded
+layer, or a disclosure claim stays and the conflict is raised as a finding. The procedure, the four things an edit
+carries, and the checks a rewrite runs are in [Rewriting existing prose](references/rewriting.md); read it
+before the first edit of a pass.
 
 # Pick the artifact
 
@@ -623,235 +404,12 @@ Two points about running the checks:
 | **Commit** | the subject states what the change achieves, and the body is shorter than the diff |
 | **Error / log** | it states what happened and, for an error, what to do next |
 
----
-
-# Artifact rules
-
-## Usage docs, READMEs, man pages
-
-A usage doc teaches by example. Lead a section with a minimal runnable block, then explain it in terse present-tense
-prose naming the exact mechanism. The example is the topic sentence; the prose is the gloss. A section that opens
-with preamble before the reader sees code is off style.
-
-Explanation is connected prose. Bullets are for genuine enumerations — supported formats, options, exit codes.
-
-**README shape** — thin and link-forward:
-
-1. One-line capability statement (a confident tagline register is fine, kept to one line).
-2. The smallest example that demonstrates the core value end to end.
-3. One paragraph naming what the example does and the exact types involved.
-4. Install and usage essentials.
-5. Links to full docs, support, and source.
-
-~~~markdown
-# <Library>
-
-<One-line capability statement.>
-
-## Quick start
-
-```bash
-<install command>
-```
-
-```<lang>
-<smallest end-to-end example>
-```
-
-<One paragraph naming what the example does and the exact types involved.>
-
-## Docs
-
-Read the full docs at <docs-url>.
-Support: <issues link> | Source: <repo-url>
-~~~
-
-**Man pages** carry the operator-facing contract: options, arguments, exit codes, files, examples. Internal mechanics
-belong in reference docs, and installation paths that apply to one distribution channel stay out. Read
-`references/man-pages.md` beside this file before writing one — it covers section numbering, heading order, `an`-macro
-form, and which well-maintained pages to read for calibration.
-
-**A literal a reader types or pastes is backticked** — a command, an option, a placeholder, a variable or config key,
-a filepath — wherever prose appears: a document, a rule, a file header, a comment. A command is written as the whole
-line and begins with its binary, which is what separates it from a phrase that reads like one: `projects claim` is
-a phrase, `ai-tools projects claim` is a command. The span closes after the **whole** literal, instance marker
-and extension included (`ai-tools-handback@.service`), since a reader pastes what the backticks hold and a rename
-searches for it.
-
-A **doc comment's contract line** is already code — `name <arg>... -- what it does`, and the `args:`/`stdout:` fragment
-beside it — so its tokens stay bare. A doc-comment format that has literal markup of its own takes that mark in place
-of backticks — `<c>` and `<see cref="…"/>` in a C# XML doc comment, `{@code …}` in Javadoc — since backticks there put
-a second markup language in one comment, which an IDE renders as neither; `prose-check.py` reads past each as it reads
-past a backticked span. A **man page** takes the fonts `references/man-pages.md` states instead, and a **runtime
-message** is a string rather than prose.
-
-**Shell commands a reader will copy** go on a single line. Backslash continuations do not survive a copy
-out of a terminal, so anything longer than one line ships as a script file the reader runs in one command.
-
-**An example longer than 60 columns goes in a fenced block carrying its language** —
-` ```bash ` for a command line, ` ```text ` for output the reader reads rather than runs, the language's own name
-for source. Under 60 columns a command is a backticked span **inside the sentence that introduces it**, and two commands
-joined by `&&` take the same measure: the width decides, not the count.
-
-The inline form holds **one** command. A second command shown beside it joins the first in a block whatever either
-measures, and so does an example of more than one line: a reader copying a sequence copies one block, and a stack
-of backticked lines one after another is not a display form at all — it is a paragraph the renderer will reflow.
-
-The fence is what states the language, and it bounds the block explicitly, where an indented block is a code block only
-by its indentation — a nested list continuation at the same depth is prose, and which one a renderer sees depends
-on what precedes it.
-
-**Diagrams and tables** are ASCII, at most 80 columns wide.
-
-UTF-8 icons are allowed sparingly in human-facing prose where they carry meaning — a section marker, a check or cross
-in a do/don't table, a warning glyph. Source files stay ASCII.
-
-## Reference docs: `CLAUDE.md`, `AGENTS.md`, `*.rule.md`, headers, design notes, ADRs
-
-Write a specification of the **current** system: present tense, terse, factual, and normative (MUST / SHOULD / MAY)
-where it prescribes. Use *should* rather than *is* where the document is advisory.
-
-- State current behaviour. Leave out history — "used to", "now", "gained", "fixed", "previously", and dates
-  of discovery. Git carries that.
-- Attach purpose as the guarantee a behaviour provides.
-- Describe the system, rather than predicting what a person will do with it.
-- **Name the fail direction from the branch that decides it.** State what happens when an input is missing, unreadable,
-  or untrusted, and whether that outcome increases or decreases access. Do not write "fails closed" from the shape
-  of a sentence — over code that defaults open, it documents a property the implementation lacks. Where access
-  increases, record the reason the code or the design already gives, never one composed to fit: an opening with no
-  reason on record, or one contradicting a guarantee stated elsewhere, is a finding to raise with the operator,
-  and [Resolve a doc/code conflict](#resolve-a-doccode-conflict-while-writing-in-the-right-direction) has which side
-  moves.
-- Where the system acts on its own, name the visibility or override path — log, notice, confirmation, review point —
-  in the same place, and say who confirms an irreversible or outward-facing action.
-
-**Altitude across tiers.** A root `CLAUDE.md` holds global invariants and routes to the rest. A `*.rule.md` holds
-the principles common to its domain plus the cross-file story. A file header holds that file's local mechanism.
-
-Put a fact in the always-loaded layer only where it holds across the whole project and a reader needs it in every
-session. Send a domain's mechanism to that domain's document **even where it qualifies an invariant the router states**
-— write the qualification at invariant altitude and point at the document that carries how it works. A file mode, a test
-path, a `file:line` reference, or a verdict token is the mark of a domain document rather than of a router,
-and `prose-check.py` reports each of them there.
-
-State that boundary inside the router itself. A rule scoped to `*.rule.md` paths does not load while the router is open,
-so a constraint on the router must be written in the router to be present in the sessions that edit it.
-
-**Code, header, and rule describe one system at three altitudes**, each in the present tense, so touching any of them
-obligates reconciling the others at the time of writing — in the direction [Resolve a doc/code
-conflict](#resolve-a-doccode-conflict-while-writing-in-the-right-direction) sets.
-
-Each tier states the system as it now is. What changed belongs to the changelog and to git.
-
-Directives aimed at a person belong in runtime output, not in descriptive prose.
-
-## Doc comments, XML docs, docstrings
-
-State the **contract**: what the member does or returns, in concrete named types, terse enough to read as a tooltip.
-
-- One line by default. A second sentence carries a real precondition, side effect, or null-or-throw case.
-- Document the contract, not the implementation. The body says how.
-- Parameter and return notes are fragments: "The id to look up", "The matching rows in table order".
-- Detail — ordering, thread safety, business rules — goes to a second tier (`<remarks>`, an extended docstring body)
-  only where a caller needs it.
-- ASCII only. Identifiers spelled out in full, without abbreviations.
-
-```csharp
-/// <summary>Returns the authenticated user for the current request, or null when unauthenticated</summary>
-```
-
-```python
-def select(predicate):
-    """Return rows matching the predicate, in table order."""
-```
-
-```bash
-# select_rows: print rows matching the awk predicate, in file order.
-# args: $1 awk predicate  stdout: matching rows
-```
-
-```javascript
-/** Returns the cached response for the request, or null on a miss. */
-```
-
-## Changelogs, release notes, migration guides <a id="ref-section-y8q9"></a>
-
-An entry records what an operator gains and what changes for them on upgrade. History is the subject here,
-so the current-state rule of [Present tense, active voice](#present-tense-active-voice) does not apply.
-
-- **Operator-facing, not commit-facing.** "Command output is filtered by default, which saves tokens" over "narrow
-  command output through root-owned rule sets". Mechanism belongs in the commit and the rule file.
-- **One entry per change the reader experiences, not per commit.** A feature built over nine commits is one entry;
-  a commit that only moved code is none. Reconcile the set once, before a release, from what the version gained
-  as a whole.
-- **One or two sentences per entry.** Depth comes from a link to the issue, PR, or doc.
-- **Grouped so a scan works** — Keep a Changelog's six categories (ADDED, CHANGED, DEPRECATED, REMOVED, FIXED,
-  SECURITY), or the project's established headings mapped onto them. Breaking changes appear in one place. SECURITY is
-  a category rather than a severity note: an entry belongs there because a reader's exposure changes, whether the change
-  opens or closes it.
-- **Internal churn does not produce an entry** — tests, formatting, CI, version bumps.
-- **Present the gain plainly.** A reader should finish an entry knowing what they get, without the entry sounding like
-  it is being sold.
-
-A **migration guide** is task-shaped: what changed, what to edit, in what order. Show before and after side by side,
-state the minimum that makes an upgrade build and run, then the optional follow-ups.
-
-## Commit messages
-
-Conventional Commits grammar: `type(scope): description`, an optional body, and a `BREAKING CHANGE:` footer where it
-applies.
-
-- **The subject states what the change achieves**, in the imperative — not what was wrong in an earlier attempt, and not
-  a summary of the files touched.
-- **The body carries the why and what the change achieves**, rather than a walk through the implementation. Length
-  follows from that rather than setting it: one subtle line can warrant a paragraph explaining the condition it fixes,
-  while a large mechanical refactor may need a sentence. A body that reads as a description of the diff is off style
-  at any length.
-- **Point, rather than repeat.** Detail lives in `*.rule.md`, the file header, or a code comment; name where it lives
-  instead of restating it here.
-- **One reviewable, revertable concern per commit.**
-- No local filesystem paths, no design notes, no enumerated implementation steps.
-
-```
-fix(stop): keep an unpassed count from abandoning the confirmation
-
-A zero count read as a parse failure and skipped the prompt, so a run with no
-matching session went straight to the sweep. The counting contract is in
-cli.rule.md.
-```
-
-## Pull requests and issues
-
-A PR states the summary, the changes, how it was tested, and any breaking change, in terms of observable behaviour.
-
-An issue states the observable problem, the expected behaviour, and concrete reproduction steps, naming exact types,
-status codes, and log lines.
-
-## Error messages and notices
-
-Runtime output is where directives to a person belong. State what happened and what to do, briefly.
-
-```
-Configuration file '/etc/app/config.json' was not found.
-Create the file or set APP_CONFIG_PATH.
-```
-
-Off style: `Configuration integrity requirements were not satisfied.`
-
-A refusal names the condition and the path forward:
-`<path> is not in allowed projects for the current operator. Claim it with: ai-tools projects claim <path>`.
-
-## Log messages
-
-A log line records an **event at a time**, which is a different claim from the standing behaviour reference prose
-describes. Name the concrete subject, and leave off the terminal period.
-
-- In style: `Token validation failed for user Id {UserId}`
-- Off style: `Authorization process could not establish identity ownership.`
-
-Use structured templates so fields survive into the journal or the log store.
-
----
+The full rule for each, with its examples, is in [Artifact rules](references/artifacts.md). Three of them are
+load-bearing wherever the artifact appears: a literal a reader types or pastes is backticked and a command begins
+with its binary; a reference doc **names the fail direction from the branch that decides it** and whether access widens
+or narrows, with a root `CLAUDE.md` at invariant altitude, the domain mechanism in its rule and the file's mechanism
+in its header, the three reconciled whenever one is touched; and a commit message follows Conventional Commits, its
+subject stating what the change achieves and its body the why and where the detail lives.
 
 # Anti-patterns
 
@@ -860,38 +418,11 @@ an *Off style* prefix, a ✗ column, or the imperative it violates stated first.
 as a neutral description of what some wording achieves: read without the surrounding argument, an unlabelled example is
 followed as an instance of the standard.
 
-## Rhetorical figures <a id="ref-section-r3a2"></a>
-
-Name the figure and it becomes greppable. Each of these is a *shape*, not a word, so a vocabulary filter cannot see any
-of them.
-
-| Figure | Example | Why it fails | Instead |
-|---|---|---|---|
-| **Definitional negation** — "an X that fails a test is not an X" | "A threshold nobody acts on is not a threshold" | A tautology dressed as a finding | "An unacknowledged threshold does not raise any alert, so each one names the person who receives it" |
-| **Abstraction as subject** | "A claim *leaves* nothing registered" | The subject cannot be opened in the code | "`claim()` does not write an entry when one already covers the path" |
-| **Chiasmus** — mirrored clauses | "costs you a label rather than costing the sweep a target" | The reader unpicks a mirror to get one fact | Two plain sentences, or one fact stated once |
-| **"Nothing" as a quantifier** | "there is nothing left to gate" | Hides *which* input is missing | "The helper does not take a path argument, so the path check is skipped" |
-| **Unbacked absolute** | "The service account is never an administrator" | A claim about the code with no check named | "`start()` exits non-zero when the service account holds the admin role" |
-| **Metaphor for a mechanism** | "spends the strict-mode signal" | Does not name any operation a reader can find | "does not increment any counter, so it stays out of the summary" |
-| **Negation as framing** | "a host with nothing wrong" | States the absence of a fault instead of the state | "a host in a supported configuration" |
-
-## Artifact-level
-
-| Off style | In style |
-|---|---|
-| Paragraph of preamble, then code | Code block, then one paragraph naming the mechanism |
-| `Arming the timer so it does not fail to fire` | `Enabling the timer so the update runs daily` |
-| `Entries are pruned from the walk` | `Entries on the skip list are omitted from the walk, which keeps the sweep fast` |
-| `The framework was updated to support async` | `The async handler takes precedence when both are defined` |
-| `Improved reliability / Various fixes` | `Fixed HttpClient retry on 429; corrected timezone parsing in date fields` |
-| Changelog entry describing the mechanism | Entry describing what the caller or operator gains |
-| Commit body as long as the diff | Two short paragraphs: the why, and where the detail lives |
-| Correcting the flagged token and committing the sentence | Rewriting the whole sentence from the source it describes |
-| Rambling multi-sentence doc comment | One-line contract; a second sentence for a real precondition |
-| Bulleted list narrating each behaviour | Connected prose; bullets for true enumerations |
-| Slogan or abstract principle | The observable outcome, or the concrete rule that produces it |
-
----
+Name the figure and it becomes greppable: definitional negation, abstraction as subject, chiasmus, "nothing"
+as a quantifier, the unbacked absolute, metaphor for a mechanism, negation as framing. Each is a *shape*, not a word,
+so a vocabulary filter cannot see it; the table of figures [ref-section-r3a2](references/figures.md#ref-section-r3a2)
+gives each one its example, why it fails, and the plain form, and the artifact-level table closes [Artifact
+rules](references/artifacts.md).
 
 # Final pass
 
@@ -933,9 +464,9 @@ and nowhere else. And **this standard is itself one of the tiers** — a questio
 a doc comment, or a commit message is answered here before it is answered anywhere else. An absence claim that has not
 covered them reports where you looked, not what is there.
 
-**A finding names a symptom. Fix the claim, not the token** — the procedure is [Rewrite
-from the source](#rewrite-from-the-source-not-from-the-flagged-token), and it applies to a first draft's own findings
-as much as to a rewrite pass.
+**A finding names a symptom. Fix the claim, not the token** — the procedure is the rewrite-from-source rule
+[ref-section-e8b7](references/rewriting.md#ref-section-e8b7), and it applies to a first draft's own findings as much
+as to a rewrite pass.
 
 **Run the checkable ones.** `prose-check.py` ships beside this file and reports items 2, 3, 4, 5, 7, 9, 11, 12 and 14
 plus the `does not` rule, so the pass is a command rather than an act of attention:
@@ -944,92 +475,13 @@ plus the `does not` rule, so the pass is a command rather than an act of attenti
 python3 /opt/ai-tools/skills/ai-tools-technical-docs/prose-check.py <file>...
 ```
 
-It reads rejoined sentences, reports, and does not block. Items 4, 9, 11 and 12 and the `does not` rule run by default
-and are near-exact — item 11 on a short vocabulary of person-naming subjects, item 12 only in a root `CLAUDE.md`
-or `AGENTS.md`, where each of its three marks names one thing — as does item 5's cost half — it reports a cost word only
-where the sentence does not name a frequency or a bounded operation, so one already stated concretely stays silent.
-`--all` adds the shape checks, each of which greps a sub-shape of its rule, because the rules themselves are
-about meaning: a word stem repeated across the pivot is the mirror in item 3 and the restated head noun in item 2,
-and an absolute in a sentence with no subordinating conjunction has nowhere for item 5's guard clause to be, and a count
-word with no noun after it and no correlative beside it is item 13's set left unnamed — where a following noun
-(`both files`) or an enumeration (`both the manifest and the key`) names it. It also carries the checks a rewrite needs
-a reader for — the `does not` rule in its past and participle inflections, and the verbs that name no operation. Every
-`--all` check wants a reader on each hit. `--kept` is the rewrite mode, described under [Run the checks a rewrite
-needs](#run-the-checks-a-rewrite-needs).
-
-### When the tool is the defect
-
-`prose-check.py` and `ref-index.py` live inside this skill. A check that mostly flags correct prose is a bug
-in the check, not in the text. The same is true of a reference finding that names a shape the grammar already allows,
-or a hint that points to the wrong fix.
-
-Do not silence it with `prose-check: ignore` or a reword that only dodges the pattern. That hides
-the evidence and leaves the cost for everyone else.
-
-**Measure first.** Run the check on the whole tree and report how many hits a reviewer would keep versus how many are
-noise. A proposal without a count is a preference; a proposal with a count is evidence. Rejected widenings (and
-the narrowings that earned their place) are recorded next to the checks so the same mistakes are not repeated.
-
-Quoted, backticked, and fenced spans are skipped, so a document may quote the prose it warns
-against; mark anything else deliberate with `prose-check: ignore` on the line, or
-`<!-- prose-check: ignore -->` in Markdown, where the marker then stays out of the rendered page.
-A **generated** file takes `prose-check: ignore-file` on a comment line of its own instead, and is
-not read at all — the marker is for a file whose text is copied from the targets it indexes, where a finding names prose
-that file cannot fix and the fix would edit a runtime string. It is read only as a whole line, so a document naming
-the marker is still checked. Run it before committing prose, and on the commit message too — the universal rules cover
-that artifact like any other.
-
-**Keep prose to the file's wrap width.** Source comments, docstrings and config headers are read as written — an editor
-and a terminal do not reflow them — so `--wrap` enforces:
-
-- **comment-width** — a source comment or docstring over **120** columns, this stack's code column. Override
-  with `--width` where the language sets another (Black 88, PEP 8 79).
-- **document-width** — a Markdown line over the reader's column: **79** for pages people read (README, `docs/`, guides),
-  the column classic prose is set at, since such a page is read whole rather than grepped; **120** for pages agents
-  retrieve (`CLAUDE.md`, `AGENTS.md`, `*.rule.md`, skills), which returns more of the claim per `grep` hit.
-
-Only prose is measured: a code line, a table row, a fenced block, a single-token or URL line, and a man page are
-skipped. These checks are opt-in, since a tree whose prose predates them reports every line.
-
-A config header stays at **72** columns, the RFC text width, ragged right, and is kept to what the file is, the one rule
-a reader needs before writing a line, example lines and the file's man page, since an upgrade does not rewrite a header
-in an operator's file. `--config-header` reports an over-width line (`--width` overrides) and leaves a commented default
-(`#KEY=value`) and a `# Default:` line alone, each stating a value that cannot wrap:
-
-```bash
-python3 /opt/ai-tools/skills/ai-tools-technical-docs/prose-check.py --config-header <file>...
-```
-
-**Where a line breaks is the formatter's, not the writer's.** Write the prose and let a formatter wrap it at the column
-`--print-width` reports; these checks hold the width alone.
-
-**Table cells must line up.** After editing a table inside a comment, align its cells: a column is as wide as its widest
-cell, so a cell too wide for its column widens every row. Where a project ships a table formatter, those decisions —
-column widths, number right-alignment, heading centering, rule-line placement — belong to it.
-
-**A file's extension decides how it is read, and `--prose` / `--source` override that.** A `.md` page or a man page
-contributes every line; anything else contributes its comments and docstrings. A path the extension rule does not
-recognize is read as source, so a **document copy whose name lost its extension** keeps only its `#` headings
-and reports zero findings for a file whose body the run never read — and zero findings reads as clean. Pass `--prose`
-for such a copy, `--source` for the reverse.
-
-**`--new <revision>` reports only what the paths add**, so a pre-existing finding does not mask a new one. It is
-the sibling of `--kept`: that one asks whether a rewrite kept the claim, this one asks what the rewrite introduced. It
-composes with `--all` and `--wrap`.
-
-```bash
-python3 /opt/ai-tools/skills/ai-tools-technical-docs/prose-check.py --all --new develop <file>...
-```
-
-Pairing is by content rather than by line, because an edit renumbers every finding after it. Two consequences to expect:
-a sentence that was **edited and still reports** counts as new, which is the wanted direction — the wording a branch
-leaves behind is the wording it is answerable for — and a file the revision does not hold reports every finding in it.
-Do not do this comparison by hand. Findings are two lines each, line numbers shift, and a tree reporting hundreds
-under `--all` buries the two that belong to the branch.
+It reads rejoined sentences, reports, and does not block; `--all` adds the shape checks that want a reader on each hit.
+A check that mostly flags correct prose is a bug in the check, not in the text: measure it and propose the change rather
+than silencing it. The modes, the `prose-check: ignore` markers, the wrap widths each kind of file is held to,
+and `--new`, which reports only what a change added, are in [Running the checker](references/checks.md).
 
 When in doubt: describe what the code does, name the mechanism that does it, and use fewer words.
 
----
-
 Design judgement belongs to `ai-tools-engineering-principles`; the oversight and governance model belongs
-to `ai-tools-capable-systems-governance`. This skill governs how any of it is written down.
+to `ai-tools-capable-systems-governance`. This skill governs how any of it is written down, and cross-reference reftags
+are `ai-tools-reftags`'s.
