@@ -409,7 +409,8 @@ load-bearing wherever the artifact appears: a literal a reader types or pastes i
 with its binary; a reference doc **names the fail direction from the branch that decides it** and whether access widens
 or narrows, with a root `CLAUDE.md` at invariant altitude, the domain mechanism in its rule and the file's mechanism
 in its header, the three reconciled whenever one is touched; and a commit message follows Conventional Commits, its
-subject stating what the change achieves and its body the why and where the detail lives.
+subject stating what the change achieves, its body the why and where the detail lives, and its trailers the repository's
+`CONTRIBUTING`, read before the first commit in that repository.
 
 # Anti-patterns
 

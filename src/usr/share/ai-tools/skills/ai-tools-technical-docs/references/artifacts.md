@@ -184,6 +184,9 @@ applies.
 - **Point, rather than repeat.** Detail lives in `*.rule.md`, the file header, or a code comment; name where it lives
   instead of restating it here.
 - **One reviewable, revertable concern per commit.**
+- **The trailers follow the repository's `CONTRIBUTING`.** Read it before the first commit in a repository: where it
+  states a DCO sign-off, `git commit -s` adds the `Signed-off-by` trailer, and where it governs a co-author trailer, its
+  rule decides over any default the tooling adds.
 - No local filesystem paths, no design notes, no enumerated implementation steps.
 
 ```
