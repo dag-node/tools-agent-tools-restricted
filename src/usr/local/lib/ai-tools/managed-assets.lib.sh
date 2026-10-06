@@ -115,10 +115,15 @@ ai_tools_asset_is_managed() {
 }
 
 # Print the integration a managed asset's marker binds it to (`x-ai-tools-integration: <name>`); empty when it is bound
-# to none.
+# to none. Returns 0 either way: the callers run under `set -e`, where an assignment takes the status of the command
+# substitution, so a reader that exits non-zero on an unbound asset ends the install at the first base skill.
 ai_tools_asset_integration() {
-    grep -m1 -E '^x-ai-tools-integration:' "$1" 2>/dev/null \
-        | sed -E 's/^x-ai-tools-integration:[[:space:]]*//; s/[[:space:]]+$//'
+    local line
+    line="$(grep -m1 -E '^x-ai-tools-integration:' "$1" 2>/dev/null)" || return 0
+    line="${line#x-ai-tools-integration:}"
+    line="${line#"${line%%[![:space:]]*}"}"
+    line="${line%"${line##*[![:space:]]}"}"
+    printf '%s\n' "${line}"
 }
 
 # _ai_tools_integration_installed <name>: succeed when the integration's manifest, `integrations.d/<name>.conf`, is
