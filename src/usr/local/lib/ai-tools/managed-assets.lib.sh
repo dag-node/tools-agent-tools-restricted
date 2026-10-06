@@ -102,9 +102,11 @@ _ai_tools_asset_is_retired() {
 # the marker is never touched, and a real file in an agent's own directory shadows the link. A WITHDRAWAL has neither
 # property, which is why that path preserves and this one does not.
 
-# Print the integer x-ai-tools-version from a managed asset's marker file; empty if absent.
+# Print the integer x-ai-tools-version from a managed asset's marker file; empty if absent. Returns 0 either way:
+# the seeder assigns it under `set -e`, where a marker with no version line would otherwise end the run
+# (ref-section-c3u9).
 ai_tools_asset_version() {
-    grep -m1 -E '^x-ai-tools-version:' "$1" 2>/dev/null | grep -oE '[0-9]+' | head -n1
+    grep -m1 -E '^x-ai-tools-version:' "$1" 2>/dev/null | grep -oE '[0-9]+' | head -n1 || return 0
 }
 
 # True when the marker file declares this asset ai-tools-managed.
