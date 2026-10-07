@@ -182,7 +182,11 @@ jobs:
       # each package into its served tree by this tag (.el9 -> el/9, .fc44 -> fedora/44).
       RPM_DIST_TAGS: el9 el10 fc44
     steps:
+      # The write token is not stored in .git/config: no step of this job runs a git network command, and gh reads
+      # its token from GH_TOKEN in the step that calls it.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
 
       # check-version.sh relaxes the %changelog match for `-rc.N` tags; recovery for a mismatch
       # is fix VERSION/%changelog and re-tag.
