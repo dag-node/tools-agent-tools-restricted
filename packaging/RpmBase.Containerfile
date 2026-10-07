@@ -62,10 +62,21 @@ ARG EXTRA_PACKAGES=""
 # scriptlet may ever execute while that secret is present.
 # groff-base renders the decoder block of ai-tools-records(5) for tests/unit/records.sh, which fails
 # without it rather than skipping, so the page is checked on every platform.
+# Every Rocky repo reads one ordered baseurl list in place of its mirrorlist, so BaseOS and AppStream resolve
+# from the same host and a package pair split across them (selinux-policy-devel requires its exact
+# selinux-policy) comes from one snapshot; the mirrorlist picks a host per repo, and two hosts at different
+# sync points fail that pair's depsolve. The first entry is the distribution's CDN, the rest fall through in
+# order when a host is unreachable. The first sed rewrites the `#baseurl=` line Rocky ships commented out
+# under each `mirrorlist=` and the second comments the mirrorlist; Fedora's repo files carry metalink lines
+# and a placeholder baseurl, so neither matches there.
 # No package installed here comes from Rocky's `extras` repo; disable it so a flaky refresh can't
 # abort the install. Fedora's repo files carry no [extras] section, so the sed does not match any line there.
 # The install line is dnf5-portable (no `-v`, numeric booleans), so it runs unchanged on both.
-RUN sed -i '/^\[extras\]/,/^\[/ s/^enabled=1$/enabled=0/' /etc/yum.repos.d/*.repo \
+RUN sed -i \
+        -e 's|^#baseurl=http://dl.rockylinux.org/\$contentdir/\(.*\)|baseurl=https://dl.rockylinux.org/$contentdir/\1 https://rocky-linux-us-central1.production.gcp.mirrors.ctrliq.cloud/pub/rocky/\1 https://ftp.sh.cvut.cz/rocky/\1 https://rockylinux.anexia.at/\1 https://ftp.fau.de/rockylinux/\1|' \
+        -e 's|^mirrorlist=https://mirrors.rockylinux.org/|#&|' \
+        /etc/yum.repos.d/*.repo \
+    && sed -i '/^\[extras\]/,/^\[/ s/^enabled=1$/enabled=0/' /etc/yum.repos.d/*.repo \
     && microdnf -y install \
         dnf rpm-build rpm-sign gnupg2 systemd-rpm-macros make sed tar gzip findutils createrepo_c \
         selinux-policy-devel policycoreutils \
