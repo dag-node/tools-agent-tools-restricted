@@ -67,10 +67,16 @@ write_set() {
     printf -- '---\nname: acme-reviewer\n---\nA fixture subagent.\n' > "${SET}/agents/acme-reviewer.md"
     write_inventory
 }
+# write_inventory: SHA256SUMS as build-set writes it, every file but the inventory and its signature, paths literal
+# (sha256sum's own output escapes a backslash, which the producer does not).
 write_inventory() {
-    local inventory
-    inventory="$(cd "${SET}" && find . -mindepth 1 ! -type d -printf '%P\n' | LC_ALL=C sort | xargs sha256sum)"
-    printf '%s\n' "${inventory}" > "${SET}/SHA256SUMS"
+    local file digest
+    rm -f "${SET}/SHA256SUMS"
+    while IFS= read -r file; do
+        digest="$(cd "${SET}" && sha256sum -- "${file}" | cut -c1-64)"
+        printf '%s  %s\n' "${digest}" "${file}"
+    done < <(cd "${SET}" && find . -mindepth 1 ! -type d ! -name SHA256SUMS ! -name SHA256SUMS.asc -printf '%P\n' | LC_ALL=C sort) \
+        > "${SET}/SHA256SUMS"
 }
 # sign_set <name>: sign the set's inventory with the key <name>, as release-steps.sh signs it (armored, detached).
 sign_set() {
@@ -281,10 +287,43 @@ expect 2 "a group-writable keyring directory" ai_tools_assets_verify_set "${SET}
 chmod 0755 "${KEYS}"
 expect 0 "control: the set verifies again once every input is restored" ai_tools_assets_verify_set "${SET}" acme
 
-# gpgv absent: a PATH holding every tool the verifier runs except gpgv.
-mkdir -p "${TESTDIR}/bin"
-for tool in sha256sum find sort stat awk base64 head; do ln -s "$(command -v "${tool}")" "${TESTDIR}/bin/${tool}"; done
+# A binding refused at a later line publishes neither output.
+write_binding acme "${KEYS}/signer.gpg" "openpgp:${SIGNER}" "not-a-signer"
+expect 2 "a binding whose second signer is invalid" ai_tools_assets_binding_read acme
+if (( ${#_ai_tools_av_signers[@]} == 0 )) && [[ -z "${_ai_tools_av_keyring}" ]]; then
+    pass "a refused binding leaves the signers and the keyring empty"
+else
+    fail "a refused binding published ${#_ai_tools_av_signers[@]} signer(s) and keyring '${_ai_tools_av_keyring}'"
+fi
+write_binding acme "${KEYS}/signer.gpg" "openpgp:${SIGNER}"
+
+# The walk's own status: an enumeration that ends early leaves a tree whose listed files match and whose unlisted ones
+# were never seen, so a walk that did not complete is unverifiable. Driven by a find that prints its listing and then
+# fails (a shell function in the inner shell, which a subshell inherits and a noexec /tmp cannot stop), and by a subtree
+# the projects user cannot enter, which root walks through.
+write_set; sign_set signer
 # shellcheck disable=SC2016  # the inner shell expands $1 and $2 from the arguments after `_`
-expect 2 "gpgv absent from PATH" env PATH="${TESTDIR}/bin" bash -c 'source "$1"; ai_tools_assets_verify_set "$2" acme' _ "${LIB}" "${SET}"
+expect 2 "a walk that fails after printing its listing" /bin/bash -c 'source "$1"; find() { /usr/bin/find "$@"; return 1; }; ai_tools_assets_check_inventory "$2"' _ "${LIB}" "${SET}"
+assert_msg MSG-Q6Y8 "${err}" "an incomplete walk is reported under MSG-Q6Y8"
+mkdir "${SET}/skills/acme-pdf/hidden"; printf 'unlisted\n' > "${SET}/skills/acme-pdf/hidden/extra.md"; chmod 0300 "${SET}/skills/acme-pdf/hidden"
+# shellcheck disable=SC2016
+expect 2 "a subtree the walking account cannot enter, as the projects user" runuser -u "${PROJECTS_USER}" -- /bin/bash -c 'source "$1"; ai_tools_assets_check_inventory "$2"' _ "${LIB}" "${SET}"
+chmod 0755 "${SET}/skills/acme-pdf/hidden"
+expect 1 "the same subtree walked by root is an unlisted file" ai_tools_assets_check_inventory "${SET}"
+
+# The bounds: a file over the per-file bound is not hashed.
+write_set; head -c $(( AI_TOOLS_ASSETS_FILE_MAX_BYTES + 1 )) /dev/zero > "${SET}/skills/acme-pdf/large.bin"; write_inventory; sign_set signer
+expect 2 "a file over the per-file bound, listed with a matching hash" ai_tools_assets_verify_set "${SET}" acme
+write_set; printf 'x\n' > "${SET}/skills/acme-pdf/windows\\paths.md"; write_inventory; sign_set signer
+expect 1 "a file name holding a backslash, which the inventory cannot list" ai_tools_assets_verify_set "${SET}" acme
+
+# gpgv absent: a PATH holding every tool the verifier runs except gpgv; bash is named by its absolute path, since
+# the restricted PATH cannot resolve it.
+mkdir -p "${TESTDIR}/bin"
+for tool in sha256sum find stat awk base64 head mktemp rm; do ln -s "$(command -v "${tool}")" "${TESTDIR}/bin/${tool}"; done
+# shellcheck disable=SC2016  # the inner shell expands $1 and $2 from the arguments after `_`
+expect 2 "gpgv absent from PATH" env PATH="${TESTDIR}/bin" /bin/bash -c 'source "$1"; ai_tools_assets_verify_set "$2" acme' _ "${LIB}" "${SET}"
+assert_msg MSG-Q6Y8 "${err}" "an absent gpgv is reported under MSG-Q6Y8"
+if grep -q "gpgv not found" <<<"${err}"; then pass "the diagnostic names gpgv"; else fail "the diagnostic does not name gpgv: $(head -c 200 <<<"${err}")"; fi
 
 finish
