@@ -57,21 +57,16 @@ ARG EXTRA_PACKAGES=""
 # the `-minimal` images omit it, and without it logind cannot sustain a lingering `--user instance`
 # across session open/close, so the nvm-update timer drops out from under the toolchain. On a
 # full host it is present already; the test image installs it to match.
-# rpm-sign + gnupg2 are baked in here, NOT dnf-installed at sign time: the release workflow
-# runs sign-rpms.sh in this image with the signing key in the environment, and no package
-# scriptlet may ever execute while that secret is present.
-# groff-base renders the decoder block of ai-tools-records(5) for tests/unit/records.sh, which fails
-# without it rather than skipping, so the page is checked on every platform.
-# Every Rocky repo reads one ordered baseurl list in place of its mirrorlist, so BaseOS and AppStream resolve
-# from the same host and a package pair split across them (selinux-policy-devel requires its exact
-# selinux-policy) comes from one snapshot; the mirrorlist picks a host per repo, and two hosts at different
-# sync points fail that pair's depsolve. The first entry is the distribution's CDN, the rest fall through in
-# order when a host is unreachable. The first sed rewrites the `#baseurl=` line Rocky ships commented out
-# under each `mirrorlist=` and the second comments the mirrorlist; Fedora's repo files carry metalink lines
-# and a placeholder baseurl, so neither matches there.
-# No package installed here comes from Rocky's `extras` repo; disable it so a flaky refresh can't
-# abort the install. Fedora's repo files carry no [extras] section, so the sed does not match any line there.
-# The install line is dnf5-portable (no `-v`, numeric booleans), so it runs unchanged on both.
+# rpm-sign and gnupg2 are installed here, not at sign time: the release workflow runs sign-rpms.sh in this image with
+# the signing key present, and no package scriptlet may ever run while that secret is.
+# groff-base renders the decoder block of ai-tools-records(5); tests/unit/records.sh fails without it.
+# Every Rocky repo reads one ordered baseurl list instead of a mirrorlist, which picks a host per repo, so BaseOS and
+# AppStream come from one snapshot and an exact-version pair split across them (selinux-policy-devel, selinux-policy)
+# depsolves. The CDN comes first; the rest are tried in order when a host is unreachable. The first sed uncomments
+# Rocky's `#baseurl=` line, the second comments its mirrorlist; Fedora's repo files match neither.
+# No package here comes from Rocky's `extras`, so it is disabled and a failed refresh of it cannot abort the install;
+# Fedora has no [extras] section.
+# The install line is dnf5-portable (no `-v`, numeric booleans), so it runs unchanged on Rocky and Fedora.
 RUN sed -i \
         -e 's|^#baseurl=http://dl.rockylinux.org/\$contentdir/\(.*\)|baseurl=https://dl.rockylinux.org/$contentdir/\1 https://rocky-linux-us-central1.production.gcp.mirrors.ctrliq.cloud/pub/rocky/\1 https://ftp.sh.cvut.cz/rocky/\1 https://rockylinux.anexia.at/\1 https://ftp.fau.de/rockylinux/\1|' \
         -e 's|^mirrorlist=https://mirrors.rockylinux.org/|#&|' \
