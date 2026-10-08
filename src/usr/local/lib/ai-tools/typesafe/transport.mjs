@@ -31,7 +31,7 @@ const BACKOFF_INITIAL_MS = 500;
 const BACKOFF_MAX_MS = 5_000;
 const BACKOFF_JITTER = 0.25;
 const MAX_RETRY_AFTER_MS = 60_000;
-/** A request id reaches the usage log, so it is accepted only in this shape. */
+/** A request id reaches the usage log, so it is admitted only in this shape. */
 const REQUEST_ID_PATTERN = /^[A-Za-z0-9._:-]{1,64}$/;
 /** The value of an OWN property, or undefined -- never a lookup through a prototype. */
 const ownProperty = (target, key) => (isRecord(target) && Object.hasOwn(target, key) ? target[key] : undefined);
@@ -169,12 +169,12 @@ function projectResult(rawResult, expectedIds, kind, choiceOptions) {
     }
     const model = ownProperty(rawResult, "model");
     const projectedResult = { usage, answers };
-    // A model name reaches the summary line and the usage log, so it is accepted only in the shape config.mts accepts.
+    // A model name reaches the summary line and the usage log, so it is admitted only in the shape config.mts accepts.
     if (isModelName(model))
         projectedResult.model = model;
     return projectedResult;
 }
-/** The id the provider names for this request, accepted only in the shape the usage log records. */
+/** The id the provider names for this request, admitted only in the shape the usage log records. */
 function requestIdOf(headers) {
     const rawRequestId = headers.get("x-typesafe-request-id");
     return rawRequestId !== null && REQUEST_ID_PATTERN.test(rawRequestId) ? rawRequestId : null;
