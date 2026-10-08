@@ -60,6 +60,11 @@
 #                      AGENTS.md. Each is the mark of a domain rule rather than of a document that
 #                      holds global invariants and routes to the rest.
 #
+# One default check is a plain word list, since the word has no technical sense a second condition would have to keep:
+#
+#   register-verb      the `admit` family, a register word standing where the code allows (a
+#                      policy, a permission), accepts (a parser, a check) or adds (a release).
+#
 # `--all` adds the shape checks. Each one greps a sub-shape of its rule -- the half a regex can see -- because the rules
 # themselves are about meaning: "an absolute with no guard in the same sentence" and "a clause mirrored across a pivot"
 # are not properties of any word list. A vocabulary grep for them reported correct prose on most of what it flagged
@@ -391,8 +396,14 @@ def bare_path(sentence):
 MARKUP_CHECKS = frozenset({"bare-option", "bare-placeholder", "bare-variable", "bare-path"})
 DOCUMENT_MARKUP_CHECKS = MARKUP_CHECKS - {"bare-option"}
 
+# `admit` names a register, not an operation: a deployment policy allows a tag, a parser accepts a shape, a later
+# release adds a kind. Every inflection reports, since the word has no technical sense to keep.
+REGISTER_VERB = re.compile(r"\b(admit|admits|admitted|admitting)\b", re.I)
+
 DEFAULT_CHECKS = [
     ("bare-option", bare_option, CODE_SPAN_HINT),
+    ("register-verb", REGISTER_VERB,
+     "`allows` for a policy or a permission, `accepts` for a parser or a check, `adds` for a release"),
     ("bare-placeholder", bare_placeholder, CODE_SPAN_HINT),
     ("bare-variable", BARE_VARIABLE, CODE_SPAN_HINT),
     ("bare-path", bare_path, CODE_SPAN_HINT),

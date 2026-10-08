@@ -7,18 +7,19 @@ its markers, and the widths it holds a file to; the rules it checks are the stan
 python3 /opt/ai-tools/skills/ai-tools-technical-docs/prose-check.py <file>...
 ```
 
-It reads rejoined sentences, reports, and does not block. The `nothing`, filler, predicted-action and router-altitude
-items and the `does not` rule run by default and are near-exact — the predicted-action item on a short vocabulary
-of person-naming subjects, the router item only in a root `CLAUDE.md` or `AGENTS.md`, where each of its three marks
-names one thing — as does the cost half of the absolute item: it reports a cost word only where the sentence does not
-name a frequency or a bounded operation, so one already stated concretely stays silent. `--all` adds the shape checks,
-each of which greps a sub-shape of its rule, because the rules themselves are about meaning: a word stem repeated
-across the pivot is the mirror and the restated head noun, an absolute in a sentence with no subordinating conjunction
-has nowhere for its guard clause to be, and a count word with no noun after it and no correlative beside it is a set
-left unnamed — where a following noun (`both files`) or an enumeration (`both the manifest and the key`) names it. It
-also carries the checks a rewrite needs a reader for — the `does not` rule in its past and participle inflections,
-and the verbs that name no operation. Every `--all` check wants a reader on each hit. `--kept` is the rewrite mode,
-described under the rewrite checks [ref-section-g5n4](rewriting.md#ref-section-g5n4).
+It reads rejoined sentences, reports, and does not block. The `nothing`, filler, predicted-action, register-verb
+and router-altitude items and the `does not` rule run by default and are near-exact — the predicted-action item
+on a short vocabulary of person-naming subjects, the router item only in a root `CLAUDE.md` or `AGENTS.md`, where each
+of its three marks names one thing — as does the cost half of the absolute item: it reports a cost word only
+where the sentence does not name a frequency or a bounded operation, so one already stated concretely stays silent.
+`--all` adds the shape checks, each of which greps a sub-shape of its rule, because the rules themselves are
+about meaning: a word stem repeated across the pivot is the mirror and the restated head noun, an absolute in a sentence
+with no subordinating conjunction has nowhere for its guard clause to be, and a count word with no noun after it and no
+correlative beside it is a set left unnamed — where a following noun (`both files`) or an enumeration
+(`both the manifest and the key`) names it. It also carries the checks a rewrite needs a reader for — the `does not`
+rule in its past and participle inflections, and the verbs that name no operation. Every `--all` check wants a reader
+on each hit. `--kept` is the rewrite mode, described under the rewrite checks
+[ref-section-g5n4](rewriting.md#ref-section-g5n4).
 
 ## When the tool is the defect
 

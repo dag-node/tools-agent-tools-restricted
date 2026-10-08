@@ -147,10 +147,13 @@ reports positional-reference TEST-PC-67-positional.md \
 reports positional-reference TEST-PC-68-positional-paren.md \
     "An explicit answer at the end of the install (below) puts the line back."
 reports positional-reference TEST-PC-69-positional-placement.md "The details are printed plain below the box."
+reports register-verb      TEST-PC-183-register-verb.md "The gate admits the name only in a launcher's charset."
+reports register-verb      TEST-PC-185-register-verb-past.md "A checksum is admitted only in exact 64-hex shape."
 
 # ── ...and stays silent on the corrected form, which is the half a widened pattern breaks ─────
 silent TEST-PC-06-fronted-quantifier-ok.md "The helper does not take a path argument."
 silent TEST-PC-07-nothing-ok.md "The helper does not read the path argument, so the validator is skipped."
+silent TEST-PC-184-register-verb-ok.md "The gate accepts the name only in a launcher's charset."
 # `nothing` as the object of an OUTPUT verb names an empty result, which is a contract rather than a hidden scope. Two
 # of the verbs, since the exemption turns on the object being the output.
 silent TEST-PC-80-nothing-result.md \
@@ -320,7 +323,7 @@ silent TEST-PC-118-span-wrapped-alternation.md \
     '| default | assume-yes)`) for every decision.'
 
 # An absolute root is a directory on its own, so the path that follows it is optional. Pinned from both sides:
-# the boundary that admits `/opt` must still refuse a word that merely begins with it, or every `/optional` in the tree
+# the boundary that accepts `/opt` must still refuse a word that merely begins with it, or every `/optional` in the tree
 # reads as a path.
 reports bare-path TEST-PC-120-path-absolute-root.md "The account is created at /opt, never at /home."
 silent TEST-PC-121-path-absolute-word.md "An /optional group is enabled by the operator alone."
