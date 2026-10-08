@@ -173,6 +173,7 @@ jobs:
     # Pinned like rpm-selftest: this job builds and signs RPMs inside podman containers,
     # so it needs the same known-good podman/crun combo (see that job's note).
     runs-on: ubuntu-22.04
+    timeout-minutes: 15
     permissions:
       contents: write
     env:
@@ -242,11 +243,15 @@ jobs:
           [[ "${GPG_SIGNING_PASSPHRASE}" != *$'\n'* ]] \
             || { echo "::error::GPG_SIGNING_PASSPHRASE must be single-line"; exit 1; }
 
-          # gpg must import into a keyring DIRECTORY to verify a usable secret key. Keep it on
-          # tmpfs (/dev/shm, RAM) so the key never lands on persistent disk, and wipe on exit --
-          # mirrors packaging/sign-rpms.sh. The key text arrives on stdin, never a temp file.
-          gnupghome="$(mktemp -d -p /dev/shm 2>/dev/null || mktemp -d)"
-          trap 'rm -rf "${gnupghome}"' EXIT
+          # gpg must import into a keyring DIRECTORY to verify a usable secret key. The keyring is
+          # on tmpfs (/dev/shm) alone: a /dev/shm that is absent or not tmpfs refuses, so the key
+          # never lands in a disk-backed directory, and the trap stops the agent the import started
+          # and wipes it -- mirrors packaging/sign-rpms.sh. The key text arrives on stdin, never a
+          # temp file.
+          [[ -d /dev/shm && "$(stat -f -c %T /dev/shm 2>/dev/null)" == tmpfs ]] \
+            || { echo "::error::/dev/shm is absent or not tmpfs"; exit 1; }
+          gnupghome="$(mktemp -d -p /dev/shm)" || { echo "::error::no directory could be created under /dev/shm"; exit 1; }
+          trap 'GNUPGHOME="${gnupghome}" gpgconf --kill gpg-agent 2>/dev/null; rm -rf "${gnupghome}"' EXIT
           printf '%s\n' "${GPG_SIGNING_KEY}" | GNUPGHOME="${gnupghome}" gpg --batch --quiet --import \
             || { echo "::error::GPG_SIGNING_KEY did not import: the value is not an ASCII-armored key block. Export the signing subkey with gpg --armor --export-secret-subkeys '<subkey-fpr>!' and set it again: gh secret set GPG_SIGNING_KEY --env release -R ${GITHUB_REPOSITORY} < signing-subkey.asc"; exit 1; }
           GNUPGHOME="${gnupghome}" gpg --batch --with-colons --list-secret-keys | grep -q '^sec:' \
@@ -296,7 +301,8 @@ jobs:
       # on a throwaway RPM inside each distribution's container, BEFORE any release RPM is built or
       # published. A wrong passphrase or a container where rpmsign silently no-ops (the 0.6.1
       # failure mode) fails the job here. The signing key is a step-scoped env var, never baked
-      # into an image layer or build cache.
+      # into an image layer or build cache, and a container that receives it has no network, so
+      # the key cannot leave it whatever the image runs.
       # `--entrypoint` bypasses the image's /sbin/init (a bare command is ignored init arguments --
       # the container would boot the selftest instead); the assertion proves sign-rpms.sh ran.
       - name: Prove the signing chain end-to-end (in-container)
@@ -309,7 +315,7 @@ jobs:
           # container environment: podman records `-e` values in the on-disk container config.
           for tag in ${RPM_DIST_TAGS}; do
             out="$(printf '%s\n%s\n' "${GPG_SIGNING_PASSPHRASE}" "${GPG_SIGNING_KEY}" \
-              | sudo podman run --rm -i \
+              | sudo podman run --rm -i --network=none \
               --entrypoint /usr/bin/bash \
               ai-tools-rpmbase:${tag} \
               /opt/ai-tools-src/packaging/sign-rpms.sh --secrets-stdin --selftest)"
@@ -336,7 +342,7 @@ jobs:
             mkdir -p "dist-rpms/${tag}"
             cname="ai-tools-sign-${tag}"
             out="$(printf '%s\n%s\n' "${GPG_SIGNING_PASSPHRASE}" "${GPG_SIGNING_KEY}" \
-              | sudo podman run -i --name "${cname}" \
+              | sudo podman run -i --name "${cname}" --network=none \
               --entrypoint /usr/bin/bash \
               ai-tools-rpmbase:${tag} -c '
                 bash /opt/ai-tools-src/packaging/sign-rpms.sh --secrets-stdin /tmp/pubkey.asc \
@@ -362,8 +368,11 @@ jobs:
           GPG_SIGNING_KEY: ${{ secrets.GPG_SIGNING_KEY }}
         run: |
           set -euo pipefail
-          gnupghome="$(mktemp -d -p /dev/shm 2>/dev/null || mktemp -d)"
-          trap 'rm -rf "${gnupghome}"' EXIT
+          # The keyring is on tmpfs alone and its agent is stopped in the trap, as in preflight.
+          [[ -d /dev/shm && "$(stat -f -c %T /dev/shm 2>/dev/null)" == tmpfs ]] \
+            || { echo "::error::/dev/shm is absent or not tmpfs"; exit 1; }
+          gnupghome="$(mktemp -d -p /dev/shm)" || { echo "::error::no directory could be created under /dev/shm"; exit 1; }
+          trap 'GNUPGHOME="${gnupghome}" gpgconf --kill gpg-agent 2>/dev/null; rm -rf "${gnupghome}"' EXIT
           printf '%s\n' "${GPG_SIGNING_KEY}" | GNUPGHOME="${gnupghome}" gpg --batch --quiet --import
           fpr="$(GNUPGHOME="${gnupghome}" gpg --batch --with-colons --list-secret-keys \
                   | awk -F: '$1 == "fpr" { print $10; exit }')"
@@ -456,10 +465,11 @@ jobs:
           # step.
           attempts=5
           for attempt in $(seq 1 "${attempts}"); do
+            # -f sends each value as the string it is; -F would read a value starting with @ as a file name.
             if gh api "repos/dag-node/rpm/dispatches" \
                   -f "event_type=publish-rpm" \
-                  -F "client_payload[project]=${GITHUB_REPOSITORY}" \
-                  -F "client_payload[tag]=${GITHUB_REF_NAME}"; then
+                  -f "client_payload[project]=${GITHUB_REPOSITORY}" \
+                  -f "client_payload[tag]=${GITHUB_REF_NAME}"; then
               exit 0
             fi
             if [[ "${attempt}" -lt "${attempts}" ]]; then
