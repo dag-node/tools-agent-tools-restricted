@@ -305,6 +305,23 @@ ai_tools_conf_pair_name_valid() {
     [[ "${1-}" =~ ^[A-Za-z0-9_]+$ && ${#1} -le ${AI_TOOLS_CONF_PAIR_NAME_MAX} ]]
 }
 
+# The longest portable file name: NAME_MAX, the bound every Linux filesystem holds one directory entry to.
+# shellcheck disable=SC2034  # read by the callers that compose a path from a name
+readonly AI_TOOLS_CONF_PORTABLE_NAME_MAX=255
+
+# ai_tools_conf_portable_name_valid <name> : succeed when <name> is one path component of the POSIX portable filename
+#   character set -- letters, digits, `.`, `_` and `-`, 1 to AI_TOOLS_CONF_PORTABLE_NAME_MAX bytes, not opening
+#   with `-` and not `.` or `..`, matched in the C locale so a range does not take in letters outside ASCII. The set is
+#   the one every filesystem, locale, archive and checksum tool reads back byte for byte: sha256sum prints a name
+#   outside it escaped, a whitespace IFS splits one, a filesystem that composes Unicode renames one, a command line
+#   reads a leading `-` as an option, and log.lib.sh's sanitizer reduces one for display. A reader that accepts this set
+#   alone therefore holds a name under one predicate and does not need a second grammar for any of those.
+ai_tools_conf_portable_name_valid() {
+    local LC_ALL=C
+    [[ "${1-}" =~ ^[A-Za-z0-9._][A-Za-z0-9._-]*$ && ${#1} -le ${AI_TOOLS_CONF_PORTABLE_NAME_MAX} \
+        && "${1-}" != . && "${1-}" != .. ]]
+}
+
 # ai_tools_conf_pair_list <array-name> <file> <KEY> <value>... : ai_tools_conf_list for a key whose items are
 #   <name>=<value> pairs, `[nis_enabled=off, deny_ptrace=on]`. Sets the array to the valid items, as written, in order:
 #   a name ai_tools_conf_pair_name_valid accepts and one of the <value>s, matched exactly. An item that is not one is

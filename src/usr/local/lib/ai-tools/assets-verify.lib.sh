@@ -16,9 +16,12 @@
 #      ai_tools_conf_is_trusted or does not parse, or a VALIDSIG primary no `signers` item names
 # Both refuse: the resolver reads 1 as set-tampered and 2 as set-unverified. The signature is checked before the
 # inventory is parsed, so a tree whose signature fails is not read further; a signed inventory that does not describe
-# the tree is a mismatch, since the signed file and the tree cannot both be what the publisher built. A file name
-# holding a newline or a backslash is a mismatch too: sha256sum prints such a name escaped, so one inventory line cannot
-# name it, and the format's file-name rule refuses it at build.
+# the tree is a mismatch, since the signed file and the tree cannot both be what the publisher built. A path, listed
+# or found, is read under one predicate, ai_tools_conf_portable_name_valid per component, and a name outside that set
+# is a mismatch too: the format's `file.name` rule accepts the same set at build, so a signed set does not carry one,
+# and sha256sum, which prints a backslash or a control character escaped, never meets one. Every name, line and tool
+# message a diagnostic carries passes log.lib.sh's allowlist sanitizer first, since a refused set's bytes are
+# whoever wrote them.
 #
 # A binding is AI_TOOLS_ASSETS_BINDINGS_DIR/<set>.conf in the shared KEY=value grammar, read line by line
 # through conf.lib.sh and not sourced: `set` equals the file's stem, `signers` lists primary fingerprints as openpgp:<40
@@ -43,6 +46,14 @@ if ! source "${BASH_SOURCE[0]%/*}/conf.lib.sh" 2>/dev/null || ! declare -F ai_to
     printf 'assets-verify: conf.lib.sh did not load, so the set verifier is not defined\n' >&2
     return 1
 fi
+# log.lib.sh is REQUIRED for the same reason: it carries the allowlist sanitizer every diagnostic's untrusted part
+# passes, and a library that printed a set's bytes raw to a terminal or the journal would be the defect the sanitizer
+# exists for.
+# shellcheck source=SCRIPTDIR/log.lib.sh
+if ! source "${BASH_SOURCE[0]%/*}/log.lib.sh" 2>/dev/null || ! declare -F ai_tools_log_sanitize >/dev/null 2>&1; then
+    printf 'assets-verify: log.lib.sh did not load, so the set verifier is not defined\n' >&2
+    return 1
+fi
 _AI_TOOLS_ASSETS_VERIFY_LIB_LOADED=1
 
 # The shipped bindings, redirected by a root-only test hook with the standing of AI_TOOLS_ENTRYPOINT_PIN_DIR: `sudo`
@@ -65,8 +76,14 @@ _ai_tools_av_warn() {
     local code=""
     if [[ "${1-}" =~ ^MSG-[A-Z][0-9][A-Z][0-9]$ ]]; then code="$1"; shift; printf '%s\n' "${code}" >&2; fi
     printf 'assets-verify: %s\n' "$*" >&2
-    declare -F ai_tools_log_warn >/dev/null 2>&1 && ai_tools_log_warn "assets-verify: $*"
+    ai_tools_log_warn "assets-verify: $*"
     return 0
+}
+
+# _ai_tools_av_show <text> : print <text> as a diagnostic carries it: at most 80 characters, through the allowlist
+#   sanitizer, so a name or a line read from a set does not reach a terminal or the journal raw.
+_ai_tools_av_show() {
+    ai_tools_log_sanitize "${1:0:80}"
 }
 
 # _ai_tools_av_mismatch <detail...> : report a status-1 refusal under its code. The caller returns 1.
@@ -132,7 +149,7 @@ ai_tools_assets_binding_read() {
     _ai_tools_av_signers=()
     _ai_tools_av_keyring=""
     ai_tools_assets_set_name_valid "${set_name}" \
-        || { _ai_tools_av_unverifiable "'${set_name:0:80}' is not a set name"; return 2; }
+        || { _ai_tools_av_unverifiable "'$(_ai_tools_av_show "${set_name}")' is not a set name"; return 2; }
     binding="${dir}/${set_name}.conf"
     ai_tools_conf_is_trusted "${dir}" \
         || { _ai_tools_av_unverifiable "bindings directory ${dir} is not trusted ($(ai_tools_conf_untrusted_reason "${dir}"))"; return 2; }
@@ -150,7 +167,7 @@ ai_tools_assets_binding_read() {
         key="${line%%=*}"
         key="${key%"${key##*[![:space:]]}"}"
         [[ "${line}" == *=* && "${key}" =~ ^(set|signers|keyring)$ ]] \
-            || { _ai_tools_av_unverifiable "binding ${binding} holds a line this reader does not define: ${line:0:80}"; return 2; }
+            || { _ai_tools_av_unverifiable "binding ${binding} holds a line this reader does not define: $(_ai_tools_av_show "${line}")"; return 2; }
     done < "${binding}"
     [[ "$(ai_tools_conf_get "${binding}" set)" == "${set_name}" ]] \
         || { _ai_tools_av_unverifiable "binding ${binding} does not name set ${set_name} in its set= line"; return 2; }
@@ -160,14 +177,14 @@ ai_tools_assets_binding_read() {
         || { _ai_tools_av_unverifiable "binding ${binding} names no signer"; return 2; }
     for item in "${signers[@]}"; do
         ai_tools_assets_signer_valid "${item}" \
-            || { _ai_tools_av_unverifiable "binding ${binding} signer '${item:0:80}' is not openpgp:<40 hex digits>"; return 2; }
+            || { _ai_tools_av_unverifiable "binding ${binding} signer '$(_ai_tools_av_show "${item}")' is not openpgp:<40 hex digits>"; return 2; }
         parsed_signers+=("${item#openpgp:}")
     done
     keyring="$(ai_tools_conf_get "${binding}" keyring)"
     if [[ "${keyring}" != /* || "${keyring}" == *..* ]] \
         || ! ai_tools_conf_is_trusted "${keyring%/*}" || ! ai_tools_conf_is_trusted "${keyring}" \
         || ! _ai_tools_av_regular_file "${keyring}" "${AI_TOOLS_ASSETS_SMALL_FILE_MAX_BYTES}" || [[ ! -s "${keyring}" ]]; then
-        _ai_tools_av_unverifiable "binding ${binding} keyring '${keyring:0:120}' is not an absolute path to a trusted, non-empty regular file in a trusted directory"
+        _ai_tools_av_unverifiable "binding ${binding} keyring '$(_ai_tools_av_show "${keyring}")' is not an absolute path to a trusted, non-empty regular file in a trusted directory"
         return 2
     fi
     # The outputs are assigned once, after every check, so a binding refused at any line publishes neither.
@@ -176,16 +193,20 @@ ai_tools_assets_binding_read() {
     return 0
 }
 
-# _ai_tools_av_inventory_path_valid <path> : succeed when <path> is a relative path inside a set: no leading `/`,
-#   no empty, `.` or `..` component, no backslash (sha256sum's escape for a name it cannot print plainly), and not
-#   the inventory or its signature, which list themselves nowhere.
+# _ai_tools_av_inventory_path_valid <path> : succeed when <path> is a relative path inside a set: no leading
+#   or trailing `/`, every component one ai_tools_conf_portable_name_valid accepts, and not the inventory or its
+#   signature, which list themselves nowhere. Read over a listed path and over a found one alike, so the two readers
+#   accept one set of names. The components are split on `/` alone by `read -a`, which does not expand a glob
+#   character on the way and stops at a newline, so a newline is refused ahead of the split.
 _ai_tools_av_inventory_path_valid() {
     local path="${1-}" component
-    [[ -n "${path}" && "${path}" != /* && "${path}" != *\\* ]] || return 1
+    local -a components=()
+    [[ -n "${path}" && "${path}" != /* && "${path}" != */ && "${path}" != *$'\n'* ]] || return 1
     [[ "${path}" != "${AI_TOOLS_ASSETS_INVENTORY}" && "${path}" != "${AI_TOOLS_ASSETS_SIGNATURE}" ]] || return 1
-    local IFS=/
-    for component in ${path}; do
-        [[ -n "${component}" && "${component}" != . && "${component}" != .. ]] || return 1
+    IFS=/ read -r -a components <<< "${path}"
+    (( ${#components[@]} > 0 )) || return 1
+    for component in "${components[@]}"; do
+        ai_tools_conf_portable_name_valid "${component}" || return 1
     done
     return 0
 }
@@ -198,15 +219,29 @@ _ai_tools_av_inventory_path_valid() {
 #   complete, a file over the per-file bound, a set over the file-count or payload bound, or no sha256sum. Prints
 #   nothing. The walk is written to a file of its own so its exit status is read: an enumeration that ended early
 #   leaves a tree whose listed files match and whose unlisted ones were never seen, which no count would show. The tree
-#   is then hashed in one sha256sum call over the names the walk found.
+#   is then hashed in one sha256sum call over the names the walk found. This function owns that file alone, made here
+#   and removed after the check it wraps returns, so no trap of the caller's is replaced.
 ai_tools_assets_check_inventory() {
-    local set_dir="${1:-}" inventory line digest path size_bytes checksum_output hashed_count=0 total_bytes=0
-    local listing walk_error walk_status=0
-    local line_shape='^([0-9a-f]{64}) [ *](.+)$'
-    local -A expected_digests_by_path=()
-    local -a discovered_file_paths=()
+    local set_dir="${1:-}" listing status=0
     [[ -n "${set_dir}" && ! -L "${set_dir}" && -d "${set_dir}" ]] \
-        || { _ai_tools_av_unverifiable "'${set_dir:0:120}' is not a directory"; return 2; }
+        || { _ai_tools_av_unverifiable "'$(_ai_tools_av_show "${set_dir}")' is not a directory"; return 2; }
+    listing="$(mktemp 2>/dev/null)" \
+        || { _ai_tools_av_unverifiable "${set_dir}: no temporary file for the walk"; return 2; }
+    _ai_tools_av_check_inventory_in "${set_dir}" "${listing}" || status=$?
+    rm -f -- "${listing}"
+    return "${status}"
+}
+
+# _ai_tools_av_check_inventory_in <set-directory> <listing-file> : ai_tools_assets_check_inventory's check, with the
+#   walk written to <listing-file>, which the caller made and removes. Each record of the listing is read whole and
+#   split at its first tab, so a name is kept byte for byte: a tab in IFS is collapsed, and a name opening with one
+#   would read as another file's and that file be hashed twice. Each name is met once.
+_ai_tools_av_check_inventory_in() {
+    local set_dir="${1:-}" listing="${2:-}" inventory line digest path record size_bytes checksum_output
+    local hashed_count=0 total_bytes=0 walk_error walk_status=0
+    local line_shape='^([0-9a-f]{64}) [ *](.+)$'
+    local -A expected_digests_by_path=() seen=()
+    local -a discovered_file_paths=()
     inventory="${set_dir}/${AI_TOOLS_ASSETS_INVENTORY}"
     _ai_tools_av_regular_file "${inventory}" "${AI_TOOLS_ASSETS_FILE_MAX_BYTES}" \
         || { _ai_tools_av_unverifiable "${inventory} is absent, not a regular file, unreadable, or over ${AI_TOOLS_ASSETS_FILE_MAX_BYTES} bytes"; return 2; }
@@ -214,49 +249,50 @@ ai_tools_assets_check_inventory() {
         || { _ai_tools_av_unverifiable "sha256sum not found"; return 2; }
     while IFS= read -r line || [[ -n "${line}" ]]; do
         [[ "${line}" =~ ${line_shape} ]] \
-            || { _ai_tools_av_mismatch "${inventory}: a line is not <sha256>  <path>: ${line:0:80}"; return 1; }
+            || { _ai_tools_av_mismatch "${inventory}: a line is not <sha256>  <path>: $(_ai_tools_av_show "${line}")"; return 1; }
         digest="${BASH_REMATCH[1]}"
         path="${BASH_REMATCH[2]}"
         _ai_tools_av_inventory_path_valid "${path}" \
-            || { _ai_tools_av_mismatch "${inventory}: '${path:0:80}' is not a relative path inside the set"; return 1; }
+            || { _ai_tools_av_mismatch "${inventory}: '$(_ai_tools_av_show "${path}")' is not a relative path inside the set"; return 1; }
         [[ -z "${expected_digests_by_path[${path}]+x}" ]] \
-            || { _ai_tools_av_mismatch "${inventory}: '${path:0:80}' is listed twice"; return 1; }
+            || { _ai_tools_av_mismatch "${inventory}: '$(_ai_tools_av_show "${path}")' is listed twice"; return 1; }
         expected_digests_by_path["${path}"]="${digest}"
         (( ${#expected_digests_by_path[@]} <= AI_TOOLS_ASSETS_FILE_MAX_COUNT )) \
             || { _ai_tools_av_unverifiable "${inventory}: lists more than ${AI_TOOLS_ASSETS_FILE_MAX_COUNT} files"; return 2; }
     done < "${inventory}"
-    listing="$(mktemp 2>/dev/null)" \
-        || { _ai_tools_av_unverifiable "${set_dir}: no temporary file for the walk"; return 2; }
-    # shellcheck disable=SC2064  # the name is expanded now, so the trap removes the file this call made
-    trap "rm -f -- '${listing}'" RETURN
     walk_error="$( (cd "${set_dir}" && find . -mindepth 1 ! -type d -printf '%s\t%P\0' > "${listing}") 2>&1 )" \
         || walk_status=$?
     (( walk_status == 0 )) \
-        || { _ai_tools_av_unverifiable "${set_dir}: the walk did not complete (find exit ${walk_status}): ${walk_error%%$'\n'*}"; return 2; }
-    # Every file of the tree is a listed regular file within the bounds. A name holding a newline or a backslash,
-    # which sha256sum prints escaped, a link or a special file is a mismatch here, as the file-shape rules refuse it
-    # at the resolver.
-    while IFS=$'\t' read -r -d '' size_bytes path; do
+        || { _ai_tools_av_unverifiable "${set_dir}: the walk did not complete (find exit ${walk_status}): $(_ai_tools_av_show "${walk_error%%$'\n'*}")"; return 2; }
+    # Every file of the tree is a listed regular file within the bounds. A name outside the portable set, a link
+    # or a special file is a mismatch here, as the file-shape rules refuse it at the resolver; the name is held
+    # before the path is joined or printed.
+    while IFS= read -r -d '' record; do
+        size_bytes="${record%%$'\t'*}"
+        path="${record#*$'\t'}"
         [[ "${path}" == "${AI_TOOLS_ASSETS_INVENTORY}" || "${path}" == "${AI_TOOLS_ASSETS_SIGNATURE}" ]] && continue
-        [[ "${path}" != *$'\n'* && "${path}" != *\\* ]] \
-            || { _ai_tools_av_mismatch "${set_dir}: a file name holds a newline or a backslash, which the inventory cannot list"; return 1; }
+        _ai_tools_av_inventory_path_valid "${path}" \
+            || { _ai_tools_av_mismatch "${set_dir}: '$(_ai_tools_av_show "${path}")' is a file name outside the portable set, which the inventory cannot list"; return 1; }
+        [[ -z "${seen[${path}]+x}" ]] \
+            || { _ai_tools_av_mismatch "${set_dir}: '$(_ai_tools_av_show "${path}")' was met twice in the walk"; return 1; }
+        seen["${path}"]=1
         [[ ! -L "${set_dir}/${path}" && -f "${set_dir}/${path}" ]] \
-            || { _ai_tools_av_mismatch "${set_dir}: '${path:0:80}' is not a regular file"; return 1; }
+            || { _ai_tools_av_mismatch "${set_dir}: '$(_ai_tools_av_show "${path}")' is not a regular file"; return 1; }
         if ! [[ "${size_bytes}" =~ ^[0-9]+$ ]] || (( size_bytes > AI_TOOLS_ASSETS_FILE_MAX_BYTES )); then
-            _ai_tools_av_unverifiable "${set_dir}: '${path:0:80}' is over ${AI_TOOLS_ASSETS_FILE_MAX_BYTES} bytes"
+            _ai_tools_av_unverifiable "${set_dir}: '$(_ai_tools_av_show "${path}")' is over ${AI_TOOLS_ASSETS_FILE_MAX_BYTES} bytes"
             return 2
         fi
         total_bytes=$(( total_bytes + size_bytes ))
         (( total_bytes <= AI_TOOLS_ASSETS_SET_MAX_BYTES && ${#discovered_file_paths[@]} < AI_TOOLS_ASSETS_FILE_MAX_COUNT )) \
             || { _ai_tools_av_unverifiable "${set_dir}: holds more than ${AI_TOOLS_ASSETS_FILE_MAX_COUNT} files or ${AI_TOOLS_ASSETS_SET_MAX_BYTES} bytes"; return 2; }
         [[ -n "${expected_digests_by_path[${path}]+x}" ]] \
-            || { _ai_tools_av_mismatch "${set_dir}: '${path:0:80}' is in the set and not in ${AI_TOOLS_ASSETS_INVENTORY}"; return 1; }
+            || { _ai_tools_av_mismatch "${set_dir}: '$(_ai_tools_av_show "${path}")' is in the set and not in ${AI_TOOLS_ASSETS_INVENTORY}"; return 1; }
         discovered_file_paths+=("${path}")
     done < "${listing}"
     if (( ${#discovered_file_paths[@]} != ${#expected_digests_by_path[@]} )); then
         for path in "${!expected_digests_by_path[@]}"; do
             [[ -e "${set_dir}/${path}" ]] \
-                || { _ai_tools_av_mismatch "${inventory}: '${path:0:80}' is listed and not in the set"; return 1; }
+                || { _ai_tools_av_mismatch "${inventory}: '$(_ai_tools_av_show "${path}")' is listed and not in the set"; return 1; }
         done
         _ai_tools_av_mismatch "${inventory}: lists ${#expected_digests_by_path[@]} files, the set holds ${#discovered_file_paths[@]}"
         return 1
@@ -271,7 +307,7 @@ ai_tools_assets_check_inventory() {
         path="${line#* }"
         path="${path# }"
         [[ "${expected_digests_by_path[${path}]-}" == "${digest}" ]] \
-            || { _ai_tools_av_mismatch "${set_dir}: '${path:0:80}' does not match its ${AI_TOOLS_ASSETS_INVENTORY} line"; return 1; }
+            || { _ai_tools_av_mismatch "${set_dir}: '$(_ai_tools_av_show "${path}")' does not match its ${AI_TOOLS_ASSETS_INVENTORY} line"; return 1; }
         hashed_count=$(( hashed_count + 1 ))
     done <<< "${checksum_output}"
     (( hashed_count == ${#discovered_file_paths[@]} )) \
@@ -291,9 +327,9 @@ ai_tools_assets_verify_set() {
     local set_dir="${1:-}" set_name="${2:-}" inventory signature gpgv_status_output gpgv_exit_status=0
     local signer_primary allowed_primary matched=no
     [[ -n "${set_dir}" && ! -L "${set_dir}" && -d "${set_dir}" ]] \
-        || { _ai_tools_av_unverifiable "'${set_dir:0:120}' is not a directory"; return 2; }
+        || { _ai_tools_av_unverifiable "'$(_ai_tools_av_show "${set_dir}")' is not a directory"; return 2; }
     ai_tools_assets_set_name_valid "${set_name}" \
-        || { _ai_tools_av_unverifiable "'${set_name:0:80}' is not a set name"; return 2; }
+        || { _ai_tools_av_unverifiable "'$(_ai_tools_av_show "${set_name}")' is not a set name"; return 2; }
     inventory="${set_dir}/${AI_TOOLS_ASSETS_INVENTORY}"
     signature="${set_dir}/${AI_TOOLS_ASSETS_SIGNATURE}"
     _ai_tools_av_regular_file "${inventory}" "${AI_TOOLS_ASSETS_FILE_MAX_BYTES}" \
