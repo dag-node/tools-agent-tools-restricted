@@ -30,8 +30,8 @@
 # a cryptographic signature LINE validates -- `rpmkeys --checksig` exits 0 for an unsigned package (no signature
 # to fail), so a return-code-only test passes a silent rpmsign no-op; the 0.6.1 assets shipped unsigned that way. Errors
 # use the ::error:: prefix so GitHub Actions surfaces them as annotations; the text reads plainly on a local terminal
-# too. Every secret (imported private key, passphrase) lives in a tmpfs (RAM) scratch tree wiped on exit -- never
-# persistent disk, never the container's real keyring or
+# too. Every secret (imported private key, passphrase) lives in a scratch tree under /dev/shm, which must be tmpfs,
+# and the exit trap stops the gpg-agent and wipes it -- never persistent disk, never the container's real keyring or
 # rpmdb.
 set -euo pipefail
 
@@ -174,15 +174,18 @@ main() {
     command -v rpmsign >/dev/null 2>&1 || die "rpmsign not found (install rpm-sign)"
     command -v rpmkeys >/dev/null 2>&1 || die "rpmkeys not found (install rpm-sign)"
 
-    # One scratch tree holds every secret (imported private keyring, passphrase file). Prefer tmpfs (/dev/shm, RAM)
-    # so key material never lands on persistent disk; fall back to the default TMPDIR where /dev/shm is absent. gpg
-    # needs the private key in a keyring DIRECTORY (it cannot sign from a variable), and rpmsign forks gpg once
-    # per package, so the passphrase must stay re-readable here rather than a one-shot stream -- keeping it on the same
-    # RAM tree as the unavoidable keyring leaves disk exposure unchanged. The runner VM is ephemeral. Script-global, not
-    # local: the EXIT trap fires after main returns, where a local is out of scope -- an unbound reference
-    # under `set -u` -- and the wipe must still run.
-    workdir="$(mktemp -d -p /dev/shm 2>/dev/null || mktemp -d)"
-    trap 'rm -rf "${workdir}"' EXIT
+    # One scratch tree holds every secret (imported private keyring, passphrase file), under /dev/shm; a /dev/shm that
+    # is absent or not tmpfs refuses before anything is created there, so key material does not land in a disk-backed
+    # directory. gpg needs the private key in a keyring DIRECTORY (it cannot sign from a variable), and rpmsign forks
+    # gpg once per package, so the passphrase must stay re-readable here rather than a one-shot stream -- keeping it on
+    # the same RAM tree as the unavoidable keyring leaves disk exposure unchanged. The runner VM is ephemeral.
+    # Script-global, not local: the EXIT trap fires after main returns, where a local is out of scope -- an unbound
+    # reference under `set -u` -- and the wipe must still run.
+    [[ -d /dev/shm && "$(stat -f -c %T /dev/shm 2>/dev/null)" == tmpfs ]] \
+        || die "/dev/shm is absent or not tmpfs"
+    workdir="$(mktemp -d -p /dev/shm)" || die "no directory could be created under /dev/shm"
+    trap 'GNUPGHOME="${workdir}/gnupg" gpgconf --kill gpg-agent 2>/dev/null; rm -rf "${workdir}"' EXIT
+    [[ "$(stat -f -c %T "${workdir}")" == tmpfs ]] || die "${workdir} is not on tmpfs"
 
     SIGNER_FPR="$(import_signing_key "${workdir}/gnupg")"
     export GNUPGHOME="${workdir}/gnupg"
