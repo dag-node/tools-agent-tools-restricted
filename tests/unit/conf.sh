@@ -1301,4 +1301,38 @@ else
     fail "conf.lib.sh does not define ai_tools_conf_set_key"
 fi
 
+# --- ai_tools_conf_portable_name_valid: one path component of the portable set -----------------
+section "conf: ai_tools_conf_portable_name_valid accepts one path component of the portable filename set"
+if declare -F ai_tools_conf_portable_name_valid >/dev/null 2>&1; then
+    while IFS='|' read -r name want why; do
+        [[ -n "${why}" ]] || continue
+        got=0; ai_tools_conf_portable_name_valid "${name}" || got=$?
+        if [[ "${got}" == "${want}" ]]; then pass "portable name: ${why}"; else fail "portable name: ${why} -> got ${got}, want ${want}"; fi
+    done <<EOF
+SKILL.md|0|letters, a dot
+.claude-plugin|0|opening with a dot
+a_b.c-d.v2|0|dots, an underscore and inner hyphens
+_|0|an underscore alone
+-flag|1|opening with a hyphen
+.|1|the current directory
+..|1|the parent directory
+a/b|1|a slash
+with space|1|a space
+a$(printf '\t')b|1|a tab
+r$(printf '\303\251')sum$(printf '\303\251')|1|a byte outside ASCII
+win\\paths|1|a backslash
+a*|1|a glob character
+|1|the empty string
+EOF
+    if LC_ALL=C.UTF-8 ai_tools_conf_portable_name_valid "$(printf '\303\251')"; then
+        fail "portable name: a non-ASCII letter accepted under a UTF-8 locale"
+    else
+        pass "portable name: a non-ASCII letter refused under a UTF-8 locale"
+    fi
+    if ai_tools_conf_portable_name_valid "$(printf 'a%.0s' {1..255})"; then pass "portable name: 255 bytes"; else fail "portable name: 255 bytes refused"; fi
+    if ai_tools_conf_portable_name_valid "$(printf 'a%.0s' {1..256})"; then fail "portable name: 256 bytes accepted"; else pass "portable name: 256 bytes refused"; fi
+else
+    skip "portable name" "the installed conf.lib.sh predates ai_tools_conf_portable_name_valid"
+fi
+
 finish

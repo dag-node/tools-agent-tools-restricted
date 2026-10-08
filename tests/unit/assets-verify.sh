@@ -73,7 +73,8 @@ write_inventory() {
     local file digest
     rm -f "${SET}/SHA256SUMS"
     while IFS= read -r file; do
-        digest="$(cd "${SET}" && sha256sum -- "${file}" | cut -c1-64)"
+        # Hashed through stdin: given a name, sha256sum escapes a backslash and opens the line with one.
+        digest="$(sha256sum < "${SET}/${file}" | cut -c1-64)"
         printf '%s  %s\n' "${digest}" "${file}"
     done < <(cd "${SET}" && find . -mindepth 1 ! -type d ! -name SHA256SUMS ! -name SHA256SUMS.asc -printf '%P\n' | LC_ALL=C sort) \
         > "${SET}/SHA256SUMS"
@@ -318,6 +319,52 @@ write_set; head -c $(( AI_TOOLS_ASSETS_FILE_MAX_BYTES + 1 )) /dev/zero > "${SET}
 expect 2 "a file over the per-file bound, listed with a matching hash" ai_tools_assets_verify_set "${SET}" acme
 write_set; printf 'x\n' > "${SET}/skills/acme-pdf/windows\\paths.md"; write_inventory; sign_set signer
 expect 1 "a file name holding a backslash, which the inventory cannot list" ai_tools_assets_verify_set "${SET}" acme
+if grep -q "is not a relative path inside the set" <<<"${err}"; then pass "the backslash is refused at the path, not the digest"; else fail "the backslash case refused elsewhere: $(head -c 200 <<<"${err}")"; fi
+
+# Each record of the walk is read whole: a name opening with a tab is not read as another file's, and a name is met
+# once. The replacement keeps the inventory and the count: a file removed, a file named <tab><that name> added.
+write_set; sign_set signer
+rm "${SET}/agents/acme-reviewer.md"; printf 'replaced\n' > "${SET}/agents/$(printf '\t')acme-reviewer.md"
+expect 1 "a removed file replaced by one whose name opens with a tab" ai_tools_assets_verify_set "${SET}" acme
+write_set; printf 'x\n' > "${SET}/agents/trailing$(printf '\t')"; write_inventory; sign_set signer
+expect 1 "a file name holding a tab" ai_tools_assets_verify_set "${SET}" acme
+
+# A path is read under the portable file-name predicate on both sides: a name outside it is refused whether
+# the inventory lists it (signed, so a mismatch at the listing) or the walk alone finds it.
+write_set; printf 'x\n' > "${SET}/agents/with space.md"; write_inventory; sign_set signer
+expect 1 "a file name holding a space" ai_tools_assets_verify_set "${SET}" acme
+write_set; printf 'x\n' > "${SET}/agents/r$(printf '\303\251')sum$(printf '\303\251').md"; write_inventory; sign_set signer
+expect 1 "a file name holding a byte outside ASCII" ai_tools_assets_verify_set "${SET}" acme
+write_set; printf 'x\n' > "${SET}/agents/-flag.md"; write_inventory; sign_set signer
+expect 1 "a file name opening with a hyphen" ai_tools_assets_verify_set "${SET}" acme
+write_set; printf 'x\n' > "${SET}/agents/a_b.c-d.v2.md"; write_inventory; sign_set signer
+expect 0 "a file name of letters, digits, dots, underscores and inner hyphens" ai_tools_assets_verify_set "${SET}" acme
+write_set; sign_set signer; rm "${SET}/agents/acme-reviewer.md"; printf 'x\n' > "${SET}/agents/acme-reviewer.md*"
+expect 1 "an unlisted file whose name holds a glob character is a mismatch, not a match" ai_tools_assets_verify_set "${SET}" acme
+if grep -q "outside the portable set" <<<"${err}"; then pass "the glob name is refused at the name"; else fail "the glob name refused elsewhere: $(head -c 200 <<<"${err}")"; fi
+# A literal $'\n': a command substitution drops a trailing newline, so `$(printf '\n')` would name a file without one.
+write_set; sign_set signer; rm "${SET}/agents/acme-reviewer.md"; printf 'x\n' > "${SET}/agents/acme-reviewer.md"$'\n'"x"
+expect 1 "an unlisted file whose name holds a newline, which the walk alone can name" ai_tools_assets_verify_set "${SET}" acme
+if grep -q "outside the portable set" <<<"${err}"; then pass "the newline name is refused at the name"; else fail "the newline name refused elsewhere: $(head -c 200 <<<"${err}")"; fi
+
+# The caller's RETURN trap survives a check, on success and on a refusal after the walk's file exists: the trap standing
+# afterwards is the caller's own, which a trap set inside a function leaves in the shell, and never the walk file's
+# removal.
+caller_with_trap() { trap 'printf caller-cleanup-ran' RETURN; ai_tools_assets_check_inventory "${SET}"; }
+write_set; sign_set signer
+if [[ "$(caller_with_trap 2>/dev/null)" == "caller-cleanup-ran" && "$(trap -p RETURN)" != *"rm -f"* ]]; then
+    pass "a caller's RETURN trap runs after a successful check and is not replaced"
+else
+    fail "a caller's RETURN trap was lost after a successful check: $(trap -p RETURN)"
+fi
+trap - RETURN
+printf 'unlisted\n' > "${SET}/agents/extra.md"
+if [[ "$(caller_with_trap 2>/dev/null)" == "caller-cleanup-ran" && "$(trap -p RETURN)" != *"rm -f"* ]]; then
+    pass "a caller's RETURN trap runs after a refused check and is not replaced"
+else
+    fail "a caller's RETURN trap was lost after a refused check: $(trap -p RETURN)"
+fi
+trap - RETURN
 
 # gpgv absent: a PATH holding every tool the verifier runs except gpgv; bash is named by its absolute path, since
 # the restricted PATH cannot resolve it.

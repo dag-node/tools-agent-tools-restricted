@@ -311,7 +311,10 @@ and the keyring `keys/dag-node-package-signing.gpg`, written at build time from 
 (`ai_tools_assets_keyring_dearmor`, run by the spec's `%install` and by `install.sh`), because `gpgv` on EL9 exits 2
 on an armored keyring. The fingerprint is asserted against `gpgv`'s `VALIDSIG` line, so a keyring swapped for another
 valid key is still refused, and a signature by a key the keyring holds but no binding names is refused the same way.
-The directory, each binding and the keyring are `644 root:root` under `755 root:root` and must pass
+A path of a set, listed in the inventory or found by the walk, is read component by component
+through `ai_tools_conf_portable_name_valid` ([providers](providers.rule.md)), and a name outside that set is a mismatch:
+the format's `file.name` rule accepts the same set at build, so the inventory half does not hold an escaping rule
+for any tool. The directory, each binding and the keyring are `644 root:root` under `755 root:root` and must pass
 `ai_tools_conf_is_trusted`, file and directory both, or the set is unverified: the sandbox account cannot change
 what signs a set, which `tests/boundary/assets.sh` asserts from that account's vantage, while
 `tests/unit/assets-verify.sh` drives every refusal over a set signed in the run by a throwaway key,
