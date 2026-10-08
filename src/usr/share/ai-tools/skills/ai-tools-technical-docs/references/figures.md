@@ -53,6 +53,11 @@ or **specifies** for an explanation. `--x` on a directory *permits traversal*; i
 with a settled meaning in one domain keeps it there — `convey` is the GPL's own term for distributing a work,
 and licensing prose is where it belongs.
 
+`admit` is the same defect in a formal register, and `prose-check.py` reports every inflection of it by default:
+a deployment policy or a permission **allows** a tag or an account, a parser or a check **accepts** a shape, a later
+release **adds** a kind, and a sanitizer **keeps** the characters it does not replace. Name the operation the code does;
+the gate that `admits` a name in a charset *accepts* it.
+
 *attribution* is the same case as a noun: name the thing. An **audit trail** or **provenance** records who acted,
 a **root cause** explains why something failed, an **attribute** or **field** is data on an object, and a **label** is
 what a row in a report carries.

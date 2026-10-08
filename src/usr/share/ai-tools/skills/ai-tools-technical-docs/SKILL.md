@@ -155,8 +155,9 @@ class, so the final pass reads for it.
 **A term of art in the reader's domain is a domain term, however ordinary it looks** — *maintenance*, *permission*,
 *mask*, *traverse*, *weak dependency* — and stays fixed. **Some verbs name no operation**: *convey*, *leverage*,
 *utilize*, *facilitate*, *handle* describe an unspecified relationship, so say which operation it is — *permits*
-for an access decision, *sends* for a message, *renders* for output, *states* for an explanation. Both lists are in [The
-figures in detail](references/figures.md).
+for an access decision, *sends* for a message, *renders* for output, *states* for an explanation. `admit` is the same
+defect in a formal register: a policy or a permission **allows**, a parser or a check **accepts**, a later release
+**adds**. Both lists are in [The figures in detail](references/figures.md).
 
 ### Name real mechanisms
 
