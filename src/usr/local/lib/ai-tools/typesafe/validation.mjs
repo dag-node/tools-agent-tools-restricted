@@ -3,7 +3,7 @@
 // src/validation.mts
 // The value checks more than one module applies: config.mts to what an operator writes, transport.mts to what the
 // provider sends back, core.mts to the projected answer, decide.mts to the command line. Each rule is stated once,
-// so a model name config.mts accepts is the model name transport.mts admits.
+// so a model name config.mts accepts is the model name transport.mts accepts.
 /** A model id is at most this long wherever it is read. */
 const MODEL_NAME_MAX_CHARS = 128;
 /** A model id as the vendor spells one: a letter or digit, then letters, digits, dot, underscore or dash. */

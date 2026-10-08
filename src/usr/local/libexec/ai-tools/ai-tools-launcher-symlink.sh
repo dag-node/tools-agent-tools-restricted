@@ -62,7 +62,7 @@ err() {
 
 # Authoritative validation of the caller-supplied path. A repoint takes EXACTLY the shape a wrapper resolves -- a single
 # vMAJOR.MINOR.PATCH component under the sandbox toolchain, then bin/, then ONE path component, the launcher name.
-# A removal takes the stable link's own path: the locked directory, then ONE path component. Each anchored regex admits
+# A removal takes the stable link's own path: the locked directory, then ONE path component. Each anchored regex accepts
 # no '..' and no extra slashes.
 readonly RE='^/opt/ai-tools/\.nvm/versions/node/v[0-9]+\.[0-9]+\.[0-9]+/bin/([A-Za-z0-9._-]+)$'
 readonly REMOVE_RE='^/opt/ai-tools/bin/([A-Za-z0-9._-]+)$'

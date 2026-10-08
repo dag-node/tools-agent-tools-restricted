@@ -216,7 +216,7 @@ PY
         fi
         # (c1) Managed hooks are the only hooks, and they live in the root-owned config directory.
         if [[ "$(decl managed_only)" == true && "$(decl managed_dir)" == /opt/ai-tools/.codex ]]; then
-            pass "requirements.toml admits managed hooks only, from /opt/ai-tools/.codex"
+            pass "requirements.toml allows managed hooks only, from /opt/ai-tools/.codex"
         else
             fail "requirements.toml: allow_managed_hooks_only='$(decl managed_only)', managed_dir='$(decl managed_dir)' -- a user hooks file could run in the session"
         fi

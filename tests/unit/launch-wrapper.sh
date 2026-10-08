@@ -121,7 +121,7 @@ refused "init refuses when conf.lib.sh will not load (fail closed)" MSG-C2M7
 run "${LIB}" "${PROJECTS_USER}" "${approved}" true
 passed "init loads the three required libraries on the deployed library"
 
-# ── (0b) Init admits the launcher name only in a launcher's charset ────────────
+# ── (0b) Init accepts the launcher name only in a launcher's charset ────────────
 # The name is the command line's argv0, so a shape that could carry shell syntax or a path is refused before it names
 # a path or prefixes a message. The match is made in the C locale: in a UTF-8 locale a bracket range takes in letters
 # outside ASCII, which the control run shows.
@@ -132,9 +132,9 @@ refused "a launcher name carrying a path is refused at init" MSG-Z6F8
 utf8_locale="$(locale -a 2>/dev/null | grep -ixE 'en_US\.utf-?8|C\.utf-?8' | head -n 1 || true)"
 if [[ -n "${utf8_locale}" ]] && LC_ALL="${utf8_locale}" bash -c '[[ "é" =~ ^[A-Za-z]+$ ]]'; then
     FIXTURE_LAUNCHER='clé' FIXTURE_LC_ALL="${utf8_locale}" run "${LIB}" "${PROJECTS_USER}" "${approved}" true
-    refused "a non-ASCII letter is refused under ${utf8_locale}, where a bracket range admits it" MSG-Z6F8
+    refused "a non-ASCII letter is refused under ${utf8_locale}, where a bracket range matches it" MSG-Z6F8
 else
-    skip "non-ASCII launcher name" "no installed UTF-8 locale whose [A-Za-z] admits a non-ASCII letter"
+    skip "non-ASCII launcher name" "no installed UTF-8 locale whose [A-Za-z] matches a non-ASCII letter"
 fi
 
 # ── (1) Operator gate ───────────────────────────────────────────────────────────
@@ -155,7 +155,7 @@ else
 fi
 
 # ── (1b) The residue gate: a disabled agent's launcher link refuses every launch ── Fixture manifests (a synthetic
-# pair, no shipped agent named) and an operator.conf enabling one of them, root-owned so the resolver admits them.
+# pair, no shipped agent named) and an operator.conf enabling one of them, root-owned so the resolver accepts them.
 # The other agent's stable link in the launcher directory is the operator-side evidence its package is still
 # in the toolchain; the gate refuses on it before the executable resolves, naming the agent and the provisioning run.
 # Without the link, and with that agent enabled too, the gate passes.
@@ -238,7 +238,7 @@ refused "the launcher program invoked by its own name is refused" MSG-F8N3
 chmod 0664 "${fixture_agents}/acme.conf"
 FIXTURE_AGENTS_DIR="${fixture_agents}" FIXTURE_OPERATOR_CONF="${fixture_conf}" \
     run "${LIB}" "${PROJECTS_USER}" "${approved}" ai_tools_launch_gate_launcher
-refused "a launcher whose manifest is group-writable is refused (the resolver does not admit it)" MSG-F8N3
+refused "a launcher whose manifest is group-writable is refused (the resolver does not accept it)" MSG-F8N3
 chmod 0644 "${fixture_agents}/acme.conf"
 broken_providers="${TESTDIR}/launch-noproviders.lib.sh"
 sed 's#^readonly PROVIDERS_LIB=.*#readonly PROVIDERS_LIB="/nonexistent/ai-tools/providers.lib.sh"#' \

@@ -86,7 +86,7 @@ export function parseProseCheck(text) {
 // whole-line form backtracks super-polynomially on a line of spaces, and the marker begins with a literal.
 const NODE_PREFIX = /^\s*(?:\d+>)?/;
 const DIAGNOSTIC_MARKER = /:\s*(error|warning)\s+([A-Za-z]+[0-9]+)\s*:/;
-// The project a diagnostic is attributed to, which MSBuild appends in brackets. Neither bracket is admitted inside,
+// The project a diagnostic is attributed to, which MSBuild appends in brackets. Neither bracket is accepted inside,
 // so each candidate `[` is tried in the length of its own segment.
 const PROJECT_SUFFIX = /\s*\[([^[\]]+\.(?:cs|fs|vb)proj)\]$/;
 // `File.cs(line,col)` and `File.cs(line)` as the compilers write a location, against `path:line` everywhere else.

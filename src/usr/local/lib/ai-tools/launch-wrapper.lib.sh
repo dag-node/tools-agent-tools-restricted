@@ -92,7 +92,7 @@ ai_tools_launch_die() {
 }
 
 # ai_tools_launch_init <launcher> -- record the launcher name and load the three required libraries, fail-closed.
-# The name comes from the command line the operator typed (ai-tools-launch passes its own argv0), so it is admitted only
+# The name comes from the command line the operator typed (ai-tools-launch passes its own argv0), so it is accepted only
 # in a launcher's charset before it prefixes a message or names a path; any other shape is refused under the launcher's
 # own name. Whether it names an ENABLED agent is ai_tools_launch_gate_launcher's question, after the operator
 # gate.

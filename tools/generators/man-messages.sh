@@ -190,7 +190,7 @@ roff_escape() {
 # pointers <cited-by>: the comma-separated citation list reduced to the documents in it, each rendered as a roff
 # cross-reference. A test or a source file is not a document and is dropped: the page documents what the tree emits,
 # and a reader reaches a code's explanation through a manual. The document locations are named one by one
-# for that reason -- a `*.md` catch-all would admit a Markdown file written under `tests/`.
+# for that reason -- a `*.md` catch-all would accept a Markdown file written under `tests/`.
 pointers() {
     local out="" entry name section
     local -a entries=()

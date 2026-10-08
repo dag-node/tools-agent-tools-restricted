@@ -7,7 +7,7 @@
 # the exact-or-ancestor rule -- a system directory (and "/") is protected, a user home root is protected exactly, while
 # a real project nested under an operator home or the sandbox-clone area passes. Also checks the assert emits a refusal
 # and returns non-zero on a protected target and is silent + zero on a safe one, and pins the second, narrower predicate
-# beside it -- ai_tools_traverse_grant_allowed, which admits the acting operator's own home root for a traverse-only ACL
+# beside it -- ai_tools_traverse_grant_allowed, which allows the acting operator's own home root for a traverse-only ACL
 # and no other path. Run as root via sudo (the suite contract); the only case needing privilege (a foreign-owned
 # fixture) skips without it, so the file also runs directly as an operator.
 
@@ -87,7 +87,7 @@ fi
 
 # ── The traverse-grant predicate ─────────────────────────────────────────────
 # ai_tools_traverse_grant_allowed vets a strictly weaker operation than the target backstop backstop: one
-# `u:ai-tools:--x` entry on ONE directory, which grants search permission and not read. It therefore admits the acting
+# `u:ai-tools:--x` entry on ONE directory, which grants search permission and not read. It therefore allows the acting
 # operator's OWN home root, which the backstop refuses as a target -- so these assertions are about the difference
 # between the two, and case (2b) still stands unchanged. What keeps the carve-out from becoming a hole is the owner
 # argument: it is checked before the home-root exemption, so the exemption reaches exactly one account's home.

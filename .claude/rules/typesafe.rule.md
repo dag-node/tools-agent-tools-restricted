@@ -105,7 +105,7 @@ to `JSON.parse`. What survives the parse is not returned either: the projection 
 on null-prototype objects, reading **own** properties only and walking the ids the process asked for, so an id the body
 offers and no chunk requested is dropped without being enumerated. The projection **drops and never coerces** — a field
 failing its predicate is left out rather than clamped — so `contractProblems` still reports it and a malformed answer
-cannot be repaired into a valid-looking one. A request id reaches the usage log, so it is admitted only in a bounded
+cannot be repaired into a valid-looking one. A request id reaches the usage log, so it is accepted only in a bounded
 charset.
 
 ## Written against the provider's published types, shipped without them

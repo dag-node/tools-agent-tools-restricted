@@ -231,7 +231,7 @@ payload="$(cat 2>/dev/null)" || exit 0
 dir="$(jq -r '.cwd // empty' <<<"${payload}" 2>/dev/null)" || exit 0
 [[ -n "${dir}" && -d "${dir}" ]] || exit 0
 # The same path as it is PRINTED -- into the NOTICE the model reads, and into the command that notice carries. It
-# arrives in the hook payload, so it is reduced to the characters the log sanitizer admits before it is displayed; every
+# arrives in the hook payload, so it is reduced to the characters the log sanitizer keeps before it is displayed; every
 # use that acts on the tree keeps the real path.
 display_dir="$(ai_tools_log_sanitize "${dir}")"
 

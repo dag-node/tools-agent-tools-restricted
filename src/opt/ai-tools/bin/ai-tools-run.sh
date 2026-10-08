@@ -621,7 +621,7 @@ sweep_project_ownership() {
 # ── Launch ───────────────────────────────────────────────────────────────────────────────────
 # Three versions are reported and logged: Node from the validated executable path, the agent from its npm package.json,
 # and ai-tools from the value stamped at install (@*@ means an unsubstituted source tree). Both the node read here
-# and the agent read below clamp what they admit, because each comes from a file the sandbox account OWNS and lands
+# and the agent read below clamp what they accept, because each comes from a file the sandbox account OWNS and lands
 # on the operator's terminal and in the journal, where a crafted value could otherwise inject terminal escapes.
 readonly VERSION_PATTERN='^v?[0-9]+\.[0-9]+\.[0-9]+$'
 ai_tools_version="@AI_TOOLS_VERSION@"; [[ "${ai_tools_version}" == @*@ ]] && ai_tools_version="dev"

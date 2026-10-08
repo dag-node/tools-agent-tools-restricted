@@ -93,7 +93,7 @@ ai_tools_release_url_valid() {
 # ai_tools_release_manifest_url <template> <version> : print the fetchable URL for <version>, by
 #   substituting the template's single {version} slot. A template without the slot is refused
 #   rather than fetched as-is: it would pin every version to one manifest, which reads as "verified"
-#   while checking the wrong release. The version is admitted only in semver shape, so no value a
+#   while checking the wrong release. The version is accepted only in semver shape, so no value a
 #   package.json carries can inject a path segment into the URL.
 ai_tools_release_manifest_url() {
     local template="${1:-}" version="${2:-}"
@@ -106,7 +106,7 @@ ai_tools_release_manifest_url() {
 
 # ai_tools_release_manifest_checksum <manifest-json> <platform-key> : print the SHA-256 the
 #   manifest lists for that platform. Reads the passed string only -- no filesystem, no network --
-#   and admits the result only in exactly the 64-hex shape a SHA-256 has, so malformed JSON, an
+#   and accepts the result only in exactly the 64-hex shape a SHA-256 has, so malformed JSON, an
 #   absent platform, or a crafted value yields an EMPTY STRING rather than a checksum that could match a
 #   crafted binary. jq is the parser (a hard dependency of the agent packages that declare these
 #   fields); its absence is reported by the caller as "unable to verify", never as a mismatch.
@@ -233,7 +233,7 @@ _ai_tools_ev_record_path() {
 #   record. World-readable: what these records hold is a published checksum and a label outcome,
 #   neither a secret, and the launch shim reads the pin as the sandbox account. A missing directory
 #   is created at the mode the package ships it with, 0755 root:root. Path resolution needs search
-#   permission on every ancestor, so only the accounts /var/opt/ai-tools/state admits (0750
+#   permission on every ancestor, so only the accounts /var/opt/ai-tools/state allows (0750
 #   root:SANDBOX_GROUP, plus the ai-ops ACL) reach it, and they reach it through its other bits:
 #   0750 would leave the shim unable to read the pin, which reads as unpinned.
 _ai_tools_ev_write_record() {
@@ -319,7 +319,7 @@ _ai_tools_ev_pin_field() {
     printf '%s' "${line#*=}"
 }
 
-# _ai_tools_ev_field_ok <value> : succeed when <value> has the shape one pin field admits -- alphanumerics and
+# _ai_tools_ev_field_ok <value> : succeed when <value> has the shape one pin field accepts -- alphanumerics and
 #   `:+._-`, 1 to 64 characters. The writers clamp to this same shape (a version outside it is recorded as
 #   `unknown`), so every value a pin holds is one its readers return: a recorded version the reader could not return
 #   would compare as absent and turn every later reconcile into a re-pin.
@@ -336,7 +336,7 @@ ai_tools_entrypoint_pin_read() {
 
 # ai_tools_entrypoint_pin_write <agent> <version> <sha256> <source-url> [inputs-digest] : record a
 #   verified entrypoint. ROOT ONLY (see _ai_tools_ev_write_record, which also makes the write
-#   atomic). A checksum is admitted only in exact 64-hex shape, so a partial observation never lands
+#   atomic). A checksum is accepted only in exact 64-hex shape, so a partial observation never lands
 #   as a pin. <inputs-digest> is what ai_tools_entrypoint_pin_reusable compares against; a pin
 #   written without one is never reusable, so an unrecordable digest costs a re-verification.
 ai_tools_entrypoint_pin_write() {
@@ -436,9 +436,9 @@ PY
 #   callers -- the pin and the launch banner -- cannot disagree about what version an entrypoint is.
 #
 #   The value comes from a file the SANDBOX account owns and reaches the operator's terminal, the journal and a pin
-#   record, so it is admitted only in a clamped shape: `MAJOR.MINOR.PATCH`, optionally with a `-`/`+` suffix
-#   of alphanumerics, dots and hyphens, never containing `..`, and within the length a pin field admits
-#   (_ai_tools_ev_field_ok). That admits a platform package's own spelling
+#   record, so it is accepted only in a clamped shape: `MAJOR.MINOR.PATCH`, optionally with a `-`/`+` suffix
+#   of alphanumerics, dots and hyphens, never containing `..`, and within the length a pin field accepts
+#   (_ai_tools_ev_field_ok). That accepts a platform package's own spelling
 #   (`0.154.0-linux-x64`) while excluding every character an escape sequence or a path traversal needs -- the suffix
 #   matters because the version also fills the `{version}` slot of a release-manifest URL.
 ai_tools_entrypoint_installed_version() {

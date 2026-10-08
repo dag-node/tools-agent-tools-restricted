@@ -70,7 +70,7 @@ fi
 # rather than everything.
 out="$(run_installer "${PROJECTS_USER}")"
 if grep -q 'usage: sudo' <<<"${out}"; then
-    pass "install.sh admits ${PROJECTS_USER} and reaches the dispatch"
+    pass "install.sh accepts ${PROJECTS_USER} and reaches the dispatch"
 else
     fail "install.sh refused the operator ${PROJECTS_USER}: ${out}"
 fi
@@ -103,7 +103,7 @@ assert_msg MSG-U5E6 "${out}" "a valueless --operator is refused"
 # (9) The = form names the same account as the spaced form, so a script may use either.
 out="$(run_installer "${PROJECTS_USER}" "--operator=${PROJECTS_USER}")"
 if grep -q 'usage: sudo' <<<"${out}"; then
-    pass "--operator=${PROJECTS_USER} is admitted and reaches the dispatch"
+    pass "--operator=${PROJECTS_USER} is accepted and reaches the dispatch"
 else
     fail "--operator=${PROJECTS_USER} was refused: ${out}"
 fi
@@ -113,7 +113,7 @@ fi
 # nobody).
 out="$(run_installer root --operator "${PROJECTS_USER}")"
 if grep -q 'usage: sudo' <<<"${out}"; then
-    pass "--operator ${PROJECTS_USER} is admitted even from a SUDO_USER=root invocation"
+    pass "--operator ${PROJECTS_USER} is accepted even from a SUDO_USER=root invocation"
 else
     fail "--operator did not override SUDO_USER=root: ${out}"
 fi
@@ -190,7 +190,7 @@ fi
 
 # (13a) The version gate, driven through the same action over the same fixture: the checkout's packaging/VERSION
 # against the AI_TOOLS_VERSION line of a fixture "installed CLI" reached through AI_TOOLS_INSTALLED_CLI. Each direction
-# is driven -- a newer installation refuses and names the flag, the flag admits it with the warning that states
+# is driven -- a newer installation refuses and names the flag, the flag allows it with the warning that states
 # what the next post-upgrade will read, an equal and an older installation pass in silence, and an installation
 # whose version cannot be read passes with the line saying so. `--allow-uncommitted` keeps the source-tree gate
 # out of the way, since these runs share the fixture with the cases that dirty it.
@@ -225,11 +225,11 @@ else
     pass "the removal named is the installed version's own install.sh uninstall, since ai-tools-base is not an rpm here"
 fi
 run_version_gate 'AI_TOOLS_VERSION="0.22.0"' --allow-downgrade
-assert_msg MSG-W7G8 "${GATE_OUT}" "--allow-downgrade admits the older checkout with a warning"
+assert_msg MSG-W7G8 "${GATE_OUT}" "--allow-downgrade allows the older checkout with a warning"
 if (( GATE_RC == 0 )) && ! grep -q 'MSG-W6B3' <<<"${GATE_OUT}" && grep -q 'system post-upgrade' <<<"${GATE_OUT}"; then
-    pass "the admitted downgrade passes and the warning names what the next post-upgrade reads"
+    pass "the allowed downgrade passes and the warning names what the next post-upgrade reads"
 else
-    fail "admitted downgrade: rc=${GATE_RC}: ${GATE_OUT}"
+    fail "allowed downgrade: rc=${GATE_RC}: ${GATE_OUT}"
 fi
 # An rpm-installed CLI carries version-release; the same version from any release is a reinstall, not a downgrade, while
 # a newer version is refused whatever its release.
@@ -267,13 +267,13 @@ else
     fail "agent-owned path not marked: ${GATE_OUT}"
 fi
 
-# (14) `--allow-uncommitted` admits the same tree, warning rather than refusing.
+# (14) `--allow-uncommitted` allows the same tree, warning rather than refusing.
 run_gate --allow-uncommitted
 assert_msg MSG-E2B9 "${GATE_OUT}" "--allow-uncommitted warns rather than refusing"
 if (( GATE_RC == 0 )); then
-    pass "--allow-uncommitted admits the tree"
+    pass "--allow-uncommitted allows the tree"
 else
-    fail "--allow-uncommitted did not admit the tree: rc=${GATE_RC}: ${GATE_OUT}"
+    fail "--allow-uncommitted did not allow the tree: rc=${GATE_RC}: ${GATE_OUT}"
 fi
 
 # (15) A tree that is not a repository has no commit to name and passes: the tarball install.

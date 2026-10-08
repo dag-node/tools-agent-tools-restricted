@@ -21,7 +21,7 @@
 #
 # Fixtures are a synthetic manifest set (the acme/beta pair unit/providers.sh uses) read through the resolver's two
 # root-only hooks, so no shipped agent is named; they are root-owned 0644 in 0755 directories, which the trust predicate
-# admits, so this runs as root via sudo (suite contract). The npm stub must be executable where it sits, so the tree is
+# accepts, so this runs as root via sudo (suite contract). The npm stub must be executable where it sits, so the tree is
 # built where the executable bit is visible (the testdir, or a directory beside the operator's home on a noexec /tmp --
 # the fallback unit/launcher-target.sh takes).
 #

@@ -164,7 +164,7 @@ jobs:
   # Release + rpm.dagnode.com, vX.Y.Z-rc.N -> GitHub prerelease only, and an rc is the proof of a
   # pipeline change. Process contract: docs/development/release.md. Runs on a v*.*.* tag alone,
   # never on pull_request or workflow_dispatch, and reads its secrets from the `release`
-  # environment, whose deployment policy admits such a tag and nothing else: a fork PR or a
+  # environment, whose deployment policy allows such a tag and nothing else: a fork PR or a
   # branch run cannot reference the environment and so cannot see the signing key.
   release:
     if: startsWith(github.ref, 'refs/tags/v')

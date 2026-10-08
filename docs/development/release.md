@@ -208,7 +208,7 @@ through the bypass the Admin role holds for pull requests: the merge button
 offers it, and `--admin` is the same bypass from the terminal; either way
 the audit log records it. The tag is signed: the tag ruleset restricts creation
 to maintainers and makes a tag immutable for everyone, and the environment
-that holds the signing key admits a `v*.*.*` tag alone.
+that holds the signing key allows a `v*.*.*` tag alone.
 
 The final tag points at the last green RC's content plus only the `%changelog`
 finalization — no functional commits slip in between `rc.N` and final,
@@ -284,7 +284,7 @@ and proven by the next `rc.N` — never by iterating merges to `main`.
 
 Signing is mandatory and preflight-checked before anything builds. The signing
 key, its passphrase and the dispatch token are secrets of the `release`
-environment, which the release job declares and whose deployment policy admits
+environment, which the release job declares and whose deployment policy allows
 a `v*.*.*` tag alone: the policy refuses the environment to a run on a branch
 or a pull request, from a fork or not, so such a run reads none of them.
 The release job pins the org signing key by its primary fingerprint and refuses

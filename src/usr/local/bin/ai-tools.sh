@@ -111,7 +111,7 @@ readonly GUARD_MARKER="ai-tools-lockdown-guard"
 # exists to protect: a registry written by root names an owner whose own launch gate cannot read it. A verb qualifies
 # on what it writes, whatever it reads, so `stop` belongs here despite being the one member that ACTS: it does not write
 # a registry, and root is the identity an unattended detector usually runs as -- the caller this rung most has to serve.
-# Admitting it does not add a capability either, since root can already run ai-tools-stop directly and can signal any
+# Allowing it does not add a capability either, since root can already run ai-tools-stop directly and can signal any
 # process on the host; what it removes is a CLI that refused the one principal its own helper requires. Read
 # by the principal guard, by that guard's own refusal (which lists them), and by ai-tools(1).
 readonly ROOT_ALLOWED_VERBS=("audit" "status" "projects list" "providers list" "stop")
@@ -2622,7 +2622,7 @@ claim_end() {
 # a README.md, then cmd_project_claim unchanged on the result. It refuses a path that exists (naming `projects claim`)
 # and a parent that does not, and <path> is required with no cwd default. Every filesystem step goes
 # through run_as_owner, so a create under `--for` produces a TARGET-owned tree, the one require_claimable_owner then
-# admits. It does not take `-y`: it does not ask a question a flag could pre-answer, and the traverse grant
+# accepts. It does not take `-y`: it does not ask a question a flag could pre-answer, and the traverse grant
 # on an ancestor, the one question that can still appear, is answered by a person at a terminal alone. The refusals,
 # the modes it sets and the claim questions it infers are cli.rule.md's.
 cmd_project_create() {
