@@ -1036,7 +1036,12 @@ do_summary() {
     _chk /usr/local/lib/ai-tools/confinement.lib.sh
     _chk /usr/local/lib/ai-tools/npm-verify.lib.sh
     _chk /usr/local/lib/ai-tools/entrypoint-verify.lib.sh
+    _chk /usr/local/lib/ai-tools/assets-verify.lib.sh
     _chk /usr/local/lib/ai-tools/keys/claude-code.asc
+    _chk /usr/local/lib/ai-tools/keys/dag-node-package-signing.asc
+    _chk /usr/local/lib/ai-tools/keys/dag-node-package-signing.gpg
+    _chk /usr/local/lib/ai-tools/assets-bindings.d/core.conf
+    _chk /usr/local/lib/ai-tools/assets-bindings.d/ai-tools.conf
     _chk /usr/local/lib/ai-tools/conf.lib.sh
     _chk /usr/local/lib/ai-tools/settings-merge.lib.sh
     _chk /usr/local/lib/ai-tools/providers.lib.sh
@@ -1435,6 +1440,35 @@ do_install() {
     install -o root -g root -m 644 \
         "${SCRIPT_DIR}/src/usr/local/lib/ai-tools/keys/claude-code.asc" \
         /usr/local/lib/ai-tools/keys/claude-code.asc
+
+    # Set verifier: proves an installed asset set is the one its publisher signed, against a keyring written here
+    # from the dag-node package-signing key as published, since gpgv on EL9 does not read an armored keyring,
+    # and a root-owned binding per set name that pins the signer's primary. Read by root alone (the assets resolver);
+    # 644 root:root like the other libraries, no secrets, no tokens.
+    log "/usr/local/lib/ai-tools/assets-verify.lib.sh"
+    install -o root -g root -m 644 \
+        "${SCRIPT_DIR}/src/usr/local/lib/ai-tools/assets-verify.lib.sh" \
+        /usr/local/lib/ai-tools/assets-verify.lib.sh
+    log "/usr/local/lib/ai-tools/keys/dag-node-package-signing.asc"
+    install -o root -g root -m 644 \
+        "${SCRIPT_DIR}/src/usr/local/lib/ai-tools/keys/dag-node-package-signing.asc" \
+        /usr/local/lib/ai-tools/keys/dag-node-package-signing.asc
+    log "/usr/local/lib/ai-tools/keys/dag-node-package-signing.gpg"
+    _keyring="$(mktemp)"
+    bash -c '. "$1" && ai_tools_assets_keyring_dearmor "$2" "$3"' _ \
+        "${SCRIPT_DIR}/src/usr/local/lib/ai-tools/assets-verify.lib.sh" \
+        "${SCRIPT_DIR}/src/usr/local/lib/ai-tools/keys/dag-node-package-signing.asc" \
+        "${_keyring}" \
+        || { rm -f "${_keyring}"; die "the package-signing key did not dearmor into a keyring"; }
+    install -o root -g root -m 644 "${_keyring}" /usr/local/lib/ai-tools/keys/dag-node-package-signing.gpg
+    rm -f "${_keyring}"
+    log "/usr/local/lib/ai-tools/assets-bindings.d"
+    install -o root -g root -d -m 755 /usr/local/lib/ai-tools/assets-bindings.d
+    for _binding in core ai-tools; do
+        install -o root -g root -m 644 \
+            "${SCRIPT_DIR}/src/usr/local/lib/ai-tools/assets-bindings.d/${_binding}.conf" \
+            "/usr/local/lib/ai-tools/assets-bindings.d/${_binding}.conf"
+    done
 
     # Shared KEY=value config grammar + the trust predicate: 644 root:root -- world-readable, sourced
     # by operator.lib.sh, skip-dirs.lib.sh and providers.lib.sh so every key in operator.conf and every provider
