@@ -287,9 +287,11 @@ expect 2 "a group-writable keyring directory" ai_tools_assets_verify_set "${SET}
 chmod 0755 "${KEYS}"
 expect 0 "control: the set verifies again once every input is restored" ai_tools_assets_verify_set "${SET}" acme
 
-# A binding refused at a later line publishes neither output.
+# A binding refused at a later line publishes neither output. The reader runs in this shell, not under `expect`,
+# whose capture is a subshell that would leave the outputs of the last read made here in place.
 write_binding acme "${KEYS}/signer.gpg" "openpgp:${SIGNER}" "not-a-signer"
-expect 2 "a binding whose second signer is invalid" ai_tools_assets_binding_read acme
+read_status=0; ai_tools_assets_binding_read acme 2>/dev/null || read_status=$?
+if [[ "${read_status}" == 2 ]]; then pass "a binding whose second signer is invalid -> 2"; else fail "a binding whose second signer is invalid -> ${read_status}, want 2"; fi
 if (( ${#_ai_tools_av_signers[@]} == 0 )) && [[ -z "${_ai_tools_av_keyring}" ]]; then
     pass "a refused binding leaves the signers and the keyring empty"
 else
