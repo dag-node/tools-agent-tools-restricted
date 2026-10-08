@@ -358,7 +358,7 @@ ln -s %{ai_bindir}/ai-tools %{buildroot}%{_sbindir}/ai-tools
 # SANDBOX_GROUP member under multi-operator) can traverse in to source the 644
 # world-readable libs by path without listing the dir. The 640 files self-protect.
 install -d -m 0751 %{buildroot}%{ai_libdir}
-for l in log msg conf settings-merge skip-dirs owner-only project-permissions relabel secret-patterns operator control-plane safe-paths launch-wrapper confinement npm-verify entrypoint-verify managed-assets providers ancestor-config sandbox-exec toolchain selinux-groups filters services path-order agent-installs records-base records-tsv; do
+for l in log msg conf settings-merge skip-dirs owner-only project-permissions relabel secret-patterns operator control-plane safe-paths launch-wrapper confinement npm-verify entrypoint-verify assets-verify managed-assets providers ancestor-config sandbox-exec toolchain selinux-groups filters services path-order agent-installs records-base records-tsv; do
     install -m 0644 src%{ai_libdir}/${l}.lib.sh %{buildroot}%{ai_libdir}/${l}.lib.sh
 done
 # Provider manifest + fragment directories (base owns the dirs; each member package ships its own
@@ -383,12 +383,28 @@ install -d -m 0755 %{buildroot}%{ai_libdir}/admin-commands.d
 # own ships one beside it. An agent's filter hook reads them through filters.lib.sh.
 install -d -m 0755 %{buildroot}%{ai_libdir}/filters.d
 install -m 0644 src%{ai_libdir}/filters.d/base.rules %{buildroot}%{ai_libdir}/filters.d/base.rules
-# Pinned vendor release-signing keys, keyed by agent: keys/<agent>.asc. Base owns the directory
-# and ships none -- the key that signs an agent's releases belongs to that agent's package, the
-# same split as agents.d. entrypoint-verify.lib.sh verifies a release manifest against the key its
-# manifest names, so the key is SHIPPED rather than fetched (a fetched key proves only that whoever
-# served the manifest served the key).
+# Pinned release-signing keys. Base owns the directory; an agent's key, keys/<agent>.asc, belongs to
+# that agent's package, the same split as agents.d, and entrypoint-verify.lib.sh verifies a release
+# manifest against the key its manifest names, so the key is SHIPPED rather than fetched (a fetched
+# key proves only that whoever served the manifest served the key). Base ships one key of its own:
+# the dag-node package-signing key, the key rpm.dagnode.com serves, as published, and beside it the
+# binary keyring written from it here, since gpgv on EL9 does not read an armored keyring.
+# assets-verify.lib.sh verifies a set's SHA256SUMS.asc against the keyring a root-owned binding
+# names and asserts the signer's primary against that binding, so this file alone does not decide
+# what may sign a set.
 install -d -m 0755 %{buildroot}%{ai_libdir}/keys
+install -m 0644 src%{ai_libdir}/keys/dag-node-package-signing.asc %{buildroot}%{ai_libdir}/keys/dag-node-package-signing.asc
+bash -c '. "$1" && ai_tools_assets_keyring_dearmor "$2" "$3"' _ \
+    src%{ai_libdir}/assets-verify.lib.sh \
+    src%{ai_libdir}/keys/dag-node-package-signing.asc \
+    %{buildroot}%{ai_libdir}/keys/dag-node-package-signing.gpg
+chmod 0644 %{buildroot}%{ai_libdir}/keys/dag-node-package-signing.gpg
+# One binding per set name base ships, read by the assets resolver as KEY=value data: the set, the
+# primaries that may sign it, and the keyring. Plain rpm-owned data, NOT %%config, like the keys:
+# what may sign a set changes only when a signed package installs a new binding.
+install -d -m 0755 %{buildroot}%{ai_libdir}/assets-bindings.d
+install -m 0644 src%{ai_libdir}/assets-bindings.d/core.conf     %{buildroot}%{ai_libdir}/assets-bindings.d/core.conf
+install -m 0644 src%{ai_libdir}/assets-bindings.d/ai-tools.conf %{buildroot}%{ai_libdir}/assets-bindings.d/ai-tools.conf
 # The shared confinement shim. Base-owned and agent-agnostic: it resolves which agent may launch
 # from the manifests, so an ai-tools-agents-* package ships only its wrapper, manifest, and
 # session-env fragment, and one sudoers grant serves every agent.
@@ -1298,6 +1314,7 @@ fi
 %attr(0644, root, root) %{ai_libdir}/confinement.lib.sh
 %attr(0644, root, root) %{ai_libdir}/npm-verify.lib.sh
 %attr(0644, root, root) %{ai_libdir}/entrypoint-verify.lib.sh
+%attr(0644, root, root) %{ai_libdir}/assets-verify.lib.sh
 %attr(0644, root, root) %{ai_libdir}/conf.lib.sh
 %attr(0644, root, root) %{ai_libdir}/settings-merge.lib.sh
 %attr(0644, root, root) %{ai_libdir}/providers.lib.sh
@@ -1312,6 +1329,11 @@ fi
 %attr(0644, root, root) %{ai_libdir}/records-base.lib.sh
 %attr(0644, root, root) %{ai_libdir}/records-tsv.lib.sh
 %dir %attr(0755, root, root) %{ai_libdir}/keys
+%attr(0644, root, root) %{ai_libdir}/keys/dag-node-package-signing.asc
+%attr(0644, root, root) %{ai_libdir}/keys/dag-node-package-signing.gpg
+%dir %attr(0755, root, root) %{ai_libdir}/assets-bindings.d
+%attr(0644, root, root) %{ai_libdir}/assets-bindings.d/core.conf
+%attr(0644, root, root) %{ai_libdir}/assets-bindings.d/ai-tools.conf
 %dir %attr(0755, root, root) %{ai_libdir}/agents.d
 %dir %attr(0755, root, root) %{ai_libdir}/integrations.d
 %dir %attr(0755, root, root) %{ai_libdir}/session-env.d
