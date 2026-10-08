@@ -74,6 +74,9 @@ Requires:       acl
 Requires:       python3
 Requires:       coreutils
 Requires:       policycoreutils
+# gnupg2 provides gpgv, the verify-only half assets-verify.lib.sh checks a set's SHA256SUMS.asc with; without it every
+# set is unverified and none links, the fail-closed direction, so the dependency is base's and not an agent package's.
+Requires:       gnupg2
 # Weak, not hard: without the policy the sandbox runs in a documented DAC-only mode rather than
 # failing. ai_tools_confinement_verdict returns "ok" when the module is ABSENT (an intentional
 # DAC-only deployment) and fails closed only when it is present-but-inactive, so dropping this
