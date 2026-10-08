@@ -10,12 +10,15 @@
 #   0  verified; the signer's primary fingerprint is printed on stdout
 #   1  MISMATCH (MSG-T3M3) -- gpgv rejects the signature, or the inventory does not describe the tree: a listed hash
 #      differs, a file is listed and absent, present and unlisted, listed twice, or a line outside the inventory shape
-#   2  unable to verify (MSG-Q6Y8) -- SHA256SUMS or SHA256SUMS.asc absent or over its bound, gpgv absent or exiting
-#      other than 0 or 1, no binding for the name, a binding or keyring that fails ai_tools_conf_is_trusted or does
-#      not parse, or a VALIDSIG primary no `signers` item names
+#   2  unable to verify (MSG-Q6Y8) -- SHA256SUMS or SHA256SUMS.asc absent or over its bound, a walk of the tree that
+#      did not complete, a file over the format's per-file bound or a set over its file-count or payload bound, gpgv
+#      absent or exiting other than 0 or 1, no binding for the name, a binding or keyring that fails
+#      ai_tools_conf_is_trusted or does not parse, or a VALIDSIG primary no `signers` item names
 # Both refuse: the resolver reads 1 as set-tampered and 2 as set-unverified. The signature is checked before the
 # inventory is parsed, so a tree whose signature fails is not read further; a signed inventory that does not describe
-# the tree is a mismatch, since the signed file and the tree cannot both be what the publisher built.
+# the tree is a mismatch, since the signed file and the tree cannot both be what the publisher built. A file name
+# holding a newline or a backslash is a mismatch too: sha256sum prints such a name escaped, so one inventory line cannot
+# name it, and the format's file-name rule refuses it at build.
 #
 # A binding is AI_TOOLS_ASSETS_BINDINGS_DIR/<set>.conf in the shared KEY=value grammar, read line by line
 # through conf.lib.sh and not sourced: `set` equals the file's stem, `signers` lists primary fingerprints as openpgp:<40
@@ -48,9 +51,12 @@ _AI_TOOLS_ASSETS_VERIFY_LIB_LOADED=1
 : "${AI_TOOLS_ASSETS_BINDINGS_DIR:=/usr/local/lib/ai-tools/assets-bindings.d}"
 readonly AI_TOOLS_ASSETS_INVENTORY=SHA256SUMS
 readonly AI_TOOLS_ASSETS_SIGNATURE=SHA256SUMS.asc
-# The bound each read takes: the inventory at the format's per-file bound, the signature and a binding at 64 KiB.
-readonly AI_TOOLS_ASSETS_INVENTORY_MAX_BYTES=1048576
+# The bound each read takes: a file of the set, the inventory among them, at the format's per-file bound; the signature
+# and a binding at 64 KiB; the set at the format's file count and payload bound. A set past a bound is not read further.
+readonly AI_TOOLS_ASSETS_FILE_MAX_BYTES=1048576
 readonly AI_TOOLS_ASSETS_SMALL_FILE_MAX_BYTES=65536
+readonly AI_TOOLS_ASSETS_FILE_MAX_COUNT=2000
+readonly AI_TOOLS_ASSETS_SET_MAX_BYTES=67108864
 
 # _ai_tools_av_warn [code] <message...> : this library's one report, on stderr and, when log.lib.sh is loaded by the
 #   caller, in journald. A leading message code goes on its own line ahead of the message, the shape
@@ -77,10 +83,10 @@ _ai_tools_av_unverifiable() {
 #   most <max-bytes>. Every file this library opens passes it first, so a link or a special file swapped into a name
 #   is refused before a read.
 _ai_tools_av_regular_file() {
-    local path="${1:-}" max="${2:-0}" size
+    local path="${1:-}" max_bytes="${2:-0}" size_bytes
     [[ -n "${path}" && ! -L "${path}" && -f "${path}" && -r "${path}" ]] || return 1
-    size="$(stat -c '%s' "${path}" 2>/dev/null)" || return 1
-    [[ "${size}" =~ ^[0-9]+$ ]] && (( size <= max ))
+    size_bytes="$(stat -c '%s' "${path}" 2>/dev/null)" || return 1
+    [[ "${size_bytes}" =~ ^[0-9]+$ ]] && (( size_bytes <= max_bytes ))
 }
 
 # ai_tools_assets_set_name_valid <name> : succeed when <name> follows the set-name grammar of the assets format:
@@ -122,7 +128,7 @@ ai_tools_assets_keyring_dearmor() {
 #   file in a trusted directory. Every failure leaves both outputs empty.
 ai_tools_assets_binding_read() {
     local set_name="${1:-}" dir="${AI_TOOLS_ASSETS_BINDINGS_DIR}" binding line key item keyring
-    local -a signers=()
+    local -a signers=() parsed_signers=()
     _ai_tools_av_signers=()
     _ai_tools_av_keyring=""
     ai_tools_assets_set_name_valid "${set_name}" \
@@ -155,17 +161,17 @@ ai_tools_assets_binding_read() {
     for item in "${signers[@]}"; do
         ai_tools_assets_signer_valid "${item}" \
             || { _ai_tools_av_unverifiable "binding ${binding} signer '${item:0:80}' is not openpgp:<40 hex digits>"; return 2; }
-        _ai_tools_av_signers+=("${item#openpgp:}")
+        parsed_signers+=("${item#openpgp:}")
     done
-    _ai_tools_av_signers=("${_ai_tools_av_signers[@]^^}")
     keyring="$(ai_tools_conf_get "${binding}" keyring)"
     if [[ "${keyring}" != /* || "${keyring}" == *..* ]] \
         || ! ai_tools_conf_is_trusted "${keyring%/*}" || ! ai_tools_conf_is_trusted "${keyring}" \
         || ! _ai_tools_av_regular_file "${keyring}" "${AI_TOOLS_ASSETS_SMALL_FILE_MAX_BYTES}" || [[ ! -s "${keyring}" ]]; then
-        _ai_tools_av_signers=()
         _ai_tools_av_unverifiable "binding ${binding} keyring '${keyring:0:120}' is not an absolute path to a trusted, non-empty regular file in a trusted directory"
         return 2
     fi
+    # The outputs are assigned once, after every check, so a binding refused at any line publishes neither.
+    _ai_tools_av_signers=("${parsed_signers[@]^^}")
     _ai_tools_av_keyring="${keyring}"
     return 0
 }
@@ -188,18 +194,22 @@ _ai_tools_av_inventory_path_valid() {
 #   SHA256SUMS under <set-directory> lists every file of the set other than itself and SHA256SUMS.asc exactly once,
 #   as `<sha256>  <relative path>`, and each hash matches. Returns 0; 1 under MSG-T3M3 for a line outside that shape,
 #   a path outside the set, a path listed twice, a file listed and absent, present and unlisted, not a regular file,
-#   or whose hash differs; 2 under MSG-Q6Y8 for a directory, inventory or file that cannot be read within its bound,
-#   or without sha256sum. Prints nothing. The tree is hashed in one sha256sum call over the names the walk found.
+#   or whose hash differs; 2 under MSG-Q6Y8 for a directory or inventory the bounded read refuses, a walk that did not
+#   complete, a file over the per-file bound, a set over the file-count or payload bound, or no sha256sum. Prints
+#   nothing. The walk is written to a file of its own so its exit status is read: an enumeration that ended early
+#   leaves a tree whose listed files match and whose unlisted ones were never seen, which no count would show. The tree
+#   is then hashed in one sha256sum call over the names the walk found.
 ai_tools_assets_check_inventory() {
-    local set_dir="${1:-}" inventory line digest path hashed hashed_count=0
+    local set_dir="${1:-}" inventory line digest path size_bytes checksum_output hashed_count=0 total_bytes=0
+    local listing walk_error walk_status=0
     local line_shape='^([0-9a-f]{64}) [ *](.+)$'
-    local -A listed=()
-    local -a walked=()
+    local -A expected_digests_by_path=()
+    local -a discovered_file_paths=()
     [[ -n "${set_dir}" && ! -L "${set_dir}" && -d "${set_dir}" ]] \
         || { _ai_tools_av_unverifiable "'${set_dir:0:120}' is not a directory"; return 2; }
     inventory="${set_dir}/${AI_TOOLS_ASSETS_INVENTORY}"
-    _ai_tools_av_regular_file "${inventory}" "${AI_TOOLS_ASSETS_INVENTORY_MAX_BYTES}" \
-        || { _ai_tools_av_unverifiable "${inventory} is absent, not a regular file, unreadable, or over ${AI_TOOLS_ASSETS_INVENTORY_MAX_BYTES} bytes"; return 2; }
+    _ai_tools_av_regular_file "${inventory}" "${AI_TOOLS_ASSETS_FILE_MAX_BYTES}" \
+        || { _ai_tools_av_unverifiable "${inventory} is absent, not a regular file, unreadable, or over ${AI_TOOLS_ASSETS_FILE_MAX_BYTES} bytes"; return 2; }
     command -v sha256sum >/dev/null 2>&1 \
         || { _ai_tools_av_unverifiable "sha256sum not found"; return 2; }
     while IFS= read -r line || [[ -n "${line}" ]]; do
@@ -209,45 +219,63 @@ ai_tools_assets_check_inventory() {
         path="${BASH_REMATCH[2]}"
         _ai_tools_av_inventory_path_valid "${path}" \
             || { _ai_tools_av_mismatch "${inventory}: '${path:0:80}' is not a relative path inside the set"; return 1; }
-        [[ -z "${listed[${path}]+x}" ]] \
+        [[ -z "${expected_digests_by_path[${path}]+x}" ]] \
             || { _ai_tools_av_mismatch "${inventory}: '${path:0:80}' is listed twice"; return 1; }
-        listed["${path}"]="${digest}"
+        expected_digests_by_path["${path}"]="${digest}"
+        (( ${#expected_digests_by_path[@]} <= AI_TOOLS_ASSETS_FILE_MAX_COUNT )) \
+            || { _ai_tools_av_unverifiable "${inventory}: lists more than ${AI_TOOLS_ASSETS_FILE_MAX_COUNT} files"; return 2; }
     done < "${inventory}"
-    # Every file of the tree is a listed regular file. A name holding a newline or a backslash, which sha256sum prints
-    # escaped, a link or a special file is a mismatch here, as the file-shape rules refuse it at the resolver.
-    while IFS= read -r -d '' path; do
+    listing="$(mktemp 2>/dev/null)" \
+        || { _ai_tools_av_unverifiable "${set_dir}: no temporary file for the walk"; return 2; }
+    # shellcheck disable=SC2064  # the name is expanded now, so the trap removes the file this call made
+    trap "rm -f -- '${listing}'" RETURN
+    walk_error="$( (cd "${set_dir}" && find . -mindepth 1 ! -type d -printf '%s\t%P\0' > "${listing}") 2>&1 )" \
+        || walk_status=$?
+    (( walk_status == 0 )) \
+        || { _ai_tools_av_unverifiable "${set_dir}: the walk did not complete (find exit ${walk_status}): ${walk_error%%$'\n'*}"; return 2; }
+    # Every file of the tree is a listed regular file within the bounds. A name holding a newline or a backslash,
+    # which sha256sum prints escaped, a link or a special file is a mismatch here, as the file-shape rules refuse it
+    # at the resolver.
+    while IFS=$'\t' read -r -d '' size_bytes path; do
         [[ "${path}" == "${AI_TOOLS_ASSETS_INVENTORY}" || "${path}" == "${AI_TOOLS_ASSETS_SIGNATURE}" ]] && continue
         [[ "${path}" != *$'\n'* && "${path}" != *\\* ]] \
             || { _ai_tools_av_mismatch "${set_dir}: a file name holds a newline or a backslash, which the inventory cannot list"; return 1; }
         [[ ! -L "${set_dir}/${path}" && -f "${set_dir}/${path}" ]] \
             || { _ai_tools_av_mismatch "${set_dir}: '${path:0:80}' is not a regular file"; return 1; }
-        [[ -n "${listed[${path}]+x}" ]] \
+        if ! [[ "${size_bytes}" =~ ^[0-9]+$ ]] || (( size_bytes > AI_TOOLS_ASSETS_FILE_MAX_BYTES )); then
+            _ai_tools_av_unverifiable "${set_dir}: '${path:0:80}' is over ${AI_TOOLS_ASSETS_FILE_MAX_BYTES} bytes"
+            return 2
+        fi
+        total_bytes=$(( total_bytes + size_bytes ))
+        (( total_bytes <= AI_TOOLS_ASSETS_SET_MAX_BYTES && ${#discovered_file_paths[@]} < AI_TOOLS_ASSETS_FILE_MAX_COUNT )) \
+            || { _ai_tools_av_unverifiable "${set_dir}: holds more than ${AI_TOOLS_ASSETS_FILE_MAX_COUNT} files or ${AI_TOOLS_ASSETS_SET_MAX_BYTES} bytes"; return 2; }
+        [[ -n "${expected_digests_by_path[${path}]+x}" ]] \
             || { _ai_tools_av_mismatch "${set_dir}: '${path:0:80}' is in the set and not in ${AI_TOOLS_ASSETS_INVENTORY}"; return 1; }
-        walked+=("${path}")
-    done < <(cd "${set_dir}" && find . -mindepth 1 ! -type d -printf '%P\0' 2>/dev/null | LC_ALL=C sort -z)
-    if (( ${#walked[@]} != ${#listed[@]} )); then
-        for path in "${!listed[@]}"; do
+        discovered_file_paths+=("${path}")
+    done < "${listing}"
+    if (( ${#discovered_file_paths[@]} != ${#expected_digests_by_path[@]} )); then
+        for path in "${!expected_digests_by_path[@]}"; do
             [[ -e "${set_dir}/${path}" ]] \
                 || { _ai_tools_av_mismatch "${inventory}: '${path:0:80}' is listed and not in the set"; return 1; }
         done
-        _ai_tools_av_mismatch "${inventory}: lists ${#listed[@]} files, the set holds ${#walked[@]}"
+        _ai_tools_av_mismatch "${inventory}: lists ${#expected_digests_by_path[@]} files, the set holds ${#discovered_file_paths[@]}"
         return 1
     fi
-    (( ${#walked[@]} > 0 )) \
+    (( ${#discovered_file_paths[@]} > 0 )) \
         || { _ai_tools_av_mismatch "${set_dir}: holds no file beside ${AI_TOOLS_ASSETS_INVENTORY}"; return 1; }
-    hashed="$(cd "${set_dir}" && sha256sum -- "${walked[@]}" 2>/dev/null)" \
+    checksum_output="$(cd "${set_dir}" && sha256sum -- "${discovered_file_paths[@]}" 2>/dev/null)" \
         || { _ai_tools_av_unverifiable "${set_dir}: a file could not be hashed"; return 2; }
     while IFS= read -r line; do
         [[ -n "${line}" ]] || continue
         digest="${line%% *}"
         path="${line#* }"
         path="${path# }"
-        [[ "${listed[${path}]-}" == "${digest}" ]] \
+        [[ "${expected_digests_by_path[${path}]-}" == "${digest}" ]] \
             || { _ai_tools_av_mismatch "${set_dir}: '${path:0:80}' does not match its ${AI_TOOLS_ASSETS_INVENTORY} line"; return 1; }
         hashed_count=$(( hashed_count + 1 ))
-    done <<< "${hashed}"
-    (( hashed_count == ${#walked[@]} )) \
-        || { _ai_tools_av_unverifiable "${set_dir}: sha256sum reported ${hashed_count} files of ${#walked[@]}"; return 2; }
+    done <<< "${checksum_output}"
+    (( hashed_count == ${#discovered_file_paths[@]} )) \
+        || { _ai_tools_av_unverifiable "${set_dir}: sha256sum reported ${hashed_count} files of ${#discovered_file_paths[@]}"; return 2; }
     return 0
 }
 
@@ -255,44 +283,47 @@ ai_tools_assets_check_inventory() {
 #   <set-directory> verifies through gpgv against the keyring the binding for <set-name> names, by a key whose
 #   VALIDSIG primary the binding's signers list, and SHA256SUMS describes the tree (ai_tools_assets_check_inventory).
 #   Prints the signer's primary fingerprint and returns 0; returns 1 under MSG-T3M3 for a signature gpgv rejects
-#   or an inventory mismatch, 2 under MSG-Q6Y8 for an input the checks refuse: absent, over its bound, untrusted, or unmatched by the binding.
+#   or an inventory mismatch, 2 under MSG-Q6Y8 for an input the checks refuse: absent, over its bound, untrusted, or
+#   unmatched by the binding.
 #   gpgv reads the keyring named and no default one, and its exit status separates the two refusals as the contract
 #   does: 1 for a signature it rejects, 2 for a key the keyring does not hold.
 ai_tools_assets_verify_set() {
-    local set_dir="${1:-}" set_name="${2:-}" inventory signature output status=0 primary declared matched=no
+    local set_dir="${1:-}" set_name="${2:-}" inventory signature gpgv_status_output gpgv_exit_status=0
+    local signer_primary allowed_primary matched=no
     [[ -n "${set_dir}" && ! -L "${set_dir}" && -d "${set_dir}" ]] \
         || { _ai_tools_av_unverifiable "'${set_dir:0:120}' is not a directory"; return 2; }
     ai_tools_assets_set_name_valid "${set_name}" \
         || { _ai_tools_av_unverifiable "'${set_name:0:80}' is not a set name"; return 2; }
     inventory="${set_dir}/${AI_TOOLS_ASSETS_INVENTORY}"
     signature="${set_dir}/${AI_TOOLS_ASSETS_SIGNATURE}"
-    _ai_tools_av_regular_file "${inventory}" "${AI_TOOLS_ASSETS_INVENTORY_MAX_BYTES}" \
-        || { _ai_tools_av_unverifiable "set ${set_name}: ${inventory} is absent, not a regular file, unreadable, or over ${AI_TOOLS_ASSETS_INVENTORY_MAX_BYTES} bytes"; return 2; }
+    _ai_tools_av_regular_file "${inventory}" "${AI_TOOLS_ASSETS_FILE_MAX_BYTES}" \
+        || { _ai_tools_av_unverifiable "set ${set_name}: ${inventory} is absent, not a regular file, unreadable, or over ${AI_TOOLS_ASSETS_FILE_MAX_BYTES} bytes"; return 2; }
     _ai_tools_av_regular_file "${signature}" "${AI_TOOLS_ASSETS_SMALL_FILE_MAX_BYTES}" \
         || { _ai_tools_av_unverifiable "set ${set_name}: ${signature} is absent, not a regular file, unreadable, or over ${AI_TOOLS_ASSETS_SMALL_FILE_MAX_BYTES} bytes"; return 2; }
     command -v gpgv >/dev/null 2>&1 \
         || { _ai_tools_av_unverifiable "set ${set_name}: gpgv not found; install gnupg2"; return 2; }
     ai_tools_assets_binding_read "${set_name}" || return 2
-    output="$(gpgv --status-fd 1 --keyring "${_ai_tools_av_keyring}" "${signature}" "${inventory}" 2>/dev/null)" || status=$?
-    if (( status == 1 )); then
+    gpgv_status_output="$(gpgv --status-fd 1 --keyring "${_ai_tools_av_keyring}" "${signature}" "${inventory}" 2>/dev/null)" \
+        || gpgv_exit_status=$?
+    if (( gpgv_exit_status == 1 )); then
         _ai_tools_av_mismatch "set ${set_name}: gpgv rejects the signature ${signature} over ${inventory}"
         return 1
     fi
-    if (( status != 0 )); then
-        _ai_tools_av_unverifiable "set ${set_name}: gpgv could not verify ${signature} (exit ${status}): the signing key is not in ${_ai_tools_av_keyring}, or a file could not be read"
+    if (( gpgv_exit_status != 0 )); then
+        _ai_tools_av_unverifiable "set ${set_name}: gpgv could not verify ${signature} (exit ${gpgv_exit_status}): the signing key is not in ${_ai_tools_av_keyring}, or a file could not be read"
         return 2
     fi
-    primary="$(printf '%s\n' "${output}" | awk '/^\[GNUPG:\] VALIDSIG / { print $NF; exit }')"
-    [[ "${primary}" =~ ^[0-9A-F]{40}$ ]] \
+    signer_primary="$(printf '%s\n' "${gpgv_status_output}" | awk '/^\[GNUPG:\] VALIDSIG / { print $NF; exit }')"
+    [[ "${signer_primary}" =~ ^[0-9A-F]{40}$ ]] \
         || { _ai_tools_av_unverifiable "set ${set_name}: gpgv accepted ${signature} without a VALIDSIG line"; return 2; }
-    for declared in "${_ai_tools_av_signers[@]}"; do
-        [[ "${declared}" == "${primary}" ]] && { matched=yes; break; }
+    for allowed_primary in "${_ai_tools_av_signers[@]}"; do
+        [[ "${allowed_primary}" == "${signer_primary}" ]] && { matched=yes; break; }
     done
     if [[ "${matched}" != yes ]]; then
-        _ai_tools_av_unverifiable "set ${set_name}: ${signature} is signed by primary ${primary}, which the binding for ${set_name} does not name"
+        _ai_tools_av_unverifiable "set ${set_name}: ${signature} is signed by primary ${signer_primary}, which the binding for ${set_name} does not name"
         return 2
     fi
     ai_tools_assets_check_inventory "${set_dir}" || return $?
-    printf '%s' "${primary}"
+    printf '%s' "${signer_primary}"
     return 0
 }
