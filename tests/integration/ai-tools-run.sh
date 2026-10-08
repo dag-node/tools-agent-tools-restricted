@@ -260,7 +260,7 @@ else
     refused "ai-tools-run refuses a non-existent AI_TOOLS_PROJECT_DIR" MSG-F8V8 "${rc}" "${out}"
 
     # (5) A real, executable binary sitting in the SAME versioned bin directory is refused because no enabled agent
-    # manifest claims that launcher. The manifest allowlist is what carries that: a path-shape check alone admits
+    # manifest claims that launcher. The manifest allowlist is what carries that: a path-shape check alone accepts
     # anything the sandbox account can drop beside the launcher, which would start a confined session under the sudo
     # grant.
     node_bin="${real%/*}/node"

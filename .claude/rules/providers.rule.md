@@ -823,7 +823,7 @@ as an integration, so a thin .NET agent is the near case. What it would add, and
   and read-only to the agent — stricter than the nvm tree, which the sandbox account owns).
 
   A **host-packaged** runtime has neither property and must not be expressed as a root at all. Its binary lands
-  in a shared system directory (`/usr/bin`), so admitting that directory as a prefix would let a manifest name any
+  in a shared system directory (`/usr/bin`), so allowing that directory as a prefix would let a manifest name any
   binary on the host — `/usr/bin/sudo` — as its entrypoint and have `relabel.lib.sh` grant it `ai_tools_exec_t`,
   the confined domain's exec entrypoint. The rule for such a runtime is therefore **exact-path**: one file,
   `/usr/bin/<launcher>` for that manifest's own claimed `launcher`, with no pattern language. So this is a containment

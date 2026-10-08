@@ -52,7 +52,7 @@ a carve-out.
 A second predicate, for a strictly weaker operation, single-sourced here and used by `confirm_ancestor_traversal` (via
 `grantable_ancestor`) and by both new project verbs through it. It returns 0 when `<path>` is a directory `<owner>`
 holds and it either does not match any protected path **or** matches only as `<owner>`'s own home root — resolved
-from `getent`, so a path that merely looks like `/home/<name>` is not admitted on its shape. Every system directory,
+from `getent`, so a path that merely looks like `/home/<name>` is not accepted on its shape. Every system directory,
 `/home` itself, and any other account's home root stay refused, as does a missing path, a non-directory, or an unnamed
 owner.
 

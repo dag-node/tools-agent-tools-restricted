@@ -39,10 +39,10 @@ export const LIMITS = Object.freeze({
     totalBudgetMs: 180_000,
 });
 // The id is a key in the question map this loop builds and matches answers back by, and is used for no
-// filesystem access. A leading "/" is admitted because a compiler reports an absolute path, and an id that
+// filesystem access. A leading "/" is accepted because a compiler reports an absolute path, and an id that
 // names the file beats an L<n> in the summary line the agent reads.
 const ITEM_ID_PATTERN = /^[A-Za-z0-9/][A-Za-z0-9._:/@+-]{0,199}$/;
-// The two names the grammar admits that the reviver in transport.mts drops from every body: an item so named
+// The two names the grammar accepts that the reviver in transport.mts drops from every body: an item so named
 // could never be answered, so it is not an id.
 const RESERVED_ITEM_IDS = new Set(["constructor", "prototype"]);
 // Two classes of character with no visible glyph, handled differently because they deceive different readers.

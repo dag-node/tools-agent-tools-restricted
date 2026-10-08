@@ -478,7 +478,7 @@ and an allowlisted protected directory, and passes an approved directory reached
 with the canonical path published; the claim guard refuses an approved directory the sandbox group does not own when no
 terminal can answer its confirm; the session exec refuses without the gates' results; and the gate runner answers
 the sandbox account before it reads the allowlist. Every launcher is one program, so the name is an input: init refuses
-one outside a launcher's charset, a non-ASCII letter included under a UTF-8 locale where a bracket range admits it,
+one outside a launcher's charset, a non-ASCII letter included under a UTF-8 locale where a bracket range matches it,
 and the launcher gate refuses a name no enabled manifest claims, the launcher program's own among them. The hook loader
 is driven through a copy of the library with its hook directory repointed: an undeclared hook is not read though
 present, and every other state refuses. The launcher's startup hardening is measured against a control: the same run
@@ -631,14 +631,14 @@ which account the install enrols. Every refusal is driven through `--operator`, 
 that decision without a terminal (the prompt reads `/dev/tty`, so its branch is not drivable here) — root, the sandbox
 account, an account that does not exist, and the flag's own valueless form. Each case runs the installer
 with an unrecognized action, so a run that reaches the dispatch at all prints usage and exits having written no state,
-which is also how "admitted" is asserted. Beyond the refusals it pins what the flag does **not** decide:
-a `SUDO_USER=root` invocation naming a usable operator is admitted, while the same invocation naming nobody is refused,
+which is also how "accepted" is asserted. Beyond the refusals it pins what the flag does **not** decide:
+a `SUDO_USER=root` invocation naming a usable operator is accepted, while the same invocation naming nobody is refused,
 so the flag chooses who is enrolled and never how the script was invoked. Its second section drives the **source-tree
 gate** through `install.sh check-tree`, which runs the gate alone, against a fixture checkout the test builds (a copy
 of the installer with the libraries it sources, in a repository of its own): a clean tree passes and names its commit,
 the gate leaves an operator-owned `.git/index` with its owner when the stat cache is stale (a plain root `git status`
 rewrites it root-owned, which the case runs first as its control), an uncommitted tree is refused with its paths listed
-and the flag named, a path the sandbox account owns is marked `[agent]`, `--allow-uncommitted` admits the same tree
+and the flag named, a path the sandbox account owns is marked `[agent]`, `--allow-uncommitted` allows the same tree
 with a warning, and a tree without a `.git` directory passes with no commit to name. Every case but the version gate's
 own orders against an installed CLI that does not exist, so the host's installed release does not decide a result.
 A fixture, and the action that leaves the host unchanged, because the real checkout reports whatever state the developer
@@ -862,7 +862,7 @@ session. Each names an installed agent manifest, sources clean into the array it
 `--setenv=NAME=value` lines alone, each value a path under `/opt/ai-tools` or a switch — the allowlist that keeps
 a credential, a name-only import and a PATH tail out of the file. The checker is driven on fixtures it must refuse (a
 name-only import, a token, a PATH tail), so a green run is evidence about the shipped files and not about a pattern
-that admits everything. It reads the checkout and runs without root.
+that accepts everything. It reads the checkout and runs without root.
 
 `shared-root.sh` pins the shared-root link and its reverse (`ai_tools_link_shared_root`, see
 [shipped-assets](shipped-assets.rule.md)), the step that points codex's admin-scope skills path at the live shared root.
@@ -975,7 +975,7 @@ the type comparisons.
 `entrypoint-verify.sh` pins the pure half of the entrypoint verifier (`entrypoint-verify.lib.sh`, see
 [updater](updater.rule.md)). Every assertion targets a way the gate could fail **open**: an absent pin must read
 as `unpinned` and never as a mismatch (collapsing them would report a fresh install as tamper, or — inverted — bless
-a tampered one); a checksum is admitted only in exact 64-hex shape, so malformed JSON, an absent platform, or a crafted
+a tampered one); a checksum is accepted only in exact 64-hex shape, so malformed JSON, an absent platform, or a crafted
 value yields an empty result rather than a value that could compare equal to a partial observation; a URL template
 with no `{version}` slot is refused rather than fetched as-is, since one manifest for every version reads as "verified"
 while checking a release it never looked at; and the template charset excludes every character that could carry a shell

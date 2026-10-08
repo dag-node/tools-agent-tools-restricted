@@ -33,7 +33,7 @@ readonly AI_TOOLS_AGENT_INSTALL_WRAPPER_DIR=/usr/local/bin
 # executable of that name in <dir>... (default: AI_TOOLS_AGENT_INSTALL_DIRS), leaving out the wrapper itself. `-ef` is
 # what makes a usr-merged host's /bin/claude and /usr/bin/claude one install rather than two.
 #
-# The launcher name becomes a path, so it is admitted only in a launcher's own charset; a name outside it does not
+# The launcher name becomes a path, so it is accepted only in a launcher's own charset; a name outside it does not
 # produce any line.
 ai_tools_agent_installs() {
     local launcher="${1:-}"; shift || true
@@ -63,7 +63,7 @@ ai_tools_agent_installs() {
 
 # ai_tools_agent_install_owner <path> Print the name of the package owning <path>; prints nothing where rpm does not own
 # that file, or is not installed. The value is rendered into a `dnf remove` command a person is invited to run, so it is
-# admitted only in a package name's charset.
+# accepted only in a package name's charset.
 ai_tools_agent_install_owner() {
     local path="${1:-}" package
     [[ -n "${path}" ]] || return 0

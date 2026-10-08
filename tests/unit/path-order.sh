@@ -79,18 +79,18 @@ verdict unknown 2 "with no shadow, one unreadable reading carries the verdict" \
 # ── (B) The two inputs that reach a shell or a terminal ───────────────────────────────────────
 # The launcher name is interpolated into a command run as another account, so anything outside a launcher's own charset
 # must not be probed at all.
-admitted=""
+accepted=""
 for bad in 'cl;id' 'cl$(id)' 'cl aude' 'cl`id`' 'cl|id' '../claude' '' 'cl&id' 'cl>x'; do
-    ai_tools_path_order_launcher_valid "${bad}" && { admitted="${bad}"; break; }
+    ai_tools_path_order_launcher_valid "${bad}" && { accepted="${bad}"; break; }
 done
-if [[ -z "${admitted}" ]]; then
+if [[ -z "${accepted}" ]]; then
     pass "a launcher name carrying shell syntax is refused before it reaches a command"
 else
-    fail "admitted a launcher name carrying shell syntax: ${admitted}"
+    fail "accepted a launcher name carrying shell syntax: ${accepted}"
 fi
 if ai_tools_path_order_launcher_valid claude && ai_tools_path_order_launcher_valid node-22 \
         && ai_tools_path_order_launcher_valid gemini.cli; then
-    pass "an ordinary launcher name is admitted"
+    pass "an ordinary launcher name is accepted"
 else
     fail "refused a launcher name in the shape a launcher has"
 fi
@@ -104,7 +104,7 @@ if ai_tools_path_order_readable "${WRAPPER}/claude" \
         && ! ai_tools_path_order_readable "$(printf '/usr/local/bin/\033[2Kclaude')"; then
     pass "only an absolute path with no whitespace or control byte is read as an answer"
 else
-    fail "admitted a probe answer that is not a path this report can compare or print"
+    fail "accepted a probe answer that is not a path this report can compare or print"
 fi
 
 # ── (C) The wiring flag, over real files ─────────────────────────────────────────────────────

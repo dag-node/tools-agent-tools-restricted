@@ -61,7 +61,7 @@ ai_tools_protected_path_match() {
 # decide. Refusing an operator's own home root for THAT is what made every project at /home/<user>/<proj> permanently
 # unreachable, with a sandbox clone the only way in.
 #
-# The owner check is what keeps the home-root carve-out honest: it admits the home of the operator the run acts
+# The owner check is what keeps the home-root carve-out honest: it allows the home of the operator the run acts
 # for, and no one else's.
 ai_tools_traverse_grant_allowed() {
     local path="${1:-}" owner_user="${2:-}" matched
@@ -71,7 +71,7 @@ ai_tools_traverse_grant_allowed() {
     [[ "$(stat -c '%U' "${path}" 2>/dev/null || true)" == "${owner_user}" ]] || return 1
     matched="$(ai_tools_protected_path_match "${path}")" || return 0
     # The sole permitted match: <owner_user>'s own home root, which the matcher reports with the "(user home root)"
-    # suffix. Compared against the account's real home so a path that merely looks like /home/<name> is not admitted
+    # suffix. Compared against the account's real home so a path that merely looks like /home/<name> is not accepted
     # on its shape.
     [[ "${matched}" == *"(user home root)" ]] || return 1
     local home; home="$(getent passwd "${owner_user}" 2>/dev/null | cut -d: -f6)"

@@ -30,7 +30,7 @@ mktestdir
 mkdir -p "${TESTDIR}"/proj/sub "${TESTDIR}"/proj/secret "${TESTDIR}"/proj/vendor "${TESTDIR}"/other \
          "${TESTDIR}"/noted "${TESTDIR}/quoted dir"
 allow="${TESTDIR}/allowed-projects"
-# Plain lines, plus one of each shape the shared grammar admits: an allow entry with an end-of-line comment, a quoted
+# Plain lines, plus one of each shape the shared grammar accepts: an allow entry with an end-of-line comment, a quoted
 # allow entry, and an exclusion carrying a comment.
 printf '%s\n' "${TESTDIR}/proj" "!${TESTDIR}/proj/secret" \
               "!${TESTDIR}/proj/vendor   # carve-out" \

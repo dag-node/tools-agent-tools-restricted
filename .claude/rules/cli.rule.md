@@ -824,7 +824,7 @@ the whole tree.
 
 **Each kind is its own question, asked under its own list**, so the answer follows the paths it is about, and each
 defaults to no, since each can widen the agent's access. A relabel leaves owner, group and mode alone, so it gives
-the agent a path where its permissions already admit the sandbox account — a moved-in file readable by other is one;
+the agent a path where its permissions already allow the sandbox account — a moved-in file readable by other is one;
 `-y` answers it, since the launch wrapper that passes `-y` has already confirmed a claim of the tree. It also resets
 every path in the tree, so a type another service needs inside a project — a Podman `:Z` volume, a directory httpd
 serves — is lost to that service; the block says so and lists each hit with its current type. A group and ACL repair

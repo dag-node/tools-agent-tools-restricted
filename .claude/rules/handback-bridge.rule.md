@@ -99,7 +99,7 @@ An unreadable or unmatched cgroup leaves the field **absent** rather than guesse
 **The string is agent-influenceable, so it is validated at the reader.** A cgroup *directory* name is held to no systemd
 rule — the kernel takes any byte but NUL and `/` — and the session's manager delegates a subtree the sandbox account may
 `mkdir` in, so the component this field is read from can carry control characters, a forged unit name, or 255 bytes
-of noise. `_unit_name_or_empty` admits only systemd's own valid-unit-name set (alphanumerics and `:-_.\@`) within
+of noise. `_unit_name_or_empty` accepts only systemd's own valid-unit-name set (alphanumerics and `:-_.\@`) within
 `UNIT_NAME_MAX`, and anything else yields the absent field rather than a recorded value: a string that is not a unit
 name is not attribution. Field injection into the journald datagram is closed in `_journal_entry`, which sanitizes every
 value and so cannot emit the newline that would terminate a field early; the reader's allowlist is what keeps a rejected

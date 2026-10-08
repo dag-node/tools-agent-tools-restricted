@@ -120,7 +120,7 @@ fixture = os.path.join(testdir, "cgroup")
 
 # A cgroup DIRECTORY name is held to no systemd rule -- the kernel takes any byte but NUL and '/' -- and the session's
 # manager delegates a subtree the sandbox account may mkdir in, so this component is agent-influenceable. What the
-# reader admits is systemd's own valid-unit-name set within UNIT_NAME_MAX; each crafted row in the cases list is a way
+# reader accepts is systemd's own valid-unit-name set within UNIT_NAME_MAX; each crafted row in the cases list is a way
 # a forged component could reach the operator's terminal or the record's own field, and each must read as NO unit.
 LONG = "a" * 300
 

@@ -47,7 +47,7 @@ AGENTS_DIR="${TESTDIR}/agents.d"; CONF="${TESTDIR}/operator.conf"; LINKS="${TEST
 PINS="${TESTDIR}/entrypoint-pin.d"; STALES="${TESTDIR}/entrypoint-stale.d"; LABELS="${TESTDIR}/entrypoint-label.d"
 mkdir -m 0755 "${AGENTS_DIR}" "${LINKS}" "${PINS}" "${STALES}" "${LABELS}"
 
-# manifest <name> <launcher> <default_enable> : one agent manifest, root-owned 0644, so the trust predicate admits it.
+# manifest <name> <launcher> <default_enable> : one agent manifest, root-owned 0644, so the trust predicate accepts it.
 manifest() {
     printf 'npm_package=@fixture/%s\nlauncher=%s\ndefault_enable=%s\n' "$1" "$2" "$3" > "${AGENTS_DIR}/$1.conf"
     chmod 0644 "${AGENTS_DIR}/$1.conf"

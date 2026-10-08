@@ -28,7 +28,7 @@ the interpreter by absolute path in privileged mode, PATH pinned — is stated i
 
 The gates are one implementation, `/usr/local/lib/ai-tools/launch-wrapper.lib.sh` (`644 root:root`,
 `ai-tools-base`-owned), and the wrapper is four calls into it: `ai_tools_launch_init <name>`, which loads `msg.lib.sh`,
-`safe-paths.lib.sh` and `conf.lib.sh` fail-closed and admits the name only in a launcher's charset, matched in the C
+`safe-paths.lib.sh` and `conf.lib.sh` fail-closed and accepts the name only in a launcher's charset, matched in the C
 locale (`MSG-Z6F8`); `ai_tools_launch_gates "$@"`, which runs the numbered gates in their order — the operator gate
 first, then the clock gate (`ai_tools_launch_gate_clock`, `MSG-U8K6`: a file this host wrote dated after the system
 clock, read by `ai_tools_conf_clock_behind` over the library, the wrapper, the operator's allowlist, the updater's stamp
@@ -479,8 +479,8 @@ only its own init files can say what its sessions get, and grepping them answers
 for the ordering — which is exactly the distinction the `wired`-and-still-`shadowed` case turns on, where the line is
 present and something after it prepends to PATH. A reading of **this** shell does not need any privilege, which is
 why `ai-tools status` makes it: the CLI runs in the operator's own login shell, so `command -v` there resolves
-what typing the name would run. The launcher name is admitted only in a launcher's own charset before it reaches
-that command, and the answer only as an absolute path with no whitespace or control byte. An admitted answer is compared
+what typing the name would run. The launcher name is accepted only in a launcher's own charset before it reaches
+that command, and the answer only as an absolute path with no whitespace or control byte. An accepted answer is compared
 with the wrapper by file identity (`-ef`), not by path: on a host where `/usr/local/sbin` is a symlink
 to `/usr/local/bin` and ranks first, `command -v` names `/usr/local/sbin/<launcher>`, which is the wrapper.
 

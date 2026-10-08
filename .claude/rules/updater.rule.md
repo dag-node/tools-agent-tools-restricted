@@ -119,7 +119,7 @@ routes to the toolchain, and no third:
 
 - **Read it as data.** The installed Node version is `ai_tools_nvm_default_version` over the `default` alias
   and the version directories, an agent's version `ai_tools_entrypoint_installed_version` over its `package.json`,
-  and the active version the target of a stable launcher link. Each read admits a clamped shape, since the bytes are
+  and the active version the target of a stable launcher link. Each read accepts a clamped shape, since the bytes are
   the account's. Both readers open the file through the host's `/usr/bin/python3` in isolated mode (`-I`: the current
   directory is off the import path, so a `json.py` in a project the reader was run from is not what it imports), without
   following a symlink, and check the descriptor they opened for a regular file within a size cap; the alias reader then
@@ -490,7 +490,7 @@ takes `<launcher>` from that path's own basename, and accepts it only when an **
 that launcher** — the same allowlist `ai-tools-run` matches an executable against (see [providers](providers.rule.md)).
 Two properties follow: the link it writes is always `/opt/ai-tools/bin/<launcher>` for the binary of that same name,
 so the two can never diverge; and the set of links it can write is exactly the set of enabled agents. An allowlist it
-cannot resolve **refuses** rather than admitting anything.
+cannot resolve **refuses** rather than accepting anything.
 
 The path's shape says where the link sits; what a session executes is what it **resolves to**, so the helper resolves
 the target once and requires three things of the result — a **regular executable file**, **inside that same version
@@ -719,7 +719,7 @@ travels to the launch as a **pin**: `/var/opt/ai-tools/state/entrypoint-pin.d/<a
 grammar (`AGENT`, `VERSION`, `SHA256`, `KIND`, `VERIFIED`, `INPUTS`, `SOURCE`). Its directory is root-owned and not
 group-writable inside the `0750 root:SANDBOX_GROUP` state root — the same two independent layers (DAC, plus `usr_t`
 under enforcing) that bound the last-run stamp — so the account the pin constrains can read it and cannot write it. It
-is read back defensively: symlink refused, bounded read, and a value admitted only in exact 64-hex shape, so a corrupt
+is read back defensively: symlink refused, bounded read, and a value accepted only in exact 64-hex shape, so a corrupt
 pin reads as *unpinned* rather than as a wrong verdict.
 
 | when | who | what |
@@ -756,7 +756,7 @@ root's, and a caller that names the package it asked about is answered only wher
 The host's `python3` reads the file, never the tree's `node`: it opens the path without following a symlink, checks
 the opened descriptor to be a regular file of at most 64 KiB, parses the bytes it read from that descriptor as JSON,
 and takes the top-level `version` alone, so a symlink, a fifo, a swapped file or a nested `version` field does not yield
-a version. The value admits `MAJOR.MINOR.PATCH` with an optional `-`/`+` suffix of alphanumerics, dots and hyphens,
+a version. The value accepts `MAJOR.MINOR.PATCH` with an optional `-`/`+` suffix of alphanumerics, dots and hyphens,
 never containing `..` — the clamp matters because that value reaches a terminal, a journal line, a pin record
 and the `{version}` slot of a release-manifest URL, from a file the sandbox account owns. The boundary is deeper than
 one agent's layout: Claude Code's entrypoint sits at `<pkg>/bin/claude.exe`, codex's vendored binary
@@ -773,7 +773,7 @@ brings its own version, so a new checksum under a new version is an update); the
 was.** Re-recording there would bless the one change no update explains, and the stale pin it keeps instead is
 what makes the next launch read `mismatch`. A pin whose recorded version the reader cannot return is decided by its
 bytes alone, so a changed binary under it is `tamper` too; the writers clamp the version to the field shape the reader
-admits (`_ai_tools_ev_field_ok`), so that case arises only from a record edited by hand. `observe_agent_entrypoint`
+accepts (`_ai_tools_ev_field_ok`), so that case arises only from a record edited by hand. `observe_agent_entrypoint`
 in `ai-tools-relabel-agent.sh` performs the I/O around that decision, files the [stale
 mark](#a-refusal-leaves-a-mark-too) and prints the remedy.
 

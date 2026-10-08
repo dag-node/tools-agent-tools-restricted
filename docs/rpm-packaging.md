@@ -447,7 +447,7 @@ Prerelease tags (`vX.Y.Z-rc.N`) run the same sign-and-verify path but publish
 only a GitHub **prerelease** and skip the `dag-node/rpm` notify — the central
 repo serves final tags only. The release job runs on those tags alone: its
 three secrets belong to the `release` environment, whose deployment policy
-admits only a `v*.*.*` tag and so refuses every branch and pull-request run.
+allows only a `v*.*.*` tag and so refuses every branch and pull-request run.
 The process is [Branching and release](development/release.md).
 
 The signing key itself and the central repository's hosting are administered

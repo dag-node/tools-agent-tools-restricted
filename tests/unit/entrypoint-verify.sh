@@ -9,7 +9,7 @@
 #   * an ABSENT pin must never read as a mismatch. A fresh install and a modified binary are
 #     different facts with different remedies, and collapsing them reports a clean host as tamper
 #     (or, inverted, blesses a tampered one).
-#   * a checksum must be admitted only in exact 64-hex shape. Malformed JSON, an absent platform,
+#   * a checksum must be accepted only in exact 64-hex shape. Malformed JSON, an absent platform,
 #     or a crafted value must yield NOTHING -- a partial or attacker-shaped value that compares
 #     equal to a partial observation is the fail-open this gate exists to prevent.
 #   * a URL template with no {version} slot must be REFUSED, not fetched as-is: one manifest for
@@ -232,7 +232,7 @@ else
         fail "the writer created its record directory as $(stat -c '%a %U:%G' "${AI_TOOLS_ENTRYPOINT_LABEL_DIR}" 2>/dev/null)"
     fi
 
-    # A reason is a token, never prose: the accessors' charset clamp does not admit spaces, so a value carrying any
+    # A reason is a token, never prose: the accessors' charset clamp does not accept spaces, so a value carrying any
     # would read as absent and the record would lose the field silently. It is dropped at write time instead, leaving
     # a record whose every field can be read back.
     if ai_tools_entrypoint_label_write claude-code failed "rule not registered; id" \
@@ -526,7 +526,7 @@ else
         if [[ -z "$(ai_tools_entrypoint_installed_version "${ep}" || true)" ]]; then
             pass "the version clamp rejects ${what}"
         else
-            fail "the version clamp admitted ${what}: '${version}'"
+            fail "the version clamp accepted ${what}: '${version}'"
         fi
     done <<ROWS
 1.2.3-../../etc|a path traversal in the suffix
@@ -534,11 +534,11 @@ else
 1.2.3 nice try|an embedded space
 1.2.3-$(printf 'a%.0s' {1..60})|a version longer than a pin field holds
 ROWS
-    # The writer and the reader hold one field shape: a version the reader admits round-trips through a pin, and one it
+    # The writer and the reader hold one field shape: a version the reader accepts round-trips through a pin, and one it
     # does not is written as `unknown` -- never recorded in a shape that reads back as absent.
     if declare -F _ai_tools_ev_field_ok >/dev/null 2>&1; then
         if _ai_tools_ev_field_ok 0.154.0-linux-x64 && ! _ai_tools_ev_field_ok "1.2.3-$(printf 'a%.0s' {1..60})"; then
-            pass "the pin field shape admits a platform version and refuses one over 64 characters"
+            pass "the pin field shape accepts a platform version and refuses one over 64 characters"
         else
             fail "the pin field shape does not bound the version the way the reader does"
         fi

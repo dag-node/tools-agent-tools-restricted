@@ -189,7 +189,7 @@ ai_tools_confinement_read_attestation_records() {
     while IFS=$'\t' read -r boolean_name _; do boolean_names+=( "${boolean_name}" ); done \
         < <(ai_tools_confinement_list_known_booleans)
     for boolean_name in "$@"; do
-        # A further name becomes a path component under selinuxfs, so it is read only as a name the pair grammar admits
+        # A further name becomes a path component under selinuxfs, so it is read only as a name the pair grammar accepts
         # -- and not at all where conf.lib.sh is not loaded -- and a name the table holds is read once.
         declare -F ai_tools_conf_pair_name_valid >/dev/null 2>&1 && ai_tools_conf_pair_name_valid "${boolean_name}" \
             && [[ " ${boolean_names[*]} " != *" ${boolean_name} "* ]] && boolean_names+=( "${boolean_name}" )

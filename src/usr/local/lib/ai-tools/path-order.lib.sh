@@ -83,13 +83,13 @@ ai_tools_path_order_verdict() {
 }
 
 # ai_tools_path_order_launcher_valid <name> The launcher name is interpolated into a shell command run as another
-# account, so it is admitted only in the shape a launcher has: letters, digits, dot, underscore and dash. A manifest is
+# account, so it is accepted only in the shape a launcher has: letters, digits, dot, underscore and dash. A manifest is
 # root-owned and trust-checked before it is read, so this is the second fence rather than the first, and it fails closed
 # -- a name outside that set is not
 # probed.
 ai_tools_path_order_launcher_valid() { [[ "${1-}" =~ ^[A-Za-z0-9._-]+$ ]]; }
 
-# ai_tools_path_order_readable <path> Admit a probe result only as an absolute path that does not hold whitespace
+# ai_tools_path_order_readable <path> Accept a probe result only as an absolute path that does not hold whitespace
 # or a control byte. The value comes from a login shell whose dotfiles the account writes, and it is rendered
 # to a terminal and compared against the wrapper path, so any other shape reads as unreadable rather than as an answer.
 ai_tools_path_order_readable() {
@@ -139,7 +139,7 @@ ai_tools_path_order_winner_here() {
 # to the account. Prints the path (the wrapper's own when it resolves to the wrapper file), an empty line when this host
 # does not install a wrapper of that name, or "?" when the reading could not be taken.
 #
-# The command runs AS the operator, so it carries only the access that account already has, and its output is admitted
+# The command runs AS the operator, so it carries only the access that account already has, and its output is accepted
 # only in the shape a path has: a login shell prints its own banner, so the last line is taken and then validated.
 ai_tools_path_order_winner_for_user() {
     local user="$1" launcher="$2" winner=""

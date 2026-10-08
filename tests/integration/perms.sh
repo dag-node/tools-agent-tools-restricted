@@ -165,7 +165,7 @@ check_file /usr/local/lib/ai-tools/agents.d/claude-code.conf root              r
 check_file /usr/local/lib/ai-tools/integrations.d/dotnet.conf   root            root              644
 check_file /usr/local/lib/ai-tools/session-env.d/dotnet.env.sh  root            root              644
 # The `dotnet` domain of ai-tools-admin, contributed by the same package: 750 root:root like every other root-executed
-# helper, so the agent can neither read nor run it, and root-owned so the dispatch's trust check admits it.
+# helper, so the agent can neither read nor run it, and root-owned so the dispatch's trust check accepts it.
 check_file /usr/local/lib/ai-tools/admin-commands.d/dotnet      root            root              750
 check_file /usr/local/lib/ai-tools/filters.d/dotnet.rules       root            root              644
 # typesafe integration data (shipped by ai-tools-integration-typesafe): the manifest and fragment on the same terms

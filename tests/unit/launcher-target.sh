@@ -262,7 +262,7 @@ relink "${ELF_TARGET}" ""
 refused "a manifest declaring no entrypoint pattern" MSG-F5U2
 
 relink "${ELF_TARGET}" "${VERSIONS_RE}/[^/]+/lib/[codex"
-refused "a pattern bash cannot parse (an unclosed bracket, which the containment's charset admits)" MSG-F5U2
+refused "a pattern bash cannot parse (an unclosed bracket, which the containment's charset accepts)" MSG-F5U2
 
 # The containment the relabel applies, applied at the write: each of these covers the resolved path as a raw regex,
 # so a match alone would write the link and leave the refusal to the label preflight, one launch later.

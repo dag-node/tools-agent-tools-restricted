@@ -119,7 +119,7 @@ PY
 #   selects the highest installed match, as `nvm version default` does. The file's bytes are validated whole, as bytes,
 #   before any of them becomes a shell value: a line the account put there -- `2 2`, `22;rm -rf /`, `2<NUL>2`, which
 #   a command substitution would read as `22` -- is refused; `node`, `lts/*` and every other nvm keyword are outside
-#   the admitted shape too (ai-tools-bootstrap writes a bare major). Each prints nothing, which the callers report
+#   the accepted shape too (ai-tools-bootstrap writes a bare major). Each prints nothing, which the callers report
 #   as an unset alias. A candidate is a real directory: a regular file or a symlink named like a version is not one.
 ai_tools_nvm_default_version() {
     local nvm_dir="${1:-}" alias_line prefix candidate best=""

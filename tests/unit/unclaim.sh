@@ -28,7 +28,7 @@ fi
 mktestdir
 proj="${TESTDIR}/proj"
 mkdir -p "${proj}/d" "${proj}/.env" "${proj}/.git/objects" "${proj}/vendor"
-# vendor is carved out by an exclusion line carrying an end-of-line comment, which the shared allowlist grammar admits:
+# vendor is carved out by an exclusion line carrying an end-of-line comment, which the shared allowlist grammar accepts:
 # the walk must skip it exactly as it skips a plain '!' line.
 mk_allowlist "${proj}" "!${proj}/vendor   # carve-out"
 

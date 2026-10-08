@@ -50,7 +50,7 @@ if ! source "${LAUNCH_LIB}" 2>/dev/null \
         "       reinstall ai-tools, then retry"
 fi
 
-# The name this program was invoked as is the launcher; the library admits it and matches it to an enabled agent.
+# The name this program was invoked as is the launcher; the library accepts it and matches it to an enabled agent.
 ai_tools_launch_init "${0##*/}"
 ai_tools_launch_gates "$@"
 

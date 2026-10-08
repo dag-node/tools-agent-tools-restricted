@@ -62,7 +62,7 @@ the helper does not take a target or an authorization input, the rule has no arg
 shape a NOPASSWD rule can have.
 
 Root reaches the same command directly: `ai-tools stop` is one of the verbs that leave operator-owned state untouched,
-so the CLI admits root, and the helper requires root regardless. That matters because root is the identity a monitoring
+so the CLI allows root, and the helper requires root regardless. That matters because root is the identity a monitoring
 daemon usually runs as.
 
 What this widens, stated plainly: any `ai-ops` member ends every operator's sessions without authenticating. That is

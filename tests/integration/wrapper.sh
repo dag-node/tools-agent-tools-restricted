@@ -315,7 +315,7 @@ done
 
 # ── The codex launcher: enablement fails closed ──────────────────────────────────
 # The second launcher is the same wrapper under another name, so its gates are proven by this file's claude cases;
-# what is its own is ENABLEMENT. The launcher gate admits the name only while an enabled manifest claims it,
+# what is its own is ENABLEMENT. The launcher gate accepts the name only while an enabled manifest claims it,
 # before the CWD gate -- so a disabled codex refuses every launch there, whichever directory it is typed
 # in, and an enabled one reaches the allowlist gate exactly as claude does. Which of the two this host is in is read
 # from the same resolver the toolchain provisions from, and the link and the enabled set must agree: a link for an agent

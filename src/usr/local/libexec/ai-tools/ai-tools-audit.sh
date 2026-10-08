@@ -532,7 +532,7 @@ avc_line_records_entrypoint_exec() {
 # the object whose label matched -- with the SYSCALL line's `exe=` as the fallback for a kernel that wrote none;
 # the pids come from the SYSCALL line and argv0 from the EXECVE line. The syscall number is not read: execute_no_trans
 # is checked inside the exec family alone, and holding the block to execve's own number would drop an execveat(2),
-# which is the same exec reached through a descriptor. A block the AVC line admits and no other line describes is still
+# which is the same exec reached through a descriptor. A block the AVC line accepts and no other line describes is still
 # a record, with the file and the pids unknown -- fewer fields, and the finding still reported. The lines of an event
 # arrive in whichever order ausearch prints them, so each field is read wherever it turns up. ausearch's own
 # `<no matches>` line is passed on as a `no-matches|` record, so the consumer can tell an empty window from a search

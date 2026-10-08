@@ -11,7 +11,7 @@
 # The helper is SOURCED rather than run (its root check and its dispatch are guarded for that), in a fresh shell
 # per case because the helper and the harness both declare SANDBOX_USER readonly, with the resolver's two hooks
 # and AI_TOOLS_LAUNCHER_DIR pointed at fixtures in the testdir. Fixtures are root-owned 0644 in a 0755 directory,
-# which the trust predicate admits, so this runs as root via sudo (suite contract); no agent package needs to be
+# which the trust predicate accepts, so this runs as root via sudo (suite contract); no agent package needs to be
 # installed.
 set -euo pipefail
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")/../lib" && pwd)/harness.sh"

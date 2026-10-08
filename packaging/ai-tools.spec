@@ -1964,7 +1964,7 @@ fi
   on a tie word, and a config header over 72. '--new REV' reports what a rewrite introduced.
 - CHANGE: 'install.sh' names the commit it deploys and refuses a checkout carrying uncommitted
   changes, listing each path with its git status code and marking the ones the sandbox account
-  owns. '--allow-uncommitted' admits such a tree with a warning, and 'install.sh check-tree' runs
+  owns. '--allow-uncommitted' allows such a tree with a warning, and 'install.sh check-tree' runs
   the gate alone. The install leaves the checkout's own allowlist entry as it found it, where
   earlier releases removed it.
 - FIX: A custom system prompt was refused as "not a text file" on every stock host. The wrapper
