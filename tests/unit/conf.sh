@@ -127,6 +127,21 @@ check_split "commas split under IFS=\$'\\n\\t'"      "a|b|c|" "a,b,c"    $'\n\t'
 check_split "mixed splits under IFS=\$'\\n\\t'"      "a|b|c|" "a, b  c"  $'\n\t'
 # A value containing a glob must not be pathname-expanded into filenames.
 check_split "glob in a value is not expanded"  "*|" "*"
+# The output array is named by the caller, and a nameref resolves through every function on the call stack, so a name
+# any reader uses for a local of its own must still reach the caller's array, through every reader that takes one.
+printf 'L=[c, d]\nP=[x=on]\nAI_TOOLS_AGENTS=[agent-e]\n' > "${TESTDIR}/names.conf"
+for name in tokens token raw value inner reason label out_name file key item prefix bare unprefixed pair_name \
+    kept_names allowed_values_text; do
+    got="$(bash -c 'source "$1"; declare -a "$2"; declare -n result="$2"; f="$3"; line=""
+                    ai_tools_conf_split "$2" "a, b";            line+="${result[*]}|"
+                    ai_tools_conf_list_value "$2" "[c, d]";     line+="${result[*]}|"
+                    ai_tools_conf_list "$2" "${f}" L;           line+="${result[*]}|"
+                    ai_tools_conf_pair_list "$2" "${f}" P on off; line+="${result[*]}|"
+                    ai_tools_conf_kind_list "$2" "${f}" AI_TOOLS_AGENTS; line+="${result[*]}|"
+                    printf "%s" "${line}"' _ "${LIB}" "${name}" "${TESTDIR}/names.conf" 2>&1)"
+    if [[ "${got}" == "a b|c d|c d|x=on|e|" ]]; then pass "an output array named ${name} receives the items"
+    else fail "an output array named ${name}: got '${got}'"; fi
+done
 
 # --- ai_tools_conf_list: a present key REPLACES, an absent key LEAVES the default ------------
 declare -a target=(default-one default-two)

@@ -224,16 +224,18 @@ ai_tools_conf_get() {
 # ai_tools_conf_split <array-name> <value> : split <value> into the named array on commas and
 #   whitespace, dropping empty items. IFS is set locally, so the result does not depend on the
 #   caller's IFS. The splitter for a command-line argument, which does not read brackets; a list
-#   read from a file goes through ai_tools_conf_list_value.
+#   read from a file goes through ai_tools_conf_list_value. Every local carries the function's
+#   prefix: <array-name> resolves from this function outward through its callers, so a local of
+#   that name in any of them would take the items and leave the caller's array empty.
 ai_tools_conf_split() {
     local -n _ai_tools_conf_split_out="$1"
-    local raw="${2-}" token
-    local -a tokens=()
+    local _ai_tools_conf_split_token
+    local -a _ai_tools_conf_split_tokens=()
     local IFS=$' \t\n,'
-    read -ra tokens <<< "${raw}"
+    read -ra _ai_tools_conf_split_tokens <<< "${2-}"
     _ai_tools_conf_split_out=()
-    for token in "${tokens[@]}"; do
-        [[ -n "${token}" ]] && _ai_tools_conf_split_out+=("${token}")
+    for _ai_tools_conf_split_token in "${_ai_tools_conf_split_tokens[@]}"; do
+        [[ -n "${_ai_tools_conf_split_token}" ]] && _ai_tools_conf_split_out+=("${_ai_tools_conf_split_token}")
     done
     return 0
 }
@@ -244,10 +246,8 @@ ai_tools_conf_split() {
 #   returns 1. That is what makes an override key override: a caller seeds the array with its
 #   default and calls this, and a config that omits the key keeps that default.
 ai_tools_conf_list() {
-    local out_name="$1" file="$2" key="$3"
-    ai_tools_conf_read "${file}" "${key}" || return 1
-    ai_tools_conf_list_value "${out_name}" "${_ai_tools_conf_value}" "${_ai_tools_conf_value_quoted}" \
-        "${key} in ${file}"
+    ai_tools_conf_read "$2" "$3" || return 1
+    ai_tools_conf_list_value "$1" "${_ai_tools_conf_value}" "${_ai_tools_conf_value_quoted}" "$3 in $2"
 }
 
 # ai_tools_conf_list_value <array-name> <value> [quoted] [label] : split a list value read from
@@ -258,32 +258,35 @@ ai_tools_conf_list() {
 #   <label> on stderr, and _ai_tools_conf_list_invalid is set to 1 (0 otherwise). Empty is the less-access
 #   reading for every list that grants something -- an empty OPERATORS does not enrol any account, an
 #   empty AI_TOOLS_AGENTS does not enable any agent -- where treating the key as absent would fall back to a default
-#   that enables more. Returns 0 either way, since several callers run under `set -e`.
+#   that enables more. Returns 0 either way, since several callers run under `set -e`. Its locals
+#   carry a prefix for the reason ai_tools_conf_split's do, until the array's last write.
 ai_tools_conf_list_value() {
-    local out_name="$1" value="${2-}" quoted="${3:-0}" label="${4:-a list value}" inner reason=""
+    local _ai_tools_conf_lv_value="${2-}" _ai_tools_conf_lv_inner _ai_tools_conf_lv_reason=""
     _ai_tools_conf_list_invalid=0
-    value="${value#"${value%%[![:space:]]*}"}"
-    value="${value%"${value##*[![:space:]]}"}"
-    if [[ "${value}" != '['* && "${value}" != *']' ]]; then
-        ai_tools_conf_split "${out_name}" "${value}"
+    _ai_tools_conf_lv_value="${_ai_tools_conf_lv_value#"${_ai_tools_conf_lv_value%%[![:space:]]*}"}"
+    _ai_tools_conf_lv_value="${_ai_tools_conf_lv_value%"${_ai_tools_conf_lv_value##*[![:space:]]}"}"
+    if [[ "${_ai_tools_conf_lv_value}" != '['* && "${_ai_tools_conf_lv_value}" != *']' ]]; then
+        ai_tools_conf_split "$1" "${_ai_tools_conf_lv_value}"
         return 0
     fi
-    inner="${value#[}"; inner="${inner%]}"
-    if [[ "${value}" != '['*']' ]]; then
-        reason="it has one bracket and not the other"
-    elif [[ "${quoted}" == 1 ]]; then
-        reason="a bracketed list is written without quotes around it"
-    elif [[ "${inner}" == *[\"\'\[\]]* ]]; then
-        reason="an item inside brackets carries no quote or bracket"
+    _ai_tools_conf_lv_inner="${_ai_tools_conf_lv_value#[}"; _ai_tools_conf_lv_inner="${_ai_tools_conf_lv_inner%]}"
+    if [[ "${_ai_tools_conf_lv_value}" != '['*']' ]]; then
+        _ai_tools_conf_lv_reason="it has one bracket and not the other"
+    elif [[ "${3:-0}" == 1 ]]; then
+        _ai_tools_conf_lv_reason="a bracketed list is written without quotes around it"
+    elif [[ "${_ai_tools_conf_lv_inner}" == *[\"\'\[\]]* ]]; then
+        _ai_tools_conf_lv_reason="an item inside brackets carries no quote or bracket"
     fi
-    if [[ -n "${reason}" ]]; then
-        local -n _ai_tools_conf_list_value_out="${out_name}"
+    if [[ -n "${_ai_tools_conf_lv_reason}" ]]; then
+        local -n _ai_tools_conf_list_value_out="$1"
         _ai_tools_conf_list_value_out=()
         _ai_tools_conf_list_invalid=1
+        # Plain names for the message, declared once the nameref is not written again.
+        local label="${4:-a list value}" reason="${_ai_tools_conf_lv_reason}" value="${_ai_tools_conf_lv_value}"
         _ai_tools_conf_warn MSG-D5N5 "invalid list, read as the empty list -- ${label} (${reason}): ${value}; write it as [a, b]"
         return 0
     fi
-    ai_tools_conf_split "${out_name}" "${inner}"
+    ai_tools_conf_split "$1" "${_ai_tools_conf_lv_inner}"
 }
 
 # ── Kind prefixes: what a provider list item names ───────────────────────────────────────────
@@ -328,34 +331,44 @@ ai_tools_conf_portable_name_valid() {
 #   list sets the array empty, as ai_tools_conf_list_value does. _ai_tools_conf_pair_list_rejected_count is set
 #   to the number of items left out, and _ai_tools_conf_list_invalid to 1 for an invalid list, so a caller for whom
 #   a left-out item is not the safe reading can refuse on it. Returns 1, leaving the array untouched, for an absent key,
-#   so a caller's defaults stand.
+#   so a caller's defaults stand. Its locals carry a prefix for the reason ai_tools_conf_split's do, until the
+#   array's last write; the refused items are reported after it.
 ai_tools_conf_pair_list() {
-    local out_name="$1" file="$2" key="$3" item pair_name pair_value allowed_value value_allowed kept_names=" "
-    local allowed_values_text=""
+    local _ai_tools_conf_pl_out_name="$1" _ai_tools_conf_pl_file="$2" _ai_tools_conf_pl_key="$3" _ai_tools_conf_pl_item _ai_tools_conf_pl_pair_name _ai_tools_conf_pl_pair_value _ai_tools_conf_pl_allowed_value _ai_tools_conf_pl_value_allowed _ai_tools_conf_pl_kept_names=" "
+    local _ai_tools_conf_pl_allowed_values_text=""
     shift 3
     # Joined by hand: "$*" joins on the caller's IFS, which is a newline under ai-tools.
-    for allowed_value in "$@"; do allowed_values_text+="${allowed_values_text:+, }${allowed_value}"; done
-    local -a _ai_tools_conf_pair_list_raw=() _ai_tools_conf_pair_list_kept=()
+    for _ai_tools_conf_pl_allowed_value in "$@"; do _ai_tools_conf_pl_allowed_values_text+="${_ai_tools_conf_pl_allowed_values_text:+, }${_ai_tools_conf_pl_allowed_value}"; done
+    local -a _ai_tools_conf_pair_list_raw=() _ai_tools_conf_pair_list_kept=() _ai_tools_conf_pl_refused=() _ai_tools_conf_pl_repeated=()
     _ai_tools_conf_pair_list_rejected_count=0
-    ai_tools_conf_list _ai_tools_conf_pair_list_raw "${file}" "${key}" || return 1
-    local -n _ai_tools_conf_pair_list_out="${out_name}"
-    for item in "${_ai_tools_conf_pair_list_raw[@]+"${_ai_tools_conf_pair_list_raw[@]}"}"; do
-        pair_name="${item%%=*}"; pair_value="${item#*=}"; value_allowed=0
-        for allowed_value in "$@"; do [[ "${pair_value}" == "${allowed_value}" ]] && value_allowed=1; done
-        if [[ "${item}" != *=* ]] || ! ai_tools_conf_pair_name_valid "${pair_name}" || (( ! value_allowed )); then
-            _ai_tools_conf_warn MSG-F6D7 "the pair list ${key} in ${file} has the item ${item}, which is not <name>=<value> with a value of ${allowed_values_text} -- ignored"
+    ai_tools_conf_list _ai_tools_conf_pair_list_raw "${_ai_tools_conf_pl_file}" "${_ai_tools_conf_pl_key}" || return 1
+    local -n _ai_tools_conf_pair_list_out="${_ai_tools_conf_pl_out_name}"
+    for _ai_tools_conf_pl_item in "${_ai_tools_conf_pair_list_raw[@]+"${_ai_tools_conf_pair_list_raw[@]}"}"; do
+        _ai_tools_conf_pl_pair_name="${_ai_tools_conf_pl_item%%=*}"; _ai_tools_conf_pl_pair_value="${_ai_tools_conf_pl_item#*=}"; _ai_tools_conf_pl_value_allowed=0
+        for _ai_tools_conf_pl_allowed_value in "$@"; do [[ "${_ai_tools_conf_pl_pair_value}" == "${_ai_tools_conf_pl_allowed_value}" ]] && _ai_tools_conf_pl_value_allowed=1; done
+        if [[ "${_ai_tools_conf_pl_item}" != *=* ]] || ! ai_tools_conf_pair_name_valid "${_ai_tools_conf_pl_pair_name}" || (( ! _ai_tools_conf_pl_value_allowed )); then
+            _ai_tools_conf_pl_refused+=("${_ai_tools_conf_pl_item}")
             _ai_tools_conf_pair_list_rejected_count=$(( _ai_tools_conf_pair_list_rejected_count + 1 ))
             continue
         fi
-        if [[ "${kept_names}" == *" ${pair_name} "* ]]; then
-            _ai_tools_conf_warn MSG-R8C6 "the pair list ${key} in ${file} gives ${pair_name} more than once -- the first value stands"
+        if [[ "${_ai_tools_conf_pl_kept_names}" == *" ${_ai_tools_conf_pl_pair_name} "* ]]; then
+            _ai_tools_conf_pl_repeated+=("${_ai_tools_conf_pl_pair_name}")
             _ai_tools_conf_pair_list_rejected_count=$(( _ai_tools_conf_pair_list_rejected_count + 1 ))
             continue
         fi
-        kept_names+="${pair_name} "
-        _ai_tools_conf_pair_list_kept+=("${item}")
+        _ai_tools_conf_pl_kept_names+="${_ai_tools_conf_pl_pair_name} "
+        _ai_tools_conf_pair_list_kept+=("${_ai_tools_conf_pl_item}")
     done
     _ai_tools_conf_pair_list_out=("${_ai_tools_conf_pair_list_kept[@]+"${_ai_tools_conf_pair_list_kept[@]}"}")
+    # Plain names for the messages, declared once the nameref is not written again.
+    local key="${_ai_tools_conf_pl_key}" file="${_ai_tools_conf_pl_file}" item pair_name
+    local allowed_values_text="${_ai_tools_conf_pl_allowed_values_text}"
+    for item in "${_ai_tools_conf_pl_refused[@]+"${_ai_tools_conf_pl_refused[@]}"}"; do
+        _ai_tools_conf_warn MSG-F6D7 "the pair list ${key} in ${file} has the item ${item}, which is not <name>=<value> with a value of ${allowed_values_text} -- ignored"
+    done
+    for pair_name in "${_ai_tools_conf_pl_repeated[@]+"${_ai_tools_conf_pl_repeated[@]}"}"; do
+        _ai_tools_conf_warn MSG-R8C6 "the pair list ${key} in ${file} gives ${pair_name} more than once -- the first value stands"
+    done
     return 0
 }
 
@@ -391,28 +404,32 @@ _ai_tools_conf_kind_bare() {
 #   the key, the items and the command that rewrites them on stderr -- the less-access reading
 #   ai_tools_conf_list_value gives a malformed list, for the same reason. Returns 1, leaving the
 #   array untouched, for an absent key, so a caller's baseline stands; 2 for a key outside the table.
+#   Its locals carry a prefix for the reason ai_tools_conf_split's do, until the array's last write.
 ai_tools_conf_kind_list() {
-    local out_name="$1" file="$2" key="$3" prefix item bare
-    local -a _ai_tools_conf_kind_list_raw=() _ai_tools_conf_kind_list_bare=() unprefixed=()
+    local _ai_tools_conf_kl_out_name="$1" _ai_tools_conf_kl_file="$2" _ai_tools_conf_kl_key="$3" _ai_tools_conf_kl_prefix _ai_tools_conf_kl_item _ai_tools_conf_kl_bare
+    local -a _ai_tools_conf_kind_list_raw=() _ai_tools_conf_kind_list_bare=() _ai_tools_conf_kl_unprefixed=()
     _ai_tools_conf_list_invalid=0 _ai_tools_conf_list_unprefixed=0
-    prefix="$(ai_tools_conf_kind_prefix "${key}")" || return 2
-    ai_tools_conf_list _ai_tools_conf_kind_list_raw "${file}" "${key}" || return 1
-    local -n _ai_tools_conf_kind_list_out="${out_name}"
+    _ai_tools_conf_kl_prefix="$(ai_tools_conf_kind_prefix "${_ai_tools_conf_kl_key}")" || return 2
+    ai_tools_conf_list _ai_tools_conf_kind_list_raw "${_ai_tools_conf_kl_file}" "${_ai_tools_conf_kl_key}" || return 1
+    local -n _ai_tools_conf_kind_list_out="${_ai_tools_conf_kl_out_name}"
     if (( _ai_tools_conf_list_invalid )); then
         _ai_tools_conf_kind_list_out=()
         return 0
     fi
-    for item in "${_ai_tools_conf_kind_list_raw[@]}"; do
-        if bare="$(_ai_tools_conf_kind_bare "${prefix}" "${item}")"; then
-            _ai_tools_conf_kind_list_bare+=("${bare}")
+    for _ai_tools_conf_kl_item in "${_ai_tools_conf_kind_list_raw[@]}"; do
+        if _ai_tools_conf_kl_bare="$(_ai_tools_conf_kind_bare "${_ai_tools_conf_kl_prefix}" "${_ai_tools_conf_kl_item}")"; then
+            _ai_tools_conf_kind_list_bare+=("${_ai_tools_conf_kl_bare}")
         else
-            unprefixed+=("${item}")
+            _ai_tools_conf_kl_unprefixed+=("${_ai_tools_conf_kl_item}")
         fi
     done
-    if (( ${#unprefixed[@]} > 0 )); then
+    if (( ${#_ai_tools_conf_kl_unprefixed[@]} > 0 )); then
         _ai_tools_conf_kind_list_out=()
         _ai_tools_conf_list_invalid=1
         _ai_tools_conf_list_unprefixed=1
+        # Plain names for the message, declared once the nameref is not written again.
+        local key="${_ai_tools_conf_kl_key}" file="${_ai_tools_conf_kl_file}" prefix="${_ai_tools_conf_kl_prefix}"
+        local -a unprefixed=("${_ai_tools_conf_kl_unprefixed[@]}")
         _ai_tools_conf_warn MSG-X6F2 "invalid list, read as the empty list -- ${key} in ${file} holds ${unprefixed[*]}, not written as ${prefix}<name>; this rewrites a bare name and names any it cannot: sudo ai-tools-admin system post-upgrade"
         return 0
     fi
