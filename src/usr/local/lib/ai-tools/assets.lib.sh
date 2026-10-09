@@ -877,7 +877,7 @@ _ai_tools_as_reset_plan() {
         _AI_TOOLS_AS_SET_DETAIL=() _AI_TOOLS_AS_SET_CAPS=() _AI_TOOLS_AS_SET_INTEG=() _AI_TOOLS_AS_SET_PASSED=() \
         _AI_TOOLS_AS_ASSET_STATE=() _AI_TOOLS_AS_ASSET_DETAIL=() _AI_TOOLS_AS_ASSET_CAPS=() \
         _AI_TOOLS_AS_AGENT_DIR=() _AI_TOOLS_AS_RECEIVES=() _AI_TOOLS_AS_IMPLEMENTS=() _AI_TOOLS_AS_IDLE_DIR=() \
-        _AI_TOOLS_AS_INTEGRATIONS=() _AI_TOOLS_AS_DESIRED=() _AI_TOOLS_AS_DESIRED_ID=()
+        _AI_TOOLS_AS_INTEGRATIONS=() _AI_TOOLS_AS_DESIRED=() _AI_TOOLS_AS_DESIRED_ID=() _AI_TOOLS_AS_DIR_REPORTED=()
     declare -ga _AI_TOOLS_AS_ACT_OP=() _AI_TOOLS_AS_ACT_PATH=() _AI_TOOLS_AS_ACT_TARGET=() _AI_TOOLS_AS_ACT_STYPE=() \
         _AI_TOOLS_AS_ACT_ITEM=() _AI_TOOLS_AS_ACT_AGENT=() _AI_TOOLS_AS_ACT_DETAIL=() \
         _AI_TOOLS_AS_ROW_SEVERITY=() _AI_TOOLS_AS_ROW_FINDING=() _AI_TOOLS_AS_ROW_STYPE=() _AI_TOOLS_AS_ROW_SUBJECT=() \
@@ -1068,6 +1068,97 @@ _ai_tools_as_is_resolver_link() {
         [[ "${target}" == "${root}/"* ]] && return 0
     done
     return 1
+}
+
+# ── Destinations ─────────────────────────────────────────────────────────────────────────────────────────────────────
+# The directories a link is written in or removed from. The plan checks each before it plans an action there,
+# and the apply checks it again after creating an absent one and before the first write under it. A directory that fails
+# is reported once (view-dir-untrusted, agent-dir-untrusted), every action under it is dropped, and it is not re-owned
+# or re-moded: a repair would keep whatever was placed inside it.
+
+# _ai_tools_as_dir_trusted <dir> : succeed when <dir> is a directory ai_tools_conf_is_trusted accepts: root-owned, not
+# a symlink, writable by neither group nor other.
+_ai_tools_as_dir_trusted() { ai_tools_conf_is_trusted "$1" && [[ -d "$1" ]]; }
+
+# _ai_tools_as_config_dir_trusted <dir> : succeed when an agent's config directory is a directory, not a symlink,
+# root-owned, and sticky wherever it is group- or other-writable. The directory ships 3770 root:<group>, so the sandbox
+# account keeps its own state there; the sticky bit is what keeps it from renaming or unlinking an entry root owns.
+_ai_tools_as_config_dir_trusted() {
+    local meta mode
+    [[ -d "$1" && ! -L "$1" ]] || return 1
+    meta="$(stat -c '%u %a' -- "$1" 2>/dev/null)" || return 1
+    [[ "${meta%% *}" == 0 ]] || return 1
+    mode="${meta##* }"
+    [[ "${mode}" =~ ^[0-7]+$ ]] || return 1
+    (( (8#${mode} & 8#022) == 0 || (8#${mode} & 8#1000) != 0 ))
+}
+
+# _ai_tools_as_destination_trusted <view|agent> <dir> : print the first directory on the way to <dir> that is not
+# a destination, and return 1; return 0 when every one is. A view directory needs the home root (AI_TOOLS_ASSETS_HOME)
+# to pass _ai_tools_as_dir_trusted, and itself to pass it or be absent. An agent's kind directory needs the home root,
+# its config directory to pass _ai_tools_as_config_dir_trusted, and itself to pass _ai_tools_as_dir_trusted or be
+# absent. An absent directory is the apply's to create (_ai_tools_as_prepare_dir).
+#
+# A string check is enough here, and the reason is the modes. The plan checks a path and the apply writes by path,
+# so an interval separates the two, and only a principal that can replace a component of the path can use it. Every
+# directory this accepts is root-owned and not writable by the sandbox account, except the config directory, which is
+# group-writable and sticky: the sticky bit refuses the account a rename or an unlink of the root-owned kind directory
+# the check saw inside it. The one state the account reaches -- a name of its own at the kind directory's place, taken
+# before root created the directory -- exists before the check, which refuses it. A descriptor-relative walk would close
+# an interval no principal can use. A change to the config directory's mode or owner, or to the kind directory's owner,
+# reopens this
+# reasoning.
+_ai_tools_as_destination_trusted() {
+    local which="$1" dir="$2"
+    if ! _ai_tools_as_dir_trusted "${AI_TOOLS_ASSETS_HOME}"; then
+        printf '%s' "${AI_TOOLS_ASSETS_HOME}"
+        return 1
+    fi
+    if [[ "${which}" == agent ]] && ! _ai_tools_as_config_dir_trusted "${dir%/*}"; then
+        printf '%s' "${dir%/*}"
+        return 1
+    fi
+    [[ ! -e "${dir}" && ! -L "${dir}" ]] && return 0
+    _ai_tools_as_dir_trusted "${dir}" && return 0
+    printf '%s' "${dir}"
+    return 1
+}
+
+# _ai_tools_as_dir_reason <dir> : what the destination predicates read of <dir>, for a row: a symlink and its target,
+# absent, not a directory, or the owner uid and the mode.
+_ai_tools_as_dir_reason() {
+    if [[ -L "$1" ]]; then
+        printf 'a symlink to %s' "$(_ai_tools_as_display "$(readlink -- "$1" 2>/dev/null)")"
+    elif [[ ! -e "$1" ]]; then
+        printf 'absent'
+    elif [[ ! -d "$1" ]]; then
+        printf 'not a directory'
+    else
+        printf 'owner=%s mode=%s' "$(stat -c %u -- "$1" 2>/dev/null)" "$(stat -c %a -- "$1" 2>/dev/null)"
+    fi
+}
+
+# _ai_tools_as_dir_row <finding> <dir> <kind> <agent> <detail> : report a destination once per run, at attention.
+_ai_tools_as_dir_row() {
+    [[ -z "${_AI_TOOLS_AS_DIR_REPORTED[$2]+x}" ]] || return 0
+    _AI_TOOLS_AS_DIR_REPORTED["$2"]=1
+    _ai_tools_as_row attention "$1" directory "$2" "$3" "$4" "$5"
+}
+
+# _ai_tools_as_prepare_dir <view|agent> <dir> <group> <create> : before the apply's first write under <dir>: create it
+# root:<group> 0750 when <create> is 1 and no entry stands at its name, then hold it and the directories that hold it
+# to _ai_tools_as_destination_trusted. `install -d` over an existing directory re-owns and re-modes it, the repair this
+# library does not make, so the create is guarded by the name's absence. A name taken between the plan and here is found
+# by the check that follows the create. Prints the directory that fails and returns 1; returns 2 for an absent directory
+# left absent.
+_ai_tools_as_prepare_dir() {
+    local which="$1" dir="$2" group="$3" create="$4"
+    if [[ ! -e "${dir}" && ! -L "${dir}" ]]; then
+        (( create )) || return 2
+        install -d -o root -g "${group}" -m 0750 -- "${dir}" 2>/dev/null || true
+    fi
+    _ai_tools_as_destination_trusted "${which}" "${dir}" || return 1
+    [[ -d "${dir}" ]] || { printf '%s' "${dir}"; return 1; }
 }
 
 # _ai_tools_as_trust_walk <copy-dir> : succeed when the set directory and every entry under it are root-owned, and every
@@ -1358,13 +1449,19 @@ _ai_tools_as_mark_clashes() {
 # is view-occupied and left as it is; a leftover temporary name is removed; every entry that is neither a resolver link,
 # a seeded managed copy, the kind's README.md nor a temporary name is view-foreign and left as it is. Publishes the view
 # as the apply leaves it, name -> `resolver`, `seeded`, `foreign` or `occupied`, in _AI_TOOLS_AS_VIEW_AFTER. Returns 1
-# when the view could not be listed: the kind is then not planned (_ai_tools_as_kind_unplanned), so no link in the view
-# or in an agent's directory of that kind is placed or removed.
+# when _ai_tools_as_destination_trusted refuses the view or the home root that holds it, or the view could not be
+# listed: the kind is then not planned (_ai_tools_as_kind_unplanned), so no link in the view or in an agent's directory
+# of that kind is placed or removed.
 _ai_tools_as_plan_view() {
-    local kind="$1" view="${AI_TOOLS_ASSETS_HOME}/$1" name entry target marker
+    local kind="$1" view="${AI_TOOLS_ASSETS_HOME}/$1" name entry target marker failed
     local -A present=() desired=()
     declare -gA _AI_TOOLS_AS_VIEW_AFTER=()
-    if [[ -d "${view}" && ! -L "${view}" ]]; then
+    if ! failed="$(_ai_tools_as_destination_trusted view "${view}")"; then
+        _ai_tools_as_kind_unplanned "${kind}" view-dir-untrusted "${failed}" \
+            "$(_ai_tools_as_dir_reason "${failed}"), so no link of this kind is placed or removed in the view or in an agent's directory; the directory is not repaired, since a repair would keep what was placed inside it"
+        return 1
+    fi
+    if [[ -d "${view}" ]]; then
         if ! _ai_tools_as_enumerate "${view}"; then
             _ai_tools_as_kind_unplanned "${kind}" error "${view}" \
                 "the view could not be listed (${_AI_TOOLS_AS_LISTING_ERROR}), so this kind is not planned: a resolver link there that no entry justifies stays in place"
@@ -1448,13 +1545,17 @@ _ai_tools_as_enumerate() {
 }
 
 # _ai_tools_as_kind_unplanned <kind> <finding> <directory> <detail> : report a view directory the plan does not act
-# in: one row for the directory, at `unreadable` for an `error` and at `attention` otherwise, and each enabled entry
-# of <kind> still on its way to `linked` resolved to <finding>, so no entry reads linked in a view this run did not
+# in: one row for the directory, once per run, at `unreadable` for an `error` and at `attention` otherwise, and each
+# enabled entry of <kind> still on its way to `linked` resolved to <finding>, so no entry reads linked in a view this
+# run did not
 # plan.
 _ai_tools_as_kind_unplanned() {
     local kind="$1" finding="$2" directory="$3" detail="$4" entry
-    _ai_tools_as_row "$([[ "${finding}" == error ]] && printf unreadable || printf attention)" "${finding}" directory \
-        "${directory}" "${kind}" "" "${detail}"
+    if [[ -z "${_AI_TOOLS_AS_DIR_REPORTED[${directory}]+x}" ]]; then
+        _AI_TOOLS_AS_DIR_REPORTED["${directory}"]=1
+        _ai_tools_as_row "$([[ "${finding}" == error ]] && printf unreadable || printf attention)" "${finding}" directory \
+            "${directory}" "${kind}" "" "${detail}"
+    fi
     for entry in "${_AI_TOOLS_AS_ENTRIES[@]}"; do
         [[ "${_AI_TOOLS_AS_STATE[${entry}]}" == linked && "${_AI_TOOLS_AS_KIND[${entry}]}" == "${kind}" ]] || continue
         _AI_TOOLS_AS_STATE["${entry}"]="${finding}"
@@ -1488,11 +1589,11 @@ _ai_tools_as_untrusted_entry() {
 # target; a link elsewhere and a real entry are kept and reported -- agent-occupied at an enabled asset's name, `kept`
 # at any other -- a real entry not root-owned along its path additionally agent-entry-untrusted; a managed copy
 # byte-identical to the seeded one is converted to a link; a link into the view whose name the view no longer holds is
-# unlinked. A directory whose links could not be listed is reported and not planned.
+# unlinked. A directory that is not a destination, or whose links could not be listed, is reported and not planned.
 _ai_tools_as_plan_agent() {
     local agent="$1" kind="$2" agent_dir="$3" view="${AI_TOOLS_ASSETS_HOME}/$2" name dst target item resolver
     local -a links=()
-    [[ -d "${AI_TOOLS_ASSETS_HOME}/$(ai_tools_agent_manifest_field "${agent}" config_dir 2>/dev/null || true)" ]] || return 0
+    _ai_tools_as_agent_plannable "${agent}" "${kind}" "${agent_dir}" || return 0
     _ai_tools_as_list_agent_links "${agent}" "${kind}" "${agent_dir}" || return 0
     links=( "${_AI_TOOLS_AS_LISTING[@]}" )
     for name in "${!_AI_TOOLS_AS_VIEW_AFTER[@]}"; do
@@ -1528,6 +1629,19 @@ _ai_tools_as_plan_agent() {
         fi
     done
     _ai_tools_as_plan_stale_links "${agent}" "${kind}" "${agent_dir}" all "${links[@]}"
+}
+
+# _ai_tools_as_agent_plannable <agent> <kind> <agent-dir> : succeed when the plan may act in an agent's kind directory:
+# its config directory exists and _ai_tools_as_destination_trusted accepts the path. Returns 1 without a row
+# for a config directory that does not exist (an agent not provisioned yet), and after an agent-dir-untrusted row
+# for a path that fails.
+_ai_tools_as_agent_plannable() {
+    local agent="$1" kind="$2" agent_dir="$3" failed
+    [[ -e "${agent_dir%/*}" || -L "${agent_dir%/*}" ]] || return 1
+    failed="$(_ai_tools_as_destination_trusted agent "${agent_dir}")" && return 0
+    _ai_tools_as_dir_row agent-dir-untrusted "${failed}" "${kind}" "${agent}" \
+        "$(_ai_tools_as_dir_reason "${failed}"), so no link of this kind is placed or removed for ${agent}; the directory is not repaired, since a repair would keep what was placed inside it"
+    return 1
 }
 
 # _ai_tools_as_list_agent_links <agent> <kind> <agent-dir> : the symbolic links in <agent-dir>
@@ -1610,6 +1724,7 @@ ai_tools_assets_plan() {
         done
         for agent in "${_AI_TOOLS_AS_IDLE_AGENTS[@]}"; do
             [[ -n "${_AI_TOOLS_AS_IDLE_DIR[${agent}|${kind}]+x}" ]] || continue
+            _ai_tools_as_agent_plannable "${agent}" "${kind}" "${_AI_TOOLS_AS_IDLE_DIR[${agent}|${kind}]}" || continue
             _ai_tools_as_list_agent_links "${agent}" "${kind}" "${_AI_TOOLS_AS_IDLE_DIR[${agent}|${kind}]}" || continue
             _ai_tools_as_plan_stale_links "${agent}" "${kind}" "${_AI_TOOLS_AS_IDLE_DIR[${agent}|${kind}]}" resolver \
                 "${_AI_TOOLS_AS_LISTING[@]}"
@@ -1638,17 +1753,18 @@ _ai_tools_as_place_link() {
 
 # _ai_tools_as_apply <group> : take every change the plan computed, in order -- the view first, then the agents' links
 # -- each reported as a row: `linked` or `unlinked` at info, or `write-failed` at attention with the entry it was
-# for left unlinked. A view link that failed is not linked into an agent's directory. A missing view or agent kind
-# directory is created root:<group> 0750; a directory that exists is not recreated. restorecon runs over every link
-# placed. Sets _AI_TOOLS_AS_WRITE_FAILED to 1 when a change did not take.
+# for left unlinked. A view link that failed is not linked into an agent's directory. Before its first write
+# in a directory the apply holds it to _ai_tools_as_destination_trusted, creating an absent view or agent kind directory
+# root:<group> 0750 first (_ai_tools_as_prepare_dir); a directory that fails does not take a write, and an enabled entry
+# whose view link it held reads view-dir-untrusted. restorecon runs over every link placed. Sets
+# _AI_TOOLS_AS_WRITE_FAILED to 1 when a change did not take.
 _ai_tools_as_apply() {
     local group="$1" index op path target stype item agent detail directory kind
     local -a placed=()
-    local -A failed_view=()
+    local -A failed_view=() untrusted_view=() directory_state=()
     _AI_TOOLS_AS_WRITE_FAILED=0
     for kind in $(_ai_tools_as_kinds); do
-        directory="${AI_TOOLS_ASSETS_HOME}/${kind}"
-        [[ -d "${directory}" || -L "${directory}" ]] || install -d -o root -g "${group}" -m 0750 "${directory}" 2>/dev/null || true
+        _ai_tools_as_apply_dir view "${AI_TOOLS_ASSETS_HOME}/${kind}" "${kind}" "" "${group}" 1 || true
     done
     for (( index = 0; index < ${#_AI_TOOLS_AS_ACT_OP[@]}; index++ )); do
         op="${_AI_TOOLS_AS_ACT_OP[index]}"; path="${_AI_TOOLS_AS_ACT_PATH[index]}"; target="${_AI_TOOLS_AS_ACT_TARGET[index]}"
@@ -1657,10 +1773,17 @@ _ai_tools_as_apply() {
         if [[ "${stype}" == agent && "${op}" != unlink && -n "${failed_view[${target}]+x}" ]]; then
             continue
         fi
+        directory="${path%/*}"; kind="${item%/*}"; kind="${kind##*/}"
+        if ! _ai_tools_as_apply_dir "$([[ "${stype}" == file ]] && printf view || printf agent)" "${directory}" \
+                "${kind}" "${agent}" "${group}" "$([[ "${op}" == unlink ]] && printf 0 || printf 1)"; then
+            if [[ "${stype}" == file && "${op}" != unlink ]]; then
+                failed_view["${path}"]=1
+                untrusted_view["${path}"]=1
+            fi
+            continue
+        fi
         case "${op}" in
             link|convert)
-                directory="${path%/*}"
-                [[ -d "${directory}" ]] || install -d -o root -g "${group}" -m 0750 "${directory}" 2>/dev/null || true
                 if [[ "${op}" == convert ]] && ! rm -rf -- "${path}" 2>/dev/null; then
                     _ai_tools_as_failed "${stype}" "${path}" "${item}" "${agent}" "the managed copy could not be removed"
                     continue
@@ -1685,20 +1808,46 @@ _ai_tools_as_apply() {
     fi
     for agent in "${_AI_TOOLS_AS_AGENTS[@]}"; do
         for kind in $(_ai_tools_as_kinds); do
-            [[ -n "${_AI_TOOLS_AS_AGENT_DIR[${agent}|${kind}]+x}" && -d "${_AI_TOOLS_AS_AGENT_DIR[${agent}|${kind}]}" ]] || continue
-            ai_tools_link_asset_readme "${AI_TOOLS_ASSETS_README_ROOT}/${kind}/README.md" \
-                "${_AI_TOOLS_AS_AGENT_DIR[${agent}|${kind}]}" "${group}" >/dev/null 2>&1 || true
+            directory="${_AI_TOOLS_AS_AGENT_DIR[${agent}|${kind}]:-}"
+            [[ -n "${directory}" ]] || continue
+            _ai_tools_as_apply_dir agent "${directory}" "${kind}" "${agent}" "${group}" 0 || continue
+            ai_tools_link_asset_readme "${AI_TOOLS_ASSETS_README_ROOT}/${kind}/README.md" "${directory}" "${group}" \
+                >/dev/null 2>&1 || true
         done
     done
     for (( index = 0; index < ${#_AI_TOOLS_AS_ENTRIES[@]}; index++ )); do
         item="${_AI_TOOLS_AS_ENTRIES[index]}"
         [[ "${_AI_TOOLS_AS_STATE[${item}]}" == linked ]] || continue
         path="${AI_TOOLS_ASSETS_HOME}/${_AI_TOOLS_AS_KIND[${item}]}/${_AI_TOOLS_AS_VIEW_NAME[${item}]}"
-        if [[ -n "${failed_view[${path}]+x}" ]]; then
+        if [[ -n "${untrusted_view[${path}]+x}" ]]; then
+            _AI_TOOLS_AS_STATE["${item}"]="view-dir-untrusted"
+            _AI_TOOLS_AS_DETAIL["${item}"]="${path%/*} failed its check before the link was placed; its row says why"
+        elif [[ -n "${failed_view[${path}]+x}" ]]; then
             _AI_TOOLS_AS_STATE["${item}"]="write-failed"
             _AI_TOOLS_AS_DETAIL["${item}"]="the view link at ${path} could not be placed"
         fi
     done
+}
+
+# _ai_tools_as_apply_dir <view|agent> <dir> <kind> <agent> <group> <create> : succeed when the apply may write in <dir>,
+# deciding once per directory and run through _ai_tools_as_prepare_dir; the verdict is kept in the caller's
+# directory_state. A directory that fails is reported once (view-dir-untrusted, agent-dir-untrusted); an absent one left
+# absent fails without a row.
+_ai_tools_as_apply_dir() {
+    local which="$1" dir="$2" kind="$3" agent="$4" group="$5" create="$6" failed status=0
+    case "${directory_state[${dir}]:-}" in
+        ok) return 0 ;;
+        untrusted) return 1 ;;
+    esac
+    failed="$(_ai_tools_as_prepare_dir "${which}" "${dir}" "${group}" "${create}")" || status=$?
+    case "${status}" in
+        0) directory_state["${dir}"]=ok; return 0 ;;
+        2) return 1 ;;
+    esac
+    directory_state["${dir}"]=untrusted
+    _ai_tools_as_dir_row "${which}-dir-untrusted" "${failed:-${dir}}" "${kind}" "${agent}" \
+        "$(_ai_tools_as_dir_reason "${failed:-${dir}}") when the apply reached it, so no link was placed or removed there; the directory is not repaired, since a repair would keep what was placed inside it"
+    return 1
 }
 
 # _ai_tools_as_failed <subject-type> <path> <item> <agent> <detail> : report a change that did not take.

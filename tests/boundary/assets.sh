@@ -97,10 +97,27 @@ not_writable /opt/ai-tools/subagents "create or repoint a link in the subagents 
 not_writable /run/lock/ai-tools-assets.lock "take or truncate the view transaction's lock"
 
 # Each enabled agent's kind directories hold root-owned links into the view inside a setgid+sticky config directory;
-# which directories those are is the deployed resolver's answer, so no agent is named here.
+# which directories those are is the deployed resolver's answer, so no agent is named here. Each is also the state
+# the reconcile's destination check requires before it writes there: the kind directory root's alone, and the config
+# directory holding it root-owned and sticky, so the agent can neither take the kind directory's name nor rename
+# the root-owned directory aside.
 while IFS=$'\t' read -r agent agent_dir; do
     [[ -n "${agent_dir}" ]] || continue
     not_writable "${agent_dir}" "repoint a link in ${agent}'s ${agent_dir##*/}/ at a file of its own"
+    if [[ -e "${agent_dir}" || -L "${agent_dir}" ]]; then
+        meta="$(stat -c '%u %a' -- "${agent_dir}" 2>/dev/null || true)"
+        if [[ ! -L "${agent_dir}" && -d "${agent_dir}" && "${meta%% *}" == 0 ]] && (( (8#${meta##* } & 8#022) == 0 )); then
+            pass "${agent_dir} is a root-owned directory writable by neither group nor other"
+        else
+            fail "${agent_dir} is ${meta:-unreadable}$([[ -L "${agent_dir}" ]] && printf ', a symlink'); the reconcile does not write there"
+        fi
+    fi
+    meta="$(stat -c '%u %a' -- "${agent_dir%/*}" 2>/dev/null || true)"
+    if [[ ! -L "${agent_dir%/*}" && "${meta%% *}" == 0 ]] && (( (8#${meta##* } & 8#1000) != 0 )); then
+        pass "${agent_dir%/*} is root-owned and sticky, so the agent cannot rename ${agent_dir##*/}/ aside"
+    else
+        fail "${agent_dir%/*} is ${meta:-unreadable}: without root and the sticky bit the agent can replace ${agent_dir##*/}/"
+    fi
 done < <(bash -c 'source /usr/local/lib/ai-tools/control-plane.lib.sh 2>/dev/null || exit 0
     ai_tools_agent_asset_dirs skills_dir; ai_tools_agent_asset_dirs subagents_dir' 2>/dev/null)
 

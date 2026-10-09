@@ -235,6 +235,21 @@ That entry is not owned by root all the way down, so a session can rewrite
 what every later session of that agent loads.
 Move it out, or make it root's.
 .TP
+.B view\-dir\-untrusted
+The view directory of a kind, or
+.I /opt/ai\-tools
+which holds it, is a symlink, is not owned by root, or is writable by group or
+other.
+No link of that kind is placed or removed, in the view or in an agent's
+directory, and the directory is left as it is; the detail names what was read.
+Find out what was placed inside it before you restore it.
+.TP
+.B agent\-dir\-untrusted
+An agent's directory for a kind, or its config directory, is a symlink or is
+not owned by root; a kind directory writable by group or other, and a config
+directory writable by its group without its sticky bit, are refused too.
+No link is placed or removed there, and the directory is left as it is.
+.TP
 .B view\-foreign
 An entry in the view is neither a link these commands placed nor a copy the
 package seeds there; it is left as it is.

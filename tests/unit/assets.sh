@@ -675,6 +675,49 @@ else
     fail "a disabled agent: $(ls -la "${HOME_DIR}/.beta/skills" 2>&1 | tr '\n' '|')"
 fi
 
+# ── Destinations ─────────────────────────────────────────────────────────────────────────────────────────────────────
+section "assets: a destination directory that is not root's alone is reported and not written"
+OUTSIDE="${TESTDIR}/outside"
+mkdir -p "${OUTSIDE}/skills"; printf 'sentinel\n' > "${OUTSIDE}/sentinel"; chmod 0755 "${OUTSIDE}" "${OUTSIDE}/skills"
+outside_snapshot() { find "${OUTSIDE}" -printf '%P %y %U %G %m %s\n' | LC_ALL=C sort; }
+outside_before="$(outside_snapshot)"
+# two_agents : the control state with acme and beta enabled and beta's directory empty, not yet reconciled.
+two_agents() { fresh; AGENTS_LINE="agent-acme, agent-beta"; write_conf "${SKILL}" "${SUB}"; rm -rf "${HOME_DIR}"/.beta/*; }
+# destination_case <what> <finding> : the last run reported <finding>, exited 4, and left the tree outside as it was;
+# for an agent's directory, the sibling agent beta's link was placed.
+destination_case() {
+    if has_row "$2" "${HOME_DIR}" && [[ "${RC}" == 4 ]]; then pass "$1: $2, exit 4"; else fail "$1: rc ${RC}: ${OUT:0:400}"; fi
+    [[ "$(outside_snapshot)" == "${outside_before}" ]] && pass "$1: the tree outside is as it was" \
+        || fail "$1: the tree outside changed: $(outside_snapshot | tr '\n' '|')"
+    if [[ "$2" == agent-dir-untrusted ]]; then
+        [[ "$(readlink -- "${HOME_DIR}/.beta/skills/acme-pdf")" == "${HOME_DIR}/skills/acme-pdf" ]] \
+            && pass "$1: the sibling agent's link is placed" || fail "$1: beta holds $(ls -la "${HOME_DIR}/.beta/skills" 2>&1 | tr '\n' '|')"
+    fi
+}
+two_agents; mv "${HOME_DIR}/skills" "${TESTDIR}/skills-real"; ln -s "${OUTSIDE}/skills" "${HOME_DIR}/skills"; reconcile
+destination_case "a symlinked view" view-dir-untrusted
+expect_state "${SKILL}" view-dir-untrusted "a symlinked view: the entry of its kind"
+rm -f "${HOME_DIR}/skills"; mv "${TESTDIR}/skills-real" "${HOME_DIR}/skills"
+two_agents; rm -rf "${HOME_DIR}/.acme/skills"; ln -s "${OUTSIDE}/skills" "${HOME_DIR}/.acme/skills"; reconcile
+destination_case "a symlinked kind directory" agent-dir-untrusted
+rm -f "${HOME_DIR}/.acme/skills"
+two_agents; mv "${HOME_DIR}/.acme" "${TESTDIR}/acme-real"; ln -s "${OUTSIDE}" "${HOME_DIR}/.acme"; reconcile
+destination_case "a symlinked config directory" agent-dir-untrusted
+rm -f "${HOME_DIR}/.acme"; mv "${TESTDIR}/acme-real" "${HOME_DIR}/.acme"
+two_agents; chown "${PROJECTS_USER}" "${HOME_DIR}/.acme/skills"; reconcile
+destination_case "a kind directory owned by the projects user" agent-dir-untrusted
+two_agents; chmod 0775 "${HOME_DIR}/.acme/skills"; reconcile
+destination_case "a root-owned, group-writable kind directory" agent-dir-untrusted
+two_agents; rm -rf "${HOME_DIR}/.acme/skills"
+PRELUDE="install() { mkdir -- \"\${@: -1}\" && chown ${PROJECTS_USER} -- \"\${@: -1}\"; }"; reconcile; PRELUDE=""
+destination_case "a kind directory taken between the plan and the apply (a stubbed install)" agent-dir-untrusted
+if [[ "$(stat -c %U "${HOME_DIR}/.acme/skills")" == "${PROJECTS_USER}" && -z "$(ls -A "${HOME_DIR}/.acme/skills")" ]]; then
+    pass "a kind directory taken between the plan and the apply: nothing is written into it, and it is not re-owned"
+else
+    fail "a kind directory taken between the plan and the apply: $(ls -la "${HOME_DIR}/.acme/skills" 2>&1 | tr '\n' '|')"
+fi
+rm -rf "${HOME_DIR}/.acme/skills"
+
 # ── The planning half does not write ─────────────────────────────────────────────────────────────────────────────────
 section "assets: the plan reads and does not write"
 fresh
