@@ -2927,9 +2927,14 @@ status_assets() {
             continue
         fi
         reason="${_AI_TOOLS_AS_DETAIL[${entry}]:-}"
-        st ATTENTION "$(ai_tools_log_sanitize "${entry}")  ${_AI_TOOLS_AS_STATE[${entry}]}"
+        if [[ "${_AI_TOOLS_AS_STATE[${entry}]}" == error ]]; then
+            st UNREADABLE "$(ai_tools_log_sanitize "${entry}")  ${_AI_TOOLS_AS_STATE[${entry}]}"
+            STATUS_UNREADABLE=$(( STATUS_UNREADABLE + 1 ))
+        else
+            st ATTENTION "$(ai_tools_log_sanitize "${entry}")  ${_AI_TOOLS_AS_STATE[${entry}]}"
+            STATUS_PROBLEMS=$(( STATUS_PROBLEMS + 1 ))
+        fi
         detail "$(ai_tools_log_sanitize "${reason:0:200}")"
-        STATUS_PROBLEMS=$(( STATUS_PROBLEMS + 1 ))
     done
     for (( index = 0; index < ${#_AI_TOOLS_AS_ROW_SEVERITY[@]}; index++ )); do
         case "${_AI_TOOLS_AS_ROW_SEVERITY[index]}" in

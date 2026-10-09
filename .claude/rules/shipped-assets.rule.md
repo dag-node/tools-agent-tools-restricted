@@ -114,7 +114,8 @@ verifier, then the subset of format 1 base enforces, under the format's rule ids
 entry it covers to one reason token and the run goes on; a copy refused at any step does not fall through to a lower
 root. An untrusted `operator.conf` and an invalid list enable no asset, so the next run removes every resolver link.
 Every requirement is read: `requires_base`, an unknown capability and an integration that is off each leave the asset
-unlinked.
+unlinked. A view or agent directory the plan cannot list is an `error` row and is not planned that run, so no link in it
+is placed or removed: a failed listing read as an empty one would leave a stale link in place and no row naming it.
 
 **Compatibility is a profile question.** An asset requires its kind's base profile and each capability it declares;
 an agent's manifest lists the profiles it implements in `asset_profiles`, defaulting to each kind's base profile

@@ -564,6 +564,51 @@ absent "${HOME_DIR}/skills/acme-pdf" && absent "${HOME_DIR}/.acme/skills/acme-pd
     && pass "a resolver link whose asset left the list is removed, with the agent's link" || fail "the link of a disabled asset stays"
 [[ -L "${HOME_DIR}/.acme/skills/ai-tools-seeded" ]] && pass "the seeded copy's agent link stays" || fail "the seeded copy's agent link was removed"
 
+# ── A listing that fails is not an empty directory ───────────────────────────────────────────────────────────────────
+section "assets: a view or agent directory that cannot be listed is reported and not planned"
+# failing_find <directory> [name] : a PRELUDE whose find, asked to list <directory> one level down, prints <name> (when
+# given) and exits 1; every other find runs as it is.
+failing_find() {
+    printf 'find() { if [[ "$2" == %q && " $* " == *" -maxdepth 1 "* ]]; then %s return 1; fi; command find "$@"; }' \
+        "$1" "${2:+printf '%s\\0' $(printf '%q' "$2");}"
+}
+# listing_failed <what> <foreign> : the last run wrote an unreadable error row, exited 5, and left <foreign> as it was.
+listing_failed() {
+    if has_row_at unreadable error && [[ "${RC}" == 5 ]]; then
+        pass "$1: an unreadable error row, exit 5"
+    else
+        fail "$1: rc ${RC}, ${OUT:0:400}"
+    fi
+    [[ "$(find "$2" -printf '%P %y %s %m\n' | sort)" == "${foreign_before}" ]] && pass "$1: the foreign entry is as it was" \
+        || fail "$1: the foreign entry changed"
+}
+for partial in "" foreign-dir; do
+    fresh
+    mkdir "${HOME_DIR}/skills/foreign-dir"; printf 'mine\n' > "${HOME_DIR}/skills/foreign-dir/SKILL.md"
+    foreign_before="$(find "${HOME_DIR}/skills/foreign-dir" -printf '%P %y %s %m\n' | sort)"
+    PRELUDE="$(failing_find "${HOME_DIR}/skills" "${partial}")"; reconcile; PRELUDE=""
+    listing_failed "the view listing fails${partial:+ after one name}" "${HOME_DIR}/skills/foreign-dir"
+    [[ "$(finding "${SKILL}")" == error ]] && pass "the view listing fails${partial:+ after one name}: the entry is not reported linked" \
+        || fail "the view listing fails: the entry reads '$(finding "${SKILL}")'"
+done
+fresh; write_conf "${SUB}"
+PRELUDE="$(failing_find "${HOME_DIR}/skills")"; reconcile; PRELUDE=""
+if has_row_at unreadable error && [[ "${RC}" == 5 ]] && linked skills/acme-pdf "${PKG}/acme/skills/acme-pdf"; then
+    pass "the view listing fails as the last skill is disabled: its resolver link stays, reported, exit 5"
+else
+    fail "the last skill disabled under a failed listing: rc ${RC}, ${OUT:0:300}"
+fi
+for partial in "" acme-gone; do
+    fresh
+    ln -s "${HOME_DIR}/skills/acme-gone" "${HOME_DIR}/.acme/skills/acme-gone"
+    mkdir "${HOME_DIR}/.acme/skills/own"; printf 'mine\n' > "${HOME_DIR}/.acme/skills/own/SKILL.md"
+    foreign_before="$(find "${HOME_DIR}/.acme/skills/own" -printf '%P %y %s %m\n' | sort)"
+    PRELUDE="$(failing_find "${HOME_DIR}/.acme/skills" "${partial}")"; reconcile; PRELUDE=""
+    listing_failed "the agent's listing fails${partial:+ after one name}" "${HOME_DIR}/.acme/skills/own"
+    [[ -L "${HOME_DIR}/.acme/skills/acme-gone" ]] && pass "the agent's listing fails: the stale link stays in place" \
+        || fail "the agent's listing fails: the stale link was removed"
+done
+
 # ── No last-good fallback ────────────────────────────────────────────────────────────────────────────────────────────
 section "assets: no last-good fallback"
 fresh

@@ -247,6 +247,12 @@ Restore it to
 .B root:root
 .BR 0644 .
 .TP
+.B error
+A directory the command reads could not be listed, so no link of that kind
+was placed or removed there this run; the record names the directory and why,
+and the command exits 5.
+An enabled asset of that kind carries the same token.
+.TP
 .B write\-failed
 A link could not be placed or removed; the command exits 1.
 .TP

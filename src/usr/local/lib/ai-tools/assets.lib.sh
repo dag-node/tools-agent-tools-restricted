@@ -1357,14 +1357,20 @@ _ai_tools_as_mark_clashes() {
 # with another target is linked; a resolver link whose name is not desired is unlinked; anything else at a desired name
 # is view-occupied and left as it is; a leftover temporary name is removed; every entry that is neither a resolver link,
 # a seeded managed copy, the kind's README.md nor a temporary name is view-foreign and left as it is. Publishes the view
-# as the apply leaves it, name -> `resolver`, `seeded`, `foreign` or `occupied`, in _AI_TOOLS_AS_VIEW_AFTER.
+# as the apply leaves it, name -> `resolver`, `seeded`, `foreign` or `occupied`, in _AI_TOOLS_AS_VIEW_AFTER. Returns 1
+# when the view could not be listed: the kind is then not planned (_ai_tools_as_kind_unplanned), so no link in the view
+# or in an agent's directory of that kind is placed or removed.
 _ai_tools_as_plan_view() {
     local kind="$1" view="${AI_TOOLS_ASSETS_HOME}/$1" name entry target marker
     local -A present=() desired=()
     declare -gA _AI_TOOLS_AS_VIEW_AFTER=()
     if [[ -d "${view}" && ! -L "${view}" ]]; then
-        while IFS= read -r -d '' name; do present["${name}"]=1; done \
-            < <(find -P "${view}" -mindepth 1 -maxdepth 1 -printf '%P\0' 2>/dev/null)
+        if ! _ai_tools_as_enumerate "${view}"; then
+            _ai_tools_as_kind_unplanned "${kind}" error "${view}" \
+                "the view could not be listed (${_AI_TOOLS_AS_LISTING_ERROR}), so this kind is not planned: a resolver link there that no entry justifies stays in place"
+            return 1
+        fi
+        for name in "${_AI_TOOLS_AS_LISTING[@]}"; do present["${name}"]=1; done
     fi
     for entry in "${_AI_TOOLS_AS_ENTRIES[@]}"; do
         [[ "${_AI_TOOLS_AS_STATE[${entry}]}" == linked && "${_AI_TOOLS_AS_KIND[${entry}]}" == "${kind}" ]] || continue
@@ -1417,6 +1423,45 @@ _ai_tools_as_plan_view() {
     done
 }
 
+# _ai_tools_as_enumerate <dir> [find-test...] : list the entries of <dir> one level down that pass the tests
+# into _AI_TOOLS_AS_LISTING, through one find written to a file whose status is read, as the walk does. Returns 1
+# with the reason in _AI_TOOLS_AS_LISTING_ERROR when find exits non-zero, after a name or before one, so a listing
+# that failed is told apart from an empty directory.
+_ai_tools_as_enumerate() {
+    local dir="$1" listing error status=0 name
+    shift
+    declare -ga _AI_TOOLS_AS_LISTING=()
+    _AI_TOOLS_AS_LISTING_ERROR=""
+    if ! listing="$(mktemp 2>/dev/null)"; then
+        _AI_TOOLS_AS_LISTING_ERROR="no temporary file for the listing"
+        return 1
+    fi
+    error="$( (find -P "${dir}" -mindepth 1 -maxdepth 1 "$@" -printf '%P\0' > "${listing}") 2>&1 )" || status=$?
+    if (( status != 0 )); then
+        rm -f -- "${listing}"
+        error="${error%%$'\n'*}"
+        _AI_TOOLS_AS_LISTING_ERROR="find exit ${status}${error:+: $(_ai_tools_as_display "${error}")}"
+        return 1
+    fi
+    while IFS= read -r -d '' name; do _AI_TOOLS_AS_LISTING+=( "${name}" ); done < "${listing}"
+    rm -f -- "${listing}"
+}
+
+# _ai_tools_as_kind_unplanned <kind> <finding> <directory> <detail> : report a view directory the plan does not act
+# in: one row for the directory, at `unreadable` for an `error` and at `attention` otherwise, and each enabled entry
+# of <kind> still on its way to `linked` resolved to <finding>, so no entry reads linked in a view this run did not
+# plan.
+_ai_tools_as_kind_unplanned() {
+    local kind="$1" finding="$2" directory="$3" detail="$4" entry
+    _ai_tools_as_row "$([[ "${finding}" == error ]] && printf unreadable || printf attention)" "${finding}" directory \
+        "${directory}" "${kind}" "" "${detail}"
+    for entry in "${_AI_TOOLS_AS_ENTRIES[@]}"; do
+        [[ "${_AI_TOOLS_AS_STATE[${entry}]}" == linked && "${_AI_TOOLS_AS_KIND[${entry}]}" == "${kind}" ]] || continue
+        _AI_TOOLS_AS_STATE["${entry}"]="${finding}"
+        _AI_TOOLS_AS_DETAIL["${entry}"]="${directory} is not planned this run; its row says why"
+    done
+}
+
 # _ai_tools_as_is_occupied_name <kind> <view-name> : succeed when an enabled entry of <kind> resolved to view-occupied
 # at <view-name>, whose row already reports the entry at the name.
 _ai_tools_as_is_occupied_name() {
@@ -1443,10 +1488,13 @@ _ai_tools_as_untrusted_entry() {
 # target; a link elsewhere and a real entry are kept and reported -- agent-occupied at an enabled asset's name, `kept`
 # at any other -- a real entry not root-owned along its path additionally agent-entry-untrusted; a managed copy
 # byte-identical to the seeded one is converted to a link; a link into the view whose name the view no longer holds is
-# unlinked.
+# unlinked. A directory whose links could not be listed is reported and not planned.
 _ai_tools_as_plan_agent() {
     local agent="$1" kind="$2" agent_dir="$3" view="${AI_TOOLS_ASSETS_HOME}/$2" name dst target item resolver
+    local -a links=()
     [[ -d "${AI_TOOLS_ASSETS_HOME}/$(ai_tools_agent_manifest_field "${agent}" config_dir 2>/dev/null || true)" ]] || return 0
+    _ai_tools_as_list_agent_links "${agent}" "${kind}" "${agent_dir}" || return 0
+    links=( "${_AI_TOOLS_AS_LISTING[@]}" )
     for name in "${!_AI_TOOLS_AS_VIEW_AFTER[@]}"; do
         dst="${agent_dir}/${name}"
         resolver=0; item="${kind}/${name}"
@@ -1479,17 +1527,29 @@ _ai_tools_as_plan_agent() {
             _ai_tools_as_action link "${dst}" "${view}/${name}" agent "${item}" "${agent}" "linked to ${view}/${name}"
         fi
     done
-    _ai_tools_as_plan_stale_links "${agent}" "${kind}" "${agent_dir}" all
+    _ai_tools_as_plan_stale_links "${agent}" "${kind}" "${agent_dir}" all "${links[@]}"
 }
 
-# _ai_tools_as_plan_stale_links <agent> <kind> <agent-dir> <all|resolver> : unlink each link in <agent-dir>
-# into the view whose name the view as the apply leaves it does not hold -- and, for `resolver` (an installed agent
-# that is not enabled), each link whose view name is a resolver link as well. A link to a seeded copy, and every other
-# entry, is left as it is.
+# _ai_tools_as_list_agent_links <agent> <kind> <agent-dir> : the symbolic links in <agent-dir>
+# into _AI_TOOLS_AS_LISTING, empty for a directory that does not exist yet. Returns 1, after an `error` row naming
+# the directory, when the listing fails.
+_ai_tools_as_list_agent_links() {
+    declare -ga _AI_TOOLS_AS_LISTING=()
+    [[ -d "$3" && ! -L "$3" ]] || return 0
+    _ai_tools_as_enumerate "$3" -type l && return 0
+    _ai_tools_as_row unreadable error directory "$3" "$2" "$1" \
+        "the directory could not be listed (${_AI_TOOLS_AS_LISTING_ERROR}), so it is not planned: a stale link there stays in place"
+    return 1
+}
+
+# _ai_tools_as_plan_stale_links <agent> <kind> <agent-dir> <all|resolver> <link>... : unlink each of the links listed
+# in <agent-dir> that points into the view at a name the view as the apply leaves it does not hold --
+# and, for `resolver` (an installed agent that is not enabled), at a resolver link as well. A link to a seeded copy,
+# and every other entry, is left as it is.
 _ai_tools_as_plan_stale_links() {
     local agent="$1" kind="$2" agent_dir="$3" which="$4" view="${AI_TOOLS_ASSETS_HOME}/$2" name target after
-    [[ -d "${agent_dir}" && ! -L "${agent_dir}" ]] || return 0
-    while IFS= read -r -d '' name; do
+    shift 4
+    for name in "$@"; do
         target="$(readlink -- "${agent_dir}/${name}" 2>/dev/null || true)"
         [[ "${target}" == "${view}/"* ]] || continue
         after="${_AI_TOOLS_AS_VIEW_AFTER[${target#"${view}/"}]:-}"
@@ -1497,7 +1557,7 @@ _ai_tools_as_plan_stale_links() {
             _ai_tools_as_action unlink "${agent_dir}/${name}" "" agent "${kind}/${target#"${view}/"}" "${agent}" \
                 "$([[ -z "${after}" ]] && printf 'its view entry is gone' || printf 'the agent is not enabled')"
         fi
-    done < <(find -P "${agent_dir}" -mindepth 1 -maxdepth 1 -type l -printf '%P\0' 2>/dev/null)
+    done
 }
 
 # _ai_tools_as_plan_without_receivers : the plan while the receiving agents are unknown. The enable list is read
@@ -1522,7 +1582,7 @@ _ai_tools_as_plan_without_receivers() {
     _ai_tools_as_row unreadable receivers-unknown directory "${AI_TOOLS_AGENTS_DIR:-/usr/local/lib/ai-tools/agents.d}" "" "" \
         "${_AI_TOOLS_AS_RECEIVERS_DETAIL}; the enable list reads as empty, and no agent's directory is planned"
     while IFS= read -r kind; do
-        _ai_tools_as_plan_view "${kind}"
+        _ai_tools_as_plan_view "${kind}" || true
     done < <(_ai_tools_as_kinds)
 }
 
@@ -1543,14 +1603,16 @@ ai_tools_assets_plan() {
     done
     _ai_tools_as_mark_clashes
     while IFS= read -r kind; do
-        _ai_tools_as_plan_view "${kind}"
+        _ai_tools_as_plan_view "${kind}" || continue
         for agent in "${_AI_TOOLS_AS_AGENTS[@]}"; do
             [[ -n "${_AI_TOOLS_AS_AGENT_DIR[${agent}|${kind}]+x}" ]] || continue
             _ai_tools_as_plan_agent "${agent}" "${kind}" "${_AI_TOOLS_AS_AGENT_DIR[${agent}|${kind}]}"
         done
         for agent in "${_AI_TOOLS_AS_IDLE_AGENTS[@]}"; do
             [[ -n "${_AI_TOOLS_AS_IDLE_DIR[${agent}|${kind}]+x}" ]] || continue
-            _ai_tools_as_plan_stale_links "${agent}" "${kind}" "${_AI_TOOLS_AS_IDLE_DIR[${agent}|${kind}]}" resolver
+            _ai_tools_as_list_agent_links "${agent}" "${kind}" "${_AI_TOOLS_AS_IDLE_DIR[${agent}|${kind}]}" || continue
+            _ai_tools_as_plan_stale_links "${agent}" "${kind}" "${_AI_TOOLS_AS_IDLE_DIR[${agent}|${kind}]}" resolver \
+                "${_AI_TOOLS_AS_LISTING[@]}"
         done
     done < <(_ai_tools_as_kinds)
     return 0
@@ -1682,8 +1744,8 @@ _ai_tools_as_write_row() {
 }
 
 # _ai_tools_as_report <code> : the record stream for a plan, and the apply when one ran: the enable-list row
-# where the list could not be read, one row per entry in list order (`linked` at ok, or its token at attention), then
-# each row the plan and the apply recorded.
+# where the list could not be read, one row per entry in list order (`linked` at ok, `error` at unreadable, any other
+# token at attention), then each row the plan and the apply recorded.
 _ai_tools_as_report() {
     local code="$1" entry index
     case "${_AI_TOOLS_AS_LIST_STATE}" in
@@ -1699,8 +1761,9 @@ _ai_tools_as_report() {
             _ai_tools_as_write_row "${code}" ok linked file "$(_ai_tools_as_entry_subject "${entry}")" "${entry}" "" \
                 "$(_ai_tools_as_entry_detail "${entry}")"
         else
-            _ai_tools_as_write_row "${code}" attention "${_AI_TOOLS_AS_STATE[${entry}]}" file \
-                "$(_ai_tools_as_entry_subject "${entry}")" "${entry}" "" "$(_ai_tools_as_entry_detail "${entry}")"
+            _ai_tools_as_write_row "${code}" "$([[ "${_AI_TOOLS_AS_STATE[${entry}]}" == error ]] && printf unreadable || printf attention)" \
+                "${_AI_TOOLS_AS_STATE[${entry}]}" file "$(_ai_tools_as_entry_subject "${entry}")" "${entry}" "" \
+                "$(_ai_tools_as_entry_detail "${entry}")"
         fi
     done
     for (( index = 0; index < ${#_AI_TOOLS_AS_ROW_SEVERITY[@]}; index++ )); do
