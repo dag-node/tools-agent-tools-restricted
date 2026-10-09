@@ -355,7 +355,7 @@ _ai_tools_as_finding() {
 # file and a file with a second link are reported and not recorded. Returns 1 when the walk stopped at a bound (one
 # file.size finding at the set root) or did not complete, after which no later rule runs.
 _ai_tools_as_walk_tree() {
-    local set_dir="$1" listing record type links size depth path name parent probe walk_error walk_status=0
+    local set_dir="$1" listing record type links size depth path name parent probe walk_error walk_status=0 entry_count
     local file_max="${AI_TOOLS_ASSETS_FILE_MAX_BYTES:-1048576}" count_max="${AI_TOOLS_ASSETS_FILE_MAX_COUNT:-2000}"
     local bytes_max="${AI_TOOLS_ASSETS_SET_MAX_BYTES:-67108864}" files=0 directories=0 bytes=0
     local stopped=""
@@ -383,8 +383,9 @@ _ai_tools_as_walk_tree() {
             [[ -n "${refused_prefix[${probe}]+x}" ]] && continue 2
             [[ "${probe}" == */* ]] && probe="${probe%/*}" || probe=.
         done
-        entries_in["${parent}"]=$(( ${entries_in[${parent}]:-0} + 1 ))
-        if (( entries_in[${parent}] > _AI_TOOLS_AS_MAX_DIRECTORY_ENTRIES )); then
+        entry_count=$(( ${entries_in[${parent}]:-0} + 1 ))
+        entries_in["${parent}"]="${entry_count}"
+        if (( entry_count > _AI_TOOLS_AS_MAX_DIRECTORY_ENTRIES )); then
             stopped="$(_ai_tools_as_display "${parent}") holds more than ${_AI_TOOLS_AS_MAX_DIRECTORY_ENTRIES} entries; the walk stopped there"
             break
         fi
