@@ -222,6 +222,34 @@ else
     fail "a disable beside an enable wrote '$(listed)'"
 fi
 
+# ── No set asset enabled ─────────────────────────────────────────────────────────────────────────────────────────────
+section "ai-tools-admin assets reconcile: a host that enables no set asset keeps base's seeded copies"
+TEMPLATE="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)/src/etc/ai-tools/operator.conf"
+for shape in "a trusted file without the key" "the shipped template" "AI_TOOLS_ASSETS=[]"; do
+    fresh
+    case "${shape}" in
+        "a trusted file without the key") printf '# fixture\nAI_TOOLS_AGENTS=[agent-acme]\n' > "${CONF}" ;;
+        "the shipped template")
+            if [[ ! -r "${TEMPLATE}" ]]; then skip "${shape}" "no checkout holds ${TEMPLATE}"; continue; fi
+            sed 's/@PROJECTS_USER@/root/' "${TEMPLATE}" > "${CONF}" ;;
+        *) write_conf ;;
+    esac
+    chown root:root "${CONF}"; chmod 0644 "${CONF}"
+    mkdir -p "${HOME_DIR}/skills/ai-tools-seeded"
+    printf -- '---\nname: ai-tools-seeded\nx-ai-tools-managed: true\n---\n' > "${HOME_DIR}/skills/ai-tools-seeded/SKILL.md"
+    admin assets reconcile
+    attention="$(awk -F'\t' 'NR > 1 && ($5 == "attention" || $5 == "unreadable")' <<< "${OUT}")"
+    if [[ "${RC}" == 0 && -z "${attention}" && -d "${HOME_DIR}/skills/ai-tools-seeded" ]]; then
+        pass "${shape}: exit 0, no row needing attention, the seeded copy kept"
+    else
+        fail "${shape}: rc ${RC}: ${attention:-${ERR:0:300}}"
+    fi
+    if [[ "${shape}" != "the shipped template" ]]; then
+        [[ "$(readlink "${HOME_DIR}/.acme/skills/ai-tools-seeded")" == "${HOME_DIR}/skills/ai-tools-seeded" ]] \
+            && pass "${shape}: the enabled agent links the seeded copy" || fail "${shape}: the seeded copy is not linked for acme"
+    fi
+done
+
 # ── The exit fold, the usage refusals ────────────────────────────────────────────────────────────────────────────────
 section "ai-tools-admin assets: the exit fold and the usage refusals"
 fresh
