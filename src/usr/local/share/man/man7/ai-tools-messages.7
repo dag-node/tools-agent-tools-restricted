@@ -413,6 +413,10 @@ semodule not found \-\- install policycoreutils
 WARNING.
 the ask entries in ${settings} were not checked \-\- jq is missing or the file is not valid JSON
 .TP
+.B MSG-B4Z5
+ERROR.
+assets: AI_TOOLS_ASSETS in ${conf} is not a valid list, so it is not rewritten \-\- write it as [<set>/<kind>/<name>, ...] and run the command again
+.TP
 .B MSG-B5K9
 ERROR.
 a malformed interface floor: ${fragment} declares $(printf '%q' "${declared_floor}"), which is not <major>.<minor>
@@ -445,6 +449,10 @@ could not restore labels under ${clones}; run: sudo restorecon \-FR ${clones}
 WARNING.
 refusing ${fragment}: it is a symlink, is not root\-owned, or is writable by group/other, so what it runs is not root's decision alone
 .TP
+.B MSG-D4S7
+ERROR.
+unknown command 'assets ${verb}' (enable|disable|reconcile)
+.TP
 .B MSG-D6K9
 ERROR.
 selinux owns one collection: 'selinux groups [list|enable|disable]'
@@ -473,9 +481,17 @@ the provisioning helper is not installed: ${BOOTSTRAP_BIN} \-\- install ai\-tool
 ERROR.
 a verb outside the command charset: ${fragment} declares $(printf '%q' "${verb}") among its verbs, and a verb is a bare lower\-case word
 .TP
+.B MSG-E5Z8
+ERROR.
+assets takes a verb: 'assets enable <id>...', 'assets enable \-\-set <set>', 'assets disable <id>...', 'assets reconcile'
+.TP
 .B MSG-E8S8
 WARNING.
 hook\-repeated
+.TP
+.B MSG-E9D6
+ERROR.
+assets enable: '$(ai_tools_log_sanitize "${identifier}")' is not an asset identifier \-\- ${_AI_TOOLS_AS_ID_DETAIL}; AI_TOOLS_ASSETS is unchanged
 .TP
 .B MSG-E9V5
 WARNING.
@@ -529,6 +545,10 @@ unknown command 'operators ${verb}' (list|add|remove)
 WARNING.
 skipping $(printf '%q' "${fragment}"): a contributed command is named for its provider, in bare lower\-case
 .TP
+.B MSG-H7A8
+ERROR.
+assets disable takes one or more <set>/<kind>/<name>
+.TP
 .B MSG-H7J4
 ERROR.
 selinux groups enable: name the group(s) to load
@@ -545,6 +565,10 @@ provisioning failed \-\- ${integration}: its bootstrap failed, with the cause ab
 NOTICE.
 rpmnew\-residual
 .TP
+.B MSG-J4E9
+WARNING.
+assets enable \-\-set: an asset of the set that fails the asset\-scope rules, left out of AI_TOOLS_ASSETS
+.TP
 .B MSG-J9F9
 WARNING.
 could not remove ${user} from ${OPERATORS_GROUP}
@@ -552,6 +576,10 @@ could not remove ${user} from ${OPERATORS_GROUP}
 .B MSG-K5H2
 WARNING.
 key\-missing
+.TP
+.B MSG-K6K3
+ERROR.
+assets: ${conf} is not root's alone ($(ai_tools_conf_untrusted_reason "${conf}")), so it is not written \-\- restore it to root:root 0644 and run the command again
 .TP
 .B MSG-K8D2
 WARNING.
@@ -564,6 +592,10 @@ the PATH ordering line is already in ${user}'s shell init, and typing ${launcher
 .B MSG-M3D7
 ERROR.
 an interface newer than this one: ${fragment} needs contributed\-command interface ${declared_floor}, and this ai\-tools\-admin implements ${ADMIN_COMMAND_API} \-\- upgrade ai\-tools\-base
+.TP
+.B MSG-M7S5
+ERROR.
+assets reconcile takes no arguments
 .TP
 .B MSG-M8X2
 ERROR.
@@ -589,6 +621,10 @@ option\-unmentioned
 ERROR.
 could not write OPERATORS into ${OPERATOR_CONF} \-\- the enrolment is incomplete; check the file and re\-run
 .TP
+.B MSG-N5U6
+ERROR.
+assets enable takes one or more <set>/<kind>/<name>, or \-\-set <set>
+.TP
 .B MSG-N9S4
 WARNING.
 asset\-unlinked
@@ -609,9 +645,21 @@ could not seed ${file}
 WARNING.
 list\-unmigrated
 .TP
+.B MSG-P8M5
+WARNING.
+the assets library (${ASSETS_LIB}) did not load, so no asset was read or changed \-\- reinstall ai\-tools\-base
+.TP
 .B MSG-P9K2
 WARNING.
 config not seeded for ${user}, which stays enrolled \-\- without allowed\-projects in ~/.config/ai\-tools it cannot start a session or claim a project
+.TP
+.B MSG-P9Z3
+ERROR.
+assets enable \-\-set: the set ${set} is ${_AI_TOOLS_AS_SNAPSHOT_STATE} \-\- $(ai_tools_log_sanitize "${_AI_TOOLS_AS_SNAPSHOT_DETAIL:0:300}"); AI_TOOLS_ASSETS is unchanged
+.TP
+.B MSG-Q2C6
+NOTICE.
+assets disable: an identifier removed from AI_TOOLS_ASSETS
 .TP
 .B MSG-Q2X5
 ERROR.
@@ -633,9 +681,21 @@ could not enable linger for ${SANDBOX_USER}
 WARNING.
 diff is not installed, so the difference is not shown here \-\- install diffutils
 .TP
+.B MSG-Q5T6
+WARNING.
+assets disable: an identifier AI_TOOLS_ASSETS does not hold
+.TP
 .B MSG-Q6F4
 ERROR.
 semodule failed to remove ai_tools_${name}
+.TP
+.B MSG-Q8E5
+ERROR.
+assets: AI_TOOLS_ASSETS could not be written to ${conf} (writer status ${rc})${backup:+; the previous file is ${backup}}
+.TP
+.B MSG-R3M6
+ERROR.
+assets enable \-\-set: '$(ai_tools_log_sanitize "${set}")' is not a set name \-\- 1\-64 characters of a\-z, 0\-9 and single hyphens; AI_TOOLS_ASSETS is unchanged
 .TP
 .B MSG-R6B2
 NOTICE.
@@ -701,6 +761,10 @@ system entrypoints takes a verb: 'system entrypoints relabel'
 ERROR.
 no such user: ${user}
 .TP
+.B MSG-V3M3
+ERROR.
+assets: ${conf} could not be backed up, so AI_TOOLS_ASSETS was not written
+.TP
 .B MSG-V5J3
 ERROR.
 system bootstrap: \-\-scope takes a value (minimal|full)
@@ -736,6 +800,10 @@ asset\-overridden
 .B MSG-W3T9
 ERROR.
 an incompatible contract: ${fragment} needs contributed\-command interface ${declared_floor}, and this ai\-tools\-admin implements ${ADMIN_COMMAND_API} \-\- a different major is a different contract, so upgrade whichever of the two is behind
+.TP
+.B MSG-W6D7
+ERROR.
+assets enable: no shipped binding names the set ${_AI_TOOLS_AS_ID_SET}, so ${identifier} is accepted only once a package pins its signer; AI_TOOLS_ASSETS is unchanged
 .TP
 .B MSG-W7J6
 WARNING.
@@ -784,6 +852,10 @@ the provider resolver is unavailable, so the enabled integrations cannot be reso
 .B MSG-Z6V4
 WARNING.
 not a directory: ${cfg_home} \-\- ${user}'s ai\-tools config cannot be seeded inside it
+.TP
+.B MSG-Z7D4
+ERROR.
+assets enable \-\-set takes exactly one set name
 .TP
 .B MSG-Z8U4
 WARNING.

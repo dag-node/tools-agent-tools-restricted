@@ -80,29 +80,6 @@ write_conf() {
     chown root:root "${CONF}"; chmod 0644 "${CONF}"
 }
 
-# seal <set-dir> [key] : the set's tree root-owned, files 0644 and directories 0755, its inventory written and signed.
-seal() {
-    chown -R root:root "$1"
-    find "$1" -type d -exec chmod 0755 {} + ; find "$1" -type f -exec chmod 0644 {} +
-    asset_signing_write_inventory "$1"
-    asset_signing_sign "$1" "${2:-signer}"
-}
-
-# build_set <root> <set> [skill-name] : a valid set: set.conf, README.md, one skill (<set>-pdf, or the name given)
-# and one subagent (<set>-reviewer), sealed.
-build_set() {
-    local dir="$1/$2" skill="${3:-$2-pdf}"
-    rm -rf "${dir}"
-    mkdir -p "${dir}/skills/${skill}" "${dir}/agents"
-    printf 'format=1\nname=%s\nversion=0.1.0\nsummary="Fixture assets"\nlicense=MIT\nmaintainers=[m@acme.example]\nsource=https://acme.example/assets\n' \
-        "$2" > "${dir}/set.conf"
-    printf '# %s\n' "$2" > "${dir}/README.md"
-    printf -- '---\nname: %s\ndescription: A fixture skill.\n---\n\nThe body.\n' "${skill}" > "${dir}/skills/${skill}/SKILL.md"
-    printf -- '---\nname: %s-reviewer\ndescription: A fixture subagent.\ntools: [Read, Grep]\n---\n\nThe body.\n' "$2" \
-        > "${dir}/agents/$2-reviewer.md"
-    seal "${dir}"
-}
-
 # reconcile [NAME=value...] : run ai_tools_assets_reconcile in a fresh shell with the hooks (and any override given),
 # keeping the record stream in OUT, stderr in ERR, and the status the verb takes in RC: 1 for a write that failed, else
 # the stream's exit.
@@ -160,7 +137,7 @@ fresh() {
     rm -rf "${LOCAL:?}"/* "${PKG:?}"/* "${HOME_DIR}/skills" "${HOME_DIR}/subagents" "${HOME_DIR}"/.acme/* \
         "${HOME_DIR}"/.beta/* "${HOME_DIR}"/.gamma/*
     AGENTS_LINE="agent-acme"; INTEG_LINE=""
-    build_set "${PKG}" acme
+    asset_signing_build_set "${PKG}" acme
     write_conf "${SKILL}" "${SUB}"
     reconcile
 }
@@ -271,7 +248,7 @@ asset_signing_write_binding acme "${KEYS}/absent.gpg" "openpgp:${SIGNER}"; recon
 expect_state "${SKILL}" set-unverified "a binding naming an absent keyring"
 asset_signing_write_binding acme "${KEYS}/signer.gpg" "openpgp:${SIGNER}"
 fresh
-build_set "${PKG}" acme-free; write_conf "acme-free/skills/acme-free-pdf"; reconcile
+asset_signing_build_set "${PKG}" acme-free; write_conf "acme-free/skills/acme-free-pdf"; reconcile
 expect_state "acme-free/skills/acme-free-pdf" set-unbound "a set name with no binding"
 fresh
 write_conf "acme-two/skills/acme-two-pdf"; reconcile
@@ -300,7 +277,7 @@ section "assets: each set-scope rule refuses the set"
 set_case() {
     fresh
     eval "$4"
-    seal "${PKG}/acme"
+    asset_signing_seal "${PKG}/acme"
     reconcile
     expect_state "${SKILL}" "$1" "$3"
     expect_detail "${SKILL}" "$2" "$3: the detail names $2"
@@ -326,7 +303,7 @@ set_case set-invalid kind.shape "a skill without SKILL.md" 'mkdir "${PKG}/acme/s
 set_case set-invalid kind.reserved "a reserved kind directory, empty" 'mkdir "${PKG}/acme/commands"'
 set_case capability-unknown set.conf.requires-capabilities "an unknown capability at set scope" "printf 'requires_capabilities=[skills.future.v9]\n' >> ${SETCONF}"
 fresh
-build_set "${TESTDIR}" set-without-conf; rm "${TESTDIR}/set-without-conf/set.conf"
+asset_signing_build_set "${TESTDIR}" set-without-conf; rm "${TESTDIR}/set-without-conf/set.conf"
 if [[ "$(bash -c 'source "$1"; ai_tools_assets_validate_set "$2" release' _ "${LIB}" "${TESTDIR}/set-without-conf" | cut -f1 | sort -u)" == set.conf.missing ]]; then
     pass "a set directory without set.conf: set.conf.missing (the resolver does not discover it as a set)"
 else
@@ -342,7 +319,7 @@ asset_case() {
     [[ "${id}" == "${SUB}" ]] && sibling="${SKILL}"
     fresh
     eval "$5"
-    seal "${PKG}/acme"
+    asset_signing_seal "${PKG}/acme"
     reconcile
     expect_state "${id}" "$2" "$4"
     expect_detail "${id}" "$3" "$4: the detail names $3"
@@ -363,7 +340,7 @@ asset_case "${SKILL}" asset-invalid metadata.asset-conf "asset.conf format=2" "$
 asset_case "${SKILL}" asset-invalid set.conf.unknown-key "asset.conf carrying supported_targets" "${mkmeta}printf 'format=1\nsupported_targets=[claude-code]\n' > ${ASSETCONF}"
 asset_case "${SKILL}" capability-unknown metadata.asset-conf "an unknown capability at asset scope" "${mkmeta}printf 'format=1\nrequires_capabilities=[hooks.v1]\n' > ${ASSETCONF}"
 fresh
-build_set "${PKG}" acme ai-tools-pdf; write_conf acme/skills/ai-tools-pdf "${SUB}"; reconcile
+asset_signing_build_set "${PKG}" acme ai-tools-pdf; write_conf acme/skills/ai-tools-pdf "${SUB}"; reconcile
 expect_state acme/skills/ai-tools-pdf asset-invalid "an ai-tools- name outside core and ai-tools"
 expect_detail acme/skills/ai-tools-pdf name.asset-prefix "the detail names name.asset-prefix"
 expect_state "${SUB}" linked "the reserved prefix: the sibling still links"
@@ -384,29 +361,29 @@ fresh
 mkdir -p "${PKG}/acme/metadata/skills/acme-pdf"
 printf 'format=1\nrequires_capabilities=[skills.dynamic.v1]\n' > "${PKG}/acme/metadata/skills/acme-pdf/asset.conf"
 printf '\nThe working tree: !`git status --short`\n' >> "${PKG}/acme/skills/acme-pdf/SKILL.md"
-seal "${PKG}/acme"; reconcile
+asset_signing_seal "${PKG}/acme"; reconcile
 expect_state "${SKILL}" linked "the substitution with skills.dynamic.v1 declared"
 expect_detail "${SKILL}" "requires skills.dynamic.v1" "a linked asset's row carries the capability it declares"
 fresh
 mkdir -p "${PKG}/acme/metadata/skills/acme-pdf"
 printf 'format=1\nrequires_capabilities=[skills.dynamic.v1]\n' > "${PKG}/acme/metadata/skills/acme-pdf/asset.conf"
-seal "${PKG}/acme"; reconcile
+asset_signing_seal "${PKG}/acme"; reconcile
 expect_state "${SKILL}" linked "the declaration with no substitution"
 
 # ── Requirements ─────────────────────────────────────────────────────────────────────────────────────────────────────
 section "assets: a requirement is read, not skipped"
 set_case requires-base requires_base "requires_base above the installed base" "printf 'requires_base=99.0.0\n' >> ${SETCONF}"
 fresh
-printf 'requires_base=0.1.0\n' >> "${PKG}/acme/set.conf"; seal "${PKG}/acme"; reconcile AI_TOOLS_VERSION=dev
+printf 'requires_base=0.1.0\n' >> "${PKG}/acme/set.conf"; asset_signing_seal "${PKG}/acme"; reconcile AI_TOOLS_VERSION=dev
 expect_state "${SKILL}" requires-base "a checkout's dev version against requires_base"
 fresh
-printf 'requires_base=0.24.0\n' >> "${PKG}/acme/set.conf"; seal "${PKG}/acme"; reconcile
+printf 'requires_base=0.24.0\n' >> "${PKG}/acme/set.conf"; asset_signing_seal "${PKG}/acme"; reconcile
 expect_state "${SKILL}" linked "requires_base equal to the installed base"
 set_case integration-off integration-dotnet "a set requiring an integration that is off" "printf 'requires_integrations=[integration-dotnet]\n' >> ${SETCONF}"
 fresh
 mkdir -p "${PKG}/acme/metadata/skills/acme-pdf"
 printf 'format=1\nrequires_integrations=[integration-dotnet]\n' > "${PKG}/acme/metadata/skills/acme-pdf/asset.conf"
-seal "${PKG}/acme"; reconcile
+asset_signing_seal "${PKG}/acme"; reconcile
 expect_state "${SKILL}" integration-off "an asset requiring an integration that is off"
 INTEG_LINE="integration-dotnet"; write_conf "${SKILL}" "${SUB}"; reconcile
 expect_state "${SKILL}" linked "the same asset once the integration is enabled"
@@ -417,7 +394,7 @@ dynamic_skill() {
     fresh
     mkdir -p "${PKG}/acme/metadata/skills/acme-pdf"
     printf 'format=1\nrequires_capabilities=[skills.dynamic.v1]\n' > "${PKG}/acme/metadata/skills/acme-pdf/asset.conf"
-    seal "${PKG}/acme"
+    asset_signing_seal "${PKG}/acme"
 }
 dynamic_skill; AGENTS_LINE="agent-acme, agent-beta"; write_conf "${SKILL}" "${SUB}"; reconcile
 expect_state "${SKILL}" capability-unsupported "a profile the enabled agent beta does not list"
@@ -444,19 +421,19 @@ manifest beta skills_dir=skills "asset_profiles=[skills.portable.v1]"
 # ── Clash and shadowing ──────────────────────────────────────────────────────────────────────────────────────────────
 section "assets: the clash rule, shadowing"
 fresh
-build_set "${PKG}" acme-two acme-pdf; write_conf "${SKILL}" acme-two/skills/acme-pdf; reconcile
+asset_signing_build_set "${PKG}" acme-two acme-pdf; write_conf "${SKILL}" acme-two/skills/acme-pdf; reconcile
 expect_state "${SKILL}" name-clash "two sets naming one skill: the first"
 expect_state acme-two/skills/acme-pdf name-clash "two sets naming one skill: the second"
 expect_unlinked skills/acme-pdf "a clash"
 write_conf acme-two/skills/acme-pdf; reconcile
 if linked skills/acme-pdf "${PKG}/acme-two/skills/acme-pdf"; then pass "disabling one side of a clash links the other"; else fail "after the clash the view holds $(readlink "${HOME_DIR}/skills/acme-pdf" 2>&1)"; fi
 fresh
-build_set "${LOCAL}" acme; reconcile
+asset_signing_build_set "${LOCAL}" acme; reconcile
 if linked skills/acme-pdf "${LOCAL}/acme/skills/acme-pdf"; then pass "a copy in the local root shadows the packaged one"; else fail "shadowing: the view holds $(readlink "${HOME_DIR}/skills/acme-pdf" 2>&1)"; fi
 rm -rf "${LOCAL:?}/acme"; mkdir -p "${LOCAL}/acme/agents"
 printf 'format=1\n' > "${LOCAL}/acme/set.conf"; cp "${PKG}/acme/agents/acme-reviewer.md" "${LOCAL}/acme/agents/"
 asset_signing_write_binding acme "${KEYS}/signer.gpg" "openpgp:${SIGNER}"
-seal "${LOCAL}/acme"; reconcile
+asset_signing_seal "${LOCAL}/acme"; reconcile
 if linked skills/acme-pdf "${PKG}/acme/skills/acme-pdf"; then pass "a local copy holding one asset overrides that asset alone"; else fail "partial shadowing: $(readlink "${HOME_DIR}/skills/acme-pdf" 2>&1)"; fi
 expect_state "${SUB}" set-invalid "the local copy holding the subagent is the one read, and refused"
 
@@ -482,7 +459,7 @@ mkdir "${HOME_DIR}/skills/ai-tools-seeded"
 printf -- '---\nname: ai-tools-seeded\nx-ai-tools-managed: true\n---\n' > "${HOME_DIR}/skills/ai-tools-seeded/SKILL.md"
 ln -s /etc "${HOME_DIR}/skills/foreign"
 ln -s "${PKG}/acme/skills/acme-pdf" "${HOME_DIR}/skills/.acme-pdf.ai-tools-assets.tmp"
-build_set "${LOCAL}" acme
+asset_signing_build_set "${LOCAL}" acme
 probe_flag="${TESTDIR}/probe"; : > "${probe_flag}"
 ( misses=0; reads=0; while [[ -e "${probe_flag}" ]]; do reads=$(( reads + 1 ))
       [[ -L "${HOME_DIR}/skills/acme-pdf" ]] || misses=$(( misses + 1 )); done
