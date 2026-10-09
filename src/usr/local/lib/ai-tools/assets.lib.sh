@@ -1145,7 +1145,8 @@ _ai_tools_as_eval_assets() {
         _ai_tools_as_reset_findings
         _ai_tools_as_check_asset "${copy}" "${set}" "${kind}" "${name}"
         (( _AI_TOOLS_AS_ASSET_DYNAMIC )) && _AI_TOOLS_AS_ASSET_CAPS["${key}"]="${AI_TOOLS_ASSETS_DYNAMIC_CAPABILITY}"
-        IFS=' ' read -r -a tokens <<< "${_AI_TOOLS_AS_ASSET_CAPABILITIES}"
+        # An asset is written in its kind's base profile, and requires the capabilities it declares beside it.
+        IFS=' ' read -r -a tokens <<< "$(_ai_tools_as_kind_field "${kind}" 5) ${_AI_TOOLS_AS_ASSET_CAPABILITIES}"
         if ! reason="$(_ai_tools_as_capabilities_supported "${kind}" "${tokens[@]}")"; then
             _AI_TOOLS_AS_ASSET_STATE["${key}"]="capability-unsupported"; _AI_TOOLS_AS_ASSET_DETAIL["${key}"]="${reason}"
         elif IFS=' ' read -r -a tokens <<< "${_AI_TOOLS_AS_ASSET_INTEGRATIONS}" \

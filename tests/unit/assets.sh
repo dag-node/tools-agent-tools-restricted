@@ -304,7 +304,9 @@ set_case set-invalid kind.reserved "a reserved kind directory, empty" 'mkdir "${
 set_case capability-unknown set.conf.requires-capabilities "an unknown capability at set scope" "printf 'requires_capabilities=[skills.future.v9]\n' >> ${SETCONF}"
 fresh
 asset_signing_build_set "${TESTDIR}" set-without-conf; rm "${TESTDIR}/set-without-conf/set.conf"
-if [[ "$(bash -c 'source "$1"; ai_tools_assets_validate_set "$2" release' _ "${LIB}" "${TESTDIR}/set-without-conf" | cut -f1 | sort -u)" == set.conf.missing ]]; then
+# The source profile, as the publisher's fixture for the rule: a release inventory still listing set.conf is
+# release.inventory as well.
+if [[ "$(bash -c 'source "$1"; ai_tools_assets_validate_set "$2" source' _ "${LIB}" "${TESTDIR}/set-without-conf" | cut -f1 | sort -u)" == set.conf.missing ]]; then
     pass "a set directory without set.conf: set.conf.missing (the resolver does not discover it as a set)"
 else
     fail "a set directory without set.conf is not set.conf.missing alone"
@@ -413,6 +415,10 @@ expect_state "${SKILL}" capability-unsupported "a token base does not define in 
 manifest beta skills_dir=skills
 fresh; AGENTS_LINE="agent-acme, agent-beta"; write_conf "${SKILL}" "${SUB}"; reconcile
 expect_state "${SKILL}" linked "a manifest without asset_profiles implements the base profile of its directory"
+manifest beta skills_dir=skills "asset_profiles=[skills.dynamic.v1]"
+fresh; AGENTS_LINE="agent-acme, agent-beta"; write_conf "${SKILL}" "${SUB}"; reconcile
+expect_state "${SKILL}" capability-unsupported "a manifest listing a profile of the kind but not its base profile"
+expect_detail "${SKILL}" "skills.portable.v1, which the enabled agent beta" "the refusal names the base profile and the agent"
 dynamic_skill; AGENTS_LINE="agent-acme, agent-gamma"; write_conf "${SKILL}" "${SUB}"; reconcile
 expect_state "${SKILL}" linked "an agent declaring no directory and no profile for the kind is not consulted"
 absent "${HOME_DIR}/.gamma/skills" && pass "a skills_dir-less agent gets no link" || fail "the agent gamma was given ${HOME_DIR}/.gamma/skills"

@@ -116,13 +116,13 @@ root. An untrusted `operator.conf` and an invalid list enable no asset, so the n
 Every requirement is read: `requires_base`, an unknown capability and an integration that is off each leave the asset
 unlinked.
 
-**Compatibility is a profile question.** An asset requires profile tokens; an agent's manifest lists the ones it
-implements in `asset_profiles`, defaulting to each kind's base profile for the directories it declares, and receives
-a kind by declaring its directory or listing one of its profiles ([providers](providers.rule.md)). A required profile
-one enabled receiving agent lacks leaves the asset out of the view for every agent, since codex reads the view whole
-and an asset cannot be narrowed per agent there. The load-time command substitution is one such profile,
-`skills.dynamic.v1`: an asset carrying it without the declaration is refused, because the substitution runs as a step
-of reading the file and skips the `PreToolUse` filter and `permissions.deny`.
+**Compatibility is a profile question.** An asset requires its kind's base profile and each capability it declares;
+an agent's manifest lists the profiles it implements in `asset_profiles`, defaulting to each kind's base profile
+for the directories it declares, and receives a kind by declaring its directory or listing one of its profiles
+([providers](providers.rule.md)). A required profile one enabled receiving agent lacks leaves the asset out of the view
+for every agent, since codex reads the view whole and an asset cannot be narrowed per agent there. The load-time command
+substitution is one such profile, `skills.dynamic.v1`: an asset carrying it without the declaration is refused, because
+the substitution runs as a step of reading the file and skips the `PreToolUse` filter and `permissions.deny`.
 
 **The transaction holds a lock and plans before it writes.** `ai_tools_assets_reconcile` takes an exclusive `flock`
 before it reads an input, computes every change (`ai_tools_assets_plan`, which writes nothing and which `status` runs
