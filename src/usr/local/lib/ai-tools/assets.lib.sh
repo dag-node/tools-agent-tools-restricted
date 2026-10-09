@@ -20,9 +20,10 @@
 # the plan alone. A resolver link is recognised by its target alone -- a symlink into one of the roots --
 # so the seeder's managed copies share the view directories without a marker.
 #
-# The root-only test hooks AI_TOOLS_ASSETS_ROOTS, AI_TOOLS_ASSETS_LOCK and AI_TOOLS_ASSETS_HOME move the roots, the lock
-# and the directory holding the view and the agent config directories; each has the standing
-# of AI_TOOLS_ASSETS_BINDINGS_DIR: sudo strips the name, and every consumer runs as root.
+# The root-only test hooks AI_TOOLS_ASSETS_ROOTS, AI_TOOLS_ASSETS_LOCK, AI_TOOLS_ASSETS_LOCK_WAIT
+# and AI_TOOLS_ASSETS_HOME move the roots, the lock, the wait for it and the directory holding the view and the agent
+# config directories; each has the standing of AI_TOOLS_ASSETS_BINDINGS_DIR: sudo strips the name, and every consumer
+# runs as root.
 
 # Sourced more than once in a single shell: the readonly constants would abort under `set -e` on the second pass.
 # An if-statement, not `[[ ]] && return`, which returns 1 for an unset guard and trips the sourcing shell's `set -e`.
@@ -75,7 +76,8 @@ _AI_TOOLS_ASSETS_LIB_LOADED=1
 # The roots in search order: local, packaged, base. The first two hold <root>/<set>/; the base root is itself the set
 # `ai-tools` when it holds a set.conf. The bindings directory is assets-verify.lib.sh's.
 : "${AI_TOOLS_ASSETS_ROOTS:=/usr/local/share/ai-tools-assets /usr/share/ai-tools-assets /usr/share/ai-tools}"
-: "${AI_TOOLS_ASSETS_LOCK:=/run/lock/ai-tools-assets.lock}"
+: "${AI_TOOLS_ASSETS_LOCK:=/run/lock/ai-tools/assets.lock}"
+: "${AI_TOOLS_ASSETS_LOCK_WAIT:=120}"
 : "${AI_TOOLS_ASSETS_HOME:=${CP_HOME}}"
 : "${AI_TOOLS_ASSETS_BINDINGS_DIR:=/usr/local/lib/ai-tools/assets-bindings.d}"
 : "${AI_TOOLS_OPERATOR_CONF:=/etc/ai-tools/operator.conf}"
@@ -1944,15 +1946,39 @@ _ai_tools_as_report() {
 
 # ── The transaction ──────────────────────────────────────────────────────────────────────────────────────────────────
 
-# _ai_tools_as_lock : open AI_TOOLS_ASSETS_LOCK and take an exclusive flock on it, waiting for a run that holds it;
-# the descriptor is _AI_TOOLS_AS_LOCK_FD and stays open to ai_tools_assets_reconcile's end. Returns 1 for a lock path
-# that is a symlink, or one the redirection fails to open.
+# _ai_tools_as_lock : open AI_TOOLS_ASSETS_LOCK and take an exclusive flock on it, waiting
+# up to AI_TOOLS_ASSETS_LOCK_WAIT seconds (120 when it is not a whole number) for a run that holds it; the descriptor is
+# _AI_TOOLS_AS_LOCK_FD and stays open to ai_tools_assets_reconcile's end. The lock sits in a directory created 0700
+# root:root, and the file is created under umask 077, so no other account can open it, read-only included: flock(2)
+# takes an exclusive lock through a read-only descriptor, so a world-readable file is one any account can hold. A wait
+# that runs out ends the run with a refusal rather than holding a package transaction. Returns 1 with the reason
+# in _AI_TOOLS_AS_LOCK_ERROR for a directory or a lock file that is a symlink or not root's alone, a create or an open
+# that fails, and a wait that runs out.
 _ai_tools_as_lock() {
-    local lock="${AI_TOOLS_ASSETS_LOCK}" fd
-    [[ ! -L "${lock}" ]] || return 1
-    { exec {fd}>>"${lock}"; } 2>/dev/null || return 1
-    if ! flock "${fd}" 2>/dev/null; then
+    local lock="${AI_TOOLS_ASSETS_LOCK}" dir="${AI_TOOLS_ASSETS_LOCK%/*}" wait="${AI_TOOLS_ASSETS_LOCK_WAIT}" fd
+    _AI_TOOLS_AS_LOCK_ERROR=""
+    [[ "${wait}" =~ ^[0-9]+$ ]] || wait=120
+    if [[ ! -e "${dir}" && ! -L "${dir}" ]]; then
+        install -d -o root -g root -m 0700 -- "${dir}" 2>/dev/null || true
+    fi
+    if ! _ai_tools_as_dir_trusted "${dir}"; then
+        _AI_TOOLS_AS_LOCK_ERROR="${dir} is $(_ai_tools_as_dir_reason "${dir}"), not a directory root's alone"
+        return 1
+    fi
+    # The file is created by a simple command in a subshell holding the umask, so a failed create is a status and not
+    # a redirection error on the shell's own exec.
+    if ! ( umask 077; [[ -L "${lock}" ]] || : >> "${lock}" ) 2>/dev/null \
+            || ! ai_tools_conf_is_trusted "${lock}" || [[ ! -f "${lock}" ]]; then
+        _AI_TOOLS_AS_LOCK_ERROR="${lock} $(ai_tools_conf_untrusted_reason "${lock}"), or is not a regular file"
+        return 1
+    fi
+    if ! { exec {fd}>>"${lock}"; } 2>/dev/null; then
+        _AI_TOOLS_AS_LOCK_ERROR="${lock} could not be opened"
+        return 1
+    fi
+    if ! flock -w "${wait}" "${fd}" 2>/dev/null; then
         exec {fd}>&-
+        _AI_TOOLS_AS_LOCK_ERROR="another run held it for more than ${wait} seconds"
         return 1
     fi
     _AI_TOOLS_AS_LOCK_FD="${fd}"
@@ -1965,7 +1991,7 @@ _ai_tools_as_lock() {
 ai_tools_assets_reconcile() {
     local group="${1:?}" status=0
     if ! _ai_tools_as_lock; then
-        _ai_tools_as_refuse MSG-M8T9 "the lock ${AI_TOOLS_ASSETS_LOCK} could not be taken, so the view was not read or changed"
+        _ai_tools_as_refuse MSG-M8T9 "the lock ${AI_TOOLS_ASSETS_LOCK} could not be taken (${_AI_TOOLS_AS_LOCK_ERROR}), so the view was not read or changed"
         return 1
     fi
     ai_tools_assets_plan

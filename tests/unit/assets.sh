@@ -41,7 +41,7 @@ mktestdir
 LOCAL="${TESTDIR}/local"; PKG="${TESTDIR}/pkg"; BASE="${TESTDIR}/base"
 KEYS="${TESTDIR}/keys"; BINDINGS="${TESTDIR}/bindings.d"; HOME_DIR="${TESTDIR}/home"
 AGENTS_D="${TESTDIR}/agents.d"; INTEG_D="${TESTDIR}/integrations.d"; CONF="${TESTDIR}/operator.conf"
-LOCK="${TESTDIR}/assets.lock"
+LOCK="${TESTDIR}/lock/assets.lock"
 mkdir -p "${LOCAL}" "${PKG}" "${BASE}" "${KEYS}" "${BINDINGS}" "${AGENTS_D}" "${INTEG_D}" \
     "${HOME_DIR}/.acme" "${HOME_DIR}/.beta" "${HOME_DIR}/.gamma"
 chmod 0755 "${LOCAL}" "${PKG}" "${BASE}" "${KEYS}" "${BINDINGS}" "${AGENTS_D}" "${INTEG_D}" "${HOME_DIR}" \
@@ -674,6 +674,38 @@ if [[ "$(cat "${TESTDIR}/rc-a" "${TESTDIR}/rc-b")" == $'0\n0' ]] && linked skill
 else
     fail "two concurrent runs: rc $(cat "${TESTDIR}/rc-a" "${TESTDIR}/rc-b" | tr '\n' ' '), view $(readlink "${HOME_DIR}/skills/acme-pdf" 2>&1)"
 fi
+
+section "assets: the lock is root's alone, and the wait for it is bounded"
+# refused_lock <what> : the last run refused under the lock's code and exited 1.
+refused_lock() {
+    if [[ "${RC}" == 1 ]]; then pass "$1: exit 1"; else fail "$1: exit ${RC}: ${ERR:0:200}"; fi
+    assert_msg MSG-M8T9 "${ERR}" "$1: refused under the lock's code"
+}
+fresh; rm -rf "${LOCK%/*}"; PRELUDE='umask 000'; reconcile; PRELUDE=""
+if [[ "$(stat -c '%U %a' "${LOCK%/*}")" == "root 700" && "$(stat -c '%U %a' "${LOCK}")" == "root 600" ]]; then
+    pass "under umask 000 the lock directory is born 0700 and the lock file 0600, both root's"
+else
+    fail "the lock: $(stat -c '%n %U %a' "${LOCK%/*}" "${LOCK}" 2>&1 | tr '\n' '|')"
+fi
+# shellcheck disable=SC2016  # the $1 is the inner shell's
+if runuser -u "${PROJECTS_USER}" -- bash -c 'exec {fd}<"$1"' _ "${LOCK}" 2>/dev/null; then
+    fail "the projects user opened the lock read-only, so it could hold it"
+else
+    pass "the projects user cannot open the lock, read-only included"
+fi
+mv "${LOCK}" "${LOCK}.real"; ln -s "${TESTDIR}/lock-elsewhere" "${LOCK}"; reconcile
+refused_lock "a symlink at the lock path"
+absent "${TESTDIR}/lock-elsewhere" && pass "a symlink at the lock path: its target is not created" || fail "the lock symlink's target was created"
+rm -f "${LOCK}"; mv "${LOCK}.real" "${LOCK}"
+mv "${LOCK%/*}" "${LOCK%/*}.real"; ln -s "${LOCK%/*}.real" "${LOCK%/*}"; reconcile
+refused_lock "a symlink at the lock directory"
+rm -f "${LOCK%/*}"; mv "${LOCK%/*}.real" "${LOCK%/*}"
+( flock 9; sleep 4 ) 9>>"${LOCK}" &
+holder=$!
+sleep 0.5
+reconcile AI_TOOLS_ASSETS_LOCK_WAIT=1
+wait "${holder}" || true
+refused_lock "a lock another run holds past AI_TOOLS_ASSETS_LOCK_WAIT"
 
 # ── The per-agent rules ──────────────────────────────────────────────────────────────────────────────────────────────
 section "assets: the per-agent rules"

@@ -93,8 +93,19 @@ done
 not_writable /opt/ai-tools/skills "create or repoint a link in the skills view"
 not_writable /opt/ai-tools/subagents "create or repoint a link in the subagents view"
 
-# The lock serializes the view transaction; an agent that held it would stall every reconcile.
-not_writable /run/lock/ai-tools-assets.lock "take or truncate the view transaction's lock"
+# The lock serializes the view transaction; an agent that held it -- flock(2) takes an exclusive lock
+# through a read-only descriptor -- would stall every reconcile. Its directory is root's alone, so the agent cannot
+# reach the file at all.
+if [[ -d /run/lock/ai-tools ]]; then
+    if runuser -u "${SANDBOX_USER}" -- stat /run/lock/ai-tools/assets.lock >/dev/null 2>&1 \
+            || runuser -u "${SANDBOX_USER}" -- test -x /run/lock/ai-tools; then
+        fail "the agent can reach into /run/lock/ai-tools -- it could open the assets lock and hold it"
+    else
+        pass "the agent cannot stat the assets lock or search its directory"
+    fi
+else
+    skip "/run/lock/ai-tools" "no reconcile has run since boot"
+fi
 
 # Each enabled agent's kind directories hold root-owned links into the view inside a setgid+sticky config directory;
 # which directories those are is the deployed resolver's answer, so no agent is named here. Each is also the state
@@ -140,6 +151,7 @@ check_file "${BINDINGS}/ai-tools.conf" root root 644
 check_file "${LIBDIR}/assets.lib.sh" root root 644
 check_file /opt/ai-tools/skills root "${SANDBOX_GROUP}" 750
 check_file /opt/ai-tools/subagents root "${SANDBOX_GROUP}" 750
-check_file_optional /run/lock/ai-tools-assets.lock root root 644
+check_file_optional /run/lock/ai-tools root root 700
+check_file_optional /run/lock/ai-tools/assets.lock root root 600
 
 finish

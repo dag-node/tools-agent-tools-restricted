@@ -345,6 +345,13 @@ The shipped bindings.
 .I /opt/ai\-tools/subagents
 The view: one link per linked asset, beside the copies the package seeds there.
 .TP
+.I /run/lock/ai\-tools/assets.lock
+The lock
+.B "ai\-tools\-admin assets reconcile"
+takes, in a directory only root can enter.
+A run that waits more than two minutes for it refuses, with the view and the
+agents' links as they were.
+.TP
 .I /var/log/ai\-tools/assets.log
 Each record that needs attention, written by
 .BR "ai\-tools\-admin assets" .

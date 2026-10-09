@@ -135,7 +135,10 @@ sees the old target or the new one; a resolver link no input justifies is remove
 else at an enabled asset's name is `view-occupied` and left as it is. A resolver link is told from every other entry
 by its target alone, so the seeder's managed copies share the directory without a marker, and the three sites that read
 a managed copy's marker (`ai_tools_withdraw_asset`, `_ai_tools_asset_is_stale_copy`, `system post-upgrade`'s version
-check) skip a symlink.
+check) skip a symlink. The lock is `/run/lock/ai-tools/assets.lock`, a `0600` file in a `0700` root directory:
+`flock(2)` takes an exclusive lock through a read-only descriptor, so a file another account can open is one it can
+hold. A run that waits longer than `AI_TOOLS_ASSETS_LOCK_WAIT` (120 seconds) for it refuses under `MSG-M8T9` rather than
+hold a package transaction.
 
 **The view decides what every agent links.** For each enabled agent and each kind its manifest declares a directory
 for, the view's resolver links and base's seeded copies are linked, and no other entry: a seeded copy is a real entry
