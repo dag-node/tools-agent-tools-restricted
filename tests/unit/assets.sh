@@ -177,8 +177,20 @@ section "assets: an untrusted operator.conf, an invalid list"
 fresh
 chmod 0664 "${CONF}"; reconcile
 if has_row enable-list-untrusted "${CONF}"; then pass "a group-writable operator.conf: enable-list-untrusted"; else fail "a group-writable operator.conf: no enable-list-untrusted row: ${OUT:0:300}"; fi
+[[ "$(awk -F'\t' 'NR > 1 && $6 == "enable-list-untrusted" { print $11 }' <<< "${OUT}")" == *"every resolver link is removed" ]] \
+    && pass "a group-writable operator.conf: the row says every resolver link is removed" || fail "the row's detail: ${OUT:0:300}"
 expect_unlinked skills/acme-pdf "a group-writable operator.conf"
 [[ "${RC}" == 4 ]] && pass "a group-writable operator.conf: exit 4" || fail "a group-writable operator.conf: exit ${RC}"
+fresh
+chmod 0664 "${CONF}"
+PRELUDE="rm() { [[ \" \$* \" == *' ${HOME_DIR}/skills/acme-pdf '* ]] && return 1; command rm \"\$@\"; }"; reconcile; PRELUDE=""
+if [[ "${RC}" == 1 && -L "${HOME_DIR}/skills/acme-pdf" ]] && has_row write-failed "${HOME_DIR}/skills/acme-pdf" \
+        && [[ "$(awk -F'\t' 'NR > 1 && $6 == "enable-list-untrusted" { print $11 }' <<< "${OUT}")" == *"could not be removed stays"* ]] \
+        && [[ "$(awk -F'\t' 'NR > 1 && $6 == "write-failed" { print $11 }' <<< "${OUT}")" == *"stays reachable"* ]]; then
+    pass "a resolver link that could not be removed is named, and the row does not say every link is removed, exit 1"
+else
+    fail "a removal that failed: rc ${RC}, ${OUT:0:400}"
+fi
 fresh
 mv "${CONF}" "${CONF}.real"; ln -s "${CONF}.real" "${CONF}"; reconcile
 has_row enable-list-untrusted "${CONF}" && pass "a symlinked operator.conf: enable-list-untrusted" || fail "a symlinked operator.conf: ${OUT:0:300}"

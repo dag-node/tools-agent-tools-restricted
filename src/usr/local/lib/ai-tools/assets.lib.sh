@@ -1851,12 +1851,13 @@ _ai_tools_as_occupant() {
 # in a directory the apply holds it to _ai_tools_as_destination_trusted, creating an absent view or agent kind directory
 # root:<group> 0750 first (_ai_tools_as_prepare_dir); a directory that fails does not take a write, and an enabled entry
 # whose view link it held reads view-dir-untrusted. restorecon runs over every link placed. Sets
-# _AI_TOOLS_AS_WRITE_FAILED to 1 when a change did not take.
+# _AI_TOOLS_AS_WRITE_FAILED to 1 when a change did not take, and _AI_TOOLS_AS_UNLINK_FAILED to 1 when a removal did not,
+# so the report does not claim it.
 _ai_tools_as_apply() {
     local group="$1" index op path target stype item agent detail directory kind
     local -a placed=()
     local -A failed_view=() untrusted_view=() directory_state=()
-    _AI_TOOLS_AS_WRITE_FAILED=0
+    _AI_TOOLS_AS_WRITE_FAILED=0; _AI_TOOLS_AS_UNLINK_FAILED=0
     for kind in $(_ai_tools_as_kinds); do
         _ai_tools_as_apply_dir view "${AI_TOOLS_ASSETS_HOME}/${kind}" "${kind}" "" "${group}" 1 || true
     done
@@ -1893,7 +1894,9 @@ _ai_tools_as_apply() {
                 if [[ -L "${path}" ]] && rm -f -- "${path}" 2>/dev/null; then
                     _ai_tools_as_row info unlinked "${stype}" "${path}" "${item}" "${agent}" "${detail}"
                 elif [[ -e "${path}" || -L "${path}" ]]; then
-                    _ai_tools_as_failed "${stype}" "${path}" "${item}" "${agent}" "the link could not be removed"
+                    _AI_TOOLS_AS_UNLINK_FAILED=1
+                    _ai_tools_as_failed "${stype}" "${path}" "${item}" "${agent}" \
+                        "the link could not be removed, so the asset stays reachable through it"
                 fi ;;
         esac
     done
@@ -1990,11 +1993,16 @@ _ai_tools_as_write_row() {
 # where the list could not be read, one row per entry in list order (`linked` at ok, `error` at unreadable, any other
 # token at attention), then each row the plan and the apply recorded.
 _ai_tools_as_report() {
-    local code="$1" entry index
+    local code="$1" entry index detail
     case "${_AI_TOOLS_AS_LIST_STATE}" in
         untrusted)
+            if (( ${_AI_TOOLS_AS_UNLINK_FAILED:-0} )); then
+                detail="${_AI_TOOLS_AS_LIST_DETAIL}; a resolver link that could not be removed stays, each named in a write-failed row"
+            else
+                detail="${_AI_TOOLS_AS_LIST_DETAIL}; every resolver link is removed"
+            fi
             _ai_tools_as_write_row "${code}" attention enable-list-untrusted file "${AI_TOOLS_OPERATOR_CONF}" "" "" \
-                "${_AI_TOOLS_AS_LIST_DETAIL}; every resolver link is removed" ;;
+                "${detail}" ;;
         invalid)
             _ai_tools_as_write_row "${code}" attention id-malformed file "${AI_TOOLS_OPERATOR_CONF}" AI_TOOLS_ASSETS "" \
                 "${_AI_TOOLS_AS_LIST_DETAIL}" ;;
