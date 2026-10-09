@@ -575,9 +575,12 @@ identity line, a translated map, a multi-range map, an empty one, and the identi
 and — inside a real user namespace where `unshare -Ur` is permitted, skipped otherwise — the clause naming a translated
 uid beside the `65534` it read. Its new-option report carries a third: a commented **default** (`#KEY=`, `# KEY=`) is
 a mention while an indented **example** in a header block is not, so a file seeded with `operator.conf`'s own grammar
-comments is not mistaken for one that already knows every option. `providers.sh` drives the enablement truth table
-and then, for each untrusted input in turn — `operator.conf`, a manifest, a manifest directory — asserts the resolver
-moves to *less* access and says so, never more. It closes with the installed-manifest field reader
+comments is not mistaken for one that already knows every option. Its portable-name section drives
+`ai_tools_conf_portable_name_valid` over a table of path components — a slash, whitespace, a backslash, a glob
+character, a byte outside ASCII and a leading hyphen each refused — then a non-ASCII letter under a UTF-8 locale,
+where a bracket range would otherwise match it, and the `NAME_MAX` edge. `providers.sh` drives the enablement truth
+table and then, for each untrusted input in turn — `operator.conf`, a manifest, a manifest directory — asserts
+the resolver moves to *less* access and says so, never more. It closes with the installed-manifest field reader
 (`ai_tools_installed_integrations_declaring`), which `relabel.lib.sh` reads `build_output_dirs` through: a key is read
 from an installed integration whether or not it is enabled, since a project's label is applied at claim time,
 and an untrusted manifest or directory does not yield any value, under the same trust rules as the resolver. It then
@@ -996,6 +999,17 @@ it fail on `EACCES`, so the caller can tell "not permitted" from "the directory 
 is not driven here — it needs the vendor's live endpoint, `gpgv`, and a 300 MB hash — and its boundary half (neither
 the pin, the pin directory, the shipped key, nor the library is agent-writable) is in `boundary/access.sh`.
 
+`assets-verify.sh` is the runtime half of "a set links only under a signature a shipped binding names"
+(`assets-verify.lib.sh`, see [shipped-assets](shipped-assets.rule.md)). It drives the installed library, as root,
+over a set it signs in the run with a throwaway key — so no signed fixture and no secret is committed, and the "signed
+by a key the binding does not name" case is a second key made the same way — through the root-only bindings hook,
+and asserts each refusal of the status contract under its code: every way the inventory stops describing the tree reads
+as a mismatch, every input that is absent, over its bound, untrusted or unmatched by the binding reads as unverified,
+and the control set verifies and prints its signer's primary. The pure predicates (the set-name and signer grammars) are
+driven as tables first. Its boundary half is `boundary/assets.sh`. `managed-assets.sh` drives the seeder
+and the withdrawal pass (`managed-assets.lib.sh`) over the properties its own header numbers, the integration binding
+among them; each is one whose failure in a package scriptlet is silent.
+
 `handback.sh` covers the handback daemon's own record, and what it asserts of the session unit is the fail direction:
 an unreadable cgroup leaves the field **absent**, and a newline in an agent-named path is replaced by the sanitizer,
 so it does not open a second session-unit field in the newline-delimited protocol. The value's own reader is driven
@@ -1172,46 +1186,48 @@ execs `perms.sh`, and the install's verification phase reaches it through `tests
 an installed file means updating the `check_file` list here, nowhere else.
 
 **`boundary`** — confinement assertions executed **as the agent** (`sudo -u SANDBOX_USER`) (`access.sh`, `providers.sh`,
-`filters.sh`, `sudo.sh`): the agent cannot write the secret-pattern library or the control plane, cannot reach
-the operator's credential stores (`~/.ssh`, `~/.gnupg`, …), and does not hold any sudo rights — `sudo -l` reports it is
-not allowed to run sudo at all (both NOPASSWD rules belong to the projects user and drop privilege), plus the account
-hygiene that invariant leans on (nologin shell, locked password, non-membership in `ai-ops`). It also asserts the agent
-cannot write the **pin**, the pin directory, the shipped signing key, or the verifier library — the inputs that decide
-what a verified checksum is — so it can neither record nor authorise a checksum for a binary it modified. Those are
-root-owned files, so they are DAC facts and this vantage sees them. Its one assertion that is not a permission check is
-the journald one: it *writes* a line as the agent under a root helper's syslog tag and asserts journald files it
-under the sandbox uid and not under `_UID=0`. That is the boundary half of the documented query form (see
-[logging](logging.rule.md)) — the forgery is reachable, and what makes it separable is the uid the sender cannot set,
-not the tag. A host with no journald skips: an absent line is not evidence. Two readings there are **positive** and are
-asserted as such, because each records a decision: the agent package's `package.json` under the toolchain **is**
-account-writable, which is why the declared version is not a trust input and the observed pin tier states a limit rather
-than a guarantee (the type layout is what closes it, asserted in `integration/selinux.sh`), and each agent's config
-directory **is** agent-writable, since the hooks that write `.sweep-marker` and `.session-active` run as the agent
-and those files carry cadence rather than a guarantee. A third records the reach this vantage has and a session does
-not: the account's own `--user manager` answers it over its bus, which is why the route by which an environment variable
-would reach `nvm-update.service` is closed by the domain rather than by any permission — the unit *files* being
-root-owned is the half asserted here, and `selinux/avc/avc-testsuite.sh` asks the bus from inside a session, the one
-vantage whose answer is about the domain. The probe is read-only in both places, since no automated file writes live
-runtime state. `providers.sh` asserts the deployed half of "the sandbox cannot widen its own surface": none
-of `operator.conf`, `conf.lib.sh`, `providers.lib.sh`, the four provider directories, the manifests, fragments
-and contributed commands in them, codex's `/etc/codex` and the two managed files in it, or the `ai-tools-run` shim
-and the `bin` directory holding it is agent-writable — nor the launch wrapper, the launcher links, the launch hooks
-and `launch.d`, and the libraries the wrapper loads (`launch-wrapper`, `safe-paths`, `msg`), which is the one
-cross-principal escalation in the chain, code running **as the operator** before any drop to the sandbox account — while
-the NuGet restore cache the dotnet integration needs **is** — both directions matter, since a read-only cache breaks
-the integration as surely as a writable tools dir breaks the boundary. `admin-commands.d` and the `dotnet` command in it
-are the highest-privilege pair in that list: what a writable one would buy is not a wider session but a command
-`ai-tools-admin` runs as root. It is the counterpart to `unit/providers.sh` and `unit/admin-commands.sh`, which assert
-the runtime refusals; this one asserts the agent cannot reach the state those refusals exist to catch. `filters.sh` is
-the same pair for the command filters: the engine, `filters.d` and the rule sets in it, `operator.conf`,
-and the agent-side hook body are all asserted non-agent-writable — the engine because it is sourced as the agent
-on every Bash call, the rule sets because they decide what every command in a session becomes. These probe **DAC
-and account state** from the sandbox account's vantage — they run as the sandbox *user*, not inside the `ai_tools_t`
-SELinux domain (a launched session), so they assert the filesystem/credential boundary; the SELinux enforcing posture is
-asserted separately in `integration/selinux.sh`. A property the **type layout alone** enforces is therefore not
-assertable here, and reads as its DAC answer: the agent's inability to write its own entrypoint is one (DAC permits it —
-the account owns that tree), so it is asserted in `integration/selinux.sh` as the layout the policy rests on, one check
-per swap vector.
+`filters.sh`, `assets.sh`, `typesafe.sh`, `sudo.sh`): the agent cannot write the secret-pattern library or the control
+plane, cannot reach the operator's credential stores (`~/.ssh`, `~/.gnupg`, …), and does not hold any sudo rights —
+`sudo -l` reports it is not allowed to run sudo at all (both NOPASSWD rules belong to the projects user and drop
+privilege), plus the account hygiene that invariant leans on (nologin shell, locked password, non-membership
+in `ai-ops`). It also asserts the agent cannot write the **pin**, the pin directory, the shipped signing key,
+or the verifier library — the inputs that decide what a verified checksum is — so it can neither record nor authorise
+a checksum for a binary it modified. Those are root-owned files, so they are DAC facts and this vantage sees them. Its
+one assertion that is not a permission check is the journald one: it *writes* a line as the agent under a root helper's
+syslog tag and asserts journald files it under the sandbox uid and not under `_UID=0`. That is the boundary half
+of the documented query form (see [logging](logging.rule.md)) — the forgery is reachable, and what makes it separable is
+the uid the sender cannot set, not the tag. A host with no journald skips: an absent line is not evidence. Two readings
+there are **positive** and are asserted as such, because each records a decision: the agent package's `package.json`
+under the toolchain **is** account-writable, which is why the declared version is not a trust input and the observed pin
+tier states a limit rather than a guarantee (the type layout is what closes it, asserted in `integration/selinux.sh`),
+and each agent's config directory **is** agent-writable, since the hooks that write `.sweep-marker`
+and `.session-active` run as the agent and those files carry cadence rather than a guarantee. A third records the reach
+this vantage has and a session does not: the account's own `--user manager` answers it over its bus, which is
+why the route by which an environment variable would reach `nvm-update.service` is closed by the domain rather than
+by any permission — the unit *files* being root-owned is the half asserted here, and `selinux/avc/avc-testsuite.sh` asks
+the bus from inside a session, the one vantage whose answer is about the domain. The probe is read-only in both places,
+since no automated file writes live runtime state. `providers.sh` asserts the deployed half of "the sandbox cannot widen
+its own surface": none of `operator.conf`, `conf.lib.sh`, `providers.lib.sh`, the four provider directories,
+the manifests, fragments and contributed commands in them, codex's `/etc/codex` and the two managed files in it,
+or the `ai-tools-run` shim and the `bin` directory holding it is agent-writable — nor the launch wrapper, the launcher
+links, the launch hooks and `launch.d`, and the libraries the wrapper loads (`launch-wrapper`, `safe-paths`, `msg`),
+which is the one cross-principal escalation in the chain, code running **as the operator** before any drop
+to the sandbox account — while the NuGet restore cache the dotnet integration needs **is** — both directions matter,
+since a read-only cache breaks the integration as surely as a writable tools dir breaks the boundary. `admin-commands.d`
+and the `dotnet` command in it are the highest-privilege pair in that list: what a writable one would buy is not a wider
+session but a command `ai-tools-admin` runs as root. It is the counterpart to `unit/providers.sh`
+and `unit/admin-commands.sh`, which assert the runtime refusals; this one asserts the agent cannot reach the state those
+refusals exist to catch. `filters.sh` is the same pair for the command filters: the engine, `filters.d` and the rule
+sets in it, `operator.conf`, and the agent-side hook body are all asserted non-agent-writable — the engine because it is
+sourced as the agent on every Bash call, the rule sets because they decide what every command in a session becomes.
+`assets.sh` is the pair for the set verifier: the library, the shipped package-signing key and the keyring written
+from it, the bindings directory and each binding in it are asserted non-agent-writable and at the modes they ship
+with, since a writable one would let the agent name its own key as a set's signer. These probe **DAC and account state**
+from the sandbox account's vantage — they run as the sandbox *user*, not inside the `ai_tools_t` SELinux domain (a
+launched session), so they assert the filesystem/credential boundary; the SELinux enforcing posture is asserted
+separately in `integration/selinux.sh`. A property the **type layout alone** enforces is therefore not assertable here,
+and reads as its DAC answer: the agent's inability to write its own entrypoint is one (DAC permits it — the account owns
+that tree), so it is asserted in `integration/selinux.sh` as the layout the policy rests on, one check per swap vector.
 
 ## Quirks
 

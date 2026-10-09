@@ -314,8 +314,7 @@ readonly AI_TOOLS_CONF_PORTABLE_NAME_MAX=255
 #   with `-` and not `.` or `..`, matched in the C locale so a range does not take in letters outside ASCII. The set is
 #   the one every filesystem, locale, archive and checksum tool reads back byte for byte: sha256sum prints a name
 #   outside it escaped, a whitespace IFS splits one, a filesystem that composes Unicode renames one, a command line
-#   reads a leading `-` as an option, and log.lib.sh's sanitizer reduces one for display. A reader that accepts this set
-#   alone therefore holds a name under one predicate and does not need a second grammar for any of those.
+#   reads a leading `-` as an option, and log.lib.sh's sanitizer reduces one for display.
 ai_tools_conf_portable_name_valid() {
     local LC_ALL=C
     [[ "${1-}" =~ ^[A-Za-z0-9._][A-Za-z0-9._-]*$ && ${#1} -le ${AI_TOOLS_CONF_PORTABLE_NAME_MAX} \

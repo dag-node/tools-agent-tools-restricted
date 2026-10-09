@@ -293,34 +293,33 @@ An asset set reaches a host as a signed package of `dag-node/ai-tools-assets` (o
 installed under `/usr/share/ai-tools-assets/<set>/` with the inventory `SHA256SUMS` its build wrote and the signature
 `SHA256SUMS.asc` its release made. The resolver that links a set's assets into the view calls
 `ai_tools_assets_verify_set <set-directory> <set-name>` as root before it reads a file of the set, and does not link any
-asset of a set the verifier refuses. The verdict is the status contract `entrypoint-verify.lib.sh` holds: `0` verified,
-printing the signer's primary fingerprint; `1` a mismatch (`MSG-T3M3`), which the resolver reports as `set-tampered`;
-`2` unable to verify (`MSG-Q6Y8`), reported as `set-unverified`. Both refuse, and the signature is checked ahead
-of the inventory, so a tree whose signature fails is not parsed. `ai_tools_assets_check_inventory <set-directory>` is
-the inventory half alone, which the conformance job runs over T's unsigned fixtures.
+asset of a set the verifier refuses. The verdict follows the status contract the toolchain gates share
+([ref-section-b8h3](updater.rule.md#ref-section-b8h3)), with one difference: a set is refused at `2` as well as at `1`,
+since proceeding would link content no signature covers into every session. The resolver reports `1` (`MSG-T3M3`)
+as `set-tampered` and `2` (`MSG-Q6Y8`) as `set-unverified`; the library's function docs name which input yields which.
+`ai_tools_assets_check_inventory <set-directory>` is the inventory half alone, which the conformance job runs
+over the `ai-tools-assets-tools` fixtures.
 
 What may sign a set is a **binding**, one root-owned file per set name
 under `/usr/local/lib/ai-tools/assets-bindings.d/<set>.conf`, in the shared `KEY=value` grammar
-([providers](providers.rule.md)) and read as data: `set` equals the file's stem, `signers` lists typed primary
-fingerprints (`openpgp:` then 40 hex digits, so a later signature scheme is a new prefix), and `keyring` names
-the binary keyring `gpgv` reads. A key outside those three refuses the binding, since every key of a binding decides
-trust and one this release does not define is not read past. Base ships the bindings `core` and `ai-tools`, both naming
-the dag-node package-signing primary `67F42DC18BF764B42D82F14256D2F802CF9832E4` — the key `rpm.dagnode.com` serves,
-the key that signs this project's own RPMs, so one trust anchor covers the package and the sets it reads —
-and the keyring `keys/dag-node-package-signing.gpg`, written at build time from the armored key beside it
-(`ai_tools_assets_keyring_dearmor`, run by the spec's `%install` and by `install.sh`), because `gpgv` on EL9 exits 2
-on an armored keyring. The fingerprint is asserted against `gpgv`'s `VALIDSIG` line, so a keyring swapped for another
-valid key is still refused, and a signature by a key the keyring holds but no binding names is refused the same way.
-A path of a set, listed in the inventory or found by the walk, is read component by component
-through `ai_tools_conf_portable_name_valid` ([providers](providers.rule.md)), and a name outside that set is a mismatch:
-the format's `file.name` rule accepts the same set at build, so the inventory half does not hold an escaping rule
-for any tool. The directory, each binding and the keyring are `644 root:root` under `755 root:root` and must pass
-`ai_tools_conf_is_trusted`, file and directory both, or the set is unverified: the sandbox account cannot change
-what signs a set, which `tests/boundary/assets.sh` asserts from that account's vantage, while
-`tests/unit/assets-verify.sh` drives every refusal over a set signed in the run by a throwaway key,
-through the root-only hook `AI_TOOLS_ASSETS_BINDINGS_DIR`. Operator bindings under `/etc/ai-tools/assets-bindings.d/`,
-operator keys, and the resolver itself are later work; the roots, the enable list and the reason tokens are stated
-in the assets specification until the resolver lands and this rule is rewritten over the view.
+([providers](providers.rule.md)) and read as data: `set`, `signers` (typed primary fingerprints) and `keyring` (the
+binary keyring `gpgv` reads), and a line outside those keys refuses the binding. Base ships the bindings `core`
+and `ai-tools`, both naming the dag-node package-signing primary — the key `rpm.dagnode.com` serves and the key
+that signs this project's own RPMs, so one trust anchor covers the package and the sets it reads — and the keyring
+`keys/dag-node-package-signing.gpg`, which the spec's `%install` and `install.sh` write from the armored key beside it
+with `ai_tools_assets_keyring_dearmor`. The signer is asserted against `gpgv`'s `VALIDSIG` primary, so a keyring swapped
+for another valid key is refused, as is a signature by a key the keyring holds but no binding names. Every path
+of a set, listed in the inventory or found by the walk, is held to `ai_tools_conf_portable_name_valid`
+([providers](providers.rule.md)) component by component. The directory, each binding and the keyring are `644 root:root`
+under `755 root:root` and must pass `ai_tools_conf_is_trusted`, file and directory both, or the set is unverified:
+the sandbox account cannot change what signs a set, which `tests/boundary/assets.sh` asserts from that account's
+vantage, while `tests/unit/assets-verify.sh` drives every refusal over a set signed in the run by a throwaway key,
+through the root-only hook `AI_TOOLS_ASSETS_BINDINGS_DIR`.
+
+The resolver, the roots it reads, the enable list, the reason tokens, the conformance job and `ai-tools-assets(5)` ship
+in the same release as this verifier; until that change lands, the library has no caller in the tree. This release reads
+the shipped bindings alone: an operator binding under `/etc/ai-tools/assets-bindings.d/` and an operator key are outside
+it.
 
 ## SELinux
 

@@ -391,10 +391,10 @@ install -m 0644 src%{ai_libdir}/filters.d/base.rules %{buildroot}%{ai_libdir}/fi
 # manifest against the key its manifest names, so the key is SHIPPED rather than fetched (a fetched
 # key proves only that whoever served the manifest served the key). Base ships one key of its own:
 # the dag-node package-signing key, the key rpm.dagnode.com serves, as published, and beside it the
-# binary keyring written from it here, since gpgv on EL9 does not read an armored keyring.
-# assets-verify.lib.sh verifies a set's SHA256SUMS.asc against the keyring a root-owned binding
-# names and asserts the signer's primary against that binding, so this file alone does not decide
-# what may sign a set.
+# binary keyring ai_tools_assets_keyring_dearmor writes from it here (its doc says why gpgv needs
+# one). assets-verify.lib.sh verifies a set's SHA256SUMS.asc against the keyring a root-owned
+# binding names and asserts the signer's primary against that binding, so this file alone does not
+# decide what may sign a set.
 install -d -m 0755 %{buildroot}%{ai_libdir}/keys
 install -m 0644 src%{ai_libdir}/keys/dag-node-package-signing.asc %{buildroot}%{ai_libdir}/keys/dag-node-package-signing.asc
 bash -c '. "$1" && ai_tools_assets_keyring_dearmor "$2" "$3"' _ \

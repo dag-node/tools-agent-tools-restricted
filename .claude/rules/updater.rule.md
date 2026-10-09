@@ -829,7 +829,7 @@ the vendor's signature however it was invoked — the behaviour it documents and
 when root runs the command directly.) `ai-tools-bootstrap` leaves it unset too, so a fresh provision always verifies
 in full.
 
-### Three outcomes, and only one of them is tamper
+### Three outcomes, and only one of them is tamper <a id="ref-section-b8h3"></a>
 
 The status contract is `npm-verify.lib.sh`'s, so the two gates in `nvm-update` read alike: `0` verified, `1`
 **mismatch**, `2` **unable to verify**. Keeping `1` and `2` apart is the whole usability of the feature, and `gpgv`'s

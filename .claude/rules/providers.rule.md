@@ -280,13 +280,13 @@ out, and an invalid list reads as empty like every other. How a declaration comb
 the caller's to state — `AI_TOOLS_SELINUX_BOOLEANS` replaces its default, as every list in `operator.conf` does.
 A pair's name is an identifier with a length cap (`ai_tools_conf_pair_name_valid`), so a caller may use it as a path
 component. A name read from outside the project that becomes a path component is held
-to `ai_tools_conf_portable_name_valid`, the POSIX portable filename character set with no leading hyphen
-and a `NAME_MAX` cap: every tool that lists, hashes, splits or displays a name reads that set back unchanged, so one
-predicate replaces an escaping rule per tool. The asset verifier reads every path of a set through it
-([shipped-assets](shipped-assets.rule.md)). A key takes pairs where an item has more than one meaningful value
-and an absent key means something other than an empty list: `AI_TOOLS_SELINUX_BOOLEANS` absent means the default
-requirement. A membership list stays bare, since listing a provider already enables it and `agent-codex=no` would be
-a second spelling of "not listed". A key's values have one spelling each, the one the underlying tool takes.
+to `ai_tools_conf_portable_name_valid`, the POSIX portable filename set: every tool that lists, hashes, splits
+or displays a name reads that set back unchanged, so one predicate replaces an escaping rule per tool. The asset
+verifier reads every path of a set through it ([shipped-assets](shipped-assets.rule.md)). A key takes pairs
+where an item has more than one meaningful value and an absent key means something other than an empty list:
+`AI_TOOLS_SELINUX_BOOLEANS` absent means the default requirement. A membership list stays bare, since listing a provider
+already enables it and `agent-codex=no` would be a second spelling of "not listed". A key's values have one spelling
+each, the one the underlying tool takes.
 
 **A provider list item carries its kind.** Each item of `AI_TOOLS_AGENTS`, `AI_TOOLS_INTEGRATIONS`
 and `AI_TOOLS_FILTERS` is written `agent-<name>`, `integration-<name>` or `filter-<name>`, so one word names one thing

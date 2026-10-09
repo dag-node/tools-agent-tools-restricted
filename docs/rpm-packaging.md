@@ -123,7 +123,7 @@ between versions.
 
 | Subpackage | Owns |
 |---|---|
-| `ai-tools-base` | the `ai-tools` user and the `ai-ops` operators group; `/opt/ai-tools` home ROOT and `bin` (plus its default-deny `.gitignore` git guard and `.gitconfig` identity, both `%post`-seeded-if-missing and not rpm-owned, so an erase preserves them); the mode and label contract every agent's config directory carries, but no such directory itself; the shared skills root `/opt/ai-tools/skills` and the pristine skill copies (skills are agent-agnostic, so every agent symlinks into this one place) and `/var/opt/ai-tools` sandbox tree; the static `%ai-ops` sudoers drop-in; the `ai-tools` CLI (project lifecycle); `ai-tools-admin` (operator administration); `ai-tools-launch`, the launch wrapper every agent's command runs; ownership/secret helpers (`ai-tools-chown`, `-setgid`, `-setfacl`, `-unclaim`, `-lockdown`, `-relabel`); the handback socket, daemon, and client; `log.lib.sh`, `msg.lib.sh`, `relabel.lib.sh`, `skip-dirs.lib.sh`, `safe-paths.lib.sh`, `secret-patterns.lib.sh`, `operator.lib.sh`, `control-plane.lib.sh`, `conf.lib.sh`, `providers.lib.sh`, `ancestor-config.lib.sh`; the agent-agnostic confinement shim `/opt/ai-tools/bin/ai-tools-run` and the `%ai-ops` sudoers grant that reaches it; the `agents.d`, `integrations.d`, `session-env.d` and `launch.d` provider directories (base owns the dirs at `0755 root:root`; each member package drops only its own manifest or fragment into them) |
+| `ai-tools-base` | the `ai-tools` user and the `ai-ops` operators group; `/opt/ai-tools` home ROOT and `bin` (plus its default-deny `.gitignore` git guard and `.gitconfig` identity, both `%post`-seeded-if-missing and not rpm-owned, so an erase preserves them); the mode and label contract every agent's config directory carries, but no such directory itself; the shared skills root `/opt/ai-tools/skills` and the pristine skill copies (skills are agent-agnostic, so every agent symlinks into this one place) and `/var/opt/ai-tools` sandbox tree; the static `%ai-ops` sudoers drop-in; the `ai-tools` CLI (project lifecycle); `ai-tools-admin` (operator administration); `ai-tools-launch`, the launch wrapper every agent's command runs; ownership/secret helpers (`ai-tools-chown`, `-setgid`, `-setfacl`, `-unclaim`, `-lockdown`, `-relabel`); the handback socket, daemon, and client; `log.lib.sh`, `msg.lib.sh`, `relabel.lib.sh`, `skip-dirs.lib.sh`, `safe-paths.lib.sh`, `secret-patterns.lib.sh`, `operator.lib.sh`, `control-plane.lib.sh`, `conf.lib.sh`, `providers.lib.sh`, `ancestor-config.lib.sh`; the asset-set verifier (`assets-verify.lib.sh`, which needs `gpgv` from `gnupg2`) with the dag-node package-signing key and a root-owned signing binding per shipped set name under `assets-bindings.d`; the agent-agnostic confinement shim `/opt/ai-tools/bin/ai-tools-run` and the `%ai-ops` sudoers grant that reaches it; the `agents.d`, `integrations.d`, `session-env.d` and `launch.d` provider directories (base owns the dirs at `0755 root:root`; each member package drops only its own manifest or fragment into them) |
 | `ai-tools-selinux` | the compiled SELinux policy modules in `/usr/share/selinux/packages/ai-tools/` — the core `ai_tools.pp` (the `ai_tools_t` domain and the handback/helper types), each STABLE optional group, and each integration's layout module, every one compiled at package build against the building distribution's policy headers, and the `ai_tools.if` interface file under `/usr/share/selinux/devel/include/distributed/`; the `%post`/`%postun` scriptlets that load the core and unload every loaded `ai_tools*` module on erase; the GPL licence text |
 | `ai-tools-integration-nodejs` | nvm under `/opt/ai-tools/.nvm`; the per-sandbox-user Node-version auto-update service and timer; `ai-tools-bootstrap`; the symlink-repoint helper (`ai-tools-launcher-symlink`) and the post-upgrade entrypoint relabel (`ai-tools-relabel-agent`) |
 | `ai-tools-integration-dotnet` | the dotnet session-env fragment (`session-env.d/dotnet.env.sh`), manifest (`integrations.d/dotnet.conf`) and the `dotnet` domain of `ai-tools-admin` (`admin-commands.d/dotnet`), which provisions a writable NuGet cache + read-only shared tools under its own `/opt/ai-tools/integrations/dotnet` state root, covered by the base's single fcontext rule for that tree. No .NET runtime — the host's dotnet is used |
@@ -445,14 +445,10 @@ properties shape the design:
 
 Prerelease tags (`vX.Y.Z-rc.N`) run the same sign-and-verify path but publish
 only a GitHub **prerelease** and skip the `dag-node/rpm` notify — the central
-repo serves final tags only. The release job runs on those tags alone: its
-three secrets belong to the `release` environment, whose deployment policy
-allows only a `v*.*.*` tag and so refuses every branch and pull-request run.
-The process is [Branching and release](development/release.md).
+repo serves final tags only. The release job runs on those tags alone,
+under the `release` environment that holds its secrets. The process,
+the environment's deployment policy and the secrets it holds are in [Branching
+and release](development/release.md).
 
 The signing key itself and the central repository's hosting are administered
 outside this project, which keeps these docs scoped to the package build.
-What this project needs of them is the three environment secrets
-(`GPG_SIGNING_KEY`, `GPG_SIGNING_PASSPHRASE`, `RPM_REPO_DISPATCH_TOKEN`), set
-as [Branching and release](development/release.md) describes under its
-guardrails.
