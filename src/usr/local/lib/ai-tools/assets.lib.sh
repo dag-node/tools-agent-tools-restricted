@@ -1447,13 +1447,14 @@ _ai_tools_as_mark_clashes() {
 # _ai_tools_as_plan_view <kind> : the view changes for one kind: a desired name absent or held by a resolver link
 # with another target is linked; a resolver link whose name is not desired is unlinked; anything else at a desired name
 # is view-occupied and left as it is; a leftover temporary name is removed; every entry that is neither a resolver link,
-# a seeded managed copy, the kind's README.md nor a temporary name is view-foreign and left as it is. Publishes the view
-# as the apply leaves it, name -> `resolver`, `seeded`, `foreign` or `occupied`, in _AI_TOOLS_AS_VIEW_AFTER. Returns 1
+# a copy base seeded (_ai_tools_as_is_seeded_copy), the kind's README.md nor a temporary name is view-foreign and left
+# as it is. Publishes the names an agent links -- the view as the apply leaves it, name -> `resolver` or `seeded` --
+# in _AI_TOOLS_AS_VIEW_AFTER, so a foreign entry is not linked into an agent's directory. Returns 1
 # when _ai_tools_as_destination_trusted refuses the view or the home root that holds it, or the view could not be
 # listed: the kind is then not planned (_ai_tools_as_kind_unplanned), so no link in the view or in an agent's directory
 # of that kind is placed or removed.
 _ai_tools_as_plan_view() {
-    local kind="$1" view="${AI_TOOLS_ASSETS_HOME}/$1" name entry target marker failed
+    local kind="$1" view="${AI_TOOLS_ASSETS_HOME}/$1" name entry target failed
     local -A present=() desired=()
     declare -gA _AI_TOOLS_AS_VIEW_AFTER=()
     if ! failed="$(_ai_tools_as_destination_trusted view "${view}")"; then
@@ -1494,15 +1495,13 @@ _ai_tools_as_plan_view() {
             _ai_tools_as_action unlink "${view}/${name}" "" file "${kind}/${name}" "" "no enabled entry justifies it"
             continue
         fi
-        marker="${view}/${name}"; [[ -d "${marker}" ]] && marker+=/SKILL.md
-        if [[ ! -L "${view}/${name}" ]] && ai_tools_asset_is_managed "${marker}"; then
+        if _ai_tools_as_is_seeded_copy "${kind}" "${view}/${name}"; then
             _AI_TOOLS_AS_VIEW_AFTER["${name}"]=seeded
             continue
         fi
-        _AI_TOOLS_AS_VIEW_AFTER["${name}"]=foreign
-        _ai_tools_as_is_occupied_name "${kind}" "${name}" && { _AI_TOOLS_AS_VIEW_AFTER["${name}"]=occupied; continue; }
+        _ai_tools_as_is_occupied_name "${kind}" "${name}" && continue
         _ai_tools_as_row attention view-foreign file "${view}/${name}" "${kind}/${name}" "" \
-            "neither a resolver link nor a seeded managed copy; left as it is"
+            "neither a resolver link nor a copy base seeded; left as it is and not linked into an agent's directory, though an agent that reads the whole view still loads it until it is removed"
     done
     for name in "${!desired[@]}"; do
         entry="${desired[${name}]}"
@@ -1561,6 +1560,27 @@ _ai_tools_as_kind_unplanned() {
         _AI_TOOLS_AS_STATE["${entry}"]="${finding}"
         _AI_TOOLS_AS_DETAIL["${entry}"]="${directory} is not planned this run; its row says why"
     done
+}
+
+# _ai_tools_as_is_seeded_copy <kind> <path> : succeed when a real entry of the view is a copy base's seeder placed:
+# a name in the seeder's namespace (`ai-tools-*`) and the portable set, its kind's shape (a skill a directory holding
+# a regular SKILL.md, a subagent a regular `.md` file), root-owned together with every entry under it, and the managed
+# marker -- an operator's in-place edit of a seeded copy included. The ownership walk's status is read, so a walk
+# that failed does not make a seeded copy. Every other real entry is the view's foreign entry, which the strict rule
+# does not link into an agent's directory.
+_ai_tools_as_is_seeded_copy() {
+    local kind="$1" path="$2" name="${2##*/}" marker offender
+    [[ ! -L "${path}" && "${name}" == ai-tools-* ]] && ai_tools_conf_portable_name_valid "${name}" || return 1
+    if [[ "$(_ai_tools_as_kind_field "${kind}" 3)" == directory ]]; then
+        marker="${path}/SKILL.md"
+        [[ -d "${path}" && -f "${marker}" && ! -L "${marker}" ]] || return 1
+    else
+        marker="${path}"
+        [[ "${name}" == *.md && -f "${path}" ]] || return 1
+    fi
+    offender="$(find -P "${path}" ! -uid 0 -print -quit 2>/dev/null)" || return 1
+    [[ -z "${offender}" ]] || return 1
+    ai_tools_asset_is_managed "${marker}"
 }
 
 # _ai_tools_as_is_occupied_name <kind> <view-name> : succeed when an enabled entry of <kind> resolved to view-occupied
@@ -1669,7 +1689,7 @@ _ai_tools_as_plan_stale_links() {
         after="${_AI_TOOLS_AS_VIEW_AFTER[${target#"${view}/"}]:-}"
         if [[ -z "${after}" || ( "${which}" == resolver && "${after}" == resolver ) ]]; then
             _ai_tools_as_action unlink "${agent_dir}/${name}" "" agent "${kind}/${target#"${view}/"}" "${agent}" \
-                "$([[ -z "${after}" ]] && printf 'its view entry is gone' || printf 'the agent is not enabled')"
+                "$([[ -z "${after}" ]] && printf 'the view does not hold a linkable entry at its name' || printf 'the agent is not enabled')"
         fi
     done
 }

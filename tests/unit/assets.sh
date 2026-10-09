@@ -609,6 +609,42 @@ for partial in "" acme-gone; do
         || fail "the agent's listing fails: the stale link was removed"
 done
 
+# ── The strict rule: resolver links and base's seeded copies alone ───────────────────────────────────────────────────
+section "assets: an agent links the view's resolver links and base's seeded copies alone"
+fresh
+SKILLS_VIEW="${HOME_DIR}/skills"; MARKER=$'---\nname: x\nx-ai-tools-managed: true\n---\n'
+mkdir "${SKILLS_VIEW}/own-skill"; printf -- '---\nname: own-skill\n---\n' > "${SKILLS_VIEW}/own-skill/SKILL.md"
+mkdir "${SKILLS_VIEW}/ai-tools-forged"; printf '%s' "${MARKER}" > "${SKILLS_VIEW}/ai-tools-forged/SKILL.md"
+chown -R "${PROJECTS_USER}" "${SKILLS_VIEW}/ai-tools-forged"
+ln -s /etc "${SKILLS_VIEW}/etc-link"; ln -s "${TESTDIR}/nowhere" "${SKILLS_VIEW}/dangling"
+mkdir "${SKILLS_VIEW}/tab"$'\t'"name"; printf '%s' "${MARKER}" > "${SKILLS_VIEW}/tab"$'\t'"name/SKILL.md"
+mkdir -- "${SKILLS_VIEW}/-leading"; printf '%s' "${MARKER}" > "${SKILLS_VIEW}/-leading/SKILL.md"
+mkdir "${SKILLS_VIEW}/.hidden"; printf '%s' "${MARKER}" > "${SKILLS_VIEW}/.hidden/SKILL.md"
+printf '%s' "${MARKER}" > "${SKILLS_VIEW}/ai-tools-file-skill"
+mkdir "${HOME_DIR}/subagents/ai-tools-dir-sub.md"; printf '%s' "${MARKER}" > "${HOME_DIR}/subagents/ai-tools-dir-sub.md/x"
+mkdir "${SKILLS_VIEW}/ai-tools-seeded"; printf '%s' "${MARKER}" > "${SKILLS_VIEW}/ai-tools-seeded/SKILL.md"
+mkdir "${SKILLS_VIEW}/ai-tools-edited"; printf '%s\nAn edit made in place.\n' "${MARKER}" > "${SKILLS_VIEW}/ai-tools-edited/SKILL.md"
+view_snapshot() { find "${HOME_DIR}/skills" "${HOME_DIR}/subagents" -printf '%P %y %l %U %m %s\n' | LC_ALL=C sort; }
+before="$(view_snapshot)"
+reconcile
+for name in own-skill ai-tools-forged etc-link dangling "tab"$'\t'"name" -leading .hidden ai-tools-file-skill; do
+    if has_row view-foreign "${SKILLS_VIEW}/${name%%$'\t'*}" && absent "${HOME_DIR}/.acme/skills/${name}"; then
+        pass "view-foreign, not linked into the agent's directory: $(printf '%q' "${name}")"
+    else
+        fail "$(printf '%q' "${name}"): $(ls -la "${HOME_DIR}/.acme/skills" 2>&1 | tr '\n' '|') ${OUT:0:200}"
+    fi
+done
+if has_row view-foreign "${HOME_DIR}/subagents/ai-tools-dir-sub.md" && absent "${HOME_DIR}/.acme/agents/ai-tools-dir-sub.md"; then
+    pass "view-foreign, not linked into the agent's directory: a directory where a subagent file goes"
+else
+    fail "a directory where a subagent file goes: ${OUT:0:300}"
+fi
+[[ "$(view_snapshot)" == "${before}" ]] && pass "every entry of the view is as it was" || fail "the view changed"
+for name in ai-tools-seeded ai-tools-edited; do
+    [[ "$(readlink -- "${HOME_DIR}/.acme/skills/${name}")" == "${SKILLS_VIEW}/${name}" ]] \
+        && pass "a copy base seeded is linked: ${name}" || fail "${name} is not linked into the agent's directory"
+done
+
 # ── No last-good fallback ────────────────────────────────────────────────────────────────────────────────────────────
 section "assets: no last-good fallback"
 fresh

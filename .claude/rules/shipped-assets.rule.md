@@ -138,19 +138,24 @@ a managed copy's marker (`ai_tools_withdraw_asset`, `_ai_tools_asset_is_stale_co
 check) skip a symlink.
 
 **The view decides what every agent links.** For each enabled agent and each kind its manifest declares a directory
-for, every entry of the view -- resolver links and seeded copies alike -- is linked; a link into the view whose entry is
-gone is removed; a real entry is kept and reported, and one not root-owned along its path is `agent-entry-untrusted`,
-since the sandbox account could rewrite what every later session loads there; a link elsewhere is the host's and is not
-repointed. An installed agent that `AI_TOOLS_AGENTS` does not name loses its resolver links and keeps its seeded copies'
-links. Every directory a link is written in -- the home root, a view, an agent's config and kind directory -- is checked
-before the plan acts in it and again in the apply, after an absent one is created where no entry stands at its name:
-root-owned and not a symlink, the config directory sticky where it is group-writable as it ships, the others writable
-by neither group nor other. One that fails is `view-dir-untrusted` or `agent-dir-untrusted`, no action under it runs,
-and it is not repaired, since a repair would keep what was placed inside it. Why a path check suffices against these
-modes is `_ai_tools_as_destination_trusted`'s doc comment. The reconcile is the one function that writes these links,
-so every provisioning path that placed or linked an asset ends with it: base's `%post` after the seeder, two transaction
-file triggers on `/usr/share/ai-tools-assets` (a set placed, upgraded or erased, base's own transaction included), each
-agent and the typesafe package's scriptlets, `install.sh` and `ai-tools-bootstrap`.
+for, the view's resolver links and base's seeded copies are linked, and no other entry: a seeded copy is a real entry
+in the seeder's `ai-tools-` namespace, of its kind's shape, root-owned with everything under it, carrying the managed
+marker (an operator's edit of it in place included). Every other entry is `view-foreign`, reported and kept, and not
+linked into an agent's directory, though codex, reading the view whole, still loads it; an operator's own skill reaches
+one agent from that agent's own directory, where a real entry wins. In an agent's directory, a link into the view
+whose name the view no longer holds as either is removed; a real entry is kept and reported, and one not root-owned
+along its path is `agent-entry-untrusted`, since the sandbox account could rewrite what every later session loads there;
+a link elsewhere is the host's and is not repointed. An installed agent that `AI_TOOLS_AGENTS` does not name loses its
+resolver links and keeps its seeded copies' links. Every directory a link is written in -- the home root, a view,
+an agent's config and kind directory -- is checked before the plan acts in it and again in the apply, after an absent
+one is created where no entry stands at its name: root-owned and not a symlink, the config directory sticky where it is
+group-writable as it ships, the others writable by neither group nor other. One that fails is `view-dir-untrusted`
+or `agent-dir-untrusted`, no action under it runs, and it is not repaired, since a repair would keep what was placed
+inside it. Why a path check suffices against these modes is `_ai_tools_as_destination_trusted`'s doc comment.
+The reconcile is the one function that writes these links, so every provisioning path that placed or linked an asset
+ends with it: base's `%post` after the seeder, two transaction file triggers on `/usr/share/ai-tools-assets` (a set
+placed, upgraded or erased, base's own transaction included), each agent and the typesafe package's scriptlets,
+`install.sh` and `ai-tools-bootstrap`.
 
 The verbs are `ai-tools-admin assets enable|disable|reconcile`, each root-only and each ending with the reconcile;
 the record stream and the exit fold are [records](records.rule.md)'s contract. `ai_tools_assets_validate_set` runs
