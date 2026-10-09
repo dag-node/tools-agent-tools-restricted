@@ -962,7 +962,11 @@ _ai_tools_as_read_agents() {
     fi
     _ai_tools_as_read_agent_lists "${listing}"
     rm -f -- "${listing}"
-    if [[ "${_AI_TOOLS_AS_RECEIVERS_STATE}" == ok ]] && (( ${#_AI_TOOLS_AS_AGENTS[@]} == 0 )); then
+    # Where operator.conf is refused, the enable list is refused with it (enable-list-untrusted) and no entry asks
+    # for a capability, so the empty set is read as the resolver printed it: every installed agent is not enabled
+    # and loses its resolver links, the same less-access reading the list takes.
+    if [[ "${_AI_TOOLS_AS_RECEIVERS_STATE}" == ok && "${_AI_TOOLS_AS_LIST_STATE}" != untrusted ]] \
+            && (( ${#_AI_TOOLS_AS_AGENTS[@]} == 0 )); then
         verdict="$(ai_tools_agents_empty_verdict 2>/dev/null)" || verdict=""
         case "${verdict%%$'\t'*}" in
             none)  ;;

@@ -845,7 +845,8 @@ destination_case "a kind directory owned by the projects user" agent-dir-untrust
 two_agents; chmod 0775 "${HOME_DIR}/.acme/skills"; reconcile
 destination_case "a root-owned, group-writable kind directory" agent-dir-untrusted
 two_agents; rm -rf "${HOME_DIR}/.acme/skills"
-PRELUDE="install() { mkdir -- \"\${@: -1}\" && chown ${PROJECTS_USER} -- \"\${@: -1}\"; }"; reconcile; PRELUDE=""
+PRELUDE="install() { if [[ \"\${@: -1}\" == */.acme/skills ]]; then mkdir -- \"\${@: -1}\" && chown ${PROJECTS_USER} -- \"\${@: -1}\"; else command install \"\$@\"; fi; }"
+reconcile; PRELUDE=""
 destination_case "a kind directory taken between the plan and the apply (a stubbed install)" agent-dir-untrusted
 if [[ "$(stat -c %U "${HOME_DIR}/.acme/skills")" == "${PROJECTS_USER}" && -z "$(ls -A "${HOME_DIR}/.acme/skills")" ]]; then
     pass "a kind directory taken between the plan and the apply: nothing is written into it, and it is not re-owned"
