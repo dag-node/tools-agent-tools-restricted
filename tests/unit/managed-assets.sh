@@ -221,6 +221,37 @@ else
     fail "reading a marker with no version line ended the shell or printed a version: ${out}"
 fi
 
+# ── A link at the name, a hard-linked copy ───────────────────────────────────────
+# The view holds the assets resolver's links beside the seeded copies: a link at a seeded name is a set's copy
+# of the asset, which the seeder neither reads a marker through nor replaces. And a copy whose file has a second hard
+# link is not re-owned or re-moded, since the inode is reached from outside the copy.
+reset_roots
+write_skill "${SHIPPED}" ai-tools-linked 3
+write_skill "${TESTDIR}/a-set" ai-tools-linked 1
+mkdir -p "${LIVE}/skills"; ln -s "${TESTDIR}/a-set/skills/ai-tools-linked" "${LIVE}/skills/ai-tools-linked"
+set_before="$(cat "${TESTDIR}/a-set/skills/ai-tools-linked/SKILL.md")"
+out="$(AI_TOOLS_ASSUME_YES=1 seed 2>&1)" || true
+if [[ "$(readlink "${LIVE}/skills/ai-tools-linked")" == "${TESTDIR}/a-set/skills/ai-tools-linked" \
+        && "$(cat "${TESTDIR}/a-set/skills/ai-tools-linked/SKILL.md")" == "${set_before}" ]] \
+        && grep -q 'ai-tools-linked skipped (a link stands at the name' <<<"${out}"; then
+    pass "a link at a seeded name is skipped: neither replaced nor read through"
+else
+    fail "a link at a seeded name: $(ls -la "${LIVE}/skills" | tr '\n' '|') ${out}"
+fi
+reset_roots
+write_skill "${SHIPPED}" ai-tools-hardlinked 2
+write_skill "${LIVE}"    ai-tools-hardlinked 2
+printf 'outside\n' > "${TESTDIR}/hardlink-sentinel"; chmod 0604 "${TESTDIR}/hardlink-sentinel"
+ln "${TESTDIR}/hardlink-sentinel" "${LIVE}/skills/ai-tools-hardlinked/extra.md"
+sentinel_before="$(stat -c '%U:%G %a %h' "${TESTDIR}/hardlink-sentinel")"
+out="$(AI_TOOLS_ASSUME_YES=1 seed 2>&1)" || true
+if [[ "$(stat -c '%U:%G %a %h' "${TESTDIR}/hardlink-sentinel")" == "${sentinel_before}" ]] \
+        && grep -q 'has a second hard link' <<<"${out}"; then
+    pass "a copy holding a hard-linked file keeps its owner and modes, and the report says why"
+else
+    fail "a hard-linked copy: the sentinel is now $(stat -c '%U:%G %a %h' "${TESTDIR}/hardlink-sentinel"): ${out}"
+fi
+
 # ── A withdrawn name is never seeded ─────────────────────────────────────────────
 # Property 3, in the state that occurs: the source root STILL CARRIES the withdrawn asset, because rpm has not
 # yet removed the previous package's files. Both directions are driven -- the live root missing it (which is

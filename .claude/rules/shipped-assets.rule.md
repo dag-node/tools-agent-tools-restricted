@@ -329,7 +329,10 @@ frontmatter carries `x-ai-tools-managed: true`, so an operator's own agent/skill
   as theirs it would leave the asset missing from every session with nothing to fill it;
 - **present + same-or-older version** → the content is left as it is, and the ownership and modes a seeded copy has
   (`root:SANDBOX_GROUP`, files `640`, directories `750`, an inherited setgid cleared) are applied again where they
-  drifted, which the report names — the same on a kept older version;
+  drifted, which the report names — the same on a kept older version — except in a copy holding a file with a second
+  hard link, which is reported and left as it is, since the inode is reached from outside the copy;
+- **a link at the name** → skipped, its target's marker unread: it is the resolver's link to a set's copy of the asset,
+  or the host's;
 - **bound to an integration** (`x-ai-tools-integration`) → seeded by the other cases while that integration's manifest
   is installed and trusted, and otherwise skipped with a live managed copy moved aside (see [An asset bound
   to an integration](#an-asset-bound-to-an-integration));

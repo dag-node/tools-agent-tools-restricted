@@ -223,11 +223,18 @@ _ai_tools_integration_installed() {
 
 # _ai_tools_own_asset <dst> <group>: bring a live asset to the ownership and modes a seeded copy has -- root:<group>,
 # files 640, directories 750 (the five-digit chmod clears a setgid a directory inherited or a copy carried) --
-# and succeed; fail, without a write, when every entry already holds them. A managed asset's ownership is this
-# library's, whatever a copy of the tree gave it, so the seeder applies this to every managed asset it meets and reports
-# the ones it changed.
+# and succeed; fail, without a write, when every entry already holds them, or when a file in the copy has a second hard
+# link, which is reported. A managed asset's ownership is this library's, whatever a copy of the tree gave it,
+# so the seeder applies this to every managed asset it meets and reports the ones it changed.
 _ai_tools_own_asset() {
-    local dst="$1" group="$2" drift
+    local dst="$1" group="$2" drift hardlinked
+    # chown and chmod act on an inode, which a second name reaches from outside the copy, so a copy holding a file
+    # with a second link is reported and left as it is.
+    hardlinked="$(find "${dst}" -type f -links +1 -print -quit 2>/dev/null)"
+    if [[ -n "${hardlinked}" ]]; then
+        _ai_tools_ma_say "${dst##*/} ownership and modes left as they are (${hardlinked} has a second hard link)"
+        return 1
+    fi
     drift="$(find "${dst}" \( ! -user root -o ! -group "${group}" -o \( -type d ! -perm 750 \) -o \( -type f ! -perm 640 \) \) -print -quit 2>/dev/null)"
     [[ -n "${drift}" ]] || return 1
     chown -R "root:${group}" "${dst}"
@@ -255,10 +262,11 @@ _ai_tools_place_asset() {
 # directory per kind -- `skills/ai-tools-*/` (a directory per asset), `subagents/ai-tools-*.md` (a file per asset);
 # the live root is the caller's. Absent live asset -> seeded. Present + managed + a newer shipped version -> an update
 # confirm defaulting to UPDATE, so Enter and any non-interactive run take the new version (a scriptlet has no tty,
-# and a host that answered "keep" by default stayed on its first-seeded version forever). Present + unmanaged (no
-# marker) -> left untouched and logged: it is the operator's own file. An empty directory at a directory asset's name ->
-# seeded, as absent. Present + same-or-older version -> no-op. A WITHDRAWN name -> skipped outright, whatever the source
-# root holds; ai_tools_remove_retired_assets is the only pass that acts on one.
+# and a host that answered "keep" by default stayed on its first-seeded version forever). A link at the name -> skipped,
+# its target's marker unread: a set's asset the reconcile linked, or the host's. Present + unmanaged (no marker) -> left
+# untouched and logged: it is the operator's own file. An empty directory at a directory asset's name -> seeded,
+# as absent. Present + same-or-older version -> no-op. A WITHDRAWN name -> skipped outright, whatever the source root
+# holds; ai_tools_remove_retired_assets is the only pass that acts on one.
 # $1 src_root  $2 live_root (resolved by the caller)  $3 group  $4.. kinds, each one of
 # AI_TOOLS_ASSET_KINDS; an empty list or an unknown kind is refused with a reason.
 ai_tools_seed_managed_assets() {
@@ -306,6 +314,12 @@ ai_tools_seed_managed_assets() {
                 continue
             fi
             dst="${live_root}/${kind}/${name}"
+            # A link at the name is the assets resolver's (a set's copy of the asset, linked into the view)
+            # or the host's, never a seeded copy: its marker is not read through it, and the copy is not placed over it.
+            if [[ -L "${dst}" ]]; then
+                _ai_tools_ma_say "${name} skipped (a link stands at the name; the assets reconcile owns it)"
+                continue
+            fi
             if [[ -d "${src}" ]]; then dst_marker="${dst}/SKILL.md"; else dst_marker="${dst}"; fi
             # Read the shipped version HERE, not inside the update branch: both branches report it, and a loop variable
             # set only on one path carries the previous asset's value into the other -- which reads as a correct version
