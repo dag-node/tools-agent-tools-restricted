@@ -840,12 +840,15 @@ _ai_tools_as_scan_substitution() {
 # ── The validator ────────────────────────────────────────────────────────────────────────────────────────────────────
 
 # _ai_tools_as_validate <set-dir> <set-name> <profile> : every rule of the subset over one set, into the finding arrays,
-# with the assets listed in _AI_TOOLS_AS_ASSETS (`<kind>|<name>`). Reads the tree as data and does not take an ownership
-# input; the resolver runs the trust walk and the verifier ahead of it. A walk that stopped leaves the later rules
+# with the assets listed in _AI_TOOLS_AS_ASSETS (`<kind>|<name>`) and each asset's requirements recorded under that key
+# in _AI_TOOLS_AS_REQ_CAPABILITIES, _AI_TOOLS_AS_REQ_INTEGRATIONS and _AI_TOOLS_AS_REQ_DYNAMIC. Reads the tree as data
+# and does not take an ownership input; the resolver runs the trust walk and the verifier ahead of it. A walk
+# that stopped leaves the later rules
 # unread.
 _ai_tools_as_validate() {
     local set_dir="$1" set_name="$2" profile="$3" asset inventory_error
     declare -ga _AI_TOOLS_AS_ASSETS=()
+    declare -gA _AI_TOOLS_AS_REQ_CAPABILITIES=() _AI_TOOLS_AS_REQ_INTEGRATIONS=() _AI_TOOLS_AS_REQ_DYNAMIC=()
     _ai_tools_as_reset_findings
     _ai_tools_as_walk_tree "${set_dir}" || return 0
     _ai_tools_as_is_valid_name "${set_name}" \
@@ -863,6 +866,9 @@ _ai_tools_as_validate() {
     fi
     for asset in "${_AI_TOOLS_AS_ASSETS[@]}"; do
         _ai_tools_as_check_asset "${set_dir}" "${set_name}" "${asset%%|*}" "${asset#*|}"
+        _AI_TOOLS_AS_REQ_CAPABILITIES["${asset}"]="${_AI_TOOLS_AS_ASSET_CAPABILITIES}"
+        _AI_TOOLS_AS_REQ_INTEGRATIONS["${asset}"]="${_AI_TOOLS_AS_ASSET_INTEGRATIONS}"
+        _AI_TOOLS_AS_REQ_DYNAMIC["${asset}"]="${_AI_TOOLS_AS_ASSET_DYNAMIC}"
     done
     return 0
 }
@@ -1274,7 +1280,7 @@ _ai_tools_as_eval_set() {
         return 0
     fi
     # Each asset's own findings and requirements, read once here while the walk's records are current.
-    _ai_tools_as_eval_assets "${copy}" "${set}"
+    _ai_tools_as_eval_assets "${copy}"
 }
 
 # _ai_tools_as_set_refuse <copy-dir> <token> <detail> : record a set's refusal.
@@ -1320,11 +1326,12 @@ _ai_tools_as_integrations_enabled() {
     return 0
 }
 
-# _ai_tools_as_eval_assets <copy-dir> <set> : the state of every asset of a set that passed, keyed
-# `<copy>|<kind>|<name>`: `ok`, or asset-invalid, capability-unknown, capability-unsupported or integration-off with its
-# detail, from the findings _ai_tools_as_validate left and each asset's requirements, read again per asset.
+# _ai_tools_as_eval_assets <copy-dir> : the state of every asset of a set that passed, keyed `<copy>|<kind>|<name>`:
+# `ok`, or asset-invalid, capability-unknown, capability-unsupported or integration-off with its detail,
+# from the findings and the requirements _ai_tools_as_validate recorded over <copy-dir>, which its caller ran last:
+# the set's bytes are read once.
 _ai_tools_as_eval_assets() {
-    local copy="$1" set="$2" asset kind name key index reason IFS=$' \t\n'
+    local copy="$1" asset kind name key index reason IFS=$' \t\n'
     local -a asset_rules=() tokens=() passed=() asset_tokens=() asset_paths=() asset_details=() asset_names=()
     asset_rules=( "${_AI_TOOLS_AS_F_RULE[@]}" ); asset_tokens=( "${_AI_TOOLS_AS_F_TOKEN[@]}" )
     asset_paths=( "${_AI_TOOLS_AS_F_PATH[@]}" ); asset_details=( "${_AI_TOOLS_AS_F_DETAIL[@]}" )
@@ -1341,15 +1348,12 @@ _ai_tools_as_eval_assets() {
             _AI_TOOLS_AS_ASSET_DETAIL["${key}"]="${asset_rules[index]}: $(_ai_tools_as_display "${asset_paths[index]}"): ${asset_details[index]}"
             continue 2
         done
-        # The requirements, read again for this asset alone: the shared reader keeps one asset's in its globals.
-        _ai_tools_as_reset_findings
-        _ai_tools_as_check_asset "${copy}" "${set}" "${kind}" "${name}"
-        (( _AI_TOOLS_AS_ASSET_DYNAMIC )) && _AI_TOOLS_AS_ASSET_CAPS["${key}"]="${AI_TOOLS_ASSETS_DYNAMIC_CAPABILITY}"
+        (( ${_AI_TOOLS_AS_REQ_DYNAMIC[${asset}]:-0} )) && _AI_TOOLS_AS_ASSET_CAPS["${key}"]="${AI_TOOLS_ASSETS_DYNAMIC_CAPABILITY}"
         # An asset is written in its kind's base profile, and requires the capabilities it declares beside it.
-        IFS=' ' read -r -a tokens <<< "$(_ai_tools_as_kind_field "${kind}" 5) ${_AI_TOOLS_AS_ASSET_CAPABILITIES}"
+        IFS=' ' read -r -a tokens <<< "$(_ai_tools_as_kind_field "${kind}" 5) ${_AI_TOOLS_AS_REQ_CAPABILITIES[${asset}]:-}"
         if ! reason="$(_ai_tools_as_capabilities_supported "${kind}" "${tokens[@]}")"; then
             _AI_TOOLS_AS_ASSET_STATE["${key}"]="capability-unsupported"; _AI_TOOLS_AS_ASSET_DETAIL["${key}"]="${reason}"
-        elif IFS=' ' read -r -a tokens <<< "${_AI_TOOLS_AS_ASSET_INTEGRATIONS}" \
+        elif IFS=' ' read -r -a tokens <<< "${_AI_TOOLS_AS_REQ_INTEGRATIONS[${asset}]:-}" \
                 && ! reason="$(_ai_tools_as_integrations_enabled "${tokens[@]}")"; then
             _AI_TOOLS_AS_ASSET_STATE["${key}"]="integration-off"; _AI_TOOLS_AS_ASSET_DETAIL["${key}"]="${reason}"
         fi
@@ -2084,7 +2088,7 @@ ai_tools_assets_plan_set() {
                 return 0 ;;
         esac
         # A set refused on a requirement stopped before its assets were read; read them now for the asset-scope rules.
-        [[ "${state}" == ok ]] || _ai_tools_as_eval_assets "${copy}" "${set}"
+        [[ "${state}" == ok ]] || _ai_tools_as_eval_assets "${copy}"
         _AI_TOOLS_AS_SNAPSHOT_STATE=ok; _AI_TOOLS_AS_SNAPSHOT_DETAIL="from ${copy}"
         local -a passed=()
         IFS=' ' read -r -a passed <<< "${_AI_TOOLS_AS_SET_PASSED[${copy}]}"
