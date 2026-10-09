@@ -8,11 +8,10 @@
 #   * status 2, MSG-Q6Y8, for every input that is absent, untrusted or names a signer the binding does not;
 #   * status 0 for the control set, printing the signer's primary.
 # The boundary half, that the key, the binding and the keyring are not writable by the sandbox account, is
-# tests/boundary/assets.sh. The key is made here rather than committed: the suite then does not need a secret
-# in the tree,
-# and the "signed by a key the binding does not name" case takes a second key the same way. gpg makes the keys
-# and the signatures; gpgv alone verifies, as on a host. Run as root via sudo: a binding and a keyring are trusted
-# only root-owned, so the fixtures are born root's.
+# tests/boundary/assets.sh. The key is made in the run, so the tree does not hold any secret, and the "signed
+# by a key the binding does not name" case takes a second key the same way. gpg makes the keys and the signatures;
+# gpgv alone verifies, as on a host. Run as root via sudo: a binding and a keyring are trusted only root-owned,
+# so the fixtures are born root's.
 
 set -euo pipefail
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")/../lib" && pwd)/harness.sh"

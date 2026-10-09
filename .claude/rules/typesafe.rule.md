@@ -152,8 +152,8 @@ with `ai_tools_withdraw_asset` and re-runs the linker, which drops each agent's 
 
 Its frontmatter carries `x-ai-tools-integration: typesafe`, so every seed path, `install.sh` included, places it only
 where `integrations.d/typesafe.conf` is installed, and a session on a host without the decide command is not offered
-the skill ([ref-section-k4q2](shipped-assets.rule.md#ref-section-k4q2)). The previous name, `ai-tools-decide`, is
-on the retired list, so an upgraded host's live copy under it is moved aside.
+the skill ([ref-section-k4q2](shipped-assets.rule.md#ref-section-k4q2)). `AI_TOOLS_RETIRED_ASSETS`
+(`managed-assets.lib.sh`) names the skill's earlier name, so an upgraded host's live copy under it is moved aside.
 
 ## Templates, measurement, and what is deferred
 

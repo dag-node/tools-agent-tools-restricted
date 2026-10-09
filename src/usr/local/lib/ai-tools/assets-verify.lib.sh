@@ -6,31 +6,23 @@
 # hash. Sourced as root by the assets resolver, which does not link any asset of a set this library refuses; the roots,
 # the binding directory and the reason tokens are in shipped-assets.rule.md.
 #
-# Status contract, shared with entrypoint-verify.lib.sh:
+# Status contract ref-section-b8h3, shared with entrypoint-verify.lib.sh and npm-verify.lib.sh; here a 2 refuses
+# as a 1 does:
 #   0  verified; the signer's primary fingerprint is printed on stdout
-#   1  MISMATCH (MSG-T3M3) -- gpgv rejects the signature, or the inventory does not describe the tree: a listed hash
-#      differs, a file is listed and absent, present and unlisted, listed twice, or a line outside the inventory shape
-#   2  unable to verify (MSG-Q6Y8) -- SHA256SUMS or SHA256SUMS.asc absent or over its bound, a walk of the tree that
-#      did not complete, a file over the format's per-file bound or a set over its file-count or payload bound, gpgv
-#      absent or exiting other than 0 or 1, no binding for the name, a binding or keyring that fails
-#      ai_tools_conf_is_trusted or does not parse, or a VALIDSIG primary no `signers` item names
-# Both refuse: the resolver reads 1 as set-tampered and 2 as set-unverified. The signature is checked before the
-# inventory is parsed, so a tree whose signature fails is not read further; a signed inventory that does not describe
-# the tree is a mismatch, since the signed file and the tree cannot both be what the publisher built. A path, listed
-# or found, is read under one predicate, ai_tools_conf_portable_name_valid per component, and a name outside that set
-# is a mismatch too: the format's `file.name` rule accepts the same set at build, so a signed set does not carry one,
-# and sha256sum, which prints a backslash or a control character escaped, never meets one. Every name, line and tool
-# message a diagnostic carries passes log.lib.sh's allowlist sanitizer first, since a refused set's bytes are
-# whoever wrote them.
+#   1  MISMATCH (MSG-T3M3) -- the signed inventory and the tree cannot both be what the publisher built: gpgv rejects
+#      the signature, or the inventory does not describe the tree
+#   2  unable to verify (MSG-Q6Y8) -- an input the check could not read, over its bound, untrusted, or a signer
+#      no binding names
+# The resolver reads 1 as set-tampered and 2 as set-unverified. The signature is checked before the inventory is
+# parsed, so a tree whose signature fails is not read further; each function's doc names the inputs it maps to each
+# status. A path, listed or found, is held to ai_tools_conf_portable_name_valid (conf.lib.sh) per component, and
+# a name outside that set is a mismatch: the format's `file.name` rule refuses one at build, so a signed set does not
+# carry one. Every name, line and tool message a diagnostic carries passes log.lib.sh's allowlist sanitizer first,
+# since a refused set's bytes are whoever wrote them.
 #
 # A binding is AI_TOOLS_ASSETS_BINDINGS_DIR/<set>.conf in the shared KEY=value grammar, read line by line
-# through conf.lib.sh and not sourced: `set` equals the file's stem, `signers` lists primary fingerprints as openpgp:<40
-# hex digits>, and `keyring` names the binary keyring gpgv reads. A key outside those three refuses the binding: every
-# key of a binding decides trust, so a key this reader does not define is not read past. The keyring is written at build
-# time from the armored key beside it by ai_tools_assets_keyring_dearmor, since gpgv on EL9 does not read an armored
-# keyring. The directory, the binding and the keyring are root-owned and not group- or other-writable, the predicate
-# conf.lib.sh states, so a write to them needs root, which tests/boundary/assets.sh asserts from the sandbox account's
-# vantage.
+# through conf.lib.sh and not sourced; ai_tools_assets_binding_read states its keys and every refusal. The keyring it
+# names is binary, written at build time by ai_tools_assets_keyring_dearmor from the armored key beside it.
 
 # Sourced more than once in a single shell: the readonly constants would abort under `set -e` on the second pass.
 # An if-statement, not `[[ ]] && return`, which returns 1 for an unset guard and trips the sourcing shell's `set -e`.
@@ -57,8 +49,8 @@ fi
 _AI_TOOLS_ASSETS_VERIFY_LIB_LOADED=1
 
 # The shipped bindings, redirected by a root-only test hook with the standing of AI_TOOLS_ENTRYPOINT_PIN_DIR: `sudo`
-# strips the name, and every consumer runs as root. I7b's operator bindings under /etc/ai-tools/assets-bindings.d/ are
-# not read by this release.
+# strips the name, and every consumer runs as root. An operator binding under /etc/ai-tools/assets-bindings.d/ is not
+# read by this release.
 : "${AI_TOOLS_ASSETS_BINDINGS_DIR:=/usr/local/lib/ai-tools/assets-bindings.d}"
 readonly AI_TOOLS_ASSETS_INVENTORY=SHA256SUMS
 readonly AI_TOOLS_ASSETS_SIGNATURE=SHA256SUMS.asc
@@ -71,7 +63,7 @@ readonly AI_TOOLS_ASSETS_SET_MAX_BYTES=67108864
 
 # _ai_tools_av_warn [code] <message...> : this library's one report, on stderr and, when log.lib.sh is loaded by the
 #   caller, in journald. A leading message code goes on its own line ahead of the message, the shape
-#   tests/lib/harness.sh's assert_msg reads. Never alters a verdict.
+#   tests/lib/harness.sh's assert_msg reads. Returns 0, so a report does not change a verdict.
 _ai_tools_av_warn() {
     local code=""
     if [[ "${1-}" =~ ^MSG-[A-Z][0-9][A-Z][0-9]$ ]]; then code="$1"; shift; printf '%s\n' "${code}" >&2; fi
@@ -120,10 +112,11 @@ ai_tools_assets_signer_valid() {
 }
 
 # ai_tools_assets_keyring_dearmor <armored-key> <keyring> : write the binary keyring gpgv reads from an ASCII-armored
-#   public key file. The armor is base64 between the PUBLIC KEY BLOCK markers, with header lines and a `=` CRC line,
-#   so dropping those and decoding is the whole conversion -- which keeps gpgv, the verify-only half of gnupg2,
-#   the one dependency rather than a gpg with a homedir per call. Several armored blocks in one file decode to one
-#   keyring. A partial output is removed; returns 1 when the input does not hold a key.
+#   public key file. gpgv on EL9 exits 2 on an armored keyring, so the keyring is written binary at build time, by
+#   the spec's %install and by install.sh. The armor is base64 between the PUBLIC KEY BLOCK markers, with header lines
+#   and a `=` CRC line, so dropping those and decoding is the whole conversion, and gpgv, the verify-only half
+#   of gnupg2, stays the one dependency: no gpg homedir is made per call. Several armored blocks in one file decode
+#   to one keyring. A partial output is removed; returns 1 when the input does not hold a key.
 ai_tools_assets_keyring_dearmor() {
     local armored="${1:-}" keyring="${2:-}"
     [[ -n "${armored}" && -r "${armored}" && -n "${keyring}" ]] || return 1

@@ -1441,10 +1441,10 @@ do_install() {
         "${SCRIPT_DIR}/src/usr/local/lib/ai-tools/keys/claude-code.asc" \
         /usr/local/lib/ai-tools/keys/claude-code.asc
 
-    # Set verifier: proves an installed asset set is the one its publisher signed, against a keyring written here
-    # from the dag-node package-signing key as published, since gpgv on EL9 does not read an armored keyring,
-    # and a root-owned binding per set name that pins the signer's primary. Read by root alone (the assets resolver);
-    # 644 root:root like the other libraries, no secrets, no tokens.
+    # Set verifier: proves an installed asset set is the one its publisher signed, against the keyring
+    # ai_tools_assets_keyring_dearmor writes here from the dag-node package-signing key, as the spec's %install writes
+    # it, and a root-owned binding per set name that pins the signer's primary. Read by root alone (the assets
+    # resolver); 644 root:root like the other libraries, no secrets, no tokens.
     log "/usr/local/lib/ai-tools/assets-verify.lib.sh"
     install -o root -g root -m 644 \
         "${SCRIPT_DIR}/src/usr/local/lib/ai-tools/assets-verify.lib.sh" \

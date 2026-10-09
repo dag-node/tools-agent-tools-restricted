@@ -49,6 +49,7 @@ cannot fix -- a message code's name is a runtime string, and rewording one is a 
 | b3k5 | [ref-section-b3k5](rules/updater.rule.md#ref-section-b3k5) | A refusal leaves a mark too | .claude/rules/updater.rule.md | .claude/rules/cli.rule.md |  |
 | j9w8 | [ref-section-j9w8](rules/updater.rule.md#ref-section-j9w8) | The labelling half leaves a record too | .claude/rules/updater.rule.md | .claude/rules/cli.rule.md |  |
 | q7v4 | [ref-section-q7v4](rules/updater.rule.md#ref-section-q7v4) | Two tiers, and what each one claims | .claude/rules/updater.rule.md | CLAUDE.md |  |
+| b8h3 | [ref-section-b8h3](rules/updater.rule.md#ref-section-b8h3) | Three outcomes, and only one of them is tamper | .claude/rules/updater.rule.md | .claude/rules/shipped-assets.rule.md, src/usr/local/lib/ai-tools/assets-verify.lib.sh |  |
 | e7n8 | [ref-section-e7n8](../CLAUDE.md#ref-section-e7n8) | Security model — what `SANDBOX_USER` can and cannot do | CLAUDE.md | README.md, docs/about/index.md |  |
 | g6c4 | [ref-section-g6c4](../CLAUDE.md#ref-section-g6c4) | What is expected of the agent where a control leaves a choice | CLAUDE.md | .claude/rules/launch.rule.md, README.md |  |
 | x6a9 | [ref-section-x6a9](../CLAUDE.md#ref-section-x6a9) | Boundaries and non-goals | CLAUDE.md | .claude/rules/confinement.rule.md, .claude/rules/dotnet.rule.md, .claude/rules/launch.rule.md, .claude/rules/providers.rule.md, docs/about/scope.md, docs/operators/service-accounts.md |  |
