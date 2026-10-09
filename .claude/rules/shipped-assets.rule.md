@@ -122,7 +122,10 @@ for the directories it declares, and receives a kind by declaring its directory 
 ([providers](providers.rule.md)). A required profile one enabled receiving agent lacks leaves the asset out of the view
 for every agent, since codex reads the view whole and an asset cannot be narrowed per agent there. The load-time command
 substitution is one such profile, `skills.dynamic.v1`: an asset carrying it without the declaration is refused, because
-the substitution runs as a step of reading the file and skips the `PreToolUse` filter and `permissions.deny`.
+the substitution runs as a step of reading the file and skips the `PreToolUse` filter and `permissions.deny`. A receiver
+set read from a failed discovery -- a provider reader exiting non-zero, or an empty enabled set
+`ai_tools_agents_empty_verdict` classifies as a fault -- is `receivers-unknown` rather than the empty set, which would
+support every profile: the enable list reads as empty for that run and no agent's directory is planned.
 
 **The transaction holds a lock and plans before it writes.** `ai_tools_assets_reconcile` takes an exclusive `flock`
 before it reads an input, computes every change (`ai_tools_assets_plan`, which writes nothing and which `status` runs

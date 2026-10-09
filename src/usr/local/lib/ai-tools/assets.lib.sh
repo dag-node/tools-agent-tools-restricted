@@ -50,7 +50,8 @@ source "${_ai_tools_as_lib_dir}/managed-assets.lib.sh" 2>/dev/null || true
 for _ai_tools_as_required_function in ai_tools_conf_is_trusted ai_tools_conf_list ai_tools_conf_portable_name_valid \
         ai_tools_log_sanitize ai_tools_log_coded ai_tools_records_tsv_write_record \
         ai_tools_records_tsv_frame_item_components ai_tools_enabled_agents ai_tools_installed_agents \
-        ai_tools_agent_manifest_field ai_tools_enabled_integrations ai_tools_agent_config_dir_valid \
+        ai_tools_agent_manifest_field ai_tools_enabled_integrations ai_tools_agents_empty_verdict \
+        ai_tools_agent_config_dir_valid \
         ai_tools_asset_is_managed _ai_tools_asset_is_stale_copy ai_tools_link_asset_readme; do
     if ! declare -F "${_ai_tools_as_required_function}" >/dev/null 2>&1; then
         printf 'assets: %s is not defined, so the assets resolver is not defined\n' "${_ai_tools_as_required_function}" >&2
@@ -759,11 +760,11 @@ _ai_tools_as_check_asset_conf() {
 
 # _ai_tools_as_check_asset <set-dir> <set-name> <kind> <name> : every asset-scope rule of the subset over one asset,
 # in the order the format checks them: name.grammar (which stops the rest), name.asset-prefix's reserved half,
-# the frontmatter rules, metadata.asset-conf, and body.dynamic-injection. Publishes the asset's requirements
-# in _AI_TOOLS_AS_ASSET_CAPABILITIES and _AI_TOOLS_AS_ASSET_INTEGRATIONS, and _AI_TOOLS_AS_ASSET_DYNAMIC (1
-# when the asset declares skills.dynamic.v1).
+# the frontmatter rules, metadata.asset-conf, and body.dynamic-injection (a scan that did not complete refuses the asset
+# under that rule too). Publishes the asset's requirements in _AI_TOOLS_AS_ASSET_CAPABILITIES
+# and _AI_TOOLS_AS_ASSET_INTEGRATIONS, and _AI_TOOLS_AS_ASSET_DYNAMIC (1 when the asset declares skills.dynamic.v1).
 _ai_tools_as_check_asset() {
-    local set_dir="$1" set_name="$2" kind="$3" name="$4" entry_file conf_path IFS=$' \t\n'
+    local set_dir="$1" set_name="$2" kind="$3" name="$4" entry_file conf_path scan IFS=$' \t\n'
     _AI_TOOLS_AS_ASSET_CAPABILITIES=""; _AI_TOOLS_AS_ASSET_INTEGRATIONS=""
     _AI_TOOLS_AS_ASSET_DECLARED=""; _AI_TOOLS_AS_ASSET_DYNAMIC=0
     entry_file="$(_ai_tools_as_entry_path "${kind}" "${name}")"; entry_file="${entry_file%%$'\t'*}"
@@ -781,14 +782,33 @@ _ai_tools_as_check_asset() {
     local -a declared=()
     IFS=' ' read -r -a declared <<< "${_AI_TOOLS_AS_ASSET_DECLARED}"
     _ai_tools_as_in "${AI_TOOLS_ASSETS_DYNAMIC_CAPABILITY}" "${declared[@]}" && _AI_TOOLS_AS_ASSET_DYNAMIC=1
-    # The load-time substitution: !`command` at a line start or after whitespace, and a fence whose info string's first
-    # word carries `!`, anywhere in the entry file, the frontmatter included.
-    if (( _AI_TOOLS_AS_ASSET_DYNAMIC == 0 )) \
-            && { LC_ALL=C grep -qaE '(^|[[:space:]])!`' -- "${set_dir}/${entry_file}" 2>/dev/null \
-                 || LC_ALL=C grep -qaE '^[[:space:]]*(```+|~~~+)[[:space:]]*[^[:space:]]*!' -- "${set_dir}/${entry_file}" 2>/dev/null; }; then
-        _ai_tools_as_finding body.dynamic-injection asset-invalid "${entry_file}" "a line runs a command when the asset loads, and the asset does not declare ${AI_TOOLS_ASSETS_DYNAMIC_CAPABILITY} in ${conf_path}" "${name}"
+    if (( _AI_TOOLS_AS_ASSET_DYNAMIC == 0 )); then
+        scan=0
+        _ai_tools_as_scan_substitution "${set_dir}/${entry_file}" || scan=$?
+        case "${scan}" in
+            0) _ai_tools_as_finding body.dynamic-injection asset-invalid "${entry_file}" "a line runs a command when the asset loads, and the asset does not declare ${AI_TOOLS_ASSETS_DYNAMIC_CAPABILITY} in ${conf_path}" "${name}" ;;
+            1) ;;
+            *) _ai_tools_as_finding body.dynamic-injection asset-invalid "${entry_file}" "the scan did not complete (grep exit ${_AI_TOOLS_AS_SCAN_STATUS})" "${name}" ;;
+        esac
     fi
     return 0
+}
+
+# _ai_tools_as_scan_substitution <file> : the load-time substitution scan over one entry file -- !`command` at a line
+# start or after whitespace, and a fence whose info string's first word carries `!`, anywhere in the file,
+# the frontmatter included. One grep reads both patterns, so a no-match is one complete scan. Returns 0 for a match, 1
+# for none, and 2 for a scan that did not complete (an unreadable file, grep missing or failing), with grep's own status
+# in _AI_TOOLS_AS_SCAN_STATUS. The caller reports 2 as a finding, so a scan that failed does not read as a clean
+# file.
+_ai_tools_as_scan_substitution() {
+    local status=0
+    LC_ALL=C grep -qaE -e '(^|[[:space:]])!`' -e '^[[:space:]]*(```+|~~~+)[[:space:]]*[^[:space:]]*!' -- "$1" 2>/dev/null \
+        || status=$?
+    _AI_TOOLS_AS_SCAN_STATUS="${status}"
+    case "${status}" in
+        0|1) return "${status}" ;;
+        *)   return 2 ;;
+    esac
 }
 
 # ── The validator ────────────────────────────────────────────────────────────────────────────────────────────────────
@@ -910,15 +930,64 @@ _ai_tools_as_read_enable_list() {
     done
 }
 
+# _ai_tools_as_read_provider <reader> <file> : run one provider reader of providers.lib.sh into <file> and keep its
+# status, as the walk does, so a reader that failed is told apart from one that printed an empty set. Returns 1,
+# the receivers marked unknown with the reader and the first line it printed on stderr, when the reader exits non-zero
+# -- after a row or before one.
+_ai_tools_as_read_provider() {
+    local reader="$1" file="$2" error status=0
+    error="$( ("${reader}" > "${file}") 2>&1 )" || status=$?
+    (( status == 0 )) && return 0
+    error="${error%%$'\n'*}"
+    _ai_tools_as_receivers_unknown "${reader} exited ${status}${error:+: $(_ai_tools_as_display "${error}")}"
+    return 1
+}
+
+# _ai_tools_as_receivers_unknown <reason> : record that the receiving agents could not be read. The first reason
+# stands.
+_ai_tools_as_receivers_unknown() {
+    [[ "${_AI_TOOLS_AS_RECEIVERS_STATE}" == ok ]] || return 0
+    _AI_TOOLS_AS_RECEIVERS_STATE=unknown
+    _AI_TOOLS_AS_RECEIVERS_DETAIL="$1"
+}
+
 # _ai_tools_as_read_agents : the enabled agents and, for each, the kinds it receives, the directory it reads each
 # from, and the profiles it implements; then the installed agents that are not enabled, whose directories lose their
 # resolver links. An agent receives a kind when its manifest names the kind's directory field or lists a profile
 # of the kind in asset_profiles. asset_profiles absent reads as the base profile of each kind whose directory
 # the manifest names; a token base does not define is not implemented.
+#
+# The receivers are what the capability rule is held to, so a failed read does not yield an empty set: a reader
+# that exits non-zero, and an empty enabled set ai_tools_agents_empty_verdict classifies as `fault` (an input the trust
+# predicate refused, a list naming agents none of which resolved) or does not classify, leave
+# _AI_TOOLS_AS_RECEIVERS_STATE `unknown` with the reason in _AI_TOOLS_AS_RECEIVERS_DETAIL. `none` -- AI_TOOLS_AGENTS
+# asks for none -- is the valid empty set.
 _ai_tools_as_read_agents() {
-    local agent config_dir kind field dir value present token
+    local listing verdict
+    _AI_TOOLS_AS_RECEIVERS_STATE=ok; _AI_TOOLS_AS_RECEIVERS_DETAIL=""
+    if ! listing="$(mktemp 2>/dev/null)"; then
+        _ai_tools_as_receivers_unknown "no temporary file for the provider readers"
+        return 0
+    fi
+    _ai_tools_as_read_agent_lists "${listing}"
+    rm -f -- "${listing}"
+    if [[ "${_AI_TOOLS_AS_RECEIVERS_STATE}" == ok ]] && (( ${#_AI_TOOLS_AS_AGENTS[@]} == 0 )); then
+        verdict="$(ai_tools_agents_empty_verdict 2>/dev/null)" || verdict=""
+        case "${verdict%%$'\t'*}" in
+            none)  ;;
+            fault) _ai_tools_as_receivers_unknown "the enabled agents are a fault: $(_ai_tools_as_display "${verdict#*$'\t'}")" ;;
+            *)     _ai_tools_as_receivers_unknown "the enabled agent set is empty and ai_tools_agents_empty_verdict did not classify it" ;;
+        esac
+    fi
+}
+
+# _ai_tools_as_read_agent_lists <file> : the readers _ai_tools_as_read_agents runs, each into <file> in turn; stops
+# at the first that fails.
+_ai_tools_as_read_agent_lists() {
+    local listing="$1" agent config_dir kind field dir value present token
     local -a tokens=()
     local -A enabled=()
+    _ai_tools_as_read_provider ai_tools_enabled_agents "${listing}" || return 0
     while IFS=$'\t' read -r agent _ _; do
         [[ -n "${agent}" ]] || continue
         enabled["${agent}"]=1
@@ -942,7 +1011,8 @@ _ai_tools_as_read_agents() {
             _AI_TOOLS_AS_IMPLEMENTS["${agent}|${token}"]=1
             _ai_tools_as_kind_field "${token%%.*}" 1 >/dev/null 2>&1 && _AI_TOOLS_AS_RECEIVES["${agent}|${token%%.*}"]=1
         done
-    done < <(ai_tools_enabled_agents 2>/dev/null)
+    done < "${listing}"
+    _ai_tools_as_read_provider ai_tools_installed_agents "${listing}" || return 0
     while IFS=$'\t' read -r agent _ _; do
         [[ -n "${agent}" && -z "${enabled[${agent}]+x}" ]] || continue
         _AI_TOOLS_AS_IDLE_AGENTS+=( "${agent}" )
@@ -952,10 +1022,11 @@ _ai_tools_as_read_agents() {
             ai_tools_agent_config_dir_valid "${config_dir}" && ai_tools_agent_config_dir_valid "${dir}" \
                 && _AI_TOOLS_AS_IDLE_DIR["${agent}|${kind}"]="${AI_TOOLS_ASSETS_HOME}/${config_dir}/${dir}"
         done < <(_ai_tools_as_kinds)
-    done < <(ai_tools_installed_agents 2>/dev/null)
+    done < "${listing}"
+    _ai_tools_as_read_provider ai_tools_enabled_integrations "${listing}" || return 0
     while IFS= read -r agent; do
         [[ -n "${agent}" ]] && _AI_TOOLS_AS_INTEGRATIONS["${agent}"]=1
-    done < <(ai_tools_enabled_integrations 2>/dev/null)
+    done < "${listing}"
 }
 
 # _ai_tools_as_read_roots : the roots from AI_TOOLS_ASSETS_ROOTS, each with its state: absent, trusted or untrusted.
@@ -1091,11 +1162,17 @@ _ai_tools_as_set_refuse() {
 
 # _ai_tools_as_capabilities_supported <kind> <token>... : succeed when every token is implemented by every enabled agent
 # receiving the kind -- <kind> empty reads each token's own kind, its first component, as at set scope. Prints the first
-# token an agent lacks and the agent on failure.
+# token an agent lacks and the agent on failure. Fails on the first token while the receivers are unknown: an empty set
+# read from a failed discovery would otherwise support every token.
 _ai_tools_as_capabilities_supported() {
     local kind="$1" token token_kind agent
     shift
     for token in "$@"; do
+        if [[ "${_AI_TOOLS_AS_RECEIVERS_STATE:-unknown}" != ok ]]; then
+            printf '%s requires %s, and the receiving agents could not be read: %s' "${kind:-the set}" "${token}" \
+                "${_AI_TOOLS_AS_RECEIVERS_DETAIL:-no discovery ran}"
+            return 1
+        fi
         token_kind="${kind:-${token%%.*}}"
         for agent in "${_AI_TOOLS_AS_AGENTS[@]}"; do
             [[ -n "${_AI_TOOLS_AS_RECEIVES[${agent}|${token_kind}]+x}" ]] || continue
@@ -1423,6 +1500,32 @@ _ai_tools_as_plan_stale_links() {
     done < <(find -P "${agent_dir}" -mindepth 1 -maxdepth 1 -type l -printf '%P\0' 2>/dev/null)
 }
 
+# _ai_tools_as_plan_without_receivers : the plan while the receiving agents are unknown. The enable list is read
+# as empty: every entry is receivers-unknown and no set is read, so the plan unlinks every resolver link in the view --
+# the direction an untrusted operator.conf takes, and the one that leaves an agent reading the whole view without
+# an asset no capability check covered -- and does not plan any agent's directory. One `unreadable` row names the reader
+# and why.
+_ai_tools_as_plan_without_receivers() {
+    local entry kind view_name status
+    _AI_TOOLS_AS_AGENTS=(); _AI_TOOLS_AS_IDLE_AGENTS=()
+    for entry in "${_AI_TOOLS_AS_ENTRIES[@]}"; do
+        status=0
+        ai_tools_assets_parse_id "${entry}" || status=$?
+        if (( status == 0 )); then
+            view_name="$(_ai_tools_as_entry_path "${_AI_TOOLS_AS_ID_KIND}" "${_AI_TOOLS_AS_ID_NAME}")"
+            _AI_TOOLS_AS_KIND["${entry}"]="${_AI_TOOLS_AS_ID_KIND}"
+            _AI_TOOLS_AS_VIEW_NAME["${entry}"]="${view_name#*$'\t'}"
+        fi
+        _AI_TOOLS_AS_STATE["${entry}"]=receivers-unknown
+        _AI_TOOLS_AS_DETAIL["${entry}"]="not linked while the receiving agents are unknown"
+    done
+    _ai_tools_as_row unreadable receivers-unknown directory "${AI_TOOLS_AGENTS_DIR:-/usr/local/lib/ai-tools/agents.d}" "" "" \
+        "${_AI_TOOLS_AS_RECEIVERS_DETAIL}; the enable list reads as empty, and no agent's directory is planned"
+    while IFS= read -r kind; do
+        _ai_tools_as_plan_view "${kind}"
+    done < <(_ai_tools_as_kinds)
+}
+
 # ai_tools_assets_plan : read every input and compute the view transaction's changes, without writing. Safe to run
 # without the lock, which `status` does: it reads.
 ai_tools_assets_plan() {
@@ -1431,6 +1534,10 @@ ai_tools_assets_plan() {
     _ai_tools_as_read_enable_list
     _ai_tools_as_read_roots
     _ai_tools_as_read_agents
+    if [[ "${_AI_TOOLS_AS_RECEIVERS_STATE}" != ok ]]; then
+        _ai_tools_as_plan_without_receivers
+        return 0
+    fi
     for entry in "${_AI_TOOLS_AS_ENTRIES[@]}"; do
         _ai_tools_as_resolve_entry "${entry}"
     done
@@ -1557,8 +1664,8 @@ _ai_tools_as_entry_detail() {
 }
 
 # _ai_tools_as_write_row <code> <severity> <finding> <subject-type> <subject> <item> <agent> <detail> : one record
-# of the stream, the item framed from <item> and, for a per-agent row, <agent>. An attention row is also logged
-# under its code. An item that does not frame is written as an empty item rather than dropped.
+# of the stream, the item framed from <item> and, for a per-agent row, <agent>. An attention or unreadable row is also
+# logged under its code. An item that does not frame is written as an empty item rather than dropped.
 _ai_tools_as_write_row() {
     local code="$1" severity="$2" finding="$3" stype="$4" subject="$5" item="$6" agent="$7" detail="$8" framed=""
     if [[ -n "${agent}" ]]; then
@@ -1568,9 +1675,10 @@ _ai_tools_as_write_row() {
     fi
     ai_tools_records_tsv_write_record "" "${code}" "${severity}" "${finding}" "${stype}" "" "${framed}" "${subject}" \
         "${detail}" || true
-    if [[ "${severity}" == attention ]]; then
-        ai_tools_log_coded warning "${code}" "${finding} ${item}${agent:+ (${agent})} ${subject}: ${detail}"
-    fi
+    case "${severity}" in
+        attention)  ai_tools_log_coded warning "${code}" "${finding} ${item}${agent:+ (${agent})} ${subject}: ${detail}" ;;
+        unreadable) ai_tools_log_coded error "${code}" "${finding} ${item}${agent:+ (${agent})} ${subject}: ${detail}" ;;
+    esac
 }
 
 # _ai_tools_as_report <code> : the record stream for a plan, and the apply when one ran: the enable-list row

@@ -2897,9 +2897,10 @@ status_selinux_attestation() {
 
 # status_assets: the Assets section, read from the plan alone (assets.lib.sh), without the lock and without a write: one
 # [ATTENTION] line per enabled asset that is not linked, per untrusted or foreign entry the plan met, and per agent
-# whose own entry stands at an enabled asset's name, each counted in STATUS_PROBLEMS; an OK line per linked asset
-# that declares a capability; and an OK summary of how many entries are enabled and linked. A library that did not load
-# is a reading this section could not make. Every string from a set or an agent's directory passes the sanitizer.
+# whose own entry stands at an enabled asset's name, each counted in STATUS_PROBLEMS; one [UNREADABLE] line per input
+# the plan could not read, counted in STATUS_UNREADABLE; an OK line per linked asset that declares a capability;
+# and an OK summary of how many entries are enabled and linked. A library that did not load is a reading this section
+# could not make. Every string from a set or an agent's directory passes the sanitizer.
 status_assets() {
     heading "Assets"
     # shellcheck source=SCRIPTDIR/../../lib/ai-tools/assets.lib.sh
@@ -2931,11 +2932,15 @@ status_assets() {
         STATUS_PROBLEMS=$(( STATUS_PROBLEMS + 1 ))
     done
     for (( index = 0; index < ${#_AI_TOOLS_AS_ROW_SEVERITY[@]}; index++ )); do
-        [[ "${_AI_TOOLS_AS_ROW_SEVERITY[index]}" == attention ]] || continue
-        st ATTENTION "${_AI_TOOLS_AS_ROW_FINDING[index]}  $(ai_tools_log_sanitize "${_AI_TOOLS_AS_ROW_SUBJECT[index]}")"
+        case "${_AI_TOOLS_AS_ROW_SEVERITY[index]}" in
+            attention)  st ATTENTION "${_AI_TOOLS_AS_ROW_FINDING[index]}  $(ai_tools_log_sanitize "${_AI_TOOLS_AS_ROW_SUBJECT[index]}")"
+                        STATUS_PROBLEMS=$(( STATUS_PROBLEMS + 1 )) ;;
+            unreadable) st UNREADABLE "${_AI_TOOLS_AS_ROW_FINDING[index]}  $(ai_tools_log_sanitize "${_AI_TOOLS_AS_ROW_SUBJECT[index]}")"
+                        STATUS_UNREADABLE=$(( STATUS_UNREADABLE + 1 )) ;;
+            *)          continue ;;
+        esac
         reason="${_AI_TOOLS_AS_ROW_DETAIL[index]}"
         detail "$(ai_tools_log_sanitize "${reason:0:200}")"
-        STATUS_PROBLEMS=$(( STATUS_PROBLEMS + 1 ))
     done
     st OK "${#_AI_TOOLS_AS_ENTRIES[@]} asset(s) enabled in AI_TOOLS_ASSETS, ${linked} linked"
     return 0

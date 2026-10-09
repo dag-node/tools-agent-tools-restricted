@@ -82,17 +82,20 @@ write_conf() {
 
 # reconcile [NAME=value...] : run ai_tools_assets_reconcile in a fresh shell with the hooks (and any override given),
 # keeping the record stream in OUT, stderr in ERR, and the status the verb takes in RC: 1 for a write that failed, else
-# the stream's exit.
-OUT=""; ERR=""; RC=0
+# the stream's exit. PRELUDE, when set, is evaluated in that shell after the library loads, to stub what a case drives;
+# a case sets it for one call and clears it.
+OUT=""; ERR=""; RC=0; PRELUDE=""
 reconcile() {
     RC=0
     # shellcheck disable=SC2016
-    OUT="$(env "${HOOKS[@]}" "$@" bash -c 'source "$1" || exit 99; failed=0
+    OUT="$(env "${HOOKS[@]}" "$@" bash -c 'source "$1" || exit 99; eval "$2"; failed=0
         ai_tools_assets_reconcile root || failed=1
         status=0; ai_tools_records_get_exit_status || status=$?
-        (( failed )) && exit 1; exit "${status}"' _ "${LIB}" 2>"${TESTDIR}/err")" || RC=$?
+        (( failed )) && exit 1; exit "${status}"' _ "${LIB}" "${PRELUDE:-:}" 2>"${TESTDIR}/err")" || RC=$?
     ERR="$(<"${TESTDIR}/err")"
 }
+# has_row_at <severity> <finding> : succeed when a row carries <finding> at <severity>.
+has_row_at() { awk -F'\t' -v s="$1" -v f="$2" 'NR > 1 && $5 == s && $6 == f { found = 1 } END { exit !found }' <<< "${OUT}"; }
 # finding <id> : the finding of the first row whose item carries <id>, from OUT.
 finding() { awk -F'\t' -v id="$1" 'NR > 1 && index($9, id) { print $6; exit }' <<< "${OUT}"; }
 # detail <id> : that row's detail.
@@ -372,6 +375,40 @@ printf 'format=1\nrequires_capabilities=[skills.dynamic.v1]\n' > "${PKG}/acme/me
 asset_signing_seal "${PKG}/acme"; reconcile
 expect_state "${SKILL}" linked "the declaration with no substitution"
 
+# ── A scan that does not complete ────────────────────────────────────────────────────────────────────────────────────
+section "assets: a substitution scan that does not complete is a finding"
+# validate <prelude> <set-dir> [user] : the validator's findings over <set-dir> under the source profile, one
+# `<rule> <detail>` per line, after <prelude> ran in the same shell -- as root, or as <user>.
+validate() {
+    local -a runner=()
+    [[ -n "${3:-}" ]] && runner=( runuser -u "$3" -- )
+    # shellcheck disable=SC2016  # the $1, $2 and $3 are the inner shell's
+    "${runner[@]}" bash -c 'source "$1" 2>/dev/null || exit 99; eval "$2"; ai_tools_assets_validate_set "$3" source | cut -f1,3' \
+        _ "${LIB}" "$1" "$2" 2>/dev/null || true
+}
+asset_signing_build_set "${TESTDIR}" scan-hit; asset_signing_build_set "${TESTDIR}" scan-clean
+printf '\n!`date`\n' >> "${TESTDIR}/scan-hit/skills/scan-hit-pdf/SKILL.md"
+out="$(validate : "${TESTDIR}/scan-hit")"
+[[ "${out}" == "body.dynamic-injection"$'\t'"a line runs a command"* ]] && pass "control: a matching file is body.dynamic-injection" \
+    || fail "control: a matching file reads '${out}'"
+out="$(validate : "${TESTDIR}/scan-clean")"
+[[ -z "${out}" ]] && pass "control: a file without the substitution reads clean" || fail "control: a clean file reads '${out}'"
+# scan_failed <what> <prelude> [user] : the clean set, with the scan made to fail, is body.dynamic-injection naming
+# the incomplete scan.
+scan_failed() {
+    out="$(validate "$2" "${TESTDIR}/scan-clean" "${3:-}")"
+    if grep -q "^body.dynamic-injection"$'\t'"the scan did not complete (grep exit" <<< "${out}"; then
+        pass "$1: the scan is a finding, not a clean file"
+    else
+        fail "$1: the validator read '${out}'"
+    fi
+}
+scan_failed "grep exiting 2" 'grep() { return 2; }'
+scan_failed "grep absent from PATH" 'hash -p /nonexistent/grep grep'
+chmod 0000 "${TESTDIR}/scan-clean/skills/scan-clean-pdf/SKILL.md"
+scan_failed "an entry file the reader cannot read" : "${PROJECTS_USER}"
+chmod 0644 "${TESTDIR}/scan-clean/skills/scan-clean-pdf/SKILL.md"
+
 # ── Requirements ─────────────────────────────────────────────────────────────────────────────────────────────────────
 section "assets: a requirement is read, not skipped"
 set_case requires-base requires_base "requires_base above the installed base" "printf 'requires_base=99.0.0\n' >> ${SETCONF}"
@@ -423,6 +460,42 @@ dynamic_skill; AGENTS_LINE="agent-acme, agent-gamma"; write_conf "${SKILL}" "${S
 expect_state "${SKILL}" linked "an agent declaring no directory and no profile for the kind is not consulted"
 absent "${HOME_DIR}/.gamma/skills" && pass "a skills_dir-less agent gets no link" || fail "the agent gamma was given ${HOME_DIR}/.gamma/skills"
 manifest beta skills_dir=skills "asset_profiles=[skills.portable.v1]"
+
+# ── A failed discovery is not an empty receiver set ──────────────────────────────────────────────────────────────────
+section "assets: a provider discovery that fails leaves the receivers unknown"
+# receivers_unknown <what> : the last run wrote one unreadable receivers-unknown row and the entry as receivers-unknown,
+# left the view without a resolver link and the agent's links as the control placed them, and exited 5.
+receivers_unknown() {
+    if has_row_at unreadable receivers-unknown && [[ "$(finding "${SKILL}")" == receivers-unknown && "${RC}" == 5 ]]; then
+        pass "$1: one unreadable receivers-unknown row, the entry receivers-unknown, exit 5"
+    else
+        fail "$1: rc ${RC}, ${OUT:0:400}"
+    fi
+    if absent "${HOME_DIR}/skills/acme-pdf" && absent "${HOME_DIR}/subagents/acme-reviewer.md"; then
+        pass "$1: the view keeps no resolver link"
+    else
+        fail "$1: a resolver link is left in the view"
+    fi
+    [[ "$(readlink -- "${HOME_DIR}/.acme/skills/acme-pdf")" == "${HOME_DIR}/skills/acme-pdf" ]] \
+        && pass "$1: the agent's directory is not changed" || fail "$1: the agent's link was changed"
+}
+fresh; PRELUDE='ai_tools_enabled_agents() { return 2; }'; reconcile; PRELUDE=""
+receivers_unknown "an enabled-agents reader that exits 2"
+fresh; PRELUDE='ai_tools_enabled_agents() { printf "acme\t@fixture/acme\tacme\n"; return 2; }'; reconcile; PRELUDE=""
+receivers_unknown "a reader that prints a row, then exits 2"
+fresh; PRELUDE='ai_tools_installed_agents() { return 2; }'; reconcile; PRELUDE=""
+receivers_unknown "an installed-agents reader that exits 2"
+fresh; chmod 0775 "${AGENTS_D}"; reconcile; chmod 0755 "${AGENTS_D}"
+receivers_unknown "an untrusted manifest directory"
+dynamic_skill; AGENTS_LINE="agent-acme, agent-beta"; write_conf "${SKILL}" "${SUB}"
+chmod 0664 "${AGENTS_D}/beta.conf"; reconcile; chmod 0644 "${AGENTS_D}/beta.conf"
+expect_state "${SKILL}" linked "an untrusted manifest beside a trusted one: the asset is held to the agent that resolved"
+fresh; rm -rf "${HOME_DIR}"/.acme/*; AGENTS_LINE=""; write_conf "${SKILL}" "${SUB}"; reconcile
+if [[ "${RC}" == 0 ]] && linked skills/acme-pdf "${PKG}/acme/skills/acme-pdf" && absent "${HOME_DIR}/.acme/skills"; then
+    pass "AI_TOOLS_AGENTS=[] is a valid empty set: the view links, and no agent's directory is touched"
+else
+    fail "AI_TOOLS_AGENTS=[]: rc ${RC}, $(ls -la "${HOME_DIR}/.acme" 2>&1 | tr '\n' '|') ${OUT:0:300}"
+fi
 
 # ── Clash and shadowing ──────────────────────────────────────────────────────────────────────────────────────────────
 section "assets: the clash rule, shadowing"

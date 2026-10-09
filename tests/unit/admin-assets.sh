@@ -66,22 +66,24 @@ fresh() {
 
 # admin <words>... : run `ai-tools-admin <words>` through the sourced helper's dispatch, with the hooks; the record
 # stream in OUT, stderr in ERR, the exit in RC. `unload` as the first word removes the resolver after the helper loaded
-# it, which the include guard keeps the verb's own load from restoring.
-OUT=""; ERR=""; RC=0
+# it, which the include guard keeps the verb's own load from restoring. PRELUDE, when set, is evaluated
+# after the libraries load, to stub what a case drives; a case sets it for one call and clears it.
+OUT=""; ERR=""; RC=0; PRELUDE=""
 admin() {
     local unload=0
     [[ "${1:-}" == unload ]] && { unload=1; shift; }
     RC=0
     # shellcheck disable=SC2016
-    OUT="$(env "${HOOKS[@]}" bash -c 'helper="$1"; lib="$2"; unload="$3"; shift 3; words=( "$@" ); set --
+    OUT="$(env "${HOOKS[@]}" bash -c 'helper="$1"; lib="$2"; unload="$3"; prelude="$4"; shift 4; words=( "$@" ); set --
         source "${helper}" >/dev/null 2>&1 || exit 99
         source "${lib}" 2>/dev/null || true
         (( unload )) && unset -f ai_tools_assets_reconcile
+        eval "${prelude}"
         case "${words[0]}" in
             status_assets) STATUS_PROBLEMS=0; STATUS_UNREADABLE=0; status_assets
                            printf "problems=%s unreadable=%s\n" "${STATUS_PROBLEMS}" "${STATUS_UNREADABLE}" ;;
             *)             assets_dispatch "${words[@]:1}" ;;
-        esac' _ "${HELPER}" "${LIB_DIR}/assets.lib.sh" "${unload}" "$@" 2>"${TESTDIR}/err")" || RC=$?
+        esac' _ "${HELPER}" "${LIB_DIR}/assets.lib.sh" "${unload}" "${PRELUDE:-:}" "$@" 2>"${TESTDIR}/err")" || RC=$?
     ERR="$(<"${TESTDIR}/err")"
 }
 # refused <code> <status> <what> : the last call exited <status> with <code> on its own line.
@@ -223,6 +225,12 @@ done
 chmod 0664 "${CONF}"; admin status_assets
 grep -q 'enable-list-untrusted' <<< "${OUT}" && pass "an untrusted operator.conf renders enable-list-untrusted" || fail "untrusted: ${OUT:0:300}"
 chmod 0644 "${CONF}"
+PRELUDE='ai_tools_enabled_agents() { return 2; }'; admin status_assets; PRELUDE=""
+if grep -qE '\[UNREADABLE\] +receivers-unknown' <<< "${OUT}" && [[ "${OUT}" == *unreadable=1* ]]; then
+    pass "a provider reader that fails renders an UNREADABLE line, counted as a reading the section could not make"
+else
+    fail "a failed provider reader: ${OUT:0:400}"
+fi
 # The status section's own probe is ai_tools_assets_plan, which `unload` leaves; drive the missing library through it.
 # shellcheck disable=SC2016
 OUT="$(env "${HOOKS[@]}" bash -c 'helper="$1"; set --; source "${helper}" >/dev/null 2>&1
