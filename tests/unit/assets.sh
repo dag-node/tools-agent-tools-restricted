@@ -686,6 +686,59 @@ env "${HOOKS[@]}" bash -c 'source "$1"; ai_tools_assets_plan' _ "${LIB}" >/dev/n
 [[ "$(snapshot)" == "${before}" ]] && pass "ai_tools_assets_plan leaves the view and the agents' directories as they are" \
     || fail "the plan changed the tree"
 
+# ── The conformance checker reads the validator's status ─────────────────────────────────────────────────────────────
+section "assets: the conformance checker reads the validator's status as well as its findings"
+CHECKER="${CHECKOUT}/tools/checkers/assets-conformance.sh"
+if [[ ! -r "${CHECKER}" ]]; then
+    skip "the conformance checker" "no checkout holds ${CHECKER}"
+else
+    FIX="${TESTDIR}/fixtures"
+    # fixture <pass|fail> <name> <conf-line>... : a fixture holding the set acme, built to pass every rule base
+    # enforces, with a fixture.conf of the lines given.
+    fixture() {
+        local dir="${FIX}/$1/$2"
+        shift 2
+        rm -rf "${dir}"; mkdir -p "${dir}"; asset_signing_build_set "${dir}" acme
+        printf '%s\n' "$@" > "${dir}/fixture.conf"
+    }
+    # conformance <prelude> : the checker's run_fixtures over FIX, read out of the checker into a shell where <prelude>
+    # ran after the library loaded; the output in CHECK_OUT, the status in CHECK_RC.
+    conformance() {
+        CHECK_RC=0
+        # shellcheck disable=SC2016  # the $1 to $5 are the inner shell's
+        CHECK_OUT="$(bash -c 'set -euo pipefail; LIB_DIR="$1"; source "${LIB_DIR}/assets.lib.sh"
+            die() { printf "%s\n" "$*"; exit 1; }
+            eval "$2"; eval "$3"; eval "$4"; run_fixtures "$5"' _ "${LIB%/*}" "$(extract_function "${CHECKER}" selected)" \
+            "$(extract_function "${CHECKER}" run_fixtures)" "$1" "${FIX}" 2>&1)" || CHECK_RC=$?
+    }
+    fixture pass acme expect=pass
+    fixture fail kind.shape expect=fail rule=kind.shape
+    : > "${FIX}/fail/kind.shape/acme/skills/notes.md"
+    conformance :
+    if [[ "${CHECK_RC}" == 0 && "${CHECK_OUT}" == *"2 fixtures checked, 0 disagree"* ]]; then
+        pass "control: a pass fixture and a fail fixture agree, exit 0"
+    else
+        fail "control: rc ${CHECK_RC}: ${CHECK_OUT:0:300}"
+    fi
+    # disagrees <what> <name> <substring> : the last run exited 1 with a FAIL line for fixture <name> carrying
+    # <substring>.
+    disagrees() {
+        if [[ "${CHECK_RC}" == 1 ]] && grep -q "^FAIL $2: .*$3" <<< "${CHECK_OUT}"; then
+            pass "$1: a disagreement, exit 1"
+        else
+            fail "$1: rc ${CHECK_RC}: ${CHECK_OUT:0:300}"
+        fi
+    }
+    fixture pass acme expect=pass profile=unsupported; conformance :
+    disagrees "a pass fixture under profile=unsupported" acme "profile=unsupported"
+    fixture pass acme expect=pass; conformance 'ai_tools_assets_validate_set() { return 2; }'
+    disagrees "a validator that prints nothing and returns 2" acme "status 2"
+    conformance 'ai_tools_assets_validate_set() { printf "kind.shape\tskills/notes.md\tx\n"; return 3; }'
+    disagrees "the expected finding, then a return of 3" kind.shape "status 3"
+    fixture pass acme rule=none; conformance :
+    disagrees "a fixture.conf without expect" acme "expect=(absent)"
+fi
+
 # ── Marker-aware code meets a view link ──────────────────────────────────────────────────────────────────────────────
 section "assets: a managed-copy site skips a symlink"
 fresh

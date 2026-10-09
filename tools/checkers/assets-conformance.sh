@@ -17,11 +17,11 @@
 # made by a key whose primary fingerprint is the dag-node package-signing primary, read through the key base itself
 # ships (src/usr/local/lib/ai-tools/keys/dag-node-package-signing.asc), so the anchor is the one every set binding
 # names. A fixture is selected when its `rule=` is one AI_TOOLS_ASSETS_ENFORCED_RULES lists; the job then asserts
-# the validator reports that rule and no other, and over every `pass/` fixture that it reports nothing. Two selections
-# are narrower than the rule: of `name.asset-prefix`, the `.reserved` variant alone, since base enforces the reserved
-# half and the `<set>-` prefix is the publisher's check; and of `body.dynamic-injection`, every variant
-# but `.not-allowed*`, whose outcome turns on publisher.conf, a file that does not reach a host. Every other fixture is
-# counted and skipped.
+# the validator returns 1 reporting that rule and no other, and over every `pass/` fixture that it returns 0 reporting
+# nothing (run_fixtures states the disagreements). Two selections are narrower than the rule: of `name.asset-prefix`,
+# the `.reserved` variant alone, since base enforces the reserved half and the `<set>-` prefix is the publisher's check;
+# and of `body.dynamic-injection`, every variant but `.not-allowed*`, whose outcome turns on publisher.conf, a file
+# that does not reach a host. Every other fixture is counted and skipped.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
@@ -79,9 +79,13 @@ selected() {
 }
 
 # run_fixtures <fixtures-dir> : the validator over every fixture; prints each disagreement and the counts, and exits 1
-# on a disagreement or when no fixture was checked.
+# on a disagreement or when no fixture was checked. The validator's output and its status are read apart: a pass fixture
+# holds when it returns 0 with no finding, a fail fixture when it returns 1 with its rule alone, and any other status is
+# a disagreement. A fixture whose `expect` is not pass, fail or warn, whose `profile` is neither source nor release,
+# or which does not hold exactly one set directory is a disagreement before the validator runs; a `warn` fixture is
+# skipped.
 run_fixtures() {
-    local fixtures="$1" fixture name conf expect rule profile set_dir output rules checked=0 skipped=0 failed=0
+    local fixtures="$1" fixture name conf expect rule profile set_dir output rules status checked=0 skipped=0 failed=0
     local -a set_dirs=()
     # shellcheck source=SCRIPTDIR/../../src/usr/local/lib/ai-tools/assets.lib.sh
     source "${LIB_DIR}/assets.lib.sh" || die "assets.lib.sh did not load"
@@ -91,24 +95,35 @@ run_fixtures() {
         expect="$(ai_tools_conf_get "${conf}" expect || true)"
         rule="$(ai_tools_conf_get "${conf}" rule || true)"
         profile="$(ai_tools_conf_get "${conf}" profile || true)"
+        # `warn` is a finding the publisher reports and does not refuse on; base does not report a warning, so it is skipped.
+        if [[ "${expect}" == warn ]]; then skipped=$(( skipped + 1 )); continue; fi
+        if [[ "${expect}" != fail && "${expect}" != pass ]]; then
+            printf 'FAIL %s: expect=%s; a fixture expects pass, fail or warn\n' "${name}" "${expect:-(absent)}"; failed=$(( failed + 1 )); continue
+        fi
         if [[ "${expect}" == fail ]] && ! selected "${name}" "${rule}"; then skipped=$(( skipped + 1 )); continue; fi
-        if [[ "${expect}" != fail && "${expect}" != pass ]]; then skipped=$(( skipped + 1 )); continue; fi
+        if [[ -n "${profile}" && "${profile}" != source && "${profile}" != release ]]; then
+            printf 'FAIL %s: profile=%s; the validator reads source or release\n' "${name}" "${profile}"; failed=$(( failed + 1 )); continue
+        fi
         mapfile -t set_dirs < <(find "${fixture}" -mindepth 1 -maxdepth 1 -type d)
         if (( ${#set_dirs[@]} != 1 )); then
             printf 'FAIL %s: the fixture does not hold exactly one set directory\n' "${name}"; failed=$(( failed + 1 )); continue
         fi
         set_dir="${set_dirs[0]}"
-        output="$(ai_tools_assets_validate_set "${set_dir}" "${profile:-source}" || true)"
+        status=0
+        output="$(ai_tools_assets_validate_set "${set_dir}" "${profile:-source}")" || status=$?
         rules=""
         [[ -z "${output}" ]] || rules="$(cut -f1 <<< "${output}" | LC_ALL=C sort -u | tr '\n' ' ')"
         checked=$(( checked + 1 ))
-        if [[ "${expect}" == pass && -n "${output}" ]]; then
-            printf 'FAIL %s: a pass fixture, reported: %s\n' "${name}" "${output//$'\n'/ | }"; failed=$(( failed + 1 ))
-        elif [[ "${expect}" == fail && "${rules}" != "${rule} " ]]; then
-            printf 'FAIL %s: want %s alone, reported: %s\n' "${name}" "${rule}" "${rules:-nothing}"; failed=$(( failed + 1 ))
+        if [[ "${expect}" == pass && ( "${status}" != 0 || -n "${output}" ) ]]; then
+            output="${output//$'\n'/ | }"
+            printf 'FAIL %s: a pass fixture, status %s, reported: %s\n' "${name}" "${status}" "${output:-nothing}"
+            failed=$(( failed + 1 ))
+        elif [[ "${expect}" == fail && ( "${status}" != 1 || "${rules}" != "${rule} " ) ]]; then
+            printf 'FAIL %s: want %s alone at status 1, status %s, reported: %s\n' "${name}" "${rule}" "${status}" "${rules:-nothing}"
+            failed=$(( failed + 1 ))
         fi
     done
-    printf 'assets-conformance: %d fixtures checked, %d disagree, %d skipped (a rule base does not enforce, or a variant that turns on publisher.conf)\n' \
+    printf 'assets-conformance: %d fixtures checked, %d disagree, %d skipped (a rule base does not enforce, a variant that turns on publisher.conf, or a warning)\n' \
         "${checked}" "${failed}" "${skipped}"
     (( checked > 0 )) || die "no fixture was checked under ${fixtures}"
     (( failed == 0 ))
