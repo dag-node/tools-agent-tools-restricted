@@ -93,6 +93,20 @@ readonly -a AI_TOOLS_ASSETS_KIND_ROWS=(
 readonly -a AI_TOOLS_ASSETS_CAPABILITIES=( skills.portable.v1 subagents.claude.v1 skills.dynamic.v1 )
 readonly AI_TOOLS_ASSETS_DYNAMIC_CAPABILITY=skills.dynamic.v1
 
+# The rule ids of format 1 this library is held to the publisher's validator on, the one list the conformance job
+# (tools/checkers/assets-conformance.sh) selects the publisher's fixtures by: base refuses a fixture of each
+# under the same id. frontmatter.syntax is reported too, for a frontmatter shape the bounded reader does not take,
+# and is not on the list: base reads the key names and two values, so most of the publisher's syntax fixtures break
+# a value base does not read.
+# shellcheck disable=SC2034  # read by the conformance job
+readonly -a AI_TOOLS_ASSETS_ENFORCED_RULES=(
+    set.conf.missing set.conf.syntax set.conf.required-key set.conf.format set.conf.name set.conf.version
+    set.conf.requires-capabilities set.conf.requires-integrations set.conf.unknown-key set.entry.unknown
+    set.entry.reserved kind.shape kind.reserved name.grammar name.asset-prefix name.frontmatter frontmatter.missing
+    frontmatter.required frontmatter.refused-key body.dynamic-injection metadata.asset-conf file.symlink file.hardlink
+    file.special file.size file.name release.inventory
+)
+
 # The enforced subset of format 1, under the format's rule ids. Entry names carry their type, `f` or `d`.
 readonly -a _AI_TOOLS_AS_SET_ENTRIES=( set.conf:f CHANGELOG.md:f README.md:f LICENSE:f LICENSES:d plugin.json:f
                                        .claude-plugin:d skills:d agents:d metadata:d )
