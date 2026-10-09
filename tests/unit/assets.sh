@@ -272,6 +272,21 @@ shape_case file.hardlink "a second hard link" 'ln "${PKG}/acme/README.md" "${PKG
 shape_case file.special "a FIFO" 'mkfifo -m 0644 "${PKG}/acme/skills/acme-pdf/pipe"'
 shape_case file.size "a file over 1 MiB" 'head -c 1048577 /dev/zero > "${PKG}/acme/skills/acme-pdf/large.md"; chmod 0644 "${PKG}/acme/skills/acme-pdf/large.md"'
 shape_case file.size "2001 files" 'mkdir -m 0755 "${PKG}/acme/skills/acme-pdf/many"; for i in $(seq 1 2001); do : > "${PKG}/acme/skills/acme-pdf/many/f${i}"; done; chmod 0644 "${PKG}/acme/skills/acme-pdf/many"/*'
+fresh
+deep="${PKG}/acme/skills/acme-pdf"; for level in $(seq 1 40); do deep+="/d${level}"; done
+mkdir -p "${deep}"; asset_signing_seal "${PKG}/acme"
+# shellcheck disable=SC2016  # the $1 to $3 are the inner shell's
+deepest="$(bash -c 'source "$1" 2>/dev/null || exit 99; copy_to="$3"
+    find() { command find "$@" | tee -a "${copy_to}"; return "${PIPESTATUS[0]}"; }
+    ai_tools_assets_validate_set "$2" source | cut -f1' _ "${LIB}" "${PKG}/acme" "${TESTDIR}/deep-listing")"
+listed_depth="$(tr '\0' '\n' < "${TESTDIR}/deep-listing" | awk -F'\t' 'NF == 5 && $4 > max { max = $4 } END { print max + 0 }')"
+if [[ "${deepest}" == file.size && "${listed_depth}" == 33 ]]; then
+    pass "a tree 42 levels deep is file.size, and the walk lists no entry past level 33"
+else
+    fail "a deep tree: findings '${deepest}', deepest entry listed at level ${listed_depth}"
+fi
+reconcile
+expect_state "${SKILL}" set-invalid "a tree past the depth bound, through the resolver"
 shape_case file.name "a name outside the portable set" ': > "${PKG}/acme/skills/acme-pdf/two words.md"; chmod 0644 "${PKG}/acme/skills/acme-pdf/two words.md"'
 
 # ── The set-scope rules of the subset ────────────────────────────────────────────────────────────────────────────────

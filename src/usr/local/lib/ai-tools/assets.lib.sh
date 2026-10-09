@@ -376,8 +376,10 @@ _ai_tools_as_finding() {
 # status is read, so an enumeration that ended early is a finding and not a smaller tree. Records each regular file
 # and directory the later rules read in _AI_TOOLS_AS_FILES and _AI_TOOLS_AS_DIRS (relative path -> 1). An entry
 # whose name is outside the portable set is reported once and not read further, its subtree with it; a link, a special
-# file and a file with a second link are reported and not recorded. Returns 1 when the walk stopped at a bound (one
-# file.size finding at the set root) or did not complete, after which no later rule runs.
+# file and a file with a second link are reported and not recorded. find descends one level past the depth bound and no
+# further, so a directory at that level stops the walk without a deeper tree being listed first. Returns 1 when the walk
+# stopped at a bound (one file.size finding at the set root) or did not complete, after which no later rule
+# runs.
 _ai_tools_as_walk_tree() {
     local set_dir="$1" listing record type links size depth path name parent probe walk_error walk_status=0 entry_count
     local file_max="${AI_TOOLS_ASSETS_FILE_MAX_BYTES:-1048576}" count_max="${AI_TOOLS_ASSETS_FILE_MAX_COUNT:-2000}"
@@ -387,7 +389,8 @@ _ai_tools_as_walk_tree() {
     declare -gA _AI_TOOLS_AS_FILES=() _AI_TOOLS_AS_DIRS=()
     listing="$(mktemp 2>/dev/null)" \
         || { _ai_tools_as_finding file.special set-invalid . "no temporary file for the walk"; return 1; }
-    walk_error="$( (find -P "${set_dir}" -mindepth 1 -printf '%y\t%n\t%s\t%d\t%P\0' > "${listing}") 2>&1 )" \
+    walk_error="$( (find -P "${set_dir}" -mindepth 1 -maxdepth "$(( _AI_TOOLS_AS_MAX_DEPTH + 1 ))" \
+                        -printf '%y\t%n\t%s\t%d\t%P\0' > "${listing}") 2>&1 )" \
         || walk_status=$?
     if (( walk_status != 0 )); then
         rm -f -- "${listing}"
@@ -1190,14 +1193,16 @@ _ai_tools_as_prepare_dir() {
 
 # _ai_tools_as_trust_walk <copy-dir> : succeed when the set directory and every entry under it are root-owned, and every
 # entry but a symbolic link is writable by neither group nor other, read with lstat by one `find` whose status is read.
-# A link is the file-shape rules' to refuse. Prints the reason on failure.
+# A link is the file-shape rules' to refuse. The walk stops one level past the file-shape walk's depth bound: a tree
+# deeper than that is refused by the file-shape walk that follows. Prints the reason on failure.
 _ai_tools_as_trust_walk() {
     local copy="$1" offender walk_status=0
     if ! ai_tools_conf_is_trusted "${copy}" || [[ ! -d "${copy}" ]]; then
         printf '%s %s' "$(_ai_tools_as_display "${copy}")" "$(ai_tools_conf_untrusted_reason "${copy}")"
         return 1
     fi
-    offender="$(find -P "${copy}" -mindepth 1 \( ! -uid 0 -o \( ! -type l -perm /022 \) \) -print -quit 2>/dev/null)" \
+    offender="$(find -P "${copy}" -mindepth 1 -maxdepth "$(( _AI_TOOLS_AS_MAX_DEPTH + 1 ))" \
+                    \( ! -uid 0 -o \( ! -type l -perm /022 \) \) -print -quit 2>/dev/null)" \
         || walk_status=$?
     if (( walk_status != 0 )); then
         printf 'the walk over %s did not complete (find exit %s)' "$(_ai_tools_as_display "${copy}")" "${walk_status}"
