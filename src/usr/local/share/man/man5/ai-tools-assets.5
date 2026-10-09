@@ -346,9 +346,10 @@ The shipped bindings.
 The view: one link per linked asset, beside the copies the package seeds there.
 .TP
 .I /run/lock/ai\-tools/assets.lock
-The lock
-.B "ai\-tools\-admin assets reconcile"
-takes, in a directory only root can enter.
+The lock every
+.B "ai\-tools\-admin assets"
+command takes, and every installer or package step that seeds the shared
+assets, in a directory only root can enter.
 A run that waits more than two minutes for it refuses, with the view and the
 agents' links as they were.
 .TP

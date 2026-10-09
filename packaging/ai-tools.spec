@@ -740,14 +740,15 @@ fi
 # host that never sees these lines cannot tell that a shipped asset moved. The kinds come from the
 # library's own AI_TOOLS_ASSET_KINDS rather than being spelled here, so this scriptlet cannot fall
 # behind the set the library seeds.
+# The asset view follows the seeder and the retired-list pass: one link per asset AI_TOOLS_ASSETS enables under
+# /opt/ai-tools/<kind>, and each enabled agent's links into that root (assets.lib.sh). The three run in the one bash
+# under the assets lock (ai_tools_assets_lock), which the reconcile adopts, so an `ai-tools-admin assets` verb run during
+# the transaction does not interleave its writes with theirs; a lock that cannot be taken skips the three with MSG-M8T9.
+# The reconcile's record stream goes to the assets log, since this scriptlet's stdout is the transaction's;
+# a reconcile that does not complete here runs again from the next trigger or `ai-tools-admin assets reconcile`.
 if command -v bash >/dev/null 2>&1; then
-    AI_TOOLS_ASSUME_YES=1 bash -c '. /usr/local/lib/ai-tools/msg.lib.sh; . /usr/local/lib/ai-tools/conf.lib.sh; . /usr/local/lib/ai-tools/managed-assets.lib.sh; for kind in "${AI_TOOLS_ASSET_KINDS[@]}"; do [ -d "$1/${kind}" ] || continue; ai_tools_seed_managed_assets "$1" /opt/ai-tools ai-tools "${kind}"; ai_tools_remove_retired_assets /opt/ai-tools "${kind}"; ai_tools_link_asset_readme "$1/${kind}/README.md" "/opt/ai-tools/${kind}" ai-tools; done' _ %{_datadir}/ai-tools || :
+    AI_TOOLS_ASSUME_YES=1 bash -c '. /usr/local/lib/ai-tools/msg.lib.sh; . /usr/local/lib/ai-tools/conf.lib.sh; . /usr/local/lib/ai-tools/managed-assets.lib.sh; ai_tools_assets_lock || exit 0; for kind in "${AI_TOOLS_ASSET_KINDS[@]}"; do [ -d "$1/${kind}" ] || continue; ai_tools_seed_managed_assets "$1" /opt/ai-tools ai-tools "${kind}"; ai_tools_remove_retired_assets /opt/ai-tools "${kind}"; ai_tools_link_asset_readme "$1/${kind}/README.md" "/opt/ai-tools/${kind}" ai-tools; done; "$2" assets reconcile >/dev/null || :; ai_tools_assets_unlock' _ %{_datadir}/ai-tools %{ai_libexecdir}/ai-tools-admin || :
 fi
-# The asset view, after the seeder and the retired-list pass: one link per asset AI_TOOLS_ASSETS enables under
-# /opt/ai-tools/<kind>, and each enabled agent's links into that root (assets.lib.sh). The record stream goes to the
-# assets log, since this scriptlet's stdout is the transaction's; a reconcile that does not complete here runs again
-# from the next trigger or `ai-tools-admin assets reconcile`.
-%{ai_libexecdir}/ai-tools-admin assets reconcile >/dev/null || :
 # Direct the operator to the per-operator / network steps a scriptlet must not take itself.
 # Each is gated on the state it would create rather than on install-vs-upgrade, so an upgrade
 # names only what this host still owes, a step undone since an earlier run included. An operator
@@ -1108,11 +1109,10 @@ chmod 2770 /opt/ai-tools/integrations/typesafe 2>/dev/null || :
 # datadir, but on a first install it runs before this package's files are on disk -- so this package
 # places its own asset, with the same lib under an explicit bash and the same pre-answered confirm
 # (base's %%post says why). Every other skill in the datadir is already at its live version, so
-# the pass leaves it alone.
+# the pass leaves it alone. The seed and the reconcile run under the assets lock, as in base's %%post.
 if command -v bash >/dev/null 2>&1; then
-    AI_TOOLS_ASSUME_YES=1 bash -c '. /usr/local/lib/ai-tools/msg.lib.sh; . /usr/local/lib/ai-tools/conf.lib.sh; . /usr/local/lib/ai-tools/managed-assets.lib.sh; ai_tools_seed_managed_assets "$1" /opt/ai-tools ai-tools skills' _ %{_datadir}/ai-tools || :
+    AI_TOOLS_ASSUME_YES=1 bash -c '. /usr/local/lib/ai-tools/msg.lib.sh; . /usr/local/lib/ai-tools/conf.lib.sh; . /usr/local/lib/ai-tools/managed-assets.lib.sh; ai_tools_assets_lock || exit 0; ai_tools_seed_managed_assets "$1" /opt/ai-tools ai-tools skills; "$2" assets reconcile >/dev/null 2>&1 || :; ai_tools_assets_unlock' _ %{_datadir}/ai-tools %{ai_libexecdir}/ai-tools-admin || :
 fi
-%{ai_libexecdir}/ai-tools-admin assets reconcile >/dev/null 2>&1 || :
 
 %postun -n ai-tools-integration-typesafe
 # On final erase, withdraw the skill this package seeded: the live copy is not rpm-owned, so it
@@ -1121,8 +1121,7 @@ fi
 # ai-tools-typesafe-filter (no managed marker) is kept. The credential file and the state root
 # stay, as every integration's state does.
 if [ "$1" -eq 0 ] && [ -r /usr/local/lib/ai-tools/managed-assets.lib.sh ] && command -v bash >/dev/null 2>&1; then
-    bash -c '. /usr/local/lib/ai-tools/msg.lib.sh; . /usr/local/lib/ai-tools/conf.lib.sh; . /usr/local/lib/ai-tools/managed-assets.lib.sh; ai_tools_withdraw_asset /opt/ai-tools skills ai-tools-typesafe-filter "package removed"' || :
-    %{ai_libexecdir}/ai-tools-admin assets reconcile >/dev/null 2>&1 || :
+    bash -c '. /usr/local/lib/ai-tools/msg.lib.sh; . /usr/local/lib/ai-tools/conf.lib.sh; . /usr/local/lib/ai-tools/managed-assets.lib.sh; ai_tools_assets_lock || exit 0; ai_tools_withdraw_asset /opt/ai-tools skills ai-tools-typesafe-filter "package removed"; "$1" assets reconcile >/dev/null 2>&1 || :; ai_tools_assets_unlock' _ %{ai_libexecdir}/ai-tools-admin || :
 fi
 
 %post -n ai-tools-agents-claude-code-restricted

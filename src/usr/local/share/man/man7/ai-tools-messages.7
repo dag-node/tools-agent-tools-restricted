@@ -1145,6 +1145,10 @@ control plane present but the managed\-asset libs are missing \-\- reinstall ai\
 ERROR.
 cannot run the sandbox toolchain: ${_sandbox_exec_lib}, ${_toolchain_lib} or the log library did not load, and they are what run that account's files without root's terminal and keep their bytes off it \-\- reinstall ai\-tools\-base, then re\-run: sudo ai\-tools\-admin system bootstrap
 .TP
+.B MSG-F3H4
+WARNING.
+managed assets: not seeded, and the asset view not reconciled \-\- the assets lock could not be taken; run sudo ai\-tools\-admin system bootstrap again once the other assets command has ended
+.TP
 .B MSG-F3Y2
 ERROR.
 npm signature verification FAILED (possible registry tampering) \-\- aborting before wiring the launcher; the installed package is left unactivated
@@ -1763,10 +1767,6 @@ WARNING.
 left ${hardlinked} hardlinked file(s) untouched \-\- an inode with more than one name can be reached from outside this tree, so changing it here would change a path this pass never authorized. They KEEP the group they have, so the agent is not off them: list them with
 .SS assets.lib.sh
 .TP
-.B MSG-M8T9
-ERROR.
-the lock ${AI_TOOLS_ASSETS_LOCK} could not be taken (${_AI_TOOLS_AS_LOCK_ERROR}), so the view was not read or changed
-.TP
 .B MSG-Z3P6
 WARNING.
 assets reconcile: an enable\-list entry's state, or a link the view transaction placed, removed or found
@@ -1975,6 +1975,10 @@ installing work in progress: the ${total} uncommitted path(s) deploy as root (\-
 .B MSG-E5S3
 WARNING.
 nvm 'default' alias not set \-\- launcher symlinks skipped
+.TP
+.B MSG-E6N7
+WARNING.
+the shared assets were not seeded and the asset view was not reconciled: the assets lock could not be taken \-\- run: sudo ./install.sh install, once the other assets command has ended
 .TP
 .B MSG-E7D7
 WARNING.

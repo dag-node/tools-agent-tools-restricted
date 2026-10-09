@@ -2429,29 +2429,37 @@ do_install() {
     install -o root -g root -m 644 "${SCRIPT_DIR}/src/usr/share/ai-tools/audit/ai-tools-cmd.rules.example" \
         /usr/share/ai-tools/audit/ai-tools-cmd.rules.example
 
-    for _kind in "${AI_TOOLS_ASSET_KINDS[@]}"; do
-        _shared="${CP_HOME}/${_kind}"
-        log "${_shared}/ (shared ${_kind}, symlinked into every agent that reads them)"
-        ensure_dir "${CP_DIR_MODES[${_kind}]}" root "${SANDBOX_GROUP}" "${_shared}"
-        chown "root:${SANDBOX_GROUP}" "${_shared}"
-        ai_tools_apply_mode "${CP_DIR_MODES[${_kind}]}" "${_shared}"
-        ai_tools_seed_managed_assets /usr/share/ai-tools "${CP_HOME}" "${SANDBOX_GROUP}" "${_kind}"
-        ai_tools_remove_retired_assets "${CP_HOME}" "${_kind}"
-        ai_tools_link_asset_readme "/usr/share/ai-tools/${_kind}/README.md" \
-            "${_shared}" "${SANDBOX_GROUP}"
-    done
+    # The seeder, the retired-list pass and the reconcile write the shared roots, and run under the assets lock
+    # (managed-assets.lib.sh) as one step, so an `ai-tools-admin assets` verb run beside this install does not
+    # interleave its writes with theirs; the reconcile adopts the lock this shell holds.
+    if ai_tools_assets_lock; then
+        for _kind in "${AI_TOOLS_ASSET_KINDS[@]}"; do
+            _shared="${CP_HOME}/${_kind}"
+            log "${_shared}/ (shared ${_kind}, symlinked into every agent that reads them)"
+            ensure_dir "${CP_DIR_MODES[${_kind}]}" root "${SANDBOX_GROUP}" "${_shared}"
+            chown "root:${SANDBOX_GROUP}" "${_shared}"
+            ai_tools_apply_mode "${CP_DIR_MODES[${_kind}]}" "${_shared}"
+            ai_tools_seed_managed_assets /usr/share/ai-tools "${CP_HOME}" "${SANDBOX_GROUP}" "${_kind}"
+            ai_tools_remove_retired_assets "${CP_HOME}" "${_kind}"
+            ai_tools_link_asset_readme "/usr/share/ai-tools/${_kind}/README.md" \
+                "${_shared}" "${SANDBOX_GROUP}"
+        done
 
-    # The asset view, and every enabled agent's links into the shared roots, the seeded copies' links included:
-    # the assets reconcile owns each of them, and the installer runs it. Its record stream goes to the assets log;
-    # the installer reports the outcome the exit states.
-    log "reconciling the asset view and each enabled agent's links (ai-tools-admin assets reconcile)"
-    local _reconcile_status=0
-    /usr/local/libexec/ai-tools/ai-tools-admin assets reconcile >/dev/null || _reconcile_status=$?
-    case "${_reconcile_status}" in
-        0) ;;
-        4) warn MSG-G2U4 "an asset AI_TOOLS_ASSETS enables is not linked -- sudo ai-tools-admin status names each one and why" ;;
-        *) warn MSG-P2N9 "the asset reconcile did not complete (exit ${_reconcile_status}) -- run: sudo ai-tools-admin assets reconcile" ;;
-    esac
+        # The asset view, and every enabled agent's links into the shared roots, the seeded copies' links included:
+        # the assets reconcile owns each of them, and the installer runs it. Its record stream goes to the assets log;
+        # the installer reports the outcome the exit states.
+        log "reconciling the asset view and each enabled agent's links (ai-tools-admin assets reconcile)"
+        local _reconcile_status=0
+        /usr/local/libexec/ai-tools/ai-tools-admin assets reconcile >/dev/null || _reconcile_status=$?
+        case "${_reconcile_status}" in
+            0) ;;
+            4) warn MSG-G2U4 "an asset AI_TOOLS_ASSETS enables is not linked -- sudo ai-tools-admin status names each one and why" ;;
+            *) warn MSG-P2N9 "the asset reconcile did not complete (exit ${_reconcile_status}) -- run: sudo ai-tools-admin assets reconcile" ;;
+        esac
+        ai_tools_assets_unlock
+    else
+        warn MSG-E6N7 "the shared assets were not seeded and the asset view was not reconciled: the assets lock could not be taken -- run: sudo ./install.sh install, once the other assets command has ended"
+    fi
 
     # Codex reads skills at its admin scope, /etc/codex/skills, and its manifest does not declare a skills_dir,
     # so the shared root is linked there by name: a symlink to the live root when the path is free, and what a host

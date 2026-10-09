@@ -18,6 +18,11 @@
 # by install.sh, ai-tools-bootstrap and base's %post, all root, after msg.lib.sh and conf.lib.sh. The placement chain,
 # the versioning scheme, the integration binding and withdrawal are in shipped-assets.rule.md.
 
+# Every writer of the shared roots -- this seeder and the retired-list pass, the assets reconcile (assets.lib.sh),
+# and the `ai-tools-admin assets` verbs -- runs under one lock, the pair ai_tools_assets_lock / ai_tools_assets_unlock
+# defined here, where every provisioning path already sources it. The seeder itself does not take it: its callers hold
+# it across the seed, the retire pass and the reconcile.
+#
 # Withdrawing an asset needs its own step: the seeder only adds and updates, and the live roots are not rpm-owned,
 # so a name this project stops shipping stays live on an upgraded host until it is named here.
 # `ai_tools_remove_retired_assets` reads this list; the next `ai-tools-admin assets reconcile` drops each agent's
@@ -29,6 +34,86 @@ if [[ -n "${_AI_TOOLS_MANAGED_ASSETS_LIB:-}" ]]; then
     return 0
 fi
 readonly _AI_TOOLS_MANAGED_ASSETS_LIB=1
+
+# ── The assets lock ──────────────────────────────────────────────────────────────────────────────────────────────────
+# The lock sits in a directory created 0700 root:root and is created under umask 077, so no other account can open it,
+# read-only included: flock(2) takes an exclusive lock through a read-only descriptor, so a file another account can
+# open is one it can hold. AI_TOOLS_ASSETS_LOCK and AI_TOOLS_ASSETS_LOCK_WAIT are root-only test hooks with the standing
+# of AI_TOOLS_ASSETS_BINDINGS_DIR: sudo strips the names, and every consumer runs as root.
+: "${AI_TOOLS_ASSETS_LOCK:=/run/lock/ai-tools/assets.lock}"
+: "${AI_TOOLS_ASSETS_LOCK_WAIT:=120}"
+_AI_TOOLS_ASSETS_LOCK_DEPTH=0
+_AI_TOOLS_ASSETS_LOCK_FD=""
+
+# ai_tools_assets_lock : hold the assets lock until the matching ai_tools_assets_unlock or the end of the calling
+# process. Call it in the calling shell, never through `$(...)`: the lock is an open file descriptor. Reentrant: a call
+# while the lock is held counts a level and returns 0. The descriptor is exported as AI_TOOLS_ASSETS_LOCK_FD, so a child
+# this process runs -- `ai-tools-admin assets reconcile` under a provisioning path -- adopts the descriptor it inherited
+# instead of opening its own, which would wait on its parent: it adopts one only after the descriptor names the lock
+# file, and still takes flock(2) on it, which returns at once when the parent holds the lock. Waits
+# up to AI_TOOLS_ASSETS_LOCK_WAIT seconds (120 when it is not a whole number), then refuses rather than hold a package
+# transaction. Returns 1, after MSG-M8T9 naming why on stderr and in journald, for a directory or a lock file that is
+# a symlink or not root's alone, a create or an open that fails, and a wait that runs out.
+ai_tools_assets_lock() {
+    local lock="${AI_TOOLS_ASSETS_LOCK}" dir="${AI_TOOLS_ASSETS_LOCK%/*}" wait="${AI_TOOLS_ASSETS_LOCK_WAIT}" fd=""
+    local inherited="${AI_TOOLS_ASSETS_LOCK_FD:-}" error="" adopted=0
+    if (( _AI_TOOLS_ASSETS_LOCK_DEPTH > 0 )); then
+        _AI_TOOLS_ASSETS_LOCK_DEPTH=$(( _AI_TOOLS_ASSETS_LOCK_DEPTH + 1 ))
+        return 0
+    fi
+    [[ "${wait}" =~ ^[0-9]+$ ]] || wait=120
+    if [[ ! -e "${dir}" && ! -L "${dir}" ]]; then
+        install -d -o root -g root -m 0700 -- "${dir}" 2>/dev/null || true
+    fi
+    if ! declare -F ai_tools_conf_is_trusted >/dev/null 2>&1; then
+        error="conf.lib.sh is not loaded, so the lock's owner cannot be read"
+    elif ! ai_tools_conf_is_trusted "${dir}" || [[ ! -d "${dir}" ]]; then
+        error="${dir} $(ai_tools_conf_untrusted_reason "${dir}"), or is not a directory"
+    # Created by a simple command in a subshell holding the umask, so a failed create is a status and not a redirection
+    # error on the shell's own exec.
+    elif ! ( umask 077; [[ -L "${lock}" ]] || : >> "${lock}" ) 2>/dev/null \
+            || ! ai_tools_conf_is_trusted "${lock}" || [[ ! -f "${lock}" ]]; then
+        error="${lock} $(ai_tools_conf_untrusted_reason "${lock}"), or is not a regular file"
+    elif [[ "${inherited}" =~ ^[0-9]+$ && -e "/proc/self/fd/${inherited}" ]] \
+            && [[ "$(stat -L -c '%d:%i' -- "/proc/self/fd/${inherited}" 2>/dev/null)" == "$(stat -c '%d:%i' -- "${lock}" 2>/dev/null)" ]]; then
+        fd="${inherited}"; adopted=1
+    elif ! { exec {fd}>>"${lock}"; } 2>/dev/null; then
+        error="${lock} could not be opened"
+    fi
+    if [[ -z "${error}" ]] && ! flock -w "${wait}" "${fd}" 2>/dev/null; then
+        (( adopted )) || exec {fd}>&-
+        error="another run held it for more than ${wait} seconds"
+    fi
+    if [[ -n "${error}" ]]; then
+        _ai_tools_ma_refuse MSG-M8T9 "the lock ${lock} could not be taken (${error}), so the shared assets were not read or changed"
+        return 1
+    fi
+    _AI_TOOLS_ASSETS_LOCK_FD="${fd}"
+    _AI_TOOLS_ASSETS_LOCK_DEPTH=1
+    export AI_TOOLS_ASSETS_LOCK_FD="${fd}"
+}
+
+# _ai_tools_ma_refuse <code> <message> : a refusal on stderr, the code on its own line ahead of the message (the shape
+# tests/lib/harness.sh's assert_msg reads), and in journald where log.lib.sh is loaded.
+_ai_tools_ma_refuse() {
+    printf '%s\nassets: %s\n' "$1" "$2" >&2
+    if declare -F ai_tools_log_coded >/dev/null 2>&1; then
+        ai_tools_log_coded error "$1" "$2"
+    fi
+    return 0
+}
+
+# ai_tools_assets_unlock : release one level of ai_tools_assets_lock; the last closes the descriptor and drops
+# AI_TOOLS_ASSETS_LOCK_FD. Closing a descriptor a child adopted leaves the lock with the parent, which still holds
+# the same open file description. A no-op when the lock is not held.
+ai_tools_assets_unlock() {
+    (( _AI_TOOLS_ASSETS_LOCK_DEPTH > 0 )) || return 0
+    _AI_TOOLS_ASSETS_LOCK_DEPTH=$(( _AI_TOOLS_ASSETS_LOCK_DEPTH - 1 ))
+    (( _AI_TOOLS_ASSETS_LOCK_DEPTH == 0 )) || return 0
+    exec {_AI_TOOLS_ASSETS_LOCK_FD}>&-
+    _AI_TOOLS_ASSETS_LOCK_FD=""
+    unset AI_TOOLS_ASSETS_LOCK_FD
+}
 
 # One plain progress line (captured into the install log / bootstrap output); the box is reserved for attention
 # messages, so routine seed progress stays unframed. Per-asset status, printed under the directory heading its caller

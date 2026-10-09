@@ -3059,7 +3059,9 @@ status() {
 # ── assets ───────────────────────────────────────────────────────────────────────────────────────────────────────────
 # The `assets` domain: AI_TOOLS_ASSETS in operator.conf names the assets every enabled agent loads, and assets.lib.sh
 # resolves each to `linked` or a reason token and keeps the view and the agents' links current (shipped-assets.rule.md).
-# Every verb prints a record stream (ai-tools-records(5)): the rows of its own, then the rows the reconcile it ends
+# Every verb takes the assets lock (ai_tools_assets_lock) before its first read of operator.conf and holds it to its
+# exit, so two verbs at once each read the list the other wrote: lock, read, back up, write, plan, apply, report. Every
+# verb prints a record stream (ai-tools-records(5)): the rows of its own, then the rows the reconcile it ends
 # with writes. A verb exits 1 for a write refused or failed, else 5 when the library did not load, else 4
 # for an attention row, else 0. Each attention row is logged under its code to journald and to the root-only
 # assets.log.
@@ -3091,6 +3093,12 @@ _assets_info_row() {
     local code="$1" finding="$3" subject="$4" identifier="$5" detail="$6" item=""
     ai_tools_records_tsv_frame_item_components item "${identifier}" || item=""
     ai_tools_records_tsv_write_record "" "${code}" info "${finding}" file "" "${item}" "${subject}" "${detail}" || true
+}
+
+# assets_lock_or_exit: take the assets lock for the rest of the verb, or exit 1 with no input read and no link changed;
+# ai_tools_assets_lock has written the refusal under MSG-M8T9.
+assets_lock_or_exit() {
+    ai_tools_assets_lock || exit 1
 }
 
 # assets_read_list <array-name>: the entries of AI_TOOLS_ASSETS in the file the verbs write, after the checks the write
@@ -3150,6 +3158,7 @@ assets_enable() {
     esac
     assets_load
     ai_tools_records_begin_report
+    assets_lock_or_exit
     for identifier in "$@"; do
         status=0
         ai_tools_assets_parse_id "${identifier}" || status=$?
@@ -3179,6 +3188,7 @@ assets_enable_set() {
     (( $# == 1 )) || reject MSG-Z7D4 "assets enable --set takes exactly one set name"
     assets_load
     ai_tools_records_begin_report
+    assets_lock_or_exit
     ai_tools_assets_is_valid_set_name "${set}" \
         || die MSG-R3M6 "assets enable --set: '$(ai_tools_log_sanitize "${set}")' is not a set name -- 1-64 characters of a-z, 0-9 and single hyphens; AI_TOOLS_ASSETS is unchanged"
     ai_tools_assets_plan_set "${set}"
@@ -3211,6 +3221,7 @@ assets_disable() {
     (( $# > 0 )) || reject MSG-H7A8 "assets disable takes one or more <set>/<kind>/<name>"
     assets_load
     ai_tools_records_begin_report
+    assets_lock_or_exit
     assets_read_list entries
     for identifier in "$@"; do
         found=0
@@ -3243,6 +3254,7 @@ assets_reconcile_verb() {
     (( $# == 0 )) || reject MSG-M7S5 "assets reconcile takes no arguments"
     assets_load
     ai_tools_records_begin_report
+    assets_lock_or_exit
     assets_reconcile_now || status=$?
     assets_finish "${status}"
 }

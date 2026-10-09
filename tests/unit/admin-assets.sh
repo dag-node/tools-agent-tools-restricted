@@ -38,7 +38,7 @@ chmod 0755 "${TESTDIR}/local" "${PKG}" "${TESTDIR}/base" "${KEYS}" "${BINDINGS}"
 export ASSET_KEYS_DIR="${KEYS}" ASSET_BINDINGS_DIR="${BINDINGS}"
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")/../lib" && pwd)/asset-signing.sh"
 HOOKS=( "AI_TOOLS_ASSETS_ROOTS=${TESTDIR}/local ${PKG} ${TESTDIR}/base" "AI_TOOLS_ASSETS_BINDINGS_DIR=${BINDINGS}"
-        "AI_TOOLS_ASSETS_LOCK=${TESTDIR}/assets.lock" "AI_TOOLS_ASSETS_HOME=${HOME_DIR}" "AI_TOOLS_OPERATOR_CONF=${CONF}"
+        "AI_TOOLS_ASSETS_LOCK=${TESTDIR}/lock/assets.lock" "AI_TOOLS_ASSETS_HOME=${HOME_DIR}" "AI_TOOLS_OPERATOR_CONF=${CONF}"
         "AI_TOOLS_AGENTS_DIR=${AGENTS_D}" "AI_TOOLS_INTEGRATIONS_DIR=${INTEG_D}" )
 printf 'npm_package=@fixture/acme\nlauncher=acme\nconfig_dir=.acme\nskills_dir=skills\nsubagents_dir=agents\ndefault_enable=no\n' \
     > "${AGENTS_D}/acme.conf"
@@ -70,8 +70,9 @@ fresh() {
 # after the libraries load, to stub what a case drives; a case sets it for one call and clears it.
 OUT=""; ERR=""; RC=0; PRELUDE=""
 admin() {
-    local unload=0
+    local unload=0 err
     [[ "${1:-}" == unload ]] && { unload=1; shift; }
+    err="$(mktemp "${TESTDIR}/err.XXXXXX")"
     RC=0
     # shellcheck disable=SC2016
     OUT="$(env "${HOOKS[@]}" bash -c 'helper="$1"; lib="$2"; unload="$3"; prelude="$4"; shift 4; words=( "$@" ); set --
@@ -83,8 +84,9 @@ admin() {
             status_assets) STATUS_PROBLEMS=0; STATUS_UNREADABLE=0; status_assets
                            printf "problems=%s unreadable=%s\n" "${STATUS_PROBLEMS}" "${STATUS_UNREADABLE}" ;;
             *)             assets_dispatch "${words[@]:1}" ;;
-        esac' _ "${HELPER}" "${LIB_DIR}/assets.lib.sh" "${unload}" "${PRELUDE:-:}" "$@" 2>"${TESTDIR}/err")" || RC=$?
-    ERR="$(<"${TESTDIR}/err")"
+        esac' _ "${HELPER}" "${LIB_DIR}/assets.lib.sh" "${unload}" "${PRELUDE:-:}" "$@" 2>"${err}")" || RC=$?
+    ERR="$(<"${err}")"
+    rm -f -- "${err}"
 }
 # refused <code> <status> <what> : the last call exited <status> with <code> on its own line.
 refused() {
@@ -181,6 +183,44 @@ else
     fail "a link is left after disable"
 fi
 [[ -L "${HOME_DIR}/subagents/acme-reviewer.md" ]] && pass "the other entry stays linked" || fail "the other entry lost its link"
+
+# ── Two verbs at once ────────────────────────────────────────────────────────────────────────────────────────────────
+section "ai-tools-admin assets: two verbs at once each read the list the other wrote"
+# PAUSE holds a verb for two seconds after it read AI_TOOLS_ASSETS: under the lock taken before the read, the other verb
+# waits and then reads the list this one wrote.
+PAUSE='eval "$(declare -f assets_read_list | sed "1s/^assets_read_list/_assets_read_list_unpaused/")"
+    assets_read_list() { _assets_read_list_unpaused "$@"; sleep 2; }'
+fresh
+asset_signing_build_set "${PKG}" acme-two
+( PRELUDE="${PAUSE}"; admin assets enable "${SKILL}"; printf '%s\n' "${RC}" > "${TESTDIR}/rc-first" ) &
+first=$!
+sleep 0.5
+admin assets enable acme-two/skills/acme-two-pdf
+wait "${first}" || true
+if [[ "$(listed)" == "AI_TOOLS_ASSETS=[${SKILL}, acme-two/skills/acme-two-pdf]" ]]; then
+    pass "two enables at once: the list holds both, in the order the lock gave them"
+else
+    fail "two enables at once wrote '$(listed)' (rc $(cat "${TESTDIR}/rc-first") and ${RC})"
+fi
+backups=( "${CONF}".*.bak )
+if (( ${#backups[@]} == 2 )) && [[ "${backups[0]}" != "${backups[1]}" ]]; then
+    pass "two enables at once: two distinct backups"
+else
+    fail "two enables at once left ${#backups[@]} backup(s): ${backups[*]}"
+fi
+fresh
+asset_signing_build_set "${PKG}" acme-two
+admin assets enable "${SKILL}" "${SUB}"
+( PRELUDE="${PAUSE}"; admin assets disable "${SUB}" ) &
+first=$!
+sleep 0.5
+admin assets enable acme-two/skills/acme-two-pdf
+wait "${first}" || true
+if [[ "$(listed)" == "AI_TOOLS_ASSETS=[${SKILL}, acme-two/skills/acme-two-pdf]" ]]; then
+    pass "a disable beside an enable: the disabled entry stays removed and the enabled one is added"
+else
+    fail "a disable beside an enable wrote '$(listed)'"
+fi
 
 # ── The exit fold, the usage refusals ────────────────────────────────────────────────────────────────────────────────
 section "ai-tools-admin assets: the exit fold and the usage refusals"

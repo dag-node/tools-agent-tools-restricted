@@ -20,10 +20,10 @@
 # the plan alone. A resolver link is recognised by its target alone -- a symlink into one of the roots --
 # so the seeder's managed copies share the view directories without a marker.
 #
-# The root-only test hooks AI_TOOLS_ASSETS_ROOTS, AI_TOOLS_ASSETS_LOCK, AI_TOOLS_ASSETS_LOCK_WAIT
-# and AI_TOOLS_ASSETS_HOME move the roots, the lock, the wait for it and the directory holding the view and the agent
-# config directories; each has the standing of AI_TOOLS_ASSETS_BINDINGS_DIR: sudo strips the name, and every consumer
-# runs as root.
+# The root-only test hooks AI_TOOLS_ASSETS_ROOTS and AI_TOOLS_ASSETS_HOME move the roots and the directory holding
+# the view and the agent config directories, and managed-assets.lib.sh's AI_TOOLS_ASSETS_LOCK
+# and AI_TOOLS_ASSETS_LOCK_WAIT the lock and the wait for it; each has the standing of AI_TOOLS_ASSETS_BINDINGS_DIR:
+# sudo strips the name, and every consumer runs as root.
 
 # Sourced more than once in a single shell: the readonly constants would abort under `set -e` on the second pass.
 # An if-statement, not `[[ ]] && return`, which returns 1 for an unset guard and trips the sourcing shell's `set -e`.
@@ -53,7 +53,8 @@ for _ai_tools_as_required_function in ai_tools_conf_is_trusted ai_tools_conf_lis
         ai_tools_records_tsv_frame_item_components ai_tools_enabled_agents ai_tools_installed_agents \
         ai_tools_agent_manifest_field ai_tools_enabled_integrations ai_tools_agents_empty_verdict \
         ai_tools_agent_config_dir_valid \
-        ai_tools_asset_is_managed _ai_tools_asset_is_stale_copy ai_tools_link_asset_readme; do
+        ai_tools_asset_is_managed _ai_tools_asset_is_stale_copy ai_tools_link_asset_readme ai_tools_assets_lock \
+        ai_tools_assets_unlock; do
     if ! declare -F "${_ai_tools_as_required_function}" >/dev/null 2>&1; then
         printf 'assets: %s is not defined, so the assets resolver is not defined\n' "${_ai_tools_as_required_function}" >&2
         unset _ai_tools_as_required_function
@@ -76,8 +77,6 @@ _AI_TOOLS_ASSETS_LIB_LOADED=1
 # The roots in search order: local, packaged, base. The first two hold <root>/<set>/; the base root is itself the set
 # `ai-tools` when it holds a set.conf. The bindings directory is assets-verify.lib.sh's.
 : "${AI_TOOLS_ASSETS_ROOTS:=/usr/local/share/ai-tools-assets /usr/share/ai-tools-assets /usr/share/ai-tools}"
-: "${AI_TOOLS_ASSETS_LOCK:=/run/lock/ai-tools/assets.lock}"
-: "${AI_TOOLS_ASSETS_LOCK_WAIT:=120}"
 : "${AI_TOOLS_ASSETS_HOME:=${CP_HOME}}"
 : "${AI_TOOLS_ASSETS_BINDINGS_DIR:=/usr/local/lib/ai-tools/assets-bindings.d}"
 : "${AI_TOOLS_OPERATOR_CONF:=/etc/ai-tools/operator.conf}"
@@ -132,16 +131,6 @@ readonly _AI_TOOLS_AS_MAX_DIRECTORY_ENTRIES=2000
 readonly _AI_TOOLS_AS_SEMVER='^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-((0|[1-9][0-9]*|[0-9]*[A-Za-z-][0-9A-Za-z-]*)(\.(0|[1-9][0-9]*|[0-9]*[A-Za-z-][0-9A-Za-z-]*))*))?(\+([0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*))?$'
 
 # ── Small predicates ─────────────────────────────────────────────────────────────────────────────────────────────────
-
-# _ai_tools_as_refuse <code> <message...> : this library's one report outside the record stream, on stderr, the code
-# on its own line ahead of the message (the shape tests/lib/harness.sh's assert_msg reads), and in journald.
-_ai_tools_as_refuse() {
-    local code="$1"
-    shift
-    printf '%s\nassets: %s\n' "${code}" "$*" >&2
-    ai_tools_log_coded error "${code}" "$*"
-    return 0
-}
 
 # _ai_tools_as_in <word> <member>... : succeed when <word> is one of the members.
 _ai_tools_as_in() {
@@ -1946,59 +1935,19 @@ _ai_tools_as_report() {
 
 # ── The transaction ──────────────────────────────────────────────────────────────────────────────────────────────────
 
-# _ai_tools_as_lock : open AI_TOOLS_ASSETS_LOCK and take an exclusive flock on it, waiting
-# up to AI_TOOLS_ASSETS_LOCK_WAIT seconds (120 when it is not a whole number) for a run that holds it; the descriptor is
-# _AI_TOOLS_AS_LOCK_FD and stays open to ai_tools_assets_reconcile's end. The lock sits in a directory created 0700
-# root:root, and the file is created under umask 077, so no other account can open it, read-only included: flock(2)
-# takes an exclusive lock through a read-only descriptor, so a world-readable file is one any account can hold. A wait
-# that runs out ends the run with a refusal rather than holding a package transaction. Returns 1 with the reason
-# in _AI_TOOLS_AS_LOCK_ERROR for a directory or a lock file that is a symlink or not root's alone, a create or an open
-# that fails, and a wait that runs out.
-_ai_tools_as_lock() {
-    local lock="${AI_TOOLS_ASSETS_LOCK}" dir="${AI_TOOLS_ASSETS_LOCK%/*}" wait="${AI_TOOLS_ASSETS_LOCK_WAIT}" fd
-    _AI_TOOLS_AS_LOCK_ERROR=""
-    [[ "${wait}" =~ ^[0-9]+$ ]] || wait=120
-    if [[ ! -e "${dir}" && ! -L "${dir}" ]]; then
-        install -d -o root -g root -m 0700 -- "${dir}" 2>/dev/null || true
-    fi
-    if ! _ai_tools_as_dir_trusted "${dir}"; then
-        _AI_TOOLS_AS_LOCK_ERROR="${dir} is $(_ai_tools_as_dir_reason "${dir}"), not a directory root's alone"
-        return 1
-    fi
-    # The file is created by a simple command in a subshell holding the umask, so a failed create is a status and not
-    # a redirection error on the shell's own exec.
-    if ! ( umask 077; [[ -L "${lock}" ]] || : >> "${lock}" ) 2>/dev/null \
-            || ! ai_tools_conf_is_trusted "${lock}" || [[ ! -f "${lock}" ]]; then
-        _AI_TOOLS_AS_LOCK_ERROR="${lock} $(ai_tools_conf_untrusted_reason "${lock}"), or is not a regular file"
-        return 1
-    fi
-    if ! { exec {fd}>>"${lock}"; } 2>/dev/null; then
-        _AI_TOOLS_AS_LOCK_ERROR="${lock} could not be opened"
-        return 1
-    fi
-    if ! flock -w "${wait}" "${fd}" 2>/dev/null; then
-        exec {fd}>&-
-        _AI_TOOLS_AS_LOCK_ERROR="another run held it for more than ${wait} seconds"
-        return 1
-    fi
-    _AI_TOOLS_AS_LOCK_FD="${fd}"
-}
-
-# ai_tools_assets_reconcile <group> : the view transaction. Takes the lock before any input is read and holds it
+# ai_tools_assets_reconcile <group> : the view transaction. Takes the assets lock (ai_tools_assets_lock,
+# managed-assets.lib.sh) before any input is read -- a level of it where its caller already holds it -- and holds it
 # to the end, plans, applies, and writes one record per enable-list entry and per row found, under the reconcile code.
 # Returns 0; 1 when a change did not take (each one reported) or the lock could not be taken (no input read and no link
 # changed, MSG-M8T9). The records' severities fold into ai_tools_records_get_exit_status for the caller.
 ai_tools_assets_reconcile() {
     local group="${1:?}" status=0
-    if ! _ai_tools_as_lock; then
-        _ai_tools_as_refuse MSG-M8T9 "the lock ${AI_TOOLS_ASSETS_LOCK} could not be taken (${_AI_TOOLS_AS_LOCK_ERROR}), so the view was not read or changed"
-        return 1
-    fi
+    ai_tools_assets_lock || return 1
     ai_tools_assets_plan
     _ai_tools_as_apply "${group}"
     _ai_tools_as_reconcile_report MSG-Z3P6 "assets reconcile: an enable-list entry's state, or a link the view transaction placed, removed or found"
     (( _AI_TOOLS_AS_WRITE_FAILED == 0 )) || status=1
-    exec {_AI_TOOLS_AS_LOCK_FD}>&-
+    ai_tools_assets_unlock
     return "${status}"
 }
 

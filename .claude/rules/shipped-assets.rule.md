@@ -138,7 +138,12 @@ a managed copy's marker (`ai_tools_withdraw_asset`, `_ai_tools_asset_is_stale_co
 check) skip a symlink. The lock is `/run/lock/ai-tools/assets.lock`, a `0600` file in a `0700` root directory:
 `flock(2)` takes an exclusive lock through a read-only descriptor, so a file another account can open is one it can
 hold. A run that waits longer than `AI_TOOLS_ASSETS_LOCK_WAIT` (120 seconds) for it refuses under `MSG-M8T9` rather than
-hold a package transaction.
+hold a package transaction. Every writer of the shared roots holds it, through the reentrant pair
+`ai_tools_assets_lock`/`ai_tools_assets_unlock` in `managed-assets.lib.sh`, which every provisioning path already
+sources: the `assets` verbs before their first read of `operator.conf`, to their exit; `install.sh`,
+`ai-tools-bootstrap`, base's `%post` and the typesafe package's scriptlets across the seed, the retire pass
+and the reconcile. A reconcile run as a child of a holder adopts the descriptor it inherits once it names the lock file,
+rather than wait on its parent. The seeder itself does not take the lock.
 
 **The view decides what every agent links.** For each enabled agent and each kind its manifest declares a directory
 for, the view's resolver links and base's seeded copies are linked, and no other entry: a seeded copy is a real entry

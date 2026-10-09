@@ -297,11 +297,12 @@ who could set it moves where an **attribution field** lands, which does not feed
 [handback-bridge](handback-bridge.rule.md)).
 
 `AI_TOOLS_ASSETS_ROOTS`, `AI_TOOLS_ASSETS_LOCK`, `AI_TOOLS_ASSETS_LOCK_WAIT` and `AI_TOOLS_ASSETS_HOME`
-(`assets.lib.sh`) join it beside `AI_TOOLS_ASSETS_BINDINGS_DIR`: they move the roots a set is read from, the lock
-the view transaction takes and how long a run waits for it, and the directory holding the view and the agents' config
-directories, so `unit/assets.sh` and `unit/admin-assets.sh` drive a real reconcile over fixtures in their testdir
-and never touch `/opt/ai-tools`. Each has the standing of `AI_TOOLS_POSTUPGRADE_ROOT`: the consumers are root alone,
-`sudo` strips the names, and a caller who could set them may already write the paths they redirect.
+(`assets.lib.sh`, the lock pair's in `managed-assets.lib.sh`) join it beside `AI_TOOLS_ASSETS_BINDINGS_DIR`: they move
+the roots a set is read from, the lock the view transaction takes and how long a run waits for it, and the directory
+holding the view and the agents' config directories, so `unit/assets.sh` and `unit/admin-assets.sh` drive a real
+reconcile over fixtures in their testdir and never touch `/opt/ai-tools`. Each has the standing
+of `AI_TOOLS_POSTUPGRADE_ROOT`: the consumers are root alone, `sudo` strips the names, and a caller who could set them
+may already write the paths they redirect.
 
 It is not in the suite because the full function registers a `semanage fcontext` rule, and this suite does not mutate
 the host's SELinux policy to test a helper — the same line `integration/selinux.sh` draws

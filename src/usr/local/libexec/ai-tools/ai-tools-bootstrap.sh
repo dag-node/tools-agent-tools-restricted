@@ -471,6 +471,13 @@ seed_managed_assets_step() {
     source "${cplib}"
     declare -F ai_tools_agent_config_dirs >/dev/null 2>&1 \
         || die MSG-H9S6 "control plane present but ${cplib} does not resolve the agents' config dirs"
+    # Every write of this step up to the orientation seed lands in a shared root, so the step holds the assets lock
+    # (managed-assets.lib.sh) across it, the reconcile included, which adopts the lock this shell holds:
+    # an `ai-tools-admin assets` verb run meanwhile does not interleave its writes with these.
+    if ! ai_tools_assets_lock; then
+        warn MSG-F3H4 "managed assets: not seeded, and the asset view not reconciled -- the assets lock could not be taken; run sudo ai-tools-admin system bootstrap again once the other assets command has ended"
+        return 0
+    fi
     # The SHARED kinds first, into their own roots: skills and subagent definitions are agent-agnostic, so they live
     # in one place and each agent gets symlinks to them. The pairs are <shared kind>:<the manifest field naming
     # where that agent keeps it>.
@@ -502,6 +509,7 @@ seed_managed_assets_step() {
     install -d -o root -g "${SANDBOX_GROUP}" -m "${CP_DIR_MODES[orientation]}" "${shared}"
     log "seeding the ai-tools-managed orientation into ${shared}"
     ai_tools_seed_managed_assets "${pristine}" "${CP_HOME}" "${SANDBOX_GROUP}" orientation
+    ai_tools_assets_unlock
     while IFS=$'\t' read -r _ memory_target; do
         log "linking the shared orientation into ${memory_target}"
         ai_tools_link_agent_memory "${shared}/AGENTS.md" \

@@ -665,7 +665,12 @@ It does not take an argument and runs after every package change to a set, so it
 the command to run after editing the line by hand.
 .RS
 .PP
-Each of the four writes one record per entry of
+Each of the four takes the assets lock before it reads
+.B AI_TOOLS_ASSETS
+and holds it to its end, so two of them at once each read the line the other
+wrote; one that waits more than two minutes for the lock exits 1 with the line
+and the view as they were.
+Each writes one record per entry of
 .B AI_TOOLS_ASSETS
 \(em
 .B linked
@@ -783,7 +788,7 @@ with or without
 .TP
 .B 5
 A report could not read one of its sources, so its findings are incomplete
-.RB ( status " and the " assets " verbs: a library the package ships did not load; " "system post\-upgrade \-\-check" ).
+.RB ( status " and the " assets " verbs: a library the package ships did not load, or the enabled agents or a directory of the view could not be read; " "system post\-upgrade \-\-check" ).
 The page names the reading it could not make.
 Each is an exit status
 .BR ai-tools-records (5)
