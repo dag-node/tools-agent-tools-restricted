@@ -52,7 +52,7 @@ gen_key() {
     GNUPGHOME="${home}" gpg --batch --quiet --passphrase '' --quick-gen-key "ai-tools test ${name} <${name}@acme.example>" default default never 2>/dev/null
     _fpr="$(GNUPGHOME="${home}" gpg --batch --with-colons --list-keys | awk -F: '$1 == "fpr" { print $10; exit }')"
     GNUPGHOME="${home}" gpg --batch --armor --export "${_fpr}" > "${KEYS}/${name}.asc"
-    ai_tools_assets_keyring_dearmor "${KEYS}/${name}.asc" "${KEYS}/${name}.gpg"
+    ai_tools_assets_write_binary_keyring "${KEYS}/${name}.asc" "${KEYS}/${name}.gpg"
     chmod 0644 "${KEYS}/${name}.asc" "${KEYS}/${name}.gpg"
 }
 
@@ -111,7 +111,7 @@ expect() {
 # ── Pure predicates ──────────────────────────────────────────────────────────────────────────────
 while IFS='|' read -r name want why; do
     [[ -n "${why}" ]] || continue
-    got=0; ai_tools_assets_set_name_valid "${name}" || got=$?
+    got=0; ai_tools_assets_is_valid_set_name "${name}" || got=$?
     if [[ "${got}" == "${want}" ]]; then pass "set name: ${why}"; else fail "set name: ${why} -> got ${got}, want ${want}"; fi
 done <<'EOF'
 core|0|a plain name
@@ -122,12 +122,12 @@ a--b|1|two hyphens together
 ../x|1|a traversal
 |1|the empty string
 EOF
-if ai_tools_assets_set_name_valid "$(printf 'a%.0s' {1..64})"; then pass "set name: 64 characters"; else fail "set name: 64 characters refused"; fi
-if ai_tools_assets_set_name_valid "$(printf 'a%.0s' {1..65})"; then fail "set name: 65 characters accepted"; else pass "set name: 65 characters refused"; fi
+if ai_tools_assets_is_valid_set_name "$(printf 'a%.0s' {1..64})"; then pass "set name: 64 characters"; else fail "set name: 64 characters refused"; fi
+if ai_tools_assets_is_valid_set_name "$(printf 'a%.0s' {1..65})"; then fail "set name: 65 characters accepted"; else pass "set name: 65 characters refused"; fi
 
 while IFS='|' read -r item want why; do
     [[ -n "${why}" ]] || continue
-    got=0; ai_tools_assets_signer_valid "${item}" || got=$?
+    got=0; ai_tools_assets_is_valid_signer_fingerprint "${item}" || got=$?
     if [[ "${got}" == "${want}" ]]; then pass "signer: ${why}"; else fail "signer: ${why} -> got ${got}, want ${want}"; fi
 done <<'EOF'
 openpgp:67F42DC18BF764B42D82F14256D2F802CF9832E4|0|openpgp: and 40 hex digits
@@ -144,7 +144,7 @@ EOF
 readonly SHIPPED_KEY=/usr/local/lib/ai-tools/keys/dag-node-package-signing
 readonly SHIPPED_BINDINGS=/usr/local/lib/ai-tools/assets-bindings.d
 if [[ -r "${SHIPPED_KEY}.asc" && -r "${SHIPPED_KEY}.gpg" && -d "${SHIPPED_BINDINGS}" ]]; then
-    ai_tools_assets_keyring_dearmor "${SHIPPED_KEY}.asc" "${TESTDIR}/shipped.gpg"
+    ai_tools_assets_write_binary_keyring "${SHIPPED_KEY}.asc" "${TESTDIR}/shipped.gpg"
     if cmp -s "${TESTDIR}/shipped.gpg" "${SHIPPED_KEY}.gpg"; then
         pass "the shipped keyring is the dearmored form of the shipped armored key"
     else
@@ -177,8 +177,8 @@ PY
     for binding in "${SHIPPED_BINDINGS}"/*.conf; do
         [[ -e "${binding}" ]] || continue
         stem="$(basename "${binding}" .conf)"
-        # shellcheck disable=SC2154  # the two names are ai_tools_assets_binding_read's outputs
-        if AI_TOOLS_ASSETS_BINDINGS_DIR="${SHIPPED_BINDINGS}" ai_tools_assets_binding_read "${stem}" 2>/dev/null \
+        # shellcheck disable=SC2154  # the two names are ai_tools_assets_read_binding's outputs
+        if AI_TOOLS_ASSETS_BINDINGS_DIR="${SHIPPED_BINDINGS}" ai_tools_assets_read_binding "${stem}" 2>/dev/null \
             && [[ " ${_ai_tools_av_signers[*]} " == *" ${shipped_primary} "* && "${_ai_tools_av_keyring}" == "${SHIPPED_KEY}.gpg" ]]; then
             pass "shipped binding ${stem}: names the shipped key's primary ${shipped_primary} and the shipped keyring"
         else
@@ -201,7 +201,7 @@ write_binding acme "${KEYS}/signer.gpg" "openpgp:${SIGNER}"
 
 expect 0 "control: the signed set verifies" ai_tools_assets_verify_set "${SET}" acme
 if [[ "${out}" == "${SIGNER}" ]]; then pass "status 0 prints the signer's primary"; else fail "status 0 printed '${out}', not ${SIGNER}"; fi
-expect 0 "control: the inventory half alone" ai_tools_assets_check_inventory "${SET}"
+expect 0 "control: the inventory half alone" ai_tools_assets_verify_inventory "${SET}"
 if [[ -z "${out}" ]]; then pass "the inventory half prints nothing"; else fail "the inventory half printed '${out}'"; fi
 write_binding acme "${KEYS}/signer.gpg" "openpgp:${SIGNER,,}"
 expect 0 "a signer written in lower-case hex matches" ai_tools_assets_verify_set "${SET}" acme
@@ -245,7 +245,7 @@ expect 2 "no signature file" ai_tools_assets_verify_set "${SET}" acme
 assert_msg MSG-Q6Y8 "${err}" "an absent signature is reported under MSG-Q6Y8"
 write_set; sign_set signer; rm "${SET}/SHA256SUMS"
 expect 2 "no inventory file" ai_tools_assets_verify_set "${SET}" acme
-expect 2 "the inventory half with no inventory file" ai_tools_assets_check_inventory "${SET}"
+expect 2 "the inventory half with no inventory file" ai_tools_assets_verify_inventory "${SET}"
 write_set; sign_set signer; mv "${SET}/SHA256SUMS.asc" "${TESTDIR}/asc"; ln -s "${TESTDIR}/asc" "${SET}/SHA256SUMS.asc"
 expect 2 "a signature file that is a symlink" ai_tools_assets_verify_set "${SET}" acme
 write_set; sign_set other
@@ -290,7 +290,7 @@ expect 0 "control: the set verifies again once every input is restored" ai_tools
 # A binding refused at a later line publishes neither output. The reader runs in this shell, not under `expect`,
 # whose capture is a subshell that would leave the outputs of the last read made here in place.
 write_binding acme "${KEYS}/signer.gpg" "openpgp:${SIGNER}" "not-a-signer"
-read_status=0; ai_tools_assets_binding_read acme 2>/dev/null || read_status=$?
+read_status=0; ai_tools_assets_read_binding acme 2>/dev/null || read_status=$?
 if [[ "${read_status}" == 2 ]]; then pass "a binding whose second signer is invalid -> 2"; else fail "a binding whose second signer is invalid -> ${read_status}, want 2"; fi
 if (( ${#_ai_tools_av_signers[@]} == 0 )) && [[ -z "${_ai_tools_av_keyring}" ]]; then
     pass "a refused binding leaves the signers and the keyring empty"
@@ -305,13 +305,13 @@ write_binding acme "${KEYS}/signer.gpg" "openpgp:${SIGNER}"
 # the projects user cannot enter, which root walks through.
 write_set; sign_set signer
 # shellcheck disable=SC2016  # the inner shell expands $1 and $2 from the arguments after `_`
-expect 2 "a walk that fails after printing its listing" /bin/bash -c 'source "$1"; find() { /usr/bin/find "$@"; return 1; }; ai_tools_assets_check_inventory "$2"' _ "${LIB}" "${SET}"
+expect 2 "a walk that fails after printing its listing" /bin/bash -c 'source "$1"; find() { /usr/bin/find "$@"; return 1; }; ai_tools_assets_verify_inventory "$2"' _ "${LIB}" "${SET}"
 assert_msg MSG-Q6Y8 "${err}" "an incomplete walk is reported under MSG-Q6Y8"
 mkdir "${SET}/skills/acme-pdf/hidden"; printf 'unlisted\n' > "${SET}/skills/acme-pdf/hidden/extra.md"; chmod 0300 "${SET}/skills/acme-pdf/hidden"
 # shellcheck disable=SC2016
-expect 2 "a subtree the walking account cannot enter, as the projects user" runuser -u "${PROJECTS_USER}" -- /bin/bash -c 'source "$1"; ai_tools_assets_check_inventory "$2"' _ "${LIB}" "${SET}"
+expect 2 "a subtree the walking account cannot enter, as the projects user" runuser -u "${PROJECTS_USER}" -- /bin/bash -c 'source "$1"; ai_tools_assets_verify_inventory "$2"' _ "${LIB}" "${SET}"
 chmod 0755 "${SET}/skills/acme-pdf/hidden"
-expect 1 "the same subtree walked by root is an unlisted file" ai_tools_assets_check_inventory "${SET}"
+expect 1 "the same subtree walked by root is an unlisted file" ai_tools_assets_verify_inventory "${SET}"
 
 # The bounds: a file over the per-file bound is not hashed.
 write_set; head -c $(( AI_TOOLS_ASSETS_FILE_MAX_BYTES + 1 )) /dev/zero > "${SET}/skills/acme-pdf/large.bin"; write_inventory; sign_set signer
@@ -349,7 +349,7 @@ if grep -q "outside the portable set" <<<"${err}"; then pass "the newline name i
 # The caller's RETURN trap survives a check, on success and on a refusal after the walk's file exists: the trap standing
 # afterwards is the caller's own, which a trap set inside a function leaves in the shell, and never the walk file's
 # removal.
-caller_with_trap() { trap 'printf caller-cleanup-ran' RETURN; ai_tools_assets_check_inventory "${SET}"; }
+caller_with_trap() { trap 'printf caller-cleanup-ran' RETURN; ai_tools_assets_verify_inventory "${SET}"; }
 write_set; sign_set signer
 if [[ "$(caller_with_trap 2>/dev/null)" == "caller-cleanup-ran" && "$(trap -p RETURN)" != *"rm -f"* ]]; then
     pass "a caller's RETURN trap runs after a successful check and is not replaced"

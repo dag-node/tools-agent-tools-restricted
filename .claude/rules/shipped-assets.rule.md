@@ -297,7 +297,7 @@ asset of a set the verifier refuses. The verdict follows the status contract the
 ([ref-section-b8h3](updater.rule.md#ref-section-b8h3)), with one difference: a set is refused at `2` as well as at `1`,
 since proceeding would link content no signature covers into every session. The resolver reports `1` (`MSG-T3M3`)
 as `set-tampered` and `2` (`MSG-Q6Y8`) as `set-unverified`; the library's function docs name which input yields which.
-`ai_tools_assets_check_inventory <set-directory>` is the inventory half alone, which the conformance job runs
+`ai_tools_assets_verify_inventory <set-directory>` is the inventory half alone, which the conformance job runs
 over the `ai-tools-assets-tools` fixtures.
 
 What may sign a set is a **binding**, one root-owned file per set name
@@ -307,8 +307,8 @@ binary keyring `gpgv` reads), and a line outside those keys refuses the binding.
 and `ai-tools`, both naming the dag-node package-signing primary — the key `rpm.dagnode.com` serves and the key
 that signs this project's own RPMs, so one trust anchor covers the package and the sets it reads — and the keyring
 `keys/dag-node-package-signing.gpg`, which the spec's `%install` and `install.sh` write from the armored key beside it
-with `ai_tools_assets_keyring_dearmor`. The signer is asserted against `gpgv`'s `VALIDSIG` primary, so a keyring swapped
-for another valid key is refused, as is a signature by a key the keyring holds but no binding names. Every path
+with `ai_tools_assets_write_binary_keyring`. The signer is asserted against `gpgv`'s `VALIDSIG` primary, so a keyring
+swapped for another valid key is refused, as is a signature by a key the keyring holds but no binding names. Every path
 of a set, listed in the inventory or found by the walk, is held to `ai_tools_conf_portable_name_valid`
 ([providers](providers.rule.md)) component by component. The directory, each binding and the keyring are `644 root:root`
 under `755 root:root` and must pass `ai_tools_conf_is_trusted`, file and directory both, or the set is unverified:
