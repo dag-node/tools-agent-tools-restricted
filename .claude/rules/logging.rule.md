@@ -14,17 +14,17 @@ and `ai_tools_log_{debug,info,warn,error}`, writing to two sinks:
   matching the level. This is the universal sink: the non-root components write here because they cannot write
   the root-only files. Query with the tag **and** the writer's uid — `journalctl -t ai-tools-chown _UID=0`, and likewise
   `_UID=0` for `-setgid`, `-setfacl`, `-unclaim`, `-safedir`, `-reclaim`, `-allowlist`, `-launcher-symlink`,
-  `-lockdown`, `-relabel`, `-relabel-agent`, `-dotnet`, `-handback` and `ai-tools-install`; the sandbox account's uid
-  for `ai-tools-run` and `-hook`; the operator's for `ai-tools`. Add `-p warning` to filter by level. The uid is not
-  decoration — see [A tag is not an identity, `_UID` is](#a-tag-is-not-an-identity-_uid-is).
+  `-lockdown`, `-relabel`, `-relabel-agent`, `-dotnet`, `-assets`, `-handback` and `ai-tools-install`; the sandbox
+  account's uid for `ai-tools-run` and `-hook`; the operator's for `ai-tools`. Add `-p warning` to filter by level.
+  The uid is not decoration — see [A tag is not an identity, `_UID` is](#a-tag-is-not-an-identity-_uid-is).
 - **`/var/log/ai-tools/<component>.log`** — only when the caller sets `AI_TOOLS_LOG_FILE`, which only the root writers
   do. The directory is `700 root:root`, each file `600 root:root`: the root helpers append as root, while `SANDBOX_USER`
   — neither the dir owner nor able to traverse a `700` dir — can neither read nor tamper with the trail. That keeps
   the secret filenames `ai-tools-chown` records out of the agent's reach. The files are `chown.log`, `setgid.log`,
   `setfacl.log`, `unclaim.log`, `safedir.log`, `allowlist.log`, `symlink.log`, `lockdown.log`, `relabel.log`,
-  `dotnet.log`, `stop.log`, `handback.log`, and `install.log`. Most are written through this library by the root
-  helpers; `handback.log` is the exception — the socket daemon (`ai-tools-handback`, root, Python) writes it directly
-  (not through this library, which it does not source), recording the bridge's own events (rejected peers,
+  `dotnet.log`, `assets.log`, `stop.log`, `handback.log`, and `install.log`. Most are written through this library
+  by the root helpers; `handback.log` is the exception — the socket daemon (`ai-tools-handback`, root, Python) writes it
+  directly (not through this library, which it does not source), recording the bridge's own events (rejected peers,
   malformed/refused requests, helper timeouts, one line per served request) in the same `<ts> <LEVEL> [<pid>] <msg>`
   format. The agent-side client does not write a file (DAC), only journald. The directory path defaults
   to `/var/log/ai-tools` but honors an `AI_TOOLS_LOG_DIR` override — a root-only test hook (sudo strips it, the handback

@@ -335,6 +335,8 @@ install -m 0644 src%{ai_mandir}/man8/ai-tools-admin.8       %{buildroot}%{ai_man
 # template stays a pointer.
 # ai-tools-records(5): the record stream a report writes for a machine consumer -- the columns, the
 # byte escape, the identity recipe and the exit contract a cron job branches on.
+# ai-tools-assets(5): the asset sets an agent loads -- the roots, the identifier, AI_TOOLS_ASSETS,
+# each reason an enabled asset is not linked, and the binding file.
 install -d -m 0755 %{buildroot}%{ai_mandir}/man5
 install -m 0644 src%{ai_mandir}/man5/ai-tools-operator.conf.5               %{buildroot}%{ai_mandir}/man5/ai-tools-operator.conf.5
 install -m 0644 src%{ai_mandir}/man5/ai-tools-providers.5                   %{buildroot}%{ai_mandir}/man5/ai-tools-providers.5
@@ -342,6 +344,7 @@ install -m 0644 src%{ai_mandir}/man5/ai-tools-allowed-projects.5            %{bu
 install -m 0644 src%{ai_mandir}/man5/ai-tools-secret-patterns.5             %{buildroot}%{ai_mandir}/man5/ai-tools-secret-patterns.5
 install -m 0644 src%{ai_mandir}/man5/ai-tools-custom-claude-endpoint.conf.5 %{buildroot}%{ai_mandir}/man5/ai-tools-custom-claude-endpoint.conf.5
 install -m 0644 src%{ai_mandir}/man5/ai-tools-records.5                     %{buildroot}%{ai_mandir}/man5/ai-tools-records.5
+install -m 0644 src%{ai_mandir}/man5/ai-tools-assets.5                      %{buildroot}%{ai_mandir}/man5/ai-tools-assets.5
 # ai-tools-messages(7): every message code the tree emits, generated from the cross-reference
 # index. Section 7 documents a convention rather than a command, and no EL package owns man7
 # under %%{_prefix}/local, so the directory ships here.
@@ -1310,6 +1313,7 @@ fi
 %attr(0644, root, root) %{ai_mandir}/man5/ai-tools-secret-patterns.5*
 %attr(0644, root, root) %{ai_mandir}/man5/ai-tools-custom-claude-endpoint.conf.5*
 %attr(0644, root, root) %{ai_mandir}/man5/ai-tools-records.5*
+%attr(0644, root, root) %{ai_mandir}/man5/ai-tools-assets.5*
 %attr(0644, root, root) %{ai_mandir}/man7/ai-tools-messages.7*
 %attr(0644, root, root) %{ai_mandir}/man8/ai-tools-admin.8*
 %attr(0750, root, ai-tools) %{ai_bindir}/ai-tools-handback-client

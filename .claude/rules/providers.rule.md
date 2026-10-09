@@ -37,13 +37,16 @@ in the privileged scripts that read it:
   rather than a prompt inside the session), `handback` (which side converges ownership), `entrypoint_fcontext`
   and `config_dir` (the two paths it declares to SELinux), `skills_dir` / `subagents_dir` (where inside its config
   directory it reads each shared asset kind, so the shared copies can be symlinked in — see
-  [shipped-assets](shipped-assets.rule.md)), `memory_file` (the filename that agent's product reads as user-scope
-  instructions, where the shared orientation text is linked), `managed_files` (the kept-across-upgrade files its product
-  reads from a fixed path outside the control plane — each one a plain name directly under `/etc/<name>/`, shipped
-  with a pristine copy of the same name under `/usr/share/ai-tools/<name>/` that the two status reports compare the live
-  file against — reported, never enforced, since no such file holds a guarantee; codex's `/etc/codex` pair is
-  the instance, [agent-codex](agent-codex.rule.md)), `default_enable`, and — optionally — the three release-verification
-  fields.
+  [shipped-assets](shipped-assets.rule.md)), `asset_profiles` (the asset formats it implements, which decide whether
+  an asset requiring a profile links for every agent; absent, it reads as each kind's base profile for the directories
+  the manifest declares, and a token base does not define reads as not implemented — an agent that reads a kind
+  from outside its config directory, as codex reads the skills view, lists a profile of that kind to receive it),
+  `memory_file` (the filename that agent's product reads as user-scope instructions, where the shared orientation text
+  is linked), `managed_files` (the kept-across-upgrade files its product reads from a fixed path outside the control
+  plane — each one a plain name directly under `/etc/<name>/`, shipped with a pristine copy of the same name
+  under `/usr/share/ai-tools/<name>/` that the two status reports compare the live file against — reported, never
+  enforced, since no such file holds a guarantee; codex's `/etc/codex` pair is the instance,
+  [agent-codex](agent-codex.rule.md)), `default_enable`, and — optionally — the three release-verification fields.
 - integrations: `default_enable`, and optionally the three keys the SELinux layer reads — `build_output_dirs` (the
   directory names that hold the toolchain's build output, which `relabel.lib.sh` reads from every installed manifest
   through `ai_tools_installed_integrations_declaring` and maps to the build-output type), `selinux_layout_module` (the

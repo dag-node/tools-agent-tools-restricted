@@ -1,0 +1,324 @@
+.\" ai-tools-assets(5) -- the shared skill and subagent sets a sandboxed agent loads.
+.\" @AI_TOOLS_VERSION@ is substituted at deploy time (install.sh install_subst
+.\" and the RPM %prep), like ai-tools(1).
+.TH AI-TOOLS-ASSETS 5 "" "ai-tools @AI_TOOLS_VERSION@" "Agent Tools Restricted"
+.SH NAME
+ai-tools-assets \- the shared skill and subagent sets a sandboxed agent loads
+.SH SYNOPSIS
+.nf
+.BI AI_TOOLS_ASSETS=[ SET / KIND / NAME ", ...]"
+.IB /usr/local/share/ai-tools-assets/ SET /
+.IB /usr/share/ai-tools-assets/ SET /
+.I /usr/share/ai-tools/
+.fi
+.SH DESCRIPTION
+Enable the skill
+.B ai\-tools\-reftags
+from the set
+.BR core ,
+once the set's package is installed:
+.PP
+.RS 4
+.EX
+sudo dnf install ai\-tools\-assets\-core
+sudo ai\-tools\-admin assets enable core/skills/ai\-tools\-reftags
+.EE
+.RE
+.PP
+An asset set is a directory of skills and subagent definitions published
+together, installed by a package under
+.IR /usr/share/ai\-tools\-assets/ .
+Installing a set does not change what any session loads: an asset reaches
+a session only once
+.B AI_TOOLS_ASSETS
+in
+.BR ai-tools-operator.conf (5)
+names it, and only while its set verifies.
+.PP
+An asset is named
+.IB SET / KIND / NAME\fR,
+the string
+.B AI_TOOLS_ASSETS
+holds and
+.B "ai\-tools\-admin assets"
+takes.
+.I SET
+and
+.I NAME
+are 1 to 64 characters of
+.BR a\-z ,
+.B 0\-9
+and single hyphens, starting and ending with a letter or digit.
+.I KIND
+is
+.B skills
+or
+.BR subagents ;
+a set keeps its subagents in a directory named
+.BR agents/ ,
+and the identifier still spells
+.BR subagents .
+.PP
+A linked asset appears as one link under
+.I /opt/ai\-tools/skills
+or
+.IR /opt/ai\-tools/subagents ,
+the view every agent reads, and each enabled agent that reads that kind gets
+a link to it in its own directory.
+An asset is offered to every enabled agent that reads its kind; a note on what
+it was written and tested for is the skill's own
+.B compatibility
+frontmatter field.
+.SS The roots
+A set is read from the first of three roots that holds it:
+.TP
+.IB /usr/local/share/ai\-tools\-assets/ SET /
+A set you place by hand.
+It links only where it verifies against the binding shipped for its name, so
+an official release copied here works and an unsigned tree does not.
+.TP
+.IB /usr/share/ai\-tools\-assets/ SET /
+A set a package installed.
+.TP
+.I /usr/share/ai\-tools/
+The set
+.B ai\-tools
+itself, when it holds a
+.IR set.conf .
+.PP
+The first root that holds an asset wins, asset by asset, so a local copy of
+.B core
+holding one skill overrides that skill alone.
+A copy that is refused does not fall through to the next root: the asset is
+reported with the copy's reason.
+.SS What a set must be to link
+Each set is read in this order, and the first refusal stops it:
+every file under it is owned by root and not writable by group or other;
+its tree holds regular files and directories alone, within the format's size
+bounds; its
+.I SHA256SUMS.asc
+is a signature by a key the binding for its name pins, over a
+.I SHA256SUMS
+that lists every file of the set; and its
+.I set.conf
+and each asset follow the rules of format 1 that base enforces.
+A set refused at any step links none of its assets.
+.PP
+An asset that runs a command when it loads \(em
+.B !`command`
+in the text, or a fenced block whose language carries
+.B !
+\(em links only where its
+.I metadata/skills/NAME/asset.conf
+declares
+.B skills.dynamic.v1
+in
+.BR requires_capabilities ;
+the capability is then printed beside the asset.
+.PP
+An asset requires the asset formats (profiles) it is written in, and every
+enabled agent that reads its kind must implement each one, as its manifest
+states in
+.B asset_profiles
+.RB ( ai-tools-providers (5)),
+or the asset links for no agent.
+.SH REASONS
+.B "ai\-tools\-admin assets reconcile"
+writes one record per entry of
+.BR AI_TOOLS_ASSETS ,
+.B linked
+or the reason it is not, and
+.B "ai\-tools\-admin status"
+prints each entry that is not linked with its reason.
+A record stream follows
+.BR ai-tools-records (5).
+.TP
+.B id\-malformed
+The entry is not
+.IB SET / KIND / NAME
+under the name grammar, or
+.B AI_TOOLS_ASSETS
+is not a valid list, which reads as the empty list.
+Correct the line.
+.TP
+.B kind\-unknown
+.I KIND
+is neither
+.B skills
+nor
+.BR subagents .
+A subagent is spelled
+.BR subagents .
+.TP
+.B set\-absent
+No root holds the set.
+Install its package; the entry links once it is there.
+.TP
+.B set\-unbound
+No binding under
+.I /usr/local/lib/ai\-tools/assets\-bindings.d
+names the set, so no key may sign it on this host.
+.TP
+.B path\-untrusted
+A root, the set's directory, or a file under it is not owned by root, or is
+writable by group or other.
+The detail names the path.
+Reinstall the set's package, and find out how the path came to be writable.
+.TP
+.B set\-invalid
+The set breaks a rule of format 1 that applies to the whole set; the detail
+names the rule and the path.
+The set's publisher fixes it in a new release.
+.TP
+.B set\-tampered
+The set's files are not the ones its signature covers.
+Reinstall the package; a copy under the local root is replaced from its
+release.
+.TP
+.B set\-unverified
+The signature could not be checked: no
+.IR SHA256SUMS.asc ,
+a key the binding does not name,
+.BR gpgv (1)
+missing, or a binding or keyring that does not read or is not root's alone.
+The detail says which.
+.TP
+.B requires\-base
+The set needs a newer
+.BR ai\-tools\-base .
+Upgrade it.
+.TP
+.B capability\-unknown
+The set or the asset requires a capability this release does not define.
+Upgrade
+.BR ai\-tools\-base ,
+or leave the asset disabled.
+.TP
+.B capability\-unsupported
+An enabled agent that reads the asset's kind does not implement a profile the
+asset requires; the detail names the agent.
+The asset links for no agent while that agent is enabled.
+.TP
+.B integration\-off
+The set or the asset needs an integration that
+.B AI_TOOLS_INTEGRATIONS
+does not enable.
+.TP
+.B asset\-absent
+The set does not hold that asset.
+.TP
+.B asset\-invalid
+The asset breaks a rule of format 1; the detail names the rule.
+The other assets of the set still link.
+.TP
+.B name\-clash
+Two enabled entries from different sets name the same skill or subagent;
+neither links.
+Disable one.
+.TP
+.B view\-occupied
+A file, a directory or a link of yours stands at the asset's name in the
+view; it is left as it is, and the asset is not linked.
+.TP
+.B agent\-occupied
+An agent's own directory holds an entry of yours at an enabled asset's name;
+that agent keeps loading yours.
+.TP
+.B agent\-entry\-untrusted
+That entry is not owned by root all the way down, so a session can rewrite
+what every later session of that agent loads.
+Move it out, or make it root's.
+.TP
+.B view\-foreign
+An entry in the view is neither a link these commands placed nor a copy the
+package seeds there; it is left as it is.
+.TP
+.B enable\-list\-untrusted
+.I /etc/ai\-tools/operator.conf
+is not owned by root, or is writable by group or other, so no asset is
+enabled and every link is removed.
+Restore it to
+.B root:root
+.BR 0644 .
+.TP
+.B write\-failed
+A link could not be placed or removed; the command exits 1.
+.TP
+.B not\-enabled
+.B "assets disable"
+named an identifier
+.B AI_TOOLS_ASSETS
+does not hold.
+.PP
+A record of a change carries
+.B linked
+or
+.B unlinked
+for a link placed or removed, and
+.B kept
+for a file of yours left in an agent's directory where the view also holds an
+entry.
+.SH BINDINGS
+A binding pins the keys that may sign one set name.
+It is one file per set under
+.IR /usr/local/lib/ai\-tools/assets\-bindings.d ,
+read as
+.B KEY=value
+data:
+.PP
+.RS 4
+.EX
+set=core
+signers=[openpgp:67F42DC18BF764B42D82F14256D2F802CF9832E4]
+keyring=/usr/local/lib/ai\-tools/keys/dag\-node\-package\-signing.gpg
+.EE
+.RE
+.TP
+.B set
+The set name, equal to the file's name without
+.IR .conf .
+.TP
+.B signers
+The primary fingerprints that may sign the set, each written
+.BI openpgp: FINGERPRINT
+with 40 hexadecimal digits.
+.TP
+.B keyring
+The binary keyring
+.BR gpgv (1)
+checks the signature against, an absolute path.
+.PP
+A binding holding any other key is refused, and so is its set.
+The package ships the bindings for
+.B core
+and
+.BR ai\-tools ;
+each file, the directory and the keyring are
+.B root:root
+.BR 0644 ,
+the directory
+.BR 0755 .
+.SH FILES
+.TP
+.I /etc/ai\-tools/operator.conf
+Holds
+.BR AI_TOOLS_ASSETS ,
+the one setting that enables an asset.
+.TP
+.I /usr/local/lib/ai\-tools/assets\-bindings.d
+The shipped bindings.
+.TP
+.I /opt/ai\-tools/skills
+.TQ
+.I /opt/ai\-tools/subagents
+The view: one link per linked asset, beside the copies the package seeds there.
+.TP
+.I /var/log/ai\-tools/assets.log
+Each record that needs attention, written by
+.BR "ai\-tools\-admin assets" .
+.SH SEE ALSO
+.BR ai\-tools\-admin (8),
+.BR ai-tools-operator.conf (5),
+.BR ai-tools-providers (5),
+.BR ai-tools-records (5),
+.BR gpgv (1).

@@ -1019,6 +1019,7 @@ do_summary() {
     _chk /usr/local/share/man/man5/ai-tools-secret-patterns.5
     _chk /usr/local/share/man/man5/ai-tools-custom-claude-endpoint.conf.5
     _chk /usr/local/share/man/man5/ai-tools-records.5
+    _chk /usr/local/share/man/man5/ai-tools-assets.5
     _chk /usr/local/share/man/man7/ai-tools-messages.7
     _chk /usr/local/share/man/man8/ai-tools-admin.8
     _chk /var/opt/ai-tools
@@ -1997,6 +1998,13 @@ do_install() {
         "${SCRIPT_DIR}/src/usr/local/share/man/man5/ai-tools-records.5" \
         /usr/local/share/man/man5/ai-tools-records.5
 
+    # ai-tools-assets(5). The asset sets an agent loads: the roots and their order, the identifier AI_TOOLS_ASSETS
+    # holds, each reason an enabled asset is not linked, and the binding file.
+    log "/usr/local/share/man/man5/ai-tools-assets.5"
+    install_subst 644 root root \
+        "${SCRIPT_DIR}/src/usr/local/share/man/man5/ai-tools-assets.5" \
+        /usr/local/share/man/man5/ai-tools-assets.5
+
     # ai-tools-typesafe.conf(5). The typesafe integration's credential file: its four options and what the decide
     # command refuses, so the seeded template can stay a pointer.
     log "/usr/local/share/man/man5/ai-tools-typesafe.conf.5"
@@ -2810,6 +2818,7 @@ do_uninstall() {
     rm -f /usr/local/share/man/man5/ai-tools-secret-patterns.5
     rm -f /usr/local/share/man/man5/ai-tools-custom-claude-endpoint.conf.5
     rm -f /usr/local/share/man/man5/ai-tools-records.5
+    rm -f /usr/local/share/man/man5/ai-tools-assets.5
     rm -f /usr/local/share/man/man5/ai-tools-typesafe.conf.5
     rm -f /usr/local/share/man/man8/ai-tools-admin.8
     rm -f /usr/local/bin/claude /usr/local/bin/codex /usr/local/bin/ai-tools-launch

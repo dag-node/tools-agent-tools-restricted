@@ -63,7 +63,7 @@ the management CLI (`ai-tools`), and root-helper binary names (`ai-tools-chown`,
 | Hooks, sweeps, `.git` reclaim, setgid, control-plane integrity | `opt/ai-tools/agents/**`, `ai-tools-chown.sh`, `ai-tools-setgid.sh`, `owner-only.lib.sh` | [ownership-and-hooks](.claude/rules/ownership-and-hooks.rule.md) |
 | Claude Code settings, Bash deny rules ↔ SELinux policy, the hook-declaration merge a kept file takes on upgrade | `opt/ai-tools/agents/*/settings.json`, `settings-merge.lib.sh` | [claude-settings](.claude/rules/claude-settings.rule.md) |
 | Token-saving command filters: rewrite rules + output noise stripping | `filters.lib.sh`, `lib/ai-tools/filters.d/**`, `agents/*/filter-hook.sh` | [filters](.claude/rules/filters.rule.md) |
-| Shipped assets: shared skills, subagents, and the per-session orientation text, their placement chain and seeding | `usr/share/ai-tools/**`, `lib/ai-tools/managed-assets.lib.sh` | [shipped-assets](.claude/rules/shipped-assets.rule.md) |
+| Shipped assets: shared skills, subagents, and the per-session orientation text, their placement chain and seeding; the asset sets an operator enables, the view and each agent's links into it, and the set verifier | `usr/share/ai-tools/**`, `lib/ai-tools/managed-assets.lib.sh`, `lib/ai-tools/assets.lib.sh`, `lib/ai-tools/assets-verify.lib.sh`, `lib/ai-tools/assets-bindings.d/**` | [shipped-assets](.claude/rules/shipped-assets.rule.md) |
 | Governance posture: enforced vs dispositional, proportionality, the agent's own conduct and the controls beside it | `usr/share/ai-tools/skills/ai-tools-capable-systems-governance/**` | [governance](.claude/rules/governance.rule.md) |
 | Secret-named files, lockdown, pattern set | `ai-tools-lockdown.sh`, `ai-tools-chown.sh`, `secret-patterns*` | [secrets](.claude/rules/secret-handling.rule.md) |
 | Toolchain provisioning + Node/claude updater, the residue a disabled agent's package is and its removal, symlink repoint and removal, post-upgrade entrypoint reconciliation (signed-release verification + relabel) | `ai-tools-bootstrap.sh`, `nvm-update.sh`, `toolchain.lib.sh`, `ai-tools-launcher-symlink.sh`, `ai-tools-relabel-agent.sh`, `entrypoint-verify.lib.sh`, `keys/**`, `nvm-update`/`ai-tools-relabel` units | [updater](.claude/rules/updater.rule.md) |
@@ -171,6 +171,7 @@ shape of guarantee: it deletes only after that confirmation, and a failure leave
 | whether the toolchain holds the enabled agents' packages alone | the residue readers over every installed manifest the enabled set does not name ([updater](.claude/rules/updater.rule.md)) | no launch, of any agent, until a provisioning run removes the package |
 | whether it will be confined | the pre-launch SELinux transition probe (fail-closed once confinement is expected; `AI_TOOLS_REQUIRE_SELINUX`, in force by default, requires it outright, and an operator declares a DAC-only host with `no`) | no launch |
 | which providers it gets | `ai_tools_conf_is_trusted` on every manifest, directory, and fragment | the default-enabled baseline, never "enable all" |
+| which shared assets it loads | `AI_TOOLS_ASSETS` in a trusted `operator.conf`, and for each set a trusted tree, a signature by the key its shipped binding pins, and the rules of format 1 base enforces ([shipped-assets](.claude/rules/shipped-assets.rule.md)) | the asset is not linked, and the next reconcile removes its link |
 | which paths handback may touch | born-`SANDBOX_USER` ownership, re-checked race-safely as root | the path is left alone |
 | which names a walk over a tree treats as secrets | the operator's own `secret-patterns` file, read once the path's owner is resolved, with the shipped baseline in force where it is absent or empty ([ref-section-h4j6](.claude/rules/secret-handling.rule.md#ref-section-h4j6)) | a present file that cannot be read keeps the baseline for classification, and every helper that changes a tree refuses before its first write |
 | which toolchain may be activated | npm registry signature verification | the previous, trusted version stays |
@@ -323,14 +324,14 @@ not gaps, so a reader tells bounded design from an oversight:
   `owner-only`, `project-permissions`, `safe-paths`, `relabel`, `operator`, `control-plane`, `confinement`,
   `launch-wrapper`, `npm-verify`, `entrypoint-verify`, `assets-verify`, `managed-assets`, `providers`,
   `ancestor-config`, `sandbox-exec`, `toolchain`, `selinux-groups`, `filters`, `services`, `msg`, `log`, `path-order`,
-  `agent-installs`, `records-base`, `records-tsv`, and the claude-code pair `claude-prompt`/`claude-endpoint`), plus
-  `path-order.sh`, the PATH-ordering fragment `ai-tools-admin` wires into operator dotfiles (see
-  [launch](.claude/rules/launch.rule.md)). That directory and its contents are `root`-owned and non-group-writable,
-  and the sandbox group reads them — load-bearing, since the sandbox account sources several of these libraries. Read is
-  open on every one of them and **write** is the boundary: a shared library carries shipped logic or a general list,
-  and an operator's own data stays in that operator's private config instead, so an open read discloses only
-  what already ships (the modes are in [providers](.claude/rules/providers.rule.md); the guarantee is the invariant
-  that the sandbox cannot widen its own surface).
+  `agent-installs`, `records-base`, `records-tsv`, `assets`, and the claude-code pair
+  `claude-prompt`/`claude-endpoint`), plus `path-order.sh`, the PATH-ordering fragment `ai-tools-admin` wires
+  into operator dotfiles (see [launch](.claude/rules/launch.rule.md)). That directory and its contents are `root`-owned
+  and non-group-writable, and the sandbox group reads them — load-bearing, since the sandbox account sources several
+  of these libraries. Read is open on every one of them and **write** is the boundary: a shared library carries shipped
+  logic or a general list, and an operator's own data stays in that operator's private config instead, so an open read
+  discloses only what already ships (the modes are in [providers](.claude/rules/providers.rule.md); the guarantee is
+  the invariant that the sandbox cannot widen its own surface).
 
 ### Documentation register
 

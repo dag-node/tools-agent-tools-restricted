@@ -296,6 +296,13 @@ environment comes from its root-owned unit, so neither an operator nor the agent
 who could set it moves where an **attribution field** lands, which does not feed any authorization decision (see
 [handback-bridge](handback-bridge.rule.md)).
 
+`AI_TOOLS_ASSETS_ROOTS`, `AI_TOOLS_ASSETS_LOCK` and `AI_TOOLS_ASSETS_HOME` (`assets.lib.sh`) join it beside
+`AI_TOOLS_ASSETS_BINDINGS_DIR`: they move the roots a set is read from, the lock the view transaction takes,
+and the directory holding the view and the agents' config directories, so `unit/assets.sh` and `unit/admin-assets.sh`
+drive a real reconcile over fixtures in their testdir and never touch `/opt/ai-tools`. Each has the standing
+of `AI_TOOLS_POSTUPGRADE_ROOT`: the consumers are root alone, `sudo` strips the names, and a caller who could set them
+may already write the paths they redirect.
+
 It is not in the suite because the full function registers a `semanage fcontext` rule, and this suite does not mutate
 the host's SELinux policy to test a helper — the same line `integration/selinux.sh` draws
 for `ai_tools_unlabel_project`. That check is safe *because* it re-asserts the rule that is already registered, leaving
@@ -1006,9 +1013,17 @@ by a key the binding does not name" case is a second key made the same way — t
 and asserts each refusal of the status contract under its code: every way the inventory stops describing the tree reads
 as a mismatch, every input that is absent, over its bound, untrusted or unmatched by the binding reads as unverified,
 and the control set verifies and prints its signer's primary. The pure predicates (the set-name and signer grammars) are
-driven as tables first. Its boundary half is `boundary/assets.sh`. `managed-assets.sh` drives the seeder
-and the withdrawal pass (`managed-assets.lib.sh`) over the properties its own header numbers, the integration binding
-among them; each is one whose failure in a package scriptlet is silent.
+driven as tables first. Its boundary half is `boundary/assets.sh`. `assets.sh` drives the resolver the verifier feeds
+(`assets.lib.sh`) the same way, over sets signed in the run through the shared recipe in `lib/asset-signing.sh`: each
+refusal of its predicate table is asserted on the record stream as its reason token and on the links left behind,
+with a sibling or a control linking beside it, and the view transaction's guarantees are driven where they can fail --
+a repoint read by a loop that must not find the name missing, a seeded copy and a foreign link surviving, a link removed
+once its set stops verifying, a second run waiting on the lock, and the plan leaving every file as it was.
+`admin-assets.sh` drives the `assets` verbs and the Assets section of `ai-tools-admin status` through the sourced
+helper: each refusal leaves `operator.conf` byte-identical, a write leaves a `.bak`, `enable --set` writes the valid
+assets and reports the rest, and the exit fold is asserted for each of its outcomes. `managed-assets.sh` drives
+the seeder and the withdrawal pass (`managed-assets.lib.sh`) over the properties its own header numbers, the integration
+binding among them; each is one whose failure in a package scriptlet is silent.
 
 `handback.sh` covers the handback daemon's own record, and what it asserts of the session unit is the fail direction:
 an unreadable cgroup leaves the field **absent**, and a newline in an agent-named path is replaced by the sanitizer,
@@ -1222,12 +1237,15 @@ sets in it, `operator.conf`, and the agent-side hook body are all asserted non-a
 sourced as the agent on every Bash call, the rule sets because they decide what every command in a session becomes.
 `assets.sh` is the pair for the set verifier: the library, the shipped package-signing key and the keyring written
 from it, the bindings directory and each binding in it are asserted non-agent-writable and at the modes they ship
-with, since a writable one would let the agent name its own key as a set's signer. These probe **DAC and account state**
-from the sandbox account's vantage — they run as the sandbox *user*, not inside the `ai_tools_t` SELinux domain (a
-launched session), so they assert the filesystem/credential boundary; the SELinux enforcing posture is asserted
-separately in `integration/selinux.sh`. A property the **type layout alone** enforces is therefore not assertable here,
-and reads as its DAC answer: the agent's inability to write its own entrypoint is one (DAC permits it — the account owns
-that tree), so it is asserted in `integration/selinux.sh` as the layout the policy rests on, one check per swap vector.
+with, since a writable one would let the agent name its own key as a set's signer; and the resolver's inputs and outputs
+-- `assets.lib.sh`, `operator.conf`, the three roots and the sets under them, the view, the lock, and each enabled
+agent's kind directories -- are asserted out of the agent's reach, with `ai-tools-admin assets reconcile` refused
+as that account. These probe **DAC and account state** from the sandbox account's vantage — they run as the sandbox
+*user*, not inside the `ai_tools_t` SELinux domain (a launched session), so they assert the filesystem/credential
+boundary; the SELinux enforcing posture is asserted separately in `integration/selinux.sh`. A property the **type layout
+alone** enforces is therefore not assertable here, and reads as its DAC answer: the agent's inability to write its own
+entrypoint is one (DAC permits it — the account owns that tree), so it is asserted in `integration/selinux.sh`
+as the layout the policy rests on, one check per swap vector.
 
 ## Quirks
 
