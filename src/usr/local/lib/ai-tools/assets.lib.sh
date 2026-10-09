@@ -1441,13 +1441,13 @@ _ai_tools_as_mark_clashes() {
 
 # _ai_tools_as_plan_view <kind> : the view changes for one kind: a desired name absent or held by a resolver link
 # with another target is linked; a resolver link whose name is not desired is unlinked; anything else at a desired name
-# is view-occupied and left as it is; a leftover temporary name is removed; every entry that is neither a resolver link,
-# a copy base seeded (_ai_tools_as_is_seeded_copy), the kind's README.md nor a temporary name is view-foreign and left
-# as it is. Publishes the names an agent links -- the view as the apply leaves it, name -> `resolver` or `seeded` --
-# in _AI_TOOLS_AS_VIEW_AFTER, so a foreign entry is not linked into an agent's directory. Returns 1
-# when _ai_tools_as_destination_trusted refuses the view or the home root that holds it, or the view could not be
-# listed: the kind is then not planned (_ai_tools_as_kind_unplanned), so no link in the view or in an agent's directory
-# of that kind is placed or removed.
+# is view-occupied and left as it is; a temporary name holding a link the library leaves (_ai_tools_as_is_own_leftover)
+# is removed; every entry that is neither a resolver link, a copy base seeded (_ai_tools_as_is_seeded_copy), the kind's
+# README.md nor a temporary name is view-foreign and left as it is. Publishes the names an agent links -- the view
+# as the apply leaves it, name -> `resolver` or `seeded` -- in _AI_TOOLS_AS_VIEW_AFTER, so a foreign entry is not linked
+# into an agent's directory. Returns 1 when _ai_tools_as_destination_trusted refuses the view or the home root
+# that holds it, or the view could not be listed: the kind is then not planned (_ai_tools_as_kind_unplanned), so no link
+# in the view or in an agent's directory of that kind is placed or removed.
 _ai_tools_as_plan_view() {
     local kind="$1" view="${AI_TOOLS_ASSETS_HOME}/$1" name entry target failed
     local -A present=() desired=()
@@ -1481,7 +1481,7 @@ _ai_tools_as_plan_view() {
         desired["${name}"]="${entry}"
     done
     for name in "${!present[@]}"; do
-        if [[ "${name}" =~ ^\..+\.ai-tools-assets\.tmp$ ]] && [[ -L "${view}/${name}" ]]; then
+        if [[ "${name}" =~ ^\..+\.ai-tools-assets\.tmp$ ]] && _ai_tools_as_is_own_leftover "${view}/${name}"; then
             _ai_tools_as_action unlink "${view}/${name}" "" file "${kind}/${name}" "" "a temporary name an interrupted run left"
             continue
         fi
@@ -1752,18 +1752,60 @@ ai_tools_assets_plan() {
 
 # _ai_tools_as_place_link <path> <target> <group> : point <path> at <target> through one rename(2): the link is made
 # at `.<name>.ai-tools-assets.tmp` beside it, owned root:<group>, and renamed over the name, so a reader listing
-# the directory sees the old target or the new one and never a missing name. Returns 1, the temporary name removed,
-# when a step fails.
+# the directory sees the old target or the new one and never a missing name. An entry already at the temporary name is
+# removed only when it is a link this library leaves (_ai_tools_as_is_own_leftover); any other occupant -- a file,
+# a directory, a link elsewhere -- is kept and the placement refused, since the directory's own rule keeps an entry
+# the library did not place. `ln -s` does not follow or truncate an existing name, so an occupant that arrives
+# after the check fails the placement. Returns 1, with the reason in _AI_TOOLS_AS_PLACE_ERROR and the temporary name
+# removed where it is the link this call made, when a step fails.
 _ai_tools_as_place_link() {
     local path="$1" target="$2" group="$3" temporary
     temporary="${path%/*}/.${path##*/}.ai-tools-assets.tmp"
-    rm -f -- "${temporary}" 2>/dev/null
+    _AI_TOOLS_AS_PLACE_ERROR=""
+    if [[ -e "${temporary}" || -L "${temporary}" ]]; then
+        if ! _ai_tools_as_is_own_leftover "${temporary}"; then
+            _AI_TOOLS_AS_PLACE_ERROR="${temporary} holds $(_ai_tools_as_occupant "${temporary}"), which this command did not leave; left as it is"
+            return 1
+        fi
+        rm -f -- "${temporary}" 2>/dev/null
+    fi
     if ln -s -- "${target}" "${temporary}" 2>/dev/null && chown -h "root:${group}" -- "${temporary}" 2>/dev/null \
             && mv -Tf -- "${temporary}" "${path}" 2>/dev/null; then
         return 0
     fi
-    rm -f -- "${temporary}" 2>/dev/null
+    _ai_tools_as_is_own_leftover "${temporary}" && rm -f -- "${temporary}" 2>/dev/null
+    _AI_TOOLS_AS_PLACE_ERROR="a step of the placement failed"
     return 1
+}
+
+# _ai_tools_as_is_own_leftover <path> : succeed when <path> is a symbolic link this library leaves at a temporary name
+# when a run stops between its create and its rename: a link into one of the roots (a view link) or into a view
+# directory (an agent's link).
+_ai_tools_as_is_own_leftover() {
+    local target kind
+    [[ -L "$1" ]] || return 1
+    _ai_tools_as_is_resolver_link "$1" && return 0
+    target="$(readlink -- "$1" 2>/dev/null)" || return 1
+    for kind in $(_ai_tools_as_kinds); do
+        [[ "${target}" == "${AI_TOOLS_ASSETS_HOME}/${kind}/"* ]] && return 0
+    done
+    return 1
+}
+
+# _ai_tools_as_occupant <path> : what stands at <path>, for a detail: a link and its target, a directory, a file
+# with more than one link, or a file.
+_ai_tools_as_occupant() {
+    local links
+    links="$(stat -c %h -- "$1" 2>/dev/null)" || links=1
+    if [[ -L "$1" ]]; then
+        printf 'a link to %s' "$(_ai_tools_as_display "$(readlink -- "$1" 2>/dev/null)")"
+    elif [[ -d "$1" ]]; then
+        printf 'a directory'
+    elif [[ "${links}" =~ ^[0-9]+$ ]] && (( links > 1 )); then
+        printf 'a file with %s links' "${links}"
+    else
+        printf 'a file'
+    fi
 }
 
 # _ai_tools_as_apply <group> : take every change the plan computed, in order -- the view first, then the agents' links
@@ -1808,7 +1850,7 @@ _ai_tools_as_apply() {
                     _ai_tools_as_row info linked "${stype}" "${path}" "${item}" "${agent}" "${detail}"
                 else
                     [[ "${stype}" == file ]] && failed_view["${path}"]=1
-                    _ai_tools_as_failed "${stype}" "${path}" "${item}" "${agent}" "the link to ${target} could not be placed"
+                    _ai_tools_as_failed "${stype}" "${path}" "${item}" "${agent}" "the link to ${target} could not be placed: ${_AI_TOOLS_AS_PLACE_ERROR}"
                 fi ;;
             unlink)
                 if [[ -L "${path}" ]] && rm -f -- "${path}" 2>/dev/null; then

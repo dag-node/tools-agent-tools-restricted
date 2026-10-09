@@ -645,6 +645,48 @@ for name in ai-tools-seeded ai-tools-edited; do
         && pass "a copy base seeded is linked: ${name}" || fail "${name} is not linked into the agent's directory"
 done
 
+# ── The temporary name ───────────────────────────────────────────────────────────────────────────────────────────────
+section "assets: an entry at the temporary name is kept unless it is a link the library leaves"
+# temp_occupant <kind> <path> : put an occupant at <path>: a file, a file hard-linked beside the testdir, a directory,
+# a link to /etc, or a stale resolver link.
+temp_occupant() {
+    case "$1" in
+        file)      printf 'sentinel\n' > "$2" ;;
+        hardlink)  printf 'sentinel\n' > "${TESTDIR}/temp-alias"; ln "${TESTDIR}/temp-alias" "$2" ;;
+        directory) mkdir "$2"; printf 'sentinel\n' > "$2/inside" ;;
+        etc-link)  ln -s /etc "$2" ;;
+        stale)     ln -s "${PKG}/acme/skills/gone" "$2" ;;
+    esac
+}
+# occupant_snapshot <path> : the occupant and the alias beside the testdir, with their link counts and content.
+occupant_snapshot() {
+    find "$1" "${TESTDIR}/temp-alias" -printf '%p %y %l %n %s\n' 2>/dev/null | LC_ALL=C sort
+    cat "$1" "${TESTDIR}/temp-alias" 2>/dev/null || true
+}
+for where in view agent; do
+    for occupant in file hardlink directory etc-link stale; do
+        fresh; rm -f "${TESTDIR}/temp-alias"
+        dst="${HOME_DIR}/skills/acme-pdf"
+        [[ "${where}" == agent ]] && dst="${HOME_DIR}/.acme/skills/acme-pdf"
+        temp="${dst%/*}/.acme-pdf.ai-tools-assets.tmp"
+        rm -f "${dst}"; temp_occupant "${occupant}" "${temp}"
+        before="$(occupant_snapshot "${temp}")"
+        reconcile
+        if [[ "${occupant}" == stale ]]; then
+            if absent "${temp}" && [[ -L "${dst}" && "${RC}" == 0 ]]; then
+                pass "${where}: a stale resolver link at the temporary name is removed and the link placed"
+            else
+                fail "${where}: a stale resolver link at the temporary name: rc ${RC}, ${OUT:0:300}"
+            fi
+        elif [[ "${RC}" == 1 && "$(occupant_snapshot "${temp}")" == "${before}" ]] && has_row write-failed "${dst}" && absent "${dst}"; then
+            pass "${where}: ${occupant} at the temporary name is kept as it was, and the placement reported write-failed"
+        else
+            fail "${where}: ${occupant} at the temporary name: rc ${RC}, $(occupant_snapshot "${temp}" | tr '\n' '|') ${OUT:0:300}"
+        fi
+        rm -rf "${temp}"
+    done
+done
+
 # ── No last-good fallback ────────────────────────────────────────────────────────────────────────────────────────────
 section "assets: no last-good fallback"
 fresh
