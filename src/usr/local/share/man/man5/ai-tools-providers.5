@@ -215,6 +215,30 @@ The shared definitions under
 .B /opt/ai-tools/subagents
 are linked there the same way.
 .TP
+.B asset_profiles
+The asset formats the agent reads, as a list of profile tokens:
+.BR skills.portable.v1 ,
+.BR skills.dynamic.v1 ,
+.BR subagents.claude.v1 .
+An asset that requires a profile one enabled agent receiving its kind does not
+list is linked for no agent, so every agent reading the view reads what it
+follows.
+Absent, the agent reads the base profile of each kind it names a directory for:
+.B skills.portable.v1
+for
+.BR skills_dir ,
+.B subagents.claude.v1
+for
+.BR subagents_dir .
+A token listed here that this release does not define is read as not
+implemented.
+An agent that reads the skills from outside its config directory lists
+.B skills.portable.v1
+here to receive them, since it names no
+.BR skills_dir .
+.BR ai-tools-assets (5)
+states which asset requires which profile.
+.TP
 .B memory_file
 The file name, relative to
 .BR config_dir ,

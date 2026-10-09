@@ -96,6 +96,8 @@ cannot fix -- a message code's name is a runtime string, and rewording one is a 
 | q7e7 | [MSG-Q7E7](../install.sh) | setfacl unavailable -- operators need ${SANDBOX_GROUP} membership for sandbox-create | install.sh |  | warn |
 | n2w3 | [MSG-N2W3](../install.sh) | sudoers syntax check failed | install.sh |  | die |
 | c2x3 | [MSG-C2X3](../install.sh) | could not add ${PROJECTS_USER} to ai-ops | install.sh |  | warn |
+| g2u4 | [MSG-G2U4](../install.sh) | an asset AI_TOOLS_ASSETS enables is not linked -- sudo ai-tools-admin status names each one and why | install.sh |  | warn |
+| p2n9 | [MSG-P2N9](../install.sh) | the asset reconcile did not complete (exit ${_reconcile_status}) -- run: sudo ai-tools-admin assets reconcile | install.sh |  | warn |
 | m7k6 | [MSG-M7K6](../install.sh) | the systemd --user manager of ${SANDBOX_USER} did not come up -- the auto-update timer | install.sh |  | warn |
 | a7x8 | [MSG-A7X8](../install.sh) | toolchain not provisioned -- the wrapper/handback/SELinux checks skip or fail | install.sh |  | warn |
 | n7s2 | [MSG-N7S2](../install.sh) | operator.conf names providers without their kind prefix -- every launch refuses and the | install.sh | install.sh | warn |
@@ -493,6 +495,8 @@ cannot fix -- a message code's name is a runtime string, and rewording one is a 
 | v2w3 | [MSG-V2W3](../src/usr/local/libexec/ai-tools/ai-tools-bootstrap.sh) | a regular file where npm keeps a symlink was left as it is at ${version}/bin/${name} (${outcome}) -- remove it by hand as the sandbox account if nothing installed it on purpose | src/usr/local/libexec/ai-tools/ai-tools-bootstrap.sh |  | warn |
 | d9d3 | [MSG-D9D3](../src/usr/local/libexec/ai-tools/ai-tools-bootstrap.sh) | control plane present but the managed-asset libs are missing -- reinstall ai-tools | src/usr/local/libexec/ai-tools/ai-tools-bootstrap.sh |  | die |
 | h9s6 | [MSG-H9S6](../src/usr/local/libexec/ai-tools/ai-tools-bootstrap.sh) | control plane present but ${cplib} does not resolve the agents' config dirs | src/usr/local/libexec/ai-tools/ai-tools-bootstrap.sh |  | die |
+| w9r9 | [MSG-W9R9](../src/usr/local/libexec/ai-tools/ai-tools-bootstrap.sh) | an asset AI_TOOLS_ASSETS enables is not linked -- sudo ai-tools-admin status names each one and why | src/usr/local/libexec/ai-tools/ai-tools-bootstrap.sh |  | notice |
+| t3r5 | [MSG-T3R5](../src/usr/local/libexec/ai-tools/ai-tools-bootstrap.sh) | the asset reconcile did not complete (exit ${reconcile_status}) -- run: sudo ai-tools-admin assets reconcile | src/usr/local/libexec/ai-tools/ai-tools-bootstrap.sh |  | warn |
 | n8u6 | [MSG-N8U6](../src/usr/local/libexec/ai-tools/ai-tools-bootstrap.sh) | could not write ${key}=${answer} into ${conf} -- set the line by hand | src/usr/local/libexec/ai-tools/ai-tools-bootstrap.sh |  | warn |
 | k2d4 | [MSG-K2D4](../src/usr/local/libexec/ai-tools/ai-tools-bootstrap.sh) | operator ${user} who types ${launcher} would run ${winner}, which is an agent outside the sandbox | src/usr/local/libexec/ai-tools/ai-tools-bootstrap.sh | install.sh, tests/unit/bootstrap.sh | err |
 | c6e2 | [MSG-C6E2](../src/usr/local/libexec/ai-tools/ai-tools-bootstrap.sh) | the toolchain is not the sandbox account's (the paths above), so the install step, which runs as ${user}, cannot read it -- restore the account's ownership, then re-run:  sudo chown -Rh ${user}:${group} ${foreign[*]} | src/usr/local/libexec/ai-tools/ai-tools-bootstrap.sh | tests/unit/bootstrap.sh | err |

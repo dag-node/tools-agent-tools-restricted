@@ -361,7 +361,7 @@ ln -s %{ai_bindir}/ai-tools %{buildroot}%{_sbindir}/ai-tools
 # SANDBOX_GROUP member under multi-operator) can traverse in to source the 644
 # world-readable libs by path without listing the dir. The 640 files self-protect.
 install -d -m 0751 %{buildroot}%{ai_libdir}
-for l in log msg conf settings-merge skip-dirs owner-only project-permissions relabel secret-patterns operator control-plane safe-paths launch-wrapper confinement npm-verify entrypoint-verify assets-verify managed-assets providers ancestor-config sandbox-exec toolchain selinux-groups filters services path-order agent-installs records-base records-tsv; do
+for l in log msg conf settings-merge skip-dirs owner-only project-permissions relabel secret-patterns operator control-plane safe-paths launch-wrapper confinement npm-verify entrypoint-verify assets-verify assets managed-assets providers ancestor-config sandbox-exec toolchain selinux-groups filters services path-order agent-installs records-base records-tsv; do
     install -m 0644 src%{ai_libdir}/${l}.lib.sh %{buildroot}%{ai_libdir}/${l}.lib.sh
 done
 # Provider manifest + fragment directories (base owns the dirs; each member package ships its own
@@ -740,6 +740,11 @@ fi
 if command -v bash >/dev/null 2>&1; then
     AI_TOOLS_ASSUME_YES=1 bash -c '. /usr/local/lib/ai-tools/msg.lib.sh; . /usr/local/lib/ai-tools/conf.lib.sh; . /usr/local/lib/ai-tools/managed-assets.lib.sh; for kind in "${AI_TOOLS_ASSET_KINDS[@]}"; do [ -d "$1/${kind}" ] || continue; ai_tools_seed_managed_assets "$1" /opt/ai-tools ai-tools "${kind}"; ai_tools_remove_retired_assets /opt/ai-tools "${kind}"; ai_tools_link_asset_readme "$1/${kind}/README.md" "/opt/ai-tools/${kind}" ai-tools; done' _ %{_datadir}/ai-tools || :
 fi
+# The asset view, after the seeder and the retired-list pass: one link per asset AI_TOOLS_ASSETS enables under
+# /opt/ai-tools/<kind>, and each enabled agent's links into that root (assets.lib.sh). The record stream goes to the
+# assets log, since this scriptlet's stdout is the transaction's; a reconcile that does not complete here runs again
+# from the next trigger or `ai-tools-admin assets reconcile`.
+%{ai_libexecdir}/ai-tools-admin assets reconcile >/dev/null || :
 # Direct the operator to the per-operator / network steps a scriptlet must not take itself.
 # Each is gated on the state it would create rather than on install-vs-upgrade, so an upgrade
 # names only what this host still owes, a step undone since an earlier run included. An operator
@@ -847,6 +852,19 @@ fi
 # control-plane .gitignore/.gitconfig, /var/opt/ai-tools clones, and each operator's
 # ~/.config/ai-tools. The SELinux module unload lives with the policy payload, in
 # `%postun -n ai-tools-selinux`.
+
+# A set package placed, upgraded or erased: re-resolve the view. A transaction trigger runs once, after every package
+# of the transaction is placed or removed -- base included, whose own %%post ran before a set installed beside it --
+# and receives the whole matching file list on stdin rather than this transaction's, so the body drains that list
+# and re-runs the full resolve. The local root is the operator's and the base root base's own %%post, so the trigger
+# names the packaged root alone.
+%transfiletriggerin -n ai-tools-base -- /usr/share/ai-tools-assets
+cat >/dev/null 2>&1 || :
+%{ai_libexecdir}/ai-tools-admin assets reconcile >/dev/null 2>&1 || :
+
+%transfiletriggerpostun -n ai-tools-base -- /usr/share/ai-tools-assets
+cat >/dev/null 2>&1 || :
+%{ai_libexecdir}/ai-tools-admin assets reconcile >/dev/null 2>&1 || :
 
 %posttrans -n ai-tools-base
 # Start the socket so the handback is live without a reboot (posttrans runs after the systemd
@@ -1082,24 +1100,26 @@ fi
 # rpm on EL10 drops the setgid bit %%attr declares on a directory, so the state root's mode is
 # re-asserted here (the usage log inside it is then group-owned by the sandbox group).
 chmod 2770 /opt/ai-tools/integrations/typesafe 2>/dev/null || :
-# Seed the ai-tools-typesafe-filter skill this package ships into the shared skills root and link
-# it into every enabled agent's skills directory. Base's %%post seeds the same datadir, but on a
-# first install it runs before this package's files are on disk, and an agent's %%post links what
-# the shared root holds at that moment -- so this package places its own asset, with the same lib
-# under an explicit bash and the same pre-answered confirm (base's %%post says why). Every other
-# skill in the datadir is already at its live version, so the pass leaves it alone.
+# Seed the ai-tools-typesafe-filter skill this package ships into the shared skills root, then
+# reconcile, which links it into every enabled agent's skills directory. Base's %%post seeds the same
+# datadir, but on a first install it runs before this package's files are on disk -- so this package
+# places its own asset, with the same lib under an explicit bash and the same pre-answered confirm
+# (base's %%post says why). Every other skill in the datadir is already at its live version, so
+# the pass leaves it alone.
 if command -v bash >/dev/null 2>&1; then
-    AI_TOOLS_ASSUME_YES=1 bash -c '. /usr/local/lib/ai-tools/msg.lib.sh; . /usr/local/lib/ai-tools/conf.lib.sh; . /usr/local/lib/ai-tools/managed-assets.lib.sh; . /usr/local/lib/ai-tools/control-plane.lib.sh; ai_tools_seed_managed_assets "$1" /opt/ai-tools ai-tools skills; ai_tools_agent_asset_dirs skills_dir | while read -r agent dir; do ai_tools_link_shared_assets /opt/ai-tools/skills "${dir}" ai-tools "$1/skills/README.md"; done' _ %{_datadir}/ai-tools || :
+    AI_TOOLS_ASSUME_YES=1 bash -c '. /usr/local/lib/ai-tools/msg.lib.sh; . /usr/local/lib/ai-tools/conf.lib.sh; . /usr/local/lib/ai-tools/managed-assets.lib.sh; ai_tools_seed_managed_assets "$1" /opt/ai-tools ai-tools skills' _ %{_datadir}/ai-tools || :
 fi
+%{ai_libexecdir}/ai-tools-admin assets reconcile >/dev/null 2>&1 || :
 
 %postun -n ai-tools-integration-typesafe
 # On final erase, withdraw the skill this package seeded: the live copy is not rpm-owned, so it
 # is moved to /opt/ai-tools/retired the way base withdraws a dropped asset, and each agent's link
-# to it goes in the linker's pass over links whose target is gone. An operator's own
+# to it goes in the reconcile's pass over links whose target is gone. An operator's own
 # ai-tools-typesafe-filter (no managed marker) is kept. The credential file and the state root
 # stay, as every integration's state does.
 if [ "$1" -eq 0 ] && [ -r /usr/local/lib/ai-tools/managed-assets.lib.sh ] && command -v bash >/dev/null 2>&1; then
-    bash -c '. /usr/local/lib/ai-tools/msg.lib.sh; . /usr/local/lib/ai-tools/conf.lib.sh; . /usr/local/lib/ai-tools/managed-assets.lib.sh; . /usr/local/lib/ai-tools/control-plane.lib.sh; ai_tools_withdraw_asset /opt/ai-tools skills ai-tools-typesafe-filter "package removed"; ai_tools_agent_asset_dirs skills_dir | while read -r agent dir; do ai_tools_link_shared_assets /opt/ai-tools/skills "${dir}" ai-tools; done' || :
+    bash -c '. /usr/local/lib/ai-tools/msg.lib.sh; . /usr/local/lib/ai-tools/conf.lib.sh; . /usr/local/lib/ai-tools/managed-assets.lib.sh; ai_tools_withdraw_asset /opt/ai-tools skills ai-tools-typesafe-filter "package removed"' || :
+    %{ai_libexecdir}/ai-tools-admin assets reconcile >/dev/null 2>&1 || :
 fi
 
 %post -n ai-tools-agents-claude-code-restricted
@@ -1125,19 +1145,11 @@ if [ -x %{ai_libexecdir}/ai-tools-relabel-agent ]; then
         exit 1
     }
 fi
-# Link the shared assets (seeded by ai-tools-base) into the directories THIS agent reads them
-# from: skills into skills/, subagent definitions into agents/ -- the name Claude Code uses for
-# what this project calls a subagent. One symlink per asset, so an asset is authored and updated
-# in one place however many agents read it. Reuses the base's seeder lib under an explicit bash
-# (the lib is bash; a %post scriptlet runs under /bin/sh). Best-effort and idempotent; a real
-# directory already there is never displaced.
-for kind in skills:skills subagents:agents; do
-    shared="/opt/ai-tools/${kind%%:*}"
-    dest="/opt/ai-tools/.claude/${kind#*:}"
-    readme="%{_datadir}/ai-tools/${kind%%:*}/README.md"
-    [ -d "${shared}" ] && command -v bash >/dev/null 2>&1 || continue
-    bash -c ". /usr/local/lib/ai-tools/msg.lib.sh; . /usr/local/lib/ai-tools/managed-assets.lib.sh; ai_tools_link_shared_assets ${shared} ${dest} ai-tools ${readme}" >/dev/null 2>&1 || :
-done
+# Link the shared assets into the directories each enabled agent reads them from: skills into
+# skills/, subagent definitions into agents/ -- the name Claude Code uses for what this project
+# calls a subagent. The assets reconcile owns every agent's links, and this scriptlet runs it; an
+# agent not enabled yet gets its links from the reconcile the toolchain bootstrap runs once it is. Best-effort and idempotent; a real entry already there is kept.
+%{ai_libexecdir}/ai-tools-admin assets reconcile >/dev/null 2>&1 || :
 # The shared orientation text is one file, linked under the name THIS agent reads as user-scope
 # instructions (its manifest's memory_file), so a session in any project starts knowing which
 # commands are refused and which paths it cannot reach. A real file already at that path wins.
@@ -1318,6 +1330,7 @@ fi
 %attr(0644, root, root) %{ai_libdir}/npm-verify.lib.sh
 %attr(0644, root, root) %{ai_libdir}/entrypoint-verify.lib.sh
 %attr(0644, root, root) %{ai_libdir}/assets-verify.lib.sh
+%attr(0644, root, root) %{ai_libdir}/assets.lib.sh
 %attr(0644, root, root) %{ai_libdir}/conf.lib.sh
 %attr(0644, root, root) %{ai_libdir}/settings-merge.lib.sh
 %attr(0644, root, root) %{ai_libdir}/providers.lib.sh

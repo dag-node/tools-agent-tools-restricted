@@ -435,7 +435,7 @@ else
     SHARED_FILE="${LIVE}/orientation/AGENTS.md"
 
     # The link's name comes from the agent's manifest, not from the source file, which is the whole reason this is not
-    # ai_tools_link_shared_assets: Claude Code reads CLAUDE.md and no other file at user scope, so a link named
+    # one of the per-asset links: Claude Code reads CLAUDE.md and no other file at user scope, so a link named
     # for the source would never be loaded.
     out="$(ai_tools_link_agent_memory "${SHARED_FILE}" "${AGENT_DIR}" CLAUDE.md root 2>&1)" || true
     if [[ -L "${AGENT_DIR}/CLAUDE.md" ]] \

@@ -1197,6 +1197,10 @@ offline, and no toolchain is installed under ${NVM_DIR}: the nvm and Node downlo
 WARNING.
 network: no answer from ${unreachable[*]} \-\- this run applies what needs no download (the account and its home, the launcher links, the labels, the units, the managed assets) and skips the nvm, Node and npm install; connect this host and re\-run to install or update the toolchain
 .TP
+.B MSG-T3R5
+WARNING.
+the asset reconcile did not complete (exit ${reconcile_status}) \-\- run: sudo ai\-tools\-admin assets reconcile
+.TP
 .B MSG-T7H8
 ERROR.
 curl is required to fetch nvm
@@ -1220,6 +1224,10 @@ could not enable linger for ${SANDBOX_USER} (${_linger_out:\-no output})
 .B MSG-W8X8
 ERROR.
 invalid nvm version '${NVM_VERSION}' (expected vMAJOR.MINOR.PATCH)
+.TP
+.B MSG-W9R9
+NOTICE.
+an asset AI_TOOLS_ASSETS enables is not linked \-\- sudo ai\-tools\-admin status names each one and why
 .TP
 .B MSG-X3M9
 WARNING.
@@ -1976,6 +1984,10 @@ relabel did not complete \-\- run: sudo ai\-tools\-admin system entrypoints rela
 WARNING.
 an agent outside the sandbox is installed at ${install_path}
 .TP
+.B MSG-G2U4
+WARNING.
+an asset AI_TOOLS_ASSETS enables is not linked \-\- sudo ai\-tools\-admin status names each one and why
+.TP
 .B MSG-G6H3
 WARNING.
 systemctl \-\-user $* failed by both the machine transport and the account's own
@@ -2019,6 +2031,10 @@ operator.conf names providers without their kind prefix \-\- every launch refuse
 .B MSG-P2N3
 WARNING.
 restorecon not found \-\- skipping SELinux context restoration
+.TP
+.B MSG-P2N9
+WARNING.
+the asset reconcile did not complete (exit ${_reconcile_status}) \-\- run: sudo ai\-tools\-admin assets reconcile
 .TP
 .B MSG-Q4H5
 WARNING.

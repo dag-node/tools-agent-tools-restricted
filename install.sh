@@ -1037,6 +1037,7 @@ do_summary() {
     _chk /usr/local/lib/ai-tools/npm-verify.lib.sh
     _chk /usr/local/lib/ai-tools/entrypoint-verify.lib.sh
     _chk /usr/local/lib/ai-tools/assets-verify.lib.sh
+    _chk /usr/local/lib/ai-tools/assets.lib.sh
     _chk /usr/local/lib/ai-tools/keys/claude-code.asc
     _chk /usr/local/lib/ai-tools/keys/dag-node-package-signing.asc
     _chk /usr/local/lib/ai-tools/keys/dag-node-package-signing.gpg
@@ -1449,6 +1450,12 @@ do_install() {
     install -o root -g root -m 644 \
         "${SCRIPT_DIR}/src/usr/local/lib/ai-tools/assets-verify.lib.sh" \
         /usr/local/lib/ai-tools/assets-verify.lib.sh
+    # The assets resolver behind `ai-tools-admin assets` and the Assets section of its status: 644 root:root, sourced
+    # by that tool as root.
+    log "/usr/local/lib/ai-tools/assets.lib.sh"
+    install -o root -g root -m 644 \
+        "${SCRIPT_DIR}/src/usr/local/lib/ai-tools/assets.lib.sh" \
+        /usr/local/lib/ai-tools/assets.lib.sh
     log "/usr/local/lib/ai-tools/keys/dag-node-package-signing.asc"
     install -o root -g root -m 644 \
         "${SCRIPT_DIR}/src/usr/local/lib/ai-tools/keys/dag-node-package-signing.asc" \
@@ -2258,7 +2265,7 @@ do_install() {
     # and it is not the dir owner, so it cannot bypass that. setgid keeps new entries in group ai-tools. The DIRECTORIES
     # are created here, from the manifests (the base names none of them), so the agent layer can install into its own;
     # modes are re-asserted at section end.
-    local agent_config_dir agent_asset_dir _agent
+    local agent_config_dir _agent
     while IFS=$'\t' read -r _ agent_config_dir; do
         [[ -n "${agent_config_dir}" ]] || continue
         log "${agent_config_dir}/"
@@ -2426,16 +2433,17 @@ do_install() {
             "${_shared}" "${SANDBOX_GROUP}"
     done
 
-    # <shared kind>:<the manifest field naming where that agent keeps it>
-    local _spec
-    for _spec in skills:skills_dir subagents:subagents_dir; do
-        _kind="${_spec%%:*}"
-        while IFS=$'\t' read -r _agent agent_asset_dir; do
-            log "linking the shared ${_kind} into ${agent_asset_dir}"
-            ai_tools_link_shared_assets "${CP_HOME}/${_kind}" "${agent_asset_dir}" \
-                "${SANDBOX_GROUP}" "/usr/share/ai-tools/${_kind}/README.md"
-        done < <(ai_tools_agent_asset_dirs "${_spec#*:}")
-    done
+    # The asset view, and every enabled agent's links into the shared roots, the seeded copies' links included:
+    # the assets reconcile owns each of them, and the installer runs it. Its record stream goes to the assets log;
+    # the installer reports the outcome the exit states.
+    log "reconciling the asset view and each enabled agent's links (ai-tools-admin assets reconcile)"
+    local _reconcile_status=0
+    /usr/local/libexec/ai-tools/ai-tools-admin assets reconcile >/dev/null || _reconcile_status=$?
+    case "${_reconcile_status}" in
+        0) ;;
+        4) warn MSG-G2U4 "an asset AI_TOOLS_ASSETS enables is not linked -- sudo ai-tools-admin status names each one and why" ;;
+        *) warn MSG-P2N9 "the asset reconcile did not complete (exit ${_reconcile_status}) -- run: sudo ai-tools-admin assets reconcile" ;;
+    esac
 
     # Codex reads skills at its admin scope, /etc/codex/skills, and its manifest does not declare a skills_dir,
     # so the shared root is linked there by name: a symlink to the live root when the path is free, and what a host

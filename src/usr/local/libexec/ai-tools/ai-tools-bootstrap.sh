@@ -474,7 +474,7 @@ seed_managed_assets_step() {
     # The SHARED kinds first, into their own roots: skills and subagent definitions are agent-agnostic, so they live
     # in one place and each agent gets symlinks to them. The pairs are <shared kind>:<the manifest field naming
     # where that agent keeps it>.
-    local spec kind shared asset_dir seeded=0
+    local spec kind shared seeded=0 reconcile_status=0
     for spec in skills:skills_dir subagents:subagents_dir; do
         kind="${spec%%:*}"; shared="${CP_HOME}/${kind}"
         install -d -o root -g "${SANDBOX_GROUP}" -m "${CP_DIR_MODES[${kind}]}" "${shared}"
@@ -482,13 +482,18 @@ seed_managed_assets_step() {
         ai_tools_seed_managed_assets "${pristine}" "${CP_HOME}" "${SANDBOX_GROUP}" "${kind}"
         ai_tools_remove_retired_assets "${CP_HOME}" "${kind}"
         ai_tools_link_asset_readme "${pristine}/${kind}/README.md" "${shared}" "${SANDBOX_GROUP}"
-        while IFS=$'\t' read -r _ asset_dir; do
-            log "linking the shared ${kind} into ${asset_dir}"
-            ai_tools_link_shared_assets "${shared}" "${asset_dir}" \
-                "${SANDBOX_GROUP}" "${pristine}/${kind}/README.md"
-            seeded=1
-        done < <(ai_tools_agent_asset_dirs "${spec#*:}")
     done
+    # Every enabled agent's links into the shared roots, and the asset view AI_TOOLS_ASSETS asks for: the assets
+    # reconcile owns each of them, and this step runs it after the seeding. Its record stream goes to the assets log;
+    # the outcome is reported here.
+    log "reconciling the asset view and each enabled agent's links"
+    /usr/local/libexec/ai-tools/ai-tools-admin assets reconcile >/dev/null || reconcile_status=$?
+    case "${reconcile_status}" in
+        0) ;;
+        4) notice MSG-W9R9 "an asset AI_TOOLS_ASSETS enables is not linked -- sudo ai-tools-admin status names each one and why" ;;
+        *) warn MSG-T3R5 "the asset reconcile did not complete (exit ${reconcile_status}) -- run: sudo ai-tools-admin assets reconcile" ;;
+    esac
+    [[ -n "$(ai_tools_agent_asset_dirs skills_dir)$(ai_tools_agent_asset_dirs subagents_dir)" ]] && seeded=1
     # The orientation text is a single file rather than a directory of assets, and each agent reads it under its own
     # filename (the manifest's memory_file), so it is seeded like the other kinds and linked by name instead
     # of by iterating the shared root.

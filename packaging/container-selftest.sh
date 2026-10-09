@@ -190,6 +190,109 @@ else
     note "tests/run.sh skipped (RUN_TESTS=${RUN_TESTS} or sources absent)"
 fi
 
+# ── the asset view across package transactions ──────────────────────────────
+# ai-tools-base re-resolves the view from two transaction file triggers on /usr/share/ai-tools-assets, and from its own
+# %post. Each case in this section runs a real rpm transaction over a set package and asserts the VIEW it leaves -- not
+# the trigger's arguments: base and a set in one transaction (base's %post runs before the set's files exist), the set
+# upgraded alone, the set erased alone. The set `acme` is signed in the run by a throwaway key, and a test-only binding
+# beside the shipped ones names that key, so the set verifies as a published one would; no secret enters the image.
+ASSET_STAGE=/tmp/asset-selftest
+ASSET_BINDING=/usr/local/lib/ai-tools/assets-bindings.d/acme.conf
+ASSET_KEYRING=/usr/local/lib/ai-tools/keys/selftest-acme.gpg
+
+# asset_set_rpm <version> <skill>... : build ai-tools-assets-acme-<version> holding a signed set `acme` with one skill
+# per name and one subagent, into ${ASSET_STAGE}/rpms.
+asset_set_rpm() {
+    local version="$1" tree="${ASSET_STAGE}/tree-$1" skill file digest
+    shift
+    rm -rf "${tree}"; mkdir -p "${tree}/acme/agents"
+    printf 'format=1\nname=acme\nversion=%s\nsummary="Selftest assets"\nlicense=MIT\nmaintainers=[m@acme.example]\nsource=https://acme.example/assets\n' \
+        "${version}" > "${tree}/acme/set.conf"
+    printf -- '---\nname: acme-reviewer\ndescription: A selftest subagent.\n---\nThe body.\n' > "${tree}/acme/agents/acme-reviewer.md"
+    for skill in "$@"; do
+        mkdir -p "${tree}/acme/skills/${skill}"
+        printf -- '---\nname: %s\ndescription: A selftest skill.\n---\nThe body.\n' "${skill}" > "${tree}/acme/skills/${skill}/SKILL.md"
+    done
+    ( cd "${tree}/acme" && find . -type f -printf '%P\n' | LC_ALL=C sort | while IFS= read -r file; do
+          digest="$(sha256sum < "${file}" | cut -c1-64)"; printf '%s  %s\n' "${digest}" "${file}"; done ) \
+        > "${ASSET_STAGE}/SHA256SUMS" && mv "${ASSET_STAGE}/SHA256SUMS" "${tree}/acme/SHA256SUMS"
+    GNUPGHOME="${ASSET_STAGE}/gnupg" gpg --batch --quiet --armor --detach-sign \
+        --output "${tree}/acme/SHA256SUMS.asc" "${tree}/acme/SHA256SUMS"
+    cat > "${ASSET_STAGE}/acme.spec" <<SPEC
+Name: ai-tools-assets-acme
+Version: ${version}
+Release: 1
+Summary: selftest asset set
+License: MIT
+BuildArch: noarch
+%description
+A selftest asset set.
+%install
+mkdir -p %{buildroot}/usr/share/ai-tools-assets
+cp -a ${tree}/acme %{buildroot}/usr/share/ai-tools-assets/acme
+%files
+%defattr(0644,root,root,0755)
+/usr/share/ai-tools-assets/acme
+SPEC
+    rpmbuild -bb --quiet --define "_topdir ${ASSET_STAGE}/rpmbuild" "${ASSET_STAGE}/acme.spec" >/dev/null
+    ls "${ASSET_STAGE}/rpmbuild/RPMS/noarch/ai-tools-assets-acme-${version}-1.noarch.rpm"
+}
+
+# asset_view_holds <name> <target> / asset_view_lacks <name> : the skills view and every enabled agent's skills
+# directory hold a link to <target> at <name>, or no entry there and no dangling link anywhere.
+asset_view_holds() {
+    local dir
+    [[ "$(readlink /opt/ai-tools/skills/"$1")" == "$2" ]] || { echo "the view holds $(readlink /opt/ai-tools/skills/"$1" 2>&1) at $1" >&2; return 1; }
+    while IFS=$'\t' read -r _ dir; do
+        [[ "$(readlink "${dir}/$1")" == "/opt/ai-tools/skills/$1" ]] || { echo "${dir}/$1 is not a link into the view" >&2; return 1; }
+    done < <(bash -c '. /usr/local/lib/ai-tools/control-plane.lib.sh && ai_tools_agent_asset_dirs skills_dir')
+}
+asset_view_lacks() {
+    local dangling
+    local -a dirs=( /opt/ai-tools/skills /opt/ai-tools/subagents )
+    [[ ! -e /opt/ai-tools/skills/"$1" && ! -L /opt/ai-tools/skills/"$1" ]] || { echo "the view still holds $1" >&2; return 1; }
+    mapfile -t -O 2 dirs < <(bash -c '. /usr/local/lib/ai-tools/control-plane.lib.sh && { ai_tools_agent_asset_dirs skills_dir; ai_tools_agent_asset_dirs subagents_dir; }' | cut -f2)
+    dangling="$(find "${dirs[@]}" -maxdepth 1 -xtype l 2>/dev/null)"
+    [[ -z "${dangling}" ]] || { echo "dangling links: ${dangling}" >&2; return 1; }
+}
+
+asset_selftest_setup() {
+    set -e
+    rm -rf "${ASSET_STAGE}"; mkdir -p "${ASSET_STAGE}/gnupg"; chmod 0700 "${ASSET_STAGE}/gnupg"
+    GNUPGHOME="${ASSET_STAGE}/gnupg" gpg --batch --quiet --passphrase '' --quick-gen-key 'ai-tools selftest <acme@acme.example>' default default never
+    local fpr
+    fpr="$(GNUPGHOME="${ASSET_STAGE}/gnupg" gpg --batch --with-colons --list-keys | awk -F: '$1 == "fpr" { print $10; exit }')"
+    GNUPGHOME="${ASSET_STAGE}/gnupg" gpg --batch --armor --export "${fpr}" > "${ASSET_STAGE}/acme.asc"
+    bash -c '. /usr/local/lib/ai-tools/assets-verify.lib.sh && ai_tools_assets_write_binary_keyring "$1" "$2"' _ \
+        "${ASSET_STAGE}/acme.asc" "${ASSET_KEYRING}"
+    chmod 0644 "${ASSET_KEYRING}"
+    printf 'set=acme\nsigners=[openpgp:%s]\nkeyring=%s\n' "${fpr}" "${ASSET_KEYRING}" > "${ASSET_BINDING}"
+    chmod 0644 "${ASSET_BINDING}"
+    asset_set_rpm 0.1.0 acme-pdf >/dev/null
+    asset_set_rpm 0.1.1 acme-pdf acme-extra >/dev/null
+    ai-tools-admin assets enable acme/skills/acme-pdf acme/skills/acme-extra >/dev/null || [ $? = 4 ]
+}
+
+phase "assets: a throwaway-signed set and its binding, both identifiers enabled while the set is absent" \
+    bash -c "$(declare -f asset_set_rpm asset_selftest_setup); ASSET_STAGE='${ASSET_STAGE}' ASSET_BINDING='${ASSET_BINDING}' ASSET_KEYRING='${ASSET_KEYRING}' asset_selftest_setup"
+phase "assets: base and a set in one transaction leave the set's skill linked" \
+    bash -c "$(declare -f asset_view_holds); set -e
+             rpm -Uvh --replacepkgs /tmp/ai-repo/ai-tools-base-[0-9]*.rpm '${ASSET_STAGE}'/rpmbuild/RPMS/noarch/ai-tools-assets-acme-0.1.0-1.noarch.rpm
+             asset_view_holds acme-pdf /usr/share/ai-tools-assets/acme/skills/acme-pdf
+             [ ! -e /opt/ai-tools/skills/acme-extra ] && [ ! -L /opt/ai-tools/skills/acme-extra ]"
+phase "assets: the set upgraded alone links the skill it adds" \
+    bash -c "$(declare -f asset_view_holds); set -e
+             rpm -Uvh '${ASSET_STAGE}'/rpmbuild/RPMS/noarch/ai-tools-assets-acme-0.1.1-1.noarch.rpm
+             asset_view_holds acme-pdf /usr/share/ai-tools-assets/acme/skills/acme-pdf
+             asset_view_holds acme-extra /usr/share/ai-tools-assets/acme/skills/acme-extra"
+phase "assets: the set erased alone leaves no link to it and no dangling link" \
+    bash -c "$(declare -f asset_view_lacks); set -e
+             rpm -e ai-tools-assets-acme
+             asset_view_lacks acme-pdf; asset_view_lacks acme-extra"
+banner "Remove the selftest set's binding and entries"
+ai-tools-admin assets disable acme/skills/acme-pdf acme/skills/acme-extra >/dev/null || :
+rm -f "${ASSET_BINDING}" "${ASSET_KEYRING}"; rm -rf "${ASSET_STAGE}"
+
 # ── reachability diagnostic (why can / can't the agent reach the project) ─────
 # ai-tools-run checks `[[ -d AI_TOOLS_PROJECT_DIR ]]` AS the agent, so the agent must traverse every ancestor. Dump each
 # ancestor's perms + ACL and whether the agent can stat the project, so a traverse-grant gap is visible rather than only

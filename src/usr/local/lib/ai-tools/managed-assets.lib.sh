@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: AGPL-3.0-only
 # /usr/local/lib/ai-tools/managed-assets.lib.sh
-# Seeds the ai-tools-managed shared assets into their shared roots and links them into each agent that reads them.
-# The kinds are AI_TOOLS_ASSET_KINDS. Each is seeded ONCE into /opt/ai-tools/<kind>, and every agent whose manifest
-# names a directory for that kind gets a SYMLINK per asset (ai_tools_link_shared_assets); the orientation text is linked
+# Seeds the ai-tools-managed shared assets into their shared roots, and links the orientation text and the whole-kind
+# path an agent reads from outside its config directory. The kinds are AI_TOOLS_ASSET_KINDS. Each is seeded ONCE
+# into /opt/ai-tools/<kind>, and every agent whose manifest names a directory for that kind gets a SYMLINK per entry
+# of that root from assets.lib.sh's reconcile, which owns the per-agent links; the orientation text is linked
 # under the filename the agent's manifest names (ai_tools_link_agent_memory); an agent that reads a whole kind from one
 # fixed path outside its config directory (codex's /etc/codex/skills) gets that path pointed at the shared root without
 # displacing what the host holds there (ai_tools_link_shared_root). One file to author and update, however many agents
@@ -19,8 +20,8 @@
 
 # Withdrawing an asset needs its own step: the seeder only adds and updates, and the live roots are not rpm-owned,
 # so a name this project stops shipping stays live on an upgraded host until it is named here.
-# `ai_tools_remove_retired_assets` reads this list; the linker then drops each agent's now-dangling symlink on its next
-# run.
+# `ai_tools_remove_retired_assets` reads this list; the next `ai-tools-admin assets reconcile` drops each agent's
+# now-dangling symlink.
 #
 # Sourced more than once in a single shell: return early so the second pass is a no-op (an if-statement, not
 # `[[ ]] && return`, which returns 1 for an unset guard and trips `set -e`).
@@ -269,7 +270,7 @@ ai_tools_seed_managed_assets() {
 #
 # Withdrawal requires the x-ai-tools-managed marker, so an asset the operator authored under the same name is kept
 # and reported -- the same predicate the seeder uses to decide what it may claim. Each agent's symlink is left
-# to `ai_tools_link_shared_assets`, which drops a link into the shared root once its target is gone.
+# to the assets reconcile, which drops a link into the shared root once its target is gone.
 #
 # The asset is MOVED, not deleted: a withdrawn asset has no shipped counterpart left to compare against, so there is no
 # way to tell a copy an operator edited from an untouched one, and the unrecoverable direction is the one to avoid. It
@@ -278,11 +279,11 @@ ai_tools_seed_managed_assets() {
 # produced the copy. A subagent keeps its `.md`, so one flat directory holds both kinds without collision.
 #
 # That directory sits BESIDE the shared roots rather than inside one, which is what keeps it out of circulation:
-# the linker iterates a shared root and would otherwise create a symlink for the sidecar, and an agent scanning its own
-# directory reads whatever a link points at. Renaming the asset inside the skills root would leave both of those
-# depending on how a given agent product decides what is a skill -- a rule this project does not set. Out of the tree is
-# the version that does not need the assumption. It is 0700 root:root: recovery material an operator retrieves
-# with sudo, invisible to the sandbox account.
+# the assets reconcile links every entry of a shared root and would otherwise create a symlink for the sidecar,
+# and an agent scanning its own directory reads whatever a link points at. Renaming the asset inside the skills root
+# would leave both of those depending on how a given agent product decides what is a skill -- a rule this project does
+# not set. Out of the tree is the version that does not need the assumption. It is 0700 root:root: recovery material
+# an operator retrieves with sudo, invisible to the sandbox account.
 #
 # Fails toward keeping: an asset whose copy cannot be made is left in place and reported, so a withdrawal never destroys
 # what it could not first preserve.
@@ -356,81 +357,15 @@ _ai_tools_asset_is_stale_copy() {
     fi
 }
 
-# ai_tools_link_shared_assets <shared_root> <agent_dir> <group> [readme_source] Point an agent at a shared asset kind
-# (skills, subagents): one symlink per entry under <shared_root>, so every agent reads the same file and an asset is
-# updated in one place. Best-effort and idempotent, and it never displaces anything real:
-#   * a name that does not exist in the agent's dir      -> symlink created
-#   * a symlink already pointing at the shared asset      -> left alone
-#   * a symlink into the shared root whose asset is gone  -> removed (a dropped shipped asset)
-#   * anything else (a real directory or file)            -> KEPT and reported: it is either an
-#                                                            agent-specific asset or the
-#                                                            operator's own, and it wins
-# The links are root-owned inside the agent's setgid+sticky config directory, so the agent reads and invokes them
-# but cannot repoint one at a file of its choosing.
-ai_tools_link_shared_assets() {
-    local shared_root="$1" agent_dir="$2" group="$3" readme_source="${4:-}"
-    [[ -d "${shared_root}" ]] || return 0
-    install -d -o root -g "${group}" -m 750 "${agent_dir}"
-
-    # Every entry, whatever shape the kind uses: a skill is a directory, a subagent is a file. The kind's README is
-    # linked separately (ai_tools_link_asset_readme), so it is not treated as an asset.
-    local src name dst linked=0
-    for src in "${shared_root}"/*; do
-        [[ -e "${src}" ]] || continue                    # no matches -> literal pattern, skip
-        name="${src##*/}"
-        [[ "${name}" == README.md ]] && continue
-        dst="${agent_dir}/${name}"
-        if [[ -L "${dst}" ]]; then
-            [[ "$(readlink -- "${dst}")" == "${src}" ]] && continue
-            ln -sfn "${src}" "${dst}"
-            _ai_tools_ma_say "${name} link repointed at ${src}"
-        elif [[ -e "${dst}" ]]; then
-            # Something real sits here. It is either the operator's own (or agent-specific) asset, which always wins --
-            # or OUR copy from the layout before these assets were shared, which should become a link so the shared file
-            # is the only one to maintain. Convert only when it is BOTH ai-tools-managed and byte-identical
-            # to the shared copy: same provenance, no content to lose. A managed copy that differs is left alone
-            # and reported, because the difference is either an operator edit or version drift, and this is not
-            # the place to resolve either.
-            if _ai_tools_asset_is_stale_copy "${src}" "${dst}"; then
-                rm -rf "${dst}"
-                ln -s "${src}" "${dst}"
-                _ai_tools_ma_say "${name} converted to a link (was an identical managed copy)"
-            else
-                _ai_tools_ma_say "${name} kept (a real entry here wins over the shared one)"
-                continue
-            fi
-        else
-            ln -s "${src}" "${dst}"
-            _ai_tools_ma_say "${name} linked -> ${src}"
-        fi
-        chown -h "root:${group}" "${dst}" 2>/dev/null || :
-        linked=$(( linked + 1 ))
-    done
-
-    # Drop links into the shared root whose skill no longer ships, so a removed skill does not leave a dangling entry
-    # the agent would try to read. A link pointing anywhere else is the host's and is left alone.
-    for dst in "${agent_dir}"/*; do
-        [[ -L "${dst}" ]] || continue
-        src="$(readlink -- "${dst}")"
-        [[ "${src}" == "${shared_root}/"* && ! -e "${src}" ]] || continue
-        rm -f "${dst}"
-        _ai_tools_ma_say "${dst##*/} link removed (no longer shipped)"
-    done
-
-    ai_tools_link_asset_readme "${readme_source}" "${agent_dir}" "${group}"
-    restorecon -R "${agent_dir}" >/dev/null 2>&1 || :
-    return 0
-}
-
 # ai_tools_link_agent_memory <shared_file> <agent_dir> <memory_file> <group> Point an agent at the shared orientation
 # text under the filename its own product reads as user-scope instructions -- CLAUDE.md for Claude Code, AGENTS.md
 # for a product that follows that spelling -- so one file is authored and every agent loads it in every session,
 # whatever the project. The name comes from the agent manifest (memory_file), which is why this links under a name
-# that differs from the source's; ai_tools_link_shared_assets preserves names and cannot.
+# that differs from the source's; the per-asset links keep each asset's own name.
 #
-# Non-displacing on the same rule as the asset linker: a link already pointing at the shared file is left alone, a stale
-# one is repointed, and anything REAL is kept and reported -- an operator who writes their own instructions at that path
-# keeps them, and the shared text is then not loaded -- with the linker's one exception: a real file that is both
+# Non-displacing on the same rule as the per-asset links: a link already pointing at the shared file is left alone,
+# a stale one is repointed, and anything REAL is kept and reported -- an operator who writes their own instructions
+# at that path keeps them, and the shared text is then not loaded -- with their one exception: a real file that is both
 # ai-tools-managed and byte-identical to the shared one is this project's own copy (a tree copied with its links
 # dereferenced leaves one), so it becomes the link with no content lost. Root-owned inside the agent's setgid+sticky
 # config directory, so the session reads it and cannot repoint it at a file of its own choosing.
@@ -484,7 +419,7 @@ ai_tools_link_asset_readme() {
 #                                                untouched), and the shared assets linked INTO it one per free name.
 #                                                A name the host already holds -- a file, a directory, a link
 #                                                elsewhere -- is left to the host and reported; a link into the shared
-#                                                root whose asset no longer ships is removed, as the per-agent linker
+#                                                root whose asset no longer ships is removed, as the per-agent reconcile
 #                                                removes it. The kind's README is linked only under a free name.
 #   * a regular file                          -> kept and reported; no link placed
 # The predicate for a managed link is its target: the shared root itself, or a path under it. Idempotent; a refresh
