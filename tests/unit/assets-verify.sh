@@ -25,7 +25,17 @@ if [[ ! -r "${LIB}" ]]; then
 fi
 # shellcheck source=/dev/null
 source "${LIB}"
-declare -F ai_tools_assets_verify_set >/dev/null || { fail "the library did not define ai_tools_assets_verify_set"; finish; exit 1; }
+# Every function this file calls, checked before the first case: an absent one exits 127, which a refusal case
+# would read as a correct refusal, so an installed library older than this test stops here instead of reporting
+# verdicts.
+for function_name in ai_tools_assets_verify_set ai_tools_assets_verify_inventory ai_tools_assets_read_binding \
+    ai_tools_assets_write_binary_keyring ai_tools_assets_is_valid_set_name \
+    ai_tools_assets_is_valid_signer_fingerprint; do
+    if ! declare -F "${function_name}" >/dev/null; then
+        fail "${LIB} does not define ${function_name}; reinstall from this checkout (sudo ./install.sh)"
+        finish; exit 1
+    fi
+done
 
 mktestdir
 umask 022
