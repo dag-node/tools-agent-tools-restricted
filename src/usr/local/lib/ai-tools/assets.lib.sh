@@ -185,23 +185,55 @@ _ai_tools_as_entry_path() {
 # and at most 200 characters, since a name inside a set or an agent's directory is whoever wrote it.
 _ai_tools_as_display() { ai_tools_log_sanitize "${1:0:200}"; }
 
-# _ai_tools_as_semver_at_most <required> <installed> : succeed when <required> is a semantic version no higher than
-# <installed>. Compares major, minor and patch; on equal numbers a pre-release installed against a release required is
-# lower. An installed version that is not one (`dev` in a checkout) does not satisfy any requirement.
-_ai_tools_as_semver_at_most() {
-    local required="$1" installed="$2" index
-    local LC_ALL=C
+# _ai_tools_as_version_satisfies_minimum <installed> <required> : succeed when <installed> is a semantic version
+# whose SemVer 2.0.0 precedence is equal to or higher than <required>'s. Each numeric component compares by its length
+# and then its digits, which the grammar's ban on a leading zero makes exact at any length, so no component overflows
+# an integer; a pre-release has lower precedence than its release, and two pre-releases compare identifier by identifier
+# (_ai_tools_as_identifier_order), the shorter list lower where every shared identifier is equal; build metadata is
+# ignored. An installed version that is not one (`dev` in a checkout) does not satisfy any requirement, and neither
+# satisfies a required one that is malformed.
+_ai_tools_as_version_satisfies_minimum() {
+    local installed="$1" required="$2" index order have_pre want_pre
+    local -a have=() want=() have_ids=() want_ids=()
     [[ "${required}" =~ ${_AI_TOOLS_AS_SEMVER} ]] || return 1
-    local -a want=( "${BASH_REMATCH[1]}" "${BASH_REMATCH[2]}" "${BASH_REMATCH[3]}" )
-    local want_pre="${BASH_REMATCH[5]}"
+    want=( "${BASH_REMATCH[1]}" "${BASH_REMATCH[2]}" "${BASH_REMATCH[3]}" ); want_pre="${BASH_REMATCH[5]}"
     [[ "${installed}" =~ ${_AI_TOOLS_AS_SEMVER} ]] || return 1
-    local -a have=( "${BASH_REMATCH[1]}" "${BASH_REMATCH[2]}" "${BASH_REMATCH[3]}" )
-    local have_pre="${BASH_REMATCH[5]}"
+    have=( "${BASH_REMATCH[1]}" "${BASH_REMATCH[2]}" "${BASH_REMATCH[3]}" ); have_pre="${BASH_REMATCH[5]}"
     for index in 0 1 2; do
-        (( 10#${have[index]} > 10#${want[index]} )) && return 0
-        (( 10#${have[index]} < 10#${want[index]} )) && return 1
+        order="$(_ai_tools_as_identifier_order "${have[index]}" "${want[index]}")"
+        [[ "${order}" == 0 ]] && continue
+        [[ "${order}" == 1 ]]
+        return
     done
-    [[ -z "${have_pre}" || -n "${want_pre}" ]]
+    [[ -z "${have_pre}" ]] && return 0
+    [[ -z "${want_pre}" ]] && return 1
+    IFS=. read -r -a have_ids <<< "${have_pre}"
+    IFS=. read -r -a want_ids <<< "${want_pre}"
+    for (( index = 0; index < ${#have_ids[@]} && index < ${#want_ids[@]}; index++ )); do
+        order="$(_ai_tools_as_identifier_order "${have_ids[index]}" "${want_ids[index]}")"
+        [[ "${order}" == 0 ]] && continue
+        [[ "${order}" == 1 ]]
+        return
+    done
+    (( ${#have_ids[@]} >= ${#want_ids[@]} ))
+}
+
+# _ai_tools_as_identifier_order <a> <b> : print -1, 0 or 1 as <a> has lower, equal or higher precedence than <b>
+# under SemVer 2.0.0: two numeric identifiers by length and then digits, a numeric one lower than an alphanumeric one,
+# two alphanumeric ones by byte order.
+_ai_tools_as_identifier_order() {
+    local a="$1" b="$2" LC_ALL=C
+    if [[ "${a}" =~ ^[0-9]+$ && "${b}" =~ ^[0-9]+$ ]]; then
+        if (( ${#a} != ${#b} )); then
+            (( ${#a} < ${#b} )) && printf -- '-1' || printf 1
+            return 0
+        fi
+    elif [[ "${a}" =~ ^[0-9]+$ ]]; then
+        printf -- '-1'; return 0
+    elif [[ "${b}" =~ ^[0-9]+$ ]]; then
+        printf 1; return 0
+    fi
+    if [[ "${a}" == "${b}" ]]; then printf 0; elif [[ "${a}" < "${b}" ]]; then printf -- '-1'; else printf 1; fi
 }
 
 # ── The KEY=value reader of the format ───────────────────────────────────────────────────────────────────────────────
@@ -1221,7 +1253,7 @@ _ai_tools_as_eval_set() {
     _AI_TOOLS_AS_SET_PASSED["${copy}"]="${_AI_TOOLS_AS_ASSETS[*]-}"
     IFS=$' \t\n'
     if [[ -n "${_AI_TOOLS_AS_SET_REQUIRES_BASE}" ]] \
-            && ! _ai_tools_as_semver_at_most "${_AI_TOOLS_AS_SET_REQUIRES_BASE}" "${AI_TOOLS_VERSION:-dev}"; then
+            && ! _ai_tools_as_version_satisfies_minimum "${AI_TOOLS_VERSION:-dev}" "${_AI_TOOLS_AS_SET_REQUIRES_BASE}"; then
         _ai_tools_as_set_refuse "${copy}" requires-base "requires_base=$(_ai_tools_as_display "${_AI_TOOLS_AS_SET_REQUIRES_BASE}"); the installed base is ${AI_TOOLS_VERSION:-dev}"
         return 0
     fi

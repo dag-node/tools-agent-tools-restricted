@@ -418,6 +418,41 @@ expect_state "${SKILL}" requires-base "a checkout's dev version against requires
 fresh
 printf 'requires_base=0.24.0\n' >> "${PKG}/acme/set.conf"; asset_signing_seal "${PKG}/acme"; reconcile
 expect_state "${SKILL}" linked "requires_base equal to the installed base"
+# The comparator over a table, each row `<installed> <required> <status>`: lengths past an integer, a pre-release
+# against its release, numeric against alphanumeric identifiers, lists of different lengths, build metadata, malformed
+# input.
+# shellcheck disable=SC2016  # the $1 is the inner shell's
+wrong="$(bash -c 'source "$1" 2>/dev/null || exit 99
+    while read -r installed required want; do
+        _ai_tools_as_version_satisfies_minimum "${installed}" "${required}"; got=$?
+        [[ "${got}" == "${want}" ]] || printf "%s against %s: %s, want %s; " "${installed}" "${required}" "${got}" "${want}"
+    done' _ "${LIB}" <<'PAIRS'
+0.24.0 0.24.0 0
+0.24.1 0.24.0 0
+0.24.0 0.24.1 1
+1.0.0 0.99.99 0
+0.24.0 18446744073709551616.0.0 1
+18446744073709551616.0.0 18446744073709551615.0.0 0
+10.0.0 9.0.0 0
+9.0.0 10.0.0 1
+0.24.0-beta.1 0.24.0 1
+0.24.0 0.24.0-beta.1 0
+0.24.0-beta.2 0.24.0-beta.1 0
+0.24.0-beta.1 0.24.0-beta.2 1
+0.24.0-beta.10 0.24.0-beta.9 0
+0.24.0-1 0.24.0-alpha 1
+0.24.0-alpha 0.24.0-1 0
+0.24.0-alpha 0.24.0-alpha.1 1
+0.24.0-alpha.1 0.24.0-alpha 0
+0.24.0-alpha.beta 0.24.0-alpha.1 0
+0.24.0-rc.1 0.24.0-beta.9 0
+0.24.0+build.5 0.24.0 0
+0.24.0 0.24.0+build.9 0
+dev 0.1.0 1
+0.24.0 1.0 1
+PAIRS
+)" || wrong="the library did not load"
+[[ -z "${wrong}" ]] && pass "the version comparator orders every pair of the table as SemVer 2.0.0 does" || fail "the comparator: ${wrong}"
 set_case integration-off integration-dotnet "a set requiring an integration that is off" "printf 'requires_integrations=[integration-dotnet]\n' >> ${SETCONF}"
 fresh
 mkdir -p "${PKG}/acme/metadata/skills/acme-pdf"
