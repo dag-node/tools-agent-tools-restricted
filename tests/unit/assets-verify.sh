@@ -53,20 +53,15 @@ have_gpg=yes
 command -v gpg >/dev/null 2>&1 || have_gpg=no
 command -v gpgv >/dev/null 2>&1 || have_gpg=no
 
-# gen_key <var> <name>: make a throwaway key in its own GNUPGHOME under TESTDIR, write its armored public key
-# and the binary keyring gpgv reads beside it, and assign its primary fingerprint to <var>.
-gen_key() {
-    local -n _fpr="$1"
-    local name="$2" home="${TESTDIR}/gnupg-$2"
-    mkdir -p "${home}"; chmod 0700 "${home}"
-    GNUPGHOME="${home}" gpg --batch --quiet --passphrase '' --quick-gen-key "ai-tools test ${name} <${name}@acme.example>" default default never 2>/dev/null
-    _fpr="$(GNUPGHOME="${home}" gpg --batch --with-colons --list-keys | awk -F: '$1 == "fpr" { print $10; exit }')"
-    GNUPGHOME="${home}" gpg --batch --armor --export "${_fpr}" > "${KEYS}/${name}.asc"
-    ai_tools_assets_write_binary_keyring "${KEYS}/${name}.asc" "${KEYS}/${name}.gpg"
-    chmod 0644 "${KEYS}/${name}.asc" "${KEYS}/${name}.gpg"
-}
+# The shared signing recipe (tests/lib/asset-signing.sh), bound to this test's set and directories.
+export ASSET_KEYS_DIR="${KEYS}" ASSET_BINDINGS_DIR="${BINDINGS}"
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")/../lib" && pwd)/asset-signing.sh"
+gen_key() { asset_signing_gen_key "$@"; }
+write_inventory() { asset_signing_write_inventory "${SET}"; }
+sign_set() { asset_signing_sign "${SET}" "$1"; }
+write_binding() { asset_signing_write_binding "$@"; }
 
-# write_set: the throwaway set, with its inventory in build-set's shape (relative paths, two spaces).
+# write_set: the throwaway set, with its inventory in build-set's shape.
 write_set() {
     rm -rf "${SET}"
     mkdir -p "${SET}/.claude-plugin" "${SET}/skills/acme-pdf" "${SET}/agents"
@@ -75,32 +70,6 @@ write_set() {
     printf -- '---\nname: acme-pdf\n---\nA fixture skill.\n' > "${SET}/skills/acme-pdf/SKILL.md"
     printf -- '---\nname: acme-reviewer\n---\nA fixture subagent.\n' > "${SET}/agents/acme-reviewer.md"
     write_inventory
-}
-# write_inventory: SHA256SUMS as build-set writes it, every file but the inventory and its signature, paths literal
-# (sha256sum's own output escapes a backslash, which the producer does not).
-write_inventory() {
-    local file digest
-    rm -f "${SET}/SHA256SUMS"
-    while IFS= read -r file; do
-        # Hashed through stdin: given a name, sha256sum escapes a backslash and opens the line with one.
-        digest="$(sha256sum < "${SET}/${file}" | cut -c1-64)"
-        printf '%s  %s\n' "${digest}" "${file}"
-    done < <(cd "${SET}" && find . -mindepth 1 ! -type d ! -name SHA256SUMS ! -name SHA256SUMS.asc -printf '%P\n' | LC_ALL=C sort) \
-        > "${SET}/SHA256SUMS"
-}
-# sign_set <name>: sign the set's inventory with the key <name>, as release-steps.sh signs it (armored, detached).
-sign_set() {
-    rm -f "${SET}/SHA256SUMS.asc"
-    GNUPGHOME="${TESTDIR}/gnupg-$1" gpg --batch --quiet --armor --detach-sign --output "${SET}/SHA256SUMS.asc" "${SET}/SHA256SUMS"
-}
-# write_binding <set> <keyring-file> <signer>...: a binding naming the keyring and the signers, root-owned 0644.
-write_binding() {
-    local set_name="$1" keyring="$2" signers="" item
-    shift 2
-    for item in "$@"; do signers+="${signers:+, }${item}"; done
-    printf 'set=%s\nsigners=[%s]\nkeyring=%s\n' "${set_name}" "${signers}" "${keyring}" > "${BINDINGS}/${set_name}.conf"
-    chown root:root "${BINDINGS}/${set_name}.conf"
-    chmod 0644 "${BINDINGS}/${set_name}.conf"
 }
 
 # expect <status> <what> <command...>: run the verifier call, assert its status, keep its output in `out` and its stderr

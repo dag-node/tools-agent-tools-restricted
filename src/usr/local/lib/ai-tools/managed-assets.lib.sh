@@ -314,11 +314,12 @@ ai_tools_remove_retired_assets() {
 # under the same marker gate and the same fail-toward-keeping rule as the retired-list pass, which calls this per entry.
 # The other caller is a provider package's final erase: a package that ships a skill withdraws it here, since
 # the retired list names what the PROJECT dropped and a package removal is not that. An absent asset returns 0 without
-# a move. The reason is printed with the outcome ("no longer shipped", "package removed").
+# a move, and so does a symlink: the entry is the assets resolver's view link, not a copy, and is never followed to read
+# a marker. The reason is printed with the outcome ("no longer shipped", "package removed").
 ai_tools_withdraw_asset() {
     local live_root="$1" kind="$2" name="$3" reason="${4:-no longer shipped}"
     local path="${live_root}/${kind}/${name}" marker retired_dir target
-    [[ -e "${path}" ]] || return 0
+    [[ -e "${path}" && ! -L "${path}" ]] || return 0
     marker="${path}"; [[ -d "${path}" ]] && marker="${path}/SKILL.md"
     if ! ai_tools_asset_is_managed "${marker}"; then
         _ai_tools_ma_say "${name} kept (operator's own, not ai-tools-managed)"
@@ -338,9 +339,11 @@ ai_tools_withdraw_asset() {
 # _ai_tools_asset_is_stale_copy <shared> <live> : true when <live> is a copy this project placed under the pre-shared
 # layout and is byte-identical to <shared> -- i.e. replacing it with a link does not discard content. Requires BOTH
 # the ai-tools-managed marker (so an operator's own asset is never touched) and identical content (so an edited
-# or drifted copy is never discarded). Without the comparison tools it answers false, keeping the copy.
+# or drifted copy is never discarded). Without the comparison tools it answers false, keeping the copy. A symlink
+# at <live> is not a copy and answers false before the comparison.
 _ai_tools_asset_is_stale_copy() {
     local shared="$1" live="$2" marker="$2"
+    [[ ! -L "${live}" ]] || return 1
     [[ -d "${live}" ]] && marker="${live}/SKILL.md"
     ai_tools_asset_is_managed "${marker}" || return 1
     if [[ -d "${shared}" && -d "${live}" ]]; then

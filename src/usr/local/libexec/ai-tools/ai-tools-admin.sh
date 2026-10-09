@@ -2175,8 +2175,9 @@ _pu_copies() {
 # that `system bootstrap` and base's scriptlet run. The subject-type follows the asset kind, `directory` for a skill
 # and `file` otherwise, since a missing asset has no path to stat and a link stands for the asset it points at. A live
 # asset that is absent or an empty directory is missing: a session is not offered it. A real file where an agent's link
-# belongs, or a live asset without the managed marker, is the operator's override and is left to them. Checked only
-# where the pristine assets are installed, under <root>.
+# belongs, or a live asset without the managed marker, is the operator's override and is left to them. A symlink
+# at the live name is the assets resolver's view link and is not compared. Checked only where the pristine assets are
+# installed, under <root>.
 _pu_assets() {
     local root="$1" src_root="$1/usr/share/ai-tools" live_root="$1/opt/ai-tools"
     local kind glob src name marker dst dst_marker cur new field agent dir link target stype
@@ -2209,6 +2210,9 @@ _pu_assets() {
             if [[ -d "${src}" ]]; then marker="${src%/}/SKILL.md"; else marker="${src}"; fi
             ai_tools_asset_is_managed "${marker}" || continue
             dst="${live_root}/${kind}/${name}"
+            # A symlink at the live name is the assets resolver's view link, not a seeded copy: its marker and version
+            # are not compared, and its per-agent links are reconcile's.
+            [[ -L "${dst}" ]] && continue
             if [[ -d "${src}" ]]; then dst_marker="${dst}/SKILL.md"; else dst_marker="${dst}"; fi
             if [[ ! -e "${dst}" ]] || { [[ -d "${dst}" ]] && [[ -z "$(find "${dst}" -mindepth 1 -print -quit)" ]]; }; then
                 printf 'asset-missing\t%s\t%s\t%s\n' "${stype}" "${dst}" "not seeded -- sessions are not offered it"
