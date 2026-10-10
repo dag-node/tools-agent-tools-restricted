@@ -239,6 +239,27 @@ here to receive them, since it names no
 .BR ai-tools-assets (5)
 states which asset requires which profile.
 .TP
+.B skills_root
+The absolute path outside
+.B /opt/ai-tools
+where an agent that names no
+.B skills_dir
+reads the whole skills view, as codex reads
+.IR /etc/codex/skills .
+The agent's package links that path to
+.B /opt/ai-tools/skills
+when it is installed, and keeps what a host already holds there.
+Reported, not written:
+.B ai-tools-admin assets reconcile
+and
+.B ai-tools-admin status
+report a real directory, a file or a link elsewhere at the path as
+.BR agent-root-foreign ,
+and the reconcile reports an absent path as
+.BR agent-root-absent ;
+.BR ai-tools-assets (5)
+describes each.
+.TP
 .B memory_file
 The file name, relative to
 .BR config_dir ,

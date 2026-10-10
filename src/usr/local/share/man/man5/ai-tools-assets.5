@@ -250,6 +250,16 @@ not owned by root; a kind directory writable by group or other, and a config
 directory writable by its group without its sticky bit, are refused too.
 No link is placed or removed there, and the directory is left as it is.
 .TP
+.B agent\-root\-foreign
+The path outside its config directory where an enabled agent reads the whole
+view of a kind, such as codex's
+.IR /etc/codex/skills ,
+holds a real directory, a file, or a link to anywhere but the view.
+These commands do not write that path, so an asset you enable or disable, or
+a set upgrade, does not reach that agent through it.
+Move the entry aside and reinstall the agent's package, which links the path
+to the view.
+.TP
 .B view\-foreign
 An entry in the view is neither a link these commands placed nor a copy the
 package seeds there: a skill of your own, a link elsewhere, a name or a shape
@@ -296,6 +306,10 @@ for a link placed or removed, and
 .B kept
 for a file of yours left in an agent's directory where the view also holds an
 entry.
+A record of
+.B agent\-root\-absent
+says that path does not exist yet; the agent's package links it when it is
+installed.
 .SH BINDINGS
 A binding pins the keys that may sign one set name.
 It is one file per set under

@@ -299,6 +299,22 @@ if grep -qE '\[UNREADABLE\] +receivers-unknown' <<< "${OUT}" && [[ "${OUT}" == *
 else
     fail "a failed provider reader: ${OUT:0:400}"
 fi
+fresh
+printf 'skills_root=%s\n' "${TESTDIR}/etc-acme/skills" >> "${AGENTS_D}/acme.conf"
+mkdir -p "${TESTDIR}/etc-acme"
+admin status_assets
+if ! grep -q 'agent-root' <<< "${OUT}" && [[ "${OUT}" == *problems=0* ]]; then
+    pass "an absent skills_root is an info row, which the section does not print or count"
+else
+    fail "an absent skills_root: ${OUT:0:400}"
+fi
+mkdir "${TESTDIR}/etc-acme/skills"; admin status_assets
+if grep -qE "\[ATTENTION\] +agent-root-foreign +${TESTDIR}/etc-acme/skills" <<< "${OUT}" && [[ "${OUT}" == *problems=1* ]]; then
+    pass "a real directory at skills_root renders agent-root-foreign as an ATTENTION line, counted"
+else
+    fail "a real directory at skills_root: ${OUT:0:400}"
+fi
+sed -i '/^skills_root=/d' "${AGENTS_D}/acme.conf"
 # The status section's own probe is ai_tools_assets_plan, which `unload` leaves; drive the missing library through it.
 # shellcheck disable=SC2016
 OUT="$(env "${HOOKS[@]}" bash -c 'helper="$1"; set --; source "${helper}" >/dev/null 2>&1

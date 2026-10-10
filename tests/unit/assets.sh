@@ -1043,7 +1043,49 @@ env "${HOOKS[@]}" bash -c 'source "$1"; ai_tools_assets_plan' _ "${LIB}" >/dev/n
 [[ "$(snapshot)" == "${before}" ]] && pass "ai_tools_assets_plan leaves the view and the agents' directories as they are" \
     || fail "the plan changed the tree"
 
-# ── The conformance checker reads the validator's status ─────────────────────────────────────────────────────────────
+# ── A kind's whole view read outside the agent ───────────────────────────────────────────────────────────────────────
+section "assets: the path an agent reads the whole view at is reported and not written"
+ROOT_PATH="${TESTDIR}/etc-gamma/skills"
+manifest gamma "asset_profiles=[skills.portable.v1]" "skills_root=${ROOT_PATH}"
+root_snapshot() { find "${TESTDIR}/etc-gamma" -printf '%P %y %l %m %s\n' | LC_ALL=C sort; }
+# root_case <what> <agents> <row> <rc> <command> : with <command> building the state at ROOT_PATH and AI_TOOLS_AGENTS
+# naming <agents>, one reconcile writes <row> (`<severity> <finding>`, or empty for no row) about ROOT_PATH, exits <rc>,
+# and leaves every entry under it as it was.
+root_case() {
+    local before row
+    fresh
+    rm -rf "${TESTDIR}/etc-gamma"; mkdir -p "${TESTDIR}/etc-gamma"
+    eval "$5"
+    AGENTS_LINE="$2"; write_conf "${SKILL}" "${SUB}"
+    before="$(root_snapshot)"
+    reconcile
+    row="$(awk -F'\t' -v p="${ROOT_PATH}" 'NR > 1 && $10 == p { print $5 " " $6 }' <<< "${OUT}")"
+    if [[ "${row}" == "$3" && "${RC}" == "$4" ]]; then
+        pass "$1: ${3:-no row}, exit $4"
+    else
+        fail "$1: row '${row}', exit ${RC}; want '${3}', exit $4: ${OUT:0:300}"
+    fi
+    [[ "$(root_snapshot)" == "${before}" ]] && pass "$1: the path is as it was" || fail "$1: the path changed"
+}
+root_case "absent" "agent-acme, agent-gamma" "info agent-root-absent" 0 :
+root_case "a symlink to the view" "agent-acme, agent-gamma" "" 0 'ln -s "${HOME_DIR}/skills" "${ROOT_PATH}"'
+root_case "a symlink elsewhere" "agent-acme, agent-gamma" "attention agent-root-foreign" 4 'ln -s /etc "${ROOT_PATH}"'
+root_case "a real directory" "agent-acme, agent-gamma" "attention agent-root-foreign" 4 \
+    'mkdir "${ROOT_PATH}"; printf "mine\n" > "${ROOT_PATH}/note.md"; ln -s "${HOME_DIR}/skills/acme-pdf" "${ROOT_PATH}/acme-pdf"'
+[[ "$(awk -F'\t' -v p="${ROOT_PATH}" 'NR > 1 && $10 == p { print $11 }' <<< "${OUT}")" \
+        == "a real directory "*"move it aside and reinstall the gamma agent's package"* ]] \
+    && pass "the row names the shape found, moving it aside and reinstalling the agent's package" \
+    || fail "the row's detail: ${OUT:0:300}"
+root_case "a regular file" "agent-acme, agent-gamma" "attention agent-root-foreign" 4 'printf "x\n" > "${ROOT_PATH}"'
+root_case "a real directory for an agent that is not enabled" "agent-acme" "" 0 'mkdir "${ROOT_PATH}"'
+manifest gamma "asset_profiles=[skills.portable.v1]" "skills_root=etc-gamma/skills"
+fresh; AGENTS_LINE="agent-acme, agent-gamma"; write_conf "${SKILL}" "${SUB}"; reconcile
+if [[ "${RC}" == 5 ]] && has_row_at unreadable error && has_row error "${AGENTS_D}/gamma.conf"; then
+    pass "a relative skills_root is an error row naming the manifest, exit 5"
+else
+    fail "a relative skills_root: rc ${RC}, ${OUT:0:300}"
+fi
+manifest gamma
 section "assets: the conformance checker reads the validator's status as well as its findings"
 CHECKER="${CHECKOUT}/tools/checkers/assets-conformance.sh"
 if [[ ! -r "${CHECKER}" ]]; then

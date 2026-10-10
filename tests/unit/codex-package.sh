@@ -118,6 +118,10 @@ for key in skills_dir subagents_dir release_manifest_url release_key release_fin
         pass "${key} is not declared"
     fi
 done
+# The assets reconcile reads skills_root to report whether the admin-scope path is the link to the view.
+[[ "$(field skills_root)" == /etc/codex/skills ]] \
+    && pass "skills_root=/etc/codex/skills, the admin scope the package's %post links to the view" \
+    || fail "skills_root is '$(field skills_root)', expected /etc/codex/skills"
 
 # The two managed files are declared, so the status reports compare the live copies against the shipped ones. Each
 # declared path is a file the package ships under src/etc, read by basename -- a declared path with no shipped source is

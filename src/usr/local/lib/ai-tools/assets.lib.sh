@@ -83,12 +83,15 @@ _AI_TOOLS_ASSETS_LIB_LOADED=1
 # The pristine root whose <kind>/README.md is linked into each agent's kind directory, as the seeder links it.
 readonly AI_TOOLS_ASSETS_README_ROOT=/usr/share/ai-tools
 
-# The kind registry: one row per kind a set may carry, `id|set directory|entry shape|manifest field|base profile`.
-# The view of a kind is <home>/<id>, which is CP_SHARED_SKILLS and CP_SHARED_SUBAGENTS at the default home.
-# `orientation` is base's own kind and has no row, so an identifier naming it is kind-unknown.
+# The kind registry: one row per kind a set may carry,
+# `id|set directory|entry shape|manifest field|base profile|root field`. The view of a kind is <home>/<id>, which is
+# CP_SHARED_SKILLS and CP_SHARED_SUBAGENTS at the default home. The root field is the manifest key naming a path outside
+# an agent's config directory where it reads the kind's whole view, as codex reads /etc/codex/skills; the plan reports
+# that path and does not write it. `orientation` is base's own kind and has no row, so an identifier naming it is
+# kind-unknown.
 readonly -a AI_TOOLS_ASSETS_KIND_ROWS=(
-    "skills|skills|directory|skills_dir|skills.portable.v1"
-    "subagents|agents|file|subagents_dir|subagents.claude.v1"
+    "skills|skills|directory|skills_dir|skills.portable.v1|skills_root"
+    "subagents|agents|file|subagents_dir|subagents.claude.v1|"
 )
 # The capabilities (profile tokens) base defines. A token outside this list is capability-unknown; an agent manifest
 # listing one in asset_profiles does not implement it.
@@ -154,7 +157,7 @@ _ai_tools_as_kind_field() {
     for row in "${AI_TOOLS_ASSETS_KIND_ROWS[@]}"; do
         IFS='|' read -r -a columns <<< "${row}"
         [[ "${columns[0]}" == "${kind}" ]] || continue
-        printf '%s' "${columns[field - 1]}"
+        printf '%s' "${columns[field - 1]:-}"
         return 0
     done
     return 1
@@ -1084,7 +1087,8 @@ _ai_tools_as_reset_plan() {
         _AI_TOOLS_AS_SOURCE=() _AI_TOOLS_AS_CAPS=() _AI_TOOLS_AS_ROOT_STATE=() _AI_TOOLS_AS_SET_STATE=() \
         _AI_TOOLS_AS_SET_DETAIL=() _AI_TOOLS_AS_SET_CAPS=() _AI_TOOLS_AS_SET_INTEG=() _AI_TOOLS_AS_SET_PASSED=() \
         _AI_TOOLS_AS_ASSET_STATE=() _AI_TOOLS_AS_ASSET_DETAIL=() _AI_TOOLS_AS_ASSET_CAPS=() \
-        _AI_TOOLS_AS_AGENT_DIR=() _AI_TOOLS_AS_RECEIVES=() _AI_TOOLS_AS_IMPLEMENTS=() _AI_TOOLS_AS_IDLE_DIR=() \
+        _AI_TOOLS_AS_AGENT_DIR=() _AI_TOOLS_AS_AGENT_ROOT=() _AI_TOOLS_AS_RECEIVES=() _AI_TOOLS_AS_IMPLEMENTS=() \
+        _AI_TOOLS_AS_IDLE_DIR=() \
         _AI_TOOLS_AS_INTEGRATIONS=() _AI_TOOLS_AS_DESIRED=() _AI_TOOLS_AS_DESIRED_ID=() _AI_TOOLS_AS_DIR_REPORTED=()
     declare -ga _AI_TOOLS_AS_ACT_OP=() _AI_TOOLS_AS_ACT_PATH=() _AI_TOOLS_AS_ACT_TARGET=() _AI_TOOLS_AS_ACT_STYPE=() \
         _AI_TOOLS_AS_ACT_ITEM=() _AI_TOOLS_AS_ACT_AGENT=() _AI_TOOLS_AS_ACT_DETAIL=() \
@@ -1160,10 +1164,11 @@ _ai_tools_as_receivers_unknown() {
 }
 
 # _ai_tools_as_read_agents : the enabled agents and, for each, the kinds it receives, the directory it reads each
-# from, and the profiles it implements; then the installed agents that are not enabled, whose directories lose their
-# resolver links. An agent receives a kind when its manifest names the kind's directory field or lists a profile
-# of the kind in asset_profiles. asset_profiles absent reads as the base profile of each kind whose directory
-# the manifest names; a token base does not define is not implemented.
+# from, the path outside its config directory where it reads a kind's whole view (the registry's root field),
+# and the profiles it implements; then the installed agents that are not enabled, whose directories lose their resolver
+# links. An agent receives a kind when its manifest names the kind's directory field or lists a profile of the kind
+# in asset_profiles. asset_profiles absent reads as the base profile of each kind whose directory the manifest names;
+# a token base does not define is not implemented.
 #
 # The receivers are what the capability rule is held to, so a failed read does not yield an empty set: a reader
 # that exits non-zero, and an empty enabled set ai_tools_agents_empty_verdict classifies as `fault` (an input the trust
@@ -1196,7 +1201,7 @@ _ai_tools_as_read_agents() {
 # _ai_tools_as_read_agent_lists <file> : the readers _ai_tools_as_read_agents runs, each into <file> in turn; stops
 # at the first that fails.
 _ai_tools_as_read_agent_lists() {
-    local listing="$1" agent config_dir kind field dir value present token
+    local listing="$1" agent config_dir kind field dir value present token root_path
     local -a tokens=()
     local -A enabled=()
     _ai_tools_as_read_provider ai_tools_enabled_agents "${listing}" || return 0
@@ -1216,6 +1221,11 @@ _ai_tools_as_read_agent_lists() {
                 _AI_TOOLS_AS_AGENT_DIR["${agent}|${kind}"]="${AI_TOOLS_ASSETS_HOME}/${config_dir}/${dir}"
                 _AI_TOOLS_AS_RECEIVES["${agent}|${kind}"]=1
                 (( present )) || _AI_TOOLS_AS_IMPLEMENTS["${agent}|$(_ai_tools_as_kind_field "${kind}" 5)"]=1
+            fi
+            field="$(_ai_tools_as_kind_field "${kind}" 6)"
+            if [[ -n "${field}" ]] && root_path="$(ai_tools_agent_manifest_field "${agent}" "${field}" 2>/dev/null)" \
+                    && [[ -n "${root_path}" ]]; then
+                _AI_TOOLS_AS_AGENT_ROOT["${agent}|${kind}"]="${root_path}"
             fi
         done < <(_ai_tools_as_kinds)
         for token in "${tokens[@]}"; do
@@ -1932,6 +1942,42 @@ _ai_tools_as_plan_without_receivers() {
     done < <(_ai_tools_as_kinds)
 }
 
+# _ai_tools_as_check_agent_root <agent> <kind> <path> : the row for the path outside <agent>'s config directory
+# where its manifest says it reads <kind>'s whole view: none for a symlink to the view; agent-root-foreign at attention
+# for a real directory, another file or a link elsewhere; agent-root-absent at info; and `error` at unreadable
+# for a value that is not an absolute path of portable names, which is not read. The plan does not write the path.
+# The agent's package places the link when it is installed (ai_tools_link_shared_root, managed-assets.lib.sh) and keeps
+# what a host holds there, so a reconcile reaches that agent through the link alone.
+_ai_tools_as_check_agent_root() {
+    local agent="$1" kind="$2" path="$3" view="${AI_TOOLS_ASSETS_HOME}/$2" rest="${3#/}" found subject_type=file valid=1
+    [[ "${path}" == /?* && "${path}" != */ ]] || valid=0
+    while (( valid )); do
+        ai_tools_conf_portable_name_valid "${rest%%/*}" || valid=0
+        [[ "${rest}" == */* ]] || break
+        rest="${rest#*/}"
+    done
+    if (( ! valid )); then
+        _ai_tools_as_row unreadable error file "${AI_TOOLS_AGENTS_DIR:-/usr/local/lib/ai-tools/agents.d}/${agent}.conf" "${kind}" "${agent}" \
+            "$(_ai_tools_as_kind_field "${kind}" 6)=$(_ai_tools_as_display "${path}") is not an absolute path of portable names, so where ${agent} reads the ${kind} view is not read"
+        return 0
+    fi
+    if [[ -L "${path}" ]]; then
+        found="$(readlink -- "${path}" 2>/dev/null || true)"
+        [[ "${found}" == "${view}" ]] && return 0
+        found="a link to $(_ai_tools_as_display "${found}")"
+    elif [[ -d "${path}" ]]; then
+        found="a real directory"; subject_type=directory
+    elif [[ -e "${path}" ]]; then
+        found="a file that is not a directory"
+    else
+        _ai_tools_as_row info agent-root-absent directory "${path}" "${kind}" "${agent}" \
+            "absent; the ${agent} agent's package links it to ${view} when it is installed"
+        return 0
+    fi
+    _ai_tools_as_row attention agent-root-foreign "${subject_type}" "${path}" "${kind}" "${agent}" \
+        "${found} where ${agent} reads the whole ${kind} view, which the reconcile does not write, so an enable, a disable or a set upgrade does not reach ${agent} through it; move it aside and reinstall the ${agent} agent's package, which links it to ${view}"
+}
+
 # ai_tools_assets_plan : read every input and compute the view transaction's changes, without writing. Safe to run
 # without the lock, which `status` does: it reads.
 ai_tools_assets_plan() {
@@ -1960,6 +2006,12 @@ ai_tools_assets_plan() {
             _ai_tools_as_list_agent_links "${agent}" "${kind}" "${_AI_TOOLS_AS_IDLE_DIR[${agent}|${kind}]}" || continue
             _ai_tools_as_plan_stale_links "${agent}" "${kind}" "${_AI_TOOLS_AS_IDLE_DIR[${agent}|${kind}]}" resolver \
                 "${_AI_TOOLS_AS_LISTING[@]}"
+        done
+    done < <(_ai_tools_as_kinds)
+    while IFS= read -r kind; do
+        for agent in "${_AI_TOOLS_AS_AGENTS[@]}"; do
+            [[ -n "${_AI_TOOLS_AS_AGENT_ROOT[${agent}|${kind}]+x}" ]] || continue
+            _ai_tools_as_check_agent_root "${agent}" "${kind}" "${_AI_TOOLS_AS_AGENT_ROOT[${agent}|${kind}]}"
         done
     done < <(_ai_tools_as_kinds)
     return 0

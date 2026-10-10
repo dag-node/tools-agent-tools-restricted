@@ -243,6 +243,12 @@ covers the links that run placed rather than the directory holding them, so what
 too — which is also what lets `tests/unit/shared-root.sh` drive every state without root. Which agent takes this shape,
 and why the path is not in that package's file list, is in [agent-codex](agent-codex.rule.md).
 
+The reconcile reports that path and does not write it, so these two functions stay its only writers. The agent's
+manifest names it under its kind's root field (`skills_root`, a column of the kind registry in `assets.lib.sh`), read
+under the provider trust predicate, and each enabled agent whose path is not the symlink to the view gets one row:
+`agent-root-foreign` at attention for a real directory, a file or a link elsewhere, since an enable, a disable or a set
+upgrade does not reach that agent through it, and `agent-root-absent` at info, since the package places the link.
+
 ## Namespace
 
 Every shipped asset's name is prefixed `ai-tools-`: an agent's filename and `name:` frontmatter, and a skill's directory
