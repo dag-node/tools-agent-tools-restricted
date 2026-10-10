@@ -1335,9 +1335,10 @@ _ai_tools_assets__is_resolver_link() {
 }
 
 # ── Destinations ─────────────────────────────────────────────────────────────────────────────────────────────────────
-# The directories a link is written in or removed from, each held to _ai_tools_assets__is_destination_trusted before
-# the plan acts in it and again before the apply's first write under it (_ai_tools_assets__prepare_dir). A directory
-# that fails is reported once (view-dir-untrusted, agent-dir-untrusted) and every action under it is dropped.
+# The directories a link is written in or removed from, each held to _ai_tools_assets__is_destination_trusted
+# before the plan acts in it and again before the apply's first write under it (_ai_tools_assets__prepare_dir).
+# A directory that fails is reported once (view-dir-untrusted, agent-dir-untrusted) and every action under it is
+# dropped.
 
 # _ai_tools_assets__is_dir_trusted <dir> : succeed when <dir> is a directory ai_tools_conf__is_trusted accepts:
 # root-owned, not a symlink, writable by neither group nor other.
@@ -1432,19 +1433,30 @@ _ai_tools_assets__prepare_dir() {
     [[ -d "${directory}" ]] || { printf '%s' "${directory}"; return 1; }
 }
 
+# _ai_tools_assets__find_writable_entry <path> [find-option...] : print the first entry at or under <path>, read
+# with lstat, that is not root-owned or, other than a symbolic link, is writable by group or other; return find's
+# status. A POSIX ACL entry granting a write is caught by the same mode test: with an extended ACL the group bits are
+# the ACL mask, which bounds what every named user and group entry grants. A link's own mode does not grant a write.
+# The options (`-mindepth`, `-maxdepth`) precede the test.
+_ai_tools_assets__find_writable_entry() {
+    local path="$1"
+    shift
+    find -P "${path}" "$@" \( ! -uid 0 -o \( ! -type l -perm /022 \) \) -print -quit 2>/dev/null
+}
+
 # _ai_tools_assets__is_set_tree_trusted <copy-dir> : succeed when the set directory and every entry under it are
 # root-owned, and every entry but a symbolic link is writable by neither group nor other, read with lstat by one `find`
-# whose status is read. A link is the file-shape rules' to refuse. The walk stops one level past the file-shape walk's
-# depth bound: a tree deeper than that is refused by the file-shape walk that follows. Prints the reason on failure.
+# whose status is read (_ai_tools_assets__find_writable_entry). A link is the file-shape rules' to refuse. The walk
+# stops one level past the file-shape walk's depth bound: a tree deeper than that is refused by the file-shape walk
+# that follows. Prints the reason on failure.
 _ai_tools_assets__is_set_tree_trusted() {
     local set_directory="$1" offender walk_status=0
     if ! ai_tools_conf__is_trusted "${set_directory}" || [[ ! -d "${set_directory}" ]]; then
         printf '%s %s' "$(_ai_tools_assets__sanitize_for_display "${set_directory}")" "$(ai_tools_conf__read_untrusted_reason "${set_directory}")"
         return 1
     fi
-    offender="$(find -P "${set_directory}" -mindepth 1 -maxdepth "$(( _AI_TOOLS_ASSETS__MAX_DEPTH + 1 ))" \
-                    \( ! -uid 0 -o \( ! -type l -perm /022 \) \) -print -quit 2>/dev/null)" \
-        || walk_status=$?
+    offender="$(_ai_tools_assets__find_writable_entry "${set_directory}" -mindepth 1 \
+                    -maxdepth "$(( _AI_TOOLS_ASSETS__MAX_DEPTH + 1 ))")" || walk_status=$?
     if (( walk_status != 0 )); then
         printf 'the walk over %s did not complete (find exit %s)' "$(_ai_tools_assets__sanitize_for_display "${set_directory}")" "${walk_status}"
         return 1
@@ -1871,7 +1883,8 @@ _ai_tools_assets__is_occupied_name() {
 
 # _ai_tools_assets__is_entry_untrusted <agent-dir> <entry> : succeed when a real entry in an agent's directory is not
 # root-owned along its path from the agent's config directory down: the kind directory, the entry, and everything
-# under it.
+# under it. No operator chose that state: a session wrote the entry. A stat or a walk that fails succeeds, so an entry
+# the plan could not read is reported.
 _ai_tools_assets__is_entry_untrusted() {
     local agent_dir="$1" path="$2" owner offender
     owner="$(stat -c %u -- "${agent_dir}" 2>/dev/null)" || return 0
@@ -1880,12 +1893,33 @@ _ai_tools_assets__is_entry_untrusted() {
     [[ -n "${offender}" ]]
 }
 
+# _ai_tools_assets__record_entry_trust <agent> <kind> <agent-dir> <entry> <item> : report a real entry in an agent's
+# directory the sandbox account can rewrite. One _ai_tools_assets__is_entry_untrusted accepts is agent-entry-untrusted
+# at attention. A root-owned one writable by group or other, an ACL write grant included
+# (_ai_tools_assets__find_writable_entry), is agent-entry-writable at info: root set those permissions, so it is
+# the operator's choice, reported without counting as a finding. A walk that fails reads as writable.
+_ai_tools_assets__record_entry_trust() {
+    local agent="$1" kind="$2" agent_dir="$3" path="$4" item="$5" offender
+    if _ai_tools_assets__is_entry_untrusted "${agent_dir}" "${path}"; then
+        _ai_tools_assets__record_row attention agent-entry-untrusted agent "${path}" "${item}" "${agent}" \
+            "not root-owned along its path, so a session can rewrite what every later session loads here"
+        return 0
+    fi
+    if offender="$(_ai_tools_assets__find_writable_entry "${path}")" && [[ -z "${offender}" ]]; then
+        return 0
+    fi
+    _ai_tools_assets__record_row info agent-entry-writable agent "${path}" "${item}" "${agent}" \
+        "root-owned and writable by group or other along its path, so a session can rewrite it; directories 750 and files 640 without an ACL write grant keep it read-only to the agent"
+}
+
 # _ai_tools_assets__plan_agent <agent> <kind> <agent-dir> : the per-agent changes for an enabled agent's directory: each
 # name of the view as the apply leaves it is linked where absent and repointed where a link into the view names another
 # target; a link elsewhere and a real entry are kept and reported -- agent-occupied at an enabled asset's name, `kept`
-# at any other -- a real entry not root-owned along its path additionally agent-entry-untrusted; a managed copy
-# byte-identical to the seeded one is converted to a link; a link into the view whose name the view no longer holds is
-# unlinked. A directory that is not a destination, or whose links could not be listed, is reported and not planned.
+# at any other -- a real entry the sandbox account can rewrite additionally reported
+# (_ai_tools_assets__record_entry_trust); a managed copy byte-identical to the seeded one is converted to a link; a link
+# into the view whose name the view no longer holds is unlinked. A real entry at a name the view does not hold is read
+# as well (_ai_tools_assets__plan_agent_real_entries). A directory that is not a destination, or whose links could not
+# be listed, is reported and not planned.
 _ai_tools_assets__plan_agent() {
     local agent="$1" kind="$2" agent_dir="$3" view="${AI_TOOLS_ASSETS_HOME}/$2" name destination_path target item is_resolver_entry
     local -a links=()
@@ -1917,14 +1951,32 @@ _ai_tools_assets__plan_agent() {
             _ai_tools_assets__record_row "$( (( is_resolver_entry )) && printf attention || printf info )" \
                 "$( (( is_resolver_entry )) && printf agent-occupied || printf kept )" agent "${destination_path}" "${item}" "${agent}" \
                 "a real entry here wins over the view's, left as it is"
-            _ai_tools_assets__is_entry_untrusted "${agent_dir}" "${destination_path}" \
-                && _ai_tools_assets__record_row attention agent-entry-untrusted agent "${destination_path}" "${item}" "${agent}" \
-                    "not root-owned along its path, so a session can rewrite what every later session loads here"
+            _ai_tools_assets__record_entry_trust "${agent}" "${kind}" "${agent_dir}" "${destination_path}" "${item}"
         else
             _ai_tools_assets__record_action link "${destination_path}" "${view}/${name}" agent "${item}" "${agent}" "linked to ${view}/${name}"
         fi
     done
     _ai_tools_assets__plan_stale_links "${agent}" "${kind}" "${agent_dir}" all "${links[@]}"
+    _ai_tools_assets__plan_agent_real_entries "${agent}" "${kind}" "${agent_dir}"
+}
+
+# _ai_tools_assets__plan_agent_real_entries <agent> <kind> <agent-dir> : report each real entry of <agent-dir> at a name
+# the view as the apply leaves it does not hold and that the sandbox account can rewrite
+# (_ai_tools_assets__record_entry_trust), since the agent loads it in every later session. Every other real entry does
+# not get a row. The plan does not move or remove the entry. A listing that fails is an `error` row naming
+# the directory; the links planned in it stand.
+_ai_tools_assets__plan_agent_real_entries() {
+    local agent="$1" kind="$2" agent_dir="$3" name
+    [[ -d "${agent_dir}" && ! -L "${agent_dir}" ]] || return 0
+    if ! _ai_tools_assets__enumerate "${agent_dir}" ! -type l; then
+        _ai_tools_assets__record_row unreadable error directory "${agent_dir}" "${kind}" "${agent}" \
+            "its real entries could not be listed (${_AI_TOOLS_ASSETS__LISTING_ERROR}), so an entry the sandbox account wrote there is not reported"
+        return 0
+    fi
+    for name in "${_AI_TOOLS_ASSETS__LISTING[@]}"; do
+        [[ -z "${_AI_TOOLS_ASSETS__VIEW_AFTER[${name}]+x}" ]] || continue
+        _ai_tools_assets__record_entry_trust "${agent}" "${kind}" "${agent_dir}" "${agent_dir}/${name}" "${kind}/${name}"
+    done
 }
 
 # _ai_tools_assets__is_agent_plannable <agent> <kind> <agent-dir> : succeed when the plan may act in an agent's kind

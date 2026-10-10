@@ -816,8 +816,8 @@ PRELUDE='eval "_orig_$(declare -f ai_tools_assets__plan)"; ai_tools_assets__plan
 reconcile; PRELUDE=""; chmod 0750 "${HOME_DIR}/skills"
 links_left "an untrusted operator.conf beside a view refused in the apply" "${HOME_DIR}/skills"
 has_row view-dir-untrusted "${HOME_DIR}/skills" && pass "a view refused in the apply: its row" || fail "a view refused in the apply: ${OUT:0:300}"
-# An agent's directory the run could not list, and the agents' directories the run could not discover: the agent's
-# link into the view stays in each, and the row says so instead of claiming every link removed.
+# An agent's directory the run could not list, and the agents' directories the run could not discover: the agent's link
+# into the view stays in each, and the row says so instead of claiming every link removed.
 untrusted_row() { awk -F'\t' 'NR > 1 && $6 == "enable-list-untrusted" { print $11 }' <<< "${OUT}"; }
 fresh; chmod 0664 "${CONF}"; PRELUDE="$(failing_find "${HOME_DIR}/.acme/skills")"; reconcile; PRELUDE=""
 if [[ "$(untrusted_row)" == *"under ${HOME_DIR}/.acme/skills"* && "$(untrusted_row)" != *"every resolver link is removed"* \
@@ -1065,6 +1065,63 @@ fi
 has_row agent-entry-untrusted "${HOME_DIR}/.acme/skills/acme-pdf" && fail "a root-owned real entry reported untrusted" || pass "a root-owned real entry is not agent-entry-untrusted"
 chown -R "${SANDBOX_USER}" "${HOME_DIR}/.acme/skills/acme-pdf"; reconcile
 has_row agent-entry-untrusted "${HOME_DIR}/.acme/skills/acme-pdf" && pass "a sandbox-owned real entry is agent-entry-untrusted" || fail "a sandbox-owned entry: ${OUT:0:300}"
+# A real entry at a name the view does not hold is read as well: the agent loads it in every later session. One
+# the sandbox account owns is agent-entry-untrusted at attention; a root-owned one writable through the group bits
+# or an ACL entry the mask carries is agent-entry-writable at info, the operator's choice, and does not change the exit;
+# one at a seeded copy's modes does not get a row. The plan leaves each where it is.
+fresh
+mkdir "${HOME_DIR}/.acme/skills/stray"; printf 'own\n' > "${HOME_DIR}/.acme/skills/stray/SKILL.md"
+reconcile
+if [[ "${RC}" == 0 ]] && ! has_row agent-entry-untrusted "${HOME_DIR}/.acme/skills/stray"; then
+    pass "a root-owned real entry at a name the view does not hold gives no row"
+else
+    fail "a root-owned stray entry: rc ${RC}, ${OUT:0:300}"
+fi
+# stray_case <what> <severity> <finding> <rc> : the last run reported the stray entry <finding> at <severity>, exited
+# <rc>, and kept it.
+stray_case() {
+    if [[ "${RC}" == "$4" ]] && has_row_at "$2" "$3" && has_row "$3" "${HOME_DIR}/.acme/skills/stray" \
+            && [[ "$(cat "${HOME_DIR}/.acme/skills/stray/SKILL.md")" == own ]]; then
+        pass "$1 at a name the view does not hold is $3 at $2, exit $4, and kept"
+    else
+        fail "$1: rc ${RC}, ${OUT:0:300}"
+    fi
+}
+chmod 0750 "${HOME_DIR}/.acme/skills/stray"; chmod 0640 "${HOME_DIR}/.acme/skills/stray/SKILL.md"
+chmod g+w "${HOME_DIR}/.acme/skills/stray/SKILL.md"; reconcile
+stray_case "a root-owned entry holding a group-writable file" info agent-entry-writable 0
+if has_row agent-entry-untrusted "${HOME_DIR}/.acme/skills/stray"; then
+    fail "a root-owned writable entry was also reported agent-entry-untrusted"
+else
+    pass "a root-owned writable entry is not agent-entry-untrusted"
+fi
+chmod g-w "${HOME_DIR}/.acme/skills/stray/SKILL.md"
+if command -v setfacl >/dev/null 2>&1 && setfacl -m "u:${SANDBOX_USER}:rw" "${HOME_DIR}/.acme/skills/stray/SKILL.md" 2>/dev/null; then
+    reconcile
+    stray_case "a root-owned entry whose file grants the sandbox account a write by an ACL entry" info agent-entry-writable 0
+    setfacl -b "${HOME_DIR}/.acme/skills/stray/SKILL.md"
+    reconcile
+    if [[ "${RC}" == 0 ]] && ! has_row agent-entry-writable "${HOME_DIR}/.acme/skills/stray"; then
+        pass "the same entry with its ACL removed, at 0750/0640 root, does not get a row"
+    else
+        fail "the entry with its ACL removed: rc ${RC}, ${OUT:0:300}"
+    fi
+else
+    skip "an ACL write grant on a stray entry" "setfacl is absent or the testdir's filesystem refuses an ACL"
+fi
+chown -R "${SANDBOX_USER}" "${HOME_DIR}/.acme/skills/stray"; reconcile
+stray_case "a sandbox-owned real entry" attention agent-entry-untrusted 4
+# The real-entry listing is read apart from the links listing, so its failure is a row of its own and the links planned
+# in the directory stand.
+PRELUDE="$(printf 'find() { if [[ "$2" == %q && " $* " == *" ! -type l "* ]]; then return 1; fi; command find "$@"; }' \
+    "${HOME_DIR}/.acme/skills")"
+reconcile; PRELUDE=""
+if [[ "${RC}" == 5 ]] && has_row_at unreadable error && has_row error "${HOME_DIR}/.acme/skills" \
+        && [[ "$(readlink -- "${HOME_DIR}/.acme/skills/acme-pdf")" == "${HOME_DIR}/skills/acme-pdf" ]]; then
+    pass "a real-entry listing that fails is an unreadable error row, exit 5, with the agent's links in place"
+else
+    fail "a failed real-entry listing: rc ${RC}, ${OUT:0:300}"
+fi
 fresh
 ln -sfn /etc/hostname "${HOME_DIR}/.acme/skills/acme-pdf"; reconcile
 if has_row agent-occupied "${HOME_DIR}/.acme/skills/acme-pdf" && [[ "$(readlink "${HOME_DIR}/.acme/skills/acme-pdf")" == /etc/hostname ]]; then
@@ -1131,8 +1188,8 @@ else
     fail "a kind directory taken between the plan and the apply: $(ls -la "${HOME_DIR}/.acme/skills" 2>&1 | tr '\n' '|')"
 fi
 rm -rf "${HOME_DIR}/.acme/skills"
-# The directories holding a destination are checked before an absent one is created: a create through a refused
-# home root is a write into the tree the plan refused to act in. INSTALL_LOG records each install the apply ran.
+# The directories holding a destination are checked before an absent one is created: a create through a refused home
+# root is a write into the tree the plan refused to act in. INSTALL_LOG records each install the apply ran.
 INSTALL_LOG="${TESTDIR}/install.log"
 RECORD_INSTALL="install() { printf '%s\\n' \"\$*\" >> ${INSTALL_LOG}; command install \"\$@\"; }"
 two_agents; rm -rf "${HOME_DIR}/subagents"; mv "${HOME_DIR}" "${TESTDIR}/home-real"; ln -s "${OUTSIDE}" "${HOME_DIR}"

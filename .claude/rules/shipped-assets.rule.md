@@ -149,8 +149,12 @@ not take the lock.
 for, the view's resolver links and base's seeded copies (`_ai_tools_assets__is_seeded_copy`) are linked, and no other
 entry. Every other entry is `view-foreign`, reported and kept, and not linked into an agent's directory, though codex,
 reading the view whole, still loads it; an operator's own skill reaches one agent from that agent's own directory,
-where a real entry wins. In an agent's directory a real entry is kept and reported, and one not root-owned along its
-path is `agent-entry-untrusted`, since the sandbox account could rewrite what every later session loads there; a link
+where a real entry wins. In an agent's directory a real entry is kept, at every name, and one the sandbox account can
+rewrite is reported, since every later session loads what is there: one not root-owned along its path is
+`agent-entry-untrusted` at attention, since a session wrote it, and a root-owned one writable by group or other, an ACL
+write grant included through the mask the group bits carry, is `agent-entry-writable` at info, since root set
+the permissions that let the agent edit it. Non-editability is enforced for a signed set alone, whose copy the trust
+walk refuses on the same test; the plan reads the real entries at a name the view does not hold as well; a link
 elsewhere is the host's and is not repointed; a link into the view whose name the view no longer holds is removed
 (`_ai_tools_assets__plan_agent`). An installed agent that `AI_TOOLS_AGENTS` does not name loses its resolver links
 and keeps its seeded copies' links. Every directory a link is written in -- the home root, a view, an agent's config
