@@ -24,11 +24,11 @@ readonly _AI_TOOLS_CLAUDE_ENDPOINT_LIB=1
 
 # conf.lib (grammar + trust) and msg.lib (warnings). Include-guarded; ai-tools-run loads both before any fragment,
 # so in production they are already present. Sourced here too for the unit test.
-if [[ -z "${_AI_TOOLS_CONF_LIB:-}" ]]; then
+if ! declare -F ai_tools_conf_read >/dev/null 2>&1 || ! declare -F ai_tools_conf_is_trusted >/dev/null 2>&1; then
     # shellcheck source=SCRIPTDIR/conf.lib.sh
     source /usr/local/lib/ai-tools/conf.lib.sh 2>/dev/null || true
 fi
-if [[ -z "${_AI_TOOLS_MSG_LIB_LOADED:-}" ]]; then
+if ! declare -F ai_tools_msg_warn >/dev/null 2>&1; then
     # shellcheck source=SCRIPTDIR/msg.lib.sh
     source /usr/local/lib/ai-tools/msg.lib.sh 2>/dev/null || true
 fi

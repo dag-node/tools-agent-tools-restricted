@@ -27,13 +27,13 @@ readonly _AI_TOOLS_CLAUDE_PROMPT_LIB=1
 # The shared KEY=value grammar (ai_tools_conf_read) and the trust predicate (ai_tools_conf_is_trusted). Include-guarded,
 # so a re-source in a shell that already has it is a no-op. the launch wrapper loads and verifies it before this lib,
 # so in production it is already present; sourced here too so the unit test can drive this lib directly.
-if [[ -z "${_AI_TOOLS_CONF_LIB:-}" ]]; then
+if ! declare -F ai_tools_conf_read >/dev/null 2>&1 || ! declare -F ai_tools_conf_is_trusted >/dev/null 2>&1; then
     # shellcheck source=SCRIPTDIR/conf.lib.sh
     source /usr/local/lib/ai-tools/conf.lib.sh 2>/dev/null || true
 fi
 # Warnings render through msg.lib (ai_tools_msg_warn), best-effort: a missing formatter drops the warning text, never
 # the refusal it accompanies (the caller acts on the return code, not the text).
-if [[ -z "${_AI_TOOLS_MSG_LIB_LOADED:-}" ]]; then
+if ! declare -F ai_tools_msg_warn >/dev/null 2>&1; then
     # shellcheck source=SCRIPTDIR/msg.lib.sh
     source /usr/local/lib/ai-tools/msg.lib.sh 2>/dev/null || true
 fi
