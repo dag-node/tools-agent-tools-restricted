@@ -823,6 +823,11 @@ _ai_tools_assets__parse_scalar() {
 # of _ai_tools_assets__is_flow_list, or omitted; indented lines, at one indentation of spaces, follow a key whose value
 # is omitted, as `key: scalar` lines under metadata or `- scalar` items under tools, disallowedTools and skills,
 # and under no other key. Base reads the key names at the margin and the values of name and description.
+#
+# A line is what ends at LF, with one trailing CR read past (a CRLF file). A CR anywhere else in a line is
+# frontmatter.syntax, checked before the comment skip: YAML takes a lone CR as a line break, so a consumer's parser
+# reads `description: x<CR>hooks: ...` or `# note<CR>hooks: ...` as a second line carrying a key this reader would
+# otherwise never see at the margin, and file.binary lets a CR through as text.
 _ai_tools_assets__check_frontmatter() {
     local file="$1" path="$2" kind="$3" name="$4" line trimmed key value index shape at closing_line_index=0
     local current="" indent=""
@@ -846,6 +851,9 @@ _ai_tools_assets__check_frontmatter() {
     fi
     for (( index = 1; index < closing_line_index; index++ )); do
         line="${lines[index]%$'\r'}"; at="line $(( index + 1 ))"
+        if [[ "${line}" == *$'\r'* ]]; then
+            problems+=( "${at}: a carriage return inside the line, which a YAML reader takes as a line break" ); continue
+        fi
         trimmed="${line#"${line%%[![:space:]]*}"}"
         [[ -z "${trimmed}" || "${trimmed}" == '#'* ]] && continue
         if [[ "${line%%[![:space:]]*}" == *$'\t'* ]]; then

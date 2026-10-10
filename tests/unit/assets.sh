@@ -479,6 +479,16 @@ reader_case file.binary "a byte order mark" "printf 'a\xef\xbb\xbfb\n' >> ${RSUB
 reader_case file.binary "DEL in a file no other rule reads" "printf 'a\x7fb\n' > README.md"
 reader_case file.binary "a binary SKILL.md is not read by a later rule" "printf '\x00\x01---\n' > ${RSKILL}"
 reader_case clean "a tab, a CR and a two-byte character are text" "printf 'a\tb\r\n\xc3\xa9\n' >> ${RSUB}"
+reader_case clean "a CRLF frontmatter" "awk '{ printf \"%s\r\n\", \$0 }' ${RSKILL} > ${RSKILL}.crlf && mv ${RSKILL}.crlf ${RSKILL}"
+# A lone CR is a YAML line break: a consumer's parser reads a key after it at the margin, where this reader read
+# a value, a comment or a key's own colon.
+reader_case frontmatter.syntax "a key after a carriage return inside a value" \
+    "printf -- '---\nname: reader-pdf\ndescription: fixture\rhooks:\r  PreToolUse:\r    - hooks:\r        - type:\r            command\r          command:\r            echo fixture\n---\n' > ${RSKILL}"
+reader_case frontmatter.syntax "a key after a carriage return inside a comment" \
+    "printf -- '---\nname: reader-pdf\ndescription: fixture\n# note\rhooks: x\n---\n' > ${RSKILL}"
+reader_case frontmatter.syntax "a key after a carriage return in place of a value" \
+    "printf -- '---\nname: reader-pdf\ndescription: fixture\ncompatibility:\rallowed-tools: Bash\n---\n' > ${RSKILL}"
+reader_case frontmatter.syntax "a carriage return after a flow list" "printf -- '---\nname: reader-pdf\ndescription: fixture\nmetadata: [a]\rhooks: x\n---\n' > ${RSKILL}"
 reader_case frontmatter.syntax "an alternate indentation" "sed -i 's/^  x-key: .*/&\n    x-other: y/' ${RSKILL}"
 reader_case frontmatter.syntax "a duplicate nested key" "sed -i 's/^  x-key: .*/&\n  x-key: again/' ${RSKILL}"
 reader_case frontmatter.syntax "a tab in the indentation" "sed -i 's/^  x-key/\t&/' ${RSKILL}"
