@@ -245,13 +245,13 @@ asset_view_holds() {
     [[ "$(readlink /opt/ai-tools/skills/"$1")" == "$2" ]] || { echo "the view holds $(readlink /opt/ai-tools/skills/"$1" 2>&1) at $1" >&2; return 1; }
     while IFS=$'\t' read -r _ dir; do
         [[ "$(readlink "${dir}/$1")" == "/opt/ai-tools/skills/$1" ]] || { echo "${dir}/$1 is not a link into the view" >&2; return 1; }
-    done < <(bash -c '. /usr/local/lib/ai-tools/control-plane.lib.sh && ai_tools_agent_asset_dirs skills_dir')
+    done < <(bash -c '. /usr/local/lib/ai-tools/control-plane.lib.sh && ai_tools_control_plane__list_agent_asset_dirs skills_dir')
 }
 asset_view_lacks() {
     local dangling
     local -a dirs=( /opt/ai-tools/skills /opt/ai-tools/subagents )
     [[ ! -e /opt/ai-tools/skills/"$1" && ! -L /opt/ai-tools/skills/"$1" ]] || { echo "the view still holds $1" >&2; return 1; }
-    mapfile -t -O 2 dirs < <(bash -c '. /usr/local/lib/ai-tools/control-plane.lib.sh && { ai_tools_agent_asset_dirs skills_dir; ai_tools_agent_asset_dirs subagents_dir; }' | cut -f2)
+    mapfile -t -O 2 dirs < <(bash -c '. /usr/local/lib/ai-tools/control-plane.lib.sh && { ai_tools_control_plane__list_agent_asset_dirs skills_dir; ai_tools_control_plane__list_agent_asset_dirs subagents_dir; }' | cut -f2)
     dangling="$(find "${dirs[@]}" -maxdepth 1 -xtype l 2>/dev/null)"
     [[ -z "${dangling}" ]] || { echo "dangling links: ${dangling}" >&2; return 1; }
 }
@@ -263,7 +263,7 @@ asset_selftest_setup() {
     local fpr
     fpr="$(GNUPGHOME="${ASSET_STAGE}/gnupg" gpg --batch --with-colons --list-keys | awk -F: '$1 == "fpr" { print $10; exit }')"
     GNUPGHOME="${ASSET_STAGE}/gnupg" gpg --batch --armor --export "${fpr}" > "${ASSET_STAGE}/acme.asc"
-    bash -c '. /usr/local/lib/ai-tools/assets-verify.lib.sh && ai_tools_assets_write_binary_keyring "$1" "$2"' _ \
+    bash -c '. /usr/local/lib/ai-tools/assets-verify.lib.sh && ai_tools_assets_verify__write_binary_keyring "$1" "$2"' _ \
         "${ASSET_STAGE}/acme.asc" "${ASSET_KEYRING}"
     chmod 0644 "${ASSET_KEYRING}"
     printf 'set=acme\nsigners=[openpgp:%s]\nkeyring=%s\n' "${fpr}" "${ASSET_KEYRING}" > "${ASSET_BINDING}"

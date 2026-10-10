@@ -3,17 +3,17 @@
 # tests/unit/operator-resolve.sh
 # Unit test for the operator resolver in operator.lib.sh -- the shared source the handback helpers use to decide
 # which operator owns an agent-written path. Pins the two security-critical functions against a /tmp fixture tree
-# via the AI_TOOLS_OPERATOR_CONF + AI_TOOLS_ALLOWLIST root-only test hooks: ai_tools_allowlist_covers
+# via the AI_TOOLS_OPERATOR_CONF + AI_TOOLS_ALLOWLIST root-only test hooks: ai_tools_operator__is_covered_by_allowlist
 # (allow/exclude/nested matching, and the shared allowlist grammar -- an allow entry carrying an end-of-line comment
 # or quotes covers its path, and an exclusion carrying a comment still excludes, since a resolver that read those lines
 # differently from the launch wrapper would restore ownership on a carve-out the wrapper refuses)
-# and ai_tools_resolve_owner (a covered path resolves to the operator and exposes the owner's allowlist; an excluded
-# or out-of-list path resolves to no owner, so the helpers leave it untouched). Multi-operator tie-break resolution
-# (which of several covering operators wins) needs several real operator accounts and is not exercised by the suite yet.
-# Run as root via sudo (the harness derives the projects user from SUDO_USER).
+# and ai_tools_operator__resolve_owner (a covered path resolves to the operator and exposes the owner's allowlist;
+# an excluded or out-of-list path resolves to no owner, so the helpers leave it untouched). Multi-operator tie-break
+# resolution (which of several covering operators wins) needs several real operator accounts and is not exercised
+# by the suite yet. Run as root via sudo (the harness derives the projects user from SUDO_USER).
 #
-# ai_tools_resolve_owner is exercised in a child shell: it assigns PROJECTS_USER/HOME/GROUP/UID, which the harness pins
-# readonly, so it must run where those are not yet frozen.
+# ai_tools_operator__resolve_owner is exercised in a child shell: it assigns PROJECTS_USER/HOME/GROUP/UID,
+# which the harness pins readonly, so it must run where those are not yet frozen.
 
 set -euo pipefail
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")/../lib" && pwd)/harness.sh"
@@ -40,10 +40,10 @@ conf="${TESTDIR}/operator.conf"
 printf 'OPERATORS="%s"\n' "${PROJECTS_USER}" > "${conf}"
 export AI_TOOLS_OPERATOR_CONF="${conf}" AI_TOOLS_ALLOWLIST="${allow}"
 
-# ── ai_tools_allowlist_covers is pure (no global writes), so source the lib and call it here. ──
+# ── ai_tools_operator__is_covered_by_allowlist is pure (no global writes), so source the lib and call it here. ──
 # shellcheck source=/dev/null
 source "${LIB}"
-covers() { ai_tools_allowlist_covers "${allow}" "$1"; }
+covers() { ai_tools_operator__is_covered_by_allowlist "${allow}" "$1"; }
 covers "${TESTDIR}/proj"        && pass "covers: allowed project root"          || fail "covers: allowed root"
 covers "${TESTDIR}/proj/sub"    && pass "covers: file under an allowed project" || fail "covers: nested path"
 covers "${TESTDIR}/proj/secret" && fail "covers: excluded path matched"         || pass "covers: '!'-excluded path is not covered"
@@ -56,12 +56,12 @@ covers "${TESTDIR}/quoted dir/x"  && pass "covers: quoted allow entry covers its
 covers "${TESTDIR}/proj/vendor/x" && fail "covers: exclusion with a comment was ignored (subtree read as covered)" \
                                   || pass "covers: exclusion with an end-of-line comment still excludes"
 
-# ── ai_tools_resolve_owner in a child shell: echo "<rc> <user> <allowlist>". ──
+# ── ai_tools_operator__resolve_owner in a child shell: echo "<rc> <user> <allowlist>". ──
 resolve_out() {
     RP="$1" LIBP="${LIB}" bash -c '
         source "${LIBP}"
-        if ai_tools_resolve_owner "${RP}"; then
-            printf "0 %s %s\n" "${PROJECTS_USER}" "${AI_TOOLS_RESOLVED_ALLOWLIST}"
+        if ai_tools_operator__resolve_owner "${RP}"; then
+            printf "0 %s %s\n" "${PROJECTS_USER}" "${AI_TOOLS_OPERATOR__RESOLVED_ALLOWLIST}"
         else
             printf "1 - -\n"
         fi'

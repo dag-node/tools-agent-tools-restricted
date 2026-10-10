@@ -94,8 +94,8 @@ readonly MSG_LIB="/usr/local/lib/ai-tools/msg.lib.sh"
 source "${MSG_LIB}"
 
 # The exit statuses this report ends with, and the fold that computes one from the readings it made
-# (ai_tools_records_accumulate_severity, ai_tools_records_get_exit_status). REQUIRED: a report that could not state its
-# own exit contract would exit 0 over a host it did not read.
+# (ai_tools_records_base__accumulate_severity, ai_tools_records_base__get_exit_status). REQUIRED: a report that could
+# not state its own exit contract would exit 0 over a host it did not read.
 readonly RECORDS_BASE_LIB="/usr/local/lib/ai-tools/records-base.lib.sh"
 # shellcheck source=SCRIPTDIR/../../lib/ai-tools/records-base.lib.sh
 source "${RECORDS_BASE_LIB}" 2>/dev/null || {
@@ -134,20 +134,20 @@ parse_command_line() {
 # file into a test harness does not displace the harness's function of that name.
 assert_root() {
     [[ "$(id -u)" == "0" ]] || {
-        ai_tools_msg_error MSG-K9C5 "ai-tools-audit must run as root: the trail it reads is 700 root:root" \
+        ai_tools_msg__error MSG-K9C5 "ai-tools-audit must run as root: the trail it reads is 700 root:root" \
             "run it as: sudo ai-tools audit"
-        exit "${AI_TOOLS_EXIT_UNREADABLE}"
+        exit "${AI_TOOLS_RECORDS_BASE__EXIT_UNREADABLE}"
     }
 }
 
 # ── Readings that could not be made ──────────────────────────────────────────────────────────
 # UNREADABLE_READINGS names each reading a collector could not make. The collectors run in the report's own shell,
 # so note_unreadable folds the severity where the exit status is computed (records.rule.md); main prints the list ahead
-# of the findings it did read, and the run exits AI_TOOLS_EXIT_UNREADABLE.
+# of the findings it did read, and the run exits AI_TOOLS_RECORDS_BASE__EXIT_UNREADABLE.
 UNREADABLE_READINGS=()
 note_unreadable() {
     UNREADABLE_READINGS+=( "$1" )
-    ai_tools_records_accumulate_severity unreadable
+    ai_tools_records_base__accumulate_severity unreadable
 }
 
 # Where a captured command writes its stderr, so a tool's own message reaches the page beside its exit status. One file
@@ -157,14 +157,14 @@ ensure_stderr_capture() {
     [[ -n "${STDERR_CAPTURE}" ]] && return 0
     STDERR_CAPTURE="$(mktemp)" || {
         warn MSG-T8S2 "cannot create a temporary file to capture a tool's stderr"
-        exit "${AI_TOOLS_EXIT_UNREADABLE}"
+        exit "${AI_TOOLS_RECORDS_BASE__EXIT_UNREADABLE}"
     }
 }
 # captured_stderr -- PRINT the stderr the last captured command wrote, on one line, reduced for display and clamped.
 captured_stderr() {
     local text
     text="$(tr '\n' ' ' < "${STDERR_CAPTURE}" 2>/dev/null || true)"
-    ai_tools_log_sanitize "${text:0:200}"
+    ai_tools_log__sanitize "${text:0:200}"
 }
 
 # resolve_window -- normalize the window once, into CUTOFF_EPOCH and SINCE_DISPLAY. A value date(1) cannot parse is
@@ -172,7 +172,7 @@ captured_stderr() {
 # findings.
 resolve_window() {
     CUTOFF_EPOCH="$(date -d "${SINCE}" +%s 2>/dev/null)" || {
-        ai_tools_msg_error MSG-Y3M7 "ai-tools-audit: --since value not understood: ${SINCE}" \
+        ai_tools_msg__error MSG-Y3M7 "ai-tools-audit: --since value not understood: ${SINCE}" \
             "give it anything date(1) parses, e.g. '2 days ago', 'yesterday', '2026-08-01'"
         exit 2
     }
@@ -226,11 +226,11 @@ collect_file_findings_from() {
         # A record of this format whose stamp date(1) refuses has no place in the window: the trail's own record is
         # unreadable, which is said rather than dropped.
         entry_epoch="$(date -d "${entry_timestamp}" +%s 2>/dev/null)" || {
-            note_unreadable "${log_file}: a record carries a timestamp date(1) cannot read: $(ai_tools_log_sanitize "${entry_timestamp:0:40}")"
+            note_unreadable "${log_file}: a record carries a timestamp date(1) cannot read: $(ai_tools_log__sanitize "${entry_timestamp:0:40}")"
             continue
         }
         (( entry_epoch >= CUTOFF_EPOCH )) || continue
-        FILE_FINDINGS+=( "${component}|${entry_timestamp}|${entry_level}|$(ai_tools_log_sanitize "${entry_message}")" )
+        FILE_FINDINGS+=( "${component}|${entry_timestamp}|${entry_level}|$(ai_tools_log__sanitize "${entry_message}")" )
     done
     exec {fd}<&-
     wait "${pid}" && rc=0 || rc=$?
@@ -270,7 +270,7 @@ collect_launch_refusals() {
         [[ "${line}" =~ ^([^[:space:]]+)[[:space:]]+[^[:space:]]+[[:space:]]+[^:]+:[[:space:]]+(.*)$ ]] || continue
         entry_timestamp="${BASH_REMATCH[1]}"
         entry_message="${BASH_REMATCH[2]}"
-        LAUNCH_REFUSALS+=( "launch|${entry_timestamp}|WARNING|$(ai_tools_log_sanitize "${entry_message}")" )
+        LAUNCH_REFUSALS+=( "launch|${entry_timestamp}|WARNING|$(ai_tools_log__sanitize "${entry_message}")" )
     done
     exec {fd}<&-
     wait "${pid}" && rc=0 || rc=$?
@@ -448,11 +448,11 @@ audit_hex_decode() {
 
 # audit_record_field <field> -- reduce one record field to something safe to print and safe to carry
 # through the pipe-delimited record format, the same treatment every untrusted string reaching a sink or a terminal gets
-# (see logging.rule.md). ai_tools_log_sanitize is the allowlist -- printable ASCII alone, so a decoded newline, terminal
-# escape or bidi byte becomes `?`; the pipe is replaced after it, since a value carrying one would fabricate a column
-# in the rendered table; and the result is clamped, marked where it was cut.
+# (see logging.rule.md). ai_tools_log__sanitize is the allowlist -- printable ASCII alone, so a decoded newline,
+# terminal escape or bidi byte becomes `?`; the pipe is replaced after it, since a value carrying one would fabricate
+# a column in the rendered table; and the result is clamped, marked where it was cut.
 audit_record_field() {
-    local value; value="$(ai_tools_log_sanitize "$1")"
+    local value; value="$(ai_tools_log__sanitize "$1")"
     value="${value//|/?}"
     if (( ${#value} > AUDIT_FIELD_DISPLAY_LIMIT )); then
         value="${value:0:AUDIT_FIELD_DISPLAY_LIMIT}..."
@@ -466,15 +466,15 @@ audit_record_field() {
 # as an exe no manifest claims.
 build_agent_entrypoint_map() {
     AGENT_NAMES=(); AGENT_PATTERNS=()
-    declare -F ai_tools_installed_agents >/dev/null 2>&1 || return 0
-    declare -F ai_tools_agent_manifest_field >/dev/null 2>&1 || return 0
+    declare -F ai_tools_providers__list_installed_agents >/dev/null 2>&1 || return 0
+    declare -F ai_tools_providers__read_agent_manifest_field >/dev/null 2>&1 || return 0
     local agent pattern
     while IFS=$'\t' read -r agent _ _; do
-        pattern="$(ai_tools_agent_manifest_field "${agent}" entrypoint_fcontext 2>/dev/null || true)"
+        pattern="$(ai_tools_providers__read_agent_manifest_field "${agent}" entrypoint_fcontext 2>/dev/null || true)"
         [[ -n "${pattern}" ]] || continue
         AGENT_NAMES+=( "${agent}" )
         AGENT_PATTERNS+=( "${pattern}" )
-    done < <(ai_tools_installed_agents 2>/dev/null)
+    done < <(ai_tools_providers__list_installed_agents 2>/dev/null)
     return 0
 }
 
@@ -609,7 +609,7 @@ render_entrypoint_section() {
             return 0 ;;
         no-auditd)
             printf '  %s\n' "no reading was made: this host keeps no audit log for the kernel to write to"
-            ai_tools_msg_notice MSG-C6E6 \
+            ai_tools_msg__notice MSG-C6E6 \
                 "no audit daemon on this host, so an agent started from inside a session leaves no kernel record" \
                 "install the audit package and start auditd; the SELinux policy writes the record, no rule file is needed"
             return 0 ;;
@@ -620,7 +620,7 @@ render_entrypoint_section() {
             local remedy="load the confinement policy: install ai-tools-selinux, or from a checkout run: sudo selinux/install-selinux.sh install"
             [[ "${ENTRYPOINT_EXEC_STATE}" == no-selinux ]] \
                 || remedy="the loaded ${SELINUX_CORE_MODULE} module predates the rule: upgrade ai-tools-selinux, or from a checkout run: sudo selinux/install-selinux.sh rebuild"
-            ai_tools_msg_notice MSG-V8Z9 \
+            ai_tools_msg__notice MSG-V8Z9 \
                 "the SELinux rule that records an agent started from inside a session is not in force, so no such start is recorded" \
                 "${remedy}"
             return 0 ;;
@@ -641,7 +641,7 @@ render_entrypoint_section() {
     printf '\n'
     printf '  %-7s  %-10s  %-9s %6s  %s\n' "LEVEL" "LAST SEEN" "COMPONENT" "COUNT" "MOST RECENT"
     render_findings < <(printf '%s\n' "${ENTRYPOINT_EXEC_FINDINGS[@]}")
-    ai_tools_msg_warn MSG-H2B5 \
+    ai_tools_msg__warn MSG-H2B5 \
         "an agent entrypoint was started from inside a running session, which no launch gate saw" \
         "the child runs in its parent's unit, so the launch and the handbacks carry the parent's identity"
     # The command stays outside the frame: the wrapping emitter would break it across lines (msg.lib.sh).
@@ -712,7 +712,7 @@ collect_entrypoint_findings() {
 # alone; an incomplete run opens by naming what it could not read, so a section that reads clean after it is not taken
 # for a clean window.
 main() {
-    ai_tools_records_begin_report
+    ai_tools_records_base__begin_report
     ensure_stderr_capture
     trap 'rm -f -- "${STDERR_CAPTURE}"' EXIT
     collect_file_findings
@@ -723,7 +723,7 @@ main() {
     ENTRYPOINT_FINDING_COUNT=${#ENTRYPOINT_EXEC_FINDINGS[@]}
     UNREADABLE_COUNT=${#UNREADABLE_READINGS[@]}
     (( FILE_FINDING_COUNT + LAUNCH_REFUSAL_COUNT + ENTRYPOINT_FINDING_COUNT == 0 )) \
-        || ai_tools_records_accumulate_severity attention
+        || ai_tools_records_base__accumulate_severity attention
 
     DISTINCT_FINDING_COUNT=0
     if (( FILE_FINDING_COUNT > 0 )); then
@@ -732,24 +732,24 @@ main() {
     local summary="${DISTINCT_FINDING_COUNT} distinct finding(s) from ${FILE_FINDING_COUNT} recorded line(s), ${LAUNCH_REFUSAL_COUNT} launch refusal(s), and ${ENTRYPOINT_FINDING_COUNT} in-session entrypoint exec(s), since ${SINCE_DISPLAY}."
 
     if (( UNREADABLE_COUNT > 0 )); then
-        ai_tools_msg_headline "Audit (incomplete)" 1 \
+        ai_tools_msg__headline "Audit (incomplete)" 1 \
             "${UNREADABLE_COUNT} reading(s) could not be made since ${SINCE_DISPLAY}, so a section below that holds no finding is not a clean window."
-        ai_tools_msg_warn MSG-W5C8 \
+        ai_tools_msg__warn MSG-W5C8 \
             "the audit could not read every source it reports from -- the readings it could not make are listed below"
         printf '    %s\n' "${UNREADABLE_READINGS[@]}"
         (( FILE_FINDING_COUNT + LAUNCH_REFUSAL_COUNT + ENTRYPOINT_FINDING_COUNT == 0 )) \
             || printf '\n  %s\n' "What was read: ${summary}"
     elif (( FILE_FINDING_COUNT == 0 && LAUNCH_REFUSAL_COUNT == 0 && ENTRYPOINT_FINDING_COUNT == 0 )); then
-        ai_tools_msg_headline "Audit" 1 \
+        ai_tools_msg__headline "Audit" 1 \
             "Nothing refused, rejected, stranded or flagged since ${SINCE_DISPLAY}."
         printf '  %s\n' "trail: ${AI_TOOLS_LOG_DIR}/*.log (root-only)"
         # Printed on the clean path too: a window with no finding means one thing where the policy rule is in force
         # and another where it is not, and the difference is the operator's to know.
         render_entrypoint_section
-        ai_tools_records_get_exit_status || return $?
+        ai_tools_records_base__get_exit_status || return $?
         return 0
     else
-        ai_tools_msg_headline "Audit" 1 "${summary}"
+        ai_tools_msg__headline "Audit" 1 "${summary}"
     fi
 
     if (( FILE_FINDING_COUNT > 0 )); then
@@ -780,7 +780,7 @@ main() {
         printf '    %-45s %s\n' "sudo ai-tools-admin system entrypoints relabel"  "re-verify and relabel the entrypoints"
         printf '    %-45s %s\n' "journalctl -t ai-tools-chown _UID=0"             "the full ownership trail"
     fi
-    ai_tools_records_get_exit_status || return $?
+    ai_tools_records_base__get_exit_status || return $?
     return 0
 }
 

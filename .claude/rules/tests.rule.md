@@ -54,14 +54,15 @@ read as that user too, since the CLI refuses root before it prints.
 **The suite does not execute a file the sandbox account can write.** The toolchain's `node` and `npm`, an agent's
 binaries and anything under the sandbox home are that account's to replace, so a root `execve` of one runs whatever
 the account put there, whatever the arguments. A case that needs one of them — a JSON parse through `node`, a command's
-`--version` — runs it as the sandbox account through the harness's `as_sandbox`, which is `ai_tools_as_sandbox`
-([updater](updater.rule.md): no controlling terminal, no inherited descriptor, a clean environment, each stream
-through the allowlist, a bound on the run), and what a result line quotes of it reaches the terminal
-through the harness's `_san`. A library function that executes such a file requires that identity of its own process,
-so a case that drives one as root asserts the refusal and drives the write through `as_sandbox` over a fixture
-the account owns. Reading such a file as data (`readlink`, `stat`, a checksum, a bounded `sed` of a `package.json`) is
-not execution, and root does it freely. A line-based lint for the rule was measured and rejected: over the tree it
-reports heredoc bodies already inside `sudo -u`, arrays and fixture text, and no root execution.
+`--version` — runs it as the sandbox account through the harness's `as_sandbox`, which is
+`ai_tools_sandbox_exec__run_as_sandbox` ([updater](updater.rule.md): no controlling terminal, no inherited descriptor,
+a clean environment, each stream through the allowlist, a bound on the run), and what a result line quotes of it reaches
+the terminal through the harness's `_san`. A library function that executes such a file requires that identity of its
+own process, so a case that drives one as root asserts the refusal and drives the write through `as_sandbox`
+over a fixture the account owns. Reading such a file as data (`readlink`, `stat`, a checksum, a bounded `sed`
+of a `package.json`) is not execution, and root does it freely. A line-based lint for the rule was measured
+and rejected: over the tree it reports heredoc bodies already inside `sudo -u`, arrays and fixture text, and no root
+execution.
 
 A skip that every full install emits is a check in the wrong place. An optional host feature outside this project's
 install (`pam_namespace` polyinstantiation of `/tmp`) is reported only where it is present; where it is absent,
@@ -217,8 +218,8 @@ Nor does a test mutate **global system state** to exercise a helper — the host
 (`semanage fcontext`) most of all. A helper whose real work *is* to add and then remove a policy entry is therefore
 covered only on the branch where it leaves the policy unchanged: the alternative is a teardown that can strand an entry
 in the policy store on a failed run, which costs more than the coverage buys. Where that trades away an assertion,
-the gap is named at the point it is declined — `integration/selinux.sh` does this for `ai_tools_unlabel_project`'s
-revert path — so a reader meets it as a decision rather than as an absence.
+the gap is named at the point it is declined — `integration/selinux.sh` does this
+for `ai_tools_relabel__unlabel_project`'s revert path — so a reader meets it as a decision rather than as an absence.
 
 The deployed root helpers read a fixed allowlist path; a test points them at its own dummy allowlist
 via the `AI_TOOLS_ALLOWLIST` environment override (`mk_allowlist` writes the dummy and exports it). This override is
@@ -306,11 +307,11 @@ may already write the paths they redirect.
 
 It is not in the suite because the full function registers a `semanage fcontext` rule, and this suite does not mutate
 the host's SELinux policy to test a helper — the same line `integration/selinux.sh` draws
-for `ai_tools_unlabel_project`. That check is safe *because* it re-asserts the rule that is already registered, leaving
-the policy store unchanged; a fixture manifest would not, which is why the hook redirects the **launcher** rather than
-the manifest directory. The pure decision behind the verdict is covered hermetically in `unit/relabel.sh`, and the live
-agreement between declaration and installation in `integration/selinux.sh`; what this exercises is the wiring
-between them and the renderer's exit status.
+for `ai_tools_relabel__unlabel_project`. That check is safe *because* it re-asserts the rule that is already registered,
+leaving the policy store unchanged; a fixture manifest would not, which is why the hook redirects the **launcher**
+rather than the manifest directory. The pure decision behind the verdict is covered hermetically in `unit/relabel.sh`,
+and the live agreement between declaration and installation in `integration/selinux.sh`; what this exercises is
+the wiring between them and the renderer's exit status.
 
 ## Two-ended assertions
 
@@ -357,51 +358,51 @@ the predicate they share is pinned in `safe-paths.sh`, and why that guarantee ca
 user before the run, or the owner guard skips it. `secret-patterns.sh` is the odd one out: it sources the shared
 classifier library (`secret-patterns.lib.sh`) and forces the built-in default pattern set, pinning the matcher itself —
 credential names match case-insensitively, while plain configs and build artifacts the toolchain must read do not.
-`control-plane.sh` pins `ai_tools_ensure_unit_search_path_closed` to less access in every direction: the chain ends
-root-owned, an unexpected entry is an error left in place, a symlink ends the descent without creating a directory
-at its target, a non-root caller is refused, and the drift reader tells a clean chain from a failed reading by status.
-`source-modes.sh` and `source-text.sh` are the pair that reads the **repository's own record** rather than any deployed
-artifact, each covering a property no review catches unaided: the exec bit git tracks for every `.sh`, which must agree
-within a directory, and that every tracked text file ends with a newline. Both classify without a maintained list —
-the first by the majority bit in a directory, the second by git's own binary heuristic (a NUL byte in the first 8000
-bytes), so a file a later commit adds is judged the way `git diff` already judges it. `source-text.sh` reports one
-result line per offender, since the harness reduces a message to safe-for-display characters and a newline inside one
-would run the paths together. Each skips outside a git checkout. `check-version.sh` departs the installed-helper pattern
-the other way: it runs a `TESTDIR` copy of `packaging/check-version.sh` (a repo release-gate script, not a deployed
-artifact) against fixture `VERSION`/spec files, pinning the tag grammar — final `vX.Y.Z` requires the three-way match,
-`vX.Y.Z-rc.N` compares its base and relaxes only the `%changelog` match, any other dashed tag is refused, a missing
-`%changelog` entry is fatal for every form. `fill-comments.sh` is a second repo-tool test: it drives
-`tools/formatters/fill-comments.sh`, the Emacs-driven formatter for the comment wrap rule, over one fixture carrying
-every shape the tool must fill or leave alone. Filled: a long paragraph inside the column with no line ending on a tie
-word (the checker's `--wrap` mode is the oracle), one indented inside a function body, and a sentence pair the join
-gives one space. Left as written: an aligned table, a doc comment's contract line, a config header's `Values:`
-and `Default:` field lines (with the description before them filled and ending there), a column of three or more spaces,
-a table drawn with vertical rules, a heredoc body, the commands a header shows in a fenced block, a CDATA section,
-a `<pre>` block, a linter directive, a commented default, a shebang and a code line. Each of those is a way a formatter
-silently rewrites what a file emits or what a reader reads as a column, and none is visible in review. It also holds
-the filler's own output to the rule no checker reads — a code span is never split — and asserts a second run leaves
-the file as the first left it, that `--lines` fills the paragraph it names alone, and that two ranges in one run are
-both filled, since the first fill moves every line the later range names. Refused before Emacs sees it,
-through the reader every formatter shares (`tools/formatters/text_file.py`): a file holding an escape sequence,
-and a symlink, each reported with its reason and left as it was while the clean file beside it is filled. Two more pin
-the Emacs side: a file named like one of its options (`-Q`) is filled rather than obeyed, since the files are handed
-over after `--`, and a file-local `eval:` form is not run. It closes on the reflow gate over its own output, which is
-where the gate's reading of a source file is pinned: a comment marker is a line prefix there, as a blockquote's `>` is
-on a page, so a marker the fill moved onto another line is not a difference and a marker it dropped is one. The gate's
-own fixture is a page, which reaches none of that, so the classes injected here are the ones only a source file carries:
-a dropped marker, a merged pair of comment paragraphs, a changed code line. Skipped without Emacs. `format.sh` pins
-the front door over both fillers (`tools/formatters/format.sh`): every file in a fixture repository goes to the filler
-for the kind the checker names, at the column it names — a page at 79, a router at 120, a source comment at 120,
-a header under `src/etc/` at 72 — while a generated page (one carrying the ignore-file marker) is reported as skipped
-with its kind and left as it was, since the failure it exists to prevent is the comment filler pointed at a page.
-What may be formatted at all is the explicit scope `FORMAT_SCOPE` names: a unit file, a log and a Makefile
-in the fixture are outside it, so `--all` counts and leaves them, a man page and a binary never reach the checker,
-and a file named on the command line is reported and skipped, as is a path outside the repository, while a named path is
-read from the directory the command was run in. The scope rule is pinned from both sides: with no file named, only
-the paragraph a diff touched is filled and an over-width paragraph the commit already held is left, `--files` fills
-that one too, an untracked file is filled whole either way, and `--all` warns first. Its exit status is pinned
-as the closing report's: 0 when no measured line is left over its column, 1 while a line no filler can shorten remains
-or a filler refused a file, which is reported with its reason and left as it was. Its last case runs a copy
+`control-plane.sh` pins `ai_tools_control_plane__ensure_unit_search_path_closed` to less access in every direction:
+the chain ends root-owned, an unexpected entry is an error left in place, a symlink ends the descent without creating
+a directory at its target, a non-root caller is refused, and the drift reader tells a clean chain from a failed reading
+by status. `source-modes.sh` and `source-text.sh` are the pair that reads the **repository's own record** rather than
+any deployed artifact, each covering a property no review catches unaided: the exec bit git tracks for every `.sh`,
+which must agree within a directory, and that every tracked text file ends with a newline. Both classify without
+a maintained list — the first by the majority bit in a directory, the second by git's own binary heuristic (a NUL byte
+in the first 8000 bytes), so a file a later commit adds is judged the way `git diff` already judges it. `source-text.sh`
+reports one result line per offender, since the harness reduces a message to safe-for-display characters and a newline
+inside one would run the paths together. Each skips outside a git checkout. `check-version.sh` departs
+the installed-helper pattern the other way: it runs a `TESTDIR` copy of `packaging/check-version.sh` (a repo
+release-gate script, not a deployed artifact) against fixture `VERSION`/spec files, pinning the tag grammar — final
+`vX.Y.Z` requires the three-way match, `vX.Y.Z-rc.N` compares its base and relaxes only the `%changelog` match, any
+other dashed tag is refused, a missing `%changelog` entry is fatal for every form. `fill-comments.sh` is a second
+repo-tool test: it drives `tools/formatters/fill-comments.sh`, the Emacs-driven formatter for the comment wrap rule,
+over one fixture carrying every shape the tool must fill or leave alone. Filled: a long paragraph inside the column
+with no line ending on a tie word (the checker's `--wrap` mode is the oracle), one indented inside a function body,
+and a sentence pair the join gives one space. Left as written: an aligned table, a doc comment's contract line, a config
+header's `Values:` and `Default:` field lines (with the description before them filled and ending there), a column
+of three or more spaces, a table drawn with vertical rules, a heredoc body, the commands a header shows in a fenced
+block, a CDATA section, a `<pre>` block, a linter directive, a commented default, a shebang and a code line. Each
+of those is a way a formatter silently rewrites what a file emits or what a reader reads as a column, and none is
+visible in review. It also holds the filler's own output to the rule no checker reads — a code span is never split —
+and asserts a second run leaves the file as the first left it, that `--lines` fills the paragraph it names alone,
+and that two ranges in one run are both filled, since the first fill moves every line the later range names. Refused
+before Emacs sees it, through the reader every formatter shares (`tools/formatters/text_file.py`): a file holding
+an escape sequence, and a symlink, each reported with its reason and left as it was while the clean file beside it is
+filled. Two more pin the Emacs side: a file named like one of its options (`-Q`) is filled rather than obeyed, since
+the files are handed over after `--`, and a file-local `eval:` form is not run. It closes on the reflow gate over its
+own output, which is where the gate's reading of a source file is pinned: a comment marker is a line prefix there,
+as a blockquote's `>` is on a page, so a marker the fill moved onto another line is not a difference and a marker it
+dropped is one. The gate's own fixture is a page, which reaches none of that, so the classes injected here are the ones
+only a source file carries: a dropped marker, a merged pair of comment paragraphs, a changed code line. Skipped without
+Emacs. `format.sh` pins the front door over both fillers (`tools/formatters/format.sh`): every file in a fixture
+repository goes to the filler for the kind the checker names, at the column it names — a page at 79, a router at 120,
+a source comment at 120, a header under `src/etc/` at 72 — while a generated page (one carrying the ignore-file marker)
+is reported as skipped with its kind and left as it was, since the failure it exists to prevent is the comment filler
+pointed at a page. What may be formatted at all is the explicit scope `FORMAT_SCOPE` names: a unit file, a log
+and a Makefile in the fixture are outside it, so `--all` counts and leaves them, a man page and a binary never reach
+the checker, and a file named on the command line is reported and skipped, as is a path outside the repository, while
+a named path is read from the directory the command was run in. The scope rule is pinned from both sides: with no file
+named, only the paragraph a diff touched is filled and an over-width paragraph the commit already held is left,
+`--files` fills that one too, an untracked file is filled whole either way, and `--all` warns first. Its exit status is
+pinned as the closing report's: 0 when no measured line is left over its column, 1 while a line no filler can shorten
+remains or a filler refused a file, which is reported with its reason and left as it was. Its last case runs a copy
 of the formatter over its own two shell tools: each is one function called on its last line, which bash parses whole,
 so the fill that rewrites the file under the running bash does not end the run mid-line. `fill-markdown.sh` is its
 Markdown counterpart, and pins the filler (`tools/formatters/fill-markdown.py`) together with the gate that proves
@@ -502,9 +503,9 @@ are held to their files: `ai-tools-allowed-projects(5)` and `ai-tools-secret-pat
 seeded with (capped, naming the page, comment-only so it does not register an entry) and to the parser each file is read
 with, through which the page's own examples are loaded; `ai-tools-operator.conf(5)`
 and `ai-tools-custom-claude-endpoint.conf(5)` to the keys their shipped templates mention, in both directions, read
-with `ai_tools_conf_keys` so the test and `system post-upgrade` agree on what *mentioned* means. It closes by running
-the checker's `--config-header` mode over every config header this project writes, so each holds to 72 columns
-([providers](providers.rule.md) states the placement rule). In each pair the help is orientation and the page is
+with `ai_tools_conf__read_keys` so the test and `system post-upgrade` agree on what *mentioned* means. It closes
+by running the checker's `--config-header` mode over every config header this project writes, so each holds to 72
+columns ([providers](providers.rule.md) states the placement rule). In each pair the help is orientation and the page is
 the reference (see [cli](cli.rule.md)), so it asserts relations rather than set equality. For `ai-tools(1)`:
 the **verb** sets match in both directions, every option the help names is documented, and every option the page
 documents is one a CLI **parser** accepts. The last is the direction with teeth: what goes stale is an option outliving
@@ -519,7 +520,7 @@ without pinning where in the nesting the arm sits. Both pages are then checked f
 
 `ai-tools-providers(5)` is the third page, and its pairing is with **data** rather than a command: the shipped manifests
 under `agents.d` and `integrations.d` carry a pointer to it and no key documentation of their own, so the page is
-the only statement of what a key means. The keys each manifest sets are read with `ai_tools_conf_keys`, the parser
+the only statement of what a key means. The keys each manifest sets are read with `ai_tools_conf__read_keys`, the parser
 the tooling uses, and compared with the `.TP` tags under KEYS in both directions — a key a manifest sets and the page
 lacks is an operator reading a file the manual does not explain, and a documented key no manifest sets is a stale entry.
 
@@ -576,7 +577,7 @@ with an invalid value asserted to read as the empty list, and the kind-prefixed 
 name, another kind's prefix and the prefix alone each empty under their code, the writer's side and the detection
 predicate beside it) — plus two properties whose breakage is silent in production: the splitter must be
 **IFS-independent** (it is sourced into scripts that set `IFS=$'\n\t'`, where an inherited IFS collapses a multi-item
-value into one bogus item), and `ai_tools_conf_is_trusted` must refuse every state a non-root writer can create
+value into one bogus item), and `ai_tools_conf__is_trusted` must refuse every state a non-root writer can create
 (non-root-owned, group- or other-writable, a symlink), for directories as well as files. The refusal's text is pinned
 with it: the owner uid and mode the predicate read, the map parser over fixture `uid_map` contents (the kernel's padded
 identity line, a translated map, a multi-range map, an empty one, and the identity line under the strict-mode IFS),
@@ -589,13 +590,13 @@ under the identity map, present under any other (a rootless container selftest, 
 that does not read fails the case. Its new-option report carries a third: a commented **default** (`#KEY=`, `# KEY=`) is
 a mention while an indented **example** in a header block is not, so a file seeded with `operator.conf`'s own grammar
 comments is not mistaken for one that already knows every option. Its portable-name section drives
-`ai_tools_conf_portable_name_valid` over a table of path components — a slash, whitespace, a backslash, a glob
+`ai_tools_conf__is_portable_name_valid` over a table of path components — a slash, whitespace, a backslash, a glob
 character, a byte outside ASCII and a leading hyphen each refused — then a non-ASCII letter under a UTF-8 locale,
 where a bracket range would otherwise match it, and the `NAME_MAX` edge. `providers.sh` drives the enablement truth
 table and then, for each untrusted input in turn — `operator.conf`, a manifest, a manifest directory — asserts
 the resolver moves to *less* access and says so, never more. It closes with the installed-manifest field reader
-(`ai_tools_installed_integrations_declaring`), which `relabel.lib.sh` reads `build_output_dirs` through: a key is read
-from an installed integration whether or not it is enabled, since a project's label is applied at claim time,
+(`ai_tools_providers__list_integrations_declaring`), which `relabel.lib.sh` reads `build_output_dirs` through: a key is
+read from an installed integration whether or not it is enabled, since a project's label is applied at claim time,
 and an untrusted manifest or directory does not yield any value, under the same trust rules as the resolver. It then
 drives the empty-set verdict the updater reads once the resolver printed an empty set: each refused input,
 and an allowlist none of whose names resolved, reads `fault` with the path and the owner and mode named on one line,
@@ -718,7 +719,7 @@ where the allowlist is seeded, and a first enrolment that cannot write one is re
 ([cli-grammar](cli-grammar.rule.md) spells the command; the helper's header carries the ordering), so what the directory
 costs and who decides its mode are both asserted. The host's umask decides that mode, which is driven by running one
 function under two umasks, while an existing `~/.config` keeps whatever mode the account gave it. The default-yes
-confirm is answered **without drawing it** — `AI_TOOLS_ASSUME_YES` for the yes cases, a stubbed `ai_tools_msg_confirm`
+confirm is answered **without drawing it** — `AI_TOOLS_ASSUME_YES` for the yes cases, a stubbed `ai_tools_msg__confirm`
 for the declined one — since a prompt that reached `/dev/tty` would block the suite until the per-file timeout killed
 it; the one case that must answer from the default runs under `setsid`, which is the unattended enrolment and the reason
 the default is yes. The two refusals complete the set: a declined prompt and a `~/.config` that is a file each report
@@ -778,7 +779,7 @@ reading that as "not sourceable" **skips**, which `run.sh` reports as no coverag
 is `cli="$1"; <args>="$2"…; set --`, then `source "${cli}"`, and the skip is reserved for the statuses the inner shell
 raises for a partial install — every other non-zero fails, naming it.
 
-`launcher-target.sh` pins the versioned launcher re-link (`ai_tools_relink_launcher`, see
+`launcher-target.sh` pins the versioned launcher re-link (`ai_tools_providers__relink_launcher`, see
 [providers](providers.rule.md)), the write that points `<version-dir>/bin/<launcher>` at the executable an agent's
 `launcher_target` names. The file the chain ends on is the one `execve` transitions on, so every way a target could take
 the chain somewhere else is driven and asserted to leave npm's own link as it was, with an empty stdout and the code
@@ -790,14 +791,14 @@ and an unwritable `bin` directory (skipped as root, which writes it anyway). The
 through `realpath`, the chain a launch reads, and asserted idempotent on a second run and re-linked after npm's link is
 put back, since the step runs after every install; a version directory that is itself a symlink and a symlink inside
 the version directory resolving to a file inside it are pinned as accepted. The containment predicate the re-link shares
-with the relabel (`ai_tools_entrypoint_fcontext_valid`) is driven here over its truth table, against the shipped Node
-versions root, and in both directions of its root argument. It is pure — the version directory, launcher, target,
-pattern and root are arguments — and runs without root; its fixtures need the executable bit visible, so it takes
-`agent-installs.sh`'s probe and fallback. One property there belongs to the two provisioning **scripts** instead:
-the re-link must precede the stable symlink's repoint, since the repoint fires the relabel watcher and the pin records
-what that link resolves to, so a repoint made first would pin the entry file npm wrote, and the next launch would refuse
-the toolchain the updater had just installed correctly. Driving it would take a real `npm install` of a shim-shaped
-package and a live handback socket, each half being covered already (`integration/symlink-helper.sh`,
+with the relabel (`ai_tools_providers__is_entrypoint_fcontext_valid`) is driven here over its truth table,
+against the shipped Node versions root, and in both directions of its root argument. It is pure — the version directory,
+launcher, target, pattern and root are arguments — and runs without root; its fixtures need the executable bit visible,
+so it takes `agent-installs.sh`'s probe and fallback. One property there belongs to the two provisioning **scripts**
+instead: the re-link must precede the stable symlink's repoint, since the repoint fires the relabel watcher and the pin
+records what that link resolves to, so a repoint made first would pin the entry file npm wrote, and the next launch
+would refuse the toolchain the updater had just installed correctly. Driving it would take a real `npm install`
+of a shim-shaped package and a live handback socket, each half being covered already (`integration/symlink-helper.sh`,
 `integration/entrypoint-pin.sh`), so it is read as source order in the updater and the bootstrap, ahead of the fixture
 cases and their skip. An anchor the read no longer finds **fails**: a refactor that moved either call is
 when the invariant most needs re-asserting.
@@ -880,7 +881,7 @@ a credential, a name-only import and a PATH tail out of the file. The checker is
 name-only import, a token, a PATH tail), so a green run is evidence about the shipped files and not about a pattern
 that accepts everything. It reads the checkout and runs without root.
 
-`shared-root.sh` pins the shared-root link and its reverse (`ai_tools_link_shared_root`, see
+`shared-root.sh` pins the shared-root link and its reverse (`ai_tools_managed_assets__link_shared_root`, see
 [shipped-assets](shipped-assets.rule.md)), the step that points codex's admin-scope skills path at the live shared root.
 The path is one a host may already hold, so each state it can be in is driven and every state but "absent" is asserted
 to leave what the host placed exactly as it was — the entry, its target, the directory's own mode and entries —
@@ -921,8 +922,8 @@ carries that warning). `systemctl` is stubbed as a shell function, so no real un
 
 Its last section covers the **live reading a root caller adds** — the machine transport `ai-tools-admin status` reaches
 a sandbox-user unit through ([cli](cli.rule.md)). The verdict that reading feeds is the pure
-`ai_tools_service_stamp_verdict`, split out from the probing for exactly this reason (the same split
-`ai_tools_confinement_verdict` makes for the launch decision), so the whole truth table is driven with no manager
+`ai_tools_services__evaluate_stamp`, split out from the probing for exactly this reason (the same split
+`ai_tools_confinement__evaluate` makes for the launch decision), so the whole truth table is driven with no manager
 to query and no privilege to hold — a test cannot fake root, `EUID` being readonly. Every case is one of two claims,
 and both are one-directional. A live reading may only **add** an answer where the stamp declined to give one,
 so a caller whose live reading is `unknown` — every unprivileged one — reports exactly what it reported
@@ -937,15 +938,16 @@ a declared entrypoint pattern to. A declared pattern becomes a `semanage` rule g
 domain's exec entrypoint, and the containment predicate it passes is the launcher re-link's, whose truth table
 `launcher-target.sh` drives, so this file pins what the relabel supplies it: the Node versions root, by value
 and as readonly, with the shipped shape accepted under it and a host binary refused — plus that the type is
-the library's constant, never manifest-supplied. `ai_tools_operator_conf_valid` is driven the same way, over the path
-that becomes an `ai_tools_conf_t` rule: its input is a home read from a passwd entry, so a wildcard, an alternation,
-or a bracket expression there must be refused rather than widening the rule to homes nobody enrolled, and the pattern it
-builds must escape every dot. It then pins the two pure decisions behind the declared-vs-installed reconciliation:
-`ai_tools_entrypoint_reconcile_verdict` over its whole truth table — where `stale` is the verdict that must fail
-a relabel, being the one cause a rerun cannot clear, and an uninterpretable flag must err toward it rather than toward
-blessing a divergence — and `_ai_tools_entrypoint_path_reportable`, the allowlist that keeps an agent-influenced path
-from splitting a status line or carrying an escape sequence to the operator's terminal. Both are pure, so they need no
-provisioned host; the resolution they consume is exercised in `integration/selinux.sh`.
+the library's constant, never manifest-supplied. `ai_tools_relabel__is_operator_conf_valid` is driven the same way,
+over the path that becomes an `ai_tools_conf_t` rule: its input is a home read from a passwd entry, so a wildcard,
+an alternation, or a bracket expression there must be refused rather than widening the rule to homes nobody enrolled,
+and the pattern it builds must escape every dot. It then pins the two pure decisions behind the declared-vs-installed
+reconciliation: `ai_tools_relabel__evaluate_entrypoint_reconcile` over its whole truth table — where `stale` is
+the verdict that must fail a relabel, being the one cause a rerun cannot clear, and an uninterpretable flag must err
+toward it rather than toward blessing a divergence — and `_ai_tools_relabel__is_entrypoint_path_reportable`,
+the allowlist that keeps an agent-influenced path from splitting a status line or carrying an escape sequence
+to the operator's terminal. Both are pure, so they need no provisioned host; the resolution they consume is exercised
+in `integration/selinux.sh`.
 
 The build-output rule beside the project rule (see [dotnet](dotnet.rule.md)) is driven with the manifest reader,
 `semanage` and `restorecon` stubbed: the pattern unions the names every installed integration declares in C-locale
@@ -955,12 +957,12 @@ among rules sharing a stem the later one is the match; a build rule the store re
 skipped; a sandbox clone registers neither; and an unlabel drops the build rule it finds by **listing** the local rules
 under the project rule — an older name set included, a sibling project's rule untouched, a pattern with a space parsed
 whole — so no rule outlives the claim on a subtree the confined domain manages. The project path is a literal inside
-both patterns: `ai_tools_fcontext_literal` escapes every regex metacharacter, a label writes the escaped path,
-and an unlabel removes the escaped rule and the raw one an earlier label wrote, since a `.` or `+` left bare widens
-or breaks the set of paths the rule covers. A label retires those raw rules on an upgraded host, over a fixture tree,
-in each direction that would widen or misreport: only a rule whose raw pattern and type this library writes is removed,
-a rule of another type is left and named for review, and the paths the removed rule matched beside the project are
-relabelled — one reached through a `.` read as `/` included — while a host without a raw rule, or an unlabel
+both patterns: `ai_tools_relabel__get_fcontext_literal` escapes every regex metacharacter, a label writes the escaped
+path, and an unlabel removes the escaped rule and the raw one an earlier label wrote, since a `.` or `+` left bare
+widens or breaks the set of paths the rule covers. A label retires those raw rules on an upgraded host, over a fixture
+tree, in each direction that would widen or misreport: only a rule whose raw pattern and type this library writes is
+removed, a rule of another type is left and named for review, and the paths the removed rule matched beside the project
+are relabelled — one reached through a `.` read as `/` included — while a host without a raw rule, or an unlabel
 that removed none, leaves them alone.
 
 Two further sections cover what happens when a rule does **not** register, with `semanage` stubbed as a shell function
@@ -968,7 +970,7 @@ so no policy store is touched. The first asserts the refusal carries `semanage`'
 and that it arrives on the **status line** rather than in a variable — the labelling runs inside a `$(...)`
 in `ai-tools-relabel-agent`, so a variable set there is gone by the time the renderer reads it, and the assertion is
 made through that same capture. It also pins the stream split in the other direction: `semanage`'s stdout must never
-reach the caller, which parses that stream as verdict lines. The second drives `ai_tools_relabel_lock` across real
+reach the caller, which parses that stream as verdict lines. The second drives `ai_tools_relabel__lock` across real
 processes — a held lock is reported as held, the contended run proceeds anyway, the lock is released when its holder
 exits, and an uncreatable lock file is reported rather than fatal. A third pins the per-agent verdict each agent's
 report closes with, which is what `ai-tools-relabel-agent` files for `ai-tools status`: both halves stubbed,
@@ -1070,14 +1072,14 @@ out of the old `ai_tools_netcore` module names it as its former module, the reve
 a swap loads in the old module's place, or a host loses the half it did not ask for), a group without a former module
 reports none, and no former name collides with a current group's module — the swap would otherwise unload a live group.
 
-It closes with the registry's one impure accessor, `ai_tools_selinux_group_loaded`, whose failure mode is a **race**
-rather than a wrong answer: `semodule -l` needs several writes to deliver a few hundred module names, so reading it
-as `semodule -l | grep -qx` lets grep exit on the match and leaves the writer to die of SIGPIPE, which `pipefail`
-reports as 141 — a loaded module read as absent, about half the time. `semodule` is stubbed as a shell function emitting
-one line per `printf`, so a single-write listing cannot hide the regression, and the probe is driven 25 times because
-one green run is not evidence about a race. The same shape reached production twice (the `.TH` check in `man.sh` failed
-at random on the EL container runners for exactly this reason), so each remaining `semodule -l` probe now captures
-the listing before matching it.
+It closes with the registry's one impure accessor, `ai_tools_selinux_groups__is_loaded`, whose failure mode is
+a **race** rather than a wrong answer: `semodule -l` needs several writes to deliver a few hundred module names,
+so reading it as `semodule -l | grep -qx` lets grep exit on the match and leaves the writer to die of SIGPIPE,
+which `pipefail` reports as 141 — a loaded module read as absent, about half the time. `semodule` is stubbed as a shell
+function emitting one line per `printf`, so a single-write listing cannot hide the regression, and the probe is driven
+25 times because one green run is not evidence about a race. The same shape reached production twice (the `.TH` check
+in `man.sh` failed at random on the EL container runners for exactly this reason), so each remaining `semodule -l` probe
+now captures the listing before matching it.
 
 `fcontext-twins.sh` reads the policy sources and requires every file-context rule under the sandbox-clone area to appear
 under both `/opt` and `/var/opt`, with the same tail and context. A host reaches one of each pair, decided by whether

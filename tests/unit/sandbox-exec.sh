@@ -33,7 +33,7 @@ source "${LIB}"
 # ── The bound: a whole number of seconds, or the default ──────────────────────────────────────
 while IFS='|' read -r value want what; do
     [[ -n "${what}" ]] || continue
-    got="$(AI_TOOLS_AS_SANDBOX_TIMEOUT="${value}" _ai_tools_sandbox_exec_timeout_seconds)"
+    got="$(AI_TOOLS_AS_SANDBOX_TIMEOUT="${value}" _ai_tools_sandbox_exec__get_timeout_seconds)"
     [[ "${got}" == "${want}" ]] && pass "bound ${what} -> ${want}s" || fail "bound ${what}: got '${got}', want '${want}'"
 done <<'ROWS'
 |1800|unset is the default
@@ -45,16 +45,16 @@ ROWS
 
 # ── Refusals that need no account ─────────────────────────────────────────────────────────────
 if [[ "${EUID}" -ne 0 ]]; then
-    rc=0; out="$(ai_tools_as_sandbox ai-tools id 2>&1)" || rc=$?
+    rc=0; out="$(ai_tools_sandbox_exec__run_as_sandbox ai-tools id 2>&1)" || rc=$?
     [[ "${rc}" -eq 1 && "${out}" == *"needs root"* ]] \
         && pass "a caller that is not root is refused, and nothing runs" || fail "non-root call: rc ${rc}: ${out}"
     # The identity check against this process: yes only where the invoker is the resolved sandbox account,
     # which a development run as that account is.
-    if [[ -n "$(ai_tools_sandbox_uid)" && "${EUID}" -eq "$(ai_tools_sandbox_uid)" ]]; then
-        ai_tools_is_sandbox_account && pass "the sandbox account, running this file itself, reads as itself" \
+    if [[ -n "$(ai_tools_sandbox_exec__read_sandbox_uid)" && "${EUID}" -eq "$(ai_tools_sandbox_exec__read_sandbox_uid)" ]]; then
+        ai_tools_sandbox_exec__is_sandbox_account && pass "the sandbox account, running this file itself, reads as itself" \
             || fail "the sandbox account running this file does not read as itself"
     else
-        ai_tools_is_sandbox_account && fail "an unprivileged caller that is not the sandbox account reads as it" \
+        ai_tools_sandbox_exec__is_sandbox_account && fail "an unprivileged caller that is not the sandbox account reads as it" \
             || pass "an unprivileged caller that is not the sandbox account is not one"
     fi
     skip "the sandbox child's properties" "needs root, which runuser does"
@@ -62,9 +62,9 @@ if [[ "${EUID}" -ne 0 ]]; then
 fi
 
 require_root
-sandbox_uid="$(ai_tools_sandbox_uid)"
+sandbox_uid="$(ai_tools_sandbox_exec__read_sandbox_uid)"
 if [[ -z "${sandbox_uid}" ]]; then
-    rc=0; out="$(ai_tools_as_sandbox "${SANDBOX_USER}" id 2>&1)" || rc=$?
+    rc=0; out="$(ai_tools_sandbox_exec__run_as_sandbox "${SANDBOX_USER}" id 2>&1)" || rc=$?
     [[ "${rc}" -eq 1 && "${out}" == *"is not the sandbox account"* ]] \
         && pass "an account the library cannot resolve refuses every run" || fail "unresolved account: rc ${rc}: ${out}"
     # The installed copy names the account the installer substituted; one still holding the token was installed without
@@ -78,31 +78,31 @@ if [[ -z "${sandbox_uid}" ]]; then
 fi
 
 # ── Identity: root is refused as a target and as a caller ─────────────────────────────────────
-rc=0; out="$(ai_tools_as_sandbox root id 2>&1)" || rc=$?
+rc=0; out="$(ai_tools_sandbox_exec__run_as_sandbox root id 2>&1)" || rc=$?
 [[ "${rc}" -eq 1 && "${out}" == *"is not the sandbox account"* ]] \
     && pass "root as the target account is refused, and nothing runs" || fail "root target: rc ${rc}: ${out}"
-rc=0; out="$(ai_tools_as_sandbox "${PROJECTS_USER}" id 2>&1)" || rc=$?
+rc=0; out="$(ai_tools_sandbox_exec__run_as_sandbox "${PROJECTS_USER}" id 2>&1)" || rc=$?
 [[ "${rc}" -eq 1 && "${out}" == *"is not the sandbox account"* ]] \
     && pass "an operator account as the target is refused" || fail "operator target: rc ${rc}: ${out}"
-rc=0; out="$(ai_tools_as_sandbox 'no such account' id 2>&1)" || rc=$?
+rc=0; out="$(ai_tools_sandbox_exec__run_as_sandbox 'no such account' id 2>&1)" || rc=$?
 [[ "${rc}" -eq 1 && "${out}" == *"is not the sandbox account"* ]] \
     && pass "a name outside the account charset is refused" || fail "malformed name: rc ${rc}: ${out}"
-ai_tools_is_sandbox_account && fail "root reads as the sandbox account" || pass "root is not the sandbox account"
+ai_tools_sandbox_exec__is_sandbox_account && fail "root reads as the sandbox account" || pass "root is not the sandbox account"
 # shellcheck disable=SC2016  # the inner shell expands these, not this one
-out="$(runuser -u "${PROJECTS_USER}" -- bash -c 'source "$1"; ai_tools_is_sandbox_account && echo yes || echo no' _ "${LIB}" 2>/dev/null)"
+out="$(runuser -u "${PROJECTS_USER}" -- bash -c 'source "$1"; ai_tools_sandbox_exec__is_sandbox_account && echo yes || echo no' _ "${LIB}" 2>/dev/null)"
 [[ "${out}" == no ]] && pass "the projects user is not the sandbox account" || fail "projects user read as: ${out}"
-out="$(ai_tools_as_sandbox "${SANDBOX_USER}" bash -c 'source "$1"; ai_tools_is_sandbox_account && echo yes || echo no' _ "${LIB}" 2>/dev/null)"
+out="$(ai_tools_sandbox_exec__run_as_sandbox "${SANDBOX_USER}" bash -c 'source "$1"; ai_tools_sandbox_exec__is_sandbox_account && echo yes || echo no' _ "${LIB}" 2>/dev/null)"
 [[ "${out}" == yes ]] && pass "the sandbox account reads as itself from inside the child" || fail "sandbox account read as: ${out}"
 
 # ── The child's properties ────────────────────────────────────────────────────────────────────
-out="$(ai_tools_as_sandbox "${SANDBOX_USER}" id -un 2>/dev/null)"
+out="$(ai_tools_sandbox_exec__run_as_sandbox "${SANDBOX_USER}" id -un 2>/dev/null)"
 [[ "${out}" == "${SANDBOX_USER}" ]] && pass "the command runs as ${SANDBOX_USER}" || fail "ran as '${out}'"
 
 # No controlling terminal: /dev/tty does not open, which is the terminal a child could otherwise inject into. A control
 # first, since the suite may itself run without one.
 if (exec 3</dev/tty) 2>/dev/null; then
     # shellcheck disable=SC2016  # the inner shell expands these, not this one
-    out="$(ai_tools_as_sandbox "${SANDBOX_USER}" bash -c '(exec 3</dev/tty) 2>/dev/null && echo has-tty || echo no-tty' 2>/dev/null)"
+    out="$(ai_tools_sandbox_exec__run_as_sandbox "${SANDBOX_USER}" bash -c '(exec 3</dev/tty) 2>/dev/null && echo has-tty || echo no-tty' 2>/dev/null)"
     [[ "${out}" == no-tty ]] && pass "the child has no controlling terminal, although this process has one" \
         || fail "the child opened /dev/tty: ${out}"
 else
@@ -115,7 +115,7 @@ exec 9<"${LIB}"
 # shellcheck disable=SC2016  # the inner shell expands these, not this one
 control="$(runuser -u "${SANDBOX_USER}" -- bash -c '[[ -e /proc/self/fd/9 ]] && echo open || echo closed' 2>/dev/null)"
 # shellcheck disable=SC2016  # the inner shell expands these, not this one
-out="$(ai_tools_as_sandbox "${SANDBOX_USER}" bash -c '[[ -e /proc/self/fd/9 ]] && echo open || echo closed' 2>/dev/null)"
+out="$(ai_tools_sandbox_exec__run_as_sandbox "${SANDBOX_USER}" bash -c '[[ -e /proc/self/fd/9 ]] && echo open || echo closed' 2>/dev/null)"
 exec 9<&-
 if [[ "${control}" != open ]]; then
     fail "control: descriptor 9 did not reach a plain runuser child (${control}), so the close is not measured"
@@ -127,12 +127,12 @@ fi
 
 # A clean environment: a variable this process exports does not reach the child; HOME is the account's.
 # shellcheck disable=SC2016  # the inner shell expands these, not this one
-out="$(AI_TOOLS_TEST_LEAK=1 ai_tools_as_sandbox "${SANDBOX_USER}" bash -c 'printf "%s|%s" "${AI_TOOLS_TEST_LEAK:-unset}" "${HOME}"' 2>/dev/null)"
+out="$(AI_TOOLS_TEST_LEAK=1 ai_tools_sandbox_exec__run_as_sandbox "${SANDBOX_USER}" bash -c 'printf "%s|%s" "${AI_TOOLS_TEST_LEAK:-unset}" "${HOME}"' 2>/dev/null)"
 [[ "${out}" == "unset|$(getent passwd "${SANDBOX_USER}" | cut -d: -f6)" ]] \
     && pass "the child's environment is clean, and HOME is the account's" || fail "child environment: ${out}"
 
 # Both streams through the allowlist, kept apart; a tab survives for a caller reading a wire format.
-ai_tools_as_sandbox "${SANDBOX_USER}" bash -c 'printf "a\tb \033[2Jout\n"; printf "\033]0;err\n" >&2' \
+ai_tools_sandbox_exec__run_as_sandbox "${SANDBOX_USER}" bash -c 'printf "a\tb \033[2Jout\n"; printf "\033]0;err\n" >&2' \
     >"${TESTDIR}/as-out" 2>"${TESTDIR}/as-err" || true
 if [[ "$(<"${TESTDIR}/as-out")" == $'a\tb ?[2Jout' && "$(<"${TESTDIR}/as-err")" == '?]0;err' ]]; then
     pass "stdout and stderr reach the caller apart, each through the allowlist, a tab kept"
@@ -140,10 +140,10 @@ else
     fail "streams: out '$(tr '\t\033' '>?' <"${TESTDIR}/as-out")' err '$(tr '\033' '?' <"${TESTDIR}/as-err")'"
 fi
 
-rc=0; ai_tools_as_sandbox "${SANDBOX_USER}" bash -c 'exit 7' >/dev/null 2>&1 || rc=$?
+rc=0; ai_tools_sandbox_exec__run_as_sandbox "${SANDBOX_USER}" bash -c 'exit 7' >/dev/null 2>&1 || rc=$?
 [[ "${rc}" -eq 7 ]] && pass "the command's own status is returned" || fail "status: ${rc}, want 7"
 
-out="$(ai_tools_as_sandbox "${SANDBOX_USER}" cat <<<'from a heredoc' 2>/dev/null)"
+out="$(ai_tools_sandbox_exec__run_as_sandbox "${SANDBOX_USER}" cat <<<'from a heredoc' 2>/dev/null)"
 [[ "${out}" == 'from a heredoc' ]] && pass "stdin the caller gives passes" || fail "stdin: '${out}'"
 
 # A marked process is `sleep <marker>`, the marker a duration unique to this run and case (`300.<pid>`), and it is
@@ -176,7 +176,7 @@ end_marked() {
 # The command receives its arguments byte for byte: a scope's own expansion of `${NAME}` and `$NAME` (off on the systemd
 # shipped today, announced as on by default later) is switched off, so a snippet carrying `$1` or `${HOME}` reaches bash
 # unchanged rather than emptied by systemd-run before privilege drops.
-out="$(ai_tools_as_sandbox "${SANDBOX_USER}" printf '%s|%s|%s' '$1' '${HOME}' '${X:-d}' 2>/dev/null)"
+out="$(ai_tools_sandbox_exec__run_as_sandbox "${SANDBOX_USER}" printf '%s|%s|%s' '$1' '${HOME}' '${X:-d}' 2>/dev/null)"
 [[ "${out}" == '$1|${HOME}|${X:-d}' ]] && pass "arguments shaped like variables reach the command unexpanded" \
     || fail "systemd-run rewrote the arguments: '${out}'"
 
@@ -185,7 +185,7 @@ out="$(ai_tools_as_sandbox "${SANDBOX_USER}" printf '%s|%s|%s' '$1' '${HOME}' '$
 # and escape cases size their bound from it, so a slow start does not read as a cleanup failure, and a fast one is not
 # waited for longer than it takes.
 started=${SECONDS}
-ai_tools_as_sandbox "${SANDBOX_USER}" /usr/bin/true >/dev/null 2>&1 || true
+ai_tools_sandbox_exec__run_as_sandbox "${SANDBOX_USER}" /usr/bin/true >/dev/null 2>&1 || true
 start_latency=$(( SECONDS - started ))
 bound_seconds=$(( start_latency * 2 + 6 ))
 note "start latency" "${start_latency}s for a command that exits at once; the bound cases use a ${bound_seconds}s bound"
@@ -212,7 +212,7 @@ wait_marked() {
 # and gone after it. The helper runs in the background so the processes can be counted while it waits.
 marker="300.$$"
 # shellcheck disable=SC2016  # the inner shell expands these, not this one
-AI_TOOLS_AS_SANDBOX_TIMEOUT="${bound_seconds}" ai_tools_as_sandbox "${SANDBOX_USER}" bash -c \
+AI_TOOLS_AS_SANDBOX_TIMEOUT="${bound_seconds}" ai_tools_sandbox_exec__run_as_sandbox "${SANDBOX_USER}" bash -c \
     'sleep "$1" & sleep "$1"' _ "${marker}" >/dev/null 2>"${TESTDIR}/bound-err" &
 helper_pid=$!
 alive_before="$(wait_marked "${marker}" 2 "${helper_pid}")"
@@ -236,7 +236,7 @@ end_marked "${marker}"
 marker="301.$$"
 started=${SECONDS}
 # shellcheck disable=SC2016  # the inner shell expands these, not this one
-rc=0; AI_TOOLS_AS_SANDBOX_TIMEOUT="${bound_seconds}" ai_tools_as_sandbox "${SANDBOX_USER}" bash -c \
+rc=0; AI_TOOLS_AS_SANDBOX_TIMEOUT="${bound_seconds}" ai_tools_sandbox_exec__run_as_sandbox "${SANDBOX_USER}" bash -c \
     'sleep "$1" & exit 0' _ "${marker}" >/dev/null 2>"${TESTDIR}/drain-err" || rc=$?
 elapsed=$(( SECONDS - started ))
 sleep 1
@@ -253,7 +253,7 @@ end_marked "${marker}"
 # before the bound, from a background helper as in the first bound case.
 marker="302.$$"
 # shellcheck disable=SC2016  # the inner shell expands these, not this one
-AI_TOOLS_AS_SANDBOX_TIMEOUT="${bound_seconds}" ai_tools_as_sandbox "${SANDBOX_USER}" bash -c \
+AI_TOOLS_AS_SANDBOX_TIMEOUT="${bound_seconds}" ai_tools_sandbox_exec__run_as_sandbox "${SANDBOX_USER}" bash -c \
     'setsid -f sleep "$1"; sleep "$1"' _ "${marker}" >/dev/null 2>"${TESTDIR}/escape-err" &
 helper_pid=$!
 alive_before="$(wait_marked "${marker}" 2 "${helper_pid}")"
@@ -272,8 +272,8 @@ end_marked "${marker}"
 # Without a scope the run is refused, not made with a weaker boundary: the probe answers no, and the command does not
 # run. Driven in a shell of its own, so the cached probe answer of this shell is not disturbed.
 # shellcheck disable=SC2016  # the inner shell expands these, not this one
-rc=0; out="$(bash -c 'source "$1"; _ai_tools_sandbox_exec_scope_available() { return 1; }
-    ai_tools_as_sandbox "$2" touch "$3"' _ "${LIB}" "${SANDBOX_USER}" "${TESTDIR}/no-scope-ran" 2>&1)" || rc=$?
+rc=0; out="$(bash -c 'source "$1"; _ai_tools_sandbox_exec__is_scope_available() { return 1; }
+    ai_tools_sandbox_exec__run_as_sandbox "$2" touch "$3"' _ "${LIB}" "${SANDBOX_USER}" "${TESTDIR}/no-scope-ran" 2>&1)" || rc=$?
 if [[ "${rc}" -eq 1 && ! -e "${TESTDIR}/no-scope-ran" ]]; then
     assert_msg MSG-Q2K6 "${out}" "a run with no scope to open is refused under its code, and the command does not run"
 else

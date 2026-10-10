@@ -9,26 +9,26 @@
 # and where the pin lives are in updater.rule.md; this header covers only what a reader of this file needs.
 #
 # Two entry points, split by principal -- which is what keeps the network off the launch path:
-#   ai_tools_entrypoint_release_verify  ROOT. Fetch the vendor's signed release manifest, verify it
+#   ai_tools_entrypoint_verify__verify_release  ROOT. Fetch the vendor's signed release manifest, verify it
 #     against the pinned key, and compare the entrypoint's hash to the checksum it publishes.
-#   ai_tools_entrypoint_check           SANDBOX. Hash the entrypoint, compare to the pin. No
+#   ai_tools_entrypoint_verify__check           SANDBOX. Hash the entrypoint, compare to the pin. No
 #     network, no key, no JSON -- it runs on every launch.
-# Between them, ai_tools_entrypoint_pin_write records a verified checksum (root only).
+# Between them, ai_tools_entrypoint_verify__write_pin records a verified checksum (root only).
 #
 # Status contract, shared with npm-verify.lib.sh so the two gates in nvm-update read alike:
 #   0  verified (or matches its pin)
 #   1  MISMATCH -- the caller MUST fail closed
 #   2  unable to verify -- NOT a tamper signal; the caller warns, or refuses only where the
-#      operator required verification (ai_tools_entrypoint_verify_required)
+#      operator required verification (ai_tools_entrypoint_verify__is_required)
 # The pure decisions take no I/O and are unit-tested over their truth tables
 # (tests/unit/entrypoint-verify.sh).
 
 # Include guard: an if-statement, not `[[ ]] && return`, which returns 1 for an unset guard and trips the sourcing
 # shell's `set -e`.
-if [[ -n "${_AI_TOOLS_ENTRYPOINT_VERIFY_LIB_LOADED:-}" ]]; then
+if [[ -n "${_AI_TOOLS_ENTRYPOINT_VERIFY__LOADED:-}" ]]; then
     return 0
 fi
-_AI_TOOLS_ENTRYPOINT_VERIFY_LIB_LOADED=1
+_AI_TOOLS_ENTRYPOINT_VERIFY__LOADED=1
 
 # The shared KEY=value grammar, for the strictness switch and the fingerprint list. Best-effort, NOT required:
 # the launch-side check (the hot path) needs neither, and every consumer that does has already loaded conf.lib.sh
@@ -51,21 +51,21 @@ source "${BASH_SOURCE[0]%/*}/conf.lib.sh" 2>/dev/null || true
 # green in both status reports. The mark is what turns that silent state into a reported one.
 : "${AI_TOOLS_ENTRYPOINT_STALE_DIR:=/var/opt/ai-tools/state/entrypoint-stale.d}"
 
-# _ai_tools_ev_warn <message...> : report to stderr and, when log.lib.sh is loaded by the caller,
+# _ai_tools_entrypoint_verify__warn <message...> : report to stderr and, when log.lib.sh is loaded by the caller,
 #   to journald. Never alters a verdict.
-_ai_tools_ev_warn() {
+_ai_tools_entrypoint_verify__warn() {
     printf 'entrypoint-verify: %s\n' "$*" >&2
-    declare -F ai_tools_log_warn >/dev/null 2>&1 && ai_tools_log_warn "entrypoint-verify: $*"
+    declare -F ai_tools_log__warn >/dev/null 2>&1 && ai_tools_log__warn "entrypoint-verify: $*"
     return 0
 }
 
 # ── Pure decisions (no I/O, no privilege, no network) ────────────────────────────────────────
 
-# ai_tools_entrypoint_platform_key <machine> [libc] : print the key a vendor release manifest
+# ai_tools_entrypoint_verify__get_platform_key <machine> [libc] : print the key a vendor release manifest
 #   lists this host's binary under, or an empty string for an architecture with no mapping. <machine> is
 #   `uname -m`; <libc> is `musl` or empty. Pure, so the mapping is unit-tested without needing the
 #   architectures it maps.
-ai_tools_entrypoint_platform_key() {
+ai_tools_entrypoint_verify__get_platform_key() {
     local machine="${1:-}" libc="${2:-}" arch="" suffix=""
     case "${machine}" in
         x86_64|amd64)  arch=x64   ;;
@@ -76,10 +76,10 @@ ai_tools_entrypoint_platform_key() {
     printf 'linux-%s%s' "${arch}" "${suffix}"
 }
 
-# ai_tools_release_url_valid <url> : succeed when <url> may be fetched as a release manifest.
+# ai_tools_entrypoint_verify__is_release_url_valid <url> : succeed when <url> may be fetched as a release manifest.
 #   HTTPS only, and a character set that cannot carry a shell metacharacter, whitespace, or a
 #   traversal into a URL that reaches curl. Allowlist, not blocklist.
-ai_tools_release_url_valid() {
+ai_tools_entrypoint_verify__is_release_url_valid() {
     # Held in a variable: a bracket expression carrying `&` and braces cannot be written inline in `[[ =~ ]]` -- bash
     # parses those as operators before the regex is ever assembled. `-` closes the set, the POSIX way to include it
     # literally.
@@ -90,27 +90,27 @@ ai_tools_release_url_valid() {
     [[ "${url}" =~ ${allowed} ]]
 }
 
-# ai_tools_release_manifest_url <template> <version> : print the fetchable URL for <version>, by
+# ai_tools_entrypoint_verify__get_release_manifest_url <template> <version> : print the fetchable URL for <version>, by
 #   substituting the template's single {version} slot. A template without the slot is refused
 #   rather than fetched as-is: it would pin every version to one manifest, which reads as "verified"
 #   while checking the wrong release. The version is accepted only in semver shape, so no value a
 #   package.json carries can inject a path segment into the URL.
-ai_tools_release_manifest_url() {
+ai_tools_entrypoint_verify__get_release_manifest_url() {
     local template="${1:-}" version="${2:-}"
     [[ "${template}" == *'{version}'* ]] || return 1
     [[ "${version}" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || return 1
     local url="${template//\{version\}/${version}}"
-    ai_tools_release_url_valid "${url}" || return 1
+    ai_tools_entrypoint_verify__is_release_url_valid "${url}" || return 1
     printf '%s' "${url}"
 }
 
-# ai_tools_release_manifest_checksum <manifest-json> <platform-key> : print the SHA-256 the
+# ai_tools_entrypoint_verify__get_release_manifest_checksum <manifest-json> <platform-key> : print the SHA-256 the
 #   manifest lists for that platform. Reads the passed string only -- no filesystem, no network --
 #   and accepts the result only in exactly the 64-hex shape a SHA-256 has, so malformed JSON, an
 #   absent platform, or a crafted value yields an EMPTY STRING rather than a checksum that could match a
 #   crafted binary. jq is the parser (a hard dependency of the agent packages that declare these
 #   fields); its absence is reported by the caller as "unable to verify", never as a mismatch.
-ai_tools_release_manifest_checksum() {
+ai_tools_entrypoint_verify__get_release_manifest_checksum() {
     local manifest_json="${1:-}" platform_key="${2:-}" checksum
     [[ -n "${manifest_json}" && -n "${platform_key}" ]] || return 1
     command -v jq >/dev/null 2>&1 || return 1
@@ -120,7 +120,7 @@ ai_tools_release_manifest_checksum() {
     printf '%s' "${checksum}"
 }
 
-# ai_tools_entrypoint_pin_verdict <expected> <observed> : the decision, given two checksums.
+# ai_tools_entrypoint_verify__evaluate_pin <expected> <observed> : the decision, given two checksums.
 #   Echoes a verdict token and returns this library's status contract:
 #     ok         both present and equal
 #     mismatch   both present and different -- the tamper signal, status 1
@@ -128,7 +128,7 @@ ai_tools_release_manifest_checksum() {
 #     unreadable no observed value: the entrypoint could not be hashed, status 2
 #   Absence is never a mismatch: a missing pin and a modified binary are different facts with
 #   different remedies. Unit-tested over the truth table.
-ai_tools_entrypoint_pin_verdict() {
+ai_tools_entrypoint_verify__evaluate_pin() {
     local expected="${1:-}" observed="${2:-}"
     [[ "${expected}" =~ ^[0-9a-f]{64}$ ]] || { printf 'unpinned';   return 2; }
     [[ "${observed}" =~ ^[0-9a-f]{64}$ ]] || { printf 'unreadable'; return 2; }
@@ -136,7 +136,7 @@ ai_tools_entrypoint_pin_verdict() {
     printf 'mismatch'; return 1
 }
 
-# ai_tools_entrypoint_observe_decision <pinned-version> <pinned-sha> <installed-version> <installed-sha> :
+# ai_tools_entrypoint_verify__evaluate_observed_pin <pinned-version> <pinned-sha> <installed-version> <installed-sha> :
 #   whether root may record an OBSERVED pin for an agent whose vendor publishes no signed manifest.
 #   Echoes a token and returns the status contract:
 #     pin     no usable pin yet, or a different version is installed -- record what is there, status 0
@@ -147,7 +147,7 @@ ai_tools_entrypoint_pin_verdict() {
 #   new version with it, so a changed binary under an unchanged version is the one thing no update
 #   explains; re-recording it would bless exactly what the pin exists to catch. The launch gate needs
 #   no part of this: the stale pin it keeps is what makes the next launch read `mismatch`.
-ai_tools_entrypoint_observe_decision() {
+ai_tools_entrypoint_verify__evaluate_observed_pin() {
     local pinned_version="${1:-}" pinned_sha="${2:-}" installed_version="${3:-}" installed_sha="${4:-}"
     [[ "${installed_sha}" =~ ^[0-9a-f]{64}$ ]] || { printf 'unreadable'; return 2; }
     [[ "${pinned_sha}" =~ ^[0-9a-f]{64}$ ]]    || { printf 'pin';        return 0; }
@@ -163,9 +163,9 @@ ai_tools_entrypoint_observe_decision() {
 
 # ── Impure: hashing, the pin, and the signed-manifest probe ──────────────────────────────────
 
-# ai_tools_entrypoint_sha256 <path> : print the file's SHA-256, or an empty string. Bounded to a regular
-#   file so a fifo or device swapped into the path cannot block the caller forever.
-ai_tools_entrypoint_sha256() {
+# ai_tools_entrypoint_verify__calculate_sha256 <path> : print the file's SHA-256, or an empty string. Bounded to a
+#   regular file so a fifo or device swapped into the path cannot block the caller forever.
+ai_tools_entrypoint_verify__calculate_sha256() {
     local path="${1:-}" line
     [[ -n "${path}" && ! -L "${path}" && -f "${path}" && -r "${path}" ]] || return 1
     command -v sha256sum >/dev/null 2>&1 || return 1
@@ -175,17 +175,17 @@ ai_tools_entrypoint_sha256() {
     printf '%s' "${line}"
 }
 
-# ai_tools_entrypoint_inputs_digest <url-template> <key-file> <fingerprints> : print a SHA-256 over
+# ai_tools_entrypoint_verify__calculate_inputs_digest <url-template> <key-file> <fingerprints> : print a SHA-256 over
 #   everything that decides a verification verdict besides the entrypoint itself -- the manifest URL
 #   template, the signing key's path AND its content, and the declared fingerprints. A pin records
 #   this digest so a later run can tell "the same question, asked the same way" from a question that
 #   has changed (a vendor key rotation, a repointed manifest host) without refetching anything.
 #   Prints an empty string when any input is unusable, which resolves to a full verification.
-ai_tools_entrypoint_inputs_digest() {
+ai_tools_entrypoint_verify__calculate_inputs_digest() {
     local url_template="${1:-}" key_file="${2:-}" fingerprints="${3:-}" key_digest line
     [[ -n "${url_template}" ]] || return 1
     command -v sha256sum >/dev/null 2>&1 || return 1
-    key_digest="$(ai_tools_entrypoint_sha256 "${key_file}")" || return 1
+    key_digest="$(ai_tools_entrypoint_verify__calculate_sha256 "${key_file}")" || return 1
     line="$(printf '%s\n%s\n%s\n%s\n' \
                 "${url_template}" "${key_file}" "${key_digest}" "${fingerprints}" \
             | sha256sum 2>/dev/null)" || return 1
@@ -194,40 +194,40 @@ ai_tools_entrypoint_inputs_digest() {
     printf '%s' "${line}"
 }
 
-# ai_tools_entrypoint_pin_path <agent> : print the pin path for an agent. The name is allowlisted to
-#   one plain identifier before it becomes a path -- the same guard ai_tools_agent_manifest_field
+# ai_tools_entrypoint_verify__get_pin_path <agent> : print the pin path for an agent. The name is allowlisted to
+#   one plain identifier before it becomes a path -- the same guard ai_tools_providers__read_agent_manifest_field
 #   applies -- so no declaration can address a file outside the pin directory. Public because the
 #   CLI's status report reads the pin through the shared stamp accessors (services.lib.sh) and must
 #   not hardcode where it lives.
-ai_tools_entrypoint_pin_path() {
-    _ai_tools_ev_record_path "${AI_TOOLS_ENTRYPOINT_PIN_DIR}" "${1:-}"
+ai_tools_entrypoint_verify__get_pin_path() {
+    _ai_tools_entrypoint_verify__get_record_path "${AI_TOOLS_ENTRYPOINT_PIN_DIR}" "${1:-}"
 }
 
-# ai_tools_entrypoint_label_path <agent> : print the path of the record holding what the last
+# ai_tools_entrypoint_verify__get_label_path <agent> : print the path of the record holding what the last
 #   reconciliation could do about that agent's SELinux labels. Public for the same reason the pin
 #   path is: `ai-tools status` reports it and must not hardcode where it lives.
-ai_tools_entrypoint_label_path() {
-    _ai_tools_ev_record_path "${AI_TOOLS_ENTRYPOINT_LABEL_DIR}" "${1:-}"
+ai_tools_entrypoint_verify__get_label_path() {
+    _ai_tools_entrypoint_verify__get_record_path "${AI_TOOLS_ENTRYPOINT_LABEL_DIR}" "${1:-}"
 }
 
-# ai_tools_entrypoint_stale_path <agent> : print the path of the record saying that the last
+# ai_tools_entrypoint_verify__get_stale_path <agent> : print the path of the record saying that the last
 #   reconciliation REFUSED to re-record this agent's pin, so the pin standing beside it describes
 #   a binary that is no longer installed. Public for the same reason the other two are.
-ai_tools_entrypoint_stale_path() {
-    _ai_tools_ev_record_path "${AI_TOOLS_ENTRYPOINT_STALE_DIR}" "${1:-}"
+ai_tools_entrypoint_verify__get_stale_path() {
+    _ai_tools_entrypoint_verify__get_record_path "${AI_TOOLS_ENTRYPOINT_STALE_DIR}" "${1:-}"
 }
 
-# _ai_tools_ev_record_path <dir> <agent> : print <dir>/<agent> for an agent name that is one plain
-#   identifier -- the same guard ai_tools_agent_manifest_field applies -- so no declaration can
+# _ai_tools_entrypoint_verify__get_record_path <dir> <agent> : print <dir>/<agent> for an agent name that is one plain
+#   identifier -- the same guard ai_tools_providers__read_agent_manifest_field applies -- so no declaration can
 #   address a file outside the record directory. One implementation, because a name allowlist that
 #   exists twice is a name allowlist that can differ.
-_ai_tools_ev_record_path() {
+_ai_tools_entrypoint_verify__get_record_path() {
     local dir="${1:-}" agent="${2:-}"
     [[ "${agent}" =~ ^[A-Za-z0-9._-]+$ && "${agent}" != *..* ]] || return 1
     printf '%s/%s' "${dir}" "${agent}"
 }
 
-# _ai_tools_ev_write_record <path> <dir> : write stdin to <path>, creating <dir> if absent. ROOT
+# _ai_tools_entrypoint_verify__write_record <path> <dir> : write stdin to <path>, creating <dir> if absent. ROOT
 #   ONLY, and refused rather than left to fail on EACCES, so a caller can tell "not permitted" from
 #   "the directory is missing". Written to a temp file and renamed, so a reader never sees a partial
 #   record. World-readable: what these records hold is a published checksum and a label outcome,
@@ -236,12 +236,12 @@ _ai_tools_ev_record_path() {
 #   permission on every ancestor, so only the accounts /var/opt/ai-tools/state allows (0750
 #   root:SANDBOX_GROUP, plus the ai-ops ACL) reach it, and they reach it through its other bits:
 #   0750 would leave the shim unable to read the pin, which reads as unpinned.
-_ai_tools_ev_write_record() {
+_ai_tools_entrypoint_verify__write_record() {
     local path="${1:-}" dir="${2:-}" tmp
-    [[ "${EUID:-$(id -u)}" -eq 0 ]] || { _ai_tools_ev_warn "refusing to write ${path} as non-root"; return 1; }
+    [[ "${EUID:-$(id -u)}" -eq 0 ]] || { _ai_tools_entrypoint_verify__warn "refusing to write ${path} as non-root"; return 1; }
     [[ -d "${dir}" ]] \
         || install -d -m 0755 -o root -g root "${dir}" 2>/dev/null \
-        || { _ai_tools_ev_warn "cannot create ${dir}"; return 1; }
+        || { _ai_tools_entrypoint_verify__warn "cannot create ${dir}"; return 1; }
     tmp="$(mktemp "${path}.XXXXXX" 2>/dev/null)" || return 1
     cat > "${tmp}" 2>/dev/null || { rm -f -- "${tmp}"; return 1; }
     chmod 0644 "${tmp}" 2>/dev/null || true
@@ -249,7 +249,7 @@ _ai_tools_ev_write_record() {
     return 0
 }
 
-# ai_tools_entrypoint_label_write <agent> <ok|failed|skipped> [reason-token] : record what the last
+# ai_tools_entrypoint_verify__write_label <agent> <ok|failed|skipped> [reason-token] : record what the last
 #   reconciliation could do about <agent>'s labels. ROOT ONLY.
 #
 #   `skipped` is the SELinux layer being inactive -- a DAC-only host, where there is no
@@ -257,9 +257,9 @@ _ai_tools_ev_write_record() {
 #   field here is read back through the stamp accessors' charset clamp, which excludes spaces, and
 #   the operator-facing detail (semanage's own message) belongs in the log the refusal already
 #   writes. This says which class of failure, so the report can name the remedy.
-ai_tools_entrypoint_label_write() {
+ai_tools_entrypoint_verify__write_label() {
     local agent="${1:-}" result="${2:-}" reason="${3:-}" record
-    record="$(ai_tools_entrypoint_label_path "${agent}")" || return 1
+    record="$(ai_tools_entrypoint_verify__get_label_path "${agent}")" || return 1
     case "${result}" in ok|failed|skipped) ;; *) return 1 ;; esac
     [[ -z "${reason}" || "${reason}" =~ ^[A-Za-z0-9._-]{1,64}$ ]] || reason=""
     {
@@ -269,10 +269,10 @@ ai_tools_entrypoint_label_write() {
         # See the pin write: the last command's status is the group's, and most records carry no reason -- so an `ok`
         # outcome would report itself as unrecordable.
         if [[ -n "${reason}" ]]; then printf 'REASON=%s\n' "${reason}"; fi
-    } | _ai_tools_ev_write_record "${record}" "${AI_TOOLS_ENTRYPOINT_LABEL_DIR}"
+    } | _ai_tools_entrypoint_verify__write_record "${record}" "${AI_TOOLS_ENTRYPOINT_LABEL_DIR}"
 }
 
-# ai_tools_entrypoint_stale_write <agent> <version> <reason-token> : record that this run refused to
+# ai_tools_entrypoint_verify__write_stale <agent> <version> <reason-token> : record that this run refused to
 #   re-record <agent>'s pin, so the pin left standing no longer describes the installed binary and
 #   the next launch will refuse. ROOT ONLY, same record and same atomic write as the other two.
 #
@@ -282,68 +282,68 @@ ai_tools_entrypoint_label_write() {
 #   and `DETECTED` in the label record's grammar, so the reports read it through the same stamp
 #   accessors, and `VERSION` names the installed version the refusal was about (which the pin, by
 #   construction, does not hold).
-ai_tools_entrypoint_stale_write() {
+ai_tools_entrypoint_verify__write_stale() {
     local agent="${1:-}" version="${2:-}" reason="${3:-}" record
-    record="$(ai_tools_entrypoint_stale_path "${agent}")" || return 1
-    _ai_tools_ev_field_ok "${version}" || version=unknown
+    record="$(ai_tools_entrypoint_verify__get_stale_path "${agent}")" || return 1
+    _ai_tools_entrypoint_verify__is_field_valid "${version}" || version=unknown
     [[ "${reason}" =~ ^[A-Za-z0-9._-]{1,64}$ ]] || reason=unknown
     {
         printf '# ai-tools entrypoint stale-pin mark -- written as root, read by ai-tools status.\n'
         printf 'AGENT=%s\nSTATE=stale\nVERSION=%s\nREASON=%s\nDETECTED=%s\n' \
             "${agent}" "${version}" "${reason}" "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-    } | _ai_tools_ev_write_record "${record}" "${AI_TOOLS_ENTRYPOINT_STALE_DIR}"
+    } | _ai_tools_entrypoint_verify__write_record "${record}" "${AI_TOOLS_ENTRYPOINT_STALE_DIR}"
 }
 
-# ai_tools_entrypoint_stale_clear <agent> : drop the mark, for a run whose reconciliation of <agent>
+# ai_tools_entrypoint_verify__clear_stale <agent> : drop the mark, for a run whose reconciliation of <agent>
 #   came out clean. ROOT ONLY and best-effort -- a mark `rm` does not remove leaves a report saying
 #   the entrypoint needs attention, which is the direction that costs an operator a look rather than
 #   a refusal they never hear about. Succeeds when there is no mark to clear.
-ai_tools_entrypoint_stale_clear() {
+ai_tools_entrypoint_verify__clear_stale() {
     local record
-    record="$(ai_tools_entrypoint_stale_path "${1:-}")" || return 1
+    record="$(ai_tools_entrypoint_verify__get_stale_path "${1:-}")" || return 1
     [[ -e "${record}" ]] || return 0
-    [[ "${EUID:-$(id -u)}" -eq 0 ]] || { _ai_tools_ev_warn "refusing to clear ${record} as non-root"; return 1; }
+    [[ "${EUID:-$(id -u)}" -eq 0 ]] || { _ai_tools_entrypoint_verify__warn "refusing to clear ${record} as non-root"; return 1; }
     rm -f -- "${record}" 2>/dev/null
 }
 
-# _ai_tools_ev_pin_field <pin-file> <key> : read one field defensively. A symlink is refused (the
+# _ai_tools_entrypoint_verify__read_pin_field <pin-file> <key> : read one field defensively. A symlink is refused (the
 #   pin directory is root-owned, so one is a tamper attempt, not a layout), the read is bounded,
 #   and the value must match the key's own shape or it reads as absent. Same discipline as
-#   ai_tools_service_stamp_field, kept local because this file is sourced by the launch path and
+#   ai_tools_services__read_stamp_field, kept local because this file is sourced by the launch path and
 #   should not pull in the systemd-unit registry to read one line.
-_ai_tools_ev_pin_field() {
+_ai_tools_entrypoint_verify__read_pin_field() {
     local pin="${1:-}" key="${2:-}" line
     [[ -n "${pin}" && ! -L "${pin}" && -f "${pin}" && -r "${pin}" ]] || return 1
     line="$(head -c 4096 -- "${pin}" 2>/dev/null | grep -m1 -E "^${key}=" 2>/dev/null)" || return 1
-    _ai_tools_ev_field_ok "${line#*=}" || return 1
+    _ai_tools_entrypoint_verify__is_field_valid "${line#*=}" || return 1
     printf '%s' "${line#*=}"
 }
 
-# _ai_tools_ev_field_ok <value> : succeed when <value> has the shape one pin field accepts -- alphanumerics and
-#   `:+._-`, 1 to 64 characters. The writers clamp to this same shape (a version outside it is recorded as
-#   `unknown`), so every value a pin holds is one its readers return: a recorded version the reader could not return
-#   would compare as absent and turn every later reconcile into a re-pin.
-_ai_tools_ev_field_ok() { [[ "${1:-}" =~ ^[A-Za-z0-9:+._-]{1,64}$ ]]; }
+# _ai_tools_entrypoint_verify__is_field_valid <value> : succeed when <value> has the shape one pin field accepts --
+#   alphanumerics and `:+._-`, 1 to 64 characters. The writers clamp to this same shape (a version outside it is
+#   recorded as `unknown`), so every value a pin holds is one its readers return: a recorded version the reader could
+#   not return would compare as absent and turn every later reconcile into a re-pin.
+_ai_tools_entrypoint_verify__is_field_valid() { [[ "${1:-}" =~ ^[A-Za-z0-9:+._-]{1,64}$ ]]; }
 
-# ai_tools_entrypoint_pin_read <agent> : print the SHA-256 recorded for that agent, or an empty string.
-ai_tools_entrypoint_pin_read() {
+# ai_tools_entrypoint_verify__read_pin <agent> : print the SHA-256 recorded for that agent, or an empty string.
+ai_tools_entrypoint_verify__read_pin() {
     local pin checksum
-    pin="$(ai_tools_entrypoint_pin_path "${1:-}")" || return 1
-    checksum="$(_ai_tools_ev_pin_field "${pin}" SHA256)" || return 1
+    pin="$(ai_tools_entrypoint_verify__get_pin_path "${1:-}")" || return 1
+    checksum="$(_ai_tools_entrypoint_verify__read_pin_field "${pin}" SHA256)" || return 1
     [[ "${checksum}" =~ ^[0-9a-f]{64}$ ]] || return 1
     printf '%s' "${checksum}"
 }
 
-# ai_tools_entrypoint_pin_write <agent> <version> <sha256> <source-url> [inputs-digest] : record a
-#   verified entrypoint. ROOT ONLY (see _ai_tools_ev_write_record, which also makes the write
+# ai_tools_entrypoint_verify__write_pin <agent> <version> <sha256> <source-url> [inputs-digest] : record a
+#   verified entrypoint. ROOT ONLY (see _ai_tools_entrypoint_verify__write_record, which also makes the write
 #   atomic). A checksum is accepted only in exact 64-hex shape, so a partial observation never lands
-#   as a pin. <inputs-digest> is what ai_tools_entrypoint_pin_reusable compares against; a pin
+#   as a pin. <inputs-digest> is what ai_tools_entrypoint_verify__is_pin_reusable compares against; a pin
 #   written without one is never reusable, so an unrecordable digest costs a re-verification.
-ai_tools_entrypoint_pin_write() {
+ai_tools_entrypoint_verify__write_pin() {
     local agent="${1:-}" version="${2:-}" checksum="${3:-}" source_url="${4:-}" inputs="${5:-}" pin
-    pin="$(ai_tools_entrypoint_pin_path "${agent}")" || return 1
+    pin="$(ai_tools_entrypoint_verify__get_pin_path "${agent}")" || return 1
     [[ "${checksum}" =~ ^[0-9a-f]{64}$ ]] || return 1
-    _ai_tools_ev_field_ok "${version}" || version=unknown
+    _ai_tools_entrypoint_verify__is_field_valid "${version}" || version=unknown
     {
         printf '# ai-tools entrypoint pin -- written as root, read by the launch shim.\n'
         printf 'AGENT=%s\nVERSION=%s\nSHA256=%s\nKIND=verified\nVERIFIED=%s\n' \
@@ -352,17 +352,17 @@ ai_tools_entrypoint_pin_write() {
         # An `if`, not `[[ ]] && printf`: this is the group's LAST command, so its status is the group's, and a pin
         # written without a source URL would fail the pipeline that writes it.
         if [[ -n "${source_url}" ]]; then printf 'SOURCE=%s\n' "${source_url}"; fi
-    } | _ai_tools_ev_write_record "${pin}" "${AI_TOOLS_ENTRYPOINT_PIN_DIR}"
+    } | _ai_tools_entrypoint_verify__write_record "${pin}" "${AI_TOOLS_ENTRYPOINT_PIN_DIR}"
 }
 
-# _ai_tools_ev_package_root <entrypoint> : print the directory of the npm package holding <entrypoint>, or return
-#   non-zero. The package is the nearest ancestor the path enters through `node_modules/<name>`
+# _ai_tools_entrypoint_verify__find_package_root <entrypoint> : print the directory of the npm package holding
+#   <entrypoint>, or return non-zero. The package is the nearest ancestor the path enters through `node_modules/<name>`
 #   or `node_modules/@<scope>/<name>`, within six directories of the entrypoint -- deep enough for an entrypoint several
 #   directories inside its package (Claude Code's is `<pkg>/bin/claude.exe`, codex's vendored binary
-#   `<pkg>/vendor/<target-triple>/bin/codex`). A path that does not reach such a boundary -- a copy of the binary
-#   at the version directory's `bin/`, left where a copy of the tree replaced npm's symlink with its target --
-#   does not hold a package, so nvm's own `package.json` at the toolchain root is never read as an agent's.
-_ai_tools_ev_package_root() {
+#   `<pkg>/vendor/<target-triple>/bin/codex`). A path that does not reach such a boundary -- a copy of the binary at the
+#   version directory's `bin/`, left where a copy of the tree replaced npm's symlink with its target -- does not hold a
+#   package, so nvm's own `package.json` at the toolchain root is never read as an agent's.
+_ai_tools_entrypoint_verify__find_package_root() {
     local dir="${1%/*}" parent parent_name _hop
     for _hop in 1 2 3 4 5 6; do
         [[ "${dir}" == */node_modules/* ]] || return 1
@@ -377,16 +377,16 @@ _ai_tools_ev_package_root() {
     return 1
 }
 
-# _ai_tools_ev_package_fields <package.json> : print `version<TAB>name` from the manifest's top level, or return
-#   non-zero. The host's /usr/bin/python3 reads it (never the tree's node, which the sandbox account can rewrite),
-#   in isolated mode (`-I`): the current directory is off the import path, so a `json.py` in a project the reader was
-#   run from is not what `import json` loads, and no PYTHON* variable of the caller's environment reaches it. The file
-#   is opened without following a symlink, the descriptor is checked to be a regular file of at most 64 KiB, and that
-#   descriptor is what is read -- so a symlink, a fifo, or a file swapped in after the check is not the input --
-#   then parsed as JSON, with the top-level `version` alone taken and a document that is not an object refused.
-#   The version comes first, since it is never empty while the name may be. A tab, a newline and any byte outside
-#   printable ASCII in either field become `?`, so the two fields stay two.
-_ai_tools_ev_package_fields() {
+# _ai_tools_entrypoint_verify__read_package_fields <package.json> : print `version<TAB>name` from the manifest's top
+#   level, or return non-zero. The host's /usr/bin/python3 reads it (never the tree's node, which the sandbox account
+#   can rewrite), in isolated mode (`-I`): the current directory is off the import path, so a `json.py` in a project the
+#   reader was run from is not what `import json` loads, and no PYTHON* variable of the caller's environment reaches it.
+#   The file is opened without following a symlink, the descriptor is checked to be a regular file of at most 64 KiB,
+#   and that descriptor is what is read -- so a symlink, a fifo, or a file swapped in after the check is not the input
+#   -- then parsed as JSON, with the top-level `version` alone taken and a document that is not an object refused. The
+#   version comes first, since it is never empty while the name may be. A tab, a newline and any byte outside printable
+#   ASCII in either field become `?`, so the two fields stay two.
+_ai_tools_entrypoint_verify__read_package_fields() {
     [[ -x /usr/bin/python3 ]] || return 1
     /usr/bin/python3 -I - "$1" <<'PY'
 import json, os, stat, sys
@@ -428,33 +428,34 @@ print(printable(document["version"]) + "\t" + printable(name))
 PY
 }
 
-# ai_tools_entrypoint_installed_version <entrypoint> [<npm-package>] : print the version the package holding
-#   <entrypoint> declares, or an empty string. The package is the one _ai_tools_ev_package_root finds, and its own
-#   `package.json` is the one read: a package without a manifest prints an empty string rather than the version
-#   of a package enclosing it. Where <npm-package> is given, the manifest's `name` must equal it, so a caller that knows
-#   which package it asked about is not answered for another. One reader serves every agent's layout, so the two
-#   callers -- the pin and the launch banner -- cannot disagree about what version an entrypoint is.
+# ai_tools_entrypoint_verify__read_installed_version <entrypoint> [<npm-package>] : print the version the package
+#   holding <entrypoint> declares, or an empty string. The package is the one
+#   _ai_tools_entrypoint_verify__find_package_root finds, and its own `package.json` is the one read: a package without
+#   a manifest prints an empty string rather than the version of a package enclosing it. Where <npm-package> is given,
+#   the manifest's `name` must equal it, so a caller that knows which package it asked about is not answered for
+#   another. One reader serves every agent's layout, so the two callers -- the pin and the launch banner -- cannot
+#   disagree about what version an entrypoint is.
 #
 #   The value comes from a file the SANDBOX account owns and reaches the operator's terminal, the journal and a pin
 #   record, so it is accepted only in a clamped shape: `MAJOR.MINOR.PATCH`, optionally with a `-`/`+` suffix
 #   of alphanumerics, dots and hyphens, never containing `..`, and within the length a pin field accepts
-#   (_ai_tools_ev_field_ok). That accepts a platform package's own spelling
+#   (_ai_tools_entrypoint_verify__is_field_valid). That accepts a platform package's own spelling
 #   (`0.154.0-linux-x64`) while excluding every character an escape sequence or a path traversal needs -- the suffix
 #   matters because the version also fills the `{version}` slot of a release-manifest URL.
-ai_tools_entrypoint_installed_version() {
+ai_tools_entrypoint_verify__read_installed_version() {
     local entrypoint="${1:-}" expected_name="${2:-}" package_root fields declared_name declared_version
     [[ -n "${entrypoint}" ]] || return 0
-    package_root="$(_ai_tools_ev_package_root "${entrypoint}")" || return 0
-    fields="$(_ai_tools_ev_package_fields "${package_root}/package.json" 2>/dev/null)" || return 0
+    package_root="$(_ai_tools_entrypoint_verify__find_package_root "${entrypoint}")" || return 0
+    fields="$(_ai_tools_entrypoint_verify__read_package_fields "${package_root}/package.json" 2>/dev/null)" || return 0
     IFS=$'\t' read -r declared_version declared_name <<<"${fields}"
     [[ -z "${expected_name}" || "${declared_name}" == "${expected_name}" ]] || return 0
     [[ "${declared_version}" =~ ^v?[0-9]+\.[0-9]+\.[0-9]+([-+][0-9A-Za-z.-]+)?$ && "${declared_version}" != *..* ]] \
         || return 0
-    _ai_tools_ev_field_ok "${declared_version}" || return 0
+    _ai_tools_entrypoint_verify__is_field_valid "${declared_version}" || return 0
     printf '%s' "${declared_version}"
 }
 
-# ai_tools_entrypoint_package_dir <entrypoint> <npm-package> : print the installed package directory
+# ai_tools_entrypoint_verify__find_package_dir <entrypoint> <npm-package> : print the installed package directory
 #   a forced reinstall of <npm-package> has to remove first, or return non-zero when the entrypoint
 #   does not sit inside one.
 #
@@ -466,7 +467,7 @@ ai_tools_entrypoint_installed_version() {
 #
 #   The entrypoint path and the package name reach a terminal inside a command carrying `rm -rf`, so each is
 #   clamped: the version directory must be absolute and `..`-free, and the package name only to the shape npm gives one.
-ai_tools_entrypoint_package_dir() {
+ai_tools_entrypoint_verify__find_package_dir() {
     local entrypoint="${1:-}" package="${2:-}" version_dir
     [[ -n "${entrypoint}" && -n "${package}" ]] || return 1
     [[ "${entrypoint}" == */lib/node_modules/* ]] || return 1
@@ -476,55 +477,55 @@ ai_tools_entrypoint_package_dir() {
     printf '%s/lib/node_modules/%s' "${version_dir}" "${package}"
 }
 
-# ai_tools_entrypoint_pin_write_observed <agent> <version> <sha256> : record what is installed, for an agent whose
-#   vendor publishes no signed release manifest to check it against. ROOT ONLY, same record and same atomic write as
-#   the verified pin, and distinguished from it by `KIND=observed` -- so every reader can say which of the two a host
-#   holds, and none of them has to infer it from an absent SOURCE. What the two tiers claim is in updater.rule.md;
-#   the short of it is that this one detects a later change to the file and makes no statement about its origin.
+# ai_tools_entrypoint_verify__write_observed_pin <agent> <version> <sha256> : record what is installed, for an agent
+#   whose vendor publishes no signed release manifest to check it against. ROOT ONLY, same record and same atomic write
+#   as the verified pin, and distinguished from it by `KIND=observed` -- so every reader can say which of the two a host
+#   holds, and none of them has to infer it from an absent SOURCE. What the two tiers claim is in updater.rule.md; the
+#   short of it is that this one detects a later change to the file and makes no statement about its origin.
 #
-#   The caller decides WHETHER to write: ai_tools_entrypoint_observe_decision holds that rule, so the guard against
-#   re-recording a tampered binary is one testable function rather than a condition at each call site.
-ai_tools_entrypoint_pin_write_observed() {
+#   The caller decides WHETHER to write: ai_tools_entrypoint_verify__evaluate_observed_pin holds that rule, so the guard
+#   against re-recording a tampered binary is one testable function rather than a condition at each call site.
+ai_tools_entrypoint_verify__write_observed_pin() {
     local agent="${1:-}" version="${2:-}" checksum="${3:-}" pin
-    pin="$(ai_tools_entrypoint_pin_path "${agent}")" || return 1
+    pin="$(ai_tools_entrypoint_verify__get_pin_path "${agent}")" || return 1
     [[ "${checksum}" =~ ^[0-9a-f]{64}$ ]] || return 1
-    _ai_tools_ev_field_ok "${version}" || version=unknown
+    _ai_tools_entrypoint_verify__is_field_valid "${version}" || version=unknown
     {
         printf '# ai-tools entrypoint pin -- written as root, read by the launch shim.\n'
         printf '# KIND=observed: the checksum of the binary as installed, not one verified against a vendor signature.\n'
         printf 'AGENT=%s\nVERSION=%s\nSHA256=%s\nKIND=observed\nVERIFIED=%s\n' \
             "${agent}" "${version}" "${checksum}" "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-    } | _ai_tools_ev_write_record "${pin}" "${AI_TOOLS_ENTRYPOINT_PIN_DIR}"
+    } | _ai_tools_entrypoint_verify__write_record "${pin}" "${AI_TOOLS_ENTRYPOINT_PIN_DIR}"
 }
 
-# ai_tools_entrypoint_pin_kind <agent> : print `verified`, `observed`, or `unknown` for the pin this host holds,
-#   or an empty string when there is no pin.
+# ai_tools_entrypoint_verify__read_pin_kind <agent> : print `verified`, `observed`, or `unknown` for the pin this host
+#   holds, or an empty string when there is no pin.
 #
 #   A record carrying NO KIND reads as `verified`: the field was added with the observed tier, and every pin written
 #   before it came from the signed-manifest path. A record carrying a KIND this library does not define reads
 #   as `unknown` -- rendering it as either tier would state a claim about the binary's origin that no writer here made.
 #   The two cases are told apart by the field reader's own status, so an absent field and an unreadable one do not
 #   collapse into the same answer.
-ai_tools_entrypoint_pin_kind() {
+ai_tools_entrypoint_verify__read_pin_kind() {
     local pin kind
-    pin="$(ai_tools_entrypoint_pin_path "${1:-}")" || return 1
+    pin="$(ai_tools_entrypoint_verify__get_pin_path "${1:-}")" || return 1
     [[ -f "${pin}" ]] || return 1
-    kind="$(_ai_tools_ev_pin_field "${pin}" KIND 2>/dev/null)" || { printf 'verified'; return 0; }
+    kind="$(_ai_tools_entrypoint_verify__read_pin_field "${pin}" KIND 2>/dev/null)" || { printf 'verified'; return 0; }
     case "${kind}" in
         observed|verified) printf '%s' "${kind}" ;;
         *)                 printf 'unknown'    ;;
     esac
 }
 
-# ai_tools_entrypoint_pin_version <agent> : print the version the pin records, or an empty string. The observing
-#   caller compares it with what is installed, which is how a new release is told from a changed binary.
-ai_tools_entrypoint_pin_version() {
+# ai_tools_entrypoint_verify__read_pin_version <agent> : print the version the pin records, or an empty string. The
+#   observing caller compares it with what is installed, which is how a new release is told from a changed binary.
+ai_tools_entrypoint_verify__read_pin_version() {
     local pin
-    pin="$(ai_tools_entrypoint_pin_path "${1:-}")" || return 1
-    _ai_tools_ev_pin_field "${pin}" VERSION
+    pin="$(ai_tools_entrypoint_verify__get_pin_path "${1:-}")" || return 1
+    _ai_tools_entrypoint_verify__read_pin_field "${pin}" VERSION
 }
 
-# ai_tools_entrypoint_pin_reusable <agent> <version> <inputs-digest> <observed-sha256> : succeed
+# ai_tools_entrypoint_verify__is_pin_reusable <agent> <version> <inputs-digest> <observed-sha256> : succeed
 #   when the recorded pin already answers exactly this question -- same installed version, same
 #   declared verification inputs, same bytes on disk. The caller may then skip the manifest fetch
 #   and the signature check, because re-running them over unchanged inputs re-derives the verdict
@@ -537,24 +538,24 @@ ai_tools_entrypoint_pin_version() {
 #
 #   Every unreadable, absent, or malformed field returns 1, so the failure direction is a full
 #   verification rather than a reused verdict.
-ai_tools_entrypoint_pin_reusable() {
+ai_tools_entrypoint_verify__is_pin_reusable() {
     local agent="${1:-}" version="${2:-}" inputs="${3:-}" observed="${4:-}" pin
     [[ "${observed}" =~ ^[0-9a-f]{64}$ ]] || return 1
     [[ "${inputs}"   =~ ^[0-9a-f]{64}$ ]] || return 1
     [[ -n "${version}" ]] || return 1
-    pin="$(ai_tools_entrypoint_pin_path "${agent}")" || return 1
-    [[ "$(_ai_tools_ev_pin_field "${pin}" VERSION || true)" == "${version}"  ]] || return 1
-    [[ "$(_ai_tools_ev_pin_field "${pin}" INPUTS  || true)" == "${inputs}"   ]] || return 1
-    [[ "$(_ai_tools_ev_pin_field "${pin}" SHA256  || true)" == "${observed}" ]] || return 1
+    pin="$(ai_tools_entrypoint_verify__get_pin_path "${agent}")" || return 1
+    [[ "$(_ai_tools_entrypoint_verify__read_pin_field "${pin}" VERSION || true)" == "${version}"  ]] || return 1
+    [[ "$(_ai_tools_entrypoint_verify__read_pin_field "${pin}" INPUTS  || true)" == "${inputs}"   ]] || return 1
+    [[ "$(_ai_tools_entrypoint_verify__read_pin_field "${pin}" SHA256  || true)" == "${observed}" ]] || return 1
     return 0
 }
 
-# _ai_tools_ev_dearmor <armored-key> <out> : convert a published ASCII-armored key to the binary
+# _ai_tools_entrypoint_verify__dearmor <armored-key> <out> : convert a published ASCII-armored key to the binary
 #   keyring gpgv wants, without gpg. The armor is base64 with an RFC 4880 header block and a `=`
 #   CRC line, so stripping those and decoding is the whole conversion -- which keeps gnupg2's
 #   verify-only half (gpgv) as the single dependency rather than a full gpg with a homedir and a
 #   trustdb this would have to build per call.
-_ai_tools_ev_dearmor() {
+_ai_tools_entrypoint_verify__dearmor() {
     local armored="${1:-}" out="${2:-}"
     [[ -r "${armored}" ]] || return 1
     awk '/^-----BEGIN/{f=1;next} /^-----END/{f=0} f && !/^[A-Za-z]+:/ && !/^=/ && NF' "${armored}" \
@@ -562,50 +563,50 @@ _ai_tools_ev_dearmor() {
     [[ -s "${out}" ]]
 }
 
-# ai_tools_entrypoint_release_verify <entrypoint> <version> <url-template> <key> <fingerprint>
+# ai_tools_entrypoint_verify__verify_release <entrypoint> <version> <url-template> <key> <fingerprint>
 #   Fetch the vendor's release manifest for <version>, verify its detached signature against the
 #   pinned <key>, and compare the checksum it publishes for this platform against <entrypoint>'s.
 #   Returns this library's status contract and prints the verified checksum on success.
 #
 #   Every input but the entrypoint comes from a root-owned agent manifest that already passed
-#   ai_tools_conf_is_trusted, and the key is a file the agent package ships -- fetched from the
+#   ai_tools_conf__is_trusted, and the key is a file the agent package ships -- fetched from the
 #   vendor, this would be npm's own weakness (a compromised source serving package, signature, and
 #   key together). The fingerprint is declared separately and asserted against gpgv's output, so a
 #   keyring swapped for another VALID key is still refused.
-ai_tools_entrypoint_release_verify() {
+ai_tools_entrypoint_verify__verify_release() {
     local entrypoint="${1:-}" version="${2:-}" url_template="${3:-}" key_file="${4:-}" fingerprint="${5:-}"
     local url workdir platform observed published
 
-    command -v curl >/dev/null 2>&1 || { _ai_tools_ev_warn "curl not found -- cannot fetch the release manifest"; return 2; }
-    command -v gpgv >/dev/null 2>&1 || { _ai_tools_ev_warn "gpgv not found -- cannot verify the release manifest signature; install gnupg2"; return 2; }
-    [[ -r "${key_file}" ]] || { _ai_tools_ev_warn "release signing key unreadable: ${key_file}"; return 2; }
+    command -v curl >/dev/null 2>&1 || { _ai_tools_entrypoint_verify__warn "curl not found -- cannot fetch the release manifest"; return 2; }
+    command -v gpgv >/dev/null 2>&1 || { _ai_tools_entrypoint_verify__warn "gpgv not found -- cannot verify the release manifest signature; install gnupg2"; return 2; }
+    [[ -r "${key_file}" ]] || { _ai_tools_entrypoint_verify__warn "release signing key unreadable: ${key_file}"; return 2; }
 
     # A LIST, in the shared KEY=value grammar -- the rotation overlap it exists for is in providers.rule.md. Every entry
     # must be a 40-hex fingerprint or the whole declaration is unusable: a partially-parsed pin is one that might accept
     # a key nobody meant to trust.
     local -a accepted_fingerprints=()
-    if declare -F ai_tools_conf_list_value >/dev/null 2>&1; then
-        ai_tools_conf_list_value accepted_fingerprints "${fingerprint}" 0 "release_fingerprint"
+    if declare -F ai_tools_conf__split_list_value >/dev/null 2>&1; then
+        ai_tools_conf__split_list_value accepted_fingerprints "${fingerprint}" 0 "release_fingerprint"
     else
         local _ifs="${IFS}"; IFS=$', \t\n'; read -ra accepted_fingerprints <<< "${fingerprint}"; IFS="${_ifs}"
     fi
     (( ${#accepted_fingerprints[@]} > 0 )) \
-        || { _ai_tools_ev_warn "no release key fingerprint declared"; return 2; }
+        || { _ai_tools_entrypoint_verify__warn "no release key fingerprint declared"; return 2; }
     local declared
     for declared in "${accepted_fingerprints[@]}"; do
         [[ "${declared}" =~ ^[0-9A-Fa-f]{40}$ ]] \
-            || { _ai_tools_ev_warn "declared release key fingerprint '${declared}' is not 40 hex digits"; return 2; }
+            || { _ai_tools_entrypoint_verify__warn "declared release key fingerprint '${declared}' is not 40 hex digits"; return 2; }
     done
 
-    url="$(ai_tools_release_manifest_url "${url_template}" "${version}")" \
-        || { _ai_tools_ev_warn "release manifest URL is not usable for version '${version}'"; return 2; }
+    url="$(ai_tools_entrypoint_verify__get_release_manifest_url "${url_template}" "${version}")" \
+        || { _ai_tools_entrypoint_verify__warn "release manifest URL is not usable for version '${version}'"; return 2; }
 
-    platform="$(ai_tools_entrypoint_platform_key "$(uname -m 2>/dev/null)" \
+    platform="$(ai_tools_entrypoint_verify__get_platform_key "$(uname -m 2>/dev/null)" \
                     "$( [[ -e /lib/ld-musl-$(uname -m 2>/dev/null).so.1 ]] && printf musl )")" \
-        || { _ai_tools_ev_warn "no release-manifest platform key for $(uname -m 2>/dev/null)"; return 2; }
+        || { _ai_tools_entrypoint_verify__warn "no release-manifest platform key for $(uname -m 2>/dev/null)"; return 2; }
 
-    observed="$(ai_tools_entrypoint_sha256 "${entrypoint}")" \
-        || { _ai_tools_ev_warn "cannot hash the entrypoint: ${entrypoint}"; return 2; }
+    observed="$(ai_tools_entrypoint_verify__calculate_sha256 "${entrypoint}")" \
+        || { _ai_tools_entrypoint_verify__warn "cannot hash the entrypoint: ${entrypoint}"; return 2; }
 
     workdir="$(mktemp -d 2>/dev/null)" || return 2
     # shellcheck disable=SC2064
@@ -615,11 +616,11 @@ ai_tools_entrypoint_release_verify() {
     # `--connect-timeout` is what keeps an air-gapped host from waiting out a blackholed route: this runs inside an rpm
     # %post that must succeed offline.
     curl -fsSL --connect-timeout 5 --max-time 30 -o "${workdir}/manifest.json" -- "${url}" 2>/dev/null \
-        || { _ai_tools_ev_warn "no release manifest published at ${url} (or the host is offline)"; return 2; }
+        || { _ai_tools_entrypoint_verify__warn "no release manifest published at ${url} (or the host is offline)"; return 2; }
     curl -fsSL --connect-timeout 5 --max-time 30 -o "${workdir}/manifest.sig" -- "${url}.sig" 2>/dev/null \
-        || { _ai_tools_ev_warn "no detached signature published at ${url}.sig"; return 2; }
-    _ai_tools_ev_dearmor "${key_file}" "${workdir}/key.gpg" \
-        || { _ai_tools_ev_warn "could not read the release signing key at ${key_file}"; return 2; }
+        || { _ai_tools_entrypoint_verify__warn "no detached signature published at ${url}.sig"; return 2; }
+    _ai_tools_entrypoint_verify__dearmor "${key_file}" "${workdir}/key.gpg" \
+        || { _ai_tools_entrypoint_verify__warn "could not read the release signing key at ${key_file}"; return 2; }
 
     # gpgv's exit status already separates the two failures that must not collapse, and separates them exactly
     # as the status contract does: 1 = a signature it rejects (tamper), 2 = a key it does not hold (a vendor key
@@ -629,11 +630,11 @@ ai_tools_entrypoint_release_verify() {
     gpgv_output="$(gpgv --keyring "${workdir}/key.gpg" "${workdir}/manifest.sig" \
                         "${workdir}/manifest.json" 2>&1)" || gpgv_status=$?
     if (( gpgv_status == 1 )); then
-        _ai_tools_ev_warn "release manifest for ${version} FAILED signature verification (BAD signature) -- refusing to trust its checksums"
+        _ai_tools_entrypoint_verify__warn "release manifest for ${version} FAILED signature verification (BAD signature) -- refusing to trust its checksums"
         return 1
     fi
     if (( gpgv_status != 0 )); then
-        _ai_tools_ev_warn "release manifest for ${version} is signed by a key the pinned keyring does not hold -- the vendor may have rotated it; update the agent package (dnf update 'ai-tools-agents-*')"
+        _ai_tools_entrypoint_verify__warn "release manifest for ${version} is signed by a key the pinned keyring does not hold -- the vendor may have rotated it; update the agent package (dnf update 'ai-tools-agents-*')"
         return 2
     fi
 
@@ -645,43 +646,43 @@ ai_tools_entrypoint_release_verify() {
         [[ "${squeezed_output}" == *"${declared^^}"* ]] && { matched=yes; break; }
     done
     if [[ "${matched}" != yes ]]; then
-        _ai_tools_ev_warn "release manifest is signed by a key in the shipped keyring that no declared fingerprint names -- refusing"
+        _ai_tools_entrypoint_verify__warn "release manifest is signed by a key in the shipped keyring that no declared fingerprint names -- refusing"
         return 1
     fi
 
-    published="$(ai_tools_release_manifest_checksum "$(cat "${workdir}/manifest.json")" "${platform}")" \
-        || { _ai_tools_ev_warn "the signed manifest for ${version} lists no ${platform} checksum"; return 2; }
+    published="$(ai_tools_entrypoint_verify__get_release_manifest_checksum "$(cat "${workdir}/manifest.json")" "${platform}")" \
+        || { _ai_tools_entrypoint_verify__warn "the signed manifest for ${version} lists no ${platform} checksum"; return 2; }
 
     local token rc
-    token="$(ai_tools_entrypoint_pin_verdict "${published}" "${observed}")" && rc=0 || rc=$?
+    token="$(ai_tools_entrypoint_verify__evaluate_pin "${published}" "${observed}")" && rc=0 || rc=$?
     case "${token}" in
         ok) printf '%s' "${published}"; return 0 ;;
         mismatch)
-            _ai_tools_ev_warn "entrypoint does NOT match the signed release ${version} (${platform}): ${entrypoint}"
+            _ai_tools_entrypoint_verify__warn "entrypoint does NOT match the signed release ${version} (${platform}): ${entrypoint}"
             return 1 ;;
         *)  return "${rc}" ;;
     esac
 }
 
-# ai_tools_entrypoint_verify_required : succeed when operator.conf declares that this host must not
+# ai_tools_entrypoint_verify__is_required : succeed when operator.conf declares that this host must not
 #   run an UNVERIFIED entrypoint. The updater and the launch both read it HERE, so they cannot
 #   disagree about how strict the host is; what it governs and why its default is permissive are in
-#   updater.rule.md. Honoured only while operator.conf passes ai_tools_conf_is_trusted, so the
+#   updater.rule.md. Honoured only while operator.conf passes ai_tools_conf__is_trusted, so the
 #   sandbox account can neither set nor clear it; every other outcome yields NO.
-ai_tools_entrypoint_verify_required() {
+ai_tools_entrypoint_verify__is_required() {
     local operator_conf="${AI_TOOLS_OPERATOR_CONF:-/etc/ai-tools/operator.conf}"
-    declare -F ai_tools_conf_is_trusted >/dev/null 2>&1 || return 1
-    ai_tools_conf_is_trusted "${operator_conf}" 2>/dev/null || return 1
-    ai_tools_conf_yes "${operator_conf}" AI_TOOLS_REQUIRE_ENTRYPOINT_VERIFY
+    declare -F ai_tools_conf__is_trusted >/dev/null 2>&1 || return 1
+    ai_tools_conf__is_trusted "${operator_conf}" 2>/dev/null || return 1
+    ai_tools_conf__is_yes "${operator_conf}" AI_TOOLS_REQUIRE_ENTRYPOINT_VERIFY
 }
 
-# ai_tools_entrypoint_check <agent> <entrypoint> : the launch-side gate. Hash the entrypoint and
+# ai_tools_entrypoint_verify__check <agent> <entrypoint> : the launch-side gate. Hash the entrypoint and
 #   compare it to the agent's pin. Echoes the verdict token and returns the status contract. It does not
 #   reach the network, read a key, or need privilege, so it runs as the sandbox account on the
 #   launch path.
-ai_tools_entrypoint_check() {
+ai_tools_entrypoint_verify__check() {
     local agent="${1:-}" entrypoint="${2:-}" expected observed
-    expected="$(ai_tools_entrypoint_pin_read "${agent}" || true)"
-    observed="$(ai_tools_entrypoint_sha256 "${entrypoint}" || true)"
-    ai_tools_entrypoint_pin_verdict "${expected}" "${observed}"
+    expected="$(ai_tools_entrypoint_verify__read_pin "${agent}" || true)"
+    observed="$(ai_tools_entrypoint_verify__calculate_sha256 "${entrypoint}" || true)"
+    ai_tools_entrypoint_verify__evaluate_pin "${expected}" "${observed}"
 }

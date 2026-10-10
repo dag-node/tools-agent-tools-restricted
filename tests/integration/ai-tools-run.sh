@@ -55,10 +55,10 @@ source_session_env() {
 # shellcheck source=/dev/null
 if ! source /usr/local/lib/ai-tools/conf.lib.sh 2>/dev/null \
         || ! source /usr/local/lib/ai-tools/providers.lib.sh 2>/dev/null \
-        || ! declare -F ai_tools_enabled_agents >/dev/null 2>&1; then
+        || ! declare -F ai_tools_providers__list_enabled_agents >/dev/null 2>&1; then
     skip "session pins" "the provider resolver is not deployed"
 else
-    enabled_agent_names="$(ai_tools_enabled_agents 2>/dev/null | cut -f1)"
+    enabled_agent_names="$(ai_tools_providers__list_enabled_agents 2>/dev/null | cut -f1)"
     [[ -n "${enabled_agent_names}" ]] || skip "session pins" "no agent is enabled on this host"
     while IFS= read -r enabled_agent; do
         [[ -n "${enabled_agent}" ]] || continue
@@ -67,10 +67,10 @@ else
             fail "enabled agent ${enabled_agent} ships no session pins at ${pins} -- a child of it started inside another agent's session runs without its state directory"
             continue
         fi
-        if ai_tools_conf_is_trusted "${pins}"; then
+        if ai_tools_conf__is_trusted "${pins}"; then
             pass "${enabled_agent}'s session pins pass the trust predicate the shim applies"
         else
-            fail "${enabled_agent}'s session pins would be skipped by the shim: ${pins} $(ai_tools_conf_untrusted_reason "${pins}")"
+            fail "${enabled_agent}'s session pins would be skipped by the shim: ${pins} $(ai_tools_conf__read_untrusted_reason "${pins}")"
         fi
         pins_out="$(source_session_env "${pins}")"
         if [[ "$(grep -c '^--setenv=[A-Z][A-Z0-9_]*=.' <<<"${pins_out}")" -gt 0 ]] \
@@ -118,7 +118,7 @@ fi
 # The shim's order, read as source: the integrations' fragments, then every enabled agent's pins, then the launching
 # agent's fragment. No refusal the shim can be driven to reveals the order (the one gate past the fragments needs
 # a valid launch), so the three calls are held to their line order, the way the entrypoint re-check is.
-crun_integrations_line="$(grep -n 'ai_tools_enabled_integrations' "${CRUN}" | head -n1 | cut -d: -f1)"
+crun_integrations_line="$(grep -n 'ai_tools_providers__list_enabled_integrations' "${CRUN}" | head -n1 | cut -d: -f1)"
 # shellcheck disable=SC2016  # grep patterns over the shim's own text
 crun_pins_line="$(grep -n 'source_session_env_fragment "\${enabled_agent_name}" pins' "${CRUN}" | head -n1 | cut -d: -f1)"
 crun_agent_line="$(grep -n '^    source_session_env_fragment "\${agent_name}"$' "${CRUN}" | head -n1 | cut -d: -f1)"
@@ -190,9 +190,9 @@ agent_manifest="/usr/local/lib/ai-tools/agents.d/claude-code.conf"
 providers_lib="/usr/local/lib/ai-tools/providers.lib.sh"
 # shellcheck source=/dev/null
 if [[ ! -r "${agent_manifest}" ]] || ! source "${providers_lib}" 2>/dev/null \
-        || ! declare -F ai_tools_agent_sweeps_at_exit >/dev/null 2>&1; then
+        || ! declare -F ai_tools_providers__is_exit_sweep_required >/dev/null 2>&1; then
     skip "claude-code handback declaration" "manifest or provider resolver not deployed"
-elif ai_tools_agent_sweeps_at_exit "$(ai_tools_agent_manifest_field claude-code handback || true)"; then
+elif ai_tools_providers__is_exit_sweep_required "$(ai_tools_providers__read_agent_manifest_field claude-code handback || true)"; then
     fail "claude-code does not declare handback=hooks (${agent_manifest}) -- every session would end with a redundant full-tree sweep"
 else
     pass "claude-code declares handback=hooks, so the shim adds no session-end sweep"
@@ -446,7 +446,7 @@ else
     chown -R "${SANDBOX_USER}" "${residue_version_dir}" 2>/dev/null || true
     # shellcheck disable=SC2016  # the inner shell expands these, not this one
     read_back="$(env AI_TOOLS_AGENTS_DIR="${residue_agents}" bash -c \
-        'source /usr/local/lib/ai-tools/providers.lib.sh && ai_tools_installed_agents' 2>/dev/null | cut -f1 | grep -cx "${residue_agent}" || true)"
+        'source /usr/local/lib/ai-tools/providers.lib.sh && ai_tools_providers__list_installed_agents' 2>/dev/null | cut -f1 | grep -cx "${residue_agent}" || true)"
     if [[ "${read_back}" != 1 ]]; then
         fail "the fixture manifest does not read back through the resolver, so the residue case cannot be driven"
     else
@@ -484,7 +484,7 @@ fi
 enabled_items=""
 while IFS=$'\t' read -r enabled_name _; do
     [[ -n "${enabled_name}" ]] && enabled_items+="${enabled_items:+, }agent-${enabled_name}"
-done < <(bash -c 'source /usr/local/lib/ai-tools/providers.lib.sh && ai_tools_enabled_agents' 2>/dev/null)
+done < <(bash -c 'source /usr/local/lib/ai-tools/providers.lib.sh && ai_tools_providers__list_enabled_agents' 2>/dev/null)
 if [[ -z "${enabled_items}" ]]; then
     skip "the migrated control" "no agent is enabled on this host"
 else

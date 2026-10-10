@@ -31,7 +31,7 @@ isolation between their sessions.
 
 | Facet | Shell variable | Prose term |
 |-------|----------------|------------|
-| the list | `AI_TOOLS_OPERATORS` (array) | "the operators" |
+| the list | `AI_TOOLS_OPERATOR__OPERATORS` (array) | "the operators" |
 | operators group | literal `ai-ops` | "the operators group" / `ai-ops` |
 
 Being an operator is exactly those two facts: `ai-ops` membership and a name
@@ -77,9 +77,9 @@ an operator into the `PROJECTS_*` globals:
 | its primary/private group | `PROJECTS_GROUP` | "the owner's group" |
 | its numeric uid | `PROJECTS_UID` | — |
 
-- `ai_tools_resolve_owner <path>` sets them to the **owner of that path** —
-  the handback helpers that restore ownership use this.
-- `ai_tools_load_operator` sets them to the **primary operator**
+- `ai_tools_operator__resolve_owner <path>` sets them to the **owner
+  of that path** — the handback helpers that restore ownership use this.
+- `ai_tools_operator__load_operator` sets them to the **primary operator**
   (`OPERATORS[0]`) — for the components that need "an operator" rather than
   a per-path owner (the launch path, the CLI, the symlink/relabel helpers).
 
@@ -182,9 +182,9 @@ way:
 | the pair a claim writes and an unclaim drops | the allowlist entry and the `safe.directory` entry in the sandbox account's `.gitconfig` | "the registries" / "both registries" |
 
 **Allowlist** is the term: it is the code's word (`ALLOWLIST`,
-`ai_tools_allowlist_covers`, `ai-tools-allowlist`) and the man page's.
-"Registry" on its own, "approved projects", and "project list" are not used
-for it. "The registries" is reserved for the allowlist entry together
+`ai_tools_operator__is_covered_by_allowlist`, `ai-tools-allowlist`) and the man
+page's. "Registry" on its own, "approved projects", and "project list" are not
+used for it. "The registries" is reserved for the allowlist entry together
 with the `safe.directory` entry, the pair `projects unclaim`
 and `projects remove` drop.
 

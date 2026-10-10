@@ -303,7 +303,7 @@ CODE_SPAN_HINT = ("mark it as code -- backticks in Markdown, `<c>` in an XML doc
 
 # A sentence opening on a signature (`name <arg>`, `name(`, `some_name:`) or on one of the fragment keys. A prose
 # sentence does not reach the bracket: `The helper <arg>` puts a word between them. The colon form takes an identifier
-# carrying an underscore or a dash (`ai_tools_log:`, `FN-Q2H8:`), since a prose sentence opens on a plain word
+# carrying an underscore or a dash (`ai_tools_log__write:`, `FN-Q2H8:`), since a prose sentence opens on a plain word
 # and a colon as often as a contract does (`Flags: ...`, `Note: ...`).
 CONTRACT_LINE = re.compile(
     r"^(?:[A-Za-z_][\w.-]*\s*\(?\)?\s*[<\[]"

@@ -17,23 +17,24 @@ paths:
 Every refusal, notice, and warning the user reads is rendered through one shared library,
 `/usr/local/lib/ai-tools/msg.lib.sh` (`644 root:root`, world-readable — it does not carry any secrets, and operator,
 agent, and root principals all source it, exactly like [logging](logging.rule.md)'s `log.lib.sh`). It exposes
-`ai_tools_msg <severity> <fd> <line...>`, the convenience emitters `ai_tools_msg_{error,warn,notice,info,success}`,
-the flow-block opener `ai_tools_msg_headline <title> <fd> <line...>`, `ai_tools_msg_wrap <width> <text>` for callers
-that need wrapped-but-unframed text to embed elsewhere, the three question renderers `ai_tools_msg_pick`,
-`ai_tools_msg_confirm` and `ai_tools_msg_challenge` — every menu, every yes/no prompt, and every typed-name challenge
-in the project renders and defaults through them — the command renderer `ai_tools_cmd_display`, and the umbrella banner
-`ai_tools_msg_banner` (with its `ai_tools_msg_version` helper).
+`ai_tools_msg__alert <severity> <fd> <line...>`, the convenience emitters
+`ai_tools_msg__{error,warn,notice,info,success}`, the flow-block opener `ai_tools_msg__headline <title> <fd> <line...>`,
+`ai_tools_msg__wrap <width> <text>` for callers that need wrapped-but-unframed text to embed elsewhere, the three
+question renderers `ai_tools_msg__pick`, `ai_tools_msg__confirm` and `ai_tools_msg__challenge` — every menu, every
+yes/no prompt, and every typed-name challenge in the project renders and defaults through them — the command renderer
+`ai_tools_msg__format_command`, and the umbrella banner `ai_tools_msg__banner` (with its `ai_tools_msg__format_version`
+helper).
 
 ## What the library guarantees
 
-- **Two frame classes make a visual hierarchy.** The severity alerts (`ai_tools_msg_*`) frame within **50 columns** —
-  a narrow box reads as an inline alert — while the structural boxes (`ai_tools_msg_block`, `ai_tools_msg_headline`)
+- **Two frame classes make a visual hierarchy.** The severity alerts (`ai_tools_msg__*`) frame within **50 columns** —
+  a narrow box reads as an inline alert — while the structural boxes (`ai_tools_msg__block`, `ai_tools_msg__headline`)
   frame within **80**, so a wide box reads as a section headline or a guidance screen. Long messages reflow to fit their
   class's width.
 - **No line ends on a tie-word, no one-word widow.** A TeX-style tie glues each article, coordinating conjunction,
   preposition, or wh-/relative word to the word after it, so a line break never strands one at the right margin (the set
-  lives in `_AI_TOOLS_MSG_TIES`). Orphan control then rebalances the final line: a last line that would be a single unit
-  pulls the previous tie-glued unit down, so the tail reads as a phrase rather than a lone stranded word.
+  lives in `_AI_TOOLS_MSG__TIES`). Orphan control then rebalances the final line: a last line that would be a single
+  unit pulls the previous tie-glued unit down, so the tail reads as a phrase rather than a lone stranded word.
 - **A single token is never split.** A path or command longer than the wrap width overflows its own line intact rather
   than breaking mid-token, so copy-paste survives.
 - **The frame is paste-safe.** On a terminal the text is drawn in a titled box whose every line — top rule, content,
@@ -48,7 +49,7 @@ in the project renders and defaults through them — the command renderer `ai_to
 
 ## TTY-gating: box on a terminal, plain when captured
 
-`ai_tools_msg` renders the box **only when the target file descriptor is a tty**. Piped, redirected, captured
+`ai_tools_msg__alert` renders the box **only when the target file descriptor is a tty**. Piped, redirected, captured
 by the test suite, written to a log, or fed to a hook's `additionalContext`, it emits the caller's lines **plain
 and unwrapped** instead. This is load-bearing two ways: the box is terminal decoration that would be noise in a log
 or a JSON string, and — critically — the test suite asserts on message substrings with line-based `grep`, which a wrap
@@ -78,13 +79,13 @@ the code, and a new code is minted only for a new situation, with the old one re
 `challenge`) and a `headline` carry none, since a question is not a situation and a headline is flow structure,
 and the outcome a question produces is what the decision audit trail records instead.
 
-The code is an **optional leading argument** to an alert emitter and to `ai_tools_msg_block`, detected by its form
-through `ai_tools_msg_is_code` (`MSG-` and a four-character letter-digit-letter-digit id, anchored on both ends),
+The code is an **optional leading argument** to an alert emitter and to `ai_tools_msg__block`, detected by its form
+through `ai_tools_msg__is_code` (`MSG-` and a four-character letter-digit-letter-digit id, anchored on both ends),
 so an uncoded call is unchanged and no message begins with the token by accident:
 
 ```bash
-ai_tools_msg_error MSG-F6Z3 "This project directory is owner-only, so the agent cannot read it."
-ai_tools_msg_block MSG-F6Z3 "Set up this project for the sandboxed agent" "${lines[@]}"
+ai_tools_msg__error MSG-F6Z3 "This project directory is owner-only, so the agent cannot read it."
+ai_tools_msg__block MSG-F6Z3 "Set up this project for the sandboxed agent" "${lines[@]}"
 ```
 
 Where it renders follows from the two modes. On a terminal it joins the **box title** — `#-- ERROR MSG-F6Z3 ----#`
@@ -99,7 +100,7 @@ a Markdown link, or an HTML anchor — a link is unresolvable in `journalctl` an
 and a document cites it once as a `URI-` reftag instead. `bash tools/generators/ref-index.sh messages` reports a message
 string that carries one, and `check` runs it over the tree, so the rule is held from the repository side rather than
 by review: the shipped prose checker skips a quoted span by design and never reads the string this is about (see
-[tests](tests.rule.md)). `ai_tools_msg_is_code` is the one predicate a leading code is detected with, so a component's
+[tests](tests.rule.md)). `ai_tools_msg__is_code` is the one predicate a leading code is detected with, so a component's
 local `die()`/`warn()` that routes to the emitters (`launch-wrapper.lib.sh`, `ai-tools.sh`, `ai-tools-run`,
 `ai-tools-stop`) recognises a code exactly as the library does.
 
@@ -164,7 +165,7 @@ from full-scope provisioning, so its `emit_coded` takes a prefix as well and the
 the refusal is about.
 
 **A value that is a clause rather than a message takes no code, and its consuming site takes one.** `conf.lib.sh`'s
-`_ai_tools_conf_merge_reason` is that shape: each branch sets a fragment (`the deployed file is not valid JSON`)
+`ai_tools_settings_merge__reason` is that shape: each branch sets a fragment (`the deployed file is not valid JSON`)
 that every caller interpolates into a sentence of its own — `install.sh` and `ai-tools-admin` each say what the merge
 did not do, and there is no line the code could lead. The situation a reader searches is the outcome the caller reports,
 so the code is defined there. The test is where the value reaches a terminal: whole, and the factory defines it;
@@ -172,18 +173,18 @@ mid-sentence, and the caller does.
 
 ## Three renderers: alert, headline, block
 
-The emitters (`ai_tools_msg_*`) **wrap every line** — right for a short refusal or notice, but a wrap splits
+The emitters (`ai_tools_msg__*`) **wrap every line** — right for a short refusal or notice, but a wrap splits
 a multi-word command across lines, so command-bearing prose handed to an emitter must keep its command on a separate
 plain line (the session NOTICE does this: boxed prose, reconcile command printed under the frame).
 
-`ai_tools_msg_headline <title> <fd> <line...>` opens a **self-contained flow block** — the structure the `ai-tools`
+`ai_tools_msg__headline <title> <fd> <line...>` opens a **self-contained flow block** — the structure the `ai-tools`
 claim/sandbox flows are built from: a wide (80-column) box carrying the block's caller-composed title (verbatim, not
 uppercased: `Claim project (in place)`, `WARNING: interior permission drift`) and its summary prose, with the block's
 details — path lists, per-step results, its confirm prompt — printed **plain and indented under the box** so long paths
 stay copy-pasteable, and a closing `✓` (or a fail-closed error) ending the block. In plain (non-tty) mode the title is
 emitted as a content line — it is block structure, not decoration, so logs and test greps still see which block opened.
 
-`ai_tools_msg_block <title> <line...>` is the renderer for a multi-line guidance screen that *contains* commands (the
+`ai_tools_msg__block <title> <line...>` is the renderer for a multi-line guidance screen that *contains* commands (the
 launch wrapper's not-yet-claimed screen, in `launch-wrapper.lib.sh`). It frames a titled `#` box but preserves author
 layout: a flush-left line wraps as prose, while an **indented or blank** line is kept **verbatim** — never reflowed —
 so a command stays on one line and the numbering/indentation survives. A verbatim line wider than the box **overflows**
@@ -191,7 +192,7 @@ past the right border intact rather than breaking, so a long, non-separable comm
 begins with `#`, so the block stays a paste-safe comment; a user copying a command selects the command text
 after the `# ` prefix.
 
-`ai_tools_msg_pick <default_index|none> <label...>` is the question companion: it draws a numbered menu under a block
+`ai_tools_msg__pick <default_index|none> <label...>` is the question companion: it draws a numbered menu under a block
 and echoes the chosen 1-based index. It draws on `/dev/tty` and emits only the index on stdout, so the caller reads it
 with `$(...)`.
 
@@ -209,7 +210,7 @@ The first argument picks one of two answering modes:
   expected), and closed input (Ctrl-D), no terminal, or three unanswered attempts return **non-zero with empty stdout**.
   The library declines to answer for the user; the caller decides what an unanswered menu means.
 
-Anything else is a caller error (`return 2`), never an assumed answer — the same rule `ai_tools_msg_confirm` applies
+Anything else is a caller error (`return 2`), never an assumed answer — the same rule `ai_tools_msg__confirm` applies
 to its default.
 
 **`none` does not weaken the safe-default rule; it moves where that rule is satisfied.** The guarantee is
@@ -218,17 +219,18 @@ that an unattended run never blocks and never lands on the unsafe side, and a ca
 session, decided by the caller rather than by an index. A caller that cannot state that outcome itself has no business
 using `none`.
 
-## `ai_tools_cmd_display` — a command the user can type
+## `ai_tools_msg__format_command` — a command the user can type
 
-`ai_tools_cmd_display <abs-path>` renders a command for **printing**: the bare name (`ai-tools`) when `command -v`
-resolves that name to the same absolute path on this PATH, and the absolute path otherwise. A printed command is meant
-to be typed, and `/usr/local/bin/ai-tools projects claim` beside a `claude` the operator just ran reads as a second,
-unrelated tool; the resolve check is what keeps the short form honest, so a host whose PATH does not carry the directory
-still gets a command that works. Every site that prints a component's own path for the user to run goes through it.
+`ai_tools_msg__format_command <abs-path>` renders a command for **printing**: the bare name (`ai-tools`)
+when `command -v` resolves that name to the same absolute path on this PATH, and the absolute path otherwise. A printed
+command is meant to be typed, and `/usr/local/bin/ai-tools projects claim` beside a `claude` the operator just ran reads
+as a second, unrelated tool; the resolve check is what keeps the short form honest, so a host whose PATH does not carry
+the directory still gets a command that works. Every site that prints a component's own path for the user to run goes
+through it.
 
-## `ai_tools_msg_confirm` — the single yes/no prompt
+## `ai_tools_msg__confirm` — the single yes/no prompt
 
-`ai_tools_msg_confirm <question> <y|n>` is the one renderer for the project's yes/no questions, in the standard
+`ai_tools_msg__confirm <question> <y|n>` is the one renderer for the project's yes/no questions, in the standard
 bracketed notation with the Enter outcome spelled out:
 
 ```
@@ -270,9 +272,9 @@ Because the no-terminal path is legitimate here rather than degraded, that helpe
 (`flag`, `prompt`, `fallback-prompt`, `no-tty`) rather than only the answer. Full reasoning:
 [ref-section-e8k5](stop.rule.md#ref-section-e8k5).
 
-## `ai_tools_msg_challenge` — the typed-name challenge
+## `ai_tools_msg__challenge` — the typed-name challenge
 
-`ai_tools_msg_challenge <question> <expected>` draws the question, reads one line from `/dev/tty`, and returns 0 only
+`ai_tools_msg__challenge <question> <expected>` draws the question, reads one line from `/dev/tty`, and returns 0 only
 on an **exact** match with `<expected>`. A mismatch, empty input, closed input (Ctrl-D), and **no terminal** all return
 non-zero.
 
@@ -288,7 +290,7 @@ the user to re-type the name of the thing.
 
 **A mistyped answer is recorded, and it is treated as untrusted input.** The trail for a destructive verb is worth more
 showing what was typed than showing only that something was, so a mismatch logs the answer — through the shared
-allowlist sanitizer (`ai_tools_log_sanitize`) and clamped to a bounded length, the same treatment every other untrusted
+allowlist sanitizer (`ai_tools_log__sanitize`) and clamped to a bounded length, the same treatment every other untrusted
 string reaching a log sink or a terminal gets ([logging](logging.rule.md)). Without that sanitizer — the logger is
 loaded best-effort here — the answer is **omitted** rather than recorded raw; the decision itself is recorded either
 way.
@@ -298,7 +300,7 @@ as a default-NO confirm, and the flag is the auditable decision.
 
 ## Decision audit trail
 
-`ai_tools_msg_confirm`, `ai_tools_msg_pick` and `ai_tools_msg_challenge` are the project's three decision points,
+`ai_tools_msg__confirm`, `ai_tools_msg__pick` and `ai_tools_msg__challenge` are the project's three decision points,
 so each records its outcome through the shared logger ([logging](logging.rule.md)): one INFO line naming the question
 and the answer (`confirm: <question> -> yes|no (answered | default | assume-yes | no-tty-default)`) or the menu choice
 (`menu: chose <n>/<N> (<label>)`). A menu that ends **without** a choice is audited too, naming which way it ended
@@ -313,15 +315,15 @@ The audit never alters the decision's exit status, the same guarantee the emitte
 
 ## Umbrella banner
 
-`ai_tools_msg_banner <subtitle> [dim_line...]` renders the **AI-TOOLS** brand mark — the single-sourced ANSI-Shadow
-figlet (`_AI_TOOLS_BANNER_ART`) that heads the installer, the launch, and any sibling tool that sources this lib. Each
-tool supplies its own `subtitle` (`<product> — <what it does>`) and dim meta lines while the art stays constant,
+`ai_tools_msg__banner <subtitle> [dim_line...]` renders the **AI-TOOLS** brand mark — the single-sourced ANSI-Shadow
+figlet (`_AI_TOOLS_MSG__BANNER_ART`) that heads the installer, the launch, and any sibling tool that sources this lib.
+Each tool supplies its own `subtitle` (`<product> — <what it does>`) and dim meta lines while the art stays constant,
 so the brand reads the same everywhere. `AI-TOOLS` is a brand mark, so product names stay descriptive
 (`Agent Tools Restricted`, `Claude Code Restricted`). It draws on a terminal only.
 
-Meta lines are composed via `ai_tools_msg_version`, which `v`-prefixes a bare version number (`0.1.0` → `v0.1.0`)
-and passes a build id or `dev` through unchanged. The installer shows one line (`installer · v0.1.0`, the package
-version `ai-tools --version` reports). The launch banner shows three — `Claude Code`, `Node`, `ai-tools` —
+Meta lines are composed via `ai_tools_msg__format_version`, which `v`-prefixes a bare version number (`0.1.0` →
+`v0.1.0`) and passes a build id or `dev` through unchanged. The installer shows one line (`installer · v0.1.0`,
+the package version `ai-tools --version` reports). The launch banner shows three — `Claude Code`, `Node`, `ai-tools` —
 from **`ai-tools-run`**, which runs as the sandbox account so it can read each from the toolchain, and logs them
 (`logger -t ai-tools-run`) as a record of which versions a session ran.
 
@@ -335,7 +337,7 @@ for every agent's wrapper, `ai-tools`, `ai-tools-run`) refuse with a reinstall h
 from the source tree and abort if the checkout is broken. Consumers call the lib's functions directly — no `declare -F`
 probing, no stub branches.
 
-The library carries an **include guard** (`_AI_TOOLS_MSG_LIB_LOADED`), so a consumer that sources it directly *and*
+The library carries an **include guard** (`_AI_TOOLS_MSG__LOADED`), so a consumer that sources it directly *and*
 receives it transitively (`safe-paths.lib.sh` requires it too) re-sources a no-op; without the guard the `readonly`
 constants would abort the second source under `set -e`.
 
@@ -349,15 +351,16 @@ report.
 
 ## Where it is wired
 
-- **`launch-wrapper.lib.sh`**, the gates every agent's wrapper runs, routes `ai_tools_launch_die`
-  through `ai_tools_msg_error`, so every fatal refusal of a launch is framed at one chokepoint (an agent's launch hook
+- **`launch-wrapper.lib.sh`**, the gates every agent's wrapper runs, routes `ai_tools_launch_wrapper__die`
+  through `ai_tools_msg__error`, so every fatal refusal of a launch is framed at one chokepoint (an agent's launch hook
   refuses through that function, and the one refusal ahead of the load, `ai-tools-launch`'s `refuse_early`, prints its
   one fixed code in the plain form); it frames its `safe.directory` NOTICE and **both** guidance screens
-  with `ai_tools_msg_block`. Titles name the action, not the refusal ("Set up this project for the sandboxed agent",
-  "Finish setting up this project for the agent"), and commands print as bare names through `ai_tools_cmd_display`.
-  Neither screen repeats paths: the claim/clone commands default to the current directory.
+  with `ai_tools_msg__block`. Titles name the action, not the refusal ("Set up this project for the sandboxed agent",
+  "Finish setting up this project for the agent"), and commands print as bare names
+  through `ai_tools_msg__format_command`. Neither screen repeats paths: the claim/clone commands default to the current
+  directory.
 
-  The **setup** screen carries one line of prose and **no commands**; its options live in the `ai_tools_msg_pick none`
+  The **setup** screen carries one line of prose and **no commands**; its options live in the `ai_tools_msg__pick none`
   menu under it, each with the consequence that distinguishes it — **1)** Create sandbox (*the session runs in the copy,
   not here*), **2)** Claim here (*its group becomes `ai-tools`*), **3)** Cancel. Because the block does not name
   a command, the Cancel path — which is also the no-terminal and unanswered-menu path — prints both commands itself,
@@ -365,17 +368,17 @@ report.
   command (its prompt is a yes/no confirm offering only the claim, so the alternative has nowhere else to appear),
   and its severity-based default.
 - **`ai-tools.sh`** routes `die()` and `warn()` through the error/warning emitters, and builds the `projects claim` /
-  `projects clone` flows from `ai_tools_msg_headline` blocks, in the run order
+  `projects clone` flows from `ai_tools_msg__headline` blocks, in the run order
   [ref-list-g6f5](cli.rule.md#ref-list-g6f5) states. The flows carry **no sudo-password notices**: the first sudo prompt
   (the secret scan) lands directly under the Secret-lockdown headline, and sudo's own prompt is self-explanatory.
 - **`ai-tools-run.sh`** routes its pre-launch refusals and the podman NOTICE.
 - **`session-hook.sh`** frames the interrupted-session `SessionStart` NOTICE (see
   [ownership-and-hooks](ownership-and-hooks.rule.md)).
-- **`ai-tools-bootstrap.sh`** frames three screens with `ai_tools_msg_block`. Two sit over an `ai_tools_msg_pick` menu:
-  the agent choice (`none` mode — one option per installed agent and one for none, where the caller decides every
+- **`ai-tools-bootstrap.sh`** frames three screens with `ai_tools_msg__block`. Two sit over an `ai_tools_msg__pick`
+  menu: the agent choice (`none` mode — one option per installed agent and one for none, where the caller decides every
   unanswered outcome as no agent, Node alone, exit 0) and the git-identity offer (a default index: adopt the operator's
   identity / keep the default / edit by hand). The third, the launch-requirements offer, sits
-  over an `ai_tools_msg_confirm` defaulting to yes, since both switches it writes move a launch toward less access. It
+  over an `ai_tools_msg__confirm` defaulting to yes, since both switches it writes move a launch toward less access. It
   sources the lib from the deployed path, gated on the control plane being present, so it requires it there like every
   other prompting consumer (see [updater](updater.rule.md)).
 - **`install.sh` and `selinux/install-selinux.sh`** frame their interactive prompts uniformly. `install.sh` routes every
@@ -393,26 +396,26 @@ report.
   from the **source tree** (`${SCRIPT_DIR}/src/...` / `${DIR}/../src/...`), since the installed copy may not exist
   yet, and abort if it cannot load.
 
-`ai_tools_msg_block` doubles as the **prompt-context renderer**: it shows the title *as given* (so an action-named title
-like `Existing file` stays title-case, unlike the uppercased severity emitters) and keeps an indented path line
+`ai_tools_msg__block` doubles as the **prompt-context renderer**: it shows the title *as given* (so an action-named
+title like `Existing file` stays title-case, unlike the uppercased severity emitters) and keeps an indented path line
 verbatim. The per-item selection loop in the SELinux installer (optional policy groups) stays a compact inline list, not
 one box per option.
 
 ## Quirks
 
-- **Commands and the wrapping emitters do not mix.** A wrapping emitter (`ai_tools_msg_*`) would break a multi-word
+- **Commands and the wrapping emitters do not mix.** A wrapping emitter (`ai_tools_msg__*`) would break a multi-word
   command across lines, so a command handed to one stays on a separate plain line outside the frame (the session
-  NOTICE's reconcile command). A multi-line screen whose commands belong *inside* the frame uses `ai_tools_msg_block`
+  NOTICE's reconcile command). A multi-line screen whose commands belong *inside* the frame uses `ai_tools_msg__block`
   instead, which keeps indented command lines verbatim and overflows the long ones.
 - **Short prompts stay inline.** Yes/no prompts keep the inline hint form with the cursor on the same line; framing
   a one-line question with the cursor under the box reads worse than it helps. The hint is the standard bracketed
   notation with the Enter outcome spelled out — `[Y/n] (default: Yes):` for a yes default, `[y/N] (default: No):`
-  for a no default — and every yes/no prompt in the project renders through `ai_tools_msg_confirm`, so there is exactly
+  for a no default — and every yes/no prompt in the project renders through `ai_tools_msg__confirm`, so there is exactly
   one form.
 - **Routine progress is not framed.** Per-line status (`ok`/`say`/`section`) stays plain; a box is either an attention
   alert (errors, warnings, notices) or a flow-block headline — never a per-tick frame. Inside a headline block, results
   stay plain lines under the box.
 - **The wrap pins `IFS` locally.** The library is sourced into callers that set their own `IFS` — the claude wrapper
   uses `IFS=$'\n\t'` (no space). The wrap's word-splitting (`read -ra`, `$*`) must split on spaces regardless,
-  so `ai_tools_msg_wrap` sets a local `IFS=$' \t\n'`; without it a whole line collapses into one unbreakable unit
+  so `ai_tools_msg__wrap` sets a local `IFS=$' \t\n'`; without it a whole line collapses into one unbreakable unit
   and overflows the frame unwrapped. Any new word-splitting in the lib must not depend on the caller's `IFS`.

@@ -14,7 +14,7 @@
 # log.lib.sh.
 
 # shellcheck disable=SC2034  # consumed by the sourcing scripts and the test suite
-AI_TOOLS_PROTECTED_PATHS=(
+AI_TOOLS_SAFE_PATHS__PROTECTED_PATHS=(
     /                                              # the filesystem root itself
     /bin /sbin /lib /lib64 /lib32 /libx32          # usrmerge compat symlinks + libraries
     /usr /usr/bin /usr/sbin /usr/lib /usr/lib64 /usr/libexec /usr/local
@@ -30,14 +30,14 @@ AI_TOOLS_PROTECTED_PATHS=(
     /tmp /lost+found                               # scratch space + fsck recovery
 )
 
-# ai_tools_protected_path_match <abspath> Print the matching protected entry and return 0 when <abspath> is protected --
-# it equals an entry, is an ancestor that contains one, or is a user home root. Return 1 otherwise. Expects an absolute
-# path; normalizes a trailing slash so "/etc/" matches "/etc" and bare root stays "/".
-ai_tools_protected_path_match() {
+# ai_tools_safe_paths__match_protected_path <abspath> Print the matching protected entry and return 0 when <abspath> is
+# protected -- it equals an entry, is an ancestor that contains one, or is a user home root. Return 1 otherwise. Expects
+# an absolute path; normalizes a trailing slash so "/etc/" matches "/etc" and bare root stays "/".
+ai_tools_safe_paths__match_protected_path() {
     local path="${1:-}" entry
     [[ -n "${path}" ]] || return 1
     path="${path%/}"; [[ -z "${path}" ]] && path="/"
-    for entry in "${AI_TOOLS_PROTECTED_PATHS[@]}"; do
+    for entry in "${AI_TOOLS_SAFE_PATHS__PROTECTED_PATHS[@]}"; do
         [[ "${path}" == "${entry}" ]] && { printf '%s\n' "${entry}"; return 0; }   # exact
         [[ "${entry}" == "${path}/"* ]] && { printf '%s\n' "${entry}"; return 0; } # path contains entry
     done
@@ -48,28 +48,28 @@ ai_tools_protected_path_match() {
     return 1
 }
 
-# ai_tools_traverse_grant_allowed <path> <owner_user> Return 0 when a TRAVERSE-ONLY ACL (u:SANDBOX_USER:--x) may be
-# granted on <path>: it is a directory <owner_user> owns, and it either does not match any protected path or matches
-# ONLY as <owner_user>'s own home root. Return 1 for every system directory, for /home itself, and for any other user's
-# home root.
+# ai_tools_safe_paths__is_traverse_grant_allowed <path> <owner_user> Return 0 when a TRAVERSE-ONLY ACL
+# (u:SANDBOX_USER:--x) may be granted on <path>: it is a directory <owner_user> owns, and it either does not match any
+# protected path or matches ONLY as <owner_user>'s own home root. Return 1 for every system directory, for /home itself,
+# and for any other user's home root.
 #
-# This is a SECOND, NARROWER predicate beside the target backstop, not a relaxation of it. ai_tools_protected_path_match
-# still refuses a home root as the TARGET of a claim, an unclaim, a lockdown or any elevated walk, and this predicate
-# leaves that unchanged. What differs is the operation being vetted: a claim rewrites group, mode and ACLs
-# across a whole tree, while this grants one `--x` entry on one directory -- search permission on that directory alone,
-# which permits traversal and neither a listing of it nor any access to the files inside, whose own modes and ACLs still
-# decide. Refusing an operator's own home root for THAT is what made every project at /home/<user>/<proj> permanently
-# unreachable, with a sandbox clone the only way in.
+# This is a SECOND, NARROWER predicate beside the target backstop, not a relaxation of it.
+# ai_tools_safe_paths__match_protected_path still refuses a home root as the TARGET of a claim, an unclaim, a lockdown
+# or any elevated walk, and this predicate leaves that unchanged. What differs is the operation being vetted: a claim
+# rewrites group, mode and ACLs across a whole tree, while this grants one `--x` entry on one directory -- search
+# permission on that directory alone, which permits traversal and neither a listing of it nor any access to the files
+# inside, whose own modes and ACLs still decide. Refusing an operator's own home root for THAT is what made every
+# project at /home/<user>/<proj> permanently unreachable, with a sandbox clone the only way in.
 #
 # The owner check is what keeps the home-root carve-out honest: it allows the home of the operator the run acts
 # for, and no one else's.
-ai_tools_traverse_grant_allowed() {
+ai_tools_safe_paths__is_traverse_grant_allowed() {
     local path="${1:-}" owner_user="${2:-}" matched
     [[ -n "${path}" && -n "${owner_user}" ]] || return 1
     [[ -d "${path}" ]] || return 1
     path="${path%/}"; [[ -z "${path}" ]] && path="/"
     [[ "$(stat -c '%U' "${path}" 2>/dev/null || true)" == "${owner_user}" ]] || return 1
-    matched="$(ai_tools_protected_path_match "${path}")" || return 0
+    matched="$(ai_tools_safe_paths__match_protected_path "${path}")" || return 0
     # The sole permitted match: <owner_user>'s own home root, which the matcher reports with the "(user home root)"
     # suffix. Compared against the account's real home so a path that merely looks like /home/<name> is not accepted
     # on its shape.
@@ -80,26 +80,27 @@ ai_tools_traverse_grant_allowed() {
     [[ "${path}" == "${home%/}" ]]
 }
 
-# ai_tools_assert_safe_target <path> [operation-label] When <path> resolves to a protected system directory, emit
-# a framed refusal (a msg.lib box on a terminal, plain lines otherwise), log it at WARNING, and return 1 so the caller
-# aborts BEFORE acting. Return 0 silently when the path is safe. The path is resolved with `realpath -m` (no existence
-# requirement) and falls back to the raw argument, so an unresolvable path is still matched against the list rather than
-# slipping through.
-ai_tools_assert_safe_target() {
+# ai_tools_safe_paths__assert_safe_target <path> [operation-label] When <path> resolves to a protected system directory,
+# emit a framed refusal (a msg.lib box on a terminal, plain lines otherwise), log it at WARNING, and return 1
+# so the caller aborts BEFORE acting. Return 0 silently when the path is safe. The path is resolved with `realpath -m`
+# (no existence requirement) and falls back to the raw argument, so an unresolvable path is still matched
+# against the list rather than slipping through.
+ai_tools_safe_paths__assert_safe_target() {
     local raw_path="${1:-}" operation="${2:-operation}" resolved_path matched_entry
     resolved_path="$(realpath -m -- "${raw_path}" 2>/dev/null)" || resolved_path="${raw_path}"
-    matched_entry="$(ai_tools_protected_path_match "${resolved_path}")" || return 0
+    matched_entry="$(ai_tools_safe_paths__match_protected_path "${resolved_path}")" || return 0
     local line_detail="It is on the ai-tools protected-paths backstop (matched ${matched_entry}); the sandbox does not operate on system directories. A real project must live elsewhere -- do not add a system directory to allowed-projects."
     # One code for every consumer: the refusal is the backstop's, whichever helper reached it.
-    ai_tools_msg_error MSG-Q6H3 "Refusing the ${operation}: the target is a protected system directory." \
+    ai_tools_msg__error MSG-Q6H3 "Refusing the ${operation}: the target is a protected system directory." \
         "${resolved_path}" "${line_detail}"
-    declare -F ai_tools_log_warn >/dev/null 2>&1 \
-        && ai_tools_log_warn "refused ${operation} on protected path ${resolved_path} (matched ${matched_entry})"
+    declare -F ai_tools_log__warn >/dev/null 2>&1 \
+        && ai_tools_log__warn "refused ${operation} on protected path ${resolved_path} (matched ${matched_entry})"
     return 1
 }
 
-# ai_tools_pinned_fd_matches_path <fd> <path> Return 0 when the kernel names the inode <fd> holds open at exactly
-# <path>, read with readlink over /proc/self/fd; return 1 otherwise, and for a closed descriptor or an empty argument.
+# ai_tools_safe_paths__is_pinned_fd_at_path <fd> <path> Return 0 when the kernel names the inode <fd> holds open
+# at exactly <path>, read with readlink over /proc/self/fd; return 1 otherwise, and for a closed descriptor or an empty
+# argument.
 #
 # The pre-open identity read through the path and the post-open read from the descriptor catch a leaf swapped
 # for a symlink -- a link has an inode of its own -- and not an ancestor swapped for one before the first read: both
@@ -109,14 +110,14 @@ ai_tools_assert_safe_target() {
 # the caller enumerated. A rename since the open and an unlink (a "(deleted)" suffix) mismatch as well, each a refusal
 # the next walk repairs. The sandbox account cannot bind-mount (RestrictNamespaces, no privilege), so it cannot make
 # the kernel name one inode by another path. Which helpers call it, and where in the apply sequence: safe-paths.rule.md.
-ai_tools_pinned_fd_matches_path() {
+ai_tools_safe_paths__is_pinned_fd_at_path() {
     local fd="${1:-}" expected_path="${2:-}" descriptor_path
     [[ -n "${fd}" && -n "${expected_path}" ]] || return 1
     descriptor_path="$(readlink -- "/proc/self/fd/${fd}" 2>/dev/null)" || return 1
     [[ "${descriptor_path}" == "${expected_path}" ]]
 }
 
-# msg.lib is REQUIRED (the refusal renders through it, and the sourcing helpers rely on its ai_tools_msg_confirm):
+# msg.lib is REQUIRED (the refusal renders through it, and the sourcing helpers rely on its ai_tools_msg__confirm):
 # a bare source, so a missing lib fails this library's own load and the consumer's fail-closed handling takes over.
 # msg.lib carries an include guard, so a consumer that already sourced it re-sources a no-op.
 # shellcheck source=SCRIPTDIR/msg.lib.sh

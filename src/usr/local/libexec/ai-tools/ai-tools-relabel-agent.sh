@@ -56,7 +56,7 @@ AI_TOOLS_LOG_FILE="relabel.log"
 readonly LOG_LIB="/usr/local/lib/ai-tools/log.lib.sh"
 # shellcheck source=SCRIPTDIR/../../lib/ai-tools/log.lib.sh
 if ! source "${LOG_LIB}" 2>/dev/null; then
-    ai_tools_log_info() { :; }; ai_tools_log_warn() { :; }; ai_tools_log_error() { :; }
+    ai_tools_log__info() { :; }; ai_tools_log__warn() { :; }; ai_tools_log__error() { :; }
 fi
 
 # say reports progress on stdout, the stream an operator reads the run's story from; warn and die report a problem
@@ -75,7 +75,7 @@ warn() {
 die() {
     local code=""
     if [[ "${1-}" =~ ^MSG-[A-Z][0-9][A-Z][0-9]$ ]]; then code="$1"; shift; fi
-    ai_tools_log_error "${code:+${code} }$*"
+    ai_tools_log__error "${code:+${code} }$*"
     [[ -z "${code}" ]] || printf '%s\n' "${code}" >&2
     printf 'ai-tools-relabel-agent: error: %s\n' "$*" >&2; exit 1
 }
@@ -87,27 +87,27 @@ die() {
 # source under `set -e`.
 # shellcheck source=SCRIPTDIR/../../lib/ai-tools/relabel.lib.sh
 source /usr/local/lib/ai-tools/relabel.lib.sh
-declare -F ai_tools_label_agent_paths >/dev/null 2>&1 \
+declare -F ai_tools_relabel__label_agent_paths >/dev/null 2>&1 \
     || die MSG-S9Z3 "relabel.lib.sh is incomplete -- reinstall ai-tools-base"
 
 # Serialize against the other callers of this helper before touching the policy store: the agent package's %post,
 # the ai-tools-relabel.path watcher, and `ai-tools-admin system entrypoints relabel` all run it, and an upgrade drives
 # two of them at once. Taken here so it covers `--remove` as well, which writes the same store. Proceeding unserialized
 # is reported, not fatal (see relabel.lib.sh).
-ai_tools_relabel_lock
-[[ -z "${AI_TOOLS_RELABEL_LOCK_NOTE}" ]] \
-    || { warn MSG-E4U5 "relabels are not serialized on this host -- ${AI_TOOLS_RELABEL_LOCK_NOTE}"
-         ai_tools_log_warn "proceeding without the relabel lock -- ${AI_TOOLS_RELABEL_LOCK_NOTE}"; }
+ai_tools_relabel__lock
+[[ -z "${AI_TOOLS_RELABEL__LOCK_NOTE}" ]] \
+    || { warn MSG-E4U5 "relabels are not serialized on this host -- ${AI_TOOLS_RELABEL__LOCK_NOTE}"
+         ai_tools_log__warn "proceeding without the relabel lock -- ${AI_TOOLS_RELABEL__LOCK_NOTE}"; }
 
 # `--remove <agent>`: erase-time counterpart, invoked by the agent package's own %preun while its manifest is still
 # on disk. Dropping the rules matters because the types they name belong to the base policy, which the host may erase
 # next.
 if [[ "${1:-}" == --remove ]]; then
     agent="${2:?usage: ai-tools-relabel-agent --remove <agent-name>}"
-    rc=0; ai_tools_unlabel_agent_paths "${agent}" || rc=$?
+    rc=0; ai_tools_relabel__unlabel_agent_paths "${agent}" || rc=$?
     case "${rc}" in
         0) say "dropped the file-context rules for ${agent}"
-           ai_tools_log_info "dropped the file-context rules for ${agent}" ;;
+           ai_tools_log__info "dropped the file-context rules for ${agent}" ;;
         2) say "SELinux confinement inactive -- no file-context to drop" ;;
         *) die MSG-S6C5 "no usable path rules declared by ${agent} -- nothing dropped" ;;
     esac
@@ -120,17 +120,17 @@ fi
 readonly ENTRYPOINT_VERIFY_LIB="/usr/local/lib/ai-tools/entrypoint-verify.lib.sh"
 # shellcheck source=SCRIPTDIR/../../lib/ai-tools/entrypoint-verify.lib.sh
 if ! source "${ENTRYPOINT_VERIFY_LIB}" 2>/dev/null \
-        || ! declare -F ai_tools_entrypoint_release_verify >/dev/null 2>&1; then
+        || ! declare -F ai_tools_entrypoint_verify__verify_release >/dev/null 2>&1; then
     warn MSG-H9M5 "entrypoint verifier unavailable (${ENTRYPOINT_VERIFY_LIB}) -- entrypoints will not be pinned"
-    ai_tools_log_warn "entrypoint verifier unavailable -- no entrypoint pinned this run"
-    ai_tools_entrypoint_release_verify() { return 2; }
-    ai_tools_entrypoint_pin_write() { return 1; }
-    ai_tools_entrypoint_label_write() { return 1; }
-    ai_tools_entrypoint_inputs_digest() { return 1; }
-    ai_tools_entrypoint_sha256() { return 1; }
-    ai_tools_entrypoint_stale_write() { return 1; }
-    ai_tools_entrypoint_stale_clear() { return 0; }
-    ai_tools_entrypoint_package_dir() { return 1; }
+    ai_tools_log__warn "entrypoint verifier unavailable -- no entrypoint pinned this run"
+    ai_tools_entrypoint_verify__verify_release() { return 2; }
+    ai_tools_entrypoint_verify__write_pin() { return 1; }
+    ai_tools_entrypoint_verify__write_label() { return 1; }
+    ai_tools_entrypoint_verify__calculate_inputs_digest() { return 1; }
+    ai_tools_entrypoint_verify__calculate_sha256() { return 1; }
+    ai_tools_entrypoint_verify__write_stale() { return 1; }
+    ai_tools_entrypoint_verify__clear_stale() { return 0; }
+    ai_tools_entrypoint_verify__find_package_dir() { return 1; }
 fi
 
 # reinstall_remedy <agent> <entrypoint> : print the two commands that replace a changed binary, one per line,
@@ -140,8 +140,8 @@ fi
 #   the reinstall fetch it again.
 reinstall_remedy() {
     local agent="$1" entrypoint="$2" package package_dir
-    package="$(ai_tools_agent_manifest_field "${agent}" npm_package || true)"
-    package_dir="$(ai_tools_entrypoint_package_dir "${entrypoint}" "${package}" 2>/dev/null || true)"
+    package="$(ai_tools_providers__read_agent_manifest_field "${agent}" npm_package || true)"
+    package_dir="$(ai_tools_entrypoint_verify__find_package_dir "${entrypoint}" "${package}" 2>/dev/null || true)"
     [[ -n "${package_dir}" ]] || return 0
     printf '  sudo rm -rf %s\n  sudo ai-tools-admin system bootstrap' "${package_dir}"
 }
@@ -153,7 +153,7 @@ reinstall_remedy() {
 #   changes the outcome of the reconciliation it describes.
 report_entrypoint_refusal() {
     local agent="$1" version="$2" reason="$3" entrypoint="$4" remedy
-    ai_tools_entrypoint_stale_write "${agent}" "${version}" "${reason}" \
+    ai_tools_entrypoint_verify__write_stale "${agent}" "${version}" "${reason}" \
         || warn MSG-K4D7 "could not record ${agent}'s stale pin for ai-tools status -- the reports will render its pin as current"
     remedy="$(reinstall_remedy "${agent}" "${entrypoint}")"
     if [[ -n "${remedy}" ]]; then
@@ -165,41 +165,41 @@ report_entrypoint_refusal() {
 
 # observe_agent_entrypoint <agent> : record the checksum of the installed entrypoint for an agent that declares no
 #   signed release manifest, so the launch gate has a value to compare against. Returns 1 when the same version now
-#   hashes differently -- the one state an update does not explain, where the pin is deliberately left stale so the
-#   next launch refuses. ai_tools_entrypoint_observe_decision holds that rule and is unit-tested over its table.
+#   hashes differently -- the one state an update does not explain, where the pin is deliberately left stale so the next
+#   launch refuses. ai_tools_entrypoint_verify__evaluate_observed_pin holds that rule and is unit-tested over its table.
 observe_agent_entrypoint() {
     local agent="$1" entrypoint version observed pinned_version pinned_sha decision
-    declare -F ai_tools_entrypoint_pin_write_observed >/dev/null 2>&1 || return 0
+    declare -F ai_tools_entrypoint_verify__write_observed_pin >/dev/null 2>&1 || return 0
 
-    entrypoint="$(ai_tools_agent_entrypoint_path "${agent}" || true)"
+    entrypoint="$(ai_tools_relabel__resolve_agent_entrypoint_path "${agent}" || true)"
     if [[ -z "${entrypoint}" ]]; then
         say "${agent}: not provisioned -- nothing to pin"
         return 0
     fi
-    observed="$(ai_tools_entrypoint_sha256 "${entrypoint}" 2>/dev/null || true)"
+    observed="$(ai_tools_entrypoint_verify__calculate_sha256 "${entrypoint}" 2>/dev/null || true)"
     # An unreadable version becomes the same token the pin records, so the two sides of the decision compare like
     # for like. Left empty here it would never equal the pinned `unknown`, every run would read as a new version,
     # and a changed binary would be re-recorded instead of refused -- the one outcome this tier exists to prevent.
     version="$(_installed_agent_version "${entrypoint}")"
     version="${version:-unknown}"
-    pinned_version="$(ai_tools_entrypoint_pin_version "${agent}" 2>/dev/null || true)"
-    pinned_sha="$(ai_tools_entrypoint_pin_read "${agent}" 2>/dev/null || true)"
-    decision="$(ai_tools_entrypoint_observe_decision \
+    pinned_version="$(ai_tools_entrypoint_verify__read_pin_version "${agent}" 2>/dev/null || true)"
+    pinned_sha="$(ai_tools_entrypoint_verify__read_pin "${agent}" 2>/dev/null || true)"
+    decision="$(ai_tools_entrypoint_verify__evaluate_observed_pin \
                     "${pinned_version}" "${pinned_sha}" "${version}" "${observed}" || true)"
     case "${decision}" in
         keep)   say "${agent}: entrypoint unchanged since its pin for ${version} -- no signature to check"
-                ai_tools_entrypoint_stale_clear "${agent}" || true ;;
-        pin)    if ai_tools_entrypoint_pin_write_observed "${agent}" "${version}" "${observed}"; then
+                ai_tools_entrypoint_verify__clear_stale "${agent}" || true ;;
+        pin)    if ai_tools_entrypoint_verify__write_observed_pin "${agent}" "${version}" "${observed}"; then
                     say "${agent}: entrypoint pinned as installed at ${version} -- no vendor signature to verify it against"
-                    ai_tools_log_info "${agent}: entrypoint pinned by observation at ${version} (${observed})"
+                    ai_tools_log__info "${agent}: entrypoint pinned by observation at ${version} (${observed})"
                     # The pin this run wrote describes what is installed, so whatever a previous run refused is settled.
-                    ai_tools_entrypoint_stale_clear "${agent}" || true
+                    ai_tools_entrypoint_verify__clear_stale "${agent}" || true
                 else
                     warn MSG-M6C3 "could not write the observed pin for ${agent} at ${version}"
-                    ai_tools_log_warn "${agent}: observed pin write failed at ${version}"
+                    ai_tools_log__warn "${agent}: observed pin write failed at ${version}"
                 fi ;;
         tamper) warn MSG-U6H8 "the ${agent} entrypoint changed under an unchanged version ${version} -- leaving the pin as it is, so the next session refuses to start"
-                ai_tools_log_error "${agent}: entrypoint changed under an unchanged version ${version} -- pin left stale"
+                ai_tools_log__error "${agent}: entrypoint changed under an unchanged version ${version} -- pin left stale"
                 report_entrypoint_refusal "${agent}" "${version}" "changed-under-same-version" "${entrypoint}"
                 return 1 ;;
         *)      say "${agent}: entrypoint could not be hashed -- pin unchanged" ;;
@@ -221,14 +221,14 @@ pin_agent_entrypoint() {
     local agent="$1" entrypoint url_template key_file fingerprints version checksum rc=0
     local observed inputs
 
-    url_template="$(ai_tools_agent_manifest_field "${agent}" release_manifest_url || true)"
+    url_template="$(ai_tools_providers__read_agent_manifest_field "${agent}" release_manifest_url || true)"
     # An agent whose vendor publishes no signed release manifest gets the weaker of the two pins rather than none: root
     # records the checksum of what is installed, so a later change to that file is refused at the next launch.
     [[ -n "${url_template}" ]] || { observe_agent_entrypoint "${agent}"; return $?; }
-    key_file="$(ai_tools_agent_manifest_field "${agent}" release_key || true)"
-    fingerprints="$(ai_tools_agent_manifest_field "${agent}" release_fingerprint || true)"
+    key_file="$(ai_tools_providers__read_agent_manifest_field "${agent}" release_key || true)"
+    fingerprints="$(ai_tools_providers__read_agent_manifest_field "${agent}" release_fingerprint || true)"
 
-    entrypoint="$(ai_tools_agent_entrypoint_path "${agent}" || true)"
+    entrypoint="$(ai_tools_relabel__resolve_agent_entrypoint_path "${agent}" || true)"
     if [[ -z "${entrypoint}" ]]; then
         say "${agent}: not provisioned -- nothing to verify or pin"
         return 0
@@ -242,56 +242,56 @@ pin_agent_entrypoint() {
         return 0
     fi
 
-    inputs="$(ai_tools_entrypoint_inputs_digest "${url_template}" "${key_file}" "${fingerprints}" \
+    inputs="$(ai_tools_entrypoint_verify__calculate_inputs_digest "${url_template}" "${key_file}" "${fingerprints}" \
                 2>/dev/null || true)"
     if [[ "${AI_TOOLS_ENTRYPOINT_PIN_REUSE:-0}" == "1" ]] \
-            && declare -F ai_tools_entrypoint_pin_reusable >/dev/null 2>&1; then
-        observed="$(ai_tools_entrypoint_sha256 "${entrypoint}" 2>/dev/null || true)"
-        if ai_tools_entrypoint_pin_reusable "${agent}" "${version}" "${inputs}" "${observed}"; then
+            && declare -F ai_tools_entrypoint_verify__is_pin_reusable >/dev/null 2>&1; then
+        observed="$(ai_tools_entrypoint_verify__calculate_sha256 "${entrypoint}" 2>/dev/null || true)"
+        if ai_tools_entrypoint_verify__is_pin_reusable "${agent}" "${version}" "${inputs}" "${observed}"; then
             say "${agent}: entrypoint unchanged since its pin for ${version} -- signature not re-checked"
-            ai_tools_log_info "${agent}: pin reused at ${version} -- no manifest fetch"
+            ai_tools_log__info "${agent}: pin reused at ${version} -- no manifest fetch"
             # The pin describes this file and this version, so a refusal an earlier run recorded no longer stands.
-            ai_tools_entrypoint_stale_clear "${agent}" || true
+            ai_tools_entrypoint_verify__clear_stale "${agent}" || true
             return 0
         fi
     fi
 
-    checksum="$(ai_tools_entrypoint_release_verify "${entrypoint}" "${version}" \
+    checksum="$(ai_tools_entrypoint_verify__verify_release "${entrypoint}" "${version}" \
                     "${url_template}" "${key_file}" "${fingerprints}")" || rc=$?
     case "${rc}" in
-        0)  if ai_tools_entrypoint_pin_write "${agent}" "${version}" "${checksum}" "${url_template}" "${inputs}"; then
+        0)  if ai_tools_entrypoint_verify__write_pin "${agent}" "${version}" "${checksum}" "${url_template}" "${inputs}"; then
                 say "${agent}: entrypoint verified against the signed release ${version} and pinned"
-                ai_tools_log_info "${agent}: entrypoint pinned at ${version} (${checksum})"
-                ai_tools_entrypoint_stale_clear "${agent}" || true
+                ai_tools_log__info "${agent}: entrypoint pinned at ${version} (${checksum})"
+                ai_tools_entrypoint_verify__clear_stale "${agent}" || true
             else
                 warn MSG-W8N5 "could not write the pin for ${agent} after verifying ${version}"
-                ai_tools_log_warn "${agent}: pin write failed at ${version}"
+                ai_tools_log__warn "${agent}: pin write failed at ${version}"
             fi ;;
-        1)  ai_tools_log_error "${agent}: entrypoint does not match the signed release ${version}"
+        1)  ai_tools_log__error "${agent}: entrypoint does not match the signed release ${version}"
             report_entrypoint_refusal "${agent}" "${version}" "signature-mismatch" "${entrypoint}"
             return 1 ;;
         *)  warn MSG-B6H9 "could not verify the entrypoint for ${agent} against release ${version} (see above) -- pin unchanged"
-            ai_tools_log_warn "${agent}: entrypoint unverified at ${version}; pin left as-is" ;;
+            ai_tools_log__warn "${agent}: entrypoint unverified at ${version}; pin left as-is" ;;
     esac
     return 0
 }
 
 # _installed_agent_version <entrypoint> : print the version the package around the entrypoint declares,
 #   or an empty string. The walk, the bounded read and the clamp are the library's
-#   (ai_tools_entrypoint_installed_version), which the launch banner reads through as well, so the pin
+#   (ai_tools_entrypoint_verify__read_installed_version), which the launch banner reads through as well, so the pin
 #   and the banner cannot report different versions for one binary.
 _installed_agent_version() {
-    ai_tools_entrypoint_installed_version "${1:-}"
+    ai_tools_entrypoint_verify__read_installed_version "${1:-}"
 }
 
 pin_failures=0
 enabled_agents=()
-if declare -F ai_tools_enabled_agents >/dev/null 2>&1; then
+if declare -F ai_tools_providers__list_enabled_agents >/dev/null 2>&1; then
     while IFS=$'\t' read -r pin_agent _ _; do
         [[ -n "${pin_agent}" ]] || continue
         enabled_agents+=( "${pin_agent}" )
         pin_agent_entrypoint "${pin_agent}" || pin_failures=$(( pin_failures + 1 ))
-    done < <(ai_tools_enabled_agents 2>/dev/null)
+    done < <(ai_tools_providers__list_enabled_agents 2>/dev/null)
 fi
 # Reported before any labelling outcome: an entrypoint that is not the binary its vendor published is a more serious
 # finding than any label, and the remedy is different in kind.
@@ -301,7 +301,7 @@ fi
 # Collect the report first, so the lib's return code survives (2 = the SELinux layer is not active here, which is
 # a supported deployment and not a failure).
 report=""; status=0
-report="$(ai_tools_label_agent_paths)" || status=$?
+report="$(ai_tools_relabel__label_agent_paths)" || status=$?
 
 # record_label_outcome <agent> <ok|failed|skipped> [reason-token] : file what this run could do
 #   about that agent's labels where `ai-tools status` can read it. The operator cannot inspect
@@ -310,9 +310,9 @@ report="$(ai_tools_label_agent_paths)" || status=$?
 #   verification half writes. Best-effort: a record that cannot be written is reported and never
 #   changes the outcome of the relabel it describes.
 record_label_outcome() {
-    ai_tools_entrypoint_label_write "$1" "$2" "${3:-}" && return 0
+    ai_tools_entrypoint_verify__write_label "$1" "$2" "${3:-}" && return 0
     warn MSG-G5H9 "could not record ${1}'s labelling outcome for ai-tools status"
-    ai_tools_log_warn "could not write the label record for $1"
+    ai_tools_log__warn "could not write the label record for $1"
     return 0
 }
 
@@ -336,16 +336,16 @@ if [[ -n "${report}" ]]; then
         case "${verdict}" in
             ok)    labelled=$(( labelled + 1 ))
                    say "labelled: ${subject}"
-                   ai_tools_log_info "relabelled ${subject}" ;;
+                   ai_tools_log__info "relabelled ${subject}" ;;
             bad)   mislabelled=$(( mislabelled + 1 ))
                    warn MSG-G7C7 "wrong type on ${subject}: it is '${detail}', NOT ${wanted}"
-                   ai_tools_log_warn "${subject} did not take ${wanted} (now '${detail}')" ;;
+                   ai_tools_log__warn "${subject} did not take ${wanted} (now '${detail}')" ;;
             stale) stale=$(( stale + 1 ))
                    agent_reason["${subject}"]="stale-declaration"
                    warn MSG-Z5B4 "stale declaration for ${subject}: its launcher resolves to
        ${detail}, and the file-context rule its manifest declares labels a different installed file -- so the file
        a session execs is left unlabelled"
-                   ai_tools_log_warn "${subject}: installed entrypoint ${detail} is not covered by its declared entrypoint_fcontext" ;;
+                   ai_tools_log__warn "${subject}: installed entrypoint ${detail} is not covered by its declared entrypoint_fcontext" ;;
             # The launcher resolves to a copy of the declared entrypoint: the manifest and the package agree, and a link
             # in the chain was replaced by its target, so the repair is the toolchain run that restores the links.
             copied) copied=$(( copied + 1 ))
@@ -353,7 +353,7 @@ if [[ -n "${report}" ]]; then
                    warn MSG-S6V5 "copied link for ${subject}: its launcher resolves to
        ${detail}, a regular file identical to the entrypoint its manifest declares -- a copy of the toolchain replaced
        a symlink with its target, so the file a session execs is left unlabelled"
-                   ai_tools_log_warn "${subject}: launcher resolves to ${detail}, a copy of its declared entrypoint" ;;
+                   ai_tools_log__warn "${subject}: launcher resolves to ${detail}, a copy of its declared entrypoint" ;;
             # The same divergence with the other cause, and the other remedy: the declared rule covers no installed
             # file, so what the package is missing is the entrypoint itself rather than a manifest that has moved on.
             incomplete) incomplete=$(( incomplete + 1 ))
@@ -361,12 +361,12 @@ if [[ -n "${report}" ]]; then
                    warn MSG-M7B2 "incomplete package for ${subject}: its launcher resolves to
        ${detail}, and no installed file under the sandbox toolchain matches the entrypoint its manifest declares -- so
        the package is missing the executable a session is meant to exec"
-                   ai_tools_log_warn "${subject}: the entrypoint declared by its manifest is not installed; the launcher resolves to ${detail}" ;;
+                   ai_tools_log__warn "${subject}: the entrypoint declared by its manifest is not installed; the launcher resolves to ${detail}" ;;
             none)  say "${subject}: ${detail} is not installed -- nothing to label"
-                   ai_tools_log_info "${subject}: ${detail} absent, nothing to label" ;;
+                   ai_tools_log__info "${subject}: ${detail} absent, nothing to label" ;;
             skip)  agent_reason["${subject}"]="rule-not-registered"
                    warn MSG-X7F9 "labelling skipped for ${subject} -- ${detail} ${wanted}"
-                   ai_tools_log_warn "${subject}: labelling skipped -- ${detail} ${wanted}" ;;
+                   ai_tools_log__warn "${subject}: labelling skipped -- ${detail} ${wanted}" ;;
             # Closes an agent's lines with its whole outcome. Recorded here, where the per-agent reason lines have
             # already been seen, so a failure is filed with the cause that decides the remedy rather than with a bare
             # "failed".
@@ -409,7 +409,7 @@ done
 
 if (( labelled > 0 )); then
     say "all ${labelled} path(s) labelled -- exit any running session and relaunch"
-    ai_tools_log_info "relabelled ${labelled} agent path(s)"
+    ai_tools_log__info "relabelled ${labelled} agent path(s)"
 elif [[ -z "${report}" ]]; then
     say "no enabled agent declares a file-context rule -- nothing to label"
 fi

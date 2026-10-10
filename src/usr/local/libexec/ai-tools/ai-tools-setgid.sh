@@ -44,10 +44,10 @@ warn() {
 readonly TARGET="${1:?usage: ai-tools-setgid <absolute-project-path>}"
 
 # Operator-identity resolver (operator.lib.sh): resolves the operator that owns the project. A missing lib leaves
-# ai_tools_resolve_owner a fail-closed stub, so the tree is left untouched.
+# ai_tools_operator__resolve_owner a fail-closed stub, so the tree is left untouched.
 readonly OPERATOR_LIB="/usr/local/lib/ai-tools/operator.lib.sh"
 # shellcheck source=SCRIPTDIR/../../lib/ai-tools/operator.lib.sh
-source "${OPERATOR_LIB}" 2>/dev/null || ai_tools_resolve_owner() { return 1; }
+source "${OPERATOR_LIB}" 2>/dev/null || ai_tools_operator__resolve_owner() { return 1; }
 readonly GROUP="@SANDBOX_GROUP@"
 # Two identities may legitimately hold a project tree's dirs: the resolved operator and the sandbox account. A directory
 # belonging to a third party (root, another developer) is left untouched -- normalization must not pull a foreign dir
@@ -64,9 +64,9 @@ AI_TOOLS_LOG_FILE="setgid.log"
 readonly LOG_LIB="/usr/local/lib/ai-tools/log.lib.sh"
 # shellcheck source=SCRIPTDIR/../../lib/ai-tools/log.lib.sh
 if ! source "${LOG_LIB}" 2>/dev/null; then
-    ai_tools_log() { :; }; ai_tools_log_debug() { :; }; ai_tools_log_info() { :; }
-    ai_tools_log_warn() { :; }; ai_tools_log_error() { :; }
-    ai_tools_log_structured() { :; }; ai_tools_log_coded() { :; }
+    ai_tools_log__write() { :; }; ai_tools_log__debug() { :; }; ai_tools_log__info() { :; }
+    ai_tools_log__warn() { :; }; ai_tools_log__error() { :; }
+    ai_tools_log__structured() { :; }; ai_tools_log__coded() { :; }
 fi
 
 # Directory-skip selector from the shared library (single source of truth, also used by session-hook.sh
@@ -75,15 +75,15 @@ fi
 readonly SKIP_DIRS_LIB="/usr/local/lib/ai-tools/skip-dirs.lib.sh"
 # shellcheck source=SCRIPTDIR/../../lib/ai-tools/skip-dirs.lib.sh
 source "${SKIP_DIRS_LIB}" 2>/dev/null \
-    || ai_tools_skip_find_expr() { AI_TOOLS_SKIP_FIND_EXPR=(); return 0; }
+    || ai_tools_skip_dirs__build_find_expression() { AI_TOOLS_SKIP_DIRS__FIND_EXPRESSION=(); return 0; }
 
 # Which paths the operator sealed, and what may be stripped from one (owner-only.lib.sh, the reference for the seal
 # and the strip alike). Required and fail-closed like safe-paths.lib.sh: an unusable library must not leave this walk
 # unable to recognize a sealed directory.
 # shellcheck source=SCRIPTDIR/../../lib/ai-tools/owner-only.lib.sh
 source /usr/local/lib/ai-tools/owner-only.lib.sh
-if ! declare -F ai_tools_is_owner_only >/dev/null 2>&1 \
-        || ! declare -F ai_tools_strip_sandbox_residue >/dev/null 2>&1; then
+if ! declare -F ai_tools_owner_only__is_owner_only >/dev/null 2>&1 \
+        || ! declare -F ai_tools_owner_only__strip_sandbox_residue >/dev/null 2>&1; then
     # One library, one defect, one remedy, so this refusal shares its code with ai-tools-setfacl and ai-tools-lockdown:
     # it is DEFINED in ai-tools-setfacl and cited here from the format string below, which keeps one situation to one
     # definition (messaging.rule.md's twin rule).
@@ -101,31 +101,31 @@ source "${SAFE_PATHS_LIB}"
 canonical="$(realpath -e "${TARGET}" 2>/dev/null)" || exit 0
 [[ -d "${canonical}" ]] || exit 0
 # Refuse the whole pass if the project root is a protected system directory.
-ai_tools_assert_safe_target "${canonical}" "setgid normalization" || exit 3
+ai_tools_safe_paths__assert_safe_target "${canonical}" "setgid normalization" || exit 3
 
 # Resolve the operator that owns this project (operator.lib.sh); no owner -> exit without acting. The owner guard then
 # acts only on dirs the resolved operator or the sandbox account hold.
-ai_tools_resolve_owner "${canonical}" || exit 0
-readonly ALLOWLIST="${AI_TOOLS_RESOLVED_ALLOWLIST}" PROJECTS_UID
+ai_tools_operator__resolve_owner "${canonical}" || exit 0
+readonly ALLOWLIST="${AI_TOOLS_OPERATOR__RESOLVED_ALLOWLIST}" PROJECTS_UID
 
 # Secret-name matcher (defense in depth): the walk skips a dir whose basename looks like a secret (e.g. .env),
 # so a private dir is not exposed to the agent group when the operator did not '!'-exclude it. Loaded after the owner
-# resolve, which names the operator's file (ai_tools_load_secret_patterns states what an earlier load reads).
+# resolve, which names the operator's file (ai_tools_secret_patterns__load states what an earlier load reads).
 # Fail-closed: a walk with no matcher would give the agent's group every directory the operator named, so a library
 # that does not load and a present file the loader cannot read each refuse before the first change
 # (secret-handling.rule.md).
 readonly SECRET_PATTERNS_LIB="/usr/local/lib/ai-tools/secret-patterns.lib.sh"
 # shellcheck source=SCRIPTDIR/../../lib/ai-tools/secret-patterns.lib.sh
-if ! source "${SECRET_PATTERNS_LIB}" 2>/dev/null || ! declare -F ai_tools_load_secret_patterns >/dev/null 2>&1; then
+if ! source "${SECRET_PATTERNS_LIB}" 2>/dev/null || ! declare -F ai_tools_secret_patterns__load >/dev/null 2>&1; then
     warn MSG-B3F5 "cannot load ${SECRET_PATTERNS_LIB}, which decides which directories are secrets -- no directory under ${canonical} was normalized; reinstall the ai-tools package"
     exit 3
 fi
-if ! ai_tools_load_secret_patterns; then
+if ! ai_tools_secret_patterns__load; then
     warn "the operator's secret-patterns file could not be read, so no directory under ${canonical} was normalized"
     exit 3
 fi
 _is_secret_name() {
-    ai_tools_is_secret_basename "$(basename -- "$1")"
+    ai_tools_secret_patterns__is_secret_basename "$(basename -- "$1")"
 }
 
 # This run normalizes one project for one operator, so the operator and the project ride as per-run log context
@@ -133,7 +133,7 @@ _is_secret_name() {
 AI_TOOLS_LOG_OPERATOR="${PROJECTS_USER}"
 AI_TOOLS_LOG_PROJECT="${canonical}"
 
-# Shared config grammar (ai_tools_conf_path_entry; see conf.lib.sh), the ONE parser the allowlist is read with --
+# Shared config grammar (ai_tools_conf__parse_path_entry; see conf.lib.sh), the ONE parser the allowlist is read with --
 # end-of-line comments, and quotes for a path carrying a space or a literal '#'. REQUIRED like safe-paths.lib.sh:
 # the bare source under `set -e` aborts if it is missing, rather than leaving a bare filter that would mis-read an entry
 # ai-tools-chown reads correctly, so a path this walk skips is one the handback still acts on. Include-guarded.
@@ -143,13 +143,13 @@ source /usr/local/lib/ai-tools/conf.lib.sh
 declare -a allowed_directories=()
 # shellcheck disable=SC2034  # filled and read through its name by the conf.lib.sh loader and matcher
 declare -a exclusion_patterns=()
-# The one read every reader of the allowlist makes (ai_tools_conf_allowlist_load, conf.lib.sh). A file that cannot be
+# The one read every reader of the allowlist makes (ai_tools_conf__load_allowlist, conf.lib.sh). A file that cannot be
 # read, or whose exclusion the loader refuses, leaves both arrays empty, so the project is not allowed.
-ai_tools_conf_allowlist_load "${ALLOWLIST}" allowed_directories exclusion_patterns || true
+ai_tools_conf__load_allowlist "${ALLOWLIST}" allowed_directories exclusion_patterns || true
 
-# _is_excluded <abs-path>: 0 if covered by a '!' rule (ai_tools_conf_is_path_excluded, conf.lib.sh -- the match every
+# _is_excluded <abs-path>: 0 if covered by a '!' rule (ai_tools_conf__is_path_excluded, conf.lib.sh -- the match every
 # reader of the allowlist makes).
-_is_excluded() { ai_tools_conf_is_path_excluded "$1" exclusion_patterns; }
+_is_excluded() { ai_tools_conf__is_path_excluded "$1" exclusion_patterns; }
 
 # _is_allowed <abs-path>: 0 if at or under an allowed directory.
 _is_allowed() {
@@ -169,7 +169,7 @@ _is_allowed  "${canonical}" || exit 0
 # a group-writer on project dirs and could swap a subdir for a symlink between the find that enumerates it and the chmod
 # that acts on it; chmod/chgrp would then follow the symlink and act on an arbitrary directory as root. Pin the inode
 # with an open fd and operate through /proc/self/fd, re-checking it is still the same directory, at <dir>
-# (ai_tools_pinned_fd_matches_path, safe-paths.lib.sh). Mirrors ai-tools-chown's pinned-fd apply.
+# (ai_tools_safe_paths__is_pinned_fd_at_path, safe-paths.lib.sh). Mirrors ai-tools-chown's pinned-fd apply.
 _safe_setgid() {
     local dir="$1" expect_ident grp mode owner_uid fd got_ident got_ftype got_uid
     read -r expect_ident owner_uid grp mode \
@@ -182,7 +182,7 @@ _safe_setgid() {
     # No work to do when already group GROUP and already setgid -- unless the dir is owner-only, where that state is
     # inherited residue the pinned-fd path strips.
     if [[ "${grp}" == "${GROUP}" ]] && (( (0${mode} & 02000) != 0 )) \
-            && ! ai_tools_is_owner_only "${mode}"; then
+            && ! ai_tools_owner_only__is_owner_only "${mode}"; then
         return 0
     fi
 
@@ -195,7 +195,7 @@ _safe_setgid() {
         exec {fd}<&-
         return 1
     fi
-    ai_tools_pinned_fd_matches_path "${fd}" "${dir}" || { exec {fd}<&-; return 1; }
+    ai_tools_safe_paths__is_pinned_fd_at_path "${fd}" "${dir}" || { exec {fd}<&-; return 1; }
     # Owner guard (checked on the pinned inode, TOCTOU-safe): only the projects user's or the sandbox account's own dirs
     # are eligible; anything else is left untouched and reported (3, as for a refused path).
     if [[ "${got_uid}" != "${PROJECTS_UID}" && "${got_uid}" != "${SANDBOX_UID}" ]]; then
@@ -209,11 +209,11 @@ _safe_setgid() {
     read -r got_grp got_mode \
         < <(stat -L -c '%G %a' "/proc/self/fd/${fd}" 2>/dev/null) \
         || { exec {fd}<&-; return 1; }
-    if ai_tools_is_owner_only "${got_mode}"; then
-        if ai_tools_strip_sandbox_residue "${fd}" directory "${got_grp}" "${got_mode}" \
+    if ai_tools_owner_only__is_owner_only "${got_mode}"; then
+        if ai_tools_owner_only__strip_sandbox_residue "${fd}" directory "${got_grp}" "${got_mode}" \
                 "${PROJECTS_GROUP:-}"; then
-            ai_tools_log_structured info \
-                "sealed ${dir} (owner-only; stripped ${AI_TOOLS_RESIDUE_ACTIONS[*]})" \
+            ai_tools_log__structured info \
+                "sealed ${dir} (owner-only; stripped ${AI_TOOLS_OWNER_ONLY__RESIDUE_ACTIONS[*]})" \
                 "AI_TOOLS_PATH=${dir}"
         fi
         exec {fd}<&-
@@ -225,10 +225,10 @@ _safe_setgid() {
     exec {fd}<&-
     # Record the change (the early return stays silent for a no-op dir).
     if (( regrouped )); then
-        ai_tools_log_structured info "normalized ${dir} (group ${grp} -> ${GROUP}, +setgid)" \
+        ai_tools_log__structured info "normalized ${dir} (group ${grp} -> ${GROUP}, +setgid)" \
             "AI_TOOLS_PATH=${dir}"
     else
-        ai_tools_log_structured info "normalized ${dir} (+setgid)" "AI_TOOLS_PATH=${dir}"
+        ai_tools_log__structured info "normalized ${dir} (+setgid)" "AI_TOOLS_PATH=${dir}"
     fi
     return 0
 }
@@ -236,8 +236,8 @@ _safe_setgid() {
 # Walk the project's directories (skipping heavy trees, one filesystem) and normalize each. find emits a dir before its
 # contents (pre-order), so when a dir is '!'-excluded or secret-named we record it as a skip-prefix and skip its whole
 # subtree -- never flipping the group anywhere under a private/secret dir.
-ai_tools_skip_find_expr setgid '' "${canonical}"
-declare -a expr=( "${canonical}" -xdev "${AI_TOOLS_SKIP_FIND_EXPR[@]}" -type d -print0 )
+ai_tools_skip_dirs__build_find_expression setgid '' "${canonical}"
+declare -a expr=( "${canonical}" -xdev "${AI_TOOLS_SKIP_DIRS__FIND_EXPRESSION[@]}" -type d -print0 )
 
 find "${expr[@]}" 2>/dev/null \
     | { declare -a skip=()
@@ -254,7 +254,7 @@ find "${expr[@]}" 2>/dev/null \
             if (( rc == 2 )); then
                 sealed=$(( sealed + 1 ))
                 skip+=("${d}")          # a sealed dir takes its subtree with it
-                if (( ${AI_TOOLS_RESIDUE_SURFACE:-0} )); then foreign=$(( foreign + 1 )); fi
+                if (( ${AI_TOOLS_OWNER_ONLY__RESIDUE_SURFACE:-0} )); then foreign=$(( foreign + 1 )); fi
             elif (( rc == 3 )); then
                 thirdparty=$(( thirdparty + 1 ))
                 # The project ROOT is the case that decides whether the claim did anything at all: every directory
@@ -265,7 +265,7 @@ find "${expr[@]}" 2>/dev/null \
         done
         # The counts are local to this subshell (pipe); report them here.
         if (( sealed )); then
-            ai_tools_log_structured info \
+            ai_tools_log__structured info \
                 "left ${sealed} owner-only path(s) under ${canonical} out of the agent's reach"
         fi
         # Surfaced, never silent: the owner guard is the one skip that can leave a claim having granted NO ACCESS AT ALL
@@ -279,14 +279,14 @@ find "${expr[@]}" 2>/dev/null \
             fi
             # The record carries the code the operator was shown, so a query selects the situation by its code while
             # the count and the path stay in the text.
-            ai_tools_log_coded warning "${_warn_code}" \
+            ai_tools_log__coded warning "${_warn_code}" \
                 "left ${thirdparty} director(ies) under ${canonical} untouched: owned by neither ${PROJECTS_USER} nor @SANDBOX_USER@"
         fi
         # Surfaced, never silent: a setgid the operator may have set on purpose is the one piece of residue this walk
         # declines to remove, so the operator has to hear that it stayed.
         if (( foreign )); then
             warn MSG-Z3B9 "kept the setgid bit on ${foreign} owner-only director(ies) grouped to a third party -- clear it yourself with: chmod g-s <dir>"
-            ai_tools_log_coded warning "${_warn_code}" \
+            ai_tools_log__coded warning "${_warn_code}" \
                 "left a third-party setgid bit on ${foreign} owner-only path(s) under ${canonical}"
         fi
       } || true

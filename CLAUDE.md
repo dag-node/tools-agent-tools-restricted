@@ -171,7 +171,7 @@ shape of guarantee: it deletes only after that confirmation, and a failure leave
 | which executable may start it | a launcher an enabled manifest claims, at a semver path in the toolchain | no launch |
 | whether the toolchain holds the enabled agents' packages alone | the residue readers over every installed manifest the enabled set does not name ([updater](.claude/rules/updater.rule.md)) | no launch, of any agent, until a provisioning run removes the package |
 | whether it will be confined | the pre-launch SELinux transition probe (fail-closed once confinement is expected; `AI_TOOLS_REQUIRE_SELINUX`, in force by default, requires it outright, and an operator declares a DAC-only host with `no`) | no launch |
-| which providers it gets | `ai_tools_conf_is_trusted` on every manifest, directory, and fragment | the default-enabled baseline, never "enable all" |
+| which providers it gets | `ai_tools_conf__is_trusted` on every manifest, directory, and fragment | the default-enabled baseline, never "enable all" |
 | which shared assets it loads | `AI_TOOLS_ASSETS` in a trusted `operator.conf`, and for each set a trusted tree, a signature by the key its shipped binding pins, and the rules of format 1 base enforces ([shipped-assets](.claude/rules/shipped-assets.rule.md)) | the asset is not linked, and the next reconcile removes its link |
 | which paths handback may touch | born-`SANDBOX_USER` ownership, re-checked race-safely as root | the path is left alone |
 | which names a walk over a tree treats as secrets | the operator's own `secret-patterns` file, read once the path's owner is resolved, with the shipped baseline in force where it is absent or empty ([ref-section-h4j6](.claude/rules/secret-handling.rule.md#ref-section-h4j6)) | a present file that cannot be read keeps the baseline for classification, and every helper that changes a tree refuses before its first write |
@@ -212,7 +212,7 @@ The invariants the agent operates under:
   is handed, which binary may be labelled as an agent entrypoint, and which launcher symlinks exist all come
   from `operator.conf` and the root-owned provider manifests and fragments. The code reading them runs *as*
   `SANDBOX_USER`, so each input — **and the directory holding it**, since a group-writable directory lets a non-root
-  writer replace a root-owned file inside it — is honored only while it passes `ai_tools_conf_is_trusted`. A provider
+  writer replace a root-owned file inside it — is honored only while it passes `ai_tools_conf__is_trusted`. A provider
   marked `default_enable=no` because it widens host surface can therefore only be turned on by an operator editing
   a root-owned file. See [providers](.claude/rules/providers.rule.md).
 - **Root and the operator do not execute what the sandbox can write.** No root or operator process executes or sources
@@ -234,11 +234,11 @@ The invariants the agent operates under:
   directory (`/`, `/etc`, `/var`, `/usr`, `/home`, `/opt/ai-tools`, …) or a user home root (`/home/<user>` — a whole
   home as a target would hand the agent its dotfiles and keys) — defense in depth against a system directory mistakenly
   added to `allowed-projects`. Matching is exact-or-ancestor, so real projects nested under an operator home
-  or the sandbox-clone area pass. A **second, narrower predicate** (`ai_tools_traverse_grant_allowed`) vets the one
-  operation that is not a target at all — a traverse-only `--x` ACL on a single ancestor directory, which permits
-  traversal alone, without a read of that directory or of the files inside — and permits the acting operator's **own**
-  home root there, refusing every system directory, `/home` itself, and any other account's home root. It is
-  an addition; the protected-paths backstop is unchanged for every target that reaches it. See
+  or the sandbox-clone area pass. A **second, narrower predicate** (`ai_tools_safe_paths__is_traverse_grant_allowed`)
+  vets the one operation that is not a target at all — a traverse-only `--x` ACL on a single ancestor directory,
+  which permits traversal alone, without a read of that directory or of the files inside — and permits the acting
+  operator's **own** home root there, refusing every system directory, `/home` itself, and any other account's home
+  root. It is an addition; the protected-paths backstop is unchanged for every target that reaches it. See
   [safe-paths](.claude/rules/safe-paths.rule.md).
 
 ### What is expected of the agent where a control leaves a choice <a id="ref-section-g6c4"></a>

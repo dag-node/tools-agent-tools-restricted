@@ -23,7 +23,7 @@ if [[ ! -r "${LIB}" ]]; then
     skip "claude-prompt" "library not readable at ${LIB}"; finish; exit
 fi
 # shellcheck source=/dev/null
-if ! source "${LIB}" || ! declare -F ai_tools_claude_resolve_prompt_args >/dev/null 2>&1; then
+if ! source "${LIB}" || ! declare -F ai_tools_claude_prompt__resolve_args >/dev/null 2>&1; then
     fail "could not source ${LIB} or it does not define the resolver"; finish; exit
 fi
 
@@ -39,7 +39,7 @@ export AI_TOOLS_PROMPT_BASE_DIR="${base}"
 # via $(...), which would discard the array.
 _resolve() {
     RESULT=()
-    if ai_tools_claude_resolve_prompt_args RESULT "${conf}" "$@" 2>"${TESTDIR}/err"; then RET=0; else RET=1; fi
+    if ai_tools_claude_prompt__resolve_args RESULT "${conf}" "$@" 2>"${TESTDIR}/err"; then RET=0; else RET=1; fi
     ARGS="${RESULT[*]:-}"
     ERR="$(cat "${TESTDIR}/err" 2>/dev/null || true)"
 }
@@ -113,7 +113,7 @@ else
         source "$1" || exit 9
         export AI_TOOLS_PROMPT_BASE_DIR="$2"
         OUT=()
-        ai_tools_claude_resolve_prompt_args OUT "$3" || exit $?
+        ai_tools_claude_prompt__resolve_args OUT "$3" || exit $?
         printf "%s\n" "${OUT[*]}"' _ "${LIB}" "${base}" "${conf}" 2>&1)" || rc=$?
     if [[ "${rc}" -eq 0 && "${out}" == *"--append-system-prompt-file ${prompt}"* ]]; then
         pass "a prompt the operator cannot read still resolves (the check is a stat, not a read)"
@@ -149,23 +149,23 @@ expect "world-writable operator.conf -> refuse" 1 ""
 # 15) The sandbox-side half: the fragment reads the configured file as the sandbox account and
 #     refuses a launch whose prompt is not plain text. Driven as root here, which reads the file the
 #     same way the sandbox account does; what the case pins is the verdict per content.
-if ! declare -F ai_tools_claude_prompt_content_is_text >/dev/null 2>&1; then
-    fail "the library does not define ai_tools_claude_prompt_content_is_text"
+if ! declare -F ai_tools_claude_prompt__is_content_text >/dev/null 2>&1; then
+    fail "the library does not define ai_tools_claude_prompt__is_content_text"
 else
     _reset; _cfg "CLAUDE_SYSTEM_PROMPT_FILE=${prompt}"
-    if ai_tools_claude_prompt_content_is_text "${conf}" 2>/dev/null; then
+    if ai_tools_claude_prompt__is_content_text "${conf}" 2>/dev/null; then
         pass "a configured text prompt passes the sandbox-side content check"
     else
         fail "a configured text prompt was refused by the content check"
     fi
     printf '\x00\x01\x02ELF\x00' > "${prompt}"
-    if ! err="$(ai_tools_claude_prompt_content_is_text "${conf}" 2>&1)" && [[ "${err}" == *"not a text file"* ]]; then
+    if ! err="$(ai_tools_claude_prompt__is_content_text "${conf}" 2>&1)" && [[ "${err}" == *"not a text file"* ]]; then
         pass "a configured binary prompt refuses at the sandbox-side check, naming the reason"
     else
         fail "a binary prompt was not refused by the content check: ${err}"
     fi
     _reset
-    if ai_tools_claude_prompt_content_is_text "${conf}" 2>/dev/null; then
+    if ai_tools_claude_prompt__is_content_text "${conf}" 2>/dev/null; then
         pass "no configured prompt passes the content check (the baseline)"
     else
         fail "an unconfigured host was refused by the content check"

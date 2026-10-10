@@ -47,8 +47,8 @@ if [[ ! -r "${BASE_LIB}" || ! -r "${TSV_LIB}" ]]; then
 fi
 # shellcheck source=/dev/null
 if ! source "${TSV_LIB}" \
-        || ! declare -F ai_tools_records_begin_report >/dev/null 2>&1 \
-        || ! declare -F ai_tools_records_tsv_write_record >/dev/null 2>&1; then
+        || ! declare -F ai_tools_records_base__begin_report >/dev/null 2>&1 \
+        || ! declare -F ai_tools_records_tsv__write_record >/dev/null 2>&1; then
     fail "could not source ${TSV_LIB} or it does not define its functions"; finish; exit
 fi
 pass "records-tsv.lib.sh sources records-base.lib.sh and both define their functions"
@@ -68,14 +68,14 @@ section "records: the schema (unit)"
 EXPECTED_HEADER="observed-at occurred-at code record-id severity finding subject-type operator item subject detail"
 names=""
 classes=""
-for column in "${AI_TOOLS_RECORDS_COLUMNS[@]}"; do
+for column in "${AI_TOOLS_RECORDS_BASE__COLUMNS[@]}"; do
     names+="${column%%:*} "
     classes+="${column#*:} "
 done
 if [[ "${names% }" == "${EXPECTED_HEADER}" ]]; then
-    pass "AI_TOOLS_RECORDS_COLUMNS names the header in stream order"
+    pass "AI_TOOLS_RECORDS_BASE__COLUMNS names the header in stream order"
 else
-    fail "AI_TOOLS_RECORDS_COLUMNS names '${names% }', expected '${EXPECTED_HEADER}'"
+    fail "AI_TOOLS_RECORDS_BASE__COLUMNS names '${names% }', expected '${EXPECTED_HEADER}'"
 fi
 if [[ "$(tr ' ' '\n' <<<"${names% }" | sort | uniq -d)" == "" ]]; then
     pass "every column name is unique"
@@ -99,7 +99,7 @@ page_columns="$(awk '
     on && /^\.SS /{ cls=tolower($2); sub(/^enumerated$/, "enum", cls); sub(/^identifier$/, "id", cls) }
     on && prev==".TP" && /^\.B /{ print $2 ":" cls }
     { prev=$0 }' "${PAGE}" | tr '\n' ' ')"
-lib_columns="$(printf '%s ' "${AI_TOOLS_RECORDS_COLUMNS[@]}")"
+lib_columns="$(printf '%s ' "${AI_TOOLS_RECORDS_BASE__COLUMNS[@]}")"
 if [[ "${page_columns}" == "${lib_columns}" ]]; then
     pass "ai-tools-records(5) COLUMNS lists the registry's columns, each under its class, in stream order"
 else
@@ -110,43 +110,43 @@ if [[ "$(sed -n '/^\.SH SYNOPSIS/,/^\.SH /p' "${PAGE}" | grep -x "${EXPECTED_HEA
 else
     fail "ai-tools-records(5) SYNOPSIS does not show the header row as one line"
 fi
-if [[ "${AI_TOOLS_EXIT_FINDINGS}" == 4 && "${AI_TOOLS_EXIT_UNREADABLE}" == 5 ]]; then
-    pass "AI_TOOLS_EXIT_FINDINGS is 4 and AI_TOOLS_EXIT_UNREADABLE is 5"
+if [[ "${AI_TOOLS_RECORDS_BASE__EXIT_FINDINGS}" == 4 && "${AI_TOOLS_RECORDS_BASE__EXIT_UNREADABLE}" == 5 ]]; then
+    pass "AI_TOOLS_RECORDS_BASE__EXIT_FINDINGS is 4 and AI_TOOLS_RECORDS_BASE__EXIT_UNREADABLE is 5"
 else
-    fail "the exit constants read ${AI_TOOLS_EXIT_FINDINGS}/${AI_TOOLS_EXIT_UNREADABLE}"
+    fail "the exit constants read ${AI_TOOLS_RECORDS_BASE__EXIT_FINDINGS}/${AI_TOOLS_RECORDS_BASE__EXIT_UNREADABLE}"
 fi
 
 # ── Output variables ─────────────────────────────────────────────────────────────────────────────
 section "records: output variables and dynamic scope (unit)"
 plain=""
-ai_tools_records_tsv_encode_field plain 'x'
+ai_tools_records_tsv__encode_field plain 'x'
 [[ "${plain}" == "x" ]] && pass "a plain output name receives the encoding" || fail "plain name got '${plain}'"
 # A caller whose own local carries the name of a lib-internal variable in a nested call (encode inside frame inside this
 # function): the write must land here, not in the callee's local.
 caller_with_locals() {
     local _records_frame_encoded="untouched" result=""
-    ai_tools_records_tsv_frame_item_components result "a" "b"
+    ai_tools_records_tsv__frame_item_components result "a" "b"
     [[ "${result}" == $'a\tb' && "${_records_frame_encoded}" == "untouched" ]]
 }
 caller_with_locals && pass "a nested call writes the caller's variable and leaves the caller's same-named local alone" \
                    || fail "a nested call misdirected its write"
 empty="stale"
-ai_tools_records_tsv_encode_field empty ''
+ai_tools_records_tsv__encode_field empty ''
 [[ "${empty}" == "" ]] && pass "an empty value encodes to the empty string" || fail "empty value got '${empty}'"
-ai_tools_records_tsv_decode_field trailing 'a\n'
+ai_tools_records_tsv__decode_field trailing 'a\n'
 [[ "${trailing}" == $'a\n' ]] && pass "a value ending in a line feed keeps it (printf -v, not a command substitution)" \
                               || fail "trailing line feed lost: $(hex "${trailing}")"
-ai_tools_records_tsv_decode_field trailing 'a\n\n\n'
+ai_tools_records_tsv__decode_field trailing 'a\n\n\n'
 [[ "${trailing}" == $'a\n\n\n' ]] && pass "a value ending in several line feeds keeps all of them" \
                                   || fail "trailing line feeds lost: $(hex "${trailing}")"
-for refused in _records_x _AI_TOOLS_RECORDS_STATUS LC_ALL 'not a name' '1abc' ''; do
-    if ai_tools_records_tsv_encode_field "${refused}" 'x' 2>/dev/null; then
+for refused in _records_x _AI_TOOLS_RECORDS_BASE__STATUS AI_TOOLS_RECORDS_BASE__OBSERVED_AT LC_ALL 'not a name' '1abc' ''; do
+    if ai_tools_records_tsv__encode_field "${refused}" 'x' 2>/dev/null; then
         fail "output name '${refused}' was accepted"
     else
         pass "output name '${refused}' is refused"
     fi
 done
-[[ "${_AI_TOOLS_RECORDS_STATUS}" == ok ]] && pass "the refused state name was not written" \
+[[ "${_AI_TOOLS_RECORDS_BASE__STATUS}" == ok ]] && pass "the refused state name was not written" \
                                           || fail "the refused write reached the report state"
 
 # ── Encoding, known answers ──────────────────────────────────────────────────────────────────────
@@ -172,16 +172,16 @@ EOF
 bad_encode=0; bad_decode=0
 while IFS=$'\t' read -r code expected; do
     printf -v raw '%b' "\\x${code}"
-    ai_tools_records_tsv_encode_field got "${raw}"
+    ai_tools_records_tsv__encode_field got "${raw}"
     [[ "${got}" == "${expected}" ]] || { bad_encode=1; fail "byte 0x${code} encodes as '${got}', expected '${expected}'"; }
-    ai_tools_records_tsv_decode_field back "${expected}"
+    ai_tools_records_tsv__decode_field back "${expected}"
     [[ "${back}" == "${raw}" ]] || { bad_decode=1; fail "'${expected}' decodes to $(hex "${back}"), expected ${code}"; }
 done < "${TESTDIR}/known-answers"
 (( bad_encode )) || pass "every byte 0x01-0xff encodes as the page's rules state (255 known answers)"
 (( bad_decode )) || pass "every known answer decodes back to its byte"
-ai_tools_records_tsv_encode_field got $'\xff\xfe'
+ai_tools_records_tsv__encode_field got $'\xff\xfe'
 [[ "${got}" == '\xff\xfe' ]] && pass "invalid UTF-8 encodes byte by byte" || fail "invalid UTF-8 encoded as '${got}'"
-ai_tools_records_tsv_encode_field got 'plain ASCII with spaces, punctuation ~ and [brackets]'
+ai_tools_records_tsv__encode_field got 'plain ASCII with spaces, punctuation ~ and [brackets]'
 [[ "${got}" == 'plain ASCII with spaces, punctuation ~ and [brackets]' ]] \
     && pass "printable ASCII without a backslash is written as itself" || fail "printable ASCII changed: '${got}'"
 # The code-point trap: under a UTF-8 caller locale bash indexes a string by code point, and the encoder must still see
@@ -195,7 +195,7 @@ done
 if [[ -z "${utf8_locale}" ]]; then
     skip "encoding under a UTF-8 caller locale" "no UTF-8 locale takes effect on this host"
 else
-    got="$(LC_ALL="${utf8_locale}" bash -c 'source "$1"; ai_tools_records_tsv_encode_field o "caf$2"; printf %s "$o"' _ "${TSV_LIB}" $'\xc3\xa9')"
+    got="$(LC_ALL="${utf8_locale}" bash -c 'source "$1"; ai_tools_records_tsv__encode_field o "caf$2"; printf %s "$o"' _ "${TSV_LIB}" $'\xc3\xa9')"
     [[ "${got}" == 'caf\xc3\xa9' ]] && pass "under ${utf8_locale} the encoder still writes the two bytes of an e-acute" \
                                     || fail "under ${utf8_locale} the encoder wrote '${got}'"
 fi
@@ -214,14 +214,14 @@ section "records: the strict decoder, and its parity with the page's Python deco
 bad=0
 for rejected in '\x41' '\x0a' '\x09' '\x0d' '\x00' '\xC3' '\xc' '\x' '\q' "a\\" $'a\tb' $'\x01' $'\x1b' $'caf\xc3\xa9'; do
     out="set"
-    if ai_tools_records_tsv_decode_field out "${rejected}"; then
+    if ai_tools_records_tsv__decode_field out "${rejected}"; then
         bad=1; fail "the decoder accepted '$(hex "${rejected}")'"
     elif [[ "${out}" != "" ]]; then
         bad=1; fail "the decoder rejected '$(hex "${rejected}")' but left '${out}' in the output variable"
     fi
 done
 (( bad )) || pass "the decoder rejects a raw control, ESC, a raw tab, raw UTF-8, \\x41, \\x0a, \\x09, \\x0d, \\x00, uppercase hex, and each truncated or unknown escape, emptying the output"
-ai_tools_records_tsv_decode_field out 'a\tb\\c\xc3\xa9'
+ai_tools_records_tsv__decode_field out 'a\tb\\c\xc3\xa9'
 [[ "${out}" == $'a\tb\\c\xc3\xa9' ]] && pass "a compound field decodes to its bytes" || fail "compound field decoded to $(hex "${out}")"
 
 # The page's decoder: exactly one marked block, rendered alone, non-empty, defining decode_field.
@@ -253,7 +253,7 @@ fi
 # Both decoders over the fixture file: one line per fixture, the decoded bytes as hex or REJECT.
 {
     while IFS= read -r line; do
-        if ai_tools_records_tsv_decode_field out "${line}"; then hex "${out}"; printf '\n'; else printf 'REJECT\n'; fi
+        if ai_tools_records_tsv__decode_field out "${line}"; then hex "${out}"; printf '\n'; else printf 'REJECT\n'; fi
     done < "${TESTDIR}/decoder-fixtures"
 } > "${TESTDIR}/decoded.bash"
 python3 - "${TESTDIR}/decoder.py" "${TESTDIR}/decoder-fixtures" > "${TESTDIR}/decoded.python" <<'EOF'
@@ -319,30 +319,30 @@ stream_case "an unknown severity reads as attention and a known unreadable wins 
 
 # ── Item framing ─────────────────────────────────────────────────────────────────────────────────
 section "records: the item framing (unit)"
-ai_tools_records_tsv_frame_item_components one $'a\tb' "c"
-ai_tools_records_tsv_frame_item_components two "a" $'b\tc'
+ai_tools_records_tsv__frame_item_components one $'a\tb' "c"
+ai_tools_records_tsv__frame_item_components two "a" $'b\tc'
 if [[ "${one}" == $'a\\tb\tc' && "${two}" == $'a\tb\\tc' && "${one}" != "${two}" ]]; then
     pass '["a<TAB>b", "c"] and ["a", "b<TAB>c"] frame to different fields'
 else
     fail "the two lists framed as '$(hex "${one}")' and '$(hex "${two}")'"
 fi
-ai_tools_records_tsv_calculate_record_id id_one "${TEST_CODE}" /p "${one}"
-ai_tools_records_tsv_calculate_record_id id_two "${TEST_CODE}" /p "${two}"
+ai_tools_records_tsv__calculate_record_id id_one "${TEST_CODE}" /p "${one}"
+ai_tools_records_tsv__calculate_record_id id_two "${TEST_CODE}" /p "${two}"
 [[ "${id_one}" != "${id_two}" ]] && pass "the two lists give different record ids" || fail "the two lists share an id"
-ai_tools_records_tsv_frame_item_components single $'a\tb'
-ai_tools_records_tsv_frame_item_components pair "a" "b"
+ai_tools_records_tsv__frame_item_components single $'a\tb'
+ai_tools_records_tsv__frame_item_components pair "a" "b"
 [[ "${single}" == 'a\tb' && "${pair}" == $'a\tb' && "${single}" != "${pair}" ]] \
     && pass "a single component equal to a joined pair does not collide with the pair" \
     || fail "single '$(hex "${single}")' against pair '$(hex "${pair}")'"
-ai_tools_records_tsv_frame_item_components with_backslash 'a\b' 'c'
-ai_tools_records_tsv_decode_field back "${with_backslash%%$'\t'*}"
+ai_tools_records_tsv__frame_item_components with_backslash 'a\b' 'c'
+ai_tools_records_tsv__decode_field back "${with_backslash%%$'\t'*}"
 [[ "${with_backslash}" == $'a\\\\b\tc' && "${back}" == 'a\b' ]] \
     && pass "a component holding a backslash round-trips" || fail "backslash component framed as '${with_backslash}'"
-ai_tools_records_tsv_frame_item_components none
+ai_tools_records_tsv__frame_item_components none
 [[ "${none}" == "" ]] && pass "no components give the empty field" || fail "no components gave '${none}'"
 for refused_list in '""' '"a" ""'; do
     out="stale"
-    if eval "ai_tools_records_tsv_frame_item_components out ${refused_list}"; then
+    if eval "ai_tools_records_tsv__frame_item_components out ${refused_list}"; then
         fail "the list [${refused_list}] was framed as '${out}'"
     elif [[ "${out}" == "" ]]; then
         pass "the list [${refused_list}] is refused and the output emptied"
@@ -369,8 +369,8 @@ section "records: the record identity (unit)"
 # The vectors ai-tools-records(5) publishes, computed from the recipe with hashlib and pinned here.
 check_vector() {
     local label="$1" expected="$2" code="$3" subject="$4" got; shift 4
-    ai_tools_records_tsv_frame_item_components item "$@"
-    ai_tools_records_tsv_calculate_record_id got "${code}" "${subject}" "${item}"
+    ai_tools_records_tsv__frame_item_components item "$@"
+    ai_tools_records_tsv__calculate_record_id got "${code}" "${subject}" "${item}"
     [[ "${got}" == "${expected}" ]] && pass "vector ${label}: ${expected}" || fail "vector ${label}: got '${got}', expected ${expected}"
     grep -q "${expected}" "${PAGE}" && pass "ai-tools-records(5) publishes vector ${label}" \
                                      || fail "ai-tools-records(5) does not carry ${expected}"
@@ -378,37 +378,37 @@ check_vector() {
 check_vector "empty item" d2b6a0f255f321d9 "${TEST_CODE}" /srv/project/app.conf
 check_vector "one component" 6bc5171e35197c4f "${TEST_CODE}" /srv/project/app.conf key
 check_vector "a tab in the subject, two components" 142b7f86fe379965 "${TEST_CODE}" $'/srv/project/a\tb' hooks x
-ai_tools_records_tsv_calculate_record_id base_id "${TEST_CODE}" /p "key"
-ai_tools_records_tsv_calculate_record_id same_id "${TEST_CODE}" /p "key"
+ai_tools_records_tsv__calculate_record_id base_id "${TEST_CODE}" /p "key"
+ai_tools_records_tsv__calculate_record_id same_id "${TEST_CODE}" /p "key"
 [[ "${base_id}" == "${same_id}" && "${base_id}" =~ ^[0-9a-f]{16}$ ]] \
     && pass "the id is 16 lowercase hex digits and repeats for the same inputs" || fail "id '${base_id}' vs '${same_id}'"
-ai_tools_records_tsv_calculate_record_id other "${TEST_CODE}" /q "key"
+ai_tools_records_tsv__calculate_record_id other "${TEST_CODE}" /q "key"
 [[ "${other}" != "${base_id}" ]] && pass "a changed subject moves the id" || fail "a changed subject kept the id"
-ai_tools_records_tsv_calculate_record_id other "MSG-C3D4" /p "key"  # ref-index: ignore
+ai_tools_records_tsv__calculate_record_id other "MSG-C3D4" /p "key"  # ref-index: ignore
 [[ "${other}" != "${base_id}" ]] && pass "a changed code moves the id" || fail "a changed code kept the id"
-ai_tools_records_tsv_calculate_record_id other "${TEST_CODE}" /p "kex"
+ai_tools_records_tsv__calculate_record_id other "${TEST_CODE}" /p "kex"
 [[ "${other}" != "${base_id}" ]] && pass "a changed item component moves the id" || fail "a changed component kept the id"
 # Through the writer: detail, severity and the timestamps change, the id column does not.
-ai_tools_records_begin_report
-stream="$(ai_tools_records_tsv_write_record "2026-01-01T00:00:00Z" "${TEST_CODE}" info f file op key /p "one"
-          ai_tools_records_tsv_write_record "2026-02-02T00:00:00Z" "${TEST_CODE}" attention g directory op key /p "two")"
+ai_tools_records_base__begin_report
+stream="$(ai_tools_records_tsv__write_record "2026-01-01T00:00:00Z" "${TEST_CODE}" info f file op key /p "one"
+          ai_tools_records_tsv__write_record "2026-02-02T00:00:00Z" "${TEST_CODE}" attention g directory op key /p "two")"
 ids="$(sed -n '2,3p' <<<"${stream}" | cut -f4 | sort -u | wc -l)"
 [[ "${ids}" == 1 ]] && pass "detail, severity, finding, subject-type and the timestamps leave the id alone" \
                     || fail "the two rows carry $(sed -n '2,3p' <<<"${stream}" | cut -f4 | tr '\n' ' ')"
 result="$(bash -c 'set -euo pipefail; source "$1"; PATH=/nonexistent
-    ai_tools_records_begin_report
-    ai_tools_records_tsv_write_record "" "$2" info f file op "" /p d
-    ai_tools_records_get_exit_status || exit $?' _ "${TSV_LIB}" "${TEST_CODE}" 2>/dev/null; echo "rc=$?")"
+    ai_tools_records_base__begin_report
+    ai_tools_records_tsv__write_record "" "$2" info f file op "" /p d
+    ai_tools_records_base__get_exit_status || exit $?' _ "${TSV_LIB}" "${TEST_CODE}" 2>/dev/null; echo "rc=$?")"
 [[ "${result}" == "rc=5" ]] && pass "sha256sum missing from PATH: no row, exit 5" || fail "without sha256sum: '${result}'"
 
 # ── State ────────────────────────────────────────────────────────────────────────────────────────
 section "records: the report state and the exit fold (unit)"
 fold_case() {
     local expected="$1" label="$2" rc=0; shift 2
-    ai_tools_records_begin_report
+    ai_tools_records_base__begin_report
     local severity
-    for severity in "$@"; do ai_tools_records_accumulate_severity "${severity}"; done
-    ai_tools_records_get_exit_status || rc=$?
+    for severity in "$@"; do ai_tools_records_base__accumulate_severity "${severity}"; done
+    ai_tools_records_base__get_exit_status || rc=$?
     [[ "${rc}" == "${expected}" ]] && pass "${label} -> ${expected}" || fail "${label} -> ${rc}, expected ${expected}"
 }
 fold_case 0 "no severity"
@@ -419,30 +419,30 @@ fold_case 5 "unreadable, attention (order does not lower it)" unreadable attenti
 fold_case 5 "ok, unreadable, ok" ok unreadable ok
 fold_case 5 "an unknown severity" ok bogus
 fold_case 5 "an empty severity" ""
-if ai_tools_records_is_valid_record "" "${TEST_CODE}" info f file op "" /p d \
-        && ! ai_tools_records_is_valid_record "" "${TEST_CODE}" bogus f file op "" /p d \
-        && ! ai_tools_records_is_valid_record "" "${TEST_CODE}" info f bogus op "" /p d \
-        && ! ai_tools_records_is_valid_record "" "${TEST_CODE}" info f file op "" /p \
-        && ! ai_tools_records_is_valid_record "" "${TEST_CODE}" info f file op "" /p d extra; then
+if ai_tools_records_base__is_valid_record "" "${TEST_CODE}" info f file op "" /p d \
+        && ! ai_tools_records_base__is_valid_record "" "${TEST_CODE}" bogus f file op "" /p d \
+        && ! ai_tools_records_base__is_valid_record "" "${TEST_CODE}" info f bogus op "" /p d \
+        && ! ai_tools_records_base__is_valid_record "" "${TEST_CODE}" info f file op "" /p \
+        && ! ai_tools_records_base__is_valid_record "" "${TEST_CODE}" info f file op "" /p d extra; then
     pass "is_valid_record accepts nine fields with known tokens and refuses a bad severity, subject-type or arity"
 else
     fail "is_valid_record's verdicts are off"
 fi
 # An invalid row under the consumers' own mode: the script must reach its exit and return 5, printing nothing.
 result="$(bash -c 'set -euo pipefail; source "$1"
-    ai_tools_records_begin_report
-    ai_tools_records_tsv_write_record "" "$2" bogus f file op "" /p d
-    ai_tools_records_get_exit_status || exit $?
+    ai_tools_records_base__begin_report
+    ai_tools_records_tsv__write_record "" "$2" bogus f file op "" /p d
+    ai_tools_records_base__get_exit_status || exit $?
     echo "reached the end at 0"' _ "${TSV_LIB}" "${TEST_CODE}" 2>&1; echo "rc=$?")"
 [[ "${result}" == "rc=5" ]] && pass "an invalid row under set -euo pipefail prints nothing and the script exits 5" \
                             || fail "an invalid row under strict mode: '${result}'"
-ai_tools_records_begin_report
-ai_tools_records_accumulate_severity unreadable
-first_observed="${_AI_TOOLS_RECORDS_OBSERVED_AT}"
-out="$(ai_tools_records_tsv_write_record "" "${TEST_CODE}" info f file op "" /p d)"
-ai_tools_records_begin_report
-rc=0; ai_tools_records_get_exit_status || rc=$?
-out2="$(ai_tools_records_tsv_write_record "" "${TEST_CODE}" info f file op "" /p d)"
+ai_tools_records_base__begin_report
+ai_tools_records_base__accumulate_severity unreadable
+first_observed="${AI_TOOLS_RECORDS_BASE__OBSERVED_AT}"
+out="$(ai_tools_records_tsv__write_record "" "${TEST_CODE}" info f file op "" /p d)"
+ai_tools_records_base__begin_report
+rc=0; ai_tools_records_base__get_exit_status || rc=$?
+out2="$(ai_tools_records_tsv__write_record "" "${TEST_CODE}" info f file op "" /p d)"
 if [[ "${rc}" == 0 && "$(head -n 1 <<<"${out}")" == "$(head -n 1 <<<"${out2}")" && "${first_observed}" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$ ]]; then
     pass "begin_report resets the status and the header between two reports in one shell, and observed-at is UTC"
 else
@@ -452,23 +452,23 @@ fi
     && pass "the row carries the report's observed-at" \
     || fail "the row's observed-at is not the report's: $(sed -n 2p <<<"${out}" | head -c 20)"
 # The header goes out with the first row alone: two rows, one header; a report with no row prints nothing.
-ai_tools_records_begin_report
-stream="$(ai_tools_records_tsv_write_record "" "${TEST_CODE}" info f file op "" /p d
-          ai_tools_records_tsv_write_record "" "${TEST_CODE}" info f file op "" /q d)"
+ai_tools_records_base__begin_report
+stream="$(ai_tools_records_tsv__write_record "" "${TEST_CODE}" info f file op "" /p d
+          ai_tools_records_tsv__write_record "" "${TEST_CODE}" info f file op "" /q d)"
 if [[ "$(wc -l <<<"${stream}")" == 3 && "$(head -n 1 <<<"${stream}")" == "${EXPECTED_HEADER// /$'\t'}" ]]; then
     pass "the header is printed once, before the first row, with the columns tab-separated"
 else
     fail "two rows produced: $(head -c 300 <<<"${stream}" | tr '\t\n' '|/')"
 fi
-ai_tools_records_begin_report
-[[ "$(ai_tools_records_tsv_write_record "" "${TEST_CODE}" bogus f file op "" /p d)" == "" ]] \
+ai_tools_records_base__begin_report
+[[ "$(ai_tools_records_tsv__write_record "" "${TEST_CODE}" bogus f file op "" /p d)" == "" ]] \
     && pass "a report whose only row is invalid prints nothing" || fail "an invalid row printed something"
 # A write to a closed pipe: the reader is waited for before the write, so the pipe has no reader for certain.
 result="$(bash -c 'set -uo pipefail; source "$1"; trap "" PIPE
     exec {fd}> >(exit 0); pid=$!; wait "${pid}"
-    ai_tools_records_begin_report
-    ai_tools_records_tsv_write_record "" "$2" info f file op "" /p d >&"${fd}" 2>/dev/null; rc=$?
-    ai_tools_records_get_exit_status; printf "write=%s exit=%s" "${rc}" "$?"' _ "${TSV_LIB}" "${TEST_CODE}")"
+    ai_tools_records_base__begin_report
+    ai_tools_records_tsv__write_record "" "$2" info f file op "" /p d >&"${fd}" 2>/dev/null; rc=$?
+    ai_tools_records_base__get_exit_status; printf "write=%s exit=%s" "${rc}" "$?"' _ "${TSV_LIB}" "${TEST_CODE}")"
 [[ "${result}" == "write=1 exit=5" ]] && pass "a write to a closed pipe returns 1 and the report reads unreadable" \
                                        || fail "closed pipe: '${result}'"
 
@@ -512,7 +512,7 @@ fixture_collector() {
     shift
     exec {fd}< <(fixture_upstream "$@"); pid=$!
     while IFS= read -r -d '' -u "${fd}" path; do
-        ai_tools_records_tsv_encode_field encoded "${path}"
+        ai_tools_records_tsv__encode_field encoded "${path}"
         printf '%s\n' "${encoded}"
         n=$(( n + 1 ))
         if (( n > cap )); then stopped=1; break; fi
@@ -529,32 +529,32 @@ fixture_collector() {
 fixture_report() {
     local cap="$1" fd pid line path n=0 rc=0 item
     shift
-    ai_tools_records_begin_report
+    ai_tools_records_base__begin_report
     exec {fd}< <(fixture_collector "${cap}" "$@"); pid=$!
     while IFS= read -r -u "${fd}" line; do
         n=$(( n + 1 ))
         if (( n > cap )); then
-            ai_tools_records_tsv_frame_item_components item "${cap}"
-            ai_tools_records_tsv_write_record "" "${TEST_CODE}" attention scan-capped project op "${item}" /proj "capped"
+            ai_tools_records_tsv__frame_item_components item "${cap}"
+            ai_tools_records_tsv__write_record "" "${TEST_CODE}" attention scan-capped project op "${item}" /proj "capped"
             break
         fi
-        if ! ai_tools_records_tsv_decode_field path "${line}"; then
-            ai_tools_records_tsv_write_record "" "${TEST_CODE}" unreadable error project op "" /proj "unparsed record"
+        if ! ai_tools_records_tsv__decode_field path "${line}"; then
+            ai_tools_records_tsv__write_record "" "${TEST_CODE}" unreadable error project op "" /proj "unparsed record"
             continue
         fi
-        ai_tools_records_tsv_write_record "" "${TEST_CODE}" info hit file op "" "${path}" "a hit"
+        ai_tools_records_tsv__write_record "" "${TEST_CODE}" info hit file op "" "${path}" "a hit"
     done
     exec {fd}<&-
     wait "${pid}" || rc=$?
     if (( rc )); then
-        ai_tools_records_tsv_write_record "" "${TEST_CODE}" unreadable error project op "" /proj "collector exited ${rc}"
+        ai_tools_records_tsv__write_record "" "${TEST_CODE}" unreadable error project op "" /proj "collector exited ${rc}"
     fi
 }
 # report_case <label> <expected exit> <expected rows> <expected scan-capped rows> <cap> <upstream args...>
 report_case() {
     local label="$1" want_exit="$2" want_rows="$3" want_capped="$4" rc=0 rows capped
     shift 4
-    stream="$(fixture_report "$@"; ai_tools_records_get_exit_status || printf 'EXIT=%s' "$?")"
+    stream="$(fixture_report "$@"; ai_tools_records_base__get_exit_status || printf 'EXIT=%s' "$?")"
     rc="${stream##*EXIT=}"; [[ "${rc}" == "${stream}" ]] && rc=0
     stream="${stream%EXIT=*}"; stream="${stream%$'\n'}"
     if [[ -z "${stream}" ]]; then rows=0; else rows="$(( $(wc -l <<<"${stream}") - 1 ))"; fi
@@ -580,7 +580,7 @@ stream="$(fixture_report 10 3)"
 subjects="$(sed -n '2,$p' <<<"${stream}" | cut -f10)"
 bad=0
 while IFS= read -r encoded; do
-    ai_tools_records_tsv_decode_field path "${encoded}"
+    ai_tools_records_tsv__decode_field path "${encoded}"
     case "${path}" in
         /proj/path-1|$'/proj/tab\there'|$'/proj/line\nfeed') ;;
         *) bad=1; fail "an unexpected subject arrived: $(hex "${path}")" ;;

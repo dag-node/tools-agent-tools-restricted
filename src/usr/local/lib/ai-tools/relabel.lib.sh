@@ -19,14 +19,14 @@
 #     preflight resolves it, CHECKS the result -- so a manifest that has stopped describing where
 #     its package installs the executable, and a package that did not install the executable its
 #     manifest declares, are each reported as such instead of passing as "not installed"
-#     (ai_tools_entrypoint_reconcile_verdict).
+#     (ai_tools_relabel__evaluate_entrypoint_reconcile).
 #   * OPERATOR CONFIG -- map one operator's ~/.config/ai-tools to ai_tools_conf_t, the narrow type
 #     that lets the root helpers read that operator's allowlist without reaching the rest of
 #     ~/.config. Sourced by ai-tools-admin, which registers the rule for each account it enrols,
 #     and by the same installer's sweep over the enrolled set.
 # Every family keeps its `semanage fcontext` + `restorecon` body in exactly one place, and they write the one policy
-# store -- so the library also owns the lock that serializes them (ai_tools_relabel_lock) and the reason a refused rule
-# reports (AI_TOOLS_FCONTEXT_ERROR).
+# store -- so the library also owns the lock that serializes them (ai_tools_relabel__lock) and the reason a refused rule
+# reports (AI_TOOLS_RELABEL__FCONTEXT_ERROR).
 #
 # In-place project paths (under a user's home) are DYNAMIC, so they get a per-project `semanage fcontext` rule here.
 # Sandbox clones under /var/opt/ai-tools/sandbox-projects are already mapped by a STATIC rule in the policy's
@@ -42,25 +42,26 @@
 # Every type this library applies is pinned in this file, and the labelling functions do not take a type argument:
 # a manifest or a caller names WHICH path is a project, a build-output directory, an entrypoint or a config directory,
 # never what type it gets, so no manifest can label a file into a domain of its choosing.
-readonly AI_TOOLS_PROJECT_TYPE="ai_tools_project_t"
+readonly AI_TOOLS_RELABEL__PROJECT_TYPE="ai_tools_project_t"
 # A project's build-output directories; a manifest names the directories (build_output_dirs).
-readonly AI_TOOLS_PROJECT_BUILD_TYPE="ai_tools_project_build_t"
-readonly AI_TOOLS_SANDBOX_ROOT="/var/opt/ai-tools/sandbox-projects"
+readonly AI_TOOLS_RELABEL__PROJECT_BUILD_TYPE="ai_tools_project_build_t"
+readonly AI_TOOLS_RELABEL__SANDBOX_ROOT="/var/opt/ai-tools/sandbox-projects"
 # An agent's entrypoint: the label that drives the exec transition into ai_tools_t.
-readonly AI_TOOLS_ENTRYPOINT_TYPE="ai_tools_exec_t"
+readonly AI_TOOLS_RELABEL__ENTRYPOINT_TYPE="ai_tools_exec_t"
 # Every agent's own config directory -- the same type as the rest of the agent's home state, so the confined domain may
 # write its session state there.
-readonly AI_TOOLS_AGENT_CONFIG_TYPE="ai_tools_home_t"
+readonly AI_TOOLS_RELABEL__AGENT_CONFIG_TYPE="ai_tools_home_t"
 # The one tree an agent entrypoint may live in -- the sandbox's own Node toolchain. Every declared pattern is checked
-# against it through ai_tools_entrypoint_fcontext_valid (providers.lib.sh), which takes the root as an argument
-# so the two writers of the launcher chain hold a pattern to the same containment before they write a link to what it
+# against it through ai_tools_providers__is_entrypoint_fcontext_valid (providers.lib.sh), which takes the root
+# as an argument so the two writers of the launcher chain hold a pattern to the same containment before they write
+# a link to what it
 # covers.
-readonly AI_TOOLS_NODE_VERSIONS_ROOT="/opt/ai-tools/.nvm/versions/node"
+readonly AI_TOOLS_RELABEL__NODE_VERSIONS_ROOT="/opt/ai-tools/.nvm/versions/node"
 # The locked control-plane directory holding every agent's stable launcher symlink. Resolving through it is how this
 # library learns where a package actually PUT its executable, rather than only where a manifest says it is
-# (ai_tools_agent_entrypoint_path). Root-only test hook, the same posture as providers.lib.sh's manifest directories:
-# the helpers that source this file run under sudo, which scrubs the environment, and the sudoers rules keep none
-# of these names.
+# (ai_tools_relabel__resolve_agent_entrypoint_path). Root-only test hook, the same posture as providers.lib.sh's
+# manifest directories: the helpers that source this file run under sudo, which scrubs the environment, and the sudoers
+# rules keep none of these names.
 : "${AI_TOOLS_LAUNCHER_DIR:=/opt/ai-tools/bin}"
 
 # Which agents are enabled and what each declares, and the containment predicate every declared entrypoint pattern
@@ -85,11 +86,11 @@ source "${BASH_SOURCE[0]%/*}/control-plane.lib.sh" 2>/dev/null || true
 # to.
 : "${AI_TOOLS_RELABEL_LOCK:=/run/lock/ai-tools-relabel.lock}"
 : "${AI_TOOLS_RELABEL_LOCK_WAIT:=120}"
-# Why the lock could not be taken, or empty when it is held. Read by the caller after ai_tools_relabel_lock,
+# Why the lock could not be taken, or empty when it is held. Read by the caller after ai_tools_relabel__lock,
 # which reports it in its own voice.
-AI_TOOLS_RELABEL_LOCK_NOTE=""
+AI_TOOLS_RELABEL__LOCK_NOTE=""
 
-# ai_tools_relabel_lock: hold AI_TOOLS_RELABEL_LOCK until ai_tools_relabel_unlock or the end of
+# ai_tools_relabel__lock: hold AI_TOOLS_RELABEL_LOCK until ai_tools_relabel__unlock or the end of
 #   the calling process.
 #   Root-only: the lock file is created under /run/lock. Every writer of the policy store takes
 #   it -- the root helpers, install-selinux.sh, and (open-coded on the same path, since a
@@ -97,20 +98,20 @@ AI_TOOLS_RELABEL_LOCK_NOTE=""
 #
 #   Call it in the CALLING shell, never through `$(...)`: the lock is an open file descriptor, and
 #   a command substitution's subshell would drop it the moment the substitution returns. The
-#   reason travels in AI_TOOLS_RELABEL_LOCK_NOTE for the same reason. A second call while the lock
+#   reason travels in AI_TOOLS_RELABEL__LOCK_NOTE for the same reason. A second call while the lock
 #   is held returns at once: flock serializes open file descriptions, so a fresh descriptor on the
 #   same file would wait on this process's own lock.
 #
 #   ALWAYS returns 0. A host without flock, a lock file that cannot be created, and a wait that
 #   runs out all proceed unserialized: labelling is idempotent and every refusal is reported, so a
 #   lock this helper cannot take costs a repeat run rather than a wrong label.
-# shellcheck disable=SC2034  # AI_TOOLS_RELABEL_LOCK_NOTE is this function's output, read by
+# shellcheck disable=SC2034  # AI_TOOLS_RELABEL__LOCK_NOTE is this function's output, read by
 #                              ai-tools-relabel-agent and ai-tools-relabel.
-ai_tools_relabel_lock() {
-    AI_TOOLS_RELABEL_LOCK_NOTE=""
-    [[ -z "${_ai_tools_relabel_lock_fd:-}" ]] || return 0
+ai_tools_relabel__lock() {
+    AI_TOOLS_RELABEL__LOCK_NOTE=""
+    [[ -z "${_ai_tools_relabel__lock_fd:-}" ]] || return 0
     if ! command -v flock >/dev/null 2>&1; then
-        AI_TOOLS_RELABEL_LOCK_NOTE="flock is not installed"
+        AI_TOOLS_RELABEL__LOCK_NOTE="flock is not installed"
         return 0
     fi
     # Two bash properties decide the shape of this line. The file is created by a SIMPLE command first, because a failed
@@ -119,61 +120,61 @@ ai_tools_relabel_lock() {
     # stderr is in force as it processes that redirection, so the `>file 2>/dev/null` order still prints the error
     # and the note would be a second message for one condition.
     if ! : 2>/dev/null >"${AI_TOOLS_RELABEL_LOCK}"; then
-        AI_TOOLS_RELABEL_LOCK_NOTE="cannot write ${AI_TOOLS_RELABEL_LOCK}"
+        AI_TOOLS_RELABEL__LOCK_NOTE="cannot write ${AI_TOOLS_RELABEL_LOCK}"
         return 0
     fi
-    exec {_ai_tools_relabel_lock_fd}>"${AI_TOOLS_RELABEL_LOCK}"
-    flock -w "${AI_TOOLS_RELABEL_LOCK_WAIT}" "${_ai_tools_relabel_lock_fd}" \
-        || AI_TOOLS_RELABEL_LOCK_NOTE="another relabel held the policy store for more than ${AI_TOOLS_RELABEL_LOCK_WAIT}s"
+    exec {_ai_tools_relabel__lock_fd}>"${AI_TOOLS_RELABEL_LOCK}"
+    flock -w "${AI_TOOLS_RELABEL_LOCK_WAIT}" "${_ai_tools_relabel__lock_fd}" \
+        || AI_TOOLS_RELABEL__LOCK_NOTE="another relabel held the policy store for more than ${AI_TOOLS_RELABEL_LOCK_WAIT}s"
     return 0
 }
 
-# ai_tools_relabel_unlock: release the lock ai_tools_relabel_lock took, by closing its descriptor.
+# ai_tools_relabel__unlock: release the lock ai_tools_relabel__lock took, by closing its descriptor.
 #   For a caller that writes the store in sections with a prompt between them
 #   (install-selinux.sh): a lock held across a prompt makes every other writer wait out
 #   AI_TOOLS_RELABEL_LOCK_WAIT and then proceed unserialized. A no-op when the lock is not held.
-ai_tools_relabel_unlock() {
-    [[ -n "${_ai_tools_relabel_lock_fd:-}" ]] || return 0
-    exec {_ai_tools_relabel_lock_fd}>&-
-    unset _ai_tools_relabel_lock_fd
+ai_tools_relabel__unlock() {
+    [[ -n "${_ai_tools_relabel__lock_fd:-}" ]] || return 0
+    exec {_ai_tools_relabel__lock_fd}>&-
+    unset _ai_tools_relabel__lock_fd
     return 0
 }
 
-# ai_tools_relabel_available: 0 when restorecon is installed and `getenforce` does not print `Disabled`, the state
+# ai_tools_relabel__is_available: 0 when restorecon is installed and `getenforce` does not print `Disabled`, the state
 #   in which labelling can act; 2 otherwise. A host without `getenforce` reads as active: both ship in policycoreutils,
 #   so a missing one is a broken toolchain, which the first semanage call then reports.
-ai_tools_relabel_available() {
+ai_tools_relabel__is_available() {
     command -v restorecon >/dev/null 2>&1 || return 2
     [[ "$(getenforce 2>/dev/null)" == "Disabled" ]] && return 2
     return 0
 }
 
-# _ai_tools_is_sandbox <dir>: 0 if <dir> lies under the statically-labelled sandbox root, whose subtree ai_tools.fc
-# already maps to ai_tools_project_t.
-_ai_tools_is_sandbox() { [[ "$1/" == "${AI_TOOLS_SANDBOX_ROOT}/"* ]]; }
+# _ai_tools_relabel__is_under_sandbox_root <dir>: 0 if <dir> lies under the statically-labelled sandbox root,
+# whose subtree ai_tools.fc already maps to ai_tools_project_t.
+_ai_tools_relabel__is_under_sandbox_root() { [[ "$1/" == "${AI_TOOLS_RELABEL__SANDBOX_ROOT}/"* ]]; }
 
-# _ai_tools_build_output_names: print the build-output directory names every installed integration
+# _ai_tools_relabel__list_build_output_names: print the build-output directory names every installed integration
 #   declares (build_output_dirs), one per line, deduplicated. A name is accepted only as one plain
 #   component -- letters, digits, `.`, `_`, `-` -- since it is spliced into a file-context regex
 #   and a `/`, a `|` or a `(` would let a manifest widen the rule past the directories it names.
 #   Sorted in the C locale, so the pattern a claim writes is the same on every host. Empty when
 #   no integration declares any, or the provider resolver is not loaded.
-_ai_tools_build_output_names() {
-    declare -F ai_tools_installed_integrations_declaring >/dev/null 2>&1 || return 0
+_ai_tools_relabel__list_build_output_names() {
+    declare -F ai_tools_providers__list_integrations_declaring >/dev/null 2>&1 || return 0
     local declared name
     local -a names
     while IFS=$'\t' read -r _ declared; do
         [[ -n "${declared}" ]] || continue
         names=()
-        ai_tools_conf_list_value names "${declared}" 0 "build_output_dirs in an integration manifest"
+        ai_tools_conf__split_list_value names "${declared}" 0 "build_output_dirs in an integration manifest"
         for name in "${names[@]}"; do
             [[ "${name}" =~ ^[A-Za-z0-9._-]+$ && "${name}" != *..* ]] || continue
             printf '%s\n' "${name}"
         done
-    done < <(ai_tools_installed_integrations_declaring build_output_dirs 2>/dev/null) | LC_ALL=C sort -u
+    done < <(ai_tools_providers__list_integrations_declaring build_output_dirs 2>/dev/null) | LC_ALL=C sort -u
 }
 
-# ai_tools_project_build_pattern <dir>: print the file-context pattern matching every declared
+# ai_tools_relabel__read_project_build_pattern <dir>: print the file-context pattern matching every declared
 #   build-output directory, at any depth under <dir>, and everything inside it --
 #   `<dir>(/.*)?/(bin|obj)(/.*)?` for the names bin and obj. Dots in a name are escaped. Prints an
 #   empty string and returns 1 when no name is declared, and the caller then skips the build rule.
@@ -181,23 +182,23 @@ _ai_tools_build_output_names() {
 #   Precedence over the project rule `<dir>(/.*)?` is what makes it a narrowing rather than a
 #   no-op: libselinux keys precedence on the literal stem before the first metacharacter, which the
 #   two rules share, and among equal stems the later, longer regex is the match. So the project
-#   rule is registered FIRST and this one second (ai_tools_label_project), and the result is
+#   rule is registered FIRST and this one second (ai_tools_relabel__label_project), and the result is
 #   verified with matchpathcon on a nested path when the policy is brought up, not assumed.
-ai_tools_project_build_pattern() {
+ai_tools_relabel__read_project_build_pattern() {
     local dir="$1" alternation="" name
     while IFS= read -r name; do
         [[ -n "${name}" ]] || continue
-        alternation+="${alternation:+|}$(ai_tools_fcontext_literal "${name}")"
-    done < <(_ai_tools_build_output_names)
+        alternation+="${alternation:+|}$(ai_tools_relabel__get_fcontext_literal "${name}")"
+    done < <(_ai_tools_relabel__list_build_output_names)
     [[ -n "${alternation}" ]] || return 1
-    printf '%s(/.*)?/(%s)(/.*)?' "$(ai_tools_fcontext_literal "${dir}")" "${alternation}"
+    printf '%s(/.*)?/(%s)(/.*)?' "$(ai_tools_relabel__get_fcontext_literal "${dir}")" "${alternation}"
 }
 
-# ai_tools_fcontext_literal <text>: print <text> with every regex metacharacter backslash-escaped, so it matches only
-#   itself inside a file-context pattern. A path is spliced into a regex, where an unescaped `.` in `app.v1` also
-#   matches `appXv1` and a `+`, `(` or `|` changes which paths the rule covers.
+# ai_tools_relabel__get_fcontext_literal <text>: print <text> with every regex metacharacter backslash-escaped, so it
+#   matches only itself inside a file-context pattern. A path is spliced into a regex, where an unescaped `.` in
+#   `app.v1` also matches `appXv1` and a `+`, `(` or `|` changes which paths the rule covers.
 #   args: $1 literal text  stdout: the escaped text
-ai_tools_fcontext_literal() {
+ai_tools_relabel__get_fcontext_literal() {
     local text="$1" out="" char i
     for (( i = 0; i < ${#text}; i++ )); do
         char="${text:i:1}"
@@ -209,7 +210,7 @@ ai_tools_fcontext_literal() {
     printf '%s' "${out}"
 }
 
-# _ai_tools_local_rules_under <dir>: print every LOCAL file-context pattern registered under
+# _ai_tools_relabel__list_local_rules_under <dir>: print every LOCAL file-context pattern registered under
 #   <dir>'s own rule -- the ones that start with `<dir>(/.*)?/` -- one per line. That is how an
 #   unlabel finds the build rule it has to drop without recomputing it: the declared name set may
 #   have changed since the claim, and a rule left behind would keep a subtree of an unclaimed
@@ -217,7 +218,7 @@ ai_tools_fcontext_literal() {
 #   (pattern, file-type words, context), stripping the trailing two fields so a pattern carrying
 #   a space survives. <dir> is matched as given, so a caller passes the encoding the rule was
 #   written with. Root-only, since the store is.
-_ai_tools_local_rules_under() {
+_ai_tools_relabel__list_local_rules_under() {
     local prefix="$1(/.*)?/" line pattern
     while IFS= read -r line; do
         pattern="$(sed -E 's/[[:space:]]+(all files|regular file|directory|character device|block device|socket|symbolic link|named pipe)[[:space:]]+[^[:space:]]+[[:space:]]*$//' <<<"${line}")"
@@ -226,23 +227,23 @@ _ai_tools_local_rules_under() {
     done < <(semanage fcontext -l -C -n 2>/dev/null || true)
 }
 
-# _ai_tools_retire_raw_project_rules <dir>: delete the unescaped rules an earlier label wrote for <dir> -- its project
-#   rule `<dir>(/.*)?` and every rule under `<dir>(/.*)?/` -- when each carries the type this library writes for it
-#   (ai_tools_project_t, ai_tools_project_build_t). Those two facts are the rule's provenance: the pattern is this
+# _ai_tools_relabel__retire_raw_project_rules <dir>: delete the unescaped rules an earlier label wrote for <dir> -- its
+#   project rule `<dir>(/.*)?` and every rule under `<dir>(/.*)?/` -- when each carries the type this library writes for
+#   it (ai_tools_project_t, ai_tools_project_build_t). Those two facts are the rule's provenance: the pattern is this
 #   directory's raw encoding and the type is ours. A rule on either pattern with any other type was not written here,
-#   and is left in place and named on stderr for the operator to review. Returns 0 when it removed the raw project
-#   rule, 1 otherwise -- including when <dir> does not carry a regex metacharacter, since the raw and escaped
-#   encodings are then the same rule. Root-only, since the store is.
-_ai_tools_retire_raw_project_rules() {
+#   and is left in place and named on stderr for the operator to review. Returns 0 when it removed the raw project rule,
+#   1 otherwise -- including when <dir> does not carry a regex metacharacter, since the raw and escaped encodings are
+#   then the same rule. Root-only, since the store is.
+_ai_tools_relabel__retire_raw_project_rules() {
     local dir="$1" line pattern type retired=1
-    [[ "$(ai_tools_fcontext_literal "${dir}")" != "${dir}" ]] || return 1
+    [[ "$(ai_tools_relabel__get_fcontext_literal "${dir}")" != "${dir}" ]] || return 1
     while IFS= read -r line; do
         pattern="$(sed -E 's/[[:space:]]+(all files|regular file|directory|character device|block device|socket|symbolic link|named pipe)[[:space:]]+[^[:space:]]+[[:space:]]*$//' <<<"${line}")"
         type="$(awk '{print $NF}' <<<"${line}" | cut -d: -f3)"
         if [[ "${pattern}" == "${dir}(/.*)?" ]]; then
-            [[ "${type}" == "${AI_TOOLS_PROJECT_TYPE}" ]] || { _ai_tools_raw_rule_review "${pattern}" "${type}"; continue; }
+            [[ "${type}" == "${AI_TOOLS_RELABEL__PROJECT_TYPE}" ]] || { _ai_tools_relabel__review_raw_rule "${pattern}" "${type}"; continue; }
         elif [[ "${pattern}" == "${dir}(/.*)?/"* ]]; then
-            [[ "${type}" == "${AI_TOOLS_PROJECT_BUILD_TYPE}" ]] || { _ai_tools_raw_rule_review "${pattern}" "${type}"; continue; }
+            [[ "${type}" == "${AI_TOOLS_RELABEL__PROJECT_BUILD_TYPE}" ]] || { _ai_tools_relabel__review_raw_rule "${pattern}" "${type}"; continue; }
         else
             continue
         fi
@@ -257,23 +258,24 @@ _ai_tools_retire_raw_project_rules() {
     return "${retired}"
 }
 
-# _ai_tools_raw_rule_review <pattern> <type>: name on stderr a local rule on a project's raw pattern whose type differs
-#   from the one this library writes there, so the operator decides whether to remove it.
-_ai_tools_raw_rule_review() {
+# _ai_tools_relabel__review_raw_rule <pattern> <type>: name on stderr a local rule on a project's raw pattern whose type
+#   differs from the one this library writes there, so the operator decides whether to remove it.
+_ai_tools_relabel__review_raw_rule() {
     printf 'relabel: left the unescaped rule %s (%s) in place: its type is not one this tool writes; review it with: sudo semanage fcontext -l -C\n' \
         "$1" "$2" >&2
 }
 
-# _ai_tools_raw_rule_matches <dir>: print every existing path outside <dir> that <dir>'s raw rule `<dir>(/.*)?` matched,
-#   one per line. In that regex each `.` matches any character, `/` included, so the candidates are the paths with every
-#   `.` read as itself, as one other character within a component, or as `/`; each candidate found on disk is kept only
-#   when the raw regex matches it. A <dir> holding another metacharacter is not enumerated: it is named on stderr and
-#   prints nothing, since no glob reproduces what that regex matched. Also skipped past eight dots (2^8 candidates).
-_ai_tools_raw_rule_matches() {
+# _ai_tools_relabel__find_raw_rule_matches <dir>: print every existing path outside <dir> that <dir>'s raw rule
+#   `<dir>(/.*)?` matched, one per line. In that regex each `.` matches any character, `/` included, so the candidates
+#   are the paths with every `.` read as itself, as one other character within a component, or as `/`; each candidate
+#   found on disk is kept only when the raw regex matches it. A <dir> holding another metacharacter is not enumerated:
+#   it is named on stderr and prints nothing, since no glob reproduces what that regex matched. Also skipped past eight
+#   dots (2^8 candidates).
+_ai_tools_relabel__find_raw_rule_matches() {
     local dir="$1" rest char g candidate i
     local -a globs=("") next
     rest="${dir//./}"
-    if [[ "$(ai_tools_fcontext_literal "${rest}")" != "${rest}" ]]; then
+    if [[ "$(ai_tools_relabel__get_fcontext_literal "${rest}")" != "${rest}" ]]; then
         printf 'relabel: %s holds a regex metacharacter other than ".", so the paths its unescaped rule matched are not enumerated; relabel any it covered with: sudo restorecon -R <path>\n' \
             "${dir}" >&2
         return 0
@@ -307,12 +309,12 @@ _ai_tools_raw_rule_matches() {
     ) | LC_ALL=C sort -u
 }
 
-# _ai_tools_relabel_raw_rule_matches <dir>: restorecon each path <dir>'s raw rule matched outside <dir>, once that rule
-#   is gone, so a path it gave ai_tools_project_t takes the type the remaining rules give it. Plain `restorecon -R`,
-#   not `-F`: a customizable type set on such a path is the operator's, and the raw rule could not have put it there.
-#   Each path is named on stderr. The caller runs it only once it removed that rule: without one, the paths beside
-#   <dir> are outside anything this library labelled.
-_ai_tools_relabel_raw_rule_matches() {
+# _ai_tools_relabel__relabel_raw_rule_matches <dir>: restorecon each path <dir>'s raw rule matched outside <dir>, once
+#   that rule is gone, so a path it gave ai_tools_project_t takes the type the remaining rules give it. Plain
+#   `restorecon -R`, not `-F`: a customizable type set on such a path is the operator's, and the raw rule could not have
+#   put it there. Each path is named on stderr. The caller runs it only once it removed that rule: without one, the
+#   paths beside <dir> are outside anything this library labelled.
+_ai_tools_relabel__relabel_raw_rule_matches() {
     local path
     while IFS= read -r path; do
         [[ -n "${path}" ]] || continue
@@ -321,16 +323,16 @@ _ai_tools_relabel_raw_rule_matches() {
         else
             printf 'relabel: could not restore the label on %s; run: sudo restorecon -R %s\n' "${path}" "${path}" >&2
         fi
-    done < <(_ai_tools_raw_rule_matches "$1")
+    done < <(_ai_tools_relabel__find_raw_rule_matches "$1")
 }
 
-# ai_tools_label_project <dir>: ensure <dir> and its subtree carry ai_tools_project_t, and its declared build-output
-# directories ai_tools_project_build_t. Adds (or refreshes) the per-project fcontext rules -- skipped for sandbox
-# clones, which the static rules already cover -- then forces the label with `restorecon -FR`. Returns 2 if SELinux is
-# unavailable, 1 on a hard failure (e.g. a type is not in the loaded policy because the module is not installed,
-# or restorecon left the tree on the wrong type because no fcontext rule matched the path), 0 on success. Both rules
-# must register: a build rule the store refuses is a policy older than this library, and reporting it as a failed label
-# is what gets the module rebuilt rather than leaving output on a type the group cannot run.
+# ai_tools_relabel__label_project <dir>: ensure <dir> and its subtree carry ai_tools_project_t, and its declared
+# build-output directories ai_tools_project_build_t. Adds (or refreshes) the per-project fcontext rules -- skipped
+# for sandbox clones, which the static rules already cover -- then forces the label with `restorecon -FR`. Returns 2 if
+# SELinux is unavailable, 1 on a hard failure (e.g. a type is not in the loaded policy because the module is not
+# installed, or restorecon left the tree on the wrong type because no fcontext rule matched the path), 0 on success.
+# Both rules must register: a build rule the store refuses is a policy older than this library, and reporting it
+# as a failed label is what gets the module rebuilt rather than leaving output on a type the group cannot run.
 #
 # The relabel is FORCED (`-F`), and that is load-bearing, not a tuning choice. A file created inside a labelled
 # directory inherits ai_tools_project_t on its own, so an ordinary edit never drifts. But a file brought in carrying
@@ -344,28 +346,28 @@ _ai_tools_relabel_raw_rule_matches() {
 # The fcontext rule is asserted whether or not the type already matches: it is what makes the type survive a future
 # restorecon, and re-asserting it is how a type change from a policy bump reaches an existing project. The same re-label
 # is how an upgraded host sheds the unescaped rules a label wrote before paths were escaped
-# (_ai_tools_retire_raw_project_rules): an RPM upgrade does not sweep projects, so a host converges on the next claim,
-# `ai-tools-relabel`, or `install-selinux.sh` sweep of each project.
-ai_tools_label_project() {
+# (_ai_tools_relabel__retire_raw_project_rules): an RPM upgrade does not sweep projects, so a host converges on the next
+# claim, `ai-tools-relabel`, or `install-selinux.sh` sweep of each project.
+ai_tools_relabel__label_project() {
     local dir="$1" build_pattern literal
-    ai_tools_relabel_available || return 2
-    if ! _ai_tools_is_sandbox "${dir}"; then
-        literal="$(ai_tools_fcontext_literal "${dir}")"
+    ai_tools_relabel__is_available || return 2
+    if ! _ai_tools_relabel__is_under_sandbox_root "${dir}"; then
+        literal="$(ai_tools_relabel__get_fcontext_literal "${dir}")"
         # `-a` on an existing entry reports it on stdout as well as failing, so both streams are dropped: the fallback
         # to `-m` is the handling, and the message reads as an error.
-        semanage fcontext -a -t "${AI_TOOLS_PROJECT_TYPE}" "${literal}(/.*)?" >/dev/null 2>&1 \
-            || semanage fcontext -m -t "${AI_TOOLS_PROJECT_TYPE}" "${literal}(/.*)?" >/dev/null 2>&1 \
+        semanage fcontext -a -t "${AI_TOOLS_RELABEL__PROJECT_TYPE}" "${literal}(/.*)?" >/dev/null 2>&1 \
+            || semanage fcontext -m -t "${AI_TOOLS_RELABEL__PROJECT_TYPE}" "${literal}(/.*)?" >/dev/null 2>&1 \
             || return 1
-        # The build rule goes in AFTER the project rule (see ai_tools_project_build_pattern).
-        if build_pattern="$(ai_tools_project_build_pattern "${dir}")"; then
-            semanage fcontext -a -t "${AI_TOOLS_PROJECT_BUILD_TYPE}" -- "${build_pattern}" >/dev/null 2>&1 \
-                || semanage fcontext -m -t "${AI_TOOLS_PROJECT_BUILD_TYPE}" -- "${build_pattern}" >/dev/null 2>&1 \
+        # The build rule goes in AFTER the project rule (see ai_tools_relabel__read_project_build_pattern).
+        if build_pattern="$(ai_tools_relabel__read_project_build_pattern "${dir}")"; then
+            semanage fcontext -a -t "${AI_TOOLS_RELABEL__PROJECT_BUILD_TYPE}" -- "${build_pattern}" >/dev/null 2>&1 \
+                || semanage fcontext -m -t "${AI_TOOLS_RELABEL__PROJECT_BUILD_TYPE}" -- "${build_pattern}" >/dev/null 2>&1 \
                 || return 1
         fi
         # A host labelled before paths were escaped still holds the raw rules, which keep matching the paths beside
         # <dir> that a `.` in it reaches. They go once the escaped rules are in, and those paths are relabelled.
-        if _ai_tools_retire_raw_project_rules "${dir}"; then
-            _ai_tools_relabel_raw_rule_matches "${dir}"
+        if _ai_tools_relabel__retire_raw_project_rules "${dir}"; then
+            _ai_tools_relabel__relabel_raw_rule_matches "${dir}"
         fi
     fi
     restorecon -FR "${dir}" 2>/dev/null || return 1
@@ -375,34 +377,34 @@ ai_tools_label_project() {
     # via file_contexts.subs_dist, does not match a path and leaves the tree on its default type). Left unchecked
     # that is a silent mislabel the confined agent cannot use; treat it as a hard failure the caller reports rather than
     # a false success.
-    ai_tools_project_labelled "${dir}" || return 1
+    ai_tools_relabel__is_project_labelled "${dir}" || return 1
 }
 
-# ai_tools_unlabel_project <dir>: drop the per-project fcontext rules for <dir> -- its own rule and every local rule
-# registered under it (the build rule, under whatever name set it was written with) -- and restorecon the subtree back
-# to its default type (e.g. user_home_t). The semanage deletes are skipped for sandbox clones (no local rule was ever
-# added); the restorecon still runs. Returns 2 if SELinux is unavailable, 1 on restorecon failure, 0 otherwise.
+# ai_tools_relabel__unlabel_project <dir>: drop the per-project fcontext rules for <dir> -- its own rule and every local
+# rule registered under it (the build rule, under whatever name set it was written with) -- and restorecon the subtree
+# back to its default type (e.g. user_home_t). The semanage deletes are skipped for sandbox clones (no local rule was
+# ever added); the restorecon still runs. Returns 2 if SELinux is unavailable, 1 on restorecon failure, 0 otherwise.
 #
-# The rules are looked up under the escaped encoding ai_tools_label_project writes and, where it differs, under the raw
-# path, which is how a rule registered before paths were escaped is found: one left behind would keep the project type
-# on a path the unclaim meant to release.
-ai_tools_unlabel_project() {
+# The rules are looked up under the escaped encoding ai_tools_relabel__label_project writes and, where it differs,
+# under the raw path, which is how a rule registered before paths were escaped is found: one left behind would keep
+# the project type on a path the unclaim meant to release.
+ai_tools_relabel__unlabel_project() {
     local dir="$1" pattern encoding raw_retired=1
     local -a encodings
-    ai_tools_relabel_available || return 2
-    if ! _ai_tools_is_sandbox "${dir}"; then
-        encodings=("$(ai_tools_fcontext_literal "${dir}")")
+    ai_tools_relabel__is_available || return 2
+    if ! _ai_tools_relabel__is_under_sandbox_root "${dir}"; then
+        encodings=("$(ai_tools_relabel__get_fcontext_literal "${dir}")")
         [[ "${encodings[0]}" == "${dir}" ]] || encodings+=("${dir}")
         for encoding in "${encodings[@]}"; do
             while IFS= read -r pattern; do
                 [[ -n "${pattern}" ]] || continue
                 semanage fcontext -d -- "${pattern}" >/dev/null 2>&1 || true
-            done < <(_ai_tools_local_rules_under "${encoding}")
+            done < <(_ai_tools_relabel__list_local_rules_under "${encoding}")
             if semanage fcontext -d "${encoding}(/.*)?" 2>/dev/null; then
                 [[ "${encoding}" != "${encodings[0]}" ]] && raw_retired=0
             fi
         done
-        (( raw_retired == 0 )) && _ai_tools_relabel_raw_rule_matches "${dir}"
+        (( raw_retired == 0 )) && _ai_tools_relabel__relabel_raw_rule_matches "${dir}"
     fi
     restorecon -FR "${dir}" 2>/dev/null || return 1
 }
@@ -420,24 +422,25 @@ ai_tools_unlabel_project() {
 #                                            home root is usr_t, which ai_tools_t may not write).
 #
 # Each declaration is checked to be containable -- the entrypoint pattern under the sandbox toolchain
-# (ai_tools_entrypoint_fcontext_valid, providers.lib.sh, called with AI_TOOLS_NODE_VERSIONS_ROOT), the config directory
-# to one component under the sandbox home (ai_tools_agent_config_dir_valid, control-plane.lib.sh). So a second agent
-# brings its binary and its state directory into this policy without the base policy naming either.
+# (ai_tools_providers__is_entrypoint_fcontext_valid, providers.lib.sh, called
+# with AI_TOOLS_RELABEL__NODE_VERSIONS_ROOT), the config directory to one component under the sandbox home
+# (ai_tools_control_plane__is_agent_config_dir_valid, control-plane.lib.sh). So a second agent brings its binary and its
+# state directory into this policy without the base policy naming either.
 
-# _ai_tools_entrypoint_path_reportable <path>: succeed when <path> may be put in a status line.
+# _ai_tools_relabel__is_entrypoint_path_reportable <path>: succeed when <path> may be put in a status line.
 #   The paths this pass reconciles are AGENT-INFLUENCED -- the middle link of the launcher chain is an
 #   npm symlink the sandbox account owns -- and a status line is read back by a root helper that
 #   splits it on whitespace and prints the fields to an operator's terminal. So a name is carried
 #   only while it is absolute, `..`-free, and drawn from the same character set a declared pattern
 #   is allowed; anything else is reported as unusable rather than emitted raw. Allowlist, not
 #   blocklist: `]` leads the set and `-` closes it, the POSIX way to include both.
-_ai_tools_entrypoint_path_reportable() {
+_ai_tools_relabel__is_entrypoint_path_reportable() {
     local path="${1:-}"
     [[ "${path}" == /* && "${path}" != *..* ]] || return 1
     [[ "${path}" =~ ^[]A-Za-z0-9_./@+^[-]+$ ]]
 }
 
-# ai_tools_entrypoint_reconcile_verdict <installed-path> <covered> <matched> [copy]: pure verdict, no I/O
+# ai_tools_relabel__evaluate_entrypoint_reconcile <installed-path> <covered> <matched> [copy]: pure verdict, no I/O
 #   -- reconcile what an agent's manifest DECLARES against what its package actually INSTALLED,
 #   and print one of:
 #     ok          the declared rule governs the installed entrypoint (or no entrypoint is installed and
@@ -473,7 +476,7 @@ _ai_tools_entrypoint_path_reportable() {
 #   version whose package is still whole reads as `stale` on that older copy's match -- the declared
 #   entrypoint is installed, and it is the launcher that resolves elsewhere.
 #   The unit test relabel.sh drives the truth table.
-ai_tools_entrypoint_reconcile_verdict() {
+ai_tools_relabel__evaluate_entrypoint_reconcile() {
     local installed="${1:-}" covered="${2:-}" matched="${3:-}" copy="${4:-}"
     if [[ -z "${installed}" ]]; then
         [[ "${matched}" == yes ]] && { printf 'ok'; return 0; }
@@ -485,35 +488,35 @@ ai_tools_entrypoint_reconcile_verdict() {
     printf 'incomplete'
 }
 
-# _ai_tools_entrypoint_policy_active: succeed when there is an ai_tools_exec_t to assign, i.e.
+# _ai_tools_relabel__is_entrypoint_policy_active: succeed when there is an ai_tools_exec_t to assign, i.e.
 #   SELinux is on, the labelling tools are present, and the ai_tools module is loaded. Where it
 #   fails there is no entrypoint to label and that is not an error -- the SELinux layer is optional.
-_ai_tools_entrypoint_policy_active() {
-    ai_tools_relabel_available || return 1
+_ai_tools_relabel__is_entrypoint_policy_active() {
+    ai_tools_relabel__is_available || return 1
     command -v semanage >/dev/null 2>&1 || return 1
     command -v semodule  >/dev/null 2>&1 || return 1
     # Captured, not piped into `grep -q`: an early-exiting reader makes semodule die of SIGPIPE and pipefail then
-    # reports the probe failed -- see ai_tools_selinux_group_loaded.
+    # reports the probe failed -- see ai_tools_selinux_groups__is_loaded.
     local modules
     modules="$(semodule -l 2>/dev/null || true)"
     grep -qE '^ai_tools([[:space:]]|$)' <<<"${modules}"
 }
 
 # Why the last file-context rule could not be registered -- semanage's own stderr, newlines collapsed to keep it on one
-# line. Set by _ai_tools_fcontext for the caller that just called it, which appends it to the `skip` status line it
-# prints. That is why the reason travels on STDOUT rather than in this variable alone: ai_tools_label_agent_paths runs
-# inside a `$(...)` in ai-tools-relabel-agent, and a variable set in that subshell does not survive the substitution,
-# while its report does.
-AI_TOOLS_FCONTEXT_ERROR=""
+# line. Set by _ai_tools_relabel__register_fcontext for the caller that just called it, which appends it to the `skip`
+# status line it prints. That is why the reason travels on STDOUT rather than in this variable alone:
+# ai_tools_relabel__label_agent_paths runs inside a `$(...)` in ai-tools-relabel-agent, and a variable set
+# in that subshell does not survive the substitution, while its report does.
+AI_TOOLS_RELABEL__FCONTEXT_ERROR=""
 
-# _ai_tools_fcontext <add|delete> <file-type> <selinux-type> <pattern>: register or drop the local
+# _ai_tools_relabel__register_fcontext <add|delete> <file-type> <selinux-type> <pattern>: register or drop the local
 #   file-context rule mapping <pattern> to <selinux-type>, scoped by semanage's file-type letter
 #   (`f` regular files, as the base policy's own `--` rules are scoped; `a` all types, for a
 #   subtree). Some semanage versions refuse an `-a` for a pattern already registered and others
 #   modify it in place, so an add falls back to `-m` and the call is idempotent either way.
-_ai_tools_fcontext() {
+_ai_tools_relabel__register_fcontext() {
     local action="$1" file_type="$2" selinux_type="$3" pattern="$4" add_error modify_error
-    AI_TOOLS_FCONTEXT_ERROR=""
+    AI_TOOLS_RELABEL__FCONTEXT_ERROR=""
     if [[ "${action}" == delete ]]; then
         semanage fcontext -d -f "${file_type}" -- "${pattern}" >/dev/null 2>&1 || true
         return 0
@@ -521,7 +524,7 @@ _ai_tools_fcontext() {
     # stdout is dropped and stderr is KEPT. semanage announces "already defined, modifying instead" on stdout, while
     # this function's caller emits a PARSED report on that stream, so anything written there is read as a verdict line.
     # stderr carries the reason an add was refused -- a policy store another semanage transaction holds, a type
-    # the loaded policy does not define -- which reaches the operator through AI_TOOLS_FCONTEXT_ERROR.
+    # the loaded policy does not define -- which reaches the operator through AI_TOOLS_RELABEL__FCONTEXT_ERROR.
     add_error="$(semanage fcontext -a -f "${file_type}" -t "${selinux_type}" -- "${pattern}" 2>&1 >/dev/null)" \
         && return 0
     modify_error="$(semanage fcontext -m -f "${file_type}" -t "${selinux_type}" -- "${pattern}" 2>&1 >/dev/null)" \
@@ -529,29 +532,29 @@ _ai_tools_fcontext() {
     # The add's message names the cause; the modify's usually reports the consequence ("not defined"), so it is
     # the fallback rather than the first choice. Newlines and carriage returns are collapsed: the caller puts this
     # on a status line its reader splits per line, so a multi-line message would read as extra verdicts.
-    AI_TOOLS_FCONTEXT_ERROR="${add_error:-${modify_error:-semanage gave no reason}}"
-    AI_TOOLS_FCONTEXT_ERROR="${AI_TOOLS_FCONTEXT_ERROR//$'\n'/ }"
-    AI_TOOLS_FCONTEXT_ERROR="${AI_TOOLS_FCONTEXT_ERROR//$'\r'/ }"
+    AI_TOOLS_RELABEL__FCONTEXT_ERROR="${add_error:-${modify_error:-semanage gave no reason}}"
+    AI_TOOLS_RELABEL__FCONTEXT_ERROR="${AI_TOOLS_RELABEL__FCONTEXT_ERROR//$'\n'/ }"
+    AI_TOOLS_RELABEL__FCONTEXT_ERROR="${AI_TOOLS_RELABEL__FCONTEXT_ERROR//$'\r'/ }"
     return 1
 }
 
-# _ai_tools_agent_config_pattern <config-dir-name>: print the file-context pattern for an agent's
-#   config directory and everything under it. The name is escaped (ai_tools_fcontext_literal) and has
+# _ai_tools_relabel__get_agent_config_pattern <config-dir-name>: print the file-context pattern for an agent's
+#   config directory and everything under it. The name is escaped (ai_tools_relabel__get_fcontext_literal) and has
 #   already been validated as one component.
-_ai_tools_agent_config_pattern() {
-    printf '%s/%s(/.*)?' "$(ai_tools_fcontext_literal "${CP_HOME}")" "$(ai_tools_fcontext_literal "$1")"
+_ai_tools_relabel__get_agent_config_pattern() {
+    printf '%s/%s(/.*)?' "$(ai_tools_relabel__get_fcontext_literal "${CP_HOME}")" "$(ai_tools_relabel__get_fcontext_literal "$1")"
 }
 
-# _ai_tools_entrypoint_paths <pattern>: print each installed file the pattern matches. find's
+# _ai_tools_relabel__find_entrypoint_paths <pattern>: print each installed file the pattern matches. find's
 #   POSIX-extended `-regex` matches the whole path, the same anchoring SELinux gives a file-context
 #   regex, so the set relabelled here is the set the rule governs -- no second pattern language.
 #   The walk is rooted at the toolchain (never `/`) and runs on a relabel, not on a launch.
-_ai_tools_entrypoint_paths() {
-    find "${AI_TOOLS_NODE_VERSIONS_ROOT}" -xdev -regextype posix-extended \
+_ai_tools_relabel__find_entrypoint_paths() {
+    find "${AI_TOOLS_RELABEL__NODE_VERSIONS_ROOT}" -xdev -regextype posix-extended \
          -regex "$1" -type f 2>/dev/null
 }
 
-# ai_tools_agent_entrypoint_path <agent>: print the file <agent>'s stable launcher symlink resolves to
+# ai_tools_relabel__resolve_agent_entrypoint_path <agent>: print the file <agent>'s stable launcher symlink resolves to
 #   -- the inode execve transitions on, which is what makes the reconciliation independent of
 #   where a manifest says the executable lives. This is the SAME resolution ai-tools-run's preflight
 #   and ai-tools-launcher-symlink's idempotency guard perform (`realpath -e` through the chain), so
@@ -561,32 +564,32 @@ _ai_tools_entrypoint_paths() {
 #   Prints an empty string and returns non-zero when the agent does not declare a usable launcher name, the link
 #   does not resolve (the agent is not provisioned -- the ordinary pre-bootstrap state), or the
 #   result is not reportable. The launcher name is allowlisted to one plain component before it
-#   becomes a path, the same guard ai_tools_agent_manifest_field applies to an agent name, so a
+#   becomes a path, the same guard ai_tools_providers__read_agent_manifest_field applies to an agent name, so a
 #   manifest cannot address a link outside the control-plane bin directory.
-ai_tools_agent_entrypoint_path() {
+ai_tools_relabel__resolve_agent_entrypoint_path() {
     local agent="$1" launcher resolved
-    launcher="$(ai_tools_agent_manifest_field "${agent}" launcher || true)"
+    launcher="$(ai_tools_providers__read_agent_manifest_field "${agent}" launcher || true)"
     [[ "${launcher}" =~ ^[A-Za-z0-9._-]+$ && "${launcher}" != *..* ]] || return 1
     resolved="$(realpath -e "${AI_TOOLS_LAUNCHER_DIR}/${launcher}" 2>/dev/null)" || return 1
-    _ai_tools_entrypoint_path_reportable "${resolved}" || return 1
+    _ai_tools_relabel__is_entrypoint_path_reportable "${resolved}" || return 1
     printf '%s\n' "${resolved}"
 }
 
-# _ai_tools_live_type <path> : print the TYPE field of the label <path> carries right now, or an
+# _ai_tools_relabel__read_live_type <path> : print the TYPE field of the label <path> carries right now, or an
 #   empty string when it cannot be read. The one place a live label is read, shared by the verify
 #   verify pass and by the read-only report at the end of this file, so "what type is on this file"
 #   has one answer however it is asked. Needs to traverse the 0750 toolchain, so in practice root.
-_ai_tools_live_type() {
+_ai_tools_relabel__read_live_type() {
     stat -c '%C' -- "$1" 2>/dev/null | awk -F: '{print $3}'
 }
 
-# _ai_tools_verify_label <path> <wanted-type> : restore the label on <path> and report the
-#   outcome as one status line (see ai_tools_label_agent_paths). Returns non-zero when the path
+# _ai_tools_relabel__verify_label <path> <wanted-type> : restore the label on <path> and report the
+#   outcome as one status line (see ai_tools_relabel__label_agent_paths). Returns non-zero when the path
 #   did not take the type.
-_ai_tools_verify_label() {
+_ai_tools_relabel__verify_label() {
     local path="$1" wanted="$2" context
     restorecon -F "${path}" 2>/dev/null || true
-    context="$(_ai_tools_live_type "${path}")"
+    context="$(_ai_tools_relabel__read_live_type "${path}")"
     if [[ "${context}" == "${wanted}" ]]; then
         printf 'ok %s\n' "${path}"
         return 0
@@ -595,33 +598,32 @@ _ai_tools_verify_label() {
     return 1
 }
 
-# _ai_tools_label_agent_entrypoint <agent> : the entrypoint half of ai_tools_label_agent_paths. Applies the
-#   declared rule, then RECONCILES it against the installed entrypoint. Emits status lines; returns
-#   non-zero on a refusal, a path that did not take the type, or a declaration the installed
-#   entrypoint has outgrown.
+# _ai_tools_relabel__label_agent_entrypoint <agent> : the entrypoint half of ai_tools_relabel__label_agent_paths.
+#   Applies the declared rule, then RECONCILES it against the installed entrypoint. Emits status lines; returns non-zero
+#   on a refusal, a path that did not take the type, or a declaration the installed entrypoint has outgrown.
 #
 #   The declared pattern stays the mechanism that APPLIES the label, because a `semanage fcontext`
 #   rule is what makes the type survive a later restorecon -- resolution alone would relabel an
 #   inode no rule keeps labelled. Resolution is what CHECKS the result, so this helper's exit
 #   status answers the question the operator actually asked: will the next launch be confined?
-_ai_tools_label_agent_entrypoint() {
+_ai_tools_relabel__label_agent_entrypoint() {
     local agent="$1" pattern path status=0 matched=no installed covered=no
     # Resolved BEFORE the rule is applied, so a later refusal still leaves the reconciliation inputs gathered
     # from the same state the launch preflight would see.
-    installed="$(ai_tools_agent_entrypoint_path "${agent}" || true)"
-    pattern="$(ai_tools_agent_manifest_field "${agent}" entrypoint_fcontext || true)"
+    installed="$(ai_tools_relabel__resolve_agent_entrypoint_path "${agent}" || true)"
+    pattern="$(ai_tools_providers__read_agent_manifest_field "${agent}" entrypoint_fcontext || true)"
     if [[ -z "${pattern}" ]]; then
         printf 'skip %s declares no entrypoint_fcontext\n' "${agent}"
         return 0
     fi
-    if ! ai_tools_entrypoint_fcontext_valid "${pattern}" "${AI_TOOLS_NODE_VERSIONS_ROOT}"; then
+    if ! ai_tools_providers__is_entrypoint_fcontext_valid "${pattern}" "${AI_TOOLS_RELABEL__NODE_VERSIONS_ROOT}"; then
         printf 'skip %s entrypoint_fcontext is not a plain path pattern under %s\n' \
-            "${agent}" "${AI_TOOLS_NODE_VERSIONS_ROOT}"
+            "${agent}" "${AI_TOOLS_RELABEL__NODE_VERSIONS_ROOT}"
         return 1
     fi
-    if ! _ai_tools_fcontext add f "${AI_TOOLS_ENTRYPOINT_TYPE}" "${pattern}"; then
+    if ! _ai_tools_relabel__register_fcontext add f "${AI_TOOLS_RELABEL__ENTRYPOINT_TYPE}" "${pattern}"; then
         printf 'skip %s could not register its entrypoint file-context rule -- %s\n' \
-            "${agent}" "${AI_TOOLS_FCONTEXT_ERROR}"
+            "${agent}" "${AI_TOOLS_RELABEL__FCONTEXT_ERROR}"
         return 1
     fi
     local -a matches=()
@@ -629,8 +631,8 @@ _ai_tools_label_agent_entrypoint() {
         matched=yes
         matches+=("${path}")
         [[ "${path}" == "${installed}" ]] && covered=yes
-        _ai_tools_verify_label "${path}" "${AI_TOOLS_ENTRYPOINT_TYPE}" || status=1
-    done < <(_ai_tools_entrypoint_paths "${pattern}")
+        _ai_tools_relabel__verify_label "${path}" "${AI_TOOLS_RELABEL__ENTRYPOINT_TYPE}" || status=1
+    done < <(_ai_tools_relabel__find_entrypoint_paths "${pattern}")
     # Whether the launcher resolves to a copy of a declared entrypoint, the one divergence the toolchain's own links
     # explain. Read by content, a comparison and not an execution, and only once the path check has already failed.
     local copy=no
@@ -640,7 +642,7 @@ _ai_tools_label_agent_entrypoint() {
         done
     fi
 
-    case "$(ai_tools_entrypoint_reconcile_verdict "${installed}" "${covered}" "${matched}" "${copy}")" in
+    case "$(ai_tools_relabel__evaluate_entrypoint_reconcile "${installed}" "${covered}" "${matched}" "${copy}")" in
         # 3, not 0: the rule registered and no step failed, but no file took the type because none is installed yet.
         # The caller reports that as `nothing to label`, not as labels applied: on an unprovisioned host that is
         # the difference between a true report and a green line for work that did not happen.
@@ -653,24 +655,24 @@ _ai_tools_label_agent_entrypoint() {
     return "${status}"
 }
 
-# _ai_tools_label_agent_config_dir <agent> : the config-directory half. Same shape; the subtree is
+# _ai_tools_relabel__label_agent_config_dir <agent> : the config-directory half. Same shape; the subtree is
 #   restored recursively, and only the directory itself is verified (its contents inherit).
-_ai_tools_label_agent_config_dir() {
+_ai_tools_relabel__label_agent_config_dir() {
     local agent="$1" config_dir path pattern
-    config_dir="$(ai_tools_agent_manifest_field "${agent}" config_dir || true)"
+    config_dir="$(ai_tools_providers__read_agent_manifest_field "${agent}" config_dir || true)"
     if [[ -z "${config_dir}" ]]; then
         printf 'skip %s declares no config_dir\n' "${agent}"
         return 0
     fi
-    if ! declare -F ai_tools_agent_config_dir_valid >/dev/null 2>&1 \
-            || ! ai_tools_agent_config_dir_valid "${config_dir}"; then
+    if ! declare -F ai_tools_control_plane__is_agent_config_dir_valid >/dev/null 2>&1 \
+            || ! ai_tools_control_plane__is_agent_config_dir_valid "${config_dir}"; then
         printf 'skip %s config_dir is not one plain component under %s\n' "${agent}" "${CP_HOME}"
         return 1
     fi
-    pattern="$(_ai_tools_agent_config_pattern "${config_dir}")"
-    if ! _ai_tools_fcontext add a "${AI_TOOLS_AGENT_CONFIG_TYPE}" "${pattern}"; then
+    pattern="$(_ai_tools_relabel__get_agent_config_pattern "${config_dir}")"
+    if ! _ai_tools_relabel__register_fcontext add a "${AI_TOOLS_RELABEL__AGENT_CONFIG_TYPE}" "${pattern}"; then
         printf 'skip %s could not register its config-directory file-context rule -- %s\n' \
-            "${agent}" "${AI_TOOLS_FCONTEXT_ERROR}"
+            "${agent}" "${AI_TOOLS_RELABEL__FCONTEXT_ERROR}"
         return 1
     fi
     path="${CP_HOME}/${config_dir}"
@@ -679,10 +681,10 @@ _ai_tools_label_agent_config_dir() {
         return 3
     fi
     restorecon -FR "${path}" 2>/dev/null || true
-    _ai_tools_verify_label "${path}" "${AI_TOOLS_AGENT_CONFIG_TYPE}"
+    _ai_tools_relabel__verify_label "${path}" "${AI_TOOLS_RELABEL__AGENT_CONFIG_TYPE}"
 }
 
-# ai_tools_label_agent_paths: apply every ENABLED agent's declared file-context rules -- its
+# ai_tools_relabel__label_agent_paths: apply every ENABLED agent's declared file-context rules -- its
 #   entrypoint and its config directory -- and restore the labels on what they match. Prints one
 #   status line per outcome, for the caller to render in its own voice:
 #     ok    <path>                     the path carries the type the base pins for it
@@ -705,15 +707,15 @@ _ai_tools_label_agent_config_dir() {
 #   Returns 0 when every path it managed is correctly labelled, 1 when one is not, a rule could
 #   not be registered, or an entrypoint is installed that the declared rule does not govern, and 2
 #   when the SELinux layer is inactive (no work to do).
-ai_tools_label_agent_paths() {
-    _ai_tools_entrypoint_policy_active || return 2
-    declare -F ai_tools_enabled_agents >/dev/null 2>&1 || return 2
+ai_tools_relabel__label_agent_paths() {
+    _ai_tools_relabel__is_entrypoint_policy_active || return 2
+    declare -F ai_tools_providers__list_enabled_agents >/dev/null 2>&1 || return 2
     local agent status=0 entrypoint_rc config_rc agent_status
     while IFS=$'\t' read -r agent _ _; do
         [[ -n "${agent}" ]] || continue
         entrypoint_rc=0; config_rc=0
-        _ai_tools_label_agent_entrypoint "${agent}" || entrypoint_rc=$?
-        _ai_tools_label_agent_config_dir  "${agent}" || config_rc=$?
+        _ai_tools_relabel__label_agent_entrypoint "${agent}" || entrypoint_rc=$?
+        _ai_tools_relabel__label_agent_config_dir  "${agent}" || config_rc=$?
         # Only 1 is a failure. 3 says the path is not installed yet, which is the ordinary pre-bootstrap state and must
         # not fail a relabel that did everything it could.
         if [[ "${entrypoint_rc}" -eq 1 || "${config_rc}" -eq 1 ]]; then
@@ -724,34 +726,34 @@ ai_tools_label_agent_paths() {
             agent_status=ok
         fi
         printf 'agent %s %s\n' "${agent}" "${agent_status}"
-    done < <(ai_tools_enabled_agents 2>/dev/null)
+    done < <(ai_tools_providers__list_enabled_agents 2>/dev/null)
     return "${status}"
 }
 
-# ai_tools_unlabel_agent_paths <agent>: drop that agent's declared file-context rules and restore
+# ai_tools_relabel__unlabel_agent_paths <agent>: drop that agent's declared file-context rules and restore
 #   default labels on what they matched -- the erase-time counterpart, so a removed agent package
 #   leaves behind no rule for types its host may stop defining. Reads the manifest, so it runs
 #   while that package's files are still present (rpm %preun). Returns 2 when the SELinux layer is
 #   inactive, 1 when the agent does not declare a usable value, 0 otherwise.
-ai_tools_unlabel_agent_paths() {
+ai_tools_relabel__unlabel_agent_paths() {
     local agent="$1" pattern config_dir path dropped=1
-    _ai_tools_entrypoint_policy_active || return 2
-    declare -F ai_tools_agent_manifest_field >/dev/null 2>&1 || return 2
+    _ai_tools_relabel__is_entrypoint_policy_active || return 2
+    declare -F ai_tools_providers__read_agent_manifest_field >/dev/null 2>&1 || return 2
 
-    pattern="$(ai_tools_agent_manifest_field "${agent}" entrypoint_fcontext || true)"
-    if ai_tools_entrypoint_fcontext_valid "${pattern}" "${AI_TOOLS_NODE_VERSIONS_ROOT}"; then
-        _ai_tools_fcontext delete f "${AI_TOOLS_ENTRYPOINT_TYPE}" "${pattern}"
+    pattern="$(ai_tools_providers__read_agent_manifest_field "${agent}" entrypoint_fcontext || true)"
+    if ai_tools_providers__is_entrypoint_fcontext_valid "${pattern}" "${AI_TOOLS_RELABEL__NODE_VERSIONS_ROOT}"; then
+        _ai_tools_relabel__register_fcontext delete f "${AI_TOOLS_RELABEL__ENTRYPOINT_TYPE}" "${pattern}"
         while IFS= read -r path; do
             restorecon -F "${path}" 2>/dev/null || true
-        done < <(_ai_tools_entrypoint_paths "${pattern}")
+        done < <(_ai_tools_relabel__find_entrypoint_paths "${pattern}")
         dropped=0
     fi
 
-    config_dir="$(ai_tools_agent_manifest_field "${agent}" config_dir || true)"
-    if declare -F ai_tools_agent_config_dir_valid >/dev/null 2>&1 \
-            && ai_tools_agent_config_dir_valid "${config_dir}"; then
-        _ai_tools_fcontext delete a "${AI_TOOLS_AGENT_CONFIG_TYPE}" \
-            "$(_ai_tools_agent_config_pattern "${config_dir}")"
+    config_dir="$(ai_tools_providers__read_agent_manifest_field "${agent}" config_dir || true)"
+    if declare -F ai_tools_control_plane__is_agent_config_dir_valid >/dev/null 2>&1 \
+            && ai_tools_control_plane__is_agent_config_dir_valid "${config_dir}"; then
+        _ai_tools_relabel__register_fcontext delete a "${AI_TOOLS_RELABEL__AGENT_CONFIG_TYPE}" \
+            "$(_ai_tools_relabel__get_agent_config_pattern "${config_dir}")"
         # The directory itself is agent STATE and survives the package (like .nvm), so it is relabelled to whatever
         # the remaining policy maps it to rather than left on a type this host may stop defining.
         path="${CP_HOME}/${config_dir}"
@@ -761,7 +763,7 @@ ai_tools_unlabel_agent_paths() {
     return "${dropped}"
 }
 
-# ai_tools_agent_label_report: PRINT the type each enabled agent's own paths carry RIGHT NOW --
+# ai_tools_relabel__list_agent_labels: PRINT the type each enabled agent's own paths carry RIGHT NOW --
 #   its installed entrypoint and its config directory -- against the types this library pins for
 #   them. One status line per path, whitespace-separated in a fixed field order so a caller reads
 #   it with a plain `read`, and rendered in the caller's own voice:
@@ -775,39 +777,39 @@ ai_tools_unlabel_agent_paths() {
 #   Returns 0 when every path it could inspect carries its type, 1 when one does not, and 2 when
 #   the SELinux layer is inactive, which yields an empty report and is not a fault.
 #
-#   READ-ONLY, which is the whole difference from ai_tools_label_agent_paths: it calls
-#   neither _ai_tools_fcontext, nor restorecon, nor ai_tools_relabel_lock, so it answers a status
+#   READ-ONLY, which is the whole difference from ai_tools_relabel__label_agent_paths: it calls
+#   neither _ai_tools_relabel__register_fcontext, nor restorecon, nor ai_tools_relabel__lock, so it answers a status
 #   question without changing the state it reports on. It also answers a different question: the
 #   relabel reports what its own run ACHIEVED, while this reports the type on the file now,
 #   however long ago that run was.
 #
-#   The path is resolved through the launcher symlink (ai_tools_agent_entrypoint_path), the same
+#   The path is resolved through the launcher symlink (ai_tools_relabel__resolve_agent_entrypoint_path), the same
 #   resolution the launch preflight performs, so what is inspected is the inode a session execs,
 #   which a declared pattern can have stopped describing.
-ai_tools_agent_label_report() {
-    _ai_tools_entrypoint_policy_active || return 2
-    declare -F ai_tools_enabled_agents >/dev/null 2>&1 || return 2
+ai_tools_relabel__list_agent_labels() {
+    _ai_tools_relabel__is_entrypoint_policy_active || return 2
+    declare -F ai_tools_providers__list_enabled_agents >/dev/null 2>&1 || return 2
     local agent entrypoint config_dir path context status=0
     while IFS=$'\t' read -r agent _ _; do
         [[ -n "${agent}" ]] || continue
-        entrypoint="$(ai_tools_agent_entrypoint_path "${agent}" || true)"
+        entrypoint="$(ai_tools_relabel__resolve_agent_entrypoint_path "${agent}" || true)"
         if [[ -z "${entrypoint}" ]]; then
             printf 'none %s entrypoint\n' "${agent}"
         else
-            context="$(_ai_tools_live_type "${entrypoint}")"
-            if [[ "${context}" == "${AI_TOOLS_ENTRYPOINT_TYPE}" ]]; then
+            context="$(_ai_tools_relabel__read_live_type "${entrypoint}")"
+            if [[ "${context}" == "${AI_TOOLS_RELABEL__ENTRYPOINT_TYPE}" ]]; then
                 printf 'ok %s entrypoint %s %s\n' "${agent}" "${entrypoint}" "${context}"
             else
                 printf 'bad %s entrypoint %s %s %s\n' "${agent}" "${entrypoint}" \
-                    "${context:-unknown}" "${AI_TOOLS_ENTRYPOINT_TYPE}"
+                    "${context:-unknown}" "${AI_TOOLS_RELABEL__ENTRYPOINT_TYPE}"
                 status=1
             fi
         fi
 
-        config_dir="$(ai_tools_agent_manifest_field "${agent}" config_dir || true)"
+        config_dir="$(ai_tools_providers__read_agent_manifest_field "${agent}" config_dir || true)"
         if [[ -z "${config_dir}" ]] \
-                || ! declare -F ai_tools_agent_config_dir_valid >/dev/null 2>&1 \
-                || ! ai_tools_agent_config_dir_valid "${config_dir}"; then
+                || ! declare -F ai_tools_control_plane__is_agent_config_dir_valid >/dev/null 2>&1 \
+                || ! ai_tools_control_plane__is_agent_config_dir_valid "${config_dir}"; then
             continue
         fi
         path="${CP_HOME}/${config_dir}"
@@ -815,24 +817,25 @@ ai_tools_agent_label_report() {
             printf 'none %s config-directory\n' "${agent}"
             continue
         fi
-        context="$(_ai_tools_live_type "${path}")"
-        if [[ "${context}" == "${AI_TOOLS_AGENT_CONFIG_TYPE}" ]]; then
+        context="$(_ai_tools_relabel__read_live_type "${path}")"
+        if [[ "${context}" == "${AI_TOOLS_RELABEL__AGENT_CONFIG_TYPE}" ]]; then
             printf 'ok %s config-directory %s %s\n' "${agent}" "${path}" "${context}"
         else
             printf 'bad %s config-directory %s %s %s\n' "${agent}" "${path}" \
-                "${context:-unknown}" "${AI_TOOLS_AGENT_CONFIG_TYPE}"
+                "${context:-unknown}" "${AI_TOOLS_RELABEL__AGENT_CONFIG_TYPE}"
             status=1
         fi
-    done < <(ai_tools_enabled_agents 2>/dev/null)
+    done < <(ai_tools_providers__list_enabled_agents 2>/dev/null)
     return "${status}"
 }
 
-# ai_tools_project_labelled <dir>: 0 if <dir>'s root currently carries ai_tools_project_t. A cheap, read-only state
-# check for idempotent callers -- it inspects the live label, leaves the policy alone, and does not need privilege.
-ai_tools_project_labelled() {
+# ai_tools_relabel__is_project_labelled <dir>: 0 if <dir>'s root currently carries ai_tools_project_t. A cheap,
+# read-only state check for idempotent callers -- it inspects the live label, leaves the policy alone, and does not need
+# privilege.
+ai_tools_relabel__is_project_labelled() {
     local ctx
     ctx="$(ls -Zd "$1" 2>/dev/null | awk '{print $1}')" || return 1
-    [[ "${ctx}" == *":${AI_TOOLS_PROJECT_TYPE}:"* ]]
+    [[ "${ctx}" == *":${AI_TOOLS_RELABEL__PROJECT_TYPE}:"* ]]
 }
 
 # ── The operator config subtree ──────────────────────────────────────────────────────────────
@@ -843,12 +846,12 @@ ai_tools_project_labelled() {
 # confinement.rule.md.
 
 # The type an operator's config subtree carries.
-readonly AI_TOOLS_OPERATOR_CONF_TYPE="ai_tools_conf_t"
+readonly AI_TOOLS_RELABEL__OPERATOR_CONF_TYPE="ai_tools_conf_t"
 # The tail every such directory ends with, and the only shape this library will label. Kept as one constant because
 # the validator and the pattern builder must agree on it.
-readonly AI_TOOLS_OPERATOR_CONF_TAIL="/.config/ai-tools"
+readonly AI_TOOLS_RELABEL__OPERATOR_CONF_TAIL="/.config/ai-tools"
 
-# ai_tools_operator_conf_valid <dir> : succeed when <dir> may become an ai_tools_conf_t fcontext
+# ai_tools_relabel__is_operator_conf_valid <dir> : succeed when <dir> may become an ai_tools_conf_t fcontext
 #   rule. PURE -- no filesystem, no privilege -- so the containment property is unit-tested without
 #   a labelled host. <dir> must be absolute, carry no `..`, and end in the fixed
 #   ~/.config/ai-tools tail with a non-empty home in front of it.
@@ -859,12 +862,12 @@ readonly AI_TOOLS_OPERATOR_CONF_TAIL="/.config/ai-tools"
 #   homes nobody enrolled. Refusing is safe in the direction that matters: an unlabelled subtree
 #   costs that operator their ownership handback, which the caller reports, while a widened rule
 #   would hand ai_tools_conf_t to paths that do not belong to any operator.
-ai_tools_operator_conf_valid() {
+ai_tools_relabel__is_operator_conf_valid() {
     local dir="${1:-}" home
     [[ "${dir}" == /* ]]                              || return 1
     [[ "${dir}" != *..* ]]                            || return 1
-    [[ "${dir}" == *"${AI_TOOLS_OPERATOR_CONF_TAIL}" ]] || return 1
-    home="${dir%"${AI_TOOLS_OPERATOR_CONF_TAIL}"}"
+    [[ "${dir}" == *"${AI_TOOLS_RELABEL__OPERATOR_CONF_TAIL}" ]] || return 1
+    home="${dir%"${AI_TOOLS_RELABEL__OPERATOR_CONF_TAIL}"}"
     # `/?*` rather than `-n`: a home of `/` would put the rule on the filesystem root's own .config, which is root's
     # home shape, and `ai-tools-admin operators add` refuses root.
     [[ "${home}" == /?* ]]                            || return 1
@@ -872,51 +875,51 @@ ai_tools_operator_conf_valid() {
     return 0
 }
 
-# _ai_tools_operator_conf_pattern <dir> : the file-context pattern covering <dir> and everything
-#   under it. The path is escaped (ai_tools_fcontext_literal): a bare `.` in a file-context regex
+# _ai_tools_relabel__get_operator_conf_pattern <dir> : the file-context pattern covering <dir> and everything
+#   under it. The path is escaped (ai_tools_relabel__get_fcontext_literal): a bare `.` in a file-context regex
 #   matches any character, so an unescaped `/home/a.b` would also cover `/home/axb`, a home this
 #   operator does not own.
-_ai_tools_operator_conf_pattern() { printf '%s(/.*)?' "$(ai_tools_fcontext_literal "$1")"; }
+_ai_tools_relabel__get_operator_conf_pattern() { printf '%s(/.*)?' "$(ai_tools_relabel__get_fcontext_literal "$1")"; }
 
-# ai_tools_label_operator_conf <dir> : register the local rule mapping <dir> and its contents to
+# ai_tools_relabel__label_operator_conf <dir> : register the local rule mapping <dir> and its contents to
 #   ai_tools_conf_t, then apply it. ROOT ONLY (semanage writes the policy store); the caller takes
-#   ai_tools_relabel_lock, as every other writer here does.
+#   ai_tools_relabel__lock, as every other writer here does.
 #
 #   Returns 2 where there is no label to apply -- SELinux inactive, or no semanage -- which is the
 #   DAC-only host and not a fault; 1 when the directory is unusable, the rule could not be
-#   registered (the reason is left in AI_TOOLS_FCONTEXT_ERROR for the caller to report), or the
+#   registered (the reason is left in AI_TOOLS_RELABEL__FCONTEXT_ERROR for the caller to report), or the
 #   subtree did not take the type; 0 once it carries it.
 #
 #   The rule is registered whether or not the type already matches, for the reason
-#   ai_tools_label_project gives: an fcontext entry is what makes the type survive a later
+#   ai_tools_relabel__label_project gives: an fcontext entry is what makes the type survive a later
 #   restorecon. Re-asserting it is also what a re-run repairs a host with, where a semanage
 #   transaction found the store held and the rule was left unregistered.
-ai_tools_label_operator_conf() {
+ai_tools_relabel__label_operator_conf() {
     local dir="${1:-}"
-    ai_tools_operator_conf_valid "${dir}" || return 1
-    ai_tools_relabel_available            || return 2
+    ai_tools_relabel__is_operator_conf_valid "${dir}" || return 1
+    ai_tools_relabel__is_available            || return 2
     command -v semanage >/dev/null 2>&1   || return 2
     [[ -d "${dir}" ]]                     || return 1
-    _ai_tools_fcontext add a "${AI_TOOLS_OPERATOR_CONF_TYPE}" \
-        "$(_ai_tools_operator_conf_pattern "${dir}")" || return 1
+    _ai_tools_relabel__register_fcontext add a "${AI_TOOLS_RELABEL__OPERATOR_CONF_TYPE}" \
+        "$(_ai_tools_relabel__get_operator_conf_pattern "${dir}")" || return 1
     restorecon -FR "${dir}" 2>/dev/null   || return 1
     # The post-condition, not restorecon's exit code: it exits 0 whenever it could write a context, including one
-    # that is the wrong type because no rule matched the path (see ai_tools_label_project). A wrong type reported
-    # as applied leaves the caller recording success over a subtree the root helpers are still denied on.
-    [[ "$(_ai_tools_live_type "${dir}")" == "${AI_TOOLS_OPERATOR_CONF_TYPE}" ]]
+    # that is the wrong type because no rule matched the path (see ai_tools_relabel__label_project). A wrong type
+    # reported as applied leaves the caller recording success over a subtree the root helpers are still denied on.
+    [[ "$(_ai_tools_relabel__read_live_type "${dir}")" == "${AI_TOOLS_RELABEL__OPERATOR_CONF_TYPE}" ]]
 }
 
-# ai_tools_unlabel_operator_conf <dir> : drop the local rule for <dir> and restorecon the subtree
+# ai_tools_relabel__unlabel_operator_conf <dir> : drop the local rule for <dir> and restorecon the subtree
 #   back to its default type (config_home_t). Root-only. Returns 2 where SELinux is inactive, 1 on
 #   a restorecon failure, 0 otherwise. The delete is best-effort: a store that does not hold the
 #   rule is the state this leaves behind anyway.
-ai_tools_unlabel_operator_conf() {
+ai_tools_relabel__unlabel_operator_conf() {
     local dir="${1:-}"
-    ai_tools_operator_conf_valid "${dir}" || return 1
-    ai_tools_relabel_available            || return 2
+    ai_tools_relabel__is_operator_conf_valid "${dir}" || return 1
+    ai_tools_relabel__is_available            || return 2
     command -v semanage >/dev/null 2>&1   || return 2
-    _ai_tools_fcontext delete a "${AI_TOOLS_OPERATOR_CONF_TYPE}" \
-        "$(_ai_tools_operator_conf_pattern "${dir}")" || true
+    _ai_tools_relabel__register_fcontext delete a "${AI_TOOLS_RELABEL__OPERATOR_CONF_TYPE}" \
+        "$(_ai_tools_relabel__get_operator_conf_pattern "${dir}")" || true
     [[ -d "${dir}" ]] || return 0
     restorecon -FR "${dir}" 2>/dev/null || return 1
 }

@@ -33,7 +33,7 @@ fi
 # consumers do: first, and before the reader.
 # shellcheck source=/dev/null
 if ! source "${SAFE_PATHS_LIB}" 2>/dev/null \
-        || ! declare -F ai_tools_protected_path_match >/dev/null 2>&1; then
+        || ! declare -F ai_tools_safe_paths__match_protected_path >/dev/null 2>&1; then
     skip "ancestor configuration" "could not source ${SAFE_PATHS_LIB}"; finish; exit
 fi
 
@@ -57,24 +57,24 @@ chown root:root "${integrations_dir}/fixture.conf"; chmod 0644 "${integrations_d
 
 # shellcheck source=/dev/null
 if ! source "${LIB}" \
-        || ! declare -F ai_tools_unreadable_ancestor_configs >/dev/null 2>&1 \
-        || ! declare -F ai_tools_session_can_read >/dev/null 2>&1 \
-        || ! declare -F ai_tools_project_has_marker >/dev/null 2>&1 \
-        || ! declare -F ai_tools_ancestor_scan_allowed >/dev/null 2>&1 \
-        || ! declare -F ai_tools_ancestor_config_names >/dev/null 2>&1 \
-        || ! declare -F ai_tools_project_markers >/dev/null 2>&1; then
+        || ! declare -F ai_tools_ancestor_config__find_unreadable_configs >/dev/null 2>&1 \
+        || ! declare -F ai_tools_ancestor_config__can_session_read >/dev/null 2>&1 \
+        || ! declare -F ai_tools_ancestor_config__has_project_marker >/dev/null 2>&1 \
+        || ! declare -F ai_tools_ancestor_config__is_scan_allowed >/dev/null 2>&1 \
+        || ! declare -F ai_tools_ancestor_config__list_names >/dev/null 2>&1 \
+        || ! declare -F ai_tools_ancestor_config__list_project_markers >/dev/null 2>&1; then
     fail "could not source ${LIB} or it does not define the reader functions"; finish; exit
 fi
 
 # ── What the manifest declares, and what the charset refuses ─────────────────
-names="$(ai_tools_ancestor_config_names | tr '\n' ' ')"
+names="$(ai_tools_ancestor_config__list_names | tr '\n' ' ')"
 if [[ "${names}" == ".tfxrc Build.props " ]]; then
     pass "the declared configuration names are read, C-sorted, from an installed manifest"
 else
     fail "declared names read as '${names}' (expected '.tfxrc Build.props ')"
 fi
 
-markers="$(ai_tools_project_markers | tr '\n' ' ')"
+markers="$(ai_tools_ancestor_config__list_project_markers | tr '\n' ' ')"
 if [[ "${markers}" == "*.tfx " ]]; then
     pass "a marker that is a path or a traversal is refused, so a manifest names one directory"
 else
@@ -84,13 +84,13 @@ fi
 # ── The walk's bound ─────────────────────────────────────────────────────────
 bound_ok=true
 for p in / /etc /usr /var /home /opt/ai-tools /tmp; do
-    if ai_tools_ancestor_scan_allowed "${p}"; then
+    if ai_tools_ancestor_config__is_scan_allowed "${p}"; then
         fail "the walk would scan a protected directory: ${p}"; bound_ok=false
     fi
 done
 ${bound_ok} && pass "every system directory, and /home itself, stops the walk"
 
-if ai_tools_ancestor_scan_allowed "${TESTDIR}"; then
+if ai_tools_ancestor_config__is_scan_allowed "${TESTDIR}"; then
     pass "an ordinary directory is scanned"
 else
     fail "an ordinary directory was refused: ${TESTDIR}"
@@ -99,7 +99,7 @@ fi
 # The walk scans a user home root and stops at the /home entry that contains it. A toolchain walks through a home like
 # any other directory, and reading one is not the tree-rewriting operation the backstop refuses a target for.
 if [[ "${PROJECTS_HOME}" =~ ^/home/[^/]+$ ]]; then
-    if ai_tools_ancestor_scan_allowed "${PROJECTS_HOME}"; then
+    if ai_tools_ancestor_config__is_scan_allowed "${PROJECTS_HOME}"; then
         pass "a user home root is scanned, while /home above it stops the walk"
     else
         fail "a user home root was refused: ${PROJECTS_HOME}"
@@ -110,7 +110,7 @@ fi
 
 # Fail closed without the backstop: an unbounded walk would read directories outside the window it defines. Driven
 # in a subshell so the function stays defined for every later case.
-if ( unset -f ai_tools_protected_path_match; ai_tools_ancestor_scan_allowed "${TESTDIR}" ); then
+if ( unset -f ai_tools_safe_paths__match_protected_path; ai_tools_ancestor_config__is_scan_allowed "${TESTDIR}" ); then
     fail "the walk proceeded with the protected-paths backstop unavailable"
 else
     pass "the walk stops when the backstop that bounds it is not loaded"
@@ -123,7 +123,7 @@ getenforce() { printf 'Permissive\n'; }
 
 readable() {
     local desc="$1" path="$2" expect="$3" rc=0
-    ai_tools_session_can_read "${path}" || rc=$?
+    ai_tools_ancestor_config__can_session_read "${path}" || rc=$?
     if [[ "${expect}" == yes && "${rc}" -eq 0 ]] || [[ "${expect}" == no && "${rc}" -ne 0 ]]; then
         pass "${desc}"
     else
@@ -138,26 +138,26 @@ readable "a world-readable file is readable" "${TESTDIR}/world" yes
 readable "an owner-only file is not readable" "${TESTDIR}/owner-only" no
 
 : > "${TESTDIR}/grouped"; chmod 0640 "${TESTDIR}/grouped"
-if chgrp "${AI_TOOLS_SESSION_GROUP}" "${TESTDIR}/grouped" 2>/dev/null; then
+if chgrp "${AI_TOOLS_ANCESTOR_CONFIG__SESSION_GROUP}" "${TESTDIR}/grouped" 2>/dev/null; then
     readable "0640 in the sandbox group is readable" "${TESTDIR}/grouped" yes
 else
-    skip "sandbox-group read" "group ${AI_TOOLS_SESSION_GROUP} is not present on this host"
+    skip "sandbox-group read" "group ${AI_TOOLS_ANCESTOR_CONFIG__SESSION_GROUP} is not present on this host"
 fi
 
 : > "${TESTDIR}/othergroup"; chmod 0640 "${TESTDIR}/othergroup"
 chgrp "${PROJECTS_GROUP}" "${TESTDIR}/othergroup"
 readable "0640 in another group is not readable" "${TESTDIR}/othergroup" no
 
-if command -v setfacl >/dev/null 2>&1 && id "${AI_TOOLS_SESSION_ACCOUNT}" >/dev/null 2>&1; then
+if command -v setfacl >/dev/null 2>&1 && id "${AI_TOOLS_ANCESTOR_CONFIG__SESSION_ACCOUNT}" >/dev/null 2>&1; then
     : > "${TESTDIR}/acl"; chmod 0600 "${TESTDIR}/acl"
-    setfacl -m "u:${AI_TOOLS_SESSION_ACCOUNT}:r" "${TESTDIR}/acl"
+    setfacl -m "u:${AI_TOOLS_ANCESTOR_CONFIG__SESSION_ACCOUNT}:r" "${TESTDIR}/acl"
     readable "a named-user read ACL is readable" "${TESTDIR}/acl" yes
     # A mask that clears the read bit leaves the entry with no effective permission, which getfacl reports
     # on the entry's own line -- an entry counted from its declared bits alone would read as a grant.
     setfacl -m "m::-" "${TESTDIR}/acl"
     readable "an ACL entry masked to nothing is not readable" "${TESTDIR}/acl" no
 else
-    skip "named-user ACL" "setfacl or the account ${AI_TOOLS_SESSION_ACCOUNT} is not present"
+    skip "named-user ACL" "setfacl or the account ${AI_TOOLS_ANCESTOR_CONFIG__SESSION_ACCOUNT} is not present"
 fi
 
 readable "a path that is not a regular file is not readable" "${TESTDIR}" no
@@ -172,10 +172,10 @@ getenforce() { printf 'Enforcing\n'; }
 label_case() {
     local desc="$1" ctx="$2" expect="$3" rc=0 probe
     # The context is baked into the stub's BODY rather than read from a variable of this function's.
-    # _ai_tools_session_type_readable declares a local named `context`, and a bash local is visible to everything it
-    # calls, so a stub reading `${context}` sees the library's own empty one by the time it runs. It then prints a line
-    # that does not carry any type, under which every case reads as "not a project type" -- the two positive cases fail,
-    # and the two negative ones pass on the empty context rather than on the matching rule.
+    # _ai_tools_ancestor_config__is_session_type_readable declares a local named `context`, and a bash local is visible
+    # to everything it calls, so a stub reading `${context}` sees the library's own empty one by the time it runs. It
+    # then prints a line that does not carry any type, under which every case reads as "not a project type" -- the two
+    # positive cases fail, and the two negative ones pass on the empty context rather than on the matching rule.
     eval "ls() { printf '%s %s\n' '${ctx}' '${TESTDIR}/world'; }"
     # The stub IS the fixture here, so its output is asserted before any verdict is read off it.
     probe="$(ls -Zd -- "${TESTDIR}/world")"
@@ -184,7 +184,7 @@ label_case() {
         fail "${desc}: the ls stub did not supply the context (printed '${probe}')"
         return 0
     fi
-    ai_tools_session_can_read "${TESTDIR}/world" || rc=$?
+    ai_tools_ancestor_config__can_session_read "${TESTDIR}/world" || rc=$?
     unset -f ls
     if [[ "${expect}" == yes && "${rc}" -eq 0 ]] || [[ "${expect}" == no && "${rc}" -ne 0 ]]; then
         pass "${desc}"
@@ -216,7 +216,7 @@ mkdir -p "${project}"
 : > "${TESTDIR}/outer/.tfxrc";            chmod 0644 "${TESTDIR}/outer/.tfxrc"
 : > "${project}/.tfxrc";                  chmod 0600 "${project}/.tfxrc"
 
-reported="$(ai_tools_unreadable_ancestor_configs "${project}" | tr '\n' ' ')"
+reported="$(ai_tools_ancestor_config__find_unreadable_configs "${project}" | tr '\n' ' ')"
 if [[ "${reported}" == "${TESTDIR}/outer/inner/.tfxrc ${TESTDIR}/outer/Build.props " ]]; then
     pass "every unreadable declared file above the project is reported, nearest ancestor first"
 else
@@ -239,7 +239,7 @@ fi
 # silent.
 unmarked="${TESTDIR}/outer/inner/other"
 mkdir -p "${unmarked}"
-reported="$(ai_tools_unreadable_ancestor_configs "${unmarked}")"
+reported="$(ai_tools_ancestor_config__find_unreadable_configs "${unmarked}")"
 if [[ -z "${reported}" ]]; then
     pass "a project no declared marker claims reports nothing"
 else
@@ -249,7 +249,7 @@ fi
 # A host whose installed manifests declare neither key reports nothing, which is the state of a host with no integration
 # installed.
 rm -f "${integrations_dir}/fixture.conf"
-reported="$(ai_tools_unreadable_ancestor_configs "${project}")"
+reported="$(ai_tools_ancestor_config__find_unreadable_configs "${project}")"
 if [[ -z "${reported}" ]]; then
     pass "a host declaring no marker and no configuration name reports nothing"
 else
@@ -260,7 +260,7 @@ fi
 # does not supply a name to it.
 printf 'project_markers=*.tfx\nancestor_config_files=.tfxrc\n' > "${integrations_dir}/fixture.conf"
 chmod 0666 "${integrations_dir}/fixture.conf"
-reported="$(ai_tools_unreadable_ancestor_configs "${project}")"
+reported="$(ai_tools_ancestor_config__find_unreadable_configs "${project}")"
 if [[ -z "${reported}" ]]; then
     pass "a group-writable manifest declares nothing, so nothing is reported"
 else

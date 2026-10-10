@@ -11,7 +11,7 @@
 # launcher, and never differs from the binary it points at. The path's shape says where the link sits; what a session
 # executes is what it RESOLVES to, so the target is resolved once and required to be a regular executable inside
 # the version directory the path names, at a path that agent's entrypoint_fcontext covers -- the predicate
-# ai_tools_relink_launcher applies to the same chain (providers.lib.sh).
+# ai_tools_providers__relink_launcher applies to the same chain (providers.lib.sh).
 #
 # `--remove <stable-launcher-path>` is the second form: it removes /opt/ai-tools/bin/<launcher>, and only for a launcher
 # an INSTALLED manifest claims whose agent is NOT enabled -- the link of a package the updater has just removed
@@ -45,8 +45,8 @@ AI_TOOLS_LOG_FILE="symlink.log"
 readonly LOG_LIB="/usr/local/lib/ai-tools/log.lib.sh"
 # shellcheck source=SCRIPTDIR/../../lib/ai-tools/log.lib.sh
 if ! source "${LOG_LIB}" 2>/dev/null; then
-    ai_tools_log() { :; }; ai_tools_log_debug() { :; }; ai_tools_log_info() { :; }
-    ai_tools_log_warn() { :; }; ai_tools_log_error() { :; }
+    ai_tools_log__write() { :; }; ai_tools_log__debug() { :; }; ai_tools_log__info() { :; }
+    ai_tools_log__warn() { :; }; ai_tools_log__error() { :; }
 fi
 
 # A leading message code (msg.lib.sh states the form) is printed on its own line ahead of the message, the shape
@@ -55,7 +55,7 @@ fi
 err() {
     local code=""
     if [[ "${1-}" =~ ^MSG-[A-Z][0-9][A-Z][0-9]$ ]]; then code="$1"; shift; fi
-    ai_tools_log_error "${code:+${code} }$*"
+    ai_tools_log__error "${code:+${code} }$*"
     [[ -z "${code}" ]] || printf '%s\n' "${code}" >&2
     printf 'ai-tools-launcher-symlink: %s\n' "$*" >&2; exit 1
 }
@@ -85,9 +85,9 @@ readonly LINK="${BIN_DIR}/${LAUNCHER}"
 readonly PROVIDERS_LIB="/usr/local/lib/ai-tools/providers.lib.sh"
 # shellcheck source=SCRIPTDIR/../../lib/ai-tools/providers.lib.sh
 if ! source "${PROVIDERS_LIB}" 2>/dev/null \
-        || ! declare -F ai_tools_enabled_agents >/dev/null 2>&1 \
-        || ! declare -F ai_tools_installed_agents >/dev/null 2>&1 \
-        || ! declare -F ai_tools_agents_empty_verdict >/dev/null 2>&1; then
+        || ! declare -F ai_tools_providers__list_enabled_agents >/dev/null 2>&1 \
+        || ! declare -F ai_tools_providers__list_installed_agents >/dev/null 2>&1 \
+        || ! declare -F ai_tools_providers__evaluate_empty_agents >/dev/null 2>&1; then
     err MSG-R6K3 "cannot resolve the enabled agents (${PROVIDERS_LIB}) -- refusing to change ${LINK}"
 fi
 agent_name=""
@@ -95,7 +95,7 @@ enabled_count=0
 while IFS=$'\t' read -r manifest_agent _ manifest_launcher; do
     [[ -n "${manifest_agent}" ]] && enabled_count=$(( enabled_count + 1 ))
     [[ "${manifest_launcher}" == "${LAUNCHER}" ]] && agent_name="${manifest_agent}"
-done < <(ai_tools_enabled_agents 2>/dev/null)
+done < <(ai_tools_providers__list_enabled_agents 2>/dev/null)
 
 # The removal form. The link may go only for a launcher an installed manifest claims whose agent the enabled set does
 # not carry: an enabled agent's link is what its every launch resolves through, and a name no manifest claims is not
@@ -108,10 +108,10 @@ if [[ "${MODE}" == remove ]]; then
     installed_agent=""
     while IFS=$'\t' read -r manifest_agent _ manifest_launcher; do
         [[ "${manifest_launcher}" == "${LAUNCHER}" ]] && installed_agent="${manifest_agent}"
-    done < <(ai_tools_installed_agents 2>/dev/null)
+    done < <(ai_tools_providers__list_installed_agents 2>/dev/null)
     empty_verdict=none; empty_reason=""
     if (( enabled_count == 0 )); then
-        IFS=$'\t' read -r empty_verdict empty_reason < <(ai_tools_agents_empty_verdict 2>/dev/null) || true
+        IFS=$'\t' read -r empty_verdict empty_reason < <(ai_tools_providers__evaluate_empty_agents 2>/dev/null) || true
     fi
     remove_refusal=""
     if [[ -n "${agent_name}" ]]; then
@@ -126,12 +126,12 @@ if [[ "${MODE}" == remove ]]; then
     [[ -z "${remove_refusal}" ]] \
         || err MSG-U2A7 "refusing to remove ${LINK}: ${remove_refusal}"
     if [[ ! -L "${LINK}" ]]; then
-        ai_tools_log_debug "already absent: ${LINK} (${installed_agent} is installed and not enabled)"
+        ai_tools_log__debug "already absent: ${LINK} (${installed_agent} is installed and not enabled)"
         printf 'ai-tools-launcher-symlink: already absent: %s\n' "${LINK}"
         exit 0
     fi
     rm -f -- "${LINK}"
-    ai_tools_log_info "removed ${LINK} (${installed_agent} is installed and not enabled)"
+    ai_tools_log__info "removed ${LINK} (${installed_agent} is installed and not enabled)"
     printf 'ai-tools-launcher-symlink: removed %s\n' "${LINK}"
     # The unlink lands as a change in the watched bin directory like a repoint does, so the relabel watcher's reconcile
     # runs and reports that agent's entrypoint as none -- the state it is in.
@@ -146,8 +146,8 @@ fi
 # and labels. Without the three checks that follow, a well-shaped target naming any file the sandbox account can create
 # -- inside a version directory the toolchain did not install, or reached by a symlink out of it -- takes a stable link
 # in the locked control-plane directory. Each is the predicate the toolchain's own re-link already applies
-# (ai_tools_relink_launcher), the pattern's containment included, so the two writers of this chain accept the same set
-# of targets.
+# (ai_tools_providers__relink_launcher), the pattern's containment included, so the two writers of this chain accept
+# the same set of targets.
 #
 # It does not close the observed tier's limit on its own -- the same account owns the current version directory
 # (updater.rule.md) -- and it is not what confines the session either: an enforcing host labels the resolved file alone,
@@ -173,17 +173,18 @@ if [[ "${resolved}" != "${real_version_dir}/"* || ! -f "${resolved}" ]] || ! exe
 fi
 
 # The manifest's own pattern, held to the containment the relabel holds it to -- a plain path pattern anchored
-# under the directory the resolved version directory sits in (ai_tools_entrypoint_fcontext_valid) -- and then matched
-# whole against the resolved path, exactly as the re-link checks and matches it. A file no entrypoint rule covers does
-# not take ai_tools_exec_t, so a link written to it fails every launch closed at the label preflight; an invalid regex
-# that passes the containment's charset makes `=~` return 2, which `!` reads as no match, and no match refuses.
-entrypoint_fcontext="$(ai_tools_agent_manifest_field "${agent_name}" entrypoint_fcontext 2>/dev/null || true)"
+# under the directory the resolved version directory sits in (ai_tools_providers__is_entrypoint_fcontext_valid) --
+# and then matched whole against the resolved path, exactly as the re-link checks and matches it. A file no entrypoint
+# rule covers does not take ai_tools_exec_t, so a link written to it fails every launch closed at the label preflight;
+# an invalid regex that passes the containment's charset makes `=~` return 2, which `!` reads as no match, and no match
+# refuses.
+entrypoint_fcontext="$(ai_tools_providers__read_agent_manifest_field "${agent_name}" entrypoint_fcontext 2>/dev/null || true)"
 fcontext_pattern="^${entrypoint_fcontext}\$"
 containment_root="${real_version_dir%/*}"
 fcontext_refusal=""
 if [[ -z "${entrypoint_fcontext}" ]]; then
     fcontext_refusal="declares no entrypoint_fcontext"
-elif ! ai_tools_entrypoint_fcontext_valid "${entrypoint_fcontext}" "${containment_root}"; then
+elif ! ai_tools_providers__is_entrypoint_fcontext_valid "${entrypoint_fcontext}" "${containment_root}"; then
     fcontext_refusal="declares an entrypoint_fcontext that is not a plain path pattern under ${containment_root}"
 elif ! [[ "${resolved}" =~ ${fcontext_pattern} ]]; then
     fcontext_refusal="declares an entrypoint_fcontext that does not cover it"
@@ -219,7 +220,7 @@ entrypoint_relabel_pending() {
 # so the daily no-op timer run stops churning the symlink and the log. Otherwise fall through to the atomic repoint.
 if [[ "$(readlink -- "${LINK}" 2>/dev/null || true)" == "${TARGET}" ]] \
    && ! entrypoint_relabel_pending; then
-    ai_tools_log_debug "already current: ${LINK} -> ${TARGET} (entrypoint labelled; no repoint)"
+    ai_tools_log__debug "already current: ${LINK} -> ${TARGET} (entrypoint labelled; no repoint)"
     printf 'ai-tools-launcher-symlink: already current: %s -> %s\n' "${LINK}" "${TARGET}"
     exit 0
 fi
@@ -230,7 +231,7 @@ fi
 tmp="$(mktemp -u "${BIN_DIR}/.${LAUNCHER}.XXXXXX")"
 ln -s "${TARGET}" "${tmp}"
 mv -Tf "${tmp}" "${LINK}"
-ai_tools_log_info "repointed ${LINK} -> ${TARGET}"
+ai_tools_log__info "repointed ${LINK} -> ${TARGET}"
 printf 'ai-tools-launcher-symlink: %s -> %s\n' "${LINK}" "${TARGET}"
 
 # This helper does NOT relabel the new entrypoint: it runs in ai_tools_handback_t, which is granted no relabel rights

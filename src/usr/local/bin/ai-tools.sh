@@ -393,33 +393,33 @@ fi
 say()     { printf '%s\n' "$1"; }
 section() { printf '\n%s%s%s\n' "${C_BOLD}" "$1" "${C_RST}"; }
 ok()      { printf '  %s✓%s %s\n' "${C_GRN}" "${C_RST}" "$1"; }
-warn()    { ai_tools_msg_warn "$@"; }
-note()    { ai_tools_msg_notice "$@"; }
+warn()    { ai_tools_msg__warn "$@"; }
+note()    { ai_tools_msg__notice "$@"; }
 # die takes the library's optional leading code and carries it into the log line -- as the leading token of the text
-# and as the AI_TOOLS_MSG field, which ai_tools_log_coded writes
+# and as the AI_TOOLS_MSG field, which ai_tools_log__coded writes
 # (logging.rule.md).
 # The code is split off so the "ai-tools: " prefix lands on the message rather than on the code.
 die() {
     local code=""
-    if ai_tools_msg_is_code "${1-}"; then code="$1"; shift; fi
-    ai_tools_log_coded error "${code}" "$*"
-    ai_tools_msg_error ${code:+"${code}"} "ai-tools: $*"
+    if ai_tools_msg__is_code "${1-}"; then code="$1"; shift; fi
+    ai_tools_log__coded error "${code}" "$*"
+    ai_tools_msg__error ${code:+"${code}"} "ai-tools: $*"
     exit 1
 }
 # die_usage is die for a command line the verb refuses, and exits 2 -- the usage code ai-tools(1) states.
 die_usage() {
     local code=""
-    if ai_tools_msg_is_code "${1-}"; then code="$1"; shift; fi
-    ai_tools_log_coded error "${code}" "$*"
-    ai_tools_msg_error ${code:+"${code}"} "ai-tools: $*"
+    if ai_tools_msg__is_code "${1-}"; then code="$1"; shift; fi
+    ai_tools_log__coded error "${code}" "$*"
+    ai_tools_msg__error ${code:+"${code}"} "ai-tools: $*"
     exit 2
 }
 # The claim/sandbox flows are sequences of SELF-CONTAINED blocks, each opened by a wide headline box (title + summary
 # prose), with details, prompts, and results printed plain under it and a closing ✓ (or a fail-closed error) ending
 # the block -- see messaging.rule.md. headline() narrates to stdout; headline_warn() carries a "WARNING: ..."-titled
 # block on stderr.
-headline()      { ai_tools_msg_headline "$1" 1 "${@:2}"; }
-headline_warn() { ai_tools_msg_headline "$1" 2 "${@:2}"; }
+headline()      { ai_tools_msg__headline "$1" 1 "${@:2}"; }
+headline_warn() { ai_tools_msg__headline "$1" 2 "${@:2}"; }
 
 # Shared leveled logger -- journald only (this CLI runs as the projects user, not root, so it cannot write the root-only
 # /var/log/ai-tools files). Records workflow milestones (project/sandbox created, pushed, removed, locked down) at INFO
@@ -428,17 +428,17 @@ AI_TOOLS_LOG_TAG="ai-tools"
 readonly LOG_LIB="/usr/local/lib/ai-tools/log.lib.sh"
 # shellcheck source=SCRIPTDIR/../lib/ai-tools/log.lib.sh
 if ! source "${LOG_LIB}" 2>/dev/null; then
-    ai_tools_log() { :; }; ai_tools_log_debug() { :; }; ai_tools_log_info() { :; }
-    ai_tools_log_warn() { :; }; ai_tools_log_error() { :; }
-    ai_tools_log_structured() { :; }; ai_tools_log_coded() { :; }
+    ai_tools_log__write() { :; }; ai_tools_log__debug() { :; }; ai_tools_log__info() { :; }
+    ai_tools_log__warn() { :; }; ai_tools_log__error() { :; }
+    ai_tools_log__structured() { :; }; ai_tools_log__coded() { :; }
     # Not a logger but the display sanitizer the drift records print paths through, so it keeps working, byte for byte
     # the library's: printable ASCII kept, every other byte replaced.
-    ai_tools_log_sanitize() { local LC_ALL=C; printf '%s' "${1//[^[:print:]]/?}"; }
+    ai_tools_log__sanitize() { local LC_ALL=C; printf '%s' "${1//[^[:print:]]/?}"; }
 fi
 
 # Shared message formatter -- die()/warn() frame their text in the paste-safe '#' alert box (50 columns)
 # and headline()/headline_warn() open the wide (80-column) flow blocks on a terminal, plain text otherwise,
-# and ai_tools_msg_confirm carries every yes/no prompt. REQUIRED, like safe-paths.lib.sh: the confirms gate real
+# and ai_tools_msg__confirm carries every yes/no prompt. REQUIRED, like safe-paths.lib.sh: the confirms gate real
 # decisions, so a missing lib fails closed instead of running through a private fallback (see messaging.rule.md).
 readonly MSG_LIB="/usr/local/lib/ai-tools/msg.lib.sh"
 # shellcheck source=SCRIPTDIR/../lib/ai-tools/msg.lib.sh
@@ -477,18 +477,18 @@ note_option_spellings
 readonly SAFE_PATHS_LIB="/usr/local/lib/ai-tools/safe-paths.lib.sh"
 # shellcheck source=SCRIPTDIR/../lib/ai-tools/safe-paths.lib.sh
 if ! source "${SAFE_PATHS_LIB}" 2>/dev/null \
-        || ! declare -F ai_tools_assert_safe_target  >/dev/null 2>&1 \
-        || ! declare -F ai_tools_protected_path_match >/dev/null 2>&1; then
+        || ! declare -F ai_tools_safe_paths__assert_safe_target  >/dev/null 2>&1 \
+        || ! declare -F ai_tools_safe_paths__match_protected_path >/dev/null 2>&1; then
     command -v logger >/dev/null 2>&1 \
         && logger -t ai-tools -p user.err \
             "required safety library ${SAFE_PATHS_LIB} unavailable -- ai-tools refused (fail closed)"
-    ai_tools_msg_error "ai-tools: cannot load required safety library ${SAFE_PATHS_LIB}" \
+    ai_tools_msg__error "ai-tools: cannot load required safety library ${SAFE_PATHS_LIB}" \
         "the install is incomplete or /usr/local/lib/ai-tools is not traversable (expected 0751);" \
         "refusing (fail closed) -- reinstall the ai-tools package, then retry."
     exit 3
 fi
 
-# The shared config grammar, which this CLI reads allowed-projects with (ai_tools_conf_path_entry) so its project
+# The shared config grammar, which this CLI reads allowed-projects with (ai_tools_conf__parse_path_entry) so its project
 # listing and the launch wrapper's gate agree on what every line denotes. REQUIRED: a private fallback parser is exactly
 # the drift the shared grammar exists to prevent, and a CLI that lists a different set of projects than the wrapper will
 # launch in is worse than one that
@@ -496,8 +496,8 @@ fi
 readonly CONF_LIB="/usr/local/lib/ai-tools/conf.lib.sh"
 # shellcheck source=SCRIPTDIR/../lib/ai-tools/conf.lib.sh
 if ! source "${CONF_LIB}" 2>/dev/null \
-        || ! declare -F ai_tools_conf_path_entry >/dev/null 2>&1; then
-    ai_tools_msg_error "ai-tools: cannot load required config library ${CONF_LIB}" \
+        || ! declare -F ai_tools_conf__parse_path_entry >/dev/null 2>&1; then
+    ai_tools_msg__error "ai-tools: cannot load required config library ${CONF_LIB}" \
         "the install is incomplete or /usr/local/lib/ai-tools is not traversable (expected 0751);" \
         "refusing (fail closed) -- reinstall the ai-tools package, then retry."
     exit 3
@@ -509,12 +509,13 @@ fi
 readonly SKIP_DIRS_LIB="/usr/local/lib/ai-tools/skip-dirs.lib.sh"
 # shellcheck source=SCRIPTDIR/../lib/ai-tools/skip-dirs.lib.sh
 source "${SKIP_DIRS_LIB}" 2>/dev/null \
-    || ai_tools_skip_find_expr() { AI_TOOLS_SKIP_NAMES=(); AI_TOOLS_SKIP_FIND_EXPR=(); return 0; }
+    || ai_tools_skip_dirs__build_find_expression() { AI_TOOLS_SKIP_DIRS__NAMES=(); AI_TOOLS_SKIP_DIRS__FIND_EXPRESSION=(); return 0; }
 
 # Unreadable ancestor configuration (ancestor-config.lib.sh): the claim reports the configuration files in a project's
-# ancestry that ai_tools_session_can_read refuses, so a build that would fail on one says so here rather than
-# from inside a session. Best-effort: the report is advisory and does not change any file, so a missing lib costs
-# the notice and leaves every claim step as it was. It is sourced AFTER safe-paths, whose backstop bounds its walk.
+# ancestry that ai_tools_ancestor_config__can_session_read refuses, so a build that would fail on one says so here
+# rather than from inside a session. Best-effort: the report is advisory and does not change any file, so a missing lib
+# costs the notice and leaves every claim step as it was. It is sourced AFTER safe-paths, whose backstop bounds its
+# walk.
 readonly ANCESTOR_CONFIG_LIB="/usr/local/lib/ai-tools/ancestor-config.lib.sh"
 # shellcheck source=SCRIPTDIR/../lib/ai-tools/ancestor-config.lib.sh
 source "${ANCESTOR_CONFIG_LIB}" 2>/dev/null || true
@@ -545,12 +546,12 @@ readonly SECRET_PATTERNS_LIB="/usr/local/lib/ai-tools/secret-patterns.lib.sh"
 readonly TOOLCHAIN_LIB="/usr/local/lib/ai-tools/toolchain.lib.sh"
 readonly CONFINEMENT_LIB="/usr/local/lib/ai-tools/confinement.lib.sh"
 # The account whose `systemd --user` units the registry may read live. Naming it does not by itself enable the probe:
-# _ai_tools_service_systemctl still requires root and a working machine transport, and refuses this CLI run
+# _ai_tools_services__run_systemctl still requires root and a working machine transport, and refuses this CLI run
 # as an operator. So an operator's report is unchanged, while `sudo ai-tools status` completes the reads that need root
 # -- one resource, degrading by privilege, which is what keeps this report and `ai-tools-admin status` from being two
 # answers.
-if declare -F ai_tools_service_sandbox_account >/dev/null 2>&1; then
-    ai_tools_service_sandbox_account "${SANDBOX_USER}"
+if declare -F ai_tools_services__set_sandbox_account >/dev/null 2>&1; then
+    ai_tools_services__set_sandbox_account "${SANDBOX_USER}"
 fi
 
 # ── Reaching a root helper ───────────────────────────────────────────────────────
@@ -655,7 +656,7 @@ note_root_failure() {
     return "${_root_step_carry_on}"
 }
 
-# confirm <prompt> <y|n>  -- the shared yes/no prompt (ai_tools_msg_confirm; see msg.lib.sh): the explicit default
+# confirm <prompt> <y|n>  -- the shared yes/no prompt (ai_tools_msg__confirm; see msg.lib.sh): the explicit default
 # decides the Enter answer and the no-tty answer, so each caller states the default whose unattended answer is the safe
 # outcome for its question. AI_TOOLS_ASSUME_YES=1 fast-tracks only default-YES prompts (the lib's rule); a default-NO
 # prompt is answered ahead of time only by the CLI's own `--yes` flag -- the launch wrapper passes it for a delegated
@@ -664,10 +665,10 @@ note_root_failure() {
 # (crw-rw-rw-), not openability, so it reads true even with no controlling terminal (e.g. a systemd unit
 # or under setsid); opening /dev/tty is the only honest probe -- with no controlling tty the open fails ENXIO,
 # so the prompt guards skip cleanly instead of writing to /dev/tty and aborting. Mirrors launch-wrapper.lib.sh's
-# ai_tools_launch_have_tty.
+# ai_tools_launch_wrapper__has_tty.
 have_tty() { { : > /dev/tty; } 2>/dev/null; }
 
-confirm() { ai_tools_msg_confirm "$@"; }
+confirm() { ai_tools_msg__confirm "$@"; }
 
 # ask <prompt> <default>  -- echo the chosen value on stdout; prompt to the tty.
 ask() {
@@ -689,13 +690,13 @@ resolve_dir() {
     local p LC_ALL=C
     # realpath ends its answer with one line feed; the sentinel keeps a line feed that is part of the name, which a bare
     # command substitution would strip and so resolve `project<LF>` to its sibling `project`.
-    p="$(realpath -e -- "$1" 2>/dev/null && printf x)" || die "path not found: $(ai_tools_log_sanitize "$1")"
+    p="$(realpath -e -- "$1" 2>/dev/null && printf x)" || die "path not found: $(ai_tools_log__sanitize "$1")"
     p="${p%x}"
     p="${p%$'\n'}"
     # A project root is registered one per line in allowed-projects and printed on the claim's page, so a control byte
     # in it, a line feed first among them, is refused before any verb acts on the path.
     if [[ "${p}" =~ [[:cntrl:]] ]]; then
-        die MSG-V8Z5 "project path holds a control character: $(ai_tools_log_sanitize "${p}") -- rename it first"
+        die MSG-V8Z5 "project path holds a control character: $(ai_tools_log__sanitize "${p}") -- rename it first"
     fi
     printf '%s' "${p}"
 }
@@ -706,7 +707,7 @@ resolve_dir() {
 # to an actual clone, so neither the shared clone area root nor an unrelated path can ever be the target.
 require_sandbox_clone() {
     local d="$1" rel
-    ai_tools_assert_safe_target "${d}" "sandbox" || exit 3
+    ai_tools_safe_paths__assert_safe_target "${d}" "sandbox" || exit 3
     [[ "${d}" == "${SANDBOX_ROOT}/"* ]] \
         || die MSG-T4Z6 "not a sandbox clone (must be a clone under ${SANDBOX_ROOT}): ${d}"
     rel="${d#"${SANDBOX_ROOT}/"}"
@@ -737,15 +738,15 @@ run_as_owner() {
 # What stays here is the CLI's half: which principal performs the write, and what the operator is told about it.
 
 # allow_state <dir>  -- `listed` / `disabled` / `absent` for the registry THIS run reads (the invoker's, or a --for
-# target's snapshot). See ai_tools_conf_allowlist_state for what each means and why an exclusion outranks an allow
+# target's snapshot). See ai_tools_conf__read_allowlist_state for what each means and why an exclusion outranks an allow
 # entry.
-allow_state() { ai_tools_conf_allowlist_state "${ALLOWLIST}" "$1"; }
+allow_state() { ai_tools_conf__read_allowlist_state "${ALLOWLIST}" "$1"; }
 
 # disabled_note <dir>  -- print the raw '!' line(s) parking <dir>, indented, for a message that has just called it
 # disabled. What the operator needs next is the line itself, verbatim.
 disabled_note() {
     local -a lines=(); local raw
-    ai_tools_conf_allowlist_exclusion_lines lines "${ALLOWLIST}" "$1" || return 0
+    ai_tools_conf__read_allowlist_exclusion_lines lines "${ALLOWLIST}" "$1" || return 0
     for raw in "${lines[@]}"; do say "      ${C_BOLD}${raw}${C_RST}"; done
 }
 
@@ -766,7 +767,7 @@ retag_allow() {
         say  "      ${C_BOLD}sudo ${ALLOWLIST_BIN} --operator ${FOR_OPERATOR} --${op} ${dir}${C_RST}"
         return 1
     fi
-    "ai_tools_conf_allowlist_${op}" "${ALLOWLIST}" "${dir}" || rc=$?
+    "ai_tools_conf__allowlist_${op}" "${ALLOWLIST}" "${dir}" || rc=$?
     if (( rc )); then
         warn "could not ${op} ${dir} in allowed-projects -- the file was not changed. Edit the line by hand:"
         [[ "${op}" == enable ]] && disabled_note "${dir}"
@@ -821,7 +822,7 @@ reg_allow() {
        If this account is meant to run sandboxed sessions, enrol it first with:
        sudo ai-tools-admin operators add ${USER:-$(id -un)}"
     local before; before="$(allow_state "${dir}")"
-    ai_tools_conf_allowlist_add "${ALLOWLIST}" "${dir}" || rc=$?
+    ai_tools_conf__allowlist_add "${ALLOWLIST}" "${dir}" || rc=$?
     case "${rc}" in
         0) if [[ "${before}" == listed ]]; then
                say "    allowed-projects: already listed"
@@ -866,14 +867,14 @@ unreg_allow() {
     # leaves no '!' behind to disable whatever is claimed at that path next.
     local -a lines=() excl=(); local raw before
     before="$(allow_state "${dir}")"
-    ai_tools_conf_allowlist_matching_lines  lines "${ALLOWLIST}" "${dir}" || true
-    ai_tools_conf_allowlist_exclusion_lines excl  "${ALLOWLIST}" "${dir}" || true
+    ai_tools_conf__read_allowlist_matching_lines  lines "${ALLOWLIST}" "${dir}" || true
+    ai_tools_conf__read_allowlist_exclusion_lines excl  "${ALLOWLIST}" "${dir}" || true
     lines+=("${excl[@]}")
     # The library verifies the removal by re-reading the file: this entry is the launch gate, and cmd_project_remove
     # deletes the tree in its next step. Reported and fatal, since `sed -i` writes its temporary file
     # into the allowlist's own DIRECTORY and so fails on a config dir this operator cannot write even when the allowlist
     # itself is writable.
-    if ! ai_tools_conf_allowlist_remove "${ALLOWLIST}" "${dir}"; then
+    if ! ai_tools_conf__allowlist_remove "${ALLOWLIST}" "${dir}"; then
         warn "could not remove ${dir} from allowed-projects -- a line naming it survived. While an allow line stands the agent can still launch there, and a '!' line left behind parks the path against a future claim. Remove it by hand:"
         for raw in "${lines[@]}"; do
             printf "      %ssed -i '\\\\|^%s\$|d' %s%s\n" \
@@ -1021,7 +1022,7 @@ drift_walk_read() {
 drift_walk_failure() {
     local first=""
     IFS= read -r first 2>/dev/null < "$2" || true
-    printf 'exited %s%s' "$1" "${first:+: $(ai_tools_log_sanitize "${first}")}"
+    printf 'exited %s%s' "$1" "${first:+: $(ai_tools_log__sanitize "${first}")}"
 }
 
 # acl_drift_scan <dir> <work-dir> <paths-array> <detail-var>  -- fill <paths-array> with the paths inside a claimed tree
@@ -1063,10 +1064,10 @@ acl_drift_scan() {
 # a claimed tree whose SELinux type differs from the one the claim's relabel would apply, and <types-map>
 # with `<type it carries> -> <type the policy gives it>` under each. The expected type is asked of the policy: a dry run
 # of the relabel the claim performs (`restorecon -n -F`, unprivileged, reading the world-readable file contexts).
-# The walk is the relabel's scope (`restorecon -FR`, ai_tools_label_project): every directory, `.git` and skip-listed
-# names included, crossing mount points. Every walked name without a line feed goes into one non-recursive batch
-# with `-i`, since a path removed after the walk is outside the run's scope; a name holding one goes
-# through ai_tools_project_permissions_label_check on its own, so no record can be a fragment of another
+# The walk is the relabel's scope (`restorecon -FR`, ai_tools_relabel__label_project): every directory, `.git`
+# and skip-listed names included, crossing mount points. Every walked name without a line feed goes into one
+# non-recursive batch with `-i`, since a path removed after the walk is outside the run's scope; a name holding one goes
+# through ai_tools_project_permissions__check_label on its own, so no record can be a fragment of another
 # (project-permissions.lib.sh). Only a TYPE difference counts: `-F` also reports the SELinux user and the MLS range,
 # and on the file classes the targeted policy constrains the user for create, relabelfrom and relabelto alone,
 # and ai_tools_t does not carry mcs_constrained_type, so a user or category difference on its own does not deny
@@ -1104,19 +1105,19 @@ label_drift_scan() {
         if ! claim_write_list "${work}/label.list" "${batched[@]}"; then
             [[ -n "${_label_scan_detail}" ]] || _label_scan_detail="the path list for the relabel dry run could not be written"
             incomplete=1
-        elif ! ai_tools_project_permissions_label_batch "${work}/label.list" "${work}" batch_listed batch_drift -i; then
+        elif ! ai_tools_project_permissions__check_label_batch "${work}/label.list" "${work}" batch_listed batch_drift -i; then
             [[ -n "${_label_scan_detail}" ]] || _label_scan_detail="the relabel dry run's output was not complete"
             incomplete=1
         fi
     fi
     for path in "${walked[@]}"; do
         [[ "${path}" == *$'\n'* ]] || continue
-        ai_tools_project_permissions_label_check "${path}" "${work}" outcome from to
+        ai_tools_project_permissions__check_label "${path}" "${work}" outcome from to
         case "${outcome}" in
             drift) batch_drift["${path}"]="${from}"$'\t'"${to}" ;;
             unknown)
                 [[ -n "${_label_scan_detail}" ]] \
-                    || _label_scan_detail="a name holding a line feed could not be checked: $(ai_tools_log_sanitize "${path}")"
+                    || _label_scan_detail="a name holding a line feed could not be checked: $(ai_tools_log__sanitize "${path}")"
                 incomplete=1 ;;
         esac
     done
@@ -1143,13 +1144,13 @@ label_drift_scan() {
     # reason leaves the scan incomplete, so it is not silently dropped.
     if (( ${#unread[@]} )); then
         if ! claim_write_list "${work}/label.unread" "${unread[@]}" \
-                || ! ai_tools_project_permissions_lstat_outcomes "${work}/label.unread" "${work}" unread_absence; then
+                || ! ai_tools_project_permissions__read_lstat_outcomes "${work}/label.unread" "${work}" unread_absence; then
             unread_absence=()
         fi
         for index in "${!unread[@]}"; do
             [[ "${unread_absence[index]:-unknown}" == gone ]] && continue
             [[ -n "${_label_scan_detail}" ]] \
-                || _label_scan_detail="the mode of a drifted path could not be read: $(ai_tools_log_sanitize "${unread[index]}")"
+                || _label_scan_detail="the mode of a drifted path could not be read: $(ai_tools_log__sanitize "${unread[index]}")"
             incomplete=1
         done
     fi
@@ -1251,12 +1252,12 @@ agent_can_traverse() {
 }
 
 # grantable_ancestor <dir>  -- 0 if confirm_ancestor_traversal may offer traverse on <dir>: the call site
-# of ai_tools_traverse_grant_allowed (safe-paths.lib.sh), asked for the owner this run acts FOR. Returns 1
-# when the predicate is not loaded, so a broken install never widens a directory it cannot vet.
+# of ai_tools_safe_paths__is_traverse_grant_allowed (safe-paths.lib.sh), asked for the owner this run acts FOR. Returns
+# 1 when the predicate is not loaded, so a broken install never widens a directory it cannot vet.
 grantable_ancestor() {
     local p="$1"
-    declare -F ai_tools_traverse_grant_allowed >/dev/null 2>&1 || return 1
-    ai_tools_traverse_grant_allowed "${p}" "${OWNER_USER}"
+    declare -F ai_tools_safe_paths__is_traverse_grant_allowed >/dev/null 2>&1 || return 1
+    ai_tools_safe_paths__is_traverse_grant_allowed "${p}" "${OWNER_USER}"
 }
 
 # find_blocking_ancestors <dir>  -- detect the traverse gap between the sandbox account and <dir>: fills
@@ -1301,7 +1302,7 @@ confirm_ancestor_traversal() {
         blocked_owner="$(stat -c '%U' "${TRAVERSAL_BLOCKED_PATH}" 2>/dev/null || echo '?')"
         if [[ -n "${TRAVERSAL_BLOCKED_REASON}" ]]; then
             why="${TRAVERSAL_BLOCKED_REASON}, so no grant is offered on it"
-        elif ! declare -F ai_tools_traverse_grant_allowed >/dev/null 2>&1; then
+        elif ! declare -F ai_tools_safe_paths__is_traverse_grant_allowed >/dev/null 2>&1; then
             why="the safe-paths traverse rule is not loaded, so ancestors cannot be vetted"
         elif [[ "${blocked_owner}" != "${OWNER_USER}" ]]; then
             why="owned by ${blocked_owner}, not by ${OWNER_USER}"
@@ -1547,24 +1548,24 @@ secret_gate() {
         0)
             if (( ${#SECRET_MATCH_PATHS[@]} )); then
                 ok "secrets locked down"
-                ai_tools_log_structured info "secret pre-check: secrets locked down under ${dir}" \
+                ai_tools_log__structured info "secret pre-check: secrets locked down under ${dir}" \
                     "AI_TOOLS_PROJECT=${dir}" "AI_TOOLS_RESULT=ok"
             else
                 ok "no secret-matching paths found"
-                ai_tools_log_structured info \
+                ai_tools_log__structured info \
                     "secret pre-check: clean, no secret-matching paths under ${dir}" \
                     "AI_TOOLS_PROJECT=${dir}" "AI_TOOLS_RESULT=ok"
             fi
             return 0 ;;
         6)
             warn "declined -- access will not be granted while secrets are exposed"
-            ai_tools_log_structured warning \
+            ai_tools_log__structured warning \
                 "secret pre-check: lockdown declined for ${dir}, access not granted" \
                 "AI_TOOLS_PROJECT=${dir}" "AI_TOOLS_RESULT=refused"
             return 1 ;;
         *)
             warn "secret lockdown did not complete -- not granting access"
-            ai_tools_log_structured error "secret pre-check: lockdown failed under ${dir}, access not granted" \
+            ai_tools_log__structured error "secret pre-check: lockdown failed under ${dir}, access not granted" \
                 "AI_TOOLS_PROJECT=${dir}" "AI_TOOLS_RESULT=failed"
             return 1 ;;
     esac
@@ -1642,7 +1643,7 @@ clear_lockdown_guard() {
 # here.
 project_state() {
     local dir="$1" listed=false safedir=false filemode=na owngap=true acl=false labelled=na git=false
-    ai_tools_conf_allowlist_has_entry "${ALLOWLIST}" "${dir}" 2>/dev/null && listed=true
+    ai_tools_conf__has_allowlist_entry "${ALLOWLIST}" "${dir}" 2>/dev/null && listed=true
     git config --file "${GITCONFIG}" --get-all safe.directory 2>/dev/null \
         | grep -qxF "${dir}" && safedir=true
     if git -C "${dir}" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
@@ -1713,7 +1714,7 @@ path_detail_lines() {
         IFS=' ' read -r _og _m < <(stat -c '%U:%G %a' "${_p}" 2>/dev/null) \
             || { _og='?'; _m='?'; }
         [[ -z "${PATH_DETAIL_MARK:-}" ]] || _mark="$(drift_secret_mark "${_p}")"
-        printf '        %s%-18s %-4s %s%s%s\n' "${C_DIM}" "${_og}" "${_m}" "$(ai_tools_log_sanitize "${_p}")" "${C_RST}" \
+        printf '        %s%-18s %-4s %s%s%s\n' "${C_DIM}" "${_og}" "${_m}" "$(ai_tools_log__sanitize "${_p}")" "${C_RST}" \
             "${_mark}"
     done
 }
@@ -1722,12 +1723,12 @@ path_detail_lines() {
 # local, in scope wherever the claim lists its drift) matches a loaded secret pattern, the match ai-tools-lockdown makes
 # before any repair runs. Prints nothing when no pattern set is loaded.
 drift_secret_mark() {
-    declare -F ai_tools_is_secret_basename >/dev/null 2>&1 && [[ -n "${_AI_TOOLS_PATTERNS_LOADED:-}" ]] || return 0
+    declare -F ai_tools_secret_patterns__is_secret_basename >/dev/null 2>&1 && [[ -n "${_AI_TOOLS_SECRET_PATTERNS__PATTERNS_LOADED:-}" ]] || return 0
     local _part
     local -a _parts=()
     IFS=/ read -r -a _parts <<< "${1#"${d}"/}"
     for _part in "${_parts[@]}"; do
-        if [[ -n "${_part}" ]] && ai_tools_is_secret_basename "${_part}"; then
+        if [[ -n "${_part}" ]] && ai_tools_secret_patterns__is_secret_basename "${_part}"; then
             printf ' %s[secret]%s' "${C_YEL}" "${C_RST}"
             return 0
         fi
@@ -1779,7 +1780,7 @@ label_drift_lines() {
     local _path
     for _path in "$@"; do
         printf '        %s%s  %s%s%s\n' "${C_DIM}" "${label_drift_types[${_path}]:-?}" \
-            "$(ai_tools_log_sanitize "${_path}")" "${C_RST}" "$(drift_secret_mark "${_path}")"
+            "$(ai_tools_log__sanitize "${_path}")" "${C_RST}" "$(drift_secret_mark "${_path}")"
     done
 }
 
@@ -1788,7 +1789,7 @@ label_drift_lines() {
 # it names; `--format tsv` carries the same outcomes for a script. The path is printed through the display sanitizer,
 # since a path under a claimed tree may be one the agent named, and that keeps a newline in it from splitting the line.
 outcome_record() {
-    printf '    %-10s  %-5s  %s  %s\n' "$1" "$2" "$(ai_tools_log_sanitize "$3")" "${4:--}"
+    printf '    %-10s  %-5s  %s  %s\n' "$1" "$2" "$(ai_tools_log__sanitize "$3")" "${4:--}"
 }
 
 # claim_load_libraries -- load the record writer and the per-path checks the claim collects its drift and verifies its
@@ -1802,11 +1803,11 @@ claim_load_libraries() {
     ${loaded} && { source "${RECORDS_TSV_LIB}" 2>/dev/null || loaded=false; }
     # shellcheck source=SCRIPTDIR/../lib/ai-tools/project-permissions.lib.sh
     ${loaded} && { source "${PROJECT_PERMISSIONS_LIB}" 2>/dev/null || loaded=false; }
-    for function in ai_tools_records_begin_report ai_tools_records_accumulate_severity \
-            ai_tools_records_get_exit_status ai_tools_records_tsv_write_record \
-            ai_tools_records_tsv_frame_item_components ai_tools_project_permissions_label_batch \
-            ai_tools_project_permissions_label_check ai_tools_project_permissions_lstat_outcomes \
-            ai_tools_project_permissions_group_check; do
+    for function in ai_tools_records_base__begin_report ai_tools_records_base__accumulate_severity \
+            ai_tools_records_base__get_exit_status ai_tools_records_tsv__write_record \
+            ai_tools_records_tsv__frame_item_components ai_tools_project_permissions__check_label_batch \
+            ai_tools_project_permissions__check_label ai_tools_project_permissions__read_lstat_outcomes \
+            ai_tools_project_permissions__check_group; do
         declare -F "${function}" >/dev/null 2>&1 || loaded=false
     done
     if ! ${loaded}; then
@@ -1817,7 +1818,7 @@ claim_load_libraries() {
     # path.
     if [[ -z "${FOR_OPERATOR}" ]]; then
         # shellcheck source=SCRIPTDIR/../lib/ai-tools/secret-patterns.lib.sh
-        { source "${SECRET_PATTERNS_LIB}" && PROJECTS_HOME="${HOME_DIR}" ai_tools_load_secret_patterns; } 2>/dev/null \
+        { source "${SECRET_PATTERNS_LIB}" && PROJECTS_HOME="${HOME_DIR}" ai_tools_secret_patterns__load; } 2>/dev/null \
             || true
     fi
 }
@@ -1864,15 +1865,15 @@ claim_write_row() {
         *) claim_write_row error directory "${kind}" "${path}" "no code for the finding '${finding}'"; return 0 ;;
     esac
     if [[ "${CLAIM_FORMAT}" == tsv ]]; then
-        if ! ai_tools_records_tsv_frame_item_components item "${kind}"; then
-            ai_tools_records_accumulate_severity unreadable
+        if ! ai_tools_records_tsv__frame_item_components item "${kind}"; then
+            ai_tools_records_base__accumulate_severity unreadable
             return 0
         fi
-        ai_tools_records_tsv_write_record "" "${_CLAIM_CODE}" "${_CLAIM_SEVERITY}" "${finding}" "${subject_type}" \
+        ai_tools_records_tsv__write_record "" "${_CLAIM_CODE}" "${_CLAIM_SEVERITY}" "${finding}" "${subject_type}" \
             "${OWNER_USER}" "${item}" "${path}" "${detail}" >&3 || true
         return 0
     fi
-    ai_tools_records_accumulate_severity "${_CLAIM_SEVERITY}"
+    ai_tools_records_base__accumulate_severity "${_CLAIM_SEVERITY}"
     outcome_record "${finding#"${kind}"-}" "${kind}" "${path}" "${detail}"
 }
 
@@ -1908,7 +1909,7 @@ claim_verify_label() {
     local -A batch_listed=() batch_drift=()
     _verify_label_outcomes=()
     if ! claim_write_list "${CLAIM_WORK}/verify-label.list" "${_verify_label_paths[@]}" \
-            || ! ai_tools_project_permissions_lstat_outcomes "${CLAIM_WORK}/verify-label.list" "${CLAIM_WORK}" absence; then
+            || ! ai_tools_project_permissions__read_lstat_outcomes "${CLAIM_WORK}/verify-label.list" "${CLAIM_WORK}" absence; then
         absence=()
     fi
     for index in "${!_verify_label_paths[@]}"; do
@@ -1918,7 +1919,7 @@ claim_verify_label() {
             unknown) _verify_label_outcomes[index]=unverified ;;
             exists)
                 if [[ "${path}" == *$'\n'* ]]; then
-                    ai_tools_project_permissions_label_check "${path}" "${CLAIM_WORK}" outcome from to
+                    ai_tools_project_permissions__check_label "${path}" "${CLAIM_WORK}" outcome from to
                     case "${outcome}" in
                         match) _verify_label_outcomes[index]=fixed ;;
                         drift) _verify_label_outcomes[index]=not-fixed ;;
@@ -1934,7 +1935,7 @@ claim_verify_label() {
         local -a batch_paths=()
         for index in "${batched[@]}"; do batch_paths+=("${_verify_label_paths[index]}"); done
         if ! claim_write_list "${CLAIM_WORK}/verify-label.batch" "${batch_paths[@]}" \
-                || ! ai_tools_project_permissions_label_batch "${CLAIM_WORK}/verify-label.batch" "${CLAIM_WORK}" \
+                || ! ai_tools_project_permissions__check_label_batch "${CLAIM_WORK}/verify-label.batch" "${CLAIM_WORK}" \
                     batch_listed batch_drift; then
             complete=false
         fi
@@ -1953,7 +1954,7 @@ claim_verify_label() {
     local -a recheck_paths=()
     for index in "${recheck[@]}"; do recheck_paths+=("${_verify_label_paths[index]}"); done
     if ! claim_write_list "${CLAIM_WORK}/verify-label.recheck" "${recheck_paths[@]}" \
-            || ! ai_tools_project_permissions_lstat_outcomes "${CLAIM_WORK}/verify-label.recheck" "${CLAIM_WORK}" \
+            || ! ai_tools_project_permissions__read_lstat_outcomes "${CLAIM_WORK}/verify-label.recheck" "${CLAIM_WORK}" \
                 recheck_absence; then
         recheck_absence=()
     fi
@@ -1967,8 +1968,8 @@ claim_verify_label() {
 }
 
 # claim_verify_group <paths-array> <outcomes-array> <details-array>  -- after the Apply block, check each listed
-# group-drift path against the postconditions the repair establishes (ai_tools_project_permissions_group_check) and fill
-# <outcomes-array> with the outcome tokens claim_write_row records, and <details-array> with the check's reason
+# group-drift path against the postconditions the repair establishes (ai_tools_project_permissions__check_group)
+# and fill <outcomes-array> with the outcome tokens claim_write_row records, and <details-array> with the check's reason
 # for a path it did not pass. The identities are resolved to numeric ids once; one that does not resolve leaves every
 # path `unverified`.
 claim_verify_group() {
@@ -1980,7 +1981,7 @@ claim_verify_group() {
     sandbox_uid="$(id -u "${SANDBOX_USER}" 2>/dev/null)" || sandbox_uid=""
     sandbox_gid="$(getent group "${SANDBOX_GROUP}" 2>/dev/null | cut -d: -f3)" || sandbox_gid=""
     if ! claim_write_list "${CLAIM_WORK}/verify-group.list" "${_verify_group_paths[@]}" \
-            || ! ai_tools_project_permissions_lstat_outcomes "${CLAIM_WORK}/verify-group.list" "${CLAIM_WORK}" absence; then
+            || ! ai_tools_project_permissions__read_lstat_outcomes "${CLAIM_WORK}/verify-group.list" "${CLAIM_WORK}" absence; then
         absence=()
     fi
     for index in "${!_verify_group_paths[@]}"; do
@@ -1997,7 +1998,7 @@ claim_verify_group() {
                     _verify_group_details[index]="the operator, the sandbox account or its group did not resolve to an id"
                     continue
                 fi
-                ai_tools_project_permissions_group_check "${_verify_group_paths[index]}" "${CLAIM_WORK}" \
+                ai_tools_project_permissions__check_group "${_verify_group_paths[index]}" "${CLAIM_WORK}" \
                     "${operator_uid}" "${sandbox_uid}" "${sandbox_gid}" outcome detail
                 case "${outcome}" in
                     match) _verify_group_outcomes[index]=fixed ;;
@@ -2016,11 +2017,11 @@ claim_verify_group() {
 # unavailable, which treats every hit as reachable -- the fail-soft direction for a walk-cost optimization.
 under_skip_listed_name() {
     local _base="$1" _path="$2" _rel _seg _name _s _x
-    [[ "${#AI_TOOLS_SKIP_NAMES[@]}" -gt 0 ]] || return 1
+    [[ "${#AI_TOOLS_SKIP_DIRS__NAMES[@]}" -gt 0 ]] || return 1
     _rel="${_path#"${_base}"/}"
     # Split on `/` alone: a read would stop at a line feed in the name and judge the path on its first line.
     mapfile -d / -t _seg < <(printf '%s' "${_rel}")
-    for _name in "${AI_TOOLS_SKIP_NAMES[@]}"; do
+    for _name in "${AI_TOOLS_SKIP_DIRS__NAMES[@]}"; do
         for _s in "${_seg[@]}"; do
             if [[ "${_s}" == "${_name}" ]]; then
                 # A relative artifact exclusion re-opens its subtree to the walks, so a hit under one is reachable, not
@@ -2121,7 +2122,7 @@ cmd_project_claim() {
     local d; d="$(resolve_dir "${path:-$PWD}")"
     [[ -d "${d}" ]] || die "not a directory: ${d}"
     claim_load_libraries
-    ai_tools_assert_safe_target "${d}" "project claim" || exit 3
+    ai_tools_safe_paths__assert_safe_target "${d}" "project claim" || exit 3
     require_claimable_owner "${d}"
 
     # A parked project is answered up front (offer_reenable), ahead of the proceed confirm a run with no terminal
@@ -2150,7 +2151,7 @@ cmd_project_claim() {
     # a `scan-capped` row, the group cap applied after the skip-list split so hits the claim cannot repair do not take
     # the places of ones it can.
     claim_work_dir
-    ai_tools_records_begin_report
+    ai_tools_records_base__begin_report
     local -a drift=()
     local group_scan_detail="" group_capped=false
     if [[ "${listed}" == true && "${owngap}" == false ]]; then
@@ -2158,7 +2159,7 @@ cmd_project_claim() {
     fi
 
     local -a drift_skipped=()
-    if ai_tools_skip_find_expr sweep 2>/dev/null && (( ${#AI_TOOLS_SKIP_NAMES[@]} )); then
+    if ai_tools_skip_dirs__build_find_expression sweep 2>/dev/null && (( ${#AI_TOOLS_SKIP_DIRS__NAMES[@]} )); then
         local -a _keep=()
         local _hit
         for _hit in "${drift[@]}"; do
@@ -2218,8 +2219,8 @@ cmd_project_claim() {
     # does not mention the sandbox boundary (ancestor-config.lib.sh). Read-only, and reported rather than repaired:
     # every step of a claim acts inside the project, so none of them closes this.
     local -a ancestor_configs=()
-    if declare -F ai_tools_unreadable_ancestor_configs >/dev/null 2>&1; then
-        mapfile -t ancestor_configs < <(ai_tools_unreadable_ancestor_configs "${d}")
+    if declare -F ai_tools_ancestor_config__find_unreadable_configs >/dev/null 2>&1; then
+        mapfile -t ancestor_configs < <(ai_tools_ancestor_config__find_unreadable_configs "${d}")
     fi
 
     ancestor_config_note() {
@@ -2578,7 +2579,7 @@ cmd_project_claim() {
         headline_warn "WARNING: the claim did not complete" \
             "${d} is registered, but ${ROOT_STEP_FAILURES} step(s) that grant the agent access did not apply, so it cannot work there yet. Each is named above with the command that applies it. Re-running the claim is the simpler route -- it is idempotent and does only what is still missing:"
         say "      ${C_BOLD}ai-tools projects claim ${d}${C_RST}"
-        ai_tools_log_structured warning \
+        ai_tools_log__structured warning \
             "claim of ${d} incomplete -- ${ROOT_STEP_FAILURES} root step(s) did not apply" \
             "AI_TOOLS_PROJECT=${d}" "AI_TOOLS_RESULT=failed"
         exit 1
@@ -2591,12 +2592,12 @@ cmd_project_claim() {
     if ! ${apply_steps} && [[ "${listed}" == true ]] && ! ${need_gate} && (( ${#TRAVERSAL_GRANT_PATHS[@]} == 0 )); then
         closing+=" -- no change applied"
     fi
-    if ai_tools_records_get_exit_status; then
+    if ai_tools_records_base__get_exit_status; then
         ok "${closing}"
     else
         say "  ${C_YEL}!${C_RST} ${closing}"
     fi
-    ai_tools_log_structured info "claimed project ${d}" \
+    ai_tools_log__structured info "claimed project ${d}" \
         "AI_TOOLS_PROJECT=${d}" "AI_TOOLS_RESULT=ok"
     claim_end
 }
@@ -2606,10 +2607,10 @@ cmd_project_claim() {
 # over 5 over 4). On the page a non-zero status is said in one line, since the rows printed before it name each path.
 claim_end() {
     local status=0
-    ai_tools_records_get_exit_status || status=$?
+    ai_tools_records_base__get_exit_status || status=$?
     (( status )) || return 0
     if [[ "${CLAIM_FORMAT}" != tsv ]]; then
-        if (( status == AI_TOOLS_EXIT_UNREADABLE )); then
+        if (( status == AI_TOOLS_RECORDS_BASE__EXIT_UNREADABLE )); then
             say "  ${C_DIM}exit ${status}: a drift check could not be read -- the unverified and error rows name it${C_RST}"
         else
             say "  ${C_DIM}exit ${status}: drift is left in place -- the not-fixed and scan-capped rows name it${C_RST}"
@@ -2660,7 +2661,7 @@ cmd_project_create() {
     # that would MANUFACTURE a protected directory (`/efi` or `/lost+found` on a host without one). It does not refuse
     # a project nested INSIDE a protected tree -- descendants pass by design here exactly as they do for a claim, or no
     # project under a home would work.
-    ai_tools_assert_safe_target "${d}" "project create" || exit 3
+    ai_tools_safe_paths__assert_safe_target "${d}" "project create" || exit 3
 
     # Reachability pre-flight. The parent exists by now, so this scans the project's real ancestry: a blocker no grant
     # may cover means the sandbox account could never enter this project, so the create is refused BEFORE anything
@@ -2721,7 +2722,7 @@ cmd_project_create() {
         say "    ${C_DIM}modes set to 0750/0640 -- your umask ($(umask)) would have made them${C_RST}"
         say "    ${C_DIM}owner-only, which the agent cannot read${C_RST}"
     fi
-    ai_tools_log_structured info "created project directory ${d}" \
+    ai_tools_log__structured info "created project directory ${d}" \
         "AI_TOOLS_PROJECT=${d}" "AI_TOOLS_RESULT=ok"
 
     # Plain `git init`, so the operator's own init.defaultBranch decides the branch name rather than this tool holding
@@ -2761,8 +2762,8 @@ positive_project_entries() {
     local entry dir
     [[ -f "${ALLOWLIST}" ]] || return 0
     while IFS= read -r entry || [[ -n "${entry}" ]]; do
-        ai_tools_conf_path_entry "${entry}" || continue
-        entry="${_ai_tools_conf_value}"
+        ai_tools_conf__parse_path_entry "${entry}" || continue
+        entry="${ai_tools_conf__value}"
         [[ "${entry}" == '!'* ]] && continue
         dir="$(realpath -e "${entry}" 2>/dev/null)" || continue
         printf '%s\n' "${dir}"
@@ -2782,8 +2783,8 @@ project_entries() {
     [[ -f "${ALLOWLIST}" ]] || return 0
     local -A seen_dirs=()
     while IFS= read -r entry || [[ -n "${entry}" ]]; do
-        ai_tools_conf_path_entry "${entry}" || continue
-        entry="${_ai_tools_conf_value}"
+        ai_tools_conf__parse_path_entry "${entry}" || continue
+        entry="${ai_tools_conf__value}"
         entry="${entry#\!}"
         dir="$(realpath -e "${entry}" 2>/dev/null)" || continue
         [[ -n "${seen_dirs[${dir}]:-}" ]] && continue
@@ -2854,8 +2855,8 @@ blocking_exclusion() {
     local d="$1" raw entry val
     [[ -f "${ALLOWLIST}" ]] || return 1
     while IFS= read -r raw || [[ -n "${raw}" ]]; do
-        ai_tools_conf_path_entry "${raw}" || continue
-        entry="${_ai_tools_conf_value}"
+        ai_tools_conf__parse_path_entry "${raw}" || continue
+        entry="${ai_tools_conf__value}"
         [[ "${entry}" == '!'* ]] || continue
         val="${entry:1}"; val="${val%/}"
         [[ "$(realpath -e "${val}" 2>/dev/null || printf '%s' "${val}")" == "${d}" ]] && continue
@@ -2881,16 +2882,16 @@ report_still_blocked() {
 }
 
 # allowlist_exclusions  -- print this registry's '!' exclusion entries, one per line without the '!', each read
-# through the shared grammar (ai_tools_conf_path_entry), so a commented or quoted line denotes the same path here
+# through the shared grammar (ai_tools_conf__parse_path_entry), so a commented or quoted line denotes the same path here
 # as in every other reader of the file. Feeds the read-only claim-time scans (acl_drift_scan, sealed_setgid_scan),
 # which prune each carve-out from their walk. A missing registry yields an empty list.
 allowlist_exclusions() {
     local line
     [[ -f "${ALLOWLIST}" ]] || return 0
     while IFS= read -r line || [[ -n "${line}" ]]; do
-        ai_tools_conf_path_entry "${line}" || continue
-        if [[ "${_ai_tools_conf_value}" == '!'* ]]; then
-            printf '%s\n' "${_ai_tools_conf_value#!}"
+        ai_tools_conf__parse_path_entry "${line}" || continue
+        if [[ "${ai_tools_conf__value}" == '!'* ]]; then
+            printf '%s\n' "${ai_tools_conf__value#!}"
         fi
     done < "${ALLOWLIST}"
 }
@@ -2899,13 +2900,13 @@ allowlist_exclusions() {
 # own allowlist, honoring '!' exclusions (an exclusion wins). The CLI front-line for the per-project verbs (reclaim,
 # lockdown): a path outside every claimed project is refused up front with a clear message, not a silent helper no-op.
 # Scoped to the operator's own allowlist like every other CLI read; the root helpers re-check coverage (multi-operator)
-# independently. Mirrors operator.lib's ai_tools_allowlist_covers.
+# independently. Mirrors operator.lib's ai_tools_operator__is_covered_by_allowlist.
 covered_by_project() {
     local d="$1" entry val dir covered=1
     [[ -f "${ALLOWLIST}" ]] || return 1
     while IFS= read -r entry || [[ -n "${entry}" ]]; do
-        ai_tools_conf_path_entry "${entry}" || continue
-        val="${_ai_tools_conf_value}"
+        ai_tools_conf__parse_path_entry "${entry}" || continue
+        val="${ai_tools_conf__value}"
         if [[ "${val}" == '!'* ]]; then
             val="${val#!}"; val="${val%/}"
             # SC2053: the unquoted RHS is the operator-owned glob pattern (see shellcheck.rule.md).
@@ -3005,13 +3006,13 @@ unclaim_one() {
     if ${handback_missing}; then
         headline_warn "WARNING: deregistered, but the files were not handed back" \
             "${d} is out of allowed-projects, so no session can launch there. Its files still carry group ${SANDBOX_GROUP}, so an agent session that can reach the path keeps its access to them. The command above completes the reversal."
-        ai_tools_log_structured warning \
+        ai_tools_log__structured warning \
             "unclaimed ${d} (registries dropped; filesystem hand-back did NOT run)" \
             "AI_TOOLS_PROJECT=${d}" "AI_TOOLS_RESULT=failed"
         return 1
     fi
     ok "unclaimed ${d}"
-    ai_tools_log_structured info "unclaimed project ${d}" \
+    ai_tools_log__structured info "unclaimed project ${d}" \
         "AI_TOOLS_PROJECT=${d}" "AI_TOOLS_RESULT=ok"
 }
 
@@ -3040,7 +3041,7 @@ undeletable_scan() {
 residue_scan() {
     local d="$1" hit
     RESIDUE=(); RESIDUE_SKIPPED=()
-    ai_tools_skip_find_expr sweep 2>/dev/null || true
+    ai_tools_skip_dirs__build_find_expression sweep 2>/dev/null || true
     while IFS= read -r hit; do
         [[ -n "${hit}" ]] || continue
         if [[ "${hit}" != "${d}/.git/"* && "${hit}" != "${d}/.git" ]] \
@@ -3103,7 +3104,7 @@ resolve_handback_group() {
 cmd_unclaim_unlisted() {
     local d="$1" force="$2" full="$3" dry="$4" assume_yes="$5" group_opt="$6"
 
-    ai_tools_assert_safe_target "${d}" "project unclaim" || exit 3
+    ai_tools_safe_paths__assert_safe_target "${d}" "project unclaim" || exit 3
     # A sandbox clone has its own lifecycle verb, which also removes the clone itself.
     if [[ "${d}" == "${SANDBOX_ROOT}/"* ]]; then
         die "that is a sandbox clone: ${d}" \
@@ -3124,7 +3125,7 @@ cmd_unclaim_unlisted() {
     # Detection GUIDES but never lowers the gate: the fingerprint improves the message, --force still authorizes,
     # and the confirm still executes.
     if [[ "${force}" != true ]]; then
-        ai_tools_msg_notice \
+        ai_tools_msg__notice \
             "ai-tools: not a registered project, but it carries ai-tools permissions:" \
             "${d}" \
             "${n_res} path(s) owned by or grouped to ${SANDBOX_USER}${extra}." \
@@ -3199,7 +3200,7 @@ cmd_unclaim_unlisted() {
 
     if run_unclaim "${d}" "${hb_group}" "${helper_flags[@]}"; then
         ok "normalized ${d} to group ${hb_group}, ai-tools access removed"
-        ai_tools_log_structured info "unclaimed unregistered tree ${d} (group -> ${hb_group})" \
+        ai_tools_log__structured info "unclaimed unregistered tree ${d} (group -> ${hb_group})" \
             "AI_TOOLS_PROJECT=${d}" "AI_TOOLS_RESULT=ok"
     else
         warn "could not normalize the tree -- run it by hand:"
@@ -3303,7 +3304,7 @@ cmd_project_unclaim() {
     # ancestor mode the search root may be protected, e.g. /home, while the projects nested under it are not).
     local t
     for t in "${targets[@]}"; do
-        ai_tools_assert_safe_target "${t}" "project unclaim" || exit 3
+        ai_tools_safe_paths__assert_safe_target "${t}" "project unclaim" || exit 3
     done
 
     # --force is about reaching a tree the allowlist does not cover; here one does. Refused, like every other flag
@@ -3375,7 +3376,7 @@ cmd_project_unclaim() {
     # An incomplete reversal reaches the exit status, so a script sees it; the registries drop regardless, which is
     # why this reports rather than aborts.
     if (( incomplete )); then
-        ai_tools_log_structured warning \
+        ai_tools_log__structured warning \
             "unclaim finished with ${incomplete} of ${#targets[@]} project(s) not fully reversed" \
             "AI_TOOLS_RESULT=failed"
     fi
@@ -3389,7 +3390,7 @@ cmd_project_unclaim() {
         local left=$(( ${#RESIDUE[@]} + ${#RESIDUE_SKIPPED[@]} ))
         if (( left )); then
             say ""
-            ai_tools_msg_notice \
+            ai_tools_msg__notice \
                 "ai-tools: ${left} path(s) under this directory still carry ai-tools ownership or group, outside the projects just unclaimed." \
                 "Re-run to normalize them now that nothing here is registered:"
             say ""
@@ -3436,7 +3437,7 @@ cmd_project_remove() {
         remove_clone "${d}" "${assume_yes}"
         return
     fi
-    ai_tools_assert_safe_target "${d}" "project remove" || exit 3
+    ai_tools_safe_paths__assert_safe_target "${d}" "project remove" || exit 3
 
     # ── Classification: an EXACT entry, and only that, is a removal target; a parked entry (project_entries) authorizes
     # it as an active one does (cli.rule.md). ──
@@ -3528,7 +3529,7 @@ cmd_project_remove() {
         "${d} and everything in it is deleted. This is NOT reversible: there is no undo, and the tree is not moved to a trash location. Unpushed commits and uncommitted changes go with it, and this command does not read the repository to count them. To release the project and keep the files, use ai-tools projects unclaim instead."
     if ! ${assume_yes}; then
         confirm "Delete this project directory and everything in it?" n || die "aborted"
-        ai_tools_msg_challenge "  Confirm the project to delete" "${d##*/}" \
+        ai_tools_msg__challenge "  Confirm the project to delete" "${d##*/}" \
             || die "aborted -- the name did not match"
     fi
 
@@ -3561,7 +3562,7 @@ cmd_project_remove() {
     fi
 
     say ""
-    ai_tools_log_structured info "removed project ${d}" \
+    ai_tools_log__structured info "removed project ${d}" \
         "AI_TOOLS_PROJECT=${d}" "AI_TOOLS_RESULT=ok"
     # The tree is gone either way, but a green ✓ is this project's report card and there is no reading of it that covers
     # "and two cleanup steps failed". So the check mark is reserved for a clean run, and a run with failures closes
@@ -3573,7 +3574,7 @@ cmd_project_remove() {
         say  "  needs attention, across all your projects:"
         say  ""
         say  "      ${C_BOLD}ai-tools projects${C_RST}"
-        ai_tools_log_structured warning \
+        ai_tools_log__structured warning \
             "removed ${d} with ${ROOT_STEP_FAILURES} cleanup step(s) incomplete" \
             "AI_TOOLS_PROJECT=${d}" "AI_TOOLS_RESULT=failed"
     else
@@ -3619,13 +3620,13 @@ sandbox_finalize() {
     if ! ${safedir_ok}; then
         headline_warn "WARNING: the clone is not git-ready" \
             "${dst} is created, secured and registered, but git safe.directory could not be added, so the agent's git will refuse to operate in it. The command above adds the entry; nothing else about the clone needs redoing."
-        ai_tools_log_structured warning \
+        ai_tools_log__structured warning \
             "sandbox ${dst} registered without a git safe.directory entry" \
             "AI_TOOLS_PROJECT=${dst}"
         return 1
     fi
     ok "sandbox ready: ${dst}"
-    ai_tools_log_structured info "sandbox secured and registered: ${dst}" \
+    ai_tools_log__structured info "sandbox secured and registered: ${dst}" \
         "AI_TOOLS_PROJECT=${dst}" "AI_TOOLS_RESULT=ok"
 
     section "Next"
@@ -3811,7 +3812,7 @@ cmd_project_clone() {
     # unreadable to the sandbox account until the gate has run and normalize_clone opens the non-secret paths.
     ( umask 077 && git clone --depth=1 -b "${br}" "${clone_url}" "${dst}" )
     ok "shallow-cloned into ${dst} (private until secured)"
-    ai_tools_log_structured info \
+    ai_tools_log__structured info \
         "created sandbox clone ${dst} (branch ${br}, base ${base_ref}, remote ${remote})" \
         "AI_TOOLS_PROJECT=${dst}" "AI_TOOLS_RESULT=ok"
 
@@ -3849,7 +3850,7 @@ cmd_project_push() {
     confirm "Push ${n} commit(s) to ${up}?" y || die "aborted"
     git -C "${d}" push
     ok "pushed ${n} commit(s) to ${up}"
-    ai_tools_log_structured info "pushed ${n} commit(s) from sandbox ${d} to ${up}" \
+    ai_tools_log__structured info "pushed ${n} commit(s) from sandbox ${d} to ${up}" \
         "AI_TOOLS_PROJECT=${d}" "AI_TOOLS_RESULT=ok"
 }
 
@@ -3874,7 +3875,7 @@ remove_clone() {
     # happened. unreg_safedir signals failure now, and a bare call under set -e would do exactly that.
     unreg_safedir "${d}" || true
     ok "removed ${d} and unregistered it"
-    ai_tools_log_structured info "removed sandbox ${d} and unregistered it" \
+    ai_tools_log__structured info "removed sandbox ${d} and unregistered it" \
         "AI_TOOLS_PROJECT=${d}" "AI_TOOLS_RESULT=ok"
     say "  ${C_DIM}remote branch left intact -- others may still merge it${C_RST}"
 }
@@ -3910,7 +3911,7 @@ cmd_project_lockdown() {
         0)
             ${dry} || clear_lockdown_guard "${d}"
             ok "lockdown done: ${d}"
-            ${dry} || ai_tools_log_structured info "locked down secrets in ${d}" \
+            ${dry} || ai_tools_log__structured info "locked down secrets in ${d}" \
                 "AI_TOOLS_PROJECT=${d}" "AI_TOOLS_RESULT=ok"
             ;;
         6)  # the helper's decline: nothing changed, and the exit carries it (ai-tools(1))
@@ -3961,7 +3962,7 @@ cmd_project_disable() {
     section "Disable project"
     say "  ${d}"
     retag_allow "${d}" disable || die "allowed-projects not updated -- ${d} is still enabled"
-    ai_tools_log_structured info "project disabled: ${d} (owner ${OWNER_USER})" \
+    ai_tools_log__structured info "project disabled: ${d} (owner ${OWNER_USER})" \
         "AI_TOOLS_PROJECT=${d}" "AI_TOOLS_RESULT=ok"
     say ""
     say "  ${C_DIM}no session can start here until it is re-enabled, and the ownership handback no"
@@ -3999,7 +4000,7 @@ cmd_project_enable() {
     section "Enable project"
     say "  ${d}"
     retag_allow "${d}" enable || die "allowed-projects not updated -- ${d} is still disabled"
-    ai_tools_log_structured info "project enabled: ${d} (owner ${OWNER_USER})" \
+    ai_tools_log__structured info "project enabled: ${d} (owner ${OWNER_USER})" \
         "AI_TOOLS_PROJECT=${d}" "AI_TOOLS_RESULT=ok"
     report_still_blocked "${d}"
     # A project parked long enough may have drifted out of a fully claimed state; the claim is idempotent and reports
@@ -4032,7 +4033,7 @@ cmd_project_handback() {
     # The helper reports the outcome itself -- the pre-scan count, the one whole-set confirm, then the `handed back N` /
     # `nothing to reclaim` / `declined` line -- so no blanket success line here: the CLI states only what happened.
     run_reclaim "${d}" "${passthru[@]}" || die "reclaim failed for ${d}"
-    ai_tools_log_structured info "reclaim run for ${d}$(${full} && printf ' (full)')" \
+    ai_tools_log__structured info "reclaim run for ${d}$(${full} && printf ' (full)')" \
         "AI_TOOLS_PROJECT=${d}" "AI_TOOLS_RESULT=ok"
 }
 
@@ -4064,9 +4065,9 @@ cmd_audit() {
 # as die() does, so a `stop` refusal carries one.
 die_stop_usage() {
     local code=""
-    if ai_tools_msg_is_code "${1-}"; then code="$1"; shift; fi
-    ai_tools_log_coded error "${code}" "$*"
-    ai_tools_msg_error ${code:+"${code}"} "ai-tools: $*"
+    if ai_tools_msg__is_code "${1-}"; then code="$1"; shift; fi
+    ai_tools_log__coded error "${code}" "$*"
+    ai_tools_msg__error ${code:+"${code}"} "ai-tools: $*"
     exit 2
 }
 
@@ -4117,8 +4118,8 @@ cmd_providers() {
     local providers_lib=/usr/local/lib/ai-tools/providers.lib.sh
     # shellcheck source=SCRIPTDIR/../lib/ai-tools/providers.lib.sh
     if ! source "${providers_lib}" 2>/dev/null \
-            || ! declare -F ai_tools_enabled_agents >/dev/null 2>&1 \
-            || ! declare -F ai_tools_provider_gate  >/dev/null 2>&1; then
+            || ! declare -F ai_tools_providers__list_enabled_agents >/dev/null 2>&1 \
+            || ! declare -F ai_tools_providers__read_gate  >/dev/null 2>&1; then
         die "cannot load ${providers_lib} -- reinstall the ai-tools package"
     fi
 
@@ -4128,7 +4129,7 @@ cmd_providers() {
 
     # gate_line <conf-key> -- the gating decision for one kind, in the operator's terms.
     gate_line() {
-        case "$(ai_tools_provider_gate "$1")" in
+        case "$(ai_tools_providers__read_gate "$1")" in
             allowlist) printf '%s in %s (an exact allowlist)' "$1" "${AI_TOOLS_OPERATOR_CONF}" ;;
             untrusted) printf '%sdefault_enable only -- %s is ignored (not root-owned, or writable by group/other)%s' \
                            "${C_YEL}" "${AI_TOOLS_OPERATOR_CONF}" "${C_RST}" ;;
@@ -4139,9 +4140,9 @@ cmd_providers() {
     # refuses; that is the refusals block's story to tell.
     agent_detail() {
         local package launcher handback
-        package="$( ai_tools_agent_manifest_field "$1" npm_package || true)"
-        launcher="$(ai_tools_agent_manifest_field "$1" launcher    || true)"
-        handback="$(ai_tools_agent_manifest_field "$1" handback    || true)"
+        package="$( ai_tools_providers__read_agent_manifest_field "$1" npm_package || true)"
+        launcher="$(ai_tools_providers__read_agent_manifest_field "$1" launcher    || true)"
+        handback="$(ai_tools_providers__read_agent_manifest_field "$1" handback    || true)"
         [[ -n "${package}" ]] || return 0
         printf '%s%s%s' "${package}" "${launcher:+, launcher ${launcher}}" \
             "${handback:+, handback ${handback}}"
@@ -4173,14 +4174,14 @@ cmd_providers() {
     }
 
     kind_block "Agents"       AI_TOOLS_AGENTS       "${AI_TOOLS_AGENTS_DIR}" \
-               ai_tools_enabled_agents agent_detail
+               ai_tools_providers__list_enabled_agents agent_detail
     kind_block "Integrations" AI_TOOLS_INTEGRATIONS "${AI_TOOLS_INTEGRATIONS_DIR}" \
-               ai_tools_enabled_integrations -
+               ai_tools_providers__list_enabled_integrations -
 
     # The enabled integration names, reused by the SELinux advisory. stderr is dropped here (the integrations kind_block
     # already captured any refusals into ${refusals}).
     local enabled_integrations
-    enabled_integrations="$(ai_tools_enabled_integrations 2>/dev/null | cut -f1)"
+    enabled_integrations="$(ai_tools_providers__list_enabled_integrations 2>/dev/null | cut -f1)"
 
     # SELinux policy groups -- reported only where the MAC layer is active (Enforcing/Permissive); a DAC-only
     # or SELinux-absent host skips the whole block. Read-only and unprivileged: getenforce and `semodule -l` read
@@ -4194,7 +4195,7 @@ cmd_providers() {
         local groups_lib=/usr/local/lib/ai-tools/selinux-groups.lib.sh
         # shellcheck source=SCRIPTDIR/../lib/ai-tools/selinux-groups.lib.sh
         source "${groups_lib}" 2>/dev/null \
-            && declare -F ai_tools_selinux_group_name >/dev/null 2>&1 || return 0
+            && declare -F ai_tools_selinux_groups__get_name >/dev/null 2>&1 || return 0
 
         # Read the loaded module list FIRST. If it is not readable unprivileged (common: the policy store is root-only
         # on many hosts), omit the whole section rather than print a section that only says "cannot read" --
@@ -4212,11 +4213,11 @@ cmd_providers() {
             say "  core module ai_tools: ${C_DIM}not loaded (DAC-only confinement)${C_RST}"
         fi
         local entry gname loaded_any=0
-        for entry in "${AI_TOOLS_SELINUX_GROUPS[@]}"; do
-            gname="$(ai_tools_selinux_group_name "${entry}")"
+        for entry in "${AI_TOOLS_SELINUX_GROUPS__REGISTRY[@]}"; do
+            gname="$(ai_tools_selinux_groups__get_name "${entry}")"
             if group_loaded "${gname}"; then
                 printf '    %sloaded%s   %s -- %s\n' "${C_GRN}" "${C_RST}" \
-                    "${gname}" "$(ai_tools_selinux_group_desc "${entry}")"
+                    "${gname}" "$(ai_tools_selinux_groups__get_description "${entry}")"
                 loaded_any=1
             fi
         done
@@ -4228,20 +4229,20 @@ cmd_providers() {
         # the failure they cause inside a session is an opaque EACCES. Stable groups take one ai-tools-admin command;
         # an experimental one is compiled from a source checkout, so it is named on its own line.
         [[ "${enforce}" == "Enforcing" ]] || return 0
-        declare -F ai_tools_provider_manifest_field >/dev/null 2>&1 || return 0
+        declare -F ai_tools_providers__read_provider_manifest_field >/dev/null 2>&1 || return 0
         local integration declared missing_stable missing_experimental gname gdesc
         local -a declared_groups
         while IFS= read -r integration; do
             [[ -n "${integration}" ]] || continue
-            declared="$(ai_tools_provider_manifest_field "${integration}" selinux_groups 2>/dev/null || true)"
+            declared="$(ai_tools_providers__read_provider_manifest_field "${integration}" selinux_groups 2>/dev/null || true)"
             [[ -n "${declared}" ]] || continue
             declared_groups=()
-            ai_tools_conf_list_value declared_groups "${declared}" 0 "selinux_groups in the ${integration} manifest"
+            ai_tools_conf__split_list_value declared_groups "${declared}" 0 "selinux_groups in the ${integration} manifest"
             missing_stable=""; missing_experimental=""
             for gname in "${declared_groups[@]}"; do
-                ai_tools_selinux_group_valid "${gname}" || continue
+                ai_tools_selinux_groups__is_valid "${gname}" || continue
                 group_loaded "${gname}" && continue
-                if ai_tools_selinux_group_is_experimental "${gname}"; then
+                if ai_tools_selinux_groups__is_experimental "${gname}"; then
                     missing_experimental+="${missing_experimental:+ }${gname}"
                 else
                     missing_stable+="${missing_stable:+ }${gname}"
@@ -4251,9 +4252,9 @@ cmd_providers() {
             say ""
             say "  ${C_YEL}${integration} is enabled but not every SELinux group it needs is loaded:${C_RST}"
             for gname in ${missing_stable} ${missing_experimental}; do
-                for entry in "${AI_TOOLS_SELINUX_GROUPS[@]}"; do
-                    [[ "$(ai_tools_selinux_group_name "${entry}")" == "${gname}" ]] || continue
-                    gdesc="$(ai_tools_selinux_group_desc "${entry}")"
+                for entry in "${AI_TOOLS_SELINUX_GROUPS__REGISTRY[@]}"; do
+                    [[ "$(ai_tools_selinux_groups__get_name "${entry}")" == "${gname}" ]] || continue
+                    gdesc="$(ai_tools_selinux_groups__get_description "${entry}")"
                     say "    ${C_YEL}${gname}${C_RST} -- ${gdesc%%:*}"
                 done
             done
@@ -4290,8 +4291,8 @@ list_maintenance_note() {
 # stamp two ways; this stays a local name because the report calls it on nearly every line. Fail-soft, like the rest
 # of that library's use here: a missing lib drops the relative clause rather than the line.
 status_fmt_age() {
-    declare -F ai_tools_service_fmt_age >/dev/null 2>&1 || return 0
-    ai_tools_service_fmt_age "${1:-}"
+    declare -F ai_tools_services__format_age >/dev/null 2>&1 || return 0
+    ai_tools_services__format_age "${1:-}"
 }
 
 # status_sandbox_unit_commands <unit>  -- print the three commands that inspect and re-run a unit
@@ -4337,12 +4338,12 @@ status_sandbox_unit_commands() {
 # Returns non-zero only when an unpinned entrypoint is actionable, which is exactly when the operator has required
 # verification: everywhere else unpinned is a legitimate state (an air-gapped host, a release the vendor published no
 # manifest for) and must not make a healthy host alarm, the same rule the unqueryable units follow. A pin this account
-# has no read on is reported as unknown, which ai_tools_service_needs_attention does not count as a fault: `status`
-# stays open to a non-operator, whom the state directory's mode keeps out. status_path_order -- where THIS shell finds
-# each enabled agent's launcher. The one reading this report can make for free and no other vantage can make at all:
-# the CLI runs in the operator's own login shell, so `command -v claude` resolves exactly what typing `claude` would
-# run. A launcher resolving to a file other than the wrapper starts UNCONFINED, as the operator, so it counts toward
-# the report's exit status and names the command that repairs it. What each state means is launch.rule.md's PATH
+# has no read on is reported as unknown, which ai_tools_services__is_attention_needed does not count as a fault:
+# `status` stays open to a non-operator, whom the state directory's mode keeps out. status_path_order -- where THIS
+# shell finds each enabled agent's launcher. The one reading this report can make for free and no other vantage can make
+# at all: the CLI runs in the operator's own login shell, so `command -v claude` resolves exactly what typing `claude`
+# would run. A launcher resolving to a file other than the wrapper starts UNCONFINED, as the operator, so it counts
+# toward the report's exit status and names the command that repairs it. What each state means is launch.rule.md's PATH
 # ordering section; what this report says about each is cli.rule.md.
 #
 # Best-effort like the rest of this report: without the library or the provider resolver this vantage has no launcher
@@ -4354,12 +4355,12 @@ status_path_order() {
     source "${providers_lib}" 2>/dev/null || true
     # shellcheck source=SCRIPTDIR/../lib/ai-tools/path-order.lib.sh
     source "${path_order_lib}" 2>/dev/null || true
-    declare -F ai_tools_path_order_read_here >/dev/null 2>&1 || return 0
+    declare -F ai_tools_path_order__read_here >/dev/null 2>&1 || return 0
 
     local state pair launcher winner seen=0
-    ai_tools_path_order_read_here || true
-    state="${AI_TOOLS_PATH_ORDER_STATE:-unknown}"
-    for pair in "${AI_TOOLS_PATH_ORDER_WINNERS[@]+"${AI_TOOLS_PATH_ORDER_WINNERS[@]}"}"; do
+    ai_tools_path_order__read_here || true
+    state="${AI_TOOLS_PATH_ORDER__STATE:-unknown}"
+    for pair in "${AI_TOOLS_PATH_ORDER__WINNERS[@]+"${AI_TOOLS_PATH_ORDER__WINNERS[@]}"}"; do
         launcher="${pair%%=*}"; winner="${pair#*=}"
         (( seen++ == 0 )) && section "PATH ordering"
         case "${winner}" in
@@ -4367,7 +4368,7 @@ status_path_order() {
             # reported, and not a fault.
             '')  printf '  %-28s %sn/a (no wrapper installed)%s\n' "${launcher}" "${C_DIM}" "${C_RST}" ;;
             '?') printf '  %-28s %s? (this shell cannot resolve the name)%s\n' "${launcher}" "${C_DIM}" "${C_RST}" ;;
-            "${AI_TOOLS_PATH_ORDER_WRAPPER_DIR}/${launcher}")
+            "${AI_TOOLS_PATH_ORDER__WRAPPER_DIR}/${launcher}")
                  printf '  %-28s %sOK%s %s(%s -- the sandbox wrapper)%s\n' \
                      "${launcher}" "${C_GRN}" "${C_RST}" "${C_DIM}" "${winner}" "${C_RST}" ;;
             *)   printf '  %-28s %sUNCONFINED%s %s(%s)%s\n' \
@@ -4399,13 +4400,13 @@ status_entrypoint_pins() {
     source "${providers_lib}" 2>/dev/null || true
     # shellcheck source=SCRIPTDIR/../lib/ai-tools/entrypoint-verify.lib.sh
     source "${verify_lib}" 2>/dev/null || true
-    declare -F ai_tools_enabled_agents      >/dev/null 2>&1 || return 0
-    declare -F ai_tools_entrypoint_pin_path >/dev/null 2>&1 || return 0
-    declare -F ai_tools_service_stamp_field >/dev/null 2>&1 || return 0
+    declare -F ai_tools_providers__list_enabled_agents      >/dev/null 2>&1 || return 0
+    declare -F ai_tools_entrypoint_verify__get_pin_path >/dev/null 2>&1 || return 0
+    declare -F ai_tools_services__read_stamp_field >/dev/null 2>&1 || return 0
 
     local strict=no
-    declare -F ai_tools_entrypoint_verify_required >/dev/null 2>&1 \
-        && ai_tools_entrypoint_verify_required && strict=yes
+    declare -F ai_tools_entrypoint_verify__is_required >/dev/null 2>&1 \
+        && ai_tools_entrypoint_verify__is_required && strict=yes
 
     local agent pin version verified age kind seen=0 blocking=0 mislabelled=0 stale=0
     while IFS=$'\t' read -r agent _ _; do
@@ -4413,13 +4414,13 @@ status_entrypoint_pins() {
         # An agent whose package declares no release manifest has no published checksum to verify against. Root records
         # what is installed for it instead, so it is reported once that pin exists and left out while there is nothing
         # yet to report.
-        pin="$(ai_tools_entrypoint_pin_path "${agent}" 2>/dev/null || true)"
-        if [[ -z "$(ai_tools_agent_manifest_field "${agent}" release_manifest_url 2>/dev/null || true)" \
+        pin="$(ai_tools_entrypoint_verify__get_pin_path "${agent}" 2>/dev/null || true)"
+        if [[ -z "$(ai_tools_providers__read_agent_manifest_field "${agent}" release_manifest_url 2>/dev/null || true)" \
               && ! -e "${pin}" ]]; then
             continue
         fi
         (( seen++ == 0 )) && section "Entrypoint verification"
-        version="$(ai_tools_service_stamp_field "${pin}" VERSION)"
+        version="$(ai_tools_services__read_stamp_field "${pin}" VERSION)"
         # Read BEFORE the pin's own fields, and reported in place of them. A reconciliation that refused to re-record
         # leaves the pin exactly as it was -- that staleness is what makes the next launch refuse -- so the pin still
         # carries a version and a date and would otherwise render as a fresh, successful verification beside the line
@@ -4427,9 +4428,9 @@ status_entrypoint_pins() {
         if status_entrypoint_stale "${agent}"; then
             stale=$(( stale + 1 ))
         elif [[ -n "${version}" ]]; then
-            verified="$(ai_tools_service_stamp_age "${pin}" VERIFIED)"
+            verified="$(ai_tools_services__read_stamp_age "${pin}" VERIFIED)"
             age="$(status_fmt_age "${verified}")"
-            kind="$(ai_tools_entrypoint_pin_kind "${agent}" 2>/dev/null || true)"
+            kind="$(ai_tools_entrypoint_verify__read_pin_kind "${agent}" 2>/dev/null || true)"
             if [[ "${kind}" == observed ]]; then
                 # The weaker tier states what the comparison proves -- the binary is the one root recorded -- and not
                 # VERIFIED, which claims a vendor signature this agent's channel does not publish, nor any word
@@ -4464,7 +4465,7 @@ status_entrypoint_pins() {
             fi
         fi
         status_entrypoint_label "${agent}" || mislabelled=$(( mislabelled + 1 ))
-    done < <(ai_tools_enabled_agents 2>/dev/null)
+    done < <(ai_tools_providers__list_enabled_agents 2>/dev/null)
 
     [[ "${stale}" -gt 0 ]] && return 1
     [[ "${mislabelled}" -gt 0 ]] && return 1
@@ -4472,13 +4473,13 @@ status_entrypoint_pins() {
     return 0
 }
 
-# status_selinux_attestation [operator-conf] -- render the rows ai_tools_confinement_list_attestation_report prints
+# status_selinux_attestation [operator-conf] -- render the rows ai_tools_confinement__list_attestation_report prints
 # (confinement.lib.sh): the per-domain mode of ai_tools_t and the Booleans that widen it, read and classified
 # by the launch shim's own functions, so this report, ai-tools-admin status and the launch cannot disagree. Returns 1
 # for a finding only where AI_TOOLS_REQUIRE_SELINUX makes it refuse every launch (the report's verdict row) or makes
 # every launch warn -- a host without SELinux confinement by its own configuration
-# (ai_tools_confinement_dac_only_state), where the shim launches DAC-only and names the key to set -- STATUS_UNREADABLE
-# when the library did not load, and 0 otherwise. The section is omitted where getenforce cannot say.
+# (ai_tools_confinement__evaluate_dac_only_state), where the shim launches DAC-only and names the key to set --
+# STATUS_UNREADABLE when the library did not load, and 0 otherwise. The section is omitted where getenforce cannot say.
 status_selinux_attestation() {
     local operator_conf="${1:-${AI_TOOLS_OPERATOR_CONF:-/etc/ai-tools/operator.conf}}"
     local selinux_mode module_present policy_shipped dac_only_state=""
@@ -4487,21 +4488,21 @@ status_selinux_attestation() {
     section "SELinux status"
     # shellcheck source=SCRIPTDIR/../lib/ai-tools/confinement.lib.sh
     source "${CONFINEMENT_LIB}" 2>/dev/null || true
-    if ! declare -F ai_tools_confinement_list_attestation_report >/dev/null 2>&1 \
-            || ! declare -F ai_tools_confinement_dac_only_state >/dev/null 2>&1; then
+    if ! declare -F ai_tools_confinement__list_attestation_report >/dev/null 2>&1 \
+            || ! declare -F ai_tools_confinement__evaluate_dac_only_state >/dev/null 2>&1; then
         warn MSG-M9H2 "the confinement library ${CONFINEMENT_LIB} did not load its attestation readers -- reinstall ai-tools-base"
         return "${STATUS_UNREADABLE}"
     fi
-    module_present="$(ai_tools_confinement_read_module_present "${AI_TOOLS_CONFINEMENT_MODULE_PROBE_PATH}" 2>/dev/null || true)"
-    policy_shipped="$(ai_tools_confinement_read_policy_shipped "${AI_TOOLS_CONFINEMENT_CORE_MODULE_FILE}")"
-    dac_only_state="$(ai_tools_confinement_dac_only_state "${selinux_mode}" "${module_present}" "${policy_shipped}")" \
+    module_present="$(ai_tools_confinement__read_module_present "${AI_TOOLS_CONFINEMENT__MODULE_PROBE_PATH}" 2>/dev/null || true)"
+    policy_shipped="$(ai_tools_confinement__read_policy_shipped "${AI_TOOLS_CONFINEMENT__CORE_MODULE_FILE}")"
+    dac_only_state="$(ai_tools_confinement__evaluate_dac_only_state "${selinux_mode}" "${module_present}" "${policy_shipped}")" \
         || true
     if [[ -n "${dac_only_state}" ]]; then
         case "${dac_only_state}" in
             disabled) say "  SELinux is disabled on this host -- there is no domain to attest" ;;
             *)        say "  the ai_tools policy is not installed (SELinux ${selinux_mode}) -- there is no domain to attest" ;;
         esac
-        if ai_tools_confinement_is_selinux_required "${operator_conf}"; then
+        if ai_tools_confinement__is_selinux_required "${operator_conf}"; then
             say "  AI_TOOLS_REQUIRE_SELINUX is set, so every launch runs DAC-only and warns that the requirement is not met"
             say "      declare this host DAC-only:  set AI_TOOLS_REQUIRE_SELINUX=no in ${operator_conf}"
             say "      or install the policy:       sudo dnf install ai-tools-selinux"
@@ -4515,7 +4516,7 @@ status_selinux_attestation() {
     # A value keeps normal contrast whatever it reads, since off is a reading and not a disabled control; only the note
     # beside it is dim. Whether a requirement is enforced is known ahead of the verdict row, so each row can say it.
     enforcement_note="not enforced"
-    ai_tools_confinement_is_selinux_required "${operator_conf}" && enforcement_note="launch blocked"
+    ai_tools_confinement__is_selinux_required "${operator_conf}" && enforcement_note="launch blocked"
     while IFS=$'\t' read -r -a row; do
         case "${row[0]}" in
             domain)   # <yes|no|unread> <remedy|->
@@ -4562,7 +4563,7 @@ status_selinux_attestation() {
                     say "  ${C_DIM}AI_TOOLS_REQUIRE_SELINUX is no, so launches are not refused for this${C_RST}"
                 fi ;;
         esac
-    done < <(ai_tools_confinement_list_attestation_report "${operator_conf}")
+    done < <(ai_tools_confinement__list_attestation_report "${operator_conf}")
     return "${section_status}"
 }
 
@@ -4577,14 +4578,14 @@ status_selinux_attestation() {
 # root can name the package directory.
 status_entrypoint_stale() {
     local agent="$1" record state version reason detected age
-    declare -F ai_tools_entrypoint_stale_path >/dev/null 2>&1 || return 1
-    record="$(ai_tools_entrypoint_stale_path "${agent}" 2>/dev/null || true)"
+    declare -F ai_tools_entrypoint_verify__get_stale_path >/dev/null 2>&1 || return 1
+    record="$(ai_tools_entrypoint_verify__get_stale_path "${agent}" 2>/dev/null || true)"
     [[ -n "${record}" && -r "${record}" ]] || return 1
-    state="$(ai_tools_service_stamp_field "${record}" STATE)"
+    state="$(ai_tools_services__read_stamp_field "${record}" STATE)"
     [[ "${state}" == stale ]] || return 1
-    version="$(ai_tools_service_stamp_field "${record}" VERSION)"
-    reason="$(ai_tools_service_stamp_field "${record}" REASON)"
-    detected="$(ai_tools_service_stamp_age "${record}" DETECTED)"
+    version="$(ai_tools_services__read_stamp_field "${record}" VERSION)"
+    reason="$(ai_tools_services__read_stamp_field "${record}" REASON)"
+    detected="$(ai_tools_services__read_stamp_age "${record}" DETECTED)"
     age="$(status_fmt_age "${detected}")"
     printf '  %-28s %sPIN STALE%s %s(%s%s)%s\n' "${agent}" "${C_RED}" "${C_RST}" \
         "${C_DIM}" "${reason:-refused}" "${age:+, ${age}}" "${C_RST}"
@@ -4609,11 +4610,11 @@ status_entrypoint_stale() {
 # Returns non-zero only for a recorded failure, which is the one state that stops a launch.
 status_entrypoint_label() {
     local agent="$1" record result reason age
-    declare -F ai_tools_entrypoint_label_path >/dev/null 2>&1 || return 0
-    record="$(ai_tools_entrypoint_label_path "${agent}" 2>/dev/null || true)"
-    result="$(ai_tools_service_stamp_field "${record}" RESULT)"
-    age="$(status_fmt_age "$(ai_tools_service_stamp_age "${record}" LABELLED)")"
-    reason="$(ai_tools_service_stamp_field "${record}" REASON)"
+    declare -F ai_tools_entrypoint_verify__get_label_path >/dev/null 2>&1 || return 0
+    record="$(ai_tools_entrypoint_verify__get_label_path "${agent}" 2>/dev/null || true)"
+    result="$(ai_tools_services__read_stamp_field "${record}" RESULT)"
+    age="$(status_fmt_age "$(ai_tools_services__read_stamp_age "${record}" LABELLED)")"
+    reason="$(ai_tools_services__read_stamp_field "${record}" REASON)"
     case "${result}" in
         ok)      printf '  %-28s %slabelled%s %s(%s)%s\n' "" "${C_DIM}" "${C_RST}" \
                      "${C_DIM}" "${age:-at an unknown time}" "${C_RST}" ;;
@@ -4663,7 +4664,7 @@ status_provisioning() {
         return "${STATUS_UNREADABLE}"
     fi
     if (( ${#ENABLED_AGENTS[@]} == 0 )); then
-        IFS=$'\t' read -r _ reason <<<"$(ai_tools_agents_empty_verdict)"
+        IFS=$'\t' read -r _ reason <<<"$(ai_tools_providers__evaluate_empty_agents)"
         say "  ${C_YEL}no agent enabled${C_RST} -- ${reason}"
     fi
     for rec in "${ENABLED_AGENTS[@]+"${ENABLED_AGENTS[@]}"}"; do
@@ -4684,7 +4685,7 @@ status_provisioning() {
 }
 
 # status_residue -- one line per agent this host installed, did not enable, and still holds the stable launcher link
-# of: the operator-side read of a package left in the sandbox toolchain (ai_tools_agent_residue_links,
+# of: the operator-side read of a package left in the sandbox toolchain (ai_tools_toolchain__find_agent_residue_links,
 # toolchain.lib.sh), which the launch wrapper refuses every launch on from the same link and the shim from the tree.
 # Counted, since the host is in the state where no session starts, and the line names the run that clears it. Returns 1
 # for a residue line, and STATUS_UNREADABLE for a library that will not load: the report then has no reading of whether
@@ -4700,7 +4701,7 @@ status_residue() {
         say "  ${C_RED}${agent} is installed but not enabled, and its package is still in the toolchain${C_RST} (${LAUNCHER_DIR}/${launcher})"
         say "      every launch is refused until it is removed -- run: ${C_BOLD}sudo ai-tools-admin system bootstrap${C_RST}"
         rc=1
-    done < <(ai_tools_agent_residue_links "${LAUNCHER_DIR}" 2>/dev/null)
+    done < <(ai_tools_toolchain__find_agent_residue_links "${LAUNCHER_DIR}" 2>/dev/null)
     return "${rc}"
 }
 
@@ -4711,30 +4712,30 @@ status_residue() {
 toolchain_lib_loaded() {
     # shellcheck source=SCRIPTDIR/../lib/ai-tools/toolchain.lib.sh
     source "${TOOLCHAIN_LIB}" 2>/dev/null || true
-    declare -F ai_tools_agent_residue_links >/dev/null 2>&1 \
-        && declare -F ai_tools_agent_link_node_versions >/dev/null 2>&1 \
-        && declare -F ai_tools_node_version_verdict >/dev/null 2>&1
+    declare -F ai_tools_toolchain__find_agent_residue_links >/dev/null 2>&1 \
+        && declare -F ai_tools_toolchain__list_agent_link_node_versions >/dev/null 2>&1 \
+        && declare -F ai_tools_toolchain__evaluate_node_versions >/dev/null 2>&1
 }
 
 # status_node_version -- the Version section's Node line. The active version is read from the enabled agents' stable
-# launcher links (ai_tools_agent_link_node_versions): every path that changes Node repoints them, so the line is right
-# after a bootstrap as much as after an update, and the read is unprivileged -- one readlink hop, the read the launch
-# wrapper makes. The updater's stamp records the version its last run left active and is shown only where it differs,
-# the one fact the link cannot carry: the toolchain changed after the updater last ran. Which case applies is
-# ai_tools_node_version_verdict's, so this and ai-tools-admin cannot disagree; a host with neither a link nor a stamp
-# gets no Node line, and Provisioning says why. Never counted: no case here is a fault.
+# launcher links (ai_tools_toolchain__list_agent_link_node_versions): every path that changes Node repoints them,
+# so the line is right after a bootstrap as much as after an update, and the read is unprivileged -- one readlink hop,
+# the read the launch wrapper makes. The updater's stamp records the version its last run left active and is shown only
+# where it differs, the one fact the link cannot carry: the toolchain changed after the updater last ran. Which case
+# applies is ai_tools_toolchain__evaluate_node_versions's, so this and ai-tools-admin cannot disagree; a host
+# with neither a link nor a stamp gets no Node line, and Provisioning says why. Never counted: no case here is a fault.
 status_node_version() {
     local rec stamp_node="" verdict kind version stamp_seen
-    if declare -F ai_tools_service_stamp_field >/dev/null 2>&1; then
+    if declare -F ai_tools_services__read_stamp_field >/dev/null 2>&1; then
         while IFS= read -r rec; do
-            stamp_node="$(ai_tools_service_stamp_field "$(ai_tools_service_field "${rec}" 7)" NODE)"
+            stamp_node="$(ai_tools_services__read_stamp_field "$(ai_tools_services__get_field "${rec}" 7)" NODE)"
             [[ -n "${stamp_node}" && "${stamp_node}" != unknown ]] && break
             stamp_node=""
-        done < <(ai_tools_service_records)
+        done < <(ai_tools_services__list_records)
     fi
     if toolchain_lib_loaded; then
-        verdict="$(ai_tools_agent_link_node_versions "${LAUNCHER_DIR}" 2>/dev/null \
-                       | ai_tools_node_version_verdict "${stamp_node}")"
+        verdict="$(ai_tools_toolchain__list_agent_link_node_versions "${LAUNCHER_DIR}" 2>/dev/null \
+                       | ai_tools_toolchain__evaluate_node_versions "${stamp_node}")"
     elif [[ -n "${stamp_node}" ]]; then
         verdict=$'stamp\t'"${stamp_node}"     # no link reader: the stamp is the only reading left
     else
@@ -4761,10 +4762,10 @@ status_node_version() {
 # broken and a reinstall is the remedy. Returns non-zero for a missing file.
 status_managed_files() {
     local agent="$1" live reference state rc=0
-    declare -F ai_tools_agent_managed_files >/dev/null 2>&1 || return 0
+    declare -F ai_tools_providers__list_agent_managed_files >/dev/null 2>&1 || return 0
     while IFS=$'\t' read -r live reference; do
         [[ -n "${live}" ]] || continue
-        state="$(ai_tools_managed_file_state "${live}" "${reference}")"
+        state="$(ai_tools_providers__evaluate_managed_file "${live}" "${reference}")"
         case "${state}" in
             shipped) ;;
             edited)  say "  ${C_YEL}${agent}: ${live} differs from the shipped copy${C_RST}"
@@ -4774,7 +4775,7 @@ status_managed_files() {
                      rc=1 ;;
             *)       say "  ${C_DIM}${agent}: ${live} -- cannot compare with the shipped copy ${reference}${C_RST}" ;;
         esac
-    done < <(ai_tools_agent_managed_files "${agent}")
+    done < <(ai_tools_providers__list_agent_managed_files "${agent}")
     return "${rc}"
 }
 
@@ -4787,9 +4788,9 @@ readonly STATUS_UNREADABLE=2
 # any other non-zero as `attention`. Called as `section || status_fold $?`, where `$?` is the section's status.
 status_fold() {
     if (( $1 == STATUS_UNREADABLE )); then
-        ai_tools_records_accumulate_severity unreadable
+        ai_tools_records_base__accumulate_severity unreadable
     else
-        ai_tools_records_accumulate_severity attention
+        ai_tools_records_base__accumulate_severity attention
     fi
 }
 
@@ -4799,10 +4800,10 @@ cmd_status() {
     [[ "$#" -eq 0 ]] || die_usage MSG-X9Z9 "status takes no arguments"
     # shellcheck source=SCRIPTDIR/../lib/ai-tools/records-base.lib.sh
     if ! source "${RECORDS_BASE_LIB}" 2>/dev/null \
-            || ! declare -F ai_tools_records_get_exit_status >/dev/null 2>&1; then
+            || ! declare -F ai_tools_records_base__get_exit_status >/dev/null 2>&1; then
         die MSG-B9A2 "cannot load ${RECORDS_BASE_LIB}, which states this report's exit codes -- reinstall the ai-tools package"
     fi
-    ai_tools_records_begin_report
+    ai_tools_records_base__begin_report
 
     section "Version"
     say "  ai-tools ${AI_TOOLS_VERSION}"
@@ -4810,7 +4811,7 @@ cmd_status() {
     # have to: its version is in the launcher link's target (status_node_version).
     status_node_version
     # One pointer per enabled agent whose wrapper this host installs (an agent without one is the PATH ordering
-    # section's to report). Through ai_tools_cmd_display, so the command printed here is the one that reaches
+    # section's to report). Through ai_tools_msg__format_command, so the command printed here is the one that reaches
     # the sandbox: it renders the bare name only while this shell resolves it to the wrapper, and the absolute path
     # otherwise. On a shadowed account the bare name resolves to the binary the PATH ordering section reports, so this
     # line prints the wrapper's own path instead of sending them there.
@@ -4820,7 +4821,7 @@ cmd_status() {
         for rec in "${ENABLED_AGENTS[@]+"${ENABLED_AGENTS[@]}"}"; do
             IFS=$'\t' read -r agent_name _ launcher <<<"${rec}"
             [[ -x "/usr/local/bin/${launcher}" ]] || continue
-            say "  ${C_DIM}${agent_name} version: run '$(ai_tools_cmd_display "/usr/local/bin/${launcher}") --version'${C_RST}"
+            say "  ${C_DIM}${agent_name} version: run '$(ai_tools_msg__format_command "/usr/local/bin/${launcher}") --version'${C_RST}"
         done
     fi
 
@@ -4830,11 +4831,11 @@ cmd_status() {
     # A missing registry is a broken install, not an unknowable state: a reading this report could not make, which exits
     # 5, since a clean bill would have no reading behind it. The sections after it are still read, so the page carries
     # every reading that could be made beside the one that could not.
-    if ! declare -F ai_tools_service_records >/dev/null 2>&1 \
-            || ! declare -F ai_tools_service_state_of >/dev/null 2>&1 \
-            || ! declare -F ai_tools_service_stamp_field >/dev/null 2>&1; then
+    if ! declare -F ai_tools_services__list_records >/dev/null 2>&1 \
+            || ! declare -F ai_tools_services__read_record_state >/dev/null 2>&1 \
+            || ! declare -F ai_tools_services__read_stamp_field >/dev/null 2>&1; then
         warn MSG-X5Z8 "service registry unavailable (${SERVICES_LIB}) -- cannot report service health; reinstall the ai-tools package"
-        ai_tools_records_accumulate_severity unreadable
+        ai_tools_records_base__accumulate_severity unreadable
     else
         status_services
     fi
@@ -4855,7 +4856,7 @@ cmd_status() {
     # could not be made, so `status` is usable unattended (a cron check, a monitor) without parsing this output.
     # 'unknown' and 'n/a' are not faults and do not count -- an unqueryable unit must not make a healthy host alarm
     # every night.
-    ai_tools_records_get_exit_status || return $?
+    ai_tools_records_base__get_exit_status || return $?
     return 0
 }
 
@@ -4864,16 +4865,16 @@ cmd_status() {
 status_services() {
     local rec unit scope stamp mode state age when exit_code reason remedy
     while IFS= read -r rec; do
-        unit="$(ai_tools_service_field "${rec}" 1)"
-        scope="$(ai_tools_service_field "${rec}" 2)"
-        stamp="$(ai_tools_service_field "${rec}" 7)"
-        mode="$(ai_tools_service_field "${rec}" 8)"
-        state="$(ai_tools_service_state_of "${rec}")"
+        unit="$(ai_tools_services__get_field "${rec}" 1)"
+        scope="$(ai_tools_services__get_field "${rec}" 2)"
+        stamp="$(ai_tools_services__get_field "${rec}" 7)"
+        mode="$(ai_tools_services__get_field "${rec}" 8)"
+        state="$(ai_tools_services__read_record_state "${rec}")"
         # A stamped unit is reported from its LAST RUN, not live, so every line says WHEN -- relative first, since "3
         # days ago" is the part an operator acts on. An unknown age omits the relative form rather than a placeholder.
         age=""; when=""
         if [[ -n "${stamp}" ]]; then
-            age="$(status_fmt_age "$(ai_tools_service_stamp_age "${stamp}")")"
+            age="$(status_fmt_age "$(ai_tools_services__read_stamp_age "${stamp}")")"
             [[ -n "${age}" ]] && when=" ${C_DIM}(last run ${age})${C_RST}"
         fi
         case "${state}" in
@@ -4890,7 +4891,7 @@ status_services() {
             # is this report's attention colour, and there is no fault to attend to -- the previous toolchain is intact
             # and the next run will try again. If the condition persists the line turns STALE on its own once the stamp
             # ages past its grace, which is where the operator is meant to look.
-            skipped) reason="$(ai_tools_service_stamp_field "${stamp}" REASON)"
+            skipped) reason="$(ai_tools_services__read_stamp_field "${stamp}" REASON)"
                     printf '  %-28s %sSKIPPED%s %s(last run %s%s -- nothing was changed)%s\n' \
                         "${unit}" "${C_DIM}" "${C_RST}" "${C_DIM}" "${age:-at an unknown time}" \
                         "${reason:+, ${reason}}" "${C_RST}" ;;
@@ -4898,12 +4899,12 @@ status_services() {
             # records when it ran; a system oneshot's result comes from systemd, which knows the exit status but is read
             # here without a time, so the line does not claim one.
             failed) if [[ -n "${stamp}" ]]; then
-                        exit_code="$(ai_tools_service_stamp_field "${stamp}" EXIT_CODE)"
+                        exit_code="$(ai_tools_services__read_stamp_field "${stamp}" EXIT_CODE)"
                         printf '  %-28s %sFAILED%s %s(last run %s, exit %s)%s\n' "${unit}" \
                             "${C_RED}" "${C_RST}" "${C_DIM}" "${age:-at an unknown time}" \
                             "${exit_code:-?}" "${C_RST}"
                     else
-                        exit_code="$(ai_tools_service_unit_property "${unit}" ExecMainStatus)"
+                        exit_code="$(ai_tools_services__read_unit_property "${unit}" ExecMainStatus)"
                         printf '  %-28s %sFAILED%s %s(its last run exited %s)%s\n' "${unit}" \
                             "${C_RED}" "${C_RST}" "${C_DIM}" "${exit_code:-non-zero}" "${C_RST}"
                     fi ;;
@@ -4916,8 +4917,8 @@ status_services() {
             # it means the unit has never run, the state a freshly provisioned host is in until its first scheduled
             # window, so the line says that and keeps the check command beside it.
             *)      if [[ "${scope}" == sandbox-user ]]; then
-                        if declare -F ai_tools_service_stamp_unwritten >/dev/null 2>&1 \
-                                && ai_tools_service_stamp_unwritten "${stamp}"; then
+                        if declare -F ai_tools_services__is_stamp_unwritten >/dev/null 2>&1 \
+                                && ai_tools_services__is_stamp_unwritten "${stamp}"; then
                             printf '  %-28s %s? (no run recorded yet -- its first scheduled run has not happened; check: sudo systemctl --user -M %s@.host status %s)%s\n' \
                                 "${unit}" "${C_DIM}" "${SANDBOX_USER}" "${unit}" "${C_RST}"
                         else
@@ -4931,18 +4932,18 @@ status_services() {
         # A unit that IS reported broken names its consequence, then every command that inspects and fixes it.
         # A sandbox-user unit's are composed here rather than stored in the registry: they name the sandbox ACCOUNT,
         # and services.lib.sh is deployed with no @SANDBOX_USER@ pass.
-        if ai_tools_service_needs_attention "${state}"; then
-            ai_tools_records_accumulate_severity attention
-            say "      $(ai_tools_service_field "${rec}" 5)"
+        if ai_tools_services__is_attention_needed "${state}"; then
+            ai_tools_records_base__accumulate_severity attention
+            say "      $(ai_tools_services__get_field "${rec}" 5)"
             if [[ "${scope}" == sandbox-user ]]; then
                 status_sandbox_unit_commands "${unit}"
             fi
-            remedy="$(ai_tools_service_field "${rec}" 6)"
+            remedy="$(ai_tools_services__get_field "${rec}" 6)"
             if [[ -n "${remedy}" ]]; then
                 say "      ${C_BOLD}${remedy}${C_RST}"
             fi
         fi
-    done < <(ai_tools_service_records)
+    done < <(ai_tools_services__list_records)
     return 0
 }
 
@@ -4967,7 +4968,7 @@ cmd_project_list() {
     # invoker, and root is not one.
     if [[ "${INVOKING_USER}" == "root" ]]; then
         local -a enrolled=()
-        ai_tools_conf_list enrolled "${AI_TOOLS_OPERATOR_CONF:-/etc/ai-tools/operator.conf}" \
+        ai_tools_conf__read_list enrolled "${AI_TOOLS_OPERATOR_CONF:-/etc/ai-tools/operator.conf}" \
             OPERATORS 2>/dev/null || enrolled=()
         say "  ${C_DIM}root's own registry -- projects are registered per operator${C_RST}"
         (( ${#enrolled[@]} )) && say \
@@ -5002,7 +5003,7 @@ cmd_project_list() {
             ${sdy} && cleanup+=( "          sudo ${SAFEDIR_BIN} --remove ${e}" )
             return 0                                    # ${sdy}=false returns 1; don't kill cmd_project_list's set -e loop
         fi
-        if ai_tools_protected_path_match "${e}" >/dev/null 2>&1; then
+        if ai_tools_safe_paths__match_protected_path "${e}" >/dev/null 2>&1; then
             cleanup+=( "  ${e}" \
                 "      ${C_YEL}protected system path${C_RST} -- the tools refuse to operate on it; remove it:" \
                 "$(_remove_line_cmd "${raw}")" )
@@ -5025,8 +5026,8 @@ cmd_project_list() {
     while IFS= read -r raw || [[ -n "${raw}" ]]; do
         # Same shared grammar the wrapper and the chown helper read this file with; keep the verbatim ${raw} line
         # so a stale/protected remediation deletes exactly what is stored.
-        ai_tools_conf_path_entry "${raw}" || continue
-        entry="${_ai_tools_conf_value}"
+        ai_tools_conf__parse_path_entry "${raw}" || continue
+        entry="${ai_tools_conf__value}"
         shown=1
         if [[ "${entry}" == '!'* ]]; then
             excl="${entry:1}"
@@ -5083,8 +5084,8 @@ cmd_project_list() {
     local sdir
     while IFS= read -r sdir; do
         [[ -n "${sdir}" ]] || continue
-        ai_tools_protected_path_match "${sdir}" >/dev/null 2>&1 && continue
-        ai_tools_conf_allowlist_has_entry "${ALLOWLIST}" "${sdir}" && continue
+        ai_tools_safe_paths__match_protected_path "${sdir}" >/dev/null 2>&1 && continue
+        ai_tools_conf__has_allowlist_entry "${ALLOWLIST}" "${sdir}" && continue
         cleanup+=( "  ${sdir}" \
             "      ${C_YEL}git safe.directory with no allowlist entry${C_RST} (orphaned); remove it:" \
             "          sudo ${SAFEDIR_BIN} --remove ${sdir}" )
@@ -5163,12 +5164,12 @@ resolve_enabled_agents() {
     local providers_lib=/usr/local/lib/ai-tools/providers.lib.sh
     # shellcheck source=SCRIPTDIR/../lib/ai-tools/providers.lib.sh
     if ! source "${providers_lib}" 2>/dev/null \
-            || ! declare -F ai_tools_enabled_agents      >/dev/null 2>&1 \
-            || ! declare -F ai_tools_agents_empty_verdict >/dev/null 2>&1; then
+            || ! declare -F ai_tools_providers__list_enabled_agents      >/dev/null 2>&1 \
+            || ! declare -F ai_tools_providers__evaluate_empty_agents >/dev/null 2>&1; then
         ENABLED_AGENTS_ERROR="cannot load ${providers_lib} -- reinstall the ai-tools package"
         return 1
     fi
-    mapfile -t ENABLED_AGENTS < <(ai_tools_enabled_agents)
+    mapfile -t ENABLED_AGENTS < <(ai_tools_providers__list_enabled_agents)
     return 0
 }
 
@@ -5207,7 +5208,7 @@ require_bootstrap() {
         die MSG-X9H7 "the sandbox is not provisioned for any enabled agent: ${joined%, } -- provision it with:" \
             "       sudo ai-tools-admin system bootstrap"
     fi
-    IFS=$'\t' read -r verdict reason <<<"$(ai_tools_agents_empty_verdict)"
+    IFS=$'\t' read -r verdict reason <<<"$(ai_tools_providers__evaluate_empty_agents)"
     case "${verdict}" in
         none) remedy="       enable one in /etc/ai-tools/operator.conf (AI_TOOLS_AGENTS), or install an ai-tools-agents package" ;;
         *)    remedy="       repair the input named there, then rerun" ;;
@@ -5236,7 +5237,7 @@ verb_in "${COMMAND}" "${BOOTSTRAP_EXEMPT_VERBS[@]}" || require_bootstrap
 require_operator() {
     local conf="${AI_TOOLS_OPERATOR_CONF:-/etc/ai-tools/operator.conf}"
     local -a ops=(); local op
-    if ai_tools_conf_list ops "${conf}" OPERATORS 2>/dev/null; then
+    if ai_tools_conf__read_list ops "${conf}" OPERATORS 2>/dev/null; then
         for op in "${ops[@]}"; do [[ "${op}" == "${INVOKING_USER}" ]] && return 0; done
     fi
     die MSG-X6U2 "you (${INVOKING_USER}) are not a configured ai-tools operator -- add your name to OPERATORS in ${conf} with:" \
@@ -5486,7 +5487,7 @@ require_for_target() {
     [[ "${FOR_OPERATOR}" != "root" ]] || die MSG-C4Y4 "root is not an operator"
     local conf="${AI_TOOLS_OPERATOR_CONF:-/etc/ai-tools/operator.conf}"
     local -a ops=(); local op found=false
-    if ai_tools_conf_list ops "${conf}" OPERATORS 2>/dev/null; then
+    if ai_tools_conf__read_list ops "${conf}" OPERATORS 2>/dev/null; then
         for op in "${ops[@]}"; do
             [[ "${op}" == "${FOR_OPERATOR}" ]] && { found=true; break; }
         done

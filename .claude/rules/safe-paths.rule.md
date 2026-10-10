@@ -31,23 +31,23 @@ a deeper or glob-expanded path *inside* a protected tree is covered instead by e
 only on agent- or operator-owned paths and never the root-owned files that fill a system directory
 ([ownership-and-hooks](ownership-and-hooks.rule.md), [cli](cli.rule.md)).
 
-The list (`AI_TOOLS_PROTECTED_PATHS`) covers the FHS system roots — `/`, the usrmerge symlinks and `/usr` tree, `/etc`,
-`/var`, `/boot`, `/root`, `/home` (with each home root matched by the home-root rule; projects inside a home pass),
-`/srv`, `/opt` and `/opt/ai-tools` (the control plane), the `/dev`/`/proc`/`/sys`/`/run` pseudo-filesystems,
-the `/mnt`/`/media` mount points, and `/tmp`/`/lost+found`. The sandbox's own working areas — `/opt/ai-tools`
-and `/var/opt/ai-tools/sandbox-projects` — are reached as *descendants* of listed entries, so they work without
-a carve-out.
+The list (`AI_TOOLS_SAFE_PATHS__PROTECTED_PATHS`) covers the FHS system roots — `/`, the usrmerge symlinks and `/usr`
+tree, `/etc`, `/var`, `/boot`, `/root`, `/home` (with each home root matched by the home-root rule; projects inside
+a home pass), `/srv`, `/opt` and `/opt/ai-tools` (the control plane), the `/dev`/`/proc`/`/sys`/`/run`
+pseudo-filesystems, the `/mnt`/`/media` mount points, and `/tmp`/`/lost+found`. The sandbox's own working areas —
+`/opt/ai-tools` and `/var/opt/ai-tools/sandbox-projects` — are reached as *descendants* of listed entries, so they work
+without a carve-out.
 
 ## Two functions, plus a narrower third
 
-- `ai_tools_protected_path_match <abspath>` — the pure predicate: prints the matching entry and returns 0
+- `ai_tools_safe_paths__match_protected_path <abspath>` — the pure predicate: prints the matching entry and returns 0
   when protected, 1 otherwise. Normalizes a trailing slash.
-- `ai_tools_assert_safe_target <path> [op-label]` — the guard the consumers call: resolves the path (`realpath -m`,
-  falling back to the raw argument so an unresolvable path is still matched), and on a protected target emits a framed
-  refusal (a `msg.lib` box on a terminal, plain lines otherwise; see [messaging](messaging.rule.md)), logs it
-  at `WARNING`, and returns non-zero so the caller aborts before acting. A safe target returns 0 silently.
+- `ai_tools_safe_paths__assert_safe_target <path> [op-label]` — the guard the consumers call: resolves the path
+  (`realpath -m`, falling back to the raw argument so an unresolvable path is still matched), and on a protected target
+  emits a framed refusal (a `msg.lib` box on a terminal, plain lines otherwise; see [messaging](messaging.rule.md)),
+  logs it at `WARNING`, and returns non-zero so the caller aborts before acting. A safe target returns 0 silently.
 
-### `ai_tools_traverse_grant_allowed <path> <owner>` — the traverse-grant rule
+### `ai_tools_safe_paths__is_traverse_grant_allowed <path> <owner>` — the traverse-grant rule
 
 A second predicate, for a strictly weaker operation, single-sourced here and used by `confirm_ancestor_traversal` (via
 `grantable_ancestor`) and by both new project verbs through it. It returns 0 when `<path>` is a directory `<owner>`
@@ -58,11 +58,12 @@ owner.
 
 **This does not weaken the backstop; it sits beside it.** The two vet different operations, and the size
 of the operation is the whole justification. A claim, an unclaim, a lockdown or an elevated walk rewrites group, mode
-and ACLs across a **tree**, and `ai_tools_protected_path_match` still refuses a home root as the target of any of them.
-A traverse grant is one `u:SANDBOX_USER:--x` entry on **one directory**: search permission on that directory alone,
-which permits traversal and neither a listing of it nor any access to the files inside, whose own modes and ACLs still
-decide — and the sandbox account is neither their owner nor in their group. Reusing the target backstop for it made
-every project at `/home/<user>/<proj>` report permanently unreachable, with a sandbox clone the only way in.
+and ACLs across a **tree**, and `ai_tools_safe_paths__match_protected_path` still refuses a home root as the target
+of any of them. A traverse grant is one `u:SANDBOX_USER:--x` entry on **one directory**: search permission
+on that directory alone, which permits traversal and neither a listing of it nor any access to the files inside,
+whose own modes and ACLs still decide — and the sandbox account is neither their owner nor in their group. Reusing
+the target backstop for it made every project at `/home/<user>/<proj>` report permanently unreachable, with a sandbox
+clone the only way in.
 
 The grant therefore creates a **condition**, not exposure: it makes already-world-readable entries *reachable*.
 Under `umask 077` that set is empty; under the RHEL default `022` it is the `644` skel files and anything else written
@@ -71,7 +72,7 @@ world-readable. Which of those a host is has a one-line answer, so the prompt st
 by `AI_TOOLS_ASSUME_YES` or by a verb's `-y`, and a run with no terminal declines and prints the `setfacl` commands (see
 [cli](cli.rule.md), [messaging](messaging.rule.md)).
 
-### `ai_tools_pinned_fd_matches_path <fd> <path>` — the pinned inode is the one at the authorized path <a id="ref-section-u5h4"></a>
+### `ai_tools_safe_paths__is_pinned_fd_at_path <fd> <path>` — the pinned inode is the one at the authorized path <a id="ref-section-u5h4"></a>
 
 Every elevated helper that changes a path — `ai-tools-chown`, `-setgid`, `-setfacl`, `-lockdown` and `-unclaim` — pins
 the inode with an open descriptor, re-reads identity, owner and type from the descriptor, and mutates
@@ -136,7 +137,7 @@ operation. Two forms:
   ([launch](launch.rule.md)), so the chain fails closed at whichever link is missing.
 - **Root helpers** bare-`source` the library under `set -e`: an unreadable lib aborts the helper, with bash writing
   the path and reason to stderr (journald captures it for a daemon-invoked helper), and a lib that loads without
-  defining the guard is refused at the call site (`ai_tools_assert_safe_target … || exit 3`).
+  defining the guard is refused at the call site (`ai_tools_safe_paths__assert_safe_target … || exit 3`).
 
 The load-or-die check is inline at each entry point because the guard against a missing library cannot itself live
 in a shared library — loading that library has the same failure mode. The rationale is single-sourced here, and each

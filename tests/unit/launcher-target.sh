@@ -40,15 +40,15 @@ if [[ ! -r "${LIB}" ]]; then
 fi
 # shellcheck source=../../src/usr/local/lib/ai-tools/providers.lib.sh
 if ! source "${LIB}" \
-        || ! declare -F ai_tools_launcher_target_valid >/dev/null 2>&1 \
-        || ! declare -F ai_tools_relink_launcher >/dev/null 2>&1; then
+        || ! declare -F ai_tools_providers__is_launcher_target_valid >/dev/null 2>&1 \
+        || ! declare -F ai_tools_providers__relink_launcher >/dev/null 2>&1; then
     fail "could not source ${LIB} or it does not define the re-link functions"; finish; exit
 fi
 
 # ── The pure predicate ────────────────────────────────────────────────────────────────────────
 valid() {
     local desc="$1" exp_rc="$2" value="${3-}"
-    local rc=0; ai_tools_launcher_target_valid "${value}" || rc=$?
+    local rc=0; ai_tools_providers__is_launcher_target_valid "${value}" || rc=$?
     if [[ "${rc}" -eq "${exp_rc}" ]]; then pass "${desc}"; else fail "${desc}: rc ${rc}, expected ${exp_rc}"; fi
 }
 valid "a relative path in the allowed charset"   0 "lib/node_modules/@x/codex/node_modules/@x/codex-linux-x64/vendor/x86_64-unknown-linux-musl/bin/codex"
@@ -71,11 +71,11 @@ valid "a regex bracket -> refused"                1 "lib/[a]/codex"
 readonly TOOLCHAIN_ROOT=/opt/ai-tools/.nvm/versions/node
 # accepts/rejects <pattern> [why]
 accepts() {
-    if ai_tools_entrypoint_fcontext_valid "$1" "${TOOLCHAIN_ROOT}"; then pass "accepts ${1:-<empty>}"
+    if ai_tools_providers__is_entrypoint_fcontext_valid "$1" "${TOOLCHAIN_ROOT}"; then pass "accepts ${1:-<empty>}"
     else fail "rejected a valid entrypoint pattern: $1"; fi
 }
 rejects() {
-    if ai_tools_entrypoint_fcontext_valid "$1" "${TOOLCHAIN_ROOT}"; then fail "ACCEPTED ${2}: ${1:-<empty>}"
+    if ai_tools_providers__is_entrypoint_fcontext_valid "$1" "${TOOLCHAIN_ROOT}"; then fail "ACCEPTED ${2}: ${1:-<empty>}"
     else pass "rejects ${2}"; fi
 }
 
@@ -99,10 +99,10 @@ rejects '/opt/ai-tools/.nvm/versions/node/a b/bin/x'    "whitespace in the patte
 
 # The root is what the head is held to: a pattern contained under one root is refused under another, and an empty root
 # refuses every pattern rather than anchoring the head at `/`.
-if ai_tools_entrypoint_fcontext_valid '/opt/ai-tools/.nvm/versions/node/[^/]+/bin/x' /opt/other; then
+if ai_tools_providers__is_entrypoint_fcontext_valid '/opt/ai-tools/.nvm/versions/node/[^/]+/bin/x' /opt/other; then
     fail "ACCEPTED a pattern whose head is not the root it was checked against"
 else pass "rejects a pattern whose head is another root"; fi
-if ai_tools_entrypoint_fcontext_valid '/opt/ai-tools/.nvm/versions/node/[^/]+/bin/x' ''; then
+if ai_tools_providers__is_entrypoint_fcontext_valid '/opt/ai-tools/.nvm/versions/node/[^/]+/bin/x' ''; then
     fail "ACCEPTED a pattern under an empty root"
 else pass "rejects every pattern under an empty root"; fi
 
@@ -141,7 +141,7 @@ else
     order_case "the updater" src/opt/ai-tools/bin/nvm-update.sh \
         '^[[:space:]]+relink_agent_launchers ' 'ai-tools-handback-client SYMLINK "'
     order_case "the bootstrap" src/usr/local/libexec/ai-tools/ai-tools-bootstrap.sh \
-        'ai_tools_relink_launcher "\$@"' 'ln -sfn "\$\{_launcher_bin\}"'
+        'ai_tools_providers__relink_launcher "\$@"' 'ln -sfn "\$\{_launcher_bin\}"'
 fi
 
 # ── Fixtures: a version directory shaped like npm leaves it ───────────────────────────────────
@@ -194,7 +194,7 @@ FCONTEXT="${VERSIONS_RE}/[^/]+/lib/node_modules/@x/codex/node_modules/@x/codex-l
 # relink <target> <fcontext>: run the re-link, capturing stdout in OUT, stderr in ERR, the status in RC.
 relink() {
     local err_file="${TESTDIR}/err"
-    RC=0; OUT="$(ai_tools_relink_launcher "${VERSION_DIR}" "${LAUNCHER}" "$1" "$2" 2>"${err_file}")" || RC=$?
+    RC=0; OUT="$(ai_tools_providers__relink_launcher "${VERSION_DIR}" "${LAUNCHER}" "$1" "$2" 2>"${err_file}")" || RC=$?
     ERR="$(<"${err_file}")"
 }
 # refused <what> <code>: the last relink returned 1, printed nothing on stdout and the code on stderr, left npm's link
@@ -279,7 +279,7 @@ refused "a pattern whose head is a class, not the directory the version director
 # directory that is itself a symlink is resolved before the target is contained in it, and a symlink inside the version
 # directory that resolves to another file inside it is followed and linked.
 ln -sfn "${VERSION_DIR}" "${FIXTURE_ROOT}/versions/node/current"
-RC=0; OUT="$(ai_tools_relink_launcher "${FIXTURE_ROOT}/versions/node/current" "${LAUNCHER}" "${ELF_TARGET}" "${FCONTEXT}" 2>"${TESTDIR}/err")" || RC=$?
+RC=0; OUT="$(ai_tools_providers__relink_launcher "${FIXTURE_ROOT}/versions/node/current" "${LAUNCHER}" "${ELF_TARGET}" "${FCONTEXT}" 2>"${TESTDIR}/err")" || RC=$?
 ERR="$(<"${TESTDIR}/err")"
 if [[ "${RC}" -eq 0 && "${OUT}" == linked && "$(realpath -e "${LINK}")" == "$(realpath -e "${ELF}")" ]]; then
     pass "a version directory that is itself a symlink: resolved, and the target linked inside the real one"
@@ -343,7 +343,7 @@ else
         # shellcheck disable=SC2016  # $1..$5 are the inner shell's positionals, passed after `_`
         OUT="$(runuser -u "${PROJECTS_USER}" -- bash -c '
             source "$1" || exit 9
-            ai_tools_relink_launcher "$2" "$3" "$4" "$5"' _ \
+            ai_tools_providers__relink_launcher "$2" "$3" "$4" "$5"' _ \
             "${LIB}" "${VERSION_DIR}" "${LAUNCHER}" "${ELF_TARGET}" "${FCONTEXT}" 2>"${UNWRITABLE_ERR}")" || RC=$?
         ERR="$(<"${UNWRITABLE_ERR}")"
         chmod 0755 "${VERSION_DIR}/bin"

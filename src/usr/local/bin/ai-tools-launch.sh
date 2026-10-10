@@ -37,10 +37,10 @@ refuse_early() {
 # calls. Logs to journald through logger, since the library that carries the logger may share the broken directory.
 # shellcheck source=SCRIPTDIR/../lib/ai-tools/launch-wrapper.lib.sh
 if ! source "${LAUNCH_LIB}" 2>/dev/null \
-        || ! declare -F ai_tools_launch_init       >/dev/null 2>&1 \
-        || ! declare -F ai_tools_launch_gates      >/dev/null 2>&1 \
-        || ! declare -F ai_tools_launch_agent_args >/dev/null 2>&1 \
-        || ! declare -F ai_tools_launch_session    >/dev/null 2>&1; then
+        || ! declare -F ai_tools_launch_wrapper__init       >/dev/null 2>&1 \
+        || ! declare -F ai_tools_launch_wrapper__run_gates      >/dev/null 2>&1 \
+        || ! declare -F ai_tools_launch_wrapper__append_agent_args >/dev/null 2>&1 \
+        || ! declare -F ai_tools_launch_wrapper__launch_session    >/dev/null 2>&1; then
     command -v logger >/dev/null 2>&1 \
         && logger -t ai-tools-launch -p user.err \
             "required library ${LAUNCH_LIB} unavailable for $(id -un 2>/dev/null) -- launch refused (fail closed)"
@@ -51,12 +51,12 @@ if ! source "${LAUNCH_LIB}" 2>/dev/null \
 fi
 
 # The name this program was invoked as is the launcher; the library accepts it and matches it to an enabled agent.
-ai_tools_launch_init "${0##*/}"
-ai_tools_launch_gates "$@"
+ai_tools_launch_wrapper__init "${0##*/}"
+ai_tools_launch_wrapper__run_gates "$@"
 
 # The agent's own launch arguments precede the operator's, so a standing input from operator.conf (claude's custom
 # system prompt) sits before what was typed for this invocation. The ${arr[@]+"..."} form expands to no word at all
 # when the array is empty, which is safe under `set -u`.
 declare -a agent_args=()
-ai_tools_launch_agent_args agent_args "$@"
-ai_tools_launch_session ${agent_args[@]+"${agent_args[@]}"} "$@"
+ai_tools_launch_wrapper__append_agent_args agent_args "$@"
+ai_tools_launch_wrapper__launch_session ${agent_args[@]+"${agent_args[@]}"} "$@"

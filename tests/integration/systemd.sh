@@ -77,7 +77,7 @@ section "No --user unit carries a mount-namespace option"
 
 # In a per-user service manager an option that needs a mount namespace implies PrivateUsers= (systemd.exec(5)),
 # which maps that account's uid alone -- so every other host uid, root included, reads back as the overflow uid 65534
-# while stat(1) still exits 0. Every uid-based trust predicate in the payload then refuses: ai_tools_conf_is_trusted
+# while stat(1) still exits 0. Every uid-based trust predicate in the payload then refuses: ai_tools_conf__is_trusted
 # requires owner 0, so the updater reads root-owned manifests as nobody-owned and resolves NO agent. nvm-update.sh ends
 # that run as a fault, so the state is reported once it exists; this check keeps it from existing.
 #

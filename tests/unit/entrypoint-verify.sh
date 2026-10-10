@@ -16,9 +16,9 @@
 #     every version reads as "verified" while checking the wrong release.
 #   * only https, and only a character set that cannot carry a shell metacharacter into curl.
 #
-# The impure half (ai_tools_entrypoint_release_verify) needs the vendor's live endpoint, gpgv, and a 300 MB hash, so it
-# is not driven here; its status contract is exercised where it is wired in. Run as root via sudo (the suite's
-# convention), though no case here needs it.
+# The impure half (ai_tools_entrypoint_verify__verify_release) needs the vendor's live endpoint, gpgv, and a 300 MB
+# hash, so it is not driven here; its status contract is exercised where it is wired in. Run as root via sudo (the
+# suite's convention), though no case here needs it.
 
 set -euo pipefail
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")/../lib" && pwd)/harness.sh"
@@ -46,7 +46,7 @@ readonly SHA_B="0000000000000000000000000000000000000000000000000000000000000000
 # <expected> <observed> <want-token> <want-status> <why>
 while IFS='|' read -r expected observed want_token want_status why; do
     [[ -n "${expected}${observed}${want_token}" ]] || continue
-    got_token="$(ai_tools_entrypoint_pin_verdict "${expected}" "${observed}")" && got_status=0 || got_status=$?
+    got_token="$(ai_tools_entrypoint_verify__evaluate_pin "${expected}" "${observed}")" && got_status=0 || got_status=$?
     if [[ "${got_token}" == "${want_token}" && "${got_status}" == "${want_status}" ]]; then
         pass "pin verdict: ${why} -> ${want_token} (${want_status})"
     else
@@ -66,7 +66,7 @@ EOF
 # ── Platform key ─────────────────────────────────────────────────────────────────────────────
 while IFS='|' read -r machine libc want why; do
     [[ -n "${machine}" ]] || continue
-    got="$(ai_tools_entrypoint_platform_key "${machine}" "${libc}" 2>/dev/null || printf '')"
+    got="$(ai_tools_entrypoint_verify__get_platform_key "${machine}" "${libc}" 2>/dev/null || printf '')"
     if [[ "${got}" == "${want}" ]]; then
         pass "platform key: ${why} -> '${want}'"
     else
@@ -83,7 +83,7 @@ EOF
 
 # ── Release-manifest URL ─────────────────────────────────────────────────────────────────────
 readonly TEMPLATE='https://downloads.claude.ai/claude-code-releases/{version}/manifest.json'
-url="$(ai_tools_release_manifest_url "${TEMPLATE}" 2.1.233 2>/dev/null || printf '')"
+url="$(ai_tools_entrypoint_verify__get_release_manifest_url "${TEMPLATE}" 2.1.233 2>/dev/null || printf '')"
 if [[ "${url}" == "https://downloads.claude.ai/claude-code-releases/2.1.233/manifest.json" ]]; then
     pass "release URL: the {version} slot is substituted"
 else
@@ -94,7 +94,7 @@ fi
 # manifest and report "verified" for a release it never checked.
 while IFS='|' read -r template version why; do
     [[ -n "${template}" ]] || continue
-    if ai_tools_release_manifest_url "${template}" "${version}" >/dev/null 2>&1; then
+    if ai_tools_entrypoint_verify__get_release_manifest_url "${template}" "${version}" >/dev/null 2>&1; then
         fail "release URL: ${why} was NOT refused"
     else
         pass "release URL refused: ${why}"
@@ -110,7 +110,7 @@ EOF
 
 # ── Checksum extraction ──────────────────────────────────────────────────────────────────────
 readonly GOOD_JSON="{\"version\":\"2.1.233\",\"platforms\":{\"linux-x64\":{\"binary\":\"claude\",\"checksum\":\"${SHA_A}\",\"size\":324598064}}}"
-if [[ "$(ai_tools_release_manifest_checksum "${GOOD_JSON}" linux-x64 2>/dev/null || printf '')" == "${SHA_A}" ]]; then
+if [[ "$(ai_tools_entrypoint_verify__get_release_manifest_checksum "${GOOD_JSON}" linux-x64 2>/dev/null || printf '')" == "${SHA_A}" ]]; then
     pass "checksum extraction: the platform's checksum is read from a well-formed manifest"
 else
     skip "checksum extraction" "jq unavailable or manifest shape changed"
@@ -118,7 +118,7 @@ fi
 
 while IFS='|' read -r json platform why; do
     [[ -n "${json}" ]] || continue
-    if ai_tools_release_manifest_checksum "${json}" "${platform}" >/dev/null 2>&1; then
+    if ai_tools_entrypoint_verify__get_release_manifest_checksum "${json}" "${platform}" >/dev/null 2>&1; then
         fail "checksum extraction: ${why} yielded a checksum"
     else
         pass "checksum extraction yields nothing: ${why}"
@@ -134,16 +134,16 @@ EOF
 # ── The pin path ─────────────────────────────────────────────────────────────────────────────
 # Public, because ai-tools.status reads the pin to report verification state and must not hardcode where it lives.
 # The agent name becomes a path component, so it is allowlisted to one plain identifier first — the same guard
-# ai_tools_agent_manifest_field applies — and a name that could escape the pin directory must yield NOTHING rather than
-# a path outside it.
-if [[ "$(ai_tools_entrypoint_pin_path claude-code 2>/dev/null || printf '')" \
+# ai_tools_providers__read_agent_manifest_field applies — and a name that could escape the pin directory must yield
+# NOTHING rather than a path outside it.
+if [[ "$(ai_tools_entrypoint_verify__get_pin_path claude-code 2>/dev/null || printf '')" \
       == "${AI_TOOLS_ENTRYPOINT_PIN_DIR:-/var/opt/ai-tools/state/entrypoint-pin.d}/claude-code" ]]; then
     pass "pin path: a plain agent name resolves inside the pin directory"
 else
     fail "pin path: claude-code did not resolve to a pin inside the pin directory"
 fi
 for bad in "../../etc/passwd" "a/b" ".." "" "a b"; do
-    if ai_tools_entrypoint_pin_path "${bad}" >/dev/null 2>&1; then
+    if ai_tools_entrypoint_verify__get_pin_path "${bad}" >/dev/null 2>&1; then
         fail "pin path: agent name '${bad}' was accepted -- it could address a file outside the pin directory"
     else
         pass "pin path refused: agent name '${bad}'"
@@ -156,7 +156,7 @@ done
 # Probed as the sandbox account.
 if ! command -v runuser >/dev/null 2>&1; then
     skip "pin write is root-only" "runuser unavailable"
-elif runuser -u "${SANDBOX_USER}" -- bash -c "source '${LIB}'; ai_tools_entrypoint_pin_write probe 1.0.0 ${SHA_A} https://x" 2>/dev/null; then
+elif runuser -u "${SANDBOX_USER}" -- bash -c "source '${LIB}'; ai_tools_entrypoint_verify__write_pin probe 1.0.0 ${SHA_A} https://x" 2>/dev/null; then
     fail "the sandbox account was allowed to write an entrypoint pin -- it could bless its own binary"
 else
     pass "the sandbox account cannot write an entrypoint pin (root-only by construction)"
@@ -169,14 +169,14 @@ fi
 # a story.
 #
 # It shares the pin's path guard, so the same escapes are refused: an agent name becomes a path component here too.
-if [[ "$(ai_tools_entrypoint_label_path claude-code 2>/dev/null || printf '')" \
+if [[ "$(ai_tools_entrypoint_verify__get_label_path claude-code 2>/dev/null || printf '')" \
       == "${AI_TOOLS_ENTRYPOINT_LABEL_DIR:-/var/opt/ai-tools/state/entrypoint-label.d}/claude-code" ]]; then
     pass "label path: a plain agent name resolves inside the label directory"
 else
     fail "label path: claude-code did not resolve to a record inside the label directory"
 fi
 for bad in "../../etc/passwd" "a/b" ".." "" "a b"; do
-    if ai_tools_entrypoint_label_path "${bad}" >/dev/null 2>&1; then
+    if ai_tools_entrypoint_verify__get_label_path "${bad}" >/dev/null 2>&1; then
         fail "label path: agent name '${bad}' was accepted -- it could address a file outside the label directory"
     else
         pass "label path refused: agent name '${bad}'"
@@ -189,7 +189,7 @@ done
 mktestdir
 AI_TOOLS_ENTRYPOINT_LABEL_DIR="${TESTDIR}/labels"
 for bad_result in "" "OK" "success" "failed;id"; do
-    if ai_tools_entrypoint_label_write claude-code "${bad_result}" 2>/dev/null; then
+    if ai_tools_entrypoint_verify__write_label claude-code "${bad_result}" 2>/dev/null; then
         fail "label write accepted the result '${bad_result}'"
     else
         pass "label write refused the result '${bad_result:-<empty>}'"
@@ -198,7 +198,7 @@ done
 
 # Root-only, for the same reason the pin is: it is a record about the sandbox account's own entrypoint, placed
 # where that account cannot rewrite it.
-if ! declare -F ai_tools_service_stamp_field >/dev/null 2>&1; then
+if ! declare -F ai_tools_services__read_stamp_field >/dev/null 2>&1; then
     skip "label record round trip" "services.lib.sh not readable at ${SERVICES_LIB}"
 elif [[ "${EUID}" -ne 0 ]]; then
     skip "label record round trip" "needs root to write into the record directory"
@@ -206,7 +206,7 @@ elif ! command -v runuser >/dev/null 2>&1; then
     skip "label write is root-only" "runuser unavailable"
 else
     if runuser -u "${SANDBOX_USER}" -- bash -c \
-        "AI_TOOLS_ENTRYPOINT_LABEL_DIR='${AI_TOOLS_ENTRYPOINT_LABEL_DIR}'; source '${LIB}'; ai_tools_entrypoint_label_write probe ok" 2>/dev/null; then
+        "AI_TOOLS_ENTRYPOINT_LABEL_DIR='${AI_TOOLS_ENTRYPOINT_LABEL_DIR}'; source '${LIB}'; ai_tools_entrypoint_verify__write_label probe ok" 2>/dev/null; then
         fail "the sandbox account was allowed to write a label record -- it could report its own labels healthy"
     else
         pass "the sandbox account cannot write a label record (root-only by construction)"
@@ -214,10 +214,10 @@ else
 
     # Written in the stamp grammar, so ai-tools.status reads it through the same accessors as the pin rather than
     # a second reader that could drift.
-    if ai_tools_entrypoint_label_write claude-code failed rule-not-registered \
-       && [[ "$(ai_tools_service_stamp_field "$(ai_tools_entrypoint_label_path claude-code)" RESULT)" == failed \
-             && "$(ai_tools_service_stamp_field "$(ai_tools_entrypoint_label_path claude-code)" REASON)" == rule-not-registered \
-             && -n "$(ai_tools_service_stamp_age "$(ai_tools_entrypoint_label_path claude-code)" LABELLED)" ]]; then
+    if ai_tools_entrypoint_verify__write_label claude-code failed rule-not-registered \
+       && [[ "$(ai_tools_services__read_stamp_field "$(ai_tools_entrypoint_verify__get_label_path claude-code)" RESULT)" == failed \
+             && "$(ai_tools_services__read_stamp_field "$(ai_tools_entrypoint_verify__get_label_path claude-code)" REASON)" == rule-not-registered \
+             && -n "$(ai_tools_services__read_stamp_age "$(ai_tools_entrypoint_verify__get_label_path claude-code)" LABELLED)" ]]; then
         pass "a written record reads back through the shared stamp accessors"
     else
         fail "the label record did not read back as RESULT=failed with its reason and a LABELLED age"
@@ -235,8 +235,8 @@ else
     # A reason is a token, never prose: the accessors' charset clamp does not accept spaces, so a value carrying any
     # would read as absent and the record would lose the field silently. It is dropped at write time instead, leaving
     # a record whose every field can be read back.
-    if ai_tools_entrypoint_label_write claude-code failed "rule not registered; id" \
-       && [[ -z "$(grep -c '^REASON=' "$(ai_tools_entrypoint_label_path claude-code)" 2>/dev/null | grep -v '^0$')" ]]; then
+    if ai_tools_entrypoint_verify__write_label claude-code failed "rule not registered; id" \
+       && [[ -z "$(grep -c '^REASON=' "$(ai_tools_entrypoint_verify__get_label_path claude-code)" 2>/dev/null | grep -v '^0$')" ]]; then
         pass "a reason that is not a token is dropped rather than written unreadable"
     else
         fail "a non-token reason was written into the record"
@@ -253,8 +253,8 @@ section "entrypoint-verify: pin reuse (unit)"
 # Asserted only when the deployed library actually carries the predicate. Without this guard an absent function exits
 # 127, which every negative case would read as a correct refusal -- the section would report green while testing no
 # behaviour at all.
-if ! declare -F ai_tools_entrypoint_pin_reusable >/dev/null 2>&1 \
-        || ! declare -F ai_tools_entrypoint_inputs_digest >/dev/null 2>&1; then
+if ! declare -F ai_tools_entrypoint_verify__is_pin_reusable >/dev/null 2>&1 \
+        || ! declare -F ai_tools_entrypoint_verify__calculate_inputs_digest >/dev/null 2>&1; then
     skip "pin reuse" "the installed ${LIB} carries no pin-reuse predicate -- reinstall to cover it"
     finish; exit
 fi
@@ -265,7 +265,7 @@ mkdir -p "${AI_TOOLS_ENTRYPOINT_PIN_DIR}"
 printf 'key-one\n' > "${TESTDIR}/key-one.asc"
 printf 'key-two\n' > "${TESTDIR}/key-two.asc"
 
-DIGEST="$(ai_tools_entrypoint_inputs_digest "https://v/{version}/m.json" "${TESTDIR}/key-one.asc" "AAAA" || true)"
+DIGEST="$(ai_tools_entrypoint_verify__calculate_inputs_digest "https://v/{version}/m.json" "${TESTDIR}/key-one.asc" "AAAA" || true)"
 if [[ "${DIGEST}" =~ ^[0-9a-f]{64}$ ]]; then
     pass "the inputs digest is a 64-hex value"
 else
@@ -282,14 +282,14 @@ for variant in \
         "https://v/{version}/m.json|${TESTDIR}/key-one-rotated.asc|AAAA|key content" \
         "https://v/{version}/m.json|${TESTDIR}/key-one.asc|BBBB|fingerprints"; do
     IFS='|' read -r v_url v_key v_fpr v_what <<< "${variant}"
-    if [[ "$(ai_tools_entrypoint_inputs_digest "${v_url}" "${v_key}" "${v_fpr}" || true)" == "${DIGEST}" ]]; then
+    if [[ "$(ai_tools_entrypoint_verify__calculate_inputs_digest "${v_url}" "${v_key}" "${v_fpr}" || true)" == "${DIGEST}" ]]; then
         fail "the inputs digest ignored a change of ${v_what}"
     else
         pass "the inputs digest changes with the ${v_what}"
     fi
 done
 
-if ai_tools_entrypoint_inputs_digest "https://v/{version}/m.json" "${TESTDIR}/absent.asc" "AAAA" >/dev/null 2>&1; then
+if ai_tools_entrypoint_verify__calculate_inputs_digest "https://v/{version}/m.json" "${TESTDIR}/absent.asc" "AAAA" >/dev/null 2>&1; then
     fail "the inputs digest was produced for an unreadable key file"
 else
     pass "an unreadable key file yields no digest, so the run verifies in full"
@@ -304,7 +304,7 @@ write_pin() {   # write_pin <agent> <version> <sha256> <inputs>
 }
 
 write_pin claude-code 1.2.3 "${SHA_A}" "${DIGEST}"
-if ai_tools_entrypoint_pin_reusable claude-code 1.2.3 "${DIGEST}" "${SHA_A}"; then
+if ai_tools_entrypoint_verify__is_pin_reusable claude-code 1.2.3 "${DIGEST}" "${SHA_A}"; then
     pass "an unchanged version, inputs and entrypoint reuse the pin"
 else
     fail "a pin matching on every field was not reusable"
@@ -312,17 +312,17 @@ fi
 
 # The three fields that must each veto reuse on their own. A changed SHA256 is a changed binary, which is the tamper
 # case the pin exists for; a changed VERSION or INPUTS means the recorded verdict answers a different question.
-if ai_tools_entrypoint_pin_reusable claude-code 1.2.3 "${DIGEST}" "${SHA_B}"; then
+if ai_tools_entrypoint_verify__is_pin_reusable claude-code 1.2.3 "${DIGEST}" "${SHA_B}"; then
     fail "a pin was reused for an entrypoint whose checksum had changed"
 else
     pass "a changed entrypoint checksum forces a full verification"
 fi
-if ai_tools_entrypoint_pin_reusable claude-code 9.9.9 "${DIGEST}" "${SHA_A}"; then
+if ai_tools_entrypoint_verify__is_pin_reusable claude-code 9.9.9 "${DIGEST}" "${SHA_A}"; then
     fail "a pin was reused across a version change"
 else
     pass "a changed installed version forces a full verification"
 fi
-if ai_tools_entrypoint_pin_reusable claude-code 1.2.3 "${SHA_B}" "${SHA_A}"; then
+if ai_tools_entrypoint_verify__is_pin_reusable claude-code 1.2.3 "${SHA_B}" "${SHA_A}"; then
     fail "a pin was reused after its verification inputs changed"
 else
     pass "changed verification inputs force a full verification"
@@ -331,7 +331,7 @@ fi
 # A pin carrying no INPUTS cannot state which inputs produced it, so it is never reusable. This is also what makes
 # the field safe to introduce: an existing pin simply verifies once more.
 write_pin claude-code 1.2.3 "${SHA_A}" ""
-if ai_tools_entrypoint_pin_reusable claude-code 1.2.3 "${DIGEST}" "${SHA_A}"; then
+if ai_tools_entrypoint_verify__is_pin_reusable claude-code 1.2.3 "${DIGEST}" "${SHA_A}"; then
     fail "a pin with no INPUTS field was reused"
 else
     pass "a pin recording no inputs is never reused"
@@ -339,14 +339,14 @@ fi
 
 # Absent, unhashable and malformed values all land on a full verification rather than on reuse.
 rm -f "${AI_TOOLS_ENTRYPOINT_PIN_DIR}/claude-code"
-if ai_tools_entrypoint_pin_reusable claude-code 1.2.3 "${DIGEST}" "${SHA_A}"; then
+if ai_tools_entrypoint_verify__is_pin_reusable claude-code 1.2.3 "${DIGEST}" "${SHA_A}"; then
     fail "a missing pin was treated as reusable"
 else
     pass "a missing pin is never reusable"
 fi
 write_pin claude-code 1.2.3 "${SHA_A}" "${DIGEST}"
 refuses_reuse() {   # refuses_reuse <what> <version> <inputs> <observed>
-    if ai_tools_entrypoint_pin_reusable claude-code "$2" "$3" "$4"; then
+    if ai_tools_entrypoint_verify__is_pin_reusable claude-code "$2" "$3" "$4"; then
         fail "the pin was reused with $1"
     else
         pass "reuse is refused with $1"
@@ -363,8 +363,8 @@ if [[ "${EUID}" -ne 0 ]]; then
     skip "pin write records its inputs digest" "needs root to write into the pin directory"
 else
     rm -f "${AI_TOOLS_ENTRYPOINT_PIN_DIR}/claude-code"
-    if ai_tools_entrypoint_pin_write claude-code 1.2.3 "${SHA_A}" "https://v/{version}/m.json" "${DIGEST}" \
-       && ai_tools_entrypoint_pin_reusable claude-code 1.2.3 "${DIGEST}" "${SHA_A}"; then
+    if ai_tools_entrypoint_verify__write_pin claude-code 1.2.3 "${SHA_A}" "https://v/{version}/m.json" "${DIGEST}" \
+       && ai_tools_entrypoint_verify__is_pin_reusable claude-code 1.2.3 "${DIGEST}" "${SHA_A}"; then
         pass "a pin written with its inputs digest reads back as reusable"
     else
         fail "a pin written through pin_write did not read back as reusable"
@@ -372,8 +372,8 @@ else
     # A pin written without a digest stays non-reusable, so an unrecordable digest costs a re-verification instead
     # of granting an unconditional shortcut.
     rm -f "${AI_TOOLS_ENTRYPOINT_PIN_DIR}/claude-code"
-    if ai_tools_entrypoint_pin_write claude-code 1.2.3 "${SHA_A}" "https://v/{version}/m.json" \
-       && ! ai_tools_entrypoint_pin_reusable claude-code 1.2.3 "${DIGEST}" "${SHA_A}"; then
+    if ai_tools_entrypoint_verify__write_pin claude-code 1.2.3 "${SHA_A}" "https://v/{version}/m.json" \
+       && ! ai_tools_entrypoint_verify__is_pin_reusable claude-code 1.2.3 "${DIGEST}" "${SHA_A}"; then
         pass "a pin written without a digest is not reusable"
     else
         fail "a pin written without an inputs digest was reusable"
@@ -384,7 +384,7 @@ fi
 # An agent whose vendor publishes no signed manifest is pinned to what is installed, so the one thing that must not
 # happen is re-recording a binary that changed under an unchanged version -- that would bless what the pin exists
 # to catch. The decision is pure, so its table drives without root.
-if ! declare -F ai_tools_entrypoint_observe_decision >/dev/null 2>&1; then
+if ! declare -F ai_tools_entrypoint_verify__evaluate_observed_pin >/dev/null 2>&1; then
     skip "observed pin decision" "the installed ${LIB} carries no observe decision -- reinstall to cover it"
 else
     # One row is a LIMIT rather than a guarantee, and is written down as one: a new version carrying new bytes reads
@@ -400,7 +400,7 @@ else
         [[ -n "${args// }" ]] || continue
         # The row's four fields are the positional arguments under test, so the split is deliberate.
         # shellcheck disable=SC2086
-        got="$(ai_tools_entrypoint_observe_decision ${args} || true)"
+        got="$(ai_tools_entrypoint_verify__evaluate_observed_pin ${args} || true)"
         if [[ "${got}" == "${expect}" ]]; then
             pass "observe decision: ${what} -> ${expect}"
         else
@@ -417,7 +417,7 @@ else
 ROWS
 
     # The tamper row is the one whose STATUS the caller branches on, so it is asserted as well as its token.
-    if ai_tools_entrypoint_observe_decision 1.2.3 "${SHA_A}" 1.2.3 "${SHA_B}" >/dev/null 2>&1; then
+    if ai_tools_entrypoint_verify__evaluate_observed_pin 1.2.3 "${SHA_A}" 1.2.3 "${SHA_B}" >/dev/null 2>&1; then
         fail "the tamper decision returned success, so a caller would re-pin over it"
     else
         pass "the tamper decision returns non-zero, so the caller leaves the pin stale"
@@ -426,12 +426,12 @@ ROWS
     # A pin whose VERSION the reader does not return: an empty first argument, which the ROWS table does not express
     # (its rows are word-split, so '' arrives as two apostrophes). Such a pin is decided by its bytes alone -- reading
     # the absent version as "a different version" would re-record every change.
-    if [[ "$(ai_tools_entrypoint_observe_decision '' "${SHA_A}" 1.2.3 "${SHA_B}" || true)" == tamper ]]; then
+    if [[ "$(ai_tools_entrypoint_verify__evaluate_observed_pin '' "${SHA_A}" 1.2.3 "${SHA_B}" || true)" == tamper ]]; then
         pass "observe decision: a pin with no readable version, hashing differently -> tamper"
     else
         fail "observe decision: a pin with no readable version and a changed binary was not refused"
     fi
-    if [[ "$(ai_tools_entrypoint_observe_decision '' "${SHA_A}" 1.2.3 "${SHA_A}" || true)" == keep ]]; then
+    if [[ "$(ai_tools_entrypoint_verify__evaluate_observed_pin '' "${SHA_A}" 1.2.3 "${SHA_A}" || true)" == keep ]]; then
         pass "observe decision: a pin with no readable version, the same bytes -> keep"
     else
         fail "observe decision: a pin with no readable version and the same bytes was not kept"
@@ -440,12 +440,12 @@ fi
 
 # A reader must be able to say which tier a host holds, and a pin written before the tier existed must not read
 # as the weaker one -- every pin written then came from the signed-manifest path.
-if ! declare -F ai_tools_entrypoint_pin_kind >/dev/null 2>&1; then
+if ! declare -F ai_tools_entrypoint_verify__read_pin_kind >/dev/null 2>&1; then
     skip "pin kind" "the installed ${LIB} carries no pin-kind reader -- reinstall to cover it"
 else
     rm -f "${AI_TOOLS_ENTRYPOINT_PIN_DIR}/claude-code"
     write_pin claude-code 1.2.3 "${SHA_A}" ""
-    if [[ "$(ai_tools_entrypoint_pin_kind claude-code || true)" == verified ]]; then
+    if [[ "$(ai_tools_entrypoint_verify__read_pin_kind claude-code || true)" == verified ]]; then
         pass "a pin carrying no KIND reads as verified"
     else
         fail "a pin carrying no KIND did not read as verified"
@@ -453,13 +453,13 @@ else
 
     printf 'AGENT=codex\nVERSION=0.154.0\nSHA256=%s\nKIND=observed\nVERIFIED=2026-01-01T00:00:00Z\n' "${SHA_A}" \
         > "${AI_TOOLS_ENTRYPOINT_PIN_DIR}/codex"
-    if [[ "$(ai_tools_entrypoint_pin_kind codex || true)" == observed ]]; then
+    if [[ "$(ai_tools_entrypoint_verify__read_pin_kind codex || true)" == observed ]]; then
         pass "an observed pin reads as observed"
     else
         fail "an observed pin did not read as observed"
     fi
 
-    if [[ -z "$(ai_tools_entrypoint_pin_kind no-such-agent 2>/dev/null || true)" ]]; then
+    if [[ -z "$(ai_tools_entrypoint_verify__read_pin_kind no-such-agent 2>/dev/null || true)" ]]; then
         pass "an agent with no pin has no kind"
     else
         fail "an agent with no pin reported a kind"
@@ -470,14 +470,14 @@ else
     # on the field READER's status, so an unknown value and an absent field cannot collapse into one answer.
     printf 'AGENT=oddkind\nVERSION=1.2.3\nSHA256=%s\nKIND=sortof\nVERIFIED=2026-01-01T00:00:00Z\n' "${SHA_A}" \
         > "${AI_TOOLS_ENTRYPOINT_PIN_DIR}/oddkind"
-    if [[ "$(ai_tools_entrypoint_pin_kind oddkind || true)" == unknown ]]; then
+    if [[ "$(ai_tools_entrypoint_verify__read_pin_kind oddkind || true)" == unknown ]]; then
         pass "a KIND this library does not define reads as unknown"
     else
         fail "a KIND this library does not define did not read as unknown"
     fi
 
     # The launch gate compares checksums alone, so an observed pin must still produce the tamper verdict.
-    if [[ "$(ai_tools_entrypoint_pin_verdict "${SHA_A}" "${SHA_B}" || true)" == mismatch ]]; then
+    if [[ "$(ai_tools_entrypoint_verify__evaluate_pin "${SHA_A}" "${SHA_B}" || true)" == mismatch ]]; then
         pass "a changed binary under an observed pin is a mismatch, which refuses at every setting"
     else
         fail "a changed binary under an observed pin did not read as a mismatch"
@@ -487,7 +487,7 @@ fi
 # ── The installed version, read from the package around the entrypoint ─────────────────────────────
 # Two agents lay their packages out differently, and the pin, the launch banner and the tamper decision all read
 # the version through this one function -- so the fixtures are both real layouts, not one.
-if ! declare -F ai_tools_entrypoint_installed_version >/dev/null 2>&1; then
+if ! declare -F ai_tools_entrypoint_verify__read_installed_version >/dev/null 2>&1; then
     skip "installed version" "the installed ${LIB} carries no version reader -- reinstall to cover it"
 else
     # The packages sit under lib/node_modules, the layout npm installs a global package in: the walk does not read
@@ -503,7 +503,7 @@ else
 
     # Claude Code's shape: the entrypoint one directory inside its package.
     ep="$(mk_pkg bin/claude.exe 2.1.274 claude)"
-    if [[ "$(ai_tools_entrypoint_installed_version "${ep}" || true)" == 2.1.274 ]]; then
+    if [[ "$(ai_tools_entrypoint_verify__read_installed_version "${ep}" || true)" == 2.1.274 ]]; then
         pass "the version is read one directory up (<pkg>/bin/<entrypoint>)"
     else
         fail "the version was not read from <pkg>/bin/<entrypoint>"
@@ -513,17 +513,17 @@ else
     # suffix. Both halves broke the first implementation, which walked three levels and took plain MAJOR.MINOR.PATCH
     # alone.
     ep="$(mk_pkg vendor/x86_64-unknown-linux-musl/bin/codex 0.154.0-linux-x64 codex)"
-    if [[ "$(ai_tools_entrypoint_installed_version "${ep}" || true)" == 0.154.0-linux-x64 ]]; then
+    if [[ "$(ai_tools_entrypoint_verify__read_installed_version "${ep}" || true)" == 0.154.0-linux-x64 ]]; then
         pass "a vendored entrypoint three directories in, with a suffixed version, reads"
     else
-        fail "a vendored entrypoint with a suffixed version did not read: '$(ai_tools_entrypoint_installed_version "${ep}" || true)'"
+        fail "a vendored entrypoint with a suffixed version did not read: '$(ai_tools_entrypoint_verify__read_installed_version "${ep}" || true)'"
     fi
 
     # The clamp: this value reaches a terminal, a journal line, a pin record and a release-manifest URL.
     while IFS='|' read -r version what; do
         [[ -n "${version// }" ]] || continue
         ep="$(mk_pkg bin/x "${version}" "clamp$(printf '%s' "${what}" | tr -cd '[:lower:]')")"
-        if [[ -z "$(ai_tools_entrypoint_installed_version "${ep}" || true)" ]]; then
+        if [[ -z "$(ai_tools_entrypoint_verify__read_installed_version "${ep}" || true)" ]]; then
             pass "the version clamp rejects ${what}"
         else
             fail "the version clamp accepted ${what}: '${version}'"
@@ -536,8 +536,8 @@ else
 ROWS
     # The writer and the reader hold one field shape: a version the reader accepts round-trips through a pin, and one it
     # does not is written as `unknown` -- never recorded in a shape that reads back as absent.
-    if declare -F _ai_tools_ev_field_ok >/dev/null 2>&1; then
-        if _ai_tools_ev_field_ok 0.154.0-linux-x64 && ! _ai_tools_ev_field_ok "1.2.3-$(printf 'a%.0s' {1..60})"; then
+    if declare -F _ai_tools_entrypoint_verify__is_field_valid >/dev/null 2>&1; then
+        if _ai_tools_entrypoint_verify__is_field_valid 0.154.0-linux-x64 && ! _ai_tools_entrypoint_verify__is_field_valid "1.2.3-$(printf 'a%.0s' {1..60})"; then
             pass "the pin field shape accepts a platform version and refuses one over 64 characters"
         else
             fail "the pin field shape does not bound the version the way the reader does"
@@ -552,22 +552,22 @@ ROWS
     # on screen to say so. Root-only, like every pin write.
     if [[ "${EUID}" -ne 0 ]]; then
         skip "the version clamp round-trips through a pin" "needs root to write into the pin directory"
-    elif ! declare -F ai_tools_entrypoint_pin_write_observed >/dev/null 2>&1; then
+    elif ! declare -F ai_tools_entrypoint_verify__write_observed_pin >/dev/null 2>&1; then
         skip "the version clamp round-trips through a pin" "the installed ${LIB} carries no observed-pin writer"
     else
         AI_TOOLS_ENTRYPOINT_PIN_DIR="${TESTDIR}/clamp-pins"
         mkdir -p "${AI_TOOLS_ENTRYPOINT_PIN_DIR}"
         over_long="1.2.3-$(printf 'a%.0s' {1..60})"
-        if ai_tools_entrypoint_pin_write_observed clampprobe "${over_long}" "${SHA_A}" \
-           && [[ "$(ai_tools_entrypoint_pin_version clampprobe || true)" == unknown ]]; then
+        if ai_tools_entrypoint_verify__write_observed_pin clampprobe "${over_long}" "${SHA_A}" \
+           && [[ "$(ai_tools_entrypoint_verify__read_pin_version clampprobe || true)" == unknown ]]; then
             pass "a version the reader cannot return is pinned as unknown and reads back"
         else
             fail "an over-long version was pinned in a shape its reader returns as absent"
         fi
         # And the decision over that pin is still made: `unknown` on both sides compares like for like, so a binary
         # that has not changed is kept rather than re-recorded.
-        if [[ "$(ai_tools_entrypoint_observe_decision \
-                    "$(ai_tools_entrypoint_pin_version clampprobe || true)" "${SHA_A}" unknown "${SHA_A}" || true)" == keep ]]; then
+        if [[ "$(ai_tools_entrypoint_verify__evaluate_observed_pin \
+                    "$(ai_tools_entrypoint_verify__read_pin_version clampprobe || true)" "${SHA_A}" unknown "${SHA_A}" || true)" == keep ]]; then
             pass "a pin recorded as unknown compares like for like on the next run"
         else
             fail "a pin recorded as unknown read as a version change on the next run"
@@ -580,7 +580,7 @@ ROWS
     mkdir -p "${deep}"
     : > "${deep}/entry"
     printf '{"version":"9.9.9"}\n' > "${TESTDIR}/pkg/lib/node_modules/deep/package.json"
-    if [[ -z "$(ai_tools_entrypoint_installed_version "${deep}/entry" || true)" ]]; then
+    if [[ -z "$(ai_tools_entrypoint_verify__read_installed_version "${deep}/entry" || true)" ]]; then
         pass "a package.json beyond the bounded walk yields no version"
     else
         fail "the walk ran past its bound"
@@ -593,22 +593,22 @@ ROWS
     mkdir -p "${outer}/bin" "${outer}/node_modules/inner/bin"
     : > "${outer}/bin/entry" "${outer}/node_modules/inner/bin/entry"
     printf '{"name":"outer","version":"1.0.0"}\n' > "${outer}/package.json"
-    if [[ "$(ai_tools_entrypoint_installed_version "${outer}/bin/entry" || true)" != 1.0.0 ]]; then
+    if [[ "$(ai_tools_entrypoint_verify__read_installed_version "${outer}/bin/entry" || true)" != 1.0.0 ]]; then
         fail "control: the enclosing package's own entrypoint did not read 1.0.0"
-    elif [[ -z "$(ai_tools_entrypoint_installed_version "${outer}/node_modules/inner/bin/entry" || true)" ]]; then
+    elif [[ -z "$(ai_tools_entrypoint_verify__read_installed_version "${outer}/node_modules/inner/bin/entry" || true)" ]]; then
         pass "a nested package without a manifest reports no version, not the enclosing package's"
     else
-        fail "a nested package read '$(ai_tools_entrypoint_installed_version "${outer}/node_modules/inner/bin/entry" || true)' from the package enclosing it"
+        fail "a nested package read '$(ai_tools_entrypoint_verify__read_installed_version "${outer}/node_modules/inner/bin/entry" || true)' from the package enclosing it"
     fi
     # A scoped package is a boundary too.
     scoped="${TESTDIR}/pkg/lib/node_modules/@acme/tool"
     mkdir -p "${scoped}/vendor/bin"
     : > "${scoped}/vendor/bin/entry"
     printf '{"name":"@acme/tool","version":"3.4.5"}\n' > "${scoped}/package.json"
-    if [[ "$(ai_tools_entrypoint_installed_version "${scoped}/vendor/bin/entry" || true)" == 3.4.5 ]]; then
+    if [[ "$(ai_tools_entrypoint_verify__read_installed_version "${scoped}/vendor/bin/entry" || true)" == 3.4.5 ]]; then
         pass "a scoped package's manifest is the one read for an entrypoint under it"
     else
-        fail "a scoped package's version did not read: '$(ai_tools_entrypoint_installed_version "${scoped}/vendor/bin/entry" || true)'"
+        fail "a scoped package's version did not read: '$(ai_tools_entrypoint_verify__read_installed_version "${scoped}/vendor/bin/entry" || true)'"
     fi
 
     # The manifest is parsed, not grepped: the top-level version is the one taken where a nested one follows it
@@ -619,7 +619,7 @@ ROWS
         mkdir -p "${parsed}/bin"
         : > "${parsed}/bin/entry"
         printf '%s\n' "${manifest}" > "${parsed}/package.json"
-        got="$(ai_tools_entrypoint_installed_version "${parsed}/bin/entry" || true)"
+        got="$(ai_tools_entrypoint_verify__read_installed_version "${parsed}/bin/entry" || true)"
         [[ "${got}" == "${want}" ]] && pass "manifest ${what} -> '${want}'" || fail "manifest ${what}: got '${got}', want '${want}'"
     done <<'ROWS'
 {"name":"p","version":"1.2.3","dependencies":{"q":{"version":"9.9.9"}}}|1.2.3|with a nested version after the top-level one
@@ -645,7 +645,7 @@ ROWS
         fail "control: a plain interpreter run from the fixture directory did not import the fixture module"
     else
         rm -f "${AI_TOOLS_TEST_SHADOW_MARK}"
-        got="$(cd "${shadow}" && ai_tools_entrypoint_installed_version "${ep}" || true)"
+        got="$(cd "${shadow}" && ai_tools_entrypoint_verify__read_installed_version "${ep}" || true)"
         if [[ "${got}" == 5.6.7 && ! -e "${AI_TOOLS_TEST_SHADOW_MARK}" ]]; then
             pass "the reader run from a directory holding a json.py imports the standard library, not the fixture"
         else
@@ -656,11 +656,11 @@ ROWS
 
     # The name check: a caller naming the package it asked about is answered for that package alone.
     ep="$(mk_pkg bin/named 4.5.6 named)"
-    if [[ "$(ai_tools_entrypoint_installed_version "${ep}" x || true)" == 4.5.6 \
-            && -z "$(ai_tools_entrypoint_installed_version "${ep}" other || true)" ]]; then
+    if [[ "$(ai_tools_entrypoint_verify__read_installed_version "${ep}" x || true)" == 4.5.6 \
+            && -z "$(ai_tools_entrypoint_verify__read_installed_version "${ep}" other || true)" ]]; then
         pass "a package name given is required of the manifest, and another name yields no version"
     else
-        fail "the name check: matching '$(ai_tools_entrypoint_installed_version "${ep}" x || true)', other '$(ai_tools_entrypoint_installed_version "${ep}" other || true)'"
+        fail "the name check: matching '$(ai_tools_entrypoint_verify__read_installed_version "${ep}" x || true)', other '$(ai_tools_entrypoint_verify__read_installed_version "${ep}" other || true)'"
     fi
 
     # What the reader opens: a symlink at package.json is not followed, and a fifo there does not block a launch.
@@ -669,7 +669,7 @@ ROWS
     : > "${linked}/bin/entry"
     printf '{"name":"elsewhere","version":"7.7.7"}\n' > "${TESTDIR}/elsewhere.json"
     ln -s "${TESTDIR}/elsewhere.json" "${linked}/package.json"
-    if [[ -z "$(ai_tools_entrypoint_installed_version "${linked}/bin/entry" || true)" ]]; then
+    if [[ -z "$(ai_tools_entrypoint_verify__read_installed_version "${linked}/bin/entry" || true)" ]]; then
         pass "a symlinked package.json is not followed"
     else
         fail "a symlinked package.json was read"
@@ -680,7 +680,7 @@ ROWS
     if ! mkfifo "${piped}/package.json" 2>/dev/null; then
         skip "a fifo at package.json" "this run cannot create a fifo in its testdir (a confined session cannot)"
     else
-        rc=0; got="$(timeout 10 bash -c 'source "$1"; ai_tools_entrypoint_installed_version "$2"' _ "${LIB}" "${piped}/bin/entry" 2>/dev/null)" || rc=$?
+        rc=0; got="$(timeout 10 bash -c 'source "$1"; ai_tools_entrypoint_verify__read_installed_version "$2"' _ "${LIB}" "${piped}/bin/entry" 2>/dev/null)" || rc=$?
         if [[ "${rc}" -eq 0 && -z "${got}" ]]; then
             pass "a fifo at package.json yields no version and does not block"
         else
@@ -698,12 +698,12 @@ ROWS
     printf '{"name":"agent","version":"2.1.274"}\n' > "${toolchain}/versions/node/v1.2.3/lib/node_modules/agent/package.json"
     : > "${toolchain}/versions/node/v1.2.3/lib/node_modules/agent/bin/entry"
     : > "${toolchain}/versions/node/v1.2.3/bin/entry"
-    if [[ "$(ai_tools_entrypoint_installed_version "${toolchain}/versions/node/v1.2.3/lib/node_modules/agent/bin/entry" || true)" != 2.1.274 ]]; then
+    if [[ "$(ai_tools_entrypoint_verify__read_installed_version "${toolchain}/versions/node/v1.2.3/lib/node_modules/agent/bin/entry" || true)" != 2.1.274 ]]; then
         fail "control: the entrypoint inside its package did not read 2.1.274, so the copy case proves nothing"
-    elif [[ -z "$(ai_tools_entrypoint_installed_version "${toolchain}/versions/node/v1.2.3/bin/entry" || true)" ]]; then
+    elif [[ -z "$(ai_tools_entrypoint_verify__read_installed_version "${toolchain}/versions/node/v1.2.3/bin/entry" || true)" ]]; then
         pass "a copy of the entrypoint outside its package yields no version, not the toolchain root's"
     else
-        fail "a copy outside the package read '$(ai_tools_entrypoint_installed_version "${toolchain}/versions/node/v1.2.3/bin/entry" || true)' from a package.json above node_modules"
+        fail "a copy outside the package read '$(ai_tools_entrypoint_verify__read_installed_version "${toolchain}/versions/node/v1.2.3/bin/entry" || true)' from a package.json above node_modules"
     fi
 fi
 
@@ -713,19 +713,19 @@ fi
 # either status report can read to say otherwise, which is why it is covered here with the pin.
 section "entrypoint-verify: the stale mark and the pin tier (unit)"
 
-if ! declare -F ai_tools_entrypoint_stale_write >/dev/null 2>&1 \
-        || ! declare -F ai_tools_entrypoint_stale_path >/dev/null 2>&1; then
+if ! declare -F ai_tools_entrypoint_verify__write_stale >/dev/null 2>&1 \
+        || ! declare -F ai_tools_entrypoint_verify__get_stale_path >/dev/null 2>&1; then
     skip "stale mark" "the installed ${LIB} carries no stale-mark writer -- reinstall to cover it"
 else
     # The same path guard as the pin and the label record: the agent name becomes a path component.
-    if [[ "$(ai_tools_entrypoint_stale_path claude-code 2>/dev/null || printf '')" \
+    if [[ "$(ai_tools_entrypoint_verify__get_stale_path claude-code 2>/dev/null || printf '')" \
           == "${AI_TOOLS_ENTRYPOINT_STALE_DIR:-/var/opt/ai-tools/state/entrypoint-stale.d}/claude-code" ]]; then
         pass "stale path: a plain agent name resolves inside the stale directory"
     else
         fail "stale path: claude-code did not resolve to a record inside the stale directory"
     fi
     for bad in "../../etc/passwd" "a/b" ".." "" "a b"; do
-        if ai_tools_entrypoint_stale_path "${bad}" >/dev/null 2>&1; then
+        if ai_tools_entrypoint_verify__get_stale_path "${bad}" >/dev/null 2>&1; then
             fail "stale path: agent name '${bad}' was accepted -- it could address a file outside the record directory"
         else
             pass "stale path refused: agent name '${bad}'"
@@ -734,18 +734,18 @@ else
 
     if [[ "${EUID}" -ne 0 ]]; then
         skip "stale mark round trip" "needs root to write into the record directory"
-    elif ! declare -F ai_tools_service_stamp_field >/dev/null 2>&1; then
+    elif ! declare -F ai_tools_services__read_stamp_field >/dev/null 2>&1; then
         skip "stale mark round trip" "services.lib.sh not readable at ${SERVICES_LIB}"
     else
         AI_TOOLS_ENTRYPOINT_STALE_DIR="${TESTDIR}/stale"
-        stale_record="$(ai_tools_entrypoint_stale_path claude-code)"
+        stale_record="$(ai_tools_entrypoint_verify__get_stale_path claude-code)"
         # Read back through the SHARED accessors, like the label record: both status reports read it that way,
         # and a record its reader cannot return is a refusal nobody is told about.
-        if ai_tools_entrypoint_stale_write claude-code 1.2.3 changed-under-same-version \
-           && [[ "$(ai_tools_service_stamp_field "${stale_record}" STATE)"   == stale \
-                 && "$(ai_tools_service_stamp_field "${stale_record}" VERSION)" == 1.2.3 \
-                 && "$(ai_tools_service_stamp_field "${stale_record}" REASON)"  == changed-under-same-version \
-                 && -n "$(ai_tools_service_stamp_age "${stale_record}" DETECTED)" ]]; then
+        if ai_tools_entrypoint_verify__write_stale claude-code 1.2.3 changed-under-same-version \
+           && [[ "$(ai_tools_services__read_stamp_field "${stale_record}" STATE)"   == stale \
+                 && "$(ai_tools_services__read_stamp_field "${stale_record}" VERSION)" == 1.2.3 \
+                 && "$(ai_tools_services__read_stamp_field "${stale_record}" REASON)"  == changed-under-same-version \
+                 && -n "$(ai_tools_services__read_stamp_age "${stale_record}" DETECTED)" ]]; then
             pass "a stale mark reads back as STATE=stale with its reason, version and age"
         else
             fail "the stale mark did not read back through the shared stamp accessors"
@@ -753,12 +753,12 @@ else
 
         # Clearing is what keeps the reports honest in the other direction: a mark left behind after a legitimate re-pin
         # would report a healthy host as refusing forever, which is the way an operator learns to ignore it.
-        if ai_tools_entrypoint_stale_clear claude-code && [[ ! -e "${stale_record}" ]]; then
+        if ai_tools_entrypoint_verify__clear_stale claude-code && [[ ! -e "${stale_record}" ]]; then
             pass "clearing the mark removes it"
         else
             fail "the stale mark survived its clear"
         fi
-        if ai_tools_entrypoint_stale_clear claude-code; then
+        if ai_tools_entrypoint_verify__clear_stale claude-code; then
             pass "clearing a mark that is not there succeeds"
         else
             fail "clearing an absent stale mark reported a failure"
@@ -768,18 +768,18 @@ else
         # as absent: a record whose fields read as absent is one the reports skip, which is the silence the mark exists
         # to end.
         long_version="1.2.3-$(printf 'a%.0s' {1..60})"
-        if ai_tools_entrypoint_stale_write claude-code "${long_version}" signature-mismatch \
-           && [[ "$(ai_tools_service_stamp_field "${stale_record}" VERSION)" == unknown ]]; then
+        if ai_tools_entrypoint_verify__write_stale claude-code "${long_version}" signature-mismatch \
+           && [[ "$(ai_tools_services__read_stamp_field "${stale_record}" VERSION)" == unknown ]]; then
             pass "a version the reader could not return is recorded as unknown"
         else
             fail "an over-long version was written into the stale mark as-is"
         fi
-        ai_tools_entrypoint_stale_clear claude-code || true
+        ai_tools_entrypoint_verify__clear_stale claude-code || true
 
         if ! command -v runuser >/dev/null 2>&1; then
             skip "stale mark is root-only" "runuser unavailable"
         elif runuser -u "${SANDBOX_USER}" -- bash -c \
-                "AI_TOOLS_ENTRYPOINT_STALE_DIR='${AI_TOOLS_ENTRYPOINT_STALE_DIR}'; source '${LIB}'; ai_tools_entrypoint_stale_write probe 1.0.0 x" 2>/dev/null; then
+                "AI_TOOLS_ENTRYPOINT_STALE_DIR='${AI_TOOLS_ENTRYPOINT_STALE_DIR}'; source '${LIB}'; ai_tools_entrypoint_verify__write_stale probe 1.0.0 x" 2>/dev/null; then
             fail "the sandbox account was allowed to write a stale mark -- it could fake a refusal, or clear one"
         else
             pass "the sandbox account cannot write a stale mark (root-only by construction)"
@@ -790,10 +790,10 @@ fi
 # The package directory a forced reinstall removes. It reaches an operator's terminal inside an `rm -rf`, and both
 # of its inputs -- an entrypoint path resolved out of the toolchain, a package name read from a manifest -- are values
 # this library did not choose, so every shape that is not a package directory must yield nothing rather than a command.
-if ! declare -F ai_tools_entrypoint_package_dir >/dev/null 2>&1; then
+if ! declare -F ai_tools_entrypoint_verify__find_package_dir >/dev/null 2>&1; then
     skip "package directory" "the installed ${LIB} carries no package-directory reader -- reinstall to cover it"
 else
-    if [[ "$(ai_tools_entrypoint_package_dir \
+    if [[ "$(ai_tools_entrypoint_verify__find_package_dir \
                 /opt/ai-tools/.nvm/versions/node/v22.20.0/lib/node_modules/@openai/codex/node_modules/@openai/codex-linux-x64/vendor/x/bin/codex \
                 @openai/codex || true)" \
           == /opt/ai-tools/.nvm/versions/node/v22.20.0/lib/node_modules/@openai/codex ]]; then
@@ -803,7 +803,7 @@ else
     fi
     while IFS='|' read -r entrypoint package what; do
         [[ -n "${what// }" ]] || continue
-        if ai_tools_entrypoint_package_dir "${entrypoint}" "${package}" >/dev/null 2>&1; then
+        if ai_tools_entrypoint_verify__find_package_dir "${entrypoint}" "${package}" >/dev/null 2>&1; then
             fail "the package directory was composed from ${what}"
         else
             pass "no package directory is composed from ${what}"

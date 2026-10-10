@@ -28,17 +28,17 @@ cd "${ROOT}"
 # a condition the operator acts on while the component continues, NOTICE progress. Read the live set off the index's
 # emitter column with `awk -F'|' '/MSG-/ {print $7}' .claude/references.md | sort -u`.
 SEVERITY_MAP='
-die=ERROR reject=ERROR refuse=ERROR refuse_early=ERROR err=ERROR say_error=ERROR ai_tools_launch_die=ERROR
-_ai_tools_launch_error=ERROR
-ai_tools_msg_error=ERROR die_stop_usage=ERROR reject_with_usage=ERROR coded_refusal=ERROR _pu_unreadable=ERROR die_usage=ERROR
+die=ERROR reject=ERROR refuse=ERROR refuse_early=ERROR err=ERROR say_error=ERROR ai_tools_launch_wrapper__die=ERROR
+_ai_tools_launch_wrapper__error=ERROR
+ai_tools_msg__error=ERROR die_stop_usage=ERROR reject_with_usage=ERROR coded_refusal=ERROR _pu_unreadable=ERROR die_usage=ERROR
 _claim_unreadable=ERROR
-warn=WARNING _ai_tools_provider_warn=WARNING _ai_tools_conf_warn=WARNING _ai_tools_settings_merge_warn=WARNING say_warn=WARNING _ai_tools_assets_verify_warn=WARNING
-ai_tools_msg_warn=WARNING _ai_tools_toolchain_warn=WARNING _ai_tools_sandbox_exec_warn=WARNING _ai_tools_launch_warn=WARNING _pu_attention=WARNING
+warn=WARNING _ai_tools_providers__warn=WARNING ai_tools_conf__warn=WARNING _ai_tools_settings_merge__warn=WARNING say_warn=WARNING _ai_tools_assets_verify__warn=WARNING
+ai_tools_msg__warn=WARNING _ai_tools_toolchain__warn=WARNING _ai_tools_sandbox_exec__warn=WARNING _ai_tools_launch_wrapper__warn=WARNING _pu_attention=WARNING
 _claim_attention=WARNING
-note=NOTICE say_notice=NOTICE notice=NOTICE _ai_tools_toolchain_notice=NOTICE
-ai_tools_msg_notice=NOTICE _pu_info=NOTICE _claim_info=NOTICE
-_ai_tools_secret_patterns_error=ERROR
-_ai_tools_ma_refuse=ERROR _ai_tools_assets_reconcile_report=WARNING _assets_attention_row=WARNING _assets_info_row=NOTICE
+note=NOTICE say_notice=NOTICE notice=NOTICE _ai_tools_toolchain__notice=NOTICE
+ai_tools_msg__notice=NOTICE _pu_info=NOTICE _claim_info=NOTICE
+_ai_tools_secret_patterns__error=ERROR
+_ai_tools_managed_assets__refuse=ERROR _ai_tools_assets__reconcile_report=WARNING _assets_attention_row=WARNING _assets_info_row=NOTICE
 '
 
 # Source file to the component an operator names it by: the commands spelled differently from their file (an agent's

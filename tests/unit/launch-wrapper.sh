@@ -77,10 +77,10 @@ run() {
         AI_TOOLS_AGENTS_DIR="${FIXTURE_AGENTS_DIR:-}" AI_TOOLS_OPERATOR_CONF="${FIXTURE_OPERATOR_CONF:-}" \
         AI_TOOLS_ENTRYPOINT_PIN_DIR="${FIXTURE_PIN_DIR:-}" LC_ALL="${FIXTURE_LC_ALL:-}" \
         bash -c 'set -euo pipefail; IFS=$'"'"'\n\t'"'"'; cd "$1" || exit 98; source "$2" || exit 99
-                 ai_tools_launch_init "${FIXTURE_LAUNCHER}"; AI_TOOLS_LAUNCH_PROJECT_DIR="${FIXTURE_PROJECT_DIR}"
+                 ai_tools_launch_wrapper__init "${FIXTURE_LAUNCHER}"; AI_TOOLS_LAUNCH_WRAPPER__PROJECT_DIR="${FIXTURE_PROJECT_DIR}"
                  shift 2; "$@"
-                 printf "EXEC=%s\nPROJECT=%s\nAGENT=%s\n" "${AI_TOOLS_LAUNCH_EXEC}" "${AI_TOOLS_LAUNCH_PROJECT_DIR}" \
-                     "${AI_TOOLS_LAUNCH_AGENT}"' \
+                 printf "EXEC=%s\nPROJECT=%s\nAGENT=%s\n" "${AI_TOOLS_LAUNCH_WRAPPER__EXEC}" "${AI_TOOLS_LAUNCH_WRAPPER__PROJECT_DIR}" \
+                     "${AI_TOOLS_LAUNCH_WRAPPER__AGENT}"' \
         _ "${cwd}" "${lib}" "$@" < /dev/null 2>&1)" || RC=$?
 }
 # refused <what> <code> : the last run refused with <code> AND a non-zero status -- a refusal printed at exit 0 is one
@@ -138,17 +138,17 @@ else
 fi
 
 # ── (1) Operator gate ───────────────────────────────────────────────────────────
-run "${LIB}" "${SANDBOX_USER}" "${approved}" ai_tools_launch_gate_operator
+run "${LIB}" "${SANDBOX_USER}" "${approved}" ai_tools_launch_wrapper__gate_operator
 refused "the sandbox account is refused with its own code" MSG-N8Q4
 if id -u nobody >/dev/null 2>&1 && ! id -nG nobody | tr ' ' '\n' | grep -qx ai-ops; then
-    run "${LIB}" nobody "${approved}" ai_tools_launch_gate_operator
+    run "${LIB}" nobody "${approved}" ai_tools_launch_wrapper__gate_operator
     refused "a non-operator is refused, naming the enrolment" MSG-C7C9
     says "and the refusal names the enrolment command" "ai-tools-admin operators add nobody"
 else
     skip "non-operator refusal" "no 'nobody' account outside ai-ops on this host"
 fi
 if id -nG "${PROJECTS_USER}" | tr ' ' '\n' | grep -qx ai-ops; then
-    run "${LIB}" "${PROJECTS_USER}" "${approved}" ai_tools_launch_gate_operator
+    run "${LIB}" "${PROJECTS_USER}" "${approved}" ai_tools_launch_wrapper__gate_operator
     passed "an ai-ops member passes the operator gate"
 else
     skip "operator passes the gate" "${PROJECTS_USER} is not in ai-ops here"
@@ -167,19 +167,19 @@ printf 'AI_TOOLS_AGENTS="agent-acme"\n' > "${fixture_conf}"
 chmod 0644 "${fixture_agents}"/*.conf "${fixture_conf}"
 ln -s "/opt/ai-tools/.nvm/versions/node/v1.2.3/bin/beta" "${links}/beta"
 FIXTURE_AGENTS_DIR="${fixture_agents}" FIXTURE_OPERATOR_CONF="${fixture_conf}" \
-    run "${LIB}" "${PROJECTS_USER}" "${approved}" ai_tools_launch_gate_residue
+    run "${LIB}" "${PROJECTS_USER}" "${approved}" ai_tools_launch_wrapper__gate_residue
 refused "a disabled agent's launcher link refuses the launch" MSG-H4E2
 says "and the refusal names the agent" "beta"
 says "and the refusal names the provisioning run" "sudo ai-tools-admin system bootstrap"
 silent "and the executable is not resolved first" 'MSG-S4B3|MSG-S3K2'
 rm -f "${links}/beta"
 FIXTURE_AGENTS_DIR="${fixture_agents}" FIXTURE_OPERATOR_CONF="${fixture_conf}" \
-    run "${LIB}" "${PROJECTS_USER}" "${approved}" ai_tools_launch_gate_residue
+    run "${LIB}" "${PROJECTS_USER}" "${approved}" ai_tools_launch_wrapper__gate_residue
 passed "no link for the disabled agent, no refusal"
 ln -s "/opt/ai-tools/.nvm/versions/node/v1.2.3/bin/beta" "${links}/beta"
 printf 'AI_TOOLS_AGENTS="agent-acme agent-beta"\n' > "${fixture_conf}"
 FIXTURE_AGENTS_DIR="${fixture_agents}" FIXTURE_OPERATOR_CONF="${fixture_conf}" \
-    run "${LIB}" "${PROJECTS_USER}" "${approved}" ai_tools_launch_gate_residue
+    run "${LIB}" "${PROJECTS_USER}" "${approved}" ai_tools_launch_wrapper__gate_residue
 passed "a link for an agent that is enabled is not residue"
 rm -f "${links}/beta"
 # The gate is fail-closed on its library: a copy of the wrapper library repointed at a missing toolchain library
@@ -188,7 +188,7 @@ broken_toolchain="${TESTDIR}/launch-notoolchain.lib.sh"
 sed 's#^readonly TOOLCHAIN_LIB=.*#readonly TOOLCHAIN_LIB="/nonexistent/ai-tools/toolchain.lib.sh"#' \
     "${LIB}" > "${broken_toolchain}"
 chmod 644 "${broken_toolchain}"
-run "${broken_toolchain}" "${PROJECTS_USER}" "${approved}" ai_tools_launch_gate_residue
+run "${broken_toolchain}" "${PROJECTS_USER}" "${approved}" ai_tools_launch_wrapper__gate_residue
 refused "the residue gate refuses when toolchain.lib.sh will not load (fail closed)" MSG-U9K8
 
 # ── (1e) The clock gate: a file this host wrote dated after the clock refuses every launch ── The gate reads the files
@@ -198,12 +198,12 @@ refused "the residue gate refuses when toolchain.lib.sh will not load (fail clos
 fixture_pins="${TESTDIR}/pins"
 mkdir -m 0755 "${fixture_pins}"
 printf 'AGENT=acme\n' > "${fixture_pins}/acme"; chmod 0644 "${fixture_pins}/acme"; touch -d '+2 days' "${fixture_pins}/acme"
-FIXTURE_PIN_DIR="${fixture_pins}" run "${LIB}" "${PROJECTS_USER}" "${approved}" ai_tools_launch_gate_clock
+FIXTURE_PIN_DIR="${fixture_pins}" run "${LIB}" "${PROJECTS_USER}" "${approved}" ai_tools_launch_wrapper__gate_clock
 refused "a pin dated after the system clock refuses the launch" MSG-U8K6
 says "and the refusal names the file" "${fixture_pins}/acme"
 says "and the refusal names the command that sets the clock" "timedatectl set-time"
 touch -d 2024-01-01 "${fixture_pins}/acme"
-FIXTURE_PIN_DIR="${fixture_pins}" run "${LIB}" "${PROJECTS_USER}" "${approved}" ai_tools_launch_gate_clock
+FIXTURE_PIN_DIR="${fixture_pins}" run "${LIB}" "${PROJECTS_USER}" "${approved}" ai_tools_launch_wrapper__gate_clock
 passed "a pin dated in the past passes the clock gate"
 
 # ── (1c) The provider-list gate: a name an earlier release wrote bare refuses every launch ── The list reader reads
@@ -212,32 +212,32 @@ passed "a pin dated in the past passes the clock gate"
 # that rewrites it; a migrated file is the control.
 printf 'AI_TOOLS_AGENTS=[acme]\nAI_TOOLS_FILTERS=[core, filter-dotnet]\n' > "${fixture_conf}"
 FIXTURE_AGENTS_DIR="${fixture_agents}" FIXTURE_OPERATOR_CONF="${fixture_conf}" \
-    run "${LIB}" "${PROJECTS_USER}" "${approved}" ai_tools_launch_gate_lists
+    run "${LIB}" "${PROJECTS_USER}" "${approved}" ai_tools_launch_wrapper__gate_lists
 refused "a provider name written without its kind prefix refuses the launch" MSG-V3Q5
 says "and the refusal names each bare item" "AI_TOOLS_AGENTS acme, AI_TOOLS_FILTERS core"
 says "and the refusal names the command that rewrites them" "sudo ai-tools-admin system post-upgrade"
 printf 'AI_TOOLS_AGENTS=[agent-acme]\nAI_TOOLS_FILTERS=[filter-base, filter-dotnet]\n' > "${fixture_conf}"
 FIXTURE_AGENTS_DIR="${fixture_agents}" FIXTURE_OPERATOR_CONF="${fixture_conf}" \
-    run "${LIB}" "${PROJECTS_USER}" "${approved}" ai_tools_launch_gate_lists
+    run "${LIB}" "${PROJECTS_USER}" "${approved}" ai_tools_launch_wrapper__gate_lists
 passed "prefixed provider lists pass the gate"
 printf 'AI_TOOLS_AGENTS="agent-acme"\n' > "${fixture_conf}"
 
 # ── (1d) The launcher gate: the name must be an enabled agent's launcher ──────── Every launcher is one program, so
 # the name decides the agent. The fixture enables acme (launcher claude) and installs beta (launcher beta) disabled.
 FIXTURE_AGENTS_DIR="${fixture_agents}" FIXTURE_OPERATOR_CONF="${fixture_conf}" \
-    run "${LIB}" "${PROJECTS_USER}" "${approved}" ai_tools_launch_gate_launcher
+    run "${LIB}" "${PROJECTS_USER}" "${approved}" ai_tools_launch_wrapper__gate_launcher
 passed "an enabled agent's launcher passes the gate"
 says "and the gate records the agent that claims it" "AGENT=acme"
 FIXTURE_LAUNCHER=beta FIXTURE_AGENTS_DIR="${fixture_agents}" FIXTURE_OPERATOR_CONF="${fixture_conf}" \
-    run "${LIB}" "${PROJECTS_USER}" "${approved}" ai_tools_launch_gate_launcher
+    run "${LIB}" "${PROJECTS_USER}" "${approved}" ai_tools_launch_wrapper__gate_launcher
 refused "an installed but disabled agent's launcher is refused" MSG-F8N3
 says "and the refusal names the enabled launchers" "enabled: claude"
 FIXTURE_LAUNCHER=ai-tools-launch FIXTURE_AGENTS_DIR="${fixture_agents}" FIXTURE_OPERATOR_CONF="${fixture_conf}" \
-    run "${LIB}" "${PROJECTS_USER}" "${approved}" ai_tools_launch_gate_launcher
+    run "${LIB}" "${PROJECTS_USER}" "${approved}" ai_tools_launch_wrapper__gate_launcher
 refused "the launcher program invoked by its own name is refused" MSG-F8N3
 chmod 0664 "${fixture_agents}/acme.conf"
 FIXTURE_AGENTS_DIR="${fixture_agents}" FIXTURE_OPERATOR_CONF="${fixture_conf}" \
-    run "${LIB}" "${PROJECTS_USER}" "${approved}" ai_tools_launch_gate_launcher
+    run "${LIB}" "${PROJECTS_USER}" "${approved}" ai_tools_launch_wrapper__gate_launcher
 refused "a launcher whose manifest is group-writable is refused (the resolver does not accept it)" MSG-F8N3
 chmod 0644 "${fixture_agents}/acme.conf"
 broken_providers="${TESTDIR}/launch-noproviders.lib.sh"
@@ -245,56 +245,56 @@ sed 's#^readonly PROVIDERS_LIB=.*#readonly PROVIDERS_LIB="/nonexistent/ai-tools/
     "${LIB}" > "${broken_providers}"
 chmod 644 "${broken_providers}"
 FIXTURE_AGENTS_DIR="${fixture_agents}" FIXTURE_OPERATOR_CONF="${fixture_conf}" \
-    run "${broken_providers}" "${PROJECTS_USER}" "${approved}" ai_tools_launch_gate_launcher
+    run "${broken_providers}" "${PROJECTS_USER}" "${approved}" ai_tools_launch_wrapper__gate_launcher
 refused "the launcher gate refuses when providers.lib.sh will not load (fail closed)" MSG-C2C9
 
 # ── (2) Launcher resolution: one hop, validated as the versioned shape ──────────
 rm -f "${links}/claude"
-run "${LIB}" "${PROJECTS_USER}" "${approved}" ai_tools_launch_resolve_executable
+run "${LIB}" "${PROJECTS_USER}" "${approved}" ai_tools_launch_wrapper__resolve_executable
 refused "a missing launcher symlink is refused, naming the bootstrap" MSG-S4B3
 says "and the refusal names the provisioning command" "sudo ai-tools-admin system bootstrap"
 link "/usr/bin/claude"
-run "${LIB}" "${PROJECTS_USER}" "${approved}" ai_tools_launch_resolve_executable
+run "${LIB}" "${PROJECTS_USER}" "${approved}" ai_tools_launch_wrapper__resolve_executable
 refused "a target outside the versioned toolchain shape is refused" MSG-S3K2
 link "/opt/ai-tools/.nvm/versions/node/v1.2.3/bin/codex"
-run "${LIB}" "${PROJECTS_USER}" "${approved}" ai_tools_launch_resolve_executable
+run "${LIB}" "${PROJECTS_USER}" "${approved}" ai_tools_launch_wrapper__resolve_executable
 refused "a target naming another launcher is refused" MSG-S3K2
 link "/opt/ai-tools/.nvm/versions/node/v1.2.3/../v9.9.9/bin/claude"
-run "${LIB}" "${PROJECTS_USER}" "${approved}" ai_tools_launch_resolve_executable
+run "${LIB}" "${PROJECTS_USER}" "${approved}" ai_tools_launch_wrapper__resolve_executable
 refused "a target carrying a parent-directory component is refused" MSG-G8R4
 link "/opt/ai-tools/.nvm/versions/node/v1.2.3/bin/claude"
-run "${LIB}" "${PROJECTS_USER}" "${approved}" ai_tools_launch_resolve_executable
+run "${LIB}" "${PROJECTS_USER}" "${approved}" ai_tools_launch_wrapper__resolve_executable
 passed "the versioned shape resolves (one hop, the target need not be reachable)"
 says "and the resolved path is the link's target, unresolved further" \
     "EXEC=/opt/ai-tools/.nvm/versions/node/v1.2.3/bin/claude"
 
 # ── (3) The CWD gate: backstop, then the allowlist ─────────────────────────────
 allowlist
-run "${LIB}" "${PROJECTS_USER}" "${approved}" ai_tools_launch_gate_project
+run "${LIB}" "${PROJECTS_USER}" "${approved}" ai_tools_launch_wrapper__gate_project
 refused "no allowlist file: refused, naming the file to create" MSG-C9S6
 says "and the refusal names the allowlist path" "${allowlist}"
 allowlist "${approved}" "!${excluded}" "!${parked}"
 
-run "${LIB}" "${PROJECTS_USER}" "${unapproved}" ai_tools_launch_gate_project
+run "${LIB}" "${PROJECTS_USER}" "${unapproved}" ai_tools_launch_wrapper__gate_project
 refused "an unapproved directory is refused without a terminal (Cancel, decided by the have_tty branch)" MSG-N2Z7
 says "and the refusal names the clone" "$(cli_cmd_text ai-tools.projects.clone)"
 says "and the refusal names the claim" "$(cli_cmd_text ai-tools.projects.claim)"
 
-run "${LIB}" "${PROJECTS_USER}" "${sibling}" ai_tools_launch_gate_project
+run "${LIB}" "${PROJECTS_USER}" "${sibling}" ai_tools_launch_wrapper__gate_project
 refused "a sibling sharing the approved directory's name as a prefix is refused (exact-or-slash-prefixed)" MSG-N2Z7
 
-run "${LIB}" "${PROJECTS_USER}" "${approved}" ai_tools_launch_gate_project
+run "${LIB}" "${PROJECTS_USER}" "${approved}" ai_tools_launch_wrapper__gate_project
 passed "an approved directory passes the gate"
 says "and the project directory published is the canonical path" "PROJECT=${approved}"
-run "${LIB}" "${PROJECTS_USER}" "${TESTDIR}/via-symlink" ai_tools_launch_gate_project
+run "${LIB}" "${PROJECTS_USER}" "${TESTDIR}/via-symlink" ai_tools_launch_wrapper__gate_project
 passed "an approved directory reached through a symlink passes (the CWD is canonicalized first)"
 says "and the project directory published is the real path, not the symlink" "PROJECT=${approved}"
 
-run "${LIB}" "${PROJECTS_USER}" "${excluded}" ai_tools_launch_gate_project
+run "${LIB}" "${PROJECTS_USER}" "${excluded}" ai_tools_launch_wrapper__gate_project
 refused "a '!'-carved subdirectory of an approved project is refused as carved out" MSG-K8K2
-run "${LIB}" "${PROJECTS_USER}" "${excluded}/deeper" ai_tools_launch_gate_project
+run "${LIB}" "${PROJECTS_USER}" "${excluded}/deeper" ai_tools_launch_wrapper__gate_project
 refused "a path under a '!'-carved subdirectory is refused by the ancestor entry" MSG-W2P3
-run "${LIB}" "${PROJECTS_USER}" "${parked}" ai_tools_launch_gate_project
+run "${LIB}" "${PROJECTS_USER}" "${parked}" ai_tools_launch_wrapper__gate_project
 refused "a parked project ('!' on its own path, no approved parent) is refused as disabled" MSG-R2V6
 says "and the refusal names the re-enable" "$(cli_cmd_text ai-tools.projects.enable)"
 
@@ -306,24 +306,24 @@ says "and the refusal names the re-enable" "$(cli_cmd_text ai-tools.projects.ena
 # the split to the caller's IFS refuses every link and fails these cases.
 ln -s "${excluded}" "${TESTDIR}/secret-link"
 allowlist "${approved}" "!${TESTDIR}/secret-link"
-run "${LIB}" "${PROJECTS_USER}" "${excluded}" ai_tools_launch_gate_project
+run "${LIB}" "${PROJECTS_USER}" "${excluded}" ai_tools_launch_wrapper__gate_project
 refused "a carve-out spelled through a root-owned symlink in a root-owned directory refuses the directory it names" MSG-K8K2
 ln -s "${excluded}" "${approved}/agent-link"; chown -h "${SANDBOX_USER}" "${approved}/agent-link"
 allowlist "${approved}" "!${approved}/agent-link"
-run "${LIB}" "${PROJECTS_USER}" "${approved}" ai_tools_launch_gate_project
+run "${LIB}" "${PROJECTS_USER}" "${approved}" ai_tools_launch_wrapper__gate_project
 refused "a '!' through a symlink the sandbox account holds refuses the launch, the approved root included" MSG-Z3Q6
 says "and the library's report names the link" "${approved}/agent-link"
 assert_msg MSG-Y5N6 "${OUT}" "and carries the library's own code"
 mkdir -m 2770 "${approved}/shared"; ln -s "${excluded}" "${approved}/shared/alias"
 chown -h "${PROJECTS_USER}:${PROJECTS_GROUP}" "${approved}/shared" "${approved}/shared/alias"
 allowlist "${approved}" "!${approved}/shared/alias"
-run "${LIB}" "${PROJECTS_USER}" "${approved}" ai_tools_launch_gate_project
+run "${LIB}" "${PROJECTS_USER}" "${approved}" ai_tools_launch_wrapper__gate_project
 refused "a '!' through the operator's own symlink in a group-writable directory refuses the launch too" MSG-Z3Q6
 says "and the refusal names the directory's write bit" "a directory with a group or other write bit"
 mkdir -m 755 "${approved}/shared/links"; ln -s "${excluded}" "${approved}/shared/links/alias"
 chown -h "${PROJECTS_USER}:${PROJECTS_GROUP}" "${approved}/shared/links" "${approved}/shared/links/alias"
 allowlist "${approved}" "!${approved}/shared/links/alias"
-run "${LIB}" "${PROJECTS_USER}" "${approved}" ai_tools_launch_gate_project
+run "${LIB}" "${PROJECTS_USER}" "${approved}" ai_tools_launch_wrapper__gate_project
 refused "a '!' through a symlink in a closed directory under a group-writable one refuses the launch" MSG-Z3Q6
 says "and the refusal names the ancestor's write bit" "under ${approved}/shared, a directory with a group or other write bit"
 # A carve-out written as the real path keeps refusing its directory whatever happens to an alias beside it.
@@ -333,31 +333,31 @@ for alias_state in link removed directory; do
         removed)   rm -f "${approved}/shared/alias" ;;
         directory) mkdir "${approved}/shared/alias" ;;
     esac
-    run "${LIB}" "${PROJECTS_USER}" "${excluded}" ai_tools_launch_gate_project
+    run "${LIB}" "${PROJECTS_USER}" "${excluded}" ai_tools_launch_wrapper__gate_project
     refused "a real-path carve-out is refused with the alias ${alias_state}" MSG-K8K2
 done
 rm -rf "${approved}/shared" "${approved}/agent-link" "${TESTDIR}/secret-link"
 allowlist "${approved}" "!${excluded}" "!${parked}"
 chmod 000 "${allowlist}"
-run "${LIB}" "${PROJECTS_USER}" "${approved}" ai_tools_launch_gate_project
+run "${LIB}" "${PROJECTS_USER}" "${approved}" ai_tools_launch_wrapper__gate_project
 refused "an allowlist the operator cannot read is refused, naming the file" MSG-X4N6
 says "and the refusal names the allowlist path" "${allowlist}"
 allowlist "${approved}" "!${excluded}" "!${parked}"
 
 allowlist "/etc"
-run "${LIB}" "${PROJECTS_USER}" /etc ai_tools_launch_gate_project
+run "${LIB}" "${PROJECTS_USER}" /etc ai_tools_launch_wrapper__gate_project
 refused "an allowlisted protected directory is refused by the backstop before the allowlist" MSG-Q6H3
 allowlist "${approved}" "!${excluded}" "!${parked}"
 
 # ── (4) The claim guard: detects, offers, and without a terminal refuses ────────
 # The approved directory is owned by the projects user and its group, not the sandbox group, so the ownership gap is
 # open; with no terminal the default-NO confirm declines and the launch is refused.
-FIXTURE_PROJECT_DIR="${approved}" run "${LIB}" "${PROJECTS_USER}" "${approved}" ai_tools_launch_claim_guard
+FIXTURE_PROJECT_DIR="${approved}" run "${LIB}" "${PROJECTS_USER}" "${approved}" ai_tools_launch_wrapper__guard_claim
 refused "an approved directory the sandbox group does not own is refused without a terminal" MSG-W4X4
 says "and the screen names the clone" "$(cli_cmd_text ai-tools.projects.clone)"
 
 # ── (5) The exec refuses when the gates did not run ───────────────────────────
-run "${LIB}" "${PROJECTS_USER}" "${approved}" ai_tools_launch_session --version
+run "${LIB}" "${PROJECTS_USER}" "${approved}" ai_tools_launch_wrapper__launch_session --version
 refused "the session exec refuses with no resolved executable and project directory" MSG-B6G2
 
 # ── (5b) The agent's launch hook: read only when declared, refused in every other state ── A copy of the library
@@ -377,12 +377,12 @@ manifest_hook() {
 }
 # hook_file <body> : the acme hook, root-owned 0644.
 hook_file() { printf '%s\n' "$1" > "${hooks}/acme.sh"; chmod 0644 "${hooks}/acme.sh"; }
-readonly hook_probe='ai_tools_launch_gate_launcher; declare -a probe=(); ai_tools_launch_agent_args probe --typed; printf "ARGS=%s\n" "${probe[*]-}"'
+readonly hook_probe='ai_tools_launch_wrapper__gate_launcher; declare -a probe=(); ai_tools_launch_wrapper__append_agent_args probe --typed; printf "ARGS=%s\n" "${probe[*]-}"'
 hook_run() {
     FIXTURE_AGENTS_DIR="${fixture_agents}" FIXTURE_OPERATOR_CONF="${fixture_conf}" \
         run "${hook_lib}" "${PROJECTS_USER}" "${approved}" eval "${hook_probe}"
 }
-appends='ai_tools_launch_hook_args() { local -n _fixture_out="$1"; shift; _fixture_out+=("--hooked"); }'
+appends='ai_tools_launch_hook__append_args() { local -n _fixture_out="$1"; shift; _fixture_out+=("--hooked"); }'
 hook_file "${appends}"
 
 manifest_hook -
@@ -412,8 +412,8 @@ refused "a group-writable hook directory refuses the launch" MSG-G9H2
 chmod 0755 "${hooks}"
 hook_file '# defines no hook function'
 hook_run
-refused "a hook that does not define ai_tools_launch_hook_args refuses the launch" MSG-G9H2
-hook_file 'ai_tools_launch_hook_args() { return 1; }'
+refused "a hook that does not define ai_tools_launch_hook__append_args refuses the launch" MSG-G9H2
+hook_file 'ai_tools_launch_hook__append_args() { return 1; }'
 hook_run
 refused "a hook that returns non-zero refuses the launch" MSG-G5V4
 manifest_hook -
@@ -421,10 +421,10 @@ manifest_hook -
 # ── (6) Order: the operator gate answers before the allowlist is read ───────────
 # Driven from the unapproved directory with an argument pair that would keep the CWD gates in the path: a non-operator
 # is refused with the operator code and none of the CWD gate's codes fires.
-run "${LIB}" "${SANDBOX_USER}" "${unapproved}" ai_tools_launch_gates --version --gate-probe
+run "${LIB}" "${SANDBOX_USER}" "${unapproved}" ai_tools_launch_wrapper__run_gates --version --gate-probe
 refused "the gate runner refuses the sandbox account first" MSG-N8Q4
 silent "and does not reach the CWD gate as a non-operator" 'MSG-N2Z7|MSG-C9S6|MSG-K8K2|MSG-R2V6|MSG-W2P3'
-FIXTURE_LAUNCHER=ai-tools-launch run "${LIB}" "${SANDBOX_USER}" "${unapproved}" ai_tools_launch_gates
+FIXTURE_LAUNCHER=ai-tools-launch run "${LIB}" "${SANDBOX_USER}" "${unapproved}" ai_tools_launch_wrapper__run_gates
 refused "a name no agent claims is answered by the operator gate first for a non-operator" MSG-N8Q4
 silent "and the launcher gate does not run ahead of it" 'MSG-F8N3'
 

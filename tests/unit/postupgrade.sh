@@ -88,7 +88,7 @@ has_finding() {
 # and subject-type this report writes, and an absolute subject.
 stream_is_well_formed() {
     local header rows
-    header="$(printf '%s\t' "${AI_TOOLS_RECORDS_COLUMNS[@]%%:*}")"; header="${header%$'\t'}"
+    header="$(printf '%s\t' "${AI_TOOLS_RECORDS_BASE__COLUMNS[@]%%:*}")"; header="${header%$'\t'}"
     rows="$(tail -n +2 <<< "${out}")"
     [[ "${out%%$'\n'*}" == "${header}" ]] \
         && ! grep -qvP '^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ\t\tMSG-[A-Z]\d[A-Z]\d\t[0-9a-f]{16}\t(attention|unreadable|info)\t[a-z-]+\t(file|directory)\t\t[^\t]*\t/[^\t]+\t[^\t]*$' \

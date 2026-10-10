@@ -38,8 +38,8 @@ AI_TOOLS_LOG_TAG="ai-tools-hook"
 readonly LOG_LIB="/usr/local/lib/ai-tools/log.lib.sh"
 # shellcheck source=SCRIPTDIR/../../../../usr/local/lib/ai-tools/log.lib.sh
 if ! source "${LOG_LIB}" 2>/dev/null; then
-    ai_tools_log() { :; }; ai_tools_log_debug() { :; }; ai_tools_log_info() { :; }
-    ai_tools_log_warn() { :; }; ai_tools_log_error() { :; }
+    ai_tools_log__write() { :; }; ai_tools_log__debug() { :; }; ai_tools_log__info() { :; }
+    ai_tools_log__warn() { :; }; ai_tools_log__error() { :; }
 fi
 
 readonly HANDBACK_CLIENT="/usr/local/bin/ai-tools-handback-client"
@@ -149,13 +149,13 @@ record_tool_call() {
         # which would ride along on the final field's value.
         mapfile -t -d "${RECORD_FIELD_SEPARATOR}" record_parts \
             < <(printf '%s' "${formatted_record}")
-        ai_tools_log_structured info "${record_parts[0]}" "${record_parts[@]:1}"
+        ai_tools_log__structured info "${record_parts[0]}" "${record_parts[@]:1}"
         return 0
     fi
     failure_reason="the event JSON could not be parsed"
     command -v jq >/dev/null 2>&1 \
         || failure_reason="jq is not installed, so every hook in this session is degraded"
-    ai_tools_log_warn "tool call NOT recorded (${failure_reason}) -- this is a gap in the trail"
+    ai_tools_log__warn "tool call NOT recorded (${failure_reason}) -- this is a gap in the trail"
 }
 
 # patch_written_paths <hook-event-json> -- PRINT, one per line, the absolute path of every file an apply_patch event
@@ -190,7 +190,7 @@ hand_back_patch_paths() {
     while IFS= read -r written_file_path; do
         [[ -n "${written_file_path}" ]] || continue
         if [[ "$(stat -c '%U' "${written_file_path}" 2>/dev/null || true)" == "@SANDBOX_USER@" ]]; then
-            ai_tools_log_debug "PostToolUse handing back ${written_file_path}"
+            ai_tools_log__debug "PostToolUse handing back ${written_file_path}"
             "${HANDBACK_CLIENT}" CHOWN "${written_file_path}" || true
         fi
 
@@ -219,7 +219,7 @@ main() {
     # was no call to record.
     hook_event_json="$(cat)" || return 0
     if [[ -z "${hook_event_json}" ]]; then
-        ai_tools_log_info "PostToolUse invoked with no event on stdin -- nothing to record or hand back"
+        ai_tools_log__info "PostToolUse invoked with no event on stdin -- nothing to record or hand back"
         return 0
     fi
 

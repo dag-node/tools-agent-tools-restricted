@@ -43,7 +43,7 @@ AI_TOOLS_SKIP_PACKAGE_DIRS=(node_modules .venv packages)   # restorable dependen
 AI_TOOLS_SKIP_ARTIFACT_DIRS=()
 # Project-root-relative paths walked even when their basename is in SKIP_ARTIFACT_DIRS (explicit exclusions
 # from the artifact-name skip), e.g. "src/usr/local/bin". Applied by every walk that passes its root
-# to ai_tools_skip_find_expr. Empty by default.
+# to ai_tools_skip_dirs__build_find_expression. Empty by default.
 AI_TOOLS_SKIP_ARTIFACT_DIRS_EXCLUDED_PATHS_RELATIVE=()
 AI_TOOLS_SKIP_CACHE_DIRS=(__pycache__)                     # regenerable caches
 
@@ -59,29 +59,29 @@ AI_TOOLS_SKIP_CACHE_DIRS=(__pycache__)                     # regenerable caches
 # a walk visits and does not grant access to any of them, it cannot widen a boundary.
 # shellcheck source=SCRIPTDIR/conf.lib.sh
 if source "${BASH_SOURCE[0]%/*}/conf.lib.sh" 2>/dev/null \
-        && declare -F ai_tools_conf_list >/dev/null 2>&1; then
-    _ai_tools_skip_load_overrides() {
+        && declare -F ai_tools_conf__read_list >/dev/null 2>&1; then
+    _ai_tools_skip_dirs__load_overrides() {
         local operator_conf="${AI_TOOLS_OPERATOR_CONF:-/etc/ai-tools/operator.conf}"
         [[ -r "${operator_conf}" ]] || return 0
-        ai_tools_conf_list AI_TOOLS_SKIP_VCS_DIRS      "${operator_conf}" SKIP_VCS_DIRS      || true
-        ai_tools_conf_list AI_TOOLS_SKIP_PACKAGE_DIRS  "${operator_conf}" SKIP_PACKAGE_DIRS  || true
-        ai_tools_conf_list AI_TOOLS_SKIP_ARTIFACT_DIRS "${operator_conf}" SKIP_ARTIFACT_DIRS || true
-        ai_tools_conf_list AI_TOOLS_SKIP_CACHE_DIRS    "${operator_conf}" SKIP_CACHE_DIRS    || true
-        ai_tools_conf_list AI_TOOLS_SKIP_ARTIFACT_DIRS_EXCLUDED_PATHS_RELATIVE \
+        ai_tools_conf__read_list AI_TOOLS_SKIP_VCS_DIRS      "${operator_conf}" SKIP_VCS_DIRS      || true
+        ai_tools_conf__read_list AI_TOOLS_SKIP_PACKAGE_DIRS  "${operator_conf}" SKIP_PACKAGE_DIRS  || true
+        ai_tools_conf__read_list AI_TOOLS_SKIP_ARTIFACT_DIRS "${operator_conf}" SKIP_ARTIFACT_DIRS || true
+        ai_tools_conf__read_list AI_TOOLS_SKIP_CACHE_DIRS    "${operator_conf}" SKIP_CACHE_DIRS    || true
+        ai_tools_conf__read_list AI_TOOLS_SKIP_ARTIFACT_DIRS_EXCLUDED_PATHS_RELATIVE \
             "${operator_conf}" SKIP_ARTIFACT_DIRS_EXCLUDED_PATHS_RELATIVE || true
     }
-    _ai_tools_skip_load_overrides
+    _ai_tools_skip_dirs__load_overrides
 fi
 
-# ai_tools_skip_find_expr <consumer> [skip_git] [root] Build the skip set for a consumer from the LIB-OWNED per-consumer
-# defaults, and expose it two ways: AI_TOOLS_SKIP_NAMES (the flat directory-name list) and AI_TOOLS_SKIP_FIND_EXPR (a
-# find fragment "( -type d ( -name a -o -name b ) ) -prune -o", empty when no directory is skipped). Splice the fragment
-# into a find between the start dir and the action predicates. The consumer only names itself -- the lib supplies
-# the categories AND whether .git is skipped. The optional second arg (true|false) overrides the .git default
-# for that one call; consumers do not normally pass it ('' keeps the default). The optional third arg is the WALK ROOT
-# (the directory the caller hands to find): with it, the artifact-name group honors
-# AI_TOOLS_SKIP_ARTIFACT_DIRS_EXCLUDED_PATHS_RELATIVE -- root-relative paths walked despite their skipped basename.
-# Entries must be relative and ..-free; anything else is ignored. Without a root the exclusions cannot anchor,
+# ai_tools_skip_dirs__build_find_expression <consumer> [skip_git] [root] Build the skip set for a consumer
+# from the LIB-OWNED per-consumer defaults, and expose it two ways: AI_TOOLS_SKIP_DIRS__NAMES (the flat directory-name
+# list) and AI_TOOLS_SKIP_DIRS__FIND_EXPRESSION (a find fragment "( -type d ( -name a -o -name b ) ) -prune -o", empty
+# when no directory is skipped). Splice the fragment into a find between the start dir and the action predicates.
+# The consumer only names itself -- the lib supplies the categories AND whether .git is skipped. The optional second arg
+# (true|false) overrides the .git default for that one call; consumers do not normally pass it ('' keeps the default).
+# The optional third arg is the WALK ROOT (the directory the caller hands to find): with it, the artifact-name group
+# honors AI_TOOLS_SKIP_ARTIFACT_DIRS_EXCLUDED_PATHS_RELATIVE -- root-relative paths walked despite their skipped
+# basename. Entries must be relative and ..-free; anything else is ignored. Without a root the exclusions cannot anchor,
 # so the plain name skip applies.
 #
 # Defaults per consumer, with why (the heavy/build base is PACKAGE + ARTIFACT + CACHE, omitted so the walk stays fast;
@@ -94,8 +94,8 @@ fi
 #   reclaim       heavy only.    On-demand reclaim WALKS .git (the one tree the per-session
 #                 sweeps leave behind).
 #   reclaim-full  none.          Reclaim the entire tree, heavy trees and .git included.
-ai_tools_skip_find_expr() {
-    local consumer="${1:?ai_tools_skip_find_expr: consumer required}" skip_git_arg="${2:-}"
+ai_tools_skip_dirs__build_find_expression() {
+    local consumer="${1:?ai_tools_skip_dirs__build_find_expression: consumer required}" skip_git_arg="${2:-}"
     local root="${3:-}"
     local base skip_git
     case "${consumer}" in
@@ -115,7 +115,7 @@ ai_tools_skip_find_expr() {
     [[ "${base}" == heavy ]] && artifact=( "${AI_TOOLS_SKIP_ARTIFACT_DIRS[@]}" )
     [[ "${skip_git}" == true ]] && names=( "${AI_TOOLS_SKIP_VCS_DIRS[@]}" "${names[@]}" )
     # shellcheck disable=SC2034  # public lib output, read by the test suite
-    AI_TOOLS_SKIP_NAMES=( "${names[@]}" "${artifact[@]}" )
+    AI_TOOLS_SKIP_DIRS__NAMES=( "${names[@]}" "${artifact[@]}" )
 
     # Root-anchored artifact exclusions: only well-formed relative entries anchor.
     local -a excl=()
@@ -128,30 +128,30 @@ ai_tools_skip_find_expr() {
     fi
 
     # _skip_group <out-name-suppressed> -- append one `( -type d ( -name .. ) [! ( -path .. )] ) -prune -o` group
-    # to AI_TOOLS_SKIP_FIND_EXPR from the given name list and optional `-path` exemptions.
-    _ai_tools_skip_group() {  # $1 = "names" | "artifact"
+    # to AI_TOOLS_SKIP_DIRS__FIND_EXPRESSION from the given name list and optional `-path` exemptions.
+    _ai_tools_skip_dirs__append_group() {  # $1 = "names" | "artifact"
         local -n _grp_names="$1"
         local -a _grp_excl=(); [[ "$1" == artifact ]] && _grp_excl=( "${excl[@]}" )
         (( ${#_grp_names[@]} )) || return 0
-        AI_TOOLS_SKIP_FIND_EXPR+=( '(' -type d '(' )
+        AI_TOOLS_SKIP_DIRS__FIND_EXPRESSION+=( '(' -type d '(' )
         local i
         for i in "${!_grp_names[@]}"; do
-            (( i > 0 )) && AI_TOOLS_SKIP_FIND_EXPR+=( -o )
-            AI_TOOLS_SKIP_FIND_EXPR+=( -name "${_grp_names[i]}" )
+            (( i > 0 )) && AI_TOOLS_SKIP_DIRS__FIND_EXPRESSION+=( -o )
+            AI_TOOLS_SKIP_DIRS__FIND_EXPRESSION+=( -name "${_grp_names[i]}" )
         done
-        AI_TOOLS_SKIP_FIND_EXPR+=( ')' )
+        AI_TOOLS_SKIP_DIRS__FIND_EXPRESSION+=( ')' )
         if (( ${#_grp_excl[@]} )); then
-            AI_TOOLS_SKIP_FIND_EXPR+=( '!' '(' )
+            AI_TOOLS_SKIP_DIRS__FIND_EXPRESSION+=( '!' '(' )
             for i in "${!_grp_excl[@]}"; do
-                (( i > 0 )) && AI_TOOLS_SKIP_FIND_EXPR+=( -o )
-                AI_TOOLS_SKIP_FIND_EXPR+=( -path "${_grp_excl[i]}" )
+                (( i > 0 )) && AI_TOOLS_SKIP_DIRS__FIND_EXPRESSION+=( -o )
+                AI_TOOLS_SKIP_DIRS__FIND_EXPRESSION+=( -path "${_grp_excl[i]}" )
             done
-            AI_TOOLS_SKIP_FIND_EXPR+=( ')' )
+            AI_TOOLS_SKIP_DIRS__FIND_EXPRESSION+=( ')' )
         fi
-        AI_TOOLS_SKIP_FIND_EXPR+=( ')' -prune -o )
+        AI_TOOLS_SKIP_DIRS__FIND_EXPRESSION+=( ')' -prune -o )
     }
 
-    AI_TOOLS_SKIP_FIND_EXPR=()
-    _ai_tools_skip_group names
-    _ai_tools_skip_group artifact
+    AI_TOOLS_SKIP_DIRS__FIND_EXPRESSION=()
+    _ai_tools_skip_dirs__append_group names
+    _ai_tools_skip_dirs__append_group artifact
 }

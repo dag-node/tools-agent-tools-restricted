@@ -21,9 +21,9 @@ A secret-named file the agent wrote is breached. `ai-tools-chown` classifies the
 (`.env`, `*.key`, `*.pem`, `id_*`, `kubeconfig`, `*.jks`, `.pgpass`, the name-anchored .NET config patterns, …)
 and chowns a match (when `SANDBOX_USER`-owned, per the agent-written-paths rule) to `<you>:<you> 600`, so `SANDBOX_USER`
 — neither owner nor group member — cannot read the contents. `<you>` is the operator that owns the path:
-`ai-tools-chown` resolves it per path via `operator.lib.sh` (`ai_tools_resolve_owner`) and loads that operator's pattern
-set, so a secret returns to its project's operator at `600`, where only that operator can read it. It writes a NOTICE
-to stderr (the hook relays it into the session) and, at `WARNING` level, to the operation log
+`ai-tools-chown` resolves it per path via `operator.lib.sh` (`ai_tools_operator__resolve_owner`) and loads
+that operator's pattern set, so a secret returns to its project's operator at `600`, where only that operator can read
+it. It writes a NOTICE to stderr (the hook relays it into the session) and, at `WARNING` level, to the operation log
 (`/var/log/ai-tools/chown.log` and journald; see [logging](logging.rule.md)).
 
 The revocation applies to an open made after it. The kernel checks owner and mode when a file is opened, so a descriptor
@@ -76,9 +76,9 @@ a deployment-specific name belongs in the operator's file, alongside the baselin
 one missing from the baseline goes upstream, since the library is rpm-owned and not `%config`, so an edit there is lost
 on upgrade.
 
-**The loader has three outcomes, and the file replaces the baseline.** `ai_tools_load_secret_patterns` builds the file's
-path from the resolved operator's home, so every consumer calls it after the owner resolve (its doc comment states
-what a load made earlier reads). An operator's file **replaces** the baseline rather than adding to it:
+**The loader has three outcomes, and the file replaces the baseline.** `ai_tools_secret_patterns__load` builds
+the file's path from the resolved operator's home, so every consumer calls it after the owner resolve (its doc comment
+states what a load made earlier reads). An operator's file **replaces** the baseline rather than adding to it:
 
 **The set in force, by the state of the operator's file**
 
@@ -86,7 +86,7 @@ what a load made earlier reads). An operator's file **replaces** the baseline ra
 |---|---|---|
 | absent, or holds only comments | the baseline | 0 |
 | a readable regular file with a pattern | its patterns alone | 0 |
-| present and not a readable regular file — a directory, a dangling symlink, a FIFO, a read `access(2)` refuses | the baseline, the path in `AI_TOOLS_SECRET_PATTERNS_UNREADABLE`, and `MSG-S4T9` printed | 1 |
+| present and not a readable regular file — a directory, a dangling symlink, a FIFO, a read `access(2)` refuses | the baseline, the path in `AI_TOOLS_SECRET_PATTERNS__UNREADABLE`, and `MSG-S4T9` printed | 1 |
 
 So a caller that ignores the status classifies on the baseline, which the loader substitutes for an empty list,
 and the absent file stays the ordinary state of a fresh enrolment. The third row is told apart from the first because
@@ -105,11 +105,11 @@ states.
 **Replacing rather than extending has a cost the launch wrapper reports.** A file written once holds this host
 to the set it listed then, and every pattern added upstream since is absent from it — a narrowing that goes unnoticed,
 since the agent cannot read the file and a quarantine that did not happen does not write a line to any log.
-`ai_tools_secret_patterns_drift` compares the set in force against the baseline as a set and prints one line naming
-the file, what it adds, and — the half that matters — which baseline patterns it drops, each one a credential name this
-host no longer quarantines; a present file the loader cannot read prints a line saying so, since the baseline is then
-in force for the operator's sessions while their helpers refuse. The launch wrapper logs that line to journald once
-per launch, for every agent ([launch](launch.rule.md)): the wrapper runs as the operator before the privilege drop,
+`ai_tools_secret_patterns__format_drift` compares the set in force against the baseline as a set and prints one line
+naming the file, what it adds, and — the half that matters — which baseline patterns it drops, each one a credential
+name this host no longer quarantines; a present file the loader cannot read prints a line saying so, since the baseline
+is then in force for the operator's sessions while their helpers refuse. The launch wrapper logs that line to journald
+once per launch, for every agent ([launch](launch.rule.md)): the wrapper runs as the operator before the privilege drop,
 so it is the one point per session where the file is both readable and attributable to a launch, and the line is
 a record to act on later, so it goes to the journal and not the terminal. A missing or empty file is the baseline
 itself, and the wrapper does not write a line for it.

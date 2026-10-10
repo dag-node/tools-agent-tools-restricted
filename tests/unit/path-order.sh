@@ -30,13 +30,13 @@ fi
 # shellcheck source=../../src/usr/local/lib/ai-tools/path-order.lib.sh
 source "${LIB}"
 
-WRAPPER="${AI_TOOLS_PATH_ORDER_WRAPPER_DIR}"
+WRAPPER="${AI_TOOLS_PATH_ORDER__WRAPPER_DIR}"
 
 # verdict <expected-token> <expected-status> <what> <wired> <winner>...
 verdict() {
     local want="$1" want_rc="$2" what="$3"; shift 3
     local got rc=0
-    got="$(ai_tools_path_order_verdict "$@")" || rc=$?
+    got="$(ai_tools_path_order__evaluate "$@")" || rc=$?
     if [[ "${got}" == "${want}" && "${rc}" -eq "${want_rc}" ]]; then
         pass "${what}"
     else
@@ -81,15 +81,15 @@ verdict unknown 2 "with no shadow, one unreadable reading carries the verdict" \
 # must not be probed at all.
 accepted=""
 for bad in 'cl;id' 'cl$(id)' 'cl aude' 'cl`id`' 'cl|id' '../claude' '' 'cl&id' 'cl>x'; do
-    ai_tools_path_order_launcher_valid "${bad}" && { accepted="${bad}"; break; }
+    ai_tools_path_order__is_launcher_valid "${bad}" && { accepted="${bad}"; break; }
 done
 if [[ -z "${accepted}" ]]; then
     pass "a launcher name carrying shell syntax is refused before it reaches a command"
 else
     fail "accepted a launcher name carrying shell syntax: ${accepted}"
 fi
-if ai_tools_path_order_launcher_valid claude && ai_tools_path_order_launcher_valid node-22 \
-        && ai_tools_path_order_launcher_valid gemini.cli; then
+if ai_tools_path_order__is_launcher_valid claude && ai_tools_path_order__is_launcher_valid node-22 \
+        && ai_tools_path_order__is_launcher_valid gemini.cli; then
     pass "an ordinary launcher name is accepted"
 else
     fail "refused a launcher name in the shape a launcher has"
@@ -97,11 +97,11 @@ fi
 
 # The probe's answer is rendered to a terminal and compared against the wrapper path, so a relative path, an empty
 # answer, and one carrying whitespace or an escape sequence are each refused.
-if ai_tools_path_order_readable "${WRAPPER}/claude" \
-        && ! ai_tools_path_order_readable "bin/claude" \
-        && ! ai_tools_path_order_readable "" \
-        && ! ai_tools_path_order_readable "/usr/local/bin/cl aude" \
-        && ! ai_tools_path_order_readable "$(printf '/usr/local/bin/\033[2Kclaude')"; then
+if ai_tools_path_order__is_readable "${WRAPPER}/claude" \
+        && ! ai_tools_path_order__is_readable "bin/claude" \
+        && ! ai_tools_path_order__is_readable "" \
+        && ! ai_tools_path_order__is_readable "/usr/local/bin/cl aude" \
+        && ! ai_tools_path_order__is_readable "$(printf '/usr/local/bin/\033[2Kclaude')"; then
     pass "only an absolute path with no whitespace or control byte is read as an answer"
 else
     fail "accepted a probe answer that is not a path this report can compare or print"
@@ -110,16 +110,16 @@ fi
 # ── (C) The wiring flag, over real files ─────────────────────────────────────────────────────
 mktestdir
 printf '# nothing here\n' > "${TESTDIR}/bashrc.plain"
-printf 'export NVM_DIR="$HOME/.nvm"\n%s\n' "${AI_TOOLS_PATH_ORDER_GUARD}" > "${TESTDIR}/bashrc.wired"
+printf 'export NVM_DIR="$HOME/.nvm"\n%s\n' "${AI_TOOLS_PATH_ORDER__GUARD}" > "${TESTDIR}/bashrc.wired"
 # An operator who wrote the line themselves, in their own spelling: matched on the fragment path, so their file counts
 # as wired and the enrolment does not append a second copy.
-printf 'source %s\n' "${AI_TOOLS_PATH_ORDER_FRAGMENT}" > "${TESTDIR}/bashrc.byhand"
+printf 'source %s\n' "${AI_TOOLS_PATH_ORDER__FRAGMENT}" > "${TESTDIR}/bashrc.byhand"
 
-if [[ "$(ai_tools_path_order_guard_present "${TESTDIR}/bashrc.plain")" == no \
-   && "$(ai_tools_path_order_guard_present "${TESTDIR}/bashrc.wired")" == yes \
-   && "$(ai_tools_path_order_guard_present "${TESTDIR}/bashrc.byhand")" == yes \
-   && "$(ai_tools_path_order_guard_present "${TESTDIR}/absent" "${TESTDIR}/bashrc.wired")" == yes \
-   && "$(ai_tools_path_order_guard_present "${TESTDIR}/absent")" == no ]]; then
+if [[ "$(ai_tools_path_order__read_guard_state "${TESTDIR}/bashrc.plain")" == no \
+   && "$(ai_tools_path_order__read_guard_state "${TESTDIR}/bashrc.wired")" == yes \
+   && "$(ai_tools_path_order__read_guard_state "${TESTDIR}/bashrc.byhand")" == yes \
+   && "$(ai_tools_path_order__read_guard_state "${TESTDIR}/absent" "${TESTDIR}/bashrc.wired")" == yes \
+   && "$(ai_tools_path_order__read_guard_state "${TESTDIR}/absent")" == no ]]; then
     pass "the fragment is found however the line is spelled, and a missing file is not an error"
 else
     fail "the wiring flag misread one of its files"
@@ -130,21 +130,21 @@ fi
 # applying with no message on screen -- the silent state the rest of this library exists to catch. The bound on the edit
 # is asserted with it: one path token inside a line this project wrote, and the rest of the file byte-identical.
 printf 'export NVM_DIR="$HOME/.nvm"\n%s\n# a line of the operator own\n' \
-    "[[ -f ${AI_TOOLS_PATH_ORDER_FRAGMENT_FORMER} ]] && source ${AI_TOOLS_PATH_ORDER_FRAGMENT_FORMER} || true" \
+    "[[ -f ${AI_TOOLS_PATH_ORDER__FRAGMENT_FORMER} ]] && source ${AI_TOOLS_PATH_ORDER__FRAGMENT_FORMER} || true" \
     > "${TESTDIR}/.bashrc.former"
 chmod 600 "${TESTDIR}/.bashrc.former"
 printf '# an account that never had the line\n' > "${TESTDIR}/.bashrc.none"
 cp -p "${TESTDIR}/.bashrc.none" "${TESTDIR}/none.before"
 
-repointed="$(ai_tools_path_order_repoint "${TESTDIR}/.bashrc.former" "${TESTDIR}/.bashrc.none" \
+repointed="$(ai_tools_path_order__repoint "${TESTDIR}/.bashrc.former" "${TESTDIR}/.bashrc.none" \
     "${TESTDIR}/absent")"
 if [[ "${repointed}" == "${TESTDIR}/.bashrc.former" ]]; then
     pass "only the file naming the former fragment is rewritten, and a missing file is no error"
 else
     fail "the repoint reported the wrong set of files (${repointed})"
 fi
-if [[ "$(ai_tools_path_order_guard_present "${TESTDIR}/.bashrc.former")" == yes ]] \
-        && ! grep -qF "${AI_TOOLS_PATH_ORDER_FRAGMENT_FORMER}" "${TESTDIR}/.bashrc.former" \
+if [[ "$(ai_tools_path_order__read_guard_state "${TESTDIR}/.bashrc.former")" == yes ]] \
+        && ! grep -qF "${AI_TOOLS_PATH_ORDER__FRAGMENT_FORMER}" "${TESTDIR}/.bashrc.former" \
         && grep -qF 'export NVM_DIR' "${TESTDIR}/.bashrc.former" \
         && grep -qF '# a line of the operator own' "${TESTDIR}/.bashrc.former"; then
     pass "the guard line now names the current fragment and the rest of the file is untouched"
@@ -173,7 +173,7 @@ if [[ ${#sidecars[@]} -eq 0 ]]; then
 else
     fail "the repoint wrote ${#sidecars[@]} sidecar(s): ${sidecars[*]}"
 fi
-if [[ -z "$(ai_tools_path_order_repoint "${TESTDIR}/.bashrc.former")" ]]; then
+if [[ -z "$(ai_tools_path_order__repoint "${TESTDIR}/.bashrc.former")" ]]; then
     pass "a second pass rewrites nothing -- the repoint is idempotent"
 else
     fail "the repoint rewrote a file that already names the current fragment"
@@ -183,7 +183,7 @@ fi
 # resolves the launcher on its own PATH, which is the operator's. Only the answers that do not depend on this host's
 # PATH are asserted: a name outside the charset, and a launcher whose wrapper is not installed -- both of which must
 # resolve to no probe at all.
-if [[ "$(ai_tools_path_order_winner_here 'cl;id')" == '?' ]]; then
+if [[ "$(ai_tools_path_order__read_winner_here 'cl;id')" == '?' ]]; then
     pass "a launcher name that cannot be probed reads as unreadable, not as resolved"
 else
     fail "probed a launcher name that must never reach a command"
@@ -191,7 +191,7 @@ fi
 missing="ai-tools-no-such-launcher"
 if [[ -e "${WRAPPER}/${missing}" ]]; then
     skip "no-wrapper reading" "${WRAPPER}/${missing} exists on this host"
-elif [[ -z "$(ai_tools_path_order_winner_here "${missing}")" ]]; then
+elif [[ -z "$(ai_tools_path_order__read_winner_here "${missing}")" ]]; then
     pass "a launcher with no wrapper installed reads as nothing to order"
 else
     fail "reported an ordering for a launcher this host ships no wrapper for"
@@ -222,7 +222,7 @@ fi
 # as_wrapper_reads <expected: wrapper|own> <what> <winner>
 as_wrapper_reads() {
     local want="$1" what="$2" winner="$3" got expected
-    got="$(ai_tools_path_order_as_wrapper "${winner}" "${id_wrapper}")"
+    got="$(ai_tools_path_order__resolve_wrapper "${winner}" "${id_wrapper}")"
     if [[ "${want}" == wrapper ]]; then expected="${id_wrapper}"; else expected="${winner}"; fi
     if [[ "${got}" == "${expected}" ]]; then pass "${what}"; else fail "${what} (got ${got})"; fi
 }
@@ -251,7 +251,7 @@ if [[ ! -x "${WRAPPER}/${probe_name}" ]]; then
     skip "merged-alias probe" "${WRAPPER}/${probe_name} is not installed on this host"
 else
     raw="$(PATH="${TESTDIR}/id/alias:/usr/bin:/bin" command -v -- "${probe_name}")"
-    got="$(PATH="${TESTDIR}/id/alias:/usr/bin:/bin" ai_tools_path_order_winner_here "${probe_name}")"
+    got="$(PATH="${TESTDIR}/id/alias:/usr/bin:/bin" ai_tools_path_order__read_winner_here "${probe_name}")"
     if [[ "${raw}" != "${TESTDIR}/id/alias/${probe_name}" ]]; then
         fail "merged-alias setup: command -v answered ${raw}, not the alias spelling"
     elif [[ "${got}" == "${WRAPPER}/${probe_name}" ]]; then
@@ -265,18 +265,18 @@ fi
 # The read publishes four names in its caller's shell rather than printing them, so the assertion is made from a real
 # caller under `set -u`: a name it fails to publish aborts this file the same way it would abort an enrolment. The two
 # dependencies are stubbed, so no account is probed.
-ai_tools_path_order_launchers() { printf 'claude\ncodex\n'; }
-ai_tools_path_order_winner_here() {
+ai_tools_path_order__list_launchers() { printf 'claude\ncodex\n'; }
+ai_tools_path_order__read_winner_here() {
     case "$1" in
         claude) printf '%s\n' "/home/op/.nvm/versions/node/v22.0.0/bin/claude" ;;
         *)      printf '%s/%s\n' "${WRAPPER}" "$1" ;;
     esac
 }
-HOME="${TESTDIR}" ai_tools_path_order_read_here || true
-if [[ "${AI_TOOLS_PATH_ORDER_STATE}" == shadowed \
-   && "${AI_TOOLS_PATH_ORDER_SHADOW}" == "/home/op/.nvm/versions/node/v22.0.0/bin/claude" \
-   && "${AI_TOOLS_PATH_ORDER_WIRED}" == no \
-   && "${#AI_TOOLS_PATH_ORDER_WINNERS[@]}" -eq 2 ]]; then
+HOME="${TESTDIR}" ai_tools_path_order__read_here || true
+if [[ "${AI_TOOLS_PATH_ORDER__STATE}" == shadowed \
+   && "${AI_TOOLS_PATH_ORDER__SHADOW}" == "/home/op/.nvm/versions/node/v22.0.0/bin/claude" \
+   && "${AI_TOOLS_PATH_ORDER__WIRED}" == no \
+   && "${#AI_TOOLS_PATH_ORDER__WINNERS[@]}" -eq 2 ]]; then
     pass "the read publishes the verdict, the shadowing binary, the wiring flag and every winner"
 else
     fail "the read did not publish what its callers report from"
@@ -284,13 +284,13 @@ fi
 
 # The shadowing binary is what a message names, so the pair it came from decides which launcher the message is about --
 # not whichever launcher happened to be read first.
-ai_tools_path_order_read_user() {
-    AI_TOOLS_PATH_ORDER_STATE=shadowed
-    AI_TOOLS_PATH_ORDER_SHADOW="/home/$1/.nvm/versions/node/v22.0.0/bin/codex"
-    AI_TOOLS_PATH_ORDER_WINNERS=( "claude=${WRAPPER}/claude" "codex=${AI_TOOLS_PATH_ORDER_SHADOW}" )
+ai_tools_path_order__read_user() {
+    AI_TOOLS_PATH_ORDER__STATE=shadowed
+    AI_TOOLS_PATH_ORDER__SHADOW="/home/$1/.nvm/versions/node/v22.0.0/bin/codex"
+    AI_TOOLS_PATH_ORDER__WINNERS=( "claude=${WRAPPER}/claude" "codex=${AI_TOOLS_PATH_ORDER__SHADOW}" )
     return 1
 }
-out="$(ai_tools_path_order_shadowed_operators op)"
+out="$(ai_tools_path_order__find_shadowed_operators op)"
 if [[ "${out}" == "op"$'\t'"codex"$'\t'"/home/op/.nvm/versions/node/v22.0.0/bin/codex" ]]; then
     pass "a shadowed account is reported as user, launcher and the binary that wins"
 else
@@ -300,21 +300,21 @@ fi
 # Every other state is silence: a report that named an account it could not read would nag a host whose ordering is
 # fine.
 for state in wired clear unknown; do
-    eval "ai_tools_path_order_read_user() {
-        AI_TOOLS_PATH_ORDER_STATE=${state}
-        AI_TOOLS_PATH_ORDER_SHADOW=''
-        AI_TOOLS_PATH_ORDER_WINNERS=( \"claude=\${AI_TOOLS_PATH_ORDER_WRAPPER_DIR}/claude\" )
+    eval "ai_tools_path_order__read_user() {
+        AI_TOOLS_PATH_ORDER__STATE=${state}
+        AI_TOOLS_PATH_ORDER__SHADOW=''
+        AI_TOOLS_PATH_ORDER__WINNERS=( \"claude=\${AI_TOOLS_PATH_ORDER__WRAPPER_DIR}/claude\" )
         return 0
     }"
-    if [[ -n "$(ai_tools_path_order_shadowed_operators op)" ]]; then
+    if [[ -n "$(ai_tools_path_order__find_shadowed_operators op)" ]]; then
         fail "named an operator whose ordering read as ${state}"
         break
     fi
 done
-if [[ -z "$(ai_tools_path_order_shadowed_operators op)" ]]; then
+if [[ -z "$(ai_tools_path_order__find_shadowed_operators op)" ]]; then
     pass "an account that is not shadowed is not named, whatever its state"
 fi
-if [[ -z "$(ai_tools_path_order_shadowed_operators)" ]]; then
+if [[ -z "$(ai_tools_path_order__find_shadowed_operators)" ]]; then
     pass "a host with no operators reports nothing"
 fi
 

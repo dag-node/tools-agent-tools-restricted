@@ -100,13 +100,13 @@ AI_TOOLS_LOG_TAG="ai-tools-hook"
 readonly LOG_LIB="/usr/local/lib/ai-tools/log.lib.sh"
 # shellcheck source=SCRIPTDIR/../../../../usr/local/lib/ai-tools/log.lib.sh
 if ! source "${LOG_LIB}" 2>/dev/null; then
-    ai_tools_log() { :; }; ai_tools_log_debug() { :; }; ai_tools_log_info() { :; }
-    ai_tools_log_warn() { :; }; ai_tools_log_error() { :; }
+    ai_tools_log__write() { :; }; ai_tools_log__debug() { :; }; ai_tools_log__info() { :; }
+    ai_tools_log__warn() { :; }; ai_tools_log__error() { :; }
     # The sanitizer is not one of the emitters, so its fallback is not a no-op: this hook puts a path into a NOTICE
     # the model reads, and that path comes from an agent-written marker. The allowlist is the library's
-    # (ai_tools_log_sanitize) -- printable ASCII, every other byte replaced -- kept working rather than degraded,
+    # (ai_tools_log__sanitize) -- printable ASCII, every other byte replaced -- kept working rather than degraded,
     # because a hook that only emits must not fail closed and must not emit a raw escape sequence either.
-    ai_tools_log_sanitize() { local LC_ALL=C; printf '%s' "${1//[^[:print:]]/?}"; }
+    ai_tools_log__sanitize() { local LC_ALL=C; printf '%s' "${1//[^[:print:]]/?}"; }
 fi
 
 # Shared message formatter -- frames the SessionStart NOTICE in the paste-safe '#' box, wrapped within 80 columns.
@@ -117,8 +117,8 @@ fi
 readonly MSG_LIB="/usr/local/lib/ai-tools/msg.lib.sh"
 # shellcheck source=SCRIPTDIR/../../../../usr/local/lib/ai-tools/msg.lib.sh
 if ! source "${MSG_LIB}" 2>/dev/null; then
-    ai_tools_msg() { shift 2; printf '%s\n' "$@"; }
-    ai_tools_msg_wrap() { shift; printf '%s\n' "$*"; }
+    ai_tools_msg__alert() { shift 2; printf '%s\n' "$@"; }
+    ai_tools_msg__wrap() { shift; printf '%s\n' "$*"; }
 fi
 
 # Operator identity (PROJECTS_USER) from /etc/ai-tools/operator.conf via the shared resolver, used only to render
@@ -128,7 +128,7 @@ fi
 readonly OPERATOR_LIB="/usr/local/lib/ai-tools/operator.lib.sh"
 # shellcheck source=SCRIPTDIR/../../../../usr/local/lib/ai-tools/operator.lib.sh
 if source "${OPERATOR_LIB}" 2>/dev/null; then
-    ai_tools_load_operator || true
+    ai_tools_operator__load_operator || true
 else
     PROJECTS_USER=''
 fi
@@ -161,14 +161,14 @@ reclaim_git_tree() {
 # session-start; the user:<operator> ACL keeps .git accessible meanwhile. A killed session exits before this handler
 # runs, and the next session-start's pass catches what it left.
 if [[ "${MODE}" == "session-end" ]]; then
-    ai_tools_log_debug "session-end: clearing clean-exit marker"
+    ai_tools_log__debug "session-end: clearing clean-exit marker"
     rm -f "${ACTIVE_MARKER}" 2>/dev/null || true
     end_payload="$(cat 2>/dev/null)" || exit 0
     end_cwd="$(jq -r '.cwd // empty' <<<"${end_payload}" 2>/dev/null)" || true
     if [[ -n "${end_cwd}" && -d "${end_cwd}" ]]; then
         end_found="$(reclaim_git_tree "${end_cwd}")"
         if [[ "${end_found}" -gt 0 ]]; then
-            ai_tools_log_info "session-end: reclaimed ${end_found} agent-owned .git path(s) under ${end_cwd}"
+            ai_tools_log__info "session-end: reclaimed ${end_found} agent-owned .git path(s) under ${end_cwd}"
         fi
     fi
     exit 0
@@ -179,7 +179,7 @@ fi
 readonly SKIP_DIRS_LIB="/usr/local/lib/ai-tools/skip-dirs.lib.sh"
 # shellcheck source=SCRIPTDIR/../../../../usr/local/lib/ai-tools/skip-dirs.lib.sh
 source "${SKIP_DIRS_LIB}" 2>/dev/null \
-    || ai_tools_skip_find_expr() { AI_TOOLS_SKIP_FIND_EXPR=(); return 0; }
+    || ai_tools_skip_dirs__build_find_expression() { AI_TOOLS_SKIP_DIRS__FIND_EXPRESSION=(); return 0; }
 
 # read_prior_cwd <marker> -- PRINT the project a prior session recorded, or an empty string. The marker sits
 # in the group-writable config directory, so its first line is AGENT-WRITTEN, and it decides which tree
@@ -193,7 +193,7 @@ read_prior_cwd() {
     recorded="$(head -n1 "${marker}" 2>/dev/null || true)"
     [[ -n "${recorded}" ]] || return 0
     if [[ "${recorded}" != /* || ! -d "${recorded}" ]]; then
-        ai_tools_log_warn "session-start: the clean-exit marker does not name a directory -- no cross-project reclaim (${recorded})"
+        ai_tools_log__warn "session-start: the clean-exit marker does not name a directory -- no cross-project reclaim (${recorded})"
         return 0
     fi
     printf '%s' "${recorded}"
@@ -209,7 +209,7 @@ dir="$(jq -r '.cwd // empty' <<<"${payload}" 2>/dev/null)" || exit 0
 # The same path as it is PRINTED -- into the NOTICE the model reads, and into the command that notice carries. It
 # arrives in the hook payload, so it is reduced to the characters the log sanitizer keeps before it is displayed; every
 # use that acts on the tree keeps the real path.
-display_dir="$(ai_tools_log_sanitize "${dir}")"
+display_dir="$(ai_tools_log__sanitize "${dir}")"
 
 # Decide whether this pass ignores the marker. Only session-start mode sets it, and only for a freshly started process,
 # so a Stop pass stays bounded by the marker.
@@ -240,7 +240,7 @@ fi
 # helper re-validates dir against the allowlist and is idempotent. Gated on the unbounded pass, so a Stop turn does not
 # repeat it.
 if [[ "${unbounded}" -eq 1 ]]; then
-    ai_tools_log_debug "session-start: normalizing setgid on ${dir}"
+    ai_tools_log__debug "session-start: normalizing setgid on ${dir}"
     /usr/local/bin/ai-tools-handback-client SETGID "${dir}" || true
 fi
 
@@ -250,8 +250,8 @@ fi
 newref="$(mktemp "${HOOK_DIR}/.sweep.XXXXXX" 2>/dev/null)" || exit 0
 
 # `find DIR -xdev \( skip heavy trees \) -prune -o \( ai-tools-owned [newer] file|dir \) -print0`
-ai_tools_skip_find_expr sweep '' "${dir}"
-declare -a expr=( "${dir}" -xdev "${AI_TOOLS_SKIP_FIND_EXPR[@]}" '(' -user @SANDBOX_USER@ )
+ai_tools_skip_dirs__build_find_expression sweep '' "${dir}"
+declare -a expr=( "${dir}" -xdev "${AI_TOOLS_SKIP_DIRS__FIND_EXPRESSION[@]}" '(' -user @SANDBOX_USER@ )
 # Bound to paths changed since the marker, EXCEPT an unbounded (session-start) pass, which sweeps every ai-tools-owned
 # path. A first-ever stop run (no marker) is likewise a full sweep.
 if [[ "${unbounded}" -eq 0 && -f "${MARKER}" ]]; then
@@ -262,12 +262,12 @@ expr+=( '(' -type f -o -type d ')' -print0 ')' )
 # Delegate each path to the root validator. </dev/null keeps ai-tools-chown on its non-interactive branch. The find
 # reads via process substitution (not a pipe) so the count survives the loop; a find non-zero (e.g. an unreadable
 # subdir) only ends the stream and cannot trip `set -e` / pipefail or skip the marker update.
-ai_tools_log_debug "${MODE} sweep: handing back agent-owned paths under ${dir}$([[ "${unbounded}" -eq 1 ]] && echo ' (unbounded)' || echo ' (since marker)')"
+ai_tools_log__debug "${MODE} sweep: handing back agent-owned paths under ${dir}$([[ "${unbounded}" -eq 1 ]] && echo ' (unbounded)' || echo ' (since marker)')"
 swept=0
 if [[ ! -S "${HANDBACK_SOCKET}" ]]; then
     # Socket down: every CHOWN would fail, so skip the walk and record it once. Counting the failed calls would also
     # mis-fire the large-batch skip-list hint.
-    ai_tools_log_warn "${MODE} sweep skipped: handback socket ${HANDBACK_SOCKET} is down -- paths under ${dir} stay @SANDBOX_USER@-owned (reclaim with: ai-tools projects handback ${dir})"
+    ai_tools_log__warn "${MODE} sweep skipped: handback socket ${HANDBACK_SOCKET} is down -- paths under ${dir} stay @SANDBOX_USER@-owned (reclaim with: ai-tools projects handback ${dir})"
 else
     # Count CONFIRMED handbacks (client exit 0), not attempts.
     while IFS= read -r -d '' path; do
@@ -281,7 +281,7 @@ fi
 # is handed back over and over. Journald-only (routine, no action for the operator in-session); the operator tunes
 # the skip categories.
 if [[ "${swept}" -ge 200 ]]; then
-    ai_tools_log_info "${MODE} sweep: handed back ${swept} paths -- a recurring build tree can be skipped via SKIP_ARTIFACT_DIRS in /etc/ai-tools/operator.conf (reference: /usr/local/lib/ai-tools/skip-dirs.lib.sh)"
+    ai_tools_log__info "${MODE} sweep: handed back ${swept} paths -- a recurring build tree can be skipped via SKIP_ARTIFACT_DIRS in /etc/ai-tools/operator.conf (reference: /usr/local/lib/ai-tools/skip-dirs.lib.sh)"
 fi
 
 # Advance the marker to this scan's start time (rename within the same dir keeps the mtime). Best-effort: a failed
@@ -322,7 +322,7 @@ if [[ "${unbounded}" -eq 1 ]]; then
     # journald-only.
     total_found=$((git_found + prev_found))
     if [[ "${total_found}" -gt 0 ]]; then
-        ai_tools_log_info "reclaimed ${total_found} agent-owned .git path(s) under ${dir}$([[ "${prev_found}" -gt 0 ]] && echo " and ${prev_cwd}")$([[ "${interrupted}" -eq 1 ]] && echo ' (prior session interrupted)')"
+        ai_tools_log__info "reclaimed ${total_found} agent-owned .git path(s) under ${dir}$([[ "${prev_found}" -gt 0 ]] && echo " and ${prev_cwd}")$([[ "${interrupted}" -eq 1 ]] && echo ' (prior session interrupted)')"
         if [[ "${interrupted}" -eq 1 ]]; then
             # What reaches the model is sanitized and does not NAME the prior project. The path is the sandbox account's
             # to write, and the prior session may be another operator's, so relaying it would disclose a project this
@@ -334,7 +334,7 @@ if [[ "${unbounded}" -eq 1 ]]; then
             # Frame the explanation in the '#' box (wrapped within 80 cols); keep the reconcile command on its own line
             # UNDER the box so it stays copy-pasteable. The wrap never splits a single token (paths survive intact),
             # but a multi-word command would break across lines, so it is left outside the box.
-            prose="$(AI_TOOLS_MSG_BOX=1 ai_tools_msg NOTICE 1 \
+            prose="$(AI_TOOLS_MSG_BOX=1 ai_tools_msg__alert NOTICE 1 \
                 "The previous session ended without cleanup (interrupted). Reclaimed ${total_found} agent-owned path(s) under ${scope} to repair the mixed ownership that makes git report \"dubious ownership\".")"
             # The command names THIS session's project for the same reason the prose does: it is the one the user asking
             # is working in, and a command naming a path from the marker would be a command typed against a tree nobody
@@ -354,8 +354,8 @@ if [[ "${unbounded}" -eq 1 ]]; then
         stranded=$(( stranded + $(count_git_agent_owned "${prev_cwd}") ))
     fi
     if [[ "${stranded}" -gt 0 ]]; then
-        ai_tools_log_warn "handback socket ${HANDBACK_SOCKET} is down -- ${stranded} agent-owned .git path(s) under ${dir} not reclaimed; run: ai-tools projects handback ${dir}"
-        prose="$(AI_TOOLS_MSG_BOX=1 ai_tools_msg NOTICE 1 \
+        ai_tools_log__warn "handback socket ${HANDBACK_SOCKET} is down -- ${stranded} agent-owned .git path(s) under ${dir} not reclaimed; run: ai-tools projects handback ${dir}"
+        prose="$(AI_TOOLS_MSG_BOX=1 ai_tools_msg__alert NOTICE 1 \
             "The ownership handback socket is down, so ${stranded} file(s) the agent wrote to git stay ai-tools-owned and git may report \"dubious ownership\". Bring the socket up, then reclaim the tree:")"
         reconcile="  sudo systemctl enable --now ai-tools-handback.socket"$'\n'"  ai-tools projects handback \"${display_dir}\""
         jq -cn --arg ctx "${prose}"$'\n'"${reconcile}" \

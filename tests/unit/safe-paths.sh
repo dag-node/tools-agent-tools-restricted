@@ -7,9 +7,9 @@
 # the exact-or-ancestor rule -- a system directory (and "/") is protected, a user home root is protected exactly, while
 # a real project nested under an operator home or the sandbox-clone area passes. Also checks the assert emits a refusal
 # and returns non-zero on a protected target and is silent + zero on a safe one, and pins the second, narrower predicate
-# beside it -- ai_tools_traverse_grant_allowed, which allows the acting operator's own home root for a traverse-only ACL
-# and no other path. Run as root via sudo (the suite contract); the only case needing privilege (a foreign-owned
-# fixture) skips without it, so the file also runs directly as an operator.
+# beside it -- ai_tools_safe_paths__is_traverse_grant_allowed, which allows the acting operator's own home root
+# for a traverse-only ACL and no other path. Run as root via sudo (the suite contract); the only case needing privilege
+# (a foreign-owned fixture) skips without it, so the file also runs directly as an operator.
 
 set -euo pipefail
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")/../lib" && pwd)/harness.sh"
@@ -30,7 +30,7 @@ fi
 protected_ok=true
 for p in / /etc /var /var/tmp /usr /usr/bin /usr/local /home /root /boot /opt /opt/ai-tools \
          /srv /dev /proc /sys /run /tmp /mnt /media /etc/ /usr/bin/; do
-    if ! ai_tools_protected_path_match "${p}" >/dev/null; then
+    if ! ai_tools_safe_paths__match_protected_path "${p}" >/dev/null; then
         fail "should be protected: ${p}"; protected_ok=false
     fi
 done
@@ -41,7 +41,7 @@ ${protected_ok} && pass "system directories and / are protected"
 safe_ok=true
 for p in /home/alice/project /home/bob/code/app /var/opt/ai-tools/sandbox-projects/myrepo \
          /opt/myapp/work /usr/local/share-not-a-real-project/x /srv/www/site; do
-    if ai_tools_protected_path_match "${p}" >/dev/null; then
+    if ai_tools_safe_paths__match_protected_path "${p}" >/dev/null; then
         fail "descendant should be allowed: ${p}"; safe_ok=false
     fi
 done
@@ -52,7 +52,7 @@ ${safe_ok} && pass "project trees nested under a protected parent are allowed"
 #      (asserted in case (2)). A trailing slash normalises to the same verdict.
 home_ok=true
 for p in /home/alice /home/bob /home/svc-ci/; do
-    if ! ai_tools_protected_path_match "${p}" >/dev/null; then
+    if ! ai_tools_safe_paths__match_protected_path "${p}" >/dev/null; then
         fail "user home root should be protected: ${p}"; home_ok=false
     fi
 done
@@ -60,25 +60,25 @@ ${home_ok} && pass "user home roots are protected"
 
 # (3) An ancestor that CONTAINS a protected entry is itself protected (e.g. /opt contains
 #     /opt/ai-tools). The match prints the offending entry.
-if ai_tools_protected_path_match /opt >/dev/null; then
+if ai_tools_safe_paths__match_protected_path /opt >/dev/null; then
     pass "an ancestor containing a protected entry is protected"
 else
     fail "/opt (ancestor of /opt/ai-tools) should be protected"
 fi
 
-# (4) ai_tools_assert_safe_target refuses a protected target: non-zero exit + a refusal
+# (4) ai_tools_safe_paths__assert_safe_target refuses a protected target: non-zero exit + a refusal
 #     naming the path (rendered plain here since the captured fd is not a tty).
 rc=0
-err="$(ai_tools_assert_safe_target /etc "claim" 2>&1)" || rc=$?
+err="$(ai_tools_safe_paths__assert_safe_target /etc "claim" 2>&1)" || rc=$?
 if (( rc != 0 )) && [[ "${err}" == *"/etc"* ]]; then
     pass "assert refuses a protected target (non-zero exit, refusal emitted)"
 else
     fail "assert should refuse /etc (rc=${rc}, msg='${err}')"
 fi
 
-# (5) ai_tools_assert_safe_target passes a safe target silently with a zero exit.
+# (5) ai_tools_safe_paths__assert_safe_target passes a safe target silently with a zero exit.
 rc=0
-err="$(ai_tools_assert_safe_target /home/tester/myproject "claim" 2>&1)" || rc=$?
+err="$(ai_tools_safe_paths__assert_safe_target /home/tester/myproject "claim" 2>&1)" || rc=$?
 if (( rc == 0 )) && [[ -z "${err}" ]]; then
     pass "assert passes a safe target silently (zero exit, no output)"
 else
@@ -86,7 +86,7 @@ else
 fi
 
 # ── The traverse-grant predicate ─────────────────────────────────────────────
-# ai_tools_traverse_grant_allowed vets a strictly weaker operation than the target backstop backstop: one
+# ai_tools_safe_paths__is_traverse_grant_allowed vets a strictly weaker operation than the target backstop backstop: one
 # `u:ai-tools:--x` entry on ONE directory, which grants search permission and not read. It therefore allows the acting
 # operator's OWN home root, which the backstop refuses as a target -- so these assertions are about the difference
 # between the two, and case (2b) still stands unchanged. What keeps the carve-out from becoming a hole is the owner
@@ -101,7 +101,7 @@ owned="${TESTDIR}/owned"; mkdir -p "${owned}"
 if [[ "$(id -u)" -eq 0 ]]; then chown "${PROJECTS_USER}:${PROJECTS_GROUP}" "${owned}"; fi
 
 # (6) An ordinary directory the owner holds is grantable -- the case that has always worked.
-if ai_tools_traverse_grant_allowed "${owned}" "${PROJECTS_USER}"; then
+if ai_tools_safe_paths__is_traverse_grant_allowed "${owned}" "${PROJECTS_USER}"; then
     pass "an ordinary directory the operator owns is grantable"
 else
     fail "an operator-owned directory was refused: ${owned}"
@@ -110,7 +110,7 @@ fi
 # (7) The owner guard: a directory the operator does not hold is refused.
 if [[ "$(id -u)" -eq 0 ]]; then
     foreignowned="${TESTDIR}/root-owned"; mkdir -p "${foreignowned}"   # stays root-owned
-    if ai_tools_traverse_grant_allowed "${foreignowned}" "${PROJECTS_USER}"; then
+    if ai_tools_safe_paths__is_traverse_grant_allowed "${foreignowned}" "${PROJECTS_USER}"; then
         fail "a directory owned by root was reported grantable: ${foreignowned}"
     else
         pass "a directory the operator does not own is refused"
@@ -123,7 +123,7 @@ fi
 #     entry and is nobody's home, so no exemption can reach it.
 sys_ok=true
 for p in / /etc /home /usr /var /opt /opt/ai-tools; do
-    if ai_tools_traverse_grant_allowed "${p}" root; then
+    if ai_tools_safe_paths__is_traverse_grant_allowed "${p}" root; then
         fail "system directory reported grantable: ${p}"; sys_ok=false
     fi
 done
@@ -133,13 +133,13 @@ ${sys_ok} && pass "system directories (and /home) are never grantable"
 #     path asked for a different account is not. The second is the "any other user's home root"
 #     case -- a home root is grantable only to the account whose home it is.
 if [[ "${PROJECTS_HOME}" =~ ^/home/[^/]+$ && -d "${PROJECTS_HOME}" ]]; then
-    if ai_tools_traverse_grant_allowed "${PROJECTS_HOME}" "${PROJECTS_USER}"; then
+    if ai_tools_safe_paths__is_traverse_grant_allowed "${PROJECTS_HOME}" "${PROJECTS_USER}"; then
         pass "the operator's own home root is grantable (traverse only)"
     else
         fail "the operator's own home root was refused: ${PROJECTS_HOME}"
     fi
     if id nobody >/dev/null 2>&1; then
-        if ai_tools_traverse_grant_allowed "${PROJECTS_HOME}" nobody; then
+        if ai_tools_safe_paths__is_traverse_grant_allowed "${PROJECTS_HOME}" nobody; then
             fail "another account's home root was reported grantable: ${PROJECTS_HOME}"
         else
             pass "a home root is not grantable to an account whose home it is not"
@@ -157,16 +157,16 @@ closed_ok=true
 : > "${TESTDIR}/afile"
 for args in "${TESTDIR}/does-not-exist ${PROJECTS_USER}" "${TESTDIR}/afile ${PROJECTS_USER}"; do
     # shellcheck disable=SC2086  # deliberate word-splitting of the two-argument case
-    if ai_tools_traverse_grant_allowed ${args}; then
+    if ai_tools_safe_paths__is_traverse_grant_allowed ${args}; then
         fail "grantable for '${args}'"; closed_ok=false
     fi
 done
-if ai_tools_traverse_grant_allowed "${owned}" ""; then
+if ai_tools_safe_paths__is_traverse_grant_allowed "${owned}" ""; then
     fail "grantable with no owner named"; closed_ok=false
 fi
 ${closed_ok} && pass "a missing path, a non-directory, and an unnamed owner all refuse"
 
-# ── ai_tools_pinned_fd_matches_path: the pinned inode is the one at the authorized path ───────────────────────────────
+# ── ai_tools_safe_paths__is_pinned_fd_at_path: the pinned inode is the one at the authorized path ─────────────────────
 # The control case shows the helpers' identity reads agreeing on a directory OUTSIDE the tree once an ancestor is
 # a symlink; without it a refusal here would not be evidence that the predicate is what refuses.
 section "protected-paths backstop: a pinned descriptor is held to its authorized path"
@@ -174,7 +174,7 @@ pin_tree="${TESTDIR}/pin-tree"; pin_outside="${TESTDIR}/pin-outside"
 mkdir -p "${pin_tree}/real" "${pin_outside}/inside"
 ln -s "${pin_outside}" "${pin_tree}/link"
 exec {pin_fd}< "${pin_tree}/real"
-if ai_tools_pinned_fd_matches_path "${pin_fd}" "${pin_tree}/real"; then
+if ai_tools_safe_paths__is_pinned_fd_at_path "${pin_fd}" "${pin_tree}/real"; then
     pass "a descriptor opened at a real path is at that path"
 else
     fail "a real path read back as '$(readlink "/proc/self/fd/${pin_fd}")'"
@@ -189,7 +189,7 @@ if [[ "${pin_before}" == "${pin_after}" ]]; then
 else
     fail "control: the identities differ (${pin_before} vs ${pin_after}), so the inode check is what refuses below"
 fi
-if ! ai_tools_pinned_fd_matches_path "${pin_fd}" "${pin_tree}/link/inside"; then
+if ! ai_tools_safe_paths__is_pinned_fd_at_path "${pin_fd}" "${pin_tree}/link/inside"; then
     pass "a path reached through a symlinked ancestor is refused"
 else
     fail "a path reached through a symlinked ancestor passed"
@@ -198,21 +198,21 @@ exec {pin_fd}<&-
 
 exec {pin_fd}< "${pin_tree}/real"
 mv "${pin_tree}/real" "${pin_tree}/moved"
-if ! ai_tools_pinned_fd_matches_path "${pin_fd}" "${pin_tree}/real"; then
+if ! ai_tools_safe_paths__is_pinned_fd_at_path "${pin_fd}" "${pin_tree}/real"; then
     pass "a directory renamed after the open is refused"
 else
     fail "a directory renamed after the open passed"
 fi
 rmdir "${pin_tree}/moved"
-if ! ai_tools_pinned_fd_matches_path "${pin_fd}" "${pin_tree}/real"; then
+if ! ai_tools_safe_paths__is_pinned_fd_at_path "${pin_fd}" "${pin_tree}/real"; then
     pass "a directory unlinked after the open is refused"
 else
     fail "a directory unlinked after the open passed"
 fi
 exec {pin_fd}<&-
-if ! ai_tools_pinned_fd_matches_path "${pin_fd}" "${pin_tree}/real" \
-        && ! ai_tools_pinned_fd_matches_path "" "${pin_tree}" \
-        && ! ai_tools_pinned_fd_matches_path 0 ""; then
+if ! ai_tools_safe_paths__is_pinned_fd_at_path "${pin_fd}" "${pin_tree}/real" \
+        && ! ai_tools_safe_paths__is_pinned_fd_at_path "" "${pin_tree}" \
+        && ! ai_tools_safe_paths__is_pinned_fd_at_path 0 ""; then
     pass "a closed descriptor and an empty argument each refuse"
 else
     fail "a closed descriptor or an empty argument passed"

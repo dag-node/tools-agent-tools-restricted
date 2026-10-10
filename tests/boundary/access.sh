@@ -652,7 +652,7 @@ fi
 # into today's tokens, so a respelling of the surface edits that table alone.
 for _key in ai-tools.projects.create ai-tools.projects.remove.inplace; do
     cli_cmd "${_key}" || exit 2
-    _out="$(runuser -u "${SANDBOX_USER}" -- "${AI_TOOLS_CLI:-/usr/local/bin/ai-tools}" "${CLI_ARGV[@]}" 2>&1)" \
+    _out="$(runuser -u "${SANDBOX_USER}" -- "${AI_TOOLS_LAUNCH_WRAPPER__CLI:-/usr/local/bin/ai-tools}" "${CLI_ARGV[@]}" 2>&1)" \
         && _rc=0 || _rc=$?
     if (( _rc == 0 )); then
         fail "the agent was not refused ${_key} at all"
