@@ -14,7 +14,8 @@
 # ── Rules are data ───────────────────────────────────────────────────────────────────────────
 # One rule set per package, /usr/local/lib/ai-tools/filters.d/<name>.rules, root-owned and PARSED, never sourced --
 # the same posture as the provider manifests. An operator names the set in operator.conf AI_TOOLS_FILTERS
-# as filter-<name>, which the list reader strips back to <name> (ai_tools_conf_kind_list). Four TAB-separated columns:
+# as filter-<name>, which the list reader strips back to <name> (ai_tools_conf__read_kind_list). Four TAB-separated
+# columns:
 #
 #   match       the literal leading words a command must start with ("git log")
 #   action      args -- insert <payload> right after those words
@@ -48,7 +49,7 @@
 #   key absent  -> every installed rule set (the default; filtering is on)
 #   key present -> exactly the named sets (filter-<name>); an EMPTY value, or a list the reader
 #                  refuses, is the kill switch, no filtering at all
-#                  -- ai_tools_filter_enabled is that verdict, and an adapter gates its noise
+#                  -- ai_tools_filters__is_enabled is that verdict, and an adapter gates its noise
 #                  strip on it too, so the switch really does turn off every transform
 # An untrusted operator.conf or filters.d is ignored, which likewise leaves the command unfiltered. Rule
 # sets are not gated on provider enablement: a rule is inert unless the agent runs the command it
@@ -56,7 +57,7 @@
 
 # Include guard: an if-statement, not `[[ ]] && return`, which returns 1 for an unset guard and trips the sourcing
 # shell's `set -e`.
-if [[ -n "${_AI_TOOLS_FILTERS_LIB_LOADED:-}" ]]; then
+if [[ -n "${_AI_TOOLS_FILTERS__LOADED:-}" ]]; then
     return 0
 fi
 
@@ -67,8 +68,8 @@ fi
 # unfiltered.
 # shellcheck source=SCRIPTDIR/conf.lib.sh
 if ! source "${BASH_SOURCE[0]%/*}/conf.lib.sh" 2>/dev/null \
-        || ! declare -F ai_tools_conf_is_trusted >/dev/null 2>&1 \
-        || ! declare -F ai_tools_conf_kind_list >/dev/null 2>&1; then
+        || ! declare -F ai_tools_conf__is_trusted >/dev/null 2>&1 \
+        || ! declare -F ai_tools_conf__read_kind_list >/dev/null 2>&1; then
     return 1
 fi
 # Journald is where a tamper refusal belongs. Deliberately NOT stderr: this runs on every Bash call, and a per-call
@@ -78,12 +79,12 @@ fi
 # shellcheck source=SCRIPTDIR/log.lib.sh
 source "${BASH_SOURCE[0]%/*}/log.lib.sh" 2>/dev/null || true
 
-_AI_TOOLS_FILTERS_LIB_LOADED=1
+_AI_TOOLS_FILTERS__LOADED=1
 
 # Deployed paths, overridable so tests drive a /tmp fixture tree without touching the real host. Unlike the same-named
 # hooks in providers.lib.sh, these are readable by a caller inside a session (an agent's hook runs in the agent's own
 # process, whose environment a project settings layer can add to), and they need no protection: an override chooses only
-# WHERE to look, and every file found there still has to pass ai_tools_conf_is_trusted. Pointed anywhere the sandbox
+# WHERE to look, and every file found there still has to pass ai_tools_conf__is_trusted. Pointed anywhere the sandbox
 # account can write, the directory or the file is refused and no rule loads, so the override reaches root-owned rules
 # or none.
 : "${AI_TOOLS_FILTERS_DIR:=/usr/local/lib/ai-tools/filters.d}"
@@ -91,34 +92,34 @@ _AI_TOOLS_FILTERS_LIB_LOADED=1
 
 # The characters a command may consist of to be eligible for rewriting. A positive allowlist, so a metacharacter nobody
 # thought of is excluded by construction rather than by enumeration.
-readonly _AI_TOOLS_FILTER_SAFE_COMMAND='^[A-Za-z0-9_./=:,+@ -]+$'
+readonly _AI_TOOLS_FILTERS__SAFE_COMMAND='^[A-Za-z0-9_./=:,+@ -]+$'
 
 # The loaded rule set: one TAB-joined "match action blocking payload" record per rule, in load order. Populated
-# by ai_tools_filter_rules_load, read by ai_tools_filter_rewrite.
-_AI_TOOLS_FILTER_RULES=()
+# by ai_tools_filters__load_rules, read by ai_tools_filters__rewrite.
+_AI_TOOLS_FILTERS__RULES=()
 
-# _ai_tools_filter_log <message...> : record a refusal in journald when log.lib.sh loaded.
-_ai_tools_filter_log() {
-    declare -F ai_tools_log_warn >/dev/null 2>&1 && ai_tools_log_warn "filters: $*"
+# _ai_tools_filters__log <message...> : record a refusal in journald when log.lib.sh loaded.
+_ai_tools_filters__log() {
+    declare -F ai_tools_log__warn >/dev/null 2>&1 && ai_tools_log__warn "filters: $*"
     return 0
 }
 
-# ai_tools_filter_command_is_simple <command> : succeed when <command> consists only of the
+# ai_tools_filters__is_command_simple <command> : succeed when <command> consists only of the
 #   allowlisted characters, which is what makes inserting words into it safe. Pure, no I/O.
-ai_tools_filter_command_is_simple() {
-    [[ "${1-}" =~ ${_AI_TOOLS_FILTER_SAFE_COMMAND} ]]
+ai_tools_filters__is_command_simple() {
+    [[ "${1-}" =~ ${_AI_TOOLS_FILTERS__SAFE_COMMAND} ]]
 }
 
-# ai_tools_filter_apply_rule <command> <match> <action> <blocking> <payload> : set
-#   _ai_tools_filter_result to the rewritten command and return 0 when the rule applies; return 1
+# ai_tools_filters__apply_rule <command> <match> <action> <blocking> <payload> : set
+#   _ai_tools_filters__result to the rewritten command and return 0 when the rule applies; return 1
 #   leaving the result empty when it does not (the command does not start with <match>, it already
 #   carries a blocking word, or <action> is not one this engine implements). Pure, no I/O --
 #   unit-tested over the rule table.
-ai_tools_filter_apply_rule() {
+ai_tools_filters__apply_rule() {
     local command="$1" match="$2" action="$3" blocking="$4" payload="$5"
     local -a command_words=() match_words=() blocking_tokens=()
     local IFS=' '
-    _ai_tools_filter_result=""
+    _ai_tools_filters__result=""
     read -ra command_words <<< "${command}"
     read -ra match_words <<< "${match}"
     local match_length=${#match_words[@]}
@@ -131,7 +132,7 @@ ai_tools_filter_apply_rule() {
 
     # A blocking word cancels the rule, so the agent's own flag always wins over the rule's. Both the bare word and its
     # `word=value` form count, so `--verbosity` blocks `--verbosity=quiet`.
-    ai_tools_conf_split blocking_tokens "${blocking}"
+    ai_tools_conf__split blocking_tokens "${blocking}"
     local word token
     for word in "${command_words[@]:match_length}"; do
         for token in "${blocking_tokens[@]}"; do
@@ -143,68 +144,68 @@ ai_tools_filter_apply_rule() {
     local head="${command_words[*]:0:match_length}"
     local tail="${command_words[*]:match_length}"
     case "${action}" in
-        args) _ai_tools_filter_result="${head} ${payload}${tail:+ ${tail}}" ;;
-        wrap) _ai_tools_filter_result="${payload} ${head}${tail:+ ${tail}}" ;;
+        args) _ai_tools_filters__result="${head} ${payload}${tail:+ ${tail}}" ;;
+        wrap) _ai_tools_filters__result="${payload} ${head}${tail:+ ${tail}}" ;;
         *)    return 1 ;;
     esac
     return 0
 }
 
-# _ai_tools_filter_load_file <file> : append every well-formed rule in <file> to
-#   _AI_TOOLS_FILTER_RULES. A file that is not root-owned and non-group/other-writable is refused
+# _ai_tools_filters__load_file <file> : append every well-formed rule in <file> to
+#   _AI_TOOLS_FILTERS__RULES. A file that is not root-owned and non-group/other-writable is refused
 #   whole: a rules file a non-root account can write decides what every command in a session
 #   becomes.
-_ai_tools_filter_load_file() {
+_ai_tools_filters__load_file() {
     local file="$1"
-    if ! ai_tools_conf_is_trusted "${file}"; then
-        _ai_tools_filter_log "ignoring ${file}: not root-owned or writable by group/other"
+    if ! ai_tools_conf__is_trusted "${file}"; then
+        _ai_tools_filters__log "ignoring ${file}: not root-owned or writable by group/other"
         return 1
     fi
     local match action blocking payload
     while IFS=$'\t' read -r match action blocking payload || [[ -n "${match:-}" ]]; do
         [[ -z "${match}" || "${match}" == '#'* ]] && continue
         [[ -n "${action}" && -n "${blocking}" && -n "${payload}" ]] || continue
-        _AI_TOOLS_FILTER_RULES+=("${match}"$'\t'"${action}"$'\t'"${blocking}"$'\t'"${payload}")
+        _AI_TOOLS_FILTERS__RULES+=("${match}"$'\t'"${action}"$'\t'"${blocking}"$'\t'"${payload}")
     done < "${file}"
     return 0
 }
 
-# _ai_tools_filter_installed_sets <array-name> : set the named array to every installed rule-set
+# _ai_tools_filters__list_installed_sets <array-name> : set the named array to every installed rule-set
 #   name, the base's own set first so a provider's set can override one of its rules.
-_ai_tools_filter_installed_sets() {
-    local -n _ai_tools_filter_sets_out="$1"
-    _ai_tools_filter_sets_out=()
-    [[ -e "${AI_TOOLS_FILTERS_DIR}/base.rules" ]] && _ai_tools_filter_sets_out=(base)
+_ai_tools_filters__list_installed_sets() {
+    local -n _ai_tools_filters__sets_out="$1"
+    _ai_tools_filters__sets_out=()
+    [[ -e "${AI_TOOLS_FILTERS_DIR}/base.rules" ]] && _ai_tools_filters__sets_out=(base)
     local rules_file set_name
     for rules_file in "${AI_TOOLS_FILTERS_DIR}"/*.rules; do
         [[ -e "${rules_file}" ]] || continue
         set_name="${rules_file##*/}"; set_name="${set_name%.rules}"
-        [[ "${set_name}" == base ]] || _ai_tools_filter_sets_out+=("${set_name}")
+        [[ "${set_name}" == base ]] || _ai_tools_filters__sets_out+=("${set_name}")
     done
     return 0
 }
 
-# ai_tools_filter_enabled : succeed unless operator.conf carries AI_TOOLS_FILTERS with an EMPTY
+# ai_tools_filters__is_enabled : succeed unless operator.conf carries AI_TOOLS_FILTERS with an EMPTY
 #   value -- the kill switch. The rewrite path honors the switch by loading no rules; this is the
 #   same verdict as a callable predicate, which an adapter gates its noise strip on, so the one
 #   switch turns off every transform. A named list narrows which rule sets load, never this
 #   verdict; an absent key, an absent conf, and an untrusted conf all leave filtering ON -- the
-#   same fallback direction ai_tools_filter_rules_load takes, and still only ever a token cost.
-ai_tools_filter_enabled() {
-    local -a _ai_tools_filter_enabled_sets=()
-    ai_tools_conf_is_trusted "${AI_TOOLS_OPERATOR_CONF}" || return 0
-    ai_tools_conf_kind_list _ai_tools_filter_enabled_sets "${AI_TOOLS_OPERATOR_CONF}" AI_TOOLS_FILTERS 2>/dev/null \
+#   same fallback direction ai_tools_filters__load_rules takes, and still only ever a token cost.
+ai_tools_filters__is_enabled() {
+    local -a _ai_tools_filters__enabled_sets=()
+    ai_tools_conf__is_trusted "${AI_TOOLS_OPERATOR_CONF}" || return 0
+    ai_tools_conf__read_kind_list _ai_tools_filters__enabled_sets "${AI_TOOLS_OPERATOR_CONF}" AI_TOOLS_FILTERS 2>/dev/null \
         || return 0
-    (( ${#_ai_tools_filter_enabled_sets[@]} > 0 ))
+    (( ${#_ai_tools_filters__enabled_sets[@]} > 0 ))
 }
 
-# ai_tools_filter_rules_load : populate _AI_TOOLS_FILTER_RULES from the enabled rule sets. Returns
+# ai_tools_filters__load_rules : populate _AI_TOOLS_FILTERS__RULES from the enabled rule sets. Returns
 #   0 whether or not any rule loaded -- no rules simply means no rewriting.
-ai_tools_filter_rules_load() {
-    _AI_TOOLS_FILTER_RULES=()
-    if ! ai_tools_conf_is_trusted "${AI_TOOLS_FILTERS_DIR}"; then
+ai_tools_filters__load_rules() {
+    _AI_TOOLS_FILTERS__RULES=()
+    if ! ai_tools_conf__is_trusted "${AI_TOOLS_FILTERS_DIR}"; then
         [[ -e "${AI_TOOLS_FILTERS_DIR}" ]] && \
-            _ai_tools_filter_log "ignoring ${AI_TOOLS_FILTERS_DIR}: not root-owned or writable by group/other"
+            _ai_tools_filters__log "ignoring ${AI_TOOLS_FILTERS_DIR}: not root-owned or writable by group/other"
         return 0
     fi
 
@@ -213,9 +214,9 @@ ai_tools_filter_rules_load() {
     # the list reader's report is dropped here as the trust refusal is, since this runs on every Bash call,
     # and the launch gate and `system post-upgrade` report the same list where an operator reads them.
     local -a rule_sets=()
-    if ! ai_tools_conf_is_trusted "${AI_TOOLS_OPERATOR_CONF}" \
-            || ! ai_tools_conf_kind_list rule_sets "${AI_TOOLS_OPERATOR_CONF}" AI_TOOLS_FILTERS 2>/dev/null; then
-        _ai_tools_filter_installed_sets rule_sets
+    if ! ai_tools_conf__is_trusted "${AI_TOOLS_OPERATOR_CONF}" \
+            || ! ai_tools_conf__read_kind_list rule_sets "${AI_TOOLS_OPERATOR_CONF}" AI_TOOLS_FILTERS 2>/dev/null; then
+        _ai_tools_filters__list_installed_sets rule_sets
     fi
 
     local set_name
@@ -224,33 +225,33 @@ ai_tools_filter_rules_load() {
         # identifiers, so no value here can address a file outside filters.d.
         [[ "${set_name}" =~ ^[A-Za-z0-9._-]+$ && "${set_name}" != *..* ]] || continue
         [[ -e "${AI_TOOLS_FILTERS_DIR}/${set_name}.rules" ]] || continue
-        _ai_tools_filter_load_file "${AI_TOOLS_FILTERS_DIR}/${set_name}.rules" || true
+        _ai_tools_filters__load_file "${AI_TOOLS_FILTERS_DIR}/${set_name}.rules" || true
     done
     return 0
 }
 
-# ai_tools_filter_rewrite <command> : print the rewritten command and return 0 when a loaded rule
+# ai_tools_filters__rewrite <command> : print the rewritten command and return 0 when a loaded rule
 #   applies and actually changes it; return 1 printing no command otherwise (the pass-through case,
-#   which is every failure direction). Call ai_tools_filter_rules_load first.
-ai_tools_filter_rewrite() {
+#   which is every failure direction). Call ai_tools_filters__load_rules first.
+ai_tools_filters__rewrite() {
     local command="${1-}"
     [[ -n "${command}" ]] || return 1
-    ai_tools_filter_command_is_simple "${command}" || return 1
-    (( ${#_AI_TOOLS_FILTER_RULES[@]} > 0 )) || return 1
+    ai_tools_filters__is_command_simple "${command}" || return 1
+    (( ${#_AI_TOOLS_FILTERS__RULES[@]} > 0 )) || return 1
 
     local record match action blocking payload
     local best_result="" best_length=0
     local -a match_words=()
     local IFS=' '
-    for record in "${_AI_TOOLS_FILTER_RULES[@]}"; do
+    for record in "${_AI_TOOLS_FILTERS__RULES[@]}"; do
         IFS=$'\t' read -r match action blocking payload <<< "${record}"
         read -ra match_words <<< "${match}"
         # Longest match wins; `>=` hands a tie to the later rule, which is how a provider set overrides the base set it
         # loads after.
         (( ${#match_words[@]} >= best_length )) || continue
-        ai_tools_filter_apply_rule "${command}" "${match}" "${action}" "${blocking}" "${payload}" \
+        ai_tools_filters__apply_rule "${command}" "${match}" "${action}" "${blocking}" "${payload}" \
             || continue
-        best_result="${_ai_tools_filter_result}"
+        best_result="${_ai_tools_filters__result}"
         best_length=${#match_words[@]}
     done
 
@@ -258,13 +259,13 @@ ai_tools_filter_rewrite() {
     printf '%s' "${best_result}"
 }
 
-# ai_tools_filter_strip_noise : copy stdin to stdout with terminal control noise removed -- ANSI
+# ai_tools_filters__strip_noise : copy stdin to stdout with terminal control noise removed -- ANSI
 #   CSI and OSC sequences, stray escapes, and carriage-return redraws collapsed to the final state
 #   a terminal would have shown. Byte-level noise only: no line is dropped, truncated, reordered
 #   or summarized, so every line the model would have read survives. The one real cost is a line that
 #   uses a carriage return as data rather than as a redraw (CR-only line endings), which keeps
 #   only its last segment.
-ai_tools_filter_strip_noise() {
+ai_tools_filters__strip_noise() {
     LC_ALL=C sed -E \
         -e 's|\x1b\[[0-9;:<=>?]*[ -/]*[@-~]||g' \
         -e 's|\x1b\][^\x07\x1b]*\x07||g' \

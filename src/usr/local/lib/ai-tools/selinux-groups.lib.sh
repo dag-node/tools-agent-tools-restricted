@@ -16,14 +16,14 @@
 #       src/usr/local/lib/ai-tools/selinux-groups.lib.sh /usr/local/lib/ai-tools/
 #   ```
 
-[[ -n "${_AI_TOOLS_SELINUX_GROUPS_LIB_LOADED:-}" ]] && return 0
-readonly _AI_TOOLS_SELINUX_GROUPS_LIB_LOADED=1
+[[ -n "${_AI_TOOLS_SELINUX_GROUPS__LOADED:-}" ]] && return 0
+readonly _AI_TOOLS_SELINUX_GROUPS__LOADED=1
 
 # Installed location of the compiled policy modules (the core ai_tools.pp, one ai_tools_<group>.pp per stable group,
 # each layout module), populated by the RPM %install and by `selinux/install-selinux.sh build`. ai-tools-admin loads
 # a group's .pp from here; the source-tree authoring tool compiles into its own policy/ dir first.
 # shellcheck disable=SC2034  # read by ai-tools-admin
-readonly AI_TOOLS_SELINUX_PACKAGE_DIR="/usr/share/selinux/packages/ai-tools"
+readonly AI_TOOLS_SELINUX_GROUPS__PACKAGE_DIR="/usr/share/selinux/packages/ai-tools"
 
 # Optional policy groups, all DISABLED by default (the core module alone covers
 # repo-only work). Each entry is a pipe-delimited record:
@@ -40,7 +40,7 @@ readonly AI_TOOLS_SELINUX_PACKAGE_DIR="/usr/share/selinux/packages/ai-tools"
 # shipped set and loads from that command directly. Add a group as 'experimental' until
 # an audit earns it 'stable'.
 # shellcheck disable=SC2034  # iterated by consumers via this library's accessors
-readonly AI_TOOLS_SELINUX_GROUPS=(
+readonly AI_TOOLS_SELINUX_GROUPS__REGISTRY=(
     "systemd|System inspection (systemctl, journalctl, unit files)|systemctl is labelled systemd_systemctl_exec_t; ai_tools_t needs execute + D-Bus access to query PID 1. journalctl is journalctl_exec_t.|experimental"
     "pkgmgmt|Package management (rpm, dnf, RPM database)|/usr/bin/rpm is labelled rpm_exec_t (not bin_t); the RPM database is rpm_var_lib_t. Both need explicit allow rules. dnf is bin_t (already executable) but also reads rpm_var_lib_t.|experimental"
     "netadmin|Network administration (firewall-cmd D-Bus, nmcli D-Bus)|firewall-cmd and nmcli are bin_t (already executable) but send commands to firewalld_t and NetworkManager_t via D-Bus; ai_tools_t lacks the dbus send_msg permission those daemons require.|experimental"
@@ -58,42 +58,42 @@ readonly AI_TOOLS_SELINUX_GROUPS=(
 # neither breaks the workload the old group served nor leaves the old grant in place once the operator runs anything
 # that loads policy. An entry is dropped once no supported host can still carry the old module.
 # shellcheck disable=SC2034  # iterated through this library's accessors
-readonly AI_TOOLS_SELINUX_GROUP_FORMER_MODULES=(
+readonly AI_TOOLS_SELINUX_GROUPS__FORMER_MODULES=(
     "memfdexec|ai_tools_apphost"
     "localipc|ai_tools_netcore"
     "buildexec|ai_tools_netcore"
 )
 
-# Field accessors for one AI_TOOLS_SELINUX_GROUPS record (name|desc|reason|stability).
-ai_tools_selinux_group_name()      { printf '%s' "${1%%|*}"; }
-ai_tools_selinux_group_desc()      { local s="${1#*|}"; printf '%s' "${s%%|*}"; }
-ai_tools_selinux_group_reason()    { local s="${1#*|}"; s="${s#*|}"; printf '%s' "${s%%|*}"; }
-ai_tools_selinux_group_stability() { printf '%s' "${1##*|}"; }
+# Field accessors for one AI_TOOLS_SELINUX_GROUPS__REGISTRY record (name|desc|reason|stability).
+ai_tools_selinux_groups__get_name()      { printf '%s' "${1%%|*}"; }
+ai_tools_selinux_groups__get_description()      { local s="${1#*|}"; printf '%s' "${s%%|*}"; }
+ai_tools_selinux_groups__get_reason()    { local s="${1#*|}"; s="${s#*|}"; printf '%s' "${s%%|*}"; }
+ai_tools_selinux_groups__get_stability() { printf '%s' "${1##*|}"; }
 
-# ai_tools_selinux_group_is_experimental <name>: succeed when <name> is a known group whose stability is not 'stable'
+# ai_tools_selinux_groups__is_experimental <name>: succeed when <name> is a known group whose stability is not 'stable'
 # (unknown/absent stability is treated as experimental -- fail safe toward warning). A caller gates its confirmation
 # prompt on this.
-ai_tools_selinux_group_is_experimental() {
+ai_tools_selinux_groups__is_experimental() {
     local name="$1" entry
-    for entry in "${AI_TOOLS_SELINUX_GROUPS[@]}"; do
-        if [[ "$(ai_tools_selinux_group_name "${entry}")" == "${name}" ]]; then
-            [[ "$(ai_tools_selinux_group_stability "${entry}")" != "stable" ]]
+    for entry in "${AI_TOOLS_SELINUX_GROUPS__REGISTRY[@]}"; do
+        if [[ "$(ai_tools_selinux_groups__get_name "${entry}")" == "${name}" ]]; then
+            [[ "$(ai_tools_selinux_groups__get_stability "${entry}")" != "stable" ]]
             return
         fi
     done
     return 0  # unknown group -> treat as experimental (caller validates existence separately)
 }
 
-# ai_tools_selinux_group_valid <name>: succeed when <name> is a known group.
-ai_tools_selinux_group_valid() {
+# ai_tools_selinux_groups__is_valid <name>: succeed when <name> is a known group.
+ai_tools_selinux_groups__is_valid() {
     local name="$1" entry
-    for entry in "${AI_TOOLS_SELINUX_GROUPS[@]}"; do
-        [[ "$(ai_tools_selinux_group_name "${entry}")" == "${name}" ]] && return 0
+    for entry in "${AI_TOOLS_SELINUX_GROUPS__REGISTRY[@]}"; do
+        [[ "$(ai_tools_selinux_groups__get_name "${entry}")" == "${name}" ]] && return 0
     done
     return 1
 }
 
-# ai_tools_selinux_group_loaded <name>: succeed when module ai_tools_<name> is currently loaded in the kernel.
+# ai_tools_selinux_groups__is_loaded <name>: succeed when module ai_tools_<name> is currently loaded in the kernel.
 # `semodule -l` prints one module NAME per line with no version column (selinux-policy on RHEL/Rocky 9/10 and UEK R8),
 # so match the whole line exactly -- the same form tests/integration/selinux.sh uses for the core.
 #
@@ -104,26 +104,26 @@ ai_tools_selinux_group_valid() {
 # with, the pipeline reports 141 for a probe that SUCCEEDED. The module reads as absent at random, and each caller acts
 # on that: no label registered, no group reported loaded. A here-string is fully written before grep starts, so no
 # reader can exit early on it.
-ai_tools_selinux_group_loaded() { ai_tools_selinux_module_loaded "ai_tools_${1}"; }
+ai_tools_selinux_groups__is_loaded() { ai_tools_selinux_groups__is_module_loaded "ai_tools_${1}"; }
 
-# ai_tools_selinux_module_loaded <module>: succeed when the named policy module is in the store. The probe behind
-# ai_tools_selinux_group_loaded, taking a full module name so a group's former module can be asked about too. Same
-# capture-then-match shape, for the same SIGPIPE reason.
-ai_tools_selinux_module_loaded() {
+# ai_tools_selinux_groups__is_module_loaded <module>: succeed when the named policy module is in the store. The probe
+# behind ai_tools_selinux_groups__is_loaded, taking a full module name so a group's former module can be asked
+# about too. Same capture-then-match shape, for the same SIGPIPE reason.
+ai_tools_selinux_groups__is_module_loaded() {
     local modules
     modules="$(semodule -l 2>/dev/null || true)"
     grep -qx "$1" <<<"${modules}"
 }
 
-# ai_tools_selinux_pp_module_version <file>: print the policy module version a compiled .pp was built for -- the header
-# field libsepol compares with its own range before it reads the rest -- and succeed; fail without output where <file>
-# is unreadable or not a module package. A module compiled on one distribution and loaded on another fails on this field
-# alone (EL10 builds version 24, EL9 reads up to 21), so a caller reads it ahead of semodule. The policydb section is
-# found by its tag rather than at a fixed offset: the package header before it holds one offset per section,
-# and the section count varies with the module. The magic and the tag length are checked around the tag, so a tag
-# appearing inside a string in some other file does not read as a version. Fields are little-endian, which `od` reads
-# in host order; every host this project supports is little-endian.
-ai_tools_selinux_pp_module_version() {
+# ai_tools_selinux_groups__read_compiled_module_version <file>: print the policy module version a compiled .pp was built
+# for -- the header field libsepol compares with its own range before it reads the rest -- and succeed; fail without
+# output where <file> is unreadable or not a module package. A module compiled on one distribution and loaded on another
+# fails on this field alone (EL10 builds version 24, EL9 reads up to 21), so a caller reads it ahead of semodule.
+# The policydb section is found by its tag rather than at a fixed offset: the package header before it holds one offset
+# per section, and the section count varies with the module. The magic and the tag length are checked around the tag,
+# so a tag appearing inside a string in some other file does not read as a version. Fields are little-endian, which `od`
+# reads in host order; every host this project supports is little-endian.
+ai_tools_selinux_groups__read_compiled_module_version() {
     local file="$1" offset magic length version
     [[ -f "${file}" && -r "${file}" ]] || return 1
     offset="$(LC_ALL=C grep -obam1 'SE Linux Module' -- "${file}" 2>/dev/null | cut -d: -f1)" || true
@@ -137,33 +137,34 @@ ai_tools_selinux_pp_module_version() {
     printf '%s' "${version}"
 }
 
-# ai_tools_selinux_host_module_versions: print the range of policy module versions this host's libsepol reads,
-# as `<min> <max>`, from the line `checkmodule -V` prints; fail without output where checkmodule is absent (it ships
-# with checkpolicy, which selinux-policy-devel requires) or the line takes another shape.
-ai_tools_selinux_host_module_versions() {
+# ai_tools_selinux_groups__read_host_module_versions: print the range of policy module versions this host's libsepol
+# reads, as `<min> <max>`, from the line `checkmodule -V` prints; fail without output where checkmodule is absent (it
+# ships with checkpolicy, which selinux-policy-devel requires) or the line takes another shape.
+ai_tools_selinux_groups__read_host_module_versions() {
     local line
     line="$(checkmodule -V 2>/dev/null)" || return 1
     [[ "${line}" =~ Module\ versions\ ([0-9]+)-([0-9]+) ]] || return 1
     printf '%s %s' "${BASH_REMATCH[1]}" "${BASH_REMATCH[2]}"
 }
 
-# ai_tools_selinux_pp_loadable <file>: 0 when the compiled module's version is within the range this host reads and 1
-# when it is outside it, printing `<version> <min>-<max>` either way; 2 without output where the module's version
-# or the host's range could not be read. A caller treats 2 as unverified, not as either answer.
-ai_tools_selinux_pp_loadable() {
+# ai_tools_selinux_groups__is_compiled_module_loadable <file>: 0 when the compiled module's version is within the range
+# this host reads and 1 when it is outside it, printing `<version> <min>-<max>` either way; 2 without output
+# where the module's version or the host's range could not be read. A caller treats 2 as unverified, not as either
+# answer.
+ai_tools_selinux_groups__is_compiled_module_loadable() {
     local version range min max
-    version="$(ai_tools_selinux_pp_module_version "$1")" || return 2
-    range="$(ai_tools_selinux_host_module_versions)" || return 2
+    version="$(ai_tools_selinux_groups__read_compiled_module_version "$1")" || return 2
+    range="$(ai_tools_selinux_groups__read_host_module_versions)" || return 2
     min="${range% *}"; max="${range#* }"
     printf '%s %s-%s' "${version}" "${min}" "${max}"
     (( version >= min && version <= max ))
 }
 
-# ai_tools_selinux_group_former_module <name>: print the module name a group's rules were loaded under before; empty
-# and non-zero for a group without a former module.
-ai_tools_selinux_group_former_module() {
+# ai_tools_selinux_groups__get_former_module <name>: print the module name a group's rules were loaded
+# under before; empty and non-zero for a group without a former module.
+ai_tools_selinux_groups__get_former_module() {
     local entry
-    for entry in "${AI_TOOLS_SELINUX_GROUP_FORMER_MODULES[@]}"; do
+    for entry in "${AI_TOOLS_SELINUX_GROUPS__FORMER_MODULES[@]}"; do
         if [[ "${entry%%|*}" == "$1" ]]; then
             printf '%s' "${entry#*|}"
             return 0
@@ -172,11 +173,11 @@ ai_tools_selinux_group_former_module() {
     return 1
 }
 
-# ai_tools_selinux_groups_from_former_module <module>: print every current group name whose rules the former module
-# carried, one per line -- the set a swap loads in the old module's place.
-ai_tools_selinux_groups_from_former_module() {
+# ai_tools_selinux_groups__list_groups_from_former_module <module>: print every current group name whose rules
+# the former module carried, one per line -- the set a swap loads in the old module's place.
+ai_tools_selinux_groups__list_groups_from_former_module() {
     local entry
-    for entry in "${AI_TOOLS_SELINUX_GROUP_FORMER_MODULES[@]}"; do
+    for entry in "${AI_TOOLS_SELINUX_GROUPS__FORMER_MODULES[@]}"; do
         [[ "${entry#*|}" == "$1" ]] && printf '%s\n' "${entry%%|*}"
     done
     return 0

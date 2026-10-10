@@ -30,9 +30,9 @@ source "${GROUPS_LIB}" \
     || { printf 'shipped-modules: cannot source the group registry %s\n' "${GROUPS_LIB}" >&2; exit 1; }
 
 printf 'ai_tools\n'
-for entry in "${AI_TOOLS_SELINUX_GROUPS[@]}"; do
-    [[ "$(ai_tools_selinux_group_stability "${entry}")" == stable ]] || continue
-    printf 'ai_tools_%s\n' "$(ai_tools_selinux_group_name "${entry}")"
+for entry in "${AI_TOOLS_SELINUX_GROUPS__REGISTRY[@]}"; do
+    [[ "$(ai_tools_selinux_groups__get_stability "${entry}")" == stable ]] || continue
+    printf 'ai_tools_%s\n' "$(ai_tools_selinux_groups__get_name "${entry}")"
 done
 # One layout module per manifest, the last assignment winning as in the parser the tooling uses; a value that is not
 # a plain ai_tools_<name> token is dropped, as the selinux %post drops it.

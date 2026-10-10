@@ -54,7 +54,7 @@ mint_files() { files; if [[ -d "${WIP_ISSUES}" ]]; then find "${WIP_ISSUES}" -na
 # Matching reads the ASCII DELIMITER a link needs -- a scheme's `://`, a `mailto:`, a Markdown `[text](target)`,
 # an `<a>` tag -- which is what makes it complete: a URI permits most of Unicode in a host or a path, while every scheme
 # is spelled in ASCII whatever follows it. An enumeration of the characters would leave a gap the delimiter does not.
-# A non-ASCII URL is doubly unusable in a log line in any case: `ai_tools_log_sanitize` reduces a message to printable
+# A non-ASCII URL is doubly unusable in a log line in any case: `ai_tools_log__sanitize` reduces a message to printable
 # ASCII before either sink, so its bytes reach the journal as `?`.
 MESSAGE_LINK='[a-zA-Z][a-zA-Z0-9+.-]*://|mailto:|www\.[^ ]|\[[^]]*\]\([^)]*\)|</?[aA][ 	>]'
 

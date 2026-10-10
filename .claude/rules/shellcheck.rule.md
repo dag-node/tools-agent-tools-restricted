@@ -25,7 +25,7 @@ states that configuration, the cross-library following it turns on, and the find
   reachable by design.
 - **`SC2034`** (variable appears unused) stays on. A library that sets a name for a sourcing script or the test suite
   to read carries an inline `# shellcheck disable=SC2034` at the definition, naming the reader — the control-plane
-  constants, the `ai_tools_resolve_owner` outputs (`operator.lib.sh`), the `safe-paths` protected-path list,
+  constants, the `ai_tools_operator__resolve_owner` outputs (`operator.lib.sh`), the `safe-paths` protected-path list,
   and the `skip-dirs` public output. The check then still catches a genuinely unused name in any consumer.
 
 ## Runtime load is fail-closed
@@ -42,14 +42,14 @@ a slower walk rather than a widened boundary. The launch wrapper and the CLI ver
 functions and `die` otherwise; the root helpers bare-`source` it under `set -e`; every helper that changes a tree
 refuses when `secret-patterns.lib.sh` will not load or the operator's pattern file cannot be read, each at the status
 [ref-section-h4j6](secret-handling.rule.md#ref-section-h4j6) states; and `msg.lib.sh` is required the same way — it
-carries the yes/no decisions (`ai_tools_msg_confirm`), so its consumers refuse rather than run through a private
+carries the yes/no decisions (`ai_tools_msg__confirm`), so its consumers refuse rather than run through a private
 fallback, with `session-hook.sh` the one emit-only exception (see [safe-paths](safe-paths.rule.md),
 [secret-handling](secret-handling.rule.md), [messaging](messaging.rule.md), and the fail-closed invariant in the root
 `CLAUDE.md`). The logger (`log.lib.sh`) and the owner resolver (`operator.lib.sh`) carry faithful fallbacks for their
 pure-logging/resolving consumers, because they log or resolve rather than gate — a missing one degrades output or yields
 "no owner" (which stops the operation), never a bypassed security decision. The exception is the three helpers
 that print an agent-named path to a terminal (`ai-tools-chown`, `ai-tools-lockdown`, `ai-tools-reclaim`): there
-`log.lib.sh` also supplies the input sanitizer (`ai_tools_log_sanitize`), a security function, so they require it
+`log.lib.sh` also supplies the input sanitizer (`ai_tools_log__sanitize`), a security function, so they require it
 fail-closed (`exit 1` if it will not load) rather than degrade to emitting a path raw — see [logging](logging.rule.md).
 
 ## Accepted findings

@@ -41,7 +41,7 @@ if [[ ! -x "${HELPER}" ]]; then
     skip "observed-pin reconciliation" "not installed at ${HELPER}"; finish; exit
 fi
 # shellcheck source=/dev/null
-if ! source "${VERIFY_LIB}" 2>/dev/null || ! declare -F ai_tools_entrypoint_stale_path >/dev/null 2>&1; then
+if ! source "${VERIFY_LIB}" 2>/dev/null || ! declare -F ai_tools_entrypoint_verify__get_stale_path >/dev/null 2>&1; then
     skip "observed-pin reconciliation" "the installed ${VERIFY_LIB} carries no stale-mark reader -- reinstall to cover it"
     finish; exit
 fi

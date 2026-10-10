@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # tests/unit/assets.sh
 # Unit test for the assets resolver (assets.lib.sh): the runtime half of every refusal its predicate table names,
-# and the view transaction's guarantees. Drives ai_tools_assets_reconcile over sets signed in the run with a throwaway
+# and the view transaction's guarantees. Drives ai_tools_assets__reconcile over sets signed in the run with a throwaway
 # key (tests/lib/asset-signing.sh), through the root-only hooks -- AI_TOOLS_ASSETS_ROOTS, AI_TOOLS_ASSETS_BINDINGS_DIR,
 # AI_TOOLS_ASSETS_LOCK, AI_TOOLS_ASSETS_HOME, AI_TOOLS_OPERATOR_CONF, AI_TOOLS_AGENTS_DIR, AI_TOOLS_INTEGRATIONS_DIR --
 # at fixtures in its testdir, and asserts each case on the record stream (one row per entry, its finding the reason
@@ -26,8 +26,8 @@ note "library" "${LIB}"
 # Every function this file calls, checked before the first case: an absent one exits 127, which a refusal case would
 # read as a correct refusal, so a library older than this test stops here.
 # shellcheck disable=SC2016  # the $1 is the inner shell's
-if ! bash -c 'source "$1" 2>/dev/null && declare -F ai_tools_assets_reconcile ai_tools_assets_plan \
-        ai_tools_assets_validate_set ai_tools_assets_build_enable_snapshot ai_tools_assets_parse_id >/dev/null' _ "${LIB}"; then
+if ! bash -c 'source "$1" 2>/dev/null && declare -F ai_tools_assets__reconcile ai_tools_assets__plan \
+        ai_tools_assets__validate_set ai_tools_assets__build_enable_snapshot ai_tools_assets__parse_id >/dev/null' _ "${LIB}"; then
     fail "${LIB} does not load or lacks a function this test calls; reinstall from this checkout (sudo ./install.sh)"
     finish; exit 1
 fi
@@ -80,7 +80,7 @@ write_conf() {
     chown root:root "${CONF}"; chmod 0644 "${CONF}"
 }
 
-# reconcile [NAME=value...] : run ai_tools_assets_reconcile in a fresh shell with the hooks (and any override given),
+# reconcile [NAME=value...] : run ai_tools_assets__reconcile in a fresh shell with the hooks (and any override given),
 # keeping the record stream in OUT, stderr in ERR, and the status the verb takes in RC: 1 for a write that failed, else
 # the stream's exit. PRELUDE, when set, is evaluated in that shell after the library loads, to stub what a case drives;
 # a case sets it for one call and clears it.
@@ -89,8 +89,8 @@ reconcile() {
     RC=0
     # shellcheck disable=SC2016
     OUT="$(env "${HOOKS[@]}" "$@" bash -c 'source "$1" || exit 99; eval "$2"; failed=0
-        ai_tools_assets_reconcile root || failed=1
-        status=0; ai_tools_records_get_exit_status || status=$?
+        ai_tools_assets__reconcile root || failed=1
+        status=0; ai_tools_records_base__get_exit_status || status=$?
         (( failed )) && exit 1; exit "${status}"' _ "${LIB}" "${PRELUDE:-:}" 2>"${TESTDIR}/err")" || RC=$?
     ERR="$(<"${TESTDIR}/err")"
 }
@@ -290,7 +290,7 @@ mkdir -p "${deep}"; asset_signing_seal "${PKG}/acme"
 # shellcheck disable=SC2016  # the $1 to $3 are the inner shell's
 deepest="$(bash -c 'source "$1" 2>/dev/null || exit 99; copy_to="$3"
     find() { command find "$@" | tee -a "${copy_to}"; return "${PIPESTATUS[0]}"; }
-    ai_tools_assets_validate_set "$2" source | cut -f1' _ "${LIB}" "${PKG}/acme" "${TESTDIR}/deep-listing")"
+    ai_tools_assets__validate_set "$2" source | cut -f1' _ "${LIB}" "${PKG}/acme" "${TESTDIR}/deep-listing")"
 listed_depth="$(tr '\0' '\n' < "${TESTDIR}/deep-listing" | awk -F'\t' 'NF == 5 && $4 > max { max = $4 } END { print max + 0 }')"
 if [[ "${deepest}" == file.size && "${listed_depth}" == 33 ]]; then
     pass "a tree 42 levels deep is file.size, and the walk lists no entry past level 33"
@@ -338,7 +338,7 @@ fresh
 asset_signing_build_set "${TESTDIR}" set-without-conf; rm "${TESTDIR}/set-without-conf/set.conf"
 # The source profile, as the publisher's fixture for the rule: a release inventory still listing set.conf is
 # release.inventory as well.
-if [[ "$(bash -c 'source "$1"; ai_tools_assets_validate_set "$2" source' _ "${LIB}" "${TESTDIR}/set-without-conf" | cut -f1 | sort -u)" == set.conf.missing ]]; then
+if [[ "$(bash -c 'source "$1"; ai_tools_assets__validate_set "$2" source' _ "${LIB}" "${TESTDIR}/set-without-conf" | cut -f1 | sort -u)" == set.conf.missing ]]; then
     pass "a set directory without set.conf: set.conf.missing (the resolver does not discover it as a set)"
 else
     fail "a set directory without set.conf is not set.conf.missing alone"
@@ -418,7 +418,7 @@ validate() {
     local -a runner=()
     [[ -n "${3:-}" ]] && runner=( runuser -u "$3" -- )
     # shellcheck disable=SC2016  # the $1, $2 and $3 are the inner shell's
-    "${runner[@]}" bash -c 'source "$1" 2>/dev/null || exit 99; eval "$2"; ai_tools_assets_validate_set "$3" source | cut -f1,3' \
+    "${runner[@]}" bash -c 'source "$1" 2>/dev/null || exit 99; eval "$2"; ai_tools_assets__validate_set "$3" source | cut -f1,3' \
         _ "${LIB}" "$1" "$2" 2>/dev/null || true
 }
 asset_signing_build_set "${TESTDIR}" scan-hit; asset_signing_build_set "${TESTDIR}" scan-clean
@@ -451,8 +451,8 @@ asset_signing_build_set "${TESTDIR}/reader-src" reader
 printf -- '---\nname: reader-pdf\ndescription: A fixture skill.\ncompatibility: Requires python3.\nmetadata:\n  x-key: value\n---\n\nThe body.\n' \
     > "${TESTDIR}/reader-src/reader/skills/reader-pdf/SKILL.md"
 RSKILL=skills/reader-pdf/SKILL.md; RSUB=agents/reader-reviewer.md
-# reader_case <rule|clean> <what> <command> [prelude] : the validator over a fresh copy of the reader set, after
-# <command> ran in its directory and <prelude> in the validator's shell, reports <rule> alone -- or no finding,
+# reader_case <rule|clean> <what> <command> [prelude] : the validator over a fresh copy of the reader set,
+# after <command> ran in its directory and <prelude> in the validator's shell, reports <rule> alone -- or no finding,
 # for `clean`.
 reader_case() {
     local found
@@ -524,7 +524,7 @@ expect_state "${SKILL}" linked "requires_base equal to the installed base"
 # shellcheck disable=SC2016  # the $1 is the inner shell's
 wrong="$(bash -c 'source "$1" 2>/dev/null || exit 99
     while read -r installed required want; do
-        _ai_tools_assets_is_version_at_least "${installed}" "${required}"; got=$?
+        _ai_tools_assets__is_version_at_least "${installed}" "${required}"; got=$?
         [[ "${got}" == "${want}" ]] || printf "%s against %s: %s, want %s; " "${installed}" "${required}" "${got}" "${want}"
     done' _ "${LIB}" <<'PAIRS'
 0.24.0 0.24.0 0
@@ -614,11 +614,11 @@ receivers_unknown() {
     [[ "$(readlink -- "${HOME_DIR}/.acme/skills/acme-pdf")" == "${HOME_DIR}/skills/acme-pdf" ]] \
         && pass "$1: the agent's directory is not changed" || fail "$1: the agent's link was changed"
 }
-fresh; PRELUDE='ai_tools_enabled_agents() { return 2; }'; reconcile; PRELUDE=""
+fresh; PRELUDE='ai_tools_providers__list_enabled_agents() { return 2; }'; reconcile; PRELUDE=""
 receivers_unknown "an enabled-agents reader that exits 2"
-fresh; PRELUDE='ai_tools_enabled_agents() { printf "acme\t@fixture/acme\tacme\n"; return 2; }'; reconcile; PRELUDE=""
+fresh; PRELUDE='ai_tools_providers__list_enabled_agents() { printf "acme\t@fixture/acme\tacme\n"; return 2; }'; reconcile; PRELUDE=""
 receivers_unknown "a reader that prints a row, then exits 2"
-fresh; PRELUDE='ai_tools_installed_agents() { return 2; }'; reconcile; PRELUDE=""
+fresh; PRELUDE='ai_tools_providers__list_installed_agents() { return 2; }'; reconcile; PRELUDE=""
 receivers_unknown "an installed-agents reader that exits 2"
 fresh; chmod 0775 "${AGENTS_D}"; reconcile; chmod 0755 "${AGENTS_D}"
 receivers_unknown "an untrusted manifest directory"
@@ -898,17 +898,17 @@ provision() {
     started="$(date +%s)"; RC=0
     # shellcheck disable=SC2016  # the $1 to $4 are the inner shell's
     env "${HOOKS[@]}" "${@:2}" bash -c 'source "${1%/*}/msg.lib.sh"; source "$1" || exit 99
-        ai_tools_assets_lock || exit 1
-        AI_TOOLS_ASSUME_YES=1 ai_tools_seed_managed_assets "$2" "$3" root skills >/dev/null
+        ai_tools_managed_assets__lock || exit 1
+        AI_TOOLS_ASSUME_YES=1 ai_tools_managed_assets__seed_assets "$2" "$3" root skills >/dev/null
         eval "$4" || exit 2
-        ai_tools_assets_unlock' _ "${LIB}" "${PRISTINE}" "${HOME_DIR}" "$1" >/dev/null 2>&1 || RC=$?
+        ai_tools_managed_assets__unlock' _ "${LIB}" "${PRISTINE}" "${HOME_DIR}" "$1" >/dev/null 2>&1 || RC=$?
     TOOK=$(( $(date +%s) - started ))
 }
 fresh
 ( flock 9; sleep 3 ) 9>>"${LOCK}" &
 holder=$!
 sleep 0.5
-provision 'ai_tools_assets_reconcile root >/dev/null'
+provision 'ai_tools_assets__reconcile root >/dev/null'
 wait "${holder}" || true
 if [[ "${RC}" == 0 && "${TOOK}" -ge 2 && -L "${HOME_DIR}/.acme/skills/ai-tools-seedme" ]]; then
     pass "a seed and a reconcile under the pair wait for a lock another run holds, then run (${TOOK}s)"
@@ -917,7 +917,7 @@ else
 fi
 fresh
 # shellcheck disable=SC2016  # the $1 is the inner shell's
-provision 'bash -c '"'"'source "$1" || exit 99; ai_tools_assets_reconcile root >/dev/null'"'"' _ "$1"' AI_TOOLS_ASSETS_LOCK_WAIT=5
+provision 'bash -c '"'"'source "$1" || exit 99; ai_tools_assets__reconcile root >/dev/null'"'"' _ "$1"' AI_TOOLS_ASSETS_LOCK_WAIT=5
 if [[ "${RC}" == 0 && "${TOOK}" -lt 5 && -L "${HOME_DIR}/.acme/skills/ai-tools-seedme" ]]; then
     pass "a reconcile run as a child of the lock's holder adopts the lock it inherited (${TOOK}s)"
 else
@@ -935,21 +935,21 @@ in_order() {
 for provisioner in install.sh src/usr/local/libexec/ai-tools/ai-tools-bootstrap.sh; do
     if [[ ! -r "${CHECKOUT}/${provisioner}" ]]; then
         skip "${provisioner}" "no checkout holds it"
-    elif in_order "${CHECKOUT}/${provisioner}" ai_tools_assets_lock ai_tools_seed_managed_assets ai_tools_remove_retired_assets \
-            "ai-tools-admin assets reconcile" ai_tools_assets_unlock; then
+    elif in_order "${CHECKOUT}/${provisioner}" ai_tools_managed_assets__lock ai_tools_managed_assets__seed_assets ai_tools_managed_assets__remove_retired_assets \
+            "ai-tools-admin assets reconcile" ai_tools_managed_assets__unlock; then
         pass "${provisioner} holds the lock across the seed, the retire pass and the reconcile"
     else
-        fail "${provisioner} does not take ai_tools_assets_lock before the seed and release it after the reconcile"
+        fail "${provisioner} does not take ai_tools_managed_assets__lock before the seed and release it after the reconcile"
     fi
 done
 if [[ ! -r "${CHECKOUT}/packaging/ai-tools.spec" ]]; then
     skip "packaging/ai-tools.spec" "no checkout holds it"
-elif in_order "${CHECKOUT}/packaging/ai-tools.spec" 'ai_tools_assets_lock || exit 0; for kind' \
-        'ai_tools_seed_managed_assets "$1" /opt/ai-tools ai-tools "${kind}"' 'ai_tools_remove_retired_assets' \
-        '"$2" assets reconcile' ai_tools_assets_unlock; then
+elif in_order "${CHECKOUT}/packaging/ai-tools.spec" 'ai_tools_managed_assets__lock || exit 0; for kind' \
+        'ai_tools_managed_assets__seed_assets "$1" /opt/ai-tools ai-tools "${kind}"' 'ai_tools_managed_assets__remove_retired_assets' \
+        '"$2" assets reconcile' ai_tools_managed_assets__unlock; then
     pass "base's %post holds the lock across the seed, the retire pass and the reconcile, in one bash"
 else
-    fail "base's %post does not hold ai_tools_assets_lock across its seed and its reconcile"
+    fail "base's %post does not hold ai_tools_managed_assets__lock across its seed and its reconcile"
 fi
 
 # ── The per-agent rules ──────────────────────────────────────────────────────────────────────────────────────────────
@@ -1039,8 +1039,8 @@ printf 'tampered\n' >> "${PKG}/acme/README.md"
 snapshot() { find "${HOME_DIR}" -printf '%p %y %l %m %U\n' | LC_ALL=C sort; }
 before="$(snapshot)"
 # shellcheck disable=SC2016
-env "${HOOKS[@]}" bash -c 'source "$1"; ai_tools_assets_plan' _ "${LIB}" >/dev/null 2>&1 || true
-[[ "$(snapshot)" == "${before}" ]] && pass "ai_tools_assets_plan leaves the view and the agents' directories as they are" \
+env "${HOOKS[@]}" bash -c 'source "$1"; ai_tools_assets__plan' _ "${LIB}" >/dev/null 2>&1 || true
+[[ "$(snapshot)" == "${before}" ]] && pass "ai_tools_assets__plan leaves the view and the agents' directories as they are" \
     || fail "the plan changed the tree"
 
 # ── A kind's whole view read outside the agent ───────────────────────────────────────────────────────────────────────
@@ -1140,9 +1140,9 @@ else
     rm -rf "${FIX}/fail/frontmatter.syntax.alias-item" "${FIX}/fail/frontmatter.syntax.unclaimed"
     fixture pass acme expect=pass profile=unsupported; conformance :
     disagrees "a pass fixture under profile=unsupported" acme "profile=unsupported"
-    fixture pass acme expect=pass; conformance 'ai_tools_assets_validate_set() { return 2; }'
+    fixture pass acme expect=pass; conformance 'ai_tools_assets__validate_set() { return 2; }'
     disagrees "a validator that prints nothing and returns 2" acme "status 2"
-    conformance 'ai_tools_assets_validate_set() { printf "kind.shape\tskills/notes.md\tx\n"; return 3; }'
+    conformance 'ai_tools_assets__validate_set() { printf "kind.shape\tskills/notes.md\tx\n"; return 3; }'
     disagrees "the expected finding, then a return of 3" kind.shape "status 3"
     fixture pass acme rule=none; conformance :
     disagrees "a fixture.conf without expect" acme "expect=(absent)"
@@ -1152,19 +1152,19 @@ fi
 section "assets: a managed-copy site skips a symlink"
 fresh
 # shellcheck disable=SC2016
-withdraw_out="$(bash -c 'source "$1"; ai_tools_withdraw_asset "$2" skills acme-pdf "test"; echo "rc=$?"' _ "${MANAGED_LIB}" "${HOME_DIR}" 2>&1)"
+withdraw_out="$(bash -c 'source "$1"; ai_tools_managed_assets__withdraw_asset "$2" skills acme-pdf "test"; echo "rc=$?"' _ "${MANAGED_LIB}" "${HOME_DIR}" 2>&1)"
 if [[ "${withdraw_out}" == *rc=0* && "${withdraw_out}" != *kept* ]] && linked skills/acme-pdf "${PKG}/acme/skills/acme-pdf"; then
-    pass "ai_tools_withdraw_asset returns 0 over a resolver link without a move or a report"
+    pass "ai_tools_managed_assets__withdraw_asset returns 0 over a resolver link without a move or a report"
 else
-    fail "ai_tools_withdraw_asset over a link: ${withdraw_out}"
+    fail "ai_tools_managed_assets__withdraw_asset over a link: ${withdraw_out}"
 fi
 mkdir -p "${TESTDIR}/managed"; printf -- '---\nx-ai-tools-managed: true\n---\n' > "${TESTDIR}/managed/SKILL.md"
 ln -s "${TESTDIR}/managed" "${TESTDIR}/managed-link"
 # shellcheck disable=SC2016
-if bash -c 'source "$1"; _ai_tools_asset_is_stale_copy "$2" "$3"' _ "${MANAGED_LIB}" "${TESTDIR}/managed" "${TESTDIR}/managed-link"; then
-    fail "_ai_tools_asset_is_stale_copy reads a symlink as a stale copy"
+if bash -c 'source "$1"; ai_tools_managed_assets__is_stale_copy "$2" "$3"' _ "${MANAGED_LIB}" "${TESTDIR}/managed" "${TESTDIR}/managed-link"; then
+    fail "ai_tools_managed_assets__is_stale_copy reads a symlink as a stale copy"
 else
-    pass "_ai_tools_asset_is_stale_copy skips a symlink"
+    pass "ai_tools_managed_assets__is_stale_copy skips a symlink"
 fi
 
 finish

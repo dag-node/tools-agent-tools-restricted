@@ -2,38 +2,38 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # /usr/local/lib/ai-tools/managed-assets.lib.sh
 # Seeds the ai-tools-managed shared assets into their shared roots, and links the orientation text and the whole-kind
-# path an agent reads from outside its config directory. The kinds are AI_TOOLS_ASSET_KINDS. Each is seeded ONCE
-# into /opt/ai-tools/<kind>, and every agent whose manifest names a directory for that kind gets a SYMLINK per entry
-# of that root from assets.lib.sh's reconcile, which owns the per-agent links; the orientation text is linked
-# under the filename the agent's manifest names (ai_tools_link_agent_memory); an agent that reads a whole kind from one
-# fixed path outside its config directory (codex's /etc/codex/skills) gets that path pointed at the shared root without
-# displacing what the host holds there (ai_tools_link_shared_root). One file to author and update, however many agents
-# read it. A managed asset is one whose name matches the kind's glob AND whose frontmatter carries
-# `x-ai-tools-managed: true`; the seeder acts only on those, so an asset the operator authored is never claimed
-# or overwritten. Seeded copies are root:SANDBOX_GROUP (files 640, dirs 750): the agent reads and invokes them
-# through the group, which the mode does not give a write. Every run brings a managed asset it keeps back to those,
-# so a copy of the tree that changed an owner or a mode does not leave one the group read is refused on.
+# path an agent reads from outside its config directory. The kinds are AI_TOOLS_MANAGED_ASSETS__KINDS. Each is seeded
+# ONCE into /opt/ai-tools/<kind>, and every agent whose manifest names a directory for that kind gets a SYMLINK
+# per entry of that root from assets.lib.sh's reconcile, which owns the per-agent links; the orientation text is linked
+# under the filename the agent's manifest names (ai_tools_managed_assets__link_agent_memory); an agent that reads
+# a whole kind from one fixed path outside its config directory (codex's /etc/codex/skills) gets that path pointed
+# at the shared root without displacing what the host holds there (ai_tools_managed_assets__link_shared_root). One file
+# to author and update, however many agents read it. A managed asset is one whose name matches the kind's glob
+# AND whose frontmatter carries `x-ai-tools-managed: true`; the seeder acts only on those, so an asset the operator
+# authored is never claimed or overwritten. Seeded copies are root:SANDBOX_GROUP (files 640, dirs 750): the agent reads
+# and invokes them through the group, which the mode does not give a write. Every run brings a managed asset it keeps
+# back to those, so a copy of the tree that changed an owner or a mode does not leave one the group read is refused on.
 # `x-ai-tools-version` is a monotonic integer bumped once per release, and a newer shipped version is what drives
 # the update offer, and `x-ai-tools-integration` ties an asset to an integration's manifest. Sourced (never executed)
 # by install.sh, ai-tools-bootstrap and base's %post, all root, after msg.lib.sh and conf.lib.sh. The placement chain,
 # the versioning scheme, the integration binding and withdrawal are in shipped-assets.rule.md.
 
 # Every writer of the shared roots -- this seeder and the retired-list pass, the assets reconcile (assets.lib.sh),
-# and the `ai-tools-admin assets` verbs -- runs under one lock, the pair ai_tools_assets_lock / ai_tools_assets_unlock
-# defined here, where every provisioning path already sources it. The seeder itself does not take it: its callers hold
-# it across the seed, the retire pass and the reconcile.
+# and the `ai-tools-admin assets` verbs -- runs under one lock, the pair ai_tools_managed_assets__lock /
+# ai_tools_managed_assets__unlock defined here, where every provisioning path already sources it. The seeder itself does
+# not take it: its callers hold it across the seed, the retire pass and the reconcile.
 #
 # Withdrawing an asset needs its own step: the seeder only adds and updates, and the live roots are not rpm-owned,
 # so a name this project stops shipping stays live on an upgraded host until it is named here.
-# `ai_tools_remove_retired_assets` reads this list; the next `ai-tools-admin assets reconcile` drops each agent's
-# now-dangling symlink.
+# `ai_tools_managed_assets__remove_retired_assets` reads this list; the next `ai-tools-admin assets reconcile` drops
+# each agent's now-dangling symlink.
 #
 # Sourced more than once in a single shell: return early so the second pass is a no-op (an if-statement, not
 # `[[ ]] && return`, which returns 1 for an unset guard and trips `set -e`).
-if [[ -n "${_AI_TOOLS_MANAGED_ASSETS_LIB:-}" ]]; then
+if [[ -n "${_AI_TOOLS_MANAGED_ASSETS__LOADED:-}" ]]; then
     return 0
 fi
-readonly _AI_TOOLS_MANAGED_ASSETS_LIB=1
+readonly _AI_TOOLS_MANAGED_ASSETS__LOADED=1
 
 # ── The assets lock ──────────────────────────────────────────────────────────────────────────────────────────────────
 # The lock sits in a directory created 0700 root:root and is created under umask 077, so no other account can open it,
@@ -42,38 +42,38 @@ readonly _AI_TOOLS_MANAGED_ASSETS_LIB=1
 # of AI_TOOLS_ASSETS_BINDINGS_DIR: sudo strips the names, and every consumer runs as root.
 : "${AI_TOOLS_ASSETS_LOCK:=/run/lock/ai-tools/assets.lock}"
 : "${AI_TOOLS_ASSETS_LOCK_WAIT:=120}"
-_AI_TOOLS_ASSETS_LOCK_DEPTH=0
-_AI_TOOLS_ASSETS_LOCK_FD=""
+_AI_TOOLS_MANAGED_ASSETS__LOCK_DEPTH=0
+_AI_TOOLS_MANAGED_ASSETS__LOCK_FD=""
 
-# ai_tools_assets_lock : hold the assets lock until the matching ai_tools_assets_unlock or the end of the calling
-# process. Call it in the calling shell, never through `$(...)`: the lock is an open file descriptor. Reentrant: a call
-# while the lock is held counts a level and returns 0. The descriptor is exported as AI_TOOLS_ASSETS_LOCK_FD, so a child
-# this process runs -- `ai-tools-admin assets reconcile` under a provisioning path -- adopts the descriptor it inherited
-# instead of opening its own, which would wait on its parent: it adopts one only after the descriptor names the lock
-# file, and still takes flock(2) on it, which returns at once when the parent holds the lock. Waits
-# up to AI_TOOLS_ASSETS_LOCK_WAIT seconds (120 when it is not a whole number), then refuses rather than hold a package
-# transaction. Returns 1, after MSG-M8T9 naming why on stderr and in journald, for a directory or a lock file that is
-# a symlink or not root's alone, a create or an open that fails, and a wait that runs out.
-ai_tools_assets_lock() {
+# ai_tools_managed_assets__lock : hold the assets lock until the matching ai_tools_managed_assets__unlock or the end
+# of the calling process. Call it in the calling shell, never through `$(...)`: the lock is an open file descriptor.
+# Reentrant: a call while the lock is held counts a level and returns 0. The descriptor is exported
+# as AI_TOOLS_ASSETS_LOCK_FD, so a child this process runs -- `ai-tools-admin assets reconcile` under a provisioning
+# path -- adopts the descriptor it inherited instead of opening its own, which would wait on its parent: it adopts one
+# only after the descriptor names the lock file, and still takes flock(2) on it, which returns at once when the parent
+# holds the lock. Waits up to AI_TOOLS_ASSETS_LOCK_WAIT seconds (120 when it is not a whole number), then refuses rather
+# than hold a package transaction. Returns 1, after MSG-M8T9 naming why on stderr and in journald, for a directory
+# or a lock file that is a symlink or not root's alone, a create or an open that fails, and a wait that runs out.
+ai_tools_managed_assets__lock() {
     local lock="${AI_TOOLS_ASSETS_LOCK}" dir="${AI_TOOLS_ASSETS_LOCK%/*}" wait="${AI_TOOLS_ASSETS_LOCK_WAIT}" fd=""
     local inherited="${AI_TOOLS_ASSETS_LOCK_FD:-}" error="" adopted=0
-    if (( _AI_TOOLS_ASSETS_LOCK_DEPTH > 0 )); then
-        _AI_TOOLS_ASSETS_LOCK_DEPTH=$(( _AI_TOOLS_ASSETS_LOCK_DEPTH + 1 ))
+    if (( _AI_TOOLS_MANAGED_ASSETS__LOCK_DEPTH > 0 )); then
+        _AI_TOOLS_MANAGED_ASSETS__LOCK_DEPTH=$(( _AI_TOOLS_MANAGED_ASSETS__LOCK_DEPTH + 1 ))
         return 0
     fi
     [[ "${wait}" =~ ^[0-9]+$ ]] || wait=120
     if [[ ! -e "${dir}" && ! -L "${dir}" ]]; then
         install -d -o root -g root -m 0700 -- "${dir}" 2>/dev/null || true
     fi
-    if ! declare -F ai_tools_conf_is_trusted >/dev/null 2>&1; then
+    if ! declare -F ai_tools_conf__is_trusted >/dev/null 2>&1; then
         error="conf.lib.sh is not loaded, so the lock's owner cannot be read"
-    elif ! ai_tools_conf_is_trusted "${dir}" || [[ ! -d "${dir}" ]]; then
-        error="${dir} $(ai_tools_conf_untrusted_reason "${dir}"), or is not a directory"
+    elif ! ai_tools_conf__is_trusted "${dir}" || [[ ! -d "${dir}" ]]; then
+        error="${dir} $(ai_tools_conf__read_untrusted_reason "${dir}"), or is not a directory"
     # Created by a simple command in a subshell holding the umask, so a failed create is a status and not a redirection
     # error on the shell's own exec.
     elif ! ( umask 077; [[ -L "${lock}" ]] || : >> "${lock}" ) 2>/dev/null \
-            || ! ai_tools_conf_is_trusted "${lock}" || [[ ! -f "${lock}" ]]; then
-        error="${lock} $(ai_tools_conf_untrusted_reason "${lock}"), or is not a regular file"
+            || ! ai_tools_conf__is_trusted "${lock}" || [[ ! -f "${lock}" ]]; then
+        error="${lock} $(ai_tools_conf__read_untrusted_reason "${lock}"), or is not a regular file"
     elif [[ "${inherited}" =~ ^[0-9]+$ && -e "/proc/self/fd/${inherited}" ]] \
             && [[ "$(stat -L -c '%d:%i' -- "/proc/self/fd/${inherited}" 2>/dev/null)" == "$(stat -c '%d:%i' -- "${lock}" 2>/dev/null)" ]]; then
         fd="${inherited}"; adopted=1
@@ -85,33 +85,33 @@ ai_tools_assets_lock() {
         error="another run held it for more than ${wait} seconds"
     fi
     if [[ -n "${error}" ]]; then
-        _ai_tools_ma_refuse MSG-M8T9 "the lock ${lock} could not be taken (${error}), so the shared assets were not read or changed"
+        _ai_tools_managed_assets__refuse MSG-M8T9 "the lock ${lock} could not be taken (${error}), so the shared assets were not read or changed"
         return 1
     fi
-    _AI_TOOLS_ASSETS_LOCK_FD="${fd}"
-    _AI_TOOLS_ASSETS_LOCK_DEPTH=1
+    _AI_TOOLS_MANAGED_ASSETS__LOCK_FD="${fd}"
+    _AI_TOOLS_MANAGED_ASSETS__LOCK_DEPTH=1
     export AI_TOOLS_ASSETS_LOCK_FD="${fd}"
 }
 
-# _ai_tools_ma_refuse <code> <message> : a refusal on stderr, the code on its own line ahead of the message (the shape
-# tests/lib/harness.sh's assert_msg reads), and in journald where log.lib.sh is loaded.
-_ai_tools_ma_refuse() {
+# _ai_tools_managed_assets__refuse <code> <message> : a refusal on stderr, the code on its own line ahead of the message
+# (the shape tests/lib/harness.sh's assert_msg reads), and in journald where log.lib.sh is loaded.
+_ai_tools_managed_assets__refuse() {
     printf '%s\nassets: %s\n' "$1" "$2" >&2
-    if declare -F ai_tools_log_coded >/dev/null 2>&1; then
-        ai_tools_log_coded error "$1" "$2"
+    if declare -F ai_tools_log__coded >/dev/null 2>&1; then
+        ai_tools_log__coded error "$1" "$2"
     fi
     return 0
 }
 
-# ai_tools_assets_unlock : release one level of ai_tools_assets_lock; the last closes the descriptor and drops
-# AI_TOOLS_ASSETS_LOCK_FD. Closing a descriptor a child adopted leaves the lock with the parent, which still holds
-# the same open file description. A no-op when the lock is not held.
-ai_tools_assets_unlock() {
-    (( _AI_TOOLS_ASSETS_LOCK_DEPTH > 0 )) || return 0
-    _AI_TOOLS_ASSETS_LOCK_DEPTH=$(( _AI_TOOLS_ASSETS_LOCK_DEPTH - 1 ))
-    (( _AI_TOOLS_ASSETS_LOCK_DEPTH == 0 )) || return 0
-    exec {_AI_TOOLS_ASSETS_LOCK_FD}>&-
-    _AI_TOOLS_ASSETS_LOCK_FD=""
+# ai_tools_managed_assets__unlock : release one level of ai_tools_managed_assets__lock; the last closes the descriptor
+# and drops AI_TOOLS_ASSETS_LOCK_FD. Closing a descriptor a child adopted leaves the lock with the parent, which still
+# holds the same open file description. A no-op when the lock is not held.
+ai_tools_managed_assets__unlock() {
+    (( _AI_TOOLS_MANAGED_ASSETS__LOCK_DEPTH > 0 )) || return 0
+    _AI_TOOLS_MANAGED_ASSETS__LOCK_DEPTH=$(( _AI_TOOLS_MANAGED_ASSETS__LOCK_DEPTH - 1 ))
+    (( _AI_TOOLS_MANAGED_ASSETS__LOCK_DEPTH == 0 )) || return 0
+    exec {_AI_TOOLS_MANAGED_ASSETS__LOCK_FD}>&-
+    _AI_TOOLS_MANAGED_ASSETS__LOCK_FD=""
     unset AI_TOOLS_ASSETS_LOCK_FD
 }
 
@@ -119,7 +119,7 @@ ai_tools_assets_unlock() {
 # messages, so routine seed progress stays unframed. Per-asset status, printed under the directory heading its caller
 # emitted: indented one level further and naming the asset alone, so the listing reads as entries of that directory
 # rather than as a flat list that repeats the directory on every line.
-_ai_tools_ma_say() { printf '      %s\n' "$*"; }
+_ai_tools_managed_assets__say() { printf '      %s\n' "$*"; }
 
 # The asset kinds this project ships: one directory of that name under the pristine root (/usr/share/ai-tools/<kind>)
 # and under the live root (/opt/ai-tools/<kind>). This list is the single declaration of the set. The seeder
@@ -127,30 +127,30 @@ _ai_tools_ma_say() { printf '      %s\n' "$*"; }
 # fails with a reason instead of seeding less than it asked for; a kind added here without a source glob in the seeder
 # fails the same way. control-plane.lib.sh's CP_DIR_MODES carries a mode per kind under these names,
 # and tests/integration/perms.sh asserts each shared root.
-readonly AI_TOOLS_ASSET_KINDS=( skills subagents orientation )
+readonly AI_TOOLS_MANAGED_ASSETS__KINDS=( skills subagents orientation )
 
-# ai_tools_asset_kind_valid <kind>: succeed when <kind> is one this project ships.
-ai_tools_asset_kind_valid() {
+# ai_tools_managed_assets__is_kind_valid <kind>: succeed when <kind> is one this project ships.
+ai_tools_managed_assets__is_kind_valid() {
     local wanted="$1" kind
-    for kind in "${AI_TOOLS_ASSET_KINDS[@]}"; do
+    for kind in "${AI_TOOLS_MANAGED_ASSETS__KINDS[@]}"; do
         [[ "${kind}" == "${wanted}" ]] && return 0
     done
     return 1
 }
 
-# _ai_tools_require_kinds <caller> <kind>...: succeed when every <kind> is shipped and at least one is named; otherwise
-# print the reason on stderr and fail, naming the caller and the list.
-_ai_tools_require_kinds() {
+# _ai_tools_managed_assets__require_kinds <caller> <kind>...: succeed when every <kind> is shipped and at least one is
+# named; otherwise print the reason on stderr and fail, naming the caller and the list.
+_ai_tools_managed_assets__require_kinds() {
     local caller="$1"; shift
     if (( $# == 0 )); then
-        printf '%s: no asset kind named (one of: %s)\n' "${caller}" "${AI_TOOLS_ASSET_KINDS[*]}" >&2
+        printf '%s: no asset kind named (one of: %s)\n' "${caller}" "${AI_TOOLS_MANAGED_ASSETS__KINDS[*]}" >&2
         return 1
     fi
     local kind
     for kind in "$@"; do
-        ai_tools_asset_kind_valid "${kind}" && continue
+        ai_tools_managed_assets__is_kind_valid "${kind}" && continue
         printf '%s: %s is not an asset kind this project ships (one of: %s)\n' \
-            "${caller}" "${kind}" "${AI_TOOLS_ASSET_KINDS[*]}" >&2
+            "${caller}" "${kind}" "${AI_TOOLS_MANAGED_ASSETS__KINDS[*]}" >&2
         return 1
     done
     return 0
@@ -158,7 +158,7 @@ _ai_tools_require_kinds() {
 
 # Assets this project has withdrawn, as `<kind>/<name>` entries. An entry stays listed for as long as a host may still
 # carry it from an older package.
-readonly AI_TOOLS_RETIRED_ASSETS=(
+readonly AI_TOOLS_MANAGED_ASSETS__RETIRED=(
     "skills/ai-tools-docs-reference"
     "skills/ai-tools-docs-usage"
     "skills/ai-tools-docs-comments"
@@ -172,9 +172,9 @@ readonly AI_TOOLS_RETIRED_ASSETS=(
 # sees the previous version's copy of an asset this version withdrew, and without this would report it against a file
 # rpm is about to delete (and seed it, on a host whose live root lacks it) for the withdrawal pass to undo moments
 # later.
-_ai_tools_asset_is_retired() {
+ai_tools_managed_assets__is_retired() {
     local wanted="$1/$2" entry
-    for entry in "${AI_TOOLS_RETIRED_ASSETS[@]}"; do
+    for entry in "${AI_TOOLS_MANAGED_ASSETS__RETIRED[@]}"; do
         [[ "${entry}" == "${wanted}" ]] && return 0
     done
     return 1
@@ -191,18 +191,18 @@ _ai_tools_asset_is_retired() {
 # Print the integer x-ai-tools-version from a managed asset's marker file; empty if absent. Returns 0 either way:
 # the seeder assigns it under `set -e`, where a marker with no version line would otherwise end the run
 # (ref-section-c3u9).
-ai_tools_asset_version() {
+ai_tools_managed_assets__read_asset_version() {
     grep -m1 -E '^x-ai-tools-version:' "$1" 2>/dev/null | grep -oE '[0-9]+' | head -n1 || return 0
 }
 
 # True when the marker file declares this asset ai-tools-managed.
-ai_tools_asset_is_managed() {
+ai_tools_managed_assets__is_managed() {
     grep -qE '^x-ai-tools-managed:[[:space:]]*true[[:space:]]*$' "$1" 2>/dev/null
 }
 
 # Print the integration a managed asset's marker binds it to (`x-ai-tools-integration: <name>`); empty when it is bound
 # to none. Returns 0 either way, since the callers assign it under `set -e` (ref-section-c3u9).
-ai_tools_asset_integration() {
+ai_tools_managed_assets__read_asset_integration() {
     local line
     line="$(grep -m1 -E '^x-ai-tools-integration:' "$1" 2>/dev/null)" || return 0
     line="${line#x-ai-tools-integration:}"
@@ -211,28 +211,29 @@ ai_tools_asset_integration() {
     printf '%s\n' "${line}"
 }
 
-# _ai_tools_integration_installed <name>: succeed when `<dir>/<name>.conf` and `<dir>` pass ai_tools_conf_is_trusted,
-# where <dir> is the integrations directory providers.lib.sh reads (AI_TOOLS_INTEGRATIONS_DIR, root-only). Fails
-# on a name outside the provider charset and when conf.lib.sh is not loaded.
-_ai_tools_integration_installed() {
+# _ai_tools_managed_assets__is_integration_installed <name>: succeed when `<dir>/<name>.conf` and `<dir>` pass
+# ai_tools_conf__is_trusted, where <dir> is the integrations directory providers.lib.sh reads
+# (AI_TOOLS_INTEGRATIONS_DIR, root-only). Fails on a name outside the provider charset and when conf.lib.sh is not
+# loaded.
+_ai_tools_managed_assets__is_integration_installed() {
     local name="$1" dir="${AI_TOOLS_INTEGRATIONS_DIR:-/usr/local/lib/ai-tools/integrations.d}"
     [[ "${name}" =~ ^[a-z][a-z0-9-]*$ ]] || return 1
-    declare -F ai_tools_conf_is_trusted >/dev/null 2>&1 || return 1
-    ai_tools_conf_is_trusted "${dir}" && ai_tools_conf_is_trusted "${dir}/${name}.conf"
+    declare -F ai_tools_conf__is_trusted >/dev/null 2>&1 || return 1
+    ai_tools_conf__is_trusted "${dir}" && ai_tools_conf__is_trusted "${dir}/${name}.conf"
 }
 
-# _ai_tools_own_asset <dst> <group>: bring a live asset to the ownership and modes a seeded copy has -- root:<group>,
-# files 640, directories 750 (the five-digit chmod clears a setgid a directory inherited or a copy carried) --
-# and succeed; fail, without a write, when every entry already holds them, or when a file in the copy has a second hard
-# link, which is reported. A managed asset's ownership is this library's, whatever a copy of the tree gave it,
-# so the seeder applies this to every managed asset it meets and reports the ones it changed.
-_ai_tools_own_asset() {
+# _ai_tools_managed_assets__own_asset <dst> <group>: bring a live asset to the ownership and modes a seeded copy has --
+# root:<group>, files 640, directories 750 (the five-digit chmod clears a setgid a directory inherited or a copy
+# carried) -- and succeed; fail, without a write, when every entry already holds them, or when a file in the copy has
+# a second hard link, which is reported. A managed asset's ownership is this library's, whatever a copy of the tree gave
+# it, so the seeder applies this to every managed asset it meets and reports the ones it changed.
+_ai_tools_managed_assets__own_asset() {
     local dst="$1" group="$2" drift hardlinked
     # chown and chmod act on an inode, which a second name reaches from outside the copy, so a copy holding a file
     # with a second link is reported and left as it is.
     hardlinked="$(find "${dst}" -type f -links +1 -print -quit 2>/dev/null)"
     if [[ -n "${hardlinked}" ]]; then
-        _ai_tools_ma_say "${dst##*/} ownership and modes left as they are (${hardlinked} has a second hard link)"
+        _ai_tools_managed_assets__say "${dst##*/} ownership and modes left as they are (${hardlinked} has a second hard link)"
         return 1
     fi
     drift="$(find "${dst}" \( ! -user root -o ! -group "${group}" -o \( -type d ! -perm 750 \) -o \( -type f ! -perm 640 \) \) -print -quit 2>/dev/null)"
@@ -246,12 +247,12 @@ _ai_tools_own_asset() {
 # Copy one asset from source to live, owned root:<group>, files 640 / dirs 750. A file (agent) installs directly;
 # a directory (skill) is replaced whole so a removed source file cannot linger.
 # $1 src (file|dir)  $2 dst (file|dir)  $3 group
-_ai_tools_place_asset() {
+_ai_tools_managed_assets__place_asset() {
     local src="$1" dst="$2" group="$3"
     if [[ -d "${src}" ]]; then
         rm -rf "${dst}"
         cp -rT "${src}" "${dst}"
-        _ai_tools_own_asset "${dst}" "${group}" || :
+        _ai_tools_managed_assets__own_asset "${dst}" "${group}" || :
     else
         install -o root -g "${group}" -m 640 "${src}" "${dst}"
     fi
@@ -266,12 +267,12 @@ _ai_tools_place_asset() {
 # its target's marker unread: a set's asset the reconcile linked, or the host's. Present + unmanaged (no marker) -> left
 # untouched and logged: it is the operator's own file. An empty directory at a directory asset's name -> seeded,
 # as absent. Present + same-or-older version -> no-op. A WITHDRAWN name -> skipped outright, whatever the source root
-# holds; ai_tools_remove_retired_assets is the only pass that acts on one.
+# holds; ai_tools_managed_assets__remove_retired_assets is the only pass that acts on one.
 # $1 src_root  $2 live_root (resolved by the caller)  $3 group  $4.. kinds, each one of
-# AI_TOOLS_ASSET_KINDS; an empty list or an unknown kind is refused with a reason.
-ai_tools_seed_managed_assets() {
+# AI_TOOLS_MANAGED_ASSETS__KINDS; an empty list or an unknown kind is refused with a reason.
+ai_tools_managed_assets__seed_assets() {
     local src_root="$1" live_root="$2" group="$3"; shift 3
-    _ai_tools_require_kinds ai_tools_seed_managed_assets "$@" || return 1
+    _ai_tools_managed_assets__require_kinds ai_tools_managed_assets__seed_assets "$@" || return 1
     local -a kinds=( "$@" )
     local kind src_glob src marker name dst dst_marker cur new integration
     for kind in "${kinds[@]}"; do
@@ -281,15 +282,15 @@ ai_tools_seed_managed_assets() {
         # subagents are files (ai-tools-*.md), skills are directories (ai-tools-*/). README.md and any non-ai-tools-
         # entry fall outside both globs, so they are never seeded. Orientation is the one kind whose asset has a FIXED
         # name rather than an ai-tools-* one: it is placed under the filename each agent's product reads as its
-        # user-scope instructions (ai_tools_link_agent_memory), so a namespace prefix would only appear in the shared
-        # root. The x-ai-tools-managed marker still decides what may be claimed, so an operator's own file at that name
-        # is kept exactly as for any other kind.
+        # user-scope instructions (ai_tools_managed_assets__link_agent_memory), so a namespace prefix would only appear
+        # in the shared root. The x-ai-tools-managed marker still decides what may be claimed, so an operator's own file
+        # at that name is kept exactly as for any other kind.
         case "${kind}" in
             skills)      src_glob="${src_root}/${kind}/ai-tools-*/"   ;;
             subagents)   src_glob="${src_root}/${kind}/ai-tools-*.md" ;;
             orientation) src_glob="${src_root}/${kind}/AGENTS.md"     ;;
-            *)  # a kind added to AI_TOOLS_ASSET_KINDS without its layout being declared here
-                printf 'ai_tools_seed_managed_assets: no source layout declared for kind %s\n' \
+            *)  # a kind added to AI_TOOLS_MANAGED_ASSETS__KINDS without its layout being declared here
+                printf 'ai_tools_managed_assets__seed_assets: no source layout declared for kind %s\n' \
                     "${kind}" >&2
                 return 1 ;;
         esac
@@ -298,74 +299,74 @@ ai_tools_seed_managed_assets() {
             name="$(basename "${src}")"
             # A withdrawn name is never seeded, whatever the source root happens to hold: only the withdrawal pass acts
             # on it, and it reports what it did.
-            _ai_tools_asset_is_retired "${kind}" "${name}" && continue
+            ai_tools_managed_assets__is_retired "${kind}" "${name}" && continue
             # marker file carries the frontmatter: the agent file itself, or a skill's SKILL.md
             if [[ -d "${src}" ]]; then marker="${src%/}/SKILL.md"; else marker="${src}"; fi
-            if ! ai_tools_asset_is_managed "${marker}"; then
-                _ai_tools_ma_say "${name} skipped (source not ai-tools-managed)"
+            if ! ai_tools_managed_assets__is_managed "${marker}"; then
+                _ai_tools_managed_assets__say "${name} skipped (source not ai-tools-managed)"
                 continue
             fi
             # An asset bound to an integration follows its manifest, whatever the pristine root holds
             # (shipped-assets.rule.md).
-            integration="$(ai_tools_asset_integration "${marker}")"
-            if [[ -n "${integration}" ]] && ! _ai_tools_integration_installed "${integration}"; then
-                _ai_tools_ma_say "${name} skipped (integration ${integration} not installed)"
-                ai_tools_withdraw_asset "${live_root}" "${kind}" "${name}" "integration ${integration} not installed"
+            integration="$(ai_tools_managed_assets__read_asset_integration "${marker}")"
+            if [[ -n "${integration}" ]] && ! _ai_tools_managed_assets__is_integration_installed "${integration}"; then
+                _ai_tools_managed_assets__say "${name} skipped (integration ${integration} not installed)"
+                ai_tools_managed_assets__withdraw_asset "${live_root}" "${kind}" "${name}" "integration ${integration} not installed"
                 continue
             fi
             dst="${live_root}/${kind}/${name}"
             # A link at the name is the assets resolver's (a set's copy of the asset, linked into the view)
             # or the host's, never a seeded copy: its marker is not read through it, and the copy is not placed over it.
             if [[ -L "${dst}" ]]; then
-                _ai_tools_ma_say "${name} skipped (a link stands at the name; the assets reconcile owns it)"
+                _ai_tools_managed_assets__say "${name} skipped (a link stands at the name; the assets reconcile owns it)"
                 continue
             fi
             if [[ -d "${src}" ]]; then dst_marker="${dst}/SKILL.md"; else dst_marker="${dst}"; fi
             # Read the shipped version HERE, not inside the update branch: both branches report it, and a loop variable
             # set only on one path carries the previous asset's value into the other -- which reads as a correct version
             # exactly often enough to look fine.
-            new="$(ai_tools_asset_version "${marker}")"
+            new="$(ai_tools_managed_assets__read_asset_version "${marker}")"
             # An empty directory at a directory asset's name holds nothing an operator wrote, so it is seeded into as if
             # absent. Read as the operator's own, it left the asset missing from every session on every later run, since
             # nothing else ever fills it; a directory holding any entry is still theirs.
             if [[ -d "${src}" && -d "${dst}" && ! -L "${dst}" ]] \
                     && [[ -z "$(find "${dst}" -mindepth 1 -print -quit 2>/dev/null)" ]]; then
-                _ai_tools_place_asset "${src%/}" "${dst}" "${group}"
-                _ai_tools_ma_say "${name} seeded (v${new:-?}) into an empty directory"
+                _ai_tools_managed_assets__place_asset "${src%/}" "${dst}" "${group}"
+                _ai_tools_managed_assets__say "${name} seeded (v${new:-?}) into an empty directory"
                 continue
             fi
             if [[ -e "${dst}" ]]; then
-                if ! ai_tools_asset_is_managed "${dst_marker}"; then
-                    _ai_tools_ma_say "${name} kept (operator's own, not ai-tools-managed)"
+                if ! ai_tools_managed_assets__is_managed "${dst_marker}"; then
+                    _ai_tools_managed_assets__say "${name} kept (operator's own, not ai-tools-managed)"
                     continue
                 fi
-                cur="$(ai_tools_asset_version "${dst_marker}")"
+                cur="$(ai_tools_managed_assets__read_asset_version "${dst_marker}")"
                 if [[ -n "${new}" && -n "${cur}" && "${new}" -gt "${cur}" ]]; then
-                    if ai_tools_msg_confirm "Update ${name} (v${cur} -> v${new})?" y; then
-                        _ai_tools_place_asset "${src%/}" "${dst}" "${group}"
-                        _ai_tools_ma_say "${name} updated (v${cur} -> v${new})"
+                    if ai_tools_msg__confirm "Update ${name} (v${cur} -> v${new})?" y; then
+                        _ai_tools_managed_assets__place_asset "${src%/}" "${dst}" "${group}"
+                        _ai_tools_managed_assets__say "${name} updated (v${cur} -> v${new})"
                         continue
                     fi
-                    _ai_tools_ma_say "${name} kept (v${cur}; v${new} available)"
+                    _ai_tools_managed_assets__say "${name} kept (v${cur}; v${new} available)"
                 else
-                    _ai_tools_ma_say "${name} up to date (v${cur})"
+                    _ai_tools_managed_assets__say "${name} up to date (v${cur})"
                 fi
                 # A managed asset that stays is still this library's to own: a copy of the tree, or an edit made
                 # as root, leaves it at an owner or mode that refuses the group read every session makes.
-                if _ai_tools_own_asset "${dst}" "${group}"; then
-                    _ai_tools_ma_say "${name} ownership and modes restored (root:${group}, 640/750)"
+                if _ai_tools_managed_assets__own_asset "${dst}" "${group}"; then
+                    _ai_tools_managed_assets__say "${name} ownership and modes restored (root:${group}, 640/750)"
                 fi
             else
-                _ai_tools_place_asset "${src%/}" "${dst}" "${group}"
-                _ai_tools_ma_say "${name} seeded (v${new:-?})"
+                _ai_tools_managed_assets__place_asset "${src%/}" "${dst}" "${group}"
+                _ai_tools_managed_assets__say "${name} seeded (v${new:-?})"
             fi
         done
     done
 }
 
-# ai_tools_remove_retired_assets <live_root> [kinds...] Withdraw the assets in AI_TOOLS_RETIRED_ASSETS from a live
-# shared root, so a host upgraded from a package that still shipped them stops offering them. Restricted to the named
-# kinds when given.
+# ai_tools_managed_assets__remove_retired_assets <live_root> [kinds...] Withdraw the assets
+# in AI_TOOLS_MANAGED_ASSETS__RETIRED from a live shared root, so a host upgraded from a package that still shipped them
+# stops offering them. Restricted to the named kinds when given.
 #
 # Withdrawal requires the x-ai-tools-managed marker, so an asset the operator authored under the same name is kept
 # and reported -- the same predicate the seeder uses to decide what it may claim. Each agent's symlink is left
@@ -387,17 +388,17 @@ ai_tools_seed_managed_assets() {
 # Fails toward keeping: an asset whose copy cannot be made is left in place and reported, so a withdrawal never destroys
 # what it could not first preserve.
 # $1 live_root  $2.. kinds (default: every kind named in the list); a named kind must be one of
-# AI_TOOLS_ASSET_KINDS, and so must the kind of every retired entry, or the pass refuses.
-ai_tools_remove_retired_assets() {
+# AI_TOOLS_MANAGED_ASSETS__KINDS, and so must the kind of every retired entry, or the pass refuses.
+ai_tools_managed_assets__remove_retired_assets() {
     local live_root="$1"; shift
     local -a kinds=( "$@" )
     if (( ${#kinds[@]} )); then
-        _ai_tools_require_kinds ai_tools_remove_retired_assets "${kinds[@]}" || return 1
+        _ai_tools_managed_assets__require_kinds ai_tools_managed_assets__remove_retired_assets "${kinds[@]}" || return 1
     fi
     local entry kind name
-    for entry in "${AI_TOOLS_RETIRED_ASSETS[@]}"; do
+    for entry in "${AI_TOOLS_MANAGED_ASSETS__RETIRED[@]}"; do
         kind="${entry%%/*}"; name="${entry#*/}"
-        _ai_tools_require_kinds "ai_tools_remove_retired_assets (AI_TOOLS_RETIRED_ASSETS: ${entry})" \
+        _ai_tools_managed_assets__require_kinds "ai_tools_managed_assets__remove_retired_assets (AI_TOOLS_MANAGED_ASSETS__RETIRED: ${entry})" \
             "${kind}" || return 1
         if (( ${#kinds[@]} )); then
             local wanted match=0
@@ -406,46 +407,47 @@ ai_tools_remove_retired_assets() {
             done
             (( match )) || continue
         fi
-        ai_tools_withdraw_asset "${live_root}" "${kind}" "${name}" "no longer shipped"
+        ai_tools_managed_assets__withdraw_asset "${live_root}" "${kind}" "${name}" "no longer shipped"
     done
 }
 
-# ai_tools_withdraw_asset <live_root> <kind> <name> [reason] Move ONE live asset aside into <live_root>/retired,
-# under the same marker gate and the same fail-toward-keeping rule as the retired-list pass, which calls this per entry.
-# The other caller is a provider package's final erase: a package that ships a skill withdraws it here, since
-# the retired list names what the PROJECT dropped and a package removal is not that. An absent asset returns 0 without
-# a move, and so does a symlink: the entry is the assets resolver's view link, not a copy, and is never followed to read
-# a marker. The reason is printed with the outcome ("no longer shipped", "package removed").
-ai_tools_withdraw_asset() {
+# ai_tools_managed_assets__withdraw_asset <live_root> <kind> <name> [reason] Move ONE live asset aside
+# into <live_root>/retired, under the same marker gate and the same fail-toward-keeping rule as the retired-list pass,
+# which calls this per entry. The other caller is a provider package's final erase: a package that ships a skill
+# withdraws it here, since the retired list names what the PROJECT dropped and a package removal is not that. An absent
+# asset returns 0 without a move, and so does a symlink: the entry is the assets resolver's view link, not a copy,
+# and is never followed to read a marker. The reason is printed with the outcome ("no longer shipped", "package
+# removed").
+ai_tools_managed_assets__withdraw_asset() {
     local live_root="$1" kind="$2" name="$3" reason="${4:-no longer shipped}"
     local path="${live_root}/${kind}/${name}" marker retired_dir target
     [[ -e "${path}" && ! -L "${path}" ]] || return 0
     marker="${path}"; [[ -d "${path}" ]] && marker="${path}/SKILL.md"
-    if ! ai_tools_asset_is_managed "${marker}"; then
-        _ai_tools_ma_say "${name} kept (operator's own, not ai-tools-managed)"
+    if ! ai_tools_managed_assets__is_managed "${marker}"; then
+        _ai_tools_managed_assets__say "${name} kept (operator's own, not ai-tools-managed)"
         return 0
     fi
     retired_dir="${live_root}/retired"
-    if ! declare -F ai_tools_conf_sidecar_path >/dev/null 2>&1 \
+    if ! declare -F ai_tools_conf__find_sidecar_path >/dev/null 2>&1 \
        || ! install -d -o root -g root -m 700 "${retired_dir}" 2>/dev/null \
-       || ! target="$(ai_tools_conf_sidecar_path "${retired_dir}/${name}" retired)" \
+       || ! target="$(ai_tools_conf__find_sidecar_path "${retired_dir}/${name}" retired)" \
        || ! mv "${path}" "${target}" 2>/dev/null; then
-        _ai_tools_ma_say "${name} kept (${reason}, and could not be moved aside)"
+        _ai_tools_managed_assets__say "${name} kept (${reason}, and could not be moved aside)"
         return 0
     fi
-    _ai_tools_ma_say "${name} withdrawn (${reason}); kept as retired/${target##*/}"
+    _ai_tools_managed_assets__say "${name} withdrawn (${reason}); kept as retired/${target##*/}"
 }
 
-# _ai_tools_asset_is_stale_copy <shared> <live> : true when <live> is a copy this project placed under the pre-shared
-# layout and is byte-identical to <shared> -- i.e. replacing it with a link does not discard content. Requires BOTH
-# the ai-tools-managed marker (so an operator's own asset is never touched) and identical content (so an edited
-# or drifted copy is never discarded). Without the comparison tools it answers false, keeping the copy. A symlink
-# at <live> is not a copy and answers false before the comparison.
-_ai_tools_asset_is_stale_copy() {
+# ai_tools_managed_assets__is_stale_copy <shared> <live> : true when <live> is a copy this project placed
+# under the pre-shared layout and is byte-identical to <shared> -- i.e. replacing it with a link does not discard
+# content. Requires BOTH the ai-tools-managed marker (so an operator's own asset is never touched) and identical content
+# (so an edited or drifted copy is never discarded). Without the comparison tools it answers false, keeping the copy.
+# A symlink at <live> is not a copy and answers false before the comparison.
+ai_tools_managed_assets__is_stale_copy() {
     local shared="$1" live="$2" marker="$2"
     [[ ! -L "${live}" ]] || return 1
     [[ -d "${live}" ]] && marker="${live}/SKILL.md"
-    ai_tools_asset_is_managed "${marker}" || return 1
+    ai_tools_managed_assets__is_managed "${marker}" || return 1
     if [[ -d "${shared}" && -d "${live}" ]]; then
         command -v diff >/dev/null 2>&1 || return 1
         diff -rq "${shared}" "${live}" >/dev/null 2>&1
@@ -456,11 +458,11 @@ _ai_tools_asset_is_stale_copy() {
     fi
 }
 
-# ai_tools_link_agent_memory <shared_file> <agent_dir> <memory_file> <group> Point an agent at the shared orientation
-# text under the filename its own product reads as user-scope instructions -- CLAUDE.md for Claude Code, AGENTS.md
-# for a product that follows that spelling -- so one file is authored and every agent loads it in every session,
-# whatever the project. The name comes from the agent manifest (memory_file), which is why this links under a name
-# that differs from the source's; the per-asset links keep each asset's own name.
+# ai_tools_managed_assets__link_agent_memory <shared_file> <agent_dir> <memory_file> <group> Point an agent
+# at the shared orientation text under the filename its own product reads as user-scope instructions -- CLAUDE.md
+# for Claude Code, AGENTS.md for a product that follows that spelling -- so one file is authored and every agent loads
+# it in every session, whatever the project. The name comes from the agent manifest (memory_file), which is why this
+# links under a name that differs from the source's; the per-asset links keep each asset's own name.
 #
 # Non-displacing on the same rule as the per-asset links: a link already pointing at the shared file is left alone,
 # a stale one is repointed, and anything REAL is kept and reported -- an operator who writes their own instructions
@@ -468,7 +470,7 @@ _ai_tools_asset_is_stale_copy() {
 # ai-tools-managed and byte-identical to the shared one is this project's own copy (a tree copied with its links
 # dereferenced leaves one), so it becomes the link with no content lost. Root-owned inside the agent's setgid+sticky
 # config directory, so the session reads it and cannot repoint it at a file of its own choosing.
-ai_tools_link_agent_memory() {
+ai_tools_managed_assets__link_agent_memory() {
     local shared_file="$1" agent_dir="$2" memory_file="$3" group="$4"
     [[ -f "${shared_file}" && -d "${agent_dir}" && -n "${memory_file}" ]] || return 0
     local dst="${agent_dir}/${memory_file}"
@@ -477,29 +479,29 @@ ai_tools_link_agent_memory() {
             return 0
         fi
         ln -sfn "${shared_file}" "${dst}"
-        _ai_tools_ma_say "${memory_file} link repointed at ${shared_file}"
+        _ai_tools_managed_assets__say "${memory_file} link repointed at ${shared_file}"
     elif [[ -e "${dst}" ]]; then
-        if [[ -f "${dst}" ]] && _ai_tools_asset_is_stale_copy "${shared_file}" "${dst}"; then
+        if [[ -f "${dst}" ]] && ai_tools_managed_assets__is_stale_copy "${shared_file}" "${dst}"; then
             rm -f "${dst}"
             ln -s "${shared_file}" "${dst}"
-            _ai_tools_ma_say "${memory_file} converted to a link (was an identical managed copy)"
+            _ai_tools_managed_assets__say "${memory_file} converted to a link (was an identical managed copy)"
         else
-            _ai_tools_ma_say "${memory_file} kept (a real entry here wins over the shared one)"
+            _ai_tools_managed_assets__say "${memory_file} kept (a real entry here wins over the shared one)"
             return 0
         fi
     else
         ln -s "${shared_file}" "${dst}"
-        _ai_tools_ma_say "${memory_file} linked -> ${shared_file}"
+        _ai_tools_managed_assets__say "${memory_file} linked -> ${shared_file}"
     fi
     chown -h "root:${group}" "${dst}" 2>/dev/null || :
     restorecon "${dst}" >/dev/null 2>&1 || :
     return 0
 }
 
-# ai_tools_link_asset_readme <readme_source> <target_dir> <group> Point <target_dir>/README.md at the shipped guide
-# for that asset kind, so the documentation is found where the assets are rather than only in the datadir. A link, never
-# a copy, so there is one file to keep current. Silent no-op when either end is absent.
-ai_tools_link_asset_readme() {
+# ai_tools_managed_assets__link_asset_readme <readme_source> <target_dir> <group> Point <target_dir>/README.md
+# at the shipped guide for that asset kind, so the documentation is found where the assets are rather than only
+# in the datadir. A link, never a copy, so there is one file to keep current. Silent no-op when either end is absent.
+ai_tools_managed_assets__link_asset_readme() {
     local readme_source="$1" target_dir="$2" group="$3"
     [[ -n "${readme_source}" && -e "${readme_source}" && -d "${target_dir}" ]] || return 0
     ln -sfn "${readme_source}" "${target_dir}/README.md"
@@ -507,10 +509,10 @@ ai_tools_link_asset_readme() {
     return 0
 }
 
-# ai_tools_link_shared_root <shared_root> <path> <group> [readme_source] Point a path an agent reads a whole asset kind
-# from -- one fixed path outside its config directory, such as codex's admin-scope skills directory /etc/codex/skills --
-# at the shared root, without displacing what the host holds there. The path's state decides, and every state
-# but the first leaves what the host placed exactly as it was:
+# ai_tools_managed_assets__link_shared_root <shared_root> <path> <group> [readme_source] Point a path an agent reads
+# a whole asset kind from -- one fixed path outside its config directory, such as codex's admin-scope skills directory
+# /etc/codex/skills -- at the shared root, without displacing what the host holds there. The path's state decides,
+# and every state but the first leaves what the host placed exactly as it was:
 #   * absent                                  -> a symlink to the shared root, reported as created
 #   * a symlink to the shared root            -> managed; current, left alone
 #   * a symlink anywhere else                 -> the host's; left alone and reported, no link placed
@@ -526,7 +528,7 @@ ai_tools_link_asset_readme() {
 # repoint one; the directory's own owner, mode and label are never rewritten -- a relabel covers the links this run
 # placed and no other entry -- which is what lets an unprivileged caller drive every state (the unit test)
 # and what keeps a host-owned directory the host's.
-ai_tools_link_shared_root() {
+ai_tools_managed_assets__link_shared_root() {
     local shared_root="$1" path="$2" group="$3" readme_source="${4:-}"
     local name="${path##*/}" target src entry dst
     local -a placed=()
@@ -534,14 +536,14 @@ ai_tools_link_shared_root() {
     if [[ -L "${path}" ]]; then
         target="$(readlink -- "${path}")"
         if [[ "${target}" == "${shared_root}" ]]; then
-            _ai_tools_ma_say "${name} current (a link to ${shared_root})"
+            _ai_tools_managed_assets__say "${name} current (a link to ${shared_root})"
         else
-            _ai_tools_ma_say "${name} kept (the host's own link to ${target}; the shared assets are not linked)"
+            _ai_tools_managed_assets__say "${name} kept (the host's own link to ${target}; the shared assets are not linked)"
         fi
         return 0
     fi
     if [[ -d "${path}" ]]; then
-        _ai_tools_ma_say "${name} is the host's own directory: kept, the shared assets linked into it"
+        _ai_tools_managed_assets__say "${name} is the host's own directory: kept, the shared assets linked into it"
         for src in "${shared_root}"/*; do
             [[ -e "${src}" ]] || continue                # no matches -> literal pattern, skip
             entry="${src##*/}"
@@ -552,14 +554,14 @@ ai_tools_link_shared_root() {
                 if [[ "${target}" == "${src}" ]]; then
                     continue
                 fi
-                _ai_tools_ma_say "${entry} kept (the host's own link to ${target})"
+                _ai_tools_managed_assets__say "${entry} kept (the host's own link to ${target})"
             elif [[ -e "${dst}" ]]; then
-                _ai_tools_ma_say "${entry} kept (a real entry here wins over the shared one)"
+                _ai_tools_managed_assets__say "${entry} kept (a real entry here wins over the shared one)"
             else
                 ln -s "${src}" "${dst}"
                 chown -h "root:${group}" "${dst}" 2>/dev/null || :
                 placed+=( "${dst}" )
-                _ai_tools_ma_say "${entry} linked -> ${src}"
+                _ai_tools_managed_assets__say "${entry} linked -> ${src}"
             fi
         done
         # A link into the shared root whose asset no longer ships is managed and dangling: drop it, as the per-agent
@@ -569,7 +571,7 @@ ai_tools_link_shared_root() {
             target="$(readlink -- "${dst}")"
             [[ "${target}" == "${shared_root}/"* && ! -e "${target}" ]] || continue
             rm -f "${dst}"
-            _ai_tools_ma_say "${dst##*/} link removed (no longer shipped)"
+            _ai_tools_managed_assets__say "${dst##*/} link removed (no longer shipped)"
         done
         if [[ -n "${readme_source}" && -e "${readme_source}" && ! -e "${path}/README.md" && ! -L "${path}/README.md" ]]; then
             ln -s "${readme_source}" "${path}/README.md"
@@ -585,32 +587,33 @@ ai_tools_link_shared_root() {
         return 0
     fi
     if [[ -e "${path}" ]]; then
-        _ai_tools_ma_say "${name} kept (a file here wins; the shared assets are not linked)"
+        _ai_tools_managed_assets__say "${name} kept (a file here wins; the shared assets are not linked)"
         return 0
     fi
     if [[ ! -d "${path%/*}" ]]; then
-        _ai_tools_ma_say "${name} not linked (${path%/*} is absent)"
+        _ai_tools_managed_assets__say "${name} not linked (${path%/*} is absent)"
         return 0
     fi
     ln -s "${shared_root}" "${path}"
     chown -h "root:${group}" "${path}" 2>/dev/null || :
     restorecon "${path}" >/dev/null 2>&1 || :
-    _ai_tools_ma_say "${name} linked -> ${shared_root}"
+    _ai_tools_managed_assets__say "${name} linked -> ${shared_root}"
     return 0
 }
 
-# ai_tools_unlink_shared_root <shared_root> <path> [readme_source] Reverse ai_tools_link_shared_root for a package being
-# erased: remove the path when it is the managed link to the shared root, and remove the managed links INTO it (and
-# the README link at the source given) from a host-owned directory there, leaving the directory and everything else
-# in it. A link elsewhere, a real entry, and the directory itself are the host's and are not touched. Reports each
+# ai_tools_managed_assets__unlink_shared_root <shared_root> <path> [readme_source] Reverse
+# ai_tools_managed_assets__link_shared_root for a package being erased: remove the path when it is the managed link
+# to the shared root, and remove the managed links INTO it (and the README link at the source given) from a host-owned
+# directory there, leaving the directory and everything else in it. A link elsewhere, a real entry, and the directory
+# itself are the host's and are not touched. Reports each
 # removal.
-ai_tools_unlink_shared_root() {
+ai_tools_managed_assets__unlink_shared_root() {
     local shared_root="$1" path="$2" readme_source="${3:-}" name="${2##*/}" target dst
     if [[ -L "${path}" ]]; then
         target="$(readlink -- "${path}")"
         if [[ "${target}" == "${shared_root}" ]]; then
             rm -f "${path}"
-            _ai_tools_ma_say "${name} link removed"
+            _ai_tools_managed_assets__say "${name} link removed"
         fi
         return 0
     fi
@@ -621,7 +624,7 @@ ai_tools_unlink_shared_root() {
         if [[ "${target}" == "${shared_root}/"* ]] \
                 || [[ -n "${readme_source}" && "${dst##*/}" == README.md && "${target}" == "${readme_source}" ]]; then
             rm -f "${dst}"
-            _ai_tools_ma_say "${dst##*/} link removed"
+            _ai_tools_managed_assets__say "${dst##*/} link removed"
         fi
     done
     return 0

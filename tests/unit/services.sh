@@ -4,7 +4,7 @@
 # Unit test for the service-health registry (services.lib.sh), the single source shared by
 # ai-tools.status and the launch wrapper's pre-launch health warning. Pins:
 #   * the '|'-delimited record accessor and the registry shape;
-#   * ai_tools_service_state's active/down/failed/stale/absent/unknown mapping, including that a
+#   * ai_tools_services__read_state's active/down/failed/stale/absent/unknown mapping, including that a
 #     sandbox-user unit is never queried through systemctl -- it reports from its last-run stamp,
 #     or 'unknown' when it publishes none, and 'absent' when its unit file is not installed at all
 #     (the one live fact about that account's manager this vantage point can read, and the
@@ -20,12 +20,12 @@
 #     not alarm (needs_attention says no, so ai-tools.status stays green and exits zero) and must not
 #     claim health either, so it stays distinct from active, still ages into 'stale' when the
 #     condition persists, and leaves the TRIGGER's own verdict untouched in 'fired' mode;
-#   * ai_tools_service_stamp_field's defensive read of that stamp. It is the one input here a
+#   * ai_tools_services__read_stamp_field's defensive read of that stamp. It is the one input here a
 #     non-root writer controls (the sandbox account writes it) and it is rendered to the operator's
 #     terminal, so each way a hostile or corrupt value could reach that terminal -- a symlinked
 #     stamp, a control byte or escape sequence in a value, an over-long or unanchored line -- must
 #     read as NO value, which in turn degrades the unit to 'unknown' rather than to a wrong verdict;
-#   * ai_tools_services_scan's filters -- crucially that the 'wrapper' filter EXCLUDES the handback
+#   * ai_tools_services__scan's filters -- crucially that the 'wrapper' filter EXCLUDES the handback
 #     socket (preflight=shim, warned by ai-tools-run), so the wrapper never double-warns it, and
 #     that each reported record still carries its remedy command or the empty remedy whose commands
 #     the consumer composes.
@@ -48,10 +48,10 @@ if [[ ! -r "${LIB}" ]]; then
 fi
 # shellcheck source=/dev/null
 if ! source "${LIB}" \
-        || ! declare -F ai_tools_service_field >/dev/null 2>&1 \
-        || ! declare -F ai_tools_service_state >/dev/null 2>&1 \
-        || ! declare -F ai_tools_service_stamp_field >/dev/null 2>&1 \
-        || ! declare -F ai_tools_services_scan >/dev/null 2>&1; then
+        || ! declare -F ai_tools_services__get_field >/dev/null 2>&1 \
+        || ! declare -F ai_tools_services__read_state >/dev/null 2>&1 \
+        || ! declare -F ai_tools_services__read_stamp_field >/dev/null 2>&1 \
+        || ! declare -F ai_tools_services__scan >/dev/null 2>&1; then
     fail "could not source ${LIB} or it does not define its functions"; finish; exit
 fi
 mktestdir
@@ -73,25 +73,25 @@ user_unit nvm-update.service
 
 # --- (A) the accessor splits a record on '|' ---
 rec="unit-x|system|critical|wrapper|because reasons|sudo fix it|/var/tmp/stamp"
-if [[ "$(ai_tools_service_field "${rec}" 1)" == "unit-x" \
-   && "$(ai_tools_service_field "${rec}" 4)" == "wrapper" \
-   && "$(ai_tools_service_field "${rec}" 6)" == "sudo fix it" \
-   && "$(ai_tools_service_field "${rec}" 7)" == "/var/tmp/stamp" ]]; then
-    pass "ai_tools_service_field returns the 1st/4th/6th/7th '|' fields"
+if [[ "$(ai_tools_services__get_field "${rec}" 1)" == "unit-x" \
+   && "$(ai_tools_services__get_field "${rec}" 4)" == "wrapper" \
+   && "$(ai_tools_services__get_field "${rec}" 6)" == "sudo fix it" \
+   && "$(ai_tools_services__get_field "${rec}" 7)" == "/var/tmp/stamp" ]]; then
+    pass "ai_tools_services__get_field returns the 1st/4th/6th/7th '|' fields"
 else
-    fail "field accessor wrong: 1=$(ai_tools_service_field "${rec}" 1) 4=$(ai_tools_service_field "${rec}" 4) 6=$(ai_tools_service_field "${rec}" 6) 7=$(ai_tools_service_field "${rec}" 7)"
+    fail "field accessor wrong: 1=$(ai_tools_services__get_field "${rec}" 1) 4=$(ai_tools_services__get_field "${rec}" 4) 6=$(ai_tools_services__get_field "${rec}" 6) 7=$(ai_tools_services__get_field "${rec}" 7)"
 fi
 
 # A record that omits the trailing stamp field yields the empty string, not an unbound-variable abort -- the state
 # resolver keys on that emptiness to mean "does not publish a stamp".
-if [[ -z "$(ai_tools_service_field "unit-y|system|critical|none|why|how" 7)" ]]; then
+if [[ -z "$(ai_tools_services__get_field "unit-y|system|critical|none|why|how" 7)" ]]; then
     pass "an absent trailing field reads as empty"
 else
     fail "an absent trailing field did not read as empty"
 fi
 
 # The four known units are registered.
-recs="$(ai_tools_service_records)"
+recs="$(ai_tools_services__list_records)"
 if grep -q 'ai-tools-handback.socket' <<<"${recs}" \
    && grep -q 'ai-tools-relabel.path' <<<"${recs}" \
    && grep -q 'nvm-update.timer' <<<"${recs}" \
@@ -104,10 +104,10 @@ fi
 # The update service's stamp path is the one the updater writes; a drift between the two would leave ai-tools.status
 # permanently reporting 'unknown' with no reason to say why.
 svc_rec="$(grep '^nvm-update\.service|' <<<"${recs}")"
-if [[ "$(ai_tools_service_field "${svc_rec}" 7)" == /var/opt/ai-tools/state/nvm-update.status ]]; then
+if [[ "$(ai_tools_services__get_field "${svc_rec}" 7)" == /var/opt/ai-tools/state/nvm-update.status ]]; then
     pass "nvm-update.service names the updater's stamp path"
 else
-    fail "nvm-update.service stamp path wrong: $(ai_tools_service_field "${svc_rec}" 7)"
+    fail "nvm-update.service stamp path wrong: $(ai_tools_services__get_field "${svc_rec}" 7)"
 fi
 
 # --- systemctl stub: a function overrides the external command for the whole test. State per unit
@@ -139,10 +139,10 @@ systemctl() {
 
 # --- (B) state mapping ---
 _SVC_STATE=( [ai-tools-handback.socket]=active [ai-tools-relabel.path]=down )
-st_socket="$(ai_tools_service_state ai-tools-handback.socket system)"
-st_relabel="$(ai_tools_service_state ai-tools-relabel.path system)"
-st_absent="$(ai_tools_service_state some-uninstalled.service system)"
-st_timer="$(ai_tools_service_state nvm-update.timer sandbox-user)"
+st_socket="$(ai_tools_services__read_state ai-tools-handback.socket system)"
+st_relabel="$(ai_tools_services__read_state ai-tools-relabel.path system)"
+st_absent="$(ai_tools_services__read_state some-uninstalled.service system)"
+st_timer="$(ai_tools_services__read_state nvm-update.timer sandbox-user)"
 if [[ "${st_socket}" == active && "${st_relabel}" == down \
    && "${st_absent}" == absent && "${st_timer}" == unknown ]]; then
     pass "state maps active/down/absent, and a stampless sandbox-user unit is 'unknown'"
@@ -159,7 +159,7 @@ ONESHOT=ai-tools-relabel.service
 _SVC_STATE=( [${ONESHOT}]=down )
 
 _SVC_PROP=( [${ONESHOT}|Type]=oneshot )
-st_never="$(ai_tools_service_state "${ONESHOT}" system)"
+st_never="$(ai_tools_services__read_state "${ONESHOT}" system)"
 if [[ "${st_never}" == unknown ]]; then
     pass "a oneshot that has never run is 'unknown', not an OK it has not earned"
 else
@@ -168,7 +168,7 @@ fi
 
 _SVC_PROP=( [${ONESHOT}|Type]=oneshot [${ONESHOT}|ExecMainStartTimestamp]="Tue 2026-08-25 19:49:22 CEST"
             [${ONESHOT}|Result]=success )
-st_ok="$(ai_tools_service_state "${ONESHOT}" system)"
+st_ok="$(ai_tools_services__read_state "${ONESHOT}" system)"
 if [[ "${st_ok}" == active ]]; then
     pass "a oneshot whose last run succeeded is OK though it is not running"
 else
@@ -177,8 +177,8 @@ fi
 
 _SVC_PROP=( [${ONESHOT}|Type]=oneshot [${ONESHOT}|ExecMainStartTimestamp]="Tue 2026-08-25 19:49:22 CEST"
             [${ONESHOT}|Result]=exit-code )
-st_failed="$(ai_tools_service_state "${ONESHOT}" system)"
-if [[ "${st_failed}" == failed ]] && ai_tools_service_needs_attention "${st_failed}"; then
+st_failed="$(ai_tools_services__read_state "${ONESHOT}" system)"
+if [[ "${st_failed}" == failed ]] && ai_tools_services__is_attention_needed "${st_failed}"; then
     pass "a oneshot whose last run failed is FAILED and needs attention"
 else
     fail "a failed oneshot read as '${st_failed}' (needs_attention decides the exit status)"
@@ -188,7 +188,7 @@ fi
 # judged.
 _SVC_STATE=( [ai-tools-relabel.path]=active )
 _SVC_PROP=()
-if [[ "$(ai_tools_service_state ai-tools-relabel.path system)" == active ]]; then
+if [[ "$(ai_tools_services__read_state ai-tools-relabel.path system)" == active ]]; then
     pass "a unit with no Type is still judged by is-active"
 else
     fail "a non-service unit was judged as a oneshot"
@@ -199,11 +199,11 @@ fi
 # that both re-runs the work and clears what the report reads.
 relabel_rec=""
 while IFS= read -r rec; do
-    [[ "$(ai_tools_service_field "${rec}" 1)" == "${ONESHOT}" ]] && relabel_rec="${rec}"
-done < <(ai_tools_service_records)
+    [[ "$(ai_tools_services__get_field "${rec}" 1)" == "${ONESHOT}" ]] && relabel_rec="${rec}"
+done < <(ai_tools_services__list_records)
 if [[ -n "${relabel_rec}" \
-      && "$(ai_tools_service_field "${relabel_rec}" 6)" == "sudo systemctl start ${ONESHOT}" \
-      && "$(ai_tools_service_field "${relabel_rec}" 4)" == none ]]; then
+      && "$(ai_tools_services__get_field "${relabel_rec}" 6)" == "sudo systemctl start ${ONESHOT}" \
+      && "$(ai_tools_services__get_field "${relabel_rec}" 4)" == none ]]; then
     pass "ai-tools-relabel.service is registered, with a remedy that clears its recorded result"
 else
     fail "ai-tools-relabel.service registry entry missing or wrong: ${relabel_rec:-<absent>}"
@@ -214,7 +214,7 @@ fi
 _SVC_PROP=( [${ONESHOT}|Type]=oneshot [${ONESHOT}|ExecMainStartTimestamp]="Tue 2026-08-25 19:49:22 CEST"
             [${ONESHOT}|Result]=exit-code )
 _SVC_STATE=( [${ONESHOT}]=down )
-if ai_tools_services_scan wrapper; then
+if ai_tools_services__scan wrapper; then
     fail "the wrapper filter selected the relabel service (preflight=none should exclude it)"
 else
     pass "the wrapper does not warn about the relabel service the .path already covers"
@@ -224,7 +224,7 @@ _SVC_PROP=(); _SVC_STATE=()
 # A sandbox-user unit is never queried through systemctl -- that account's bus is unreachable from here, so a stub
 # reporting it 'active' must not be able to leak into the verdict.
 _SVC_STATE=( [nvm-update.service]=active )
-if [[ "$(ai_tools_service_state nvm-update.service sandbox-user)" == unknown ]]; then
+if [[ "$(ai_tools_services__read_state nvm-update.service sandbox-user)" == unknown ]]; then
     pass "a sandbox-user unit ignores systemctl entirely (no stamp -> unknown)"
 else
     fail "a sandbox-user unit was resolved through systemctl"
@@ -239,19 +239,19 @@ mk_stamp() { printf '%s\n' "$@" > "${STAMP}"; }
 # against a FRESH stamp, because absence has to beat one an uninstall left behind -- the unit is gone whatever the file
 # still says about its last run.
 mk_stamp 'RESULT=ok' "FINISHED=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-if [[ "$(ai_tools_service_state not-installed.timer sandbox-user "${STAMP}" fired 172800)" == absent \
-   && "$(ai_tools_service_state not-installed.service sandbox-user "${STAMP}" result 172800)" == absent ]]; then
+if [[ "$(ai_tools_services__read_state not-installed.timer sandbox-user "${STAMP}" fired 172800)" == absent \
+   && "$(ai_tools_services__read_state not-installed.service sandbox-user "${STAMP}" result 172800)" == absent ]]; then
     pass "an uninstalled sandbox-user unit is 'absent' in both stamp modes, even with a fresh stamp"
 else
     fail "an uninstalled sandbox-user unit did not report absent"
 fi
 
 mk_stamp '# comment' 'RESULT=ok' 'EXIT_CODE=0' 'FINISHED=2026-08-17T05:50:59Z' 'NODE=v22.20.0'
-st_ok="$(ai_tools_service_state nvm-update.service sandbox-user "${STAMP}")"
-got_finished="$(ai_tools_service_stamp_field "${STAMP}" FINISHED)"
+st_ok="$(ai_tools_services__read_state nvm-update.service sandbox-user "${STAMP}")"
+got_finished="$(ai_tools_services__read_stamp_field "${STAMP}" FINISHED)"
 mk_stamp 'RESULT=failed' 'EXIT_CODE=1' 'FINISHED=2026-08-17T05:50:59Z'
-st_failed="$(ai_tools_service_state nvm-update.service sandbox-user "${STAMP}")"
-got_rc="$(ai_tools_service_stamp_field "${STAMP}" EXIT_CODE)"
+st_failed="$(ai_tools_services__read_state nvm-update.service sandbox-user "${STAMP}")"
+got_rc="$(ai_tools_services__read_stamp_field "${STAMP}" EXIT_CODE)"
 if [[ "${st_ok}" == active && "${st_failed}" == failed \
    && "${got_finished}" == 2026-08-17T05:50:59Z && "${got_rc}" == 1 ]]; then
     pass "a stamped sandbox-user unit reports ok->active / failed->failed, with its detail fields"
@@ -266,8 +266,8 @@ stamp_rejects() {
     local desc="$1"; shift
     mk_stamp "$@"
     local v st
-    v="$(ai_tools_service_stamp_field "${STAMP}" RESULT)"
-    st="$(ai_tools_service_state nvm-update.service sandbox-user "${STAMP}")"
+    v="$(ai_tools_services__read_stamp_field "${STAMP}" RESULT)"
+    st="$(ai_tools_services__read_state nvm-update.service sandbox-user "${STAMP}")"
     if [[ -z "${v}" && "${st}" == unknown ]]; then
         pass "stamp rejected: ${desc}"
     else
@@ -284,31 +284,31 @@ stamp_rejects "an empty file"                                 ''
 # before the unit's first run, so a report can say "no run yet", a statement about the host, where "cannot tell" is one
 # about the reader. Every other state -- absent, a symlink to an empty file, any content (a lone newline included) --
 # stays unseparated, so a corrupt stamp keeps reading as unknown.
-if declare -F ai_tools_service_stamp_unwritten >/dev/null 2>&1; then
+if declare -F ai_tools_services__is_stamp_unwritten >/dev/null 2>&1; then
     : > "${STAMP}"
-    ai_tools_service_stamp_unwritten "${STAMP}" \
+    ai_tools_services__is_stamp_unwritten "${STAMP}" \
         && pass "an empty regular stamp reads as never written" || fail "an empty stamp did not read as never written"
     ln -sfn "${STAMP}" "${TESTDIR}/stamp-link"
-    ! ai_tools_service_stamp_unwritten "${TESTDIR}/stamp-link" \
+    ! ai_tools_services__is_stamp_unwritten "${TESTDIR}/stamp-link" \
         && pass "a symlink to an empty stamp is not read as never written" || fail "a symlink read as never written"
     rm -f "${TESTDIR}/stamp-link"
-    ! ai_tools_service_stamp_unwritten "${TESTDIR}/no-such-stamp" \
+    ! ai_tools_services__is_stamp_unwritten "${TESTDIR}/no-such-stamp" \
         && pass "an absent stamp is not read as never written" || fail "an absent stamp read as never written"
     mk_stamp ''
-    ! ai_tools_service_stamp_unwritten "${STAMP}" \
+    ! ai_tools_services__is_stamp_unwritten "${STAMP}" \
         && pass "a stamp holding a newline is content, not the seeded file" || fail "a newline-only stamp read as never written"
     mk_stamp 'RESULT=ok'
-    ! ai_tools_service_stamp_unwritten "${STAMP}" \
+    ! ai_tools_services__is_stamp_unwritten "${STAMP}" \
         && pass "a written stamp is not read as never written" || fail "a written stamp read as never written"
 else
-    skip "stamp unwritten" "ai_tools_service_stamp_unwritten not defined by ${LIB} (older library)"
+    skip "stamp unwritten" "ai_tools_services__is_stamp_unwritten not defined by ${LIB} (older library)"
 fi
 
 # A syntactically valid but unrecognised result word is a different failure: the field reads fine, and it is the STATE
 # resolver that must fall through to unknown rather than guess a verdict.
 mk_stamp 'RESULT=maybe'
-if [[ "$(ai_tools_service_stamp_field "${STAMP}" RESULT)" == maybe \
-   && "$(ai_tools_service_state nvm-update.service sandbox-user "${STAMP}")" == unknown ]]; then
+if [[ "$(ai_tools_services__read_stamp_field "${STAMP}" RESULT)" == maybe \
+   && "$(ai_tools_services__read_state nvm-update.service sandbox-user "${STAMP}")" == unknown ]]; then
     pass "an unrecognised result word resolves to unknown, not to a guessed verdict"
 else
     fail "an unrecognised result word did not resolve to unknown"
@@ -323,9 +323,9 @@ readonly DAY=86400 GRACE=172800   # GRACE mirrors the registry's 48h max_age
 user_unit u                       # the synthetic unit these cases drive
 
 mk_stamp "RESULT=ok" "FINISHED=$(at_age 3600)"
-st_fresh="$(ai_tools_service_state u sandbox-user "${STAMP}" result "${GRACE}")"
+st_fresh="$(ai_tools_services__read_state u sandbox-user "${STAMP}" result "${GRACE}")"
 mk_stamp "RESULT=ok" "FINISHED=$(at_age $(( 13 * DAY )))"
-st_old="$(ai_tools_service_state u sandbox-user "${STAMP}" result "${GRACE}")"
+st_old="$(ai_tools_services__read_state u sandbox-user "${STAMP}" result "${GRACE}")"
 if [[ "${st_fresh}" == active && "${st_old}" == stale ]]; then
     pass "a successful run goes active while fresh and stale past max_age"
 else
@@ -334,7 +334,7 @@ fi
 
 # A failed run is FAILED at any age -- staleness must never mask a fault as merely old.
 mk_stamp "RESULT=failed" "EXIT_CODE=1" "FINISHED=$(at_age $(( 13 * DAY )))"
-if [[ "$(ai_tools_service_state u sandbox-user "${STAMP}" result "${GRACE}")" == failed ]]; then
+if [[ "$(ai_tools_services__read_state u sandbox-user "${STAMP}" result "${GRACE}")" == failed ]]; then
     pass "an old FAILED run stays failed, not stale"
 else
     fail "an old failed run was reported stale"
@@ -346,20 +346,20 @@ fi
 # or a disconnected laptop makes ai-tools.status exit non-zero every night, training its reader to ignore it -- and must
 # still carry its REASON.
 mk_stamp "RESULT=skipped" "EXIT_CODE=3" "FINISHED=$(at_age 3600)" "REASON=offline"
-st_skipped="$(ai_tools_service_state u sandbox-user "${STAMP}" result "${GRACE}")"
-got_reason="$(ai_tools_service_stamp_field "${STAMP}" REASON)"
+st_skipped="$(ai_tools_services__read_state u sandbox-user "${STAMP}" result "${GRACE}")"
+got_reason="$(ai_tools_services__read_stamp_field "${STAMP}" REASON)"
 if [[ "${st_skipped}" == skipped && "${got_reason}" == offline ]] \
-   && ! ai_tools_service_needs_attention skipped; then
+   && ! ai_tools_services__is_attention_needed skipped; then
     pass "a transient no-op run reports 'skipped' with its reason, and is not a fault"
 else
     fail "skipped mapping wrong: state=${st_skipped} reason=${got_reason} (attention: $(
-        ai_tools_service_needs_attention skipped && echo yes || echo no))"
+        ai_tools_services__is_attention_needed skipped && echo yes || echo no))"
 fi
 
 # The escalation is the grace window's job: offline once calls for no action, offline for a week is a toolchain that has
 # stopped advancing, and only the age can tell those apart.
 mk_stamp "RESULT=skipped" "EXIT_CODE=3" "FINISHED=$(at_age $(( 13 * DAY )))" "REASON=offline"
-if [[ "$(ai_tools_service_state u sandbox-user "${STAMP}" result "${GRACE}")" == stale ]]; then
+if [[ "$(ai_tools_services__read_state u sandbox-user "${STAMP}" result "${GRACE}")" == stale ]]; then
     pass "a skipped run that keeps repeating ages into stale"
 else
     fail "an old skipped run did not go stale"
@@ -369,8 +369,8 @@ fi
 # that failed still proves the timer fired, so the timer is healthy while the service it started is not -- the two must
 # not collapse into one verdict, or a failing service would also condemn a working schedule.
 mk_stamp "RESULT=failed" "EXIT_CODE=1" "FINISHED=$(at_age 3600)" "TRIGGER=unit"
-st_fired="$(ai_tools_service_state u sandbox-user "${STAMP}" fired  "${GRACE}")"
-st_ran="$(  ai_tools_service_state u sandbox-user "${STAMP}" result "${GRACE}")"
+st_fired="$(ai_tools_services__read_state u sandbox-user "${STAMP}" fired  "${GRACE}")"
+st_ran="$(  ai_tools_services__read_state u sandbox-user "${STAMP}" result "${GRACE}")"
 if [[ "${st_fired}" == active && "${st_ran}" == failed ]]; then
     pass "one stamp, two verdicts: the trigger is OK while the run it started failed"
 else
@@ -381,15 +381,15 @@ fi
 # unreachable still proves the timer started it, so the trigger stays healthy -- and the skipped verdict must not leak
 # onto the unit that did not skip anything.
 mk_stamp "RESULT=skipped" "EXIT_CODE=3" "FINISHED=$(at_age 3600)" "TRIGGER=unit" "REASON=offline"
-st_fired="$(ai_tools_service_state u sandbox-user "${STAMP}" fired  "${GRACE}")"
-st_ran="$(  ai_tools_service_state u sandbox-user "${STAMP}" result "${GRACE}")"
+st_fired="$(ai_tools_services__read_state u sandbox-user "${STAMP}" fired  "${GRACE}")"
+st_ran="$(  ai_tools_services__read_state u sandbox-user "${STAMP}" result "${GRACE}")"
 if [[ "${st_fired}" == active && "${st_ran}" == skipped ]]; then
     pass "a skipped run leaves the trigger that started it reporting healthy"
 else
     fail "'fired' mode was swayed by a skipped RESULT: trigger=${st_fired} run=${st_ran}"
 fi
 mk_stamp "RESULT=ok" "FINISHED=$(at_age $(( 13 * DAY )))" "TRIGGER=unit"
-if [[ "$(ai_tools_service_state u sandbox-user "${STAMP}" fired "${GRACE}")" == stale ]]; then
+if [[ "$(ai_tools_services__read_state u sandbox-user "${STAMP}" fired "${GRACE}")" == stale ]]; then
     pass "'fired' mode reports stale when no run has been recorded in a long time"
 else
     fail "'fired' mode did not go stale on an old stamp"
@@ -401,12 +401,12 @@ fi
 # does not mean stale. The run itself is still the service's own verdict, which is what keeps this from losing
 # information.
 mk_stamp "RESULT=ok" "FINISHED=$(at_age 3600)" "TRIGGER=manual"
-st_fired="$(ai_tools_service_state u sandbox-user "${STAMP}" fired "${GRACE}")"
-st_ran="$(  ai_tools_service_state u sandbox-user "${STAMP}" result "${GRACE}")"
+st_fired="$(ai_tools_services__read_state u sandbox-user "${STAMP}" fired "${GRACE}")"
+st_ran="$(  ai_tools_services__read_state u sandbox-user "${STAMP}" result "${GRACE}")"
 mk_stamp "RESULT=ok" "FINISHED=$(at_age $(( 13 * DAY )))" "TRIGGER=manual"
-st_old="$(ai_tools_service_state u sandbox-user "${STAMP}" fired "${GRACE}")"
+st_old="$(ai_tools_services__read_state u sandbox-user "${STAMP}" fired "${GRACE}")"
 mk_stamp "RESULT=ok" "FINISHED=$(at_age 3600)"
-st_nofield="$(ai_tools_service_state u sandbox-user "${STAMP}" fired "${GRACE}")"
+st_nofield="$(ai_tools_services__read_state u sandbox-user "${STAMP}" fired "${GRACE}")"
 if [[ "${st_fired}" == unknown && "${st_old}" == unknown && "${st_nofield}" == unknown \
    && "${st_ran}" == active ]]; then
     pass "'fired' mode declines a hand-started run (and a stamp with no TRIGGER), fresh or old"
@@ -417,9 +417,9 @@ fi
 # No max_age means no freshness judgment, and an UNPARSEABLE date must not manufacture staleness out of an absence --
 # an unknown age is not an old one.
 mk_stamp "RESULT=ok" "FINISHED=$(at_age $(( 99 * DAY )))"
-st_nomax="$(ai_tools_service_state u sandbox-user "${STAMP}" result "")"
+st_nomax="$(ai_tools_services__read_state u sandbox-user "${STAMP}" result "")"
 mk_stamp "RESULT=ok" "FINISHED=not-a-date"
-st_baddate="$(ai_tools_service_state u sandbox-user "${STAMP}" result "${GRACE}")"
+st_baddate="$(ai_tools_services__read_state u sandbox-user "${STAMP}" result "${GRACE}")"
 if [[ "${st_nomax}" == active && "${st_baddate}" == active ]]; then
     pass "no max_age and an unparseable date both decline to claim staleness"
 else
@@ -428,11 +428,11 @@ fi
 
 # A stamp dated in the future (clock skew) reads as age 0, never as a negative or huge age.
 mk_stamp "RESULT=ok" "FINISHED=$(at_age -3600)"
-if [[ "$(ai_tools_service_stamp_age "${STAMP}")" == 0 \
-   && "$(ai_tools_service_state u sandbox-user "${STAMP}" result "${GRACE}")" == active ]]; then
+if [[ "$(ai_tools_services__read_stamp_age "${STAMP}")" == 0 \
+   && "$(ai_tools_services__read_state u sandbox-user "${STAMP}" result "${GRACE}")" == active ]]; then
     pass "a future-dated stamp clamps to age 0"
 else
-    fail "a future-dated stamp gave age $(ai_tools_service_stamp_age "${STAMP}")"
+    fail "a future-dated stamp gave age $(ai_tools_services__read_stamp_age "${STAMP}")"
 fi
 
 # The age reader takes the KEY, because a second record in this grammar carries a time an operator reads as an age:
@@ -440,9 +440,9 @@ fi
 # a parameter rather than a copied function -- and the default must stay FINISHED, or every existing caller silently
 # starts reporting "age unknown".
 mk_stamp "RESULT=ok" "FINISHED=$(at_age 7200)" "VERIFIED=$(at_age 300)"
-age_default="$(ai_tools_service_stamp_age "${STAMP}")"
-age_keyed="$(ai_tools_service_stamp_age "${STAMP}" VERIFIED)"
-age_absent="$(ai_tools_service_stamp_age "${STAMP}" NOSUCHKEY)"
+age_default="$(ai_tools_services__read_stamp_age "${STAMP}")"
+age_keyed="$(ai_tools_services__read_stamp_age "${STAMP}" VERIFIED)"
+age_absent="$(ai_tools_services__read_stamp_age "${STAMP}" NOSUCHKEY)"
 if [[ "${age_default}" -ge 7000 && "${age_default}" -le 7400 ]]; then
     pass "stamp age defaults to FINISHED (${age_default}s)"
 else
@@ -463,13 +463,13 @@ fi
 # records point at the stamp, and the timer reads it in 'fired' mode.
 svc_rec="$(grep '^nvm-update\.service|' <<<"${recs}")"
 tmr_rec="$(grep '^nvm-update\.timer|'   <<<"${recs}")"
-if [[ "$(ai_tools_service_field "${svc_rec}" 8)" == result \
-   && "$(ai_tools_service_field "${tmr_rec}" 8)" == fired \
-   && "$(ai_tools_service_field "${svc_rec}" 9)" =~ ^[0-9]+$ \
-   && "$(ai_tools_service_field "${tmr_rec}" 7)" == "$(ai_tools_service_field "${svc_rec}" 7)" ]]; then
+if [[ "$(ai_tools_services__get_field "${svc_rec}" 8)" == result \
+   && "$(ai_tools_services__get_field "${tmr_rec}" 8)" == fired \
+   && "$(ai_tools_services__get_field "${svc_rec}" 9)" =~ ^[0-9]+$ \
+   && "$(ai_tools_services__get_field "${tmr_rec}" 7)" == "$(ai_tools_services__get_field "${svc_rec}" 7)" ]]; then
     pass "the registry wires the update timer and service to one stamp, read two ways"
 else
-    fail "registry freshness wiring wrong: svc mode=$(ai_tools_service_field "${svc_rec}" 8) age=$(ai_tools_service_field "${svc_rec}" 9); timer mode=$(ai_tools_service_field "${tmr_rec}" 8)"
+    fail "registry freshness wiring wrong: svc mode=$(ai_tools_services__get_field "${svc_rec}" 8) age=$(ai_tools_services__get_field "${svc_rec}" 9); timer mode=$(ai_tools_services__get_field "${tmr_rec}" 8)"
 fi
 
 # needs_attention is the single definition of "broken" both the scanner and the CLI report from. 'unknown' must stay
@@ -477,10 +477,10 @@ fi
 # on a healthy host.
 att_ok=true
 for _s in down failed stale; do
-    ai_tools_service_needs_attention "${_s}" || att_ok=false
+    ai_tools_services__is_attention_needed "${_s}" || att_ok=false
 done
 for _s in active absent unknown; do
-    ai_tools_service_needs_attention "${_s}" && att_ok=false
+    ai_tools_services__is_attention_needed "${_s}" && att_ok=false
 done
 if ${att_ok}; then
     pass "needs_attention covers down/failed/stale and excludes active/absent/unknown"
@@ -492,8 +492,8 @@ fi
 rm -f "${STAMP}"
 printf 'RESULT=ok\n' > "${TESTDIR}/elsewhere"
 ln -s "${TESTDIR}/elsewhere" "${STAMP}"
-if [[ -z "$(ai_tools_service_stamp_field "${STAMP}" RESULT)" \
-   && "$(ai_tools_service_state nvm-update.service sandbox-user "${STAMP}")" == unknown ]]; then
+if [[ -z "$(ai_tools_services__read_stamp_field "${STAMP}" RESULT)" \
+   && "$(ai_tools_services__read_state nvm-update.service sandbox-user "${STAMP}")" == unknown ]]; then
     pass "stamp rejected: a symlink, however valid its target"
 else
     fail "a symlinked stamp was followed"
@@ -501,7 +501,7 @@ fi
 rm -f "${STAMP}"
 
 # An absent stamp is the normal state of a host whose updater has not run yet: unknown, no error.
-if [[ "$(ai_tools_service_state nvm-update.service sandbox-user "${STAMP}")" == unknown ]]; then
+if [[ "$(ai_tools_services__read_state nvm-update.service sandbox-user "${STAMP}")" == unknown ]]; then
     pass "an absent stamp reads as unknown"
 else
     fail "an absent stamp did not read as unknown"
@@ -509,18 +509,18 @@ fi
 
 # --- (C) the 'wrapper' scan excludes the socket even when it is down (preflight=shim) ---
 _SVC_STATE=( [ai-tools-handback.socket]=down [ai-tools-relabel.path]=down [nvm-update.timer]=down )
-if ai_tools_services_scan wrapper; then
-    if [[ "${#AI_TOOLS_SERVICES_DOWN[@]}" -eq 1 ]] \
-       && [[ "$(ai_tools_service_field "${AI_TOOLS_SERVICES_DOWN[0]}" 1)" == ai-tools-relabel.path ]]; then
+if ai_tools_services__scan wrapper; then
+    if [[ "${#AI_TOOLS_SERVICES__DOWN[@]}" -eq 1 ]] \
+       && [[ "$(ai_tools_services__get_field "${AI_TOOLS_SERVICES__DOWN[0]}" 1)" == ai-tools-relabel.path ]]; then
         pass "wrapper scan reports only relabel.path down (socket excluded: preflight=shim)"
     else
-        fail "wrapper scan set wrong: [${AI_TOOLS_SERVICES_DOWN[*]}]"
+        fail "wrapper scan set wrong: [${AI_TOOLS_SERVICES__DOWN[*]}]"
     fi
     # the down record carries its exact remedy command
-    if [[ "$(ai_tools_service_field "${AI_TOOLS_SERVICES_DOWN[0]}" 6)" == *"systemctl enable --now ai-tools-relabel.path"* ]]; then
+    if [[ "$(ai_tools_services__get_field "${AI_TOOLS_SERVICES__DOWN[0]}" 6)" == *"systemctl enable --now ai-tools-relabel.path"* ]]; then
         pass "the down record carries its remedy command"
     else
-        fail "down record missing its remedy: $(ai_tools_service_field "${AI_TOOLS_SERVICES_DOWN[0]}" 6)"
+        fail "down record missing its remedy: $(ai_tools_services__get_field "${AI_TOOLS_SERVICES__DOWN[0]}" 6)"
     fi
 else
     fail "wrapper scan found nothing down when relabel.path is down"
@@ -528,8 +528,8 @@ fi
 
 # --- (D) all healthy -> the wrapper scan does not report fault ---
 _SVC_STATE=( [ai-tools-handback.socket]=active [ai-tools-relabel.path]=active [nvm-update.timer]=active )
-if ai_tools_services_scan wrapper; then
-    fail "wrapper scan reported a down service on a healthy host: [${AI_TOOLS_SERVICES_DOWN[*]}]"
+if ai_tools_services__scan wrapper; then
+    fail "wrapper scan reported a down service on a healthy host: [${AI_TOOLS_SERVICES__DOWN[*]}]"
 else
     pass "wrapper scan reports nothing down on a healthy host"
 fi
@@ -541,28 +541,28 @@ fi
 # of units that are not running.
 mk_stamp 'RESULT=failed' 'EXIT_CODE=1' 'FINISHED=2026-08-17T05:50:59Z'
 user_unit fixture-user.service
-_AI_TOOLS_SERVICES=(
+_AI_TOOLS_SERVICES__REGISTRY=(
   "fixture-sys.path|system|critical|wrapper|a system unit|sudo fix it|"
   "fixture-user.service|sandbox-user|maintenance|none|a sandbox --user unit||${STAMP}"
 )
 _SVC_STATE=( [fixture-sys.path]=active )
-if ai_tools_services_scan all \
-   && [[ "${#AI_TOOLS_SERVICES_DOWN[@]}" -eq 1 ]] \
-   && [[ "$(ai_tools_service_field "${AI_TOOLS_SERVICES_DOWN[0]}" 1)" == fixture-user.service ]]; then
+if ai_tools_services__scan all \
+   && [[ "${#AI_TOOLS_SERVICES__DOWN[@]}" -eq 1 ]] \
+   && [[ "$(ai_tools_services__get_field "${AI_TOOLS_SERVICES__DOWN[0]}" 1)" == fixture-user.service ]]; then
     pass "the 'all' scan reports a failed sandbox-user unit"
 else
-    fail "the 'all' scan missed the failed unit: [${AI_TOOLS_SERVICES_DOWN[*]}]"
+    fail "the 'all' scan missed the failed unit: [${AI_TOOLS_SERVICES__DOWN[*]}]"
 fi
 # Its remedy field is deliberately EMPTY: re-running it goes through the sandbox account's `--user` manager,
 # so the command names that account and the consumer composes it (services.lib.sh ships with no @SANDBOX_USER@
 # substitution). An accidental value here would print an unsubstituted command to the operator.
-if [[ -z "$(ai_tools_service_field "${AI_TOOLS_SERVICES_DOWN[0]}" 6)" ]]; then
+if [[ -z "$(ai_tools_services__get_field "${AI_TOOLS_SERVICES__DOWN[0]}" 6)" ]]; then
     pass "a sandbox-user record leaves the remedy to the consumer"
 else
-    fail "the sandbox-user record carries a remedy: $(ai_tools_service_field "${AI_TOOLS_SERVICES_DOWN[0]}" 6)"
+    fail "the sandbox-user record carries a remedy: $(ai_tools_services__get_field "${AI_TOOLS_SERVICES__DOWN[0]}" 6)"
 fi
-if ai_tools_services_scan wrapper || ai_tools_services_scan system; then
-    fail "a system-scope filter selected the failed sandbox-user unit: [${AI_TOOLS_SERVICES_DOWN[*]}]"
+if ai_tools_services__scan wrapper || ai_tools_services__scan system; then
+    fail "a system-scope filter selected the failed sandbox-user unit: [${AI_TOOLS_SERVICES__DOWN[*]}]"
 else
     pass "neither the wrapper nor the system filter can select a failed sandbox-user unit"
 fi
@@ -578,13 +578,13 @@ fi
 # are happening, so the stamp still decides freshness and a stale or skipped run survives it.
 section "services: the live reading, and the verdict it feeds (unit)"
 
-if ! declare -F ai_tools_service_stamp_verdict >/dev/null 2>&1; then
-    skip "live-reading verdict" "the deployed library predates ai_tools_service_stamp_verdict"
+if ! declare -F ai_tools_services__evaluate_stamp >/dev/null 2>&1; then
+    skip "live-reading verdict" "the deployed library predates ai_tools_services__evaluate_stamp"
 else
     # verdict <expected> <label> <live> <mode> <result> <trigger> <age> <max_age>
     verdict() {
         local expected="$1" label="$2"; shift 2
-        local got; got="$(ai_tools_service_stamp_verdict "$@")"
+        local got; got="$(ai_tools_services__evaluate_stamp "$@")"
         if [[ "${got}" == "${expected}" ]]; then
             pass "${label}"
         else
@@ -631,23 +631,23 @@ else
 
     # And the probe's own gate. Both refusals resolve to the stamp-only reading, which is the direction every failure
     # in this path takes.
-    _AI_TOOLS_SERVICE_SANDBOX_ACCOUNT=""
-    if _ai_tools_service_systemctl sandbox-user; then
+    _AI_TOOLS_SERVICES__SANDBOX_ACCOUNT=""
+    if _ai_tools_services__run_systemctl sandbox-user; then
         fail "the live probe was offered with no sandbox account named"
     else
         pass "no sandbox account named: the live probe is not offered"
     fi
-    ai_tools_service_sandbox_account ai-tools
+    ai_tools_services__set_sandbox_account ai-tools
     # The non-root half is asked from a non-root process: a root run drops to the projects user through runuser (the
     # library is world-readable) rather than skipping the vantage the refusal exists for.
     # shellcheck disable=SC2016  # $1 is the inner shell's positional
     probe_offered_to_projects_user() {
         runuser -u "${PROJECTS_USER}" -- bash -c \
-            'source "$1" || exit 2; ai_tools_service_sandbox_account ai-tools; _ai_tools_service_systemctl sandbox-user' \
+            'source "$1" || exit 2; ai_tools_services__set_sandbox_account ai-tools; _ai_tools_services__run_systemctl sandbox-user' \
             _ "${LIB}"
     }
     if [[ "${EUID}" -ne 0 ]]; then
-        if _ai_tools_service_systemctl sandbox-user; then
+        if _ai_tools_services__run_systemctl sandbox-user; then
             fail "the live probe was offered to a non-root caller"
         else
             pass "a non-root caller is not offered the live probe, whatever account is named"
@@ -661,7 +661,7 @@ else
     fi
     # A system unit's state is world-readable, so that scope is offered to every caller -- the asymmetry is the point,
     # and reading it as privileged would silently stop the launch wrapper's pre-launch warning from checking anything.
-    if _ai_tools_service_systemctl system; then
+    if _ai_tools_services__run_systemctl system; then
         pass "a system unit stays readable by any caller"
     else
         fail "the system scope was refused (is systemctl absent from this host?)"
@@ -669,16 +669,16 @@ else
 fi
 
 # ── The Persistent= TIMER stamp's verdict ─────────────────────────────────────────────────────────────────────
-# The ranking the cases pin is ai_tools_service_evaluate_timer_stamp's header.
+# The ranking the cases pin is ai_tools_services__evaluate_timer_stamp's header.
 section "services: the Persistent= timer stamp's verdict (unit)"
 
-if ! declare -F ai_tools_service_evaluate_timer_stamp >/dev/null 2>&1; then
-    skip "timer-stamp verdict" "the deployed library predates ai_tools_service_evaluate_timer_stamp"
+if ! declare -F ai_tools_services__evaluate_timer_stamp >/dev/null 2>&1; then
+    skip "timer-stamp verdict" "the deployed library predates ai_tools_services__evaluate_timer_stamp"
 else
     # tsv <expected> <label> <state> <skew> <allowance>
     tsv() {
         local expected="$1" label="$2"; shift 2
-        local got; got="$(ai_tools_service_evaluate_timer_stamp "$@")"
+        local got; got="$(ai_tools_services__evaluate_timer_stamp "$@")"
         if [[ "${got}" == "${expected}" ]]; then
             pass "${label}"
         else
@@ -697,11 +697,11 @@ else
         ok 10 "not-a-number"
 
     # The span parser the allowance is built from; its header states the contract the cases pin.
-    if ! declare -F ai_tools_service_parse_timespan_seconds >/dev/null 2>&1; then
-        skip "timespan parser" "the deployed library predates ai_tools_service_parse_timespan_seconds"
+    if ! declare -F ai_tools_services__parse_timespan_seconds >/dev/null 2>&1; then
+        skip "timespan parser" "the deployed library predates ai_tools_services__parse_timespan_seconds"
     else
         span() {
-            local got; got="$(ai_tools_service_parse_timespan_seconds "$2")"
+            local got; got="$(ai_tools_services__parse_timespan_seconds "$2")"
             if [[ "${got}" == "$1" ]]; then
                 pass "a span of '$2' reads as ${1:-no value}"
             else
@@ -718,7 +718,7 @@ else
         span "" "infinity"
         # Under an inherited IFS without a space, an unpinned split would drop the second token.
         ( IFS=$'\n\t'
-          got="$(ai_tools_service_parse_timespan_seconds "1min 30s")"
+          got="$(ai_tools_services__parse_timespan_seconds "1min 30s")"
           [[ "${got}" == 90 ]] ) \
             && pass "the split is IFS-independent, so a two-token span still sums under the strict-mode IFS" \
             || fail "a two-token span does not sum under IFS=\$'\\n\\t'"

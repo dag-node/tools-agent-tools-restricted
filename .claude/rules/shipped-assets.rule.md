@@ -95,8 +95,8 @@ is grouped by the agent that owns it — `src/opt/ai-tools/agents/<manifest-name
 from the tree, so the tree mirrors ownership instead; a second agent adds a sibling directory named for its manifest.
 
 The skills and subagents kinds each ship a `README.md`, the operator guide, with the pristine copy; it is **symlinked**
-into the live root and into each agent's directory (`ai_tools_link_asset_readme`) — the doc is found where the assets
-are, and there is exactly one file to keep current.
+into the live root and into each agent's directory (`ai_tools_managed_assets__link_asset_readme`) — the doc is found
+where the assets are, and there is exactly one file to keep current.
 
 ## The view and each agent's links (`assets.lib.sh`)
 
@@ -125,29 +125,29 @@ for every agent, since codex reads the view whole and an asset cannot be narrowe
 substitution is one such profile, `skills.dynamic.v1`: an asset carrying it without the declaration is refused, because
 the substitution runs as a step of reading the file and skips the `PreToolUse` filter and `permissions.deny`. A receiver
 set read from a failed discovery -- a provider reader exiting non-zero, or an empty enabled set
-`ai_tools_agents_empty_verdict` classifies as a fault -- is `receivers-unknown` rather than the empty set, which would
-support every profile: the enable list reads as empty for that run and no agent's directory is planned. A refused
-`operator.conf` is the exception: it refuses the enable list too (`enable-list-untrusted`), so no entry asks
+`ai_tools_providers__evaluate_empty_agents` classifies as a fault -- is `receivers-unknown` rather than the empty set,
+which would support every profile: the enable list reads as empty for that run and no agent's directory is planned.
+A refused `operator.conf` is the exception: it refuses the enable list too (`enable-list-untrusted`), so no entry asks
 for a capability, and its empty agent set is read as it was printed, every installed agent losing its resolver links.
 
-**The transaction holds a lock and plans before it writes.** `ai_tools_assets_reconcile` takes an exclusive `flock`
-before it reads an input, computes every change (`ai_tools_assets_plan`, which writes nothing and which `status` runs
+**The transaction holds a lock and plans before it writes.** `ai_tools_assets__reconcile` takes an exclusive `flock`
+before it reads an input, computes every change (`ai_tools_assets__plan`, which writes nothing and which `status` runs
 alone), then applies them: each view link is placed by a `rename(2)` over its name, so a session listing the directory
 sees the old target or the new one; a resolver link no input justifies is removed, with no last-good fallback; anything
 else at an enabled asset's name is `view-occupied` and left as it is. A resolver link is told from every other entry
 by its target alone, so the seeder's managed copies share the directory without a marker, and the three sites that read
-a managed copy's marker (`ai_tools_withdraw_asset`, `_ai_tools_asset_is_stale_copy`, `system post-upgrade`'s version
-check) skip a symlink. A link is staged at `.<name>.ai-tools-assets.tmp` beside its name, and an entry already there is
-removed only when it is a link the library leaves; any other is kept and the placement refused as `write-failed`.
-The lock is `/run/lock/ai-tools/assets.lock`, a `0600` file in a `0700` root directory: `flock(2)` takes an exclusive
-lock through a read-only descriptor, so a file another account can open is one it can hold. A run that waits longer than
-`AI_TOOLS_ASSETS_LOCK_WAIT` (120 seconds) for it refuses under `MSG-M8T9` rather than hold a package transaction. Every
-writer of the shared roots holds it, through the reentrant pair `ai_tools_assets_lock`/`ai_tools_assets_unlock`
-in `managed-assets.lib.sh`, which every provisioning path already sources: the `assets` verbs before their first read
-of `operator.conf`, to their exit; `install.sh`, `ai-tools-bootstrap`, base's `%post` and the typesafe package's
-scriptlets across the seed, the retire pass and the reconcile. A reconcile run as a child of a holder adopts
-the descriptor it inherits once it names the lock file, rather than wait on its parent. The seeder itself does not take
-the lock.
+a managed copy's marker (`ai_tools_managed_assets__withdraw_asset`, `ai_tools_managed_assets__is_stale_copy`,
+`system post-upgrade`'s version check) skip a symlink. A link is staged at `.<name>.ai-tools-assets.tmp` beside its
+name, and an entry already there is removed only when it is a link the library leaves; any other is kept
+and the placement refused as `write-failed`. The lock is `/run/lock/ai-tools/assets.lock`, a `0600` file in a `0700`
+root directory: `flock(2)` takes an exclusive lock through a read-only descriptor, so a file another account can open is
+one it can hold. A run that waits longer than `AI_TOOLS_ASSETS_LOCK_WAIT` (120 seconds) for it refuses under `MSG-M8T9`
+rather than hold a package transaction. Every writer of the shared roots holds it, through the reentrant pair
+`ai_tools_managed_assets__lock`/`ai_tools_managed_assets__unlock` in `managed-assets.lib.sh`, which every provisioning
+path already sources: the `assets` verbs before their first read of `operator.conf`, to their exit; `install.sh`,
+`ai-tools-bootstrap`, base's `%post` and the typesafe package's scriptlets across the seed, the retire pass
+and the reconcile. A reconcile run as a child of a holder adopts the descriptor it inherits once it names the lock file,
+rather than wait on its parent. The seeder itself does not take the lock.
 
 **The view decides what every agent links.** For each enabled agent and each kind its manifest declares a directory
 for, the view's resolver links and base's seeded copies are linked, and no other entry: a seeded copy is a real entry
@@ -163,14 +163,14 @@ an agent's config and kind directory -- is checked before the plan acts in it an
 one is created where no entry stands at its name: root-owned and not a symlink, the config directory sticky where it is
 group-writable as it ships, the others writable by neither group nor other. One that fails is `view-dir-untrusted`
 or `agent-dir-untrusted`, no action under it runs, and it is not repaired, since a repair would keep what was placed
-inside it. Why a path check suffices against these modes is `_ai_tools_assets_is_destination_trusted`'s doc comment.
+inside it. Why a path check suffices against these modes is `_ai_tools_assets__is_destination_trusted`'s doc comment.
 The reconcile is the one function that writes these links, so every provisioning path that placed or linked an asset
 ends with it: base's `%post` after the seeder, two transaction file triggers on `/usr/share/ai-tools-assets` (a set
 placed, upgraded or erased, base's own transaction included), each agent and the typesafe package's scriptlets,
 `install.sh` and `ai-tools-bootstrap`.
 
 The verbs are `ai-tools-admin assets enable|disable|reconcile`, each root-only and each ending with the reconcile;
-the record stream and the exit fold are [records](records.rule.md)'s contract. `ai_tools_assets_validate_set` runs
+the record stream and the exit fold are [records](records.rule.md)'s contract. `ai_tools_assets__validate_set` runs
 the same subset over a tree as data, without the trust walk or the signature, for the conformance job that holds base's
 reading to the publisher's fixtures.
 
@@ -179,12 +179,12 @@ reading to the publisher's fixtures.
 An asset set reaches a host as a signed package of `dag-node/ai-tools-assets` (or a publisher built on the same tools),
 installed under `/usr/share/ai-tools-assets/<set>/` with the inventory `SHA256SUMS` its build wrote and the signature
 `SHA256SUMS.asc` its release made. The resolver that links a set's assets into the view calls
-`ai_tools_assets_verify_set <set-directory> <set-name>` as root before it reads a file of the set, and does not link any
-asset of a set the verifier refuses. The verdict follows the status contract the toolchain gates share
+`ai_tools_assets_verify__verify_set <set-directory> <set-name>` as root before it reads a file of the set, and does not
+link any asset of a set the verifier refuses. The verdict follows the status contract the toolchain gates share
 ([ref-section-b8h3](updater.rule.md#ref-section-b8h3)), with one difference: a set is refused at `2` as well as at `1`,
 since proceeding would link content no signature covers into every session. The resolver reports `1` (`MSG-T3M3`)
 as `set-tampered` and `2` (`MSG-Q6Y8`) as `set-unverified`; the library's function docs name which input yields which.
-`ai_tools_assets_verify_inventory <set-directory>` is the inventory half alone, which the conformance job runs
+`ai_tools_assets_verify__verify_inventory <set-directory>` is the inventory half alone, which the conformance job runs
 over the `ai-tools-assets-tools` fixtures.
 
 What may sign a set is a **binding**, one root-owned file per set name
@@ -194,25 +194,25 @@ binary keyring `gpgv` reads), and a line outside those keys refuses the binding.
 and `ai-tools`, both naming the dag-node package-signing primary — the key `rpm.dagnode.com` serves and the key
 that signs this project's own RPMs, so one trust anchor covers the package and the sets it reads — and the keyring
 `keys/dag-node-package-signing.gpg`, which the spec's `%install` and `install.sh` write from the armored key beside it
-with `ai_tools_assets_write_binary_keyring`. The signer is asserted against `gpgv`'s `VALIDSIG` primary, so a keyring
-swapped for another valid key is refused, as is a signature by a key the keyring holds but no binding names. Every path
-of a set, listed in the inventory or found by the walk, is held to `ai_tools_conf_portable_name_valid`
-([providers](providers.rule.md)) component by component. The directory, each binding and the keyring are `644 root:root`
-under `755 root:root` and must pass `ai_tools_conf_is_trusted`, file and directory both, or the set is unverified:
-the sandbox account cannot change what signs a set, which `tests/boundary/assets.sh` asserts from that account's
-vantage, while `tests/unit/assets-verify.sh` drives every refusal over a set signed in the run by a throwaway key,
-through the root-only hook `AI_TOOLS_ASSETS_BINDINGS_DIR`.
+with `ai_tools_assets_verify__write_binary_keyring`. The signer is asserted against `gpgv`'s `VALIDSIG` primary,
+so a keyring swapped for another valid key is refused, as is a signature by a key the keyring holds but no binding
+names. Every path of a set, listed in the inventory or found by the walk, is held
+to `ai_tools_conf__is_portable_name_valid` ([providers](providers.rule.md)) component by component. The directory, each
+binding and the keyring are `644 root:root` under `755 root:root` and must pass `ai_tools_conf__is_trusted`, file
+and directory both, or the set is unverified: the sandbox account cannot change what signs a set,
+which `tests/boundary/assets.sh` asserts from that account's vantage, while `tests/unit/assets-verify.sh` drives every
+refusal over a set signed in the run by a throwaway key, through the root-only hook `AI_TOOLS_ASSETS_BINDINGS_DIR`.
 
 This release reads the shipped bindings alone: an operator binding under `/etc/ai-tools/assets-bindings.d/`
 and an operator key are outside it.
 
-### Linking the orientation (`ai_tools_link_agent_memory`)
+### Linking the orientation (`ai_tools_managed_assets__link_agent_memory`)
 
 The orientation text is one file, and the name it lands under is **not its own**: each product reads user-scope
 instructions from one hardcoded filename (`CLAUDE.md` for Claude Code, `AGENTS.md` for one following that spelling),
-so the manifest's `memory_file` supplies it and `ai_tools_agent_memory_targets` resolves `<config_dir>/<memory_file>`
-per enabled agent. The product does not read a link under any other name, so the per-asset links, which keep each
-asset's name, do not reach it.
+so the manifest's `memory_file` supplies it and `ai_tools_control_plane__list_agent_memory_targets` resolves
+`<config_dir>/<memory_file>` per enabled agent. The product does not read a link under any other name, so the per-asset
+links, which keep each asset's name, do not reach it.
 
 Same non-displacing rule otherwise: a correct link is left alone, a stale one repointed, and a **real file wins and is
 reported**, with one exception the reconcile also makes for a seeded copy — a real file that is both
@@ -225,23 +225,25 @@ that declares no `memory_file` is given no link, exactly as one declaring no `sk
 and reads the file beneath, which follows links transparently; `tests/integration/perms.sh` asserts a shipped asset
 of each kind arrives as a link, so a regression to per-agent copies (which would silently fork the content) fails there.
 
-### Linking a whole kind at a path outside the agent (`ai_tools_link_shared_root`)
+### Linking a whole kind at a path outside the agent (`ai_tools_managed_assets__link_shared_root`)
 
 An agent may read a kind from one fixed path outside its config directory rather than from a directory the manifest
 names inside it — codex reads skills at its admin scope, `/etc/codex/skills` — and that path is one a host may already
-hold, with its own skills in it. `ai_tools_link_shared_root <shared_root> <path> <group> [readme_source]` points such
-a path at the shared root without displacing anything, on the state the path is in: **absent** → a symlink to the shared
-root; **a symlink to the shared root** → current; **a symlink elsewhere** → the host's, left alone and reported; **a
-real directory** → the host's own assets, kept exactly as they are (owner, mode and entries untouched), with the shared
+hold, with its own skills in it.
+`ai_tools_managed_assets__link_shared_root <shared_root> <path> <group> [readme_source]` points such a path
+at the shared root without displacing anything, on the state the path is in: **absent** → a symlink to the shared root;
+**a symlink to the shared root** → current; **a symlink elsewhere** → the host's, left alone and reported; **a real
+directory** → the host's own assets, kept exactly as they are (owner, mode and entries untouched), with the shared
 assets linked into it one per free name and a name the host holds left to the host and reported — the per-asset rule
 the reconcile applies, minus the repointing of a link, which inside a host-owned directory is left to the host; **a
 regular file** → kept and reported. A link into the shared root whose asset no longer ships is removed, as the reconcile
 removes one from an agent's directory; the kind's README is linked only under a free name. The reverse for a package
-being erased, `ai_tools_unlink_shared_root`, removes the link to the shared root or the managed links inside the host's
-directory and no other entry. Neither function re-owns or re-modes what it finds, and the relabel that follows a link
-covers the links that run placed rather than the directory holding them, so what a host put there keeps its own label
-too — which is also what lets `tests/unit/shared-root.sh` drive every state without root. Which agent takes this shape,
-and why the path is not in that package's file list, is in [agent-codex](agent-codex.rule.md).
+being erased, `ai_tools_managed_assets__unlink_shared_root`, removes the link to the shared root or the managed links
+inside the host's directory and no other entry. Neither function re-owns or re-modes what it finds, and the relabel
+that follows a link covers the links that run placed rather than the directory holding them, so what a host put there
+keeps its own label too — which is also what lets `tests/unit/shared-root.sh` drive every state without root.
+Which agent takes this shape, and why the path is not in that package's file list, is
+in [agent-codex](agent-codex.rule.md).
 
 The reconcile reports that path and does not write it, so these two functions stay its only writers. The agent's
 manifest names it under its kind's root field (`skills_root`, a column of the kind registry in `assets.lib.sh`), read
@@ -285,10 +287,10 @@ to an integration ([An asset bound to an integration](#an-asset-bound-to-an-inte
 Dropping a name from `src/` withdraws it from **new** installs only. The seeder adds and updates, and moves a live copy
 aside only for an asset [bound to an integration](#an-asset-bound-to-an-integration) the host does not have; the live
 roots are not rpm-owned, so an upgraded host keeps a withdrawn asset — and keeps offering it to every session — until it
-is named in `AI_TOOLS_RETIRED_ASSETS` (`managed-assets.lib.sh`) as a `<kind>/<name>` entry. A renamed asset is withdrawn
-under its old name the same way, with the new name seeded beside it.
+is named in `AI_TOOLS_MANAGED_ASSETS__RETIRED` (`managed-assets.lib.sh`) as a `<kind>/<name>` entry. A renamed asset is
+withdrawn under its old name the same way, with the new name seeded beside it.
 
-`ai_tools_remove_retired_assets` runs after the seeder in all three provisioning paths (`install.sh`,
+`ai_tools_managed_assets__remove_retired_assets` runs after the seeder in all three provisioning paths (`install.sh`,
 `ai-tools-bootstrap`, base's `%post`). It gates on the same `x-ai-tools-managed` marker the seeder claims
 by, so an operator's own asset under a withdrawn name is kept and reported. Each agent's symlink is handled by the next
 assets reconcile, which drops a link into the shared root once its target is gone.
@@ -300,7 +302,7 @@ the *previous* version's copy of an asset this version withdrew, and without the
 is about to delete — or seed it, on a host whose live root lacks it — for the withdrawal pass to undo moments later.
 
 The asset is **moved, not deleted**, to `/opt/ai-tools/retired/<name>.<YYYYMMDD>-<N>.retired` —
-`ai_tools_conf_sidecar_path` (`conf.lib.sh`) is the single home of that stamp, shared with the config sidecars,
+`ai_tools_conf__find_sidecar_path` (`conf.lib.sh`) is the single home of that stamp, shared with the config sidecars,
 and the kind token names the event that produced the copy. Withdrawal is the one path with no prompt and no baseline,
 so it fails toward keeping: an asset that cannot be moved is left in place and reported rather than destroyed.
 
@@ -315,14 +317,15 @@ a shipped asset may not name one this project does not ship.
 
 ## Seeding (`managed-assets.lib.sh`)
 
-`ai_tools_seed_managed_assets <src_root> <live_root> <group> <kind>...` seeds the named kinds from the pristine root
-into the live root (`/opt/ai-tools`, under which each kind's shared root is a subdirectory). `AI_TOOLS_ASSET_KINDS`
-in the same library is the one declaration of the kinds the project ships: the seeder and the withdrawal pass refuse
-an empty list or a name outside it with a reason on stderr, `install.sh` and base's `%post` iterate it rather than
-spelling the names, and a kind added to it without a source layout in the seeder is refused the same way — so a rename
-or an addition surfaces at the first call instead of seeding less than asked. It acts on an asset **only** when its name
-matches the kind's glob — `ai-tools-*` for skills and subagents, the fixed `AGENTS.md` for orientation — **and** its
-frontmatter carries `x-ai-tools-managed: true`, so an operator's own agent/skill is never claimed or overwritten:
+`ai_tools_managed_assets__seed_assets <src_root> <live_root> <group> <kind>...` seeds the named kinds from the pristine
+root into the live root (`/opt/ai-tools`, under which each kind's shared root is a subdirectory).
+`AI_TOOLS_MANAGED_ASSETS__KINDS` in the same library is the one declaration of the kinds the project ships: the seeder
+and the withdrawal pass refuse an empty list or a name outside it with a reason on stderr, `install.sh` and base's
+`%post` iterate it rather than spelling the names, and a kind added to it without a source layout in the seeder is
+refused the same way — so a rename or an addition surfaces at the first call instead of seeding less than asked. It acts
+on an asset **only** when its name matches the kind's glob — `ai-tools-*` for skills and subagents, the fixed
+`AGENTS.md` for orientation — **and** its frontmatter carries `x-ai-tools-managed: true`, so an operator's own
+agent/skill is never claimed or overwritten:
 
 - **absent** in the live tree → seeded;
 - **present + managed + a newer shipped `x-ai-tools-version`** → a keep/update confirm defaulting to **update**,
@@ -358,16 +361,17 @@ across the account's sessions *and* across agents. The pristine source is `/usr/
 reseed source, shared by every seeding path); the live copies are **not** rpm-owned, so an erase or upgrade preserves
 an operator-updated version. The seeder is bash and source-only; its consumers run as root.
 
-Three paths provision, all root, and each resolves its destinations through `ai_tools_agent_config_dirs`
-(`control-plane.lib.sh`): `install.sh` (stages the datadir, seeds each kind into its shared root, then runs the assets
-reconcile) and `ai-tools-bootstrap` (`seed_managed_assets_step`, gated on the control plane being present) reuse the lib
-directly and offer the interactive version update; in the RPM **base**'s `%post` seeds each shared root and then
-reconciles, and the **agent package**'s `%post` reconciles, which links the shared roots into the directories each
-enabled agent reads. The scriptlets reuse the same lib under an explicit `bash` (a scriptlet is `/bin/sh`) and, being
-non-interactive, place only what is absent. A **provider package that ships a skill** seeds the shared root in its own
-`%post` and reconciles, because on a first install base's and the agents' scriptlets run before that package's files are
-on disk; its `%postun` on final erase withdraws the live copy with `ai_tools_withdraw_asset`, the per-asset step
-the retired-list pass is built from, and reconciles so each agent's link to the gone target is dropped. This mirrors
+Three paths provision, all root, and each resolves its destinations
+through `ai_tools_control_plane__list_agent_config_dirs` (`control-plane.lib.sh`): `install.sh` (stages the datadir,
+seeds each kind into its shared root, then runs the assets reconcile) and `ai-tools-bootstrap`
+(`seed_managed_assets_step`, gated on the control plane being present) reuse the lib directly and offer the interactive
+version update; in the RPM **base**'s `%post` seeds each shared root and then reconciles, and the **agent package**'s
+`%post` reconciles, which links the shared roots into the directories each enabled agent reads. The scriptlets reuse
+the same lib under an explicit `bash` (a scriptlet is `/bin/sh`) and, being non-interactive, place only what is absent.
+A **provider package that ships a skill** seeds the shared root in its own `%post` and reconciles, because on a first
+install base's and the agents' scriptlets run before that package's files are on disk; its `%postun` on final erase
+withdraws the live copy with `ai_tools_managed_assets__withdraw_asset`, the per-asset step the retired-list pass is
+built from, and reconciles so each agent's link to the gone target is dropped. This mirrors
 the `.gitignore`/`.gitconfig` reseed (see [ownership-and-hooks](ownership-and-hooks.rule.md) for the control-plane
 ownership model).
 
@@ -375,10 +379,10 @@ ownership model).
 
 An asset a provider package ships declares `x-ai-tools-integration: <name>`, and the host holds it exactly where it
 holds that integration. The seeder places it through the other cases while the manifest `integrations.d/<name>.conf`
-and its directory pass `ai_tools_conf_is_trusted`; otherwise it skips the asset and moves a live managed copy aside
-with `ai_tools_withdraw_asset`, so the marker gate and the `retired/` copy are the withdrawal's. An absent manifest,
-an untrusted one and a name outside the provider charset each read as not installed, which removes the asset and does
-not place one.
+and its directory pass `ai_tools_conf__is_trusted`; otherwise it skips the asset and moves a live managed copy aside
+with `ai_tools_managed_assets__withdraw_asset`, so the marker gate and the `retired/` copy are the withdrawal's.
+An absent manifest, an untrusted one and a name outside the provider charset each read as not installed, which removes
+the asset and does not place one.
 
 The manifest decides because the pristine copy is present on hosts without the integration: a from-source install copies
 the whole pristine root, and a host that moved from a source install to packages keeps a pristine copy no package owns.
@@ -406,9 +410,9 @@ job, whose list of the fixtures base refuses follows the rules `assets.lib.sh` e
 from the subset changes all four.
 
 The orientation kind couples further, because its destination is manifest data: the `memory_file` field
-([providers](providers.rule.md), [agent-claude-code](agent-claude-code.rule.md)), `ai_tools_agent_memory_targets`
-(`control-plane.lib.sh`), and the boundaries the text itself states — each line describes an enforced behavior
-documented elsewhere ([launch](launch.rule.md), [ownership-and-hooks](ownership-and-hooks.rule.md),
-[secret-handling](secret-handling.rule.md), [claude-settings](claude-settings.rule.md)), so changing one of those
-behaviors obligates re-reading the line that describes it. A line that goes stale is worse than an absent one: it is
-believed.
+([providers](providers.rule.md), [agent-claude-code](agent-claude-code.rule.md)),
+`ai_tools_control_plane__list_agent_memory_targets` (`control-plane.lib.sh`), and the boundaries the text itself states
+— each line describes an enforced behavior documented elsewhere ([launch](launch.rule.md),
+[ownership-and-hooks](ownership-and-hooks.rule.md), [secret-handling](secret-handling.rule.md),
+[claude-settings](claude-settings.rule.md)), so changing one of those behaviors obligates re-reading the line
+that describes it. A line that goes stale is worse than an absent one: it is believed.

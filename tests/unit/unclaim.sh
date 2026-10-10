@@ -285,7 +285,7 @@ fi
 # a regression the secret case (D) cannot see, since a fixture cannot write the operator's real ~/.config. Read
 # as source order in the installed helper; an anchor no longer found FAILS.
 known_line="$(grep -n -m1 -E '^readonly ALLOWLIST PROJECTS_UID' "${HELPER}" | cut -d: -f1)"
-load_line="$(grep -n -m1 -F 'ai_tools_load_secret_patterns' "${HELPER}" | cut -d: -f1)"
+load_line="$(grep -n -m1 -F 'ai_tools_secret_patterns__load' "${HELPER}" | cut -d: -f1)"
 if [[ -z "${known_line}" || -z "${load_line}" ]]; then
     fail "the operator binding or the secret-pattern load is no longer where this reads it (binding -> ${known_line:-none}, load -> ${load_line:-none})"
 elif (( known_line < load_line )); then
@@ -364,7 +364,7 @@ fi
 assert_msg MSG-S4T9 "${err}" "the refusal names the unreadable file under the library's code"
 
 # ── A pinned path whose ancestor is a symlink ────────────────────────────────
-# The state ai_tools_pinned_fd_matches_path refuses (safe-paths.lib.sh), driven through _safe_unclaim read
+# The state ai_tools_safe_paths__is_pinned_fd_at_path refuses (safe-paths.lib.sh), driven through _safe_unclaim read
 # out of the installed helper as text, since the walk never emits it. The directory outside keeps its group, mode
 # and setgid bit; the same function on a real path is the control that it still reverts.
 section "ai-tools-unclaim: a pinned path whose ancestor is a symlink"

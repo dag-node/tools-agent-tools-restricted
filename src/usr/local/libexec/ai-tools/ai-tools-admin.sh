@@ -36,7 +36,7 @@
 # leaving the user's own allowlist and config. `list` prints the current operators.
 #
 # `selinux groups` toggles the optional policy groups, all off by default. It loads the COMPILED ai_tools_<group>.pp
-# that ai-tools-selinux (or a checkout's install-selinux.sh build) staged under AI_TOOLS_SELINUX_PACKAGE_DIR
+# that ai-tools-selinux (or a checkout's install-selinux.sh build) staged under AI_TOOLS_SELINUX_GROUPS__PACKAGE_DIR
 # via semodule -- no source tree or selinux-policy-devel needed on the host. The group set, descriptions, and per-group
 # stability are single-sourced from selinux-groups.lib.sh, shared with selinux/install-selinux.sh (the source-tree
 # authoring tool that instead COMPILES a group; this operator helper only loads a shipped one). Only STABLE groups are
@@ -244,8 +244,8 @@ usage_domains() {
     local domain summary
     for domain in "${ADMIN_DOMAINS[@]}"; do
         summary=""
-        declare -F ai_tools_provider_manifest_field >/dev/null 2>&1 \
-            && summary="$(ai_tools_provider_manifest_field "${domain}" admin_summary || true)"
+        declare -F ai_tools_providers__read_provider_manifest_field >/dev/null 2>&1 \
+            && summary="$(ai_tools_providers__read_provider_manifest_field "${domain}" admin_summary || true)"
         printf '    %-32s %s\n' "${domain} <command>" "${summary}"
     done
     # What the help shows and what runs stay one answer: while the set-wide gate holds these back, the listing says
@@ -274,7 +274,7 @@ is_base_command() {
 # because the caller must see the second one, and a $(...) capture would leave it behind in a subshell. Every refusal
 # goes to stderr.
 #
-# A fragment is honored only while ai_tools_conf_is_trusted holds for it AND for the directory holding it --
+# A fragment is honored only while ai_tools_conf__is_trusted holds for it AND for the directory holding it --
 # a group-writable directory lets a non-root writer unlink a root-owned file and put its own in that name, which here
 # would be a command root then executes. A name base owns is refused rather than merged, and a basename that is not
 # a bare lower-case word is skipped before it is ever joined to a path, so a separator or a traversal cannot address
@@ -291,7 +291,7 @@ admin_domains() {
     ADMIN_DOMAINS=()
     ADMIN_COMMANDS_TAMPERED=0
     [[ -d "${ADMIN_COMMANDS_DIR}" ]] || return 0
-    if ! ai_tools_conf_is_trusted "${ADMIN_COMMANDS_DIR}"; then
+    if ! ai_tools_conf__is_trusted "${ADMIN_COMMANDS_DIR}"; then
         warn MSG-V5S5 "ignoring every contributed command: ${ADMIN_COMMANDS_DIR} is a symlink, is not root-owned, or is writable by group/other"
         ADMIN_COMMANDS_TAMPERED=1
         return 0
@@ -308,7 +308,7 @@ admin_domains() {
             warn MSG-U6P9 "refusing ${fragment}: '${domain}' is a command ai-tools-admin owns and no package may replace it"
             continue
         fi
-        if ! ai_tools_conf_is_trusted "${fragment}"; then
+        if ! ai_tools_conf__is_trusted "${fragment}"; then
             warn MSG-D3P6 "refusing ${fragment}: it is a symlink, is not root-owned, or is writable by group/other, so what it runs is not root's decision alone"
             ADMIN_COMMANDS_TAMPERED=1
             continue
@@ -411,8 +411,8 @@ admin_command_check() {
         return 1
     fi
     # Captured before matching, never piped into `grep`/`head`: an early-exiting reader leaves the writer to die
-    # of SIGPIPE, which pipefail reports as a failed probe (see ai_tools_selinux_group_loaded). Every read works on this
-    # one string.
+    # of SIGPIPE, which pipefail reports as a failed probe (see ai_tools_selinux_groups__is_loaded). Every read works
+    # on this one string.
     header="$(head -n 20 "${fragment}" 2>/dev/null || true)"
     if ! grep -qxF -- "# ai-tools-admin-command: ${domain}" <<<"${header}"; then
         _admin_command_reason="$(coded_refusal MSG-H5F8 "no domain declaration: ${fragment} does not declare '# ai-tools-admin-command: ${domain}' in its first 20 lines -- reinstall the package that ships it")"
@@ -440,7 +440,7 @@ admin_command_check() {
 
     declared_verbs="$(_admin_command_field "${header}" verbs)"
     # One list grammar across this project: commas and whitespace both separate (conf.lib.sh).
-    ai_tools_conf_split ADMIN_COMMAND_VERBS "${declared_verbs}"
+    ai_tools_conf__split ADMIN_COMMAND_VERBS "${declared_verbs}"
     if [[ "${#ADMIN_COMMAND_VERBS[@]}" -eq 0 ]]; then
         _admin_command_reason="$(coded_refusal MSG-V5Q3 "no verb list: ${fragment} declares no '# ai-tools-admin-verbs: <verb> ...' -- a command that answers nothing is not one")"
         return 1
@@ -546,15 +546,15 @@ fi
 # shellcheck source=SCRIPTDIR/../../lib/ai-tools/selinux-groups.lib.sh
 . "${SELINUX_GROUPS_LIB}" || die_unsourced "${SELINUX_GROUPS_LIB}"
 
-# Shared yes/no prompt (ai_tools_msg_confirm; see msg.lib.sh). REQUIRED like the operator lib: a valid install ships it,
-# so there is no fallback. Include-guarded, so a re-source is a no-op.
+# Shared yes/no prompt (ai_tools_msg__confirm; see msg.lib.sh). REQUIRED like the operator lib: a valid install ships
+# it, so there is no fallback. Include-guarded, so a re-source is a no-op.
 # shellcheck source=SCRIPTDIR/../../lib/ai-tools/msg.lib.sh
 source /usr/local/lib/ai-tools/msg.lib.sh || die_unsourced /usr/local/lib/ai-tools/msg.lib.sh
 # Fixed 80-column frame for any box this tool renders, aligned with the CLI's.
 export AI_TOOLS_MSG_FULLWIDTH=1
 
 # write_operators <name>...: set the OPERATORS list in operator.conf (root:root 644). Edits ONLY the OPERATORS line
-# in an existing file, through the shared writer (ai_tools_conf_set_list, conf.lib.sh -- the grammar's owner,
+# in an existing file, through the shared writer (ai_tools_conf__set_list, conf.lib.sh -- the grammar's owner,
 # so the line replaced is the one every reader of the file matches), preserving every other setting the operator
 # maintains there; seeds a minimal file when absent. 644: world-readable (the agent hooks and the root helpers both read
 # it; it is free of secrets) and root-write-only, so the agent cannot rewrite the identity root hands files back to.
@@ -566,13 +566,13 @@ write_operators() {
         install -o root -g root -m 644 "${tmp}" "${OPERATOR_CONF}"
         rm -f "${tmp}"
     fi
-    ai_tools_conf_set_list "${OPERATOR_CONF}" OPERATORS "$@" \
+    ai_tools_conf__set_list "${OPERATOR_CONF}" OPERATORS "$@" \
         || die MSG-N4H9 "could not write OPERATORS into ${OPERATOR_CONF} -- the enrolment is incomplete; check the file and re-run"
 }
 
-# in_list <name>: succeed when <name> is already in AI_TOOLS_OPERATORS.
+# in_list <name>: succeed when <name> is already in AI_TOOLS_OPERATOR__OPERATORS.
 in_list() {
-    local n; for n in "${AI_TOOLS_OPERATORS[@]:-}"; do [[ "${n}" == "$1" ]] && return 0; done
+    local n; for n in "${AI_TOOLS_OPERATOR__OPERATORS[@]:-}"; do [[ "${n}" == "$1" ]] && return 0; done
     return 1
 }
 
@@ -611,7 +611,7 @@ ensure_config_home() {
         return 1
     fi
     log "${user} has no ${cfg_home}, which is where its ai-tools config directory goes"
-    if ! ai_tools_msg_confirm "Create ${cfg_home}, owned by ${user}?" y; then
+    if ! ai_tools_msg__confirm "Create ${cfg_home}, owned by ${user}?" y; then
         warn MSG-B6P3 "declined: ${cfg_home} was not created, so ${user}'s ai-tools config cannot be seeded"
         return 1
     fi
@@ -653,8 +653,8 @@ seed_operator_config() {
         warn MSG-N2J8 "could not create ${cfg} at 700 ${user}:${group}"
         return 1
     fi
-    seed_config_file "${user}" "${group}" "${cfg}/allowed-projects"  ai_tools_conf_allowlist_seed       || status=1
-    seed_config_file "${user}" "${group}" "${cfg}/secret-patterns"   ai_tools_conf_secret_patterns_seed || status=1
+    seed_config_file "${user}" "${group}" "${cfg}/allowed-projects"  ai_tools_conf__get_allowlist_seed       || status=1
+    seed_config_file "${user}" "${group}" "${cfg}/secret-patterns"   ai_tools_conf__get_secret_patterns_seed || status=1
     return "${status}"
 }
 
@@ -674,21 +674,21 @@ label_operator_config() {
     [[ -n "${home}" && -d "${cfg}" ]] || return 0
     # shellcheck source=SCRIPTDIR/../../lib/ai-tools/relabel.lib.sh
     if ! source "${RELABEL_LIB}" 2>/dev/null \
-            || ! declare -F ai_tools_label_operator_conf >/dev/null 2>&1; then
+            || ! declare -F ai_tools_relabel__label_operator_conf >/dev/null 2>&1; then
         warn MSG-H5N2 "cannot label ${cfg}: ${RELABEL_LIB} did not load -- reinstall ai-tools-base"
         return 0
     fi
     # Taken in this shell, not a subshell: the lock is an open descriptor (see relabel.lib.sh). It serializes this write
     # against the other helpers that write the same policy store.
-    ai_tools_relabel_lock
-    if [[ -n "${AI_TOOLS_RELABEL_LOCK_NOTE}" ]]; then
-        warn MSG-G2C6 "proceeding without the relabel lock: ${AI_TOOLS_RELABEL_LOCK_NOTE}"
+    ai_tools_relabel__lock
+    if [[ -n "${AI_TOOLS_RELABEL__LOCK_NOTE}" ]]; then
+        warn MSG-G2C6 "proceeding without the relabel lock: ${AI_TOOLS_RELABEL__LOCK_NOTE}"
     fi
-    ai_tools_label_operator_conf "${cfg}" || status=$?
+    ai_tools_relabel__label_operator_conf "${cfg}" || status=$?
     case "${status}" in
-        0) log "labelled ${cfg} ${AI_TOOLS_OPERATOR_CONF_TYPE}" ;;
+        0) log "labelled ${cfg} ${AI_TOOLS_RELABEL__OPERATOR_CONF_TYPE}" ;;
         2) : ;;   # no SELinux layer on this host -- nothing to label, and not a fault
-        *) warn MSG-N3T7 "could not label ${cfg} ${AI_TOOLS_OPERATOR_CONF_TYPE}${AI_TOOLS_FCONTEXT_ERROR:+ -- ${AI_TOOLS_FCONTEXT_ERROR}}"
+        *) warn MSG-N3T7 "could not label ${cfg} ${AI_TOOLS_RELABEL__OPERATOR_CONF_TYPE}${AI_TOOLS_RELABEL__FCONTEXT_ERROR:+ -- ${AI_TOOLS_RELABEL__FCONTEXT_ERROR}}"
            warn "    until it carries that type the ownership handback no-ops for ${user}'s projects"
            warn "    repair: sudo ai-tools-admin operators add ${user}" ;;
     esac
@@ -709,13 +709,13 @@ wire_init_file() {
             "# Created by ai-tools-admin: read this account's .bashrc at login." \
             'if [ -f ~/.bashrc ]; then' '    . ~/.bashrc' 'fi' >> "${f}"
     fi
-    if [[ "$(ai_tools_path_order_guard_present "${f}")" == yes ]]; then
+    if [[ "$(ai_tools_path_order__read_guard_state "${f}")" == yes ]]; then
         log "PATH ordering already wired in ${f}"; return 0
     fi
     grep -qF 'NVM_DIR' "${f}" \
         || log "note: NVM_DIR not found in ${f} -- the line still works, but it is meant to follow your nvm init"
     printf '\n# Added by ai-tools-admin: rank /usr/local/bin (the ai-tools wrappers) first on PATH.\n# Keep this AFTER anything that prepends to PATH, the nvm init included.\n%s\n' \
-        "${AI_TOOLS_PATH_ORDER_GUARD}" >> "${f}"
+        "${AI_TOOLS_PATH_ORDER__GUARD}" >> "${f}"
     log "wired PATH ordering into ${f}"
 }
 
@@ -723,27 +723,27 @@ wire_init_file() {
 # for the state the account is in. Its whole job is to put the stake in front of the decision: what the answer settles
 # is whether typing an agent's name reaches the sandbox at all, so the block names the binary that wins today
 # and what running it would mean. A question that reads as shell-config housekeeping collects a no from the operator it
-# protects. The renderer is ai_tools_msg_block, so the paths inside it stay copy-pasteable.
+# protects. The renderer is ai_tools_msg__block, so the paths inside it stay copy-pasteable.
 path_order_explain() {
     local user="$1" state="$2" launcher="$3" winner="$4"
     case "${state}" in
     shadowed)
-        ai_tools_msg_block "PATH ordering: /usr/local/bin has to win" \
+        ai_tools_msg__block "PATH ordering: /usr/local/bin has to win" \
             "Typing ${launcher} in ${user}'s shell starts:" \
             "" \
             "    ${winner}" \
             "" \
-            "That is an UNCONFINED agent: it runs as ${user}, with ${user}'s credentials and home, outside the project allowlist, the SELinux confinement and the ownership handback. The sandbox is reached only through the wrapper in ${AI_TOOLS_PATH_ORDER_WRAPPER_DIR}, so that directory has to come first on the PATH." \
+            "That is an UNCONFINED agent: it runs as ${user}, with ${user}'s credentials and home, outside the project allowlist, the SELinux confinement and the ownership handback. The sandbox is reached only through the wrapper in ${AI_TOOLS_PATH_ORDER__WRAPPER_DIR}, so that directory has to come first on the PATH." \
             "" \
             "ai-tools ships one line that deduplicates the PATH and ranks the root-owned directories ahead of the nvm shims. It is appended after the nvm init, changes nothing else about the shell, and is undone by deleting it." ;;
     clear)
-        ai_tools_msg_block "PATH ordering" \
-            "Typing ${launcher} in ${user}'s shell reaches ${AI_TOOLS_PATH_ORDER_WRAPPER_DIR}/${launcher} -- the sandbox wrapper -- so the ordering is right as it stands." \
+        ai_tools_msg__block "PATH ordering" \
+            "Typing ${launcher} in ${user}'s shell reaches ${AI_TOOLS_PATH_ORDER__WRAPPER_DIR}/${launcher} -- the sandbox wrapper -- so the ordering is right as it stands." \
             "" \
             "The line below is what keeps it right. Without it, an agent installed under ${user}'s own nvm, an nvm init, or anything else that prepends to PATH puts an unconfined agent ahead of the wrapper, and nothing says so: the agent simply starts outside the sandbox." ;;
     *)
-        ai_tools_msg_block "PATH ordering" \
-            "This host cannot read where ${user}'s shell finds an agent launcher, so it cannot say whether typing one reaches the sandbox wrapper in ${AI_TOOLS_PATH_ORDER_WRAPPER_DIR} or an agent installed somewhere else on that PATH -- which would run unconfined, as ${user}." \
+        ai_tools_msg__block "PATH ordering" \
+            "This host cannot read where ${user}'s shell finds an agent launcher, so it cannot say whether typing one reaches the sandbox wrapper in ${AI_TOOLS_PATH_ORDER__WRAPPER_DIR} or an agent installed somewhere else on that PATH -- which would run unconfined, as ${user}." \
             "" \
             "The line below settles it either way: it deduplicates the PATH and ranks the root-owned directories first." ;;
     esac
@@ -757,13 +757,13 @@ path_order_explain() {
 path_order_decline() {
     local user="$1" state="$2" launcher="$3" winner="$4" bashrc="$5" bashprof="$6"
     if [[ "${state}" == shadowed ]]; then
-        warn MSG-W7J6 "typing ${launcher} in ${user}'s shell runs ${winner}, not ${AI_TOOLS_PATH_ORDER_WRAPPER_DIR}/${launcher} -- that agent runs unconfined, as ${user}"
+        warn MSG-W7J6 "typing ${launcher} in ${user}'s shell runs ${winner}, not ${AI_TOOLS_PATH_ORDER__WRAPPER_DIR}/${launcher} -- that agent runs unconfined, as ${user}"
         warn "    add this line after the nvm init in ${bashrc} and ${bashprof}, or re-run: sudo ai-tools-admin operators add ${user}"
-        warn "    ${AI_TOOLS_PATH_ORDER_GUARD}"
+        warn "    ${AI_TOOLS_PATH_ORDER__GUARD}"
         return 0
     fi
     log "PATH ordering not wired; add this line after the nvm init in ${bashrc} and ${bashprof}:"
-    log "  ${AI_TOOLS_PATH_ORDER_GUARD}"
+    log "  ${AI_TOOLS_PATH_ORDER__GUARD}"
 }
 
 # wire_dedup <user> Settle where ${user}'s shell finds an agent launcher. It reads the account's ordering first
@@ -777,8 +777,8 @@ path_order_decline() {
 # so an unwired account keeps its stock PATH. The two files it names are what bash reads; an account that logs
 # in through another shell is told where its own ordering stands. It edits the operator's home, so it asks first
 # and never rewrites one in a run with no terminal, the `[[ -t 0 && -e /dev/tty ]]` branch deciding which.
-# ai_tools_path_order_repoint is the one exception, and it follows a file this package moved rather than making a choice
-# of its own.
+# ai_tools_path_order__repoint is the one exception, and it follows a file this package moved rather than making
+# a choice of its own.
 wire_dedup() {
     local user="$1" home group login_shell bashrc bashprof
     local state launcher winner pair
@@ -793,16 +793,16 @@ wire_dedup() {
     # this command reports and asks about is the repaired one.
     local repointed
     while IFS= read -r repointed; do
-        [[ -n "${repointed}" ]] && log "repointed the PATH ordering line in ${repointed} to ${AI_TOOLS_PATH_ORDER_FRAGMENT}"
-    done < <(ai_tools_path_order_repoint_user "${user}")
+        [[ -n "${repointed}" ]] && log "repointed the PATH ordering line in ${repointed} to ${AI_TOOLS_PATH_ORDER__FRAGMENT}"
+    done < <(ai_tools_path_order__repoint_user "${user}")
 
-    ai_tools_path_order_read_user "${user}" || true
-    state="${AI_TOOLS_PATH_ORDER_STATE:-unknown}"
-    winner="${AI_TOOLS_PATH_ORDER_SHADOW:-}"
+    ai_tools_path_order__read_user "${user}" || true
+    state="${AI_TOOLS_PATH_ORDER__STATE:-unknown}"
+    winner="${AI_TOOLS_PATH_ORDER__SHADOW:-}"
     # The launcher a message names is the shadowed one where there is one, and otherwise the first this host enables --
     # so the message is about a command the operator types.
     launcher=""
-    for pair in "${AI_TOOLS_PATH_ORDER_WINNERS[@]+"${AI_TOOLS_PATH_ORDER_WINNERS[@]}"}"; do
+    for pair in "${AI_TOOLS_PATH_ORDER__WINNERS[@]+"${AI_TOOLS_PATH_ORDER__WINNERS[@]}"}"; do
         [[ -z "${launcher}" ]] && launcher="${pair%%=*}"
         [[ -n "${winner}" && "${pair#*=}" == "${winner}" ]] && { launcher="${pair%%=*}"; break; }
     done
@@ -813,25 +813,25 @@ wire_dedup() {
     case "${login_shell}" in
         */bash|'') ;;
         *) log "note: ${user}'s login shell is ${login_shell}, which reads its own init files rather than ${bashrc} or ${bashprof}"
-           log "      rank ${AI_TOOLS_PATH_ORDER_WRAPPER_DIR} ahead of the nvm shims there too, so that typing ${launcher} reaches the ai-tools wrapper in that shell" ;;
+           log "      rank ${AI_TOOLS_PATH_ORDER__WRAPPER_DIR} ahead of the nvm shims there too, so that typing ${launcher} reaches the ai-tools wrapper in that shell" ;;
     esac
 
     # Already wired and still shadowed: appending the line again edits the file and leaves the ordering as it was,
     # because what stands between this account and the wrapper is a later line that prepends to PATH. Report
     # that diagnosis instead of asking a question whose yes does not change the ordering.
-    if [[ "${state}" == shadowed && "${AI_TOOLS_PATH_ORDER_WIRED:-no}" == yes ]]; then
+    if [[ "${state}" == shadowed && "${AI_TOOLS_PATH_ORDER__WIRED:-no}" == yes ]]; then
         warn MSG-M2N9 "the PATH ordering line is already in ${user}'s shell init, and typing ${launcher} still runs ${winner}"
         warn "    something after that line prepends to PATH -- move it to the END of ${bashrc}, after the nvm init and anything else that touches PATH"
         return 0
     fi
     if [[ "${state}" == wired ]]; then
-        log "PATH ordering: ${bashrc} already sources ${AI_TOOLS_PATH_ORDER_FRAGMENT}, and ${launcher} reaches the wrapper"
+        log "PATH ordering: ${bashrc} already sources ${AI_TOOLS_PATH_ORDER__FRAGMENT}, and ${launcher} reaches the wrapper"
         return 0
     fi
 
     path_order_explain "${user}" "${state}" "${launcher}" "${winner}"
     if [[ -t 0 && -e /dev/tty ]]; then
-        if ai_tools_msg_confirm \
+        if ai_tools_msg__confirm \
             "Add the PATH ordering line to ${bashrc} and ${bashprof}?" y; then
             wire_init_file "${bashrc}"   "${user}" "${group}"
             wire_init_file "${bashprof}" "${user}" "${group}" login-chain
@@ -889,7 +889,7 @@ op_add() {
     [[ "${user}" != "root" ]]            || die MSG-H3M6 "an operator must be a normal login user, not root"
     id "${user}" &>/dev/null || die MSG-U8T8 "no such user: ${user}"
 
-    ai_tools_load_operators || true   # tolerate an unenrolled host (empty list)
+    ai_tools_operator__load_operators || true   # tolerate an unenrolled host (empty list)
     local enrolled=0
     if in_list "${user}"; then
         enrolled=1
@@ -912,7 +912,7 @@ op_add() {
 
     if (( ! enrolled )); then
         local newlist=()
-        [[ "${#AI_TOOLS_OPERATORS[@]}" -gt 0 ]] && newlist=( "${AI_TOOLS_OPERATORS[@]}" )
+        [[ "${#AI_TOOLS_OPERATOR__OPERATORS[@]}" -gt 0 ]] && newlist=( "${AI_TOOLS_OPERATOR__OPERATORS[@]}" )
         newlist+=( "${user}" )
         write_operators "${newlist[@]}"
         log "added ${user} to OPERATORS"
@@ -958,13 +958,13 @@ op_add() {
 op_remove() {
     local user="${1:-}"
     [[ -n "${user}" ]] || reject MSG-S3E9 "operators remove: name the user to withdraw"
-    ai_tools_load_operators || true
+    ai_tools_operator__load_operators || true
     if ! in_list "${user}"; then
         log "${user} is not an operator; nothing to remove"
         return 0
     fi
     local kept=() n
-    for n in "${AI_TOOLS_OPERATORS[@]}"; do [[ "${n}" == "${user}" ]] || kept+=("${n}"); done
+    for n in "${AI_TOOLS_OPERATOR__OPERATORS[@]}"; do [[ "${n}" == "${user}" ]] || kept+=("${n}"); done
     write_operators "${kept[@]}"
     log "removed ${user} from OPERATORS"
     # Drop ai-ops membership; leave the account's own allowlist and secret patterns (their data).
@@ -974,8 +974,8 @@ op_remove() {
 }
 
 op_list() {
-    if ai_tools_load_operators; then
-        printf '%s\n' "${AI_TOOLS_OPERATORS[@]}"
+    if ai_tools_operator__load_operators; then
+        printf '%s\n' "${AI_TOOLS_OPERATOR__OPERATORS[@]}"
     else
         log "no operators configured"
     fi
@@ -1001,7 +1001,7 @@ require_selinux() {
 # situation for both verbs -- a name that is not a group is the same refusal whether it was to be loaded or unloaded,
 # so the two arms share it rather than each writing it.
 _sel_require_known_group() {
-    ai_tools_selinux_group_valid "$1" && return 0
+    ai_tools_selinux_groups__is_valid "$1" && return 0
     log "unknown group '$1'. Available groups:"; _selinux_usage_groups
     die MSG-D7Y7 "no such policy group: $1"
 }
@@ -1009,10 +1009,10 @@ _sel_require_known_group() {
 # _selinux_usage_groups: list the known groups (name + description) to stderr.
 _selinux_usage_groups() {
     local entry
-    for entry in "${AI_TOOLS_SELINUX_GROUPS[@]}"; do
+    for entry in "${AI_TOOLS_SELINUX_GROUPS__REGISTRY[@]}"; do
         printf '    %-10s %s\n' \
-            "$(ai_tools_selinux_group_name "${entry}")" \
-            "$(ai_tools_selinux_group_desc "${entry}")" >&2
+            "$(ai_tools_selinux_groups__get_name "${entry}")" \
+            "$(ai_tools_selinux_groups__get_description "${entry}")" >&2
     done
 }
 
@@ -1032,7 +1032,7 @@ sel_enable() {
 
 _sel_enable_one() {
     local name="$1"
-    if ai_tools_selinux_group_loaded "${name}"; then
+    if ai_tools_selinux_groups__is_loaded "${name}"; then
         log "group '${name}' is already loaded -- nothing to do"
         return 0
     fi
@@ -1040,8 +1040,8 @@ _sel_enable_one() {
     # modules; an experimental group must be compiled and verified against a real workload from a source checkout first
     # (install-selinux.sh does both), because it widens the sandbox domain's access beyond the repo-only core. Point
     # the operator there rather than loading an unaudited module.
-    if ai_tools_selinux_group_is_experimental "${name}"; then
-        ai_tools_msg_warn MSG-C4F5 \
+    if ai_tools_selinux_groups__is_experimental "${name}"; then
+        ai_tools_msg__warn MSG-C4F5 \
             "The '${name}' SELinux policy group is an EXPERIMENTAL, unaudited draft. It is not shipped prebuilt and cannot be enabled from here -- it widens the sandbox domain's access beyond the repo-only core and must be compiled and verified against a real workload from a source checkout first."
         log "compile, audit under permissive, and load it from a repo checkout:"
         log "    sudo selinux/install-selinux.sh enable-group ${name}"
@@ -1049,20 +1049,20 @@ _sel_enable_one() {
         log "docs: selinux/README.md, \"Optional policy groups\""
         die "'${name}' is experimental -- verify and enable it from source (see above)"
     fi
-    local pp="${AI_TOOLS_SELINUX_PACKAGE_DIR}/ai_tools_${name}.pp"
+    local pp="${AI_TOOLS_SELINUX_GROUPS__PACKAGE_DIR}/ai_tools_${name}.pp"
     [[ -f "${pp}" ]] || die MSG-S5P4 "compiled module ${pp} not found -- reinstall ai-tools-selinux, or from a checkout: sudo selinux/install-selinux.sh build"
     # A former module still loaded from before this group was renamed or split out of it goes in the same transaction,
     # together with every OTHER current group that former module's rules became, so the host never holds both rule sets,
     # never loses a capability the old module carried, and a failed load leaves the old module in place.
     local former sibling
     local -a swap_args=( -i "${pp}" )
-    if former="$(ai_tools_selinux_group_former_module "${name}" 2>/dev/null)" \
-            && ai_tools_selinux_module_loaded "${former}"; then
+    if former="$(ai_tools_selinux_groups__get_former_module "${name}" 2>/dev/null)" \
+            && ai_tools_selinux_groups__is_module_loaded "${former}"; then
         while IFS= read -r sibling; do
             [[ -n "${sibling}" && "${sibling}" != "${name}" ]] || continue
-            [[ -f "${AI_TOOLS_SELINUX_PACKAGE_DIR}/ai_tools_${sibling}.pp" ]] || continue
-            swap_args+=( -i "${AI_TOOLS_SELINUX_PACKAGE_DIR}/ai_tools_${sibling}.pp" )
-        done < <(ai_tools_selinux_groups_from_former_module "${former}")
+            [[ -f "${AI_TOOLS_SELINUX_GROUPS__PACKAGE_DIR}/ai_tools_${sibling}.pp" ]] || continue
+            swap_args+=( -i "${AI_TOOLS_SELINUX_GROUPS__PACKAGE_DIR}/ai_tools_${sibling}.pp" )
+        done < <(ai_tools_selinux_groups__list_groups_from_former_module "${former}")
         log "replacing the loaded '${former}' module with the group(s) its rules became"
         semodule -r "${former}" "${swap_args[@]}" || die MSG-M8X2 "semodule failed to replace ${former}"
     else
@@ -1081,7 +1081,7 @@ sel_disable() {
     [[ -n "${name}" && "${name}" != -* ]] || reject MSG-P2T5 "selinux groups disable: name the group to unload"
     require_selinux || return 0
     _sel_require_known_group "${name}"
-    if ai_tools_selinux_group_loaded "${name}"; then
+    if ai_tools_selinux_groups__is_loaded "${name}"; then
         semodule -r "ai_tools_${name}" || die MSG-Q6F4 "semodule failed to remove ai_tools_${name}"
         _restore_group_static_labels
         log "group '${name}' disabled"
@@ -1109,18 +1109,18 @@ sel_list() {
     require_selinux || return 0
     local core_state='[disabled]' modules
     # Captured, not piped into `grep -q`: an early-exiting reader makes semodule die of SIGPIPE and pipefail then
-    # reports the probe failed -- see ai_tools_selinux_group_loaded.
+    # reports the probe failed -- see ai_tools_selinux_groups__is_loaded.
     modules="$(semodule -l 2>/dev/null || true)"
     grep -qx 'ai_tools' <<<"${modules}" && core_state='[LOADED]  '
     printf '\nSELinux policy groups\n\n'
     printf '  %s core module (ai_tools) -- the confinement domain; DAC-only when disabled\n\n' "${core_state}"
     printf '  optional groups (all default: disabled)\n'
     local entry name desc stability state
-    for entry in "${AI_TOOLS_SELINUX_GROUPS[@]}"; do
-        name="$(ai_tools_selinux_group_name "${entry}")"
-        desc="$(ai_tools_selinux_group_desc "${entry}")"
-        stability="$(ai_tools_selinux_group_stability "${entry}")"
-        if ai_tools_selinux_group_loaded "${name}"; then state='[LOADED]  '; else state='[disabled]'; fi
+    for entry in "${AI_TOOLS_SELINUX_GROUPS__REGISTRY[@]}"; do
+        name="$(ai_tools_selinux_groups__get_name "${entry}")"
+        desc="$(ai_tools_selinux_groups__get_description "${entry}")"
+        stability="$(ai_tools_selinux_groups__get_stability "${entry}")"
+        if ai_tools_selinux_groups__is_loaded "${name}"; then state='[LOADED]  '; else state='[disabled]'; fi
         printf '    %s %-9s %-15s %s\n' "${state}" "${name}" "(${stability})" "${desc}"
     done
     printf '\n  toggle       : sudo ai-tools-admin selinux groups enable <name> | disable <name>\n'
@@ -1179,10 +1179,10 @@ system_bootstrap() {
 # a host wants every outcome, not the first one that went wrong. An enabled integration that does not contribute
 # a command fragment is reported and skipped -- base cannot assume any particular package is installed.
 bootstrap_integrations() {
-    declare -F ai_tools_enabled_integrations >/dev/null 2>&1 \
+    declare -F ai_tools_providers__list_enabled_integrations >/dev/null 2>&1 \
         || die MSG-Z4D6 "the provider resolver is unavailable, so the enabled integrations cannot be resolved -- the toolchain itself is provisioned; re-run without --scope to confirm"
     local -a enabled=()
-    mapfile -t enabled < <(ai_tools_enabled_integrations)
+    mapfile -t enabled < <(ai_tools_providers__list_enabled_integrations)
     if [[ "${#enabled[@]}" -eq 0 ]]; then
         log "no integration is enabled in ${OPERATOR_CONF} -- nothing further to provision"
         return 0
@@ -1363,45 +1363,45 @@ _pu_provenance() {
 # rather than a promise of one, and a merge that would fail says so before the real file is touched.
 _pu_json() {
     local deployed="$1" rpmnew="$2" scratch status=0
-    ai_tools_conf_require_jq \
+    ai_tools_settings_merge__require_jq \
         || { warn MSG-A5Z7 "jq is missing, so this file's JSON cannot be read -- merge it by hand"
              _PU_ATTENTION=$(( _PU_ATTENTION + 1 )); return 0; }
 
     scratch="$(mktemp -d)" || return 0
     cp -p "${deployed}" "${scratch}/probe" 2>/dev/null || { rm -rf "${scratch}"; return 0; }
-    ai_tools_conf_merge_hook_declarations "${scratch}/probe" "${rpmnew}" || status=$?
+    ai_tools_settings_merge__merge_hook_declarations "${scratch}/probe" "${rpmnew}" || status=$?
     rm -rf "${scratch}"
 
     case "${status}" in
     1)  _pu_say ok "hook declarations are already current"
         _pu_settings_rest "${deployed}" "${rpmnew}"
         return 0 ;;
-    2)  warn MSG-Q4F6 "cannot merge the hook declarations: ${_ai_tools_conf_merge_reason}"
+    2)  warn MSG-Q4F6 "cannot merge the hook declarations: ${ai_tools_settings_merge__reason}"
         _pu_say err "unchanged -- copy the \"hooks\" block from ${rpmnew} by hand"
         return 0 ;;
     esac
 
     local line
-    if (( ${#_ai_tools_conf_merge_added[@]} > 0 )); then
+    if (( ${#ai_tools_settings_merge__added[@]} > 0 )); then
         _pu_say act "hook declarations this version adds:"
-        for line in "${_ai_tools_conf_merge_added[@]}"; do _pu_say act "  + ${line}"; done
+        for line in "${ai_tools_settings_merge__added[@]}"; do _pu_say act "  + ${line}"; done
     fi
-    if (( ${#_ai_tools_conf_merge_removed[@]} > 0 )); then
+    if (( ${#ai_tools_settings_merge__removed[@]} > 0 )); then
         _pu_say act "hook declarations declared twice, of which the merge keeps the first:"
-        for line in "${_ai_tools_conf_merge_removed[@]}"; do _pu_say act "  - ${line}"; done
+        for line in "${ai_tools_settings_merge__removed[@]}"; do _pu_say act "  - ${line}"; done
     fi
     _pu_say info "the permission rules stay as written"
-    ai_tools_msg_confirm "  Merge these into ${deployed}?" y || { _pu_say act "skipped -- ${deployed} unchanged"; return 0; }
+    ai_tools_msg__confirm "  Merge these into ${deployed}?" y || { _pu_say act "skipped -- ${deployed} unchanged"; return 0; }
 
     status=0
-    ai_tools_conf_merge_hook_declarations "${deployed}" "${rpmnew}" || status=$?
+    ai_tools_settings_merge__merge_hook_declarations "${deployed}" "${rpmnew}" || status=$?
     if (( status >= 2 )); then
-        warn MSG-X9F8 "the merge failed: ${_ai_tools_conf_merge_reason} -- ${deployed} is unchanged"
+        warn MSG-X9F8 "the merge failed: ${ai_tools_settings_merge__reason} -- ${deployed} is unchanged"
         _PU_ATTENTION=$(( _PU_ATTENTION + 1 ))
         _PU_ERRORS=$(( _PU_ERRORS + 1 ))
         return 0
     fi
-    _pu_say ok "merged -- the previous file is saved as ${_ai_tools_conf_merge_backup}"
+    _pu_say ok "merged -- the previous file is saved as ${ai_tools_settings_merge__backup}"
 
     # Close against what is left. Once the permission rules match too, the .rpmnew has no difference left to report,
     # so the operator is told the removal is all that remains.
@@ -1414,15 +1414,15 @@ _pu_json() {
 }
 
 # _pu_settings_rest <deployed> <rpmnew>: report what a settings file differs in once its hook declarations are current.
-# The permission rule lists are compared as sets (ai_tools_conf_permission_gaps) and every other setting with its keys
-# sorted (ai_tools_conf_settings_rest), so a list's order, a key's place in the object, and how hooks are grouped are
-# not reported. A rule the copy carries and the file does not is named for the operator to add; a rule only the file
-# carries is the host's and is listed without being counted; with neither left, the copy does not carry anything
-# the file lacks.
+# The permission rule lists are compared as sets (ai_tools_settings_merge__find_permission_gaps) and every other setting
+# with its keys sorted (ai_tools_settings_merge__read_settings_rest), so a list's order, a key's place in the object,
+# and how hooks are grouped are not reported. A rule the copy carries and the file does not is named for the operator
+# to add; a rule only the file carries is the host's and is listed without being counted; with neither left, the copy
+# does not carry anything the file lacks.
 _pu_settings_rest() {
     local deployed="$1" rpmnew="$2" gaps kind list rule scratch pending=0
     local -a missing=() extra=()
-    if ! gaps="$(ai_tools_conf_permission_gaps "${deployed}" "${rpmnew}")"; then
+    if ! gaps="$(ai_tools_settings_merge__find_permission_gaps "${deployed}" "${rpmnew}")"; then
         _pu_say act "the permission rules were not compared (jq is missing or a file is not valid JSON):"
         _pu_diff "${deployed}" "${rpmnew}"
         _pu_leave "${rpmnew}"
@@ -1444,8 +1444,8 @@ _pu_settings_rest() {
         for rule in "${extra[@]}"; do _pu_say info "  ${rule}"; done
     fi
     scratch="$(mktemp -d)" || scratch=""
-    if [[ -n "${scratch}" ]] && ai_tools_conf_settings_rest "${deployed}" > "${scratch}/file" \
-            && ai_tools_conf_settings_rest "${rpmnew}" > "${scratch}/copy" \
+    if [[ -n "${scratch}" ]] && ai_tools_settings_merge__read_settings_rest "${deployed}" > "${scratch}/file" \
+            && ai_tools_settings_merge__read_settings_rest "${rpmnew}" > "${scratch}/copy" \
             && ! cmp -s "${scratch}/file" "${scratch}/copy"; then
         _pu_say act "other settings differ (key order ignored):"
         _pu_diff "${scratch}/file" "${scratch}/copy" "${deployed}" "${rpmnew}"
@@ -1494,8 +1494,8 @@ _pu_own_keys() {
     _pu_own_out=()
     _pu_set_keys set_keys "${deployed}"
     for key in "${set_keys[@]}"; do
-        live="$(ai_tools_conf_get "${deployed}" "${key}")" || true
-        if shipped="$(ai_tools_conf_get "${rpmnew}" "${key}")" && [[ "${shipped}" == "${live}" ]]; then
+        live="$(ai_tools_conf__print_value "${deployed}" "${key}")" || true
+        if shipped="$(ai_tools_conf__print_value "${rpmnew}" "${key}")" && [[ "${shipped}" == "${live}" ]]; then
             continue
         fi
         _pu_own_out+=("${key}")
@@ -1588,7 +1588,7 @@ _pu_keyval() {
     local deployed="$1" rpmnew="$2" key page
     local -a new_keys=() own_keys=()
     local carried=0
-    if ai_tools_conf_new_keys new_keys "${deployed}" "${rpmnew}"; then
+    if ai_tools_conf__find_new_keys new_keys "${deployed}" "${rpmnew}"; then
         carried=1
         _pu_say act "options this version documents that the file does not mention:"
         for key in "${new_keys[@]}"; do _pu_say act "  ${key}"; done
@@ -1624,7 +1624,7 @@ _pu_keyval() {
 _pu_review() {
     local deployed="$1" rpmnew="$2"
     _PU_ATTENTION=$(( _PU_ATTENTION + 1 ))
-    ai_tools_msg_warn MSG-H8A2 \
+    ai_tools_msg__warn MSG-H8A2 \
         "This file defines the sudo grant that lets an operator launch the sandbox. It is shown, never merged: check any change yourself with visudo -c before adopting it."
     _pu_diff "${deployed}" "${rpmnew}"
     _pu_say info "adopt the packaged version with:  sudo visudo -c -f ${rpmnew} && sudo cp ${rpmnew} ${deployed}"
@@ -1640,10 +1640,10 @@ _pu_show() {
 }
 
 # _pu_clock_lines <array-name> <entry>...: fill the named array with "<when>  <path>" for every file or copy
-# among the entries dated after the system clock (ai_tools_conf_clock_behind), and fail when there is one. The copy
-# a file is compared with is the newest by date, so under a clock that is behind the comparison picks the wrong copy
-# and the report would send the operator to merge from it: both runs ask this first and, with a finding, name the clock
-# as the first thing to correct and make no comparison.
+# among the entries dated after the system clock (ai_tools_conf__find_paths_ahead_of_clock), and fail when there is one.
+# The copy a file is compared with is the newest by date, so under a clock that is behind the comparison picks the wrong
+# copy and the report would send the operator to merge from it: both runs ask this first and, with a finding, name
+# the clock as the first thing to correct and make no comparison.
 _pu_clock_lines() {
     local -n _pu_clock_out="$1"
     shift
@@ -1657,21 +1657,21 @@ _pu_clock_lines() {
     (( ${#paths[@]} > 0 )) || return 0
     while IFS=$'\t' read -r when path; do
         [[ -n "${path}" ]] && _pu_clock_out+=("${when}  ${path}")
-    done < <(ai_tools_conf_clock_behind "${paths[@]}" || true)
+    done < <(ai_tools_conf__find_paths_ahead_of_clock "${paths[@]}" || true)
     (( ${#_pu_clock_out[@]} == 0 ))
 }
 
 # _pu_entries <root>: one "<file>|<kind>|<label>|<copy>" line per file with a baseline copy waiting -- the registry
 # first, then each one found under POSTUPGRADE_DIRS that the registry does not name. The copy is the newest beside
-# the file of the package's .rpmnew and the installer's .shipped (ai_tools_conf_latest_copy), so a host whose install
-# routes alternated is compared with the baseline that reached it last, whichever route brought it.
+# the file of the package's .rpmnew and the installer's .shipped (ai_tools_conf__find_latest_copy), so a host
+# whose install routes alternated is compared with the baseline that reached it last, whichever route brought it.
 _pu_entries() {
     local root="$1" entry file kind label dir copy fd pid
     local -a named=()
     for entry in "${POSTUPGRADE_FILES[@]}"; do
         IFS='|' read -r file kind label <<< "${entry}"
         named+=("${root}${file}")
-        [[ -f "${root}${file}" ]] && copy="$(ai_tools_conf_latest_copy "${root}${file}")" \
+        [[ -f "${root}${file}" ]] && copy="$(ai_tools_conf__find_latest_copy "${root}${file}")" \
             && printf '%s|%s|%s|%s\n' "${root}${file}" "${kind}" "${label}" "${copy}"
     done
     for dir in "${POSTUPGRADE_DIRS[@]}"; do
@@ -1685,7 +1685,7 @@ _pu_entries() {
             esac
             [[ -f "${file}" && " ${named[*]} " != *" ${file} "* ]] || continue
             named+=("${file}")
-            copy="$(ai_tools_conf_latest_copy "${file}")" || continue
+            copy="$(ai_tools_conf__find_latest_copy "${file}")" || continue
             if [[ "${file}" == *.conf ]]; then kind=keyval; else kind=show; fi
             printf '%s|%s|%s|%s\n' "${file}" "${kind}" "${file##*/}" "${copy}"
         done
@@ -1705,16 +1705,16 @@ _pu_ask_gaps() {
     local settings="$1/opt/ai-tools/.claude/settings.json" gaps line
     local -a entries=() fix=()
     [[ -f "${settings}" ]] || return 0
-    if ! gaps="$(ai_tools_conf_ask_gaps "${settings}" "$1")"; then
+    if ! gaps="$(ai_tools_settings_merge__find_ask_gaps "${settings}" "$1")"; then
         warn MSG-B2E6 "the ask entries in ${settings} were not checked -- jq is missing or the file is not valid JSON"
         _PU_ATTENTION=$(( _PU_ATTENTION + 1 ))
         return 0
     fi
     [[ -n "${gaps}" ]] || return 0
     mapfile -t entries <<< "${gaps}"
-    mapfile -t fix < <(ai_tools_conf_ask_fix "${settings}" "${entries[@]}")
+    mapfile -t fix < <(ai_tools_settings_merge__format_ask_fix "${settings}" "${entries[@]}")
     _PU_NAME="${settings##*/}"
-    ai_tools_msg_headline "${_PU_NAME} -- commands that run without asking" 1 "${settings}"
+    ai_tools_msg__headline "${_PU_NAME} -- commands that run without asking" 1 "${settings}"
     _pu_say act "each of these sends data off the host, and the file does not ask before it runs:"
     for line in "${entries[@]}"; do _pu_say act "  ${line}"; done
     if (( ${#fix[@]} > 0 )); then
@@ -1727,19 +1727,20 @@ _pu_ask_gaps() {
 }
 
 # _pu_managed_pairs <root>: "<live>\t<reference>" per managed file an installed agent's manifest declares
-# (ai_tools_agent_managed_files), both paths under <root>. The manifests are read under <root> as well, so the unit
-# suite drives the check against fixture manifests. Returns 1, printing nothing, when the provider library did not load.
+# (ai_tools_providers__list_agent_managed_files), both paths under <root>. The manifests are read under <root> as well,
+# so the unit suite drives the check against fixture manifests. Returns 1, printing nothing, when the provider library
+# did not load.
 _pu_managed_pairs() {
     local root="$1" agent live reference
-    declare -F ai_tools_agent_managed_files >/dev/null 2>&1 || return 1
+    declare -F ai_tools_providers__list_agent_managed_files >/dev/null 2>&1 || return 1
     # shellcheck disable=SC2034  # read by the provider functions this one calls, which see it through dynamic scope
     local AI_TOOLS_AGENTS_DIR="${root}${AI_TOOLS_AGENTS_DIR}"
     while IFS=$'\t' read -r agent _ _; do
         [[ -n "${agent}" ]] || continue
         while IFS=$'\t' read -r live reference; do
             printf '%s\t%s\n' "${root}${live}" "${root}${reference}"
-        done < <(ai_tools_agent_managed_files "${agent}" 2>/dev/null)
-    done < <(ai_tools_installed_agents 2>/dev/null)
+        done < <(ai_tools_providers__list_agent_managed_files "${agent}" 2>/dev/null)
+    done < <(ai_tools_providers__list_installed_agents 2>/dev/null)
 }
 
 # _pu_merge_command <file> <copy>: the command that merges a file with its package copy side by side, the file
@@ -1762,11 +1763,11 @@ _pu_key_gaps() {
     while IFS=$'\t' read -r live reference; do
         [[ -f "${live}" && -f "${reference}" ]] || continue
         cmp -s "${live}" "${reference}" && continue
-        keys="$(ai_tools_managed_file_missing_keys "${live}" "${reference}")" || continue
+        keys="$(ai_tools_providers__find_managed_file_missing_keys "${live}" "${reference}")" || continue
         [[ -n "${keys}" ]] || continue
         mapfile -t missing <<< "${keys}"
         _PU_NAME="${live##*/}"
-        ai_tools_msg_headline "${_PU_NAME} -- keys this release ships that the file does not set" 1 "${live}"
+        ai_tools_msg__headline "${_PU_NAME} -- keys this release ships that the file does not set" 1 "${live}"
         for key in "${missing[@]}"; do _pu_say act "  ${key}"; done
         # sudoedit writes back an edited right-hand pane too, so the merge runs against a .rpmnew -- the one rpm left,
         # or one recreated here -- and the pristine copy the status reports compare with stays untouched.
@@ -1783,7 +1784,7 @@ _pu_orphan_report() {
     local path
     while IFS= read -r path; do
         _PU_NAME="${path##*/}"
-        ai_tools_msg_headline "${_PU_NAME} -- a package copy without its file" 1 "${path}"
+        ai_tools_msg__headline "${_PU_NAME} -- a package copy without its file" 1 "${path}"
         _pu_say act "the file this copy belongs to is gone -- restore it from the copy, or remove the copy:"
         printf '      sudo cp -p %s %s\n' "${path}" "${path%.rpmnew}"
         printf '      sudo rm %s\n' "${path}"
@@ -1799,7 +1800,7 @@ _pu_asset_report() {
     mapfile -t lines < <(_pu_assets "$1")
     (( ${#lines[@]} > 0 )) || return 0
     _PU_NAME="assets"
-    ai_tools_msg_headline "shared skills, subagents and orientation" 1 "$1/opt/ai-tools"
+    ai_tools_msg__headline "shared skills, subagents and orientation" 1 "$1/opt/ai-tools"
     for path in "${lines[@]}"; do
         IFS=$'\t' read -r state _ path detail <<< "${path}"
         case "${state}" in
@@ -1839,7 +1840,7 @@ _pu_sidecars() {
     installed="$(_pu_installed_day)" || installed=""
     mapfile -t copies < <(_pu_copies "${root}")
     (( ${#copies[@]} > 0 )) || return 0
-    ai_tools_msg_headline "earlier copies kept beside the config files" 1 \
+    ai_tools_msg__headline "earlier copies kept beside the config files" 1 \
         "a .bak is what a file held before a merge replaced it, a .shipped a baseline an earlier from-source install left," \
         "a .retired a managed file or a withdrawn skill set aside"
     for path in "${copies[@]}"; do
@@ -1855,10 +1856,11 @@ _pu_sidecars() {
 }
 
 # postupgrade [--check [--all] [--format tsv]]: reconcile the copies, or with `--check` write what needs attention
-# as a record stream without asking or writing. Returns 0 when no file is left to act on, AI_TOOLS_EXIT_FINDINGS while
-# one is, and 1 when a merge the run was asked to make did not happen (the two `err` lines _pu_json counts), so a caller
-# reads the outcome from the exit status alone; under `--check` the status is the report state's, which adds
-# AI_TOOLS_EXIT_UNREADABLE for a source the check could not read (ai-tools-records(5), EXIT STATUS).
+# as a record stream without asking or writing. Returns 0 when no file is left to act
+# on, AI_TOOLS_RECORDS_BASE__EXIT_FINDINGS while one is, and 1 when a merge the run was asked to make did not happen
+# (the two `err` lines _pu_json counts), so a caller reads the outcome from the exit status alone; under `--check`
+# the status is the report state's, which adds AI_TOOLS_RECORDS_BASE__EXIT_UNREADABLE for a source the check could not
+# read (ai-tools-records(5), EXIT STATUS).
 postupgrade() {
     local check=0 all=0 format=tsv format_given=0 refusal=""
     while [[ $# -gt 0 && -z "${refusal}" ]]; do
@@ -1880,12 +1882,12 @@ postupgrade() {
     if (( check )); then
         _PU_ALL="${all}"
         _pu_run_check "${AI_TOOLS_POSTUPGRADE_ROOT:-}"
-        ai_tools_records_get_exit_status || return $?
+        ai_tools_records_base__get_exit_status || return $?
         return 0
     fi
     _pu_report
     (( _PU_ERRORS == 0 )) || return 1
-    (( _PU_ATTENTION == 0 )) || return "${AI_TOOLS_EXIT_FINDINGS}"
+    (( _PU_ATTENTION == 0 )) || return "${AI_TOOLS_RECORDS_BASE__EXIT_FINDINGS}"
     return 0
 }
 
@@ -1893,12 +1895,13 @@ postupgrade() {
 # One record per finding, in the stream ai-tools-records(5) states -- no colour, no heading, and no output at all
 # on a host with no finding -- so a cron job mails only a host that needs attention and a monitor reads the header
 # and the rows. Each finding is one situation, so it carries one message code, and _pu_write_finding is the one table
-# tying a finding to its code and its severity: `attention` makes the run exit AI_TOOLS_EXIT_FINDINGS, `unreadable` (the
-# `error` finding, a check that could not run) AI_TOOLS_EXIT_UNREADABLE, and `info` is written under `--all` alone
-# and leaves the exit as it is. The caller names the subject-type, since an asset reported missing has no path to stat,
-# and the item is the components the collector's own granularity gives -- the event and the command of a hook, the list
-# and the rule of a permission rule, a key, and for an `error` one token naming the check -- so two findings on one file
-# keep two ids. No row carries an operator: every subject is under /etc or /opt/ai-tools, host-wide.
+# tying a finding to its code and its severity: `attention` makes the run exit AI_TOOLS_RECORDS_BASE__EXIT_FINDINGS,
+# `unreadable` (the `error` finding, a check that could not run) AI_TOOLS_RECORDS_BASE__EXIT_UNREADABLE, and `info` is
+# written under `--all` alone and leaves the exit as it is. The caller names the subject-type, since an asset reported
+# missing has no path to stat, and the item is the components the collector's own granularity gives -- the event
+# and the command of a hook, the list and the rule of a permission rule, a key, and for an `error` one token naming
+# the check -- so two findings on one file keep two ids. No row carries an operator: every subject is under /etc
+# or /opt/ai-tools, host-wide.
 #
 # The collectors feed the check through `< <(...)`, and _pu_run_check saves each one's PID on the statement that opens
 # it and waits for it once its output is read (records.rule.md), so a collector that exits non-zero is an `error` row
@@ -1920,7 +1923,7 @@ _pu_info()       { _PU_CODE="$1"; _PU_SEVERITY=info; }
 # _pu_write_finding <finding> <subject-type> <subject> <detail> [<component>...]: write one record, or none
 # for an `info` finding without `--all`. ai-tools-admin(8) lists what each finding means. A token this table does not
 # carry, and an empty item component, are defects of this file: each is written as an `error` row, so the run reads
-# AI_TOOLS_EXIT_UNREADABLE rather than silently short.
+# AI_TOOLS_RECORDS_BASE__EXIT_UNREADABLE rather than silently short.
 _pu_write_finding() {
     local finding="$1" subject_type="$2" subject="$3" detail="$4" item
     shift 4
@@ -1946,12 +1949,12 @@ _pu_write_finding() {
         *)  _pu_write_finding error "${subject_type}" "${subject}" "no code for the finding '${finding}'" finding-table
             return 0 ;;
     esac
-    if ! ai_tools_records_tsv_frame_item_components item "$@"; then
+    if ! ai_tools_records_tsv__frame_item_components item "$@"; then
         _pu_write_finding error "${subject_type}" "${subject}" "an empty item component for ${finding}" finding-table
         return 0
     fi
     [[ "${_PU_SEVERITY}" != info ]] || (( _PU_ALL )) || return 0
-    ai_tools_records_tsv_write_record "" "${_PU_CODE}" "${_PU_SEVERITY}" "${finding}" "${subject_type}" "" "${item}" \
+    ai_tools_records_tsv__write_record "" "${_PU_CODE}" "${_PU_SEVERITY}" "${finding}" "${subject_type}" "" "${item}" \
         "${subject}" "${detail}"
 }
 
@@ -1975,11 +1978,11 @@ _pu_wait_collector() {
 }
 
 # _pu_run_check <root>: every finding, through _pu_write_finding, without asking or writing. Each reads the same
-# predicate the report does. The caller reads the outcome off the report state, ai_tools_records_get_exit_status.
+# predicate the report does. The caller reads the outcome off the report state, ai_tools_records_base__get_exit_status.
 _pu_run_check() {
     local root="$1" file kind label scratch status key line state stype path detail live reference fd pid
     local -a new_keys=() entries=() files_with_baseline=()
-    ai_tools_records_begin_report
+    ai_tools_records_base__begin_report
     _pu_kind_findings "${root}"
     exec {fd}< <(_pu_entries "${root}"); pid=$!
     mapfile -t -u "${fd}" files_with_baseline
@@ -2000,26 +2003,26 @@ _pu_run_check() {
         if cmp -s "${file}" "${copy}"; then _pu_write_finding rpmnew-residual file "${copy}" ""; continue; fi
         case "${kind}" in
         json)
-            if ! ai_tools_conf_require_jq 2>/dev/null; then
+            if ! ai_tools_settings_merge__require_jq 2>/dev/null; then
                 _pu_write_finding error file "${file}" "jq is not installed" jq
                 continue
             fi
             scratch="$(mktemp -d)" || { _pu_write_finding error file "${file}" "no temporary directory" mktemp; continue; }
             status=0
-            cp -p "${file}" "${scratch}/probe" && ai_tools_conf_merge_hook_declarations "${scratch}/probe" \
+            cp -p "${file}" "${scratch}/probe" && ai_tools_settings_merge__merge_hook_declarations "${scratch}/probe" \
                 "${copy}" >/dev/null 2>&1 || status=$?
             rm -rf "${scratch}"
             case "${status}" in
-            0)  for line in "${_ai_tools_conf_merge_added[@]}"; do _pu_hook_finding hook-missing "${file}" "${line}"; done
-                for line in "${_ai_tools_conf_merge_removed[@]}"; do
+            0)  for line in "${ai_tools_settings_merge__added[@]}"; do _pu_hook_finding hook-missing "${file}" "${line}"; done
+                for line in "${ai_tools_settings_merge__removed[@]}"; do
                     _pu_hook_finding hook-repeated "${file}" "${line}"
                 done
                 _pu_settings_findings "${file}" "${copy}" ;;
             1)  _pu_settings_findings "${file}" "${copy}" ;;
-            *)  _pu_write_finding error file "${file}" "${_ai_tools_conf_merge_reason:-merge probe failed}" hook-merge ;;
+            *)  _pu_write_finding error file "${file}" "${ai_tools_settings_merge__reason:-merge probe failed}" hook-merge ;;
             esac ;;
         keyval)
-            if ai_tools_conf_new_keys new_keys "${file}" "${copy}"; then
+            if ai_tools_conf__find_new_keys new_keys "${file}" "${copy}"; then
                 for key in "${new_keys[@]}"; do _pu_write_finding option-unmentioned file "${file}" "${key}" "${key}"; done
             fi
             [[ "$(_pu_prose "${file}")" == "$(_pu_prose "${copy}")" ]] \
@@ -2040,7 +2043,7 @@ _pu_run_check() {
 
     file="${root}/opt/ai-tools/.claude/settings.json"
     if [[ -f "${file}" ]]; then
-        if line="$(ai_tools_conf_ask_gaps "${file}" "${root}" 2>/dev/null)"; then
+        if line="$(ai_tools_settings_merge__find_ask_gaps "${file}" "${root}" 2>/dev/null)"; then
             [[ -n "${line}" ]] && mapfile -t entries <<< "${line}"
             for line in "${entries[@]}"; do _pu_write_finding ask-missing file "${file}" "${line}" "${line}"; done
         else
@@ -2049,12 +2052,12 @@ _pu_run_check() {
         fi
     fi
 
-    if declare -F ai_tools_managed_file_missing_keys >/dev/null 2>&1; then
+    if declare -F ai_tools_providers__find_managed_file_missing_keys >/dev/null 2>&1; then
         exec {fd}< <(_pu_managed_pairs "${root}"); pid=$!
         while IFS=$'\t' read -r -u "${fd}" live reference; do
             [[ -f "${live}" && -f "${reference}" ]] || continue
             cmp -s "${live}" "${reference}" && continue
-            if line="$(ai_tools_managed_file_missing_keys "${live}" "${reference}")"; then
+            if line="$(ai_tools_providers__find_managed_file_missing_keys "${live}" "${reference}")"; then
                 entries=()
                 [[ -n "${line}" ]] && mapfile -t entries <<< "${line}"
                 for line in "${entries[@]}"; do _pu_write_finding key-missing file "${live}" "${line}" "${line}"; done
@@ -2091,7 +2094,7 @@ _pu_run_check() {
 # -- a rule the copy carries that the file does not, and any other setting that differs -- through the same two readers.
 _pu_settings_findings() {
     local file="$1" copy="$2" gaps kind list rule scratch
-    if ! gaps="$(ai_tools_conf_permission_gaps "${file}" "${copy}")"; then
+    if ! gaps="$(ai_tools_settings_merge__find_permission_gaps "${file}" "${copy}")"; then
         _pu_write_finding error file "${file}" "permission rules not compared: jq is missing or a file is not valid JSON" \
             permission-rules
         return 0
@@ -2100,8 +2103,8 @@ _pu_settings_findings() {
         [[ "${kind}" == missing ]] && _pu_write_finding rule-missing file "${file}" "${list}: ${rule}" "${list}" "${rule}"
     done <<< "${gaps}"
     scratch="$(mktemp -d)" || return 0
-    if ai_tools_conf_settings_rest "${file}" > "${scratch}/file" \
-            && ai_tools_conf_settings_rest "${copy}" > "${scratch}/copy" \
+    if ai_tools_settings_merge__read_settings_rest "${file}" > "${scratch}/file" \
+            && ai_tools_settings_merge__read_settings_rest "${copy}" > "${scratch}/copy" \
             && ! cmp -s "${scratch}/file" "${scratch}/copy"; then
         _pu_write_finding rpmnew-differs file "${file}" "settings"
     fi
@@ -2109,19 +2112,19 @@ _pu_settings_findings() {
 }
 
 # _pu_kind_findings <root>: the provider list items operator.conf holds in an earlier release's bare form, read
-# through the plan the rewrite follows (ai_tools_conf_kind_plan, providers.lib.sh): list-unmigrated for a key the run
-# would rewrite, list-unmigratable for an item no run can map, one row per item. A detection with no plan to read --
-# providers.lib.sh did not load -- is a check that could not run.
+# through the plan the rewrite follows (ai_tools_providers__plan_kind_migration, providers.lib.sh): list-unmigrated
+# for a key the run would rewrite, list-unmigratable for an item no run can map, one row per item. A detection with no
+# plan to read -- providers.lib.sh did not load -- is a check that could not run.
 _pu_kind_findings() {
     local file="$1/etc/ai-tools/operator.conf" verdict key old new fd pid
     [[ -f "${file}" ]] || return 0
-    if ! declare -F ai_tools_conf_kind_plan >/dev/null 2>&1; then
-        declare -F ai_tools_conf_kind_unmigrated >/dev/null 2>&1 && [[ -n "$(ai_tools_conf_kind_unmigrated "${file}")" ]] \
+    if ! declare -F ai_tools_providers__plan_kind_migration >/dev/null 2>&1; then
+        declare -F ai_tools_conf__find_unmigrated_items >/dev/null 2>&1 && [[ -n "$(ai_tools_conf__find_unmigrated_items "${file}")" ]] \
             && _pu_write_finding error file "${file}" "provider names not checked: ${PROVIDERS_LIB} did not load" \
                 provider-names
         return 0
     fi
-    exec {fd}< <(ai_tools_conf_kind_plan "${file}"); pid=$!
+    exec {fd}< <(ai_tools_providers__plan_kind_migration "${file}"); pid=$!
     while IFS=$'\t' read -r -u "${fd}" verdict key old new; do
         case "${verdict}" in
             migrate) _pu_write_finding list-unmigrated file "${file}" "${key}: [${old// /, }] -> [${new// /, }]" "${key}" ;;
@@ -2196,13 +2199,13 @@ _pu_assets() {
     # directory is group-writable, and this report prints it on root's terminal.
     # shellcheck source=SCRIPTDIR/../../lib/ai-tools/log.lib.sh
     source /usr/local/lib/ai-tools/log.lib.sh 2>/dev/null || true
-    if ! declare -F ai_tools_asset_is_managed >/dev/null 2>&1 \
-            || ! declare -F ai_tools_agent_asset_dirs >/dev/null 2>&1 \
-            || ! declare -F ai_tools_log_sanitize >/dev/null 2>&1; then
+    if ! declare -F ai_tools_managed_assets__is_managed >/dev/null 2>&1 \
+            || ! declare -F ai_tools_control_plane__list_agent_asset_dirs >/dev/null 2>&1 \
+            || ! declare -F ai_tools_log__sanitize >/dev/null 2>&1; then
         printf 'error\tdirectory\t%s\t%s\n' "${live_root}" "shared assets not checked: the asset libraries did not load"
         return 0
     fi
-    for kind in "${AI_TOOLS_ASSET_KINDS[@]}"; do
+    for kind in "${AI_TOOLS_MANAGED_ASSETS__KINDS[@]}"; do
         case "${kind}" in
             skills)      glob="${src_root}/skills/ai-tools-*/";      field=skills_dir;    stype="directory" ;;
             subagents)   glob="${src_root}/subagents/ai-tools-*.md"; field=subagents_dir; stype="file" ;;
@@ -2212,9 +2215,9 @@ _pu_assets() {
         for src in ${glob}; do
             [[ -e "${src}" ]] || continue
             name="$(basename "${src}")"
-            _ai_tools_asset_is_retired "${kind}" "${name}" && continue
+            ai_tools_managed_assets__is_retired "${kind}" "${name}" && continue
             if [[ -d "${src}" ]]; then marker="${src%/}/SKILL.md"; else marker="${src}"; fi
-            ai_tools_asset_is_managed "${marker}" || continue
+            ai_tools_managed_assets__is_managed "${marker}" || continue
             dst="${live_root}/${kind}/${name}"
             # A symlink at the live name is the assets resolver's view link, not a seeded copy: its marker and version
             # are not compared, and its per-agent links are reconcile's.
@@ -2224,12 +2227,12 @@ _pu_assets() {
                 printf 'asset-missing\t%s\t%s\t%s\n' "${stype}" "${dst}" "not seeded -- sessions are not offered it"
                 continue
             fi
-            if ! ai_tools_asset_is_managed "${dst_marker}"; then
+            if ! ai_tools_managed_assets__is_managed "${dst_marker}"; then
                 printf 'asset-overridden\t%s\t%s\t%s\n' "${stype}" "${dst}" "not ai-tools-managed, so provisioning leaves it"
                 continue
             fi
-            new="$(ai_tools_asset_version "${marker}")"
-            cur="$(ai_tools_asset_version "${dst_marker}")"
+            new="$(ai_tools_managed_assets__read_asset_version "${marker}")"
+            cur="$(ai_tools_managed_assets__read_asset_version "${dst_marker}")"
             [[ -n "${new}" && -n "${cur}" && "${new}" -gt "${cur}" ]] \
                 && printf 'asset-outdated\t%s\t%s\t%s\n' "${stype}" "${dst}" "v${cur} live, v${new} shipped"
             while IFS=$'\t' read -r agent dir; do
@@ -2240,15 +2243,15 @@ _pu_assets() {
                     target="$(readlink "${link}")"
                     [[ "${target}" == "${dst}" || "${target}" == "${CP_HOME}/${kind}/${name}" ]] \
                         || printf 'asset-unlinked\t%s\t%s\t%s\n' "${stype}" "${link}" \
-                               "${agent}: points at $(ai_tools_log_sanitize "${target}")"
+                               "${agent}: points at $(ai_tools_log__sanitize "${target}")"
                 elif [[ -e "${link}" ]]; then
                     printf 'asset-overridden\t%s\t%s\t%s\n' "${stype}" "${link}" \
                         "${agent}: a file of its own in place of the link"
                 else
                     printf 'asset-unlinked\t%s\t%s\t%s\n' "${stype}" "${link}" "${agent}: no link"
                 fi
-            done < <(if [[ -n "${field}" ]]; then ai_tools_agent_asset_dirs "${field}"
-                     else ai_tools_agent_memory_targets; fi)
+            done < <(if [[ -n "${field}" ]]; then ai_tools_control_plane__list_agent_asset_dirs "${field}"
+                     else ai_tools_control_plane__list_agent_memory_targets; fi)
         done
     done
     return 0
@@ -2264,10 +2267,10 @@ _pu_kind_noun() {
 }
 
 # _pu_kind_migrate <root>: rewrite the provider list items operator.conf holds in an earlier release's bare form
-# (ai_tools_conf_kind_migrate, providers.lib.sh), whether or not a .rpmnew waits, and report each key in a block of its
-# own. It runs on every run, the unattended one included: the rewrite changes spelling alone, and until it lands every
-# session start is refused. A key holding a name no installed manifest or rule set matches is left as written and named,
-# since only the operator knows what it meant.
+# (ai_tools_providers__migrate_kinds, providers.lib.sh), whether or not a .rpmnew waits, and report each key in a block
+# of its own. It runs on every run, the unattended one included: the rewrite changes spelling alone, and until it lands
+# every session start is refused. A key holding a name no installed manifest or rule set matches is left as written
+# and named, since only the operator knows what it meant.
 #
 # A rewritten AI_TOOLS_AGENTS enables agents that the unmigrated line left enabled nowhere, so no relabel covered them
 # while it stood: an install run in that window restorecon'd the toolchain with no entrypoint rule to apply last,
@@ -2278,11 +2281,11 @@ _pu_kind_noun() {
 _pu_kind_migrate() {
     local file="$1/etc/ai-tools/operator.conf" line verdict key old new opened=0 agents_rewritten=0
     [[ -f "${file}" ]] || return 0
-    if ! declare -F ai_tools_conf_kind_migrate >/dev/null 2>&1; then
-        declare -F ai_tools_conf_kind_unmigrated >/dev/null 2>&1 && [[ -n "$(ai_tools_conf_kind_unmigrated "${file}")" ]] \
+    if ! declare -F ai_tools_providers__migrate_kinds >/dev/null 2>&1; then
+        declare -F ai_tools_conf__find_unmigrated_items >/dev/null 2>&1 && [[ -n "$(ai_tools_conf__find_unmigrated_items "${file}")" ]] \
             || return 0
         _PU_NAME="${file##*/}"
-        ai_tools_msg_headline "${_PU_NAME} -- provider names" 1 "${file}"
+        ai_tools_msg__headline "${_PU_NAME} -- provider names" 1 "${file}"
         _pu_say err "provider names were not rewritten: ${PROVIDERS_LIB} did not load -- reinstall ai-tools-base"
         return 0
     fi
@@ -2291,7 +2294,7 @@ _pu_kind_migrate() {
         if (( ! opened )); then
             opened=1
             _PU_NAME="${file##*/}"
-            ai_tools_msg_headline "${_PU_NAME} -- provider names" 1 "${file}" \
+            ai_tools_msg__headline "${_PU_NAME} -- provider names" 1 "${file}" \
                 "each provider list item names its kind: agent-<name>, integration-<name>, filter-<name>"
         fi
         case "${verdict}" in
@@ -2301,7 +2304,7 @@ _pu_kind_migrate() {
             blocked)   _pu_say act "${key} holds ${old}, which names no installed $(_pu_kind_noun "${key}") -- the line is left as written and enables nothing; edit it by hand" ;;
             failed)    _pu_say err "${key} was not rewritten: ${new} -- the line is left as written" ;;
         esac
-    done < <(ai_tools_conf_kind_migrate "${file}")
+    done < <(ai_tools_providers__migrate_kinds "${file}")
     (( agents_rewritten )) && [[ -z "${AI_TOOLS_POSTUPGRADE_ROOT:-}" ]] || return 0
     if [[ ! -x "${RELABEL_ENTRYPOINT_BIN}" ]]; then
         _pu_say info "the entrypoints were not reconciled: ${RELABEL_ENTRYPOINT_BIN} is not installed"
@@ -2328,7 +2331,7 @@ _pu_report() {
     # the newest by date: the block names the clock as the first thing to correct, and this run does not compare a file.
     if ! _pu_clock_lines clock_lines "${entries[@]+"${entries[@]}"}"; then
         _PU_NAME="clock"
-        ai_tools_msg_headline "the system clock is behind a file this command orders by date" 1 "${clock_lines[@]}"
+        ai_tools_msg__headline "the system clock is behind a file this command orders by date" 1 "${clock_lines[@]}"
         warn MSG-S5S2 "the system clock reads $(date '+%Y-%m-%d %H:%M:%S'), earlier than the file(s) above -- the copy a file is compared with is the newest by date, so set the clock first (timedatectl set-time, or chronyc makestep once a time source is reachable), then re-run this command; no file was compared"
         _PU_ATTENTION=$(( _PU_ATTENTION + 1 ))
         found=1
@@ -2346,7 +2349,7 @@ _pu_report() {
         fi
         _PU_NAME="${file##*/}"
         if [[ "${label}" == "${_PU_NAME}" ]]; then title="${_PU_NAME}"; else title="${_PU_NAME} -- ${label}"; fi
-        ai_tools_msg_headline "${title}" 1 "${file}" "$(_pu_provenance "${copy}")"
+        ai_tools_msg__headline "${title}" 1 "${file}" "$(_pu_provenance "${copy}")"
         attention_before="${_PU_ATTENTION}"
         case "${kind}" in
             json)   _pu_json   "${file}" "${copy}" ;;
@@ -2434,26 +2437,26 @@ status_services() {
     heading "Services"
     local rec unit scope stamp mode state age when exit_code reason remedy uid
     while IFS= read -r rec; do
-        unit="$(ai_tools_service_field "${rec}" 1)"
-        scope="$(ai_tools_service_field "${rec}" 2)"
-        stamp="$(ai_tools_service_field "${rec}" 7)"
-        mode="$(ai_tools_service_field "${rec}" 8)"
-        state="$(ai_tools_service_state_of "${rec}")"
+        unit="$(ai_tools_services__get_field "${rec}" 1)"
+        scope="$(ai_tools_services__get_field "${rec}" 2)"
+        stamp="$(ai_tools_services__get_field "${rec}" 7)"
+        mode="$(ai_tools_services__get_field "${rec}" 8)"
+        state="$(ai_tools_services__read_record_state "${rec}")"
         age=""; when=""
         if [[ -n "${stamp}" ]]; then
-            age="$(ai_tools_service_fmt_age "$(ai_tools_service_stamp_age "${stamp}")")"
+            age="$(ai_tools_services__format_age "$(ai_tools_services__read_stamp_age "${stamp}")")"
             [[ -n "${age}" ]] && when="last run ${age}"
         fi
         case "${state}" in
             active)  st OK "${unit}${when:+  ${when}}" ;;
             down)    st DOWN "${unit}" ;;
-            skipped) reason="$(ai_tools_service_stamp_field "${stamp}" REASON)"
+            skipped) reason="$(ai_tools_services__read_stamp_field "${stamp}" REASON)"
                      st SKIPPED "${unit}  ${when:-last run at an unknown time}${reason:+, ${reason}} -- nothing was changed" ;;
             failed)  if [[ -n "${stamp}" ]]; then
-                         exit_code="$(ai_tools_service_stamp_field "${stamp}" EXIT_CODE)"
+                         exit_code="$(ai_tools_services__read_stamp_field "${stamp}" EXIT_CODE)"
                          st FAILED "${unit}  ${when:-last run at an unknown time}, exit ${exit_code:-?}"
                      else
-                         exit_code="$(ai_tools_service_unit_property "${unit}" ExecMainStatus "${scope}")"
+                         exit_code="$(ai_tools_services__read_unit_property "${unit}" ExecMainStatus "${scope}")"
                          st FAILED "${unit}  its last run exited ${exit_code:-non-zero}"
                      fi ;;
             stale)   st STALE "${unit}  ${when:-last run long ago}" ;;
@@ -2466,16 +2469,16 @@ status_services() {
             # it: the unit has never run, which is where a freshly provisioned host stands until its first window.
             *)       if [[ "${scope}" == system ]]; then
                          st "?" "${unit}  systemctl is unavailable here"
-                     elif declare -F ai_tools_service_stamp_unwritten >/dev/null 2>&1 \
-                             && ai_tools_service_stamp_unwritten "${stamp}"; then
+                     elif declare -F ai_tools_services__is_stamp_unwritten >/dev/null 2>&1 \
+                             && ai_tools_services__is_stamp_unwritten "${stamp}"; then
                          st "?" "${unit}  no run recorded yet -- its first scheduled run has not happened"
                      else
                          st "?" "${unit}  neither its manager nor a last-run stamp could be read"
                      fi ;;
         esac
-        ai_tools_service_needs_attention "${state}" || continue
+        ai_tools_services__is_attention_needed "${state}" || continue
         STATUS_PROBLEMS=$(( STATUS_PROBLEMS + 1 ))
-        detail "$(ai_tools_service_field "${rec}" 5)"
+        detail "$(ai_tools_services__get_field "${rec}" 5)"
         # A sandbox-user unit's commands name the sandbox ACCOUNT, and services.lib.sh is deployed with no
         # @SANDBOX_USER@ substitution, so they are composed here -- the same split the CLI makes, and the reason
         # the registry's remedy field is empty for those units.
@@ -2486,9 +2489,9 @@ status_services() {
                 && detail "sudo journalctl _SYSTEMD_USER_UNIT=${unit} _UID=${uid} -n 50 --no-pager"
             detail "sudo systemctl --user -M ${SANDBOX_USER}@.host restart ${unit}"
         fi
-        remedy="$(ai_tools_service_field "${rec}" 6)"
+        remedy="$(ai_tools_services__get_field "${rec}" 6)"
         [[ -n "${remedy}" ]] && detail "${remedy}"
-    done < <(ai_tools_service_records)
+    done < <(ai_tools_services__list_records)
     return 0
 }
 
@@ -2500,18 +2503,18 @@ status_services() {
 # section could not make, so the report exits 5.
 status_provisioning() {
     heading "Provisioning"
-    if ! declare -F ai_tools_enabled_agents >/dev/null 2>&1; then
+    if ! declare -F ai_tools_providers__list_enabled_agents >/dev/null 2>&1; then
         st UNREADABLE "cannot read the enabled agents -- ${PROVIDERS_LIB} did not load; reinstall ai-tools-base"
         STATUS_UNREADABLE=$(( STATUS_UNREADABLE + 1 ))
         return 0
     fi
     local agent launcher reason
     local -a agents=()
-    mapfile -t agents < <(ai_tools_enabled_agents 2>/dev/null)
+    mapfile -t agents < <(ai_tools_providers__list_enabled_agents 2>/dev/null)
     if (( ${#agents[@]} == 0 )); then
         reason=""
-        declare -F ai_tools_agents_empty_verdict >/dev/null 2>&1 \
-            && IFS=$'\t' read -r _ reason <<< "$(ai_tools_agents_empty_verdict)"
+        declare -F ai_tools_providers__evaluate_empty_agents >/dev/null 2>&1 \
+            && IFS=$'\t' read -r _ reason <<< "$(ai_tools_providers__evaluate_empty_agents)"
         st "n/a" "no agent enabled${reason:+ -- ${reason}}"
         return 0
     fi
@@ -2534,8 +2537,8 @@ status_provisioning() {
 # matching the shipped copy. Without the resolver status_provisioning has already said so; a resolver that loaded
 # without its managed-files reader is a reading this section could not make.
 status_managed_files() {
-    declare -F ai_tools_enabled_agents >/dev/null 2>&1 || return 0
-    if ! declare -F ai_tools_agent_managed_files >/dev/null 2>&1; then
+    declare -F ai_tools_providers__list_enabled_agents >/dev/null 2>&1 || return 0
+    if ! declare -F ai_tools_providers__list_agent_managed_files >/dev/null 2>&1; then
         st UNREADABLE "managed files: ${PROVIDERS_LIB} did not load its managed-files reader; reinstall ai-tools-base"
         STATUS_UNREADABLE=$(( STATUS_UNREADABLE + 1 ))
         return 0
@@ -2545,7 +2548,7 @@ status_managed_files() {
         [[ -n "${agent}" ]] || continue
         while IFS=$'\t' read -r live reference; do
             [[ -n "${live}" ]] || continue
-            state="$(ai_tools_managed_file_state "${live}" "${reference}")"
+            state="$(ai_tools_providers__evaluate_managed_file "${live}" "${reference}")"
             case "${state}" in
                 shipped) ;;
                 edited)  st edited "${agent}  ${live} differs from the shipped copy"
@@ -2555,13 +2558,13 @@ status_managed_files() {
                          STATUS_PROBLEMS=$(( STATUS_PROBLEMS + 1 )) ;;
                 *)       st "?" "${agent}  ${live} cannot be compared with the shipped copy ${reference}" ;;
             esac
-        done < <(ai_tools_agent_managed_files "${agent}")
-    done < <(ai_tools_enabled_agents 2>/dev/null)
+        done < <(ai_tools_providers__list_agent_managed_files "${agent}")
+    done < <(ai_tools_providers__list_enabled_agents 2>/dev/null)
     return 0
 }
 
 # status_entrypoints: per enabled agent, the two halves of the entrypoint reconciliation -- the pin
-# ai_tools_entrypoint_pin_write leaves, and the type its paths carry now. Reported together because they fail
+# ai_tools_entrypoint_verify__write_pin leaves, and the type its paths carry now. Reported together because they fail
 # independently: verification can succeed while labelling does not, leaving a green pin written by the very run
 # whose labelling failed.
 #
@@ -2573,33 +2576,33 @@ status_entrypoints() {
     # Four libraries answer this section between them, and a partial load must report that rather than reach
     # an undefined function -- which under `set -e` would abort the whole report over the section it could not give.
     # Each ships with base, so a missing one is a reading this section could not make, not a `?`.
-    if ! declare -F ai_tools_enabled_agents      >/dev/null 2>&1 \
-            || ! declare -F ai_tools_agent_manifest_field  >/dev/null 2>&1 \
-            || ! declare -F ai_tools_entrypoint_pin_path   >/dev/null 2>&1 \
-            || ! declare -F ai_tools_service_stamp_field   >/dev/null 2>&1 \
-            || ! declare -F ai_tools_service_stamp_age     >/dev/null 2>&1 \
-            || ! declare -F ai_tools_service_fmt_age       >/dev/null 2>&1; then
+    if ! declare -F ai_tools_providers__list_enabled_agents      >/dev/null 2>&1 \
+            || ! declare -F ai_tools_providers__read_agent_manifest_field  >/dev/null 2>&1 \
+            || ! declare -F ai_tools_entrypoint_verify__get_pin_path   >/dev/null 2>&1 \
+            || ! declare -F ai_tools_services__read_stamp_field   >/dev/null 2>&1 \
+            || ! declare -F ai_tools_services__read_stamp_age     >/dev/null 2>&1 \
+            || ! declare -F ai_tools_services__format_age       >/dev/null 2>&1; then
         st UNREADABLE "the provider, entrypoint or service libraries did not load -- no agent could be resolved; reinstall ai-tools-base"
         STATUS_UNREADABLE=$(( STATUS_UNREADABLE + 1 ))
         return 0
     fi
 
     local agent pin version age live strict=no seen=0
-    declare -F ai_tools_entrypoint_verify_required >/dev/null 2>&1 \
-        && ai_tools_entrypoint_verify_required && strict=yes
+    declare -F ai_tools_entrypoint_verify__is_required >/dev/null 2>&1 \
+        && ai_tools_entrypoint_verify__is_required && strict=yes
     while IFS=$'\t' read -r agent _ _; do
         [[ -n "${agent}" ]] || continue
         seen=1
         # Verification compares the binary against the checksum in the vendor's signed release manifest,
         # which an agent's package names in release_manifest_url. An agent whose package omits that key is reported
         # as such rather than as perpetually unverified.
-        pin="$(ai_tools_entrypoint_pin_path "${agent}" 2>/dev/null || true)"
-        if [[ -z "$(ai_tools_agent_manifest_field "${agent}" release_manifest_url 2>/dev/null || true)" \
+        pin="$(ai_tools_entrypoint_verify__get_pin_path "${agent}" 2>/dev/null || true)"
+        if [[ -z "$(ai_tools_providers__read_agent_manifest_field "${agent}" release_manifest_url 2>/dev/null || true)" \
               && ! -e "${pin}" ]]; then
             st "n/a" "${agent}  its package declares no signed release manifest, and root has recorded no pin yet"
             continue
         fi
-        version="$(ai_tools_service_stamp_field "${pin}" VERSION)"
+        version="$(ai_tools_services__read_stamp_field "${pin}" VERSION)"
         # The reading this vantage adds: root can traverse the toolchain, so it hashes the entrypoint and compares it
         # against the pin instead of reporting what the last reconciliation recorded. A binary that changed since is
         # therefore named here even where no reconciliation has run over it yet -- the pin's own fields cannot say
@@ -2611,14 +2614,14 @@ status_entrypoints() {
             STATUS_PROBLEMS=$(( STATUS_PROBLEMS + 1 ))
         elif entrypoint_stale_mark "${agent}"; then
             STATUS_PROBLEMS=$(( STATUS_PROBLEMS + 1 ))
-        elif [[ -n "${version}" && "$(ai_tools_entrypoint_pin_kind "${agent}" 2>/dev/null || true)" == observed ]]; then
+        elif [[ -n "${version}" && "$(ai_tools_entrypoint_verify__read_pin_kind "${agent}" 2>/dev/null || true)" == observed ]]; then
             # Recorded as installed: a change to the binary refuses at every setting, and no vendor signature stands
             # behind the value. UNCHANGED is what the comparison proves; it does not say the binary was sound when root
             # first recorded it. It is a pin, so it satisfies the strictness switch and is not a problem.
-            age="$(ai_tools_service_fmt_age "$(ai_tools_service_stamp_age "${pin}" VERIFIED)")"
+            age="$(ai_tools_services__format_age "$(ai_tools_services__read_stamp_age "${pin}" VERIFIED)")"
             st UNCHANGED "${agent}  ${version}${age:+, ${age}}, as installed -- its vendor publishes no signed manifest"
         elif [[ -n "${version}" ]]; then
-            age="$(ai_tools_service_fmt_age "$(ai_tools_service_stamp_age "${pin}" VERIFIED)")"
+            age="$(ai_tools_services__format_age "$(ai_tools_services__read_stamp_age "${pin}" VERIFIED)")"
             st VERIFIED "${agent}  ${version}${age:+, ${age}}"
         elif [[ -e "${pin}" ]]; then
             st unverified "${agent}  its pin is present and carries no version this reader accepts"
@@ -2630,33 +2633,33 @@ status_entrypoints() {
         else
             st unverified "${agent}  no pin -- launches are not blocked"
         fi
-    done < <(ai_tools_enabled_agents 2>/dev/null)
+    done < <(ai_tools_providers__list_enabled_agents 2>/dev/null)
     [[ "${seen}" -eq 1 ]] || st "n/a" "no agent is enabled in ${OPERATOR_CONF}"
     status_labels
 }
 
 # status_agent_versions: one Version line per enabled agent, the version its installed package declares, read as data --
-# ai_tools_entrypoint_installed_version over the package.json around the entrypoint the stable launcher resolves to.
-# Root traverses the toolchain the operator cannot, and reads it rather than running the agent's `--version`,
-# which would execute a file the sandbox account can write (updater.rule.md, "Root runs none of the toolchain").
-# An entrypoint outside its package reads as unknown, with the path, which is itself the finding. Best-effort: a missing
-# reader does not print a line, and Entrypoints reports the libraries.
+# ai_tools_entrypoint_verify__read_installed_version over the package.json around the entrypoint the stable launcher
+# resolves to. Root traverses the toolchain the operator cannot, and reads it rather than running the agent's
+# `--version`, which would execute a file the sandbox account can write (updater.rule.md, "Root runs none
+# of the toolchain"). An entrypoint outside its package reads as unknown, with the path, which is itself the finding.
+# Best-effort: a missing reader does not print a line, and Entrypoints reports the libraries.
 status_agent_versions() {
-    declare -F ai_tools_enabled_agents                >/dev/null 2>&1 || return 0
-    declare -F ai_tools_agent_entrypoint_path         >/dev/null 2>&1 || return 0
-    declare -F ai_tools_entrypoint_installed_version  >/dev/null 2>&1 || return 0
+    declare -F ai_tools_providers__list_enabled_agents                >/dev/null 2>&1 || return 0
+    declare -F ai_tools_relabel__resolve_agent_entrypoint_path         >/dev/null 2>&1 || return 0
+    declare -F ai_tools_entrypoint_verify__read_installed_version  >/dev/null 2>&1 || return 0
     local agent entrypoint version
     while IFS=$'\t' read -r agent _ _; do
         [[ -n "${agent}" ]] || continue
-        entrypoint="$(ai_tools_agent_entrypoint_path "${agent}" 2>/dev/null || true)"
+        entrypoint="$(ai_tools_relabel__resolve_agent_entrypoint_path "${agent}" 2>/dev/null || true)"
         if [[ -z "${entrypoint}" ]]; then
             printf '    %-13s %s\n' "${agent}" "not provisioned (no launcher link resolves)"
             continue
         fi
-        version="$(ai_tools_entrypoint_installed_version "${entrypoint}")"
+        version="$(ai_tools_entrypoint_verify__read_installed_version "${entrypoint}")"
         printf '    %-13s %s\n' "${agent}" \
             "${version:-unknown (the launcher resolves to ${entrypoint}, outside its package)}"
-    done < <(ai_tools_enabled_agents 2>/dev/null)
+    done < <(ai_tools_providers__list_enabled_agents 2>/dev/null)
     return 0
 }
 
@@ -2667,11 +2670,11 @@ status_agent_versions() {
 # reach the network: it is the comparison the launch shim makes on every launch.
 entrypoint_live_verdict() {
     local agent="$1" entrypoint
-    declare -F ai_tools_entrypoint_check      >/dev/null 2>&1 || return 0
-    declare -F ai_tools_agent_entrypoint_path >/dev/null 2>&1 || return 0
-    entrypoint="$(ai_tools_agent_entrypoint_path "${agent}" 2>/dev/null || true)"
+    declare -F ai_tools_entrypoint_verify__check      >/dev/null 2>&1 || return 0
+    declare -F ai_tools_relabel__resolve_agent_entrypoint_path >/dev/null 2>&1 || return 0
+    entrypoint="$(ai_tools_relabel__resolve_agent_entrypoint_path "${agent}" 2>/dev/null || true)"
     [[ -n "${entrypoint}" ]] || return 0
-    ai_tools_entrypoint_check "${agent}" "${entrypoint}" 2>/dev/null || true
+    ai_tools_entrypoint_verify__check "${agent}" "${entrypoint}" 2>/dev/null || true
 }
 
 # entrypoint_stale_mark <agent>: report, and return 0, when the last reconciliation REFUSED to re-record this agent's
@@ -2680,32 +2683,32 @@ entrypoint_live_verdict() {
 # the ordinary state.
 entrypoint_stale_mark() {
     local agent="$1" record reason version age
-    declare -F ai_tools_entrypoint_stale_path >/dev/null 2>&1 || return 1
-    record="$(ai_tools_entrypoint_stale_path "${agent}" 2>/dev/null || true)"
+    declare -F ai_tools_entrypoint_verify__get_stale_path >/dev/null 2>&1 || return 1
+    record="$(ai_tools_entrypoint_verify__get_stale_path "${agent}" 2>/dev/null || true)"
     [[ -n "${record}" && -e "${record}" ]] || return 1
-    [[ "$(ai_tools_service_stamp_field "${record}" STATE)" == stale ]] || return 1
-    reason="$(ai_tools_service_stamp_field "${record}" REASON)"
-    version="$(ai_tools_service_stamp_field "${record}" VERSION)"
-    age="$(ai_tools_service_fmt_age "$(ai_tools_service_stamp_age "${record}" DETECTED)")"
+    [[ "$(ai_tools_services__read_stamp_field "${record}" STATE)" == stale ]] || return 1
+    reason="$(ai_tools_services__read_stamp_field "${record}" REASON)"
+    version="$(ai_tools_services__read_stamp_field "${record}" VERSION)"
+    age="$(ai_tools_services__format_age "$(ai_tools_services__read_stamp_age "${record}" DETECTED)")"
     st "PIN STALE" "${agent}  a reconciliation refused to re-record this pin (${reason:-refused}${version:+, ${version}})${age:+, ${age}} -- its sessions refuse to start"
     detail "sudo ai-tools-admin system entrypoints relabel   (re-reads the entrypoint and prints how to replace it)"
     return 0
 }
 
-# status_labels: render ai_tools_agent_label_report -- the live SELinux type of each enabled agent's own paths,
+# status_labels: render ai_tools_relabel__list_agent_labels -- the live SELinux type of each enabled agent's own paths,
 # which that function's header specifies. It closes status_entrypoints rather than opening a section of its own, so each
 # agent's pin and its labels read together.
 status_labels() {
     # Base ships this library beside this tool, so a missing report means a broken or half-upgraded install rather than
     # an optional piece -- a reading that could not be made, counted as such, since that is what it is from the reader's
     # side.
-    if ! declare -F ai_tools_agent_label_report >/dev/null 2>&1; then
+    if ! declare -F ai_tools_relabel__list_agent_labels >/dev/null 2>&1; then
         st UNREADABLE "live labels: ${RELABEL_LIB} did not load its report -- reinstall ai-tools-base"
         STATUS_UNREADABLE=$(( STATUS_UNREADABLE + 1 ))
         return 0
     fi
     local report verdict agent what path actual wanted rc=0
-    report="$(ai_tools_agent_label_report)" || rc=$?
+    report="$(ai_tools_relabel__list_agent_labels)" || rc=$?
     if [[ "${rc}" -eq 2 ]]; then
         st "n/a" "SELinux confinement is inactive here -- there is no agent label to carry"
         return 0
@@ -2725,20 +2728,21 @@ status_labels() {
 }
 
 # status_unit_search_path: the sandbox account's systemd unit search path -- the chain's drift
-# (ai_tools_get_unit_search_path_drift), any unexpected entry on it (ai_tools_find_unexpected_unit_search_path_entries),
-# and the `Persistent=` timer stamp. A root-vantage reading: the chain has no world bits. It reads and does not write.
-# <home> is a parameter so a unit test drives it over a fixture chain.
+# (ai_tools_control_plane__find_unit_search_path_drift), any unexpected entry on it
+# (ai_tools_control_plane__find_unexpected_unit_search_path_entries), and the `Persistent=` timer stamp. A root-vantage
+# reading: the chain has no world bits. It reads and does not write. <home> is a parameter so a unit test drives it
+# over a fixture chain.
 status_unit_search_path() {
     local home="${1:-${CP_HOME:-/opt/ai-tools}}"
     heading "Sandbox unit search path"
-    if ! declare -F ai_tools_get_unit_search_path_drift >/dev/null 2>&1 \
-            || ! declare -F ai_tools_find_unexpected_unit_search_path_entries >/dev/null 2>&1; then
+    if ! declare -F ai_tools_control_plane__find_unit_search_path_drift >/dev/null 2>&1 \
+            || ! declare -F ai_tools_control_plane__find_unexpected_unit_search_path_entries >/dev/null 2>&1; then
         st UNREADABLE "the control-plane library did not load its unit search path readers -- reinstall ai-tools-base"
         STATUS_UNREADABLE=$(( STATUS_UNREADABLE + 1 ))
         return 0
     fi
     local line path got wanted drift_out drift_rc=0 open=0
-    drift_out="$(ai_tools_get_unit_search_path_drift "${home}" "${SANDBOX_GROUP}")" || drift_rc=$?
+    drift_out="$(ai_tools_control_plane__find_unit_search_path_drift "${home}" "${SANDBOX_GROUP}")" || drift_rc=$?
     case "${drift_rc}" in
         0)  while IFS= read -r line; do
                 [[ -n "${line}" ]] || continue
@@ -2765,17 +2769,17 @@ status_unit_search_path() {
         [[ -n "${line}" ]] || continue
         st UNEXPECTED "${line}  is on the unit search path and nothing ai-tools ships writes it -- inspect it, then remove it"
         STATUS_PROBLEMS=$(( STATUS_PROBLEMS + 1 ))
-    done < <(ai_tools_find_unexpected_unit_search_path_entries "${home}")
+    done < <(ai_tools_control_plane__find_unexpected_unit_search_path_entries "${home}")
     status_update_timer_stamp "${home}"
     return 0
 }
 
-# status_update_timer_stamp: the `Persistent=` stamp nvm-update.timer keeps (ai_tools_service_evaluate_timer_stamp).
+# status_update_timer_stamp: the `Persistent=` stamp nvm-update.timer keeps (ai_tools_services__evaluate_timer_stamp).
 # Whether the timer is overdue is the Services section's reading.
 status_update_timer_stamp() {
     local home="${1:-${CP_HOME:-/opt/ai-tools}}"
-    if ! declare -F ai_tools_service_evaluate_timer_stamp >/dev/null 2>&1 \
-            || ! declare -F ai_tools_service_parse_timespan_seconds >/dev/null 2>&1; then
+    if ! declare -F ai_tools_services__evaluate_timer_stamp >/dev/null 2>&1 \
+            || ! declare -F ai_tools_services__parse_timespan_seconds >/dev/null 2>&1; then
         st UNREADABLE "the service library did not load its timer-stamp readers -- reinstall ai-tools-base"
         STATUS_UNREADABLE=$(( STATUS_UNREADABLE + 1 ))
         return 0
@@ -2796,10 +2800,10 @@ status_update_timer_stamp() {
         fi
     fi
     # An unreadable property leaves its share of the allowance at 0, which only makes the future test stricter.
-    accuracy="$(ai_tools_service_parse_timespan_seconds "$(ai_tools_service_unit_property nvm-update.timer AccuracyUSec sandbox-user)")"
-    delay="$(ai_tools_service_parse_timespan_seconds "$(ai_tools_service_unit_property nvm-update.timer RandomizedDelayUSec sandbox-user)")"
+    accuracy="$(ai_tools_services__parse_timespan_seconds "$(ai_tools_services__read_unit_property nvm-update.timer AccuracyUSec sandbox-user)")"
+    delay="$(ai_tools_services__parse_timespan_seconds "$(ai_tools_services__read_unit_property nvm-update.timer RandomizedDelayUSec sandbox-user)")"
     allowance=$(( ${accuracy:-0} + ${delay:-0} ))
-    verdict="$(ai_tools_service_evaluate_timer_stamp "${state}" "${skew}" "${allowance}")"
+    verdict="$(ai_tools_services__evaluate_timer_stamp "${state}" "${skew}" "${allowance}")"
     case "${verdict}" in
         ok)     st OK "the update timer's Persistent= stamp" ;;
         absent) st "n/a" "no Persistent= stamp yet -- the next start of that manager runs a catch-up update" ;;
@@ -2812,20 +2816,20 @@ status_update_timer_stamp() {
     return 0
 }
 
-# status_selinux_attestation: render the rows ai_tools_confinement_list_attestation_report prints (confinement.lib.sh):
+# status_selinux_attestation: render the rows ai_tools_confinement__list_attestation_report prints (confinement.lib.sh):
 # the per-domain mode of ai_tools_t and the Booleans that widen it, read and classified by the launch shim's own
 # functions, so this report, ai-tools status and the launch cannot disagree. A finding counts only where the report's
 # verdict row says AI_TOOLS_REQUIRE_SELINUX is set, since that is when it refuses a launch, and on a host without
-# SELinux confinement by its own configuration (ai_tools_confinement_dac_only_state) only where that key makes every
-# launch warn; elsewhere it is reported as the posture it is. <operator-conf> is a parameter so a unit test drives
+# SELinux confinement by its own configuration (ai_tools_confinement__evaluate_dac_only_state) only where that key makes
+# every launch warn; elsewhere it is reported as the posture it is. <operator-conf> is a parameter so a unit test drives
 # the counting rule over a fixture.
 status_selinux_attestation() {
     local operator_conf="${1:-${OPERATOR_CONF}}"
     heading "SELinux status"
     # shellcheck source=SCRIPTDIR/../../lib/ai-tools/confinement.lib.sh
     source "${CONFINEMENT_LIB}" 2>/dev/null || true
-    if ! declare -F ai_tools_confinement_list_attestation_report >/dev/null 2>&1 \
-            || ! declare -F ai_tools_confinement_dac_only_state >/dev/null 2>&1; then
+    if ! declare -F ai_tools_confinement__list_attestation_report >/dev/null 2>&1 \
+            || ! declare -F ai_tools_confinement__evaluate_dac_only_state >/dev/null 2>&1; then
         st UNREADABLE "${CONFINEMENT_LIB} did not load its attestation readers -- reinstall ai-tools-base"
         STATUS_UNREADABLE=$(( STATUS_UNREADABLE + 1 ))
         return 0
@@ -2836,16 +2840,16 @@ status_selinux_attestation() {
         st "n/a" "SELinux is not readable here (getenforce) -- there is no domain to attest"
         return 0
     fi
-    module_present="$(ai_tools_confinement_read_module_present "${AI_TOOLS_CONFINEMENT_MODULE_PROBE_PATH}" 2>/dev/null || true)"
-    policy_shipped="$(ai_tools_confinement_read_policy_shipped "${AI_TOOLS_CONFINEMENT_CORE_MODULE_FILE}")"
-    dac_only_state="$(ai_tools_confinement_dac_only_state "${selinux_mode}" "${module_present}" "${policy_shipped}")" \
+    module_present="$(ai_tools_confinement__read_module_present "${AI_TOOLS_CONFINEMENT__MODULE_PROBE_PATH}" 2>/dev/null || true)"
+    policy_shipped="$(ai_tools_confinement__read_policy_shipped "${AI_TOOLS_CONFINEMENT__CORE_MODULE_FILE}")"
+    dac_only_state="$(ai_tools_confinement__evaluate_dac_only_state "${selinux_mode}" "${module_present}" "${policy_shipped}")" \
         || true
     if [[ -n "${dac_only_state}" ]]; then
         case "${dac_only_state}" in
             disabled) st "n/a" "SELinux is disabled on this host -- there is no domain to attest" ;;
             *)        st "n/a" "the ai_tools policy is not installed (SELinux ${selinux_mode}) -- there is no domain to attest" ;;
         esac
-        if ai_tools_confinement_is_selinux_required "${operator_conf}"; then
+        if ai_tools_confinement__is_selinux_required "${operator_conf}"; then
             detail "AI_TOOLS_REQUIRE_SELINUX is set, so every launch runs DAC-only and warns that the requirement is not met"
             detail "declare this host DAC-only:  set AI_TOOLS_REQUIRE_SELINUX=no in ${operator_conf}"
             detail "or install the policy:       sudo dnf install ai-tools-selinux"
@@ -2857,7 +2861,7 @@ status_selinux_attestation() {
     fi
     local -a row
     local origin_note effect_note enforcement_note="not enforced"
-    ai_tools_confinement_is_selinux_required "${operator_conf}" && enforcement_note="launch blocked"
+    ai_tools_confinement__is_selinux_required "${operator_conf}" && enforcement_note="launch blocked"
     while IFS=$'\t' read -r -a row; do
         case "${row[0]}" in
             domain)   # <yes|no|unread> <remedy|->
@@ -2891,7 +2895,7 @@ status_selinux_attestation() {
                     detail "AI_TOOLS_REQUIRE_SELINUX is no, so launches are not refused for this"
                 fi ;;
         esac
-    done < <(ai_tools_confinement_list_attestation_report "${operator_conf}")
+    done < <(ai_tools_confinement__list_attestation_report "${operator_conf}")
     return 0
 }
 
@@ -2905,72 +2909,72 @@ status_assets() {
     heading "Assets"
     # shellcheck source=SCRIPTDIR/../../lib/ai-tools/assets.lib.sh
     source "${ASSETS_LIB}" 2>/dev/null || true
-    if ! declare -F ai_tools_assets_plan >/dev/null 2>&1; then
+    if ! declare -F ai_tools_assets__plan >/dev/null 2>&1; then
         st UNREADABLE "the assets library (${ASSETS_LIB}) did not load -- reinstall ai-tools-base"
         STATUS_UNREADABLE=$(( STATUS_UNREADABLE + 1 ))
         return 0
     fi
-    ai_tools_assets_plan 2>/dev/null
+    ai_tools_assets__plan 2>/dev/null
     local entry index linked=0 reason
-    case "${_AI_TOOLS_ASSETS_LIST_STATE}" in
-        untrusted) st ATTENTION "enable-list-untrusted  ${AI_TOOLS_OPERATOR_CONF} -- $(ai_tools_log_sanitize "${_AI_TOOLS_ASSETS_LIST_DETAIL}")"
+    case "${AI_TOOLS_ASSETS__LIST_STATE}" in
+        untrusted) st ATTENTION "enable-list-untrusted  ${AI_TOOLS_OPERATOR_CONF} -- $(ai_tools_log__sanitize "${AI_TOOLS_ASSETS__LIST_DETAIL}")"
                    detail "no asset is linked while it stands; restore the file to root:root 0644"
                    STATUS_PROBLEMS=$(( STATUS_PROBLEMS + 1 )) ;;
-        invalid)   st ATTENTION "id-malformed  AI_TOOLS_ASSETS -- $(ai_tools_log_sanitize "${_AI_TOOLS_ASSETS_LIST_DETAIL}")"
+        invalid)   st ATTENTION "id-malformed  AI_TOOLS_ASSETS -- $(ai_tools_log__sanitize "${AI_TOOLS_ASSETS__LIST_DETAIL}")"
                    STATUS_PROBLEMS=$(( STATUS_PROBLEMS + 1 )) ;;
     esac
-    for entry in "${_AI_TOOLS_ASSETS_ENTRIES[@]}"; do
-        if [[ "${_AI_TOOLS_ASSETS_STATE[${entry}]}" == linked ]]; then
+    for entry in "${AI_TOOLS_ASSETS__ENTRIES[@]}"; do
+        if [[ "${AI_TOOLS_ASSETS__STATE[${entry}]}" == linked ]]; then
             linked=$(( linked + 1 ))
-            [[ -z "${_AI_TOOLS_ASSETS_CAPS[${entry}]:-}" ]] \
-                || st OK "$(ai_tools_log_sanitize "${entry}")  linked, requires ${_AI_TOOLS_ASSETS_CAPS[${entry}]}"
+            [[ -z "${AI_TOOLS_ASSETS__CAPS[${entry}]:-}" ]] \
+                || st OK "$(ai_tools_log__sanitize "${entry}")  linked, requires ${AI_TOOLS_ASSETS__CAPS[${entry}]}"
             continue
         fi
-        reason="${_AI_TOOLS_ASSETS_DETAIL[${entry}]:-}"
-        if [[ "${_AI_TOOLS_ASSETS_STATE[${entry}]}" == error ]]; then
-            st UNREADABLE "$(ai_tools_log_sanitize "${entry}")  ${_AI_TOOLS_ASSETS_STATE[${entry}]}"
+        reason="${AI_TOOLS_ASSETS__DETAIL[${entry}]:-}"
+        if [[ "${AI_TOOLS_ASSETS__STATE[${entry}]}" == error ]]; then
+            st UNREADABLE "$(ai_tools_log__sanitize "${entry}")  ${AI_TOOLS_ASSETS__STATE[${entry}]}"
             STATUS_UNREADABLE=$(( STATUS_UNREADABLE + 1 ))
         else
-            st ATTENTION "$(ai_tools_log_sanitize "${entry}")  ${_AI_TOOLS_ASSETS_STATE[${entry}]}"
+            st ATTENTION "$(ai_tools_log__sanitize "${entry}")  ${AI_TOOLS_ASSETS__STATE[${entry}]}"
             STATUS_PROBLEMS=$(( STATUS_PROBLEMS + 1 ))
         fi
-        detail "$(ai_tools_log_sanitize "${reason:0:200}")"
+        detail "$(ai_tools_log__sanitize "${reason:0:200}")"
     done
-    for (( index = 0; index < ${#_AI_TOOLS_ASSETS_ROW_SEVERITY[@]}; index++ )); do
-        case "${_AI_TOOLS_ASSETS_ROW_SEVERITY[index]}" in
-            attention)  st ATTENTION "${_AI_TOOLS_ASSETS_ROW_FINDING[index]}  $(ai_tools_log_sanitize "${_AI_TOOLS_ASSETS_ROW_SUBJECT[index]}")"
+    for (( index = 0; index < ${#AI_TOOLS_ASSETS__ROW_SEVERITY[@]}; index++ )); do
+        case "${AI_TOOLS_ASSETS__ROW_SEVERITY[index]}" in
+            attention)  st ATTENTION "${AI_TOOLS_ASSETS__ROW_FINDING[index]}  $(ai_tools_log__sanitize "${AI_TOOLS_ASSETS__ROW_SUBJECT[index]}")"
                         STATUS_PROBLEMS=$(( STATUS_PROBLEMS + 1 )) ;;
-            unreadable) st UNREADABLE "${_AI_TOOLS_ASSETS_ROW_FINDING[index]}  $(ai_tools_log_sanitize "${_AI_TOOLS_ASSETS_ROW_SUBJECT[index]}")"
+            unreadable) st UNREADABLE "${AI_TOOLS_ASSETS__ROW_FINDING[index]}  $(ai_tools_log__sanitize "${AI_TOOLS_ASSETS__ROW_SUBJECT[index]}")"
                         STATUS_UNREADABLE=$(( STATUS_UNREADABLE + 1 )) ;;
             *)          continue ;;
         esac
-        reason="${_AI_TOOLS_ASSETS_ROW_DETAIL[index]}"
-        detail "$(ai_tools_log_sanitize "${reason:0:200}")"
+        reason="${AI_TOOLS_ASSETS__ROW_DETAIL[index]}"
+        detail "$(ai_tools_log__sanitize "${reason:0:200}")"
     done
-    st OK "${#_AI_TOOLS_ASSETS_ENTRIES[@]} asset(s) enabled in AI_TOOLS_ASSETS, ${linked} linked"
+    st OK "${#AI_TOOLS_ASSETS__ENTRIES[@]} asset(s) enabled in AI_TOOLS_ASSETS, ${linked} linked"
     return 0
 }
 
 # status_node_version: the Version section's Node line, from the same verdict the CLI renders
-# (ai_tools_node_version_verdict, toolchain.lib.sh): the active version read off the enabled agents' stable launcher
-# links, and the version the updater's last run recorded shown beside it only where the two differ. Root could read
-# the toolchain itself; the link is read instead so the two reports have one source and one answer. Best-effort: a host
-# with neither a link nor a stamp gets no Node line, and Provisioning says why.
+# (ai_tools_toolchain__evaluate_node_versions, toolchain.lib.sh): the active version read off the enabled agents' stable
+# launcher links, and the version the updater's last run recorded shown beside it only where the two differ. Root could
+# read the toolchain itself; the link is read instead so the two reports have one source and one answer. Best-effort:
+# a host with neither a link nor a stamp gets no Node line, and Provisioning says why.
 status_node_version() {
     local rec stamp_node="" verdict kind version stamp_seen
-    if declare -F ai_tools_service_stamp_field >/dev/null 2>&1; then
+    if declare -F ai_tools_services__read_stamp_field >/dev/null 2>&1; then
         while IFS= read -r rec; do
-            stamp_node="$(ai_tools_service_stamp_field "$(ai_tools_service_field "${rec}" 7)" NODE)"
+            stamp_node="$(ai_tools_services__read_stamp_field "$(ai_tools_services__get_field "${rec}" 7)" NODE)"
             [[ -n "${stamp_node}" && "${stamp_node}" != unknown ]] && break
             stamp_node=""
-        done < <(ai_tools_service_records)
+        done < <(ai_tools_services__list_records)
     fi
     # shellcheck source=SCRIPTDIR/../../lib/ai-tools/toolchain.lib.sh
     source "${TOOLCHAIN_LIB}" 2>/dev/null || true
-    if declare -F ai_tools_agent_link_node_versions >/dev/null 2>&1 \
-            && declare -F ai_tools_node_version_verdict >/dev/null 2>&1; then
-        verdict="$(ai_tools_agent_link_node_versions "${LAUNCHER_LINK_DIR}" 2>/dev/null \
-                       | ai_tools_node_version_verdict "${stamp_node}")"
+    if declare -F ai_tools_toolchain__list_agent_link_node_versions >/dev/null 2>&1 \
+            && declare -F ai_tools_toolchain__evaluate_node_versions >/dev/null 2>&1; then
+        verdict="$(ai_tools_toolchain__list_agent_link_node_versions "${LAUNCHER_LINK_DIR}" 2>/dev/null \
+                       | ai_tools_toolchain__evaluate_node_versions "${stamp_node}")"
     elif [[ -n "${stamp_node}" ]]; then
         verdict=$'stamp\t'"${stamp_node}"     # no link reader: the stamp is the only reading left
     else
@@ -2995,7 +2999,7 @@ status() {
     [[ $# -eq 0 ]] || reject MSG-T6S6 "status: takes no arguments"
     STATUS_PROBLEMS=0
     STATUS_UNREADABLE=0
-    ai_tools_records_begin_report
+    ai_tools_records_base__begin_report
     # Ahead of the library load, so a report that cannot be given still says what was asked for: the refusal then reads
     # as this command failing rather than as an unattributed error.
     printf '\nai-tools host status\n'
@@ -3012,15 +3016,15 @@ status() {
     # shellcheck source=SCRIPTDIR/../../lib/ai-tools/entrypoint-verify.lib.sh
     source "${ENTRYPOINT_VERIFY_LIB}" 2>/dev/null || true
     local services_readable=yes
-    if ! declare -F ai_tools_service_records   >/dev/null 2>&1 \
-            || ! declare -F ai_tools_service_state_of >/dev/null 2>&1 \
-            || ! declare -F ai_tools_service_fmt_age  >/dev/null 2>&1; then
+    if ! declare -F ai_tools_services__list_records   >/dev/null 2>&1 \
+            || ! declare -F ai_tools_services__read_record_state >/dev/null 2>&1 \
+            || ! declare -F ai_tools_services__format_age  >/dev/null 2>&1; then
         warn MSG-V6N9 "the service registry (${SERVICES_LIB}) is unavailable -- reinstall ai-tools-base"
         STATUS_UNREADABLE=$(( STATUS_UNREADABLE + 1 ))
         services_readable=no
     fi
     # Root reaching the sandbox account's own manager is what this report adds over the operator's.
-    declare -F ai_tools_service_sandbox_account >/dev/null 2>&1 && ai_tools_service_sandbox_account "${SANDBOX_USER}"
+    declare -F ai_tools_services__set_sandbox_account >/dev/null 2>&1 && ai_tools_services__set_sandbox_account "${SANDBOX_USER}"
 
     heading "Version"
     printf '    %-13s %s\n' "ai-tools" "${AI_TOOLS_VERSION}"
@@ -3050,18 +3054,18 @@ status() {
         "sudo ai-tools-admin --help           every command this host has"
     printf '\n'
 
-    (( STATUS_PROBLEMS == 0 )) || ai_tools_records_accumulate_severity attention
-    (( STATUS_UNREADABLE == 0 )) || ai_tools_records_accumulate_severity unreadable
-    ai_tools_records_get_exit_status || return $?
+    (( STATUS_PROBLEMS == 0 )) || ai_tools_records_base__accumulate_severity attention
+    (( STATUS_UNREADABLE == 0 )) || ai_tools_records_base__accumulate_severity unreadable
+    ai_tools_records_base__get_exit_status || return $?
     return 0
 }
 
 # ── assets ───────────────────────────────────────────────────────────────────────────────────────────────────────────
 # The `assets` domain: AI_TOOLS_ASSETS in operator.conf names the assets every enabled agent loads, and assets.lib.sh
 # resolves each to `linked` or a reason token and keeps the view and the agents' links current (shipped-assets.rule.md).
-# Every verb takes the assets lock (ai_tools_assets_lock) before its first read of operator.conf and holds it to its
-# exit, so two verbs at once each read the list the other wrote: lock, read, back up, write, plan, apply, report. Every
-# verb prints a record stream (ai-tools-records(5)): the rows of its own, then the rows the reconcile it ends
+# Every verb takes the assets lock (ai_tools_managed_assets__lock) before its first read of operator.conf and holds it
+# to its exit, so two verbs at once each read the list the other wrote: lock, read, back up, write, plan, apply, report.
+# Every verb prints a record stream (ai-tools-records(5)): the rows of its own, then the rows the reconcile it ends
 # with writes. A verb exits 1 for a write refused or failed, else 5 when the library did not load, else 4
 # for an attention row, else 0. Each attention row is logged under its code to journald and to the root-only
 # assets.log.
@@ -3071,7 +3075,7 @@ status() {
 assets_load() {
     # shellcheck source=SCRIPTDIR/../../lib/ai-tools/assets.lib.sh
     source "${ASSETS_LIB}" 2>/dev/null || true
-    if ! declare -F ai_tools_assets_reconcile >/dev/null 2>&1 || ! declare -F ai_tools_assets_build_enable_snapshot >/dev/null 2>&1; then
+    if ! declare -F ai_tools_assets__reconcile >/dev/null 2>&1 || ! declare -F ai_tools_assets__build_enable_snapshot >/dev/null 2>&1; then
         warn MSG-P8M5 "the assets library (${ASSETS_LIB}) did not load, so no asset was read or changed -- reinstall ai-tools-base"
         exit 5
     fi
@@ -3085,63 +3089,63 @@ assets_load() {
 # and the detail.
 _assets_attention_row() {
     local code="$1" finding="$3" subject="$4" identifier="$5" detail="$6" item=""
-    ai_tools_records_tsv_frame_item_components item "${identifier}" || item=""
-    ai_tools_records_tsv_write_record "" "${code}" attention "${finding}" file "" "${item}" "${subject}" "${detail}" || true
-    ai_tools_log_coded warning "${code}" "${finding} ${identifier} ${subject}: ${detail}"
+    ai_tools_records_tsv__frame_item_components item "${identifier}" || item=""
+    ai_tools_records_tsv__write_record "" "${code}" attention "${finding}" file "" "${item}" "${subject}" "${detail}" || true
+    ai_tools_log__coded warning "${code}" "${finding} ${identifier} ${subject}: ${detail}"
 }
 _assets_info_row() {
     local code="$1" finding="$3" subject="$4" identifier="$5" detail="$6" item=""
-    ai_tools_records_tsv_frame_item_components item "${identifier}" || item=""
-    ai_tools_records_tsv_write_record "" "${code}" info "${finding}" file "" "${item}" "${subject}" "${detail}" || true
+    ai_tools_records_tsv__frame_item_components item "${identifier}" || item=""
+    ai_tools_records_tsv__write_record "" "${code}" info "${finding}" file "" "${item}" "${subject}" "${detail}" || true
 }
 
 # assets_lock_or_exit: take the assets lock for the rest of the verb, or exit 1 with no input read and no link changed;
-# ai_tools_assets_lock has written the refusal under MSG-M8T9.
+# ai_tools_managed_assets__lock has written the refusal under MSG-M8T9.
 assets_lock_or_exit() {
-    ai_tools_assets_lock || exit 1
+    ai_tools_managed_assets__lock || exit 1
 }
 
 # assets_read_list <array-name>: the entries of AI_TOOLS_ASSETS in the file the verbs write, after the checks the write
-# makes: the file, where it exists, passes ai_tools_conf_is_trusted -- a file the predicate refuses is not one this tool
-# repairs by writing to it -- and the key, where present, reads as a list, since an invalid one would be lost
+# makes: the file, where it exists, passes ai_tools_conf__is_trusted -- a file the predicate refuses is not one this
+# tool repairs by writing to it -- and the key, where present, reads as a list, since an invalid one would be lost
 # on the rewrite. Either refusal exits 1 before any write.
 assets_read_list() {
     local -n _assets_read_list_out="$1"
     local conf="${AI_TOOLS_OPERATOR_CONF}"
     _assets_read_list_out=()
     [[ -e "${conf}" || -L "${conf}" ]] || return 0
-    ai_tools_conf_is_trusted "${conf}" \
-        || die MSG-K6K3 "assets: ${conf} is not root's alone ($(ai_tools_conf_untrusted_reason "${conf}")), so it is not written -- restore it to root:root 0644 and run the command again"
-    ai_tools_conf_list _assets_read_list_out "${conf}" AI_TOOLS_ASSETS 2>/dev/null || return 0
-    [[ "${_ai_tools_conf_list_invalid:-0}" == 0 ]] \
+    ai_tools_conf__is_trusted "${conf}" \
+        || die MSG-K6K3 "assets: ${conf} is not root's alone ($(ai_tools_conf__read_untrusted_reason "${conf}")), so it is not written -- restore it to root:root 0644 and run the command again"
+    ai_tools_conf__read_list _assets_read_list_out "${conf}" AI_TOOLS_ASSETS 2>/dev/null || return 0
+    [[ "${ai_tools_conf__list_invalid:-0}" == 0 ]] \
         || die MSG-B4Z5 "assets: AI_TOOLS_ASSETS in ${conf} is not a valid list, so it is not rewritten -- write it as [<set>/<kind>/<name>, ...] and run the command again"
 }
 
-# assets_write_list <entry>...: write AI_TOOLS_ASSETS as exactly these entries through ai_tools_conf_set_list,
+# assets_write_list <entry>...: write AI_TOOLS_ASSETS as exactly these entries through ai_tools_conf__set_list,
 # after a dated .bak of the file where it exists. Exits 1, the file as it was, when the backup or the write fails.
 assets_write_list() {
     local conf="${AI_TOOLS_OPERATOR_CONF}" backup="" rc=0
     if [[ -e "${conf}" ]]; then
-        backup="$(ai_tools_conf_backup "${conf}")" \
+        backup="$(ai_tools_conf__write_backup "${conf}")" \
             || die MSG-V3M3 "assets: ${conf} could not be backed up, so AI_TOOLS_ASSETS was not written"
     fi
-    ai_tools_conf_set_list "${conf}" AI_TOOLS_ASSETS "$@" || rc=$?
+    ai_tools_conf__set_list "${conf}" AI_TOOLS_ASSETS "$@" || rc=$?
     (( rc == 0 )) || die MSG-Q8E5 "assets: AI_TOOLS_ASSETS could not be written to ${conf} (writer status ${rc})${backup:+; the previous file is ${backup}}"
-    ai_tools_log_info "assets: AI_TOOLS_ASSETS in ${conf} lists ${#} entries${backup:+; backup ${backup}}"
+    ai_tools_log__info "assets: AI_TOOLS_ASSETS in ${conf} lists ${#} entries${backup:+; backup ${backup}}"
 }
 
 # assets_finish <reconcile-status>: exit as the records page states for a command that changes the host: 1 when a write
 # did not take, else the record stream's own fold.
 assets_finish() {
     (( $1 == 0 )) || exit 1
-    ai_tools_records_get_exit_status || exit $?
+    ai_tools_records_base__get_exit_status || exit $?
     exit 0
 }
 
 # assets_reconcile_now: run the view transaction for the sandbox group, and return its status.
 assets_reconcile_now() {
     local status=0
-    ai_tools_assets_reconcile "${SANDBOX_GROUP}" || status=$?
+    ai_tools_assets__reconcile "${SANDBOX_GROUP}" || status=$?
     return "${status}"
 }
 
@@ -3157,15 +3161,15 @@ assets_enable() {
         --set) shift; assets_enable_set "$@"; return ;;
     esac
     assets_load
-    ai_tools_records_begin_report
+    ai_tools_records_base__begin_report
     assets_lock_or_exit
     for identifier in "$@"; do
         status=0
-        ai_tools_assets_parse_id "${identifier}" || status=$?
+        ai_tools_assets__parse_id "${identifier}" || status=$?
         (( status == 0 )) \
-            || die MSG-E9D6 "assets enable: '$(ai_tools_log_sanitize "${identifier}")' is not an asset identifier -- ${_AI_TOOLS_ASSETS_ID_DETAIL}; AI_TOOLS_ASSETS is unchanged"
-        ai_tools_assets_is_binding_present "${_AI_TOOLS_ASSETS_ID_SET}" \
-            || die MSG-W6D7 "assets enable: no shipped binding names the set ${_AI_TOOLS_ASSETS_ID_SET}, so ${identifier} is accepted only once a package pins its signer; AI_TOOLS_ASSETS is unchanged"
+            || die MSG-E9D6 "assets enable: '$(ai_tools_log__sanitize "${identifier}")' is not an asset identifier -- ${AI_TOOLS_ASSETS__ID_DETAIL}; AI_TOOLS_ASSETS is unchanged"
+        ai_tools_assets__is_binding_present "${AI_TOOLS_ASSETS__ID_SET}" \
+            || die MSG-W6D7 "assets enable: no shipped binding names the set ${AI_TOOLS_ASSETS__ID_SET}, so ${identifier} is accepted only once a package pins its signer; AI_TOOLS_ASSETS is unchanged"
     done
     assets_read_list entries
     for identifier in "$@"; do
@@ -3187,20 +3191,20 @@ assets_enable_set() {
     local -a entries=() added=()
     (( $# == 1 )) || reject MSG-Z7D4 "assets enable --set takes exactly one set name"
     assets_load
-    ai_tools_records_begin_report
+    ai_tools_records_base__begin_report
     assets_lock_or_exit
-    ai_tools_assets_is_valid_set_name "${set}" \
-        || die MSG-R3M6 "assets enable --set: '$(ai_tools_log_sanitize "${set}")' is not a set name -- 1-64 characters of a-z, 0-9 and single hyphens; AI_TOOLS_ASSETS is unchanged"
-    ai_tools_assets_build_enable_snapshot "${set}"
-    [[ "${_AI_TOOLS_ASSETS_SNAPSHOT_STATE}" == ok ]] \
-        || die MSG-P9Z3 "assets enable --set: the set ${set} is ${_AI_TOOLS_ASSETS_SNAPSHOT_STATE} -- $(ai_tools_log_sanitize "${_AI_TOOLS_ASSETS_SNAPSHOT_DETAIL:0:300}"); AI_TOOLS_ASSETS is unchanged"
+    ai_tools_assets_verify__is_valid_set_name "${set}" \
+        || die MSG-R3M6 "assets enable --set: '$(ai_tools_log__sanitize "${set}")' is not a set name -- 1-64 characters of a-z, 0-9 and single hyphens; AI_TOOLS_ASSETS is unchanged"
+    ai_tools_assets__build_enable_snapshot "${set}"
+    [[ "${AI_TOOLS_ASSETS__SNAPSHOT_STATE}" == ok ]] \
+        || die MSG-P9Z3 "assets enable --set: the set ${set} is ${AI_TOOLS_ASSETS__SNAPSHOT_STATE} -- $(ai_tools_log__sanitize "${AI_TOOLS_ASSETS__SNAPSHOT_DETAIL:0:300}"); AI_TOOLS_ASSETS is unchanged"
     assets_read_list entries
-    for (( index = 0; index < ${#_AI_TOOLS_ASSETS_SNAPSHOT_IDS[@]}; index++ )); do
-        identifier="${_AI_TOOLS_ASSETS_SNAPSHOT_IDS[index]}"
-        case "${_AI_TOOLS_ASSETS_SNAPSHOT_TOKENS[index]}" in
+    for (( index = 0; index < ${#AI_TOOLS_ASSETS__SNAPSHOT_IDS[@]}; index++ )); do
+        identifier="${AI_TOOLS_ASSETS__SNAPSHOT_IDS[index]}"
+        case "${AI_TOOLS_ASSETS__SNAPSHOT_TOKENS[index]}" in
             ok|capability-unsupported|integration-off) ;;
             *)  _assets_attention_row MSG-J4E9 "assets enable --set: an asset of the set that fails the asset-scope rules, left out of AI_TOOLS_ASSETS" \
-                    "${_AI_TOOLS_ASSETS_SNAPSHOT_TOKENS[index]}" "${AI_TOOLS_OPERATOR_CONF}" "${identifier}" \
+                    "${AI_TOOLS_ASSETS__SNAPSHOT_TOKENS[index]}" "${AI_TOOLS_OPERATOR_CONF}" "${identifier}" \
                     "not written to AI_TOOLS_ASSETS: the asset fails a rule base enforces"
                 continue ;;
         esac
@@ -3220,7 +3224,7 @@ assets_disable() {
     local -a entries=() kept=() removed=()
     (( $# > 0 )) || reject MSG-H7A8 "assets disable takes one or more <set>/<kind>/<name>"
     assets_load
-    ai_tools_records_begin_report
+    ai_tools_records_base__begin_report
     assets_lock_or_exit
     assets_read_list entries
     for identifier in "$@"; do
@@ -3253,7 +3257,7 @@ assets_reconcile_verb() {
     local status=0
     (( $# == 0 )) || reject MSG-M7S5 "assets reconcile takes no arguments"
     assets_load
-    ai_tools_records_begin_report
+    ai_tools_records_base__begin_report
     assets_lock_or_exit
     assets_reconcile_now || status=$?
     assets_finish "${status}"

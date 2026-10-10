@@ -130,7 +130,7 @@ while IFS=$'\t' read -r agent agent_dir; do
         fail "${agent_dir%/*} is ${meta:-unreadable}: without root and the sticky bit the agent can replace ${agent_dir##*/}/"
     fi
 done < <(bash -c 'source /usr/local/lib/ai-tools/control-plane.lib.sh 2>/dev/null || exit 0
-    ai_tools_agent_asset_dirs skills_dir; ai_tools_agent_asset_dirs subagents_dir' 2>/dev/null)
+    ai_tools_control_plane__list_agent_asset_dirs skills_dir; ai_tools_control_plane__list_agent_asset_dirs subagents_dir' 2>/dev/null)
 
 # The verbs that write AI_TOOLS_ASSETS refuse a caller that is not root before they read an input.
 if runuser -u "${SANDBOX_USER}" -- /usr/local/sbin/ai-tools-admin assets reconcile >/dev/null 2>&1; then

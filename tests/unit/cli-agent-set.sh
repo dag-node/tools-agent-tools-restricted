@@ -278,7 +278,7 @@ if runuser -u "${PROJECTS_USER}" -- bash -c \
             AI_TOOLS_ENTRYPOINT_LABEL_DIR="${LABELS}" \
             AI_TOOLS_MSG_PLAIN=1 \
             bash -c 'cli="$1"; pre="$2"; set --; source "${cli}" >/dev/null 2>&1 || exit 99
-                     ai_tools_service_records() { :; }; status_path_order() { return 0; }
+                     ai_tools_services__list_records() { :; }; status_path_order() { return 0; }
                      status_entrypoint_pins() { return 0; }; status_selinux_attestation() { return 0; }
                      eval "${pre}"; cmd_status' _ "${CLI}" "$1" 2>&1
     }
@@ -295,7 +295,7 @@ if runuser -u "${PROJECTS_USER}" -- bash -c \
     else
         fail "a counted fault exited ${rc}, expected 4: $(tail -c 300 <<<"${out}" | tr '\n' '|')"
     fi
-    rc=0; out="$(call_status 'unset -f ai_tools_service_records')" || rc=$?
+    rc=0; out="$(call_status 'unset -f ai_tools_services__list_records')" || rc=$?
     if [[ "${rc}" -eq 5 ]] && grep -qx 'MSG-X5Z8' <<<"${out}" && grep -qF 'ai-tools providers' <<<"${out}"; then
         pass "a service registry that did not load exits 5, is named under its code, and the later sections still print"
     else
@@ -307,7 +307,7 @@ if runuser -u "${PROJECTS_USER}" -- bash -c \
     else
         fail "an unreadable section exited ${rc}, expected 5: $(tail -c 300 <<<"${out}" | tr '\n' '|')"
     fi
-    rc=0; out="$(call_status 'status_path_order() { return 1; }; unset -f ai_tools_service_records')" || rc=$?
+    rc=0; out="$(call_status 'status_path_order() { return 1; }; unset -f ai_tools_services__list_records')" || rc=$?
     if [[ "${rc}" -eq 5 ]]; then
         pass "a fault read beside a reading that could not be made exits 5: unreadable wins the fold"
     else
@@ -336,12 +336,12 @@ call_attestation_section() {
                  stub_selinux_mode="$5"; stub_module_present="$6"; stub_policy_shipped="$7"; set --
                  source "${cli}" >/dev/null 2>&1 || exit 99
                  declare -F status_selinux_attestation >/dev/null || exit 98
-                 source "${lib}" 2>/dev/null; declare -F ai_tools_confinement_list_attestation_report >/dev/null || exit 97
-                 declare -F ai_tools_confinement_dac_only_state >/dev/null || exit 97
+                 source "${lib}" 2>/dev/null; declare -F ai_tools_confinement__list_attestation_report >/dev/null || exit 97
+                 declare -F ai_tools_confinement__evaluate_dac_only_state >/dev/null || exit 97
                  getenforce() { printf "%s\n" "${stub_selinux_mode}"; }
-                 ai_tools_confinement_read_attestation_records() { printf "%s\n" "${stub_attestation_records}"; }
-                 ai_tools_confinement_read_module_present() { printf "%s" "${stub_module_present}"; }
-                 ai_tools_confinement_read_policy_shipped() { printf "%s" "${stub_policy_shipped}"; }
+                 ai_tools_confinement__read_attestation_records() { printf "%s\n" "${stub_attestation_records}"; }
+                 ai_tools_confinement__read_module_present() { printf "%s" "${stub_module_present}"; }
+                 ai_tools_confinement__read_policy_shipped() { printf "%s" "${stub_policy_shipped}"; }
                  section_status=0; status_selinux_attestation "${operator_conf}" || section_status=$?
                  printf "section-status=%s\n" "${section_status}"' \
         _ "${CLI}" /usr/local/lib/ai-tools/confinement.lib.sh "$1" "$2" "${3:-Enforcing}" "${4:-yes}" "${5:-yes}" 2>&1

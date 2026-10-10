@@ -5,7 +5,7 @@
 # inventory written in build-set's shape, a detached armored signature over it as release-steps.sh makes one, a binding
 # naming the key, and a set built to pass every rule base enforces and sealed that way. gpg makes the keys
 # and the signatures; gpgv alone verifies, as on a host. Sourced after harness.sh and the set verifier (whose
-# ai_tools_assets_write_binary_keyring writes each keyring) by tests/unit/assets-verify.sh, tests/unit/assets.sh
+# ai_tools_assets_verify__write_binary_keyring writes each keyring) by tests/unit/assets-verify.sh, tests/unit/assets.sh
 # and tests/unit/admin-assets.sh. The caller sets ASSET_KEYS_DIR (each key's armored export and keyring, and its
 # GNUPGHOME beside them) and ASSET_BINDINGS_DIR, both root-owned 0755, before the first call; every file written here is
 # 0644.
@@ -20,7 +20,7 @@ asset_signing_gen_key() {
         default default never 2>/dev/null
     _asset_signing_fpr="$(GNUPGHOME="${home}" gpg --batch --with-colons --list-keys | awk -F: '$1 == "fpr" { print $10; exit }')"
     GNUPGHOME="${home}" gpg --batch --armor --export "${_asset_signing_fpr}" > "${ASSET_KEYS_DIR}/${name}.asc"
-    ai_tools_assets_write_binary_keyring "${ASSET_KEYS_DIR}/${name}.asc" "${ASSET_KEYS_DIR}/${name}.gpg"
+    ai_tools_assets_verify__write_binary_keyring "${ASSET_KEYS_DIR}/${name}.asc" "${ASSET_KEYS_DIR}/${name}.gpg"
     chmod 0644 "${ASSET_KEYS_DIR}/${name}.asc" "${ASSET_KEYS_DIR}/${name}.gpg"
 }
 

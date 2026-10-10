@@ -78,7 +78,7 @@ Requires:       policycoreutils
 # set is unverified and none links, the fail-closed direction, so the dependency is base's and not an agent package's.
 Requires:       gnupg2
 # Weak, not hard: without the policy the sandbox runs in a documented DAC-only mode rather than
-# failing. ai_tools_confinement_verdict returns "ok" when the module is ABSENT (an intentional
+# failing. ai_tools_confinement__evaluate returns "ok" when the module is ABSENT (an intentional
 # DAC-only deployment) and fails closed only when it is present-but-inactive, so dropping this
 # subpackage degrades confinement without bricking a launch. Also a licence boundary: the policy
 # is the one GPL payload in the stack (see its %%description), and a weak dep keeps it separable.
@@ -394,13 +394,13 @@ install -m 0644 src%{ai_libdir}/filters.d/base.rules %{buildroot}%{ai_libdir}/fi
 # manifest against the key its manifest names, so the key is SHIPPED rather than fetched (a fetched
 # key proves only that whoever served the manifest served the key). Base ships one key of its own:
 # the dag-node package-signing key, the key rpm.dagnode.com serves, as published, and beside it the
-# binary keyring ai_tools_assets_write_binary_keyring writes from it here (its doc says why gpgv needs
+# binary keyring ai_tools_assets_verify__write_binary_keyring writes from it here (its doc says why gpgv needs
 # one). assets-verify.lib.sh verifies a set's SHA256SUMS.asc against the keyring a root-owned
 # binding names and asserts the signer's primary against that binding, so this file alone does not
 # decide what may sign a set.
 install -d -m 0755 %{buildroot}%{ai_libdir}/keys
 install -m 0644 src%{ai_libdir}/keys/dag-node-package-signing.asc %{buildroot}%{ai_libdir}/keys/dag-node-package-signing.asc
-bash -c '. "$1" && ai_tools_assets_write_binary_keyring "$2" "$3"' _ \
+bash -c '. "$1" && ai_tools_assets_verify__write_binary_keyring "$2" "$3"' _ \
     src%{ai_libdir}/assets-verify.lib.sh \
     src%{ai_libdir}/keys/dag-node-package-signing.asc \
     %{buildroot}%{ai_libdir}/keys/dag-node-package-signing.gpg
@@ -738,16 +738,16 @@ fi
 # conf.lib.sh comes first -- it owns the dated-sidecar stamp both of those steps preserve through.
 # Output is kept, stderr included, so `dnf upgrade` reports what changed and names a refusal; a
 # host that never sees these lines cannot tell that a shipped asset moved. The kinds come from the
-# library's own AI_TOOLS_ASSET_KINDS rather than being spelled here, so this scriptlet cannot fall
+# library's own AI_TOOLS_MANAGED_ASSETS__KINDS rather than being spelled here, so this scriptlet cannot fall
 # behind the set the library seeds.
 # The asset view follows the seeder and the retired-list pass: one link per asset AI_TOOLS_ASSETS enables under
 # /opt/ai-tools/<kind>, and each enabled agent's links into that root (assets.lib.sh). The three run in the one bash
-# under the assets lock (ai_tools_assets_lock), which the reconcile adopts, so an `ai-tools-admin assets` verb run during
+# under the assets lock (ai_tools_managed_assets__lock), which the reconcile adopts, so an `ai-tools-admin assets` verb run during
 # the transaction does not interleave its writes with theirs; a lock that cannot be taken skips the three with MSG-M8T9.
 # The reconcile's record stream goes to the assets log, since this scriptlet's stdout is the transaction's;
 # a reconcile that does not complete here runs again from the next trigger or `ai-tools-admin assets reconcile`.
 if command -v bash >/dev/null 2>&1; then
-    AI_TOOLS_ASSUME_YES=1 bash -c '. /usr/local/lib/ai-tools/msg.lib.sh; . /usr/local/lib/ai-tools/conf.lib.sh; . /usr/local/lib/ai-tools/managed-assets.lib.sh; ai_tools_assets_lock || exit 0; for kind in "${AI_TOOLS_ASSET_KINDS[@]}"; do [ -d "$1/${kind}" ] || continue; ai_tools_seed_managed_assets "$1" /opt/ai-tools ai-tools "${kind}"; ai_tools_remove_retired_assets /opt/ai-tools "${kind}"; ai_tools_link_asset_readme "$1/${kind}/README.md" "/opt/ai-tools/${kind}" ai-tools; done; "$2" assets reconcile >/dev/null || :; ai_tools_assets_unlock' _ %{_datadir}/ai-tools %{ai_libexecdir}/ai-tools-admin || :
+    AI_TOOLS_ASSUME_YES=1 bash -c '. /usr/local/lib/ai-tools/msg.lib.sh; . /usr/local/lib/ai-tools/conf.lib.sh; . /usr/local/lib/ai-tools/managed-assets.lib.sh; ai_tools_managed_assets__lock || exit 0; for kind in "${AI_TOOLS_MANAGED_ASSETS__KINDS[@]}"; do [ -d "$1/${kind}" ] || continue; ai_tools_managed_assets__seed_assets "$1" /opt/ai-tools ai-tools "${kind}"; ai_tools_managed_assets__remove_retired_assets /opt/ai-tools "${kind}"; ai_tools_managed_assets__link_asset_readme "$1/${kind}/README.md" "/opt/ai-tools/${kind}" ai-tools; done; "$2" assets reconcile >/dev/null || :; ai_tools_managed_assets__unlock' _ %{_datadir}/ai-tools %{ai_libexecdir}/ai-tools-admin || :
 fi
 # Direct the operator to the per-operator / network steps a scriptlet must not take itself.
 # Each is gated on the state it would create rather than on install-vs-upgrade, so an upgrade
@@ -779,17 +779,17 @@ fi
 # command; the predicate is the one the reader refuses by (conf.lib.sh).
 _at_unmigrated=0
 if command -v bash >/dev/null 2>&1 \
-   && [ -n "$(bash -c '. /usr/local/lib/ai-tools/conf.lib.sh; ai_tools_conf_kind_unmigrated /etc/ai-tools/operator.conf' 2>/dev/null || :)" ]; then
+   && [ -n "$(bash -c '. /usr/local/lib/ai-tools/conf.lib.sh; ai_tools_conf__find_unmigrated_items /etc/ai-tools/operator.conf' 2>/dev/null || :)" ]; then
     _at_unmigrated=1
 fi
 # Repoint each enrolled operator's guard line where it still names the fragment's former path, then
 # name the operators whose init this scriptlet could not write. The bound on that edit, and what a
-# reading of their shell needs instead, are ai_tools_path_order_repoint's header.
+# reading of their shell needs instead, are ai_tools_path_order__repoint's header.
 if command -v bash >/dev/null 2>&1; then
-    _at_repointed="$(bash -c '. /usr/local/lib/ai-tools/conf.lib.sh; . /usr/local/lib/ai-tools/path-order.lib.sh; . /usr/local/lib/ai-tools/operator.lib.sh; ai_tools_load_operators; for op in "${AI_TOOLS_OPERATORS[@]}"; do ai_tools_path_order_repoint_user "${op}"; done' 2>/dev/null || :)"
+    _at_repointed="$(bash -c '. /usr/local/lib/ai-tools/conf.lib.sh; . /usr/local/lib/ai-tools/path-order.lib.sh; . /usr/local/lib/ai-tools/operator.lib.sh; ai_tools_operator__load_operators; for op in "${AI_TOOLS_OPERATOR__OPERATORS[@]}"; do ai_tools_path_order__repoint_user "${op}"; done' 2>/dev/null || :)"
     # Read AFTER the repoint, so the report covers what this host still owes once the scriptlet has
     # done what it can.
-    _at_path="$(bash -c '. /usr/local/lib/ai-tools/conf.lib.sh; . /usr/local/lib/ai-tools/path-order.lib.sh; . /usr/local/lib/ai-tools/operator.lib.sh; ai_tools_load_operators; ai_tools_path_order_stale_operators "${AI_TOOLS_OPERATORS[@]}"' 2>/dev/null || :)"
+    _at_path="$(bash -c '. /usr/local/lib/ai-tools/conf.lib.sh; . /usr/local/lib/ai-tools/path-order.lib.sh; . /usr/local/lib/ai-tools/operator.lib.sh; ai_tools_operator__load_operators; ai_tools_path_order__find_stale_operators "${AI_TOOLS_OPERATOR__OPERATORS[@]}"' 2>/dev/null || :)"
 fi
 if [ -n "${_at_repointed}" ]; then
     echo "ai-tools-base: the PATH ordering line now sources /usr/local/lib/ai-tools/path-order.sh in:"
@@ -811,14 +811,14 @@ while IFS= read -r launcher; do
     [ -n "${launcher}" ] || continue
     while IFS=$'"'"'\t'"'"' read -r path alias; do
         [ -n "${path}" ] || continue
-        owner="$(ai_tools_agent_install_owner "${path}")"
+        owner="$(ai_tools_agent_installs__read_owner "${path}")"
         if [ -n "${owner}" ]; then
             printf "  %s%s -- sudo dnf remove %s\n" "${path}" "${alias:+ (the same file as ${alias})}" "${owner}"
         else
             printf "  %s%s -- remove it with the tool that installed it\n" "${path}" "${alias:+ (the same file as ${alias})}"
         fi
-    done < <(ai_tools_agent_installs "${launcher}")
-done < <(ai_tools_path_order_launchers)' 2>/dev/null || :)"
+    done < <(ai_tools_agent_installs__find_executables "${launcher}")
+done < <(ai_tools_path_order__list_launchers)' 2>/dev/null || :)"
 fi
 if [ "${_at_toolchain}${_at_operator}${_at_merge}${_at_unmigrated}" != "0000" ] || [ -n "${_at_path}" ]; then
     echo "ai-tools-base: steps this host still needs:"
@@ -884,8 +884,8 @@ chmod 2770 /var/opt/ai-tools/sandbox-projects 2>/dev/null || :
 # subtrees are not rpm-owned. Under an explicit bash: the library is bash and a scriptlet runs under /bin/sh.
 if [ -d /opt/ai-tools ] && command -v bash >/dev/null 2>&1; then
     bash -c '. /usr/local/lib/ai-tools/control-plane.lib.sh 2>/dev/null || exit 0
-             declare -F ai_tools_ensure_unit_search_path_closed >/dev/null 2>&1 || exit 0
-             ai_tools_ensure_unit_search_path_closed /opt/ai-tools ai-tools ai-tools | while read -r verdict rest; do
+             declare -F ai_tools_control_plane__ensure_unit_search_path_closed >/dev/null 2>&1 || exit 0
+             ai_tools_control_plane__ensure_unit_search_path_closed /opt/ai-tools ai-tools ai-tools | while read -r verdict rest; do
                  [ "${verdict}" = error ] && echo "ai-tools-base: WARNING the sandbox systemd unit search path is not fully closed: ${rest}" >&2
              done' || :
     if command -v restorecon >/dev/null 2>&1; then
@@ -956,7 +956,7 @@ fi
 # that cannot register its rules and a launch that fail-closes, with no message naming this as the
 # cause. The transaction still completes -- the remedy is a re-run, not a rollback.
 if [ "$(getenforce 2>/dev/null)" != "Disabled" ] && command -v semodule >/dev/null 2>&1; then
-    # The lock every other writer of the policy store takes (ai_tools_relabel_lock in
+    # The lock every other writer of the policy store takes (ai_tools_relabel__lock in
     # relabel.lib.sh -- the same path, which tests/unit/relabel.sh pins against this literal):
     # the base package's rewrite of /opt/ai-tools/bin in this transaction fires
     # ai-tools-relabel.path, and semodule and semanage report an error to whichever process finds
@@ -1111,7 +1111,7 @@ chmod 2770 /opt/ai-tools/integrations/typesafe 2>/dev/null || :
 # (base's %%post says why). Every other skill in the datadir is already at its live version, so
 # the pass leaves it alone. The seed and the reconcile run under the assets lock, as in base's %%post.
 if command -v bash >/dev/null 2>&1; then
-    AI_TOOLS_ASSUME_YES=1 bash -c '. /usr/local/lib/ai-tools/msg.lib.sh; . /usr/local/lib/ai-tools/conf.lib.sh; . /usr/local/lib/ai-tools/managed-assets.lib.sh; ai_tools_assets_lock || exit 0; ai_tools_seed_managed_assets "$1" /opt/ai-tools ai-tools skills; "$2" assets reconcile >/dev/null 2>&1 || :; ai_tools_assets_unlock' _ %{_datadir}/ai-tools %{ai_libexecdir}/ai-tools-admin || :
+    AI_TOOLS_ASSUME_YES=1 bash -c '. /usr/local/lib/ai-tools/msg.lib.sh; . /usr/local/lib/ai-tools/conf.lib.sh; . /usr/local/lib/ai-tools/managed-assets.lib.sh; ai_tools_managed_assets__lock || exit 0; ai_tools_managed_assets__seed_assets "$1" /opt/ai-tools ai-tools skills; "$2" assets reconcile >/dev/null 2>&1 || :; ai_tools_managed_assets__unlock' _ %{_datadir}/ai-tools %{ai_libexecdir}/ai-tools-admin || :
 fi
 
 %postun -n ai-tools-integration-typesafe
@@ -1121,7 +1121,7 @@ fi
 # ai-tools-typesafe-filter (no managed marker) is kept. The credential file and the state root
 # stay, as every integration's state does.
 if [ "$1" -eq 0 ] && [ -r /usr/local/lib/ai-tools/managed-assets.lib.sh ] && command -v bash >/dev/null 2>&1; then
-    bash -c '. /usr/local/lib/ai-tools/msg.lib.sh; . /usr/local/lib/ai-tools/conf.lib.sh; . /usr/local/lib/ai-tools/managed-assets.lib.sh; ai_tools_assets_lock || exit 0; ai_tools_withdraw_asset /opt/ai-tools skills ai-tools-typesafe-filter "package removed"; "$1" assets reconcile >/dev/null 2>&1 || :; ai_tools_assets_unlock' _ %{ai_libexecdir}/ai-tools-admin || :
+    bash -c '. /usr/local/lib/ai-tools/msg.lib.sh; . /usr/local/lib/ai-tools/conf.lib.sh; . /usr/local/lib/ai-tools/managed-assets.lib.sh; ai_tools_managed_assets__lock || exit 0; ai_tools_managed_assets__withdraw_asset /opt/ai-tools skills ai-tools-typesafe-filter "package removed"; "$1" assets reconcile >/dev/null 2>&1 || :; ai_tools_managed_assets__unlock' _ %{ai_libexecdir}/ai-tools-admin || :
 fi
 
 %post -n ai-tools-agents-claude-code-restricted
@@ -1156,7 +1156,7 @@ fi
 # instructions (its manifest's memory_file), so a session in any project starts knowing which
 # commands are refused and which paths it cannot reach. A real file already at that path wins.
 if [ -f /opt/ai-tools/orientation/AGENTS.md ] && command -v bash >/dev/null 2>&1; then
-    bash -c ". /usr/local/lib/ai-tools/msg.lib.sh; . /usr/local/lib/ai-tools/managed-assets.lib.sh; ai_tools_link_agent_memory /opt/ai-tools/orientation/AGENTS.md /opt/ai-tools/.claude CLAUDE.md ai-tools" >/dev/null 2>&1 || :
+    bash -c ". /usr/local/lib/ai-tools/msg.lib.sh; . /usr/local/lib/ai-tools/managed-assets.lib.sh; ai_tools_managed_assets__link_agent_memory /opt/ai-tools/orientation/AGENTS.md /opt/ai-tools/.claude CLAUDE.md ai-tools" >/dev/null 2>&1 || :
 fi
 # settings.json is %config(noreplace), so a host that tuned its permission rules keeps them and rpm
 # parks this version's copy as .rpmnew. Choosing between the two is the operator's call, made
@@ -1177,7 +1177,7 @@ fi
 # here. The npm package this agent installed into the sandbox toolchain goes the same way, with its
 # launcher link: once the manifest is gone no reader knows the package name, and a package left
 # behind keeps an entrypoint a session can exec (toolchain.lib.sh). Run AS the sandbox account, the
-# tree's owner, through ai_tools_as_sandbox (sandbox-exec.lib.sh: no terminal, no inherited
+# tree's owner, through ai_tools_sandbox_exec__run_as_sandbox (sandbox-exec.lib.sh: no terminal, no inherited
 # descriptor, a clean environment), offline (npm uninstall does not reach a registry), and best-effort (`|| :`), so
 # the erase completes whatever it prints; a removal deferred under a live session is left for
 # the next update run.
@@ -1185,7 +1185,7 @@ if [ "$1" -eq 0 ]; then
     [ -x %{ai_libexecdir}/ai-tools-relabel-agent ] \
         && %{ai_libexecdir}/ai-tools-relabel-agent --remove claude-code >/dev/null 2>&1 || :
     if [ -r /usr/local/lib/ai-tools/sandbox-exec.lib.sh ] && [ -r /usr/local/lib/ai-tools/toolchain.lib.sh ] && id ai-tools >/dev/null 2>&1; then
-        bash -c '. /usr/local/lib/ai-tools/sandbox-exec.lib.sh; ai_tools_as_sandbox ai-tools bash -c ". /usr/local/lib/ai-tools/toolchain.lib.sh; ai_tools_agent_package_erase /opt/ai-tools/.nvm claude-code"' 2>&1 | sed 's/^/ai-tools: /' || :
+        bash -c '. /usr/local/lib/ai-tools/sandbox-exec.lib.sh; ai_tools_sandbox_exec__run_as_sandbox ai-tools bash -c ". /usr/local/lib/ai-tools/toolchain.lib.sh; ai_tools_toolchain__erase_agent_package /opt/ai-tools/.nvm claude-code"' 2>&1 | sed 's/^/ai-tools: /' || :
     fi
     rm -f /opt/ai-tools/bin/claude
 fi
@@ -1200,12 +1200,12 @@ if [ -r /usr/local/lib/ai-tools/settings-merge.lib.sh ] && command -v bash >/dev
     bash -c '. /usr/local/lib/ai-tools/settings-merge.lib.sh 2>/dev/null || exit 0
         settings=/opt/ai-tools/.claude/settings.json
         [ -f "${settings}" ] || exit 0
-        gaps="$(ai_tools_conf_ask_gaps "${settings}")" || { echo "ai-tools: the ask entries in ${settings} were not checked -- jq is missing or the file is not valid JSON"; exit 0; }
+        gaps="$(ai_tools_settings_merge__find_ask_gaps "${settings}")" || { echo "ai-tools: the ask entries in ${settings} were not checked -- jq is missing or the file is not valid JSON"; exit 0; }
         [ -n "${gaps}" ] || exit 0
         mapfile -t entries <<< "${gaps}"
         echo "ai-tools: ${settings} runs these commands without asking, and each one sends data off the host:"
         for entry in "${entries[@]}"; do echo "    ${entry}"; done
-        ai_tools_conf_ask_fix "${settings}" "${entries[@]}" | { IFS= read -r where && echo "  to have it ask, ${where}"; while IFS= read -r line; do echo "      ${line}"; done; }
+        ai_tools_settings_merge__format_ask_fix "${settings}" "${entries[@]}" | { IFS= read -r where && echo "  to have it ask, ${where}"; while IFS= read -r line; do echo "      ${line}"; done; }
         echo "  then check it with: sudo ai-tools-admin system post-upgrade"' || :
 fi
 
@@ -1234,12 +1234,12 @@ chmod 3770 /opt/ai-tools/.codex 2>/dev/null || :
 # reported. Reuses the base's seeder lib under an explicit bash (a %%post scriptlet runs under
 # /bin/sh). The install never fails on it.
 if [ -d /opt/ai-tools/skills ] && command -v bash >/dev/null 2>&1; then
-    bash -c ". /usr/local/lib/ai-tools/msg.lib.sh; . /usr/local/lib/ai-tools/managed-assets.lib.sh; ai_tools_link_shared_root /opt/ai-tools/skills %{_sysconfdir}/codex/skills ai-tools %{_datadir}/ai-tools/skills/README.md" 2>/dev/null || :
+    bash -c ". /usr/local/lib/ai-tools/msg.lib.sh; . /usr/local/lib/ai-tools/managed-assets.lib.sh; ai_tools_managed_assets__link_shared_root /opt/ai-tools/skills %{_sysconfdir}/codex/skills ai-tools %{_datadir}/ai-tools/skills/README.md" 2>/dev/null || :
 fi
 # The shared orientation text, linked under the name THIS agent reads as its global instructions
 # (its manifest's memory_file, AGENTS.md at the root of CODEX_HOME). A real file already there wins.
 if [ -f /opt/ai-tools/orientation/AGENTS.md ] && command -v bash >/dev/null 2>&1; then
-    bash -c ". /usr/local/lib/ai-tools/msg.lib.sh; . /usr/local/lib/ai-tools/managed-assets.lib.sh; ai_tools_link_agent_memory /opt/ai-tools/orientation/AGENTS.md /opt/ai-tools/.codex AGENTS.md ai-tools" >/dev/null 2>&1 || :
+    bash -c ". /usr/local/lib/ai-tools/msg.lib.sh; . /usr/local/lib/ai-tools/managed-assets.lib.sh; ai_tools_managed_assets__link_agent_memory /opt/ai-tools/orientation/AGENTS.md /opt/ai-tools/.codex AGENTS.md ai-tools" >/dev/null 2>&1 || :
 fi
 # The two managed files are %config(noreplace): a host that edited one keeps it, and rpm parks this
 # version's copy as .rpmnew. Say so, because a key this version adds is not in the live file until
@@ -1264,12 +1264,12 @@ if [ "$1" -eq 0 ]; then
     [ -x %{ai_libexecdir}/ai-tools-relabel-agent ] \
         && %{ai_libexecdir}/ai-tools-relabel-agent --remove codex >/dev/null 2>&1 || :
     if [ -r /usr/local/lib/ai-tools/managed-assets.lib.sh ] && command -v bash >/dev/null 2>&1; then
-        bash -c ". /usr/local/lib/ai-tools/msg.lib.sh; . /usr/local/lib/ai-tools/managed-assets.lib.sh; ai_tools_unlink_shared_root /opt/ai-tools/skills %{_sysconfdir}/codex/skills %{_datadir}/ai-tools/skills/README.md" >/dev/null 2>&1 || :
+        bash -c ". /usr/local/lib/ai-tools/msg.lib.sh; . /usr/local/lib/ai-tools/managed-assets.lib.sh; ai_tools_managed_assets__unlink_shared_root /opt/ai-tools/skills %{_sysconfdir}/codex/skills %{_datadir}/ai-tools/skills/README.md" >/dev/null 2>&1 || :
     fi
     # The npm package and its launcher link, as the claude-code %%preun removes its own (the
     # reasoning is there): as the sandbox account, offline, best-effort.
     if [ -r /usr/local/lib/ai-tools/sandbox-exec.lib.sh ] && [ -r /usr/local/lib/ai-tools/toolchain.lib.sh ] && id ai-tools >/dev/null 2>&1; then
-        bash -c '. /usr/local/lib/ai-tools/sandbox-exec.lib.sh; ai_tools_as_sandbox ai-tools bash -c ". /usr/local/lib/ai-tools/toolchain.lib.sh; ai_tools_agent_package_erase /opt/ai-tools/.nvm codex"' 2>&1 | sed 's/^/ai-tools: /' || :
+        bash -c '. /usr/local/lib/ai-tools/sandbox-exec.lib.sh; ai_tools_sandbox_exec__run_as_sandbox ai-tools bash -c ". /usr/local/lib/ai-tools/toolchain.lib.sh; ai_tools_toolchain__erase_agent_package /opt/ai-tools/.nvm codex"' 2>&1 | sed 's/^/ai-tools: /' || :
     fi
     rm -f /opt/ai-tools/bin/codex
 fi

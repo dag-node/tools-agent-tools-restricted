@@ -107,24 +107,24 @@ ln -s /nonexistent/gamma "${LINKS}/gamma"
 
 # shellcheck source=../../src/usr/local/lib/ai-tools/toolchain.lib.sh
 if ! source "${LIB}" 2>/dev/null \
-        || ! declare -F ai_tools_agent_residue >/dev/null 2>&1 \
-        || ! declare -F ai_tools_agent_package_remove >/dev/null 2>&1; then
+        || ! declare -F ai_tools_toolchain__find_agent_residue >/dev/null 2>&1 \
+        || ! declare -F ai_tools_toolchain__remove_agent_package >/dev/null 2>&1; then
     fail "could not source ${LIB} or it does not define the residue functions"; finish; exit
 fi
 
 # The fixture is asserted before any reader reads it: a manifest set the resolver refuses would make every "not residue"
 # case in this file pass for the wrong reason.
-installed="$(ai_tools_installed_agents 2>/dev/null | cut -f1 | tr '\n' ' ')"
+installed="$(ai_tools_providers__list_installed_agents 2>/dev/null | cut -f1 | tr '\n' ' ')"
 [[ "${installed}" == "acme beta " ]] \
     && pass "the fixture manifests read back through the resolver (installed: acme beta)" \
     || { fail "fixture manifests read back as '${installed}', expected 'acme beta ' -- the cases below cannot be trusted"; finish; exit; }
 
 # ── The installed-not-enabled set ───────────────────────────────────────────────────────────────
-not_enabled="$(ai_tools_installed_not_enabled_agents 2>/dev/null | cut -f1 | tr '\n' ' ')"
+not_enabled="$(ai_tools_toolchain__list_installed_not_enabled_agents 2>/dev/null | cut -f1 | tr '\n' ' ')"
 [[ "${not_enabled}" == "beta " ]] \
     && pass "installed-not-enabled is exactly the trusted manifests the enabled set does not name" \
     || fail "installed-not-enabled: got '${not_enabled}', expected 'beta '"
-not_enabled_err="$(ai_tools_installed_not_enabled_agents 2>&1 >/dev/null)"
+not_enabled_err="$(ai_tools_toolchain__list_installed_not_enabled_agents 2>&1 >/dev/null)"
 assert_msg MSG-M3A5 "${not_enabled_err}" "the untrusted manifest is reported, through the resolver's own code"
 
 # An empty enabled set is read as empty only where the configuration asks for no agent. Under a fault the declared set
@@ -135,9 +135,9 @@ assert_msg MSG-M3A5 "${not_enabled_err}" "the untrusted manifest is reported, th
 # from the input the row names. Rows: <operator.conf line> <mode> <gamma.conf mode> <expected set>.
 while IFS='|' read -r conf_line conf_mode gamma_mode want; do
     printf '%s\n' "${conf_line}" > "${CONF}"; chmod "${conf_mode}" "${CONF}"; chmod "${gamma_mode}" "${AGENTS_DIR}/gamma.conf"
-    got_set="$(ai_tools_installed_not_enabled_agents 2>/dev/null | cut -f1 | tr '\n' ' ')"
-    got_tree="$(ai_tools_agent_residue "${NVM}" 2>/dev/null | cut -f1 | sort -u | tr '\n' ' ')"
-    got_links="$(ai_tools_agent_residue_links "${LINKS}" 2>/dev/null | cut -f1 | tr '\n' ' ')"
+    got_set="$(ai_tools_toolchain__list_installed_not_enabled_agents 2>/dev/null | cut -f1 | tr '\n' ' ')"
+    got_tree="$(ai_tools_toolchain__find_agent_residue "${NVM}" 2>/dev/null | cut -f1 | sort -u | tr '\n' ' ')"
+    got_links="$(ai_tools_toolchain__find_agent_residue_links "${LINKS}" 2>/dev/null | cut -f1 | tr '\n' ' ')"
     got_set="${got_set% }" got_tree="${got_tree% }" got_links="${got_links% }"
     if [[ "${got_set}" == "${want}" && "${got_tree}" == "${want}" && "${got_links}" == "${want}" ]]; then
         pass "operator.conf '${conf_line}' (${conf_mode}, gamma.conf ${gamma_mode}): installed-not-enabled, residue and residue links are '${want}'"
@@ -155,8 +155,8 @@ ROWS
 chmod 0666 "${AGENTS_DIR}/gamma.conf"
 printf 'AI_TOOLS_AGENTS="agent-acme"\n' > "${CONF}"; chmod 0644 "${CONF}"
 
-# ── ai_tools_agent_residue: the tree read ───────────────────────────────────────────────────────
-residue="$(ai_tools_agent_residue "${NVM}" 2>/dev/null)"
+# ── ai_tools_toolchain__find_agent_residue: the tree read ───────────────────────────────────────────────────────
+residue="$(ai_tools_toolchain__find_agent_residue "${NVM}" 2>/dev/null)"
 expected=$'beta\t@acme/beta\t'"${NVM}/versions/node/v1.2.3"$'\n'$'beta\t@acme/beta\t'"${NVM}/versions/node/v2.0.0"
 if [[ "${residue}" == "${expected}" ]]; then
     pass "residue is the disabled agent's package in each semver version directory holding it"
@@ -169,58 +169,58 @@ grep -q 'gamma' <<<"${residue}" && fail "an untrusted manifest's package was rea
                                  || pass "an untrusted manifest's package is not residue (it is not an agent)"
 grep -q 'notaversion' <<<"${residue}" && fail "a non-semver version directory was read" \
                                        || pass "a version directory outside the semver shape is not read"
-[[ -z "$(ai_tools_agent_residue "${FIXTURE_ROOT}/no-such-nvm" 2>/dev/null)" ]] \
+[[ -z "$(ai_tools_toolchain__find_agent_residue "${FIXTURE_ROOT}/no-such-nvm" 2>/dev/null)" ]] \
     && pass "an absent toolchain holds no residue" || fail "an absent toolchain printed residue"
 
 # The same tree with beta enabled too: no residue, whatever the tree holds.
 printf 'AI_TOOLS_AGENTS="agent-acme agent-beta"\n' > "${CONF}"
-[[ -z "$(ai_tools_agent_residue "${NVM}" 2>/dev/null)" ]] \
+[[ -z "$(ai_tools_toolchain__find_agent_residue "${NVM}" 2>/dev/null)" ]] \
     && pass "a package is residue only while its agent is not enabled" \
     || fail "residue reported with every installed agent enabled"
 printf 'AI_TOOLS_AGENTS="agent-acme"\n' > "${CONF}"
 
-# ── ai_tools_agent_residue_links: the operator's read ──────────────────────────────────────────
-links="$(ai_tools_agent_residue_links "${LINKS}" 2>/dev/null)"
+# ── ai_tools_toolchain__find_agent_residue_links: the operator's read ──────────────────────────────────────────
+links="$(ai_tools_toolchain__find_agent_residue_links "${LINKS}" 2>/dev/null)"
 [[ "${links}" == $'beta\tbeta' ]] \
     && pass "the link reader names the disabled agent whose stable link exists, and no other" \
     || fail "residue links: got '$(tr '\n' '|' <<<"${links}")' expected 'beta<TAB>beta'"
 rm -f "${LINKS}/beta"
-[[ -z "$(ai_tools_agent_residue_links "${LINKS}" 2>/dev/null)" ]] \
+[[ -z "$(ai_tools_toolchain__find_agent_residue_links "${LINKS}" 2>/dev/null)" ]] \
     && pass "no link, no residue from the operator's vantage" || fail "residue links reported with the link gone"
 ln -s /nonexistent/beta "${LINKS}/beta"
 
-# ── ai_tools_agent_link_node_versions: the Node version a link names ───────────────────────────
+# ── ai_tools_toolchain__list_agent_link_node_versions: the Node version a link names ───────────────────────────
 # The failure to fail in is a version read where none is warranted: a disabled agent's link, a target outside
 # the versioned shape, or a target naming another launcher must each yield no line, since the line is what both status
 # reports print as the toolchain's Node. acme is the enabled agent here, beta is installed and not enabled.
 relink() { ln -sfn "$2" "${LINKS}/$1"; }
 relink acme /x/.nvm/versions/node/v1.2.3/bin/acme
 relink beta /x/.nvm/versions/node/v1.2.3/bin/beta
-got="$(ai_tools_agent_link_node_versions "${LINKS}" 2>/dev/null)"
+got="$(ai_tools_toolchain__list_agent_link_node_versions "${LINKS}" 2>/dev/null)"
 [[ "${got}" == $'acme\tacme\tv1.2.3' ]] \
     && pass "the link reader names the enabled agent's version, and not the disabled agent's" \
     || fail "link node versions: got '$(tr '\n' '|' <<<"${got}")' expected 'acme<TAB>acme<TAB>v1.2.3'"
 relink acme /nonexistent/acme
-[[ -z "$(ai_tools_agent_link_node_versions "${LINKS}" 2>/dev/null)" ]] \
+[[ -z "$(ai_tools_toolchain__list_agent_link_node_versions "${LINKS}" 2>/dev/null)" ]] \
     && pass "a target outside the versioned shape yields no version" || fail "an unversioned target yielded a version"
 relink acme /x/.nvm/versions/node/v1.2.3/bin/other
-[[ -z "$(ai_tools_agent_link_node_versions "${LINKS}" 2>/dev/null)" ]] \
+[[ -z "$(ai_tools_toolchain__list_agent_link_node_versions "${LINKS}" 2>/dev/null)" ]] \
     && pass "a versioned target naming another launcher yields no version" || fail "a foreign launcher's target yielded a version"
 relink acme /x/.nvm/versions/node/1.2.3/bin/acme
-[[ -z "$(ai_tools_agent_link_node_versions "${LINKS}" 2>/dev/null)" ]] \
+[[ -z "$(ai_tools_toolchain__list_agent_link_node_versions "${LINKS}" 2>/dev/null)" ]] \
     && pass "a version directory without its v prefix yields no version" || fail "an unprefixed version directory yielded a version"
 rm -f "${LINKS}/acme"
-[[ -z "$(ai_tools_agent_link_node_versions "${LINKS}" 2>/dev/null)" ]] \
+[[ -z "$(ai_tools_toolchain__list_agent_link_node_versions "${LINKS}" 2>/dev/null)" ]] \
     && pass "no link, no version" || fail "a version was read with the link gone"
 ln -s /nonexistent/acme "${LINKS}/acme"
 ln -sfn /nonexistent/beta "${LINKS}/beta"
 
-# ── ai_tools_node_version_verdict: the pure decision the two Node lines render ─────────────────
+# ── ai_tools_toolchain__evaluate_node_versions: the pure decision the two Node lines render ─────────────────
 # Driven over its table: the stamp's version is carried only where it differs from the links', two links naming
 # different versions read as split and name both, and the stamp is the reading only where no link gives one.
 verdict_is() {
     local what="$1" stamp="$2" want="$3" got
-    got="$(printf '%b' "$4" | ai_tools_node_version_verdict "${stamp}")"
+    got="$(printf '%b' "$4" | ai_tools_toolchain__evaluate_node_versions "${stamp}")"
     [[ "${got}" == "${want}" ]] && pass "${what}" || fail "${what}: got '$(printf '%q' "${got}")' expected '$(printf '%q' "${want}")'"
 }
 verdict_is "one link, no stamp: active"                       ''      $'active\tv1.2.3'          'a\tla\tv1.2.3\n'
@@ -233,24 +233,24 @@ verdict_is "no link, a stamp: the stamp's reading"            v1.2.2  $'stamp\tv
 verdict_is "no link, no stamp: none"                          ''      'none'                     ''
 verdict_is "a line without a version is not a link reading"   ''      'none'                     'a\tla\t\n'
 
-# ── ai_tools_path_in_use: the pure predicate ───────────────────────────────────────────────────
-ai_tools_path_in_use /x/pkg /usr/bin/bash /x/pkg/bin/node \
+# ── ai_tools_toolchain__is_path_in_use: the pure predicate ───────────────────────────────────────────────────
+ai_tools_toolchain__is_path_in_use /x/pkg /usr/bin/bash /x/pkg/bin/node \
     && pass "an executable under the directory is in use" || fail "an executable under the directory read as not in use"
-ai_tools_path_in_use /x/pkg /x/pkg \
+ai_tools_toolchain__is_path_in_use /x/pkg /x/pkg \
     && pass "the directory itself counts" || fail "the directory itself did not count"
-ai_tools_path_in_use /x/pkg /x/pkg2/bin/node /x/pk \
+ai_tools_toolchain__is_path_in_use /x/pkg /x/pkg2/bin/node /x/pk \
     && fail "a sibling sharing the name prefix read as in use" || pass "a sibling sharing the name prefix is not in use"
-ai_tools_path_in_use /x/pkg \
+ai_tools_toolchain__is_path_in_use /x/pkg \
     && fail "an empty process list read as in use" || pass "an empty process list is not in use"
-ai_tools_path_in_use '' /x \
+ai_tools_toolchain__is_path_in_use '' /x \
     && fail "an empty directory matched" || pass "an empty directory matches nothing"
 # The live collector, with a control this shell proves: the directory this bash executes from is in use.
 own_exe_dir="$(dirname "$(readlink "/proc/$$/exe")")"
-ai_tools_agent_package_in_use "${own_exe_dir}" \
+ai_tools_toolchain__is_agent_package_in_use "${own_exe_dir}" \
     && pass "the live collector sees this shell's own executable (${own_exe_dir})" \
     || fail "the live collector did not see this shell's own executable under ${own_exe_dir}"
 
-# ── ai_tools_agent_package_remove: the one write ───────────────────────────────────────────────
+# ── ai_tools_toolchain__remove_agent_package: the one write ───────────────────────────────────────────────
 # npm stubbed in the fixture version's own bin, where the writer puts it first on PATH: it records its arguments
 # and removes the last argument's package directory, as npm does. The arguments it records are what show the real npm
 # was not run. The writer runs as the sandbox account alone, since it runs npm from the tree, so each case drives it
@@ -291,7 +291,7 @@ run_toolchain_writer_as_sandbox() {
 
 # (root) The guard: as root the writer refuses under its code, does not call npm and leaves the directory.
 reset_calls; rc=0
-out="$(ai_tools_agent_package_remove "${NVM}/versions/node/v1.2.3" @acme/beta 2>"${FIXTURE_ROOT}/err")" || rc=$?
+out="$(ai_tools_toolchain__remove_agent_package "${NVM}/versions/node/v1.2.3" @acme/beta 2>"${FIXTURE_ROOT}/err")" || rc=$?
 if (( rc != 0 )) && [[ -z "${out}" && -d "${NVM}/versions/node/v1.2.3/lib/node_modules/@acme/beta" && -z "$(calls)" ]]; then
     pass "as root the writer refuses: non-zero, nothing printed, no npm call, directory intact"
 else
@@ -301,7 +301,7 @@ assert_msg MSG-P6P2 "$(<"${FIXTURE_ROOT}/err")" "the refusal names the identity 
 
 # (a) An enabled agent's package is refused, with no npm call and the directory intact.
 reset_calls; rc=0
-out="$(run_toolchain_writer_as_sandbox ai_tools_agent_package_remove "${NVM}/versions/node/v1.2.3" @acme/experimental 2>"${FIXTURE_ROOT}/err")" || rc=$?
+out="$(run_toolchain_writer_as_sandbox ai_tools_toolchain__remove_agent_package "${NVM}/versions/node/v1.2.3" @acme/experimental 2>"${FIXTURE_ROOT}/err")" || rc=$?
 if (( rc != 0 )) && [[ -z "${out}" && -d "${NVM}/versions/node/v1.2.3/lib/node_modules/@acme/experimental" && -z "$(calls)" ]]; then
     pass "an enabled agent's package is refused: non-zero, nothing printed, no npm call, directory intact"
 else
@@ -311,15 +311,15 @@ assert_msg MSG-X7Z9 "$(<"${FIXTURE_ROOT}/err")" "the refusal carries its code"
 
 # (b) A package that is not there.
 reset_calls
-out="$(run_toolchain_writer_as_sandbox ai_tools_agent_package_remove "${NVM}/versions/node/v1.2.3" @acme/nothere 2>/dev/null)" && rc=0 || rc=$?
+out="$(run_toolchain_writer_as_sandbox ai_tools_toolchain__remove_agent_package "${NVM}/versions/node/v1.2.3" @acme/nothere 2>/dev/null)" && rc=0 || rc=$?
 [[ "${rc}" -eq 0 && "${out}" == absent && -z "$(calls)" ]] \
     && pass "an absent package prints absent and calls no npm" || fail "absent package: rc ${rc}, out '${out}'"
 
 # (c) A package a live process executes from is deferred: the collector stubbed to name a path under it.
 reset_calls
-_ai_tools_toolchain_exe_targets() { printf '%s\n' "${NVM}/versions/node/v1.2.3/lib/node_modules/@acme/beta/bin/x"; }
-TOOLCHAIN_WRITER_STUB_DEFINITION="$(declare -f _ai_tools_toolchain_exe_targets)"
-out="$(run_toolchain_writer_as_sandbox ai_tools_agent_package_remove "${NVM}/versions/node/v1.2.3" @acme/beta 2>"${FIXTURE_ROOT}/err")" && rc=0 || rc=$?
+_ai_tools_toolchain__list_executable_targets() { printf '%s\n' "${NVM}/versions/node/v1.2.3/lib/node_modules/@acme/beta/bin/x"; }
+TOOLCHAIN_WRITER_STUB_DEFINITION="$(declare -f _ai_tools_toolchain__list_executable_targets)"
+out="$(run_toolchain_writer_as_sandbox ai_tools_toolchain__remove_agent_package "${NVM}/versions/node/v1.2.3" @acme/beta 2>"${FIXTURE_ROOT}/err")" && rc=0 || rc=$?
 TOOLCHAIN_WRITER_STUB_DEFINITION=""
 if [[ "${rc}" -eq 0 && "${out}" == deferred && -d "${NVM}/versions/node/v1.2.3/lib/node_modules/@acme/beta" && -z "$(calls)" ]]; then
     pass "a package in use is deferred: exit 0, no npm call, directory intact"
@@ -327,12 +327,12 @@ else
     fail "deferred: rc ${rc}, out '${out}', calls '$(calls)'"
 fi
 assert_msg MSG-X2B7 "$(<"${FIXTURE_ROOT}/err")" "the deferral carries its code"
-_ai_tools_toolchain_exe_targets() { :; }
+_ai_tools_toolchain__list_executable_targets() { :; }
 
 # (d) A removal: one uninstall under that version's npm with the version directory as the prefix, the directory gone,
 # and the state-directory notice naming the manifest's config_dir.
 reset_calls
-out="$(run_toolchain_writer_as_sandbox ai_tools_agent_package_remove "${NVM}/versions/node/v1.2.3" @acme/beta 2>"${FIXTURE_ROOT}/err")" && rc=0 || rc=$?
+out="$(run_toolchain_writer_as_sandbox ai_tools_toolchain__remove_agent_package "${NVM}/versions/node/v1.2.3" @acme/beta 2>"${FIXTURE_ROOT}/err")" && rc=0 || rc=$?
 if [[ "${rc}" -eq 0 && "${out}" == removed && ! -e "${NVM}/versions/node/v1.2.3/lib/node_modules/@acme/beta" ]]; then
     pass "a removal prints removed and the package directory is gone"
 else
@@ -352,7 +352,7 @@ grep -q '/opt/ai-tools/.beta' "${FIXTURE_ROOT}/err" \
 # (e) An uninstall that leaves the directory in place is a failure, reported.
 package v1.2.3 @acme/beta; reset_calls
 export NPM_STUB_KEEP=1
-out="$(run_toolchain_writer_as_sandbox ai_tools_agent_package_remove "${NVM}/versions/node/v1.2.3" @acme/beta 2>"${FIXTURE_ROOT}/err")" && rc=0 || rc=$?
+out="$(run_toolchain_writer_as_sandbox ai_tools_toolchain__remove_agent_package "${NVM}/versions/node/v1.2.3" @acme/beta 2>"${FIXTURE_ROOT}/err")" && rc=0 || rc=$?
 unset NPM_STUB_KEEP
 [[ "${rc}" -ne 0 && -z "${out}" ]] \
     && pass "an uninstall that left the directory returns non-zero and prints nothing" || fail "kept dir: rc ${rc}, out '${out}'"
@@ -364,28 +364,28 @@ else
 fi
 
 # (f) A name outside npm's package-name charset is refused before it becomes a path.
-out="$(run_toolchain_writer_as_sandbox ai_tools_agent_package_remove "${NVM}/versions/node/v1.2.3" '../../etc' 2>"${FIXTURE_ROOT}/err")" && rc=0 || rc=$?
+out="$(run_toolchain_writer_as_sandbox ai_tools_toolchain__remove_agent_package "${NVM}/versions/node/v1.2.3" '../../etc' 2>"${FIXTURE_ROOT}/err")" && rc=0 || rc=$?
 [[ "${rc}" -ne 0 && -z "${out}" ]] && pass "a traversal is not an npm package name" || fail "traversal: rc ${rc}, out '${out}'"
 assert_msg MSG-J5W4 "$(<"${FIXTURE_ROOT}/err")" "and is refused under the writer's argument code"
 
 # (g) The erase form removes an enabled agent's package: the manifest is being erased with it.
 reset_calls
-out="$(run_toolchain_writer_as_sandbox ai_tools_agent_package_remove "${NVM}/versions/node/v1.2.3" @acme/experimental erase 2>/dev/null)" && rc=0 || rc=$?
+out="$(run_toolchain_writer_as_sandbox ai_tools_toolchain__remove_agent_package "${NVM}/versions/node/v1.2.3" @acme/experimental erase 2>/dev/null)" && rc=0 || rc=$?
 [[ "${rc}" -eq 0 && "${out}" == removed && ! -e "${NVM}/versions/node/v1.2.3/lib/node_modules/@acme/experimental" ]] \
     && pass "the erase form removes an enabled agent's package" || fail "erase: rc ${rc}, out '${out}'"
 
-# (h) ai_tools_agent_package_erase: every version directory holding the agent's package, from the manifest.
+# (h) ai_tools_toolchain__erase_agent_package: every version directory holding the agent's package, from the manifest.
 package v1.2.3 @acme/beta; reset_calls
-out="$(run_toolchain_writer_as_sandbox ai_tools_agent_package_erase "${NVM}" beta 2>/dev/null)" && rc=0 || rc=$?
+out="$(run_toolchain_writer_as_sandbox ai_tools_toolchain__erase_agent_package "${NVM}" beta 2>/dev/null)" && rc=0 || rc=$?
 expected="${NVM}/versions/node/v1.2.3"$'\tremoved\n'"${NVM}/versions/node/v2.0.0"$'\tremoved'
 [[ "${rc}" -eq 0 && "${out}" == "${expected}" ]] \
     && pass "the erase form over an agent removes its package from every version directory" \
     || fail "erase over beta: rc ${rc}, out '$(tr '\n' '|' <<<"${out}")'"
 [[ "$(calls | wc -l)" -eq 2 ]] && pass "one uninstall per version directory" || fail "npm calls: '$(calls | tr '\n' '|')'"
-[[ -z "$(run_toolchain_writer_as_sandbox ai_tools_agent_package_erase "${NVM}" nopkg 2>/dev/null)" ]] \
+[[ -z "$(run_toolchain_writer_as_sandbox ai_tools_toolchain__erase_agent_package "${NVM}" nopkg 2>/dev/null)" ]] \
     && pass "an agent naming no package erases nothing" || fail "erase printed lines for a manifest naming no package"
 
-# ── ai_tools_agent_incomplete: an enabled agent's package without its declared entrypoint ──────
+# ── ai_tools_toolchain__find_incomplete_agents: an enabled agent's package without its declared entrypoint ──────
 # The reader the updater takes its install branch from. Its fail direction is the opposite of the residue readers':
 # a package read as complete when it is not leaves the entrypoint missing and every launch of that agent refused, while
 # one read as incomplete costs a reinstall. So each case is about which agent the declaration is read for, and every
@@ -395,35 +395,35 @@ manifest acme @acme/experimental acme launcher_target=lib/node_modules/@acme/exp
 manifest beta @acme/beta beta config_dir=.beta launcher_target=lib/node_modules/@acme/beta/bin/beta.exe
 package v1.2.3 @acme/experimental
 
-incomplete="$(ai_tools_agent_incomplete "${VERSION_DIR}" 2>/dev/null)"
+incomplete="$(ai_tools_toolchain__find_incomplete_agents "${VERSION_DIR}" 2>/dev/null)"
 [[ "${incomplete}" == $'acme\t@acme/experimental' ]] \
     && pass "an enabled agent whose declared entrypoint is absent is read as incomplete, and no other agent is" \
     || fail "incomplete read: got '$(tr '\n' '|' <<<"${incomplete}")' expected 'acme<TAB>@acme/experimental'"
 
 mkdir -p "${VERSION_DIR}/lib/node_modules/@acme/experimental/bin"
 printf '#!/bin/sh\n' > "${VERSION_DIR}/lib/node_modules/@acme/experimental/bin/acme.exe"
-[[ -z "$(ai_tools_agent_incomplete "${VERSION_DIR}" 2>/dev/null)" ]] \
+[[ -z "$(ai_tools_toolchain__find_incomplete_agents "${VERSION_DIR}" 2>/dev/null)" ]] \
     && pass "a package holding the entrypoint its manifest declares is complete" \
     || fail "a package holding its declared entrypoint was read as incomplete"
 
 # beta declares a target nothing installed, and is NOT enabled: its package is residue, which the readers above cover
 # and the updater removes -- reinstalling it is the one outcome that would be wrong here.
-grep -q '^beta' <<<"$(ai_tools_agent_incomplete "${VERSION_DIR}" 2>/dev/null)" \
+grep -q '^beta' <<<"$(ai_tools_toolchain__find_incomplete_agents "${VERSION_DIR}" 2>/dev/null)" \
     && fail "a disabled agent was read as incomplete" || pass "a disabled agent is never incomplete"
 
 manifest acme @acme/experimental acme
-[[ -z "$(ai_tools_agent_incomplete "${VERSION_DIR}" 2>/dev/null)" ]] \
+[[ -z "$(ai_tools_toolchain__find_incomplete_agents "${VERSION_DIR}" 2>/dev/null)" ]] \
     && pass "an agent declaring no launcher_target yields no line -- npm's own link is its launcher" \
     || fail "an agent declaring no launcher_target was read as incomplete"
 
 manifest acme @acme/experimental acme launcher_target=../../../etc/passwd
-incomplete="$(ai_tools_agent_incomplete "${VERSION_DIR}" 2>"${FIXTURE_ROOT}/err")"
+incomplete="$(ai_tools_toolchain__find_incomplete_agents "${VERSION_DIR}" 2>"${FIXTURE_ROOT}/err")"
 [[ -z "${incomplete}" && -s "${FIXTURE_ROOT}/err" ]] \
     && pass "a launcher_target that could name a file outside the version directory is skipped and reported" \
     || fail "traversing launcher_target: out '${incomplete}', stderr '$(<"${FIXTURE_ROOT}/err")'"
 
 manifest acme @acme/experimental acme launcher_target=lib/node_modules/@acme/experimental/bin/acme.exe
-[[ -z "$(ai_tools_agent_incomplete "${FIXTURE_ROOT}/no-such-version" 2>/dev/null)" ]] \
+[[ -z "$(ai_tools_toolchain__find_incomplete_agents "${FIXTURE_ROOT}/no-such-version" 2>/dev/null)" ]] \
     && pass "an absent version directory holds no incomplete package" \
     || fail "an absent version directory was read as holding one"
 
@@ -448,9 +448,9 @@ else
         fail "the updater installs packages at line ${install_line}, ahead of the removal at ${remove_line}"
     fi
 
-    incomplete_line="$(grep -n -m1 -E 'ai_tools_agent_incomplete "' "${updater}" | cut -d: -f1)"
+    incomplete_line="$(grep -n -m1 -E 'ai_tools_toolchain__find_incomplete_agents "' "${updater}" | cut -d: -f1)"
     if [[ -z "${incomplete_line}" || -z "${install_line}" ]]; then
-        fail "the updater no longer reads ai_tools_agent_incomplete before install_packages (read -> ${incomplete_line:-none}, install -> ${install_line:-none})"
+        fail "the updater no longer reads ai_tools_toolchain__find_incomplete_agents before install_packages (read -> ${incomplete_line:-none}, install -> ${install_line:-none})"
     elif (( incomplete_line < install_line )) \
             && grep -qE '^[[:space:]]+install_packages "\$\{allow_csv\}" "\$\{repair_csv\}"' "${updater}"; then
         pass "the updater reads the incomplete set before the install and hands it to install_packages"
@@ -471,7 +471,7 @@ fi
 
 unset AI_TOOLS_AGENTS_DIR AI_TOOLS_OPERATOR_CONF
 
-# ── ai_tools_nvm_default_version: the default alias read as data ────────────────────────────────
+# ── ai_tools_toolchain__read_nvm_default_version: the default alias read as data ────────────────────────────────
 # The version a root caller needs, read without sourcing nvm.sh: an exact version, or a prefix selecting the highest
 # installed match, the two shapes nvm writes; any other value -- an nvm keyword, a line carrying a shell metacharacter,
 # a symlinked alias -- prints nothing.
@@ -482,7 +482,7 @@ mkdir -p "${alias_nvm}/alias" "${alias_nvm}/versions/node/v22.23.2" "${alias_nvm
 while IFS='|' read -r alias_value want what; do
     [[ -n "${what}" ]] || continue
     printf '%s\n' "${alias_value}" > "${alias_nvm}/alias/default"
-    got="$(ai_tools_nvm_default_version "${alias_nvm}")"
+    got="$(ai_tools_toolchain__read_nvm_default_version "${alias_nvm}")"
     [[ "${got}" == "${want}" ]] && pass "alias ${what} -> '${want}'" || fail "alias ${what}: got '${got}', want '${want}'"
 done <<'ROWS'
 22|v22.23.3|a major selects the highest installed match
@@ -498,19 +498,19 @@ lts/*||an nvm keyword
 ROWS
 # A NUL byte, which a command substitution drops -- `2<NUL>2` read that way is `22` -- is refused as a byte.
 printf '2\0002\n' > "${alias_nvm}/alias/default"
-got="$(ai_tools_nvm_default_version "${alias_nvm}")"
+got="$(ai_tools_toolchain__read_nvm_default_version "${alias_nvm}")"
 [[ -z "${got}" ]] && pass "alias with a NUL byte is refused whole, not read as 22" || fail "alias with a NUL byte read '${got}'"
 # A candidate is a real directory: a regular file and a symlink named like a newer version do not win.
 : > "${alias_nvm}/versions/node/v22.99.99"
 ln -s "${alias_nvm}/versions/node/v22.23.3" "${alias_nvm}/versions/node/v22.99.98"
 printf '22\n' > "${alias_nvm}/alias/default"
-got="$(ai_tools_nvm_default_version "${alias_nvm}")"
+got="$(ai_tools_toolchain__read_nvm_default_version "${alias_nvm}")"
 [[ "${got}" == v22.23.3 ]] && pass "a regular file and a symlink named like a version are not candidates" \
     || fail "a non-directory candidate won: '${got}'"
 rm -f "${alias_nvm}/versions/node/v22.99.99" "${alias_nvm}/versions/node/v22.99.98"
 rm -f "${alias_nvm}/alias/default"
 ln -s "${alias_nvm}/versions/node/v20.1.0" "${alias_nvm}/alias/default"
-[[ -z "$(ai_tools_nvm_default_version "${alias_nvm}")" ]] \
+[[ -z "$(ai_tools_toolchain__read_nvm_default_version "${alias_nvm}")" ]] \
     && pass "a symlinked alias is not read" || fail "a symlinked alias was read"
 
 # ── The copies a transfer leaves where npm keeps symlinks, and their repair ────────────────────
@@ -533,12 +533,12 @@ printf 'stray\n' > "${copy_vdir}/bin/stray"
 toolchain_node="$(printf '%s\n' /opt/ai-tools/.nvm/versions/node/v*/bin/node | sort -V | tail -n1)"
 [[ -x "${toolchain_node}" ]] && ln -s "${toolchain_node}" "${copy_vdir}/bin/node"
 
-copies_found="$(ai_tools_toolchain_bin_copies "${copy_vdir}" | paste -sd' ')"
+copies_found="$(ai_tools_toolchain__find_bin_copies "${copy_vdir}" | paste -sd' ')"
 [[ "${copies_found}" == "npm npx stray tool" ]] \
     && pass "the detector names every regular file in bin/ other than node" || fail "detector: '${copies_found}'"
 
 if [[ "${EUID}" -eq 0 ]]; then
-    rc=0; ai_tools_toolchain_relink_copies "${copy_vdir}" >/dev/null 2>&1 || rc=$?
+    rc=0; ai_tools_toolchain__relink_copies "${copy_vdir}" >/dev/null 2>&1 || rc=$?
     [[ "${rc}" -ne 0 && -f "${copy_vdir}/bin/npm" && ! -L "${copy_vdir}/bin/npm" ]] \
         && pass "the repair refuses root and leaves the tree as it was" || fail "the repair ran as root (rc ${rc})"
 fi
@@ -550,7 +550,7 @@ else
     chown -R "${SANDBOX_USER}:${SANDBOX_GROUP}" "${FIXTURE_ROOT}/copied-tree"
     chmod 0755 "${FIXTURE_ROOT}"
     # shellcheck disable=SC2016  # the inner shell expands these, not this one
-    outcomes="$(as_sandbox bash -c 'source "$1"; ai_tools_toolchain_relink_copies "$2"' \
+    outcomes="$(as_sandbox bash -c 'source "$1"; ai_tools_toolchain__relink_copies "$2"' \
         _ "${LIB}" "${copy_vdir}" 2>/dev/null | paste -sd' ')"
     [[ "${outcomes}" == $'npm\trelinked npx\tdiffers stray\tunknown tool\trelinked' ]] \
         && pass "identical copies are relinked, an edited one and an undeclared one are left" \

@@ -61,10 +61,11 @@ done
 readonly TARGET ASSUME_YES
 
 # Operator-identity resolver (operator.lib.sh): resolves the operator that owns a path. A missing lib leaves
-# ai_tools_resolve_owner a fail-closed stub, so the path is left ai-tools-owned rather than handed back unclassified.
+# ai_tools_operator__resolve_owner a fail-closed stub, so the path is left ai-tools-owned rather than handed back
+# unclassified.
 readonly OPERATOR_LIB="/usr/local/lib/ai-tools/operator.lib.sh"
 # shellcheck source=SCRIPTDIR/../../lib/ai-tools/operator.lib.sh
-source "${OPERATOR_LIB}" 2>/dev/null || ai_tools_resolve_owner() { return 1; }
+source "${OPERATOR_LIB}" 2>/dev/null || ai_tools_operator__resolve_owner() { return 1; }
 
 # Shared leveled logger: journald (always) + the root-only file /var/log/ai-tools/chown.log. Best-effort -- a no-op
 # fallback keeps the helper working if the lib is missing.
@@ -72,7 +73,7 @@ AI_TOOLS_LOG_TAG="ai-tools-chown"
 AI_TOOLS_LOG_FILE="chown.log"
 readonly LOG_LIB="/usr/local/lib/ai-tools/log.lib.sh"
 # shellcheck source=SCRIPTDIR/../../lib/ai-tools/log.lib.sh
-# Required, fail-closed: this helper prints agent-named paths to stderr and the log, so it needs ai_tools_log_sanitize
+# Required, fail-closed: this helper prints agent-named paths to stderr and the log, so it needs ai_tools_log__sanitize
 # -- a missing logger must refuse, not emit an agent path raw.
 if ! source "${LOG_LIB}"; then
     die_unsourced "${LOG_LIB}"
@@ -93,7 +94,7 @@ fi
 # a quarantined secret carrying the residue that would re-expose it.
 # shellcheck source=SCRIPTDIR/../../lib/ai-tools/owner-only.lib.sh
 source /usr/local/lib/ai-tools/owner-only.lib.sh
-if ! declare -F ai_tools_strip_sandbox_residue >/dev/null 2>&1; then
+if ! declare -F ai_tools_owner_only__strip_sandbox_residue >/dev/null 2>&1; then
     warn MSG-V6P4 "FATAL: owner-only.lib.sh defines no residue strip"
     exit 3
 fi
@@ -104,14 +105,14 @@ readonly SAFE_PATHS_LIB="/usr/local/lib/ai-tools/safe-paths.lib.sh"
 # shellcheck source=SCRIPTDIR/../../lib/ai-tools/safe-paths.lib.sh
 source "${SAFE_PATHS_LIB}"
 
-# Shared config grammar (ai_tools_conf_path_entry; see conf.lib.sh), which reads the allowlist this helper gates every
-# path on. REQUIRED like safe-paths.lib.sh: the bare source under `set -e` aborts if it is missing, rather than leaving
-# a parser that does not match any name and silently declines every hand-back. Include-guarded, so a second source is
-# a no-op.
+# Shared config grammar (ai_tools_conf__parse_path_entry; see conf.lib.sh), which reads the allowlist this helper gates
+# every path on. REQUIRED like safe-paths.lib.sh: the bare source under `set -e` aborts if it is missing, rather than
+# leaving a parser that does not match any name and silently declines every hand-back. Include-guarded, so a second
+# source is a no-op.
 # shellcheck source=SCRIPTDIR/../../lib/ai-tools/conf.lib.sh
 source /usr/local/lib/ai-tools/conf.lib.sh
 
-# Shared yes/no prompt (ai_tools_msg_confirm; see msg.lib.sh). REQUIRED like safe-paths.lib.sh: the bare source
+# Shared yes/no prompt (ai_tools_msg__confirm; see msg.lib.sh). REQUIRED like safe-paths.lib.sh: the bare source
 # under `set -e` aborts if it is missing -- a valid install ships it, so there is no fallback. Include-guarded, so this
 # is a no-op when safe-paths.lib.sh already loaded it.
 # shellcheck source=SCRIPTDIR/../../lib/ai-tools/msg.lib.sh
@@ -125,11 +126,11 @@ export AI_TOOLS_MSG_FULLWIDTH=1
 # args:  path  old_owner  new_owner  old_mode  new_mode
 _notify_secret() {
     local path="$1" old_owner="$2" new_owner="$3" old_mode="$4" new_mode="$5"
-    path="$(ai_tools_log_sanitize "${path}")"   # agent-named path -> stderr + log: safe display
+    path="$(ai_tools_log__sanitize "${path}")"   # agent-named path -> stderr + log: safe display
     # The NOTICE is written once, here, where its code labels it; the log records the same text (warn leaves it
     # in _warn_text) without the component prefix the emitter adds.
     warn MSG-A6D8 "NOTICE: secret-named file written by agent considered breached, rotate the secret: ${path} (ai-tools read access revoked; owner ${old_owner} -> ${new_owner}, mode ${old_mode} -> ${new_mode})"
-    ai_tools_log_coded warning "${_warn_code}" "${_warn_text}" \
+    ai_tools_log__coded warning "${_warn_code}" "${_warn_text}" \
         "AI_TOOLS_PATH=${path}" "AI_TOOLS_RESULT=ok"
 }
 
@@ -138,14 +139,14 @@ canonical="$(realpath -e "${TARGET}" 2>/dev/null)" || exit 0
 
 # Defense in depth: never act on a protected system directory, even if the allowlist (mis)includes it. Fail-closed
 # before any ownership change.
-ai_tools_assert_safe_target "${canonical}" "ownership handback" || exit 3
+ai_tools_safe_paths__assert_safe_target "${canonical}" "ownership handback" || exit 3
 
 # Resolve the operator that owns this path (operator.lib.sh); no owner -> leave it untouched. The two owners
 # the branches choose between: OWNER is the shared group an ordinary file returns to, SECRET_OWNER the operator's own
 # private group a quarantined secret goes to. What each one grants and what it deliberately leaves the agent is
 # in secret-handling.rule.md.
-ai_tools_resolve_owner "${canonical}" || exit 0
-readonly ALLOWLIST="${AI_TOOLS_RESOLVED_ALLOWLIST}"
+ai_tools_operator__resolve_owner "${canonical}" || exit 0
+readonly ALLOWLIST="${AI_TOOLS_OPERATOR__RESOLVED_ALLOWLIST}"
 readonly OWNER="${PROJECTS_USER}:@SANDBOX_GROUP@"
 readonly SECRET_OWNER="${PROJECTS_USER}:${PROJECTS_GROUP}"
 
@@ -157,23 +158,23 @@ AI_TOOLS_LOG_OPERATOR="${PROJECTS_USER}"
 # (secret-handling.rule.md covers the set, the load order and what each loader outcome does). Read after the resolve
 # that names the file; a present file the loader cannot read refuses the handback, so the path stays sandbox-owned.
 # A match sets is_secret, which selects the quarantine branch and the NOTICE further down.
-ai_tools_load_secret_patterns \
+ai_tools_secret_patterns__load \
     || die "the operator's secret-patterns file could not be read -- ${canonical} stays sandbox-owned until it is fixed"
 is_secret=false
-if ai_tools_is_secret_basename "$(basename "${canonical}")"; then
+if ai_tools_secret_patterns__is_secret_basename "$(basename "${canonical}")"; then
     is_secret=true
 fi
 
 declare -a allowed_directories=()
 # shellcheck disable=SC2034  # filled and read through its name by the conf.lib.sh loader and matcher
 declare -a exclusion_patterns=()
-# The one read every reader of the allowlist makes (ai_tools_conf_allowlist_load, conf.lib.sh). A file that cannot be
+# The one read every reader of the allowlist makes (ai_tools_conf__load_allowlist, conf.lib.sh). A file that cannot be
 # read, or whose exclusion the loader refuses, leaves both arrays empty, so the path is not in-project and is left as it
 # is.
-ai_tools_conf_allowlist_load "${ALLOWLIST}" allowed_directories exclusion_patterns || true
+ai_tools_conf__load_allowlist "${ALLOWLIST}" allowed_directories exclusion_patterns || true
 
-# Exclusions are checked first and override allows (ai_tools_conf_is_path_excluded, conf.lib.sh).
-ai_tools_conf_is_path_excluded "${canonical}" exclusion_patterns && exit 0   # excluded -- leave ownership intact
+# Exclusions are checked first and override allows (ai_tools_conf__is_path_excluded, conf.lib.sh).
+ai_tools_conf__is_path_excluded "${canonical}" exclusion_patterns && exit 0   # excluded -- leave ownership intact
 
 # Check if target falls under any allowed directory
 if [[ "${#allowed_directories[@]}" -gt 0 ]]; then
@@ -243,11 +244,11 @@ if [[ "${#allowed_directories[@]}" -gt 0 ]]; then
             if ! ${ASSUME_YES} \
                     && { [[ -t 0 ]] || { [[ -c /dev/tty ]] && { : < /dev/tty; } 2>/dev/null; }; }; then
                 {
-                    printf '\nchown: %s\n' "$(ai_tools_log_sanitize "${canonical}")"
+                    printf '\nchown: %s\n' "$(ai_tools_log__sanitize "${canonical}")"
                     printf '  owner:  %s -> %s\n' "${current_owner}" "${target_owner}"
                     printf '%s\n' "${perm_info}"
                 } > /dev/tty
-                ai_tools_msg_confirm "Apply?" y || exit 0
+                ai_tools_msg__confirm "Apply?" y || exit 0
             fi
 
             # TOCTOU-safe apply. Every check so far ran against the path *string*, but ai-tools owns the project
@@ -282,9 +283,9 @@ if [[ "${#allowed_directories[@]}" -gt 0 ]]; then
                 exec {fd}<&-
                 exit 0
             fi
-            # The pinned inode must also be the one at the canonical path (ai_tools_pinned_fd_matches_path,
+            # The pinned inode must also be the one at the canonical path (ai_tools_safe_paths__is_pinned_fd_at_path,
             # safe-paths.lib.sh).
-            ai_tools_pinned_fd_matches_path "${fd}" "${canonical}" || { exec {fd}<&-; exit 0; }
+            ai_tools_safe_paths__is_pinned_fd_at_path "${fd}" "${canonical}" || { exec {fd}<&-; exit 0; }
             # chown/chmod follow the /proc magic symlink to the pinned inode, so both act on the descriptor those checks
             # validated rather than on the name.
             /usr/bin/chown -- "${target_owner}" "/proc/self/fd/${fd}"
@@ -298,7 +299,7 @@ if [[ "${#allowed_directories[@]}" -gt 0 ]]; then
             if ${is_secret} \
                     && read -r sec_grp sec_mode \
                         < <(stat -L -c '%G %a' "/proc/self/fd/${fd}" 2>/dev/null); then
-                ai_tools_strip_sandbox_residue "${fd}" "${got_ftype}" "${sec_grp}" "${sec_mode}" \
+                ai_tools_owner_only__strip_sandbox_residue "${fd}" "${got_ftype}" "${sec_grp}" "${sec_mode}" \
                     "${PROJECTS_GROUP}" || true
             fi
             # Record the privileged mutation. A secret is the alarming case (WARNING, via _notify_secret); an ordinary
@@ -309,7 +310,7 @@ if [[ "${#allowed_directories[@]}" -gt 0 ]]; then
                     "${current_mode}" "${new_mode}"
             else
                 ${is_dir} && _kind="directory" || _kind="file"
-                ai_tools_log_structured info \
+                ai_tools_log__structured info \
                     "handed back ${_kind} ${canonical} (owner ${current_owner} -> ${target_owner}, mode ${current_mode} -> ${new_mode})" \
                     "AI_TOOLS_PATH=${canonical}" "AI_TOOLS_RESULT=ok"
             fi

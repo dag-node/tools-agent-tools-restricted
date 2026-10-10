@@ -328,7 +328,7 @@ the provider resolver is unavailable: ${ENABLED_AGENTS_ERROR}
 .TP
 .B MSG-V8Z5
 ERROR.
-project path holds a control character: $(ai_tools_log_sanitize "${p}") \-\- rename it first
+project path holds a control character: $(ai_tools_log__sanitize "${p}") \-\- rename it first
 .TP
 .B MSG-W3C7
 ERROR.
@@ -491,7 +491,7 @@ hook\-repeated
 .TP
 .B MSG-E9D6
 ERROR.
-assets enable: '$(ai_tools_log_sanitize "${identifier}")' is not an asset identifier \-\- ${_AI_TOOLS_ASSETS_ID_DETAIL}; AI_TOOLS_ASSETS is unchanged
+assets enable: '$(ai_tools_log__sanitize "${identifier}")' is not an asset identifier \-\- ${AI_TOOLS_ASSETS__ID_DETAIL}; AI_TOOLS_ASSETS is unchanged
 .TP
 .B MSG-E9V5
 WARNING.
@@ -511,7 +511,7 @@ the entrypoint relabel helper is not installed: ${RELABEL_ENTRYPOINT_BIN} \-\- i
 .TP
 .B MSG-G2C6
 WARNING.
-proceeding without the relabel lock: ${AI_TOOLS_RELABEL_LOCK_NOTE}
+proceeding without the relabel lock: ${AI_TOOLS_RELABEL__LOCK_NOTE}
 .TP
 .B MSG-H2P9
 ERROR.
@@ -579,7 +579,7 @@ key\-missing
 .TP
 .B MSG-K6K3
 ERROR.
-assets: ${conf} is not root's alone ($(ai_tools_conf_untrusted_reason "${conf}")), so it is not written \-\- restore it to root:root 0644 and run the command again
+assets: ${conf} is not root's alone ($(ai_tools_conf__read_untrusted_reason "${conf}")), so it is not written \-\- restore it to root:root 0644 and run the command again
 .TP
 .B MSG-K8D2
 WARNING.
@@ -611,7 +611,7 @@ could not create ${cfg} at 700 ${user}:${group}
 .TP
 .B MSG-N3T7
 WARNING.
-could not label ${cfg} ${AI_TOOLS_OPERATOR_CONF_TYPE}${AI_TOOLS_FCONTEXT_ERROR:+ \-\- ${AI_TOOLS_FCONTEXT_ERROR}}
+could not label ${cfg} ${AI_TOOLS_RELABEL__OPERATOR_CONF_TYPE}${AI_TOOLS_RELABEL__FCONTEXT_ERROR:+ \-\- ${AI_TOOLS_RELABEL__FCONTEXT_ERROR}}
 .TP
 .B MSG-N3U8
 WARNING.
@@ -655,7 +655,7 @@ config not seeded for ${user}, which stays enrolled \-\- without allowed\-projec
 .TP
 .B MSG-P9Z3
 ERROR.
-assets enable \-\-set: the set ${set} is ${_AI_TOOLS_ASSETS_SNAPSHOT_STATE} \-\- $(ai_tools_log_sanitize "${_AI_TOOLS_ASSETS_SNAPSHOT_DETAIL:0:300}"); AI_TOOLS_ASSETS is unchanged
+assets enable \-\-set: the set ${set} is ${AI_TOOLS_ASSETS__SNAPSHOT_STATE} \-\- $(ai_tools_log__sanitize "${AI_TOOLS_ASSETS__SNAPSHOT_DETAIL:0:300}"); AI_TOOLS_ASSETS is unchanged
 .TP
 .B MSG-Q2C6
 NOTICE.
@@ -671,7 +671,7 @@ selinux groups enable: '${name}' is not a group name
 .TP
 .B MSG-Q4F6
 WARNING.
-cannot merge the hook declarations: ${_ai_tools_conf_merge_reason}
+cannot merge the hook declarations: ${ai_tools_settings_merge__reason}
 .TP
 .B MSG-Q4K4
 WARNING.
@@ -695,7 +695,7 @@ assets: AI_TOOLS_ASSETS could not be written to ${conf} (writer status ${rc})${b
 .TP
 .B MSG-R3M6
 ERROR.
-assets enable \-\-set: '$(ai_tools_log_sanitize "${set}")' is not a set name \-\- 1\-64 characters of a\-z, 0\-9 and single hyphens; AI_TOOLS_ASSETS is unchanged
+assets enable \-\-set: '$(ai_tools_log__sanitize "${set}")' is not a set name \-\- 1\-64 characters of a\-z, 0\-9 and single hyphens; AI_TOOLS_ASSETS is unchanged
 .TP
 .B MSG-R6B2
 NOTICE.
@@ -803,11 +803,11 @@ an incompatible contract: ${fragment} needs contributed\-command interface ${dec
 .TP
 .B MSG-W6D7
 ERROR.
-assets enable: no shipped binding names the set ${_AI_TOOLS_ASSETS_ID_SET}, so ${identifier} is accepted only once a package pins its signer; AI_TOOLS_ASSETS is unchanged
+assets enable: no shipped binding names the set ${AI_TOOLS_ASSETS__ID_SET}, so ${identifier} is accepted only once a package pins its signer; AI_TOOLS_ASSETS is unchanged
 .TP
 .B MSG-W7J6
 WARNING.
-typing ${launcher} in ${user}'s shell runs ${winner}, not ${AI_TOOLS_PATH_ORDER_WRAPPER_DIR}/${launcher} \-\- that agent runs unconfined, as ${user}
+typing ${launcher} in ${user}'s shell runs ${winner}, not ${AI_TOOLS_PATH_ORDER__WRAPPER_DIR}/${launcher} \-\- that agent runs unconfined, as ${user}
 .TP
 .B MSG-W7T4
 ERROR.
@@ -831,7 +831,7 @@ system bootstrap: \-\-agents takes a value (NAME[,NAME...])
 .TP
 .B MSG-X9F8
 WARNING.
-the merge failed: ${_ai_tools_conf_merge_reason} \-\- ${deployed} is unchanged
+the merge failed: ${ai_tools_settings_merge__reason} \-\- ${deployed} is unchanged
 .TP
 .B MSG-Y3J5
 ERROR.
@@ -1375,7 +1375,7 @@ not an allowed project: ${target} (see ${ALLOWLIST})
 .TP
 .B MSG-X4B9
 ERROR.
-the scan of ${target} could not read the whole tree (find exit ${rc}): $(ai_tools_log_sanitize "$(head \-c 300 "${SCAN_DIR}/find.err")")
+the scan of ${target} could not read the whole tree (find exit ${rc}): $(ai_tools_log__sanitize "$(head \-c 300 "${SCAN_DIR}/find.err")")
 .TP
 .B MSG-Y5H5
 WARNING.
@@ -1462,7 +1462,7 @@ an incomplete agent package stops this relabel: ${incomplete} agent(s) do not ha
 .TP
 .B MSG-E4U5
 WARNING.
-relabels are not serialized on this host \-\- ${AI_TOOLS_RELABEL_LOCK_NOTE}
+relabels are not serialized on this host \-\- ${AI_TOOLS_RELABEL__LOCK_NOTE}
 .TP
 .B MSG-G5H9
 WARNING.
@@ -1816,7 +1816,7 @@ invalid list, read as the empty list \-\- ${key} in ${file} holds ${unprefixed[*
 .TP
 .B MSG-Y5N6
 WARNING.
-exclusion !${entry} in ${file} cannot be resolved \-\- ${_ai_tools_conf_resolve_refusal}; write the exclusion as the directory's real path, since a link the sandbox account can change cannot be followed; no entry in this file allows a path until the line is fixed
+exclusion !${entry} in ${file} cannot be resolved \-\- ${_ai_tools_conf__resolve_refusal}; write the exclusion as the directory's real path, since a link the sandbox account can change cannot be followed; no entry in this file allows a path until the line is fixed
 .SS install-selinux.sh
 .TP
 .B MSG-A5N2
@@ -1913,11 +1913,11 @@ an agent path is not correctly labelled (see above) \-\- the session would be re
 .TP
 .B MSG-V8U7
 WARNING.
-policy\-store writes are not serialized on this host \-\- ${AI_TOOLS_RELABEL_LOCK_NOTE}
+policy\-store writes are not serialized on this host \-\- ${AI_TOOLS_RELABEL__LOCK_NOTE}
 .TP
 .B MSG-W3Q4
 WARNING.
-could not set ai_tools_conf_t on ${dir}${AI_TOOLS_FCONTEXT_ERROR:+ \-\- ${AI_TOOLS_FCONTEXT_ERROR}}
+could not set ai_tools_conf_t on ${dir}${AI_TOOLS_RELABEL__FCONTEXT_ERROR:+ \-\- ${AI_TOOLS_RELABEL__FCONTEXT_ERROR}}
 .TP
 .B MSG-W8J4
 WARNING.
@@ -2086,7 +2086,7 @@ the checkout ${SCRIPT_DIR} carries ${total} uncommitted path(s) \-\- review and 
 .TP
 .B MSG-V7M6
 WARNING.
-hook declarations not merged into ${deployed}: ${_ai_tools_conf_merge_reason}
+hook declarations not merged into ${deployed}: ${ai_tools_settings_merge__reason}
 .TP
 .B MSG-V9C7
 WARNING.
@@ -2159,7 +2159,7 @@ the ${agent} launch hook did not complete \-\- refusing to start
 .TP
 .B MSG-G8R4
 ERROR.
-resolved path '${AI_TOOLS_LAUNCH_EXEC}' contains parent\-directory references
+resolved path '${AI_TOOLS_LAUNCH_WRAPPER__EXEC}' contains parent\-directory references
 .TP
 .B MSG-G9H2
 ERROR.
@@ -2195,7 +2195,7 @@ this shell started before the grant \-\- ${user} is an ai\-tools operator per th
 .TP
 .B MSG-S3K2
 ERROR.
-resolved path '${AI_TOOLS_LAUNCH_EXEC}' is not an approved ai\-tools binary
+resolved path '${AI_TOOLS_LAUNCH_WRAPPER__EXEC}' is not an approved ai\-tools binary
 .TP
 .B MSG-S4B3
 ERROR.
@@ -2253,7 +2253,7 @@ the lock ${lock} could not be taken (${error}), so the shared assets were not re
 .TP
 .B MSG-G4Q2
 WARNING.
-could not remove ${AI_TOOLS_BIN}/${launcher} via handback SYMLINK_REMOVE \-\- the ${agent} package is gone and every launch stays refused until the link is; remove it as root: rm \-f ${AI_TOOLS_BIN}/${launcher}
+could not remove ${AI_TOOLS_NVM_UPDATE__BIN_DIR}/${launcher} via handback SYMLINK_REMOVE \-\- the ${agent} package is gone and every launch stays refused until the link is; remove it as root: rm \-f ${AI_TOOLS_NVM_UPDATE__BIN_DIR}/${launcher}
 .TP
 .B MSG-T2F4
 ERROR.
@@ -2274,7 +2274,7 @@ refusing the launcher target for ${launcher}: ${target} does not resolve to an e
 .TP
 .B MSG-C4F9
 WARNING.
-ignoring ${AI_TOOLS_OPERATOR_CONF} for ${conf_key}: $(ai_tools_conf_untrusted_reason "${AI_TOOLS_OPERATOR_CONF}") \-\- using the default\-enabled providers only
+ignoring ${AI_TOOLS_OPERATOR_CONF} for ${conf_key}: $(ai_tools_conf__read_untrusted_reason "${AI_TOOLS_OPERATOR_CONF}") \-\- using the default\-enabled providers only
 .TP
 .B MSG-F5U2
 WARNING.
@@ -2286,7 +2286,7 @@ refusing the launcher target for ${launcher}: $(printf '%q' "${target}") is not 
 .TP
 .B MSG-M3A5
 WARNING.
-skipping agent $1: $2 $(ai_tools_conf_untrusted_reason "$2")
+skipping agent $1: $2 $(ai_tools_conf__read_untrusted_reason "$2")
 .TP
 .B MSG-N4W6
 WARNING.
@@ -2294,7 +2294,7 @@ skipping the managed file $(printf '%q' "${path}") of ${agent}: ${reason}
 .TP
 .B MSG-N9X8
 WARNING.
-skipping integration $1: $2 $(ai_tools_conf_untrusted_reason "$2")
+skipping integration $1: $2 $(ai_tools_conf__read_untrusted_reason "$2")
 .TP
 .B MSG-P4M9
 WARNING.
@@ -2302,7 +2302,7 @@ providers.lib.sh: conf.lib.sh missing or incomplete \-\- no providers resolved
 .TP
 .B MSG-W3Q3
 WARNING.
-refusing every ${conf_key} provider: ${dir} $(ai_tools_conf_untrusted_reason "${dir}")
+refusing every ${conf_key} provider: ${dir} $(ai_tools_conf__read_untrusted_reason "${dir}")
 .TP
 .B MSG-W4H3
 WARNING.
@@ -2355,7 +2355,7 @@ cannot remove $(printf '%q' "${npm_package}") from $(printf '%q' "${version_dir}
 .TP
 .B MSG-P6P2
 WARNING.
-the sandbox toolchain is run by the sandbox account alone \-\- $1 was not run as $(id \-un 2>/dev/null || printf 'uid %s' "${EUID}"); a root caller runs it through ai_tools_as_sandbox (sandbox\-exec.lib.sh)
+the sandbox toolchain is run by the sandbox account alone \-\- $1 was not run as $(id \-un 2>/dev/null || printf 'uid %s' "${EUID}"); a root caller runs it through ai_tools_sandbox_exec__run_as_sandbox (sandbox\-exec.lib.sh)
 .TP
 .B MSG-X2B7
 WARNING.

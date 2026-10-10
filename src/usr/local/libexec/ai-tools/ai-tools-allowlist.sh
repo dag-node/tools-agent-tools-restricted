@@ -110,11 +110,11 @@ source /usr/local/lib/ai-tools/conf.lib.sh
 source /usr/local/lib/ai-tools/operator.lib.sh
 # shellcheck source=SCRIPTDIR/../../lib/ai-tools/safe-paths.lib.sh
 source /usr/local/lib/ai-tools/safe-paths.lib.sh
-declare -F ai_tools_conf_allowlist_has_entry >/dev/null 2>&1 \
+declare -F ai_tools_conf__has_allowlist_entry >/dev/null 2>&1 \
     || die MSG-C9K7 "config library defines no allowlist matcher -- refusing (fail closed)"
-declare -F ai_tools_load_operators >/dev/null 2>&1 \
+declare -F ai_tools_operator__load_operators >/dev/null 2>&1 \
     || die MSG-F5N3 "operator library defines no operator list -- refusing (fail closed)"
-declare -F ai_tools_assert_safe_target >/dev/null 2>&1 \
+declare -F ai_tools_safe_paths__assert_safe_target >/dev/null 2>&1 \
     || die MSG-E8H6 "safe-paths library defines no protected-path guard -- refusing (fail closed)"
 
 # Shared leveled logger: journald (always) + the root-only /var/log/ai-tools/allowlist.log. Best-effort -- a no-op
@@ -123,9 +123,9 @@ AI_TOOLS_LOG_TAG="ai-tools-allowlist"
 AI_TOOLS_LOG_FILE="allowlist.log"
 # shellcheck source=SCRIPTDIR/../../lib/ai-tools/log.lib.sh
 if ! source /usr/local/lib/ai-tools/log.lib.sh 2>/dev/null; then
-    ai_tools_log() { :; }; ai_tools_log_debug() { :; }; ai_tools_log_info() { :; }
-    ai_tools_log_warn() { :; }; ai_tools_log_error() { :; }
-    ai_tools_log_structured() { :; }; ai_tools_log_coded() { :; }
+    ai_tools_log__write() { :; }; ai_tools_log__debug() { :; }; ai_tools_log__info() { :; }
+    ai_tools_log__warn() { :; }; ai_tools_log__error() { :; }
+    ai_tools_log__structured() { :; }; ai_tools_log__coded() { :; }
 fi
 
 # ── Caller gate ──────────────────────────────────────────────────────────────────
@@ -140,12 +140,12 @@ caller="$(id -un "${caller_uid}" 2>/dev/null)" \
 [[ "${caller}" != "${SANDBOX_USER}" ]] \
     || die MSG-N3S4 "the sandbox account may not manage an allowlist -- nothing changed"
 
-ai_tools_load_operators 2>/dev/null \
+ai_tools_operator__load_operators 2>/dev/null \
     || die MSG-Z7N7 "no operators configured -- run: sudo ai-tools-admin operators add <user>"
 
 _is_operator() {
     local want="$1" op
-    for op in "${AI_TOOLS_OPERATORS[@]}"; do
+    for op in "${AI_TOOLS_OPERATOR__OPERATORS[@]}"; do
         [[ "${op}" == "${want}" ]] && return 0
     done
     return 1
@@ -173,8 +173,8 @@ target_home="$(getent passwd "${OPERATOR}" 2>/dev/null | cut -d: -f6)" \
 # Resolve the target's allowlist through operator.lib's own path helper, so the AI_TOOLS_ALLOWLIST test hook applies
 # here exactly as it does on every resolve_owner path and the helper cannot drift from what the root helpers read.
 is_primary=secondary
-[[ "${OPERATOR}" == "${AI_TOOLS_OPERATORS[0]}" ]] && is_primary=primary
-allowlist="$(_ai_tools_operator_allowlist "${OPERATOR}" "${is_primary}")"
+[[ "${OPERATOR}" == "${AI_TOOLS_OPERATOR__OPERATORS[0]}" ]] && is_primary=primary
+allowlist="$(ai_tools_operator__get_allowlist_path "${OPERATOR}" "${is_primary}")"
 readonly caller allowlist target_home
 
 # ── print ────────────────────────────────────────────────────────────────────────
@@ -194,7 +194,7 @@ canonical="$(realpath -e "${TARGET_PATH}" 2>/dev/null)" \
     || die MSG-Q5X7 "not an existing path: ${TARGET_PATH} -- nothing changed"
 [[ -d "${canonical}" ]] \
     || die MSG-R6C5 "not a directory: ${canonical} -- nothing changed"
-ai_tools_assert_safe_target "${canonical}" "allowlist ${ACTION}" || exit 3
+ai_tools_safe_paths__assert_safe_target "${canonical}" "allowlist ${ACTION}" || exit 3
 readonly canonical
 
 # This run edits one operator's allowlist for one project, so the operator and the project ride as per-run log context
@@ -225,7 +225,7 @@ require_target_config() {
 case "${ACTION}" in
     add)
         require_target_config
-        rc=0; ai_tools_conf_allowlist_add "${allowlist}" "${canonical}" || rc=$?
+        rc=0; ai_tools_conf__allowlist_add "${allowlist}" "${canonical}" || rc=$?
         case "${rc}" in
             0) ;;
             2) die MSG-T7B6 "that project is DISABLED for ${OPERATOR}: ${canonical} -- a '!' line
@@ -234,7 +234,7 @@ case "${ACTION}" in
        ai-tools-allowlist --operator ${OPERATOR} --enable ${canonical}" ;;
             *) die MSG-D3T3 "could not add ${canonical} to ${OPERATOR}'s allowlist -- nothing changed" ;;
         esac
-        ai_tools_log_structured info \
+        ai_tools_log__structured info \
             "operator ${caller} added ${canonical} to ${OPERATOR}'s allowlist" \
             "AI_TOOLS_CALLER=${caller}" "AI_TOOLS_RESULT=ok"
         note "added ${canonical} for ${OPERATOR}"
@@ -247,13 +247,13 @@ case "${ACTION}" in
             note MSG-V9K7 "no allowlist for ${OPERATOR} -- nothing to remove"
             exit 0
         fi
-        if [[ "$(ai_tools_conf_allowlist_state "${allowlist}" "${canonical}")" == absent ]]; then
+        if [[ "$(ai_tools_conf__read_allowlist_state "${allowlist}" "${canonical}")" == absent ]]; then
             note MSG-H7J9 "nothing to remove: ${canonical} is not listed for ${OPERATOR}"
             exit 0
         fi
-        ai_tools_conf_allowlist_remove "${allowlist}" "${canonical}" \
+        ai_tools_conf__allowlist_remove "${allowlist}" "${canonical}" \
             || die MSG-K2G9 "could not remove ${canonical} from ${OPERATOR}'s allowlist -- a line naming it survived, so that project is still registered"
-        ai_tools_log_structured info \
+        ai_tools_log__structured info \
             "operator ${caller} removed ${canonical} from ${OPERATOR}'s allowlist" \
             "AI_TOOLS_CALLER=${caller}" "AI_TOOLS_RESULT=ok"
         note "removed ${canonical} for ${OPERATOR}"
@@ -262,14 +262,14 @@ case "${ACTION}" in
         # The one action that WIDENS the target's launch gate. It does not append a line: the '!' comes off the line
         # the operator wrote, in place, and a path the file does not name is refused rather than registered --
         # registering one is a claim, which scans for secrets first.
-        rc=0; ai_tools_conf_allowlist_enable "${allowlist}" "${canonical}" || rc=$?
+        rc=0; ai_tools_conf__allowlist_enable "${allowlist}" "${canonical}" || rc=$?
         case "${rc}" in
             0) ;;
             2) note MSG-E2G7 "not disabled for ${OPERATOR}: ${canonical} -- nothing to enable"
                exit 0 ;;
             *) die MSG-H9V5 "the entry is STILL disabled for ${OPERATOR}: ${canonical} -- the line was not rewritten" ;;
         esac
-        ai_tools_log_structured info \
+        ai_tools_log__structured info \
             "operator ${caller} enabled ${canonical} in ${OPERATOR}'s allowlist" \
             "AI_TOOLS_CALLER=${caller}" "AI_TOOLS_RESULT=ok"
         note "enabled ${canonical} for ${OPERATOR}"
@@ -278,13 +278,13 @@ case "${ACTION}" in
         # Park the target's project: the '!' goes on, in place. It moves to LESS access -- no session starts there
         # and the ownership helpers stop resolving an owner for it -- so a path the file does not name is refused rather
         # than parked (there would be no entry to park, and inventing one would register a project without claiming it).
-        rc=0; ai_tools_conf_allowlist_disable "${allowlist}" "${canonical}" || rc=$?
+        rc=0; ai_tools_conf__allowlist_disable "${allowlist}" "${canonical}" || rc=$?
         case "${rc}" in
             0) ;;
             2) die MSG-H6K3 "not listed for ${OPERATOR}: ${canonical} -- there is no entry to disable" ;;
             *) die MSG-C7Q4 "could not disable ${canonical} for ${OPERATOR} -- nothing changed" ;;
         esac
-        ai_tools_log_structured info \
+        ai_tools_log__structured info \
             "operator ${caller} disabled ${canonical} in ${OPERATOR}'s allowlist" \
             "AI_TOOLS_CALLER=${caller}" "AI_TOOLS_RESULT=ok"
         note "disabled ${canonical} for ${OPERATOR}"

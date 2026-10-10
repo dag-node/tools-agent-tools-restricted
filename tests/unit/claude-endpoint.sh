@@ -28,7 +28,7 @@ if [[ ! -r "${LIB}" ]]; then
     skip "claude-endpoint" "library not readable at ${LIB}"; finish; exit
 fi
 # shellcheck source=/dev/null
-if ! source "${LIB}" || ! declare -F ai_tools_claude_resolve_endpoint_setenv >/dev/null 2>&1; then
+if ! source "${LIB}" || ! declare -F ai_tools_claude_endpoint__resolve_setenv_args >/dev/null 2>&1; then
     fail "could not source ${LIB} or it does not define the resolver"; finish; exit
 fi
 
@@ -42,7 +42,7 @@ export AI_TOOLS_ENDPOINT_BASE_DIR="${base}"
 _resolve() {
     RESULT=()
     unset ANTHROPIC_AUTH_TOKEN
-    if ai_tools_claude_resolve_endpoint_setenv RESULT "${conf}" 2>"${TESTDIR}/err"; then RET=0; else RET=1; fi
+    if ai_tools_claude_endpoint__resolve_setenv_args RESULT "${conf}" 2>"${TESTDIR}/err"; then RET=0; else RET=1; fi
     ARGS="${RESULT[*]:-}"
     ERR="$(cat "${TESTDIR}/err" 2>/dev/null || true)"
     TOKEN_EXPORTED="${ANTHROPIC_AUTH_TOKEN:-<unset>}"

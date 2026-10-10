@@ -6,9 +6,9 @@
 # definition between them.
 #
 # An owner-only path -- a mode that grants neither group nor other bits (0600, 0700) -- is the operator's standing
-# decision to keep it out of the sandbox account's reach. A claim honours it: ai_tools_is_owner_only reports the path
-# sealed, and each walk then skips it without descending, so every path beneath a sealed directory is left alone
-# as well.
+# decision to keep it out of the sandbox account's reach. A claim honours it: ai_tools_owner_only__is_owner_only reports
+# the path sealed, and each walk then skips it without descending, so every path beneath a sealed directory is left
+# alone as well.
 #
 # The mode alone does not hold, because setgid and default-ACL inheritance act at CREATE time: a
 # path born inside a claimed tree already carries group @SANDBOX_GROUP@, the setgid bit and the
@@ -28,48 +28,48 @@
 # A setgid bit whose group is neither the sandbox account's nor the operator's is left alone and reported instead:
 # an operator may have set it deliberately, and this walk runs with no terminal to ask on. Surfacing it is the caller's
 # job -- the strip only records it in
-# AI_TOOLS_RESIDUE_SURFACE.
+# AI_TOOLS_OWNER_ONLY__RESIDUE_SURFACE.
 
-if [[ -n "${_AI_TOOLS_OWNER_ONLY_LIB:-}" ]]; then
+if [[ -n "${_AI_TOOLS_OWNER_ONLY__LOADED:-}" ]]; then
     return 0
 fi
-readonly _AI_TOOLS_OWNER_ONLY_LIB=1
+readonly _AI_TOOLS_OWNER_ONLY__LOADED=1
 
 # The sandbox group, substituted at install. Every arm of the strip is keyed on it, so a tree that never met a claim has
 # no residue to strip.
-readonly AI_TOOLS_SANDBOX_GROUP="@SANDBOX_GROUP@"
+readonly AI_TOOLS_OWNER_ONLY__SANDBOX_GROUP="@SANDBOX_GROUP@"
 
-# ai_tools_is_owner_only <octal-mode>: 0 when the mode grants neither group nor other bits. An empty or unparseable mode
-# reads as sealed, so a path whose stat failed is skipped by the walkers rather than granted.
-ai_tools_is_owner_only() {
+# ai_tools_owner_only__is_owner_only <octal-mode>: 0 when the mode grants neither group nor other bits. An empty
+# or unparseable mode reads as sealed, so a path whose stat failed is skipped by the walkers rather than granted.
+ai_tools_owner_only__is_owner_only() {
     local mode="${1:-}"
     [[ "${mode}" =~ ^[0-7]+$ ]] || return 0
     (( ( 8#${mode} & 077 ) == 0 ))
 }
 
-# ai_tools_strip_sandbox_residue <fd> <ftype> <group-name> <octal-mode> [operator-group] Strips the residue listed
-# in the header from the caller's already-pinned, already-validated inode, so it inherits that caller's TOCTOU
+# ai_tools_owner_only__strip_sandbox_residue <fd> <ftype> <group-name> <octal-mode> [operator-group] Strips the residue
+# listed in the header from the caller's already-pinned, already-validated inode, so it inherits that caller's TOCTOU
 # guarantee. <ftype>/<group-name>/<octal-mode> are the values the caller read from that same descriptor.
 #
 # Returns 0 when something was stripped, 1 when there was no residue to strip. Sets:
-#   AI_TOOLS_RESIDUE_ACTIONS   what changed, as an array of acl / setgid / group
-#   AI_TOOLS_RESIDUE_SURFACE   1 when a third-party group's setgid was left for the caller
+#   AI_TOOLS_OWNER_ONLY__RESIDUE_ACTIONS   what changed, as an array of acl / setgid / group
+#   AI_TOOLS_OWNER_ONLY__RESIDUE_SURFACE   1 when a third-party group's setgid was left for the caller
 #                              to report
 #
 # AI_TOOLS_RESIDUE_DRY_RUN=1 makes it report without acting: the same arms decide, and each one
-# that would fire names itself in AI_TOOLS_RESIDUE_ACTIONS, but no setfacl, chmod, or chgrp runs. A preview belongs HERE
-# rather than in a caller's own read-only re-implementation, because the question "what is sandbox residue" must have
-# exactly one answer -- a second copy of these three arms would eventually promise a strip that no longer matches
-# the one performed. The one difference between the modes is what the action list means: what WOULD be attempted
+# that would fire names itself in AI_TOOLS_OWNER_ONLY__RESIDUE_ACTIONS, but no setfacl, chmod, or chgrp runs. A preview
+# belongs HERE rather than in a caller's own read-only re-implementation, because the question "what is sandbox residue"
+# must have exactly one answer -- a second copy of these three arms would eventually promise a strip that no longer
+# matches the one performed. The one difference between the modes is what the action list means: what WOULD be attempted
 # in a dry run, and what succeeded in a real one.
 # shellcheck disable=SC2034  # both are outputs, read by the walkers and ai-tools-lockdown
-ai_tools_strip_sandbox_residue() {
+ai_tools_owner_only__strip_sandbox_residue() {
     local fd="$1" ftype="$2" grp="$3" mode="$4" opgrp="${5:-}"
     local path="/proc/self/fd/${fd}"
     local changed=1 dry=false
     [[ "${AI_TOOLS_RESIDUE_DRY_RUN:-0}" == 1 ]] && dry=true
-    AI_TOOLS_RESIDUE_ACTIONS=()
-    AI_TOOLS_RESIDUE_SURFACE=0
+    AI_TOOLS_OWNER_ONLY__RESIDUE_ACTIONS=()
+    AI_TOOLS_OWNER_ONLY__RESIDUE_SURFACE=0
 
     # Remove only the entries the getfacl read found -- setfacl fails the whole call on an entry that is absent.
     # The matches are anchored: the access entry's text is a suffix of the default.
@@ -77,37 +77,37 @@ ai_tools_strip_sandbox_residue() {
         local acl
         acl="$(getfacl -c -- "${path}" 2>/dev/null)" || acl=""
         local -a rm=()
-        if grep -q "^group:${AI_TOOLS_SANDBOX_GROUP}:" <<<"${acl}"; then
-            rm+=( -x "group:${AI_TOOLS_SANDBOX_GROUP}" )
+        if grep -q "^group:${AI_TOOLS_OWNER_ONLY__SANDBOX_GROUP}:" <<<"${acl}"; then
+            rm+=( -x "group:${AI_TOOLS_OWNER_ONLY__SANDBOX_GROUP}" )
         fi
-        if grep -q "^default:group:${AI_TOOLS_SANDBOX_GROUP}:" <<<"${acl}"; then
-            rm+=( -x "default:group:${AI_TOOLS_SANDBOX_GROUP}" )
+        if grep -q "^default:group:${AI_TOOLS_OWNER_ONLY__SANDBOX_GROUP}:" <<<"${acl}"; then
+            rm+=( -x "default:group:${AI_TOOLS_OWNER_ONLY__SANDBOX_GROUP}" )
         fi
         if [[ "${#rm[@]}" -gt 0 ]] \
                 && { ${dry} || setfacl -n "${rm[@]}" "${path}" 2>/dev/null; }; then
-            AI_TOOLS_RESIDUE_ACTIONS+=("acl")
+            AI_TOOLS_OWNER_ONLY__RESIDUE_ACTIONS+=("acl")
             changed=0
         fi
     fi
 
     if [[ "${ftype}" == "directory" && "${mode}" =~ ^[0-7]+$ ]] \
             && (( ( 8#${mode} & 8#2000 ) != 0 )); then
-        if [[ "${grp}" == "${AI_TOOLS_SANDBOX_GROUP}" ]] \
+        if [[ "${grp}" == "${AI_TOOLS_OWNER_ONLY__SANDBOX_GROUP}" ]] \
                 || { [[ -n "${opgrp}" ]] && [[ "${grp}" == "${opgrp}" ]]; }; then
             if ${dry} || chmod g-s "${path}" 2>/dev/null; then
-                AI_TOOLS_RESIDUE_ACTIONS+=("setgid")
+                AI_TOOLS_OWNER_ONLY__RESIDUE_ACTIONS+=("setgid")
                 changed=0
             fi
         else
-            AI_TOOLS_RESIDUE_SURFACE=1
+            AI_TOOLS_OWNER_ONLY__RESIDUE_SURFACE=1
         fi
     fi
 
     # With no operator resolved there is no defensible target, so the group is left as it is rather than guessed at.
-    if [[ "${grp}" == "${AI_TOOLS_SANDBOX_GROUP}" && -n "${opgrp}" ]] \
-            && [[ "${opgrp}" != "${AI_TOOLS_SANDBOX_GROUP}" ]]; then
+    if [[ "${grp}" == "${AI_TOOLS_OWNER_ONLY__SANDBOX_GROUP}" && -n "${opgrp}" ]] \
+            && [[ "${opgrp}" != "${AI_TOOLS_OWNER_ONLY__SANDBOX_GROUP}" ]]; then
         if ${dry} || chgrp -- "${opgrp}" "${path}" 2>/dev/null; then
-            AI_TOOLS_RESIDUE_ACTIONS+=("group")
+            AI_TOOLS_OWNER_ONLY__RESIDUE_ACTIONS+=("group")
             changed=0
         fi
     fi

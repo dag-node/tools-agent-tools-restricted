@@ -34,7 +34,7 @@
 set -euo pipefail
 IFS=$'\n\t'
 
-readonly AI_TOOLS_BIN="/opt/ai-tools/bin"
+readonly AI_TOOLS_NVM_UPDATE__BIN_DIR="/opt/ai-tools/bin"
 # The last-run stamp `ai-tools status` reads. The install creates it; this script only ever rewrites that one existing
 # inode. Its directory is root-owned and NOT group-writable, so this account -- and so the agent, which runs as it --
 # cannot create, unlink, rename, or symlink-swap anything there: the whole surface the stamp adds is the contents
@@ -139,7 +139,7 @@ write_stamp() {
     # that conditional line from splitting the write into two -- the single write is what keeps the window
     # in which a reader could see a partial stamp negligible.
     printf -v text '# nvm-update last-run stamp -- written by %s, read by "ai-tools status".\nRESULT=%s\nEXIT_CODE=%d\nFINISHED=%s\nTRIGGER=%s\nNODE=%s\n' \
-        "${AI_TOOLS_BIN}/nvm-update.sh" "${result}" "${rc}" "${finished}" \
+        "${AI_TOOLS_NVM_UPDATE__BIN_DIR}/nvm-update.sh" "${result}" "${rc}" "${finished}" \
         "${trigger}" "${node_version}"
     [[ -n "${reason}" ]] && text+="REASON=${reason}"$'\n'
     printf '%s' "${text}" >"${NVM_UPDATE_STAMP}" 2>/dev/null \
@@ -149,9 +149,9 @@ write_stamp() {
 trap 'write_stamp "$?"' EXIT
 
 # The KEY=value library (conf.lib.sh), for the clock reading main makes before anything else
-# (ai_tools_conf_clock_behind). Best-effort source, the posture NPM_VERIFY_LIB and ENTRYPOINT_VERIFY_LIB take: a missing
-# one is a broken install, and main reports the check as not made where the function is absent, rather than skipping it
-# in silence.
+# (ai_tools_conf__find_paths_ahead_of_clock). Best-effort source, the posture NPM_VERIFY_LIB and ENTRYPOINT_VERIFY_LIB
+# take: a missing one is a broken install, and main reports the check as not made where the function is absent, rather
+# than skipping it in silence.
 readonly CONF_LIB="/usr/local/lib/ai-tools/conf.lib.sh"
 # shellcheck source=SCRIPTDIR/../../../usr/local/lib/ai-tools/conf.lib.sh
 source "${CONF_LIB}" 2>/dev/null || true
@@ -163,22 +163,22 @@ readonly LOG_LIB="/usr/local/lib/ai-tools/log.lib.sh"
 # shellcheck source=SCRIPTDIR/../../../usr/local/lib/ai-tools/log.lib.sh
 source "${LOG_LIB}" 2>/dev/null || true
 
-# The identity this script requires of itself (sandbox-exec.lib.sh, ai_tools_is_sandbox_account): it sources nvm.sh
-# and runs npm from the tree, which runs whatever the sandbox account put there, so it runs as that account alone. Root
-# and an operator are refused here, ahead of every read of the tree, with the routes that run it as the account named;
-# a library that did not load leaves the identity unconfirmed, which refuses too.
+# The identity this script requires of itself (sandbox-exec.lib.sh, ai_tools_sandbox_exec__is_sandbox_account): it
+# sources nvm.sh and runs npm from the tree, which runs whatever the sandbox account put there, so it runs
+# as that account alone. Root and an operator are refused here, ahead of every read of the tree, with the routes
+# that run it as the account named; a library that did not load leaves the identity unconfirmed, which refuses too.
 readonly SANDBOX_EXEC_LIB="/usr/local/lib/ai-tools/sandbox-exec.lib.sh"
 # shellcheck source=SCRIPTDIR/../../../usr/local/lib/ai-tools/sandbox-exec.lib.sh
 source "${SANDBOX_EXEC_LIB}" 2>/dev/null || true
-if ! declare -F ai_tools_is_sandbox_account >/dev/null 2>&1; then
+if ! declare -F ai_tools_sandbox_exec__is_sandbox_account >/dev/null 2>&1; then
     die MSG-T2F4 "cannot confirm this runs as the sandbox account: ${SANDBOX_EXEC_LIB} did not load -- reinstall ai-tools-base"
-elif ! ai_tools_is_sandbox_account; then
+elif ! ai_tools_sandbox_exec__is_sandbox_account; then
     die MSG-U5C4 "refusing to run as $(id -un 2>/dev/null || printf 'uid %s' "${EUID}"): this script sources nvm.sh and runs npm from the sandbox toolchain, which only the sandbox account runs -- start it in that account's user instance (sudo systemctl --user -M ai-tools@ start nvm-update.service) or provision through sudo ai-tools-admin system bootstrap"
 fi
-# npm_output: pass npm's output (stdin) through ai_tools_log_sanitize_stream, or withhold it with one line saying so.
+# npm_output: pass npm's output (stdin) through ai_tools_log__sanitize_stream, or withhold it with one line saying so.
 npm_output() {
-    if declare -F ai_tools_log_sanitize_stream >/dev/null 2>&1; then
-        ai_tools_log_sanitize_stream
+    if declare -F ai_tools_log__sanitize_stream >/dev/null 2>&1; then
+        ai_tools_log__sanitize_stream
     else
         cat >/dev/null
         printf '%s\n' "(npm's output withheld: ${LOG_LIB}, which sanitizes it, did not load)"
@@ -192,9 +192,9 @@ npm_output() {
 readonly NPM_VERIFY_LIB="/usr/local/lib/ai-tools/npm-verify.lib.sh"
 # shellcheck source=SCRIPTDIR/../../../usr/local/lib/ai-tools/npm-verify.lib.sh
 if ! source "${NPM_VERIFY_LIB}" 2>/dev/null \
-        || ! declare -F ai_tools_verify_npm_signatures >/dev/null 2>&1; then
+        || ! declare -F ai_tools_npm_verify__verify_signatures >/dev/null 2>&1; then
     warn "signature-verification library unavailable (${NPM_VERIFY_LIB}) -- skipping the check"
-    ai_tools_verify_npm_signatures() { return 2; }
+    ai_tools_npm_verify__verify_signatures() { return 2; }
 fi
 
 # verify_toolchain_signatures: run the signature check and apply the fail-closed policy. rc 0 verified; rc 1 TAMPER ->
@@ -203,7 +203,7 @@ fi
 # hosts).
 verify_toolchain_signatures() {
     local rc=0
-    ai_tools_verify_npm_signatures || rc=$?
+    ai_tools_npm_verify__verify_signatures || rc=$?
     case "${rc}" in
         0) log "npm registry signatures verified for the installed toolchain" ;;
         1) die "npm signature verification FAILED (possible registry tampering) -- refusing to activate the new toolchain; the previous version stays in use" ;;
@@ -216,9 +216,9 @@ verify_toolchain_signatures() {
 readonly ENTRYPOINT_VERIFY_LIB="/usr/local/lib/ai-tools/entrypoint-verify.lib.sh"
 # shellcheck source=SCRIPTDIR/../../../usr/local/lib/ai-tools/entrypoint-verify.lib.sh
 if ! source "${ENTRYPOINT_VERIFY_LIB}" 2>/dev/null \
-        || ! declare -F ai_tools_entrypoint_release_verify >/dev/null 2>&1; then
+        || ! declare -F ai_tools_entrypoint_verify__verify_release >/dev/null 2>&1; then
     warn "entrypoint verifier unavailable (${ENTRYPOINT_VERIFY_LIB}) -- skipping the release-checksum check"
-    ai_tools_entrypoint_release_verify() { return 2; }
+    ai_tools_entrypoint_verify__verify_release() { return 2; }
 fi
 
 # entrypoint_blocked[<launcher>] : set where a declared release manifest exists but the freshly installed entrypoint did
@@ -232,11 +232,11 @@ entrypoint_unverified=0
 # exactly as the npm gate does. Anything else is not fatal; see the branch comments.
 verify_agent_entrypoints() {
     local target="$1" agent launcher entrypoint version rc
-    declare -F ai_tools_enabled_agents >/dev/null 2>&1 || return 0
+    declare -F ai_tools_providers__list_enabled_agents >/dev/null 2>&1 || return 0
     while IFS=$'\t' read -r agent _ launcher; do
         [[ -n "${agent}" && -n "${launcher}" ]] || continue
         local url_template
-        url_template="$(ai_tools_agent_manifest_field "${agent}" release_manifest_url || true)"
+        url_template="$(ai_tools_providers__read_agent_manifest_field "${agent}" release_manifest_url || true)"
         [[ -n "${url_template}" ]] || continue      # declares no provenance: nothing to check
         # Resolved, never executed: the versioned launcher is a symlink into the package, and what must be hashed is
         # the file it points at -- the same inode the launch shim verifies.
@@ -248,14 +248,14 @@ verify_agent_entrypoints() {
         version="$(agent_package_version "${entrypoint}")"
         if [[ -z "${version}" ]]; then
             warn "${agent}: could not read the installed version beside ${entrypoint} -- not verified"
-            ai_tools_entrypoint_verify_required 2>/dev/null \
+            ai_tools_entrypoint_verify__is_required 2>/dev/null \
                 && { entrypoint_blocked["${launcher}"]=1; entrypoint_unverified=$(( entrypoint_unverified + 1 )); }
             continue
         fi
         rc=0
-        ai_tools_entrypoint_release_verify "${entrypoint}" "${version}" "${url_template}" \
-            "$(ai_tools_agent_manifest_field "${agent}" release_key || true)" \
-            "$(ai_tools_agent_manifest_field "${agent}" release_fingerprint || true)" \
+        ai_tools_entrypoint_verify__verify_release "${entrypoint}" "${version}" "${url_template}" \
+            "$(ai_tools_providers__read_agent_manifest_field "${agent}" release_key || true)" \
+            "$(ai_tools_providers__read_agent_manifest_field "${agent}" release_fingerprint || true)" \
             >/dev/null || rc=$?
         case "${rc}" in
             0) log "${agent}: entrypoint matches the checksum signed for release ${version}" ;;
@@ -264,14 +264,14 @@ verify_agent_entrypoints() {
                # a host with an internal npm mirror and no vendor route keeps updating, unpinned. Where the operator
                # required verification, activating such a release would instead refuse every launch, so the repoint is
                # held back and the verified version stays.
-               if ai_tools_entrypoint_verify_required 2>/dev/null; then
+               if ai_tools_entrypoint_verify__is_required 2>/dev/null; then
                    warn "${agent}: could not verify release ${version} against its signed manifest -- not activating it (AI_TOOLS_REQUIRE_ENTRYPOINT_VERIFY is set); the previously verified version stays in use"
                    entrypoint_blocked["${launcher}"]=1; entrypoint_unverified=$(( entrypoint_unverified + 1 ))
                else
                    warn "${agent}: could not verify release ${version} against its signed manifest -- activating it anyway; its entrypoint will be unpinned until the vendor's manifest is reachable"
                fi ;;
         esac
-    done < <(ai_tools_enabled_agents 2>/dev/null)
+    done < <(ai_tools_providers__list_enabled_agents 2>/dev/null)
     return 0
 }
 
@@ -285,21 +285,21 @@ verify_agent_entrypoints() {
 remove_residue() {
     local nvm_dir="$1" agent package version_dir outcome launcher
     local -A still_present=()
-    declare -F ai_tools_agent_residue >/dev/null 2>&1 || return 0
+    declare -F ai_tools_toolchain__find_agent_residue >/dev/null 2>&1 || return 0
     while IFS=$'\t' read -r agent package version_dir; do
         [[ -n "${agent}" ]] || continue
-        outcome="$(ai_tools_agent_package_remove "${version_dir}" "${package}")" || outcome="${outcome:-failed}"
+        outcome="$(ai_tools_toolchain__remove_agent_package "${version_dir}" "${package}")" || outcome="${outcome:-failed}"
         log "${agent}: ${package} in ${version_dir##*/} -- ${outcome}"
         [[ "${outcome}" == removed || "${outcome}" == absent ]] || still_present["${agent}"]=1
-    done < <(ai_tools_agent_residue "${nvm_dir}")
+    done < <(ai_tools_toolchain__find_agent_residue "${nvm_dir}")
     while IFS=$'\t' read -r agent launcher; do
         [[ -n "${agent}" && -z "${still_present[${agent}]:-}" ]] || continue
-        if /usr/local/bin/ai-tools-handback-client SYMLINK_REMOVE "${AI_TOOLS_BIN}/${launcher}"; then
-            log "${agent}: removed the stable launcher link ${AI_TOOLS_BIN}/${launcher}"
+        if /usr/local/bin/ai-tools-handback-client SYMLINK_REMOVE "${AI_TOOLS_NVM_UPDATE__BIN_DIR}/${launcher}"; then
+            log "${agent}: removed the stable launcher link ${AI_TOOLS_NVM_UPDATE__BIN_DIR}/${launcher}"
         else
-            warn MSG-G4Q2 "could not remove ${AI_TOOLS_BIN}/${launcher} via handback SYMLINK_REMOVE -- the ${agent} package is gone and every launch stays refused until the link is; remove it as root: rm -f ${AI_TOOLS_BIN}/${launcher}"
+            warn MSG-G4Q2 "could not remove ${AI_TOOLS_NVM_UPDATE__BIN_DIR}/${launcher} via handback SYMLINK_REMOVE -- the ${agent} package is gone and every launch stays refused until the link is; remove it as root: rm -f ${AI_TOOLS_NVM_UPDATE__BIN_DIR}/${launcher}"
         fi
-    done < <(ai_tools_agent_residue_links "${AI_TOOLS_BIN}")
+    done < <(ai_tools_toolchain__find_agent_residue_links "${AI_TOOLS_NVM_UPDATE__BIN_DIR}")
     return 0
 }
 
@@ -312,13 +312,13 @@ remove_residue() {
 # agree.
 relink_agent_launchers() {
     local target="$1" agent launcher launcher_target fcontext verdict
-    declare -F ai_tools_relink_launcher >/dev/null 2>&1 || return 0
+    declare -F ai_tools_providers__relink_launcher >/dev/null 2>&1 || return 0
     while IFS=$'\t' read -r agent _ launcher; do
         [[ -n "${agent}" && -n "${launcher}" ]] || continue
-        launcher_target="$(ai_tools_agent_manifest_field "${agent}" launcher_target || true)"
+        launcher_target="$(ai_tools_providers__read_agent_manifest_field "${agent}" launcher_target || true)"
         [[ -n "${launcher_target}" ]] || continue      # npm's own link is the launcher
-        fcontext="$(ai_tools_agent_manifest_field "${agent}" entrypoint_fcontext || true)"
-        if verdict="$(ai_tools_relink_launcher "${HOME}/.nvm/versions/node/${target}" "${launcher}" "${launcher_target}" "${fcontext}")"; then
+        fcontext="$(ai_tools_providers__read_agent_manifest_field "${agent}" entrypoint_fcontext || true)"
+        if verdict="$(ai_tools_providers__relink_launcher "${HOME}/.nvm/versions/node/${target}" "${launcher}" "${launcher_target}" "${fcontext}")"; then
             case "${verdict}" in
                 linked) log "${agent}: ${launcher} in ${target} re-linked at ${launcher_target}" ;;
                 *)      log "${agent}: ${launcher} in ${target} already links ${launcher_target}" ;;
@@ -326,7 +326,7 @@ relink_agent_launchers() {
         else
             warn "${agent}: ${launcher} in ${target} was not re-linked at its declared target (see above) -- npm's own link stays, and a launch fails closed at the label preflight until the manifest and the installed package agree"
         fi
-    done < <(ai_tools_enabled_agents 2>/dev/null)
+    done < <(ai_tools_providers__list_enabled_agents 2>/dev/null)
     return 0
 }
 
@@ -460,9 +460,9 @@ main() {
     # time. Transient, like an unreachable registry: the unit retries, the stamp says why (REASON=clock,
     # with the previous run's FINISHED kept rather than a wrong one written), and the toolchain is left alone.
     local clock_behind_lines=""
-    if ! declare -F ai_tools_conf_clock_behind >/dev/null 2>&1; then
+    if ! declare -F ai_tools_conf__find_paths_ahead_of_clock >/dev/null 2>&1; then
         warn "the clock was not checked: ${CONF_LIB} did not load -- reinstall ai-tools-base"
-    elif ! clock_behind_lines="$(ai_tools_conf_clock_behind "$0" "${NVM_UPDATE_STAMP}" \
+    elif ! clock_behind_lines="$(ai_tools_conf__find_paths_ahead_of_clock "$0" "${NVM_UPDATE_STAMP}" \
                 "${AI_TOOLS_ENTRYPOINT_PIN_DIR:-/var/opt/ai-tools/state/entrypoint-pin.d}"/* 2>/dev/null)"; then
         skip clock "the system clock reads $(date '+%Y-%m-%d %H:%M:%S'), earlier than a file this host wrote (${clock_behind_lines//$'\n'/; }) -- set the clock first (timedatectl set-time, or chronyc makestep once a time source is reachable); nothing was changed"
     fi
@@ -482,7 +482,7 @@ main() {
     # as it is.
     # shellcheck source=SCRIPTDIR/../../../usr/local/lib/ai-tools/toolchain.lib.sh
     if source /usr/local/lib/ai-tools/toolchain.lib.sh 2>/dev/null \
-            && declare -F ai_tools_toolchain_relink_copies >/dev/null 2>&1; then
+            && declare -F ai_tools_toolchain__relink_copies >/dev/null 2>&1; then
         local copied_name copied_outcome
         while IFS=$'\t' read -r copied_name copied_outcome; do
             [[ -n "${copied_name}" ]] || continue
@@ -491,7 +491,7 @@ main() {
             else
                 warn "${current_version}: bin/${copied_name} is a regular file where npm keeps a symlink, left as it is (${copied_outcome})"
             fi
-        done < <(ai_tools_toolchain_relink_copies "${nvm_dir}/versions/node/${current_version}")
+        done < <(ai_tools_toolchain__relink_copies "${nvm_dir}/versions/node/${current_version}")
     fi
 
     # The timer invokes this with no argument, so resolve the latest LTS in the vMAJOR series here -- the same
@@ -540,12 +540,12 @@ main() {
     local -a agent_packages=() agent_launchers=()
     # shellcheck source=SCRIPTDIR/../../../usr/local/lib/ai-tools/providers.lib.sh
     if source "${providers_lib}" 2>/dev/null \
-            && declare -F ai_tools_enabled_agents >/dev/null 2>&1; then
+            && declare -F ai_tools_providers__list_enabled_agents >/dev/null 2>&1; then
         local manifest_package manifest_launcher
         while IFS=$'\t' read -r _ manifest_package manifest_launcher; do
             [[ -n "${manifest_package}" ]]  && agent_packages+=("${manifest_package}")
             [[ -n "${manifest_launcher}" ]] && agent_launchers+=("${manifest_launcher}")
-        done < <(ai_tools_enabled_agents)
+        done < <(ai_tools_providers__list_enabled_agents)
         # A resolver that loaded and returned an empty set is classified before npm alone becomes the managed set.
         # The resolver refuses an input the trust predicate declines and reports it on stderr only, so without this step
         # a host whose inputs all read as untrusted -- every manifest, operator.conf -- maintains npm, exits 0
@@ -554,7 +554,7 @@ main() {
         # to be empty is logged and the run continues.
         if (( ${#agent_packages[@]} == 0 )); then
             local empty_verdict="" empty_reason=""
-            IFS=$'\t' read -r empty_verdict empty_reason < <(ai_tools_agents_empty_verdict) || true
+            IFS=$'\t' read -r empty_verdict empty_reason < <(ai_tools_providers__evaluate_empty_agents) || true
             case "${empty_verdict}" in
                 none) log "no agent to maintain: ${empty_reason} -- updating npm only" ;;
                 *)    die "no agent resolved: ${empty_reason:-the classification printed nothing} -- enabled agents are unrefreshed and their launchers unrepointed until this is fixed" ;;
@@ -568,7 +568,7 @@ main() {
     # leaves residue in place and says so, and every launch goes on refusing until a run that can read it.
     local toolchain_lib=/usr/local/lib/ai-tools/toolchain.lib.sh
     # shellcheck source=SCRIPTDIR/../../../usr/local/lib/ai-tools/toolchain.lib.sh
-    if source "${toolchain_lib}" 2>/dev/null && declare -F ai_tools_agent_residue >/dev/null 2>&1; then
+    if source "${toolchain_lib}" 2>/dev/null && declare -F ai_tools_toolchain__find_agent_residue >/dev/null 2>&1; then
         remove_residue "${nvm_dir}"
     else
         warn "toolchain library unavailable (${toolchain_lib}) -- a disabled agent's package left in the toolchain is not removed this run"
@@ -589,13 +589,13 @@ main() {
     # one. What the branch then does, and why the read is keyed on the entrypoint's absence, are in updater.rule.md.
     local version_dir="${nvm_dir}/versions/node/${target_version}"
     local -a repair=()
-    if declare -F ai_tools_agent_incomplete >/dev/null 2>&1; then
+    if declare -F ai_tools_toolchain__find_incomplete_agents >/dev/null 2>&1; then
         local repair_agent repair_package
         while IFS=$'\t' read -r repair_agent repair_package; do
             [[ -n "${repair_package}" ]] || continue
             warn "${repair_agent}: ${repair_package} is installed without the entrypoint its manifest declares -- reinstalling it; no session of that agent starts until it is back"
             repair+=("${repair_package}")
-        done < <(ai_tools_agent_incomplete "${version_dir}")
+        done < <(ai_tools_toolchain__find_incomplete_agents "${version_dir}")
     fi
 
     # The full managed set is the allow-scripts allowlist -- npm re-scans the whole global tree on every install,
@@ -607,12 +607,12 @@ main() {
 
     # The same read again, now that npm has run: what it names is a package the install did not complete, which npm
     # itself reports as a success (updater.rule.md). Reported rather than fatal, for the reasons stated there.
-    if declare -F ai_tools_agent_incomplete >/dev/null 2>&1; then
+    if declare -F ai_tools_toolchain__find_incomplete_agents >/dev/null 2>&1; then
         local left_agent left_package
         while IFS=$'\t' read -r left_agent left_package; do
             [[ -n "${left_package}" ]] || continue
             warn "${left_agent}: ${left_package} still does not hold the entrypoint its manifest declares after the install -- no session of that agent starts until that executable is installed; this run's npm output carries the reason"
-        done < <(ai_tools_agent_incomplete "${version_dir}")
+        done < <(ai_tools_toolchain__find_incomplete_agents "${version_dir}")
     fi
 
     # The versioned launcher chain takes its final shape here, ahead of every gate that reads it (see the function).
@@ -648,7 +648,7 @@ main() {
         # Not activated: leaving the stable symlink where it is keeps the previously verified and pinned version in use,
         # so the next launch works and this run left it as it was.
         if [[ -n "${entrypoint_blocked[${launcher}]:-}" ]]; then
-            warn "not repointing ${AI_TOOLS_BIN}/${launcher}: its new entrypoint is unverified (see above); the previously verified version stays active"
+            warn "not repointing ${AI_TOOLS_NVM_UPDATE__BIN_DIR}/${launcher}: its new entrypoint is unverified (see above); the previously verified version stays active"
             continue
         fi
         # Repoint (and, via the ai-tools-relabel.path watcher the touched bin directory drives, relabel) is best-effort,
@@ -657,7 +657,7 @@ main() {
         # point, so aborting here would strand a completed update over a symlink the operator can repoint by hand.
         # The scheduled timer run has the socket up and repoints normally.
         if ! /usr/local/bin/ai-tools-handback-client SYMLINK "${versioned_launcher}"; then
-            warn "failed to repoint ${AI_TOOLS_BIN}/${launcher} via handback SYMLINK -- the toolchain is updated but the stable symlink may be stale; repoint it as root: ln -sfn ${versioned_launcher} ${AI_TOOLS_BIN}/${launcher} && ai-tools-admin system entrypoints relabel"
+            warn "failed to repoint ${AI_TOOLS_NVM_UPDATE__BIN_DIR}/${launcher} via handback SYMLINK -- the toolchain is updated but the stable symlink may be stale; repoint it as root: ln -sfn ${versioned_launcher} ${AI_TOOLS_NVM_UPDATE__BIN_DIR}/${launcher} && ai-tools-admin system entrypoints relabel"
         fi
     done
 

@@ -28,8 +28,8 @@ if [[ ! -r "${LIB}" ]]; then
 fi
 # shellcheck source=../../src/usr/local/lib/ai-tools/managed-assets.lib.sh
 if ! source "${LIB}" \
-        || ! declare -F ai_tools_link_shared_root >/dev/null 2>&1 \
-        || ! declare -F ai_tools_unlink_shared_root >/dev/null 2>&1; then
+        || ! declare -F ai_tools_managed_assets__link_shared_root >/dev/null 2>&1 \
+        || ! declare -F ai_tools_managed_assets__unlink_shared_root >/dev/null 2>&1; then
     fail "could not source ${LIB} or it does not define the shared-root link"; finish; exit
 fi
 
@@ -46,8 +46,8 @@ printf 'guide\n' > "${README}"
 ln -s "${README}" "${SHARED}/README.md"
 
 # run <path>: link the shared root at <path>, capturing the report.
-run()   { ai_tools_link_shared_root "${SHARED}" "$1" "${GROUP}" "${README}" 2>&1; }
-unrun() { ai_tools_unlink_shared_root "${SHARED}" "$1" "${README}" 2>&1; }
+run()   { ai_tools_managed_assets__link_shared_root "${SHARED}" "$1" "${GROUP}" "${README}" 2>&1; }
+unrun() { ai_tools_managed_assets__unlink_shared_root "${SHARED}" "$1" "${README}" 2>&1; }
 
 # ── absent -> a link to the shared root; a second run reports it current ─────────────────────
 path="${ETC}/skills"
@@ -96,7 +96,7 @@ out="$(run "${TESTDIR}/no-such-dir/skills")"
     || fail "an absent parent was created or not reported: ${out}"
 
 # ── the shared root absent -> a no-op ────────────────────────────────────────────────────────
-out="$(ai_tools_link_shared_root "${TESTDIR}/no-such-root" "${path}" "${GROUP}" 2>&1)"
+out="$(ai_tools_managed_assets__link_shared_root "${TESTDIR}/no-such-root" "${path}" "${GROUP}" 2>&1)"
 [[ ! -e "${path}" && ! -L "${path}" && -z "${out}" ]] \
     && pass "an absent shared root: nothing is placed and nothing is reported" \
     || fail "an absent shared root placed or reported something: ${out}"

@@ -78,7 +78,7 @@ admin() {
     OUT="$(env "${HOOKS[@]}" bash -c 'helper="$1"; lib="$2"; unload="$3"; prelude="$4"; shift 4; words=( "$@" ); set --
         source "${helper}" >/dev/null 2>&1 || exit 99
         source "${lib}" 2>/dev/null || true
-        (( unload )) && unset -f ai_tools_assets_reconcile
+        (( unload )) && unset -f ai_tools_assets__reconcile
         eval "${prelude}"
         case "${words[0]}" in
             status_assets) STATUS_PROBLEMS=0; STATUS_UNREADABLE=0; status_assets
@@ -293,7 +293,7 @@ done
 chmod 0664 "${CONF}"; admin status_assets
 grep -q 'enable-list-untrusted' <<< "${OUT}" && pass "an untrusted operator.conf renders enable-list-untrusted" || fail "untrusted: ${OUT:0:300}"
 chmod 0644 "${CONF}"
-PRELUDE='ai_tools_enabled_agents() { return 2; }'; admin status_assets; PRELUDE=""
+PRELUDE='ai_tools_providers__list_enabled_agents() { return 2; }'; admin status_assets; PRELUDE=""
 if grep -qE '\[UNREADABLE\] +receivers-unknown' <<< "${OUT}" && [[ "${OUT}" == *unreadable=1* ]]; then
     pass "a provider reader that fails renders an UNREADABLE line, counted as a reading the section could not make"
 else
@@ -315,10 +315,10 @@ else
     fail "a real directory at skills_root: ${OUT:0:400}"
 fi
 sed -i '/^skills_root=/d' "${AGENTS_D}/acme.conf"
-# The status section's own probe is ai_tools_assets_plan, which `unload` leaves; drive the missing library through it.
+# The status section's own probe is ai_tools_assets__plan, which `unload` leaves; drive the missing library through it.
 # shellcheck disable=SC2016
 OUT="$(env "${HOOKS[@]}" bash -c 'helper="$1"; set --; source "${helper}" >/dev/null 2>&1
-    source /usr/local/lib/ai-tools/assets.lib.sh 2>/dev/null; unset -f ai_tools_assets_plan
+    source /usr/local/lib/ai-tools/assets.lib.sh 2>/dev/null; unset -f ai_tools_assets__plan
     STATUS_PROBLEMS=0; STATUS_UNREADABLE=0; status_assets; printf "unreadable=%s\n" "${STATUS_UNREADABLE}"' _ "${HELPER}" 2>&1)"
 [[ "${OUT}" == *UNREADABLE* && "${OUT}" == *unreadable=1* ]] && pass "a library that did not load is a reading the section could not make" \
     || fail "an unloaded library: ${OUT:0:300}"

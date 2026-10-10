@@ -81,6 +81,7 @@ the management CLI (`ai-tools`), and root-helper binary names (`ai-tools-chown`,
 | Test organization, hermeticity, categories | `tests/**` | [tests](.claude/rules/tests.rule.md) |
 | Operator documentation: the category tree, the reader each page is written for, the contract that keeps a page stable while its rule is rewritten, and the navigation form | `README.md`, `docs/**` | [docs-pages](.claude/rules/docs-pages.rule.md) |
 | ShellCheck baseline, `.shellcheckrc`, accepted findings | `src/**/*.sh`, `.shellcheckrc` | [shellcheck](.claude/rules/shellcheck.rule.md) |
+| Shell names: which file a function or a global belongs to, and how a member is named | `src/**/*.sh`, `install.sh`, `selinux/**/*.sh`, `packaging/**/*.sh`, `tests/**/*.sh`, `tools/**/*.sh` | [shell-names](.claude/rules/shell-names.rule.md) |
 
 ## Trust chain (summary)
 
@@ -170,7 +171,7 @@ shape of guarantee: it deletes only after that confirmation, and a failure leave
 | which executable may start it | a launcher an enabled manifest claims, at a semver path in the toolchain | no launch |
 | whether the toolchain holds the enabled agents' packages alone | the residue readers over every installed manifest the enabled set does not name ([updater](.claude/rules/updater.rule.md)) | no launch, of any agent, until a provisioning run removes the package |
 | whether it will be confined | the pre-launch SELinux transition probe (fail-closed once confinement is expected; `AI_TOOLS_REQUIRE_SELINUX`, in force by default, requires it outright, and an operator declares a DAC-only host with `no`) | no launch |
-| which providers it gets | `ai_tools_conf_is_trusted` on every manifest, directory, and fragment | the default-enabled baseline, never "enable all" |
+| which providers it gets | `ai_tools_conf__is_trusted` on every manifest, directory, and fragment | the default-enabled baseline, never "enable all" |
 | which shared assets it loads | `AI_TOOLS_ASSETS` in a trusted `operator.conf`, and for each set a trusted tree, a signature by the key its shipped binding pins, and the rules of format 1 base enforces ([shipped-assets](.claude/rules/shipped-assets.rule.md)) | the asset is not linked, and the next reconcile removes its link |
 | which paths handback may touch | born-`SANDBOX_USER` ownership, re-checked race-safely as root | the path is left alone |
 | which names a walk over a tree treats as secrets | the operator's own `secret-patterns` file, read once the path's owner is resolved, with the shipped baseline in force where it is absent or empty ([ref-section-h4j6](.claude/rules/secret-handling.rule.md#ref-section-h4j6)) | a present file that cannot be read keeps the baseline for classification, and every helper that changes a tree refuses before its first write |
@@ -211,7 +212,7 @@ The invariants the agent operates under:
   is handed, which binary may be labelled as an agent entrypoint, and which launcher symlinks exist all come
   from `operator.conf` and the root-owned provider manifests and fragments. The code reading them runs *as*
   `SANDBOX_USER`, so each input — **and the directory holding it**, since a group-writable directory lets a non-root
-  writer replace a root-owned file inside it — is honored only while it passes `ai_tools_conf_is_trusted`. A provider
+  writer replace a root-owned file inside it — is honored only while it passes `ai_tools_conf__is_trusted`. A provider
   marked `default_enable=no` because it widens host surface can therefore only be turned on by an operator editing
   a root-owned file. See [providers](.claude/rules/providers.rule.md).
 - **Root and the operator do not execute what the sandbox can write.** No root or operator process executes or sources
@@ -233,11 +234,11 @@ The invariants the agent operates under:
   directory (`/`, `/etc`, `/var`, `/usr`, `/home`, `/opt/ai-tools`, …) or a user home root (`/home/<user>` — a whole
   home as a target would hand the agent its dotfiles and keys) — defense in depth against a system directory mistakenly
   added to `allowed-projects`. Matching is exact-or-ancestor, so real projects nested under an operator home
-  or the sandbox-clone area pass. A **second, narrower predicate** (`ai_tools_traverse_grant_allowed`) vets the one
-  operation that is not a target at all — a traverse-only `--x` ACL on a single ancestor directory, which permits
-  traversal alone, without a read of that directory or of the files inside — and permits the acting operator's **own**
-  home root there, refusing every system directory, `/home` itself, and any other account's home root. It is
-  an addition; the protected-paths backstop is unchanged for every target that reaches it. See
+  or the sandbox-clone area pass. A **second, narrower predicate** (`ai_tools_safe_paths__is_traverse_grant_allowed`)
+  vets the one operation that is not a target at all — a traverse-only `--x` ACL on a single ancestor directory,
+  which permits traversal alone, without a read of that directory or of the files inside — and permits the acting
+  operator's **own** home root there, refusing every system directory, `/home` itself, and any other account's home
+  root. It is an addition; the protected-paths backstop is unchanged for every target that reaches it. See
   [safe-paths](.claude/rules/safe-paths.rule.md).
 
 ### What is expected of the agent where a control leaves a choice <a id="ref-section-g6c4"></a>
@@ -300,6 +301,11 @@ not gaps, so a reader tells bounded design from an oversight:
   by provider packages and discovered** — base cannot enumerate integrations it ships without. A contributed command
   passes the same trust predicate as every other provider input. `ai-tools` keeps its `--verb` spelling until the domain
   model behind `projects` settles. Detail in [cli-grammar](.claude/rules/cli-grammar.rule.md).
+- **A shell name states the file that owns it** — `ai_tools_<module>__<member>` for a function,
+  `AI_TOOLS_<MODULE>__<NAME>` for a global — because provider fragments and third-party scripts are sourced into shells
+  that hold the trust libraries, where a second definition of a name replaces the first without a message.
+  An `AI_TOOLS_` name without `__` is an external interface: the environment, `operator.conf`, a journald field. Detail
+  in [shell-names](.claude/rules/shell-names.rule.md).
 - **A new source file states its licence on its first line**, after any shebang: one `SPDX-License-Identifier` comment
   in the file's own syntax — `AGPL-3.0-only`, or `GPL-2.0-or-later` for the SELinux policy sources — and no copyright
   line, since `REUSE.toml` holds the copyright for every file. Prose, licence texts, generated data, and compiled

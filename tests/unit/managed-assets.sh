@@ -51,8 +51,8 @@ done
 if ! source "${LIB_DIR}/msg.lib.sh" \
         || ! source "${LIB_DIR}/conf.lib.sh" \
         || ! source "${LIB_DIR}/managed-assets.lib.sh" \
-        || ! declare -F ai_tools_seed_managed_assets >/dev/null 2>&1 \
-        || ! declare -F ai_tools_remove_retired_assets >/dev/null 2>&1; then
+        || ! declare -F ai_tools_managed_assets__seed_assets >/dev/null 2>&1 \
+        || ! declare -F ai_tools_managed_assets__remove_retired_assets >/dev/null 2>&1; then
     fail "could not source the asset libraries or they do not define the seeder"; finish; exit
 fi
 
@@ -60,8 +60,8 @@ mktestdir
 SHIPPED="${TESTDIR}/shipped"
 LIVE="${TESTDIR}/live"
 
-# A withdrawn name has to come from the real AI_TOOLS_RETIRED_ASSETS list, which is `readonly` -- so these fixtures pin
-# the shipped list itself, not a copy of it.
+# A withdrawn name has to come from the real AI_TOOLS_MANAGED_ASSETS__RETIRED list, which is `readonly` -- so these
+# fixtures pin the shipped list itself, not a copy of it.
 readonly WITHDRAWN_SKILL="ai-tools-docs-reference"
 
 # write_skill <root> <name> <version> [managed]  -- a directory asset with its SKILL.md marker.
@@ -96,12 +96,12 @@ write_orientation() {
         "${version}" > "${root}/orientation/AGENTS.md"
 }
 
-asset_version() { ai_tools_asset_version "$1"; }
+asset_version() { ai_tools_managed_assets__read_asset_version "$1"; }
 
 reset_roots() { rm -rf "${SHIPPED}" "${LIVE}"; mkdir -p "${SHIPPED}" "${LIVE}"; }
 
 # seed [env...] -- run the seeder over both kinds, capturing its report.
-seed() { ai_tools_seed_managed_assets "${SHIPPED}" "${LIVE}" root skills subagents; }
+seed() { ai_tools_managed_assets__seed_assets "${SHIPPED}" "${LIVE}" root skills subagents; }
 
 # ── Seeding ──────────────────────────────────────────────────────────────────────
 
@@ -140,7 +140,7 @@ fi
 
 # ── The update default, with no terminal ─────────────────────────────────────────
 # Property 2. Driven WITHOUT AI_TOOLS_ASSUME_YES and under setsid, so there is no controlling terminal:
-# ai_tools_msg_confirm cannot open /dev/tty and takes its default. That default must be UPDATE. setsid is also
+# ai_tools_msg__confirm cannot open /dev/tty and takes its default. That default must be UPDATE. setsid is also
 # what keeps this from blocking -- the same call on a terminal would read /dev/tty and wait for an answer no test can
 # give.
 reset_roots
@@ -150,7 +150,7 @@ setsid bash -c "
     source '${LIB_DIR}/msg.lib.sh'
     source '${LIB_DIR}/conf.lib.sh'
     source '${LIB_DIR}/managed-assets.lib.sh'
-    ai_tools_seed_managed_assets '${SHIPPED}' '${LIVE}' root skills
+    ai_tools_managed_assets__seed_assets '${SHIPPED}' '${LIVE}' root skills
 " </dev/null >/dev/null 2>&1 || true
 if [[ "$(asset_version "${LIVE}/skills/ai-tools-aaa-updated/SKILL.md")" == "5" ]]; then
     pass "with no terminal the update confirm defaults to UPDATE (a scriptlet takes the new version)"
@@ -213,7 +213,7 @@ reset_roots
 mkdir -p "${LIVE}/skills/ai-tools-unversioned"
 printf -- '---\nname: ai-tools-unversioned\nx-ai-tools-managed: true\n---\nbody\n' \
     > "${LIVE}/skills/ai-tools-unversioned/SKILL.md"
-out="$(bash -c 'set -euo pipefail; . "$1"; v="$(ai_tools_asset_version "$2")"; printf "version=[%s] survived" "${v}"' \
+out="$(bash -c 'set -euo pipefail; . "$1"; v="$(ai_tools_managed_assets__read_asset_version "$2")"; printf "version=[%s] survived" "${v}"' \
     _ "${LIB_DIR}/managed-assets.lib.sh" "${LIVE}/skills/ai-tools-unversioned/SKILL.md" 2>&1)" || true
 if [[ "${out}" == "version=[] survived" ]]; then
     pass "a marker with no version line reads as empty under set -e without ending the shell"
@@ -289,7 +289,7 @@ fi
 
 # ── Withdrawal ───────────────────────────────────────────────────────────────────
 # Property 5, and the marker gate on this side. The live copy from the seeding run is still in place.
-out="$(ai_tools_remove_retired_assets "${LIVE}" skills 2>&1)" || true
+out="$(ai_tools_managed_assets__remove_retired_assets "${LIVE}" skills 2>&1)" || true
 if [[ ! -e "${LIVE}/skills/${WITHDRAWN_SKILL}" ]]; then
     pass "a withdrawn asset is removed from the live root"
 else
@@ -310,7 +310,7 @@ fi
 
 reset_roots
 write_skill "${LIVE}" "${WITHDRAWN_SKILL}" 1 notmanaged
-out="$(ai_tools_remove_retired_assets "${LIVE}" skills 2>&1)" || true
+out="$(ai_tools_managed_assets__remove_retired_assets "${LIVE}" skills 2>&1)" || true
 if [[ -f "${LIVE}/skills/${WITHDRAWN_SKILL}/SKILL.md" ]] \
    && grep -q "kept (operator's own" <<<"${out}"; then
     pass "an unmanaged asset under a withdrawn name is kept and reported, never moved"
@@ -320,7 +320,7 @@ fi
 
 reset_roots
 write_skill "${LIVE}" ai-tools-zzz-seeded 1
-out="$(ai_tools_remove_retired_assets "${LIVE}" skills 2>&1)" || true
+out="$(ai_tools_managed_assets__remove_retired_assets "${LIVE}" skills 2>&1)" || true
 if [[ -f "${LIVE}/skills/ai-tools-zzz-seeded/SKILL.md" ]] && [[ ! -d "${LIVE}/retired" ]]; then
     pass "an asset that is not withdrawn is untouched, and retired/ is not created for nothing"
 else
@@ -331,7 +331,7 @@ fi
 # Property 7. The marker names the integration; its manifest in the integrations directory is what "installed" means,
 # and the directory is the resolver's own root-only hook, so a fixture directory stands in for the host's. A manifest
 # the trust predicate refuses reads as not installed, the direction every other provider input takes.
-if ! declare -F ai_tools_asset_integration >/dev/null 2>&1; then
+if ! declare -F ai_tools_managed_assets__read_asset_integration >/dev/null 2>&1; then
     skip "integration-bound asset" "the installed library predates x-ai-tools-integration"
 else
     INTEGRATIONS="${TESTDIR}/integrations.d"
@@ -351,7 +351,7 @@ else
     }
     # seed_bound -- the seeder over skills alone, reading the fixture integrations directory.
     seed_bound() { AI_TOOLS_INTEGRATIONS_DIR="${INTEGRATIONS}" AI_TOOLS_ASSUME_YES=1 \
-        ai_tools_seed_managed_assets "${SHIPPED}" "${LIVE}" root skills; }
+        ai_tools_managed_assets__seed_assets "${SHIPPED}" "${LIVE}" root skills; }
 
     reset_roots
     rm -rf "${INTEGRATIONS}"; mkdir -m 755 "${INTEGRATIONS}"
@@ -417,7 +417,7 @@ fi
 # does not apply to it and the managed marker is the whole of what it claims by.
 reset_roots
 write_orientation "${SHIPPED}" 3
-out="$(AI_TOOLS_ASSUME_YES=1 ai_tools_seed_managed_assets "${SHIPPED}" "${LIVE}" root orientation 2>&1)" || true
+out="$(AI_TOOLS_ASSUME_YES=1 ai_tools_managed_assets__seed_assets "${SHIPPED}" "${LIVE}" root orientation 2>&1)" || true
 if [[ -f "${LIVE}/orientation/AGENTS.md" ]] \
    && [[ "$(asset_version "${LIVE}/orientation/AGENTS.md")" == "3" ]]; then
     pass "the fixed-name kind (orientation) is seeded, and its marker reads out of an HTML comment"
@@ -432,11 +432,11 @@ if ! id nobody >/dev/null 2>&1; then
     skip "ownership restored on a kept asset" "no 'nobody' account to drift the fixture to"
 else
     write_skill "${SHIPPED}" ai-tools-owned 1
-    out="$(AI_TOOLS_ASSUME_YES=1 ai_tools_seed_managed_assets "${SHIPPED}" "${LIVE}" root skills 2>&1)" || true
+    out="$(AI_TOOLS_ASSUME_YES=1 ai_tools_managed_assets__seed_assets "${SHIPPED}" "${LIVE}" root skills 2>&1)" || true
     chown nobody:nobody "${LIVE}/orientation/AGENTS.md"; chmod 600 "${LIVE}/orientation/AGENTS.md"
     mkdir -p "${LIVE}/skills/ai-tools-owned/references"; chmod 2775 "${LIVE}/skills/ai-tools-owned/references"
     chown nobody "${LIVE}/skills/ai-tools-owned/SKILL.md"
-    out="$(AI_TOOLS_ASSUME_YES=1 ai_tools_seed_managed_assets "${SHIPPED}" "${LIVE}" root skills orientation 2>&1)" || true
+    out="$(AI_TOOLS_ASSUME_YES=1 ai_tools_managed_assets__seed_assets "${SHIPPED}" "${LIVE}" root skills orientation 2>&1)" || true
     if [[ "$(stat -c '%a %U:%G' "${LIVE}/orientation/AGENTS.md")" == "640 root:root" ]] \
        && [[ "$(stat -c '%a %U:%G' "${LIVE}/skills/ai-tools-owned/SKILL.md")" == "640 root:root" ]] \
        && [[ "$(stat -c '%a' "${LIVE}/skills/ai-tools-owned/references")" == "750" ]] \
@@ -450,7 +450,7 @@ else
     else
         fail "the restore report: ${out}"
     fi
-    out="$(AI_TOOLS_ASSUME_YES=1 ai_tools_seed_managed_assets "${SHIPPED}" "${LIVE}" root skills orientation 2>&1)" || true
+    out="$(AI_TOOLS_ASSUME_YES=1 ai_tools_managed_assets__seed_assets "${SHIPPED}" "${LIVE}" root skills orientation 2>&1)" || true
     if ! grep -q 'ownership and modes restored' <<<"${out}"; then
         pass "a second run over assets already at their ownership reports no restore"
     else
@@ -459,8 +459,8 @@ else
     # The linker's own fixture for the next section starts from a seeded orientation, which this left as seeded.
 fi
 
-if ! declare -F ai_tools_link_agent_memory >/dev/null 2>&1; then
-    fail "the asset library does not define ai_tools_link_agent_memory"
+if ! declare -F ai_tools_managed_assets__link_agent_memory >/dev/null 2>&1; then
+    fail "the asset library does not define ai_tools_managed_assets__link_agent_memory"
 else
     AGENT_DIR="${TESTDIR}/agent"; rm -rf "${AGENT_DIR}"; mkdir -p "${AGENT_DIR}"
     SHARED_FILE="${LIVE}/orientation/AGENTS.md"
@@ -468,7 +468,7 @@ else
     # The link's name comes from the agent's manifest, not from the source file, which is the whole reason this is not
     # one of the per-asset links: Claude Code reads CLAUDE.md and no other file at user scope, so a link named
     # for the source would never be loaded.
-    out="$(ai_tools_link_agent_memory "${SHARED_FILE}" "${AGENT_DIR}" CLAUDE.md root 2>&1)" || true
+    out="$(ai_tools_managed_assets__link_agent_memory "${SHARED_FILE}" "${AGENT_DIR}" CLAUDE.md root 2>&1)" || true
     if [[ -L "${AGENT_DIR}/CLAUDE.md" ]] \
        && [[ "$(readlink -- "${AGENT_DIR}/CLAUDE.md")" == "${SHARED_FILE}" ]]; then
         pass "the shared orientation is linked under the name the agent reads (CLAUDE.md)"
@@ -477,7 +477,7 @@ else
     fi
 
     # Idempotent: a second run over a correct link neither replaces it nor reports anything.
-    out="$(ai_tools_link_agent_memory "${SHARED_FILE}" "${AGENT_DIR}" CLAUDE.md root 2>&1)" || true
+    out="$(ai_tools_managed_assets__link_agent_memory "${SHARED_FILE}" "${AGENT_DIR}" CLAUDE.md root 2>&1)" || true
     if [[ -z "${out}" ]] && [[ -L "${AGENT_DIR}/CLAUDE.md" ]]; then
         pass "a link already pointing at the shared file is left alone and reported as nothing"
     else
@@ -487,7 +487,7 @@ else
     # A link left by an earlier layout points somewhere else; it is repointed rather than kept, or the agent goes
     # on loading a file this project no longer maintains.
     ln -sfn "${TESTDIR}/gone.md" "${AGENT_DIR}/CLAUDE.md"
-    out="$(ai_tools_link_agent_memory "${SHARED_FILE}" "${AGENT_DIR}" CLAUDE.md root 2>&1)" || true
+    out="$(ai_tools_managed_assets__link_agent_memory "${SHARED_FILE}" "${AGENT_DIR}" CLAUDE.md root 2>&1)" || true
     if [[ "$(readlink -- "${AGENT_DIR}/CLAUDE.md")" == "${SHARED_FILE}" ]] \
        && grep -q 'repointed' <<<"${out}"; then
         pass "a stale link is repointed at the shared file and the change is reported"
@@ -499,7 +499,7 @@ else
     # so anything REAL there wins and is reported, never displaced by a link.
     rm -f "${AGENT_DIR}/CLAUDE.md"
     printf 'the operator wrote this\n' > "${AGENT_DIR}/CLAUDE.md"
-    out="$(ai_tools_link_agent_memory "${SHARED_FILE}" "${AGENT_DIR}" CLAUDE.md root 2>&1)" || true
+    out="$(ai_tools_managed_assets__link_agent_memory "${SHARED_FILE}" "${AGENT_DIR}" CLAUDE.md root 2>&1)" || true
     if [[ ! -L "${AGENT_DIR}/CLAUDE.md" ]] \
        && grep -q 'the operator wrote this' "${AGENT_DIR}/CLAUDE.md" \
        && grep -q 'kept (a real entry here wins' <<<"${out}"; then
@@ -513,7 +513,7 @@ else
     # copy that differs is an edit or version drift, and stays.
     rm -f "${AGENT_DIR}/CLAUDE.md"
     cp "${SHARED_FILE}" "${AGENT_DIR}/CLAUDE.md"
-    out="$(ai_tools_link_agent_memory "${SHARED_FILE}" "${AGENT_DIR}" CLAUDE.md root 2>&1)" || true
+    out="$(ai_tools_managed_assets__link_agent_memory "${SHARED_FILE}" "${AGENT_DIR}" CLAUDE.md root 2>&1)" || true
     if [[ -L "${AGENT_DIR}/CLAUDE.md" ]] \
        && [[ "$(readlink -- "${AGENT_DIR}/CLAUDE.md")" == "${SHARED_FILE}" ]] \
        && grep -q 'converted to a link (was an identical managed copy)' <<<"${out}"; then
@@ -523,7 +523,7 @@ else
     fi
     rm -f "${AGENT_DIR}/CLAUDE.md"
     { cat "${SHARED_FILE}"; printf 'an operator edit\n'; } > "${AGENT_DIR}/CLAUDE.md"
-    out="$(ai_tools_link_agent_memory "${SHARED_FILE}" "${AGENT_DIR}" CLAUDE.md root 2>&1)" || true
+    out="$(ai_tools_managed_assets__link_agent_memory "${SHARED_FILE}" "${AGENT_DIR}" CLAUDE.md root 2>&1)" || true
     if [[ ! -L "${AGENT_DIR}/CLAUDE.md" ]] \
        && grep -q 'an operator edit' "${AGENT_DIR}/CLAUDE.md" \
        && grep -q 'kept (a real entry here wins' <<<"${out}"; then
@@ -535,7 +535,7 @@ else
     # An agent that does not declare a memory_file reaches the linker with an empty name (the resolver skips it,
     # but the guard is what keeps a bad manifest from writing to the directory itself).
     rm -f "${AGENT_DIR}/CLAUDE.md"
-    ai_tools_link_agent_memory "${SHARED_FILE}" "${AGENT_DIR}" "" root >/dev/null 2>&1 || true
+    ai_tools_managed_assets__link_agent_memory "${SHARED_FILE}" "${AGENT_DIR}" "" root >/dev/null 2>&1 || true
     if [[ -z "$(ls -A "${AGENT_DIR}")" ]]; then
         pass "no memory filename means no link, rather than a link under an empty name"
     else
@@ -543,26 +543,27 @@ else
     fi
 fi
 
-# Property 7. THE KIND LIST IS THE TYPE. AI_TOOLS_ASSET_KINDS is the one declaration of what the project ships; a caller
-# naming a kind outside it, or no kind at all, is refused with a reason rather than seeding less than it asked for.
-# The seeder once defaulted to `agents`, a directory the tree never carried, so a caller relying on the default would
-# have skipped the subagents and the orientation with no line saying so -- the quiet shape this refusal replaces.
+# Property 7. THE KIND LIST IS THE TYPE. AI_TOOLS_MANAGED_ASSETS__KINDS is the one declaration of what the project
+# ships; a caller naming a kind outside it, or no kind at all, is refused with a reason rather than seeding less than it
+# asked for. The seeder once defaulted to `agents`, a directory the tree never carried, so a caller relying
+# on the default would have skipped the subagents and the orientation with no line saying so -- the quiet shape this
+# refusal replaces.
 write_skill "${SHIPPED}" ai-tools-kind-probe 1
-out="$(ai_tools_seed_managed_assets "${SHIPPED}" "${LIVE}" root agents 2>&1)" && rc=0 || rc=$?
+out="$(ai_tools_managed_assets__seed_assets "${SHIPPED}" "${LIVE}" root agents 2>&1)" && rc=0 || rc=$?
 if (( rc != 0 )) && grep -q 'agents is not an asset kind' <<<"${out}" \
    && [[ ! -e "${LIVE}/agents" ]]; then
     pass "a kind the project does not ship is refused by name, and nothing is seeded for it"
 else
     fail "an unknown kind was not refused (rc=${rc}): ${out}"
 fi
-out="$(ai_tools_seed_managed_assets "${SHIPPED}" "${LIVE}" root 2>&1)" && rc=0 || rc=$?
+out="$(ai_tools_managed_assets__seed_assets "${SHIPPED}" "${LIVE}" root 2>&1)" && rc=0 || rc=$?
 if (( rc != 0 )) && grep -q 'no asset kind named' <<<"${out}" \
    && [[ ! -e "${LIVE}/skills/ai-tools-kind-probe" ]]; then
     pass "an empty kind list is refused rather than defaulting to a set of the seeder's own"
 else
     fail "an empty kind list was not refused (rc=${rc}): ${out}"
 fi
-out="$(ai_tools_remove_retired_assets "${LIVE}" agents 2>&1)" && rc=0 || rc=$?
+out="$(ai_tools_managed_assets__remove_retired_assets "${LIVE}" agents 2>&1)" && rc=0 || rc=$?
 if (( rc != 0 )) && grep -q 'agents is not an asset kind' <<<"${out}"; then
     pass "the withdrawal pass holds the same kind list"
 else

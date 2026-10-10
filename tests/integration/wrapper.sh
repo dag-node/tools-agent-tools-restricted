@@ -331,10 +331,10 @@ else
     codex_enabled=0
     # shellcheck source=/dev/null
     if source /usr/local/lib/ai-tools/providers.lib.sh 2>/dev/null \
-            && declare -F ai_tools_enabled_agents >/dev/null 2>&1; then
+            && declare -F ai_tools_providers__list_enabled_agents >/dev/null 2>&1; then
         while IFS=$'\t' read -r _agent _ _; do
             [[ "${_agent}" == codex ]] && codex_enabled=1
-        done < <(ai_tools_enabled_agents 2>/dev/null)
+        done < <(ai_tools_providers__list_enabled_agents 2>/dev/null)
     else
         fail "cannot source providers.lib.sh to read the enabled agents"
     fi

@@ -16,7 +16,7 @@
 # The archive verifies when its sha256 equals the pin's and the one its release publishes, and its detached signature is
 # made by a key whose primary fingerprint is the dag-node package-signing primary, read through the key base itself
 # ships (src/usr/local/lib/ai-tools/keys/dag-node-package-signing.asc), so the anchor is the one every set binding
-# names. A fixture is selected when its `rule=` is one AI_TOOLS_ASSETS_ENFORCED_RULES lists; the job then asserts
+# names. A fixture is selected when its `rule=` is one AI_TOOLS_ASSETS__ENFORCED_RULES lists; the job then asserts
 # the validator returns 1 reporting that rule and no other, and over every `pass/` fixture that it returns 0 reporting
 # nothing (run_fixtures states the disagreements). Three selections are narrower than the rule: of `name.asset-prefix`,
 # the `.reserved` variant alone, since base enforces the reserved half and the `<set>-` prefix is the publisher's check;
@@ -60,7 +60,7 @@ fetch_release() {
     [[ "$(sha256sum < "${work}/${archive}" | cut -c1-64)" == "${want}" ]] || die "${archive} does not match the pin's sha256"
     published="$(cut -c1-64 < "${work}/${archive}.sha256")"
     [[ "${published}" == "${want}" ]] || die "the release publishes ${published} for ${archive}, the pin ${want}"
-    bash -c '. "$1" && ai_tools_assets_write_binary_keyring "$2" "$3"' _ \
+    bash -c '. "$1" && ai_tools_assets_verify__write_binary_keyring "$2" "$3"' _ \
         "${LIB_DIR}/assets-verify.lib.sh" "${SIGNING_KEY}" "${work}/keyring.gpg" \
         || die "the package-signing key did not dearmor into a keyring"
     status="$(gpgv --status-fd 1 --keyring "${work}/keyring.gpg" "${work}/${archive}.asc" "${work}/${archive}" 2>/dev/null)" \
@@ -78,7 +78,7 @@ selected() {
                                frontmatter.syntax.colon-tab frontmatter.syntax.empty-item frontmatter.syntax.escape
                                frontmatter.syntax.flow-comment-item frontmatter.syntax.flow-reserved-indicator
                                frontmatter.syntax.flow-tab-comment )
-    [[ " ${AI_TOOLS_ASSETS_ENFORCED_RULES[*]} " == *" ${rule} "* ]] || return 1
+    [[ " ${AI_TOOLS_ASSETS__ENFORCED_RULES[*]} " == *" ${rule} "* ]] || return 1
     [[ "${rule}" == name.asset-prefix && "${name}" != name.asset-prefix.reserved ]] && return 1
     [[ "${name}" == body.dynamic-injection.not-allowed* ]] && return 1
     [[ "${rule}" == frontmatter.syntax && " ${syntax_variants[*]} " != *" ${name} "* ]] && return 1
@@ -99,10 +99,11 @@ run_fixtures() {
     for fixture in "${fixtures}"/fail/* "${fixtures}"/pass/*; do
         [[ -d "${fixture}" ]] || continue
         name="${fixture##*/}"; conf="${fixture}/fixture.conf"
-        expect="$(ai_tools_conf_get "${conf}" expect || true)"
-        rule="$(ai_tools_conf_get "${conf}" rule || true)"
-        profile="$(ai_tools_conf_get "${conf}" profile || true)"
-        # `warn` is a finding the publisher reports and does not refuse on; base does not report a warning, so it is skipped.
+        expect="$(ai_tools_conf__print_value "${conf}" expect || true)"
+        rule="$(ai_tools_conf__print_value "${conf}" rule || true)"
+        profile="$(ai_tools_conf__print_value "${conf}" profile || true)"
+        # `warn` is a finding the publisher reports and does not refuse on; base does not report a warning, so it is
+        # skipped.
         if [[ "${expect}" == warn ]]; then skipped=$(( skipped + 1 )); continue; fi
         if [[ "${expect}" != fail && "${expect}" != pass ]]; then
             printf 'FAIL %s: expect=%s; a fixture expects pass, fail or warn\n' "${name}" "${expect:-(absent)}"; failed=$(( failed + 1 )); continue
@@ -117,7 +118,7 @@ run_fixtures() {
         fi
         set_dir="${set_dirs[0]}"
         status=0
-        output="$(ai_tools_assets_validate_set "${set_dir}" "${profile:-source}")" || status=$?
+        output="$(ai_tools_assets__validate_set "${set_dir}" "${profile:-source}")" || status=$?
         rules=""
         [[ -z "${output}" ]] || rules="$(cut -f1 <<< "${output}" | LC_ALL=C sort -u | tr '\n' ' ')"
         checked=$(( checked + 1 ))

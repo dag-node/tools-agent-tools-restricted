@@ -177,7 +177,7 @@ run_ensure() {
         source "$1"
         declare -F ensure_config_home >/dev/null 2>&1 || { printf "NO SUCH FUNCTION\n"; exit 0; }
         umask "$3"
-        if [[ -n "${4-}" ]]; then eval "ai_tools_msg_confirm() { return $4; }"; fi
+        if [[ -n "${4-}" ]]; then eval "ai_tools_msg__confirm() { return $4; }"; fi
         rc=0; ensure_config_home "$(id -un)" "$(id -gn)" "$2" || rc=$?
         printf "RC=%s\n" "${rc}"
     ' _ "${HELPER}" "$1" "$2" "${3-}" 2>&1 || true
@@ -264,16 +264,16 @@ out="$(bash -c '
     # shellcheck source=/dev/null
     source "$1"
     install() { :; }
-    _ai_tools_conf_replace_file() { printf "REPLACE_FILE\n"; return 1; }
-    ai_tools_conf_set_key() { printf "SET_KEY"; printf " <%s>" "$@"; printf "\n"; }
-    ai_tools_conf_set_list() { printf "SET_LIST"; printf " <%s>" "$@"; printf "\n"; }
+    _ai_tools_conf__replace_file() { printf "REPLACE_FILE\n"; return 1; }
+    ai_tools_conf__set_key() { printf "SET_KEY"; printf " <%s>" "$@"; printf "\n"; }
+    ai_tools_conf__set_list() { printf "SET_LIST"; printf " <%s>" "$@"; printf "\n"; }
     write_operators alice bob
 ' _ "${HELPER}" 2>&1 || true)"
 if [[ "${out}" == *"SET_LIST </etc/ai-tools/operator.conf> <OPERATORS> <alice> <bob>"* \
         && "${out}" != *SET_KEY* && "${out}" != *REPLACE_FILE* ]]; then
     pass "write_operators passes each name to the list writer as its own argument"
 else
-    fail "write_operators did not hand the names to ai_tools_conf_set_list one per argument (${HELPER}), got: ${out}"
+    fail "write_operators did not hand the names to ai_tools_conf__set_list one per argument (${HELPER}), got: ${out}"
 fi
 
 finish

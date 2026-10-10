@@ -63,18 +63,18 @@ done
 if ! source "${LIB_DIR}/conf.lib.sh" \
         || ! source "${LIB_DIR}/providers.lib.sh" \
         || ! source "${LIB_DIR}/relabel.lib.sh" \
-        || ! declare -F ai_tools_launcher_target_valid   >/dev/null 2>&1 \
-        || ! declare -F ai_tools_relink_launcher         >/dev/null 2>&1 \
-        || ! declare -F ai_tools_agent_sweeps_at_exit    >/dev/null 2>&1 \
-        || ! declare -F ai_tools_entrypoint_fcontext_valid >/dev/null 2>&1 \
-        || ! declare -F ai_tools_agent_config_dir_valid  >/dev/null 2>&1; then
+        || ! declare -F ai_tools_providers__is_launcher_target_valid   >/dev/null 2>&1 \
+        || ! declare -F ai_tools_providers__relink_launcher         >/dev/null 2>&1 \
+        || ! declare -F ai_tools_providers__is_exit_sweep_required    >/dev/null 2>&1 \
+        || ! declare -F ai_tools_providers__is_entrypoint_fcontext_valid >/dev/null 2>&1 \
+        || ! declare -F ai_tools_control_plane__is_agent_config_dir_valid  >/dev/null 2>&1; then
     fail "could not source the libraries the manifest is read with"; finish; exit
 fi
 
 mktestdir
 
 # field <key>: the manifest's value for <key>, through the parser every reader uses.
-field() { ai_tools_conf_get "${MANIFEST}" "$1"; }
+field() { ai_tools_conf__print_value "${MANIFEST}" "$1"; }
 
 # ── 1. The manifest ───────────────────────────────────────────────────────────────────────────
 section "codex.conf: what the readers parse out of it"
@@ -92,14 +92,14 @@ section "codex.conf: what the readers parse out of it"
     || fail "login_command is '$(field login_command)', expected 'codex login --device-auth'"
 
 # handback=none is the hybrid: the shim's session-end sweep runs, and the package's hooks add cadence on top.
-if [[ "$(field handback)" == "none" ]] && ai_tools_agent_sweeps_at_exit "$(field handback)"; then
+if [[ "$(field handback)" == "none" ]] && ai_tools_providers__is_exit_sweep_required "$(field handback)"; then
     pass "handback=none: ai-tools-run sweeps at session end (the hooks are cadence, not the guarantee)"
 else
     fail "handback is '$(field handback)' or does not switch the shim's sweep on"
 fi
 
 for key in config_dir memory_file; do
-    if ai_tools_agent_config_dir_valid "$(field "${key}")"; then
+    if ai_tools_control_plane__is_agent_config_dir_valid "$(field "${key}")"; then
         pass "${key}=$(field "${key}") is one plain component under the sandbox home"
     else
         fail "${key}='$(field "${key}")' is not a valid single component"
@@ -112,8 +112,8 @@ done
 # so neither asset-directory key is declared; a value here would make the seeder place links in .codex that codex does
 # not read.
 for key in skills_dir subagents_dir release_manifest_url release_key release_fingerprint; do
-    if ai_tools_conf_read "${MANIFEST}" "${key}"; then
-        fail "${key} is set (${_ai_tools_conf_value}); the codex manifest declares no ${key}"
+    if ai_tools_conf__read "${MANIFEST}" "${key}"; then
+        fail "${key} is set (${ai_tools_conf__value}); the codex manifest declares no ${key}"
     else
         pass "${key} is not declared"
     fi
@@ -127,7 +127,7 @@ done
 # declared path is a file the package ships under src/etc, read by basename -- a declared path with no shipped source is
 # a status line that can only ever read `unknown`.
 declare -a managed_declared=()
-ai_tools_conf_split managed_declared "$(field managed_files)"
+ai_tools_conf__split managed_declared "$(field managed_files)"
 if [[ "${managed_declared[*]}" == "/etc/codex/requirements.toml /etc/codex/managed_config.toml" ]]; then
     pass "managed_files names the two files under /etc/codex, in the shipped order"
 else
@@ -149,7 +149,7 @@ else
     en_dir="${TESTDIR}/agents.d"; mkdir -p "${en_dir}"; chmod 0755 "${en_dir}"
     install -m 0644 "${MANIFEST}" "${en_dir}/codex.conf"
     en_conf="${TESTDIR}/operator.conf"
-    enabled_names() { AI_TOOLS_AGENTS_DIR="${en_dir}" AI_TOOLS_OPERATOR_CONF="$1" ai_tools_enabled_agents 2>/dev/null | cut -f1 | tr '\n' ' '; }
+    enabled_names() { AI_TOOLS_AGENTS_DIR="${en_dir}" AI_TOOLS_OPERATOR_CONF="$1" ai_tools_providers__list_enabled_agents 2>/dev/null | cut -f1 | tr '\n' ' '; }
     printf 'OPERATORS="x"\n' > "${en_conf}"; chmod 0644 "${en_conf}"
     [[ "$(enabled_names "${en_conf}")" == "" ]] \
         && pass "AI_TOOLS_AGENTS unset: codex stays disabled (default_enable=no)" \
@@ -159,7 +159,7 @@ else
         && pass "AI_TOOLS_AGENTS=agent-codex: codex resolves as enabled" \
         || fail "codex did not resolve as enabled when named: '$(enabled_names "${en_conf}")'"
     chmod 0664 "${en_dir}/codex.conf"
-    en_warn="$(AI_TOOLS_AGENTS_DIR="${en_dir}" AI_TOOLS_OPERATOR_CONF="${en_conf}" ai_tools_enabled_agents 2>&1 >/dev/null)"
+    en_warn="$(AI_TOOLS_AGENTS_DIR="${en_dir}" AI_TOOLS_OPERATOR_CONF="${en_conf}" ai_tools_providers__list_enabled_agents 2>&1 >/dev/null)"
     [[ "$(enabled_names "${en_conf}")" == "" ]] \
         && pass "a group-writable codex.conf is skipped even when named: less access, never more" \
         || fail "an untrusted codex.conf still resolved as enabled"
@@ -169,17 +169,17 @@ fi
 
 target="$(field launcher_target)"
 pattern="$(field entrypoint_fcontext)"
-if ai_tools_launcher_target_valid "${target}"; then
+if ai_tools_providers__is_launcher_target_valid "${target}"; then
     pass "launcher_target passes the shape check"
 else
-    fail "launcher_target '${target}' is refused by ai_tools_launcher_target_valid"
+    fail "launcher_target '${target}' is refused by ai_tools_providers__is_launcher_target_valid"
 fi
-if ai_tools_entrypoint_fcontext_valid "${pattern}" "${AI_TOOLS_NODE_VERSIONS_ROOT}"; then
-    pass "entrypoint_fcontext passes the containment check (anchored under ${AI_TOOLS_NODE_VERSIONS_ROOT})"
+if ai_tools_providers__is_entrypoint_fcontext_valid "${pattern}" "${AI_TOOLS_RELABEL__NODE_VERSIONS_ROOT}"; then
+    pass "entrypoint_fcontext passes the containment check (anchored under ${AI_TOOLS_RELABEL__NODE_VERSIONS_ROOT})"
 else
-    fail "entrypoint_fcontext '${pattern}' is refused by ai_tools_entrypoint_fcontext_valid"
+    fail "entrypoint_fcontext '${pattern}' is refused by ai_tools_providers__is_entrypoint_fcontext_valid"
 fi
-resolved_shape="${AI_TOOLS_NODE_VERSIONS_ROOT}/v1.2.3/${target}"
+resolved_shape="${AI_TOOLS_RELABEL__NODE_VERSIONS_ROOT}/v1.2.3/${target}"
 if [[ "${resolved_shape}" =~ ${pattern} ]]; then
     pass "entrypoint_fcontext covers the file launcher_target names (the two keys agree)"
 else
@@ -210,10 +210,11 @@ else
     printf '#!/bin/sh\n' > "${ver}/${target}"; chmod 0755 "${ver}/${target}"
     ln -s "../lib/node_modules/@openai/codex/bin/codex.js" "${ver}/bin/codex"
     # The pattern is anchored at the real toolchain root; the fixture lives elsewhere, so the pattern's head is
-    # rewritten onto the fixture root for this run alone -- ai_tools_entrypoint_fcontext_valid already held the real
+    # rewritten onto the fixture root for this run alone -- ai_tools_providers__is_entrypoint_fcontext_valid already
+    # held the real
     # head.
     fixture_pattern="${pattern/#\/opt\/ai-tools\/\\.nvm\/versions\/node/${FIXTURE_ROOT}/versions/node}"
-    out="$(ai_tools_relink_launcher "${ver}" codex "${target}" "${fixture_pattern}" 2>"${TESTDIR}/relink.err")" && rc=0 || rc=$?
+    out="$(ai_tools_providers__relink_launcher "${ver}" codex "${target}" "${fixture_pattern}" 2>"${TESTDIR}/relink.err")" && rc=0 || rc=$?
     if [[ "${rc}" -eq 0 && "${out}" == "linked" && "$(realpath -e "${ver}/bin/codex")" == "$(realpath -e "${ver}/${target}")" ]]; then
         pass "the re-link accepts the manifest's launcher_target under its entrypoint_fcontext: bin/codex -> the vendor binary"
     else
