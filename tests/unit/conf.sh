@@ -98,6 +98,19 @@ if ! ai_tools_conf__read "${TESTDIR}/does-not-exist" BARE; then
 else
     fail "unreadable file reported a value"
 fi
+# The status tells a key absent from a file read whole (1) from a file not read whole (2): a reader whose default
+# for an absent key widens access turns on it, and the read builtin reports an I/O error as end of input.
+read_status() { local status=0; ai_tools_conf__read "$@" >/dev/null 2>&1 || status=$?; printf '%s' "${status}"; }
+[[ "$(read_status "${conf}" NO_SUCH_KEY)" == 1 ]] && pass "an absent key is status 1" || fail "an absent key: status $(read_status "${conf}" NO_SUCH_KEY)"
+[[ "$(read_status "${TESTDIR}/does-not-exist" BARE)" == 2 ]] && pass "an absent file is status 2" || fail "an absent file: status $(read_status "${TESTDIR}/does-not-exist" BARE)"
+mkdir "${TESTDIR}/a-directory.conf"
+[[ "$(read_status "${TESTDIR}/a-directory.conf" BARE)" == 2 ]] && pass "a directory at the path is status 2" || fail "a directory: status $(read_status "${TESTDIR}/a-directory.conf" BARE)"
+cat() { return 1; }
+[[ "$(read_status "${conf}" BARE)" == 2 ]] && pass "a read that does not complete is status 2, with the key present" || fail "a failed read: status $(read_status "${conf}" BARE)"
+unset -f cat
+[[ "$(read_status "${conf}" BARE)" == 0 ]] && pass "control: the key reads at status 0 once the read completes" || fail "control: status $(read_status "${conf}" BARE)"
+printf 'NOEOL=1' > "${TESTDIR}/noeol.conf"
+[[ "$(ai_tools_conf__print_value "${TESTDIR}/noeol.conf" NOEOL)" == 1 ]] && pass "a file without a final newline reads its last line" || fail "a file without a final newline: '$(ai_tools_conf__print_value "${TESTDIR}/noeol.conf" NOEOL || true)'"
 
 # --- Splitting: separators, runs, and IFS independence ---------------------------------------
 # split_under_ifs <ifs> <value> : the items, joined by '|', from a SUBSHELL running under <ifs>, so the caller's own IFS

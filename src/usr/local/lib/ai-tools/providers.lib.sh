@@ -403,12 +403,13 @@ ai_tools_providers__migrate_kinds() {
 }
 
 # _ai_tools_providers__read_manifest_field <manifest-dir> <name> <key> : print one field of a trusted manifest in
-#   <manifest-dir>, and return 0. Returns 1 for a key the manifest does not carry and 2 for a manifest it does not
-#   read as trusted data -- a name outside the identifier charset, a manifest absent, untrusted or unreadable --
-#   printing an empty value for either, so a caller whose fail direction turns on it tells an absent key from a read
-#   that failed (the assets resolver reads the second as receivers it cannot know); every other caller reads
-#   a non-zero status as no value. Shared by the two public readers so both allowlist the name the same way and both
-#   apply the trust predicate before reading.
+#   <manifest-dir>, and return 0. Returns 1 for a key a manifest read whole does not carry and 2 for a manifest
+#   it does not read as trusted data -- a name outside the identifier charset, a manifest absent or untrusted,
+#   or one ai_tools_conf__read reports as not a regular file or not read whole -- printing an empty value
+#   for either, so a caller whose fail direction turns on it tells an absent key from a read that failed
+#   (the assets resolver reads the second as receivers it cannot know); every other caller reads a non-zero
+#   status as no value. Shared by the two public readers so both allowlist the name the same way and both apply
+#   the trust predicate before reading.
 _ai_tools_providers__read_manifest_field() {
     local manifest_dir="$1" provider_name="$2" wanted_key="$3"
     # Allowlist the name before it becomes a path: manifest basenames are plain identifiers, so anything else --
@@ -416,7 +417,6 @@ _ai_tools_providers__read_manifest_field() {
     [[ "${provider_name}" =~ ^[A-Za-z0-9._-]+$ && "${provider_name}" != *..* ]] || return 2
     local manifest_file="${manifest_dir}/${provider_name}.conf"
     ai_tools_conf__is_trusted "${manifest_file}" || return 2
-    [[ -r "${manifest_file}" ]] || return 2
     ai_tools_conf__print_value "${manifest_file}" "${wanted_key}"
 }
 

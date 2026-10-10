@@ -201,6 +201,11 @@ field_status=0; ai_tools_providers__read_agent_manifest_field claude-code no_suc
 [[ "${field_status}" == 1 ]] && pass "manifest field: a key the manifest does not carry is status 1" \
     || fail "manifest field: an absent key is status ${field_status}, want 1"
 field_status=0; ai_tools_providers__read_agent_manifest_field no-such-agent display_name >/dev/null 2>&1 || field_status=$?
+mkdir "${agents_dir}/dir-agent.conf"
+field_status=0; ai_tools_providers__read_agent_manifest_field dir-agent display_name >/dev/null 2>&1 || field_status=$?
+[[ "${field_status}" == 2 ]] && pass "manifest field: a root-owned directory at the manifest path is status 2, a failed read" \
+    || fail "manifest field: a directory at the manifest path is status ${field_status}, want 2"
+rmdir "${agents_dir}/dir-agent.conf"
 [[ "${field_status}" == 2 ]] && pass "manifest field: an absent manifest is status 2, a failed read" \
     || fail "manifest field: an absent manifest is status ${field_status}, want 2"
 

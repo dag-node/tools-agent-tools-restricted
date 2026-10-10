@@ -162,14 +162,19 @@ _ai_tools_conf__parse_value() {
 
 # ai_tools_conf__read <file> <key> : set ai_tools_conf__value to the value of the LAST assignment
 #   of <key> in <file>. Returns 0 when the key is PRESENT (an empty value included), 1 when it is
-#   absent or the file is unreadable -- the present-but-empty / absent distinction the fail-closed
-#   allowlist gating depends on.
+#   absent from a file read whole, and 2 when the file fails the regular-file or read-permission
+#   test or its read did not complete -- the present-but-empty / absent distinction the fail-closed allowlist gating
+#   depends on, and the absent / unread distinction a reader whose default for an absent key widens
+#   access depends on (the assets resolver reads a missing asset_profiles as the base profiles).
+#   The file is read whole through cat, whose status reports an open or read failure where
+#   the read builtin reports end of input, so a directory or a file an I/O error cuts short is 2.
 ai_tools_conf__read() {
-    local file="$1" wanted="$2" line key found=1
+    local file="$1" wanted="$2" line key content found=1
     ai_tools_conf__value=""
     _ai_tools_conf__value_quoted=0
-    [[ -r "${file}" ]] || return 1
-    while IFS= read -r line || [[ -n "${line}" ]]; do
+    [[ -f "${file}" && -r "${file}" ]] || return 2
+    content="$(cat -- "${file}" 2>/dev/null)" || return 2
+    while IFS= read -r line; do
         line="${line#"${line%%[![:space:]]*}"}"
         [[ -z "${line}" || "${line}" == '#'* || "${line}" != *=* ]] && continue
         key="${line%%=*}"
@@ -177,7 +182,7 @@ ai_tools_conf__read() {
         [[ "${key}" == "${wanted}" ]] || continue
         _ai_tools_conf__parse_value "${line#*=}"
         found=0
-    done < "${file}"
+    done <<< "${content}"
     return "${found}"
 }
 
@@ -211,11 +216,12 @@ ai_tools_conf__is_no() {
     return 1
 }
 
-# ai_tools_conf__print_value <file> <key> : print the value of <key>, empty when absent. For a caller that
-#   only wants the string; one that must tell absent from empty calls ai_tools_conf__read.
+# ai_tools_conf__print_value <file> <key> : print the value of <key>, empty when absent, at the status
+#   ai_tools_conf__read returns. For a caller that only wants the string; one that must tell absent from empty
+#   calls ai_tools_conf__read.
 ai_tools_conf__print_value() {
     local status=0
-    ai_tools_conf__read "$1" "$2" || status=1
+    ai_tools_conf__read "$1" "$2" || status=$?
     printf '%s' "${ai_tools_conf__value}"
     return "${status}"
 }
