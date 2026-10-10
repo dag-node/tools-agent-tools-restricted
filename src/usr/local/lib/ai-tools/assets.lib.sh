@@ -2415,6 +2415,22 @@ _ai_tools_assets__reconcile_report() {
     _ai_tools_assets__report "$1"
 }
 
+# ai_tools_assets__is_set_installed <set> : succeed when one of the package roots, the first two
+# of AI_TOOLS_ASSETS_ROOTS, passes ai_tools_conf__is_trusted and holds <set>/set.conf as a regular file. Reads the paths
+# alone, without verifying the set and without changing a plan output; `ai-tools-admin status` reads it to name
+# the package install a notice needs only where the set is not on the host.
+ai_tools_assets__is_set_installed() {
+    local root
+    local -a roots=()
+    read -r -a roots <<< "${AI_TOOLS_ASSETS_ROOTS}"
+    for root in "${roots[@]:0:2}"; do
+        root="${root%/}"
+        ai_tools_conf__is_trusted "${root}" && [[ -d "${root}" ]] || continue
+        [[ -f "${root}/$1/set.conf" && ! -L "${root}/$1/set.conf" ]] && return 0
+    done
+    return 1
+}
+
 # ai_tools_assets__build_enable_snapshot <set> : resolve every asset of <set> as `enable --set` snapshots it,
 # from the first root holding <set>/set.conf. Publishes AI_TOOLS_ASSETS__SNAPSHOT_STATE (the set's token, `ok` when it
 # may be enabled), AI_TOOLS_ASSETS__SNAPSHOT_DETAIL, and AI_TOOLS_ASSETS__SNAPSHOT_IDS

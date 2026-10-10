@@ -2902,11 +2902,20 @@ status_selinux_attestation() {
 # status_assets: the Assets section, read from the plan alone (assets.lib.sh), without the lock and without a write: one
 # [ATTENTION] line per enabled asset that is not linked, per untrusted or foreign entry the plan met, and per agent
 # whose own entry stands at an enabled asset's name, each counted in STATUS_PROBLEMS; one [UNREADABLE] line per input
-# the plan could not read, counted in STATUS_UNREADABLE; an OK line per linked asset that declares a capability;
-# and an OK summary of how many entries are enabled and linked. A library that did not load is a reading this section
-# could not make. Every string from a set or an agent's directory passes the sanitizer.
+# the plan could not read, counted in STATUS_UNREADABLE; the withdrawn-successor notice (status_assets_successors);
+# an OK line per linked asset that declares a capability; and an OK summary of how many entries are enabled and linked.
+# A library that did not load is a reading this section could not make. Every string from a set or an agent's directory
+# passes the sanitizer. The section closes with status_assets_summary over the counts it added.
 status_assets() {
+    local problems_before="${STATUS_PROBLEMS}" unreadable_before="${STATUS_UNREADABLE}"
     heading "Assets"
+    status_assets_rows
+    status_assets_summary $(( STATUS_PROBLEMS - problems_before )) $(( STATUS_UNREADABLE - unreadable_before ))
+    return 0
+}
+
+# status_assets_rows: the Assets section's lines, as status_assets states them.
+status_assets_rows() {
     # shellcheck source=SCRIPTDIR/../../lib/ai-tools/assets.lib.sh
     source "${ASSETS_LIB}" 2>/dev/null || true
     if ! declare -F ai_tools_assets__plan >/dev/null 2>&1; then
@@ -2922,6 +2931,9 @@ status_assets() {
                    STATUS_PROBLEMS=$(( STATUS_PROBLEMS + 1 )) ;;
         invalid)   st ATTENTION "id-malformed  AI_TOOLS_ASSETS -- $(ai_tools_log__sanitize "${AI_TOOLS_ASSETS__LIST_DETAIL}")"
                    STATUS_PROBLEMS=$(( STATUS_PROBLEMS + 1 )) ;;
+        unread)    st UNREADABLE "error  AI_TOOLS_ASSETS -- $(ai_tools_log__sanitize "${AI_TOOLS_ASSETS__LIST_DETAIL}")"
+                   STATUS_UNREADABLE=$(( STATUS_UNREADABLE + 1 )) ;;
+        unset)     status_assets_successors ;;
     esac
     for entry in "${AI_TOOLS_ASSETS__ENTRIES[@]}"; do
         if [[ "${AI_TOOLS_ASSETS__STATE[${entry}]}" == linked ]]; then
@@ -2953,6 +2965,55 @@ status_assets() {
     done
     st OK "${#AI_TOOLS_ASSETS__ENTRIES[@]} asset(s) enabled in AI_TOOLS_ASSETS, ${linked} linked"
     return 0
+}
+
+# status_assets_successors: the notice for a host whose upgrade withdrew assets a set succeeds while AI_TOOLS_ASSETS is
+# absent from operator.conf, the one input that records the operator's decision. One [ATTENTION] successor-unenabled
+# line per successor set, naming the withdrawn entries (ai_tools_managed_assets__list_withdrawn_successors)
+# and the commands that end it: the set's package install where the set is not on the host
+# (ai_tools_assets__is_set_installed), its enable, and AI_TOOLS_ASSETS=[] to keep it off. A retired directory that could
+# not be listed is one [UNREADABLE] line. A host without a retired copy of a withdrawn entry with a successor, a fresh
+# install among them, does not print a line. Runs as root without the lock.
+status_assets_successors() {
+    declare -F ai_tools_managed_assets__list_withdrawn_successors >/dev/null 2>&1 || return 0
+    local listing entry successor successor_set install
+    local -a sets=()
+    local -A names=()
+    if ! listing="$(ai_tools_managed_assets__list_withdrawn_successors "${AI_TOOLS_ASSETS_HOME}" 2>/dev/null)"; then
+        st UNREADABLE "error  ${AI_TOOLS_ASSETS_HOME}/retired -- the directory could not be listed, so a withdrawn asset's successor is not checked"
+        STATUS_UNREADABLE=$(( STATUS_UNREADABLE + 1 ))
+        return 0
+    fi
+    while IFS=$'\t' read -r entry successor; do
+        [[ -n "${entry}" ]] || continue
+        successor_set="${successor%%/*}"
+        [[ -n "${names[${successor_set}]+x}" ]] || sets+=( "${successor_set}" )
+        names["${successor_set}"]+="${names[${successor_set}]:+, }${entry#*/}"
+    done <<< "${listing}"
+    for successor_set in "${sets[@]}"; do
+        install=""
+        ai_tools_assets__is_set_installed "${successor_set}" || install="sudo dnf install ai-tools-assets-${successor_set} && "
+        st ATTENTION "successor-unenabled  ${successor_set} -- ${names[${successor_set}]} withdrawn from ai-tools-base; their successors in the set ${successor_set} are not enabled and AI_TOOLS_ASSETS is not set; copies are under ${AI_TOOLS_ASSETS_HOME}/retired"
+        detail "run: ${install}sudo ai-tools-admin assets enable --set ${successor_set}, or set AI_TOOLS_ASSETS=[] in ${AI_TOOLS_OPERATOR_CONF} to keep them off"
+        STATUS_PROBLEMS=$(( STATUS_PROBLEMS + 1 ))
+    done
+}
+
+# status_assets_summary <finding-count> <unreadable-count> : the Assets section's closing line, printed when either
+# count is one or more: the non-zero counts and the exit status the section sets, 5 where a reading is unavailable and 4
+# otherwise. The counts are the ones the section added to STATUS_PROBLEMS and STATUS_UNREADABLE, so the line
+# and the exit agree. Prose for a person, not a record: a monitor reads the exit status.
+status_assets_summary() {
+    local finding_count="$1" unreadable_count="$2" findings="" readings=""
+    (( finding_count > 0 || unreadable_count > 0 )) || return 0
+    if (( finding_count == 1 )); then findings="1 finding needs attention"
+    elif (( finding_count > 1 )); then findings="${finding_count} findings need attention"
+    fi
+    if (( unreadable_count == 1 )); then readings="1 reading is unavailable"
+    elif (( unreadable_count > 1 )); then readings="${unreadable_count} readings are unavailable"
+    fi
+    printf '    Summary: %s%s%s in this section (exit %s)\n' "${findings}" "${findings:+${readings:+ and }}" "${readings}" \
+        "$( (( unreadable_count > 0 )) && printf 5 || printf 4 )"
 }
 
 # status_node_version: the Version section's Node line, from the same verdict the CLI renders

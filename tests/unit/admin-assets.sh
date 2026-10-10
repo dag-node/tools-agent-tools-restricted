@@ -323,4 +323,85 @@ OUT="$(env "${HOOKS[@]}" bash -c 'helper="$1"; set --; source "${helper}" >/dev/
 [[ "${OUT}" == *UNREADABLE* && "${OUT}" == *unreadable=1* ]] && pass "a library that did not load is a reading the section could not make" \
     || fail "an unloaded library: ${OUT:0:300}"
 
+# ── The withdrawn-successor notice ───────────────────────────────────────────────────────────────────────────────────
+section "ai-tools-admin status: successor-unenabled, the notice an upgrade leaves"
+# write_conf_unset : operator.conf enabling the agent acme without an AI_TOOLS_ASSETS line, as a pre-0.24.0 file reads.
+write_conf_unset() {
+    rm -f "${CONF}".*.bak
+    printf '# fixture\nAI_TOOLS_AGENTS=[agent-acme]\n' > "${CONF}"
+    chown root:root "${CONF}"; chmod 0644 "${CONF}"
+}
+# retire <name> : a withdrawn copy under the fixture view's retired directory, as the withdrawal pass names it.
+retire() { install -d -o root -g root -m 0700 "${HOME_DIR}/retired"; mkdir -p "${HOME_DIR}/retired/$1.20261011-1.retired"; }
+# summary_line : the line status_assets printed last, ahead of the counts the driver appends.
+summary_line() { tail -n 2 <<< "${OUT}" | head -n 1; }
+notice_row() { grep -E '\[ATTENTION\] +successor-unenabled +core -- ' <<< "${OUT}" || true; }
+
+fresh; rm -rf "${HOME_DIR}/retired"; write_conf_unset; retire ai-tools-technical-docs; retire ai-tools-reftags
+admin status_assets
+row="$(notice_row)"
+if [[ "${row}" == *"ai-tools-technical-docs, ai-tools-reftags withdrawn"* && "${row}" == *"AI_TOOLS_ASSETS is not set"* \
+        && "${OUT}" == *"sudo dnf install ai-tools-assets-core && sudo ai-tools-admin assets enable --set core"* \
+        && "${OUT}" == *"AI_TOOLS_ASSETS=[] in ${CONF}"* && "${OUT}" == *"problems=1 unreadable=0"* ]]; then
+    pass "a retired copy with a successor and no AI_TOOLS_ASSETS line: one successor-unenabled row naming both, counted"
+else
+    fail "the notice: ${OUT:0:600}"
+fi
+if [[ "$(summary_line)" == "    Summary: 1 finding needs attention in this section (exit 4)" ]]; then
+    pass "the section closes with the summary line, its last line, naming the one finding and exit 4"
+else
+    fail "the closing line: '$(summary_line)'"
+fi
+install -d -m 0755 "${PKG}/core"; : > "${PKG}/core/set.conf"; admin status_assets
+if [[ -n "$(notice_row)" && "${OUT}" != *"dnf install"* && "${OUT}" == *"sudo ai-tools-admin assets enable --set core"* ]]; then
+    pass "where the set is on the host the command drops the package install"
+else
+    fail "the notice with core installed: ${OUT:0:500}"
+fi
+rm -rf "${PKG}/core"
+write_conf; admin status_assets
+if [[ -z "$(notice_row)" && "${OUT}" == *"problems=0 unreadable=0"* ]] && ! grep -q 'Summary:' <<< "${OUT}"; then
+    pass "AI_TOOLS_ASSETS=[] ends the notice, and a clean section prints no summary line"
+else
+    fail "AI_TOOLS_ASSETS=[]: ${OUT:0:400}"
+fi
+write_conf core/skills/ai-tools-technical-writing; admin status_assets
+if [[ -z "$(notice_row)" ]] && grep -qE '\[ATTENTION\] +core/skills/ai-tools-technical-writing +set-(absent|unbound)' <<< "${OUT}"; then
+    pass "a listed successor that does not link is reported by its own row, not by the notice"
+else
+    fail "a listed successor: ${OUT:0:400}"
+fi
+write_conf_unset; rm -rf "${HOME_DIR}/retired"; admin status_assets
+if [[ -z "$(notice_row)" && "${OUT}" == *"problems=0 unreadable=0"* ]]; then
+    pass "a host without a retired copy, a fresh install among them, does not print the notice"
+else
+    fail "no retired directory: ${OUT:0:400}"
+fi
+printf 'not a directory\n' > "${HOME_DIR}/retired"; admin status_assets
+if grep -qE "\[UNREADABLE\] +error +${HOME_DIR}/retired" <<< "${OUT}" && [[ "${OUT}" == *"problems=0 unreadable=1"* ]] \
+        && [[ "$(summary_line)" == "    Summary: 1 reading is unavailable in this section (exit 5)" ]]; then
+    pass "a retired directory that cannot be listed is an UNREADABLE row, and the summary says exit 5"
+else
+    fail "an unlistable retired directory: ${OUT:0:400} / '$(summary_line)'"
+fi
+install -d -o root -g root -m 0750 "${HOME_DIR}/.acme/skills"; mkdir "${HOME_DIR}/.acme/skills/stray"
+chown -R "${SANDBOX_USER}" "${HOME_DIR}/.acme/skills/stray"; admin status_assets
+if [[ "$(summary_line)" == "    Summary: 1 finding needs attention and 1 reading is unavailable in this section (exit 5)" \
+        && "${OUT}" == *"problems=1 unreadable=1"* ]]; then
+    pass "a finding beside an unavailable reading: both counts named, exit 5"
+else
+    fail "attention and unreadable together: '$(summary_line)' ${OUT:0:400}"
+fi
+rm -rf "${HOME_DIR}/retired" "${HOME_DIR}/.acme/skills/stray"
+# A count another section added before this one does not reach this section's line.
+# shellcheck disable=SC2016
+OUT="$(env "${HOOKS[@]}" bash -c 'helper="$1"; set --; source "${helper}" >/dev/null 2>&1
+    STATUS_PROBLEMS=2; STATUS_UNREADABLE=1; status_assets; printf "problems=%s unreadable=%s\n" "${STATUS_PROBLEMS}" "${STATUS_UNREADABLE}"' \
+    _ "${HELPER}" 2>&1)"
+if ! grep -q 'Summary:' <<< "${OUT}" && [[ "${OUT}" == *"problems=2 unreadable=1"* ]]; then
+    pass "a finding in another section alone leaves the Assets section without the summary line"
+else
+    fail "another section's counts: ${OUT:0:400}"
+fi
+
 finish
