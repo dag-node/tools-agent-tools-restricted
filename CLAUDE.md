@@ -81,6 +81,7 @@ the management CLI (`ai-tools`), and root-helper binary names (`ai-tools-chown`,
 | Test organization, hermeticity, categories | `tests/**` | [tests](.claude/rules/tests.rule.md) |
 | Operator documentation: the category tree, the reader each page is written for, the contract that keeps a page stable while its rule is rewritten, and the navigation form | `README.md`, `docs/**` | [docs-pages](.claude/rules/docs-pages.rule.md) |
 | ShellCheck baseline, `.shellcheckrc`, accepted findings | `src/**/*.sh`, `.shellcheckrc` | [shellcheck](.claude/rules/shellcheck.rule.md) |
+| Shell names: which file a function or a global belongs to, and how a member is named | `src/**/*.sh`, `install.sh`, `selinux/**/*.sh`, `packaging/**/*.sh`, `tests/**/*.sh`, `tools/**/*.sh` | [shell-names](.claude/rules/shell-names.rule.md) |
 
 ## Trust chain (summary)
 
@@ -300,6 +301,11 @@ not gaps, so a reader tells bounded design from an oversight:
   by provider packages and discovered** — base cannot enumerate integrations it ships without. A contributed command
   passes the same trust predicate as every other provider input. `ai-tools` keeps its `--verb` spelling until the domain
   model behind `projects` settles. Detail in [cli-grammar](.claude/rules/cli-grammar.rule.md).
+- **A shell name states the file that owns it** — `ai_tools_<module>__<member>` for a function,
+  `AI_TOOLS_<MODULE>__<NAME>` for a global — because provider fragments and third-party scripts are sourced into shells
+  that hold the trust libraries, where a second definition of a name replaces the first without a message.
+  An `AI_TOOLS_` name without `__` is an external interface: the environment, `operator.conf`, a journald field. Detail
+  in [shell-names](.claude/rules/shell-names.rule.md).
 - **A new source file states its licence on its first line**, after any shebang: one `SPDX-License-Identifier` comment
   in the file's own syntax — `AGPL-3.0-only`, or `GPL-2.0-or-later` for the SELinux policy sources — and no copyright
   line, since `REUSE.toml` holds the copyright for every file. Prose, licence texts, generated data, and compiled
