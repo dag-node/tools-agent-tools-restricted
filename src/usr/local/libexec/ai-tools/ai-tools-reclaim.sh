@@ -62,7 +62,7 @@ readonly SANDBOX_USER="@SANDBOX_USER@"
 # re-validates each path independently regardless.
 readonly OPERATOR_LIB="/usr/local/lib/ai-tools/operator.lib.sh"
 # shellcheck source=SCRIPTDIR/../../lib/ai-tools/operator.lib.sh
-source "${OPERATOR_LIB}" 2>/dev/null || ai_tools_resolve_owner() { return 1; }
+source "${OPERATOR_LIB}" 2>/dev/null || ai_tools_operator__resolve_owner() { return 1; }
 
 # Shared leveled logger: journald + the root-only chown.log (co-located with the per-path chowns ai-tools-chown records
 # there). Best-effort no-op fallback if the lib is missing.
@@ -70,7 +70,7 @@ AI_TOOLS_LOG_TAG="ai-tools-reclaim"
 AI_TOOLS_LOG_FILE="chown.log"
 readonly LOG_LIB="/usr/local/lib/ai-tools/log.lib.sh"
 # shellcheck source=SCRIPTDIR/../../lib/ai-tools/log.lib.sh
-# Required, fail-closed: this helper prints agent-named paths to stderr and the log, so it needs ai_tools_log_sanitize
+# Required, fail-closed: this helper prints agent-named paths to stderr and the log, so it needs ai_tools_log__sanitize
 # -- a missing logger must refuse, not emit an agent path raw.
 if ! source "${LOG_LIB}"; then
     printf 'ai-tools-reclaim: FATAL: cannot source %s\n' "${LOG_LIB}" >&2
@@ -82,7 +82,7 @@ fi
 readonly SKIP_DIRS_LIB="/usr/local/lib/ai-tools/skip-dirs.lib.sh"
 # shellcheck source=SCRIPTDIR/../../lib/ai-tools/skip-dirs.lib.sh
 source "${SKIP_DIRS_LIB}" 2>/dev/null \
-    || ai_tools_skip_find_expr() { AI_TOOLS_SKIP_FIND_EXPR=(); return 0; }
+    || ai_tools_skip_dirs__build_find_expression() { AI_TOOLS_SKIP_DIRS__FIND_EXPRESSION=(); return 0; }
 
 # Protected-paths backstop (safe-paths.lib.sh): refuse to walk a system directory even when the allowlist includes it.
 # See safe-paths.rule.md.
@@ -90,7 +90,7 @@ readonly SAFE_PATHS_LIB="/usr/local/lib/ai-tools/safe-paths.lib.sh"
 # shellcheck source=SCRIPTDIR/../../lib/ai-tools/safe-paths.lib.sh
 source "${SAFE_PATHS_LIB}"
 
-# Shared yes/no prompt (ai_tools_msg_confirm; see msg.lib.sh). REQUIRED like safe-paths.lib.sh: the bare source
+# Shared yes/no prompt (ai_tools_msg__confirm; see msg.lib.sh). REQUIRED like safe-paths.lib.sh: the bare source
 # under `set -e` aborts if it is missing -- a valid install ships it, so there is no fallback. Include-guarded, so this
 # is a no-op when safe-paths.lib.sh already loaded it.
 # shellcheck source=SCRIPTDIR/../../lib/ai-tools/msg.lib.sh
@@ -99,13 +99,13 @@ source /usr/local/lib/ai-tools/msg.lib.sh
 canonical="$(realpath -e -- "${TARGET}" 2>/dev/null)" || exit 0
 [[ -d "${canonical}" ]] || exit 0
 # Refuse the whole walk if the project root is a protected system directory, before find.
-ai_tools_assert_safe_target "${canonical}" "reclaim" || exit 3
+ai_tools_safe_paths__assert_safe_target "${canonical}" "reclaim" || exit 3
 # Not under any operator's allowed-projects -> no path legitimately to reclaim. Say so rather than exiting silently,
 # so a direct `sudo ai-tools-reclaim` (past the CLI's own front-line check) still reports why it reclaimed no path.
 # The path is operator-supplied, so it prints without log_sanitize.
-ai_tools_resolve_owner "${canonical}" || {
+ai_tools_operator__resolve_owner "${canonical}" || {
     warn MSG-K9H2 "nothing to reclaim -- ${canonical} is not under any claimed project"
-    ai_tools_log_coded info "${_warn_code}" "reclaim: ${canonical} not under any claimed project" \
+    ai_tools_log__coded info "${_warn_code}" "reclaim: ${canonical} not under any claimed project" \
         "AI_TOOLS_RESULT=refused"
     exit 0
 }
@@ -117,9 +117,9 @@ AI_TOOLS_LOG_PROJECT="${canonical}"
 
 # Default reclaim walks .git but skips the heavy trees; `--full` descends everywhere. The lib owns both defaults --
 # the helper only names the consumer.
-if ${FULL}; then ai_tools_skip_find_expr reclaim-full '' "${canonical}"; else ai_tools_skip_find_expr reclaim '' "${canonical}"; fi
+if ${FULL}; then ai_tools_skip_dirs__build_find_expression reclaim-full '' "${canonical}"; else ai_tools_skip_dirs__build_find_expression reclaim '' "${canonical}"; fi
 # find <project> -xdev <skip dirs> -prune -o ( file|dir ) -user SANDBOX_USER -print0
-declare -a expr=( "${canonical}" -xdev "${AI_TOOLS_SKIP_FIND_EXPR[@]}" \
+declare -a expr=( "${canonical}" -xdev "${AI_TOOLS_SKIP_DIRS__FIND_EXPRESSION[@]}" \
                   '(' -type f -o -type d ')' -user "${SANDBOX_USER}" -print0 )
 
 # Two-phase: collect first, so a run with no path to hand back says so and stops before any change, and a run with work
@@ -132,22 +132,22 @@ done < <(find "${expr[@]}" 2>/dev/null)
 
 if (( ${#paths[@]} == 0 )); then
     warn MSG-J6B2 "nothing to reclaim under ${canonical}"
-    ai_tools_log_coded info "${_warn_code}" "reclaim: nothing to reclaim under ${canonical}"
+    ai_tools_log__coded info "${_warn_code}" "reclaim: nothing to reclaim under ${canonical}"
     exit 0
 fi
 
 warn "${#paths[@]} agent-owned path(s) under ${canonical}, e.g.:"
 for path in "${paths[@]:0:3}"; do
     read -r og m < <(stat -c '%U:%G %a' "${path}" 2>/dev/null) || { og='?'; m='?'; }
-    printf '  %-18s %-4s %s\n' "${og}" "${m}" "$(ai_tools_log_sanitize "${path}")" >&2
+    printf '  %-18s %-4s %s\n' "${og}" "${m}" "$(ai_tools_log__sanitize "${path}")" >&2
 done
 (( ${#paths[@]} > 3 )) && printf '  ... and %d more\n' "$(( ${#paths[@]} - 3 ))" >&2
 
 # Default yes: handing agent-written files back to their operator is the reclaim's whole point, so Enter (and a no-tty
 # batch run) proceeds; n leaves ownership as it stands.
-if ! ai_tools_msg_confirm "Hand back all ${#paths[@]} path(s)?" y; then
+if ! ai_tools_msg__confirm "Hand back all ${#paths[@]} path(s)?" y; then
     warn MSG-T9M5 "declined; ownership left as it stands"
-    ai_tools_log_coded info "${_warn_code}" "reclaim: declined for ${canonical}" \
+    ai_tools_log__coded info "${_warn_code}" "reclaim: declined for ${canonical}" \
         "AI_TOOLS_RESULT=refused"
     exit 0
 fi
@@ -165,12 +165,12 @@ for path in "${paths[@]}"; do
 done
 if (( failed > 0 )); then
     warn MSG-J4W5 "handed back ${confirmed} path(s), ${failed} skipped/failed under ${canonical}"
-    ai_tools_log_coded warning "${_warn_code}" \
+    ai_tools_log__coded warning "${_warn_code}" \
         "reclaim: handed back ${confirmed} path(s), ${failed} skipped/failed under ${canonical}" \
         "AI_TOOLS_RESULT=failed"
 else
     warn "handed back ${confirmed} path(s) under ${canonical}"
-    ai_tools_log_structured info \
+    ai_tools_log__structured info \
         "reclaim: handed back ${confirmed} agent-owned path(s) under ${canonical}" \
         "AI_TOOLS_RESULT=ok"
 fi

@@ -301,14 +301,14 @@ else
 fi
 
 # shellcheck source=/dev/null
-if source "${_cp_lib}" 2>/dev/null && declare -F ai_tools_agent_config_dirs >/dev/null 2>&1; then
+if source "${_cp_lib}" 2>/dev/null && declare -F ai_tools_control_plane__list_agent_config_dirs >/dev/null 2>&1; then
     _cfg_found=0; _codex_cfg_walked=0
     while IFS=$'\t' read -r _agent _cfg; do
         [[ -n "${_cfg}" ]] || continue
         _cfg_found=1
         [[ "${_cfg}" == /opt/ai-tools/.codex ]] && _codex_cfg_walked=1
         check_file "${_cfg}" root "${SANDBOX_GROUP}" "${CP_AGENT_CONFIG_MODE}"
-    done < <(ai_tools_agent_config_dirs)
+    done < <(ai_tools_control_plane__list_agent_config_dirs)
     (( _cfg_found )) || skip "agent config directory modes" "no enabled agent declares a config_dir"
     # The walk covers ENABLED agents, and codex ships disabled, so its directory is asserted by name until it is
     # enabled: the base pins the mode of an enabled agent's directory only, and the codex package holds it itself.
@@ -335,13 +335,13 @@ if source "${_cp_lib}" 2>/dev/null && declare -F ai_tools_agent_config_dirs >/de
             else
                 fail "${_link} is a managed COPY, not a symlink into ${_root} -- the shared asset forks per agent. An identical copy is converted on the next install/bootstrap; one that differs is kept, so reconcile or remove it"
             fi
-        done < <(ai_tools_agent_asset_dirs "${_field}")
+        done < <(ai_tools_control_plane__list_agent_asset_dirs "${_field}")
     done
     # The orientation text arrives the same way, but at a name the manifest supplies rather than the asset's own --
     # and at the one path each agent reads as user-scope instructions. A COPY here is the same fork the asset kinds
     # guard against; a real file that is not ours is an operator's own instructions, which the linker is contracted
     # to keep.
-    if declare -F ai_tools_agent_memory_targets >/dev/null 2>&1; then
+    if declare -F ai_tools_control_plane__list_agent_memory_targets >/dev/null 2>&1; then
         _memory_found=0
         check_memory_link() {
             local _memory="$1"
@@ -360,7 +360,7 @@ if source "${_cp_lib}" 2>/dev/null && declare -F ai_tools_agent_config_dirs >/de
             _memory_found=1
             [[ "${_memory}" == /opt/ai-tools/.codex/AGENTS.md ]] && _codex_memory_walked=1
             check_memory_link "${_memory}"
-        done < <(ai_tools_agent_memory_targets)
+        done < <(ai_tools_control_plane__list_agent_memory_targets)
         (( _memory_found )) || skip "agent orientation link" "no enabled agent declares a memory_file"
         # Codex's link, by name while the agent is disabled (the walk covers enabled agents): its manifest names
         # AGENTS.md at the root of its config directory, the global scope codex reads first.

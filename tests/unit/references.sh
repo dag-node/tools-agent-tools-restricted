@@ -195,10 +195,10 @@ assert_grep '^| m3n4 | \[MSG-M3N4\](src/s.sh) | not in allowed projects: \$1 | s
     "${OUT}" "TEST-RI-11-msg-argument-row: the message keeps its emitter and lists the citing test"
 # A call that breaks between the code and its message is still one command, so the code is still its first argument
 # and the call still defines the message -- the name coming off the next line.
-fixture src/wrapped.sh 'ai_tools_msg_warn MSG-M3N9 \' '    "The group is an unaudited draft."'
+fixture src/wrapped.sh 'ai_tools_msg__warn MSG-M3N9 \' '    "The group is an unaudited draft."'
 silent TEST-RI-11-msg-continued src/wrapped.sh
 run_ri generate src/wrapped.sh
-assert_grep '^| m3n9 | \[MSG-M3N9\](src/wrapped.sh) | The group is an unaudited draft. | src/wrapped.sh |  | ai_tools_msg_warn |$' \
+assert_grep '^| m3n9 | \[MSG-M3N9\](src/wrapped.sh) | The group is an unaudited draft. | src/wrapped.sh |  | ai_tools_msg__warn |$' \
     "${OUT}" "TEST-RI-11-msg-continued-row: a continued emit call names its message and its emitter"
 # A quote inside the message does not always close it: a double-quoted string re-opens quoting inside a command
 # substitution, and a backslash escapes the quote after it. Each shape ends the name short of what the emitter prints,

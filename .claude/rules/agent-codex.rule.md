@@ -58,6 +58,7 @@ is the vendor's; the containment is the host's.
 | `handback` | `none` | `ai-tools-run` — the shim sweeps the project at session end (see [Handback](#handback-the-shims-sweep-is-the-guarantee-the-hooks-are-the-cadence)) |
 | `config_dir` | `.codex` | the control-plane mode/label set, and `→ ai_tools_home_t`; the pins set `CODEX_HOME` there |
 | `memory_file` | `AGENTS.md` | where the shared orientation text is linked — the global-scope instructions codex reads first ([shipped-assets](shipped-assets.rule.md)) |
+| `skills_root` | `/etc/codex/skills` | the assets reconcile and `ai-tools-admin status` — whether that path is the link to the skills view, reported, not written (see [Skills at the admin scope](#skills-at-the-admin-scope-and-the-orientation-text)) |
 | `managed_files` | `/etc/codex/requirements.toml`, `/etc/codex/managed_config.toml` | `ai-tools status` and `ai-tools-admin status` — which live files to compare against the pristine copies under `/usr/share/ai-tools/codex/` ([providers](providers.rule.md)) |
 | `entrypoint_fcontext` | a regex ending on the same vendor path `launcher_target` names | `ai-tools-relabel-agent` — which file takes `ai_tools_exec_t` |
 | `default_enable` | `no` | every agent manifest's value: the agents' baseline is empty, and the bootstrap writes the enabled set |
@@ -216,12 +217,12 @@ An unreadable `requirements.toml` refuses the start: the loud direction.
 
 **A kept file is reported, never overwritten.** The package ships a pristine copy of each managed file
 under `/usr/share/ai-tools/codex/`, the manifest names both in `managed_files`, and the two status reports compare
-the live file against its copy through `ai_tools_managed_file_state` ([providers](providers.rule.md)): a file
-that differs prints the two consequences — codex reads the live file alone, so a key this release adds is not in it,
-and what it declares is the host's — with the copy's path, and is not counted toward the exit status, since an edited
-managed file is a supported state; a missing one is counted, since the package is then broken and a reinstall is
-the remedy. `install.sh` says the same at install time, on the kept file's own line, and gives a live file that is still
-byte-identical to the previous pristine copy this release's copy without asking, as rpm does for an unmodified
+the live file against its copy through `ai_tools_providers__evaluate_managed_file` ([providers](providers.rule.md)):
+a file that differs prints the two consequences — codex reads the live file alone, so a key this release adds is not
+in it, and what it declares is the host's — with the copy's path, and is not counted toward the exit status, since
+an edited managed file is a supported state; a missing one is counted, since the package is then broken and a reinstall
+is the remedy. `install.sh` says the same at install time, on the kept file's own line, and gives a live file that is
+still byte-identical to the previous pristine copy this release's copy without asking, as rpm does for an unmodified
 `%config(noreplace)` file: that file was never edited, so no host choice is lost. The report is where an operator learns
 a `.rpmnew` was parked, or a from-source install kept an edit, after the install output has scrolled by.
 
@@ -260,17 +261,20 @@ key sets the harness captured; the live chain runs through the package's own pat
 
 Codex reads skills from four scopes, and the one a host administers is `/etc/codex/skills`. The package's `%post` points
 it at the live shared root `/opt/ai-tools/skills` **without displacing what the host holds there**
-(`ai_tools_link_shared_root`, [shipped-assets](shipped-assets.rule.md)): absent → a symlink to the shared root;
-a symlink to the shared root → current; a symlink elsewhere → the host's, left and reported; a real directory →
-the host's own skills, kept as they are, with the shared assets linked into it one per free name and a taken name left
-to the host. Nothing under `/etc/codex` carries a guarantee, so a host-owned entry there can only reduce what a session
-loads, never widen access. Codex lists a skill placed there to the model whether the path is a symlink to the shared
-root, a directory of per-asset symlinks, or a copy — measured, which is why the lightest link ships. Erasing the package
-removes the link to the shared root, or the managed links inside a host-owned directory, and no other entry. The link is
-deliberately not in the package's file list: a listed path would be written over whatever a host holds there.
+(`ai_tools_managed_assets__link_shared_root`, [shipped-assets](shipped-assets.rule.md)): absent → a symlink
+to the shared root; a symlink to the shared root → current; a symlink elsewhere → the host's, left and reported; a real
+directory → the host's own skills, kept as they are, with the shared assets linked into it one per free name and a taken
+name left to the host. Nothing under `/etc/codex` carries a guarantee, so a host-owned entry there can only reduce
+what a session loads, never widen access. Codex lists a skill placed there to the model whether the path is a symlink
+to the shared root, a directory of per-asset symlinks, or a copy — measured, which is why the lightest link ships.
+Erasing the package removes the link to the shared root, or the managed links inside a host-owned directory, and no
+other entry. The link is deliberately not in the package's file list: a listed path would be written over whatever
+a host holds there. The manifest names the path in `skills_root`, so the assets reconcile reports a host-owned entry
+there as `agent-root-foreign` — an enable, a disable or a set upgrade does not reach codex through it — and does not
+write that path ([shipped-assets](shipped-assets.rule.md)).
 
 The orientation text is linked as `/opt/ai-tools/.codex/AGENTS.md`, the global-scope instructions codex reads
-before a project's own `AGENTS.md` files (`ai_tools_link_agent_memory`, the same non-displacing rule).
+before a project's own `AGENTS.md` files (`ai_tools_managed_assets__link_agent_memory`, the same non-displacing rule).
 
 ## Session environment pins
 
@@ -292,12 +296,12 @@ escalation ([CLAUDE.md](../../CLAUDE.md), Boundaries and non-goals).
 
 ## The config directory's mode is the package's own to pin
 
-`ai_tools_agent_config_dirs` walks **enabled** agents, so base re-asserts the `3770` mode of an enabled agent's config
-directory only, and codex ships disabled. The package's `%post` and `%posttrans` therefore `chmod 3770` `.codex`
-themselves — rpm on EL10 drops setgid from an `%attr` directory mode — so the sticky bit holds from the first install
-whether or not the operator has enabled the agent yet. `install.sh` asserts the directory by name after the same walk,
-and `tests/integration/perms.sh` checks it by name whenever the walk did not list it, so the assertion holds on a host
-in either state.
+`ai_tools_control_plane__list_agent_config_dirs` walks **enabled** agents, so base re-asserts the `3770` mode
+of an enabled agent's config directory only, and codex ships disabled. The package's `%post` and `%posttrans` therefore
+`chmod 3770` `.codex` themselves — rpm on EL10 drops setgid from an `%attr` directory mode — so the sticky bit holds
+from the first install whether or not the operator has enabled the agent yet. `install.sh` asserts the directory by name
+after the same walk, and `tests/integration/perms.sh` checks it by name whenever the walk did not list it,
+so the assertion holds on a host in either state.
 
 ## What the suite proves on an installed host
 

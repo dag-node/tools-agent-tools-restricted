@@ -18,9 +18,9 @@ An agent that declares otherwise gets `ai-tools-run`'s sweep of the project at s
 boundary, per session instead of per turn (see [providers](providers.rule.md)) — and may still ship hooks of its own
 beside it as the per-turn cadence, which is what codex does with adapters of these two scripts
 ([agent-codex](agent-codex.rule.md)). `<you>` is the operator that **owns** the path — the one whose allowlist covers
-it, which `ai-tools-chown` resolves per path via `operator.lib.sh` (`ai_tools_resolve_owner`), so on a host with several
-operators each project's files return to that project's operator. Secret-named files take a different path (see
-[secrets](secret-handling.rule.md)).
+it, which `ai-tools-chown` resolves per path via `operator.lib.sh` (`ai_tools_operator__resolve_owner`), so on a host
+with several operators each project's files return to that project's operator. Secret-named files take a different path
+(see [secrets](secret-handling.rule.md)).
 
 Every hook an agent package ships parses its event JSON with `jq`, so the package `Requires: jq`. Where `jq` is absent,
 a hook takes its no-op path without an error: the handback stops returning ownership, the sweeps stop running,
@@ -37,11 +37,11 @@ about a secret the agent never accessed).
 
 It acts only on a regular file or directory — a symlink or a hardlinked file is refused — and applies
 the `chown`/`chmod` through a pinned descriptor it re-verifies, whose kernel-reported path must equal the canonical path
-it resolved (`ai_tools_pinned_fd_matches_path`, [safe-paths](safe-paths.rule.md)), so a `SANDBOX_USER` swap of the path
-or of one of its ancestors between validation and mutation cannot redirect root's `chown` onto a file outside the tree.
-The owner check holds for the same reason: the reads made through the path string are separate lookups a rename exchange
-can answer from different inodes, so the apply re-reads the owner and mode from the pinned descriptor and refuses unless
-they still match. The full sequence is in `ai-tools-chown.sh`'s apply block.
+it resolved (`ai_tools_safe_paths__is_pinned_fd_at_path`, [safe-paths](safe-paths.rule.md)), so a `SANDBOX_USER` swap
+of the path or of one of its ancestors between validation and mutation cannot redirect root's `chown` onto a file
+outside the tree. The owner check holds for the same reason: the reads made through the path string are separate lookups
+a rename exchange can answer from different inodes, so the apply re-reads the owner and mode from the pinned descriptor
+and refuses unless they still match. The full sequence is in `ai-tools-chown.sh`'s apply block.
 
 ## `PostToolUse` — the immediate path
 
@@ -140,7 +140,7 @@ reclaim rather than aiming a walk at something that is not a project (`ai-tools-
 offered regardless). What the NOTICE relays is narrower still: it names *a prior session's project* without printing
 that path, since under one shared config directory the project may be another operator's, and the path an operator needs
 is in journald already. The path it does carry — this session's own project, from the hook payload — goes
-through `ai_tools_log_sanitize`, so a crafted directory name cannot put an escape sequence into the model's context
+through `ai_tools_log__sanitize`, so a crafted directory name cannot put an escape sequence into the model's context
 or onto the terminal. A gracefully-exited session clears its marker and reclaims its `.git` at `session-end`;
 the cross-project pointer is needed only for a kill. Every reclaim is logged to journald (the audit trail), but only
 the **interrupted** case is also surfaced as a `SessionStart` `additionalContext` NOTICE — the only actionable one,
@@ -171,9 +171,9 @@ The same `SessionStart` pass normalizes the project's setgid bit via the root he
 the operator creates there is born in group `SANDBOX_GROUP` and the agent can read/write it — **without the operator
 being a member of `SANDBOX_GROUP`**. That keeps the operator out of `SANDBOX_GROUP` entirely (defense in depth: home-dir
 configs stay unreachable from `SANDBOX_GROUP`) while project-file collaboration works. Like the claim-side ACL
-and unclaim helpers, it resolves the project's owning operator (`ai_tools_resolve_owner`) and acts **only** on dirs
-that operator or the sandbox account holds — a dir held by any third party (root, another developer) is left untouched,
-so normalization never pulls a foreign-held dir into the agent's group.
+and unclaim helpers, it resolves the project's owning operator (`ai_tools_operator__resolve_owner`) and acts **only**
+on dirs that operator or the sandbox account holds — a dir held by any third party (root, another developer) is left
+untouched, so normalization never pulls a foreign-held dir into the agent's group.
 
 **That skip is counted and reported, never silent.** It is the one skip that can leave a claim granting the agent *no
 access at all* while every other step succeeds, so each walk (`ai-tools-setgid`, `ai-tools-setfacl`) counts the paths
@@ -276,11 +276,11 @@ the setgid+sticky shape of an agent config directory, so the account keeps its o
 directory at the end stays the account's, because its manager writes the `Persistent=` stamps; DAC cannot close it,
 and the SELinux type on the path does ([confinement](confinement.rule.md)).
 
-`ai_tools_ensure_unit_search_path_closed` applies the layout from `install.sh`, the provisioning run, and the base
-package's `%posttrans`, so an upgraded host converges unattended; every change it makes narrows access. It works
-top-down, and a symlink or non-directory on the chain ends the descent, since carrying on would create a root-owned
-directory at its target. An unexpected entry under `.local/share/systemd` is reported as an `error` and left in place
-for the operator, and `ai-tools-admin status` names it ([cli](cli.rule.md)).
+`ai_tools_control_plane__ensure_unit_search_path_closed` applies the layout from `install.sh`, the provisioning run,
+and the base package's `%posttrans`, so an upgraded host converges unattended; every change it makes narrows access. It
+works top-down, and a symlink or non-directory on the chain ends the descent, since carrying on would create
+a root-owned directory at its target. An unexpected entry under `.local/share/systemd` is reported as an `error`
+and left in place for the operator, and `ai-tools-admin status` names it ([cli](cli.rule.md)).
 
 The control-plane modes are single-sourced as constants in `/usr/local/lib/ai-tools/control-plane.lib.sh`
 (`CP_HOME_MODE`, `CP_DIR_MODES` for the base-owned `bin`, and `CP_AGENT_CONFIG_MODE` for every agent's config

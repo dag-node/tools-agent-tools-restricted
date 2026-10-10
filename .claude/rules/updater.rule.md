@@ -29,20 +29,20 @@ helper `ai-tools-bootstrap`, which keeps its name and its `/usr/local/libexec/ai
 that helper's work. It first rewrites a provider list an earlier release wrote with bare names, the rewrite
 `system post-upgrade` makes ([providers](providers.rule.md)), so what follows reads the line this release reads. **It
 decides which agents it provisions before its first network step** (`choose_agents`): no agent manifest ships enabled,
-so with `AI_TOOLS_AGENTS` absent and at least one trusted manifest installed it draws one `ai_tools_msg_pick none` menu
+so with `AI_TOOLS_AGENTS` absent and at least one trusted manifest installed it draws one `ai_tools_msg__pick none` menu
 — one option per installed agent (`display_name`) and one for none, single-select — and writes the chosen name
-into `operator.conf` through `ai_tools_conf_set_list`; an unanswered menu (no terminal, closed input, three misses)
+into `operator.conf` through `ai_tools_conf__set_list`; an unanswered menu (no terminal, closed input, three misses)
 or none chosen provisions Node alone under a coded warning naming the line and the re-run, at exit 0.
 `--agents NAME[,NAME...]`, passed through by `ai-tools-admin`, is the unattended form: each name is checked
-against `ai_tools_installed_agents` and an unknown one refuses the run with the key unwritten. A present key is
-the operator's declaration and is not asked about; one naming more than one agent is answered with a notice, since every
-agent named runs as the one sandbox account, and an untrusted `operator.conf` is neither asked about nor written.
-The enabled set is resolved after that write, so the run provisions what it wrote. An empty set the configuration did
-not ask for — `ai_tools_agents_empty_verdict` answering anything but `none` — ends the run there under `MSG-M9G5`,
-before anything is installed or removed, the fault the updater ends on ([the empty-set
+against `ai_tools_providers__list_installed_agents` and an unknown one refuses the run with the key unwritten. A present
+key is the operator's declaration and is not asked about; one naming more than one agent is answered with a notice,
+since every agent named runs as the one sandbox account, and an untrusted `operator.conf` is neither asked
+about nor written. The enabled set is resolved after that write, so the run provisions what it wrote. An empty set
+the configuration did not ask for — `ai_tools_providers__evaluate_empty_agents` answering anything but `none` — ends
+the run there under `MSG-M9G5`, before anything is installed or removed, the fault the updater ends on ([the empty-set
 classification](#the-run-classifies-itself-ok-skipped-or-failed)). **Residue goes next, still ahead of the network
 step** (`remove_residue`): the package of every installed agent that set does not name is removed as `SANDBOX_USER`
-through `ai_tools_agent_package_remove`, and its stable launcher link as root once no version directory holds
+through `ai_tools_toolchain__remove_agent_package`, and its stable launcher link as root once no version directory holds
 the package, so an offline host cleans up before its npm step fails and every launch stops refusing (see [A disabled
 agent's package is residue](#a-disabled-agents-package-is-residue)). **Two preflight checks sit between the empty-set
 refusal and the residue step**, since the residue step and the install both read the toolchain as `SANDBOX_USER`.
@@ -72,14 +72,14 @@ the system bus authorizes for root; a `sudo -u` call on the account's own bus is
 healthy ([cli](cli.rule.md)).
 
 **It offers the entrypoint requirement where confinement is in force** (`offer_launch_requirements`). On a host
-where SELinux is enforcing and the `ai_tools` module is loaded, it asks once, through `ai_tools_msg_confirm` defaulting
-to yes, whether to set `AI_TOOLS_REQUIRE_ENTRYPOINT_VERIFY`; the answer is written through `ai_tools_conf_set_key`, `no`
-included, so it is asked once rather than on every run. A run with no terminal takes the default, since the switch moves
-a launch toward less access. `AI_TOOLS_REQUIRE_SELINUX` is not offered: it is in force unless `operator.conf` turns it
-off ([confinement](confinement.rule.md)), so there is no posture for a bootstrap to write. A key already present, either
-way, is the operator's declaration and is not asked about, and an untrusted `operator.conf` is neither asked
-about nor written. The entrypoint switch is offered only while every enabled agent carries a pin, which the relabel
-ahead of the step writes: offered without one, it would refuse that agent's next launch.
+where SELinux is enforcing and the `ai_tools` module is loaded, it asks once, through `ai_tools_msg__confirm` defaulting
+to yes, whether to set `AI_TOOLS_REQUIRE_ENTRYPOINT_VERIFY`; the answer is written through `ai_tools_conf__set_key`,
+`no` included, so it is asked once rather than on every run. A run with no terminal takes the default, since the switch
+moves a launch toward less access. `AI_TOOLS_REQUIRE_SELINUX` is not offered: it is in force unless `operator.conf`
+turns it off ([confinement](confinement.rule.md)), so there is no posture for a bootstrap to write. A key already
+present, either way, is the operator's declaration and is not asked about, and an untrusted `operator.conf` is neither
+asked about nor written. The entrypoint switch is offered only while every enabled agent carries a pin,
+which the relabel ahead of the step writes: offered without one, it would refuse that agent's next launch.
 
 Starting the timer **pre-seeds its `Persistent=` run-stamp** (`$XDG_DATA_HOME/systemd/timers/ stamp-nvm-update.timer`
 under `/opt/ai-tools`, written as `SANDBOX_USER`) so it begins on its next scheduled window rather than an **immediate
@@ -117,26 +117,26 @@ or running a trusted `node` over a script from the tree. The toolchain is enforc
 host, or a process of the account outside `ai_tools_t`, writes it. Root and the operator therefore take one of two
 routes to the toolchain, and no third:
 
-- **Read it as data.** The installed Node version is `ai_tools_nvm_default_version` over the `default` alias
-  and the version directories, an agent's version `ai_tools_entrypoint_installed_version` over its `package.json`,
-  and the active version the target of a stable launcher link. Each read accepts a clamped shape, since the bytes are
-  the account's. Both readers open the file through the host's `/usr/bin/python3` in isolated mode (`-I`: the current
-  directory is off the import path, so a `json.py` in a project the reader was run from is not what it imports), without
-  following a symlink, and check the descriptor they opened for a regular file within a size cap; the alias reader then
-  matches the bytes whole (a NUL, a space or a second line refuses) before any becomes a shell value, and the manifest
-  reader parses them as JSON and takes the top-level `version` alone. The verdict over npm's signature audit is parsed
-  the same way, so no reader executes the tree's `node`.
-- **Run it as the account, through `ai_tools_as_sandbox`** (`sandbox-exec.lib.sh`, a library of its own with no provider
-  dependency, so a bootstrap provisioning Node alone loads it whole), the one route a root caller takes to a command
-  that executes a file of the toolchain. The caller names the account it means, and the helper refuses a name that does
-  not resolve to the sandbox account's own uid, uid 0 among them. It runs the command under `setsid` and `runuser`
-  from their system paths, so the child has no controlling terminal: a process sharing root's terminal can open
-  `/dev/tty` and insert input into it with `TIOCSTI` where the kernel permits it, whatever its own descriptors point at.
-  A terminal on stdin is replaced with `/dev/null`; the host's `bash` closes every descriptor above 2 the caller held
-  before it execs the command, so a socket, a lock or a root-only file does not reach it; the environment is `env -i`
-  with `HOME`, `PATH=/usr/bin:/bin` and `LANG=C.UTF-8`; and stdout and stderr stay apart, each
-  through `ai_tools_log_sanitize_stream` ([logging](logging.rule.md)), or withheld where `log.lib.sh` did not load.
-  Every host tool the helper runs comes from the system binary directories and never from the caller's `PATH`,
+- **Read it as data.** The installed Node version is `ai_tools_toolchain__read_nvm_default_version` over the `default`
+  alias and the version directories, an agent's version `ai_tools_entrypoint_verify__read_installed_version` over its
+  `package.json`, and the active version the target of a stable launcher link. Each read accepts a clamped shape, since
+  the bytes are the account's. Both readers open the file through the host's `/usr/bin/python3` in isolated mode (`-I`:
+  the current directory is off the import path, so a `json.py` in a project the reader was run from is not what it
+  imports), without following a symlink, and check the descriptor they opened for a regular file within a size cap;
+  the alias reader then matches the bytes whole (a NUL, a space or a second line refuses) before any becomes a shell
+  value, and the manifest reader parses them as JSON and takes the top-level `version` alone. The verdict over npm's
+  signature audit is parsed the same way, so no reader executes the tree's `node`.
+- **Run it as the account, through `ai_tools_sandbox_exec__run_as_sandbox`** (`sandbox-exec.lib.sh`, a library of its
+  own with no provider dependency, so a bootstrap provisioning Node alone loads it whole), the one route a root caller
+  takes to a command that executes a file of the toolchain. The caller names the account it means, and the helper
+  refuses a name that does not resolve to the sandbox account's own uid, uid 0 among them. It runs the command
+  under `setsid` and `runuser` from their system paths, so the child has no controlling terminal: a process sharing
+  root's terminal can open `/dev/tty` and insert input into it with `TIOCSTI` where the kernel permits it, whatever its
+  own descriptors point at. A terminal on stdin is replaced with `/dev/null`; the host's `bash` closes every descriptor
+  above 2 the caller held before it execs the command, so a socket, a lock or a root-only file does not reach it;
+  the environment is `env -i` with `HOME`, `PATH=/usr/bin:/bin` and `LANG=C.UTF-8`; and stdout and stderr stay apart,
+  each through `ai_tools_log__sanitize_stream` ([logging](logging.rule.md)), or withheld where `log.lib.sh` did not
+  load. Every host tool the helper runs comes from the system binary directories and never from the caller's `PATH`,
   and the command receives its arguments byte for byte: `systemd-run`'s own `${NAME}` expansion is switched off wherever
   it knows the switch, so a snippet the helper carries is not rewritten before privilege drops. A run is bounded: past
   `AI_TOOLS_AS_SANDBOX_TIMEOUT` seconds (a whole number, 1800 where unset or malformed) every process of the run
@@ -147,19 +147,21 @@ routes to the toolchain, and no third:
   the run is refused under `MSG-Q2K6` rather than made inside the weaker boundary a session is, since a descendant's own
   `setsid` leaves that one. Otherwise the command's own status is returned. `ai-tools-bootstrap` requires it and refuses
   the run under `MSG-E2X2` without it; its link repair, its residue removal, its nvm/Node/agent install and its
-  signature check go through it, and so does `install.sh`'s package erase at uninstall. `ai_tools_is_sandbox_account`,
-  beside it, is the check a function that sources `nvm.sh` or runs `npm` makes of its own process.
+  signature check go through it, and so does `install.sh`'s package erase at uninstall.
+  `ai_tools_sandbox_exec__is_sandbox_account`, beside it, is the check a function that sources `nvm.sh` or runs `npm`
+  makes of its own process.
 
 A step that runs as the account and executes only root-owned code — the launcher re-link through `providers.lib.sh`,
 the stamp's `mkdir` and `touch` — does not run a file the account can write, and keeps its plain `sudo -u`. `nvm-update`
 and `ai-tools-run` run as the account already. The status reports read versions as data and print the launcher's
 `--version` as a command for the operator to run through the wrapper, which is a sandboxed launch. Each function
 that executes a file of the tree requires the sandbox identity of its own process,
-through `ai_tools_is_sandbox_account`, and refuses root and an operator alike: `ai_tools_agent_package_remove`,
-`ai_tools_agent_package_erase` and `ai_tools_toolchain_relink_copies` under `MSG-P6P2`, `ai_tools_verify_npm_signatures`
-with its own line, and `nvm-update` itself under `MSG-U5C4` before it sources `nvm.sh`, naming the user instance
-and the bootstrap as the routes that run it. An identity the library cannot confirm refuses the same way. The agent
-packages' `%preun` scriptlets and the test suite reach those functions through `ai_tools_as_sandbox` as well, so no
+through `ai_tools_sandbox_exec__is_sandbox_account`, and refuses root and an operator alike:
+`ai_tools_toolchain__remove_agent_package`, `ai_tools_toolchain__erase_agent_package`
+and `ai_tools_toolchain__relink_copies` under `MSG-P6P2`, `ai_tools_npm_verify__verify_signatures` with its own line,
+and `nvm-update` itself under `MSG-U5C4` before it sources `nvm.sh`, naming the user instance and the bootstrap
+as the routes that run it. An identity the library cannot confirm refuses the same way. The agent packages' `%preun`
+scriptlets and the test suite reach those functions through `ai_tools_sandbox_exec__run_as_sandbox` as well, so no
 caller keeps a plain `runuser`.
 
 ## Where the update runs
@@ -178,7 +180,7 @@ in which case `PrivateUsers=` is implicitly enabled" — an unprivileged manager
 inside an unprivileged user namespace. `PrivateUsers` maps that account's uid alone, so a host uid outside the map reads
 back as the overflow uid `65534` while `stat` still exits 0.
 
-The payload is what breaks. `ai_tools_conf_is_trusted` requires owner 0 (see [providers](providers.rule.md)),
+The payload is what breaks. `ai_tools_conf__is_trusted` requires owner 0 (see [providers](providers.rule.md)),
 so under such an option the updater reads root-owned manifests as nobody-owned, refuses `operator.conf` and every
 manifest, and does not resolve any agent. The refusals stay fail-closed, and the toolchain stops advancing; the run ends
 as a fault whose reason names the translated owner it read ([the empty-set
@@ -240,7 +242,7 @@ advancing.
 
 **An empty agent set is classified before `npm` alone becomes the managed set.** The resolver reports a refused input
 on stderr and does not print a line for it, so its stdout reads as an empty set for a tampered manifest directory
-and for a host with no agent package alike. `nvm-update.sh` asks `ai_tools_agents_empty_verdict` (see
+and for a host with no agent package alike. `nvm-update.sh` asks `ai_tools_providers__evaluate_empty_agents` (see
 [providers](providers.rule.md)) which it is: a refused input, or an `AI_TOOLS_AGENTS` naming agents none
 of which resolved, is a **fault** — `die`, exit `1`, `RESULT=failed` — because a retry reads the same inputs, and `1` is
 the status the unit's `RestartPreventExitStatus=` already withholds a retry from. A configuration that asks for no agent
@@ -248,8 +250,8 @@ the status the unit's `RestartPreventExitStatus=` already withholds a retry from
 logged and the run continues over `npm`. The fault reason carries every refused path with the owner and mode
 the predicate read, so `ai-tools status` reports `FAILED` on the first run after the fault and the journal line names
 the input to look at. The verdict is a `fault`/`none` line and not a new `RESULT` token:
-`ai_tools_service_stamp_verdict` declines a word outside `ok|skipped|failed`, so a token added there would report
-as unknown and leave `ai_tools_service_needs_attention` unmoved.
+`ai_tools_services__evaluate_stamp` declines a word outside `ok|skipped|failed`, so a token added there would report
+as unknown and leave `ai_tools_services__is_attention_needed` unmoved.
 
 ### Retrying a transient failure
 
@@ -275,6 +277,12 @@ and `pids` controllers to it (cgroup v2), and accepts them without applying them
 with `sudo systemctl --user -M ai-tools@.host edit nvm-update.service`. The session unit's profile, and why either is
 a cap and not a boundary, are in [launch](launch.rule.md).
 
+The unit also sets `NoNewPrivileges=yes` and `RestrictNamespaces=yes`, as the session unit does
+([confinement](confinement.rule.md)), so a package install script in the run does not gain privilege through a setuid
+binary and cannot create its own user namespace, inside which this account's files would appear root-owned to the trust
+predicate ([ref-section-x4z9](providers.rule.md#ref-section-x4z9)); `tests/integration/systemd.sh` asserts each
+directive.
+
 Each field has a distinct reader. `RESULT` and `EXIT_CODE` are the service's verdict. `FINISHED` carries two: it dates
 that verdict, and its **age** is what `nvm-update.timer` — which can otherwise report only `?` — infers its own health
 from, since a run systemd started proves the timer fired (see [cli](cli.rule.md) for the `stamp_mode`/`max_age` fields
@@ -288,12 +296,12 @@ to scheduled ones. `NODE` records the version the run left active; the status re
 off the stable launcher links, which every writer of Node repoints, and print `NODE` beside it only where the two
 differ, which says the toolchain changed after this run (see [cli](cli.rule.md)). `REASON` is written only on a skip
 and says which transient condition ended the run — `offline`, or `clock` when a file this host wrote (the updater
-itself, the previous stamp, an entrypoint pin) is dated after the system clock (`ai_tools_conf_clock_behind`,
-`conf.lib.sh`), the state a host with no battery-backed clock boots into until it reaches a time source — so the report
-can state why a run made no change instead of leaving the operator to infer it. The `clock` skip runs before anything is
-downloaded or written, and its stamp keeps the previous run's `FINISHED` rather than dating a run with the wrong time,
-so the record ages into `STALE` as the condition persists. The launch wrapper and `ai-tools-run` make the same read
-and refuse a session under it ([launch](launch.rule.md)).
+itself, the previous stamp, an entrypoint pin) is dated after the system clock
+(`ai_tools_conf__find_paths_ahead_of_clock`, `conf.lib.sh`), the state a host with no battery-backed clock boots
+into until it reaches a time source — so the report can state why a run made no change instead of leaving the operator
+to infer it. The `clock` skip runs before anything is downloaded or written, and its stamp keeps the previous run's
+`FINISHED` rather than dating a run with the wrong time, so the record ages into `STALE` as the condition persists.
+The launch wrapper and `ai-tools-run` make the same read and refuse a session under it ([launch](launch.rule.md)).
 
 ### What the stamp is trusted for
 
@@ -309,11 +317,11 @@ bound **what it can touch**, never whether the contents are true:
   and only ever **rewritten in place** by the updater. The added surface is therefore exactly one inode's contents.
 
 That the contents are forgeable is accepted, on two grounds. **No decision reads the stamp** — it is rendered in one
-status report and never evaluated, and every value is read defensively (`ai_tools_service_stamp_field`: a symlink is
-refused, only the first 4 KiB is examined, and a value must be a short `[A-Za-z0-9:+._-]` token or it reads as no value
-at all), so no control byte or escape sequence can reach the operator's terminal through it and a corrupt stamp degrades
-the unit to *unknown* rather than to a wrong verdict. And it is **never the weakest link**: an account able to write
-the stamp can already write the toolchain the stamp reports on, which is by far the more valuable target.
+status report and never evaluated, and every value is read defensively (`ai_tools_services__read_stamp_field`: a symlink
+is refused, only the first 4 KiB is examined, and a value must be a short `[A-Za-z0-9:+._-]` token or it reads as no
+value at all), so no control byte or escape sequence can reach the operator's terminal through it and a corrupt stamp
+degrades the unit to *unknown* rather than to a wrong verdict. And it is **never the weakest link**: an account able
+to write the stamp can already write the toolchain the stamp reports on, which is by far the more valuable target.
 On an enforcing host it can write neither. The toolchain is `usr_t`, which `ai_tools_t` may only read. The stamp is
 `usr_t` where the policy aliases `/var/opt` to `/opt` (EL10, Fedora) and `var_t` where it does not (EL9),
 on which the domain holds directory search and no file permission (the `sandbox-projects` note in `ai_tools.fc`).
@@ -345,28 +353,29 @@ directory. `toolchain.lib.sh` (`644 root:root`, requiring `providers.lib.sh` fai
 from the manifests, with no agent name in its code:
 
 - **Two readers, one per principal.** The tree is `0750 SANDBOX_USER`, so only that account reads the definitive set:
-  `ai_tools_agent_residue <nvm-dir>` prints `name<TAB>npm_package<TAB>version-dir` for every installed, not enabled
-  agent whose package directory sits under a semver version directory. The operator reads the artifact every
+  `ai_tools_toolchain__find_agent_residue <nvm-dir>` prints `name<TAB>npm_package<TAB>version-dir` for every installed,
+  not enabled agent whose package directory sits under a semver version directory. The operator reads the artifact every
   provisioning writes last and every removal takes with the package, the stable launcher link:
-  `ai_tools_agent_residue_links <launcher-dir>` prints `name<TAB>launcher` for every such agent whose link exists,
-  through `-L` so the read stays out of the tree. Both iterate `ai_tools_installed_not_enabled_agents`, the installed
-  set minus the enabled set ([providers](providers.rule.md)): a manifest the trust predicate refuses is not an agent
-  and so not residue, and an enabled agent's package is never residue whatever the tree holds. An empty enabled set
-  counts only under the `none` verdict: under a `fault` — an invalid `AI_TOOLS_AGENTS`, an untrusted `operator.conf` —
-  the set the operator declared is unknown rather than empty, so the set does not print a line, and every installed
-  agent's package stays where it is instead of reaching the writer.
-- **One writer.** `ai_tools_agent_package_remove <version-dir> <npm_package> [erase]` runs that version's own
+  `ai_tools_toolchain__find_agent_residue_links <launcher-dir>` prints `name<TAB>launcher` for every such agent
+  whose link exists, through `-L` so the read stays out of the tree. Both iterate
+  `ai_tools_toolchain__list_installed_not_enabled_agents`, the installed set minus the enabled set
+  ([providers](providers.rule.md)): a manifest the trust predicate refuses is not an agent and so not residue,
+  and an enabled agent's package is never residue whatever the tree holds. An empty enabled set counts only
+  under the `none` verdict: under a `fault` — an invalid `AI_TOOLS_AGENTS`, an untrusted `operator.conf` — the set
+  the operator declared is unknown rather than empty, so the set does not print a line, and every installed agent's
+  package stays where it is instead of reaching the writer.
+- **One writer.** `ai_tools_toolchain__remove_agent_package <version-dir> <npm_package> [erase]` runs that version's own
   `npm uninstall -g` with the version directory pinned as the prefix (no registry is reached) and prints one word:
   `absent`, `removed`, or `deferred` when a live process executes from the package directory
-  (`ai_tools_agent_package_in_use`, the `/proc/<pid>/exe` prefix scan `version_in_use` makes for a version directory,
-  since codex stages symlinks to its own entrypoint inside its package and execs them per edit), which leaves it
-  for the next run. It **refuses an enabled agent's package** under `MSG-X7Z9` — a provisioning run must never remove
+  (`ai_tools_toolchain__is_agent_package_in_use`, the `/proc/<pid>/exe` prefix scan `version_in_use` makes for a version
+  directory, since codex stages symlinks to its own entrypoint inside its package and execs them per edit), which leaves
+  it for the next run. It **refuses an enabled agent's package** under `MSG-X7Z9` — a provisioning run must never remove
   what it maintains, so the direction is less access only — unless called with `erase`, the form an agent package's own
   erase takes while its manifest still names the package; a name outside npm's charset and an uninstall that left
   the directory refuse under `MSG-X8F9`. A removal says what it leaves (`MSG-G4M8`): the agent's state directory,
   `config_dir` from its manifest, stays under the sandbox home, readable by every session of every enabled agent until
-  the operator moves it out of the account's reach. `ai_tools_agent_package_erase <nvm-dir> <agent>` is the erase form
-  over every version directory holding the agent's package.
+  the operator moves it out of the account's reach. `ai_tools_toolchain__erase_agent_package <nvm-dir> <agent>` is
+  the erase form over every version directory holding the agent's package.
 - **Every path that writes the toolchain calls it**, each as `SANDBOX_USER`, the tree's owner: `ai-tools-bootstrap`
   ahead of its network step, `nvm-update` ahead of `install_packages` (so npm's allow-scripts rescan sees the smaller
   tree), and the erase paths — the agent package's `%preun` and `install.sh uninstall` — through the erase form, while
@@ -404,13 +413,13 @@ is the only executable, the versioned launcher is not re-linked, and every launc
 preflight, no file-context rule covering what the launcher now resolves to. That exit status is why this state is
 **read** rather than inferred from a failure.
 
-`ai_tools_agent_incomplete <version-dir>` (`toolchain.lib.sh`) is the reader: for every **enabled** agent, it joins
-the `launcher_target` its manifest declares to the version directory and prints `name<TAB>npm_package` when that path
-does not exist. An agent that does not declare a `launcher_target` is not read at all — npm's own link is then its
-launcher, and this library has no declared path to compare the tree against — and a target
-`ai_tools_launcher_target_valid` refuses is skipped and reported instead of being joined to a path. A disabled agent's
-package is residue, which `ai_tools_agent_residue` covers, so it is not read here either: reinstalling what the run is
-about to remove is the one outcome that would be wrong.
+`ai_tools_toolchain__find_incomplete_agents <version-dir>` (`toolchain.lib.sh`) is the reader: for every **enabled**
+agent, it joins the `launcher_target` its manifest declares to the version directory and prints `name<TAB>npm_package`
+when that path does not exist. An agent that does not declare a `launcher_target` is not read at all — npm's own link is
+then its launcher, and this library has no declared path to compare the tree against — and a target
+`ai_tools_providers__is_launcher_target_valid` refuses is skipped and reported instead of being joined to a path.
+A disabled agent's package is residue, which `ai_tools_toolchain__find_agent_residue` covers, so it is not read here
+either: reinstalling what the run is about to remove is the one outcome that would be wrong.
 
 `nvm-update` reads it **before** `install_packages` and hands it the set, and a package in that set takes
 the **install** branch rather than the update branch. `npm update` advances a package's version and leaves the tree it
@@ -451,15 +460,15 @@ of each target in the link's place, and two things break: npm's entry script req
 so npm does not start, and an agent's launcher resolves to a file no entrypoint rule covers, which the reconciliation
 reports as `copied`.
 
-`ai_tools_toolchain_bin_copies` (`toolchain.lib.sh`) finds such a copy with a `stat`: a regular file in `bin/` other
-than `node`. `ai_tools_toolchain_relink_copies` restores the link where the copy's bytes equal its target — the enabled
-agent's `launcher_target` for that launcher, and otherwise the `bin` entry of the global package declaring the name,
-read by that version's own `node` — in npm's relative form, through a temporary name and `mv -T`. A copy whose bytes
-differ, or whose name no package declares, is left and reported, since the transfer did not make it. The repair runs
-node from the tree, so it refuses root: `ai-tools-bootstrap` runs it through `ai_tools_as_sandbox` for every version
-directory holding a copy, ahead of the residue step, which needs npm; `nvm-update` runs it over the active version
-before its first npm call. `install.sh` reads the copies and names bootstrap as the repair instead of writing
-the launcher links over them.
+`ai_tools_toolchain__find_bin_copies` (`toolchain.lib.sh`) finds such a copy with a `stat`: a regular file in `bin/`
+other than `node`. `ai_tools_toolchain__relink_copies` restores the link where the copy's bytes equal its target —
+the enabled agent's `launcher_target` for that launcher, and otherwise the `bin` entry of the global package declaring
+the name, read by that version's own `node` — in npm's relative form, through a temporary name and `mv -T`. A copy
+whose bytes differ, or whose name no package declares, is left and reported, since the transfer did not make it.
+The repair runs node from the tree, so it refuses root: `ai-tools-bootstrap` runs it
+through `ai_tools_sandbox_exec__run_as_sandbox` for every version directory holding a copy, ahead of the residue step,
+which needs npm; `nvm-update` runs it over the active version before its first npm call. `install.sh` reads the copies
+and names bootstrap as the repair instead of writing the launcher links over them.
 
 ## The versioned launcher and its declared target
 
@@ -495,7 +504,7 @@ cannot resolve **refuses** rather than accepting anything.
 The path's shape says where the link sits; what a session executes is what it **resolves to**, so the helper resolves
 the target once and requires three things of the result — a **regular executable file**, **inside that same version
 directory**, **covered by that agent's `entrypoint_fcontext`**, that pattern first held to the relabel's containment
-(`ai_tools_entrypoint_fcontext_valid`) — each being `ai_tools_relink_launcher`'s own predicate
+(`ai_tools_providers__is_entrypoint_fcontext_valid`) — each being `ai_tools_providers__relink_launcher`'s own predicate
 ([providers](providers.rule.md)), so the two writers of this chain accept the same set of targets. Every read the helper
 makes of that file is a `stat`, the execute bit included: the handback domain holds `getattr` on an entrypoint and no
 other permission (the grant is in `ai_tools.te`), and an `access(2)` test there is an `execute` check the domain
@@ -530,18 +539,18 @@ module is not installed — there is then no `ai_tools_exec_t` to assign, the sa
 
 The type and the Node versions root are pinned in `relabel.lib.sh`, and a declared pattern is accepted only when it can
 match no path outside that root (no traversal, no alternation, an anchored literal head —
-`ai_tools_entrypoint_fcontext_valid`, the predicate `providers.lib.sh` holds so the launcher re-link applies it too),
-so a manifest chooses **which** file is its entrypoint, never what label a file gets. The labelling body lives
-in `relabel.lib.sh`, shared with `install-selinux.sh`'s verify pass.
+`ai_tools_providers__is_entrypoint_fcontext_valid`, the predicate `providers.lib.sh` holds so the launcher re-link
+applies it too), so a manifest chooses **which** file is its entrypoint, never what label a file gets. The labelling
+body lives in `relabel.lib.sh`, shared with `install-selinux.sh`'s verify pass.
 
 **Every writer of the policy store serializes on one lock, and a refusal names its cause.** An install or upgrade drives
 writers at once: the base package's rewrite of `/opt/ai-tools/bin` fires the `ai-tools-relabel.path` watcher while
 the selinux package's `%post` (or `install-selinux.sh`) is still loading modules, and the agent package's `%post` runs
 this helper in the same transaction. `semanage` and `semodule` take the store's own lock non-blocking and report
 an error to whichever process finds it held, so overlapping runs leave rules unregistered and both report a failure
-neither caused. `ai_tools_relabel_lock` (`relabel.lib.sh`) makes the later one wait. The root helpers
+neither caused. `ai_tools_relabel__lock` (`relabel.lib.sh`) makes the later one wait. The root helpers
 (`ai-tools-relabel-agent`, `ai-tools-relabel`, `ai-tools-admin`'s operator labelling) hold it for the run;
-`install-selinux.sh` takes it per store-writing command through `ai_tools_relabel_unlock`, since its install action
+`install-selinux.sh` takes it per store-writing command through `ai_tools_relabel__unlock`, since its install action
 prompts between loads and a lock held across a prompt would make the watcher's run wait out `AI_TOOLS_RELABEL_LOCK_WAIT`
 and proceed unserialized; the selinux `%post` open-codes `flock` on the same path, which `tests/unit/relabel.sh` pins
 to the library's default. The lock is best-effort in one direction only: no `flock`, an uncreatable lock file, or a wait
@@ -604,8 +613,8 @@ counterpart: the agent package's `%preun` drops its rule while its manifest is s
 
 **The divergence has a cause per verdict, and the reconciliation tells them apart, because their remedies do not
 overlap.** Whether the declared pattern matches *any* installed file decides it, and where it does, whether the file
-the launcher resolves to is a byte-identical copy of a match (`ai_tools_entrypoint_reconcile_verdict`, `relabel.lib.sh`;
-the comparison is `cmp`, a read):
+the launcher resolves to is a byte-identical copy of a match (`ai_tools_relabel__evaluate_entrypoint_reconcile`,
+`relabel.lib.sh`; the comparison is `cmp`, a read):
 
 | verdict | what the pattern matched | the cause | the remedy the refusal names |
 |---|---|---|---|
@@ -684,15 +693,15 @@ network beyond the registry key/attestation fetch.
 The verifier runs as the sandbox account, never root: it audits the sandbox-owned (agent- writable) global tree,
 and as root it would resolve root's global prefix — a verdict over the wrong tree — and run `npm`/`node`
 over agent-controlled files as root. `nvm-update.sh` runs it directly; `ai-tools-bootstrap` runs it inside a `sudo -u`
-sandbox-account step; and the impure entry `ai_tools_verify_npm_signatures` refuses to run as root as a fail-closed
-backstop. The pure decision `ai_tools_npm_verdict` — no npm, no filesystem, no privilege — is split out and unit-tested
-over the audit-output truth table (`tests/unit/npm-verify.sh`), mirroring `confinement.lib.sh`'s pure verdict.
-That verdict parses its JSON with `node`, which on most hosts exists only in the sandbox toolchain, so the root-run test
-resolves that one binary the way the launch wrapper resolves the agent binary — one `readlink` hop through a stable
-launcher symlink to the active version's `bin` — and runs the verdict as the sandbox account through `runuser`,
-with that directory alone on its `PATH`: the binary is that account's to replace, and root does not execute it
-([tests](tests.rule.md)). Resolving from `PATH` alone would skip the file on a fully provisioned host, which strict mode
-reports as no coverage.
+sandbox-account step; and the impure entry `ai_tools_npm_verify__verify_signatures` refuses to run as root
+as a fail-closed backstop. The pure decision `ai_tools_npm_verify__evaluate_audit` — no npm, no filesystem, no privilege
+— is split out and unit-tested over the audit-output truth table (`tests/unit/npm-verify.sh`), mirroring
+`confinement.lib.sh`'s pure verdict. That verdict parses its JSON with `node`, which on most hosts exists only
+in the sandbox toolchain, so the root-run test resolves that one binary the way the launch wrapper resolves the agent
+binary — one `readlink` hop through a stable launcher symlink to the active version's `bin` — and runs the verdict
+as the sandbox account through `runuser`, with that directory alone on its `PATH`: the binary is that account's
+to replace, and root does not execute it ([tests](tests.rule.md)). Resolving from `PATH` alone would skip the file
+on a fully provisioned host, which strict mode reports as no coverage.
 
 The verdict gates activation fail-closed. An **invalid** signature (tamper) aborts before the prune
 and the launcher-symlink repoint, so the previous, trusted version stays active and the tampered tree is left unwired.
@@ -748,42 +757,42 @@ neither tier is claimed for it, since rendering it as `verified` would put a ven
 here produced. An `observed` pin is a **tightening** of the state it replaces — an agent with no provenance was
 previously unpinned, so the launch had nothing to compare and any change to the binary went unseen.
 
-**The version both sides compare is read once.** `ai_tools_entrypoint_installed_version` finds the package holding
-the entrypoint — the nearest ancestor the path enters through `node_modules/<name>` or `node_modules/@<scope>/<name>`,
-within six directories — and reads that package's own `package.json` alone: a nested package without a manifest
-and an entrypoint outside any package each read as no version rather than as an enclosing package's or the toolchain
-root's, and a caller that names the package it asked about is answered only where the manifest's `name` matches.
-The host's `python3` reads the file, never the tree's `node`: it opens the path without following a symlink, checks
-the opened descriptor to be a regular file of at most 64 KiB, parses the bytes it read from that descriptor as JSON,
-and takes the top-level `version` alone, so a symlink, a fifo, a swapped file or a nested `version` field does not yield
-a version. The value accepts `MAJOR.MINOR.PATCH` with an optional `-`/`+` suffix of alphanumerics, dots and hyphens,
-never containing `..` — the clamp matters because that value reaches a terminal, a journal line, a pin record
-and the `{version}` slot of a release-manifest URL, from a file the sandbox account owns. The boundary is deeper than
-one agent's layout: Claude Code's entrypoint sits at `<pkg>/bin/claude.exe`, codex's vendored binary
-at `<pkg>/vendor/<target-triple>/bin/codex`, and the platform package spells its version `0.154.0-linux-x64`. The launch
-banner reads the same function, so the pin and the banner cannot disagree about what version a binary is. An unreadable
-version is recorded as `unknown`, and the observing caller substitutes that same token before comparing, so the two
-sides stay like for like: left empty it would never equal a recorded `unknown`, every run would read as a new version,
-and a changed binary would be re-recorded rather than refused.
+**The version both sides compare is read once.** `ai_tools_entrypoint_verify__read_installed_version` finds the package
+holding the entrypoint — the nearest ancestor the path enters through `node_modules/<name>`
+or `node_modules/@<scope>/<name>`, within six directories — and reads that package's own `package.json` alone: a nested
+package without a manifest and an entrypoint outside any package each read as no version rather than as an enclosing
+package's or the toolchain root's, and a caller that names the package it asked about is answered only
+where the manifest's `name` matches. The host's `python3` reads the file, never the tree's `node`: it opens the path
+without following a symlink, checks the opened descriptor to be a regular file of at most 64 KiB, parses the bytes it
+read from that descriptor as JSON, and takes the top-level `version` alone, so a symlink, a fifo, a swapped file
+or a nested `version` field does not yield a version. The value accepts `MAJOR.MINOR.PATCH` with an optional `-`/`+`
+suffix of alphanumerics, dots and hyphens, never containing `..` — the clamp matters because that value reaches
+a terminal, a journal line, a pin record and the `{version}` slot of a release-manifest URL, from a file the sandbox
+account owns. The boundary is deeper than one agent's layout: Claude Code's entrypoint sits at `<pkg>/bin/claude.exe`,
+codex's vendored binary at `<pkg>/vendor/<target-triple>/bin/codex`, and the platform package spells its version
+`0.154.0-linux-x64`. The launch banner reads the same function, so the pin and the banner cannot disagree
+about what version a binary is. An unreadable version is recorded as `unknown`, and the observing caller substitutes
+that same token before comparing, so the two sides stay like for like: left empty it would never equal a recorded
+`unknown`, every run would read as a new version, and a changed binary would be re-recorded rather than refused.
 
-**What guards the weaker tier is the refusal to re-record.** `ai_tools_entrypoint_observe_decision` is pure
+**What guards the weaker tier is the refusal to re-record.** `ai_tools_entrypoint_verify__evaluate_observed_pin` is pure
 and unit-tested over its table: no pin, or a different installed version, yields `pin` (a release the updater installed
 brings its own version, so a new checksum under a new version is an update); the same version with the same bytes yields
 `keep`; and **the same version hashing differently yields `tamper`, at status 1, which leaves the pin exactly as it
 was.** Re-recording there would bless the one change no update explains, and the stale pin it keeps instead is
 what makes the next launch read `mismatch`. A pin whose recorded version the reader cannot return is decided by its
 bytes alone, so a changed binary under it is `tamper` too; the writers clamp the version to the field shape the reader
-accepts (`_ai_tools_ev_field_ok`), so that case arises only from a record edited by hand. `observe_agent_entrypoint`
-in `ai-tools-relabel-agent.sh` performs the I/O around that decision, files the [stale
+accepts (`_ai_tools_entrypoint_verify__is_field_valid`), so that case arises only from a record edited by hand.
+`observe_agent_entrypoint` in `ai-tools-relabel-agent.sh` performs the I/O around that decision, files the [stale
 mark](#a-refusal-leaves-a-mark-too) and prints the remedy.
 
 **The remedy is a forced reinstall, not the provisioning command.** `system bootstrap` installs each enabled agent's npm
 package, and `npm install -g` is a no-op at a version already installed, so reprovisioning leaves a changed binary
 exactly where it is and the host goes on refusing without naming the cause. Both refusals — the relabel helper's
 and the launch shim's — therefore print the package directory to remove first and the provisioning command after it,
-composed by `ai_tools_entrypoint_package_dir` from the entrypoint's own version directory and the manifest's
-`npm_package`, so the operator reads the paths this host has. Where the entrypoint does not sit inside a package
-directory, the refusal names the provisioning command alone rather than guessing a path.
+composed by `ai_tools_entrypoint_verify__find_package_dir` from the entrypoint's own version directory
+and the manifest's `npm_package`, so the operator reads the paths this host has. Where the entrypoint does not sit
+inside a package directory, the refusal names the provisioning command alone rather than guessing a path.
 
 **What the weaker tier does not decide.** The version on both sides of that decision comes from `package.json`
 in the toolchain, which the sandbox account owns and the updater writes, and the version directory the stable launcher
@@ -810,8 +819,8 @@ as a claim of vendor provenance for an agent whose vendor publishes none.
 An unattended run may answer from the existing pin instead of refetching. It does so only when every input
 to the verdict is unchanged: the installed version, the entrypoint's own bytes, and an `INPUTS` digest over the manifest
 URL template, the signing key's path **and content**, and the declared fingerprints. A pin recording no `INPUTS` is
-never reused, so an unrecordable digest costs a re-verification. `ai_tools_entrypoint_pin_reusable` is the predicate,
-unit-tested over that truth table.
+never reused, so an unrecordable digest costs a re-verification. `ai_tools_entrypoint_verify__is_pin_reusable` is
+the predicate, unit-tested over that truth table.
 
 This is worth doing because the repeat runs are frequent and the cost is not: one upgrade can fire the `.path` watcher
 several times, the agent package's `%post` runs on every package update, and on an air-gapped host each of those spends
@@ -842,14 +851,14 @@ own exit status separates them exactly — `1` for a signature it rejects, `2` f
   standing. A rotation reporting as tamper would fail every host closed on an untouched binary, so the agent package
   ships old and new keys in one keyring and declares both fingerprints for the overlap.
 
-`AI_TOOLS_REQUIRE_ENTRYPOINT_VERIFY` (`operator.conf`, read through `ai_tools_entrypoint_verify_required` so the updater
-and the launch cannot disagree about how strict the host is) turns the *unverifiable* case into a refusal: the launch
-will not start an unpinned entrypoint, and the updater will not activate a release it could not verify. Its default is
-**no**, and that is an air-gap decision — unpinned is also the state of a host with an internal npm mirror and no vendor
-route, and blocking there would quietly freeze its agent forever. `system bootstrap` offers `yes` only where every
-enabled agent already carries a pin, so the offer does not reach a host whose agent could not be verified. Nothing
-in this layer hard-fails offline: the fetch carries a short `--connect-timeout` because it runs inside the relabel,
-and so inside an rpm `%post` that must succeed offline.
+`AI_TOOLS_REQUIRE_ENTRYPOINT_VERIFY` (`operator.conf`, read through `ai_tools_entrypoint_verify__is_required`
+so the updater and the launch cannot disagree about how strict the host is) turns the *unverifiable* case
+into a refusal: the launch will not start an unpinned entrypoint, and the updater will not activate a release it could
+not verify. Its default is **no**, and that is an air-gap decision — unpinned is also the state of a host
+with an internal npm mirror and no vendor route, and blocking there would quietly freeze its agent forever.
+`system bootstrap` offers `yes` only where every enabled agent already carries a pin, so the offer does not reach a host
+whose agent could not be verified. Nothing in this layer hard-fails offline: the fetch carries a short
+`--connect-timeout` because it runs inside the relabel, and so inside an rpm `%post` that must succeed offline.
 
 ### Why the pin lives in the relabel helper
 

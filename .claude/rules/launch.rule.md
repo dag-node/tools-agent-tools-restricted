@@ -27,52 +27,53 @@ so a launcher shadows the nvm-managed one of the same name on the operator's PAT
 the interpreter by absolute path in privileged mode, PATH pinned — is stated in its header.
 
 The gates are one implementation, `/usr/local/lib/ai-tools/launch-wrapper.lib.sh` (`644 root:root`,
-`ai-tools-base`-owned), and the wrapper is four calls into it: `ai_tools_launch_init <name>`, which loads `msg.lib.sh`,
-`safe-paths.lib.sh` and `conf.lib.sh` fail-closed and accepts the name only in a launcher's charset, matched in the C
-locale (`MSG-Z6F8`); `ai_tools_launch_gates "$@"`, which runs the numbered gates in their order — the operator gate
-first, then the clock gate (`ai_tools_launch_gate_clock`, `MSG-U8K6`: a file this host wrote dated after the system
-clock, read by `ai_tools_conf_clock_behind` over the library, the wrapper, the operator's allowlist, the updater's stamp
-and the entrypoint pins, says the clock is behind, and every record a session leaves would carry the wrong time,
-so the launch is refused naming the file and the command that sets the clock; `ai-tools-run` makes the same read
-as the sandbox account under `MSG-Z9C8`, so the boundary does not rest on the wrapper's), then the list, launcher,
-residue and CWD gates; `ai_tools_launch_agent_args`, the agent's launch hook ([Operator-configured launch
-inputs](#operator-configured-launch-inputs)); and `ai_tools_launch_session <arg>...`, the pre-launch notices
-and the `exec`. A new agent therefore ships a manifest and a symlink, and a launch hook only for launch-time arguments
-of its own; a change to a gate lands for every agent at once. The wrapper's own inline check is the one guard
-the library cannot carry: it refuses (`MSG-R3Q4`) when the library will not load or lacks the functions it calls,
-in the plain form, since the message library is loaded by the library it could not load. `ai_tools_launch_session`
-refuses (`MSG-B6G2`) when it is reached without the gates' two results, so the wrapper cannot skip to the `exec`. These
-gates are what the security model rests on, and every one of them refuses toward *less* access:
+`ai-tools-base`-owned), and the wrapper is four calls into it: `ai_tools_launch_wrapper__init <name>`, which loads
+`msg.lib.sh`, `safe-paths.lib.sh` and `conf.lib.sh` fail-closed and accepts the name only in a launcher's charset,
+matched in the C locale (`MSG-Z6F8`); `ai_tools_launch_wrapper__run_gates "$@"`, which runs the numbered gates in their
+order — the operator gate first, then the clock gate (`ai_tools_launch_wrapper__gate_clock`, `MSG-U8K6`: a file this
+host wrote dated after the system clock, read by `ai_tools_conf__find_paths_ahead_of_clock` over the library,
+the wrapper, the operator's allowlist, the updater's stamp and the entrypoint pins, says the clock is behind, and every
+record a session leaves would carry the wrong time, so the launch is refused naming the file and the command that sets
+the clock; `ai-tools-run` makes the same read as the sandbox account under `MSG-Z9C8`, so the boundary does not rest
+on the wrapper's), then the list, launcher, residue and CWD gates; `ai_tools_launch_wrapper__append_agent_args`,
+the agent's launch hook ([Operator-configured launch inputs](#operator-configured-launch-inputs));
+and `ai_tools_launch_wrapper__launch_session <arg>...`, the pre-launch notices and the `exec`. A new agent therefore
+ships a manifest and a symlink, and a launch hook only for launch-time arguments of its own; a change to a gate lands
+for every agent at once. The wrapper's own inline check is the one guard the library cannot carry: it refuses
+(`MSG-R3Q4`) when the library will not load or lacks the functions it calls, in the plain form, since the message
+library is loaded by the library it could not load. `ai_tools_launch_wrapper__launch_session` refuses (`MSG-B6G2`)
+when it is reached without the gates' two results, so the wrapper cannot skip to the `exec`. These gates are
+what the security model rests on, and every one of them refuses toward *less* access:
 
 1. **Operator gate first** — a caller not in the `ai-ops` operators group is refused before anything else happens,
    with a framed `msg.lib` message naming the `ai-tools-admin operators add` fix rather than leaking the raw `sudo`
    denial the `%ai-ops` rule would otherwise produce.
 2. **Provider-list gate** — a launch is refused (`MSG-V3Q5`) while `operator.conf` holds a provider list item written
-   without its kind prefix, the spelling an earlier release wrote (`ai_tools_conf_kind_unmigrated`,
+   without its kind prefix, the spelling an earlier release wrote (`ai_tools_conf__find_unmigrated_items`,
    [providers](providers.rule.md)). The list reader reads such a list as empty, so without the gate an unmigrated
    `AI_TOOLS_AGENTS` would be refused with the wrong remedy and an unmigrated `AI_TOOLS_INTEGRATIONS`
    or `AI_TOOLS_FILTERS` would start a session without them; the refusal names each item and `system post-upgrade`,
    which rewrites them. `ai-tools-run` refuses under the same code, the shim the boundary and this gate
    the diagnostician.
 3. **Launcher gate** — the invoked name must be the launcher of an enabled agent manifest, read
-   through `ai_tools_enabled_agents` ([providers](providers.rule.md)), and the gate records that agent; any other name,
-   `ai-tools-launch` itself included, is refused (`MSG-F8N3`), and a provider library that will not load refuses too
-   (`MSG-C2C9`). Every launcher is one program, so the name is what selects the agent before `sudo`; the gate runs
-   after the operator gate, so its refusal, which lists the enabled launchers, does not reach a non-operator,
-   and after the provider-list gate, so an unmigrated list is not reported as "not enabled". `ai-tools-run` re-derives
-   the agent from the resolved path after the drop.
+   through `ai_tools_providers__list_enabled_agents` ([providers](providers.rule.md)), and the gate records that agent;
+   any other name, `ai-tools-launch` itself included, is refused (`MSG-F8N3`), and a provider library that will not load
+   refuses too (`MSG-C2C9`). Every launcher is one program, so the name is what selects the agent before `sudo`;
+   the gate runs after the operator gate, so its refusal, which lists the enabled launchers, does not reach
+   a non-operator, and after the provider-list gate, so an unmigrated list is not reported as "not enabled".
+   `ai-tools-run` re-derives the agent from the resolved path after the drop.
 4. **Residue gate** — a launch is refused (`MSG-H4E2`) while any agent the host installed but did not enable still has
    its stable launcher link, the operator-side evidence that its package is in the sandbox toolchain
-   (`ai_tools_agent_residue_links`, [updater](updater.rule.md)); the refusal names the agent and the provisioning run
-   that removes the package, and a toolchain library that will not load refuses too (`MSG-U9K8`). It refuses every
-   agent's launch, the enabled one included, and does not remove a package: `ai-tools-run` reads the tree itself
-   and refuses under the same code, which makes the shim the boundary and this gate the diagnostician that answers
-   before `sudo`.
+   (`ai_tools_toolchain__find_agent_residue_links`, [updater](updater.rule.md)); the refusal names the agent
+   and the provisioning run that removes the package, and a toolchain library that will not load refuses too
+   (`MSG-U9K8`). It refuses every agent's launch, the enabled one included, and does not remove a package:
+   `ai-tools-run` reads the tree itself and refuses under the same code, which makes the shim the boundary and this gate
+   the diagnostician that answers before `sudo`.
 5. **Binary resolution to the versioned shape** — the stable symlink `/opt/ai-tools/bin/<launcher>` is resolved one
    `readlink` hop and the target validated as an absolute, `..`-free path of the shape
-   `${AI_TOOLS_NVM_DIR}/versions/node/*/bin/<launcher>`, then exported as `AI_TOOLS_AGENT_EXEC`. This validation is
-   an integrity check against a misconfigured or compromised `ai-tools-launcher-symlink` root helper, not a guard
-   against external injection — only root writes `/opt/ai-tools/bin` (`0551 root:SANDBOX_GROUP`). `ai-tools-run`
+   `${AI_TOOLS_LAUNCH_WRAPPER__NVM_DIR}/versions/node/*/bin/<launcher>`, then exported as `AI_TOOLS_AGENT_EXEC`. This
+   validation is an integrity check against a misconfigured or compromised `ai-tools-launcher-symlink` root helper, not
+   a guard against external injection — only root writes `/opt/ai-tools/bin` (`0551 root:SANDBOX_GROUP`). `ai-tools-run`
    re-validates it regardless, so a wrapper is never the only thing checking. The directory the link is read from is
    `${AI_TOOLS_LAUNCHER_DIR:-/opt/ai-tools/bin}`, the hook [tests](tests.rule.md) lists: a value there moves which link
    is read and not what it may resolve to, since the shape check and the shim's re-validation both stand.
@@ -112,15 +113,15 @@ follows from the launcher name in the executable path, matched against the insta
 rather than trusting it.
 
 The executable is re-validated on an **allowlist assembled from root-owned data**: it is accepted only
-at `${AI_TOOLS_NVM_DIR}/versions/node/<semver>/bin/<launcher>` — an exact `MAJOR.MINOR.PATCH` version directory
+at `${AI_TOOLS_RUN__NVM_DIR}/versions/node/<semver>/bin/<launcher>` — an exact `MAJOR.MINOR.PATCH` version directory
 and a single path component — **and** only when `<launcher>` is the `launcher` of an agent that `operator.conf` enables
 (see [providers](providers.rule.md)). A binary the sandbox account drops beside the launcher therefore cannot start
 a session, because no manifest claims it. A `..` component is refused before the match, and the resolution fails closed:
 with no enabled agent, the launch is refused. The same manifests decide what the toolchain may **hold**:
 before the executable is validated, the shim reads the tree for the package of any agent that is installed and not
-enabled (`ai_tools_agent_residue`, [updater](updater.rule.md)) and refuses every launch while one is there (`MSG-H4E2`,
-the code the wrapper's residue gate defines), since that package's entrypoint stays executable at its real path
-from inside a session; the remedy it names is the provisioning run, which removes residue before it installs.
+enabled (`ai_tools_toolchain__find_agent_residue`, [updater](updater.rule.md)) and refuses every launch while one is
+there (`MSG-H4E2`, the code the wrapper's residue gate defines), since that package's entrypoint stays executable at its
+real path from inside a session; the remedy it names is the provisioning run, which removes residue before it installs.
 
 **What is checked is what is exec'd.** That validated path is the versioned launcher *symlink*; the file `execve`
 transitions on is what it resolves to. The shim resolves it once, requires the target to stay inside the **same semver
@@ -337,19 +338,19 @@ that has not, runs it. That is conduct, not a control.
 ## Operator-configured launch inputs
 
 An agent that needs launch-time arguments of its own declares `launch_hook=yes` in its manifest and ships
-`/usr/local/lib/ai-tools/launch.d/<agent>.sh`, which defines `ai_tools_launch_hook_args <array> "$@"`; the seam's
-contract is [providers](providers.rule.md)'s. `ai_tools_launch_agent_args` runs it after the gates and appends what it
-returns ahead of the operator's `"$@"`. The hook is sourced into the operator's own process, so only a declared hook is
-read, and only while the file and `launch.d` pass `ai_tools_conf_is_trusted`; a declaration other than `yes` or `no`,
-a hook that is missing, untrusted or does not define the function refuses (`MSG-G9H2`), and a hook that returns non-zero
-refuses (`MSG-G5V4`). The directory is a constant with no environment override, so no caller redirects which code
-the wrapper sources.
+`/usr/local/lib/ai-tools/launch.d/<agent>.sh`, which defines `ai_tools_launch_hook__append_args <array> "$@"`;
+the seam's contract is [providers](providers.rule.md)'s. `ai_tools_launch_wrapper__append_agent_args` runs it
+after the gates and appends what it returns ahead of the operator's `"$@"`. The hook is sourced into the operator's own
+process, so only a declared hook is read, and only while the file and `launch.d` pass `ai_tools_conf__is_trusted`;
+a declaration other than `yes` or `no`, a hook that is missing, untrusted or does not define the function refuses
+(`MSG-G9H2`), and a hook that returns non-zero refuses (`MSG-G5V4`). The directory is a constant with no environment
+override, so no caller redirects which code the wrapper sources.
 
 These inputs are **not confinement**, so they take a distinct fail-closed tier from the confinement libraries
 (`safe-paths`/`conf`/`msg`, which fail *every* launch closed): an unconfigured host launches untouched, while
 a configured-but-unhonourable input **refuses the launch** rather than silently reverting to the default the operator
 did not ask for. Whatever the input, the enforced property is that its sources are root-owned and pass
-`ai_tools_conf_is_trusted`, so the sandbox can neither set one nor plant a file a resolver would honour.
+`ai_tools_conf__is_trusted`, so the sandbox can neither set one nor plant a file a resolver would honour.
 
 Claude Code's two — a custom system prompt (its launch hook) and a custom API endpoint (resolved sandbox-side in its
 session-env fragment) — are in [agent-claude-code](agent-claude-code.rule.md).
@@ -399,6 +400,12 @@ a reconcile the two root-side routes already perform without them.
 the sudoers model assumes: it refuses to launch unless it runs **as** `SANDBOX_USER` (a direct or sudo invocation
 landing as root or another user fails closed), and it refuses if `SANDBOX_USER` is ever a member of `ai-ops` (so
 the sandbox account can never hold the operator grant). See the security-model invariants in `CLAUDE.md`.
+
+A launch from inside an unprivileged user namespace is refused twice over, before any trust read: its map does not carry
+host root, so the library-directory gate reads that directory as owned by the overflow uid `65534` and refuses,
+and the namespace maps its creator to 0, which the principal guard refuses. Why the trust predicate is not read
+under that map is [ref-section-x4z9](providers.rule.md#ref-section-x4z9); `tests/integration/ai-tools-run.sh` drives
+the shim there.
 
 `umask=0007,umask_override` and `env_keep += "AI_TOOLS_AGENT_EXEC AI_TOOLS_PROJECT_DIR"` (for `ai-tools-run`) are scoped
 per-command with `Defaults!<command>`, applying only to those commands. The sudoers `umask` sets `ai-tools-run`'s own
@@ -457,7 +464,7 @@ credentials and home and none of the allowlist, SELinux or handback machinery. N
 So the wiring is not offered as shell housekeeping: `path-order.lib.sh` resolves where an account's shell finds each
 enabled agent's launcher, and every message about the line is written from that reading.
 
-The verdict is pure (`ai_tools_path_order_verdict`) and the probing is separate, the split
+The verdict is pure (`ai_tools_path_order__evaluate`) and the probing is separate, the split
 [confinement](confinement.rule.md) makes for the launch decision. Four states, from the account's wiring and one winner
 per launcher:
 

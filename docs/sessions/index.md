@@ -45,6 +45,20 @@ A skill of your own, or one specific to a single agent, is a real directory
 there and the linker keeps it in place. The operator guide for them ships
 beside them, at `/usr/share/ai-tools/skills/README.md`.
 
+**Asset sets published separately from the base package become available
+to a session only after you enable their assets.** Installing the package alone
+does not change what any session loads. Enabling an asset links it beside
+the shipped skills and into every enabled agent:
+
+```bash
+sudo dnf install ai-tools-assets-core
+sudo ai-tools-admin assets enable core/skills/ai-tools-reftags
+```
+
+Use `sudo ai-tools-admin status` to list enabled assets that are not linked,
+along with the reason. See `ai-tools-assets(5)` for the asset identifier format
+and each reason.
+
 **A session is capped at 8 GB of memory and 1024 tasks.** Above 6 GB the kernel
 reclaims the session's memory before anyone else's, at 8 GB it ends
 the session's largest process, and the session does not swap, so a build

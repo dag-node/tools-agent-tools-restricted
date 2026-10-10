@@ -113,7 +113,7 @@ while (( \$# )); do
 done
 case "\${action}" in
     print) cat "\${file}" ;;
-    add|remove|enable|disable) "ai_tools_conf_allowlist_\${action}" "\${file}" "\${target}" ;;
+    add|remove|enable|disable) "ai_tools_conf__allowlist_\${action}" "\${file}" "\${target}" ;;
     *) exit 2 ;;
 esac
 EOF

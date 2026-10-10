@@ -59,12 +59,12 @@ readonly NODE_MAJOR="${AI_TOOLS_NODE_MAJOR:-22}"
 
 # A leading message code (msg.lib.sh states the form) is printed on its own line ahead of the message, the shape
 # tests/lib/harness.sh's assert_msg reads. Matched inline: this helper reports before the control plane,
-# and so the library, exists. Every message passes the log allowlist (ai_tools_log_sanitize) at the emit, once
+# and so the library, exists. Every message passes the log allowlist (ai_tools_log__sanitize) at the emit, once
 # log.lib.sh is loaded: a message names paths and outcomes read from the sandbox account's tree, and the allowlist is
 # what keeps a byte from there off the terminal. Before the load -- the argument parse alone -- a message holds
 # the operator's own argv.
 sanitize_message_text() {
-    if declare -F ai_tools_log_sanitize >/dev/null 2>&1; then ai_tools_log_sanitize "$*"; else printf '%s' "$*"; fi
+    if declare -F ai_tools_log__sanitize >/dev/null 2>&1; then ai_tools_log__sanitize "$*"; else printf '%s' "$*"; fi
 }
 die() {
     local code=""
@@ -158,7 +158,7 @@ configure_git_identity() {
         fi
     fi
 
-    ai_tools_msg_block "Sandbox git identity" \
+    ai_tools_msg__block "Sandbox git identity" \
         "The sandbox account authors git commits in your projects with this identity." \
         "" \
         "  current: ${cur_name:-?} <${cur_email:-?}>"
@@ -167,10 +167,10 @@ configure_git_identity() {
     local sel adopt=""
     [[ -n "${op_email}" ]] && adopt="Use your identity: ${op_name:-${op}} <${op_email}>"
     if [[ -n "${adopt}" ]]; then
-        sel="$(ai_tools_msg_pick 2 "${adopt}" "Keep the current identity" "Edit ${gc} by hand")"
+        sel="$(ai_tools_msg__pick 2 "${adopt}" "Keep the current identity" "Edit ${gc} by hand")"
     else
         # No operator identity to adopt: keep-or-edit only; option 1 is the default.
-        sel="$(ai_tools_msg_pick 1 "Keep the current identity" "Edit ${gc} by hand")"
+        sel="$(ai_tools_msg__pick 1 "Keep the current identity" "Edit ${gc} by hand")"
         # Shift so the case arms read the same in both shapes (1=adopt, 2=keep, 3=edit).
         (( sel += 1 ))
     fi
@@ -187,20 +187,20 @@ configure_git_identity() {
 }
 
 # write_agents <name>... : set AI_TOOLS_AGENTS in operator.conf to the bare agent names given, each written with its
-# kind prefix (agent-<name>, ai_tools_conf_kind_item), through the shared writer, so the line replaced is the one every
-# reader of the file matches. The file this writes is the one the resolver reads (AI_TOOLS_OPERATOR_CONF),
+# kind prefix (agent-<name>, ai_tools_conf__get_kind_item), through the shared writer, so the line replaced is the one
+# every reader of the file matches. The file this writes is the one the resolver reads (AI_TOOLS_OPERATOR_CONF),
 # so what the rest of this run provisions is what was just written. A write that does not read back ends the run:
 # the provision that followed would install the agents of a line the operator did not get.
 write_agents() {
     local name item
     local -a items=()
     for name in "$@"; do
-        item="$(ai_tools_conf_kind_item AI_TOOLS_AGENTS "${name}")" || { items=(); break; }
+        item="$(ai_tools_conf__get_kind_item AI_TOOLS_AGENTS "${name}")" || { items=(); break; }
         items+=("${item}")
     done
     install -d -o root -g root -m 755 "${AI_TOOLS_OPERATOR_CONF%/*}"
     if (( ${#items[@]} != $# )) \
-            || ! ai_tools_conf_set_list "${AI_TOOLS_OPERATOR_CONF}" AI_TOOLS_AGENTS "${items[@]}"; then
+            || ! ai_tools_conf__set_list "${AI_TOOLS_OPERATOR_CONF}" AI_TOOLS_AGENTS "${items[@]}"; then
         die MSG-J3E6 "could not write AI_TOOLS_AGENTS (${*}) into ${AI_TOOLS_OPERATOR_CONF} -- set the line by hand, then re-run: sudo ai-tools-admin system bootstrap"
     fi
 }
@@ -223,7 +223,7 @@ shared_account_notice() {
 #   * an untrusted operator.conf: not written to -- a root-owned rewrite would bless a file whose
 #     state is a tamper signal -- and the resolver reports the refusal when it reads the set.
 #   * the key absent (the baseline, which is no agent) with at least one installed manifest: one
-#     menu, ai_tools_msg_pick with no default, one option per installed agent and one for none.
+#     menu, ai_tools_msg__pick with no default, one option per installed agent and one for none.
 #     The library declines to answer for the user, so this caller decides every no-answer outcome
 #     -- no terminal, closed input, three unanswered attempts, or "none" chosen -- as NO AGENT:
 #     Node is provisioned bare, a coded warning names the line to set and the re-run, and the
@@ -236,13 +236,13 @@ shared_account_notice() {
 choose_agents() {
     local requested="${1-}" name npm_package display gate sel none_index
     local -a installed_names=() installed_labels=() requested_names=() unknown=()
-    if declare -F ai_tools_installed_agents >/dev/null 2>&1; then
+    if declare -F ai_tools_providers__list_installed_agents >/dev/null 2>&1; then
         while IFS=$'\t' read -r name npm_package _; do
             [[ -n "${name}" ]] || continue
             installed_names+=("${name}")
-            display="$(ai_tools_agent_manifest_field "${name}" display_name 2>/dev/null || true)"
+            display="$(ai_tools_providers__read_agent_manifest_field "${name}" display_name 2>/dev/null || true)"
             installed_labels+=("${display:-${name}}"$'\t'"installs ${npm_package} into the sandbox toolchain")
-        done < <(ai_tools_installed_agents)
+        done < <(ai_tools_providers__list_installed_agents)
     fi
 
     if [[ -n "${requested}" ]]; then
@@ -254,15 +254,15 @@ choose_agents() {
         fi
         # The shared list grammar (commas and whitespace); split inline where the resolver, and so conf.lib.sh, did not
         # load, since every name is then unknown and the refusal that follows has to name them.
-        if declare -F ai_tools_conf_split >/dev/null 2>&1; then
-            ai_tools_conf_split requested_names "${requested}"
+        if declare -F ai_tools_conf__split >/dev/null 2>&1; then
+            ai_tools_conf__split requested_names "${requested}"
         else
             read -ra requested_names <<< "${requested//,/ }"
         fi
         # Both spellings are accepted, the bare name an earlier release documented and the agent-<name> form
         # operator.conf holds; each is checked, and written, as its bare manifest name.
         local agent_prefix index
-        agent_prefix="$(ai_tools_conf_kind_prefix AI_TOOLS_AGENTS 2>/dev/null || true)"
+        agent_prefix="$(ai_tools_conf__get_kind_prefix AI_TOOLS_AGENTS 2>/dev/null || true)"
         for index in "${!requested_names[@]}"; do
             [[ -n "${agent_prefix}" ]] && requested_names[index]="${requested_names[index]#"${agent_prefix}"}"
         done
@@ -289,11 +289,11 @@ choose_agents() {
         return 0
     fi
 
-    declare -F ai_tools_provider_gate >/dev/null 2>&1 || return 0
-    gate="$(ai_tools_provider_gate AI_TOOLS_AGENTS)"
+    declare -F ai_tools_providers__read_gate >/dev/null 2>&1 || return 0
+    gate="$(ai_tools_providers__read_gate AI_TOOLS_AGENTS)"
     case "${gate}" in
         allowlist)
-            ai_tools_conf_kind_list requested_names "${AI_TOOLS_OPERATOR_CONF}" AI_TOOLS_AGENTS 2>/dev/null || true
+            ai_tools_conf__read_kind_list requested_names "${AI_TOOLS_OPERATOR_CONF}" AI_TOOLS_AGENTS 2>/dev/null || true
             (( ${#requested_names[@]} > 1 )) && shared_account_notice "${requested_names[@]}"
             return 0 ;;
         untrusted)
@@ -306,12 +306,12 @@ choose_agents() {
     fi
 
     require_msg_lib
-    ai_tools_msg_block "Choose the agent this host runs" \
+    ai_tools_msg__block "Choose the agent this host runs" \
         "No agent runs until AI_TOOLS_AGENTS in ${AI_TOOLS_OPERATOR_CONF} names one. This run writes that line for the agent you pick and installs its package into the sandbox toolchain." \
         "" \
         "Every agent named there runs as the one sandbox account and reads what the others store, so a second agent is a deliberate step: add its name to that line by hand and re-run this command. ai-tools-operator.conf(5) states what the account shares."
     none_index=$(( ${#installed_names[@]} + 1 ))
-    sel="$(ai_tools_msg_pick none "${installed_labels[@]}" \
+    sel="$(ai_tools_msg__pick none "${installed_labels[@]}" \
             "None now"$'\t'"provision Node alone; set AI_TOOLS_AGENTS in ${AI_TOOLS_OPERATOR_CONF} later")" || sel=""
     if [[ -z "${sel}" || "${sel}" == "${none_index}" ]]; then
         warn MSG-X3M9 "no agent chosen -- provisioning Node alone; set AI_TOOLS_AGENTS in ${AI_TOOLS_OPERATOR_CONF}, or pass --agents NAME, then re-run: sudo ai-tools-admin system bootstrap"
@@ -323,14 +323,14 @@ choose_agents() {
 }
 
 # migrate_provider_lists -- rewrite the provider list items operator.conf holds in an earlier release's bare form
-# (ai_tools_conf_kind_migrate, providers.lib.sh -- the rewrite `system post-upgrade` makes), ahead of choose_agents,
-# so the choice reads a migrated line and `--agents` writes into one. A key holding a name no installed manifest or rule
-# set matches stays as written and is named under the code `system post-upgrade --check` reports it
-# with; an AI_TOOLS_AGENTS left that way reads as no agent, which refuse_unresolved_agents then ends the run on. Gated
-# on the resolver having loaded.
+# (ai_tools_providers__migrate_kinds, providers.lib.sh -- the rewrite `system post-upgrade` makes), ahead
+# of choose_agents, so the choice reads a migrated line and `--agents` writes into one. A key holding a name no
+# installed manifest or rule set matches stays as written and is named under the code `system post-upgrade --check`
+# reports it with; an AI_TOOLS_AGENTS left that way reads as no agent, which refuse_unresolved_agents then ends the run
+# on. Gated on the resolver having loaded.
 migrate_provider_lists() {
     local verdict key old new
-    (( _providers_loaded )) && declare -F ai_tools_conf_kind_migrate >/dev/null 2>&1 || return 0
+    (( _providers_loaded )) && declare -F ai_tools_providers__migrate_kinds >/dev/null 2>&1 || return 0
     [[ -f "${AI_TOOLS_OPERATOR_CONF}" ]] || return 0
     while IFS=$'\t' read -r verdict key old new; do
         case "${verdict}" in
@@ -340,47 +340,47 @@ migrate_provider_lists() {
                        warn "${key} in ${AI_TOOLS_OPERATOR_CONF} holds ${old}, which names nothing installed -- the line is left as written and enables nothing; edit it by hand" ;;
             failed)    warn "${key} in ${AI_TOOLS_OPERATOR_CONF} was not rewritten: ${new} -- the line is left as written" ;;
         esac
-    done < <(ai_tools_conf_kind_migrate "${AI_TOOLS_OPERATOR_CONF}")
+    done < <(ai_tools_providers__migrate_kinds "${AI_TOOLS_OPERATOR_CONF}")
     return 0
 }
 
 # refuse_unresolved_agents -- end the run when the agent set choose_agents left is empty and the configuration did not
-# ask for that: ai_tools_agents_empty_verdict classifies it, and anything but `none` -- an invalid AI_TOOLS_AGENTS,
-# an untrusted operator.conf or manifest, a list none of whose names resolved -- ends the run here, before the residue
-# removal and the network step, the same fault nvm-update ends on. Provisioning Node alone would report a host
-# as provisioned whose agents are neither maintained nor launchable; the residue readers already print no residue
-# for such a set (toolchain.lib.sh), so this is the run saying why, not the guard against the removal. Gated
+# ask for that: ai_tools_providers__evaluate_empty_agents classifies it, and anything but `none` -- an invalid
+# AI_TOOLS_AGENTS, an untrusted operator.conf or manifest, a list none of whose names resolved -- ends the run here,
+# before the residue removal and the network step, the same fault nvm-update ends on. Provisioning Node alone would
+# report a host as provisioned whose agents are neither maintained nor launchable; the residue readers already print no
+# residue for such a set (toolchain.lib.sh), so this is the run saying why, not the guard against the removal. Gated
 # on the resolver having loaded, as choose_agents is.
 refuse_unresolved_agents() {
     local name verdict="" reason=""
     (( _providers_loaded )) || return 0
     while IFS=$'\t' read -r name _ _; do
         [[ -n "${name}" ]] && return 0
-    done < <(ai_tools_enabled_agents 2>/dev/null)
-    IFS=$'\t' read -r verdict reason < <(ai_tools_agents_empty_verdict 2>/dev/null) || true
+    done < <(ai_tools_providers__list_enabled_agents 2>/dev/null)
+    IFS=$'\t' read -r verdict reason < <(ai_tools_providers__evaluate_empty_agents 2>/dev/null) || true
     [[ "${verdict}" == none ]] && return 0
     die MSG-M9G5 "no agent resolved: ${reason:-the classification printed nothing} -- no package was installed or removed; correct it, then re-run: sudo ai-tools-admin system bootstrap"
 }
 
 # restore_toolchain_links: in each Node version directory, put back the symlinks npm keeps in bin/ where a transfer
-# of the tree left a regular-file copy of the target (toolchain.lib.sh, ai_tools_toolchain_bin_copies). With such a copy
-# npm does not start, and an agent's launcher resolves to a file no entrypoint rule labels, so this runs ahead
+# of the tree left a regular-file copy of the target (toolchain.lib.sh, ai_tools_toolchain__find_bin_copies). With such
+# a copy npm does not start, and an agent's launcher resolves to a file no entrypoint rule labels, so this runs ahead
 # of the residue step, which needs npm, and before anything reads the launcher chain. The copies are found with a stat,
-# as root; the repair runs node from the tree, so it runs as the sandbox account through ai_tools_as_sandbox,
-# and replaces a copy only where its bytes equal the target's. A copy it leaves is reported by name and outcome.
-# A version directory is read only at the shape nvm writes, `vX.Y.Z`: the name reaches the terminal, and anything else
-# under versions/node is the account's and not a version.
+# as root; the repair runs node from the tree, so it runs as the sandbox account
+# through ai_tools_sandbox_exec__run_as_sandbox, and replaces a copy only where its bytes equal the target's. A copy it
+# leaves is reported by name and outcome. A version directory is read only at the shape nvm writes, `vX.Y.Z`: the name
+# reaches the terminal, and anything else under versions/node is the account's and not a version.
 restore_toolchain_links() {
     local version_dir version outcomes name outcome relinked=0
     [[ -d "${NVM_DIR}/versions/node" ]] || return 0
-    declare -F ai_tools_toolchain_bin_copies >/dev/null 2>&1 || return 0
+    declare -F ai_tools_toolchain__find_bin_copies >/dev/null 2>&1 || return 0
     for version_dir in "${NVM_DIR}"/versions/node/v*; do
         version="${version_dir##*/}"
         [[ -d "${version_dir}" && "${version}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || continue
-        [[ -n "$(ai_tools_toolchain_bin_copies "${version_dir}" 2>/dev/null)" ]] || continue
+        [[ -n "$(ai_tools_toolchain__find_bin_copies "${version_dir}" 2>/dev/null)" ]] || continue
         # shellcheck disable=SC2016  # the inner shell expands these, not this one
-        outcomes="$(ai_tools_as_sandbox "${SANDBOX_USER}" env HOME="${SANDBOX_HOME}" bash -c \
-            '. "$1" 2>/dev/null; ai_tools_toolchain_relink_copies "$2"' _ "${_toolchain_lib}" "${version_dir}" \
+        outcomes="$(ai_tools_sandbox_exec__run_as_sandbox "${SANDBOX_USER}" env HOME="${SANDBOX_HOME}" bash -c \
+            '. "$1" 2>/dev/null; ai_tools_toolchain__relink_copies "$2"' _ "${_toolchain_lib}" "${version_dir}" \
             || true)"
         while IFS=$'\t' read -r name outcome; do
             [[ -n "${name}" ]] || continue
@@ -412,21 +412,21 @@ remove_residue() {
     (( _providers_loaded )) || return 0
     [[ -d "${NVM_DIR}/versions/node" ]] && id "${SANDBOX_USER}" &>/dev/null || return 0
     # shellcheck source=SCRIPTDIR/../../lib/ai-tools/toolchain.lib.sh
-    if ! source "${toolchain_lib}" 2>/dev/null || ! declare -F ai_tools_agent_residue_links >/dev/null 2>&1; then
+    if ! source "${toolchain_lib}" 2>/dev/null || ! declare -F ai_tools_toolchain__find_agent_residue_links >/dev/null 2>&1; then
         warn "toolchain library unavailable (${toolchain_lib}) -- a disabled agent's package left in the toolchain is not removed this run, and every launch refuses until it is"
         return 0
     fi
     # One line per residue package, "agent<TAB>version-dir<TAB>outcome", from the account that owns the tree.
     # The heredoc is single-quoted, so the inner shell expands the variables from the env passed in.
-    outcomes="$(ai_tools_as_sandbox "${SANDBOX_USER}" env HOME="${SANDBOX_HOME}" NVM_DIR="${NVM_DIR}" \
+    outcomes="$(ai_tools_sandbox_exec__run_as_sandbox "${SANDBOX_USER}" env HOME="${SANDBOX_HOME}" NVM_DIR="${NVM_DIR}" \
         TOOLCHAIN_LIB="${toolchain_lib}" bash -s <<'EOSU'
 set -euo pipefail
 . "${TOOLCHAIN_LIB}"
 while IFS=$'\t' read -r agent package version_dir; do
     [[ -n "${agent}" ]] || continue
-    outcome="$(ai_tools_agent_package_remove "${version_dir}" "${package}")" || outcome="${outcome:-failed}"
+    outcome="$(ai_tools_toolchain__remove_agent_package "${version_dir}" "${package}")" || outcome="${outcome:-failed}"
     printf '%s\t%s\t%s\n' "${agent}" "${version_dir}" "${outcome}"
-done < <(ai_tools_agent_residue "${NVM_DIR}")
+done < <(ai_tools_toolchain__find_agent_residue "${NVM_DIR}")
 EOSU
     )" || warn "the residue removal step did not complete as ${SANDBOX_USER} -- a disabled agent's package may still be in the toolchain (see above)"
     while IFS=$'\t' read -r agent version_dir outcome; do
@@ -438,7 +438,7 @@ EOSU
         [[ -n "${agent}" && -z "${still_present[${agent}]:-}" ]] || continue
         rm -f -- "${SANDBOX_HOME}/bin/${launcher}"
         log "${agent}: removed the stable launcher link ${SANDBOX_HOME}/bin/${launcher}"
-    done < <(ai_tools_agent_residue_links "${SANDBOX_HOME}/bin")
+    done < <(ai_tools_toolchain__find_agent_residue_links "${SANDBOX_HOME}/bin")
     return 0
 }
 
@@ -469,26 +469,38 @@ seed_managed_assets_step() {
     source "${lib}"
     # shellcheck source=/dev/null
     source "${cplib}"
-    declare -F ai_tools_agent_config_dirs >/dev/null 2>&1 \
+    declare -F ai_tools_control_plane__list_agent_config_dirs >/dev/null 2>&1 \
         || die MSG-H9S6 "control plane present but ${cplib} does not resolve the agents' config dirs"
+    # Every write of this step up to the orientation seed lands in a shared root, so the step holds the assets lock
+    # (managed-assets.lib.sh) across it, the reconcile included, which adopts the lock this shell holds:
+    # an `ai-tools-admin assets` verb run meanwhile does not interleave its writes with these.
+    if ! ai_tools_managed_assets__lock; then
+        warn MSG-F3H4 "managed assets: not seeded, and the asset view not reconciled -- the assets lock could not be taken; run sudo ai-tools-admin system bootstrap again once the other assets command has ended"
+        return 0
+    fi
     # The SHARED kinds first, into their own roots: skills and subagent definitions are agent-agnostic, so they live
     # in one place and each agent gets symlinks to them. The pairs are <shared kind>:<the manifest field naming
     # where that agent keeps it>.
-    local spec kind shared asset_dir seeded=0
+    local spec kind shared seeded=0 reconcile_status=0
     for spec in skills:skills_dir subagents:subagents_dir; do
         kind="${spec%%:*}"; shared="${CP_HOME}/${kind}"
         install -d -o root -g "${SANDBOX_GROUP}" -m "${CP_DIR_MODES[${kind}]}" "${shared}"
         log "seeding ai-tools-managed ${kind} into ${shared}"
-        ai_tools_seed_managed_assets "${pristine}" "${CP_HOME}" "${SANDBOX_GROUP}" "${kind}"
-        ai_tools_remove_retired_assets "${CP_HOME}" "${kind}"
-        ai_tools_link_asset_readme "${pristine}/${kind}/README.md" "${shared}" "${SANDBOX_GROUP}"
-        while IFS=$'\t' read -r _ asset_dir; do
-            log "linking the shared ${kind} into ${asset_dir}"
-            ai_tools_link_shared_assets "${shared}" "${asset_dir}" \
-                "${SANDBOX_GROUP}" "${pristine}/${kind}/README.md"
-            seeded=1
-        done < <(ai_tools_agent_asset_dirs "${spec#*:}")
+        ai_tools_managed_assets__seed_assets "${pristine}" "${CP_HOME}" "${SANDBOX_GROUP}" "${kind}"
+        ai_tools_managed_assets__remove_retired_assets "${CP_HOME}" "${kind}"
+        ai_tools_managed_assets__link_asset_readme "${pristine}/${kind}/README.md" "${shared}" "${SANDBOX_GROUP}"
     done
+    # Every enabled agent's links into the shared roots, and the asset view AI_TOOLS_ASSETS asks for: the assets
+    # reconcile owns each of them, and this step runs it after the seeding. Its record stream goes to the assets log;
+    # the outcome is reported here.
+    log "reconciling the asset view and each enabled agent's links"
+    /usr/local/libexec/ai-tools/ai-tools-admin assets reconcile >/dev/null || reconcile_status=$?
+    case "${reconcile_status}" in
+        0) ;;
+        4) notice MSG-W9R9 "an asset AI_TOOLS_ASSETS enables is not linked -- sudo ai-tools-admin status names each one and why" ;;
+        *) warn MSG-T3R5 "the asset reconcile did not complete (exit ${reconcile_status}) -- run: sudo ai-tools-admin assets reconcile" ;;
+    esac
+    [[ -n "$(ai_tools_control_plane__list_agent_asset_dirs skills_dir)$(ai_tools_control_plane__list_agent_asset_dirs subagents_dir)" ]] && seeded=1
     # The orientation text is a single file rather than a directory of assets, and each agent reads it under its own
     # filename (the manifest's memory_file), so it is seeded like the other kinds and linked by name instead
     # of by iterating the shared root.
@@ -496,13 +508,14 @@ seed_managed_assets_step() {
     shared="${CP_SHARED_ORIENTATION}"
     install -d -o root -g "${SANDBOX_GROUP}" -m "${CP_DIR_MODES[orientation]}" "${shared}"
     log "seeding the ai-tools-managed orientation into ${shared}"
-    ai_tools_seed_managed_assets "${pristine}" "${CP_HOME}" "${SANDBOX_GROUP}" orientation
+    ai_tools_managed_assets__seed_assets "${pristine}" "${CP_HOME}" "${SANDBOX_GROUP}" orientation
+    ai_tools_managed_assets__unlock
     while IFS=$'\t' read -r _ memory_target; do
         log "linking the shared orientation into ${memory_target}"
-        ai_tools_link_agent_memory "${shared}/AGENTS.md" \
+        ai_tools_managed_assets__link_agent_memory "${shared}/AGENTS.md" \
             "${memory_target%/*}" "${memory_target##*/}" "${SANDBOX_GROUP}"
         seeded=1
-    done < <(ai_tools_agent_memory_targets)
+    done < <(ai_tools_control_plane__list_agent_memory_targets)
     (( seeded )) || log "managed assets: no agent config directory to seed yet"
 }
 
@@ -524,28 +537,28 @@ offer_launch_requirements() {
     # Captured before matching: `grep -q` exits on the match and leaves semodule to die of SIGPIPE mid-listing.
     modules="$(semodule -l 2>/dev/null)" || return 0
     grep -qx ai_tools <<< "${modules}" || return 0
-    if ! ai_tools_conf_is_trusted "${conf}" 2>/dev/null; then
+    if ! ai_tools_conf__is_trusted "${conf}" 2>/dev/null; then
         log "launch requirements: ${conf} is not trusted, so ${key} is neither asked about nor written"
         return 0
     fi
-    ai_tools_conf_read "${conf}" "${key}" && return 0
+    ai_tools_conf__read "${conf}" "${key}" && return 0
     # shellcheck source=SCRIPTDIR/../../lib/ai-tools/entrypoint-verify.lib.sh
-    source "${pin_lib}" 2>/dev/null && declare -F ai_tools_entrypoint_pin_path >/dev/null 2>&1 || return 0
+    source "${pin_lib}" 2>/dev/null && declare -F ai_tools_entrypoint_verify__get_pin_path >/dev/null 2>&1 || return 0
     while IFS=$'\t' read -r agent _; do
-        [[ -n "${agent}" && ! -f "$(ai_tools_entrypoint_pin_path "${agent}")" ]] && unpinned+=("${agent}")
-    done < <(ai_tools_enabled_agents 2>/dev/null)
+        [[ -n "${agent}" && ! -f "$(ai_tools_entrypoint_verify__get_pin_path "${agent}")" ]] && unpinned+=("${agent}")
+    done < <(ai_tools_providers__list_enabled_agents 2>/dev/null)
     if (( ${#unpinned[@]} > 0 )); then
         log "launch requirements: ${key} is not offered while ${unpinned[*]} carries no pin -- run sudo ai-tools-admin system entrypoints relabel, then re-run this command"
         return 0
     fi
 
     require_msg_lib
-    ai_tools_msg_block "Require a verified entrypoint at every launch" \
+    ai_tools_msg__block "Require a verified entrypoint at every launch" \
         "SELinux is enforcing on this host, the ai_tools policy is loaded, and every enabled agent's entrypoint carries a pin. Setting this in ${conf} makes a launch refuse where it would otherwise start an agent binary no reconcile has pinned:" \
         "" "  ${key}=yes    refuse an agent binary that carries no pin" "" \
         "It can be set back to no in that file; ai-tools-operator.conf(5) states what it refuses."
-    if ai_tools_msg_confirm "Require a pinned entrypoint at every launch?" y; then answer=yes; else answer=no; fi
-    ai_tools_conf_set_key "${conf}" "${key}" "${answer}" \
+    if ai_tools_msg__confirm "Require a pinned entrypoint at every launch?" y; then answer=yes; else answer=no; fi
+    ai_tools_conf__set_key "${conf}" "${key}" "${answer}" \
         || { warn MSG-N8U6 "could not write ${key}=${answer} into ${conf} -- set the line by hand"; return 0; }
     log "set ${key}=${answer} in ${conf}"
 }
@@ -565,9 +578,9 @@ report_shadowed_operators() {
     source "${polib}" 2>/dev/null || return 0
     # shellcheck source=SCRIPTDIR/../../lib/ai-tools/operator.lib.sh
     source "${oplib}" 2>/dev/null || return 0
-    declare -F ai_tools_path_order_shadowed_operators >/dev/null 2>&1 || return 0
-    declare -F ai_tools_load_operators >/dev/null 2>&1 || return 0
-    ai_tools_load_operators || return 0
+    declare -F ai_tools_path_order__find_shadowed_operators >/dev/null 2>&1 || return 0
+    declare -F ai_tools_operator__load_operators >/dev/null 2>&1 || return 0
+    ai_tools_operator__load_operators || return 0
 
     local user launcher winner
     while IFS=$'\t' read -r user launcher winner; do
@@ -575,8 +588,8 @@ report_shadowed_operators() {
         err MSG-K2D4 "operator ${user} who types ${launcher} would run ${winner}, which is an agent outside the sandbox"
         err "    rank the wrapper ahead of it:  sudo ai-tools-admin operators add ${user}"
         err "    or remove that install:        ${winner}"
-    done < <(ai_tools_path_order_shadowed_operators \
-        "${AI_TOOLS_OPERATORS[@]+"${AI_TOOLS_OPERATORS[@]}"}")
+    done < <(ai_tools_path_order__find_shadowed_operators \
+        "${AI_TOOLS_OPERATOR__OPERATORS[@]+"${AI_TOOLS_OPERATOR__OPERATORS[@]}"}")
 }
 
 # preflight_toolchain_ownership <home> <user> <group> -- report every path under the toolchain subtrees (.nvm, .npm
@@ -617,13 +630,13 @@ preflight_network() {
     return 1
 }
 
-# close_unit_search_path -- apply the unit search path layout (ai_tools_ensure_unit_search_path_closed) before the stamp
-# step writes into it, and warn where a path stays open; the run continues.
+# close_unit_search_path -- apply the unit search path layout (ai_tools_control_plane__ensure_unit_search_path_closed)
+# before the stamp step writes into it, and warn where a path stays open; the run continues.
 close_unit_search_path() {
     local line
     local -a changed=() failed=()
-    ai_tools_parse_unit_search_path_report changed failed \
-        < <(ai_tools_ensure_unit_search_path_closed "${SANDBOX_HOME}" "${SANDBOX_USER}" "${SANDBOX_GROUP}" || true)
+    ai_tools_control_plane__parse_unit_search_path_report changed failed \
+        < <(ai_tools_control_plane__ensure_unit_search_path_closed "${SANDBOX_HOME}" "${SANDBOX_USER}" "${SANDBOX_GROUP}" || true)
     for line in "${changed[@]+"${changed[@]}"}"; do log "unit search path: ${line}"; done
     if (( ${#failed[@]} > 0 )); then
         # A twin of install.sh's warning, which defines the code (messaging.rule.md).
@@ -679,26 +692,26 @@ _providers_lib=/usr/local/lib/ai-tools/providers.lib.sh
 _providers_loaded=0
 # shellcheck source=SCRIPTDIR/../../lib/ai-tools/providers.lib.sh
 if source "${_providers_lib}" 2>/dev/null \
-        && declare -F ai_tools_enabled_agents >/dev/null 2>&1; then
+        && declare -F ai_tools_providers__list_enabled_agents >/dev/null 2>&1; then
     _providers_loaded=1
 else
     log "provider resolver unavailable -- provisioning Node only; re-run after the control plane and an ai-tools-agents-* package are installed to provision agents"
 fi
 
-# The execution boundary (sandbox-exec.lib.sh): ai_tools_as_sandbox, the one route by which this root helper runs a file
-# the sandbox account can write -- nvm, npm, and what they run -- with no controlling terminal, no inherited descriptor,
-# a clean environment, a bound on its run and its output sanitized; the toolchain library for the default-alias reader;
-# and the log allowlist every message here passes. REQUIRED: the first is defined whatever the provider requirement
-# inside the toolchain library decides, and without these three a toolchain step would run sandbox code with root's
-# terminal or print its bytes raw, so the run ends.
+# The execution boundary (sandbox-exec.lib.sh): ai_tools_sandbox_exec__run_as_sandbox, the one route by which this root
+# helper runs a file the sandbox account can write -- nvm, npm, and what they run -- with no controlling terminal, no
+# inherited descriptor, a clean environment, a bound on its run and its output sanitized; the toolchain library
+# for the default-alias reader; and the log allowlist every message here passes. REQUIRED: the first is defined whatever
+# the provider requirement inside the toolchain library decides, and without these three a toolchain step would run
+# sandbox code with root's terminal or print its bytes raw, so the run ends.
 _sandbox_exec_lib=/usr/local/lib/ai-tools/sandbox-exec.lib.sh
 _toolchain_lib=/usr/local/lib/ai-tools/toolchain.lib.sh
 # shellcheck source=SCRIPTDIR/../../lib/ai-tools/sandbox-exec.lib.sh
 source "${_sandbox_exec_lib}" 2>/dev/null || true
 # shellcheck source=SCRIPTDIR/../../lib/ai-tools/toolchain.lib.sh
 source "${_toolchain_lib}" 2>/dev/null || true
-if ! declare -F ai_tools_as_sandbox >/dev/null 2>&1 || ! declare -F ai_tools_nvm_default_version >/dev/null 2>&1 \
-        || ! declare -F ai_tools_log_sanitize >/dev/null 2>&1; then
+if ! declare -F ai_tools_sandbox_exec__run_as_sandbox >/dev/null 2>&1 || ! declare -F ai_tools_toolchain__read_nvm_default_version >/dev/null 2>&1 \
+        || ! declare -F ai_tools_log__sanitize >/dev/null 2>&1; then
     die MSG-E2X2 "cannot run the sandbox toolchain: ${_sandbox_exec_lib}, ${_toolchain_lib} or the log library did not load, and they are what run that account's files without root's terminal and keep their bytes off it -- reinstall ai-tools-base, then re-run: sudo ai-tools-admin system bootstrap"
 fi
 
@@ -706,8 +719,8 @@ fi
 _control_plane_lib=/usr/local/lib/ai-tools/control-plane.lib.sh
 # shellcheck source=SCRIPTDIR/../../lib/ai-tools/control-plane.lib.sh
 source "${_control_plane_lib}" 2>/dev/null || true
-if ! declare -F ai_tools_ensure_unit_search_path_closed >/dev/null 2>&1 \
-        || ! declare -F ai_tools_parse_unit_search_path_report >/dev/null 2>&1; then
+if ! declare -F ai_tools_control_plane__ensure_unit_search_path_closed >/dev/null 2>&1 \
+        || ! declare -F ai_tools_control_plane__parse_unit_search_path_report >/dev/null 2>&1; then
     die MSG-Q3P4 "cannot close the sandbox account's systemd unit search path: ${_control_plane_lib} did not load -- reinstall ai-tools-base, then re-run: sudo ai-tools-admin system bootstrap"
 fi
 
@@ -776,7 +789,7 @@ if (( _providers_loaded )); then
     while IFS=$'\t' read -r _ manifest_package manifest_launcher; do
         [[ -n "${manifest_package}" ]]  && _agent_packages+=("${manifest_package}")
         [[ -n "${manifest_launcher}" ]] && _agent_launchers+=("${manifest_launcher}")
-    done < <(ai_tools_enabled_agents)
+    done < <(ai_tools_providers__list_enabled_agents)
 fi
 
 # 2. nvm + Node + the enabled agents' npm packages, installed AS the sandbox account (network).
@@ -797,7 +810,7 @@ elif [[ ${#_agent_packages[@]} -gt 0 ]]; then
 else
     log "installing nvm ${NVM_VERSION} + Node ${NODE_MAJOR} (no agents enabled) as ${SANDBOX_USER} (network)"
 fi
-(( _online )) && ai_tools_as_sandbox "${SANDBOX_USER}" env \
+(( _online )) && ai_tools_sandbox_exec__run_as_sandbox "${SANDBOX_USER}" env \
     NVM_DIR="${NVM_DIR}" HOME="${SANDBOX_HOME}" PROFILE=/dev/null \
     NVM_VERSION="${NVM_VERSION}" NODE_MAJOR="${NODE_MAJOR}" \
     AGENT_PACKAGES="${_agent_packages[*]}" \
@@ -834,36 +847,36 @@ EOSU
 #     final shape. The library reports a refusal and leaves npm's link in place: that agent's
 #     launch then fails closed at the label preflight until its manifest and its package agree.
 #     The active Node version is read once here and reused by step 3, as data: nvm's default alias
-#     and the installed version directories (ai_tools_nvm_default_version), not by sourcing nvm.sh.
-_node_version="$(ai_tools_nvm_default_version "${NVM_DIR}")"
+#     and the installed version directories (ai_tools_toolchain__read_nvm_default_version), not by sourcing nvm.sh.
+_node_version="$(ai_tools_toolchain__read_nvm_default_version "${NVM_DIR}")"
 
 # What the install did NOT complete (toolchain.lib.sh), reported here -- before the re-link and the relabel, each
 # of which fails because of it and the second of which names this very command as its remedy. An install npm reports
 # as successful can leave this state, and why this run says so rather than the relabel, are in updater.rule.md. Read
 # as root, which traverses the 0750 toolchain, through the library the residue step sourced: a run that did not reach
 # that step says nothing here.
-if [[ -n "${_node_version}" ]] && declare -F ai_tools_agent_incomplete >/dev/null 2>&1; then
+if [[ -n "${_node_version}" ]] && declare -F ai_tools_toolchain__find_incomplete_agents >/dev/null 2>&1; then
     _version_dir="${NVM_DIR}/versions/node/${_node_version}"
     while IFS=$'\t' read -r _agent _package; do
         [[ -n "${_package}" ]] || continue
         warn MSG-T9P2 "incomplete package for ${_agent}: ${_package} is installed and ${_version_dir} does not hold the entrypoint its manifest declares -- no session of ${_agent} starts until that executable is installed; this run's npm output carries the reason"
-    done < <(ai_tools_agent_incomplete "${_version_dir}")
+    done < <(ai_tools_toolchain__find_incomplete_agents "${_version_dir}")
 fi
 
-if [[ -n "${_node_version}" ]] && declare -F ai_tools_relink_launcher >/dev/null 2>&1; then
+if [[ -n "${_node_version}" ]] && declare -F ai_tools_providers__relink_launcher >/dev/null 2>&1; then
     while IFS=$'\t' read -r _agent _ _launcher; do
         [[ -n "${_agent}" && -n "${_launcher}" ]] || continue
-        _launcher_target="$(ai_tools_agent_manifest_field "${_agent}" launcher_target || true)"
+        _launcher_target="$(ai_tools_providers__read_agent_manifest_field "${_agent}" launcher_target || true)"
         [[ -n "${_launcher_target}" ]] || continue
-        _fcontext="$(ai_tools_agent_manifest_field "${_agent}" entrypoint_fcontext || true)"
+        _fcontext="$(ai_tools_providers__read_agent_manifest_field "${_agent}" entrypoint_fcontext || true)"
         if _verdict="$(sudo -u "${SANDBOX_USER}" env HOME="${SANDBOX_HOME}" PROVIDERS_LIB="${_providers_lib}" \
-                bash -c 'set -euo pipefail; . "${PROVIDERS_LIB}"; ai_tools_relink_launcher "$@"' _ \
+                bash -c 'set -euo pipefail; . "${PROVIDERS_LIB}"; ai_tools_providers__relink_launcher "$@"' _ \
                 "${NVM_DIR}/versions/node/${_node_version}" "${_launcher}" "${_launcher_target}" "${_fcontext}")"; then
             log "${_agent}: ${_launcher} ${_verdict/linked/re-linked} at ${_launcher_target}"
         else
             warn "${_agent}: ${_launcher} was not re-linked at its declared target (see above) -- npm's own link stays, and a launch fails closed at the label preflight until the manifest and the installed package agree"
         fi
-    done < <(ai_tools_enabled_agents 2>/dev/null)
+    done < <(ai_tools_providers__list_enabled_agents 2>/dev/null)
 fi
 
 # 2b. Verify the installed toolchain's npm registry signatures BEFORE wiring the launcher, so a
@@ -878,14 +891,14 @@ _verify_lib=/usr/local/lib/ai-tools/npm-verify.lib.sh
 if [[ -r "${_verify_lib}" ]]; then
     _vrc=0
     # shellcheck disable=SC2016  # the inner shell expands these, not this one
-    ai_tools_as_sandbox "${SANDBOX_USER}" env \
+    ai_tools_sandbox_exec__run_as_sandbox "${SANDBOX_USER}" env \
         NVM_DIR="${NVM_DIR}" HOME="${SANDBOX_HOME}" VERIFY_LIB="${_verify_lib}" \
         bash -c '
             set -euo pipefail
             . "${NVM_DIR}/nvm.sh" >/dev/null 2>&1
             nvm use default >/dev/null 2>&1 || true
             . "${VERIFY_LIB}"
-            ai_tools_verify_npm_signatures
+            ai_tools_npm_verify__verify_signatures
         ' || _vrc=$?
     case "${_vrc}" in
         0) log "npm registry signatures verified for the installed toolchain" ;;
@@ -1026,7 +1039,7 @@ report_shadowed_operators
 # an agent's wrapper would read a host that enabled another agent as undeployed.
 if [[ -x /usr/local/bin/ai-tools ]]; then
     enrolled_operators=()
-    (( _providers_loaded )) && { ai_tools_conf_list enrolled_operators "${AI_TOOLS_OPERATOR_CONF}" OPERATORS 2>/dev/null || true; }
+    (( _providers_loaded )) && { ai_tools_conf__read_list enrolled_operators "${AI_TOOLS_OPERATOR_CONF}" OPERATORS 2>/dev/null || true; }
     if (( ${#enrolled_operators[@]} > 0 )); then
         log "next: as an enrolled operator, claim a project and start an agent in it -- ai-tools projects claim <path>"
     else

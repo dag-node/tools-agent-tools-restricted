@@ -1,0 +1,7 @@
+# The ai-tools-assets-tools release whose conformance fixtures base's validator is held to,
+# read by tools/checkers/assets-conformance.sh. Edit by hand on a new release of the tools:
+# the archive's sha256 is the one its release publishes, checked again in CI against the archive
+# and its signature.
+tag=v1.1.0
+archive=ai-tools-assets-tools-1.1.0.tar.gz
+archive_sha256=c48ab67892543786aea914a7e6872789a2e93682c288dbe829e9f4f963351aff

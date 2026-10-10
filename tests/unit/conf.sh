@@ -32,13 +32,13 @@ if [[ ! -r "${LIB}" ]]; then
 fi
 # shellcheck source=/dev/null
 if ! source "${LIB}" \
-        || ! declare -F ai_tools_conf_read >/dev/null 2>&1 \
-        || ! declare -F ai_tools_conf_split >/dev/null 2>&1 \
-        || ! declare -F ai_tools_conf_list >/dev/null 2>&1 \
-        || ! declare -F ai_tools_conf_list_value >/dev/null 2>&1 \
-        || ! declare -F ai_tools_conf_set_list >/dev/null 2>&1 \
-        || ! declare -F ai_tools_conf_allowlist_has_entry >/dev/null 2>&1 \
-        || ! declare -F ai_tools_conf_is_trusted >/dev/null 2>&1; then
+        || ! declare -F ai_tools_conf__read >/dev/null 2>&1 \
+        || ! declare -F ai_tools_conf__split >/dev/null 2>&1 \
+        || ! declare -F ai_tools_conf__read_list >/dev/null 2>&1 \
+        || ! declare -F ai_tools_conf__split_list_value >/dev/null 2>&1 \
+        || ! declare -F ai_tools_conf__set_list >/dev/null 2>&1 \
+        || ! declare -F ai_tools_conf__has_allowlist_entry >/dev/null 2>&1 \
+        || ! declare -F ai_tools_conf__is_trusted >/dev/null 2>&1; then
     fail "could not source ${LIB} or it does not define the parser functions"; finish; exit
 fi
 
@@ -64,7 +64,7 @@ EOF
 
 check_value() {
     local desc="$1" key="$2" expected="$3"
-    local got; got="$(ai_tools_conf_get "${conf}" "${key}" || true)"
+    local got; got="$(ai_tools_conf__print_value "${conf}" "${key}" || true)"
     if [[ "${got}" == "${expected}" ]]; then pass "${desc}"
     else fail "${desc}: got '${got}' expected '${expected}'"; fi
 }
@@ -78,33 +78,46 @@ check_value "interior # is not a comment"          HASH_INTERIOR "csharp#7"
 check_value "repeated key takes the last"          REPEATED      "last"
 
 # Present-but-empty vs absent: the distinction the fail-closed provider gating turns on.
-if ai_tools_conf_read "${conf}" EMPTY && [[ -z "${_ai_tools_conf_value}" ]]; then
+if ai_tools_conf__read "${conf}" EMPTY && [[ -z "${ai_tools_conf__value}" ]]; then
     pass "present-but-empty key reads as PRESENT with an empty value"
 else
     fail "present-but-empty key did not read as present"
 fi
-if ! ai_tools_conf_read "${conf}" NO_SUCH_KEY; then
+if ! ai_tools_conf__read "${conf}" NO_SUCH_KEY; then
     pass "absent key reads as ABSENT (distinct from present-and-empty)"
 else
     fail "absent key reported as present"
 fi
-if ! ai_tools_conf_read "${conf}" "not an assignment line"; then
+if ! ai_tools_conf__read "${conf}" "not an assignment line"; then
     pass "a line with no '=' is ignored"
 else
     fail "a line with no '=' was parsed as a key"
 fi
-if ! ai_tools_conf_read "${TESTDIR}/does-not-exist" BARE; then
+if ! ai_tools_conf__read "${TESTDIR}/does-not-exist" BARE; then
     pass "unreadable file reads as absent"
 else
     fail "unreadable file reported a value"
 fi
+# The status tells a key absent from a file read whole (1) from a file not read whole (2): a reader whose default
+# for an absent key widens access turns on it, and the read builtin reports an I/O error as end of input.
+read_status() { local status=0; ai_tools_conf__read "$@" >/dev/null 2>&1 || status=$?; printf '%s' "${status}"; }
+[[ "$(read_status "${conf}" NO_SUCH_KEY)" == 1 ]] && pass "an absent key is status 1" || fail "an absent key: status $(read_status "${conf}" NO_SUCH_KEY)"
+[[ "$(read_status "${TESTDIR}/does-not-exist" BARE)" == 2 ]] && pass "an absent file is status 2" || fail "an absent file: status $(read_status "${TESTDIR}/does-not-exist" BARE)"
+mkdir "${TESTDIR}/a-directory.conf"
+[[ "$(read_status "${TESTDIR}/a-directory.conf" BARE)" == 2 ]] && pass "a directory at the path is status 2" || fail "a directory: status $(read_status "${TESTDIR}/a-directory.conf" BARE)"
+cat() { return 1; }
+[[ "$(read_status "${conf}" BARE)" == 2 ]] && pass "a read that does not complete is status 2, with the key present" || fail "a failed read: status $(read_status "${conf}" BARE)"
+unset -f cat
+[[ "$(read_status "${conf}" BARE)" == 0 ]] && pass "control: the key reads at status 0 once the read completes" || fail "control: status $(read_status "${conf}" BARE)"
+printf 'NOEOL=1' > "${TESTDIR}/noeol.conf"
+[[ "$(ai_tools_conf__print_value "${TESTDIR}/noeol.conf" NOEOL)" == 1 ]] && pass "a file without a final newline reads its last line" || fail "a file without a final newline: '$(ai_tools_conf__print_value "${TESTDIR}/noeol.conf" NOEOL || true)'"
 
 # --- Splitting: separators, runs, and IFS independence ---------------------------------------
 # split_under_ifs <ifs> <value> : the items, joined by '|', from a SUBSHELL running under <ifs>, so the caller's own IFS
 # cannot mask a dependency.
 split_under_ifs() {
     local ifs="$1" value="$2"
-    ( IFS="${ifs}"; local -a out=(); ai_tools_conf_split out "${value}"
+    ( IFS="${ifs}"; local -a out=(); ai_tools_conf__split out "${value}"
       local joined="" item
       for item in "${out[@]}"; do joined+="${item}|"; done
       printf '%s' "${joined}" )
@@ -127,22 +140,37 @@ check_split "commas split under IFS=\$'\\n\\t'"      "a|b|c|" "a,b,c"    $'\n\t'
 check_split "mixed splits under IFS=\$'\\n\\t'"      "a|b|c|" "a, b  c"  $'\n\t'
 # A value containing a glob must not be pathname-expanded into filenames.
 check_split "glob in a value is not expanded"  "*|" "*"
+# The output array is named by the caller, and a nameref resolves through every function on the call stack, so a name
+# any reader uses for a local of its own must still reach the caller's array, through every reader that takes one.
+printf 'L=[c, d]\nP=[x=on]\nAI_TOOLS_AGENTS=[agent-e]\n' > "${TESTDIR}/names.conf"
+for name in tokens token raw value inner reason label out_name file key item prefix bare unprefixed pair_name \
+    kept_names allowed_values_text; do
+    got="$(bash -c 'source "$1"; declare -a "$2"; declare -n result="$2"; f="$3"; line=""
+                    ai_tools_conf__split "$2" "a, b";            line+="${result[*]}|"
+                    ai_tools_conf__split_list_value "$2" "[c, d]";     line+="${result[*]}|"
+                    ai_tools_conf__read_list "$2" "${f}" L;           line+="${result[*]}|"
+                    ai_tools_conf__read_pair_list "$2" "${f}" P on off; line+="${result[*]}|"
+                    ai_tools_conf__read_kind_list "$2" "${f}" AI_TOOLS_AGENTS; line+="${result[*]}|"
+                    printf "%s" "${line}"' _ "${LIB}" "${name}" "${TESTDIR}/names.conf" 2>&1)"
+    if [[ "${got}" == "a b|c d|c d|x=on|e|" ]]; then pass "an output array named ${name} receives the items"
+    else fail "an output array named ${name}: got '${got}'"; fi
+done
 
-# --- ai_tools_conf_list: a present key REPLACES, an absent key LEAVES the default ------------
+# --- ai_tools_conf__read_list: a present key REPLACES, an absent key LEAVES the default ------------
 declare -a target=(default-one default-two)
-if ai_tools_conf_list target "${conf}" LIST && [[ "${target[*]}" == "a b c d" ]]; then
+if ai_tools_conf__read_list target "${conf}" LIST && [[ "${target[*]}" == "a b c d" ]]; then
     pass "present key replaces the array"
 else
     fail "present key did not replace: got '${target[*]}'"
 fi
 target=(default-one default-two)
-if ! ai_tools_conf_list target "${conf}" NO_SUCH_KEY && [[ "${target[*]}" == "default-one default-two" ]]; then
+if ! ai_tools_conf__read_list target "${conf}" NO_SUCH_KEY && [[ "${target[*]}" == "default-one default-two" ]]; then
     pass "absent key leaves the caller's default untouched"
 else
     fail "absent key clobbered the default: got '${target[*]}'"
 fi
 target=(default-one default-two)
-if ai_tools_conf_list target "${conf}" EMPTY && [[ "${#target[@]}" -eq 0 ]]; then
+if ai_tools_conf__read_list target "${conf}" EMPTY && [[ "${#target[@]}" -eq 0 ]]; then
     pass "present-but-empty key replaces with an empty array (an explicit none)"
 else
     fail "present-but-empty key did not empty the array: got '${target[*]:-}'"
@@ -182,10 +210,10 @@ for row in "${list_cases[@]}"; do
     expected="${row%%$'\t'*}"; value="${row#*$'\t'}"
     printf 'K=%s\n' "${value}" > "${list_conf}"
     # Driven under the strict-mode IFS the launcher scripts set, in a subshell so the caller's IFS cannot mask it.
-    # shellcheck disable=SC2154  # _ai_tools_conf_list_invalid is set by conf.lib.sh, sourced at the top of this file
-    said="$( IFS=$'\n\t'; target=(default); ai_tools_conf_list target "${list_conf}" K 2>&1 >/dev/null
+    # shellcheck disable=SC2154  # ai_tools_conf__list_invalid is set by conf.lib.sh, sourced at the top of this file
+    said="$( IFS=$'\n\t'; target=(default); ai_tools_conf__read_list target "${list_conf}" K 2>&1 >/dev/null
              joined=""; for item in "${target[@]}"; do joined+="${item}|"; done
-             printf '\nITEMS=%s\nINVALID=%s\n' "${joined}" "${_ai_tools_conf_list_invalid}" )"
+             printf '\nITEMS=%s\nINVALID=%s\n' "${joined}" "${ai_tools_conf__list_invalid}" )"
     got="$(sed -n 's/^ITEMS=//p' <<< "${said}")"
     invalid="$(sed -n 's/^INVALID=//p' <<< "${said}")"
     if [[ "${expected}" == INVALID ]]; then
@@ -205,7 +233,8 @@ done
 # refuses one carrying a bracket by name, so the splitter reading them would hide that refusal.
 check_split "the argument splitter leaves brackets in the items" "[a|b]|" "[a, b]"
 
-# --- ai_tools_conf_kind_list: a provider list item carries its kind --------------------------------------------------
+# --- ai_tools_conf__read_kind_list: a provider list item carries its kind
+#   --------------------------------------------------
 # Each key in the kind table takes items written <prefix><name> and hands its caller the bare names. An item without
 # its key's prefix -- the bare name an earlier release wrote, another kind's prefix, the prefix alone, a traversal after
 # it -- makes the whole list read as empty under MSG-X6F2, the less-access reading; a list the grammar refuses keeps
@@ -215,9 +244,9 @@ kind_conf="${TESTDIR}/kind.conf"
 while IFS=$'\t' read -r key line expected; do
     printf '%s\n' "${line}" > "${kind_conf}"
     said="$( IFS=$'\n\t'; target=(default); rc=0
-             ai_tools_conf_kind_list target "${kind_conf}" "${key}" 2>&1 >/dev/null || rc=$?
+             ai_tools_conf__read_kind_list target "${kind_conf}" "${key}" 2>&1 >/dev/null || rc=$?
              joined=""; for item in "${target[@]}"; do joined+="${item}|"; done
-             printf '\nITEMS=%s\nRC=%s\nINVALID=%s\n' "${joined}" "${rc}" "${_ai_tools_conf_list_invalid}" )"
+             printf '\nITEMS=%s\nRC=%s\nINVALID=%s\n' "${joined}" "${rc}" "${ai_tools_conf__list_invalid}" )"
     got="$(sed -n 's/^ITEMS=//p' <<< "${said}")"; rc="$(sed -n 's/^RC=//p' <<< "${said}")"
     invalid="$(sed -n 's/^INVALID=//p' <<< "${said}")"
     case "${expected}" in
@@ -242,31 +271,32 @@ AI_TOOLS_AGENTS	AI_TOOLS_AGENTS=[agent-]	INVALID:MSG-X6F2
 AI_TOOLS_AGENTS	AI_TOOLS_AGENTS=agent-..	INVALID:MSG-X6F2
 AI_TOOLS_AGENTS	AI_TOOLS_AGENTS=[agent-claude-code	INVALID:MSG-D5N5
 ROWS
-if ai_tools_conf_kind_list target "${kind_conf}" OPERATORS 2>/dev/null; then
-    fail "ai_tools_conf_kind_list accepted a key outside the kind table"
+if ai_tools_conf__read_kind_list target "${kind_conf}" OPERATORS 2>/dev/null; then
+    fail "ai_tools_conf__read_kind_list accepted a key outside the kind table"
 else
-    pass "ai_tools_conf_kind_list refuses a key outside the kind table"
+    pass "ai_tools_conf__read_kind_list refuses a key outside the kind table"
 fi
 
-# ai_tools_conf_pair_list reads `<name>=<value>` items against the caller's values. Rows, `;`-separated so an empty
+# ai_tools_conf__read_pair_list reads `<name>=<value>` items against the caller's values. Rows, `;`-separated so an
+#   empty
 # field stays a field: <line>;<expected items, joined by spaces, or ABSENT>;<reports expected>. A malformed or repeated
 # item is reported and left out; an invalid list reads empty, as every list does; an absent key leaves the target as it
 # was.
-if declare -F ai_tools_conf_pair_list >/dev/null 2>&1; then
+if declare -F ai_tools_conf__read_pair_list >/dev/null 2>&1; then
     pair_conf="${TESTDIR}/pair.conf"
     while IFS=';' read -r pair_line pair_expected pair_reports; do
         printf '%s\n' "${pair_line}" > "${pair_conf}"
         pair_target=(untouched); pair_rc=0
         # Called in this shell, stderr to a file: a $(...) capture would run it in a subshell and lose the array.
-        ai_tools_conf_pair_list pair_target "${pair_conf}" PAIRS on off 2>"${TESTDIR}/pair.err" || pair_rc=$?
+        ai_tools_conf__read_pair_list pair_target "${pair_conf}" PAIRS on off 2>"${TESTDIR}/pair.err" || pair_rc=$?
         pair_stderr="$(<"${TESTDIR}/pair.err")"
         pair_got="${pair_target[*]+"${pair_target[*]}"}"
         [[ "${pair_rc}" -eq 1 ]] && pair_got=ABSENT
         pair_reported="$(grep -c '^MSG-' <<<"${pair_stderr}" || true)"
         # The rejected count is what a caller refuses on, so it must agree with what was reported.
-        if [[ "${pair_rc}" -eq 0 && "${_ai_tools_conf_pair_list_rejected_count:-}" != "${pair_reports}" \
-              && "${_ai_tools_conf_list_invalid:-0}" -eq 0 ]]; then
-            fail "pair list ${pair_line}: _ai_tools_conf_pair_list_rejected_count=${_ai_tools_conf_pair_list_rejected_count:-unset}, expected ${pair_reports}"
+        if [[ "${pair_rc}" -eq 0 && "${ai_tools_conf__pair_list_rejected_count:-}" != "${pair_reports}" \
+              && "${ai_tools_conf__list_invalid:-0}" -eq 0 ]]; then
+            fail "pair list ${pair_line}: ai_tools_conf__pair_list_rejected_count=${ai_tools_conf__pair_list_rejected_count:-unset}, expected ${pair_reports}"
         fi
         if [[ "${pair_got}" == "${pair_expected}" && "${pair_reported}" == "${pair_reports}" ]]; then
             pass "pair list ${pair_line} -> [${pair_got}], ${pair_reported} reported"
@@ -286,22 +316,23 @@ OTHER=x;ABSENT;0
 ROWS
     # The values are the caller's: the same items read against another set.
     printf 'PAIRS=[a=on, b=low]\n' > "${pair_conf}"
-    pair_target=(); ai_tools_conf_pair_list pair_target "${pair_conf}" PAIRS low high 2>/dev/null
+    pair_target=(); ai_tools_conf__read_pair_list pair_target "${pair_conf}" PAIRS low high 2>/dev/null
     if [[ "${pair_target[*]-}" == "b=low" ]]; then pass "pair list values are the caller's: [a=on, b=low] read against low|high -> b=low"
     else fail "pair list against low|high -> [${pair_target[*]-}]; expected b=low"; fi
     # The grammar is the shell's IFS-independent split: the same read under the IFS ai-tools sets.
     printf 'PAIRS=[a=on, b=off]\n' > "${pair_conf}"
-    pair_target=(); (IFS=$'\n\t'; ai_tools_conf_pair_list pair_target "${pair_conf}" PAIRS on off 2>/dev/null; printf '%s|' "${pair_target[@]}") > "${TESTDIR}/pair.out"
+    pair_target=(); (IFS=$'\n\t'; ai_tools_conf__read_pair_list pair_target "${pair_conf}" PAIRS on off 2>/dev/null; printf '%s|' "${pair_target[@]}") > "${TESTDIR}/pair.out"
     if [[ "$(<"${TESTDIR}/pair.out")" == "a=on|b=off|" ]]; then pass "pair list reads alike under IFS=\$'\\n\\t'"
     else fail "pair list under IFS=\$'\\n\\t' -> $(<"${TESTDIR}/pair.out")"; fi
 else
-    skip "pair list" "the library predates ai_tools_conf_pair_list"
+    skip "pair list" "the library predates ai_tools_conf__read_pair_list"
 fi
 
-# ai_tools_conf_kind_item is the writer's side: a bare name gains the prefix, a prefixed one is kept, and a name that is
-# not a plain name once prefixed, or a key outside the table, prints nothing. Rows: <KEY> <name> <expected|REFUSED>.
+# ai_tools_conf__get_kind_item is the writer's side: a bare name gains the prefix, a prefixed one is kept, and a name
+# that is not a plain name once prefixed, or a key outside the table, prints nothing. Rows: <KEY> <name>
+# <expected|REFUSED>.
 while IFS=$'\t' read -r key name expected; do
-    got="$(ai_tools_conf_kind_item "${key}" "${name}")" && rc=0 || rc=$?
+    got="$(ai_tools_conf__get_kind_item "${key}" "${name}")" && rc=0 || rc=$?
     if [[ "${expected}" == REFUSED ]]; then
         [[ "${rc}" != 0 && -z "${got}" ]]
     else
@@ -316,30 +347,30 @@ AI_TOOLS_AGENTS	a b	REFUSED
 OPERATORS	x	REFUSED
 ROWS
 
-# ai_tools_conf_kind_unmigrated is the one detection predicate: it prints every item without its key's prefix, keyed,
-# and prints nothing for a clean file, a list the grammar refuses, or a file the trust predicate refuses. The listing
-# half needs a root-owned fixture, so it is driven where this runs as root; unprivileged, the fixture is untrusted
-# and prints nothing either way, which is asserted as the refusal direction.
+# ai_tools_conf__find_unmigrated_items is the one detection predicate: it prints every item without its key's prefix,
+# keyed, and prints nothing for a clean file, a list the grammar refuses, or a file the trust predicate refuses.
+# The listing half needs a root-owned fixture, so it is driven where this runs as root; unprivileged, the fixture is
+# untrusted and prints nothing either way, which is asserted as the refusal direction.
 printf '%s\n' 'AI_TOOLS_AGENTS=[claude-code, agent-codex]' 'AI_TOOLS_INTEGRATIONS=[integration-dotnet]' \
     'AI_TOOLS_FILTERS=[core, filter-dotnet]' 'OPERATORS=[x]' > "${kind_conf}"
 chmod 0644 "${kind_conf}"
-unmigrated="$(ai_tools_conf_kind_unmigrated "${kind_conf}")"
-if ai_tools_conf_is_trusted "${kind_conf}"; then
+unmigrated="$(ai_tools_conf__find_unmigrated_items "${kind_conf}")"
+if ai_tools_conf__is_trusted "${kind_conf}"; then
     [[ "${unmigrated}" == $'AI_TOOLS_AGENTS\tclaude-code\nAI_TOOLS_FILTERS\tcore' ]] \
         && pass "the unmigrated items are listed by key, in table order" \
         || fail "unmigrated items: got '${unmigrated//$'\n'/|}'"
     printf '%s\n' 'AI_TOOLS_AGENTS=[agent-claude-code' 'AI_TOOLS_FILTERS=[filter-dotnet]' > "${kind_conf}"
-    [[ -z "$(ai_tools_conf_kind_unmigrated "${kind_conf}")" ]] \
+    [[ -z "$(ai_tools_conf__find_unmigrated_items "${kind_conf}")" ]] \
         && pass "a migrated file and a list the grammar refuses list no unmigrated item" \
-        || fail "a migrated file listed unmigrated items: $(ai_tools_conf_kind_unmigrated "${kind_conf}")"
+        || fail "a migrated file listed unmigrated items: $(ai_tools_conf__find_unmigrated_items "${kind_conf}")"
     chmod 0666 "${kind_conf}"
     printf 'AI_TOOLS_AGENTS=[claude-code]\n' > "${kind_conf}"
 fi
-[[ -z "$(ai_tools_conf_kind_unmigrated "${kind_conf}")" ]] \
+[[ -z "$(ai_tools_conf__find_unmigrated_items "${kind_conf}")" ]] \
     && pass "an untrusted file lists no unmigrated item (the trust refusal reports it)" \
     || fail "an untrusted file listed unmigrated items"
 
-# --- ai_tools_conf_set_list: writes the bracketed form in place and reads it back ------------------------------------
+# --- ai_tools_conf__set_list: writes the bracketed form in place and reads it back ------------------------------------
 list_conf="${TESTDIR}/set-list.conf"
 printf '# header\n#K=[]\nOTHER=kept\n' > "${list_conf}"
 set_list_cases=(
@@ -351,7 +382,7 @@ set_list_cases=(
 for row in "${set_list_cases[@]}"; do
     expected="${row%%$'\t'*}"; items="${row#*$'\t'}"
     read -ra item_args <<< "${items}"
-    if ai_tools_conf_set_list "${list_conf}" K "${item_args[@]+"${item_args[@]}"}" \
+    if ai_tools_conf__set_list "${list_conf}" K "${item_args[@]+"${item_args[@]}"}" \
             && [[ "$(grep -c '^#\?K=' "${list_conf}")" == 1 && "$(sed -n 2p "${list_conf}")" == "K=${expected}" ]] \
             && [[ "$(sed -n 1p "${list_conf}")" == "# header" && "$(sed -n 3p "${list_conf}")" == "OTHER=kept" ]]; then
         pass "set_list (${items:-no items}) writes K=${expected} in place of the key's line"
@@ -362,14 +393,14 @@ done
 # An item that would read back as other items, or end the list, is refused with status 2 and the file left unchanged.
 before="$(cat "${list_conf}")"
 for bad in 'a b' 'a,b' '[a' 'a]' '"a"' "'a'" 'a#b' '' $'a\nb' $'a\tb'; do
-    status=0; ai_tools_conf_set_list "${list_conf}" K ok "${bad}" || status=$?
+    status=0; ai_tools_conf__set_list "${list_conf}" K ok "${bad}" || status=$?
     if [[ "${status}" == 2 && "$(cat "${list_conf}")" == "${before}" ]]; then
         pass "set_list refuses the item $(printf '%q' "${bad}")"
     else
         fail "set_list accepted the item $(printf '%q' "${bad}") (status ${status})"
     fi
 done
-status=0; ai_tools_conf_set_list "${list_conf}" 'BAD KEY' a || status=$?
+status=0; ai_tools_conf__set_list "${list_conf}" 'BAD KEY' a || status=$?
 if [[ "${status}" == 2 ]]; then
     pass "set_list refuses a key outside the identifier charset"
 else
@@ -382,7 +413,7 @@ trusted="${TESTDIR}/trusted.conf"
 check_trust() {
     local desc="$1" expect="$2" path="$3"   # expect = trusted | refused
     local verdict=refused
-    ai_tools_conf_is_trusted "${path}" && verdict=trusted
+    ai_tools_conf__is_trusted "${path}" && verdict=trusted
     if [[ "${verdict}" == "${expect}" ]]; then pass "${desc}"
     else fail "${desc}: got ${verdict}, expected ${expect}"; fi
 }
@@ -416,67 +447,67 @@ check_trust "group-writable directory is refused"    refused "${tdir}"
 # and the requirement they failed. The failure this exists for is an owner that reads as 65534 inside a user namespace
 # with no mapping for root: the file's modes, labels and ownership on disk are all correct there, and a text asserting
 # a permission problem sends the investigation through every one of them first.
-section "conf: ai_tools_conf_yes reads a switch the same way whichever key it is"
+section "conf: ai_tools_conf__is_yes reads a switch the same way whichever key it is"
 
 # The two launch switches read through this function, so a spelling an operator expects -- 1, "true", On -- has to mean
 # yes, and 0, "false", off has to mean no. A value in neither set reads as no and is reported, since otherwise
 # a mistyped switch changes what a launch does with no line saying so.
-if declare -F ai_tools_conf_yes >/dev/null 2>&1; then
+if declare -F ai_tools_conf__is_yes >/dev/null 2>&1; then
     yn="${TESTDIR}/switches.conf"
     printf '%s\n' 'A=yes' 'B="true"' 'C=1' "D='1'" 'E=On' 'F=TRUE' \
                    'G=no' 'H="false"' 'I=0' 'J="0"' 'K=off' 'L=' 'M=ture' > "${yn}"
     misread=()
-    for key in A B C D E F; do ai_tools_conf_yes "${yn}" "${key}" 2>/dev/null || misread+=("${key}"); done
-    for key in G H I J K L M ABSENT; do ai_tools_conf_yes "${yn}" "${key}" 2>/dev/null && misread+=("${key}"); done
+    for key in A B C D E F; do ai_tools_conf__is_yes "${yn}" "${key}" 2>/dev/null || misread+=("${key}"); done
+    for key in G H I J K L M ABSENT; do ai_tools_conf__is_yes "${yn}" "${key}" 2>/dev/null && misread+=("${key}"); done
     if (( ${#misread[@]} == 0 )); then
         pass "yes, true, 1, on read as yes and no, false, 0, off, empty, absent and unknown read as no, quoted or not"
     else
         fail "misread switches: ${misread[*]}"
     fi
-    said="$(ai_tools_conf_yes "${yn}" M 2>&1 || true)"
+    said="$(ai_tools_conf__is_yes "${yn}" M 2>&1 || true)"
     assert_msg MSG-D2F9 "${said}" "a value in neither set is reported"
-    said="$(ai_tools_conf_yes "${yn}" G 2>&1 || true)"
+    said="$(ai_tools_conf__is_yes "${yn}" G 2>&1 || true)"
     if [[ -z "${said}" ]]; then
         pass "a recognized no value is read silently"
     else
         fail "a recognized no value was reported: ${said}"
     fi
 else
-    skip "ai_tools_conf_yes" "the deployed conf.lib.sh predates it -- re-run sudo ./install.sh install"
+    skip "ai_tools_conf__is_yes" "the deployed conf.lib.sh predates it -- re-run sudo ./install.sh install"
 fi
 
-section "conf: ai_tools_conf_no reads a switch whose default is yes"
+section "conf: ai_tools_conf__is_no reads a switch whose default is yes"
 # The mirror for a key in force unless the file turns it off (AI_TOOLS_REQUIRE_SELINUX): only a value the grammar reads
 # as no turns it off. A yes value, an absent key and a value in neither set are not no -- the last reported under its
 # own code, since a mistyped line otherwise relaxes a requirement with no line saying so.
-if declare -F ai_tools_conf_no >/dev/null 2>&1; then
+if declare -F ai_tools_conf__is_no >/dev/null 2>&1; then
     yn="${TESTDIR}/switches-no.conf"
     printf '%s\n' 'A=yes' 'B="true"' 'C=1' "D='1'" 'E=On' 'F=TRUE' \
                    'G=no' 'H="false"' 'I=0' 'J="0"' 'K=off' 'L=' 'M=ture' > "${yn}"
     misread=()
-    for key in G H I J K L; do ai_tools_conf_no "${yn}" "${key}" 2>/dev/null || misread+=("${key}"); done
-    for key in A B C D E F M ABSENT; do ai_tools_conf_no "${yn}" "${key}" 2>/dev/null && misread+=("${key}"); done
+    for key in G H I J K L; do ai_tools_conf__is_no "${yn}" "${key}" 2>/dev/null || misread+=("${key}"); done
+    for key in A B C D E F M ABSENT; do ai_tools_conf__is_no "${yn}" "${key}" 2>/dev/null && misread+=("${key}"); done
     if (( ${#misread[@]} == 0 )); then
         pass "no, false, 0, off and empty read as no; yes values, absent and unknown do not, quoted or not"
     else
         fail "misread switches: ${misread[*]}"
     fi
-    said="$(ai_tools_conf_no "${yn}" M 2>&1 || true)"
+    said="$(ai_tools_conf__is_no "${yn}" M 2>&1 || true)"
     assert_msg MSG-H7N5 "${said}" "a value in neither set is reported as read as yes"
-    said="$(ai_tools_conf_no "${yn}" A 2>&1 || true)"
+    said="$(ai_tools_conf__is_no "${yn}" A 2>&1 || true)"
     if [[ -z "${said}" ]]; then
         pass "a recognized yes value is read silently"
     else
         fail "a recognized yes value was reported: ${said}"
     fi
 else
-    skip "ai_tools_conf_no" "the deployed conf.lib.sh predates it -- re-run sudo ./install.sh install"
+    skip "ai_tools_conf__is_no" "the deployed conf.lib.sh predates it -- re-run sudo ./install.sh install"
 fi
 
 section "conf: a refusal reports the owner and mode it read"
 check_reason() {
     local desc="$1" expected="$2" path="$3" got
-    got="$(ai_tools_conf_untrusted_reason "${path}")"
+    got="$(ai_tools_conf__read_untrusted_reason "${path}")"
     if [[ "${got}" == *"${expected}"* ]]; then pass "${desc}"
     else fail "${desc}: got '${got}', expected it to contain '${expected}'"; fi
 }
@@ -486,10 +517,29 @@ check_reason "a group-writable mode is reported as read"       "owner=0 mode=664
 check_reason "the requirement is stated beside the reading"    "expected owner=0"               "${gw}"
 check_reason "a symlink is named as the cause"                 "is a symlink"                   "${TESTDIR}/link.conf"
 check_reason "a missing path is named as the cause"            "does not exist"                 "${TESTDIR}/absent.conf"
-if [[ "$(ai_tools_conf_untrusted_reason "${notroot}")" != *"user namespace"* ]]; then
-    pass "in the initial namespace the reason carries no namespace clause"
+# The clause is owed exactly when this process's uid map is not the identity over the whole uid space, which the kernel
+# writes as the one line `0 0 4294967295` in the initial namespace (user_namespaces(7)). A rootless container runs
+# the suite under a translated map, so the expectation is read here, apart from the library under test, and the line is
+# matched as a regex so the reading does not depend on the IFS in force. An empty map is a namespace whose map is not
+# written yet, translated like any other. A map that does not read fails the case: every process has one on a kernel
+# with user namespaces, which each supported distribution's is.
+uid_map_lines=()
+if ! { mapfile -t uid_map_lines < /proc/self/uid_map; } 2>/dev/null; then
+    fail "/proc/self/uid_map did not read, so this run's uid map is unknown and the namespace clause is not checked"
 else
-    fail "the namespace clause appeared in the initial namespace: $(ai_tools_conf_untrusted_reason "${notroot}")"
+    identity_uid_map=0
+    if (( ${#uid_map_lines[@]} == 1 )) \
+            && [[ "${uid_map_lines[0]}" =~ ^[[:space:]]*0[[:space:]]+0[[:space:]]+4294967295[[:space:]]*$ ]]; then
+        identity_uid_map=1
+    fi
+    reason="$(ai_tools_conf__read_untrusted_reason "${notroot}")" || reason="ai_tools_conf__read_untrusted_reason exited non-zero"
+    if (( identity_uid_map )) && [[ "${reason}" != *"not the identity"* ]]; then
+        pass "under the identity uid map the reason carries no namespace clause"
+    elif (( ! identity_uid_map )) && [[ "${reason}" == *"not the identity"* ]]; then
+        pass "under a uid map other than the identity the reason names the translation"
+    else
+        fail "the namespace clause does not follow this run's uid map (identity=${identity_uid_map}): ${reason}"
+    fi
 fi
 
 # The map parser, over fixture maps. The kernel writes space-padded columns, and the libraries are sourced into scripts
@@ -498,7 +548,7 @@ fi
 map_verdict() {   # <expect: identity|translated> <desc> <map-content>
     local expect="$1" desc="$2" content="$3" got=translated
     printf '%s' "${content}" > "${TESTDIR}/uid_map"
-    ai_tools_conf_uid_map_is_identity "${TESTDIR}/uid_map" && got=identity
+    ai_tools_conf__is_uid_map_identity "${TESTDIR}/uid_map" && got=identity
     if [[ "${got}" == "${expect}" ]]; then pass "${desc}"; else fail "${desc}: read as ${got}"; fi
 }
 map_verdict identity   "the kernel's padded identity line is identity"     $'         0          0 4294967295\n'
@@ -507,13 +557,13 @@ map_verdict translated "a map of several ranges is translated"             $'   
 map_verdict translated "an empty map is translated (fails closed)"          ''
 map_verdict translated "a four-field line is translated"                    $'0 0 4294967295 0\n'
 rm -f "${TESTDIR}/uid_map"
-if ! ai_tools_conf_uid_map_is_identity "${TESTDIR}/uid_map"; then
+if ! ai_tools_conf__is_uid_map_identity "${TESTDIR}/uid_map"; then
     pass "a missing map file reads as translated"
 else
     fail "a missing map file read as identity"
 fi
 printf '         0          0 4294967295\n' > "${TESTDIR}/uid_map"
-if ( IFS=$'\n\t'; ai_tools_conf_uid_map_is_identity "${TESTDIR}/uid_map" ); then
+if ( IFS=$'\n\t'; ai_tools_conf__is_uid_map_identity "${TESTDIR}/uid_map" ); then
     pass "the identity line parses under IFS=\$'\\n\\t' (the updater's strict mode)"
 else
     fail "the identity line did not parse under IFS=\$'\\n\\t'"
@@ -521,10 +571,10 @@ fi
 # The live verdict agrees with the process's own map, whichever namespace this suite runs in.
 live_map="$(</proc/self/uid_map)"
 if [[ "${live_map}" =~ ^[[:space:]]*0[[:space:]]+0[[:space:]]+4294967295[[:space:]]*$ ]]; then
-    if ai_tools_conf_uid_map_is_identity; then pass "the live map reads as identity where /proc says so"
+    if ai_tools_conf__is_uid_map_identity; then pass "the live map reads as identity where /proc says so"
     else fail "the live map is the identity line yet read as translated"; fi
 else
-    if ! ai_tools_conf_uid_map_is_identity; then pass "the live map reads as translated where /proc says so"
+    if ! ai_tools_conf__is_uid_map_identity; then pass "the live map reads as translated where /proc says so"
     else fail "the live map is not the identity line yet read as identity"; fi
 fi
 
@@ -538,17 +588,36 @@ else
     # shellcheck disable=SC2016  # $1..$3 are the inner shell's positionals, passed after `_`
     ns_out="$(unshare -Ur bash -c '
         source "$1" || exit 9
-        printf "trusted=%s\n" "$(ai_tools_conf_is_trusted "$2" && echo yes || echo no)"
-        printf "reason=%s\n" "$(ai_tools_conf_untrusted_reason "$3")"' _ "${LIB}" "${trusted}" "${notroot}" 2>&1)" || true
+        printf "trusted=%s\n" "$(ai_tools_conf__is_trusted "$2" && echo yes || echo no)"
+        printf "reason=%s\n" "$(ai_tools_conf__read_untrusted_reason "$3")"' _ "${LIB}" "${trusted}" "${notroot}" 2>&1)" || true
     if [[ "${ns_out}" == *"trusted=yes"* ]]; then
         pass "inside the namespace a root-owned file is still trusted (root maps to root)"
     else
         fail "inside the namespace the root-owned file was refused: ${ns_out}"
     fi
-    if [[ "${ns_out}" == *"owner=65534"*"user namespace"* ]]; then
+    if [[ "${ns_out}" == *"owner=65534"*"not the identity"* ]]; then
         pass "inside the namespace the reason reports owner=65534 and names the translation"
     else
         fail "the namespace clause is missing: ${ns_out}"
+    fi
+fi
+
+# The acceptance path (providers.rule.md, ref-section-x4z9), driven as the projects user: an unprivileged user namespace
+# maps its creator to 0, so the file that account owns appears root-owned inside and the predicate accepts it. Skipped
+# where that account is refused the namespace.
+if ! command -v unshare >/dev/null 2>&1 || ! runuser -u "${PROJECTS_USER}" -- unshare -Ur true 2>/dev/null; then
+    skip "inside a namespace an unprivileged account creates, its own file reads as root-owned" \
+         "unshare -Ur is not permitted for ${PROJECTS_USER}"
+else
+    # shellcheck disable=SC2016  # $1..$2 are the inner shell's positionals, passed after `_`
+    ns_out="$(runuser -u "${PROJECTS_USER}" -- unshare -Ur bash -c '
+        source "$1" || exit 9
+        printf "owner=%s trusted=%s\n" "$(stat -c %u "$2")" "$(ai_tools_conf__is_trusted "$2" && echo yes || echo no)"' \
+        _ "${LIB}" "${notroot}" 2>&1)" || true
+    if [[ "${ns_out}" == *"owner=0 trusted=yes"* ]]; then
+        pass "inside a namespace the projects user creates, its own file reads as owner 0 and the predicate accepts it"
+    else
+        fail "the acceptance-side reading inside the projects user's namespace was not observed: ${ns_out}"
     fi
 fi
 
@@ -560,7 +629,7 @@ stamp="$(date +%Y%m%d)"
 cfg="${TESTDIR}/sidecar.conf"
 printf 'ORIGINAL\n' > "${cfg}"; chown root:root "${cfg}"; chmod 640 "${cfg}"
 
-first_bak="$(ai_tools_conf_backup "${cfg}")"
+first_bak="$(ai_tools_conf__write_backup "${cfg}")"
 if [[ "${first_bak}" == "${cfg}.${stamp}-1.bak" && "$(cat "${first_bak}")" == ORIGINAL ]]; then
     pass "a backup is date-stamped, numbered from 1, and copies the file verbatim"
 else
@@ -573,7 +642,7 @@ else
 fi
 
 printf 'CHANGED\n' > "${cfg}"
-second_bak="$(ai_tools_conf_backup "${cfg}")"
+second_bak="$(ai_tools_conf__write_backup "${cfg}")"
 if [[ "${second_bak}" == "${cfg}.${stamp}-2.bak" && "$(cat "${first_bak}")" == ORIGINAL ]]; then
     pass "a same-day second backup takes the next number and leaves the first intact"
 else
@@ -584,7 +653,7 @@ fi
 # a 0640 control-plane file is not left world-readable.
 baseline="${TESTDIR}/sidecar.shipped-src"
 printf 'SHIPPED\n' > "${baseline}"; chmod 666 "${baseline}"
-ref="$(ai_tools_conf_reference "${cfg}" "${baseline}")"
+ref="$(ai_tools_conf__ensure_reference "${cfg}" "${baseline}")"
 if [[ "${ref}" == "${cfg}.${stamp}-1.shipped" && "$(perm "${ref}")" == 640 ]]; then
     pass "a reference copy is date-stamped and takes the deployed file's mode"
 else
@@ -592,7 +661,7 @@ else
 fi
 # A repeated offer of the SAME baseline resolves to the copy already there, so a host re-running the installer
 # against an unchanged source tree collects one sidecar rather than one per run.
-if [[ "$(ai_tools_conf_reference "${cfg}" "${baseline}")" == "${ref}" && "$(cat "${ref}")" == SHIPPED ]]; then
+if [[ "$(ai_tools_conf__ensure_reference "${cfg}" "${baseline}")" == "${ref}" && "$(cat "${ref}")" == SHIPPED ]]; then
     pass "an unchanged baseline reuses the copy beside the file"
 else
     fail "an unchanged baseline did not resolve to ${ref}"
@@ -601,7 +670,7 @@ fi
 # A DIFFERENT baseline is a different answer to "what was I supposed to get?", so it takes its own dated copy and leaves
 # the earlier one readable.
 printf 'SHIPPED v2\n' > "${baseline}"
-second_ref="$(ai_tools_conf_reference "${cfg}" "${baseline}")"
+second_ref="$(ai_tools_conf__ensure_reference "${cfg}" "${baseline}")"
 if [[ "${second_ref}" != "${ref}" && "$(cat "${ref}")" == SHIPPED && "$(perm "${second_ref}")" == 640 ]]; then
     pass "a changed baseline adds a copy rather than overwriting the first"
 else
@@ -613,7 +682,7 @@ fi
 # the numbered and the earlier unnumbered day forms of a .shipped are read.
 lc="${TESTDIR}/latest.conf"
 printf 'LIVE\n' > "${lc}"
-if ! ai_tools_conf_latest_copy "${lc}" >/dev/null 2>&1; then
+if ! ai_tools_conf__find_latest_copy "${lc}" >/dev/null 2>&1; then
     pass "a file with no copy beside it has no latest copy"
 else
     fail "a latest copy was invented where none exists"
@@ -621,7 +690,7 @@ fi
 # latest_is <expected> <what>: the latest copy beside ${lc} is <expected>.
 latest_is() {
     local got
-    got="$(ai_tools_conf_latest_copy "${lc}")" || got="<none>"
+    got="$(ai_tools_conf__find_latest_copy "${lc}")" || got="<none>"
     if [[ "${got}" == "$1" ]]; then pass "$2"; else fail "$2: got ${got}, expected $1"; fi
 }
 printf 'RPM\n' > "${lc}.rpmnew"; touch -d 2024-01-01 "${lc}.rpmnew"
@@ -640,28 +709,28 @@ rm -f "${lc}" "${lc}".*
 # with its date, the status failing, and a set of files dated in the past passes in silence. A path that is not a file
 # is not read.
 printf 'LIVE\n' > "${lc}"; printf 'RPM\n' > "${lc}.rpmnew"; touch -d 2024-01-01 "${lc}.rpmnew"
-if ai_tools_conf_clock_behind "${lc}" "${lc}.rpmnew" "${lc}.absent" >/dev/null; then
+if ai_tools_conf__find_paths_ahead_of_clock "${lc}" "${lc}.rpmnew" "${lc}.absent" >/dev/null; then
     pass "files dated in the past do not read as a clock that is behind"
 else
     fail "a past-dated file read as a clock that is behind"
 fi
 touch -d '+2 days' "${lc}.rpmnew"
-if ! behind="$(ai_tools_conf_clock_behind "${lc}" "${lc}.rpmnew")" \
+if ! behind="$(ai_tools_conf__find_paths_ahead_of_clock "${lc}" "${lc}.rpmnew")" \
         && [[ "${behind}" == *$'\t'"${lc}.rpmnew" && "${behind}" != *"${lc}"$'\t'* ]] \
         && [[ "${behind%%$'\t'*}" =~ ^20[0-9]{2}-[0-9]{2}-[0-9]{2}\ [0-9]{2}:[0-9]{2}:[0-9]{2}$ ]]; then
     pass "a file dated after now reads as a clock that is behind, printed with its date, and the others are not listed"
 else
-    fail "future-dated file: $(ai_tools_conf_clock_behind "${lc}" "${lc}.rpmnew" || true)"
+    fail "future-dated file: $(ai_tools_conf__find_paths_ahead_of_clock "${lc}" "${lc}.rpmnew" || true)"
 fi
 rm -f "${lc}" "${lc}".*
 
 # Absent inputs produce no copy and no path -- a caller must never act on a name that was not made.
-if ! ai_tools_conf_backup "${TESTDIR}/absent" >/dev/null 2>&1; then
+if ! ai_tools_conf__write_backup "${TESTDIR}/absent" >/dev/null 2>&1; then
     pass "no backup is invented for a file that is not there"
 else
     fail "backed up a nonexistent file"
 fi
-if ! ai_tools_conf_reference "${cfg}" "${TESTDIR}/absent" >/dev/null 2>&1; then
+if ! ai_tools_conf__ensure_reference "${cfg}" "${TESTDIR}/absent" >/dev/null 2>&1; then
     pass "no reference is invented for a baseline that is not there"
 else
     fail "referenced a nonexistent baseline"
@@ -683,7 +752,7 @@ CONF
 kept_conf="${TESTDIR}/kept.conf"
 printf '# older file\nEXISTING_OPTION="a"\n' > "${kept_conf}"
 declare -a found=()
-if ai_tools_conf_new_keys found "${kept_conf}" "${shipped_conf}" \
+if ai_tools_conf__find_new_keys found "${kept_conf}" "${shipped_conf}" \
         && [[ "${found[*]}" == "NEW_OPTION" ]]; then
     pass "an option the kept file never mentions is reported"
 else
@@ -691,7 +760,7 @@ else
 fi
 
 declare -a same=()
-if ! ai_tools_conf_new_keys same "${shipped_conf}" "${shipped_conf}"; then
+if ! ai_tools_conf__find_new_keys same "${shipped_conf}" "${shipped_conf}"; then
     pass "a current file reports nothing"
 else
     fail "a current file reported '${same[*]}'"
@@ -700,14 +769,14 @@ fi
 # Both "seen" forms: a live setting and a commented-out default.
 printf 'NEW_OPTION="b"\n' >> "${kept_conf}"
 declare -a live=()
-if ! ai_tools_conf_new_keys live "${kept_conf}" "${shipped_conf}"; then
+if ! ai_tools_conf__find_new_keys live "${kept_conf}" "${shipped_conf}"; then
     pass "an option the operator has set is not announced as new"
 else
     fail "announced an already-set option: ${live[*]}"
 fi
 printf '# older file\nEXISTING_OPTION="a"\n#NEW_OPTION="b"\n' > "${kept_conf}"
 declare -a commented=()
-if ! ai_tools_conf_new_keys commented "${kept_conf}" "${shipped_conf}"; then
+if ! ai_tools_conf__find_new_keys commented "${kept_conf}" "${shipped_conf}"; then
     pass "an option the operator commented out is not re-announced"
 else
     fail "re-announced a commented-out option: ${commented[*]}"
@@ -725,7 +794,7 @@ cat > "${example_conf}" <<'CONF'
 OPERATORS="root"
 CONF
 declare -a examples=()
-if ai_tools_conf_new_keys examples "${example_conf}" "${shipped_conf}" \
+if ai_tools_conf__find_new_keys examples "${example_conf}" "${shipped_conf}" \
         && [[ "${examples[*]}" == "EXISTING_OPTION NEW_OPTION" ]]; then
     pass "an indented example in a header block mentions nothing"
 else
@@ -756,7 +825,7 @@ EOF
 check_member() {
     local desc="$1" expect="$2" path="$3"   # expect = member | absent
     local verdict=absent
-    ai_tools_conf_allowlist_has_entry "${al}" "${path}" && verdict=member
+    ai_tools_conf__has_allowlist_entry "${al}" "${path}" && verdict=member
     if [[ "${verdict}" == "${expect}" ]]; then pass "${desc}"
     else fail "${desc}: got ${verdict}, expected ${expect}"; fi
 }
@@ -768,14 +837,14 @@ check_member "a symlinked spelling matches by realpath" member "${al_root}/link-
 check_member "an unlisted path is absent"               absent "${al_root}/not-there"
 check_member "an excluded path is not a member"         absent "${al_root}/excluded"
 
-if ai_tools_conf_allowlist_has_exclusion "${al}" "${al_root}/excluded" \
-        && ! ai_tools_conf_allowlist_has_exclusion "${al}" "${al_root}/proj"; then
+if ai_tools_conf__has_allowlist_exclusion "${al}" "${al_root}/excluded" \
+        && ! ai_tools_conf__has_allowlist_exclusion "${al}" "${al_root}/proj"; then
     pass "has_exclusion matches only the '!' line"
 else
     fail "has_exclusion did not isolate the exclusion entry"
 fi
 
-# --- The gate's read: ai_tools_conf_allowlist_load + ai_tools_conf_is_path_excluded ---------------
+# --- The gate's read: ai_tools_conf__load_allowlist + ai_tools_conf__is_path_excluded ---------------
 # The launch wrapper and every walking helper take their two arrays from this loader. Under test is the union rule
 # for an exclusion -- the written form always, the resolved form only through a symlink the sandbox account can neither
 # remove nor replace -- and that any other link refuses the whole read (the section comment in conf.lib.sh states why).
@@ -794,7 +863,7 @@ ${ld_root}/proj
 !relative/entry
 EOF
 declare -a ld_allowed=() ld_excluded=()
-if ai_tools_conf_allowlist_load "${ld_al}" ld_allowed ld_excluded \
+if ai_tools_conf__load_allowlist "${ld_al}" ld_allowed ld_excluded \
         && [[ "${#ld_allowed[@]}" -eq 1 && "${ld_allowed[0]}" == "${ld_root}/proj" ]]; then
     pass "load resolves the allow entry and returns 0"
 else
@@ -828,7 +897,7 @@ fi
 # variables puts both in the first unless the read pins its own IFS; the same file must load to the same arrays.
 declare -a ld_ifs_allowed=() ld_ifs_excluded=()
 ld_ifs_rc=0; ld_saved_ifs="${IFS}"; IFS=$'\n\t'
-ai_tools_conf_allowlist_load "${ld_al}" ld_ifs_allowed ld_ifs_excluded 2>"${TESTDIR}/ld-ifs.err" || ld_ifs_rc=$?
+ai_tools_conf__load_allowlist "${ld_al}" ld_ifs_allowed ld_ifs_excluded 2>"${TESTDIR}/ld-ifs.err" || ld_ifs_rc=$?
 IFS="${ld_saved_ifs}"
 if [[ "${ld_ifs_rc}" -eq 0 && "${ld_ifs_allowed[*]}" == "${ld_allowed[*]}" \
         && "${ld_ifs_excluded[*]}" == "${ld_excluded[*]}" ]]; then
@@ -844,7 +913,7 @@ fi
 ld_refused() {   # ld_refused <what> <allowlist> <link> <reason-fragment>
     local -a ld_fa=(x) ld_fe=(y)
     local rc=0 err
-    ai_tools_conf_allowlist_load "$2" ld_fa ld_fe 2>"${TESTDIR}/ld-refused.err" || rc=$?
+    ai_tools_conf__load_allowlist "$2" ld_fa ld_fe 2>"${TESTDIR}/ld-refused.err" || rc=$?
     err="$(cat "${TESTDIR}/ld-refused.err")"
     if [[ "${rc}" -eq 2 && "${#ld_fa[@]}" -eq 0 && "${#ld_fe[@]}" -eq 0 ]]; then
         pass "$1 refuses the read: rc 2, both arrays empty"
@@ -889,9 +958,9 @@ for ld_alias_state in link removed directory; do
     esac
     # shellcheck disable=SC2034  # filled and read through their names by the loader and the matcher
     declare -a ld_ca=() ld_ce=()
-    if ! ai_tools_conf_allowlist_load "${ld_al}.canonical" ld_ca ld_ce \
-            || ! ai_tools_conf_is_path_excluded "${ld_root}/proj/private" ld_ce \
-            || ! ai_tools_conf_is_path_excluded "${ld_root}/proj/private/k" ld_ce; then
+    if ! ai_tools_conf__load_allowlist "${ld_al}.canonical" ld_ca ld_ce \
+            || ! ai_tools_conf__is_path_excluded "${ld_root}/proj/private" ld_ce \
+            || ! ai_tools_conf__is_path_excluded "${ld_root}/proj/private/k" ld_ce; then
         fail "with the alias ${ld_alias_state}, the real-path carve-out stopped covering ${ld_root}/proj/private"
         ld_canonical_ok=false
     fi
@@ -901,32 +970,32 @@ rm -rf "${ld_root}/proj/alias" "${ld_root}/proj/links"; chmod 755 "${ld_root}/pr
 ld_ok=true
 for p in "${ld_root}/proj/private" "${ld_root}/proj/private/k" "${ld_root}/proj/sub" "${ld_root}/proj/sub/deep" \
          "${ld_root}/proj/x.log" "${ld_root}/proj/stale/y"; do
-    ai_tools_conf_is_path_excluded "${p}" ld_excluded || { fail "should be excluded: ${p}"; ld_ok=false; }
+    ai_tools_conf__is_path_excluded "${p}" ld_excluded || { fail "should be excluded: ${p}"; ld_ok=false; }
 done
 for p in "${ld_root}/proj/other" "${ld_root}/proj/x.log/y" "${ld_root}/proj/privateer"; do
-    ai_tools_conf_is_path_excluded "${p}" ld_excluded && { fail "should not be excluded: ${p}"; ld_ok=false; }
+    ai_tools_conf__is_path_excluded "${p}" ld_excluded && { fail "should not be excluded: ${p}"; ld_ok=false; }
 done
 ${ld_ok} && pass "the matcher covers a written path, its contents, a resolved path and a glob, and no sibling"
 # shellcheck disable=SC2034  # read through its name by the matcher
 declare -a ld_none=()
-if ! ai_tools_conf_is_path_excluded "${ld_root}/proj" ld_none; then
+if ! ai_tools_conf__is_path_excluded "${ld_root}/proj" ld_none; then
     pass "an empty exclusion array excludes no path"
 else
     fail "an empty exclusion array excluded a path"
 fi
 declare -a ld_a2=(x) ld_e2=(y)
-if ! ai_tools_conf_allowlist_load "${ld_root}" ld_a2 ld_e2 && [[ "${#ld_a2[@]}" -eq 0 && "${#ld_e2[@]}" -eq 0 ]] \
-        && ! ai_tools_conf_allowlist_load "${TESTDIR}/absent-allowlist" ld_a2 ld_e2; then
+if ! ai_tools_conf__load_allowlist "${ld_root}" ld_a2 ld_e2 && [[ "${#ld_a2[@]}" -eq 0 && "${#ld_e2[@]}" -eq 0 ]] \
+        && ! ai_tools_conf__load_allowlist "${TESTDIR}/absent-allowlist" ld_a2 ld_e2; then
     pass "a directory or an absent file returns 1 with both arrays empty"
 else
     fail "load over a directory or an absent file: rc 0 or arrays (${ld_a2[*]:-}) (${ld_e2[*]:-})"
 fi
 glob_ok=true
 for p in '/a/*.log' '/a/b?' '/a/[cd]'; do
-    ai_tools_conf_path_has_glob_characters "${p}" || { fail "has_glob missed ${p}"; glob_ok=false; }
+    ai_tools_conf__has_glob_characters "${p}" || { fail "has_glob missed ${p}"; glob_ok=false; }
 done
 for p in '/a/plain' '/a/b]' ''; do
-    ai_tools_conf_path_has_glob_characters "${p}" && { fail "has_glob matched '${p}'"; glob_ok=false; }
+    ai_tools_conf__has_glob_characters "${p}" && { fail "has_glob matched '${p}'"; glob_ok=false; }
 done
 ${glob_ok} && pass "has_glob reads *, ? and [ as glob characters and a lone ] or a plain path as none"
 
@@ -934,21 +1003,21 @@ ${glob_ok} && pass "has_glob reads *, ? and [ as glob characters and a lone ] or
 # -- reconstructing it from the path would miss a commented/quoted entry and leave it behind. Two-ended
 # with the boundary suite: the agent cannot write the allowlist.
 declare -a matched=()
-if ai_tools_conf_allowlist_matching_lines matched "${al}" "${al_root}/commented" \
+if ai_tools_conf__read_allowlist_matching_lines matched "${al}" "${al_root}/commented" \
         && [[ "${#matched[@]}" -eq 1 && "${matched[0]}" == "${al_root}/commented    # main repo" ]]; then
     pass "matching_lines returns the raw commented line verbatim for deletion"
 else
     fail "matching_lines returned '${matched[*]:-}'"
 fi
 matched=()
-if ai_tools_conf_allowlist_matching_lines matched "${al}" "${al_root}/quoted dir" \
+if ai_tools_conf__read_allowlist_matching_lines matched "${al}" "${al_root}/quoted dir" \
         && [[ "${matched[0]}" == "\"${al_root}/quoted dir\"" ]]; then
     pass "matching_lines returns the raw quoted line verbatim"
 else
     fail "matching_lines did not return the quoted line: '${matched[*]:-}'"
 fi
 matched=()
-if ! ai_tools_conf_allowlist_matching_lines matched "${al}" "${al_root}/excluded"; then
+if ! ai_tools_conf__read_allowlist_matching_lines matched "${al}" "${al_root}/excluded"; then
     pass "matching_lines skips exclusion lines (never deletes an exclusion as a membership)"
 else
     fail "matching_lines matched an exclusion line: '${matched[*]:-}'"
@@ -957,7 +1026,7 @@ fi
 # The two forms that ARE defaults stay defaults, hard against the '#' and one space in.
 printf '#EXISTING_OPTION="a"\n# NEW_OPTION="b"\n' > "${kept_conf}"
 declare -a spaced=()
-if ! ai_tools_conf_new_keys spaced "${kept_conf}" "${shipped_conf}"; then
+if ! ai_tools_conf__find_new_keys spaced "${kept_conf}" "${shipped_conf}"; then
     pass "both commented-default forms (#KEY= and # KEY=) count as mentions"
 else
     fail "a commented default was missed: ${spaced[*]}"
@@ -968,7 +1037,7 @@ seen_key="SENTINEL"
 # shellcheck disable=SC2034  # the output array is deliberately unread here: this case asserts
 # the scan's effect on OTHER variables, not its result
 declare -a discarded=()
-ai_tools_conf_new_keys discarded "${kept_conf}" "${shipped_conf}" >/dev/null 2>&1 || true
+ai_tools_conf__find_new_keys discarded "${kept_conf}" "${shipped_conf}" >/dev/null 2>&1 || true
 if [[ "${seen_key}" == "SENTINEL" ]]; then
     pass "the scan leaks no variable into its caller"
 else
@@ -981,13 +1050,13 @@ fi
 # exactly as before, because a line that stops resolving silently removes a project from the gate.
 check_entry() {
     local desc="$1" want="$2" line="$3" rc=0
-    ai_tools_conf_path_entry "${line}" || rc=$?
+    ai_tools_conf__parse_path_entry "${line}" || rc=$?
     if [[ "${want}" == SKIP ]]; then
-        if [[ "${rc}" -ne 0 ]]; then pass "${desc}"; else fail "${desc}: yielded '${_ai_tools_conf_value}'"; fi
-    elif [[ "${rc}" -eq 0 && "${_ai_tools_conf_value}" == "${want}" ]]; then
+        if [[ "${rc}" -ne 0 ]]; then pass "${desc}"; else fail "${desc}: yielded '${ai_tools_conf__value}'"; fi
+    elif [[ "${rc}" -eq 0 && "${ai_tools_conf__value}" == "${want}" ]]; then
         pass "${desc}"
     else
-        fail "${desc}: rc ${rc}, got '${_ai_tools_conf_value}', expected '${want}'"
+        fail "${desc}: rc ${rc}, got '${ai_tools_conf__value}', expected '${want}'"
     fi
 }
 check_entry "a plain path is unchanged"            /home/me/project         '/home/me/project'
@@ -1029,11 +1098,11 @@ check_entry "an unmatched quote is taken as-is"    '/home/me/project'       '"/h
 #   * an unwritable directory REPORTED (rc 1) rather than aborting the caller under `set -e`.
 section "conf: allowlist editing (unit)"
 
-if ! declare -F ai_tools_conf_allowlist_state >/dev/null 2>&1 \
-        || ! declare -F ai_tools_conf_allowlist_add >/dev/null 2>&1 \
-        || ! declare -F ai_tools_conf_allowlist_remove >/dev/null 2>&1 \
-        || ! declare -F ai_tools_conf_allowlist_enable >/dev/null 2>&1 \
-        || ! declare -F ai_tools_conf_allowlist_disable >/dev/null 2>&1; then
+if ! declare -F ai_tools_conf__read_allowlist_state >/dev/null 2>&1 \
+        || ! declare -F ai_tools_conf__allowlist_add >/dev/null 2>&1 \
+        || ! declare -F ai_tools_conf__allowlist_remove >/dev/null 2>&1 \
+        || ! declare -F ai_tools_conf__allowlist_enable >/dev/null 2>&1 \
+        || ! declare -F ai_tools_conf__allowlist_disable >/dev/null 2>&1; then
     fail "${LIB} defines no allowlist editing functions"
     finish; exit
 fi
@@ -1047,7 +1116,7 @@ seed_al() { printf '%s\n' "$@" > "${AL}"; }
 
 # state_is <expected> <path> <desc>
 state_is() {
-    local got; got="$(ai_tools_conf_allowlist_state "${AL}" "$2")"
+    local got; got="$(ai_tools_conf__read_allowlist_state "${AL}" "$2")"
     if [[ "${got}" == "$1" ]]; then pass "$3"; else fail "$3: state is '${got}', expected '$1'"; fi
 }
 
@@ -1070,9 +1139,9 @@ state_is disabled "${P1}" "an exclusion outranks an allow line for the same path
 
 # --- add ---
 seed_al "# header"
-rc_is 0 "add appends an absent path"            ai_tools_conf_allowlist_add "${AL}" "${P1}"
+rc_is 0 "add appends an absent path"            ai_tools_conf__allowlist_add "${AL}" "${P1}"
 state_is listed "${P1}" "the added path reads as listed"
-rc_is 0 "add is idempotent for a listed path"   ai_tools_conf_allowlist_add "${AL}" "${P1}"
+rc_is 0 "add is idempotent for a listed path"   ai_tools_conf__allowlist_add "${AL}" "${P1}"
 if [[ "$(grep -cxF "${P1}" "${AL}")" == 1 ]]; then
     pass "add did not duplicate the line"
 else
@@ -1082,12 +1151,12 @@ fi
 # opens a line of its own for the new one. Written straight it would join the two paths into one that is not a project,
 # taking the preceding entry off the launch gate.
 printf '%s\n%s' "# header" "${P2}" > "${AL}"
-rc_is 0 "add opens a line for an entry that runs to EOF" ai_tools_conf_allowlist_add "${AL}" "${P1}"
+rc_is 0 "add opens a line for an entry that runs to EOF" ai_tools_conf__allowlist_add "${AL}" "${P1}"
 state_is listed "${P1}" "the added path reads as listed"
 state_is listed "${P2}" "the entry that ran to EOF is still listed"
 
 seed_al "# header" "!${P1}"
-rc_is 2 "add REFUSES a disabled path"           ai_tools_conf_allowlist_add "${AL}" "${P1}"
+rc_is 2 "add REFUSES a disabled path"           ai_tools_conf__allowlist_add "${AL}" "${P1}"
 state_is disabled "${P1}" "the refused add left the path disabled"
 if [[ "$(grep -cF "${P1}" "${AL}")" == 1 ]]; then
     pass "the refused add wrote no second line"
@@ -1097,7 +1166,7 @@ fi
 
 # --- remove: BOTH line kinds ---
 seed_al "# header" "${P1}" "!${P1}" "${P2}"
-rc_is 0 "remove drops a path"                   ai_tools_conf_allowlist_remove "${AL}" "${P1}"
+rc_is 0 "remove drops a path"                   ai_tools_conf__allowlist_remove "${AL}" "${P1}"
 state_is absent "${P1}" "the removed path reads as absent"
 if grep -qF "${P1}" "${AL}"; then
     fail "remove left a line naming the path: $(grep -F "${P1}" "${AL}")"
@@ -1105,33 +1174,33 @@ else
     pass "remove took the allow line AND the exclusion"
 fi
 state_is listed "${P2}" "remove left the other project alone"
-rc_is 0 "removing an absent path succeeds"      ai_tools_conf_allowlist_remove "${AL}" "${P1}"
+rc_is 0 "removing an absent path succeeds"      ai_tools_conf__allowlist_remove "${AL}" "${P1}"
 
 # --- disable / enable: in place, keeping position and comment ---
 seed_al "# header" "  ${P1}   # payments, dev stage" "${P2}"
 before="$(cat "${AL}")"
-rc_is 0 "disable parks a listed project"        ai_tools_conf_allowlist_disable "${AL}" "${P1}"
+rc_is 0 "disable parks a listed project"        ai_tools_conf__allowlist_disable "${AL}" "${P1}"
 state_is disabled "${P1}" "the parked project reads as disabled"
 if [[ "$(sed -n '2p' "${AL}")" == "  !${P1}   # payments, dev stage" ]]; then
     pass "disable kept the line's position, indentation and comment"
 else
     fail "disable rewrote the line: '$(sed -n '2p' "${AL}")'"
 fi
-rc_is 0 "disable is idempotent"                 ai_tools_conf_allowlist_disable "${AL}" "${P1}"
-rc_is 0 "enable restores a parked project"      ai_tools_conf_allowlist_enable  "${AL}" "${P1}"
+rc_is 0 "disable is idempotent"                 ai_tools_conf__allowlist_disable "${AL}" "${P1}"
+rc_is 0 "enable restores a parked project"      ai_tools_conf__allowlist_enable  "${AL}" "${P1}"
 state_is listed "${P1}" "the restored project reads as listed"
 if [[ "$(cat "${AL}")" == "${before}" ]]; then
     pass "a park/restore round trip leaves the file byte-identical"
 else
     fail "the round trip changed the file:"$'\n'"$(cat "${AL}")"
 fi
-rc_is 0 "enable is idempotent"                  ai_tools_conf_allowlist_enable "${AL}" "${P1}"
+rc_is 0 "enable is idempotent"                  ai_tools_conf__allowlist_enable "${AL}" "${P1}"
 
 # Neither verb invents an entry: enabling or disabling a path the file does not name would register a project without
 # claiming it (no secret scan, no ACL, no label).
 seed_al "# header" "${P2}"
-rc_is 2 "enable refuses an absent path"         ai_tools_conf_allowlist_enable  "${AL}" "${P1}"
-rc_is 2 "disable refuses an absent path"        ai_tools_conf_allowlist_disable "${AL}" "${P1}"
+rc_is 2 "enable refuses an absent path"         ai_tools_conf__allowlist_enable  "${AL}" "${P1}"
+rc_is 2 "disable refuses an absent path"        ai_tools_conf__allowlist_disable "${AL}" "${P1}"
 if [[ "$(cat "${AL}")" == "# header"$'\n'"${P2}" ]]; then
     pass "both refusals left the file untouched"
 else
@@ -1142,7 +1211,7 @@ fi
 # A '!' line and an allow line for one path, the pair an append over an exclusion would create. Un-parking the '!' line
 # while an allow line already exists would leave two live entries for one path; the earliest position survives.
 seed_al "# header" "!${P1}   # parked" "${P2}" "${P1}"
-rc_is 0 "enable collapses a duplicate pair"     ai_tools_conf_allowlist_enable "${AL}" "${P1}"
+rc_is 0 "enable collapses a duplicate pair"     ai_tools_conf__allowlist_enable "${AL}" "${P1}"
 state_is listed "${P1}" "the collapsed path reads as listed"
 if [[ "$(grep -cF "${P1}" "${AL}")" == 1 && "$(sed -n '2p' "${AL}")" == "${P1}   # parked" ]]; then
     pass "one entry survives, in the earliest position, with its comment"
@@ -1169,7 +1238,7 @@ else
     # shellcheck disable=SC2016  # $1..$3 are the inner shell's positionals, passed after `_`
     runuser -u "${PROJECTS_USER}" -- bash -c '
         source "$1" || exit 9
-        ai_tools_conf_allowlist_disable "$2" "$3"' _ "${LIB}" "${ro}/allowed-projects" "${P1}" || rc=$?
+        ai_tools_conf__allowlist_disable "$2" "$3"' _ "${LIB}" "${ro}/allowed-projects" "${P1}" || rc=$?
     chmod 0700 "${ro}"
     if [[ "${rc}" -eq 1 ]]; then
         pass "an unwritable config directory is reported (rc 1), not fatal"
@@ -1184,30 +1253,30 @@ else
 fi
 
 # --- the text predicate: a file whose bytes go to a program as prose -------------------------
-# ai_tools_conf_is_text_file is the shared check behind an agent's system prompt: the trust predicate says who wrote
+# ai_tools_conf__is_text_file is the shared check behind an agent's system prompt: the trust predicate says who wrote
 # the file, this says the bytes are text. Empty counts as text (the shipped inert default), a directory
 # and a NUL-carrying blob do not.
-if declare -F ai_tools_conf_is_text_file >/dev/null 2>&1; then
+if declare -F ai_tools_conf__is_text_file >/dev/null 2>&1; then
     tf="${TESTDIR}/textfile"
     printf 'You are a sandboxed agent.\n' > "${tf}"
-    ai_tools_conf_is_text_file "${tf}" && pass "a text file is text" || fail "a text file was refused"
+    ai_tools_conf__is_text_file "${tf}" && pass "a text file is text" || fail "a text file was refused"
     : > "${tf}"
-    ai_tools_conf_is_text_file "${tf}" && pass "an empty file counts as text" || fail "an empty file was refused"
+    ai_tools_conf__is_text_file "${tf}" && pass "an empty file counts as text" || fail "an empty file was refused"
     printf '\x00\x01\x02ELF\x00' > "${tf}"
-    ai_tools_conf_is_text_file "${tf}" && fail "a NUL-carrying blob passed as text" || pass "a binary blob is not text"
+    ai_tools_conf__is_text_file "${tf}" && fail "a NUL-carrying blob passed as text" || pass "a binary blob is not text"
     mkdir -p "${TESTDIR}/textdir"
-    ai_tools_conf_is_text_file "${TESTDIR}/textdir" && fail "a directory passed as a text file" || pass "a directory is not a text file"
+    ai_tools_conf__is_text_file "${TESTDIR}/textdir" && fail "a directory passed as a text file" || pass "a directory is not a text file"
 else
-    fail "conf.lib.sh does not define ai_tools_conf_is_text_file"
+    fail "conf.lib.sh does not define ai_tools_conf__is_text_file"
 fi
 
-# --- the one in-place write of a KEY=value file: ai_tools_conf_set_key ------------------------
+# --- the one in-place write of a KEY=value file: ai_tools_conf__set_key ------------------------
 # The writer behind `operators add` and the toolchain provisioning's agent choice. What matters is WHICH line it
-# replaces -- the key's own, commented default included, found by the mention rule ai_tools_conf_keys reads --
+# replaces -- the key's own, commented default included, found by the mention rule ai_tools_conf__read_keys reads --
 # and that every other byte survives, since the file it rewrites is the operator's, and a writer with its own idea
 # of a match is one that appends a second live line under a commented default the operator then edits to no effect.
-section "conf: ai_tools_conf_set_key rewrites one key in place"
-if declare -F ai_tools_conf_set_key >/dev/null 2>&1; then
+section "conf: ai_tools_conf__set_key rewrites one key in place"
+if declare -F ai_tools_conf__set_key >/dev/null 2>&1; then
     sk="${TESTDIR}/set-key.conf"
     cat > "${sk}" <<'EOF'
 # a header line
@@ -1221,11 +1290,11 @@ OPERATORS="op"
 EOF
     cp "${sk}" "${sk}.before"
     chmod 0640 "${sk}"
-    rc=0; ai_tools_conf_set_key "${sk}" AI_TOOLS_AGENTS "acme beta" || rc=$?
-    if [[ "${rc}" -eq 0 && "$(ai_tools_conf_get "${sk}" AI_TOOLS_AGENTS)" == "acme beta" ]]; then
+    rc=0; ai_tools_conf__set_key "${sk}" AI_TOOLS_AGENTS "acme beta" || rc=$?
+    if [[ "${rc}" -eq 0 && "$(ai_tools_conf__print_value "${sk}" AI_TOOLS_AGENTS)" == "acme beta" ]]; then
         pass "a commented default is rewritten as the live key and reads back"
     else
-        fail "set_key over a commented default: rc ${rc}, value '$(ai_tools_conf_get "${sk}" AI_TOOLS_AGENTS || true)'"
+        fail "set_key over a commented default: rc ${rc}, value '$(ai_tools_conf__print_value "${sk}" AI_TOOLS_AGENTS || true)'"
     fi
     if diff <(sed 's/^#AI_TOOLS_AGENTS=""$/AI_TOOLS_AGENTS="acme beta"/' "${sk}.before") "${sk}" >/dev/null; then
         pass "the key's own line is replaced in place and every other line is byte-identical"
@@ -1237,76 +1306,76 @@ EOF
     else
         fail "the rewritten file's mode changed to $(stat -c '%a' "${sk}")"
     fi
-    rc=0; ai_tools_conf_set_key "${sk}" AI_TOOLS_AGENTS "gamma" || rc=$?
+    rc=0; ai_tools_conf__set_key "${sk}" AI_TOOLS_AGENTS "gamma" || rc=$?
     if [[ "${rc}" -eq 0 && "$(grep -c 'AI_TOOLS_AGENTS=' "${sk}")" -eq 2 \
-            && "$(ai_tools_conf_get "${sk}" AI_TOOLS_AGENTS)" == "gamma" ]]; then
+            && "$(ai_tools_conf__print_value "${sk}" AI_TOOLS_AGENTS)" == "gamma" ]]; then
         pass "an existing live key is replaced, not duplicated (the indented example stays prose)"
     else
-        fail "set_key over a live key: rc ${rc}, $(grep -c 'AI_TOOLS_AGENTS=' "${sk}") mention(s), value '$(ai_tools_conf_get "${sk}" AI_TOOLS_AGENTS || true)'"
+        fail "set_key over a live key: rc ${rc}, $(grep -c 'AI_TOOLS_AGENTS=' "${sk}") mention(s), value '$(ai_tools_conf__print_value "${sk}" AI_TOOLS_AGENTS || true)'"
     fi
     # A live line an operator wrote after the template's commented default is the one a reader takes, so it is the one
     # replaced: rewriting the commented default instead would leave the later line winning the read.
     printf '%s\n' '#K=""' 'OTHER=1' 'K="old"' > "${sk}.below"
-    rc=0; ai_tools_conf_set_key "${sk}.below" K "new" || rc=$?
+    rc=0; ai_tools_conf__set_key "${sk}.below" K "new" || rc=$?
     if [[ "${rc}" -eq 0 && "$(tr '\n' '|' < "${sk}.below")" == '#K=""|OTHER=1|K="new"|' ]]; then
         pass "a live line below a commented default is the one replaced, and the default stays commented"
     else
         fail "set_key over a live line below a commented default: rc ${rc}, file '$(tr '\n' '|' < "${sk}.below")'"
     fi
     printf '%s\n' 'K="a"' 'K="b"' > "${sk}.twice"
-    rc=0; ai_tools_conf_set_key "${sk}.twice" K "c" || rc=$?
+    rc=0; ai_tools_conf__set_key "${sk}.twice" K "c" || rc=$?
     if [[ "${rc}" -eq 0 && "$(tr '\n' '|' < "${sk}.twice")" == 'K="a"|K="c"|' ]]; then
         pass "of two live lines the last, the one a reader takes, is replaced"
     else
         fail "set_key over a repeated key: rc ${rc}, file '$(tr '\n' '|' < "${sk}.twice")'"
     fi
-    rc=0; ai_tools_conf_set_key "${sk}" OPERATORS "op two" || rc=$?
+    rc=0; ai_tools_conf__set_key "${sk}" OPERATORS "op two" || rc=$?
     if [[ "${rc}" -eq 0 && "$(sed -n 2p "${sk}")" == 'OPERATORS="op two"' ]]; then
         pass "OPERATORS is rewritten on its own line, in its place"
     else
         fail "set_key on OPERATORS: rc ${rc}, line 2 is '$(sed -n 2p "${sk}")'"
     fi
-    rc=0; ai_tools_conf_set_key "${sk}" NEW_KEY "v" || rc=$?
+    rc=0; ai_tools_conf__set_key "${sk}" NEW_KEY "v" || rc=$?
     if [[ "${rc}" -eq 0 && "$(tail -n 1 "${sk}")" == 'NEW_KEY="v"' ]]; then
         pass "a key the file does not mention is appended"
     else
         fail "set_key on an absent key: rc ${rc}, last line '$(tail -n 1 "${sk}")'"
     fi
     printf 'TRAIL=1' > "${sk}.noeol"
-    ai_tools_conf_set_key "${sk}.noeol" NEXT "2" || true
-    if [[ "$(ai_tools_conf_get "${sk}.noeol" TRAIL)" == "1" && "$(ai_tools_conf_get "${sk}.noeol" NEXT)" == "2" ]]; then
+    ai_tools_conf__set_key "${sk}.noeol" NEXT "2" || true
+    if [[ "$(ai_tools_conf__print_value "${sk}.noeol" TRAIL)" == "1" && "$(ai_tools_conf__print_value "${sk}.noeol" NEXT)" == "2" ]]; then
         pass "an append after an unterminated last line keeps both keys"
     else
         fail "an append joined the unterminated last line: $(tr '\n' '|' < "${sk}.noeol")"
     fi
-    rc=0; ai_tools_conf_set_key "${TESTDIR}/fresh.conf" OPERATORS "op" || rc=$?
+    rc=0; ai_tools_conf__set_key "${TESTDIR}/fresh.conf" OPERATORS "op" || rc=$?
     if [[ "${rc}" -eq 0 && "$(stat -c '%a' "${TESTDIR}/fresh.conf")" == "644" \
-            && "$(ai_tools_conf_get "${TESTDIR}/fresh.conf" OPERATORS)" == "op" ]]; then
+            && "$(ai_tools_conf__print_value "${TESTDIR}/fresh.conf" OPERATORS)" == "op" ]]; then
         pass "a missing file is created at 644 holding the key"
     else
         fail "set_key on a missing file: rc ${rc}"
     fi
     for bad in 'bad-key' '1KEY' ''; do
-        rc=0; ai_tools_conf_set_key "${sk}" "${bad}" v || rc=$?
+        rc=0; ai_tools_conf__set_key "${sk}" "${bad}" v || rc=$?
         [[ "${rc}" -eq 2 ]] && pass "a key outside the identifier charset ('${bad}') is refused with 2" \
                              || fail "key '${bad}' returned rc ${rc}, expected 2"
     done
     for bad in $'a\nb' 'a"b'; do
-        rc=0; ai_tools_conf_set_key "${sk}" AI_TOOLS_AGENTS "${bad}" || rc=$?
-        [[ "${rc}" -eq 2 && "$(ai_tools_conf_get "${sk}" AI_TOOLS_AGENTS)" == "gamma" ]] \
+        rc=0; ai_tools_conf__set_key "${sk}" AI_TOOLS_AGENTS "${bad}" || rc=$?
+        [[ "${rc}" -eq 2 && "$(ai_tools_conf__print_value "${sk}" AI_TOOLS_AGENTS)" == "gamma" ]] \
             && pass "a value that would end the line or the quote early is refused with 2, file unchanged" \
-            || fail "value '${bad//$'\n'/\\n}' returned rc ${rc} (value now '$(ai_tools_conf_get "${sk}" AI_TOOLS_AGENTS || true)')"
+            || fail "value '${bad//$'\n'/\\n}' returned rc ${rc} (value now '$(ai_tools_conf__print_value "${sk}" AI_TOOLS_AGENTS || true)')"
     done
 else
-    fail "conf.lib.sh does not define ai_tools_conf_set_key"
+    fail "conf.lib.sh does not define ai_tools_conf__set_key"
 fi
 
-# --- ai_tools_conf_portable_name_valid: one path component of the portable set -----------------
-section "conf: ai_tools_conf_portable_name_valid accepts one path component of the portable filename set"
-if declare -F ai_tools_conf_portable_name_valid >/dev/null 2>&1; then
+# --- ai_tools_conf__is_portable_name_valid: one path component of the portable set -----------------
+section "conf: ai_tools_conf__is_portable_name_valid accepts one path component of the portable filename set"
+if declare -F ai_tools_conf__is_portable_name_valid >/dev/null 2>&1; then
     while IFS='|' read -r name want why; do
         [[ -n "${why}" ]] || continue
-        got=0; ai_tools_conf_portable_name_valid "${name}" || got=$?
+        got=0; ai_tools_conf__is_portable_name_valid "${name}" || got=$?
         if [[ "${got}" == "${want}" ]]; then pass "portable name: ${why}"; else fail "portable name: ${why} -> got ${got}, want ${want}"; fi
     done <<EOF
 SKILL.md|0|letters, a dot
@@ -1324,15 +1393,15 @@ win\\paths|1|a backslash
 a*|1|a glob character
 |1|the empty string
 EOF
-    if LC_ALL=C.UTF-8 ai_tools_conf_portable_name_valid "$(printf '\303\251')"; then
+    if LC_ALL=C.UTF-8 ai_tools_conf__is_portable_name_valid "$(printf '\303\251')"; then
         fail "portable name: a non-ASCII letter accepted under a UTF-8 locale"
     else
         pass "portable name: a non-ASCII letter refused under a UTF-8 locale"
     fi
-    if ai_tools_conf_portable_name_valid "$(printf 'a%.0s' {1..255})"; then pass "portable name: 255 bytes"; else fail "portable name: 255 bytes refused"; fi
-    if ai_tools_conf_portable_name_valid "$(printf 'a%.0s' {1..256})"; then fail "portable name: 256 bytes accepted"; else pass "portable name: 256 bytes refused"; fi
+    if ai_tools_conf__is_portable_name_valid "$(printf 'a%.0s' {1..255})"; then pass "portable name: 255 bytes"; else fail "portable name: 255 bytes refused"; fi
+    if ai_tools_conf__is_portable_name_valid "$(printf 'a%.0s' {1..256})"; then fail "portable name: 256 bytes accepted"; else pass "portable name: 256 bytes refused"; fi
 else
-    skip "portable name" "the installed conf.lib.sh predates ai_tools_conf_portable_name_valid"
+    skip "portable name" "the installed conf.lib.sh predates ai_tools_conf__is_portable_name_valid"
 fi
 
 finish

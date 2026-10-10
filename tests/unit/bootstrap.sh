@@ -77,25 +77,25 @@ run_report() {
 # with that winner and leaves every other account reading as a host whose ordering is right, so a case states
 # which accounts are shadowed and by which binary rather than restating the reading. Each recording that a reading was
 # taken at all, which is what (F) asserts the absence of.
-stub_operators() { printf 'ai_tools_load_operators() { AI_TOOLS_OPERATORS=(%s); }\n' "$*"; }
-stub_unenrolled() { printf 'ai_tools_load_operators() { AI_TOOLS_OPERATORS=(); return 1; }\n'; }
+stub_operators() { printf 'ai_tools_operator__load_operators() { AI_TOOLS_OPERATOR__OPERATORS=(%s); }\n' "$*"; }
+stub_unenrolled() { printf 'ai_tools_operator__load_operators() { AI_TOOLS_OPERATOR__OPERATORS=(); return 1; }\n'; }
 stub_reading() {
     printf '
-ai_tools_path_order_read_user() {
+ai_tools_path_order__read_user() {
     : > "%s"
-    AI_TOOLS_PATH_ORDER_WINNERS=( "claude=${AI_TOOLS_PATH_ORDER_WRAPPER_DIR}/claude" )
-    AI_TOOLS_PATH_ORDER_SHADOW=""
-    AI_TOOLS_PATH_ORDER_STATE=%s
+    AI_TOOLS_PATH_ORDER__WINNERS=( "claude=${AI_TOOLS_PATH_ORDER__WRAPPER_DIR}/claude" )
+    AI_TOOLS_PATH_ORDER__SHADOW=""
+    AI_TOOLS_PATH_ORDER__STATE=%s
     for _shadowed in %s; do
         [[ "$1" == "${_shadowed}" ]] || continue
-        AI_TOOLS_PATH_ORDER_SHADOW="%s"
-        AI_TOOLS_PATH_ORDER_WINNERS=( "claude=${AI_TOOLS_PATH_ORDER_SHADOW}" )
-        AI_TOOLS_PATH_ORDER_STATE=shadowed
+        AI_TOOLS_PATH_ORDER__SHADOW="%s"
+        AI_TOOLS_PATH_ORDER__WINNERS=( "claude=${AI_TOOLS_PATH_ORDER__SHADOW}" )
+        AI_TOOLS_PATH_ORDER__STATE=shadowed
         return 1
     done
     return 0
 }
-ai_tools_path_order_repoint_user() { : > "%s"; }
+ai_tools_path_order__repoint_user() { : > "%s"; }
 ' "${READ_MARKER}" "${1:-wired}" "${2:-}" "${3:-}" "${WRITE_MARKER}"
 }
 
@@ -219,9 +219,9 @@ else
     # stub_pick <index|none> : the menu answers <index>, or ends unanswered (no terminal, closed input, three misses)
     # on `none`. Either way it records that it was drawn, which is what the not-asked cases assert against.
     stub_pick() {
-        printf 'ai_tools_msg_pick() { : > "%s"; [[ "%s" == none ]] && return 1; printf "%%s" "%s"; }\n' \
+        printf 'ai_tools_msg__pick() { : > "%s"; [[ "%s" == none ]] && return 1; printf "%%s" "%s"; }\n' \
             "${PICK_MARKER}" "$1" "$1"
-        printf 'ai_tools_msg_block() { :; }\n'
+        printf 'ai_tools_msg__block() { :; }\n'
     }
     # run_choose <stub-code> <requested> : drive choose_agents in its own bash and echo what it said,
     # with the function's status on a last `rc=` line -- absent when a die ended the shell. The libraries are sourced
@@ -244,7 +244,7 @@ else
         ' _ "${PROVIDERS_LIB}" "${MSG_LIB}" "${HELPER}" "$1" "$2" 2>&1 || true
     }
     # key_value : the names AI_TOOLS_AGENTS holds, read through the list grammar and joined by a space.
-    key_value() { bash -c 'source "$1"; names=(); ai_tools_conf_kind_list names "$2" AI_TOOLS_AGENTS; printf "%s" "${names[*]-}"' _ "${PROVIDERS_LIB}" "${CONF}" 2>/dev/null || true; }
+    key_value() { bash -c 'source "$1"; names=(); ai_tools_conf__read_kind_list names "$2" AI_TOOLS_AGENTS; printf "%s" "${names[*]-}"' _ "${PROVIDERS_LIB}" "${CONF}" 2>/dev/null || true; }
     key_present() { grep -qE '^[[:space:]]*AI_TOOLS_AGENTS[[:space:]]*=' "${CONF}"; }
 
     # ── (H) An unanswered menu does not enable an agent and does not fail the run ─────────────
@@ -527,10 +527,10 @@ else
         else
             printf 'semodule() { printf "%%s\\n" base unconfined; }\n'
         fi
-        printf 'ai_tools_msg_block() { : > "%s"; }\n' "${BLOCK_MARKER}"
-        printf 'ai_tools_msg_confirm() { return %s; }\n' "${answer}"
+        printf 'ai_tools_msg__block() { : > "%s"; }\n' "${BLOCK_MARKER}"
+        printf 'ai_tools_msg__confirm() { return %s; }\n' "${answer}"
         # shellcheck disable=SC2016  # $a expands in the generated stub, not here
-        printf 'ai_tools_enabled_agents() { local a; for a in %s; do printf "%%s\\t@x/%%s\\t%%s\\n" "$a" "$a" "$a"; done; }\n' "$*"
+        printf 'ai_tools_providers__list_enabled_agents() { local a; for a in %s; do printf "%%s\\t@x/%%s\\t%%s\\n" "$a" "$a" "$a"; done; }\n' "$*"
     }
     run_offer() {
         AI_TOOLS_OPERATOR_CONF="${REQ_CONF}" AI_TOOLS_ENTRYPOINT_PIN_DIR="${PIN_DIR}" bash -c '
@@ -543,7 +543,7 @@ else
             printf "rc=%s\n" "${rc}"
         ' _ "${PROVIDERS_LIB}" "${MSG_LIB}" "${EV_LIB}" "${HELPER}" "$1" 2>&1 || true
     }
-    req_value() { bash -c 'source "$1"; ai_tools_conf_read "$2" "$3" && printf "%s" "${_ai_tools_conf_value}" || printf "<absent>"' \
+    req_value() { bash -c 'source "$1"; ai_tools_conf__read "$2" "$3" && printf "%s" "${ai_tools_conf__value}" || printf "<absent>"' \
         _ "${PROVIDERS_LIB}" "${REQ_CONF}" "$1" 2>/dev/null; }
 
     # (J) enforcing, module loaded, every agent pinned, the offer accepted: the entrypoint key written yes,
@@ -750,7 +750,7 @@ else
     # the install step is gated on the network check's answer.
     ownership_line="$(grep -n -m1 -E '^preflight_toolchain_ownership ' "${SCRIPT}" | cut -d: -f1)" || true
     network_line="$(grep -n -m1 -E '^preflight_network ' "${SCRIPT}" | cut -d: -f1)" || true
-    install_line="$(grep -n -m1 -E '^\(\( _online \)\) && ai_tools_as_sandbox ' "${SCRIPT}" | cut -d: -f1)" || true
+    install_line="$(grep -n -m1 -E '^\(\( _online \)\) && ai_tools_sandbox_exec__run_as_sandbox ' "${SCRIPT}" | cut -d: -f1)" || true
     if [[ -z "${ownership_line}" || -z "${network_line}" || -z "${install_line}" ]]; then
         fail "the ownership check, the network check or the gated install is no longer where this reads it (ownership -> ${ownership_line:-none}, network -> ${network_line:-none}, install -> ${install_line:-none})"
     elif (( refuse_line < ownership_line && ownership_line < network_line && network_line < remove_line && resolve_line < install_line )); then

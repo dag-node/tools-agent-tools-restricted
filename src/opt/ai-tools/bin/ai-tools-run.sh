@@ -47,50 +47,52 @@
 
 set -euo pipefail
 
-readonly AI_TOOLS_LIB_DIR="/usr/local/lib/ai-tools"
-readonly AI_TOOLS_NVM_DIR="/opt/ai-tools/.nvm"
-readonly SESSION_ENV_DIR="${AI_TOOLS_LIB_DIR}/session-env.d"
+readonly AI_TOOLS_RUN__LIB_DIR="/usr/local/lib/ai-tools"
+readonly AI_TOOLS_RUN__NVM_DIR="/opt/ai-tools/.nvm"
+readonly SESSION_ENV_DIR="${AI_TOOLS_RUN__LIB_DIR}/session-env.d"
 readonly SANDBOX_HOME="/opt/ai-tools"
 
-# Every library this script loads comes from AI_TOOLS_LIB_DIR while running as @SANDBOX_USER@, so that directory is
+# Every library this script loads comes from AI_TOOLS_RUN__LIB_DIR while running as @SANDBOX_USER@, so that directory is
 # the root of trust for this script. Verify it before sourcing anything out of it: root-owned, not a symlink, not
-# group/other-writable. ai_tools_conf_is_trusted applies the same test to every later input, but it lives
-# in the directory this gate protects.
-lib_dir_metadata="$(stat -c '%u %a' "${AI_TOOLS_LIB_DIR}" 2>/dev/null || true)"
-if [[ -L "${AI_TOOLS_LIB_DIR}" || "${lib_dir_metadata%% *}" != 0 \
+# group/other-writable. ai_tools_conf__is_trusted applies the same test to every later input, but it lives
+# in the directory this gate protects. The owner test also refuses a launch from inside an unprivileged user namespace:
+# its map does not carry host root, so this directory reads as owned by the overflow uid 65534 (providers.rule.md,
+# ref-section-x4z9).
+lib_dir_metadata="$(stat -c '%u %a' "${AI_TOOLS_RUN__LIB_DIR}" 2>/dev/null || true)"
+if [[ -L "${AI_TOOLS_RUN__LIB_DIR}" || "${lib_dir_metadata%% *}" != 0 \
       || ! "${lib_dir_metadata##* }" =~ ^[0-7]+$ ]] \
    || (( (0${lib_dir_metadata##* } & 022) != 0 )); then
     printf 'ai-tools-run: %s is not root-owned or is writable by group/other -- refusing to launch\n' \
-        "${AI_TOOLS_LIB_DIR}" >&2
+        "${AI_TOOLS_RUN__LIB_DIR}" >&2
     exit 1
 fi
 
 # Five required libraries. Each is a gate, not an output path, so a bare source under `set -e` is the fail-closed load:
 # a missing one is a broken install and refuses the launch rather than skipping a check (see shellcheck.rule.md).
 #   msg          the framed refusals and the launch banner
-#   conf         the KEY=value grammar and ai_tools_conf_is_trusted
+#   conf         the KEY=value grammar and ai_tools_conf__is_trusted
 #   providers    which agents may launch, which integrations contribute session env
 #   toolchain    whether a disabled agent's package is still in the toolchain (the residue refusal)
 #   confinement  the pure SELinux launch verdict
 # shellcheck source=SCRIPTDIR/../../../usr/local/lib/ai-tools/msg.lib.sh
-source "${AI_TOOLS_LIB_DIR}/msg.lib.sh"
+source "${AI_TOOLS_RUN__LIB_DIR}/msg.lib.sh"
 # shellcheck source=SCRIPTDIR/../../../usr/local/lib/ai-tools/conf.lib.sh
-source "${AI_TOOLS_LIB_DIR}/conf.lib.sh"
+source "${AI_TOOLS_RUN__LIB_DIR}/conf.lib.sh"
 # shellcheck source=SCRIPTDIR/../../../usr/local/lib/ai-tools/providers.lib.sh
-source "${AI_TOOLS_LIB_DIR}/providers.lib.sh"
+source "${AI_TOOLS_RUN__LIB_DIR}/providers.lib.sh"
 # shellcheck source=SCRIPTDIR/../../../usr/local/lib/ai-tools/toolchain.lib.sh
-source "${AI_TOOLS_LIB_DIR}/toolchain.lib.sh"
+source "${AI_TOOLS_RUN__LIB_DIR}/toolchain.lib.sh"
 # shellcheck source=SCRIPTDIR/../../../usr/local/lib/ai-tools/confinement.lib.sh
-source "${AI_TOOLS_LIB_DIR}/confinement.lib.sh"
+source "${AI_TOOLS_RUN__LIB_DIR}/confinement.lib.sh"
 
 # refuse [code] <headline> [detail...] : frame the refusal and stop. Every call names the fix, so a refused launch is
 # self-explaining at the terminal. The library's optional leading code is split off so the "ai-tools-run: " prefix lands
 # on the headline rather than on the code.
 refuse() {
     local code=""
-    if ai_tools_msg_is_code "${1-}"; then code="$1"; shift; fi
+    if ai_tools_msg__is_code "${1-}"; then code="$1"; shift; fi
     local headline="ai-tools-run: $1"; shift
-    ai_tools_msg_error ${code:+"${code}"} "${headline}" "$@"
+    ai_tools_msg__error ${code:+"${code}"} "${headline}" "$@"
     exit 1
 }
 # audit <syslog-level> <message> : one journal line under the ai-tools-run tag, the durable record of what a session was
@@ -104,6 +106,8 @@ audit() {
 # ── Principal guards ─────────────────────────────────────────────────────────────────────────
 # The session must run AS @SANDBOX_USER@: the transient unit, the SELinux transition, and the umask are all built
 # around that account. Running as root or any other user would launch the agent unconfined with that user's privileges.
+# The uid-0 refusal is also the second guard, behind the library-directory gate, against a launch from inside
+# an unprivileged user namespace, which maps its creator to 0 (providers.rule.md, ref-section-x4z9).
 current_user_name="$(id -un 2>/dev/null || true)"
 if [[ "${EUID}" -eq 0 || "${current_user_name}" != "@SANDBOX_USER@" ]]; then
     refuse "must run as @SANDBOX_USER@, not ${current_user_name:-?} -- launch through the agent's wrapper" \
@@ -121,11 +125,12 @@ fi
 # ── The clock ────────────────────────────────────────────────────────────────────────────────
 # Every record this launch leaves -- the audit line, the unit's journal, the handback stamps -- carries the system
 # clock, and a host with no battery-backed clock boots into an earlier time until it reaches a time source. A file this
-# host wrote that is dated after now says the clock is behind (ai_tools_conf_clock_behind), so the launch is refused
-# until it is set. Read here as the sandbox account against the files it can reach -- this shim, the config library,
-# the updater's stamp and the entrypoint pins -- so the refusal does not rest on the wrapper's read of the same.
+# host wrote that is dated after now says the clock is behind (ai_tools_conf__find_paths_ahead_of_clock), so the launch
+# is refused until it is set. Read here as the sandbox account against the files it can reach -- this shim, the config
+# library, the updater's stamp and the entrypoint pins -- so the refusal does not rest on the wrapper's read
+# of the same.
 clock_behind_lines=""
-if ! clock_behind_lines="$(ai_tools_conf_clock_behind "$0" "${AI_TOOLS_LIB_DIR}/conf.lib.sh" \
+if ! clock_behind_lines="$(ai_tools_conf__find_paths_ahead_of_clock "$0" "${AI_TOOLS_RUN__LIB_DIR}/conf.lib.sh" \
         /var/opt/ai-tools/state/nvm-update.status \
         "${AI_TOOLS_ENTRYPOINT_PIN_DIR:-/var/opt/ai-tools/state/entrypoint-pin.d}"/* 2>/dev/null)"; then
     audit warning "REFUSED: the system clock is behind a file this host wrote: ${clock_behind_lines//$'\n'/; }"
@@ -137,14 +142,14 @@ fi
 
 # ── The provider lists this release reads ────────────────────────────────────────────────────
 # A provider list item an earlier release wrote without its kind prefix makes the list read as empty
-# (ai_tools_conf_kind_list, conf.lib.sh): an unmigrated AI_TOOLS_AGENTS would reach the agent resolution as "no agent is
-# enabled", the wrong remedy, and an unmigrated AI_TOOLS_INTEGRATIONS or AI_TOOLS_FILTERS would start a session without
-# its integrations or its filters. So every launch refuses until `system post-upgrade` rewrites the lists; the wrapper
-# refused under the same code first, which makes this the boundary and the wrapper the diagnostician.
+# (ai_tools_conf__read_kind_list, conf.lib.sh): an unmigrated AI_TOOLS_AGENTS would reach the agent resolution as "no
+# agent is enabled", the wrong remedy, and an unmigrated AI_TOOLS_INTEGRATIONS or AI_TOOLS_FILTERS would start a session
+# without its integrations or its filters. So every launch refuses until `system post-upgrade` rewrites the lists;
+# the wrapper refused under the same code first, which makes this the boundary and the wrapper the diagnostician.
 unmigrated_items=""
 while IFS=$'\t' read -r unmigrated_key unmigrated_item; do
     [[ -n "${unmigrated_key}" ]] && unmigrated_items+="${unmigrated_items:+, }${unmigrated_key} ${unmigrated_item}"
-done < <(ai_tools_conf_kind_unmigrated "${AI_TOOLS_OPERATOR_CONF}" 2>/dev/null)
+done < <(ai_tools_conf__find_unmigrated_items "${AI_TOOLS_OPERATOR_CONF}" 2>/dev/null)
 if [[ -n "${unmigrated_items}" ]]; then
     audit warning "REFUSED: operator.conf names a provider without its kind prefix: ${unmigrated_items}"
     # The code is the wrapper's, cited here so both tiers of one situation carry one token (messaging.rule.md).
@@ -165,7 +170,7 @@ while IFS=$'\t' read -r manifest_agent_name _ manifest_launcher; do
     [[ -n "${manifest_launcher}" ]] || continue
     agent_name_by_launcher["${manifest_launcher}"]="${manifest_agent_name}"
     enabled_agent_names+=( "${manifest_agent_name}" )
-done < <(ai_tools_enabled_agents 2>/dev/null)
+done < <(ai_tools_providers__list_enabled_agents 2>/dev/null)
 (( ${#agent_name_by_launcher[@]} > 0 )) \
     || refuse 'no agent is enabled on this host -- nothing can launch' \
               'enable one in /etc/ai-tools/operator.conf (AI_TOOLS_AGENTS), then provision it:' \
@@ -180,7 +185,7 @@ residue_agents=""
 while IFS=$'\t' read -r residue_agent residue_package residue_version_dir; do
     [[ -n "${residue_agent}" ]] || continue
     residue_agents+="${residue_agents:+, }${residue_agent} (${residue_version_dir}/lib/node_modules/${residue_package})"
-done < <(ai_tools_agent_residue "${AI_TOOLS_NVM_DIR}" 2>/dev/null)
+done < <(ai_tools_toolchain__find_agent_residue "${AI_TOOLS_RUN__NVM_DIR}" 2>/dev/null)
 if [[ -n "${residue_agents}" ]]; then
     audit warning "REFUSED: a disabled agent's package is still in the toolchain: ${residue_agents}"
     # The code is the wrapper's, cited here so both tiers of one situation carry one token (messaging.rule.md).
@@ -196,7 +201,7 @@ agent_executable_path="${AI_TOOLS_AGENT_EXEC:-}"
 # Anchored to the sandbox's own Node toolchain, an exact semver version directory, and a single path component
 # for the launcher -- so the version component cannot be an arbitrary directory name and the launcher cannot carry
 # a separator.
-executable_suffix="${agent_executable_path#"${AI_TOOLS_NVM_DIR}/versions/node/"}"
+executable_suffix="${agent_executable_path#"${AI_TOOLS_RUN__NVM_DIR}/versions/node/"}"
 [[ "${executable_suffix}" != "${agent_executable_path}" \
    && "${executable_suffix}" =~ ^(v?[0-9]+\.[0-9]+\.[0-9]+)/bin/([A-Za-z0-9._-]+)$ ]] \
     || refuse MSG-Z2J9 'invalid or absent AI_TOOLS_AGENT_EXEC -- cannot launch'
@@ -210,12 +215,12 @@ agent_name="${agent_name_by_launcher[${launcher_name}]:-}"
 [[ "${agent_name}" =~ ^[A-Za-z0-9._-]+$ ]] \
     || refuse "agent manifest name \"${agent_name}\" is not a valid unit-name component"
 
-agent_display_name="$(ai_tools_agent_manifest_field "${agent_name}" display_name || true)"
+agent_display_name="$(ai_tools_providers__read_agent_manifest_field "${agent_name}" display_name || true)"
 [[ -n "${agent_display_name}" ]] || agent_display_name="${agent_name}"
 # Which side converges ownership after the agent writes a file. An agent that declares
 # handback=hooks drives it from its own tool/turn hooks; every other declaration gets the
 # session-end sweep (see the sweep section).
-agent_handback="$(ai_tools_agent_manifest_field "${agent_name}" handback || true)"
+agent_handback="$(ai_tools_providers__read_agent_manifest_field "${agent_name}" handback || true)"
 
 # ── Entrypoint resolution: verify and exec the same inode ────────────────────────────────────
 # The path validated at the exec gate is the versioned launcher SYMLINK; the file execve actually transitions on is
@@ -227,7 +232,7 @@ agent_handback="$(ai_tools_agent_manifest_field "${agent_name}" handback || true
 # Frozen at the validated version: node_version is re-assigned to "n/a" further down when it fails the banner's display
 # pattern, and the pre-launch re-check must resolve against the SAME root the first resolution used, not a display
 # value.
-readonly entrypoint_version_root="${AI_TOOLS_NVM_DIR}/versions/node/${node_version}/"
+readonly entrypoint_version_root="${AI_TOOLS_RUN__NVM_DIR}/versions/node/${node_version}/"
 
 # resolve_entrypoint : print the launcher's resolved, contained, executable target; non-zero when
 #   it does not resolve or leaves that root. Called twice -- once here, once immediately before the
@@ -281,17 +286,17 @@ export XDG_RUNTIME_DIR="/run/user/${UID}"
 # ── Fail-closed SELinux preflight ────────────────────────────────────────────────────────────
 # A session that does not transition into ai_tools_t runs UNCONFINED, and a wrapper cannot observe its successor's
 # post-exec domain -- so the transition's inputs are verified here, before launch, and logged on every launch.
-# The launch/refuse decision is the pure ai_tools_confinement_verdict; this block owns only the probing
+# The launch/refuse decision is the pure ai_tools_confinement__evaluate; this block owns only the probing
 # and the reporting.
 #
 # AI_TOOLS_REQUIRE_SELINUX: the operator's declaration that confinement is mandatory here, in force unless operator.conf
-# passes ai_tools_conf_is_trusted and sets it to no, and read FIRST, so a host missing a tool still reaches the verdict
+# passes ai_tools_conf__is_trusted and sets it to no, and read FIRST, so a host missing a tool still reaches the verdict
 # and a missing tool is an unread input there. An untrusted or absent file, and an absent key, leave the requirement
 # in force, so every failed read of it narrows like the other predicates. What the switch turns into a refusal,
 # and the two states it lets launch with a warning: confinement.rule.md.
 require_selinux=no
 operator_conf="${AI_TOOLS_OPERATOR_CONF:-/etc/ai-tools/operator.conf}"
-ai_tools_confinement_is_selinux_required "${operator_conf}" && require_selinux=yes
+ai_tools_confinement__is_selinux_required "${operator_conf}" && require_selinux=yes
 
 # Each probe that could not run is named here, so a require-unattested refusal says which reading is missing and prints
 # the remedy for that reading: a tool to install, a selinuxfs read, a Boolean the policy lacks, or a line to fix.
@@ -323,13 +328,13 @@ if [[ -n "${selinux_mode}" || "${require_selinux}" == yes ]]; then
         # Module presence for the verdict, probed from a CORE-owned path rather than read from the root-only module
         # store, which this account cannot read. The reader's contract (confinement.lib.sh) states what the probe means;
         # why the store read would fail OPEN here is in confinement.rule.md.
-        module_present="$(ai_tools_confinement_read_module_present "${AI_TOOLS_CONFINEMENT_MODULE_PROBE_PATH}")"
+        module_present="$(ai_tools_confinement__read_module_present "${AI_TOOLS_CONFINEMENT__MODULE_PROBE_PATH}")"
     else
         note_unread_input tool "the file contexts (matchpathcon)"
     fi
     # Whether the compiled core module is on the host at all, which under the requirement tells a host that never
     # installed the policy (launches DAC-only, warned) from one whose module is installed and not loaded (refuses).
-    policy_shipped="$(ai_tools_confinement_read_policy_shipped "${AI_TOOLS_CONFINEMENT_CORE_MODULE_FILE}")"
+    policy_shipped="$(ai_tools_confinement__read_policy_shipped "${AI_TOOLS_CONFINEMENT__CORE_MODULE_FILE}")"
     # The manager is the `systemd --user process` that execs the entrypoint; same uid, so its domain is readable.
     manager_pid="$(pgrep -u "${UID}" -f 'systemd --user' 2>/dev/null | head -n1 || true)"
     [[ -n "${manager_pid}" ]] && manager_domain="$(tr -d '\000' < "/proc/${manager_pid}/attr/current" 2>/dev/null | awk -F: '{print $3}' || true)"
@@ -339,16 +344,16 @@ if [[ -n "${selinux_mode}" || "${require_selinux}" == yes ]]; then
     domain_permissive="" current_boolean_values="" required_boolean_values=""
     if [[ "${require_selinux}" == yes ]]; then
         IFS='|' read -r _ required_boolean_values _ domain_permissive current_boolean_values \
-            < <(ai_tools_confinement_read_attestation_inputs "${operator_conf}" /sys/fs/selinux) || true
+            < <(ai_tools_confinement__read_attestation_inputs "${operator_conf}" /sys/fs/selinux) || true
         while IFS=$'\t' read -r unread_kind unread_description; do
             note_unread_input "${unread_kind}" "${unread_description}"
-        done < <(ai_tools_confinement_list_unread_inputs "${required_boolean_values}" "${current_boolean_values}" \
+        done < <(ai_tools_confinement__list_unread_inputs "${required_boolean_values}" "${current_boolean_values}" \
                                                            "${domain_permissive}")
     fi
 
     audit info "launch: agent=${agent_name} selinux=${selinux_mode:-unknown} module=${module_present:-unknown} policy=${policy_shipped:-unknown} exec_label=${actual_label:-none} expected=${expected_label:-none} manager_domain=${manager_domain:-unknown} require=${require_selinux} permissive=${domain_permissive:-unread} booleans=${current_boolean_values:-unread} required=${required_boolean_values:-none}"
 
-    case "$(ai_tools_confinement_verdict "${selinux_mode}" "${module_present}" \
+    case "$(ai_tools_confinement__evaluate "${selinux_mode}" "${module_present}" \
                                          "${expected_label}" "${actual_label}" "${manager_domain}" \
                                          "${require_selinux}" "${domain_permissive}" "${current_boolean_values}" \
                                          "${required_boolean_values}" "${policy_shipped}")" in
@@ -367,7 +372,7 @@ if [[ -n "${selinux_mode}" || "${require_selinux}" == yes ]]; then
                                     "On a source checkout instead:  sudo selinux/install-selinux.sh install" )
             fi
             audit warning "DAC-ONLY: AI_TOOLS_REQUIRE_SELINUX set but ${dac_only_reason}; launching without ai_tools_t"
-            ai_tools_msg_warn MSG-K6W6 "ai-tools-run: AI_TOOLS_REQUIRE_SELINUX is set in operator.conf, but ${dac_only_reason}, so this session runs with file permissions alone (DAC-only) and the requirement is not met." \
+            ai_tools_msg__warn MSG-K6W6 "ai-tools-run: AI_TOOLS_REQUIRE_SELINUX is set in operator.conf, but ${dac_only_reason}, so this session runs with file permissions alone (DAC-only) and the requirement is not met." \
                 "${dac_only_remedies[@]}" \
                 "Or declare this host DAC-only, which ends this warning:  set AI_TOOLS_REQUIRE_SELINUX=no in /etc/ai-tools/operator.conf"
             ;;
@@ -451,10 +456,11 @@ fi
 # actionable notice rather than a cryptic EPERM inside a later build. Best-effort probe.
 if command -v semodule >/dev/null 2>&1; then
     # The listing is captured, not piped into `grep -q`: an early-exiting reader makes semodule die of SIGPIPE,
-    # which pipefail reports as a failed probe -- see the note on ai_tools_selinux_group_loaded (selinux-groups.lib.sh).
+    # which pipefail reports as a failed probe -- see the note on ai_tools_selinux_groups__is_loaded
+    # (selinux-groups.lib.sh).
     loaded_modules="$(semodule -l 2>/dev/null || true)"
     if grep -qE '^ai_tools_podman([[:space:]]|$)' <<<"${loaded_modules}"; then
-        ai_tools_msg_notice \
+        ai_tools_msg__notice \
             "ai-tools-run: the \"podman\" SELinux group is enabled, but RestrictNamespaces=yes blocks the user namespace rootless podman/buildah require -- they will fail with EPERM on clone(CLONE_NEWUSER).  To allow containers, relax RestrictNamespaces in ${0} -- note that permitting the user namespace reopens ESC-001."
     fi
 fi
@@ -469,7 +475,7 @@ fi
 readonly HANDBACK_SOCKET="/run/ai-tools/handback.sock"
 if [[ -n "${session_working_directory}" && ! -S "${HANDBACK_SOCKET}" ]]; then
     audit warning "handback socket ${HANDBACK_SOCKET} absent at launch -- ownership handback will not run this session"
-    ai_tools_msg_notice \
+    ai_tools_msg__notice \
         "ai-tools-run: the ownership handback socket is down (${HANDBACK_SOCKET}), so files this session writes stay ai-tools-owned until it is restored -- git may then report \"dubious ownership\".  Bring it up, then reclaim the tree:"
     printf '  sudo systemctl enable --now ai-tools-handback.socket\n' >&2
     printf '  ai-tools projects handback %s\n' "${session_working_directory}" >&2
@@ -523,29 +529,29 @@ declare -a session_path_entries=()
 #
 # This runs as @SANDBOX_USER@ and decides what the agent's own session gets, so every file -- and the directory holding
 # it, since a group-writable directory lets a non-root writer replace a root-owned file inside it -- must pass
-# ai_tools_conf_is_trusted; where a file fails it, the file is skipped and logged, never sourced. Fragments and pins are
-# additive, so skipping one costs the session that provider's environment and leaves every other property intact.
+# ai_tools_conf__is_trusted; where a file fails it, the file is skipped and logged, never sourced. Fragments and pins
+# are additive, so skipping one costs the session that provider's environment and leaves every other property intact.
 source_session_env_fragment() {   # <provider> [pins]  -- <provider>.env.sh, or <provider>.pins.env.sh
     local provider_name="$1" fragment_path="${SESSION_ENV_DIR}/$1${2:+.$2}.env.sh"
     [[ -e "${fragment_path}" ]] || return 0
-    if ! ai_tools_conf_is_trusted "${fragment_path}"; then
-        ai_tools_msg_warn "ai-tools-run: skipping session env for ${provider_name} -- ${fragment_path} is not root-owned or is writable by group/other"
+    if ! ai_tools_conf__is_trusted "${fragment_path}"; then
+        ai_tools_msg__warn "ai-tools-run: skipping session env for ${provider_name} -- ${fragment_path} is not root-owned or is writable by group/other"
         audit warning "session-env fragment skipped: ${fragment_path}"
         return 0
     fi
     # shellcheck source=/dev/null
     source "${fragment_path}"
 }
-if ai_tools_conf_is_trusted "${SESSION_ENV_DIR}"; then
+if ai_tools_conf__is_trusted "${SESSION_ENV_DIR}"; then
     while IFS= read -r enabled_integration_name; do
         [[ -n "${enabled_integration_name}" ]] && source_session_env_fragment "${enabled_integration_name}"
-    done < <(ai_tools_enabled_integrations 2>/dev/null)
+    done < <(ai_tools_providers__list_enabled_integrations 2>/dev/null)
     for enabled_agent_name in "${enabled_agent_names[@]}"; do
         source_session_env_fragment "${enabled_agent_name}" pins
     done
     source_session_env_fragment "${agent_name}"
 elif [[ -e "${SESSION_ENV_DIR}" ]]; then
-    ai_tools_msg_warn "ai-tools-run: skipping all session env -- ${SESSION_ENV_DIR} is not root-owned or is writable by group/other"
+    ai_tools_msg__warn "ai-tools-run: skipping all session env -- ${SESSION_ENV_DIR} is not root-owned or is writable by group/other"
     audit warning "session-env directory untrusted: ${SESSION_ENV_DIR}"
 fi
 
@@ -566,8 +572,8 @@ readonly HANDBACK_CLIENT="/usr/local/bin/ai-tools-handback-client"
 # walk cost, not an access boundary -- so a missing lib leaves a stub that descends everywhere: a slower, more thorough
 # sweep, never a narrower one.
 # shellcheck source=SCRIPTDIR/../../../usr/local/lib/ai-tools/skip-dirs.lib.sh
-source "${AI_TOOLS_LIB_DIR}/skip-dirs.lib.sh" 2>/dev/null \
-    || ai_tools_skip_find_expr() { AI_TOOLS_SKIP_FIND_EXPR=(); return 0; }
+source "${AI_TOOLS_RUN__LIB_DIR}/skip-dirs.lib.sh" 2>/dev/null \
+    || ai_tools_skip_dirs__build_find_expression() { AI_TOOLS_SKIP_DIRS__FIND_EXPRESSION=(); return 0; }
 
 # sweep_project_ownership : hand every @SANDBOX_USER@-owned path under the session's project directory to ai-tools-chown
 # through the handback socket. No project directory (a diagnostic run outside a wrapper), the sandbox home
@@ -586,7 +592,7 @@ sweep_project_ownership() {
     fi
     # The "reclaim" consumer omits the heavy dependency/build trees but WALKS .git -- the tree the per-turn hooks skip,
     # and which no other pass on this path would reach.
-    ai_tools_skip_find_expr reclaim '' "${session_working_directory}"
+    ai_tools_skip_dirs__build_find_expression reclaim '' "${session_working_directory}"
     # Count OWNER CHANGES, not helper exits. `ai-tools-chown` exits 0 both for a path it handed back and for one it
     # deliberately LEFT ALONE -- a `!`-excluded path, a hardlinked file, a secret-named one it quarantined elsewhere --
     # so a tally of exits reports work that did not happen, which is the failure mode this line exists to rule out.
@@ -604,7 +610,7 @@ sweep_project_ownership() {
         else
             failed=$(( failed + 1 ))
         fi
-    done < <(find "${session_working_directory}" -xdev "${AI_TOOLS_SKIP_FIND_EXPR[@]}" \
+    done < <(find "${session_working_directory}" -xdev "${AI_TOOLS_SKIP_DIRS__FIND_EXPRESSION[@]}" \
                   '(' -user '@SANDBOX_USER@' '(' -type f -o -type d ')' -print0 ')' 2>/dev/null)
     # Reported alongside the handbacks rather than folded into them: a sweep that left every path as it was is a project
     # whose paths the helper declines, which reads very differently from one it converged.
@@ -632,9 +638,9 @@ ai_tools_version="@AI_TOOLS_VERSION@"; [[ "${ai_tools_version}" == @*@ ]] && ai_
 # display, not a gate -- so a load that does not happen costs the version line and nothing else.
 agent_version="n/a"
 # shellcheck source=SCRIPTDIR/../../../usr/local/lib/ai-tools/entrypoint-verify.lib.sh
-if source "${AI_TOOLS_LIB_DIR}/entrypoint-verify.lib.sh" 2>/dev/null \
-        && declare -F ai_tools_entrypoint_installed_version >/dev/null 2>&1; then
-    declared_version="$(ai_tools_entrypoint_installed_version "${session_exec_path}" || true)"
+if source "${AI_TOOLS_RUN__LIB_DIR}/entrypoint-verify.lib.sh" 2>/dev/null \
+        && declare -F ai_tools_entrypoint_verify__read_installed_version >/dev/null 2>&1; then
+    declared_version="$(ai_tools_entrypoint_verify__read_installed_version "${session_exec_path}" || true)"
     [[ -n "${declared_version}" ]] && agent_version="${declared_version}"
 fi
 audit info "versions: ${agent_name}=${agent_version} node=${node_version} ai-tools=${ai_tools_version}"
@@ -642,10 +648,10 @@ audit info "versions: ${agent_name}=${agent_version} node=${node_version} ai-too
 show_banner=1
 [[ $# -eq 1 ]] && case "$1" in --version|-v|--help|-h) show_banner=0 ;; esac
 if (( show_banner )); then
-    printf -v banner_agent_line '%-13s%s' "${agent_display_name}" "$(ai_tools_msg_version "${agent_version}")"
-    printf -v banner_node_line  '%-13s%s' 'Node'                  "$(ai_tools_msg_version "${node_version}")"
-    printf -v banner_tools_line '%-13s%s' 'ai-tools'              "$(ai_tools_msg_version "${ai_tools_version}")"
-    ai_tools_msg_banner 'Agent Tools Restricted — Starting sandboxed session...' \
+    printf -v banner_agent_line '%-13s%s' "${agent_display_name}" "$(ai_tools_msg__format_version "${agent_version}")"
+    printf -v banner_node_line  '%-13s%s' 'Node'                  "$(ai_tools_msg__format_version "${node_version}")"
+    printf -v banner_tools_line '%-13s%s' 'ai-tools'              "$(ai_tools_msg__format_version "${ai_tools_version}")"
+    ai_tools_msg__banner 'Agent Tools Restricted — Starting sandboxed session...' \
         "${banner_agent_line}" "${banner_node_line}" "${banner_tools_line}"
 fi
 
@@ -668,7 +674,7 @@ fi
 
 # An EXIT trap rather than a call after the run, so an interrupted shim (Ctrl-C, SIGTERM) still converges the tree;
 # a SIGKILL leaves it to the next session's sweep or `ai-tools projects handback`.
-if ai_tools_agent_sweeps_at_exit "${agent_handback}"; then
+if ai_tools_providers__is_exit_sweep_required "${agent_handback}"; then
     trap 'sweep_project_ownership || true' EXIT
 fi
 
@@ -688,15 +694,15 @@ entrypoint_pin_verdict=unchecked
 # agent action -- it degrades to "unchecked", which the require switch turns into a refusal on a host that declared
 # verification mandatory.
 # shellcheck source=SCRIPTDIR/../../../usr/local/lib/ai-tools/entrypoint-verify.lib.sh
-if source "${AI_TOOLS_LIB_DIR}/entrypoint-verify.lib.sh" 2>/dev/null \
-        && declare -F ai_tools_entrypoint_check >/dev/null 2>&1; then
-    entrypoint_pin_verdict="$(ai_tools_entrypoint_check "${agent_name}" "${session_exec_path}")" || true
+if source "${AI_TOOLS_RUN__LIB_DIR}/entrypoint-verify.lib.sh" 2>/dev/null \
+        && declare -F ai_tools_entrypoint_verify__check >/dev/null 2>&1; then
+    entrypoint_pin_verdict="$(ai_tools_entrypoint_verify__check "${agent_name}" "${session_exec_path}")" || true
 fi
 # Through the library's own accessor, so this launch and the updater's activation gate cannot disagree about how strict
 # the host is.
 require_entrypoint_verify=no
-declare -F ai_tools_entrypoint_verify_required >/dev/null 2>&1 \
-    && ai_tools_entrypoint_verify_required && require_entrypoint_verify=yes
+declare -F ai_tools_entrypoint_verify__is_required >/dev/null 2>&1 \
+    && ai_tools_entrypoint_verify__is_required && require_entrypoint_verify=yes
 audit info "entrypoint: agent=${agent_name} pin=${entrypoint_pin_verdict} require=${require_entrypoint_verify}"
 
 case "${entrypoint_pin_verdict}" in
@@ -706,17 +712,17 @@ case "${entrypoint_pin_verdict}" in
         # that a vendor signed a checksum, for an agent whose vendor publishes none, sends them looking for a signature
         # that does not exist. The reader defaults to the stronger claim, which is what a record with no KIND carries.
         entrypoint_pin_claim='the checksum its vendor signed for the installed version'
-        if declare -F ai_tools_entrypoint_pin_kind >/dev/null 2>&1 \
-                && [[ "$(ai_tools_entrypoint_pin_kind "${agent_name}" 2>/dev/null || true)" == observed ]]; then
+        if declare -F ai_tools_entrypoint_verify__read_pin_kind >/dev/null 2>&1 \
+                && [[ "$(ai_tools_entrypoint_verify__read_pin_kind "${agent_name}" 2>/dev/null || true)" == observed ]]; then
             entrypoint_pin_claim='the checksum root recorded for the binary as installed'
         fi
         # The remedy is NOT the provisioning command on its own: its npm step is a no-op at an already-installed
         # version, so the modified binary would survive it and every launch would go on refusing. The package directory
         # goes first; the library composes it, and prints nothing where the entrypoint does not sit inside one.
         entrypoint_package_dir=""
-        declare -F ai_tools_entrypoint_package_dir >/dev/null 2>&1 \
-            && entrypoint_package_dir="$(ai_tools_entrypoint_package_dir "${session_exec_path}" \
-                   "$(ai_tools_agent_manifest_field "${agent_name}" npm_package || true)" 2>/dev/null || true)"
+        declare -F ai_tools_entrypoint_verify__find_package_dir >/dev/null 2>&1 \
+            && entrypoint_package_dir="$(ai_tools_entrypoint_verify__find_package_dir "${session_exec_path}" \
+                   "$(ai_tools_providers__read_agent_manifest_field "${agent_name}" npm_package || true)" 2>/dev/null || true)"
         declare -a entrypoint_remedy=( '  sudo ai-tools-admin system bootstrap' )
         [[ -n "${entrypoint_package_dir}" ]] \
             && entrypoint_remedy=( "  sudo rm -rf ${entrypoint_package_dir}" "${entrypoint_remedy[@]}" )
@@ -736,7 +742,7 @@ case "${entrypoint_pin_verdict}" in
             # The reconcile reaches the network only for an agent whose manifest declares a release manifest; for one
             # that declares none it hashes what is installed, so naming an online host as a precondition would send
             # the operator hunting connectivity a local step never needed.
-            if [[ -n "$(ai_tools_agent_manifest_field "${agent_name}" release_manifest_url 2>/dev/null || true)" ]]; then
+            if [[ -n "$(ai_tools_providers__read_agent_manifest_field "${agent_name}" release_manifest_url 2>/dev/null || true)" ]]; then
                 entrypoint_pin_step='Pin it (this fetches the vendor'"'"'s signed release manifest, so the host must be online):'
             else
                 entrypoint_pin_step='Pin it (this agent publishes no signed manifest, so root records the binary as installed):'
@@ -795,7 +801,7 @@ if (( session_exit_status != 0 && SECONDS - session_start_seconds < 5 )); then
     # The agent's own output went to the pty, so this shim cannot read which of the two it was and the warning names
     # both, each with its step. The re-login step is the agent's: a manifest declaring `login_command` has it named
     # as a command (codex, whose login is a subcommand); one declaring none takes its login inside a session.
-    agent_login_command="$(ai_tools_agent_manifest_field "${agent_name}" login_command 2>/dev/null || true)"
+    agent_login_command="$(ai_tools_providers__read_agent_manifest_field "${agent_name}" login_command 2>/dev/null || true)"
     if [[ -n "${agent_login_command}" ]]; then
         early_exit_login_lines=(
             "If it printed an error of its own, the agent refused to start: 'unauthorized' or '401' means its stored login was revoked or has expired -- log in again from a claimed project:"
@@ -804,7 +810,7 @@ if (( session_exit_status != 0 && SECONDS - session_start_seconds < 5 )); then
         early_exit_login_lines=(
             "If it printed an error of its own, the agent refused to start: 'unauthorized' or '401' means its stored login was revoked or has expired -- log in again from a session." )
     fi
-    ai_tools_msg_warn \
+    ai_tools_msg__warn \
         "ai-tools-run: the session exited with status ${session_exit_status} almost immediately." \
         "${early_exit_login_lines[@]}" \
         "If it ended with no output, the sandbox toolchain may be incompletely installed -- reprovision it as root, then relaunch:" \

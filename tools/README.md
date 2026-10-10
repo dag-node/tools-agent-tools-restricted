@@ -27,8 +27,10 @@ in another file. Each carries a `generate` verb and a `stale` verb that exits 1
 when the committed copy differs from its source, which is what the pre-commit
 hook and the unit suite run.
 
-A tool that reports findings and writes nothing has no directory yet; the first
-one founds `checkers/`.
+**`checkers/`** report findings and write nothing. `assets-conformance.sh`
+holds base's asset-set validator to the conformance fixtures
+of the `ai-tools-assets-tools` release `assets-tools.pin` names, which it
+verifies before reading a fixture; CI runs it.
 
 ## Conventions
 

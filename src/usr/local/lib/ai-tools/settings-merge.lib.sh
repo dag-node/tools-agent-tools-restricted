@@ -14,13 +14,13 @@
 
 # Include guard: this file's readonly jq programs would abort a `set -e` shell sourcing it twice. An if-statement, not
 # `[[ ]] && return`, which returns 1 for an unset guard and trips the sourcing shell's `set -e`.
-if [[ -n "${_AI_TOOLS_SETTINGS_MERGE_LIB:-}" ]]; then
+if [[ -n "${_AI_TOOLS_SETTINGS_MERGE__LOADED:-}" ]]; then
     return 0
 fi
 
-# _ai_tools_settings_merge_warn [code] <message...> : the load refusal's report, on stderr, in the leading-code form
+# _ai_tools_settings_merge__warn [code] <message...> : the load refusal's report, on stderr, in the leading-code form
 #   msg.lib.sh states. Defined here rather than taken from conf.lib.sh, since it reports that library failing to load.
-_ai_tools_settings_merge_warn() {
+_ai_tools_settings_merge__warn() {
     if [[ "${1-}" =~ ^MSG-[A-Z][0-9][A-Z][0-9]$ ]]; then printf '%s\n' "$1" >&2; shift; fi
     printf 'ai-tools: %s\n' "$*" >&2
     return 0
@@ -28,22 +28,22 @@ _ai_tools_settings_merge_warn() {
 
 # shellcheck source=SCRIPTDIR/conf.lib.sh
 if ! source "${BASH_SOURCE[0]%/*}/conf.lib.sh" 2>/dev/null \
-        || ! declare -F ai_tools_conf_backup >/dev/null 2>&1 \
-        || ! declare -F ai_tools_conf_reference >/dev/null 2>&1; then
-    _ai_tools_settings_merge_warn MSG-U9Y9 \
+        || ! declare -F ai_tools_conf__write_backup >/dev/null 2>&1 \
+        || ! declare -F ai_tools_conf__ensure_reference >/dev/null 2>&1; then
+    _ai_tools_settings_merge__warn MSG-U9Y9 \
         "settings-merge.lib.sh: conf.lib.sh missing or incomplete -- hook declarations not merged"
     return 1
 fi
-readonly _AI_TOOLS_SETTINGS_MERGE_LIB=1
+readonly _AI_TOOLS_SETTINGS_MERGE__LOADED=1
 
-# ai_tools_conf_require_jq : succeed when jq is callable. jq is a package dependency, so its
+# ai_tools_settings_merge__require_jq : succeed when jq is callable. jq is a package dependency, so its
 #   absence is a broken install rather than a host variation -- this reports and fails instead of
 #   degrading, and each JSON path gates on it. Not checked when this library is sourced: install.sh
 #   and ai-tools-admin source it at startup, and a missing jq costs the JSON step alone, not
 #   the install or the post-upgrade pass around it.
-ai_tools_conf_require_jq() {
+ai_tools_settings_merge__require_jq() {
     command -v jq >/dev/null 2>&1 && return 0
-    _ai_tools_conf_warn MSG-F9W4 "jq not found -- it is a package dependency; reinstall ai-tools-base"
+    ai_tools_conf__warn MSG-F9W4 "jq not found -- it is a package dependency; reinstall ai-tools-base"
     return 1
 }
 
@@ -64,7 +64,7 @@ ai_tools_conf_require_jq() {
 # before the membership test: inside index(), `.` is that function's own input -- the $have array -- so an unbound form
 # asks whether the array contains itself and does not report a gap wherever the event already declares a hook.
 # shellcheck disable=SC2016  # jq variables, bound by `--slurpfile` and jq's own `as`
-readonly _AI_TOOLS_CONF_HOOKS_MISSING_FILTER='
+readonly _AI_TOOLS_SETTINGS_MERGE__HOOKS_MISSING_FILTER='
     . as $cur
     | ($shipped[0].hooks // {}) | to_entries[] as $event
     | ([ (($cur.hooks // {})[$event.key] // [])[] | (.hooks // [])[] | .command ]) as $have
@@ -77,7 +77,7 @@ readonly _AI_TOOLS_CONF_HOOKS_MISSING_FILTER='
 # with the dropped commands in `removed`. A command outside $cmds -- an operator's own hook -- is never dropped. Defined
 # once and shared by the report and the merge, so what is reported is what is removed.
 # shellcheck disable=SC2016  # jq variables, bound by jq's own `as`
-readonly _AI_TOOLS_CONF_HOOKS_DEDUPE_DEF='
+readonly _AI_TOOLS_SETTINGS_MERGE__HOOKS_DEDUPE_DEFINITION='
     def dedupe_event($cmds):
         reduce (.[]) as $group ({seen: {}, groups: [], removed: []};
             (($group.matcher // "") | tostring) as $matcher
@@ -98,7 +98,7 @@ readonly _AI_TOOLS_CONF_HOOKS_DEDUPE_DEF='
 # The shipped hook commands a deployed file declares more than once under one event and matcher, as "<event>: <command>"
 # per repeat the merge removes.
 # shellcheck disable=SC2016  # jq variables, bound by `--slurpfile` and jq's own `as`
-readonly _AI_TOOLS_CONF_HOOKS_DUPLICATE_FILTER="${_AI_TOOLS_CONF_HOOKS_DEDUPE_DEF}"'
+readonly _AI_TOOLS_SETTINGS_MERGE__HOOKS_DUPLICATE_FILTER="${_AI_TOOLS_SETTINGS_MERGE__HOOKS_DEDUPE_DEFINITION}"'
     . as $cur
     | ($shipped[0].hooks // {}) | to_entries[] as $event
     | [ $event.value[] | (.hooks // [])[] | .command ] as $cmds
@@ -108,7 +108,7 @@ readonly _AI_TOOLS_CONF_HOOKS_DUPLICATE_FILTER="${_AI_TOOLS_CONF_HOOKS_DEDUPE_DE
 # Append, under each shipped group's matcher, only that group's commands the event does not declare, so a command
 # already declared elsewhere in the event is not declared again; then drop the repeats dedupe_event finds.
 # shellcheck disable=SC2016  # jq variables, as in the report programs
-readonly _AI_TOOLS_CONF_HOOKS_MERGE_FILTER="${_AI_TOOLS_CONF_HOOKS_DEDUPE_DEF}"'
+readonly _AI_TOOLS_SETTINGS_MERGE__HOOKS_MERGE_FILTER="${_AI_TOOLS_SETTINGS_MERGE__HOOKS_DEDUPE_DEFINITION}"'
     ($shipped[0].hooks // {}) as $ship
     | reduce ($ship | to_entries[]) as $event (
         .;
@@ -125,46 +125,48 @@ readonly _AI_TOOLS_CONF_HOOKS_MERGE_FILTER="${_AI_TOOLS_CONF_HOOKS_DEDUPE_DEF}"'
           else .hooks[$event.key] = (.hooks[$event.key] | dedupe_event($cmds)).groups end
       )'
 
-# ai_tools_conf_merge_hook_declarations <deployed> <shipped> : merge the shipped hook
+# ai_tools_settings_merge__merge_hook_declarations <deployed> <shipped> : merge the shipped hook
 #   declarations into <deployed>.
-#     returns 0  merged      _ai_tools_conf_merge_added holds "<event>: <command>" per addition,
-#                            _ai_tools_conf_merge_removed the same per duplicate removed,
-#                            _ai_tools_conf_merge_backup the copy of what the operator had
+#     returns 0  merged      ai_tools_settings_merge__added holds "<event>: <command>" per addition,
+#                            ai_tools_settings_merge__removed the same per duplicate removed,
+#                            ai_tools_settings_merge__backup the copy of what the operator had
 #     returns 1  no change   the file declares everything shipped, each once; no write happens
-#     returns 2  refused     the file is byte-identical and _ai_tools_conf_merge_reference holds
+#     returns 2  refused     the file is byte-identical and ai_tools_settings_merge__reference holds
 #                            the baseline dropped for a hand merge (empty if even that failed);
-#                            _ai_tools_conf_merge_reason says which check refused
+#                            ai_tools_settings_merge__reason says which check refused
 #   The deployed file is never opened for writing: the merge is built in a temporary file and
 #   validated as JSON before an atomic rename, so a failure at any point leaves the original.
-ai_tools_conf_merge_hook_declarations() {
+ai_tools_settings_merge__merge_hook_declarations() {
     local deployed="$1" shipped="$2" missing="" duplicates="" tmp=""
-    _ai_tools_conf_merge_added=()
-    _ai_tools_conf_merge_removed=()
-    _ai_tools_conf_merge_backup=""
-    _ai_tools_conf_merge_reference=""
-    _ai_tools_conf_merge_reason=""
+    ai_tools_settings_merge__added=()
+    ai_tools_settings_merge__removed=()
+    ai_tools_settings_merge__backup=""
+    ai_tools_settings_merge__reference=""
+    ai_tools_settings_merge__reason=""
 
     _refuse() {
-        _ai_tools_conf_merge_reason="$1"
-        _ai_tools_conf_merge_reference="$(ai_tools_conf_reference "${deployed}" "${shipped}")" || true
+        ai_tools_settings_merge__reason="$1"
+        # shellcheck disable=SC2034  # read by install.sh
+        ai_tools_settings_merge__reference="$(ai_tools_conf__ensure_reference "${deployed}" "${shipped}")" || true
         return 2
     }
 
-    [[ -f "${deployed}" && -f "${shipped}" ]] || { _ai_tools_conf_merge_reason="missing file"; return 2; }
-    ai_tools_conf_require_jq || { _refuse "jq is not installed"; return 2; }
+    # shellcheck disable=SC2034  # read by install.sh and ai-tools-admin.sh
+    [[ -f "${deployed}" && -f "${shipped}" ]] || { ai_tools_settings_merge__reason="missing file"; return 2; }
+    ai_tools_settings_merge__require_jq || { _refuse "jq is not installed"; return 2; }
     jq -e . "${deployed}" >/dev/null 2>&1 || { _refuse "the deployed file is not valid JSON"; return 2; }
 
     missing="$(jq -r --slurpfile shipped "${shipped}" \
-        "${_AI_TOOLS_CONF_HOOKS_MISSING_FILTER}" "${deployed}" 2>/dev/null)" \
+        "${_AI_TOOLS_SETTINGS_MERGE__HOOKS_MISSING_FILTER}" "${deployed}" 2>/dev/null)" \
         || { _refuse "the deployed file's hook declarations could not be read"; return 2; }
     duplicates="$(jq -r --slurpfile shipped "${shipped}" \
-        "${_AI_TOOLS_CONF_HOOKS_DUPLICATE_FILTER}" "${deployed}" 2>/dev/null)" \
+        "${_AI_TOOLS_SETTINGS_MERGE__HOOKS_DUPLICATE_FILTER}" "${deployed}" 2>/dev/null)" \
         || { _refuse "the deployed file's hook declarations could not be read"; return 2; }
     [[ -n "${missing}" || -n "${duplicates}" ]] || return 1
 
     tmp="$(mktemp "${deployed}.XXXXXX" 2>/dev/null)" || { _refuse "no temporary file could be created"; return 2; }
     if ! jq --slurpfile shipped "${shipped}" \
-            "${_AI_TOOLS_CONF_HOOKS_MERGE_FILTER}" "${deployed}" > "${tmp}" 2>/dev/null \
+            "${_AI_TOOLS_SETTINGS_MERGE__HOOKS_MERGE_FILTER}" "${deployed}" > "${tmp}" 2>/dev/null \
             || ! jq -e . "${tmp}" >/dev/null 2>&1; then
         rm -f "${tmp}"
         _refuse "the merged result was not valid JSON"
@@ -173,16 +175,17 @@ ai_tools_conf_merge_hook_declarations() {
 
     # Keep what the operator had before replacing it: this is the only copy that restores host tuning if a merge is
     # valid JSON yet wrong, which the JSON check cannot catch.
-    _ai_tools_conf_merge_backup="$(ai_tools_conf_backup "${deployed}")" || true
-    _ai_tools_conf_match_perms "${tmp}" "${deployed}"
+    # shellcheck disable=SC2034  # read by install.sh and ai-tools-admin.sh
+    ai_tools_settings_merge__backup="$(ai_tools_conf__write_backup "${deployed}")" || true
+    ai_tools_conf__match_permissions "${tmp}" "${deployed}"
     mv -f "${tmp}" "${deployed}" || { rm -f "${tmp}"; _refuse "the merged file could not be moved into place"; return 2; }
 
     local line
     while IFS= read -r line; do
-        [[ -n "${line}" ]] && _ai_tools_conf_merge_added+=("${line}")
+        [[ -n "${line}" ]] && ai_tools_settings_merge__added+=("${line}")
     done <<< "${missing}"
     while IFS= read -r line; do
-        [[ -n "${line}" ]] && _ai_tools_conf_merge_removed+=("${line}")
+        [[ -n "${line}" ]] && ai_tools_settings_merge__removed+=("${line}")
     done <<< "${duplicates}"
     return 0
 }
@@ -193,17 +196,17 @@ ai_tools_conf_merge_hook_declarations() {
 # does not gain a newly shipped entry, and after an upgrade the host may hold no shipped copy to compare with. Each
 # entry is therefore listed here as "<command path>|<entry>", and a kept file is checked against this table. The shipped
 # settings.json carries every entry listed here.
-readonly -a _AI_TOOLS_CONF_ASK_GATES=(
+readonly -a _AI_TOOLS_SETTINGS_MERGE__ASK_GATES=(
     "/usr/local/lib/ai-tools/typesafe/decide.mjs|Bash(node /usr/local/lib/ai-tools/typesafe/decide.mjs *)"
 )
 
-# ai_tools_conf_permission_gaps <deployed> <shipped> : compare the permission rule lists of two settings files as sets,
-#   for every array-valued key of `permissions`. Prints "missing<TAB><list><TAB><rule>" per rule <shipped> carries
-#   that <deployed> does not, and "extra<TAB><list><TAB><rule>" per rule only <deployed> carries, each group in byte
-#   order. Order within a list and the lists' place in the object are not differences. Returns 1, printing nothing,
-#   when jq is missing or either file is not a JSON object.
-ai_tools_conf_permission_gaps() {
-    ai_tools_conf_require_jq || return 1
+# ai_tools_settings_merge__find_permission_gaps <deployed> <shipped> : compare the permission rule lists of two settings
+#   files as sets, for every array-valued key of `permissions`. Prints "missing<TAB><list><TAB><rule>" per rule
+#   <shipped> carries that <deployed> does not, and "extra<TAB><list><TAB><rule>" per rule only <deployed> carries, each
+#   group in byte order. Order within a list and the lists' place in the object are not differences. Returns 1, printing
+#   nothing, when jq is missing or either file is not a JSON object.
+ai_tools_settings_merge__find_permission_gaps() {
+    ai_tools_settings_merge__require_jq || return 1
     # shellcheck disable=SC2016  # jq variables, bound by `--slurpfile` and jq's own `as`
     jq -r --slurpfile shipped "$2" '
         def lists($o): (($o.permissions // {}) | if type == "object" then . else error end)
@@ -218,12 +221,12 @@ ai_tools_conf_permission_gaps() {
     ' "$1" 2>/dev/null
 }
 
-# ai_tools_conf_settings_rest <settings> : print <settings> without its hook declarations and its permission rule
-#   lists, keys sorted, so two files that differ only in those, or in key order, print the same text. The hook
-#   declarations are compared by ai_tools_conf_merge_hook_declarations and the rule lists by
-#   ai_tools_conf_permission_gaps. Returns 1 when jq is missing or <settings> is not a JSON object.
-ai_tools_conf_settings_rest() {
-    ai_tools_conf_require_jq || return 1
+# ai_tools_settings_merge__read_settings_rest <settings> : print <settings> without its hook declarations and its
+#   permission rule lists, keys sorted, so two files that differ only in those, or in key order, print the same text.
+#   The hook declarations are compared by ai_tools_settings_merge__merge_hook_declarations and the rule lists by
+#   ai_tools_settings_merge__find_permission_gaps. Returns 1 when jq is missing or <settings> is not a JSON object.
+ai_tools_settings_merge__read_settings_rest() {
+    ai_tools_settings_merge__require_jq || return 1
     jq -S 'if type != "object" then error else . end
         | del(.hooks)
         | if (.permissions | type) == "object"
@@ -232,17 +235,17 @@ ai_tools_conf_settings_rest() {
           else . end' "$1" 2>/dev/null
 }
 
-# ai_tools_conf_ask_gaps <settings> [root] : print each ask entry <settings> does not carry for a command installed
-#   under <root> (default /), one per line. Prints nothing when every installed command asks.
+# ai_tools_settings_merge__find_ask_gaps <settings> [root] : print each ask entry <settings> does not carry for a
+#   command installed under <root> (default /), one per line. Prints nothing when every installed command asks.
 #     returns 0  checked     the gaps, if any, are on stdout
 #     returns 1  not checked jq is missing, <settings> is not readable JSON, or its permissions.ask is not an array
 #   Read-only: the permission arrays are the host's, so a caller reports the gap and does not write the entry.
-ai_tools_conf_ask_gaps() {
+ai_tools_settings_merge__find_ask_gaps() {
     local settings="$1" root="${2:-}" have gate command entry
-    ai_tools_conf_require_jq || return 1
+    ai_tools_settings_merge__require_jq || return 1
     have="$(jq -r '(.permissions.ask // []) | if type == "array" then .[] else error end' "${settings}" 2>/dev/null)" \
         || return 1
-    for gate in "${_AI_TOOLS_CONF_ASK_GATES[@]}"; do
+    for gate in "${_AI_TOOLS_SETTINGS_MERGE__ASK_GATES[@]}"; do
         command="${gate%%|*}"
         entry="${gate#*|}"
         [[ -e "${root}${command}" ]] || continue
@@ -251,16 +254,17 @@ ai_tools_conf_ask_gaps() {
     return 0
 }
 
-# ai_tools_conf_ask_fix <settings> <entry>... : print where the entries go in <settings> and the JSON to paste there.
+# ai_tools_settings_merge__format_ask_fix <settings> <entry>... : print where the entries go in <settings> and the JSON
+# to paste there.
 #   stdout: line 1 says where, the lines after it are the snippet, shaped for the file as it stands -- the entries alone
 #   when `permissions.ask` exists, an `"ask"` array when `permissions` exists without one, and a `"permissions"` object
 #   when neither does. Each entry is JSON-encoded. The snippet goes FIRST in its object or array and ends in a comma
 #   unless that container is empty, so the pasted file is valid JSON. Returns 1 when jq is missing, <settings> is not
 #   a readable JSON object, or its `permissions` or `permissions.ask` is present with the wrong type.
-ai_tools_conf_ask_fix() {
+ai_tools_settings_merge__format_ask_fix() {
     local settings="$1" shape empty entry comma=","
     shift
-    ai_tools_conf_require_jq || return 1
+    ai_tools_settings_merge__require_jq || return 1
     shape="$(jq -r 'if type != "object" then error
         elif has("permissions") | not then "none \(length == 0)"
         elif (.permissions | type) != "object" then error
@@ -275,23 +279,23 @@ ai_tools_conf_ask_fix() {
     case "${shape}" in
     ask)
         printf 'paste as the first lines of the "ask" list inside "permissions", right after its [:\n'
-        _ai_tools_conf_ask_items "" "${comma}" "${encoded[@]}" ;;
+        _ai_tools_settings_merge__format_ask_items "" "${comma}" "${encoded[@]}" ;;
     permissions)
         printf 'paste as the first lines inside "permissions", right after its {:\n'
         printf '"ask": [\n'
-        _ai_tools_conf_ask_items "  " "" "${encoded[@]}"
+        _ai_tools_settings_merge__format_ask_items "  " "" "${encoded[@]}"
         printf ']%s\n' "${comma}" ;;
     *)
         printf 'paste as the first lines of the file, right after its opening {:\n'
         printf '"permissions": {\n  "ask": [\n'
-        _ai_tools_conf_ask_items "    " "" "${encoded[@]}"
+        _ai_tools_settings_merge__format_ask_items "    " "" "${encoded[@]}"
         printf '  ]\n}%s\n' "${comma}" ;;
     esac
 }
 
-# _ai_tools_conf_ask_items <indent> <last> <json-string>... : print the items of a JSON array, a comma after each but
-#   the last, which takes <last> ("," when more items follow in the file, "" when none do).
-_ai_tools_conf_ask_items() {
+# _ai_tools_settings_merge__format_ask_items <indent> <last> <json-string>... : print the items of a JSON array, a comma
+#   after each but the last, which takes <last> ("," when more items follow in the file, "" when none do).
+_ai_tools_settings_merge__format_ask_items() {
     local indent="$1" last="$2" i
     shift 2
     for (( i = 1; i <= $#; i++ )); do

@@ -215,6 +215,51 @@ The shared definitions under
 .B /opt/ai-tools/subagents
 are linked there the same way.
 .TP
+.B asset_profiles
+The asset formats the agent reads, as a list of profile tokens:
+.BR skills.portable.v1 ,
+.BR skills.dynamic.v1 ,
+.BR subagents.claude.v1 .
+An asset that requires a profile one enabled agent receiving its kind does not
+list is linked for no agent, so every agent reading the view reads what it
+follows.
+Absent, the agent reads the base profile of each kind it names a directory for:
+.B skills.portable.v1
+for
+.BR skills_dir ,
+.B subagents.claude.v1
+for
+.BR subagents_dir .
+A token listed here that this release does not define is read as not
+implemented.
+An agent that reads the skills from outside its config directory lists
+.B skills.portable.v1
+here to receive them, since it names no
+.BR skills_dir .
+.BR ai-tools-assets (5)
+states which asset requires which profile.
+.TP
+.B skills_root
+The absolute path outside
+.B /opt/ai-tools
+where an agent that names no
+.B skills_dir
+reads the whole skills view, as codex reads
+.IR /etc/codex/skills .
+The agent's package links that path to
+.B /opt/ai-tools/skills
+when it is installed, and keeps what a host already holds there.
+Reported, not written:
+.B ai-tools-admin assets reconcile
+and
+.B ai-tools-admin status
+report a real directory, a file or a link elsewhere at the path as
+.BR agent-root-foreign ,
+and the reconcile reports an absent path as
+.BR agent-root-absent ;
+.BR ai-tools-assets (5)
+describes each.
+.TP
 .B memory_file
 The file name, relative to
 .BR config_dir ,

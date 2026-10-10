@@ -34,10 +34,10 @@ source "${LIB_DIR}/conf.lib.sh"
 # ── 1. The manifest keeps the integration off by default ─────────────────────────────────────────
 # A call sends listing lines off the host, so the integration is the surface-widening kind: providers.lib.sh turns it
 # on only where AI_TOOLS_INTEGRATIONS names it (tests/unit/providers.sh drives the verdict).
-if ai_tools_conf_read "${MANIFEST}" default_enable && [[ "${_ai_tools_conf_value}" == "no" ]]; then
+if ai_tools_conf__read "${MANIFEST}" default_enable && [[ "${ai_tools_conf__value}" == "no" ]]; then
     pass "integrations.d/typesafe.conf declares default_enable=no"
 else
-    fail "integrations.d/typesafe.conf does not declare default_enable=no (read '${_ai_tools_conf_value:-}')"
+    fail "integrations.d/typesafe.conf does not declare default_enable=no (read '${ai_tools_conf__value:-}')"
 fi
 
 # ── 2. The fragment hands a session two paths alone ──────────────────────────────────────────────
@@ -83,15 +83,15 @@ fi
 
 # ── 3. The shipped credential template is inert ──────────────────────────────────────────────────
 # The key is commented, and the command, given the template, refuses before a request.
-if ai_tools_conf_read "${TEMPLATE}" TYPESAFE_API_KEY && [[ -n "${_ai_tools_conf_value}" ]]; then
-    fail "the shipped template sets TYPESAFE_API_KEY ('${_ai_tools_conf_value}') -- it ships with the key commented"
+if ai_tools_conf__read "${TEMPLATE}" TYPESAFE_API_KEY && [[ -n "${ai_tools_conf__value}" ]]; then
+    fail "the shipped template sets TYPESAFE_API_KEY ('${ai_tools_conf__value}') -- it ships with the key commented"
 else
     pass "the shipped template leaves TYPESAFE_API_KEY commented"
 fi
-if ai_tools_conf_read "${TEMPLATE}" TYPESAFE_MODEL && [[ "${_ai_tools_conf_value}" == jev-latest ]]; then
+if ai_tools_conf__read "${TEMPLATE}" TYPESAFE_MODEL && [[ "${ai_tools_conf__value}" == jev-latest ]]; then
     pass "the shipped template names the model alias jev-latest"
 else
-    fail "the shipped template does not name jev-latest (read '${_ai_tools_conf_value:-}')"
+    fail "the shipped template does not name jev-latest (read '${ai_tools_conf__value:-}')"
 fi
 if [[ -r "${CLI}" ]] && command -v node >/dev/null 2>&1; then
     mktestdir

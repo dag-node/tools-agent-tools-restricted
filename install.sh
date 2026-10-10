@@ -207,7 +207,7 @@ err() {
 }
 
 # Shared message formatter, sourced from the SOURCE TREE (the installed copy may not exist yet -- this script installs
-# it). Frames interactive prompts in the '#' box and carries the yes/no prompts (ai_tools_msg_confirm). REQUIRED, like
+# it). Frames interactive prompts in the '#' box and carries the yes/no prompts (ai_tools_msg__confirm). REQUIRED, like
 # control-plane.lib.sh: the prompts gate decisions, and the source tree that provides this script provides the lib --
 # a missing file means a broken checkout, which is fatal rather than degraded.
 readonly MSG_LIB="${SCRIPT_DIR}/src/usr/local/lib/ai-tools/msg.lib.sh"
@@ -250,16 +250,16 @@ source "${MANAGED_ASSETS_LIB}" || die_unsourced "${MANAGED_ASSETS_LIB}"
 # confirm_boxed <title> <y|n> <question> [context-line...] -- the one interactive prompt
 # shape, so every prompt in the install flow looks the same:
 #   * a FIXED 80-column box (AI_TOOLS_MSG_FULLWIDTH) titled <title>, framing the context,
-#   * the shared inline yes/no prompt (ai_tools_msg_confirm; see msg.lib.sh),
+#   * the shared inline yes/no prompt (ai_tools_msg__confirm; see msg.lib.sh),
 # all on the controlling terminal, BYPASSING the do_install log tee that captures
 # stdout+stderr. msg.lib.sh prints a blank line BEFORE every box, so prompts self-separate.
 # Non-interactive runs draw no box and take <y|n>, the safe default for the question.
 confirm_boxed() {
     local title="$1" def="$2" question="$3"; shift 3
     if [[ -t 0 ]] || { [[ -c /dev/tty ]] && { : < /dev/tty; } 2>/dev/null; }; then
-        (( $# )) && ai_tools_msg_block "${title}" "$@" 2>/dev/tty
+        (( $# )) && ai_tools_msg__block "${title}" "$@" 2>/dev/tty
     fi
-    ai_tools_msg_confirm "${question}" "${def}"
+    ai_tools_msg__confirm "${question}" "${def}"
 }
 
 # source_tree_gate -- the source tree root deploys is one the operator reviewed. This checkout is usually a claimed
@@ -401,13 +401,14 @@ seed_result() {
 }
 
 # clock_allows_baseline <deployed> <shipped> -- succeed when the system clock is not behind the deployed file,
-# the shipped copy, or a copy already beside the deployed file (ai_tools_conf_clock_behind), and warn and fail
-# otherwise. A baseline copy is stamped with today's date and ordered against the others by date, so one written
-# under a clock that is behind would sort before the copies it supersedes and send the next post-upgrade to the wrong
-# one: the caller then names the gaps and does not leave a copy, and the clock is named as the first thing to correct.
+# the shipped copy, or a copy already beside the deployed file (ai_tools_conf__find_paths_ahead_of_clock), and warn
+# and fail otherwise. A baseline copy is stamped with today's date and ordered against the others by date, so one
+# written under a clock that is behind would sort before the copies it supersedes and send the next post-upgrade
+# to the wrong one: the caller then names the gaps and does not leave a copy, and the clock is named as the first thing
+# to correct.
 clock_allows_baseline() {
     local deployed="$1" shipped="$2" behind
-    if behind="$(ai_tools_conf_clock_behind "${deployed}" "${shipped}" "${deployed}".*.shipped "${deployed}.rpmnew")"; then
+    if behind="$(ai_tools_conf__find_paths_ahead_of_clock "${deployed}" "${shipped}" "${deployed}".*.shipped "${deployed}.rpmnew")"; then
         return 0
     fi
     warn MSG-B5V5 "the system clock reads $(date '+%Y-%m-%d %H:%M:%S'), earlier than a file this install compares by date -- set the clock first (timedatectl set-time, or chronyc makestep once a time source is reachable), then re-run; no baseline copy is written beside ${deployed} this run:"
@@ -425,7 +426,7 @@ clock_allows_baseline() {
 report_new_conf_keys() {
     local deployed="$1" shipped="$2" reference=""
     local -a new_keys=()
-    ai_tools_conf_new_keys new_keys "${deployed}" "${shipped}" || return 0
+    ai_tools_conf__find_new_keys new_keys "${deployed}" "${shipped}" || return 0
 
     warn MSG-W9Z9 "the kept ${deployed} does not mention this version's new options:"
     local key
@@ -433,7 +434,7 @@ report_new_conf_keys() {
         warn "  ${key}"
     done
     clock_allows_baseline "${deployed}" "${shipped}" \
-        && { reference="$(ai_tools_conf_reference "${deployed}" "${shipped}")" || true; }
+        && { reference="$(ai_tools_conf__ensure_reference "${deployed}" "${shipped}")" || true; }
     if [[ -n "${reference}" ]]; then
         warn "  documented in ${reference} -- copy the blocks you want;"
         warn "  each is optional and an unmentioned key keeps its default"
@@ -453,14 +454,14 @@ report_new_conf_keys() {
 # $1 deployed settings.json   $2 shipped settings.json
 reconcile_hook_declarations() {
     local deployed="$1" shipped="$2" status=0
-    ai_tools_conf_merge_hook_declarations "${deployed}" "${shipped}" || status=$?
+    ai_tools_settings_merge__merge_hook_declarations "${deployed}" "${shipped}" || status=$?
 
     case "${status}" in
     1)  return 0 ;;                     # already current: nothing done, nothing to say
-    2)  warn MSG-V7M6 "hook declarations not merged into ${deployed}: ${_ai_tools_conf_merge_reason}"
+    2)  warn MSG-V7M6 "hook declarations not merged into ${deployed}: ${ai_tools_settings_merge__reason}"
         warn "  the file is unchanged; the hooks it does not declare do not run"
-        if [[ -n "${_ai_tools_conf_merge_reference}" ]]; then
-            warn "  shipped baseline written to ${_ai_tools_conf_merge_reference} -- merge its"
+        if [[ -n "${ai_tools_settings_merge__reference}" ]]; then
+            warn "  shipped baseline written to ${ai_tools_settings_merge__reference} -- merge its"
             warn "  \"hooks\" block by hand, then re-run tests/integration/hooks.sh"
         fi
         return 0 ;;
@@ -471,40 +472,40 @@ reconcile_hook_declarations() {
     # changed -- so every addition is named.
     ok "${deployed}: reconciled the hook declarations with the ones this version ships"
     local line
-    for line in "${_ai_tools_conf_merge_added[@]}"; do
+    for line in "${ai_tools_settings_merge__added[@]}"; do
         log "  + ${line}"
     done
-    for line in "${_ai_tools_conf_merge_removed[@]}"; do
+    for line in "${ai_tools_settings_merge__removed[@]}"; do
         log "  - ${line} (a repeat of an earlier declaration)"
     done
-    [[ -n "${_ai_tools_conf_merge_backup}" ]] && log "  previous file saved as ${_ai_tools_conf_merge_backup}"
+    [[ -n "${ai_tools_settings_merge__backup}" ]] && log "  previous file saved as ${ai_tools_settings_merge__backup}"
     return 0
 }
 
 # Report what a kept settings.json differs in from this version's once its hook declarations are current -- the rules
 # the shipped copy carries that the file does not, and any other setting -- through the two readers
 # `system post-upgrade` reports with (settings-merge.lib.sh), and leave the shipped copy beside the file as the dated
-# .shipped baseline (ai_tools_conf_reference), which is what that command compares the file with on a host no rpm parks
-# a .rpmnew on. The permission arrays are the host's, so this names and does not write; a file that differs in order
-# alone does not leave a copy, since a baseline identical in content would only be listed for removal.
+# .shipped baseline (ai_tools_conf__ensure_reference), which is what that command compares the file with on a host no
+# rpm parks a .rpmnew on. The permission arrays are the host's, so this names and does not write; a file that differs
+# in order alone does not leave a copy, since a baseline identical in content would only be listed for removal.
 # $1 deployed settings.json   $2 shipped settings.json
 report_settings_gaps() {
     local deployed="$1" shipped="$2" gaps kind list rule reference="" scratch differs=0
     local -a missing_rules=()
-    gaps="$(ai_tools_conf_permission_gaps "${deployed}" "${shipped}")" || return 0
+    gaps="$(ai_tools_settings_merge__find_permission_gaps "${deployed}" "${shipped}")" || return 0
     while IFS=$'\t' read -r kind list rule; do
         [[ "${kind}" == missing ]] && missing_rules+=("${list}: ${rule}")
     done <<< "${gaps}"
     scratch="$(mktemp -d)" || scratch=""
-    if [[ -n "${scratch}" ]] && ai_tools_conf_settings_rest "${deployed}" > "${scratch}/file" \
-            && ai_tools_conf_settings_rest "${shipped}" > "${scratch}/copy" \
+    if [[ -n "${scratch}" ]] && ai_tools_settings_merge__read_settings_rest "${deployed}" > "${scratch}/file" \
+            && ai_tools_settings_merge__read_settings_rest "${shipped}" > "${scratch}/copy" \
             && ! cmp -s "${scratch}/file" "${scratch}/copy"; then
         differs=1
     fi
     [[ -n "${scratch}" ]] && rm -rf "${scratch}"
     (( ${#missing_rules[@]} > 0 || differs )) || return 0
     clock_allows_baseline "${deployed}" "${shipped}" \
-        && { reference="$(ai_tools_conf_reference "${deployed}" "${shipped}")" || true; }
+        && { reference="$(ai_tools_conf__ensure_reference "${deployed}" "${shipped}")" || true; }
     warn MSG-J8F2 "the kept ${deployed} differs from this version's beyond its hooks:"
     if (( ${#missing_rules[@]} > 0 )); then
         warn "  rules this version ships that the file does not carry -- add them unless you removed them on purpose:"
@@ -525,10 +526,10 @@ report_settings_gaps() {
 report_ask_gaps() {
     local gaps="" line
     local -a entries=() fix=()
-    gaps="$(ai_tools_conf_ask_gaps "$1")" || return 0
+    gaps="$(ai_tools_settings_merge__find_ask_gaps "$1")" || return 0
     [[ -n "${gaps}" ]] || return 0
     mapfile -t entries <<< "${gaps}"
-    mapfile -t fix < <(ai_tools_conf_ask_fix "$1" "${entries[@]}")
+    mapfile -t fix < <(ai_tools_settings_merge__format_ask_fix "$1" "${entries[@]}")
     warn MSG-K2P8 "the kept $1 runs these commands without asking, and each sends data off the host:"
     for line in "${entries[@]}"; do warn "  ${line}"; done
     if (( ${#fix[@]} > 0 )); then
@@ -553,13 +554,13 @@ ensure_dir() {
 }
 
 # close_unit_search_path <home>: apply the unit search path layout under <home>
-# (ai_tools_ensure_unit_search_path_closed) and log what it changed. A path it could not close is a warning,
-# and the install continues.
+# (ai_tools_control_plane__ensure_unit_search_path_closed) and log what it changed. A path it could not close is
+# a warning, and the install continues.
 close_unit_search_path() {
     local home="$1" line
     local -a changed=() failed=()
-    ai_tools_parse_unit_search_path_report changed failed \
-        < <(ai_tools_ensure_unit_search_path_closed "${home}" "${SANDBOX_USER}" "${SANDBOX_GROUP}" || true)
+    ai_tools_control_plane__parse_unit_search_path_report changed failed \
+        < <(ai_tools_control_plane__ensure_unit_search_path_closed "${home}" "${SANDBOX_USER}" "${SANDBOX_GROUP}" || true)
     log "systemd unit search path under ${home} (${#changed[@]} director(ies) changed)"
     for line in "${changed[@]+"${changed[@]}"}"; do log "  ${line}"; done
     if (( ${#failed[@]} > 0 )); then
@@ -688,8 +689,8 @@ bootstrap_launcher_symlinks() {
     # deployed, so this root process does not source nvm.sh, which the sandbox account can rewrite.
     # shellcheck source=src/usr/local/lib/ai-tools/toolchain.lib.sh
     source /usr/local/lib/ai-tools/toolchain.lib.sh 2>/dev/null || true
-    if declare -F ai_tools_nvm_default_version >/dev/null 2>&1; then
-        node_version="$(ai_tools_nvm_default_version "${ai_nvm_dir}")"
+    if declare -F ai_tools_toolchain__read_nvm_default_version >/dev/null 2>&1; then
+        node_version="$(ai_tools_toolchain__read_nvm_default_version "${ai_nvm_dir}")"
     fi
 
     if [[ -z "${node_version}" || "${node_version}" == "N/A" ]]; then
@@ -702,8 +703,8 @@ bootstrap_launcher_symlinks() {
     # resolve to an unlabelled file, and npm does not start. Read with a stat; the repair runs node from the tree,
     # which this root process does not, so it is bootstrap's (updater.rule.md).
     local copied_bins=""
-    if declare -F ai_tools_toolchain_bin_copies >/dev/null 2>&1; then
-        copied_bins="$(ai_tools_toolchain_bin_copies "${ai_nvm_dir}/versions/node/${node_version}" 2>/dev/null | paste -sd' ')"
+    if declare -F ai_tools_toolchain__find_bin_copies >/dev/null 2>&1; then
+        copied_bins="$(ai_tools_toolchain__find_bin_copies "${ai_nvm_dir}/versions/node/${node_version}" 2>/dev/null | paste -sd' ')"
     fi
     if [[ -n "${copied_bins}" ]]; then
         warn MSG-J2H9 "the ${node_version}/bin directory holds copies where npm keeps symlinks (${copied_bins}) -- a transfer of the tree replaced the links with their targets, so launcher symlinks are skipped"
@@ -716,11 +717,11 @@ bootstrap_launcher_symlinks() {
     local -a launchers=()
     # shellcheck source=SCRIPTDIR/src/usr/local/lib/ai-tools/providers.lib.sh
     if source /usr/local/lib/ai-tools/providers.lib.sh 2>/dev/null \
-            && declare -F ai_tools_enabled_agents >/dev/null 2>&1; then
+            && declare -F ai_tools_providers__list_enabled_agents >/dev/null 2>&1; then
         local manifest_launcher
         while IFS=$'\t' read -r _ _ manifest_launcher; do
             [[ -n "${manifest_launcher}" ]] && launchers+=("${manifest_launcher}")
-        done < <(ai_tools_enabled_agents 2>/dev/null)
+        done < <(ai_tools_providers__list_enabled_agents 2>/dev/null)
     fi
     if (( ${#launchers[@]} == 0 )); then
         warn MSG-Q9D3 "no enabled agent to link -- launcher symlinks skipped"
@@ -734,7 +735,7 @@ bootstrap_launcher_symlinks() {
     # when the dir pre-existed (README step 3 creates it ai-tools-owned).
     ensure_dir "${CP_DIR_MODES[bin]}" root "${SANDBOX_GROUP}" "${ai_tools_bin}"
     chown "root:${SANDBOX_GROUP}" "${ai_tools_bin}"
-    ai_tools_apply_mode "${CP_DIR_MODES[bin]}" "${ai_tools_bin}"
+    ai_tools_control_plane__apply_mode "${CP_DIR_MODES[bin]}" "${ai_tools_bin}"
     # Create each symlink via the root helper -- the only writer of the locked dir, and the same validating path
     # the sandbox updater uses on every Node upgrade.
     local launcher versioned_launcher
@@ -780,7 +781,7 @@ do_selinux_restore() {
     local _cfg
     while IFS=$'\t' read -r _ _cfg; do
         [[ -d "${_cfg}" ]] && restorecon -R "${_cfg}"
-    done < <(ai_tools_agent_config_dirs)
+    done < <(ai_tools_control_plane__list_agent_config_dirs)
     restorecon \
         /usr/local/bin/ai-tools-launch \
         /usr/local/bin/claude \
@@ -1019,6 +1020,7 @@ do_summary() {
     _chk /usr/local/share/man/man5/ai-tools-secret-patterns.5
     _chk /usr/local/share/man/man5/ai-tools-custom-claude-endpoint.conf.5
     _chk /usr/local/share/man/man5/ai-tools-records.5
+    _chk /usr/local/share/man/man5/ai-tools-assets.5
     _chk /usr/local/share/man/man7/ai-tools-messages.7
     _chk /usr/local/share/man/man8/ai-tools-admin.8
     _chk /var/opt/ai-tools
@@ -1037,6 +1039,7 @@ do_summary() {
     _chk /usr/local/lib/ai-tools/npm-verify.lib.sh
     _chk /usr/local/lib/ai-tools/entrypoint-verify.lib.sh
     _chk /usr/local/lib/ai-tools/assets-verify.lib.sh
+    _chk /usr/local/lib/ai-tools/assets.lib.sh
     _chk /usr/local/lib/ai-tools/keys/claude-code.asc
     _chk /usr/local/lib/ai-tools/keys/dag-node-package-signing.asc
     _chk /usr/local/lib/ai-tools/keys/dag-node-package-signing.gpg
@@ -1132,9 +1135,9 @@ do_summary() {
 # reports -- not the noisy git-describe), and the "installer" mode word (this is the install phase, not the running
 # app). The renderer stays silent when stdout is not a terminal.
 print_banner() {
-    ai_tools_msg_banner \
+    ai_tools_msg__banner \
         'Agent Tools Restricted — run coding agents with limited system access' \
-        "installer · $(ai_tools_msg_version "${AI_TOOLS_VERSION}")"
+        "installer · $(ai_tools_msg__format_version "${AI_TOOLS_VERSION}")"
 }
 
 # probe_shadowing_agents -- name the agents this host carries outside the sandbox, and the enrolled operators
@@ -1163,10 +1166,10 @@ probe_shadowing_agents() {
     source "${lib}" 2>/dev/null || return 0
     # shellcheck source=SCRIPTDIR/src/usr/local/lib/ai-tools/operator.lib.sh
     source "${oplib}" 2>/dev/null || return 0
-    declare -F ai_tools_path_order_launchers >/dev/null 2>&1 || return 0
+    declare -F ai_tools_path_order__list_launchers >/dev/null 2>&1 || return 0
 
     # Which launchers matter is the enabled agents' business (path-order.lib.sh reads the manifests); where their
-    # binaries may sit on this host is ai_tools_agent_installs's.
+    # binaries may sit on this host is ai_tools_agent_installs__find_executables's.
     local launcher install_path install_alias
     local -a found=()
     while IFS= read -r launcher; do
@@ -1174,17 +1177,17 @@ probe_shadowing_agents() {
         while IFS=$'\t' read -r install_path install_alias; do
             [[ -n "${install_path}" ]] || continue
             found+=( "${launcher}"$'\t'"${install_path}"$'\t'"${install_alias}" )
-        done < <(ai_tools_agent_installs "${launcher}")
-    done < <(ai_tools_path_order_launchers)
+        done < <(ai_tools_agent_installs__find_executables "${launcher}")
+    done < <(ai_tools_path_order__list_launchers)
 
     local -a shadowed=()
     local record operators=0
-    if declare -F ai_tools_load_operators >/dev/null 2>&1 && ai_tools_load_operators; then
-        operators="${#AI_TOOLS_OPERATORS[@]}"
+    if declare -F ai_tools_operator__load_operators >/dev/null 2>&1 && ai_tools_operator__load_operators; then
+        operators="${#AI_TOOLS_OPERATOR__OPERATORS[@]}"
         while IFS= read -r record; do
             [[ -n "${record}" ]] && shadowed+=( "${record}" )
-        done < <(ai_tools_path_order_shadowed_operators \
-            "${AI_TOOLS_OPERATORS[@]+"${AI_TOOLS_OPERATORS[@]}"}")
+        done < <(ai_tools_path_order__find_shadowed_operators \
+            "${AI_TOOLS_OPERATOR__OPERATORS[@]+"${AI_TOOLS_OPERATOR__OPERATORS[@]}"}")
     fi
 
     (( ${#found[@]} + ${#shadowed[@]} )) || return 0
@@ -1199,7 +1202,7 @@ probe_shadowing_agents() {
         [[ -n "${install_alias}" ]] && warn "  the same file as ${install_alias}"
         # The owning package is what turns the remedy into a command; a file no package owns keeps the path, which is
         # all there is to name.
-        package="$(ai_tools_agent_install_owner "${install_path}")"
+        package="$(ai_tools_agent_installs__read_owner "${install_path}")"
         if [[ -n "${package}" ]]; then
             remove_hint="installed by the ${package} package -- remove it with: sudo dnf remove ${package}"
         else
@@ -1229,7 +1232,7 @@ probe_shadowing_agents() {
             launcher="${record%%$'\t'*}"
             [[ " ${named[*]-} " == *" ${launcher} "* ]] && continue
             named+=( "${launcher}" )
-            warn "  every enrolled operator's shell resolves ${launcher} to ${AI_TOOLS_PATH_ORDER_WRAPPER_DIR}/${launcher} (the sandbox"
+            warn "  every enrolled operator's shell resolves ${launcher} to ${AI_TOOLS_PATH_ORDER__WRAPPER_DIR}/${launcher} (the sandbox"
             warn "  wrapper), and the \$PATH ordering is what keeps it that way"
         done
     elif (( ${#found[@]} )); then
@@ -1442,20 +1445,26 @@ do_install() {
         /usr/local/lib/ai-tools/keys/claude-code.asc
 
     # Set verifier: proves an installed asset set is the one its publisher signed, against the keyring
-    # ai_tools_assets_write_binary_keyring writes here from the dag-node package-signing key, as the spec's %install
-    # writes it, and a root-owned binding per set name that pins the signer's primary. Read by root alone (the assets
-    # resolver); 644 root:root like the other libraries, no secrets, no tokens.
+    # ai_tools_assets_verify__write_binary_keyring writes here from the dag-node package-signing key, as the spec's
+    # %install writes it, and a root-owned binding per set name that pins the signer's primary. Read by root alone (the
+    # assets resolver); 644 root:root like the other libraries, no secrets, no tokens.
     log "/usr/local/lib/ai-tools/assets-verify.lib.sh"
     install -o root -g root -m 644 \
         "${SCRIPT_DIR}/src/usr/local/lib/ai-tools/assets-verify.lib.sh" \
         /usr/local/lib/ai-tools/assets-verify.lib.sh
+    # The assets resolver behind `ai-tools-admin assets` and the Assets section of its status: 644 root:root, sourced
+    # by that tool as root.
+    log "/usr/local/lib/ai-tools/assets.lib.sh"
+    install -o root -g root -m 644 \
+        "${SCRIPT_DIR}/src/usr/local/lib/ai-tools/assets.lib.sh" \
+        /usr/local/lib/ai-tools/assets.lib.sh
     log "/usr/local/lib/ai-tools/keys/dag-node-package-signing.asc"
     install -o root -g root -m 644 \
         "${SCRIPT_DIR}/src/usr/local/lib/ai-tools/keys/dag-node-package-signing.asc" \
         /usr/local/lib/ai-tools/keys/dag-node-package-signing.asc
     log "/usr/local/lib/ai-tools/keys/dag-node-package-signing.gpg"
     _keyring="$(mktemp)"
-    bash -c '. "$1" && ai_tools_assets_write_binary_keyring "$2" "$3"' _ \
+    bash -c '. "$1" && ai_tools_assets_verify__write_binary_keyring "$2" "$3"' _ \
         "${SCRIPT_DIR}/src/usr/local/lib/ai-tools/assets-verify.lib.sh" \
         "${SCRIPT_DIR}/src/usr/local/lib/ai-tools/keys/dag-node-package-signing.asc" \
         "${_keyring}" \
@@ -1770,7 +1779,7 @@ do_install() {
     # A host installed from a release that shipped that fragment under its former name carries a guard line naming
     # the path this step has just moved, which would leave the ordering unapplied on every enrolled operator's next
     # shell. Repoint it here, in the step that moved the file; the base package's %post does the same for a host
-    # that upgrades. What the edit is bounded to is ai_tools_path_order_repoint's header.
+    # that upgrades. What the edit is bounded to is ai_tools_path_order__repoint's header.
     local repointed
     while IFS= read -r repointed; do
         [[ -n "${repointed}" ]] && log "repointed the PATH ordering line in ${repointed}"
@@ -1781,9 +1790,9 @@ do_install() {
         . /usr/local/lib/ai-tools/path-order.lib.sh 2>/dev/null || exit 0
         # shellcheck source=SCRIPTDIR/src/usr/local/lib/ai-tools/operator.lib.sh
         . /usr/local/lib/ai-tools/operator.lib.sh 2>/dev/null || exit 0
-        ai_tools_load_operators 2>/dev/null || exit 0
-        for op in "${AI_TOOLS_OPERATORS[@]+"${AI_TOOLS_OPERATORS[@]}"}"; do
-            ai_tools_path_order_repoint_user "${op}"
+        ai_tools_operator__load_operators 2>/dev/null || exit 0
+        for op in "${AI_TOOLS_OPERATOR__OPERATORS[@]+"${AI_TOOLS_OPERATOR__OPERATORS[@]}"}"; do
+            ai_tools_path_order__repoint_user "${op}"
         done
     )
 
@@ -1989,6 +1998,13 @@ do_install() {
     install_subst 644 root root \
         "${SCRIPT_DIR}/src/usr/local/share/man/man5/ai-tools-records.5" \
         /usr/local/share/man/man5/ai-tools-records.5
+
+    # ai-tools-assets(5). The asset sets an agent loads: the roots and their order, the identifier AI_TOOLS_ASSETS
+    # holds, each reason an enabled asset is not linked, and the binding file.
+    log "/usr/local/share/man/man5/ai-tools-assets.5"
+    install_subst 644 root root \
+        "${SCRIPT_DIR}/src/usr/local/share/man/man5/ai-tools-assets.5" \
+        /usr/local/share/man/man5/ai-tools-assets.5
 
     # ai-tools-typesafe.conf(5). The typesafe integration's credential file: its four options and what the decide
     # command refuses, so the seeded template can stay a pointer.
@@ -2258,12 +2274,12 @@ do_install() {
     # and it is not the dir owner, so it cannot bypass that. setgid keeps new entries in group ai-tools. The DIRECTORIES
     # are created here, from the manifests (the base names none of them), so the agent layer can install into its own;
     # modes are re-asserted at section end.
-    local agent_config_dir agent_asset_dir _agent
+    local agent_config_dir _agent
     while IFS=$'\t' read -r _ agent_config_dir; do
         [[ -n "${agent_config_dir}" ]] || continue
         log "${agent_config_dir}/"
         ensure_dir "${CP_AGENT_CONFIG_MODE}" root "${SANDBOX_GROUP}" "${agent_config_dir}"
-    done < <(ai_tools_agent_config_dirs)
+    done < <(ai_tools_control_plane__list_agent_config_dirs)
 
     # The claude-code agent layer: its hooks and settings, into the directory its own manifest declares. This
     # from-source installer deploys the whole stack, so it lays down the agent's files here (the RPM ships them
@@ -2305,9 +2321,9 @@ do_install() {
     fi
 
     # The codex agent layer: its two hook adapters, into the directory its manifest declares. The directory is created
-    # here rather than by the walk over ai_tools_agent_config_dirs, which covers ENABLED agents only, and codex ships
-    # disabled; its hook declarations live in /etc/codex/requirements.toml, deployed with the configuration, and it has
-    # no settings file.
+    # here rather than by the walk over ai_tools_control_plane__list_agent_config_dirs, which covers ENABLED agents
+    # only, and codex ships disabled; its hook declarations live in /etc/codex/requirements.toml, deployed
+    # with the configuration, and it has no settings file.
     local codex_config_dir="/opt/ai-tools/.codex"
     log "${codex_config_dir}/"
     ensure_dir "${CP_AGENT_CONFIG_MODE}" root "${SANDBOX_GROUP}" "${codex_config_dir}"
@@ -2372,17 +2388,17 @@ do_install() {
     section "Control-plane assertions"
     log "ownership and boundary modes (root:${SANDBOX_GROUP})"
     chown "root:${SANDBOX_GROUP}" /opt/ai-tools /opt/ai-tools/bin
-    ai_tools_apply_mode "${CP_HOME_MODE}" /opt/ai-tools
-    ai_tools_apply_mode "${CP_DIR_MODES[bin]}" /opt/ai-tools/bin
+    ai_tools_control_plane__apply_mode "${CP_HOME_MODE}" /opt/ai-tools
+    ai_tools_control_plane__apply_mode "${CP_DIR_MODES[bin]}" /opt/ai-tools/bin
     while IFS=$'\t' read -r _ agent_config_dir; do
         [[ -d "${agent_config_dir}" ]] || continue
         chown "root:${SANDBOX_GROUP}" "${agent_config_dir}"
-        ai_tools_apply_mode "${CP_AGENT_CONFIG_MODE}" "${agent_config_dir}"
-    done < <(ai_tools_agent_config_dirs)
+        ai_tools_control_plane__apply_mode "${CP_AGENT_CONFIG_MODE}" "${agent_config_dir}"
+    done < <(ai_tools_control_plane__list_agent_config_dirs)
     # That walk covers enabled agents only, and codex ships disabled, so its directory is asserted by name (the RPM's
     # codex %post and %posttrans hold the same mode).
     chown "root:${SANDBOX_GROUP}" "${codex_config_dir}"
-    ai_tools_apply_mode "${CP_AGENT_CONFIG_MODE}" "${codex_config_dir}"
+    ai_tools_control_plane__apply_mode "${CP_AGENT_CONFIG_MODE}" "${codex_config_dir}"
 
     # Shipped assets: stage pristine copies to the datadir (the single seed source shared with ai-tools-bootstrap), then
     # place them.
@@ -2395,7 +2411,7 @@ do_install() {
     log "/usr/share/ai-tools/{skills,subagents,orientation} (pristine managed assets)"
     install -d -o root -g root -m 755 /usr/share/ai-tools
     local _kind _shared
-    for _kind in "${AI_TOOLS_ASSET_KINDS[@]}"; do
+    for _kind in "${AI_TOOLS_MANAGED_ASSETS__KINDS[@]}"; do
         rm -rf "/usr/share/ai-tools/${_kind}"
         cp -rT "${SCRIPT_DIR}/src/usr/share/ai-tools/${_kind}" "/usr/share/ai-tools/${_kind}"
         # A from-source install copies the working tree, where a local import of a shipped script leaves a bytecode
@@ -2414,35 +2430,44 @@ do_install() {
     install -o root -g root -m 644 "${SCRIPT_DIR}/src/usr/share/ai-tools/audit/ai-tools-cmd.rules.example" \
         /usr/share/ai-tools/audit/ai-tools-cmd.rules.example
 
-    for _kind in "${AI_TOOLS_ASSET_KINDS[@]}"; do
-        _shared="${CP_HOME}/${_kind}"
-        log "${_shared}/ (shared ${_kind}, symlinked into every agent that reads them)"
-        ensure_dir "${CP_DIR_MODES[${_kind}]}" root "${SANDBOX_GROUP}" "${_shared}"
-        chown "root:${SANDBOX_GROUP}" "${_shared}"
-        ai_tools_apply_mode "${CP_DIR_MODES[${_kind}]}" "${_shared}"
-        ai_tools_seed_managed_assets /usr/share/ai-tools "${CP_HOME}" "${SANDBOX_GROUP}" "${_kind}"
-        ai_tools_remove_retired_assets "${CP_HOME}" "${_kind}"
-        ai_tools_link_asset_readme "/usr/share/ai-tools/${_kind}/README.md" \
-            "${_shared}" "${SANDBOX_GROUP}"
-    done
+    # The seeder, the retired-list pass and the reconcile write the shared roots, and run under the assets lock
+    # (managed-assets.lib.sh) as one step, so an `ai-tools-admin assets` verb run beside this install does not
+    # interleave its writes with theirs; the reconcile adopts the lock this shell holds.
+    if ai_tools_managed_assets__lock; then
+        for _kind in "${AI_TOOLS_MANAGED_ASSETS__KINDS[@]}"; do
+            _shared="${CP_HOME}/${_kind}"
+            log "${_shared}/ (shared ${_kind}, symlinked into every agent that reads them)"
+            ensure_dir "${CP_DIR_MODES[${_kind}]}" root "${SANDBOX_GROUP}" "${_shared}"
+            chown "root:${SANDBOX_GROUP}" "${_shared}"
+            ai_tools_control_plane__apply_mode "${CP_DIR_MODES[${_kind}]}" "${_shared}"
+            ai_tools_managed_assets__seed_assets /usr/share/ai-tools "${CP_HOME}" "${SANDBOX_GROUP}" "${_kind}"
+            ai_tools_managed_assets__remove_retired_assets "${CP_HOME}" "${_kind}"
+            ai_tools_managed_assets__link_asset_readme "/usr/share/ai-tools/${_kind}/README.md" \
+                "${_shared}" "${SANDBOX_GROUP}"
+        done
 
-    # <shared kind>:<the manifest field naming where that agent keeps it>
-    local _spec
-    for _spec in skills:skills_dir subagents:subagents_dir; do
-        _kind="${_spec%%:*}"
-        while IFS=$'\t' read -r _agent agent_asset_dir; do
-            log "linking the shared ${_kind} into ${agent_asset_dir}"
-            ai_tools_link_shared_assets "${CP_HOME}/${_kind}" "${agent_asset_dir}" \
-                "${SANDBOX_GROUP}" "/usr/share/ai-tools/${_kind}/README.md"
-        done < <(ai_tools_agent_asset_dirs "${_spec#*:}")
-    done
+        # The asset view, and every enabled agent's links into the shared roots, the seeded copies' links included:
+        # the assets reconcile owns each of them, and the installer runs it. Its record stream goes to the assets log;
+        # the installer reports the outcome the exit states.
+        log "reconciling the asset view and each enabled agent's links (ai-tools-admin assets reconcile)"
+        local _reconcile_status=0
+        /usr/local/libexec/ai-tools/ai-tools-admin assets reconcile >/dev/null || _reconcile_status=$?
+        case "${_reconcile_status}" in
+            0) ;;
+            4) warn MSG-G2U4 "an asset AI_TOOLS_ASSETS enables is not linked -- sudo ai-tools-admin status names each one and why" ;;
+            *) warn MSG-P2N9 "the asset reconcile did not complete (exit ${_reconcile_status}) -- run: sudo ai-tools-admin assets reconcile" ;;
+        esac
+        ai_tools_managed_assets__unlock
+    else
+        warn MSG-E6N7 "the shared assets were not seeded and the asset view was not reconciled: the assets lock could not be taken -- run: sudo ./install.sh install, once the other assets command has ended"
+    fi
 
     # Codex reads skills at its admin scope, /etc/codex/skills, and its manifest does not declare a skills_dir,
     # so the shared root is linked there by name: a symlink to the live root when the path is free, and what a host
     # already holds there kept and reported (a directory of its own gets the shared assets linked into it one per free
     # name). The reverse runs at uninstall.
     log "linking the shared skills at /etc/codex/skills"
-    ai_tools_link_shared_root "${CP_HOME}/skills" /etc/codex/skills "${SANDBOX_GROUP}" \
+    ai_tools_managed_assets__link_shared_root "${CP_HOME}/skills" /etc/codex/skills "${SANDBOX_GROUP}" \
         /usr/share/ai-tools/skills/README.md
 
     # The orientation text is one file rather than a directory of assets, and it lands under the filename each agent
@@ -2451,12 +2476,12 @@ do_install() {
     local _memory_target
     while IFS=$'\t' read -r _agent _memory_target; do
         log "linking the shared orientation into ${_memory_target}"
-        ai_tools_link_agent_memory "${CP_SHARED_ORIENTATION}/AGENTS.md" \
+        ai_tools_managed_assets__link_agent_memory "${CP_SHARED_ORIENTATION}/AGENTS.md" \
             "${_memory_target%/*}" "${_memory_target##*/}" "${SANDBOX_GROUP}"
-    done < <(ai_tools_agent_memory_targets)
+    done < <(ai_tools_control_plane__list_agent_memory_targets)
     # The walk covers enabled agents; codex ships disabled and its manifest names AGENTS.md at the root of CODEX_HOME.
     log "linking the shared orientation into ${codex_config_dir}/AGENTS.md"
-    ai_tools_link_agent_memory "${CP_SHARED_ORIENTATION}/AGENTS.md" \
+    ai_tools_managed_assets__link_agent_memory "${CP_SHARED_ORIENTATION}/AGENTS.md" \
         "${codex_config_dir}" AGENTS.md "${SANDBOX_GROUP}"
 
     section "Configuration (allowlist & secret patterns)"
@@ -2480,7 +2505,7 @@ do_install() {
     else
         # The header text is conf.lib.sh's, the same one `ai-tools-admin operators add` seeds on a packaged host,
         # so an operator meets one description of what the file accepts.
-        ai_tools_conf_allowlist_seed > "${allowlist}"
+        ai_tools_conf__get_allowlist_seed > "${allowlist}"
         chown "${PROJECTS_USER}:${PROJECTS_GROUP}" "${allowlist}"
         chmod 600 "${allowlist}"
         if (( allowlist_existed )); then
@@ -2498,7 +2523,7 @@ do_install() {
     if keep_existing "${patternfile}"; then
         seed_result "${patternfile}" "${secret_existed}" 1
     else
-        ai_tools_conf_secret_patterns_seed > "${patternfile}"
+        ai_tools_conf__get_secret_patterns_seed > "${patternfile}"
         chown "${PROJECTS_USER}:${PROJECTS_GROUP}" "${patternfile}"
         chmod 600 "${patternfile}"
         seed_result "${patternfile}" "${secret_existed}" 0
@@ -2577,7 +2602,7 @@ do_install() {
     # rewrites it. This installer keeps operator.conf as the operator left it, so it names the command first,
     # in the colour of a step the host still owes; the predicate is the one the reader refuses by (conf.lib.sh).
     local unmigrated
-    unmigrated="$(bash -c '. /usr/local/lib/ai-tools/conf.lib.sh && ai_tools_conf_kind_unmigrated /etc/ai-tools/operator.conf' \
+    unmigrated="$(bash -c '. /usr/local/lib/ai-tools/conf.lib.sh && ai_tools_conf__find_unmigrated_items /etc/ai-tools/operator.conf' \
         2>/dev/null || true)"
     if [[ -n "${unmigrated}" ]]; then
         say "  ${C_YEL}rewrite the provider names in /etc/ai-tools/operator.conf -- no session starts until then:${C_RST}"
@@ -2653,7 +2678,7 @@ do_install() {
 # compared against are removed. A file that still matches the copy this package shipped is deleted; a file the host
 # edited, or one that cannot be compared, is moved aside as a dated `.bak` sidecar -- the treatment rpm gives an edited
 # %config(noreplace) file, and here the only copy of what the host configured. The decision and the write are
-# ai_tools_managed_file_retire's, so the suite drives them against fixtures; this reports what it did.
+# ai_tools_providers__retire_managed_file's, so the suite drives them against fixtures; this reports what it did.
 #
 # Best-effort by the same rule as the rest of this seam: providers.lib.sh is sourced from the deployed tree,
 # and the manifests it reads are what name the files. An install too broken to carry either retires none of them.
@@ -2663,34 +2688,34 @@ retire_managed_files() {
     [[ -r "${prlib}" && -d "${agents_dir}" ]] || return 0
     # shellcheck source=SCRIPTDIR/src/usr/local/lib/ai-tools/providers.lib.sh
     source "${prlib}" 2>/dev/null || return 0
-    declare -F ai_tools_agent_managed_files >/dev/null 2>&1 || return 0
-    declare -F ai_tools_managed_file_retire >/dev/null 2>&1 || return 0
+    declare -F ai_tools_providers__list_agent_managed_files >/dev/null 2>&1 || return 0
+    declare -F ai_tools_providers__retire_managed_file >/dev/null 2>&1 || return 0
     local manifest agent live reference outcome
     for manifest in "${agents_dir}"/*.conf; do
         [[ -e "${manifest}" ]] || continue
         agent="${manifest##*/}"; agent="${agent%.conf}"
         while IFS=$'\t' read -r live reference; do
             [[ -n "${live}" ]] || continue
-            outcome="$(ai_tools_managed_file_retire "${live}" "${reference}")" || continue
+            outcome="$(ai_tools_providers__retire_managed_file "${live}" "${reference}")" || continue
             case "${outcome%% *}" in
                 removed) log "${live} removed (the copy the ${agent} package shipped)" ;;
                 kept)    log "${live} kept as ${outcome#* } (it is not the copy the ${agent} package shipped)" ;;
             esac
-        done < <(ai_tools_agent_managed_files "${agent}" 2>/dev/null)
+        done < <(ai_tools_providers__list_agent_managed_files "${agent}" 2>/dev/null)
     done
     return 0
 }
 
 # retire_settings_file <live> <reference> -- the managed-file treatment for the agent's settings.json: removed while
 # byte-identical to <reference>, the copy this checkout ships, and moved aside as a dated .retired copy otherwise,
-# through ai_tools_managed_file_retire where the deployed provider library loaded (retire_managed_files sourced it),
-# and through the checkout's own sidecar stamp where it did not, so an edited file survives an uninstall from a broken
-# install too. The dated .bak and .shipped copies beside it are left as they are.
+# through ai_tools_providers__retire_managed_file where the deployed provider library loaded (retire_managed_files
+# sourced it), and through the checkout's own sidecar stamp where it did not, so an edited file survives an uninstall
+# from a broken install too. The dated .bak and .shipped copies beside it are left as they are.
 retire_settings_file() {
     local live="$1" reference="$2" outcome target
     [[ -f "${live}" ]] || return 0
-    if declare -F ai_tools_managed_file_retire >/dev/null 2>&1 \
-            && outcome="$(ai_tools_managed_file_retire "${live}" "${reference}")"; then
+    if declare -F ai_tools_providers__retire_managed_file >/dev/null 2>&1 \
+            && outcome="$(ai_tools_providers__retire_managed_file "${live}" "${reference}")"; then
         case "${outcome%% *}" in
             removed) log "${live} removed (the copy this checkout ships)" ;;
             kept)    log "${live} kept as ${outcome#* } (it is not the copy this checkout ships)" ;;
@@ -2700,7 +2725,7 @@ retire_settings_file() {
     if [[ -f "${reference}" ]] && cmp -s "${live}" "${reference}"; then
         rm -f "${live}"
         log "${live} removed (the copy this checkout ships)"
-    elif target="$(ai_tools_conf_sidecar_path "${live}" retired)" && mv "${live}" "${target}"; then
+    elif target="$(ai_tools_conf__find_sidecar_path "${live}" retired)" && mv "${live}" "${target}"; then
         log "${live} kept as ${target} (it is not the copy this checkout ships)"
     else
         warn "${live} could not be moved aside and is left in place"
@@ -2721,25 +2746,25 @@ remove_agent_packages() {
     local agents_dir=/usr/local/lib/ai-tools/agents.d
     [[ -r "${tclib}" && -d "${agents_dir}" && -d /opt/ai-tools/.nvm/versions/node ]] || return 0
     id "${SANDBOX_USER}" >/dev/null 2>&1 || return 0
-    # ai_tools_as_sandbox runs the erase: npm is the sandbox account's to rewrite, so it runs as that account with no
-    # terminal of this process's and its output sanitized.
+    # ai_tools_sandbox_exec__run_as_sandbox runs the erase: npm is the sandbox account's to rewrite, so it runs
+    # as that account with no terminal of this process's and its output sanitized.
     # shellcheck source=src/usr/local/lib/ai-tools/toolchain.lib.sh
     source "${tclib}" 2>/dev/null || true
-    declare -F ai_tools_as_sandbox >/dev/null 2>&1 || return 0
+    declare -F ai_tools_sandbox_exec__run_as_sandbox >/dev/null 2>&1 || return 0
     local manifest agent launcher version_dir outcome erased
     for manifest in "${agents_dir}"/*.conf; do
         [[ -e "${manifest}" ]] || continue
         agent="${manifest##*/}"; agent="${agent%.conf}"
         # shellcheck disable=SC2016  # the $1/$2 are for the inner `bash -c`, not this shell -- do not expand here
-        erased="$(ai_tools_as_sandbox "${SANDBOX_USER}" bash -c \
-            'set -euo pipefail; . "$1"; ai_tools_agent_package_erase /opt/ai-tools/.nvm "$2"' _ "${tclib}" "${agent}" \
+        erased="$(ai_tools_sandbox_exec__run_as_sandbox "${SANDBOX_USER}" bash -c \
+            'set -euo pipefail; . "$1"; ai_tools_toolchain__erase_agent_package /opt/ai-tools/.nvm "$2"' _ "${tclib}" "${agent}" \
             || true)"
         while IFS=$'\t' read -r version_dir outcome; do
             [[ -n "${version_dir}" ]] || continue
             log "${agent}: package in ${version_dir##*/} -- ${outcome}"
         done <<<"${erased}"
         # shellcheck disable=SC2016  # the same inner-shell arguments
-        launcher="$(bash -c 'set -euo pipefail; . "$1"; ai_tools_agent_manifest_field "$2" launcher' _ \
+        launcher="$(bash -c 'set -euo pipefail; . "$1"; ai_tools_providers__read_agent_manifest_field "$2" launcher' _ \
             /usr/local/lib/ai-tools/providers.lib.sh "${agent}" 2>/dev/null || true)"
         if [[ "${launcher}" =~ ^[A-Za-z0-9._-]+$ && -L "/opt/ai-tools/bin/${launcher}" ]]; then
             rm -f "/opt/ai-tools/bin/${launcher}"
@@ -2802,6 +2827,7 @@ do_uninstall() {
     rm -f /usr/local/share/man/man5/ai-tools-secret-patterns.5
     rm -f /usr/local/share/man/man5/ai-tools-custom-claude-endpoint.conf.5
     rm -f /usr/local/share/man/man5/ai-tools-records.5
+    rm -f /usr/local/share/man/man5/ai-tools-assets.5
     rm -f /usr/local/share/man/man5/ai-tools-typesafe.conf.5
     rm -f /usr/local/share/man/man8/ai-tools-admin.8
     rm -f /usr/local/bin/claude /usr/local/bin/codex /usr/local/bin/ai-tools-launch
@@ -2809,7 +2835,7 @@ do_uninstall() {
     # is ours (the reverse of the install's four-state check); a host's own /etc/codex/skills, and a /etc/codex holding
     # anything else -- a host's file, or a sidecar this uninstall wrote -- stay, since the rmdir takes only an empty
     # directory.
-    ai_tools_unlink_shared_root /opt/ai-tools/skills /etc/codex/skills /usr/share/ai-tools/skills/README.md
+    ai_tools_managed_assets__unlink_shared_root /opt/ai-tools/skills /etc/codex/skills /usr/share/ai-tools/skills/README.md
     rmdir /etc/codex 2>/dev/null || true
     rm -rf /usr/share/ai-tools/codex
     # Units, after the stop/disable. Globs cover the handback socket+service and the relabel path+service in one sweep,
@@ -2849,11 +2875,11 @@ do_uninstall() {
     # of this edit in the tree, and the narrowest: it saw only a line spelled exactly as ${SCRIPT_DIR}, so an entry
     # carrying a comment or quotes read as absent and the question was never asked.
     if [[ -f "${allowlist}" ]] \
-            && [[ "$(ai_tools_conf_allowlist_state "${allowlist}" "${SCRIPT_DIR}")" != absent ]]; then
+            && [[ "$(ai_tools_conf__read_allowlist_state "${allowlist}" "${SCRIPT_DIR}")" != absent ]]; then
         if confirm_boxed "Keep registration" y \
                 "Keep this project in allowed-projects?" "  ${SCRIPT_DIR}"; then
             log "allowed-projects: kept"
-        elif ai_tools_conf_allowlist_remove "${allowlist}" "${SCRIPT_DIR}"; then
+        elif ai_tools_conf__allowlist_remove "${allowlist}" "${SCRIPT_DIR}"; then
             log "allowed-projects: removed"
         else
             warn MSG-Z3H8 "could not remove ${SCRIPT_DIR} from ${allowlist} -- it is still registered"
@@ -2895,8 +2921,8 @@ operator_is_enrolled() {
     local account="$1" conf=/etc/ai-tools/operator.conf name
     local -a operators=()
     [[ -n "${account}" ]] || return 1
-    ai_tools_conf_is_trusted "${conf}" || return 1
-    ai_tools_conf_list operators "${conf}" OPERATORS || return 1
+    ai_tools_conf__is_trusted "${conf}" || return 1
+    ai_tools_conf__read_list operators "${conf}" OPERATORS || return 1
     for name in "${operators[@]}"; do
         [[ "${name}" == "${account}" ]] || continue
         id -nG "${account}" 2>/dev/null | tr ' ' '\n' | grep -qxF ai-ops && return 0

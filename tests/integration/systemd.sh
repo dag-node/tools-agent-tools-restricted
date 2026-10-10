@@ -77,7 +77,7 @@ section "No --user unit carries a mount-namespace option"
 
 # In a per-user service manager an option that needs a mount namespace implies PrivateUsers= (systemd.exec(5)),
 # which maps that account's uid alone -- so every other host uid, root included, reads back as the overflow uid 65534
-# while stat(1) still exits 0. Every uid-based trust predicate in the payload then refuses: ai_tools_conf_is_trusted
+# while stat(1) still exits 0. Every uid-based trust predicate in the payload then refuses: ai_tools_conf__is_trusted
 # requires owner 0, so the updater reads root-owned manifests as nobody-owned and resolves NO agent. nvm-update.sh ends
 # that run as a fault, so the state is reported once it exists; this check keeps it from existing.
 #
@@ -116,6 +116,24 @@ else
             pass "nvm-update.service sets ${directive}"
         else
             fail "nvm-update.service does not set ${directive} -- the updater runs unbounded"
+        fi
+    done
+fi
+
+section "The updater unit confines its payload"
+
+# NoNewPrivileges=yes and RestrictNamespaces=yes on nvm-update.service: a package install script running as the sandbox
+# account does not gain privilege through a setuid binary and cannot create its own user namespace (providers.rule.md,
+# ref-section-x4z9). A text check, like the mount-namespace check: the manager reads the directives whether or not
+# the payload exercises them.
+if [[ ! -f "${USERUNITDIR}/nvm-update.service" ]]; then
+    skip "nvm-update.service confines its payload" "not installed in ${USERUNITDIR}"
+else
+    for directive in NoNewPrivileges=yes RestrictNamespaces=yes; do
+        if grep -qE "^[[:space:]]*${directive}[[:space:]]*\$" "${USERUNITDIR}/nvm-update.service"; then
+            pass "nvm-update.service sets ${directive}"
+        else
+            fail "nvm-update.service does not set ${directive} -- an install script could gain privilege or create a user namespace"
         fi
     done
 fi

@@ -77,7 +77,7 @@ die() {
     local IFS=' '
     warn "$@"
     if [[ "${1-}" =~ ^MSG-[A-Z][0-9][A-Z][0-9]$ ]]; then shift; fi
-    ai_tools_log_error "$*"
+    ai_tools_log__error "$*"
     exit 1
 }
 
@@ -107,10 +107,10 @@ unset _arg
 readonly TARGET TARGET_GROUP UNLISTED FULL
 
 # Operator-identity resolver (operator.lib.sh): resolves the operator that owns the project. A missing lib leaves
-# ai_tools_resolve_owner a fail-closed stub, so the tree is left untouched.
+# ai_tools_operator__resolve_owner a fail-closed stub, so the tree is left untouched.
 readonly OPERATOR_LIB="/usr/local/lib/ai-tools/operator.lib.sh"
 # shellcheck source=SCRIPTDIR/../../lib/ai-tools/operator.lib.sh
-source "${OPERATOR_LIB}" 2>/dev/null || ai_tools_resolve_owner() { return 1; }
+source "${OPERATOR_LIB}" 2>/dev/null || ai_tools_operator__resolve_owner() { return 1; }
 # Two identities may legitimately hold a project tree (see ai-tools-setfacl); a file belonging to a third party is left
 # untouched. Matched by numeric UID; PROJECTS_UID is the resolved operator.
 SANDBOX_UID="$(id -u "@SANDBOX_USER@" 2>/dev/null || echo -1)"
@@ -126,9 +126,9 @@ AI_TOOLS_LOG_FILE="unclaim.log"
 readonly LOG_LIB="/usr/local/lib/ai-tools/log.lib.sh"
 # shellcheck source=SCRIPTDIR/../../lib/ai-tools/log.lib.sh
 if ! source "${LOG_LIB}" 2>/dev/null; then
-    ai_tools_log() { :; }; ai_tools_log_debug() { :; }; ai_tools_log_info() { :; }
-    ai_tools_log_warn() { :; }; ai_tools_log_error() { :; }
-    ai_tools_log_structured() { :; }; ai_tools_log_coded() { :; }
+    ai_tools_log__write() { :; }; ai_tools_log__debug() { :; }; ai_tools_log__info() { :; }
+    ai_tools_log__warn() { :; }; ai_tools_log__error() { :; }
+    ai_tools_log__structured() { :; }; ai_tools_log__coded() { :; }
 fi
 
 # Directory-skip selector (shared single source of truth). A missing lib leaves a stub that descends into every
@@ -136,7 +136,7 @@ fi
 readonly SKIP_DIRS_LIB="/usr/local/lib/ai-tools/skip-dirs.lib.sh"
 # shellcheck source=SCRIPTDIR/../../lib/ai-tools/skip-dirs.lib.sh
 source "${SKIP_DIRS_LIB}" 2>/dev/null \
-    || ai_tools_skip_find_expr() { AI_TOOLS_SKIP_FIND_EXPR=(); return 0; }
+    || ai_tools_skip_dirs__build_find_expression() { AI_TOOLS_SKIP_DIRS__FIND_EXPRESSION=(); return 0; }
 
 # Validate the target group exists before touching anything (fail-closed).
 getent group "${TARGET_GROUP}" >/dev/null 2>&1 \
@@ -152,7 +152,7 @@ source "${SAFE_PATHS_LIB}"
 canonical="$(realpath -e "${TARGET}" 2>/dev/null)" || exit 0
 [[ -d "${canonical}" ]] || exit 0
 # Refuse the whole pass if the project root is a protected system directory.
-ai_tools_assert_safe_target "${canonical}" "unclaim" || exit 3
+ai_tools_safe_paths__assert_safe_target "${canonical}" "unclaim" || exit 3
 
 if ${UNLISTED}; then
     # No allowlist entry names this tree, so its owner cannot be resolved from one. The identity bounding the walk is
@@ -165,10 +165,10 @@ if ${UNLISTED}; then
         || die MSG-N6X6 "--unlisted needs an invoking operator (no SUDO_UID) -- nothing changed"
     caller="$(id -un "${caller_uid}" 2>/dev/null)" \
         || die MSG-V9Q6 "--unlisted: unknown invoking uid ${caller_uid} -- nothing changed"
-    ai_tools_load_operators 2>/dev/null \
+    ai_tools_operator__load_operators 2>/dev/null \
         || die MSG-J2Q8 "--unlisted: no operators configured -- nothing changed"
     _is_operator=false
-    for op in "${AI_TOOLS_OPERATORS[@]}"; do
+    for op in "${AI_TOOLS_OPERATOR__OPERATORS[@]}"; do
         [[ "${op}" == "${caller}" ]] && { _is_operator=true; break; }
     done
     ${_is_operator} \
@@ -182,29 +182,29 @@ if ${UNLISTED}; then
     # through operator.lib's own path helper so the AI_TOOLS_ALLOWLIST test hook applies here exactly as it does
     # on the resolve_owner path.
     is_primary=secondary
-    [[ "${caller}" == "${AI_TOOLS_OPERATORS[0]}" ]] && is_primary=primary
-    ALLOWLIST="$(_ai_tools_operator_allowlist "${caller}" "${is_primary}")"
+    [[ "${caller}" == "${AI_TOOLS_OPERATOR__OPERATORS[0]}" ]] && is_primary=primary
+    ALLOWLIST="$(ai_tools_operator__get_allowlist_path "${caller}" "${is_primary}")"
 else
     # Resolve the operator that owns this project (operator.lib.sh); no owner -> exit without acting. The guard then
     # acts only on paths the resolved operator or the sandbox account hold.
-    ai_tools_resolve_owner "${canonical}" || exit 0
-    ALLOWLIST="${AI_TOOLS_RESOLVED_ALLOWLIST}"
+    ai_tools_operator__resolve_owner "${canonical}" || exit 0
+    ALLOWLIST="${AI_TOOLS_OPERATOR__RESOLVED_ALLOWLIST}"
 fi
 readonly ALLOWLIST PROJECTS_UID
 
 # Secret-name matcher: the walk skips a secret-named path, so a locked secret stays put. Loaded after the operator is
-# known, which names the operator's file (ai_tools_load_secret_patterns states what an earlier load reads). Fail-closed:
-# a reversal with no matcher would regroup a locked secret the operator named, so a library that does not load
-# and a present file the loader cannot read each refuse before the first change (secret-handling.rule.md).
+# known, which names the operator's file (ai_tools_secret_patterns__load states what an earlier load reads).
+# Fail-closed: a reversal with no matcher would regroup a locked secret the operator named, so a library that does not
+# load and a present file the loader cannot read each refuse before the first change (secret-handling.rule.md).
 readonly SECRET_PATTERNS_LIB="/usr/local/lib/ai-tools/secret-patterns.lib.sh"
 # shellcheck source=SCRIPTDIR/../../lib/ai-tools/secret-patterns.lib.sh
-if ! source "${SECRET_PATTERNS_LIB}" 2>/dev/null || ! declare -F ai_tools_load_secret_patterns >/dev/null 2>&1; then
+if ! source "${SECRET_PATTERNS_LIB}" 2>/dev/null || ! declare -F ai_tools_secret_patterns__load >/dev/null 2>&1; then
     die MSG-P5R2 "cannot load ${SECRET_PATTERNS_LIB}, which decides which paths are secrets -- nothing under ${canonical} was changed; reinstall the ai-tools package"
 fi
-ai_tools_load_secret_patterns \
+ai_tools_secret_patterns__load \
     || die "the operator's secret-patterns file could not be read, so nothing under ${canonical} was changed"
 _is_secret_name() {
-    ai_tools_is_secret_basename "$(basename -- "$1")"
+    ai_tools_secret_patterns__is_secret_basename "$(basename -- "$1")"
 }
 
 # This run reverts one project for one operator, so the operator and the project ride as per-run log context
@@ -212,7 +212,7 @@ _is_secret_name() {
 AI_TOOLS_LOG_OPERATOR="${PROJECTS_USER:-}"
 AI_TOOLS_LOG_PROJECT="${canonical}"
 
-# Shared config grammar (ai_tools_conf_path_entry; see conf.lib.sh), the ONE parser the allowlist is read with --
+# Shared config grammar (ai_tools_conf__parse_path_entry; see conf.lib.sh), the ONE parser the allowlist is read with --
 # end-of-line comments, and quotes for a path carrying a space or a literal '#'. REQUIRED like safe-paths.lib.sh:
 # the bare source under `set -e` aborts when it is missing. A bare filter in its place mis-reads an entry every other
 # reader of the file reads correctly. Include-guarded.
@@ -222,13 +222,13 @@ source /usr/local/lib/ai-tools/conf.lib.sh
 declare -a allowed_directories=()
 # shellcheck disable=SC2034  # filled and read through its name by the conf.lib.sh loader and matcher
 declare -a exclusion_patterns=()
-# The one read every reader of the allowlist makes (ai_tools_conf_allowlist_load, conf.lib.sh). A file that cannot be
+# The one read every reader of the allowlist makes (ai_tools_conf__load_allowlist, conf.lib.sh). A file that cannot be
 # read, or whose exclusion the loader refuses, leaves both arrays empty, so the target is not listed.
-ai_tools_conf_allowlist_load "${ALLOWLIST}" allowed_directories exclusion_patterns || true
+ai_tools_conf__load_allowlist "${ALLOWLIST}" allowed_directories exclusion_patterns || true
 
-# _is_excluded <abs-path>: 0 if covered by a '!' rule (ai_tools_conf_is_path_excluded, conf.lib.sh -- the match every
+# _is_excluded <abs-path>: 0 if covered by a '!' rule (ai_tools_conf__is_path_excluded, conf.lib.sh -- the match every
 # reader of the allowlist makes).
-_is_excluded() { ai_tools_conf_is_path_excluded "$1" exclusion_patterns; }
+_is_excluded() { ai_tools_conf__is_path_excluded "$1" exclusion_patterns; }
 
 # _is_allowed <abs-path>: 0 if at or under an allowed directory.
 _is_allowed() {
@@ -272,7 +272,7 @@ _is_residue() {
 }
 
 # _safe_unclaim <path>: clear ACL, regroup, drop group write -- TOCTOU-safe via a pinned fd held at <path>
-# (ai_tools_pinned_fd_matches_path, safe-paths.lib.sh; see ai-tools-setfacl for the rationale). Owner-guarded
+# (ai_tools_safe_paths__is_pinned_fd_at_path, safe-paths.lib.sh; see ai-tools-setfacl for the rationale). Owner-guarded
 # on the pinned inode.
 #
 # Returns 0 when the path was changed, 2 when it was refused as a hardlink (the caller counts and reports those), 1
@@ -286,7 +286,7 @@ _safe_unclaim() {
         < <(stat -L -c '%d:%i %u %g %h %F' "/proc/self/fd/${fd}" 2>/dev/null) \
         || { exec {fd}<&-; return 1; }
     if [[ "${got_ident}" != "${expect_ident}" ]]; then exec {fd}<&-; return 1; fi
-    ai_tools_pinned_fd_matches_path "${fd}" "${path}" || { exec {fd}<&-; return 1; }
+    ai_tools_safe_paths__is_pinned_fd_at_path "${fd}" "${path}" || { exec {fd}<&-; return 1; }
     # Owner guard: only the projects user's or the sandbox account's own files.
     if [[ "${got_uid}" != "${PROJECTS_UID}" && "${got_uid}" != "${SANDBOX_UID}" ]]; then
         exec {fd}<&-; return 1
@@ -350,11 +350,11 @@ _safe_unclaim() {
 if ${FULL}; then
     # `--full`: the skip list is a walk-cost optimization, and residue hidden in a skipped tree (node_modules, .venv,
     # caches) survives a copy exactly like the rest.
-    AI_TOOLS_SKIP_FIND_EXPR=()
+    AI_TOOLS_SKIP_DIRS__FIND_EXPRESSION=()
 else
-    ai_tools_skip_find_expr unclaim '' "${canonical}"
+    ai_tools_skip_dirs__build_find_expression unclaim '' "${canonical}"
 fi
-declare -a expr=( "${canonical}" -xdev "${AI_TOOLS_SKIP_FIND_EXPR[@]}" \
+declare -a expr=( "${canonical}" -xdev "${AI_TOOLS_SKIP_DIRS__FIND_EXPRESSION[@]}" \
                   '(' -type d -o -type f ')' -print0 )
 
 declare -i changed=0
@@ -375,7 +375,7 @@ find "${expr[@]}" 2>/dev/null \
                 2) hardlinked=$(( hardlinked + 1 )) ;;
             esac
         done
-        ai_tools_log_structured info \
+        ai_tools_log__structured info \
             "unclaimed ${changed} path(s) under ${canonical} (group -> ${TARGET_GROUP}, group write removed)" \
             "AI_TOOLS_RESULT=ok"
         # Surfaced, never silent, and with its CONSEQUENCE: a refused hardlink is a path the operator asked to change
@@ -387,7 +387,7 @@ find "${expr[@]}" 2>/dev/null \
             warn MSG-Z5S7 "left ${hardlinked} hardlinked file(s) untouched -- an inode with more than one name can be reached from outside this tree, so changing it here would change a path this pass never authorized. They KEEP the group they have, so the agent is not off them: list them with"
             # The command goes out unprefixed, on its own line, so it stays copy-pasteable.
             printf '  find %s -xdev -type f -links +1 -group @SANDBOX_GROUP@\n' "${canonical}" >&2
-            ai_tools_log_coded warning "${_warn_code}" \
+            ai_tools_log__coded warning "${_warn_code}" \
                 "left ${hardlinked} hardlinked file(s) under ${canonical} untouched -- they keep group @SANDBOX_GROUP@"
         fi
       } || true
@@ -417,7 +417,7 @@ if [[ -d "${gitdir}" ]] && ! _is_excluded "${gitdir}"; then
             2) git_hardlinked=$(( git_hardlinked + 1 )) ;;
         esac
     done < <(find "${gitdir}" -xdev '(' -type d -o -type f ')' -print0 2>/dev/null)
-    ai_tools_log_structured info \
+    ai_tools_log__structured info \
         "unclaimed ${git_changed} path(s) under ${gitdir} (group -> ${TARGET_GROUP}, group write removed)" \
         "AI_TOOLS_PATH=${gitdir}" "AI_TOOLS_RESULT=ok"
     # `git clone --local` hardlinks .git/objects to the source repo, so a locally-cloned tree legitimately hits
@@ -427,7 +427,7 @@ if [[ -d "${gitdir}" ]] && ! _is_excluded "${gitdir}"; then
     if (( git_hardlinked )); then
         warn MSG-H9D7 "left ${git_hardlinked} hardlinked file(s) in .git untouched -- a local git clone shares object files with the source repo, so changing them would change the origin. They KEEP the group they have: list them with"
         printf '  find %s -xdev -type f -links +1 -group @SANDBOX_GROUP@\n' "${gitdir}" >&2
-        ai_tools_log_coded warning "${_warn_code}" \
+        ai_tools_log__coded warning "${_warn_code}" \
             "left ${git_hardlinked} hardlinked file(s) under ${gitdir} untouched -- they keep group @SANDBOX_GROUP@" \
             "AI_TOOLS_PATH=${gitdir}"
     fi
@@ -442,11 +442,11 @@ if ${UNLISTED} && [[ "$(getenforce 2>/dev/null || echo Disabled)" != "Disabled" 
         && command -v restorecon >/dev/null 2>&1; then
     if [[ "$(stat -c '%C' "${canonical}" 2>/dev/null)" == *:ai_tools_project_t:* ]]; then
         if restorecon -RF -- "${canonical}" 2>/dev/null; then
-            ai_tools_log_structured info \
+            ai_tools_log__structured info \
                 "reset SELinux label under ${canonical} (was ai_tools_project_t)" "AI_TOOLS_RESULT=ok"
         else
             warn MSG-T4S2 "could not reset the SELinux label -- run: sudo restorecon -RF ${canonical}"
-            ai_tools_log_coded warning "${_warn_code}" \
+            ai_tools_log__coded warning "${_warn_code}" \
                 "could not reset the SELinux label under ${canonical}" "AI_TOOLS_RESULT=failed"
         fi
     fi

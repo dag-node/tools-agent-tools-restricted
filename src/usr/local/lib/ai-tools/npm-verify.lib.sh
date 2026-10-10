@@ -14,16 +14,17 @@
 # global npm (not the sandbox's, so it could report a false "verified" over the wrong tree) and would turn npm/node
 # execution over agent-controlled files into a root surface. Both callers already invoke it as the sandbox account
 # (nvm-update.sh runs as it directly; ai-tools-bootstrap calls it inside a `sudo -u` sandbox-account step),
-# and ai_tools_verify_npm_signatures refuses to run as root as a fail-closed backstop. This library carries no @-tokens:
-# it is deployed unsubstituted, and it discovers the account's global tree at runtime (`npm root -g`) rather than naming
+# and ai_tools_npm_verify__verify_signatures refuses to run as root as a fail-closed backstop. This library carries no
+# @-tokens: it is deployed unsubstituted, and it discovers the account's global tree at runtime (`npm root -g`) rather
+# than naming
 # it.
 #
 # ── Split: pure verdict + impure probe (mirrors confinement.lib.sh) ──────────
-# ai_tools_npm_verdict <audit-json>   -- PURE decision: no npm, no filesystem, no privilege,
+# ai_tools_npm_verify__evaluate_audit <audit-json>   -- PURE decision: no npm, no filesystem, no privilege,
 #   no side effects. Given `npm audit signatures --json` output it echoes a verdict token and
 #   returns this library's status contract. Unit-tested over a truth table with no registry and no root risk,
 #   so the impure probe never has to run as root to exercise the logic.
-# ai_tools_verify_npm_signatures      -- the impure probe: refuses root, discovers the global
+# ai_tools_npm_verify__verify_signatures      -- the impure probe: refuses root, discovers the global
 #   tree, runs `npm audit signatures` against it, and dispatches the pure verdict.
 #
 # ── Why the throwaway project ────────────────────────────────────────────────
@@ -46,22 +47,22 @@
 # ── What npm prints is untrusted ─────────────────────────────────────────────
 # npm, the tree it reads and the audit JSON it writes are the sandbox account's, so a package name or an error line
 # from them reaches a terminal or the journal only through the shared allowlist sanitizer: log.lib.sh's
-# ai_tools_log_sanitize for npm's own error line, and the same printable-ASCII allowlist inside the verdict's node
+# ai_tools_log__sanitize for npm's own error line, and the same printable-ASCII allowlist inside the verdict's node
 # parser for the package names. log.lib.sh loads best-effort from this library's directory; without it npm's error line
 # is left out of the report rather than printed raw.
 
-[[ -n "${_AI_TOOLS_NPM_VERIFY_LIB_LOADED:-}" ]] && return 0
-readonly _AI_TOOLS_NPM_VERIFY_LIB_LOADED=1
+[[ -n "${_AI_TOOLS_NPM_VERIFY__LOADED:-}" ]] && return 0
+readonly _AI_TOOLS_NPM_VERIFY__LOADED=1
 # shellcheck source=SCRIPTDIR/log.lib.sh
 source "${BASH_SOURCE[0]%/*}/log.lib.sh" 2>/dev/null || true
-# The identity check the probe makes of its own process (ai_tools_is_sandbox_account): best-effort source,
+# The identity check the probe makes of its own process (ai_tools_sandbox_exec__is_sandbox_account): best-effort source,
 # and an identity it cannot confirm refuses the probe.
 # shellcheck source=SCRIPTDIR/sandbox-exec.lib.sh
 source "${BASH_SOURCE[0]%/*}/sandbox-exec.lib.sh" 2>/dev/null || true
 
-# ai_tools_npm_verdict <audit-json>: pure decision over `npm audit signatures --json` output. Echoes a verdict token
-# (OK|INVALID|MISSING|EMPTY|UNKNOWN) and returns the status contract. The host's /usr/bin/python3 parses the JSON
-# in isolated mode, read-only on the passed string -- no filesystem, no npm, no privilege, and no executable
+# ai_tools_npm_verify__evaluate_audit <audit-json>: pure decision over `npm audit signatures --json` output. Echoes
+# a verdict token (OK|INVALID|MISSING|EMPTY|UNKNOWN) and returns the status contract. The host's /usr/bin/python3 parses
+# the JSON in isolated mode, read-only on the passed string -- no filesystem, no npm, no privilege, and no executable
 # of the toolchain, so the verdict runs under any account without executing what the sandbox account can write. OK
 # requires the shape npm's verifier writes (`lib/utils/verify-signatures.js`: an object whose `invalid` and `missing`
 # are both arrays) with both arrays empty; empty input yields EMPTY, and a parse failure or a document of any other
@@ -69,7 +70,7 @@ source "${BASH_SOURCE[0]%/*}/sandbox-exec.lib.sh" 2>/dev/null || true
 # not verify" and not as a clean audit. The audit is npm's own report over a tree the sandbox account can rewrite, npm
 # included, so it is not the trusted check against a hostile toolchain: the entrypoint pin is
 # (entrypoint-verify.lib.sh), and this verdict covers the registry-signature question alone.
-ai_tools_npm_verdict() {
+ai_tools_npm_verify__evaluate_audit() {
     local audit_json="${1:-}"
     [[ -n "${audit_json}" ]] || { printf 'EMPTY'; return 2; }
     [[ -x /usr/bin/python3 ]] || { printf 'UNKNOWN'; return 2; }
@@ -113,17 +114,17 @@ sys.stdout.write("INVALID" if invalid else ("MISSING" if missing else "OK"))
     esac
 }
 
-# ai_tools_verify_npm_signatures: verify every globally installed npm package's registry signature. Self-contained --
-# discovers the global tree (`npm root -g`) and the top-level package set (`npm ls -g`) itself; it does not take
-# arguments. Returns this library's status contract.
-ai_tools_verify_npm_signatures() {
+# ai_tools_npm_verify__verify_signatures: verify every globally installed npm package's registry signature.
+# Self-contained -- discovers the global tree (`npm root -g`) and the top-level package set (`npm ls -g`) itself; it
+# does not take arguments. Returns this library's status contract.
+ai_tools_npm_verify__verify_signatures() {
     local _p='npm-verify:'
 
     # Fail-closed identity backstop: this must run as the sandbox account, the owner of the tree it audits. As root
     # `npm root -g` is root's global prefix, so a run would verify the wrong tree and could report a false OK, and root
     # or an operator would execute npm from the tree with its own authority. Refuse rather than mislead; an identity
     # sandbox-exec.lib.sh could not confirm refuses too.
-    if ! declare -F ai_tools_is_sandbox_account >/dev/null 2>&1 || ! ai_tools_is_sandbox_account; then
+    if ! declare -F ai_tools_sandbox_exec__is_sandbox_account >/dev/null 2>&1 || ! ai_tools_sandbox_exec__is_sandbox_account; then
         printf '%s refusing to run as %s -- must run as the sandbox account\n' "${_p}" \
             "$(id -un 2>/dev/null || printf 'uid %s' "${EUID}")" >&2
         return 2
@@ -138,8 +139,8 @@ ai_tools_verify_npm_signatures() {
     local npm_error
     if ! npm_error="$(npm --version 2>&1 >/dev/null)"; then
         npm_error="$(grep -m1 -E '^[A-Za-z]*Error' <<<"${npm_error}" || head -n1 <<<"${npm_error}")"
-        if declare -F ai_tools_log_sanitize >/dev/null 2>&1; then
-            npm_error="$(ai_tools_log_sanitize "${npm_error:0:200}")"
+        if declare -F ai_tools_log__sanitize >/dev/null 2>&1; then
+            npm_error="$(ai_tools_log__sanitize "${npm_error:0:200}")"
         else
             npm_error="its error is not shown: log.lib.sh, which sanitizes it, did not load"
         fi
@@ -185,7 +186,7 @@ ai_tools_verify_npm_signatures() {
 
     # Dispatch the pure verdict. It emits the per-package detail to stderr; we log the outcome.
     local token rc
-    token="$(ai_tools_npm_verdict "${audit_json}")" && rc=0 || rc=$?
+    token="$(ai_tools_npm_verify__evaluate_audit "${audit_json}")" && rc=0 || rc=$?
     case "${token}" in
         OK)      printf '%s all global package signatures verified\n' "${_p}" >&2 ;;
         INVALID) printf '%s INVALID signature detected -- treating as tamper (fail closed)\n' "${_p}" >&2 ;;

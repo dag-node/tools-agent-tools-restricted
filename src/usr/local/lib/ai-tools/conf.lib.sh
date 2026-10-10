@@ -3,65 +3,64 @@
 # /usr/local/lib/ai-tools/conf.lib.sh
 # The one KEY=value grammar every ai-tools config file is read with, the trust predicate that decides whether a file may
 # be read at all, and what shares the grammar and so lives beside it: the kind prefix a provider list item carries
-# (ai_tools_conf_kind_list, which filters.lib.sh reads as well as providers.lib.sh), the dated config sidecars
-# (`<name>.<YYYYMMDD>-<N>.{bak,shipped}`, whose stamp ai_tools_conf_sidecar_path is the single home of), the one
-# in-place write of a KEY=value file (ai_tools_conf_set_key for a scalar, ai_tools_conf_set_list for a list), and every
-# read AND write of allowed-projects. The settings.json hook-declaration merge, which writes through the sidecars, is
-# settings-merge.lib.sh. Sourced (never executed) by operator.lib.sh, skip-dirs.lib.sh, providers.lib.sh, the launch
-# wrapper, the CLI and the root helpers, so a key and an allowlist line read the same whichever component reads them.
-# The grammar, the present/absent distinction the provider gating turns on, and what the trust predicate requires are
-# in providers.rule.md; the allowlist state model is in cli.rule.md.
+# (ai_tools_conf__read_kind_list, which filters.lib.sh reads as well as providers.lib.sh), the dated config sidecars
+# (`<name>.<YYYYMMDD>-<N>.{bak,shipped}`, whose stamp ai_tools_conf__find_sidecar_path is the single home of), the one
+# in-place write of a KEY=value file (ai_tools_conf__set_key for a scalar, ai_tools_conf__set_list for a list),
+# and every read AND write of allowed-projects. The settings.json hook-declaration merge, which writes
+# through the sidecars, is settings-merge.lib.sh. Sourced (never executed) by operator.lib.sh, skip-dirs.lib.sh,
+# providers.lib.sh, the launch wrapper, the CLI and the root helpers, so a key and an allowlist line read the same
+# whichever component reads them. The grammar, the present/absent distinction the provider gating turns
+# on, and what the trust predicate requires are in providers.rule.md; the allowlist state model is in cli.rule.md.
 #
 # Config files are PARSED, never sourced: a malformed or tampered file yields a bad value, never executed code
 # in a privileged script. List splitting pins IFS locally, because the sourcing scripts run under the strict-mode
 # IFS=$'\n\t', where an inherited IFS would read "a b" as one item -- for a provider allowlist, a wrong "no such
 # provider" verdict.
 #
-# A trust refusal reports the owner uid and mode the predicate read (ai_tools_conf_untrusted_reason). That uid is
-# the owner on disk only inside the initial user namespace: in any other, a host uid with no mapping reads back
-# as the overflow uid 65534 while stat exits 0, so a root-owned file reads as a nobody-owned one and is refused.
-# ai_tools_conf_uid_map_is_identity detects that namespace and the reason names it, so the refusal is not investigated
-# as a mode or a label.
+# A trust refusal reports the owner uid and mode the predicate read (ai_tools_conf__read_untrusted_reason). The owner is
+# read through the calling process's uid map, so on the refusal path the reason names the translation where the map is
+# not the identity (ai_tools_conf__is_uid_map_identity). The predicate itself does not read the map: what each map does
+# to the owner, and where every reader runs, are providers.rule.md's (ref-section-x4z9).
 
 # Sourced more than once in a single shell: this library's readonly constants would abort under `set -e` on the second
 # pass. Return early (an if-statement, not `[[ ]] && return`, which returns 1 for an unset guard and trips the sourcing
 # shell's `set -e`).
-if [[ -n "${_AI_TOOLS_CONF_LIB:-}" ]]; then
+if [[ -n "${_AI_TOOLS_CONF__LOADED:-}" ]]; then
     return 0
 fi
-readonly _AI_TOOLS_CONF_LIB=1
+readonly _AI_TOOLS_CONF__LOADED=1
 
-# _ai_tools_conf_warn [code] <message...> : this library's one report, on stderr. A leading message
+# ai_tools_conf__warn [code] <message...> : this library's one report, on stderr. A leading message
 #   code (msg.lib.sh states the form) goes on its own line ahead of the message, the shape
 #   tests/lib/harness.sh's assert_msg reads; matched inline, since this library is sourced by every
 #   root helper and by the sandbox account on each launch and so takes no dependency of its own.
 #   The `conf: ` prefix is stated here, so a message text does not carry one.
-_ai_tools_conf_warn() {
+ai_tools_conf__warn() {
     local code=""
     if [[ "${1-}" =~ ^MSG-[A-Z][0-9][A-Z][0-9]$ ]]; then code="$1"; shift; printf '%s\n' "${code}" >&2; fi
     printf 'conf: %s\n' "$*" >&2
 }
 
-# ai_tools_conf_is_text_file <path> : succeed when <path> is a regular file that is empty or holds
+# ai_tools_conf__is_text_file <path> : succeed when <path> is a regular file that is empty or holds
 #   text -- no NUL bytes, which is what `grep -I` reports a binary file by. For a file whose whole
 #   content is handed to a program as prose (an agent's system prompt): the trust predicate
 #   says who may have written it, this says the bytes are the kind the reader expects. It READS the
 #   file, so the caller is an account that may.
-ai_tools_conf_is_text_file() {
+ai_tools_conf__is_text_file() {
     local path="$1"
     [[ -f "${path}" ]] || return 1
     [[ -s "${path}" ]] || return 0
     LC_ALL=C grep -Iq . "${path}" 2>/dev/null
 }
 
-# ai_tools_conf_is_trusted <path> : succeed when <path> exists, is not a symlink, is owned by
+# ai_tools_conf__is_trusted <path> : succeed when <path> exists, is not a symlink, is owned by
 #   root, and is writable by neither group nor other -- the property that makes it safe for a
 #   sandbox-side process to parse or source. A symlink is refused outright rather than followed,
 #   so a link planted in a writable directory cannot redirect the read at a root-owned target.
 #   Applies to directories too: a group-writable directory lets a non-root writer unlink and
 #   replace the root-owned file inside it, so a trusted file in an untrusted directory is not
 #   trusted. Fails closed on any stat error.
-ai_tools_conf_is_trusted() {
+ai_tools_conf__is_trusted() {
     local path="${1:-}" meta owner mode
     [[ -n "${path}" ]] || return 1
     [[ -L "${path}" ]] && return 1
@@ -73,16 +72,16 @@ ai_tools_conf_is_trusted() {
     (( (0${mode} & 022) == 0 ))
 }
 
-# ai_tools_conf_uid_map_is_identity [map-file] : succeed when this process runs in the INITIAL
-#   user namespace -- the only one where an owner uid read off disk means what it says. The
-#   kernel's map there is exactly one identity range over the whole uid space; any other content,
-#   an empty map included, means uids are translated and fails closed with the rest. Parsing sets
+# ai_tools_conf__is_uid_map_identity [map-file] : succeed when this process's uid map is exactly one
+#   identity range over the whole uid space -- the initial user namespace's map, and the one
+#   under which an owner uid read off disk means what it says. Any other content, an empty map
+#   included, means uids are translated and fails closed with the rest. Parsing sets
 #   IFS locally, since callers run under a strict IFS that would otherwise stop `read -a`
 #   splitting the kernel's space-padded columns, and a map of several ranges is refused on the
 #   embedded newline rather than parsed from its first line alone. <map-file> is
 #   /proc/self/uid_map for a live reading (the default) and a fixture under test; it is a
 #   positional argument, so no environment variable selects it.
-ai_tools_conf_uid_map_is_identity() {
+ai_tools_conf__is_uid_map_identity() {
     local map_file="${1:-/proc/self/uid_map}" map IFS=$' \t\n'
     local -a ranges=()
     [[ -r "${map_file}" ]] || return 1
@@ -93,12 +92,12 @@ ai_tools_conf_uid_map_is_identity() {
     [[ "${ranges[0]}" == 0 && "${ranges[1]}" == 0 && "${ranges[2]}" == 4294967295 ]]
 }
 
-# ai_tools_conf_untrusted_reason <path> : print, on one line, what ai_tools_conf_is_trusted
+# ai_tools_conf__read_untrusted_reason <path> : print, on one line, what ai_tools_conf__is_trusted
 #   observed about a <path> it refused -- the owner uid and mode it read, against what it
-#   requires -- so the refusal states what was observed. When the owner check fails outside the
-#   initial user namespace the line says so: the uid read there is a translation, and ownership
-#   cannot be evaluated from it. Always prints and returns 0.
-ai_tools_conf_untrusted_reason() {
+#   requires -- so the refusal states what was observed. When the owner check fails under a uid
+#   map other than the identity the line says so: the uid read there is a translation, and
+#   ownership on disk cannot be evaluated from it. Always prints and returns 0.
+ai_tools_conf__read_untrusted_reason() {
     local path="${1:-}" meta owner mode
     [[ -n "${path}" ]] || { printf 'no path given'; return 0; }
     [[ -L "${path}" ]] && { printf 'is a symlink'; return 0; }
@@ -106,38 +105,38 @@ ai_tools_conf_untrusted_reason() {
     meta="$(stat -c '%u %a' "${path}" 2>/dev/null)" || { printf 'could not be stat-ed'; return 0; }
     owner="${meta%% *}"; mode="${meta##* }"
     printf 'owner=%s mode=%s, expected owner=0 with no group/other write' "${owner}" "${mode}"
-    if [[ "${owner}" != 0 ]] && ! ai_tools_conf_uid_map_is_identity /proc/self/uid_map; then
-        printf ' (this process is not in the initial user namespace, so the owner it reads is a translation and ownership cannot be evaluated here)'
+    if [[ "${owner}" != 0 ]] && ! ai_tools_conf__is_uid_map_identity /proc/self/uid_map; then
+        printf ' (this process'"'"'s uid map is not the identity, so the owner it reads is a translation and ownership on disk cannot be evaluated here; a uid outside the map reads as the overflow uid 65534)'
     fi
     return 0
 }
 
-# _ai_tools_conf_strip_inline_comment <text> : set _ai_tools_conf_value to <text> with an inline
+# _ai_tools_conf__strip_inline_comment <text> : set ai_tools_conf__value to <text> with an inline
 #   comment removed. `#` ends the value only where a comment conventionally starts -- at the very
 #   beginning, or after whitespace -- so an interior `#` (a fragment, a C# name, a colour) stays
 #   part of an unquoted value.
-_ai_tools_conf_strip_inline_comment() {
+_ai_tools_conf__strip_inline_comment() {
     local rest="$1" kept="" head
     while [[ "${rest}" == *'#'* ]]; do
         head="${rest%%#*}"
         if [[ -z "${kept}${head}" || "${head}" == *[[:space:]] ]]; then
-            _ai_tools_conf_value="${kept}${head}"
+            ai_tools_conf__value="${kept}${head}"
             return 0
         fi
         kept+="${head}#"
         rest="${rest#*#}"
     done
-    _ai_tools_conf_value="${kept}${rest}"
+    ai_tools_conf__value="${kept}${rest}"
 }
 
-# _ai_tools_conf_parse_value <raw> : set _ai_tools_conf_value to the value <raw> (everything after
+# _ai_tools_conf__parse_value <raw> : set ai_tools_conf__value to the value <raw> (everything after
 #   the `=`) denotes -- surrounding whitespace trimmed, one matched quote layer stripped, inline
 #   comment removed. A quoted value ends at its closing quote and whatever follows is discarded,
 #   so `#` inside quotes stays literal. An unmatched opening quote is taken verbatim rather than
-#   silently truncating the value at some later character. Sets _ai_tools_conf_value_quoted to 1
-#   when the value opened with a quote and 0 otherwise, which is what ai_tools_conf_list_value
+#   silently truncating the value at some later character. Sets _ai_tools_conf__value_quoted to 1
+#   when the value opened with a quote and 0 otherwise, which is what ai_tools_conf__split_list_value
 #   tells `"[a]"` from `[a]` by once the quotes are gone.
-_ai_tools_conf_parse_value() {
+_ai_tools_conf__parse_value() {
     local value="$1" quote rest
     value="${value#"${value%%[![:space:]]*}"}"
     case "${value}" in
@@ -145,145 +144,154 @@ _ai_tools_conf_parse_value() {
         "'"*) quote="'" ;;
         *)    quote=''  ;;
     esac
-    _ai_tools_conf_value_quoted=0
-    [[ -n "${quote}" ]] && _ai_tools_conf_value_quoted=1
+    _ai_tools_conf__value_quoted=0
+    [[ -n "${quote}" ]] && _ai_tools_conf__value_quoted=1
     if [[ -n "${quote}" ]]; then
         rest="${value#?}"
         if [[ "${rest}" == *"${quote}"* ]]; then
-            _ai_tools_conf_value="${rest%%"${quote}"*}"
+            ai_tools_conf__value="${rest%%"${quote}"*}"
             return 0
         fi
         value="${rest}"
     else
-        _ai_tools_conf_strip_inline_comment "${value}"
-        value="${_ai_tools_conf_value}"
+        _ai_tools_conf__strip_inline_comment "${value}"
+        value="${ai_tools_conf__value}"
     fi
-    _ai_tools_conf_value="${value%"${value##*[![:space:]]}"}"
+    ai_tools_conf__value="${value%"${value##*[![:space:]]}"}"
 }
 
-# ai_tools_conf_read <file> <key> : set _ai_tools_conf_value to the value of the LAST assignment
+# ai_tools_conf__read <file> <key> : set ai_tools_conf__value to the value of the LAST assignment
 #   of <key> in <file>. Returns 0 when the key is PRESENT (an empty value included), 1 when it is
-#   absent or the file is unreadable -- the present-but-empty / absent distinction the fail-closed
-#   allowlist gating depends on.
-ai_tools_conf_read() {
-    local file="$1" wanted="$2" line key found=1
-    _ai_tools_conf_value=""
-    _ai_tools_conf_value_quoted=0
-    [[ -r "${file}" ]] || return 1
-    while IFS= read -r line || [[ -n "${line}" ]]; do
+#   absent from a file read whole, and 2 when the file fails the regular-file or read-permission
+#   test or its read did not complete -- the present-but-empty / absent distinction the fail-closed allowlist gating
+#   depends on, and the absent / unread distinction a reader whose default for an absent key widens
+#   access depends on (the assets resolver reads a missing asset_profiles as the base profiles).
+#   The file is read whole through cat, whose status reports an open or read failure where
+#   the read builtin reports end of input, so a directory or a file an I/O error cuts short is 2.
+ai_tools_conf__read() {
+    local file="$1" wanted="$2" line key content found=1
+    ai_tools_conf__value=""
+    _ai_tools_conf__value_quoted=0
+    [[ -f "${file}" && -r "${file}" ]] || return 2
+    content="$(cat -- "${file}" 2>/dev/null)" || return 2
+    while IFS= read -r line; do
         line="${line#"${line%%[![:space:]]*}"}"
         [[ -z "${line}" || "${line}" == '#'* || "${line}" != *=* ]] && continue
         key="${line%%=*}"
         key="${key%"${key##*[![:space:]]}"}"
         [[ "${key}" == "${wanted}" ]] || continue
-        _ai_tools_conf_parse_value "${line#*=}"
+        _ai_tools_conf__parse_value "${line#*=}"
         found=0
-    done < "${file}"
+    done <<< "${content}"
     return "${found}"
 }
 
-# ai_tools_conf_yes <file> <key> : succeed when <key> is set to a yes value -- yes, true, 1 or on, in any case and with
-#   or without quotes, which the grammar has already removed. No, false, 0, off, an empty value, an absent key
-#   and an unreadable file are all no. A value in neither set is no as well, and is reported, so a mistyped switch
-#   does not change what a launch does without a line saying so.
-ai_tools_conf_yes() {
+# ai_tools_conf__is_yes <file> <key> : succeed when <key> is set to a yes value -- yes, true, 1 or on, in any case and
+#   with or without quotes, which the grammar has already removed. No, false, 0, off, an empty value, an absent key and
+#   an unreadable file are all no. A value in neither set is no as well, and is reported, so a mistyped switch does not
+#   change what a launch does without a line saying so.
+ai_tools_conf__is_yes() {
     local file="$1" key="$2"
-    ai_tools_conf_read "${file}" "${key}" || return 1
-    case "${_ai_tools_conf_value,,}" in
+    ai_tools_conf__read "${file}" "${key}" || return 1
+    case "${ai_tools_conf__value,,}" in
         yes|true|1|on) return 0 ;;
         no|false|0|off|"") return 1 ;;
     esac
-    _ai_tools_conf_warn MSG-D2F9 "switch ${key} in ${file} is neither a yes value (yes, true, 1, on) nor a no value (no, false, 0, off) -- read as no"
+    ai_tools_conf__warn MSG-D2F9 "switch ${key} in ${file} is neither a yes value (yes, true, 1, on) nor a no value (no, false, 0, off) -- read as no"
     return 1
 }
 
-# ai_tools_conf_no <file> <key> : succeed when <key> is set to a no value -- no, false, 0, off or an empty value, in any
-#   case and with or without quotes -- the reader for a switch whose default is yes. A yes value, an absent key
-#   and an unreadable file are not no. A value in neither set is not no either, and is reported, so a mistyped switch
-#   keeps the posture its default gives and does not change what a launch does without a line saying so.
-ai_tools_conf_no() {
+# ai_tools_conf__is_no <file> <key> : succeed when <key> is set to a no value -- no, false, 0, off or an empty value, in
+#   any case and with or without quotes -- the reader for a switch whose default is yes. A yes value, an absent key and
+#   an unreadable file are not no. A value in neither set is not no either, and is reported, so a mistyped switch keeps
+#   the posture its default gives and does not change what a launch does without a line saying so.
+ai_tools_conf__is_no() {
     local file="$1" key="$2"
-    ai_tools_conf_read "${file}" "${key}" || return 1
-    case "${_ai_tools_conf_value,,}" in
+    ai_tools_conf__read "${file}" "${key}" || return 1
+    case "${ai_tools_conf__value,,}" in
         no|false|0|off|"") return 0 ;;
         yes|true|1|on) return 1 ;;
     esac
-    _ai_tools_conf_warn MSG-H7N5 "switch ${key} in ${file} is neither a yes value (yes, true, 1, on) nor a no value (no, false, 0, off) -- read as yes"
+    ai_tools_conf__warn MSG-H7N5 "switch ${key} in ${file} is neither a yes value (yes, true, 1, on) nor a no value (no, false, 0, off) -- read as yes"
     return 1
 }
 
-# ai_tools_conf_get <file> <key> : print the value of <key>, empty when absent. For a caller that
-#   only wants the string; one that must tell absent from empty calls ai_tools_conf_read.
-ai_tools_conf_get() {
+# ai_tools_conf__print_value <file> <key> : print the value of <key>, empty when absent, at the status
+#   ai_tools_conf__read returns. For a caller that only wants the string; one that must tell absent from empty
+#   calls ai_tools_conf__read.
+ai_tools_conf__print_value() {
     local status=0
-    ai_tools_conf_read "$1" "$2" || status=1
-    printf '%s' "${_ai_tools_conf_value}"
+    ai_tools_conf__read "$1" "$2" || status=$?
+    printf '%s' "${ai_tools_conf__value}"
     return "${status}"
 }
 
-# ai_tools_conf_split <array-name> <value> : split <value> into the named array on commas and
+# ai_tools_conf__split <array-name> <value> : split <value> into the named array on commas and
 #   whitespace, dropping empty items. IFS is set locally, so the result does not depend on the
 #   caller's IFS. The splitter for a command-line argument, which does not read brackets; a list
-#   read from a file goes through ai_tools_conf_list_value.
-ai_tools_conf_split() {
-    local -n _ai_tools_conf_split_out="$1"
-    local raw="${2-}" token
-    local -a tokens=()
+#   read from a file goes through ai_tools_conf__split_list_value. Every local carries the function's
+#   prefix: <array-name> resolves from this function outward through its callers, so a local of
+#   that name in any of them would take the items and leave the caller's array empty.
+ai_tools_conf__split() {
+    local -n _ai_tools_conf__split_out="$1"
+    local _ai_tools_conf__split_token
+    local -a _ai_tools_conf__split_tokens=()
     local IFS=$' \t\n,'
-    read -ra tokens <<< "${raw}"
-    _ai_tools_conf_split_out=()
-    for token in "${tokens[@]}"; do
-        [[ -n "${token}" ]] && _ai_tools_conf_split_out+=("${token}")
+    read -ra _ai_tools_conf__split_tokens <<< "${2-}"
+    _ai_tools_conf__split_out=()
+    for _ai_tools_conf__split_token in "${_ai_tools_conf__split_tokens[@]}"; do
+        [[ -n "${_ai_tools_conf__split_token}" ]] && _ai_tools_conf__split_out+=("${_ai_tools_conf__split_token}")
     done
     return 0
 }
 
-# ai_tools_conf_list <array-name> <file> <key> : read <key> from <file> and split it into the
+# ai_tools_conf__read_list <array-name> <file> <key> : read <key> from <file> and split it into the
 #   named array, but ONLY when the key is present -- a present key REPLACES the array (an empty
 #   value giving an empty array, an explicit "none"), while an absent key leaves it untouched and
 #   returns 1. That is what makes an override key override: a caller seeds the array with its
 #   default and calls this, and a config that omits the key keeps that default.
-ai_tools_conf_list() {
-    local out_name="$1" file="$2" key="$3"
-    ai_tools_conf_read "${file}" "${key}" || return 1
-    ai_tools_conf_list_value "${out_name}" "${_ai_tools_conf_value}" "${_ai_tools_conf_value_quoted}" \
-        "${key} in ${file}"
+ai_tools_conf__read_list() {
+    ai_tools_conf__read "$2" "$3" || return 1
+    ai_tools_conf__split_list_value "$1" "${ai_tools_conf__value}" "${_ai_tools_conf__value_quoted}" "$3 in $2"
 }
 
-# ai_tools_conf_list_value <array-name> <value> [quoted] [label] : split a list value read from
+# ai_tools_conf__split_list_value <array-name> <value> [quoted] [label] : split a list value read from
 #   a file into the named array. `[a, b]` is a bracketed list, whose inside splits as
-#   ai_tools_conf_split splits; any other value splits as it stands. A value with one bracket and not
+#   ai_tools_conf__split splits; any other value splits as it stands. A value with one bracket and not
 #   the other, one whose quotes the parser stripped (<quoted> 1, `"[a]"`), and a bracketed one
 #   carrying a quote or a further bracket inside is invalid: the array is set EMPTY, MSG-D5N5 names
-#   <label> on stderr, and _ai_tools_conf_list_invalid is set to 1 (0 otherwise). Empty is the less-access
+#   <label> on stderr, and ai_tools_conf__list_invalid is set to 1 (0 otherwise). Empty is the less-access
 #   reading for every list that grants something -- an empty OPERATORS does not enrol any account, an
 #   empty AI_TOOLS_AGENTS does not enable any agent -- where treating the key as absent would fall back to a default
-#   that enables more. Returns 0 either way, since several callers run under `set -e`.
-ai_tools_conf_list_value() {
-    local out_name="$1" value="${2-}" quoted="${3:-0}" label="${4:-a list value}" inner reason=""
-    _ai_tools_conf_list_invalid=0
-    value="${value#"${value%%[![:space:]]*}"}"
-    value="${value%"${value##*[![:space:]]}"}"
-    if [[ "${value}" != '['* && "${value}" != *']' ]]; then
-        ai_tools_conf_split "${out_name}" "${value}"
+#   that enables more. Returns 0 either way, since several callers run under `set -e`. Its locals
+#   carry a prefix for the reason ai_tools_conf__split's do, until the array's last write.
+ai_tools_conf__split_list_value() {
+    local _ai_tools_conf__list_value_text="${2-}" _ai_tools_conf__list_value_inner _ai_tools_conf__list_value_reason=""
+    ai_tools_conf__list_invalid=0
+    _ai_tools_conf__list_value_text="${_ai_tools_conf__list_value_text#"${_ai_tools_conf__list_value_text%%[![:space:]]*}"}"
+    _ai_tools_conf__list_value_text="${_ai_tools_conf__list_value_text%"${_ai_tools_conf__list_value_text##*[![:space:]]}"}"
+    if [[ "${_ai_tools_conf__list_value_text}" != '['* && "${_ai_tools_conf__list_value_text}" != *']' ]]; then
+        ai_tools_conf__split "$1" "${_ai_tools_conf__list_value_text}"
         return 0
     fi
-    inner="${value#[}"; inner="${inner%]}"
-    if [[ "${value}" != '['*']' ]]; then
-        reason="it has one bracket and not the other"
-    elif [[ "${quoted}" == 1 ]]; then
-        reason="a bracketed list is written without quotes around it"
-    elif [[ "${inner}" == *[\"\'\[\]]* ]]; then
-        reason="an item inside brackets carries no quote or bracket"
+    _ai_tools_conf__list_value_inner="${_ai_tools_conf__list_value_text#[}"; _ai_tools_conf__list_value_inner="${_ai_tools_conf__list_value_inner%]}"
+    if [[ "${_ai_tools_conf__list_value_text}" != '['*']' ]]; then
+        _ai_tools_conf__list_value_reason="it has one bracket and not the other"
+    elif [[ "${3:-0}" == 1 ]]; then
+        _ai_tools_conf__list_value_reason="a bracketed list is written without quotes around it"
+    elif [[ "${_ai_tools_conf__list_value_inner}" == *[\"\'\[\]]* ]]; then
+        _ai_tools_conf__list_value_reason="an item inside brackets carries no quote or bracket"
     fi
-    if [[ -n "${reason}" ]]; then
-        local -n _ai_tools_conf_list_value_out="${out_name}"
-        _ai_tools_conf_list_value_out=()
-        _ai_tools_conf_list_invalid=1
-        _ai_tools_conf_warn MSG-D5N5 "invalid list, read as the empty list -- ${label} (${reason}): ${value}; write it as [a, b]"
+    if [[ -n "${_ai_tools_conf__list_value_reason}" ]]; then
+        local -n _ai_tools_conf__list_value_out="$1"
+        _ai_tools_conf__list_value_out=()
+        ai_tools_conf__list_invalid=1
+        # Plain names for the message, declared once the nameref is not written again.
+        local label="${4:-a list value}" reason="${_ai_tools_conf__list_value_reason}" value="${_ai_tools_conf__list_value_text}"
+        ai_tools_conf__warn MSG-D5N5 "invalid list, read as the empty list -- ${label} (${reason}): ${value}; write it as [a, b]"
         return 0
     fi
-    ai_tools_conf_split "${out_name}" "${inner}"
+    ai_tools_conf__split "$1" "${_ai_tools_conf__list_value_inner}"
 }
 
 # ── Kind prefixes: what a provider list item names ───────────────────────────────────────────
@@ -292,91 +300,101 @@ ai_tools_conf_list_value() {
 # an integration and a filter set. The prefix lives in operator.conf alone -- a manifest, a fragment and a rules file
 # keep the bare name, since their directory already states the kind -- so the list reader strips it and every consumer
 # receives the bare name. An item without its key's prefix makes the whole list invalid (MSG-X6F2): an earlier release
-# wrote bare names, and `ai-tools-admin system post-upgrade` rewrites them (ai_tools_conf_kind_migrate,
-# providers.lib.sh). _ai_tools_conf_kind_table is the one place a key is tied to its prefix.
+# wrote bare names, and `ai-tools-admin system post-upgrade` rewrites them (ai_tools_providers__migrate_kinds,
+# providers.lib.sh). _ai_tools_conf__list_kind_table is the one place a key is tied to its prefix.
 
 # The longest name a pair list item takes; a name may become a path component, so it is an identifier and bounded.
 # shellcheck disable=SC2034  # read by the pair-list callers that use a name as a path component
-readonly AI_TOOLS_CONF_PAIR_NAME_MAX=64
+readonly AI_TOOLS_CONF__PAIR_NAME_MAX=64
 
-# ai_tools_conf_pair_name_valid <name> : succeed when <name> is a pair list name -- letters, digits and underscores,
-#   1 to AI_TOOLS_CONF_PAIR_NAME_MAX characters, so it does not carry a separator, a dot, a glob or a space.
-ai_tools_conf_pair_name_valid() {
-    [[ "${1-}" =~ ^[A-Za-z0-9_]+$ && ${#1} -le ${AI_TOOLS_CONF_PAIR_NAME_MAX} ]]
+# ai_tools_conf__is_pair_name_valid <name> : succeed when <name> is a pair list name -- letters, digits and underscores,
+#   1 to AI_TOOLS_CONF__PAIR_NAME_MAX characters, so it does not carry a separator, a dot, a glob or a space.
+ai_tools_conf__is_pair_name_valid() {
+    [[ "${1-}" =~ ^[A-Za-z0-9_]+$ && ${#1} -le ${AI_TOOLS_CONF__PAIR_NAME_MAX} ]]
 }
 
 # The longest portable file name: NAME_MAX, the bound every Linux filesystem holds one directory entry to.
 # shellcheck disable=SC2034  # read by the callers that compose a path from a name
-readonly AI_TOOLS_CONF_PORTABLE_NAME_MAX=255
+readonly AI_TOOLS_CONF__PORTABLE_NAME_MAX=255
 
-# ai_tools_conf_portable_name_valid <name> : succeed when <name> is one path component of the POSIX portable filename
-#   character set -- letters, digits, `.`, `_` and `-`, 1 to AI_TOOLS_CONF_PORTABLE_NAME_MAX bytes, not opening
-#   with `-` and not `.` or `..`, matched in the C locale so a range does not take in letters outside ASCII. The set is
-#   the one every filesystem, locale, archive and checksum tool reads back byte for byte: sha256sum prints a name
+# ai_tools_conf__is_portable_name_valid <name> : succeed when <name> is one path component of the POSIX portable
+#   filename character set -- letters, digits, `.`, `_` and `-`, 1 to AI_TOOLS_CONF__PORTABLE_NAME_MAX bytes, not
+#   opening with `-` and not `.` or `..`, matched in the C locale so a range does not take in letters outside ASCII. The
+#   set is the one every filesystem, locale, archive and checksum tool reads back byte for byte: sha256sum prints a name
 #   outside it escaped, a whitespace IFS splits one, a filesystem that composes Unicode renames one, a command line
 #   reads a leading `-` as an option, and log.lib.sh's sanitizer reduces one for display.
-ai_tools_conf_portable_name_valid() {
+ai_tools_conf__is_portable_name_valid() {
     local LC_ALL=C
-    [[ "${1-}" =~ ^[A-Za-z0-9._][A-Za-z0-9._-]*$ && ${#1} -le ${AI_TOOLS_CONF_PORTABLE_NAME_MAX} \
+    [[ "${1-}" =~ ^[A-Za-z0-9._][A-Za-z0-9._-]*$ && ${#1} -le ${AI_TOOLS_CONF__PORTABLE_NAME_MAX} \
         && "${1-}" != . && "${1-}" != .. ]]
 }
 
-# ai_tools_conf_pair_list <array-name> <file> <KEY> <value>... : ai_tools_conf_list for a key whose items are
-#   <name>=<value> pairs, `[nis_enabled=off, deny_ptrace=on]`. Sets the array to the valid items, as written, in order:
-#   a name ai_tools_conf_pair_name_valid accepts and one of the <value>s, matched exactly. An item that is not one is
-#   reported (MSG-F6D7) and left out; a name given again is reported (MSG-R8C6) and its first value kept. An invalid
-#   list sets the array empty, as ai_tools_conf_list_value does. _ai_tools_conf_pair_list_rejected_count is set
-#   to the number of items left out, and _ai_tools_conf_list_invalid to 1 for an invalid list, so a caller for whom
-#   a left-out item is not the safe reading can refuse on it. Returns 1, leaving the array untouched, for an absent key,
-#   so a caller's defaults stand.
-ai_tools_conf_pair_list() {
-    local out_name="$1" file="$2" key="$3" item pair_name pair_value allowed_value value_allowed kept_names=" "
-    local allowed_values_text=""
+# ai_tools_conf__read_pair_list <array-name> <file> <KEY> <value>... : ai_tools_conf__read_list for a key whose items
+#   are <name>=<value> pairs, `[nis_enabled=off, deny_ptrace=on]`. Sets the array to the valid items, as written, in
+#   order: a name ai_tools_conf__is_pair_name_valid accepts and one of the <value>s, matched exactly. An item that is
+#   not one is reported (MSG-F6D7) and left out; a name given again is reported (MSG-R8C6) and its first value kept. An
+#   invalid list sets the array empty, as ai_tools_conf__split_list_value does. ai_tools_conf__pair_list_rejected_count
+#   is set to the number of items left out, and ai_tools_conf__list_invalid to 1 for an invalid list, so a caller for
+#   whom a left-out item is not the safe reading can refuse on it. Returns 1, leaving the array untouched, for an absent
+#   key, so a caller's defaults stand. Its locals carry a prefix for the reason ai_tools_conf__split's do, until the
+#   array's last write; the refused items are reported after it.
+ai_tools_conf__read_pair_list() {
+    local _ai_tools_conf__pair_list_out_name="$1" _ai_tools_conf__pair_list_file="$2" _ai_tools_conf__pair_list_key="$3" _ai_tools_conf__pair_list_item _ai_tools_conf__pair_list_pair_name _ai_tools_conf__pair_list_pair_value _ai_tools_conf__pair_list_allowed_value _ai_tools_conf__pair_list_value_allowed _ai_tools_conf__pair_list_kept_names=" "
+    local _ai_tools_conf__pair_list_allowed_values_text=""
     shift 3
     # Joined by hand: "$*" joins on the caller's IFS, which is a newline under ai-tools.
-    for allowed_value in "$@"; do allowed_values_text+="${allowed_values_text:+, }${allowed_value}"; done
-    local -a _ai_tools_conf_pair_list_raw=() _ai_tools_conf_pair_list_kept=()
-    _ai_tools_conf_pair_list_rejected_count=0
-    ai_tools_conf_list _ai_tools_conf_pair_list_raw "${file}" "${key}" || return 1
-    local -n _ai_tools_conf_pair_list_out="${out_name}"
-    for item in "${_ai_tools_conf_pair_list_raw[@]+"${_ai_tools_conf_pair_list_raw[@]}"}"; do
-        pair_name="${item%%=*}"; pair_value="${item#*=}"; value_allowed=0
-        for allowed_value in "$@"; do [[ "${pair_value}" == "${allowed_value}" ]] && value_allowed=1; done
-        if [[ "${item}" != *=* ]] || ! ai_tools_conf_pair_name_valid "${pair_name}" || (( ! value_allowed )); then
-            _ai_tools_conf_warn MSG-F6D7 "the pair list ${key} in ${file} has the item ${item}, which is not <name>=<value> with a value of ${allowed_values_text} -- ignored"
-            _ai_tools_conf_pair_list_rejected_count=$(( _ai_tools_conf_pair_list_rejected_count + 1 ))
+    for _ai_tools_conf__pair_list_allowed_value in "$@"; do _ai_tools_conf__pair_list_allowed_values_text+="${_ai_tools_conf__pair_list_allowed_values_text:+, }${_ai_tools_conf__pair_list_allowed_value}"; done
+    local -a _ai_tools_conf__pair_list_raw=() _ai_tools_conf__pair_list_kept=() _ai_tools_conf__pair_list_refused=() _ai_tools_conf__pair_list_repeated=()
+    ai_tools_conf__pair_list_rejected_count=0
+    ai_tools_conf__read_list _ai_tools_conf__pair_list_raw "${_ai_tools_conf__pair_list_file}" "${_ai_tools_conf__pair_list_key}" || return 1
+    local -n _ai_tools_conf__pair_list_out="${_ai_tools_conf__pair_list_out_name}"
+    for _ai_tools_conf__pair_list_item in "${_ai_tools_conf__pair_list_raw[@]+"${_ai_tools_conf__pair_list_raw[@]}"}"; do
+        _ai_tools_conf__pair_list_pair_name="${_ai_tools_conf__pair_list_item%%=*}"; _ai_tools_conf__pair_list_pair_value="${_ai_tools_conf__pair_list_item#*=}"; _ai_tools_conf__pair_list_value_allowed=0
+        for _ai_tools_conf__pair_list_allowed_value in "$@"; do [[ "${_ai_tools_conf__pair_list_pair_value}" == "${_ai_tools_conf__pair_list_allowed_value}" ]] && _ai_tools_conf__pair_list_value_allowed=1; done
+        if [[ "${_ai_tools_conf__pair_list_item}" != *=* ]] || ! ai_tools_conf__is_pair_name_valid "${_ai_tools_conf__pair_list_pair_name}" || (( ! _ai_tools_conf__pair_list_value_allowed )); then
+            _ai_tools_conf__pair_list_refused+=("${_ai_tools_conf__pair_list_item}")
+            ai_tools_conf__pair_list_rejected_count=$(( ai_tools_conf__pair_list_rejected_count + 1 ))
             continue
         fi
-        if [[ "${kept_names}" == *" ${pair_name} "* ]]; then
-            _ai_tools_conf_warn MSG-R8C6 "the pair list ${key} in ${file} gives ${pair_name} more than once -- the first value stands"
-            _ai_tools_conf_pair_list_rejected_count=$(( _ai_tools_conf_pair_list_rejected_count + 1 ))
+        if [[ "${_ai_tools_conf__pair_list_kept_names}" == *" ${_ai_tools_conf__pair_list_pair_name} "* ]]; then
+            _ai_tools_conf__pair_list_repeated+=("${_ai_tools_conf__pair_list_pair_name}")
+            ai_tools_conf__pair_list_rejected_count=$(( ai_tools_conf__pair_list_rejected_count + 1 ))
             continue
         fi
-        kept_names+="${pair_name} "
-        _ai_tools_conf_pair_list_kept+=("${item}")
+        _ai_tools_conf__pair_list_kept_names+="${_ai_tools_conf__pair_list_pair_name} "
+        _ai_tools_conf__pair_list_kept+=("${_ai_tools_conf__pair_list_item}")
     done
-    _ai_tools_conf_pair_list_out=("${_ai_tools_conf_pair_list_kept[@]+"${_ai_tools_conf_pair_list_kept[@]}"}")
+    _ai_tools_conf__pair_list_out=("${_ai_tools_conf__pair_list_kept[@]+"${_ai_tools_conf__pair_list_kept[@]}"}")
+    # Plain names for the messages, declared once the nameref is not written again.
+    local key="${_ai_tools_conf__pair_list_key}" file="${_ai_tools_conf__pair_list_file}" item pair_name
+    local allowed_values_text="${_ai_tools_conf__pair_list_allowed_values_text}"
+    for item in "${_ai_tools_conf__pair_list_refused[@]+"${_ai_tools_conf__pair_list_refused[@]}"}"; do
+        ai_tools_conf__warn MSG-F6D7 "the pair list ${key} in ${file} has the item ${item}, which is not <name>=<value> with a value of ${allowed_values_text} -- ignored"
+    done
+    for pair_name in "${_ai_tools_conf__pair_list_repeated[@]+"${_ai_tools_conf__pair_list_repeated[@]}"}"; do
+        ai_tools_conf__warn MSG-R8C6 "the pair list ${key} in ${file} gives ${pair_name} more than once -- the first value stands"
+    done
     return 0
 }
 
-# _ai_tools_conf_kind_table : print "KEY<TAB>prefix" per list key that carries a kind prefix.
-_ai_tools_conf_kind_table() {
+# _ai_tools_conf__list_kind_table : print "KEY<TAB>prefix" per list key that carries a kind prefix.
+_ai_tools_conf__list_kind_table() {
     printf '%s\t%s\n' AI_TOOLS_AGENTS agent- AI_TOOLS_INTEGRATIONS integration- AI_TOOLS_FILTERS filter-
 }
 
-# ai_tools_conf_kind_prefix <KEY> : print the kind prefix <KEY>'s items carry. Returns 1, printing
+# ai_tools_conf__get_kind_prefix <KEY> : print the kind prefix <KEY>'s items carry. Returns 1, printing
 #   nothing, for a key outside the table.
-ai_tools_conf_kind_prefix() {
+ai_tools_conf__get_kind_prefix() {
     local key prefix
     while IFS=$'\t' read -r key prefix; do
         [[ "${key}" == "${1-}" ]] && { printf '%s' "${prefix}"; return 0; }
-    done < <(_ai_tools_conf_kind_table)
+    done < <(_ai_tools_conf__list_kind_table)
     return 1
 }
 
-# _ai_tools_conf_kind_bare <prefix> <item> : print the bare name when <item> is <prefix> followed by
+# _ai_tools_conf__get_bare_name <prefix> <item> : print the bare name when <item> is <prefix> followed by
 #   a plain name (the charset a manifest basename takes, no `..`); return 1 otherwise.
-_ai_tools_conf_kind_bare() {
+_ai_tools_conf__get_bare_name() {
     local prefix="$1" item="$2" bare
     [[ "${item}" == "${prefix}"* ]] || return 1
     bare="${item#"${prefix}"}"
@@ -384,71 +402,76 @@ _ai_tools_conf_kind_bare() {
     printf '%s' "${bare}"
 }
 
-# ai_tools_conf_kind_list <array-name> <file> <KEY> : ai_tools_conf_list for a key in the kind table,
+# ai_tools_conf__read_kind_list <array-name> <file> <KEY> : ai_tools_conf__read_list for a key in the kind table,
 #   which then requires every item to carry the key's prefix and sets the array to the BARE names,
 #   in order. An item that does not makes the whole list invalid: the array is set EMPTY,
-#   _ai_tools_conf_list_invalid and _ai_tools_conf_list_unprefixed are set to 1, and MSG-X6F2 names
+#   ai_tools_conf__list_invalid and ai_tools_conf__list_unprefixed are set to 1, and MSG-X6F2 names
 #   the key, the items and the command that rewrites them on stderr -- the less-access reading
-#   ai_tools_conf_list_value gives a malformed list, for the same reason. Returns 1, leaving the
+#   ai_tools_conf__split_list_value gives a malformed list, for the same reason. Returns 1, leaving the
 #   array untouched, for an absent key, so a caller's baseline stands; 2 for a key outside the table.
-ai_tools_conf_kind_list() {
-    local out_name="$1" file="$2" key="$3" prefix item bare
-    local -a _ai_tools_conf_kind_list_raw=() _ai_tools_conf_kind_list_bare=() unprefixed=()
-    _ai_tools_conf_list_invalid=0 _ai_tools_conf_list_unprefixed=0
-    prefix="$(ai_tools_conf_kind_prefix "${key}")" || return 2
-    ai_tools_conf_list _ai_tools_conf_kind_list_raw "${file}" "${key}" || return 1
-    local -n _ai_tools_conf_kind_list_out="${out_name}"
-    if (( _ai_tools_conf_list_invalid )); then
-        _ai_tools_conf_kind_list_out=()
+#   Its locals carry a prefix for the reason ai_tools_conf__split's do, until the array's last write.
+ai_tools_conf__read_kind_list() {
+    local _ai_tools_conf__kind_list_out_name="$1" _ai_tools_conf__kind_list_file="$2" _ai_tools_conf__kind_list_key="$3" _ai_tools_conf__kind_list_prefix _ai_tools_conf__kind_list_item _ai_tools_conf__kind_list_bare_name
+    local -a _ai_tools_conf__kind_list_raw=() _ai_tools_conf__kind_list_bare=() _ai_tools_conf__kind_list_unprefixed=()
+    ai_tools_conf__list_invalid=0 ai_tools_conf__list_unprefixed=0
+    _ai_tools_conf__kind_list_prefix="$(ai_tools_conf__get_kind_prefix "${_ai_tools_conf__kind_list_key}")" || return 2
+    ai_tools_conf__read_list _ai_tools_conf__kind_list_raw "${_ai_tools_conf__kind_list_file}" "${_ai_tools_conf__kind_list_key}" || return 1
+    local -n _ai_tools_conf__kind_list_out="${_ai_tools_conf__kind_list_out_name}"
+    if (( ai_tools_conf__list_invalid )); then
+        _ai_tools_conf__kind_list_out=()
         return 0
     fi
-    for item in "${_ai_tools_conf_kind_list_raw[@]}"; do
-        if bare="$(_ai_tools_conf_kind_bare "${prefix}" "${item}")"; then
-            _ai_tools_conf_kind_list_bare+=("${bare}")
+    for _ai_tools_conf__kind_list_item in "${_ai_tools_conf__kind_list_raw[@]}"; do
+        if _ai_tools_conf__kind_list_bare_name="$(_ai_tools_conf__get_bare_name "${_ai_tools_conf__kind_list_prefix}" "${_ai_tools_conf__kind_list_item}")"; then
+            _ai_tools_conf__kind_list_bare+=("${_ai_tools_conf__kind_list_bare_name}")
         else
-            unprefixed+=("${item}")
+            _ai_tools_conf__kind_list_unprefixed+=("${_ai_tools_conf__kind_list_item}")
         fi
     done
-    if (( ${#unprefixed[@]} > 0 )); then
-        _ai_tools_conf_kind_list_out=()
-        _ai_tools_conf_list_invalid=1
-        _ai_tools_conf_list_unprefixed=1
-        _ai_tools_conf_warn MSG-X6F2 "invalid list, read as the empty list -- ${key} in ${file} holds ${unprefixed[*]}, not written as ${prefix}<name>; this rewrites a bare name and names any it cannot: sudo ai-tools-admin system post-upgrade"
+    if (( ${#_ai_tools_conf__kind_list_unprefixed[@]} > 0 )); then
+        _ai_tools_conf__kind_list_out=()
+        ai_tools_conf__list_invalid=1
+        # shellcheck disable=SC2034  # read by providers.lib.sh
+        ai_tools_conf__list_unprefixed=1
+        # Plain names for the message, declared once the nameref is not written again.
+        local key="${_ai_tools_conf__kind_list_key}" file="${_ai_tools_conf__kind_list_file}" prefix="${_ai_tools_conf__kind_list_prefix}"
+        local -a unprefixed=("${_ai_tools_conf__kind_list_unprefixed[@]}")
+        ai_tools_conf__warn MSG-X6F2 "invalid list, read as the empty list -- ${key} in ${file} holds ${unprefixed[*]}, not written as ${prefix}<name>; this rewrites a bare name and names any it cannot: sudo ai-tools-admin system post-upgrade"
         return 0
     fi
-    _ai_tools_conf_kind_list_out=("${_ai_tools_conf_kind_list_bare[@]+"${_ai_tools_conf_kind_list_bare[@]}"}")
+    _ai_tools_conf__kind_list_out=("${_ai_tools_conf__kind_list_bare[@]+"${_ai_tools_conf__kind_list_bare[@]}"}")
     return 0
 }
 
-# ai_tools_conf_kind_item <KEY> <name> : print <name> as <KEY> holds it -- with the key's prefix
+# ai_tools_conf__get_kind_item <KEY> <name> : print <name> as <KEY> holds it -- with the key's prefix
 #   added to a bare name, and a name already carrying it printed as given. The writer's side of
-#   ai_tools_conf_kind_list. Returns 1, printing nothing, for a key outside the table or a name
+#   ai_tools_conf__read_kind_list. Returns 1, printing nothing, for a key outside the table or a name
 #   that is not a plain name once the prefix is added.
-ai_tools_conf_kind_item() {
+ai_tools_conf__get_kind_item() {
     local key="$1" name="$2" prefix
-    prefix="$(ai_tools_conf_kind_prefix "${key}")" || return 1
+    prefix="$(ai_tools_conf__get_kind_prefix "${key}")" || return 1
     [[ "${name}" == "${prefix}"* ]] || name="${prefix}${name}"
-    _ai_tools_conf_kind_bare "${prefix}" "${name}" >/dev/null || return 1
+    _ai_tools_conf__get_bare_name "${prefix}" "${name}" >/dev/null || return 1
     printf '%s' "${name}"
 }
 
-# ai_tools_conf_kind_unmigrated <file> : print "KEY<TAB>item" for every item a key in the kind table
+# ai_tools_conf__find_unmigrated_items <file> : print "KEY<TAB>item" for every item a key in the kind table
 #   holds without that key's prefix, in table order and then list order -- the items that make
-#   ai_tools_conf_kind_list refuse the list. The one detection predicate: the base package's %post,
+#   ai_tools_conf__read_kind_list refuse the list. The one detection predicate: the base package's %post,
 #   install.sh, `system post-upgrade --check` and both launch tiers read it. Read-only. A missing or
 #   untrusted <file>, an absent key and a list the grammar refuses print nothing, since each already
 #   has a report of its own.
-ai_tools_conf_kind_unmigrated() {
+ai_tools_conf__find_unmigrated_items() {
     local file="$1" key prefix item
     local -a items=()
-    [[ -f "${file}" ]] && ai_tools_conf_is_trusted "${file}" || return 0
+    [[ -f "${file}" ]] && ai_tools_conf__is_trusted "${file}" || return 0
     while IFS=$'\t' read -r key prefix; do
-        ai_tools_conf_list items "${file}" "${key}" 2>/dev/null || continue
-        (( _ai_tools_conf_list_invalid )) && continue
+        ai_tools_conf__read_list items "${file}" "${key}" 2>/dev/null || continue
+        (( ai_tools_conf__list_invalid )) && continue
         for item in "${items[@]+"${items[@]}"}"; do
-            _ai_tools_conf_kind_bare "${prefix}" "${item}" >/dev/null || printf '%s\t%s\n' "${key}" "${item}"
+            _ai_tools_conf__get_bare_name "${prefix}" "${item}" >/dev/null || printf '%s\t%s\n' "${key}" "${item}"
         done
-    done < <(_ai_tools_conf_kind_table)
+    done < <(_ai_tools_conf__list_kind_table)
     return 0
 }
 
@@ -472,18 +495,18 @@ ai_tools_conf_kind_unmigrated() {
 #
 # The two kinds accumulate differently, because they record different things. A .bak records that a run replaced
 # the file, so each one is distinct evidence and every rewrite writes one. A .shipped records the baseline that was
-# on offer, so ai_tools_conf_reference reuses an existing copy whose content already matches and dates a new one only
-# for a baseline the directory does not hold. A host re-running the installer against an unchanged source tree therefore
-# keeps one copy per DIFFERENT baseline it was offered, rather than one per run.
+# on offer, so ai_tools_conf__ensure_reference reuses an existing copy whose content already matches and dates a new one
+# only for a baseline the directory does not hold. A host re-running the installer against an unchanged source tree
+# therefore keeps one copy per DIFFERENT baseline it was offered, rather than one per run.
 #
 # A host meets both baselines when its install routes alternate -- an rpm upgrade over a from-source install leaves
 # a .rpmnew beside an older .shipped, and the reverse leaves a newer .shipped beside an older .rpmnew -- so a reader
-# that reconciles a kept file takes ONE reference, the newest copy of either kind (ai_tools_conf_latest_copy),
+# that reconciles a kept file takes ONE reference, the newest copy of either kind (ai_tools_conf__find_latest_copy),
 # and compares the live file with the baseline that reached the host last. That order is a reading of the clock,
-# so a reader asks ai_tools_conf_clock_behind first: a file dated after now means the clock is behind, and the reader
-# names the clock as the first thing to correct instead of ordering the copies under it.
+# so a reader asks ai_tools_conf__find_paths_ahead_of_clock first: a file dated after now means the clock is behind,
+# and the reader names the clock as the first thing to correct instead of ordering the copies under it.
 
-# ai_tools_conf_sidecar_path <path> <kind> : print an UNUSED sidecar path for <path>. Returns 1
+# ai_tools_conf__find_sidecar_path <path> <kind> : print an UNUSED sidecar path for <path>. Returns 1
 #   without printing when the day's namespace is exhausted, so a caller never silently reuses a
 #   name. Pure except for the existence tests. Public because it is the single home of the
 #   `<path>.<YYYYMMDD>-<N>.<kind>` convention: managed-assets.lib.sh stamps a replaced shipped
@@ -491,7 +514,7 @@ ai_tools_conf_kind_unmigrated() {
 #   while providers.lib.sh stamps a managed file an uninstall moved aside. The kind names the event
 #   that produced the copy -- `bak` beside a file a merge replaced, `retired` where the live path
 #   is gone -- so a reader tells the two recoveries apart by the name alone.
-ai_tools_conf_sidecar_path() {
+ai_tools_conf__find_sidecar_path() {
     local file="$1" kind="$2" stamp index taken=0
     stamp="$(date +%Y%m%d)" || return 1
     # The next number is one past the highest the day already holds, so a copy made later never sorts before one made
@@ -504,10 +527,10 @@ ai_tools_conf_sidecar_path() {
     printf '%s' "${file}.${stamp}-$(( taken + 1 )).${kind}"
 }
 
-# _ai_tools_conf_match_perms <target> <model> : give <target> the owner and mode of <model>, so a
+# ai_tools_conf__match_permissions <target> <model> : give <target> the owner and mode of <model>, so a
 #   sidecar of a mode-0640 control-plane file is never left more readable than the file it copies.
 #   Best-effort: a caller without the privilege to chown still gets the copy.
-_ai_tools_conf_match_perms() {
+ai_tools_conf__match_permissions() {
     local target="$1" model="$2" meta
     [[ -e "${model}" ]] || return 0
     meta="$(stat -c '%u:%g %a' "${model}" 2>/dev/null)" || return 0
@@ -516,22 +539,22 @@ _ai_tools_conf_match_perms() {
     return 0
 }
 
-# ai_tools_conf_backup <file> : copy <file> to a fresh dated .bak and print that path. `cp -p`
+# ai_tools_conf__write_backup <file> : copy <file> to a fresh dated .bak and print that path. `cp -p`
 #   keeps mode, ownership and timestamps, so the copy is a faithful restore point rather than a
 #   file the operator has to re-permission. Returns 1 without printing a path when no copy was made.
-ai_tools_conf_backup() {
+ai_tools_conf__write_backup() {
     local file="$1" target
     [[ -f "${file}" ]] || return 1
-    target="$(ai_tools_conf_sidecar_path "${file}" bak)" || return 1
+    target="$(ai_tools_conf__find_sidecar_path "${file}" bak)" || return 1
     cp -p "${file}" "${target}" 2>/dev/null || return 1
     printf '%s' "${target}"
 }
 
-# ai_tools_conf_reference <deployed> <shipped> : print the .shipped sidecar beside <deployed> that
+# ai_tools_conf__ensure_reference <deployed> <shipped> : print the .shipped sidecar beside <deployed> that
 #   holds the <shipped> baseline, copying it to a fresh dated path when no existing sidecar matches
 #   it byte for byte. The copy takes the DEPLOYED file's owner and mode, not the source tree's.
 #   Returns 1 without printing a path when the baseline is absent or the copy fails.
-ai_tools_conf_reference() {
+ai_tools_conf__ensure_reference() {
     local deployed="$1" shipped="$2" target existing
     [[ -f "${shipped}" ]] || return 1
     for existing in "${deployed}".*.shipped; do
@@ -541,19 +564,19 @@ ai_tools_conf_reference() {
             return 0
         fi
     done
-    target="$(ai_tools_conf_sidecar_path "${deployed}" shipped)" || return 1
+    target="$(ai_tools_conf__find_sidecar_path "${deployed}" shipped)" || return 1
     cp "${shipped}" "${target}" 2>/dev/null || return 1
-    _ai_tools_conf_match_perms "${target}" "${deployed}"
+    ai_tools_conf__match_permissions "${target}" "${deployed}"
     printf '%s' "${target}"
 }
 
-# ai_tools_conf_latest_copy <deployed> : print the newest baseline beside <deployed> -- the package
+# ai_tools_conf__find_latest_copy <deployed> : print the newest baseline beside <deployed> -- the package
 #   copy <deployed>.rpmnew or an installer copy <deployed>.<YYYYMMDD>[-N].shipped, whichever was
 #   modified last -- and succeed; fail without output where neither exists. The package copy wins
 #   a tie. Modification time is the one reading both kinds carry: rpm gives a parked copy its
 #   package's build time and the installer gives its copy the time it was written, so the copy
 #   that reached the host last is the newest, whichever route brought it.
-ai_tools_conf_latest_copy() {
+ai_tools_conf__find_latest_copy() {
     local deployed="$1" candidate mtime best="" best_time=-1
     for candidate in "${deployed}.rpmnew" \
             "${deployed}".[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9].shipped \
@@ -566,14 +589,14 @@ ai_tools_conf_latest_copy() {
     printf '%s' "${best}"
 }
 
-# ai_tools_conf_clock_behind <path>... : print "<YYYY-MM-DD HH:MM:SS>\t<path>" for every existing path
+# ai_tools_conf__find_paths_ahead_of_clock <path>... : print "<YYYY-MM-DD HH:MM:SS>\t<path>" for every existing path
 #   whose modification time is after the system clock, and fail when there is one; succeed without
 #   output otherwise. A file dated after now says the clock is behind -- a host without a battery-backed
 #   clock boots into an earlier time and stays there until it reaches a time source -- and every ordering
 #   of files by date made under it is wrong, so a caller that orders copies by date, or stamps a new
 #   one, asks this first and names the clock as the first thing to correct. Where `date` does not
 #   print a clock at all the function succeeds, so an unreadable clock is not reported as behind.
-ai_tools_conf_clock_behind() {
+ai_tools_conf__find_paths_ahead_of_clock() {
     local now path mtime when behind=0
     now="$(date +%s 2>/dev/null)" || return 0
     for path in "$@"; do
@@ -598,15 +621,15 @@ ai_tools_conf_clock_behind() {
 # the launch allowlist or the operator list is the last one to edit unattended. The caller names the new keys and drops
 # the shipped baseline beside the file; the operator merges what they want.
 
-# ai_tools_conf_keys <array-name> <file> : set the named array to every KEY this file mentions,
+# ai_tools_conf__read_keys <array-name> <file> : set the named array to every KEY this file mentions,
 #   whether the key is live or written as a commented-out default (`#KEY=` / `# KEY =`). Both
 #   forms count as "mentioned", which is the point: a key an operator has deliberately commented
 #   out is one they have already seen, so re-announcing it every upgrade would be noise. A comment
 #   indented further than one space is prose, not a default, and does not name an option.
-ai_tools_conf_keys() {
-    local -n _ai_tools_conf_keys_out="$1"
+ai_tools_conf__read_keys() {
+    local -n _ai_tools_conf__keys_out="$1"
     local file="$2" line key
-    _ai_tools_conf_keys_out=()
+    _ai_tools_conf__keys_out=()
     [[ -r "${file}" ]] || return 1
     while IFS= read -r line || [[ -n "${line}" ]]; do
         line="${line#"${line%%[![:space:]]*}"}"       # strip leading whitespace
@@ -623,22 +646,22 @@ ai_tools_conf_keys() {
         key="${line%%=*}"
         key="${key%"${key##*[![:space:]]}"}"          # strip trailing whitespace
         [[ "${key}" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]] || continue
-        _ai_tools_conf_keys_out+=("${key}")
+        _ai_tools_conf__keys_out+=("${key}")
     done < "${file}"
     return 0
 }
 
-# ai_tools_conf_new_keys <array-name> <deployed> <shipped> : set the named array to every key the
+# ai_tools_conf__find_new_keys <array-name> <deployed> <shipped> : set the named array to every key the
 #   shipped file documents that the deployed one does not mention at all. Returns 1 when there are
 #   none, so a caller can stay silent in the common case.
-ai_tools_conf_new_keys() {
-    local -n _ai_tools_conf_new_out="$1"
+ai_tools_conf__find_new_keys() {
+    local -n _ai_tools_conf__new_out="$1"
     local deployed="$2" shipped="$3"
     local -a deployed_keys=() shipped_keys=()
     local key seen seen_key
-    _ai_tools_conf_new_out=()
-    ai_tools_conf_keys shipped_keys "${shipped}" || return 1
-    ai_tools_conf_keys deployed_keys "${deployed}" || return 1
+    _ai_tools_conf__new_out=()
+    ai_tools_conf__read_keys shipped_keys "${shipped}" || return 1
+    ai_tools_conf__read_keys deployed_keys "${deployed}" || return 1
     for key in "${shipped_keys[@]}"; do
         seen=""
         for seen_key in "${deployed_keys[@]}"; do
@@ -646,48 +669,48 @@ ai_tools_conf_new_keys() {
         done
         [[ -n "${seen}" ]] && continue
         # A shipped file may document a key more than once; announce it once.
-        for seen_key in "${_ai_tools_conf_new_out[@]}"; do
+        for seen_key in "${_ai_tools_conf__new_out[@]}"; do
             [[ "${seen_key}" == "${key}" ]] && { seen=1; break; }
         done
-        [[ -n "${seen}" ]] || _ai_tools_conf_new_out+=("${key}")
+        [[ -n "${seen}" ]] || _ai_tools_conf__new_out+=("${key}")
     done
-    (( ${#_ai_tools_conf_new_out[@]} > 0 ))
+    (( ${#_ai_tools_conf__new_out[@]} > 0 ))
 }
 
 # ── KEY=value files: set one key in place ────────────────────────────────────────────────────
 # The one rewrite this project makes to operator.conf is a single key's value -- the OPERATORS list
 # from `ai-tools-admin operators add|remove` and the AI_TOOLS_AGENTS list from the toolchain provisioning's agent choice
-# (ai_tools_conf_set_list), and the provisioning's switches (ai_tools_conf_set_key). Setting a key replaces one line
-# and does not splice a block in, which is what ai_tools_conf_new_keys leaves to the operator: the line replaced is
-# the key's own -- its last live assignment, the one a reader takes, or where the file has none, the first commented
-# default ai_tools_conf_keys counts as a mention -- so the template's commented default is rewritten IN PLACE under its
-# comment block and the file keeps the shape the new-key report reads. A live line an operator added after the commented
-# default is the one replaced, since rewriting the default would leave the later line winning the read. Every other line
-# is copied byte for byte.
+# (ai_tools_conf__set_list), and the provisioning's switches (ai_tools_conf__set_key). Setting a key replaces one line
+# and does not splice a block in, which is what ai_tools_conf__find_new_keys leaves to the operator: the line replaced
+# is the key's own -- its last live assignment, the one a reader takes, or where the file has none, the first commented
+# default ai_tools_conf__read_keys counts as a mention -- so the template's commented default is rewritten IN PLACE
+# under its comment block and the file keeps the shape the new-key report reads. A live line an operator added
+# after the commented default is the one replaced, since rewriting the default would leave the later line winning
+# the read. Every other line is copied byte for byte.
 
-# ai_tools_conf_set_key <file> <KEY> <value> : write `KEY="value"` into <file>, replacing the line
-#   _ai_tools_conf_write_line picks -- the last live `KEY=`, else the first `#KEY=` / `# KEY=` --
+# ai_tools_conf__set_key <file> <KEY> <value> : write `KEY="value"` into <file>, replacing the line
+#   _ai_tools_conf__write_line picks -- the last live `KEY=`, else the first `#KEY=` / `# KEY=` --
 #   or appending the line when none does. A missing <file> is created at mode 0644; an existing one
-#   keeps its owner and mode and is replaced by a rename (_ai_tools_conf_replace_file). Verified by
-#   re-reading the key through ai_tools_conf_read. Returns 0 when the file now holds the value, 1
+#   keeps its owner and mode and is replaced by a rename (_ai_tools_conf__replace_file). Verified by
+#   re-reading the key through ai_tools_conf__read. Returns 0 when the file now holds the value, 1
 #   when it could not be written or does not read back, 2 for a KEY outside the identifier charset
 #   or a value carrying a newline or a double quote -- either would end the line or the quoted
 #   value early and write a different setting than the one asked for.
-ai_tools_conf_set_key() {
+ai_tools_conf__set_key() {
     local file="$1" key="$2" value="$3"
     [[ "${key}" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]] || return 2
     [[ "${value}" != *$'\n'* && "${value}" != *'"'* ]] || return 2
-    _ai_tools_conf_write_line "${file}" "${key}" "${key}=\"${value}\"" || return 1
-    ai_tools_conf_read "${file}" "${key}" && [[ "${_ai_tools_conf_value}" == "${value}" ]]
+    _ai_tools_conf__write_line "${file}" "${key}" "${key}=\"${value}\"" || return 1
+    ai_tools_conf__read "${file}" "${key}" && [[ "${ai_tools_conf__value}" == "${value}" ]]
 }
 
-# ai_tools_conf_set_list <file> <KEY> [item]... : write `KEY=[a, b]` into <file> (`KEY=[]` for no
-#   items), replacing the same line ai_tools_conf_set_key replaces and keeping the file's owner and
-#   mode the same way. Verified by reading the list back through ai_tools_conf_list. Returns 0 when
+# ai_tools_conf__set_list <file> <KEY> [item]... : write `KEY=[a, b]` into <file> (`KEY=[]` for no
+#   items), replacing the same line ai_tools_conf__set_key replaces and keeping the file's owner and
+#   mode the same way. Verified by reading the list back through ai_tools_conf__read_list. Returns 0 when
 #   the file now holds the items in order, 1 when it could not be written or does not read back, 2 for
 #   a KEY outside the identifier charset or an item that is empty or carries whitespace, a comma,
 #   a bracket, a quote or a `#` -- each would split into other items, or end the list, on the read.
-ai_tools_conf_set_list() {
+ai_tools_conf__set_list() {
     local file="$1" key="$2" item joined=""
     shift 2
     [[ "${key}" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]] || return 2
@@ -695,20 +718,20 @@ ai_tools_conf_set_list() {
         [[ -n "${item}" && "${item}" != *[[:space:],\[\]\"\'#]* ]] || return 2
         joined+="${joined:+, }${item}"
     done
-    _ai_tools_conf_write_line "${file}" "${key}" "${key}=[${joined}]" || return 1
+    _ai_tools_conf__write_line "${file}" "${key}" "${key}=[${joined}]" || return 1
     local -a written=()
-    ai_tools_conf_list written "${file}" "${key}" || return 1
+    ai_tools_conf__read_list written "${file}" "${key}" || return 1
     [[ "${written[*]-}" == "$*" && ${#written[@]} -eq $# ]]
 }
 
-# _ai_tools_conf_write_line <file> <KEY> <line> : replace the last live assignment of KEY in <file>
+# _ai_tools_conf__write_line <file> <KEY> <line> : replace the last live assignment of KEY in <file>
 #   (`KEY=`, whitespace allowed around the key) with <line> -- or, where there is none, the first
 #   commented default (`#KEY=`, `# KEY=`) -- or append <line> when the file mentions neither,
 #   copying every other line byte for byte. A missing <file> is created at mode 0644; an
 #   existing one keeps its owner and mode and is replaced by a rename
-#   (_ai_tools_conf_replace_file). Returns 1 when the file could not be written. The one line
+#   (_ai_tools_conf__replace_file). Returns 1 when the file could not be written. The one line
 #   replacement both public writers share, so they rewrite the same line of the same file.
-_ai_tools_conf_write_line() {
+_ai_tools_conf__write_line() {
     local file="$1" key="$2" new_line="$3" tmp line number=0 live=0 commented=0 target
     if [[ -f "${file}" ]]; then
         while IFS= read -r line || [[ -n "${line}" ]]; do
@@ -732,7 +755,7 @@ _ai_tools_conf_write_line() {
     fi
     (( target )) || printf '%s\n' "${new_line}" >> "${tmp}"
     if [[ -f "${file}" ]]; then
-        if ! _ai_tools_conf_replace_file "${file}" "${tmp}"; then rm -f -- "${tmp}"; return 1; fi
+        if ! _ai_tools_conf__replace_file "${file}" "${tmp}"; then rm -f -- "${tmp}"; return 1; fi
     elif ! install -m 644 -- "${tmp}" "${file}" 2>/dev/null; then
         rm -f -- "${tmp}"; return 1
     fi
@@ -752,24 +775,24 @@ _ai_tools_conf_write_line() {
 #   !/home/op/project/vendor      an exclusion; the `!` precedes the quotes: !"/a b"
 #
 # An entry is NOT resolved or validated by the line parser, which only decides what text the line denotes;
-# ai_tools_conf_allowlist_load is the one read that resolves entries and ai_tools_conf_is_path_excluded the one match.
+# ai_tools_conf__load_allowlist is the one read that resolves entries and ai_tools_conf__is_path_excluded the one match.
 
-# ai_tools_conf_path_entry <line> : set _ai_tools_conf_value to the entry <line> denotes and
+# ai_tools_conf__parse_path_entry <line> : set ai_tools_conf__value to the entry <line> denotes and
 #   return 0; return 1 for a line that does not carry an entry (blank, or a whole-line comment), which
 #   is the caller's signal to skip it. A leading `!` is preserved on the result, so an exclusion
 #   stays distinguishable after the quotes are stripped.
-ai_tools_conf_path_entry() {
+ai_tools_conf__parse_path_entry() {
     local line="${1-}" negate=""
     line="${line#"${line%%[![:space:]]*}"}"
-    [[ -z "${line}" || "${line}" == '#'* ]] && { _ai_tools_conf_value=""; return 1; }
+    [[ -z "${line}" || "${line}" == '#'* ]] && { ai_tools_conf__value=""; return 1; }
     if [[ "${line}" == '!'* ]]; then
         negate='!'
         line="${line#\!}"
         line="${line#"${line%%[![:space:]]*}"}"
     fi
-    _ai_tools_conf_parse_value "${line}"
-    [[ -n "${_ai_tools_conf_value}" ]] || return 1
-    _ai_tools_conf_value="${negate}${_ai_tools_conf_value}"
+    _ai_tools_conf__parse_value "${line}"
+    [[ -n "${ai_tools_conf__value}" ]] || return 1
+    ai_tools_conf__value="${negate}${ai_tools_conf__value}"
     return 0
 }
 
@@ -800,23 +823,23 @@ ai_tools_conf_path_entry() {
 # names a path, and the owner-only mode on the directory is what keeps its contents from the account
 # (secret-handling.rule.md).
 
-# ai_tools_conf_path_has_glob_characters <path> : return 0 when <path> carries a glob character (`*`, `?` or `[`); such
+# ai_tools_conf__has_glob_characters <path> : return 0 when <path> carries a glob character (`*`, `?` or `[`); such
 #   an exclusion is matched as a pattern on the whole path and is never resolved.
-ai_tools_conf_path_has_glob_characters() { [[ "${1-}" == *[*?[]* ]]; }
+ai_tools_conf__has_glob_characters() { [[ "${1-}" == *[*?[]* ]]; }
 
-# _ai_tools_conf_resolve_exclusion_path <abs-path> <uid> : set _ai_tools_conf_value to <abs-path> with every symlink
+# _ai_tools_conf__resolve_exclusion_path <abs-path> <uid> : set ai_tools_conf__value to <abs-path> with every symlink
 #   on the way followed and `.`/`..` collapsed, as realpath -m does, and return 0 when each symlink met is owned
 #   by <uid> or by root and every directory on the way to it is held by <uid> or root with no group or other write bit
 #   unless the sticky bit is set (the reads that make the link one the sandbox account cannot remove, replace or move
-#   aside). Return 1 for a relative path, and -- with _ai_tools_conf_resolve_refusal set to the reason, naming the link
+#   aside). Return 1 for a relative path, and -- with _ai_tools_conf__resolve_refusal set to the reason, naming the link
 #   -- for a symlink or a directory on the way to it held by any other account, such a directory with a group or other
 #   write bit and no sticky bit, a link `stat` or `readlink` does not return, or more than 40 links (a loop).
 #   A component that does not exist is kept as written. Results travel in globals rather than on stdout, so the caller
 #   reads them without a subshell.
-_ai_tools_conf_resolve_exclusion_path() {
+_ai_tools_conf__resolve_exclusion_path() {
     local remaining_path="${1-}" allowlist_owner_uid="${2-}" resolved_path="" component link symlink_target
     local symlink_owner_uid symlink_count=0 ancestor_directory ancestor_owner_uid ancestor_mode checked_directories=""
-    _ai_tools_conf_value=""; _ai_tools_conf_resolve_refusal=""
+    ai_tools_conf__value=""; _ai_tools_conf__resolve_refusal=""
     [[ "${remaining_path}" == /* && -n "${allowlist_owner_uid}" ]] || return 1
     remaining_path="${remaining_path#/}"
     while [[ -n "${remaining_path}" ]]; do
@@ -830,13 +853,13 @@ _ai_tools_conf_resolve_exclusion_path() {
         if [[ -L "${link}" ]]; then
             symlink_count=$(( symlink_count + 1 ))
             if (( symlink_count > 40 )); then
-                _ai_tools_conf_resolve_refusal="more than 40 symbolic links are met on the way (a loop) at ${link}"; return 1
+                _ai_tools_conf__resolve_refusal="more than 40 symbolic links are met on the way (a loop) at ${link}"; return 1
             fi
             if ! symlink_owner_uid="$(stat -c '%u' -- "${link}" 2>/dev/null)"; then
-                _ai_tools_conf_resolve_refusal="${link} is a symbolic link whose owner cannot be read"; return 1
+                _ai_tools_conf__resolve_refusal="${link} is a symbolic link whose owner cannot be read"; return 1
             fi
             if [[ "${symlink_owner_uid}" != "${allowlist_owner_uid}" && "${symlink_owner_uid}" != 0 ]]; then
-                _ai_tools_conf_resolve_refusal="${link} is a symbolic link held by uid ${symlink_owner_uid}, not by the file's owner (uid ${allowlist_owner_uid}) or root"; return 1
+                _ai_tools_conf__resolve_refusal="${link} is a symbolic link held by uid ${symlink_owner_uid}, not by the file's owner (uid ${allowlist_owner_uid}) or root"; return 1
             fi
             # Every directory on the way to the link, the holding one included, and each read once per call: write
             # on any of them lets the sandbox account rename the link's own directory aside, after which the written
@@ -850,13 +873,13 @@ _ai_tools_conf_resolve_exclusion_path() {
                 if [[ " ${checked_directories} " != *" ${ancestor_directory} "* ]]; then
                     if ! IFS=' ' read -r ancestor_owner_uid ancestor_mode \
                             < <(stat -c '%u %a' -- "${ancestor_directory}" 2>/dev/null); then
-                        _ai_tools_conf_resolve_refusal="${link} is a symbolic link under ${ancestor_directory}, whose owner and mode cannot be read"; return 1
+                        _ai_tools_conf__resolve_refusal="${link} is a symbolic link under ${ancestor_directory}, whose owner and mode cannot be read"; return 1
                     fi
                     if [[ "${ancestor_owner_uid}" != "${allowlist_owner_uid}" && "${ancestor_owner_uid}" != 0 ]]; then
-                        _ai_tools_conf_resolve_refusal="${link} is a symbolic link under ${ancestor_directory}, a directory held by uid ${ancestor_owner_uid}, not by the file's owner (uid ${allowlist_owner_uid}) or root"; return 1
+                        _ai_tools_conf__resolve_refusal="${link} is a symbolic link under ${ancestor_directory}, a directory held by uid ${ancestor_owner_uid}, not by the file's owner (uid ${allowlist_owner_uid}) or root"; return 1
                     fi
                     if (( 8#${ancestor_mode} & 8#022 )) && ! (( 8#${ancestor_mode} & 8#1000 )); then
-                        _ai_tools_conf_resolve_refusal="${link} is a symbolic link under ${ancestor_directory}, a directory with a group or other write bit and no sticky bit (mode ${ancestor_mode}), so an account other than its owner can move the link or a directory above it"; return 1
+                        _ai_tools_conf__resolve_refusal="${link} is a symbolic link under ${ancestor_directory}, a directory with a group or other write bit and no sticky bit (mode ${ancestor_mode}), so an account other than its owner can move the link or a directory above it"; return 1
                     fi
                     checked_directories+=" ${ancestor_directory}"
                 fi
@@ -864,7 +887,7 @@ _ai_tools_conf_resolve_exclusion_path() {
                 ancestor_directory="${ancestor_directory%/*}"; ancestor_directory="${ancestor_directory:-/}"
             done
             if ! symlink_target="$(readlink -- "${link}" 2>/dev/null)" || [[ -z "${symlink_target}" ]]; then
-                _ai_tools_conf_resolve_refusal="${link} is a symbolic link that cannot be read"; return 1
+                _ai_tools_conf__resolve_refusal="${link} is a symbolic link that cannot be read"; return 1
             fi
             if [[ "${symlink_target}" == /* ]]; then resolved_path=""; symlink_target="${symlink_target#/}"; fi
             remaining_path="${symlink_target}${remaining_path:+/${remaining_path}}"
@@ -872,51 +895,51 @@ _ai_tools_conf_resolve_exclusion_path() {
         fi
         resolved_path="${link}"
     done
-    _ai_tools_conf_value="${resolved_path:-/}"
+    ai_tools_conf__value="${resolved_path:-/}"
 }
 
-# ai_tools_conf_allowlist_load <allowlist-file> <allowed-array> <excluded-array> : fill the two named arrays from
+# ai_tools_conf__load_allowlist <allowlist-file> <allowed-array> <excluded-array> : fill the two named arrays from
 #   <allowlist-file> as the section comment states -- allow entries resolved; exclusions as written, plus the resolved
 #   form of a glob-free absolute one whose symlinks the sandbox account can neither remove nor replace -- and return 0.
 #   Return 1, both arrays empty, when <allowlist-file> is missing, is a directory or another non-regular file, cannot
 #   be read, or has no readable owner. Return 2, both arrays empty and MSG-Y5N6 on stderr naming the entry
-#   and the link, when a glob-free absolute exclusion meets a symlink _ai_tools_conf_resolve_exclusion_path refuses.
-ai_tools_conf_allowlist_load() {
-    local -n _ai_tools_conf_load_allowed="$2" _ai_tools_conf_load_excluded="$3"
+#   and the link, when a glob-free absolute exclusion meets a symlink _ai_tools_conf__resolve_exclusion_path refuses.
+ai_tools_conf__load_allowlist() {
+    local -n _ai_tools_conf__load_allowed="$2" _ai_tools_conf__load_excluded="$3"
     local file="${1-}" allowlist_owner_uid line entry resolved
-    _ai_tools_conf_load_allowed=(); _ai_tools_conf_load_excluded=()
+    _ai_tools_conf__load_allowed=(); _ai_tools_conf__load_excluded=()
     [[ -f "${file}" && -r "${file}" ]] || return 1
     allowlist_owner_uid="$(stat -c '%u' -- "${file}" 2>/dev/null)" || return 1
     while IFS= read -r line || [[ -n "${line}" ]]; do
-        ai_tools_conf_path_entry "${line}" || continue
-        entry="${_ai_tools_conf_value}"
+        ai_tools_conf__parse_path_entry "${line}" || continue
+        entry="${ai_tools_conf__value}"
         if [[ "${entry}" == '!'* ]]; then
             entry="${entry:1}"
-            _ai_tools_conf_load_excluded+=("${entry}")
-            ai_tools_conf_path_has_glob_characters "${entry}" && continue
+            _ai_tools_conf__load_excluded+=("${entry}")
+            ai_tools_conf__has_glob_characters "${entry}" && continue
             [[ "${entry}" == /* ]] || continue
-            if ! _ai_tools_conf_resolve_exclusion_path "${entry}" "${allowlist_owner_uid}"; then
-                _ai_tools_conf_load_allowed=(); _ai_tools_conf_load_excluded=()
-                _ai_tools_conf_warn MSG-Y5N6 "exclusion !${entry} in ${file} cannot be resolved -- ${_ai_tools_conf_resolve_refusal}; write the exclusion as the directory's real path, since a link the sandbox account can change cannot be followed; no entry in this file allows a path until the line is fixed"
+            if ! _ai_tools_conf__resolve_exclusion_path "${entry}" "${allowlist_owner_uid}"; then
+                _ai_tools_conf__load_allowed=(); _ai_tools_conf__load_excluded=()
+                ai_tools_conf__warn MSG-Y5N6 "exclusion !${entry} in ${file} cannot be resolved -- ${_ai_tools_conf__resolve_refusal}; write the exclusion as the directory's real path, since a link the sandbox account can change cannot be followed; no entry in this file allows a path until the line is fixed"
                 return 2
             fi
-            resolved="${_ai_tools_conf_value}"
-            [[ "${resolved}" == "${entry%/}" ]] || _ai_tools_conf_load_excluded+=("${resolved}")
+            resolved="${ai_tools_conf__value}"
+            [[ "${resolved}" == "${entry%/}" ]] || _ai_tools_conf__load_excluded+=("${resolved}")
         else
             resolved="$(realpath -e -- "${entry}" 2>/dev/null)" || continue
-            _ai_tools_conf_load_allowed+=("${resolved}")
+            _ai_tools_conf__load_allowed+=("${resolved}")
         fi
     done < "${file}"
 }
 
-# ai_tools_conf_is_path_excluded <abs-path> <excluded-array> : return 0 when an entry of the named array covers
+# ai_tools_conf__is_path_excluded <abs-path> <excluded-array> : return 0 when an entry of the named array covers
 #   <abs-path>: equal to it, with a glob matched as a pattern against the whole path, or, for an entry without `*`,
 #   an ancestor of it; a trailing slash on an entry is ignored. Return 1 otherwise, and for an empty array.
-ai_tools_conf_is_path_excluded() {
-    local -n _ai_tools_conf_match_excluded="$2"
+ai_tools_conf__is_path_excluded() {
+    local -n _ai_tools_conf__match_excluded="$2"
     local path="${1-}" pat
-    (( ${#_ai_tools_conf_match_excluded[@]} )) || return 1
-    for pat in "${_ai_tools_conf_match_excluded[@]}"; do
+    (( ${#_ai_tools_conf__match_excluded[@]} )) || return 1
+    for pat in "${_ai_tools_conf__match_excluded[@]}"; do
         pat="${pat%/}"
         [[ "${path}" == ${pat} ]] && return 0
         if [[ "${pat}" != *'*'* && "${path}" == "${pat}/"* ]]; then return 0; fi
@@ -935,76 +958,76 @@ ai_tools_conf_is_path_excluded() {
 # an existing target and is skipped (the launch wrapper drops unresolvable entries the same way). Callers pass
 # an existing path (a realpath'd project dir); membership of a non-existent path is never asserted.
 
-# _ai_tools_conf_allowlist_norm <path> : print <path> realpath-normalized, or <path> itself when
+# _ai_tools_conf__normalize_allowlist_path <path> : print <path> realpath-normalized, or <path> itself when
 #   it does not resolve, so the two membership predicates canonicalize target and entry identically.
-_ai_tools_conf_allowlist_norm() { realpath -e "$1" 2>/dev/null || printf '%s' "$1"; }
+_ai_tools_conf__normalize_allowlist_path() { realpath -e "$1" 2>/dev/null || printf '%s' "$1"; }
 
-# ai_tools_conf_allowlist_has_entry <allowlist-file> <path> : return 0 when <path> matches an
+# ai_tools_conf__has_allowlist_entry <allowlist-file> <path> : return 0 when <path> matches an
 #   ALLOW entry (a non-`!` line) of <allowlist-file>. Exclusion lines never count as membership.
-ai_tools_conf_allowlist_has_entry() {
+ai_tools_conf__has_allowlist_entry() {
     local file="$1" want line entry
-    want="$(_ai_tools_conf_allowlist_norm "$2")"
+    want="$(_ai_tools_conf__normalize_allowlist_path "$2")"
     while IFS= read -r line || [[ -n "${line}" ]]; do
-        ai_tools_conf_path_entry "${line}" || continue
-        entry="${_ai_tools_conf_value}"
+        ai_tools_conf__parse_path_entry "${line}" || continue
+        entry="${ai_tools_conf__value}"
         [[ "${entry}" == '!'* ]] && continue
-        [[ "$(_ai_tools_conf_allowlist_norm "${entry}")" == "${want}" ]] && return 0
+        [[ "$(_ai_tools_conf__normalize_allowlist_path "${entry}")" == "${want}" ]] && return 0
     done < "${file}"
     return 1
 }
 
-# ai_tools_conf_allowlist_has_exclusion <allowlist-file> <path> : return 0 when <path> matches a
+# ai_tools_conf__has_allowlist_exclusion <allowlist-file> <path> : return 0 when <path> matches a
 #   `!` EXCLUSION entry exactly (compared without the `!`). This is exact-path, not glob: it is the
 #   relabel helper's "is this dir explicitly excluded" check, which never expanded globs.
-ai_tools_conf_allowlist_has_exclusion() {
+ai_tools_conf__has_allowlist_exclusion() {
     local file="$1" want line entry
-    want="$(_ai_tools_conf_allowlist_norm "$2")"
+    want="$(_ai_tools_conf__normalize_allowlist_path "$2")"
     while IFS= read -r line || [[ -n "${line}" ]]; do
-        ai_tools_conf_path_entry "${line}" || continue
-        entry="${_ai_tools_conf_value}"
+        ai_tools_conf__parse_path_entry "${line}" || continue
+        entry="${ai_tools_conf__value}"
         [[ "${entry}" == '!'* ]] || continue
-        [[ "$(_ai_tools_conf_allowlist_norm "${entry#\!}")" == "${want}" ]] && return 0
+        [[ "$(_ai_tools_conf__normalize_allowlist_path "${entry#\!}")" == "${want}" ]] && return 0
     done < "${file}"
     return 1
 }
 
-# ai_tools_conf_allowlist_matching_lines <array-name> <allowlist-file> <path> : set the named array
+# ai_tools_conf__read_allowlist_matching_lines <array-name> <allowlist-file> <path> : set the named array
 #   to every RAW line of <allowlist-file> whose ALLOW entry matches <path>, and return 0 when at
 #   least one did. For a caller that must DELETE the line (unclaim, the `projects list` remediation): the raw
 #   text is what a line-anchored `sed` removes, and it can differ from <path> -- a comment, quotes,
 #   or a symlinked spelling -- so reconstructing the line from <path> would fail to match.
-ai_tools_conf_allowlist_matching_lines() {
-    local -n _ai_tools_conf_matched="$1"
+ai_tools_conf__read_allowlist_matching_lines() {
+    local -n _ai_tools_conf__matched="$1"
     local file="$2" want line entry
-    want="$(_ai_tools_conf_allowlist_norm "$3")"
-    _ai_tools_conf_matched=()
+    want="$(_ai_tools_conf__normalize_allowlist_path "$3")"
+    _ai_tools_conf__matched=()
     while IFS= read -r line || [[ -n "${line}" ]]; do
-        ai_tools_conf_path_entry "${line}" || continue
-        entry="${_ai_tools_conf_value}"
+        ai_tools_conf__parse_path_entry "${line}" || continue
+        entry="${ai_tools_conf__value}"
         [[ "${entry}" == '!'* ]] && continue
-        [[ "$(_ai_tools_conf_allowlist_norm "${entry}")" == "${want}" ]] && _ai_tools_conf_matched+=("${line}")
+        [[ "$(_ai_tools_conf__normalize_allowlist_path "${entry}")" == "${want}" ]] && _ai_tools_conf__matched+=("${line}")
     done < "${file}"
-    (( ${#_ai_tools_conf_matched[@]} > 0 ))
+    (( ${#_ai_tools_conf__matched[@]} > 0 ))
 }
 
-# ai_tools_conf_allowlist_exclusion_lines <array-name> <allowlist-file> <path> : the exclusion
+# ai_tools_conf__read_allowlist_exclusion_lines <array-name> <allowlist-file> <path> : the exclusion
 #   counterpart of the allow matcher -- set the named array to every RAW line whose `!` entry names
 #   <path> exactly (compared without the `!`), and return 0 when at least one did. Exact-path like
-#   ai_tools_conf_allowlist_has_exclusion, never glob-expanding: it serves the callers that must
+#   ai_tools_conf__has_allowlist_exclusion, never glob-expanding: it serves the callers that must
 #   EDIT the line an operator wrote to park a project (the CLI's re-enable, its de-registration,
 #   and the `--for` root helper), and a glob line does not name a single project to act on.
-ai_tools_conf_allowlist_exclusion_lines() {
-    local -n _ai_tools_conf_excluded="$1"
+ai_tools_conf__read_allowlist_exclusion_lines() {
+    local -n _ai_tools_conf__excluded="$1"
     local file="$2" want line entry
-    want="$(_ai_tools_conf_allowlist_norm "$3")"
-    _ai_tools_conf_excluded=()
+    want="$(_ai_tools_conf__normalize_allowlist_path "$3")"
+    _ai_tools_conf__excluded=()
     while IFS= read -r line || [[ -n "${line}" ]]; do
-        ai_tools_conf_path_entry "${line}" || continue
-        entry="${_ai_tools_conf_value}"
+        ai_tools_conf__parse_path_entry "${line}" || continue
+        entry="${ai_tools_conf__value}"
         [[ "${entry}" == '!'* ]] || continue
-        [[ "$(_ai_tools_conf_allowlist_norm "${entry#\!}")" == "${want}" ]] && _ai_tools_conf_excluded+=("${line}")
+        [[ "$(_ai_tools_conf__normalize_allowlist_path "${entry#\!}")" == "${want}" ]] && _ai_tools_conf__excluded+=("${line}")
     done < "${file}"
-    (( ${#_ai_tools_conf_excluded[@]} > 0 ))
+    (( ${#_ai_tools_conf__excluded[@]} > 0 ))
 }
 
 # ── Allowlist editing (the one implementation of a registry change) ──────────────────────────
@@ -1025,14 +1048,14 @@ ai_tools_conf_allowlist_exclusion_lines() {
 # no session can start in), and enabling or disabling a path the file does not name would invent an
 # entry rather than edit one.
 
-# _ai_tools_conf_replace_file <file> <src> : replace <file> with <src>'s contents, preserving
+# _ai_tools_conf__replace_file <file> <src> : replace <file> with <src>'s contents, preserving
 #   its owner and mode. Written beside it and renamed, so a concurrent reader (a launch wrapper
 #   gating a session) sees the whole old file or the whole new one, never a half-written gate. The
 #   temp file is created in the file's OWN directory, which is what a rename across it requires --
 #   so this fails on a config directory the caller cannot write even when the file itself is
 #   writable, and the callers report that rather than aborting on it. Shared by the allowlist
-#   editors and by ai_tools_conf_set_key, the one rewrite of a KEY=value file.
-_ai_tools_conf_replace_file() {
+#   editors and by ai_tools_conf__set_key, the one rewrite of a KEY=value file.
+_ai_tools_conf__replace_file() {
     local file="$1" src="$2" tmp owner mode
     owner="$(stat -c '%U:%G' "${file}" 2>/dev/null || true)"
     mode="$(stat -c '%a' "${file}" 2>/dev/null || true)"
@@ -1046,28 +1069,28 @@ _ai_tools_conf_replace_file() {
     mv -f -- "${tmp}" "${file}" 2>/dev/null || { rm -f -- "${tmp}"; return 1; }
 }
 
-# ai_tools_conf_allowlist_state <allowlist-file> <path> : print how the file answers for <path> --
+# ai_tools_conf__read_allowlist_state <allowlist-file> <path> : print how the file answers for <path> --
 #   `disabled`, `listed`, or `absent`. An exclusion WINS over an allow entry, exactly as it does at
 #   the launch gate, so a path carrying both lines reads `disabled`: no session can start there,
 #   which makes it the only honest answer. This is the state a has_entry/absent reading cannot
 #   express, and every verb that reports on a parked project reads it.
-ai_tools_conf_allowlist_state() {
+ai_tools_conf__read_allowlist_state() {
     local file="$1" path="$2"
     [[ -f "${file}" ]] || { printf 'absent'; return 0; }
-    if   ai_tools_conf_allowlist_has_exclusion "${file}" "${path}"; then printf 'disabled'
-    elif ai_tools_conf_allowlist_has_entry     "${file}" "${path}"; then printf 'listed'
+    if   ai_tools_conf__has_allowlist_exclusion "${file}" "${path}"; then printf 'disabled'
+    elif ai_tools_conf__has_allowlist_entry     "${file}" "${path}"; then printf 'listed'
     else printf 'absent'
     fi
 }
 
-# ai_tools_conf_allowlist_add <allowlist-file> <path> : append <path> as an allow entry, on a line
+# ai_tools_conf__allowlist_add <allowlist-file> <path> : append <path> as an allow entry, on a line
 #   of its own. A path already listed is left alone (a re-claim must not duplicate a line); a
 #   DISABLED path is refused with 2 rather than appended, because the appended line would not take
 #   effect.
-ai_tools_conf_allowlist_add() {
+ai_tools_conf__allowlist_add() {
     local file="$1" path="$2" line_break=''
     [[ -f "${file}" ]] || return 1
-    case "$(ai_tools_conf_allowlist_state "${file}" "${path}")" in
+    case "$(ai_tools_conf__read_allowlist_state "${file}" "${path}")" in
         listed)   return 0 ;;
         disabled) return 2 ;;
     esac
@@ -1077,21 +1100,21 @@ ai_tools_conf_allowlist_add() {
     # the preceding entry changed meaning.
     [[ -n "$(tail -c 1 -- "${file}" 2>/dev/null)" ]] && line_break=$'\n'
     printf '%s%s\n' "${line_break}" "${path}" >> "${file}" 2>/dev/null || return 1
-    ai_tools_conf_allowlist_has_entry "${file}" "${path}" || return 1
+    ai_tools_conf__has_allowlist_entry "${file}" "${path}" || return 1
 }
 
-# ai_tools_conf_allowlist_remove <allowlist-file> <path> : delete every line naming <path>, allow
+# ai_tools_conf__allowlist_remove <allowlist-file> <path> : delete every line naming <path>, allow
 #   and exclusion alike, because a de-registration that left the `!` behind would park a directory
 #   that no longer exists -- and silently disable the next project claimed at that path.
 #   Removing what is not there succeeds: an unclaim run twice is not an error.
-ai_tools_conf_allowlist_remove() {
+ai_tools_conf__allowlist_remove() {
     local file="$1" path="$2" tmp line keep m
     # Names distinct from any scalar a sibling library uses: every consumer sources this file, and an array here sharing
     # a name with a local there reads as a type conflict at lint time.
     local -a doomed_lines=() parked_lines=()
     [[ -f "${file}" ]] || return 0
-    ai_tools_conf_allowlist_matching_lines  doomed_lines "${file}" "${path}" || true
-    ai_tools_conf_allowlist_exclusion_lines parked_lines "${file}" "${path}" || true
+    ai_tools_conf__read_allowlist_matching_lines  doomed_lines "${file}" "${path}" || true
+    ai_tools_conf__read_allowlist_exclusion_lines parked_lines "${file}" "${path}" || true
     doomed_lines+=("${parked_lines[@]}")
     (( ${#doomed_lines[@]} )) || return 0
     tmp="$(mktemp 2>/dev/null)" || return 1
@@ -1102,23 +1125,23 @@ ai_tools_conf_allowlist_remove() {
         done
         ${keep} && printf '%s\n' "${line}"
     done < "${file}" > "${tmp}"
-    if ! _ai_tools_conf_replace_file "${file}" "${tmp}"; then rm -f -- "${tmp}"; return 1; fi
+    if ! _ai_tools_conf__replace_file "${file}" "${tmp}"; then rm -f -- "${tmp}"; return 1; fi
     rm -f -- "${tmp}"
-    [[ "$(ai_tools_conf_allowlist_state "${file}" "${path}")" == absent ]] || return 1
+    [[ "$(ai_tools_conf__read_allowlist_state "${file}" "${path}")" == absent ]] || return 1
 }
 
-# _ai_tools_conf_allowlist_retag <allowlist-file> <path> <disable|enable> : the shared line rewrite
+# _ai_tools_conf__retag_allowlist_entry <allowlist-file> <path> <disable|enable> : the shared line rewrite
 #   behind the two verbs. It edits the line the operator wrote IN PLACE -- the `!` goes on or
 #   comes off, and the line keeps its position, its indentation and its comment -- so parking a
 #   project and restoring it leaves the file as it was, rather than moving the entry to the end.
-_ai_tools_conf_allowlist_retag() {
+_ai_tools_conf__retag_allowlist_entry() {
     local file="$1" path="$2" op="$3" tmp line m head
     [[ -f "${file}" ]] || return 1
     local -a retag_lines=()
     if [[ "${op}" == disable ]]; then
-        ai_tools_conf_allowlist_matching_lines  retag_lines "${file}" "${path}" || return 2
+        ai_tools_conf__read_allowlist_matching_lines  retag_lines "${file}" "${path}" || return 2
     else
-        ai_tools_conf_allowlist_exclusion_lines retag_lines "${file}" "${path}" || return 2
+        ai_tools_conf__read_allowlist_exclusion_lines retag_lines "${file}" "${path}" || return 2
     fi
     # ENABLE additionally collapses duplicates. Un-parking `!/p` while an allow line for `/p` already exists -- the pair
     # the old "append over an exclusion" bug created -- would leave two live entries for one path. So the FIRST line
@@ -1127,7 +1150,7 @@ _ai_tools_conf_allowlist_retag() {
     # parking each of several allow lines leaves them all excluded, which is one state and not two.
     local -a live_lines=()
     if [[ "${op}" == enable ]]; then
-        ai_tools_conf_allowlist_matching_lines live_lines "${file}" "${path}" || true
+        ai_tools_conf__read_allowlist_matching_lines live_lines "${file}" "${path}" || true
         retag_lines+=("${live_lines[@]}")
     fi
     local emitted=false
@@ -1152,35 +1175,35 @@ _ai_tools_conf_allowlist_retag() {
         done
         printf '%s\n' "${line}"
     done < "${file}" > "${tmp}"
-    if ! _ai_tools_conf_replace_file "${file}" "${tmp}"; then rm -f -- "${tmp}"; return 1; fi
+    if ! _ai_tools_conf__replace_file "${file}" "${tmp}"; then rm -f -- "${tmp}"; return 1; fi
     rm -f -- "${tmp}"
 }
 
-# ai_tools_conf_allowlist_disable <allowlist-file> <path> : park a listed project -- prefix its
+# ai_tools_conf__allowlist_disable <allowlist-file> <path> : park a listed project -- prefix its
 #   line with `!`. The launch gate then refuses a session there while the entry, the project's
 #   permissions and its label all stay as they are. Already disabled succeeds; a path the file does
 #   not name returns 2, since there is no entry to park.
-ai_tools_conf_allowlist_disable() {
+ai_tools_conf__allowlist_disable() {
     local file="$1" path="$2" rc
-    case "$(ai_tools_conf_allowlist_state "${file}" "${path}")" in
+    case "$(ai_tools_conf__read_allowlist_state "${file}" "${path}")" in
         disabled) return 0 ;;
         absent)   return 2 ;;
     esac
-    _ai_tools_conf_allowlist_retag "${file}" "${path}" disable || { rc=$?; return "${rc}"; }
-    [[ "$(ai_tools_conf_allowlist_state "${file}" "${path}")" == disabled ]] || return 1
+    _ai_tools_conf__retag_allowlist_entry "${file}" "${path}" disable || { rc=$?; return "${rc}"; }
+    [[ "$(ai_tools_conf__read_allowlist_state "${file}" "${path}")" == disabled ]] || return 1
 }
 
-# ai_tools_conf_allowlist_enable <allowlist-file> <path> : restore a parked project -- delete the
+# ai_tools_conf__allowlist_enable <allowlist-file> <path> : restore a parked project -- delete the
 #   `!` from its line. Already listed succeeds; a path the file does not name returns 2, because
 #   enabling one would be claiming it, which is a different operation with a secret scan in it.
-ai_tools_conf_allowlist_enable() {
+ai_tools_conf__allowlist_enable() {
     local file="$1" path="$2" rc
-    case "$(ai_tools_conf_allowlist_state "${file}" "${path}")" in
+    case "$(ai_tools_conf__read_allowlist_state "${file}" "${path}")" in
         listed) return 0 ;;
         absent) return 2 ;;
     esac
-    _ai_tools_conf_allowlist_retag "${file}" "${path}" enable || { rc=$?; return "${rc}"; }
-    [[ "$(ai_tools_conf_allowlist_state "${file}" "${path}")" == listed ]] || return 1
+    _ai_tools_conf__retag_allowlist_entry "${file}" "${path}" enable || { rc=$?; return "${rc}"; }
+    [[ "$(ai_tools_conf__read_allowlist_state "${file}" "${path}")" == listed ]] || return 1
 }
 
 # ── Seed text for an operator's own config files ──────────────────────────────────────────────
@@ -1194,12 +1217,13 @@ ai_tools_conf_allowlist_enable() {
 # A seeded header is written once and no upgrade rewrites it, so it carries what the file is, the one rule a reader
 # needs before writing a line, example lines, and the man page that holds the reference -- the page ships
 # with the package and reaches every host on every upgrade, where a header stays as it was on the day the account was
-# enrolled. tests/unit/man.sh caps the allowlist header and reads the page's examples through ai_tools_conf_path_entry.
+# enrolled. tests/unit/man.sh caps the allowlist header and reads the page's examples
+# through ai_tools_conf__parse_path_entry.
 
-# ai_tools_conf_allowlist_seed : print the header a fresh allowed-projects carries. It does not
+# ai_tools_conf__get_allowlist_seed : print the header a fresh allowed-projects carries. It does not
 #   name any project, so a session cannot start anywhere until the CLI or the operator adds an
 #   entry. The reference is ai-tools-allowed-projects(5).
-ai_tools_conf_allowlist_seed() {
+ai_tools_conf__get_allowlist_seed() {
     printf '%s\n' \
         "# Project directories the ai-tools sandbox may work in, one per line." \
         "# A session launched by this account starts only inside a listed" \
@@ -1218,12 +1242,12 @@ ai_tools_conf_allowlist_seed() {
         ""
 }
 
-# ai_tools_conf_secret_patterns_seed : print the header a fresh secret-patterns file carries. It
+# ai_tools_conf__get_secret_patterns_seed : print the header a fresh secret-patterns file carries. It
 #   carries the header alone, which leaves the built-in baseline in secret-patterns.lib.sh in
 #   force -- so seeding this file changes what is classified as a secret only once the operator
 #   writes a pattern into it. The replace rule stays in the header whatever the page says, since
 #   it is the one fact a reader needs before writing a line. The reference is ai-tools-secret-patterns(5).
-ai_tools_conf_secret_patterns_seed() {
+ai_tools_conf__get_secret_patterns_seed() {
     printf '%s\n' \
         "# Secret-name patterns for the ai-tools sandbox, one basename glob" \
         "# per line, matched case-insensitively. A file whose name matches is" \

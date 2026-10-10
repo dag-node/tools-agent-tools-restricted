@@ -2,11 +2,12 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # tests/unit/admin-status.sh
 # Unit test for the Version section of `ai-tools-admin status`: its Node line reads the enabled agents' stable launcher
-# links through the same verdict `ai-tools status` renders (ai_tools_node_version_verdict, toolchain.lib.sh), so the two
-# reports name one version for one host. What is asserted is the root report's rendering of that verdict against fixture
-# links -- the version a link points into, the split line where two links disagree, and no claimed version where no link
-# names one -- with the updater's stamp being the host's own and read alongside. The Provisioning section is read
-# the same way, per enabled agent's link, beside a base file that makes the launcher directory non-empty on every host.
+# links through the same verdict `ai-tools status` renders (ai_tools_toolchain__evaluate_node_versions,
+# toolchain.lib.sh), so the two reports name one version for one host. What is asserted is the root report's rendering
+# of that verdict against fixture links -- the version a link points into, the split line where two links disagree,
+# and no claimed version where no link names one -- with the updater's stamp being the host's own and read alongside.
+# The Provisioning section is read the same way, per enabled agent's link, beside a base file that makes the launcher
+# directory non-empty on every host.
 #
 # The helper is SOURCED rather than run (its root check and its dispatch are guarded for that), in a fresh shell
 # per case because the helper and the harness both declare SANDBOX_USER readonly, with the resolver's two hooks
@@ -131,7 +132,7 @@ call_status() {
         bash -c 'helper="$1"; lib="$2"; pre="$3"; set --; source "${helper}" >/dev/null 2>&1 || exit 99
                  declare -F status >/dev/null || exit 98
                  source "${lib}" 2>/dev/null || true
-                 status_entrypoints() { :; }; ai_tools_service_records() { :; }
+                 status_entrypoints() { :; }; ai_tools_services__list_records() { :; }
                  status_selinux_attestation() { :; }
                  eval "${pre}"; status' _ "${HELPER}" "${SERVICES_LIB}" "$1" 2>&1
 }
@@ -150,14 +151,14 @@ if [[ "${rc}" -eq 4 ]]; then
 else
     fail "a counted fault exited ${rc}, expected 4: $(tail -c 300 <<<"${out}" | tr '\n' '|')"
 fi
-rc=0; out="$(call_status 'unset -f ai_tools_service_records')" || rc=$?
+rc=0; out="$(call_status 'unset -f ai_tools_services__list_records')" || rc=$?
 if [[ "${rc}" -eq 5 ]] && grep -qx 'MSG-V6N9' <<<"${out}" && grep -qF '[UNREADABLE]' <<<"${out}" \
         && grep -qF 'ai-tools providers' <<<"${out}"; then
     pass "a service registry that did not load exits 5, is named under its code, and the later sections still print"
 else
     fail "a missing registry exited ${rc}, expected 5 with MSG-V6N9 and the rest of the page: $(tail -c 400 <<<"${out}" | tr '\n' '|')"
 fi
-rc=0; out="$(call_status 'unset -f ai_tools_service_records; status_provisioning() { heading Provisioning; STATUS_PROBLEMS=1; }')" || rc=$?
+rc=0; out="$(call_status 'unset -f ai_tools_services__list_records; status_provisioning() { heading Provisioning; STATUS_PROBLEMS=1; }')" || rc=$?
 if [[ "${rc}" -eq 5 ]]; then
     pass "a fault read beside a reading that could not be made exits 5: unreadable wins the fold"
 else
@@ -186,12 +187,12 @@ call_attestation_section() {
              source "${helper}" >/dev/null 2>&1 || exit 99
              declare -F status_selinux_attestation >/dev/null || exit 98
              source "${lib}" 2>/dev/null || exit 97
-             declare -F ai_tools_confinement_list_attestation_report >/dev/null || exit 97
-             declare -F ai_tools_confinement_dac_only_state >/dev/null || exit 97
+             declare -F ai_tools_confinement__list_attestation_report >/dev/null || exit 97
+             declare -F ai_tools_confinement__evaluate_dac_only_state >/dev/null || exit 97
              getenforce() { printf "%s\n" "${stub_selinux_mode}"; }
-             ai_tools_confinement_read_attestation_records() { printf "%s\n" "${stub_attestation_records}"; }
-             ai_tools_confinement_read_module_present() { printf "%s" "${stub_module_present}"; }
-             ai_tools_confinement_read_policy_shipped() { printf "%s" "${stub_policy_shipped}"; }
+             ai_tools_confinement__read_attestation_records() { printf "%s\n" "${stub_attestation_records}"; }
+             ai_tools_confinement__read_module_present() { printf "%s" "${stub_module_present}"; }
+             ai_tools_confinement__read_policy_shipped() { printf "%s" "${stub_policy_shipped}"; }
              STATUS_PROBLEMS=0; STATUS_UNREADABLE=0
              status_selinux_attestation "${operator_conf}"
              printf "problems=%s\n" "${STATUS_PROBLEMS}"' \
