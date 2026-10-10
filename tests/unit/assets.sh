@@ -632,6 +632,33 @@ fresh; PRELUDE='ai_tools_providers__list_installed_agents() { return 2; }'; reco
 receivers_unknown "an installed-agents reader that exits 2"
 fresh; chmod 0775 "${AGENTS_D}"; reconcile; chmod 0755 "${AGENTS_D}"
 receivers_unknown "an untrusted manifest directory"
+# failing_field <agent> <key> : a PRELUDE whose manifest field reader refuses <key> of <agent>'s manifest at the status
+# a manifest the trust predicate refuses takes, as one replaced after the discovery listed the agent does, and reads
+# every other field as it is.
+failing_field() {
+    printf 'eval "_orig_$(declare -f ai_tools_providers__read_agent_manifest_field)"; ai_tools_providers__read_agent_manifest_field() { if [[ "$1" == %q && "$2" == %q ]]; then return 2; fi; _orig_ai_tools_providers__read_agent_manifest_field "$@"; }' \
+        "$1" "$2"
+}
+for field in config_dir asset_profiles skills_dir; do
+    fresh; PRELUDE="$(failing_field acme "${field}")"; reconcile; PRELUDE=""
+    receivers_unknown "the ${field} read of an enabled agent's manifest fails after the discovery listed it"
+done
+fresh; PRELUDE="$(failing_field beta skills_dir)"; reconcile; PRELUDE=""
+receivers_unknown "a field read of an installed agent's manifest fails"
+# A receiver by profile alone, whose asset_profiles read fails after the discovery: read as absent it would receive
+# the kind without the limit its manifest declares, and the dynamic skill would link into the view it reads whole.
+dynamic_skill; manifest gamma "asset_profiles=[skills.portable.v1]"; AGENTS_LINE="agent-acme, agent-gamma"; write_conf "${SKILL}" "${SUB}"
+reconcile
+expect_state "${SKILL}" capability-unsupported "control: a profile-only receiver without skills.dynamic.v1 refuses the dynamic skill"
+expect_detail "${SKILL}" gamma "control: the refusal names the profile-only receiver"
+PRELUDE="$(failing_field gamma asset_profiles)"; reconcile; PRELUDE=""
+if has_row_at unreadable receivers-unknown && [[ "$(finding "${SKILL}")" == receivers-unknown && "${RC}" == 5 ]] \
+        && absent "${HOME_DIR}/skills/acme-pdf"; then
+    pass "the asset_profiles read of a profile-only receiver fails: receivers-unknown, exit 5, the dynamic skill not linked"
+else
+    fail "the asset_profiles read of a profile-only receiver fails: rc ${RC}, '$(finding "${SKILL}")', ${OUT:0:300}"
+fi
+manifest gamma
 dynamic_skill; AGENTS_LINE="agent-acme, agent-beta"; write_conf "${SKILL}" "${SUB}"
 chmod 0664 "${AGENTS_D}/beta.conf"; reconcile; chmod 0644 "${AGENTS_D}/beta.conf"
 expect_state "${SKILL}" linked "an untrusted manifest beside a trusted one: the asset is held to the agent that resolved"

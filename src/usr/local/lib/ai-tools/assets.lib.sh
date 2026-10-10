@@ -1192,9 +1192,10 @@ _ai_tools_assets__record_receivers_unknown() {
 # a token base does not define is not implemented.
 #
 # The receivers are what the capability rule is held to, so a failed read does not yield an empty set: a reader
-# that exits non-zero, and an empty enabled set ai_tools_providers__evaluate_empty_agents classifies as `fault` (an
-# input the trust predicate refused, a list naming agents none of which resolved) or does not classify, leave
-# _AI_TOOLS_ASSETS__RECEIVERS_STATE `unknown` with the reason in _AI_TOOLS_ASSETS__RECEIVERS_DETAIL. `none` --
+# that exits non-zero, a manifest field the provider reader refuses to read after the discovery listed its agent
+# (_ai_tools_assets__read_agent_field), and an empty enabled set ai_tools_providers__evaluate_empty_agents classifies
+# as `fault` (an input the trust predicate refused, a list naming agents none of which resolved) or does not classify,
+# leave _AI_TOOLS_ASSETS__RECEIVERS_STATE `unknown` with the reason in _AI_TOOLS_ASSETS__RECEIVERS_DETAIL. `none` --
 # AI_TOOLS_AGENTS asks for none -- is the valid empty set.
 _ai_tools_assets__read_receivers() {
     local listing verdict
@@ -1219,10 +1220,25 @@ _ai_tools_assets__read_receivers() {
     fi
 }
 
+# _ai_tools_assets__read_agent_field <agent> <key> : read one field of <agent>'s manifest into _AI_TOOLS_ASSETS__FIELD;
+# returns 0 for a key present and 1 for one absent. A read the provider reader refuses (its status 2: the manifest
+# untrusted or unreadable after the discovery listed the agent) records the receivers unknown and returns 1 with
+# the field empty. An absent asset_profiles reads as the base profiles and an absent directory field as a kind
+# the agent does not receive, so a read that failed must become neither: either would drop a capability limit
+# the manifest declares.
+_ai_tools_assets__read_agent_field() {
+    local status=0
+    _AI_TOOLS_ASSETS__FIELD="$(ai_tools_providers__read_agent_manifest_field "$1" "$2" 2>/dev/null)" || status=$?
+    (( status < 2 )) && return "${status}"
+    _AI_TOOLS_ASSETS__FIELD=""
+    _ai_tools_assets__record_receivers_unknown "the ${1} manifest could not be read for ${2} after the discovery listed the agent (ai_tools_providers__read_agent_manifest_field exited ${status})"
+    return 1
+}
+
 # _ai_tools_assets__read_agent_lists <file> : the readers _ai_tools_assets__read_receivers runs, each into <file>
-# in turn; stops at the first that fails.
+# in turn; stops at the first that fails, a manifest field read that failed included.
 _ai_tools_assets__read_agent_lists() {
-    local listing="$1" agent config_dir kind field directory value profiles_declared token root_path
+    local listing="$1" agent config_dir kind field directory profiles_declared token
     local -a tokens=()
     local -A enabled=()
     _ai_tools_assets__read_provider ai_tools_providers__list_enabled_agents "${listing}" || return 0
@@ -1230,23 +1246,25 @@ _ai_tools_assets__read_agent_lists() {
         [[ -n "${agent}" ]] || continue
         enabled["${agent}"]=1
         _AI_TOOLS_ASSETS__AGENTS+=( "${agent}" )
-        config_dir="$(ai_tools_providers__read_agent_manifest_field "${agent}" config_dir 2>/dev/null || true)"
+        _ai_tools_assets__read_agent_field "${agent}" config_dir || true
+        config_dir="${_AI_TOOLS_ASSETS__FIELD}"
         profiles_declared=0
-        value="$(ai_tools_providers__read_agent_manifest_field "${agent}" asset_profiles 2>/dev/null)" && profiles_declared=1
+        _ai_tools_assets__read_agent_field "${agent}" asset_profiles && profiles_declared=1
         tokens=()
-        (( profiles_declared )) && ai_tools_conf__split_list_value tokens "${value}" 0 "asset_profiles in the ${agent} manifest" 2>/dev/null
+        (( profiles_declared )) \
+            && ai_tools_conf__split_list_value tokens "${_AI_TOOLS_ASSETS__FIELD}" 0 "asset_profiles in the ${agent} manifest" 2>/dev/null
         while IFS= read -r kind; do
             field="$(_ai_tools_assets__get_kind_field "${kind}" manifest_field)"
-            directory="$(ai_tools_providers__read_agent_manifest_field "${agent}" "${field}" 2>/dev/null || true)"
+            _ai_tools_assets__read_agent_field "${agent}" "${field}" || true
+            directory="${_AI_TOOLS_ASSETS__FIELD}"
             if ai_tools_control_plane__is_agent_config_dir_valid "${config_dir}" && ai_tools_control_plane__is_agent_config_dir_valid "${directory}"; then
                 _AI_TOOLS_ASSETS__AGENT_DIR["${agent}|${kind}"]="${AI_TOOLS_ASSETS_HOME}/${config_dir}/${directory}"
                 _AI_TOOLS_ASSETS__RECEIVES["${agent}|${kind}"]=1
                 (( profiles_declared )) || _AI_TOOLS_ASSETS__IMPLEMENTS["${agent}|$(_ai_tools_assets__get_kind_field "${kind}" base_profile)"]=1
             fi
             field="$(_ai_tools_assets__get_kind_field "${kind}" root_field)"
-            if [[ -n "${field}" ]] && root_path="$(ai_tools_providers__read_agent_manifest_field "${agent}" "${field}" 2>/dev/null)" \
-                    && [[ -n "${root_path}" ]]; then
-                _AI_TOOLS_ASSETS__AGENT_ROOT["${agent}|${kind}"]="${root_path}"
+            if [[ -n "${field}" ]] && _ai_tools_assets__read_agent_field "${agent}" "${field}" && [[ -n "${_AI_TOOLS_ASSETS__FIELD}" ]]; then
+                _AI_TOOLS_ASSETS__AGENT_ROOT["${agent}|${kind}"]="${_AI_TOOLS_ASSETS__FIELD}"
             fi
         done < <(_ai_tools_assets__list_kinds)
         for token in "${tokens[@]}"; do
@@ -1255,17 +1273,21 @@ _ai_tools_assets__read_agent_lists() {
             _ai_tools_assets__get_kind_field "${token%%.*}" id >/dev/null 2>&1 && _AI_TOOLS_ASSETS__RECEIVES["${agent}|${token%%.*}"]=1
         done
     done < "${listing}"
+    [[ "${_AI_TOOLS_ASSETS__RECEIVERS_STATE}" == ok ]] || return 0
     _ai_tools_assets__read_provider ai_tools_providers__list_installed_agents "${listing}" || return 0
     while IFS=$'\t' read -r agent _ _; do
         [[ -n "${agent}" && -z "${enabled[${agent}]+x}" ]] || continue
         _AI_TOOLS_ASSETS__IDLE_AGENTS+=( "${agent}" )
-        config_dir="$(ai_tools_providers__read_agent_manifest_field "${agent}" config_dir 2>/dev/null || true)"
+        _ai_tools_assets__read_agent_field "${agent}" config_dir || true
+        config_dir="${_AI_TOOLS_ASSETS__FIELD}"
         while IFS= read -r kind; do
-            directory="$(ai_tools_providers__read_agent_manifest_field "${agent}" "$(_ai_tools_assets__get_kind_field "${kind}" manifest_field)" 2>/dev/null || true)"
+            _ai_tools_assets__read_agent_field "${agent}" "$(_ai_tools_assets__get_kind_field "${kind}" manifest_field)" || true
+            directory="${_AI_TOOLS_ASSETS__FIELD}"
             ai_tools_control_plane__is_agent_config_dir_valid "${config_dir}" && ai_tools_control_plane__is_agent_config_dir_valid "${directory}" \
                 && _AI_TOOLS_ASSETS__IDLE_DIR["${agent}|${kind}"]="${AI_TOOLS_ASSETS_HOME}/${config_dir}/${directory}"
         done < <(_ai_tools_assets__list_kinds)
     done < "${listing}"
+    [[ "${_AI_TOOLS_ASSETS__RECEIVERS_STATE}" == ok ]] || return 0
     _ai_tools_assets__read_provider ai_tools_providers__list_enabled_integrations "${listing}" || return 0
     while IFS= read -r agent; do
         [[ -n "${agent}" ]] && _AI_TOOLS_ASSETS__INTEGRATIONS["${agent}"]=1

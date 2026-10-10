@@ -124,9 +124,11 @@ for the directories it declares, and receives a kind by declaring its directory 
 for every agent, since codex reads the view whole and an asset cannot be narrowed per agent there. The load-time command
 substitution is one such profile, `skills.dynamic.v1`: an asset carrying it without the declaration is refused, because
 the substitution runs as a step of reading the file and skips the `PreToolUse` filter and `permissions.deny`. A receiver
-set read from a failed discovery -- a provider reader exiting non-zero, or an empty enabled set
-`ai_tools_providers__evaluate_empty_agents` classifies as a fault -- is `receivers-unknown` rather than the empty set,
-which would support every profile: the enable list reads as empty for that run and no agent's directory is planned.
+set read from a failed discovery -- a provider reader exiting non-zero, a manifest field the provider reader refuses
+to read once the discovery has listed its agent, or an empty enabled set `ai_tools_providers__evaluate_empty_agents`
+classifies as a fault -- is `receivers-unknown` rather than the empty set, which would support every profile, or a set
+missing that agent's declaration, which would drop the profile limit it declares: the enable list reads as empty
+for that run and no agent's directory is planned.
 A refused `operator.conf` is the exception: it refuses the enable list too (`enable-list-untrusted`), so no entry asks
 for a capability, and its empty agent set is read as it was printed, every installed agent losing its resolver links.
 

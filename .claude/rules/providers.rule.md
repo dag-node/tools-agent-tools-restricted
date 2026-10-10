@@ -615,7 +615,10 @@ the shim from inside such a namespace.
   for agents the run does not maintain.
 - `ai_tools_providers__read_agent_manifest_field <name> <key>` — one further field of a trusted manifest, for a caller
   that has already resolved which agent it has. The name is allowlisted to a plain identifier before it becomes a path,
-  so it cannot address a file outside the manifest directory.
+  so it cannot address a file outside the manifest directory. Its status tells a key the manifest does not carry (1)
+  from a manifest it cannot read as trusted data (2), for the one caller whose fail direction turns on the difference:
+  the assets resolver reads the second as receivers it cannot know, where an absent key reads as a default. Every
+  other caller reads either as no value.
 - `ai_tools_providers__read_provider_manifest_field <name> <key>` — the same read across both manifest kinds,
   for a caller holding a provider name without knowing which kind carries it (`ai-tools-admin` reads `admin_summary`
   this way). The namespace is flat, so at most one kind holds the name; integrations are tried first.
