@@ -400,6 +400,12 @@ the sudoers model assumes: it refuses to launch unless it runs **as** `SANDBOX_U
 landing as root or another user fails closed), and it refuses if `SANDBOX_USER` is ever a member of `ai-ops` (so
 the sandbox account can never hold the operator grant). See the security-model invariants in `CLAUDE.md`.
 
+A launch from inside an unprivileged user namespace is refused twice over, before any trust read: its map does not carry
+host root, so the library-directory gate reads that directory as owned by the overflow uid `65534` and refuses,
+and the namespace maps its creator to 0, which the principal guard refuses. Why the trust predicate is not read
+under that map is [ref-section-x4z9](providers.rule.md#ref-section-x4z9); `tests/integration/ai-tools-run.sh` drives
+the shim there.
+
 `umask=0007,umask_override` and `env_keep += "AI_TOOLS_AGENT_EXEC AI_TOOLS_PROJECT_DIR"` (for `ai-tools-run`) are scoped
 per-command with `Defaults!<command>`, applying only to those commands. The sudoers `umask` sets `ai-tools-run`'s own
 process umask; the transient service unit does not inherit it, so the agent's umask comes authoritatively

@@ -48,6 +48,10 @@ RestartSec=30min
 # The updater writes its own .nvm tree as ai-tools and reaches the locked bin/ through
 # the handback socket, so the session runs with no privilege escalation.
 NoNewPrivileges=yes
+# RestrictNamespaces keeps a package install script from creating its own user namespace, inside
+# which this account's files would appear root-owned to the trust predicate (providers.rule.md,
+# ref-section-x4z9). tests/integration/systemd.sh asserts each directive.
+RestrictNamespaces=yes
 # A cap on a run that grows past what a Node install and an npm install take: reclaim pressure at MemoryHigh,
 # the OOM killer at MemoryMax, no swap, and a task count a package install does not approach. The manager applies
 # them where the host delegates the memory and pids controllers to it (cgroup v2); on cgroup v1 they are accepted

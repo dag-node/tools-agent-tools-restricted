@@ -536,12 +536,8 @@ for the operator, journald for the trail), never silently:
 | `/usr/local/lib/ai-tools` itself | no integration env at all (`ai-tools-run`'s bootstrap check) |
 
 A refusal reports the owner uid and the mode the predicate read, against what it requires
-(`ai_tools_conf_untrusted_reason`). That uid is the owner on disk only in the initial user namespace: in any other,
-a host uid the namespace does not map reads as the overflow uid `65534` while `stat` exits 0, so a root-owned input is
-refused on a reading that is not its owner. `ai_tools_conf_uid_map_is_identity` reads `/proc/self/uid_map`,
-and the reason names the translation where it applies, so the investigation starts at the namespace and not
-at the file's mode or label. The `--user unit` rule in [updater](updater.rule.md) keeps this project's own units
-from creating such a namespace; the reason is what a refusal says when one exists anyway.
+(`ai_tools_conf_untrusted_reason`). What that uid means under the reader's uid map, and where every reader runs, is [The
+uid a trust predicate reads is the reader's uid map's](#the-uid-a-trust-predicate-reads-is-the-readers-uid-maps).
 
 Trust bootstraps on the lib directory, which `ai-tools-run` checks inline before sourcing anything from it —
 the predicate that checks everything else lives inside it. `0751 root:SANDBOX_GROUP` on that directory is therefore
@@ -560,6 +556,35 @@ This is enforced from both ends, and both halves are required: `tests/unit/provi
 and `tests/unit/launch-wrapper.sh` drive each untrusted state through the resolver and the dispatch and assert each
 fails closed (catching a host someone has already broken), while `tests/boundary/providers.sh` probes the deployed
 surface **as the agent** and asserts none of it is agent-writable (catching the agent trying to break it).
+
+### The uid a trust predicate reads is the reader's uid map's <a id="ref-section-x4z9"></a>
+
+`ai_tools_conf_is_trusted` requires owner 0, as seen through the calling process's uid map:
+
+- The identity map (initial namespace) returns the on-disk owner.
+- Any other map translates. A uid the map does not carry becomes the overflow uid `65534`, so a root-owned file is
+  refused wherever the map does not carry host root.
+
+On the refusal path `ai_tools_conf_untrusted_reason` reads `/proc/self/uid_map` (via
+`ai_tools_conf_uid_map_is_identity`) and names the translation. Investigation therefore starts at the map, not
+at the file's mode or SELinux label. A `--user` unit that also carries a mount-namespace option reaches this state
+through `PrivateUsers=` ([updater](updater.rule.md)).
+
+**The opposite direction never appears in the owner field.** An unprivileged user namespace maps its creator to 0 inside
+the namespace, so files it owns appear root-owned and the predicate accepts them. The predicate itself does not read
+the map; the on-disk owner is trustworthy only when the reader's map was established by root. That guarantee is kept
+per reader:
+
+- **Session** (hooks and filter): the unit's `RestrictNamespaces=yes` ([confinement](confinement.rule.md), ESC-001).
+- **Updater**: `nvm-update.service`'s `RestrictNamespaces=yes` ([updater](updater.rule.md)), so a package install script
+  cannot create its own namespace.
+- **`ai-tools-run`** (before the unit exists): started by `sudo` in the operator's namespace; refuses a launch
+  from an unprivileged namespace at both the library-directory gate and the uid-0 guard ([launch](launch.rule.md)).
+- **Root readers**: system units and `sudo`, already in the initial namespace.
+
+`tests/unit/conf.sh` exercises both the refusal path and the acceptance path (the latter as the project user inside
+`unshare -Ur`); `tests/integration/systemd.sh` asserts the updater directive; `tests/integration/ai-tools-run.sh` drives
+the shim from inside such a namespace.
 
 ## Resolution
 

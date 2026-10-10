@@ -581,13 +581,16 @@ value into one bogus item), and `ai_tools_conf_is_trusted` must refuse every sta
 with it: the owner uid and mode the predicate read, the map parser over fixture `uid_map` contents (the kernel's padded
 identity line, a translated map, a multi-range map, an empty one, and the identity line under the strict-mode IFS),
 and — inside a real user namespace where `unshare -Ur` is permitted, skipped otherwise — the clause naming a translated
-uid beside the `65534` it read. Whether the run's own reading carries the clause is held to the uid map the case reads
-apart from the library: absent under the identity map, present under any other (a rootless container selftest, or a map
-not written yet), and a map that does not read fails the case. Its new-option report carries a third: a commented
-**default** (`#KEY=`, `# KEY=`) is a mention while an indented **example** in a header block is not, so a file seeded
-with `operator.conf`'s own grammar comments is not mistaken for one that already knows every option. Its portable-name
-section drives `ai_tools_conf_portable_name_valid` over a table of path components — a slash, whitespace, a backslash,
-a glob character, a byte outside ASCII and a leading hyphen each refused — then a non-ASCII letter under a UTF-8 locale,
+uid beside the `65534` it read, and — as the projects user, inside an unprivileged user namespace it creates —
+the acceptance path: its own file reading as owner 0 and accepted
+([ref-section-x4z9](providers.rule.md#ref-section-x4z9)). Whether the run's own reading carries the clause is held
+to the uid map the case reads apart from the library, matched as a regex so the IFS in force does not decide it: absent
+under the identity map, present under any other (a rootless container selftest, or a map not written yet), and a map
+that does not read fails the case. Its new-option report carries a third: a commented **default** (`#KEY=`, `# KEY=`) is
+a mention while an indented **example** in a header block is not, so a file seeded with `operator.conf`'s own grammar
+comments is not mistaken for one that already knows every option. Its portable-name section drives
+`ai_tools_conf_portable_name_valid` over a table of path components — a slash, whitespace, a backslash, a glob
+character, a byte outside ASCII and a leading hyphen each refused — then a non-ASCII letter under a UTF-8 locale,
 where a bracket range would otherwise match it, and the `NAME_MAX` edge. `providers.sh` drives the enablement truth
 table and then, for each untrusted input in turn — `operator.conf`, a manifest, a manifest directory — asserts
 the resolver moves to *less* access and says so, never more. It closes with the installed-manifest field reader
@@ -1095,28 +1098,29 @@ account), `ai-tools-run`'s `AI_TOOLS_AGENT_EXEC` / `AI_TOOLS_PROJECT_DIR` re-val
 value — or an entrypoint that does not match its pin — is refused before any session launches — including a real sibling
 binary in the same versioned `bin` directory, which is refused because no enabled agent manifest claims that launcher,
 and a non-semver version directory) plus its pinned session-confinement properties
-(`RestrictNamespaces`/`NoNewPrivileges`/`UMask`), every enabled agent's session pins (read through the deployed
-resolver, so no agent is named, and asserted by **sourcing** each pins file into the two arrays it is contracted
-to append to, so a file that stops appending or appends to a renamed array fails rather than silently costing every
-session that agent's environment; claude-code's three by name, with its fragment asserted to carry none of them),
-the shim's sourcing order read as source (the integrations, then every enabled agent's pins, then the launching agent's
-fragment — no refusal the shim can be driven to reveals it), the `settings.json` hook, deny-rule and ask-rule
-declarations, and SELinux labels (the `claude.exe` entrypoint — the one the stable launcher resolves to first, then
-every copy a kept version directory holds — and the handback daemon binary). Every assertion about the shim lives
-in `ai-tools-run.sh` beside it — its input validation, the unit properties it pins, and the session env it sources —
-so a change to the shim has one file to answer to; `handback.sh` keeps the bridge and the entrypoint label. `selinux.sh`
-asserts the confinement layer is enforcing: when the `ai_tools` module is loaded the system is `Enforcing` and neither
-`ai_tools_t` nor `ai_tools_handback_t` is marked permissive; it skips when the module is absent (the layer is optional).
-It also holds the entrypoint assertions that need a labelled host — that each agent's declared file-context rule still
-covers what its package installed, that no link in the exec chain carries a type the confined domain may manage,
-and that the loaded core module audits an in-session exec of the entrypoint, read with `sesearch` and skipped without it
-— and, where the `ai_tools_dotnet` layout module is loaded, the build-output labelling that only libselinux can answer:
-a path under one of the module's directories resolves to `ai_tools_project_build_t` and every other clone path
-to `ai_tools_project_t` (the rule precedence the narrowing rests on, read with `matchpathcon`), and a `bin/` directory
-created in the sandbox area by `unconfined_t` is born on the build type with no `restorecon`. It closes by reading
-the live type of **every** enrolled operator's `~/.config/ai-tools`: the rule is per account, and a subtree without it
-denies the root helpers the read that resolves a path's owner, so that operator's projects stop being handed back while
-every DAC assertion stays green. The `ai_tools_t` transition and the `buildexec` execute grant need a session,
+(`RestrictNamespaces`/`NoNewPrivileges`/`UMask`) and its refusal of a launch from inside a user namespace the sandbox
+account creates, every enabled agent's session pins (read through the deployed resolver, so no agent is named,
+and asserted by **sourcing** each pins file into the two arrays it is contracted to append to, so a file that stops
+appending or appends to a renamed array fails rather than silently costing every session that agent's environment;
+claude-code's three by name, with its fragment asserted to carry none of them), the shim's sourcing order read as source
+(the integrations, then every enabled agent's pins, then the launching agent's fragment — no refusal the shim can be
+driven to reveals it), the `settings.json` hook, deny-rule and ask-rule declarations, and SELinux labels (the
+`claude.exe` entrypoint — the one the stable launcher resolves to first, then every copy a kept version directory holds
+— and the handback daemon binary). Every assertion about the shim lives in `ai-tools-run.sh` beside it — its input
+validation, the unit properties it pins, and the session env it sources — so a change to the shim has one file to answer
+to; `handback.sh` keeps the bridge and the entrypoint label. `selinux.sh` asserts the confinement layer is enforcing:
+when the `ai_tools` module is loaded the system is `Enforcing` and neither `ai_tools_t` nor `ai_tools_handback_t` is
+marked permissive; it skips when the module is absent (the layer is optional). It also holds the entrypoint assertions
+that need a labelled host — that each agent's declared file-context rule still covers what its package installed,
+that no link in the exec chain carries a type the confined domain may manage, and that the loaded core module audits
+an in-session exec of the entrypoint, read with `sesearch` and skipped without it — and, where the `ai_tools_dotnet`
+layout module is loaded, the build-output labelling that only libselinux can answer: a path under one of the module's
+directories resolves to `ai_tools_project_build_t` and every other clone path to `ai_tools_project_t` (the rule
+precedence the narrowing rests on, read with `matchpathcon`), and a `bin/` directory created in the sandbox area
+by `unconfined_t` is born on the build type with no `restorecon`. It closes by reading the live type of **every**
+enrolled operator's `~/.config/ai-tools`: the rule is per account, and a subtree without it denies the root helpers
+the read that resolves a path's owner, so that operator's projects stop being handed back while every DAC assertion
+stays green. The `ai_tools_t` transition and the `buildexec` execute grant need a session,
 and `selinux/avc/avc-testsuite.sh` probes them. `systemd.sh` is the single home for unit checks:
 `systemd-analyze verify` on each shipped unit, plus enablement in the correct instance — the `nvm-update` timer
 in the sandbox account's own `--user instance`, the relabel watcher and handback socket in the system instance.

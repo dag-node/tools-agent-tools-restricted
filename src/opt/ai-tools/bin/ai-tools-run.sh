@@ -55,7 +55,9 @@ readonly SANDBOX_HOME="/opt/ai-tools"
 # Every library this script loads comes from AI_TOOLS_LIB_DIR while running as @SANDBOX_USER@, so that directory is
 # the root of trust for this script. Verify it before sourcing anything out of it: root-owned, not a symlink, not
 # group/other-writable. ai_tools_conf_is_trusted applies the same test to every later input, but it lives
-# in the directory this gate protects.
+# in the directory this gate protects. The owner test also refuses a launch from inside an unprivileged user namespace:
+# its map does not carry host root, so this directory reads as owned by the overflow uid 65534 (providers.rule.md,
+# ref-section-x4z9).
 lib_dir_metadata="$(stat -c '%u %a' "${AI_TOOLS_LIB_DIR}" 2>/dev/null || true)"
 if [[ -L "${AI_TOOLS_LIB_DIR}" || "${lib_dir_metadata%% *}" != 0 \
       || ! "${lib_dir_metadata##* }" =~ ^[0-7]+$ ]] \
@@ -104,6 +106,8 @@ audit() {
 # ── Principal guards ─────────────────────────────────────────────────────────────────────────
 # The session must run AS @SANDBOX_USER@: the transient unit, the SELinux transition, and the umask are all built
 # around that account. Running as root or any other user would launch the agent unconfined with that user's privileges.
+# The uid-0 refusal is also the second guard, behind the library-directory gate, against a launch from inside
+# an unprivileged user namespace, which maps its creator to 0 (providers.rule.md, ref-section-x4z9).
 current_user_name="$(id -un 2>/dev/null || true)"
 if [[ "${EUID}" -eq 0 || "${current_user_name}" != "@SANDBOX_USER@" ]]; then
     refuse "must run as @SANDBOX_USER@, not ${current_user_name:-?} -- launch through the agent's wrapper" \

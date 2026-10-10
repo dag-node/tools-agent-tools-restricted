@@ -275,6 +275,12 @@ and `pids` controllers to it (cgroup v2), and accepts them without applying them
 with `sudo systemctl --user -M ai-tools@.host edit nvm-update.service`. The session unit's profile, and why either is
 a cap and not a boundary, are in [launch](launch.rule.md).
 
+The unit also sets `NoNewPrivileges=yes` and `RestrictNamespaces=yes`, as the session unit does
+([confinement](confinement.rule.md)), so a package install script in the run does not gain privilege through a setuid
+binary and cannot create its own user namespace, inside which this account's files would appear root-owned to the trust
+predicate ([ref-section-x4z9](providers.rule.md#ref-section-x4z9)); `tests/integration/systemd.sh` asserts each
+directive.
+
 Each field has a distinct reader. `RESULT` and `EXIT_CODE` are the service's verdict. `FINISHED` carries two: it dates
 that verdict, and its **age** is what `nvm-update.timer` — which can otherwise report only `?` — infers its own health
 from, since a run systemd started proves the timer fired (see [cli](cli.rule.md) for the `stamp_mode`/`max_age` fields

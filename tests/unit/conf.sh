@@ -503,22 +503,23 @@ check_reason "a symlink is named as the cause"                 "is a symlink"   
 check_reason "a missing path is named as the cause"            "does not exist"                 "${TESTDIR}/absent.conf"
 # The clause is owed exactly when this process's uid map is not the identity over the whole uid space, which the kernel
 # writes as the one line `0 0 4294967295` in the initial namespace (user_namespaces(7)). A rootless container runs
-# the suite under a translated map, so the expectation is read here, apart from the library under test. An empty map is
-# a namespace whose map is not written yet, translated like any other. A map that does not read fails the case: every
-# process has one on a kernel with user namespaces, which each supported distribution's is.
+# the suite under a translated map, so the expectation is read here, apart from the library under test, and the line is
+# matched as a regex so the reading does not depend on the IFS in force. An empty map is a namespace whose map is not
+# written yet, translated like any other. A map that does not read fails the case: every process has one on a kernel
+# with user namespaces, which each supported distribution's is.
 uid_map_lines=()
 if ! { mapfile -t uid_map_lines < /proc/self/uid_map; } 2>/dev/null; then
     fail "/proc/self/uid_map did not read, so this run's uid map is unknown and the namespace clause is not checked"
 else
     identity_uid_map=0
-    if (( ${#uid_map_lines[@]} == 1 )) && read -r map_inside map_outside map_count <<< "${uid_map_lines[0]}" \
-            && [[ "${map_inside} ${map_outside} ${map_count}" == "0 0 4294967295" ]]; then
+    if (( ${#uid_map_lines[@]} == 1 )) \
+            && [[ "${uid_map_lines[0]}" =~ ^[[:space:]]*0[[:space:]]+0[[:space:]]+4294967295[[:space:]]*$ ]]; then
         identity_uid_map=1
     fi
     reason="$(ai_tools_conf_untrusted_reason "${notroot}")" || reason="ai_tools_conf_untrusted_reason exited non-zero"
-    if (( identity_uid_map )) && [[ "${reason}" != *"user namespace"* ]]; then
+    if (( identity_uid_map )) && [[ "${reason}" != *"not the identity"* ]]; then
         pass "under the identity uid map the reason carries no namespace clause"
-    elif (( ! identity_uid_map )) && [[ "${reason}" == *"user namespace"* ]]; then
+    elif (( ! identity_uid_map )) && [[ "${reason}" == *"not the identity"* ]]; then
         pass "under a uid map other than the identity the reason names the translation"
     else
         fail "the namespace clause does not follow this run's uid map (identity=${identity_uid_map}): ${reason}"
@@ -578,10 +579,29 @@ else
     else
         fail "inside the namespace the root-owned file was refused: ${ns_out}"
     fi
-    if [[ "${ns_out}" == *"owner=65534"*"user namespace"* ]]; then
+    if [[ "${ns_out}" == *"owner=65534"*"not the identity"* ]]; then
         pass "inside the namespace the reason reports owner=65534 and names the translation"
     else
         fail "the namespace clause is missing: ${ns_out}"
+    fi
+fi
+
+# The acceptance path (providers.rule.md, ref-section-x4z9), driven as the projects user: an unprivileged user namespace
+# maps its creator to 0, so the file that account owns appears root-owned inside and the predicate accepts it. Skipped
+# where that account is refused the namespace.
+if ! command -v unshare >/dev/null 2>&1 || ! runuser -u "${PROJECTS_USER}" -- unshare -Ur true 2>/dev/null; then
+    skip "inside a namespace an unprivileged account creates, its own file reads as root-owned" \
+         "unshare -Ur is not permitted for ${PROJECTS_USER}"
+else
+    # shellcheck disable=SC2016  # $1..$2 are the inner shell's positionals, passed after `_`
+    ns_out="$(runuser -u "${PROJECTS_USER}" -- unshare -Ur bash -c '
+        source "$1" || exit 9
+        printf "owner=%s trusted=%s\n" "$(stat -c %u "$2")" "$(ai_tools_conf_is_trusted "$2" && echo yes || echo no)"' \
+        _ "${LIB}" "${notroot}" 2>&1)" || true
+    if [[ "${ns_out}" == *"owner=0 trusted=yes"* ]]; then
+        pass "inside a namespace the projects user creates, its own file reads as owner 0 and the predicate accepts it"
+    else
+        fail "the acceptance-side reading inside the projects user's namespace was not observed: ${ns_out}"
     fi
 fi
 

@@ -143,6 +143,21 @@ for prop in RestrictNamespaces NoNewPrivileges; do
         fail "ai-tools-run does not pin ${prop}=yes -- session confinement (trust-chain step 4) weakened"
     fi
 done
+# The two guards ahead of every trust read, driven inside an unprivileged user namespace the sandbox account creates --
+# the state RestrictNamespaces=yes keeps a session from reaching, so the shim runs outside a session
+# through the sandbox-exec helper (why that map matters: providers.rule.md, ref-section-x4z9). The map does not carry
+# host root, so the library directory reads as owned by the overflow uid and the opening gate refuses; were it mapped,
+# the creator reads as uid 0 and the principal guard refuses. Skipped where the account is refused the namespace.
+if ! as_sandbox /usr/bin/unshare -Ur true >/dev/null 2>&1; then
+    skip "ai-tools-run refuses a launch from inside a user namespace" "unshare -Ur is not permitted for ${SANDBOX_USER}"
+else
+    ns_out="$(as_sandbox /usr/bin/unshare -Ur "${CRUN}" 2>&1 || true)"
+    if [[ "${ns_out}" == *"is not root-owned"* || "${ns_out}" == *"must run as"* ]]; then
+        pass "ai-tools-run refuses a launch from inside a user namespace, before any trust read"
+    else
+        fail "ai-tools-run did not refuse inside a user namespace: ${ns_out//$'\n'/; }"
+    fi
+fi
 # UMask=0007 keeps agent-written files 660/770 (world stripped, operator+agent co-writers).
 if grep -qE -- '--property=UMask=0007' "${CRUN}"; then
     pass "ai-tools-run pins UMask=0007 on the session unit"

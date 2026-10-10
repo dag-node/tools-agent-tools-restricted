@@ -120,6 +120,24 @@ else
     done
 fi
 
+section "The updater unit confines its payload"
+
+# NoNewPrivileges=yes and RestrictNamespaces=yes on nvm-update.service: a package install script running as the sandbox
+# account does not gain privilege through a setuid binary and cannot create its own user namespace (providers.rule.md,
+# ref-section-x4z9). A text check, like the mount-namespace check: the manager reads the directives whether or not
+# the payload exercises them.
+if [[ ! -f "${USERUNITDIR}/nvm-update.service" ]]; then
+    skip "nvm-update.service confines its payload" "not installed in ${USERUNITDIR}"
+else
+    for directive in NoNewPrivileges=yes RestrictNamespaces=yes; do
+        if grep -qE "^[[:space:]]*${directive}[[:space:]]*\$" "${USERUNITDIR}/nvm-update.service"; then
+            pass "nvm-update.service sets ${directive}"
+        else
+            fail "nvm-update.service does not set ${directive} -- an install script could gain privilege or create a user namespace"
+        fi
+    done
+fi
+
 section "Enablement in the correct instance"
 
 # (1) Handback socket: enabled AND active in the system instance (the privilege bridge the hooks reach). is-enabled is

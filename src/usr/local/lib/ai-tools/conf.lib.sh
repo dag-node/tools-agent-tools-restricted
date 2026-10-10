@@ -17,11 +17,10 @@
 # IFS=$'\n\t', where an inherited IFS would read "a b" as one item -- for a provider allowlist, a wrong "no such
 # provider" verdict.
 #
-# A trust refusal reports the owner uid and mode the predicate read (ai_tools_conf_untrusted_reason). That uid is
-# the owner on disk only inside the initial user namespace: in any other, a host uid with no mapping reads back
-# as the overflow uid 65534 while stat exits 0, so a root-owned file reads as a nobody-owned one and is refused.
-# ai_tools_conf_uid_map_is_identity detects that namespace and the reason names it, so the refusal is not investigated
-# as a mode or a label.
+# A trust refusal reports the owner uid and mode the predicate read (ai_tools_conf_untrusted_reason). The owner is read
+# through the calling process's uid map, so on the refusal path the reason names the translation where the map is not
+# the identity (ai_tools_conf_uid_map_is_identity). The predicate itself does not read the map: what each map does
+# to the owner, and where every reader runs, are providers.rule.md's (ref-section-x4z9).
 
 # Sourced more than once in a single shell: this library's readonly constants would abort under `set -e` on the second
 # pass. Return early (an if-statement, not `[[ ]] && return`, which returns 1 for an unset guard and trips the sourcing
@@ -95,9 +94,9 @@ ai_tools_conf_uid_map_is_identity() {
 
 # ai_tools_conf_untrusted_reason <path> : print, on one line, what ai_tools_conf_is_trusted
 #   observed about a <path> it refused -- the owner uid and mode it read, against what it
-#   requires -- so the refusal states what was observed. When the owner check fails outside the
-#   initial user namespace the line says so: the uid read there is a translation, and ownership
-#   cannot be evaluated from it. Always prints and returns 0.
+#   requires -- so the refusal states what was observed. When the owner check fails under a uid
+#   map other than the identity the line says so: the uid read there is a translation, and
+#   ownership on disk cannot be evaluated from it. Always prints and returns 0.
 ai_tools_conf_untrusted_reason() {
     local path="${1:-}" meta owner mode
     [[ -n "${path}" ]] || { printf 'no path given'; return 0; }
@@ -107,7 +106,7 @@ ai_tools_conf_untrusted_reason() {
     owner="${meta%% *}"; mode="${meta##* }"
     printf 'owner=%s mode=%s, expected owner=0 with no group/other write' "${owner}" "${mode}"
     if [[ "${owner}" != 0 ]] && ! ai_tools_conf_uid_map_is_identity /proc/self/uid_map; then
-        printf ' (this process is not in the initial user namespace, so the owner it reads is a translation and ownership cannot be evaluated here)'
+        printf ' (this process'"'"'s uid map is not the identity, so the owner it reads is a translation and ownership on disk cannot be evaluated here; a uid outside the map reads as the overflow uid 65534)'
     fi
     return 0
 }
