@@ -1414,19 +1414,22 @@ _ai_tools_assets__record_dir_row() {
     _ai_tools_assets__record_row attention "$1" directory "$2" "$3" "$4" "$5"
 }
 
-# _ai_tools_assets__prepare_dir <view|agent> <dir> <group> <create> : before the apply's first write under <dir>: create
-# it root:<group> 0750 when <create> is 1 and no entry stands at its name, then hold it and the directories that hold it
-# to _ai_tools_assets__is_destination_trusted. `install -d` over an existing directory re-owns and re-modes it,
-# the repair this library does not make, so the create is guarded by the name's absence. A name taken between the plan
-# and here is found by the check that follows the create. Prints the directory that fails and returns 1; returns 2
-# for an absent directory left absent.
+# _ai_tools_assets__prepare_dir <view|agent> <dir> <group> <create> : before the apply's first write under <dir>: hold
+# <dir> and the directories that hold it to _ai_tools_assets__is_destination_trusted, then create an absent <dir>
+# root:<group> 0750 when <create> is 1, and hold the created one to the predicate again. The directories that hold
+# <dir> are checked before the create, since the create is a write through them: a home root that is a symlink or not
+# root's alone would otherwise take a directory the plan refused to act in. `install -d` over an existing directory
+# re-owns and re-modes it, the repair this library does not make, so the create is guarded by the name's absence.
+# A name taken between the plan and here is found by the check that follows the create. Prints the directory that
+# fails and returns 1; returns 2 for an absent directory left absent.
 _ai_tools_assets__prepare_dir() {
     local which="$1" directory="$2" group="$3" create="$4"
+    _ai_tools_assets__is_destination_trusted "${which}" "${directory}" || return 1
     if [[ ! -e "${directory}" && ! -L "${directory}" ]]; then
         (( create )) || return 2
         install -d -o root -g "${group}" -m 0750 -- "${directory}" 2>/dev/null || true
+        _ai_tools_assets__is_destination_trusted "${which}" "${directory}" || return 1
     fi
-    _ai_tools_assets__is_destination_trusted "${which}" "${directory}" || return 1
     [[ -d "${directory}" ]] || { printf '%s' "${directory}"; return 1; }
 }
 

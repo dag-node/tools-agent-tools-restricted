@@ -1068,6 +1068,35 @@ else
     fail "a kind directory taken between the plan and the apply: $(ls -la "${HOME_DIR}/.acme/skills" 2>&1 | tr '\n' '|')"
 fi
 rm -rf "${HOME_DIR}/.acme/skills"
+# The directories holding a destination are checked before an absent one is created: a create through a refused
+# home root is a write into the tree the plan refused to act in. INSTALL_LOG records each install the apply ran.
+INSTALL_LOG="${TESTDIR}/install.log"
+RECORD_INSTALL="install() { printf '%s\\n' \"\$*\" >> ${INSTALL_LOG}; command install \"\$@\"; }"
+two_agents; rm -rf "${HOME_DIR}/subagents"; mv "${HOME_DIR}" "${TESTDIR}/home-real"; ln -s "${OUTSIDE}" "${HOME_DIR}"
+PRELUDE="${RECORD_INSTALL}"; reconcile; PRELUDE=""
+destination_case "a symlinked home root with an absent view child" view-dir-untrusted
+if [[ ! -s "${INSTALL_LOG}" ]] && absent "${OUTSIDE}/subagents"; then
+    pass "a symlinked home root with an absent view child: no install ran, and the child is not created through the link"
+else
+    fail "a symlinked home root: install ran '$(cat "${INSTALL_LOG}" 2>/dev/null | tr '\n' '|')', $(ls -la "${OUTSIDE}" | tr '\n' '|')"
+fi
+rm -f "${HOME_DIR}" "${INSTALL_LOG}"; mv "${TESTDIR}/home-real" "${HOME_DIR}"
+two_agents; rm -rf "${HOME_DIR}/subagents"; chown "${PROJECTS_USER}" "${HOME_DIR}"
+PRELUDE="${RECORD_INSTALL}"; reconcile; PRELUDE=""; chown root "${HOME_DIR}"
+if has_row view-dir-untrusted "${HOME_DIR}" && [[ "${RC}" == 4 && ! -s "${INSTALL_LOG}" ]] && absent "${HOME_DIR}/subagents"; then
+    pass "a home root owned by the projects user with an absent view child: refused, no install ran, the child absent"
+else
+    fail "a home root owned by the projects user: rc ${RC}, install ran '$(cat "${INSTALL_LOG}" 2>/dev/null | tr '\n' '|')', ${OUT:0:300}"
+fi
+rm -f "${INSTALL_LOG}"
+two_agents; rm -rf "${HOME_DIR}/subagents"; PRELUDE="${RECORD_INSTALL}"; reconcile; PRELUDE=""
+if [[ "${RC}" == 0 && "$(stat -c '%U %a' "${HOME_DIR}/subagents")" == "root 750" ]] && grep -q -- "${HOME_DIR}/subagents" "${INSTALL_LOG}" \
+        && linked subagents/acme-reviewer.md "${PKG}/acme/agents/acme-reviewer.md"; then
+    pass "control: a trusted home root with an absent view child creates it root 0750 and links into it"
+else
+    fail "control: rc ${RC}, $(stat -c '%U %a' "${HOME_DIR}/subagents" 2>&1), install ran '$(cat "${INSTALL_LOG}" 2>/dev/null | tr '\n' '|')'"
+fi
+rm -f "${INSTALL_LOG}"
 
 # ── The planning half does not write ─────────────────────────────────────────────────────────────────────────────────
 section "assets: the plan reads and does not write"
