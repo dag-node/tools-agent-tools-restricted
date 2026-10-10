@@ -907,6 +907,16 @@ if runuser -u "${PROJECTS_USER}" -- bash -c 'exec {fd}<"$1"' _ "${LOCK}" 2>/dev/
 else
     pass "the projects user cannot open the lock, read-only included"
 fi
+# An existing directory or file at wider modes is refused before the lock is opened: a root-owned 0755 directory
+# and a 0644 file pass the configuration-file predicate and let another account open the lock read-only and hold it.
+for modes in "0755 0600" "0700 0644" "0750 0600" "0700 0640"; do
+    chmod "${modes%% *}" "${LOCK%/*}"; chmod "${modes##* }" "${LOCK}"; reconcile
+    refused_lock "a lock directory at ${modes%% *} holding a lock file at ${modes##* }"
+    [[ -z "${OUT}" ]] && pass "a lock at ${modes}: refused before any input is read" || fail "a lock at ${modes}: records were written: ${OUT:0:200}"
+    chmod 0700 "${LOCK%/*}"; chmod 0600 "${LOCK}"
+done
+reconcile
+[[ "${RC}" == 0 ]] && pass "the lock at 0700/0600 is taken again" || fail "the lock at 0700/0600: rc ${RC}: ${ERR:0:200}"
 mv "${LOCK}" "${LOCK}.real"; ln -s "${TESTDIR}/lock-elsewhere" "${LOCK}"; reconcile
 refused_lock "a symlink at the lock path"
 absent "${TESTDIR}/lock-elsewhere" && pass "a symlink at the lock path: its target is not created" || fail "the lock symlink's target was created"

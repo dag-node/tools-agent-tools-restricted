@@ -142,8 +142,9 @@ a managed copy's marker (`ai_tools_managed_assets__withdraw_asset`, `ai_tools_ma
 `system post-upgrade`'s version check) skip a symlink. A link is staged at `.<name>.ai-tools-assets.tmp` beside its
 name, and an entry already there is removed only when it is a link the library leaves; any other is kept
 and the placement refused as `write-failed`. The lock is `/run/lock/ai-tools/assets.lock`, a `0600` file in a `0700`
-root directory: `flock(2)` takes an exclusive lock through a read-only descriptor, so a file another account can open is
-one it can hold. A run that waits longer than `AI_TOOLS_ASSETS_LOCK_WAIT` (120 seconds) for it refuses under `MSG-M8T9`
+root directory, and an existing directory or file with any group or other bit refuses the lock before it is opened:
+`flock(2)` takes an exclusive lock through a read-only descriptor, so a file another account can open is one it can
+hold. A run that waits longer than `AI_TOOLS_ASSETS_LOCK_WAIT` (120 seconds) for it refuses under `MSG-M8T9`
 rather than hold a package transaction. Every writer of the shared roots holds it, through the reentrant pair
 `ai_tools_managed_assets__lock`/`ai_tools_managed_assets__unlock` in `managed-assets.lib.sh`, which every provisioning
 path already sources: the `assets` verbs before their first read of `operator.conf`, to their exit; `install.sh`,

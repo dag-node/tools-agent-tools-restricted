@@ -36,14 +36,39 @@ fi
 readonly _AI_TOOLS_MANAGED_ASSETS__LOADED=1
 
 # ── The assets lock ──────────────────────────────────────────────────────────────────────────────────────────────────
-# The lock sits in a directory created 0700 root:root and is created under umask 077, so no other account can open it,
-# read-only included: flock(2) takes an exclusive lock through a read-only descriptor, so a file another account can
-# open is one it can hold. AI_TOOLS_ASSETS_LOCK and AI_TOOLS_ASSETS_LOCK_WAIT are root-only test hooks with the standing
-# of AI_TOOLS_ASSETS_BINDINGS_DIR: sudo strips the names, and every consumer runs as root.
+# The lock sits in a directory created 0700 root:root and is created under umask 077, and an existing directory or
+# file is held to the same shape, root's with no group or other bit (_ai_tools_managed_assets__is_root_only), so no
+# other account can open it, read-only included: flock(2) takes an exclusive lock through a read-only descriptor, so
+# a file another account can open is one it can hold. AI_TOOLS_ASSETS_LOCK and AI_TOOLS_ASSETS_LOCK_WAIT are root-only
+# test hooks with the standing of AI_TOOLS_ASSETS_BINDINGS_DIR: sudo strips the names, and every consumer runs as root.
 : "${AI_TOOLS_ASSETS_LOCK:=/run/lock/ai-tools/assets.lock}"
 : "${AI_TOOLS_ASSETS_LOCK_WAIT:=120}"
 _AI_TOOLS_MANAGED_ASSETS__LOCK_DEPTH=0
 _AI_TOOLS_MANAGED_ASSETS__LOCK_FD=""
+
+# _ai_tools_managed_assets__is_root_only <path> : succeed when <path> exists, is not a symlink, is root-owned
+# and carries no group or other permission bit, which is the lock's own requirement: ai_tools_conf__is_trusted
+# refuses a group or other write alone, the requirement of a configuration file every account reads, and a read bit
+# on the lock is an open through which flock(2) holds it. Fails closed on a stat that does not read.
+_ai_tools_managed_assets__is_root_only() {
+    local path="${1:-}" meta mode
+    [[ -n "${path}" && ! -L "${path}" && -e "${path}" ]] || return 1
+    meta="$(stat -c '%u %a' -- "${path}" 2>/dev/null)" || return 1
+    mode="${meta##* }"
+    [[ "${meta%% *}" == 0 && "${mode}" =~ ^[0-7]+$ ]] || return 1
+    (( (8#${mode} & 8#077) == 0 ))
+}
+
+# _ai_tools_managed_assets__read_lock_reason <path> : what _ai_tools_managed_assets__is_root_only read of <path>,
+# for the refusal.
+_ai_tools_managed_assets__read_lock_reason() {
+    local meta
+    if [[ -L "$1" ]]; then printf 'is a symlink'
+    elif [[ ! -e "$1" ]]; then printf 'does not exist'
+    elif ! meta="$(stat -c '%u %a' -- "$1" 2>/dev/null)"; then printf 'could not be stat-ed'
+    else printf 'has owner=%s mode=%s, and the lock is root'"'"'s with no group or other bit (0700 directory, 0600 file)' "${meta%% *}" "${meta##* }"
+    fi
+}
 
 # ai_tools_managed_assets__lock : hold the assets lock until the matching ai_tools_managed_assets__unlock or the end
 # of the calling process. Call it in the calling shell, never through `$(...)`: the lock is an open file descriptor.
@@ -53,7 +78,9 @@ _AI_TOOLS_MANAGED_ASSETS__LOCK_FD=""
 # only after the descriptor names the lock file, and still takes flock(2) on it, which returns at once when the parent
 # holds the lock. Waits up to AI_TOOLS_ASSETS_LOCK_WAIT seconds (120 when it is not a whole number), then refuses rather
 # than hold a package transaction. Returns 1, after MSG-M8T9 naming why on stderr and in journald, for a directory
-# or a lock file that is a symlink or not root's alone, a create or an open that fails, and a wait that runs out.
+# or a lock file that is a symlink, not root's, or open to group or other by any bit, a create or an open that fails,
+# and a wait that runs out. The refusal comes before the descriptor is opened, so a lock left at wider modes is not
+# adopted or taken.
 ai_tools_managed_assets__lock() {
     local lock="${AI_TOOLS_ASSETS_LOCK}" dir="${AI_TOOLS_ASSETS_LOCK%/*}" wait="${AI_TOOLS_ASSETS_LOCK_WAIT}" fd=""
     local inherited="${AI_TOOLS_ASSETS_LOCK_FD:-}" error="" adopted=0
@@ -65,15 +92,13 @@ ai_tools_managed_assets__lock() {
     if [[ ! -e "${dir}" && ! -L "${dir}" ]]; then
         install -d -o root -g root -m 0700 -- "${dir}" 2>/dev/null || true
     fi
-    if ! declare -F ai_tools_conf__is_trusted >/dev/null 2>&1; then
-        error="conf.lib.sh is not loaded, so the lock's owner cannot be read"
-    elif ! ai_tools_conf__is_trusted "${dir}" || [[ ! -d "${dir}" ]]; then
-        error="${dir} $(ai_tools_conf__read_untrusted_reason "${dir}"), or is not a directory"
+    if ! _ai_tools_managed_assets__is_root_only "${dir}" || [[ ! -d "${dir}" ]]; then
+        error="${dir} $(_ai_tools_managed_assets__read_lock_reason "${dir}"), or is not a directory"
     # Created by a simple command in a subshell holding the umask, so a failed create is a status and not a redirection
     # error on the shell's own exec.
     elif ! ( umask 077; [[ -L "${lock}" ]] || : >> "${lock}" ) 2>/dev/null \
-            || ! ai_tools_conf__is_trusted "${lock}" || [[ ! -f "${lock}" ]]; then
-        error="${lock} $(ai_tools_conf__read_untrusted_reason "${lock}"), or is not a regular file"
+            || ! _ai_tools_managed_assets__is_root_only "${lock}" || [[ ! -f "${lock}" ]]; then
+        error="${lock} $(_ai_tools_managed_assets__read_lock_reason "${lock}"), or is not a regular file"
     elif [[ "${inherited}" =~ ^[0-9]+$ && -e "/proc/self/fd/${inherited}" ]] \
             && [[ "$(stat -L -c '%d:%i' -- "/proc/self/fd/${inherited}" 2>/dev/null)" == "$(stat -c '%d:%i' -- "${lock}" 2>/dev/null)" ]]; then
         fd="${inherited}"; adopted=1
