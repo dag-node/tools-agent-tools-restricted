@@ -1065,10 +1065,10 @@ fi
 has_row agent-entry-untrusted "${HOME_DIR}/.acme/skills/acme-pdf" && fail "a root-owned real entry reported untrusted" || pass "a root-owned real entry is not agent-entry-untrusted"
 chown -R "${SANDBOX_USER}" "${HOME_DIR}/.acme/skills/acme-pdf"; reconcile
 has_row agent-entry-untrusted "${HOME_DIR}/.acme/skills/acme-pdf" && pass "a sandbox-owned real entry is agent-entry-untrusted" || fail "a sandbox-owned entry: ${OUT:0:300}"
-# A real entry at a name the view does not hold is read as well: the agent loads it in every later session. One
-# the sandbox account owns is agent-entry-untrusted at attention; a root-owned one writable through the group bits
-# or an ACL entry the mask carries is agent-entry-writable at info, the operator's choice, and does not change the exit;
-# one at a seeded copy's modes does not get a row. The plan leaves each where it is.
+# A real entry at a name the view does not hold is read as well: the agent loads it in every later session, so one
+# the sandbox account can rewrite is agent-entry-untrusted at attention -- owned by it, or root's and writable
+# through the group bits or an ACL entry the mask carries -- and one at a seeded copy's modes does not get a row.
+# The plan leaves each where it is.
 fresh
 mkdir "${HOME_DIR}/.acme/skills/stray"; printf 'own\n' > "${HOME_DIR}/.acme/skills/stray/SKILL.md"
 reconcile
@@ -1089,19 +1089,14 @@ stray_case() {
 }
 chmod 0750 "${HOME_DIR}/.acme/skills/stray"; chmod 0640 "${HOME_DIR}/.acme/skills/stray/SKILL.md"
 chmod g+w "${HOME_DIR}/.acme/skills/stray/SKILL.md"; reconcile
-stray_case "a root-owned entry holding a group-writable file" info agent-entry-writable 0
-if has_row agent-entry-untrusted "${HOME_DIR}/.acme/skills/stray"; then
-    fail "a root-owned writable entry was also reported agent-entry-untrusted"
-else
-    pass "a root-owned writable entry is not agent-entry-untrusted"
-fi
+stray_case "a root-owned entry holding a group-writable file" attention agent-entry-untrusted 4
 chmod g-w "${HOME_DIR}/.acme/skills/stray/SKILL.md"
 if command -v setfacl >/dev/null 2>&1 && setfacl -m "u:${SANDBOX_USER}:rw" "${HOME_DIR}/.acme/skills/stray/SKILL.md" 2>/dev/null; then
     reconcile
-    stray_case "a root-owned entry whose file grants the sandbox account a write by an ACL entry" info agent-entry-writable 0
+    stray_case "a root-owned entry whose file grants the sandbox account a write by an ACL entry" attention agent-entry-untrusted 4
     setfacl -b "${HOME_DIR}/.acme/skills/stray/SKILL.md"
     reconcile
-    if [[ "${RC}" == 0 ]] && ! has_row agent-entry-writable "${HOME_DIR}/.acme/skills/stray"; then
+    if [[ "${RC}" == 0 ]] && ! has_row agent-entry-untrusted "${HOME_DIR}/.acme/skills/stray"; then
         pass "the same entry with its ACL removed, at 0750/0640 root, does not get a row"
     else
         fail "the entry with its ACL removed: rc ${RC}, ${OUT:0:300}"
@@ -1111,6 +1106,19 @@ else
 fi
 chown -R "${SANDBOX_USER}" "${HOME_DIR}/.acme/skills/stray"; reconcile
 stray_case "a sandbox-owned real entry" attention agent-entry-untrusted 4
+# An enabled agent's kind directory is created root-owned on every reconcile, whether or not a link is placed in it: its
+# config directory is group-writable, so a directory left absent is a name the sandbox account could take.
+fresh; write_conf; rm -rf "${HOME_DIR}/.acme/skills" "${HOME_DIR}/.acme/agents"; reconcile
+if [[ "${RC}" == 0 && -d "${HOME_DIR}/.acme/skills" && ! -L "${HOME_DIR}/.acme/skills" && -d "${HOME_DIR}/.acme/agents" ]] \
+        && [[ "$(stat -c '%u' "${HOME_DIR}/.acme/skills") $(perm "${HOME_DIR}/.acme/skills")" == "0 750" ]] \
+        && [[ "$(stat -c '%u' "${HOME_DIR}/.acme/agents") $(perm "${HOME_DIR}/.acme/agents")" == "0 750" ]]; then
+    pass "an enabled agent's kind directories are created root-owned 0750 with no asset to link"
+else
+    fail "an enabled agent with no asset to link: rc ${RC}, $(ls -la "${HOME_DIR}/.acme" 2>&1 | tr '\n' '|') ${OUT:0:300}"
+fi
+absent "${HOME_DIR}/.gamma/skills" && pass "an agent that declares no skills_dir is not given one" \
+    || fail "the agent gamma was given ${HOME_DIR}/.gamma/skills"
+fresh
 # The real-entry listing is read apart from the links listing, so its failure is a row of its own and the links planned
 # in the directory stand.
 PRELUDE="$(printf 'find() { if [[ "$2" == %q && " $* " == *" ! -type l "* ]]; then return 1; fi; command find "$@"; }' \

@@ -231,21 +231,19 @@ that agent keeps loading yours.
 .TP
 .B agent\-entry\-untrusted
 A real entry in an agent's directory, at an enabled asset's name or at any
-other name, is not owned by root all the way down: a session wrote it, and can
-rewrite what every later session of that agent loads.
+other name, is one a session can rewrite: it is not owned by root all the way
+down, or it is writable by group or other, an ACL entry granting a write
+included.
+Every later session of that agent loads it.
 The entry is left as it is.
 Read it, then move it out, or keep it as that agent's own: make it
 .B root:ai\-tools
 with directories 750 and files 640, the modes a seeded copy has, so the agent
 reads it and cannot write it.
-.TP
-.B agent\-entry\-writable
-Information, not a finding: a real entry in an agent's directory is owned by
-root but writable by group or other, an ACL entry granting a write included,
-so a session can rewrite it.
-Leave it so where you want the agent to edit it; otherwise give it the modes
-.B agent\-entry\-untrusted
-names.
+An entry the agent may edit is not supported in an agent's directory; a skill
+the agent is meant to edit belongs in the project's own
+.IR .claude/skills ,
+which loads in that project alone.
 .TP
 .B view\-dir\-untrusted
 The view directory of a kind, or

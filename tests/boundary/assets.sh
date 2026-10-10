@@ -5,14 +5,14 @@
 # group- or other-writable, so the sandbox account cannot change them. Probed AS the agent (`runuser -u ai-tools`),
 # against the DEPLOYED files assets-verify.lib.sh reads -- the library, the shipped signing key and the keyring written
 # from it, the bindings directory and each binding in it -- and the ones assets.lib.sh reads and writes: the resolver,
-# operator.conf, the roots and the sets under them, the view, the lock, and each agent's kind directories. A set links
-# only under a signature by a primary a binding names (unit-tested in tests/unit/assets-verify.sh); this file asserts
-# the other half -- that on a real install the agent cannot put any of those inputs into a state the verifier would
-# read. Both halves must hold: the runtime check catches a host someone has already broken, this catches the agent
-# trying to break it.
+# operator.conf, the roots and the sets under them, the view, the retired copies, the lock, and each agent's kind
+# directories, an absent one included, since the agent could create it. A set links only under a signature by a primary
+# a binding names (unit-tested in tests/unit/assets-verify.sh); this file asserts the other half -- that on a real
+# install the agent cannot put any of those inputs into a state the verifier would read. Both halves must hold:
+# the runtime check catches a host someone has already broken, this catches the agent trying to break it.
 #
 # It also asserts the modes the files ship with, so a mode change that widens one fails here before a refusal has
-# to catch it. Probe-only (`test -w`); no file is written, created, or unlinked. Run as root via sudo; drops
+# to catch it. Probe-only (`test -w`, `test -x`); no file is written, created, or unlinked. Run as root via sudo; drops
 # to the agent per check.
 
 set -euo pipefail
@@ -92,6 +92,17 @@ done
 # The view: one root-owned link per linked asset. Writable, the agent places a link to a tree of its own.
 not_writable /opt/ai-tools/skills "create or repoint a link in the skills view"
 not_writable /opt/ai-tools/subagents "create or repoint a link in the subagents view"
+# The withdrawn copies: operator recovery material, out of the account's reach whole.
+if [[ -e /opt/ai-tools/retired ]]; then
+    if runuser -u "${SANDBOX_USER}" -- test -x /opt/ai-tools/retired 2>/dev/null \
+            || runuser -u "${SANDBOX_USER}" -- test -w /opt/ai-tools/retired 2>/dev/null; then
+        fail "the agent can enter or write /opt/ai-tools/retired -- it could read or replace a withdrawn copy an operator restores"
+    else
+        pass "the agent can neither enter nor write /opt/ai-tools/retired"
+    fi
+else
+    skip "/opt/ai-tools/retired" "no asset has been withdrawn on this host"
+fi
 
 # The lock serializes the view transaction; an agent that held it -- flock(2) takes an exclusive lock
 # through a read-only descriptor -- would stall every reconcile. Its directory is root's alone, so the agent cannot
@@ -114,7 +125,17 @@ fi
 # the root-owned directory aside.
 while IFS=$'\t' read -r agent agent_dir; do
     [[ -n "${agent_dir}" ]] || continue
-    not_writable "${agent_dir}" "repoint a link in ${agent}'s ${agent_dir##*/}/ at a file of its own"
+    # An absent kind directory is not a path to skip: inside the group-writable config directory the agent can create
+    # it, and the agent loads what it puts there. Every reconcile creates it root-owned.
+    if [[ ! -e "${agent_dir}" && ! -L "${agent_dir}" ]]; then
+        if [[ -d "${agent_dir%/*}" ]] && runuser -u "${SANDBOX_USER}" -- test -w "${agent_dir%/*}" 2>/dev/null; then
+            fail "${agent_dir} is absent and the agent can create it in ${agent_dir%/*} -- run: sudo ai-tools-admin assets reconcile"
+        else
+            skip "${agent_dir}" "absent, and the agent cannot create it in ${agent_dir%/*}"
+        fi
+        continue
+    fi
+    not_writable "${agent_dir}" "create, remove or repoint an entry in ${agent}'s ${agent_dir##*/}/ that every later session loads"
     if [[ -e "${agent_dir}" || -L "${agent_dir}" ]]; then
         meta="$(stat -c '%u %a' -- "${agent_dir}" 2>/dev/null || true)"
         if [[ ! -L "${agent_dir}" && -d "${agent_dir}" && "${meta%% *}" == 0 ]] && (( (8#${meta##* } & 8#022) == 0 )); then
@@ -151,6 +172,7 @@ check_file "${BINDINGS}/ai-tools.conf" root root 644
 check_file "${LIBDIR}/assets.lib.sh" root root 644
 check_file /opt/ai-tools/skills root "${SANDBOX_GROUP}" 750
 check_file /opt/ai-tools/subagents root "${SANDBOX_GROUP}" 750
+check_file_optional /opt/ai-tools/retired root root 700
 check_file_optional /run/lock/ai-tools root root 700
 check_file_optional /run/lock/ai-tools/assets.lock root root 600
 

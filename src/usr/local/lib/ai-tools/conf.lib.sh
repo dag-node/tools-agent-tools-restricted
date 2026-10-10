@@ -249,9 +249,11 @@ ai_tools_conf__split() {
 #   named array, but ONLY when the key is present -- a present key REPLACES the array (an empty
 #   value giving an empty array, an explicit "none"), while an absent key leaves it untouched and
 #   returns 1. That is what makes an override key override: a caller seeds the array with its
-#   default and calls this, and a config that omits the key keeps that default.
+#   default and calls this, and a config that omits the key keeps that default. A file not read
+#   whole leaves the array untouched as well and returns 2, ai_tools_conf__read's status, so
+#   a caller that reports an absent key tells it from a file it could not read.
 ai_tools_conf__read_list() {
-    ai_tools_conf__read "$2" "$3" || return 1
+    ai_tools_conf__read "$2" "$3" || return $?
     ai_tools_conf__split_list_value "$1" "${ai_tools_conf__value}" "${_ai_tools_conf__value_quoted}" "$3 in $2"
 }
 

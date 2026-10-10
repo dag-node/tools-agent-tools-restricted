@@ -1085,7 +1085,9 @@ ai_tools_assets__validate_set() {
 
 # ── The plan ─────────────────────────────────────────────────────────────────────────────────────────────────────────
 # ai_tools_assets__plan reads every input once and publishes, without writing a file or printing a record:
-#   AI_TOOLS_ASSETS__LIST_STATE        ok, absent (no operator.conf), untrusted or invalid; AI_TOOLS_ASSETS__LIST_DETAIL
+#   AI_TOOLS_ASSETS__LIST_STATE        ok, absent (no operator.conf), unset (the key absent from a trusted file),
+#                                      untrusted, unread (a trusted file not read whole) or invalid;
+#                                      AI_TOOLS_ASSETS__LIST_DETAIL
 #   AI_TOOLS_ASSETS__ENTRIES           the enable list's entries in order, each once
 #   AI_TOOLS_ASSETS__STATE[entry]      `linked` or the reason token
 #   AI_TOOLS_ASSETS__DETAIL[entry]     what the token does not say
@@ -1132,10 +1134,11 @@ _ai_tools_assets__record_action() {
 }
 
 # _ai_tools_assets__read_enable_list : the entries of AI_TOOLS_ASSETS, read while operator.conf passes the trust
-# predicate. An absent file, an absent key and `[]` enable no asset; an untrusted file and an invalid list enable none
-# either, and set AI_TOOLS_ASSETS__LIST_STATE for the row that names them.
+# predicate. An absent file, an absent key and `[]` enable no asset; an untrusted file, a file not read whole
+# and an invalid list enable none either. AI_TOOLS_ASSETS__LIST_STATE tells each apart: `unset` is the absent key,
+# which `ai-tools-admin status` reads as an operator who has not decided, and `[]` stays `ok`.
 _ai_tools_assets__read_enable_list() {
-    local config_path="${AI_TOOLS_OPERATOR_CONF}" entry
+    local config_path="${AI_TOOLS_OPERATOR_CONF}" entry status=0
     local -a items=()
     local -A seen=()
     if [[ ! -e "${config_path}" && ! -L "${config_path}" ]]; then
@@ -1147,7 +1150,14 @@ _ai_tools_assets__read_enable_list() {
         AI_TOOLS_ASSETS__LIST_DETAIL="$(ai_tools_conf__read_untrusted_reason "${config_path}")"
         return 0
     fi
-    ai_tools_conf__read_list items "${config_path}" AI_TOOLS_ASSETS 2>/dev/null || return 0
+    ai_tools_conf__read_list items "${config_path}" AI_TOOLS_ASSETS 2>/dev/null || status=$?
+    case "${status}" in
+        0) ;;
+        1) AI_TOOLS_ASSETS__LIST_STATE="unset"; return 0 ;;
+        *) AI_TOOLS_ASSETS__LIST_STATE=unread
+           AI_TOOLS_ASSETS__LIST_DETAIL="${config_path} could not be read whole, so it is read as the empty list"
+           return 0 ;;
+    esac
     if [[ "${ai_tools_conf__list_invalid:-0}" == 1 ]]; then
         AI_TOOLS_ASSETS__LIST_STATE=invalid
         AI_TOOLS_ASSETS__LIST_DETAIL="AI_TOOLS_ASSETS is not a valid list, so it is read as the empty list; write it as [a, b]"
@@ -1881,35 +1891,26 @@ _ai_tools_assets__is_occupied_name() {
     return 1
 }
 
-# _ai_tools_assets__is_entry_untrusted <agent-dir> <entry> : succeed when a real entry in an agent's directory is not
-# root-owned along its path from the agent's config directory down: the kind directory, the entry, and everything
-# under it. No operator chose that state: a session wrote the entry. A stat or a walk that fails succeeds, so an entry
-# the plan could not read is reported.
+# _ai_tools_assets__is_entry_untrusted <agent-dir> <entry> : succeed when a real entry in an agent's directory is one
+# the sandbox account can rewrite: the kind directory is not root-owned, or the entry or anything under it is not
+# root-owned or is writable by group or other, an ACL write grant included (_ai_tools_assets__find_writable_entry).
+# An entry an agent loads is the operator's own only while it is read-only to the agent; an agent-editable entry there
+# is not a supported state. A stat or a walk that fails succeeds, so an entry the plan could not read is reported.
 _ai_tools_assets__is_entry_untrusted() {
     local agent_dir="$1" path="$2" owner offender
     owner="$(stat -c %u -- "${agent_dir}" 2>/dev/null)" || return 0
     [[ "${owner}" == 0 ]] || return 0
-    offender="$(find -P "${path}" ! -uid 0 -print -quit 2>/dev/null)" || return 0
+    offender="$(_ai_tools_assets__find_writable_entry "${path}")" || return 0
     [[ -n "${offender}" ]]
 }
 
-# _ai_tools_assets__record_entry_trust <agent> <kind> <agent-dir> <entry> <item> : report a real entry in an agent's
-# directory the sandbox account can rewrite. One _ai_tools_assets__is_entry_untrusted accepts is agent-entry-untrusted
-# at attention. A root-owned one writable by group or other, an ACL write grant included
-# (_ai_tools_assets__find_writable_entry), is agent-entry-writable at info: root set those permissions, so it is
-# the operator's choice, reported without counting as a finding. A walk that fails reads as writable.
+# _ai_tools_assets__record_entry_trust <agent> <agent-dir> <entry> <item> : report a real entry in an agent's directory
+# that _ai_tools_assets__is_entry_untrusted accepts, agent-entry-untrusted at attention.
 _ai_tools_assets__record_entry_trust() {
-    local agent="$1" kind="$2" agent_dir="$3" path="$4" item="$5" offender
-    if _ai_tools_assets__is_entry_untrusted "${agent_dir}" "${path}"; then
-        _ai_tools_assets__record_row attention agent-entry-untrusted agent "${path}" "${item}" "${agent}" \
-            "not root-owned along its path, so a session can rewrite what every later session loads here"
-        return 0
-    fi
-    if offender="$(_ai_tools_assets__find_writable_entry "${path}")" && [[ -z "${offender}" ]]; then
-        return 0
-    fi
-    _ai_tools_assets__record_row info agent-entry-writable agent "${path}" "${item}" "${agent}" \
-        "root-owned and writable by group or other along its path, so a session can rewrite it; directories 750 and files 640 without an ACL write grant keep it read-only to the agent"
+    local agent="$1" agent_dir="$2" path="$3" item="$4"
+    _ai_tools_assets__is_entry_untrusted "${agent_dir}" "${path}" || return 0
+    _ai_tools_assets__record_row attention agent-entry-untrusted agent "${path}" "${item}" "${agent}" \
+        "the sandbox account can rewrite it (not root-owned, or writable by group or other, along its path), and every later session loads it; make it root-owned, directories 750 and files 640"
 }
 
 # _ai_tools_assets__plan_agent <agent> <kind> <agent-dir> : the per-agent changes for an enabled agent's directory: each
@@ -1951,7 +1952,7 @@ _ai_tools_assets__plan_agent() {
             _ai_tools_assets__record_row "$( (( is_resolver_entry )) && printf attention || printf info )" \
                 "$( (( is_resolver_entry )) && printf agent-occupied || printf kept )" agent "${destination_path}" "${item}" "${agent}" \
                 "a real entry here wins over the view's, left as it is"
-            _ai_tools_assets__record_entry_trust "${agent}" "${kind}" "${agent_dir}" "${destination_path}" "${item}"
+            _ai_tools_assets__record_entry_trust "${agent}" "${agent_dir}" "${destination_path}" "${item}"
         else
             _ai_tools_assets__record_action link "${destination_path}" "${view}/${name}" agent "${item}" "${agent}" "linked to ${view}/${name}"
         fi
@@ -1975,7 +1976,7 @@ _ai_tools_assets__plan_agent_real_entries() {
     fi
     for name in "${_AI_TOOLS_ASSETS__LISTING[@]}"; do
         [[ -z "${_AI_TOOLS_ASSETS__VIEW_AFTER[${name}]+x}" ]] || continue
-        _ai_tools_assets__record_entry_trust "${agent}" "${kind}" "${agent_dir}" "${agent_dir}/${name}" "${kind}/${name}"
+        _ai_tools_assets__record_entry_trust "${agent}" "${agent_dir}" "${agent_dir}/${name}" "${kind}/${name}"
     done
 }
 
@@ -2248,7 +2249,11 @@ _ai_tools_assets__apply() {
         for kind in $(_ai_tools_assets__list_kinds); do
             directory="${_AI_TOOLS_ASSETS__AGENT_DIR[${agent}|${kind}]:-}"
             [[ -n "${directory}" ]] || continue
-            _ai_tools_assets__can_apply_in_dir agent "${directory}" "${kind}" "${agent}" "${group}" 0 || continue
+            # Created here whether or not a link is placed in it: the config directory is group-writable, so a kind
+            # directory left absent is a name the sandbox account could take, and the agent would load what it put
+            # there.
+            [[ -d "${directory%/*}" && ! -L "${directory%/*}" ]] || continue
+            _ai_tools_assets__can_apply_in_dir agent "${directory}" "${kind}" "${agent}" "${group}" 1 || continue
             ai_tools_managed_assets__link_asset_readme "${AI_TOOLS_ASSETS__README_ROOT}/${kind}/README.md" "${directory}" "${group}" \
                 >/dev/null 2>&1 || true
         done
@@ -2364,6 +2369,9 @@ _ai_tools_assets__report() {
                 "${detail}" ;;
         invalid)
             _ai_tools_assets__write_row "${code}" attention id-malformed file "${AI_TOOLS_OPERATOR_CONF}" AI_TOOLS_ASSETS "" \
+                "${AI_TOOLS_ASSETS__LIST_DETAIL}" ;;
+        unread)
+            _ai_tools_assets__write_row "${code}" unreadable error file "${AI_TOOLS_OPERATOR_CONF}" AI_TOOLS_ASSETS "" \
                 "${AI_TOOLS_ASSETS__LIST_DETAIL}" ;;
     esac
     for entry in "${AI_TOOLS_ASSETS__ENTRIES[@]}"; do

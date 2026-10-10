@@ -150,11 +150,12 @@ for, the view's resolver links and base's seeded copies (`_ai_tools_assets__is_s
 entry. Every other entry is `view-foreign`, reported and kept, and not linked into an agent's directory, though codex,
 reading the view whole, still loads it; an operator's own skill reaches one agent from that agent's own directory,
 where a real entry wins. In an agent's directory a real entry is kept, at every name, and one the sandbox account can
-rewrite is reported, since every later session loads what is there: one not root-owned along its path is
-`agent-entry-untrusted` at attention, since a session wrote it, and a root-owned one writable by group or other, an ACL
-write grant included through the mask the group bits carry, is `agent-entry-writable` at info, since root set
-the permissions that let the agent edit it. Non-editability is enforced for a signed set alone, whose copy the trust
-walk refuses on the same test; the plan reads the real entries at a name the view does not hold as well; a link
+rewrite -- not root-owned, or writable by group or other, along its path, an ACL write grant included through the mask
+the group bits carry -- is `agent-entry-untrusted` at attention, since every later session loads what is there.
+The operator's own entry there is read-only to the agent, and a skill the agent develops lives in the project's own
+`.claude/skills/`, which loads in that project alone. Every reconcile creates each enabled agent's kind directory
+root-owned, whether or not it places a link there, so the name is not one the sandbox account can take inside its
+group-writable config directory. The plan reads the real entries at a name the view does not hold as well; a link
 elsewhere is the host's and is not repointed; a link into the view whose name the view no longer holds is removed
 (`_ai_tools_assets__plan_agent`). An installed agent that `AI_TOOLS_AGENTS` does not name loses its resolver links
 and keeps its seeded copies' links. Every directory a link is written in -- the home root, a view, an agent's config
