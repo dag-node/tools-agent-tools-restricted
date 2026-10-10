@@ -27,7 +27,7 @@ note "library" "${LIB}"
 # read as a correct refusal, so a library older than this test stops here.
 # shellcheck disable=SC2016  # the $1 is the inner shell's
 if ! bash -c 'source "$1" 2>/dev/null && declare -F ai_tools_assets_reconcile ai_tools_assets_plan \
-        ai_tools_assets_validate_set ai_tools_assets_plan_set ai_tools_assets_parse_id >/dev/null' _ "${LIB}"; then
+        ai_tools_assets_validate_set ai_tools_assets_build_enable_snapshot ai_tools_assets_parse_id >/dev/null' _ "${LIB}"; then
     fail "${LIB} does not load or lacks a function this test calls; reinstall from this checkout (sudo ./install.sh)"
     finish; exit 1
 fi
@@ -524,7 +524,7 @@ expect_state "${SKILL}" linked "requires_base equal to the installed base"
 # shellcheck disable=SC2016  # the $1 is the inner shell's
 wrong="$(bash -c 'source "$1" 2>/dev/null || exit 99
     while read -r installed required want; do
-        _ai_tools_as_version_satisfies_minimum "${installed}" "${required}"; got=$?
+        _ai_tools_assets_is_version_at_least "${installed}" "${required}"; got=$?
         [[ "${got}" == "${want}" ]] || printf "%s against %s: %s, want %s; " "${installed}" "${required}" "${got}" "${want}"
     done' _ "${LIB}" <<'PAIRS'
 0.24.0 0.24.0 0

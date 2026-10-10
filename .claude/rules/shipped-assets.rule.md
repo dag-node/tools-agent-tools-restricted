@@ -163,7 +163,7 @@ an agent's config and kind directory -- is checked before the plan acts in it an
 one is created where no entry stands at its name: root-owned and not a symlink, the config directory sticky where it is
 group-writable as it ships, the others writable by neither group nor other. One that fails is `view-dir-untrusted`
 or `agent-dir-untrusted`, no action under it runs, and it is not repaired, since a repair would keep what was placed
-inside it. Why a path check suffices against these modes is `_ai_tools_as_destination_trusted`'s doc comment.
+inside it. Why a path check suffices against these modes is `_ai_tools_assets_is_destination_trusted`'s doc comment.
 The reconcile is the one function that writes these links, so every provisioning path that placed or linked an asset
 ends with it: base's `%post` after the seeder, two transaction file triggers on `/usr/share/ai-tools-assets` (a set
 placed, upgraded or erased, base's own transaction included), each agent and the typesafe package's scriptlets,

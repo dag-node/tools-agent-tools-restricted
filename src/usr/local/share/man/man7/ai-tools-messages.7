@@ -491,7 +491,7 @@ hook\-repeated
 .TP
 .B MSG-E9D6
 ERROR.
-assets enable: '$(ai_tools_log_sanitize "${identifier}")' is not an asset identifier \-\- ${_AI_TOOLS_AS_ID_DETAIL}; AI_TOOLS_ASSETS is unchanged
+assets enable: '$(ai_tools_log_sanitize "${identifier}")' is not an asset identifier \-\- ${_AI_TOOLS_ASSETS_ID_DETAIL}; AI_TOOLS_ASSETS is unchanged
 .TP
 .B MSG-E9V5
 WARNING.
@@ -655,7 +655,7 @@ config not seeded for ${user}, which stays enrolled \-\- without allowed\-projec
 .TP
 .B MSG-P9Z3
 ERROR.
-assets enable \-\-set: the set ${set} is ${_AI_TOOLS_AS_SNAPSHOT_STATE} \-\- $(ai_tools_log_sanitize "${_AI_TOOLS_AS_SNAPSHOT_DETAIL:0:300}"); AI_TOOLS_ASSETS is unchanged
+assets enable \-\-set: the set ${set} is ${_AI_TOOLS_ASSETS_SNAPSHOT_STATE} \-\- $(ai_tools_log_sanitize "${_AI_TOOLS_ASSETS_SNAPSHOT_DETAIL:0:300}"); AI_TOOLS_ASSETS is unchanged
 .TP
 .B MSG-Q2C6
 NOTICE.
@@ -803,7 +803,7 @@ an incompatible contract: ${fragment} needs contributed\-command interface ${dec
 .TP
 .B MSG-W6D7
 ERROR.
-assets enable: no shipped binding names the set ${_AI_TOOLS_AS_ID_SET}, so ${identifier} is accepted only once a package pins its signer; AI_TOOLS_ASSETS is unchanged
+assets enable: no shipped binding names the set ${_AI_TOOLS_ASSETS_ID_SET}, so ${identifier} is accepted only once a package pins its signer; AI_TOOLS_ASSETS is unchanged
 .TP
 .B MSG-W7J6
 WARNING.

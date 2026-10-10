@@ -158,7 +158,7 @@ PY
         stem="$(basename "${binding}" .conf)"
         # shellcheck disable=SC2154  # the two names are ai_tools_assets_read_binding's outputs
         if AI_TOOLS_ASSETS_BINDINGS_DIR="${SHIPPED_BINDINGS}" ai_tools_assets_read_binding "${stem}" 2>/dev/null \
-            && [[ " ${_ai_tools_av_signers[*]} " == *" ${shipped_primary} "* && "${_ai_tools_av_keyring}" == "${SHIPPED_KEY}.gpg" ]]; then
+            && [[ " ${_AI_TOOLS_ASSETS_VERIFY_SIGNERS[*]} " == *" ${shipped_primary} "* && "${_AI_TOOLS_ASSETS_VERIFY_KEYRING}" == "${SHIPPED_KEY}.gpg" ]]; then
             pass "shipped binding ${stem}: names the shipped key's primary ${shipped_primary} and the shipped keyring"
         else
             fail "shipped binding ${stem}: does not read as a binding for primary ${shipped_primary} and keyring ${SHIPPED_KEY}.gpg"
@@ -271,10 +271,10 @@ expect 0 "control: the set verifies again once every input is restored" ai_tools
 write_binding acme "${KEYS}/signer.gpg" "openpgp:${SIGNER}" "not-a-signer"
 read_status=0; ai_tools_assets_read_binding acme 2>/dev/null || read_status=$?
 if [[ "${read_status}" == 2 ]]; then pass "a binding whose second signer is invalid -> 2"; else fail "a binding whose second signer is invalid -> ${read_status}, want 2"; fi
-if (( ${#_ai_tools_av_signers[@]} == 0 )) && [[ -z "${_ai_tools_av_keyring}" ]]; then
+if (( ${#_AI_TOOLS_ASSETS_VERIFY_SIGNERS[@]} == 0 )) && [[ -z "${_AI_TOOLS_ASSETS_VERIFY_KEYRING}" ]]; then
     pass "a refused binding leaves the signers and the keyring empty"
 else
-    fail "a refused binding published ${#_ai_tools_av_signers[@]} signer(s) and keyring '${_ai_tools_av_keyring}'"
+    fail "a refused binding published ${#_AI_TOOLS_ASSETS_VERIFY_SIGNERS[@]} signer(s) and keyring '${_AI_TOOLS_ASSETS_VERIFY_KEYRING}'"
 fi
 write_binding acme "${KEYS}/signer.gpg" "openpgp:${SIGNER}"
 

@@ -32,13 +32,13 @@ die=ERROR reject=ERROR refuse=ERROR refuse_early=ERROR err=ERROR say_error=ERROR
 _ai_tools_launch_error=ERROR
 ai_tools_msg_error=ERROR die_stop_usage=ERROR reject_with_usage=ERROR coded_refusal=ERROR _pu_unreadable=ERROR die_usage=ERROR
 _claim_unreadable=ERROR
-warn=WARNING _ai_tools_provider_warn=WARNING _ai_tools_conf_warn=WARNING _ai_tools_settings_merge_warn=WARNING say_warn=WARNING _ai_tools_av_warn=WARNING
+warn=WARNING _ai_tools_provider_warn=WARNING _ai_tools_conf_warn=WARNING _ai_tools_settings_merge_warn=WARNING say_warn=WARNING _ai_tools_assets_verify_warn=WARNING
 ai_tools_msg_warn=WARNING _ai_tools_toolchain_warn=WARNING _ai_tools_sandbox_exec_warn=WARNING _ai_tools_launch_warn=WARNING _pu_attention=WARNING
 _claim_attention=WARNING
 note=NOTICE say_notice=NOTICE notice=NOTICE _ai_tools_toolchain_notice=NOTICE
 ai_tools_msg_notice=NOTICE _pu_info=NOTICE _claim_info=NOTICE
 _ai_tools_secret_patterns_error=ERROR
-_ai_tools_ma_refuse=ERROR _ai_tools_as_reconcile_report=WARNING _assets_attention_row=WARNING _assets_info_row=NOTICE
+_ai_tools_ma_refuse=ERROR _ai_tools_assets_reconcile_report=WARNING _assets_attention_row=WARNING _assets_info_row=NOTICE
 '
 
 # Source file to the component an operator names it by: the commands spelled differently from their file (an agent's

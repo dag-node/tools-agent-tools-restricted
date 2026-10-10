@@ -2912,42 +2912,42 @@ status_assets() {
     fi
     ai_tools_assets_plan 2>/dev/null
     local entry index linked=0 reason
-    case "${_AI_TOOLS_AS_LIST_STATE}" in
-        untrusted) st ATTENTION "enable-list-untrusted  ${AI_TOOLS_OPERATOR_CONF} -- $(ai_tools_log_sanitize "${_AI_TOOLS_AS_LIST_DETAIL}")"
+    case "${_AI_TOOLS_ASSETS_LIST_STATE}" in
+        untrusted) st ATTENTION "enable-list-untrusted  ${AI_TOOLS_OPERATOR_CONF} -- $(ai_tools_log_sanitize "${_AI_TOOLS_ASSETS_LIST_DETAIL}")"
                    detail "no asset is linked while it stands; restore the file to root:root 0644"
                    STATUS_PROBLEMS=$(( STATUS_PROBLEMS + 1 )) ;;
-        invalid)   st ATTENTION "id-malformed  AI_TOOLS_ASSETS -- $(ai_tools_log_sanitize "${_AI_TOOLS_AS_LIST_DETAIL}")"
+        invalid)   st ATTENTION "id-malformed  AI_TOOLS_ASSETS -- $(ai_tools_log_sanitize "${_AI_TOOLS_ASSETS_LIST_DETAIL}")"
                    STATUS_PROBLEMS=$(( STATUS_PROBLEMS + 1 )) ;;
     esac
-    for entry in "${_AI_TOOLS_AS_ENTRIES[@]}"; do
-        if [[ "${_AI_TOOLS_AS_STATE[${entry}]}" == linked ]]; then
+    for entry in "${_AI_TOOLS_ASSETS_ENTRIES[@]}"; do
+        if [[ "${_AI_TOOLS_ASSETS_STATE[${entry}]}" == linked ]]; then
             linked=$(( linked + 1 ))
-            [[ -z "${_AI_TOOLS_AS_CAPS[${entry}]:-}" ]] \
-                || st OK "$(ai_tools_log_sanitize "${entry}")  linked, requires ${_AI_TOOLS_AS_CAPS[${entry}]}"
+            [[ -z "${_AI_TOOLS_ASSETS_CAPS[${entry}]:-}" ]] \
+                || st OK "$(ai_tools_log_sanitize "${entry}")  linked, requires ${_AI_TOOLS_ASSETS_CAPS[${entry}]}"
             continue
         fi
-        reason="${_AI_TOOLS_AS_DETAIL[${entry}]:-}"
-        if [[ "${_AI_TOOLS_AS_STATE[${entry}]}" == error ]]; then
-            st UNREADABLE "$(ai_tools_log_sanitize "${entry}")  ${_AI_TOOLS_AS_STATE[${entry}]}"
+        reason="${_AI_TOOLS_ASSETS_DETAIL[${entry}]:-}"
+        if [[ "${_AI_TOOLS_ASSETS_STATE[${entry}]}" == error ]]; then
+            st UNREADABLE "$(ai_tools_log_sanitize "${entry}")  ${_AI_TOOLS_ASSETS_STATE[${entry}]}"
             STATUS_UNREADABLE=$(( STATUS_UNREADABLE + 1 ))
         else
-            st ATTENTION "$(ai_tools_log_sanitize "${entry}")  ${_AI_TOOLS_AS_STATE[${entry}]}"
+            st ATTENTION "$(ai_tools_log_sanitize "${entry}")  ${_AI_TOOLS_ASSETS_STATE[${entry}]}"
             STATUS_PROBLEMS=$(( STATUS_PROBLEMS + 1 ))
         fi
         detail "$(ai_tools_log_sanitize "${reason:0:200}")"
     done
-    for (( index = 0; index < ${#_AI_TOOLS_AS_ROW_SEVERITY[@]}; index++ )); do
-        case "${_AI_TOOLS_AS_ROW_SEVERITY[index]}" in
-            attention)  st ATTENTION "${_AI_TOOLS_AS_ROW_FINDING[index]}  $(ai_tools_log_sanitize "${_AI_TOOLS_AS_ROW_SUBJECT[index]}")"
+    for (( index = 0; index < ${#_AI_TOOLS_ASSETS_ROW_SEVERITY[@]}; index++ )); do
+        case "${_AI_TOOLS_ASSETS_ROW_SEVERITY[index]}" in
+            attention)  st ATTENTION "${_AI_TOOLS_ASSETS_ROW_FINDING[index]}  $(ai_tools_log_sanitize "${_AI_TOOLS_ASSETS_ROW_SUBJECT[index]}")"
                         STATUS_PROBLEMS=$(( STATUS_PROBLEMS + 1 )) ;;
-            unreadable) st UNREADABLE "${_AI_TOOLS_AS_ROW_FINDING[index]}  $(ai_tools_log_sanitize "${_AI_TOOLS_AS_ROW_SUBJECT[index]}")"
+            unreadable) st UNREADABLE "${_AI_TOOLS_ASSETS_ROW_FINDING[index]}  $(ai_tools_log_sanitize "${_AI_TOOLS_ASSETS_ROW_SUBJECT[index]}")"
                         STATUS_UNREADABLE=$(( STATUS_UNREADABLE + 1 )) ;;
             *)          continue ;;
         esac
-        reason="${_AI_TOOLS_AS_ROW_DETAIL[index]}"
+        reason="${_AI_TOOLS_ASSETS_ROW_DETAIL[index]}"
         detail "$(ai_tools_log_sanitize "${reason:0:200}")"
     done
-    st OK "${#_AI_TOOLS_AS_ENTRIES[@]} asset(s) enabled in AI_TOOLS_ASSETS, ${linked} linked"
+    st OK "${#_AI_TOOLS_ASSETS_ENTRIES[@]} asset(s) enabled in AI_TOOLS_ASSETS, ${linked} linked"
     return 0
 }
 
@@ -3071,7 +3071,7 @@ status() {
 assets_load() {
     # shellcheck source=SCRIPTDIR/../../lib/ai-tools/assets.lib.sh
     source "${ASSETS_LIB}" 2>/dev/null || true
-    if ! declare -F ai_tools_assets_reconcile >/dev/null 2>&1 || ! declare -F ai_tools_assets_plan_set >/dev/null 2>&1; then
+    if ! declare -F ai_tools_assets_reconcile >/dev/null 2>&1 || ! declare -F ai_tools_assets_build_enable_snapshot >/dev/null 2>&1; then
         warn MSG-P8M5 "the assets library (${ASSETS_LIB}) did not load, so no asset was read or changed -- reinstall ai-tools-base"
         exit 5
     fi
@@ -3163,9 +3163,9 @@ assets_enable() {
         status=0
         ai_tools_assets_parse_id "${identifier}" || status=$?
         (( status == 0 )) \
-            || die MSG-E9D6 "assets enable: '$(ai_tools_log_sanitize "${identifier}")' is not an asset identifier -- ${_AI_TOOLS_AS_ID_DETAIL}; AI_TOOLS_ASSETS is unchanged"
-        ai_tools_assets_binding_present "${_AI_TOOLS_AS_ID_SET}" \
-            || die MSG-W6D7 "assets enable: no shipped binding names the set ${_AI_TOOLS_AS_ID_SET}, so ${identifier} is accepted only once a package pins its signer; AI_TOOLS_ASSETS is unchanged"
+            || die MSG-E9D6 "assets enable: '$(ai_tools_log_sanitize "${identifier}")' is not an asset identifier -- ${_AI_TOOLS_ASSETS_ID_DETAIL}; AI_TOOLS_ASSETS is unchanged"
+        ai_tools_assets_is_binding_present "${_AI_TOOLS_ASSETS_ID_SET}" \
+            || die MSG-W6D7 "assets enable: no shipped binding names the set ${_AI_TOOLS_ASSETS_ID_SET}, so ${identifier} is accepted only once a package pins its signer; AI_TOOLS_ASSETS is unchanged"
     done
     assets_read_list entries
     for identifier in "$@"; do
@@ -3191,16 +3191,16 @@ assets_enable_set() {
     assets_lock_or_exit
     ai_tools_assets_is_valid_set_name "${set}" \
         || die MSG-R3M6 "assets enable --set: '$(ai_tools_log_sanitize "${set}")' is not a set name -- 1-64 characters of a-z, 0-9 and single hyphens; AI_TOOLS_ASSETS is unchanged"
-    ai_tools_assets_plan_set "${set}"
-    [[ "${_AI_TOOLS_AS_SNAPSHOT_STATE}" == ok ]] \
-        || die MSG-P9Z3 "assets enable --set: the set ${set} is ${_AI_TOOLS_AS_SNAPSHOT_STATE} -- $(ai_tools_log_sanitize "${_AI_TOOLS_AS_SNAPSHOT_DETAIL:0:300}"); AI_TOOLS_ASSETS is unchanged"
+    ai_tools_assets_build_enable_snapshot "${set}"
+    [[ "${_AI_TOOLS_ASSETS_SNAPSHOT_STATE}" == ok ]] \
+        || die MSG-P9Z3 "assets enable --set: the set ${set} is ${_AI_TOOLS_ASSETS_SNAPSHOT_STATE} -- $(ai_tools_log_sanitize "${_AI_TOOLS_ASSETS_SNAPSHOT_DETAIL:0:300}"); AI_TOOLS_ASSETS is unchanged"
     assets_read_list entries
-    for (( index = 0; index < ${#_AI_TOOLS_AS_SNAPSHOT_IDS[@]}; index++ )); do
-        identifier="${_AI_TOOLS_AS_SNAPSHOT_IDS[index]}"
-        case "${_AI_TOOLS_AS_SNAPSHOT_TOKENS[index]}" in
+    for (( index = 0; index < ${#_AI_TOOLS_ASSETS_SNAPSHOT_IDS[@]}; index++ )); do
+        identifier="${_AI_TOOLS_ASSETS_SNAPSHOT_IDS[index]}"
+        case "${_AI_TOOLS_ASSETS_SNAPSHOT_TOKENS[index]}" in
             ok|capability-unsupported|integration-off) ;;
             *)  _assets_attention_row MSG-J4E9 "assets enable --set: an asset of the set that fails the asset-scope rules, left out of AI_TOOLS_ASSETS" \
-                    "${_AI_TOOLS_AS_SNAPSHOT_TOKENS[index]}" "${AI_TOOLS_OPERATOR_CONF}" "${identifier}" \
+                    "${_AI_TOOLS_ASSETS_SNAPSHOT_TOKENS[index]}" "${AI_TOOLS_OPERATOR_CONF}" "${identifier}" \
                     "not written to AI_TOOLS_ASSETS: the asset fails a rule base enforces"
                 continue ;;
         esac
