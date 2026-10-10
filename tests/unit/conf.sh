@@ -501,10 +501,28 @@ check_reason "a group-writable mode is reported as read"       "owner=0 mode=664
 check_reason "the requirement is stated beside the reading"    "expected owner=0"               "${gw}"
 check_reason "a symlink is named as the cause"                 "is a symlink"                   "${TESTDIR}/link.conf"
 check_reason "a missing path is named as the cause"            "does not exist"                 "${TESTDIR}/absent.conf"
-if [[ "$(ai_tools_conf_untrusted_reason "${notroot}")" != *"user namespace"* ]]; then
-    pass "in the initial namespace the reason carries no namespace clause"
+# The clause is owed exactly when this process's uid map is not the identity over the whole uid space, which the kernel
+# writes as the one line `0 0 4294967295` in the initial namespace (user_namespaces(7)). A rootless container runs
+# the suite under a translated map, so the expectation is read here, apart from the library under test. An empty map is
+# a namespace whose map is not written yet, translated like any other. A map that does not read fails the case: every
+# process has one on a kernel with user namespaces, which each supported distribution's is.
+uid_map_lines=()
+if ! { mapfile -t uid_map_lines < /proc/self/uid_map; } 2>/dev/null; then
+    fail "/proc/self/uid_map did not read, so this run's uid map is unknown and the namespace clause is not checked"
 else
-    fail "the namespace clause appeared in the initial namespace: $(ai_tools_conf_untrusted_reason "${notroot}")"
+    identity_uid_map=0
+    if (( ${#uid_map_lines[@]} == 1 )) && read -r map_inside map_outside map_count <<< "${uid_map_lines[0]}" \
+            && [[ "${map_inside} ${map_outside} ${map_count}" == "0 0 4294967295" ]]; then
+        identity_uid_map=1
+    fi
+    reason="$(ai_tools_conf_untrusted_reason "${notroot}")" || reason="ai_tools_conf_untrusted_reason exited non-zero"
+    if (( identity_uid_map )) && [[ "${reason}" != *"user namespace"* ]]; then
+        pass "under the identity uid map the reason carries no namespace clause"
+    elif (( ! identity_uid_map )) && [[ "${reason}" == *"user namespace"* ]]; then
+        pass "under a uid map other than the identity the reason names the translation"
+    else
+        fail "the namespace clause does not follow this run's uid map (identity=${identity_uid_map}): ${reason}"
+    fi
 fi
 
 # The map parser, over fixture maps. The kernel writes space-padded columns, and the libraries are sourced into scripts

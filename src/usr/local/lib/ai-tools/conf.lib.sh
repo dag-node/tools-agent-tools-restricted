@@ -73,10 +73,10 @@ ai_tools_conf_is_trusted() {
     (( (0${mode} & 022) == 0 ))
 }
 
-# ai_tools_conf_uid_map_is_identity [map-file] : succeed when this process runs in the INITIAL
-#   user namespace -- the only one where an owner uid read off disk means what it says. The
-#   kernel's map there is exactly one identity range over the whole uid space; any other content,
-#   an empty map included, means uids are translated and fails closed with the rest. Parsing sets
+# ai_tools_conf_uid_map_is_identity [map-file] : succeed when this process's uid map is exactly one
+#   identity range over the whole uid space -- the initial user namespace's map, and the one
+#   under which an owner uid read off disk means what it says. Any other content, an empty map
+#   included, means uids are translated and fails closed with the rest. Parsing sets
 #   IFS locally, since callers run under a strict IFS that would otherwise stop `read -a`
 #   splitting the kernel's space-padded columns, and a map of several ranges is refused on the
 #   embedded newline rather than parsed from its first line alone. <map-file> is

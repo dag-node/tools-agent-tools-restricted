@@ -581,11 +581,13 @@ value into one bogus item), and `ai_tools_conf_is_trusted` must refuse every sta
 with it: the owner uid and mode the predicate read, the map parser over fixture `uid_map` contents (the kernel's padded
 identity line, a translated map, a multi-range map, an empty one, and the identity line under the strict-mode IFS),
 and — inside a real user namespace where `unshare -Ur` is permitted, skipped otherwise — the clause naming a translated
-uid beside the `65534` it read. Its new-option report carries a third: a commented **default** (`#KEY=`, `# KEY=`) is
-a mention while an indented **example** in a header block is not, so a file seeded with `operator.conf`'s own grammar
-comments is not mistaken for one that already knows every option. Its portable-name section drives
-`ai_tools_conf_portable_name_valid` over a table of path components — a slash, whitespace, a backslash, a glob
-character, a byte outside ASCII and a leading hyphen each refused — then a non-ASCII letter under a UTF-8 locale,
+uid beside the `65534` it read. Whether the run's own reading carries the clause is held to the uid map the case reads
+apart from the library: absent under the identity map, present under any other (a rootless container selftest, or a map
+not written yet), and a map that does not read fails the case. Its new-option report carries a third: a commented
+**default** (`#KEY=`, `# KEY=`) is a mention while an indented **example** in a header block is not, so a file seeded
+with `operator.conf`'s own grammar comments is not mistaken for one that already knows every option. Its portable-name
+section drives `ai_tools_conf_portable_name_valid` over a table of path components — a slash, whitespace, a backslash,
+a glob character, a byte outside ASCII and a leading hyphen each refused — then a non-ASCII letter under a UTF-8 locale,
 where a bracket range would otherwise match it, and the `NAME_MAX` edge. `providers.sh` drives the enablement truth
 table and then, for each untrusted input in turn — `operator.conf`, a manifest, a manifest directory — asserts
 the resolver moves to *less* access and says so, never more. It closes with the installed-manifest field reader
