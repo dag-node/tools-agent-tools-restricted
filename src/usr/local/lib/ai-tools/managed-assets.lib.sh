@@ -46,10 +46,10 @@ readonly _AI_TOOLS_MANAGED_ASSETS__LOADED=1
 _AI_TOOLS_MANAGED_ASSETS__LOCK_DEPTH=0
 _AI_TOOLS_MANAGED_ASSETS__LOCK_FD=""
 
-# _ai_tools_managed_assets__is_root_only <path> : succeed when <path> exists, is not a symlink, is root-owned
-# and carries no group or other permission bit, which is the lock's own requirement: ai_tools_conf__is_trusted
-# refuses a group or other write alone, the requirement of a configuration file every account reads, and a read bit
-# on the lock is an open through which flock(2) holds it. Fails closed on a stat that does not read.
+# _ai_tools_managed_assets__is_root_only <path> : succeed when <path> exists, is not a symlink, is root-owned, and has
+# no group or other permission bit, which is the lock's own requirement: ai_tools_conf__is_trusted refuses a group
+# or other write alone, the requirement of a configuration file every account reads, and a read bit on the lock is
+# an open through which flock(2) holds it. Fails closed on a stat that does not read.
 _ai_tools_managed_assets__is_root_only() {
     local path="${1:-}" meta mode
     [[ -n "${path}" && ! -L "${path}" && -e "${path}" ]] || return 1

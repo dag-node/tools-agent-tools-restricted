@@ -191,8 +191,8 @@ if [[ -z "$(ai_tools_providers__read_agent_manifest_field claude-code display_na
 else
     fail "manifest field read a world-writable manifest"
 fi
-# The status tells an absent key from a manifest that cannot be read as trusted data: the assets resolver reads
-# the first as a default and the second as receivers it cannot know, so the two must not share a status.
+# The status tells an absent key from a manifest the reader refuses as trusted data: the assets resolver reads
+# the first as a default and the second as receivers it cannot know, so a failed read takes a status of its own.
 field_status=0; ai_tools_providers__read_agent_manifest_field claude-code display_name >/dev/null 2>&1 || field_status=$?
 [[ "${field_status}" == 2 ]] && pass "manifest field: a world-writable manifest is status 2, a failed read" \
     || fail "manifest field: a world-writable manifest is status ${field_status}, want 2"

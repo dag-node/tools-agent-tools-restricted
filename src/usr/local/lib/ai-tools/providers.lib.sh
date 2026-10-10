@@ -403,9 +403,9 @@ ai_tools_providers__migrate_kinds() {
 }
 
 # _ai_tools_providers__read_manifest_field <manifest-dir> <name> <key> : print one field of a trusted manifest in
-#   <manifest-dir>. Returns 0 with the value, 1 with nothing for a key the manifest does not carry, and 2 with
-#   nothing for a manifest that cannot be read as trusted data -- a name outside the identifier charset, a manifest
-#   absent, untrusted or unreadable -- so a caller whose fail direction turns on it tells an absent key from a read
+#   <manifest-dir>, and return 0. Returns 1 for a key the manifest does not carry and 2 for a manifest it does not
+#   read as trusted data -- a name outside the identifier charset, a manifest absent, untrusted or unreadable --
+#   printing an empty value for either, so a caller whose fail direction turns on it tells an absent key from a read
 #   that failed (the assets resolver reads the second as receivers it cannot know); every other caller reads
 #   a non-zero status as no value. Shared by the two public readers so both allowlist the name the same way and both
 #   apply the trust predicate before reading.

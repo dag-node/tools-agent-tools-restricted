@@ -273,7 +273,7 @@ view.
 .I /etc/ai\-tools/operator.conf
 is not owned by root, or is writable by group or other, so no asset is
 enabled and every resolver link the run reaches is removed.
-The record says whether every one was: a link that cannot be removed is
+The record says whether every one was: a link whose removal failed is
 reported
 .B write\-failed
 and its asset stays reachable through it, and a link in a directory the run
