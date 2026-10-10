@@ -1115,7 +1115,7 @@ _ai_tools_assets__reset_plan() {
         AI_TOOLS_ASSETS__ROW_SEVERITY=() AI_TOOLS_ASSETS__ROW_FINDING=() _AI_TOOLS_ASSETS__ROW_SUBJECT_TYPE=() AI_TOOLS_ASSETS__ROW_SUBJECT=() \
         _AI_TOOLS_ASSETS__ROW_ITEM=() _AI_TOOLS_ASSETS__ROW_AGENT=() AI_TOOLS_ASSETS__ROW_DETAIL=() \
         _AI_TOOLS_ASSETS__DIRS_LEFT=()
-    _AI_TOOLS_ASSETS__UNLINK_FAILED=0
+    _AI_TOOLS_ASSETS__UNLINK_FAILED=0; _AI_TOOLS_ASSETS__AGENT_DIRS_UNREAD=0
 }
 
 # _ai_tools_assets__record_row <severity> <finding> <subject-type> <subject> <item> <agent> <detail> : record one row
@@ -1948,11 +1948,12 @@ _ai_tools_assets__is_agent_plannable() {
 
 # _ai_tools_assets__list_agent_links <agent> <kind> <agent-dir> : the symbolic links in <agent-dir>
 # into _AI_TOOLS_ASSETS__LISTING, empty for a directory that does not exist yet. Returns 1, after an `error` row naming
-# the directory, when the listing fails.
+# the directory and the directory recorded in _AI_TOOLS_ASSETS__DIRS_LEFT, when the listing fails.
 _ai_tools_assets__list_agent_links() {
     declare -ga _AI_TOOLS_ASSETS__LISTING=()
     [[ -d "$3" && ! -L "$3" ]] || return 0
     _ai_tools_assets__enumerate "$3" -type l && return 0
+    _AI_TOOLS_ASSETS__DIRS_LEFT+=( "$3" )
     _ai_tools_assets__record_row unreadable error directory "$3" "$2" "$1" \
         "the directory could not be listed (${_AI_TOOLS_ASSETS__LISTING_ERROR}), so it is not planned: a stale link there stays in place"
     return 1
@@ -1979,11 +1980,13 @@ _ai_tools_assets__plan_stale_links() {
 # _ai_tools_assets__plan_without_receivers : the plan while the receiving agents are unknown. The enable list is read
 # as empty: every entry is receivers-unknown and no set is read, so the plan unlinks every resolver link in the view --
 # the direction an untrusted operator.conf takes, and the one that leaves an agent reading the whole view without
-# an asset no capability check covered -- and does not plan any agent's directory. One `unreadable` row names the reader
-# and why.
+# an asset no capability check covered -- and does not plan any agent's directory, which
+# _AI_TOOLS_ASSETS__AGENT_DIRS_UNREAD records for the report, since the directories a link stays in are not known
+# without the discovery. One `unreadable` row names the reader and why.
 _ai_tools_assets__plan_without_receivers() {
     local entry kind view_name status
     _AI_TOOLS_ASSETS__AGENTS=(); _AI_TOOLS_ASSETS__IDLE_AGENTS=()
+    _AI_TOOLS_ASSETS__AGENT_DIRS_UNREAD=1
     for entry in "${AI_TOOLS_ASSETS__ENTRIES[@]}"; do
         status=0
         ai_tools_assets__parse_id "${entry}" || status=$?
@@ -2291,19 +2294,23 @@ _ai_tools_assets__format_paths() {
 # _ai_tools_assets__report <code> : the record stream for a plan, and the apply when one ran: the enable-list row
 # where the list could not be read, one row per entry in list order (`linked` at ok, `error` at unreadable, any other
 # token at attention), then each row the plan and the apply recorded. The enable-list row says every resolver link
-# is removed only where every directory was planned and written and every removal took; otherwise it names
-# the directories a link stays under (_AI_TOOLS_ASSETS__DIRS_LEFT) and the write-failed rows, so the stream does not
-# claim a withdrawal the run did not make.
+# is removed only where the receiving agents were read, every directory was planned, listed and written and every
+# removal took; otherwise it names the directories a link stays under (_AI_TOOLS_ASSETS__DIRS_LEFT), says the agents'
+# directories were not examined (_AI_TOOLS_ASSETS__AGENT_DIRS_UNREAD) and names the write-failed rows, so the stream
+# does not claim a withdrawal the run did not make.
 _ai_tools_assets__report() {
     local code="$1" entry index detail
     case "${AI_TOOLS_ASSETS__LIST_STATE}" in
         untrusted)
             detail="${AI_TOOLS_ASSETS__LIST_DETAIL}"
-            if (( ${#_AI_TOOLS_ASSETS__DIRS_LEFT[@]} == 0 && ${_AI_TOOLS_ASSETS__UNLINK_FAILED:-0} == 0 )); then
+            if (( ${#_AI_TOOLS_ASSETS__DIRS_LEFT[@]} == 0 && ${_AI_TOOLS_ASSETS__UNLINK_FAILED:-0} == 0 \
+                    && ${_AI_TOOLS_ASSETS__AGENT_DIRS_UNREAD:-0} == 0 )); then
                 detail+="; every resolver link is removed"
             else
                 (( ${#_AI_TOOLS_ASSETS__DIRS_LEFT[@]} == 0 )) \
-                    || detail+="; a resolver link under $(_ai_tools_assets__format_paths "${_AI_TOOLS_ASSETS__DIRS_LEFT[@]}") stays where one was, the directory not planned or refused a write (its row says why)"
+                    || detail+="; a resolver link under $(_ai_tools_assets__format_paths "${_AI_TOOLS_ASSETS__DIRS_LEFT[@]}") stays where one was, the directory not planned, not listed or refused a write (its row says why)"
+                (( ${_AI_TOOLS_ASSETS__AGENT_DIRS_UNREAD:-0} == 0 )) \
+                    || detail+="; the agents' directories were not examined, since the receiving agents could not be read (the receivers-unknown row says why)"
                 (( ${_AI_TOOLS_ASSETS__UNLINK_FAILED:-0} == 0 )) \
                     || detail+="; a resolver link that could not be removed stays, each named in a write-failed row"
             fi

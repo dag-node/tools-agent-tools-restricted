@@ -658,6 +658,17 @@ if has_row_at unreadable receivers-unknown && [[ "$(finding "${SKILL}")" == rece
 else
     fail "the asset_profiles read of a profile-only receiver fails: rc ${RC}, '$(finding "${SKILL}")', ${OUT:0:300}"
 fi
+# The same through the production readers: gamma's manifest becomes a directory once the discovery has listed it,
+# which the trust predicate accepts and the conf reader reports as not read whole, so the status reaches the resolver
+# through ai_tools_conf__read and the provider reader rather than a stub.
+PRELUDE="eval \"_orig_\$(declare -f ai_tools_providers__list_enabled_agents)\"; ai_tools_providers__list_enabled_agents() { _orig_ai_tools_providers__list_enabled_agents || return \$?; rm -f -- ${AGENTS_D}/gamma.conf; mkdir -- ${AGENTS_D}/gamma.conf; }"
+reconcile; PRELUDE=""; rmdir "${AGENTS_D}/gamma.conf"
+if has_row_at unreadable receivers-unknown && [[ "$(finding "${SKILL}")" == receivers-unknown && "${RC}" == 5 ]] \
+        && absent "${HOME_DIR}/skills/acme-pdf"; then
+    pass "a manifest that is a directory once the discovery listed it: receivers-unknown through the production readers, exit 5"
+else
+    fail "a manifest that is a directory after the discovery: rc ${RC}, '$(finding "${SKILL}")', ${OUT:0:300}"
+fi
 manifest gamma
 dynamic_skill; AGENTS_LINE="agent-acme, agent-beta"; write_conf "${SKILL}" "${SUB}"
 chmod 0664 "${AGENTS_D}/beta.conf"; reconcile; chmod 0644 "${AGENTS_D}/beta.conf"
@@ -805,6 +816,23 @@ PRELUDE='eval "_orig_$(declare -f ai_tools_assets__plan)"; ai_tools_assets__plan
 reconcile; PRELUDE=""; chmod 0750 "${HOME_DIR}/skills"
 links_left "an untrusted operator.conf beside a view refused in the apply" "${HOME_DIR}/skills"
 has_row view-dir-untrusted "${HOME_DIR}/skills" && pass "a view refused in the apply: its row" || fail "a view refused in the apply: ${OUT:0:300}"
+# An agent's directory the run could not list, and the agents' directories the run could not discover: the agent's
+# link into the view stays in each, and the row says so instead of claiming every link removed.
+untrusted_row() { awk -F'\t' 'NR > 1 && $6 == "enable-list-untrusted" { print $11 }' <<< "${OUT}"; }
+fresh; chmod 0664 "${CONF}"; PRELUDE="$(failing_find "${HOME_DIR}/.acme/skills")"; reconcile; PRELUDE=""
+if [[ "$(untrusted_row)" == *"under ${HOME_DIR}/.acme/skills"* && "$(untrusted_row)" != *"every resolver link is removed"* \
+        && -L "${HOME_DIR}/.acme/skills/acme-pdf" ]] && has_row_at unreadable error; then
+    pass "an untrusted operator.conf beside an agent listing that fails: the row names the agent's directory, and its link stays"
+else
+    fail "an agent listing that fails: '$(untrusted_row)', $(ls -la "${HOME_DIR}/.acme/skills" 2>&1 | tr '\n' '|')"
+fi
+fresh; chmod 0664 "${CONF}"; PRELUDE='ai_tools_providers__list_installed_agents() { return 2; }'; reconcile; PRELUDE=""
+if [[ "$(untrusted_row)" == *"directories were not examined"* && "$(untrusted_row)" != *"every resolver link is removed"* \
+        && -L "${HOME_DIR}/.acme/skills/acme-pdf" ]] && has_row_at unreadable receivers-unknown && absent "${HOME_DIR}/skills/acme-pdf"; then
+    pass "an untrusted operator.conf beside an unknown receiver set: the row says the agents' directories were not examined; the view link goes, the agent's stays"
+else
+    fail "an unknown receiver set under an untrusted list: rc ${RC}, '$(untrusted_row)', $(ls -la "${HOME_DIR}/.acme/skills" 2>&1 | tr '\n' '|')"
+fi
 
 # ── The strict rule: resolver links and base's seeded copies alone ───────────────────────────────────────────────────
 section "assets: an agent links the view's resolver links and base's seeded copies alone"

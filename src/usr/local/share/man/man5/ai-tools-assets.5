@@ -276,9 +276,13 @@ enabled and every resolver link the run reaches is removed.
 The record says whether every one was: a link whose removal failed is
 reported
 .B write\-failed
-and its asset stays reachable through it, and a link in a directory the run
-did not plan or refused stays, named by that directory in this record and by
-the directory's own row.
+and its asset stays reachable through it; a link in a directory the run
+did not plan, could not list or refused stays, named by that directory in
+this record and by the directory's own row; and where the receiving agents
+could not be read, the agents' directories were not examined, which this
+record says beside the
+.B receivers\-unknown
+row.
 Restore it to
 .B root:root
 .BR 0644 .
