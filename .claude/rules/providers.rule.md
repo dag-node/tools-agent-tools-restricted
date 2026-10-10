@@ -38,17 +38,16 @@ in the privileged scripts that read it:
   and `config_dir` (the two paths it declares to SELinux), `skills_dir` / `subagents_dir` (where inside its config
   directory it reads each shared asset kind, so the shared copies can be symlinked in — see
   [shipped-assets](shipped-assets.rule.md)), `asset_profiles` (the asset formats it implements, which decide whether
-  an asset requiring a profile links for every agent; absent, it reads as each kind's base profile for the directories
-  the manifest declares, and a token base does not define reads as not implemented — an agent that reads a kind
-  from outside its config directory, as codex reads the skills view, lists a profile of that kind to receive it),
-  optionally `skills_root` (the absolute path such an agent reads the whole skills view at, which the assets reconcile
-  reports and does not write — see [shipped-assets](shipped-assets.rule.md)), `memory_file` (the filename that agent's
-  product reads as user-scope instructions, where the shared orientation text is linked), `managed_files` (the
-  kept-across-upgrade files its product reads from a fixed path outside the control plane — each one a plain name
-  directly under `/etc/<name>/`, shipped with a pristine copy of the same name under `/usr/share/ai-tools/<name>/`
-  that the two status reports compare the live file against — reported, never enforced, since no such file holds
-  a guarantee; codex's `/etc/codex` pair is the instance, [agent-codex](agent-codex.rule.md)), `default_enable`, and —
-  optionally — the three release-verification fields.
+  an asset requiring a profile links for every agent; `ai-tools-providers(5)` states how an absent key and an unknown
+  token read, and [shipped-assets](shipped-assets.rule.md) what the resolver does with them), optionally `skills_root`
+  (the absolute path an agent that reads the whole skills view from outside its config directory reads it
+  at, which the assets reconcile reports and does not write — see [shipped-assets](shipped-assets.rule.md)),
+  `memory_file` (the filename that agent's product reads as user-scope instructions, where the shared orientation text
+  is linked), `managed_files` (the kept-across-upgrade files its product reads from a fixed path outside the control
+  plane — each one a plain name directly under `/etc/<name>/`, shipped with a pristine copy of the same name
+  under `/usr/share/ai-tools/<name>/` that the two status reports compare the live file against — reported, never
+  enforced, since no such file holds a guarantee; codex's `/etc/codex` pair is the instance,
+  [agent-codex](agent-codex.rule.md)), `default_enable`, and — optionally — the three release-verification fields.
 - integrations: `default_enable`, and optionally the three keys the SELinux layer reads — `build_output_dirs` (the
   directory names that hold the toolchain's build output, which `relabel.lib.sh` reads from every installed manifest
   through `ai_tools_providers__list_integrations_declaring` and maps to the build-output type), `selinux_layout_module`
@@ -617,8 +616,8 @@ the shim from inside such a namespace.
   that has already resolved which agent it has. The name is allowlisted to a plain identifier before it becomes a path,
   so it cannot address a file outside the manifest directory. Its status tells a key the manifest does not carry (1)
   from a manifest it cannot read as trusted data (2), for the one caller whose fail direction turns on the difference:
-  the assets resolver reads the second as receivers it cannot know, where an absent key reads as a default. Every
-  other caller reads either as no value.
+  the assets resolver reads the second as receivers it cannot know, where an absent key reads as a default. Every other
+  caller reads either as no value.
 - `ai_tools_providers__read_provider_manifest_field <name> <key>` — the same read across both manifest kinds,
   for a caller holding a provider name without knowing which kind carries it (`ai-tools-admin` reads `admin_summary`
   this way). The namespace is flat, so at most one kind holds the name; integrations are tried first.

@@ -36,11 +36,11 @@ fi
 readonly _AI_TOOLS_MANAGED_ASSETS__LOADED=1
 
 # ── The assets lock ──────────────────────────────────────────────────────────────────────────────────────────────────
-# The lock sits in a directory created 0700 root:root and is created under umask 077, and an existing directory or
-# file is held to the same shape, root's with no group or other bit (_ai_tools_managed_assets__is_root_only), so no
-# other account can open it, read-only included: flock(2) takes an exclusive lock through a read-only descriptor, so
-# a file another account can open is one it can hold. AI_TOOLS_ASSETS_LOCK and AI_TOOLS_ASSETS_LOCK_WAIT are root-only
-# test hooks with the standing of AI_TOOLS_ASSETS_BINDINGS_DIR: sudo strips the names, and every consumer runs as root.
+# The lock sits in a directory created 0700 root:root and is created under umask 077, and an existing directory or file
+# is held to the same shape, root's with no group or other bit (_ai_tools_managed_assets__is_root_only), so no other
+# account can open it, read-only included: flock(2) takes an exclusive lock through a read-only descriptor, so a file
+# another account can open is one it can hold. AI_TOOLS_ASSETS_LOCK and AI_TOOLS_ASSETS_LOCK_WAIT are root-only test
+# hooks with the standing of AI_TOOLS_ASSETS_BINDINGS_DIR (assets-verify.lib.sh).
 : "${AI_TOOLS_ASSETS_LOCK:=/run/lock/ai-tools/assets.lock}"
 : "${AI_TOOLS_ASSETS_LOCK_WAIT:=120}"
 _AI_TOOLS_MANAGED_ASSETS__LOCK_DEPTH=0

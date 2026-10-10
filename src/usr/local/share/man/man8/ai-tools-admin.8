@@ -612,11 +612,7 @@ as it was: one outside the grammar, a
 other than
 .B skills
 or
-.B subagents
-(a subagent is
 .BR subagents ,
-not
-.BR agents ),
 and a set no shipped binding names.
 An asset whose set is not installed yet is accepted where its set is bound,
 and is reported
@@ -633,8 +629,11 @@ beside it first.
 Enable instead every asset
 .I SET
 holds now that passes the rules base enforces, one entry each, then reconcile.
-A set that is absent, untrusted, refused by its signature, or invalid as a whole
-refuses the call with its reason.
+A set the reconcile would refuse as a whole \(em absent, unbound, untrusted,
+tampered, unverified, invalid, or requiring a capability this release does
+not define \(em refuses the call with its reason; one that needs a newer
+base, a profile an enabled agent lacks, or an integration that is off is
+written, and the reconcile reports it.
 An asset that fails a rule is reported and left out.
 A later release of the set does not enable an asset it adds: enable that one by
 name.

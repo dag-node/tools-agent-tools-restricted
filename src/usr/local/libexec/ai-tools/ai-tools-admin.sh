@@ -3182,10 +3182,10 @@ assets_enable() {
     assets_finish "${status}"
 }
 
-# assets_enable_set <set>: snapshot the set as it stands. It must be present, trusted, verified and valid at set scope,
-# or the call refuses with that state's token; each asset that passes the asset-scope rules is written as its own
-# identifier, and each that does not is reported under MSG-J4E9 and left out. A later release of the set does not enable
-# a new asset until that asset is enabled by name.
+# assets_enable_set <set>: snapshot the set as it stands (ai_tools_assets__build_enable_snapshot, whose doc states
+# which set states refuse); a refused set exits with that state's token. Each asset that passes the asset-scope rules is
+# written as its own identifier, and each that does not is reported under MSG-J4E9 and left out. A later release
+# of the set does not enable a new asset until that asset is enabled by name.
 assets_enable_set() {
     local set="${1:-}" identifier index entry status=0
     local -a entries=() added=()

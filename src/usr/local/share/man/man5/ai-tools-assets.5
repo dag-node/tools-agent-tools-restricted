@@ -123,15 +123,16 @@ states in
 .RB ( ai-tools-providers (5)),
 or the asset links for no agent.
 .SH REASONS
-.B "ai\-tools\-admin assets reconcile"
-writes one record per entry of
-.BR AI_TOOLS_ASSETS ,
-.B linked
-or the reason it is not, and
+The token a record of
+.B "ai\-tools\-admin assets"
+or a line of
 .B "ai\-tools\-admin status"
-prints each entry that is not linked with its reason.
-A record stream follows
-.BR ai-tools-records (5).
+carries for an entry of
+.B AI_TOOLS_ASSETS
+that is not
+.BR linked ;
+.BR ai\-tools\-admin (8)
+states what each command writes.
 .TP
 .B id\-malformed
 The entry is not
@@ -146,8 +147,6 @@ Correct the line.
 is neither
 .B skills
 nor
-.BR subagents .
-A subagent is spelled
 .BR subagents .
 .TP
 .B set\-absent
@@ -272,17 +271,9 @@ view.
 .B enable\-list\-untrusted
 .I /etc/ai\-tools/operator.conf
 is not owned by root, or is writable by group or other, so no asset is
-enabled and every resolver link the run reaches is removed.
-The record says whether every one was: a link whose removal failed is
-reported
-.B write\-failed
-and its asset stays reachable through it; a link in a directory the run
-did not plan, could not list or refused stays, named by that directory in
-this record and by the directory's own row; and where the receiving agents
-could not be read, the agents' directories were not examined, which this
-record says beside the
-.B receivers\-unknown
-row.
+enabled and every resolver link the run reaches is removed; the record
+names each directory a link stayed under, each removal that failed, and
+whether the agents' directories were examined.
 Restore it to
 .B root:root
 .BR 0644 .
@@ -377,8 +368,6 @@ The lock every
 .B "ai\-tools\-admin assets"
 command takes, and every installer or package step that seeds the shared
 assets, in a directory only root can enter.
-A run that waits more than two minutes for it refuses, with the view and the
-agents' links as they were.
 .TP
 .I /var/log/ai\-tools/assets.log
 Each record that needs attention, written by

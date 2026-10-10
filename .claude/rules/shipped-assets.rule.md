@@ -107,70 +107,61 @@ as `<set>/<kind>/<name>`, so installing a set does not change any session until 
 (`ai-tools-admin assets enable`). The roots, the identifier, the reason tokens and the binding file are
 `ai-tools-assets(5)`'s; this section states what the code guarantees.
 
-**Every reader fails toward an unlinked asset, reported.** The library reads each set from the first root holding it --
-the local root, the packaged root, then base's own `/usr/share/ai-tools/` as the set `ai-tools` -- in a fixed order:
-the trust walk (every entry root-owned, none but a link group- or other-writable), the file-shape walk, the set
-verifier, then the subset of format 1 base enforces, under the format's rule ids. Each step's failure resolves every
-entry it covers to one reason token and the run goes on; a copy refused at any step does not fall through to a lower
-root. An untrusted `operator.conf` and an invalid list enable no asset, so the next run removes every resolver link.
-Every requirement is read: `requires_base`, an unknown capability and an integration that is off each leave the asset
-unlinked. A view or agent directory the plan cannot list is an `error` row and is not planned that run, so no link in it
-is placed or removed: a failed listing read as an empty one would leave a stale link in place and no row naming it.
+**Every reader fails toward an unlinked asset, reported.** The library reads each set from the first root holding it,
+through one order of predicates (`_ai_tools_assets__evaluate_set`): a shipped binding naming the set, the trust walk
+over the copy, the file-shape walk, the set verifier, then the subset of format 1 base enforces, under the format's rule
+ids. Each step's failure resolves every entry it covers to one reason token and the run goes on; a copy refused at any
+step does not fall through to a lower root. An untrusted `operator.conf` and an invalid list enable no asset,
+so the next run removes every resolver link. Every requirement is read: `requires_base`, an unknown capability
+and an integration that is off each leave the asset unlinked. A view or agent directory the plan cannot list is
+an `error` row and is not planned that run, so no link in it is placed or removed: a failed listing read as an empty one
+would leave a stale link in place and no row naming it.
 
 **Compatibility is a profile question.** An asset requires its kind's base profile and each capability it declares;
-an agent's manifest lists the profiles it implements in `asset_profiles`, defaulting to each kind's base profile
-for the directories it declares, and receives a kind by declaring its directory or listing one of its profiles
-([providers](providers.rule.md)). A required profile one enabled receiving agent lacks leaves the asset out of the view
-for every agent, since codex reads the view whole and an asset cannot be narrowed per agent there. The load-time command
-substitution is one such profile, `skills.dynamic.v1`: an asset carrying it without the declaration is refused, because
-the substitution runs as a step of reading the file and skips the `PreToolUse` filter and `permissions.deny`. A receiver
-set read from a failed discovery -- a provider reader exiting non-zero, a manifest field the provider reader refuses
-to read once the discovery has listed its agent, or an empty enabled set `ai_tools_providers__evaluate_empty_agents`
-classifies as a fault -- is `receivers-unknown` rather than the empty set, which would support every profile, or a set
-missing that agent's declaration, which would drop the profile limit it declares: the enable list reads as empty
-for that run and no agent's directory is planned.
+an agent's manifest lists the profiles it implements in `asset_profiles` ([providers](providers.rule.md); how an absent
+key and an unknown token read is `_ai_tools_assets__read_receivers`'s contract) and receives a kind by declaring its
+directory or listing one of its profiles. A required profile one enabled receiving agent lacks leaves the asset
+out of the view for every agent, since codex reads the view whole and an asset cannot be narrowed per agent there.
+The load-time command substitution is one such profile, `skills.dynamic.v1`: an asset carrying it without
+the declaration is refused, because the substitution runs as a step of reading the file and skips the `PreToolUse`
+filter and `permissions.deny`. A receiver set the discovery could not read whole is `receivers-unknown` rather than
+the empty set, which would support every profile, or a set missing that agent's declaration, which would drop
+the profile limit it declares: the enable list reads as empty for that run and no agent's directory is planned.
 A refused `operator.conf` is the exception: it refuses the enable list too (`enable-list-untrusted`), so no entry asks
 for a capability, and its empty agent set is read as it was printed, every installed agent losing its resolver links.
 
-**The transaction holds a lock and plans before it writes.** `ai_tools_assets__reconcile` takes an exclusive `flock`
+**The transaction holds a lock and plans before it writes.** `ai_tools_assets__reconcile` takes the assets lock
 before it reads an input, computes every change (`ai_tools_assets__plan`, which writes nothing and which `status` runs
 alone), then applies them: each view link is placed by a `rename(2)` over its name, so a session listing the directory
 sees the old target or the new one; a resolver link no input justifies is removed, with no last-good fallback; anything
-else at an enabled asset's name is `view-occupied` and left as it is. A resolver link is told from every other entry
-by its target alone, so the seeder's managed copies share the directory without a marker, and the three sites that read
-a managed copy's marker (`ai_tools_managed_assets__withdraw_asset`, `ai_tools_managed_assets__is_stale_copy`,
-`system post-upgrade`'s version check) skip a symlink. A link is staged at `.<name>.ai-tools-assets.tmp` beside its
-name, and an entry already there is removed only when it is a link the library leaves; any other is kept
-and the placement refused as `write-failed`. The lock is `/run/lock/ai-tools/assets.lock`, a `0600` file in a `0700`
-root directory, and an existing directory or file with any group or other bit refuses the lock before it is opened:
-`flock(2)` takes an exclusive lock through a read-only descriptor, so a file another account can open is one it can
-hold. A run that waits longer than `AI_TOOLS_ASSETS_LOCK_WAIT` (120 seconds) for it refuses under `MSG-M8T9`
-rather than hold a package transaction. Every writer of the shared roots holds it, through the reentrant pair
-`ai_tools_managed_assets__lock`/`ai_tools_managed_assets__unlock` in `managed-assets.lib.sh`, which every provisioning
-path already sources: the `assets` verbs before their first read of `operator.conf`, to their exit; `install.sh`,
-`ai-tools-bootstrap`, base's `%post` and the typesafe package's scriptlets across the seed, the retire pass
-and the reconcile. A reconcile run as a child of a holder adopts the descriptor it inherits once it names the lock file,
-rather than wait on its parent. The seeder itself does not take the lock.
+else at an enabled asset's name is `view-occupied` and left as it is, as is any entry the library did not place
+at the temporary name a link is staged under (`_ai_tools_assets__place_link`). A resolver link is told from every other
+entry by its target alone, so the seeder's managed copies share the directory without a marker, and the three sites
+that read a managed copy's marker (`ai_tools_managed_assets__withdraw_asset`, `ai_tools_managed_assets__is_stale_copy`,
+`system post-upgrade`'s version check) skip a symlink. The lock is `ai_tools_managed_assets__lock`'s
+(`managed-assets.lib.sh`), whose doc states its modes, its wait, and the descriptor a child reconcile adopts; every
+writer of the shared roots holds it through that reentrant pair, which every provisioning path already sources:
+the `assets` verbs before their first read of `operator.conf`, to their exit; `install.sh`, `ai-tools-bootstrap`, base's
+`%post` and the typesafe package's scriptlets across the seed, the retire pass and the reconcile. The seeder itself does
+not take the lock.
 
 **The view decides what every agent links.** For each enabled agent and each kind its manifest declares a directory
-for, the view's resolver links and base's seeded copies are linked, and no other entry: a seeded copy is a real entry
-in the seeder's `ai-tools-` namespace, of its kind's shape, root-owned with everything under it, carrying the managed
-marker (an operator's edit of it in place included). Every other entry is `view-foreign`, reported and kept, and not
-linked into an agent's directory, though codex, reading the view whole, still loads it; an operator's own skill reaches
-one agent from that agent's own directory, where a real entry wins. In an agent's directory, a link into the view
-whose name the view no longer holds as either is removed; a real entry is kept and reported, and one not root-owned
-along its path is `agent-entry-untrusted`, since the sandbox account could rewrite what every later session loads there;
-a link elsewhere is the host's and is not repointed. An installed agent that `AI_TOOLS_AGENTS` does not name loses its
-resolver links and keeps its seeded copies' links. Every directory a link is written in -- the home root, a view,
-an agent's config and kind directory -- is checked before the plan acts in it and again in the apply, after an absent
-one is created where no entry stands at its name: root-owned and not a symlink, the config directory sticky where it is
-group-writable as it ships, the others writable by neither group nor other. One that fails is `view-dir-untrusted`
-or `agent-dir-untrusted`, no action under it runs, and it is not repaired, since a repair would keep what was placed
-inside it. Why a path check suffices against these modes is `_ai_tools_assets__is_destination_trusted`'s doc comment.
-The reconcile is the one function that writes these links, so every provisioning path that placed or linked an asset
-ends with it: base's `%post` after the seeder, two transaction file triggers on `/usr/share/ai-tools-assets` (a set
-placed, upgraded or erased, base's own transaction included), each agent and the typesafe package's scriptlets,
-`install.sh` and `ai-tools-bootstrap`.
+for, the view's resolver links and base's seeded copies (`_ai_tools_assets__is_seeded_copy`) are linked, and no other
+entry. Every other entry is `view-foreign`, reported and kept, and not linked into an agent's directory, though codex,
+reading the view whole, still loads it; an operator's own skill reaches one agent from that agent's own directory,
+where a real entry wins. In an agent's directory a real entry is kept and reported, and one not root-owned along its
+path is `agent-entry-untrusted`, since the sandbox account could rewrite what every later session loads there; a link
+elsewhere is the host's and is not repointed; a link into the view whose name the view no longer holds is removed
+(`_ai_tools_assets__plan_agent`). An installed agent that `AI_TOOLS_AGENTS` does not name loses its resolver links
+and keeps its seeded copies' links. Every directory a link is written in -- the home root, a view, an agent's config
+and kind directory -- is held to a destination predicate before the plan acts in it and again in the apply, before its
+first write there; one that fails is `view-dir-untrusted` or `agent-dir-untrusted`, no action under it runs, and it is
+not repaired, since a repair would keep what was placed inside it. The modes each predicate requires, and why a path
+check suffices against them, are `_ai_tools_assets__is_destination_trusted`'s doc comment. The reconcile is the one
+function that writes these links, so every provisioning path that placed or linked an asset ends with it: base's `%post`
+after the seeder, two transaction file triggers on `/usr/share/ai-tools-assets` (a set placed, upgraded or erased,
+base's own transaction included), each agent and the typesafe package's scriptlets, `install.sh`
+and `ai-tools-bootstrap`.
 
 The verbs are `ai-tools-admin assets enable|disable|reconcile`, each root-only and each ending with the reconcile;
 the record stream and the exit fold are [records](records.rule.md)'s contract. `ai_tools_assets__validate_set` runs
@@ -250,9 +241,9 @@ in [agent-codex](agent-codex.rule.md).
 
 The reconcile reports that path and does not write it, so these two functions stay its only writers. The agent's
 manifest names it under its kind's root field (`skills_root`, a column of the kind registry in `assets.lib.sh`), read
-under the provider trust predicate, and each enabled agent whose path is not the symlink to the view gets one row:
-`agent-root-foreign` at attention for a real directory, a file or a link elsewhere, since an enable, a disable or a set
-upgrade does not reach that agent through it, and `agent-root-absent` at info, since the package places the link.
+under the provider trust predicate, and each enabled agent whose path is not the symlink to the view gets one row
+(`_ai_tools_assets__check_agent_root`), since an enable, a disable or a set upgrade does not reach that agent
+through any other entry there.
 
 ## Namespace
 

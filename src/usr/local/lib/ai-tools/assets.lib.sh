@@ -6,9 +6,8 @@
 # to its signature (assets-verify.lib.sh) and to the subset of format 1 base enforces, resolves every entry of the list
 # to one state, and keeps the view -- one root-owned symlink per linked asset in <home>/<kind> -- and each enabled
 # agent's links into the view current. Sourced as root by ai-tools-admin, whose `assets` verbs and `status` section are
-# its callers; the conformance job sources it for ai_tools_assets__validate_set alone, which reads a tree and does not
-# take an ownership input. The roots, the reason tokens, the view transaction and the per-agent rules are
-# in shipped-assets.rule.md.
+# its callers; the conformance job sources it for ai_tools_assets__validate_set alone. The reason tokens are
+# ai-tools-assets(5)'s; the view transaction and the per-agent rules are in shipped-assets.rule.md.
 #
 # Every reader's failure leaves an asset unlinked and reported: an untrusted or unreadable operator.conf, root, set
 # or file, a verifier status other than 0, and a rule the subset refuses each resolve the entries they cover to a token
@@ -17,13 +16,10 @@
 #
 # The view transaction is ai_tools_assets__reconcile: the lock, then ai_tools_assets__plan, which reads every input
 # and computes the link changes without writing, then the apply, then one record per entry and per change. `status` runs
-# the plan alone. A resolver link is recognised by its target alone -- a symlink into one of the roots --
-# so the seeder's managed copies share the view directories without a marker.
+# the plan alone.
 #
 # The root-only test hooks AI_TOOLS_ASSETS_ROOTS and AI_TOOLS_ASSETS_HOME move the roots and the directory holding
-# the view and the agent config directories, and managed-assets.lib.sh's AI_TOOLS_ASSETS_LOCK
-# and AI_TOOLS_ASSETS_LOCK_WAIT the lock and the wait for it; each has the standing of AI_TOOLS_ASSETS_BINDINGS_DIR:
-# sudo strips the name, and every consumer runs as root.
+# the view and the agent config directories, with the standing of AI_TOOLS_ASSETS_BINDINGS_DIR (assets-verify.lib.sh).
 
 # Sourced more than once in a single shell: the readonly constants would abort under `set -e` on the second pass.
 # An if-statement, not `[[ ]] && return`, which returns 1 for an unset guard and trips the sourcing shell's `set -e`.
@@ -85,9 +81,9 @@ readonly AI_TOOLS_ASSETS__README_ROOT=/usr/share/ai-tools
 
 # The kind registry: one row per kind a set may carry, `|`-separated, its columns named in row order
 # by _AI_TOOLS_ASSETS__KIND_COLUMNS. The view of a kind is <home>/<id>, which is CP_SHARED_SKILLS
-# and CP_SHARED_SUBAGENTS at the default home. The root field is the manifest key naming a path outside an agent's
-# config directory where it reads the kind's whole view, as codex reads /etc/codex/skills; the plan reports that path
-# and does not write it. `orientation` is base's own kind and has no row, so an identifier naming it is kind-unknown.
+# and CP_SHARED_SUBAGENTS at the default home. The root field is the manifest key naming the path outside an agent's
+# config directory where it reads the kind's whole view, which _ai_tools_assets__check_agent_root reports. `orientation`
+# is base's own kind and has no row, so an identifier naming it is kind-unknown.
 readonly -a AI_TOOLS_ASSETS__KIND_ROWS=(
     "skills|skills|directory|skills_dir|skills.portable.v1|skills_root"
     "subagents|agents|file|subagents_dir|subagents.claude.v1|"
@@ -1224,8 +1220,8 @@ _ai_tools_assets__read_receivers() {
 
 # _ai_tools_assets__read_agent_field <agent> <key> : read one field of <agent>'s manifest into _AI_TOOLS_ASSETS__FIELD;
 # returns 0 for a key present and 1 for one absent. A read the provider reader refuses (its status 2: the manifest
-# untrusted or unreadable after the discovery listed the agent) records the receivers unknown and returns 1 with
-# the field empty. An absent asset_profiles reads as the base profiles and an absent directory field as a kind
+# untrusted or unreadable after the discovery listed the agent) records the receivers unknown and returns 1
+# with the field empty. An absent asset_profiles reads as the base profiles and an absent directory field as a kind
 # the agent does not receive, so a read that failed must become neither: either would drop a capability limit
 # the manifest declares.
 _ai_tools_assets__read_agent_field() {
@@ -1339,10 +1335,9 @@ _ai_tools_assets__is_resolver_link() {
 }
 
 # ── Destinations ─────────────────────────────────────────────────────────────────────────────────────────────────────
-# The directories a link is written in or removed from. The plan checks each before it plans an action there,
-# and the apply checks it again after creating an absent one and before the first write under it. A directory that fails
-# is reported once (view-dir-untrusted, agent-dir-untrusted), every action under it is dropped, and it is not re-owned
-# or re-moded: a repair would keep whatever was placed inside it.
+# The directories a link is written in or removed from, each held to _ai_tools_assets__is_destination_trusted before
+# the plan acts in it and again before the apply's first write under it (_ai_tools_assets__prepare_dir). A directory
+# that fails is reported once (view-dir-untrusted, agent-dir-untrusted) and every action under it is dropped.
 
 # _ai_tools_assets__is_dir_trusted <dir> : succeed when <dir> is a directory ai_tools_conf__is_trusted accepts:
 # root-owned, not a symlink, writable by neither group nor other.
@@ -1409,8 +1404,8 @@ _ai_tools_assets__read_dir_reason() {
 }
 
 # _ai_tools_assets__record_dir_row <finding> <dir> <kind> <agent> <detail> : report a destination once per run,
-# at attention, and record it in _AI_TOOLS_ASSETS__DIRS_LEFT, the directories a resolver link stays under where one
-# was, since no removal under a refused directory runs.
+# at attention, and record it in _AI_TOOLS_ASSETS__DIRS_LEFT, the directories a resolver link stays under where one was,
+# since no removal under a refused directory runs.
 _ai_tools_assets__record_dir_row() {
     [[ -z "${_AI_TOOLS_ASSETS__DIR_REPORTED[$2]+x}" ]] || return 0
     _AI_TOOLS_ASSETS__DIR_REPORTED["$2"]=1
@@ -1420,12 +1415,12 @@ _ai_tools_assets__record_dir_row() {
 
 # _ai_tools_assets__prepare_dir <view|agent> <dir> <group> <create> : before the apply's first write under <dir>: hold
 # <dir> and the directories that hold it to _ai_tools_assets__is_destination_trusted, then create an absent <dir>
-# root:<group> 0750 when <create> is 1, and hold the created one to the predicate again. The directories that hold
-# <dir> are checked before the create, since the create is a write through them: a home root that is a symlink or not
-# root's alone would otherwise take a directory the plan refused to act in. `install -d` over an existing directory
-# re-owns and re-modes it, the repair this library does not make, so the create is guarded by the name's absence.
-# A name taken between the plan and here is found by the check that follows the create. Prints the directory that
-# fails and returns 1; returns 2 for an absent directory left absent.
+# root:<group> 0750 when <create> is 1, and hold the created one to the predicate again. The directories that hold <dir>
+# are checked before the create, since the create is a write through them: a home root that is a symlink or not root's
+# alone would otherwise take a directory the plan refused to act in. `install -d` over an existing directory re-owns
+# and re-modes it, the repair this library does not make, so the create is guarded by the name's absence. A name taken
+# between the plan and here is found by the check that follows the create. Prints the directory that fails and returns
+# 1; returns 2 for an absent directory left absent.
 _ai_tools_assets__prepare_dir() {
     local which="$1" directory="$2" group="$3" create="$4"
     _ai_tools_assets__is_destination_trusted "${which}" "${directory}" || return 1
@@ -1461,11 +1456,10 @@ _ai_tools_assets__is_set_tree_trusted() {
     return 0
 }
 
-# _ai_tools_assets__evaluate_set <copy-dir> <set> : resolve one set copy once per plan, through the predicates
-# in the order the rule states -- the binding's presence, the trust walk, the file-shape walk, the verifier, then
-# the set-scope rules and the set's own requirements. Caches the token (`ok` or the reason) and its detail
-# by <copy-dir>, the requirements an asset of the set inherits, and the findings of the assets, which the per-asset
-# reading consumes.
+# _ai_tools_assets__evaluate_set <copy-dir> <set> : resolve one set copy once per plan, through its predicates in order
+# -- the binding's presence, the trust walk, the file-shape walk, the verifier, then the set-scope rules and the set's
+# own requirements. Caches the token (`ok` or the reason) and its detail by <copy-dir>, the requirements an asset
+# of the set inherits, and the findings of the assets, which the per-asset reading consumes.
 _ai_tools_assets__evaluate_set() {
     local set_directory="$1" set="$2" reason verify_error verify_status=0 index token IFS=$' \t\n'
     [[ -n "${_AI_TOOLS_ASSETS__SET_STATE[${set_directory}]+x}" ]] && return 0
@@ -1980,8 +1974,8 @@ _ai_tools_assets__plan_stale_links() {
 # _ai_tools_assets__plan_without_receivers : the plan while the receiving agents are unknown. The enable list is read
 # as empty: every entry is receivers-unknown and no set is read, so the plan unlinks every resolver link in the view --
 # the direction an untrusted operator.conf takes, and the one that leaves an agent reading the whole view without
-# an asset no capability check covered -- and does not plan any agent's directory, which
-# _AI_TOOLS_ASSETS__AGENT_DIRS_UNREAD records for the report, since the directories a link stays in are not known
+# an asset no capability check covered -- and does not plan any agent's directory,
+# which _AI_TOOLS_ASSETS__AGENT_DIRS_UNREAD records for the report, since the directories a link stays in are not known
 # without the discovery. One `unreadable` row names the reader and why.
 _ai_tools_assets__plan_without_receivers() {
     local entry kind view_name status
@@ -2293,9 +2287,9 @@ _ai_tools_assets__format_paths() {
 
 # _ai_tools_assets__report <code> : the record stream for a plan, and the apply when one ran: the enable-list row
 # where the list could not be read, one row per entry in list order (`linked` at ok, `error` at unreadable, any other
-# token at attention), then each row the plan and the apply recorded. The enable-list row says every resolver link
-# is removed only where the receiving agents were read, every directory was planned, listed and written and every
-# removal took; otherwise it names the directories a link stays under (_AI_TOOLS_ASSETS__DIRS_LEFT), says the agents'
+# token at attention), then each row the plan and the apply recorded. The enable-list row says every resolver link is
+# removed only where the receiving agents were read, every directory was planned, listed and written and every removal
+# took; otherwise it names the directories a link stays under (_AI_TOOLS_ASSETS__DIRS_LEFT), says the agents'
 # directories were not examined (_AI_TOOLS_ASSETS__AGENT_DIRS_UNREAD) and names the write-failed rows, so the stream
 # does not claim a withdrawal the run did not make.
 _ai_tools_assets__report() {
