@@ -97,16 +97,15 @@ readonly AI_TOOLS_ASSETS_DYNAMIC_CAPABILITY=skills.dynamic.v1
 
 # The rule ids of format 1 this library is held to the publisher's validator on, the one list the conformance job
 # (tools/checkers/assets-conformance.sh) selects the publisher's fixtures by: base refuses a fixture of each
-# under the same id. frontmatter.syntax is reported too, for a frontmatter shape the bounded reader does not take,
-# and is not on the list: base reads the key names and two values, so most of the publisher's syntax fixtures break
-# a value base does not read.
+# under the same id. Of frontmatter.syntax the job selects the variants the bounded reader refuses, by name.
 # shellcheck disable=SC2034  # read by the conformance job
 readonly -a AI_TOOLS_ASSETS_ENFORCED_RULES=(
     set.conf.missing set.conf.syntax set.conf.required-key set.conf.format set.conf.name set.conf.version
     set.conf.requires-capabilities set.conf.requires-integrations set.conf.unknown-key set.entry.unknown
     set.entry.reserved kind.shape kind.reserved name.grammar name.asset-prefix name.frontmatter frontmatter.missing
-    frontmatter.required frontmatter.refused-key body.dynamic-injection metadata.asset-conf file.symlink file.hardlink
-    file.special file.size file.name release.inventory
+    frontmatter.required frontmatter.refused-key frontmatter.syntax body.dynamic-injection metadata.asset-conf
+    file.symlink file.hardlink file.special file.size file.name file.binary release.inventory skill.entry.unknown
+    skill.plugin-manifest skill.sidecar
 )
 
 # The enforced subset of format 1, under the format's rule ids. Entry names carry their type, `f` or `d`.
@@ -123,6 +122,13 @@ readonly -a _AI_TOOLS_AS_ASSET_CONF_KEYS=( format requires_capabilities requires
 readonly -a _AI_TOOLS_AS_SKILL_KEYS=( name description license compatibility metadata )
 readonly -a _AI_TOOLS_AS_SUBAGENT_KEYS=( name description model effort color tools disallowedTools skills maxTurns
                                          metadata )
+# The entries a skill directory holds, the set the format's rule table names.
+readonly -a _AI_TOOLS_AS_SKILL_ENTRIES=( SKILL.md:f scripts:d references:d assets:d tests:d UPSTREAM.conf:f LICENSE:f
+                                         LICENSES:d )
+# file.binary's byte sequences, read under LC_ALL=C: a C0 control but tab, LF and CR, DEL, a C1 control, the bidi
+# controls U+061C, U+200E, U+200F, U+202A to U+202E and U+2066 to U+2069, the byte order mark, and the lead bytes
+# of a code point past U+10FFFF (F5 to FF, or F4 then 90 to BF), which glibc's iconv accepts.
+readonly _AI_TOOLS_AS_BINARY_BYTES='[\x00-\x08\x0b\x0c\x0e-\x1f\x7f\xf5-\xff]|\xc2[\x80-\x9f]|\xd8\x9c|\xe2\x80[\x8e\x8f\xaa-\xae]|\xe2\x81[\xa6-\xa9]|\xef\xbb\xbf|\xf4[\x90-\xbf]'
 # The bounds of the walk the verifier does not hold: directories, depth and entries in one directory. The per-file,
 # file-count and payload bounds are the verifier's constants, read with the format's value as the fallback.
 readonly _AI_TOOLS_AS_MAX_DIRECTORIES=500
@@ -374,7 +380,8 @@ _ai_tools_as_finding() {
 
 # _ai_tools_as_walk_tree <set-dir> : the file-shape rules over the set's tree, read with lstat by one `find` whose exit
 # status is read, so an enumeration that ended early is a finding and not a smaller tree. Records each regular file
-# and directory the later rules read in _AI_TOOLS_AS_FILES and _AI_TOOLS_AS_DIRS (relative path -> 1). An entry
+# and directory the later rules read in _AI_TOOLS_AS_FILES and _AI_TOOLS_AS_DIRS (relative path -> 1), and a file over
+# the size bound in _AI_TOOLS_AS_UNREAD too, so no later rule reads its bytes. An entry
 # whose name is outside the portable set is reported once and not read further, its subtree with it; a link, a special
 # file and a file with a second link are reported and not recorded. find descends one level past the depth bound and no
 # further, so a directory at that level stops the walk without a deeper tree being listed first. Returns 1 when the walk
@@ -386,7 +393,7 @@ _ai_tools_as_walk_tree() {
     local bytes_max="${AI_TOOLS_ASSETS_SET_MAX_BYTES:-67108864}" files=0 directories=0 bytes=0
     local stopped=""
     local -A entries_in=() refused_prefix=()
-    declare -gA _AI_TOOLS_AS_FILES=() _AI_TOOLS_AS_DIRS=()
+    declare -gA _AI_TOOLS_AS_FILES=() _AI_TOOLS_AS_DIRS=() _AI_TOOLS_AS_UNREAD=()
     listing="$(mktemp 2>/dev/null)" \
         || { _ai_tools_as_finding file.special set-invalid . "no temporary file for the walk"; return 1; }
     walk_error="$( (find -P "${set_dir}" -mindepth 1 -maxdepth "$(( _AI_TOOLS_AS_MAX_DEPTH + 1 ))" \
@@ -439,7 +446,10 @@ _ai_tools_as_walk_tree() {
                     _ai_tools_as_finding file.hardlink set-invalid "${path}" "a file with ${links} links"
                     continue
                 fi
-                (( size <= file_max )) || _ai_tools_as_finding file.size set-invalid "${path}" "${size} bytes; a file is at most ${file_max}"
+                if (( size > file_max )); then
+                    _ai_tools_as_finding file.size set-invalid "${path}" "${size} bytes; a file is at most ${file_max}"
+                    _AI_TOOLS_AS_UNREAD["${path}"]=1
+                fi
                 _AI_TOOLS_AS_FILES["${path}"]=1 ;;
             *)  _ai_tools_as_finding file.special set-invalid "${path}" "neither a regular file nor a directory" ;;
         esac
@@ -475,6 +485,46 @@ _ai_tools_as_type() {
     if [[ -n "${_AI_TOOLS_AS_FILES[$1]+x}" ]]; then printf f
     elif [[ -n "${_AI_TOOLS_AS_DIRS[$1]+x}" ]]; then printf d
     fi
+}
+
+# _ai_tools_as_check_text <set-dir> : file.binary over every file the walk recorded within the size bound -- UTF-8 text
+# without a control character but tab, LF and CR, a bidi control or a byte order mark. One grep over every file reads
+# _AI_TOOLS_AS_BINARY_BYTES; one iconv over every file reads the rest of UTF-8's validity (an overlong form,
+# a surrogate, a truncated sequence), and per file only where the batch fails. grep reading every file is what lets
+# an iconv status of 1 mean invalid input rather than an unreadable file. A refused file is recorded
+# in _AI_TOOLS_AS_UNREAD, so no later rule reads it. A scan that did not complete is a finding at the set root.
+_ai_tools_as_check_text() {
+    local set_dir="$1" path listing status=0 iconv_error
+    local -a files=()
+    for path in "${!_AI_TOOLS_AS_FILES[@]}"; do
+        [[ -n "${_AI_TOOLS_AS_UNREAD[${path}]+x}" ]] || files+=( "${path}" )
+    done
+    (( ${#files[@]} > 0 )) || return 0
+    listing="$(cd -- "${set_dir}" && LC_ALL=C grep -laP -e "${_AI_TOOLS_AS_BINARY_BYTES}" -- "${files[@]}" 2>/dev/null)" \
+        || status=$?
+    if (( status > 1 )); then
+        _ai_tools_as_finding file.binary set-invalid . "the scan did not complete (grep exit ${status})"
+        return 0
+    fi
+    while IFS= read -r path; do
+        [[ -n "${path}" ]] || continue
+        _ai_tools_as_finding file.binary set-invalid "${path}" "carries a control character, a bidi control, a byte order mark or a byte outside UTF-8"
+        _AI_TOOLS_AS_UNREAD["${path}"]=1
+    done <<< "${listing}"
+    (cd -- "${set_dir}" && iconv -f UTF-8 -t UTF-8 -- "${files[@]}" >/dev/null 2>&1) && return 0
+    for path in "${files[@]}"; do
+        [[ -n "${_AI_TOOLS_AS_UNREAD[${path}]+x}" ]] && continue
+        status=0
+        iconv_error="$(iconv -f UTF-8 -t UTF-8 -- "${set_dir}/${path}" 2>&1 >/dev/null)" || status=$?
+        case "${status}" in
+            0)  ;;
+            1)  _ai_tools_as_finding file.binary set-invalid "${path}" "is not UTF-8 text: $(_ai_tools_as_display "${iconv_error%%$'\n'*}")"
+                _AI_TOOLS_AS_UNREAD["${path}"]=1 ;;
+            *)  _ai_tools_as_finding file.binary set-invalid . "the UTF-8 check did not complete (iconv exit ${status})"
+                return 0 ;;
+        esac
+    done
+    return 0
 }
 
 # ── The set ──────────────────────────────────────────────────────────────────────────────────────────────────────────
@@ -527,6 +577,7 @@ _ai_tools_as_check_set_conf() {
         _ai_tools_as_finding set.conf.missing set-invalid set.conf "the set directory holds no set.conf file"
         return 0
     fi
+    [[ -z "${_AI_TOOLS_AS_UNREAD[set.conf]+x}" ]] || return 0
     _ai_tools_as_read_kv "${set_dir}/set.conf"
     for message in "${_AI_TOOLS_AS_KV_ERRORS[@]}"; do
         _ai_tools_as_finding set.conf.syntax set-invalid set.conf "${message}"
@@ -628,18 +679,93 @@ _ai_tools_as_list_assets() {
     fi
 }
 
+# _ai_tools_as_check_skill_entries : the structures under skills/ a consumer reads without the model choosing, in one
+# pass over the walk's records in byte order. skill.plugin-manifest: a .claude-plugin directory anywhere under skills/,
+# which Claude Code reads as a plugin declaring hooks and tool servers. For each listed skill whose name passes
+# the grammar: skill.sidecar for agents/openai.yaml, which codex reads, and skill.entry.unknown for an entry
+# _AI_TOOLS_AS_SKILL_ENTRIES does not name, or names with the other type. The .claude-plugin entry and the agents
+# directory holding the sidecar are reported under those two rules alone, as the format's validator reports them.
+_ai_tools_as_check_skill_entries() {
+    local asset type path skill entry spec wanted
+    local -A skills=()
+    for asset in "${_AI_TOOLS_AS_ASSETS[@]}"; do
+        [[ "${asset}" == skills\|* ]] && _ai_tools_as_is_valid_name "${asset#skills|}" && skills["${asset#skills|}"]=1
+    done
+    while IFS=$'\t' read -r type path; do
+        [[ "${path}" == skills/?* ]] || continue
+        skill="${path#skills/}"; skill="${skill%%/*}"
+        if [[ "${type}" == d && "${path##*/}" == .claude-plugin ]]; then
+            _ai_tools_as_finding skill.plugin-manifest asset-invalid "${path}" "a .claude-plugin directory inside skills/ makes a plugin of its own" "${skill}"
+            continue
+        fi
+        [[ -n "${skills[${skill}]+x}" ]] || continue
+        if [[ "${type}" == f && "${path}" == "skills/${skill}/agents/openai.yaml" ]]; then
+            _ai_tools_as_finding skill.sidecar asset-invalid "${path}" "agents/openai.yaml carries a consumer's invocation policy and tool dependencies" "${skill}"
+            continue
+        fi
+        entry="${path#skills/"${skill}"/}"
+        [[ "${entry}" != "${path}" && "${entry}" != */* ]] || continue
+        wanted=""
+        for spec in "${_AI_TOOLS_AS_SKILL_ENTRIES[@]}"; do [[ "${spec%:*}" == "${entry}" ]] && wanted="${spec##*:}"; done
+        if [[ -n "${wanted}" ]]; then
+            [[ "${type}" == "${wanted}" ]] \
+                || _ai_tools_as_finding skill.entry.unknown asset-invalid "${path}" "${entry} is of the wrong type for its name" "${skill}"
+            continue
+        fi
+        [[ "${entry}" == .claude-plugin ]] && continue
+        [[ "${entry}" == agents && "${type}" == d && -n "${_AI_TOOLS_AS_FILES[skills/${skill}/agents/openai.yaml]+x}" ]] && continue
+        _ai_tools_as_finding skill.entry.unknown asset-invalid "${path}" "a skill directory holds SKILL.md, scripts, references, assets, tests, UPSTREAM.conf, LICENSE and LICENSES alone" "${skill}"
+    done < <( { for path in "${!_AI_TOOLS_AS_FILES[@]}"; do printf 'f\t%s\n' "${path}"; done
+                for path in "${!_AI_TOOLS_AS_DIRS[@]}"; do printf 'd\t%s\n' "${path}"; done; } | LC_ALL=C sort -t $'\t' -k 2 )
+    return 0
+}
+
 # ── An asset ─────────────────────────────────────────────────────────────────────────────────────────────────────────
 
-# _ai_tools_as_scalar <text> : read a frontmatter value as a one-line scalar into _AI_TOOLS_AS_SCALAR and return 0,
-# or return 1 for a value that is not one: a block scalar, a flow collection, an anchor, an alias, a tag, a quote
-# that does not close, or a plain value carrying `: ` or ` #`. A double-quoted value unescapes \\ and \",
-# a single-quoted one '' alone.
+# _ai_tools_as_plain_lexeme <text> [flow] : succeed when <text> is a plain scalar of the bounded reader's grammar,
+# wherever it stands: it does not open with an indicator (| > & * ! { ? @ ` % #, or - alone or before a space or a tab),
+# and does not carry `: ` or `:` then a tab, which a YAML reader takes as a mapping, end with `:`, or carry ` #`
+# or a tab then `#`, which it takes as a comment. With `flow`, a flow-list item, it does not carry a comma, a bracket,
+# a brace or a quote either.
+_ai_tools_as_plain_lexeme() {
+    local text="$1"
+    local LC_ALL=C
+    case "${text}" in
+        [\|\>\&\*\!\{\?\@\`%\#]*|-|'- '*|$'-\t'*) return 1 ;;
+    esac
+    case "${text}" in
+        *': '*|*$':\t'*|*:|*' #'*|*$'\t#'*) return 1 ;;
+    esac
+    [[ -z "${2:-}" || "${text}" != *[],[{}\"\']* ]]
+}
+
+# _ai_tools_as_flow_list <text> : succeed when <text>, opening with `[` and closing with `]`, is a flow list
+# of the bounded reader's grammar: empty, or plain non-empty items separated by commas, each a flow-list item
+# of _ai_tools_as_plain_lexeme.
+_ai_tools_as_flow_list() {
+    local rest="${1:1:${#1}-2}" item
+    [[ -n "${rest//[[:space:]]/}" ]] || return 0
+    while :; do
+        item="${rest%%,*}"
+        item="${item#"${item%%[![:space:]]*}"}"; item="${item%"${item##*[![:space:]]}"}"
+        [[ -n "${item}" ]] && _ai_tools_as_plain_lexeme "${item}" flow || return 1
+        [[ "${rest}" == *,* ]] || return 0
+        rest="${rest#*,}"
+    done
+}
+
+# _ai_tools_as_scalar <text> : read a frontmatter value as a one-line scalar of the bounded reader's grammar into
+# _AI_TOOLS_AS_SCALAR and return 0, or return 1 for a value outside it. An empty value or a `#` comment alone is
+# the omitted scalar, read as empty. A quoted value closes on its line, may carry a comment after it, and unescapes
+# \\ and \" (double-quoted) or '' (single-quoted) alone; a plain value passes _ai_tools_as_plain_lexeme and does not
+# open with `[` or close with `]`, which a flow list does.
 _ai_tools_as_scalar() {
     local text="$1" rest quoted="" index character
     local LC_ALL=C
     text="${text#"${text%%[![:space:]]*}"}"
     text="${text%"${text##*[![:space:]]}"}"
     _AI_TOOLS_AS_SCALAR=""
+    [[ -z "${text}" || "${text}" == '#'* ]] && return 0
     case "${text}" in
         '"'*)
             rest="${text:1}"
@@ -668,25 +794,33 @@ _ai_tools_as_scalar() {
             rest="${rest#"${rest%%[![:space:]]*}"}"
             [[ -z "${rest}" || "${rest}" == '#'* ]] || return 1
             _AI_TOOLS_AS_SCALAR="${quoted}" ;;
-        [\|\>\&\*\!\{\[\?\@\`%\#]*|'- '*) return 1 ;;
-        *)  [[ "${text}" == *': '* || "${text}" == *$':\t'* || "${text}" == *' #'* || "${text}" == *$'\t#'* ]] && return 1
+        '['*|*']') return 1 ;;
+        *)  _ai_tools_as_plain_lexeme "${text}" || return 1
             _AI_TOOLS_AS_SCALAR="${text}" ;;
     esac
     return 0
 }
 
 # _ai_tools_as_check_frontmatter <file> <path> <kind> <name> : the frontmatter rules base enforces over an entry file:
-# frontmatter.missing (no `---` on line 1, or no closing `---` line), frontmatter.syntax (a line at the margin that
-# is not `key:` or `key: value`, a tab-indented line, a key given twice, a name that is not a one-line scalar),
-# frontmatter.refused-key (a key at the margin off the kind's allowlist), frontmatter.required (name or description
-# absent or empty) and name.frontmatter (the name differs from <name>). Base reads the key names at the margin
-# and the values of name and description; an indented line belongs to the last key at the margin and is not read.
+# frontmatter.missing (an unreadable file, no `---` on line 1, or no closing `---` line), frontmatter.syntax (a line
+# outside the bounded reader's grammar, a key given twice, a name that is not a scalar), frontmatter.refused-key (a key
+# at the margin off the kind's allowlist), frontmatter.required (name or description omitted or empty)
+# and name.frontmatter (the name differs from <name>). A syntax finding stops the later rules, as the format's
+# validator stops them. The grammar is the format's bounded reader, narrowed where base reads an indented line: a line
+# at the margin is `key: value`, whose value is a scalar of _ai_tools_as_scalar, a flow list of _ai_tools_as_flow_list,
+# or omitted; indented lines, at one indentation of spaces, follow a key whose value is omitted, as `key: scalar` lines
+# under metadata or `- scalar` items under tools, disallowedTools and skills, and under no other key. Base reads
+# the key names at the margin and the values of name and description.
 _ai_tools_as_check_frontmatter() {
-    local file="$1" path="$2" kind="$3" name="$4" line key value index close=0 errors=0
+    local file="$1" path="$2" kind="$3" name="$4" line trimmed key value index shape at close=0
+    local current="" indent=""
     local LC_ALL=C
-    local -a lines=() keys=()
-    local -A values=()
-    mapfile -t lines < "${file}"
+    local -a lines=() keys=() problems=()
+    local -A values=() shapes=() nested=()
+    if ! { mapfile -t lines < "${file}"; } 2>/dev/null; then
+        _ai_tools_as_finding frontmatter.missing asset-invalid "${path}" "the file could not be read" "${name}"
+        return 0
+    fi
     if (( ${#lines[@]} == 0 )) || [[ ! "${lines[0]}" =~ ^---[[:space:]]*$ ]]; then
         _ai_tools_as_finding frontmatter.missing asset-invalid "${path}" "the file does not open with a --- frontmatter line" "${name}"
         return 0
@@ -699,25 +833,63 @@ _ai_tools_as_check_frontmatter() {
         return 0
     fi
     for (( index = 1; index < close; index++ )); do
-        line="${lines[index]%$'\r'}"
-        [[ -z "${line//[[:space:]]/}" || "${line}" == '#'* || "${line}" == ' '* ]] && continue
+        line="${lines[index]%$'\r'}"; at="line $(( index + 1 ))"
+        trimmed="${line#"${line%%[![:space:]]*}"}"
+        [[ -z "${trimmed}" || "${trimmed}" == '#'* ]] && continue
+        if [[ "${line%%[![:space:]]*}" == *$'\t'* ]]; then
+            problems+=( "${at}: a tab in the indentation" ); continue
+        fi
         if [[ "${line}" =~ ^([A-Za-z][A-Za-z0-9_-]*):([[:space:]]+(.*))?$ ]]; then
             key="${BASH_REMATCH[1]}"; value="${BASH_REMATCH[3]}"
-            if [[ -n "${values[${key}]+x}" ]]; then
-                _ai_tools_as_finding frontmatter.syntax asset-invalid "${path}" "line $(( index + 1 )): ${key} is given again" "${name}"
-                errors=1
+            value="${value#"${value%%[![:space:]]*}"}"; value="${value%"${value##*[![:space:]]}"}"
+            [[ -n "${shapes[${key}]+x}" ]] && problems+=( "${at}: ${key} is given again" )
+            keys+=( "${key}" ); values["${key}"]=""; current=""; indent=""
+            if [[ -z "${value}" || "${value}" == '#'* ]]; then
+                shapes["${key}"]=omitted; current="${key}"
+            elif [[ "${value}" == '['* && "${value}" == *']' ]]; then
+                shapes["${key}"]=list
+                _ai_tools_as_flow_list "${value}" || problems+=( "${at}: ${key} is not a flow list of plain, non-empty items" )
+            else
+                shapes["${key}"]=scalar
+                if _ai_tools_as_scalar "${value}"; then
+                    values["${key}"]="${_AI_TOOLS_AS_SCALAR}"
+                else
+                    problems+=( "${at}: the value of ${key} is outside the frontmatter grammar" )
+                fi
             fi
-            keys+=( "${key}" ); values["${key}"]="${value}"
-        else
-            _ai_tools_as_finding frontmatter.syntax asset-invalid "${path}" "line $(( index + 1 )) is not key: value at the margin" "${name}"
-            errors=1
+            continue
         fi
+        if [[ -n "${current}" && "${line}" =~ ^(\ +)([A-Za-z][A-Za-z0-9_-]*):([[:space:]]+(.*))?$ ]]; then
+            shape=map; key="${BASH_REMATCH[2]}"; value="${BASH_REMATCH[4]}"
+        elif [[ -n "${current}" && "${line}" =~ ^(\ +)-[[:space:]]+(.+)$ ]]; then
+            shape=list; key=""; value="${BASH_REMATCH[2]}"
+        else
+            problems+=( "${at} is not key: value at the margin, or an item under a key given no value" ); continue
+        fi
+        [[ -n "${indent}" ]] || indent="${BASH_REMATCH[1]}"
+        if [[ "${BASH_REMATCH[1]}" != "${indent}" ]]; then
+            problems+=( "${at}: the indentation changes inside ${current}; one level is read" ); continue
+        fi
+        [[ "${shapes[${current}]}" == omitted ]] && shapes["${current}"]="${shape}"
+        if [[ "${shapes[${current}]}" != "${shape}" ]]; then
+            problems+=( "${at}: ${current} mixes a map and a sequence" ); continue
+        fi
+        case "${shape}|${current}" in
+            'map|metadata'|'list|tools'|'list|disallowedTools'|'list|skills') ;;
+            *) problems+=( "${at}: ${current} does not take an indented ${shape}; metadata takes key: value lines, and tools, disallowedTools and skills take - items" )
+               continue ;;
+        esac
+        if [[ -n "${key}" ]]; then
+            [[ -n "${nested[${current}.${key}]+x}" ]] && problems+=( "${at}: ${current}.${key} is given again" )
+            nested["${current}.${key}"]=1
+        fi
+        _ai_tools_as_scalar "${value}" || problems+=( "${at}: a value under ${current} is outside the frontmatter grammar" )
     done
-    if [[ -n "${values[name]+x}" && -n "${values[name]//[[:space:]]/}" ]] && ! _ai_tools_as_scalar "${values[name]}"; then
-        _ai_tools_as_finding frontmatter.syntax asset-invalid "${path}" "name is not a one-line scalar" "${name}"
-        errors=1
-    fi
-    (( errors == 0 )) || return 0
+    [[ "${shapes[name]:-scalar}" == scalar || "${shapes[name]}" == omitted ]] || problems+=( "name is not a scalar" )
+    for value in "${problems[@]}"; do
+        _ai_tools_as_finding frontmatter.syntax asset-invalid "${path}" "$(_ai_tools_as_display "${value}")" "${name}"
+    done
+    (( ${#problems[@]} == 0 )) || return 0
     for key in "${keys[@]}"; do
         if [[ "${kind}" == skills ]]; then
             _ai_tools_as_in "${key}" "${_AI_TOOLS_AS_SKILL_KEYS[@]}" && continue
@@ -726,16 +898,15 @@ _ai_tools_as_check_frontmatter() {
         fi
         _ai_tools_as_finding frontmatter.refused-key asset-invalid "${path}" "${key} is not on the ${kind} allowlist" "${name}"
     done
+    # description is read as present alone: a list or a map is a type the format's validator checks.
     for key in name description; do
-        value=""
-        [[ -n "${values[${key}]+x}" ]] && _ai_tools_as_scalar "${values[${key}]}" && value="${_AI_TOOLS_AS_SCALAR}"
-        [[ -n "${values[${key}]+x}" && "${key}" == description && -n "${values[${key}]//[[:space:]]/}" ]] && value=x
-        [[ -n "${value//[[:space:]]/}" ]] \
-            || _ai_tools_as_finding frontmatter.required asset-invalid "${path}" "${key} is missing or empty" "${name}"
+        [[ "${shapes[${key}]:-omitted}" == omitted \
+            || ( "${shapes[${key}]}" == scalar && -z "${values[${key}]//[[:space:]]/}" ) ]] \
+            && _ai_tools_as_finding frontmatter.required asset-invalid "${path}" "${key} is missing or empty" "${name}"
     done
-    if [[ -n "${values[name]+x}" ]] && _ai_tools_as_scalar "${values[name]}" && [[ -n "${_AI_TOOLS_AS_SCALAR}" ]] \
-            && [[ "${_AI_TOOLS_AS_SCALAR}" != "${name}" ]]; then
-        _ai_tools_as_finding name.frontmatter asset-invalid "${path}" "the frontmatter name $(_ai_tools_as_display "${_AI_TOOLS_AS_SCALAR}") differs from ${name}" "${name}"
+    value="${values[name]:-}"
+    if [[ -n "${value//[[:space:]]/}" && "${value}" != "${name}" ]]; then
+        _ai_tools_as_finding name.frontmatter asset-invalid "${path}" "the frontmatter name $(_ai_tools_as_display "${value}") differs from ${name}" "${name}"
     fi
     return 0
 }
@@ -787,10 +958,11 @@ _ai_tools_as_check_asset_conf() {
 # _ai_tools_as_check_asset <set-dir> <set-name> <kind> <name> : every asset-scope rule of the subset over one asset,
 # in the order the format checks them: name.grammar (which stops the rest), name.asset-prefix's reserved half,
 # the frontmatter rules, metadata.asset-conf, and body.dynamic-injection (a scan that did not complete refuses the asset
-# under that rule too). Publishes the asset's requirements in _AI_TOOLS_AS_ASSET_CAPABILITIES
-# and _AI_TOOLS_AS_ASSET_INTEGRATIONS, and _AI_TOOLS_AS_ASSET_DYNAMIC (1 when the asset declares skills.dynamic.v1).
+# under that rule too). A file in _AI_TOOLS_AS_UNREAD is not read, its set refused under file.size or file.binary.
+# Publishes the asset's requirements in _AI_TOOLS_AS_ASSET_CAPABILITIES and _AI_TOOLS_AS_ASSET_INTEGRATIONS,
+# and _AI_TOOLS_AS_ASSET_DYNAMIC (1 when the asset declares skills.dynamic.v1).
 _ai_tools_as_check_asset() {
-    local set_dir="$1" set_name="$2" kind="$3" name="$4" entry_file conf_path scan IFS=$' \t\n'
+    local set_dir="$1" set_name="$2" kind="$3" name="$4" entry_file conf_path scan entry_read=1 IFS=$' \t\n'
     _AI_TOOLS_AS_ASSET_CAPABILITIES=""; _AI_TOOLS_AS_ASSET_INTEGRATIONS=""
     _AI_TOOLS_AS_ASSET_DECLARED=""; _AI_TOOLS_AS_ASSET_DYNAMIC=0
     entry_file="$(_ai_tools_as_entry_path "${kind}" "${name}")"; entry_file="${entry_file%%$'\t'*}"
@@ -802,13 +974,15 @@ _ai_tools_as_check_asset() {
     if [[ "${name}" == ai-tools-* && "${set_name}" != core && "${set_name}" != ai-tools ]]; then
         _ai_tools_as_finding name.asset-prefix asset-invalid "${entry_file}" "the ai-tools- prefix belongs to the sets core and ai-tools" "${name}"
     fi
-    _ai_tools_as_check_frontmatter "${set_dir}/${entry_file}" "${entry_file}" "${kind}" "${name}"
+    [[ -z "${_AI_TOOLS_AS_UNREAD[${entry_file}]+x}" ]] || entry_read=0
+    (( entry_read )) && _ai_tools_as_check_frontmatter "${set_dir}/${entry_file}" "${entry_file}" "${kind}" "${name}"
     conf_path="metadata/${kind}/${name}/asset.conf"
-    [[ -n "${_AI_TOOLS_AS_FILES[${conf_path}]+x}" ]] && _ai_tools_as_check_asset_conf "${set_dir}" "${conf_path}" "${name}"
+    [[ -n "${_AI_TOOLS_AS_FILES[${conf_path}]+x}" && -z "${_AI_TOOLS_AS_UNREAD[${conf_path}]+x}" ]] \
+        && _ai_tools_as_check_asset_conf "${set_dir}" "${conf_path}" "${name}"
     local -a declared=()
     IFS=' ' read -r -a declared <<< "${_AI_TOOLS_AS_ASSET_DECLARED}"
     _ai_tools_as_in "${AI_TOOLS_ASSETS_DYNAMIC_CAPABILITY}" "${declared[@]}" && _AI_TOOLS_AS_ASSET_DYNAMIC=1
-    if (( _AI_TOOLS_AS_ASSET_DYNAMIC == 0 )); then
+    if (( entry_read && _AI_TOOLS_AS_ASSET_DYNAMIC == 0 )); then
         scan=0
         _ai_tools_as_scan_substitution "${set_dir}/${entry_file}" || scan=$?
         case "${scan}" in
@@ -851,11 +1025,13 @@ _ai_tools_as_validate() {
     declare -gA _AI_TOOLS_AS_REQ_CAPABILITIES=() _AI_TOOLS_AS_REQ_INTEGRATIONS=() _AI_TOOLS_AS_REQ_DYNAMIC=()
     _ai_tools_as_reset_findings
     _ai_tools_as_walk_tree "${set_dir}" || return 0
+    _ai_tools_as_check_text "${set_dir}"
     _ai_tools_as_is_valid_name "${set_name}" \
         || _ai_tools_as_finding name.grammar set-invalid . "$(_ai_tools_as_display "${set_name}") is not 1-64 characters of a-z, 0-9 and single hyphens"
     _ai_tools_as_check_root_entries "${profile}"
     _ai_tools_as_check_set_conf "${set_dir}" "${set_name}"
     _ai_tools_as_list_assets
+    _ai_tools_as_check_skill_entries
     if [[ "${profile}" == release ]]; then
         if (( _AI_TOOLS_AS_VERIFIER_LOADED )); then
             inventory_error="$(ai_tools_assets_verify_inventory "${set_dir}" 2>&1 >/dev/null)" \

@@ -331,6 +331,8 @@ set_case set-invalid set.entry.reserved "llms.txt" ': > "${PKG}/acme/llms.txt"'
 set_case set-invalid kind.shape "a file under skills/" ': > "${PKG}/acme/skills/notes.md"'
 set_case set-invalid kind.shape "a skill without SKILL.md" 'mkdir "${PKG}/acme/skills/acme-empty"; : > "${PKG}/acme/skills/acme-empty/README.md"'
 set_case set-invalid kind.reserved "a reserved kind directory, empty" 'mkdir "${PKG}/acme/commands"'
+set_case set-invalid file.binary "a bidi control in a subagent's body" "printf 'a\xe2\x80\xaeb\n' >> \"\${PKG}/acme/agents/acme-reviewer.md\""
+set_case set-invalid file.binary "invalid UTF-8 in set.conf" "printf 'x_note=\xc0\xaf\n' >> ${SETCONF}"
 set_case capability-unknown set.conf.requires-capabilities "an unknown capability at set scope" "printf 'requires_capabilities=[skills.future.v9]\n' >> ${SETCONF}"
 fresh
 asset_signing_build_set "${TESTDIR}" set-without-conf; rm "${TESTDIR}/set-without-conf/set.conf"
@@ -368,6 +370,12 @@ asset_case "${SKILL}" asset-invalid frontmatter.syntax "a second name line" "sed
 asset_case "${SKILL}" asset-invalid frontmatter.refused-key "a skill with allowed-tools" "sed -i '2a allowed-tools: Bash' ${SKILLMD}"
 asset_case "${SUB}" asset-invalid frontmatter.refused-key "a subagent with hooks" "sed -i '2a hooks:' ${SUBMD}"
 asset_case "${SUB}" asset-invalid frontmatter.refused-key "a subagent with permissionMode" "sed -i '2a permissionMode: acceptEdits' ${SUBMD}"
+asset_case "${SUB}" asset-invalid frontmatter.syntax "an alias in a subagent's tools" "sed -i 's/^tools: .*/tools: [*alias, Grep]/' ${SUBMD}"
+asset_case "${SKILL}" asset-invalid frontmatter.syntax "a block scalar" "sed -i 's/^description: .*/description: |\n  folded/' ${SKILLMD}"
+SKILLDIR='"${PKG}/acme/skills/acme-pdf"'
+asset_case "${SKILL}" asset-invalid skill.entry.unknown "a file at a skill's root the format does not name" ": > ${SKILLDIR}/extra.txt"
+asset_case "${SKILL}" asset-invalid skill.sidecar "agents/openai.yaml under a skill" "mkdir ${SKILLDIR}/agents; printf 'x: 1\n' > ${SKILLDIR}/agents/openai.yaml"
+asset_case "${SKILL}" asset-invalid skill.plugin-manifest "a .claude-plugin directory under a skill" "mkdir ${SKILLDIR}/.claude-plugin; printf '{}\n' > ${SKILLDIR}/.claude-plugin/plugin.json"
 asset_case "${SKILL}" asset-invalid metadata.asset-conf "asset.conf format=2" "${mkmeta}printf 'format=2\n' > ${ASSETCONF}"
 asset_case "${SKILL}" asset-invalid set.conf.unknown-key "asset.conf carrying supported_targets" "${mkmeta}printf 'format=1\nsupported_targets=[claude-code]\n' > ${ASSETCONF}"
 asset_case "${SKILL}" capability-unknown metadata.asset-conf "an unknown capability at asset scope" "${mkmeta}printf 'format=1\nrequires_capabilities=[hooks.v1]\n' > ${ASSETCONF}"
@@ -435,6 +443,71 @@ scan_failed "grep absent from PATH" 'hash -p /nonexistent/grep grep'
 chmod 0000 "${TESTDIR}/scan-clean/skills/scan-clean-pdf/SKILL.md"
 scan_failed "an entry file the reader cannot read" : "${PROJECTS_USER}"
 chmod 0644 "${TESTDIR}/scan-clean/skills/scan-clean-pdf/SKILL.md"
+
+# ── The bounded frontmatter reader and file.binary ───────────────────────────────────────────────────────────────────
+section "assets: the bounded frontmatter reader and the text scan"
+mkdir -p "${TESTDIR}/reader-src" "${TESTDIR}/reader-run"
+asset_signing_build_set "${TESTDIR}/reader-src" reader
+printf -- '---\nname: reader-pdf\ndescription: A fixture skill.\ncompatibility: Requires python3.\nmetadata:\n  x-key: value\n---\n\nThe body.\n' \
+    > "${TESTDIR}/reader-src/reader/skills/reader-pdf/SKILL.md"
+RSKILL=skills/reader-pdf/SKILL.md; RSUB=agents/reader-reviewer.md
+# reader_case <rule|clean> <what> <command> [prelude] : the validator over a fresh copy of the reader set, after
+# <command> ran in its directory and <prelude> in the validator's shell, reports <rule> alone -- or no finding,
+# for `clean`.
+reader_case() {
+    local found
+    rm -rf "${TESTDIR}/reader-run/reader"; cp -R "${TESTDIR}/reader-src/reader" "${TESTDIR}/reader-run/reader"
+    (cd "${TESTDIR}/reader-run/reader" && eval "$3")
+    found="$(validate "${4:-:}" "${TESTDIR}/reader-run/reader" | cut -f1 | LC_ALL=C sort -u | tr '\n' ' ')"
+    if [[ "$1" == clean && -z "${found// /}" ]] || [[ "$1" != clean && "${found}" == "$1 " ]]; then
+        pass "$2: ${1/clean/no finding}"
+    else
+        fail "$2: want ${1}, the validator reports '${found}'"
+    fi
+}
+reader_case clean "control: the reader set" :
+reader_case file.binary "a NUL before a field" "sed -i '2s/^/\x00/' ${RSKILL}"
+reader_case file.binary "a NUL inside a field" "sed -i 's/^description: A/description: \x00A/' ${RSKILL}"
+reader_case file.binary "a byte that is not UTF-8" "printf 'x\x80y\n' >> ${RSKILL}"
+reader_case file.binary "an overlong form" "printf '\xc0\xaf\n' >> ${RSKILL}"
+reader_case file.binary "a surrogate" "printf '\xed\xa0\x80\n' >> ${RSKILL}"
+reader_case file.binary "a code point above U+10FFFF, which iconv accepts" "printf '\xf4\x90\x80\x80\n' >> ${RSKILL}"
+reader_case file.binary "a five-byte form, which iconv accepts" "printf '\xf8\x88\x80\x80\x80\n' >> ${RSKILL}"
+reader_case file.binary "a C1 control" "printf 'a\xc2\x85b\n' >> ${RSUB}"
+reader_case file.binary "a bidi mark in a body" "printf 'a\xe2\x80\x8fb\n' >> ${RSUB}"
+reader_case file.binary "a byte order mark" "printf 'a\xef\xbb\xbfb\n' >> ${RSUB}"
+reader_case file.binary "DEL in a file no other rule reads" "printf 'a\x7fb\n' > README.md"
+reader_case file.binary "a binary SKILL.md is not read by a later rule" "printf '\x00\x01---\n' > ${RSKILL}"
+reader_case clean "a tab, a CR and a two-byte character are text" "printf 'a\tb\r\n\xc3\xa9\n' >> ${RSUB}"
+reader_case frontmatter.syntax "an alternate indentation" "sed -i 's/^  x-key: .*/&\n    x-other: y/' ${RSKILL}"
+reader_case frontmatter.syntax "a duplicate nested key" "sed -i 's/^  x-key: .*/&\n  x-key: again/' ${RSKILL}"
+reader_case frontmatter.syntax "a tab in the indentation" "sed -i 's/^  x-key/\t&/' ${RSKILL}"
+for field in name description compatibility; do
+    reader_case frontmatter.syntax "an alias as the value of ${field}" "sed -i 's/^${field}: .*/${field}: *alias/' ${RSKILL}"
+done
+reader_case frontmatter.syntax "an alias as a metadata value" "sed -i 's/^  x-key: .*/  x-key: *alias/' ${RSKILL}"
+reader_case frontmatter.syntax "an alias as a tools item" "sed -i 's/^tools: .*/tools:\n  - *alias/' ${RSUB}"
+reader_case frontmatter.syntax "an alias as a flow-list item" "sed -i 's/^tools: .*/tools: [*alias, Grep]/' ${RSUB}"
+reader_case frontmatter.syntax "an anchor" "sed -i 's/^compatibility: /&\&a /' ${RSKILL}"
+reader_case frontmatter.syntax "a tag" "sed -i 's/^compatibility: /&!!str /' ${RSKILL}"
+reader_case frontmatter.syntax "a map under tools" "sed -i 's/^tools: .*/tools:\n  read: yes/' ${RSUB}"
+reader_case frontmatter.syntax "a sequence under metadata" "sed -i 's/^  x-key: .*/  - item/' ${RSKILL}"
+reader_case frontmatter.syntax "indented lines under description" "sed -i 's/^description: .*/description:\n  - a/' ${RSKILL}"
+reader_case frontmatter.syntax "name as a flow list" "sed -i 's/^name: .*/name: [reader-pdf]/' ${RSKILL}"
+reader_case frontmatter.syntax "a flow list with an empty item" "sed -i 's/^tools: .*/tools: [Read, ]/' ${RSUB}"
+reader_case frontmatter.syntax "a plain value carrying ': '" "sed -i 's/^compatibility: .*/compatibility: Requires: python3/' ${RSKILL}"
+reader_case frontmatter.syntax "a double-quoted escape the grammar does not read" \
+    'printf -- "---\nname: reader-pdf\ndescription: \"a \\\\q b\"\n---\n" > skills/reader-pdf/SKILL.md'
+reader_case clean "tools as a block sequence" "sed -i 's/^tools: .*/tools:\n  - Read\n  - Grep/' ${RSUB}"
+reader_case clean "a quoted value carrying ': ', a comment after it" "sed -i 's/^compatibility: .*/compatibility: \"Requires: python3\" # note/' ${RSKILL}"
+reader_case clean "a single-quoted value with ''" "sed -i \"s/^compatibility: .*/compatibility: 'it''s python3'/\" ${RSKILL}"
+reader_case frontmatter.required "a name given a comment alone" "sed -i 's/^name: .*/name: #comment/' ${RSKILL}"
+reader_case skill.entry.unknown "a directory at a skill's root the format does not name" "mkdir skills/reader-pdf/docs; printf 'x\n' > skills/reader-pdf/docs/a.md"
+reader_case skill.entry.unknown "scripts as a file" "printf 'x\n' > skills/reader-pdf/scripts"
+reader_case skill.plugin-manifest "a .claude-plugin directory deeper in a skill" "mkdir -p skills/reader-pdf/references/.claude-plugin; printf '{}\n' > skills/reader-pdf/references/.claude-plugin/plugin.json"
+reader_case clean "LICENSE, tests and references at a skill's root" "printf 'MIT\n' > skills/reader-pdf/LICENSE; mkdir skills/reader-pdf/tests skills/reader-pdf/references; printf 'x\n' > skills/reader-pdf/tests/t.md; printf 'x\n' > skills/reader-pdf/references/r.md"
+reader_case file.binary "a byte scan that does not complete is a finding" : 'grep() { [[ "$1" == -laP ]] && return 2; command grep "$@"; }'
+reader_case file.binary "a UTF-8 check that does not complete is a finding" : 'iconv() { return 3; }'
 
 # ── Requirements ─────────────────────────────────────────────────────────────────────────────────────────────────────
 section "assets: a requirement is read, not skipped"
@@ -1013,6 +1086,16 @@ else
             fail "$1: rc ${CHECK_RC}: ${CHECK_OUT:0:300}"
         fi
     }
+    fixture fail frontmatter.syntax.alias-item expect=fail rule=frontmatter.syntax
+    sed -i 's/^tools: .*/tools: [*alias, Grep]/' "${FIX}/fail/frontmatter.syntax.alias-item/acme/agents/acme-reviewer.md"
+    fixture fail frontmatter.syntax.unclaimed expect=fail rule=frontmatter.syntax
+    conformance :
+    if [[ "${CHECK_RC}" == 0 && "${CHECK_OUT}" == *"3 fixtures checked, 0 disagree, 1 skipped"* ]]; then
+        pass "a frontmatter.syntax variant the selection names is checked, and one it does not name is skipped"
+    else
+        fail "the frontmatter.syntax selection: rc ${CHECK_RC}: ${CHECK_OUT:0:300}"
+    fi
+    rm -rf "${FIX}/fail/frontmatter.syntax.alias-item" "${FIX}/fail/frontmatter.syntax.unclaimed"
     fixture pass acme expect=pass profile=unsupported; conformance :
     disagrees "a pass fixture under profile=unsupported" acme "profile=unsupported"
     fixture pass acme expect=pass; conformance 'ai_tools_assets_validate_set() { return 2; }'

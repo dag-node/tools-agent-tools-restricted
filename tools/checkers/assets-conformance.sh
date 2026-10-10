@@ -18,10 +18,12 @@
 # ships (src/usr/local/lib/ai-tools/keys/dag-node-package-signing.asc), so the anchor is the one every set binding
 # names. A fixture is selected when its `rule=` is one AI_TOOLS_ASSETS_ENFORCED_RULES lists; the job then asserts
 # the validator returns 1 reporting that rule and no other, and over every `pass/` fixture that it returns 0 reporting
-# nothing (run_fixtures states the disagreements). Two selections are narrower than the rule: of `name.asset-prefix`,
+# nothing (run_fixtures states the disagreements). Three selections are narrower than the rule: of `name.asset-prefix`,
 # the `.reserved` variant alone, since base enforces the reserved half and the `<set>-` prefix is the publisher's check;
-# and of `body.dynamic-injection`, every variant but `.not-allowed*`, whose outcome turns on publisher.conf, a file
-# that does not reach a host. Every other fixture is counted and skipped.
+# of `body.dynamic-injection`, every variant but `.not-allowed*`, whose outcome turns on publisher.conf, a file
+# that does not reach a host; and of `frontmatter.syntax`, the variants `selected` names, the shapes base's bounded
+# reader refuses, so a variant a later release adds is skipped until base claims it. Every other fixture is counted
+# and skipped.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
@@ -72,9 +74,14 @@ fetch_release() {
 # selected <fixture-name> <rule> : succeed when the fixture is one base is held to.
 selected() {
     local name="$1" rule="$2"
+    local -a syntax_variants=( frontmatter.syntax frontmatter.syntax.alias-item frontmatter.syntax.colon
+                               frontmatter.syntax.colon-tab frontmatter.syntax.empty-item frontmatter.syntax.escape
+                               frontmatter.syntax.flow-comment-item frontmatter.syntax.flow-reserved-indicator
+                               frontmatter.syntax.flow-tab-comment )
     [[ " ${AI_TOOLS_ASSETS_ENFORCED_RULES[*]} " == *" ${rule} "* ]] || return 1
     [[ "${rule}" == name.asset-prefix && "${name}" != name.asset-prefix.reserved ]] && return 1
     [[ "${name}" == body.dynamic-injection.not-allowed* ]] && return 1
+    [[ "${rule}" == frontmatter.syntax && " ${syntax_variants[*]} " != *" ${name} "* ]] && return 1
     return 0
 }
 
@@ -123,7 +130,7 @@ run_fixtures() {
             failed=$(( failed + 1 ))
         fi
     done
-    printf 'assets-conformance: %d fixtures checked, %d disagree, %d skipped (a rule base does not enforce, a variant that turns on publisher.conf, or a warning)\n' \
+    printf 'assets-conformance: %d fixtures checked, %d disagree, %d skipped (a rule base does not enforce, a variant base does not claim or that turns on publisher.conf, or a warning)\n' \
         "${checked}" "${failed}" "${skipped}"
     (( checked > 0 )) || die "no fixture was checked under ${fixtures}"
     (( failed == 0 ))
