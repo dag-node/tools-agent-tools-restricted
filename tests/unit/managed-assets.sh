@@ -570,6 +570,124 @@ else
     fail "the withdrawal pass accepted an unknown kind (rc=${rc}): ${out}"
 fi
 
+# ── Successors of a withdrawn asset ──────────────────────────────────────────────
+# Property 9. A WITHDRAWN ASSET WITH A SUCCESSOR NAMES IT. The successor map keys the retired list, and its values are
+# identifiers AI_TOOLS_ASSETS takes, so a key the list lacks or a value the resolver cannot parse is a closing line
+# naming a set the operator cannot enable. The pass closes with that set's command once per shell, and the reader
+# `ai-tools-admin status` builds its notice from tells a retired directory it could not read from one that does not hold
+# a copy.
+if ! declare -F ai_tools_managed_assets__list_withdrawn_successors >/dev/null 2>&1; then
+    skip "withdrawn successors" "the installed library predates AI_TOOLS_MANAGED_ASSETS__SUCCESSORS"
+else
+    bad=""
+    for key in "${!AI_TOOLS_MANAGED_ASSETS__SUCCESSORS[@]}"; do
+        found=0
+        for entry in "${AI_TOOLS_MANAGED_ASSETS__RETIRED[@]}"; do
+            [[ "${entry}" == "${key}" ]] && found=1
+        done
+        (( found )) || bad+=" ${key}"
+    done
+    if [[ -z "${bad}" && ${#AI_TOOLS_MANAGED_ASSETS__SUCCESSORS[@]} -gt 0 ]]; then
+        pass "every key of the successor map is an entry of the retired list"
+    else
+        fail "successor map keys missing from the retired list:${bad:- (the map is empty)}"
+    fi
+    # The identifier grammar is the resolver's, so it is read from assets.lib.sh in a shell of its own: that library
+    # loads its own dependencies, and this file's shell holds the seeder alone.
+    if [[ -r "${LIB_DIR}/assets.lib.sh" ]]; then
+        out="$(bash -c 'source "$1/assets.lib.sh" >/dev/null 2>&1 || exit 3
+                        declare -F ai_tools_assets__parse_id >/dev/null 2>&1 || exit 3
+                        for id in "${AI_TOOLS_MANAGED_ASSETS__SUCCESSORS[@]}"; do
+                            ai_tools_assets__parse_id "${id}" || printf "%s: %s\n" "${id}" "${AI_TOOLS_ASSETS__ID_DETAIL}"
+                        done' _ "${LIB_DIR}" 2>&1)" && rc=0 || rc=$?
+        if (( rc == 3 )); then
+            skip "successor identifiers" "assets.lib.sh did not load or does not define ai_tools_assets__parse_id"
+        elif (( rc == 0 )) && [[ -z "${out}" ]]; then
+            pass "every successor parses as a <set>/<kind>/<name> identifier"
+        else
+            fail "a successor does not parse as an identifier (rc=${rc}): ${out}"
+        fi
+    else
+        skip "successor identifiers" "assets.lib.sh not readable at ${LIB_DIR}"
+    fi
+
+    # A fresh shell per run, since the closing line is printed once per shell. remove_retired <kind>... -- the pass
+    # in a shell of its own, over LIVE.
+    remove_retired() {
+        bash -c 'source "$1/msg.lib.sh"; source "$1/conf.lib.sh"; source "$1/managed-assets.lib.sh"
+                 live="$2"; shift 2
+                 for kind in "$@"; do ai_tools_managed_assets__remove_retired_assets "${live}" "${kind}"; done' \
+            _ "${LIB_DIR}" "${LIVE}" "$@"
+    }
+    closing='their successors are in the asset set core (package ai-tools-assets-core): sudo ai-tools-admin assets enable --set core'
+
+    reset_roots
+    write_skill "${LIVE}" ai-tools-technical-docs 3
+    write_subagent "${LIVE}" ai-tools-reference-architect 2
+    write_skill "${LIVE}" "${WITHDRAWN_SKILL}" 1
+    out="$(remove_retired skills subagents 2>&1)" || true
+    # The skills call moves the first entry with a successor, so its line follows that call's per-asset lines.
+    if [[ "$(grep -cF "${closing}" <<<"${out}")" == 1 ]] \
+       && [[ "$(grep -A1 'ai-tools-technical-docs withdrawn' <<<"${out}" | tail -n 1)" == *"${closing}" ]]; then
+        pass "the pass closes with the successor set's command once, though the caller runs it once per kind"
+    else
+        fail "the closing line is absent, repeated or out of place: ${out}"
+    fi
+    if [[ ! -e "${LIVE}/skills/ai-tools-technical-docs" && ! -e "${LIVE}/subagents/ai-tools-reference-architect.md" ]]; then
+        pass "the withdrawn copies with a successor leave the live root"
+    else
+        fail "a withdrawn copy with a successor is still live: ${out}"
+    fi
+
+    reset_roots
+    write_skill "${LIVE}" "${WITHDRAWN_SKILL}" 1
+    write_skill "${LIVE}" ai-tools-reftags 1 notmanaged
+    out="$(remove_retired skills subagents 2>&1)" || true
+    if ! grep -qF 'their successors are in' <<<"${out}"; then
+        pass "no closing line when the pass moved no entry that has a successor"
+    else
+        fail "a closing line was printed for an entry without a successor or one kept: ${out}"
+    fi
+    if [[ -f "${LIVE}/skills/ai-tools-reftags/SKILL.md" ]] && grep -q "ai-tools-reftags kept (operator's own" <<<"${out}"; then
+        pass "an operator's own entry under a withdrawn name with a successor is kept and reported"
+    else
+        fail "an operator's own ai-tools-reftags was moved or not reported: ${out}"
+    fi
+
+    reset_roots
+    out="$(ai_tools_managed_assets__list_withdrawn_successors "${LIVE}" 2>&1)" && rc=0 || rc=$?
+    if (( rc == 0 )) && [[ -z "${out}" ]]; then
+        pass "the reader prints no line and returns 0 for an absent retired directory"
+    else
+        fail "an absent retired directory read rc=${rc}: ${out}"
+    fi
+    write_skill "${LIVE}" ai-tools-engineering-principles 1
+    write_skill "${LIVE}" "${WITHDRAWN_SKILL}" 1
+    ai_tools_managed_assets__remove_retired_assets "${LIVE}" skills >/dev/null 2>&1 || true
+    # A name that only starts like a withdrawn one is not its copy.
+    mkdir -p "${LIVE}/retired/ai-tools-reftags-extra.20261011-1.retired"
+    out="$(ai_tools_managed_assets__list_withdrawn_successors "${LIVE}" 2>&1)" && rc=0 || rc=$?
+    if (( rc == 0 )) && [[ "${out}" == $'skills/ai-tools-engineering-principles\tcore/skills/ai-tools-engineering-principles' ]]; then
+        pass "the reader names each retired copy with a successor and its identifier, and no other entry"
+    else
+        fail "the reader printed the wrong lines (rc=${rc}): ${out}"
+    fi
+    rm -rf "${LIVE}/retired"; printf 'not a directory\n' > "${LIVE}/retired"
+    out="$(ai_tools_managed_assets__list_withdrawn_successors "${LIVE}" 2>&1)" && rc=0 || rc=$?
+    if (( rc == 1 )) && [[ -z "${out}" ]]; then
+        pass "a retired path that is not a directory reads as unreadable (1), apart from an empty listing"
+    else
+        fail "a retired file read rc=${rc}: ${out}"
+    fi
+    rm -f "${LIVE}/retired"; mkdir -p "${TESTDIR}/elsewhere"; ln -s "${TESTDIR}/elsewhere" "${LIVE}/retired"
+    out="$(ai_tools_managed_assets__list_withdrawn_successors "${LIVE}" 2>&1)" && rc=0 || rc=$?
+    if (( rc == 1 )); then
+        pass "a retired directory reached through a symlink reads as unreadable (1)"
+    else
+        fail "a symlinked retired directory read rc=${rc}: ${out}"
+    fi
+fi
+
 # Property 8. THE FRONTMATTER IS YAML. A skill's and a subagent's frontmatter is read by the product that loads it
 # and by a renderer that shows it, both as YAML, and the seeder's own greps are line-anchored and see the markers either
 # way -- so a scalar broken by a continuation line at column one passes every other property here while the loader reads

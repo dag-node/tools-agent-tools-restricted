@@ -282,7 +282,10 @@ Dropping a name from `src/` withdraws it from **new** installs only. The seeder 
 aside only for an asset [bound to an integration](#an-asset-bound-to-an-integration) the host does not have; the live
 roots are not rpm-owned, so an upgraded host keeps a withdrawn asset — and keeps offering it to every session — until it
 is named in `AI_TOOLS_MANAGED_ASSETS__RETIRED` (`managed-assets.lib.sh`) as a `<kind>/<name>` entry. A renamed asset is
-withdrawn under its old name the same way, with the new name seeded beside it.
+withdrawn under its old name the same way, with the new name seeded beside it. An asset an asset set takes over is
+withdrawn the same way, and `AI_TOOLS_MANAGED_ASSETS__SUCCESSORS` beside the list maps its entry to the identifier
+of its successor: the pass closes with the command that enables that set, and `ai-tools-admin status` reports
+`successor-unenabled` while a retired copy of such an entry exists and `AI_TOOLS_ASSETS` is absent from `operator.conf`.
 
 `ai_tools_managed_assets__remove_retired_assets` runs after the seeder in all three provisioning paths (`install.sh`,
 `ai-tools-bootstrap`, base's `%post`). It gates on the same `x-ai-tools-managed` marker the seeder claims
