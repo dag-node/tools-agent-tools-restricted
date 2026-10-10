@@ -781,6 +781,31 @@ for partial in "" acme-gone; do
         || fail "the agent's listing fails: the stale link was removed"
 done
 
+# ── The enable-list row claims a removal the run made ────────────────────────────────────────────────────────────────
+section "assets: an untrusted enable list beside a view the run did not plan or write"
+# links_left <what> <directory> : the last run's enable-list-untrusted row names <directory> as one a resolver link
+# stays under and does not say every link is removed, and the view's resolver link is still there.
+links_left() {
+    local row_detail
+    row_detail="$(awk -F'\t' 'NR > 1 && $6 == "enable-list-untrusted" { print $11 }' <<< "${OUT}")"
+    if [[ "${row_detail}" == *"under ${2}"* && "${row_detail}" != *"every resolver link is removed"* ]] \
+            && [[ -L "${HOME_DIR}/skills/acme-pdf" ]]; then
+        pass "$1: the enable-list row names ${2##*/} as holding a link that stays, and the link stays"
+    else
+        fail "$1: '${row_detail}', the link $(readlink -- "${HOME_DIR}/skills/acme-pdf" 2>&1)"
+    fi
+}
+fresh; chmod 0664 "${CONF}"; mv "${HOME_DIR}/skills" "${TESTDIR}/skills-real"; ln -s "${TESTDIR}/skills-real" "${HOME_DIR}/skills"; reconcile
+links_left "an untrusted operator.conf beside a symlinked view" "${HOME_DIR}/skills"
+rm -f "${HOME_DIR}/skills"; mv "${TESTDIR}/skills-real" "${HOME_DIR}/skills"
+fresh; chmod 0664 "${CONF}"; PRELUDE="$(failing_find "${HOME_DIR}/skills")"; reconcile; PRELUDE=""
+links_left "an untrusted operator.conf beside a view listing that fails" "${HOME_DIR}/skills"
+fresh; chmod 0664 "${CONF}"
+PRELUDE='eval "_orig_$(declare -f ai_tools_assets__plan)"; ai_tools_assets__plan() { _orig_ai_tools_assets__plan; chmod 0775 '"${HOME_DIR}/skills"'; }'
+reconcile; PRELUDE=""; chmod 0750 "${HOME_DIR}/skills"
+links_left "an untrusted operator.conf beside a view refused in the apply" "${HOME_DIR}/skills"
+has_row view-dir-untrusted "${HOME_DIR}/skills" && pass "a view refused in the apply: its row" || fail "a view refused in the apply: ${OUT:0:300}"
+
 # ── The strict rule: resolver links and base's seeded copies alone ───────────────────────────────────────────────────
 section "assets: an agent links the view's resolver links and base's seeded copies alone"
 fresh

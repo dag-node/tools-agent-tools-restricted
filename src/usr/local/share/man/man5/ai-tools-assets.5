@@ -272,10 +272,13 @@ view.
 .B enable\-list\-untrusted
 .I /etc/ai\-tools/operator.conf
 is not owned by root, or is writable by group or other, so no asset is
-enabled and every resolver link is removed; one that cannot be removed is
+enabled and every resolver link the run reaches is removed.
+The record says whether every one was: a link that cannot be removed is
 reported
 .B write\-failed
-and its asset stays reachable through it.
+and its asset stays reachable through it, and a link in a directory the run
+did not plan or refused stays, named by that directory in this record and by
+the directory's own row.
 Restore it to
 .B root:root
 .BR 0644 .

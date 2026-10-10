@@ -1113,7 +1113,9 @@ _ai_tools_assets__reset_plan() {
     declare -ga _AI_TOOLS_ASSETS__ACTION_OPERATION=() _AI_TOOLS_ASSETS__ACTION_PATH=() _AI_TOOLS_ASSETS__ACTION_TARGET=() _AI_TOOLS_ASSETS__ACTION_SUBJECT_TYPE=() \
         _AI_TOOLS_ASSETS__ACTION_ITEM=() _AI_TOOLS_ASSETS__ACTION_AGENT=() _AI_TOOLS_ASSETS__ACTION_DETAIL=() \
         AI_TOOLS_ASSETS__ROW_SEVERITY=() AI_TOOLS_ASSETS__ROW_FINDING=() _AI_TOOLS_ASSETS__ROW_SUBJECT_TYPE=() AI_TOOLS_ASSETS__ROW_SUBJECT=() \
-        _AI_TOOLS_ASSETS__ROW_ITEM=() _AI_TOOLS_ASSETS__ROW_AGENT=() AI_TOOLS_ASSETS__ROW_DETAIL=()
+        _AI_TOOLS_ASSETS__ROW_ITEM=() _AI_TOOLS_ASSETS__ROW_AGENT=() AI_TOOLS_ASSETS__ROW_DETAIL=() \
+        _AI_TOOLS_ASSETS__DIRS_LEFT=()
+    _AI_TOOLS_ASSETS__UNLINK_FAILED=0
 }
 
 # _ai_tools_assets__record_row <severity> <finding> <subject-type> <subject> <item> <agent> <detail> : record one row
@@ -1407,10 +1409,12 @@ _ai_tools_assets__read_dir_reason() {
 }
 
 # _ai_tools_assets__record_dir_row <finding> <dir> <kind> <agent> <detail> : report a destination once per run,
-# at attention.
+# at attention, and record it in _AI_TOOLS_ASSETS__DIRS_LEFT, the directories a resolver link stays under where one
+# was, since no removal under a refused directory runs.
 _ai_tools_assets__record_dir_row() {
     [[ -z "${_AI_TOOLS_ASSETS__DIR_REPORTED[$2]+x}" ]] || return 0
     _AI_TOOLS_ASSETS__DIR_REPORTED["$2"]=1
+    _AI_TOOLS_ASSETS__DIRS_LEFT+=( "$2" )
     _ai_tools_assets__record_row attention "$1" directory "$2" "$3" "$4" "$5"
 }
 
@@ -1821,13 +1825,14 @@ _ai_tools_assets__enumerate() {
 
 # _ai_tools_assets__record_kind_unplanned <kind> <finding> <directory> <detail> : report a view directory the plan does
 # not act in: one row for the directory, once per run, at `unreadable` for an `error` and at `attention` otherwise,
-# and each enabled entry of <kind> still on its way to `linked` resolved to <finding>, so no entry reads linked
-# in a view this run did not
+# the directory recorded in _AI_TOOLS_ASSETS__DIRS_LEFT as one a resolver link stays under, and each enabled entry
+# of <kind> still on its way to `linked` resolved to <finding>, so no entry reads linked in a view this run did not
 # plan.
 _ai_tools_assets__record_kind_unplanned() {
     local kind="$1" finding="$2" directory="$3" detail="$4" entry
     if [[ -z "${_AI_TOOLS_ASSETS__DIR_REPORTED[${directory}]+x}" ]]; then
         _AI_TOOLS_ASSETS__DIR_REPORTED["${directory}"]=1
+        _AI_TOOLS_ASSETS__DIRS_LEFT+=( "${directory}" )
         _ai_tools_assets__record_row "$([[ "${finding}" == error ]] && printf unreadable || printf attention)" "${finding}" directory \
             "${directory}" "${kind}" "" "${detail}"
     fi
@@ -2276,17 +2281,31 @@ _ai_tools_assets__write_row() {
     esac
 }
 
+# _ai_tools_assets__format_paths <path>... : the paths joined by a comma and a space, for a detail.
+_ai_tools_assets__format_paths() {
+    local joined
+    printf -v joined '%s, ' "$@"
+    printf '%s' "${joined%, }"
+}
+
 # _ai_tools_assets__report <code> : the record stream for a plan, and the apply when one ran: the enable-list row
 # where the list could not be read, one row per entry in list order (`linked` at ok, `error` at unreadable, any other
-# token at attention), then each row the plan and the apply recorded.
+# token at attention), then each row the plan and the apply recorded. The enable-list row says every resolver link
+# is removed only where every directory was planned and written and every removal took; otherwise it names
+# the directories a link stays under (_AI_TOOLS_ASSETS__DIRS_LEFT) and the write-failed rows, so the stream does not
+# claim a withdrawal the run did not make.
 _ai_tools_assets__report() {
     local code="$1" entry index detail
     case "${AI_TOOLS_ASSETS__LIST_STATE}" in
         untrusted)
-            if (( ${_AI_TOOLS_ASSETS__UNLINK_FAILED:-0} )); then
-                detail="${AI_TOOLS_ASSETS__LIST_DETAIL}; a resolver link that could not be removed stays, each named in a write-failed row"
+            detail="${AI_TOOLS_ASSETS__LIST_DETAIL}"
+            if (( ${#_AI_TOOLS_ASSETS__DIRS_LEFT[@]} == 0 && ${_AI_TOOLS_ASSETS__UNLINK_FAILED:-0} == 0 )); then
+                detail+="; every resolver link is removed"
             else
-                detail="${AI_TOOLS_ASSETS__LIST_DETAIL}; every resolver link is removed"
+                (( ${#_AI_TOOLS_ASSETS__DIRS_LEFT[@]} == 0 )) \
+                    || detail+="; a resolver link under $(_ai_tools_assets__format_paths "${_AI_TOOLS_ASSETS__DIRS_LEFT[@]}") stays where one was, the directory not planned or refused a write (its row says why)"
+                (( ${_AI_TOOLS_ASSETS__UNLINK_FAILED:-0} == 0 )) \
+                    || detail+="; a resolver link that could not be removed stays, each named in a write-failed row"
             fi
             _ai_tools_assets__write_row "${code}" attention enable-list-untrusted file "${AI_TOOLS_OPERATOR_CONF}" "" "" \
                 "${detail}" ;;
