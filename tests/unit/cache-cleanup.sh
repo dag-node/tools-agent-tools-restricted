@@ -60,8 +60,8 @@ ROWS
 # ── The state record, through the reader both status reports use ──────────────────────────────
 state="${TESTDIR}/cache-cleanup.status"
 : > "${state}"
-ai_tools_cache_cleanup__write_state "${state}" $'npm-cache\tremoved\t4617089024\t0\t-' $'npx\tpartial\t12\t3\ttimeout' \
-    && pass "write_state rewrites an existing file" || fail "write_state refused an existing writable file"
+ai_tools_cache_cleanup__write_state_locked "${state}" $'npm-cache\tremoved\t4617089024\t0\t-' $'npx\tpartial\t12\t3\ttimeout' \
+    && pass "write_state_locked rewrites an existing file" || fail "write_state_locked refused an existing writable file"
 [[ "$(ai_tools_services__read_stamp_field "${state}" NPM_CACHE_RESULT)" == removed \
    && "$(ai_tools_services__read_stamp_field "${state}" NPM_CACHE_BYTES)" == 4617089024 \
    && -n "$(ai_tools_services__read_stamp_field "${state}" NPM_CACHE_CLEANED)" \
@@ -70,12 +70,12 @@ ai_tools_cache_cleanup__write_state "${state}" $'npm-cache\tremoved\t4617089024\
     && pass "a removal records CLEANED, a partial one records its reason and no CLEANED" \
     || fail "state: $(tr '\n' '|' <"${state}")"
 cleaned_before="$(ai_tools_services__read_stamp_field "${state}" NPM_CACHE_CLEANED)"
-ai_tools_cache_cleanup__write_state "${state}" $'npm-cache\tfailed\t0\t0\twalk-error'
+ai_tools_cache_cleanup__write_state_locked "${state}" $'npm-cache\tfailed\t0\t0\twalk-error'
 [[ "$(ai_tools_services__read_stamp_field "${state}" NPM_CACHE_CLEANED)" == "${cleaned_before}" \
    && "$(ai_tools_services__read_stamp_field "${state}" NPX_REASON)" == timeout ]] \
     && pass "a failure keeps the previous CLEANED, and a group the call does not name keeps its values" \
     || fail "state after a failure: $(tr '\n' '|' <"${state}")"
-ai_tools_cache_cleanup__write_state "${state}" $'npm-cache\tremoved\t1\t0\t-' $'npx\tremoved\tnot-a-number\t0\t-' \
+ai_tools_cache_cleanup__write_state_locked "${state}" $'npm-cache\tremoved\t1\t0\t-' $'npx\tremoved\tnot-a-number\t0\t-' \
     $'other\tremoved\t1\t0\t-'
 [[ "$(ai_tools_services__read_stamp_field "${state}" NPX_RESULT)" == partial ]] && ! grep -q '^OTHER' "${state}" \
     && pass "a record outside its shape, or naming an undeclared group, is not written" \
@@ -86,11 +86,11 @@ printf 'NPX_RESULT=removed\033[2J\nNODE_COMPILE_RESULT=failed\n' > "${state}"
 [[ "$(ai_tools_cache_cleanup__read_cleaned_epoch "${state}" npx)" == - ]] \
     && pass "a group with no CLEANED reads as never cleaned" || fail "an absent CLEANED read as an epoch"
 ln -s "${state}" "${TESTDIR}/state-link"
-ai_tools_cache_cleanup__write_state "${TESTDIR}/state-link" $'npx\tremoved\t1\t0\t-' \
-    && fail "write_state wrote through a symlink" || pass "write_state refuses a symlink"
-ai_tools_cache_cleanup__write_state "${TESTDIR}/absent" $'npx\tremoved\t1\t0\t-' \
-    && fail "write_state created a file" || pass "write_state refuses a file that does not exist, and creates none"
-[[ ! -e "${TESTDIR}/absent" ]] || fail "write_state left a file at the absent path"
+ai_tools_cache_cleanup__write_state_locked "${TESTDIR}/state-link" $'npx\tremoved\t1\t0\t-' \
+    && fail "write_state_locked wrote through a symlink" || pass "write_state_locked refuses a symlink"
+ai_tools_cache_cleanup__write_state_locked "${TESTDIR}/absent" $'npx\tremoved\t1\t0\t-' \
+    && fail "write_state_locked created a file" || pass "write_state_locked refuses a file that does not exist, and creates none"
+[[ ! -e "${TESTDIR}/absent" ]] || fail "write_state_locked left a file at the absent path"
 
 # ── The status verdict and the size format ────────────────────────────────────────────────────
 while IFS='|' read -r timing policy result links age want what; do
@@ -169,7 +169,7 @@ done
 (
     ai_tools_cache_cleanup__lock "${launch_state}" 5 || exit 1
     sleep 1
-    ai_tools_cache_cleanup__write_state "${launch_state}" $'npx\tremoved\t1\t0\t-' $'node-compile\tremoved\t1\t0\t-'
+    ai_tools_cache_cleanup__write_state_locked "${launch_state}" $'npx\tremoved\t1\t0\t-' $'node-compile\tremoved\t1\t0\t-'
     sleep 1
     ai_tools_cache_cleanup__unlock
 ) &

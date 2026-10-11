@@ -181,9 +181,9 @@ _ai_tools_cache_cleanup__get_group() {
 #   and a walk cut short is `partial timeout`.
 #
 #   Each call is journalled under the caller's AI_TOOLS_LOG_TAG: the removal it starts at DEBUG, and its outcome
-#   after -- removed or absent at INFO, a removal refused or failed under MSG-G5U7 at ERROR, one cut short under MSG-Y7B4
-#   at WARNING, and links in a group whose producer writes none under MSG-J4Y8 at WARNING, each coded one on stderr
-#   as well.
+#   after -- removed or absent at INFO, a removal refused or failed under MSG-G5U7 at ERROR, one cut short
+#   under MSG-Y7B4 at WARNING, and links in a group whose producer writes none under MSG-J4Y8 at WARNING, each coded
+#   one on stderr as well.
 ai_tools_cache_cleanup__remove_group() {
     local home="${1:-}" group="${2:-}" declaration relative="" link_policy=none record result bytes links reason
     local path size log_result
@@ -302,11 +302,12 @@ ai_tools_cache_cleanup__read_cleaned_epoch() {
     printf '%s' "${epoch}"
 }
 
-# ai_tools_cache_cleanup__write_state <state-file> <record>... : rewrite the existing, non-symlink <state-file>
+# ai_tools_cache_cleanup__write_state_locked <state-file> <record>... : rewrite the existing, non-symlink <state-file>
 #   in place, one block per declared group: a group a record names takes that record with CHECKED now and, for removed
 #   or absent, CLEANED now; every other group keeps the values the file held. A value outside its shape is not written.
-#   The caller holds the lock. Non-zero where the file is absent, a symlink, or not writable.
-ai_tools_cache_cleanup__write_state() {
+#   The caller holds the state file's lock (ai_tools_cache_cleanup__lock), so two writers do not interleave
+#   a read of the previous values with a write. Non-zero where the file is absent, a symlink, or not writable.
+ai_tools_cache_cleanup__write_state_locked() {
     local state="${1:-}"; shift
     [[ -n "${state}" && ! -L "${state}" && -f "${state}" && -w "${state}" ]] || return 1
     local now record group result bytes links reason declaration key field value text
@@ -366,12 +367,14 @@ ai_tools_cache_cleanup__unlock() {
     _AI_TOOLS_CACHE_CLEANUP__LOCK_FD=""
 }
 
-# ai_tools_cache_cleanup__record <state-file> <wait-seconds> <record>... : write the records under the lock; non-zero
-#   where the lock or the write did not happen. For a caller whose removal does not need the lock held across it.
-ai_tools_cache_cleanup__record() {
+# ai_tools_cache_cleanup__write_state <state-file> <wait-seconds> <record>... : take the state file's lock, waiting
+#   at most <wait-seconds>, write the records through ai_tools_cache_cleanup__write_state_locked, and release it;
+#   non-zero where the lock or the write did not happen. For a caller whose removal does not need the lock held across
+#   it.
+ai_tools_cache_cleanup__write_state() {
     local state="$1" wait="$2" rc=0; shift 2
     ai_tools_cache_cleanup__lock "${state}" "${wait}" || return 1
-    ai_tools_cache_cleanup__write_state "${state}" "$@" || rc=1
+    ai_tools_cache_cleanup__write_state_locked "${state}" "$@" || rc=1
     ai_tools_cache_cleanup__unlock
     return "${rc}"
 }
@@ -434,7 +437,7 @@ ai_tools_cache_cleanup__remove_due_groups() {
         launch_records+=( "${record}" )
         printf '%s\n' "${record}"
     done
-    ai_tools_cache_cleanup__write_state "${state}" "${launch_records[@]}" \
+    ai_tools_cache_cleanup__write_state_locked "${state}" "${launch_records[@]}" \
         || _ai_tools_cache_cleanup__log warning "launch cleanup: ${state} was not rewritten"
     ai_tools_cache_cleanup__unlock
     return 0

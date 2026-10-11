@@ -484,7 +484,7 @@ prune_npm_cache() {
     local record
     record="$(AI_TOOLS_LOG_TAG=nvm-update-ai \
         ai_tools_cache_cleanup__remove_group "${AI_TOOLS_CACHE_CLEANUP__SANDBOX_HOME}" npm-cache)" || true
-    ai_tools_cache_cleanup__record "${AI_TOOLS_CACHE_CLEANUP__STATE_FILE}" \
+    ai_tools_cache_cleanup__write_state "${AI_TOOLS_CACHE_CLEANUP__STATE_FILE}" \
             "${AI_TOOLS_CACHE_CLEANUP__LAUNCH_BOUND_SECONDS}" "${record}" \
         || warn "could not record the npm cache removal in ${AI_TOOLS_CACHE_CLEANUP__STATE_FILE} -- both status reports show the previous one"
     return 0

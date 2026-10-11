@@ -846,7 +846,7 @@ if [ "${#agent_packages[@]}" -gt 0 ]; then
             ai_tools_cache_cleanup__remove_group "${AI_TOOLS_CACHE_CLEANUP__SANDBOX_HOME}" npm-cache)" || true
         IFS=$'\t' read -r _ cache_result cache_bytes _ _ <<< "${cache_record}"
         printf "npm's cache: %s (%s)\n" "${cache_result}" "$(ai_tools_cache_cleanup__format_bytes "${cache_bytes}")"
-        ai_tools_cache_cleanup__record "${AI_TOOLS_CACHE_CLEANUP__STATE_FILE}" \
+        ai_tools_cache_cleanup__write_state "${AI_TOOLS_CACHE_CLEANUP__STATE_FILE}" \
                 "${AI_TOOLS_CACHE_CLEANUP__LAUNCH_BOUND_SECONDS}" "${cache_record}" \
             || printf "npm's cache: the removal was not recorded in %s\n" "${AI_TOOLS_CACHE_CLEANUP__STATE_FILE}"
     else
