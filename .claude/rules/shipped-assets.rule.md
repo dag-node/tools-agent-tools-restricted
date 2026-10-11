@@ -102,8 +102,8 @@ is grouped by the agent that owns it — `src/opt/ai-tools/agents/<manifest-name
 from the tree, so the tree mirrors ownership instead; a second agent adds a sibling directory named for its manifest.
 
 The skills and subagents kinds each ship a `README.md`, the operator guide, with the pristine copy; it is **symlinked**
-into the live root and into each agent's directory (`ai_tools_managed_assets__link_asset_readme`) — the doc is found
-where the assets are, and there is exactly one file to keep current.
+into the live root and into each agent's directory (`ai_tools_managed_assets__link_asset_readme_locked`) — the doc is
+found where the assets are, and there is exactly one file to keep current.
 
 ## The view and each agent's links (`assets.lib.sh`)
 
@@ -144,13 +144,13 @@ sees the old target or the new one; a resolver link no input justifies is remove
 else at an enabled asset's name is `view-occupied` and left as it is, as is any entry the library did not place
 at the temporary name a link is staged under (`_ai_tools_assets__place_link`). A resolver link is told from every other
 entry by its target alone, so the seeder's managed copies share the directory without a marker, and the three sites
-that read a managed copy's marker (`ai_tools_managed_assets__withdraw_asset`, `ai_tools_managed_assets__is_stale_copy`,
-`system post-upgrade`'s version check) skip a symlink. The lock is `ai_tools_managed_assets__lock`'s
-(`managed-assets.lib.sh`), whose doc states its modes, its wait, and the descriptor a child reconcile adopts; every
-writer of the shared roots holds it through that reentrant pair, which every provisioning path already sources:
-the `assets` verbs before their first read of `operator.conf`, to their exit; `install.sh`, `ai-tools-bootstrap`, base's
-`%post` and the typesafe package's scriptlets across the seed, the retire pass and the reconcile. The seeder itself does
-not take the lock.
+that read a managed copy's marker (`ai_tools_managed_assets__withdraw_asset_locked`,
+`ai_tools_managed_assets__is_stale_copy`, `system post-upgrade`'s version check) skip a symlink. The lock is
+`ai_tools_managed_assets__lock`'s (`managed-assets.lib.sh`), whose doc states its modes, its wait, and the descriptor
+a child reconcile adopts; every writer of the shared roots holds it through that reentrant pair, which every
+provisioning path already sources: the `assets` verbs before their first read of `operator.conf`, to their exit;
+`install.sh`, `ai-tools-bootstrap`, base's `%post` and the typesafe package's scriptlets across the seed, the retire
+pass and the reconcile. The seeder itself does not take the lock.
 
 **The view decides what every agent links.** For each enabled agent and each kind its manifest declares a directory
 for, the view's resolver links and base's seeded copies (`_ai_tools_assets__is_seeded_copy`) are linked, and no other
@@ -299,8 +299,8 @@ withdrawn the same way, and `AI_TOOLS_MANAGED_ASSETS__SUCCESSORS` beside the lis
 of its successor: the pass closes with the command that enables that set, and `ai-tools-admin status` reports
 `successor-unenabled` while a retired copy of such an entry exists and `AI_TOOLS_ASSETS` is absent from `operator.conf`.
 
-`ai_tools_managed_assets__remove_retired_assets` runs after the seeder in all three provisioning paths (`install.sh`,
-`ai-tools-bootstrap`, base's `%post`). It gates on the same `x-ai-tools-managed` marker the seeder claims
+`ai_tools_managed_assets__remove_retired_assets_locked` runs after the seeder in all three provisioning paths
+(`install.sh`, `ai-tools-bootstrap`, base's `%post`). It gates on the same `x-ai-tools-managed` marker the seeder claims
 by, so an operator's own asset under a withdrawn name is kept and reported. Each agent's symlink is handled by the next
 assets reconcile, which drops a link into the shared root once its target is gone.
 
@@ -326,8 +326,8 @@ a shipped asset may not name one this project does not ship.
 
 ## Seeding (`managed-assets.lib.sh`)
 
-`ai_tools_managed_assets__seed_assets <src_root> <live_root> <group> <kind>...` seeds the named kinds from the pristine
-root into the live root (`/opt/ai-tools`, under which each kind's shared root is a subdirectory).
+`ai_tools_managed_assets__seed_assets_locked <src_root> <live_root> <group> <kind>...` seeds the named kinds
+from the pristine root into the live root (`/opt/ai-tools`, under which each kind's shared root is a subdirectory).
 `AI_TOOLS_MANAGED_ASSETS__KINDS` in the same library is the one declaration of the kinds the project ships: the seeder
 and the withdrawal pass refuse an empty list or a name outside it with a reason on stderr, `install.sh` and base's
 `%post` iterate it rather than spelling the names, and a kind added to it without a source layout in the seeder is
@@ -379,8 +379,8 @@ version update; in the RPM **base**'s `%post` seeds each shared root and then re
 the same lib under an explicit `bash` (a scriptlet is `/bin/sh`) and, being non-interactive, place only what is absent.
 A **provider package that ships a skill** seeds the shared root in its own `%post` and reconciles, because on a first
 install base's and the agents' scriptlets run before that package's files are on disk; its `%postun` on final erase
-withdraws the live copy with `ai_tools_managed_assets__withdraw_asset`, the per-asset step the retired-list pass is
-built from, and reconciles so each agent's link to the gone target is dropped. This mirrors
+withdraws the live copy with `ai_tools_managed_assets__withdraw_asset_locked`, the per-asset step the retired-list pass
+is built from, and reconciles so each agent's link to the gone target is dropped. This mirrors
 the `.gitignore`/`.gitconfig` reseed (see [ownership-and-hooks](ownership-and-hooks.rule.md) for the control-plane
 ownership model).
 
@@ -389,7 +389,7 @@ ownership model).
 An asset a provider package ships declares `x-ai-tools-integration: <name>`, and the host holds it exactly where it
 holds that integration. The seeder places it through the other cases while the manifest `integrations.d/<name>.conf`
 and its directory pass `ai_tools_conf__is_trusted`; otherwise it skips the asset and moves a live managed copy aside
-with `ai_tools_managed_assets__withdraw_asset`, so the marker gate and the `retired/` copy are the withdrawal's.
+with `ai_tools_managed_assets__withdraw_asset_locked`, so the marker gate and the `retired/` copy are the withdrawal's.
 An absent manifest, an untrusted one and a name outside the provider charset each read as not installed, which removes
 the asset and does not place one.
 

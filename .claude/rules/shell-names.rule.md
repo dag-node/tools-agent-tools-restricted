@@ -52,14 +52,15 @@ derived name would match a library it sources, choose a different module name be
 
 ## Syntax
 
-- `__` appears exactly once, between the module and the member.
+- `__` appears exactly once in module-qualified names, between the module and the member.
 - A single `_` separates words inside a name.
 - Every name must be a valid shell identifier for both functions and variables. Do not use `::`.
 
 ## Scope
 
-- A leading `_` marks an implementation detail of one module. No other production file may read or write it. Tests may.
-- Any name accessed by another production file must use the public form. The defining library assigns the name
+- A leading `_` marks an implementation detail of one module. No other production file may read, write, or call it.
+  Tests may.
+- Any name accessed by another production file must use the public form. The defining library assigns each global
   before any read on every code path, so an inherited environment value is never used.
 - A library loads another library by sourcing it or by testing for the public function it calls (`declare -F`). Do not
   read another library's load guard.
@@ -67,13 +68,19 @@ derived name would match a library it sources, choose a different module name be
 
 ## Member naming
 
+Name the operation or result. Include a caller or lifecycle phase only when it defines the function's contract. Prefer
+the condition that changes the behaviour: `remove_due_groups`, not `clean_at_launch`.
+
+Use consistent domain terms. Make the result's meaning clear: `read_active_session_count` returns a count; `list_groups`
+returns groups. Include a unit only when the output uses that unit.
+
 | Function purpose | Member form | Example |
 |---|---|---|
 | Tests a condition | `is_`, `has_`, or `can_` + condition | `is_trusted`, `has_project_marker`, `can_session_read` |
 | Returns a value it holds, or derives one from its arguments alone | `get_` | `get_pin_path` |
 | Turns text into values | `parse_` | `parse_path_entry` |
 | Reads a file, the kernel, or another program's output | `read_` | `read_pin` |
-| Prints several items, one per line | `list_` | `list_enabled_agents` |
+| Prints items, one per line | `list_` | `list_enabled_agents` |
 | Searches and prints matches | `find_` | `find_raw_rule_matches` |
 | Computes a value | `calculate_` | `calculate_sha256` |
 | Decides a verdict token from its inputs | `evaluate_` | `evaluate_pin` |
@@ -82,12 +89,20 @@ derived name would match a library it sources, choose a different module name be
 | Keeps state for a later report | `record_` | `record_finding` |
 | Performs other work | the verb for that work | `register_fcontext`, `write_pin`, `load_rules` |
 
+For enumeration, use `list_` followed by a plural noun phrase naming the items, such as `list_enabled_agents`. This
+takes precedence over `read_` when reading an external source produces one item per line. Choose by the output contract,
+not the number of lines a particular call prints; one value or record may span several lines. Keep `find_`
+when the operation searches for matches.
+
 A `get_` function reads its arguments and its module's own state alone. One that reaches a file, the kernel or another
-program's state, itself or through a function it calls, is a reader: `read_project_build_pattern` reads
-the integrations' manifests.
+program's state, itself or through a function it calls, does not use `get_`. Use `read_` unless a more specific purpose
+in the table applies: `read_project_build_pattern` reads the integrations' manifests.
 
 An action keeps its action name even when a caller tests its exit status. `if write_pin …` does not turn `write_pin`
 into a predicate.
+
+Reserve `_locked` for a function that requires the caller to hold a lock; document which lock. A function that acquires
+its own lock keeps the operation name and documents its locking behaviour.
 
 Spell words in full. Keep these established short terms: `acl`, `dir`, `fcontext`, `fd`, `id`, `jq`, `kv`, `npm`, `nvm`,
 `sha256`, `toml`, `tsv`, `tty`, `uid`.

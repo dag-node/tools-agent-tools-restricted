@@ -49,7 +49,7 @@ for _ai_tools_assets__required_function in ai_tools_conf__is_trusted ai_tools_co
         ai_tools_records_tsv__frame_item_components ai_tools_providers__list_enabled_agents ai_tools_providers__list_installed_agents \
         ai_tools_providers__read_agent_manifest_field ai_tools_providers__list_enabled_integrations ai_tools_providers__evaluate_empty_agents \
         ai_tools_control_plane__is_agent_config_dir_valid \
-        ai_tools_managed_assets__is_managed ai_tools_managed_assets__is_stale_copy ai_tools_managed_assets__link_asset_readme ai_tools_managed_assets__lock \
+        ai_tools_managed_assets__is_managed ai_tools_managed_assets__is_stale_copy ai_tools_managed_assets__link_asset_readme_locked ai_tools_managed_assets__lock \
         ai_tools_managed_assets__unlock; do
     if ! declare -F "${_ai_tools_assets__required_function}" >/dev/null 2>&1; then
         printf 'assets: %s is not defined, so the assets resolver is not defined\n' "${_ai_tools_assets__required_function}" >&2
@@ -1428,12 +1428,12 @@ _ai_tools_assets__record_dir_row() {
 # <dir> and the directories that hold it to _ai_tools_assets__is_destination_trusted, then create an absent <dir>
 # root:<group> 0750 when <create> is 1, and hold the created one to the predicate again. The directories that hold <dir>
 # are checked before the create, since the create is a write through them: a home root that is a symlink or not root's
-# alone would otherwise take a directory the plan refused to act in. The create is `mkdir`, which fails on a name that
-# exists and does not follow a symlink there: an agent's kind directory sits in a config directory the sandbox account
-# writes, and `install -d` on a link that account planted between the plan and here would re-own and re-mode the link's
-# target as root. A name taken in that window, a directory or a link, is left as found and refused by the check
-# that follows the create; an existing directory is not re-owned or re-moded, the repair this library does not make.
-# Prints the directory that fails and returns 1; returns 2 for an absent directory left absent.
+# alone would otherwise take a directory the plan refused to act in. The create is `mkdir`, which fails on a name
+# that exists and does not follow a symlink there: an agent's kind directory sits in a config directory the sandbox
+# account writes, and `install -d` on a link that account planted between the plan and here would re-own and re-mode
+# the link's target as root. A name taken in that window, a directory or a link, is left as found and refused
+# by the check that follows the create; an existing directory is not re-owned or re-moded, the repair this library does
+# not make. Prints the directory that fails and returns 1; returns 2 for an absent directory left absent.
 _ai_tools_assets__prepare_dir() {
     local which="$1" directory="$2" group="$3" create="$4"
     _ai_tools_assets__is_destination_trusted "${which}" "${directory}" || return 1
@@ -2190,15 +2190,16 @@ _ai_tools_assets__read_occupant() {
     fi
 }
 
-# _ai_tools_assets__apply <group> : take every change the plan computed, in order -- the view first, then the agents'
-# links -- each reported as a row: `linked` or `unlinked` at info, or `write-failed` at attention with the entry it was
-# for left unlinked. A view link that failed is not linked into an agent's directory. Before its first write
-# in a directory the apply holds it to _ai_tools_assets__is_destination_trusted, creating an absent view or agent kind
-# directory root:<group> 0750 first (_ai_tools_assets__prepare_dir); a directory that fails does not take a write,
-# and an enabled entry whose view link it held reads view-dir-untrusted. restorecon runs over every link placed. Sets
-# _AI_TOOLS_ASSETS__WRITE_FAILED to 1 when a change did not take, and _AI_TOOLS_ASSETS__UNLINK_FAILED to 1
-# when a removal did not, so the report does not claim it.
-_ai_tools_assets__apply() {
+# _ai_tools_assets__apply_locked <group> : take every change the plan computed, in order -- the view first, then
+# the agents' links -- each reported as a row: `linked` or `unlinked` at info, or `write-failed` at attention
+# with the entry it was for left unlinked. A view link that failed is not linked into an agent's directory. Before its
+# first write in a directory the apply holds it to _ai_tools_assets__is_destination_trusted, creating an absent view
+# or agent kind directory root:<group> 0750 first (_ai_tools_assets__prepare_dir); a directory that fails does not take
+# a write, and an enabled entry whose view link it held reads view-dir-untrusted. restorecon runs over every link
+# placed. Sets _AI_TOOLS_ASSETS__WRITE_FAILED to 1 when a change did not take, and _AI_TOOLS_ASSETS__UNLINK_FAILED to 1
+# when a removal did not, so the report does not claim it. The caller holds the assets lock
+# (ai_tools_managed_assets__lock), which ai_tools_assets__reconcile takes before the plan.
+_ai_tools_assets__apply_locked() {
     local group="$1" index op path target stype item agent detail directory kind
     local -a placed=()
     local -A failed_view=() untrusted_view=() directory_state=()
@@ -2257,7 +2258,7 @@ _ai_tools_assets__apply() {
             # there.
             [[ -d "${directory%/*}" && ! -L "${directory%/*}" ]] || continue
             _ai_tools_assets__can_apply_in_dir agent "${directory}" "${kind}" "${agent}" "${group}" 1 || continue
-            ai_tools_managed_assets__link_asset_readme "${AI_TOOLS_ASSETS__README_ROOT}/${kind}/README.md" "${directory}" "${group}" \
+            ai_tools_managed_assets__link_asset_readme_locked "${AI_TOOLS_ASSETS__README_ROOT}/${kind}/README.md" "${directory}" "${group}" \
                 >/dev/null 2>&1 || true
         done
     done
@@ -2405,7 +2406,7 @@ ai_tools_assets__reconcile() {
     local group="${1:?}" status=0
     ai_tools_managed_assets__lock || return 1
     ai_tools_assets__plan
-    _ai_tools_assets__apply "${group}"
+    _ai_tools_assets__apply_locked "${group}"
     _ai_tools_assets__reconcile_report MSG-Z3P6 "assets reconcile: an enable-list entry's state, or a link the view transaction placed, removed or found"
     (( _AI_TOOLS_ASSETS__WRITE_FAILED == 0 )) || status=1
     ai_tools_managed_assets__unlock

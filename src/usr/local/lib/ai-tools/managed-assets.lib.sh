@@ -20,13 +20,13 @@
 
 # Every writer of the shared roots -- this seeder and the retired-list pass, the assets reconcile (assets.lib.sh),
 # and the `ai-tools-admin assets` verbs -- runs under one lock, the pair ai_tools_managed_assets__lock /
-# ai_tools_managed_assets__unlock defined here, where every provisioning path already sources it. The seeder itself does
-# not take it: its callers hold it across the seed, the retire pass and the reconcile.
+# ai_tools_managed_assets__unlock defined here, where every provisioning path already sources it. A writer named
+# `_locked` does not take it: its caller holds it across the seed, the retire pass and the reconcile.
 #
 # Withdrawing an asset needs its own step: the seeder only adds and updates, and the live roots are not rpm-owned,
 # so a name this project stops shipping stays live on an upgraded host until it is named here.
-# `ai_tools_managed_assets__remove_retired_assets` reads this list; the next `ai-tools-admin assets reconcile` drops
-# each agent's now-dangling symlink.
+# `ai_tools_managed_assets__remove_retired_assets_locked` reads this list; the next `ai-tools-admin assets reconcile`
+# drops each agent's now-dangling symlink.
 #
 # Sourced more than once in a single shell: return early so the second pass is a no-op (an if-statement, not
 # `[[ ]] && return`, which returns 1 for an unset guard and trips `set -e`).
@@ -199,7 +199,7 @@ readonly AI_TOOLS_MANAGED_ASSETS__RETIRED=(
 
 # The asset that succeeds a withdrawn entry, keyed by the entry's `<kind>/<name>` with the `<set>/<kind>/<name>`
 # identifier AI_TOOLS_ASSETS takes as its value. An entry without a key here has no successor. Its readers are
-# ai_tools_managed_assets__remove_retired_assets (the closing line)
+# ai_tools_managed_assets__remove_retired_assets_locked (the closing line)
 # and ai_tools_managed_assets__list_withdrawn_successors (the status notice). tests/unit/managed-assets.sh holds every
 # key to an entry of AI_TOOLS_MANAGED_ASSETS__RETIRED and every value to the identifier grammar.
 readonly -A AI_TOOLS_MANAGED_ASSETS__SUCCESSORS=(
@@ -315,12 +315,13 @@ _ai_tools_managed_assets__place_asset() {
 # its target's marker unread: a set's asset the reconcile linked, or the host's. Present + unmanaged (no marker) -> left
 # untouched and logged: it is the operator's own file. An empty directory at a directory asset's name -> seeded,
 # as absent. Present + same-or-older version -> no-op. A WITHDRAWN name -> skipped outright, whatever the source root
-# holds; ai_tools_managed_assets__remove_retired_assets is the only pass that acts on one.
+# holds; ai_tools_managed_assets__remove_retired_assets_locked is the only pass that acts on one. The caller holds
+# the assets lock (ai_tools_managed_assets__lock).
 # $1 src_root  $2 live_root (resolved by the caller)  $3 group  $4.. kinds, each one of
 # AI_TOOLS_MANAGED_ASSETS__KINDS; an empty list or an unknown kind is refused with a reason.
-ai_tools_managed_assets__seed_assets() {
+ai_tools_managed_assets__seed_assets_locked() {
     local src_root="$1" live_root="$2" group="$3"; shift 3
-    _ai_tools_managed_assets__require_kinds ai_tools_managed_assets__seed_assets "$@" || return 1
+    _ai_tools_managed_assets__require_kinds ai_tools_managed_assets__seed_assets_locked "$@" || return 1
     local -a kinds=( "$@" )
     local kind src_glob src marker name dst dst_marker cur new integration
     for kind in "${kinds[@]}"; do
@@ -338,7 +339,7 @@ ai_tools_managed_assets__seed_assets() {
             subagents)   src_glob="${src_root}/${kind}/ai-tools-*.md" ;;
             orientation) src_glob="${src_root}/${kind}/AGENTS.md"     ;;
             *)  # a kind added to AI_TOOLS_MANAGED_ASSETS__KINDS without its layout being declared here
-                printf 'ai_tools_managed_assets__seed_assets: no source layout declared for kind %s\n' \
+                printf 'ai_tools_managed_assets__seed_assets_locked: no source layout declared for kind %s\n' \
                     "${kind}" >&2
                 return 1 ;;
         esac
@@ -359,7 +360,7 @@ ai_tools_managed_assets__seed_assets() {
             integration="$(ai_tools_managed_assets__read_asset_integration "${marker}")"
             if [[ -n "${integration}" ]] && ! _ai_tools_managed_assets__is_integration_installed "${integration}"; then
                 _ai_tools_managed_assets__say "${name} skipped (integration ${integration} not installed)"
-                ai_tools_managed_assets__withdraw_asset "${live_root}" "${kind}" "${name}" "integration ${integration} not installed"
+                ai_tools_managed_assets__withdraw_asset_locked "${live_root}" "${kind}" "${name}" "integration ${integration} not installed"
                 continue
             fi
             dst="${live_root}/${kind}/${name}"
@@ -412,7 +413,7 @@ ai_tools_managed_assets__seed_assets() {
     done
 }
 
-# ai_tools_managed_assets__remove_retired_assets <live_root> [kinds...] Withdraw the assets
+# ai_tools_managed_assets__remove_retired_assets_locked <live_root> [kinds...] Withdraw the assets
 # in AI_TOOLS_MANAGED_ASSETS__RETIRED from a live shared root, so a host upgraded from a package that still shipped them
 # stops offering them. Restricted to the named kinds when given.
 #
@@ -439,14 +440,14 @@ ai_tools_managed_assets__seed_assets() {
 # After the per-asset lines, the pass prints one line per successor set (AI_TOOLS_MANAGED_ASSETS__SUCCESSORS)
 # for which it moved at least one entry aside, naming the set, the package `ai-tools-assets-<set>` that ships it,
 # and the command that enables it; a set's line is printed once per shell, however many kinds the caller passes one call
-# at a time.
+# at a time. The caller holds the assets lock (ai_tools_managed_assets__lock).
 # $1 live_root  $2.. kinds (default: every kind named in the list); a named kind must be one of
 # AI_TOOLS_MANAGED_ASSETS__KINDS, and so must the kind of every retired entry, or the pass refuses.
-ai_tools_managed_assets__remove_retired_assets() {
+ai_tools_managed_assets__remove_retired_assets_locked() {
     local live_root="$1"; shift
     local -a kinds=( "$@" )
     if (( ${#kinds[@]} )); then
-        _ai_tools_managed_assets__require_kinds ai_tools_managed_assets__remove_retired_assets "${kinds[@]}" || return 1
+        _ai_tools_managed_assets__require_kinds ai_tools_managed_assets__remove_retired_assets_locked "${kinds[@]}" || return 1
     fi
     local entry kind name path successor successor_set present
     local -a successor_sets=()
@@ -457,7 +458,7 @@ ai_tools_managed_assets__remove_retired_assets() {
     fi
     for entry in "${AI_TOOLS_MANAGED_ASSETS__RETIRED[@]}"; do
         kind="${entry%%/*}"; name="${entry#*/}"
-        _ai_tools_managed_assets__require_kinds "ai_tools_managed_assets__remove_retired_assets (AI_TOOLS_MANAGED_ASSETS__RETIRED: ${entry})" \
+        _ai_tools_managed_assets__require_kinds "ai_tools_managed_assets__remove_retired_assets_locked (AI_TOOLS_MANAGED_ASSETS__RETIRED: ${entry})" \
             "${kind}" || return 1
         if (( ${#kinds[@]} )); then
             local wanted match=0
@@ -469,7 +470,7 @@ ai_tools_managed_assets__remove_retired_assets() {
         path="${live_root}/${kind}/${name}"
         present=0
         [[ -e "${path}" && ! -L "${path}" ]] && present=1
-        ai_tools_managed_assets__withdraw_asset "${live_root}" "${kind}" "${name}" "no longer shipped"
+        ai_tools_managed_assets__withdraw_asset_locked "${live_root}" "${kind}" "${name}" "no longer shipped"
         # withdraw_asset returns 0 whatever it did, so a move is read from the path: a copy that stood there
         # before the call and is gone after it was moved aside.
         successor="${AI_TOOLS_MANAGED_ASSETS__SUCCESSORS[${entry}]:-}"
@@ -507,14 +508,14 @@ ai_tools_managed_assets__list_withdrawn_successors() {
     return 0
 }
 
-# ai_tools_managed_assets__withdraw_asset <live_root> <kind> <name> [reason] Move ONE live asset aside
+# ai_tools_managed_assets__withdraw_asset_locked <live_root> <kind> <name> [reason] Move ONE live asset aside
 # into <live_root>/retired, under the same marker gate and the same fail-toward-keeping rule as the retired-list pass,
 # which calls this per entry. The other caller is a provider package's final erase: a package that ships a skill
 # withdraws it here, since the retired list names what the PROJECT dropped and a package removal is not that. An absent
 # asset returns 0 without a move, and so does a symlink: the entry is the assets resolver's view link, not a copy,
 # and is never followed to read a marker. The reason is printed with the outcome ("no longer shipped", "package
-# removed").
-ai_tools_managed_assets__withdraw_asset() {
+# removed"). The caller holds the assets lock (ai_tools_managed_assets__lock).
+ai_tools_managed_assets__withdraw_asset_locked() {
     local live_root="$1" kind="$2" name="$3" reason="${4:-no longer shipped}"
     local path="${live_root}/${kind}/${name}" marker retired_dir target
     [[ -e "${path}" && ! -L "${path}" ]] || return 0
@@ -595,10 +596,11 @@ ai_tools_managed_assets__link_agent_memory() {
     return 0
 }
 
-# ai_tools_managed_assets__link_asset_readme <readme_source> <target_dir> <group> Point <target_dir>/README.md
+# ai_tools_managed_assets__link_asset_readme_locked <readme_source> <target_dir> <group> Point <target_dir>/README.md
 # at the shipped guide for that asset kind, so the documentation is found where the assets are rather than only
 # in the datadir. A link, never a copy, so there is one file to keep current. Silent no-op when either end is absent.
-ai_tools_managed_assets__link_asset_readme() {
+# The caller holds the assets lock (ai_tools_managed_assets__lock).
+ai_tools_managed_assets__link_asset_readme_locked() {
     local readme_source="$1" target_dir="$2" group="$3"
     [[ -n "${readme_source}" && -e "${readme_source}" && -d "${target_dir}" ]] || return 0
     ln -sfn "${readme_source}" "${target_dir}/README.md"

@@ -51,8 +51,8 @@ done
 if ! source "${LIB_DIR}/msg.lib.sh" \
         || ! source "${LIB_DIR}/conf.lib.sh" \
         || ! source "${LIB_DIR}/managed-assets.lib.sh" \
-        || ! declare -F ai_tools_managed_assets__seed_assets >/dev/null 2>&1 \
-        || ! declare -F ai_tools_managed_assets__remove_retired_assets >/dev/null 2>&1; then
+        || ! declare -F ai_tools_managed_assets__seed_assets_locked >/dev/null 2>&1 \
+        || ! declare -F ai_tools_managed_assets__remove_retired_assets_locked >/dev/null 2>&1; then
     fail "could not source the asset libraries or they do not define the seeder"; finish; exit
 fi
 
@@ -101,7 +101,7 @@ asset_version() { ai_tools_managed_assets__read_asset_version "$1"; }
 reset_roots() { rm -rf "${SHIPPED}" "${LIVE}"; mkdir -p "${SHIPPED}" "${LIVE}"; }
 
 # seed [env...] -- run the seeder over both kinds, capturing its report.
-seed() { ai_tools_managed_assets__seed_assets "${SHIPPED}" "${LIVE}" root skills subagents; }
+seed() { ai_tools_managed_assets__seed_assets_locked "${SHIPPED}" "${LIVE}" root skills subagents; }
 
 # ── Seeding ──────────────────────────────────────────────────────────────────────
 
@@ -150,7 +150,7 @@ setsid bash -c "
     source '${LIB_DIR}/msg.lib.sh'
     source '${LIB_DIR}/conf.lib.sh'
     source '${LIB_DIR}/managed-assets.lib.sh'
-    ai_tools_managed_assets__seed_assets '${SHIPPED}' '${LIVE}' root skills
+    ai_tools_managed_assets__seed_assets_locked '${SHIPPED}' '${LIVE}' root skills
 " </dev/null >/dev/null 2>&1 || true
 if [[ "$(asset_version "${LIVE}/skills/ai-tools-aaa-updated/SKILL.md")" == "5" ]]; then
     pass "with no terminal the update confirm defaults to UPDATE (a scriptlet takes the new version)"
@@ -291,7 +291,7 @@ fi
 # Property 5, and the marker gate on this side. The live copy from the seeding run is still in place. The live root is
 # setgid, as /opt/ai-tools is, so retired/ is born with the bit its mode check below must not find.
 chmod g+s "${LIVE}"
-out="$(ai_tools_managed_assets__remove_retired_assets "${LIVE}" skills 2>&1)" || true
+out="$(ai_tools_managed_assets__remove_retired_assets_locked "${LIVE}" skills 2>&1)" || true
 if [[ ! -e "${LIVE}/skills/${WITHDRAWN_SKILL}" ]]; then
     pass "a withdrawn asset is removed from the live root"
 else
@@ -311,7 +311,7 @@ else
 fi
 # A retired/ that already carries the bit, with nothing left to withdraw, is cleared by the next pass.
 chmod g+s "${LIVE}/retired"
-out="$(ai_tools_managed_assets__remove_retired_assets "${LIVE}" skills 2>&1)" || true
+out="$(ai_tools_managed_assets__remove_retired_assets_locked "${LIVE}" skills 2>&1)" || true
 if [[ "$(stat -c '%a' "${LIVE}/retired")" == "700" ]]; then
     pass "a setgid retired/ is cleared to 0700 by a pass with nothing to withdraw"
 else
@@ -320,7 +320,7 @@ fi
 
 reset_roots
 write_skill "${LIVE}" "${WITHDRAWN_SKILL}" 1 notmanaged
-out="$(ai_tools_managed_assets__remove_retired_assets "${LIVE}" skills 2>&1)" || true
+out="$(ai_tools_managed_assets__remove_retired_assets_locked "${LIVE}" skills 2>&1)" || true
 if [[ -f "${LIVE}/skills/${WITHDRAWN_SKILL}/SKILL.md" ]] \
    && grep -q "kept (operator's own" <<<"${out}"; then
     pass "an unmanaged asset under a withdrawn name is kept and reported, never moved"
@@ -330,7 +330,7 @@ fi
 
 reset_roots
 write_skill "${LIVE}" ai-tools-zzz-seeded 1
-out="$(ai_tools_managed_assets__remove_retired_assets "${LIVE}" skills 2>&1)" || true
+out="$(ai_tools_managed_assets__remove_retired_assets_locked "${LIVE}" skills 2>&1)" || true
 if [[ -f "${LIVE}/skills/ai-tools-zzz-seeded/SKILL.md" ]] && [[ ! -d "${LIVE}/retired" ]]; then
     pass "an asset that is not withdrawn is untouched, and retired/ is not created for nothing"
 else
@@ -361,7 +361,7 @@ else
     }
     # seed_bound -- the seeder over skills alone, reading the fixture integrations directory.
     seed_bound() { AI_TOOLS_INTEGRATIONS_DIR="${INTEGRATIONS}" AI_TOOLS_ASSUME_YES=1 \
-        ai_tools_managed_assets__seed_assets "${SHIPPED}" "${LIVE}" root skills; }
+        ai_tools_managed_assets__seed_assets_locked "${SHIPPED}" "${LIVE}" root skills; }
 
     reset_roots
     rm -rf "${INTEGRATIONS}"; mkdir -m 755 "${INTEGRATIONS}"
@@ -427,7 +427,7 @@ fi
 # does not apply to it and the managed marker is the whole of what it claims by.
 reset_roots
 write_orientation "${SHIPPED}" 3
-out="$(AI_TOOLS_ASSUME_YES=1 ai_tools_managed_assets__seed_assets "${SHIPPED}" "${LIVE}" root orientation 2>&1)" || true
+out="$(AI_TOOLS_ASSUME_YES=1 ai_tools_managed_assets__seed_assets_locked "${SHIPPED}" "${LIVE}" root orientation 2>&1)" || true
 if [[ -f "${LIVE}/orientation/AGENTS.md" ]] \
    && [[ "$(asset_version "${LIVE}/orientation/AGENTS.md")" == "3" ]]; then
     pass "the fixed-name kind (orientation) is seeded, and its marker reads out of an HTML comment"
@@ -442,11 +442,11 @@ if ! id nobody >/dev/null 2>&1; then
     skip "ownership restored on a kept asset" "no 'nobody' account to drift the fixture to"
 else
     write_skill "${SHIPPED}" ai-tools-owned 1
-    out="$(AI_TOOLS_ASSUME_YES=1 ai_tools_managed_assets__seed_assets "${SHIPPED}" "${LIVE}" root skills 2>&1)" || true
+    out="$(AI_TOOLS_ASSUME_YES=1 ai_tools_managed_assets__seed_assets_locked "${SHIPPED}" "${LIVE}" root skills 2>&1)" || true
     chown nobody:nobody "${LIVE}/orientation/AGENTS.md"; chmod 600 "${LIVE}/orientation/AGENTS.md"
     mkdir -p "${LIVE}/skills/ai-tools-owned/references"; chmod 2775 "${LIVE}/skills/ai-tools-owned/references"
     chown nobody "${LIVE}/skills/ai-tools-owned/SKILL.md"
-    out="$(AI_TOOLS_ASSUME_YES=1 ai_tools_managed_assets__seed_assets "${SHIPPED}" "${LIVE}" root skills orientation 2>&1)" || true
+    out="$(AI_TOOLS_ASSUME_YES=1 ai_tools_managed_assets__seed_assets_locked "${SHIPPED}" "${LIVE}" root skills orientation 2>&1)" || true
     if [[ "$(stat -c '%a %U:%G' "${LIVE}/orientation/AGENTS.md")" == "640 root:root" ]] \
        && [[ "$(stat -c '%a %U:%G' "${LIVE}/skills/ai-tools-owned/SKILL.md")" == "640 root:root" ]] \
        && [[ "$(stat -c '%a' "${LIVE}/skills/ai-tools-owned/references")" == "750" ]] \
@@ -460,7 +460,7 @@ else
     else
         fail "the restore report: ${out}"
     fi
-    out="$(AI_TOOLS_ASSUME_YES=1 ai_tools_managed_assets__seed_assets "${SHIPPED}" "${LIVE}" root skills orientation 2>&1)" || true
+    out="$(AI_TOOLS_ASSUME_YES=1 ai_tools_managed_assets__seed_assets_locked "${SHIPPED}" "${LIVE}" root skills orientation 2>&1)" || true
     if ! grep -q 'ownership and modes restored' <<<"${out}"; then
         pass "a second run over assets already at their ownership reports no restore"
     else
@@ -559,21 +559,21 @@ fi
 # on the default would have skipped the subagents and the orientation with no line saying so -- the quiet shape this
 # refusal replaces.
 write_skill "${SHIPPED}" ai-tools-kind-probe 1
-out="$(ai_tools_managed_assets__seed_assets "${SHIPPED}" "${LIVE}" root agents 2>&1)" && rc=0 || rc=$?
+out="$(ai_tools_managed_assets__seed_assets_locked "${SHIPPED}" "${LIVE}" root agents 2>&1)" && rc=0 || rc=$?
 if (( rc != 0 )) && grep -q 'agents is not an asset kind' <<<"${out}" \
    && [[ ! -e "${LIVE}/agents" ]]; then
     pass "a kind the project does not ship is refused by name, and nothing is seeded for it"
 else
     fail "an unknown kind was not refused (rc=${rc}): ${out}"
 fi
-out="$(ai_tools_managed_assets__seed_assets "${SHIPPED}" "${LIVE}" root 2>&1)" && rc=0 || rc=$?
+out="$(ai_tools_managed_assets__seed_assets_locked "${SHIPPED}" "${LIVE}" root 2>&1)" && rc=0 || rc=$?
 if (( rc != 0 )) && grep -q 'no asset kind named' <<<"${out}" \
    && [[ ! -e "${LIVE}/skills/ai-tools-kind-probe" ]]; then
     pass "an empty kind list is refused rather than defaulting to a set of the seeder's own"
 else
     fail "an empty kind list was not refused (rc=${rc}): ${out}"
 fi
-out="$(ai_tools_managed_assets__remove_retired_assets "${LIVE}" agents 2>&1)" && rc=0 || rc=$?
+out="$(ai_tools_managed_assets__remove_retired_assets_locked "${LIVE}" agents 2>&1)" && rc=0 || rc=$?
 if (( rc != 0 )) && grep -q 'agents is not an asset kind' <<<"${out}"; then
     pass "the withdrawal pass holds the same kind list"
 else
@@ -626,7 +626,7 @@ else
     remove_retired() {
         bash -c 'source "$1/msg.lib.sh"; source "$1/conf.lib.sh"; source "$1/managed-assets.lib.sh"
                  live="$2"; shift 2
-                 for kind in "$@"; do ai_tools_managed_assets__remove_retired_assets "${live}" "${kind}"; done' \
+                 for kind in "$@"; do ai_tools_managed_assets__remove_retired_assets_locked "${live}" "${kind}"; done' \
             _ "${LIB_DIR}" "${LIVE}" "$@"
     }
     closing='their successors are in the asset set core (package ai-tools-assets-core): sudo ai-tools-admin assets enable --set core'
@@ -673,7 +673,7 @@ else
     fi
     write_skill "${LIVE}" ai-tools-engineering-principles 1
     write_skill "${LIVE}" "${WITHDRAWN_SKILL}" 1
-    ai_tools_managed_assets__remove_retired_assets "${LIVE}" skills >/dev/null 2>&1 || true
+    ai_tools_managed_assets__remove_retired_assets_locked "${LIVE}" skills >/dev/null 2>&1 || true
     # A name that only starts like a withdrawn one is not its copy.
     mkdir -p "${LIVE}/retired/ai-tools-reftags-extra.20261011-1.retired"
     out="$(ai_tools_managed_assets__list_withdrawn_successors "${LIVE}" 2>&1)" && rc=0 || rc=$?

@@ -999,7 +999,7 @@ provision() {
     # shellcheck disable=SC2016  # the $1 to $4 are the inner shell's
     env "${HOOKS[@]}" "${@:2}" bash -c 'source "${1%/*}/msg.lib.sh"; source "$1" || exit 99
         ai_tools_managed_assets__lock || exit 1
-        AI_TOOLS_ASSUME_YES=1 ai_tools_managed_assets__seed_assets "$2" "$3" root skills >/dev/null
+        AI_TOOLS_ASSUME_YES=1 ai_tools_managed_assets__seed_assets_locked "$2" "$3" root skills >/dev/null
         eval "$4" || exit 2
         ai_tools_managed_assets__unlock' _ "${LIB}" "${PRISTINE}" "${HOME_DIR}" "$1" >/dev/null 2>&1 || RC=$?
     TOOK=$(( $(date +%s) - started ))
@@ -1035,7 +1035,7 @@ in_order() {
 for provisioner in install.sh src/usr/local/libexec/ai-tools/ai-tools-bootstrap.sh; do
     if [[ ! -r "${CHECKOUT}/${provisioner}" ]]; then
         skip "${provisioner}" "no checkout holds it"
-    elif in_order "${CHECKOUT}/${provisioner}" ai_tools_managed_assets__lock ai_tools_managed_assets__seed_assets ai_tools_managed_assets__remove_retired_assets \
+    elif in_order "${CHECKOUT}/${provisioner}" ai_tools_managed_assets__lock ai_tools_managed_assets__seed_assets_locked ai_tools_managed_assets__remove_retired_assets_locked \
             "ai-tools-admin assets reconcile" ai_tools_managed_assets__unlock; then
         pass "${provisioner} holds the lock across the seed, the retire pass and the reconcile"
     else
@@ -1045,7 +1045,7 @@ done
 if [[ ! -r "${CHECKOUT}/packaging/ai-tools.spec" ]]; then
     skip "packaging/ai-tools.spec" "no checkout holds it"
 elif in_order "${CHECKOUT}/packaging/ai-tools.spec" 'ai_tools_managed_assets__lock || exit 0; for kind' \
-        'ai_tools_managed_assets__seed_assets "$1" /opt/ai-tools ai-tools "${kind}"' 'ai_tools_managed_assets__remove_retired_assets' \
+        'ai_tools_managed_assets__seed_assets_locked "$1" /opt/ai-tools ai-tools "${kind}"' 'ai_tools_managed_assets__remove_retired_assets_locked' \
         '"$2" assets reconcile' ai_tools_managed_assets__unlock; then
     pass "base's %post holds the lock across the seed, the retire pass and the reconcile, in one bash"
 else
@@ -1364,11 +1364,11 @@ fi
 section "assets: a managed-copy site skips a symlink"
 fresh
 # shellcheck disable=SC2016
-withdraw_out="$(bash -c 'source "$1"; ai_tools_managed_assets__withdraw_asset "$2" skills acme-pdf "test"; echo "rc=$?"' _ "${MANAGED_LIB}" "${HOME_DIR}" 2>&1)"
+withdraw_out="$(bash -c 'source "$1"; ai_tools_managed_assets__withdraw_asset_locked "$2" skills acme-pdf "test"; echo "rc=$?"' _ "${MANAGED_LIB}" "${HOME_DIR}" 2>&1)"
 if [[ "${withdraw_out}" == *rc=0* && "${withdraw_out}" != *kept* ]] && linked skills/acme-pdf "${PKG}/acme/skills/acme-pdf"; then
-    pass "ai_tools_managed_assets__withdraw_asset returns 0 over a resolver link without a move or a report"
+    pass "ai_tools_managed_assets__withdraw_asset_locked returns 0 over a resolver link without a move or a report"
 else
-    fail "ai_tools_managed_assets__withdraw_asset over a link: ${withdraw_out}"
+    fail "ai_tools_managed_assets__withdraw_asset_locked over a link: ${withdraw_out}"
 fi
 mkdir -p "${TESTDIR}/managed"; printf -- '---\nx-ai-tools-managed: true\n---\n' > "${TESTDIR}/managed/SKILL.md"
 ln -s "${TESTDIR}/managed" "${TESTDIR}/managed-link"

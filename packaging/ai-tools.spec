@@ -782,7 +782,7 @@ fi
 # The reconcile's record stream goes to the assets log, since this scriptlet's stdout is the transaction's;
 # a reconcile that does not complete here runs again from the next trigger or `ai-tools-admin assets reconcile`.
 if command -v bash >/dev/null 2>&1; then
-    AI_TOOLS_ASSUME_YES=1 bash -c '. /usr/local/lib/ai-tools/msg.lib.sh; . /usr/local/lib/ai-tools/conf.lib.sh; . /usr/local/lib/ai-tools/managed-assets.lib.sh; ai_tools_managed_assets__lock || exit 0; for kind in "${AI_TOOLS_MANAGED_ASSETS__KINDS[@]}"; do [ -d "$1/${kind}" ] || continue; ai_tools_managed_assets__seed_assets "$1" /opt/ai-tools ai-tools "${kind}"; ai_tools_managed_assets__remove_retired_assets /opt/ai-tools "${kind}"; ai_tools_managed_assets__link_asset_readme "$1/${kind}/README.md" "/opt/ai-tools/${kind}" ai-tools; done; "$2" assets reconcile >/dev/null || :; ai_tools_managed_assets__unlock' _ %{_datadir}/ai-tools %{ai_libexecdir}/ai-tools-admin || :
+    AI_TOOLS_ASSUME_YES=1 bash -c '. /usr/local/lib/ai-tools/msg.lib.sh; . /usr/local/lib/ai-tools/conf.lib.sh; . /usr/local/lib/ai-tools/managed-assets.lib.sh; ai_tools_managed_assets__lock || exit 0; for kind in "${AI_TOOLS_MANAGED_ASSETS__KINDS[@]}"; do [ -d "$1/${kind}" ] || continue; ai_tools_managed_assets__seed_assets_locked "$1" /opt/ai-tools ai-tools "${kind}"; ai_tools_managed_assets__remove_retired_assets_locked /opt/ai-tools "${kind}"; ai_tools_managed_assets__link_asset_readme_locked "$1/${kind}/README.md" "/opt/ai-tools/${kind}" ai-tools; done; "$2" assets reconcile >/dev/null || :; ai_tools_managed_assets__unlock' _ %{_datadir}/ai-tools %{ai_libexecdir}/ai-tools-admin || :
 fi
 # Direct the operator to the per-operator / network steps a scriptlet must not take itself.
 # Each is gated on the state it would create rather than on install-vs-upgrade, so an upgrade
@@ -1156,7 +1156,7 @@ chmod 2770 /opt/ai-tools/integrations/typesafe 2>/dev/null || :
 # (base's %%post says why). Every other skill in the datadir is already at its live version, so
 # the pass leaves it alone. The seed and the reconcile run under the assets lock, as in base's %%post.
 if command -v bash >/dev/null 2>&1; then
-    AI_TOOLS_ASSUME_YES=1 bash -c '. /usr/local/lib/ai-tools/msg.lib.sh; . /usr/local/lib/ai-tools/conf.lib.sh; . /usr/local/lib/ai-tools/managed-assets.lib.sh; ai_tools_managed_assets__lock || exit 0; ai_tools_managed_assets__seed_assets "$1" /opt/ai-tools ai-tools skills; "$2" assets reconcile >/dev/null 2>&1 || :; ai_tools_managed_assets__unlock' _ %{_datadir}/ai-tools %{ai_libexecdir}/ai-tools-admin || :
+    AI_TOOLS_ASSUME_YES=1 bash -c '. /usr/local/lib/ai-tools/msg.lib.sh; . /usr/local/lib/ai-tools/conf.lib.sh; . /usr/local/lib/ai-tools/managed-assets.lib.sh; ai_tools_managed_assets__lock || exit 0; ai_tools_managed_assets__seed_assets_locked "$1" /opt/ai-tools ai-tools skills; "$2" assets reconcile >/dev/null 2>&1 || :; ai_tools_managed_assets__unlock' _ %{_datadir}/ai-tools %{ai_libexecdir}/ai-tools-admin || :
 fi
 
 %postun -n ai-tools-integration-typesafe
@@ -1166,7 +1166,7 @@ fi
 # ai-tools-typesafe-filter (no managed marker) is kept. The credential file and the state root
 # stay, as every integration's state does.
 if [ "$1" -eq 0 ] && [ -r /usr/local/lib/ai-tools/managed-assets.lib.sh ] && command -v bash >/dev/null 2>&1; then
-    bash -c '. /usr/local/lib/ai-tools/msg.lib.sh; . /usr/local/lib/ai-tools/conf.lib.sh; . /usr/local/lib/ai-tools/managed-assets.lib.sh; ai_tools_managed_assets__lock || exit 0; ai_tools_managed_assets__withdraw_asset /opt/ai-tools skills ai-tools-typesafe-filter "package removed"; "$1" assets reconcile >/dev/null 2>&1 || :; ai_tools_managed_assets__unlock' _ %{ai_libexecdir}/ai-tools-admin || :
+    bash -c '. /usr/local/lib/ai-tools/msg.lib.sh; . /usr/local/lib/ai-tools/conf.lib.sh; . /usr/local/lib/ai-tools/managed-assets.lib.sh; ai_tools_managed_assets__lock || exit 0; ai_tools_managed_assets__withdraw_asset_locked /opt/ai-tools skills ai-tools-typesafe-filter "package removed"; "$1" assets reconcile >/dev/null 2>&1 || :; ai_tools_managed_assets__unlock' _ %{ai_libexecdir}/ai-tools-admin || :
 fi
 
 %post -n ai-tools-agents-claude-code-restricted

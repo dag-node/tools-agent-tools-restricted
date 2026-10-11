@@ -1295,12 +1295,12 @@ do_install() {
         2>/dev/null || true
 
     # Stop the relabel watcher, and any run it already started, for the run: the files this install writes
-    # under /opt/ai-tools/bin trigger ai-tools-relabel.service, and a run mid-install executes the helper of one
-    # release against the libraries of another. Stopping the .path does not end a run in progress, and a run still
-    # active at the end would absorb the closing start, so the service is stopped whether or not the watcher was up.
-    # The EXIT trap starts the watcher again whatever ends the run, after a daemon-reload for the unit files the run
-    # rewrote, so an install that stops early leaves the watcher as it found it; a completed run enables it at its
-    # service step and runs the relabel once at its end, which completes a run cut short here.
+    # under /opt/ai-tools/bin trigger ai-tools-relabel.service, and a run mid-install executes the helper of one release
+    # against the libraries of another. Stopping the .path does not end a run in progress, and a run still active
+    # at the end would absorb the closing start, so the service is stopped whether or not the watcher was up. The EXIT
+    # trap starts the watcher again whatever ends the run, after a daemon-reload for the unit files the run rewrote,
+    # so an install that stops early leaves the watcher as it found it; a completed run enables it at its service step
+    # and runs the relabel once at its end, which completes a run cut short here.
     if systemctl is-active --quiet ai-tools-relabel.path 2>/dev/null; then
         trap 'systemctl daemon-reload 2>/dev/null || true; systemctl start ai-tools-relabel.path 2>/dev/null || true' EXIT
     fi
@@ -2466,9 +2466,9 @@ do_install() {
             ensure_dir "${CP_DIR_MODES[${_kind}]}" root "${SANDBOX_GROUP}" "${_shared}"
             chown "root:${SANDBOX_GROUP}" "${_shared}"
             ai_tools_control_plane__apply_mode "${CP_DIR_MODES[${_kind}]}" "${_shared}"
-            ai_tools_managed_assets__seed_assets /usr/share/ai-tools "${CP_HOME}" "${SANDBOX_GROUP}" "${_kind}"
-            ai_tools_managed_assets__remove_retired_assets "${CP_HOME}" "${_kind}"
-            ai_tools_managed_assets__link_asset_readme "/usr/share/ai-tools/${_kind}/README.md" \
+            ai_tools_managed_assets__seed_assets_locked /usr/share/ai-tools "${CP_HOME}" "${SANDBOX_GROUP}" "${_kind}"
+            ai_tools_managed_assets__remove_retired_assets_locked "${CP_HOME}" "${_kind}"
+            ai_tools_managed_assets__link_asset_readme_locked "/usr/share/ai-tools/${_kind}/README.md" \
                 "${_shared}" "${SANDBOX_GROUP}"
         done
 
