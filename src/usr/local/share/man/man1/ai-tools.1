@@ -611,16 +611,17 @@ marks such a Boolean launch blocked there and not enforced elsewhere.
 In the
 .B Caches
 section,
-.BR FAILED ,
-.B LINKS
+.B FAILED
 and
-.B OVERDUE
+.B LINKS
 count as broken, and each line names what to do: a cleanup that was
-refused, failed, or stopped by an error other than its time bound, a cache
-holding symbolic links its producer does not write, and npx's or node's
-cache that no launch has cleaned for two weeks because another session was
-always running or a launch could not tell whether one was. A launch cleans
-those two caches at most once a week, and only while no other session runs.
+refused, failed, or stopped by an error other than its time bound, and
+a cache holding symbolic links its producer does not write.
+.B OVERDUE
+is informational and does not count: npx's or node's cache that no launch
+has cleaned for two weeks, because another session was always running or
+a launch could not tell whether one was. A launch cleans those two caches
+at most once a week, and only while no other session runs.
 .PP
 Exits 4 when anything is reported broken \(em a shadowed launcher
 included \(em and 5 when a reading it promises could not be made because a

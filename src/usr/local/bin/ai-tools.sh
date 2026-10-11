@@ -4785,9 +4785,10 @@ status_managed_files() {
 
 # status_caches -- the Caches section: per cache group, what its last cleanup did and when, from the state file its
 # writers rewrite. Each verdict and each remedy is cache-cleanup.lib.sh's, so this report and ai-tools-admin status
-# cannot disagree. A group whose verdict is other than ok or unknown is counted; an empty file reads `?`, as does a file
-# this account cannot read (a non-operator), and neither is counted. Returns 1 for a counted line, STATUS_UNREADABLE
-# for a library that did not load.
+# cannot disagree. A failed group, and one holding links its producer does not write, is counted; an overdue one is
+# shown with its line and not counted; an empty file reads `?`, as does a file this account cannot read (a
+# non-operator), and neither is counted. Returns 1 for a counted line, STATUS_UNREADABLE for a library that did not
+# load.
 status_caches() {
     local state="${AI_TOOLS_CACHE_CLEANUP_STATE:-/var/opt/ai-tools/state/cache-cleanup.status}" rc=0
     local name relative verdict result bytes links reason checked_age cleaned_age token colour detail last_cleaned
@@ -4830,7 +4831,8 @@ status_caches() {
         printf '  %-28s %s%s%s %s%s%s%s\n' "${relative}" "${colour}" "${token}" "${C_RST}" "${C_DIM}" "${detail}" \
             "${last_cleaned}" "${C_RST}"
         case "${verdict}" in
-            failed|links|overdue) say "      $(ai_tools_cache_cleanup__get_status_remedy "${verdict}" "${reason}")"; rc=1 ;;
+            failed|links) say "      $(ai_tools_cache_cleanup__get_status_remedy "${verdict}" "${reason}")"; rc=1 ;;
+            overdue)      say "      ${C_DIM}$(ai_tools_cache_cleanup__get_status_remedy "${verdict}" "${reason}")${C_RST}" ;;
         esac
     done < <(ai_tools_cache_cleanup__list_group_statuses "${state}")
     return "${rc}"

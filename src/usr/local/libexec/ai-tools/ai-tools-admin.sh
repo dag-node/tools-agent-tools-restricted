@@ -2786,9 +2786,9 @@ status_unit_search_path() {
 # status_caches [home] [state-file]: per cache group, what its last cleanup did and when, read from the state file
 # through cache-cleanup.lib.sh, whose verdicts and remedies ai-tools status renders too, and beside it the size
 # the cache holds now, which only root reads in the 0750 tree (`du -sxP`, as data, bounded to ten seconds). A group
-# whose verdict is other than ok or unknown is counted in STATUS_PROBLEMS; an empty file reads `?` and is not counted.
-# <home> and <state-file> are parameters so a unit test drives the section over fixtures; the report passes
-# AI_TOOLS_CACHE_CLEANUP_STATE, a root-only override.
+# that failed, or that holds links its producer does not write, is counted in STATUS_PROBLEMS; an overdue one is shown
+# and not counted, and an empty file reads `?` and is not counted. <home> and <state-file> are parameters so a unit test
+# drives the section over fixtures; the report passes AI_TOOLS_CACHE_CLEANUP_STATE, a root-only override.
 status_caches() {
     local home="${1:-${CP_HOME:-/opt/ai-tools}}"
     local state="${2:-${AI_TOOLS_CACHE_CLEANUP_STATE:-/var/opt/ai-tools/state/cache-cleanup.status}}"
@@ -2837,8 +2837,9 @@ status_caches() {
         esac
         st "${token}" "${text}"
         case "${verdict}" in
-            failed|links|overdue) detail "$(ai_tools_cache_cleanup__get_status_remedy "${verdict}" "${reason}")"
-                                  STATUS_PROBLEMS=$(( STATUS_PROBLEMS + 1 )) ;;
+            failed|links) detail "$(ai_tools_cache_cleanup__get_status_remedy "${verdict}" "${reason}")"
+                          STATUS_PROBLEMS=$(( STATUS_PROBLEMS + 1 )) ;;
+            overdue)      detail "$(ai_tools_cache_cleanup__get_status_remedy "${verdict}" "${reason}")" ;;
         esac
     done < <(ai_tools_cache_cleanup__list_group_statuses "${state}")
     return 0

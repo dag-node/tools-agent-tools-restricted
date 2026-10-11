@@ -40,7 +40,7 @@ _AI_TOOLS_CACHE_CLEANUP__LOADED=1
 
 # The home every caller passes, the state file every writer rewrites, and the three readonly settings: how often
 # a launch removes a launch-timed group, how long the launch step may take across every group it removes, and the age
-# of a launch-timed group's last removal past which both status reports count it. No environment variable moves
+# of a launch-timed group's last removal past which both status reports show it overdue. No environment variable moves
 # the state path (updater.rule.md); the status reports read it through their own root-only override.
 # shellcheck disable=SC2034  # read by ai-tools-run, nvm-update and ai-tools-bootstrap
 readonly AI_TOOLS_CACHE_CLEANUP__SANDBOX_HOME="/opt/ai-tools"
@@ -545,17 +545,17 @@ ai_tools_cache_cleanup__get_remedy() {
         parent-untrusted) printf 'the parent of the cache must be a directory the sandbox account owns: `sudo ai-tools-admin system bootstrap` names the chown' ;;
         unsafe-rmtree)    printf '/usr/bin/python3 on this host does not report a symlink-safe rmtree, so no cache is removed here' ;;
         timeout)          printf 'the next run removes the rest' ;;
-        unknown)          printf 'no launch could take the admission lock beside the state file within its bound or read the session list of the user manager: reinstalling ai-tools-base restores an absent lock file, and `ai-tools stop` ends a session holding the lock' ;;
+        unknown)          printf 'no launch could tell whether another session was running, so the cache was left in place' ;;
         links)            printf 'each was removed as a link and its target left alone; a process of the sandbox account planted it, or a copy of the home broke it -- `sudo ai-tools audit` names what ran in the sessions since' ;;
         overdue)          printf 'another session was active at every launch for two weeks: end them all gracefully or with `ai-tools stop`, and the cleanup runs at the next session start' ;;
         *)                printf 'the cache stays as it is until a run removes it' ;;
     esac
 }
 
-# ai_tools_cache_cleanup__get_status_remedy <verdict> <reason> : print the remedy a status report shows under a counted
-#   verdict: the record's <reason>'s for failed, the verdict's for links, and for overdue the verdict's, or the reason's
-#   where the launches skipped the group as `unknown`, since ending sessions does not clear that cause. Empty for ok
-#   and unknown.
+# ai_tools_cache_cleanup__get_status_remedy <verdict> <reason> : print the line a status report shows under a verdict
+#   other than ok and unknown: the record's <reason>'s for failed, the verdict's for links, and for overdue
+#   the verdict's, or the reason's where the launches skipped the group as `unknown`, since ending sessions does not
+#   clear that cause. Empty for ok and unknown.
 ai_tools_cache_cleanup__get_status_remedy() {
     case "${1:-}:${2:-}" in
         failed:*)        ai_tools_cache_cleanup__get_remedy "${2:-}" ;;
@@ -596,8 +596,9 @@ ai_tools_cache_cleanup__format_bytes() {
 # ai_tools_cache_cleanup__evaluate_state <timing> <links-policy> <result> <links> <age-seconds|-> [reason] : print
 #   the status verdict for one group: unknown where no result is recorded; failed for refused or failed, and for
 #   a partial removal whose reason is not the bound's `timeout`; links for links in a group whose producer writes none;
-#   overdue for a launch-timed group whose <age-seconds> is past the attention age; ok otherwise. Every verdict but ok
-#   and unknown counts toward a status report's exit.
+#   overdue for a launch-timed group whose <age-seconds> is past the attention age; ok otherwise. failed and links
+#   count toward a status report's exit; overdue is shown and not counted, since a cache left uncleaned is a valid
+#   state.
 ai_tools_cache_cleanup__evaluate_state() {
     local timing="${1:-}" link_policy="${2:-}" result="${3:-}" links="${4:-}" cleaned_age="${5:--}" reason="${6:--}"
     case "${result}" in

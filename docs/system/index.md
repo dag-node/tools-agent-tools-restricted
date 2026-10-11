@@ -51,14 +51,15 @@ them, at most once a week and only while no other session is running,
 and prints one line naming what it removed. `SKIPPED (sessions)` is that rule
 at work, and the next launch with no other session running cleans them.
 
-Three lines ask you to act, and each names what to do: `FAILED`, a cleanup
-that could not run or finish; `LINKS`, a cache holding symbolic links its
-producer does not write; and `OVERDUE`, a cache no launch has cleaned for two
-weeks because another session was always running, or because a launch could not
-tell whether one was. Where an `OVERDUE` line reads `SKIPPED (sessions)`, end
-every session — let each finish, or `ai-tools stop` ends them all —
-and the next session start cleans it. `sudo ai-tools-admin status` also shows
-how much each cache holds now.
+Two lines ask you to act, and each names what to do: `FAILED`, a cleanup
+that could not run or finish, and `LINKS`, a cache holding symbolic links its
+producer does not write. `OVERDUE` is for your information: a cache no launch
+has cleaned for two weeks, because another session was always running
+or a launch could not tell whether one was. It does not change the exit status.
+Where an `OVERDUE` line reads `SKIPPED (sessions)`, end every session — let
+each finish, or `ai-tools stop` ends them all — and the next session start
+cleans it. `sudo ai-tools-admin status` also shows how much each cache holds
+now.
 
 `sudo ai-tools audit` is the other starting point — it reads the trails
 and reports what refused, was rejected, was stranded, or was flagged

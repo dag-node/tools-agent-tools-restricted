@@ -403,13 +403,12 @@ an ordinary account read it — a partial view, the file sink being the authorit
   **Each cache the sandbox account cleans is reported**, in both reports, from the state file its removals rewrite
   ([ref-section-z4t8](updater.rule.md#ref-section-z4t8)): what the last cleanup did and when. The verdict and the remedy
   under it are `cache-cleanup.lib.sh`'s (`ai_tools_cache_cleanup__list_group_statuses`,
-  `ai_tools_cache_cleanup__get_status_remedy`), so the two reports cannot word one state two ways. Each verdict
-  `ai_tools_cache_cleanup__evaluate_state` returns other than `ok` and `unknown` counts toward exit 4. `overdue` is
-  a host where every launch found another session or could not tell; its remedy follows the reason the last launch
-  recorded, ending the sessions gracefully or with `ai-tools stop` for `sessions`, and the reinstall that restores
-  an absent lock file for `unknown`. An empty state file reads `?`, as the empty stamp does, and so does a file
-  the caller cannot read; neither counts. `AI_TOOLS_CACHE_CLEANUP_STATE` moves the file the section reads, a hook
-  [tests](tests.rule.md) lists.
+  `ai_tools_cache_cleanup__get_status_remedy`), so the two reports cannot word one state two ways. `failed` and `links`
+  count toward exit 4. `overdue` is shown with its line and not counted, since a cache no launch has cleaned is a valid
+  state: every launch found another session or could not tell, and the line follows the reason the last launch recorded,
+  naming the end of the sessions, gracefully or with `ai-tools stop`, for `sessions`. An empty state file reads `?`,
+  as the empty stamp does, and so does a file the caller cannot read; neither counts. `AI_TOOLS_CACHE_CLEANUP_STATE`
+  moves the file the section reads, a hook [tests](tests.rule.md) lists.
 
   **The launch attestation is reported where SELinux is active**, in both reports, from the shim's own reader
   and verdict: whether `ai_tools_t` is a permissive domain and each Boolean that widens it

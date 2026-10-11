@@ -134,7 +134,7 @@ done <<'ROWS'
 failed|home-untrusted|home-untrusted|failed takes its record's reason
 links|-|links|links takes the links remedy
 overdue|sessions|overdue|overdue beside sessions names ending them
-overdue|unknown|unknown|overdue beside an unknown skip names the lock file, not the sessions
+overdue|unknown|unknown|overdue beside an unknown skip says the launches could not tell, not the sessions
 ROWS
 [[ -z "$(ai_tools_cache_cleanup__get_status_remedy ok -)" && -z "$(ai_tools_cache_cleanup__get_status_remedy unknown -)" ]] \
     && pass "status remedy: ok and unknown print none" || fail "status remedy: ok or unknown printed a remedy"

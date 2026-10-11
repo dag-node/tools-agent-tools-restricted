@@ -521,9 +521,9 @@ move a write the unconfined updater makes. The one decision it feeds is the laun
 under that `flock`, so a writer's truncate-and-rewrite mid-read does not read as a group never cleaned; a forged value
 stops the account's own caches being cleaned, which costs disk and does not widen access. `FIRST_CHECKED` dates
 a group's first record and is kept across every later one, so a launch-timed group never removed is judged by that age
-where the reports count a stale one. Both status reports render it through the stamp reader's defences
-([cli](cli.rule.md)). The interval, the launch bound and the age past which the reports count a launch-cleaned cache are
-`readonly` constants in the library; `operator.conf` does not carry a key for them.
+where the reports show a stale one. Both status reports render it through the stamp reader's defences
+([cli](cli.rule.md)). The interval, the launch bound and the age past which the reports show a launch-cleaned cache
+overdue are `readonly` constants in the library; `operator.conf` does not carry a key for them.
 
 `tests/unit/cache-cleanup.sh` drives each refusal, the removal over a canary outside the fixture home, the swap race
 against a path-walking control, and the launch step over the real admission lock; `tests/boundary/access.sh` asserts
