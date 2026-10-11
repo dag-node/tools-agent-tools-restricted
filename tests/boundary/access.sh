@@ -28,6 +28,23 @@ else
     fail "can traverse ${confdir} -- agent could read/tamper with the allowlist or secret-pattern config"
 fi
 
+# The development tools a checkout runs -- the prose checker the commit hooks execute, the formatters -- are unpacked
+# into each user's own cache (tools/lib/assets.sh) rather than into the collaborative project tree. A cache the agent
+# could write would be code it plants and the operator's commit hook runs.
+devcache="${PROJECTS_HOME}/.cache/ai-tools-dev"
+if [[ -e "${devcache}" ]]; then
+    if runuser -u "${SANDBOX_USER}" -- test -w "${devcache}" 2>/dev/null \
+            || runuser -u "${SANDBOX_USER}" -- test -x "${devcache}" 2>/dev/null; then
+        fail "the agent can reach ${devcache} -- it could replace a tool the operator's commit hook runs"
+    else
+        pass "cannot reach ${devcache}: the operator's pinned development tools are out of the agent's reach"
+    fi
+elif runuser -u "${SANDBOX_USER}" -- test -w "${PROJECTS_HOME}/.cache" 2>/dev/null; then
+    fail "the agent can write ${PROJECTS_HOME}/.cache -- it could create the development-tool cache the commit hook reads"
+else
+    pass "cannot write ${PROJECTS_HOME}/.cache: the agent cannot create the operator's development-tool cache"
+fi
+
 # The product's headline promise (README): a session "does not reach your secrets, SSH keys, or unrelated projects".
 # The agent is neither the operator nor in the operator's primary group, so the operator's private credential stores
 # stay out of reach by plain DAC. Probe that directly against the operator's real home: for each sensitive store

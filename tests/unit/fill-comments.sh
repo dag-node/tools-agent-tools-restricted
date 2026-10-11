@@ -1,13 +1,14 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: AGPL-3.0-only
 # tests/unit/fill-comments.sh
-# Unit test for tools/formatters/fill-comments.sh, the Emacs-driven formatter for the comment wrap rule
-# (tools/formatters/emacs/ai-tools-fill.el). A formatter that rewrites source files is judged on the lines it leaves
-# as they were as much as on the lines it fills, so one fixture carries every shape it must read one way or the other.
-# Filled: a long prose paragraph, inside the column and with no line ending on a tie word (the filler's own rule,
-# which no checker reads), one indented inside a function body, and a sentence pair whose join takes one space. Left
-# as written: an aligned comment table, a doc comment's contract line, a config header's `Values:` and `Default:` field
-# lines, a column of three or more spaces, a table drawn with vertical rules, a heredoc body, the commands
+# Unit test for the pinned ai-tools-assets-tools release's formatters/fill-comments.sh, the Emacs-driven formatter
+# for the comment wrap rule (formatters/emacs/ai-tools-fill.el). A formatter that rewrites source files is judged
+# on the lines it leaves as they were as much as on the lines it fills, so one fixture carries every shape it must read
+# one way or the other. Filled: a long prose paragraph, inside the column and with no line ending on a tie word (the
+# filler's own rule, which no checker reads), one indented inside a function body, and a sentence pair whose join takes
+# one space. Left as written: an aligned comment table, a doc comment's contract line, a config header's `Values:`
+# and `Default:` field lines, a column of three or more spaces, a table drawn with vertical rules, a heredoc body,
+# the commands
 # a header shows in a fenced block, a CDATA section, a `<pre>` block, a linter directive, a commented default,
 # a shebang and a code line.
 # Held on the output: a break never falls inside a code span, which the `fill-nobreak-predicate`
@@ -17,7 +18,7 @@
 # it, reported and left as it was: a file holding an escape sequence, and a symlink. Pinned on
 # the Emacs side: a file named like one of its options is a file to fill, and a file-local
 # `eval:` form is never run. Where the checker is present its `--wrap` mode is the oracle for the
-# filled paragraph. The last section is the reflow gate (tools/formatters/verify-reflow.py) over
+# filled paragraph. The last section is the reflow gate (formatters/verify-reflow.py) over
 # this filler's output, where its reading of a source file is pinned: a comment marker is a line
 # prefix, so the fill passes and each class only a source file carries is reported -- a dropped
 # marker, a merged pair of comment paragraphs, a rewrapped fence inside a comment, a changed code
@@ -27,10 +28,17 @@ set -euo pipefail
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")/../lib" && pwd)/harness.sh"
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-TOOL="${ROOT}/tools/formatters/fill-comments.sh"
-GATE="${ROOT}/tools/formatters/verify-reflow.py"
-PC="${ROOT}/src/usr/share/ai-tools/skills/ai-tools-technical-docs/prose-check.py"
 section "fill-comments: the comment wrap formatter (unit)"
+
+# The formatters are the pinned ai-tools-assets-tools release's and the checker the pinned core release's
+# (tools/lib/assets.sh); a pin not in the cache is a skip naming the fetch command.
+# shellcheck source=SCRIPTDIR/../../tools/lib/assets.sh
+source "${ROOT}/tools/lib/assets.sh"
+if ! FORMATTERS="$(ai_tools_dev_assets__resolve_tool formatters)" || ! PC="$(ai_tools_dev_assets__resolve_tool prose-check)"; then
+    skip "fill-comments" "the pinned tools are not in the cache; run: ${AI_TOOLS_DEV_ASSETS__FETCH_COMMAND}"; finish; exit
+fi
+TOOL="${FORMATTERS}/fill-comments.sh"
+GATE="${FORMATTERS}/verify-reflow.py"
 
 if [[ ! -r "${TOOL}" ]]; then
     skip "fill-comments" "tool not found at ${TOOL}"; finish; exit
@@ -133,7 +141,7 @@ fi
 # read a line's last word -- so the tie behaviour is asserted here, against the set the filler
 # itself declares.
 # A word closing a sentence is not a tie, so the last line of the paragraph is read like any other.
-ties="$(sed -n '/defconst ai-tools-tie-words/,/^ *"/p' "${ROOT}/tools/formatters/emacs/ai-tools-fill.el" \
+ties="$(sed -n '/defconst ai-tools-tie-words/,/^ *"/p' "${FORMATTERS}/emacs/ai-tools-fill.el" \
     | tr -d "'()\"" | tr ' ' '\n' | grep -E '^[a-z]+$' | sort -u)"
 if [[ -z "${ties}" ]]; then
     skip "tie behaviour" "the filler's word list could not be read from ai-tools-fill.el"
@@ -279,7 +287,7 @@ else
     fail "a second run changed the file: $(diff "${TESTDIR}/once.sh" "${f}" | head -4)"
 fi
 
-# (4) `--lines` confines the fill to a paragraph meeting a range, which is how tools/formatters/format.sh
+# (4) `--lines` confines the fill to a paragraph meeting a range, which is how formatters/format.sh
 # fills what a diff touched: naming the banner's paragraph alone fills it and leaves the header
 # paragraph as written.
 cp "${TESTDIR}/before.sh" "${f}"
@@ -311,7 +319,7 @@ fi
 # (6) A file that is not plain text is refused before Emacs sees it: reported with the reason and
 # the line, left byte-identical, and the run exits 1 while the clean file beside it is filled. A
 # symlink is refused the same way, since the write would land where the link points. The reader
-# is `tools/formatters/text_file.py`, shared with the other formatters; the full set of shapes it refuses is
+# is `formatters/text_file.py`, shared with the other formatters; the full set of shapes it refuses is
 # pinned in `fill-markdown.sh`.
 esc="${TESTDIR}/escape.sh"
 printf '#!/usr/bin/env bash\n# a comment holding an escape sequence \033[31min it\033[0m, long enough that a filler would want to rewrap it\n' > "${esc}"

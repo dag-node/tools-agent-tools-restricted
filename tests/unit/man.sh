@@ -579,19 +579,20 @@ check_messages_pointers
 # ── Config headers are fixed-width text ───────────────────────────────────────────────────────
 # An operator reads a config file in a terminal, which does not reflow it, so every header this project writes --
 # the two seeds and the two shipped templates -- holds to 72 columns. The rule is the checker's `--config-header` mode
-# (the ai-tools-technical-docs skill); this runs it over the four. Where a line breaks is the Emacs formatter's,
-# so the width is the whole check.
+# (the ai-tools-technical-writing skill of the pinned core release, through tools/lib/assets.sh); this runs it over
+# the four. Where a line breaks is the formatter's, so the width is the whole check.
 section "config headers: 72 columns (unit)"
 PROSE_CHECK=""
-for candidate in \
-    "${ROOT}/src/usr/share/ai-tools/skills/ai-tools-technical-docs/prose-check.py" \
-    "/usr/share/ai-tools/skills/ai-tools-technical-docs/prose-check.py" \
-    "/opt/ai-tools/skills/ai-tools-technical-docs/prose-check.py"; do
-    [[ -r "${candidate}" ]] && { PROSE_CHECK="${candidate}"; break; }
-done
+# shellcheck source=SCRIPTDIR/../../tools/lib/assets.sh
+if [[ -r "${ROOT}/tools/lib/assets.sh" ]] && source "${ROOT}/tools/lib/assets.sh"; then
+    PROSE_CHECK="$(ai_tools_dev_assets__resolve_tool prose-check)" || PROSE_CHECK=""
+fi
 check_config_headers() {
-    if [[ -z "${PROSE_CHECK}" ]] || ! command -v python3 >/dev/null 2>&1; then
-        skip "config header format" "prose-check.py or python3 not available"; return
+    if [[ -z "${PROSE_CHECK}" ]]; then
+        skip "config header format" "the pinned checker is not in the cache; run: bash tools/lib/assets.sh fetch"; return
+    fi
+    if ! command -v python3 >/dev/null 2>&1; then
+        skip "config header format" "python3 not available"; return
     fi
     # shellcheck source=/dev/null
     if ! source "${CONF_LIB}" 2>/dev/null || ! declare -F ai_tools_conf__get_allowlist_seed >/dev/null 2>&1; then

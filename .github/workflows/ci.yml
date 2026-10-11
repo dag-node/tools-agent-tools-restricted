@@ -78,17 +78,46 @@ jobs:
         run: bash tools/generators/typesafe-client.sh verify
 
   # Base's asset-set validator (assets.lib.sh) enforces a subset of format 1 under the publisher's rule ids. This job
-  # downloads the ai-tools-assets-tools release tools/checkers/assets-tools.pin names, checks the archive against
-  # the pin, the release's own sha256 and its signature by the dag-node package-signing key base ships, and runs
-  # the validator over every conformance fixture of a rule base enforces: each must report that rule alone, and every
-  # pass fixture no finding. A rule base reads differently from the publisher fails here.
+  # fetches the two releases tools/lib holds pins for, checks each archive against its pin, the release's own sha256
+  # and its signature by the dag-node package-signing key base ships, and runs the validator over every conformance
+  # fixture of a rule base enforces: each must report that rule alone, and every pass fixture no finding. A rule base
+  # reads differently from the publisher fails here, and so does a pin whose sha256 or signature does not hold.
   assets-conformance:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
+      - name: Fetch the pinned core and tools releases
+        run: bash tools/lib/assets.sh fetch
+
+      - name: Verify both pins against their archives and signatures
+        run: bash tools/lib/assets.sh verify
+
       - name: Hold the asset-set validator to the pinned tools release's fixtures
         run: bash tools/checkers/assets-conformance.sh run
+
+  # The development tools this repository resolves from its two pins: the reference index and its checks through
+  # the pinned reftags tool, and the formatter tests through the pinned formatters and checker. Container-free, so
+  # the pins are fetched into the runner's own cache; the rpm-selftest containers do not hold that cache, and there
+  # these tests skip naming the fetch command.
+  dev-tools:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: Fetch the pinned core and tools releases
+        run: bash tools/lib/assets.sh fetch
+
+      - name: Check every reference and the committed index
+        run: |
+          bash tools/generators/ref-index.sh check
+          bash tools/generators/ref-index.sh stale
+
+      - name: Run the formatter and pin tests
+        run: |
+          for test in dev-assets format fill-markdown align-tables fill-comments references; do
+              bash "tests/unit/${test}.sh"
+          done
 
   # Builds the RPMs and runs the full admin -> operator -> agent workflow (bootstrap,
   # operator enrolment, project claim, tests/run.sh all, a confined `claude --version`
@@ -181,7 +210,7 @@ jobs:
   # branch run cannot reference the environment and so cannot see the signing key.
   release:
     if: startsWith(github.ref, 'refs/tags/v')
-    needs: [shellcheck, typesafe-client, assets-conformance, rpm-selftest]
+    needs: [shellcheck, typesafe-client, assets-conformance, dev-tools, rpm-selftest]
     environment: release
     # Pinned like rpm-selftest: this job builds and signs RPMs inside podman containers,
     # so it needs the same known-good podman/crun combo (see that job's note).

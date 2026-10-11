@@ -145,5 +145,5 @@ Prose here wraps at **79** columns, the width configured for `README.md` and `do
 
 ```bash
 python3 /opt/ai-tools/skills/ai-tools-technical-docs/prose-check.py --all --wrap docs/<page>.md
-bash tools/formatters/format.sh docs/<page>.md
+bash tools/format.sh docs/<page>.md
 ```

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: AGPL-3.0-only
-# tools/generators/ref-index.sh -- run the skill's ref-index.py over this repository. The tracked files it reads
+# tools/generators/ref-index.sh -- run the reftags skill's ref-index.py over this repository. The tracked files it reads
 # and the index it writes are named here once, for the pre-commit hook, the unit test, and a developer's own run;
 # the tool itself is generic and takes both as arguments.
 #
@@ -22,7 +22,14 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-TOOL="${ROOT}/src/usr/share/ai-tools/skills/ai-tools-reftags/ref-index.py"
+# The tool is the ai-tools-reftags skill's, from the pinned core release (tools/lib/assets.sh); every verb reads
+# through it, so a pin not in the cache ends the run with the fetch command.
+# shellcheck source=SCRIPTDIR/../lib/assets.sh
+source "${ROOT}/tools/lib/assets.sh"
+if ! TOOL="$(ai_tools_dev_assets__resolve_tool ref-index)"; then
+    echo "ref-index: ref-index.py is not in the cache; run: ${AI_TOOLS_DEV_ASSETS__FETCH_COMMAND}" >&2
+    exit 1
+fi
 INDEX=".claude/references.md"
 # Retired reftags: `generate` records what the tree dropped before it rewrites the index, and `new` and `check` read
 # the file, so an id that reached a log line is never drawn again. Each row carries the release it was retired
