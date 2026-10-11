@@ -1053,6 +1053,7 @@ do_summary() {
     _chk /usr/local/lib/ai-tools/ancestor-config.lib.sh
     _chk /usr/local/lib/ai-tools/sandbox-exec.lib.sh
     _chk /usr/local/lib/ai-tools/toolchain.lib.sh
+    _chk /usr/local/lib/ai-tools/cache-cleanup.lib.sh
     _chk /usr/local/lib/ai-tools/filters.lib.sh
     _chk /usr/local/lib/ai-tools/filters.d/base.rules
     _chk /usr/local/lib/ai-tools/selinux-groups.lib.sh
@@ -1536,6 +1537,13 @@ do_install() {
     install -o root -g root -m 644 \
         "${SCRIPT_DIR}/src/usr/local/lib/ai-tools/toolchain.lib.sh" \
         /usr/local/lib/ai-tools/toolchain.lib.sh
+
+    # The cache remover and the cache cleanup state's writer and reader (cache-cleanup.lib.sh): 644 root:root, sourced
+    # by ai-tools-run, nvm-update and the bootstrap's sandbox-account step, and by both status reports.
+    log "/usr/local/lib/ai-tools/cache-cleanup.lib.sh"
+    install -o root -g root -m 644 \
+        "${SCRIPT_DIR}/src/usr/local/lib/ai-tools/cache-cleanup.lib.sh" \
+        /usr/local/lib/ai-tools/cache-cleanup.lib.sh
 
     # Token-saving command filters: the engine (644 root:root -- world-readable, sourced by an agent's filter hook,
     # which runs as the sandbox account) plus the filters.d directory and the base's own rule set. Root-owned
@@ -2057,18 +2065,22 @@ do_install() {
     ensure_dir 2770 root "${SANDBOX_GROUP}" /var/opt/ai-tools/sandbox-projects
 
     # Operator-readable state written BY the sandbox account: the last-run stamps of the units in that account's own
-    # `systemd --user manager` (nvm-update), which `ai-tools status` cannot query from the operator's session.
-    # The directory is root-owned and deliberately NOT group-writable -- the account gets traverse only --
-    # so the surface the stamps add is the contents of the individual files created here, never the directory:
-    # the account cannot add, unlink, rename, or symlink-swap anything in it. Each stamp is therefore created HERE,
-    # owned by the account (which rewrites it in place) with group ai-ops so operators read it directly. The parent is
-    # setgid, and ensure_dir is what clears the inherited bit here (see tests.rule.md).
+    # `systemd --user manager` (nvm-update), which `ai-tools status` cannot query from the operator's session,
+    # and the cache cleanup state the updater and ai-tools-run rewrite (cache-cleanup.lib.sh). The directory is
+    # root-owned and deliberately NOT group-writable -- the account gets traverse only -- so the surface the stamps add
+    # is the contents of the individual files created here, never the directory: the account cannot add, unlink, rename,
+    # or symlink-swap anything in it. Each stamp is therefore created HERE, owned by the account (which rewrites it
+    # in place) with group ai-ops so operators read it directly. The parent is setgid, and ensure_dir is what clears
+    # the inherited bit here (see tests.rule.md).
     log "/var/opt/ai-tools/state/"
     ensure_dir 0750 root "${SANDBOX_GROUP}" /var/opt/ai-tools/state
     getent group ai-ops >/dev/null 2>&1 || groupadd -r ai-ops
     touch /var/opt/ai-tools/state/nvm-update.status
     chown "${SANDBOX_USER}:ai-ops" /var/opt/ai-tools/state/nvm-update.status
     chmod 0640 /var/opt/ai-tools/state/nvm-update.status
+    touch /var/opt/ai-tools/state/cache-cleanup.status
+    chown "${SANDBOX_USER}:ai-ops" /var/opt/ai-tools/state/cache-cleanup.status
+    chmod 0640 /var/opt/ai-tools/state/cache-cleanup.status
 
     # Sandbox workflow doc. Shipped documentation (not user-edited config), so it is refreshed on every re-install. 640
     # root:SANDBOX_GROUP.

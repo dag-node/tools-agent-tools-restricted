@@ -368,7 +368,7 @@ ln -s %{ai_bindir}/ai-tools %{buildroot}%{_sbindir}/ai-tools
 # SANDBOX_GROUP member under multi-operator) can traverse in to source the 644
 # world-readable libs by path without listing the dir. The 640 files self-protect.
 install -d -m 0751 %{buildroot}%{ai_libdir}
-for l in log msg conf settings-merge skip-dirs owner-only project-permissions relabel secret-patterns operator control-plane safe-paths launch-wrapper confinement npm-verify entrypoint-verify assets-verify assets managed-assets providers ancestor-config sandbox-exec toolchain selinux-groups filters services path-order agent-installs records-base records-tsv; do
+for l in log msg conf settings-merge skip-dirs owner-only project-permissions relabel secret-patterns operator control-plane safe-paths launch-wrapper confinement npm-verify entrypoint-verify assets-verify assets managed-assets providers ancestor-config sandbox-exec toolchain cache-cleanup selinux-groups filters services path-order agent-installs records-base records-tsv; do
     install -m 0644 src%{ai_libdir}/${l}.lib.sh %{buildroot}%{ai_libdir}/${l}.lib.sh
 done
 # Provider manifest + fragment directories (base owns the dirs; each member package ships its own
@@ -703,6 +703,15 @@ if command -v setfacl >/dev/null 2>&1; then
     # ai-ops), never write there. What the mode buys is scope, not integrity -- a stamp's CONTENT
     # is written by the sandbox account and trusted accordingly (see services.lib.sh).
     setfacl -m g:ai-ops:r-x /var/opt/ai-tools/state || :
+fi
+# Create the cache cleanup state (%ghost). The state directory is root-owned and not group-writable,
+# so its writers -- ai-tools-run and nvm-update, as the sandbox account -- can only rewrite this
+# inode. Idempotent: an existing file keeps its content.
+if [ -d /var/opt/ai-tools/state ]; then
+    [ -e /var/opt/ai-tools/state/cache-cleanup.status ] \
+        || : > /var/opt/ai-tools/state/cache-cleanup.status
+    chown ai-tools:ai-ops /var/opt/ai-tools/state/cache-cleanup.status 2>/dev/null || :
+    chmod 0640 /var/opt/ai-tools/state/cache-cleanup.status 2>/dev/null || :
 fi
 # Re-assert the setgid bit on the sandbox tree -- rpm 4.19+ drops it from these %attr(2xxx) %dir
 # entries on install. Done in %post AND %posttrans because which one survives is rpm-dependent
@@ -1368,6 +1377,7 @@ fi
 %attr(0644, root, root) %{ai_libdir}/ancestor-config.lib.sh
 %attr(0644, root, root) %{ai_libdir}/sandbox-exec.lib.sh
 %attr(0644, root, root) %{ai_libdir}/toolchain.lib.sh
+%attr(0644, root, root) %{ai_libdir}/cache-cleanup.lib.sh
 %attr(0644, root, root) %{ai_libdir}/selinux-groups.lib.sh
 %attr(0644, root, root) %{ai_libdir}/filters.lib.sh
 %attr(0644, root, root) %{ai_libdir}/services.lib.sh
@@ -1419,6 +1429,11 @@ fi
 %dir %attr(0755, root, root) /var/opt/ai-tools/state/entrypoint-pin.d
 %dir %attr(0755, root, root) /var/opt/ai-tools/state/entrypoint-label.d
 %dir %attr(0755, root, root) /var/opt/ai-tools/state/entrypoint-stale.d
+# The cache cleanup state: rewritten in place by the callers of cache-cleanup.lib.sh -- the launch
+# shim and the toolchain updater, both as the sandbox account -- and read by both status reports.
+# Owned by that account so it may rewrite the contents, group ai-ops so operators read it; %ghost
+# with %post creating it, since the directory is not group-writable and the inode must exist.
+%ghost %attr(0640, ai-tools, ai-ops) /var/opt/ai-tools/state/cache-cleanup.status
 %dir %attr(0700, root, root) /var/log/ai-tools
 %ghost %attr(0600, root, root) /var/log/ai-tools/chown.log
 %ghost %attr(0600, root, root) /var/log/ai-tools/setgid.log

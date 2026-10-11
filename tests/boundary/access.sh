@@ -519,6 +519,29 @@ for _hook_dir in /opt/ai-tools/.claude /opt/ai-tools/.codex; do
 done
 (( _hook_dirs > 0 )) || skip "hook state stays agent-writable" "no agent config directory installed"
 
+# The cache cleanup state last. Its writers -- ai-tools-run and the updater -- run as the account, so the file is
+# account-writable by design, and the one decision that reads it is the launch's "due": a forged value stops
+# the account's own caches being cleaned, which costs disk and widens no access (updater.rule.md). What bounds it is
+# the directory and the remover: the account cannot create, unlink or swap a file in the state directory, nor rewrite
+# the library that decides what is removed and how.
+_cache_state=/var/opt/ai-tools/state/cache-cleanup.status
+if [[ ! -e "${_cache_state}" ]]; then
+    skip "the cache cleanup state stays agent-writable" "not present at ${_cache_state}"
+elif runuser -u "${SANDBOX_USER}" -- test -w "${_cache_state}" 2>/dev/null; then
+    pass "the agent can write ${_cache_state} -- its writers run as the account, and no access decision reads it"
+else
+    fail "the agent cannot write ${_cache_state} -- ai-tools-run and the updater cannot record a removal, so both status reports go stale"
+fi
+for _cache_path in /var/opt/ai-tools/state /usr/local/lib/ai-tools/cache-cleanup.lib.sh; do
+    if [[ ! -e "${_cache_path}" ]]; then
+        skip "cache cleanup inputs not agent-writable" "${_cache_path} not installed"
+    elif runuser -u "${SANDBOX_USER}" -- test -w "${_cache_path}" 2>/dev/null; then
+        fail "the agent can write ${_cache_path} -- it could replace the state file or the remover the unconfined updater runs"
+    else
+        pass "the agent cannot write ${_cache_path}"
+    fi
+done
+
 # ── journald attribution: a tag is not an attribution, _UID is ───────────────────────────────
 # Every documented journal query pairs a syslog tag with the uid of that tag's legitimate writer
 # (.claude/rules/logging.rule.md). This is the reason, probed rather than asserted from the design: the agent can write
