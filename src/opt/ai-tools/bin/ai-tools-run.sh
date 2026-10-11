@@ -661,8 +661,8 @@ fi
 # what it executes (updater.rule.md). Housekeeping, not a gate: the library journals every outcome under this shim's tag
 # and prints a coded warning for a group it did not remove, and the launch goes on. A removal prints one line
 # under the banner. Loaded at its point of use and guarded, as the entrypoint verifier is, so a print-and-exit run does
-# not read it and one that did not load skips the step with one log line. The glob matches session_unit_name, which
-# this shim composes for the launch.
+# not read it and one that did not load skips the step with one log line. The glob matches session_unit_name, which this
+# shim composes for the launch.
 if (( show_banner )); then
     # shellcheck source=SCRIPTDIR/../../../usr/local/lib/ai-tools/cache-cleanup.lib.sh
     if source "${AI_TOOLS_RUN__LIB_DIR}/cache-cleanup.lib.sh" 2>/dev/null \
@@ -740,14 +740,17 @@ case "${entrypoint_pin_verdict}" in
         fi
         # The remedy is NOT the provisioning command on its own: its npm step is a no-op at an already-installed
         # version, so the modified binary would survive it and every launch would go on refusing. The package directory
-        # goes first; the library composes it, and prints nothing where the entrypoint does not sit inside one.
+        # goes first, after every session has ended, so no process of this account is running while root removes it;
+        # the operator lets each session finish or stops them all. The library composes the directory, and prints
+        # nothing where the entrypoint does not sit inside one.
         entrypoint_package_dir=""
         declare -F ai_tools_entrypoint_verify__find_package_dir >/dev/null 2>&1 \
             && entrypoint_package_dir="$(ai_tools_entrypoint_verify__find_package_dir "${session_exec_path}" \
                    "$(ai_tools_providers__read_agent_manifest_field "${agent_name}" npm_package || true)" 2>/dev/null || true)"
         declare -a entrypoint_remedy=( '  sudo ai-tools-admin system bootstrap' )
         [[ -n "${entrypoint_package_dir}" ]] \
-            && entrypoint_remedy=( "  sudo rm -rf ${entrypoint_package_dir}" "${entrypoint_remedy[@]}" )
+            && entrypoint_remedy=( 'End every running session first -- let each finish, or stop them all:' \
+                   '  ai-tools stop' "  sudo rm -rf ${entrypoint_package_dir}" "${entrypoint_remedy[@]}" )
         refuse MSG-H7S2 'the agent entrypoint does not match its recorded checksum -- refusing to start the session' \
                "entrypoint:  ${session_exec_path}" \
                "The pin holds ${entrypoint_pin_claim}, and the binary has changed since it was recorded." \
