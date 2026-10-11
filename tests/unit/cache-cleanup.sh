@@ -334,7 +334,8 @@ race_tree() {
     for j in $(seq 1 40); do : > "${CANARY}/f${j}"; done
     own
 }
-canary_count() { find "${CANARY}" -maxdepth 1 -name 'f*' | wc -l; }
+# The numbered files alone: the fixture's `file` beside them is canary_intact's, and a glob that took it would read 41.
+canary_count() { find "${CANARY}" -maxdepth 1 -name 'f[0-9]*' | wc -l; }
 # race <remover> : run the swap loop beside <remover> as the account; `lib` runs the library's removal.
 race() {
     # shellcheck disable=SC2016  # the inner shell expands these, not this one
@@ -345,6 +346,14 @@ race() {
         kill "${swapper}" 2>/dev/null; wait "${swapper}" 2>/dev/null; exit 0' \
         _ "${LIB}" "${HOME_DIR}" "${CANARY}" "${SWAP_PROGRAM}" "${PATH_WALK_PROGRAM}" "$1" >/dev/null 2>&1 || true
 }
+# The measurement proves its setup first: a fixture that does not read as intact before any removal would report
+# the remover on every run below.
+race_tree
+if (( $(canary_count) == 40 )) && canary_intact; then
+    pass "the race fixture reads as intact before any removal"
+else
+    fail "the race fixture does not read as intact before any removal: $(canary_count) numbered files, canary $(canary_intact && echo intact || echo damaged)"
+fi
 remover_damaged=0; control_damaged=0
 for _ in $(seq 1 20); do
     race_tree; race lib
