@@ -1,86 +1,38 @@
-# ai-tools skills — one place, every agent
+# Skills — one view, every agent
 
-Skills are agent-agnostic content: prose that tells a coding agent how to write documentation, how to weigh a design,
-what this project's conventions are. Nothing in them is specific to Claude Code, so they are **not** stored per agent.
-They live once, and every agent that can read them gets a symlink:
+`/opt/ai-tools/skills` is the view: each skill in it is linked into the skills directory of every enabled agent, so one
+copy serves all of them. The skills come from asset sets, signed packages you install and then enable:
 
-```text
-src/usr/share/ai-tools/skills/ai-tools-*/     the source of truth, in this repo
-   ──▶  /usr/share/ai-tools/skills/           pristine copy the package installs (read-only)
-   ──▶  /opt/ai-tools/skills/<name>/          THE live skill, seeded once, yours to edit
-   ──▶  /opt/ai-tools/.claude/skills/<name>   a symlink, per agent that reads skills
+```bash
+sudo dnf install ai-tools-assets-core
+sudo ai-tools-admin assets enable --set core
 ```
 
-Edit a skill in one file and every agent sees the change. Add one and every agent gets it. No copy is ever forked
-per agent — `tests/integration/perms.sh` fails if one is.
+`core` carries the writing standard (`ai-tools-technical-writing`), the cross-reference grammar (`ai-tools-reftags`),
+and the engineering and governance skills; `ls /usr/share/ai-tools-assets/core/skills` lists them. `AI_TOOLS_ASSETS`
+in `/etc/ai-tools/operator.conf` names each asset a session loads, and `sudo ai-tools-admin status` reports one
+that does not link, with the reason.
 
-## Add a skill
+The base package seeds one skill here itself, `ai-tools-typesafe-filter`, on behalf
+of the `ai-tools-integration-typesafe` package, and only while that integration is installed.
 
-1. Create `src/usr/share/ai-tools/skills/ai-tools-<name>/SKILL.md` with the frontmatter this page shows (copy a sibling;
-   the `ai-tools-` prefix is the shipped namespace and must match the `name:` field).
-2. Reinstall (`sudo ./install.sh install`) or `sudo ai-tools-admin system bootstrap`. The skill is seeded
-   into `/opt/ai-tools/skills/` and linked into each agent's own skills directory.
-3. Invoke it in a session as `/ai-tools-<name>`.
+## A skill of your own
 
-```yaml
----
-name: ai-tools-<name>
-description: When to use this skill — the agent reads this to decide.
-x-ai-tools-managed: true
-x-ai-tools-status: draft
-x-ai-tools-version: 1
-x-ai-tools-updated: 2026-07-28
----
-```
+| You want the skill | Put it at | The agent |
+|---|---|---|
+| in one project | `<project>/.claude/skills/<name>/SKILL.md` | reads it and may edit it, in that project's sessions |
+| in every project, for one agent | `/opt/ai-tools/.claude/skills/<name>/`, `root:ai-tools`, directories 750, files 640 | reads it; the modes refuse it a write |
+| in every project, for every agent | an asset set of your own, signed and enabled | reads it; the set is root's and read-only |
 
-Shipped now: `ai-tools-technical-docs` (the writing standard for every artifact — docs, comments, changelogs, commit
-messages, runtime output), `ai-tools-reftags` (cross-references between files, and the tool that indexes and checks
-them), `ai-tools-engineering-principles`, and `ai-tools-capable-systems-governance`, all from the base package;
-and `ai-tools-typesafe-filter`, which the `ai-tools-integration-typesafe` package ships and withdraws with itself.
-A skill an integration package ships adds `x-ai-tools-integration: <name>` to the frontmatter, and is then on a host
-only while that integration is installed.
+An entry in an agent's skills directory that the sandbox account can write is reported by `status`
+as `agent-entry-untrusted`, since every later session loads it. An entry you place in the view itself is reported
+as `view-foreign` and is not linked into an agent's directory.
 
-A skill may be more than one file. Put supporting material in a subdirectory beside `SKILL.md` and point at it
-from there — `ai-tools-capable-systems-governance/references/framework.md` is its full normative text, kept
-out of `SKILL.md` so the guidance stays short and the long text is read only when the task calls for it. The whole
-directory is seeded and linked as one asset.
+## The seeded skill and its version
 
-## Agent-specific skills
+A seeded skill carries `x-ai-tools-managed: true` and a monotonic `x-ai-tools-version` in its frontmatter. On install
+or bootstrap a newer version replaces the live copy, so an edit made in place is lost at the next release; delete
+the `x-ai-tools-managed: true` line to keep the copy as your own. A skill this package stops shipping is moved
+to `/opt/ai-tools/retired/`, where its last copy stays for you to recover.
 
-A skill that only makes sense for one agent is a **real directory** in that agent's own skills directory
-(`/opt/ai-tools/.claude/skills/<name>/` for Claude Code) rather than in the shared root. A real directory always wins:
-the linker never displaces one, so a name that exists there stays exactly as you left it. This is also
-how an agent-specific *override* of a shared skill works — same name, real directory, no link. (The one thing that is
-converted to a link is an `x-ai-tools-managed` copy that is byte-identical to the shared skill: that is the project's
-own copy from the older per-agent layout, so no content is lost. An edited one is kept.)
-
-## Versioning: stable name, RFC-draft frontmatter
-
-A skill's invocation name never changes; its revision rides in the `SKILL.md` frontmatter, in the RFC-draft form every
-shipped asset shares — `x-ai-tools-managed` is the provenance marker (this one is maintained by the project),
-`x-ai-tools-status` the lifecycle stage (`draft` while it is still being refined), and `x-ai-tools-version` a monotonic
-integer.
-
-A shipped skill takes one version bump per release in which it changed, along with a new `x-ai-tools-updated`.
-On the next install or bootstrap a newer version prompts, **defaulting to update**: Enter takes the new text,
-and so does any run without a terminal — an RPM scriptlet included. An unchanged version is a quiet no-op. One version
-is installed at a time, so the stable name always resolves to the current text and cross-references between skills never
-churn.
-
-**To keep an edit of your own across upgrades, delete the `x-ai-tools-managed: true` line.** The seeder claims only
-a file carrying that marker, so one without it is yours and is left alone (reported
-as `kept (operator's own, not ai-tools-managed)`). Editing a managed copy in place instead means the next release
-replaces it, and no copy of the old text is kept — answering `n` at the prompt defers that, it does not settle it.
-
-## Your own skills stay yours
-
-The seeder acts on a directory only when it matches `ai-tools-*` **and** its `SKILL.md` carries
-`x-ai-tools-managed: true`. Anything else — in the shared root or in an agent's directory — is yours: left exactly
-as written, never claimed, never overwritten. Drop a skill of your own next to the shipped ones and it simply works.
-
-The shipped skills are `root:ai-tools` (files `640`, dirs `750`) and the links are root-owned inside a setgid+sticky
-directory: every session reads the same text, and changing it is a deliberate operator action through the installer.
-That is what makes a skill a dependable shared convention — improve it once, and every session and every agent picks it
-up.
-
-Mechanism and invariants: `.claude/rules/shipped-assets.rule.md`.
+Each reason `status` names, and the view's rules: `man ai-tools-assets`.

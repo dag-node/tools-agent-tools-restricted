@@ -13,6 +13,7 @@ cannot fix -- a message code's name is a runtime string, and rewording one is a 
 
 | Id | Reftag | Name | File | Cited by | Emitter |
 |---|---|---|---|---|---|
+| u6y5 | [URI-U6Y5](https://github.com/dag-node/ai-tools-assets/blob/core/v0.1.0/sets/core/skills/ai-tools-reftags/SKILL.md#ref-section-h9b7) | The reftags skill's reference rule, at the pinned core release | .claude/rules/authoring.rule.md | .claude/rules/authoring.rule.md |  |
 | z3p9 | [ref-section-z3p9](rules/cli.rule.md#ref-section-z3p9) | Acting for another operator (`--for`) | .claude/rules/cli.rule.md | docs/operators/service-accounts.md |  |
 | v2n3 | [ref-section-v2n3](rules/cli.rule.md#ref-section-v2n3) | Enabled, disabled, absent — the three states of an entry | .claude/rules/cli.rule.md | docs/projects/disable.md, docs/projects/enable.md |  |
 | d7q3 | [ref-table-d7q3](rules/cli.rule.md#ref-table-d7q3) | The three states of an allowlist entry | .claude/rules/cli.rule.md | docs/projects/disable.md |  |
@@ -43,7 +44,8 @@ cannot fix -- a message code's name is a runtime string, and rewording one is a 
 | h4j6 | [ref-section-h4j6](rules/secret-handling.rule.md#ref-section-h4j6) | Shared secret-pattern set (one source, one matcher) | .claude/rules/secret-handling.rule.md | .claude/rules/launch.rule.md, .claude/rules/shellcheck.rule.md, CLAUDE.md |  |
 | g6s6 | [ref-section-g6s6](rules/secret-handling.rule.md#ref-section-g6s6) | Proactive: `ai-tools-lockdown` | .claude/rules/secret-handling.rule.md | docs/projects/lockdown.md |  |
 | c3u9 | [ref-section-c3u9](rules/shellcheck.rule.md#ref-section-c3u9) | What strict mode does that ShellCheck does not report | .claude/rules/shellcheck.rule.md | .claude/rules/tests.rule.md, src/usr/local/lib/ai-tools/managed-assets.lib.sh |  |
-| k4q2 | [ref-section-k4q2](rules/shipped-assets.rule.md#ref-section-k4q2) | An asset bound to an integration | .claude/rules/shipped-assets.rule.md | .claude/rules/typesafe.rule.md |  |
+| p2p8 | [ref-diagram-p2p8](rules/shipped-assets.rule.md#ref-diagram-p2p8) | The two routes into the view | .claude/rules/shipped-assets.rule.md | docs/development/shipped-assets.md |  |
+| k4q2 | [ref-section-k4q2](rules/shipped-assets.rule.md#ref-section-k4q2) | An asset bound to an integration | .claude/rules/shipped-assets.rule.md | .claude/rules/typesafe.rule.md, docs/development/shipped-assets.md |  |
 | r5r9 | [ref-section-r5r9](rules/stop.rule.md#ref-section-r5r9) | Who may stop what | .claude/rules/stop.rule.md | .claude/rules/cli.rule.md, .claude/rules/launch.rule.md, .claude/rules/safe-paths.rule.md, docs/sessions/stop.md, src/usr/local/libexec/ai-tools/ai-tools-stop.sh |  |
 | e8k5 | [ref-section-e8k5](rules/stop.rule.md#ref-section-e8k5) | Degradation policy: two inversions, one reason | .claude/rules/stop.rule.md | .claude/rules/logging.rule.md, .claude/rules/messaging.rule.md, docs/sessions/stop.md, src/usr/local/libexec/ai-tools/ai-tools-stop.sh |  |
 | s9t9 | [ref-section-s9t9](rules/updater.rule.md#ref-section-s9t9) | Root runs none of the toolchain | .claude/rules/updater.rule.md | .claude/rules/cli.rule.md, CLAUDE.md |  |
@@ -97,7 +99,7 @@ cannot fix -- a message code's name is a runtime string, and rewording one is a 
 | q7e7 | [MSG-Q7E7](../install.sh) | setfacl unavailable -- operators need ${SANDBOX_GROUP} membership for sandbox-create | install.sh |  | warn |
 | n2w3 | [MSG-N2W3](../install.sh) | sudoers syntax check failed | install.sh |  | die |
 | c2x3 | [MSG-C2X3](../install.sh) | could not add ${PROJECTS_USER} to ai-ops | install.sh |  | warn |
-| g2u4 | [MSG-G2U4](../install.sh) | an asset AI_TOOLS_ASSETS enables is not linked -- sudo ai-tools-admin status names each one and why | install.sh |  | warn |
+| g2u4 | [MSG-G2U4](../install.sh) | the asset reconcile reported a finding -- sudo ai-tools-admin status names each one and what ends it | install.sh |  | warn |
 | p2n9 | [MSG-P2N9](../install.sh) | the asset reconcile did not complete (exit ${_reconcile_status}) -- run: sudo ai-tools-admin assets reconcile | install.sh |  | warn |
 | e6n7 | [MSG-E6N7](../install.sh) | the shared assets were not seeded and the asset view was not reconciled: the assets lock could not be taken -- run: sudo ./install.sh install, once the other assets command has ended | install.sh |  | warn |
 | m7k6 | [MSG-M7K6](../install.sh) | the systemd --user manager of ${SANDBOX_USER} did not come up -- the auto-update timer | install.sh |  | warn |
@@ -498,7 +500,7 @@ cannot fix -- a message code's name is a runtime string, and rewording one is a 
 | d9d3 | [MSG-D9D3](../src/usr/local/libexec/ai-tools/ai-tools-bootstrap.sh) | control plane present but the managed-asset libs are missing -- reinstall ai-tools | src/usr/local/libexec/ai-tools/ai-tools-bootstrap.sh |  | die |
 | h9s6 | [MSG-H9S6](../src/usr/local/libexec/ai-tools/ai-tools-bootstrap.sh) | control plane present but ${cplib} does not resolve the agents' config dirs | src/usr/local/libexec/ai-tools/ai-tools-bootstrap.sh |  | die |
 | f3h4 | [MSG-F3H4](../src/usr/local/libexec/ai-tools/ai-tools-bootstrap.sh) | managed assets: not seeded, and the asset view not reconciled -- the assets lock could not be taken; run sudo ai-tools-admin system bootstrap again once the other assets command has ended | src/usr/local/libexec/ai-tools/ai-tools-bootstrap.sh |  | warn |
-| w9r9 | [MSG-W9R9](../src/usr/local/libexec/ai-tools/ai-tools-bootstrap.sh) | an asset AI_TOOLS_ASSETS enables is not linked -- sudo ai-tools-admin status names each one and why | src/usr/local/libexec/ai-tools/ai-tools-bootstrap.sh |  | notice |
+| w9r9 | [MSG-W9R9](../src/usr/local/libexec/ai-tools/ai-tools-bootstrap.sh) | the asset reconcile reported a finding -- sudo ai-tools-admin status names each one and what ends it | src/usr/local/libexec/ai-tools/ai-tools-bootstrap.sh |  | notice |
 | t3r5 | [MSG-T3R5](../src/usr/local/libexec/ai-tools/ai-tools-bootstrap.sh) | the asset reconcile did not complete (exit ${reconcile_status}) -- run: sudo ai-tools-admin assets reconcile | src/usr/local/libexec/ai-tools/ai-tools-bootstrap.sh |  | warn |
 | n8u6 | [MSG-N8U6](../src/usr/local/libexec/ai-tools/ai-tools-bootstrap.sh) | could not write ${key}=${answer} into ${conf} -- set the line by hand | src/usr/local/libexec/ai-tools/ai-tools-bootstrap.sh |  | warn |
 | k2d4 | [MSG-K2D4](../src/usr/local/libexec/ai-tools/ai-tools-bootstrap.sh) | operator ${user} who types ${launcher} would run ${winner}, which is an agent outside the sandbox | src/usr/local/libexec/ai-tools/ai-tools-bootstrap.sh | install.sh, tests/unit/bootstrap.sh | err |
@@ -630,30 +632,3 @@ cannot fix -- a message code's name is a runtime string, and rewording one is a 
 | z5s7 | [MSG-Z5S7](../src/usr/local/libexec/ai-tools/ai-tools-unclaim.sh) | left ${hardlinked} hardlinked file(s) untouched -- an inode with more than one name can be reached from outside this tree, so changing it here would change a path this pass never authorized. They KEEP the group they have, so the agent is not off them: list them with | src/usr/local/libexec/ai-tools/ai-tools-unclaim.sh | tests/manual/verify-live-flows.sh | warn |
 | h9d7 | [MSG-H9D7](../src/usr/local/libexec/ai-tools/ai-tools-unclaim.sh) | left ${git_hardlinked} hardlinked file(s) in .git untouched -- a local git clone shares object files with the source repo, so changing them would change the origin. They KEEP the group they have: list them with | src/usr/local/libexec/ai-tools/ai-tools-unclaim.sh |  | warn |
 | t4s2 | [MSG-T4S2](../src/usr/local/libexec/ai-tools/ai-tools-unclaim.sh) | could not reset the SELinux label -- run: sudo restorecon -RF ${canonical} | src/usr/local/libexec/ai-tools/ai-tools-unclaim.sh |  | warn |
-| h3b7 | ref-section-h3b7 | example | src/usr/share/ai-tools/skills/ai-tools-reftags/SKILL.md |  |  |
-| h9b7 | [ref-section-h9b7](../src/usr/share/ai-tools/skills/ai-tools-reftags/SKILL.md#ref-section-h9b7) | A reference names a reftag, not a position | src/usr/share/ai-tools/skills/ai-tools-reftags/SKILL.md | .claude/rules/authoring.rule.md |  |
-| j5r7 | ref-section-j5r7 | example | src/usr/share/ai-tools/skills/ai-tools-reftags/SKILL.md |  |  |
-| z4m9 | ref-table-z4m9 | example | src/usr/share/ai-tools/skills/ai-tools-reftags/SKILL.md |  |  |
-| q2h8 | FN-Q2H8 | example | src/usr/share/ai-tools/skills/ai-tools-reftags/SKILL.md |  |  |
-| a5h9 | NOTE-A5H9 | example | src/usr/share/ai-tools/skills/ai-tools-reftags/SKILL.md |  |  |
-| q4q6 | URI-Q4Q6 | example | src/usr/share/ai-tools/skills/ai-tools-reftags/SKILL.md |  |  |
-| m7g9 | ref-section-m7g9 | example | src/usr/share/ai-tools/skills/ai-tools-reftags/SKILL.md |  |  |
-| g3g4 | ref-section-g3g4 | example | src/usr/share/ai-tools/skills/ai-tools-reftags/ref-index.py |  |  |
-| u2s6 | ref-diagram-u2s6 | example | src/usr/share/ai-tools/skills/ai-tools-reftags/ref-index.py |  |  |
-| u7y5 | ref-listing-u7y5 | example | src/usr/share/ai-tools/skills/ai-tools-reftags/ref-index.py |  |  |
-| b8e6 | ref-section-b8e6 | example | src/usr/share/ai-tools/skills/ai-tools-reftags/ref-index.py |  |  |
-| p7r3 | ref-section-p7r3 | example | src/usr/share/ai-tools/skills/ai-tools-reftags/ref-index.py |  |  |
-| m3n4 | MSG-M3N4 | example | src/usr/share/ai-tools/skills/ai-tools-reftags/ref-index.py |  |  |
-| d7n6 | [ref-section-d7n6](../src/usr/share/ai-tools/skills/ai-tools-technical-docs/SKILL.md#ref-section-d7n6) | Back an absolute with its check | src/usr/share/ai-tools/skills/ai-tools-technical-docs/SKILL.md | src/usr/share/ai-tools/skills/ai-tools-technical-docs/references/rewriting.md |  |
-| j4m2 | [ref-section-j4m2](../src/usr/share/ai-tools/skills/ai-tools-technical-docs/SKILL.md#ref-section-j4m2) | Rationale is the payload — state it as a mechanism, not as a figure | src/usr/share/ai-tools/skills/ai-tools-technical-docs/SKILL.md |  |  |
-| a2e9 | [ref-section-a2e9](../src/usr/share/ai-tools/skills/ai-tools-technical-docs/SKILL.md#ref-section-a2e9) | Present tense, active voice | src/usr/share/ai-tools/skills/ai-tools-technical-docs/SKILL.md | src/usr/share/ai-tools/skills/ai-tools-technical-docs/references/artifacts.md |  |
-| g2r3 | [ref-section-g2r3](../src/usr/share/ai-tools/skills/ai-tools-technical-docs/SKILL.md#ref-section-g2r3) | Consistent domain terms, varied ordinary nouns | src/usr/share/ai-tools/skills/ai-tools-technical-docs/SKILL.md | src/usr/share/ai-tools/skills/ai-tools-technical-docs/references/figures.md |  |
-| m8t7 | [ref-section-m8t7](../src/usr/share/ai-tools/skills/ai-tools-technical-docs/SKILL.md#ref-section-m8t7) | One home per fact, and a pointer everywhere else | src/usr/share/ai-tools/skills/ai-tools-technical-docs/SKILL.md |  |  |
-| p6c5 | [ref-section-p6c5](../src/usr/share/ai-tools/skills/ai-tools-technical-docs/SKILL.md#ref-section-p6c5) | Resolve a doc/code conflict while writing, in the right direction | src/usr/share/ai-tools/skills/ai-tools-technical-docs/SKILL.md | src/usr/share/ai-tools/skills/ai-tools-technical-docs/references/artifacts.md, src/usr/share/ai-tools/skills/ai-tools-technical-docs/references/rewriting.md |  |
-| t3w4 | ref-section-t3w4 | example | src/usr/share/ai-tools/skills/ai-tools-technical-docs/prose-check.py |  |  |
-| y8q9 | [ref-section-y8q9](../src/usr/share/ai-tools/skills/ai-tools-technical-docs/references/artifacts.md#ref-section-y8q9) | Changelogs, release notes, migration guides | src/usr/share/ai-tools/skills/ai-tools-technical-docs/references/artifacts.md | src/usr/share/ai-tools/skills/ai-tools-technical-docs/SKILL.md |  |
-| r3a2 | [ref-section-r3a2](../src/usr/share/ai-tools/skills/ai-tools-technical-docs/references/figures.md#ref-section-r3a2) | Rhetorical figures | src/usr/share/ai-tools/skills/ai-tools-technical-docs/references/figures.md | src/usr/share/ai-tools/skills/ai-tools-technical-docs/SKILL.md |  |
-| q9p8 | [ref-section-q9p8](../src/usr/share/ai-tools/skills/ai-tools-technical-docs/references/rewriting.md#ref-section-q9p8) | Rewriting existing prose | src/usr/share/ai-tools/skills/ai-tools-technical-docs/references/rewriting.md |  |  |
-| e8b7 | [ref-section-e8b7](../src/usr/share/ai-tools/skills/ai-tools-technical-docs/references/rewriting.md#ref-section-e8b7) | Rewrite from the source, not from the flagged token | src/usr/share/ai-tools/skills/ai-tools-technical-docs/references/rewriting.md | src/usr/share/ai-tools/skills/ai-tools-technical-docs/SKILL.md |  |
-| z4d3 | [ref-section-z4d3](../src/usr/share/ai-tools/skills/ai-tools-technical-docs/references/rewriting.md#ref-section-z4d3) | Carry four things through every edit | src/usr/share/ai-tools/skills/ai-tools-technical-docs/references/rewriting.md |  |  |
-| g5n4 | [ref-section-g5n4](../src/usr/share/ai-tools/skills/ai-tools-technical-docs/references/rewriting.md#ref-section-g5n4) | Run the checks a rewrite needs | src/usr/share/ai-tools/skills/ai-tools-technical-docs/references/rewriting.md | src/usr/share/ai-tools/skills/ai-tools-technical-docs/references/checks.md |  |

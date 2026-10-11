@@ -1,6 +1,7 @@
 # Development
 
-**Development** · [Release](release.md) — [all docs](../index.md)
+**Development** · [Release](release.md) · [Shipped assets](shipped-assets.md) —
+[all docs](../index.md)
 
 Working on `ai-tools` itself: where the setup, the checks and the commit
 conventions are written down, and how a change reaches a signed package.
@@ -19,3 +20,6 @@ branch.
 
 [RPM packaging](../rpm-packaging.md) covers the package set, the scriptlets,
 and the build, which a maintainer reads together with the release process.
+
+[Shipped assets](shipped-assets.md) is how a skill or a subagent a package
+of this repository ships is added, changed and withdrawn.

@@ -31,13 +31,13 @@ root; it owns that directory, and places and withdraws the live copy itself (see
 are Claude Code's (`SKILL.md`, subagent frontmatter) and are not standardized across products, so an agent that cannot
 read a kind leaves that field unset, and does not take links of that kind.
 
-The shipped set is the `ai-tools-reference-architect` subagent; the skills `ai-tools-technical-docs` (the writing
-standard for every artifact, with `prose-check.py` and its `references/` beside the entry file), `ai-tools-reftags` (the
-cross-reference grammar and `ref-index.py`, which this repository's own tooling drives
-through `tools/generators/ref-index.sh`), `ai-tools-engineering-principles`, and `ai-tools-capable-systems-governance`;
-and the orientation text. `ai-tools-typesafe-filter` is the one skill a provider package ships rather than base: it
-belongs to `ai-tools-integration-typesafe` ([typesafe](typesafe.rule.md)) and is bound to it ([An asset bound
-to an integration](#an-asset-bound-to-an-integration)).
+Base ships the orientation text and seeds `ai-tools-typesafe-filter` on behalf of `ai-tools-integration-typesafe`,
+which ships it and to which it is bound ([typesafe](typesafe.rule.md), [An asset bound
+to an integration](#an-asset-bound-to-an-integration)). The writing standard, the reftags skill, the engineering
+and governance skills and the reference-docs subagent are the asset set `core`'s, linked into the view
+where `AI_TOOLS_ASSETS` enables them; base withdraws the copies it shipped before ([Withdrawing
+an asset](#withdrawing-an-asset)), and this repository's own tooling reads the checker and the reftags tool
+from a pinned `core` release (`tools/lib/assets.sh`).
 
 ## The orientation text
 
@@ -77,14 +77,21 @@ directory, so nesting is handled by both without a special case.
 `src/` mirrors the install tree. A file installed **verbatim** lives at its literal path
 (`src/opt/ai-tools/agents/claude-code/settings.json`); a file that is **seeded** — rpm ships a read-only pristine copy
 and provisioning places an editable live one — lives in `src/` at its **pristine** path, because that is the path
-the package installs. Every shipped asset is seeded, so all of them live under `src/usr/share/ai-tools/`,
-and the directory name is the same at every hop:
+the package installs. Every asset a package of this repository ships is seeded, so all of them live
+under `src/usr/share/ai-tools/`, and the directory name is the same at every hop. An asset set's asset reaches the same
+view by a link instead of a copy:
+
+<a id="ref-diagram-p2p8"></a>**The two routes into the view**
 
 ```text
 src/usr/share/ai-tools/<kind>/     authoritative source, in this repo
    ──▶ /usr/share/ai-tools/<kind>/            pristine: rpm-owned, read-only, world-readable
-   ──▶ /opt/ai-tools/<kind>/                  LIVE: operator-editable, agent-readable, NOT rpm-owned
-   ──▶ <agent config>/<kind-dir>/<name>       a symlink into live, per agent that declares one
+   ──▶ /opt/ai-tools/<kind>/<name>            LIVE seeded copy: root:SANDBOX_GROUP, NOT rpm-owned;
+                                              an in-place edit is replaced by the next release's version
+/usr/share/ai-tools-assets/<set>/<kind-dir>/  a signed set's copy, its own package's, read-only
+   ──▶ /opt/ai-tools/<kind>/<name>            a resolver link, where AI_TOOLS_ASSETS enables the asset
+/opt/ai-tools/<kind>/<name>                   the view, whichever route placed the name
+   ──▶ <agent config>/<kind-dir>/<name>       a symlink into the view, per agent that declares one
 ```
 
 The live tree has no `src/` counterpart on purpose: it is runtime state, like `.nvm`, the sandbox clones, and the logs.

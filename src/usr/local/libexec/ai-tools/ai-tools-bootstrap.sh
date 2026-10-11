@@ -497,7 +497,7 @@ seed_managed_assets_step() {
     /usr/local/libexec/ai-tools/ai-tools-admin assets reconcile >/dev/null || reconcile_status=$?
     case "${reconcile_status}" in
         0) ;;
-        4) notice MSG-W9R9 "an asset AI_TOOLS_ASSETS enables is not linked -- sudo ai-tools-admin status names each one and why" ;;
+        4) notice MSG-W9R9 "the asset reconcile reported a finding -- sudo ai-tools-admin status names each one and what ends it" ;;
         *) warn MSG-T3R5 "the asset reconcile did not complete (exit ${reconcile_status}) -- run: sudo ai-tools-admin assets reconcile" ;;
     esac
     [[ -n "$(ai_tools_control_plane__list_agent_asset_dirs skills_dir)$(ai_tools_control_plane__list_agent_asset_dirs subagents_dir)" ]] && seeded=1

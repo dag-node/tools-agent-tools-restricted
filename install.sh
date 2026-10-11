@@ -1100,11 +1100,6 @@ do_summary() {
     _chk /opt/ai-tools/.claude/session-hook.sh
     _chk /opt/ai-tools/.claude/filter-hook.sh
     _chk /opt/ai-tools/.claude/settings.json
-    _chk /opt/ai-tools/subagents/ai-tools-reference-architect.md
-    _chk /opt/ai-tools/.claude/agents/ai-tools-reference-architect.md
-    _chk /opt/ai-tools/skills/ai-tools-technical-docs/SKILL.md
-    _chk /opt/ai-tools/skills/ai-tools-engineering-principles/SKILL.md
-    _chk /opt/ai-tools/.claude/skills/ai-tools-technical-docs
     _chk /opt/ai-tools/orientation/AGENTS.md
     _chk /opt/ai-tools/.claude/CLAUDE.md
 
@@ -2454,7 +2449,7 @@ do_install() {
         /usr/local/libexec/ai-tools/ai-tools-admin assets reconcile >/dev/null || _reconcile_status=$?
         case "${_reconcile_status}" in
             0) ;;
-            4) warn MSG-G2U4 "an asset AI_TOOLS_ASSETS enables is not linked -- sudo ai-tools-admin status names each one and why" ;;
+            4) warn MSG-G2U4 "the asset reconcile reported a finding -- sudo ai-tools-admin status names each one and what ends it" ;;
             *) warn MSG-P2N9 "the asset reconcile did not complete (exit ${_reconcile_status}) -- run: sudo ai-tools-admin assets reconcile" ;;
         esac
         ai_tools_managed_assets__unlock
