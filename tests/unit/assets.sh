@@ -1187,44 +1187,62 @@ destination_case "a kind directory owned by the projects user" agent-dir-untrust
 two_agents; chmod 0775 "${HOME_DIR}/.acme/skills"; reconcile
 destination_case "a root-owned, group-writable kind directory" agent-dir-untrusted
 two_agents; rm -rf "${HOME_DIR}/.acme/skills"
-PRELUDE="install() { if [[ \"\${@: -1}\" == */.acme/skills ]]; then mkdir -- \"\${@: -1}\" && chown ${PROJECTS_USER} -- \"\${@: -1}\"; else command install \"\$@\"; fi; }"
+# The name is taken between the plan and the apply's create, the race the sandbox account can run inside its
+# group-writable config directory. The stubbed mkdir makes the directory as the projects user and fails as the real one
+# does on a name that exists; then it plants a symlink to a directory outside instead. The create does not follow a link
+# -- `install -d` would re-own and re-mode the link's target -- so the target keeps its owner, mode and entries,
+# and the name is refused either way.
+PRELUDE="mkdir() { if [[ \"\${@: -1}\" == */.acme/skills ]]; then command mkdir -- \"\${@: -1}\" && chown ${PROJECTS_USER} -- \"\${@: -1}\"; return 1; fi; command mkdir \"\$@\"; }"
 reconcile; PRELUDE=""
-destination_case "a kind directory taken between the plan and the apply (a stubbed install)" agent-dir-untrusted
+destination_case "a kind directory taken between the plan and the apply (a stubbed mkdir)" agent-dir-untrusted
 if [[ "$(stat -c %U "${HOME_DIR}/.acme/skills")" == "${PROJECTS_USER}" && -z "$(ls -A "${HOME_DIR}/.acme/skills")" ]]; then
     pass "a kind directory taken between the plan and the apply: nothing is written into it, and it is not re-owned"
 else
     fail "a kind directory taken between the plan and the apply: $(ls -la "${HOME_DIR}/.acme/skills" 2>&1 | tr '\n' '|')"
 fi
 rm -rf "${HOME_DIR}/.acme/skills"
+two_agents; rm -rf "${HOME_DIR}/.acme/skills"
+mkdir -m 0777 "${OUTSIDE}/planted"; chown "${PROJECTS_USER}" "${OUTSIDE}/planted"; outside_planted="$(outside_snapshot)"
+PRELUDE="mkdir() { if [[ \"\${@: -1}\" == */.acme/skills ]]; then ln -s ${OUTSIDE}/planted -- \"\${@: -1}\"; return 1; fi; command mkdir \"\$@\"; }"
+reconcile; PRELUDE=""
+if has_row agent-dir-untrusted "${HOME_DIR}" && [[ "${RC}" == 4 && -L "${HOME_DIR}/.acme/skills" ]] \
+        && [[ "$(outside_snapshot)" == "${outside_planted}" ]] \
+        && [[ "$(readlink -- "${HOME_DIR}/.beta/skills/acme-pdf")" == "${HOME_DIR}/skills/acme-pdf" ]]; then
+    pass "a symlink planted at the kind directory's name between the plan and the apply: refused, its target keeps its owner, mode and entries, and the sibling agent's link is placed"
+else
+    fail "a planted symlink: rc ${RC}, the target is $(stat -c '%U %a' "${OUTSIDE}/planted" 2>&1) holding '$(ls -A "${OUTSIDE}/planted" 2>&1 | tr '\n' '|')', ${OUT:0:300}"
+fi
+rm -f "${HOME_DIR}/.acme/skills"; rm -rf "${OUTSIDE}/planted"
 # The directories holding a destination are checked before an absent one is created: a create through a refused home
-# root is a write into the tree the plan refused to act in. INSTALL_LOG records each install the apply ran.
-INSTALL_LOG="${TESTDIR}/install.log"
-RECORD_INSTALL="install() { printf '%s\\n' \"\$*\" >> ${INSTALL_LOG}; command install \"\$@\"; }"
+# root is a write into the tree the plan refused to act in. CREATE_LOG records each directory the apply created
+# under the home or outside it.
+CREATE_LOG="${TESTDIR}/create.log"
+RECORD_CREATE="mkdir() { case \"\${@: -1}\" in ${HOME_DIR}/*|${OUTSIDE}/*) printf '%s\\n' \"\${@: -1}\" >> ${CREATE_LOG} ;; esac; command mkdir \"\$@\"; }"
 two_agents; rm -rf "${HOME_DIR}/subagents"; mv "${HOME_DIR}" "${TESTDIR}/home-real"; ln -s "${OUTSIDE}" "${HOME_DIR}"
-PRELUDE="${RECORD_INSTALL}"; reconcile; PRELUDE=""
+PRELUDE="${RECORD_CREATE}"; reconcile; PRELUDE=""
 destination_case "a symlinked home root with an absent view child" view-dir-untrusted
-if [[ ! -s "${INSTALL_LOG}" ]] && absent "${OUTSIDE}/subagents"; then
-    pass "a symlinked home root with an absent view child: no install ran, and the child is not created through the link"
+if [[ ! -s "${CREATE_LOG}" ]] && absent "${OUTSIDE}/subagents"; then
+    pass "a symlinked home root with an absent view child: no directory was created, and the child is not created through the link"
 else
-    fail "a symlinked home root: install ran '$(cat "${INSTALL_LOG}" 2>/dev/null | tr '\n' '|')', $(ls -la "${OUTSIDE}" | tr '\n' '|')"
+    fail "a symlinked home root: created '$(cat "${CREATE_LOG}" 2>/dev/null | tr '\n' '|')', $(ls -la "${OUTSIDE}" | tr '\n' '|')"
 fi
-rm -f "${HOME_DIR}" "${INSTALL_LOG}"; mv "${TESTDIR}/home-real" "${HOME_DIR}"
+rm -f "${HOME_DIR}" "${CREATE_LOG}"; mv "${TESTDIR}/home-real" "${HOME_DIR}"
 two_agents; rm -rf "${HOME_DIR}/subagents"; chown "${PROJECTS_USER}" "${HOME_DIR}"
-PRELUDE="${RECORD_INSTALL}"; reconcile; PRELUDE=""; chown root "${HOME_DIR}"
-if has_row view-dir-untrusted "${HOME_DIR}" && [[ "${RC}" == 4 && ! -s "${INSTALL_LOG}" ]] && absent "${HOME_DIR}/subagents"; then
-    pass "a home root owned by the projects user with an absent view child: refused, no install ran, the child absent"
+PRELUDE="${RECORD_CREATE}"; reconcile; PRELUDE=""; chown root "${HOME_DIR}"
+if has_row view-dir-untrusted "${HOME_DIR}" && [[ "${RC}" == 4 && ! -s "${CREATE_LOG}" ]] && absent "${HOME_DIR}/subagents"; then
+    pass "a home root owned by the projects user with an absent view child: refused, no directory created, the child absent"
 else
-    fail "a home root owned by the projects user: rc ${RC}, install ran '$(cat "${INSTALL_LOG}" 2>/dev/null | tr '\n' '|')', ${OUT:0:300}"
+    fail "a home root owned by the projects user: rc ${RC}, created '$(cat "${CREATE_LOG}" 2>/dev/null | tr '\n' '|')', ${OUT:0:300}"
 fi
-rm -f "${INSTALL_LOG}"
-two_agents; rm -rf "${HOME_DIR}/subagents"; PRELUDE="${RECORD_INSTALL}"; reconcile; PRELUDE=""
-if [[ "${RC}" == 0 && "$(stat -c '%U %a' "${HOME_DIR}/subagents")" == "root 750" ]] && grep -q -- "${HOME_DIR}/subagents" "${INSTALL_LOG}" \
+rm -f "${CREATE_LOG}"
+two_agents; rm -rf "${HOME_DIR}/subagents"; PRELUDE="${RECORD_CREATE}"; reconcile; PRELUDE=""
+if [[ "${RC}" == 0 && "$(stat -c '%U %a' "${HOME_DIR}/subagents")" == "root 750" ]] && grep -qx -- "${HOME_DIR}/subagents" "${CREATE_LOG}" \
         && linked subagents/acme-reviewer.md "${PKG}/acme/agents/acme-reviewer.md"; then
     pass "control: a trusted home root with an absent view child creates it root 0750 and links into it"
 else
-    fail "control: rc ${RC}, $(stat -c '%U %a' "${HOME_DIR}/subagents" 2>&1), install ran '$(cat "${INSTALL_LOG}" 2>/dev/null | tr '\n' '|')'"
+    fail "control: rc ${RC}, $(stat -c '%U %a' "${HOME_DIR}/subagents" 2>&1), created '$(cat "${CREATE_LOG}" 2>/dev/null | tr '\n' '|')'"
 fi
-rm -f "${INSTALL_LOG}"
+rm -f "${CREATE_LOG}"
 
 # ── The planning half does not write ─────────────────────────────────────────────────────────────────────────────────
 section "assets: the plan reads and does not write"

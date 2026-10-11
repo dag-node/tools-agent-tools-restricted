@@ -1428,16 +1428,20 @@ _ai_tools_assets__record_dir_row() {
 # <dir> and the directories that hold it to _ai_tools_assets__is_destination_trusted, then create an absent <dir>
 # root:<group> 0750 when <create> is 1, and hold the created one to the predicate again. The directories that hold <dir>
 # are checked before the create, since the create is a write through them: a home root that is a symlink or not root's
-# alone would otherwise take a directory the plan refused to act in. `install -d` over an existing directory re-owns
-# and re-modes it, the repair this library does not make, so the create is guarded by the name's absence. A name taken
-# between the plan and here is found by the check that follows the create. Prints the directory that fails and returns
-# 1; returns 2 for an absent directory left absent.
+# alone would otherwise take a directory the plan refused to act in. The create is `mkdir`, which fails on a name that
+# exists and does not follow a symlink there: an agent's kind directory sits in a config directory the sandbox account
+# writes, and `install -d` on a link that account planted between the plan and here would re-own and re-mode the link's
+# target as root. A name taken in that window, a directory or a link, is left as found and refused by the check
+# that follows the create; an existing directory is not re-owned or re-moded, the repair this library does not make.
+# Prints the directory that fails and returns 1; returns 2 for an absent directory left absent.
 _ai_tools_assets__prepare_dir() {
     local which="$1" directory="$2" group="$3" create="$4"
     _ai_tools_assets__is_destination_trusted "${which}" "${directory}" || return 1
     if [[ ! -e "${directory}" && ! -L "${directory}" ]]; then
         (( create )) || return 2
-        install -d -o root -g "${group}" -m 0750 -- "${directory}" 2>/dev/null || true
+        if mkdir -m 0750 -- "${directory}" 2>/dev/null; then
+            chown -h root:"${group}" -- "${directory}" 2>/dev/null || true
+        fi
         _ai_tools_assets__is_destination_trusted "${which}" "${directory}" || return 1
     fi
     [[ -d "${directory}" ]] || { printf '%s' "${directory}"; return 1; }
