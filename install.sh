@@ -1293,6 +1293,11 @@ do_install() {
         "install started (projects user ${PROJECTS_USER}, sandbox ${SANDBOX_USER}:${SANDBOX_GROUP})" \
         2>/dev/null || true
 
+    # Stop the relabel watcher for the run: the files this install writes under /opt/ai-tools/bin trigger
+    # ai-tools-relabel.service, and a run mid-install executes the helper of one release against the libraries
+    # of another. The service step at the end starts it again, and the SELinux step relabels once.
+    systemctl stop ai-tools-relabel.path 2>/dev/null || true
+
     section "System files (root-owned)"
 
     # All ai-tools sudo-helpers live under one dir (parallels /usr/local/lib/ai-tools). libexec, not sbin:

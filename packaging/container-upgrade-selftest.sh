@@ -166,6 +166,26 @@ notice_names_all() {
     done
     grep -qE 'Summary: .* \(exit [45]\)$' <<< "${section}"
 }
+# relabel_ran_once_after : ai-tools-relabel.service ran exactly once since the cursor taken before the upgrade,
+# and that run succeeded. Base's pretrans stops the watcher before the first file is placed, so no run starts inside
+# the transaction, and its posttrans starts the service once every package is placed; the run is queued without
+# waiting, so the check first waits for its job to leave the queue and the unit to leave `activating`. A run is read
+# from the manager's own lines for the unit, one `Finished` or `Failed to start` per run.
+relabel_ran_once_after() {
+    local lines runs
+    [[ -n "${RELABEL_CURSOR}" ]] || { echo "no journal cursor was taken before the upgrade"; return 1; }
+    # shellcheck disable=SC2016  # the inner shell's own expansions
+    timeout 600 bash -c 'while systemctl list-jobs --no-legend 2>/dev/null | grep -q ai-tools-relabel.service \
+            || [[ "$(systemctl show -p ActiveState --value ai-tools-relabel.service)" == activating ]]; do sleep 1; done' \
+        || { echo "the relabel run did not finish within the wait"; return 1; }
+    lines="$(journalctl -q -u ai-tools-relabel.service --after-cursor="${RELABEL_CURSOR}" -o cat 2>/dev/null)"
+    printf '%s\n' "${lines}"
+    runs="$(grep -cE '^(Finished|Failed to start) ' <<< "${lines}")"
+    [[ "${runs}" == 1 ]] || { echo "runs since the upgrade began: ${runs}, want 1"; return 1; }
+    grep -q '^Finished ' <<< "${lines}" || { echo "the one run did not finish successfully"; return 1; }
+    [[ "$(systemctl show -p Result --value ai-tools-relabel.service)" == success ]] \
+        || { echo "the unit's result is $(systemctl show -p Result --value ai-tools-relabel.service)"; return 1; }
+}
 second_reconcile_quiet() {
     local stream
     stream="$("${ADMIN}" assets reconcile 2>/dev/null)" || true
@@ -184,10 +204,12 @@ if [[ "${UPGRADE_SCENARIO}" == key-first ]]; then
     printf 'AI_TOOLS_ASSETS=[%s]\n' "$(IFS=,; printf '%s' "${CORE_IDS[*]}" | sed 's/,/, /g')" >> "${CONF}"
 fi
 
+RELABEL_CURSOR="$(journalctl -q -n0 --show-cursor 2>/dev/null | sed -n 's/^-- cursor: //p')"
 # shellcheck disable=SC2016  # PIPESTATUS is the inner shell's
 phase "dnf upgrade to this tree's build" \
     bash -c 'dnf -y --repo=ai-tools-local upgrade "ai-tools*" 2>&1 | tee /tmp/upgrade.log; exit "${PIPESTATUS[0]}"'
 phase "the base package is this tree's build" bash -c "! rpm -q 'ai-tools-base-${FROM_VERSION}' >/dev/null"
+phase "ai-tools-relabel.service ran exactly once, after every package was placed, and succeeded" relabel_ran_once_after
 phase "each withdrawn copy is moved under retired/" withdrawn_retired
 phase "no agent keeps a link to a withdrawn name" no_agent_link_to_withdrawn
 

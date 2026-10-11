@@ -666,6 +666,16 @@ done
 # ─────────────────────────────────────────────────────────────────────────────
 # Scriptlets
 # ─────────────────────────────────────────────────────────────────────────────
+%pretrans -n ai-tools-base -p <lua>
+-- Stop the relabel watcher for the transaction. Base's files under /opt/ai-tools/bin trigger
+-- ai-tools-relabel.service (ai-tools-relabel.path watches that directory), and a run inside the
+-- transaction executes the helper of one release against the libraries of another; base's posttrans
+-- starts the watcher again and runs the service once every package is placed. Lua, since pretrans
+-- runs before any file of a fresh install exists; there the unit is unknown and the stop is ignored.
+if posix.access("/usr/bin/systemctl", "x") then
+    pcall(rpm.execute, "/usr/bin/systemctl", "stop", "ai-tools-relabel.path")
+end
+
 %pre -n ai-tools-base
 # Create the ai-tools system account before any file owned by it is unpacked.
 %sysusers_create_compat %{SOURCE1}
@@ -878,6 +888,12 @@ cat >/dev/null 2>&1 || :
 # Start the socket so the handback is live without a reboot (posttrans runs after the systemd
 # daemon-reload file trigger). Idempotent; guarded so a systemd-less build/image fails soft.
 systemctl start ai-tools-handback.socket 2>/dev/null || :
+# Start the relabel watcher pretrans stopped, and run the relabel once now that every package is
+# placed, so the unit's recorded result is this release's run and not one from inside the
+# transaction; `--no-block`, since the run may verify the entrypoint against its release manifest.
+# Idempotent; a host without the nodejs integration has no such unit and fails soft.
+systemctl start ai-tools-relabel.path 2>/dev/null || :
+systemctl start --no-block ai-tools-relabel.service 2>/dev/null || :
 
 # Re-assert setgid after all file ops (some rpm re-applies %attr after %post, dropping it). Paired
 # with the %post copy; both idempotent. See the %post comment for the container-image caveat.
@@ -1071,6 +1087,10 @@ fi
 # known. Idempotent; guarded so a systemd-less build/image fails soft.
 # (No macro names in this comment: rpm expands macros inside scriptlet comments too.)
 systemctl start ai-tools-relabel.path 2>/dev/null || :
+# The nvm-update units are `--user` units of the sandbox account, and the systemd file triggers reload
+# the system manager alone: a running user manager keeps the unit text it loaded until it is told.
+# Reached over the machine transport where it runs; where it does not, no loaded unit is stale.
+systemctl --user -M ai-tools@.host daemon-reload 2>/dev/null || :
 
 %post -n ai-tools-integration-dotnet
 # Create + SELinux-label the sandbox-side dotnet dirs (writable NuGet cache, read-only shared

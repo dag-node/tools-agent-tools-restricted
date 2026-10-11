@@ -654,7 +654,10 @@ provisioning](#toolchain-provisioning-system-bootstrap)). Two further paths run 
   the socket needs). Enabling a `.path` unit does not start it, so the `ai-tools-integration-nodejs` `%posttrans` starts
   it — the twin of `ai-tools-base`'s `%posttrans` starting the handback socket — making the watcher live on a fresh
   install without a reboot; it is also restarted across upgrades (`%postun_with_restart`), so it runs without a manual
-  bootstrap. Should it be down anyway, `services.lib.sh` surfaces it before the next Node bump would fail-close a launch
+  bootstrap. Across a package transaction the watcher is **stopped**: `ai-tools-base`'s `%pretrans` stops it before any
+  file is placed, and its `%posttrans` starts it again and runs the service once, since a run inside the transaction
+  executes the helper of one release against the libraries of another. `install.sh` stops it the same way for its run.
+  Should it be down anyway, `services.lib.sh` surfaces it before the next Node bump would fail-close a launch
   on a mislabelled entrypoint: proactively at launch (`launch-wrapper.lib.sh` warns, warn-not-block, from the same
   registry) and in `ai-tools status` (see [cli](cli.rule.md)).
 - **On demand**, through `sudo ai-tools-admin system entrypoints relabel`, which runs the same helper as root. It is
