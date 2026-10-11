@@ -288,7 +288,9 @@ else
 fi
 
 # ── Withdrawal ───────────────────────────────────────────────────────────────────
-# Property 5, and the marker gate on this side. The live copy from the seeding run is still in place.
+# Property 5, and the marker gate on this side. The live copy from the seeding run is still in place. The live root is
+# setgid, as /opt/ai-tools is, so retired/ is born with the bit its mode check below must not find.
+chmod g+s "${LIVE}"
 out="$(ai_tools_managed_assets__remove_retired_assets "${LIVE}" skills 2>&1)" || true
 if [[ ! -e "${LIVE}/skills/${WITHDRAWN_SKILL}" ]]; then
     pass "a withdrawn asset is removed from the live root"
@@ -306,6 +308,14 @@ if [[ "$(stat -c '%a %U' "${LIVE}/retired")" == "700 root" ]]; then
     pass "retired/ is 0700 root-owned (operator recovery material, unreachable from the sandbox)"
 else
     fail "retired/ is $(stat -c '%a %U' "${LIVE}/retired"), expected 700 root"
+fi
+# A retired/ that already carries the bit, with nothing left to withdraw, is cleared by the next pass.
+chmod g+s "${LIVE}/retired"
+out="$(ai_tools_managed_assets__remove_retired_assets "${LIVE}" skills 2>&1)" || true
+if [[ "$(stat -c '%a' "${LIVE}/retired")" == "700" ]]; then
+    pass "a setgid retired/ is cleared to 0700 by a pass with nothing to withdraw"
+else
+    fail "a setgid retired/ is $(stat -c '%a' "${LIVE}/retired") after a pass, expected 700: ${out}"
 fi
 
 reset_roots

@@ -450,6 +450,11 @@ ai_tools_managed_assets__remove_retired_assets() {
     fi
     local entry kind name path successor successor_set present
     local -a successor_sets=()
+    # A directory under the setgid live root is born setgid, and a numeric mode does not clear the bit, so the pass
+    # clears it on an existing retired/ as well as on the one withdraw_asset creates: every host reads 0700.
+    if [[ -d "${live_root}/retired" && ! -L "${live_root}/retired" ]]; then
+        chmod g-s "${live_root}/retired" 2>/dev/null || true
+    fi
     for entry in "${AI_TOOLS_MANAGED_ASSETS__RETIRED[@]}"; do
         kind="${entry%%/*}"; name="${entry#*/}"
         _ai_tools_managed_assets__require_kinds "ai_tools_managed_assets__remove_retired_assets (AI_TOOLS_MANAGED_ASSETS__RETIRED: ${entry})" \
@@ -521,6 +526,7 @@ ai_tools_managed_assets__withdraw_asset() {
     retired_dir="${live_root}/retired"
     if ! declare -F ai_tools_conf__find_sidecar_path >/dev/null 2>&1 \
        || ! install -d -o root -g root -m 700 "${retired_dir}" 2>/dev/null \
+       || ! chmod g-s "${retired_dir}" 2>/dev/null \
        || ! target="$(ai_tools_conf__find_sidecar_path "${retired_dir}/${name}" retired)" \
        || ! mv "${path}" "${target}" 2>/dev/null; then
         _ai_tools_managed_assets__say "${name} kept (${reason}, and could not be moved aside)"
