@@ -854,9 +854,11 @@ the state round trip through the services reader with a forged value read as no 
 and the launch step over a fixture state file and a fixture admission lock with the removal stubbed: the cleaner holds
 the lock shared once its records are written, a launch beside a held lock skips each due group, one arriving while
 the cleaner removes is admitted after it and removes nothing it cleaned, a group a partial removal left due is not
-retried under the cleaner's session, and an absent lock file leaves the launch unadmitted. The removals need root,
-which builds the root-owned fixture home the trust predicate accepts and runs each one through `as_sandbox`;
-against a source-tree library they skip, as `sandbox-exec.sh` does.
+retried under the cleaner's session, an absent lock file leaves the launch unadmitted, a session the manager lists
+with the lock free is skipped as a session and an unreadable listing as unknown, and a writer holding the state lock
+makes the due test wait and read the fresh cleanup it then holds. The removals need root, which builds the root-owned
+fixture home the trust predicate accepts and runs each one through `as_sandbox`; against a source-tree library they
+skip, as `sandbox-exec.sh` does.
 
 `sandbox-exec.sh` pins the execution boundary (`sandbox-exec.lib.sh`, see [updater](updater.rule.md)), the one route
 by which a root process runs a file the sandbox account can write, and every assertion is a way that route could hand

@@ -496,12 +496,15 @@ and `ai-tools-bootstrap` before its first, whatever is running. npx's packages a
 by a running session, so a session launch empties them ([launch](launch.rule.md)), at most once in the library's
 interval and only as the **cleaner**: the launch that takes the admission lock
 (`/var/opt/ai-tools/state/cache-cleanup.lock`, `0440 root:SANDBOX_GROUP`, created like the state file) exclusive,
-which every admitted session holds shared from its launch until the shim's process ends with the unit, so no session is
-running or stopping while a removal runs, and a launch arriving during one is admitted once the cleaner has written its
-records and shared the lock. A launch not admitted within the bound starts without cleaning. The lock keeps a running
-session working; the walk is what makes the removal safe, so a session holding the lock -- the account opens the file,
-so it can -- delays a cleanup by at most the bound or skips it, and reaches only its own account's cache, removed
-without following a link.
+which every admitted session holds shared from its launch until the shim's process ends with the unit, and whose user
+manager lists no session unit of the account in a state other than inactive or failed. The two cover each other's blind
+spot: a launch arriving during a removal is admitted once the cleaner has written its records and shared the lock,
+which a listing cannot see, and the listing counts a session the lock does not represent -- one an older shim started,
+one whose launch was not admitted within its wait, one whose client ended before its unit -- `deactivating` among its
+states, so a unit still ending its processes keeps its caches. A launch not admitted within the bound starts without
+cleaning, and its unit is listed from then on. The lock and the listing keep a running session working; the walk is
+what makes the removal safe, so a session holding the lock -- the account opens the file, so it can -- delays a cleanup
+by at most the bound or skips it, and reaches only its own account's cache, removed without following a link.
 
 **A link is a finding where its producer writes none** (`MSG-J4Y8`). npm's content cache and node's compile cache do not
 hold a link, so one there was planted or left by a broken copy of the home; npx's cache holds npm's `node_modules/.bin`
@@ -512,9 +515,10 @@ stop the cleanup for good, and the volume would fill.
 `/var/opt/ai-tools/state/cache-cleanup.status` is `0640 SANDBOX_USER:ai-ops`, created by base's `%post`
 and `install.sh`, and rewritten in place by its writers under a `flock` on the file, in the shared `KEY=value` grammar,
 one block per group. The path is a constant: its writers run as the account, and a variable that account could set would
-move a write the unconfined updater makes. The one decision it feeds is the launch's due test, so a forged value stops
-the account's own caches being cleaned, which costs disk and does not widen access. `FIRST_CHECKED` dates a group's
-first record and is kept across every later one, so a launch-timed group never removed is judged by that age
+move a write the unconfined updater makes. The one decision it feeds is the launch's due test, which reads it
+under that `flock`, so a writer's truncate-and-rewrite mid-read does not read as a group never cleaned; a forged value
+stops the account's own caches being cleaned, which costs disk and does not widen access. `FIRST_CHECKED` dates
+a group's first record and is kept across every later one, so a launch-timed group never removed is judged by that age
 where the reports count a stale one. Both status reports render it through the stamp reader's defences
 ([cli](cli.rule.md)). The interval, the launch bound and the age past which the reports count a launch-cleaned cache are
 `readonly` constants in the library; `operator.conf` does not carry a key for them.

@@ -142,20 +142,22 @@ section "cache-cleanup: the launch step (unit)"
 launch_state="${TESTDIR}/launch.status"
 launch_lock="${TESTDIR}/launch.lock"
 launch_calls="${TESTDIR}/launch-calls"
-# launch_step [removal-seconds] [hold-seconds] [partial-group] : run remove_due_groups with the removal stubbed to take
-#   <removal-seconds> and to report <partial-group> as `partial timeout`. The removals it asks for are appended
+# launch_step [removal-seconds] [hold-seconds] [partial-group] [session-count] : run remove_due_groups
+#   with the removal stubbed to take <removal-seconds> and to report <partial-group> as `partial timeout`,
+#   and the manager's listing stubbed to <session-count> (0 by default). The removals it asks for are appended
 #   to launch_calls; stdout carries the records it collected, one per line, then the admission the subshell holds,
 #   probed from another process (`admission held shared|held exclusive|unheld`), which it keeps for <hold-seconds>.
 launch_step() {
     (
-        stub_seconds="${1:-0}" stub_hold="${2:-0}" stub_partial="${3:-}"
+        stub_seconds="${1:-0}" stub_hold="${2:-0}" stub_partial="${3:-}" stub_sessions="${4:-0}"
+        ai_tools_cache_cleanup__read_active_session_count() { printf 'listing %s\n' "$1" >> "${launch_calls}"; printf '%s' "${stub_sessions}"; }
         ai_tools_cache_cleanup__remove_group() {
             printf 'remove %s %s\n' "$2" "$3" >> "${launch_calls}"; sleep "${stub_seconds}"
             if [[ "$2" == "${stub_partial}" ]]; then printf '%s\tpartial\t0\t0\ttimeout\n' "$2"
             else printf '%s\tremoved\t1048576\t0\t-\n' "$2"; fi
         }
         declare -a records=()
-        ai_tools_cache_cleanup__remove_due_groups "${TESTDIR}" "${launch_state}" "${launch_lock}" records
+        ai_tools_cache_cleanup__remove_due_groups "${TESTDIR}" "${launch_state}" "${launch_lock}" 'acct-*-*.service' records
         (( ${#records[@]} == 0 )) || printf '%s\n' "${records[@]}"
         if /usr/bin/flock -n -x "${launch_lock}" -c true 2>/dev/null; then printf 'admission unheld\n'
         elif /usr/bin/flock -n -s "${launch_lock}" -c true 2>/dev/null; then printf 'admission held shared\n'
@@ -167,8 +169,8 @@ reset_lock() { rm -f "${launch_lock}"; : > "${launch_lock}"; chmod 0440 "${launc
 : > "${launch_state}"; : > "${launch_calls}"; reset_lock
 out="$(launch_step)"
 [[ "$(grep -c '^remove ' "${launch_calls}")" == 2 && "$(grep -c '^remove npm-cache' "${launch_calls}")" == 0 \
-   && "$(grep -c $'\tremoved\t' <<<"${out}")" == 2 ]] \
-    && pass "never cleaned, no session: the launch is the cleaner, both launch groups are removed and the nightly group is not" \
+   && "$(grep -c $'\tremoved\t' <<<"${out}")" == 2 && "$(grep -c '^listing acct-\*-\*.service$' "${launch_calls}")" == 1 ]] \
+    && pass "never cleaned, no session held or listed: the launch is the cleaner, both launch groups are removed and the nightly group is not" \
     || fail "first launch: calls '$(tr '\n' '|' <"${launch_calls}")', records '$(tr '\n\t' '|>' <<<"${out}")'"
 grep -qx 'admission held shared' <<<"${out}" \
     && pass "the cleaner holds the admission shared once its records are written" \
@@ -181,9 +183,37 @@ grep -qE '^remove (npx|node-compile) (29|30)$' "${launch_calls}" \
     && pass "the removals are recorded with CLEANED and FIRST_CHECKED" || fail "state after a launch: $(tr '\n' '|' <"${launch_state}")"
 : > "${launch_calls}"
 out="$(launch_step)"
-[[ "${out}" == 'admission held shared' && ! -s "${launch_calls}" ]] \
+[[ "${out}" == 'admission held shared' && "$(grep -c '^remove ' "${launch_calls}")" == 0 ]] \
     && pass "a launch with no group due takes its admission and reads the state alone: no removal, no record" \
     || fail "second launch: calls '$(tr '\n' '|' <"${launch_calls}")', output '$(tr '\n\t' '|>' <<<"${out}")'"
+# The lock is free and the manager lists a session the lock does not represent -- an older shim's, or one whose launch
+# was not admitted -- so the exclusive holder is not the cleaner: nothing removed, each due group skipped sessions,
+# and the admission still held shared for the session this launch starts. A listing that could not be read reads
+# the same way under `unknown`.
+for listed_case in 2 unknown; do
+    : > "${launch_state}"; : > "${launch_calls}"
+    out="$(launch_step 0 0 '' "${listed_case}")"
+    want_reason=sessions; [[ "${listed_case}" == unknown ]] && want_reason=unknown
+    [[ "$(grep -c '^remove ' "${launch_calls}")" == 0 && "$(grep -c $'\tskipped\t0\t0\t'"${want_reason}"'$' <<<"${out}")" == 2 ]] \
+       && grep -qx 'admission held shared' <<<"${out}" \
+        && pass "a listing of ${listed_case} with the lock free skips both groups as ${want_reason}, and the launch keeps its admission" \
+        || fail "listing ${listed_case}: calls '$(tr '\n' '|' <"${launch_calls}")', output '$(tr '\n\t' '|>' <<<"${out}")'"
+done
+# The due test reads the state under its lock: a writer holding it -- the nightly updater mid-rewrite, whose write
+# truncates the file first -- makes the cleaner wait, and the fresh CLEANED values it then reads are not due.
+: > "${launch_state}"; : > "${launch_calls}"
+ai_tools_cache_cleanup__write_state_locked "${launch_state}" $'npx\tremoved\t1\t0\t-' $'node-compile\tremoved\t1\t0\t-'
+/usr/bin/flock -x "${launch_state}" sleep 1.5 &
+writer_holder=$!
+sleep 0.2
+started=${SECONDS}
+out="$(launch_step)"
+waited=$(( SECONDS - started ))
+wait "${writer_holder}" || true
+[[ "$(grep -c '^remove ' "${launch_calls}")" == 0 ]] && (( waited >= 1 )) && ! grep -q $'\t' <<<"${out}" \
+   && grep -qx 'admission held shared' <<<"${out}" \
+    && pass "the due test waits for the state lock a writer holds (waited ${waited}s) and reads the fresh cleanup rather than an empty file" \
+    || fail "state locked by a writer: waited ${waited}s, calls '$(tr '\n' '|' <"${launch_calls}")', output '$(tr '\n\t' '|>' <<<"${out}")'"
 # A session holds the admission shared: the launch is admitted beside it at once and removes nothing, each due group
 # recorded skipped sessions.
 : > "${launch_state}"; : > "${launch_calls}"

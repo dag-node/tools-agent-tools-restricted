@@ -50,9 +50,10 @@ readonly AI_TOOLS_CACHE_CLEANUP__STATE_FILE="/var/opt/ai-tools/state/cache-clean
 # The admission lock beside the state file: every session launch holds it shared from its admission to the end of its
 # unit (the shim's process lives as long as systemd-run waits for the unit), and the launch that removes a launch-timed
 # group holds it exclusive from the due test to the state write. A launch is the cleaner only where no session holds
-# the lock, and no session is admitted while the cleaner holds it, so a removal and a session's start do not overlap,
-# and a unit still stopping keeps its caches. It is a file of its own, root-owned and readable by the account, since
-# the state file's lock serializes that file's writers, which the nightly updater is while sessions run.
+# the lock and the user manager lists no session unit, and no session is admitted while the cleaner holds it,
+# so a removal and a session's start do not overlap, and a unit still stopping keeps its caches. It is a file of its
+# own, root-owned and readable by the account, since the state file's lock serializes that file's writers, which
+# the nightly updater is while sessions run.
 # shellcheck disable=SC2034  # read by ai-tools-run
 readonly AI_TOOLS_CACHE_CLEANUP__ADMISSION_LOCK="/var/opt/ai-tools/state/cache-cleanup.lock"
 readonly AI_TOOLS_CACHE_CLEANUP__LAUNCH_INTERVAL_SECONDS=604800
@@ -438,33 +439,70 @@ ai_tools_cache_cleanup__release_admission() {
     AI_TOOLS_CACHE_CLEANUP__ADMISSION=unadmitted
 }
 
-# ai_tools_cache_cleanup__remove_due_groups <home> <state-file> <admission-lock> <records-array-name> : admit this
-#   launch through <admission-lock> and remove each launch-timed group under <home> that is due, appending each record
-#   to the caller's array. The admission is taken in this process and kept, shared, until the process ends: the caller
-#   is the shim, whose process ends with the session unit it waits for. As the cleaner -- no session held the lock --
-#   the step stays inside one bound: each removal takes the time left, the records are written under <state-file>'s
-#   own lock within what remains, and the admission is then shared. Admitted beside a session, or unadmitted, a due
-#   group is recorded `skipped` with its reason (`sessions`, or `unknown`), so the reports show why. With no group
-#   due the admission is taken and the state read alone. Each skip is journalled under the caller's AI_TOOLS_LOG_TAG,
-#   as each removal is. Always 0: housekeeping is not a launch gate.
+# ai_tools_cache_cleanup__read_active_session_count <unit-glob> : print how many of this account's service units
+#   matching <unit-glob> the user manager lists in a state other than inactive or failed -- active, activating
+#   and deactivating, a unit still ending its processes among them -- or `unknown` where the listing could not be read
+#   within five seconds. The caller passes the glob its own session unit names match; a launch reads it before its own
+#   unit exists, so every unit it counts is another session, whether or not its launch holds the admission lock: one
+#   an older shim started, one whose launch was not admitted within its wait, one whose client ended before its unit.
+ai_tools_cache_cleanup__read_active_session_count() {
+    local unit_glob="${1:-}" units unit active count=0
+    [[ -n "${unit_glob}" ]] || { printf 'unknown'; return 0; }
+    units="$(/usr/bin/timeout 5 /usr/bin/systemctl --user list-units --type=service --all --plain --no-legend \
+                 2>/dev/null)" || { printf 'unknown'; return 0; }
+    # The unit name and its active state are the first and third space-separated columns; the split is pinned, since
+    # the library is sourced into a script that sets IFS to newline and tab, where the whole line would read as the name.
+    while IFS=$' \t' read -r unit _ active _; do
+        # shellcheck disable=SC2053  # the glob is the caller's constant, matched as a pattern
+        [[ -n "${unit}" && "${unit}" == ${unit_glob} && "${active}" != inactive && "${active}" != failed ]] \
+            && count=$(( count + 1 ))
+    done <<<"${units}"
+    printf '%s' "${count}"
+}
+
+# ai_tools_cache_cleanup__remove_due_groups <home> <state-file> <admission-lock> <session-unit-glob>
+#   <records-array-name> : admit this launch through <admission-lock> and remove each launch-timed group under <home>
+#   that is due, appending each record to the caller's array. The admission is taken in this process and kept, shared,
+#   until the process ends: the caller is the shim, whose process ends with the session unit it waits for. The launch
+#   is the cleaner where no session held the lock AND the user manager lists no session unit matching
+#   <session-unit-glob> that is not inactive or failed: the lock covers the launch arriving during the removal, which
+#   the listing cannot see, and the listing covers the session the lock does not represent. As the cleaner the step
+#   stays inside one bound: the due test is read under <state-file>'s own lock, so a writer's rewrite mid-read does not
+#   read as a group never cleaned, each removal takes the time left, the records are written under that lock within
+#   what remains, and the admission is then shared. Beside a session, or unadmitted, a due group is recorded `skipped`
+#   with its reason (`sessions`, or `unknown`), so the reports show why; a state lock not taken within the bound records
+#   nothing. With no group due the admission is taken and the state read alone. Each skip is journalled under
+#   the caller's AI_TOOLS_LOG_TAG, as each removal is. Always 0: housekeeping is not a launch gate.
 ai_tools_cache_cleanup__remove_due_groups() {
-    local home="${1:-}" state="${2:-}" lock="${3:-}" bound="${AI_TOOLS_CACHE_CLEANUP__LAUNCH_BOUND_SECONDS}"
-    local -n _ai_tools_cache_cleanup__records_out="$4"
+    local home="${1:-}" state="${2:-}" lock="${3:-}" unit_glob="${4:-}" bound="${AI_TOOLS_CACHE_CLEANUP__LAUNCH_BOUND_SECONDS}"
+    local -n _ai_tools_cache_cleanup__records_out="$5"
     local group timing now deadline other_sessions verdict record remaining
     local -a launch_records=()
+    local -A cleaned_epoch=()
+    _ai_tools_cache_cleanup__records_out=()
     deadline=$(( SECONDS + bound ))
     ai_tools_cache_cleanup__admit_session "${lock}" "${bound}"
     case "${AI_TOOLS_CACHE_CLEANUP__ADMISSION}" in
-        cleaner)  other_sessions=0 ;;
+        cleaner)  other_sessions="$(ai_tools_cache_cleanup__read_active_session_count "${unit_glob}")" ;;
         admitted) other_sessions=1 ;;
         *)        other_sessions=unknown
                   _ai_tools_cache_cleanup__log info "launch cleanup: not admitted through ${lock} within ${bound}s" ;;
     esac
+    remaining=$(( deadline - SECONDS )); (( remaining >= 1 )) || remaining=1
+    if ! ai_tools_cache_cleanup__lock "${state}" "${remaining}"; then
+        _ai_tools_cache_cleanup__log info "launch cleanup skipped: ${state} stayed locked for ${remaining}s"
+        [[ "${AI_TOOLS_CACHE_CLEANUP__ADMISSION}" != cleaner ]] || ai_tools_cache_cleanup__share_admission || true
+        return 0
+    fi
+    while IFS=$'\t' read -r group _ timing _ _; do
+        [[ "${timing}" == launch ]] || continue
+        cleaned_epoch["${group}"]="$(ai_tools_cache_cleanup__read_cleaned_epoch "${state}" "${group}")"
+    done < <(ai_tools_cache_cleanup__list_groups)
+    ai_tools_cache_cleanup__unlock
     now="$(/usr/bin/date -u +%s)"
     while IFS=$'\t' read -r group _ timing _ _; do
         [[ "${timing}" == launch ]] || continue
-        verdict="$(ai_tools_cache_cleanup__evaluate_launch "${now}" \
-                       "$(ai_tools_cache_cleanup__read_cleaned_epoch "${state}" "${group}")" "${other_sessions}")"
+        verdict="$(ai_tools_cache_cleanup__evaluate_launch "${now}" "${cleaned_epoch[${group}]:--}" "${other_sessions}")"
         [[ "${verdict}" != not-due ]] || continue
         (( deadline - SECONDS >= 1 )) || [[ "${verdict}" != run ]] || verdict=timeout
         if [[ "${verdict}" == run ]]; then
