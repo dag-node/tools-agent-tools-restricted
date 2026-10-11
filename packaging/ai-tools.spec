@@ -85,7 +85,7 @@ Requires:       gnupg2
 Recommends:     ai-tools-selinux = %{version}-%{release}
 # The writing standard, the engineering and governance skills and the reference-docs subagent are the asset set
 # core's: a fresh install pulls the set, and an upgrade, which does not add a weak dependency, is told to install and
-# enable it by %post and by `ai-tools-admin status`.
+# enable it by %%post and by `ai-tools-admin status`.
 Recommends:     ai-tools-assets-core
 
 %description -n ai-tools-base
@@ -754,10 +754,11 @@ fi
 # behind the set the library seeds.
 # The asset view follows the seeder and the retired-list pass: one link per asset AI_TOOLS_ASSETS enables under
 # /opt/ai-tools/<kind>, and each enabled agent's links into that root (assets.lib.sh). The order is the invariant
-# an upgrade that withdraws an asset an enabled set succeeds relies on: the seeder skips a withdrawn name, the pass moves
-# its live copy aside, and the reconcile then finds the name free and links the set's copy. The three run in the one bash
-# under the assets lock (ai_tools_managed_assets__lock), which the reconcile adopts, so an `ai-tools-admin assets` verb run during
-# the transaction does not interleave its writes with theirs; a lock that cannot be taken skips the three with MSG-M8T9.
+# an upgrade that withdraws an asset an enabled set succeeds relies on: the seeder skips a withdrawn name, the pass
+# moves its live copy aside, and the reconcile then finds the name free and links the set's copy. The three run
+# in the one bash under the assets lock (ai_tools_managed_assets__lock), which the reconcile adopts,
+# so an `ai-tools-admin assets` verb run during the transaction does not interleave its writes with theirs; a lock
+# that cannot be taken skips the three with MSG-M8T9.
 # The reconcile's record stream goes to the assets log, since this scriptlet's stdout is the transaction's;
 # a reconcile that does not complete here runs again from the next trigger or `ai-tools-admin assets reconcile`.
 if command -v bash >/dev/null 2>&1; then
