@@ -1,18 +1,20 @@
 ---
 paths:
-  - "src/usr/share/ai-tools/skills/ai-tools-capable-systems-governance/**"
+  - "README.md"
+  - "docs/about/**"
+  - "docs/sessions/stop.md"
 ---
 
 # Governance posture
 
-The shipped `ai-tools-capable-systems-governance` skill is a general standard for systems that act with autonomy:
+The `ai-tools-agent-governance` skill of the asset set `core` is a general standard for systems that act with autonomy:
 technical constraints bound what a system *can* do, monitoring planes detect what it *is* doing, operational doctrine
 says what humans *do* when a threshold is crossed — and a control the system can decline, disable, or route
 around counts as none of the three. This rule states how that standard lands on **this** deployment, which is both its
 author and one of its subjects.
 
-The skill ships as a draft whose clause numbering moves between versions (see [shipped-assets](shipped-assets.rule.md)),
-so what follows applies its obligations without citing a clause number.
+The skill is a draft whose clause numbering moves between releases of the set, so what follows applies its obligations
+without citing a clause number.
 
 ## Enforced and dispositional
 

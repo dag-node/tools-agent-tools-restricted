@@ -26,7 +26,7 @@
 # a changelog is to find those. Gains follow (NEW), then FIX by severity, then DOCS, so the block still reads forward
 # rather than as a defect list. Do not end on a failure sentence.
 #
-# WRITING AN ENTRY. The full standard is the ai-tools-technical-docs skill, change-docs section; what it comes
+# WRITING AN ENTRY. The full standard is the ai-tools-technical-writing skill, change-docs section; what it comes
 # down to here: one or two sentences, what the operator gains or must do rather than how it was built, a rule or lib
 # named only where that makes the entry shorter, and the gain stated plainly -- an operator deciding whether to upgrade
 # wants the fact, and an entry that sounds sold reads as less trustworthy. Version bumps, tests, refactors, formatting

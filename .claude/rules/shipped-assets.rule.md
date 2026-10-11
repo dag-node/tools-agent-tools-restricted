@@ -67,7 +67,7 @@ paid for in every one of them; the seeder's greps are line-anchored and see the 
 `README.md` — the asset is one short file whose content is its own documentation.
 
 An asset is a **tree**, not a file: a skill may carry supporting material beside its `SKILL.md`
-(`ai-tools-capable-systems-governance/references/framework.md` is the normative text its `SKILL.md` defers
+(`ai-tools-agent-governance/references/framework.md` in the set `core` is the normative text its `SKILL.md` defers
 to, so the working guidance stays short and the long text loads only when it is needed). The seeder copies a directory
 asset whole (`cp -rT`) and applies the modes recursively, and the reconcile places one symlink for the asset's top
 directory, so nesting is handled by both without a special case.

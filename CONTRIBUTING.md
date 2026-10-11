@@ -35,9 +35,10 @@ A per-clone developer opt-in: it sets `core.hooksPath` to `.githooks`
 and quiets git's ignored-hook advice for sandbox-account commits. Two hooks
 come with it, and neither blocks a commit: a `commit-msg` changelog reminder,
 and a `pre-commit` prose report over the lines the commit adds
-(`prose-check.py`, shipped with the `ai-tools-technical-docs` skill). None
-of this ships in the RPM — the package builds only from `src/`, `docs/`,
-the spec, and the compiled policy.
+(`prose-check.py`, shipped with the `ai-tools-technical-writing` skill
+of the asset set `core`, which `bash tools/lib/assets.sh fetch` places in your
+cache). None of this ships in the RPM — the package builds only from `src/`,
+`docs/`, the spec, and the compiled policy.
 
 ## Running the tests
 

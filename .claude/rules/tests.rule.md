@@ -542,7 +542,7 @@ file under `tests/`, alongside a document, a shipped man page, and a source file
 and a man page as a `.BR` cross-reference, while a test and a source file are dropped whatever their extension.
 
 Every section so far pairs a page with what it documents. Two more hold each page to the way a page is **written**,
-against the font and placeholder rules whose home is `references/man-pages.md` in the shipped `ai-tools-technical-docs`
+against the font and placeholder rules whose home is `references/man-pages.md` in the `ai-tools-technical-writing`
 skill; the reference and the check are edited together, so the convention and what enforces it cannot disagree. They
 read the **authored** pages (`man1`, `man5`, `man8`) and leave `ai-tools-messages(7)`
 to the `tools/generators/man-messages.sh` lockstep: each emitter's own string decides that page's markup. The rules are

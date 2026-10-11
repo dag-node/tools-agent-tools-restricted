@@ -219,9 +219,14 @@ if [[ -L /etc/codex/skills && "$(readlink /etc/codex/skills)" == /opt/ai-tools/s
 elif [[ -L /etc/codex/skills ]]; then
     skip "/etc/codex/skills" "a link the host placed elsewhere is kept ($(readlink /etc/codex/skills))"
 elif [[ -d /etc/codex/skills ]]; then
-    if [[ -L /etc/codex/skills/ai-tools-technical-docs \
-            && "$(readlink /etc/codex/skills/ai-tools-technical-docs)" == /opt/ai-tools/skills/* ]]; then
-        pass "/etc/codex/skills is the host's own directory, kept, with the shared assets linked inside it"
+    _codex_link=""
+    for _link in /etc/codex/skills/ai-tools-*; do
+        [[ -L "${_link}" && "$(readlink "${_link}")" == /opt/ai-tools/skills/* ]] && { _codex_link="${_link}"; break; }
+    done
+    if [[ -n "${_codex_link}" ]]; then
+        pass "/etc/codex/skills is the host's own directory, kept, with the shared assets linked inside it (${_codex_link##*/})"
+    elif [[ -z "$(find /opt/ai-tools/skills -mindepth 1 -maxdepth 1 -name 'ai-tools-*' -print -quit 2>/dev/null)" ]]; then
+        skip "/etc/codex/skills" "the host's own directory, kept; the view holds no ai-tools-* skill to link inside it"
     else
         fail "/etc/codex/skills is the host's own directory and the shared assets are not linked inside it -- re-run the install"
     fi
@@ -314,26 +319,34 @@ if source "${_cp_lib}" 2>/dev/null && declare -F ai_tools_control_plane__list_ag
     # enabled: the base pins the mode of an enabled agent's directory only, and the codex package holds it itself.
     (( _codex_cfg_walked )) || check_file /opt/ai-tools/.codex root "${SANDBOX_GROUP}" "${CP_AGENT_CONFIG_MODE}"
     # Each agent's asset directories carry SYMLINKS into the shared roots, not copies -- that is what keeps an asset
-    # authored in one place. Assert a shipped asset of each kind arrived that way, so a regression to per-agent copies
-    # (silently forking the content) fails here. The pairs are <manifest field>:<shared root>:<a shipped asset name>.
-    for _spec in "skills_dir:/opt/ai-tools/skills:ai-tools-technical-docs" \
-                 "subagents_dir:/opt/ai-tools/subagents:ai-tools-reference-architect.md"; do
-        _field="${_spec%%:*}"; _rest="${_spec#*:}"; _root="${_rest%%:*}"; _asset="${_rest#*:}"
-        _marker=""
+    # authored in one place. Per kind, the first ai-tools-* link resolving into the view is the evidence, and any
+    # ai-tools-managed copy beside it is a regression to per-agent copies (silently forking the content), which fails.
+    # Which assets a host links is its AI_TOOLS_ASSETS, so a kind without one skips with the reason. The pairs are
+    # <manifest field>:<shared root>.
+    for _spec in "skills_dir:/opt/ai-tools/skills" "subagents_dir:/opt/ai-tools/subagents"; do
+        _field="${_spec%%:*}"; _root="${_spec#*:}"
         while IFS=$'\t' read -r _agent _dir; do
             [[ -d "${_dir}" ]] || { skip "${_dir}" "not deployed on this host"; continue; }
-            _link="${_dir}/${_asset}"
-            _marker="${_link}"; [[ -d "${_link}" ]] && _marker="${_link}/SKILL.md"
-            if [[ ! -e "${_link}" ]]; then
-                skip "${_link}" "shipped asset not seeded on this host"
-            elif [[ -L "${_link}" && "$(readlink "${_link}")" == "${_root}"/* ]]; then
-                pass "${_link} is a symlink into ${_root}"
-            elif ! grep -qE '^x-ai-tools-managed:[[:space:]]*true' "${_marker}" 2>/dev/null; then
+            _linked=""; _forked=""
+            for _link in "${_dir}"/ai-tools-*; do
+                [[ -e "${_link}" || -L "${_link}" ]] || continue
+                if [[ -L "${_link}" ]]; then
+                    [[ -z "${_linked}" && "$(readlink "${_link}")" == "${_root}"/* ]] && _linked="${_link}"
+                    continue
+                fi
+                _marker="${_link}"; [[ -d "${_link}" ]] && _marker="${_link}/SKILL.md"
                 # A real entry that is NOT ai-tools-managed is the operator's own override, which the linker is
                 # contracted to leave alone -- the feature, not a regression.
-                skip "${_link}" "an operator override sits here (not ai-tools-managed)"
+                if grep -qE '^x-ai-tools-managed:[[:space:]]*true' "${_marker}" 2>/dev/null; then
+                    _forked="${_link}"; break
+                fi
+            done
+            if [[ -n "${_forked}" ]]; then
+                fail "${_forked} is a managed COPY, not a symlink into ${_root} -- the shared asset forks per agent. An identical copy is converted on the next install/bootstrap; one that differs is kept, so reconcile or remove it"
+            elif [[ -n "${_linked}" ]]; then
+                pass "${_linked} is a symlink into ${_root}"
             else
-                fail "${_link} is a managed COPY, not a symlink into ${_root} -- the shared asset forks per agent. An identical copy is converted on the next install/bootstrap; one that differs is kept, so reconcile or remove it"
+                skip "${_dir}" "no ai-tools-* asset of this kind is linked on this host (AI_TOOLS_ASSETS decides which)"
             fi
         done < <(ai_tools_control_plane__list_agent_asset_dirs "${_field}")
     done

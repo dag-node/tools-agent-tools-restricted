@@ -198,8 +198,9 @@ the vocabulary:
   what `agents.d/<name>.conf` describes, what `operator.conf AI_TOOLS_AGENTS`
   enables, and what `ai-tools providers` lists.
 - **subagent** — a delegate role definition an agent reads and dispatches
-  to (the `ai-tools-reference-architect` markdown file). Shared across agents,
-  so it lives in `/opt/ai-tools/subagents` beside `skills`.
+  to (the `ai-tools-reference-docs-maintainer` markdown file of the asset set
+  `core`). Shared across agents, so it lives in `/opt/ai-tools/subagents`
+  beside `skills`.
 
 Claude Code calls the second one "agents" and reads them
 from `<config dir>/agents/`. That is the vendor's layout, not this project's
