@@ -946,6 +946,12 @@ _relabel_helper=/usr/local/libexec/ai-tools/ai-tools-relabel-agent
 if [[ -x "${_relabel_helper}" ]]; then
     "${_relabel_helper}" \
         || warn MSG-C7C8 "entrypoint relabel did not complete -- run 'sudo ai-tools-admin system entrypoints relabel' before launching claude"
+    # The same relabel once more through its unit, queued: the unit keeps the result of its last run, which is
+    # what `ai-tools status` reports, so a FAILED a watcher run left stands until a run through the unit succeeds;
+    # the unit answers from the pin this run just wrote, and its Wants brings the watcher up with it.
+    if command -v systemctl >/dev/null 2>&1; then
+        systemctl start --no-block ai-tools-relabel.service 2>/dev/null || true
+    fi
 fi
 
 # 4. Capture the control plane's initial state in a root-private git repo so drift is reviewable.

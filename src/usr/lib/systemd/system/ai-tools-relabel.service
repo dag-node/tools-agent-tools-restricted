@@ -3,7 +3,10 @@
 Description=Relabel the enabled agents' sandbox entrypoints to ai_tools_exec_t
 Documentation=man:restorecon(8)
 # Triggered by ai-tools-relabel.path; also runnable on demand: systemctl start
-# ai-tools-relabel.service.
+# ai-tools-relabel.service. A start of this unit -- by hand, by a package's posttrans, by the
+# bootstrap or by install.sh -- brings the watcher up with it, so a host that cleared a failed
+# run is also watching again; when the watcher is what triggered the run, the want is already met.
+Wants=ai-tools-relabel.path
 
 [Service]
 Type=oneshot

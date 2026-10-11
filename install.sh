@@ -1295,8 +1295,13 @@ do_install() {
 
     # Stop the relabel watcher for the run: the files this install writes under /opt/ai-tools/bin trigger
     # ai-tools-relabel.service, and a run mid-install executes the helper of one release against the libraries
-    # of another. The service step at the end starts it again, and the SELinux step relabels once.
-    systemctl stop ai-tools-relabel.path 2>/dev/null || true
+    # of another. The EXIT trap starts it again whatever ends the run, after a daemon-reload for the unit files
+    # the run rewrote, so an install that stops early leaves the watcher as it found it; a completed run enables it
+    # at its service step and runs the relabel once at its end.
+    if systemctl is-active --quiet ai-tools-relabel.path 2>/dev/null; then
+        systemctl stop ai-tools-relabel.path 2>/dev/null || true
+        trap 'systemctl daemon-reload 2>/dev/null || true; systemctl start ai-tools-relabel.path 2>/dev/null || true' EXIT
+    fi
 
     section "System files (root-owned)"
 
@@ -2669,6 +2674,12 @@ do_install() {
     # the install did not put there and does not remove, and the operator decides what to do about it. It draws its own
     # section only when it has something to report.
     probe_shadowing_agents
+
+    # The relabel once more through its unit, queued, after the SELinux step relabelled directly: the unit keeps
+    # the result of its last run, which `ai-tools status` reports, so a FAILED a watcher run left stands until a run
+    # through the unit succeeds; the unit answers from the pin this install wrote, and its Wants brings the watcher
+    # up with it.
+    systemctl start --no-block ai-tools-relabel.service 2>/dev/null || true
 
     logger -t ai-tools-install -p daemon.notice -- "install complete" 2>/dev/null || true
 }
