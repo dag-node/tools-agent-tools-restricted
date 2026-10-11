@@ -388,7 +388,9 @@ ai_tools_cache_cleanup__read_active_session_count() {
     [[ -n "${unit_glob}" ]] || { printf 'unknown'; return 0; }
     units="$(/usr/bin/timeout 5 /usr/bin/systemctl --user list-units --type=service --state=active,activating \
                  --plain --no-legend 2>/dev/null)" || { printf 'unknown'; return 0; }
-    while read -r unit _; do
+    # The unit name is the first space-separated column; the split is pinned, since the library is sourced into
+    # a script that sets IFS to newline and tab, where the whole line would read as the name and no session would count.
+    while IFS=$' \t' read -r unit _; do
         # shellcheck disable=SC2053  # the glob is the caller's constant, matched as a pattern
         [[ -n "${unit}" && "${unit}" == ${unit_glob} ]] && count=$(( count + 1 ))
     done <<<"${units}"
