@@ -2425,8 +2425,9 @@ ai_tools_assets__is_set_installed() {
     read -r -a roots <<< "${AI_TOOLS_ASSETS_ROOTS}"
     for root in "${roots[@]:0:2}"; do
         root="${root%/}"
-        ai_tools_conf__is_trusted "${root}" && [[ -d "${root}" ]] || continue
-        [[ -f "${root}/$1/set.conf" && ! -L "${root}/$1/set.conf" ]] && return 0
+        if ai_tools_conf__is_trusted "${root}" && [[ -d "${root}" && -f "${root}/$1/set.conf" && ! -L "${root}/$1/set.conf" ]]; then
+            return 0
+        fi
     done
     return 1
 }
