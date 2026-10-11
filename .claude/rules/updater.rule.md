@@ -502,9 +502,11 @@ spot: a launch arriving during a removal is admitted once the cleaner has writte
 which a listing cannot see, and the listing counts a session the lock does not represent -- one an older shim started,
 one whose launch was not admitted within its wait, one whose client ended before its unit -- `deactivating` among its
 states, so a unit still ending its processes keeps its caches. A launch not admitted within the bound starts without
-cleaning, and its unit is listed from then on. The lock and the listing keep a running session working; the walk is
-what makes the removal safe, so a session holding the lock -- the account opens the file, so it can -- delays a cleanup
-by at most the bound or skips it, and reaches only its own account's cache, removed without following a link.
+cleaning, and its unit is listed from then on; a launch between its return and its unit is seen by neither, which is
+also where a shim of the release before the lock stands while the upgrade lands, once. The lock and the listing keep
+a running session working; the walk is what makes the removal safe, so a session holding the lock -- the account opens
+the file, so it can -- delays a cleanup by at most the bound or skips it, and reaches only its own account's cache,
+removed without following a link.
 
 **A link is a finding where its producer writes none** (`MSG-J4Y8`). npm's content cache and node's compile cache do not
 hold a link, so one there was planted or left by a broken copy of the home; npx's cache holds npm's `node_modules/.bin`
