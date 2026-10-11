@@ -7,12 +7,15 @@
 #
 #   key-first      ai-tools-assets-core installed and AI_TOOLS_ASSETS written in operator.conf before the upgrade:
 #                  the upgrade's %post moves base's copies aside and links every core asset in the same transaction,
-#                  and the Assets section does not report a notice. A 0.23 host has no `assets` verb, so the key is
+#                  and the Assets section does not report a notice. At a name core reuses, the view holds core's link
+#                  and an agent's existing link to it is kept. A 0.23 host has no `assets` verb, so the key is
 #                  written by hand, which that release ignores.
 #   without-core   the set absent at the upgrade: base's copies leave the view and the agents' directories, no core
 #                  link exists, and the Assets section carries one successor-unenabled line; installing and enabling
 #                  the set links every core asset and ends the line, and a second reconcile does not place or remove
 #                  a link.
+#
+# The checks read the withdrawn entries the installed release seeded, since a release ships some of them alone.
 #
 # Each phase is reported and the run goes on; the aggregate status stops the container through `systemctl exit`. SELinux
 # is disabled in a container, so a label is not read.
@@ -30,6 +33,12 @@ WITHDRAWN=( skills/ai-tools-technical-docs skills/ai-tools-capable-systems-gover
 CORE_IDS=( core/skills/ai-tools-technical-writing core/skills/ai-tools-agent-governance
            core/skills/ai-tools-engineering-principles core/skills/ai-tools-reftags
            core/subagents/ai-tools-reference-docs-maintainer )
+# The withdrawn entries whose successor takes the same view name: where core is enabled, the view name holds core's link
+# and an agent's existing link to it is kept.
+SHARED=( skills/ai-tools-engineering-principles skills/ai-tools-reftags )
+# The withdrawn entries the installed release seeded, read before the upgrade: a release ships some of them alone
+# (0.23.2 predates ai-tools-reftags).
+SEEDED=()
 # The enabled agent's kind directories, read from the manifest the agent package installs.
 AGENT_DIRS=( "${HOME_DIR}/.claude/skills" "${HOME_DIR}/.claude/agents" )
 
@@ -64,27 +73,59 @@ assets_section() {
     "${ADMIN}" status 2>/dev/null | awk '/^  Assets$/ { inside = 1; next } inside && /^  [^ ]/ { exit } inside'
 }
 
+# is_shared <kind>/<name> : succeed for an entry whose successor takes the same view name.
+is_shared() { [[ " ${SHARED[*]} " == *" $1 "* ]]; }
+# core_link_at <path> : succeed when <path> is a link into the set core's copy.
+core_link_at() { [[ -L "$1" && "$(readlink "$1")" == "${CORE_ROOT}/"* ]]; }
+
+# withdrawn_in_view : each withdrawn entry the installed release ships (its pristine copy) stands in the view
+# as a seeded copy; records them in SEEDED.
 withdrawn_in_view() {
     local entry status=0
+    SEEDED=()
     for entry in "${WITHDRAWN[@]}"; do
-        [[ -e "$(view_path "${entry}")" && ! -L "$(view_path "${entry}")" ]] || { echo "absent: ${entry}"; status=1; }
+        [[ -e "/usr/share/ai-tools/${entry}" ]] || { echo "not shipped by ${FROM_VERSION}: ${entry}"; continue; }
+        if [[ -e "$(view_path "${entry}")" && ! -L "$(view_path "${entry}")" ]]; then
+            SEEDED+=( "${entry}" )
+        else
+            echo "shipped and not seeded: ${entry}"; status=1
+        fi
     done
+    (( ${#SEEDED[@]} > 0 )) || { echo "no withdrawn entry was seeded"; status=1; }
     return "${status}"
 }
+# withdrawn_retired : each seeded entry has a copy under retired/, and no withdrawn name holds a real entry; a name
+# holds a link only where it is shared and the link reaches core's copy.
 withdrawn_retired() {
-    local entry status=0 name
+    local entry status=0 path
+    for entry in "${SEEDED[@]}"; do
+        compgen -G "${HOME_DIR}/retired/${entry#*/}.*.retired" >/dev/null || { echo "not under retired/: ${entry}"; status=1; }
+    done
     for entry in "${WITHDRAWN[@]}"; do
-        name="${entry#*/}"
-        [[ ! -e "$(view_path "${entry}")" && ! -L "$(view_path "${entry}")" ]] || { echo "still in the view: ${entry}"; status=1; }
-        compgen -G "${HOME_DIR}/retired/${name}.*.retired" >/dev/null || { echo "not under retired/: ${name}"; status=1; }
+        path="$(view_path "${entry}")"
+        if [[ -L "${path}" ]]; then
+            if ! is_shared "${entry}" || ! core_link_at "${path}"; then
+                echo "a link at a withdrawn name: ${path} -> $(readlink "${path}")"; status=1
+            fi
+        elif [[ -e "${path}" ]]; then
+            echo "a real entry still in the view: ${path}"; status=1
+        fi
     done
     return "${status}"
 }
+# no_agent_link_to_withdrawn : an agent keeps a link at a withdrawn name only where the name is shared and its view path
+# is core's link.
 no_agent_link_to_withdrawn() {
-    local dir entry status=0
+    local dir entry status=0 link
     for dir in "${AGENT_DIRS[@]}"; do
         for entry in "${WITHDRAWN[@]}"; do
-            [[ ! -e "${dir}/${entry#*/}" && ! -L "${dir}/${entry#*/}" ]] || { echo "left: ${dir}/${entry#*/}"; status=1; }
+            link="${dir}/${entry#*/}"
+            [[ -e "${link}" || -L "${link}" ]] || continue
+            if is_shared "${entry}" && [[ "$(readlink "${link}")" == "$(view_path "${entry}")" ]] \
+                    && core_link_at "$(view_path "${entry}")"; then
+                continue
+            fi
+            echo "left: ${link}"; status=1
         done
     done
     return "${status}"
@@ -120,7 +161,7 @@ notice_names_all() {
     printf '%s\n' "${section}"
     row="$(grep -E '\[ATTENTION\] +successor-unenabled +core -- ' <<< "${section}")" || return 1
     [[ "$(grep -c successor-unenabled <<< "${section}")" == 1 ]] || return 1
-    for entry in "${WITHDRAWN[@]}"; do
+    for entry in "${SEEDED[@]}"; do
         [[ "${row}" == *"${entry#*/}"* ]] || { echo "the line does not name ${entry#*/}"; return 1; }
     done
     grep -qE 'Summary: .* \(exit [45]\)$' <<< "${section}"
