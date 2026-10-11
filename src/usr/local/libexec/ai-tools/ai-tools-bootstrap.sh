@@ -799,6 +799,8 @@ fi
 #    are reused (idempotent); all writes land within the pre-created .nvm/.npm subtrees. An offline
 #    run (preflight_network read no route) reuses a toolchain that is installed as it is, and ends
 #    here where none is: the download is the one step this command cannot make without the network.
+#    npm's cache is emptied first, inside the same step, through the cache remover.
+_cache_cleanup_lib=/usr/local/lib/ai-tools/cache-cleanup.lib.sh
 if (( ! _online )); then
     if [[ -s "${NVM_DIR}/nvm.sh" && -d "${NVM_DIR}/versions/node" ]]; then
         log "offline: the toolchain installed under ${NVM_DIR} is reused as it is -- nvm, Node and the agents' packages are not installed or updated this run"
@@ -814,6 +816,7 @@ fi
     NVM_DIR="${NVM_DIR}" HOME="${SANDBOX_HOME}" PROFILE=/dev/null \
     NVM_VERSION="${NVM_VERSION}" NODE_MAJOR="${NODE_MAJOR}" \
     AGENT_PACKAGES="${_agent_packages[*]}" \
+    CACHE_CLEANUP_LIB="${_cache_cleanup_lib}" \
     bash -s <<'EOSU'
 set -euo pipefail
 if [ ! -s "${NVM_DIR}/nvm.sh" ]; then
@@ -835,8 +838,20 @@ if [ "${#agent_packages[@]}" -gt 0 ]; then
     allow_scripts="$(IFS=,; printf '%s' "${agent_packages[*]}")"
     # The cache first. It is content-addressed with no eviction, so it holds every release the nightly runs
     # downloaded, and an install that ran out of space leaves an index entry whose content was never written, which
-    # the next fetch reports as ENOENT. An install downloads what it needs again.
-    npm cache clean --force 2>/dev/null || true
+    # the next fetch reports as ENOENT. An install downloads what it needs again. The removal goes through the remover
+    # every path that empties a cache under this home takes (cache-cleanup.lib.sh), which journals itself; a library
+    # that did not load leaves the cache in place.
+    if . "${CACHE_CLEANUP_LIB}" 2>/dev/null && declare -F ai_tools_cache_cleanup__remove_group >/dev/null 2>&1; then
+        cache_record="$(AI_TOOLS_LOG_TAG=ai-tools-bootstrap \
+            ai_tools_cache_cleanup__remove_group "${AI_TOOLS_CACHE_CLEANUP__SANDBOX_HOME}" npm-cache)" || true
+        IFS=$'\t' read -r _ cache_result cache_bytes _ _ <<< "${cache_record}"
+        printf "npm's cache: %s (%s)\n" "${cache_result}" "$(ai_tools_cache_cleanup__format_bytes "${cache_bytes}")"
+        ai_tools_cache_cleanup__record "${AI_TOOLS_CACHE_CLEANUP__STATE_FILE}" \
+                "${AI_TOOLS_CACHE_CLEANUP__LAUNCH_BOUND_SECONDS}" "${cache_record}" \
+            || printf "npm's cache: the removal was not recorded in %s\n" "${AI_TOOLS_CACHE_CLEANUP__STATE_FILE}"
+    else
+        printf "npm's cache: left in place -- %s did not load\n" "${CACHE_CLEANUP_LIB}"
+    fi
     for agent_package in "${agent_packages[@]}"; do
         npm install -g --allow-scripts="${allow_scripts}" "${agent_package}"
     done

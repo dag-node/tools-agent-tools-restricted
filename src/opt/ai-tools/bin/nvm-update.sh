@@ -241,6 +241,13 @@ if ! source "${ENTRYPOINT_VERIFY_LIB}" 2>/dev/null \
     ai_tools_entrypoint_verify__verify_release() { return 2; }
 fi
 
+# The cache remover (cache-cleanup.lib.sh), which prune_npm_cache empties npm's cache through. Best-effort source:
+# emptying the cache is housekeeping, so a library that did not load leaves the cache in place with a warning
+# rather than failing the update.
+readonly CACHE_CLEANUP_LIB="/usr/local/lib/ai-tools/cache-cleanup.lib.sh"
+# shellcheck source=SCRIPTDIR/../../../usr/local/lib/ai-tools/cache-cleanup.lib.sh
+source "${CACHE_CLEANUP_LIB}" 2>/dev/null || true
+
 # entrypoint_blocked[<launcher>] : set where a declared release manifest exists but the freshly installed entrypoint did
 # not verify against it AND the operator required verification. The repoint loop skips those launchers. Populated
 # by verify_agent_entrypoints.
@@ -466,10 +473,20 @@ install_packages() {
 # prune_npm_cache: empty npm's content cache. It is content-addressed with no eviction, so every tarball a nightly run
 # downloaded stays in it -- an agent's platform build is hundreds of megabytes per release -- until the volume holding
 # the toolchain is full, where npm then drops the optional dependency carrying that build and exits 0. Nothing reads
-# the cache between runs, and a reinstall downloads what it needs again.
+# the cache between runs, and a reinstall downloads what it needs again. The removal goes through the library's
+# remover, which does not follow a link a session planted in the cache, and journals itself under this script's tag;
+# the record is written to the state file both status reports read (updater.rule.md).
 prune_npm_cache() {
-    npm cache clean --force 2>&1 | npm_output \
-        || warn "npm cache clean did not complete -- the cache under ${HOME}/.npm keeps this run's downloads"
+    if ! declare -F ai_tools_cache_cleanup__remove_group >/dev/null 2>&1; then
+        warn "the cache remover (${CACHE_CLEANUP_LIB}) did not load -- the cache under ${HOME}/.npm keeps this run's downloads; reinstall ai-tools-base"
+        return 0
+    fi
+    local record
+    record="$(AI_TOOLS_LOG_TAG=nvm-update-ai \
+        ai_tools_cache_cleanup__remove_group "${AI_TOOLS_CACHE_CLEANUP__SANDBOX_HOME}" npm-cache)" || true
+    ai_tools_cache_cleanup__record "${AI_TOOLS_CACHE_CLEANUP__STATE_FILE}" \
+            "${AI_TOOLS_CACHE_CLEANUP__LAUNCH_BOUND_SECONDS}" "${record}" \
+        || warn "could not record the npm cache removal in ${AI_TOOLS_CACHE_CLEANUP__STATE_FILE} -- both status reports show the previous one"
     return 0
 }
 

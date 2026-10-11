@@ -30,7 +30,8 @@
 # for, and every value that cannot be joined to a path yields no line. The file closes on what the updater does
 # with both readers, read as source order like the re-link's in unit/launcher-target.sh: the removal precedes
 # install_packages, so npm's allow-scripts rescan sees the smaller tree, and a package the completeness reader names
-# reaches npm as an install rather than an update.
+# reaches npm as an install rather than an update. Beside them, each provisioner empties npm's cache through
+# the remover of cache-cleanup.lib.sh at the point its install order needs, and neither runs `npm cache clean`.
 set -euo pipefail
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")/../lib" && pwd)/harness.sh"
 require_root
@@ -479,6 +480,35 @@ else
         pass "a package still incomplete after the install ends the run as a fault, after the repoint and ahead of the transient skip"
     else
         fail "the incomplete-package fault at line ${fault_line} is not between the repoint (${repoint_line}) and the transient skip (${skip_line})"
+    fi
+
+    # npm's cache is emptied through the remover that does not follow a link, never through `npm cache clean`, whose
+    # removal walks by path: the updater after its last install (the repoint loop), so the next run's reinstall has
+    # the space, and the bootstrap ahead of its first install, so a repair run does not fetch through a cache a failed
+    # install left inconsistent.
+    bootstrap="${REPO_ROOT}/src/usr/local/libexec/ai-tools/ai-tools-bootstrap.sh"
+    prune_line="$(grep -n -m1 -E '^[[:space:]]+prune_npm_cache$' "${updater}" | cut -d: -f1)"
+    remover_line="$(grep -n -m1 -F 'ai_tools_cache_cleanup__remove_group "${AI_TOOLS_CACHE_CLEANUP__SANDBOX_HOME}" npm-cache' "${bootstrap}" | cut -d: -f1)"
+    first_install_line="$(grep -n -m1 -F 'npm install -g --allow-scripts="${allow_scripts}"' "${bootstrap}" | cut -d: -f1)"
+    if grep -qE '^[^#]*npm cache clean' "${updater}" "${bootstrap}"; then
+        fail "a provisioner still runs npm cache clean: $(grep -nE '^[^#]*npm cache clean' "${updater}" "${bootstrap}" | tr '\n' '|')"
+    else
+        pass "neither provisioner runs npm cache clean"
+    fi
+    if [[ -z "${prune_line}" || -z "${repoint_line}" ]]; then
+        fail "the updater's cache removal or repoint is no longer where this reads it (prune -> ${prune_line:-none}, repoint -> ${repoint_line:-none})"
+    elif (( repoint_line < prune_line )) \
+            && grep -qF 'ai_tools_cache_cleanup__remove_group "${AI_TOOLS_CACHE_CLEANUP__SANDBOX_HOME}" npm-cache' "${updater}"; then
+        pass "the updater empties npm's cache through the remover, after its last install"
+    else
+        fail "the updater's cache removal (line ${prune_line}) does not follow the repoint (line ${repoint_line}) through the remover"
+    fi
+    if [[ -z "${remover_line}" || -z "${first_install_line}" ]]; then
+        fail "the bootstrap's cache removal or first install is no longer where this reads it (removal -> ${remover_line:-none}, install -> ${first_install_line:-none})"
+    elif (( remover_line < first_install_line )); then
+        pass "the bootstrap empties npm's cache through the remover, ahead of its first install"
+    else
+        fail "the bootstrap installs at line ${first_install_line}, ahead of its cache removal at ${remover_line}"
     fi
 fi
 
