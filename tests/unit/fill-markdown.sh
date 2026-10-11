@@ -25,7 +25,11 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 section "fill-markdown: the Markdown filler and the reflow gate (unit)"
 
 # The formatters are the pinned ai-tools-assets-tools release's and the checker the pinned core release's
-# (tools/lib/assets.sh); a pin not in the cache is a skip naming the fetch command.
+# (tools/lib/assets.sh); a tree without that file, as the container selftest's is, and a pin not in the cache are each
+# a skip, the second naming the fetch command.
+if [[ ! -r "${ROOT}/tools/lib/assets.sh" ]]; then
+    skip "fill-markdown" "${ROOT}/tools/lib/assets.sh is absent (not a checkout)"; finish; exit
+fi
 # shellcheck source=SCRIPTDIR/../../tools/lib/assets.sh
 source "${ROOT}/tools/lib/assets.sh"
 if ! FORMATTERS="$(ai_tools_dev_assets__resolve_tool formatters)" || ! PC="$(ai_tools_dev_assets__resolve_tool prose-check)"; then
