@@ -4823,7 +4823,8 @@ status_caches() {
             overdue) token=OVERDUE; colour="${C_YEL}" ;;
             *)       case "${result}" in
                          removed|absent) token=OK; colour="${C_GRN}" ;;
-                         *)              token="${result^^}"; colour="${C_DIM}" ;;
+                         # The token is the result here, so the detail keeps its reason alone.
+                         *)              token="${result^^}"; colour="${C_DIM}"; detail="${detail#"${result} "}" ;;
                      esac ;;
         esac
         printf '  %-28s %s%s%s %s%s%s%s\n' "${relative}" "${colour}" "${token}" "${C_RST}" "${C_DIM}" "${detail}" \

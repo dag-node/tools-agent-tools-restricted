@@ -2832,7 +2832,8 @@ status_caches() {
             overdue) token=OVERDUE ;;
             *)       case "${result}" in
                          removed|absent) token=OK ;;
-                         *)              token="${result^^}" ;;
+                         # The token is the result here, so the text keeps its reason alone.
+                         *)              token="${result^^}"; text="${text/"  ${result} ("/"  ("}" ;;
                      esac ;;
         esac
         st "${token}" "${text}"
