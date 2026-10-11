@@ -1557,6 +1557,59 @@ fi
 %attr(0644, root, root) %{_datadir}/ai-tools/codex/managed_config.toml
 
 %changelog
+* Sun Oct 11 2026 dagnode <tools@dagnode.com> - 0.24.0-1
+- CHANGE: The writing standard, the reftags, engineering and governance skills and the reference
+  subagent ship as the asset set 'core' (package ai-tools-assets-core), not in ai-tools-base.
+  Install it once, 'sudo dnf install ai-tools-assets-core', upgrade, then enable it,
+  'sudo ai-tools-admin assets enable --set core'; every session loads them from then on. Until the
+  enable those skills stay unloaded, and both the upgrade's output and 'sudo ai-tools-admin status'
+  say so. The copies base shipped are under /opt/ai-tools/retired/, an edit of yours included, to
+  carry into an agent's own directory. A fresh install pulls the set and leaves the enable to you.
+  The new names are ai-tools-technical-writing, ai-tools-agent-governance and
+  ai-tools-reference-docs-maintainer; the engineering and reftags skills keep theirs. On an
+  operator.conf written before 0.24.0 the enable appends the AI_TOOLS_ASSETS line and says so; run
+  'sudo ai-tools-admin system post-upgrade' first to have it placed under its header. The full
+  sequence is in docs/install/upgrade.md.
+- CHANGE: The typesafe skill is ai-tools-typesafe-filter (was ai-tools-decide), present only while
+  ai-tools-integration-typesafe is installed, and invoked as /ai-tools-typesafe-filter.
+- CHANGE: The Assets section of 'sudo ai-tools-admin status' ends with one 'Summary:' line naming its
+  findings and the exit status it sets, printed only when it holds a finding. A script that parses
+  the section reads that line; a monitor keeps reading the exit status.
+- SECURITY: The toolchain updater runs under RestrictNamespaces=yes, so a package install script
+  cannot create a user namespace in which the sandbox account's own files read as root-owned.
+- SECURITY: A skill or agent entry the sandbox account can rewrite -- not root-owned, or writable by
+  group, other or an ACL entry -- is reported as agent-entry-untrusted at any name, since every later
+  session loads it; make it root:ai-tools, directories 750 and files 640, or move it out. Each
+  reconcile creates the agents' skills and agents directories root-owned, so the account cannot take
+  the name. A from-source install replaces a symbolic link planted at an agent hook's name instead
+  of writing the hook through it.
+- NEW: Asset sets. 'sudo ai-tools-admin assets enable|disable|reconcile' and AI_TOOLS_ASSETS in
+  /etc/ai-tools/operator.conf decide which assets of an installed set every session loads. An asset
+  links only after its set's signed inventory verifies against the package-signing key. A root-owned
+  entry in an agent's own directory wins over the set's, and a set under
+  /usr/local/share/ai-tools-assets/ is read ahead of the packaged one. 'sudo ai-tools-admin status'
+  names an enabled asset that is not linked, and why; 'man ai-tools-assets' has each reason.
+- NEW: 'sudo ai-tools-admin status' reports a codex host whose /etc/codex/skills is not the link to
+  the shared skills view (agent-root-foreign), and its More section lists the commands that read
+  and run the relabel watcher and the toolchain updater.
+- FIX: The relabel watcher is stopped for a package transaction and started again after it, with one
+  relabel run, so an upgrade no longer leaves ai-tools-relabel.service FAILED; 'install.sh' and the
+  bootstrap run the service once at their end as well, and a start of the service brings its watcher
+  up with it.
+- FIX: The toolchain updater and 'sudo ai-tools-admin system bootstrap' end as a failure, quoting
+  npm's own line, when an agent's declared executable is not installed -- npm leaves out an optional
+  dependency it could not unpack and exits 0. The updater empties npm's content cache after each
+  run and the bootstrap before its installs, so a full volume or an install cut short does not leave
+  the cache inconsistent. No session of that agent starts until the executable is installed.
+- FIX: An upgrade reloads the sandbox account's systemd user manager, so a changed nvm-update unit
+  is in force without a reboot.
+- FIX: 'sudo ai-tools-admin status' reports an operator.conf it could not read whole as an
+  unavailable reading (exit 5), not as a file without AI_TOOLS_ASSETS.
+- DOCS: docs/install/upgrade.md, the 0.24.0 move and what status shows after it;
+  docs/development/shipped-assets.md, how a skill a package of this repository ships is added,
+  changed and withdrawn; the skills and subagents READMEs under /usr/share/ai-tools, the shared view
+  and where a skill of your own goes.
+
 * Sun Oct 04 2026 dagnode <tools@dagnode.com> - 0.23.2-1
 - CHANGE: The SELinux section of 'ai-tools status' and 'ai-tools-admin status' is headed "SELinux
   status" and says, per Boolean, the value a launch requires, whether a difference blocks the launch
@@ -2842,7 +2895,7 @@ fi
 * Fri Jul 17 2026 dagnode <tools@dagnode.com> - 0.6.1-1
 - Maintenance re-release of 0.6.0 to complete the signed rpm.dagnode.com
   publish; no changes to the installed packages.
-    
+
 * Fri Jul 17 2026 dagnode <tools@dagnode.com> - 0.6.0-1
 - Release RPMs are now GPG-signed and published to the signed DNF repo at
   rpm.dagnode.com; install with gpgcheck/repo_gpgcheck instead of --nogpgcheck
