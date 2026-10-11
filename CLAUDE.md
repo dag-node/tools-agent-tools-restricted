@@ -64,7 +64,7 @@ the management CLI (`ai-tools`), and root-helper binary names (`ai-tools-chown`,
 | Claude Code settings, Bash deny rules ↔ SELinux policy, the hook-declaration merge a kept file takes on upgrade | `opt/ai-tools/agents/*/settings.json`, `settings-merge.lib.sh` | [claude-settings](.claude/rules/claude-settings.rule.md) |
 | Token-saving command filters: rewrite rules + output noise stripping | `filters.lib.sh`, `lib/ai-tools/filters.d/**`, `agents/*/filter-hook.sh` | [filters](.claude/rules/filters.rule.md) |
 | Shipped assets: shared skills, subagents, and the per-session orientation text, their placement chain and seeding; the asset sets an operator enables, the view and each agent's links into it, and the set verifier | `usr/share/ai-tools/**`, `lib/ai-tools/managed-assets.lib.sh`, `lib/ai-tools/assets.lib.sh`, `lib/ai-tools/assets-verify.lib.sh`, `lib/ai-tools/assets-bindings.d/**` | [shipped-assets](.claude/rules/shipped-assets.rule.md) |
-| Governance posture: enforced vs dispositional, proportionality, the agent's own conduct and the controls beside it | `usr/share/ai-tools/skills/ai-tools-capable-systems-governance/**` | [governance](.claude/rules/governance.rule.md) |
+| Governance posture: enforced vs dispositional, proportionality, the agent's own conduct and the controls beside it | `core/skills/ai-tools-agent-governance` (the asset set `core`), stated to operators in `README.md` and `docs/about/**` | [governance](.claude/rules/governance.rule.md) |
 | Secret-named files, lockdown, pattern set | `ai-tools-lockdown.sh`, `ai-tools-chown.sh`, `secret-patterns*` | [secrets](.claude/rules/secret-handling.rule.md) |
 | Toolchain provisioning + Node/claude updater, the residue a disabled agent's package is and its removal, symlink repoint and removal, post-upgrade entrypoint reconciliation (signed-release verification + relabel) | `ai-tools-bootstrap.sh`, `nvm-update.sh`, `toolchain.lib.sh`, `ai-tools-launcher-symlink.sh`, `ai-tools-relabel-agent.sh`, `entrypoint-verify.lib.sh`, `keys/**`, `nvm-update`/`ai-tools-relabel` units | [updater](.claude/rules/updater.rule.md) |
 | Provider manifests + fail-closed enablement (agents + integrations), the shared `KEY=value` config grammar, and the `session-env.d`, `launch.d` and `admin-commands.d` seams | `lib/ai-tools/{conf,providers}.lib.sh`, `lib/ai-tools/{agents,integrations,session-env,launch,admin-commands}.d/**`, `operator.conf` `AI_TOOLS_{AGENTS,INTEGRATIONS}` | [providers](.claude/rules/providers.rule.md) |
@@ -256,7 +256,7 @@ is not, and this is what the agent does there:
 The host's safety rests on those enforced invariants; these four describe the agent's conduct where a control leaves
 a choice, and each one names the enforced control it sits beside in [governance](.claude/rules/governance.rule.md). They
 are stated here, in the always-loaded layer, because a path-scoped rule does not load in the session where they bind.
-The standard they come from is the shipped `ai-tools-capable-systems-governance` skill.
+The standard they come from is the `ai-tools-agent-governance` skill of the asset set `core`.
 
 ## Boundaries and non-goals <a id="ref-section-x6a9"></a>
 
@@ -341,11 +341,11 @@ not gaps, so a reader tells bounded design from an oversight:
 
 ### Documentation register
 
-**Every artifact in this repo is written to the shipped `ai-tools-technical-docs` skill — invoke it before writing
-or editing prose of any kind.** One standard covers all of them; the artifact sections inside it carry the differences
-in structure, altitude, and reader. The skill holds the width and states that where a line breaks is the formatter's;
-this repository's formatter is `bash tools/formatters/format.sh`, and `tools/README.md` states the rest. A shipped asset
-does not name any tool of this repository's, so the skill does not name that command:
+**Every artifact in this repo is written to the `ai-tools-technical-writing` skill of the asset set `core` — invoke it
+before writing or editing prose of any kind.** One standard covers all of them; the artifact sections inside it carry
+the differences in structure, altitude, and reader. The skill holds the width and states that where a line breaks is
+the formatter's; this repository's formatter is `bash tools/format.sh`, and `tools/README.md` states the rest. A shipped
+asset does not name any tool of this repository's, so the skill does not name that command:
 
 - `CLAUDE.md`, `.claude/rules/*.rule.md`, file/module headers, design notes → reference prose (present-tense spec; state
   current behavior, not history).

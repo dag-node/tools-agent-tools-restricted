@@ -429,6 +429,20 @@ the missing dependency back. `ai-tools-bootstrap` installs rather than updates a
 so `sudo ai-tools-admin system bootstrap` is the on-demand form of the same repair, and it is what the relabel's refusal
 names.
 
+The read runs again after the install, and a package it still names ends the run as a **fault** (`MSG-U5N2`, exit 1,
+the stamp `FAILED`), with the first line of npm's output that names the cause quoted beside the agent — `tar`'s entry
+error for a volume with no space left, npm's own report of a failed optional dependency — since npm's exit 0 is the one
+signal the run does not take as success. The fault is decided after every complete agent has been repointed, so one
+incomplete package never strands another agent's update, and ahead of the transient verdict, which a reader takes
+as a retry. `ai-tools-bootstrap` ends the same way after its closing lines, printing the code as a citation, so a host
+whose install left an agent unlaunchable does not read `toolchain ready` and exit 0. Each run also empties npm's content
+cache (`npm cache clean --force`, `prune_npm_cache`) after its last install: the cache is content-addressed with no
+eviction, so every tarball a nightly run downloaded would otherwise stay until the volume holding the toolchain is full,
+which is the one condition observed to leave a package incomplete, and the next run's reinstall then has the space it
+needs. `ai-tools-bootstrap` empties it before its installs for the same reason, and for a second: an install that ran
+out of space leaves an index entry whose content was never written, which the next fetch through the cache reports
+as `ENOENT`, so the repair run that command is would otherwise fail on the cache the failed install left.
+
 The read is taken against the version directory the run installs **into**, which covers both ways a hole arrives: one
 an earlier run left in the active version, and one carried into a version directory this run created — a Node bump
 copies the previous version's globals across (`nvm reinstall-packages`) before this point, so a copy that arrived
@@ -654,9 +668,17 @@ provisioning](#toolchain-provisioning-system-bootstrap)). Two further paths run 
   the socket needs). Enabling a `.path` unit does not start it, so the `ai-tools-integration-nodejs` `%posttrans` starts
   it — the twin of `ai-tools-base`'s `%posttrans` starting the handback socket — making the watcher live on a fresh
   install without a reboot; it is also restarted across upgrades (`%postun_with_restart`), so it runs without a manual
-  bootstrap. Should it be down anyway, `services.lib.sh` surfaces it before the next Node bump would fail-close a launch
-  on a mislabelled entrypoint: proactively at launch (`launch-wrapper.lib.sh` warns, warn-not-block, from the same
-  registry) and in `ai-tools status` (see [cli](cli.rule.md)).
+  bootstrap. Across a package transaction the watcher is **stopped**: `ai-tools-base`'s `%pretrans` stops it before any
+  file is placed, and its `%posttrans` starts it again and runs the service once, since a run inside the transaction
+  executes the helper of one release against the libraries of another. The service is stopped with it, because stopping
+  a `.path` does not end a run it already started, and a oneshot still active at the closing start absorbs that start
+  rather than running again. `install.sh` stops both the same way for its run, and an `EXIT` trap starts the watcher
+  again whatever ends that run. The service unit **wants** the path unit, so a start
+  of the service — by hand, by the `%posttrans`, by the bootstrap or by `install.sh`, each of which runs it once
+  after its own relabel so the unit's recorded result is that run's — brings the watcher up with it. Should it be
+  down anyway, `services.lib.sh` surfaces it before the next Node bump would fail-close a launch on a mislabelled
+  entrypoint: proactively at launch (`launch-wrapper.lib.sh` warns, warn-not-block, from the same registry)
+  and in `ai-tools status` (see [cli](cli.rule.md)).
 - **On demand**, through `sudo ai-tools-admin system entrypoints relabel`, which runs the same helper as root. It is
   an administrator command rather than an operator one: it carries no `%ai-ops` NOPASSWD rule and is reached
   through the host's own general sudo grant, the axis [CLAUDE.md](../../CLAUDE.md) names (see

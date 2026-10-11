@@ -146,7 +146,27 @@ write_stamp() {
         || warn "could not write the last-run stamp at ${NVM_UPDATE_STAMP}"
     return 0
 }
-trap 'write_stamp "$?"' EXIT
+# npm's own output, kept for the run: install_packages tees each install into it, and a package npm left without
+# its declared entrypoint is reported with the first line that names the cause (npm_cause_line), since npm reports
+# a dependency it could not unpack as a warning at exit 0.
+_npm_capture="$(mktemp 2>/dev/null)" || _npm_capture=""
+trap 'write_stamp "$?"; [[ -z "${_npm_capture}" ]] || rm -f -- "${_npm_capture}"' EXIT
+
+# npm_cause_line : the first line of this run's npm output that names why a dependency was left out -- tar's entry
+# error (no space left, a refused write), npm's own report of a failed optional dependency, or a platform it refused --
+# through the log sanitizer and bounded; empty where none was captured.
+npm_cause_line() {
+    local line
+    line="$(grep -m1 -E 'TAR_ENTRY_ERROR|failed optional dependency|optional dependency .* failed|EBADPLATFORM|ENOSPC' \
+        "${_npm_capture:-/dev/null}" 2>/dev/null || true)"
+    [[ -n "${line}" ]] || return 0
+    line="${line:0:200}"
+    if declare -F ai_tools_log__sanitize >/dev/null 2>&1; then
+        ai_tools_log__sanitize "${line}"
+    else
+        printf 'withheld (the log library, which sanitizes it, did not load)'
+    fi
+}
 
 # The KEY=value library (conf.lib.sh), for the clock reading main makes before anything else
 # (ai_tools_conf__find_paths_ahead_of_clock). Best-effort source, the posture NPM_VERIFY_LIB and ENTRYPOINT_VERIFY_LIB
@@ -423,28 +443,41 @@ install_packages() {
     # for us (it errors EGLOBAL on global installs), so we approve per invocation with `--allow-scripts`, passing
     # the FULL managed set on EVERY call: covering only the package being installed leaves its siblings (e.g.
     # claude-code's required postinstall) flagged. Scoped to the named tools by the caller's list, never a blanket
-    # `--dangerously-allow-all-scripts`.
+    # `--dangerously-allow-all-scripts`. Each invocation's output is kept in _npm_capture as well as sanitized into
+    # the log, so the completeness read after the install can quote the line that names what npm left out.
+    local capture="${_npm_capture:-/dev/null}"
     for pkg in "$@"; do
         if [[ -n "${repair_csv}" && ",${repair_csv}," == *",${pkg},"* ]]; then
             log "  reinstalling ${pkg} -- the entrypoint its manifest declares is not in this toolchain"
-            npm install -g --allow-scripts="${allow_csv}" "${pkg}" 2>&1 | npm_output \
+            npm install -g --allow-scripts="${allow_csv}" "${pkg}" 2>&1 | tee -a "${capture}" | npm_output \
                 || warn "  npm install failed for ${pkg} -- skipping"
         elif npm list -g --depth=0 "${pkg}" &>/dev/null; then
             log "  updating ${pkg}"
-            npm update -g --allow-scripts="${allow_csv}" "${pkg}" 2>&1 | npm_output \
+            npm update -g --allow-scripts="${allow_csv}" "${pkg}" 2>&1 | tee -a "${capture}" | npm_output \
                 || warn "  npm update failed for ${pkg} -- skipping"
         else
             log "  installing ${pkg}"
-            npm install -g --allow-scripts="${allow_csv}" "${pkg}" 2>&1 | npm_output \
+            npm install -g --allow-scripts="${allow_csv}" "${pkg}" 2>&1 | tee -a "${capture}" | npm_output \
                 || warn "  npm install failed for ${pkg} -- skipping"
         fi
     done
 }
 
+# prune_npm_cache: empty npm's content cache. It is content-addressed with no eviction, so every tarball a nightly run
+# downloaded stays in it -- an agent's platform build is hundreds of megabytes per release -- until the volume holding
+# the toolchain is full, where npm then drops the optional dependency carrying that build and exits 0. Nothing reads
+# the cache between runs, and a reinstall downloads what it needs again.
+prune_npm_cache() {
+    npm cache clean --force 2>&1 | npm_output \
+        || warn "npm cache clean did not complete -- the cache under ${HOME}/.npm keeps this run's downloads"
+    return 0
+}
+
 # main: resolve the latest LTS in the vMAJOR series (or take it from $1), install it under /opt/ai-tools if not already
 # active, remove a disabled agent's package left in the toolchain, refresh the sandbox global tools -- reinstalling
 # rather than updating an enabled agent's package that does not hold the entrypoint its manifest declares -- re-link
-# each versioned launcher at the target its manifest declares, prune superseded versions, and repoint each enabled
+# each versioned launcher at the target its manifest declares, prune superseded versions, empty npm's content cache,
+# and repoint each enabled
 # agent's stable /opt/ai-tools/bin/<launcher> symlink at the versioned binary.
 # args:  optional target Node version override (e.g. v22.15.0)
 main() {
@@ -606,12 +639,17 @@ main() {
     install_packages "${allow_csv}" "${repair_csv}" "${tools[@]}"
 
     # The same read again, now that npm has run: what it names is a package the install did not complete, which npm
-    # itself reports as a success (updater.rule.md). Reported rather than fatal, for the reasons stated there.
+    # itself reports as a success (updater.rule.md). Each is reported here with the line of npm's output that names
+    # the cause and counted; the run ends as a fault once every complete agent is repointed (the end of main), so
+    # the stamp names the agent no session can start rather than reporting the run as ok.
+    local incomplete_after=0 npm_reason=""
     if declare -F ai_tools_toolchain__find_incomplete_agents >/dev/null 2>&1; then
         local left_agent left_package
+        npm_reason="$(npm_cause_line)"
         while IFS=$'\t' read -r left_agent left_package; do
             [[ -n "${left_package}" ]] || continue
-            warn "${left_agent}: ${left_package} still does not hold the entrypoint its manifest declares after the install -- no session of that agent starts until that executable is installed; this run's npm output carries the reason"
+            incomplete_after=$(( incomplete_after + 1 ))
+            warn "${left_agent}: ${left_package} still does not hold the entrypoint its manifest declares after the install -- no session of that agent starts until that executable is installed; npm's output ${npm_reason:+says: ${npm_reason}}${npm_reason:-carries the reason}"
         done < <(ai_tools_toolchain__find_incomplete_agents "${version_dir}")
     fi
 
@@ -661,12 +699,20 @@ main() {
         fi
     done
 
+    # After the last install of the run, so a package npm left incomplete for want of space has the space on the next
+    # run, whose repair branch reinstalls it.
+    prune_npm_cache
+
     log "Done. Active: $(nvm version "${node_alias}")"
 
-    # Reported LAST, after every agent that did verify has been repointed, so one unverifiable agent never strands
-    # another. TRANSIENT rather than failed: no component is broken and that agent is left as it was. It goes
-    # through the stamp because that is the only channel an operator session can read at all -- see the stamp's own
-    # section in this file's header.
+    # Both verdicts are reported LAST, after every agent that is complete and did verify has been repointed, so one
+    # agent's state never strands another's update, and each goes through the stamp because that is the only channel
+    # an operator session can read at all -- see the stamp's own section in this file's header. A package still
+    # without its declared entrypoint is a FAULT: the same install on the same host leaves it incomplete until what
+    # npm's line names is fixed, so it is decided ahead of the transient verdict, which a reader takes as a retry.
+    (( incomplete_after == 0 )) \
+        || die MSG-U5N2 "the install left ${incomplete_after} enabled agent(s) without the entrypoint their manifest declares (above, with npm's reason) -- every launch of them is refused until that executable is installed; fix what npm names, then run: sudo ai-tools-admin system bootstrap"
+    # TRANSIENT rather than failed: no component is broken and that agent is left as it was.
     (( entrypoint_unverified == 0 )) \
         || skip unverified "${entrypoint_unverified} agent entrypoint(s) could not be verified against their vendor's signed release manifest -- not activated; the previously verified version stays in use"
 }

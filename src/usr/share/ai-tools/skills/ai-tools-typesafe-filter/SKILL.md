@@ -27,10 +27,11 @@ decide: kept 3/12 (uncertain: docs/configuration.md:64); dropped: CHANGELOG.md:8
 ```
 
 Each line's id is its `path:line` prefix where the listing has one, else `L<n>` for the n-th line. A checker's two-line
-records take `--format prose-check`, so the rule travels apart from the excerpt:
+records take `--format prose-check`, so the rule travels apart from the excerpt. `<prose-check.py>` is the checker
+of the writing skill the session has, usually its `scripts/prose-check.py`:
 
 ```bash
-python3 /opt/ai-tools/skills/ai-tools-technical-docs/prose-check.py --all docs/*.md | node /usr/local/lib/ai-tools/typesafe/decide.mjs filter --config "$AI_TOOLS_TYPESAFE_CONF" --usage-log "$AI_TOOLS_TYPESAFE_USAGE_LOG" --format prose-check --task "which findings are in prose this branch added"
+python3 <prose-check.py> --all docs/*.md | node /usr/local/lib/ai-tools/typesafe/decide.mjs filter --config "$AI_TOOLS_TYPESAFE_CONF" --usage-log "$AI_TOOLS_TYPESAFE_USAGE_LOG" --format prose-check --task "which findings are in prose this branch added"
 ```
 
 A build log takes `--format msbuild`, which keeps the log's diagnostics and sets the rest of it aside:

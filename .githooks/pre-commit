@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: AGPL-3.0-only
-# pre-commit hook: report the prose figures the ai-tools-technical-docs skill rules out, in the lines this commit ADDS.
-# Reuses the checker the skill ships (prose-check.py beside its SKILL.md), so the hook and a full pass apply one set
-# of patterns.
+# pre-commit hook: report the prose figures the writing standard rules out, in the lines this commit ADDS. Reuses
+# the checker the ai-tools-technical-writing skill of the pinned core release ships, resolved
+# through tools/lib/assets.sh, so the hook and a full pass apply one set of patterns; where that pin is not in the cache
+# the hook names the fetch command and exits 0 without a check.
 #
 # Never blocks, matching the commit-msg reminder beside it: the default checks report correct prose occasionally,
 # and a hook that refuses a commit over a style call is a hook developers turn off. It reports, the author decides.
@@ -17,8 +18,11 @@ set -euo pipefail
 
 command -v python3 >/dev/null 2>&1 || exit 0
 repo_root="$(git rev-parse --show-toplevel)"
-checker="${repo_root}/src/usr/share/ai-tools/skills/ai-tools-technical-docs/prose-check.py"
-[[ -r "${checker}" ]] || exit 0
+# shellcheck source=SCRIPTDIR/../tools/lib/assets.sh
+if ! source "${repo_root}/tools/lib/assets.sh" || ! checker="$(ai_tools_dev_assets__resolve_tool prose-check)"; then
+    echo "pre-commit: the prose checker is not in the cache, so this commit was not checked; run: bash tools/lib/assets.sh fetch" >&2
+    exit 0
+fi
 
 if ! python3 "${checker}" --staged; then
     echo "  (not blocking this commit)" >&2

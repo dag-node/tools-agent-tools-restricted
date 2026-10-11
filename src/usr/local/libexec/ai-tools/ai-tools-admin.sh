@@ -149,6 +149,14 @@ warn() {
     if [[ "${1-}" =~ ^MSG-[A-Z][0-9][A-Z][0-9]$ ]]; then code="$1"; shift; printf '%s\n' "${code}" >&2; fi
     printf 'ai-tools-admin: warning: %s\n' "$*" >&2
 }
+# notice: a consequence of what this tool wrote, at a lower severity than warn -- the run is complete and the host is
+# as asked for.
+# stderr, like warn, so a verb's record stream on stdout stays data-only.
+notice() {
+    local code=""
+    if [[ "${1-}" =~ ^MSG-[A-Z][0-9][A-Z][0-9]$ ]]; then code="$1"; shift; printf '%s\n' "${code}" >&2; fi
+    printf 'ai-tools-admin: notice: %s\n' "$*" >&2
+}
 
 # reject <message>: the command line was rejected. Exit 2 separates a command nobody can type correctly
 # from an operation that ran and failed (`die`, exit 1), which is the split ai-tools-admin(8) documents and the one
@@ -2902,11 +2910,20 @@ status_selinux_attestation() {
 # status_assets: the Assets section, read from the plan alone (assets.lib.sh), without the lock and without a write: one
 # [ATTENTION] line per enabled asset that is not linked, per untrusted or foreign entry the plan met, and per agent
 # whose own entry stands at an enabled asset's name, each counted in STATUS_PROBLEMS; one [UNREADABLE] line per input
-# the plan could not read, counted in STATUS_UNREADABLE; an OK line per linked asset that declares a capability;
-# and an OK summary of how many entries are enabled and linked. A library that did not load is a reading this section
-# could not make. Every string from a set or an agent's directory passes the sanitizer.
+# the plan could not read, counted in STATUS_UNREADABLE; the withdrawn-successor notice (status_assets_successors);
+# an OK line per linked asset that declares a capability; and an OK summary of how many entries are enabled and linked.
+# A library that did not load is a reading this section could not make. Every string from a set or an agent's directory
+# passes the sanitizer. The section closes with status_assets_summary over the counts it added.
 status_assets() {
+    local problems_before="${STATUS_PROBLEMS}" unreadable_before="${STATUS_UNREADABLE}"
     heading "Assets"
+    status_assets_rows
+    status_assets_summary $(( STATUS_PROBLEMS - problems_before )) $(( STATUS_UNREADABLE - unreadable_before ))
+    return 0
+}
+
+# status_assets_rows: the Assets section's lines, as status_assets states them.
+status_assets_rows() {
     # shellcheck source=SCRIPTDIR/../../lib/ai-tools/assets.lib.sh
     source "${ASSETS_LIB}" 2>/dev/null || true
     if ! declare -F ai_tools_assets__plan >/dev/null 2>&1; then
@@ -2922,6 +2939,9 @@ status_assets() {
                    STATUS_PROBLEMS=$(( STATUS_PROBLEMS + 1 )) ;;
         invalid)   st ATTENTION "id-malformed  AI_TOOLS_ASSETS -- $(ai_tools_log__sanitize "${AI_TOOLS_ASSETS__LIST_DETAIL}")"
                    STATUS_PROBLEMS=$(( STATUS_PROBLEMS + 1 )) ;;
+        unread)    st UNREADABLE "error  AI_TOOLS_ASSETS -- $(ai_tools_log__sanitize "${AI_TOOLS_ASSETS__LIST_DETAIL}")"
+                   STATUS_UNREADABLE=$(( STATUS_UNREADABLE + 1 )) ;;
+        unset)     status_assets_successors ;;
     esac
     for entry in "${AI_TOOLS_ASSETS__ENTRIES[@]}"; do
         if [[ "${AI_TOOLS_ASSETS__STATE[${entry}]}" == linked ]]; then
@@ -2953,6 +2973,60 @@ status_assets() {
     done
     st OK "${#AI_TOOLS_ASSETS__ENTRIES[@]} asset(s) enabled in AI_TOOLS_ASSETS, ${linked} linked"
     return 0
+}
+
+# status_assets_successors: the notice for a host whose upgrade withdrew assets a set succeeds while AI_TOOLS_ASSETS is
+# absent from operator.conf, the one input that records the operator's decision. One [ATTENTION] successor-unenabled
+# line per successor set, naming the withdrawn entries (ai_tools_managed_assets__list_withdrawn_successors)
+# and the commands that end it: the set's package install where the set is not on the host
+# (ai_tools_assets__is_set_installed), its enable, and AI_TOOLS_ASSETS=[] to keep it off. A retired directory that could
+# not be listed, and a seeder library that did not load, are each one [UNREADABLE] line. A host without a retired copy
+# of a withdrawn entry with a successor, a fresh install among them, does not print a line. Runs as root without
+# the lock.
+status_assets_successors() {
+    local listing entry successor successor_set install
+    local -a sets=()
+    local -A names=()
+    if ! declare -F ai_tools_managed_assets__list_withdrawn_successors >/dev/null 2>&1; then
+        st UNREADABLE "error  the seeder library (/usr/local/lib/ai-tools/managed-assets.lib.sh) did not load -- reinstall ai-tools-base; a withdrawn asset's successor is not checked"
+        STATUS_UNREADABLE=$(( STATUS_UNREADABLE + 1 ))
+        return 0
+    fi
+    if ! listing="$(ai_tools_managed_assets__list_withdrawn_successors "${AI_TOOLS_ASSETS_HOME}" 2>/dev/null)"; then
+        st UNREADABLE "error  ${AI_TOOLS_ASSETS_HOME}/retired -- the directory could not be listed, so a withdrawn asset's successor is not checked"
+        STATUS_UNREADABLE=$(( STATUS_UNREADABLE + 1 ))
+        return 0
+    fi
+    while IFS=$'\t' read -r entry successor; do
+        [[ -n "${entry}" ]] || continue
+        successor_set="${successor%%/*}"
+        [[ -n "${names[${successor_set}]+x}" ]] || sets+=( "${successor_set}" )
+        names["${successor_set}"]+="${names[${successor_set}]:+, }${entry#*/}"
+    done <<< "${listing}"
+    for successor_set in "${sets[@]}"; do
+        install=""
+        ai_tools_assets__is_set_installed "${successor_set}" || install="sudo dnf install ai-tools-assets-${successor_set} && "
+        st ATTENTION "successor-unenabled  ${successor_set} -- ${names[${successor_set}]} withdrawn from ai-tools-base; their successors in the set ${successor_set} are not enabled and AI_TOOLS_ASSETS is not set; copies are under ${AI_TOOLS_ASSETS_HOME}/retired"
+        detail "run: ${install}sudo ai-tools-admin assets enable --set ${successor_set}, or set AI_TOOLS_ASSETS=[] in ${AI_TOOLS_OPERATOR_CONF} to keep them off"
+        STATUS_PROBLEMS=$(( STATUS_PROBLEMS + 1 ))
+    done
+}
+
+# status_assets_summary <finding-count> <unreadable-count> : the Assets section's closing line, printed when either
+# count is one or more: the non-zero counts and the exit status the section sets, 5 where a reading is unavailable and 4
+# otherwise. The counts are the ones the section added to STATUS_PROBLEMS and STATUS_UNREADABLE, so the line
+# and the exit agree. Prose for a person, not a record: a monitor reads the exit status.
+status_assets_summary() {
+    local finding_count="$1" unreadable_count="$2" findings="" readings=""
+    (( finding_count > 0 || unreadable_count > 0 )) || return 0
+    if (( finding_count == 1 )); then findings="1 finding needs attention"
+    elif (( finding_count > 1 )); then findings="${finding_count} findings need attention"
+    fi
+    if (( unreadable_count == 1 )); then readings="1 reading is unavailable"
+    elif (( unreadable_count > 1 )); then readings="${unreadable_count} readings are unavailable"
+    fi
+    printf '    Summary: %s%s%s in this section (exit %s)\n' "${findings}" "${findings:+${readings:+ and }}" "${readings}" \
+        "$( (( unreadable_count > 0 )) && printf 5 || printf 4 )"
 }
 
 # status_node_version: the Version section's Node line, from the same verdict the CLI renders
@@ -3045,13 +3119,27 @@ status() {
     status_unit_search_path "${CP_HOME:-/opt/ai-tools}"
     status_selinux_attestation "${OPERATOR_CONF}"
 
-    # Pointers, not duplication: the reports that own the detail this one deliberately does not.
+    # Pointers, not duplication: the reports that own the detail this one deliberately does not, then the commands
+    # that read and drive the two managed units this report judges by their last run. The updater's unit lives
+    # in the sandbox account's own manager, which root reaches over the machine transport and whose journal is
+    # selected by unit and uid, since `journalctl --user-unit` as root reads root's own units (cli.rule.md).
     heading "More"
     printf '    %s\n' \
         "ai-tools status          the same host, read from an operator's vantage" \
         "ai-tools providers       installed agents and integrations, and which are enabled" \
         "sudo ai-tools-admin selinux groups   the core module and the optional groups" \
         "sudo ai-tools-admin --help           every command this host has"
+    local sandbox_uid
+    sandbox_uid="$(id -u "${SANDBOX_USER}" 2>/dev/null || printf '<uid of %s>' "${SANDBOX_USER}")"
+    printf '\n    %s\n' "The relabel watcher and the toolchain updater, read and run as root:"
+    printf '      %-78s %s\n' \
+        "sudo systemctl status ai-tools-relabel.path ai-tools-relabel.service" "the watcher, and the result of its last run" \
+        "sudo journalctl -u ai-tools-relabel.service -n 50" "what that run printed" \
+        "sudo systemctl start ai-tools-relabel.service" "run the relabel now; a FAILED above clears with a run that succeeds" \
+        "sudo systemctl --user -M ${SANDBOX_USER}@.host status nvm-update.timer nvm-update.service" "the updater's schedule and its last run" \
+        "sudo journalctl _SYSTEMD_USER_UNIT=nvm-update.service _UID=${sandbox_uid} -n 50" "what the updater printed" \
+        "sudo systemctl --user -M ${SANDBOX_USER}@.host start nvm-update.service" "run the update now" \
+        "sudo systemctl --user -M ${SANDBOX_USER}@.host daemon-reload" "reload that manager after a unit file changed on disk"
     printf '\n'
 
     (( STATUS_PROBLEMS == 0 )) || ai_tools_records_base__accumulate_severity attention
@@ -3123,6 +3211,8 @@ assets_read_list() {
 
 # assets_write_list <entry>...: write AI_TOOLS_ASSETS as exactly these entries through ai_tools_conf__set_list,
 # after a dated .bak of the file where it exists. Exits 1, the file as it was, when the backup or the write fails.
+# A file carrying neither a live line nor the key's commented default -- one written before the key -- takes the line
+# at its end, and the write says so, since the slot under its header reaches that file through `system post-upgrade`.
 assets_write_list() {
     local conf="${AI_TOOLS_OPERATOR_CONF}" backup="" rc=0
     if [[ -e "${conf}" ]]; then
@@ -3132,6 +3222,8 @@ assets_write_list() {
     ai_tools_conf__set_list "${conf}" AI_TOOLS_ASSETS "$@" || rc=$?
     (( rc == 0 )) || die MSG-Q8E5 "assets: AI_TOOLS_ASSETS could not be written to ${conf} (writer status ${rc})${backup:+; the previous file is ${backup}}"
     ai_tools_log__info "assets: AI_TOOLS_ASSETS in ${conf} lists ${#} entries${backup:+; backup ${backup}}"
+    [[ "${AI_TOOLS_CONF__WRITE_PLACEMENT:-}" != appended ]] \
+        || notice MSG-T3X4 "assets: AI_TOOLS_ASSETS was added at the end of ${conf}, which predates the key -- sudo ai-tools-admin system post-upgrade carries it under its header from the shipped template"
 }
 
 # assets_finish <reconcile-status>: exit as the records page states for a command that changes the host: 1 when a write

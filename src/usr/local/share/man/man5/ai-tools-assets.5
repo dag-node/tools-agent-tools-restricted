@@ -230,9 +230,18 @@ An agent's own directory holds an entry of yours at an enabled asset's name;
 that agent keeps loading yours.
 .TP
 .B agent\-entry\-untrusted
-That entry is not owned by root all the way down, so a session can rewrite
-what every later session of that agent loads.
-Move it out, or make it root's.
+A real entry in an agent's directory, at an enabled asset's name or at any
+other name, is one a session can rewrite: it is not owned by root all the way
+down, or it is writable by group or other, an ACL entry granting a write
+included.
+Every later session of that agent loads it.
+The entry is left as it is.
+Read it, then move it out, or keep it as that agent's own: make it
+.B root:ai\-tools
+with directories 750 and files 640, the modes a seeded copy has, so the agent
+reads it and cannot write it.
+Where a skill of your own goes, the agent's own directory or a project's, is in
+.IR /usr/share/ai\-tools/skills/README.md .
 .TP
 .B view\-dir\-untrusted
 The view directory of a kind, or

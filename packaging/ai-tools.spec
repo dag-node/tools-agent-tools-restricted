@@ -83,6 +83,10 @@ Requires:       gnupg2
 # subpackage degrades confinement without bricking a launch. Also a licence boundary: the policy
 # is the one GPL payload in the stack (see its %%description), and a weak dep keeps it separable.
 Recommends:     ai-tools-selinux = %{version}-%{release}
+# The writing standard, the engineering and governance skills and the reference-docs subagent are the asset set
+# core's: a fresh install pulls the set, and an upgrade, which does not add a weak dependency, is told to install and
+# enable it by %%post and by `ai-tools-admin status`.
+Recommends:     ai-tools-assets-core
 
 %description -n ai-tools-base
 The provider-agnostic base layer: the ai-tools system account, the ai-ops
@@ -516,12 +520,10 @@ install -m 0644 src%{_datadir}/ai-tools/gitignore %{buildroot}%{_datadir}/ai-too
 install -d -m 0755 %{buildroot}%{_datadir}/ai-tools/audit
 install -m 0644 src%{_datadir}/ai-tools/audit/ai-tools-cmd.rules.example \
     %{buildroot}%{_datadir}/ai-tools/audit/ai-tools-cmd.rules.example
-# Shipped agents/skills: pristine copies under %{_datadir} are the reseed source (rpm-owned).
-# They are in the CLAUDE CODE asset format, so the agent package owns them and seeds them into
-# its own config directory; the base owns only the parent dir and the shared seeder library. The
-# LIVE copies under that config dir are NOT rpm-owned (like .gitignore); %post seeds them when
-# absent, so an erase/upgrade preserves an operator-updated copy. The interactive version update
-# is offered by install.sh / ai-tools-bootstrap (managed-assets.lib.sh, the shared seeder).
+# Shipped assets: pristine copies under %{_datadir} are the reseed source (rpm-owned). The LIVE copies under
+# /opt/ai-tools/<kind> are NOT rpm-owned (like .gitignore); %post seeds them when absent, so an erase or an upgrade
+# preserves an operator-updated copy. The interactive version update is offered by install.sh and ai-tools-bootstrap
+# (managed-assets.lib.sh, the shared seeder).
 cp -rT src%{_datadir}/ai-tools/subagents %{buildroot}%{_datadir}/ai-tools/subagents
 cp -rT src%{_datadir}/ai-tools/skills %{buildroot}%{_datadir}/ai-tools/skills
 cp -rT src%{_datadir}/ai-tools/orientation %{buildroot}%{_datadir}/ai-tools/orientation
@@ -664,6 +666,19 @@ done
 # ─────────────────────────────────────────────────────────────────────────────
 # Scriptlets
 # ─────────────────────────────────────────────────────────────────────────────
+%pretrans -n ai-tools-base -p <lua>
+-- Stop the relabel watcher, and any run it already started, for the transaction. Base's files under
+-- /opt/ai-tools/bin trigger ai-tools-relabel.service (ai-tools-relabel.path watches that directory),
+-- and a run inside the transaction executes the helper of one release against the libraries of
+-- another. Stopping the .path does not end a run in progress, and a run still active at posttrans
+-- would absorb its start, so the service is stopped with it; base's posttrans starts the watcher
+-- again and runs the service once every package is placed, which completes a run cut short here.
+-- Lua, since pretrans runs before any file of a fresh install exists; there the units are unknown
+-- and the stop is ignored.
+if posix.access("/usr/bin/systemctl", "x") then
+    pcall(rpm.execute, "/usr/bin/systemctl", "stop", "ai-tools-relabel.path", "ai-tools-relabel.service")
+end
+
 %pre -n ai-tools-base
 # Create the ai-tools system account before any file owned by it is unpacked.
 %sysusers_create_compat %{SOURCE1}
@@ -741,9 +756,12 @@ fi
 # library's own AI_TOOLS_MANAGED_ASSETS__KINDS rather than being spelled here, so this scriptlet cannot fall
 # behind the set the library seeds.
 # The asset view follows the seeder and the retired-list pass: one link per asset AI_TOOLS_ASSETS enables under
-# /opt/ai-tools/<kind>, and each enabled agent's links into that root (assets.lib.sh). The three run in the one bash
-# under the assets lock (ai_tools_managed_assets__lock), which the reconcile adopts, so an `ai-tools-admin assets` verb run during
-# the transaction does not interleave its writes with theirs; a lock that cannot be taken skips the three with MSG-M8T9.
+# /opt/ai-tools/<kind>, and each enabled agent's links into that root (assets.lib.sh). The order is the invariant
+# an upgrade that withdraws an asset an enabled set succeeds relies on: the seeder skips a withdrawn name, the pass
+# moves its live copy aside, and the reconcile then finds the name free and links the set's copy. The three run
+# in the one bash under the assets lock (ai_tools_managed_assets__lock), which the reconcile adopts,
+# so an `ai-tools-admin assets` verb run during the transaction does not interleave its writes with theirs; a lock
+# that cannot be taken skips the three with MSG-M8T9.
 # The reconcile's record stream goes to the assets log, since this scriptlet's stdout is the transaction's;
 # a reconcile that does not complete here runs again from the next trigger or `ai-tools-admin assets reconcile`.
 if command -v bash >/dev/null 2>&1; then
@@ -874,6 +892,12 @@ cat >/dev/null 2>&1 || :
 # Start the socket so the handback is live without a reboot (posttrans runs after the systemd
 # daemon-reload file trigger). Idempotent; guarded so a systemd-less build/image fails soft.
 systemctl start ai-tools-handback.socket 2>/dev/null || :
+# Start the relabel watcher pretrans stopped, and run the relabel once now that every package is
+# placed, so the unit's recorded result is this release's run and not one from inside the
+# transaction; `--no-block`, since the run may verify the entrypoint against its release manifest.
+# Idempotent; a host without the nodejs integration has no such unit and fails soft.
+systemctl start ai-tools-relabel.path 2>/dev/null || :
+systemctl start --no-block ai-tools-relabel.service 2>/dev/null || :
 
 # Re-assert setgid after all file ops (some rpm re-applies %attr after %post, dropping it). Paired
 # with the %post copy; both idempotent. See the %post comment for the container-image caveat.
@@ -1067,6 +1091,10 @@ fi
 # known. Idempotent; guarded so a systemd-less build/image fails soft.
 # (No macro names in this comment: rpm expands macros inside scriptlet comments too.)
 systemctl start ai-tools-relabel.path 2>/dev/null || :
+# The nvm-update units are `--user` units of the sandbox account, and the systemd file triggers reload
+# the system manager alone: a running user manager keeps the unit text it loaded until it is told.
+# Reached over the machine transport where it runs; where it does not, no loaded unit is stale.
+systemctl --user -M ai-tools@.host daemon-reload 2>/dev/null || :
 
 %post -n ai-tools-integration-dotnet
 # Create + SELinux-label the sandbox-side dotnet dirs (writable NuGet cache, read-only shared
@@ -1529,6 +1557,59 @@ fi
 %attr(0644, root, root) %{_datadir}/ai-tools/codex/managed_config.toml
 
 %changelog
+* Sun Oct 11 2026 dagnode <tools@dagnode.com> - 0.24.0-1
+- CHANGE: The writing standard, the reftags, engineering and governance skills and the reference
+  subagent ship as the asset set 'core' (package ai-tools-assets-core), not in ai-tools-base.
+  Install it once, 'sudo dnf install ai-tools-assets-core', upgrade, then enable it,
+  'sudo ai-tools-admin assets enable --set core'; every session loads them from then on. Until the
+  enable those skills stay unloaded, and both the upgrade's output and 'sudo ai-tools-admin status'
+  say so. The copies base shipped are under /opt/ai-tools/retired/, an edit of yours included, to
+  carry into an agent's own directory. A fresh install pulls the set and leaves the enable to you.
+  The new names are ai-tools-technical-writing, ai-tools-agent-governance and
+  ai-tools-reference-docs-maintainer; the engineering and reftags skills keep theirs. On an
+  operator.conf written before 0.24.0 the enable appends the AI_TOOLS_ASSETS line and says so; run
+  'sudo ai-tools-admin system post-upgrade' first to have it placed under its header. The full
+  sequence is in docs/install/upgrade.md.
+- CHANGE: The typesafe skill is ai-tools-typesafe-filter (was ai-tools-decide), present only while
+  ai-tools-integration-typesafe is installed, and invoked as /ai-tools-typesafe-filter.
+- CHANGE: The Assets section of 'sudo ai-tools-admin status' ends with one 'Summary:' line naming its
+  findings and the exit status it sets, printed only when it holds a finding. A script that parses
+  the section reads that line; a monitor keeps reading the exit status.
+- SECURITY: The toolchain updater runs under RestrictNamespaces=yes, so a package install script
+  cannot create a user namespace in which the sandbox account's own files read as root-owned.
+- SECURITY: A skill or agent entry the sandbox account can rewrite -- not root-owned, or writable by
+  group, other or an ACL entry -- is reported as agent-entry-untrusted at any name, since every later
+  session loads it; make it root:ai-tools, directories 750 and files 640, or move it out. Each
+  reconcile creates the agents' skills and agents directories root-owned, so the account cannot take
+  the name. A from-source install replaces a symbolic link planted at an agent hook's name instead
+  of writing the hook through it.
+- NEW: Asset sets. 'sudo ai-tools-admin assets enable|disable|reconcile' and AI_TOOLS_ASSETS in
+  /etc/ai-tools/operator.conf decide which assets of an installed set every session loads. An asset
+  links only after its set's signed inventory verifies against the package-signing key. A root-owned
+  entry in an agent's own directory wins over the set's, and a set under
+  /usr/local/share/ai-tools-assets/ is read ahead of the packaged one. 'sudo ai-tools-admin status'
+  names an enabled asset that is not linked, and why; 'man ai-tools-assets' has each reason.
+- NEW: 'sudo ai-tools-admin status' reports a codex host whose /etc/codex/skills is not the link to
+  the shared skills view (agent-root-foreign), and its More section lists the commands that read
+  and run the relabel watcher and the toolchain updater.
+- FIX: The relabel watcher is stopped for a package transaction and started again after it, with one
+  relabel run, so an upgrade no longer leaves ai-tools-relabel.service FAILED; 'install.sh' and the
+  bootstrap run the service once at their end as well, and a start of the service brings its watcher
+  up with it.
+- FIX: The toolchain updater and 'sudo ai-tools-admin system bootstrap' end as a failure, quoting
+  npm's own line, when an agent's declared executable is not installed -- npm leaves out an optional
+  dependency it could not unpack and exits 0. The updater empties npm's content cache after each
+  run and the bootstrap before its installs, so a full volume or an install cut short does not leave
+  the cache inconsistent. No session of that agent starts until the executable is installed.
+- FIX: An upgrade reloads the sandbox account's systemd user manager, so a changed nvm-update unit
+  is in force without a reboot.
+- FIX: 'sudo ai-tools-admin status' reports an operator.conf it could not read whole as an
+  unavailable reading (exit 5), not as a file without AI_TOOLS_ASSETS.
+- DOCS: docs/install/upgrade.md, the 0.24.0 move and what status shows after it;
+  docs/development/shipped-assets.md, how a skill a package of this repository ships is added,
+  changed and withdrawn; the skills and subagents READMEs under /usr/share/ai-tools, the shared view
+  and where a skill of your own goes.
+
 * Sun Oct 04 2026 dagnode <tools@dagnode.com> - 0.23.2-1
 - CHANGE: The SELinux section of 'ai-tools status' and 'ai-tools-admin status' is headed "SELinux
   status" and says, per Boolean, the value a launch requires, whether a difference blocks the launch
@@ -2814,7 +2895,7 @@ fi
 * Fri Jul 17 2026 dagnode <tools@dagnode.com> - 0.6.1-1
 - Maintenance re-release of 0.6.0 to complete the signed rpm.dagnode.com
   publish; no changes to the installed packages.
-    
+
 * Fri Jul 17 2026 dagnode <tools@dagnode.com> - 0.6.0-1
 - Release RPMs are now GPG-signed and published to the signed DNF repo at
   rpm.dagnode.com; install with gpgcheck/repo_gpgcheck instead of --nogpgcheck

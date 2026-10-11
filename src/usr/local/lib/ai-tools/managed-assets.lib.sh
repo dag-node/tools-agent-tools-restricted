@@ -182,14 +182,37 @@ _ai_tools_managed_assets__require_kinds() {
 }
 
 # Assets this project has withdrawn, as `<kind>/<name>` entries. An entry stays listed for as long as a host may still
-# carry it from an older package.
+# carry it from an older package: the entries a `core` asset succeeds stay through the 0.x line, so a host upgrading
+# from any earlier release has its copies moved aside.
 readonly AI_TOOLS_MANAGED_ASSETS__RETIRED=(
     "skills/ai-tools-docs-reference"
     "skills/ai-tools-docs-usage"
     "skills/ai-tools-docs-comments"
     "skills/ai-tools-docs-changelog"
     "skills/ai-tools-decide"            # renamed ai-tools-typesafe-filter; the typesafe package seeds the new name
+    "skills/ai-tools-technical-docs"
+    "skills/ai-tools-capable-systems-governance"
+    "skills/ai-tools-engineering-principles"
+    "skills/ai-tools-reftags"
+    "subagents/ai-tools-reference-architect.md"
 )
+
+# The asset that succeeds a withdrawn entry, keyed by the entry's `<kind>/<name>` with the `<set>/<kind>/<name>`
+# identifier AI_TOOLS_ASSETS takes as its value. An entry without a key here has no successor. Its readers are
+# ai_tools_managed_assets__remove_retired_assets (the closing line)
+# and ai_tools_managed_assets__list_withdrawn_successors (the status notice). tests/unit/managed-assets.sh holds every
+# key to an entry of AI_TOOLS_MANAGED_ASSETS__RETIRED and every value to the identifier grammar.
+readonly -A AI_TOOLS_MANAGED_ASSETS__SUCCESSORS=(
+    ["skills/ai-tools-technical-docs"]="core/skills/ai-tools-technical-writing"
+    ["skills/ai-tools-capable-systems-governance"]="core/skills/ai-tools-agent-governance"
+    ["skills/ai-tools-engineering-principles"]="core/skills/ai-tools-engineering-principles"
+    ["skills/ai-tools-reftags"]="core/skills/ai-tools-reftags"
+    ["subagents/ai-tools-reference-architect.md"]="core/subagents/ai-tools-reference-docs-maintainer"
+)
+
+# The successor sets whose closing line the withdrawal pass has printed in this shell, space-delimited, so a caller
+# that runs the pass once per kind prints each set's line once.
+_AI_TOOLS_MANAGED_ASSETS__ANNOUNCED_SETS=" "
 
 # True when <kind>/<name> is withdrawn. Read by BOTH passes, which is what keeps the two from depending on the order
 # they run in: the source root is not guaranteed to be final when seeding runs. In base's %post it is not -- rpm
@@ -412,6 +435,11 @@ ai_tools_managed_assets__seed_assets() {
 #
 # Fails toward keeping: an asset whose copy cannot be made is left in place and reported, so a withdrawal never destroys
 # what it could not first preserve.
+#
+# After the per-asset lines, the pass prints one line per successor set (AI_TOOLS_MANAGED_ASSETS__SUCCESSORS)
+# for which it moved at least one entry aside, naming the set, the package `ai-tools-assets-<set>` that ships it,
+# and the command that enables it; a set's line is printed once per shell, however many kinds the caller passes one call
+# at a time.
 # $1 live_root  $2.. kinds (default: every kind named in the list); a named kind must be one of
 # AI_TOOLS_MANAGED_ASSETS__KINDS, and so must the kind of every retired entry, or the pass refuses.
 ai_tools_managed_assets__remove_retired_assets() {
@@ -420,7 +448,13 @@ ai_tools_managed_assets__remove_retired_assets() {
     if (( ${#kinds[@]} )); then
         _ai_tools_managed_assets__require_kinds ai_tools_managed_assets__remove_retired_assets "${kinds[@]}" || return 1
     fi
-    local entry kind name
+    local entry kind name path successor successor_set present
+    local -a successor_sets=()
+    # A directory under the setgid live root is born setgid, and a numeric mode does not clear the bit, so the pass
+    # clears it on an existing retired/ as well as on the one withdraw_asset creates: every host reads 0700.
+    if [[ -d "${live_root}/retired" && ! -L "${live_root}/retired" ]]; then
+        chmod g-s "${live_root}/retired" 2>/dev/null || true
+    fi
     for entry in "${AI_TOOLS_MANAGED_ASSETS__RETIRED[@]}"; do
         kind="${entry%%/*}"; name="${entry#*/}"
         _ai_tools_managed_assets__require_kinds "ai_tools_managed_assets__remove_retired_assets (AI_TOOLS_MANAGED_ASSETS__RETIRED: ${entry})" \
@@ -432,8 +466,45 @@ ai_tools_managed_assets__remove_retired_assets() {
             done
             (( match )) || continue
         fi
+        path="${live_root}/${kind}/${name}"
+        present=0
+        [[ -e "${path}" && ! -L "${path}" ]] && present=1
         ai_tools_managed_assets__withdraw_asset "${live_root}" "${kind}" "${name}" "no longer shipped"
+        # withdraw_asset returns 0 whatever it did, so a move is read from the path: a copy that stood there
+        # before the call and is gone after it was moved aside.
+        successor="${AI_TOOLS_MANAGED_ASSETS__SUCCESSORS[${entry}]:-}"
+        if (( present )) && [[ -n "${successor}" && ! -e "${path}" && ! -L "${path}" ]]; then
+            successor_set="${successor%%/*}"
+            [[ "${_AI_TOOLS_MANAGED_ASSETS__ANNOUNCED_SETS}" == *" ${successor_set} "* ]] || successor_sets+=( "${successor_set}" )
+            _AI_TOOLS_MANAGED_ASSETS__ANNOUNCED_SETS+="${successor_set} "
+        fi
     done
+    for successor_set in "${successor_sets[@]}"; do
+        _ai_tools_managed_assets__say "their successors are in the asset set ${successor_set} (package ai-tools-assets-${successor_set}): sudo ai-tools-admin assets enable --set ${successor_set}"
+    done
+    return 0
+}
+
+# ai_tools_managed_assets__list_withdrawn_successors <live_root> : print `<kind>/<name>\t<successor-id>` for each entry
+# of AI_TOOLS_MANAGED_ASSETS__SUCCESSORS whose withdrawn copy lies in <live_root>/retired under the name the withdrawal
+# pass gives it, `<name>.<YYYYMMDD>-<N>.retired` (or the day's unnumbered `<name>.<YYYYMMDD>.retired` an earlier release
+# wrote), in the order of AI_TOOLS_MANAGED_ASSETS__RETIRED. Returns 0 without a line for an absent retired directory,
+# and 1 when <live_root>/retired is a symlink, is not a directory, or its listing fails, so a caller tells a directory
+# it could not read from one that does not hold a copy. Reads as root; `ai-tools-admin status` calls it without
+# the assets lock.
+ai_tools_managed_assets__list_withdrawn_successors() {
+    local retired="${1:-}/retired" listing entry name
+    [[ -e "${retired}" || -L "${retired}" ]] || return 0
+    [[ -d "${retired}" && ! -L "${retired}" ]] || return 1
+    listing="$(find "${retired}" -mindepth 1 -maxdepth 1 -printf '%f\n' 2>/dev/null)" || return 1
+    for entry in "${AI_TOOLS_MANAGED_ASSETS__RETIRED[@]}"; do
+        [[ -n "${AI_TOOLS_MANAGED_ASSETS__SUCCESSORS[${entry}]:-}" ]] || continue
+        name="${entry#*/}"
+        if grep -qE "^${name//./\\.}\\.[0-9]{8}(-[0-9]+)?\\.retired\$" <<<"${listing}"; then
+            printf '%s\t%s\n' "${entry}" "${AI_TOOLS_MANAGED_ASSETS__SUCCESSORS[${entry}]}"
+        fi
+    done
+    return 0
 }
 
 # ai_tools_managed_assets__withdraw_asset <live_root> <kind> <name> [reason] Move ONE live asset aside
@@ -455,6 +526,7 @@ ai_tools_managed_assets__withdraw_asset() {
     retired_dir="${live_root}/retired"
     if ! declare -F ai_tools_conf__find_sidecar_path >/dev/null 2>&1 \
        || ! install -d -o root -g root -m 700 "${retired_dir}" 2>/dev/null \
+       || ! chmod g-s "${retired_dir}" 2>/dev/null \
        || ! target="$(ai_tools_conf__find_sidecar_path "${retired_dir}/${name}" retired)" \
        || ! mv "${path}" "${target}" 2>/dev/null; then
         _ai_tools_managed_assets__say "${name} kept (${reason}, and could not be moved aside)"

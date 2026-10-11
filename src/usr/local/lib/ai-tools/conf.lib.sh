@@ -249,9 +249,11 @@ ai_tools_conf__split() {
 #   named array, but ONLY when the key is present -- a present key REPLACES the array (an empty
 #   value giving an empty array, an explicit "none"), while an absent key leaves it untouched and
 #   returns 1. That is what makes an override key override: a caller seeds the array with its
-#   default and calls this, and a config that omits the key keeps that default.
+#   default and calls this, and a config that omits the key keeps that default. A file not read
+#   whole leaves the array untouched as well and returns 2, ai_tools_conf__read's status, so
+#   a caller that reports an absent key tells it from a file it could not read.
 ai_tools_conf__read_list() {
-    ai_tools_conf__read "$2" "$3" || return 1
+    ai_tools_conf__read "$2" "$3" || return $?
     ai_tools_conf__split_list_value "$1" "${ai_tools_conf__value}" "${_ai_tools_conf__value_quoted}" "$3 in $2"
 }
 
@@ -727,8 +729,10 @@ ai_tools_conf__set_list() {
 # _ai_tools_conf__write_line <file> <KEY> <line> : replace the last live assignment of KEY in <file>
 #   (`KEY=`, whitespace allowed around the key) with <line> -- or, where there is none, the first
 #   commented default (`#KEY=`, `# KEY=`) -- or append <line> when the file mentions neither,
-#   copying every other line byte for byte. A missing <file> is created at mode 0644; an
-#   existing one keeps its owner and mode and is replaced by a rename
+#   copying every other line byte for byte. Publishes which of the three it did
+#   in AI_TOOLS_CONF__WRITE_PLACEMENT (`live`, `commented`, `appended`), so a caller tells a file
+#   carrying the key's documented slot from one that predates it. A missing <file> is created
+#   at mode 0644; an existing one keeps its owner and mode and is replaced by a rename
 #   (_ai_tools_conf__replace_file). Returns 1 when the file could not be written. The one line
 #   replacement both public writers share, so they rewrite the same line of the same file.
 _ai_tools_conf__write_line() {
@@ -745,6 +749,11 @@ _ai_tools_conf__write_line() {
     fi
     target="${live}"
     (( target )) || target="${commented}"
+    # shellcheck disable=SC2034  # read by the callers of the two public writers (ai-tools-admin's assets verbs)
+    if (( live )); then AI_TOOLS_CONF__WRITE_PLACEMENT=live
+    elif (( commented )); then AI_TOOLS_CONF__WRITE_PLACEMENT=commented
+    else AI_TOOLS_CONF__WRITE_PLACEMENT=appended
+    fi
     tmp="$(mktemp 2>/dev/null)" || return 1
     if [[ -f "${file}" ]]; then
         number=0

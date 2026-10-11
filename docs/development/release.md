@@ -1,6 +1,7 @@
 # Branching and release
 
-[Development](index.md) · **Release** — [all docs](../index.md)
+[Development](index.md) · **Release** · [Shipped assets](shipped-assets.md) —
+[all docs](../index.md)
 
 How a change travels from a feature branch to a signed RPM on `rpm.dagnode.com`
 — the branch model, the tag/version grammar, and the exact commands for each

@@ -599,7 +599,9 @@ install_subst() {
         -e "s/@SANDBOX_GROUP@/${SANDBOX_GROUP}/g" \
         -e "s/@AI_TOOLS_VERSION@/${AI_TOOLS_VERSION}/g" \
         "${src}" > "${tmp}"
-    install -o "${owner}" -g "${group}" -m "${mode}" "${tmp}" "${dst}"
+    # `-T`: the destination is this file's name, so a symlink to a directory planted there -- a name the sandbox account
+    # can create inside an agent's group-writable config directory -- is replaced, where a plain install writes into it.
+    install -T -o "${owner}" -g "${group}" -m "${mode}" "${tmp}" "${dst}"
     rm -f "${tmp}"
 }
 
@@ -1100,11 +1102,6 @@ do_summary() {
     _chk /opt/ai-tools/.claude/session-hook.sh
     _chk /opt/ai-tools/.claude/filter-hook.sh
     _chk /opt/ai-tools/.claude/settings.json
-    _chk /opt/ai-tools/subagents/ai-tools-reference-architect.md
-    _chk /opt/ai-tools/.claude/agents/ai-tools-reference-architect.md
-    _chk /opt/ai-tools/skills/ai-tools-technical-docs/SKILL.md
-    _chk /opt/ai-tools/skills/ai-tools-engineering-principles/SKILL.md
-    _chk /opt/ai-tools/.claude/skills/ai-tools-technical-docs
     _chk /opt/ai-tools/orientation/AGENTS.md
     _chk /opt/ai-tools/.claude/CLAUDE.md
 
@@ -1295,6 +1292,18 @@ do_install() {
     logger -t ai-tools-install -p daemon.notice -- \
         "install started (projects user ${PROJECTS_USER}, sandbox ${SANDBOX_USER}:${SANDBOX_GROUP})" \
         2>/dev/null || true
+
+    # Stop the relabel watcher, and any run it already started, for the run: the files this install writes
+    # under /opt/ai-tools/bin trigger ai-tools-relabel.service, and a run mid-install executes the helper of one
+    # release against the libraries of another. Stopping the .path does not end a run in progress, and a run still
+    # active at the end would absorb the closing start, so the service is stopped whether or not the watcher was up.
+    # The EXIT trap starts the watcher again whatever ends the run, after a daemon-reload for the unit files the run
+    # rewrote, so an install that stops early leaves the watcher as it found it; a completed run enables it at its
+    # service step and runs the relabel once at its end, which completes a run cut short here.
+    if systemctl is-active --quiet ai-tools-relabel.path 2>/dev/null; then
+        trap 'systemctl daemon-reload 2>/dev/null || true; systemctl start ai-tools-relabel.path 2>/dev/null || true' EXIT
+    fi
+    systemctl stop ai-tools-relabel.path ai-tools-relabel.service 2>/dev/null || true
 
     section "System files (root-owned)"
 
@@ -2454,7 +2463,7 @@ do_install() {
         /usr/local/libexec/ai-tools/ai-tools-admin assets reconcile >/dev/null || _reconcile_status=$?
         case "${_reconcile_status}" in
             0) ;;
-            4) warn MSG-G2U4 "an asset AI_TOOLS_ASSETS enables is not linked -- sudo ai-tools-admin status names each one and why" ;;
+            4) warn MSG-G2U4 "the asset reconcile reported a finding -- sudo ai-tools-admin status names each one and what ends it" ;;
             *) warn MSG-P2N9 "the asset reconcile did not complete (exit ${_reconcile_status}) -- run: sudo ai-tools-admin assets reconcile" ;;
         esac
         ai_tools_managed_assets__unlock
@@ -2667,6 +2676,12 @@ do_install() {
     # the install did not put there and does not remove, and the operator decides what to do about it. It draws its own
     # section only when it has something to report.
     probe_shadowing_agents
+
+    # The relabel once more through its unit, queued, after the SELinux step relabelled directly: the unit keeps
+    # the result of its last run, which `ai-tools status` reports, so a FAILED a watcher run left stands until a run
+    # through the unit succeeds; the unit answers from the pin this install wrote, and its Wants brings the watcher
+    # up with it.
+    systemctl start --no-block ai-tools-relabel.service 2>/dev/null || true
 
     logger -t ai-tools-install -p daemon.notice -- "install complete" 2>/dev/null || true
 }

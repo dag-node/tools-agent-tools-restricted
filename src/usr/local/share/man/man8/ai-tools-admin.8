@@ -602,6 +602,12 @@ as in
 .BR AI_TOOLS_ASSETS ,
 then run
 .BR "assets reconcile" .
+The line replaces the file's own
+.B AI_TOOLS_ASSETS
+line or the commented default under its header; a file carrying neither, one
+written before the key, takes it at its end, and the command says so, since
+.B system post-upgrade
+is what carries the line under its header from the shipped template.
 Every
 .I IDENTIFIER
 is checked before anything is written, and the first that fails refuses the
@@ -731,6 +737,50 @@ for the first, and inspect and remove the named entry for the second.
 .B FUTURE
 means the update timer's stamp is dated ahead of the clock, so a missed update
 does not get a catch-up run; correct the clock and restart the timer.
+.PP
+In the
+.B Assets
+section,
+.B successor\-unenabled
+needs attention: an upgrade moved assets this package no longer ships to
+.IR /opt/ai\-tools/retired ,
+their successors in an asset set are not enabled, and
+.B AI_TOOLS_ASSETS
+is absent from
+.IR /etc/ai\-tools/operator.conf .
+The line names the withdrawn assets and the set; the line under it names the
+commands that end it:
+.RS
+.PP
+.EX
+sudo dnf install ai-tools-assets-core
+sudo ai-tools-admin assets enable --set core
+.EE
+.RE
+.PP
+or, to keep the set off,
+.B AI_TOOLS_ASSETS=[]
+in
+.IR operator.conf .
+Writing the key, as a list or as
+.BR [] ,
+ends the line; a successor that is listed and does not link is reported by its
+own line instead.
+.PP
+The
+.B Assets
+section ends with a summary line when it holds a finding:
+.RS
+.PP
+.EX
+Summary: 1 finding needs attention in this section (exit 4)
+Summary: 2 findings need attention and 1 reading is unavailable in this section (exit 5)
+.EE
+.RE
+.PP
+It names the counts that are not zero and the exit status the section sets.
+A section without a finding does not print it.
+The line is for a person reading the report; a monitor reads the exit status.
 .PP
 The label reading is the one this command alone can give.
 .B "ai\-tools status"

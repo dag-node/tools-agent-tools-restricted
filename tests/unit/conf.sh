@@ -390,6 +390,28 @@ for row in "${set_list_cases[@]}"; do
         fail "set_list (${items:-no items}): file is now: $(tr '\n' '|' < "${list_conf}")"
     fi
 done
+# The writer publishes where it wrote -- over the live line, over the commented default, or at the end of a file
+# carrying neither -- so a caller tells a file that holds the key's documented slot from one written before the key.
+placement_conf="${TESTDIR}/placement.conf"
+printf '# header\nK=[old]\nOTHER=kept\n' > "${placement_conf}"
+if ai_tools_conf__set_list "${placement_conf}" K new && [[ "${AI_TOOLS_CONF__WRITE_PLACEMENT:-}" == live ]]; then
+    pass "set_list over a live line publishes the placement live"
+else
+    fail "set_list over a live line published '${AI_TOOLS_CONF__WRITE_PLACEMENT:-}'"
+fi
+printf '# header\n#K=[]\nOTHER=kept\n' > "${placement_conf}"
+if ai_tools_conf__set_list "${placement_conf}" K new && [[ "${AI_TOOLS_CONF__WRITE_PLACEMENT:-}" == commented ]]; then
+    pass "set_list over the commented default publishes the placement commented"
+else
+    fail "set_list over the commented default published '${AI_TOOLS_CONF__WRITE_PLACEMENT:-}'"
+fi
+printf '# header\nOTHER=kept\n' > "${placement_conf}"
+if ai_tools_conf__set_list "${placement_conf}" K new && [[ "${AI_TOOLS_CONF__WRITE_PLACEMENT:-}" == appended ]] \
+        && [[ "$(tail -n1 "${placement_conf}")" == 'K=[new]' ]]; then
+    pass "set_list on a file without the key appends the line and publishes the placement appended"
+else
+    fail "set_list on a file without the key published '${AI_TOOLS_CONF__WRITE_PLACEMENT:-}': $(tr '\n' '|' < "${placement_conf}")"
+fi
 # An item that would read back as other items, or end the list, is refused with status 2 and the file left unchanged.
 before="$(cat "${list_conf}")"
 for bad in 'a b' 'a,b' '[a' 'a]' '"a"' "'a'" 'a#b' '' $'a\nb' $'a\tb'; do

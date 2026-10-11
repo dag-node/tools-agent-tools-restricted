@@ -245,7 +245,7 @@ groupdis="$(comm -23 <(printf '%s\n' "${_g}" | sort -u | grep -v '^$') \
 #                      correctly labelled (verified for -m, a plain copy, and -D). Matched on the COMMAND as well as
 #                      the permission, so a chcon/setfattr attempt to relabel a project file -- an escalation signal --
 #                      stays NEW. comm is an analyst's aid, not a control: the access is denied either way.
-#   emacs(1)        -- this repository fills comments with `emacs --batch` (tools/formatters/fill-comments.sh), once
+#   emacs(1)        -- this repository fills comments with `emacs --batch` (tools/format.sh, the pinned formatter), once
 #                      per file, so an agent formatting prose raises these on every run rather than once per session.
 #                      Two existence probes emacs makes at startup: one for `ssh` -- access(X_OK), which SELinux
 #                      checks as file:execute WITHOUT the binary being run -- and a read of the mail-spool symlink.

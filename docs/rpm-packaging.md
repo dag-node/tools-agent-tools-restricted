@@ -280,10 +280,14 @@ or an install leaves the entrypoint unlabelled and an erase leaves the domain
 live.
 
 `ai-tools-integration-nodejs`: `%post`/`%preun`/`%postun` manage the system
-`ai-tools-relabel.path` watcher with the systemd macros. The `nvm-update`
-service and timer ship in `%{_userunitdir}` (`/usr/lib/systemd/user/`);
+`ai-tools-relabel.path` watcher with the systemd macros. `ai-tools-base`'s
+`%pretrans` stops that watcher for the transaction and its `%posttrans` starts
+it again and runs the relabel once, so an upgrade does not run one release's
+relabel helper against another release's libraries. The `nvm-update` service
+and timer ship in `%{_userunitdir}` (`/usr/lib/systemd/user/`);
 `system bootstrap` enables the timer in `ai-tools`'s own `--user instance` once
-it has provisioned the toolchain.
+it has provisioned the toolchain, and the nodejs `%posttrans` reloads
+that instance, so a changed unit is in force after an upgrade without a reboot.
 
 `ai-tools-agents-claude-code-restricted`: `%post` applies the entrypoint
 file-context and, when SELinux is enabled, relabels `/opt/ai-tools/bin`; no

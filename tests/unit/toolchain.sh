@@ -467,6 +467,19 @@ else
     else
         fail "the repair arm does not install: '$(tr '\n' '|' <<<"${repair_branch}")'"
     fi
+
+    # A package still incomplete after the install ends the run as a fault -- decided after the repoint loop, so one
+    # incomplete agent never strands another's update, and ahead of the transient skip, which a reader takes as a retry.
+    fault_line="$(grep -n -m1 -F 'die MSG-U5N2 ' "${updater}" | cut -d: -f1)"
+    repoint_line="$(grep -n -m1 -F 'ai-tools-handback-client SYMLINK "' "${updater}" | cut -d: -f1)"
+    skip_line="$(grep -n -m1 -E '^[[:space:]]+\|\| skip unverified ' "${updater}" | cut -d: -f1)"
+    if [[ -z "${fault_line}" || -z "${repoint_line}" || -z "${skip_line}" ]]; then
+        fail "the updater's incomplete-package fault, repoint or transient skip is no longer where this reads it (fault -> ${fault_line:-none}, repoint -> ${repoint_line:-none}, skip -> ${skip_line:-none})"
+    elif (( repoint_line < fault_line && fault_line < skip_line )); then
+        pass "a package still incomplete after the install ends the run as a fault, after the repoint and ahead of the transient skip"
+    else
+        fail "the incomplete-package fault at line ${fault_line} is not between the repoint (${repoint_line}) and the transient skip (${skip_line})"
+    fi
 fi
 
 unset AI_TOOLS_AGENTS_DIR AI_TOOLS_OPERATOR_CONF

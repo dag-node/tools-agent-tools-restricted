@@ -7,11 +7,11 @@
 # with and the parser its examples must load in, ai-tools-operator.conf(5) and ai-tools-custom-claude-endpoint.conf(5)
 # against the keys their shipped templates mention, and ai-tools-messages(7) against the generator that derives it
 # from the cross-reference index. It then holds every authored page to the way a page is WRITTEN -- the font
-# and placeholder rules whose home is references/man-pages.md in the shipped ai-tools-technical-docs skill, edited
-# in lockstep with the check here -- and closes by holding every config header this project writes to the fixed-width
-# rule (72 columns). In the two command pairs the page and the help are not copies of each other -- usage() is
-# orientation while the page is the reference -- so equality of their whole option sets is the wrong contract and is
-# what made slimming the help impossible.
+# and placeholder rules whose home is references/man-pages.md in the ai-tools-technical-writing skill of the set core,
+# edited in lockstep with the check here -- and closes by holding every config header this project writes
+# to the fixed-width rule (72 columns). In the two command pairs the page and the help are not copies of each other --
+# usage() is orientation while the page is the reference -- so equality of their whole option sets is the wrong contract
+# and is what made slimming the help impossible.
 #
 # Both commands spell a command in bare words (.claude/rules/cli-grammar.rule.md), so what is compared is
 # the COMMAND PATH -- `projects claim`, `selinux groups enable` -- rather than a single flag. ai-tools(1), five checks:
@@ -579,19 +579,20 @@ check_messages_pointers
 # ── Config headers are fixed-width text ───────────────────────────────────────────────────────
 # An operator reads a config file in a terminal, which does not reflow it, so every header this project writes --
 # the two seeds and the two shipped templates -- holds to 72 columns. The rule is the checker's `--config-header` mode
-# (the ai-tools-technical-docs skill); this runs it over the four. Where a line breaks is the Emacs formatter's,
-# so the width is the whole check.
+# (the ai-tools-technical-writing skill of the pinned core release, through tools/lib/assets.sh); this runs it
+# over the four. Where a line breaks is the formatter's, so the width is the whole check.
 section "config headers: 72 columns (unit)"
 PROSE_CHECK=""
-for candidate in \
-    "${ROOT}/src/usr/share/ai-tools/skills/ai-tools-technical-docs/prose-check.py" \
-    "/usr/share/ai-tools/skills/ai-tools-technical-docs/prose-check.py" \
-    "/opt/ai-tools/skills/ai-tools-technical-docs/prose-check.py"; do
-    [[ -r "${candidate}" ]] && { PROSE_CHECK="${candidate}"; break; }
-done
+# shellcheck source=SCRIPTDIR/../../tools/lib/assets.sh
+if [[ -r "${ROOT}/tools/lib/assets.sh" ]] && source "${ROOT}/tools/lib/assets.sh"; then
+    PROSE_CHECK="$(ai_tools_dev_assets__resolve_tool prose-check)" || PROSE_CHECK=""
+fi
 check_config_headers() {
-    if [[ -z "${PROSE_CHECK}" ]] || ! command -v python3 >/dev/null 2>&1; then
-        skip "config header format" "prose-check.py or python3 not available"; return
+    if [[ -z "${PROSE_CHECK}" ]]; then
+        skip "config header format" "the pinned checker is not in the cache; run: bash tools/lib/assets.sh fetch"; return
+    fi
+    if ! command -v python3 >/dev/null 2>&1; then
+        skip "config header format" "python3 not available"; return
     fi
     # shellcheck source=/dev/null
     if ! source "${CONF_LIB}" 2>/dev/null || ! declare -F ai_tools_conf__get_allowlist_seed >/dev/null 2>&1; then
@@ -614,7 +615,7 @@ check_config_headers
 
 # ── The convention lint: fonts and placeholders on the authored pages ─────────────────────────
 # Every other section in this file pairs a page with what it documents. This one holds each page to the way a page is
-# WRITTEN -- the font and placeholder rules in the ai-tools-technical-docs skill's references/man-pages.md, which is
+# WRITTEN -- the font and placeholder rules in the ai-tools-technical-writing skill's references/man-pages.md, which is
 # the convention's home and is edited with this check so the two cannot disagree.
 #
 # It reads the AUTHORED pages (man1, man5, man8) and not ai-tools-messages(7): that page is rendered from the runtime

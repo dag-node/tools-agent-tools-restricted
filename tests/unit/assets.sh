@@ -816,8 +816,8 @@ PRELUDE='eval "_orig_$(declare -f ai_tools_assets__plan)"; ai_tools_assets__plan
 reconcile; PRELUDE=""; chmod 0750 "${HOME_DIR}/skills"
 links_left "an untrusted operator.conf beside a view refused in the apply" "${HOME_DIR}/skills"
 has_row view-dir-untrusted "${HOME_DIR}/skills" && pass "a view refused in the apply: its row" || fail "a view refused in the apply: ${OUT:0:300}"
-# An agent's directory the run could not list, and the agents' directories the run could not discover: the agent's
-# link into the view stays in each, and the row says so instead of claiming every link removed.
+# An agent's directory the run could not list, and the agents' directories the run could not discover: the agent's link
+# into the view stays in each, and the row says so instead of claiming every link removed.
 untrusted_row() { awk -F'\t' 'NR > 1 && $6 == "enable-list-untrusted" { print $11 }' <<< "${OUT}"; }
 fresh; chmod 0664 "${CONF}"; PRELUDE="$(failing_find "${HOME_DIR}/.acme/skills")"; reconcile; PRELUDE=""
 if [[ "$(untrusted_row)" == *"under ${HOME_DIR}/.acme/skills"* && "$(untrusted_row)" != *"every resolver link is removed"* \
@@ -1065,6 +1065,71 @@ fi
 has_row agent-entry-untrusted "${HOME_DIR}/.acme/skills/acme-pdf" && fail "a root-owned real entry reported untrusted" || pass "a root-owned real entry is not agent-entry-untrusted"
 chown -R "${SANDBOX_USER}" "${HOME_DIR}/.acme/skills/acme-pdf"; reconcile
 has_row agent-entry-untrusted "${HOME_DIR}/.acme/skills/acme-pdf" && pass "a sandbox-owned real entry is agent-entry-untrusted" || fail "a sandbox-owned entry: ${OUT:0:300}"
+# A real entry at a name the view does not hold is read as well: the agent loads it in every later session, so one
+# the sandbox account can rewrite is agent-entry-untrusted at attention -- owned by it, or root's and writable
+# through the group bits or an ACL entry the mask carries -- and one at a seeded copy's modes does not get a row.
+# The plan leaves each where it is.
+fresh
+mkdir "${HOME_DIR}/.acme/skills/stray"; printf 'own\n' > "${HOME_DIR}/.acme/skills/stray/SKILL.md"
+reconcile
+if [[ "${RC}" == 0 ]] && ! has_row agent-entry-untrusted "${HOME_DIR}/.acme/skills/stray"; then
+    pass "a root-owned real entry at a name the view does not hold gives no row"
+else
+    fail "a root-owned stray entry: rc ${RC}, ${OUT:0:300}"
+fi
+# stray_case <what> <severity> <finding> <rc> : the last run reported the stray entry <finding> at <severity>, exited
+# <rc>, and kept it.
+stray_case() {
+    if [[ "${RC}" == "$4" ]] && has_row_at "$2" "$3" && has_row "$3" "${HOME_DIR}/.acme/skills/stray" \
+            && [[ "$(cat "${HOME_DIR}/.acme/skills/stray/SKILL.md")" == own ]]; then
+        pass "$1 at a name the view does not hold is $3 at $2, exit $4, and kept"
+    else
+        fail "$1: rc ${RC}, ${OUT:0:300}"
+    fi
+}
+chmod 0750 "${HOME_DIR}/.acme/skills/stray"; chmod 0640 "${HOME_DIR}/.acme/skills/stray/SKILL.md"
+chmod g+w "${HOME_DIR}/.acme/skills/stray/SKILL.md"; reconcile
+stray_case "a root-owned entry holding a group-writable file" attention agent-entry-untrusted 4
+chmod g-w "${HOME_DIR}/.acme/skills/stray/SKILL.md"
+if command -v setfacl >/dev/null 2>&1 && setfacl -m "u:${SANDBOX_USER}:rw" "${HOME_DIR}/.acme/skills/stray/SKILL.md" 2>/dev/null; then
+    reconcile
+    stray_case "a root-owned entry whose file grants the sandbox account a write by an ACL entry" attention agent-entry-untrusted 4
+    setfacl -b "${HOME_DIR}/.acme/skills/stray/SKILL.md"
+    reconcile
+    if [[ "${RC}" == 0 ]] && ! has_row agent-entry-untrusted "${HOME_DIR}/.acme/skills/stray"; then
+        pass "the same entry with its ACL removed, at 0750/0640 root, does not get a row"
+    else
+        fail "the entry with its ACL removed: rc ${RC}, ${OUT:0:300}"
+    fi
+else
+    skip "an ACL write grant on a stray entry" "setfacl is absent or the testdir's filesystem refuses an ACL"
+fi
+chown -R "${SANDBOX_USER}" "${HOME_DIR}/.acme/skills/stray"; reconcile
+stray_case "a sandbox-owned real entry" attention agent-entry-untrusted 4
+# An enabled agent's kind directory is created root-owned on every reconcile, whether or not a link is placed in it: its
+# config directory is group-writable, so a directory left absent is a name the sandbox account could take.
+fresh; write_conf; rm -rf "${HOME_DIR}/.acme/skills" "${HOME_DIR}/.acme/agents"; reconcile
+if [[ "${RC}" == 0 && -d "${HOME_DIR}/.acme/skills" && ! -L "${HOME_DIR}/.acme/skills" && -d "${HOME_DIR}/.acme/agents" ]] \
+        && [[ "$(stat -c '%u' "${HOME_DIR}/.acme/skills") $(perm "${HOME_DIR}/.acme/skills")" == "0 750" ]] \
+        && [[ "$(stat -c '%u' "${HOME_DIR}/.acme/agents") $(perm "${HOME_DIR}/.acme/agents")" == "0 750" ]]; then
+    pass "an enabled agent's kind directories are created root-owned 0750 with no asset to link"
+else
+    fail "an enabled agent with no asset to link: rc ${RC}, $(ls -la "${HOME_DIR}/.acme" 2>&1 | tr '\n' '|') ${OUT:0:300}"
+fi
+absent "${HOME_DIR}/.gamma/skills" && pass "an agent that declares no skills_dir is not given one" \
+    || fail "the agent gamma was given ${HOME_DIR}/.gamma/skills"
+fresh
+# The real-entry listing is read apart from the links listing, so its failure is a row of its own and the links planned
+# in the directory stand.
+PRELUDE="$(printf 'find() { if [[ "$2" == %q && " $* " == *" ! -type l "* ]]; then return 1; fi; command find "$@"; }' \
+    "${HOME_DIR}/.acme/skills")"
+reconcile; PRELUDE=""
+if [[ "${RC}" == 5 ]] && has_row_at unreadable error && has_row error "${HOME_DIR}/.acme/skills" \
+        && [[ "$(readlink -- "${HOME_DIR}/.acme/skills/acme-pdf")" == "${HOME_DIR}/skills/acme-pdf" ]]; then
+    pass "a real-entry listing that fails is an unreadable error row, exit 5, with the agent's links in place"
+else
+    fail "a failed real-entry listing: rc ${RC}, ${OUT:0:300}"
+fi
 fresh
 ln -sfn /etc/hostname "${HOME_DIR}/.acme/skills/acme-pdf"; reconcile
 if has_row agent-occupied "${HOME_DIR}/.acme/skills/acme-pdf" && [[ "$(readlink "${HOME_DIR}/.acme/skills/acme-pdf")" == /etc/hostname ]]; then
@@ -1122,44 +1187,62 @@ destination_case "a kind directory owned by the projects user" agent-dir-untrust
 two_agents; chmod 0775 "${HOME_DIR}/.acme/skills"; reconcile
 destination_case "a root-owned, group-writable kind directory" agent-dir-untrusted
 two_agents; rm -rf "${HOME_DIR}/.acme/skills"
-PRELUDE="install() { if [[ \"\${@: -1}\" == */.acme/skills ]]; then mkdir -- \"\${@: -1}\" && chown ${PROJECTS_USER} -- \"\${@: -1}\"; else command install \"\$@\"; fi; }"
+# The name is taken between the plan and the apply's create, the race the sandbox account can run inside its
+# group-writable config directory. The stubbed mkdir makes the directory as the projects user and fails as the real one
+# does on a name that exists; then it plants a symlink to a directory outside instead. The create does not follow a link
+# -- `install -d` would re-own and re-mode the link's target -- so the target keeps its owner, mode and entries,
+# and the name is refused either way.
+PRELUDE="mkdir() { if [[ \"\${@: -1}\" == */.acme/skills ]]; then command mkdir -- \"\${@: -1}\" && chown ${PROJECTS_USER} -- \"\${@: -1}\"; return 1; fi; command mkdir \"\$@\"; }"
 reconcile; PRELUDE=""
-destination_case "a kind directory taken between the plan and the apply (a stubbed install)" agent-dir-untrusted
+destination_case "a kind directory taken between the plan and the apply (a stubbed mkdir)" agent-dir-untrusted
 if [[ "$(stat -c %U "${HOME_DIR}/.acme/skills")" == "${PROJECTS_USER}" && -z "$(ls -A "${HOME_DIR}/.acme/skills")" ]]; then
     pass "a kind directory taken between the plan and the apply: nothing is written into it, and it is not re-owned"
 else
     fail "a kind directory taken between the plan and the apply: $(ls -la "${HOME_DIR}/.acme/skills" 2>&1 | tr '\n' '|')"
 fi
 rm -rf "${HOME_DIR}/.acme/skills"
-# The directories holding a destination are checked before an absent one is created: a create through a refused
-# home root is a write into the tree the plan refused to act in. INSTALL_LOG records each install the apply ran.
-INSTALL_LOG="${TESTDIR}/install.log"
-RECORD_INSTALL="install() { printf '%s\\n' \"\$*\" >> ${INSTALL_LOG}; command install \"\$@\"; }"
+two_agents; rm -rf "${HOME_DIR}/.acme/skills"
+mkdir -m 0777 "${OUTSIDE}/planted"; chown "${PROJECTS_USER}" "${OUTSIDE}/planted"; outside_planted="$(outside_snapshot)"
+PRELUDE="mkdir() { if [[ \"\${@: -1}\" == */.acme/skills ]]; then ln -s ${OUTSIDE}/planted -- \"\${@: -1}\"; return 1; fi; command mkdir \"\$@\"; }"
+reconcile; PRELUDE=""
+if has_row agent-dir-untrusted "${HOME_DIR}" && [[ "${RC}" == 4 && -L "${HOME_DIR}/.acme/skills" ]] \
+        && [[ "$(outside_snapshot)" == "${outside_planted}" ]] \
+        && [[ "$(readlink -- "${HOME_DIR}/.beta/skills/acme-pdf")" == "${HOME_DIR}/skills/acme-pdf" ]]; then
+    pass "a symlink planted at the kind directory's name between the plan and the apply: refused, its target keeps its owner, mode and entries, and the sibling agent's link is placed"
+else
+    fail "a planted symlink: rc ${RC}, the target is $(stat -c '%U %a' "${OUTSIDE}/planted" 2>&1) holding '$(ls -A "${OUTSIDE}/planted" 2>&1 | tr '\n' '|')', ${OUT:0:300}"
+fi
+rm -f "${HOME_DIR}/.acme/skills"; rm -rf "${OUTSIDE}/planted"
+# The directories holding a destination are checked before an absent one is created: a create through a refused home
+# root is a write into the tree the plan refused to act in. CREATE_LOG records each directory the apply created
+# under the home or outside it.
+CREATE_LOG="${TESTDIR}/create.log"
+RECORD_CREATE="mkdir() { case \"\${@: -1}\" in ${HOME_DIR}/*|${OUTSIDE}/*) printf '%s\\n' \"\${@: -1}\" >> ${CREATE_LOG} ;; esac; command mkdir \"\$@\"; }"
 two_agents; rm -rf "${HOME_DIR}/subagents"; mv "${HOME_DIR}" "${TESTDIR}/home-real"; ln -s "${OUTSIDE}" "${HOME_DIR}"
-PRELUDE="${RECORD_INSTALL}"; reconcile; PRELUDE=""
+PRELUDE="${RECORD_CREATE}"; reconcile; PRELUDE=""
 destination_case "a symlinked home root with an absent view child" view-dir-untrusted
-if [[ ! -s "${INSTALL_LOG}" ]] && absent "${OUTSIDE}/subagents"; then
-    pass "a symlinked home root with an absent view child: no install ran, and the child is not created through the link"
+if [[ ! -s "${CREATE_LOG}" ]] && absent "${OUTSIDE}/subagents"; then
+    pass "a symlinked home root with an absent view child: no directory was created, and the child is not created through the link"
 else
-    fail "a symlinked home root: install ran '$(cat "${INSTALL_LOG}" 2>/dev/null | tr '\n' '|')', $(ls -la "${OUTSIDE}" | tr '\n' '|')"
+    fail "a symlinked home root: created '$(cat "${CREATE_LOG}" 2>/dev/null | tr '\n' '|')', $(ls -la "${OUTSIDE}" | tr '\n' '|')"
 fi
-rm -f "${HOME_DIR}" "${INSTALL_LOG}"; mv "${TESTDIR}/home-real" "${HOME_DIR}"
+rm -f "${HOME_DIR}" "${CREATE_LOG}"; mv "${TESTDIR}/home-real" "${HOME_DIR}"
 two_agents; rm -rf "${HOME_DIR}/subagents"; chown "${PROJECTS_USER}" "${HOME_DIR}"
-PRELUDE="${RECORD_INSTALL}"; reconcile; PRELUDE=""; chown root "${HOME_DIR}"
-if has_row view-dir-untrusted "${HOME_DIR}" && [[ "${RC}" == 4 && ! -s "${INSTALL_LOG}" ]] && absent "${HOME_DIR}/subagents"; then
-    pass "a home root owned by the projects user with an absent view child: refused, no install ran, the child absent"
+PRELUDE="${RECORD_CREATE}"; reconcile; PRELUDE=""; chown root "${HOME_DIR}"
+if has_row view-dir-untrusted "${HOME_DIR}" && [[ "${RC}" == 4 && ! -s "${CREATE_LOG}" ]] && absent "${HOME_DIR}/subagents"; then
+    pass "a home root owned by the projects user with an absent view child: refused, no directory created, the child absent"
 else
-    fail "a home root owned by the projects user: rc ${RC}, install ran '$(cat "${INSTALL_LOG}" 2>/dev/null | tr '\n' '|')', ${OUT:0:300}"
+    fail "a home root owned by the projects user: rc ${RC}, created '$(cat "${CREATE_LOG}" 2>/dev/null | tr '\n' '|')', ${OUT:0:300}"
 fi
-rm -f "${INSTALL_LOG}"
-two_agents; rm -rf "${HOME_DIR}/subagents"; PRELUDE="${RECORD_INSTALL}"; reconcile; PRELUDE=""
-if [[ "${RC}" == 0 && "$(stat -c '%U %a' "${HOME_DIR}/subagents")" == "root 750" ]] && grep -q -- "${HOME_DIR}/subagents" "${INSTALL_LOG}" \
+rm -f "${CREATE_LOG}"
+two_agents; rm -rf "${HOME_DIR}/subagents"; PRELUDE="${RECORD_CREATE}"; reconcile; PRELUDE=""
+if [[ "${RC}" == 0 && "$(stat -c '%U %a' "${HOME_DIR}/subagents")" == "root 750" ]] && grep -qx -- "${HOME_DIR}/subagents" "${CREATE_LOG}" \
         && linked subagents/acme-reviewer.md "${PKG}/acme/agents/acme-reviewer.md"; then
     pass "control: a trusted home root with an absent view child creates it root 0750 and links into it"
 else
-    fail "control: rc ${RC}, $(stat -c '%U %a' "${HOME_DIR}/subagents" 2>&1), install ran '$(cat "${INSTALL_LOG}" 2>/dev/null | tr '\n' '|')'"
+    fail "control: rc ${RC}, $(stat -c '%U %a' "${HOME_DIR}/subagents" 2>&1), created '$(cat "${CREATE_LOG}" 2>/dev/null | tr '\n' '|')'"
 fi
-rm -f "${INSTALL_LOG}"
+rm -f "${CREATE_LOG}"
 
 # ── The planning half does not write ─────────────────────────────────────────────────────────────────────────────────
 section "assets: the plan reads and does not write"

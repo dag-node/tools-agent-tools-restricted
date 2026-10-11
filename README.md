@@ -185,8 +185,12 @@ enforced by the kernel and part of it rests on you, and a control that is
 missing, weak, or reachable around still binds — **an incomplete boundary is
 not permission.** Behave that way whether or not the session is being watched.
 The full statement is [ref-section-g6c4](CLAUDE.md#ref-section-g6c4),
-and the reasoning behind it ships as the `ai-tools-capable-systems-governance`
-skill.
+and the reasoning behind it is
+the [`ai-tools-agent-governance`](https://github.com/dag-node/ai-tools-assets/blob/main/sets/core/skills/ai-tools-agent-governance/SKILL.md)
+skill of the asset set
+[`core`](https://github.com/dag-node/ai-tools-assets/tree/main/sets/core),
+published as signed
+[releases](https://github.com/dag-node/ai-tools-assets/releases).
 
 ## Architecture at a glance <a id="ref-section-e7g6"></a>
 

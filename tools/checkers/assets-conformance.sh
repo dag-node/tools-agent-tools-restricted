@@ -1,25 +1,21 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: AGPL-3.0-only
 # tools/checkers/assets-conformance.sh -- hold base's asset-set validator to the conformance fixtures of the release
-# of dag-node/ai-tools-assets-tools that tools/checkers/assets-tools.pin names. Base's resolver (assets.lib.sh) enforces
+# of dag-node/ai-tools-assets-tools that tools/lib/assets-tools.pin names. Base's resolver (assets.lib.sh) enforces
 # a subset of format 1 under the publisher's rule ids; the fixtures are where the two validators are shown to agree
 # on that subset.
 #
 #     ```text
-#     bash tools/checkers/assets-conformance.sh verify             fetch the pinned release archive and exit 1 unless
-#                                                                    it matches the pin and its signature verifies
-#     bash tools/checkers/assets-conformance.sh run                verify, then run the validator over every fixture
-#     bash tools/checkers/assets-conformance.sh run --checkout DIR read the fixtures from a checkout of the tools
-#                                                                    instead, and report that the pin was bypassed
+#     bash tools/checkers/assets-conformance.sh run     run the validator over every fixture of the pinned release
 #     ```
 #
-# The archive verifies when its sha256 equals the pin's and the one its release publishes, and its detached signature is
-# made by a key whose primary fingerprint is the dag-node package-signing primary, read through the key base itself
-# ships (src/usr/local/lib/ai-tools/keys/dag-node-package-signing.asc), so the anchor is the one every set binding
-# names. A fixture is selected when its `rule=` is one AI_TOOLS_ASSETS__ENFORCED_RULES lists; the job then asserts
-# the validator returns 1 reporting that rule and no other, and over every `pass/` fixture that it returns 0 reporting
-# nothing (run_fixtures states the disagreements). Three selections are narrower than the rule: of `name.asset-prefix`,
-# the `.reserved` variant alone, since base enforces the reserved half and the `<set>-` prefix is the publisher's check;
+# The fixtures are read through tools/lib/assets.sh, which verified the release before it unpacked it (`fetch`, then
+# `verify`, which CI runs first); with the pin not in the cache the run exits 1 naming the fetch command,
+# and AI_TOOLS_DEV_ASSETS_TOOLS reads a checkout of the tools instead, reported as a bypass of the pin. A fixture is
+# selected when its `rule=` is one AI_TOOLS_ASSETS__ENFORCED_RULES lists; the job then asserts the validator returns 1
+# reporting that rule and no other, and over every `pass/` fixture that it returns 0 reporting nothing (run_fixtures
+# states the disagreements). Three selections are narrower than the rule: of `name.asset-prefix`, the `.reserved`
+# variant alone, since base enforces the reserved half and the `<set>-` prefix is the publisher's check;
 # of `body.dynamic-injection`, every variant but `.not-allowed*`, whose outcome turns on publisher.conf, a file
 # that does not reach a host; and of `frontmatter.syntax`, the variants `selected` names, the shapes base's bounded
 # reader refuses, so a variant a later release adds is skipped until base claims it. Every other fixture is counted
@@ -27,49 +23,11 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-PIN="${ROOT}/tools/checkers/assets-tools.pin"
 LIB_DIR="${ROOT}/src/usr/local/lib/ai-tools"
-RELEASE_URL="https://github.com/dag-node/ai-tools-assets-tools/releases/download"
-SIGNING_KEY="${LIB_DIR}/keys/dag-node-package-signing.asc"
-SIGNING_PRIMARY_FPR="67F42DC18BF764B42D82F14256D2F802CF9832E4"   # DagNode Package Signing
+# shellcheck source=SCRIPTDIR/../lib/assets.sh
+source "${ROOT}/tools/lib/assets.sh"
 
 die() { printf 'assets-conformance: %s\n' "$*" >&2; exit 1; }
-
-# pin_value <key>: print the value of `<key>=` in the pin; exit 1 when the pin does not carry it.
-pin_value() {
-    local line
-    line="$(grep -E "^$1=" "${PIN}")" || die "${PIN} does not carry $1"
-    printf '%s\n' "${line#*=}"
-}
-
-# fetch <url> <out>: download over HTTPS alone, retried, to a file.
-fetch() {
-    curl -fsSL --proto '=https' --retry 5 --retry-delay 3 --retry-all-errors --connect-timeout 20 -o "$2" "$1" \
-        || die "cannot download $1"
-}
-
-# fetch_release <workdir>: download the pinned archive with its .sha256 and .asc, verify all three, unpack it
-# into <workdir>, and print the unpacked tree's path.
-fetch_release() {
-    local work="$1" tag archive want published status
-    tag="$(pin_value tag)"; archive="$(pin_value archive)"; want="$(pin_value archive_sha256)"
-    [[ "${archive}" =~ ^ai-tools-assets-tools-[0-9][0-9A-Za-z.+-]*\.tar\.gz$ ]] || die "the pin names an archive outside the release's naming: ${archive}"
-    fetch "${RELEASE_URL}/${tag}/${archive}" "${work}/${archive}"
-    fetch "${RELEASE_URL}/${tag}/${archive}.sha256" "${work}/${archive}.sha256"
-    fetch "${RELEASE_URL}/${tag}/${archive}.asc" "${work}/${archive}.asc"
-    [[ "$(sha256sum < "${work}/${archive}" | cut -c1-64)" == "${want}" ]] || die "${archive} does not match the pin's sha256"
-    published="$(cut -c1-64 < "${work}/${archive}.sha256")"
-    [[ "${published}" == "${want}" ]] || die "the release publishes ${published} for ${archive}, the pin ${want}"
-    bash -c '. "$1" && ai_tools_assets_verify__write_binary_keyring "$2" "$3"' _ \
-        "${LIB_DIR}/assets-verify.lib.sh" "${SIGNING_KEY}" "${work}/keyring.gpg" \
-        || die "the package-signing key did not dearmor into a keyring"
-    status="$(gpgv --status-fd 1 --keyring "${work}/keyring.gpg" "${work}/${archive}.asc" "${work}/${archive}" 2>/dev/null)" \
-        || die "gpgv refuses the signature over ${archive}"
-    grep -qE "^\[GNUPG:\] VALIDSIG .* ${SIGNING_PRIMARY_FPR}$" <<< "${status}" \
-        || die "${archive} is not signed by the primary ${SIGNING_PRIMARY_FPR}"
-    tar -xzf "${work}/${archive}" -C "${work}"
-    printf '%s/%s\n' "${work}" "${archive%.tar.gz}"
-}
 
 # selected <fixture-name> <rule> : succeed when the fixture is one base is held to.
 selected() {
@@ -137,21 +95,10 @@ run_fixtures() {
     (( failed == 0 ))
 }
 
-work="$(mktemp -d)"
-trap 'rm -rf "${work}"' EXIT
 case "${1:-}" in
-    verify)
-        fetch_release "${work}" >/dev/null
-        printf 'assets-conformance: %s verifies against the pin and the package-signing key\n' "$(pin_value archive)" ;;
     run)
-        if [[ "${2:-}" == --checkout ]]; then
-            [[ -d "${3:-}/fixtures" ]] || die "--checkout takes a checkout of ai-tools-assets-tools, which holds fixtures/"
-            printf 'assets-conformance: BYPASS -- reading the fixtures of the checkout %s at %s, not the pinned release %s\n' \
-                "$3" "$(git -C "$3" rev-parse --short HEAD 2>/dev/null || printf 'an unknown commit')" "$(pin_value tag)"
-            run_fixtures "$3/fixtures"
-        else
-            tree="$(fetch_release "${work}")"
-            run_fixtures "${tree}/fixtures"
-        fi ;;
-    *)  die "usage: assets-conformance.sh verify | run [--checkout DIR]" ;;
+        fixtures="$(ai_tools_dev_assets__resolve_tool fixtures)" \
+            || die "the fixtures of the pinned tools release are not in the cache; run: ${AI_TOOLS_DEV_ASSETS__FETCH_COMMAND}"
+        run_fixtures "${fixtures}" ;;
+    *)  die "usage: assets-conformance.sh run" ;;
 esac

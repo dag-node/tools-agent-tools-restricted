@@ -31,13 +31,13 @@ root; it owns that directory, and places and withdraws the live copy itself (see
 are Claude Code's (`SKILL.md`, subagent frontmatter) and are not standardized across products, so an agent that cannot
 read a kind leaves that field unset, and does not take links of that kind.
 
-The shipped set is the `ai-tools-reference-architect` subagent; the skills `ai-tools-technical-docs` (the writing
-standard for every artifact, with `prose-check.py` and its `references/` beside the entry file), `ai-tools-reftags` (the
-cross-reference grammar and `ref-index.py`, which this repository's own tooling drives
-through `tools/generators/ref-index.sh`), `ai-tools-engineering-principles`, and `ai-tools-capable-systems-governance`;
-and the orientation text. `ai-tools-typesafe-filter` is the one skill a provider package ships rather than base: it
-belongs to `ai-tools-integration-typesafe` ([typesafe](typesafe.rule.md)) and is bound to it ([An asset bound
-to an integration](#an-asset-bound-to-an-integration)).
+Base ships the orientation text and seeds `ai-tools-typesafe-filter` on behalf of `ai-tools-integration-typesafe`,
+which ships it and to which it is bound ([typesafe](typesafe.rule.md), [An asset bound
+to an integration](#an-asset-bound-to-an-integration)). The writing standard, the reftags skill, the engineering
+and governance skills and the reference-docs subagent are the asset set `core`'s, linked into the view
+where `AI_TOOLS_ASSETS` enables them; base withdraws the copies it shipped before ([Withdrawing
+an asset](#withdrawing-an-asset)), and this repository's own tooling reads the checker and the reftags tool
+from a pinned `core` release (`tools/lib/assets.sh`).
 
 ## The orientation text
 
@@ -67,7 +67,7 @@ paid for in every one of them; the seeder's greps are line-anchored and see the 
 `README.md` — the asset is one short file whose content is its own documentation.
 
 An asset is a **tree**, not a file: a skill may carry supporting material beside its `SKILL.md`
-(`ai-tools-capable-systems-governance/references/framework.md` is the normative text its `SKILL.md` defers
+(`ai-tools-agent-governance/references/framework.md` in the set `core` is the normative text its `SKILL.md` defers
 to, so the working guidance stays short and the long text loads only when it is needed). The seeder copies a directory
 asset whole (`cp -rT`) and applies the modes recursively, and the reconcile places one symlink for the asset's top
 directory, so nesting is handled by both without a special case.
@@ -77,14 +77,21 @@ directory, so nesting is handled by both without a special case.
 `src/` mirrors the install tree. A file installed **verbatim** lives at its literal path
 (`src/opt/ai-tools/agents/claude-code/settings.json`); a file that is **seeded** — rpm ships a read-only pristine copy
 and provisioning places an editable live one — lives in `src/` at its **pristine** path, because that is the path
-the package installs. Every shipped asset is seeded, so all of them live under `src/usr/share/ai-tools/`,
-and the directory name is the same at every hop:
+the package installs. Every asset a package of this repository ships is seeded, so all of them live
+under `src/usr/share/ai-tools/`, and the directory name is the same at every hop. An asset set's asset reaches the same
+view by a link instead of a copy:
+
+<a id="ref-diagram-p2p8"></a>**The two routes into the view**
 
 ```text
 src/usr/share/ai-tools/<kind>/     authoritative source, in this repo
    ──▶ /usr/share/ai-tools/<kind>/            pristine: rpm-owned, read-only, world-readable
-   ──▶ /opt/ai-tools/<kind>/                  LIVE: operator-editable, agent-readable, NOT rpm-owned
-   ──▶ <agent config>/<kind-dir>/<name>       a symlink into live, per agent that declares one
+   ──▶ /opt/ai-tools/<kind>/<name>            LIVE seeded copy: root:SANDBOX_GROUP, NOT rpm-owned;
+                                              an in-place edit is replaced by the next release's version
+/usr/share/ai-tools-assets/<set>/<kind-dir>/  a signed set's copy, its own package's, read-only
+   ──▶ /opt/ai-tools/<kind>/<name>            a resolver link, where AI_TOOLS_ASSETS enables the asset
+/opt/ai-tools/<kind>/<name>                   the view, whichever route placed the name
+   ──▶ <agent config>/<kind-dir>/<name>       a symlink into the view, per agent that declares one
 ```
 
 The live tree has no `src/` counterpart on purpose: it is runtime state, like `.nvm`, the sandbox clones, and the logs.
@@ -149,8 +156,13 @@ not take the lock.
 for, the view's resolver links and base's seeded copies (`_ai_tools_assets__is_seeded_copy`) are linked, and no other
 entry. Every other entry is `view-foreign`, reported and kept, and not linked into an agent's directory, though codex,
 reading the view whole, still loads it; an operator's own skill reaches one agent from that agent's own directory,
-where a real entry wins. In an agent's directory a real entry is kept and reported, and one not root-owned along its
-path is `agent-entry-untrusted`, since the sandbox account could rewrite what every later session loads there; a link
+where a real entry wins. In an agent's directory a real entry is kept, at every name, and one the sandbox account can
+rewrite -- not root-owned, or writable by group or other, along its path, an ACL write grant included through the mask
+the group bits carry -- is `agent-entry-untrusted` at attention, since every later session loads what is there.
+The operator's own entry there is read-only to the agent, and a skill the agent develops lives in the project's own
+`.claude/skills/`, which loads in that project alone. Every reconcile creates each enabled agent's kind directory
+root-owned, whether or not it places a link there, so the name is not one the sandbox account can take inside its
+group-writable config directory. The plan reads the real entries at a name the view does not hold as well; a link
 elsewhere is the host's and is not repointed; a link into the view whose name the view no longer holds is removed
 (`_ai_tools_assets__plan_agent`). An installed agent that `AI_TOOLS_AGENTS` does not name loses its resolver links
 and keeps its seeded copies' links. Every directory a link is written in -- the home root, a view, an agent's config
@@ -282,7 +294,10 @@ Dropping a name from `src/` withdraws it from **new** installs only. The seeder 
 aside only for an asset [bound to an integration](#an-asset-bound-to-an-integration) the host does not have; the live
 roots are not rpm-owned, so an upgraded host keeps a withdrawn asset — and keeps offering it to every session — until it
 is named in `AI_TOOLS_MANAGED_ASSETS__RETIRED` (`managed-assets.lib.sh`) as a `<kind>/<name>` entry. A renamed asset is
-withdrawn under its old name the same way, with the new name seeded beside it.
+withdrawn under its old name the same way, with the new name seeded beside it. An asset an asset set takes over is
+withdrawn the same way, and `AI_TOOLS_MANAGED_ASSETS__SUCCESSORS` beside the list maps its entry to the identifier
+of its successor: the pass closes with the command that enables that set, and `ai-tools-admin status` reports
+`successor-unenabled` while a retired copy of such an entry exists and `AI_TOOLS_ASSETS` is absent from `operator.conf`.
 
 `ai_tools_managed_assets__remove_retired_assets` runs after the seeder in all three provisioning paths (`install.sh`,
 `ai-tools-bootstrap`, base's `%post`). It gates on the same `x-ai-tools-managed` marker the seeder claims

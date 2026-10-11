@@ -328,14 +328,15 @@ It owns the one **write of a `KEY=value` file** for the same reason. `ai_tools_c
 writes a scalar as `KEY="value"` and `ai_tools_conf__set_list <file> <KEY> <item>...` writes a list as `KEY=[a, b]`,
 and both go through one line replacement: the key's last live `KEY=` line — the assignment a reader takes —
 or, where there is none, the template's commented `#KEY=` default, the same match `ai_tools_conf__read_keys` counts, is
-replaced in place under its comment block, and the line is appended when no mention exists, and the file is written
-beside itself and renamed so a reader sees the old file or the new one. A missing file is created at `0644`. Each writer
-refuses a key outside the identifier charset, and each refuses what would read back as a different setting: `set_key`
-a value carrying a newline or a double quote, `set_list` an empty item or one carrying whitespace, a comma, a bracket,
-a quote or a `#`. Each verifies by reading the key back. `ai-tools-admin operators add|remove` write `OPERATORS`
-and `ai-tools-bootstrap` writes `AI_TOOLS_AGENTS` through the list writer, and the bootstrap's launch switches go
-through the scalar one; `tests/unit/conf.sh` drives both over a template-shaped fixture and asserts every other line
-byte-identical.
+replaced in place under its comment block, and the line is appended when no mention exists — the writer names
+which of the three it did in `AI_TOOLS_CONF__WRITE_PLACEMENT`, which is how `assets enable` tells a file written
+before the key and names the merge that carries the line under its header — and the file is written beside itself
+and renamed so a reader sees the old file or the new one. A missing file is created at `0644`. Each writer refuses a key
+outside the identifier charset, and each refuses what would read back as a different setting: `set_key` a value carrying
+a newline or a double quote, `set_list` an empty item or one carrying whitespace, a comma, a bracket, a quote or a `#`.
+Each verifies by reading the key back. `ai-tools-admin operators add|remove` write `OPERATORS` and `ai-tools-bootstrap`
+writes `AI_TOOLS_AGENTS` through the list writer, and the bootstrap's launch switches go through the scalar one;
+`tests/unit/conf.sh` drives both over a template-shaped fixture and asserts every other line byte-identical.
 
 A **switch** — a key whose value is yes or no — is read through `ai_tools_conf__is_yes`, so every switch accepts
 the same spellings: `yes`, `true`, `1` and `on` read as yes, and `no`, `false`, `0`, `off` and an empty value as no,

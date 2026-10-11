@@ -36,6 +36,59 @@ collection form; [option spellings](../option-spellings.md) lists each one.
 Installing offline from a release archive, and what an upgrade preserves, are
 in [ref-section-f5q2](../rpm-packaging.md#ref-section-f5q2).
 
+## 0.24.0: the skills move to the asset set core <a id="ref-section-y5t4"></a>
+
+From 0.24.0 the writing standard, the reftags, engineering and governance
+skills and the reference subagent ship as the asset set `core`, a package
+released apart from the base packages. The command that enables a set arrives
+with 0.24.0, so install the set first, upgrade, and enable it right after:
+
+```bash
+sudo dnf install ai-tools-assets-core
+sudo dnf upgrade --refresh 'ai-tools*'
+sudo ai-tools-admin assets enable --set core
+```
+
+On a 0.23 host the set's package only places its files, which 0.24.0 is
+the first release to read. A session that starts between the upgrade
+and the enable loads none of the set's skills; the upgrade's output
+and `sudo ai-tools-admin status` both name the enable until it runs.
+
+An `operator.conf` written before 0.24.0 has no `AI_TOOLS_ASSETS` line
+for the enable to take, so the enable appends one and says so. To have it land
+under its header instead, run `sudo ai-tools-admin system post-upgrade` first
+and adopt the merge it offers.
+
+What the move gives you:
+
+- **A skill update reaches your host on its own.**
+  `sudo dnf upgrade ai-tools-assets-core` brings a newer text without a base
+  release.
+- **You choose each asset by name.** `AI_TOOLS_ASSETS`
+  in `/etc/ai-tools/operator.conf` lists what sessions load;
+  `assets enable --set core` writes the whole set, and `AI_TOOLS_ASSETS=[]`
+  keeps every set asset off.
+- **An asset links only after its set verifies.** The set's file list is signed
+  with the key the packages are; a copy that does not match it is not linked,
+  and `sudo ai-tools-admin status` says why.
+- **Your own copy wins.** A root-owned entry in an agent's own directory, such
+  as `/opt/ai-tools/.claude/skills/<name>/`, is loaded in place of the set's,
+  and a set copy under `/usr/local/share/ai-tools-assets/` is read ahead
+  of the packaged one.
+
+The upgrade moves the copies the base packages shipped
+to `/opt/ai-tools/retired/`; the enable links the set's in their place.
+What `sudo ai-tools-admin status` reports after the upgrade, and what ends it:
+
+| On the host | `status` after the upgrade | What ends it |
+|---|---|---|
+| the shipped skills, as installed | `successor-unenabled`, exit 4 | `assets enable --set core`, after `dnf install ai-tools-assets-core`; or `AI_TOOLS_ASSETS=[]` |
+| a shipped skill edited in place | `successor-unenabled`, exit 4; the edited copy is under `/opt/ai-tools/retired/` | the same; carry the edit into an agent's own directory |
+| a skill of your own under a shipped name, without the managed marker | `view-foreign`; kept, and loaded by codex alone | move it into an agent's own directory, or remove it |
+
+A fresh install pulls `core` as a weak dependency and does not enable it,
+so an install runs the enable once ([Install](index.md)).
+
 ## The agent toolchain updates on its own
 
 Node and each enabled agent's npm package are updated on a daily timer running

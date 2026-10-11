@@ -497,7 +497,7 @@ seed_managed_assets_step() {
     /usr/local/libexec/ai-tools/ai-tools-admin assets reconcile >/dev/null || reconcile_status=$?
     case "${reconcile_status}" in
         0) ;;
-        4) notice MSG-W9R9 "an asset AI_TOOLS_ASSETS enables is not linked -- sudo ai-tools-admin status names each one and why" ;;
+        4) notice MSG-W9R9 "the asset reconcile reported a finding -- sudo ai-tools-admin status names each one and what ends it" ;;
         *) warn MSG-T3R5 "the asset reconcile did not complete (exit ${reconcile_status}) -- run: sudo ai-tools-admin assets reconcile" ;;
     esac
     [[ -n "$(ai_tools_control_plane__list_agent_asset_dirs skills_dir)$(ai_tools_control_plane__list_agent_asset_dirs subagents_dir)" ]] && seeded=1
@@ -833,6 +833,10 @@ nvm alias default "${NODE_MAJOR}"
 read -ra agent_packages <<< "${AGENT_PACKAGES}"
 if [ "${#agent_packages[@]}" -gt 0 ]; then
     allow_scripts="$(IFS=,; printf '%s' "${agent_packages[*]}")"
+    # The cache first. It is content-addressed with no eviction, so it holds every release the nightly runs
+    # downloaded, and an install that ran out of space leaves an index entry whose content was never written, which
+    # the next fetch reports as ENOENT. An install downloads what it needs again.
+    npm cache clean --force 2>/dev/null || true
     for agent_package in "${agent_packages[@]}"; do
         npm install -g --allow-scripts="${allow_scripts}" "${agent_package}"
     done
@@ -855,9 +859,11 @@ _node_version="$(ai_tools_toolchain__read_nvm_default_version "${NVM_DIR}")"
 # as successful can leave this state, and why this run says so rather than the relabel, are in updater.rule.md. Read
 # as root, which traverses the 0750 toolchain, through the library the residue step sourced: a run that did not reach
 # that step says nothing here.
+_incomplete_agents=0
 if [[ -n "${_node_version}" ]] && declare -F ai_tools_toolchain__find_incomplete_agents >/dev/null 2>&1; then
     _version_dir="${NVM_DIR}/versions/node/${_node_version}"
     while IFS=$'\t' read -r _agent _package; do
+        _incomplete_agents=$(( _incomplete_agents + 1 ))
         [[ -n "${_package}" ]] || continue
         warn MSG-T9P2 "incomplete package for ${_agent}: ${_package} is installed and ${_version_dir} does not hold the entrypoint its manifest declares -- no session of ${_agent} starts until that executable is installed; this run's npm output carries the reason"
     done < <(ai_tools_toolchain__find_incomplete_agents "${_version_dir}")
@@ -940,6 +946,12 @@ _relabel_helper=/usr/local/libexec/ai-tools/ai-tools-relabel-agent
 if [[ -x "${_relabel_helper}" ]]; then
     "${_relabel_helper}" \
         || warn MSG-C7C8 "entrypoint relabel did not complete -- run 'sudo ai-tools-admin system entrypoints relabel' before launching claude"
+    # The same relabel once more through its unit, queued: the unit keeps the result of its last run, which is
+    # what `ai-tools status` reports, so a FAILED a watcher run left stands until a run through the unit succeeds;
+    # the unit answers from the pin this run just wrote, and its Wants brings the watcher up with it.
+    if command -v systemctl >/dev/null 2>&1; then
+        systemctl start --no-block ai-tools-relabel.service 2>/dev/null || true
+    fi
 fi
 
 # 4. Capture the control plane's initial state in a root-private git repo so drift is reviewable.
@@ -1047,4 +1059,12 @@ if [[ -x /usr/local/bin/ai-tools ]]; then
     fi
 else
     log "next: deploy the control plane -- sudo ./install.sh install   (or install the RPM)"
+fi
+
+# An enabled agent whose package npm left without the entrypoint its manifest declares cannot launch, so a run that
+# left one does not end as a success: every other step has run, and the exit says what this host still lacks. The code
+# is the updater's for the same state, printed as a citation ahead of the error.
+if (( _incomplete_agents > 0 )); then
+    printf 'MSG-U5N2\n' >&2
+    die "the install left ${_incomplete_agents} enabled agent(s) without the entrypoint their manifest declares (the warnings above; npm's output names what it left out, and its log is the newest under ${SANDBOX_HOME}/.npm/_logs) -- every launch of them is refused until that executable is installed; fix what npm names, then rerun this command"
 fi
