@@ -23,7 +23,16 @@ path carries now, and whether the sandbox account's own systemd unit directory
 is still closed to the agent. Both exit 4 when something needs attention and 5
 when a reading could not be made, so either runs from `cron` or a monitor
 without its output being parsed. The exit codes are in `man ai-tools`
-and `man ai-tools-admin`.
+and `man ai-tools-admin`. The root report's Assets section, which can run long,
+ends with a line naming its own findings and the status it sets:
+
+```text
+    Summary: 1 finding needs attention in this section (exit 4)
+```
+
+After the 0.24.0 upgrade that section names `successor-unenabled` until
+the asset set `core` is enabled or turned
+off ([ref-section-y5t4](../install/upgrade.md#ref-section-y5t4)).
 
 `sudo ai-tools audit` is the other starting point — it reads the trails
 and reports what refused, was rejected, was stranded, or was flagged

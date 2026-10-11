@@ -58,6 +58,7 @@ cannot fix -- a message code's name is a runtime string, and rewording one is a 
 | x6a9 | [ref-section-x6a9](../CLAUDE.md#ref-section-x6a9) | Boundaries and non-goals | CLAUDE.md | .claude/rules/confinement.rule.md, .claude/rules/dotnet.rule.md, .claude/rules/launch.rule.md, .claude/rules/providers.rule.md, docs/about/scope.md, docs/operators/service-accounts.md |  |
 | e7g6 | [ref-section-e7g6](../README.md#ref-section-e7g6) | Architecture at a glance | README.md | docs/install/from-source.md |  |
 | y2t3 | [ref-section-y2t3](../docs/install/from-source.md#ref-section-y2t3) | 1. Install the PATH ordering fragment (root, once) | docs/install/from-source.md | docs/about/index.md, docs/agents/index.md |  |
+| y5t4 | [ref-section-y5t4](../docs/install/upgrade.md#ref-section-y5t4) | 0.24.0: the skills move to the asset set core | docs/install/upgrade.md | docs/system/index.md |  |
 | f5q2 | [ref-section-f5q2](../docs/rpm-packaging.md#ref-section-f5q2) | Installing and upgrading | docs/rpm-packaging.md | docs/install/upgrade.md |  |
 | a6s8 | [ref-section-a6s8](../docs/rpm-packaging.md#ref-section-a6s8) | Signing and distribution | docs/rpm-packaging.md | docs/development/release.md |  |
 | g7c5 | [ref-section-g7c5](../docs/system/selinux.md#ref-section-g7c5) | Denials a healthy session raises | docs/system/selinux.md | docs/agents/codex.md |  |
