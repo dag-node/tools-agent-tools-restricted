@@ -21,9 +21,11 @@
 # The cache is per user and outside the tree, `${XDG_CACHE_HOME:-$HOME/.cache}/ai-tools-dev/<archive>.<sha256-prefix>/`
 # at 0700, holding the archive, its .sha256 and .asc, and the unpacked `tree/`. The project tree is collaborative:
 # a cache inside it would be a directory the sandbox account writes and the operator's commit hook executes. The name
-# carries the archive's sha256, so a pin bump does not reuse a stale unpack. `path` reads the cache alone; `fetch` is
-# the one network step. A fetch is staged in a directory of its own under the cache and renamed into place only
-# after every check passed.
+# carries the archive's sha256, so a pin bump does not reuse a stale unpack. Each unpacked tree is made read-only once
+# it verifies, so running a tool from it does not write into it -- Python's byte-code cache would otherwise add files
+# the core inventory does not list -- and `fetch` restores write access only to replace it. `path` reads the cache
+# alone; `fetch` is the one network step. A fetch is staged in a directory of its own under the cache and renamed
+# into place only after every check passed.
 #
 # A checkout stands in for a pin, reported: AI_TOOLS_DEV_ASSETS_CORE names a checkout of ai-tools-assets (its
 # `sets/core` is the tree) and AI_TOOLS_DEV_ASSETS_TOOLS one of ai-tools-assets-tools (holding `formatters/`
@@ -189,6 +191,7 @@ ai_tools_dev_assets__fetch() {
     ai_tools_dev_assets__read_pin "${name}" || return 1
     cache_root="$(ai_tools_dev_assets__get_cache_root)"; final="$(_ai_tools_dev_assets__get_cache_dir)"
     if [[ -d "${final}/tree" ]] && _ai_tools_dev_assets__verify_cached "${name}" "${final}" 2>/dev/null; then
+        chmod -R a-w -- "${final}/tree"
         printf 'assets: %s is in the cache at %s\n' "${AI_TOOLS_DEV_ASSETS__PIN_ARCHIVE}" "${final}"
         return 0
     fi
@@ -208,8 +211,11 @@ ai_tools_dev_assets__fetch() {
     if ! _ai_tools_dev_assets__verify_archive "${stage}" || ! _ai_tools_dev_assets__unpack "${name}" "${stage}"; then
         rm -rf -- "${stage}"; return 1
     fi
+    chmod -R a-w -- "${stage}/tree"
+    [[ ! -e "${final}" ]] || chmod -R u+w -- "${final}" 2>/dev/null || true
     rm -rf -- "${final}"
     if ! mv -T -- "${stage}" "${final}" || ! chmod 0700 -- "${final}"; then
+        chmod -R u+w -- "${stage}" 2>/dev/null || true
         rm -rf -- "${stage}"; _ai_tools_dev_assets__refuse "${final} could not be put in place"; return 1
     fi
     printf 'assets: %s verified and unpacked at %s\n' "${AI_TOOLS_DEV_ASSETS__PIN_ARCHIVE}" "${final}"

@@ -62,7 +62,8 @@ dev() {
     ERR="$(<"${err}")"
 }
 cache_dirs() { find "${HOME_DIR}/.cache/ai-tools-dev" -mindepth 1 -maxdepth 1 -printf '%f\n' 2>/dev/null | LC_ALL=C sort; }
-reset_cache() { rm -rf "${HOME_DIR}/.cache"; }
+# reset_cache : remove the fixture cache; its trees are read-only, which an unprivileged run must undo first.
+reset_cache() { chmod -R u+w "${HOME_DIR}/.cache" 2>/dev/null || true; rm -rf "${HOME_DIR}/.cache"; }
 # set_pin <name> <key> <value> : rewrite one key of a fixture pin.
 set_pin() { sed -i "s|^$2=.*|$2=$3|" "${PINS}/assets-$1.pin"; }
 restore_pins() { local name; for name in core tools; do cp "$(ai_tools_dev_assets__get_pin_path "${name}")" "${PINS}/assets-${name}.pin"; done; }
@@ -143,6 +144,20 @@ else
     fi
     dev verify
     [[ "${RC}" == 0 ]] && pass "control: verify accepts both cached archives" || fail "control verify: rc ${RC}, ${ERR:0:300}"
+    # A tool run or imported from the cache leaves the tree as it was: Python writes a module's byte-code beside it only
+    # where the directory takes a write, which a read-only tree does not.
+    tree="$(env -u XDG_CACHE_HOME HOME="${HOME_DIR}" bash "${LIB}" path core 2>/dev/null)" || tree=""
+    python3 "${tree}/skills/ai-tools-technical-writing/scripts/prose-check.py" "${tree}/skills/ai-tools-reftags/SKILL.md" >/dev/null 2>&1 || true
+    python3 -c 'import sys; sys.path.insert(0, sys.argv[1]); import importlib.util as u
+s = u.spec_from_file_location("prose_check", sys.argv[1] + "/prose-check.py"); m = u.module_from_spec(s); s.loader.exec_module(m)' \
+        "${tree}/skills/ai-tools-technical-writing/scripts" >/dev/null 2>&1 || true
+    dev verify
+    if [[ "${RC}" == 0 && -z "$(find "${tree}" -name __pycache__ -print -quit)" ]] \
+            && [[ -z "$(find "${tree}" ! -type l -perm /222 -print -quit)" ]]; then
+        pass "the unpacked tree is read-only, so a tool run and imported from it leaves the inventory whole"
+    else
+        fail "a tool run from the cache changed the tree: rc ${RC}, ${ERR:0:200}"
+    fi
 
     # refused <what> <reason> : the last fetch of core refused naming <reason> and left no cache directory for core
     # and no staging directory behind.
@@ -185,6 +200,7 @@ else
 
     reset_cache; dev fetch
     tree="$(env -u XDG_CACHE_HOME HOME="${HOME_DIR}" bash "${LIB}" path core 2>/dev/null)" || tree=""
+    chmod u+w "${tree}/skills/ai-tools-technical-writing/SKILL.md"
     printf '\nan added line\n' >> "${tree}/skills/ai-tools-technical-writing/SKILL.md"
     dev verify
     if [[ "${RC}" == 1 && "${ERR}" == *"does not match its SHA256SUMS"* ]]; then
@@ -226,4 +242,6 @@ else
     caller "tools/generators/ref-index.sh check" 1 bash tools/generators/ref-index.sh check
 fi
 
+# The testdir sweep runs ahead of every teardown command, so the read-only cache is opened here.
+reset_cache
 finish

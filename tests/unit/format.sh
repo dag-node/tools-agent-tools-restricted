@@ -219,6 +219,7 @@ if ! command -v emacs >/dev/null 2>&1; then
     skip "the formatter among the files it fills" "emacs not installed"
 else
     cp -R "${FORMATTERS}" "${repo}/formatters"
+    chmod -R u+w "${repo}/formatters"
     rm -rf "${repo}/formatters/__pycache__"
     sed -i "2i # ${long}" "${repo}/formatters/format.sh" "${repo}/formatters/fill-comments.sh"
     git -C "${repo}" add -A && git -C "${repo}" -c commit.gpgsign=false commit -qm formatters
