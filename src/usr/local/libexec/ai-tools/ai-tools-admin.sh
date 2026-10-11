@@ -2972,13 +2972,18 @@ status_assets_rows() {
 # line per successor set, naming the withdrawn entries (ai_tools_managed_assets__list_withdrawn_successors)
 # and the commands that end it: the set's package install where the set is not on the host
 # (ai_tools_assets__is_set_installed), its enable, and AI_TOOLS_ASSETS=[] to keep it off. A retired directory that could
-# not be listed is one [UNREADABLE] line. A host without a retired copy of a withdrawn entry with a successor, a fresh
-# install among them, does not print a line. Runs as root without the lock.
+# not be listed, and a seeder library that did not load, are each one [UNREADABLE] line. A host without a retired copy
+# of a withdrawn entry with a successor, a fresh install among them, does not print a line. Runs as root without
+# the lock.
 status_assets_successors() {
-    declare -F ai_tools_managed_assets__list_withdrawn_successors >/dev/null 2>&1 || return 0
     local listing entry successor successor_set install
     local -a sets=()
     local -A names=()
+    if ! declare -F ai_tools_managed_assets__list_withdrawn_successors >/dev/null 2>&1; then
+        st UNREADABLE "error  the seeder library (/usr/local/lib/ai-tools/managed-assets.lib.sh) did not load -- reinstall ai-tools-base; a withdrawn asset's successor is not checked"
+        STATUS_UNREADABLE=$(( STATUS_UNREADABLE + 1 ))
+        return 0
+    fi
     if ! listing="$(ai_tools_managed_assets__list_withdrawn_successors "${AI_TOOLS_ASSETS_HOME}" 2>/dev/null)"; then
         st UNREADABLE "error  ${AI_TOOLS_ASSETS_HOME}/retired -- the directory could not be listed, so a withdrawn asset's successor is not checked"
         STATUS_UNREADABLE=$(( STATUS_UNREADABLE + 1 ))

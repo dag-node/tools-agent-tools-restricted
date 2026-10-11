@@ -377,6 +377,15 @@ if [[ -z "$(notice_row)" && "${OUT}" == *"problems=0 unreadable=0"* ]]; then
 else
     fail "no retired directory: ${OUT:0:400}"
 fi
+# The notice's reader is the seeder library's; a library that did not load is a reading the section could not make,
+# told apart from a host the notice does not apply to.
+retire ai-tools-reftags; PRELUDE='unset -f ai_tools_managed_assets__list_withdrawn_successors'; admin status_assets; PRELUDE=""
+if grep -qE '\[UNREADABLE\] +error +the seeder library' <<< "${OUT}" && [[ -z "$(notice_row)" && "${OUT}" == *"problems=0 unreadable=1"* ]]; then
+    pass "a seeder library that did not load is an UNREADABLE row, not a host without the notice"
+else
+    fail "an unloaded seeder library: ${OUT:0:400}"
+fi
+rm -rf "${HOME_DIR}/retired"
 printf 'not a directory\n' > "${HOME_DIR}/retired"; admin status_assets
 if grep -qE "\[UNREADABLE\] +error +${HOME_DIR}/retired" <<< "${OUT}" && [[ "${OUT}" == *"problems=0 unreadable=1"* ]] \
         && [[ "$(summary_line)" == "    Summary: 1 reading is unavailable in this section (exit 5)" ]]; then
