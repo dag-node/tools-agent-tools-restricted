@@ -599,7 +599,9 @@ install_subst() {
         -e "s/@SANDBOX_GROUP@/${SANDBOX_GROUP}/g" \
         -e "s/@AI_TOOLS_VERSION@/${AI_TOOLS_VERSION}/g" \
         "${src}" > "${tmp}"
-    install -o "${owner}" -g "${group}" -m "${mode}" "${tmp}" "${dst}"
+    # `-T`: the destination is this file's name, so a symlink to a directory planted there -- a name the sandbox account
+    # can create inside an agent's group-writable config directory -- is replaced, where a plain install writes into it.
+    install -T -o "${owner}" -g "${group}" -m "${mode}" "${tmp}" "${dst}"
     rm -f "${tmp}"
 }
 
