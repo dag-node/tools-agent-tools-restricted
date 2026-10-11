@@ -569,7 +569,13 @@ else
     if [[ "${crun_listing}" =~ ^[0-9]+\ 0$ ]]; then
         pass "the sandbox account's manager answers the session listing with a count (${crun_listing%% *} session unit(s)), and a glob no unit matches counts none"
     else
-        fail "the live session listing did not read as a count and a zero: '${crun_listing}'"
+        # The library discards the manager's stderr, so the same listing is asked again here to name why it failed.
+        # shellcheck disable=SC2016  # the inner shell expands these, not this one
+        crun_listing_error="$(as_sandbox bash -c 'export XDG_RUNTIME_DIR="/run/user/$1"
+            /usr/bin/timeout 5 /usr/bin/systemctl --user list-units --type=service --all --plain --no-legend >/dev/null
+            printf " (exit %s)" "$?"' _ "${crun_sandbox_uid}" 2>&1 || true)"
+        crun_listing_error="${crun_listing_error//$'\n'/ }"
+        fail "the live session listing did not read as a count and a zero: '${crun_listing}' -- systemctl --user as the account: ${crun_listing_error:0:300}"
     fi
 fi
 
