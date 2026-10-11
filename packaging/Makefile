@@ -168,12 +168,15 @@ rpmtest-fedora44: rpmbase-fc44
 # The upgrade transaction from the published release UPGRADE_FROM to this tree's build, one image per scenario
 # (container-upgrade-selftest.sh states each), since the scenario is fixed when the published release is installed.
 # The images need the network: the published release and ai-tools-assets-core come from the signed repository.
+# The build stage names the rpmbase image fully qualified, as Podman stores a local build: a short name is resolved
+# against the configured registries where the local image is absent, which prompts on a terminal and can pull an image
+# of that name from a registry; the qualified name is found locally or fails the build.
 UPGRADE_FROM ?= 0.23.2
 UPGRADE_SCENARIOS = key-first without-core
 define rpmupgrade
 	set -e; for scenario in $(UPGRADE_SCENARIOS); do \
 	    $(OCI) build $(BUILD_FLAGS) -t ai-tools-rpmupgrade:$(1)-$$scenario -f $(CURDIR)/Upgrade.Containerfile \
-	        --build-arg BASE_IMAGE=$(2) --build-arg RPMBASE=ai-tools-rpmbase:$(1) \
+	        --build-arg BASE_IMAGE=$(2) --build-arg RPMBASE=localhost/ai-tools-rpmbase:$(1) \
 	        --build-arg FROM_VERSION=$(UPGRADE_FROM) --build-arg UPGRADE_SCENARIO=$$scenario $(ROOT); \
 	    $(OCI) run --rm -t --systemd=always --ulimit core=0 ai-tools-rpmupgrade:$(1)-$$scenario; \
 	done
