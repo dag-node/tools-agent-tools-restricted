@@ -34,6 +34,30 @@ After the 0.24.0 upgrade that section names `successor-unenabled` until
 the asset set `core` is enabled or turned
 off ([ref-section-y5t4](../install/upgrade.md#ref-section-y5t4)).
 
+## What is cleaned, and when
+
+```text
+Caches
+  .npm/_cacache                OK cleaned 4.2 GiB, 9 hours ago
+  .npm/_npx                    OK cleaned 22 MiB, 3 days ago
+  .cache/node-compile-cache    SKIPPED (sessions), 2 hours ago -- last cleaned 5 days ago
+```
+
+The sandbox account's caches are emptied for you, and the Caches section
+of both status reports shows what each last cleanup did. npm's download cache
+is emptied by every toolchain update. The packages `npx` installed and node's
+compile cache are in use while a session runs, so a session launch empties
+them, at most once a week and only while no other session is running,
+and prints one line naming what it removed. `SKIPPED (sessions)` is that rule
+at work, and the next launch with no other session running cleans them.
+
+Three lines ask you to act, and each names what to do: `FAILED`, a cleanup
+that could not run; `LINKS`, a cache holding symbolic links its producer does
+not write; and `OVERDUE`, a cache no launch has cleaned for two weeks because
+another session was always running. For the last, end every session — let each
+finish, or `ai-tools stop` ends them all — and the next session start cleans
+it. `sudo ai-tools-admin status` also shows how much each cache holds now.
+
 `sudo ai-tools audit` is the other starting point — it reads the trails
 and reports what refused, was rejected, was stranded, or was flagged
 over a window you give it. There are three trails, and the audit keeps them

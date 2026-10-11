@@ -400,6 +400,16 @@ an ordinary account read it — a partial view, the file sink being the authorit
   and repairs it. A mislabel that arises after the recorded run still stops the next launch with the fault
   and the command that clears it.
 
+  **Each cache the sandbox account cleans is reported**, in both reports, from the state file its removals rewrite
+  ([ref-section-z4t8](updater.rule.md#ref-section-z4t8)): what the last cleanup did and when. The verdict and the remedy
+  under it are `cache-cleanup.lib.sh`'s (`ai_tools_cache_cleanup__list_group_statuses`,
+  `ai_tools_cache_cleanup__get_remedy`), so the two reports cannot word one state two ways. A cleanup refused or failed,
+  links in a cache whose producer writes none, and a launch-cleaned cache whose last cleanup is older than the library's
+  attention age each count toward exit 4; the last is a host where another session was active at every launch, and its
+  remedy names ending them gracefully or with `ai-tools stop`. An empty state file reads `?`, as the empty stamp does,
+  and so does a file the caller cannot read; neither counts. `AI_TOOLS_CACHE_CLEANUP_STATE` moves the file the section
+  reads, the hook [tests](tests.rule.md) lists: it moves a report and no access decision.
+
   **The launch attestation is reported where SELinux is active**, in both reports, from the shim's own reader
   and verdict: whether `ai_tools_t` is a permissive domain and each Boolean that widens it
   ([confinement](confinement.rule.md) states the set and the refusals). An unconfined caller can make the read without
@@ -485,6 +495,7 @@ reports the same host and adds the readings the operator's prints as `?`:
 | a sandbox-user unit's state | that account's bus needs the machine transport, which is authorized for root alone | `systemctl --user -M <account>@.host`, through the shared registry |
 | an entrypoint pin | the state directory is root-owned, without a traverse bit for a non-operator | reads it, through the same stamp accessors |
 | whether the installed entrypoint still matches that pin | the toolchain is `0750` and sandbox-owned, so the file cannot be hashed | hashes it and compares, the same comparison the launch shim makes |
+| the size a cache under the sandbox home holds now | the caches sit in `0750` subtrees the sandbox account owns | `du -sxP --bytes` over each, as data |
 | an agent path's SELinux type | the entrypoint sits in a `0750` toolchain owned by the sandbox account | `stat`s the label itself |
 | an agent's installed version | the same toolchain | reads the `package.json` around the entrypoint (`ai_tools_entrypoint_verify__read_installed_version`), as data: running the agent's `--version` would execute a file the sandbox account can write ([ref-section-s9t9](updater.rule.md#ref-section-s9t9)) |
 | the sandbox account's systemd unit search path, and the `Persistent=` timer stamp on it | the chain is root-owned without world bits, so an operator outside the sandbox group cannot traverse it, and the stamp sits inside that account's home | reads both: the chain against its declared layout, the stamp's own mtime |

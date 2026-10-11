@@ -211,6 +211,15 @@ doing the sourcing — must be root-owned and non-group-writable. A failing chec
 an installed-but-disabled provider contributes neither a fragment nor pins. Fragments and pins are additive,
 so a skipped one costs the session that provider's environment and leaves every property in this section intact.
 
+**A session launch empties the caches a running session uses, when they are due.** Before the last-moment re-check,
+`ai-tools-run` loads `cache-cleanup.lib.sh` and calls `ai_tools_cache_cleanup__remove_due_groups` with the glob its own
+session unit names match. npx's packages and node's compile cache are removed at most once in the library's interval,
+only while no other session unit of the account is active, under a lock on the state file and within one bound
+across the step, and a removal prints one line under the banner. It is housekeeping, not a gate: every outcome is
+journalled under the `ai-tools-run` tag, a library that did not load skips the step, and the launch goes on.
+A print-and-exit run does not load the library. Why the session check is not what makes the removal safe is
+[ref-section-z4t8](updater.rule.md#ref-section-z4t8).
+
 **A session-end ownership sweep for agents that do not carry hooks.** The shim reads the resolved agent's `handback`
 declaration (see [providers](providers.rule.md)): `handback=hooks` means the agent converges the tree itself
 and the shim stays out of it, and any other declaration makes the shim sweep the project once the session exits,

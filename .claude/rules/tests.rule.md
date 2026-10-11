@@ -291,6 +291,12 @@ at a clone area in its fixtures so the clone rows never touch the shared one, an
 removal's refusal rows at a fixture root the same way; both skip on an installed CLI that predates the override, since
 a destructive verb is never aimed at the real clone area even to assert a refusal.
 
+`AI_TOOLS_CACHE_CLEANUP_STATE` (`ai-tools.sh`, `ai-tools-admin.sh`) moves the cache cleanup state the two status reports
+read, so `unit/cli-agent-set.sh` and `unit/admin-status.sh` drive the Caches section over fixtures. It sits
+with `AI_TOOLS_LAUNCHER_DIR`: it moves a report and no access decision, and the state's writers -- the updater
+and `ai-tools-run`, as the sandbox account -- take its path from a constant in `cache-cleanup.lib.sh` that no variable
+moves.
+
 `AI_TOOLS_JOURNAL_SOCKET` (`ai-tools-handback`) joins that family: it moves where the daemon sends its journal datagram,
 so `unit/handback.sh` binds a throwaway socket in its testdir instead of writing the host's journal. The daemon's
 environment comes from its root-owned unit, so neither an operator nor the agent can set it in production, and a caller
@@ -476,7 +482,9 @@ points into is the one named, two links naming different versions are reported a
 shape claims none. Its closing section drives `cmd_status` whole, the host-reading sections stubbed to a known answer,
 over the exit fold `ai-tools-records(5)` states: a section that read a fault exits 4, the service registry's readers
 removed after the CLI loaded them exits 5 under its code with the later sections still printed, a section returning its
-unreadable status exits 5, and a fault beside an unreadable reading exits 5.
+unreadable status exits 5, and a fault beside an unreadable reading exits 5. Its last section drives the Caches section
+over fixture state files: each verdict the library counts returns 1 with the library's remedy under the line, while
+an empty file and a value forged with a control byte read as `?` and are not counted.
 
 `launch-wrapper.sh` drives the gate library every agent's wrapper runs (`launch-wrapper.lib.sh`, see
 [launch](launch.rule.md)), one gate at a time and each in its fail direction, as the account the case is
@@ -738,7 +746,8 @@ holds a base file, which is the state every installed host is in, and a present 
 section drives `status` whole with the host-reading sections stubbed, over the same exit fold the CLI's test pins:
 a counted fault exits 4, the service registry's readers removed after the library loaded (its include guard keeps
 `status`'s own re-source from restoring them) exits 5 under `MSG-V6N9` with the later sections still printed,
-and a fault beside that exits 5.
+and a fault beside that exits 5. Its Caches case pins the count this report keeps and the size it reads with `du`
+over a fixture home.
 
 `path-order.sh` pins where an operator's shell finds an agent launcher (`path-order.lib.sh`, see
 [launch](launch.rule.md)) — the reading `operators add` asks with, `ai-tools status` re-checks
@@ -831,6 +840,21 @@ reports and counts the same link. The link's third reading, the Node version its
 file in its fail direction — a disabled agent's link, a target outside the versioned shape, one naming another launcher,
 and an absent link each yield no version — and the pure verdict both status reports render their Node line from is
 driven over its table, the stamp's version carried only where it differs from the links'.
+
+`cache-cleanup.sh` pins the cache remover and the launch step (`cache-cleanup.lib.sh`,
+[ref-section-z4t8](updater.rule.md#ref-section-z4t8)). The remover runs outside the confined domain, so every case keeps
+a canary directory outside the fixture home, owned by the sandbox account, and asserts it intact: a link as the target,
+links inside the tree, and the swap race, where a loop running as the account flips a deep directory for a link
+to the canary with direct renames while the remover walks, 20 times. The same loop against a removal that checks
+for a link and then lists the directory by path is the control, recorded with `note`: it shows the race is reachable
+on the runner, and a race that did not fire there does not fail the file. Each refusal is driven -- root
+and the projects user as the caller, a group-writable and a symlinked home, a symlinked parent, an undeclared group,
+a non-directory -- and asserted to leave the tree. The pure half runs unprivileged: the launch decision over its table,
+the state round trip through the services reader with a forged value read as no value, the status verdict,
+and the launch step over a fixture state file with the removal and the session count stubbed, a second launch waiting
+on the real lock and removing nothing the first cleaned. The removals need root, which builds the root-owned fixture
+home the trust predicate accepts and runs each one through `as_sandbox`; against a source-tree library they skip,
+as `sandbox-exec.sh` does.
 
 `sandbox-exec.sh` pins the execution boundary (`sandbox-exec.lib.sh`, see [updater](updater.rule.md)), the one route
 by which a root process runs a file the sandbox account can write, and every assertion is a way that route could hand
