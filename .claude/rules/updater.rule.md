@@ -508,10 +508,10 @@ a running session working; the walk is what makes the removal safe, so a session
 the file, so it can -- delays a cleanup by at most the bound or skips it, and reaches only its own account's cache,
 removed without following a link.
 
-**A link is a finding where its producer writes none** (`MSG-J4Y8`). npm's content cache and node's compile cache do not
-hold a link, so one there was planted or left by a broken copy of the home; npx's cache holds npm's `node_modules/.bin`
-links, which are not counted. A link is removed as a link either way: refusing the removal would let one planted link
-stop the cleanup for good, and the volume would fill.
+**A link is a finding where its producer writes none** (`MSG-J4Y8`). The declaration records per group whether its
+producer writes links, so a link in a group whose producer writes none was planted or left by a broken copy of the home.
+A link is removed as a link either way: refusing the removal would let one planted link stop the cleanup for good,
+and the volume would fill.
 
 **The state file is the last-run stamp's shape, and read by one decision.**
 `/var/opt/ai-tools/state/cache-cleanup.status` is `0640 SANDBOX_USER:ai-ops`, created by base's `%post`

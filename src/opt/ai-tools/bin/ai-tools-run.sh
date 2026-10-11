@@ -657,15 +657,14 @@ fi
 
 # ── Launch-time cache cleanup ────────────────────────────────────────────────────────────────
 # The caches a running session uses -- the packages `npx` installed, node's compile cache -- are removed at a launch
-# rather than by the nightly updater: once due, and only by the launch that holds the admission lock exclusive, which
-# every admitted session holds shared for the life of its shim -- this process, which waits for the unit -- and whose
-# user manager lists no session unit of the account, so a live or stopping session keeps what it executes
-# and a removal and a session's start do not overlap (updater.rule.md). Housekeeping, not a gate: the library journals
-# every outcome under this shim's tag and prints a coded warning for a group it did not remove, and the launch goes on,
-# admitted or not. A removal prints one line under the banner. Loaded at its point of use and guarded,
+# rather than by the nightly updater: once due, and only by the launch that does not find another session
+# through the admission lock or the user manager's listing (updater.rule.md). Housekeeping, not a gate: the library
+# journals every outcome under this shim's tag and prints a coded warning for a group it did not remove, and the launch
+# goes on, admitted or not. A removal prints one line under the banner. Loaded at its point of use and guarded,
 # as the entrypoint verifier is, so a print-and-exit run does not read it and one that did not load skips the step
 # with one log line. The call runs in this process, not a substitution: the admission descriptor it opens must be this
-# process's to outlive the step. The glob matches session_unit_name, which this shim composes for the launch.
+# process's to outlive the step, and this process waits for the session unit, so the admission lasts the session's life.
+# The glob matches session_unit_name, which this shim composes for the launch.
 if (( show_banner )); then
     # shellcheck source=SCRIPTDIR/../../../usr/local/lib/ai-tools/cache-cleanup.lib.sh
     if source "${AI_TOOLS_RUN__LIB_DIR}/cache-cleanup.lib.sh" 2>/dev/null \

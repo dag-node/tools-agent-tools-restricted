@@ -6,9 +6,9 @@
 # so the removal walks by directory file descriptors and does not follow a symbolic link: shutil.rmtree in the host's
 # /usr/bin/python3, run only where Python reports shutil.rmtree.avoids_symlink_attacks. A directory swapped for a link
 # mid-walk has the link unlinked or left, and its target is not entered. A group a running session uses is removed
-# by a session launch that holds the admission lock exclusive, which every admitted session holds shared for its
-# life, so a removal and a session do not overlap. The groups, when each is removed, the state file and the callers
-# are in updater.rule.md; the launch-time step is in launch.rule.md.
+# by a session launch that holds the admission lock exclusive, which every admitted session holds shared for its life,
+# so a removal and a session do not overlap. The groups, when each is removed, the state file and the callers are
+# in updater.rule.md; the launch-time step is in launch.rule.md.
 #
 # Sourced, not executed. Deployed 644 root:root: it holds shipped logic and does not read operator data. conf.lib.sh
 # (the trust predicate over the home), sandbox-exec.lib.sh (the identity a removal requires) and services.lib.sh (the
@@ -40,20 +40,16 @@ _AI_TOOLS_CACHE_CLEANUP__LOADED=1
 
 # The home every caller passes, the state file every writer rewrites, and the three readonly settings: how often
 # a launch removes a launch-timed group, how long the launch step may take across every group it removes, and the age
-# of a launch-timed group's last removal past which both status reports count it. The state path is a constant and no
-# environment variable moves it: its writers run as the sandbox account, so a variable that account could set would move
-# a write the unconfined updater makes. The status reports read it through their own root-only override.
+# of a launch-timed group's last removal past which both status reports count it. No environment variable moves
+# the state path (updater.rule.md); the status reports read it through their own root-only override.
 # shellcheck disable=SC2034  # read by ai-tools-run, nvm-update and ai-tools-bootstrap
 readonly AI_TOOLS_CACHE_CLEANUP__SANDBOX_HOME="/opt/ai-tools"
 # shellcheck disable=SC2034  # read by ai-tools-run, nvm-update, ai-tools-bootstrap and both status reports
 readonly AI_TOOLS_CACHE_CLEANUP__STATE_FILE="/var/opt/ai-tools/state/cache-cleanup.status"
 # The admission lock beside the state file: every session launch holds it shared from its admission to the end of its
-# unit (the shim's process lives as long as systemd-run waits for the unit), and the launch that removes a launch-timed
-# group holds it exclusive from the due test to the state write. A launch is the cleaner only where no session holds
-# the lock and the user manager lists no session unit, and no session is admitted while the cleaner holds it,
-# so a removal and a session's start do not overlap, and a unit still stopping keeps its caches. It is a file of its
-# own, root-owned and readable by the account, since the state file's lock serializes that file's writers, which
-# the nightly updater is while sessions run.
+# unit, and the launch that removes a launch-timed group holds it exclusive from the due test to the state write
+# (ai_tools_cache_cleanup__remove_due_groups). It is a file of its own, root-owned and readable by the account, since
+# the state file's lock serializes that file's writers, which the nightly updater is while sessions run.
 # shellcheck disable=SC2034  # read by ai-tools-run
 readonly AI_TOOLS_CACHE_CLEANUP__ADMISSION_LOCK="/var/opt/ai-tools/state/cache-cleanup.lock"
 readonly AI_TOOLS_CACHE_CLEANUP__LAUNCH_INTERVAL_SECONDS=604800
@@ -316,8 +312,7 @@ ai_tools_cache_cleanup__read_cleaned_epoch() {
 # ai_tools_cache_cleanup__write_state_locked <state-file> <record>... : rewrite the existing, non-symlink <state-file>
 #   in place, one block per declared group: a group a record names takes that record with CHECKED now, FIRST_CHECKED
 #   kept from the file or now where it held none, and, for removed or absent, CLEANED now; every other group keeps
-#   the values the file held. FIRST_CHECKED is the age a group that has never been cleaned is judged by. A value outside
-#   its shape is not written.
+#   the values the file held. A value outside its shape is not written.
 #   The caller holds the state file's lock (ai_tools_cache_cleanup__lock), so two writers do not interleave
 #   a read of the previous values with a write. Non-zero where the file is absent, a symlink, or not writable.
 ai_tools_cache_cleanup__write_state_locked() {
@@ -443,15 +438,15 @@ ai_tools_cache_cleanup__release_admission() {
 #   matching <unit-glob> the user manager lists in a state other than inactive or failed -- active, activating
 #   and deactivating, a unit still ending its processes among them -- or `unknown` where the listing could not be read
 #   within five seconds. The caller passes the glob its own session unit names match; a launch reads it before its own
-#   unit exists, so every unit it counts is another session, whether or not its launch holds the admission lock: one
-#   an older shim started, one whose launch was not admitted within its wait, one whose client ended before its unit.
+#   unit exists, so every unit it counts is another session, whether or not its launch holds the admission lock.
 ai_tools_cache_cleanup__read_active_session_count() {
     local unit_glob="${1:-}" units unit active count=0
     [[ -n "${unit_glob}" ]] || { printf 'unknown'; return 0; }
     units="$(/usr/bin/timeout 5 /usr/bin/systemctl --user list-units --type=service --all --plain --no-legend \
                  2>/dev/null)" || { printf 'unknown'; return 0; }
     # The unit name and its active state are the first and third space-separated columns; the split is pinned, since
-    # the library is sourced into a script that sets IFS to newline and tab, where the whole line would read as the name.
+    # the library is sourced into a script that sets IFS to newline and tab, where the whole line would read
+    # as the name.
     while IFS=$' \t' read -r unit _ active _; do
         # shellcheck disable=SC2053  # the glob is the caller's constant, matched as a pattern
         [[ -n "${unit}" && "${unit}" == ${unit_glob} && "${active}" != inactive && "${active}" != failed ]] \
@@ -464,15 +459,14 @@ ai_tools_cache_cleanup__read_active_session_count() {
 #   <records-array-name> : admit this launch through <admission-lock> and remove each launch-timed group under <home>
 #   that is due, appending each record to the caller's array. The admission is taken in this process and kept, shared,
 #   until the process ends: the caller is the shim, whose process ends with the session unit it waits for. The launch
-#   is the cleaner where no session held the lock AND the user manager lists no session unit matching
-#   <session-unit-glob> that is not inactive or failed: the lock covers the launch arriving during the removal, which
-#   the listing cannot see, and the listing covers the session the lock does not represent. As the cleaner the step
-#   stays inside one bound: the due test is read under <state-file>'s own lock, so a writer's rewrite mid-read does not
-#   read as a group never cleaned, each removal takes the time left, the records are written under that lock within
-#   what remains, and the admission is then shared. Beside a session, or unadmitted, a due group is recorded `skipped`
-#   with its reason (`sessions`, or `unknown`), so the reports show why; a state lock not taken within the bound records
-#   nothing. With no group due the admission is taken and the state read alone. Each skip is journalled under
-#   the caller's AI_TOOLS_LOG_TAG, as each removal is. Always 0: housekeeping is not a launch gate.
+#   is the cleaner where no session held the lock AND the user manager does not list a session unit matching
+#   <session-unit-glob> that is not inactive or failed; updater.rule.md states why it takes both. As the cleaner
+#   the step stays inside one bound: the due test is read under <state-file>'s own lock, each removal takes the time
+#   left, the records are written under that lock within what remains, and the admission is then shared. Beside
+#   a session, or `unadmitted`, a due group is recorded `skipped` with its reason (`sessions`, or `unknown`), so
+#   the reports show why; a state lock not taken within the bound leaves the state file unwritten. With no group due
+#   the admission is taken and the state read alone. Each skip is journalled under the caller's AI_TOOLS_LOG_TAG, as
+#   each removal is. Always 0: housekeeping is not a launch gate.
 ai_tools_cache_cleanup__remove_due_groups() {
     local home="${1:-}" state="${2:-}" lock="${3:-}" unit_glob="${4:-}" bound="${AI_TOOLS_CACHE_CLEANUP__LAUNCH_BOUND_SECONDS}"
     local -n _ai_tools_cache_cleanup__records_out="$5"
@@ -588,10 +582,9 @@ ai_tools_cache_cleanup__format_bytes() {
 
 # ai_tools_cache_cleanup__evaluate_state <timing> <links-policy> <result> <links> <age-seconds|-> [reason] : print
 #   the status verdict for one group: unknown where no result is recorded; failed for refused or failed, and for
-#   a partial removal whose reason is not the bound's `timeout`, since an error the walk met repeats on the next run
-#   where a cut-short walk is continued by it; links for links in a group whose producer writes none; overdue
-#   for a launch-timed group whose <age> -- since its last removal, or since its first record where it has none -- is
-#   past the attention age; ok otherwise. Every verdict but ok and unknown counts toward a status report's exit.
+#   a partial removal whose reason is not the bound's `timeout`; links for links in a group whose producer writes none;
+#   overdue for a launch-timed group whose <age-seconds> is past the attention age; ok otherwise. Every verdict but ok
+#   and unknown counts toward a status report's exit.
 ai_tools_cache_cleanup__evaluate_state() {
     local timing="${1:-}" link_policy="${2:-}" result="${3:-}" links="${4:-}" cleaned_age="${5:--}" reason="${6:--}"
     case "${result}" in

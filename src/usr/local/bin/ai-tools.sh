@@ -4785,9 +4785,9 @@ status_managed_files() {
 
 # status_caches -- the Caches section: per cache group, what its last cleanup did and when, from the state file its
 # writers rewrite. Each verdict and each remedy is cache-cleanup.lib.sh's, so this report and ai-tools-admin status
-# cannot disagree. A group whose cleanup failed, that held links its producer does not write, or that no launch has
-# cleaned for two weeks is counted; an empty file reads `?`, as does a file this account cannot read (a non-operator),
-# and neither is counted. Returns 1 for a counted line, STATUS_UNREADABLE for a library that did not load.
+# cannot disagree. A group whose verdict is other than ok or unknown is counted; an empty file reads `?`, as does a file
+# this account cannot read (a non-operator), and neither is counted. Returns 1 for a counted line, STATUS_UNREADABLE
+# for a library that did not load.
 status_caches() {
     local state="${AI_TOOLS_CACHE_CLEANUP_STATE:-/var/opt/ai-tools/state/cache-cleanup.status}" rc=0
     local name relative verdict result bytes links reason checked_age cleaned_age token colour detail last_cleaned

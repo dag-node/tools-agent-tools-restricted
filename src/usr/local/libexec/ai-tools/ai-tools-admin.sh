@@ -150,8 +150,7 @@ warn() {
     printf 'ai-tools-admin: warning: %s\n' "$*" >&2
 }
 # notice: a consequence of what this tool wrote, at a lower severity than warn -- the run is complete and the host is
-# as asked for.
-# stderr, like warn, so a verb's record stream on stdout stays data-only.
+# as asked for. stderr, like warn, so a verb's record stream on stdout stays data-only.
 notice() {
     local code=""
     if [[ "${1-}" =~ ^MSG-[A-Z][0-9][A-Z][0-9]$ ]]; then code="$1"; shift; printf '%s\n' "${code}" >&2; fi
@@ -2787,9 +2786,9 @@ status_unit_search_path() {
 # status_caches [home] [state-file]: per cache group, what its last cleanup did and when, read from the state file
 # through cache-cleanup.lib.sh, whose verdicts and remedies ai-tools status renders too, and beside it the size
 # the cache holds now, which only root reads in the 0750 tree (`du -sxP`, as data, bounded to ten seconds). A group
-# whose cleanup failed, that held links its producer does not write, or that no launch has cleaned for two weeks is
-# counted in STATUS_PROBLEMS; an empty file reads `?` and is not counted. <home> and <state-file> are parameters
-# so a unit test drives the section over fixtures; the report passes AI_TOOLS_CACHE_CLEANUP_STATE, a root-only override.
+# whose verdict is other than ok or unknown is counted in STATUS_PROBLEMS; an empty file reads `?` and is not counted.
+# <home> and <state-file> are parameters so a unit test drives the section over fixtures; the report passes
+# AI_TOOLS_CACHE_CLEANUP_STATE, a root-only override.
 status_caches() {
     local home="${1:-${CP_HOME:-/opt/ai-tools}}"
     local state="${2:-${AI_TOOLS_CACHE_CLEANUP_STATE:-/var/opt/ai-tools/state/cache-cleanup.status}}"
@@ -3188,8 +3187,8 @@ status() {
 
     # Pointers, not duplication: the reports that own the detail this one deliberately does not, then the commands
     # that read and drive the two managed units this report judges by their last run. The updater's unit lives
-    # in the sandbox account's own manager, which root reaches over the machine transport and whose journal is
-    # selected by unit and uid, since `journalctl --user-unit` as root reads root's own units (cli.rule.md).
+    # in the sandbox account's own manager, which root reaches over the machine transport and whose journal is selected
+    # by unit and uid, since `journalctl --user-unit` as root reads root's own units (cli.rule.md).
     heading "More"
     printf '    %s\n' \
         "ai-tools status          the same host, read from an operator's vantage" \

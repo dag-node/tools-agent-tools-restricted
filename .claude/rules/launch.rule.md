@@ -213,15 +213,14 @@ so a skipped one costs the session that provider's environment and leaves every 
 
 **A session launch empties the caches a running session uses, when they are due.** Before the last-moment re-check,
 `ai-tools-run` loads `cache-cleanup.lib.sh` and calls `ai_tools_cache_cleanup__remove_due_groups` in its own process,
-which admits the launch through the admission lock: the shim holds it shared until its process ends with the unit
-`systemd-run` waits for, and the one launch that takes it exclusive, no session holding it and the user manager listing
-no session unit of the account, removes npx's packages and node's compile cache where due, at most once in the library's
-interval and within one bound across the step, writes its records and shares the lock, so a launch arriving
-during a removal is admitted after it. The glob the shim passes is the one its own unit name matches. A removal prints
-one line under the banner. It is housekeeping, not a gate: every outcome is journalled under the `ai-tools-run` tag,
-a library that did not load skips the step, a launch not admitted within the bound starts without cleaning,
-and the launch goes on. A print-and-exit run does not load the library. Why the session check is not what makes
-the removal safe is [ref-section-z4t8](updater.rule.md#ref-section-z4t8).
+which takes the admission lock for the launch: the shim holds it shared until its process ends with the unit
+`systemd-run` waits for. The launch that does not find another session removes npx's packages and node's compile cache
+where due, writes its records and shares the lock; how that launch is chosen, how often it runs and within what bound,
+and why the session check is not what makes the removal safe are [ref-section-z4t8](updater.rule.md#ref-section-z4t8).
+The glob the shim passes is the one its own unit name matches. A removal prints one line under the banner. It is
+housekeeping, not a gate: every outcome is journalled under the `ai-tools-run` tag, a library that did not load skips
+the step, a launch that does not take the lock within the bound starts without cleaning, and the launch goes on.
+A print-and-exit run does not load the library.
 
 **A session-end ownership sweep for agents that do not carry hooks.** The shim reads the resolved agent's `handback`
 declaration (see [providers](providers.rule.md)): `handback=hooks` means the agent converges the tree itself

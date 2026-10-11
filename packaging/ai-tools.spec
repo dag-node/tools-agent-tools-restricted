@@ -1437,14 +1437,8 @@ fi
 %dir %attr(0755, root, root) /var/opt/ai-tools/state/entrypoint-pin.d
 %dir %attr(0755, root, root) /var/opt/ai-tools/state/entrypoint-label.d
 %dir %attr(0755, root, root) /var/opt/ai-tools/state/entrypoint-stale.d
-# The cache cleanup state: rewritten in place by the callers of cache-cleanup.lib.sh -- the launch
-# shim and the toolchain updater, both as the sandbox account -- and read by both status reports.
-# Owned by that account so it may rewrite the contents, group ai-ops so operators read it; %ghost
-# with %post creating it, since the directory is not group-writable and the inode must exist.
+# The cache cleanup state and its admission lock (updater.rule.md); %post creates both.
 %ghost %attr(0640, ai-tools, ai-ops) /var/opt/ai-tools/state/cache-cleanup.status
-# The cache admission lock: every session launch holds it shared for the life of its shim, and the launch
-# that removes a cache holds it exclusive. Root-owned and group-readable, so the account opens it to lock
-# it and cannot rewrite or replace it; %ghost with %post creating it, like the state beside it.
 %ghost %attr(0440, root, ai-tools) /var/opt/ai-tools/state/cache-cleanup.lock
 %dir %attr(0700, root, root) /var/log/ai-tools
 %ghost %attr(0600, root, root) /var/log/ai-tools/chown.log
