@@ -96,6 +96,9 @@ check_file /usr/local/lib/ai-tools/sandbox-exec.lib.sh       root              r
 # The residue readers and the package removal: 644 root:root, sourced by the wrapper (as the operator), the shim,
 # the updater and the bootstrap's sandbox-account step; reads manifests, edits a tree its caller owns.
 check_file /usr/local/lib/ai-tools/toolchain.lib.sh          root              root              644
+# The cache remover and the cache cleanup state's writer and reader: 644 root:root, sourced by ai-tools-run,
+# the updater, the bootstrap's sandbox-account step and both status reports.
+check_file /usr/local/lib/ai-tools/cache-cleanup.lib.sh      root              root              644
 # Optional SELinux policy-group registry: 644 root:root -- world-readable, sourced by ai-tools-admin
 # and selinux/install-selinux.sh (both root); read-only data, does not carry secrets.
 check_file /usr/local/lib/ai-tools/selinux-groups.lib.sh     root              root              644
@@ -494,6 +497,11 @@ check_file /var/opt/ai-tools/README.md                        root              
 # else. The stamp ships with the nodejs integration, so a base-only install legitimately lacks it.
 check_file /var/opt/ai-tools/state                            root              "${SANDBOX_GROUP}" 750
 check_file_optional /var/opt/ai-tools/state/nvm-update.status "${SANDBOX_USER}" ai-ops            640
+# The cache cleanup state ships with base: its writers are ai-tools-run and the updater, as the sandbox account.
+check_file /var/opt/ai-tools/state/cache-cleanup.status       "${SANDBOX_USER}" ai-ops            640
+# The cache admission lock beside it: root-owned and group-readable, so a launch opens it to lock it and the account
+# cannot rewrite or replace it.
+check_file /var/opt/ai-tools/state/cache-cleanup.lock         root              "${SANDBOX_GROUP}" 440
 # The entrypoint pins. root:root and not group-writable, unlike the stamp beside them: a stamp reports and does not gate
 # a launch, while a pin is what the launch compares the agent binary against, so the account it constrains must not be
 # able to write it.

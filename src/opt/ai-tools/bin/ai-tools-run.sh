@@ -655,6 +655,31 @@ if (( show_banner )); then
         "${banner_agent_line}" "${banner_node_line}" "${banner_tools_line}"
 fi
 
+# ── Launch-time cache cleanup ────────────────────────────────────────────────────────────────
+# The caches a running session uses -- the packages `npx` installed, node's compile cache -- are removed at a launch
+# rather than by the nightly updater: once due, and only by the launch that does not find another session
+# through the admission lock or the user manager's listing (updater.rule.md). Housekeeping, not a gate: the library
+# journals every outcome under this shim's tag and prints a coded warning for a group it did not remove, and the launch
+# goes on, admitted or not. A removal prints one line under the banner. Loaded at its point of use and guarded,
+# as the entrypoint verifier is, so a print-and-exit run does not read it and one that did not load skips the step
+# with one log line. The call runs in this process, not a substitution: the admission descriptor it opens must be this
+# process's to outlive the step, and this process waits for the session unit, so the admission lasts the session's life.
+# The glob matches session_unit_name, which this shim composes for the launch.
+if (( show_banner )); then
+    # shellcheck source=SCRIPTDIR/../../../usr/local/lib/ai-tools/cache-cleanup.lib.sh
+    if source "${AI_TOOLS_RUN__LIB_DIR}/cache-cleanup.lib.sh" 2>/dev/null \
+            && declare -F ai_tools_cache_cleanup__remove_due_groups >/dev/null 2>&1; then
+        declare -a cache_cleanup_records=()
+        AI_TOOLS_LOG_TAG=ai-tools-run ai_tools_cache_cleanup__remove_due_groups "${AI_TOOLS_CACHE_CLEANUP__SANDBOX_HOME}" \
+            "${AI_TOOLS_CACHE_CLEANUP__STATE_FILE}" "${AI_TOOLS_CACHE_CLEANUP__ADMISSION_LOCK}" \
+            '@SANDBOX_USER@-*-*.service' cache_cleanup_records
+        cache_cleanup_line="$(ai_tools_cache_cleanup__format_cleaned_line "${cache_cleanup_records[@]}")"
+        [[ -z "${cache_cleanup_line}" ]] || printf '%s\n' "${cache_cleanup_line}" >&2
+    else
+        audit warning "cache cleanup skipped: ${AI_TOOLS_RUN__LIB_DIR}/cache-cleanup.lib.sh did not load"
+    fi
+fi
+
 # The unit name identifies the session in `systemctl --user list-units` and the journal; the pid suffix keeps concurrent
 # sessions from colliding.
 session_unit_name="@SANDBOX_USER@-${agent_name}-$$.service"
@@ -718,14 +743,17 @@ case "${entrypoint_pin_verdict}" in
         fi
         # The remedy is NOT the provisioning command on its own: its npm step is a no-op at an already-installed
         # version, so the modified binary would survive it and every launch would go on refusing. The package directory
-        # goes first; the library composes it, and prints nothing where the entrypoint does not sit inside one.
+        # goes first, after every session has ended, so no process of this account is running while root removes it;
+        # the operator lets each session finish or stops them all. The library composes the directory, and prints
+        # nothing where the entrypoint does not sit inside one.
         entrypoint_package_dir=""
         declare -F ai_tools_entrypoint_verify__find_package_dir >/dev/null 2>&1 \
             && entrypoint_package_dir="$(ai_tools_entrypoint_verify__find_package_dir "${session_exec_path}" \
                    "$(ai_tools_providers__read_agent_manifest_field "${agent_name}" npm_package || true)" 2>/dev/null || true)"
         declare -a entrypoint_remedy=( '  sudo ai-tools-admin system bootstrap' )
         [[ -n "${entrypoint_package_dir}" ]] \
-            && entrypoint_remedy=( "  sudo rm -rf ${entrypoint_package_dir}" "${entrypoint_remedy[@]}" )
+            && entrypoint_remedy=( 'End every running session first -- let each finish, or stop them all:' \
+                   '  ai-tools stop' "  sudo rm -rf ${entrypoint_package_dir}" "${entrypoint_remedy[@]}" )
         refuse MSG-H7S2 'the agent entrypoint does not match its recorded checksum -- refusing to start the session' \
                "entrypoint:  ${session_exec_path}" \
                "The pin holds ${entrypoint_pin_claim}, and the binary has changed since it was recorded." \
@@ -765,8 +793,10 @@ if [[ "$(resolve_entrypoint || true)" != "${session_exec_path}" \
 fi
 
 # ExecStart is the RESOLVED entrypoint, not the launcher symlink: the manager's execve performs the domain transition
-# on the same inode this shim verified, with no link left for it to re-resolve. Run rather than exec: `--pty` implies
-# `--wait` and returns the payload's status, which a fast failure turns into an actionable breadcrumb.
+# on the same inode this shim verified, with no link left for it to re-resolve. Run rather than exec, and `--wait`
+# stated beside `--pty`: the client then stays until the unit is deactivated, also after the terminal hangs up, which is
+# what the admission lock this process holds rests on, and returns the payload's status, which a fast failure turns
+# into an actionable breadcrumb.
 #
 # The four resource properties bound a session's memory, swap and task count inside the cgroup the account's manager
 # creates for the unit. They are a cap for a session that runs away, not a boundary: the account owns that cgroup
@@ -782,7 +812,7 @@ fi
 session_start_seconds=${SECONDS}
 session_exit_status=0
 SYSTEMD_TINT_BACKGROUND=0 \
-systemd-run --user --pty --quiet \
+systemd-run --user --pty --quiet --wait \
     --unit="${session_unit_name}" \
     --description="${agent_display_name} @SANDBOX_USER@ session" \
     "${session_environment_options[@]}" \

@@ -222,6 +222,14 @@ run_crun() {  # VAR=VAL ...
     timeout 10 runuser -u "${SANDBOX_USER}" -- \
         env -u AI_TOOLS_AGENT_EXEC -u AI_TOOLS_PROJECT_DIR "$@" "${CRUN}" < /dev/null 2>&1
 }
+# run_crun_print VAR=VAL ... : the shim's print-and-exit form (`--version`), for a case whose refusal sits past
+#   the launch-time cache cleanup. That step runs on the host's real caches and state under the production paths,
+#   which no automated file touches, and may take the step's bound, longer than this helper's timeout; the print form
+#   skips it and still reaches the entrypoint gates before any session.
+run_crun_print() {  # VAR=VAL ...
+    timeout 10 runuser -u "${SANDBOX_USER}" -- \
+        env -u AI_TOOLS_AGENT_EXEC -u AI_TOOLS_PROJECT_DIR "$@" "${CRUN}" --version < /dev/null 2>&1
+}
 
 # refused <label> <code> <rc> <output>: the shim must exit non-zero AND name the situation with <code>. The exit status
 # is asserted beside the code because a run that printed the refusal and still returned 0 would have gone on to launch
@@ -387,7 +395,9 @@ else
             printf 'AGENT=%s\nVERSION=0.0.0\nSHA256=%064d\nVERIFIED=1970-01-01T00:00:00Z\n' "${pin_agent}" 0 \
                 > "${pin_dir}/${pin_agent}"
             chmod 0644 "${pin_dir}/${pin_agent}"
-            out="$(run_crun AI_TOOLS_AGENT_EXEC="${pin_exec}" AI_TOOLS_ENTRYPOINT_PIN_DIR="${pin_dir}")" && rc=0 || rc=$?
+            # The print form: the pin gate sits past the cache cleanup, which a session launch would run on the host's
+            # real caches here.
+            out="$(run_crun_print AI_TOOLS_AGENT_EXEC="${pin_exec}" AI_TOOLS_ENTRYPOINT_PIN_DIR="${pin_dir}")" && rc=0 || rc=$?
             refused "ai-tools-run refuses an entrypoint that does not match its pin (${pin_agent})" MSG-H7S2 "${rc}" "${out}"
 
             # The same refusal against an OBSERVED pin. The tier decides what the pin CLAIMS, never whether a mismatch
@@ -397,7 +407,7 @@ else
             # gate ever started reading the tier.
             printf 'AGENT=%s\nVERSION=0.0.0\nSHA256=%064d\nKIND=observed\nVERIFIED=1970-01-01T00:00:00Z\n' \
                 "${pin_agent}" 0 > "${pin_dir}/${pin_agent}"
-            out="$(run_crun AI_TOOLS_AGENT_EXEC="${pin_exec}" AI_TOOLS_ENTRYPOINT_PIN_DIR="${pin_dir}")" && rc=0 || rc=$?
+            out="$(run_crun_print AI_TOOLS_AGENT_EXEC="${pin_exec}" AI_TOOLS_ENTRYPOINT_PIN_DIR="${pin_dir}")" && rc=0 || rc=$?
             refused "ai-tools-run refuses a mismatch against an observed pin too (${pin_agent})" MSG-H7S2 "${rc}" "${out}"
             # And the refusal names the tier it read, so an operator is not sent looking for a vendor signature behind
             # a pin root recorded by hashing what was installed.
@@ -524,6 +534,58 @@ else
         pass "ai-tools-run re-checks the entrypoint identity immediately before the launch"
     else
         fail "the entrypoint re-check is not immediately before systemd-run (${crun_lines_between} code lines between line ${crun_recheck_line} and line ${crun_launch_line}) -- the window it narrows is back"
+    fi
+fi
+
+# The launch-time cache cleanup walks a tree for up to its bound, so it runs ahead of the re-check, where it widens no
+# window, and only for a session launch: a print-and-exit run does not load the library. Read as source like
+# the re-check, since a launch that reaches the step starts a session.
+# shellcheck disable=SC2016  # grep patterns over the shim's own text
+crun_cleanup_line="$(grep -n 'ai_tools_cache_cleanup__remove_due_groups "' "${CRUN}" | head -n1 | cut -d: -f1)"
+crun_cleanup_gate_line="$(grep -n '^if (( show_banner )); then$' "${CRUN}" | tail -n1 | cut -d: -f1)"
+if [[ -z "${crun_cleanup_line}" || -z "${crun_recheck_line}" || -z "${crun_cleanup_gate_line}" ]]; then
+    fail "ai-tools-run's cache cleanup step, its session-launch gate or the re-check is no longer where this reads it (cleanup '${crun_cleanup_line}', gate '${crun_cleanup_gate_line}', re-check '${crun_recheck_line}')"
+elif (( crun_cleanup_gate_line < crun_cleanup_line && crun_cleanup_line < crun_recheck_line )); then
+    pass "ai-tools-run cleans the launch caches for a session launch alone, ahead of the last-moment re-check"
+else
+    fail "the cache cleanup step (line ${crun_cleanup_line}) is not inside the session-launch gate (line ${crun_cleanup_gate_line}) ahead of the re-check (line ${crun_recheck_line})"
+fi
+
+# The live listing the cleaner reads, as the sandbox account with its runtime directory named as the shim names it:
+# where the manager answers, it answers with a count, and a glob no unit matches counts none. Which states count is
+# the unit file's table over fixture rows; a unit started to be listed is what no automated file makes.
+#
+# Where the account's own bus refuses a process root switched into it -- the refusal integration/systemd.sh
+# and install.sh reach the manager around with the machine transport, which the shim cannot use, since it runs
+# as the account -- both readings are `unknown`. That is the shipped limitation: every launch then skips
+# the launch-timed caches, a removal does not happen, and the Caches section shows them overdue for information
+# (updater.rule.md). It is recorded with `note` and the manager's error, not failed. Any other reading -- one unknown
+# beside a count, a count for the unmatched glob, an empty reading -- is a reader that disagrees with itself, and fails.
+crun_sandbox_uid="$(id -u "${SANDBOX_USER}" 2>/dev/null || true)"
+if [[ ! -r /usr/local/lib/ai-tools/cache-cleanup.lib.sh ]]; then
+    skip "the live session listing" "cache-cleanup.lib.sh is not installed"
+elif [[ -z "${crun_sandbox_uid}" || ! -S "/run/user/${crun_sandbox_uid}/bus" ]]; then
+    skip "the live session listing" "the sandbox account's user manager is not up (no bus at /run/user/${crun_sandbox_uid:-?}/bus)"
+else
+    # shellcheck disable=SC2016  # the inner shell expands these, not this one
+    crun_listing="$(as_sandbox bash -c 'export XDG_RUNTIME_DIR="/run/user/$1"
+        source /usr/local/lib/ai-tools/cache-cleanup.lib.sh || exit 99
+        printf "%s %s" "$(ai_tools_cache_cleanup__read_active_session_count "$2")" \
+            "$(ai_tools_cache_cleanup__read_active_session_count "$3")"' \
+        _ "${crun_sandbox_uid}" "${SANDBOX_USER}-*-*.service" 'ai-tools-test-no-such-unit-*.service' 2>/dev/null || true)"
+    if [[ "${crun_listing}" =~ ^[0-9]+\ 0$ ]]; then
+        pass "the sandbox account's manager answers the session listing with a count (${crun_listing%% *} session unit(s)), and a glob no unit matches counts none"
+    elif [[ "${crun_listing}" == "unknown unknown" ]]; then
+        # The library discards the manager's stderr, so the same listing is asked again here to name the refusal.
+        # shellcheck disable=SC2016  # the inner shell expands these, not this one
+        crun_listing_error="$(as_sandbox bash -c 'export XDG_RUNTIME_DIR="/run/user/$1"
+            /usr/bin/timeout 5 /usr/bin/systemctl --user list-units --type=service --all --plain --no-legend >/dev/null
+            printf " (exit %s)" "$?"' _ "${crun_sandbox_uid}" 2>&1 || true)"
+        crun_listing_error="${crun_listing_error//$'\n'/ }"
+        note "the sandbox account's bus refuses the session listing, so no launch cleans the launch-timed caches on this host -- the shipped limitation" \
+            "systemctl --user as the account: ${crun_listing_error:0:300}"
+    else
+        fail "the live session listing read neither a count and a zero nor a refusal: '${crun_listing}'"
     fi
 fi
 

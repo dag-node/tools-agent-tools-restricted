@@ -150,8 +150,7 @@ warn() {
     printf 'ai-tools-admin: warning: %s\n' "$*" >&2
 }
 # notice: a consequence of what this tool wrote, at a lower severity than warn -- the run is complete and the host is
-# as asked for.
-# stderr, like warn, so a verb's record stream on stdout stays data-only.
+# as asked for. stderr, like warn, so a verb's record stream on stdout stays data-only.
 notice() {
     local code=""
     if [[ "${1-}" =~ ^MSG-[A-Z][0-9][A-Z][0-9]$ ]]; then code="$1"; shift; printf '%s\n' "${code}" >&2; fi
@@ -2420,6 +2419,8 @@ readonly SERVICES_LIB="/usr/local/lib/ai-tools/services.lib.sh"
 readonly RELABEL_LIB="/usr/local/lib/ai-tools/relabel.lib.sh"
 readonly ENTRYPOINT_VERIFY_LIB="/usr/local/lib/ai-tools/entrypoint-verify.lib.sh"
 readonly TOOLCHAIN_LIB="/usr/local/lib/ai-tools/toolchain.lib.sh"
+# The cache cleanup state and its per-group verdicts, read by status_caches alone, which loads it.
+readonly CACHE_CLEANUP_LIB="/usr/local/lib/ai-tools/cache-cleanup.lib.sh"
 readonly CONFINEMENT_LIB="/usr/local/lib/ai-tools/confinement.lib.sh"
 # AI_TOOLS_LAUNCHER_DIR is the hook the CLI and relabel.lib.sh read for the same directory,
 # so tests/unit/admin-status.sh drives this report against fixture links. It moves a report: this tool is reachable only
@@ -2782,6 +2783,68 @@ status_unit_search_path() {
     return 0
 }
 
+# status_caches [home] [state-file]: per cache group, what its last cleanup did and when, read from the state file
+# through cache-cleanup.lib.sh, whose verdicts and remedies ai-tools status renders too, and beside it the size
+# the cache holds now, which only root reads in the 0750 tree (`du -sxP`, as data, bounded to ten seconds). A group
+# that failed, or that holds links its producer does not write, is counted in STATUS_PROBLEMS; an overdue one is shown
+# and not counted, and an empty file reads `?` and is not counted. <home> and <state-file> are parameters so a unit test
+# drives the section over fixtures; the report passes AI_TOOLS_CACHE_CLEANUP_STATE, a root-only override.
+status_caches() {
+    local home="${1:-${CP_HOME:-/opt/ai-tools}}"
+    local state="${2:-${AI_TOOLS_CACHE_CLEANUP_STATE:-/var/opt/ai-tools/state/cache-cleanup.status}}"
+    local name relative verdict result bytes links reason checked_age cleaned_age token text size size_text
+    heading "Caches"
+    # shellcheck source=SCRIPTDIR/../../lib/ai-tools/cache-cleanup.lib.sh
+    source "${CACHE_CLEANUP_LIB}" 2>/dev/null || true
+    if ! declare -F ai_tools_cache_cleanup__list_group_statuses >/dev/null 2>&1; then
+        st UNREADABLE "the cache cleanup library (${CACHE_CLEANUP_LIB}) did not load -- reinstall ai-tools-base"
+        STATUS_UNREADABLE=$(( STATUS_UNREADABLE + 1 ))
+        return 0
+    fi
+    if ai_tools_services__is_stamp_unwritten "${state}"; then
+        st "?" "no cleanup recorded yet -- the updater's first run and the first session launch write ${state}"
+        return 0
+    fi
+    while IFS=$'\t' read -r name relative verdict result bytes links reason checked_age cleaned_age; do
+        [[ -n "${name}" ]] || continue
+        [[ "${checked_age}" == - ]] && checked_age=""
+        [[ "${cleaned_age}" == - ]] && cleaned_age=""
+        text="${relative}  "
+        [[ "${verdict}" == links ]] && text+="${links} symbolic link(s) its producer does not write, "
+        text+="$(ai_tools_cache_cleanup__format_result "${result}" "${bytes}" "${reason}")"
+        [[ -n "${checked_age}" ]] && text+=", $(ai_tools_services__format_age "${checked_age}")"
+        if [[ "${result}" != removed && "${result}" != absent && -n "${cleaned_age}" ]]; then
+            text+=" -- last cleaned $(ai_tools_services__format_age "${cleaned_age}")"
+        fi
+        size="$(timeout 10 du -sxP --bytes -- "${home}/${relative}" 2>/dev/null | cut -f1 || true)"
+        size_text=""
+        if [[ "${size}" =~ ^[0-9]+$ ]]; then
+            size_text="; holds $(ai_tools_cache_cleanup__format_bytes "${size}") now"
+        elif [[ ! -e "${home}/${relative}" ]]; then
+            size_text="; absent now"
+        fi
+        text+="${size_text}"
+        case "${verdict}" in
+            unknown) st "?" "${relative}  no cleanup recorded yet${size_text}"; continue ;;
+            failed)  token=FAILED ;;
+            links)   token=LINKS ;;
+            overdue) token=OVERDUE ;;
+            *)       case "${result}" in
+                         removed|absent) token=OK ;;
+                         # The token is the result here, so the text keeps its reason alone.
+                         *)              token="${result^^}"; text="${text/"  ${result} ("/"  ("}" ;;
+                     esac ;;
+        esac
+        st "${token}" "${text}"
+        case "${verdict}" in
+            failed|links) detail "$(ai_tools_cache_cleanup__get_status_remedy "${verdict}" "${reason}")"
+                          STATUS_PROBLEMS=$(( STATUS_PROBLEMS + 1 )) ;;
+            overdue)      detail "$(ai_tools_cache_cleanup__get_status_remedy "${verdict}" "${reason}")" ;;
+        esac
+    done < <(ai_tools_cache_cleanup__list_group_statuses "${state}")
+    return 0
+}
+
 # status_update_timer_stamp: the `Persistent=` stamp nvm-update.timer keeps (ai_tools_services__evaluate_timer_stamp).
 # Whether the timer is overdue is the Services section's reading.
 status_update_timer_stamp() {
@@ -3115,14 +3178,16 @@ status() {
         heading "Services"
         st UNREADABLE "the service registry did not load, so no unit could be read"
     fi
+    status_caches "${CP_HOME:-/opt/ai-tools}" \
+        "${AI_TOOLS_CACHE_CLEANUP_STATE:-/var/opt/ai-tools/state/cache-cleanup.status}"
     status_entrypoints
     status_unit_search_path "${CP_HOME:-/opt/ai-tools}"
     status_selinux_attestation "${OPERATOR_CONF}"
 
     # Pointers, not duplication: the reports that own the detail this one deliberately does not, then the commands
     # that read and drive the two managed units this report judges by their last run. The updater's unit lives
-    # in the sandbox account's own manager, which root reaches over the machine transport and whose journal is
-    # selected by unit and uid, since `journalctl --user-unit` as root reads root's own units (cli.rule.md).
+    # in the sandbox account's own manager, which root reaches over the machine transport and whose journal is selected
+    # by unit and uid, since `journalctl --user-unit` as root reads root's own units (cli.rule.md).
     heading "More"
     printf '    %s\n' \
         "ai-tools status          the same host, read from an operator's vantage" \

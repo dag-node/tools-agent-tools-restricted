@@ -2,6 +2,7 @@
 paths:
   - "src/opt/ai-tools/bin/nvm-update.sh"
   - "src/usr/local/lib/ai-tools/toolchain.lib.sh"
+  - "src/usr/local/lib/ai-tools/cache-cleanup.lib.sh"
   - "src/usr/local/lib/ai-tools/sandbox-exec.lib.sh"
   - "src/usr/local/lib/ai-tools/npm-verify.lib.sh"
   - "src/usr/local/lib/ai-tools/entrypoint-verify.lib.sh"
@@ -436,12 +437,13 @@ signal the run does not take as success. The fault is decided after every comple
 incomplete package never strands another agent's update, and ahead of the transient verdict, which a reader takes
 as a retry. `ai-tools-bootstrap` ends the same way after its closing lines, printing the code as a citation, so a host
 whose install left an agent unlaunchable does not read `toolchain ready` and exit 0. Each run also empties npm's content
-cache (`npm cache clean --force`, `prune_npm_cache`) after its last install: the cache is content-addressed with no
-eviction, so every tarball a nightly run downloaded would otherwise stay until the volume holding the toolchain is full,
-which is the one condition observed to leave a package incomplete, and the next run's reinstall then has the space it
-needs. `ai-tools-bootstrap` empties it before its installs for the same reason, and for a second: an install that ran
-out of space leaves an index entry whose content was never written, which the next fetch through the cache reports
-as `ENOENT`, so the repair run that command is would otherwise fail on the cache the failed install left.
+cache (`prune_npm_cache`) after its last install: the cache is content-addressed with no eviction, so every tarball
+a nightly run downloaded would otherwise stay until the volume holding the toolchain is full, which is the one condition
+observed to leave a package incomplete, and the next run's reinstall then has the space it needs. `ai-tools-bootstrap`
+empties it before its installs for the same reason, and for a second: an install that ran out of space leaves an index
+entry whose content was never written, which the next fetch through the cache reports as `ENOENT`, so the repair run
+that command is would otherwise fail on the cache the failed install left. Both remove it through the cache remover
+([Removing a cache under the sandbox home](#removing-a-cache-under-the-sandbox-home)).
 
 The read is taken against the version directory the run installs **into**, which covers both ways a hole arrives: one
 an earlier run left in the active version, and one carried into a version directory this run created — a Node bump
@@ -465,6 +467,76 @@ would make the repair only as good as that theory. The reinstall is not a wideni
 `tests/unit/toolchain.sh` drives the reader over the fixture tree — which agent a declaration is read for, and every
 value that cannot be joined to a path — and reads the updater's two uses of it as source order, since the updater runs
 `main` on its last line and cannot be sourced.
+
+## Removing a cache under the sandbox home <a id="ref-section-z4t8"></a>
+
+Every cache the sandbox account fills is emptied by a process of that account running outside `ai_tools_t` --
+`nvm-update`, the bootstrap's account step, `ai-tools-run` -- while a session of the same account can rename an entry
+inside the cache. A removal that walked by path would then follow a directory swapped for a symlink mid-walk and delete
+inside its target, the toolchain first, which the type layout keeps read-only to a session
+([ref-section-w4z6](confinement.rule.md#ref-section-w4z6)). So every removal goes
+through `ai_tools_cache_cleanup__remove_group` (`cache-cleanup.lib.sh`), which walks by directory file descriptors
+and does not follow a link: `shutil.rmtree` in the host's `/usr/bin/python3 -I`, run only
+where `shutil.rmtree.avoids_symlink_attacks` reads true. A directory swapped mid-walk is unlinked or left as a link,
+and its target is not entered. `npm cache clean` walks by path and is not used. `find -P -delete` was weighed and set
+aside: its traversal is fd-relative too, but no documented, checkable property states it.
+
+Ahead of the walk the remover requires the sandbox account as its caller (root and an operator are refused), a group
+the library declares (the path comes from the declaration, never from an argument), a home passing
+`ai_tools_conf__is_trusted`, and the group's first component a directory the account owns, so the account cannot rename
+a component between the home and the removed directory. A group on another filesystem than the home is refused. Each
+refusal leaves the tree as it was and is reported under `MSG-G5U7`; with a bound, a walk cut short is `partial timeout`,
+which the next run continues, and a `partial` by any other error counts as failed in both status reports, since
+the error repeats. Each removal is journalled under the caller's tag, a DEBUG line before it and an INFO line or a coded
+warning after.
+
+**Two timings, decided by whether a live session uses the cache.** The declaration names each group's timing. npm's
+content cache holds tarballs that a session does not execute, so `nvm-update` empties it after its last install
+and `ai-tools-bootstrap` before its first, whatever is running. npx's packages and node's compile cache are used
+by a running session, so a session launch empties them ([launch](launch.rule.md)), at most once in the library's
+interval and only as the **cleaner**: the launch that takes the admission lock
+(`/var/opt/ai-tools/state/cache-cleanup.lock`, `0440 root:SANDBOX_GROUP`, created like the state file) exclusive,
+which every admitted session holds shared from its launch until the shim's process ends with the unit, and whose user
+manager lists no session unit of the account in a state other than inactive or failed. The two cover each other's blind
+spot: a launch arriving during a removal is admitted once the cleaner has written its records and shared the lock,
+which a listing cannot see, and the listing counts a session the lock does not represent -- one an older shim started,
+one whose launch was not admitted within its wait, one whose client ended before its unit -- `deactivating` among its
+states, so a unit still ending its processes keeps its caches. A launch not admitted within the bound starts without
+cleaning, and its unit is listed from then on; a launch between its return and its unit is seen by neither, which is
+also where a shim of the release before the lock stands while the upgrade lands, once. The lock and the listing keep
+a running session working; the walk is what makes the removal safe, so a session holding the lock -- the account opens
+the file, so it can -- delays a cleanup by at most the bound or skips it, and reaches only its own account's cache,
+removed without following a link.
+
+**The listing goes through the account's own user bus, which refuses a process root switched into the account.**
+`ai-tools-run` is started through `sudo`, and cannot take the machine transport `install.sh` and the status reports
+reach that manager with, since it runs as the account; on a host whose bus refuses it, every launch reads the listing
+as `unknown` and records each due group `skipped (unknown)`, so the launch-timed caches are not removed and both reports
+show them `overdue`, which does not count toward the exit status. The direction is toward less removal: a launch does
+not remove a cache it could not check, and the nightly removal of npm's content cache does not read the listing.
+`integration/ai-tools-run.sh` records the refusal with the manager's error rather than failing.
+
+**A link is a finding where its producer writes none** (`MSG-J4Y8`). The declaration records per group whether its
+producer writes links, so a link in a group whose producer writes none was planted or left by a broken copy of the home.
+A link is removed as a link either way: refusing the removal would let one planted link stop the cleanup for good,
+and the volume would fill.
+
+**The state file is the last-run stamp's shape, and read by one decision.**
+`/var/opt/ai-tools/state/cache-cleanup.status` is `0640 SANDBOX_USER:ai-ops`, created by base's `%post`
+and `install.sh`, and rewritten in place by its writers under a `flock` on the file, in the shared `KEY=value` grammar,
+one block per group. The path is a constant: its writers run as the account, and a variable that account could set would
+move a write the unconfined updater makes. The one decision it feeds is the launch's due test, which reads it
+under that `flock`, so a writer's truncate-and-rewrite mid-read does not read as a group never cleaned; a forged value
+stops the account's own caches being cleaned, which costs disk and does not widen access. `FIRST_CHECKED` dates
+a group's first record and is kept across every later one, so a launch-timed group never removed is judged by that age
+where the reports show a stale one. Both status reports render it through the stamp reader's defences
+([cli](cli.rule.md)). The interval, the launch bound and the age past which the reports show a launch-cleaned cache
+overdue are `readonly` constants in the library; `operator.conf` does not carry a key for them.
+
+`tests/unit/cache-cleanup.sh` drives each refusal, the removal over a canary outside the fixture home, the swap race
+against a path-walking control, and the launch step over the real admission lock; `tests/boundary/access.sh` asserts
+the library and the state directory are not agent-writable, the state file is, and the admission lock opens
+for the account and is not writable by it.
 
 ## A copy of the tree without its symlinks is repaired, not reported
 
@@ -673,12 +745,12 @@ provisioning](#toolchain-provisioning-system-bootstrap)). Two further paths run 
   executes the helper of one release against the libraries of another. The service is stopped with it, because stopping
   a `.path` does not end a run it already started, and a oneshot still active at the closing start absorbs that start
   rather than running again. `install.sh` stops both the same way for its run, and an `EXIT` trap starts the watcher
-  again whatever ends that run. The service unit **wants** the path unit, so a start
-  of the service — by hand, by the `%posttrans`, by the bootstrap or by `install.sh`, each of which runs it once
-  after its own relabel so the unit's recorded result is that run's — brings the watcher up with it. Should it be
-  down anyway, `services.lib.sh` surfaces it before the next Node bump would fail-close a launch on a mislabelled
-  entrypoint: proactively at launch (`launch-wrapper.lib.sh` warns, warn-not-block, from the same registry)
-  and in `ai-tools status` (see [cli](cli.rule.md)).
+  again whatever ends that run. The service unit **wants** the path unit, so a start of the service — by hand,
+  by the `%posttrans`, by the bootstrap or by `install.sh`, each of which runs it once after its own relabel
+  so the unit's recorded result is that run's — brings the watcher up with it. Should it be down anyway,
+  `services.lib.sh` surfaces it before the next Node bump would fail-close a launch on a mislabelled entrypoint:
+  proactively at launch (`launch-wrapper.lib.sh` warns, warn-not-block, from the same registry) and in `ai-tools status`
+  (see [cli](cli.rule.md)).
 - **On demand**, through `sudo ai-tools-admin system entrypoints relabel`, which runs the same helper as root. It is
   an administrator command rather than an operator one: it carries no `%ai-ops` NOPASSWD rule and is reached
   through the host's own general sudo grant, the axis [CLAUDE.md](../../CLAUDE.md) names (see
@@ -811,10 +883,12 @@ mark](#a-refusal-leaves-a-mark-too) and prints the remedy.
 **The remedy is a forced reinstall, not the provisioning command.** `system bootstrap` installs each enabled agent's npm
 package, and `npm install -g` is a no-op at a version already installed, so reprovisioning leaves a changed binary
 exactly where it is and the host goes on refusing without naming the cause. Both refusals — the relabel helper's
-and the launch shim's — therefore print the package directory to remove first and the provisioning command after it,
-composed by `ai_tools_entrypoint_verify__find_package_dir` from the entrypoint's own version directory
-and the manifest's `npm_package`, so the operator reads the paths this host has. Where the entrypoint does not sit
-inside a package directory, the refusal names the provisioning command alone rather than guessing a path.
+and the launch shim's — therefore suggest ending every running session first, by letting each finish
+or with `ai-tools stop`, so root removes inside the account's tree while none of that account's processes runs, then
+print the package directory to remove and the provisioning command after it, composed
+by `ai_tools_entrypoint_verify__find_package_dir` from the entrypoint's own version directory and the manifest's
+`npm_package`, so the operator reads the paths this host has. Where the entrypoint does not sit inside a package
+directory, the refusal names the provisioning command alone rather than guessing a path.
 
 **What the weaker tier does not decide.** The version on both sides of that decision comes from `package.json`
 in the toolchain, which the sandbox account owns and the updater writes, and the version directory the stable launcher
@@ -899,6 +973,13 @@ fails a command an operator may have run for a label (which is correct — an en
 published is the more serious finding, and it is reported first).
 
 ## Deferred
+
+**Reading the sessions without the user bus.** The launch-timed cleanup cannot read the listing where the account's user
+bus refuses the shim ([Removing a cache under the sandbox home](#removing-a-cache-under-the-sandbox-home) has
+the effect). Two replacements are weighed: counting the session units' cgroups under the account's `user@<uid>.service`,
+the tree `ai-tools-stop` finds sessions in, which does not need a bus; or moving the launch-timed groups
+to an administrator command that runs as root, refuses while a session runs, and removes through the same remover
+as the sandbox account, which drops the admission lock and the launch step.
 
 **Pinning the registry signing key.** Fetching the keys each run detects a mirror or cache that serves a tampered
 package without the real signature, but not a fully compromised primary registry that serves a forged package,

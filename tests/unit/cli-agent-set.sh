@@ -280,6 +280,7 @@ if runuser -u "${PROJECTS_USER}" -- bash -c \
             bash -c 'cli="$1"; pre="$2"; set --; source "${cli}" >/dev/null 2>&1 || exit 99
                      ai_tools_services__list_records() { :; }; status_path_order() { return 0; }
                      status_entrypoint_pins() { return 0; }; status_selinux_attestation() { return 0; }
+                     status_caches() { return 0; }
                      eval "${pre}"; cmd_status' _ "${CLI}" "$1" 2>&1
     }
     reset_fixtures; rm -f "${PINS}"/* "${STALES}"/* "${LABELS}"/*; manifest alpha la yes; link la
@@ -412,6 +413,82 @@ else
     else
         fail "policy never installed without the requirement: $(tr '\n' '|' <<<"${out}")"
     fi
+fi
+
+
+# ── (8) The Caches section reads the cache cleanup state through cache-cleanup.lib.sh ── each verdict the library
+# counts makes the section return 1, with the library's remedy under the line; an empty file and a value forged with
+# a control byte read as `?` and are not counted. The state file is a fixture through AI_TOOLS_CACHE_CLEANUP_STATE.
+section "status: the Caches section (unit)"
+# shellcheck disable=SC2016  # the $1/$2 are for the inner `bash -c`, not this shell -- do not expand here
+if ! runuser -u "${PROJECTS_USER}" -- bash -c 'cli="$1"; set --; source "${cli}" >/dev/null 2>&1; declare -F status_caches >/dev/null 2>&1' _ "${CLI}" \
+        || [[ ! -r /usr/local/lib/ai-tools/cache-cleanup.lib.sh ]]; then
+    skip "status Caches section" "status_caches or cache-cleanup.lib.sh is not installed (an older install)"
+else
+    CACHE_STATE="${TESTDIR}/cache-cleanup.status"
+    # call_caches : status_caches as the projects user over the fixture state; both streams, its status returned.
+    # shellcheck disable=SC2016  # the $1 is for the inner `bash -c`, not this shell -- do not expand here
+    call_caches() {
+        runuser -u "${PROJECTS_USER}" -- env AI_TOOLS_CACHE_CLEANUP_STATE="${CACHE_STATE}" AI_TOOLS_MSG_PLAIN=1 \
+            bash -c 'cli="$1"; set --; source "${cli}" >/dev/null 2>&1 || exit 99; status_caches' _ "${CLI}" 2>&1
+    }
+    stamp_days_ago() { date -u -d "@$(( $(date -u +%s) - $1 * 86400 ))" +%Y-%m-%dT%H:%M:%SZ; }
+    : > "${CACHE_STATE}"; chmod 0644 "${CACHE_STATE}"
+    rc=0; out="$(call_caches)" || rc=$?
+    (( rc == 0 )) && grep -qF '? (no cleanup recorded yet' <<<"${out}" \
+        && pass "an empty state file reads as no cleanup recorded yet, and is not counted" \
+        || fail "empty state: rc ${rc}: $(tr '\n' '|' <<<"${out}")"
+    printf 'NPM_CACHE_RESULT=removed\nNPM_CACHE_CHECKED=%s\nNPM_CACHE_CLEANED=%s\nNPM_CACHE_BYTES=4617089024\nNPM_CACHE_LINKS=0\nNPX_RESULT=absent\nNPX_CHECKED=%s\nNPX_CLEANED=%s\nNPX_BYTES=0\nNPX_LINKS=0\n' \
+        "$(stamp_days_ago 1)" "$(stamp_days_ago 1)" "$(stamp_days_ago 2)" "$(stamp_days_ago 2)" > "${CACHE_STATE}"
+    rc=0; out="$(call_caches)" || rc=$?
+    (( rc == 0 )) && grep -qE '\.npm/_cacache +OK .*cleaned 4\.2 GiB' <<<"${out}" && grep -qE '\.npm/_npx +OK .*absent' <<<"${out}" \
+        && grep -qE '\.cache/node-compile-cache +\? ' <<<"${out}" \
+        && pass "removals read OK with their size, a group with no record reads ?, and none is counted" \
+        || fail "clean state: rc ${rc}: $(tr '\n' '|' <<<"${out}")"
+    printf 'NPM_CACHE_RESULT=refused\nNPM_CACHE_CHECKED=%s\nNPM_CACHE_BYTES=0\nNPM_CACHE_LINKS=0\nNPM_CACHE_REASON=home-untrusted\n' \
+        "$(stamp_days_ago 1)" > "${CACHE_STATE}"
+    rc=0; out="$(call_caches)" || rc=$?
+    (( rc == 1 )) && grep -qE '\.npm/_cacache +FAILED .*refused \(home-untrusted\)' <<<"${out}" \
+        && grep -qF '`sudo ai-tools-admin system bootstrap`' <<<"${out}" \
+        && pass "a refused cleanup reads FAILED with the remedy for its reason, and is counted" \
+        || fail "refused state: rc ${rc}: $(tr '\n' '|' <<<"${out}")"
+    printf 'NPM_CACHE_RESULT=removed\nNPM_CACHE_CHECKED=%s\nNPM_CACHE_CLEANED=%s\nNPM_CACHE_BYTES=10\nNPM_CACHE_LINKS=2\n' \
+        "$(stamp_days_ago 1)" "$(stamp_days_ago 1)" > "${CACHE_STATE}"
+    rc=0; out="$(call_caches)" || rc=$?
+    (( rc == 1 )) && grep -qE '\.npm/_cacache +LINKS .*2 symbolic link' <<<"${out}" \
+        && pass "links in a cache whose producer writes none are reported and counted" \
+        || fail "links state: rc ${rc}: $(tr '\n' '|' <<<"${out}")"
+    printf 'NPX_RESULT=skipped\nNPX_CHECKED=%s\nNPX_CLEANED=%s\nNPX_BYTES=0\nNPX_LINKS=0\nNPX_REASON=sessions\n' \
+        "$(stamp_days_ago 0)" "$(stamp_days_ago 15)" > "${CACHE_STATE}"
+    rc=0; out="$(call_caches)" || rc=$?
+    (( rc == 0 )) && grep -qE '\.npm/_npx +OVERDUE .*skipped \(sessions\).*last cleaned 15 days ago' <<<"${out}" \
+        && grep -qF '`ai-tools stop`' <<<"${out}" \
+        && pass "a launch group not cleaned for 15 days reads OVERDUE, names ai-tools stop, and is not counted" \
+        || fail "overdue state: rc ${rc}: $(tr '\n' '|' <<<"${out}")"
+    printf 'NPX_RESULT=skipped\nNPX_CHECKED=%s\nNPX_FIRST_CHECKED=%s\nNPX_BYTES=0\nNPX_LINKS=0\nNPX_REASON=sessions\n' \
+        "$(stamp_days_ago 0)" "$(stamp_days_ago 15)" > "${CACHE_STATE}"
+    rc=0; out="$(call_caches)" || rc=$?
+    (( rc == 0 )) && grep -qE '\.npm/_npx +OVERDUE .*skipped \(sessions\)' <<<"${out}" \
+        && pass "a launch group never cleaned since its first record 15 days ago reads OVERDUE, and is not counted" \
+        || fail "never-cleaned state: rc ${rc}: $(tr '\n' '|' <<<"${out}")"
+    printf 'NPX_RESULT=skipped\nNPX_CHECKED=%s\nNPX_FIRST_CHECKED=%s\nNPX_BYTES=0\nNPX_LINKS=0\nNPX_REASON=unknown\n' \
+        "$(stamp_days_ago 0)" "$(stamp_days_ago 15)" > "${CACHE_STATE}"
+    rc=0; out="$(call_caches)" || rc=$?
+    (( rc == 0 )) && grep -qE '\.npm/_npx +OVERDUE .*skipped \(unknown\)' <<<"${out}" \
+        && grep -qF 'no launch could tell whether another session' <<<"${out}" && ! grep -qF 'another session was active' <<<"${out}" \
+        && pass "a launch group overdue because no launch could tell whether a session ran says so, not the sessions, and is not counted" \
+        || fail "overdue unknown state: rc ${rc}: $(tr '\n' '|' <<<"${out}")"
+    printf 'NPM_CACHE_RESULT=partial\nNPM_CACHE_CHECKED=%s\nNPM_CACHE_BYTES=1\nNPM_CACHE_LINKS=0\nNPM_CACHE_REASON=eacces\n' \
+        "$(stamp_days_ago 0)" > "${CACHE_STATE}"
+    rc=0; out="$(call_caches)" || rc=$?
+    (( rc == 1 )) && grep -qE '\.npm/_cacache +FAILED .*partial \(eacces\)' <<<"${out}" \
+        && pass "a partial removal by an error other than the bound reads FAILED, and is counted" \
+        || fail "partial eacces state: rc ${rc}: $(tr '\n' '|' <<<"${out}")"
+    printf 'NPM_CACHE_RESULT=refused\033[2J\nNPM_CACHE_REASON=home-untrusted\n' > "${CACHE_STATE}"
+    rc=0; out="$(call_caches)" || rc=$?
+    (( rc == 0 )) && grep -qE '\.npm/_cacache +\? ' <<<"${out}" && ! grep -q $'\033' <<<"${out}" \
+        && pass "a value forged with a control byte reads as no value and is not counted" \
+        || fail "forged state: rc ${rc}: $(tr '\n\033' '|^' <<<"${out}")"
 fi
 
 finish

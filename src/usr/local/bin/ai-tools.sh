@@ -544,6 +544,10 @@ readonly SECRET_PATTERNS_LIB="/usr/local/lib/ai-tools/secret-patterns.lib.sh"
 # launcher link, and the Node version the enabled agents' links name. Loaded by the sections that read it,
 # through toolchain_lib_loaded, since only `status` reads it.
 readonly TOOLCHAIN_LIB="/usr/local/lib/ai-tools/toolchain.lib.sh"
+# The cache cleanup state and its per-group verdicts (cache-cleanup.lib.sh), read by status_caches alone, which loads
+# it. AI_TOOLS_CACHE_CLEANUP_STATE moves the file that section reads, so tests/unit/cli-agent-set.sh drives it
+# over a fixture: it moves a report and no access decision.
+readonly CACHE_CLEANUP_LIB="/usr/local/lib/ai-tools/cache-cleanup.lib.sh"
 readonly CONFINEMENT_LIB="/usr/local/lib/ai-tools/confinement.lib.sh"
 # The account whose `systemd --user` units the registry may read live. Naming it does not by itself enable the probe:
 # _ai_tools_services__run_systemctl still requires root and a working machine transport, and refuses this CLI run
@@ -4779,6 +4783,61 @@ status_managed_files() {
     return "${rc}"
 }
 
+# status_caches -- the Caches section: per cache group, what its last cleanup did and when, from the state file its
+# writers rewrite. Each verdict and each remedy is cache-cleanup.lib.sh's, so this report and ai-tools-admin status
+# cannot disagree. A failed group, and one holding links its producer does not write, is counted; an overdue one is
+# shown with its line and not counted; an empty file reads `?`, as does a file this account cannot read (a
+# non-operator), and neither is counted. Returns 1 for a counted line, STATUS_UNREADABLE for a library that did not
+# load.
+status_caches() {
+    local state="${AI_TOOLS_CACHE_CLEANUP_STATE:-/var/opt/ai-tools/state/cache-cleanup.status}" rc=0
+    local name relative verdict result bytes links reason checked_age cleaned_age token colour detail last_cleaned
+    section "Caches"
+    # shellcheck source=SCRIPTDIR/../lib/ai-tools/cache-cleanup.lib.sh
+    source "${CACHE_CLEANUP_LIB}" 2>/dev/null || true
+    if ! declare -F ai_tools_cache_cleanup__list_group_statuses >/dev/null 2>&1; then
+        say "  ${C_YEL}cannot report the cache cleanup${C_RST} -- cannot load ${CACHE_CLEANUP_LIB}; reinstall the ai-tools package"
+        return "${STATUS_UNREADABLE}"
+    fi
+    if ai_tools_services__is_stamp_unwritten "${state}"; then
+        say "  ${C_DIM}? (no cleanup recorded yet -- the updater's first run and the first session launch write it)${C_RST}"
+        return 0
+    fi
+    if [[ -L "${state}" || ! -r "${state}" ]]; then
+        say "  ${C_DIM}? (${state} cannot be read from this account)${C_RST}"
+        return 0
+    fi
+    while IFS=$'\t' read -r name relative verdict result bytes links reason checked_age cleaned_age; do
+        [[ -n "${name}" ]] || continue
+        [[ "${checked_age}" == - ]] && checked_age=""
+        [[ "${cleaned_age}" == - ]] && cleaned_age=""
+        detail="$(ai_tools_cache_cleanup__format_result "${result}" "${bytes}" "${reason}")"
+        [[ -n "${checked_age}" ]] && detail+=", $(status_fmt_age "${checked_age}")"
+        last_cleaned=""
+        if [[ "${result}" != removed && "${result}" != absent && -n "${cleaned_age}" ]]; then
+            last_cleaned=" -- last cleaned $(status_fmt_age "${cleaned_age}")"
+        fi
+        case "${verdict}" in
+            unknown) printf '  %-28s %s? (no cleanup recorded yet)%s\n' "${relative}" "${C_DIM}" "${C_RST}"; continue ;;
+            failed)  token=FAILED;  colour="${C_RED}" ;;
+            links)   token=LINKS;   colour="${C_RED}"; detail="${links} symbolic link(s) its producer does not write, ${detail}" ;;
+            overdue) token=OVERDUE; colour="${C_YEL}" ;;
+            *)       case "${result}" in
+                         removed|absent) token=OK; colour="${C_GRN}" ;;
+                         # The token is the result here, so the detail keeps its reason alone.
+                         *)              token="${result^^}"; colour="${C_DIM}"; detail="${detail#"${result} "}" ;;
+                     esac ;;
+        esac
+        printf '  %-28s %s%s%s %s%s%s%s\n' "${relative}" "${colour}" "${token}" "${C_RST}" "${C_DIM}" "${detail}" \
+            "${last_cleaned}" "${C_RST}"
+        case "${verdict}" in
+            failed|links) say "      $(ai_tools_cache_cleanup__get_status_remedy "${verdict}" "${reason}")"; rc=1 ;;
+            overdue)      say "      ${C_DIM}$(ai_tools_cache_cleanup__get_status_remedy "${verdict}" "${reason}")${C_RST}" ;;
+        esac
+    done < <(ai_tools_cache_cleanup__list_group_statuses "${state}")
+    return "${rc}"
+}
+
 # A section reports a reading it could not make by returning this, apart from 1, which is a fault it read. cmd_status
 # folds the first as `unreadable` and the second as `attention`, so the sections stay free of the records library
 # and drivable on their own.
@@ -4839,6 +4898,7 @@ cmd_status() {
     else
         status_services
     fi
+    status_caches || status_fold $?
 
     status_path_order      || status_fold $?
     status_entrypoint_pins || status_fold $?

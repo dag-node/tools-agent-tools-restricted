@@ -368,7 +368,7 @@ ln -s %{ai_bindir}/ai-tools %{buildroot}%{_sbindir}/ai-tools
 # SANDBOX_GROUP member under multi-operator) can traverse in to source the 644
 # world-readable libs by path without listing the dir. The 640 files self-protect.
 install -d -m 0751 %{buildroot}%{ai_libdir}
-for l in log msg conf settings-merge skip-dirs owner-only project-permissions relabel secret-patterns operator control-plane safe-paths launch-wrapper confinement npm-verify entrypoint-verify assets-verify assets managed-assets providers ancestor-config sandbox-exec toolchain selinux-groups filters services path-order agent-installs records-base records-tsv; do
+for l in log msg conf settings-merge skip-dirs owner-only project-permissions relabel secret-patterns operator control-plane safe-paths launch-wrapper confinement npm-verify entrypoint-verify assets-verify assets managed-assets providers ancestor-config sandbox-exec toolchain cache-cleanup selinux-groups filters services path-order agent-installs records-base records-tsv; do
     install -m 0644 src%{ai_libdir}/${l}.lib.sh %{buildroot}%{ai_libdir}/${l}.lib.sh
 done
 # Provider manifest + fragment directories (base owns the dirs; each member package ships its own
@@ -703,6 +703,23 @@ if command -v setfacl >/dev/null 2>&1; then
     # ai-ops), never write there. What the mode buys is scope, not integrity -- a stamp's CONTENT
     # is written by the sandbox account and trusted accordingly (see services.lib.sh).
     setfacl -m g:ai-ops:r-x /var/opt/ai-tools/state || :
+fi
+# Create the cache cleanup state (%ghost). The state directory is root-owned and not group-writable,
+# so its writers -- ai-tools-run and nvm-update, as the sandbox account -- can only rewrite this
+# inode. Idempotent: an existing file keeps its content.
+if [ -d /var/opt/ai-tools/state ]; then
+    [ -e /var/opt/ai-tools/state/cache-cleanup.status ] \
+        || : > /var/opt/ai-tools/state/cache-cleanup.status
+    chown ai-tools:ai-ops /var/opt/ai-tools/state/cache-cleanup.status 2>/dev/null || :
+    chmod 0640 /var/opt/ai-tools/state/cache-cleanup.status 2>/dev/null || :
+fi
+# Create the cache admission lock (%ghost): root-owned and readable by the sandbox group, so a launch
+# opens it to lock it and no process of the account rewrites or replaces it. Empty by design.
+if [ -d /var/opt/ai-tools/state ]; then
+    [ -e /var/opt/ai-tools/state/cache-cleanup.lock ] \
+        || : > /var/opt/ai-tools/state/cache-cleanup.lock
+    chown root:ai-tools /var/opt/ai-tools/state/cache-cleanup.lock 2>/dev/null || :
+    chmod 0440 /var/opt/ai-tools/state/cache-cleanup.lock 2>/dev/null || :
 fi
 # Re-assert the setgid bit on the sandbox tree -- rpm 4.19+ drops it from these %attr(2xxx) %dir
 # entries on install. Done in %post AND %posttrans because which one survives is rpm-dependent
@@ -1368,6 +1385,7 @@ fi
 %attr(0644, root, root) %{ai_libdir}/ancestor-config.lib.sh
 %attr(0644, root, root) %{ai_libdir}/sandbox-exec.lib.sh
 %attr(0644, root, root) %{ai_libdir}/toolchain.lib.sh
+%attr(0644, root, root) %{ai_libdir}/cache-cleanup.lib.sh
 %attr(0644, root, root) %{ai_libdir}/selinux-groups.lib.sh
 %attr(0644, root, root) %{ai_libdir}/filters.lib.sh
 %attr(0644, root, root) %{ai_libdir}/services.lib.sh
@@ -1419,6 +1437,9 @@ fi
 %dir %attr(0755, root, root) /var/opt/ai-tools/state/entrypoint-pin.d
 %dir %attr(0755, root, root) /var/opt/ai-tools/state/entrypoint-label.d
 %dir %attr(0755, root, root) /var/opt/ai-tools/state/entrypoint-stale.d
+# The cache cleanup state and its admission lock (updater.rule.md); %post creates both.
+%ghost %attr(0640, ai-tools, ai-ops) /var/opt/ai-tools/state/cache-cleanup.status
+%ghost %attr(0440, root, ai-tools) /var/opt/ai-tools/state/cache-cleanup.lock
 %dir %attr(0700, root, root) /var/log/ai-tools
 %ghost %attr(0600, root, root) /var/log/ai-tools/chown.log
 %ghost %attr(0600, root, root) /var/log/ai-tools/setgid.log
@@ -1575,6 +1596,10 @@ fi
 - CHANGE: The Assets section of 'sudo ai-tools-admin status' ends with one 'Summary:' line naming its
   findings and the exit status it sets, printed only when it holds a finding. A script that parses
   the section reads that line; a monitor keeps reading the exit status.
+- CHANGE: When a launch refuses an agent binary that changed after it was pinned, the commands it
+  prints to replace the binary begin by suggesting you end every running session -- let each finish,
+  or 'ai-tools stop' -- before the package directory is removed; 'sudo ai-tools-admin system
+  entrypoints relabel' prints the same steps.
 - SECURITY: The toolchain updater runs under RestrictNamespaces=yes, so a package install script
   cannot create a user namespace in which the sandbox account's own files read as root-owned.
 - SECURITY: A skill or agent entry the sandbox account can rewrite -- not root-owned, or writable by
@@ -1592,6 +1617,14 @@ fi
 - NEW: 'sudo ai-tools-admin status' reports a codex host whose /etc/codex/skills is not the link to
   the shared skills view (agent-root-foreign), and its More section lists the commands that read
   and run the relabel watcher and the toolchain updater.
+- NEW: A session launch empties the packages npx installed and node's compile cache, at most once a
+  week and only while no other session runs, and prints what it removed. A launch that cannot read
+  the sandbox account's session list, because that account's user bus does not answer it, leaves
+  both in place, and the Caches section shows it. 'ai-tools status' and
+  'sudo ai-tools-admin status' show each cache's last cleanup in a Caches section and count a cleanup
+  that failed and a cache holding links its producer does not write; a cache no launch has cleaned
+  for two weeks reads OVERDUE without changing the exit status. The root report adds the size each
+  cache holds now.
 - FIX: The relabel watcher is stopped for a package transaction and started again after it, with one
   relabel run, so an upgrade no longer leaves ai-tools-relabel.service FAILED; 'install.sh' and the
   bootstrap run the service once at their end as well, and a start of the service brings its watcher

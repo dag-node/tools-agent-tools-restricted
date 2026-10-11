@@ -133,17 +133,20 @@ if ! source "${ENTRYPOINT_VERIFY_LIB}" 2>/dev/null \
     ai_tools_entrypoint_verify__find_package_dir() { return 1; }
 fi
 
-# reinstall_remedy <agent> <entrypoint> : print the two commands that replace a changed binary, one per line,
+# reinstall_remedy <agent> <entrypoint> : print the commands that replace a changed binary, one per line,
 #   or an empty string when the package directory cannot be derived. `system bootstrap` alone does NOT do it --
 #   its npm step is a no-op at an already-installed version, so the modified file survives the reprovision
 #   and the host keeps refusing every launch with no explanation. Removing the package directory is what makes
-#   the reinstall fetch it again.
+#   the reinstall fetch it again. Every session ends first, so no process of the sandbox account is running while root
+#   removes files in that account's tree; the operator lets each finish or stops them all, since a session started
+#   before the change keeps running until it ends.
 reinstall_remedy() {
     local agent="$1" entrypoint="$2" package package_dir
     package="$(ai_tools_providers__read_agent_manifest_field "${agent}" npm_package || true)"
     package_dir="$(ai_tools_entrypoint_verify__find_package_dir "${entrypoint}" "${package}" 2>/dev/null || true)"
     [[ -n "${package_dir}" ]] || return 0
-    printf '  sudo rm -rf %s\n  sudo ai-tools-admin system bootstrap' "${package_dir}"
+    printf 'end every running session first -- let each finish, or stop them all:\n  ai-tools stop\n  sudo rm -rf %s\n  sudo ai-tools-admin system bootstrap' \
+        "${package_dir}"
 }
 
 # report_entrypoint_refusal <agent> <version> <reason-token> <entrypoint> : file the stale mark and print the remedy,
