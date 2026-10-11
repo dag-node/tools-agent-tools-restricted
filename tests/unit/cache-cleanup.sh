@@ -123,6 +123,21 @@ launch|expected|removed|0|$(( 13 * day ))|-|ok|one cleaned 13 days ago does not
 nightly|none|removed|0|$(( 30 * day ))|-|ok|the nightly group is not judged by age
 launch|none|skipped|0|-|sessions|ok|an unknown age does not make a group overdue
 ROWS
+# The remedy a status line shows: an overdue group the launches skipped as `unknown` takes that reason's remedy, since
+# ending sessions does not clear an absent lock file or an unreadable listing.
+while IFS='|' read -r verdict reason want what; do
+    [[ -n "${what}" ]] || continue
+    got="$(ai_tools_cache_cleanup__get_status_remedy "${verdict}" "${reason}")"
+    [[ -n "${got}" && "${got}" == "$(ai_tools_cache_cleanup__get_remedy "${want}")" ]] \
+        && pass "status remedy: ${what}" || fail "status remedy: ${what}: got '${got}'"
+done <<'ROWS'
+failed|home-untrusted|home-untrusted|failed takes its record's reason
+links|-|links|links takes the links remedy
+overdue|sessions|overdue|overdue beside sessions names ending them
+overdue|unknown|unknown|overdue beside an unknown skip names the lock file, not the sessions
+ROWS
+[[ -z "$(ai_tools_cache_cleanup__get_status_remedy ok -)" && -z "$(ai_tools_cache_cleanup__get_status_remedy unknown -)" ]] \
+    && pass "status remedy: ok and unknown print none" || fail "status remedy: ok or unknown printed a remedy"
 while IFS='|' read -r bytes want; do
     [[ -n "${bytes}" ]] || continue
     got="$(ai_tools_cache_cleanup__format_bytes "${bytes}")"

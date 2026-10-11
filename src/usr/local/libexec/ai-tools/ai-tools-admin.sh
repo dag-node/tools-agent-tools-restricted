@@ -2837,10 +2837,8 @@ status_caches() {
         esac
         st "${token}" "${text}"
         case "${verdict}" in
-            failed)        detail "$(ai_tools_cache_cleanup__get_remedy "${reason}")"
-                           STATUS_PROBLEMS=$(( STATUS_PROBLEMS + 1 )) ;;
-            links|overdue) detail "$(ai_tools_cache_cleanup__get_remedy "${verdict}")"
-                           STATUS_PROBLEMS=$(( STATUS_PROBLEMS + 1 )) ;;
+            failed|links|overdue) detail "$(ai_tools_cache_cleanup__get_status_remedy "${verdict}" "${reason}")"
+                                  STATUS_PROBLEMS=$(( STATUS_PROBLEMS + 1 )) ;;
         esac
     done < <(ai_tools_cache_cleanup__list_group_statuses "${state}")
     return 0

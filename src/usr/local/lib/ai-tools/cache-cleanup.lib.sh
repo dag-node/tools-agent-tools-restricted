@@ -5,10 +5,10 @@
 # removal did. Any process of the sandbox account can rename an entry inside its own caches while a removal runs,
 # so the removal walks by directory file descriptors and does not follow a symbolic link: shutil.rmtree in the host's
 # /usr/bin/python3, run only where Python reports shutil.rmtree.avoids_symlink_attacks. A directory swapped for a link
-# mid-walk has the link unlinked or left, and its target is not entered. A group a running session uses is removed
-# by a session launch that holds the admission lock exclusive, which every admitted session holds shared for its life,
-# so a removal and a session do not overlap. The groups, when each is removed, the state file and the callers are
-# in updater.rule.md; the launch-time step is in launch.rule.md.
+# mid-walk has the link unlinked or left, and its target is not entered. A group a running session uses is removed only
+# by a session launch that does not find another session through the admission lock or the user manager's listing.
+# The groups, when each is removed, the state file, the callers and the residual are in updater.rule.md; the launch-time
+# step is in launch.rule.md.
 #
 # Sourced, not executed. Deployed 644 root:root: it holds shipped logic and does not read operator data. conf.lib.sh
 # (the trust predicate over the home), sandbox-exec.lib.sh (the identity a removal requires) and services.lib.sh (the
@@ -359,7 +359,7 @@ _AI_TOOLS_CACHE_CLEANUP__LOCK_FD=""
 
 # ai_tools_cache_cleanup__lock <state-file> <wait-seconds> : take an exclusive flock on <state-file>, waiting at most
 #   <wait-seconds>; non-zero where the file cannot be opened or the wait runs out. The lock serializes the state writes
-#   and the launch step's check and removal; the removal's safety does not rest on it.
+#   and the launch step's due read; the removal's safety does not rest on it.
 ai_tools_cache_cleanup__lock() {
     local state="${1:-}" wait="${2:-0}"
     [[ -n "${state}" && ! -L "${state}" && -f "${state}" && "${wait}" =~ ^[0-9]+$ ]] || return 1
@@ -379,8 +379,7 @@ ai_tools_cache_cleanup__unlock() {
 
 # ai_tools_cache_cleanup__write_state <state-file> <wait-seconds> <record>... : take the state file's lock, waiting
 #   at most <wait-seconds>, write the records through ai_tools_cache_cleanup__write_state_locked, and release it;
-#   non-zero where the lock or the write did not happen. For a caller whose removal does not need the lock held across
-#   it.
+#   non-zero where the lock or the write did not happen.
 ai_tools_cache_cleanup__write_state() {
     local state="$1" wait="$2" rc=0; shift 2
     ai_tools_cache_cleanup__lock "${state}" "${wait}" || return 1
@@ -537,8 +536,8 @@ ai_tools_cache_cleanup__format_cleaned_line() {
 }
 
 # ai_tools_cache_cleanup__get_remedy <reason|verdict> : print what an operator does about a group: left in place for
-#   a record's <reason>, or reported under the status verdict `links` or `overdue`. The warnings and both status reports
-#   print this one text.
+#   a record's <reason>, or reported under the status verdict `links` or `overdue`. The warnings print this text, and
+#   both status reports print it through ai_tools_cache_cleanup__get_status_remedy.
 ai_tools_cache_cleanup__get_remedy() {
     # shellcheck disable=SC2016  # the backticks mark a command for the reader and are printed, not run
     case "${1:-}" in
@@ -546,11 +545,25 @@ ai_tools_cache_cleanup__get_remedy() {
         parent-untrusted) printf 'the parent of the cache must be a directory the sandbox account owns: `sudo ai-tools-admin system bootstrap` names the chown' ;;
         unsafe-rmtree)    printf '/usr/bin/python3 on this host does not report a symlink-safe rmtree, so no cache is removed here' ;;
         timeout)          printf 'the next run removes the rest' ;;
-        unknown)          printf 'the launch could not take the admission lock beside the state file within its bound; the next launch tries again, and a lock file that is absent is restored by reinstalling ai-tools-base' ;;
+        unknown)          printf 'no launch could take the admission lock beside the state file within its bound or read the session list of the user manager: reinstalling ai-tools-base restores an absent lock file, and `ai-tools stop` ends a session holding the lock' ;;
         links)            printf 'each was removed as a link and its target left alone; a process of the sandbox account planted it, or a copy of the home broke it -- `sudo ai-tools audit` names what ran in the sessions since' ;;
         overdue)          printf 'another session was active at every launch for two weeks: end them all gracefully or with `ai-tools stop`, and the cleanup runs at the next session start' ;;
         *)                printf 'the cache stays as it is until a run removes it' ;;
     esac
+}
+
+# ai_tools_cache_cleanup__get_status_remedy <verdict> <reason> : print the remedy a status report shows under a counted
+#   verdict: the record's <reason>'s for failed, the verdict's for links, and for overdue the verdict's, or the reason's
+#   where the launches skipped the group as `unknown`, since ending sessions does not clear that cause. Empty for ok
+#   and unknown.
+ai_tools_cache_cleanup__get_status_remedy() {
+    case "${1:-}:${2:-}" in
+        failed:*)        ai_tools_cache_cleanup__get_remedy "${2:-}" ;;
+        links:*)         ai_tools_cache_cleanup__get_remedy links ;;
+        overdue:unknown) ai_tools_cache_cleanup__get_remedy unknown ;;
+        overdue:*)       ai_tools_cache_cleanup__get_remedy overdue ;;
+    esac
+    return 0
 }
 
 # ai_tools_cache_cleanup__format_result <result> <bytes> <reason> : print a record's result the way both status reports

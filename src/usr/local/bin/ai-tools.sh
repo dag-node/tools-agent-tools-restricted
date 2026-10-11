@@ -4830,8 +4830,7 @@ status_caches() {
         printf '  %-28s %s%s%s %s%s%s%s\n' "${relative}" "${colour}" "${token}" "${C_RST}" "${C_DIM}" "${detail}" \
             "${last_cleaned}" "${C_RST}"
         case "${verdict}" in
-            failed)        say "      $(ai_tools_cache_cleanup__get_remedy "${reason}")"; rc=1 ;;
-            links|overdue) say "      $(ai_tools_cache_cleanup__get_remedy "${verdict}")"; rc=1 ;;
+            failed|links|overdue) say "      $(ai_tools_cache_cleanup__get_status_remedy "${verdict}" "${reason}")"; rc=1 ;;
         esac
     done < <(ai_tools_cache_cleanup__list_group_statuses "${state}")
     return "${rc}"

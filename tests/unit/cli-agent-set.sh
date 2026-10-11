@@ -471,6 +471,13 @@ else
     (( rc == 1 )) && grep -qE '\.npm/_npx +OVERDUE .*skipped \(sessions\)' <<<"${out}" \
         && pass "a launch group never cleaned since its first record 15 days ago reads OVERDUE, and is counted" \
         || fail "never-cleaned state: rc ${rc}: $(tr '\n' '|' <<<"${out}")"
+    printf 'NPX_RESULT=skipped\nNPX_CHECKED=%s\nNPX_FIRST_CHECKED=%s\nNPX_BYTES=0\nNPX_LINKS=0\nNPX_REASON=unknown\n' \
+        "$(stamp_days_ago 0)" "$(stamp_days_ago 15)" > "${CACHE_STATE}"
+    rc=0; out="$(call_caches)" || rc=$?
+    (( rc == 1 )) && grep -qE '\.npm/_npx +OVERDUE .*skipped \(unknown\)' <<<"${out}" \
+        && grep -qF 'reinstalling ai-tools-base' <<<"${out}" && ! grep -qF 'another session was active' <<<"${out}" \
+        && pass "a launch group overdue because no launch could tell whether a session ran names the reinstall, not the sessions" \
+        || fail "overdue unknown state: rc ${rc}: $(tr '\n' '|' <<<"${out}")"
     printf 'NPM_CACHE_RESULT=partial\nNPM_CACHE_CHECKED=%s\nNPM_CACHE_BYTES=1\nNPM_CACHE_LINKS=0\nNPM_CACHE_REASON=eacces\n' \
         "$(stamp_days_ago 0)" > "${CACHE_STATE}"
     rc=0; out="$(call_caches)" || rc=$?
