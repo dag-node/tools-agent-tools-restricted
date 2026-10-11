@@ -1458,7 +1458,7 @@ could not verify the entrypoint for ${agent} against release ${version} (see abo
 .TP
 .B MSG-D7H2
 ERROR.
-an incomplete agent package stops this relabel: ${incomplete} agent(s) do not have the entrypoint their manifest declares installed at all, so it cannot be labelled; that executable comes from the sandbox toolchain rather than from the RPM, so reinstall it: sudo ai\-tools\-admin system bootstrap, then rerun
+an incomplete agent package stops this relabel: ${incomplete} agent(s) do not have the entrypoint their manifest declares installed at all, so it cannot be labelled; that executable comes from the sandbox toolchain rather than from the RPM, so reinstall it: sudo ai\-tools\-admin system bootstrap, then rerun; where that run reports the package incomplete again, its npm output names what was left out
 .TP
 .B MSG-E4U5
 WARNING.
@@ -2262,6 +2262,10 @@ cannot confirm this runs as the sandbox account: ${SANDBOX_EXEC_LIB} did not loa
 .B MSG-U5C4
 ERROR.
 refusing to run as $(id \-un 2>/dev/null || printf 'uid %s' "${EUID}"): this script sources nvm.sh and runs npm from the sandbox toolchain, which only the sandbox account runs \-\- start it in that account's user instance (sudo systemctl \-\-user \-M ai\-tools@ start nvm\-update.service) or provision through sudo ai\-tools\-admin system bootstrap
+.TP
+.B MSG-U5N2
+ERROR.
+the install left ${incomplete_after} enabled agent(s) without the entrypoint their manifest declares (above, with npm's reason) \-\- every launch of them is refused until that executable is installed; fix what npm names, then run: sudo ai\-tools\-admin system bootstrap
 .SS providers.lib.sh
 .TP
 .B MSG-A3S3

@@ -429,6 +429,20 @@ the missing dependency back. `ai-tools-bootstrap` installs rather than updates a
 so `sudo ai-tools-admin system bootstrap` is the on-demand form of the same repair, and it is what the relabel's refusal
 names.
 
+The read runs again after the install, and a package it still names ends the run as a **fault** (`MSG-U5N2`, exit 1,
+the stamp `FAILED`), with the first line of npm's output that names the cause quoted beside the agent — `tar`'s entry
+error for a volume with no space left, npm's own report of a failed optional dependency — since npm's exit 0 is the one
+signal the run does not take as success. The fault is decided after every complete agent has been repointed, so one
+incomplete package never strands another agent's update, and ahead of the transient verdict, which a reader takes
+as a retry. `ai-tools-bootstrap` ends the same way after its closing lines, printing the code as a citation, so a host
+whose install left an agent unlaunchable does not read `toolchain ready` and exit 0. Each run also empties npm's content
+cache (`npm cache clean --force`, `prune_npm_cache`) after its last install: the cache is content-addressed with no
+eviction, so every tarball a nightly run downloaded would otherwise stay until the volume holding the toolchain is full,
+which is the one condition observed to leave a package incomplete, and the next run's reinstall then has the space it
+needs. `ai-tools-bootstrap` empties it before its installs for the same reason, and for a second: an install that ran
+out of space leaves an index entry whose content was never written, which the next fetch through the cache reports
+as `ENOENT`, so the repair run that command is would otherwise fail on the cache the failed install left.
+
 The read is taken against the version directory the run installs **into**, which covers both ways a hole arrives: one
 an earlier run left in the active version, and one carried into a version directory this run created — a Node bump
 copies the previous version's globals across (`nvm reinstall-packages`) before this point, so a copy that arrived
