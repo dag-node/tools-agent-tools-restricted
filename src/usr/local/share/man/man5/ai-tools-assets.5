@@ -240,10 +240,8 @@ Read it, then move it out, or keep it as that agent's own: make it
 .B root:ai\-tools
 with directories 750 and files 640, the modes a seeded copy has, so the agent
 reads it and cannot write it.
-An entry the agent may edit is not supported in an agent's directory; a skill
-the agent is meant to edit belongs in the project's own
-.IR .claude/skills ,
-which loads in that project alone.
+Where a skill of your own goes, the agent's own directory or a project's, is in
+.IR /usr/share/ai\-tools/skills/README.md .
 .TP
 .B view\-dir\-untrusted
 The view directory of a kind, or

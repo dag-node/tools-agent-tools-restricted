@@ -1894,8 +1894,7 @@ _ai_tools_assets__is_occupied_name() {
 # _ai_tools_assets__is_entry_untrusted <agent-dir> <entry> : succeed when a real entry in an agent's directory is one
 # the sandbox account can rewrite: the kind directory is not root-owned, or the entry or anything under it is not
 # root-owned or is writable by group or other, an ACL write grant included (_ai_tools_assets__find_writable_entry).
-# An entry an agent loads is the operator's own only while it is read-only to the agent; an agent-editable entry there
-# is not a supported state. A stat or a walk that fails succeeds, so an entry the plan could not read is reported.
+# A stat or a walk that fails succeeds, so an entry the plan could not read is reported.
 _ai_tools_assets__is_entry_untrusted() {
     local agent_dir="$1" path="$2" owner offender
     owner="$(stat -c %u -- "${agent_dir}" 2>/dev/null)" || return 0

@@ -71,11 +71,10 @@ text without a prompt.
 3. Repoint every reference to it: a shipped asset does not name one the project
    does not ship.
 
-On upgrade the package moves the live copy to `/opt/ai-tools/retired/`.
-Where the entry has a successor, the transaction names the set to enable,
-and `sudo ai-tools-admin status` reports `successor-unenabled` until
-the operator writes `AI_TOOLS_ASSETS`. An entry stays on the list
-through the 0.x line.
+On upgrade the package moves the live copy to `/opt/ai-tools/retired/`;
+what an operator then sees and runs for an entry with a successor is the 0.24.0
+move ([ref-section-y5t4](../install/upgrade.md#ref-section-y5t4)). An entry
+stays on the list through the 0.x line.
 
 `tests/unit/managed-assets.sh` holds the seeder, the withdrawal
 and the successor map, and parses every shipped skill's frontmatter as YAML.

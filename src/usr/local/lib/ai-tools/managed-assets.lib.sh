@@ -198,11 +198,10 @@ readonly AI_TOOLS_MANAGED_ASSETS__RETIRED=(
 )
 
 # The asset that succeeds a withdrawn entry, keyed by the entry's `<kind>/<name>` with the `<set>/<kind>/<name>`
-# identifier AI_TOOLS_ASSETS takes as its value. An entry without a key here has no successor. The withdrawal pass
-# closes with the command that enables a successor's set, and `ai-tools-admin status` reports a host whose retired
-# directory holds a copy of a keyed entry while AI_TOOLS_ASSETS is absent from operator.conf
-# (ai_tools_managed_assets__list_withdrawn_successors). tests/unit/managed-assets.sh holds every key to an entry
-# of AI_TOOLS_MANAGED_ASSETS__RETIRED and every value to the identifier grammar.
+# identifier AI_TOOLS_ASSETS takes as its value. An entry without a key here has no successor. Its readers are
+# ai_tools_managed_assets__remove_retired_assets (the closing line)
+# and ai_tools_managed_assets__list_withdrawn_successors (the status notice). tests/unit/managed-assets.sh holds every
+# key to an entry of AI_TOOLS_MANAGED_ASSETS__RETIRED and every value to the identifier grammar.
 readonly -A AI_TOOLS_MANAGED_ASSETS__SUCCESSORS=(
     ["skills/ai-tools-technical-docs"]="core/skills/ai-tools-technical-writing"
     ["skills/ai-tools-capable-systems-governance"]="core/skills/ai-tools-agent-governance"
