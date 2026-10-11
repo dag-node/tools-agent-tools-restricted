@@ -667,13 +667,16 @@ done
 # Scriptlets
 # ─────────────────────────────────────────────────────────────────────────────
 %pretrans -n ai-tools-base -p <lua>
--- Stop the relabel watcher for the transaction. Base's files under /opt/ai-tools/bin trigger
--- ai-tools-relabel.service (ai-tools-relabel.path watches that directory), and a run inside the
--- transaction executes the helper of one release against the libraries of another; base's posttrans
--- starts the watcher again and runs the service once every package is placed. Lua, since pretrans
--- runs before any file of a fresh install exists; there the unit is unknown and the stop is ignored.
+-- Stop the relabel watcher, and any run it already started, for the transaction. Base's files under
+-- /opt/ai-tools/bin trigger ai-tools-relabel.service (ai-tools-relabel.path watches that directory),
+-- and a run inside the transaction executes the helper of one release against the libraries of
+-- another. Stopping the .path does not end a run in progress, and a run still active at posttrans
+-- would absorb its start, so the service is stopped with it; base's posttrans starts the watcher
+-- again and runs the service once every package is placed, which completes a run cut short here.
+-- Lua, since pretrans runs before any file of a fresh install exists; there the units are unknown
+-- and the stop is ignored.
 if posix.access("/usr/bin/systemctl", "x") then
-    pcall(rpm.execute, "/usr/bin/systemctl", "stop", "ai-tools-relabel.path")
+    pcall(rpm.execute, "/usr/bin/systemctl", "stop", "ai-tools-relabel.path", "ai-tools-relabel.service")
 end
 
 %pre -n ai-tools-base

@@ -670,8 +670,10 @@ provisioning](#toolchain-provisioning-system-bootstrap)). Two further paths run 
   install without a reboot; it is also restarted across upgrades (`%postun_with_restart`), so it runs without a manual
   bootstrap. Across a package transaction the watcher is **stopped**: `ai-tools-base`'s `%pretrans` stops it before any
   file is placed, and its `%posttrans` starts it again and runs the service once, since a run inside the transaction
-  executes the helper of one release against the libraries of another. `install.sh` stops it the same way for its run,
-  and an `EXIT` trap starts it again whatever ends that run. The service unit **wants** the path unit, so a start
+  executes the helper of one release against the libraries of another. The service is stopped with it, because stopping
+  a `.path` does not end a run it already started, and a oneshot still active at the closing start absorbs that start
+  rather than running again. `install.sh` stops both the same way for its run, and an `EXIT` trap starts the watcher
+  again whatever ends that run. The service unit **wants** the path unit, so a start
   of the service — by hand, by the `%posttrans`, by the bootstrap or by `install.sh`, each of which runs it once
   after its own relabel so the unit's recorded result is that run's — brings the watcher up with it. Should it be
   down anyway, `services.lib.sh` surfaces it before the next Node bump would fail-close a launch on a mislabelled
