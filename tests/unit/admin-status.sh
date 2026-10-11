@@ -118,10 +118,10 @@ fi
 
 # ── The exit status: 0 clean, 4 for a fault a section read, 5 for a reading a section could not make ──────────────
 # `status` is driven whole, with the sections that read this host stubbed to a known answer (no unit in the registry, no
-# entrypoint section), so each case changes one reading: a section that counts a fault, and the service registry's
-# readers removed after the library was loaded -- its include guard keeps status()'s own re-source from restoring them,
-# which is the shape a half-upgraded install takes. A `?` line stays uncounted, which the Provisioning cases already
-# pin.
+# entrypoint, assets, managed-file or unit-search-path section), so each case changes one reading: a section that counts
+# a fault, and the service registry's readers removed after the library was loaded -- its include guard keeps status()'s
+# own re-source from restoring them, which is the shape a half-upgraded install takes. A `?` line stays uncounted, which
+# the Provisioning cases already pin.
 section "ai-tools-admin status: the exit status follows ai-tools-records(5) (unit)"
 
 # call_status <pre> : source the helper with the hooks set, run <pre> in that shell, then `status`; the exit status is
@@ -133,7 +133,8 @@ call_status() {
                  declare -F status >/dev/null || exit 98
                  source "${lib}" 2>/dev/null || true
                  status_entrypoints() { :; }; ai_tools_services__list_records() { :; }
-                 status_selinux_attestation() { :; }
+                 status_selinux_attestation() { :; }; status_assets() { :; }; status_managed_files() { :; }
+                 status_unit_search_path() { :; }
                  eval "${pre}"; status' _ "${HELPER}" "${SERVICES_LIB}" "$1" 2>&1
 }
 reset_fixtures; manifest alpha la; vlink la v9.9.9
