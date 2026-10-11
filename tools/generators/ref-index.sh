@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: AGPL-3.0-only
-# tools/generators/ref-index.sh -- run the skill's ref-index.py over this repository. The tracked files it reads
+# tools/generators/ref-index.sh -- run the reftags skill's ref-index.py over this repository. The tracked files it reads
 # and the index it writes are named here once, for the pre-commit hook, the unit test, and a developer's own run;
 # the tool itself is generic and takes both as arguments.
 #
@@ -22,7 +22,14 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-TOOL="${ROOT}/src/usr/share/ai-tools/skills/ai-tools-technical-docs/ref-index.py"
+# The tool is the ai-tools-reftags skill's, from the pinned core release (tools/lib/assets.sh); every verb reads
+# through it, so a pin not in the cache ends the run with the fetch command.
+# shellcheck source=SCRIPTDIR/../lib/assets.sh
+source "${ROOT}/tools/lib/assets.sh"
+if ! TOOL="$(ai_tools_dev_assets__resolve_tool ref-index)"; then
+    echo "ref-index: ref-index.py is not in the cache; run: ${AI_TOOLS_DEV_ASSETS__FETCH_COMMAND}" >&2
+    exit 1
+fi
 INDEX=".claude/references.md"
 # Retired reftags: `generate` records what the tree dropped before it rewrites the index, and `new` and `check` read
 # the file, so an id that reached a log line is never drawn again. Each row carries the release it was retired
@@ -45,16 +52,16 @@ files() {
 }
 mint_files() { files; if [[ -d "${WIP_ISSUES}" ]]; then find "${WIP_ISSUES}" -name '*.md' -type f; fi; }
 
-# What a runtime message may not carry: a URL, a Markdown link, or an HTML anchor. The rule is the skill's -- output
-# carries a reftag, which resolves through the index, where a link is unresolvable in `journalctl` and ages faster than
-# the code -- and this check is REPOSITORY-side because it reads a message string: `prose-check.py` skips a quoted span
-# by design, and knowing that a code in the first argument makes an emit call is repository knowledge that the shipped
-# tools do not carry.
+# What a runtime message may not carry: a URL, a Markdown link, or an HTML anchor. The rule is the reftags skill's --
+# output carries a reftag, which resolves through the index, where a link is unresolvable in `journalctl` and ages
+# faster than the code -- and this check is REPOSITORY-side because it reads a message string: `prose-check.py` skips
+# a quoted span by design, and knowing that a code in the first argument makes an emit call is repository knowledge
+# that the shipped tools do not carry.
 #
 # Matching reads the ASCII DELIMITER a link needs -- a scheme's `://`, a `mailto:`, a Markdown `[text](target)`,
 # an `<a>` tag -- which is what makes it complete: a URI permits most of Unicode in a host or a path, while every scheme
 # is spelled in ASCII whatever follows it. An enumeration of the characters would leave a gap the delimiter does not.
-# A non-ASCII URL is doubly unusable in a log line in any case: `ai_tools_log_sanitize` reduces a message to printable
+# A non-ASCII URL is doubly unusable in a log line in any case: `ai_tools_log__sanitize` reduces a message to printable
 # ASCII before either sink, so its bytes reach the journal as `?`.
 MESSAGE_LINK='[a-zA-Z][a-zA-Z0-9+.-]*://|mailto:|www\.[^ ]|\[[^]]*\]\([^)]*\)|</?[aA][ 	>]'
 
@@ -92,7 +99,7 @@ message_links() {
         findings=$((findings + 1))
     done < <(message_rows "$@")
     if (( findings )); then
-        printf '\n%d message-link finding(s). See the ai-tools-technical-docs skill.\n' "${findings}"
+        printf '\n%d message-link finding(s). See the ai-tools-reftags skill.\n' "${findings}"
         return 1
     fi
 }

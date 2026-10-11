@@ -24,22 +24,22 @@ if ! source "${LIB}"; then
 fi
 
 # Force the SHIPPED defaults so the test is independent of the operator's secret-patterns config: copy the built-in list
-# and mark patterns loaded, so ai_tools_is_secret_basename skips the config-file read.
-AI_TOOLS_SECRET_PATTERNS=("${_AI_TOOLS_DEFAULT_SECRET_PATTERNS[@]}")
-_AI_TOOLS_PATTERNS_LOADED=1
+# and mark patterns loaded, so ai_tools_secret_patterns__is_secret_basename skips the config-file read.
+AI_TOOLS_SECRET_PATTERNS__PATTERNS=("${_AI_TOOLS_SECRET_PATTERNS__DEFAULTS[@]}")
+_AI_TOOLS_SECRET_PATTERNS__PATTERNS_LOADED=1
 
 # (1) Credential names are classified as secrets.
 secret_ok=true
 for n in .env .env.local id_rsa id_ed25519 authorized_keys server.key cert.pem backup.p12 \
          store.jks kubeconfig .pgpass .npmrc .netrc .git-credentials secrets credentials; do
-    ai_tools_is_secret_basename "${n}" || { fail "should classify as secret: ${n}"; secret_ok=false; }
+    ai_tools_secret_patterns__is_secret_basename "${n}" || { fail "should classify as secret: ${n}"; secret_ok=false; }
 done
 ${secret_ok} && pass "credential names are classified as secrets"
 
 # (2) Matching is case-insensitive (a single stem covers its case variants).
 case_ok=true
 for n in .ENV ID_RSA Server.KEY CERT.PEM KubeConfig; do
-    ai_tools_is_secret_basename "${n}" || { fail "should match case-insensitively: ${n}"; case_ok=false; }
+    ai_tools_secret_patterns__is_secret_basename "${n}" || { fail "should match case-insensitively: ${n}"; case_ok=false; }
 done
 ${case_ok} && pass "matching is case-insensitive"
 
@@ -47,7 +47,7 @@ ${case_ok} && pass "matching is case-insensitive"
 dotnet_ok=true
 for n in appsettings.Production.json appsettings.Development.json web.Release.config \
          App.Staging.config connectionstrings.dev.json CommonSettings.PROD.json; do
-    ai_tools_is_secret_basename "${n}" || { fail "anchored .NET secret should match: ${n}"; dotnet_ok=false; }
+    ai_tools_secret_patterns__is_secret_basename "${n}" || { fail "anchored .NET secret should match: ${n}"; dotnet_ok=false; }
 done
 ${dotnet_ok} && pass "environment/name-anchored .NET configs are classified as secrets"
 
@@ -57,7 +57,7 @@ ${dotnet_ok} && pass "environment/name-anchored .NET configs are classified as s
 build_ok=true
 for n in appsettings.json web.config MyApp.deps.json MyApp.runtimeconfig.json \
          project.assets.json MyApp.dll.config package.json tsconfig.json README.md Makefile; do
-    if ai_tools_is_secret_basename "${n}"; then
+    if ai_tools_secret_patterns__is_secret_basename "${n}"; then
         fail "build artifact / innocuous file wrongly quarantined: ${n}"; build_ok=false
     fi
 done
@@ -72,15 +72,15 @@ if [[ -r "${CONF_LIB}" ]]; then
     # shellcheck source=/dev/null
     source "${CONF_LIB}"
 fi
-if declare -F ai_tools_conf_secret_patterns_seed >/dev/null 2>&1; then
+if declare -F ai_tools_conf__get_secret_patterns_seed >/dev/null 2>&1; then
     seed_file="$(mktemp)"
-    ai_tools_conf_secret_patterns_seed > "${seed_file}"
-    AI_TOOLS_SECRET_PATTERNS_FILE="${seed_file}" ai_tools_load_secret_patterns
-    if [[ "${#AI_TOOLS_SECRET_PATTERNS[@]}" -eq "${#_AI_TOOLS_DEFAULT_SECRET_PATTERNS[@]}" ]] \
-            && ai_tools_is_secret_basename .env; then
+    ai_tools_conf__get_secret_patterns_seed > "${seed_file}"
+    AI_TOOLS_SECRET_PATTERNS_FILE="${seed_file}" ai_tools_secret_patterns__load
+    if [[ "${#AI_TOOLS_SECRET_PATTERNS__PATTERNS[@]}" -eq "${#_AI_TOOLS_SECRET_PATTERNS__DEFAULTS[@]}" ]] \
+            && ai_tools_secret_patterns__is_secret_basename .env; then
         pass "the seeded config parses to no pattern, so the baseline stays in force"
     else
-        fail "the seeded config changed the loaded pattern set (${#AI_TOOLS_SECRET_PATTERNS[@]} patterns)"
+        fail "the seeded config changed the loaded pattern set (${#AI_TOOLS_SECRET_PATTERNS__PATTERNS[@]} patterns)"
     fi
     # The one claim the seeded header must always carry, asserted by the grep that follows it: an operator's pattern
     # REPLACES the baseline rather than adding to it, so a file holding one name classifies on that name alone.
@@ -91,8 +91,8 @@ if declare -F ai_tools_conf_secret_patterns_seed >/dev/null 2>&1; then
     fi
     rm -f "${seed_file}"
     # Restore the shipped defaults for the next case, which the operator-file load overwrote.
-    AI_TOOLS_SECRET_PATTERNS=("${_AI_TOOLS_DEFAULT_SECRET_PATTERNS[@]}")
-    _AI_TOOLS_PATTERNS_LOADED=1
+    AI_TOOLS_SECRET_PATTERNS__PATTERNS=("${_AI_TOOLS_SECRET_PATTERNS__DEFAULTS[@]}")
+    _AI_TOOLS_SECRET_PATTERNS__PATTERNS_LOADED=1
 else
     skip "seeded secret-patterns config" "conf.lib.sh defines no seed function"
 fi
@@ -102,26 +102,26 @@ fi
 # listed then and drops every one added upstream since. So the assertions are about the two silent directions -- no file
 # and an empty file must read as agreement (the baseline is in force, and a host that has decided nothing should not be
 # nagged), while a real file must name what it DROPS, that being the half that stops quarantining anything.
-if declare -F ai_tools_secret_patterns_drift >/dev/null 2>&1; then
+if declare -F ai_tools_secret_patterns__format_drift >/dev/null 2>&1; then
     # The preceding cases need no fixture on disk; this section is the first here that does, so it creates the testdir
     # the harness tears down.
     mktestdir
     _drift_file="${TESTDIR}/drift-patterns"
 
-    # shellcheck disable=SC2034  # read by ai_tools_load_secret_patterns in the sourced library
+    # shellcheck disable=SC2034  # read by ai_tools_secret_patterns__load in the sourced library
     AI_TOOLS_SECRET_PATTERNS_FILE="${TESTDIR}/no-such-file"
-    _AI_TOOLS_PATTERNS_LOADED=""
-    if ! out="$(ai_tools_secret_patterns_drift)" && [[ -z "${out}" ]]; then
+    _AI_TOOLS_SECRET_PATTERNS__PATTERNS_LOADED=""
+    if ! out="$(ai_tools_secret_patterns__format_drift)" && [[ -z "${out}" ]]; then
         pass "a missing config reports no drift (the baseline is what is in force)"
     else
         fail "a missing config reported drift: ${out}"
     fi
 
     printf '# only comments and blanks\n\n' > "${_drift_file}"
-    # shellcheck disable=SC2034  # read by ai_tools_load_secret_patterns in the sourced library
+    # shellcheck disable=SC2034  # read by ai_tools_secret_patterns__load in the sourced library
     AI_TOOLS_SECRET_PATTERNS_FILE="${_drift_file}"
-    _AI_TOOLS_PATTERNS_LOADED=""
-    if ! out="$(ai_tools_secret_patterns_drift)" && [[ -z "${out}" ]]; then
+    _AI_TOOLS_SECRET_PATTERNS__PATTERNS_LOADED=""
+    if ! out="$(ai_tools_secret_patterns__format_drift)" && [[ -z "${out}" ]]; then
         pass "a config that parses empty reports no drift (the loader fell back to the baseline)"
     else
         fail "an empty config reported drift: ${out}"
@@ -130,10 +130,10 @@ if declare -F ai_tools_secret_patterns_drift >/dev/null 2>&1; then
     # A copy of the baseline, reordered and with one line repeated: the same SET, so the report must stay silent.
     # Ordering is not a difference, and a host that mirrored the baseline into its own file should not be told it
     # diverged.
-    printf '%s\n' "${_AI_TOOLS_DEFAULT_SECRET_PATTERNS[@]}" | LC_ALL=C sort -r > "${_drift_file}"
-    printf '%s\n' "${_AI_TOOLS_DEFAULT_SECRET_PATTERNS[0]}" >> "${_drift_file}"
-    _AI_TOOLS_PATTERNS_LOADED=""
-    if ! out="$(ai_tools_secret_patterns_drift)" && [[ -z "${out}" ]]; then
+    printf '%s\n' "${_AI_TOOLS_SECRET_PATTERNS__DEFAULTS[@]}" | LC_ALL=C sort -r > "${_drift_file}"
+    printf '%s\n' "${_AI_TOOLS_SECRET_PATTERNS__DEFAULTS[0]}" >> "${_drift_file}"
+    _AI_TOOLS_SECRET_PATTERNS__PATTERNS_LOADED=""
+    if ! out="$(ai_tools_secret_patterns__format_drift)" && [[ -z "${out}" ]]; then
         pass "a reordered, duplicated copy of the baseline reports no drift (compared as a set)"
     else
         fail "a set-identical config reported drift: ${out}"
@@ -142,10 +142,10 @@ if declare -F ai_tools_secret_patterns_drift >/dev/null 2>&1; then
     # The real case, driven as ONE pattern in and one out, so both lists are named in full and the assertion does not
     # depend on where a name falls against the cap. The dropped half is the one an operator acts on: that pattern is
     # a credential name this host stopped quarantining.
-    printf '%s\n' "${_AI_TOOLS_DEFAULT_SECRET_PATTERNS[@]}" | grep -vxF '*.pem' > "${_drift_file}"
+    printf '%s\n' "${_AI_TOOLS_SECRET_PATTERNS__DEFAULTS[@]}" | grep -vxF '*.pem' > "${_drift_file}"
     printf '*.asc\n' >> "${_drift_file}"
-    _AI_TOOLS_PATTERNS_LOADED=""
-    out="$(ai_tools_secret_patterns_drift)" || true
+    _AI_TOOLS_SECRET_PATTERNS__PATTERNS_LOADED=""
+    out="$(ai_tools_secret_patterns__format_drift)" || true
     if [[ "${out}" == *"${_drift_file}"* ]] \
        && [[ "${out}" == *"adds 1 (*.asc)"* ]] \
        && [[ "${out}" == *"drops 1 (*.pem)"* ]]; then
@@ -158,8 +158,8 @@ if declare -F ai_tools_secret_patterns_drift >/dev/null 2>&1; then
     # where the whole set is read. Driven with a config that keeps two patterns, so the dropped list runs well past
     # the cap.
     printf '.env\n*.asc\n' > "${_drift_file}"
-    _AI_TOOLS_PATTERNS_LOADED=""
-    out="$(ai_tools_secret_patterns_drift)" || true
+    _AI_TOOLS_SECRET_PATTERNS__PATTERNS_LOADED=""
+    out="$(ai_tools_secret_patterns__format_drift)" || true
     if [[ "$(printf '%s' "${out}" | wc -l)" -eq 0 ]] && [[ "${out}" == *"more)"* ]]; then
         pass "the report stays one line, capping the list it prints"
     else
@@ -168,15 +168,15 @@ if declare -F ai_tools_secret_patterns_drift >/dev/null 2>&1; then
 
     rm -f "${_drift_file}"
     unset AI_TOOLS_SECRET_PATTERNS_FILE
-    AI_TOOLS_SECRET_PATTERNS=("${_AI_TOOLS_DEFAULT_SECRET_PATTERNS[@]}")
-    _AI_TOOLS_PATTERNS_LOADED=1
+    AI_TOOLS_SECRET_PATTERNS__PATTERNS=("${_AI_TOOLS_SECRET_PATTERNS__DEFAULTS[@]}")
+    _AI_TOOLS_SECRET_PATTERNS__PATTERNS_LOADED=1
 else
-    skip "secret-pattern drift report" "the library defines no ai_tools_secret_patterns_drift"
+    skip "secret-pattern drift report" "the library defines no ai_tools_secret_patterns__format_drift"
 fi
 
 # (7) The classifier restores the caller's nocasematch setting (it flips it on internally).
 shopt -u nocasematch
-ai_tools_is_secret_basename .env >/dev/null || true
+ai_tools_secret_patterns__is_secret_basename .env >/dev/null || true
 if ! shopt -q nocasematch; then
     pass "classifier restores the caller's nocasematch state"
 else
@@ -190,18 +190,18 @@ fi
 # refuses before an open that would block. Absent and empty stay status 0, which is what keeps a fresh enrolment
 # walking.
 [[ -n "${TESTDIR:-}" ]] || mktestdir
-baseline_count="${#_AI_TOOLS_DEFAULT_SECRET_PATTERNS[@]}"
+baseline_count="${#_AI_TOOLS_SECRET_PATTERNS__DEFAULTS[@]}"
 unreadable_case() {  # <label> <path> -- drive the loader at <path>, expect status 1, the code, and the baseline loaded
     local label="$1" path="$2" rc=0 err
-    AI_TOOLS_SECRET_PATTERNS_FILE="${path}"; _AI_TOOLS_PATTERNS_LOADED=""
+    AI_TOOLS_SECRET_PATTERNS_FILE="${path}"; _AI_TOOLS_SECRET_PATTERNS__PATTERNS_LOADED=""
     # Run in this shell, not a `$(...)`: the loader publishes its result in variables a subshell would lose.
-    ai_tools_load_secret_patterns 2>"${TESTDIR}/loader-err" >/dev/null || rc=$?
+    ai_tools_secret_patterns__load 2>"${TESTDIR}/loader-err" >/dev/null || rc=$?
     err="$(cat "${TESTDIR}/loader-err")"
-    if (( rc == 1 )) && [[ "${AI_TOOLS_SECRET_PATTERNS_UNREADABLE}" == "${path}" ]] \
-            && (( ${#AI_TOOLS_SECRET_PATTERNS[@]} == baseline_count )) && ai_tools_is_secret_basename .env; then
+    if (( rc == 1 )) && [[ "${AI_TOOLS_SECRET_PATTERNS__UNREADABLE}" == "${path}" ]] \
+            && (( ${#AI_TOOLS_SECRET_PATTERNS__PATTERNS[@]} == baseline_count )) && ai_tools_secret_patterns__is_secret_basename .env; then
         pass "${label}: the loader returns 1 with the baseline loaded"
     else
-        fail "${label}: rc=${rc} unreadable='${AI_TOOLS_SECRET_PATTERNS_UNREADABLE}' patterns=${#AI_TOOLS_SECRET_PATTERNS[@]} (want 1, the path, ${baseline_count})"
+        fail "${label}: rc=${rc} unreadable='${AI_TOOLS_SECRET_PATTERNS__UNREADABLE}' patterns=${#AI_TOOLS_SECRET_PATTERNS__PATTERNS[@]} (want 1, the path, ${baseline_count})"
     fi
     assert_msg MSG-S4T9 "${err}" "${label}: the loader names the file under its code"
 }
@@ -215,25 +215,25 @@ else
     skip "a FIFO at the path" "mkfifo failed in ${TESTDIR}"
 fi
 # The two readable states stay status 0: absent and empty load the baseline, a real file loads its own patterns.
-AI_TOOLS_SECRET_PATTERNS_FILE="${TESTDIR}/no-such-file"; _AI_TOOLS_PATTERNS_LOADED=""
-if ai_tools_load_secret_patterns 2>/dev/null && [[ -z "${AI_TOOLS_SECRET_PATTERNS_UNREADABLE}" ]] \
-        && (( ${#AI_TOOLS_SECRET_PATTERNS[@]} == baseline_count )); then
+AI_TOOLS_SECRET_PATTERNS_FILE="${TESTDIR}/no-such-file"; _AI_TOOLS_SECRET_PATTERNS__PATTERNS_LOADED=""
+if ai_tools_secret_patterns__load 2>/dev/null && [[ -z "${AI_TOOLS_SECRET_PATTERNS__UNREADABLE}" ]] \
+        && (( ${#AI_TOOLS_SECRET_PATTERNS__PATTERNS[@]} == baseline_count )); then
     pass "an absent file loads the baseline at status 0"
 else
-    fail "an absent file: rc=$? unreadable='${AI_TOOLS_SECRET_PATTERNS_UNREADABLE}' patterns=${#AI_TOOLS_SECRET_PATTERNS[@]}"
+    fail "an absent file: rc=$? unreadable='${AI_TOOLS_SECRET_PATTERNS__UNREADABLE}' patterns=${#AI_TOOLS_SECRET_PATTERNS__PATTERNS[@]}"
 fi
 printf 'only-this\n' > "${TESTDIR}/patterns-one"
-AI_TOOLS_SECRET_PATTERNS_FILE="${TESTDIR}/patterns-one"; _AI_TOOLS_PATTERNS_LOADED=""
-if ai_tools_load_secret_patterns 2>/dev/null && [[ "${AI_TOOLS_SECRET_PATTERNS[*]}" == only-this ]]; then
+AI_TOOLS_SECRET_PATTERNS_FILE="${TESTDIR}/patterns-one"; _AI_TOOLS_SECRET_PATTERNS__PATTERNS_LOADED=""
+if ai_tools_secret_patterns__load 2>/dev/null && [[ "${AI_TOOLS_SECRET_PATTERNS__PATTERNS[*]}" == only-this ]]; then
     pass "a readable file loads its own patterns at status 0"
 else
-    fail "a readable file: patterns='${AI_TOOLS_SECRET_PATTERNS[*]}' (want only-this)"
+    fail "a readable file: patterns='${AI_TOOLS_SECRET_PATTERNS__PATTERNS[*]}' (want only-this)"
 fi
 # The drift report names an unreadable file, since the baseline is then in force for the operator's sessions while their
 # helpers refuse -- the one state the wrapper's journal line would otherwise read as silent agreement.
-if declare -F ai_tools_secret_patterns_drift >/dev/null 2>&1; then
-    AI_TOOLS_SECRET_PATTERNS_FILE="${TESTDIR}/patterns-dir"; _AI_TOOLS_PATTERNS_LOADED=""
-    if out="$(ai_tools_secret_patterns_drift 2>/dev/null)" && [[ "${out}" == *"cannot be read"* ]]; then
+if declare -F ai_tools_secret_patterns__format_drift >/dev/null 2>&1; then
+    AI_TOOLS_SECRET_PATTERNS_FILE="${TESTDIR}/patterns-dir"; _AI_TOOLS_SECRET_PATTERNS__PATTERNS_LOADED=""
+    if out="$(ai_tools_secret_patterns__format_drift 2>/dev/null)" && [[ "${out}" == *"cannot be read"* ]]; then
         pass "the drift report names an unreadable file at status 0"
     else
         fail "the drift report over an unreadable file: '${out}'"

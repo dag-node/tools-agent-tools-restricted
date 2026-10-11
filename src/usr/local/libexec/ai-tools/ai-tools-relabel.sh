@@ -31,11 +31,11 @@ readonly RELABEL_LIB="/usr/local/lib/ai-tools/relabel.lib.sh"
 # override the paths -- root-only test hooks: sudo strips them (env_reset, not in env_keep), so neither the operator
 # nor the agent can inject them in production (relabel is only ever reached as root via sudo).
 #
-# The owner is resolved PER PATH (ai_tools_resolve_owner), the way every other per-project helper does it, rather than
-# by loading one operator up front. On a multi-operator host the entry that authorizes a label lives in whichever
-# operator's registry holds the project, and reading a single operator's file refuses every project registered to any
-# of the others -- a secondary operator's own claim, and every `projects claim --for <op>`, would leave the tree
-# unlabelled while the rest of the claim reported success. A load failure leaves the resolver undefined,
+# The owner is resolved PER PATH (ai_tools_operator__resolve_owner), the way every other per-project helper does it,
+# rather than by loading one operator up front. On a multi-operator host the entry that authorizes a label lives
+# in whichever operator's registry holds the project, and reading a single operator's file refuses every project
+# registered to any of the others -- a secondary operator's own claim, and every `projects claim --for <op>`, would
+# leave the tree unlabelled while the rest of the claim reported success. A load failure leaves the resolver undefined,
 # which allowlisted() treats as "no owner" and refuses on: no label is granted from a half-parsed identity.
 readonly OPERATOR_LIB="/usr/local/lib/ai-tools/operator.lib.sh"
 # shellcheck source=SCRIPTDIR/../../lib/ai-tools/operator.lib.sh
@@ -48,8 +48,8 @@ AI_TOOLS_LOG_FILE="relabel.log"
 readonly LOG_LIB="/usr/local/lib/ai-tools/log.lib.sh"
 # shellcheck source=SCRIPTDIR/../../lib/ai-tools/log.lib.sh
 if ! source "${LOG_LIB}" 2>/dev/null; then
-    ai_tools_log_info() { :; }; ai_tools_log_warn() { :; }; ai_tools_log_error() { :; }
-    ai_tools_log_structured() { :; }; ai_tools_log_coded() { :; }
+    ai_tools_log__info() { :; }; ai_tools_log__warn() { :; }; ai_tools_log__error() { :; }
+    ai_tools_log__structured() { :; }; ai_tools_log__coded() { :; }
 fi
 
 # A leading message code (msg.lib.sh states the form) is printed on its own line ahead of the message, the shape
@@ -58,7 +58,7 @@ fi
 die() {
     local code=""
     if [[ "${1-}" =~ ^MSG-[A-Z][0-9][A-Z][0-9]$ ]]; then code="$1"; shift; fi
-    ai_tools_log_coded error "${code}" "$*" "AI_TOOLS_RESULT=failed"
+    ai_tools_log__coded error "${code}" "$*" "AI_TOOLS_RESULT=failed"
     [[ -z "${code}" ]] || printf '%s\n' "${code}" >&2
     printf 'ai-tools-relabel: error: %s\n' "$*" >&2; exit 1
 }
@@ -90,13 +90,13 @@ source "${CONF_LIB}"
 allowlisted() {
     local dir="$1" file="${AI_TOOLS_ALLOWLIST:-}"
     if [[ -z "${file}" ]]; then
-        declare -F ai_tools_resolve_owner >/dev/null 2>&1 || return 1
-        ai_tools_resolve_owner "${dir}" >/dev/null 2>&1 || return 1
-        file="${AI_TOOLS_RESOLVED_ALLOWLIST:-}"
+        declare -F ai_tools_operator__resolve_owner >/dev/null 2>&1 || return 1
+        ai_tools_operator__resolve_owner "${dir}" >/dev/null 2>&1 || return 1
+        file="${AI_TOOLS_OPERATOR__RESOLVED_ALLOWLIST:-}"
     fi
     [[ -n "${file}" && -f "${file}" ]] || return 1
-    ai_tools_conf_allowlist_has_exclusion "${file}" "${dir}" && return 1   # explicit exclusion wins
-    ai_tools_conf_allowlist_has_entry "${file}" "${dir}"
+    ai_tools_conf__has_allowlist_exclusion "${file}" "${dir}" && return 1   # explicit exclusion wins
+    ai_tools_conf__has_allowlist_entry "${file}" "${dir}"
 }
 
 # ── Parse args ─────────────────────────────────────────────────────────────────
@@ -114,7 +114,7 @@ done
 dir="$(realpath -e "${target}" 2>/dev/null)" || die MSG-N3A5 "path not found: ${target}"
 [[ -d "${dir}" ]] || die MSG-S3E7 "not a directory: ${dir}"
 # Refuse to (un)label a protected system directory.
-ai_tools_assert_safe_target "${dir}" "relabel" || exit 3
+ai_tools_safe_paths__assert_safe_target "${dir}" "relabel" || exit 3
 
 # Every record past this point is about one project, so it rides as per-run log context (logging.rule.md) instead
 # of being named at each site.
@@ -126,13 +126,13 @@ source "${RELABEL_LIB}" 2>/dev/null || die MSG-U2G7 "missing label library: ${RE
 # Serialize against the agent relabel (ai-tools-relabel-agent), which writes the same policy store: a claim can land
 # while the ai-tools-relabel.path watcher is running one. Proceeding unserialized is reported, not fatal (see
 # relabel.lib.sh).
-ai_tools_relabel_lock
-[[ -z "${AI_TOOLS_RELABEL_LOCK_NOTE}" ]] \
-    || { echo "ai-tools-relabel: NOTE: relabels are not serialized on this host -- ${AI_TOOLS_RELABEL_LOCK_NOTE}"
-         ai_tools_log_structured warning \
-             "proceeding without the relabel lock -- ${AI_TOOLS_RELABEL_LOCK_NOTE}"; }
+ai_tools_relabel__lock
+[[ -z "${AI_TOOLS_RELABEL__LOCK_NOTE}" ]] \
+    || { echo "ai-tools-relabel: NOTE: relabels are not serialized on this host -- ${AI_TOOLS_RELABEL__LOCK_NOTE}"
+         ai_tools_log__structured warning \
+             "proceeding without the relabel lock -- ${AI_TOOLS_RELABEL__LOCK_NOTE}"; }
 
-if ai_tools_relabel_available; then :; else
+if ai_tools_relabel__is_available; then :; else
     # SELinux off or restorecon absent -- no work to do, and not an error: the confinement layer simply is not in play
     # on this host.
     echo "ai-tools-relabel: SELinux inactive -- no labelling needed for ${dir}"
@@ -140,19 +140,19 @@ if ai_tools_relabel_available; then :; else
 fi
 
 if ${remove}; then
-    if ai_tools_unlabel_project "${dir}"; then
+    if ai_tools_relabel__unlabel_project "${dir}"; then
         echo "ai-tools-relabel: reverted ${dir} to its default SELinux type"
-        ai_tools_log_structured info "unlabelled project ${dir}" "AI_TOOLS_RESULT=ok"
+        ai_tools_log__structured info "unlabelled project ${dir}" "AI_TOOLS_RESULT=ok"
     else
         die MSG-Q4X9 "failed to revert SELinux label on ${dir}"
     fi
 else
     allowlisted "${dir}" \
         || die MSG-P8J7 "refusing to label ${dir}: not in the allowed-projects allowlist"
-    rc=0; ai_tools_label_project "${dir}" || rc=$?
+    rc=0; ai_tools_relabel__label_project "${dir}" || rc=$?
     case "${rc}" in
         0) echo "ai-tools-relabel: labelled ${dir} ai_tools_project_t"
-           ai_tools_log_structured info "labelled project ${dir} ai_tools_project_t" \
+           ai_tools_log__structured info "labelled project ${dir} ai_tools_project_t" \
                "AI_TOOLS_RESULT=ok" ;;
         2) echo "ai-tools-relabel: SELinux inactive -- no labelling needed for ${dir}" ;;
         *) die MSG-M2D2 "failed to label ${dir} (is the ai_tools policy module loaded? install ai-tools-selinux, or from a checkout run: sudo selinux/install-selinux.sh install)" ;;

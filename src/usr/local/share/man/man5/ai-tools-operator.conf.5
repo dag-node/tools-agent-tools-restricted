@@ -211,6 +211,27 @@ every installed rule set applies.
 Filtering never decides what the agent may run: the permission rules in the
 agent's settings are evaluated on the rewritten command.
 .TP
+.BI AI_TOOLS_ASSETS= "IDENTIFIER\fR[,\fP IDENTIFIER\fR...]\fP"
+The shared skills and subagents every enabled agent loads, each written
+.IB SET / KIND / NAME
+\(em
+.B core/skills/ai\-tools\-reftags
+names the skill
+.B ai\-tools\-reftags
+of the set
+.BR core .
+An asset is linked once its set is installed, verified against the binding
+shipped for its set name, and valid; until then
+.B "ai-tools-admin status"
+names it with the reason.
+.B Default:
+no asset.
+Installing a set package does not enable any asset: write the line with
+.B "ai-tools-admin assets enable"
+rather than by hand, which checks each identifier first and keeps a backup;
+.BR ai-tools-assets (5)
+states the identifier and each reason.
+.TP
 .BR AI_TOOLS_REQUIRE_SELINUX=yes | no
 SELinux strictness.
 Where SELinux is enforcing and the

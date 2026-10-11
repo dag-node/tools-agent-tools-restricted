@@ -28,6 +28,23 @@ else
     fail "can traverse ${confdir} -- agent could read/tamper with the allowlist or secret-pattern config"
 fi
 
+# The development tools a checkout runs -- the prose checker the commit hooks execute, the formatters -- are unpacked
+# into each user's own cache (tools/lib/assets.sh) rather than into the collaborative project tree. A cache the agent
+# could write would be code it plants and the operator's commit hook runs.
+devcache="${PROJECTS_HOME}/.cache/ai-tools-dev"
+if [[ -e "${devcache}" ]]; then
+    if runuser -u "${SANDBOX_USER}" -- test -w "${devcache}" 2>/dev/null \
+            || runuser -u "${SANDBOX_USER}" -- test -x "${devcache}" 2>/dev/null; then
+        fail "the agent can reach ${devcache} -- it could replace a tool the operator's commit hook runs"
+    else
+        pass "cannot reach ${devcache}: the operator's pinned development tools are out of the agent's reach"
+    fi
+elif runuser -u "${SANDBOX_USER}" -- test -w "${PROJECTS_HOME}/.cache" 2>/dev/null; then
+    fail "the agent can write ${PROJECTS_HOME}/.cache -- it could create the development-tool cache the commit hook reads"
+else
+    pass "cannot write ${PROJECTS_HOME}/.cache: the agent cannot create the operator's development-tool cache"
+fi
+
 # The product's headline promise (README): a session "does not reach your secrets, SSH keys, or unrelated projects".
 # The agent is neither the operator nor in the operator's primary group, so the operator's private credential stores
 # stay out of reach by plain DAC. Probe that directly against the operator's real home: for each sensitive store
@@ -502,6 +519,41 @@ for _hook_dir in /opt/ai-tools/.claude /opt/ai-tools/.codex; do
 done
 (( _hook_dirs > 0 )) || skip "hook state stays agent-writable" "no agent config directory installed"
 
+# The cache cleanup state last. Its writers -- ai-tools-run and the updater -- run as the account, so the file is
+# account-writable by design, and the one decision that reads it is the launch's "due": a forged value stops
+# the account's own caches being cleaned, which costs disk and widens no access (updater.rule.md). What bounds it is
+# the directory and the remover: the account cannot create, unlink or swap a file in the state directory, nor rewrite
+# the library that decides what is removed and how.
+_cache_state=/var/opt/ai-tools/state/cache-cleanup.status
+if [[ ! -e "${_cache_state}" ]]; then
+    skip "the cache cleanup state stays agent-writable" "not present at ${_cache_state}"
+elif runuser -u "${SANDBOX_USER}" -- test -w "${_cache_state}" 2>/dev/null; then
+    pass "the agent can write ${_cache_state} -- its writers run as the account, and no access decision reads it"
+else
+    fail "the agent cannot write ${_cache_state} -- ai-tools-run and the updater cannot record a removal, so both status reports go stale"
+fi
+for _cache_path in /var/opt/ai-tools/state /usr/local/lib/ai-tools/cache-cleanup.lib.sh; do
+    if [[ ! -e "${_cache_path}" ]]; then
+        skip "cache cleanup inputs not agent-writable" "${_cache_path} not installed"
+    elif runuser -u "${SANDBOX_USER}" -- test -w "${_cache_path}" 2>/dev/null; then
+        fail "the agent can write ${_cache_path} -- it could replace the state file or the remover the unconfined updater runs"
+    else
+        pass "the agent cannot write ${_cache_path}"
+    fi
+done
+# The admission lock every launch holds: the account opens it to lock it and cannot write it, so a session holding it
+# delays or skips a cleanup, bounded by the launch step's wait, and cannot replace the inode every launch locks.
+_cache_lock=/var/opt/ai-tools/state/cache-cleanup.lock
+if [[ ! -e "${_cache_lock}" ]]; then
+    skip "the cache admission lock opens for the agent and is not agent-writable" "not present at ${_cache_lock}"
+elif ! runuser -u "${SANDBOX_USER}" -- test -r "${_cache_lock}" 2>/dev/null; then
+    fail "the agent cannot open ${_cache_lock} -- no launch is admitted, so no launch cleans a cache"
+elif runuser -u "${SANDBOX_USER}" -- test -w "${_cache_lock}" 2>/dev/null; then
+    fail "the agent can write ${_cache_lock}"
+else
+    pass "the agent opens ${_cache_lock} to lock it and cannot write it"
+fi
+
 # ── journald attribution: a tag is not an attribution, _UID is ───────────────────────────────
 # Every documented journal query pairs a syslog tag with the uid of that tag's legitimate writer
 # (.claude/rules/logging.rule.md). This is the reason, probed rather than asserted from the design: the agent can write
@@ -652,7 +704,7 @@ fi
 # into today's tokens, so a respelling of the surface edits that table alone.
 for _key in ai-tools.projects.create ai-tools.projects.remove.inplace; do
     cli_cmd "${_key}" || exit 2
-    _out="$(runuser -u "${SANDBOX_USER}" -- "${AI_TOOLS_CLI:-/usr/local/bin/ai-tools}" "${CLI_ARGV[@]}" 2>&1)" \
+    _out="$(runuser -u "${SANDBOX_USER}" -- "${AI_TOOLS_LAUNCH_WRAPPER__CLI:-/usr/local/bin/ai-tools}" "${CLI_ARGV[@]}" 2>&1)" \
         && _rc=0 || _rc=$?
     if (( _rc == 0 )); then
         fail "the agent was not refused ${_key} at all"

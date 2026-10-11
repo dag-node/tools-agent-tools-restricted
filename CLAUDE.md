@@ -44,7 +44,7 @@ the management CLI (`ai-tools`), and root-helper binary names (`ai-tools-chown`,
   its file, and the files that cite it. A reference in prose names a reftag, never a position, a line, or a heading
   anchor, and a reftag exists only for a citation from another file; a session that meets one resolves it here,
   and `bash tools/generators/ref-index.sh where <reftag>` prints the live line. Regenerated from the tree
-  with `bash tools/generators/ref-index.sh generate`, not edited. The grammar is the `ai-tools-technical-docs` skill's,
+  with `bash tools/generators/ref-index.sh generate`, not edited. The grammar is the `ai-tools-reftags` skill's,
   and the authoring rule states when a referent takes a reftag. `.claude/.referenced.md` beside it holds the reftags
   the tree has retired, each with the release it was retired at, for the minter alone: it is history, and a session does
   not read it.
@@ -63,13 +63,13 @@ the management CLI (`ai-tools`), and root-helper binary names (`ai-tools-chown`,
 | Hooks, sweeps, `.git` reclaim, setgid, control-plane integrity | `opt/ai-tools/agents/**`, `ai-tools-chown.sh`, `ai-tools-setgid.sh`, `owner-only.lib.sh` | [ownership-and-hooks](.claude/rules/ownership-and-hooks.rule.md) |
 | Claude Code settings, Bash deny rules ↔ SELinux policy, the hook-declaration merge a kept file takes on upgrade | `opt/ai-tools/agents/*/settings.json`, `settings-merge.lib.sh` | [claude-settings](.claude/rules/claude-settings.rule.md) |
 | Token-saving command filters: rewrite rules + output noise stripping | `filters.lib.sh`, `lib/ai-tools/filters.d/**`, `agents/*/filter-hook.sh` | [filters](.claude/rules/filters.rule.md) |
-| Shipped assets: shared skills, subagents, and the per-session orientation text, their placement chain and seeding | `usr/share/ai-tools/**`, `lib/ai-tools/managed-assets.lib.sh` | [shipped-assets](.claude/rules/shipped-assets.rule.md) |
-| Governance posture: enforced vs dispositional, proportionality, the agent's own conduct and the controls beside it | `usr/share/ai-tools/skills/ai-tools-capable-systems-governance/**` | [governance](.claude/rules/governance.rule.md) |
+| Shipped assets: shared skills, subagents, and the per-session orientation text, their placement chain and seeding; the asset sets an operator enables, the view and each agent's links into it, and the set verifier | `usr/share/ai-tools/**`, `lib/ai-tools/managed-assets.lib.sh`, `lib/ai-tools/assets.lib.sh`, `lib/ai-tools/assets-verify.lib.sh`, `lib/ai-tools/assets-bindings.d/**` | [shipped-assets](.claude/rules/shipped-assets.rule.md) |
+| Governance posture: enforced vs dispositional, proportionality, the agent's own conduct and the controls beside it | `core/skills/ai-tools-agent-governance` (the asset set `core`), stated to operators in `README.md` and `docs/about/**` | [governance](.claude/rules/governance.rule.md) |
 | Secret-named files, lockdown, pattern set | `ai-tools-lockdown.sh`, `ai-tools-chown.sh`, `secret-patterns*` | [secrets](.claude/rules/secret-handling.rule.md) |
-| Toolchain provisioning + Node/claude updater, the residue a disabled agent's package is and its removal, symlink repoint and removal, post-upgrade entrypoint reconciliation (signed-release verification + relabel) | `ai-tools-bootstrap.sh`, `nvm-update.sh`, `toolchain.lib.sh`, `ai-tools-launcher-symlink.sh`, `ai-tools-relabel-agent.sh`, `entrypoint-verify.lib.sh`, `keys/**`, `nvm-update`/`ai-tools-relabel` units | [updater](.claude/rules/updater.rule.md) |
+| Toolchain provisioning + Node/claude updater, the residue a disabled agent's package is and its removal, cache removal under the sandbox home, symlink repoint and removal, post-upgrade entrypoint reconciliation (signed-release verification + relabel) | `ai-tools-bootstrap.sh`, `nvm-update.sh`, `toolchain.lib.sh`, `cache-cleanup.lib.sh`, `ai-tools-launcher-symlink.sh`, `ai-tools-relabel-agent.sh`, `entrypoint-verify.lib.sh`, `keys/**`, `nvm-update`/`ai-tools-relabel` units | [updater](.claude/rules/updater.rule.md) |
 | Provider manifests + fail-closed enablement (agents + integrations), the shared `KEY=value` config grammar, and the `session-env.d`, `launch.d` and `admin-commands.d` seams | `lib/ai-tools/{conf,providers}.lib.sh`, `lib/ai-tools/{agents,integrations,session-env,launch,admin-commands}.d/**`, `operator.conf` `AI_TOOLS_{AGENTS,INTEGRATIONS}` | [providers](.claude/rules/providers.rule.md) |
 | The dotnet integration (its manifest, session-env fragment, filter rules, and contributed `dotnet` command) and running .NET (CoreCLR) under confinement: the `tmpmap`/`memfdexec`/`localipc`/`buildexec` SELinux groups, the build-output type and the `ai_tools_dotnet` layout module, project-type→group map, denial breakdown, the configuration a build reads from a project's ancestors and the report that names what a session is denied, the manifest keys and `ai-tools-providers(5)` | `lib/ai-tools/integrations.d/dotnet.conf`, `lib/ai-tools/ancestor-config.lib.sh`, `lib/ai-tools/session-env.d/dotnet.env.sh`, `lib/ai-tools/filters.d/dotnet.rules`, `lib/ai-tools/admin-commands.d/dotnet.sh`, `selinux/policy/ai_tools_{tmpmap,memfdexec,localipc,buildexec,dotnet}.te`, `share/man/man5/ai-tools-providers.5` | [dotnet](.claude/rules/dotnet.rule.md) |
-| The typesafe integration: its manifest and session-env fragment, the credential file a session is handed the path of, the decide command a session pipes a listing to and the transport that holds an untrusted answer to the documented shape, the `ai-tools-decide` skill the package ships, what a call discloses, and the signed release the command is vendored from | `lib/ai-tools/integrations.d/typesafe.conf`, `lib/ai-tools/session-env.d/typesafe.env.sh`, `etc/ai-tools/endpoints/typesafe.conf`, `lib/ai-tools/typesafe/**`, `tools/generators/typesafe-client.{sh,pin}`, `share/man/man5/ai-tools-typesafe.conf.5`, `usr/share/ai-tools/skills/ai-tools-decide/**` | [typesafe](.claude/rules/typesafe.rule.md) |
+| The typesafe integration: its manifest and session-env fragment, the credential file a session is handed the path of, the decide command a session pipes a listing to and the transport that holds an untrusted answer to the documented shape, the `ai-tools-typesafe-filter` skill the package ships, what a call discloses, and the signed release the command is vendored from | `lib/ai-tools/integrations.d/typesafe.conf`, `lib/ai-tools/session-env.d/typesafe.env.sh`, `etc/ai-tools/endpoints/typesafe.conf`, `lib/ai-tools/typesafe/**`, `tools/generators/typesafe-client.{sh,pin}`, `share/man/man5/ai-tools-typesafe.conf.5`, `usr/share/ai-tools/skills/ai-tools-typesafe-filter/**` | [typesafe](.claude/rules/typesafe.rule.md) |
 | Management CLI, project lifecycle, relabel, acting for another operator (`--for`) | `bin/ai-tools.sh`, `ai-tools-{setfacl,unclaim,safedir,relabel,allowlist}.sh`, `relabel.lib.sh`, `project-permissions.lib.sh` | [cli](.claude/rules/cli.rule.md) |
 | Host health as one resource read from two vantages: what an operator can see and what root adds (live `--user units`, the entrypoint pin, the live SELinux label) | `services.lib.sh`, `relabel.lib.sh`, `bin/ai-tools.sh` (`status`), `ai-tools-admin.sh` (`status`) | [cli](.claude/rules/cli.rule.md) |
 | Record streams: the model and report state, the TSV wire format, the rules a report follows when it calls them (the saved collector PID, the internal framing, the cap that keeps a deliberate stop apart from a failure), and the page that is the consumer's whole contract | `records-base.lib.sh`, `records-tsv.lib.sh`, `share/man/man5/ai-tools-records.5` | [records](.claude/rules/records.rule.md) |
@@ -81,6 +81,7 @@ the management CLI (`ai-tools`), and root-helper binary names (`ai-tools-chown`,
 | Test organization, hermeticity, categories | `tests/**` | [tests](.claude/rules/tests.rule.md) |
 | Operator documentation: the category tree, the reader each page is written for, the contract that keeps a page stable while its rule is rewritten, and the navigation form | `README.md`, `docs/**` | [docs-pages](.claude/rules/docs-pages.rule.md) |
 | ShellCheck baseline, `.shellcheckrc`, accepted findings | `src/**/*.sh`, `.shellcheckrc` | [shellcheck](.claude/rules/shellcheck.rule.md) |
+| Shell names: which file a function or a global belongs to, and how a member is named | `src/**/*.sh`, `install.sh`, `selinux/**/*.sh`, `packaging/**/*.sh`, `tests/**/*.sh`, `tools/**/*.sh` | [shell-names](.claude/rules/shell-names.rule.md) |
 
 ## Trust chain (summary)
 
@@ -170,7 +171,8 @@ shape of guarantee: it deletes only after that confirmation, and a failure leave
 | which executable may start it | a launcher an enabled manifest claims, at a semver path in the toolchain | no launch |
 | whether the toolchain holds the enabled agents' packages alone | the residue readers over every installed manifest the enabled set does not name ([updater](.claude/rules/updater.rule.md)) | no launch, of any agent, until a provisioning run removes the package |
 | whether it will be confined | the pre-launch SELinux transition probe (fail-closed once confinement is expected; `AI_TOOLS_REQUIRE_SELINUX`, in force by default, requires it outright, and an operator declares a DAC-only host with `no`) | no launch |
-| which providers it gets | `ai_tools_conf_is_trusted` on every manifest, directory, and fragment | the default-enabled baseline, never "enable all" |
+| which providers it gets | `ai_tools_conf__is_trusted` on every manifest, directory, and fragment | the default-enabled baseline, never "enable all" |
+| which shared assets it loads | `AI_TOOLS_ASSETS` in a trusted `operator.conf`, and for each set a trusted tree, a signature by the key its shipped binding pins, and the rules of format 1 base enforces ([shipped-assets](.claude/rules/shipped-assets.rule.md)) | the asset is not linked, and the next reconcile removes its link |
 | which paths handback may touch | born-`SANDBOX_USER` ownership, re-checked race-safely as root | the path is left alone |
 | which names a walk over a tree treats as secrets | the operator's own `secret-patterns` file, read once the path's owner is resolved, with the shipped baseline in force where it is absent or empty ([ref-section-h4j6](.claude/rules/secret-handling.rule.md#ref-section-h4j6)) | a present file that cannot be read keeps the baseline for classification, and every helper that changes a tree refuses before its first write |
 | which toolchain may be activated | npm registry signature verification | the previous, trusted version stays |
@@ -210,7 +212,7 @@ The invariants the agent operates under:
   is handed, which binary may be labelled as an agent entrypoint, and which launcher symlinks exist all come
   from `operator.conf` and the root-owned provider manifests and fragments. The code reading them runs *as*
   `SANDBOX_USER`, so each input — **and the directory holding it**, since a group-writable directory lets a non-root
-  writer replace a root-owned file inside it — is honored only while it passes `ai_tools_conf_is_trusted`. A provider
+  writer replace a root-owned file inside it — is honored only while it passes `ai_tools_conf__is_trusted`. A provider
   marked `default_enable=no` because it widens host surface can therefore only be turned on by an operator editing
   a root-owned file. See [providers](.claude/rules/providers.rule.md).
 - **Root and the operator do not execute what the sandbox can write.** No root or operator process executes or sources
@@ -232,11 +234,11 @@ The invariants the agent operates under:
   directory (`/`, `/etc`, `/var`, `/usr`, `/home`, `/opt/ai-tools`, …) or a user home root (`/home/<user>` — a whole
   home as a target would hand the agent its dotfiles and keys) — defense in depth against a system directory mistakenly
   added to `allowed-projects`. Matching is exact-or-ancestor, so real projects nested under an operator home
-  or the sandbox-clone area pass. A **second, narrower predicate** (`ai_tools_traverse_grant_allowed`) vets the one
-  operation that is not a target at all — a traverse-only `--x` ACL on a single ancestor directory, which permits
-  traversal alone, without a read of that directory or of the files inside — and permits the acting operator's **own**
-  home root there, refusing every system directory, `/home` itself, and any other account's home root. It is
-  an addition; the protected-paths backstop is unchanged for every target that reaches it. See
+  or the sandbox-clone area pass. A **second, narrower predicate** (`ai_tools_safe_paths__is_traverse_grant_allowed`)
+  vets the one operation that is not a target at all — a traverse-only `--x` ACL on a single ancestor directory,
+  which permits traversal alone, without a read of that directory or of the files inside — and permits the acting
+  operator's **own** home root there, refusing every system directory, `/home` itself, and any other account's home
+  root. It is an addition; the protected-paths backstop is unchanged for every target that reaches it. See
   [safe-paths](.claude/rules/safe-paths.rule.md).
 
 ### What is expected of the agent where a control leaves a choice <a id="ref-section-g6c4"></a>
@@ -254,7 +256,7 @@ is not, and this is what the agent does there:
 The host's safety rests on those enforced invariants; these four describe the agent's conduct where a control leaves
 a choice, and each one names the enforced control it sits beside in [governance](.claude/rules/governance.rule.md). They
 are stated here, in the always-loaded layer, because a path-scoped rule does not load in the session where they bind.
-The standard they come from is the shipped `ai-tools-capable-systems-governance` skill.
+The standard they come from is the `ai-tools-agent-governance` skill of the asset set `core`.
 
 ## Boundaries and non-goals <a id="ref-section-x6a9"></a>
 
@@ -299,6 +301,11 @@ not gaps, so a reader tells bounded design from an oversight:
   by provider packages and discovered** — base cannot enumerate integrations it ships without. A contributed command
   passes the same trust predicate as every other provider input. `ai-tools` keeps its `--verb` spelling until the domain
   model behind `projects` settles. Detail in [cli-grammar](.claude/rules/cli-grammar.rule.md).
+- **A shell name states the file that owns it** — `ai_tools_<module>__<member>` for a function,
+  `AI_TOOLS_<MODULE>__<NAME>` for a global — because provider fragments and third-party scripts are sourced into shells
+  that hold the trust libraries, where a second definition of a name replaces the first without a message.
+  An `AI_TOOLS_` name without `__` is an external interface: the environment, `operator.conf`, a journald field. Detail
+  in [shell-names](.claude/rules/shell-names.rule.md).
 - **A new source file states its licence on its first line**, after any shebang: one `SPDX-License-Identifier` comment
   in the file's own syntax — `AGPL-3.0-only`, or `GPL-2.0-or-later` for the SELinux policy sources — and no copyright
   line, since `REUSE.toml` holds the copyright for every file. Prose, licence texts, generated data, and compiled
@@ -321,24 +328,24 @@ not gaps, so a reader tells bounded design from an oversight:
   execs once it and its directory pass the provider trust predicate (`dotnet` is the one installed today). **Shared
   libraries** live under `/usr/local/lib/ai-tools/` (`conf`, `settings-merge`, `secret-patterns`, `skip-dirs`,
   `owner-only`, `project-permissions`, `safe-paths`, `relabel`, `operator`, `control-plane`, `confinement`,
-  `launch-wrapper`, `npm-verify`, `entrypoint-verify`, `managed-assets`, `providers`, `ancestor-config`, `sandbox-exec`,
-  `toolchain`, `selinux-groups`, `filters`, `services`, `msg`, `log`, `path-order`, `agent-installs`, `records-base`,
-  `records-tsv`, and the claude-code pair `claude-prompt`/`claude-endpoint`), plus `path-order.sh`, the PATH-ordering
-  fragment `ai-tools-admin` wires into operator dotfiles (see [launch](.claude/rules/launch.rule.md)). That directory
-  and its contents are `root`-owned and non-group-writable, and the sandbox group reads them — load-bearing, since
-  the sandbox account sources several of these libraries. Read is open on every one of them and **write** is
-  the boundary: a shared library carries shipped logic or a general list, and an operator's own data stays
-  in that operator's private config instead, so an open read discloses only what already ships (the modes are
-  in [providers](.claude/rules/providers.rule.md); the guarantee is the invariant that the sandbox cannot widen its own
-  surface).
+  `launch-wrapper`, `npm-verify`, `entrypoint-verify`, `assets-verify`, `managed-assets`, `providers`,
+  `ancestor-config`, `sandbox-exec`, `toolchain`, `cache-cleanup`, `selinux-groups`, `filters`, `services`, `msg`,
+  `log`, `path-order`, `agent-installs`, `records-base`, `records-tsv`, `assets`, and the claude-code pair
+  `claude-prompt`/`claude-endpoint`), plus `path-order.sh`, the PATH-ordering fragment `ai-tools-admin` wires
+  into operator dotfiles (see [launch](.claude/rules/launch.rule.md)). That directory and its contents are `root`-owned
+  and non-group-writable, and the sandbox group reads them — load-bearing, since the sandbox account sources several
+  of these libraries. Read is open on every one of them and **write** is the boundary: a shared library carries shipped
+  logic or a general list, and an operator's own data stays in that operator's private config instead, so an open read
+  discloses only what already ships (the modes are in [providers](.claude/rules/providers.rule.md); the guarantee is
+  the invariant that the sandbox cannot widen its own surface).
 
 ### Documentation register
 
-**Every artifact in this repo is written to the shipped `ai-tools-technical-docs` skill — invoke it before writing
-or editing prose of any kind.** One standard covers all of them; the artifact sections inside it carry the differences
-in structure, altitude, and reader. The skill holds the width and states that where a line breaks is the formatter's;
-this repository's formatter is `bash tools/formatters/format.sh`, and `tools/README.md` states the rest. A shipped asset
-does not name any tool of this repository's, so the skill does not name that command:
+**Every artifact in this repo is written to the `ai-tools-technical-writing` skill of the asset set `core` — invoke it
+before writing or editing prose of any kind.** One standard covers all of them; the artifact sections inside it carry
+the differences in structure, altitude, and reader. The skill holds the width and states that where a line breaks is
+the formatter's; this repository's formatter is `bash tools/format.sh`, and `tools/README.md` states the rest. A shipped
+asset does not name any tool of this repository's, so the skill does not name that command:
 
 - `CLAUDE.md`, `.claude/rules/*.rule.md`, file/module headers, design notes → reference prose (present-tense spec; state
   current behavior, not history).

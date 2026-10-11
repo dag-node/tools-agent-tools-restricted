@@ -41,7 +41,7 @@ if [[ ! -x "${HELPER}" ]]; then
     skip "observed-pin reconciliation" "not installed at ${HELPER}"; finish; exit
 fi
 # shellcheck source=/dev/null
-if ! source "${VERIFY_LIB}" 2>/dev/null || ! declare -F ai_tools_entrypoint_stale_path >/dev/null 2>&1; then
+if ! source "${VERIFY_LIB}" 2>/dev/null || ! declare -F ai_tools_entrypoint_verify__get_stale_path >/dev/null 2>&1; then
     skip "observed-pin reconciliation" "the installed ${VERIFY_LIB} carries no stale-mark reader -- reinstall to cover it"
     finish; exit
 fi
@@ -193,6 +193,16 @@ if grep -q "rm -rf ${package_dir}$" <<<"${out}" && grep -q 'system bootstrap' <<
     pass "the refusal names the package directory to remove before reprovisioning"
 else
     fail "the refusal does not name the forced-reinstall commands: ${out}"
+fi
+# Every session ends before root removes files in the sandbox account's tree: the refusal says so, leaving the operator
+# to let a session finish, and `ai-tools stop` is the first command.
+stop_line="$(grep -n -m1 '^ *ai-tools stop$' <<<"${out}" | cut -d: -f1)"
+remove_line="$(grep -n -m1 "rm -rf ${package_dir}$" <<<"${out}" | cut -d: -f1)"
+if [[ -n "${stop_line}" && -n "${remove_line}" ]] && (( stop_line < remove_line )) \
+        && grep -qF 'let each finish, or stop them all' <<<"${out}"; then
+    pass "the forced-reinstall remedy stops every session before the removal"
+else
+    fail "the remedy does not name ai-tools stop ahead of the removal: ${out}"
 fi
 
 # ── (3) A new version with new bytes reads as an update ──────────────────────────────────────

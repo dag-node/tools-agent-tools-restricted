@@ -1,13 +1,14 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: AGPL-3.0-only
 # tests/unit/providers.sh
-# Unit test for the provider resolver (providers.lib.sh). Drives the PURE verdict ai_tools_provider_is_enabled over its
-# enablement truth table, then ai_tools_enabled_agents and ai_tools_enabled_integrations over /tmp fixture manifest dirs
-# + operator.conf via the root-only AI_TOOLS_{AGENTS,INTEGRATIONS}_DIR / AI_TOOLS_OPERATOR_CONF hooks (the same
-# hermetic-override pattern skip-dirs.lib.sh uses). This is the FAIL-CLOSED enablement contract the toolchain layer
-# (ai-tools-bootstrap, nvm-update) and the launcher (ai-tools-run) provision from, so a regression -- a surface-widening
-# provider enabled without an explicit opt-in, an absent/unreadable config read as "enable all",
-# a requested-but-uninstalled name silently guessed instead of skipped -- fails
+# Unit test for the provider resolver (providers.lib.sh). Drives the PURE verdict ai_tools_providers__is_enabled
+# over its enablement truth table, then ai_tools_providers__list_enabled_agents
+# and ai_tools_providers__list_enabled_integrations over /tmp fixture manifest dirs + operator.conf via the root-only
+# AI_TOOLS_{AGENTS,INTEGRATIONS}_DIR / AI_TOOLS_OPERATOR_CONF hooks (the same hermetic-override pattern skip-dirs.lib.sh
+# uses). This is the FAIL-CLOSED enablement contract the toolchain layer (ai-tools-bootstrap, nvm-update)
+# and the launcher (ai-tools-run) provision from, so a regression -- a surface-widening provider enabled without
+# an explicit opt-in, an absent/unreadable config read as "enable all", a requested-but-uninstalled name silently
+# guessed instead of skipped -- fails
 # here.
 #
 # Two properties get their own sections because a break in either is silent in production:
@@ -33,18 +34,18 @@ if [[ ! -r "${LIB}" ]]; then
 fi
 # shellcheck source=/dev/null
 if ! source "${LIB}" \
-        || ! declare -F ai_tools_provider_is_enabled >/dev/null 2>&1 \
-        || ! declare -F ai_tools_agent_sweeps_at_exit >/dev/null 2>&1 \
-        || ! declare -F ai_tools_enabled_agents >/dev/null 2>&1 \
-        || ! declare -F ai_tools_agents_empty_verdict >/dev/null 2>&1 \
-        || ! declare -F ai_tools_enabled_integrations >/dev/null 2>&1; then
+        || ! declare -F ai_tools_providers__is_enabled >/dev/null 2>&1 \
+        || ! declare -F ai_tools_providers__is_exit_sweep_required >/dev/null 2>&1 \
+        || ! declare -F ai_tools_providers__list_enabled_agents >/dev/null 2>&1 \
+        || ! declare -F ai_tools_providers__evaluate_empty_agents >/dev/null 2>&1 \
+        || ! declare -F ai_tools_providers__list_enabled_integrations >/dev/null 2>&1; then
     fail "could not source ${LIB} or it does not define the resolver functions"; finish; exit
 fi
 
-# --- Pure verdict: ai_tools_provider_is_enabled <name> <default_enable> <allowlist_active> <list> ---
+# --- Pure verdict: ai_tools_providers__is_enabled <name> <default_enable> <allowlist_active> <list> ---
 verdict() {
     local desc="$1" exp_rc="$2"; shift 2
-    local rc=0; ai_tools_provider_is_enabled "$@" || rc=$?
+    local rc=0; ai_tools_providers__is_enabled "$@" || rc=$?
     if [[ "${rc}" -eq "${exp_rc}" ]]; then pass "${desc}"; else fail "${desc}: rc ${rc}, expected ${exp_rc}"; fi
 }
 # Baseline (no allowlist): default_enable governs.
@@ -60,13 +61,13 @@ verdict "allowlist opts in a default=no agent"     0 dotnet      no  yes "dotnet
 verdict "comma-separated allowlist names it"       0 claude-code no  yes "claude-code,other"
 verdict "mixed separators name it"                 0 other       no  yes "claude-code, other  third"
 
-# --- Pure verdict: ai_tools_agent_sweeps_at_exit <handback-declaration> -----------------------
+# --- Pure verdict: ai_tools_providers__is_exit_sweep_required <handback-declaration> -----------------------
 # Which side converges ownership. Only the exact literal "hooks" may switch the launcher's session-end sweep
 # OFF, so an unknown or absent declaration errs toward sweeping -- the safe direction (a redundant walk, never a project
 # tree left sandbox-owned).
 sweeps() {
     local desc="$1" exp_rc="$2" declared="${3-}"
-    local rc=0; ai_tools_agent_sweeps_at_exit "${declared}" || rc=$?
+    local rc=0; ai_tools_providers__is_exit_sweep_required "${declared}" || rc=$?
     if [[ "${rc}" -eq "${exp_rc}" ]]; then pass "${desc}"; else fail "${desc}: rc ${rc}, expected ${exp_rc}"; fi
 }
 sweeps "handback=hooks -> the agent's own hooks converge, no sweep" 1 hooks
@@ -86,7 +87,7 @@ conf="${TESTDIR}/operator.conf"
 
 # resolve <conf-path> : enabled agents' stdout. The prefix assignment is visible to the function and reverts
 # after the call, so each case runs against its own operator.conf with no leak.
-resolve() { AI_TOOLS_OPERATOR_CONF="$1" ai_tools_enabled_agents 2>/dev/null; }
+resolve() { AI_TOOLS_OPERATOR_CONF="$1" ai_tools_providers__list_enabled_agents 2>/dev/null; }
 assert_names() {
     local desc="$1" expected="$2" conf_path="$3" got
     got="$(resolve "${conf_path}" | cut -f1 | sort | tr '\n' ' ')"
@@ -131,12 +132,12 @@ for row in "${gating_cases[@]}"; do
     assert_names "AI_TOOLS_AGENTS=${row#*$'\t'} enables '${row%%$'\t'*}'" "${row%%$'\t'*}" "${conf}"
 done
 printf 'AI_TOOLS_AGENTS=[agent-claude-code\n' > "${conf}"
-assert_msg MSG-D5N5 "$(AI_TOOLS_OPERATOR_CONF="${conf}" ai_tools_enabled_agents 2>&1 >/dev/null)" \
+assert_msg MSG-D5N5 "$(AI_TOOLS_OPERATOR_CONF="${conf}" ai_tools_providers__list_enabled_agents 2>&1 >/dev/null)" \
     "an invalid AI_TOOLS_AGENTS list is reported"
 # A name without its kind prefix, the spelling an earlier release wrote, is reported under its own code, which names
 # the command that rewrites it.
 printf 'AI_TOOLS_AGENTS=[claude-code]\n' > "${conf}"
-unprefixed_err="$(AI_TOOLS_OPERATOR_CONF="${conf}" ai_tools_enabled_agents 2>&1 >/dev/null)"
+unprefixed_err="$(AI_TOOLS_OPERATOR_CONF="${conf}" ai_tools_providers__list_enabled_agents 2>&1 >/dev/null)"
 assert_msg MSG-X6F2 "${unprefixed_err}" "an unprefixed AI_TOOLS_AGENTS item is reported"
 [[ "${unprefixed_err}" == *"system post-upgrade"* ]] \
     && pass "the unprefixed-item report names system post-upgrade" \
@@ -144,7 +145,7 @@ assert_msg MSG-X6F2 "${unprefixed_err}" "an unprefixed AI_TOOLS_AGENTS item is r
 
 # A requested-but-uninstalled agent is skipped from stdout AND reported on stderr (never guessed).
 printf 'AI_TOOLS_AGENTS="agent-missing"\n' > "${conf}"
-warn_out="$(AI_TOOLS_OPERATOR_CONF="${conf}" ai_tools_enabled_agents 2>&1 >/dev/null)"
+warn_out="$(AI_TOOLS_OPERATOR_CONF="${conf}" ai_tools_providers__list_enabled_agents 2>&1 >/dev/null)"
 out_names="$(resolve "${conf}" | cut -f1 | tr '\n' ' ')"
 if [[ -z "${out_names}" ]]; then
     pass "requested-but-uninstalled agent skipped from stdout"
@@ -163,8 +164,8 @@ while IFS='|' read -r key item package resolver; do
         fail "the report for an uninstalled ${item} does not name ${package}: ${warn_out}"
     fi
 done <<'ROWS'
-AI_TOOLS_AGENTS|agent-missing|ai-tools-agents-missing-restricted|ai_tools_enabled_agents
-AI_TOOLS_INTEGRATIONS|integration-missing|ai-tools-integration-missing|ai_tools_enabled_integrations
+AI_TOOLS_AGENTS|agent-missing|ai-tools-agents-missing-restricted|ai_tools_providers__list_enabled_agents
+AI_TOOLS_INTEGRATIONS|integration-missing|ai-tools-integration-missing|ai_tools_providers__list_enabled_integrations
 ROWS
 
 # --- Manifest field accessor: what ai-tools-run reads once it has resolved an agent -----------
@@ -172,25 +173,41 @@ ROWS
 # than address a file outside the manifest directory.
 printf 'npm_package=@anthropic-ai/claude-code\nlauncher=claude\ndisplay_name=Claude Code\ndefault_enable=yes\n' \
     > "${agents_dir}/claude-code.conf"
-if [[ "$(ai_tools_agent_manifest_field claude-code display_name || true)" == "Claude Code" ]]; then
+if [[ "$(ai_tools_providers__read_agent_manifest_field claude-code display_name || true)" == "Claude Code" ]]; then
     pass "manifest field read from a trusted manifest"
 else
-    fail "manifest field: got '$(ai_tools_agent_manifest_field claude-code display_name || true)'"
+    fail "manifest field: got '$(ai_tools_providers__read_agent_manifest_field claude-code display_name || true)'"
 fi
 for bogus_name in '../../etc/passwd' 'a/b' '..' 'no-such-agent'; do
-    if [[ -z "$(ai_tools_agent_manifest_field "${bogus_name}" display_name || true)" ]]; then
+    if [[ -z "$(ai_tools_providers__read_agent_manifest_field "${bogus_name}" display_name || true)" ]]; then
         pass "manifest field refuses '${bogus_name}'"
     else
         fail "manifest field resolved something for '${bogus_name}'"
     fi
 done
 chmod 0666 "${agents_dir}/claude-code.conf"
-if [[ -z "$(ai_tools_agent_manifest_field claude-code display_name || true)" ]]; then
+if [[ -z "$(ai_tools_providers__read_agent_manifest_field claude-code display_name || true)" ]]; then
     pass "manifest field refuses a world-writable manifest"
 else
     fail "manifest field read a world-writable manifest"
 fi
+# The status tells an absent key from a manifest the reader refuses as trusted data: the assets resolver reads
+# the first as a default and the second as receivers it cannot know, so a failed read takes a status of its own.
+field_status=0; ai_tools_providers__read_agent_manifest_field claude-code display_name >/dev/null 2>&1 || field_status=$?
+[[ "${field_status}" == 2 ]] && pass "manifest field: a world-writable manifest is status 2, a failed read" \
+    || fail "manifest field: a world-writable manifest is status ${field_status}, want 2"
 chmod 0644 "${agents_dir}/claude-code.conf"
+field_status=0; ai_tools_providers__read_agent_manifest_field claude-code no_such_key >/dev/null 2>&1 || field_status=$?
+[[ "${field_status}" == 1 ]] && pass "manifest field: a key the manifest does not carry is status 1" \
+    || fail "manifest field: an absent key is status ${field_status}, want 1"
+field_status=0; ai_tools_providers__read_agent_manifest_field no-such-agent display_name >/dev/null 2>&1 || field_status=$?
+[[ "${field_status}" == 2 ]] && pass "manifest field: an absent manifest is status 2, a failed read" \
+    || fail "manifest field: an absent manifest is status ${field_status}, want 2"
+mkdir "${agents_dir}/dir-agent.conf"
+field_status=0; ai_tools_providers__read_agent_manifest_field dir-agent display_name >/dev/null 2>&1 || field_status=$?
+[[ "${field_status}" == 2 ]] && pass "manifest field: a root-owned directory at the manifest path is status 2, a failed read" \
+    || fail "manifest field: a directory at the manifest path is status ${field_status}, want 2"
+rmdir "${agents_dir}/dir-agent.conf"
 
 # --- IFS independence: the resolver runs inside scripts that set the strict-mode IFS ----------
 section "providers: resolution is independent of the caller's IFS"
@@ -198,7 +215,7 @@ printf 'AI_TOOLS_AGENTS="agent-claude-code agent-experimental"\n' > "${conf}"
 # A SUBSHELL with IFS=$'\n\t' -- exactly what nvm-update.sh sets -- so the assertion cannot be masked by this file's own
 # IFS. Without a locally-pinned IFS in the splitter the whole value reads as one name and BOTH agents drop out with only
 # a stderr warning.
-ifs_names="$( IFS=$'\n\t'; AI_TOOLS_OPERATOR_CONF="${conf}" ai_tools_enabled_agents 2>/dev/null \
+ifs_names="$( IFS=$'\n\t'; AI_TOOLS_OPERATOR_CONF="${conf}" ai_tools_providers__list_enabled_agents 2>/dev/null \
               | cut -f1 | sort | tr '\n' ' ' )"
 if [[ "${ifs_names}" == "claude-code experimental " ]]; then
     pass "multi-name allowlist resolves under IFS=\$'\\n\\t' (nvm-update's strict mode)"
@@ -206,7 +223,7 @@ else
     fail "IFS-dependent split: under IFS=\$'\\n\\t' got '${ifs_names}' expected 'claude-code experimental '"
 fi
 printf 'AI_TOOLS_AGENTS=agent-claude-code,agent-experimental\n' > "${conf}"
-ifs_names="$( IFS=$'\n\t'; AI_TOOLS_OPERATOR_CONF="${conf}" ai_tools_enabled_agents 2>/dev/null \
+ifs_names="$( IFS=$'\n\t'; AI_TOOLS_OPERATOR_CONF="${conf}" ai_tools_providers__list_enabled_agents 2>/dev/null \
               | cut -f1 | sort | tr '\n' ' ' )"
 if [[ "${ifs_names}" == "claude-code experimental " ]]; then
     pass "comma-separated allowlist resolves under IFS=\$'\\n\\t'"
@@ -233,7 +250,7 @@ assert_names "restored operator.conf honored again"                  "claude-cod
 # A manifest the agent could have written cannot introduce or enable a provider: that ONE provider drops
 # out, the trusted sibling survives, and the refusal is reported.
 chmod 0666 "${agents_dir}/experimental.conf"
-tamper_warn="$(AI_TOOLS_OPERATOR_CONF="${conf}" ai_tools_enabled_agents 2>&1 >/dev/null)"
+tamper_warn="$(AI_TOOLS_OPERATOR_CONF="${conf}" ai_tools_providers__list_enabled_agents 2>&1 >/dev/null)"
 assert_names "world-writable manifest skipped, sibling survives" "claude-code " "${conf}"
 assert_msg MSG-M3A5 "${tamper_warn}" "untrusted manifest refusal is reported, not silent"
 chmod 0644 "${agents_dir}/experimental.conf"
@@ -241,7 +258,7 @@ chmod 0644 "${agents_dir}/experimental.conf"
 # A manifest DIRECTORY a non-root writer can modify lets them unlink and replace any manifest in it, so the whole kind
 # is refused -- no agent is resolved at all.
 chmod 0777 "${agents_dir}"
-dir_warn="$(AI_TOOLS_OPERATOR_CONF="${conf}" ai_tools_enabled_agents 2>&1 >/dev/null)"
+dir_warn="$(AI_TOOLS_OPERATOR_CONF="${conf}" ai_tools_providers__list_enabled_agents 2>&1 >/dev/null)"
 assert_names "world-writable manifest dir -> no agents at all" "" "${conf}"
 assert_msg MSG-W3Q3 "${dir_warn}" "untrusted manifest dir refusal is reported, not silent"
 chmod 0755 "${agents_dir}"
@@ -255,7 +272,7 @@ assert_names "restored manifest dir honored again" "claude-code experimental " "
 section "providers: an empty agent set is classified as fault or none"
 assert_empty() {   # <desc> <expected verdict> <reason substring> <conf path>
     local desc="$1" want="$2" needle="$3" conf_path="$4" line verdict reason
-    line="$(AI_TOOLS_OPERATOR_CONF="${conf_path}" ai_tools_agents_empty_verdict)"
+    line="$(AI_TOOLS_OPERATOR_CONF="${conf_path}" ai_tools_providers__evaluate_empty_agents)"
     IFS=$'\t' read -r verdict reason <<< "${line}"
     if [[ "${verdict}" == "${want}" && "${reason}" == *"${needle}"* && "${line}" != *$'\n'* ]]; then
         pass "${desc}"
@@ -299,7 +316,7 @@ printf 'AI_TOOLS_AGENTS="agent-claude-code"\n' > "${conf}"; chmod 0666 "${conf}"
 assert_empty "an untrusted operator.conf is a fault"      fault "${conf}: owner=0 mode=666"    "${conf}"
 chmod 0644 "${conf}"
 # The caller parses this under IFS=$'\n\t'; the TAB is what keeps verdict and reason apart there.
-ifs_line="$( IFS=$'\n\t'; AI_TOOLS_OPERATOR_CONF=/nonexistent AI_TOOLS_AGENTS_DIR="${empty_dir}" ai_tools_agents_empty_verdict )"
+ifs_line="$( IFS=$'\n\t'; AI_TOOLS_OPERATOR_CONF=/nonexistent AI_TOOLS_AGENTS_DIR="${empty_dir}" ai_tools_providers__evaluate_empty_agents )"
 if [[ "${ifs_line}" == none$'\t'* ]]; then
     pass "the verdict line parses under IFS=\$'\\n\\t' (nvm-update's strict mode)"
 else
@@ -312,7 +329,7 @@ integrations_dir="${TESTDIR}/integrations.d"; mkdir -p "${integrations_dir}"
 printf 'default_enable=no\n'  > "${integrations_dir}/dotnet.conf"    # surface-widening: opt-in only
 printf 'default_enable=yes\n' > "${integrations_dir}/baseline.conf" # a hypothetical safe-default integration
 export AI_TOOLS_INTEGRATIONS_DIR="${integrations_dir}"
-resolve_ints() { AI_TOOLS_OPERATOR_CONF="$1" ai_tools_enabled_integrations 2>/dev/null | sort | tr '\n' ' '; }
+resolve_ints() { AI_TOOLS_OPERATOR_CONF="$1" ai_tools_providers__list_enabled_integrations 2>/dev/null | sort | tr '\n' ' '; }
 assert_ints() {
     local desc="$1" expected="$2" conf_path="$3" got; got="$(resolve_ints "${conf_path}")"
     if [[ "${got}" == "${expected}" ]]; then pass "${desc}"; else fail "${desc}: got '${got}' expected '${expected}'"; fi
@@ -343,18 +360,18 @@ chmod 0644 "${conf}"
 # an untrusted manifest is skipped and an untrusted directory yields an empty set, never a name from a file the sandbox
 # could write.
 section "providers: the installed-manifest field reader"
-if declare -F ai_tools_installed_integrations_declaring >/dev/null 2>&1; then
+if declare -F ai_tools_providers__list_integrations_declaring >/dev/null 2>&1; then
     printf 'default_enable=no\nbuild_output_dirs=bin obj artifacts\n' > "${integrations_dir}/dotnet.conf"
     printf 'default_enable=yes\n' > "${integrations_dir}/baseline.conf"
     printf 'AI_TOOLS_INTEGRATIONS=""\n' > "${conf}"   # dotnet is NOT enabled
-    got="$(AI_TOOLS_OPERATOR_CONF="${conf}" ai_tools_installed_integrations_declaring build_output_dirs 2>/dev/null | tr '\t' '=' | tr '\n' ' ')"
+    got="$(AI_TOOLS_OPERATOR_CONF="${conf}" ai_tools_providers__list_integrations_declaring build_output_dirs 2>/dev/null | tr '\t' '=' | tr '\n' ' ')"
     if [[ "${got}" == "dotnet=bin obj artifacts " ]]; then
         pass "declaring reads the key from an installed integration whether or not it is enabled"
     else
         fail "declaring read '${got}' (expected 'dotnet=bin obj artifacts ')"
     fi
     chmod 0666 "${integrations_dir}/dotnet.conf"
-    got="$(ai_tools_installed_integrations_declaring build_output_dirs 2>/dev/null | tr '\n' ' ')"
+    got="$(ai_tools_providers__list_integrations_declaring build_output_dirs 2>/dev/null | tr '\n' ' ')"
     if [[ -z "${got}" ]]; then
         pass "an untrusted (group/other-writable) manifest is skipped by the reader"
     else
@@ -362,7 +379,7 @@ if declare -F ai_tools_installed_integrations_declaring >/dev/null 2>&1; then
     fi
     chmod 0644 "${integrations_dir}/dotnet.conf"
     chmod 0777 "${integrations_dir}"
-    got="$(ai_tools_installed_integrations_declaring build_output_dirs 2>/dev/null | tr '\n' ' ')"
+    got="$(ai_tools_providers__list_integrations_declaring build_output_dirs 2>/dev/null | tr '\n' ' ')"
     if [[ -z "${got}" ]]; then
         pass "an untrusted manifest directory yields an empty set"
     else
@@ -370,7 +387,7 @@ if declare -F ai_tools_installed_integrations_declaring >/dev/null 2>&1; then
     fi
     chmod 0755 "${integrations_dir}"
 else
-    skip "installed-manifest reader" "ai_tools_installed_integrations_declaring not defined"
+    skip "installed-manifest reader" "ai_tools_providers__list_integrations_declaring not defined"
 fi
 
 # --- Managed files: the state of a kept-across-upgrade file against its shipped copy ---------------------------------
@@ -381,9 +398,9 @@ fi
 # a path that is not absolute, because the reference is composed from the basename and a relative or dotted path could
 # name a file outside the package's datadir.
 section "providers: managed files against their shipped copies"
-if ! declare -F ai_tools_managed_file_state >/dev/null 2>&1 \
-        || ! declare -F ai_tools_agent_managed_files >/dev/null 2>&1; then
-    skip "managed files" "ai_tools_managed_file_state / ai_tools_agent_managed_files not defined"
+if ! declare -F ai_tools_providers__evaluate_managed_file >/dev/null 2>&1 \
+        || ! declare -F ai_tools_providers__list_agent_managed_files >/dev/null 2>&1; then
+    skip "managed files" "ai_tools_providers__evaluate_managed_file / ai_tools_providers__list_agent_managed_files not defined"
 else
     mf="${TESTDIR}/managed"; mkdir -p "${mf}/live" "${mf}/ref"
     printf 'a = 1\n' > "${mf}/ref/f.toml"
@@ -393,7 +410,7 @@ else
     mkdir -p "${mf}/live/dir.toml"
     mf_state() {
         local desc="$1" expected="$2" got
-        got="$(ai_tools_managed_file_state "$3" "$4")"
+        got="$(ai_tools_providers__evaluate_managed_file "$3" "$4")"
         if [[ "${got}" == "${expected}" ]]; then pass "${desc}"; else fail "${desc}: got '${got}', expected '${expected}'"; fi
     }
     mf_state "byte-identical -> shipped"                shipped "${mf}/live/same.toml"   "${mf}/ref/f.toml"
@@ -410,7 +427,7 @@ else
     # and so is a second entry repeating a name, which would compare two live paths against one reference copy.
     printf 'npm_package=@acme/managed\nlauncher=managed\nmanaged_files=/etc/managed/one.toml, /etc/managed/two.toml relative.toml /etc/../x.toml /etc/managed/sub/three.toml /etc/other/four.toml /etc/managed/one.toml /etc/managed/..\n' \
         > "${agents_dir}/managed.conf"
-    mf_pairs="$(AI_TOOLS_MANAGED_REFERENCE_DIR="${mf}/ref" ai_tools_agent_managed_files managed 2>"${mf}/warn")"
+    mf_pairs="$(AI_TOOLS_MANAGED_REFERENCE_DIR="${mf}/ref" ai_tools_providers__list_agent_managed_files managed 2>"${mf}/warn")"
     expected_pairs="$(printf '/etc/managed/one.toml\t%s/ref/managed/one.toml\n/etc/managed/two.toml\t%s/ref/managed/two.toml' "${mf}" "${mf}")"
     if [[ "${mf_pairs}" == "${expected_pairs}" ]]; then
         pass "managed_files yields one (live, reference) pair per name under /etc/<agent>/, the reference under <dir>/<agent>/<name>"
@@ -428,7 +445,7 @@ else
     else
         fail "the repeated name was not reported as already paired: $(cat "${mf}/warn")"
     fi
-    [[ -z "$(ai_tools_agent_managed_files claude-code 2>/dev/null)" ]] \
+    [[ -z "$(ai_tools_providers__list_agent_managed_files claude-code 2>/dev/null)" ]] \
         && pass "an agent declaring no managed_files yields empty output" \
         || fail "claude-code's fixture manifest yielded managed files"
     rm -f "${agents_dir}/managed.conf"
@@ -437,20 +454,20 @@ else
     # configured, so what every case here is about is which file is destroyed: one proven byte-identical to its
     # reference, and no other. Everything else -- an edit, a comparison that cannot be made -- is moved aside
     # under the dated sidecar name, which is the treatment rpm gives an edited %config(noreplace) file on erase.
-    if ! declare -F ai_tools_managed_file_retire >/dev/null 2>&1; then
-        skip "retiring a managed file" "ai_tools_managed_file_retire not defined"
+    if ! declare -F ai_tools_providers__retire_managed_file >/dev/null 2>&1; then
+        skip "retiring a managed file" "ai_tools_providers__retire_managed_file not defined"
     else
         rt="${mf}/retire"; mkdir -p "${rt}"
         printf 'a = 1\n' > "${rt}/ref.toml"
 
         printf 'a = 1\n' > "${rt}/shipped.toml"
-        mf_out="$(ai_tools_managed_file_retire "${rt}/shipped.toml" "${rt}/ref.toml")"
+        mf_out="$(ai_tools_providers__retire_managed_file "${rt}/shipped.toml" "${rt}/ref.toml")"
         [[ "${mf_out}" == removed && ! -e "${rt}/shipped.toml" ]] \
             && pass "retire: a file matching the shipped copy is removed" \
             || fail "retire: a shipped file read '${mf_out}' and is $([[ -e "${rt}/shipped.toml" ]] && echo present || echo gone)"
 
         printf 'a = 99  # the host\n' > "${rt}/edited.toml"
-        mf_out="$(ai_tools_managed_file_retire "${rt}/edited.toml" "${rt}/ref.toml")"
+        mf_out="$(ai_tools_providers__retire_managed_file "${rt}/edited.toml" "${rt}/ref.toml")"
         mf_sidecar="${mf_out#* }"
         if [[ "${mf_out}" == "kept "* && ! -e "${rt}/edited.toml" ]] \
                 && [[ -f "${mf_sidecar}" ]] && grep -q 'the host' "${mf_sidecar}"; then
@@ -462,13 +479,13 @@ else
             && pass "retire: the sidecar is the dated .retired name beside the file it moved" \
             || fail "retire: the sidecar is named '${mf_sidecar}'"
 
-        mf_out="$(ai_tools_managed_file_retire "${rt}/absent.toml" "${rt}/ref.toml")"
+        mf_out="$(ai_tools_providers__retire_managed_file "${rt}/absent.toml" "${rt}/ref.toml")"
         [[ "${mf_out}" == absent && ! -e "${rt}/absent.toml" ]] \
             && pass "retire: nothing at the live path reads absent and writes nothing" \
             || fail "retire: an absent file read '${mf_out}'"
 
         printf 'a = 1\n' > "${rt}/noref.toml"
-        mf_out="$(ai_tools_managed_file_retire "${rt}/noref.toml" "${rt}/no-such-reference.toml")"
+        mf_out="$(ai_tools_providers__retire_managed_file "${rt}/noref.toml" "${rt}/no-such-reference.toml")"
         [[ "${mf_out}" == "kept "* && ! -e "${rt}/noref.toml" ]] \
             && pass "retire: a file that cannot be compared is kept, never removed" \
             || fail "retire: an uncomparable file read '${mf_out}'"
@@ -487,7 +504,7 @@ else
             mf_rc=0
             mf_out="$(runuser -u "${PROJECTS_USER}" -- bash -c '
                 source "$1" || exit 9
-                ai_tools_managed_file_retire "$2" "$3"' _ \
+                ai_tools_providers__retire_managed_file "$2" "$3"' _ \
                 "${LIB}" "${rt}/locked/f.toml" "${rt}/ref.toml" 2>"${rt}/err")" || mf_rc=$?
             chmod 0755 "${rt}/locked"
             if [[ "${mf_rc}" -ne 0 && "${mf_rc}" -ne 9 && -z "${mf_out}" && -f "${rt}/locked/f.toml" ]]; then
@@ -507,8 +524,8 @@ fi
 # line of a multi-line value, or a bracket inside a comment, each of which would report a key that is not missing
 # or hide one that is.
 section "providers: keys a managed file lacks against its shipped copy"
-if ! declare -F ai_tools_managed_file_missing_keys >/dev/null 2>&1; then
-    skip "managed-file keys" "ai_tools_managed_file_missing_keys not defined (install this branch first)"
+if ! declare -F ai_tools_providers__find_managed_file_missing_keys >/dev/null 2>&1; then
+    skip "managed-file keys" "ai_tools_providers__find_managed_file_missing_keys not defined (install this branch first)"
 else
     mk="${TESTDIR}/managed-keys"; mkdir -p "${mk}"
     cat > "${mk}/ref.toml" <<'TOML'
@@ -530,7 +547,7 @@ managed_dir = "/x" # a comment opening a [bracket
 other = 1
 TOML
     printf 'top = 1\n' > "${mk}/live.toml"
-    got="$(ai_tools_managed_file_missing_keys "${mk}/live.toml" "${mk}/ref.toml" | paste -sd' ')"
+    got="$(ai_tools_providers__find_managed_file_missing_keys "${mk}/live.toml" "${mk}/ref.toml" | paste -sd' ')"
     if [[ "${got}" == "features.daemon_auto_start hooks.managed_dir hooks.other multi" ]]; then
         pass "the missing keys are the table and top-level assignments, not array-of-tables entries or continuations"
     else
@@ -538,20 +555,20 @@ TOML
     fi
     printf 'top = 1\nmulti = []\nfeatures.daemon_auto_start = true\n[hooks]\nmanaged_dir = "/y"\nother = 2\n' \
         > "${mk}/dotted.toml"
-    got="$(ai_tools_managed_file_missing_keys "${mk}/dotted.toml" "${mk}/ref.toml")"
+    got="$(ai_tools_providers__find_managed_file_missing_keys "${mk}/dotted.toml" "${mk}/ref.toml")"
     if [[ -z "${got}" ]]; then
         pass "a dotted key sets the table key it names, and a different value is not a missing key"
     else
         fail "a file setting every key was reported missing '${got}'"
     fi
-    if [[ -z "$(ai_tools_managed_file_missing_keys "${mk}/ref.toml" "${mk}/ref.toml")" ]]; then
+    if [[ -z "$(ai_tools_providers__find_managed_file_missing_keys "${mk}/ref.toml" "${mk}/ref.toml")" ]]; then
         pass "a file identical to its shipped copy lacks no key"
     else
         fail "a file identical to its shipped copy was reported missing keys"
     fi
     ln -s "${mk}/live.toml" "${mk}/link.toml"
-    if ! ai_tools_managed_file_missing_keys "${mk}/absent.toml" "${mk}/ref.toml" >/dev/null \
-            && ! ai_tools_managed_file_missing_keys "${mk}/link.toml" "${mk}/ref.toml" >/dev/null; then
+    if ! ai_tools_providers__find_managed_file_missing_keys "${mk}/absent.toml" "${mk}/ref.toml" >/dev/null \
+            && ! ai_tools_providers__find_managed_file_missing_keys "${mk}/link.toml" "${mk}/ref.toml" >/dev/null; then
         pass "a missing or symlinked file is reported as not checked (status 1), not as lacking every key"
     else
         fail "an unreadable file read as checked"
@@ -559,17 +576,17 @@ TOML
 fi
 
 # --- The installed set: what the toolchain provisioning offers, and checks a name against ------
-# ai_tools_installed_agents lists every trusted manifest naming an npm_package whatever operator.conf says, since
-# the agent choice is made BEFORE the key exists. The same trust rules as the enabled-set reader, driven
+# ai_tools_providers__list_installed_agents lists every trusted manifest naming an npm_package whatever operator.conf
+# says, since the agent choice is made BEFORE the key exists. The same trust rules as the enabled-set reader, driven
 # over the synthetic manifests: a manifest without a package is not an agent, an untrusted one is skipped and reported.
 section "providers: the installed agent set"
-if declare -F ai_tools_installed_agents >/dev/null 2>&1; then
+if declare -F ai_tools_providers__list_installed_agents >/dev/null 2>&1; then
     inst_dir="${TESTDIR}/installed.d"; mkdir -p "${inst_dir}"; chmod 0755 "${inst_dir}"
     printf 'npm_package=@acme/experimental\nlauncher=acme\ndefault_enable=no\n' > "${inst_dir}/acme.conf"
     printf 'npm_package=@acme/beta\nlauncher=beta\ndefault_enable=no\n'         > "${inst_dir}/beta.conf"
     printf 'launcher=nopkg\ndefault_enable=no\n'                                 > "${inst_dir}/nopkg.conf"
     printf 'AI_TOOLS_AGENTS=""\n' > "${conf}"
-    inst_names="$(AI_TOOLS_AGENTS_DIR="${inst_dir}" AI_TOOLS_OPERATOR_CONF="${conf}" ai_tools_installed_agents 2>/dev/null | cut -f1 | tr '\n' ' ')"
+    inst_names="$(AI_TOOLS_AGENTS_DIR="${inst_dir}" AI_TOOLS_OPERATOR_CONF="${conf}" ai_tools_providers__list_installed_agents 2>/dev/null | cut -f1 | tr '\n' ' ')"
     if [[ "${inst_names}" == "acme beta " ]]; then
         pass "every trusted manifest naming a package is installed, enabled or not; one naming none is not"
     else
@@ -578,25 +595,25 @@ if declare -F ai_tools_installed_agents >/dev/null 2>&1; then
     # Captured whole and cut in the shell: a `| head -n 1` would let head exit on the first line and leave the reader's
     # second printf to die of SIGPIPE, which pipefail reports as 141 into this assignment and `set -e` turns
     # into an aborted file -- the race tests.rule.md records for `semodule -l`.
-    inst_line="$(AI_TOOLS_AGENTS_DIR="${inst_dir}" ai_tools_installed_agents 2>/dev/null)"
+    inst_line="$(AI_TOOLS_AGENTS_DIR="${inst_dir}" ai_tools_providers__list_installed_agents 2>/dev/null)"
     inst_line="${inst_line%%$'\n'*}"
     [[ "${inst_line}" == $'acme\t@acme/experimental\tacme' ]] \
         && pass "the line carries name, npm_package and launcher, TAB-separated" \
         || fail "installed line is '${inst_line}'"
     chmod 0666 "${inst_dir}/beta.conf"
-    inst_err="$(AI_TOOLS_AGENTS_DIR="${inst_dir}" ai_tools_installed_agents 2>&1 >/dev/null)"
-    inst_names="$(AI_TOOLS_AGENTS_DIR="${inst_dir}" ai_tools_installed_agents 2>/dev/null | cut -f1 | tr '\n' ' ')"
+    inst_err="$(AI_TOOLS_AGENTS_DIR="${inst_dir}" ai_tools_providers__list_installed_agents 2>&1 >/dev/null)"
+    inst_names="$(AI_TOOLS_AGENTS_DIR="${inst_dir}" ai_tools_providers__list_installed_agents 2>/dev/null | cut -f1 | tr '\n' ' ')"
     [[ "${inst_names}" == "acme " ]] && pass "a group/other-writable manifest is not an installed agent" \
                                      || fail "untrusted manifest reached the installed set: '${inst_names}'"
     assert_msg MSG-M3A5 "${inst_err}" "the skipped manifest is reported under the enabled-set reader's code"
     chmod 0644 "${inst_dir}/beta.conf"
     chmod 0777 "${inst_dir}"
-    inst_names="$(AI_TOOLS_AGENTS_DIR="${inst_dir}" ai_tools_installed_agents 2>/dev/null | cut -f1 | tr '\n' ' ')"
+    inst_names="$(AI_TOOLS_AGENTS_DIR="${inst_dir}" ai_tools_providers__list_installed_agents 2>/dev/null | cut -f1 | tr '\n' ' ')"
     [[ -z "${inst_names}" ]] && pass "a group/other-writable manifest directory yields an empty installed set" \
                              || fail "untrusted directory still listed '${inst_names}'"
     chmod 0755 "${inst_dir}"
 else
-    fail "providers.lib.sh does not define ai_tools_installed_agents"
+    fail "providers.lib.sh does not define ai_tools_providers__list_installed_agents"
 fi
 
 # --- No agent ships enabled: the shipped manifests under an absent key resolve to the empty set --------------
@@ -610,14 +627,14 @@ if [[ -d "${shipped_dir}" ]]; then
     cp "${shipped_dir}"/*.conf "${shipped_copy}/"
     chmod 0644 "${shipped_copy}"/*.conf
     for manifest in "${shipped_copy}"/*.conf; do
-        if [[ "$(ai_tools_conf_get "${manifest}" default_enable || true)" == "no" ]]; then
+        if [[ "$(ai_tools_conf__print_value "${manifest}" default_enable || true)" == "no" ]]; then
             pass "$(basename "${manifest}") ships default_enable=no"
         else
-            fail "$(basename "${manifest}") ships default_enable='$(ai_tools_conf_get "${manifest}" default_enable || true)', expected no"
+            fail "$(basename "${manifest}") ships default_enable='$(ai_tools_conf__print_value "${manifest}" default_enable || true)', expected no"
         fi
     done
-    shipped_names="$(AI_TOOLS_AGENTS_DIR="${shipped_copy}" AI_TOOLS_OPERATOR_CONF=/nonexistent ai_tools_enabled_agents 2>/dev/null | cut -f1 | tr '\n' ' ')"
-    shipped_verdict="$(AI_TOOLS_AGENTS_DIR="${shipped_copy}" AI_TOOLS_OPERATOR_CONF=/nonexistent ai_tools_agents_empty_verdict | cut -f1)"
+    shipped_names="$(AI_TOOLS_AGENTS_DIR="${shipped_copy}" AI_TOOLS_OPERATOR_CONF=/nonexistent ai_tools_providers__list_enabled_agents 2>/dev/null | cut -f1 | tr '\n' ' ')"
+    shipped_verdict="$(AI_TOOLS_AGENTS_DIR="${shipped_copy}" AI_TOOLS_OPERATOR_CONF=/nonexistent ai_tools_providers__evaluate_empty_agents | cut -f1)"
     if [[ -z "${shipped_names}" && "${shipped_verdict}" == none ]]; then
         pass "the shipped manifests under an absent AI_TOOLS_AGENTS resolve to the empty set, verdict none"
     else
@@ -641,7 +658,7 @@ touch "${mig_root}/agents.d/claude-code.conf" "${mig_root}/agents.d/codex.conf" 
 mig_conf="${mig_root}/operator.conf"
 migrate() {
     AI_TOOLS_AGENTS_DIR="${mig_root}/agents.d" AI_TOOLS_INTEGRATIONS_DIR="${mig_root}/integrations.d" \
-        AI_TOOLS_FILTERS_DIR="${mig_root}/filters.d" ai_tools_conf_kind_migrate "$1" 2>/dev/null || true
+        AI_TOOLS_FILTERS_DIR="${mig_root}/filters.d" ai_tools_providers__migrate_kinds "$1" 2>/dev/null || true
 }
 while IFS='|' read -r before after outcomes; do
     rm -f "${mig_root}"/operator.conf*
@@ -672,7 +689,7 @@ rm -f "${mig_root}"/operator.conf*
 printf '%s\n' 'AI_TOOLS_AGENTS=[claude-code]' 'AI_TOOLS_INTEGRATIONS=[typesafe]' 'AI_TOOLS_FILTERS=[core]' > "${mig_conf}"
 chmod 0644 "${mig_conf}"; cp "${mig_conf}" "${mig_root}/as-it-was"
 plan="$(AI_TOOLS_AGENTS_DIR="${mig_root}/agents.d" AI_TOOLS_INTEGRATIONS_DIR="${mig_root}/integrations.d" \
-        AI_TOOLS_FILTERS_DIR="${mig_root}/filters.d" ai_tools_conf_kind_plan "${mig_conf}" | cut -f1,2 | tr '\t\n' ' |')"
+        AI_TOOLS_FILTERS_DIR="${mig_root}/filters.d" ai_tools_providers__plan_kind_migration "${mig_conf}" | cut -f1,2 | tr '\t\n' ' |')"
 out="$(migrate "${mig_conf}")"
 backups=( "${mig_root}"/operator.conf.*.bak )
 if [[ ${#backups[@]} -eq 1 && -f "${backups[0]}" ]] && cmp -s "${backups[0]}" "${mig_root}/as-it-was"; then

@@ -105,7 +105,7 @@ _UNIT_NAME_MAX = 256
 def _sanitize(msg):
     # type: (str) -> str
     # Reduce the message to safe-for-display characters before it reaches either sink. A default-deny allowlist
-    # mirroring log.lib.sh's ai_tools_log_sanitize: keep only printable ASCII (0x20-0x7E) and replace every other code
+    # mirroring log.lib.sh's ai_tools_log__sanitize: keep only printable ASCII (0x20-0x7E) and replace every other code
     # point -- ASCII controls, and the whole Unicode control/format/bidi space -- with '?'. Allowing a known-safe set
     # (rather than blocklisting an open-ended set of dangerous code points) rejects every unknown by construction.
     # The request-arg pre-filter already rejects a control BYTE, but a bidi override or zero-width character is a valid

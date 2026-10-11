@@ -35,9 +35,9 @@ before it continues."
 
 # (1) An alert box never exceeds 50 columns (except an unbreakable token overflowing); the headline box never exceeds
 # 80.
-over="$(AI_TOOLS_MSG_BOX=1 ai_tools_msg NOTICE 1 "${LONG}" \
+over="$(AI_TOOLS_MSG_BOX=1 ai_tools_msg__alert NOTICE 1 "${LONG}" \
     | awk '{ if (length($0) > 50 && index($0, "/opt/ai-tools/") == 0) print }')"
-h_over="$(AI_TOOLS_MSG_BOX=1 ai_tools_msg_headline "Claim project (in place)" 1 "${LONG}" \
+h_over="$(AI_TOOLS_MSG_BOX=1 ai_tools_msg__headline "Claim project (in place)" 1 "${LONG}" \
     | awk '{ if (length($0) > 80) print }')"
 if [[ -z "${over}" && -z "${h_over}" ]]; then
     pass "alert frames stay <= 50 columns, headline frames <= 80"
@@ -46,7 +46,7 @@ else
 fi
 
 # (2) Every framed line starts with '#' (the whole block is a shell comment).
-bad="$(AI_TOOLS_MSG_BOX=1 ai_tools_msg NOTICE 1 "${LONG}" | grep -vE '^(#|$)' || true)"
+bad="$(AI_TOOLS_MSG_BOX=1 ai_tools_msg__alert NOTICE 1 "${LONG}" | grep -vE '^(#|$)' || true)"
 if [[ -z "${bad}" ]]; then
     pass "every framed line begins with '#' (paste-safe comment)"
 else
@@ -64,7 +64,7 @@ while IFS= read -r l; do
     if [[ "${TIES}" == *" ${last} "* ]]; then
         tie_violation="${l}"; break
     fi
-done < <(AI_TOOLS_MSG_BOX=1 ai_tools_msg NOTICE 1 "${LONG}")
+done < <(AI_TOOLS_MSG_BOX=1 ai_tools_msg__alert NOTICE 1 "${LONG}")
 if [[ -z "${tie_violation}" ]]; then
     pass "no wrapped line ends on a tie-word"
 else
@@ -72,7 +72,7 @@ else
 fi
 
 # (4) A single over-long token (the path) is never split across lines.
-if AI_TOOLS_MSG_BOX=1 ai_tools_msg NOTICE 1 "${LONG}" \
+if AI_TOOLS_MSG_BOX=1 ai_tools_msg__alert NOTICE 1 "${LONG}" \
         | grep -qF '/opt/ai-tools/very/long/path/that/should/not/be/split/ever'; then
     pass "an unbreakable token (path) survives wrapping intact"
 else
@@ -82,7 +82,7 @@ fi
 # (5) Plain mode (non-tty / forced) keeps a multi-word phrase on ONE line, so a grep for what a message SAYS -- a count,
 # a path, a named command -- still matches it whole.
 phrase='invalid or absent AI_TOOLS_AGENT_EXEC -- cannot launch'
-if AI_TOOLS_MSG_PLAIN=1 ai_tools_msg_error "ai-tools-run: ${phrase}" 2>&1 \
+if AI_TOOLS_MSG_PLAIN=1 ai_tools_msg__error "ai-tools-run: ${phrase}" 2>&1 \
         | grep -qF "${phrase}"; then
     pass "plain mode keeps the phrase on one line (grep-friendly)"
 else
@@ -90,18 +90,18 @@ else
 fi
 
 # (6) The box is framed: first line is a titled top rule, last a bottom rule.
-mapfile -t boxlines < <(AI_TOOLS_MSG_BOX=1 ai_tools_msg ERROR 1 "short message")
+mapfile -t boxlines < <(AI_TOOLS_MSG_BOX=1 ai_tools_msg__alert ERROR 1 "short message")
 if [[ -z "${boxlines[0]}" && "${boxlines[1]}" == '#-- ERROR '* && "${boxlines[-1]}" =~ ^#-+#$ ]]; then
     pass "box has a leading blank, a titled top rule, and a bottom rule"
 else
     fail "box framing wrong: lead='${boxlines[0]}' top='${boxlines[1]}' bottom='${boxlines[-1]}'"
 fi
 
-# ── ai_tools_msg_block: titled guidance screen with verbatim commands ──────────────
+# ── ai_tools_msg__block: titled guidance screen with verbatim commands ──────────────
 # block() goes to stderr; capture it. Indented command lines stay verbatim (one line), a flush-left prose line wraps,
 # and an over-wide command overflows the right border.
 CMD='       /usr/local/bin/ai-tools projects clone /a/very/long/path/that/overflows/the/right/border/of/the/box'
-mapfile -t blk < <(AI_TOOLS_MSG_BOX=1 ai_tools_msg_block "This project is not claimed yet" \
+mapfile -t blk < <(AI_TOOLS_MSG_BOX=1 ai_tools_msg__block "This project is not claimed yet" \
     "Two ways to make the current directory available to the sandboxed agent:" \
     "" \
     "  1. Claim it in place:" \
@@ -141,7 +141,7 @@ fi
 # (11) Orphan control: a final single-word widow is pulled up. At width 74 the sample wraps to a "does." widow without
 # it; with it, the tie-glued tail ("for what each does.") drops to the last line and the first line ends
 # on a substantial word, not a little function word.
-mapfile -t wl < <(ai_tools_msg_wrap 74 \
+mapfile -t wl < <(ai_tools_msg__wrap 74 \
     "Both default to the current directory. See 'ai-tools --help' for what each does.")
 if (( ${#wl[@]} == 2 )) && [[ "${wl[1]}" == *" "* && "${wl[0]}" == *"--help'" ]]; then
     pass "orphan control pulls the stranded tail down (no single-word widow)"
@@ -149,37 +149,37 @@ else
     fail "orphan control wrong: $(printf '[%s]' "${wl[@]}")"
 fi
 
-# (12) ai_tools_msg_pick returns the default with no terminal (setsid detaches /dev/tty), so an unattended run never
+# (12) ai_tools_msg__pick returns the default with no terminal (setsid detaches /dev/tty), so an unattended run never
 # blocks on input and takes the safe default.
-sel="$(setsid bash -c 'source "'"${LIB}"'"; ai_tools_msg_pick 3 a b c' </dev/null 2>/dev/null || true)"
+sel="$(setsid bash -c 'source "'"${LIB}"'"; ai_tools_msg__pick 3 a b c' </dev/null 2>/dev/null || true)"
 if [[ "${sel}" == "3" ]]; then
-    pass "ai_tools_msg_pick yields the default when no terminal is present"
+    pass "ai_tools_msg__pick yields the default when no terminal is present"
 else
-    fail "ai_tools_msg_pick did not default without a tty (got '${sel}')"
+    fail "ai_tools_msg__pick did not default without a tty (got '${sel}')"
 fi
 
-# ── ai_tools_msg_pick, no-default mode ────────────────────────────────────────────
+# ── ai_tools_msg__pick, no-default mode ────────────────────────────────────────────
 # `none` is the mode that refuses to answer for the user: every way it can fail to get a valid index must yield NOTHING
 # on stdout and a non-zero status, so a caller cannot mistake an unanswered menu for a chosen option (the claude wrapper
 # reads that as Cancel).
 
 # (12b) No terminal: non-zero, empty stdout -- the caller decides, the lib does not.
 nd_rc=0
-nd_sel="$(setsid bash -c 'source "'"${LIB}"'"; ai_tools_msg_pick none a b c' </dev/null 2>/dev/null)" \
+nd_sel="$(setsid bash -c 'source "'"${LIB}"'"; ai_tools_msg__pick none a b c' </dev/null 2>/dev/null)" \
     || nd_rc=$?
 if [[ "${nd_rc}" != 0 && -z "${nd_sel}" ]]; then
-    pass "ai_tools_msg_pick none refuses (non-zero, no output) with no terminal"
+    pass "ai_tools_msg__pick none refuses (non-zero, no output) with no terminal"
 else
-    fail "ai_tools_msg_pick none answered without a tty (rc=${nd_rc}, out='${nd_sel}')"
+    fail "ai_tools_msg__pick none answered without a tty (rc=${nd_rc}, out='${nd_sel}')"
 fi
 
 # (12c) An invalid first argument is a caller error, never an assumed answer.
 ba_rc=0
-bad_sel="$(bash -c 'source "'"${LIB}"'"; ai_tools_msg_pick 7 a b c' 2>/dev/null)" || ba_rc=$?
+bad_sel="$(bash -c 'source "'"${LIB}"'"; ai_tools_msg__pick 7 a b c' 2>/dev/null)" || ba_rc=$?
 if [[ "${ba_rc}" == 2 && -z "${bad_sel}" ]]; then
-    pass "ai_tools_msg_pick rejects a default outside 1..N (rc=2, no output)"
+    pass "ai_tools_msg__pick rejects a default outside 1..N (rc=2, no output)"
 else
-    fail "ai_tools_msg_pick accepted an out-of-range default (rc=${ba_rc}, out='${bad_sel}')"
+    fail "ai_tools_msg__pick accepted an out-of-range default (rc=${ba_rc}, out='${bad_sel}')"
 fi
 
 # (12d) With a terminal: empty input RE-ASKS and, after three attempts, gives up -- while a valid index is echoed. Both
@@ -192,7 +192,7 @@ probe="${TESTDIR}/pick-probe.sh"
 cat > "${probe}" <<EOF
 source "${LIB}"
 rc=0
-sel="\$(ai_tools_msg_pick none "Create sandbox"\$'\t'"an isolated copy" \\
+sel="\$(ai_tools_msg__pick none "Create sandbox"\$'\t'"an isolated copy" \\
     "Claim here"\$'\t'"in place" "Cancel"\$'\t'"change nothing")" || rc=\$?
 printf '%s' "\${sel}" > "${TESTDIR}/sel"
 printf '%s' "\${rc}"  > "${TESTDIR}/rc"
@@ -207,44 +207,44 @@ pick_probe() {
     printf '%s:%s' "$(cat "${TESTDIR}/rc")" "$(cat "${TESTDIR}/sel")"
 }
 if ! command -v script >/dev/null 2>&1; then
-    skip "ai_tools_msg_pick none interactive cases" "script(1) not available for a pty"
+    skip "ai_tools_msg__pick none interactive cases" "script(1) not available for a pty"
 else
     empty_res="$(pick_probe '\n\n\n')"
     valid_res="$(pick_probe '\n9\n2\n')"
     if [[ "${empty_res}" == nopty || "${valid_res}" == nopty ]]; then
-        skip "ai_tools_msg_pick none interactive cases" "no pseudo-terminal available here"
+        skip "ai_tools_msg__pick none interactive cases" "no pseudo-terminal available here"
     elif [[ "${empty_res}" == "1:" ]]; then
-        pass "ai_tools_msg_pick none re-asks and gives up (non-zero, no output) after 3 empties"
+        pass "ai_tools_msg__pick none re-asks and gives up (non-zero, no output) after 3 empties"
     else
-        fail "ai_tools_msg_pick none did not give up on empty input (got '${empty_res}')"
+        fail "ai_tools_msg__pick none did not give up on empty input (got '${empty_res}')"
     fi
     if [[ "${valid_res}" == nopty ]]; then
         :   # already reported above
     elif [[ "${valid_res}" == "0:2" ]]; then
-        pass "ai_tools_msg_pick none re-asks past empty/out-of-range input and takes the valid index"
+        pass "ai_tools_msg__pick none re-asks past empty/out-of-range input and takes the valid index"
     else
-        fail "ai_tools_msg_pick none did not accept the valid index after two misses (got '${valid_res}')"
+        fail "ai_tools_msg__pick none did not accept the valid index after two misses (got '${valid_res}')"
     fi
 fi
 
-# ── ai_tools_cmd_display: a command the user can type ──────────────────────────────
+# ── ai_tools_msg__format_command: a command the user can type ──────────────────────────────
 # (12e) The bare name only where PATH resolves it to that SAME absolute path; the absolute path otherwise, so a host
 # with an unexpected PATH still gets a command that works.
 mkdir -p "${TESTDIR}/bin" "${TESTDIR}/elsewhere"
 printf '#!/bin/sh\n' > "${TESTDIR}/bin/ai-tools-probe"
 cp "${TESTDIR}/bin/ai-tools-probe" "${TESTDIR}/elsewhere/ai-tools-probe"
 chmod 0755 "${TESTDIR}/bin/ai-tools-probe" "${TESTDIR}/elsewhere/ai-tools-probe"
-on_path="$(PATH="${TESTDIR}/bin:${PATH}" ai_tools_cmd_display "${TESTDIR}/bin/ai-tools-probe")"
-shadowed="$(PATH="${TESTDIR}/bin:${PATH}" ai_tools_cmd_display "${TESTDIR}/elsewhere/ai-tools-probe")"
+on_path="$(PATH="${TESTDIR}/bin:${PATH}" ai_tools_msg__format_command "${TESTDIR}/bin/ai-tools-probe")"
+shadowed="$(PATH="${TESTDIR}/bin:${PATH}" ai_tools_msg__format_command "${TESTDIR}/elsewhere/ai-tools-probe")"
 if [[ "${on_path}" == "ai-tools-probe" && "${shadowed}" == "${TESTDIR}/elsewhere/ai-tools-probe" ]]; then
-    pass "ai_tools_cmd_display shortens only what PATH resolves to that same path"
+    pass "ai_tools_msg__format_command shortens only what PATH resolves to that same path"
 else
-    fail "ai_tools_cmd_display wrong (on-path='${on_path}', shadowed='${shadowed}')"
+    fail "ai_tools_msg__format_command wrong (on-path='${on_path}', shadowed='${shadowed}')"
 fi
 
 # (13) Caller-IFS independence: the claude wrapper sets IFS=$'\n\t' (no space). The wrap must still split on spaces
 # and wrap, not collapse the line into one over-wide unbreakable unit.
-ifs_over="$(IFS=$'\n\t'; AI_TOOLS_MSG_BOX=1 ai_tools_msg ERROR 1 \
+ifs_over="$(IFS=$'\n\t'; AI_TOOLS_MSG_BOX=1 ai_tools_msg__alert ERROR 1 \
     "claude: /home/x/Development/NDF26/ClaudeCodeRestricted is not accessible to the sandbox now" \
     | awk '{ if (length($0) > 80) print }')"
 if [[ -z "${ifs_over}" ]]; then
@@ -256,10 +256,10 @@ fi
 # (14) Fixed-width mode: AI_TOOLS_MSG_FULLWIDTH pins every box to its CLASS's frame -- alerts to 50 columns,
 # headline/block boxes to 80 -- so a sequence of boxes aligns per class. A short and a longer message must frame
 # identically within a class.
-short_w="$(AI_TOOLS_MSG_BOX=1 AI_TOOLS_MSG_FULLWIDTH=1 ai_tools_msg ERROR 1 "short" | awk '/^#/&&!s{print length;s=1}')"
-long_w="$(AI_TOOLS_MSG_BOX=1 AI_TOOLS_MSG_FULLWIDTH=1 ai_tools_msg ERROR 1 \
+short_w="$(AI_TOOLS_MSG_BOX=1 AI_TOOLS_MSG_FULLWIDTH=1 ai_tools_msg__alert ERROR 1 "short" | awk '/^#/&&!s{print length;s=1}')"
+long_w="$(AI_TOOLS_MSG_BOX=1 AI_TOOLS_MSG_FULLWIDTH=1 ai_tools_msg__alert ERROR 1 \
     "a longer message that still fits the cap" | awk '/^#/&&!s{print length;s=1}')"
-head_w="$(AI_TOOLS_MSG_BOX=1 AI_TOOLS_MSG_FULLWIDTH=1 ai_tools_msg_headline "Claim project" 1 "short" \
+head_w="$(AI_TOOLS_MSG_BOX=1 AI_TOOLS_MSG_FULLWIDTH=1 ai_tools_msg__headline "Claim project" 1 "short" \
     | awk '/^#/&&!s{print length;s=1}')"
 if [[ "${short_w}" == "50" && "${long_w}" == "50" && "${head_w}" == "80" ]]; then
     pass "AI_TOOLS_MSG_FULLWIDTH pins alerts to 50 columns and headlines to 80"
@@ -269,8 +269,8 @@ fi
 
 # (14b) A headline box carries its caller-composed title verbatim in the top rule, and plain mode emits the title
 # as a content line (it is block structure, not decoration), so logs and substring greps still see which block opened.
-mapfile -t hl < <(AI_TOOLS_MSG_BOX=1 ai_tools_msg_headline "WARNING: interior permission drift" 1 "details")
-plain_hl="$(AI_TOOLS_MSG_PLAIN=1 ai_tools_msg_headline "Secret lockdown" 1 "scanning")"
+mapfile -t hl < <(AI_TOOLS_MSG_BOX=1 ai_tools_msg__headline "WARNING: interior permission drift" 1 "details")
+plain_hl="$(AI_TOOLS_MSG_PLAIN=1 ai_tools_msg__headline "Secret lockdown" 1 "scanning")"
 if [[ "${hl[1]}" == '#-- WARNING: interior permission drift '* ]] \
         && grep -qxF 'Secret lockdown' <<<"${plain_hl}" \
         && grep -qxF 'scanning' <<<"${plain_hl}"; then
@@ -279,14 +279,14 @@ else
     fail "headline rendering wrong (top='${hl[1]}', plain='${plain_hl}')"
 fi
 
-# ── ai_tools_msg_confirm: the single yes/no prompt ─────────────────────────────────
+# ── ai_tools_msg__confirm: the single yes/no prompt ─────────────────────────────────
 # Each probe runs under setsid (no controlling tty), so the /dev/tty open fails and the confirm answers from its default
 # -- the unattended path every consumer relies on.
 _confirm() { setsid bash -c 'source "'"${LIB}"'"; '"$1" </dev/null 2>/dev/null; }
 
 # (15) With no terminal the confirm takes its explicit default: 0 for y, 1 for n.
-y_rc=0; _confirm 'ai_tools_msg_confirm "Q?" y' || y_rc=$?
-n_rc=0; _confirm 'ai_tools_msg_confirm "Q?" n' || n_rc=$?
+y_rc=0; _confirm 'ai_tools_msg__confirm "Q?" y' || y_rc=$?
+n_rc=0; _confirm 'ai_tools_msg__confirm "Q?" n' || n_rc=$?
 if [[ "${y_rc}" == 0 && "${n_rc}" == 1 ]]; then
     pass "confirm answers its default with no terminal (y->yes, n->no)"
 else
@@ -295,8 +295,8 @@ fi
 
 # (16) AI_TOOLS_ASSUME_YES=1 fast-tracks ONLY a default-YES prompt; a default-NO question is never flipped to yes
 # by the environment.
-ay_rc=0; _confirm 'AI_TOOLS_ASSUME_YES=1 ai_tools_msg_confirm "Q?" y' || ay_rc=$?
-an_rc=0; _confirm 'AI_TOOLS_ASSUME_YES=1 ai_tools_msg_confirm "Q?" n' || an_rc=$?
+ay_rc=0; _confirm 'AI_TOOLS_ASSUME_YES=1 ai_tools_msg__confirm "Q?" y' || ay_rc=$?
+an_rc=0; _confirm 'AI_TOOLS_ASSUME_YES=1 ai_tools_msg__confirm "Q?" n' || an_rc=$?
 if [[ "${ay_rc}" == 0 && "${an_rc}" == 1 ]]; then
     pass "AI_TOOLS_ASSUME_YES answers yes only when the default is already yes"
 else
@@ -305,8 +305,8 @@ fi
 
 # (17) The default is a required, validated argument -- a missing or bad value is an error, never a silently assumed
 # answer.
-miss_rc=0; _confirm 'ai_tools_msg_confirm "Q?"'   || miss_rc=$?
-bad_rc=0;  _confirm 'ai_tools_msg_confirm "Q?" x' || bad_rc=$?
+miss_rc=0; _confirm 'ai_tools_msg__confirm "Q?"'   || miss_rc=$?
+bad_rc=0;  _confirm 'ai_tools_msg__confirm "Q?" x' || bad_rc=$?
 if [[ "${miss_rc}" != 0 && "${bad_rc}" == 2 ]]; then
     pass "confirm rejects a missing (rc=${miss_rc}) or invalid (rc=2) default"
 else
@@ -320,7 +320,7 @@ else
     fail "confirm hint notation drifted from [Y/n] (default: Yes) / [y/N] (default: No)"
 fi
 
-# ── ai_tools_msg_challenge: the typed-name challenge ───────────────────────────────
+# ── ai_tools_msg__challenge: the typed-name challenge ───────────────────────────────
 # The interactive branch needs a controlling terminal, which this suite does not allocate (every prompt assertion
 # in this file drives the no-tty path under setsid, for the same reason). What IS drivable is the half that carries
 # the guarantee: with no terminal the challenge must decline, since a destructive verb behind one has to be unreachable
@@ -328,7 +328,7 @@ fi
 
 # (19) No terminal -- and therefore no possible answer -- declines. It has no default to fall back on, which is
 # what distinguishes it from a confirm.
-ch_rc=0; _confirm 'ai_tools_msg_challenge "Delete?" myproj' || ch_rc=$?
+ch_rc=0; _confirm 'ai_tools_msg__challenge "Delete?" myproj' || ch_rc=$?
 if [[ "${ch_rc}" != 0 ]]; then
     pass "challenge declines with no terminal (no default to fall back on)"
 else
@@ -337,7 +337,7 @@ fi
 
 # (20) A missing <expected> is a caller error, never an assumed match -- the same rule the confirm's required default
 # follows.
-chm_rc=0; _confirm 'ai_tools_msg_challenge "Delete?"' || chm_rc=$?
+chm_rc=0; _confirm 'ai_tools_msg__challenge "Delete?"' || chm_rc=$?
 if [[ "${chm_rc}" != 0 ]]; then
     pass "challenge rejects a missing expected value (rc=${chm_rc})"
 else
@@ -359,9 +359,9 @@ fi
 chprobe="${TESTDIR}/challenge-probe.sh"
 cat > "${chprobe}" <<EOF
 source "${LIB}"
-ai_tools_log() { shift; printf '%s\n' "\$*" >> "${TESTDIR}/audit"; }
+ai_tools_log__write() { shift; printf '%s\n' "\$*" >> "${TESTDIR}/audit"; }
 rc=0
-ai_tools_msg_challenge "Delete myproj?" myproj || rc=\$?
+ai_tools_msg__challenge "Delete myproj?" myproj || rc=\$?
 printf '%s' "\${rc}" > "${TESTDIR}/chrc"
 EOF
 # challenge_probe <input> -- run the probe under a pty with <input> on its stdin; echoes the challenge's exit status,
@@ -374,11 +374,11 @@ challenge_probe() {
     cat "${TESTDIR}/chrc"
 }
 if ! command -v script >/dev/null 2>&1; then
-    skip "ai_tools_msg_challenge interactive cases" "script(1) not available for a pty"
+    skip "ai_tools_msg__challenge interactive cases" "script(1) not available for a pty"
 else
     match_rc="$(challenge_probe 'myproj\n')"
     if [[ "${match_rc}" == nopty ]]; then
-        skip "ai_tools_msg_challenge interactive cases" "no pseudo-terminal available here"
+        skip "ai_tools_msg__challenge interactive cases" "no pseudo-terminal available here"
     else
         if [[ "${match_rc}" == 0 ]]; then
             pass "challenge accepts the exact expected value"
@@ -427,7 +427,7 @@ CODE='MSG-A1B2'   # ref-index: ignore
 
 # (24) Boxed alert: the code joins the severity in the top rule and appears in no content line; the frame still fits its
 # class.
-mapfile -t coded < <(AI_TOOLS_MSG_BOX=1 ai_tools_msg ERROR 1 "${CODE}" "short message")
+mapfile -t coded < <(AI_TOOLS_MSG_BOX=1 ai_tools_msg__alert ERROR 1 "${CODE}" "short message")
 coded_wide="$(printf '%s\n' "${coded[@]}" | awk '{ if (length($0) > 50) print }')"
 if [[ "${coded[1]}" == "#-- ERROR ${CODE} "* && -z "${coded_wide}" ]] \
         && ! printf '%s\n' "${coded[@]:2}" | grep -qF "${CODE}"; then
@@ -437,7 +437,7 @@ else
 fi
 
 # (25) Plain alert: the code is the first line by itself, the caller's line follows whole.
-plain_coded="$(AI_TOOLS_MSG_PLAIN=1 ai_tools_msg_error "${CODE}" "first line" "second line" 2>&1)"
+plain_coded="$(AI_TOOLS_MSG_PLAIN=1 ai_tools_msg__error "${CODE}" "first line" "second line" 2>&1)"
 if [[ "${plain_coded}" == "${CODE}"$'\n'"first line"$'\n'"second line" ]]; then
     pass "a coded alert in plain mode leads with the code on its own line"
 else
@@ -446,8 +446,8 @@ fi
 
 # (26) An uncoded call renders byte-for-byte as before in both modes: no empty leading line, no title change --
 # the incremental migration rests on this.
-plain_uncoded="$(AI_TOOLS_MSG_PLAIN=1 ai_tools_msg_error "first line" "second line" 2>&1)"
-mapfile -t uncoded < <(AI_TOOLS_MSG_BOX=1 ai_tools_msg ERROR 1 "short message")
+plain_uncoded="$(AI_TOOLS_MSG_PLAIN=1 ai_tools_msg__error "first line" "second line" 2>&1)"
+mapfile -t uncoded < <(AI_TOOLS_MSG_BOX=1 ai_tools_msg__alert ERROR 1 "short message")
 if [[ "${plain_uncoded}" == "first line"$'\n'"second line" && "${uncoded[1]}" == '#-- ERROR -'* ]]; then
     pass "an uncoded alert is unchanged in plain and boxed mode"
 else
@@ -458,10 +458,10 @@ fi
 # and stays on the message line.
 prose_ok=1
 for word in 'msg-a1b2' "${CODE}:" "${CODE}X" 'MSG-AB12'; do
-    out="$(AI_TOOLS_MSG_PLAIN=1 ai_tools_msg_error "${word}" "rest" 2>&1)"
+    out="$(AI_TOOLS_MSG_PLAIN=1 ai_tools_msg__error "${word}" "rest" 2>&1)"
     [[ "${out}" == "${word}"$'\n'"rest" ]] || { prose_ok=0; break; }
 done
-if (( prose_ok )) && ai_tools_msg_is_code "${CODE}" && ! ai_tools_msg_is_code "${CODE}:"; then
+if (( prose_ok )) && ai_tools_msg__is_code "${CODE}" && ! ai_tools_msg__is_code "${CODE}:"; then
     pass "only the exact MSG- form is detected as a code; near misses stay prose"
 else
     fail "code detection wrong for '${word}': $(printf '[%s]' "${out}")"
@@ -469,9 +469,9 @@ fi
 
 # (28) A coded block: the code follows the title in the top rule; plain mode leads with the code, then the lines
 # verbatim -- the body stays uncoded and the title, as before, is dropped.
-mapfile -t cblk < <(AI_TOOLS_MSG_BOX=1 ai_tools_msg_block "${CODE}" "Set up this project" \
+mapfile -t cblk < <(AI_TOOLS_MSG_BOX=1 ai_tools_msg__block "${CODE}" "Set up this project" \
     "Two ways:" "" "  1. Claim it:" "       ai-tools projects claim" 2>&1)
-plain_cblk="$(AI_TOOLS_MSG_PLAIN=1 ai_tools_msg_block "${CODE}" "Set up this project" \
+plain_cblk="$(AI_TOOLS_MSG_PLAIN=1 ai_tools_msg__block "${CODE}" "Set up this project" \
     "Two ways:" "  1. Claim it:" 2>&1)"
 if [[ "${cblk[1]}" == "#-- Set up this project ${CODE} "* ]] \
         && [[ "${plain_cblk}" == "${CODE}"$'\n'"Two ways:"$'\n'"  1. Claim it:" ]]; then
@@ -514,7 +514,7 @@ inline_matchers=(
 if [[ ! -r "${REPO}/install.sh" ]]; then
     skip "inline code matchers agree with the library" "not a source checkout"
 else
-    lib_form="$(sed -n "s/^readonly _AI_TOOLS_MSG_CODE_RE='\(.*\)'$/\1/p" "${LIB}")"
+    lib_form="$(sed -n "s/^readonly _AI_TOOLS_MSG__CODE_PATTERN='\(.*\)'$/\1/p" "${LIB}")"
     drifted=""
     for f in "${inline_matchers[@]}"; do
         grep -qF -- "=~ ${lib_form} ]]" "${REPO}/${f}" || drifted+=" ${f}"

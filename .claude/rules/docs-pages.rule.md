@@ -9,8 +9,9 @@ paths:
 The front page and the pages under `docs/` are written for a human operator or admin — never for an agent. They state
 what a reader can **do** and what happens when they do it; the mechanism behind it belongs to the rule that owns
 the component. This rule holds the register, the tree, and the navigation contract. How prose is written at all is
-the shipped `ai-tools-technical-docs` skill's, and `CLAUDE.md`'s documentation register names which artifact takes
-which one: these pages are **usage prose**, so a section leads with a runnable example and the prose glosses it.
+the `ai-tools-technical-writing` skill's, from the asset set `core`, and `CLAUDE.md`'s documentation register names
+which artifact takes which one: these pages are **usage prose**, so a section leads with a runnable example
+and the prose glosses it.
 
 ## The tier each fact belongs to
 
@@ -144,6 +145,6 @@ Four rules, applied while the page is written:
 Prose here wraps at **79** columns, the width configured for `README.md` and `docs/`, which a person reads:
 
 ```bash
-python3 /opt/ai-tools/skills/ai-tools-technical-docs/prose-check.py --all --wrap docs/<page>.md
-bash tools/formatters/format.sh docs/<page>.md
+python3 "$(bash tools/lib/assets.sh path core)/skills/ai-tools-technical-writing/scripts/prose-check.py" --all --wrap docs/<page>.md
+bash tools/format.sh docs/<page>.md
 ```

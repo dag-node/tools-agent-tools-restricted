@@ -57,8 +57,8 @@ AI_TOOLS_LOG_FILE="dotnet.log"
 readonly LOG_LIB="/usr/local/lib/ai-tools/log.lib.sh"
 # shellcheck source=SCRIPTDIR/../log.lib.sh
 if ! source "${LOG_LIB}" 2>/dev/null; then
-    ai_tools_log() { :; }; ai_tools_log_debug() { :; }; ai_tools_log_info() { :; }
-    ai_tools_log_warn() { :; }; ai_tools_log_error() { :; }
+    ai_tools_log__write() { :; }; ai_tools_log__debug() { :; }; ai_tools_log__info() { :; }
+    ai_tools_log__warn() { :; }; ai_tools_log__error() { :; }
 fi
 
 # A leading message code (msg.lib.sh states the form) is printed on its own line ahead of the message, the shape
@@ -69,15 +69,15 @@ fi
 die() {
     local code=""
     if [[ "${1-}" =~ ^MSG-[A-Z][0-9][A-Z][0-9]$ ]]; then code="$1"; shift; fi
-    ai_tools_log_error "${code:+${code} }$*"
+    ai_tools_log__error "${code:+${code} }$*"
     [[ -z "${code}" ]] || printf '%s\n' "${code}" >&2
     printf 'ai-tools-admin dotnet: error: %s\n' "$*" >&2; exit 1
 }
-log()  { ai_tools_log_info  "$*"; printf 'ai-tools-admin dotnet: %s\n' "$*"; }
+log()  { ai_tools_log__info  "$*"; printf 'ai-tools-admin dotnet: %s\n' "$*"; }
 warn() {
     local code=""
     if [[ "${1-}" =~ ^MSG-[A-Z][0-9][A-Z][0-9]$ ]]; then code="$1"; shift; fi
-    ai_tools_log_warn "${code:+${code} }$*"
+    ai_tools_log__warn "${code:+${code} }$*"
     [[ -z "${code}" ]] || printf '%s\n' "${code}" >&2
     printf 'ai-tools-admin dotnet: warning: %s\n' "$*" >&2
 }
@@ -125,7 +125,7 @@ selinux_active() {
     [[ "$(getenforce 2>/dev/null)" != Disabled ]] || return 1
     command -v semodule >/dev/null 2>&1 || return 1
     # Captured, not piped into `grep -q`: an early-exiting reader makes semodule die of SIGPIPE and pipefail then
-    # reports the probe failed -- see ai_tools_selinux_group_loaded.
+    # reports the probe failed -- see ai_tools_selinux_groups__is_loaded.
     local modules
     modules="$(semodule -l 2>/dev/null || true)"
     grep -qx ai_tools <<<"${modules}"
@@ -139,7 +139,7 @@ label_state() {
     local path="$1"
     restorecon -R "${path}" >/dev/null 2>&1 \
         || die MSG-J4C7 "could not relabel ${path} (restorecon failed)"
-    ai_tools_log_debug "labelled ${path} from the base file-context rule"
+    ai_tools_log__debug "labelled ${path} from the base file-context rule"
 }
 
 # drop_legacy_fcontexts : remove the local fcontext rules earlier versions of this command added for its home-root
@@ -160,8 +160,8 @@ manifest_field() {
     local providers_lib=/usr/local/lib/ai-tools/providers.lib.sh
     # shellcheck source=SCRIPTDIR/../providers.lib.sh
     source "${providers_lib}" 2>/dev/null || return 1
-    declare -F ai_tools_provider_manifest_field >/dev/null 2>&1 || return 1
-    ai_tools_provider_manifest_field dotnet "$1" 2>/dev/null
+    declare -F ai_tools_providers__read_provider_manifest_field >/dev/null 2>&1 || return 1
+    ai_tools_providers__read_provider_manifest_field dotnet "$1" 2>/dev/null
 }
 
 # load_layout_module : load this integration's SELinux layout module (selinux_layout_module in the manifest),
@@ -198,8 +198,8 @@ bootstrap() {
         "${CP_INTEGRATIONS}" "${STATE_DIR}" \
         || die MSG-N6G6 "could not create the dotnet state root ${STATE_DIR}"
     # Set both modes exactly: created under the setgid control-plane home, a new directory inherits setgid, and a plain
-    # chmod would not clear it (see ai_tools_apply_mode).
-    ai_tools_apply_mode "${CP_DIR_MODES[integrations]}" "${CP_INTEGRATIONS}" "${STATE_DIR}" \
+    # chmod would not clear it (see ai_tools_control_plane__apply_mode).
+    ai_tools_control_plane__apply_mode "${CP_DIR_MODES[integrations]}" "${CP_INTEGRATIONS}" "${STATE_DIR}" \
         || die MSG-G6E2 "could not set the mode on ${STATE_DIR}"
     # NuGet restore cache and the SDK's own state: agent-WRITABLE (setgid, group ai-tools rwx). The cache is shared
     # across projects, so a package restored once serves every project; the CLI home is what keeps the shared tools tree
@@ -211,7 +211,7 @@ bootstrap() {
     # them.
     install -d -o root -g "${SANDBOX_GROUP}" -m 0755 "${TOOLS_DIR}" \
         || die MSG-Q7P2 "could not create the shared tools dir ${TOOLS_DIR}"
-    ai_tools_apply_mode 0755 "${TOOLS_DIR}" || die MSG-V3F4 "could not set the mode on ${TOOLS_DIR}"
+    ai_tools_control_plane__apply_mode 0755 "${TOOLS_DIR}" || die MSG-V3F4 "could not set the mode on ${TOOLS_DIR}"
     # One label for the whole tree, from the base policy's static rule: the type grants ai_tools_t the SELinux access
     # (write on the cache, exec on the tools), while the DAC modes are the enforced read/write boundary.
     if selinux_active; then
@@ -254,11 +254,11 @@ dotnet_enabled() {
     local providers_lib=/usr/local/lib/ai-tools/providers.lib.sh
     # shellcheck source=SCRIPTDIR/../providers.lib.sh
     if ! source "${providers_lib}" 2>/dev/null \
-            || ! declare -F ai_tools_enabled_integrations >/dev/null 2>&1; then
+            || ! declare -F ai_tools_providers__list_enabled_integrations >/dev/null 2>&1; then
         warn MSG-X4Q4 "provider resolver unavailable -- cannot report session enablement"
         return 1
     fi
-    ai_tools_enabled_integrations 2>/dev/null | grep -qx dotnet
+    ai_tools_providers__list_enabled_integrations 2>/dev/null | grep -qx dotnet
 }
 
 status() {
@@ -291,12 +291,12 @@ selinux_status() {
     local groups_lib=/usr/local/lib/ai-tools/selinux-groups.lib.sh
     # shellcheck source=SCRIPTDIR/../selinux-groups.lib.sh
     source "${groups_lib}" 2>/dev/null || return 0
-    declare -F ai_tools_selinux_group_loaded >/dev/null 2>&1 || return 0
+    declare -F ai_tools_selinux_groups__is_loaded >/dev/null 2>&1 || return 0
     local module declared name missing="" experimental=""
     local -a names=()
     module="$(manifest_field selinux_layout_module || true)"
     if [[ -n "${module}" ]]; then
-        if ai_tools_selinux_module_loaded "${module}"; then
+        if ai_tools_selinux_groups__is_module_loaded "${module}"; then
             log "SELinux layout module: ${module} loaded (build output typed at creation)"
         else
             log "SELinux layout module: ${module} NOT loaded -- re-run: sudo ai-tools-admin dotnet bootstrap"
@@ -304,12 +304,12 @@ selinux_status() {
     fi
     declared="$(manifest_field selinux_groups || true)"
     [[ -n "${declared}" ]] || return 0
-    ai_tools_conf_list_value names "${declared}" 0 "selinux_groups in the dotnet manifest"
+    ai_tools_conf__split_list_value names "${declared}" 0 "selinux_groups in the dotnet manifest"
     for name in "${names[@]}"; do
-        ai_tools_selinux_group_valid "${name}" || continue
-        if ai_tools_selinux_group_loaded "${name}"; then
+        ai_tools_selinux_groups__is_valid "${name}" || continue
+        if ai_tools_selinux_groups__is_loaded "${name}"; then
             log "SELinux group ${name}: loaded"
-        elif ai_tools_selinux_group_is_experimental "${name}"; then
+        elif ai_tools_selinux_groups__is_experimental "${name}"; then
             log "SELinux group ${name}: NOT loaded (experimental)"; experimental+="${experimental:+ }${name}"
         else
             log "SELinux group ${name}: NOT loaded"; missing+="${missing:+ }${name}"

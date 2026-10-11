@@ -31,7 +31,7 @@ if [[ ! -r "${LIB}" || ! -r "${SHIPPED}" ]]; then
 fi
 # shellcheck source=/dev/null
 source "${LIB}"
-if ! declare -F ai_tools_conf_merge_hook_declarations >/dev/null 2>&1; then
+if ! declare -F ai_tools_settings_merge__merge_hook_declarations >/dev/null 2>&1; then
     skip "settings merge" "deployed settings-merge.lib.sh is incomplete -- re-run sudo ./install.sh install"
     finish; exit
 fi
@@ -39,7 +39,7 @@ if ! command -v jq >/dev/null 2>&1; then
     fail "jq is missing -- it is a package dependency of the agent package"; finish; exit
 fi
 # jq is a package dependency, so the JSON paths report a broken install rather than degrading.
-if ai_tools_conf_require_jq >/dev/null 2>&1; then
+if ai_tools_settings_merge__require_jq >/dev/null 2>&1; then
     pass "the jq gate passes where jq is installed"
 else
     fail "the jq gate rejected a host that has jq"
@@ -49,19 +49,19 @@ mktestdir
 
 # Render the library's structured result the way a caller does, so the assertions read what an operator would have been
 # told rather than reaching into the library's variables one by one.
-# shellcheck disable=SC2154  # the _ai_tools_conf_merge_* results are set by the sourced
+# shellcheck disable=SC2154  # the ai_tools_settings_merge__* results are set by the sourced
 # settings-merge.lib.sh, which shellcheck cannot follow through the LIB path variable
 merge_report() {
     local status=0
-    ai_tools_conf_merge_hook_declarations "$1" "$2" || status=$?
+    ai_tools_settings_merge__merge_hook_declarations "$1" "$2" || status=$?
     case "${status}" in
-    0)  printf 'added: %s\n' "${_ai_tools_conf_merge_added[@]}"
-        printf 'removed: %s\n' "${_ai_tools_conf_merge_removed[@]}"
-        [[ -n "${_ai_tools_conf_merge_backup}" ]] \
-            && printf 'backup: %s\n' "${_ai_tools_conf_merge_backup}" ;;
-    2)  printf 'refused: %s\n' "${_ai_tools_conf_merge_reason}"
-        [[ -n "${_ai_tools_conf_merge_reference}" ]] \
-            && printf 'reference: %s\n' "${_ai_tools_conf_merge_reference}" ;;
+    0)  printf 'added: %s\n' "${ai_tools_settings_merge__added[@]}"
+        printf 'removed: %s\n' "${ai_tools_settings_merge__removed[@]}"
+        [[ -n "${ai_tools_settings_merge__backup}" ]] \
+            && printf 'backup: %s\n' "${ai_tools_settings_merge__backup}" ;;
+    2)  printf 'refused: %s\n' "${ai_tools_settings_merge__reason}"
+        [[ -n "${ai_tools_settings_merge__reference}" ]] \
+            && printf 'reference: %s\n' "${ai_tools_settings_merge__reference}" ;;
     esac
     return 0
 }
@@ -288,7 +288,7 @@ mkdir -p "${ask_root}/usr/local/lib/ai-tools/typesafe"
 no_ask="${TESTDIR}/no-ask.json"
 jq 'del(.permissions.ask)' "${SHIPPED}" > "${no_ask}"
 
-if gaps="$(ai_tools_conf_ask_gaps "${no_ask}" "${ask_root}")" && [[ -z "${gaps}" ]]; then
+if gaps="$(ai_tools_settings_merge__find_ask_gaps "${no_ask}" "${ask_root}")" && [[ -z "${gaps}" ]]; then
     pass "an entry for a command that is not installed is not reported"
 else
     fail "reported an ask entry for a command that is not installed: ${gaps}"
@@ -296,7 +296,7 @@ fi
 
 : > "${ask_root}/usr/local/lib/ai-tools/typesafe/decide.mjs"
 cp "${no_ask}" "${TESTDIR}/no-ask.before"
-if gaps="$(ai_tools_conf_ask_gaps "${no_ask}" "${ask_root}")" && [[ "${gaps}" == "${DECIDE_ASK}" ]]; then
+if gaps="$(ai_tools_settings_merge__find_ask_gaps "${no_ask}" "${ask_root}")" && [[ "${gaps}" == "${DECIDE_ASK}" ]]; then
     pass "a kept file lacking the entry for an installed command is reported with the exact entry"
 else
     fail "the missing ask entry was not reported as the exact entry: ${gaps}"
@@ -307,7 +307,7 @@ else
     fail "the ask check wrote to the file it checked"
 fi
 
-if gaps="$(ai_tools_conf_ask_gaps "${SHIPPED}" "${ask_root}")" && [[ -z "${gaps}" ]]; then
+if gaps="$(ai_tools_settings_merge__find_ask_gaps "${SHIPPED}" "${ask_root}")" && [[ -z "${gaps}" ]]; then
     pass "the shipped settings.json carries every ask entry the check requires"
 else
     fail "the shipped settings.json lacks an ask entry the check requires: ${gaps}"
@@ -315,8 +315,8 @@ fi
 
 not_array="${TESTDIR}/ask-not-array.json"
 jq --arg e "${DECIDE_ASK}" '.permissions.ask = $e' "${SHIPPED}" > "${not_array}"
-if ai_tools_conf_ask_gaps "${not_array}" "${ask_root}" >/dev/null 2>&1 \
-        || ai_tools_conf_ask_gaps "${broken}" "${ask_root}" >/dev/null 2>&1; then
+if ai_tools_settings_merge__find_ask_gaps "${not_array}" "${ask_root}" >/dev/null 2>&1 \
+        || ai_tools_settings_merge__find_ask_gaps "${broken}" "${ask_root}" >/dev/null 2>&1; then
     fail "an ask list that is not an array, or a file that is not JSON, was reported as checked"
 else
     pass "an ask list that is not an array and a file that is not JSON each report the check as not run"
@@ -327,7 +327,7 @@ fi
 # is its own case, since there the snippet's trailing comma would leave the file invalid.
 paste_fix() {
     local file="$1" anchor="$2" out="$3" snippet
-    snippet="$(ai_tools_conf_ask_fix "${file}" "${DECIDE_ASK}" | tail -n +2)" || return 1
+    snippet="$(ai_tools_settings_merge__format_ask_fix "${file}" "${DECIDE_ASK}" | tail -n +2)" || return 1
     awk -v re="${anchor}" -v snip="${snippet}" '
         !done && match($0, re) { print substr($0, 1, RSTART + RLENGTH - 1); print snip
                                  print substr($0, RSTART + RLENGTH); done = 1; next }
@@ -337,7 +337,7 @@ while IFS='|' read -r label program anchor; do
     fixture="${TESTDIR}/fix-${label}.json"
     jq "${program}" "${SHIPPED}" > "${fixture}"
     if paste_fix "${fixture}" "${anchor}" "${fixture}.pasted" && jq -e . "${fixture}.pasted" >/dev/null 2>&1 \
-            && gaps="$(ai_tools_conf_ask_gaps "${fixture}.pasted" "${ask_root}")" && [[ -z "${gaps}" ]]; then
+            && gaps="$(ai_tools_settings_merge__find_ask_gaps "${fixture}.pasted" "${ask_root}")" && [[ -z "${gaps}" ]]; then
         pass "the printed fix, pasted where it says, closes the gap in a file with ${label}"
     else
         fail "the printed fix for a file with ${label} does not paste into valid JSON that asks: $(cat "${fixture}.pasted")"

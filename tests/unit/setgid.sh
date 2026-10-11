@@ -178,8 +178,8 @@ fi
 # of the resolve reads the built-in baseline and never the operator's own file -- a regression the secret-dir case
 # cannot see, since a fixture cannot write the operator's real ~/.config. Read as source order in the installed helper,
 # as tests/unit/setfacl.sh does; an anchor no longer found FAILS.
-resolve_line="$(grep -n -m1 -E '^ai_tools_resolve_owner "' "${HELPER}" | cut -d: -f1)"
-load_line="$(grep -n -m1 -F 'ai_tools_load_secret_patterns' "${HELPER}" | cut -d: -f1)"
+resolve_line="$(grep -n -m1 -E '^ai_tools_operator__resolve_owner "' "${HELPER}" | cut -d: -f1)"
+load_line="$(grep -n -m1 -F 'ai_tools_secret_patterns__load' "${HELPER}" | cut -d: -f1)"
 if [[ -z "${resolve_line}" || -z "${load_line}" ]]; then
     fail "the owner resolve or the secret-pattern load is no longer where this reads it (resolve -> ${resolve_line:-none}, load -> ${load_line:-none})"
 elif (( resolve_line < load_line )); then
@@ -207,7 +207,7 @@ fi
 assert_msg MSG-S4T9 "${err}" "the refusal names the unreadable file under the library's code"
 
 # ── A pinned path whose ancestor is a symlink ────────────────────────────────
-# The state ai_tools_pinned_fd_matches_path refuses (safe-paths.lib.sh), driven through _safe_setgid read
+# The state ai_tools_safe_paths__is_pinned_fd_at_path refuses (safe-paths.lib.sh), driven through _safe_setgid read
 # out of the installed helper as text: the walk never emits it, since find does not follow the symlink. The directory
 # outside is left as it is; the same function on a real path is the control that it still normalizes.
 section "ai-tools-setgid: a pinned path whose ancestor is a symlink"
@@ -225,7 +225,7 @@ drive_safe_setgid() {
         source /usr/local/lib/ai-tools/safe-paths.lib.sh
         # shellcheck source=/dev/null
         source /usr/local/lib/ai-tools/owner-only.lib.sh
-        ai_tools_log_structured() { :; }
+        ai_tools_log__structured() { :; }
         SANDBOX_UID="$(id -u "${SANDBOX_USER}")"; GROUP="${SANDBOX_GROUP}"
         eval "$(extract_function "${HELPER}" _safe_setgid)"
         _safe_setgid "$1"

@@ -315,7 +315,7 @@ done
 
 # ── The codex launcher: enablement fails closed ──────────────────────────────────
 # The second launcher is the same wrapper under another name, so its gates are proven by this file's claude cases;
-# what is its own is ENABLEMENT. The launcher gate admits the name only while an enabled manifest claims it,
+# what is its own is ENABLEMENT. The launcher gate accepts the name only while an enabled manifest claims it,
 # before the CWD gate -- so a disabled codex refuses every launch there, whichever directory it is typed
 # in, and an enabled one reaches the allowlist gate exactly as claude does. Which of the two this host is in is read
 # from the same resolver the toolchain provisions from, and the link and the enabled set must agree: a link for an agent
@@ -331,10 +331,10 @@ else
     codex_enabled=0
     # shellcheck source=/dev/null
     if source /usr/local/lib/ai-tools/providers.lib.sh 2>/dev/null \
-            && declare -F ai_tools_enabled_agents >/dev/null 2>&1; then
+            && declare -F ai_tools_providers__list_enabled_agents >/dev/null 2>&1; then
         while IFS=$'\t' read -r _agent _ _; do
             [[ "${_agent}" == codex ]] && codex_enabled=1
-        done < <(ai_tools_enabled_agents 2>/dev/null)
+        done < <(ai_tools_providers__list_enabled_agents 2>/dev/null)
     else
         fail "cannot source providers.lib.sh to read the enabled agents"
     fi

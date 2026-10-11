@@ -76,6 +76,17 @@ to review, and `ai-tools projects claim` for one you already have,
 which reviews all three before granting anything. The front page carries both
 commands as a quick start.
 
+The skills every session loads come from the asset set
+[`core`](https://github.com/dag-node/ai-tools-assets/tree/develop/sets/core),
+which the install pulls and leaves off until you enable it:
+
+```bash
+sudo ai-tools-admin assets enable --set core
+```
+
+[Sessions](../sessions/index.md) covers what a session then loads, and your own
+skills beside it.
+
 [From source](from-source.md) is the manual path: the four root steps
 a checkout installs with, for a host that builds rather than consumes the RPM.
 [Upgrade](upgrade.md) covers moving an installed host to a new release.

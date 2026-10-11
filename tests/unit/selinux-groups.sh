@@ -5,7 +5,7 @@
 # source shared by ai-tools-admin (loads a shipped group) and selinux/install-selinux.sh
 # (compiles one). Pins three things:
 #   * the pure accessors + validity predicate -- ai-tools-admin's `selinux groups enable|disable` gate on
-#     ai_tools_selinux_group_valid, so an unknown name must be rejected;
+#     ai_tools_selinux_groups__is_valid, so an unknown name must be rejected;
 #   * registry <-> shipped-set lockstep -- the RPM build and install.sh compile the modules
 #     selinux/policy/shipped-modules.sh derives, so a group is shipped exactly when the registry marks
 #     it stable, every name on that list has a .te source, every policy source on disk is
@@ -35,72 +35,72 @@ if [[ ! -r "${LIB}" ]]; then
 fi
 # shellcheck source=/dev/null
 if ! source "${LIB}" \
-        || ! declare -F ai_tools_selinux_group_valid >/dev/null 2>&1 \
-        || ! declare -F ai_tools_selinux_group_name  >/dev/null 2>&1 \
-        || ! declare -F ai_tools_selinux_pp_loadable >/dev/null 2>&1; then
+        || ! declare -F ai_tools_selinux_groups__is_valid >/dev/null 2>&1 \
+        || ! declare -F ai_tools_selinux_groups__get_name  >/dev/null 2>&1 \
+        || ! declare -F ai_tools_selinux_groups__is_compiled_module_loadable >/dev/null 2>&1; then
     fail "could not source ${LIB} or it does not define the accessors and the module-version predicate"; finish; exit
 fi
 
 # --- The package-dir constant is the canonical location both the RPM and install.sh populate ---
-if [[ "${AI_TOOLS_SELINUX_PACKAGE_DIR}" == "/usr/share/selinux/packages/ai-tools" ]]; then
-    pass "package dir constant is ${AI_TOOLS_SELINUX_PACKAGE_DIR}"
+if [[ "${AI_TOOLS_SELINUX_GROUPS__PACKAGE_DIR}" == "/usr/share/selinux/packages/ai-tools" ]]; then
+    pass "package dir constant is ${AI_TOOLS_SELINUX_GROUPS__PACKAGE_DIR}"
 else
-    fail "package dir constant is '${AI_TOOLS_SELINUX_PACKAGE_DIR}', expected /usr/share/selinux/packages/ai-tools"
+    fail "package dir constant is '${AI_TOOLS_SELINUX_GROUPS__PACKAGE_DIR}', expected /usr/share/selinux/packages/ai-tools"
 fi
 
 # --- A renamed group's former module name resolves, and only for a renamed group ---
 # Both front doors and the selinux %post replace a loaded former module with the group's current one; a former name
 # that is itself a current group's module, or is malformed, would make that swap unload a live group or pass a bad token
 # to semodule.
-if declare -F ai_tools_selinux_group_former_module >/dev/null 2>&1; then
+if declare -F ai_tools_selinux_groups__get_former_module >/dev/null 2>&1; then
     for g in localipc buildexec; do
-        if [[ "$(ai_tools_selinux_group_former_module "${g}")" == "ai_tools_netcore" ]]; then
+        if [[ "$(ai_tools_selinux_groups__get_former_module "${g}")" == "ai_tools_netcore" ]]; then
             pass "the ${g} group records ai_tools_netcore as its former module"
         else
-            fail "ai_tools_selinux_group_former_module ${g} -> '$(ai_tools_selinux_group_former_module "${g}")'"
+            fail "ai_tools_selinux_groups__get_former_module ${g} -> '$(ai_tools_selinux_groups__get_former_module "${g}")'"
         fi
     done
     # The reverse read is what a swap loads in the old module's place: both groups, in one transaction, or a host loses
     # the half it did not ask for.
-    if [[ "$(ai_tools_selinux_groups_from_former_module ai_tools_netcore | sort | tr '\n' ' ')" == "buildexec localipc " ]]; then
+    if [[ "$(ai_tools_selinux_groups__list_groups_from_former_module ai_tools_netcore | sort | tr '\n' ' ')" == "buildexec localipc " ]]; then
         pass "ai_tools_netcore maps back to both localipc and buildexec"
     else
-        fail "ai_tools_selinux_groups_from_former_module ai_tools_netcore -> '$(ai_tools_selinux_groups_from_former_module ai_tools_netcore | tr '\n' ' ')'"
+        fail "ai_tools_selinux_groups__list_groups_from_former_module ai_tools_netcore -> '$(ai_tools_selinux_groups__list_groups_from_former_module ai_tools_netcore | tr '\n' ' ')'"
     fi
-    if ai_tools_selinux_group_former_module tmpmap >/dev/null; then
+    if ai_tools_selinux_groups__get_former_module tmpmap >/dev/null; then
         fail "tmpmap reports a former module though it was never renamed"
     else
         pass "a group that was never renamed reports no former module"
     fi
-    for entry in "${AI_TOOLS_SELINUX_GROUP_FORMER_MODULES[@]}"; do
+    for entry in "${AI_TOOLS_SELINUX_GROUPS__FORMER_MODULES[@]}"; do
         fn="${entry%%|*}"; fm="${entry#*|}"
-        if ! ai_tools_selinux_group_valid "${fn}"; then
+        if ! ai_tools_selinux_groups__is_valid "${fn}"; then
             fail "former-module entry names an unknown group '${fn}'"
         elif [[ ! "${fm}" =~ ^ai_tools_[a-z][a-z0-9]*$ ]]; then
             fail "former module name '${fm}' is not a plain ai_tools_<name> token"
-        elif ai_tools_selinux_group_valid "${fm#ai_tools_}"; then
+        elif ai_tools_selinux_groups__is_valid "${fm#ai_tools_}"; then
             fail "former module '${fm}' is a CURRENT group's module -- the swap would unload a live group"
         else
             pass "former module '${fm}' -> group '${fn}' is well-formed and does not collide"
         fi
     done
 else
-    skip "former module accessor" "ai_tools_selinux_group_former_module not defined"
+    skip "former module accessor" "ai_tools_selinux_groups__get_former_module not defined"
 fi
 
 # --- Every record parses into a well-formed name and non-empty description + reason ---
-if (( ${#AI_TOOLS_SELINUX_GROUPS[@]} > 0 )); then
-    pass "registry is non-empty (${#AI_TOOLS_SELINUX_GROUPS[@]} groups)"
+if (( ${#AI_TOOLS_SELINUX_GROUPS__REGISTRY[@]} > 0 )); then
+    pass "registry is non-empty (${#AI_TOOLS_SELINUX_GROUPS__REGISTRY[@]} groups)"
 else
-    fail "registry AI_TOOLS_SELINUX_GROUPS is empty"
+    fail "registry AI_TOOLS_SELINUX_GROUPS__REGISTRY is empty"
 fi
 
 names=()
-for entry in "${AI_TOOLS_SELINUX_GROUPS[@]}"; do
-    n="$(ai_tools_selinux_group_name "${entry}")"
-    d="$(ai_tools_selinux_group_desc "${entry}")"
-    r="$(ai_tools_selinux_group_reason "${entry}")"
-    stability="$(ai_tools_selinux_group_stability "${entry}")"
+for entry in "${AI_TOOLS_SELINUX_GROUPS__REGISTRY[@]}"; do
+    n="$(ai_tools_selinux_groups__get_name "${entry}")"
+    d="$(ai_tools_selinux_groups__get_description "${entry}")"
+    r="$(ai_tools_selinux_groups__get_reason "${entry}")"
+    stability="$(ai_tools_selinux_groups__get_stability "${entry}")"
     names+=( "${n}" )
     # Every field parses, and stability is exactly one of the two known values (a fourth pipe field must not bleed
     # into the reason -- the accessor-shift regression this guards).
@@ -114,26 +114,26 @@ for entry in "${AI_TOOLS_SELINUX_GROUPS[@]}"; do
     # The experimental predicate the `selinux groups enable` gate keys on must agree with the field: 'stable' groups
     # skip the gate, everything else warns and confirms.
     if [[ "${stability}" == stable ]]; then
-        ai_tools_selinux_group_is_experimental "${n}" \
+        ai_tools_selinux_groups__is_experimental "${n}" \
             && fail "group '${n}' is stable but is_experimental returned true"
     else
-        ai_tools_selinux_group_is_experimental "${n}" \
+        ai_tools_selinux_groups__is_experimental "${n}" \
             || fail "group '${n}' is '${stability}' but is_experimental returned false"
     fi
 done
 
 # --- validity predicate: known names accepted, an unknown name rejected (the `selinux groups enable` gate) ---
 for n in "${names[@]}"; do
-    ai_tools_selinux_group_valid "${n}" || fail "ai_tools_selinux_group_valid rejected known group '${n}'"
+    ai_tools_selinux_groups__is_valid "${n}" || fail "ai_tools_selinux_groups__is_valid rejected known group '${n}'"
 done
-if ai_tools_selinux_group_valid "definitely-not-a-group"; then
-    fail "ai_tools_selinux_group_valid accepted an unknown group"
+if ai_tools_selinux_groups__is_valid "definitely-not-a-group"; then
+    fail "ai_tools_selinux_groups__is_valid accepted an unknown group"
 else
-    pass "ai_tools_selinux_group_valid rejects an unknown group"
+    pass "ai_tools_selinux_groups__is_valid rejects an unknown group"
 fi
 
 # --- The loaded probe survives a full-size module listing (SIGPIPE regression) ---
-# ai_tools_selinux_group_loaded reads `semodule -l`, which on a real host is several hundred lines -- past a stdio
+# ai_tools_selinux_groups__is_loaded reads `semodule -l`, which on a real host is several hundred lines -- past a stdio
 # buffer, so the command needs more than one write to deliver it. Written as `semodule -l | grep -qx`, grep exits
 # on the match, the still-writing semodule dies of SIGPIPE, and the `set -o pipefail` every consumer of this library
 # runs under turns that into 141: the probe reports NOT LOADED for a module that IS. An ai_tools* name sorts early,
@@ -151,14 +151,14 @@ semodule() {
 
 probe_failures=0
 for _ in $(seq 1 25); do
-    ai_tools_selinux_group_loaded tmpmap || probe_failures=$(( probe_failures + 1 ))
+    ai_tools_selinux_groups__is_loaded tmpmap || probe_failures=$(( probe_failures + 1 ))
 done
 if (( probe_failures == 0 )); then
     pass "group_loaded reports a loaded module every time against a 600-line listing"
 else
     fail "group_loaded reported a LOADED module as absent in ${probe_failures}/25 runs (SIGPIPE under pipefail?)"
 fi
-if ai_tools_selinux_group_loaded definitelynotloaded; then
+if ai_tools_selinux_groups__is_loaded definitelynotloaded; then
     fail "group_loaded reported an absent module as loaded"
 else
     pass "group_loaded reports an absent module as absent"
@@ -185,14 +185,14 @@ pp_fixture "${TESTDIR}/v3.pp" 3
 pp_fixture "${TESTDIR}/corrupt-header.pp" 24 1
 printf 'SE Linux Module mentioned in a text file\n' > "${TESTDIR}/tag-in-text.pp"
 for v in 24 21; do
-    if [[ "$(ai_tools_selinux_pp_module_version "${TESTDIR}/v${v}.pp")" == "${v}" ]]; then
+    if [[ "$(ai_tools_selinux_groups__read_compiled_module_version "${TESTDIR}/v${v}.pp")" == "${v}" ]]; then
         pass "pp_module_version reads ${v} from a module built for version ${v}"
     else
-        fail "pp_module_version read '$(ai_tools_selinux_pp_module_version "${TESTDIR}/v${v}.pp")' from a module built for version ${v}"
+        fail "pp_module_version read '$(ai_tools_selinux_groups__read_compiled_module_version "${TESTDIR}/v${v}.pp")' from a module built for version ${v}"
     fi
 done
 for bad in corrupt-header tag-in-text missing; do
-    if out="$(ai_tools_selinux_pp_module_version "${TESTDIR}/${bad}.pp")"; then
+    if out="$(ai_tools_selinux_groups__read_compiled_module_version "${TESTDIR}/${bad}.pp")"; then
         fail "pp_module_version accepted ${bad}.pp and printed '${out}'"
     elif [[ -n "${out}" ]]; then
         fail "pp_module_version failed on ${bad}.pp but printed '${out}'"
@@ -202,7 +202,7 @@ for bad in corrupt-header tag-in-text missing; do
 done
 real_pp="${ROOT}/selinux/policy/ai_tools.pp"
 if [[ -f "${real_pp}" ]]; then
-    if [[ "$(ai_tools_selinux_pp_module_version "${real_pp}")" =~ ^[0-9]+$ ]]; then
+    if [[ "$(ai_tools_selinux_groups__read_compiled_module_version "${real_pp}")" =~ ^[0-9]+$ ]]; then
         pass "pp_module_version reads a number from the checkout's own build (control)"
     else
         fail "pp_module_version could not read the checkout's own build ${real_pp}"
@@ -211,14 +211,14 @@ else
     skip "pp_module_version on a real build" "no compiled ai_tools.pp in the checkout"
 fi
 if command -v checkmodule >/dev/null 2>&1; then
-    if range="$(ai_tools_selinux_host_module_versions)" && [[ "${range}" =~ ^([0-9]+)\ ([0-9]+)$ ]] \
+    if range="$(ai_tools_selinux_groups__read_host_module_versions)" && [[ "${range}" =~ ^([0-9]+)\ ([0-9]+)$ ]] \
             && (( BASH_REMATCH[1] <= BASH_REMATCH[2] )); then
         pass "host_module_versions reads the range this host's checkmodule prints: ${range}"
     else
         fail "host_module_versions read '${range:-}' from checkmodule -V"
     fi
     if [[ -f "${real_pp}" ]]; then
-        if reading="$(ai_tools_selinux_pp_loadable "${real_pp}")"; then
+        if reading="$(ai_tools_selinux_groups__is_compiled_module_loadable "${real_pp}")"; then
             note "the checkout's build loads on this host" "${reading}"
         else
             note "the checkout's build is outside this host's range" "${reading:-unread}"
@@ -228,34 +228,34 @@ else
     skip "host_module_versions on the real checkmodule" "checkmodule not installed (checkpolicy)"
 fi
 checkmodule() { [[ "${1:-}" == -V ]] && printf 'Module versions 4-21\n'; }
-if reading="$(ai_tools_selinux_pp_loadable "${TESTDIR}/v21.pp")" && [[ "${reading}" == "21 4-21" ]]; then
+if reading="$(ai_tools_selinux_groups__is_compiled_module_loadable "${TESTDIR}/v21.pp")" && [[ "${reading}" == "21 4-21" ]]; then
     pass "pp_loadable accepts a module at the top of the range and prints '${reading}'"
 else
     fail "pp_loadable on a version-21 module against 4-21: status $?, printed '${reading:-}'"
 fi
 for v in 24 3; do
-    verdict=0; reading="$(ai_tools_selinux_pp_loadable "${TESTDIR}/v${v}.pp")" || verdict=$?
+    verdict=0; reading="$(ai_tools_selinux_groups__is_compiled_module_loadable "${TESTDIR}/v${v}.pp")" || verdict=$?
     if (( verdict == 1 )) && [[ "${reading}" == "${v} 4-21" ]]; then
         pass "pp_loadable refuses a version-${v} module against 4-21 with status 1 and prints '${reading}'"
     else
         fail "pp_loadable on a version-${v} module against 4-21: status ${verdict}, printed '${reading}'"
     fi
 done
-verdict=0; reading="$(ai_tools_selinux_pp_loadable "${TESTDIR}/corrupt-header.pp")" || verdict=$?
+verdict=0; reading="$(ai_tools_selinux_groups__is_compiled_module_loadable "${TESTDIR}/corrupt-header.pp")" || verdict=$?
 if (( verdict == 2 )) && [[ -z "${reading}" ]]; then
     pass "pp_loadable reports 2 without output where the module's version cannot be read"
 else
     fail "pp_loadable on an unreadable module: status ${verdict}, printed '${reading}'"
 fi
 checkmodule() { printf 'checkmodule: unexpected output\n'; }
-verdict=0; reading="$(ai_tools_selinux_pp_loadable "${TESTDIR}/v21.pp")" || verdict=$?
+verdict=0; reading="$(ai_tools_selinux_groups__is_compiled_module_loadable "${TESTDIR}/v21.pp")" || verdict=$?
 if (( verdict == 2 )) && [[ -z "${reading}" ]]; then
     pass "pp_loadable reports 2 without output where checkmodule prints no range"
 else
     fail "pp_loadable with no range read: status ${verdict}, printed '${reading}'"
 fi
 checkmodule() { return 127; }
-verdict=0; reading="$(ai_tools_selinux_pp_loadable "${TESTDIR}/v21.pp")" || verdict=$?
+verdict=0; reading="$(ai_tools_selinux_groups__is_compiled_module_loadable "${TESTDIR}/v21.pp")" || verdict=$?
 if (( verdict == 2 )) && [[ -z "${reading}" ]]; then
     pass "pp_loadable reports 2 without output where checkmodule is absent"
 else
@@ -299,11 +299,11 @@ done
 # Forward: each registry group has a .te source, and it is on the shipped set exactly when the registry marks it stable.
 # An EXPERIMENTAL group is compiled and verified from source on demand and must stay off the list, or an unaudited
 # module ships; a STABLE group left off it has no module for `selinux groups enable` to load.
-for entry in "${AI_TOOLS_SELINUX_GROUPS[@]}"; do
-    n="$(ai_tools_selinux_group_name "${entry}")"
+for entry in "${AI_TOOLS_SELINUX_GROUPS__REGISTRY[@]}"; do
+    n="$(ai_tools_selinux_groups__get_name "${entry}")"
     [[ -f "${POL}/ai_tools_${n}.te" ]] \
         || fail "group '${n}' in registry but ${POL}/ai_tools_${n}.te is missing"
-    if ai_tools_selinux_group_is_experimental "${n}"; then
+    if ai_tools_selinux_groups__is_experimental "${n}"; then
         if is_shipped "ai_tools_${n}"; then
             fail "experimental group '${n}' is on the shipped set -- an experimental group is source-only"
         else
@@ -332,7 +332,7 @@ done
 for te in "${POL}"/ai_tools_*.te; do
     [[ -f "${te}" ]] || continue
     base="$(basename "${te}" .te)"; gname="${base#ai_tools_}"
-    if ai_tools_selinux_group_valid "${gname}"; then
+    if ai_tools_selinux_groups__is_valid "${gname}"; then
         pass "policy module '${base}' is registered"
     elif printf '%s\n' "${layout_modules[@]}" | grep -qx "${base}"; then
         if is_shipped "${base}"; then
@@ -341,7 +341,7 @@ for te in "${POL}"/ai_tools_*.te; do
             fail "layout module '${base}' is declared by an integration manifest but is not on the shipped set"
         fi
     else
-        fail "policy module '${base}' exists but is neither in AI_TOOLS_SELINUX_GROUPS nor a layout module an integration manifest declares"
+        fail "policy module '${base}' exists but is neither in AI_TOOLS_SELINUX_GROUPS__REGISTRY nor a layout module an integration manifest declares"
     fi
 done
 

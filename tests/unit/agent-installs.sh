@@ -73,7 +73,7 @@ fi
 SYSDIR="${FIXTURE_ROOT}/usr/bin"
 
 # ── (A) One file under two spellings is one install ──────────────────────────────────────────
-mapfile -t installs < <(ai_tools_agent_installs claude "${FIXTURE_ROOT}/bin" "${SYSDIR}")
+mapfile -t installs < <(ai_tools_agent_installs__find_executables claude "${FIXTURE_ROOT}/bin" "${SYSDIR}")
 if [[ "${#installs[@]}" -eq 1 \
    && "${installs[0]}" == "${FIXTURE_ROOT}/bin/claude"$'\t'"${SYSDIR}/claude" ]]; then
     pass "a usr-merged host reports one install, with the other spelling beside it"
@@ -83,7 +83,7 @@ fi
 
 # The order the directories are searched in decides which spelling leads, so a caller that searches /bin first names
 # the path the agent's own package installs.
-mapfile -t installs < <(ai_tools_agent_installs claude "${SYSDIR}" "${FIXTURE_ROOT}/bin")
+mapfile -t installs < <(ai_tools_agent_installs__find_executables claude "${SYSDIR}" "${FIXTURE_ROOT}/bin")
 if [[ "${installs[0]}" == "${SYSDIR}/claude"$'\t'"${FIXTURE_ROOT}/bin/claude" ]]; then
     pass "the first directory searched is the spelling reported"
 else
@@ -92,7 +92,7 @@ fi
 
 # ── (B) Two separate binaries are two findings ───────────────────────────────────────────────
 printf '#!/bin/sh\n' > "${FIXTURE_ROOT}/opt/bin/claude"; chmod 0755 "${FIXTURE_ROOT}/opt/bin/claude"
-mapfile -t installs < <(ai_tools_agent_installs claude "${SYSDIR}" "${FIXTURE_ROOT}/opt/bin")
+mapfile -t installs < <(ai_tools_agent_installs__find_executables claude "${SYSDIR}" "${FIXTURE_ROOT}/opt/bin")
 if [[ "${#installs[@]}" -eq 2 ]]; then
     pass "two agents in two directories are two findings"
 else
@@ -101,12 +101,12 @@ fi
 
 # ── (C) What is not an agent a shell can start ───────────────────────────────────────────────
 chmod 0644 "${FIXTURE_ROOT}/opt/bin/claude"
-if [[ -z "$(ai_tools_agent_installs claude "${FIXTURE_ROOT}/opt/bin" "${FIXTURE_ROOT}/nowhere")" ]]; then
+if [[ -z "$(ai_tools_agent_installs__find_executables claude "${FIXTURE_ROOT}/opt/bin" "${FIXTURE_ROOT}/nowhere")" ]]; then
     pass "a file without the executable bit, and a directory that is absent, report nothing"
 else
     fail "reported something no shell would run"
 fi
-if [[ -z "$(ai_tools_agent_installs 'cl;id' "${SYSDIR}")" && -z "$(ai_tools_agent_installs '' "${SYSDIR}")" ]]; then
+if [[ -z "$(ai_tools_agent_installs__find_executables 'cl;id' "${SYSDIR}")" && -z "$(ai_tools_agent_installs__find_executables '' "${SYSDIR}")" ]]; then
     pass "a launcher name outside the charset is not turned into a path"
 else
     fail "built a path from a launcher name that must never reach one"
@@ -117,21 +117,21 @@ fi
 # spelling. A fixture alias of the real wrapper directory reproduces that on any host with the CLI installed: the file
 # found through it is the wrapper and must not be reported, while a copy of the same file is a separate binary and is.
 probe_name="ai-tools"
-if [[ ! -x "${AI_TOOLS_AGENT_INSTALL_WRAPPER_DIR}/${probe_name}" ]]; then
-    skip "wrapper exclusion" "${AI_TOOLS_AGENT_INSTALL_WRAPPER_DIR}/${probe_name} is not installed on this host"
+if [[ ! -x "${AI_TOOLS_AGENT_INSTALLS__WRAPPER_DIR}/${probe_name}" ]]; then
+    skip "wrapper exclusion" "${AI_TOOLS_AGENT_INSTALLS__WRAPPER_DIR}/${probe_name} is not installed on this host"
 else
-    ln -s "${AI_TOOLS_AGENT_INSTALL_WRAPPER_DIR}" "${FIXTURE_ROOT}/merged"
+    ln -s "${AI_TOOLS_AGENT_INSTALLS__WRAPPER_DIR}" "${FIXTURE_ROOT}/merged"
     mkdir -p "${FIXTURE_ROOT}/copy"
-    cp "${AI_TOOLS_AGENT_INSTALL_WRAPPER_DIR}/${probe_name}" "${FIXTURE_ROOT}/copy/${probe_name}"
+    cp "${AI_TOOLS_AGENT_INSTALLS__WRAPPER_DIR}/${probe_name}" "${FIXTURE_ROOT}/copy/${probe_name}"
     chmod 0755 "${FIXTURE_ROOT}/copy/${probe_name}"
     if [[ ! -x "${FIXTURE_ROOT}/merged/${probe_name}" ]]; then
-        fail "wrapper-exclusion setup: the alias does not reach ${AI_TOOLS_AGENT_INSTALL_WRAPPER_DIR}/${probe_name}"
-    elif [[ -z "$(ai_tools_agent_installs "${probe_name}" "${FIXTURE_ROOT}/merged")" ]]; then
+        fail "wrapper-exclusion setup: the alias does not reach ${AI_TOOLS_AGENT_INSTALLS__WRAPPER_DIR}/${probe_name}"
+    elif [[ -z "$(ai_tools_agent_installs__find_executables "${probe_name}" "${FIXTURE_ROOT}/merged")" ]]; then
         pass "the wrapper reached through a merged alias of its directory is not reported"
     else
         fail "reported the sandbox wrapper as an agent outside the sandbox"
     fi
-    mapfile -t installs < <(ai_tools_agent_installs "${probe_name}" "${FIXTURE_ROOT}/merged" "${FIXTURE_ROOT}/copy")
+    mapfile -t installs < <(ai_tools_agent_installs__find_executables "${probe_name}" "${FIXTURE_ROOT}/merged" "${FIXTURE_ROOT}/copy")
     if [[ "${#installs[@]}" -eq 1 && "${installs[0]%%$'\t'*}" == "${FIXTURE_ROOT}/copy/${probe_name}" ]]; then
         pass "a copy of the wrapper is a separate binary and is reported"
     else
@@ -142,18 +142,18 @@ fi
 # ── (D) The searched set, and the owner lookup's refusals ────────────────────────────────────
 # The set is the library's, so a report and the ordering it recommends cover the same directories: the agent's own
 # distribution channel installs into /bin, and /usr/local/bin is the wrappers' own.
-if [[ " ${AI_TOOLS_AGENT_INSTALL_DIRS[*]} " == *" /bin "* \
-   && " ${AI_TOOLS_AGENT_INSTALL_DIRS[*]} " == *" /usr/bin "* \
-   && " ${AI_TOOLS_AGENT_INSTALL_DIRS[*]} " != *" /usr/local/bin "* ]]; then
+if [[ " ${AI_TOOLS_AGENT_INSTALLS__DIRS[*]} " == *" /bin "* \
+   && " ${AI_TOOLS_AGENT_INSTALLS__DIRS[*]} " == *" /usr/bin "* \
+   && " ${AI_TOOLS_AGENT_INSTALLS__DIRS[*]} " != *" /usr/local/bin "* ]]; then
     pass "the searched set covers where an agent lands and leaves out the wrappers' directory"
 else
-    fail "the searched set is not what a report needs (${AI_TOOLS_AGENT_INSTALL_DIRS[*]})"
+    fail "the searched set is not what a report needs (${AI_TOOLS_AGENT_INSTALLS__DIRS[*]})"
 fi
 
 # The owner is rendered into a command a person is invited to run, so a value outside a package name's charset yields
 # none. The fixture path belongs to no package, which is the same answer a host without rpm gives.
-if [[ -z "$(ai_tools_agent_install_owner "${SYSDIR}/claude")" \
-   && -z "$(ai_tools_agent_install_owner "")" ]]; then
+if [[ -z "$(ai_tools_agent_installs__read_owner "${SYSDIR}/claude")" \
+   && -z "$(ai_tools_agent_installs__read_owner "")" ]]; then
     pass "a path no package owns, and an empty path, name no package"
 else
     fail "named a package for a file no package owns"

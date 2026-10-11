@@ -109,11 +109,11 @@ path the agent can reach, and they are deferred until one exists.
 - **key present** → exactly the named sets, each written `filter-<name>`. An **empty value is the kill switch** — no
   filtering at all, the switch to reach for when a session's command output looks unexpected. The kill switch covers
   both transforms: the rewrite path loads its rule sets only when enabled, and the adapter gates its noise strip
-  on the same verdict (`ai_tools_filter_enabled`), so a switched-off session's output reaches the model byte-identical
-  to what the tool produced. A named list narrows which rule sets load, never the strip. A list the reader refuses — one
-  the grammar refuses, or one holding an item without its `filter-` prefix — reads as empty and so as the switch,
-  and its report is dropped here, since the hook runs on every Bash call; the launch gate and `system post-upgrade`
-  report it.
+  on the same verdict (`ai_tools_filters__is_enabled`), so a switched-off session's output reaches the model
+  byte-identical to what the tool produced. A named list narrows which rule sets load, never the strip. A list
+  the reader refuses — one the grammar refuses, or one holding an item without its `filter-` prefix — reads as empty
+  and so as the switch, and its report is dropped here, since the hook runs on every Bash call; the launch gate
+  and `system post-upgrade` report it.
 - **untrusted or unreadable `operator.conf`** → the installed sets, which can only ever be root-owned rules.
 
 Rule sets are **not** gated on provider enablement. A rule is inert unless the agent runs the command it matches,
@@ -122,14 +122,14 @@ and are removed with that package, and that is the whole of their lifecycle.
 
 ## Trust
 
-Every rules file, and the directory holding it, is honored only while `ai_tools_conf_is_trusted` holds — root-owned, not
-a symlink, writable by neither group nor other. The predicate gates the file's **content**, not its location, which is
-what makes `AI_TOOLS_FILTERS_DIR` safe to leave readable from inside a session (a project settings layer can add
-to the hook process's environment): an override chooses only where to look, and anywhere the sandbox account can write
-is refused, so it reaches root-owned rules or none. The engine is sourced **as the agent**, in the agent's own process,
-on every Bash call, so a writable engine or rule set would be arbitrary code and arbitrary rewrites on that path.
-A refusal is recorded in journald and drops that input; it is deliberately not written to stderr, where a per-call
-warning would flood the transcript with the tokens this layer exists to save.
+Every rules file, and the directory holding it, is honored only while `ai_tools_conf__is_trusted` holds — root-owned,
+not a symlink, writable by neither group nor other. The predicate gates the file's **content**, not its location,
+which is what makes `AI_TOOLS_FILTERS_DIR` safe to leave readable from inside a session (a project settings layer can
+add to the hook process's environment): an override chooses only where to look, and anywhere the sandbox account can
+write is refused, so it reaches root-owned rules or none. The engine is sourced **as the agent**, in the agent's own
+process, on every Bash call, so a writable engine or rule set would be arbitrary code and arbitrary rewrites
+on that path. A refusal is recorded in journald and drops that input; it is deliberately not written to stderr,
+where a per-call warning would flood the transcript with the tokens this layer exists to save.
 
 The deployed permissions are asserted from both ends, as every guarantee here is ([tests](tests.rule.md)):
 `tests/unit/filters.sh` drives each untrusted state through the loader and asserts it resolves to pass-through,

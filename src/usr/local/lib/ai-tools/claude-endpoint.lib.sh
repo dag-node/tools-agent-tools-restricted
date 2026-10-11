@@ -17,33 +17,33 @@
 # block are in agent-claude-code.rule.md.
 
 # Include-guarded: the fragment and the unit test may both source this and its dependencies.
-if [[ -n "${_AI_TOOLS_CLAUDE_ENDPOINT_LIB:-}" ]]; then
+if [[ -n "${_AI_TOOLS_CLAUDE_ENDPOINT__LOADED:-}" ]]; then
     return 0
 fi
-readonly _AI_TOOLS_CLAUDE_ENDPOINT_LIB=1
+readonly _AI_TOOLS_CLAUDE_ENDPOINT__LOADED=1
 
 # conf.lib (grammar + trust) and msg.lib (warnings). Include-guarded; ai-tools-run loads both before any fragment,
 # so in production they are already present. Sourced here too for the unit test.
-if [[ -z "${_AI_TOOLS_CONF_LIB:-}" ]]; then
+if ! declare -F ai_tools_conf__read >/dev/null 2>&1 || ! declare -F ai_tools_conf__is_trusted >/dev/null 2>&1; then
     # shellcheck source=SCRIPTDIR/conf.lib.sh
     source /usr/local/lib/ai-tools/conf.lib.sh 2>/dev/null || true
 fi
-if [[ -z "${_AI_TOOLS_MSG_LIB_LOADED:-}" ]]; then
+if ! declare -F ai_tools_msg__warn >/dev/null 2>&1; then
     # shellcheck source=SCRIPTDIR/msg.lib.sh
     source /usr/local/lib/ai-tools/msg.lib.sh 2>/dev/null || true
 fi
 
-_ai_tools_endpoint_warn() {
-    if declare -F ai_tools_msg_warn >/dev/null 2>&1; then
-        ai_tools_msg_warn "$@"
+_ai_tools_claude_endpoint__warn() {
+    if declare -F ai_tools_msg__warn >/dev/null 2>&1; then
+        ai_tools_msg__warn "$@"
     else
         printf 'claude: %s\n' "$*" >&2
     fi
 }
 
-# _ai_tools_endpoint_is_local <url>: succeed when <url>'s host is a loopback name, so a token may be omitted without
-# warning (a local proxy commonly needs none).
-_ai_tools_endpoint_is_local() {
+# _ai_tools_claude_endpoint__is_local <url>: succeed when <url>'s host is a loopback name, so a token may be omitted
+# without warning (a local proxy commonly needs none).
+_ai_tools_claude_endpoint__is_local() {
     local host="${1#*://}"       # strip scheme
     host="${host%%/*}"           # strip path
     case "${host}" in
@@ -56,7 +56,7 @@ _ai_tools_endpoint_is_local() {
     esac
 }
 
-# ai_tools_claude_resolve_endpoint_setenv <out-array-name> <operator-conf> : append the
+# ai_tools_claude_endpoint__resolve_setenv_args <out-array-name> <operator-conf> : append the
 #   --setenv= options that route this session at a custom endpoint to the named array, reading the
 #   endpoint file operator.conf's CLAUDE_BASE_URL_FILE points at. Returns:
 #     0  applied (out holds the valid options) or no option to apply (not configured / inert file).
@@ -67,16 +67,16 @@ _ai_tools_endpoint_is_local() {
 #   without placing it on any command line. AI_TOOLS_ENDPOINT_BASE_DIR overrides the required parent
 #   directory; ROOT-ONLY test hook of the AI_TOOLS_ALLOWLIST family (sudo strips it, not in
 #   env_keep), unset in production.
-ai_tools_claude_resolve_endpoint_setenv() {
-    local -n _ai_tools_endpoint_out="$1"
+ai_tools_claude_endpoint__resolve_setenv_args() {
+    local -n _ai_tools_claude_endpoint__out="$1"
     local operator_conf="$2"
 
     # Without the parser this cannot tell configured from unconfigured, so it cannot promise the default is
     # what the operator wants -- fail closed. In production conf.lib is loaded by ai-tools-run before any fragment,
     # so this only fires on a broken install.
-    if ! declare -F ai_tools_conf_read >/dev/null 2>&1 \
-            || ! declare -F ai_tools_conf_is_trusted >/dev/null 2>&1; then
-        _ai_tools_endpoint_warn "custom endpoint: the config library is unavailable -- cannot resolve the endpoint"
+    if ! declare -F ai_tools_conf__read >/dev/null 2>&1 \
+            || ! declare -F ai_tools_conf__is_trusted >/dev/null 2>&1; then
+        _ai_tools_claude_endpoint__warn "custom endpoint: the config library is unavailable -- cannot resolve the endpoint"
         return 1
     fi
 
@@ -85,40 +85,40 @@ ai_tools_claude_resolve_endpoint_setenv() {
     # The pointer comes from operator.conf, so operator.conf must be trustworthy before it is read. An untrusted
     # operator.conf is treated as "not configured" (the baseline), matching how the provider gating downgrades
     # an untrusted operator.conf rather than failing a launch on it.
-    ai_tools_conf_is_trusted "${operator_conf}" || return 0
+    ai_tools_conf__is_trusted "${operator_conf}" || return 0
 
     local endpoint_file=""
-    if ai_tools_conf_read "${operator_conf}" CLAUDE_BASE_URL_FILE 2>/dev/null; then
-        endpoint_file="${_ai_tools_conf_value}"
+    if ai_tools_conf__read "${operator_conf}" CLAUDE_BASE_URL_FILE 2>/dev/null; then
+        endpoint_file="${ai_tools_conf__value}"
     fi
     [[ -n "${endpoint_file}" ]] || return 0          # not configured: default Anthropic endpoint
 
     # From here an endpoint IS configured, so a broken pointer is a refusal, never a silent default.
     if [[ "${endpoint_file}" != /* ]]; then
-        _ai_tools_endpoint_warn "custom endpoint: CLAUDE_BASE_URL_FILE must be an absolute path under ${base_dir} -- got '${endpoint_file}'"
+        _ai_tools_claude_endpoint__warn "custom endpoint: CLAUDE_BASE_URL_FILE must be an absolute path under ${base_dir} -- got '${endpoint_file}'"
         return 1
     fi
-    if ! ai_tools_conf_is_trusted "${endpoint_file}"; then
-        _ai_tools_endpoint_warn "custom endpoint: ${endpoint_file} is missing, a symlink, not root-owned, or group/other-writable"
+    if ! ai_tools_conf__is_trusted "${endpoint_file}"; then
+        _ai_tools_claude_endpoint__warn "custom endpoint: ${endpoint_file} is missing, a symlink, not root-owned, or group/other-writable"
         return 1
     fi
     local base_canon file_canon
     base_canon="$(realpath -m -- "${base_dir}" 2>/dev/null)" || return 1
     file_canon="$(realpath -e -- "${endpoint_file}" 2>/dev/null)" || {
-        _ai_tools_endpoint_warn "custom endpoint: ${endpoint_file} cannot be resolved"
+        _ai_tools_claude_endpoint__warn "custom endpoint: ${endpoint_file} cannot be resolved"
         return 1
     }
-    if [[ "${file_canon}" != "${base_canon}/"* ]] || ! ai_tools_conf_is_trusted "${base_canon}"; then
-        _ai_tools_endpoint_warn "custom endpoint: ${endpoint_file} is not under a trusted ${base_dir}; the confined session can only read endpoints there"
+    if [[ "${file_canon}" != "${base_canon}/"* ]] || ! ai_tools_conf__is_trusted "${base_canon}"; then
+        _ai_tools_claude_endpoint__warn "custom endpoint: ${endpoint_file} is not under a trusted ${base_dir}; the confined session can only read endpoints there"
         return 1
     fi
 
     # Read ONLY the recognised keys, so an unknown key in the file is not consulted.
     local base_url="" auth_token="" model="" haiku=""
-    ai_tools_conf_read "${file_canon}" ANTHROPIC_BASE_URL 2>/dev/null && base_url="${_ai_tools_conf_value}"
-    ai_tools_conf_read "${file_canon}" ANTHROPIC_AUTH_TOKEN 2>/dev/null && auth_token="${_ai_tools_conf_value}"
-    ai_tools_conf_read "${file_canon}" ANTHROPIC_MODEL 2>/dev/null && model="${_ai_tools_conf_value}"
-    ai_tools_conf_read "${file_canon}" ANTHROPIC_DEFAULT_HAIKU_MODEL 2>/dev/null && haiku="${_ai_tools_conf_value}"
+    ai_tools_conf__read "${file_canon}" ANTHROPIC_BASE_URL 2>/dev/null && base_url="${ai_tools_conf__value}"
+    ai_tools_conf__read "${file_canon}" ANTHROPIC_AUTH_TOKEN 2>/dev/null && auth_token="${ai_tools_conf__value}"
+    ai_tools_conf__read "${file_canon}" ANTHROPIC_MODEL 2>/dev/null && model="${ai_tools_conf__value}"
+    ai_tools_conf__read "${file_canon}" ANTHROPIC_DEFAULT_HAIKU_MODEL 2>/dev/null && haiku="${ai_tools_conf__value}"
 
     # A fully inert file (no option uncommented) is the shipped default: no endpoint, launch normally.
     if [[ -z "${base_url}" && -z "${auth_token}" && -z "${model}" && -z "${haiku}" ]]; then
@@ -128,40 +128,40 @@ ai_tools_claude_resolve_endpoint_setenv() {
     # ANTHROPIC_BASE_URL anchors the endpoint: options set without it would only mis-route the default Anthropic
     # connection, so their presence with no base URL is a refusal.
     if [[ -z "${base_url}" ]]; then
-        _ai_tools_endpoint_warn "custom endpoint: ${endpoint_file} sets ANTHROPIC_* options but no ANTHROPIC_BASE_URL to anchor them"
+        _ai_tools_claude_endpoint__warn "custom endpoint: ${endpoint_file} sets ANTHROPIC_* options but no ANTHROPIC_BASE_URL to anchor them"
         return 1
     fi
     if [[ ! "${base_url}" =~ ^https?://[^[:space:]]+$ ]]; then
-        _ai_tools_endpoint_warn "custom endpoint: ANTHROPIC_BASE_URL '${base_url}' is not a valid http(s) URL"
+        _ai_tools_claude_endpoint__warn "custom endpoint: ANTHROPIC_BASE_URL '${base_url}' is not a valid http(s) URL"
         return 1
     fi
 
     # Model labels are opaque single tokens the endpoint resolves; a present-but-malformed one is a refusal,
     # so whitespace or control bytes do not reach systemd-run; an omitted one is skipped.
     if [[ -n "${model}" && ! "${model}" =~ ^[[:graph:]]+$ ]]; then
-        _ai_tools_endpoint_warn "custom endpoint: ANTHROPIC_MODEL is not a single printable token"
+        _ai_tools_claude_endpoint__warn "custom endpoint: ANTHROPIC_MODEL is not a single printable token"
         return 1
     fi
     if [[ -n "${haiku}" && ! "${haiku}" =~ ^[[:graph:]]+$ ]]; then
-        _ai_tools_endpoint_warn "custom endpoint: ANTHROPIC_DEFAULT_HAIKU_MODEL is not a single printable token"
+        _ai_tools_claude_endpoint__warn "custom endpoint: ANTHROPIC_DEFAULT_HAIKU_MODEL is not a single printable token"
         return 1
     fi
     if [[ -n "${auth_token}" && ! "${auth_token}" =~ ^[[:graph:]]+$ ]]; then
-        _ai_tools_endpoint_warn "custom endpoint: ANTHROPIC_AUTH_TOKEN contains whitespace or control characters"
+        _ai_tools_claude_endpoint__warn "custom endpoint: ANTHROPIC_AUTH_TOKEN contains whitespace or control characters"
         return 1
     fi
 
     # All present options validated: build the setenv list.
-    _ai_tools_endpoint_out+=( "--setenv=ANTHROPIC_BASE_URL=${base_url}" )
-    [[ -n "${model}" ]] && _ai_tools_endpoint_out+=( "--setenv=ANTHROPIC_MODEL=${model}" )
-    [[ -n "${haiku}" ]] && _ai_tools_endpoint_out+=( "--setenv=ANTHROPIC_DEFAULT_HAIKU_MODEL=${haiku}" )
+    _ai_tools_claude_endpoint__out+=( "--setenv=ANTHROPIC_BASE_URL=${base_url}" )
+    [[ -n "${model}" ]] && _ai_tools_claude_endpoint__out+=( "--setenv=ANTHROPIC_MODEL=${model}" )
+    [[ -n "${haiku}" ]] && _ai_tools_claude_endpoint__out+=( "--setenv=ANTHROPIC_DEFAULT_HAIKU_MODEL=${haiku}" )
     if [[ -n "${auth_token}" ]]; then
         # Imported by name: export it so the paired name-only `--setenv` picks it up from the environment (ai-tools-run
         # sources this fragment in its own shell) without the value ever reaching a command line.
         export ANTHROPIC_AUTH_TOKEN="${auth_token}"
-        _ai_tools_endpoint_out+=( "--setenv=ANTHROPIC_AUTH_TOKEN" )
-    elif ! _ai_tools_endpoint_is_local "${base_url}"; then
-        _ai_tools_endpoint_warn "custom endpoint: no ANTHROPIC_AUTH_TOKEN set for non-local ${base_url} -- the endpoint may reject requests"
+        _ai_tools_claude_endpoint__out+=( "--setenv=ANTHROPIC_AUTH_TOKEN" )
+    elif ! _ai_tools_claude_endpoint__is_local "${base_url}"; then
+        _ai_tools_claude_endpoint__warn "custom endpoint: no ANTHROPIC_AUTH_TOKEN set for non-local ${base_url} -- the endpoint may reject requests"
     fi
     return 0
 }

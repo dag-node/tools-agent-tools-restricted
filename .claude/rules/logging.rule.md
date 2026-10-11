@@ -7,24 +7,24 @@ paths:
 # Operation logging
 
 The sandbox components log through one shared library, `/usr/local/lib/ai-tools/log.lib.sh` (`644 root:root`,
-world-readable, and it does not carry any secrets; every principal sources it). It exposes `ai_tools_log <level>`
-and `ai_tools_log_{debug,info,warn,error}`, writing to two sinks:
+world-readable, and it does not carry any secrets; every principal sources it). It exposes `ai_tools_log__write <level>`
+and `ai_tools_log__{debug,info,warn,error}`, writing to two sinks:
 
 - **journald** — always, via `logger` with a per-component `SyslogIdentifier` (`AI_TOOLS_LOG_TAG`) and a syslog priority
   matching the level. This is the universal sink: the non-root components write here because they cannot write
   the root-only files. Query with the tag **and** the writer's uid — `journalctl -t ai-tools-chown _UID=0`, and likewise
   `_UID=0` for `-setgid`, `-setfacl`, `-unclaim`, `-safedir`, `-reclaim`, `-allowlist`, `-launcher-symlink`,
-  `-lockdown`, `-relabel`, `-relabel-agent`, `-dotnet`, `-handback` and `ai-tools-install`; the sandbox account's uid
-  for `ai-tools-run` and `-hook`; the operator's for `ai-tools`. Add `-p warning` to filter by level. The uid is not
-  decoration — see [A tag is not an identity, `_UID` is](#a-tag-is-not-an-identity-_uid-is).
+  `-lockdown`, `-relabel`, `-relabel-agent`, `-dotnet`, `-assets`, `-handback` and `ai-tools-install`; the sandbox
+  account's uid for `ai-tools-run` and `-hook`; the operator's for `ai-tools`. Add `-p warning` to filter by level.
+  The uid is not decoration — see [A tag is not an identity, `_UID` is](#a-tag-is-not-an-identity-_uid-is).
 - **`/var/log/ai-tools/<component>.log`** — only when the caller sets `AI_TOOLS_LOG_FILE`, which only the root writers
   do. The directory is `700 root:root`, each file `600 root:root`: the root helpers append as root, while `SANDBOX_USER`
   — neither the dir owner nor able to traverse a `700` dir — can neither read nor tamper with the trail. That keeps
   the secret filenames `ai-tools-chown` records out of the agent's reach. The files are `chown.log`, `setgid.log`,
   `setfacl.log`, `unclaim.log`, `safedir.log`, `allowlist.log`, `symlink.log`, `lockdown.log`, `relabel.log`,
-  `dotnet.log`, `stop.log`, `handback.log`, and `install.log`. Most are written through this library by the root
-  helpers; `handback.log` is the exception — the socket daemon (`ai-tools-handback`, root, Python) writes it directly
-  (not through this library, which it does not source), recording the bridge's own events (rejected peers,
+  `dotnet.log`, `assets.log`, `stop.log`, `handback.log`, and `install.log`. Most are written through this library
+  by the root helpers; `handback.log` is the exception — the socket daemon (`ai-tools-handback`, root, Python) writes it
+  directly (not through this library, which it does not source), recording the bridge's own events (rejected peers,
   malformed/refused requests, helper timeouts, one line per served request) in the same `<ts> <LEVEL> [<pid>] <msg>`
   format. The agent-side client does not write a file (DAC), only journald. The directory path defaults
   to `/var/log/ai-tools` but honors an `AI_TOOLS_LOG_DIR` override — a root-only test hook (sudo strips it, the handback
@@ -66,7 +66,7 @@ and is emitted only when a path changes. A message placed before its operation i
 after a completed unit of work is past-tense `INFO`. Both sinks are best-effort — a failed write is swallowed,
 so logging never aborts or alters the exit status of the operation it describes.
 
-Messages are **reduced to safe-for-display characters** before either sink by `ai_tools_log_sanitize`, a default-deny
+Messages are **reduced to safe-for-display characters** before either sink by `ai_tools_log__sanitize`, a default-deny
 **allowlist**: it keeps only printable ASCII (0x20–0x7E) and replaces every other byte — the ASCII controls (ESC, the C0
 set, DEL) and every byte of a non-ASCII sequence — with `?`. Allowing a known-safe set, rather than blocklisting
 an open-ended list of dangerous control/format/bidi code points (which the shell cannot enumerate — it has no Unicode
@@ -75,8 +75,8 @@ so it is locale-independent and neutralizes multi-byte sequences a byte at a tim
 non-ASCII filename shows as `?` while the real name stays on disk. Agent-created filenames reach the log (a handback
 records the path it restored), so this stops a crafted filename from injecting a terminal escape into a session
 that `cat`s the root-owned file log, forging a log line, or visually reordering the audit text (the Trojan-Source bidi
-class). When a message is altered, `ai_tools_log` appends an inline `[!] non-standard characters replaced` marker —
-a non-standard byte where a path is expected is a probe worth recording; the marker is pure ASCII, so it cannot itself
+class). When a message is altered, `ai_tools_log__write` appends an inline `[!] non-standard characters replaced` marker
+— a non-standard byte where a path is expected is a probe worth recording; the marker is pure ASCII, so it cannot itself
 re-trigger a replacement.
 
 The reduction keeps every printable ASCII character, punctuation included, so a value carrying `<`, `>`, `"` or `` ` ``
@@ -94,10 +94,10 @@ point is a valid path byte that reaches the served-request line, so it is reduce
 
 The reduction is **fail-closed** where it protects a terminal: the helpers that print an agent-named path straight
 to stderr — `ai-tools-chown`'s per-path prompt and breach `NOTICE`, `ai-tools-reclaim`'s pre-confirmation sample,
-`ai-tools-lockdown`'s scan and locked lines — route each path through `ai_tools_log_sanitize` and **require**
+`ai-tools-lockdown`'s scan and locked lines — route each path through `ai_tools_log__sanitize` and **require**
 `log.lib.sh` (a missing logger aborts the helper rather than emitting an agent path raw), unlike the pure-logging
 consumers that keep a soft no-op fallback. `ai-tools-stop` (`stop.log`) is the one consumer that prints agent-influenced
-values and still loads the logger **best-effort**, behind an inline sanitizer byte-identical to `ai_tools_log_sanitize`
+values and still loads the logger **best-effort**, behind an inline sanitizer byte-identical to `ai_tools_log__sanitize`
 and an inline `logger(1)`-plus-append fallback: there a missing library would mean a stop that did not happen,
 so the reduction is preserved rather than the load being made fatal ([ref-section-e8k5](stop.rule.md#ref-section-e8k5)).
 The values it reduces are a unit name and a session's `WorkingDirectory`, both read from the sandbox account's own user
@@ -107,9 +107,9 @@ to run.
 
 **What the sandbox toolchain prints is untrusted in the same way.** npm, nvm and the install scripts of the packages npm
 installs run from a tree the sandbox account owns, and their output reaches an operator's terminal
-(`ai-tools-bootstrap`) or the journal (`nvm-update`). A stream passes `ai_tools_log_sanitize_stream`, the same allowlist
-over stdin with the line feed kept; a single line quoted in a report (`npm-verify.lib.sh`'s npm error,
-`toolchain.lib.sh`'s failed uninstall) passes `ai_tools_log_sanitize`, bounded to 200 characters; and the package names
+(`ai-tools-bootstrap`) or the journal (`nvm-update`). A stream passes `ai_tools_log__sanitize_stream`, the same
+allowlist over stdin with the line feed kept; a single line quoted in a report (`npm-verify.lib.sh`'s npm error,
+`toolchain.lib.sh`'s failed uninstall) passes `ai_tools_log__sanitize`, bounded to 200 characters; and the package names
 in the signature verdict pass the same allowlist inside its `node` parser. Each loads `log.lib.sh` best-effort,
 and where the sanitizer did not load the tool's text is withheld with a line saying so rather than printed raw.
 
@@ -119,16 +119,16 @@ message.
 
 ## The fields a record carries
 
-`ai_tools_log_structured <level> <message> [FIELD=value ...]` writes one journal entry carrying both the `MESSAGE`
+`ai_tools_log__structured <level> <message> [FIELD=value ...]` writes one journal entry carrying both the `MESSAGE`
 an operator reads and the native journald fields a machine consumer selects on.
-`ai_tools_log_coded <level> <code> <message> [FIELD=value ...]` is the shape a **coded** situation takes: the code leads
-the `MESSAGE` text, so the root-only file sink and the plain fallback carry the token a reader searches on, and the same
-code rides as `AI_TOOLS_MSG`.
+`ai_tools_log__coded <level> <code> <message> [FIELD=value ...]` is the shape a **coded** situation takes: the code
+leads the `MESSAGE` text, so the root-only file sink and the plain fallback carry the token a reader searches
+on, and the same code rides as `AI_TOOLS_MSG`.
 
 | field | holds | set by |
 |---|---|---|
 | `AI_TOOLS_VERSION` | the package version that wrote the record | the library, on every structured record |
-| `AI_TOOLS_MSG` | the message code, `MSG-A6D8` | `ai_tools_log_coded`, from a well-formed code |
+| `AI_TOOLS_MSG` | the message code, `MSG-A6D8` | `ai_tools_log__coded`, from a well-formed code |
 | `AI_TOOLS_OPERATOR` | the operator the operation was performed for | `AI_TOOLS_LOG_OPERATOR`, per run |
 | `AI_TOOLS_PROJECT` | the project it was performed in | `AI_TOOLS_LOG_PROJECT`, per run |
 | `AI_TOOLS_RESULT` | `ok`, `refused`, `failed` | the call site |
@@ -158,7 +158,7 @@ sudo journalctl _UID=0 AI_TOOLS_PROJECT=/home/you/project       # everything don
 
 **The library does not set a field journald stamps itself.** `_HOSTNAME`, `_MACHINE_ID`, `_BOOT_ID`, `_UID`, `_PID`,
 `_COMM`, `_SYSTEMD_USER_UNIT` and `_SELINUX_CONTEXT` are derived from the sender's kernel credentials or from journald's
-own state, and journald drops a field a sender sets in that namespace; `ai_tools_log_structured` validates each field
+own state, and journald drops a field a sender sets in that namespace; `ai_tools_log__structured` validates each field
 name against `[A-Z][A-Z0-9_]*`, which refuses a leading underscore before the record is assembled. A field of this
 project's own naming the same thing would be the writer's account of it, so this project does not add a hostname field
 or an id for the writer's own session. `AI_TOOLS_SESSION_UNIT` names another process's unit, which journald has no
@@ -198,7 +198,7 @@ tool=Write cwd=/home/<you>/project  path=/home/<you>/project/src/main.c
 A `key=value` `MESSAGE` is only *conventionally* structured — every consumer re-parses it, and a value containing
 the delimiter is ambiguous. The native protocol delimits each field itself, so a value does not need escaping and cannot
 forge a sibling. That difference is why the two renderings are reduced differently. Emission goes
-through `ai_tools_log_structured`, an **opt-in** extension of this library: a caller passing no fields, or a host
+through `ai_tools_log__structured`, an **opt-in** extension of this library: a caller passing no fields, or a host
 whose `logger(1)` predates `--journald`, takes the plain path and is byte-identical to before. The fallback is decided
 by attempting the native write and reading its exit status, so no capability verdict can go stale. Field names are
 validated against `[A-Z][A-Z0-9_]*`, which excludes the leading-underscore namespace journald reserves for the trusted
@@ -217,7 +217,7 @@ and both renderings first drop control characters — which is what makes the re
 the newline that would truncate a journal field.
 
 The `MESSAGE` is then narrowed further, to printable ASCII **minus space, `"` and `=`**: the three characters
-that delimit it. `ai_tools_log_sanitize` is a *display* guard and deliberately permits those three, because in prose
+that delimit it. `ai_tools_log__sanitize` is a *display* guard and deliberately permits those three, because in prose
 they are ordinary text; in a `key=value` line they are *structure*, so a leading word of `git" argc=0 cwd=/etc/passwd`
 would otherwise render as `cmd="git" argc=0" argc=8` and hand a reader the planted `argc`. Reducing them to `?` makes
 the line's shape unforgeable while leaving it readable, and the variable-length part is emitted **last**, so no
@@ -261,8 +261,8 @@ as authoritative is read from the root-only file sink, never from here.
 
 ## Deferred
 
-- **Control/bidi as a malicious-attempt detector.** The `ai_tools_log_sanitize` allowlist reduces non-standard bytes
-  to `?` for safe display. Retained but **not yet wired**: `ai_tools_log_sanitize_unicode_controlchars` (shell,
+- **Control/bidi as a malicious-attempt detector.** The `ai_tools_log__sanitize` allowlist reduces non-standard bytes
+  to `?` for safe display. Retained but **not yet wired**: `ai_tools_log__sanitize_unicode_control_characters` (shell,
   byte-wise C0/C1/zero-width/bidi/BOM ranges) and `_sanitize_unicode_controlchars` (daemon, `unicodedata` categories
   `Cc`/`Cf`/`Cs`/`Co`/`Zl`/`Zp`, covering the astral tag chars too). A sane agent never emits these in a path, so their
   presence is a signal worth **quarantine-logging** (who, which path, which code points) rather than silently reducing.

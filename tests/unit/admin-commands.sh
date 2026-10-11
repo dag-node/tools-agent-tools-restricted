@@ -451,7 +451,7 @@ declare_line noboot verbs "status"
 # shellcheck disable=SC2016  # $1 is the inner shell's own positional, passed after the `_`
 env AI_TOOLS_ADMIN_COMMANDS_DIR="${CMD_DIR}" AI_TOOLS_INTEGRATIONS_DIR="${MANIFEST_DIR}" \
     bash -c 'source "$1"
-             ai_tools_enabled_integrations() { printf "%s\n" failing withboot noboot absent; }
+             ai_tools_providers__list_enabled_integrations() { printf "%s\n" failing withboot noboot absent; }
              bootstrap_integrations' _ "${HELPER}" \
     > "${FIXTURE_ROOT}/out" 2>&1 && STATUS=0 || STATUS=$?
 out="$(cat "${FIXTURE_ROOT}/out")"

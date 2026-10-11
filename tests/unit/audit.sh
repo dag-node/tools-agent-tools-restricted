@@ -13,7 +13,7 @@
 #      entrypoint exec, or no record at all, while the section went on reporting a clean window.
 #   2. THE AVC LINE IS THE PREDICATE. A block is a record only where one of its AVC lines is the auditallow's own:
 #      `granted`, the permission, both types. Another domain's denial, a grant of another permission, and the same
-#      permission on another object type in the same window are each dropped, and a block the AVC admits is kept
+#      permission on another object type in the same window are each dropped, and a block the AVC accepts is kept
 #      whatever its syscall number, so an exec through execveat(2) is not a way past the report.
 #   3. THE CLASSIFICATION IS AGENT-AGNOSTIC AND DIRECTIONAL. Driven over a SYNTHETIC pair of manifests, so a literal
 #      agent name in the code path fails the fixture. What is folded is read from the record -- a bare argv0 for
@@ -373,7 +373,7 @@ else
     fail "the SYSCALL exe did not stand in for a missing AVC path: $(tr '\n' '|' <<<"${path_records}")"
 fi
 if grep -q 'exe ?, pid 703, parent ?' <<<"${path_records}"; then
-    pass "an event the AVC line admits and no other line describes is still a finding, with its fields unknown"
+    pass "an event the AVC line accepts and no other line describes is still a finding, with its fields unknown"
 else
     fail "a bare AVC event was dropped rather than reported: $(tr '\n' '|' <<<"${path_records}")"
 fi

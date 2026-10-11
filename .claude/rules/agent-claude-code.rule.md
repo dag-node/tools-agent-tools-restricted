@@ -95,7 +95,7 @@ ways:
 
 - **`ai-tools-run`'s fail-closed preflight** resolves it. It `realpath -e`s `AI_TOOLS_AGENT_EXEC` (succeeding, since it
   runs as the sandbox account, which owns the `700` package directory) and reads `matchpathcon` and `stat -c '%C'`
-  on the **resolved** path. The verdict is the pure `ai_tools_confinement_verdict` (see
+  on the **resolved** path. The verdict is the pure `ai_tools_confinement__evaluate` (see
   [confinement](confinement.rule.md)).
 - **`ai-tools-launcher-symlink`'s idempotency guard** resolves it the same way, so a repoint that would drive a needed
   relabel always fires while a daily no-op run stops churning the link.
@@ -114,8 +114,8 @@ resolution is the **check**, so the helper's exit status answers the question th
 be confined?
 
 For each enabled agent it resolves `/opt/ai-tools/bin/<launcher>` the same way the preflight does (`realpath -e`,
-as root), applies the declared rule, and reconciles the two through the pure `ai_tools_entrypoint_reconcile_verdict`
-(`relabel.lib.sh`):
+as root), applies the declared rule, and reconciles the two through the pure
+`ai_tools_relabel__evaluate_entrypoint_reconcile` (`relabel.lib.sh`):
 
 | state | verdict | outcome |
 |---|---|---|
@@ -133,18 +133,18 @@ entrypoint of the confined domain — stays exactly the set the root-owned manif
 through an npm symlink the sandbox account owns, and a literal rule for it would pin the Node version, so labelling
 from resolution would both widen the set on agent-influenced input and accumulate a stale rule per Node bump.
 The resolved path is only ever *compared* and *reported*, and it is carried into a status line only while it passes
-an allowlist (`_ai_tools_entrypoint_path_reportable`: absolute, `..`-free, and no whitespace or control byte that could
-split the line or reach the operator's terminal).
+an allowlist (`_ai_tools_relabel__is_entrypoint_path_reportable`: absolute, `..`-free, and no whitespace or control byte
+that could split the line or reach the operator's terminal).
 
 ## The launcher and its launch hook (`launch.d/claude-code.sh`)
 
 `/usr/local/bin/claude` is this package's symlink to the one launch wrapper, whose gates and their order are
 [launch](launch.rule.md)'s. What is Claude Code's own is one launch input: the manifest declares `launch_hook=yes`,
-so after the gates the wrapper sources `launch.d/claude-code.sh`, whose `ai_tools_launch_hook_args` resolves the custom
-system prompt through `claude-prompt.lib.sh` and appends its arguments ahead of the operator's. The resolver library
-loads best-effort there: a host that does not configure a prompt launches without it, and one that configures a prompt
-refuses when the library will not load (`MSG-U9G5`) or when the prompt cannot be applied (`MSG-A3U4`), per [Custom
-system prompt](#custom-system-prompt-claude-promptlibsh).
+so after the gates the wrapper sources `launch.d/claude-code.sh`, whose `ai_tools_launch_hook__append_args` resolves
+the custom system prompt through `claude-prompt.lib.sh` and appends its arguments ahead of the operator's. The resolver
+library loads best-effort there: a host that does not configure a prompt launches without it, and one that configures
+a prompt refuses when the library will not load (`MSG-U9G5`) or when the prompt cannot be applied (`MSG-A3U4`),
+per [Custom system prompt](#custom-system-prompt-claude-promptlibsh).
 
 ## Custom system prompt (`claude-prompt.lib.sh`)
 
@@ -155,10 +155,10 @@ guidance) or `--system-prompt-file <path>` (mode `replace`).
 - **`CLAUDE_SYSTEM_PROMPT_FILE` must resolve under `/etc/ai-tools/prompts/`** — the one location the confined
   `ai_tools_t` domain is granted read on (`etc_t`, via `files_read_etc_files`). A root-owned file elsewhere passes
   the DAC trust check yet is unreadable to the session, so a mis-set path would become a failed launch rather than
-  a refused one. The file, its directory, the prompts base, and `operator.conf` each pass `ai_tools_conf_is_trusted`,
+  a refused one. The file, its directory, the prompts base, and `operator.conf` each pass `ai_tools_conf__is_trusted`,
   and the file must be a regular file holding plain text. The launch hook's checks are all `stat`s: it runs
   as the operator, who by design is not in `SANDBOX_GROUP` and cannot read the `0640` file (an operator holds `sudo`
-  for editing it). The text check (`ai_tools_conf_is_text_file`, a shared predicate) therefore runs in the claude-code
+  for editing it). The text check (`ai_tools_conf__is_text_file`, a shared predicate) therefore runs in the claude-code
   session-env fragment as the sandbox account, before the unit exists, and a file that is not plain text refuses
   the launch there — whether or not the launch overrides the prompt with a flag, which the fragment cannot see.
 - Claude Code reads the file **verbatim** — not processed, not comment-stripped — so it holds prompt text only.
@@ -179,7 +179,7 @@ guidance) or `--system-prompt-file <path>` (mode `replace`).
 
 The session-env counterpart, resolved **sandbox-side in the fragment** rather than in the launch hook. `operator.conf`
 `CLAUDE_BASE_URL_FILE` points at a dedicated file under `/etc/ai-tools/endpoints/` (`etc_t`, which the confined domain
-reads, as for the prompts base; the file, its directory, and the pointer each pass `ai_tools_conf_is_trusted`),
+reads, as for the prompts base; the file, its directory, and the pointer each pass `ai_tools_conf__is_trusted`),
 from which the resolver reads exactly four recognised keys — `ANTHROPIC_BASE_URL` (required, a validated http(s) URL),
 `ANTHROPIC_AUTH_TOKEN`, `ANTHROPIC_MODEL`, `ANTHROPIC_DEFAULT_HAIKU_MODEL` — and turns each valid one into a `--setenv=`
 entry. An arbitrary key is never read, so the file cannot inject unrecognised environment.
@@ -275,7 +275,7 @@ a property of each shell's environment rather than of the host, and one this pro
 `sudo`'s `secure_path`, a caller resolving the absolute path, and a `/usr/sbin`→`/usr/bin` merge that would rank
 a system directory ahead of `/usr/local/bin` (which is why Tier 1 leads with the `/usr/local` pair). Placement holds
 without being re-verified per shell; precedence does not. The same rule serves every agent rather than this one:
-`ai-tools-run` accepts an executable only under `${AI_TOOLS_NVM_DIR}/versions/node/<semver>/bin/<launcher>`.
+`ai-tools-run` accepts an executable only under `${AI_TOOLS_RUN__NVM_DIR}/versions/node/<semver>/bin/<launcher>`.
 
 Past that, the two channels trade one risk for another, and the trades sit on opposite sides of this project's threat
 model:

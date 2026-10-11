@@ -143,7 +143,7 @@ else
     ln -sfn "${fake_version_dir}/opt/entrypoint" "${fake_version_dir}/bin/${launcher}"
     # shellcheck disable=SC2016  # the inner shell expands these, not this one
     read_back="$(env AI_TOOLS_AGENTS_DIR="${fixture_agents}" bash -c \
-        'source /usr/local/lib/ai-tools/providers.lib.sh && ai_tools_agent_manifest_field "$1" entrypoint_fcontext' \
+        'source /usr/local/lib/ai-tools/providers.lib.sh && ai_tools_providers__read_agent_manifest_field "$1" entrypoint_fcontext' \
         _ "${agent}" 2>/dev/null || true)"
     if [[ "${read_back}" != "${alternation}" ]]; then
         fail "the fixture manifest does not read back through the resolver (got '${read_back}'), so the case cannot be driven"
@@ -219,7 +219,7 @@ enabled_launcher=""
 while IFS=$'\t' read -r _ _ manifest_launcher; do
     [[ -n "${manifest_launcher}" && -L "${bin_dir}/${manifest_launcher}" ]] || continue
     enabled_launcher="${manifest_launcher}"; break
-done < <(bash -c 'source /usr/local/lib/ai-tools/providers.lib.sh && ai_tools_enabled_agents' 2>/dev/null)
+done < <(bash -c 'source /usr/local/lib/ai-tools/providers.lib.sh && ai_tools_providers__list_enabled_agents' 2>/dev/null)
 if [[ -z "${enabled_launcher}" ]]; then
     skip "removal of an enabled agent's link is refused" "no enabled agent has a stable link on this host"
 else
@@ -260,7 +260,7 @@ _cleanup+=("${fixture_link}")
 ln -s "/opt/ai-tools/.nvm/versions/node/v0.0.2/bin/${fixture_launcher}" "${fixture_link}"
 # shellcheck disable=SC2016  # the inner shell expands these, not this one
 read_back="$(env AI_TOOLS_AGENTS_DIR="${remove_agents}" bash -c \
-    'source /usr/local/lib/ai-tools/providers.lib.sh && ai_tools_installed_agents' 2>/dev/null | cut -f1 | grep -cx "${fixture_agent}" || true)"
+    'source /usr/local/lib/ai-tools/providers.lib.sh && ai_tools_providers__list_installed_agents' 2>/dev/null | cut -f1 | grep -cx "${fixture_agent}" || true)"
 # The same link while the enabled set cannot be read: an invalid AI_TOOLS_AGENTS, read through the root-only
 # AI_TOOLS_OPERATOR_CONF hook, is a fault verdict, which the helper does not read as "no agent enabled", so the link
 # stays. Driven before the accepted case, on the link that case then removes.

@@ -37,13 +37,23 @@ working in any project knows its boundaries instead of finding them one failed
 command at a time. The file is root-owned, and a real file of your own
 at that path wins and is reported rather than replaced.
 
-**The shipped skills exist in one copy.** The documentation
-and engineering-judgment skills this project ships live once
-under `/opt/ai-tools`; each agent's config directory holds a symlink per skill,
-so a skill is authored and updated in one place however many agents read it.
-A skill of your own, or one specific to a single agent, is a real directory
-there and the linker keeps it in place. The operator guide for them ships
-beside them, at `/usr/share/ai-tools/skills/README.md`.
+**Skills and subagents come from asset sets, in one copy for every agent.**
+A set, such
+as [`core`](https://github.com/dag-node/ai-tools-assets/tree/develop/sets/core),
+is a signed package; installing it does not change what any session loads until
+you enable its assets, which links each one under `/opt/ai-tools`
+and into every enabled agent:
+
+```bash
+sudo dnf install ai-tools-assets-core
+sudo ai-tools-admin assets enable --set core
+```
+
+`sudo ai-tools-admin status` names an enabled asset that is not linked,
+and why; `ai-tools-assets(5)` holds the identifier format and each reason.
+Where a skill of your own goes -- for one project, for one agent, for every
+agent -- is in the guide that ships beside the skills,
+`/usr/share/ai-tools/skills/README.md`.
 
 **A session is capped at 8 GB of memory and 1024 tasks.** Above 6 GB the kernel
 reclaims the session's memory before anyone else's, at 8 GB it ends

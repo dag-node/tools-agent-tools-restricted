@@ -17,11 +17,11 @@ and the rules a report follows when it calls them.
 Two shared libraries carry it, both `644 root:root`, sourced by every principal that prints a report, and neither
 sourcing `msg.lib.sh`, so a root helper sources the data layer alone:
 
-- **`records-base.lib.sh`** is the model and the report state: the column registry `AI_TOOLS_RECORDS_COLUMNS`
+- **`records-base.lib.sh`** is the model and the report state: the column registry `AI_TOOLS_RECORDS_BASE__COLUMNS`
   (`name:class` in stream order, the one code-side declaration of the header), the severity and subject-type token sets,
   the two exit constants (the only place 4 and 5 are spelled in code), and the fold that turns the severities a run
-  noted into `ai_tools_records_get_exit_status`. It is format-independent, so a later JSON writer reuses its predicate
-  and its state.
+  noted into `ai_tools_records_base__get_exit_status`. It is format-independent, so a later JSON writer reuses its
+  predicate and its state.
 - **`records-tsv.lib.sh`** is the wire format: the canonical escape and its strict decoder, the item framing, the record
   identity (the hash is over the TSV encoding, which is why the identity helper lives here) and the row writer.
 
@@ -29,24 +29,25 @@ sourcing `msg.lib.sh`, so a root helper sources the data layer alone:
 
 Every consumer runs under `set -euo pipefail`, so a library function does not return non-zero for a report-level
 condition: an invalid row or a failed hash is noted as `unreadable` in the state, the writer prints nothing for that row
-and returns 0, and the script reaches its exit, where `ai_tools_records_get_exit_status` reports 5. The one non-zero
-return from the writer is a failed write (a closed pipe), after which the command exits non-zero anyway. The fold itself
-only rises: `attention` over `ok`, `unreadable` over both, and a token outside the set folds as `unreadable`, so no
-consumer reads a run as clean because of a token the library did not know. A report ends with one status path,
-`ai_tools_records_get_exit_status || exit $?`, or on a command that changes the host the combination
+and returns 0, and the script reaches its exit, where `ai_tools_records_base__get_exit_status` reports 5. The one
+non-zero return from the writer is a failed write (a closed pipe), after which the command exits non-zero anyway.
+The fold itself only rises: `attention` over `ok`, `unreadable` over both, and a token outside the set folds
+as `unreadable`, so no consumer reads a run as clean because of a token the library did not know. A report ends with one
+status path, `ai_tools_records_base__get_exit_status || exit $?`, or on a command that changes the host the combination
 `ai-tools-records(5)` states under EXIT STATUS (1 over 5 over 4).
 
 A report that prints for a person and does not write a stream takes the same fold for its exit alone: `ai-tools status`,
 `ai-tools-admin status` and `ai-tools audit` source `records-base.lib.sh`, note `attention` for each fault they read
-and `unreadable` for each reading they could not make, and end on `ai_tools_records_get_exit_status`. Their page names
-every reading that could not be made, so exit 5 is never a page that reads clean. Which readings each command counts,
-and which it leaves at 0, are in [cli](cli.rule.md).
+and `unreadable` for each reading they could not make, and end on `ai_tools_records_base__get_exit_status`. Their page
+names every reading that could not be made, so exit 5 is never a page that reads clean. Which readings each command
+counts, and which it leaves at 0, are in [cli](cli.rule.md).
 
 ## Rules for a report calling the libraries
 
-- **State changes run in the report's own shell.** Every `ai_tools_records_*` call that changes state — `begin_report`,
-  `accumulate_severity`, `write_record` — is made in the report's own shell, never inside `$(...)`, a pipeline stage
-  or the producer side of `< <(...)`, where it would update a subshell's copy that the exit status never reads.
+- **State changes run in the report's own shell.** Every `ai_tools_records_base__*` call that changes state —
+  `begin_report`, `accumulate_severity`, `write_record` — is made in the report's own shell, never inside `$(...)`,
+  a pipeline stage or the producer side of `< <(...)`, where it would update a subshell's copy that the exit status
+  never reads.
 - **A collector's PID is saved on the statement that opens it, and waited for after its output is consumed.**
   `wait "$pid"` returns the process substitution's exit status only when `pid` was taken from `$!` right
   after the substitution was opened; a bare `wait $!` after a loop whose body opened another substitution waits
@@ -55,7 +56,7 @@ and which it leaves at 0, are in [cli](cli.rule.md).
   for a consumer that does not run a command between the two statements.
 - **Records cross between a collector and its consumer in the internal framing**, which keeps every field exact: each
   field `ENC`-encoded, fields tab-separated, one record per line feed. The consumer decodes each field
-  with `ai_tools_records_tsv_decode_field`, and a record that does not decode, or has the wrong field count, is
+  with `ai_tools_records_tsv__decode_field`, and a record that does not decode, or has the wrong field count, is
   an `error` row. A collector that reads paths reads them NUL-separated (`find -print0`, `read -d ''`), so a name
   holding a line feed reaches the encoder whole. The post-upgrade collectors are the exception: they keep the line
   and `|` framing the interactive report reads them with, and their header states what a planted name costs — extra
@@ -86,10 +87,10 @@ SIGPIPE, exit 141, which the consumer would read as exit 5.
 The functions that write into a caller's variable do so with `printf -v`, which bash resolves through its dynamic scope,
 so a callee local carrying the caller's name would catch the write. Every local in the two libraries starts
 with `_records_` and a per-function stem, and a function taking an output variable refuses a name that starts
-with `_records_` or `_AI_TOOLS_RECORDS_`, names `LC_ALL`, or falls outside the identifier shape `[A-Za-z_][A-Za-z0-9_]*`
-— returning 1 without writing. The encoder's `local LC_ALL=C` is what makes bash index a string by bytes for that one
-function (a UTF-8 caller locale indexes by code point and would print one hex pair for the two bytes of an e-acute),
-which is why the name is on the refused list.
+with `_records_`, `_AI_TOOLS_RECORDS_` or `AI_TOOLS_RECORDS_`, names `LC_ALL`, or falls outside the identifier shape
+`[A-Za-z_][A-Za-z0-9_]*` — returning 1 without writing. The encoder's `local LC_ALL=C` is what makes bash index a string
+by bytes for that one function (a UTF-8 caller locale indexes by code point and would print one hex pair for the two
+bytes of an e-acute), which is why the name is on the refused list.
 
 ## Tests
 

@@ -29,9 +29,9 @@ set -euo pipefail
 readonly FILTERS_LIB="/usr/local/lib/ai-tools/filters.lib.sh"
 # shellcheck source=SCRIPTDIR/../../../../usr/local/lib/ai-tools/filters.lib.sh
 if ! source "${FILTERS_LIB}" 2>/dev/null \
-        || ! declare -F ai_tools_filter_rewrite >/dev/null 2>&1 \
-        || ! declare -F ai_tools_filter_strip_noise >/dev/null 2>&1 \
-        || ! declare -F ai_tools_filter_enabled >/dev/null 2>&1; then
+        || ! declare -F ai_tools_filters__rewrite >/dev/null 2>&1 \
+        || ! declare -F ai_tools_filters__strip_noise >/dev/null 2>&1 \
+        || ! declare -F ai_tools_filters__is_enabled >/dev/null 2>&1; then
     exit 0
 fi
 
@@ -50,8 +50,8 @@ pre-tool-use)
         <<< "${hook_input}" 2>/dev/null)" || exit 0
     [[ -n "${agent_command}" ]] || exit 0
 
-    ai_tools_filter_rules_load || exit 0
-    rewritten_command="$(ai_tools_filter_rewrite "${agent_command}")" || exit 0
+    ai_tools_filters__load_rules || exit 0
+    rewritten_command="$(ai_tools_filters__rewrite "${agent_command}")" || exit 0
 
     # updatedInput REPLACES the whole tool input, so it is built from the original object with only .command changed:
     # dropping a key the agent set (a timeout, run_in_background) would silently change how the command runs.
@@ -65,7 +65,7 @@ post-tool-use)
     # The operator's kill switch (an empty AI_TOOLS_FILTERS) covers the noise strip as well as the rewrite: turning
     # filtering off must leave the output the model reads byte-identical to what the tool produced. The rewrite path
     # honors the same switch by loading no rules.
-    ai_tools_filter_enabled || exit 0
+    ai_tools_filters__is_enabled || exit 0
 
     # The Bash tool's result shape is read from the event rather than assumed: an object carrying stdout/stderr strings
     # has those two filtered in place, a bare string is filtered whole, and anything else is left alone.
@@ -87,9 +87,9 @@ post-tool-use)
         raw_stdout="${raw_stdout%x}"
         raw_stderr="$(jq -j '.tool_response.stderr // ""' <<< "${hook_input}" 2>/dev/null && printf x)" || exit 0
         raw_stderr="${raw_stderr%x}"
-        filtered_stdout="$(printf '%s' "${raw_stdout}" | ai_tools_filter_strip_noise && printf x)" || exit 0
+        filtered_stdout="$(printf '%s' "${raw_stdout}" | ai_tools_filters__strip_noise && printf x)" || exit 0
         filtered_stdout="${filtered_stdout%x}"
-        filtered_stderr="$(printf '%s' "${raw_stderr}" | ai_tools_filter_strip_noise && printf x)" || exit 0
+        filtered_stderr="$(printf '%s' "${raw_stderr}" | ai_tools_filters__strip_noise && printf x)" || exit 0
         filtered_stderr="${filtered_stderr%x}"
         # No line to emit when the output carried no noise, which is the common case.
         [[ "${filtered_stdout}" != "${raw_stdout}" || "${filtered_stderr}" != "${raw_stderr}" ]] || exit 0
@@ -103,7 +103,7 @@ post-tool-use)
     string)
         raw_output="$(jq -j '.tool_response' <<< "${hook_input}" 2>/dev/null && printf x)" || exit 0
         raw_output="${raw_output%x}"
-        filtered_output="$(printf '%s' "${raw_output}" | ai_tools_filter_strip_noise && printf x)" || exit 0
+        filtered_output="$(printf '%s' "${raw_output}" | ai_tools_filters__strip_noise && printf x)" || exit 0
         filtered_output="${filtered_output%x}"
         [[ "${filtered_output}" != "${raw_output}" ]] || exit 0
         jq -cn --arg out "${filtered_output}" \

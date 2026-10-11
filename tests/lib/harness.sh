@@ -103,22 +103,22 @@ require_root() {
 }
 
 # as_sandbox <command> [arg...]: run a command as the sandbox account through the one route root takes to a file
-# that account can write -- sandbox-exec.lib.sh's ai_tools_as_sandbox: no controlling terminal, no inherited descriptor,
-# a clean environment (a case passes what the command needs with a leading `env NAME=value`), each stream
-# through the log allowlist, and a bound on the run. The installed library, else the checkout's; without either the call
-# fails and says so, since a plain runuser would hand the child root's terminal and environment.
+# that account can write -- sandbox-exec.lib.sh's ai_tools_sandbox_exec__run_as_sandbox: no controlling terminal, no
+# inherited descriptor, a clean environment (a case passes what the command needs with a leading `env NAME=value`), each
+# stream through the log allowlist, and a bound on the run. The installed library, else the checkout's; without either
+# the call fails and says so, since a plain runuser would hand the child root's terminal and environment.
 as_sandbox() {
-    if ! declare -F ai_tools_as_sandbox >/dev/null 2>&1; then
+    if ! declare -F ai_tools_sandbox_exec__run_as_sandbox >/dev/null 2>&1; then
         local candidate
         for candidate in /usr/local/lib/ai-tools/sandbox-exec.lib.sh \
                 "$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)/src/usr/local/lib/ai-tools/sandbox-exec.lib.sh"; do
             # shellcheck source=/dev/null
             [[ -r "${candidate}" ]] && source "${candidate}" && break
         done
-        declare -F ai_tools_as_sandbox >/dev/null 2>&1 \
+        declare -F ai_tools_sandbox_exec__run_as_sandbox >/dev/null 2>&1 \
             || { printf 'as_sandbox: sandbox-exec.lib.sh is neither installed nor in the checkout\n' >&2; return 1; }
     fi
-    ai_tools_as_sandbox "${SANDBOX_USER}" "$@"
+    ai_tools_sandbox_exec__run_as_sandbox "${SANDBOX_USER}" "$@"
 }
 
 # toml_python: print the name of an interpreter that parses TOML -- tomllib in the standard library (Python 3.11+),
@@ -153,10 +153,10 @@ provisioned_agent() {
 # and no case is tied to a shipped manifest.
 provisioned_launchers() {
     bash -c 'source /usr/local/lib/ai-tools/providers.lib.sh 2>/dev/null || exit 0
-        declare -F ai_tools_enabled_agents >/dev/null 2>&1 || exit 0
+        declare -F ai_tools_providers__list_enabled_agents >/dev/null 2>&1 || exit 0
         while IFS=$'"'"'\t'"'"' read -r agent _ launcher; do
             [[ -n "${agent}" && -n "${launcher}" && -L "$1/${launcher}" ]] && printf "%s\t%s\n" "${agent}" "${launcher}"
-        done < <(ai_tools_enabled_agents 2>/dev/null)
+        done < <(ai_tools_providers__list_enabled_agents 2>/dev/null)
         exit 0' _ "${AI_TOOLS_LAUNCHER_DIR:-/opt/ai-tools/bin}"
 }
 # ready_launchers: the provisioned_launchers lines whose agent passes entrypoint_ready.
@@ -182,9 +182,9 @@ skip_unprovisioned() {
 # an entrypoint rule. Reads the toolchain, so run as root.
 entrypoint_ready() {
     bash -c 'source /usr/local/lib/ai-tools/providers.lib.sh 2>/dev/null || exit 1
-        declare -F ai_tools_agent_manifest_field >/dev/null 2>&1 || exit 1
-        launcher="$(ai_tools_agent_manifest_field "$1" launcher 2>/dev/null)" || exit 1
-        pattern="$(ai_tools_agent_manifest_field "$1" entrypoint_fcontext 2>/dev/null)" || exit 1
+        declare -F ai_tools_providers__read_agent_manifest_field >/dev/null 2>&1 || exit 1
+        launcher="$(ai_tools_providers__read_agent_manifest_field "$1" launcher 2>/dev/null)" || exit 1
+        pattern="$(ai_tools_providers__read_agent_manifest_field "$1" entrypoint_fcontext 2>/dev/null)" || exit 1
         [[ -n "${launcher}" && -n "${pattern}" ]] || exit 1
         resolved="$(realpath -e "$2/${launcher}" 2>/dev/null)" || exit 1
         [[ "${resolved}" =~ ^(${pattern})$ ]] || exit 1
@@ -351,7 +351,7 @@ mk_operator_conf() {
         while IFS=$'\t' read -r name _ launcher; do
             [[ -n "${name}" && -n "${launcher}" && -L "${launcher_dir}/${launcher}" ]] || continue
             agents+="${agents:+ }agent-${name}"
-        done < <(bash -c 'source "$1" 2>/dev/null && ai_tools_installed_agents 2>/dev/null' _ "${lib}")
+        done < <(bash -c 'source "$1" 2>/dev/null && ai_tools_providers__list_installed_agents 2>/dev/null' _ "${lib}")
     fi
     printf 'OPERATORS="%s"\nAI_TOOLS_AGENTS="%s"\n' "$*" "${agents}" > "${path}"
     chown root:root "${path}" 2>/dev/null || true

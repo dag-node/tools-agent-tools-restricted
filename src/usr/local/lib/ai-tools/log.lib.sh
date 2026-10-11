@@ -29,12 +29,12 @@
 # Both sinks are best-effort: a failed write (no journald, full disk, a SELinux denial, EPERM on the file) is swallowed
 # so logging can never abort -- or alter the exit status of -- the operation the caller is performing.
 #
-# ai_tools_log_structured adds NATIVE JOURNALD FIELDS beside the human-readable MESSAGE, for a record that is also read
-# by machine (`journalctl -o json`, a journal ingester). It is OPT-IN and additive: ai_tools_log is unchanged, a caller
-# passing no fields takes the identical path, and a host whose logger(1) predates `--journald` falls back to it.
-# A key=value MESSAGE is only conventionally structured -- every consumer re-parses it and a value containing
+# ai_tools_log__structured adds NATIVE JOURNALD FIELDS beside the human-readable MESSAGE, for a record that is also read
+# by machine (`journalctl -o json`, a journal ingester). It is OPT-IN and additive: ai_tools_log__write is unchanged,
+# a caller passing no fields takes the identical path, and a host whose logger(1) predates `--journald` falls back
+# to it. A key=value MESSAGE is only conventionally structured -- every consumer re-parses it and a value containing
 # the delimiter is ambiguous -- whereas the native protocol delimits each field itself, so a field value cannot forge
-# a sibling field, and escaping is unnecessary. ai_tools_log_coded records a CODED situation: the message code leads
+# a sibling field, and escaping is unnecessary. ai_tools_log__coded records a CODED situation: the message code leads
 # the recorded text, so every sink carries it, and it rides as the AI_TOOLS_MSG field too. Detail:
 # .claude/rules/logging.rule.md.
 #
@@ -45,8 +45,8 @@
 # Include guard. Consumers source this lib directly, and msg.lib.sh sources it too (for its decision audit trail),
 # so one process can reach it twice; this library's readonly constants would abort a re-source under `set -e`,
 # so a second source is a no-op. Tags, files, and levels are read per call, so a single definition serves every caller.
-if [[ -n "${_AI_TOOLS_LOG_LIB_LOADED:-}" ]]; then return 0; fi
-readonly _AI_TOOLS_LOG_LIB_LOADED=1
+if [[ -n "${_AI_TOOLS_LOG__LOADED:-}" ]]; then return 0; fi
+readonly _AI_TOOLS_LOG__LOADED=1
 
 # Directory for the optional root-only file sink. Defaults to /var/log/ai-tools; an AI_TOOLS_LOG_DIR already
 # in the environment overrides it. Like AI_TOOLS_ALLOWLIST this is a root-only hook -- sudo strips it (env_reset, not
@@ -59,11 +59,12 @@ readonly AI_TOOLS_LOG_DIR="${AI_TOOLS_LOG_DIR:-/var/log/ai-tools}"
 # The package version, substituted at deploy time (install.sh from packaging/VERSION, the RPM from its own
 # %{version}-%{release}); a source checkout reads the token unsubstituted and records `dev`. Every structured record
 # carries it as AI_TOOLS_VERSION, so a fleet query reads which release wrote a record without a separate inventory pass,
-# and a call site does not spell the token. The name is PRIVATE because the CLI defines a readonly AI_TOOLS_VERSION
-# of its own and sources this library: a second assignment to a readonly name aborts the caller.
-_AI_TOOLS_LOG_VERSION="@AI_TOOLS_VERSION@"
-[[ "${_AI_TOOLS_LOG_VERSION}" == @*@ ]] && _AI_TOOLS_LOG_VERSION="dev"
-readonly _AI_TOOLS_LOG_VERSION
+# and a call site does not spell the token. It does not take the name AI_TOOLS_VERSION, because the CLI defines
+# a readonly AI_TOOLS_VERSION of its own and sources this library: a second assignment to a readonly name aborts
+# the caller.
+_AI_TOOLS_LOG__VERSION="@AI_TOOLS_VERSION@"
+[[ "${_AI_TOOLS_LOG__VERSION}" == @*@ ]] && _AI_TOOLS_LOG__VERSION="dev"
+readonly _AI_TOOLS_LOG__VERSION
 
 # Per-run record context, read at call time like AI_TOOLS_LOG_TAG: the operator a privileged operation is performed
 # for, and the project it is performed in. A root helper runs at _UID=0, so the journal's own fields name the writer
@@ -73,8 +74,8 @@ readonly _AI_TOOLS_LOG_VERSION
 AI_TOOLS_LOG_OPERATOR="${AI_TOOLS_LOG_OPERATOR:-}"
 AI_TOOLS_LOG_PROJECT="${AI_TOOLS_LOG_PROJECT:-}"
 
-# _ai_tools_log_prio <level> -- map a level word to its syslog priority. Unknown -> info.
-_ai_tools_log_prio() {
+# _ai_tools_log__get_priority <level> -- map a level word to its syslog priority. Unknown -> info.
+_ai_tools_log__get_priority() {
     case "$1" in
         dbg|debug)     printf 'debug' ;;
         inf|info)      printf 'info' ;;
@@ -85,10 +86,10 @@ _ai_tools_log_prio() {
     esac
 }
 
-# _ai_tools_log_prio_number <level> -- the same mapping as a NUMERIC syslog priority. The journald native protocol takes
-# PRIORITY as a number (RFC 5424 severity), where the `logger -p` command line takes the name, so both spellings are
-# needed. Unknown -> 6 (info).
-_ai_tools_log_prio_number() {
+# _ai_tools_log__get_priority_number <level> -- the same mapping as a NUMERIC syslog priority. The journald native
+# protocol takes PRIORITY as a number (RFC 5424 severity), where the `logger -p` command line takes the name, so both
+# spellings are needed. Unknown -> 6 (info).
+_ai_tools_log__get_priority_number() {
     case "$1" in
         dbg|debug)     printf '7' ;;
         inf|info)      printf '6' ;;
@@ -99,12 +100,12 @@ _ai_tools_log_prio_number() {
     esac
 }
 
-# ai_tools_log_sanitize <text> -- reduce text to safe-for-display characters before it reaches a log sink or a terminal,
-# printing the result. A default-deny **allowlist**: it keeps only printable ASCII (0x20-0x7E) and replaces every other
-# byte -- the ASCII controls (ESC, the C0 set, DEL) and every byte of a non-ASCII sequence -- with `?`. Agent-influenced
-# filenames flow through the logger (a handback records the path it restored), so this stops a crafted name
-# from injecting a terminal escape into a session that `cat`s the root-owned file log, forging a log line, or visually
-# reordering the audit text (the Trojan-Source bidi class).
+# ai_tools_log__sanitize <text> -- reduce text to safe-for-display characters before it reaches a log sink
+# or a terminal, printing the result. A default-deny **allowlist**: it keeps only printable ASCII (0x20-0x7E)
+# and replaces every other byte -- the ASCII controls (ESC, the C0 set, DEL) and every byte of a non-ASCII sequence --
+# with `?`. Agent-influenced filenames flow through the logger (a handback records the path it restored), so this stops
+# a crafted name from injecting a terminal escape into a session that `cat`s the root-owned file log, forging a log
+# line, or visually reordering the audit text (the Trojan-Source bidi class).
 #
 # Allowlist, not a blocklist, on purpose: enumerating every dangerous control/format/bidi code point is open-ended
 # (Unicode keeps adding them) and needs the Unicode database the shell cannot reach, so it is never provably complete;
@@ -114,23 +115,23 @@ _ai_tools_log_prio_number() {
 # becomes one `?`. The handback daemon carries the same allowlist in Python (`_sanitize`). Retaining the control/bidi
 # set instead as a malicious-attempt *detector* (quarantine-logging the probe) is a deferred idea; see the `## Deferred`
 # section of logging.rule.md.
-ai_tools_log_sanitize() {
+ai_tools_log__sanitize() {
     local s="$1"
     local LC_ALL=C                                # byte-wise: [[:print:]] is 0x20-0x7E only
     printf '%s' "${s//[^[:print:]]/?}"
 }
 
-# ai_tools_log_sanitize_stream -- the same allowlist over stdin, written to stdout, with the line feed and the tab kept:
-# the line feed so a tool's output stays one line per line, and the tab because a caller may read the stream
+# ai_tools_log__sanitize_stream -- the same allowlist over stdin, written to stdout, with the line feed and the tab
+# kept: the line feed so a tool's output stays one line per line, and the tab because a caller may read the stream
 # as a tab-separated wire format, and a tab moves the cursor without starting an escape sequence. For a stream a caller
 # passes through rather than holds -- `npm install` and its packages' install scripts, which a toolchain step runs
 # in front of an operator's terminal or into the journal, and whatever a command run as the sandbox account prints
-# (toolchain.lib.sh's ai_tools_as_sandbox).
-ai_tools_log_sanitize_stream() {
+# (toolchain.lib.sh's ai_tools_sandbox_exec__run_as_sandbox).
+ai_tools_log__sanitize_stream() {
     LC_ALL=C tr -c '\n\t\040-\176' '?'
 }
 
-# DEFERRED -- retained, not yet called. Where ai_tools_log_sanitize (the allowlist) reduces non-standard bytes to '?'
+# DEFERRED -- retained, not yet called. Where ai_tools_log__sanitize (the allowlist) reduces non-standard bytes to '?'
 # for safe display, this is the complementary *detector*: it targets exactly the ASCII/Unicode control, format, and bidi
 # bytes (C0/C1, zero-width, the Trojan-Source bidi overrides/isolates, line/paragraph separators, BOM), byte-wise
 # and locale-independent. A sane agent never emits these in a filename or path, so their presence is a malicious-attempt
@@ -138,7 +139,7 @@ ai_tools_log_sanitize_stream() {
 # is not lost; wire it into a quarantine sink when that detector is built (see the `## Deferred` section
 # of logging.rule.md).
 # shellcheck disable=SC2317  # deferred: defined for a future caller, intentionally unused now
-ai_tools_log_sanitize_unicode_controlchars() {
+ai_tools_log__sanitize_unicode_control_characters() {
     local s="$1"
     s="${s//[[:cntrl:]]/?}"                       # C0 controls + DEL
     s="${s//$'\xc2'[$'\x80'-$'\x9f']/?}"          # C1 controls              U+0080-009F
@@ -152,41 +153,41 @@ ai_tools_log_sanitize_unicode_controlchars() {
     printf '%s' "${s}"
 }
 
-# ai_tools_log <level> <message...> -- emit one leveled line to journald (always) and, when AI_TOOLS_LOG_FILE is set
-# and writable, to /var/log/ai-tools/<file>. AI_TOOLS_LOG_TAG (default "ai-tools") becomes the journald
+# ai_tools_log__write <level> <message...> -- emit one leveled line to journald (always) and, when AI_TOOLS_LOG_FILE is
+# set and writable, to /var/log/ai-tools/<file>. AI_TOOLS_LOG_TAG (default "ai-tools") becomes the journald
 # SyslogIdentifier. Read at call time, so the caller may set either variable any time before logging.
-ai_tools_log() {
+ai_tools_log__write() {
     local level="$1"; shift
     local tag="${AI_TOOLS_LOG_TAG:-ai-tools}" prio msg
-    prio="$(_ai_tools_log_prio "${level}")"
-    msg="$(_ai_tools_log_render "$*")"
+    prio="$(_ai_tools_log__get_priority "${level}")"
+    msg="$(_ai_tools_log__render "$*")"
 
     # journald via logger(1): `-t` sets the SyslogIdentifier, `-p` the facility.level PRIORITY. Always attempted;
     # failure (no logger, no journald) is ignored.
     logger -t "${tag}" -p "daemon.${prio}" -- "${msg}" 2>/dev/null || true
 
-    _ai_tools_log_write_file "${level}" "${msg}"
+    _ai_tools_log__write_file "${level}" "${msg}"
 }
 
-# _ai_tools_log_render <raw> -- PRINT the message as both sinks record it. Reduces the text to safe-for-display
-# characters (see ai_tools_log_sanitize) and, if anything was replaced, flags it inline -- a non-standard byte
+# _ai_tools_log__render <raw> -- PRINT the message as both sinks record it. Reduces the text to safe-for-display
+# characters (see ai_tools_log__sanitize) and, if anything was replaced, flags it inline -- a non-standard byte
 # where a filename or path is expected is worth recording as a possible probe. The marker is pure ASCII, so it cannot
 # itself re-trigger a replacement.
-_ai_tools_log_render() {
+_ai_tools_log__render() {
     local raw="$1" rendered
-    rendered="$(ai_tools_log_sanitize "${raw}")"
+    rendered="$(ai_tools_log__sanitize "${raw}")"
     [[ "${rendered}" == "${raw}" ]] || rendered="${rendered}  [!] non-standard characters replaced"
     printf '%s' "${rendered}"
 }
 
-# _ai_tools_log_write_file <level> <rendered-message> -- append to the optional root-only file sink. The umask subshell
+# _ai_tools_log__write_file <level> <rendered-message> -- append to the optional root-only file sink. The umask subshell
 # keeps a freshly created log 600. AI_TOOLS_LOG_FILE is reduced to a bare basename (strip any leading path), so a value
 # carrying '/' or '..' can never escape AI_TOOLS_LOG_DIR into an arbitrary file. This is defense in depth, not a live
 # exposure: only the root helpers set the variable, each to a literal like "chown.log" (a plain assignment
 # that overwrites anything a caller inherited), and an agent cannot reach a root writer's environment (the handback
 # daemon execs helpers with systemd's env, not the session's; sudo strips the caller's), while the sink no-ops
 # for a non-root caller regardless. The guard bounds a FUTURE caller that might set it from less-trusted input.
-_ai_tools_log_write_file() {
+_ai_tools_log__write_file() {
     local level="$1" msg="$2" file
     [[ -n "${AI_TOOLS_LOG_FILE:-}" ]] || return 0
     file="${AI_TOOLS_LOG_FILE##*/}"
@@ -196,7 +197,7 @@ _ai_tools_log_write_file() {
     ) 2>/dev/null || true
 }
 
-# ai_tools_log_structured <level> <message> [FIELD=value ...] -- emit one line carrying both a human-readable MESSAGE
+# ai_tools_log__structured <level> <message> [FIELD=value ...] -- emit one line carrying both a human-readable MESSAGE
 # and native journald fields, so the same record serves an operator reading `journalctl -t <tag>` and a machine consumer
 # selecting on a field (`journalctl -o json`, or an ingester such as Seq or Vector reading the journal).
 #
@@ -205,26 +206,26 @@ _ai_tools_log_write_file() {
 # forge a sibling, and escaping is unnecessary field. The MESSAGE stays the authoritative human rendering and the fields
 # are the machine one; callers pass both, and the two are expected to agree.
 #
-# OPT-IN, and identical to ai_tools_log when unused: a caller that passes fields, or a host whose logger(1) predates
-# `--journald`, takes exactly the plain path. The fallback is decided by ATTEMPTING the native write and falling back
-# on its exit status rather than by probing logger's capabilities, so there is no cached verdict to go stale and no fork
-# spent on a version check per call.
+# OPT-IN, and identical to ai_tools_log__write when unused: a caller that passes fields, or a host whose logger(1)
+# predates `--journald`, takes exactly the plain path. The fallback is decided by ATTEMPTING the native write
+# and falling back on its exit status rather than by probing logger's capabilities, so there is no cached verdict to go
+# stale and no fork spent on a version check per call.
 #
 # FIELD NAMES ARE VALIDATED, values are reduced. A name must be [A-Z][A-Z0-9_]* -- which excludes the leading-underscore
 # namespace journald reserves for the TRUSTED fields it stamps itself (_UID, _PID, _SYSTEMD_USER_UNIT), the very fields
 # that make a line attributable. A sender cannot set those in any case (journald ignores the attempt), but refusing them
 # here means a caller never believes it set one. A malformed name drops that field and keeps the rest: a bad label must
-# not cost the record. Values pass ai_tools_log_sanitize, which removes the newline that would otherwise terminate
+# not cost the record. Values pass ai_tools_log__sanitize, which removes the newline that would otherwise terminate
 # a field early in the newline-delimited protocol, along with every other non-printable byte.
-ai_tools_log_structured() {
+ai_tools_log__structured() {
     local level="$1" raw_message="$2"; shift 2
     local tag="${AI_TOOLS_LOG_TAG:-ai-tools}" priority_name priority_number message
     local field field_name field_value
     local -a journal_entry=()
 
-    priority_name="$(_ai_tools_log_prio "${level}")"
-    priority_number="$(_ai_tools_log_prio_number "${level}")"
-    message="$(_ai_tools_log_render "${raw_message}")"
+    priority_name="$(_ai_tools_log__get_priority "${level}")"
+    priority_number="$(_ai_tools_log__get_priority_number "${level}")"
+    message="$(_ai_tools_log__render "${raw_message}")"
 
     # SYSLOG_FACILITY 3 is `daemon`, matching the `-p daemon.<level>` the plain path sends, so a record reads the same
     # whichever path wrote it. AI_TOOLS_VERSION and the per-run context ride in the envelope instead of a caller's field
@@ -232,27 +233,27 @@ ai_tools_log_structured() {
     # between its own records.
     journal_entry+=( "MESSAGE=${message}" "PRIORITY=${priority_number}"
                      "SYSLOG_IDENTIFIER=${tag}" "SYSLOG_FACILITY=3"
-                     "AI_TOOLS_VERSION=${_AI_TOOLS_LOG_VERSION}" )
+                     "AI_TOOLS_VERSION=${_AI_TOOLS_LOG__VERSION}" )
     [[ -n "${AI_TOOLS_LOG_OPERATOR:-}" ]] \
-        && journal_entry+=( "AI_TOOLS_OPERATOR=$(ai_tools_log_sanitize "${AI_TOOLS_LOG_OPERATOR}")" )
+        && journal_entry+=( "AI_TOOLS_OPERATOR=$(ai_tools_log__sanitize "${AI_TOOLS_LOG_OPERATOR}")" )
     [[ -n "${AI_TOOLS_LOG_PROJECT:-}" ]] \
-        && journal_entry+=( "AI_TOOLS_PROJECT=$(ai_tools_log_sanitize "${AI_TOOLS_LOG_PROJECT}")" )
+        && journal_entry+=( "AI_TOOLS_PROJECT=$(ai_tools_log__sanitize "${AI_TOOLS_LOG_PROJECT}")" )
     for field in "$@"; do
         field_name="${field%%=*}"
         field_value="${field#*=}"
         [[ "${field}" == *=* ]] || continue
         [[ "${field_name}" =~ ^[A-Z][A-Z0-9_]*$ ]] || continue
-        journal_entry+=( "${field_name}=$(ai_tools_log_sanitize "${field_value}")" )
+        journal_entry+=( "${field_name}=$(ai_tools_log__sanitize "${field_value}")" )
     done
 
     if ! printf '%s\n' "${journal_entry[@]}" | logger --journald 2>/dev/null; then
         logger -t "${tag}" -p "daemon.${priority_name}" -- "${message}" 2>/dev/null || true
     fi
 
-    _ai_tools_log_write_file "${level}" "${message}"
+    _ai_tools_log__write_file "${level}" "${message}"
 }
 
-# ai_tools_log_coded <level> <code> <message> [FIELD=value ...] -- record a coded situation, where the code is
+# ai_tools_log__coded <level> <code> <message> [FIELD=value ...] -- record a coded situation, where the code is
 # the reftag ref-index.py minted for it. The code LEADS the recorded text, so the root-only file log and a host taking
 # the plain fallback carry the token a reader searches on, and a well-formed code rides as the AI_TOOLS_MSG field too
 # (logging.rule.md).
@@ -260,17 +261,18 @@ ai_tools_log_structured() {
 # The emitters print a code on its own line and leave the prose in the caller's `_warn_text`, so a call site passes
 # the code and the text apart and this joins them; the code appears exactly once in the record. A malformed code is
 # recorded as part of the text: the record keeps every byte the caller passed, and the field a query selects on carries
-# a reftag alone. The form written inline here is msg.lib.sh's own (`_AI_TOOLS_MSG_CODE_RE`), since that library sources
-# THIS one and the dependency runs one way only; tests/unit/msg.sh holds every inline copy to the library's form.
-ai_tools_log_coded() {
+# a reftag alone. The form written inline here is msg.lib.sh's own (`_AI_TOOLS_MSG__CODE_PATTERN`), since that library
+# sources THIS one and the dependency runs one way only; tests/unit/msg.sh holds every inline copy to the library's
+# form.
+ai_tools_log__coded() {
     local level="$1" code="$2" message="$3"; shift 3
     local fields=()
     [[ "${code}" =~ ^MSG-[A-Z][0-9][A-Z][0-9]$ ]] && fields=( "AI_TOOLS_MSG=${code}" )
-    ai_tools_log_structured "${level}" "${code:+${code} }${message}" "${fields[@]}" "$@"
+    ai_tools_log__structured "${level}" "${code:+${code} }${message}" "${fields[@]}" "$@"
 }
 
 # Convenience wrappers -- prefixed to avoid colliding with callers' own log()/warn().
-ai_tools_log_debug() { ai_tools_log debug   "$@"; }
-ai_tools_log_info()  { ai_tools_log info    "$@"; }
-ai_tools_log_warn()  { ai_tools_log warning "$@"; }
-ai_tools_log_error() { ai_tools_log error   "$@"; }
+ai_tools_log__debug() { ai_tools_log__write debug   "$@"; }
+ai_tools_log__info()  { ai_tools_log__write info    "$@"; }
+ai_tools_log__warn()  { ai_tools_log__write warning "$@"; }
+ai_tools_log__error() { ai_tools_log__write error   "$@"; }

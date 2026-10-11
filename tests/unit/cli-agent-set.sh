@@ -47,7 +47,7 @@ AGENTS_DIR="${TESTDIR}/agents.d"; CONF="${TESTDIR}/operator.conf"; LINKS="${TEST
 PINS="${TESTDIR}/entrypoint-pin.d"; STALES="${TESTDIR}/entrypoint-stale.d"; LABELS="${TESTDIR}/entrypoint-label.d"
 mkdir -m 0755 "${AGENTS_DIR}" "${LINKS}" "${PINS}" "${STALES}" "${LABELS}"
 
-# manifest <name> <launcher> <default_enable> : one agent manifest, root-owned 0644, so the trust predicate admits it.
+# manifest <name> <launcher> <default_enable> : one agent manifest, root-owned 0644, so the trust predicate accepts it.
 manifest() {
     printf 'npm_package=@fixture/%s\nlauncher=%s\ndefault_enable=%s\n' "$1" "$2" "$3" > "${AGENTS_DIR}/$1.conf"
     chmod 0644 "${AGENTS_DIR}/$1.conf"
@@ -278,8 +278,9 @@ if runuser -u "${PROJECTS_USER}" -- bash -c \
             AI_TOOLS_ENTRYPOINT_LABEL_DIR="${LABELS}" \
             AI_TOOLS_MSG_PLAIN=1 \
             bash -c 'cli="$1"; pre="$2"; set --; source "${cli}" >/dev/null 2>&1 || exit 99
-                     ai_tools_service_records() { :; }; status_path_order() { return 0; }
+                     ai_tools_services__list_records() { :; }; status_path_order() { return 0; }
                      status_entrypoint_pins() { return 0; }; status_selinux_attestation() { return 0; }
+                     status_caches() { return 0; }
                      eval "${pre}"; cmd_status' _ "${CLI}" "$1" 2>&1
     }
     reset_fixtures; rm -f "${PINS}"/* "${STALES}"/* "${LABELS}"/*; manifest alpha la yes; link la
@@ -295,7 +296,7 @@ if runuser -u "${PROJECTS_USER}" -- bash -c \
     else
         fail "a counted fault exited ${rc}, expected 4: $(tail -c 300 <<<"${out}" | tr '\n' '|')"
     fi
-    rc=0; out="$(call_status 'unset -f ai_tools_service_records')" || rc=$?
+    rc=0; out="$(call_status 'unset -f ai_tools_services__list_records')" || rc=$?
     if [[ "${rc}" -eq 5 ]] && grep -qx 'MSG-X5Z8' <<<"${out}" && grep -qF 'ai-tools providers' <<<"${out}"; then
         pass "a service registry that did not load exits 5, is named under its code, and the later sections still print"
     else
@@ -307,7 +308,7 @@ if runuser -u "${PROJECTS_USER}" -- bash -c \
     else
         fail "an unreadable section exited ${rc}, expected 5: $(tail -c 300 <<<"${out}" | tr '\n' '|')"
     fi
-    rc=0; out="$(call_status 'status_path_order() { return 1; }; unset -f ai_tools_service_records')" || rc=$?
+    rc=0; out="$(call_status 'status_path_order() { return 1; }; unset -f ai_tools_services__list_records')" || rc=$?
     if [[ "${rc}" -eq 5 ]]; then
         pass "a fault read beside a reading that could not be made exits 5: unreadable wins the fold"
     else
@@ -336,12 +337,12 @@ call_attestation_section() {
                  stub_selinux_mode="$5"; stub_module_present="$6"; stub_policy_shipped="$7"; set --
                  source "${cli}" >/dev/null 2>&1 || exit 99
                  declare -F status_selinux_attestation >/dev/null || exit 98
-                 source "${lib}" 2>/dev/null; declare -F ai_tools_confinement_list_attestation_report >/dev/null || exit 97
-                 declare -F ai_tools_confinement_dac_only_state >/dev/null || exit 97
+                 source "${lib}" 2>/dev/null; declare -F ai_tools_confinement__list_attestation_report >/dev/null || exit 97
+                 declare -F ai_tools_confinement__evaluate_dac_only_state >/dev/null || exit 97
                  getenforce() { printf "%s\n" "${stub_selinux_mode}"; }
-                 ai_tools_confinement_read_attestation_records() { printf "%s\n" "${stub_attestation_records}"; }
-                 ai_tools_confinement_read_module_present() { printf "%s" "${stub_module_present}"; }
-                 ai_tools_confinement_read_policy_shipped() { printf "%s" "${stub_policy_shipped}"; }
+                 ai_tools_confinement__read_attestation_records() { printf "%s\n" "${stub_attestation_records}"; }
+                 ai_tools_confinement__read_module_present() { printf "%s" "${stub_module_present}"; }
+                 ai_tools_confinement__read_policy_shipped() { printf "%s" "${stub_policy_shipped}"; }
                  section_status=0; status_selinux_attestation "${operator_conf}" || section_status=$?
                  printf "section-status=%s\n" "${section_status}"' \
         _ "${CLI}" /usr/local/lib/ai-tools/confinement.lib.sh "$1" "$2" "${3:-Enforcing}" "${4:-yes}" "${5:-yes}" 2>&1
@@ -412,6 +413,82 @@ else
     else
         fail "policy never installed without the requirement: $(tr '\n' '|' <<<"${out}")"
     fi
+fi
+
+
+# ── (8) The Caches section reads the cache cleanup state through cache-cleanup.lib.sh ── each verdict the library
+# counts makes the section return 1, with the library's remedy under the line; an empty file and a value forged with
+# a control byte read as `?` and are not counted. The state file is a fixture through AI_TOOLS_CACHE_CLEANUP_STATE.
+section "status: the Caches section (unit)"
+# shellcheck disable=SC2016  # the $1/$2 are for the inner `bash -c`, not this shell -- do not expand here
+if ! runuser -u "${PROJECTS_USER}" -- bash -c 'cli="$1"; set --; source "${cli}" >/dev/null 2>&1; declare -F status_caches >/dev/null 2>&1' _ "${CLI}" \
+        || [[ ! -r /usr/local/lib/ai-tools/cache-cleanup.lib.sh ]]; then
+    skip "status Caches section" "status_caches or cache-cleanup.lib.sh is not installed (an older install)"
+else
+    CACHE_STATE="${TESTDIR}/cache-cleanup.status"
+    # call_caches : status_caches as the projects user over the fixture state; both streams, its status returned.
+    # shellcheck disable=SC2016  # the $1 is for the inner `bash -c`, not this shell -- do not expand here
+    call_caches() {
+        runuser -u "${PROJECTS_USER}" -- env AI_TOOLS_CACHE_CLEANUP_STATE="${CACHE_STATE}" AI_TOOLS_MSG_PLAIN=1 \
+            bash -c 'cli="$1"; set --; source "${cli}" >/dev/null 2>&1 || exit 99; status_caches' _ "${CLI}" 2>&1
+    }
+    stamp_days_ago() { date -u -d "@$(( $(date -u +%s) - $1 * 86400 ))" +%Y-%m-%dT%H:%M:%SZ; }
+    : > "${CACHE_STATE}"; chmod 0644 "${CACHE_STATE}"
+    rc=0; out="$(call_caches)" || rc=$?
+    (( rc == 0 )) && grep -qF '? (no cleanup recorded yet' <<<"${out}" \
+        && pass "an empty state file reads as no cleanup recorded yet, and is not counted" \
+        || fail "empty state: rc ${rc}: $(tr '\n' '|' <<<"${out}")"
+    printf 'NPM_CACHE_RESULT=removed\nNPM_CACHE_CHECKED=%s\nNPM_CACHE_CLEANED=%s\nNPM_CACHE_BYTES=4617089024\nNPM_CACHE_LINKS=0\nNPX_RESULT=absent\nNPX_CHECKED=%s\nNPX_CLEANED=%s\nNPX_BYTES=0\nNPX_LINKS=0\n' \
+        "$(stamp_days_ago 1)" "$(stamp_days_ago 1)" "$(stamp_days_ago 2)" "$(stamp_days_ago 2)" > "${CACHE_STATE}"
+    rc=0; out="$(call_caches)" || rc=$?
+    (( rc == 0 )) && grep -qE '\.npm/_cacache +OK .*cleaned 4\.2 GiB' <<<"${out}" && grep -qE '\.npm/_npx +OK .*absent' <<<"${out}" \
+        && grep -qE '\.cache/node-compile-cache +\? ' <<<"${out}" \
+        && pass "removals read OK with their size, a group with no record reads ?, and none is counted" \
+        || fail "clean state: rc ${rc}: $(tr '\n' '|' <<<"${out}")"
+    printf 'NPM_CACHE_RESULT=refused\nNPM_CACHE_CHECKED=%s\nNPM_CACHE_BYTES=0\nNPM_CACHE_LINKS=0\nNPM_CACHE_REASON=home-untrusted\n' \
+        "$(stamp_days_ago 1)" > "${CACHE_STATE}"
+    rc=0; out="$(call_caches)" || rc=$?
+    (( rc == 1 )) && grep -qE '\.npm/_cacache +FAILED .*refused \(home-untrusted\)' <<<"${out}" \
+        && grep -qF '`sudo ai-tools-admin system bootstrap`' <<<"${out}" \
+        && pass "a refused cleanup reads FAILED with the remedy for its reason, and is counted" \
+        || fail "refused state: rc ${rc}: $(tr '\n' '|' <<<"${out}")"
+    printf 'NPM_CACHE_RESULT=removed\nNPM_CACHE_CHECKED=%s\nNPM_CACHE_CLEANED=%s\nNPM_CACHE_BYTES=10\nNPM_CACHE_LINKS=2\n' \
+        "$(stamp_days_ago 1)" "$(stamp_days_ago 1)" > "${CACHE_STATE}"
+    rc=0; out="$(call_caches)" || rc=$?
+    (( rc == 1 )) && grep -qE '\.npm/_cacache +LINKS .*2 symbolic link' <<<"${out}" \
+        && pass "links in a cache whose producer writes none are reported and counted" \
+        || fail "links state: rc ${rc}: $(tr '\n' '|' <<<"${out}")"
+    printf 'NPX_RESULT=skipped\nNPX_CHECKED=%s\nNPX_CLEANED=%s\nNPX_BYTES=0\nNPX_LINKS=0\nNPX_REASON=sessions\n' \
+        "$(stamp_days_ago 0)" "$(stamp_days_ago 15)" > "${CACHE_STATE}"
+    rc=0; out="$(call_caches)" || rc=$?
+    (( rc == 0 )) && grep -qE '\.npm/_npx +OVERDUE .*skipped \(sessions\).*last cleaned 15 days ago' <<<"${out}" \
+        && grep -qF '`ai-tools stop`' <<<"${out}" \
+        && pass "a launch group not cleaned for 15 days reads OVERDUE, names ai-tools stop, and is not counted" \
+        || fail "overdue state: rc ${rc}: $(tr '\n' '|' <<<"${out}")"
+    printf 'NPX_RESULT=skipped\nNPX_CHECKED=%s\nNPX_FIRST_CHECKED=%s\nNPX_BYTES=0\nNPX_LINKS=0\nNPX_REASON=sessions\n' \
+        "$(stamp_days_ago 0)" "$(stamp_days_ago 15)" > "${CACHE_STATE}"
+    rc=0; out="$(call_caches)" || rc=$?
+    (( rc == 0 )) && grep -qE '\.npm/_npx +OVERDUE .*skipped \(sessions\)' <<<"${out}" \
+        && pass "a launch group never cleaned since its first record 15 days ago reads OVERDUE, and is not counted" \
+        || fail "never-cleaned state: rc ${rc}: $(tr '\n' '|' <<<"${out}")"
+    printf 'NPX_RESULT=skipped\nNPX_CHECKED=%s\nNPX_FIRST_CHECKED=%s\nNPX_BYTES=0\nNPX_LINKS=0\nNPX_REASON=unknown\n' \
+        "$(stamp_days_ago 0)" "$(stamp_days_ago 15)" > "${CACHE_STATE}"
+    rc=0; out="$(call_caches)" || rc=$?
+    (( rc == 0 )) && grep -qE '\.npm/_npx +OVERDUE .*skipped \(unknown\)' <<<"${out}" \
+        && grep -qF 'no launch could tell whether another session' <<<"${out}" && ! grep -qF 'another session was active' <<<"${out}" \
+        && pass "a launch group overdue because no launch could tell whether a session ran says so, not the sessions, and is not counted" \
+        || fail "overdue unknown state: rc ${rc}: $(tr '\n' '|' <<<"${out}")"
+    printf 'NPM_CACHE_RESULT=partial\nNPM_CACHE_CHECKED=%s\nNPM_CACHE_BYTES=1\nNPM_CACHE_LINKS=0\nNPM_CACHE_REASON=eacces\n' \
+        "$(stamp_days_ago 0)" > "${CACHE_STATE}"
+    rc=0; out="$(call_caches)" || rc=$?
+    (( rc == 1 )) && grep -qE '\.npm/_cacache +FAILED .*partial \(eacces\)' <<<"${out}" \
+        && pass "a partial removal by an error other than the bound reads FAILED, and is counted" \
+        || fail "partial eacces state: rc ${rc}: $(tr '\n' '|' <<<"${out}")"
+    printf 'NPM_CACHE_RESULT=refused\033[2J\nNPM_CACHE_REASON=home-untrusted\n' > "${CACHE_STATE}"
+    rc=0; out="$(call_caches)" || rc=$?
+    (( rc == 0 )) && grep -qE '\.npm/_cacache +\? ' <<<"${out}" && ! grep -q $'\033' <<<"${out}" \
+        && pass "a value forged with a control byte reads as no value and is not counted" \
+        || fail "forged state: rc ${rc}: $(tr '\n\033' '|^' <<<"${out}")"
 fi
 
 finish

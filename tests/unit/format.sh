@@ -1,29 +1,39 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: AGPL-3.0-only
 # tests/unit/format.sh
-# Unit test for tools/formatters/format.sh, the front door of the width policy. What it holds is the contract
-# between the checker and the fillers: every file goes to the filler for the kind the checker names, at the column
-# the checker names, and a kind with no filler is reported and left as it was -- the failure this exists to prevent is
-# the comment filler pointed at a Markdown page, which rewraps the commands in its fenced blocks. The scope rule is
-# pinned from both sides, since it is what bounds the diff a run produces: with no file named, only the paragraph a diff
-# touched is filled and an over-width paragraph the commit already held is left, while `--files` fills that one too
-# and an untracked file is filled whole either way. What may be formatted at all is the explicit scope: a unit file,
-# a log and a Makefile in the fixture are outside it, so `--all` counts and leaves them, and one named on the command
-# line is reported and skipped, as is a path outside the repository. The closing report is pinned by its exit status: 0
-# when no measured line is left over its column, 1 when a line no filler can shorten remains or a filler refused a file.
-# Hermetic: a fixture repository in the testdir, formatted from inside it, with this checkout's tools.
-# The comment-filler cases skip without Emacs. A fixture holds a reftag as text, so the tree-wide reference check does
-# not read this file (the marker on the next line).
+# Unit test for tools/format.sh, this repository's front door of the width policy, over the pinned formatter. What it
+# holds is the contract between the checker and the fillers: every file goes to the filler for the kind the checker
+# names, at the column the checker names, and a kind with no filler is reported and left as it was -- the failure this
+# exists to prevent is the comment filler pointed at a Markdown page, which rewraps the commands in its fenced blocks.
+# The scope rule is pinned from both sides, since it is what bounds the diff a run produces: with no file named, only
+# the paragraph a diff touched is filled and an over-width paragraph the commit already held is left, while `--files`
+# fills that one too and an untracked file is filled whole either way. What may be formatted at all is the explicit
+# scope: a unit file, a log and a Makefile in the fixture are outside it, so `--all` counts and leaves them, and one
+# named on the command line is reported and skipped, as is a path outside the repository. The closing report is pinned
+# by its exit status: 0 when no measured line is left over its column, 1 when a line no filler can shorten remains
+# or a filler refused a file. Hermetic: a fixture repository in the testdir, formatted from inside it, with this
+# checkout's front door and pins. The comment-filler cases skip without Emacs. A fixture holds a reftag as text,
+# so the tree-wide reference check does not read this file (the marker on the next line).
 # ref-index: ignore-file
 set -euo pipefail
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")/../lib" && pwd)/harness.sh"
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-TOOL="${ROOT}/tools/formatters/format.sh"
-GATE="${ROOT}/tools/formatters/verify-reflow.py"
-PC="${ROOT}/src/usr/share/ai-tools/skills/ai-tools-technical-docs/prose-check.py"
+TOOL="${ROOT}/tools/format.sh"
 section "format: the width policy's front door (unit)"
 
+# The formatter is the pinned ai-tools-assets-tools release's and the checker the pinned core release's
+# (tools/lib/assets.sh); a tree without that file, as the container selftest's is, and a pin not in the cache are each
+# a skip, the second naming the fetch command.
+if [[ ! -r "${ROOT}/tools/lib/assets.sh" ]]; then
+    skip "format" "${ROOT}/tools/lib/assets.sh is absent (not a checkout)"; finish; exit
+fi
+# shellcheck source=SCRIPTDIR/../../tools/lib/assets.sh
+source "${ROOT}/tools/lib/assets.sh"
+if ! FORMATTERS="$(ai_tools_dev_assets__resolve_tool formatters)" || ! PC="$(ai_tools_dev_assets__resolve_tool prose-check)"; then
+    skip "format" "the pinned tools are not in the cache; run: ${AI_TOOLS_DEV_ASSETS__FETCH_COMMAND}"; finish; exit
+fi
+GATE="${FORMATTERS}/verify-reflow.py"
 if [[ ! -r "${TOOL}" ]]; then
     skip "format" "tool not found at ${TOOL}"; finish; exit
 fi
@@ -206,21 +216,21 @@ rm -f "${repo}/bad.md"
 # (8) The formatter is among the files it fills. Bash reads a script a command at a time, so one rewritten
 # under a running bash is read on from the old offset, into the middle of a line, and the run dies of a command that is
 # not one; each shell tool is one function called on its last line, which bash parses whole before running. The fixture
-# takes a copy of the tools and the checker at the layout they resolve each other by, with a long comment line put
-# at the top of each shell tool so that the fill changes the file under the bash running it.
+# takes a copy of the pinned formatters at the layout they resolve each other by, as the tools release holds them,
+# with a long comment line put at the top of each shell tool so that the fill changes the file under the bash running
+# it. The case belongs to the tools release's suite, which does not carry it yet.
 if ! command -v emacs >/dev/null 2>&1; then
     skip "the formatter among the files it fills" "emacs not installed"
 else
-    mkdir -p "${repo}/src/usr/share/ai-tools/skills/ai-tools-technical-docs"
-    cp "${PC}" "${repo}/src/usr/share/ai-tools/skills/ai-tools-technical-docs/"
-    cp -r "${ROOT}/tools" "${repo}/tools"
-    rm -rf "${repo}/tools/__pycache__"
-    sed -i "2i # ${long}" "${repo}/tools/formatters/format.sh" "${repo}/tools/formatters/fill-comments.sh"
-    git -C "${repo}" add -A && git -C "${repo}" -c commit.gpgsign=false commit -qm tools
-    rc=0; OUT="$(cd "${repo}" && bash tools/formatters/format.sh tools/formatters/format.sh tools/formatters/fill-comments.sh 2>&1)" || rc=$?
+    cp -R "${FORMATTERS}" "${repo}/formatters"
+    chmod -R u+w "${repo}/formatters"
+    rm -rf "${repo}/formatters/__pycache__"
+    sed -i "2i # ${long}" "${repo}/formatters/format.sh" "${repo}/formatters/fill-comments.sh"
+    git -C "${repo}" add -A && git -C "${repo}" -c commit.gpgsign=false commit -qm formatters
+    rc=0; OUT="$(cd "${repo}" && bash formatters/format.sh --checker "${PC}" formatters/format.sh formatters/fill-comments.sh 2>&1)" || rc=$?
     if [[ "${rc}" -eq 0 ]] && grep -q '2 file(s) read, 0 over-width line(s) left' <<<"${OUT}" \
             && ! grep -q 'command not found' <<<"${OUT}" \
-            && ! git -C "${repo}" diff --quiet -- tools/formatters/format.sh tools/formatters/fill-comments.sh; then
+            && ! git -C "${repo}" diff --quiet -- formatters/format.sh formatters/fill-comments.sh; then
         pass "the formatter fills its own shell tools and completes"
     else
         fail "the run over its own tools did not complete (rc ${rc}): $(tail -3 <<<"${OUT}")"

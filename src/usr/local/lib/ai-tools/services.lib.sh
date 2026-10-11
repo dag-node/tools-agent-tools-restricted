@@ -20,27 +20,27 @@
 #
 # A ROOT caller reads that manager too, through these same functions. The machine transport
 # (`systemctl --user -M <account>@.host`) reaches it over the system bus, where root is authorized, so the live reading
-# a system unit gets is offered for a sandbox-user unit as well. The gate is _ai_tools_service_systemctl, which tests
-# the CALLER's capability and not which command is asking: `ai-tools-admin status`, `sudo ai-tools status` and any later
-# consumer therefore resolve one unit to one verdict, and an unprivileged vantage reports it as unknown. How a live
-# reading and a stamp compose into that verdict is ai_tools_service_stamp_verdict.
+# a system unit gets is offered for a sandbox-user unit as well. The gate is _ai_tools_services__run_systemctl,
+# which tests the CALLER's capability and not which command is asking: `ai-tools-admin status`, `sudo ai-tools status`
+# and any later consumer therefore resolve one unit to one verdict, and an unprivileged vantage reports it as unknown.
+# How a live reading and a stamp compose into that verdict is ai_tools_services__evaluate_stamp.
 #
 # A STAMP IS NOT TRUSTED INPUT, and no reader here treats it as such. Its writer is the sandbox account, so that account
 # can state any outcome it likes; the mode on the file and its directory bound WHAT it can touch (one inode's contents
 # -- not the directory, not another file, not a symlink out of the tree), never whether the contents are true. Two
 # things make that acceptable rather than a hole. The stamp gates NO DECISION: it is rendered in one status report, is
-# never evaluated, and every value is read through ai_tools_service_stamp_field, which clamps it to a short safe-charset
-# token so no control byte or escape sequence reaches the operator's terminal. And it is never the weakest link --
-# an agent able to write it can already write the toolchain the stamp reports on, which is the more valuable target
-# by far. (On an enforcing host the confined ai_tools_t session can write neither: both resolve to usr_t,
+# never evaluated, and every value is read through ai_tools_services__read_stamp_field, which clamps it to a short
+# safe-charset token so no control byte or escape sequence reaches the operator's terminal. And it is never the weakest
+# link -- an agent able to write it can already write the toolchain the stamp reports on, which is the more valuable
+# target by far. (On an enforcing host the confined ai_tools_t session can write neither: both resolve to usr_t,
 # which the domain may only read.)
 #
 # Sourced, not executed. Deployed 644 root:root -- it does not carry any secrets, and the two principals that source it
 # (the operator launch wrapper and the unprivileged CLI) both need to read a system unit's is-active/is-enabled,
 # which any user may.
 
-[[ -n "${_AI_TOOLS_SERVICES_LIB_LOADED:-}" ]] && return 0
-readonly _AI_TOOLS_SERVICES_LIB_LOADED=1
+[[ -n "${_AI_TOOLS_SERVICES__LOADED:-}" ]] && return 0
+readonly _AI_TOOLS_SERVICES__LOADED=1
 
 # Registry: "unit|scope|severity|preflight|purpose|remedy|stamp|stamp_mode|max_age".
 #   scope    = system       -- checkable unprivileged (a system unit's state is world-readable):
@@ -80,7 +80,7 @@ readonly _AI_TOOLS_SERVICES_LIB_LOADED=1
 # shellcheck disable=SC2034  # read by this library's accessors and by both consumers (ai-tools, ai-tools-launch)
 # The 172800 (48h) grace on both nvm-update records is twice the timer's daily OnCalendar: one missed window is a reboot
 # or a suspended laptop, two is a schedule that has stopped.
-_AI_TOOLS_SERVICES=(
+_AI_TOOLS_SERVICES__REGISTRY=(
   "ai-tools-handback.socket|system|critical|shim|the privilege bridge every ownership hand-back runs over; without it, files the agent writes stay ai-tools-owned and git reports \"dubious ownership\"|sudo systemctl enable --now ai-tools-handback.socket|||"
   "ai-tools-relabel.path|system|critical|wrapper|the watcher that re-labels the agent entrypoint after a Node auto-upgrade repoints its symlink; without it, a post-upgrade launch fail-closes on a mislabelled binary|sudo systemctl enable --now ai-tools-relabel.path|||"
   "ai-tools-relabel.service|system|critical|none|the relabel run the watcher triggers, which gives a freshly installed agent entrypoint its ai_tools_exec_t type; without a run that succeeded the entrypoint can carry the wrong type and the next launch fail-closes|sudo systemctl start ai-tools-relabel.service|||"
@@ -88,22 +88,23 @@ _AI_TOOLS_SERVICES=(
   "nvm-update.service|sandbox-user|maintenance|none|the toolchain update run the timer triggers; without a recent successful run, Node and the agent packages stop receiving updates||/var/opt/ai-tools/state/nvm-update.status|result|172800"
 )
 
-# ai_tools_service_records  -- emit each registry record on its own line, for a consumer to iterate.
-ai_tools_service_records() { printf '%s\n' "${_AI_TOOLS_SERVICES[@]}"; }
+# ai_tools_services__list_records  -- emit each registry record on its own line, for a consumer to iterate.
+ai_tools_services__list_records() { printf '%s\n' "${_AI_TOOLS_SERVICES__REGISTRY[@]}"; }
 
-# ai_tools_service_field <record> <1-based field>  -- one '|'-delimited field of a registry record.
-ai_tools_service_field() {
+# ai_tools_services__get_field <record> <1-based field>  -- one '|'-delimited field of a registry record.
+ai_tools_services__get_field() {
     local -a f; IFS='|' read -r -a f <<<"$1"
     printf '%s' "${f[$(( ${2} - 1 ))]:-}"
 }
 
-# ai_tools_service_stamp_field <stamp-path> <KEY>  -- PRINT the value of KEY from a last-run stamp file, or an empty
-# string; ALWAYS returns 0. A stamp is written by an UNPRIVILEGED sandbox-account job and read by the operator's
-# terminal, so the read is defensive on every axis a writer controls: a symlink or non-regular path is refused outright
-# (the file is never followed somewhere else), only the first 4 KiB is examined (an unbounded line cannot exhaust
-# the reader), the line must match an anchored KEY=<value>, and the value must be a short token of [A-Za-z0-9:+._-] --
-# so no control byte, terminal escape, or line break can reach the consumer's output through this path.
-ai_tools_service_stamp_field() {
+# ai_tools_services__read_stamp_field <stamp-path> <KEY>  -- PRINT the value of KEY from a last-run stamp file,
+# or an empty string; ALWAYS returns 0. A stamp is written by an UNPRIVILEGED sandbox-account job and read
+# by the operator's terminal, so the read is defensive on every axis a writer controls: a symlink or non-regular path is
+# refused outright (the file is never followed somewhere else), only the first 4 KiB is examined (an unbounded line
+# cannot exhaust the reader), the line must match an anchored KEY=<value>, and the value must be a short token
+# of [A-Za-z0-9:+._-] -- so no control byte, terminal escape, or line break can reach the consumer's output through this
+# path.
+ai_tools_services__read_stamp_field() {
     local stamp="$1" key="$2" line
     [[ -n "${stamp}" && ! -L "${stamp}" && -f "${stamp}" && -r "${stamp}" ]] || return 0
     line="$(head -c 4096 -- "${stamp}" 2>/dev/null \
@@ -112,11 +113,11 @@ ai_tools_service_stamp_field() {
     return 0
 }
 
-# ai_tools_service_stamp_unwritten <stamp-path>  -- succeed when the stamp is a readable regular file (not a symlink)
-# that is EMPTY: the state the package seeds it in and the unit's first run replaces, so a reader tells "no run has
-# happened yet" from "the record cannot be read". Absent, a symlink, unreadable, or holding any content fails,
+# ai_tools_services__is_stamp_unwritten <stamp-path>  -- succeed when the stamp is a readable regular file (not
+# a symlink) that is EMPTY: the state the package seeds it in and the unit's first run replaces, so a reader tells "no
+# run has happened yet" from "the record cannot be read". Absent, a symlink, unreadable, or holding any content fails,
 # so a corrupt stamp keeps reading as unknown. No output.
-ai_tools_service_stamp_unwritten() {
+ai_tools_services__is_stamp_unwritten() {
     local stamp="${1:-}"
     [[ -n "${stamp}" && ! -L "${stamp}" && -f "${stamp}" && -r "${stamp}" && ! -s "${stamp}" ]]
 }
@@ -125,78 +126,78 @@ ai_tools_service_stamp_unwritten() {
 # with NO @SANDBOX_USER@ substitution -- the account name belongs to the consumer, which is also why a sandbox-user
 # unit's remedy commands are composed by the consumer -- so a consumer that knows the name declares it here once,
 # and one that does not keeps the stamp-only reading, which is the same reading an unprivileged caller gets either way.
-_AI_TOOLS_SERVICE_SANDBOX_ACCOUNT=""
+_AI_TOOLS_SERVICES__SANDBOX_ACCOUNT=""
 # How long a live probe of that manager may take. It crosses the system bus into another account's manager, so a manager
 # that is wedged rather than merely down must cost a bounded wait and then the answer this library gave before there was
 # a transport at all -- never a status report that hangs. Overridable so a test can drive the timeout path without
 # waiting on it.
 : "${AI_TOOLS_SERVICE_LIVE_TIMEOUT:=5}"
 
-# ai_tools_service_sandbox_account <name>  -- name the sandbox account, which is what offers the live probe to a root
-# caller. Setting it does not by itself widen anything: the probe still requires root and a working transport, and every
-# failure falls back to the stamp.
-ai_tools_service_sandbox_account() { _AI_TOOLS_SERVICE_SANDBOX_ACCOUNT="${1:-}"; }
+# ai_tools_services__set_sandbox_account <name>  -- name the sandbox account, which is what offers the live probe
+# to a root caller. Setting it does not by itself widen anything: the probe still requires root and a working transport,
+# and every failure falls back to the stamp.
+ai_tools_services__set_sandbox_account() { _AI_TOOLS_SERVICES__SANDBOX_ACCOUNT="${1:-}"; }
 
-# _ai_tools_service_systemctl <scope>  -- fill _AI_TOOLS_SERVICE_SYSTEMCTL with the argv that reaches <scope>'s manager,
-# or return 1 when this caller cannot reach it. A system unit's state is world-readable, so plain `systemctl` answers
-# for any caller. The sandbox account's own manager is reachable only over the machine transport, which is authorized
-# for root and nobody else -- a plain `sudo -u <account> systemctl --user` gets that account's bus refused even
-# when the manager is healthy -- so the probe is offered to a root caller and refused for every other, which is
+# _ai_tools_services__run_systemctl <scope>  -- fill _AI_TOOLS_SERVICES__SYSTEMCTL with the argv that reaches <scope>'s
+# manager, or return 1 when this caller cannot reach it. A system unit's state is world-readable, so plain `systemctl`
+# answers for any caller. The sandbox account's own manager is reachable only over the machine transport, which is
+# authorized for root and nobody else -- a plain `sudo -u <account> systemctl --user` gets that account's bus refused
+# even when the manager is healthy -- so the probe is offered to a root caller and refused for every other, which is
 # what leaves an unprivileged report reading exactly as it did before this existed.
 # shellcheck disable=SC2034  # the array IS this function's output, read by its two callers.
-_AI_TOOLS_SERVICE_SYSTEMCTL=()
-_ai_tools_service_systemctl() {
-    _AI_TOOLS_SERVICE_SYSTEMCTL=()
+_AI_TOOLS_SERVICES__SYSTEMCTL=()
+_ai_tools_services__run_systemctl() {
+    _AI_TOOLS_SERVICES__SYSTEMCTL=()
     command -v systemctl >/dev/null 2>&1 || return 1
     if [[ "${1:-system}" == system ]]; then
-        _AI_TOOLS_SERVICE_SYSTEMCTL=( systemctl )
+        _AI_TOOLS_SERVICES__SYSTEMCTL=( systemctl )
         return 0
     fi
-    [[ -n "${_AI_TOOLS_SERVICE_SANDBOX_ACCOUNT}" ]] || return 1
+    [[ -n "${_AI_TOOLS_SERVICES__SANDBOX_ACCOUNT}" ]] || return 1
     [[ "${EUID:-$(id -u)}" -eq 0 ]] || return 1
     # No timeout(1), no bounded probe -- and an unbounded one is the failure this whole path must not have, so the stamp
     # answers instead.
     command -v timeout >/dev/null 2>&1 || return 1
-    _AI_TOOLS_SERVICE_SYSTEMCTL=( timeout "${AI_TOOLS_SERVICE_LIVE_TIMEOUT}" \
-        systemctl --user -M "${_AI_TOOLS_SERVICE_SANDBOX_ACCOUNT}@.host" )
+    _AI_TOOLS_SERVICES__SYSTEMCTL=( timeout "${AI_TOOLS_SERVICE_LIVE_TIMEOUT}" \
+        systemctl --user -M "${_AI_TOOLS_SERVICES__SANDBOX_ACCOUNT}@.host" )
     return 0
 }
 
-# ai_tools_service_unit_property <unit> <property> [scope]  -- PRINT one systemd property of a unit in <scope> (default
-# 'system'), or an empty string. ALWAYS returns 0. The value is clamped to the same display-safe charset as a stamp
-# field: it reaches the operator's terminal, and while systemd is a trusted writer, one reader for both records means
-# one place where that guarantee is made.
-ai_tools_service_unit_property() {
+# ai_tools_services__read_unit_property <unit> <property> [scope]  -- PRINT one systemd property of a unit in <scope>
+# (default 'system'), or an empty string. ALWAYS returns 0. The value is clamped to the same display-safe charset
+# as a stamp field: it reaches the operator's terminal, and while systemd is a trusted writer, one reader for both
+# records means one place where that guarantee is made.
+ai_tools_services__read_unit_property() {
     local unit="${1:-}" property="${2:-}" scope="${3:-system}" value
     local -a sctl
     [[ -n "${unit}" && -n "${property}" ]] || return 0
-    _ai_tools_service_systemctl "${scope}" || return 0
-    sctl=( "${_AI_TOOLS_SERVICE_SYSTEMCTL[@]}" )
+    _ai_tools_services__run_systemctl "${scope}" || return 0
+    sctl=( "${_AI_TOOLS_SERVICES__SYSTEMCTL[@]}" )
     value="$("${sctl[@]}" show -p "${property}" --value -- "${unit}" 2>/dev/null)" || return 0
     [[ "${value}" =~ ^[A-Za-z0-9:+._\ -]{1,64}$ ]] || return 0
     printf '%s' "${value}"
     return 0
 }
 
-# _ai_tools_service_live_state <unit> <scope>  -- PRINT active|down|failed|unknown from the unit's LIVE state
-# in <scope>'s manager, or 'unknown' where _ai_tools_service_systemctl refuses that scope. ALWAYS returns 0. It reports
-# what is running now; the stamp and the freshness window are read by ai_tools_service_stamp_verdict.
+# _ai_tools_services__read_live_state <unit> <scope>  -- PRINT active|down|failed|unknown from the unit's LIVE state
+# in <scope>'s manager, or 'unknown' where _ai_tools_services__run_systemctl refuses that scope. ALWAYS returns 0. It
+# reports what is running now; the stamp and the freshness window are read by ai_tools_services__evaluate_stamp.
 #
 # A Type=oneshot service is 'inactive' whenever it is HEALTHY -- it runs, does its work and exits -- so is-active cannot
 # judge it and would read every successful run as 'down'. Its verdict is the result of its last run instead, which is
 # also the only way a run that failed hours ago is still visible. Read from the unit's own type, so a oneshot added
 # later does not need a registry field: the property is what makes is-active meaningless, not this unit's identity.
-_ai_tools_service_live_state() {
+_ai_tools_services__read_live_state() {
     local unit="$1" scope="$2"
     local -a sctl
-    _ai_tools_service_systemctl "${scope}" || { printf 'unknown'; return 0; }
-    sctl=( "${_AI_TOOLS_SERVICE_SYSTEMCTL[@]}" )
-    if [[ "$(ai_tools_service_unit_property "${unit}" Type "${scope}")" == oneshot ]]; then
+    _ai_tools_services__run_systemctl "${scope}" || { printf 'unknown'; return 0; }
+    sctl=( "${_AI_TOOLS_SERVICES__SYSTEMCTL[@]}" )
+    if [[ "$(ai_tools_services__read_unit_property "${unit}" Type "${scope}")" == oneshot ]]; then
         # Never run: no result to report, and Result reads 'success' on a unit that has not run at all, which would
         # otherwise be an OK no run has earned.
-        [[ -n "$(ai_tools_service_unit_property "${unit}" ExecMainStartTimestamp "${scope}")" ]] \
+        [[ -n "$(ai_tools_services__read_unit_property "${unit}" ExecMainStartTimestamp "${scope}")" ]] \
             || { printf 'unknown'; return 0; }
-        if [[ "$(ai_tools_service_unit_property "${unit}" Result "${scope}")" == success ]]; then
+        if [[ "$(ai_tools_services__read_unit_property "${unit}" Result "${scope}")" == success ]]; then
             printf 'active'
         else
             printf 'failed'
@@ -211,17 +212,17 @@ _ai_tools_service_live_state() {
     return 0
 }
 
-# ai_tools_service_stamp_age <stamp-path> [key]  -- PRINT the whole seconds since the timestamp the stamp records
+# ai_tools_services__read_stamp_age <stamp-path> [key]  -- PRINT the whole seconds since the timestamp the stamp records
 # under <key> (default FINISHED), or an EMPTY STRING when that cannot be determined (no stamp, no such key,
 # an unparseable value, or no date(1)). ALWAYS returns 0. Consumers must treat the empty string as "age unknown"
 # and never as "old": a missing age must not manufacture a 'stale' verdict out of an absence. The key is a parameter
 # because more than one record in this grammar carries a time an operator reads as an age -- the updater's stamp
 # (FINISHED) and an entrypoint pin (VERIFIED) -- and both must age through one implementation rather than two that can
-# drift. The value reaches date(1) only after ai_tools_service_stamp_field's charset clamp, and as a single argument,
-# so a hostile stamp can make this fail to parse and no worse.
-ai_tools_service_stamp_age() {
+# drift. The value reaches date(1) only after ai_tools_services__read_stamp_field's charset clamp, and as a single
+# argument, so a hostile stamp can make this fail to parse and no worse.
+ai_tools_services__read_stamp_age() {
     local stamp="$1" key="${2:-FINISHED}" finished stamped now
-    finished="$(ai_tools_service_stamp_field "${stamp}" "${key}")"
+    finished="$(ai_tools_services__read_stamp_field "${stamp}" "${key}")"
     [[ -n "${finished}" ]] || return 0
     command -v date >/dev/null 2>&1 || return 0
     stamped="$(date -u -d "${finished}" +%s 2>/dev/null)" || return 0
@@ -232,15 +233,15 @@ ai_tools_service_stamp_age() {
     return 0
 }
 
-# ai_tools_service_fmt_age <seconds>  -- render an age the way an operator reads it ("3 days ago"), not as a duration
-# to be mentally subtracted from now. Coarsens with distance: the exact minute matters for a run that just happened
-# and not at all for one from last week. Empty or unparseable input prints an empty string, so a caller drops the clause
-# entirely when the age is unknown rather than printing a placeholder.
+# ai_tools_services__format_age <seconds>  -- render an age the way an operator reads it ("3 days ago"), not
+# as a duration to be mentally subtracted from now. Coarsens with distance: the exact minute matters for a run that just
+# happened and not at all for one from last week. Empty or unparseable input prints an empty string, so a caller drops
+# the clause entirely when the age is unknown rather than printing a placeholder.
 #
 # It lives beside the age it formats because more than one report renders these ages -- the operator's `ai-tools status`
 # and root's `ai-tools-admin status` -- and two hosts' worth of wording for the same stamp is a difference a reader
 # would take for a difference in the facts.
-ai_tools_service_fmt_age() {
+ai_tools_services__format_age() {
     local s="${1:-}"
     [[ "${s}" =~ ^[0-9]+$ ]] || return 0
     if   [[ "${s}" -lt 90      ]]; then printf 'just now'
@@ -250,17 +251,17 @@ ai_tools_service_fmt_age() {
     fi
 }
 
-# _ai_tools_user_unit_installed <unit>  -- 0 when a system-wide `systemd --user unit` FILE of that name exists. This is
-# the one question about a sandbox-user unit the operator's session CAN answer: the unit files are world-readable even
-# though the manager that runs them is unreachable. It separates "installed but unqueryable" from "not installed at all"
-# -- every unit in the registry ships with an OPTIONAL package, so absence is a normal state, not a fault to chase.
-# The account's own ~/.config/systemd/user is deliberately NOT searched: it sits in a home the operator cannot traverse.
-# Every unit named here is shipped to the system-wide directory, so the omission leaves the report complete.
-# AI_TOOLS_USER_UNIT_DIRS overrides the ':'-separated search path, so a test does not depend on which optional packages
-# the host has. It does not widen access -- the value decides only what a read-only report says, and its reader already
-# runs as the operator, who can read these paths anyway. IFS is pinned for the split: this library is sourced
-# into scripts that set their own.
-_ai_tools_user_unit_installed() {
+# _ai_tools_services__is_user_unit_installed <unit>  -- 0 when a system-wide `systemd --user unit` FILE of that name
+# exists. This is the one question about a sandbox-user unit the operator's session CAN answer: the unit files are
+# world-readable even though the manager that runs them is unreachable. It separates "installed but unqueryable"
+# from "not installed at all" -- every unit in the registry ships with an OPTIONAL package, so absence is a normal
+# state, not a fault to chase. The account's own ~/.config/systemd/user is deliberately NOT searched: it sits in a home
+# the operator cannot traverse. Every unit named here is shipped to the system-wide directory, so the omission leaves
+# the report complete. AI_TOOLS_USER_UNIT_DIRS overrides the ':'-separated search path, so a test does not depend
+# on which optional packages the host has. It does not widen access -- the value decides only what a read-only report
+# says, and its reader already runs as the operator, who can read these paths anyway. IFS is pinned for the split: this
+# library is sourced into scripts that set their own.
+_ai_tools_services__is_user_unit_installed() {
     local unit="$1" dir
     local -a dirs=()
     IFS=: read -ra dirs <<<"${AI_TOOLS_USER_UNIT_DIRS:-/etc/systemd/user:/run/systemd/user:/usr/local/lib/systemd/user:/usr/lib/systemd/user}"
@@ -270,10 +271,10 @@ _ai_tools_user_unit_installed() {
     return 1
 }
 
-# ai_tools_service_stamp_verdict <live> <stamp_mode> <result> <trigger> <age> <max_age>  -- the pure decision behind
+# ai_tools_services__evaluate_stamp <live> <stamp_mode> <result> <trigger> <age> <max_age>  -- the pure decision behind
 # a sandbox-user unit's state: PRINT one of active|skipped|down|failed|stale|unknown from a live reading and a last-run
 # stamp already read. No I/O, no privilege, ALWAYS returns 0 -- so the policy is driven over its whole truth table
-# (tests/unit/services.sh) apart from the probing that gathers its inputs, the same split ai_tools_confinement_verdict
+# (tests/unit/services.sh) apart from the probing that gathers its inputs, the same split ai_tools_confinement__evaluate
 # makes for the launch decision.
 #
 # <live> is what the unit's own manager says right now, or `unknown` where it could not be reached -- which is every
@@ -298,7 +299,7 @@ _ai_tools_user_unit_installed() {
 # unreachable" is a fine answer once and a stopped toolchain after a week, so the grace window is what separates them.
 # 'fired' mode never reads RESULT (a run of any outcome proves its trigger fired), so a skipped run leaves the timer's
 # verdict untouched.
-ai_tools_service_stamp_verdict() {
+ai_tools_services__evaluate_stamp() {
     local live="${1:-unknown}" stamp_mode="${2:-result}" result="${3:-}" trigger="${4:-}"
     local age="${5:-}" max_age="${6:-}"
     case "${live}" in
@@ -324,14 +325,14 @@ ai_tools_service_stamp_verdict() {
     return 0
 }
 
-# ai_tools_service_parse_timespan_seconds <value>  -- PRINT whole seconds for a systemd time span as `systemctl show`
+# ai_tools_services__parse_timespan_seconds <value>  -- PRINT whole seconds for a systemd time span as `systemctl show`
 # renders one (`0`, `1min`, `3min`, `1min 30s`, `500ms`, `2h`), or an EMPTY STRING when no token could be read. ALWAYS
 # returns 0. systemd pretty-prints these properties and does not publish a numeric form for them, so adding a timer's
 # accuracy to its randomized delay means parsing what it prints. Unrecognized tokens are skipped rather than guessed
 # at, and a value made entirely of them prints nothing, so a caller treats it as unknown instead of as zero tolerance.
 # Sub-second units floor to 0, which is what they are worth in a judgment measured in minutes. IFS is pinned
 # for the split: this library is sourced into scripts that set their own.
-ai_tools_service_parse_timespan_seconds() {
+ai_tools_services__parse_timespan_seconds() {
     local value="${1:-}" token total=0 read_any=0 number unit
     local -a tokens=()
     IFS=$' \t\n' read -ra tokens <<<"${value}"
@@ -352,7 +353,7 @@ ai_tools_service_parse_timespan_seconds() {
     return 0
 }
 
-# ai_tools_service_evaluate_timer_stamp <state> <skew> <allowance>  -- the pure decision about a `Persistent=` TIMER
+# ai_tools_services__evaluate_timer_stamp <state> <skew> <allowance>  -- the pure decision about a `Persistent=` TIMER
 # STAMP: PRINT one of ok|future|absent|unreadable from readings already taken. No I/O, ALWAYS returns 0, so it is driven
 # over its truth table (tests/unit/services.sh). systemd compares the stamp's mtime at timer start to decide whether
 # a window was missed.
@@ -364,7 +365,7 @@ ai_tools_service_parse_timespan_seconds() {
 # `future` outranks `absent` because it changes what systemd does: a stamp dated ahead suppresses the catch-up run
 # a missed window gets. `unreadable` outranks it, since a stamp whose mtime could not be read does not support
 # a verdict.
-ai_tools_service_evaluate_timer_stamp() {
+ai_tools_services__evaluate_timer_stamp() {
     local state="${1:-unreadable}" skew="${2:-}" allowance="${3:-0}"
     [[ "${allowance}" =~ ^[0-9]+$ ]] || allowance=0
     [[ "${state}" == unreadable ]] && { printf 'unreadable'; return 0; }
@@ -376,10 +377,10 @@ ai_tools_service_evaluate_timer_stamp() {
     return 0
 }
 
-# ai_tools_service_state <unit> <scope> [stamp] [stamp_mode] [max_age]  -- PRINT one of
+# ai_tools_services__read_state <unit> <scope> [stamp] [stamp_mode] [max_age]  -- PRINT one of
 # active|skipped|down|failed|stale|absent|unknown; the state is the stdout value and the function
 # ALWAYS returns 0 (so a `state="$(...)"` capture is safe under `set -e` -- no consumer reads the
-# exit status). ai_tools_service_state_of takes a whole record and is what consumers call.
+# exit status). ai_tools_services__read_record_state takes a whole record and is what consumers call.
 #   active  -- the unit is running (is-active), or its stamp records a recent healthy run.
 #   skipped -- the last run ended in a transient condition it did not cause and could not fix (the
 #              updater offline: the registry was unreachable, so the toolchain was left alone and
@@ -399,7 +400,7 @@ ai_tools_service_evaluate_timer_stamp() {
 #   unknown -- not checkable here: systemctl missing, or a sandbox-user unit that is installed but
 #              neither reachable live nor publishing a stamp (or has not run since the stamp was
 #              introduced).
-ai_tools_service_state() {
+ai_tools_services__read_state() {
     local unit="$1" scope="$2" stamp="${3:-}" stamp_mode="${4:-result}" max_age="${5:-}"
     # A sandbox-user unit's live state needs that account's own bus. A root caller reaches it over the machine transport
     # and takes the live verdict where it is decisive; every other caller -- and every probe that cannot complete --
@@ -412,13 +413,13 @@ ai_tools_service_state() {
         # there -- it invites the operator to chase a unit no package installed. The unit FILE is readable even though
         # the manager is not, so this one question is answerable from here; asked first, so it beats any stale stamp
         # an uninstall left behind.
-        if ! _ai_tools_user_unit_installed "${unit}"; then printf 'absent'; return 0; fi
-        ai_tools_service_stamp_verdict \
-            "$(_ai_tools_service_live_state "${unit}" "${scope}")" \
+        if ! _ai_tools_services__is_user_unit_installed "${unit}"; then printf 'absent'; return 0; fi
+        ai_tools_services__evaluate_stamp \
+            "$(_ai_tools_services__read_live_state "${unit}" "${scope}")" \
             "${stamp_mode}" \
-            "$(ai_tools_service_stamp_field "${stamp}" RESULT)" \
-            "$(ai_tools_service_stamp_field "${stamp}" TRIGGER)" \
-            "$(ai_tools_service_stamp_age "${stamp}")" \
+            "$(ai_tools_services__read_stamp_field "${stamp}" RESULT)" \
+            "$(ai_tools_services__read_stamp_field "${stamp}" TRIGGER)" \
+            "$(ai_tools_services__read_stamp_age "${stamp}")" \
             "${max_age}"
         return 0
     fi
@@ -430,49 +431,49 @@ ai_tools_service_state() {
     if ! systemctl cat -- "${unit}" >/dev/null 2>&1; then
         printf 'absent'; return 0
     fi
-    _ai_tools_service_live_state "${unit}" system
+    _ai_tools_services__read_live_state "${unit}" system
     return 0
 }
 
-# ai_tools_service_state_of <record>  -- ai_tools_service_state for a whole registry record, so a consumer never has
-# to know which fields feed the verdict. PRINTs the state; ALWAYS returns 0.
-ai_tools_service_state_of() {
-    ai_tools_service_state \
-        "$(ai_tools_service_field "$1" 1)" "$(ai_tools_service_field "$1" 2)" \
-        "$(ai_tools_service_field "$1" 7)" "$(ai_tools_service_field "$1" 8)" \
-        "$(ai_tools_service_field "$1" 9)"
+# ai_tools_services__read_record_state <record>  -- ai_tools_services__read_state for a whole registry record,
+# so a consumer never has to know which fields feed the verdict. PRINTs the state; ALWAYS returns 0.
+ai_tools_services__read_record_state() {
+    ai_tools_services__read_state \
+        "$(ai_tools_services__get_field "$1" 1)" "$(ai_tools_services__get_field "$1" 2)" \
+        "$(ai_tools_services__get_field "$1" 7)" "$(ai_tools_services__get_field "$1" 8)" \
+        "$(ai_tools_services__get_field "$1" 9)"
 }
 
-# ai_tools_service_needs_attention <state>  -- 0 when the state is one a consumer should report as a problem (down,
-# failed, stale). The single definition of "broken", so the scanner's set and the CLI's report cannot drift apart.
-# 'unknown' is deliberately NOT one: it says the vantage point cannot tell, which is not the same as a fault. Nor is
-# 'skipped': it reports a run that correctly declined to act, and it becomes 'stale' on its own if the condition
+# ai_tools_services__is_attention_needed <state>  -- 0 when the state is one a consumer should report as a problem
+# (down, failed, stale). The single definition of "broken", so the scanner's set and the CLI's report cannot drift
+# apart. 'unknown' is deliberately NOT one: it says the vantage point cannot tell, which is not the same as a fault.
+# Nor is 'skipped': it reports a run that correctly declined to act, and it becomes 'stale' on its own if the condition
 # persists -- so the escalation is the grace window's job, not this predicate's.
-ai_tools_service_needs_attention() {
+ai_tools_services__is_attention_needed() {
     case "$1" in down|failed|stale) return 0 ;; *) return 1 ;; esac
 }
 
-# ai_tools_services_scan [all|system|wrapper]  -- fill AI_TOOLS_SERVICES_DOWN with the records that need attention (see
-# the attention predicate), limited by the filter (default 'all'): 'system' = system-scope units; 'wrapper' = the ones
-# the launch wrapper warns about (system + preflight= wrapper, i.e. not the socket the shim already handles). Returns 0
-# when at least one needs attention, 1 when none -- so a consumer can gate a warning
-# on `if ai_tools_services_scan wrapper`. Only a sandbox-user unit can be 'failed' or 'stale', so neither the 'system'
+# ai_tools_services__scan [all|system|wrapper]  -- fill AI_TOOLS_SERVICES__DOWN with the records that need attention
+# (see the attention predicate), limited by the filter (default 'all'): 'system' = system-scope units; 'wrapper' =
+# the ones the launch wrapper warns about (system + preflight= wrapper, i.e. not the socket the shim already handles).
+# Returns 0 when at least one needs attention, 1 when none -- so a consumer can gate a warning
+# on `if ai_tools_services__scan wrapper`. Only a sandbox-user unit can be 'failed' or 'stale', so neither the 'system'
 # nor the 'wrapper' filter can select one: the wrapper's warning still speaks only of units that are not running.
-# shellcheck disable=SC2034  # AI_TOOLS_SERVICES_DOWN is this scanner's output, read by callers.
-AI_TOOLS_SERVICES_DOWN=()
-ai_tools_services_scan() {
+# shellcheck disable=SC2034  # AI_TOOLS_SERVICES__DOWN is this scanner's output, read by callers.
+AI_TOOLS_SERVICES__DOWN=()
+ai_tools_services__scan() {
     local filter="${1:-all}" rec scope preflight
-    AI_TOOLS_SERVICES_DOWN=()
-    for rec in "${_AI_TOOLS_SERVICES[@]}"; do
-        scope="$(ai_tools_service_field "${rec}" 2)"
-        preflight="$(ai_tools_service_field "${rec}" 4)"
+    AI_TOOLS_SERVICES__DOWN=()
+    for rec in "${_AI_TOOLS_SERVICES__REGISTRY[@]}"; do
+        scope="$(ai_tools_services__get_field "${rec}" 2)"
+        preflight="$(ai_tools_services__get_field "${rec}" 4)"
         case "${filter}" in
             system)   [[ "${scope}" == system ]] || continue ;;
             wrapper)  [[ "${scope}" == system && "${preflight}" == wrapper ]] || continue ;;
             all|*)    ;;
         esac
-        ai_tools_service_needs_attention "$(ai_tools_service_state_of "${rec}")" \
-            && AI_TOOLS_SERVICES_DOWN+=("${rec}")
+        ai_tools_services__is_attention_needed "$(ai_tools_services__read_record_state "${rec}")" \
+            && AI_TOOLS_SERVICES__DOWN+=("${rec}")
     done
-    [[ "${#AI_TOOLS_SERVICES_DOWN[@]}" -gt 0 ]]
+    [[ "${#AI_TOOLS_SERVICES__DOWN[@]}" -gt 0 ]]
 }

@@ -110,10 +110,10 @@ list, and a place in the packaging `%files` — for a command that is already a 
 
 `ai-tools-admin` ships in `ai-tools-base`, which is installed without knowing which `ai-tools-agents-*`
 or `ai-tools-integration-*` packages a host will add, so it **MUST discover the domains it dispatches rather than
-enumerate them**. Base owns four names — `operators`, `selinux`, `system`, `status` — and a provider package contributes
-one domain named for the provider, the same token it takes in `agents.d`/`integrations.d` and in `operator.conf`.
-The dotnet integration owns `dotnet`, so `dotnet bootstrap` and `dotnet tools install <pkg>` are `ai-tools-admin`
-commands on a host that installed it and absent on one that did not.
+enumerate them**. Base owns five names — `operators`, `selinux`, `system`, `status`, `assets` — and a provider package
+contributes one domain named for the provider, the same token it takes in `agents.d`/`integrations.d`
+and in `operator.conf`. The dotnet integration owns `dotnet`, so `dotnet bootstrap` and `dotnet tools install <pkg>` are
+`ai-tools-admin` commands on a host that installed it and absent on one that did not.
 
 A contributed command is **root-only** like every other command on this binary, which is why it lives here rather than
 in a binary of its own. A domain is an executable at `/usr/local/lib/ai-tools/admin-commands.d/<name>`, whose basename
@@ -170,7 +170,9 @@ response for a privileged caller is a **view**, never a prefix.
 Depth is the second reason not to over-prefix: Azure caps a URI at collection/item/collection and Zalando limits nesting
 to one level. A custom method does not add a level against that budget, so `selinux groups enable <name>` projects
 to `/selinux/groups/{name}:enable` — a prefix, one collection, one item. Adding `system` on top would deepen
-the **path** for a command an operator types to unblock a build.
+the **path** for a command an operator types to unblock a build. `assets` is the one surface past that budget:
+`/assets/sets/{set}/{kind}/{name}` is a domain prefix and two collection-item pairs, accepted because the identifier is
+the string `AI_TOOLS_ASSETS` holds in `operator.conf`, and a shorter path would name the same asset two ways.
 
 **Both tests are about actions, so a read takes neither.** `status` is host-wide and reads as infrastructure,
 which would put it under `system` — but it only reads, and it does not take a resource identifier, which makes it
@@ -242,12 +244,12 @@ side and authorization middleware expresses it on the HTTP side. Neither needs a
 
 `ai-tools-admin` conforms: `operators [list|add|remove]`, `selinux groups [list|enable|disable]`,
 `system bootstrap [--scope minimal|full] [--agents NAME[,NAME...]]`, `system entrypoints relabel`,
-`system post-upgrade`, `status`, `--help`/`-h`, `--version`, plus one domain per installed provider —
-`dotnet bootstrap`, `dotnet tools install <pkg...>`, `dotnet status`. `ai-tools-admin(8)` documents the base surface
-and `tests/unit/man.sh` holds the page, the helper's `usage()` and its dispatch arms in agreement, so a command renamed
-in one of the three fails the suite rather than going stale in the others. A contributed domain is outside that pairing
-by construction — its commands exist only where the package is installed — so the page documents the **seam**, `--help`
-lists the domains this host has, and each domain answers its own `--help`.
+`system post-upgrade`, `status`, `assets enable|disable|reconcile`, `--help`/`-h`, `--version`, plus one domain
+per installed provider — `dotnet bootstrap`, `dotnet tools install <pkg...>`, `dotnet status`. `ai-tools-admin(8)`
+documents the base surface and `tests/unit/man.sh` holds the page, the helper's `usage()` and its dispatch arms
+in agreement, so a command renamed in one of the three fails the suite rather than going stale in the others.
+A contributed domain is outside that pairing by construction — its commands exist only where the package is installed —
+so the page documents the **seam**, `--help` lists the domains this host has, and each domain answers its own `--help`.
 
 Two names carry a `%{_sbindir}` symlink so `sudo <name>` resolves through `secure_path`: `ai-tools`
 and `ai-tools-admin`. Every other command in this project is a verb of one of them, reached at a fixed path the dispatch

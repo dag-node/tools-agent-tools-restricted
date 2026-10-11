@@ -559,7 +559,7 @@ fi
 # consent about either number. Each shape is asserted against the counts it was given, so a branch that names a class
 # that is not there fails here.
 CONFIRM_QUESTION=""
-ai_tools_msg_confirm() { CONFIRM_QUESTION="$1"; return 0; }
+ai_tools_msg__confirm() { CONFIRM_QUESTION="$1"; return 0; }
 check_question() {
     CONFIRM_QUESTION=""; ASSUME_YES=false
     confirm_stop "$1" "$2" >/dev/null 2>&1
@@ -572,14 +572,14 @@ check_question() {
 check_question 2 0 "Terminate the 2 agent session(s) listed above?"
 check_question 0 3 "Terminate the 3 unit(s) of the ${SANDBOX_USER} account's own plumbing listed above?"
 check_question 2 3 "the 2 agent session(s) listed above, and 3 unit(s) of the ${SANDBOX_USER} account's own plumbing with them?"
-unset -f ai_tools_msg_confirm check_question
+unset -f ai_tools_msg__confirm check_question
 
 # And a deliberate decline stops the stop, at exit 6 -- the code ai-tools(1) reserves for an operator's explicit
 # decline, apart from 4 (findings) and 5 (the helper could not run) -- with no process signalled. The renderer's answer
 # is stubbed because a real `n` needs a terminal to type it into; what is under test is that the answer is honoured,
 # which is the wiring between the two.
 point_at "${CG2}" 4242
-ai_tools_msg_confirm() { return 1; }
+ai_tools_msg__confirm() { return 1; }
 run_main false
 if (( MAIN_STATUS == 6 )); then
     pass "a deliberate decline stops the stop (exit 6)"
@@ -587,7 +587,7 @@ else
     fail "decline: expected exit 6, got ${MAIN_STATUS}: ${MAIN_OUTPUT}"
 fi
 assert_msg MSG-J3U9 "${MAIN_OUTPUT}" "the decline says nothing was stopped, through the notice emitter"
-unset -f ai_tools_msg_confirm
+unset -f ai_tools_msg__confirm
 
 # Every one of those outcomes is in the trail. An operator ending another operator's work, and a stop that was asked
 # for and did not happen, are both things the record must show -- so the file sink is asserted here rather than only
@@ -614,7 +614,7 @@ section "emitters"
 # that reads like a message. Each driving line is marked `ref-index: ignore`: it carries the emit-call shape
 # the reference index reads as a code's DEFINITION, and a fixture that drove a real emitter would register a second
 # definition of a code the helper already defines. The assertions under it cite the codes.
-fallback_out="$( { unset -f ai_tools_msg_error ai_tools_msg_warn ai_tools_msg_notice
+fallback_out="$( { unset -f ai_tools_msg__error ai_tools_msg__warn ai_tools_msg__notice
     say_error  MSG-Z5W3 "the error line"     # ref-index: ignore
     say_warn   MSG-W8C6 "the warning line"   # ref-index: ignore
     say_notice MSG-J3U9 "the notice line"; } 2>&1 )"   # ref-index: ignore
@@ -635,7 +635,7 @@ else
     fail "fallback notice wrong: $(tr '\n' '|' <<< "${fallback_out}")"
 fi
 # An uncoded call is unchanged, so a component takes codes one emit site at a time.
-uncoded_out="$( { unset -f ai_tools_msg_error; say_error "no code here"; } 2>&1 )"
+uncoded_out="$( { unset -f ai_tools_msg__error; say_error "no code here"; } 2>&1 )"
 if [[ "${uncoded_out}" == 'ai-tools-stop: no code here' ]]; then
     pass "an uncoded emit is byte-identical to what it printed before codes existed"
 else

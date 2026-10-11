@@ -48,6 +48,10 @@ RestartSec=30min
 # The updater writes its own .nvm tree as ai-tools and reaches the locked bin/ through
 # the handback socket, so the session runs with no privilege escalation.
 NoNewPrivileges=yes
+# RestrictNamespaces keeps a package install script from creating a user namespace of its own, inside
+# which this account's files would read as root-owned to the ownership check that decides which
+# agents the updater installs.
+RestrictNamespaces=yes
 # A cap on a run that grows past what a Node install and an npm install take: reclaim pressure at MemoryHigh,
 # the OOM killer at MemoryMax, no swap, and a task count a package install does not approach. The manager applies
 # them where the host delegates the memory and pids controllers to it (cgroup v2); on cgroup v1 they are accepted
@@ -62,11 +66,10 @@ TasksMax=256
 # in per-user instances of the service manager in which case PrivateUsers= is implicitly enabled".
 # PrivateUsers maps this account's uid alone, so every other host uid -- root included -- reads
 # back as the overflow uid 65534 while stat(1) still exits 0. The updater then resolves its agents
-# through ai_tools_conf_is_trusted, which requires owner 0, so it refuses operator.conf and every
+# through ai_tools_conf__is_trusted, which requires owner 0, so it refuses operator.conf and every
 # manifest and ends the run as a fault. RestrictNamespaces= does NOT prevent this: it filters
 # the payload's own unshare/clone/setns, and systemd builds the namespace before installing that
-# filter. tests/integration/systemd.sh asserts the whole option family stays out of every
-# `--user unit`. See .claude/rules/updater.rule.md.
+# filter, so no option of that family is set in a `--user unit`. See .claude/rules/updater.rule.md.
 StandardOutput=journal
 StandardError=journal
 SyslogIdentifier=nvm-update

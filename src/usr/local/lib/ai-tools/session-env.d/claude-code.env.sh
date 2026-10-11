@@ -22,20 +22,20 @@
 # imported by name (value off the command line). See claude-endpoint.lib.sh and providers.rule.md.
 # shellcheck source=/dev/null
 if source /usr/local/lib/ai-tools/claude-endpoint.lib.sh 2>/dev/null \
-        && declare -F ai_tools_claude_resolve_endpoint_setenv >/dev/null 2>&1; then
-    if ! ai_tools_claude_resolve_endpoint_setenv session_environment_options /etc/ai-tools/operator.conf; then
-        ai_tools_msg_error \
+        && declare -F ai_tools_claude_endpoint__resolve_setenv_args >/dev/null 2>&1; then
+    if ! ai_tools_claude_endpoint__resolve_setenv_args session_environment_options /etc/ai-tools/operator.conf; then
+        ai_tools_msg__error \
             "ai-tools-run: a custom Claude Code endpoint is configured but has an invalid option --" \
             "refusing to launch (see the warning above). Fix the file named by CLAUDE_BASE_URL_FILE" \
             "in /etc/ai-tools/operator.conf, or comment CLAUDE_BASE_URL_FILE out to use the default."
         exit 1
     fi
-elif ai_tools_conf_read /etc/ai-tools/operator.conf CLAUDE_BASE_URL_FILE 2>/dev/null \
-        && [[ -n "${_ai_tools_conf_value}" ]]; then
+elif ai_tools_conf__read /etc/ai-tools/operator.conf CLAUDE_BASE_URL_FILE 2>/dev/null \
+        && [[ -n "${ai_tools_conf__value}" ]]; then
     # The resolver lib did not load but an endpoint IS configured: refuse rather than route the session at the default
     # endpoint the operator did not ask for (same fail-closed-when-configured posture the custom system prompt takes
     # in claude.sh).
-    ai_tools_msg_error \
+    ai_tools_msg__error \
         "ai-tools-run: a custom Claude Code endpoint is configured but its resolver library is" \
         "unavailable -- refusing to launch rather than ignore it. Reinstall ai-tools."
     exit 1
@@ -48,17 +48,17 @@ fi
 # clean fail-closed as the endpoint resolution: sourced before the unit exists. See claude-prompt.lib.sh.
 # shellcheck source=/dev/null
 if source /usr/local/lib/ai-tools/claude-prompt.lib.sh 2>/dev/null \
-        && declare -F ai_tools_claude_prompt_content_is_text >/dev/null 2>&1; then
-    if ! ai_tools_claude_prompt_content_is_text /etc/ai-tools/operator.conf; then
-        ai_tools_msg_error \
+        && declare -F ai_tools_claude_prompt__is_content_text >/dev/null 2>&1; then
+    if ! ai_tools_claude_prompt__is_content_text /etc/ai-tools/operator.conf; then
+        ai_tools_msg__error \
             "ai-tools-run: a custom Claude Code system prompt is configured but is not plain text --" \
             "refusing to launch (see the warning above). Fix the file named by" \
             "CLAUDE_SYSTEM_PROMPT_FILE in /etc/ai-tools/operator.conf, or comment the key out."
         exit 1
     fi
-elif ai_tools_conf_read /etc/ai-tools/operator.conf CLAUDE_SYSTEM_PROMPT_FILE 2>/dev/null \
-        && [[ -n "${_ai_tools_conf_value}" ]]; then
-    ai_tools_msg_error \
+elif ai_tools_conf__read /etc/ai-tools/operator.conf CLAUDE_SYSTEM_PROMPT_FILE 2>/dev/null \
+        && [[ -n "${ai_tools_conf__value}" ]]; then
+    ai_tools_msg__error \
         "ai-tools-run: a custom Claude Code system prompt is configured but its resolver library" \
         "is unavailable -- refusing to launch rather than skip the check. Reinstall ai-tools."
     exit 1

@@ -1,17 +1,18 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: AGPL-3.0-only
 # tests/unit/npm-verify.sh
-# Unit test for the npm signature verifier (npm-verify.lib.sh). Drives the PURE decision ai_tools_npm_verdict
-# over a truth table of `npm audit signatures --json` shapes -- the fail-closed contract nvm-update.sh
-# and ai-tools-bootstrap gate the stable-launcher repoint on. The pure verdict touches neither npm nor the filesystem,
-# and does not need privilege, so this runs with no registry, no network, and no root risk: a regression in the verdict
-# (a tamper read as "unable to verify", an inverted gate, a format change read as a false OK) fails here.
+# Unit test for the npm signature verifier (npm-verify.lib.sh). Drives the PURE decision
+# ai_tools_npm_verify__evaluate_audit over a truth table of `npm audit signatures --json` shapes -- the fail-closed
+# contract nvm-update.sh and ai-tools-bootstrap gate the stable-launcher repoint on. The pure verdict touches neither
+# npm nor the filesystem, and does not need privilege, so this runs with no registry, no network, and no root risk:
+# a regression in the verdict (a tamper read as "unable to verify", an inverted gate, a format change read as a false
+# OK) fails here.
 #
-# It deliberately does NOT exercise the impure ai_tools_verify_npm_signatures over a real tree: that function operates
-# on the SANDBOX-owned (agent-writable) global npm tree and must run as the sandbox account, never root -- and this
-# suite runs as root. Instead it asserts the function's fail-closed root-refusal backstop (as root it returns "unable
-# to verify" and does not touch a path). The real end-to-end audit is covered as the sandbox account, out of this
-# root-run unit suite.
+# It deliberately does NOT exercise the impure ai_tools_npm_verify__verify_signatures over a real tree: that function
+# operates on the SANDBOX-owned (agent-writable) global npm tree and must run as the sandbox account, never root --
+# and this suite runs as root. Instead it asserts the function's fail-closed root-refusal backstop (as root it returns
+# "unable to verify" and does not touch a path). The real end-to-end audit is covered as the sandbox account,
+# out of this root-run unit suite.
 #
 # The pure verdict's JSON parser is the host's /usr/bin/python3 in isolated mode, so the verdict does not execute a file
 # of the sandbox toolchain and runs under whatever account the suite has. Run as root via sudo for the identity cases
@@ -26,16 +27,16 @@ section "npm-verify: signature-verification verdict truth table (unit)"
 if [[ ! -r "${LIB}" ]]; then
     skip "npm-verify" "library not readable at ${LIB}"; finish; exit
 fi
-# as_verdict_account <json>: ai_tools_npm_verdict in a shell of its own, so the token goes to stdout and the verdict's
-# status is the function's.
+# as_verdict_account <json>: ai_tools_npm_verify__evaluate_audit in a shell of its own, so the token goes to stdout
+# and the verdict's status is the function's.
 as_verdict_account() {
     # shellcheck disable=SC2016  # the inner shell expands these, not this one
-    bash -c 'source "$1" && ai_tools_npm_verdict "$2"' _ "${LIB}" "$1"
+    bash -c 'source "$1" && ai_tools_npm_verify__evaluate_audit "$2"' _ "${LIB}" "$1"
 }
 # shellcheck source=/dev/null
 if ! source "${LIB}" \
-        || ! declare -F ai_tools_npm_verdict >/dev/null 2>&1 \
-        || ! declare -F ai_tools_verify_npm_signatures >/dev/null 2>&1; then
+        || ! declare -F ai_tools_npm_verify__evaluate_audit >/dev/null 2>&1 \
+        || ! declare -F ai_tools_npm_verify__verify_signatures >/dev/null 2>&1; then
     fail "could not source ${LIB} or it does not define the verify functions"; finish; exit
 fi
 
@@ -87,7 +88,7 @@ fi
 # Fail-closed backstop: the impure verifier refuses to run as root (this suite is root), so it returns "unable
 # to verify" (2) without discovering or touching the tree.
 if [[ "${EUID:-$(id -u)}" -eq 0 ]]; then
-    rc=0; ai_tools_verify_npm_signatures >/dev/null 2>&1 || rc=$?
+    rc=0; ai_tools_npm_verify__verify_signatures >/dev/null 2>&1 || rc=$?
     if [[ "${rc}" -eq 2 ]]; then
         pass "verifier refuses to run as root (rc 2, no tree access)"
     else
@@ -95,7 +96,7 @@ if [[ "${EUID:-$(id -u)}" -eq 0 ]]; then
     fi
     # An operator account is refused the same way: the identity required is the sandbox account's, not "not root".
     # shellcheck disable=SC2016  # the inner shell expands these, not this one
-    rc=0; runuser -u "${PROJECTS_USER}" -- bash -c 'source "$1"; ai_tools_verify_npm_signatures' _ "${LIB}" >/dev/null 2>&1 || rc=$?
+    rc=0; runuser -u "${PROJECTS_USER}" -- bash -c 'source "$1"; ai_tools_npm_verify__verify_signatures' _ "${LIB}" >/dev/null 2>&1 || rc=$?
     if [[ "${rc}" -eq 2 ]]; then
         pass "verifier refuses to run as the projects user (rc 2, no tree access)"
     else
@@ -113,7 +114,7 @@ npm_error_probe() {
     # shellcheck disable=SC2016  # the inner shell expands these, not this one
     bash -c 'npm() { printf "node:internal/modules/cjs/loader:1433\n  throw err;\n\nError: Cannot find module '"'"'../lib/cli.js'"'"'\033[0m\n" >&2; return 1; }
              node() { :; }
-             source "$1"; ai_tools_verify_npm_signatures' _ "${LIB}"
+             source "$1"; ai_tools_npm_verify__verify_signatures' _ "${LIB}"
 }
 # The verifier requires the sandbox identity, so the probe runs through as_sandbox as root, directly where the suite
 # itself runs as that account, and skips from any other account.
@@ -121,7 +122,7 @@ probe_ran=0
 if [[ "${EUID:-$(id -u)}" -eq 0 ]]; then
     rc=0; out="$(as_sandbox bash -c "$(declare -f npm_error_probe); LIB='${LIB}' npm_error_probe" 2>&1)" || rc=$?
     probe_ran=1
-elif ai_tools_is_sandbox_account 2>/dev/null; then
+elif ai_tools_sandbox_exec__is_sandbox_account 2>/dev/null; then
     rc=0; out="$(npm_error_probe 2>&1)" || rc=$?
     probe_ran=1
 else

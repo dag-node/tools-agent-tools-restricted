@@ -123,11 +123,11 @@ between versions.
 
 | Subpackage | Owns |
 |---|---|
-| `ai-tools-base` | the `ai-tools` user and the `ai-ops` operators group; `/opt/ai-tools` home ROOT and `bin` (plus its default-deny `.gitignore` git guard and `.gitconfig` identity, both `%post`-seeded-if-missing and not rpm-owned, so an erase preserves them); the mode and label contract every agent's config directory carries, but no such directory itself; the shared skills root `/opt/ai-tools/skills` and the pristine skill copies (skills are agent-agnostic, so every agent symlinks into this one place) and `/var/opt/ai-tools` sandbox tree; the static `%ai-ops` sudoers drop-in; the `ai-tools` CLI (project lifecycle); `ai-tools-admin` (operator administration); `ai-tools-launch`, the launch wrapper every agent's command runs; ownership/secret helpers (`ai-tools-chown`, `-setgid`, `-setfacl`, `-unclaim`, `-lockdown`, `-relabel`); the handback socket, daemon, and client; `log.lib.sh`, `msg.lib.sh`, `relabel.lib.sh`, `skip-dirs.lib.sh`, `safe-paths.lib.sh`, `secret-patterns.lib.sh`, `operator.lib.sh`, `control-plane.lib.sh`, `conf.lib.sh`, `providers.lib.sh`, `ancestor-config.lib.sh`; the agent-agnostic confinement shim `/opt/ai-tools/bin/ai-tools-run` and the `%ai-ops` sudoers grant that reaches it; the `agents.d`, `integrations.d`, `session-env.d` and `launch.d` provider directories (base owns the dirs at `0755 root:root`; each member package drops only its own manifest or fragment into them) |
+| `ai-tools-base` | the `ai-tools` user and the `ai-ops` operators group; `/opt/ai-tools` home ROOT and `bin` (plus its default-deny `.gitignore` git guard and `.gitconfig` identity, both `%post`-seeded-if-missing and not rpm-owned, so an erase preserves them); the mode and label contract every agent's config directory carries, but no such directory itself; the shared skills root `/opt/ai-tools/skills` and the pristine skill copies (skills are agent-agnostic, so every agent symlinks into this one place) and `/var/opt/ai-tools` sandbox tree; the static `%ai-ops` sudoers drop-in; the `ai-tools` CLI (project lifecycle); `ai-tools-admin` (operator administration); `ai-tools-launch`, the launch wrapper every agent's command runs; ownership/secret helpers (`ai-tools-chown`, `-setgid`, `-setfacl`, `-unclaim`, `-lockdown`, `-relabel`); the handback socket, daemon, and client; `log.lib.sh`, `msg.lib.sh`, `relabel.lib.sh`, `skip-dirs.lib.sh`, `safe-paths.lib.sh`, `secret-patterns.lib.sh`, `operator.lib.sh`, `control-plane.lib.sh`, `conf.lib.sh`, `providers.lib.sh`, `ancestor-config.lib.sh`; the asset-set verifier (`assets-verify.lib.sh`, which needs `gpgv` from `gnupg2`) with the dag-node package-signing key and a root-owned signing binding per shipped set name under `assets-bindings.d`; the assets resolver (`assets.lib.sh`) behind `ai-tools-admin assets`, and the two transaction file triggers on `/usr/share/ai-tools-assets` that re-resolve the asset view when a set package is installed, upgraded or erased; the agent-agnostic confinement shim `/opt/ai-tools/bin/ai-tools-run` and the `%ai-ops` sudoers grant that reaches it; the `agents.d`, `integrations.d`, `session-env.d` and `launch.d` provider directories (base owns the dirs at `0755 root:root`; each member package drops only its own manifest or fragment into them) |
 | `ai-tools-selinux` | the compiled SELinux policy modules in `/usr/share/selinux/packages/ai-tools/` — the core `ai_tools.pp` (the `ai_tools_t` domain and the handback/helper types), each STABLE optional group, and each integration's layout module, every one compiled at package build against the building distribution's policy headers, and the `ai_tools.if` interface file under `/usr/share/selinux/devel/include/distributed/`; the `%post`/`%postun` scriptlets that load the core and unload every loaded `ai_tools*` module on erase; the GPL licence text |
 | `ai-tools-integration-nodejs` | nvm under `/opt/ai-tools/.nvm`; the per-sandbox-user Node-version auto-update service and timer; `ai-tools-bootstrap`; the symlink-repoint helper (`ai-tools-launcher-symlink`) and the post-upgrade entrypoint relabel (`ai-tools-relabel-agent`) |
 | `ai-tools-integration-dotnet` | the dotnet session-env fragment (`session-env.d/dotnet.env.sh`), manifest (`integrations.d/dotnet.conf`) and the `dotnet` domain of `ai-tools-admin` (`admin-commands.d/dotnet`), which provisions a writable NuGet cache + read-only shared tools under its own `/opt/ai-tools/integrations/dotnet` state root, covered by the base's single fcontext rule for that tree. No .NET runtime — the host's dotnet is used |
-| `ai-tools-integration-typesafe` | the decide command (`/usr/local/lib/ai-tools/typesafe`, JavaScript the sandbox's Node runs, with no runtime dependency), its session-env fragment (`session-env.d/typesafe.env.sh`) and manifest (`integrations.d/typesafe.conf`), the credential file `/etc/ai-tools/endpoints/typesafe.conf` (`%config(noreplace)`, shipped with the key commented) and its `ai-tools-typesafe.conf(5)` page, the `/opt/ai-tools/integrations/typesafe` state root the usage log lands in, and the pristine copy of the `ai-tools-decide` skill, which its `%post` seeds and links and its `%postun` withdraws |
+| `ai-tools-integration-typesafe` | the decide command (`/usr/local/lib/ai-tools/typesafe`, JavaScript the sandbox's Node runs, with no runtime dependency), its session-env fragment (`session-env.d/typesafe.env.sh`) and manifest (`integrations.d/typesafe.conf`), the credential file `/etc/ai-tools/endpoints/typesafe.conf` (`%config(noreplace)`, shipped with the key commented) and its `ai-tools-typesafe.conf(5)` page, the `/opt/ai-tools/integrations/typesafe` state root the usage log lands in, and the pristine copy of the `ai-tools-typesafe-filter` skill, which its `%post` seeds and links and its `%postun` withdraws |
 | `ai-tools-agents-claude-code-restricted` | the `claude` command, a symlink to `ai-tools-launch`, and its launch hook (`launch.d/claude-code.sh`, the custom system prompt); `/opt/ai-tools/bin/claude`; the Claude Code hooks (`post-tool-hook.sh`, `session-hook.sh`) and `settings.json`; its agent manifest (`agents.d/claude-code.conf`, naming the npm package, launcher, display name, handback capability, config directory, and the SELinux entrypoint file-context for `claude.exe`); its own config directory `/opt/ai-tools/.claude`, the shipped Claude-format agents seeded into it, its session pins and session-env fragment (`session-env.d/claude-code.pins.env.sh`, `session-env.d/claude-code.env.sh`); the scriptlets that register that file-context on install and drop it on erase. Confinement itself is base-owned, so this package does not ship a shim and does not need a sudoers rule of its own |
 
 The handback daemon is a verb dispatcher over a helper table; the generic verbs
@@ -280,10 +280,14 @@ or an install leaves the entrypoint unlabelled and an erase leaves the domain
 live.
 
 `ai-tools-integration-nodejs`: `%post`/`%preun`/`%postun` manage the system
-`ai-tools-relabel.path` watcher with the systemd macros. The `nvm-update`
-service and timer ship in `%{_userunitdir}` (`/usr/lib/systemd/user/`);
+`ai-tools-relabel.path` watcher with the systemd macros. `ai-tools-base`'s
+`%pretrans` stops that watcher for the transaction and its `%posttrans` starts
+it again and runs the relabel once, so an upgrade does not run one release's
+relabel helper against another release's libraries. The `nvm-update` service
+and timer ship in `%{_userunitdir}` (`/usr/lib/systemd/user/`);
 `system bootstrap` enables the timer in `ai-tools`'s own `--user instance` once
-it has provisioned the toolchain.
+it has provisioned the toolchain, and the nodejs `%posttrans` reloads
+that instance, so a changed unit is in force after an upgrade without a reboot.
 
 `ai-tools-agents-claude-code-restricted`: `%post` applies the entrypoint
 file-context and, when SELinux is enabled, relabels `/opt/ai-tools/bin`; no
@@ -445,13 +449,10 @@ properties shape the design:
 
 Prerelease tags (`vX.Y.Z-rc.N`) run the same sign-and-verify path but publish
 only a GitHub **prerelease** and skip the `dag-node/rpm` notify — the central
-repo serves final tags only. The release job runs on those tags alone: its
-three secrets belong to the `release` environment, whose deployment policy
-admits only a `v*.*.*` tag and so refuses every branch and pull-request run.
-The process is [Branching and release](development/release.md).
+repo serves final tags only. The release job runs on those tags alone,
+under the `release` environment that holds its secrets. The process,
+the environment's deployment policy and the secrets it holds are in [Branching
+and release](development/release.md).
 
-The signing key and the environment secrets (`GPG_SIGNING_KEY`,
-`GPG_SIGNING_PASSPHRASE`, `RPM_REPO_DISPATCH_TOKEN`) are in the org playbook
-`GPG-HINTS.md`; the central repository's architecture, layout, and DNS/Pages
-setup are in `RPM-REPO-HINTS.md` — kept out of this project so its docs stay
-scoped to the package build.
+The signing key itself and the central repository's hosting are administered
+outside this project, which keeps these docs scoped to the package build.

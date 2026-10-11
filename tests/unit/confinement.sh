@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: AGPL-3.0-only
 # tests/unit/confinement.sh
-# Unit test for the SELinux launch-gate decision (confinement.lib.sh): the pure ai_tools_confinement_verdict
+# Unit test for the SELinux launch-gate decision (confinement.lib.sh): the pure ai_tools_confinement__evaluate
 # that ai-tools-run's fail-closed preflight dispatches on. Drives the truth table over the probed inputs -- getenforce,
 # module presence, the matchpathcon-expected label, the live label, the manager domain, the per-domain mode
 # and the gating Booleans -- and the operator's AI_TOOLS_REQUIRE_SELINUX switch, with no SELinux host required,
@@ -20,8 +20,8 @@ if [[ ! -r "${LIB}" ]]; then
     skip "confinement verdict" "library not readable at ${LIB}"; finish; exit
 fi
 # shellcheck source=/dev/null
-if ! source "${LIB}" || ! declare -F ai_tools_confinement_verdict >/dev/null 2>&1; then
-    fail "could not source ${LIB} or it does not define ai_tools_confinement_verdict"; finish; exit
+if ! source "${LIB}" || ! declare -F ai_tools_confinement__evaluate >/dev/null 2>&1; then
+    fail "could not source ${LIB} or it does not define ai_tools_confinement__evaluate"; finish; exit
 fi
 
 # expect_verdict <token> <rc> <selinux-mode> <module-present> <expected-label> <actual-label> <manager-domain>
@@ -33,7 +33,7 @@ fi
 expect_verdict() {
     local expected_token="$1" expected_status="$2"; shift 2
     local verdict_token verdict_status
-    verdict_token="$(ai_tools_confinement_verdict "$@")" && verdict_status=0 || verdict_status=$?
+    verdict_token="$(ai_tools_confinement__evaluate "$@")" && verdict_status=0 || verdict_status=$?
     local case_description="mode=${1:-∅} module=${2:-∅} expected=${3:-∅} actual=${4:-∅} manager=${5:-∅}"
     case_description+=" require=${6-unset} permissive=${7-unset} booleans=${8-unset} policy=${10-unset}"
     if [[ "${verdict_token}" == "${expected_token}" && "${verdict_status}" -eq "${expected_status}" ]]; then
@@ -73,14 +73,14 @@ expect_verdict ok 0 unknown    yes ai_tools_exec_t lib_t init_t
 # -- asserted, not incidental.
 expect_verdict ok 0 Enforcing no "" lib_t init_t
 
-# ── The module-presence probe classifier (ai_tools_confinement_module_present) ── ai-tools-run derives
+# ── The module-presence probe classifier (ai_tools_confinement__evaluate_module_present) ── ai-tools-run derives
 # the `module-present` verdict input from `matchpathcon` on a CORE-owned path, because it runs as the sandbox account
 # and cannot read the root-only module store (`semodule -l`). A core-owned path resolves to an ai_tools_* type ONLY
 # when the core module's file-contexts are live, so this classifier turns that probed type into the yes/no the verdict
 # consumes. The false "no" this replaces was the fail-open: on the unresolved-label branch it would launch DAC-only
 # where the module is actually loaded.
 expect_module_present() {  # <expected-answer> <probed-type>
-    local classified_answer; classified_answer="$(ai_tools_confinement_module_present "$2")"
+    local classified_answer; classified_answer="$(ai_tools_confinement__evaluate_module_present "$2")"
     if [[ "${classified_answer}" == "$1" ]]; then pass "module-present(${2:-∅}) -> ${classified_answer}"
     else fail "module-present(${2:-∅}) -> ${classified_answer}; expected $1"; fi
 }
@@ -160,21 +160,21 @@ expect_verdict unclassified 1 Enforcing maybe ""              lib_t           in
 expect_verdict require-not-enforcing 1 unknown no ""          lib_t           init_t yes no "" "" no  # not a documented mode
 
 section "confinement: the requirement is in force unless operator.conf turns it off (unit)"
-# ai_tools_confinement_is_selinux_required is the one read of AI_TOOLS_REQUIRE_SELINUX, and every way it can fail
+# ai_tools_confinement__is_selinux_required is the one read of AI_TOOLS_REQUIRE_SELINUX, and every way it can fail
 # resolves to the requirement: an untrusted file (one this account owns), an absent key, a yes value and a mistyped
 # value each require; only a value the grammar reads as no does not. A trusted file is root-owned, so those cases run
 # as root.
 mktestdir
 expect_required() {  # <description> <expected 0|1> <operator-conf>
     local status=0
-    ai_tools_confinement_is_selinux_required "$3" 2>/dev/null || status=$?
+    ai_tools_confinement__is_selinux_required "$3" 2>/dev/null || status=$?
     if [[ "${status}" -eq "$2" ]]; then pass "$1 -> rc ${status}"; else fail "$1 -> rc ${status}; expected $2"; fi
 }
-# The reader needs the grammar beside the lib (ai_tools_conf_no); without it the requirement stands whatever the file
-# says, which is the fail direction and not what these cases are about, so the grammar is loaded first.
+# The reader needs the grammar beside the lib (ai_tools_conf__is_no); without it the requirement stands whatever
+# the file says, which is the fail direction and not what these cases are about, so the grammar is loaded first.
 CONF_LIB_FOR_REQUIREMENT="$(dirname "${LIB}")/conf.lib.sh"
 if [[ -r "${CONF_LIB_FOR_REQUIREMENT}" ]] && source "${CONF_LIB_FOR_REQUIREMENT}" \
-        && declare -F ai_tools_conf_no >/dev/null 2>&1; then
+        && declare -F ai_tools_conf__is_no >/dev/null 2>&1; then
     printf 'AI_TOOLS_REQUIRE_SELINUX=no\n' > "${TESTDIR}/untrusted.conf"; chmod 0666 "${TESTDIR}/untrusted.conf"
     expect_required "an untrusted operator.conf setting no still requires" 0 "${TESTDIR}/untrusted.conf"
     expect_required "an absent operator.conf requires" 0 "${TESTDIR}/missing.conf"
@@ -191,23 +191,23 @@ if [[ -r "${CONF_LIB_FOR_REQUIREMENT}" ]] && source "${CONF_LIB_FOR_REQUIREMENT}
         expect_required "a trusted file setting yes requires"     0 "${TESTDIR}/trusted-yes.conf"
         expect_required "a trusted file setting no does not"      1 "${TESTDIR}/trusted-no.conf"
         expect_required "a trusted file with a mistyped value requires" 0 "${TESTDIR}/trusted-ture.conf"
-        said="$(ai_tools_confinement_is_selinux_required "${TESTDIR}/trusted-ture.conf" 2>&1 || true)"
+        said="$(ai_tools_confinement__is_selinux_required "${TESTDIR}/trusted-ture.conf" 2>&1 || true)"
         assert_msg MSG-H7N5 "${said}" "the mistyped value is reported as read as yes"
     else
         skip "the requirement's trusted-file cases" "a trusted operator.conf is root-owned; run as root"
     fi
 else
-    skip "the requirement's reader" "conf.lib.sh beside ${LIB} is not readable, or it predates ai_tools_conf_no"
+    skip "the requirement's reader" "conf.lib.sh beside ${LIB} is not readable, or it predates ai_tools_conf__is_no"
 fi
 
 section "confinement: the DAC-only state and its readers (unit)"
-# ai_tools_confinement_dac_only_state is the one predicate the verdict and both status reports read a host's want
-# of confinement by, so it is driven in both directions: the two states it names, and every near miss that is a fault
-# or an unread input rather than the host's own configuration.
+# ai_tools_confinement__evaluate_dac_only_state is the one predicate the verdict and both status reports read a host's
+# want of confinement by, so it is driven in both directions: the two states it names, and every near miss that is
+# a fault or an unread input rather than the host's own configuration.
 expect_dac_only_state() {  # <expected|none> <selinux-mode> <module-present> <policy-shipped>
     local expected="$1"; shift
     local state status=0
-    state="$(ai_tools_confinement_dac_only_state "$@")" || status=$?
+    state="$(ai_tools_confinement__evaluate_dac_only_state "$@")" || status=$?
     if [[ "${expected}" == none && -z "${state}" && "${status}" -eq 1 ]] \
             || [[ "${expected}" != none && "${state}" == "${expected}" && "${status}" -eq 0 ]]; then
         pass "dac-only(mode=${1:-∅} module=${2:-∅} policy=${3:-∅}) -> ${state:-none}"
@@ -238,17 +238,17 @@ expect_reader() {  # <description> <expected> <command...>
     if [[ "${answer}" == "${expected}" ]]; then pass "${description} -> ${answer:-∅} (rc ${status})"
     else fail "${description} -> ${answer:-∅} (rc ${status}); expected ${expected:-∅}"; fi
 }
-expect_reader "policy shipped: the module file present" yes ai_tools_confinement_read_policy_shipped "${TESTDIR}/ai_tools.pp"
-expect_reader "policy shipped: the module file absent"  no  ai_tools_confinement_read_policy_shipped "${TESTDIR}/missing.pp"
+expect_reader "policy shipped: the module file present" yes ai_tools_confinement__read_policy_shipped "${TESTDIR}/ai_tools.pp"
+expect_reader "policy shipped: the module file absent"  no  ai_tools_confinement__read_policy_shipped "${TESTDIR}/missing.pp"
 matchpathcon() { printf 'system_u:object_r:%s:s0\n' "${stub_probe_type}"; }
 stub_probe_type=ai_tools_home_t
 expect_reader "module present: the core path maps to its type" yes \
-    ai_tools_confinement_read_module_present "${AI_TOOLS_CONFINEMENT_MODULE_PROBE_PATH}"
+    ai_tools_confinement__read_module_present "${AI_TOOLS_CONFINEMENT__MODULE_PROBE_PATH}"
 stub_probe_type=user_home_t
 expect_reader "module present: the core path keeps its default type" no \
-    ai_tools_confinement_read_module_present "${AI_TOOLS_CONFINEMENT_MODULE_PROBE_PATH}"
+    ai_tools_confinement__read_module_present "${AI_TOOLS_CONFINEMENT__MODULE_PROBE_PATH}"
 unset -f matchpathcon
-if answer="$(PATH=/nonexistent ai_tools_confinement_read_module_present "${AI_TOOLS_CONFINEMENT_MODULE_PROBE_PATH}" 2>/dev/null)"; then
+if answer="$(PATH=/nonexistent ai_tools_confinement__read_module_present "${AI_TOOLS_CONFINEMENT__MODULE_PROBE_PATH}" 2>/dev/null)"; then
     fail "module present without matchpathcon read as a value: ${answer}"
 elif [[ -z "${answer}" ]]; then
     pass "module present without matchpathcon -> unread (rc 1, prints nothing)"
@@ -261,7 +261,7 @@ section "confinement: attestation record parser (unit)"
 # into the verdict's two inputs, so a record it misreads is an unread input or a wrong one.
 expect_parsed_inputs() {
     local case_description="$1" expected_line="$2" parsed_line
-    parsed_line="$(printf '%b' "$3" | ai_tools_confinement_parse_attestation_records)"
+    parsed_line="$(printf '%b' "$3" | ai_tools_confinement__parse_attestation_records)"
     if [[ "${parsed_line}" == "${expected_line}" ]]; then pass "parse: ${case_description} -> ${parsed_line}"
     else fail "parse: ${case_description} -> ${parsed_line}; expected ${expected_line}"; fi
 }
@@ -275,7 +275,7 @@ expect_parsed_inputs "a value outside the grammar is dropped" "|domain_can_mmap_
 expect_parsed_inputs "a name outside the charset is dropped" "no|" 'permissive\tno\nboolean\tnis enabled=on x\ton\n'
 # The parser's separator survives the empty first field the shim reads it with.
 IFS='|' read -r parsed_domain_permissive parsed_current_boolean_values \
-    < <(printf 'boolean\tnis_enabled\ton\n' | ai_tools_confinement_parse_attestation_records)
+    < <(printf 'boolean\tnis_enabled\ton\n' | ai_tools_confinement__parse_attestation_records)
 if [[ -z "${parsed_domain_permissive}" && "${parsed_current_boolean_values}" == "nis_enabled=on" ]]; then
     pass "the shim's read keeps an empty domain mode empty"
 else
@@ -286,7 +286,7 @@ section "confinement: selinuxfs reader (unit)"
 # expect_access_decision <expected-answer> <kernel-answer>: the permissive bit of the access transaction's answer.
 # An answer outside the kernel's grammar prints nothing, which the verdict reads as unread.
 expect_access_decision() {
-    local parsed_answer; parsed_answer="$(ai_tools_confinement_parse_access_decision "$2")"
+    local parsed_answer; parsed_answer="$(ai_tools_confinement__parse_access_decision "$2")"
     if [[ "${parsed_answer}" == "$1" ]]; then pass "access decision '${2}' -> ${parsed_answer:-unread}"
     else fail "access decision '${2}' -> ${parsed_answer:-unread}; expected ${1:-unread}"; fi
 }
@@ -310,7 +310,7 @@ printf '0 0' > "${fixture_selinuxfs}/booleans/nis_enabled"
 printf '1 1' > "${fixture_selinuxfs}/booleans/domain_can_mmap_files"
 printf '1 0' > "${fixture_selinuxfs}/booleans/kerberos_enabled"
 printf 'x 0' > "${fixture_selinuxfs}/booleans/fips_mode"            # outside the grammar: left out
-fixture_records="$(ai_tools_confinement_read_attestation_records "${fixture_selinuxfs}")"
+fixture_records="$(ai_tools_confinement__read_attestation_records "${fixture_selinuxfs}")"
 expected_records=$'boolean\tnis_enabled\toff\nboolean\tdomain_can_mmap_files\ton\nboolean\tkerberos_enabled\ton'
 if [[ "${fixture_records}" == "${expected_records}" ]]; then
     pass "reader: each Boolean's active value, an unreadable one and the unanswered access query left out"
@@ -319,27 +319,27 @@ else
 fi
 # The same reading under the IFS ai-tools sets (newline and tab only): a reader that split on the caller's IFS would
 # read `0 0` as one value and report every Boolean unread.
-fixture_records_cli_ifs="$(IFS=$'\n\t'; ai_tools_confinement_read_attestation_records "${fixture_selinuxfs}")"
+fixture_records_cli_ifs="$(IFS=$'\n\t'; ai_tools_confinement__read_attestation_records "${fixture_selinuxfs}")"
 if [[ "${fixture_records_cli_ifs}" == "${expected_records}" ]]; then
     pass "reader: the Boolean values read alike under ai-tools' IFS=\$'\\n\\t'"
 else
     fail "reader under IFS=\$'\\n\\t' printed: ${fixture_records_cli_ifs//$'\n'/ | }"
 fi
-if [[ -z "$(ai_tools_confinement_read_attestation_records "${TESTDIR}/absent")" ]]; then
+if [[ -z "$(ai_tools_confinement__read_attestation_records "${TESTDIR}/absent")" ]]; then
     pass "reader: a missing selinuxfs prints no record, so every input reads as unread"
 else
     fail "reader: a missing selinuxfs printed a record"
 fi
 
 # A further name becomes a path component under selinuxfs, so the reader opens one only in the pair grammar
-# (ai_tools_conf_pair_name_valid, conf.lib.sh beside the lib) and reads a registry name once however often it is passed.
-# The traversal fixture exists and holds a value, so this asserts the name was refused, not that it was absent.
+# (ai_tools_conf__is_pair_name_valid, conf.lib.sh beside the lib) and reads a registry name once however often it is
+# passed. The traversal fixture exists and holds a value, so this asserts the name was refused, not that it was absent.
 mkdir -p "${TESTDIR}/etc"; printf '1 0' > "${TESTDIR}/etc/shadow"
 printf '1 0' > "${fixture_selinuxfs}/booleans/ai_tools_test_extra"
 CONF_LIB_FOR_READER="$(dirname "${LIB}")/conf.lib.sh"
 if [[ -r "${CONF_LIB_FOR_READER}" ]] && source "${CONF_LIB_FOR_READER}" \
-        && declare -F ai_tools_conf_pair_name_valid >/dev/null 2>&1; then
-    further_records="$(ai_tools_confinement_read_attestation_records "${fixture_selinuxfs}" \
+        && declare -F ai_tools_conf__is_pair_name_valid >/dev/null 2>&1; then
+    further_records="$(ai_tools_confinement__read_attestation_records "${fixture_selinuxfs}" \
         '../../etc/shadow' 'nis enabled' nis_enabled ai_tools_test_extra ai_tools_test_extra)"
     if [[ "${further_records}" == "${expected_records}"$'\nboolean\tai_tools_test_extra\ton' ]]; then
         pass "reader: a further name is read once and in the pair grammar alone -- a path and a name with a space are not opened"
@@ -347,7 +347,7 @@ if [[ -r "${CONF_LIB_FOR_READER}" ]] && source "${CONF_LIB_FOR_READER}" \
         fail "reader with further names printed: ${further_records//$'\n'/ | }"
     fi
 else
-    skip "reader further names" "conf.lib.sh beside ${LIB} is not readable, or it predates ai_tools_conf_pair_name_valid"
+    skip "reader further names" "conf.lib.sh beside ${LIB} is not readable, or it predates ai_tools_conf__is_pair_name_valid"
 fi
 
 section "confinement: the Boolean values a launch requires (unit)"
@@ -370,7 +370,7 @@ expect_verdict require-unattested 1 Enforcing yes ai_tools_exec_t ai_tools_exec_
 # in operator.conf replaces its default, and a malformed one keeps the built-in pairs, adds those it read, and carries
 # the marker no reading satisfies.
 expect_required_values() {  # <description> <expected> <declaration-state> <declared-boolean-values>
-    local required_values; required_values="$(ai_tools_confinement_resolve_required_boolean_values "$3" "$4")"
+    local required_values; required_values="$(ai_tools_confinement__resolve_required_boolean_values "$3" "$4")"
     if [[ "${required_values}" == "$2" ]]; then pass "required values, $1 -> [${required_values}]"
     else fail "required values, $1 -> [${required_values}]; expected [$2]"; fi
 }
@@ -382,7 +382,7 @@ expect_required_values "an empty declaration requires none" "" present ""
 expect_required_values "a malformed declaration keeps the built-in pairs and refuses" \
     "nis_enabled=off domain_can_mmap_files=off domain_can_write_kmsg=off deny_ptrace=on AI_TOOLS_SELINUX_BOOLEANS=malformed" \
     malformed "deny_ptrace=on"
-required_values_cli_ifs="$(IFS=$'\n\t'; ai_tools_confinement_resolve_required_boolean_values present "nis_enabled=on deny_ptrace=on")"
+required_values_cli_ifs="$(IFS=$'\n\t'; ai_tools_confinement__resolve_required_boolean_values present "nis_enabled=on deny_ptrace=on")"
 if [[ "${required_values_cli_ifs}" == "nis_enabled=on deny_ptrace=on" ]]; then
     pass "required values read alike under ai-tools' IFS=\$'\\n\\t'"
 else
@@ -396,7 +396,7 @@ expect_verdict require-unattested 1 Enforcing yes ai_tools_exec_t ai_tools_exec_
 section "confinement: unread inputs and report rows (unit)"
 # Each unread input is listed with its kind, so the shim prints the remedy that kind takes and not a package install
 # for a misspelled Boolean.
-unread_rows="$(ai_tools_confinement_list_unread_inputs \
+unread_rows="$(ai_tools_confinement__list_unread_inputs \
     "nis_enabled=off no_such_boolean=on AI_TOOLS_SELINUX_BOOLEANS=malformed" "nis_enabled=off" "")"
 expected_unread=$'selinuxfs\twhether ai_tools_t is a permissive domain (/sys/fs/selinux/access)\nboolean\tthe no_such_boolean Boolean\ndeclaration\tAI_TOOLS_SELINUX_BOOLEANS in operator.conf (an entry is not <boolean>=on or <boolean>=off)'
 if [[ "${unread_rows}" == "${expected_unread}" ]]; then
@@ -404,13 +404,13 @@ if [[ "${unread_rows}" == "${expected_unread}" ]]; then
 else
     fail "unread inputs -> ${unread_rows//$'\n'/ | }"
 fi
-full_reading_unread="$(ai_tools_confinement_list_unread_inputs "${CLEAN_BOOLEANS}" "${CLEAN_BOOLEANS}" no)"
+full_reading_unread="$(ai_tools_confinement__list_unread_inputs "${CLEAN_BOOLEANS}" "${CLEAN_BOOLEANS}" no)"
 if [[ -z "${full_reading_unread}" ]]; then pass "unread inputs: a full reading lists none"
 else fail "unread inputs over a full reading: ${full_reading_unread//$'\n'/ | }"; fi
 
 # The report rows: the domain row and a differing Boolean carry the command that puts each right, a required Boolean
 # the registry does not hold is listed from the declaration, and the malformed marker is a row of its own.
-report_rows="$(ai_tools_confinement_list_attestation_rows yes "nis_enabled=on deny_ptrace=on" \
+report_rows="$(ai_tools_confinement__list_attestation_rows yes "nis_enabled=on deny_ptrace=on" \
     "nis_enabled=off domain_can_mmap_files=off domain_can_write_kmsg=off my_extra=on AI_TOOLS_SELINUX_BOOLEANS=malformed" \
     "my_extra=on")"
 expect_row() {  # <description> <expected row>
@@ -433,7 +433,7 @@ expect_row "the malformed marker is a row of its own" \
 # per path: the trusted fixtures pass and the untrusted one does not, which keeps the fail direction in view.
 CONF_LIB_FOR_READERS="$(dirname "${LIB}")/conf.lib.sh"
 if [[ -r "${CONF_LIB_FOR_READERS}" ]] && source "${CONF_LIB_FOR_READERS}" \
-        && declare -F ai_tools_confinement_read_boolean_requirement >/dev/null 2>&1; then
+        && declare -F ai_tools_confinement__read_boolean_requirement >/dev/null 2>&1; then
     valid_operator_conf="${TESTDIR}/operator-valid.conf"; malformed_operator_conf="${TESTDIR}/operator-malformed.conf"
     empty_operator_conf="${TESTDIR}/operator-empty.conf"; absent_operator_conf="${TESTDIR}/operator-absent.conf"
     untrusted_operator_conf="${TESTDIR}/operator-untrusted.conf"
@@ -442,9 +442,9 @@ if [[ -r "${CONF_LIB_FOR_READERS}" ]] && source "${CONF_LIB_FOR_READERS}" \
     printf 'AI_TOOLS_SELINUX_BOOLEANS=[]\n' > "${empty_operator_conf}"
     printf 'AI_TOOLS_REQUIRE_SELINUX=yes\n' > "${absent_operator_conf}"
     cp "${valid_operator_conf}" "${untrusted_operator_conf}"
-    ai_tools_conf_is_trusted() { [[ "$1" != "${untrusted_operator_conf}" ]]; }
+    ai_tools_conf__is_trusted() { [[ "$1" != "${untrusted_operator_conf}" ]]; }
     expect_required_reading() {  # <description> <operator-conf> <state> <required> <declared>
-        local reading; reading="$(ai_tools_confinement_read_boolean_requirement "$2" 2>/dev/null)"
+        local reading; reading="$(ai_tools_confinement__read_boolean_requirement "$2" 2>/dev/null)"
         # Built the way the reading is captured, so the trailing empty lines $(...) strips go from both.
         local expected_reading; expected_reading="$(printf '%s\n%s\n%s\n' "$3" "$4" "$5")"
         if [[ "${reading}" == "${expected_reading}" ]]; then pass "declaration, $1 -> ${reading//$'\n'/ | }"
@@ -464,7 +464,7 @@ if [[ -r "${CONF_LIB_FOR_READERS}" ]] && source "${CONF_LIB_FOR_READERS}" \
     # The one reading the shim and both reports share, over the valid declaration and the fixture selinuxfs: its five
     # fields, then the report's closing verdict row, which says whether a token other than ok refuses a launch.
     printf '1 0' > "${fixture_selinuxfs}/booleans/deny_ptrace"
-    attestation_inputs="$(ai_tools_confinement_read_attestation_inputs "${valid_operator_conf}" "${fixture_selinuxfs}")"
+    attestation_inputs="$(ai_tools_confinement__read_attestation_inputs "${valid_operator_conf}" "${fixture_selinuxfs}")"
     expected_inputs="present|nis_enabled=on deny_ptrace=on|nis_enabled=on deny_ptrace=on||nis_enabled=off domain_can_mmap_files=on kerberos_enabled=on deny_ptrace=on"
     if [[ "${attestation_inputs}" == "${expected_inputs}" ]]; then
         pass "attestation inputs: the declaration, every Boolean it names read beside the registry's, the domain mode unread"
@@ -472,7 +472,7 @@ if [[ -r "${CONF_LIB_FOR_READERS}" ]] && source "${CONF_LIB_FOR_READERS}" \
         fail "attestation inputs -> ${attestation_inputs}; expected ${expected_inputs}"
     fi
     expect_report_verdict() {  # <description> <operator-conf> <expected verdict row>
-        local report_tail; report_tail="$(ai_tools_confinement_list_attestation_report "$2" "${fixture_selinuxfs}" | tail -n1)"
+        local report_tail; report_tail="$(ai_tools_confinement__list_attestation_report "$2" "${fixture_selinuxfs}" | tail -n1)"
         if [[ "${report_tail}" == "$3" ]]; then pass "attestation report, $1 -> ${report_tail//$'\t'/ }"
         else fail "attestation report, $1 -> ${report_tail//$'\t'/ }; expected ${3//$'\t'/ }"; fi
     }
@@ -480,14 +480,14 @@ if [[ -r "${CONF_LIB_FOR_READERS}" ]] && source "${CONF_LIB_FOR_READERS}" \
     expect_report_verdict "the built-in pairs with one open, required" "${absent_operator_conf}" $'verdict\tboolean\tyes'
     # The no is read only from a trusted file: the same declaration in an untrusted one leaves the requirement in force.
     expect_report_verdict "the same declaration in an untrusted file, required" "${untrusted_operator_conf}" $'verdict\tboolean\tyes'
-    unset -f ai_tools_conf_is_trusted
+    unset -f ai_tools_conf__is_trusted
 else
     skip "operator.conf readers" "conf.lib.sh beside ${LIB} is not readable, or the library predates the readers"
 fi
 
 # The reading a status row renders, over its whole table.
 expect_row_reading() {  # <expected> <state> <required value|-> <opening value|->
-    local row_reading; row_reading="$(ai_tools_confinement_classify_boolean_row "$2" "$3" "$4")"
+    local row_reading; row_reading="$(ai_tools_confinement__classify_boolean_row "$2" "$3" "$4")"
     if [[ "${row_reading}" == "$1" ]]; then pass "row reading $2/$3/$4 -> ${row_reading}"
     else fail "row reading $2/$3/$4 -> ${row_reading}; expected $1"; fi
 }

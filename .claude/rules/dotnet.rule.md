@@ -61,8 +61,9 @@ cache), so a session gets dotnet only when `integration-dotnet` is in `AI_TOOLS_
   so the type grants `ai_tools_t` the access (write on the cache, exec on the tools) while the DAC modes are
   the enforced read/write boundary. It also drops the local fcontext rules earlier versions added for the old home-root
   dotdirs. `dotnet tools install <pkg...>` installs shared global tools; `dotnet status` reports host SDKs/runtimes,
-  and reads enablement through `ai_tools_enabled_integrations` so it reports the same verdict `ai-tools-run` reaches.
-  Its journald tag and log file are `ai-tools-dotnet`/`dotnet.log`, the identity an operator queries.
+  and reads enablement through `ai_tools_providers__list_enabled_integrations` so it reports the same verdict
+  `ai-tools-run` reaches. Its journald tag and log file are `ai-tools-dotnet`/`dotnet.log`, the identity an operator
+  queries.
 - Every step **fails loudly**. A directory it cannot create, or a label it cannot apply on a host that supports
   labelling, exits non-zero with the cause logged through `log.lib.sh` to journald and `/var/log/ai-tools/dotnet.log`
   (see [logging](logging.rule.md)) — a half-provisioned integration that looks installed surfaces later as an opaque
@@ -186,7 +187,8 @@ and an operator's own build both land on the type with no relabel, and a static 
 sandbox clones, which take no per-project rule. The three MUST agree: a name known to the manifest alone is typed only
 at the next relabel, and one known to the policy alone only when it is created. The **precedence** of the build rule
 over the project rule, and the `matchpathcon` check that verifies it on a host, are stated
-in `ai_tools_project_build_pattern` (`relabel.lib.sh`); the same property holds between the two clone rules.
+in `ai_tools_relabel__read_project_build_pattern` (`relabel.lib.sh`); the same property holds between the two clone
+rules.
 
 What follows from that placement:
 
@@ -199,8 +201,9 @@ What follows from that placement:
   own file contexts decide.
 - `SKIP_ARTIFACT_DIRS` (`skip-dirs.lib.sh`) is a walk-cost setting with its own name set; the two mechanisms do not read
   each other.
-- `ai_tools_project_labelled` and the project verdict in `status` read the project root's type alone; a build directory
-  carrying the wrong type is not reported anywhere. A build-type check belongs in `dotnet status`, and is not built.
+- `ai_tools_relabel__is_project_labelled` and the project verdict in `status` read the project root's type alone;
+  a build directory carrying the wrong type is not reported anywhere. A build-type check belongs in `dotnet status`,
+  and is not built.
 - Unclaim finds the build rule by **listing** the local rules registered under the project rule, so a rule written
   under an earlier name set is dropped with the claim and does not keep a subtree of an unclaimed project on a type
   the confined domain manages.
@@ -235,8 +238,8 @@ Three things that look like the fix and are not:
   an operator reaches for, read for the group and write for nobody but themselves — grants the group `r` and the read is
   still denied, the file being `user_home_t`, which the base policy grants `ai_tools_t` no read on. A `setfacl`
   or `chmod` remedy therefore does not work on an enforcing host, and a readability check computed from mode and group
-  alone answers "readable" exactly where the report is needed — which is why `ai_tools_session_can_read` asks both
-  layers.
+  alone answers "readable" exactly where the report is needed — which is
+  why `ai_tools_ancestor_config__can_session_read` asks both layers.
 - **`DiscoverEditorConfigFiles=false` is not the fix**, and neither is a filter rule. The property empties
   `EditorConfigFiles` entirely, the project's own file included, so analyzer severities and naming rules stop applying
   and the sandbox build diverges silently from the operator's; and a `-p:` that changes what the compiler is handed is

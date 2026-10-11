@@ -42,12 +42,10 @@ to the operator who made it and pushes with that operator's git credentials.
   and `projects enable`.
 - **Stop every session on the host** with `ai-tools stop`, which does not ask
   for a password. It is the shutdown rung of the escalation ladder
-  in the shipped governance framework
-  ([framework.md](../../src/usr/share/ai-tools/skills/ai-tools-capable-systems-governance/references/framework.md),
-  installed
-  at `/opt/ai-tools/skills/ai-tools-capable-systems-governance/references/framework.md`),
-  and it is granted without a password so that an unattended monitor can reach
-  it.
+  in the governance framework of the asset set `core`
+  (`/opt/ai-tools/skills/ai-tools-agent-governance/references/framework.md`
+  where `core` is enabled), and it is granted without a password
+  so that an unattended monitor can reach it.
 - **Not claim, clone, unclaim, lock down or reclaim.** Each of those reaches
   a root helper over `sudo`. The refusal names the command an operator
   with a sudo grant runs for it.

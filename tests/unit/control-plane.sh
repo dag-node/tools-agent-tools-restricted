@@ -22,9 +22,9 @@ if [[ ! -r "${LIB}" ]]; then
 fi
 # shellcheck source=/dev/null
 source "${LIB}" 2>/dev/null || true
-if ! declare -F ai_tools_ensure_unit_search_path_closed >/dev/null 2>&1 \
-        || ! declare -F ai_tools_get_unit_search_path_drift >/dev/null 2>&1 \
-        || ! declare -F ai_tools_find_unexpected_unit_search_path_entries >/dev/null 2>&1; then
+if ! declare -F ai_tools_control_plane__ensure_unit_search_path_closed >/dev/null 2>&1 \
+        || ! declare -F ai_tools_control_plane__find_unit_search_path_drift >/dev/null 2>&1 \
+        || ! declare -F ai_tools_control_plane__find_unexpected_unit_search_path_entries >/dev/null 2>&1; then
     skip "unit search path chain" "the deployed library predates the unit search path readers"; finish; exit
 fi
 
@@ -42,7 +42,7 @@ mkchain() {
 # converge <home> : run the converge, printing its tagged lines then `rc=<status>`.
 converge() {
     local rc=0
-    ai_tools_ensure_unit_search_path_closed "$1" "${SANDBOX_USER}" "${SANDBOX_GROUP}" 2>&1 || rc=$?
+    ai_tools_control_plane__ensure_unit_search_path_closed "$1" "${SANDBOX_USER}" "${SANDBOX_GROUP}" 2>&1 || rc=$?
     printf 'rc=%s\n' "${rc}"
 }
 
@@ -133,10 +133,10 @@ if [[ "$(state "${HOME_B}/.local/share/systemd")" == "root:${SANDBOX_GROUP} 2750
 else
     fail "the chain was left open beside the finding: $(state "${HOME_B}/.local/share/systemd")"
 fi
-if [[ "$(ai_tools_find_unexpected_unit_search_path_entries "${HOME_B}")" == "${HOME_B}/.local/share/systemd/user" ]]; then
+if [[ "$(ai_tools_control_plane__find_unexpected_unit_search_path_entries "${HOME_B}")" == "${HOME_B}/.local/share/systemd/user" ]]; then
     pass "the entries reader names it and passes over the timer-stamp directory"
 else
-    fail "ai_tools_find_unexpected_unit_search_path_entries: $(ai_tools_find_unexpected_unit_search_path_entries "${HOME_B}")"
+    fail "ai_tools_control_plane__find_unexpected_unit_search_path_entries: $(ai_tools_control_plane__find_unexpected_unit_search_path_entries "${HOME_B}")"
 fi
 
 # ── A symlink on the chain is refused and left exactly as it is ───────────────────────────────────────────────
@@ -172,7 +172,7 @@ else
     rc=0
     # shellcheck disable=SC2016  # the $1/$2 are the inner bash's own arguments, not this shell's
     runuser -u "${PROJECTS_USER}" -- bash -c '
-        source "$1"; ai_tools_ensure_unit_search_path_closed "$2" x y' _ "${LIB}" "${HOME_E}" >/dev/null 2>&1 || rc=$?
+        source "$1"; ai_tools_control_plane__ensure_unit_search_path_closed "$2" x y' _ "${LIB}" "${HOME_E}" >/dev/null 2>&1 || rc=$?
     if [[ "${rc}" -eq 2 ]]; then
         pass "a non-root caller is refused with status 2 rather than reporting a converge it could not make"
     else
@@ -186,19 +186,19 @@ else
 fi
 
 # ── The drift reader: three statuses, so a failure is never read as a closed path ─────────────────────────────
-rc=0; out="$(ai_tools_get_unit_search_path_drift "${HOME_A}" "${SANDBOX_GROUP}")" || rc=$?
+rc=0; out="$(ai_tools_control_plane__find_unit_search_path_drift "${HOME_A}" "${SANDBOX_GROUP}")" || rc=$?
 if [[ "${rc}" -eq 1 && -z "${out}" ]]; then
     pass "a converged chain reads clean (status 1, no line)"
 else
     fail "a converged chain read status ${rc}: ${out}"
 fi
-rc=0; out="$(ai_tools_get_unit_search_path_drift "${TESTDIR}/home-e" "${SANDBOX_GROUP}")" || rc=$?
+rc=0; out="$(ai_tools_control_plane__find_unit_search_path_drift "${TESTDIR}/home-e" "${SANDBOX_GROUP}")" || rc=$?
 if [[ "${rc}" -eq 0 ]] && grep -q "^${TESTDIR}/home-e/.local ${SANDBOX_USER}:${SANDBOX_GROUP} 750 root:" <<<"${out}"; then
     pass "an account-owned chain is reported as drift (status 0), naming what each path is and what it must be"
 else
     fail "an account-owned chain read status ${rc}: ${out}"
 fi
-rc=0; ai_tools_get_unit_search_path_drift "" "" >/dev/null 2>&1 || rc=$?
+rc=0; ai_tools_control_plane__find_unit_search_path_drift "" "" >/dev/null 2>&1 || rc=$?
 if [[ "${rc}" -eq 2 ]]; then
     pass "a reading it could not make is status 2, told apart from a clean chain so no caller renders it as closed"
 else
@@ -208,7 +208,7 @@ fi
 # ── The report parser both installers render from ─────────────────────────────────────────────────────────────
 # <before> is `owner:group mode` or the single word `absent`, so the split is asserted for each shape.
 parsed_changed=(); parsed_failed=()
-ai_tools_parse_unit_search_path_report parsed_changed parsed_failed <<'REPORT'
+ai_tools_control_plane__parse_unit_search_path_report parsed_changed parsed_failed <<'REPORT'
 changed /h/.local ai-tools:ai-tools 750 root:ai-tools 3770
 changed /h/.local/share/systemd/timers absent ai-tools:ai-tools 750
 error /h/.local/share/systemd/user is on the account's unit search path

@@ -120,8 +120,8 @@ source /usr/local/lib/ai-tools/msg.lib.sh 2>/dev/null || true
 # the shared reducer; the fallback is the same allowlist of bytes, inline, because a missing logger must not mean
 # an unsanitized path.
 sanitize() {
-    if declare -F ai_tools_log_sanitize >/dev/null 2>&1; then
-        ai_tools_log_sanitize "$1"; return 0
+    if declare -F ai_tools_log__sanitize >/dev/null 2>&1; then
+        ai_tools_log__sanitize "$1"; return 0
     fi
     local LC_ALL=C
     printf '%s' "${1//[^[:print:]]/?}"
@@ -132,8 +132,8 @@ sanitize() {
 # never changes what happens.
 log_event() {
     local level="$1" message="$2"; shift 2
-    if declare -F ai_tools_log_structured >/dev/null 2>&1; then
-        ai_tools_log_structured "${level}" "${message}" "$@"
+    if declare -F ai_tools_log__structured >/dev/null 2>&1; then
+        ai_tools_log__structured "${level}" "${message}" "$@"
         return 0
     fi
     message="$(sanitize "${message}")"
@@ -147,9 +147,9 @@ log_event() {
 # say_error / say_warn / say_notice [<message code>] <line...> -- framed through msg.lib.sh when it loaded, plain
 # otherwise. Output formatting is the most expendable thing here.
 #
-# THE EMITTERS TAKE LINES ONLY, NOT A LEADING FD -- unlike ai_tools_msg_headline, whose signature IS <title> <fd>
+# THE EMITTERS TAKE LINES ONLY, NOT A LEADING FD -- unlike ai_tools_msg__headline, whose signature IS <title> <fd>
 # <line...>. The two shapes sit next to each other, so passing the headline's fd to an emitter reads as consistent
-# and is not: ai_tools_msg_error bakes in fd 2 already, so a leading `2` becomes the message's FIRST LINE and every
+# and is not: ai_tools_msg__error bakes in fd 2 already, so a leading `2` becomes the message's FIRST LINE and every
 # refusal prints a stray digit ahead of itself. It is invisible in the boxed path and obvious only when captured.
 #
 # THE MESSAGE CODE IS SPLIT OFF HERE RATHER THAN PASSED STRAIGHT THROUGH, because these emitters are the only two-branch
@@ -164,8 +164,8 @@ log_event() {
 say_error() {
     local code=""
     if [[ "${1-}" =~ ^MSG-[A-Z][0-9][A-Z][0-9]$ ]]; then code="$1"; shift; fi
-    if declare -F ai_tools_msg_error >/dev/null 2>&1; then
-        ai_tools_msg_error ${code:+"${code}"} "$@"
+    if declare -F ai_tools_msg__error >/dev/null 2>&1; then
+        ai_tools_msg__error ${code:+"${code}"} "$@"
     else
         [[ -n "${code}" ]] && printf '%s\n' "${code}" >&2
         printf 'ai-tools-stop: %s\n' "$@" >&2
@@ -174,8 +174,8 @@ say_error() {
 say_warn() {
     local code=""
     if [[ "${1-}" =~ ^MSG-[A-Z][0-9][A-Z][0-9]$ ]]; then code="$1"; shift; fi
-    if declare -F ai_tools_msg_warn >/dev/null 2>&1; then
-        ai_tools_msg_warn ${code:+"${code}"} "$@"
+    if declare -F ai_tools_msg__warn >/dev/null 2>&1; then
+        ai_tools_msg__warn ${code:+"${code}"} "$@"
     else
         [[ -n "${code}" ]] && printf '%s\n' "${code}" >&2
         printf 'ai-tools-stop: %s\n' "$@" >&2
@@ -184,8 +184,8 @@ say_warn() {
 say_notice() {
     local code=""
     if [[ "${1-}" =~ ^MSG-[A-Z][0-9][A-Z][0-9]$ ]]; then code="$1"; shift; fi
-    if declare -F ai_tools_msg_notice >/dev/null 2>&1; then
-        ai_tools_msg_notice ${code:+"${code}"} "$@"
+    if declare -F ai_tools_msg__notice >/dev/null 2>&1; then
+        ai_tools_msg__notice ${code:+"${code}"} "$@"
     else
         [[ -n "${code}" ]] && printf '%s\n' "${code}"
         printf '%s\n' "$@"
@@ -193,7 +193,7 @@ say_notice() {
 }
 say_headline() {
     local title="$1"; shift
-    if declare -F ai_tools_msg_headline >/dev/null 2>&1; then ai_tools_msg_headline "${title}" 1 "$@"
+    if declare -F ai_tools_msg__headline >/dev/null 2>&1; then ai_tools_msg__headline "${title}" 1 "$@"
     else printf '\n== %s ==\n%s\n' "${title}" "$*"; fi
 }
 
@@ -787,8 +787,8 @@ confirm_stop() {
         log_event info "stop confirmed by ${CALLER} via --yes" "AI_TOOLS_CONSENT=flag"
         return 0
     fi
-    if declare -F ai_tools_msg_confirm >/dev/null 2>&1; then
-        if ai_tools_msg_confirm "${question}" y; then
+    if declare -F ai_tools_msg__confirm >/dev/null 2>&1; then
+        if ai_tools_msg__confirm "${question}" y; then
             log_event info "stop confirmed by ${CALLER} at the prompt" "AI_TOOLS_CONSENT=prompt"
             return 0
         fi

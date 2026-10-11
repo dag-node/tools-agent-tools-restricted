@@ -16,8 +16,9 @@ ai-tools-admin \- administer the host a sandboxed coding agent runs on
 .B ai-tools-admin
 administers the host state the sandbox rests on: who is enrolled as an
 operator, which optional SELinux policy groups are loaded, the toolchain the
-agents run on, which agent binary each session is allowed to start, and the
-configuration files an upgrade leaves to reconcile.
+agents run on, which agent binary each session is allowed to start, which shared
+skills and subagents each agent loads, and the configuration files an upgrade
+leaves to reconcile.
 Every command runs as root and refuses any other caller, which is what
 separates it from
 .BR ai-tools (1)
@@ -29,7 +30,9 @@ A command is a bare word and
 introduces an option, so a collection takes its verb after the noun
 .RB ( "operators add" ,
 .BR "selinux groups enable" ).
-A collection named on its own lists what it holds.
+A collection named on its own lists what it holds;
+.BR assets ,
+which does not list yet, prints its commands.
 A domain named on its own
 .RB ( selinux ,
 .BR system )
@@ -592,11 +595,110 @@ copy),
 The stream format, and the default.
 .RE
 .TP
+.B assets enable \fIIDENTIFIER\fR...
+Enable each asset, written
+.IB SET / KIND / NAME
+as in
+.BR AI_TOOLS_ASSETS ,
+then run
+.BR "assets reconcile" .
+The line replaces the file's own
+.B AI_TOOLS_ASSETS
+line or the commented default under its header; a file carrying neither, one
+written before the key, takes it at its end, and the command says so, since
+.B system post-upgrade
+is what carries the line under its header from the shipped template.
+Every
+.I IDENTIFIER
+is checked before anything is written, and the first that fails refuses the
+whole call with
+.B operator.conf
+as it was: one outside the grammar, a
+.I KIND
+other than
+.B skills
+or
+.BR subagents ,
+and a set no shipped binding names.
+An asset whose set is not installed yet is accepted where its set is bound,
+and is reported
+.B set\-absent
+until its package arrives.
+Each new entry is added once, after the ones the line already holds, and
+.I operator.conf
+is backed up to a dated
+.I .bak
+beside it first.
+.RS
+.TP
+.BI \-\-set " SET"
+Enable instead every asset
+.I SET
+holds now that passes the rules base enforces, one entry each, then reconcile.
+A set the reconcile would refuse as a whole \(em absent, unbound, untrusted,
+tampered, unverified, invalid, or requiring a capability this release does
+not define \(em refuses the call with its reason; one that needs a newer
+base, a profile an enabled agent lacks, or an integration that is off is
+written, and the reconcile reports it.
+An asset that fails a rule is reported and left out.
+A later release of the set does not enable an asset it adds: enable that one by
+name.
+.RE
+.TP
+.B assets disable \fIIDENTIFIER\fR...
+Remove each asset from
+.BR AI_TOOLS_ASSETS ,
+back the file up, and reconcile, so the asset is gone from the view and from
+every agent's directory when the command returns.
+A session already running keeps what it loaded.
+An
+.I IDENTIFIER
+the line does not hold is reported
+.B not\-enabled
+and does not stop the others.
+.TP
+.B assets reconcile
+Bring the view under
+.I /opt/ai\-tools/skills
+and
+.I /opt/ai\-tools/subagents
+and each enabled agent's links into it up to date with
+.B AI_TOOLS_ASSETS
+and the sets installed now: one link per enabled asset that is installed,
+verified against its set's signature and valid, and no other.
+It does not take an argument and runs after every package change to a set, so it is
+the command to run after editing the line by hand.
+.RS
+.PP
+Each of the four takes the assets lock before it reads
+.B AI_TOOLS_ASSETS
+and holds it to its end, so two of them at once each read the line the other
+wrote; one that waits more than two minutes for the lock exits 1 with the line
+and the view as they were.
+Each writes one record per entry of
+.B AI_TOOLS_ASSETS
+\(em
+.B linked
+or the reason it is not \(em and one per link it placed or removed, in the
+stream
+.BR ai-tools-records (5)
+states.
+Each reason, and what to do about it, is in
+.BR ai-tools-assets (5).
+A link is placed only where the name is free or holds an earlier link of these commands:
+an entry of your own at an asset's name, in the view or in an agent's
+directory, is left as it is and reported.
+.RE
+.TP
 .B status
 Report this host's health: the installed version, whether the toolchain is
 provisioned, each managed
 .BR systemd (1)
-unit, the sandbox account's own unit search path, and \(em per enabled agent
+unit, each asset
+.B AI_TOOLS_ASSETS
+enables that is not linked with its reason, each cache the sandbox account
+cleans with its last cleanup and the size it holds now, the sandbox
+account's own unit search path, and \(em per enabled agent
 \(em both halves of the entrypoint reconciliation: whether the binary matches
 the checksum pinned for it, and what SELinux type its paths carry.
 Where SELinux is active it closes with an SELinux status section, the checks
@@ -625,6 +727,16 @@ Every verdict comes from the registry both reports read, so the two differ in
 what each is allowed to see and never in what either says about the same unit.
 .PP
 In the
+.B Caches
+section,
+.B FAILED
+and
+.B LINKS
+need attention, and the line under each names the remedy;
+.B OVERDUE
+is informational and does not count.
+.PP
+In the
 .B "Sandbox unit search path"
 section,
 .B DRIFTED
@@ -636,6 +748,50 @@ for the first, and inspect and remove the named entry for the second.
 .B FUTURE
 means the update timer's stamp is dated ahead of the clock, so a missed update
 does not get a catch-up run; correct the clock and restart the timer.
+.PP
+In the
+.B Assets
+section,
+.B successor\-unenabled
+needs attention: an upgrade moved assets this package no longer ships to
+.IR /opt/ai\-tools/retired ,
+their successors in an asset set are not enabled, and
+.B AI_TOOLS_ASSETS
+is absent from
+.IR /etc/ai\-tools/operator.conf .
+The line names the withdrawn assets and the set; the line under it names the
+commands that end it:
+.RS
+.PP
+.EX
+sudo dnf install ai-tools-assets-core
+sudo ai-tools-admin assets enable --set core
+.EE
+.RE
+.PP
+or, to keep the set off,
+.B AI_TOOLS_ASSETS=[]
+in
+.IR operator.conf .
+Writing the key, as a list or as
+.BR [] ,
+ends the line; a successor that is listed and does not link is reported by its
+own line instead.
+.PP
+The
+.B Assets
+section ends with a summary line when it holds a finding:
+.RS
+.PP
+.EX
+Summary: 1 finding needs attention in this section (exit 4)
+Summary: 2 findings need attention and 1 reading is unavailable in this section (exit 5)
+.EE
+.RE
+.PP
+It names the counts that are not zero and the exit status the section sets.
+A section without a finding does not print it.
+The line is for a person reading the report; a monitor reads the exit status.
 .PP
 The label reading is the one this command alone can give.
 .B "ai\-tools status"
@@ -686,13 +842,13 @@ a domain named with no command after it.
 .TP
 .B 4
 A report found something that needs attention and read every source
-.RB ( status ", and " "system post\-upgrade"
+.RB ( status ", the " assets " verbs, and " "system post\-upgrade"
 with or without
 .BR \-\-check ).
 .TP
 .B 5
 A report could not read one of its sources, so its findings are incomplete
-.RB ( status ": a library the package ships did not load; " "system post\-upgrade \-\-check" ).
+.RB ( status " and the " assets " verbs: a library the package ships did not load, or the enabled agents or a directory of the view could not be read; " "system post\-upgrade \-\-check" ).
 The page names the reading it could not make.
 Each is an exit status
 .BR ai-tools-records (5)
@@ -751,6 +907,18 @@ The sandbox account's home, holding the nvm tree, the installed agents and the
 launchers
 .B "system bootstrap"
 points at them.
+.TP
+.I /usr/local/lib/ai-tools/assets-bindings.d
+The shipped bindings: which key may sign each set name.
+.B "assets enable"
+accepts an asset only of a set named here.
+.TP
+.I /opt/ai-tools/skills
+.TQ
+.I /opt/ai-tools/subagents
+The view: one link per linked asset, which
+.B "assets reconcile"
+keeps, beside the copies the package seeds there.
 .TP
 .I /usr/local/lib/ai-tools/admin-commands.d
 The command domains installed provider packages contribute, one executable per
@@ -866,6 +1034,7 @@ sudo ai\-tools\-admin system entrypoints relabel
 .RE
 .SH SEE ALSO
 .BR ai\-tools (1),
+.BR ai-tools-assets (5),
 .BR allowed\-projects (5),
 .BR ai-tools-operator.conf (5),
 .BR ai-tools-records (5),

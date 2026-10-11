@@ -46,7 +46,8 @@ fi
 module_loaded() {
     if command -v semodule >/dev/null 2>&1; then
         # Captured, not piped into `grep -q`: an early-exiting reader makes semodule die of SIGPIPE, which this file's
-        # pipefail reports as "module absent" -- see the note on ai_tools_selinux_group_loaded (selinux-groups.lib.sh).
+        # pipefail reports as "module absent" -- see the note on ai_tools_selinux_groups__is_loaded
+        # (selinux-groups.lib.sh).
         local modules
         modules="$(semodule -l 2>/dev/null || true)"
         grep -qx 'ai_tools' <<<"${modules}"
@@ -112,9 +113,9 @@ else
         # Tie the real input to the deployed classifier, when it is present (skips on a pre-fix install).
         lib=/usr/local/lib/ai-tools/confinement.lib.sh
         if [[ -r "${lib}" ]] && source "${lib}" 2>/dev/null \
-                && declare -F ai_tools_confinement_module_present >/dev/null 2>&1; then
-            if [[ "$(ai_tools_confinement_module_present "${probe_type}")" == yes ]]; then
-                pass "ai_tools_confinement_module_present(${probe_type}) -> yes"
+                && declare -F ai_tools_confinement__evaluate_module_present >/dev/null 2>&1; then
+            if [[ "$(ai_tools_confinement__evaluate_module_present "${probe_type}")" == yes ]]; then
+                pass "ai_tools_confinement__evaluate_module_present(${probe_type}) -> yes"
             else
                 fail "classifier rejected a live core type ${probe_type}"
             fi
@@ -145,34 +146,34 @@ else
 fi
 
 # (6) The label primitives on a sandbox clone, the branch that does not mutate policy. relabel.lib.sh splits
-# on _ai_tools_is_sandbox: a clone is covered by the STATIC ai_tools.fc rule, so the helper does not add a per-path
-# `semanage fcontext` entry and has none to remove. ai_tools_label_project still verifies the achieved label rather than
-# trusting restorecon's exit status, so a mislabel is a hard failure -- the regression that let a usr_t clone report
-# success. After an unlabel a clone is still labelled, which is what keeps it reachable by the confined agent: the way
-# to un-label a clone is to delete it (ai-tools.projects.remove.clone).
+# on _ai_tools_relabel__is_under_sandbox_root: a clone is covered by the STATIC ai_tools.fc rule, so the helper does not
+# add a per-path `semanage fcontext` entry and has none to remove. ai_tools_relabel__label_project still verifies
+# the achieved label rather than trusting restorecon's exit status, so a mislabel is a hard failure -- the regression
+# that let a usr_t clone report success. After an unlabel a clone is still labelled, which is what keeps it reachable
+# by the confined agent: the way to un-label a clone is to delete it (ai-tools.projects.remove.clone).
 #
 # The other branch -- a claimed project, where the helper adds and then removes a per-path fcontext rule -- is
 # deliberately NOT exercised. Driving it would mutate the host's local SELinux policy to test a helper, which no test
 # here does, and a teardown that can leave a policy entry behind is worse than the coverage it buys. That leaves
-# ai_tools_unlabel_project's revert path (the one ai-tools.projects.unclaim drives) uncovered: a known gap, recorded
-# rather than papered over.
+# ai_tools_relabel__unlabel_project's revert path (the one ai-tools.projects.unclaim drives) uncovered: a known gap,
+# recorded rather than papered over.
 RELABEL_LIB=/usr/local/lib/ai-tools/relabel.lib.sh
 if [[ ! -d "${SANDBOX_ROOT}" ]]; then
     skip "sandbox clone label" "sandbox area ${SANDBOX_ROOT} not present"
 elif [[ ! -r "${RELABEL_LIB}" ]] || ! source "${RELABEL_LIB}" 2>/dev/null \
-        || ! declare -F ai_tools_label_project >/dev/null 2>&1; then
+        || ! declare -F ai_tools_relabel__label_project >/dev/null 2>&1; then
     skip "sandbox clone label" "relabel.lib.sh not available at ${RELABEL_LIB}"
 else
     # A real clone-area path, since the static rule is keyed on that prefix; named and registered through the harness
     # so the sweep finds what an aborted run leaves.
     sprobe=""; mk_fixture_dir sprobe "${SANDBOX_ROOT}" relabel
-    if ai_tools_label_project "${sprobe}" && ai_tools_project_labelled "${sprobe}"; then
-        pass "ai_tools_label_project applies AND verifies ai_tools_project_t on a sandbox clone"
+    if ai_tools_relabel__label_project "${sprobe}" && ai_tools_relabel__is_project_labelled "${sprobe}"; then
+        pass "ai_tools_relabel__label_project applies AND verifies ai_tools_project_t on a sandbox clone"
     else
         fail "sandbox clone ${sprobe} is not ai_tools_project_t ($(ls -Zd "${sprobe}" 2>/dev/null))"
     fi
-    ai_tools_unlabel_project "${sprobe}" >/dev/null 2>&1 || true
-    if ai_tools_project_labelled "${sprobe}"; then
+    ai_tools_relabel__unlabel_project "${sprobe}" >/dev/null 2>&1 || true
+    if ai_tools_relabel__is_project_labelled "${sprobe}"; then
         pass "an unlabel leaves a sandbox clone labelled (the static rule is authoritative)"
     else
         fail "unlabel stripped ai_tools_project_t from a sandbox clone -- the agent loses access to every clone"
@@ -193,38 +194,38 @@ fi
 # Read-only: it resolves and compares, and does not mutate policy.
 section "SELinux: each enabled agent's declared entrypoint rule matches what is installed"
 
-if ! declare -F ai_tools_entrypoint_reconcile_verdict >/dev/null 2>&1 \
-        || ! declare -F ai_tools_enabled_agents >/dev/null 2>&1; then
+if ! declare -F ai_tools_relabel__evaluate_entrypoint_reconcile >/dev/null 2>&1 \
+        || ! declare -F ai_tools_providers__list_enabled_agents >/dev/null 2>&1; then
     skip "entrypoint declaration reconciliation" "relabel.lib.sh/providers.lib.sh not loaded"
 else
     agents_seen=0
     while IFS=$'\t' read -r agent _ _; do
         [[ -n "${agent}" ]] || continue
         agents_seen=$(( agents_seen + 1 ))
-        installed="$(ai_tools_agent_entrypoint_path "${agent}" || true)"
+        installed="$(ai_tools_relabel__resolve_agent_entrypoint_path "${agent}" || true)"
         if [[ -z "${installed}" ]]; then
             skip "${agent} entrypoint declaration" "its launcher does not resolve (not provisioned)"
             continue
         fi
-        pattern="$(ai_tools_agent_manifest_field "${agent}" entrypoint_fcontext || true)"
+        pattern="$(ai_tools_providers__read_agent_manifest_field "${agent}" entrypoint_fcontext || true)"
         covered=no matched=no copy=no
         matches=()
         while IFS= read -r p; do
             matched=yes
             matches+=("${p}")
             [[ "${p}" == "${installed}" ]] && covered=yes
-        done < <(_ai_tools_entrypoint_paths "${pattern}")
+        done < <(_ai_tools_relabel__find_entrypoint_paths "${pattern}")
         # The same copy reading the relabel makes, so the failure names the cause the relabel will.
         if [[ "${covered}" != yes && -f "${installed}" && ! -L "${installed}" ]]; then
             for p in "${matches[@]}"; do cmp -s -- "${installed}" "${p}" && { copy=yes; break; }; done
         fi
-        case "$(ai_tools_entrypoint_reconcile_verdict "${installed}" "${covered}" "${matched}" "${copy}")" in
+        case "$(ai_tools_relabel__evaluate_entrypoint_reconcile "${installed}" "${covered}" "${matched}" "${copy}")" in
             ok) pass "${agent}: its declared entrypoint rule covers ${installed}" ;;
             copied) fail "${agent}: its launcher resolves to ${installed}, a copy of the entrypoint its manifest declares where the toolchain keeps a symlink -- every launch will fail closed; restore the links: sudo ai-tools-admin system bootstrap" ;;
             incomplete) fail "${agent}: installed at ${installed}, and no file matches the entrypoint its manifest declares -- every launch will fail closed; reinstall: sudo ai-tools-admin system bootstrap" ;;
             *)  fail "${agent}: installed at ${installed}, which its declared entrypoint_fcontext does not cover -- every launch will fail closed; the manifest is stale" ;;
         esac
-    done < <(ai_tools_enabled_agents 2>/dev/null)
+    done < <(ai_tools_providers__list_enabled_agents 2>/dev/null)
     (( agents_seen > 0 )) || skip "entrypoint declaration reconciliation" "no enabled agent resolved"
 fi
 
@@ -302,13 +303,13 @@ section "SELinux: the agent's exec chain carries no type the confined domain may
 
 readonly AI_TOOLS_MANAGED_TYPES="ai_tools_project_t ai_tools_project_build_t ai_tools_home_t ai_tools_tmp_t"
 
-if ! declare -F ai_tools_enabled_agents >/dev/null 2>&1; then
+if ! declare -F ai_tools_providers__list_enabled_agents >/dev/null 2>&1; then
     skip "exec chain type containment" "providers.lib.sh not loaded"
 else
     chain_seen=0
     while IFS=$'\t' read -r agent _ launcher; do
         [[ -n "${agent}" && -n "${launcher}" ]] || continue
-        entry="$(ai_tools_agent_entrypoint_path "${agent}" || true)"
+        entry="$(ai_tools_relabel__resolve_agent_entrypoint_path "${agent}" || true)"
         [[ -n "${entry}" ]] || continue
         chain_seen=$(( chain_seen + 1 ))
         # One link per swap vector: an in-place write to the entrypoint, a rename-over in its directory, a repoint
@@ -325,7 +326,7 @@ else
                 pass "${agent}: ${link} is ${t}, outside the domain's manage set"
             fi
         done
-    done < <(ai_tools_enabled_agents 2>/dev/null)
+    done < <(ai_tools_providers__list_enabled_agents 2>/dev/null)
     (( chain_seen > 0 )) || skip "exec chain type containment" "no enabled agent's entrypoint resolved"
 fi
 
@@ -342,15 +343,15 @@ fi
 # Read-only: it stats live labels and runs no relabel. Root, to traverse the 0750 nvm tree.
 section "SELinux: one executable per agent package carries the domain entry type"
 
-if ! declare -F ai_tools_enabled_agents >/dev/null 2>&1 \
-        || ! declare -F ai_tools_agent_manifest_field >/dev/null 2>&1; then
+if ! declare -F ai_tools_providers__list_enabled_agents >/dev/null 2>&1 \
+        || ! declare -F ai_tools_providers__read_agent_manifest_field >/dev/null 2>&1; then
     skip "package entry-type enumeration" "providers.lib.sh not loaded"
 else
     pkg_seen=0
     while IFS=$'\t' read -r agent _ _; do
         [[ -n "${agent}" ]] || continue
-        entry="$(ai_tools_agent_entrypoint_path "${agent}" || true)"
-        pkg="$(ai_tools_agent_manifest_field "${agent}" npm_package || true)"
+        entry="$(ai_tools_relabel__resolve_agent_entrypoint_path "${agent}" || true)"
+        pkg="$(ai_tools_providers__read_agent_manifest_field "${agent}" npm_package || true)"
         [[ -n "${entry}" && -n "${pkg}" ]] || continue
         # The package root is the path up to the FIRST /lib/node_modules/<npm_package>/, which is where npm installs it;
         # an entrypoint nested under a platform-specific dependency (codex) sits further down the same prefix.
@@ -395,7 +396,7 @@ else
         by_type="$(printf '%s' "${types}" | sort | uniq -c | awk '{printf "%s%s(%s)", (NR > 1 ? " " : ""), $2, $1}')"
         note "${agent}: $(printf '%s' "${types}" | grep -c '^.' || true) executable file(s) under ${pkg}, by type: ${by_type}" \
             "counted by name; the check above counts inodes, so hardlinked names of the entrypoint count once there"
-    done < <(ai_tools_enabled_agents 2>/dev/null)
+    done < <(ai_tools_providers__list_enabled_agents 2>/dev/null)
     (( pkg_seen > 0 )) || skip "package entry-type enumeration" "no enabled agent's package tree resolved"
 fi
 
@@ -407,17 +408,17 @@ fi
 # gives.
 #
 # Read-only: it stats the live label and does not register a rule, the same line this file draws
-# for ai_tools_unlabel_project. What repairs a failure is `ai-tools-admin operators add <user>`, which registers
-# the rule per account, or a full `install-selinux.sh relabel`, which sweeps the list.
+# for ai_tools_relabel__unlabel_project. What repairs a failure is `ai-tools-admin operators add <user>`,
+# which registers the rule per account, or a full `install-selinux.sh relabel`, which sweeps the list.
 section "SELinux: every enrolled operator's config subtree is ai_tools_conf_t"
 
-if ! declare -F ai_tools_load_operators >/dev/null 2>&1 \
+if ! declare -F ai_tools_operator__load_operators >/dev/null 2>&1 \
         && ! source /usr/local/lib/ai-tools/operator.lib.sh 2>/dev/null; then
     skip "operator config labelling" "operator.lib.sh not readable -- cannot resolve the operator list"
-elif ! ai_tools_load_operators; then
+elif ! ai_tools_operator__load_operators; then
     skip "operator config labelling" "no operator is enrolled in operator.conf"
 else
-    for op_name in "${AI_TOOLS_OPERATORS[@]}"; do
+    for op_name in "${AI_TOOLS_OPERATOR__OPERATORS[@]}"; do
         op_home="$(getent passwd "${op_name}" 2>/dev/null | cut -d: -f6 || true)"
         op_conf="${op_home}/.config/ai-tools"
         if [[ -z "${op_home}" || ! -d "${op_conf}" ]]; then
@@ -444,10 +445,10 @@ if ! module_loaded; then
     skip "live attestation read" "the ai_tools module is not loaded"
 elif ! source /usr/local/lib/ai-tools/conf.lib.sh 2>/dev/null \
         || ! source /usr/local/lib/ai-tools/confinement.lib.sh 2>/dev/null \
-        || ! declare -F ai_tools_confinement_read_attestation_records >/dev/null 2>&1; then
+        || ! declare -F ai_tools_confinement__read_attestation_records >/dev/null 2>&1; then
     skip "live attestation read" "confinement.lib.sh predates the attestation reader"
 else
-    live_records="$(ai_tools_confinement_read_attestation_records /sys/fs/selinux)"
+    live_records="$(ai_tools_confinement__read_attestation_records /sys/fs/selinux)"
     live_permissive="$(awk -F'\t' '$1=="permissive"{print $2}' <<<"${live_records}")"
     # Cross-checked where a tool can say: seinfo lists permissive types; semodule lists the module
     # `semanage permissive -a` installs. Captured, not piped into grep -q, for the SIGPIPE reason module_loaded states.
@@ -477,7 +478,7 @@ else
         else
             fail "${boolean_name}: the reader says '${live_value:-unread}', getsebool says '${getsebool_value:-nothing}'"
         fi
-    done < <(ai_tools_confinement_list_known_booleans)
+    done < <(ai_tools_confinement__list_known_booleans)
 fi
 
 finish

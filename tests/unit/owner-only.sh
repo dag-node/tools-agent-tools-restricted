@@ -34,12 +34,12 @@ fi
 if ! source "${LIB}"; then
     skip "owner-only primitives" "could not source ${LIB}"; finish; exit
 fi
-if ! declare -F ai_tools_is_owner_only >/dev/null 2>&1 \
-        || ! declare -F ai_tools_strip_sandbox_residue >/dev/null 2>&1; then
+if ! declare -F ai_tools_owner_only__is_owner_only >/dev/null 2>&1 \
+        || ! declare -F ai_tools_owner_only__strip_sandbox_residue >/dev/null 2>&1; then
     skip "owner-only primitives" "library defines no guards (pre-fix install?)"; finish; exit
 fi
 
-readonly SBX="${AI_TOOLS_SANDBOX_GROUP}"          # the lib's own idea of the sandbox group
+readonly SBX="${AI_TOOLS_OWNER_ONLY__SANDBOX_GROUP}"          # the lib's own idea of the sandbox group
 mktestdir
 
 # A group that is neither the sandbox group nor the operator's, standing in for a group the operator set deliberately.
@@ -57,7 +57,7 @@ strip() {
     STRIP_MODE_BEFORE="$(mode_of "${p}")"
     exec {fd}< "${p}"
     STRIP_RC=0
-    ai_tools_strip_sandbox_residue "${fd}" "${ftype}" "${grp}" "${STRIP_MODE_BEFORE}" "${opgrp}" \
+    ai_tools_owner_only__strip_sandbox_residue "${fd}" "${ftype}" "${grp}" "${STRIP_MODE_BEFORE}" "${opgrp}" \
         || STRIP_RC=$?
     exec {fd}<&-
     STRIP_MODE_AFTER="$(mode_of "${p}")"
@@ -96,15 +96,15 @@ fi
 # ── the predicate ─────────────────────────────────────────────────────────────────────────
 pred_ok=true
 for m in 600 700 2700 400 000; do
-    ai_tools_is_owner_only "${m}" || { fail "mode ${m} should read as owner-only"; pred_ok=false; }
+    ai_tools_owner_only__is_owner_only "${m}" || { fail "mode ${m} should read as owner-only"; pred_ok=false; }
 done
 for m in 640 660 750 770 604; do
-    ai_tools_is_owner_only "${m}" && { fail "mode ${m} must NOT read as owner-only"; pred_ok=false; }
+    ai_tools_owner_only__is_owner_only "${m}" && { fail "mode ${m} must NOT read as owner-only"; pred_ok=false; }
 done
 ${pred_ok} && pass "owner-only predicate: no group and no other bits, setgid forms included"
 
 # An unreadable mode must resolve to sealed -- the direction that costs access, never grants it.
-if ai_tools_is_owner_only "" && ai_tools_is_owner_only "not-a-mode"; then
+if ai_tools_owner_only__is_owner_only "" && ai_tools_owner_only__is_owner_only "not-a-mode"; then
     pass "an empty or unparseable mode reads as sealed (fail-closed)"
 else
     fail "an unparseable mode must read as sealed, or a failed stat would grant the path"
@@ -169,7 +169,7 @@ else
     [[ "${STRIP_MODE_AFTER}" == "2700" ]] \
         && pass "third-party setgid: left exactly as found" \
         || fail "third-party setgid: mode changed to ${STRIP_MODE_AFTER}"
-    [[ "${AI_TOOLS_RESIDUE_SURFACE}" -eq 1 ]] \
+    [[ "${AI_TOOLS_OWNER_ONLY__RESIDUE_SURFACE}" -eq 1 ]] \
         && pass "third-party setgid: surfaced for the caller to report" \
         || fail "third-party setgid: not surfaced, so the operator is never told"
     [[ "$(stat -c '%G' "${TESTDIR}/d3")" == "${THIRD}" ]] \
@@ -185,7 +185,7 @@ strip "${TESTDIR}/d4" directory "${PROJECTS_GROUP}" "${PROJECTS_GROUP}"
 [[ "${STRIP_MODE_AFTER}" == "700" ]] \
     && pass "operator-group setgid: cleared" \
     || fail "operator-group setgid: mode is ${STRIP_MODE_AFTER}, expected 700"
-[[ "${AI_TOOLS_RESIDUE_SURFACE}" -eq 0 ]] \
+[[ "${AI_TOOLS_OWNER_ONLY__RESIDUE_SURFACE}" -eq 0 ]] \
     && pass "operator-group setgid: not surfaced (nothing for the operator to decide)" \
     || fail "operator-group setgid: surfaced unnecessarily"
 
@@ -216,7 +216,7 @@ before="$(stat -c '%a %U:%G' "${TESTDIR}/dry")|$(getfacl -c -- "${TESTDIR}/dry" 
 
 AI_TOOLS_RESIDUE_DRY_RUN=1
 strip "${TESTDIR}/dry" directory "${SBX}" "${PROJECTS_GROUP}"
-dry_rc="${STRIP_RC}"; dry_actions="${AI_TOOLS_RESIDUE_ACTIONS[*]}"
+dry_rc="${STRIP_RC}"; dry_actions="${AI_TOOLS_OWNER_ONLY__RESIDUE_ACTIONS[*]}"
 after_dry="$(stat -c '%a %U:%G' "${TESTDIR}/dry")|$(getfacl -c -- "${TESTDIR}/dry" 2>/dev/null | tr '\n' ',')"
 AI_TOOLS_RESIDUE_DRY_RUN=0
 
@@ -225,9 +225,9 @@ AI_TOOLS_RESIDUE_DRY_RUN=0
     || fail "a dry-run strip mutated the path: ${before} -> ${after_dry}"
 
 strip "${TESTDIR}/dry" directory "${SBX}" "${PROJECTS_GROUP}"
-[[ "${dry_rc}" -eq "${STRIP_RC}" && "${dry_actions}" == "${AI_TOOLS_RESIDUE_ACTIONS[*]}" ]] \
+[[ "${dry_rc}" -eq "${STRIP_RC}" && "${dry_actions}" == "${AI_TOOLS_OWNER_ONLY__RESIDUE_ACTIONS[*]}" ]] \
     && pass "the dry run reports exactly what the apply then removes (one set of arms decides)" \
-    || fail "preview drift: dry rc=${dry_rc} [${dry_actions}] vs apply rc=${STRIP_RC} [${AI_TOOLS_RESIDUE_ACTIONS[*]}]"
+    || fail "preview drift: dry rc=${dry_rc} [${dry_actions}] vs apply rc=${STRIP_RC} [${AI_TOOLS_OWNER_ONLY__RESIDUE_ACTIONS[*]}]"
 
 # ── a tree that never met a claim is left byte-for-byte alone ─────────────────────────────
 mkdir "${TESTDIR}/virgin"

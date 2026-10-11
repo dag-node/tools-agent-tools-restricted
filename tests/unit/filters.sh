@@ -2,8 +2,8 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # tests/unit/filters.sh
 # Unit test for the token-saving command filters (filters.lib.sh). Drives the PURE verdicts --
-# ai_tools_filter_command_is_simple and ai_tools_filter_apply_rule -- over their tables, then the loader
-# and ai_tools_filter_rewrite over a /tmp fixture filters.d + operator.conf via the root-only AI_TOOLS_FILTERS_DIR /
+# ai_tools_filters__is_command_simple and ai_tools_filters__apply_rule -- over their tables, then the loader
+# and ai_tools_filters__rewrite over a /tmp fixture filters.d + operator.conf via the root-only AI_TOOLS_FILTERS_DIR /
 # AI_TOOLS_OPERATOR_CONF hooks (the hermetic-override pattern providers.sh and skip-dirs.sh use).
 #
 # Filtering is token economy, not a boundary, so what this file pins is that every way a rule can
@@ -31,19 +31,19 @@ if [[ ! -r "${LIB}" ]]; then
 fi
 # shellcheck source=/dev/null
 if ! source "${LIB}" \
-        || ! declare -F ai_tools_filter_command_is_simple >/dev/null 2>&1 \
-        || ! declare -F ai_tools_filter_apply_rule >/dev/null 2>&1 \
-        || ! declare -F ai_tools_filter_rules_load >/dev/null 2>&1 \
-        || ! declare -F ai_tools_filter_rewrite >/dev/null 2>&1 \
-        || ! declare -F ai_tools_filter_strip_noise >/dev/null 2>&1 \
-        || ! declare -F ai_tools_filter_enabled >/dev/null 2>&1; then
+        || ! declare -F ai_tools_filters__is_command_simple >/dev/null 2>&1 \
+        || ! declare -F ai_tools_filters__apply_rule >/dev/null 2>&1 \
+        || ! declare -F ai_tools_filters__load_rules >/dev/null 2>&1 \
+        || ! declare -F ai_tools_filters__rewrite >/dev/null 2>&1 \
+        || ! declare -F ai_tools_filters__strip_noise >/dev/null 2>&1 \
+        || ! declare -F ai_tools_filters__is_enabled >/dev/null 2>&1; then
     fail "could not source ${LIB} or it does not define the filter functions"; finish; exit
 fi
 
 # --- Shape allowlist: which commands may be rewritten at all -----------------------------------
 simple() {
     local desc="$1" exp_rc="$2" command="$3"
-    local rc=0; ai_tools_filter_command_is_simple "${command}" || rc=$?
+    local rc=0; ai_tools_filters__is_command_simple "${command}" || rc=$?
     if [[ "${rc}" -eq "${exp_rc}" ]]; then pass "${desc}"; else fail "${desc}: rc ${rc}, expected ${exp_rc}"; fi
 }
 simple "plain command is simple"                0 'git log'
@@ -65,18 +65,18 @@ git status'
 simple "empty is not"                           1 ''
 
 # --- Pure rule application ---------------------------------------------------------------------
-# ai_tools_filter_apply_rule <command> <match> <action> <blocking> <payload> -> _ai_tools_filter_result
-# shellcheck disable=SC2154  # _ai_tools_filter_result is the rule engine's output variable, set
+# ai_tools_filters__apply_rule <command> <match> <action> <blocking> <payload> -> _ai_tools_filters__result
+# shellcheck disable=SC2154  # _ai_tools_filters__result is the rule engine's output variable, set
 # by the sourced filters.lib.sh (which shellcheck cannot follow through the LIB path variable)
 applies() {
     local desc="$1" expected="$2"; shift 2
-    local rc=0; ai_tools_filter_apply_rule "$@" || rc=$?
+    local rc=0; ai_tools_filters__apply_rule "$@" || rc=$?
     if [[ "${expected}" == PASSTHROUGH ]]; then
-        if [[ "${rc}" -ne 0 ]]; then pass "${desc}"; else fail "${desc}: rewrote to '${_ai_tools_filter_result}', expected pass-through"; fi
-    elif [[ "${rc}" -eq 0 && "${_ai_tools_filter_result}" == "${expected}" ]]; then
+        if [[ "${rc}" -ne 0 ]]; then pass "${desc}"; else fail "${desc}: rewrote to '${_ai_tools_filters__result}', expected pass-through"; fi
+    elif [[ "${rc}" -eq 0 && "${_ai_tools_filters__result}" == "${expected}" ]]; then
         pass "${desc}"
     else
-        fail "${desc}: rc ${rc}, got '${_ai_tools_filter_result}', expected '${expected}'"
+        fail "${desc}: rc ${rc}, got '${_ai_tools_filters__result}', expected '${expected}'"
     fi
 }
 readonly LOG_BLOCK='--format,--pretty,--stat'
@@ -121,7 +121,7 @@ export AI_TOOLS_OPERATOR_CONF="${TESTDIR}/absent.conf"
 rewrites() {
     local desc="$1" expected="$2" command="$3"
     local got="" rc=0
-    got="$(ai_tools_filter_rewrite "${command}")" || rc=$?
+    got="$(ai_tools_filters__rewrite "${command}")" || rc=$?
     if [[ "${expected}" == PASSTHROUGH ]]; then
         if [[ "${rc}" -ne 0 && -z "${got}" ]]; then pass "${desc}"; else fail "${desc}: rewrote to '${got}', expected pass-through"; fi
     elif [[ "${rc}" -eq 0 && "${got}" == "${expected}" ]]; then
@@ -131,11 +131,11 @@ rewrites() {
     fi
 }
 
-ai_tools_filter_rules_load
-if [[ "${#_AI_TOOLS_FILTER_RULES[@]}" -eq 3 ]]; then
+ai_tools_filters__load_rules
+if [[ "${#_AI_TOOLS_FILTERS__RULES[@]}" -eq 3 ]]; then
     pass "loader reads every installed rule set, skipping comments and blank lines"
 else
-    fail "loader read ${#_AI_TOOLS_FILTER_RULES[@]} rules, expected 3"
+    fail "loader read ${#_AI_TOOLS_FILTERS__RULES[@]} rules, expected 3"
 fi
 rewrites "base rule applies"                'git log --date=short'          'git log'
 rewrites "a provider's rule applies"        'dotnet build --nologo -v q'    'dotnet build'
@@ -145,7 +145,7 @@ rewrites "a pipeline passes through"        PASSTHROUGH                     'git
 # Longest match wins, and a provider set loaded after base overrides a base rule outright.
 printf 'git\targs\t-\t--no-pager\ngit status\twrap\t-\trtk\n' > "${filters_dir}/zz-later.rules"
 chown root:root "${filters_dir}/zz-later.rules"; chmod 644 "${filters_dir}/zz-later.rules"
-ai_tools_filter_rules_load
+ai_tools_filters__load_rules
 rewrites "longest match wins over a shorter one" 'git log --date=short'     'git log'
 rewrites "a later set overrides a base rule"     'rtk git status'           'git status'
 rm -f "${filters_dir}/zz-later.rules"
@@ -155,30 +155,30 @@ mk_operator     # writes TESTDIR/operator.conf and points the hook at it
 set_filters() { printf 'AI_TOOLS_FILTERS=%s\n' "$1" >> "${AI_TOOLS_OPERATOR_CONF}"; }
 
 set_filters '"filter-base"'
-ai_tools_filter_rules_load
+ai_tools_filters__load_rules
 rewrites "a named set applies"                    'git log --date=short'    'git log'
 rewrites "a set left out of the list does not"    PASSTHROUGH               'dotnet build'
 
 mk_operator; set_filters ''
-ai_tools_filter_rules_load
-if [[ "${#_AI_TOOLS_FILTER_RULES[@]}" -eq 0 ]]; then
+ai_tools_filters__load_rules
+if [[ "${#_AI_TOOLS_FILTERS__RULES[@]}" -eq 0 ]]; then
     pass "an empty AI_TOOLS_FILTERS is the kill switch -- no rules load"
 else
-    fail "empty AI_TOOLS_FILTERS loaded ${#_AI_TOOLS_FILTER_RULES[@]} rules, expected 0"
+    fail "empty AI_TOOLS_FILTERS loaded ${#_AI_TOOLS_FILTERS__RULES[@]} rules, expected 0"
 fi
 rewrites "kill switch leaves every command alone" PASSTHROUGH               'git log'
 
 mk_operator; set_filters '"filter-base filter-nonexistent"'
-ai_tools_filter_rules_load
+ai_tools_filters__load_rules
 rewrites "a named set with no installed file is skipped, not guessed" 'git log --date=short' 'git log'
 
-# --- ai_tools_filter_enabled: the verdict the adapter's noise strip gates on -------------------
+# --- ai_tools_filters__is_enabled: the verdict the adapter's noise strip gates on -------------------
 # The kill switch must turn off EVERY transform, so the adapter needs the switch as a callable verdict, not only as "no
 # rules loaded". Every fallback direction reads enabled -- filtering is never more than a token cost, and the switch
 # an untrusted conf carries is not honoured.
 enabled_is() {
     local desc="$1" exp_rc="$2"
-    local rc=0; ai_tools_filter_enabled || rc=$?
+    local rc=0; ai_tools_filters__is_enabled || rc=$?
     if [[ "${rc}" -eq "${exp_rc}" ]]; then pass "${desc}"; else fail "${desc}: rc ${rc}, expected ${exp_rc}"; fi
 }
 export AI_TOOLS_OPERATOR_CONF="${TESTDIR}/absent.conf"
@@ -198,12 +198,12 @@ enabled_is "AI_TOOLS_FILTERS=[filter-base, filter-dotnet] reports enabled" 0
 # the kill switch, and the reader's report is not printed, since the hook runs on every Bash call.
 mk_operator; set_filters '[core, dotnet]'
 enabled_is "AI_TOOLS_FILTERS=[core, dotnet] (unprefixed) reports disabled" 1
-unprefixed_err="$(ai_tools_filter_rules_load 2>&1 >/dev/null)"
-ai_tools_filter_rules_load 2>/dev/null
-if [[ "${#_AI_TOOLS_FILTER_RULES[@]}" -eq 0 && -z "${unprefixed_err}" ]]; then
+unprefixed_err="$(ai_tools_filters__load_rules 2>&1 >/dev/null)"
+ai_tools_filters__load_rules 2>/dev/null
+if [[ "${#_AI_TOOLS_FILTERS__RULES[@]}" -eq 0 && -z "${unprefixed_err}" ]]; then
     pass "an unprefixed list loads no rules and prints nothing on stderr"
 else
-    fail "unprefixed list: ${#_AI_TOOLS_FILTER_RULES[@]} rule(s) loaded, stderr '${unprefixed_err}'"
+    fail "unprefixed list: ${#_AI_TOOLS_FILTERS__RULES[@]} rule(s) loaded, stderr '${unprefixed_err}'"
 fi
 mk_operator; set_filters ''
 chmod 666 "${AI_TOOLS_OPERATOR_CONF}"
@@ -218,8 +218,8 @@ mk_operator     # back to the no-AI_TOOLS_FILTERS baseline
 untrusted() {
     local desc="$1" path="$2" mode="$3" owner="$4" restore_mode="$5" restore_owner="$6"
     chmod "${mode}" "${path}"; chown "${owner}" "${path}"
-    ai_tools_filter_rules_load
-    local rc=0; ai_tools_filter_rewrite 'git log' >/dev/null || rc=$?
+    ai_tools_filters__load_rules
+    local rc=0; ai_tools_filters__rewrite 'git log' >/dev/null || rc=$?
     if [[ "${rc}" -ne 0 ]]; then pass "${desc}"; else fail "${desc}: still rewrote"; fi
     chmod "${restore_mode}" "${path}"; chown "${restore_owner}" "${path}"
 }
@@ -236,15 +236,15 @@ untrusted "a non-root-owned filters.d is refused whole" \
 # redirect the read at a file its planter chose.
 mv "${filters_dir}/base.rules" "${TESTDIR}/real.rules"
 ln -s "${TESTDIR}/real.rules" "${filters_dir}/base.rules"
-ai_tools_filter_rules_load
-rc=0; ai_tools_filter_rewrite 'git log' >/dev/null || rc=$?
+ai_tools_filters__load_rules
+rc=0; ai_tools_filters__rewrite 'git log' >/dev/null || rc=$?
 if [[ "${rc}" -ne 0 ]]; then pass "a symlinked rules file is refused, not followed"; else fail "followed a symlinked rules file"; fi
 rm -f "${filters_dir}/base.rules"; mv "${TESTDIR}/real.rules" "${filters_dir}/base.rules"
 
 # An untrusted operator.conf falls back to the installed sets -- the baseline, which can only ever be root-owned rules
 # -- rather than honouring a switch the sandbox could have written.
 chmod 666 "${AI_TOOLS_OPERATOR_CONF}"
-ai_tools_filter_rules_load
+ai_tools_filters__load_rules
 rewrites "an untrusted operator.conf falls back to the installed sets" 'git log --date=short' 'git log'
 chmod 644 "${AI_TOOLS_OPERATOR_CONF}"
 
@@ -252,7 +252,7 @@ chmod 644 "${AI_TOOLS_OPERATOR_CONF}"
 # Byte-level noise only: no line is dropped, truncated or reordered.
 strips() {
     local desc="$1" expected="$2" input="$3"
-    local got; got="$(printf '%s' "${input}" | ai_tools_filter_strip_noise)"
+    local got; got="$(printf '%s' "${input}" | ai_tools_filters__strip_noise)"
     if [[ "${got}" == "${expected}" ]]; then pass "${desc}"; else fail "${desc}: got '$(_san "${got}")', expected '$(_san "${expected}")'"; fi
 }
 strips "SGR colour sequences are removed" \

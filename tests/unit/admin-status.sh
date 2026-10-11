@@ -2,16 +2,17 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # tests/unit/admin-status.sh
 # Unit test for the Version section of `ai-tools-admin status`: its Node line reads the enabled agents' stable launcher
-# links through the same verdict `ai-tools status` renders (ai_tools_node_version_verdict, toolchain.lib.sh), so the two
-# reports name one version for one host. What is asserted is the root report's rendering of that verdict against fixture
-# links -- the version a link points into, the split line where two links disagree, and no claimed version where no link
-# names one -- with the updater's stamp being the host's own and read alongside. The Provisioning section is read
-# the same way, per enabled agent's link, beside a base file that makes the launcher directory non-empty on every host.
+# links through the same verdict `ai-tools status` renders (ai_tools_toolchain__evaluate_node_versions,
+# toolchain.lib.sh), so the two reports name one version for one host. What is asserted is the root report's rendering
+# of that verdict against fixture links -- the version a link points into, the split line where two links disagree,
+# and no claimed version where no link names one -- with the updater's stamp being the host's own and read alongside.
+# The Provisioning section is read the same way, per enabled agent's link, beside a base file that makes the launcher
+# directory non-empty on every host.
 #
 # The helper is SOURCED rather than run (its root check and its dispatch are guarded for that), in a fresh shell
 # per case because the helper and the harness both declare SANDBOX_USER readonly, with the resolver's two hooks
 # and AI_TOOLS_LAUNCHER_DIR pointed at fixtures in the testdir. Fixtures are root-owned 0644 in a 0755 directory,
-# which the trust predicate admits, so this runs as root via sudo (suite contract); no agent package needs to be
+# which the trust predicate accepts, so this runs as root via sudo (suite contract); no agent package needs to be
 # installed.
 set -euo pipefail
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")/../lib" && pwd)/harness.sh"
@@ -117,10 +118,10 @@ fi
 
 # ── The exit status: 0 clean, 4 for a fault a section read, 5 for a reading a section could not make ──────────────
 # `status` is driven whole, with the sections that read this host stubbed to a known answer (no unit in the registry, no
-# entrypoint section), so each case changes one reading: a section that counts a fault, and the service registry's
-# readers removed after the library was loaded -- its include guard keeps status()'s own re-source from restoring them,
-# which is the shape a half-upgraded install takes. A `?` line stays uncounted, which the Provisioning cases already
-# pin.
+# entrypoint, assets, managed-file or unit-search-path section), so each case changes one reading: a section that counts
+# a fault, and the service registry's readers removed after the library was loaded -- its include guard keeps status()'s
+# own re-source from restoring them, which is the shape a half-upgraded install takes. A `?` line stays uncounted, which
+# the Provisioning cases already pin.
 section "ai-tools-admin status: the exit status follows ai-tools-records(5) (unit)"
 
 # call_status <pre> : source the helper with the hooks set, run <pre> in that shell, then `status`; the exit status is
@@ -131,8 +132,9 @@ call_status() {
         bash -c 'helper="$1"; lib="$2"; pre="$3"; set --; source "${helper}" >/dev/null 2>&1 || exit 99
                  declare -F status >/dev/null || exit 98
                  source "${lib}" 2>/dev/null || true
-                 status_entrypoints() { :; }; ai_tools_service_records() { :; }
-                 status_selinux_attestation() { :; }
+                 status_entrypoints() { :; }; ai_tools_services__list_records() { :; }
+                 status_selinux_attestation() { :; }; status_assets() { :; }; status_managed_files() { :; }
+                 status_unit_search_path() { :; }; status_caches() { :; }
                  eval "${pre}"; status' _ "${HELPER}" "${SERVICES_LIB}" "$1" 2>&1
 }
 reset_fixtures; manifest alpha la; vlink la v9.9.9
@@ -150,14 +152,14 @@ if [[ "${rc}" -eq 4 ]]; then
 else
     fail "a counted fault exited ${rc}, expected 4: $(tail -c 300 <<<"${out}" | tr '\n' '|')"
 fi
-rc=0; out="$(call_status 'unset -f ai_tools_service_records')" || rc=$?
+rc=0; out="$(call_status 'unset -f ai_tools_services__list_records')" || rc=$?
 if [[ "${rc}" -eq 5 ]] && grep -qx 'MSG-V6N9' <<<"${out}" && grep -qF '[UNREADABLE]' <<<"${out}" \
         && grep -qF 'ai-tools providers' <<<"${out}"; then
     pass "a service registry that did not load exits 5, is named under its code, and the later sections still print"
 else
     fail "a missing registry exited ${rc}, expected 5 with MSG-V6N9 and the rest of the page: $(tail -c 400 <<<"${out}" | tr '\n' '|')"
 fi
-rc=0; out="$(call_status 'unset -f ai_tools_service_records; status_provisioning() { heading Provisioning; STATUS_PROBLEMS=1; }')" || rc=$?
+rc=0; out="$(call_status 'unset -f ai_tools_services__list_records; status_provisioning() { heading Provisioning; STATUS_PROBLEMS=1; }')" || rc=$?
 if [[ "${rc}" -eq 5 ]]; then
     pass "a fault read beside a reading that could not be made exits 5: unreadable wins the fold"
 else
@@ -186,12 +188,12 @@ call_attestation_section() {
              source "${helper}" >/dev/null 2>&1 || exit 99
              declare -F status_selinux_attestation >/dev/null || exit 98
              source "${lib}" 2>/dev/null || exit 97
-             declare -F ai_tools_confinement_list_attestation_report >/dev/null || exit 97
-             declare -F ai_tools_confinement_dac_only_state >/dev/null || exit 97
+             declare -F ai_tools_confinement__list_attestation_report >/dev/null || exit 97
+             declare -F ai_tools_confinement__evaluate_dac_only_state >/dev/null || exit 97
              getenforce() { printf "%s\n" "${stub_selinux_mode}"; }
-             ai_tools_confinement_read_attestation_records() { printf "%s\n" "${stub_attestation_records}"; }
-             ai_tools_confinement_read_module_present() { printf "%s" "${stub_module_present}"; }
-             ai_tools_confinement_read_policy_shipped() { printf "%s" "${stub_policy_shipped}"; }
+             ai_tools_confinement__read_attestation_records() { printf "%s\n" "${stub_attestation_records}"; }
+             ai_tools_confinement__read_module_present() { printf "%s" "${stub_module_present}"; }
+             ai_tools_confinement__read_policy_shipped() { printf "%s" "${stub_policy_shipped}"; }
              STATUS_PROBLEMS=0; STATUS_UNREADABLE=0
              status_selinux_attestation "${operator_conf}"
              printf "problems=%s\n" "${STATUS_PROBLEMS}"' \
@@ -276,6 +278,37 @@ else
     else
         fail "policy installed and not loaded: $(tr '\n' '|' <<<"${out}")"
     fi
+fi
+
+
+# ── The Caches section, and the size root reads beside it ─────────────────────────────────────
+# The verdicts are the library's and are pinned in unit/cli-agent-set.sh and unit/cache-cleanup.sh; this pins the count
+# this report keeps and the live size, read with du over a fixture home.
+section "ai-tools-admin status: the Caches section (unit)"
+# shellcheck disable=SC2016  # the $1..$4 are for the inner `bash -c`, not this shell -- do not expand here
+call_caches() {
+    bash -c 'helper="$1"; lib="$2"; home="$3"; state="$4"; set --; source "${helper}" >/dev/null 2>&1 || exit 99
+             declare -F status_caches >/dev/null || exit 98
+             source "${lib}" 2>/dev/null || true
+             status_caches "${home}" "${state}"; printf "problems=%s unreadable=%s\n" "${STATUS_PROBLEMS}" "${STATUS_UNREADABLE}"' \
+        _ "${HELPER}" "${SERVICES_LIB}" "$1" "$2" 2>&1
+}
+cache_home="${TESTDIR}/cache-home"; cache_state="${TESTDIR}/cache-cleanup.status"
+mkdir -p "${cache_home}/.npm/_cacache"
+head -c 2048 /dev/zero > "${cache_home}/.npm/_cacache/blob"
+printf 'NPM_CACHE_RESULT=refused\nNPM_CACHE_BYTES=0\nNPM_CACHE_LINKS=0\nNPM_CACHE_REASON=parent-untrusted\n' > "${cache_state}"
+rc=0; out="$(call_caches "${cache_home}" "${cache_state}")" || rc=$?
+if [[ "${rc}" -eq 98 ]]; then
+    skip "admin status Caches section" "status_caches absent (older helper?)"
+elif [[ ! -r /usr/local/lib/ai-tools/cache-cleanup.lib.sh ]]; then
+    grep -qF 'problems=0 unreadable=1' <<<"${out}" && grep -qF '[UNREADABLE]' <<<"${out}" \
+        && pass "a cache cleanup library that is not installed is an unreadable reading" \
+        || fail "no library: $(tr '\n' '|' <<<"${out}")"
+else
+    grep -qE '\[FAILED\] +\.npm/_cacache .*refused \(parent-untrusted\).*holds 2\.0 KiB now' <<<"${out}" \
+        && grep -qF 'problems=1 unreadable=0' <<<"${out}" && grep -qE '\[n/a\]|absent now' <<<"${out}" \
+        && pass "a refused group is counted, with the size its cache holds now and an absent cache named as such" \
+        || fail "admin caches: $(tr '\n' '|' <<<"${out}")"
 fi
 
 finish

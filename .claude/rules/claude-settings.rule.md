@@ -91,13 +91,13 @@ so a project's own allow list cannot silence it; and it matches a command inside
 A kept `settings.json` does not gain this entry on upgrade: the merge carries hook declarations and leaves
 the permission arrays as the host wrote them ([An upgrade keeps host tuning and still lands this version's
 hooks](#an-upgrade-keeps-host-tuning-and-still-lands-this-versions-hooks)), so an upgraded host adds it by hand.
-`ai_tools_conf_ask_gaps` (`settings-merge.lib.sh`) names the entry a kept file lacks for an installed command, checked
-against a table there rather than a shipped copy, since a host may hold none after an upgrade. Three paths print it
-as a warning and none writes it: `install.sh` on a kept file, `ai-tools-admin system post-upgrade` whether or not
-a `.rpmnew` is waiting, and the agent package's rpm trigger on the typesafe package, which fires when either is
-installed or upgraded while the other is present, so the line shows in the `dnf` output. `tests/integration/hooks.sh`
-fails on the same gap. Codex's counterpart is a requirements rule marked `prompt` ([agent-codex](agent-codex.rule.md)),
-which is not shipped.
+`ai_tools_settings_merge__find_ask_gaps` (`settings-merge.lib.sh`) names the entry a kept file lacks for an installed
+command, checked against a table there rather than a shipped copy, since a host may hold none after an upgrade. Three
+paths print it as a warning and none writes it: `install.sh` on a kept file, `ai-tools-admin system post-upgrade`
+whether or not a `.rpmnew` is waiting, and the agent package's rpm trigger on the typesafe package, which fires
+when either is installed or upgraded while the other is present, so the line shows in the `dnf` output.
+`tests/integration/hooks.sh` fails on the same gap. Codex's counterpart is a requirements rule marked `prompt`
+([agent-codex](agent-codex.rule.md)), which is not shipped.
 
 ### Refused (`deny`)
 
@@ -176,13 +176,14 @@ in the permission arrays it invites tuning of, silently loses the gate.
 
 `post-tool-hook.sh` appears twice under `PostToolUse`: argument-less on `Write|Edit` (record then hand back)
 and as `post-tool-hook.sh record` on `Bash` (record only). One widened `Write|Edit|Bash` matcher would express the same
-intent in a single group and **would not reach an upgraded host**: `ai_tools_conf_merge_hook_declarations` keys
-on the *command string*, not on the matcher, so a kept `settings.json` already declaring that command counts the group
-as present and the widened matcher is never merged in. The `Bash` records would then be emitted on a fresh install
-and silently nowhere else — precisely the failure the merge exists to prevent. A distinct argument makes it a distinct
-command string, so the merge carries it like any other newly shipped declaration. This is the same dispatch-on-`$1`
-shape `session-hook.sh` and `filter-hook.sh` already use, and it is why the argument-less form must stay argument-less:
-renaming it would leave the old declaration in place beside the new one and run the handback twice per write.
+intent in a single group and **would not reach an upgraded host**: `ai_tools_settings_merge__merge_hook_declarations`
+keys on the *command string*, not on the matcher, so a kept `settings.json` already declaring that command counts
+the group as present and the widened matcher is never merged in. The `Bash` records would then be emitted on a fresh
+install and silently nowhere else — precisely the failure the merge exists to prevent. A distinct argument makes it
+a distinct command string, so the merge carries it like any other newly shipped declaration. This is the same
+dispatch-on-`$1` shape `session-hook.sh` and `filter-hook.sh` already use, and it is why the argument-less form must
+stay argument-less: renaming it would leave the old declaration in place beside the new one and run the handback twice
+per write.
 
 ## `env` — the privacy and output defaults
 
@@ -271,13 +272,13 @@ and that layer lives in the agent-writable project tree. The layers compose diff
 An install **keeps** an existing `settings.json` by default (`install.sh`'s `keep_existing` prompt; an unattended run
 always keeps), because the file carries host tuning a reset would revert — a deny entry relaxed alongside an enabled
 SELinux group, an added `env` key. Kept files then have this version's **hook declarations** merged
-in (`ai_tools_conf_merge_hook_declarations`, in `settings-merge.lib.sh`): each shipped declaration the file does not
-carry is added under its shipped matcher, every other key — the permission arrays it was kept for, an operator's own
-hook — is left as written, and each addition is named in the install log. A shipped command the file declares more than
-once under one event and matcher is reduced to its first declaration, since Claude Code runs every declaration
-and a repeat runs that hook twice per call; that repairs the repeat an earlier merge left by appending a shipped group
-whole over a file already declaring one of its commands, and each removal is named beside the additions. A repeat
-of an operator's own hook is left as written.
+in (`ai_tools_settings_merge__merge_hook_declarations`, in `settings-merge.lib.sh`): each shipped declaration the file
+does not carry is added under its shipped matcher, every other key — the permission arrays it was kept
+for, an operator's own hook — is left as written, and each addition is named in the install log. A shipped command
+the file declares more than once under one event and matcher is reduced to its first declaration, since Claude Code runs
+every declaration and a repeat runs that hook twice per call; that repairs the repeat an earlier merge left by appending
+a shipped group whole over a file already declaring one of its commands, and each removal is named beside the additions.
+A repeat of an operator's own hook is left as written.
 
 The split follows that layering: hook declarations are control plane that merges additively and that no lower-precedence
 layer may remove, while the permission rules are the host's to tune. The merge is what carries a newly shipped hook
@@ -306,19 +307,19 @@ to the tooling that sweeps rpm leftovers.
 
 **A kept file's permission rules are compared on both routes, against one reference.** `install.sh` names, on the kept
 file, the rules the shipped copy carries that the file does not and whether any other setting differs
-(`ai_tools_conf_permission_gaps`, `ai_tools_conf_settings_rest`), and leaves the shipped copy beside it as the dated
-`.shipped` baseline where it found a difference. `system post-upgrade` then compares the file with **the newest copy
-beside it** of either kind, the package's `.rpmnew` or the installer's `.shipped` (`ai_tools_conf_latest_copy`,
-by modification time, the package copy winning a tie), so a host whose install routes alternated — an rpm upgrade
-over a from-source install, a from-source install over an rpm — is compared with the baseline that reached it last,
-and each block names which route left the copy it read. That order is a reading of the clock, so both runs ask
-`ai_tools_conf_clock_behind` first: a file or copy dated after now says the clock is behind (a host with no
-battery-backed clock boots into an earlier time until it reaches a time source), and the run then names the clock
-as the first thing to correct and does not compare a file — `--check` writes an `error` row and exits 5 — while
-the installer names the gaps and does not leave a stamped copy, since one dated under such a clock would sort
-before the copies it supersedes. The version gate keeps that order true: an older checkout over a newer installation is
-refused unless `--allow-downgrade` states the decision, since a downgrade's baseline would be the newest copy while
-the file still carries the newer version's hook declarations.
+(`ai_tools_settings_merge__find_permission_gaps`, `ai_tools_settings_merge__read_settings_rest`), and leaves the shipped
+copy beside it as the dated `.shipped` baseline where it found a difference. `system post-upgrade` then compares
+the file with **the newest copy beside it** of either kind, the package's `.rpmnew` or the installer's `.shipped`
+(`ai_tools_conf__find_latest_copy`, by modification time, the package copy winning a tie), so a host whose install
+routes alternated — an rpm upgrade over a from-source install, a from-source install over an rpm — is compared
+with the baseline that reached it last, and each block names which route left the copy it read. That order is a reading
+of the clock, so both runs ask `ai_tools_conf__find_paths_ahead_of_clock` first: a file or copy dated after now says
+the clock is behind (a host with no battery-backed clock boots into an earlier time until it reaches a time source),
+and the run then names the clock as the first thing to correct and does not compare a file — `--check` writes an `error`
+row and exits 5 — while the installer names the gaps and does not leave a stamped copy, since one dated under such
+a clock would sort before the copies it supersedes. The version gate keeps that order true: an older checkout
+over a newer installation is refused unless `--allow-downgrade` states the decision, since a downgrade's baseline would
+be the newest copy while the file still carries the newer version's hook declarations.
 
 **On an RPM host the same merge runs on request.** `settings.json` is `%config(noreplace)`, so an upgrade keeps a file
 the host edited and parks this version's copy as `settings.json.rpmnew`. A file the host never edited is replaced
@@ -335,14 +336,14 @@ The command runs the merge on a throwaway copy first, so the list it shows is th
 merge adds rather than a promise of one. It then confirms, writes the dated `.bak`, and names that backup. **The
 reference copy stays on disk**: the merge covers the hook declarations alone, so what is left — the permission rules,
 which are the host's — is the operator's own edit, made from that copy. What is left is compared as data, not as text:
-the permission rule lists as sets (`ai_tools_conf_permission_gaps`) and every other setting with its keys sorted
-(`ai_tools_conf_settings_rest`), so a list's order, a key's place in the object, and how the merge grouped the hooks are
-not reported. A rule the copy carries and the file does not — a deny rule a release added — is named for the operator
-to add and reported by `--check` as `rule-missing`; a rule only the file carries is listed as the host's and not
-counted. The block closes with the `sudoedit` merge, the live file on the left, or, when no difference is left,
-by naming the copy as the operator's to delete. A refusal on this path does not need a `.shipped` sidecar —
-the reference copy is that baseline, and the throwaway copy is where the refused merge's own copy lands and is
-discarded.
+the permission rule lists as sets (`ai_tools_settings_merge__find_permission_gaps`) and every other setting with its
+keys sorted (`ai_tools_settings_merge__read_settings_rest`), so a list's order, a key's place in the object,
+and how the merge grouped the hooks are not reported. A rule the copy carries and the file does not — a deny rule
+a release added — is named for the operator to add and reported by `--check` as `rule-missing`; a rule only the file
+carries is listed as the host's and not counted. The block closes with the `sudoedit` merge, the live file on the left,
+or, when no difference is left, by naming the copy as the operator's to delete. A refusal on this path does not need
+a `.shipped` sidecar — the reference copy is that baseline, and the throwaway copy is where the refused merge's own copy
+lands and is discarded.
 
 The merge and every hook this agent ships read JSON with `jq`, which the agent package requires
 ([ownership-and-hooks](ownership-and-hooks.rule.md)).

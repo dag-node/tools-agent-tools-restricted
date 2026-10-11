@@ -18,7 +18,7 @@ if [[ ! -r "${SKIP_DIRS_LIB}" ]]; then
 fi
 
 # names_for <consumer> [skip_git]: echo the flat skip-name list the lib produces.
-names_for() { ai_tools_skip_find_expr "$@"; printf '%s' "${AI_TOOLS_SKIP_NAMES[*]}"; }
+names_for() { ai_tools_skip_dirs__build_find_expression "$@"; printf '%s' "${AI_TOOLS_SKIP_DIRS__NAMES[*]}"; }
 
 # (1) Defaults with no operator.conf overrides.
 export AI_TOOLS_OPERATOR_CONF=/nonexistent
@@ -53,8 +53,8 @@ else
 fi
 # The secret sweep is not a consumer: ai-tools-lockdown fixes its own `.git` prune, since a name an operator adds
 # to a category here must not reopen a tree the claim exposes (tests/unit/lockdown.sh drives that walk).
-if ai_tools_skip_find_expr lockdown 2>/dev/null; then
-    fail "lockdown is accepted as a consumer: ${AI_TOOLS_SKIP_NAMES[*]}"
+if ai_tools_skip_dirs__build_find_expression lockdown 2>/dev/null; then
+    fail "lockdown is accepted as a consumer: ${AI_TOOLS_SKIP_DIRS__NAMES[*]}"
 else
     pass "lockdown is not a consumer of the skip list"
 fi
@@ -68,7 +68,7 @@ fi
     || fail "override sweep false: $(names_for sweep false)"
 
 # (4) Unknown consumer is rejected.
-if ai_tools_skip_find_expr bogus 2>/dev/null; then
+if ai_tools_skip_dirs__build_find_expression bogus 2>/dev/null; then
     fail "unknown consumer was accepted"
 else
     pass "unknown consumer is rejected"
@@ -80,9 +80,9 @@ mktestdir
 mkdir -p "${TESTDIR}/proj/node_modules/nested" "${TESTDIR}/proj/.git/objects/ab" "${TESTDIR}/proj/src"
 : > "${TESTDIR}/proj/node_modules/nested/dep.js"     # inside a dependency DIRECTORY -> skipped
 : > "${TESTDIR}/proj/.git/objects/ab/node_modules"   # a FILE sharing the name, in walked .git -> walked
-ai_tools_skip_find_expr reclaim             # walks .git, skips the heavy trees
+ai_tools_skip_dirs__build_find_expression reclaim             # walks .git, skips the heavy trees
 declare -a found=()
-mapfile -d '' -t found < <(find "${TESTDIR}/proj" "${AI_TOOLS_SKIP_FIND_EXPR[@]}" -type f -print0)
+mapfile -d '' -t found < <(find "${TESTDIR}/proj" "${AI_TOOLS_SKIP_DIRS__FIND_EXPRESSION[@]}" -type f -print0)
 walked() { local f; for f in "${found[@]}"; do [[ "${f}" == "$1" ]] && return 0; done; return 1; }
 if walked "${TESTDIR}/proj/.git/objects/ab/node_modules" && ! walked "${TESTDIR}/proj/node_modules/nested/dep.js"; then
     pass "-type d skips the node_modules DIRECTORY but walks a FILE sharing the name"
@@ -115,17 +115,17 @@ source "${SKIP_DIRS_LIB}"
 mkdir -p "${TESTDIR}/proj2/src/bin" "${TESTDIR}/proj2/out/bin"
 : > "${TESTDIR}/proj2/src/bin/tool.sh"   # exempted source dir -> walked
 : > "${TESTDIR}/proj2/out/bin/built"     # ordinary artifact dir -> skipped
-ai_tools_skip_find_expr sweep '' "${TESTDIR}/proj2"
+ai_tools_skip_dirs__build_find_expression sweep '' "${TESTDIR}/proj2"
 found=()
-mapfile -d '' -t found < <(find "${TESTDIR}/proj2" "${AI_TOOLS_SKIP_FIND_EXPR[@]}" -type f -print0)
+mapfile -d '' -t found < <(find "${TESTDIR}/proj2" "${AI_TOOLS_SKIP_DIRS__FIND_EXPRESSION[@]}" -type f -print0)
 if walked "${TESTDIR}/proj2/src/bin/tool.sh" && ! walked "${TESTDIR}/proj2/out/bin/built"; then
     pass "relative exclusion exempts src/bin from the artifact skip (out/bin stays skipped)"
 else
     fail "exclusion: src/bin walked=$(walked "${TESTDIR}/proj2/src/bin/tool.sh" && echo y || echo n), out/bin walked=$(walked "${TESTDIR}/proj2/out/bin/built" && echo y || echo n)"
 fi
-ai_tools_skip_find_expr sweep   # no root -> exclusions cannot anchor
+ai_tools_skip_dirs__build_find_expression sweep   # no root -> exclusions cannot anchor
 found=()
-mapfile -d '' -t found < <(find "${TESTDIR}/proj2" "${AI_TOOLS_SKIP_FIND_EXPR[@]}" -type f -print0)
+mapfile -d '' -t found < <(find "${TESTDIR}/proj2" "${AI_TOOLS_SKIP_DIRS__FIND_EXPRESSION[@]}" -type f -print0)
 if ! walked "${TESTDIR}/proj2/src/bin/tool.sh"; then
     pass "without a walk root the plain name skip applies (exclusions need the root)"
 else

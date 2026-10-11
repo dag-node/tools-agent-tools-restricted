@@ -196,8 +196,8 @@ f() { cli_flag "$1"; }
 seed()     { : > "${AL}"; (( $# )) && printf '%s\n' "$@" > "${AL}"; chown "${PROJECTS_USER}:${PROJECTS_USER}" "${AL}"; cli_stub_reset; }
 seed_for() { printf '%s\n' "$@" > "${FOR_AL}"; chown "${PROJECTS_USER}:${PROJECTS_USER}" "${FOR_AL}"; }
 seed_gc()  { : > "${GC}"; local p; for p in "$@"; do git config --file "${GC}" --add safe.directory "${p}"; done; chown "${PROJECTS_USER}:${PROJECTS_USER}" "${GC}"; }
-st()       { ai_tools_conf_allowlist_state "${AL}" "$1"; }
-st_for()   { ai_tools_conf_allowlist_state "${FOR_AL}" "$1"; }
+st()       { ai_tools_conf__read_allowlist_state "${AL}" "$1"; }
+st_for()   { ai_tools_conf__read_allowlist_state "${FOR_AL}" "$1"; }
 gc_has()   { git config --file "${GC}" --get-all safe.directory 2>/dev/null | grep -qxF -- "$1"; }
 gc_lacks() { ! gc_has "$1"; }
 sha()      { sha256sum "$1" | cut -c1-64; }

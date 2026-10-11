@@ -40,7 +40,8 @@ mapfile -t _exes < <(find /opt/ai-tools/.nvm/versions/node -xdev -path '*/lib/no
     -type f 2>/dev/null | sort)
 _module_loaded=no
 # The listing is captured, not piped into `grep -q`: an early-exiting reader makes semodule die of SIGPIPE, which this
-# file's pipefail reports as "module absent" -- see the note on ai_tools_selinux_group_loaded (selinux-groups.lib.sh).
+# file's pipefail reports as "module absent" -- see the note on ai_tools_selinux_groups__is_loaded
+# (selinux-groups.lib.sh).
 _modules=""
 if command -v semodule >/dev/null 2>&1; then
     _modules="$(semodule -l 2>/dev/null || true)"

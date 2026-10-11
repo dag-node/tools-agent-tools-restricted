@@ -113,15 +113,20 @@ leaves the entrypoint mislabelled.
 Reprovisioning on its own does **not** replace it. `system bootstrap` installs
 each agent's npm package, and `npm install -g` is a no-op at a version that is
 already installed — so the modified file stays where it is and every launch
-goes on refusing. Remove the installed package first:
+goes on refusing. End every running session first — let each one finish,
+or stop them all — then remove the installed package:
 
 ```bash
+ai-tools stop
 sudo rm -rf /opt/ai-tools/.nvm/versions/node/v22.20.0/lib/node_modules/@openai/codex
 sudo ai-tools-admin system bootstrap
 ```
 
+No process of the sandbox account is then running while root removes its files.
+A session started before the binary changed keeps running until it ends,
+so a session you need can finish first; `ai-tools stop` ends them all at once.
 Both the refused launch and `sudo ai-tools-admin system entrypoints relabel`
-print those two commands with the paths this host has, so the version directory
+print these commands with the paths this host has, so the version directory
 and the package name do not have to be looked up. Investigate before launching
 a session if it recurs: a binary that changes under an unchanged version is
 the one thing no update explains.

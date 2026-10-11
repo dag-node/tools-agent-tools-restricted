@@ -35,9 +35,10 @@ A per-clone developer opt-in: it sets `core.hooksPath` to `.githooks`
 and quiets git's ignored-hook advice for sandbox-account commits. Two hooks
 come with it, and neither blocks a commit: a `commit-msg` changelog reminder,
 and a `pre-commit` prose report over the lines the commit adds
-(`prose-check.py`, shipped with the `ai-tools-technical-docs` skill). None
-of this ships in the RPM — the package builds only from `src/`, `docs/`,
-the spec, and the compiled policy.
+(`prose-check.py`, shipped with the `ai-tools-technical-writing` skill
+of the asset set `core`, which `bash tools/lib/assets.sh fetch` places in your
+cache). None of this ships in the RPM — the package builds only from `src/`,
+`docs/`, the spec, and the compiled policy.
 
 ## Running the tests
 
@@ -95,10 +96,9 @@ under [`docs/`](docs/index.md) are the operator's tier instead, and change
 when a command, a configuration key, or a guarantee does.
 
 A reference into another file names a reftag rather than a position;
-the grammar is in the `ai-tools-technical-docs` skill,
-and `.claude/references.md` is the generated index. After adding, moving,
-or deleting a labelled target or a reference, regenerate the index and check
-the tree:
+the grammar is in the `ai-tools-reftags` skill, and `.claude/references.md` is
+the generated index. After adding, moving, or deleting a labelled target
+or a reference, regenerate the index and check the tree:
 
 ```bash
 bash tools/generators/ref-index.sh generate

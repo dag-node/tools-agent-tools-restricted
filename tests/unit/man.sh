@@ -7,11 +7,11 @@
 # with and the parser its examples must load in, ai-tools-operator.conf(5) and ai-tools-custom-claude-endpoint.conf(5)
 # against the keys their shipped templates mention, and ai-tools-messages(7) against the generator that derives it
 # from the cross-reference index. It then holds every authored page to the way a page is WRITTEN -- the font
-# and placeholder rules whose home is references/man-pages.md in the shipped ai-tools-technical-docs skill, edited
-# in lockstep with the check here -- and closes by holding every config header this project writes to the fixed-width
-# rule (72 columns). In the two command pairs the page and the help are not copies of each other -- usage() is
-# orientation while the page is the reference -- so equality of their whole option sets is the wrong contract and is
-# what made slimming the help impossible.
+# and placeholder rules whose home is references/man-pages.md in the ai-tools-technical-writing skill of the set core,
+# edited in lockstep with the check here -- and closes by holding every config header this project writes
+# to the fixed-width rule (72 columns). In the two command pairs the page and the help are not copies of each other --
+# usage() is orientation while the page is the reference -- so equality of their whole option sets is the wrong contract
+# and is what made slimming the help impossible.
 #
 # Both commands spell a command in bare words (.claude/rules/cli-grammar.rule.md), so what is compared is
 # the COMMAND PATH -- `projects claim`, `selinux groups enable` -- rather than a single flag. ai-tools(1), five checks:
@@ -133,7 +133,7 @@ check_command_sets() {
 # th_version <page> <NAME>: PASS when the .TH line still carries a version field. The contract is that the field is
 # PRESENT, not that it looks like a release. Three values are all correct: the repo source carries
 # the @AI_TOOLS_VERSION@ token, an RPM install carries a version number, and a source install of an unstamped tree
-# carries `dev` -- which is exactly what `--version` reports there, and what ai_tools_msg_version passes
+# carries `dev` -- which is exactly what `--version` reports there, and what ai_tools_msg__format_version passes
 # through deliberately. Enumerating the shapes rejected `dev`, so the check failed or passed according to how the HOST
 # was provisioned rather than according to anything about the page. It asserts what it always meant: the field is
 # non-empty.
@@ -247,11 +247,12 @@ check_admin_page
 # statement of what a key means. Two directions keep it honest: every key a shipped manifest sets is documented
 # under KEYS, and every key documented there is one some shipped manifest sets or some shipped reader reads --
 # a documented key neither uses is a stale entry or a typo, and a used key the page lacks is an operator reading a file
-# the manual does not explain. Keys are read with the same parser the tooling uses (ai_tools_conf_keys), so a commented
-# default counts the way it counts everywhere else. A reader is a `src/` line asking a manifest for a key by name
-# (`ai_tools_agent_manifest_field "<agent>" <key>`, `ai_tools_conf_get "${manifest_file}" <key>`), so a key
-# the toolchain honours before any shipped manifest sets it -- `launcher_target`, read by the updater and the bootstrap
-# for a second agent's package -- is documented ahead of that package; outside a checkout the manifests alone decide.
+# the manual does not explain. Keys are read with the same parser the tooling uses (ai_tools_conf__read_keys),
+# so a commented default counts the way it counts everywhere else. A reader is a `src/` line asking a manifest for a key
+# by name (`ai_tools_providers__read_agent_manifest_field "<agent>" <key>`,
+# `ai_tools_conf__print_value "${manifest_file}" <key>`), so a key the toolchain honours before any shipped manifest
+# sets it -- `launcher_target`, read by the updater and the bootstrap for a second agent's package -- is documented
+# ahead of that package; outside a checkout the manifests alone decide.
 PROVIDERS_MAN="${ROOT}/src/usr/local/share/man/man5/ai-tools-providers.5"
 MANIFEST_DIRS=( "${ROOT}/src/usr/local/lib/ai-tools/agents.d" "${ROOT}/src/usr/local/lib/ai-tools/integrations.d" )
 CONF_LIB="${ROOT}/src/usr/local/lib/ai-tools/conf.lib.sh"
@@ -270,7 +271,7 @@ check_providers_page() {
         skip "providers page" "ai-tools-providers.5 not found in the repo or installed"; return
     fi
     # shellcheck source=/dev/null
-    if ! source "${CONF_LIB}" 2>/dev/null || ! declare -F ai_tools_conf_keys >/dev/null 2>&1; then
+    if ! source "${CONF_LIB}" 2>/dev/null || ! declare -F ai_tools_conf__read_keys >/dev/null 2>&1; then
         skip "providers page key sync" "conf.lib.sh not loadable from ${CONF_LIB}"; return
     fi
     # Documented keys: the tag line after each .TP under KEYS, where the whole tag is one key token. Bold words
@@ -283,7 +284,7 @@ check_providers_page() {
     for dir in "${MANIFEST_DIRS[@]}"; do
         for manifest in "${dir}"/*.conf; do
             [[ -e "${manifest}" ]] || continue
-            ai_tools_conf_keys keys "${manifest}"
+            ai_tools_conf__read_keys keys "${manifest}"
             used+=( "${keys[@]}" )
         done
     done
@@ -293,7 +294,7 @@ check_providers_page() {
     local -a read_keys=()
     if [[ -n "${READER_SRC}" ]]; then
         mapfile -t read_keys < <(grep -rhoE \
-            'ai_tools_(agent|provider)_manifest_field "[^"]*" [a-z_]+|ai_tools_conf_get "\$\{manifest_file\}" [a-z_]+' \
+            'ai_tools_providers__read_(agent|provider)_manifest_field "[^"]*" [a-z_]+|ai_tools_conf__print_value "\$\{manifest_file\}" [a-z_]+' \
             "${READER_SRC}" 2>/dev/null | awk '{print $NF}' | sort -u)
     fi
 
@@ -368,10 +369,10 @@ check_allowlist_page() {
         skip "ai-tools-allowed-projects page" "ai-tools-allowed-projects.5 not found in the repo or installed"; return
     fi
     # shellcheck source=/dev/null
-    if ! source "${CONF_LIB}" 2>/dev/null || ! declare -F ai_tools_conf_path_entry >/dev/null 2>&1; then
+    if ! source "${CONF_LIB}" 2>/dev/null || ! declare -F ai_tools_conf__parse_path_entry >/dev/null 2>&1; then
         skip "ai-tools-allowed-projects seed header" "conf.lib.sh not loadable from ${CONF_LIB}"; return
     fi
-    check_seed_header ai_tools_conf_allowlist_seed ai-tools-allowed-projects
+    check_seed_header ai_tools_conf__get_allowlist_seed ai-tools-allowed-projects
 
     # Every entry-shaped example -- a path, an exclusion, or a quoted path -- parses as an entry; the CLI invocations
     # in the same blocks are not entries and are not read.
@@ -381,8 +382,8 @@ check_allowlist_page() {
         fail "ai-tools-allowed-projects(5) EXAMPLES carry no entry-shaped line to check"
     else
         for line in "${examples[@]}"; do
-            # shellcheck disable=SC2154  # _ai_tools_conf_value is set by ai_tools_conf_path_entry in the sourced library
-            if ai_tools_conf_path_entry "${line}" && [[ "${_ai_tools_conf_value}" == /* || "${_ai_tools_conf_value}" == '!/'* ]]; then :
+            # shellcheck disable=SC2154  # ai_tools_conf__value is set by ai_tools_conf__parse_path_entry in the sourced library
+            if ai_tools_conf__parse_path_entry "${line}" && [[ "${ai_tools_conf__value}" == /* || "${ai_tools_conf__value}" == '!/'* ]]; then :
             else fail "ai-tools-allowed-projects(5) example does not parse as an entry: ${line}"; bad=1; fi
         done
         (( bad )) || pass "every entry-shaped EXAMPLES line in ai-tools-allowed-projects(5) parses through the shared grammar (${#examples[@]} lines)"
@@ -401,10 +402,10 @@ check_secret_patterns_page() {
     fi
     # shellcheck source=/dev/null
     if ! source "${CONF_LIB}" 2>/dev/null || ! source "${SECRET_LIB}" 2>/dev/null \
-            || ! declare -F ai_tools_load_secret_patterns >/dev/null 2>&1; then
+            || ! declare -F ai_tools_secret_patterns__load >/dev/null 2>&1; then
         skip "ai-tools-secret-patterns seed header" "conf.lib.sh or secret-patterns.lib.sh not loadable"; return
     fi
-    check_seed_header ai_tools_conf_secret_patterns_seed ai-tools-secret-patterns
+    check_seed_header ai_tools_conf__get_secret_patterns_seed ai-tools-secret-patterns
 
     # The page's example patterns load as patterns: the pattern-shaped lines of EXAMPLES (not the CLI invocations) are
     # written to a file, read through the library's own loader, and must come back one for one, each a basename glob
@@ -416,10 +417,10 @@ check_secret_patterns_page() {
     fi
     file="$(mktemp)"
     printf '%s\n' "${examples[@]}" > "${file}"
-    AI_TOOLS_SECRET_PATTERNS_FILE="${file}" ai_tools_load_secret_patterns
-    loaded=( "${AI_TOOLS_SECRET_PATTERNS[@]}" )
+    AI_TOOLS_SECRET_PATTERNS_FILE="${file}" ai_tools_secret_patterns__load
+    loaded=( "${AI_TOOLS_SECRET_PATTERNS__PATTERNS[@]}" )
     rm -f "${file}"
-    _AI_TOOLS_PATTERNS_LOADED=""
+    _AI_TOOLS_SECRET_PATTERNS__PATTERNS_LOADED=""
     for pattern in "${examples[@]}"; do
         [[ "${pattern}" == */* ]] && { fail "ai-tools-secret-patterns(5) example carries a '/', which a basename glob never matches: ${pattern}"; bad=1; }
     done
@@ -435,8 +436,9 @@ check_secret_patterns_page
 # Each template is %config(noreplace), so a prose change to it reaches an upgraded host only as an .rpmnew the operator
 # reconciles by hand; the reference lives in the page and the template keeps a brief line per option beside its
 # commented default. check_config_page holds the two in lockstep: every key the template mentions is documented
-# under OPTIONS, and every documented option is one the template mentions -- read with ai_tools_conf_keys, the same
-# "mentioned" predicate `system post-upgrade` announces a new option by, so the test and the upgrade report cannot
+# under OPTIONS, and every documented option is one the template mentions -- read with ai_tools_conf__read_keys,
+# the same "mentioned" predicate `system post-upgrade` announces a new option by, so the test and the upgrade report
+# cannot
 # disagree.
 CONFIG_TEMPLATES="${ROOT}/src/etc/ai-tools"
 [[ -d "${CONFIG_TEMPLATES}" ]] || CONFIG_TEMPLATES="/etc/ai-tools"
@@ -449,7 +451,7 @@ check_config_page() {
         skip "${name} page" "page or template not found (${page}, ${file})"; return
     fi
     # shellcheck source=/dev/null
-    if ! source "${CONF_LIB}" 2>/dev/null || ! declare -F ai_tools_conf_keys >/dev/null 2>&1; then
+    if ! source "${CONF_LIB}" 2>/dev/null || ! declare -F ai_tools_conf__read_keys >/dev/null 2>&1; then
         skip "${name} page key sync" "conf.lib.sh not loadable from ${CONF_LIB}"; return
     fi
     local -a documented=() used=()
@@ -457,7 +459,7 @@ check_config_page() {
     mapfile -t documented < <(man_section "${page}" OPTIONS \
         | awk 'prev==".TP"||prev==".TQ"{print} {prev=$0}' \
         | grep -oE '^\.B[IR]? [A-Z][A-Z0-9_]*' | awk '{print $2}' | sort -u)
-    ai_tools_conf_keys used "${file}"
+    ai_tools_conf__read_keys used "${file}"
     mapfile -t used < <(printf '%s\n' "${used[@]}" | sort -u)
     (( ${#used[@]} > 0 )) || { fail "${name}: the template mentions no key"; return; }
     local missing=0 stale=0
@@ -577,28 +579,29 @@ check_messages_pointers
 # ── Config headers are fixed-width text ───────────────────────────────────────────────────────
 # An operator reads a config file in a terminal, which does not reflow it, so every header this project writes --
 # the two seeds and the two shipped templates -- holds to 72 columns. The rule is the checker's `--config-header` mode
-# (the ai-tools-technical-docs skill); this runs it over the four. Where a line breaks is the Emacs formatter's,
-# so the width is the whole check.
+# (the ai-tools-technical-writing skill of the pinned core release, through tools/lib/assets.sh); this runs it
+# over the four. Where a line breaks is the formatter's, so the width is the whole check.
 section "config headers: 72 columns (unit)"
 PROSE_CHECK=""
-for candidate in \
-    "${ROOT}/src/usr/share/ai-tools/skills/ai-tools-technical-docs/prose-check.py" \
-    "/usr/share/ai-tools/skills/ai-tools-technical-docs/prose-check.py" \
-    "/opt/ai-tools/skills/ai-tools-technical-docs/prose-check.py"; do
-    [[ -r "${candidate}" ]] && { PROSE_CHECK="${candidate}"; break; }
-done
+# shellcheck source=SCRIPTDIR/../../tools/lib/assets.sh
+if [[ -r "${ROOT}/tools/lib/assets.sh" ]] && source "${ROOT}/tools/lib/assets.sh"; then
+    PROSE_CHECK="$(ai_tools_dev_assets__resolve_tool prose-check)" || PROSE_CHECK=""
+fi
 check_config_headers() {
-    if [[ -z "${PROSE_CHECK}" ]] || ! command -v python3 >/dev/null 2>&1; then
-        skip "config header format" "prose-check.py or python3 not available"; return
+    if [[ -z "${PROSE_CHECK}" ]]; then
+        skip "config header format" "the pinned checker is not in the cache; run: bash tools/lib/assets.sh fetch"; return
+    fi
+    if ! command -v python3 >/dev/null 2>&1; then
+        skip "config header format" "python3 not available"; return
     fi
     # shellcheck source=/dev/null
-    if ! source "${CONF_LIB}" 2>/dev/null || ! declare -F ai_tools_conf_allowlist_seed >/dev/null 2>&1; then
+    if ! source "${CONF_LIB}" 2>/dev/null || ! declare -F ai_tools_conf__get_allowlist_seed >/dev/null 2>&1; then
         skip "config header format" "conf.lib.sh not loadable from ${CONF_LIB}"; return
     fi
     local dir out rc=0
     dir="$(mktemp -d)"
-    ai_tools_conf_allowlist_seed > "${dir}/allowed-projects"
-    ai_tools_conf_secret_patterns_seed > "${dir}/secret-patterns"
+    ai_tools_conf__get_allowlist_seed > "${dir}/allowed-projects"
+    ai_tools_conf__get_secret_patterns_seed > "${dir}/secret-patterns"
     out="$(python3 "${PROSE_CHECK}" --config-header "${dir}/allowed-projects" "${dir}/secret-patterns" \
         "${CONFIG_TEMPLATES}/operator.conf" "${CONFIG_TEMPLATES}/endpoints/custom-claude-endpoint.conf" 2>&1)" || rc=$?
     rm -rf "${dir}"
@@ -612,7 +615,7 @@ check_config_headers
 
 # ── The convention lint: fonts and placeholders on the authored pages ─────────────────────────
 # Every other section in this file pairs a page with what it documents. This one holds each page to the way a page is
-# WRITTEN -- the font and placeholder rules in the ai-tools-technical-docs skill's references/man-pages.md, which is
+# WRITTEN -- the font and placeholder rules in the ai-tools-technical-writing skill's references/man-pages.md, which is
 # the convention's home and is edited with this check so the two cannot disagree.
 #
 # It reads the AUTHORED pages (man1, man5, man8) and not ai-tools-messages(7): that page is rendered from the runtime

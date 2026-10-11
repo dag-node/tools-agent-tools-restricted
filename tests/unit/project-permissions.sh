@@ -39,7 +39,7 @@ fi
 source "${LIB}"
 
 spec='unset'
-if ai_tools_project_permissions_build_acl_specification spec alice ai-tools \
+if ai_tools_project_permissions__build_acl_specification spec alice ai-tools \
         && [[ "${spec}" == "user:alice:rwX,group:ai-tools:rwX,other::---" ]]; then
     pass "names: the specification ai-tools-setfacl applied before the move"
 else
@@ -47,7 +47,7 @@ else
 fi
 
 spec='unset'
-if ai_tools_project_permissions_build_acl_specification spec 1000 985 \
+if ai_tools_project_permissions__build_acl_specification spec 1000 985 \
         && [[ "${spec}" == "user:1000:rwX,group:985:rwX,other::---" ]]; then
     pass "numeric ids: the form getfacl --numeric prints"
 else
@@ -55,7 +55,7 @@ else
 fi
 
 spec='unset'
-if ai_tools_project_permissions_build_acl_specification spec first.last_name-2 ai-tools \
+if ai_tools_project_permissions__build_acl_specification spec first.last_name-2 ai-tools \
         && [[ "${spec}" == "user:first.last_name-2:rwX,group:ai-tools:rwX,other::---" ]]; then
     pass "a name with dot, underscore and hyphen is kept as given"
 else
@@ -64,14 +64,14 @@ fi
 
 for bad in "" "alice,user:mallory" "alice:rwx" "alice bob" "-alice" $'alice\nbob' "élise"; do
     spec='unset' rc=0
-    ai_tools_project_permissions_build_acl_specification spec "${bad}" ai-tools || rc=$?
+    ai_tools_project_permissions__build_acl_specification spec "${bad}" ai-tools || rc=$?
     if (( rc == 1 )) && [[ -z "${spec}" ]]; then
         pass "operator '$(printf '%q' "${bad}")' refused, variable emptied"
     else
         fail "operator '$(printf '%q' "${bad}")': rc=${rc}, spec='${spec}'"
     fi
     spec='unset' rc=0
-    ai_tools_project_permissions_build_acl_specification spec alice "${bad}" || rc=$?
+    ai_tools_project_permissions__build_acl_specification spec alice "${bad}" || rc=$?
     if (( rc == 1 )) && [[ -z "${spec}" ]]; then
         pass "group '$(printf '%q' "${bad}")' refused, variable emptied"
     else
@@ -80,7 +80,7 @@ for bad in "" "alice,user:mallory" "alice:rwx" "alice bob" "-alice" $'alice\nbob
 done
 
 rc=0
-ai_tools_project_permissions_build_acl_specification 'bad-name' alice ai-tools || rc=$?
+ai_tools_project_permissions__build_acl_specification 'bad-name' alice ai-tools || rc=$?
 (( rc == 2 )) && pass "an invalid output-variable name returns 2" || fail "invalid variable name: rc=${rc}"
 
 # Sourcing twice is a no-op (the include guard), so a consumer that loads it directly and transitively does not abort
@@ -104,7 +104,7 @@ section "project-permissions: the context and record grammar (unit)"
 for good in "system_u:object_r:ai_tools_project_t:s0" "unconfined_u:object_r:var_t:s0:c1,c2" \
         "u:r:t:s0-s0:c0.c1023"; do
     type_out='unset'
-    if ai_tools_project_permissions_context_type type_out "${good}" && [[ -n "${type_out}" ]]; then
+    if ai_tools_project_permissions__get_context_type type_out "${good}" && [[ -n "${type_out}" ]]; then
         pass "context '${good}' reads type '${type_out}'"
     else
         fail "context '${good}' refused"
@@ -112,7 +112,7 @@ for good in "system_u:object_r:ai_tools_project_t:s0" "unconfined_u:object_r:var
 done
 for bad in "" "u:r:t" "u::t:s0" "u:r::s0" "u:r:t:" "u:r:t:s0 x" "u:r:t s:s0" $'u:r:t:s0\t'; do
     type_out='unset' rc=0
-    ai_tools_project_permissions_context_type type_out "${bad}" || rc=$?
+    ai_tools_project_permissions__get_context_type type_out "${bad}" || rc=$?
     if (( rc == 1 )) && [[ -z "${type_out}" ]]; then
         pass "context '$(printf '%q' "${bad}")' refused, type empty"
     else
@@ -123,7 +123,7 @@ done
 ctx_home="unconfined_u:object_r:user_home_t:s0"
 ctx_project="system_u:object_r:ai_tools_project_t:s0"
 record_path='' record_from='' record_to=''
-if ai_tools_project_permissions_parse_restorecon_record "Would relabel /p/name from a to b from ${ctx_home} to ${ctx_project}" \
+if ai_tools_project_permissions__parse_restorecon_record "Would relabel /p/name from a to b from ${ctx_home} to ${ctx_project}" \
         record_path record_from record_to \
         && [[ "${record_path}" == "/p/name from a to b" && "${record_from}" == user_home_t \
               && "${record_to}" == ai_tools_project_t ]]; then
@@ -135,7 +135,7 @@ for bad in "Would relabel /p from ${ctx_home}" "relabel /p from ${ctx_home} to $
         "Would relabel  from ${ctx_home} to ${ctx_project}" "Would relabel /p from u::t:s0 to ${ctx_project}" \
         "Would relabel /p from ${ctx_home} to u:r::s0" "/p not reset as customized by admin to ${ctx_home}"; do
     record_path='x' rc=0
-    ai_tools_project_permissions_parse_restorecon_record "${bad}" record_path record_from record_to || rc=$?
+    ai_tools_project_permissions__parse_restorecon_record "${bad}" record_path record_from record_to || rc=$?
     if (( rc == 1 )) && [[ -z "${record_path}${record_from}${record_to}" ]]; then
         pass "record refused: '${bad}'"
     else
@@ -162,7 +162,7 @@ stub() {  # stub <status> <stdout> [<stderr>]
 section "project-permissions: label_check, the per-path test (unit)"
 lc_is() {  # lc_is <what> <path> <want-outcome> [<want-from> <want-to>]
     local outcome from to
-    ai_tools_project_permissions_label_check "$2" "${work}" outcome from to
+    ai_tools_project_permissions__check_label "$2" "${work}" outcome from to
     if [[ "${outcome}" == "$3" && "${from}" == "${4:-}" && "${to}" == "${5:-}" ]]; then
         pass "label_check: $1 -> $3"
     else
@@ -216,7 +216,7 @@ record_c="Would relabel /p/c from system_u:object_r:container_file_t:s0:c1,c2 to
 lb_is() {  # lb_is <what> <want-status> <want-drift-keys> [-i]
     local rc=0 keys
     local -A drift=()
-    ai_tools_project_permissions_label_batch "${batch_list}" "${work}" listed drift "${4:-}" || rc=$?
+    ai_tools_project_permissions__check_label_batch "${batch_list}" "${work}" listed drift "${4:-}" || rc=$?
     keys=""
     (( ${#drift[@]} )) && keys="$(printf '%s\n' "${!drift[@]}" | sort | tr '\n' ' ')"
     if (( rc == $2 )) && [[ "${keys}" == "$3" ]]; then
@@ -260,7 +260,7 @@ lb_is "a capture opening with a NUL: never complete" 1 ""
 section "project-permissions: the capture reader (unit)"
 capture_is() {  # capture_is <what> <file> <want-status>
     local text='unset' rc=0
-    _ai_tools_project_permissions_read_capture "$2" text || rc=$?
+    _ai_tools_project_permissions__read_capture "$2" text || rc=$?
     if (( rc == $3 )) && { (( rc == 0 )) || [[ -z "${text}" ]]; }; then
         pass "read_capture: $1 -> ${rc}"
     else
@@ -288,7 +288,7 @@ lstat_list="${work}/lstat.list"
 printf '%s\0' "${tree}/file" "${tree}/dir" "${tree}/removed" "${tree}/file/child" "${tree}/dangling" \
     "${tree}/"$'\xff'"name" "${tree}/locked/inside" > "${lstat_list}"
 declare -a lstat_got=()
-ai_tools_project_permissions_lstat_outcomes "${lstat_list}" "${work}" lstat_got
+ai_tools_project_permissions__read_lstat_outcomes "${lstat_list}" "${work}" lstat_got
 lstat_want=(exists exists gone gone exists exists unknown)
 if (( EUID == 0 )); then lstat_want[6]=exists; fi  # root searches a mode-000 directory anyway
 for lstat_i in "${!lstat_want[@]}"; do
@@ -310,7 +310,7 @@ fi
 readonly_work="${TESTDIR}/readonly-work"
 mkdir -p "${readonly_work}"; chmod 500 "${readonly_work}"
 declare -a lstat_failed=()
-ai_tools_project_permissions_lstat_outcomes "${lstat_list}" "${readonly_work}" lstat_failed
+ai_tools_project_permissions__read_lstat_outcomes "${lstat_list}" "${readonly_work}" lstat_failed
 lstat_joined="$(printf '%s ' "${lstat_failed[@]}")"
 if (( EUID != 0 )); then
     if [[ "${lstat_joined}" == "unknown unknown unknown unknown unknown unknown unknown " ]]; then
@@ -323,7 +323,7 @@ else
 fi
 chmod 700 "${readonly_work}"
 rc=0
-ai_tools_project_permissions_lstat_outcomes "${work}/no-such-list" "${work}" lstat_failed || rc=$?
+ai_tools_project_permissions__read_lstat_outcomes "${work}/no-such-list" "${work}" lstat_failed || rc=$?
 (( rc == 1 && ${#lstat_failed[@]} == 0 )) && pass "lstat_outcomes: an unreadable list returns 1, no outcome" \
     || fail "lstat_outcomes with no list: rc=${rc}, ${#lstat_failed[@]} outcome(s)"
 
@@ -332,7 +332,7 @@ section "project-permissions: the ACL reader and the mask scope (acl(5)) (unit)"
 declare -A acl_set=([user:]=rw- [user:1000]=rwx [group:]=rw- [group:985]=rwx [mask:]=-wx [other:]=r--)
 effective_is() {  # effective_is <key> <want>
     local have
-    ai_tools_project_permissions_acl_effective_permissions have acl_set "$1"
+    ai_tools_project_permissions__get_effective_permissions have acl_set "$1"
     [[ "${have}" == "$2" ]] && pass "effective ${1}: ${2} under mask -wx" \
         || fail "effective ${1}: ${have}, want ${2}"
 }
@@ -351,7 +351,7 @@ acl_is() {  # acl_is <what> <want-status> <fixture-lines...>
     local -A access=() default=()
     shift 2
     printf '%s\n' "$@" > "${acl_fixture}"
-    ai_tools_project_permissions_read_acl /p "${work}" access default || rc=$?
+    ai_tools_project_permissions__read_acl /p "${work}" access default || rc=$?
     (( rc == want )) && pass "read_acl: ${what} -> ${want}" || fail "read_acl: ${what} -> ${rc}, want ${want}"
 }
 acl_is "minimal set" 0 user::rw- group::r-- other::---
@@ -392,7 +392,7 @@ gc_is() {  # gc_is <what> <path> <want-outcome> <sandbox-uid> <sandbox-gid> <fix
     local what="$1" path="$2" want="$3" sandbox_uid="$4" sandbox_gid="$5" outcome detail
     shift 5
     printf '%s\n' "$@" > "${acl_fixture}"
-    ai_tools_project_permissions_group_check "${path}" "${work}" "${op_uid}" "${sandbox_uid}" "${sandbox_gid}" \
+    ai_tools_project_permissions__check_group "${path}" "${work}" "${op_uid}" "${sandbox_uid}" "${sandbox_gid}" \
         outcome detail
     if [[ "${outcome}" == "${want}" ]]; then
         pass "group_check: ${what} -> ${want}${detail:+ (${detail})}"
@@ -462,10 +462,10 @@ if [[ -n "${acl_real}" ]] && command -v setfacl >/dev/null 2>&1; then
     live="${TESTDIR}/gc-live"
     : > "${live}"; chmod 0660 "${live}"
     live_spec=''
-    ai_tools_project_permissions_build_acl_specification live_spec "${op_uid}" "${my_gid}"
+    ai_tools_project_permissions__build_acl_specification live_spec "${op_uid}" "${my_gid}"
     if setfacl -m "${live_spec//X/x}" "${live}" 2>/dev/null; then
         live_outcome='' live_detail=''
-        ai_tools_project_permissions_group_check "${live}" "${work}" "${op_uid}" "${my_uid}" "${my_gid}" \
+        ai_tools_project_permissions__check_group "${live}" "${work}" "${op_uid}" "${my_uid}" "${my_gid}" \
             live_outcome live_detail
         [[ "${live_outcome}" == match ]] \
             && pass "group_check over a real setfacl of the specification -> match" \

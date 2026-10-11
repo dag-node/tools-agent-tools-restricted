@@ -64,10 +64,11 @@ fi
 readonly TARGET REMOVE FROM_CWD
 
 # Operator-identity resolver (operator.lib.sh): on ADD, confirms an operator's allowlist covers the path. A missing lib
-# leaves ai_tools_resolve_owner a fail-closed stub, so an ADD leaves the owner unresolved and the file untouched.
+# leaves ai_tools_operator__resolve_owner a fail-closed stub, so an ADD leaves the owner unresolved and the file
+# untouched.
 readonly OPERATOR_LIB="/usr/local/lib/ai-tools/operator.lib.sh"
 # shellcheck source=SCRIPTDIR/../../lib/ai-tools/operator.lib.sh
-source "${OPERATOR_LIB}" 2>/dev/null || ai_tools_resolve_owner() { return 1; }
+source "${OPERATOR_LIB}" 2>/dev/null || ai_tools_operator__resolve_owner() { return 1; }
 
 # Shared leveled logger: journald (always) + the root-only file /var/log/ai-tools/safedir.log. Best-effort -- a no-op
 # fallback keeps the helper working if the lib is missing.
@@ -76,11 +77,11 @@ AI_TOOLS_LOG_FILE="safedir.log"
 readonly LOG_LIB="/usr/local/lib/ai-tools/log.lib.sh"
 # shellcheck source=SCRIPTDIR/../../lib/ai-tools/log.lib.sh
 if ! source "${LOG_LIB}" 2>/dev/null; then
-    ai_tools_log() { :; }; ai_tools_log_debug() { :; }; ai_tools_log_info() { :; }
-    ai_tools_log_warn() { :; }; ai_tools_log_error() { :; }
+    ai_tools_log__write() { :; }; ai_tools_log__debug() { :; }; ai_tools_log__info() { :; }
+    ai_tools_log__warn() { :; }; ai_tools_log__error() { :; }
 fi
 
-# Shared yes/no prompt (ai_tools_msg_confirm; see msg.lib.sh). REQUIRED like safe-paths.lib.sh: the bare source
+# Shared yes/no prompt (ai_tools_msg__confirm; see msg.lib.sh). REQUIRED like safe-paths.lib.sh: the bare source
 # under `set -e` aborts if it is missing -- a valid install ships it, so there is no fallback. Include-guarded,
 # so a re-source is a no-op.
 # shellcheck source=SCRIPTDIR/../../lib/ai-tools/msg.lib.sh
@@ -95,10 +96,10 @@ export AI_TOOLS_MSG_FULLWIDTH=1
 _reassert_mode() {
     chown "root:${GROUP}" "${GITCONFIG}" 2>/dev/null \
         || { warn MSG-Y5R2 "could not chown ${GITCONFIG} to root:${GROUP}"
-             ai_tools_log_coded warning "${_warn_code}" "${_warn_text}" "AI_TOOLS_RESULT=failed"; }
+             ai_tools_log__coded warning "${_warn_code}" "${_warn_text}" "AI_TOOLS_RESULT=failed"; }
     chmod 644 "${GITCONFIG}" 2>/dev/null \
         || { warn MSG-V8E9 "could not chmod ${GITCONFIG} to 644"
-             ai_tools_log_coded warning "${_warn_code}" "${_warn_text}" "AI_TOOLS_RESULT=failed"; }
+             ai_tools_log__coded warning "${_warn_code}" "${_warn_text}" "AI_TOOLS_RESULT=failed"; }
 }
 
 # _listed <path>: 0 when <path> is already a safe.directory entry. The read works for any principal (644), so the CLI's
@@ -116,7 +117,7 @@ _listed() {
 _confirm_cwd() {
     ${FROM_CWD} || return 0
     [[ -t 0 ]] || return 0
-    ai_tools_msg_confirm "$1" y
+    ai_tools_msg__confirm "$1" y
 }
 
 if ${REMOVE}; then
@@ -127,7 +128,7 @@ if ${REMOVE}; then
     # instead of being named at each site.
     AI_TOOLS_LOG_PROJECT="${canonical}"
     _confirm_cwd "Remove ${canonical} from git safe.directory?" \
-        || { ai_tools_log_structured info "declined removing safe.directory ${canonical}" \
+        || { ai_tools_log__structured info "declined removing safe.directory ${canonical}" \
                  "AI_TOOLS_RESULT=refused"; exit 0; }
     if _listed "${canonical}"; then
         # `--unset-all` takes a value REGEX; escape the path so regex metacharacters in it are literal and anchors match
@@ -137,9 +138,9 @@ if ${REMOVE}; then
         esc="$(printf '%s' "${canonical}" | sed 's/[.[\*^$()+?{|\\]/\\&/g')"
         git config --file "${GITCONFIG}" --unset-all safe.directory "^${esc}$" 2>/dev/null || true
         _reassert_mode
-        ai_tools_log_structured info "removed safe.directory ${canonical}" "AI_TOOLS_RESULT=ok"
+        ai_tools_log__structured info "removed safe.directory ${canonical}" "AI_TOOLS_RESULT=ok"
     else
-        ai_tools_log_debug "safe.directory ${canonical} not listed -- nothing to remove"
+        ai_tools_log__debug "safe.directory ${canonical} not listed -- nothing to remove"
     fi
     exit 0
 fi
@@ -149,19 +150,19 @@ fi
 # and the CLI's own report says only that the step ran.
 canonical="$(realpath -e -- "${TARGET}" 2>/dev/null)" || {
     warn MSG-N4D4 "no such directory ${TARGET} -- not registering safe.directory"
-    ai_tools_log_coded warning "${_warn_code}" "${_warn_text}" "AI_TOOLS_RESULT=refused"
+    ai_tools_log__coded warning "${_warn_code}" "${_warn_text}" "AI_TOOLS_RESULT=refused"
     exit 0
 }
 [[ -d "${canonical}" ]] || {
     warn MSG-F4Y6 "not a directory: ${canonical} -- not registering safe.directory"
-    ai_tools_log_coded warning "${_warn_code}" "${_warn_text}" "AI_TOOLS_RESULT=refused"
+    ai_tools_log__coded warning "${_warn_code}" "${_warn_text}" "AI_TOOLS_RESULT=refused"
     exit 0
 }
 # resolve_owner succeeds only when some operator's allowlist covers the (non-excluded) path; otherwise leave the file
 # untouched (fail-closed, mirrors the sibling helpers).
-ai_tools_resolve_owner "${canonical}" || {
+ai_tools_operator__resolve_owner "${canonical}" || {
     warn MSG-P5B5 "no operator covers ${canonical} -- not registering safe.directory"
-    ai_tools_log_coded info "${_warn_code}" "${_warn_text}" "AI_TOOLS_RESULT=refused"
+    ai_tools_log__coded info "${_warn_code}" "${_warn_text}" "AI_TOOLS_RESULT=refused"
     exit 0
 }
 # Past the resolution the operator and the project are known, so each rides as per-run log context for every later
@@ -169,14 +170,14 @@ ai_tools_resolve_owner "${canonical}" || {
 AI_TOOLS_LOG_OPERATOR="${PROJECTS_USER}"
 AI_TOOLS_LOG_PROJECT="${canonical}"
 _confirm_cwd "Add ${canonical} to git safe.directory?" \
-    || { ai_tools_log_structured info "declined adding safe.directory ${canonical}" \
+    || { ai_tools_log__structured info "declined adding safe.directory ${canonical}" \
              "AI_TOOLS_RESULT=refused"; exit 0; }
 
 if _listed "${canonical}"; then
-    ai_tools_log_debug "safe.directory ${canonical} already listed"
+    ai_tools_log__debug "safe.directory ${canonical} already listed"
     exit 0
 fi
 git config --file "${GITCONFIG}" --add safe.directory "${canonical}"
 _reassert_mode
-ai_tools_log_structured info "added safe.directory ${canonical}" "AI_TOOLS_RESULT=ok"
+ai_tools_log__structured info "added safe.directory ${canonical}" "AI_TOOLS_RESULT=ok"
 exit 0

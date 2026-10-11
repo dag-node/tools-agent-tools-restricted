@@ -1,34 +1,45 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: AGPL-3.0-only
 # tests/unit/fill-markdown.sh
-# Unit test for tools/formatters/fill-markdown.py, the Markdown filler, and tools/formatters/verify-reflow.py, the gate
-# that proves a reflow changed line breaks alone. The filler and the gate are pinned in one file because a defect
-# in either looks the same from outside: a filler that damages a shape the gate does not read passes, and a filler
-# that silently copies a region through leaves a clean gate and an unformatted file. So one fixture carries every shape
-# found by rehearsing the filler on real pages, and each is driven from both ends -- the filler must reflow the fixture
-# to a state the gate passes and the checker's `--wrap` finds complete, and each defect class, injected by hand, must be
-# reported by the gate. A second run must leave the file as the first left it, and `--lines` must confine a reflow
-# to the blocks it names. The one class the gate cannot see -- a split code span leaves the token stream unchanged -- is
-# asserted on the filler's output instead. The tree's own pages are reflowed into the testdir and held to the same three
-# properties, skipped outside a checkout. The reader every formatter shares (`tools/formatters/text_file.py`) is pinned
-# here: each shape it refuses -- a control or a bidi character, a NUL, a carriage return, a byte that is not UTF-8,
-# a byte-order mark, a symlink, a FIFO -- is reported with its reason and left byte-identical while the clean file
-# beside it is filled; a column or a range that is not one is a usage error; and the gate refuses a base copy that is
-# not text without printing a token of it, and a path resolving outside the tree. A repo dev tool, not a deployed
-# artifact, so it runs from the checkout. The fixture holds a reftag as text, so the tree-wide reference check does not
-# read this file (the marker on the next line).
+# Unit test for the pinned ai-tools-assets-tools release's formatters/fill-markdown.py, the Markdown filler,
+# and formatters/verify-reflow.py, the gate that proves a reflow changed line breaks alone. The filler and the gate are
+# pinned in one file because a defect in either looks the same from outside: a filler that damages a shape the gate does
+# not read passes, and a filler that silently copies a region through leaves a clean gate and an unformatted file.
+# So one fixture carries every shape found by rehearsing the filler on real pages, and each is driven from both ends --
+# the filler must reflow the fixture to a state the gate passes and the checker's `--wrap` finds complete, and each
+# defect class, injected by hand, must be reported by the gate. A second run must leave the file as the first left it,
+# and `--lines` must confine a reflow to the blocks it names. The one class the gate cannot see -- a split code span
+# leaves the token stream unchanged -- is asserted on the filler's output instead. The tree's own pages are reflowed
+# into the testdir and held to the same three properties, skipped outside a checkout. The reader every formatter shares
+# (`formatters/text_file.py`) is pinned here: each shape it refuses -- a control or a bidi character, a NUL, a carriage
+# return, a byte that is not UTF-8, a byte-order mark, a symlink, a FIFO -- is reported with its reason and left
+# byte-identical while the clean file beside it is filled; a column or a range that is not one is a usage error;
+# and the gate refuses a base copy that is not text without printing a token of it, and a path resolving outside
+# the tree. A repo dev tool, not a deployed artifact, so it runs from the checkout. The fixture holds a reftag as text,
+# so the tree-wide reference check does not read this file (the marker on the next line).
 # ref-index: ignore-file
 set -euo pipefail
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")/../lib" && pwd)/harness.sh"
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-FILLER="${ROOT}/tools/formatters/fill-markdown.py"
-GATE="${ROOT}/tools/formatters/verify-reflow.py"
-PC="${ROOT}/src/usr/share/ai-tools/skills/ai-tools-technical-docs/prose-check.py"
 section "fill-markdown: the Markdown filler and the reflow gate (unit)"
 
+# The formatters are the pinned ai-tools-assets-tools release's and the checker the pinned core release's
+# (tools/lib/assets.sh); a tree without that file, as the container selftest's is, and a pin not in the cache are each
+# a skip, the second naming the fetch command.
+if [[ ! -r "${ROOT}/tools/lib/assets.sh" ]]; then
+    skip "fill-markdown" "${ROOT}/tools/lib/assets.sh is absent (not a checkout)"; finish; exit
+fi
+# shellcheck source=SCRIPTDIR/../../tools/lib/assets.sh
+source "${ROOT}/tools/lib/assets.sh"
+if ! FORMATTERS="$(ai_tools_dev_assets__resolve_tool formatters)" || ! PC="$(ai_tools_dev_assets__resolve_tool prose-check)"; then
+    skip "fill-markdown" "the pinned tools are not in the cache; run: ${AI_TOOLS_DEV_ASSETS__FETCH_COMMAND}"; finish; exit
+fi
+FILLER="${FORMATTERS}/fill-markdown.py"
+GATE="${FORMATTERS}/verify-reflow.py"
+
 if [[ ! -r "${FILLER}" || ! -r "${GATE}" ]]; then
-    skip "fill-markdown" "tools not found under ${ROOT}/tools"; finish; exit
+    skip "fill-markdown" "the filler or the gate is absent from ${FORMATTERS}"; finish; exit
 fi
 if ! command -v python3 >/dev/null 2>&1; then
     skip "fill-markdown" "python3 not available"; finish; exit
@@ -136,7 +147,7 @@ FIXTURE
 
 reflow() {  # reflow: the fixture, freshly copied from its base, through the filler at WIDTH
     cp "${TESTDIR}/base/f.md" "${f}"
-    python3 "${FILLER}" --width "${WIDTH}" "${f}" >/dev/null
+    python3 "${FILLER}" --checker "${PC}" --width "${WIDTH}" "${f}" >/dev/null
 }
 gate() {  # gate: exit 0 when the gate passes the fixture against its base, leaving the report in OUT
     OUT="$(cd "${TESTDIR}" && python3 "${GATE}" --against "${TESTDIR}/base" f.md 2>&1)"
@@ -160,7 +171,7 @@ fi
 
 # (3) Idempotent.
 cp "${f}" "${TESTDIR}/once.md"
-python3 "${FILLER}" --width "${WIDTH}" "${f}" >/dev/null
+python3 "${FILLER}" --checker "${PC}" --width "${WIDTH}" "${f}" >/dev/null
 if cmp -s "${f}" "${TESTDIR}/once.md"; then
     pass "a second run is a no-op"
 else
@@ -228,7 +239,7 @@ detects "ignore-marker line rewrapped" "docs/system/entrypoint-verification.md" 
 # and wraps, the paragraph after it is not and comes back byte-identical.
 plain="$(grep -n '^A plain paragraph' "${TESTDIR}/base/f.md" | cut -d: -f1)"
 cp "${TESTDIR}/base/f.md" "${f}"
-python3 "${FILLER}" --width "${WIDTH}" --lines "${plain}-${plain}" "${f}" >/dev/null
+python3 "${FILLER}" --checker "${PC}" --width "${WIDTH}" --lines "${plain}-${plain}" "${f}" >/dev/null
 # shellcheck disable=SC2016
 if grep -q '^A plain paragraph long enough that a filler will certainly want$' "${f}" \
         && grep -qF 'Prose naming `<!--` and `-->` mid-line, which is a sentence about a comment rather than a comment,' "${f}"; then
@@ -291,7 +302,7 @@ else
             mkdir -p "${base}/$(dirname "${page}")" "${work}/$(dirname "${page}")"
             cp "${ROOT}/${page}" "${base}/${page}"; cp "${ROOT}/${page}" "${work}/${page}"
         done
-        ( cd "${work}" && python3 "${FILLER}" --width "${width}" "${pages[@]}" >/dev/null )
+        ( cd "${work}" && python3 "${FILLER}" --checker "${PC}" --width "${width}" "${pages[@]}" >/dev/null )
         if ( cd "${work}" && python3 "${GATE}" --against "${base}" "${pages[@]}" >/dev/null 2>&1 ); then
             pass "${label}: ${#pages[@]} pages reflow at ${width} to a state the gate passes"
         else
@@ -305,7 +316,7 @@ else
             fail "${label}: ${over} line(s) left over the column: $(cd "${work}" && python3 "${PC}" --wrap "${pages[@]}" 2>&1 | grep -A1 document-width | head -4)"
         fi
         cp -r "${work}" "${work}.once"
-        ( cd "${work}" && python3 "${FILLER}" --width "${width}" "${pages[@]}" >/dev/null )
+        ( cd "${work}" && python3 "${FILLER}" --checker "${PC}" --width "${width}" "${pages[@]}" >/dev/null )
         if diff -r "${work}" "${work}.once" >/dev/null; then
             pass "${label}: a second run is a no-op"
         else
@@ -319,15 +330,14 @@ fi
 
 # (8) A file that is not plain text is refused: reported with the reason and the line, left byte-identical, and the run
 # exits 1 while the clean file named beside it is filled. Each shape is a way a rewrap would move what the formatter
-# cannot see, or write where it did not read. The reader is `tools/formatters/text_file.py`, shared with the other
-# formatters, so the set is pinned once here; the comment filler and the table aligner each pin one shape of it
-# through their own
+# cannot see, or write where it did not read. The reader is `formatters/text_file.py`, shared with the other formatters,
+# so the set is pinned once here; the comment filler and the table aligner each pin one shape of it through their own
 # front.
 refused() {  # refused <label> <file> <reason>: <file> is refused with <reason> and left as it was
     local label="$1" file="$2" reason="$3" out rc=0
     [[ -f "${file}" ]] && cp "${file}" "${file}.before"
     cp "${TESTDIR}/base/f.md" "${f}"
-    out="$(timeout 20 python3 "${FILLER}" --width "${WIDTH}" -- "${file}" "${f}" 2>&1)" || rc=$?
+    out="$(timeout 20 python3 "${FILLER}" --checker "${PC}" --width "${WIDTH}" -- "${file}" "${f}" 2>&1)" || rc=$?
     if [[ "${rc}" -eq 1 ]] && grep -qF -- "fill-markdown: refused ${file}: ${reason}" <<<"${out}" \
             && { [[ ! -f "${file}" ]] || cmp -s "${file}" "${file}.before"; } \
             && ! cmp -s "${f}" "${TESTDIR}/base/f.md"; then
@@ -363,7 +373,7 @@ usage_error() {  # usage_error <label> <argument>...: exit 2, the fixture untouc
     local label="$1" rc=0
     shift
     cp "${TESTDIR}/base/f.md" "${f}"
-    python3 "${FILLER}" "$@" -- "${f}" >/dev/null 2>&1 || rc=$?
+    python3 "${FILLER}" --checker "${PC}" "$@" -- "${f}" >/dev/null 2>&1 || rc=$?
     if [[ "${rc}" -eq 2 ]] && cmp -s "${f}" "${TESTDIR}/base/f.md"; then
         pass "usage error, nothing written: ${label}"
     else
