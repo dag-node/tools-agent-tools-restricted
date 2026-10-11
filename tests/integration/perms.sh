@@ -245,6 +245,8 @@ check_file /etc/sudoers.d/ai-tools                     root              root   
 # Operator identity: 644 root:root -- world-readable (agent hooks + root helpers read it), root-write-only (the agent
 # cannot rewrite the identity root hands files back to).
 check_file /etc/ai-tools/operator.conf                        root              root              644
+# The operator's bindings for sets of other publishers: root-only writes, since a binding names a key base then trusts.
+check_file /etc/ai-tools/assets-bindings.d                    root              root              755
 # Custom system prompt: an empty, editable default under a dedicated dir. 640 root:ai-tools -- the sandbox account reads
 # it (via etc_t + the group) and the operator edits it with sudo, but a custom prompt is not world-readable (it may
 # carry proprietary instructions). the launch hook only stat()s it as the operator, so no operator read is needed;

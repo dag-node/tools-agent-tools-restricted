@@ -193,24 +193,29 @@ as `set-tampered` and `2` (`MSG-Q6Y8`) as `set-unverified`; the library's functi
 `ai_tools_assets_verify__verify_inventory <set-directory>` is the inventory half alone, which the conformance job runs
 over the `ai-tools-assets-tools` fixtures.
 
-What may sign a set is a **binding**, one root-owned file per set name
-under `/usr/local/lib/ai-tools/assets-bindings.d/<set>.conf`, in the shared `KEY=value` grammar
-([providers](providers.rule.md)) and read as data: `set`, `signers` (typed primary fingerprints) and `keyring` (the
-binary keyring `gpgv` reads), and a line outside those keys refuses the binding. Base ships the bindings `core`
-and `ai-tools`, both naming the dag-node package-signing primary — the key `rpm.dagnode.com` serves and the key
-that signs this project's own RPMs, so one trust anchor covers the package and the sets it reads — and the keyring
-`keys/dag-node-package-signing.gpg`, which the spec's `%install` and `install.sh` write from the armored key beside it
-with `ai_tools_assets_verify__write_binary_keyring`. The signer is asserted against `gpgv`'s `VALIDSIG` primary,
-so a keyring swapped for another valid key is refused, as is a signature by a key the keyring holds but no binding
-names. Every path of a set, listed in the inventory or found by the walk, is held
-to `ai_tools_conf__is_portable_name_valid` ([providers](providers.rule.md)) component by component. The directory, each
-binding and the keyring are `644 root:root` under `755 root:root` and must pass `ai_tools_conf__is_trusted`, file
-and directory both, or the set is unverified: the sandbox account cannot change what signs a set,
-which `tests/boundary/assets.sh` asserts from that account's vantage, while `tests/unit/assets-verify.sh` drives every
-refusal over a set signed in the run by a throwaway key, through the root-only hook `AI_TOOLS_ASSETS_BINDINGS_DIR`.
+What may sign a set is a **binding**, one root-owned file per set name, `<set>.conf`
+under `/usr/local/lib/ai-tools/assets-bindings.d/` (shipped by base) or `/etc/ai-tools/assets-bindings.d/` (the
+operator's, for a set of another publisher), in the shared `KEY=value` grammar ([providers](providers.rule.md)) and read
+as data: `set`, `signers` (typed primary fingerprints) and `keyring` (the binary keyring `gpgv` reads), and a line
+outside those keys refuses the binding. Base ships the bindings `core` and `ai-tools`, both naming the dag-node
+package-signing primary — the key `rpm.dagnode.com` serves and the key that signs this project's own RPMs, so one trust
+anchor covers the package and the sets it reads — and the keyring `keys/dag-node-package-signing.gpg`, which the spec's
+`%install` and `install.sh` write from the armored key beside it with `ai_tools_assets_verify__write_binary_keyring`.
+The signer is asserted against `gpgv`'s `VALIDSIG` primary, so a keyring swapped for another valid key is refused, as is
+a signature by a key the keyring holds but no binding names. Every path of a set, listed in the inventory or found
+by the walk, is held to `ai_tools_conf__is_portable_name_valid` ([providers](providers.rule.md)) component by component.
+The directory, each binding and the keyring are `644 root:root` under `755 root:root` and must pass
+`ai_tools_conf__is_trusted`, file and directory both, or the set is unverified: the sandbox account cannot change
+what signs a set, which `tests/boundary/assets.sh` asserts from that account's vantage, while
+`tests/unit/assets-verify.sh` drives every refusal over a set signed in the run by a throwaway key,
+through the root-only hook `AI_TOOLS_ASSETS_BINDINGS_DIR`.
 
-This release reads the shipped bindings alone: an operator binding under `/etc/ai-tools/assets-bindings.d/`
-and an operator key are outside it.
+`ai_tools_assets_verify__find_binding` decides which file binds a name: the shipped file where one exists, else
+the operator's, so an operator binding cannot add a signer to `core` or `ai-tools`, and a set name that has no shipped
+binding is the operator's to bind. The operator directory is held to `ai_tools_conf__is_trusted` only where its file is
+the one that decides, so a group-writable or absent `/etc/ai-tools/assets-bindings.d` leaves every shipped set as it was
+and refuses the operator-bound names alone. The RPM and `install.sh` create the directory empty, `755 root:root`,
+and the operator writes the keyring beside the binding with `gpg --dearmor`; `ai-tools-assets(5)` carries the commands.
 
 ### Linking the orientation (`ai_tools_managed_assets__link_agent_memory`)
 

@@ -415,6 +415,8 @@ chmod 0644 %{buildroot}%{ai_libdir}/keys/dag-node-package-signing.gpg
 install -d -m 0755 %{buildroot}%{ai_libdir}/assets-bindings.d
 install -m 0644 src%{ai_libdir}/assets-bindings.d/core.conf     %{buildroot}%{ai_libdir}/assets-bindings.d/core.conf
 install -m 0644 src%{ai_libdir}/assets-bindings.d/ai-tools.conf %{buildroot}%{ai_libdir}/assets-bindings.d/ai-tools.conf
+# The operator's bindings, for sets of other publishers; shipped empty so the directory is root's before a file lands.
+install -d -m 0755 %{buildroot}%{_sysconfdir}/ai-tools/assets-bindings.d
 # The shared confinement shim. Base-owned and agent-agnostic: it resolves which agent may launch
 # from the manifests, so an ai-tools-agents-* package ships only its wrapper, manifest, and
 # session-env fragment, and one sudoers grant serves every agent.
@@ -1430,6 +1432,7 @@ fi
 %config %attr(0440, root, root) %{_sysconfdir}/sudoers.d/ai-tools
 %dir %attr(0755, root, root) %{_sysconfdir}/ai-tools
 %config(noreplace) %attr(0644, root, root) %{_sysconfdir}/ai-tools/operator.conf
+%dir %attr(0755, root, root) %{_sysconfdir}/ai-tools/assets-bindings.d
 %{_sysusersdir}/ai-tools.conf
 %dir %attr(2750, root, ai-tools) /var/opt/ai-tools
 %dir %attr(2770, root, ai-tools) /var/opt/ai-tools/sandbox-projects

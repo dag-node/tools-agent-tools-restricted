@@ -27,6 +27,7 @@ fi
 
 readonly LIBDIR=/usr/local/lib/ai-tools
 readonly BINDINGS="${LIBDIR}/assets-bindings.d"
+readonly OPERATOR_BINDINGS=/etc/ai-tools/assets-bindings.d
 
 # not_writable <path> <what it would let the agent do>: PASS when the agent cannot write <path>; FAIL naming
 # the escalation it would allow. A path that is not deployed on this host SKIPs.
@@ -64,6 +65,10 @@ for binding in "${BINDINGS}"/*.conf; do
     not_writable "${binding}" \
         "name its own key as the signer of set $(basename "${binding}" .conf)"
 done
+# The operator's bindings: a set name that has no shipped binding is bound here. Writable, the agent binds a name to its
+# own key and installs a set under it at the local root.
+not_writable "${OPERATOR_BINDINGS}" \
+    "bind a set name to its own key"
 
 section "The resolver's inputs, the view and the agents' links are not agent-writable (run as the agent)"
 

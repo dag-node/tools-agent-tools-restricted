@@ -1488,6 +1488,8 @@ do_install() {
             "${SCRIPT_DIR}/src/usr/local/lib/ai-tools/assets-bindings.d/${_binding}.conf" \
             "/usr/local/lib/ai-tools/assets-bindings.d/${_binding}.conf"
     done
+    log "/etc/ai-tools/assets-bindings.d"
+    install -o root -g root -d -m 755 /etc/ai-tools/assets-bindings.d
 
     # Shared KEY=value config grammar + the trust predicate: 644 root:root -- world-readable, sourced
     # by operator.lib.sh, skip-dirs.lib.sh and providers.lib.sh so every key in operator.conf and every provider

@@ -29,6 +29,7 @@ source "${LIB}"
 # read as a correct refusal, so an installed library older than this test stops here instead of reporting
 # verdicts.
 for function_name in ai_tools_assets_verify__verify_set ai_tools_assets_verify__verify_inventory ai_tools_assets_verify__read_binding \
+    ai_tools_assets_verify__find_binding \
     ai_tools_assets_verify__write_binary_keyring ai_tools_assets_verify__is_valid_set_name \
     ai_tools_assets_verify__is_valid_signer_fingerprint; do
     if ! declare -F "${function_name}" >/dev/null; then
@@ -44,10 +45,11 @@ umask 022
 # A keyring per key, the throwaway set, and a bindings directory, every trusted path root-owned 0644 under 0755.
 readonly KEYS="${TESTDIR}/keys"
 readonly BINDINGS="${TESTDIR}/bindings.d"
+readonly OPERATOR_BINDINGS="${TESTDIR}/etc-bindings.d"
 readonly SET="${TESTDIR}/sets/acme"
-mkdir -p "${KEYS}" "${BINDINGS}" "${TESTDIR}/sets"
-chmod 0755 "${KEYS}" "${BINDINGS}"
-export AI_TOOLS_ASSETS_BINDINGS_DIR="${BINDINGS}"
+mkdir -p "${KEYS}" "${BINDINGS}" "${OPERATOR_BINDINGS}" "${TESTDIR}/sets"
+chmod 0755 "${KEYS}" "${BINDINGS}" "${OPERATOR_BINDINGS}"
+export AI_TOOLS_ASSETS_BINDINGS_DIR="${BINDINGS}" AI_TOOLS_ASSETS_OPERATOR_BINDINGS_DIR="${OPERATOR_BINDINGS}"
 
 have_gpg=yes
 command -v gpg >/dev/null 2>&1 || have_gpg=no
@@ -277,6 +279,39 @@ else
     fail "a refused binding published ${#_AI_TOOLS_ASSETS_VERIFY__SIGNERS[@]} signer(s) and keyring '${_AI_TOOLS_ASSETS_VERIFY__KEYRING}'"
 fi
 write_binding acme "${KEYS}/signer.gpg" "openpgp:${SIGNER}"
+
+# ── The operator's bindings ──────────────────────────────────────────────────────────────────────
+# A set name that has no shipped binding is the operator's to bind under AI_TOOLS_ASSETS_OPERATOR_BINDINGS_DIR;
+# a shipped name is decided by the shipped file whatever lies beside it there, and the operator directory is held
+# to the trust predicate only where its file is the one that decides.
+write_set; sign_set signer
+ASSET_BINDINGS_DIR="${OPERATOR_BINDINGS}" asset_signing_write_binding acme-op "${KEYS}/signer.gpg" "openpgp:${SIGNER}"
+found="$(ai_tools_assets_verify__find_binding acme-op)" || found=""
+if [[ "${found}" == "${OPERATOR_BINDINGS}/acme-op.conf" ]]; then pass "find_binding: a name the shipped directory does not bind is found in the operator directory"; else fail "find_binding acme-op -> '${found}'"; fi
+found="$(ai_tools_assets_verify__find_binding acme)" || found=""
+if [[ "${found}" == "${BINDINGS}/acme.conf" ]]; then pass "find_binding: a shipped name is found in the shipped directory"; else fail "find_binding acme -> '${found}'"; fi
+if found="$(ai_tools_assets_verify__find_binding nobinding)"; then fail "find_binding nobinding -> 0 with '${found}'"; else pass "find_binding: a name bound nowhere -> 1"; fi
+expect 0 "a signed set verifies under its operator binding" ai_tools_assets_verify__verify_set "${SET}" acme-op
+if [[ "${out}" == "${SIGNER}" ]]; then pass "the operator-bound set prints its signer's primary"; else fail "the operator-bound set printed '${out}'"; fi
+ASSET_BINDINGS_DIR="${OPERATOR_BINDINGS}" asset_signing_write_binding acme "${KEYS}/other.gpg" "openpgp:${OTHER}"
+read_status=0; ai_tools_assets_verify__read_binding acme 2>/dev/null || read_status=$?
+if [[ "${read_status}" == 0 && " ${_AI_TOOLS_ASSETS_VERIFY__SIGNERS[*]} " == *" ${SIGNER} "* && " ${_AI_TOOLS_ASSETS_VERIFY__SIGNERS[*]} " != *" ${OTHER} "* ]]; then
+    pass "a shipped name is decided by the shipped binding; the operator file beside it is not read"
+else
+    fail "a shipped name with an operator file beside it -> ${read_status}, signers '${_AI_TOOLS_ASSETS_VERIFY__SIGNERS[*]}'"
+fi
+rm -f "${OPERATOR_BINDINGS}/acme.conf"
+chmod 0775 "${OPERATOR_BINDINGS}"
+expect 2 "an operator-bound name under a group-writable operator directory" ai_tools_assets_verify__verify_set "${SET}" acme-op
+assert_msg MSG-Q6Y8 "${err}" "the untrusted operator directory is reported under MSG-Q6Y8"
+if [[ "${err}" == *"operator bindings directory ${OPERATOR_BINDINGS}"* ]]; then pass "the refusal names the operator directory"; else fail "the refusal does not name the operator directory: $(head -c 200 <<<"${err}")"; fi
+expect 0 "a shipped name is unaffected by the untrusted operator directory" ai_tools_assets_verify__verify_set "${SET}" acme
+chmod 0755 "${OPERATOR_BINDINGS}"
+mv "${OPERATOR_BINDINGS}" "${OPERATOR_BINDINGS}.away"
+expect 2 "an operator-bound name with no operator directory" ai_tools_assets_verify__verify_set "${SET}" acme-op
+if [[ "${err}" == *"no binding under ${BINDINGS} or ${OPERATOR_BINDINGS}"* ]]; then pass "the refusal names both directories"; else fail "the refusal does not name both directories: $(head -c 200 <<<"${err}")"; fi
+mv "${OPERATOR_BINDINGS}.away" "${OPERATOR_BINDINGS}"
+rm -f "${OPERATOR_BINDINGS}/acme-op.conf"
 
 # The walk's own status: an enumeration that ends early leaves a tree whose listed files match and whose unlisted ones
 # were never seen, so a walk that did not complete is unverifiable. Driven by a find that prints its listing and then

@@ -3307,9 +3307,9 @@ assets_reconcile_now() {
 }
 
 # assets_enable <identifier>... | --set <set>: check every identifier before writing -- the grammar and a registry kind,
-# then a shipped binding for its set -- refusing the whole call on the first that fails; then add each new one
-# to AI_TOOLS_ASSETS once, after the existing entries in their order, and reconcile. An identifier whose set is not
-# installed is accepted where the set is bound, and the reconcile reports it set-absent.
+# then a binding for its set, shipped or the operator's -- refusing the whole call on the first that fails; then add
+# each new one to AI_TOOLS_ASSETS once, after the existing entries in their order, and reconcile. An identifier
+# whose set is not installed is accepted where the set is bound, and the reconcile reports it set-absent.
 assets_enable() {
     local identifier status=0 entry
     local -a entries=() added=()
@@ -3326,7 +3326,7 @@ assets_enable() {
         (( status == 0 )) \
             || die MSG-E9D6 "assets enable: '$(ai_tools_log__sanitize "${identifier}")' is not an asset identifier -- ${AI_TOOLS_ASSETS__ID_DETAIL}; AI_TOOLS_ASSETS is unchanged"
         ai_tools_assets__is_binding_present "${AI_TOOLS_ASSETS__ID_SET}" \
-            || die MSG-W6D7 "assets enable: no shipped binding names the set ${AI_TOOLS_ASSETS__ID_SET}, so ${identifier} is accepted only once a package pins its signer; AI_TOOLS_ASSETS is unchanged"
+            || die MSG-W6D7 "assets enable: no binding names the set ${AI_TOOLS_ASSETS__ID_SET} under ${AI_TOOLS_ASSETS_BINDINGS_DIR} or ${AI_TOOLS_ASSETS_OPERATOR_BINDINGS_DIR}, so ${identifier} is accepted only once a binding pins its signer; AI_TOOLS_ASSETS is unchanged"
     done
     assets_read_list entries
     for identifier in "$@"; do
