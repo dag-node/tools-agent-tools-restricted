@@ -475,7 +475,7 @@ else
         "$(stamp_days_ago 0)" "$(stamp_days_ago 15)" > "${CACHE_STATE}"
     rc=0; out="$(call_caches)" || rc=$?
     (( rc == 0 )) && grep -qE '\.npm/_npx +OVERDUE .*skipped \(unknown\)' <<<"${out}" \
-        && grep -qF 'could not tell whether another session' <<<"${out}" && ! grep -qF 'another session was active' <<<"${out}" \
+        && grep -qF 'no launch could tell whether another session' <<<"${out}" && ! grep -qF 'another session was active' <<<"${out}" \
         && pass "a launch group overdue because no launch could tell whether a session ran says so, not the sessions, and is not counted" \
         || fail "overdue unknown state: rc ${rc}: $(tr '\n' '|' <<<"${out}")"
     printf 'NPM_CACHE_RESULT=partial\nNPM_CACHE_CHECKED=%s\nNPM_CACHE_BYTES=1\nNPM_CACHE_LINKS=0\nNPM_CACHE_REASON=eacces\n' \
