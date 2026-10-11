@@ -508,6 +508,14 @@ a running session working; the walk is what makes the removal safe, so a session
 the file, so it can -- delays a cleanup by at most the bound or skips it, and reaches only its own account's cache,
 removed without following a link.
 
+**The listing goes through the account's own user bus, which refuses a process root switched into the account.**
+`ai-tools-run` is started through `sudo`, and cannot take the machine transport `install.sh` and the status reports
+reach that manager with, since it runs as the account; on a host whose bus refuses it, every launch reads the listing
+as `unknown` and records each due group `skipped (unknown)`, so the launch-timed caches are not removed and both reports
+show them `overdue`, which does not count toward the exit status. The direction is toward less removal: a launch does
+not remove a cache it could not check, and the nightly removal of npm's content cache does not read the listing.
+`integration/ai-tools-run.sh` records the refusal with the manager's error rather than failing.
+
 **A link is a finding where its producer writes none** (`MSG-J4Y8`). The declaration records per group whether its
 producer writes links, so a link in a group whose producer writes none was planted or left by a broken copy of the home.
 A link is removed as a link either way: refusing the removal would let one planted link stop the cleanup for good,
@@ -965,6 +973,13 @@ fails a command an operator may have run for a label (which is correct — an en
 published is the more serious finding, and it is reported first).
 
 ## Deferred
+
+**Reading the sessions without the user bus.** The launch-timed cleanup cannot read the listing where the account's user
+bus refuses the shim ([Removing a cache under the sandbox home](#removing-a-cache-under-the-sandbox-home) has
+the effect). Two replacements are weighed: counting the session units' cgroups under the account's `user@<uid>.service`,
+the tree `ai-tools-stop` finds sessions in, which does not need a bus; or moving the launch-timed groups
+to an administrator command that runs as root, refuses while a session runs, and removes through the same remover
+as the sandbox account, which drops the admission lock and the launch step.
 
 **Pinning the registry signing key.** Fetching the keys each run detects a mirror or cache that serves a tampered
 package without the real signature, but not a fully compromised primary registry that serves a forged package,

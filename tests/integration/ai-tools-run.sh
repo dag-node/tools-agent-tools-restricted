@@ -552,8 +552,15 @@ else
 fi
 
 # The live listing the cleaner reads, as the sandbox account with its runtime directory named as the shim names it:
-# the manager answers with a count rather than unknown, and a glob no unit matches counts none. Which states count is
+# where the manager answers, it answers with a count, and a glob no unit matches counts none. Which states count is
 # the unit file's table over fixture rows; a unit started to be listed is what no automated file makes.
+#
+# Where the account's own bus refuses a process root switched into it -- the refusal integration/systemd.sh
+# and install.sh reach the manager around with the machine transport, which the shim cannot use, since it runs
+# as the account -- both readings are `unknown`. That is the shipped limitation: every launch then skips
+# the launch-timed caches, a removal does not happen, and the Caches section shows them overdue for information
+# (updater.rule.md). It is recorded with `note` and the manager's error, not failed. Any other reading -- one unknown
+# beside a count, a count for the unmatched glob, an empty reading -- is a reader that disagrees with itself, and fails.
 crun_sandbox_uid="$(id -u "${SANDBOX_USER}" 2>/dev/null || true)"
 if [[ ! -r /usr/local/lib/ai-tools/cache-cleanup.lib.sh ]]; then
     skip "the live session listing" "cache-cleanup.lib.sh is not installed"
@@ -568,14 +575,17 @@ else
         _ "${crun_sandbox_uid}" "${SANDBOX_USER}-*-*.service" 'ai-tools-test-no-such-unit-*.service' 2>/dev/null || true)"
     if [[ "${crun_listing}" =~ ^[0-9]+\ 0$ ]]; then
         pass "the sandbox account's manager answers the session listing with a count (${crun_listing%% *} session unit(s)), and a glob no unit matches counts none"
-    else
-        # The library discards the manager's stderr, so the same listing is asked again here to name why it failed.
+    elif [[ "${crun_listing}" == "unknown unknown" ]]; then
+        # The library discards the manager's stderr, so the same listing is asked again here to name the refusal.
         # shellcheck disable=SC2016  # the inner shell expands these, not this one
         crun_listing_error="$(as_sandbox bash -c 'export XDG_RUNTIME_DIR="/run/user/$1"
             /usr/bin/timeout 5 /usr/bin/systemctl --user list-units --type=service --all --plain --no-legend >/dev/null
             printf " (exit %s)" "$?"' _ "${crun_sandbox_uid}" 2>&1 || true)"
         crun_listing_error="${crun_listing_error//$'\n'/ }"
-        fail "the live session listing did not read as a count and a zero: '${crun_listing}' -- systemctl --user as the account: ${crun_listing_error:0:300}"
+        note "the sandbox account's bus refuses the session listing, so no launch cleans the launch-timed caches on this host -- the shipped limitation" \
+            "systemctl --user as the account: ${crun_listing_error:0:300}"
+    else
+        fail "the live session listing read neither a count and a zero nor a refusal: '${crun_listing}'"
     fi
 fi
 
