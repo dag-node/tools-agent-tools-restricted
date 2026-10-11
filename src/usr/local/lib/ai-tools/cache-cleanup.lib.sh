@@ -205,7 +205,7 @@ ai_tools_cache_cleanup__remove_group() {
     esac
     if [[ "${link_policy}" == none && "${links}" =~ ^[0-9]+$ ]] && (( links > 0 )); then
         _ai_tools_cache_cleanup__report warning MSG-J4Y8 \
-            "${path} held ${links} symbolic link(s), which its producer does not write -- each was removed as a link and its target left alone; a process of the sandbox account planted it, or a copy of the home broke it" \
+            "${path} held ${links} symbolic link(s), which its producer does not write -- $(ai_tools_cache_cleanup__get_remedy links)" \
             "AI_TOOLS_PATH=${path}"
     fi
     printf '%s\n' "${record}"
@@ -453,14 +453,29 @@ ai_tools_cache_cleanup__format_cleaned_line() {
     return 0
 }
 
-# ai_tools_cache_cleanup__get_remedy <reason> : print what an operator does about a group left in place for <reason>.
+# ai_tools_cache_cleanup__get_remedy <reason|verdict> : print what an operator does about a group: left in place for
+#   a record's <reason>, or reported under the status verdict `links` or `overdue`. The warnings and both status reports
+#   print this one text.
 ai_tools_cache_cleanup__get_remedy() {
+    # shellcheck disable=SC2016  # the backticks mark a command for the reader and are printed, not run
     case "${1:-}" in
-        home-untrusted)   printf 'the sandbox home must be root-owned and not group- or other-writable: sudo ai-tools-admin system bootstrap' ;;
-        parent-untrusted) printf "the cache's parent must be a directory the sandbox account owns: sudo ai-tools-admin system bootstrap names the chown" ;;
-        unsafe-rmtree)    printf "this host's /usr/bin/python3 does not report a symlink-safe rmtree, so no cache is removed here" ;;
+        home-untrusted)   printf 'the sandbox home must be root-owned and not group- or other-writable: `sudo ai-tools-admin system bootstrap`' ;;
+        parent-untrusted) printf 'the parent of the cache must be a directory the sandbox account owns: `sudo ai-tools-admin system bootstrap` names the chown' ;;
+        unsafe-rmtree)    printf '/usr/bin/python3 on this host does not report a symlink-safe rmtree, so no cache is removed here' ;;
         timeout)          printf 'the next run removes the rest' ;;
+        links)            printf 'each was removed as a link and its target left alone; a process of the sandbox account planted it, or a copy of the home broke it -- `sudo ai-tools audit` names what ran in the sessions since' ;;
+        overdue)          printf 'another session was active at every launch for two weeks: end them all gracefully or with `ai-tools stop`, and the cleanup runs at the next session start' ;;
         *)                printf 'the cache stays as it is until a run removes it' ;;
+    esac
+}
+
+# ai_tools_cache_cleanup__format_result <result> <bytes> <reason> : print a record's result the way both status reports
+#   show it: `cleaned 4.2 GiB`, `absent`, or the result with its reason, `skipped (sessions)`.
+ai_tools_cache_cleanup__format_result() {
+    case "${1:-}" in
+        removed) printf 'cleaned %s' "$(ai_tools_cache_cleanup__format_bytes "${2:-}")" ;;
+        absent)  printf 'absent' ;;
+        *)       printf '%s (%s)' "${1:-?}" "${3:--}" ;;
     esac
 }
 

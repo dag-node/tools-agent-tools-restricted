@@ -134,7 +134,7 @@ call_status() {
                  source "${lib}" 2>/dev/null || true
                  status_entrypoints() { :; }; ai_tools_services__list_records() { :; }
                  status_selinux_attestation() { :; }; status_assets() { :; }; status_managed_files() { :; }
-                 status_unit_search_path() { :; }
+                 status_unit_search_path() { :; }; status_caches() { :; }
                  eval "${pre}"; status' _ "${HELPER}" "${SERVICES_LIB}" "$1" 2>&1
 }
 reset_fixtures; manifest alpha la; vlink la v9.9.9
@@ -278,6 +278,37 @@ else
     else
         fail "policy installed and not loaded: $(tr '\n' '|' <<<"${out}")"
     fi
+fi
+
+
+# ── The Caches section, and the size root reads beside it ─────────────────────────────────────
+# The verdicts are the library's and are pinned in unit/cli-agent-set.sh and unit/cache-cleanup.sh; this pins the count
+# this report keeps and the live size, read with du over a fixture home.
+section "ai-tools-admin status: the Caches section (unit)"
+# shellcheck disable=SC2016  # the $1..$4 are for the inner `bash -c`, not this shell -- do not expand here
+call_caches() {
+    bash -c 'helper="$1"; lib="$2"; home="$3"; state="$4"; set --; source "${helper}" >/dev/null 2>&1 || exit 99
+             declare -F status_caches >/dev/null || exit 98
+             source "${lib}" 2>/dev/null || true
+             status_caches "${home}" "${state}"; printf "problems=%s unreadable=%s\n" "${STATUS_PROBLEMS}" "${STATUS_UNREADABLE}"' \
+        _ "${HELPER}" "${SERVICES_LIB}" "$1" "$2" 2>&1
+}
+cache_home="${TESTDIR}/cache-home"; cache_state="${TESTDIR}/cache-cleanup.status"
+mkdir -p "${cache_home}/.npm/_cacache"
+head -c 2048 /dev/zero > "${cache_home}/.npm/_cacache/blob"
+printf 'NPM_CACHE_RESULT=refused\nNPM_CACHE_BYTES=0\nNPM_CACHE_LINKS=0\nNPM_CACHE_REASON=parent-untrusted\n' > "${cache_state}"
+rc=0; out="$(call_caches "${cache_home}" "${cache_state}")" || rc=$?
+if [[ "${rc}" -eq 98 ]]; then
+    skip "admin status Caches section" "status_caches absent (older helper?)"
+elif [[ ! -r /usr/local/lib/ai-tools/cache-cleanup.lib.sh ]]; then
+    grep -qF 'problems=0 unreadable=1' <<<"${out}" && grep -qF '[UNREADABLE]' <<<"${out}" \
+        && pass "a cache cleanup library that is not installed is an unreadable reading" \
+        || fail "no library: $(tr '\n' '|' <<<"${out}")"
+else
+    grep -qE '\[FAILED\] +\.npm/_cacache .*refused \(parent-untrusted\).*holds 2\.0 KiB now' <<<"${out}" \
+        && grep -qF 'problems=1 unreadable=0' <<<"${out}" && grep -qE '\[n/a\]|absent now' <<<"${out}" \
+        && pass "a refused group is counted, with the size its cache holds now and an absent cache named as such" \
+        || fail "admin caches: $(tr '\n' '|' <<<"${out}")"
 fi
 
 finish
