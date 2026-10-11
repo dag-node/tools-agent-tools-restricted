@@ -81,6 +81,20 @@ it runs from a `systemd` unit rather than the container's main process, change
 these in `ai-tools-selftest.service`'s `Environment=` or invoke
 `/usr/local/bin/ai-tools-selftest` directly via `podman exec`.
 
+## Upgrade from a published release
+
+```bash
+make -C packaging rpmupgrade-rocky9 UPGRADE_FROM=0.23.2
+```
+
+Installs the published `UPGRADE_FROM` from the signed repository the way
+the front page tells an operator to, then upgrades it to the RPMs this tree
+builds, once per scenario `container-upgrade-selftest.sh` states: the asset set
+`core` installed and listed in `operator.conf` first, and the set absent until
+after the upgrade. Each run prints an upgrade summary and exits non-zero
+on a failed phase. The images need the network; `rpmupgrade-rocky10` is
+the same on Rocky 10.
+
 ## Releasing
 
 The release process — branch model, tag grammar, RC prereleases,
@@ -122,7 +136,9 @@ which the selftest re-checks.
 `RpmBase.Containerfile` (shared recipe), `Rocky9.Containerfile` /
 `Rocky10.Containerfile` / `Fedora44.Containerfile` (per-distro pins),
 `container-selftest.sh` (the workflow), `ai-tools-selftest.service` (the
-boot-time runner). The package itself is built by `make rpm` (see
-the `Makefile`); for the security model and the manual install flow read
-the repository [`README.md`](../README.md)
+boot-time runner), and for the upgrade `Upgrade.Containerfile`,
+`container-upgrade-selftest.sh` and `ai-tools-upgrade-selftest.service`.
+The package itself is built by `make rpm` (see the `Makefile`);
+for the security model and the manual install flow read the repository
+[`README.md`](../README.md)
 and [`docs/rpm-packaging.md`](../docs/rpm-packaging.md).

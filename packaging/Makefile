@@ -7,6 +7,8 @@
 #   make rpmtest-rocky9   build + run the Rocky 9 RPM smoke-test container (see *.Containerfile)
 #   make rpmtest-rocky10  build + run the Rocky 10 RPM smoke-test container
 #   make rpmtest-fedora44 build + run the Fedora 44 RPM smoke-test container
+#   make rpmupgrade-rocky9   build + run the upgrade transaction selftest from UPGRADE_FROM on Rocky 9, each scenario
+#   make rpmupgrade-rocky10  the same on Rocky 10
 #
 # The tarball is built from the WORKING TREE (not `git archive`), so it includes
 # not-yet-committed sources during development.
@@ -75,12 +77,14 @@ FC44_PACKAGES ?= util-linux-script
 BUILD_FLAGS ?=
 
 .PHONY: all dist srpm rpm clean rpmbase-el9 rpmbase-el10 rpmbase-fc44 \
-        rpmtest-rocky9 rpmtest-rocky10 rpmtest-fedora44 pull-el9 pull-el10 pull-fc44 \
+        rpmtest-rocky9 rpmtest-rocky10 rpmtest-fedora44 rpmupgrade-rocky9 rpmupgrade-rocky10 \
+        pull-el9 pull-el10 pull-fc44 \
         check-version changelog hooks
 
 all:
 	@echo "make dist | srpm | rpm | clean | rpmbase-el9 | rpmbase-el10 | rpmbase-fc44"
-	@echo "     rpmtest-rocky9 | rpmtest-rocky10 | rpmtest-fedora44 | check-version | changelog | hooks"
+	@echo "     rpmtest-rocky9 | rpmtest-rocky10 | rpmtest-fedora44 | rpmupgrade-rocky9 | rpmupgrade-rocky10"
+	@echo "     check-version | changelog | hooks"
 
 # Assert VERSION, the newest %changelog entry, and (with TAG=vX.Y.Z) a tag all agree. The
 # release build runs this at tag time; run it by hand before tagging to catch a missing entry.
@@ -160,6 +164,26 @@ rpmtest-rocky10: rpmbase-el10
 rpmtest-fedora44: rpmbase-fc44
 	$(OCI) build $(BUILD_FLAGS) -t ai-tools-rpmtest:fc44 -f $(CURDIR)/Fedora44.Containerfile $(ROOT)
 	$(OCI) run --rm -t --systemd=always --ulimit core=0 ai-tools-rpmtest:fc44
+
+# The upgrade transaction from the published release UPGRADE_FROM to this tree's build, one image per scenario
+# (container-upgrade-selftest.sh states each), since the scenario is fixed when the published release is installed.
+# The images need the network: the published release and ai-tools-assets-core come from the signed repository.
+UPGRADE_FROM ?= 0.23.2
+UPGRADE_SCENARIOS = key-first without-core
+define rpmupgrade
+	set -e; for scenario in $(UPGRADE_SCENARIOS); do \
+	    $(OCI) build $(BUILD_FLAGS) -t ai-tools-rpmupgrade:$(1)-$$scenario -f $(CURDIR)/Upgrade.Containerfile \
+	        --build-arg BASE_IMAGE=$(2) --build-arg RPMBASE=ai-tools-rpmbase:$(1) \
+	        --build-arg FROM_VERSION=$(UPGRADE_FROM) --build-arg UPGRADE_SCENARIO=$$scenario $(ROOT); \
+	    $(OCI) run --rm -t --systemd=always --ulimit core=0 ai-tools-rpmupgrade:$(1)-$$scenario; \
+	done
+endef
+
+rpmupgrade-rocky9: rpmbase-el9
+	$(call rpmupgrade,el9,$(EL9_BASE))
+
+rpmupgrade-rocky10: rpmbase-el10
+	$(call rpmupgrade,el10,$(EL10_BASE))
 
 # The tarball asserts what it carries. The policy SOURCE must be there, since %build compiles
 # it; a policy BINARY must not, since a .pp in the tarball is one built on some other host's
