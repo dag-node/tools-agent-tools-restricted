@@ -119,6 +119,81 @@ done <<'ROWS'
 abc|
 ROWS
 
+# ── The launch step: which groups it removes, under the lock and the bound ─────────────────────
+# Driven over a fixture state file with the removal and the session count stubbed as shell functions after the library
+# loaded, so no tree is walked and no manager is asked; the lock is the real flock. Each call runs in its own subshell,
+# so a stub a case sets does not reach the next.
+section "cache-cleanup: the launch step (unit)"
+launch_state="${TESTDIR}/launch.status"
+launch_calls="${TESTDIR}/launch-calls"
+# launch_step <session-count> : run remove_due_groups with the session count stubbed; the removals it asks for are
+#   appended to launch_calls, the records it prints are stdout.
+launch_step() {
+    (
+        stub_session_count="$1"
+        ai_tools_cache_cleanup__read_active_session_count() { printf 'session-count %s\n' "$1" >> "${launch_calls}"; printf '%s' "${stub_session_count}"; }
+        ai_tools_cache_cleanup__remove_group() { printf 'remove %s %s\n' "$2" "$3" >> "${launch_calls}"; printf '%s\tremoved\t1048576\t0\t-\n' "$2"; }
+        ai_tools_cache_cleanup__remove_due_groups "${TESTDIR}" "${launch_state}" 'acct-*-*.service'
+    )
+}
+: > "${launch_state}"; : > "${launch_calls}"
+out="$(launch_step 0)"
+[[ "$(grep -c '^remove ' "${launch_calls}")" == 2 && "$(grep -c '^remove npm-cache' "${launch_calls}")" == 0 \
+   && "$(grep -c $'\tremoved\t' <<<"${out}")" == 2 && "$(grep -c '^session-count acct-\*-\*.service$' "${launch_calls}")" == 1 ]] \
+    && pass "never cleaned, no other session: both launch groups are removed and the nightly group is not" \
+    || fail "first launch: calls '$(tr '\n' '|' <"${launch_calls}")', records '$(tr '\n\t' '|>' <<<"${out}")'"
+grep -qE '^remove (npx|node-compile) (29|30)$' "${launch_calls}" \
+    && pass "a removal is given the time left of the step's bound" || fail "bound passed: $(tr '\n' '|' <"${launch_calls}")"
+[[ -n "$(ai_tools_services__read_stamp_field "${launch_state}" NPX_CLEANED)" \
+   && -n "$(ai_tools_services__read_stamp_field "${launch_state}" NODE_COMPILE_CLEANED)" ]] \
+    && pass "the removals are recorded with CLEANED" || fail "state after a launch: $(tr '\n' '|' <"${launch_state}")"
+: > "${launch_calls}"
+out="$(launch_step 0)"
+[[ -z "${out}" && ! -s "${launch_calls}" ]] \
+    && pass "a launch with no group due reads the state alone: no session count, no removal, no record" \
+    || fail "second launch: calls '$(tr '\n' '|' <"${launch_calls}")', records '$(tr '\n\t' '|>' <<<"${out}")'"
+for sessions_case in 3 unknown; do
+    : > "${launch_state}"; : > "${launch_calls}"
+    out="$(launch_step "${sessions_case}")"
+    want_reason=sessions; [[ "${sessions_case}" == unknown ]] && want_reason=unknown
+    [[ "$(grep -c '^remove ' "${launch_calls}")" == 0 && "$(grep -c $'\tskipped\t0\t0\t'"${want_reason}"'$' <<<"${out}")" == 2 \
+       && "$(ai_tools_services__read_stamp_field "${launch_state}" NPX_RESULT)" == skipped \
+       && -z "$(ai_tools_services__read_stamp_field "${launch_state}" NPX_CLEANED)" ]] \
+        && pass "a session count of ${sessions_case} skips both groups, recorded as skipped ${want_reason}" \
+        || fail "session count ${sessions_case}: calls '$(tr '\n' '|' <"${launch_calls}")', records '$(tr '\n\t' '|>' <<<"${out}")'"
+done
+# Serialized: a launch holding the lock makes the next one wait, and the waiter re-reads the due test under the lock,
+# so a group the holder cleaned while it waited is not removed twice. The holder takes the lock with both groups due,
+# writes CLEANED for both once the second launch has read them as due and is waiting, and releases.
+: > "${launch_state}"; : > "${launch_calls}"
+(
+    ai_tools_cache_cleanup__lock "${launch_state}" 5 || exit 1
+    sleep 1
+    ai_tools_cache_cleanup__write_state "${launch_state}" $'npx\tremoved\t1\t0\t-' $'node-compile\tremoved\t1\t0\t-'
+    sleep 1
+    ai_tools_cache_cleanup__unlock
+) &
+lock_holder=$!
+sleep 0.5
+started=${SECONDS}
+out="$(launch_step 0)"
+waited=$(( SECONDS - started ))
+wait "${lock_holder}" || true
+[[ -z "${out}" && "$(grep -c '^remove ' "${launch_calls}")" == 0 ]] && (( waited >= 1 )) \
+    && pass "a second launch waits for the lock and does not remove what the first just cleaned (waited ${waited}s)" \
+    || fail "contended launch: waited ${waited}s, calls '$(tr '\n' '|' <"${launch_calls}")', records '$(tr '\n\t' '|>' <<<"${out}")'"
+
+while IFS='|' read -r records want what; do
+    [[ -n "${what}" ]] || continue
+    mapfile -t record_list < <(printf '%b' "${records}")
+    got="$(ai_tools_cache_cleanup__format_cleaned_line "${record_list[@]}")"
+    [[ "${got}" == "${want}" ]] && pass "line: ${what}" || fail "line: ${what}: got '${got}', want '${want}'"
+done <<'ROWS'
+npx\tremoved\t23068672\t0\t-\nnode-compile\tremoved\t16777216\t0\t-|cleaned .npm/_npx (22 MiB), .cache/node-compile-cache (16 MiB)|two removals in one line
+npx\tskipped\t0\t0\tsessions\nnode-compile\tabsent\t0\t0\t-||a skip and an absent group print no line
+npx\tpartial\t5\t0\ttimeout\nnode-compile\tremoved\t512\t0\t-|cleaned .cache/node-compile-cache (512 B)|a partial removal is not named as cleaned
+ROWS
+
 # ── The guard and the tool paths, read as source ──────────────────────────────────────────────
 # The walk refuses where Python does not report the fd-based rmtree, and every tool is named by absolute path, since
 # the bootstrap's step runs with PATH=/usr/bin:/bin and a launch's environment is the shim's allowlist.

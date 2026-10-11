@@ -1,19 +1,18 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: AGPL-3.0-only
 # /usr/local/lib/ai-tools/cache-cleanup.lib.sh
-# The one removal every path that empties a cache under the sandbox home goes through, and the state record
-# of what each removal did. Any process of the sandbox account can rename an entry inside its own caches while
-# a removal runs, so the removal walks by directory file descriptors and does not follow a symbolic link:
-# shutil.rmtree in the host's /usr/bin/python3, run only where Python reports shutil.rmtree.avoids_symlink_attacks.
-# A directory swapped for a link mid-walk has the link unlinked or left, and its target is not entered.
-# The groups, when each is removed, the state file and the callers are in updater.rule.md; the launch-time step
-# is in launch.rule.md.
+# The one removal every path that empties a cache under the sandbox home goes through, and the state record of what each
+# removal did. Any process of the sandbox account can rename an entry inside its own caches while a removal runs,
+# so the removal walks by directory file descriptors and does not follow a symbolic link: shutil.rmtree in the host's
+# /usr/bin/python3, run only where Python reports shutil.rmtree.avoids_symlink_attacks. A directory swapped for a link
+# mid-walk has the link unlinked or left, and its target is not entered. The groups, when each is removed, the state
+# file and the callers are in updater.rule.md; the launch-time step is in launch.rule.md.
 #
-# Sourced, not executed. Deployed 644 root:root: it holds shipped logic and does not read operator data.
-# conf.lib.sh (the trust predicate over the home), sandbox-exec.lib.sh (the identity a removal requires) and
-# services.lib.sh (the defensive field reader the state file is read through) are REQUIRED: a load that fails does not
-# define any function here and returns non-zero, the shape providers.lib.sh takes over conf.lib.sh, so every consumer
-# probes for a function before trusting the source.
+# Sourced, not executed. Deployed 644 root:root: it holds shipped logic and does not read operator data. conf.lib.sh
+# (the trust predicate over the home), sandbox-exec.lib.sh (the identity a removal requires) and services.lib.sh (the
+# defensive field reader the state file is read through) are REQUIRED: a load that fails does not define any function
+# here and returns non-zero, the shape providers.lib.sh takes over conf.lib.sh, so every consumer probes for a function
+# before trusting the source.
 
 # Include guard, as an if-statement: `[[ ]] && return` returns 1 for an unset guard and trips a sourcing shell's
 # `set -e`.
@@ -39,9 +38,9 @@ _AI_TOOLS_CACHE_CLEANUP__LOADED=1
 
 # The home every caller passes, the state file every writer rewrites, and the three readonly settings: how often
 # a launch removes a launch-timed group, how long the launch step may take across every group it removes, and the age
-# of a launch-timed group's last removal past which both status reports count it. The state path is a constant
-# and no environment variable moves it: its writers run as the sandbox account, so a variable that account could set
-# would move a write the unconfined updater makes. The status reports read it through their own root-only override.
+# of a launch-timed group's last removal past which both status reports count it. The state path is a constant and no
+# environment variable moves it: its writers run as the sandbox account, so a variable that account could set would move
+# a write the unconfined updater makes. The status reports read it through their own root-only override.
 # shellcheck disable=SC2034  # read by ai-tools-run, nvm-update and ai-tools-bootstrap
 readonly AI_TOOLS_CACHE_CLEANUP__SANDBOX_HOME="/opt/ai-tools"
 # shellcheck disable=SC2034  # read by ai-tools-run, nvm-update, ai-tools-bootstrap and both status reports
@@ -52,11 +51,11 @@ readonly AI_TOOLS_CACHE_CLEANUP__LAUNCH_BOUND_SECONDS=30
 readonly AI_TOOLS_CACHE_CLEANUP__OVERDUE_SECONDS=1209600
 
 # The groups: name, path under the home, timing, whether its producer writes links, and the state file's key prefix.
-# npm-cache holds content-addressed tarballs no process executes, so the updater removes it after every run whatever
-# is running. npx holds packages `npx` installed, which a session can be executing, and node-compile holds compile
-# output a running node reads, so each is removed at a launch with no other session active. npm writes
-# node_modules/.bin links under _npx, so a link there is expected; _cacache and node-compile-cache hold no link
-# a producer writes.
+# npm-cache holds content-addressed tarballs that npm reads and a process does not execute, so the updater removes it
+# after every run whatever is running. npx holds packages `npx` installed, which a session can be executing,
+# and node-compile holds compile output a running node reads, so each is removed at a launch with no other session
+# active. npm writes node_modules/.bin links under _npx, so a link there is expected; _cacache and node-compile-cache
+# hold no link a producer writes.
 readonly -a _AI_TOOLS_CACHE_CLEANUP__GROUPS=(
     $'npm-cache\t.npm/_cacache\tnightly\tnone\tNPM_CACHE'
     $'npx\t.npm/_npx\tlaunch\texpected\tNPX'
@@ -66,11 +65,11 @@ readonly -a _AI_TOOLS_CACHE_CLEANUP__GROUPS=(
 # The results a record carries. removed and absent leave the group clean; every other one carries a reason token.
 readonly _AI_TOOLS_CACHE_CLEANUP__RESULTS='removed absent partial refused failed skipped'
 
-# The walk: one isolated python3 program reading the home and the group's path from argv. It prints `counted <bytes>
-# <links>` once the report pass ends, so a bound that cuts the removal short still reports what the tree held,
-# then one `<result> <bytes> <links> <reason>` line. Every exit it takes on purpose is status 0, so a non-zero status is
-# the interpreter failing. The report pass sums regular files once per inode and counts every link, and reads
-# the filesystem of every directory, since rmtree descends into a mount point and a cache holds none.
+# The walk: one isolated python3 program reading the home and the group's path from argv. It prints
+# `counted <bytes> <links>` once the report pass ends, so a bound that cuts the removal short still reports
+# what the tree held, then one `<result> <bytes> <links> <reason>` line. Every exit it takes on purpose is status 0,
+# so a non-zero status is the interpreter failing. The report pass sums regular files once per inode and counts every
+# link, and reads the filesystem of every directory, since rmtree descends into a mount point and a cache holds none.
 # A FileNotFoundError during the removal is a concurrent removal and is ignored; any other error leaves the result
 # partial, named by its errno, or `swapped` for the directory rmtree found replaced by a link.
 _AI_TOOLS_CACHE_CLEANUP__WALK_PROGRAM=""
@@ -146,8 +145,8 @@ _ai_tools_cache_cleanup__log() {
     return 0
 }
 
-# _ai_tools_cache_cleanup__report <level> <code> <message> [FIELD=value...] : a coded situation, its code on its own line
-#   then the message on stderr (a terminal, or the journal a unit routes it to), and one journald record carrying
+# _ai_tools_cache_cleanup__report <level> <code> <message> [FIELD=value...] : a coded situation, its code on its own
+#   line then the message on stderr (a terminal, or the journal a unit routes it to), and one journald record carrying
 #   the code as AI_TOOLS_MSG, where log.lib.sh loaded. stdout carries the records, so it is left alone. Always 0.
 _ai_tools_cache_cleanup__report() {
     local level="$1" code="$2" message="$3"; shift 3
@@ -174,13 +173,13 @@ _ai_tools_cache_cleanup__get_group() {
 #   one record, `group<TAB>result<TAB>bytes<TAB>links<TAB>reason`, reason `-` where there is none. 0 for removed
 #   and absent, 1 otherwise. The process is the sandbox account, <group> a declared name whose path comes from
 #   the declaration, <home> passes ai_tools_conf__is_trusted, and the group's first component is a directory that
-#   account owns, so no component above the removed directory can be renamed by it; each check that fails is
-#   `refused` with its reason, and nothing is removed. With [seconds] the walk runs under timeout -k 5, and a walk cut
-#   short is `partial timeout`.
+#   account owns, so it cannot rename a component between the home and the removed directory; each check that fails
+#   is `refused` with its reason, and the tree is left as it was. With [seconds] the walk runs under timeout -k 5,
+#   and a walk cut short is `partial timeout`.
 #
-#   Each call is journalled under the caller's AI_TOOLS_LOG_TAG: the removal it starts at DEBUG, and its outcome after --
-#   removed or absent at INFO, a group not removed under MSG-G5U7 (ERROR when refused or failed, WARNING when partial),
-#   and links in a group whose producer writes none under MSG-J4Y8 at WARNING, those two on stderr as well.
+#   Each call is journalled under the caller's AI_TOOLS_LOG_TAG: the removal it starts at DEBUG, and its outcome
+#   after -- removed or absent at INFO, a group not removed under MSG-G5U7 (ERROR when refused or failed, WARNING when
+#   partial), and links in a group whose producer writes none under MSG-J4Y8 at WARNING, those two on stderr as well.
 ai_tools_cache_cleanup__remove_group() {
     local home="${1:-}" group="${2:-}" declaration relative="" link_policy=none record result bytes links reason
     local path log_result level size
@@ -217,7 +216,7 @@ ai_tools_cache_cleanup__remove_group() {
 #   ai_tools_cache_cleanup__remove_group, printing its record without logging it.
 _ai_tools_cache_cleanup__remove_checked() {
     local home="${1:-}" group="${2:-}" seconds="${3:-}" declaration relative first_component owner
-    # A name the declaration does not hold is printed as `-`, so the record carries no byte the caller supplied.
+    # A name the declaration does not hold is printed as `-`, so the record does not carry a byte the caller supplied.
     declaration="$(_ai_tools_cache_cleanup__get_group "${group}")" || group=-
     if ! ai_tools_sandbox_exec__is_sandbox_account; then
         printf '%s\trefused\t0\t0\tnot-sandbox\n' "${group}"
@@ -300,10 +299,10 @@ ai_tools_cache_cleanup__read_cleaned_epoch() {
     printf '%s' "${epoch}"
 }
 
-# ai_tools_cache_cleanup__write_state <state-file> <record>... : rewrite the existing, non-symlink <state-file> in place,
-#   one block per declared group: a group a record names takes that record with CHECKED now and, for removed or absent,
-#   CLEANED now; every other group keeps the values the file held. A value outside its shape is not written. The caller
-#   holds the lock. Non-zero where the file is absent, a symlink, or not writable.
+# ai_tools_cache_cleanup__write_state <state-file> <record>... : rewrite the existing, non-symlink <state-file>
+#   in place, one block per declared group: a group a record names takes that record with CHECKED now and, for removed
+#   or absent, CLEANED now; every other group keeps the values the file held. A value outside its shape is not written.
+#   The caller holds the lock. Non-zero where the file is absent, a symlink, or not writable.
 ai_tools_cache_cleanup__write_state() {
     local state="${1:-}"; shift
     [[ -n "${state}" && ! -L "${state}" && -f "${state}" && -w "${state}" ]] || return 1
@@ -374,6 +373,86 @@ ai_tools_cache_cleanup__record() {
     return "${rc}"
 }
 
+# ai_tools_cache_cleanup__read_active_session_count <unit-glob> : print how many of this account's service units
+#   matching <unit-glob> are active or activating in its user manager, or `unknown` where the manager's answer could
+#   not be read within five seconds. The caller passes the glob its own session unit names match; a launch reads it
+#   before its own unit exists, so every unit it counts is another session.
+ai_tools_cache_cleanup__read_active_session_count() {
+    local unit_glob="${1:-}" units unit count=0
+    [[ -n "${unit_glob}" ]] || { printf 'unknown'; return 0; }
+    units="$(/usr/bin/timeout 5 /usr/bin/systemctl --user list-units --type=service --state=active,activating \
+                 --plain --no-legend 2>/dev/null)" || { printf 'unknown'; return 0; }
+    while read -r unit _; do
+        # shellcheck disable=SC2053  # the glob is the caller's constant, matched as a pattern
+        [[ -n "${unit}" && "${unit}" == ${unit_glob} ]] && count=$(( count + 1 ))
+    done <<<"${units}"
+    printf '%s' "${count}"
+}
+
+# ai_tools_cache_cleanup__remove_due_groups <home> <state-file> <session-unit-glob> : remove each launch-timed group
+#   under <home> that is due, and print its record. It takes <state-file>'s lock itself and holds it from the due test
+#   to the state write, where ai_tools_cache_cleanup__remove_group takes none. With no group due it reads <state-file>
+#   and returns. Otherwise the whole step stays inside one bound: the lock is waited for within it, the due test is read
+#   again under the lock (a launch that held it may have just cleaned), and each removal takes the time left. A group
+#   skipped for another session, an unread session count or the bound spent is recorded `skipped`; the state is written
+#   and the lock released before return. Each skip is journalled under the caller's AI_TOOLS_LOG_TAG, as each removal
+#   is. Always 0: housekeeping is not a launch gate.
+ai_tools_cache_cleanup__remove_due_groups() {
+    local home="${1:-}" state="${2:-}" unit_glob="${3:-}" bound="${AI_TOOLS_CACHE_CLEANUP__LAUNCH_BOUND_SECONDS}"
+    local group timing now deadline active_sessions verdict record
+    local -a due_groups=() launch_records=()
+    now="$(/usr/bin/date -u +%s)"
+    while IFS=$'\t' read -r group _ timing _ _; do
+        [[ "${timing}" == launch ]] || continue
+        if ai_tools_cache_cleanup__is_launch_due "${now}" "$(ai_tools_cache_cleanup__read_cleaned_epoch "${state}" "${group}")"; then
+            due_groups+=( "${group}" )
+        fi
+    done < <(ai_tools_cache_cleanup__list_groups)
+    (( ${#due_groups[@]} > 0 )) || return 0
+
+    deadline=$(( SECONDS + bound ))
+    if ! ai_tools_cache_cleanup__lock "${state}" "${bound}"; then
+        _ai_tools_cache_cleanup__log info "launch cleanup skipped: ${state} stayed locked for ${bound}s"
+        return 0
+    fi
+    active_sessions="$(ai_tools_cache_cleanup__read_active_session_count "${unit_glob}")"
+    for group in "${due_groups[@]}"; do
+        now="$(/usr/bin/date -u +%s)"
+        verdict="$(ai_tools_cache_cleanup__evaluate_launch "${now}" \
+                       "$(ai_tools_cache_cleanup__read_cleaned_epoch "${state}" "${group}")" "${active_sessions}")"
+        (( deadline - SECONDS >= 1 )) || [[ "${verdict}" != run ]] || verdict=timeout
+        case "${verdict}" in
+            not-due) continue ;;
+            run)     record="$(ai_tools_cache_cleanup__remove_group "${home}" "${group}" \
+                                   $(( deadline - SECONDS )))" || true ;;
+            *)       record="${group}"$'\tskipped\t0\t0\t'"${verdict}"
+                     _ai_tools_cache_cleanup__log info "launch cleanup of ${group} skipped (${verdict})" ;;
+        esac
+        launch_records+=( "${record}" )
+        printf '%s\n' "${record}"
+    done
+    ai_tools_cache_cleanup__write_state "${state}" "${launch_records[@]}" \
+        || _ai_tools_cache_cleanup__log warning "launch cleanup: ${state} was not rewritten"
+    ai_tools_cache_cleanup__unlock
+    return 0
+}
+
+# ai_tools_cache_cleanup__format_cleaned_line <record>... : print the one line a launch shows for its removals,
+#   `cleaned .npm/_npx (22 MiB), .cache/node-compile-cache (16 MiB)`, from the records whose result is removed; empty
+#   where none is.
+ai_tools_cache_cleanup__format_cleaned_line() {
+    local record group result bytes declaration relative line=""
+    for record in "$@"; do
+        IFS=$'\t' read -r group result bytes _ _ <<<"${record}"
+        [[ "${result}" == removed ]] || continue
+        declaration="$(_ai_tools_cache_cleanup__get_group "${group}")" || continue
+        IFS=$'\t' read -r _ relative _ _ _ <<<"${declaration}"
+        line+="${line:+, }${relative} ($(ai_tools_cache_cleanup__format_bytes "${bytes}"))"
+    done
+    [[ -n "${line}" ]] && printf 'cleaned %s' "${line}"
+    return 0
+}
+
 # ai_tools_cache_cleanup__get_remedy <reason> : print what an operator does about a group left in place for <reason>.
 ai_tools_cache_cleanup__get_remedy() {
     case "${1:-}" in
@@ -386,7 +465,7 @@ ai_tools_cache_cleanup__get_remedy() {
 }
 
 # ai_tools_cache_cleanup__format_bytes <bytes> : print a size the way an operator reads it: `512 B`, `4.3 GiB`, `22 MiB`
-#   (one decimal below ten of a unit). Empty for a value that is not a whole number.
+#   (one decimal below 10 of a unit). Empty for a value that is not a whole number.
 ai_tools_cache_cleanup__format_bytes() {
     local bytes="${1:-}" unit=0 scaled
     local -a units=( B KiB MiB GiB TiB )
@@ -422,11 +501,11 @@ ai_tools_cache_cleanup__evaluate_state() {
     fi
 }
 
-# ai_tools_cache_cleanup__list_report <state-file> : print, per declared group,
+# ai_tools_cache_cleanup__list_group_statuses <state-file> : print, per declared group,
 #   `name<TAB>path<TAB>verdict<TAB>result<TAB>bytes<TAB>links<TAB>reason<TAB>checked-age<TAB>cleaned-age`, each value
 #   read through ai_tools_services__read_stamp_field and `-` where the record does not carry it, the ages in seconds.
 #   The two status reports render this one reading.
-ai_tools_cache_cleanup__list_report() {
+ai_tools_cache_cleanup__list_group_statuses() {
     local state="${1:-}" declaration name relative timing link_policy key field verdict checked_age cleaned_age
     local -A value=()
     for declaration in "${_AI_TOOLS_CACHE_CLEANUP__GROUPS[@]}"; do

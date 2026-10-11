@@ -527,4 +527,18 @@ else
     fi
 fi
 
+# The launch-time cache cleanup walks a tree for up to its bound, so it runs ahead of the re-check, where it widens no
+# window, and only for a session launch: a print-and-exit run does not load the library. Read as source like
+# the re-check, since a launch that reaches the step starts a session.
+# shellcheck disable=SC2016  # grep patterns over the shim's own text
+crun_cleanup_line="$(grep -n 'ai_tools_cache_cleanup__remove_due_groups "' "${CRUN}" | head -n1 | cut -d: -f1)"
+crun_cleanup_gate_line="$(grep -n '^if (( show_banner )); then$' "${CRUN}" | tail -n1 | cut -d: -f1)"
+if [[ -z "${crun_cleanup_line}" || -z "${crun_recheck_line}" || -z "${crun_cleanup_gate_line}" ]]; then
+    fail "ai-tools-run's cache cleanup step, its session-launch gate or the re-check is no longer where this reads it (cleanup '${crun_cleanup_line}', gate '${crun_cleanup_gate_line}', re-check '${crun_recheck_line}')"
+elif (( crun_cleanup_gate_line < crun_cleanup_line && crun_cleanup_line < crun_recheck_line )); then
+    pass "ai-tools-run cleans the launch caches for a session launch alone, ahead of the last-moment re-check"
+else
+    fail "the cache cleanup step (line ${crun_cleanup_line}) is not inside the session-launch gate (line ${crun_cleanup_gate_line}) ahead of the re-check (line ${crun_recheck_line})"
+fi
+
 finish
