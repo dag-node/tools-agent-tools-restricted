@@ -415,6 +415,8 @@ chmod 0644 %{buildroot}%{ai_libdir}/keys/dag-node-package-signing.gpg
 install -d -m 0755 %{buildroot}%{ai_libdir}/assets-bindings.d
 install -m 0644 src%{ai_libdir}/assets-bindings.d/core.conf     %{buildroot}%{ai_libdir}/assets-bindings.d/core.conf
 install -m 0644 src%{ai_libdir}/assets-bindings.d/ai-tools.conf %{buildroot}%{ai_libdir}/assets-bindings.d/ai-tools.conf
+# The operator's bindings, for sets of other publishers; shipped empty so the directory is root's before a file lands.
+install -d -m 0755 %{buildroot}%{_sysconfdir}/ai-tools/assets-bindings.d
 # The shared confinement shim. Base-owned and agent-agnostic: it resolves which agent may launch
 # from the manifests, so an ai-tools-agents-* package ships only its wrapper, manifest, and
 # session-env fragment, and one sudoers grant serves every agent.
@@ -1430,6 +1432,7 @@ fi
 %config %attr(0440, root, root) %{_sysconfdir}/sudoers.d/ai-tools
 %dir %attr(0755, root, root) %{_sysconfdir}/ai-tools
 %config(noreplace) %attr(0644, root, root) %{_sysconfdir}/ai-tools/operator.conf
+%dir %attr(0755, root, root) %{_sysconfdir}/ai-tools/assets-bindings.d
 %{_sysusersdir}/ai-tools.conf
 %dir %attr(2750, root, ai-tools) /var/opt/ai-tools
 %dir %attr(2770, root, ai-tools) /var/opt/ai-tools/sandbox-projects
@@ -1586,6 +1589,19 @@ fi
 %attr(0644, root, root) %{_datadir}/ai-tools/codex/managed_config.toml
 
 %changelog
+* Sun Oct 11 2026 dagnode <tools@dagnode.com> - 0.24.1-1
+- NEW: A set from another publisher installs and links the way core does. Write a binding
+  at /etc/ai-tools/assets-bindings.d/<set>.conf that names the key's primary fingerprint and points at
+  its binary keyring, install the set's package, then run 'sudo ai-tools-admin assets enable --set <set>'.
+  A set name that has a shipped binding is decided by that binding alone, so a binding you add cannot
+  add a signer to core. 'man ai-tools-assets' has the commands under BINDINGS; a publisher builds and
+  signs a set with the ai-tools-assets-tools workflows from the repository template
+  dag-node/ai-tools-assets-template.
+- FIX: A package scriptlet that calls a library function checks that the installed library defines it
+  first, and where it does not prints one 'ai-tools: skipped' line and exits 0. An upgrade from 0.23.x
+  still prints the old 'command not found' line and the line blaming jq once, because those packages
+  predate the check; they are harmless.
+
 * Sun Oct 11 2026 dagnode <tools@dagnode.com> - 0.24.0-1
 - CHANGE: The writing standard, the reftags, engineering and governance skills and the reference
   subagent ship as the asset set 'core' (package ai-tools-assets-core), not in ai-tools-base.

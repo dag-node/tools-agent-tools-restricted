@@ -1047,14 +1047,17 @@ it fail on `EACCES`, so the caller can tell "not permitted" from "the directory 
 is not driven here — it needs the vendor's live endpoint, `gpgv`, and a 300 MB hash — and its boundary half (neither
 the pin, the pin directory, the shipped key, nor the library is agent-writable) is in `boundary/access.sh`.
 
-`assets-verify.sh` is the runtime half of "a set links only under a signature a shipped binding names"
+`assets-verify.sh` is the runtime half of "a set links only under a signature the binding for its name pins"
 (`assets-verify.lib.sh`, see [shipped-assets](shipped-assets.rule.md)). It drives the installed library, as root,
 over a set it signs in the run with a throwaway key — so no signed fixture and no secret is committed, and the "signed
 by a key the binding does not name" case is a second key made the same way — through the root-only bindings hook,
 and asserts each refusal of the status contract under its code: every way the inventory stops describing the tree reads
 as a mismatch, every input that is absent, over its bound, untrusted or unmatched by the binding reads as unverified,
-and the control set verifies and prints its signer's primary. The pure predicates (the set-name and signer grammars) are
-driven as tables first. Its boundary half is `boundary/assets.sh`. `assets.sh` drives the resolver the verifier feeds
+and the control set verifies and prints its signer's primary. The operator directory is driven in both directions:
+a name that has no shipped binding reads its operator binding and verifies under it, a shipped name is decided
+by the shipped binding whatever the operator directory holds beside it, and a group-writable or absent operator
+directory refuses the operator-bound name alone. The pure predicates (the set-name and signer grammars) are driven
+as tables first. Its boundary half is `boundary/assets.sh`. `assets.sh` drives the resolver the verifier feeds
 (`assets.lib.sh`) the same way, over sets signed in the run through the shared recipe in `lib/asset-signing.sh`: each
 refusal of its predicate table is asserted on the record stream as its reason token and on the links left behind,
 with a sibling or a control linking beside it, and the view transaction's guarantees are driven where they can fail --

@@ -71,10 +71,11 @@ unset _ai_tools_assets__lib_dir
 _AI_TOOLS_ASSETS__LOADED=1
 
 # The roots in search order: local, packaged, base. The first two hold <root>/<set>/; the base root is itself the set
-# `ai-tools` when it holds a set.conf. The bindings directory is assets-verify.lib.sh's.
+# `ai-tools` when it holds a set.conf. The bindings directories are assets-verify.lib.sh's.
 : "${AI_TOOLS_ASSETS_ROOTS:=/usr/local/share/ai-tools-assets /usr/share/ai-tools-assets /usr/share/ai-tools}"
 : "${AI_TOOLS_ASSETS_HOME:=${CP_HOME}}"
 : "${AI_TOOLS_ASSETS_BINDINGS_DIR:=/usr/local/lib/ai-tools/assets-bindings.d}"
+: "${AI_TOOLS_ASSETS_OPERATOR_BINDINGS_DIR:=/etc/ai-tools/assets-bindings.d}"
 : "${AI_TOOLS_OPERATOR_CONF:=/etc/ai-tools/operator.conf}"
 # The pristine root whose <kind>/README.md is linked into each agent's kind directory, as the seeder links it.
 readonly AI_TOOLS_ASSETS__README_ROOT=/usr/share/ai-tools
@@ -1490,8 +1491,8 @@ _ai_tools_assets__evaluate_set() {
     local set_directory="$1" set="$2" reason verify_error verify_status=0 index token IFS=$' \t\n'
     [[ -n "${_AI_TOOLS_ASSETS__SET_STATE[${set_directory}]+x}" ]] && return 0
     _AI_TOOLS_ASSETS__SET_STATE["${set_directory}"]=ok; _AI_TOOLS_ASSETS__SET_DETAIL["${set_directory}"]=""
-    if [[ ! -e "${AI_TOOLS_ASSETS_BINDINGS_DIR}/${set}.conf" && ! -L "${AI_TOOLS_ASSETS_BINDINGS_DIR}/${set}.conf" ]]; then
-        _ai_tools_assets__refuse_set "${set_directory}" set-unbound "no shipped binding names ${set} under ${AI_TOOLS_ASSETS_BINDINGS_DIR}"
+    if ! ai_tools_assets__is_binding_present "${set}"; then
+        _ai_tools_assets__refuse_set "${set_directory}" set-unbound "no binding names ${set} under ${AI_TOOLS_ASSETS_BINDINGS_DIR} or ${AI_TOOLS_ASSETS_OPERATOR_BINDINGS_DIR}"
         return 0
     fi
     if ! reason="$(_ai_tools_assets__is_set_tree_trusted "${set_directory}")"; then
@@ -1655,10 +1656,12 @@ ai_tools_assets__parse_id() {
     return 0
 }
 
-# ai_tools_assets__is_binding_present <set> : succeed when a shipped binding names <set>, read as a path's presence; its
-# content is the verifier's to judge.
+# ai_tools_assets__is_binding_present <set> : succeed when a binding names <set>, shipped or the operator's, read
+# as a path's presence through ai_tools_assets_verify__find_binding; its content is the verifier's to judge. Fails
+# where the verifier did not load, since no binding is read then.
 ai_tools_assets__is_binding_present() {
-    [[ -e "${AI_TOOLS_ASSETS_BINDINGS_DIR}/$1.conf" || -L "${AI_TOOLS_ASSETS_BINDINGS_DIR}/$1.conf" ]]
+    declare -F ai_tools_assets_verify__find_binding >/dev/null 2>&1 || return 1
+    ai_tools_assets_verify__find_binding "$1" >/dev/null
 }
 
 # _ai_tools_assets__resolve_entry <entry> : resolve one entry of the list to its state, its winning copy, its kind
@@ -1678,7 +1681,7 @@ _ai_tools_assets__resolve_entry() {
     _AI_TOOLS_ASSETS__VIEW_NAME["${entry}"]="${view_name}"
     if ! ai_tools_assets__is_binding_present "${AI_TOOLS_ASSETS__ID_SET}"; then
         AI_TOOLS_ASSETS__STATE["${entry}"]="set-unbound"
-        AI_TOOLS_ASSETS__DETAIL["${entry}"]="no shipped binding names ${AI_TOOLS_ASSETS__ID_SET} under ${AI_TOOLS_ASSETS_BINDINGS_DIR}"
+        AI_TOOLS_ASSETS__DETAIL["${entry}"]="no binding names ${AI_TOOLS_ASSETS__ID_SET} under ${AI_TOOLS_ASSETS_BINDINGS_DIR} or ${AI_TOOLS_ASSETS_OPERATOR_BINDINGS_DIR}"
         return 0
     fi
     for (( index = 0; index < ${#_AI_TOOLS_ASSETS__ROOT_LIST[@]}; index++ )); do
@@ -2452,7 +2455,7 @@ ai_tools_assets__build_enable_snapshot() {
     _ai_tools_assets__read_receivers
     if ! ai_tools_assets__is_binding_present "${set}"; then
         AI_TOOLS_ASSETS__SNAPSHOT_STATE="set-unbound"
-        AI_TOOLS_ASSETS__SNAPSHOT_DETAIL="no shipped binding names ${set} under ${AI_TOOLS_ASSETS_BINDINGS_DIR}"
+        AI_TOOLS_ASSETS__SNAPSHOT_DETAIL="no binding names ${set} under ${AI_TOOLS_ASSETS_BINDINGS_DIR} or ${AI_TOOLS_ASSETS_OPERATOR_BINDINGS_DIR}"
         return 0
     fi
     for (( index = 0; index < ${#_AI_TOOLS_ASSETS__ROOT_LIST[@]}; index++ )); do
