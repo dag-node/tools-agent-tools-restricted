@@ -499,6 +499,9 @@ check_file /var/opt/ai-tools/state                            root              
 check_file_optional /var/opt/ai-tools/state/nvm-update.status "${SANDBOX_USER}" ai-ops            640
 # The cache cleanup state ships with base: its writers are ai-tools-run and the updater, as the sandbox account.
 check_file /var/opt/ai-tools/state/cache-cleanup.status       "${SANDBOX_USER}" ai-ops            640
+# The cache admission lock beside it: root-owned and group-readable, so a launch opens it to lock it and the account
+# cannot rewrite or replace it.
+check_file /var/opt/ai-tools/state/cache-cleanup.lock         root              "${SANDBOX_GROUP}" 440
 # The entrypoint pins. root:root and not group-writable, unlike the stamp beside them: a stamp reports and does not gate
 # a launch, while a pin is what the launch compares the agent binary against, so the account it constrains must not be
 # able to write it.

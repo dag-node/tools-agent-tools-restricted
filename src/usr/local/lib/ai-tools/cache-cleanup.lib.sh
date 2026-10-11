@@ -5,8 +5,10 @@
 # removal did. Any process of the sandbox account can rename an entry inside its own caches while a removal runs,
 # so the removal walks by directory file descriptors and does not follow a symbolic link: shutil.rmtree in the host's
 # /usr/bin/python3, run only where Python reports shutil.rmtree.avoids_symlink_attacks. A directory swapped for a link
-# mid-walk has the link unlinked or left, and its target is not entered. The groups, when each is removed, the state
-# file and the callers are in updater.rule.md; the launch-time step is in launch.rule.md.
+# mid-walk has the link unlinked or left, and its target is not entered. A group a running session uses is removed
+# by a session launch that holds the admission lock exclusive, which every admitted session holds shared for its
+# life, so a removal and a session do not overlap. The groups, when each is removed, the state file and the callers
+# are in updater.rule.md; the launch-time step is in launch.rule.md.
 #
 # Sourced, not executed. Deployed 644 root:root: it holds shipped logic and does not read operator data. conf.lib.sh
 # (the trust predicate over the home), sandbox-exec.lib.sh (the identity a removal requires) and services.lib.sh (the
@@ -45,6 +47,14 @@ _AI_TOOLS_CACHE_CLEANUP__LOADED=1
 readonly AI_TOOLS_CACHE_CLEANUP__SANDBOX_HOME="/opt/ai-tools"
 # shellcheck disable=SC2034  # read by ai-tools-run, nvm-update, ai-tools-bootstrap and both status reports
 readonly AI_TOOLS_CACHE_CLEANUP__STATE_FILE="/var/opt/ai-tools/state/cache-cleanup.status"
+# The admission lock beside the state file: every session launch holds it shared from its admission to the end of its
+# unit (the shim's process lives as long as systemd-run waits for the unit), and the launch that removes a launch-timed
+# group holds it exclusive from the due test to the state write. A launch is the cleaner only where no session holds
+# the lock, and no session is admitted while the cleaner holds it, so a removal and a session's start do not overlap,
+# and a unit still stopping keeps its caches. It is a file of its own, root-owned and readable by the account, since
+# the state file's lock serializes that file's writers, which the nightly updater is while sessions run.
+# shellcheck disable=SC2034  # read by ai-tools-run
+readonly AI_TOOLS_CACHE_CLEANUP__ADMISSION_LOCK="/var/opt/ai-tools/state/cache-cleanup.lock"
 readonly AI_TOOLS_CACHE_CLEANUP__LAUNCH_INTERVAL_SECONDS=604800
 # shellcheck disable=SC2034  # read by ai-tools-run, nvm-update and ai-tools-bootstrap
 readonly AI_TOOLS_CACHE_CLEANUP__LAUNCH_BOUND_SECONDS=30
@@ -303,8 +313,10 @@ ai_tools_cache_cleanup__read_cleaned_epoch() {
 }
 
 # ai_tools_cache_cleanup__write_state_locked <state-file> <record>... : rewrite the existing, non-symlink <state-file>
-#   in place, one block per declared group: a group a record names takes that record with CHECKED now and, for removed
-#   or absent, CLEANED now; every other group keeps the values the file held. A value outside its shape is not written.
+#   in place, one block per declared group: a group a record names takes that record with CHECKED now, FIRST_CHECKED
+#   kept from the file or now where it held none, and, for removed or absent, CLEANED now; every other group keeps
+#   the values the file held. FIRST_CHECKED is the age a group that has never been cleaned is judged by. A value outside
+#   its shape is not written.
 #   The caller holds the state file's lock (ai_tools_cache_cleanup__lock), so two writers do not interleave
 #   a read of the previous values with a write. Non-zero where the file is absent, a symlink, or not writable.
 ai_tools_cache_cleanup__write_state_locked() {
@@ -326,6 +338,8 @@ ai_tools_cache_cleanup__write_state_locked() {
         if [[ -n "${records[${group}]:-}" ]]; then
             IFS=$'\t' read -r _ result bytes links reason <<<"${records[${group}]}"
             text+="${key}_RESULT=${result}"$'\n'"${key}_CHECKED=${now}"$'\n'
+            value="$(ai_tools_services__read_stamp_field "${state}" "${key}_FIRST_CHECKED")"
+            text+="${key}_FIRST_CHECKED=${value:-${now}}"$'\n'
             if [[ "${result}" == removed || "${result}" == absent ]]; then
                 text+="${key}_CLEANED=${now}"$'\n'
             else
@@ -335,7 +349,7 @@ ai_tools_cache_cleanup__write_state_locked() {
             text+="${key}_BYTES=${bytes}"$'\n'"${key}_LINKS=${links}"$'\n'
             [[ "${reason}" != - ]] && text+="${key}_REASON=${reason}"$'\n'
         else
-            for field in RESULT CHECKED CLEANED BYTES LINKS REASON; do
+            for field in RESULT CHECKED FIRST_CHECKED CLEANED BYTES LINKS REASON; do
                 value="$(ai_tools_services__read_stamp_field "${state}" "${key}_${field}")"
                 [[ -n "${value}" ]] && text+="${key}_${field}=${value}"$'\n'
             done
@@ -379,69 +393,98 @@ ai_tools_cache_cleanup__write_state() {
     return "${rc}"
 }
 
-# ai_tools_cache_cleanup__read_active_session_count <unit-glob> : print how many of this account's service units
-#   matching <unit-glob> are active or activating in its user manager, or `unknown` where the manager's answer could
-#   not be read within five seconds. The caller passes the glob its own session unit names match; a launch reads it
-#   before its own unit exists, so every unit it counts is another session.
-ai_tools_cache_cleanup__read_active_session_count() {
-    local unit_glob="${1:-}" units unit count=0
-    [[ -n "${unit_glob}" ]] || { printf 'unknown'; return 0; }
-    units="$(/usr/bin/timeout 5 /usr/bin/systemctl --user list-units --type=service --state=active,activating \
-                 --plain --no-legend 2>/dev/null)" || { printf 'unknown'; return 0; }
-    # The unit name is the first space-separated column; the split is pinned, since the library is sourced into
-    # a script that sets IFS to newline and tab, where the whole line would read as the name and no session would count.
-    while IFS=$' \t' read -r unit _; do
-        # shellcheck disable=SC2053  # the glob is the caller's constant, matched as a pattern
-        [[ -n "${unit}" && "${unit}" == ${unit_glob} ]] && count=$(( count + 1 ))
-    done <<<"${units}"
-    printf '%s' "${count}"
+# The descriptor ai_tools_cache_cleanup__admit_session holds on the admission lock, or empty. It stays open
+# for the process's life, so the admission ends with the shim and the unit it waited for.
+_AI_TOOLS_CACHE_CLEANUP__ADMISSION_FD=""
+# What the last admission in this process was: cleaner, admitted or unadmitted.
+AI_TOOLS_CACHE_CLEANUP__ADMISSION=""
+
+# ai_tools_cache_cleanup__admit_session <lock-file> <wait-seconds> : take the admission lock for this process
+#   and publish AI_TOOLS_CACHE_CLEANUP__ADMISSION in the caller's shell -- a published value rather than a printed one,
+#   since the descriptor must be this process's. `cleaner`: the exclusive lock was taken at once, so no session holds
+#   it and this launch may remove a launch-timed group until ai_tools_cache_cleanup__share_admission. `admitted`:
+#   the shared lock was taken within <wait-seconds>, beside the sessions that hold it or after the cleaner that held it
+#   exclusive. `unadmitted`: the file could not be opened or the wait ran out, and no lock is held. Always 0.
+ai_tools_cache_cleanup__admit_session() {
+    local lock="${1:-}" wait="${2:-0}"
+    AI_TOOLS_CACHE_CLEANUP__ADMISSION=unadmitted
+    [[ -n "${lock}" && ! -L "${lock}" && -f "${lock}" && "${wait}" =~ ^[0-9]+$ ]] || return 0
+    { exec {_AI_TOOLS_CACHE_CLEANUP__ADMISSION_FD}<"${lock}"; } 2>/dev/null \
+        || { _AI_TOOLS_CACHE_CLEANUP__ADMISSION_FD=""; return 0; }
+    if /usr/bin/flock -n -x "${_AI_TOOLS_CACHE_CLEANUP__ADMISSION_FD}" 2>/dev/null; then
+        AI_TOOLS_CACHE_CLEANUP__ADMISSION=cleaner
+    elif /usr/bin/flock -w "${wait}" -s "${_AI_TOOLS_CACHE_CLEANUP__ADMISSION_FD}" 2>/dev/null; then
+        AI_TOOLS_CACHE_CLEANUP__ADMISSION=admitted
+    else
+        ai_tools_cache_cleanup__release_admission
+    fi
+    return 0
 }
 
-# ai_tools_cache_cleanup__remove_due_groups <home> <state-file> <session-unit-glob> : remove each launch-timed group
-#   under <home> that is due, and print its record. It takes <state-file>'s lock itself and holds it from the due test
-#   to the state write, where ai_tools_cache_cleanup__remove_group takes none. With no group due it reads <state-file>
-#   and returns. Otherwise the whole step stays inside one bound: the lock is waited for within it, the due test is read
-#   again under the lock (a launch that held it may have just cleaned), and each removal takes the time left. A group
-#   skipped for another session, an unread session count or the bound spent is recorded `skipped`; the state is written
-#   and the lock released before return. Each skip is journalled under the caller's AI_TOOLS_LOG_TAG, as each removal
-#   is. Always 0: housekeeping is not a launch gate.
+# ai_tools_cache_cleanup__share_admission : convert the cleaner's exclusive admission lock to the shared one every
+#   admitted session holds, so the launches waiting on it are admitted. flock converts by releasing and taking again,
+#   so a launch whose exclusive attempt lands in that instant is a cleaner beside this one; it finds what this one
+#   removed not due. Non-zero where no lock is held.
+ai_tools_cache_cleanup__share_admission() {
+    [[ -n "${_AI_TOOLS_CACHE_CLEANUP__ADMISSION_FD}" ]] || return 1
+    /usr/bin/flock -s "${_AI_TOOLS_CACHE_CLEANUP__ADMISSION_FD}" 2>/dev/null && AI_TOOLS_CACHE_CLEANUP__ADMISSION=admitted
+}
+
+# ai_tools_cache_cleanup__release_admission : close the admission descriptor, which releases the lock.
+ai_tools_cache_cleanup__release_admission() {
+    [[ -n "${_AI_TOOLS_CACHE_CLEANUP__ADMISSION_FD}" ]] || return 0
+    exec {_AI_TOOLS_CACHE_CLEANUP__ADMISSION_FD}<&-
+    _AI_TOOLS_CACHE_CLEANUP__ADMISSION_FD=""
+    AI_TOOLS_CACHE_CLEANUP__ADMISSION=unadmitted
+}
+
+# ai_tools_cache_cleanup__remove_due_groups <home> <state-file> <admission-lock> <records-array-name> : admit this
+#   launch through <admission-lock> and remove each launch-timed group under <home> that is due, appending each record
+#   to the caller's array. The admission is taken in this process and kept, shared, until the process ends: the caller
+#   is the shim, whose process ends with the session unit it waits for. As the cleaner -- no session held the lock --
+#   the step stays inside one bound: each removal takes the time left, the records are written under <state-file>'s
+#   own lock within what remains, and the admission is then shared. Admitted beside a session, or unadmitted, a due
+#   group is recorded `skipped` with its reason (`sessions`, or `unknown`), so the reports show why. With no group
+#   due the admission is taken and the state read alone. Each skip is journalled under the caller's AI_TOOLS_LOG_TAG,
+#   as each removal is. Always 0: housekeeping is not a launch gate.
 ai_tools_cache_cleanup__remove_due_groups() {
-    local home="${1:-}" state="${2:-}" unit_glob="${3:-}" bound="${AI_TOOLS_CACHE_CLEANUP__LAUNCH_BOUND_SECONDS}"
-    local group timing now deadline active_sessions verdict record
-    local -a due_groups=() launch_records=()
+    local home="${1:-}" state="${2:-}" lock="${3:-}" bound="${AI_TOOLS_CACHE_CLEANUP__LAUNCH_BOUND_SECONDS}"
+    local -n _ai_tools_cache_cleanup__records_out="$4"
+    local group timing now deadline other_sessions verdict record remaining
+    local -a launch_records=()
+    deadline=$(( SECONDS + bound ))
+    ai_tools_cache_cleanup__admit_session "${lock}" "${bound}"
+    case "${AI_TOOLS_CACHE_CLEANUP__ADMISSION}" in
+        cleaner)  other_sessions=0 ;;
+        admitted) other_sessions=1 ;;
+        *)        other_sessions=unknown
+                  _ai_tools_cache_cleanup__log info "launch cleanup: not admitted through ${lock} within ${bound}s" ;;
+    esac
     now="$(/usr/bin/date -u +%s)"
     while IFS=$'\t' read -r group _ timing _ _; do
         [[ "${timing}" == launch ]] || continue
-        if ai_tools_cache_cleanup__is_launch_due "${now}" "$(ai_tools_cache_cleanup__read_cleaned_epoch "${state}" "${group}")"; then
-            due_groups+=( "${group}" )
-        fi
-    done < <(ai_tools_cache_cleanup__list_groups)
-    (( ${#due_groups[@]} > 0 )) || return 0
-
-    deadline=$(( SECONDS + bound ))
-    if ! ai_tools_cache_cleanup__lock "${state}" "${bound}"; then
-        _ai_tools_cache_cleanup__log info "launch cleanup skipped: ${state} stayed locked for ${bound}s"
-        return 0
-    fi
-    active_sessions="$(ai_tools_cache_cleanup__read_active_session_count "${unit_glob}")"
-    for group in "${due_groups[@]}"; do
-        now="$(/usr/bin/date -u +%s)"
         verdict="$(ai_tools_cache_cleanup__evaluate_launch "${now}" \
-                       "$(ai_tools_cache_cleanup__read_cleaned_epoch "${state}" "${group}")" "${active_sessions}")"
+                       "$(ai_tools_cache_cleanup__read_cleaned_epoch "${state}" "${group}")" "${other_sessions}")"
+        [[ "${verdict}" != not-due ]] || continue
         (( deadline - SECONDS >= 1 )) || [[ "${verdict}" != run ]] || verdict=timeout
-        case "${verdict}" in
-            not-due) continue ;;
-            run)     record="$(ai_tools_cache_cleanup__remove_group "${home}" "${group}" \
-                                   $(( deadline - SECONDS )))" || true ;;
-            *)       record="${group}"$'\tskipped\t0\t0\t'"${verdict}"
-                     _ai_tools_cache_cleanup__log info "launch cleanup of ${group} skipped (${verdict})" ;;
-        esac
+        if [[ "${verdict}" == run ]]; then
+            record="$(ai_tools_cache_cleanup__remove_group "${home}" "${group}" $(( deadline - SECONDS )))" || true
+        else
+            record="${group}"$'\tskipped\t0\t0\t'"${verdict}"
+            _ai_tools_cache_cleanup__log info "launch cleanup of ${group} skipped (${verdict})"
+        fi
         launch_records+=( "${record}" )
-        printf '%s\n' "${record}"
-    done
-    ai_tools_cache_cleanup__write_state_locked "${state}" "${launch_records[@]}" \
-        || _ai_tools_cache_cleanup__log warning "launch cleanup: ${state} was not rewritten"
-    ai_tools_cache_cleanup__unlock
+    done < <(ai_tools_cache_cleanup__list_groups)
+    if (( ${#launch_records[@]} > 0 )); then
+        remaining=$(( deadline - SECONDS )); (( remaining >= 1 )) || remaining=1
+        ai_tools_cache_cleanup__write_state "${state}" "${remaining}" "${launch_records[@]}" \
+            || _ai_tools_cache_cleanup__log warning "launch cleanup: ${state} was not rewritten"
+    fi
+    if [[ "${AI_TOOLS_CACHE_CLEANUP__ADMISSION}" == cleaner ]]; then
+        ai_tools_cache_cleanup__share_admission \
+            || _ai_tools_cache_cleanup__log warning "launch cleanup: the admission lock was not shared"
+    fi
+    _ai_tools_cache_cleanup__records_out=( "${launch_records[@]}" )
     return 0
 }
 
@@ -471,6 +514,7 @@ ai_tools_cache_cleanup__get_remedy() {
         parent-untrusted) printf 'the parent of the cache must be a directory the sandbox account owns: `sudo ai-tools-admin system bootstrap` names the chown' ;;
         unsafe-rmtree)    printf '/usr/bin/python3 on this host does not report a symlink-safe rmtree, so no cache is removed here' ;;
         timeout)          printf 'the next run removes the rest' ;;
+        unknown)          printf 'the launch could not take the admission lock beside the state file within its bound; the next launch tries again, and a lock file that is absent is restored by reinstalling ai-tools-base' ;;
         links)            printf 'each was removed as a link and its target left alone; a process of the sandbox account planted it, or a copy of the home broke it -- `sudo ai-tools audit` names what ran in the sessions since' ;;
         overdue)          printf 'another session was active at every launch for two weeks: end them all gracefully or with `ai-tools stop`, and the cleanup runs at the next session start' ;;
         *)                printf 'the cache stays as it is until a run removes it' ;;
@@ -504,15 +548,18 @@ ai_tools_cache_cleanup__format_bytes() {
     fi
 }
 
-# ai_tools_cache_cleanup__evaluate_state <timing> <links-policy> <result> <links> <cleaned-age-seconds|-> : print
-#   the status verdict for one group: unknown where no result is recorded; failed for refused or failed; links for links
-#   in a group whose producer writes none; overdue for a launch-timed group last removed longer ago than the attention
-#   age; ok otherwise. Every verdict but ok and unknown counts toward a status report's exit.
+# ai_tools_cache_cleanup__evaluate_state <timing> <links-policy> <result> <links> <age-seconds|-> [reason] : print
+#   the status verdict for one group: unknown where no result is recorded; failed for refused or failed, and for
+#   a partial removal whose reason is not the bound's `timeout`, since an error the walk met repeats on the next run
+#   where a cut-short walk is continued by it; links for links in a group whose producer writes none; overdue
+#   for a launch-timed group whose <age> -- since its last removal, or since its first record where it has none -- is
+#   past the attention age; ok otherwise. Every verdict but ok and unknown counts toward a status report's exit.
 ai_tools_cache_cleanup__evaluate_state() {
-    local timing="${1:-}" link_policy="${2:-}" result="${3:-}" links="${4:-}" cleaned_age="${5:--}"
+    local timing="${1:-}" link_policy="${2:-}" result="${3:-}" links="${4:-}" cleaned_age="${5:--}" reason="${6:--}"
     case "${result}" in
         '')             printf 'unknown'; return 0 ;;
         refused|failed) printf 'failed';  return 0 ;;
+        partial)        [[ "${reason}" == timeout ]] || { printf 'failed'; return 0; } ;;
     esac
     if [[ "${link_policy}" == none && "${links}" =~ ^[0-9]+$ ]] && (( links > 0 )); then
         printf 'links'
@@ -527,9 +574,11 @@ ai_tools_cache_cleanup__evaluate_state() {
 # ai_tools_cache_cleanup__list_group_statuses <state-file> : print, per declared group,
 #   `name<TAB>path<TAB>verdict<TAB>result<TAB>bytes<TAB>links<TAB>reason<TAB>checked-age<TAB>cleaned-age`, each value
 #   read through ai_tools_services__read_stamp_field and `-` where the record does not carry it, the ages in seconds.
-#   The two status reports render this one reading.
+#   The verdict's age is the last removal's, or the first record's for a group never removed. The two status reports
+#   render this one reading.
 ai_tools_cache_cleanup__list_group_statuses() {
     local state="${1:-}" declaration name relative timing link_policy key field verdict checked_age cleaned_age
+    local first_checked_age
     local -A value=()
     for declaration in "${_AI_TOOLS_CACHE_CLEANUP__GROUPS[@]}"; do
         IFS=$'\t' read -r name relative timing link_policy key <<<"${declaration}"
@@ -538,8 +587,9 @@ ai_tools_cache_cleanup__list_group_statuses() {
         done
         checked_age="$(ai_tools_services__read_stamp_age "${state}" "${key}_CHECKED")"
         cleaned_age="$(ai_tools_services__read_stamp_age "${state}" "${key}_CLEANED")"
+        first_checked_age="$(ai_tools_services__read_stamp_age "${state}" "${key}_FIRST_CHECKED")"
         verdict="$(ai_tools_cache_cleanup__evaluate_state "${timing}" "${link_policy}" "${value[RESULT]}" \
-                       "${value[LINKS]}" "${cleaned_age:--}")"
+                       "${value[LINKS]}" "${cleaned_age:-${first_checked_age:--}}" "${value[REASON]:--}")"
         printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "${name}" "${relative}" "${verdict}" "${value[RESULT]:--}" \
             "${value[BYTES]:--}" "${value[LINKS]:--}" "${value[REASON]:--}" "${checked_age:--}" "${cleaned_age:--}"
     done

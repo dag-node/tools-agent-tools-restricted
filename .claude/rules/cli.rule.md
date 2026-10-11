@@ -403,12 +403,13 @@ an ordinary account read it — a partial view, the file sink being the authorit
   **Each cache the sandbox account cleans is reported**, in both reports, from the state file its removals rewrite
   ([ref-section-z4t8](updater.rule.md#ref-section-z4t8)): what the last cleanup did and when. The verdict and the remedy
   under it are `cache-cleanup.lib.sh`'s (`ai_tools_cache_cleanup__list_group_statuses`,
-  `ai_tools_cache_cleanup__get_remedy`), so the two reports cannot word one state two ways. A cleanup refused or failed,
-  links in a cache whose producer writes none, and a launch-cleaned cache whose last cleanup is older than the library's
-  attention age each count toward exit 4; the last is a host where another session was active at every launch, and its
-  remedy names ending them gracefully or with `ai-tools stop`. An empty state file reads `?`, as the empty stamp does,
-  and so does a file the caller cannot read; neither counts. `AI_TOOLS_CACHE_CLEANUP_STATE` moves the file the section
-  reads, the hook [tests](tests.rule.md) lists: it moves a report and no access decision.
+  `ai_tools_cache_cleanup__get_remedy`), so the two reports cannot word one state two ways. A cleanup refused, failed
+  or left partial by an error other than its bound, links in a cache whose producer writes none, and a launch-cleaned
+  cache whose last cleanup -- or, with none recorded, whose first record -- is older than the library's attention age
+  each count toward exit 4; the last is a host where another session was active at every launch, and its remedy names
+  ending them gracefully or with `ai-tools stop`. An empty state file reads `?`, as the empty stamp does, and so does
+  a file the caller cannot read; neither counts. `AI_TOOLS_CACHE_CLEANUP_STATE` moves the file the section reads,
+  the hook [tests](tests.rule.md) lists: it moves a report and no access decision.
 
   **The launch attestation is reported where SELinux is active**, in both reports, from the shim's own reader
   and verdict: whether `ai_tools_t` is a permissive domain and each Boolean that widens it

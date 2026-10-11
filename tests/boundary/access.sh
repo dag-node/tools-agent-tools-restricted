@@ -541,6 +541,18 @@ for _cache_path in /var/opt/ai-tools/state /usr/local/lib/ai-tools/cache-cleanup
         pass "the agent cannot write ${_cache_path}"
     fi
 done
+# The admission lock every launch holds: the account opens it to lock it and cannot write it, so a session holding it
+# delays or skips a cleanup, bounded by the launch step's wait, and cannot replace the inode every launch locks.
+_cache_lock=/var/opt/ai-tools/state/cache-cleanup.lock
+if [[ ! -e "${_cache_lock}" ]]; then
+    skip "the cache admission lock opens for the agent and is not agent-writable" "not present at ${_cache_lock}"
+elif ! runuser -u "${SANDBOX_USER}" -- test -r "${_cache_lock}" 2>/dev/null; then
+    fail "the agent cannot open ${_cache_lock} -- no launch is admitted, so no launch cleans a cache"
+elif runuser -u "${SANDBOX_USER}" -- test -w "${_cache_lock}" 2>/dev/null; then
+    fail "the agent can write ${_cache_lock}"
+else
+    pass "the agent opens ${_cache_lock} to lock it and cannot write it"
+fi
 
 # ── journald attribution: a tag is not an attribution, _UID is ───────────────────────────────
 # Every documented journal query pairs a syslog tag with the uid of that tag's legitimate writer

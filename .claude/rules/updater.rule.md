@@ -485,16 +485,23 @@ Ahead of the walk the remover requires the sandbox account as its caller (root a
 the library declares (the path comes from the declaration, never from an argument), a home passing
 `ai_tools_conf__is_trusted`, and the group's first component a directory the account owns, so the account cannot rename
 a component between the home and the removed directory. A group on another filesystem than the home is refused. Each
-refusal leaves the tree as it was and is reported under `MSG-G5U7`; with a bound, a walk cut short is `partial`. Each
-removal is journalled under the caller's tag, a DEBUG line before it and an INFO line or a coded warning after.
+refusal leaves the tree as it was and is reported under `MSG-G5U7`; with a bound, a walk cut short is `partial timeout`,
+which the next run continues, and a `partial` by any other error counts as failed in both status reports, since
+the error repeats. Each removal is journalled under the caller's tag, a DEBUG line before it and an INFO line or a coded
+warning after.
 
 **Two timings, decided by whether a live session uses the cache.** The declaration names each group's timing. npm's
 content cache holds tarballs that a session does not execute, so `nvm-update` empties it after its last install
 and `ai-tools-bootstrap` before its first, whatever is running. npx's packages and node's compile cache are used
 by a running session, so a session launch empties them ([launch](launch.rule.md)), at most once in the library's
-interval and only while no other session unit is active. The session check keeps a running session working; the walk is
-what makes the removal safe, so a session that evades the check reaches only its own account's cache, removed without
-following a link.
+interval and only as the **cleaner**: the launch that takes the admission lock
+(`/var/opt/ai-tools/state/cache-cleanup.lock`, `0440 root:SANDBOX_GROUP`, created like the state file) exclusive,
+which every admitted session holds shared from its launch until the shim's process ends with the unit, so no session is
+running or stopping while a removal runs, and a launch arriving during one is admitted once the cleaner has written its
+records and shared the lock. A launch not admitted within the bound starts without cleaning. The lock keeps a running
+session working; the walk is what makes the removal safe, so a session holding the lock -- the account opens the file,
+so it can -- delays a cleanup by at most the bound or skips it, and reaches only its own account's cache, removed
+without following a link.
 
 **A link is a finding where its producer writes none** (`MSG-J4Y8`). npm's content cache and node's compile cache do not
 hold a link, so one there was planted or left by a broken copy of the home; npx's cache holds npm's `node_modules/.bin`
@@ -506,14 +513,16 @@ stop the cleanup for good, and the volume would fill.
 and `install.sh`, and rewritten in place by its writers under a `flock` on the file, in the shared `KEY=value` grammar,
 one block per group. The path is a constant: its writers run as the account, and a variable that account could set would
 move a write the unconfined updater makes. The one decision it feeds is the launch's due test, so a forged value stops
-the account's own caches being cleaned, which costs disk and does not widen access. Both status reports render it
-through the stamp reader's defences ([cli](cli.rule.md)). The interval, the launch bound and the age past
-which the reports count a launch-cleaned cache are `readonly` constants in the library; `operator.conf` does not carry
-a key for them.
+the account's own caches being cleaned, which costs disk and does not widen access. `FIRST_CHECKED` dates a group's
+first record and is kept across every later one, so a launch-timed group never removed is judged by that age
+where the reports count a stale one. Both status reports render it through the stamp reader's defences
+([cli](cli.rule.md)). The interval, the launch bound and the age past which the reports count a launch-cleaned cache are
+`readonly` constants in the library; `operator.conf` does not carry a key for them.
 
-`tests/unit/cache-cleanup.sh` drives each refusal, the removal over a canary outside the fixture home, and the swap race
-against a path-walking control; `tests/boundary/access.sh` asserts the library and the state directory are not
-agent-writable and the state file is.
+`tests/unit/cache-cleanup.sh` drives each refusal, the removal over a canary outside the fixture home, the swap race
+against a path-walking control, and the launch step over the real admission lock; `tests/boundary/access.sh` asserts
+the library and the state directory are not agent-writable, the state file is, and the admission lock opens
+for the account and is not writable by it.
 
 ## A copy of the tree without its symlinks is repaired, not reported
 
@@ -722,12 +731,12 @@ provisioning](#toolchain-provisioning-system-bootstrap)). Two further paths run 
   executes the helper of one release against the libraries of another. The service is stopped with it, because stopping
   a `.path` does not end a run it already started, and a oneshot still active at the closing start absorbs that start
   rather than running again. `install.sh` stops both the same way for its run, and an `EXIT` trap starts the watcher
-  again whatever ends that run. The service unit **wants** the path unit, so a start
-  of the service — by hand, by the `%posttrans`, by the bootstrap or by `install.sh`, each of which runs it once
-  after its own relabel so the unit's recorded result is that run's — brings the watcher up with it. Should it be
-  down anyway, `services.lib.sh` surfaces it before the next Node bump would fail-close a launch on a mislabelled
-  entrypoint: proactively at launch (`launch-wrapper.lib.sh` warns, warn-not-block, from the same registry)
-  and in `ai-tools status` (see [cli](cli.rule.md)).
+  again whatever ends that run. The service unit **wants** the path unit, so a start of the service — by hand,
+  by the `%posttrans`, by the bootstrap or by `install.sh`, each of which runs it once after its own relabel
+  so the unit's recorded result is that run's — brings the watcher up with it. Should it be down anyway,
+  `services.lib.sh` surfaces it before the next Node bump would fail-close a launch on a mislabelled entrypoint:
+  proactively at launch (`launch-wrapper.lib.sh` warns, warn-not-block, from the same registry) and in `ai-tools status`
+  (see [cli](cli.rule.md)).
 - **On demand**, through `sudo ai-tools-admin system entrypoints relabel`, which runs the same helper as root. It is
   an administrator command rather than an operator one: it carries no `%ai-ops` NOPASSWD rule and is reached
   through the host's own general sudo grant, the axis [CLAUDE.md](../../CLAUDE.md) names (see

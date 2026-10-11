@@ -91,22 +91,37 @@ ai_tools_cache_cleanup__write_state_locked "${TESTDIR}/state-link" $'npx\tremove
 ai_tools_cache_cleanup__write_state_locked "${TESTDIR}/absent" $'npx\tremoved\t1\t0\t-' \
     && fail "write_state_locked created a file" || pass "write_state_locked refuses a file that does not exist, and creates none"
 [[ ! -e "${TESTDIR}/absent" ]] || fail "write_state_locked left a file at the absent path"
+# FIRST_CHECKED is written once and kept, so a group never removed has an age the reports judge it by.
+stamp_days_ago() { date -u -d "@$(( $(date -u +%s) - $1 * 86400 ))" +%Y-%m-%dT%H:%M:%SZ; }
+printf 'NPX_RESULT=skipped\nNPX_FIRST_CHECKED=2026-01-01T00:00:00Z\n' > "${state}"
+ai_tools_cache_cleanup__write_state_locked "${state}" $'npx\tskipped\t0\t0\tsessions'
+[[ "$(ai_tools_services__read_stamp_field "${state}" NPX_FIRST_CHECKED)" == 2026-01-01T00:00:00Z \
+   && -n "$(ai_tools_services__read_stamp_field "${state}" NPX_CHECKED)" ]] \
+    && pass "FIRST_CHECKED is kept across later records while CHECKED moves" || fail "state: $(tr '\n' '|' <"${state}")"
+printf 'NPX_RESULT=skipped\nNPX_CHECKED=%s\nNPX_FIRST_CHECKED=%s\nNPX_REASON=sessions\nNODE_COMPILE_RESULT=skipped\nNODE_COMPILE_CHECKED=%s\nNODE_COMPILE_FIRST_CHECKED=%s\nNODE_COMPILE_CLEANED=%s\nNODE_COMPILE_REASON=sessions\n' \
+    "$(stamp_days_ago 0)" "$(stamp_days_ago 15)" "$(stamp_days_ago 0)" "$(stamp_days_ago 15)" "$(stamp_days_ago 1)" > "${state}"
+[[ "$(ai_tools_cache_cleanup__list_group_statuses "${state}" | awk -F'\t' '$1 == "npx" {print $3}')" == overdue \
+   && "$(ai_tools_cache_cleanup__list_group_statuses "${state}" | awk -F'\t' '$1 == "node-compile" {print $3}')" == ok ]] \
+    && pass "a launch group never removed is judged by its first record's age, one removed by its last removal's" \
+    || fail "statuses: $(ai_tools_cache_cleanup__list_group_statuses "${state}" | tr '\n\t' '|>')"
 
 # ── The status verdict and the size format ────────────────────────────────────────────────────
-while IFS='|' read -r timing policy result links age want what; do
+while IFS='|' read -r timing policy result links age reason want what; do
     [[ -n "${what}" ]] || continue
-    got="$(ai_tools_cache_cleanup__evaluate_state "${timing}" "${policy}" "${result}" "${links}" "${age}")"
+    got="$(ai_tools_cache_cleanup__evaluate_state "${timing}" "${policy}" "${result}" "${links}" "${age}" "${reason}")"
     [[ "${got}" == "${want}" ]] && pass "verdict: ${what} -> ${want}" || fail "verdict: ${what}: got '${got}', want '${want}'"
 done <<ROWS
-nightly|none||0|-|unknown|no result recorded
-nightly|none|refused|0|10|failed|a refusal counts
-launch|expected|failed|0|10|failed|a failure counts
-nightly|none|removed|2|10|links|links where the producer writes none count
-launch|expected|removed|2|10|ok|links npm writes do not
-launch|expected|skipped|0|$(( 15 * day ))|overdue|a launch group last cleaned 15 days ago counts
-launch|expected|removed|0|$(( 13 * day ))|ok|one cleaned 13 days ago does not
-nightly|none|removed|0|$(( 30 * day ))|ok|the nightly group is not judged by age
-launch|none|skipped|0|-|ok|an unknown age does not make a group overdue
+nightly|none||0|-|-|unknown|no result recorded
+nightly|none|refused|0|10|home-untrusted|failed|a refusal counts
+launch|expected|failed|0|10|walk-error|failed|a failure counts
+nightly|none|partial|0|10|timeout|ok|a removal the bound cut short is continued by the next run, not counted
+nightly|none|partial|0|10|eacces|failed|a partial removal by any other error counts
+nightly|none|removed|2|10|-|links|links where the producer writes none count
+launch|expected|removed|2|10|-|ok|links npm writes do not
+launch|expected|skipped|0|$(( 15 * day ))|sessions|overdue|a launch group last cleaned 15 days ago counts
+launch|expected|removed|0|$(( 13 * day ))|-|ok|one cleaned 13 days ago does not
+nightly|none|removed|0|$(( 30 * day ))|-|ok|the nightly group is not judged by age
+launch|none|skipped|0|-|sessions|ok|an unknown age does not make a group overdue
 ROWS
 while IFS='|' read -r bytes want; do
     [[ -n "${bytes}" ]] || continue
@@ -119,69 +134,102 @@ done <<'ROWS'
 abc|
 ROWS
 
-# ── The launch step: which groups it removes, under the lock and the bound ─────────────────────
-# Driven over a fixture state file with the removal and the session count stubbed as shell functions after the library
-# loaded, so no tree is walked and no manager is asked; the lock is the real flock. Each call runs in its own subshell,
-# so a stub a case sets does not reach the next.
+# ── The launch step: the admission, which groups it removes, and the bound ─────────────────────
+# Driven over a fixture state file and a fixture admission lock with the removal stubbed as a shell function after
+# the library loaded, so no tree is walked; both locks are the real flock. Each call runs in its own subshell, so a stub
+# a case sets does not reach the next, and the subshell's exit releases the admission the call keeps.
 section "cache-cleanup: the launch step (unit)"
 launch_state="${TESTDIR}/launch.status"
+launch_lock="${TESTDIR}/launch.lock"
 launch_calls="${TESTDIR}/launch-calls"
-# launch_step <session-count> : run remove_due_groups with the session count stubbed; the removals it asks for are
-#   appended to launch_calls, the records it prints are stdout.
+# launch_step [removal-seconds] [hold-seconds] [partial-group] : run remove_due_groups with the removal stubbed to take
+#   <removal-seconds> and to report <partial-group> as `partial timeout`. The removals it asks for are appended
+#   to launch_calls; stdout carries the records it collected, one per line, then the admission the subshell holds,
+#   probed from another process (`admission held shared|held exclusive|unheld`), which it keeps for <hold-seconds>.
 launch_step() {
     (
-        stub_session_count="$1"
-        ai_tools_cache_cleanup__read_active_session_count() { printf 'session-count %s\n' "$1" >> "${launch_calls}"; printf '%s' "${stub_session_count}"; }
-        ai_tools_cache_cleanup__remove_group() { printf 'remove %s %s\n' "$2" "$3" >> "${launch_calls}"; printf '%s\tremoved\t1048576\t0\t-\n' "$2"; }
-        ai_tools_cache_cleanup__remove_due_groups "${TESTDIR}" "${launch_state}" 'acct-*-*.service'
+        stub_seconds="${1:-0}" stub_hold="${2:-0}" stub_partial="${3:-}"
+        ai_tools_cache_cleanup__remove_group() {
+            printf 'remove %s %s\n' "$2" "$3" >> "${launch_calls}"; sleep "${stub_seconds}"
+            if [[ "$2" == "${stub_partial}" ]]; then printf '%s\tpartial\t0\t0\ttimeout\n' "$2"
+            else printf '%s\tremoved\t1048576\t0\t-\n' "$2"; fi
+        }
+        declare -a records=()
+        ai_tools_cache_cleanup__remove_due_groups "${TESTDIR}" "${launch_state}" "${launch_lock}" records
+        (( ${#records[@]} == 0 )) || printf '%s\n' "${records[@]}"
+        if /usr/bin/flock -n -x "${launch_lock}" -c true 2>/dev/null; then printf 'admission unheld\n'
+        elif /usr/bin/flock -n -s "${launch_lock}" -c true 2>/dev/null; then printf 'admission held shared\n'
+        else printf 'admission held exclusive\n'; fi
+        sleep "${stub_hold}"
     )
 }
-: > "${launch_state}"; : > "${launch_calls}"
-out="$(launch_step 0)"
+reset_lock() { rm -f "${launch_lock}"; : > "${launch_lock}"; chmod 0440 "${launch_lock}"; }
+: > "${launch_state}"; : > "${launch_calls}"; reset_lock
+out="$(launch_step)"
 [[ "$(grep -c '^remove ' "${launch_calls}")" == 2 && "$(grep -c '^remove npm-cache' "${launch_calls}")" == 0 \
-   && "$(grep -c $'\tremoved\t' <<<"${out}")" == 2 && "$(grep -c '^session-count acct-\*-\*.service$' "${launch_calls}")" == 1 ]] \
-    && pass "never cleaned, no other session: both launch groups are removed and the nightly group is not" \
+   && "$(grep -c $'\tremoved\t' <<<"${out}")" == 2 ]] \
+    && pass "never cleaned, no session: the launch is the cleaner, both launch groups are removed and the nightly group is not" \
     || fail "first launch: calls '$(tr '\n' '|' <"${launch_calls}")', records '$(tr '\n\t' '|>' <<<"${out}")'"
+grep -qx 'admission held shared' <<<"${out}" \
+    && pass "the cleaner holds the admission shared once its records are written" \
+    || fail "admission after the cleaner's run: $(grep admission <<<"${out}" || true)"
 grep -qE '^remove (npx|node-compile) (29|30)$' "${launch_calls}" \
     && pass "a removal is given the time left of the step's bound" || fail "bound passed: $(tr '\n' '|' <"${launch_calls}")"
 [[ -n "$(ai_tools_services__read_stamp_field "${launch_state}" NPX_CLEANED)" \
-   && -n "$(ai_tools_services__read_stamp_field "${launch_state}" NODE_COMPILE_CLEANED)" ]] \
-    && pass "the removals are recorded with CLEANED" || fail "state after a launch: $(tr '\n' '|' <"${launch_state}")"
+   && -n "$(ai_tools_services__read_stamp_field "${launch_state}" NODE_COMPILE_CLEANED)" \
+   && -n "$(ai_tools_services__read_stamp_field "${launch_state}" NPX_FIRST_CHECKED)" ]] \
+    && pass "the removals are recorded with CLEANED and FIRST_CHECKED" || fail "state after a launch: $(tr '\n' '|' <"${launch_state}")"
 : > "${launch_calls}"
-out="$(launch_step 0)"
-[[ -z "${out}" && ! -s "${launch_calls}" ]] \
-    && pass "a launch with no group due reads the state alone: no session count, no removal, no record" \
-    || fail "second launch: calls '$(tr '\n' '|' <"${launch_calls}")', records '$(tr '\n\t' '|>' <<<"${out}")'"
-for sessions_case in 3 unknown; do
-    : > "${launch_state}"; : > "${launch_calls}"
-    out="$(launch_step "${sessions_case}")"
-    want_reason=sessions; [[ "${sessions_case}" == unknown ]] && want_reason=unknown
-    [[ "$(grep -c '^remove ' "${launch_calls}")" == 0 && "$(grep -c $'\tskipped\t0\t0\t'"${want_reason}"'$' <<<"${out}")" == 2 \
-       && "$(ai_tools_services__read_stamp_field "${launch_state}" NPX_RESULT)" == skipped \
-       && -z "$(ai_tools_services__read_stamp_field "${launch_state}" NPX_CLEANED)" ]] \
-        && pass "a session count of ${sessions_case} skips both groups, recorded as skipped ${want_reason}" \
-        || fail "session count ${sessions_case}: calls '$(tr '\n' '|' <"${launch_calls}")', records '$(tr '\n\t' '|>' <<<"${out}")'"
-done
-# Serialized: a launch holding the lock makes the next one wait, and the waiter re-reads the due test under the lock,
-# so a group the holder cleaned while it waited is not removed twice. The holder takes the lock with both groups due,
-# writes CLEANED for both once the second launch has read them as due and is waiting, and releases.
+out="$(launch_step)"
+[[ "${out}" == 'admission held shared' && ! -s "${launch_calls}" ]] \
+    && pass "a launch with no group due takes its admission and reads the state alone: no removal, no record" \
+    || fail "second launch: calls '$(tr '\n' '|' <"${launch_calls}")', output '$(tr '\n\t' '|>' <<<"${out}")'"
+# A session holds the admission shared: the launch is admitted beside it at once and removes nothing, each due group
+# recorded skipped sessions.
 : > "${launch_state}"; : > "${launch_calls}"
-(
-    ai_tools_cache_cleanup__lock "${launch_state}" 5 || exit 1
-    sleep 1
-    ai_tools_cache_cleanup__write_state_locked "${launch_state}" $'npx\tremoved\t1\t0\t-' $'node-compile\tremoved\t1\t0\t-'
-    sleep 1
-    ai_tools_cache_cleanup__unlock
-) &
-lock_holder=$!
-sleep 0.5
+/usr/bin/flock -s "${launch_lock}" sleep 3 &
+session_holder=$!
+sleep 0.3
+out="$(launch_step)"
+[[ "$(grep -c '^remove ' "${launch_calls}")" == 0 && "$(grep -c $'\tskipped\t0\t0\tsessions$' <<<"${out}")" == 2 \
+   && "$(ai_tools_services__read_stamp_field "${launch_state}" NPX_RESULT)" == skipped \
+   && -z "$(ai_tools_services__read_stamp_field "${launch_state}" NPX_CLEANED)" \
+   && -n "$(ai_tools_services__read_stamp_field "${launch_state}" NPX_FIRST_CHECKED)" ]] && grep -qx 'admission held shared' <<<"${out}" \
+    && pass "a session holding the admission skips both groups, recorded skipped sessions with FIRST_CHECKED, and the launch is admitted beside it" \
+    || fail "session holding the lock: calls '$(tr '\n' '|' <"${launch_calls}")', output '$(tr '\n\t' '|>' <<<"${out}")'"
+wait "${session_holder}" || true
+# No lock file: the launch is unadmitted, removes nothing, and records each due group skipped unknown.
+: > "${launch_state}"; : > "${launch_calls}"; rm -f "${launch_lock}"
+out="$(launch_step)"
+[[ "$(grep -c '^remove ' "${launch_calls}")" == 0 && "$(grep -c $'\tskipped\t0\t0\tunknown$' <<<"${out}")" == 2 ]] \
+   && grep -qx 'admission unheld' <<<"${out}" \
+    && pass "a lock file that cannot be opened leaves the launch unadmitted: nothing removed, each group skipped unknown" \
+    || fail "absent lock: calls '$(tr '\n' '|' <"${launch_calls}")', output '$(tr '\n\t' '|>' <<<"${out}")'"
+# A launch arriving while the cleaner removes is admitted only once the cleaner has written its records and shared
+# the lock, so the removal and the session do not overlap, and it finds the groups not due.
+: > "${launch_state}"; : > "${launch_calls}"; reset_lock
+launch_step 1 > "${TESTDIR}/cleaner.out" &
+cleaner=$!
+sleep 0.3
 started=${SECONDS}
-out="$(launch_step 0)"
+out="$(launch_step)"
 waited=$(( SECONDS - started ))
-wait "${lock_holder}" || true
-[[ -z "${out}" && "$(grep -c '^remove ' "${launch_calls}")" == 0 ]] && (( waited >= 1 )) \
-    && pass "a second launch waits for the lock and does not remove what the first just cleaned (waited ${waited}s)" \
-    || fail "contended launch: waited ${waited}s, calls '$(tr '\n' '|' <"${launch_calls}")', records '$(tr '\n\t' '|>' <<<"${out}")'"
+wait "${cleaner}" || true
+[[ "$(grep -c '^remove ' "${launch_calls}")" == 2 ]] && (( waited >= 1 )) && ! grep -q $'\t' <<<"${out}" \
+   && grep -qx 'admission held shared' <<<"${out}" \
+    && pass "a launch arriving while the cleaner removes is admitted after it (waited ${waited}s) and removes nothing it cleaned" \
+    || fail "contended launch: waited ${waited}s, calls '$(tr '\n' '|' <"${launch_calls}")', output '$(tr '\n\t' '|>' <<<"${out}")'"
+# A group the cleaner's partial removal left due is not retried while that cleaner's session holds the admission.
+: > "${launch_state}"; : > "${launch_calls}"; reset_lock
+launch_step 0 3 npx > "${TESTDIR}/partial.out" &
+partial_holder=$!
+sleep 1
+out="$(launch_step)"
+wait "${partial_holder}" || true
+[[ "$(grep -c '^remove npx' "${launch_calls}")" == 1 ]] && grep -q $'^npx\tskipped\t0\t0\tsessions$' <<<"${out}" \
+   && ! grep -q 'node-compile' <<<"${out}" \
+    && pass "a group a partial removal left due is skipped, not retried, while the cleaner's session holds the admission" \
+    || fail "partial then a launch: calls '$(tr '\n' '|' <"${launch_calls}")', output '$(tr '\n\t' '|>' <<<"${out}")'"
 
 while IFS='|' read -r records want what; do
     [[ -n "${what}" ]] || continue
@@ -201,8 +249,10 @@ grep -q 'getattr(shutil.rmtree, "avoids_symlink_attacks", False)' "${LIB}" \
     && grep -q 'finish("refused", reason="unsafe-rmtree")' "${LIB}" \
     && pass "the walk refuses where shutil.rmtree does not avoid symlink attacks" \
     || fail "the avoids_symlink_attacks guard is no longer where this reads it"
+# A tool's name as a value -- the reason token `timeout` compared with `==` -- is not a command, so a comparison operand
+# is left out of the reading.
 bare_tools="$(grep -nE '(^|[ ;(|&])(python3|timeout|flock|date|stat)( |$)' "${LIB}" | grep -vE '^\s*[0-9]+:\s*#' \
-    | grep -vE '/usr/bin/(python3|timeout|flock|date|stat)' || true)"
+    | grep -vE '/usr/bin/(python3|timeout|flock|date|stat)|[=!]= (python3|timeout|flock|date|stat) ' || true)"
 [[ -z "${bare_tools}" ]] && pass "every tool the library runs is named by absolute path" \
     || fail "a tool named by its bare name: $(tr '\n' '|' <<<"${bare_tools}")"
 [[ "$(/usr/bin/python3 -I -c 'import shutil; print(shutil.rmtree.avoids_symlink_attacks)')" == True ]] \

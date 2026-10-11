@@ -212,12 +212,14 @@ an installed-but-disabled provider contributes neither a fragment nor pins. Frag
 so a skipped one costs the session that provider's environment and leaves every property in this section intact.
 
 **A session launch empties the caches a running session uses, when they are due.** Before the last-moment re-check,
-`ai-tools-run` loads `cache-cleanup.lib.sh` and calls `ai_tools_cache_cleanup__remove_due_groups` with the glob its own
-session unit names match. npx's packages and node's compile cache are removed at most once in the library's interval,
-only while no other session unit of the account is active, under a lock on the state file and within one bound
-across the step, and a removal prints one line under the banner. It is housekeeping, not a gate: every outcome is
-journalled under the `ai-tools-run` tag, a library that did not load skips the step, and the launch goes on.
-A print-and-exit run does not load the library. Why the session check is not what makes the removal safe is
+`ai-tools-run` loads `cache-cleanup.lib.sh` and calls `ai_tools_cache_cleanup__remove_due_groups` in its own process,
+which admits the launch through the admission lock: the shim holds it shared until its process ends with the unit
+`systemd-run` waits for, and the one launch that takes it exclusive, no session holding it, removes npx's packages
+and node's compile cache where due, at most once in the library's interval and within one bound across the step, writes
+its records and shares the lock, so a launch arriving during a removal is admitted after it. A removal prints one line
+under the banner. It is housekeeping, not a gate: every outcome is journalled under the `ai-tools-run` tag, a library
+that did not load skips the step, a launch not admitted within the bound starts without cleaning, and the launch goes
+on. A print-and-exit run does not load the library. Why the session check is not what makes the removal safe is
 [ref-section-z4t8](updater.rule.md#ref-section-z4t8).
 
 **A session-end ownership sweep for agents that do not carry hooks.** The shim reads the resolved agent's `handback`

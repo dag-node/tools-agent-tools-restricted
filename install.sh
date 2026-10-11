@@ -2081,6 +2081,11 @@ do_install() {
     touch /var/opt/ai-tools/state/cache-cleanup.status
     chown "${SANDBOX_USER}:ai-ops" /var/opt/ai-tools/state/cache-cleanup.status
     chmod 0640 /var/opt/ai-tools/state/cache-cleanup.status
+    # The cache admission lock beside it: root-owned and readable by the sandbox group, so a launch opens it to lock it
+    # and the account cannot rewrite or replace it (cache-cleanup.lib.sh).
+    touch /var/opt/ai-tools/state/cache-cleanup.lock
+    chown "root:${SANDBOX_GROUP}" /var/opt/ai-tools/state/cache-cleanup.lock
+    chmod 0440 /var/opt/ai-tools/state/cache-cleanup.lock
 
     # Sandbox workflow doc. Shipped documentation (not user-edited config), so it is refreshed on every re-install. 640
     # root:SANDBOX_GROUP.

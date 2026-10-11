@@ -713,6 +713,14 @@ if [ -d /var/opt/ai-tools/state ]; then
     chown ai-tools:ai-ops /var/opt/ai-tools/state/cache-cleanup.status 2>/dev/null || :
     chmod 0640 /var/opt/ai-tools/state/cache-cleanup.status 2>/dev/null || :
 fi
+# Create the cache admission lock (%ghost): root-owned and readable by the sandbox group, so a launch
+# opens it to lock it and no process of the account rewrites or replaces it. Empty by design.
+if [ -d /var/opt/ai-tools/state ]; then
+    [ -e /var/opt/ai-tools/state/cache-cleanup.lock ] \
+        || : > /var/opt/ai-tools/state/cache-cleanup.lock
+    chown root:ai-tools /var/opt/ai-tools/state/cache-cleanup.lock 2>/dev/null || :
+    chmod 0440 /var/opt/ai-tools/state/cache-cleanup.lock 2>/dev/null || :
+fi
 # Re-assert the setgid bit on the sandbox tree -- rpm 4.19+ drops it from these %attr(2xxx) %dir
 # entries on install. Done in %post AND %posttrans because which one survives is rpm-dependent
 # (some rpm re-applies %attr after %post); both are idempotent no-ops on a host that kept the bit.
@@ -1434,6 +1442,10 @@ fi
 # Owned by that account so it may rewrite the contents, group ai-ops so operators read it; %ghost
 # with %post creating it, since the directory is not group-writable and the inode must exist.
 %ghost %attr(0640, ai-tools, ai-ops) /var/opt/ai-tools/state/cache-cleanup.status
+# The cache admission lock: every session launch holds it shared for the life of its shim, and the launch
+# that removes a cache holds it exclusive. Root-owned and group-readable, so the account opens it to lock
+# it and cannot rewrite or replace it; %ghost with %post creating it, like the state beside it.
+%ghost %attr(0440, root, ai-tools) /var/opt/ai-tools/state/cache-cleanup.lock
 %dir %attr(0700, root, root) /var/log/ai-tools
 %ghost %attr(0600, root, root) /var/log/ai-tools/chown.log
 %ghost %attr(0600, root, root) /var/log/ai-tools/setgid.log

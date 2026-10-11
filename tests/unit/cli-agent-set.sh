@@ -465,6 +465,18 @@ else
         && grep -qF '`ai-tools stop`' <<<"${out}" \
         && pass "a launch group not cleaned for 15 days reads OVERDUE, names ai-tools stop, and is counted" \
         || fail "overdue state: rc ${rc}: $(tr '\n' '|' <<<"${out}")"
+    printf 'NPX_RESULT=skipped\nNPX_CHECKED=%s\nNPX_FIRST_CHECKED=%s\nNPX_BYTES=0\nNPX_LINKS=0\nNPX_REASON=sessions\n' \
+        "$(stamp_days_ago 0)" "$(stamp_days_ago 15)" > "${CACHE_STATE}"
+    rc=0; out="$(call_caches)" || rc=$?
+    (( rc == 1 )) && grep -qE '\.npm/_npx +OVERDUE .*skipped \(sessions\)' <<<"${out}" \
+        && pass "a launch group never cleaned since its first record 15 days ago reads OVERDUE, and is counted" \
+        || fail "never-cleaned state: rc ${rc}: $(tr '\n' '|' <<<"${out}")"
+    printf 'NPM_CACHE_RESULT=partial\nNPM_CACHE_CHECKED=%s\nNPM_CACHE_BYTES=1\nNPM_CACHE_LINKS=0\nNPM_CACHE_REASON=eacces\n' \
+        "$(stamp_days_ago 0)" > "${CACHE_STATE}"
+    rc=0; out="$(call_caches)" || rc=$?
+    (( rc == 1 )) && grep -qE '\.npm/_cacache +FAILED .*partial \(eacces\)' <<<"${out}" \
+        && pass "a partial removal by an error other than the bound reads FAILED, and is counted" \
+        || fail "partial eacces state: rc ${rc}: $(tr '\n' '|' <<<"${out}")"
     printf 'NPM_CACHE_RESULT=refused\033[2J\nNPM_CACHE_REASON=home-untrusted\n' > "${CACHE_STATE}"
     rc=0; out="$(call_caches)" || rc=$?
     (( rc == 0 )) && grep -qE '\.npm/_cacache +\? ' <<<"${out}" && ! grep -q $'\033' <<<"${out}" \
