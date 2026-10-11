@@ -149,7 +149,8 @@ warn() {
     if [[ "${1-}" =~ ^MSG-[A-Z][0-9][A-Z][0-9]$ ]]; then code="$1"; shift; printf '%s\n' "${code}" >&2; fi
     printf 'ai-tools-admin: warning: %s\n' "$*" >&2
 }
-# notice: a consequence of what this tool wrote, below warn -- the run is complete and the host is as asked for.
+# notice: a consequence of what this tool wrote, at a lower severity than warn -- the run is complete and the host is
+# as asked for.
 # stderr, like warn, so a verb's record stream on stdout stays data-only.
 notice() {
     local code=""
@@ -3118,13 +3119,27 @@ status() {
     status_unit_search_path "${CP_HOME:-/opt/ai-tools}"
     status_selinux_attestation "${OPERATOR_CONF}"
 
-    # Pointers, not duplication: the reports that own the detail this one deliberately does not.
+    # Pointers, not duplication: the reports that own the detail this one deliberately does not, then the commands
+    # that read and drive the two managed units this report judges by their last run. The updater's unit lives
+    # in the sandbox account's own manager, which root reaches over the machine transport and whose journal is
+    # selected by unit and uid, since `journalctl --user-unit` as root reads root's own units (cli.rule.md).
     heading "More"
     printf '    %s\n' \
         "ai-tools status          the same host, read from an operator's vantage" \
         "ai-tools providers       installed agents and integrations, and which are enabled" \
         "sudo ai-tools-admin selinux groups   the core module and the optional groups" \
         "sudo ai-tools-admin --help           every command this host has"
+    local sandbox_uid
+    sandbox_uid="$(id -u "${SANDBOX_USER}" 2>/dev/null || printf '<uid of %s>' "${SANDBOX_USER}")"
+    printf '\n    %s\n' "The relabel watcher and the toolchain updater, read and run as root:"
+    printf '      %-78s %s\n' \
+        "sudo systemctl status ai-tools-relabel.path ai-tools-relabel.service" "the watcher, and the result of its last run" \
+        "sudo journalctl -u ai-tools-relabel.service -n 50" "what that run printed" \
+        "sudo systemctl start ai-tools-relabel.service" "run the relabel now; a FAILED above clears with a run that succeeds" \
+        "sudo systemctl --user -M ${SANDBOX_USER}@.host status nvm-update.timer nvm-update.service" "the updater's schedule and its last run" \
+        "sudo journalctl _SYSTEMD_USER_UNIT=nvm-update.service _UID=${sandbox_uid} -n 50" "what the updater printed" \
+        "sudo systemctl --user -M ${SANDBOX_USER}@.host start nvm-update.service" "run the update now" \
+        "sudo systemctl --user -M ${SANDBOX_USER}@.host daemon-reload" "reload that manager after a unit file changed on disk"
     printf '\n'
 
     (( STATUS_PROBLEMS == 0 )) || ai_tools_records_base__accumulate_severity attention
