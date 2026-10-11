@@ -1783,6 +1783,19 @@ the set is refused as unverified \-\- $*
 .B MSG-T3M3
 WARNING.
 the set is refused as tampered \-\- $*
+.SS cache-cleanup.lib.sh
+.TP
+.B MSG-G5U7
+ERROR.
+cache not removed: ${path} (${result}, ${reason}) \-\- $(ai_tools_cache_cleanup__get_remedy "${reason}")
+.TP
+.B MSG-J4Y8
+WARNING.
+cache held ${links} symbolic link(s) its producer does not write: ${path} \-\- $(ai_tools_cache_cleanup__get_remedy links)
+.TP
+.B MSG-Y7B4
+WARNING.
+cache partly removed: ${path} (${reason}) \-\- $(ai_tools_cache_cleanup__get_remedy "${reason}")
 .SS claude
 .TP
 .B MSG-A3U4

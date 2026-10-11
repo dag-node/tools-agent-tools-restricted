@@ -145,10 +145,13 @@ _ai_tools_cache_cleanup__log() {
     return 0
 }
 
-# _ai_tools_cache_cleanup__report <level> <code> <message> [FIELD=value...] : a coded situation, its code on its own
-#   line then the message on stderr (a terminal, or the journal a unit routes it to), and one journald record carrying
-#   the code as AI_TOOLS_MSG, where log.lib.sh loaded. stdout carries the records, so it is left alone. Always 0.
-_ai_tools_cache_cleanup__report() {
+# _ai_tools_cache_cleanup__error <code> <message> [FIELD=value...] / _ai_tools_cache_cleanup__warn <code> <message>
+#   [FIELD=value...] : a coded situation, at ERROR or WARNING: the code on its own line then the message on stderr
+#   (a terminal, or the journal a unit routes it to), and one journald record carrying the code as AI_TOOLS_MSG, where
+#   log.lib.sh loaded. stdout carries the records, so it is left alone. Always 0.
+_ai_tools_cache_cleanup__error() { _ai_tools_cache_cleanup__report_coded error "$@"; }
+_ai_tools_cache_cleanup__warn()  { _ai_tools_cache_cleanup__report_coded warning "$@"; }
+_ai_tools_cache_cleanup__report_coded() {
     local level="$1" code="$2" message="$3"; shift 3
     printf '%s\nai-tools: %s\n' "${code}" "${message}" >&2
     declare -F ai_tools_log__coded >/dev/null 2>&1 && ai_tools_log__coded "${level}" "${code}" "${message}" "$@"
@@ -178,11 +181,12 @@ _ai_tools_cache_cleanup__get_group() {
 #   and a walk cut short is `partial timeout`.
 #
 #   Each call is journalled under the caller's AI_TOOLS_LOG_TAG: the removal it starts at DEBUG, and its outcome
-#   after -- removed or absent at INFO, a group not removed under MSG-G5U7 (ERROR when refused or failed, WARNING when
-#   partial), and links in a group whose producer writes none under MSG-J4Y8 at WARNING, those two on stderr as well.
+#   after -- removed or absent at INFO, a removal refused or failed under MSG-G5U7 at ERROR, one cut short under MSG-Y7B4
+#   at WARNING, and links in a group whose producer writes none under MSG-J4Y8 at WARNING, each coded one on stderr
+#   as well.
 ai_tools_cache_cleanup__remove_group() {
     local home="${1:-}" group="${2:-}" declaration relative="" link_policy=none record result bytes links reason
-    local path log_result level size
+    local path size log_result
     if declaration="$(_ai_tools_cache_cleanup__get_group "${group}")"; then
         IFS=$'\t' read -r _ relative _ link_policy _ <<<"${declaration}"
     fi
@@ -196,16 +200,15 @@ ai_tools_cache_cleanup__remove_group() {
                      "AI_TOOLS_PATH=${path}" AI_TOOLS_RESULT=ok ;;
         absent)  _ai_tools_cache_cleanup__log info "${path} was already absent" \
                      "AI_TOOLS_PATH=${path}" AI_TOOLS_RESULT=ok ;;
-        *)       log_result=failed; level=warning
+        partial) _ai_tools_cache_cleanup__warn MSG-Y7B4 "cache partly removed: ${path} (${reason}) -- $(ai_tools_cache_cleanup__get_remedy "${reason}")" \
+                     "AI_TOOLS_PATH=${path}" AI_TOOLS_RESULT=failed ;;
+        *)       log_result=failed
                  [[ "${result}" == refused ]] && log_result=refused
-                 [[ "${result}" == partial ]] || level=error
-                 _ai_tools_cache_cleanup__report "${level}" MSG-G5U7 \
-                     "${path} was not removed (${result}, ${reason}) -- $(ai_tools_cache_cleanup__get_remedy "${reason}")" \
+                 _ai_tools_cache_cleanup__error MSG-G5U7 "cache not removed: ${path} (${result}, ${reason}) -- $(ai_tools_cache_cleanup__get_remedy "${reason}")" \
                      "AI_TOOLS_PATH=${path}" "AI_TOOLS_RESULT=${log_result}" ;;
     esac
     if [[ "${link_policy}" == none && "${links}" =~ ^[0-9]+$ ]] && (( links > 0 )); then
-        _ai_tools_cache_cleanup__report warning MSG-J4Y8 \
-            "${path} held ${links} symbolic link(s), which its producer does not write -- $(ai_tools_cache_cleanup__get_remedy links)" \
+        _ai_tools_cache_cleanup__warn MSG-J4Y8 "cache held ${links} symbolic link(s) its producer does not write: ${path} -- $(ai_tools_cache_cleanup__get_remedy links)" \
             "AI_TOOLS_PATH=${path}"
     fi
     printf '%s\n' "${record}"
