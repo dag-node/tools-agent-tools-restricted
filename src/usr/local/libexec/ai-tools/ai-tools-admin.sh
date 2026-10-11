@@ -149,6 +149,13 @@ warn() {
     if [[ "${1-}" =~ ^MSG-[A-Z][0-9][A-Z][0-9]$ ]]; then code="$1"; shift; printf '%s\n' "${code}" >&2; fi
     printf 'ai-tools-admin: warning: %s\n' "$*" >&2
 }
+# notice: a consequence of what this tool wrote, below warn -- the run is complete and the host is as asked for.
+# stderr, like warn, so a verb's record stream on stdout stays data-only.
+notice() {
+    local code=""
+    if [[ "${1-}" =~ ^MSG-[A-Z][0-9][A-Z][0-9]$ ]]; then code="$1"; shift; printf '%s\n' "${code}" >&2; fi
+    printf 'ai-tools-admin: notice: %s\n' "$*" >&2
+}
 
 # reject <message>: the command line was rejected. Exit 2 separates a command nobody can type correctly
 # from an operation that ran and failed (`die`, exit 1), which is the split ai-tools-admin(8) documents and the one
@@ -3189,6 +3196,8 @@ assets_read_list() {
 
 # assets_write_list <entry>...: write AI_TOOLS_ASSETS as exactly these entries through ai_tools_conf__set_list,
 # after a dated .bak of the file where it exists. Exits 1, the file as it was, when the backup or the write fails.
+# A file carrying neither a live line nor the key's commented default -- one written before the key -- takes the line
+# at its end, and the write says so, since the slot under its header reaches that file through `system post-upgrade`.
 assets_write_list() {
     local conf="${AI_TOOLS_OPERATOR_CONF}" backup="" rc=0
     if [[ -e "${conf}" ]]; then
@@ -3198,6 +3207,8 @@ assets_write_list() {
     ai_tools_conf__set_list "${conf}" AI_TOOLS_ASSETS "$@" || rc=$?
     (( rc == 0 )) || die MSG-Q8E5 "assets: AI_TOOLS_ASSETS could not be written to ${conf} (writer status ${rc})${backup:+; the previous file is ${backup}}"
     ai_tools_log__info "assets: AI_TOOLS_ASSETS in ${conf} lists ${#} entries${backup:+; backup ${backup}}"
+    [[ "${AI_TOOLS_CONF__WRITE_PLACEMENT:-}" != appended ]] \
+        || notice MSG-T3X4 "assets: AI_TOOLS_ASSETS was added at the end of ${conf}, which predates the key -- sudo ai-tools-admin system post-upgrade carries it under its header from the shipped template"
 }
 
 # assets_finish <reconcile-status>: exit as the records page states for a command that changes the host: 1 when a write

@@ -54,6 +54,11 @@ the first release to read. A session that starts between the upgrade
 and the enable loads none of the set's skills; the upgrade's output
 and `sudo ai-tools-admin status` both name the enable until it runs.
 
+An `operator.conf` written before 0.24.0 has no `AI_TOOLS_ASSETS` line
+for the enable to take, so the enable appends one and says so. To have it land
+under its header instead, run `sudo ai-tools-admin system post-upgrade` first
+and adopt the merge it offers.
+
 What the move gives you:
 
 - **A skill update reaches your host on its own.**

@@ -602,6 +602,12 @@ as in
 .BR AI_TOOLS_ASSETS ,
 then run
 .BR "assets reconcile" .
+The line replaces the file's own
+.B AI_TOOLS_ASSETS
+line or the commented default under its header; a file carrying neither, one
+written before the key, takes it at its end, and the command says so, since
+.B system post-upgrade
+is what carries the line under its header from the shipped template.
 Every
 .I IDENTIFIER
 is checked before anything is written, and the first that fails refuses the

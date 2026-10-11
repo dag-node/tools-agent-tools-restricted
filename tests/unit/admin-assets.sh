@@ -386,6 +386,24 @@ else
     fail "an unloaded seeder library: ${OUT:0:400}"
 fi
 rm -rf "${HOME_DIR}/retired"
+# The write says where it placed the key where that matters: a file written before the key takes the line at its end,
+# with the merge that carries it under its header named; a file carrying the commented slot takes it there, with no
+# notice.
+write_conf_unset; admin assets enable "${SKILL}"
+if [[ "${RC}" == 0 && "$(tail -n1 "${CONF}")" == "AI_TOOLS_ASSETS=[${SKILL}]" ]]; then
+    pass "an enable on a file written before the key appends the line"
+else
+    fail "an enable on a file without the key: rc ${RC}, $(tr '\n' '|' < "${CONF}") ${ERR:0:300}"
+fi
+assert_msg MSG-T3X4 "${ERR}" "the enable says the line was appended and names system post-upgrade"
+write_conf_unset; printf '# the slot\n#AI_TOOLS_ASSETS=[]\n' >> "${CONF}"; admin assets enable "${SKILL}"
+if [[ "${RC}" == 0 && "$(grep -c '^AI_TOOLS_ASSETS=' "${CONF}")" == 1 ]] && ! grep -q '^#AI_TOOLS_ASSETS=' "${CONF}" \
+        && ! grep -qxF MSG-T3X4 <<< "${ERR}"; then
+    pass "an enable on a file carrying the commented slot writes there, with no notice"
+else
+    fail "an enable over the commented slot: rc ${RC}, $(tr '\n' '|' < "${CONF}") ${ERR:0:300}"
+fi
+write_conf_unset
 printf 'not a directory\n' > "${HOME_DIR}/retired"; admin status_assets
 if grep -qE "\[UNREADABLE\] +error +${HOME_DIR}/retired" <<< "${OUT}" && [[ "${OUT}" == *"problems=0 unreadable=1"* ]] \
         && [[ "$(summary_line)" == "    Summary: 1 reading is unavailable in this section (exit 5)" ]]; then
