@@ -74,8 +74,9 @@ A set is read from the first of three roots that holds it:
 .TP
 .IB /usr/local/share/ai\-tools\-assets/ SET /
 A set you place by hand.
-It links only where it verifies against the binding shipped for its name, so
-an official release copied here works and an unsigned tree does not.
+It links only where it verifies against the binding for its name (see
+.BR BINDINGS ),
+so an official release copied here works and an unsigned tree does not.
 .TP
 .IB /usr/share/ai\-tools\-assets/ SET /
 A set a package installed.
@@ -156,6 +157,8 @@ Install its package; the entry links once it is there.
 .B set\-unbound
 No binding under
 .I /usr/local/lib/ai\-tools/assets\-bindings.d
+or
+.I /etc/ai\-tools/assets\-bindings.d
 names the set, so no key may sign it on this host.
 .TP
 .B path\-untrusted
@@ -319,9 +322,13 @@ says that path does not exist yet; the agent's package links it when it is
 installed.
 .SH BINDINGS
 A binding pins the keys that may sign one set name.
-It is one file per set under
-.IR /usr/local/lib/ai\-tools/assets\-bindings.d ,
-read as
+It is one file per set,
+.IR SET .conf,
+under
+.I /usr/local/lib/ai\-tools/assets\-bindings.d
+for the sets this package binds and under
+.I /etc/ai\-tools/assets\-bindings.d
+for a set of another publisher you bind yourself, read as
 .B KEY=value
 data:
 .PP
@@ -357,6 +364,46 @@ each file, the directory and the keyring are
 .BR 0644 ,
 the directory
 .BR 0755 .
+.PP
+A set name this package ships a binding for is decided by that binding
+alone: a file of the same name under
+.I /etc/ai\-tools/assets\-bindings.d
+is not read, so a binding you add cannot add a signer to
+.B core
+or
+.BR ai\-tools .
+Your directory and each file in it are
+.B root:root
+at the same modes; a directory or file writable by group or other leaves
+every set bound there
+.BR set\-unverified ,
+and the shipped sets as they were.
+.PP
+To accept the sets of another publisher, convert its published key to a
+binary keyring, write the binding naming the key's primary fingerprint, and
+enable the set once its package is installed:
+.PP
+.RS 4
+.EX
+gpg \-\-dearmor \-o acme.gpg acme\-publisher.asc
+sudo install \-o root \-g root \-m 0644 acme.gpg /etc/ai\-tools/assets\-bindings.d/acme.gpg
+printf 'set=acme\\nsigners=[openpgp:%s]\\nkeyring=%s\\n' \e
+    FINGERPRINT /etc/ai\-tools/assets\-bindings.d/acme.gpg \e
+    | sudo tee /etc/ai\-tools/assets\-bindings.d/acme.conf
+sudo ai\-tools\-admin assets enable \-\-set acme
+.EE
+.RE
+.PP
+A publisher builds, signs and releases a set with the
+.B ai\-tools\-assets\-tools
+workflows, starting from the repository template
+.IR dag\-node/ai\-tools\-assets\-template ;
+the set installs and upgrades with
+.BR dnf (8)
+like
+.BR core ,
+and every launch after an upgrade reads the new release under the same
+binding.
 .SH FILES
 .TP
 .I /etc/ai\-tools/operator.conf
@@ -366,6 +413,9 @@ the one setting that enables an asset.
 .TP
 .I /usr/local/lib/ai\-tools/assets\-bindings.d
 The shipped bindings.
+.TP
+.I /etc/ai\-tools/assets\-bindings.d
+Your bindings, read for a set name the shipped directory has no file for.
 .TP
 .I /opt/ai\-tools/skills
 .TQ

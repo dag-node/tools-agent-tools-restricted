@@ -148,8 +148,8 @@ repository and arrives here as `generate` on its tag.
 and `ai-tools-integration-typesafe` owns its directory (base `%exclude`s it). The package's `%post` seeds it and links
 it into every enabled agent's skills directory itself — base's and the agents' scriptlets run before this package's
 files are on disk on a first install — and its `%postun` on final erase withdraws the live copy
-with `ai_tools_managed_assets__withdraw_asset` and re-runs the linker, which drops each agent's link to a target that is
-gone.
+with `ai_tools_managed_assets__withdraw_asset_locked` and re-runs the linker, which drops each agent's link to a target
+that is gone.
 
 Its frontmatter carries `x-ai-tools-integration: typesafe`, so every seed path, `install.sh` included, places it only
 where `integrations.d/typesafe.conf` is installed, and a session on a host without the decide command is not offered

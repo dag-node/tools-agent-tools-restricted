@@ -87,6 +87,16 @@ sudo ai-tools-admin assets enable --set core
 [Sessions](../sessions/index.md) covers what a session then loads, and your own
 skills beside it.
 
+A set from another publisher installs the same way once you bind its key:
+convert the publisher's key to a binary keyring, write a binding
+under `/etc/ai-tools/assets-bindings.d/`, and enable the set.
+`man ai-tools-assets` has the three commands under BINDINGS. A publisher
+releases a set
+with the [ai-tools-assets-tools](https://github.com/dag-node/ai-tools-assets-tools)
+workflows, starting
+from the [ai-tools-assets-template](https://github.com/dag-node/ai-tools-assets-template)
+repository.
+
 [From source](from-source.md) is the manual path: the four root steps
 a checkout installs with, for a host that builds rather than consumes the RPM.
 [Upgrade](upgrade.md) covers moving an installed host to a new release.

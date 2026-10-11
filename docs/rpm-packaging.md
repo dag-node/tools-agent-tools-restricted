@@ -296,6 +296,12 @@ service of its own.
 The `nvm-update` user units ship in `%{_userunitdir}`, so RPM owns them and one
 shipped copy serves the `ai-tools` instance that runs the timer.
 
+A scriptlet that calls a library function checks that the installed library
+defines it before the call. In an upgrade the older release's trigger
+scriptlets run against the new release's libraries, so a function the new
+release renamed makes the older scriptlet print one `ai-tools: skipped` line
+and exit, and the new release's own scriptlet performs the step.
+
 ## SELinux
 
 The core policy module, the **stable** optional groups, and each integration's

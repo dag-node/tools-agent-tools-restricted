@@ -20,10 +20,12 @@
 # carry one. Every name, line and tool message a diagnostic carries passes log.lib.sh's allowlist sanitizer first,
 # since a refused set's bytes are whoever wrote them.
 #
-# A binding is AI_TOOLS_ASSETS_BINDINGS_DIR/<set>.conf in the shared KEY=value grammar, read line by line
-# through conf.lib.sh and not sourced; ai_tools_assets_verify__read_binding states its keys and every refusal.
-# The keyring it names is binary, written at build time by ai_tools_assets_verify__write_binary_keyring from the armored
-# key beside it.
+# A binding is <set>.conf in the shared KEY=value grammar, read line by line through conf.lib.sh and not sourced,
+# under AI_TOOLS_ASSETS_BINDINGS_DIR (the bindings base ships) or AI_TOOLS_ASSETS_OPERATOR_BINDINGS_DIR (the operator's,
+# for a set of another publisher); ai_tools_assets_verify__find_binding states which file decides a name,
+# and ai_tools_assets_verify__read_binding states its keys and every refusal. The shipped keyring is binary, written
+# at build time by ai_tools_assets_verify__write_binary_keyring from the armored key beside it; an operator writes one
+# with gpg.
 
 # Sourced more than once in a single shell: the readonly constants would abort under `set -e` on the second pass.
 # An if-statement, not `[[ ]] && return`, which returns 1 for an unset guard and trips the sourcing shell's `set -e`.
@@ -49,10 +51,11 @@ if ! source "${BASH_SOURCE[0]%/*}/log.lib.sh" 2>/dev/null || ! declare -F ai_too
 fi
 _AI_TOOLS_ASSETS_VERIFY__LOADED=1
 
-# The shipped bindings, redirected by a root-only test hook with the standing of AI_TOOLS_ENTRYPOINT_PIN_DIR: `sudo`
-# strips the name, and every consumer runs as root. An operator binding under /etc/ai-tools/assets-bindings.d/ is not
-# read by this release.
+# The shipped bindings and the operator's, each redirected by a root-only test hook with the standing
+# of AI_TOOLS_ENTRYPOINT_PIN_DIR: `sudo` strips the names, and every consumer runs as root. The operator directory is
+# read for a set name the shipped directory has no file for, and may be absent.
 : "${AI_TOOLS_ASSETS_BINDINGS_DIR:=/usr/local/lib/ai-tools/assets-bindings.d}"
+: "${AI_TOOLS_ASSETS_OPERATOR_BINDINGS_DIR:=/etc/ai-tools/assets-bindings.d}"
 readonly AI_TOOLS_ASSETS_VERIFY__INVENTORY=SHA256SUMS
 readonly AI_TOOLS_ASSETS_VERIFY__SIGNATURE=SHA256SUMS.asc
 # The bound each read takes: a file of the set, the inventory among them, at the format's per-file bound; the signature
@@ -134,25 +137,50 @@ ai_tools_assets_verify__write_binary_keyring() {
     return 0
 }
 
-# ai_tools_assets_verify__read_binding <set-name> : read the binding for <set-name> into
+# ai_tools_assets_verify__find_binding <set-name> : print the path of the binding that decides <set-name>:
+#   AI_TOOLS_ASSETS_BINDINGS_DIR/<set-name>.conf where that path exists, else
+#   AI_TOOLS_ASSETS_OPERATOR_BINDINGS_DIR/<set-name>.conf where it exists; 1 and no output where neither does. Presence
+#   alone: a name base ships a binding for is decided by the shipped file whatever the operator directory holds, so an
+#   operator binding cannot add a signer to a shipped set, and ai_tools_assets_verify__read_binding holds the file
+#   this names to every trust check.
+ai_tools_assets_verify__find_binding() {
+    local set_name="${1:-}" directory
+    [[ -n "${set_name}" ]] || return 1
+    for directory in "${AI_TOOLS_ASSETS_BINDINGS_DIR}" "${AI_TOOLS_ASSETS_OPERATOR_BINDINGS_DIR}"; do
+        if [[ -e "${directory}/${set_name}.conf" || -L "${directory}/${set_name}.conf" ]]; then
+            printf '%s\n' "${directory}/${set_name}.conf"
+            return 0
+        fi
+    done
+    return 1
+}
+
+# ai_tools_assets_verify__read_binding <set-name> : read the binding that decides <set-name> into
 #   _AI_TOOLS_ASSETS_VERIFY__SIGNERS (the primary fingerprints, upper-case, without their type) and
 #   _AI_TOOLS_ASSETS_VERIFY__KEYRING (the keyring path). Returns 0, or 2 under MSG-Q6Y8 for a name outside the grammar,
-#   a bindings directory or binding file ai_tools_conf__is_trusted refuses, an absent binding, a line outside `set`,
+#   a shipped bindings directory ai_tools_conf__is_trusted refuses, an operator bindings directory it refuses where
+#   the binding is the operator's, a binding file it refuses, a binding under neither directory, a line outside `set`,
 #   `signers` and `keyring`, a `set` other than the name, an empty or invalid signers list, a signer outside its shape,
 #   or a keyring that is not an absolute path to a trusted, non-empty regular file in a trusted directory. Every failure
 #   leaves both outputs empty.
 ai_tools_assets_verify__read_binding() {
-    local set_name="${1:-}" directory="${AI_TOOLS_ASSETS_BINDINGS_DIR}" binding line key item keyring
+    local set_name="${1:-}" directory binding line key item keyring
     local -a signers=() parsed_signers=()
     _AI_TOOLS_ASSETS_VERIFY__SIGNERS=()
     _AI_TOOLS_ASSETS_VERIFY__KEYRING=""
     ai_tools_assets_verify__is_valid_set_name "${set_name}" \
         || { _ai_tools_assets_verify__report_unverifiable "'$(_ai_tools_assets_verify__sanitize_for_display "${set_name}")' is not a set name"; return 2; }
-    binding="${directory}/${set_name}.conf"
-    ai_tools_conf__is_trusted "${directory}" \
-        || { _ai_tools_assets_verify__report_unverifiable "bindings directory ${directory} is not trusted ($(ai_tools_conf__read_untrusted_reason "${directory}"))"; return 2; }
-    [[ -e "${binding}" || -L "${binding}" ]] \
-        || { _ai_tools_assets_verify__report_unverifiable "set ${set_name} has no binding at ${binding}, so no key is pinned for it"; return 2; }
+    ai_tools_conf__is_trusted "${AI_TOOLS_ASSETS_BINDINGS_DIR}" \
+        || { _ai_tools_assets_verify__report_unverifiable "bindings directory ${AI_TOOLS_ASSETS_BINDINGS_DIR} is not trusted ($(ai_tools_conf__read_untrusted_reason "${AI_TOOLS_ASSETS_BINDINGS_DIR}"))"; return 2; }
+    binding="$(ai_tools_assets_verify__find_binding "${set_name}")" \
+        || { _ai_tools_assets_verify__report_unverifiable "set ${set_name} has no binding under ${AI_TOOLS_ASSETS_BINDINGS_DIR} or ${AI_TOOLS_ASSETS_OPERATOR_BINDINGS_DIR}, so no key is pinned for it"; return 2; }
+    directory="${binding%/*}"
+    # The shipped directory was held above, before the name was looked up; the operator's is held only where its file is
+    # the one that decides, so a group-writable operator directory leaves every shipped set as it was.
+    if [[ "${directory}" != "${AI_TOOLS_ASSETS_BINDINGS_DIR}" ]]; then
+        ai_tools_conf__is_trusted "${directory}" \
+            || { _ai_tools_assets_verify__report_unverifiable "operator bindings directory ${directory} is not trusted ($(ai_tools_conf__read_untrusted_reason "${directory}"))"; return 2; }
+    fi
     ai_tools_conf__is_trusted "${binding}" \
         || { _ai_tools_assets_verify__report_unverifiable "binding ${binding} is not trusted ($(ai_tools_conf__read_untrusted_reason "${binding}"))"; return 2; }
     _ai_tools_assets_verify__is_bounded_regular_file "${binding}" "${AI_TOOLS_ASSETS_VERIFY__SMALL_FILE_MAX_BYTES}" \

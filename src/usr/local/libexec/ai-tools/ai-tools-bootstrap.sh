@@ -486,9 +486,9 @@ seed_managed_assets_step() {
         kind="${spec%%:*}"; shared="${CP_HOME}/${kind}"
         install -d -o root -g "${SANDBOX_GROUP}" -m "${CP_DIR_MODES[${kind}]}" "${shared}"
         log "seeding ai-tools-managed ${kind} into ${shared}"
-        ai_tools_managed_assets__seed_assets "${pristine}" "${CP_HOME}" "${SANDBOX_GROUP}" "${kind}"
-        ai_tools_managed_assets__remove_retired_assets "${CP_HOME}" "${kind}"
-        ai_tools_managed_assets__link_asset_readme "${pristine}/${kind}/README.md" "${shared}" "${SANDBOX_GROUP}"
+        ai_tools_managed_assets__seed_assets_locked "${pristine}" "${CP_HOME}" "${SANDBOX_GROUP}" "${kind}"
+        ai_tools_managed_assets__remove_retired_assets_locked "${CP_HOME}" "${kind}"
+        ai_tools_managed_assets__link_asset_readme_locked "${pristine}/${kind}/README.md" "${shared}" "${SANDBOX_GROUP}"
     done
     # Every enabled agent's links into the shared roots, and the asset view AI_TOOLS_ASSETS asks for: the assets
     # reconcile owns each of them, and this step runs it after the seeding. Its record stream goes to the assets log;
@@ -508,7 +508,7 @@ seed_managed_assets_step() {
     shared="${CP_SHARED_ORIENTATION}"
     install -d -o root -g "${SANDBOX_GROUP}" -m "${CP_DIR_MODES[orientation]}" "${shared}"
     log "seeding the ai-tools-managed orientation into ${shared}"
-    ai_tools_managed_assets__seed_assets "${pristine}" "${CP_HOME}" "${SANDBOX_GROUP}" orientation
+    ai_tools_managed_assets__seed_assets_locked "${pristine}" "${CP_HOME}" "${SANDBOX_GROUP}" orientation
     ai_tools_managed_assets__unlock
     while IFS=$'\t' read -r _ memory_target; do
         log "linking the shared orientation into ${memory_target}"
@@ -1076,9 +1076,9 @@ else
     log "next: deploy the control plane -- sudo ./install.sh install   (or install the RPM)"
 fi
 
-# An enabled agent whose package npm left without the entrypoint its manifest declares cannot launch, so a run that
-# left one does not end as a success: every other step has run, and the exit says what this host still lacks. The code
-# is the updater's for the same state, printed as a citation ahead of the error.
+# An enabled agent whose package npm left without the entrypoint its manifest declares cannot launch, so a run that left
+# one does not end as a success: every other step has run, and the exit says what this host still lacks. The code is
+# the updater's for the same state, printed as a citation ahead of the error.
 if (( _incomplete_agents > 0 )); then
     printf 'MSG-U5N2\n' >&2
     die "the install left ${_incomplete_agents} enabled agent(s) without the entrypoint their manifest declares (the warnings above; npm's output names what it left out, and its log is the newest under ${SANDBOX_HOME}/.npm/_logs) -- every launch of them is refused until that executable is installed; fix what npm names, then rerun this command"

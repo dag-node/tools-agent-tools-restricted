@@ -619,7 +619,7 @@ other than
 .B skills
 or
 .BR subagents ,
-and a set no shipped binding names.
+and a set no binding names.
 An asset whose set is not installed yet is accepted where its set is bound,
 and is reported
 .B set\-absent
@@ -909,9 +909,13 @@ launchers
 points at them.
 .TP
 .I /usr/local/lib/ai-tools/assets-bindings.d
-The shipped bindings: which key may sign each set name.
+.TQ
+.I /etc/ai-tools/assets-bindings.d
+The shipped bindings and yours: which key may sign each set name.
 .B "assets enable"
-accepts an asset only of a set named here.
+accepts an asset only of a set one of them names;
+.BR ai-tools-assets (5)
+has the file.
 .TP
 .I /opt/ai-tools/skills
 .TQ
