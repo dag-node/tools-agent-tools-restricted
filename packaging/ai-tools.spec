@@ -1596,6 +1596,10 @@ fi
 - CHANGE: The Assets section of 'sudo ai-tools-admin status' ends with one 'Summary:' line naming its
   findings and the exit status it sets, printed only when it holds a finding. A script that parses
   the section reads that line; a monitor keeps reading the exit status.
+- CHANGE: When a launch refuses an agent binary that changed after it was pinned, the commands it
+  prints to replace the binary begin by suggesting you end every running session -- let each finish,
+  or 'ai-tools stop' -- before the package directory is removed; 'sudo ai-tools-admin system
+  entrypoints relabel' prints the same steps.
 - SECURITY: The toolchain updater runs under RestrictNamespaces=yes, so a package install script
   cannot create a user namespace in which the sandbox account's own files read as root-owned.
 - SECURITY: A skill or agent entry the sandbox account can rewrite -- not root-owned, or writable by
@@ -1613,6 +1617,14 @@ fi
 - NEW: 'sudo ai-tools-admin status' reports a codex host whose /etc/codex/skills is not the link to
   the shared skills view (agent-root-foreign), and its More section lists the commands that read
   and run the relabel watcher and the toolchain updater.
+- NEW: A session launch empties the packages npx installed and node's compile cache, at most once a
+  week and only while no other session runs, and prints what it removed. A launch that cannot read
+  the sandbox account's session list, because that account's user bus does not answer it, leaves
+  both in place, and the Caches section shows it. 'ai-tools status' and
+  'sudo ai-tools-admin status' show each cache's last cleanup in a Caches section and count a cleanup
+  that failed and a cache holding links its producer does not write; a cache no launch has cleaned
+  for two weeks reads OVERDUE without changing the exit status. The root report adds the size each
+  cache holds now.
 - FIX: The relabel watcher is stopped for a package transaction and started again after it, with one
   relabel run, so an upgrade no longer leaves ai-tools-relabel.service FAILED; 'install.sh' and the
   bootstrap run the service once at their end as well, and a start of the service brings its watcher
