@@ -149,9 +149,14 @@ The `rpm-selftest` runs:
 
 | Event | Distributions |
 |---|---|
-| pull request into `develop` | el10 |
+| pull request into `develop` | el10, plus el9 or fc44 when its Containerfile changes |
+| pull request into `develop` labelled `selftest-all` | el9, el10, fc44 |
 | merge into `develop` whose tree passed el10 in its pull request | el9, fc44 |
 | any other push to `develop`, pull request into `main`, tag, `workflow_dispatch` | el9, el10, fc44 |
+
+A change that affects EL9 or Fedora alone takes the label; re-run the workflow
+after adding it. `workflow_dispatch` on the branch also runs all three,
+against the branch head.
 
 A pull request that does not change any file the selftest image is built from —
 one under `tools/` or `.claude/` alone, for instance — skips the selftest
