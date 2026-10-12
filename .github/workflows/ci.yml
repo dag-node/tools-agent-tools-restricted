@@ -128,17 +128,19 @@ jobs:
   # this does and does not cover (no SELinux-enforcing confinement; that still needs an
   # enforcing host, see the docs/rpm-packaging.md manual gate).
   #
-  # One matrix arm per served distribution, each a release gate: the release job builds and
+  # One matrix entry per served distribution, each a release gate: the release job builds and
   # publishes exactly these dist tags, so every published package has passed this selftest on
   # its own distribution at the same commit. `distro` names the make target, `tag` the RPM
   # dist tag the image is named by (ai-tools-rpmbase:<tag>, the RPMs' .<tag>). Fedora is
-  # pinned to the release its dist tag names (packaging/Makefile), so the arm is as stable a
-  # target as the EL pair; the next Fedora is a new arm, as a new EL major is.
+  # pinned to the release its dist tag names (packaging/Makefile), so its selftest is as stable a
+  # target as the EL pair; the next Fedora is a new entry, as a new EL major is.
   #
-  # A pull request into `develop` runs the el10 arm alone: EL10 sits between EL9 and Fedora in
-  # its package versions, so it is the arm most likely to fail where either of the others
-  # would. A pull request into `main` (a release or a patch to one), a push to `develop`, a tag
-  # and `workflow_dispatch` run every arm. A pull request whose diff does not change any path
+  # selftest-matrix picks the distributions. A pull request into `develop` runs el10 alone: EL10 sits
+  # between EL9 and Fedora in its package versions. A push to `develop` whose tree passed el10
+  # in a pull request run of this repository runs el9 and fc44; the el10 job records that pass
+  # as an artifact named by the tree, and a fork's run does not count, since a fork's pull
+  # request runs the fork's copy of this workflow. Every other event runs all three, as does
+  # a lookup that fails. A pull request whose diff does not change any path
   # the selftest image is built from skips the selftest and reports success: the paths are the
   # COPY sources of packaging/*.Containerfile, read at run time, plus .containerignore and this
   # workflow, so a source added to an image joins the set without an edit here. A `git diff`
@@ -152,7 +154,43 @@ jobs:
   # account's own `systemd --user manager`, which needs full cgroup delegation; rootless
   # podman on hosted runners does not reliably provide that. The Makefile default stays
   # rootless `podman` for local runs.
+  selftest-matrix:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: read
+    outputs:
+      include: ${{ steps.pick.outputs.include }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: Pick the selftest distributions
+        id: pick
+        env:
+          EVENT: ${{ github.event_name }}
+          BASE_REF: ${{ github.base_ref }}
+          REF: ${{ github.ref }}
+          REPOSITORY: ${{ github.repository }}
+          REPOSITORY_ID: ${{ github.repository_id }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          include='[{"distro":"rocky9","tag":"el9"},{"distro":"rocky10","tag":"el10"},{"distro":"fedora44","tag":"fc44"}]'
+          if [[ "${EVENT}" == pull_request && "${BASE_REF}" != main ]]; then
+              include='[{"distro":"rocky10","tag":"el10"}]'
+          elif [[ "${EVENT}" == push && "${REF}" == refs/heads/develop ]] \
+                  && tree="$(git rev-parse 'HEAD^{tree}')" \
+                  && count="$(gh api "repos/${REPOSITORY}/actions/artifacts?name=selftest-el10-tree-${tree}&per_page=20" \
+                      --jq "[.artifacts[] | select(.expired == false
+                          and .workflow_run.repository_id == ${REPOSITORY_ID}
+                          and .workflow_run.head_repository_id == ${REPOSITORY_ID})] | length")" \
+                  && [[ "${count}" =~ ^[1-9][0-9]*$ ]]; then
+              include='[{"distro":"rocky9","tag":"el9"},{"distro":"fedora44","tag":"fc44"}]'
+              echo "el10 passed tree ${tree} in a pull request run; el9 and fc44 run."
+          fi
+          echo "include=${include}" >> "$GITHUB_OUTPUT"
+
   rpm-selftest:
+    needs: selftest-matrix
     # Pinned, not ubuntu-latest: this job builds and runs podman containers, and the
     # apt podman/crun pair on the floating latest image can skew -- a newer podman emits an
     # OCI spec crun rejects with "unknown version specified" at container create, before any
@@ -162,9 +200,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        include: ${{ fromJSON(github.event_name == 'pull_request' && github.base_ref != 'main'
-          && '[{"distro":"rocky10","tag":"el10"}]'
-          || '[{"distro":"rocky9","tag":"el9"},{"distro":"rocky10","tag":"el10"},{"distro":"fedora44","tag":"fc44"}]') }}
+        include: ${{ fromJSON(needs.selftest-matrix.outputs.include) }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
@@ -220,6 +256,24 @@ jobs:
         if: steps.scope.outputs.run == 'true'
         run: make -C packaging rpmtest-${{ matrix.distro }} RPM_RELEASE=${{ steps.relver.outputs.release }} OCI="sudo podman"
 
+      - name: Record that el10 passed this tree
+        id: marker
+        if: github.event_name == 'pull_request' && matrix.tag == 'el10' && steps.scope.outputs.run == 'true'
+        run: |
+          tree="$(git rev-parse 'HEAD^{tree}')"
+          mkdir -p selftest-marker
+          printf 'tree=%s\ncommit=%s\nrun=%s\n' "${tree}" "${GITHUB_SHA}" "${GITHUB_RUN_ID}" > selftest-marker/el10
+          echo "name=selftest-el10-tree-${tree}" >> "$GITHUB_OUTPUT"
+
+      - name: Upload the el10 marker
+        if: steps.marker.outputs.name != ''
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: ${{ steps.marker.outputs.name }}
+          path: selftest-marker/el10
+          overwrite: true
+          retention-days: 14
+
       # `if: always()` so a failed selftest still surfaces the RPMs that caused it --
       # those are exactly the artifacts needed to debug the failure. The rpmbase image
       # is still cached (only the final test container was `--rm`'d); when even the image
@@ -261,7 +315,7 @@ jobs:
       contents: write
     env:
       # The dist tags this job builds, signs, and publishes, one per served distribution; each
-      # names a `make rpmbase-<tag>` target and an rpm-selftest matrix arm, so a tag listed here
+      # names a `make rpmbase-<tag>` target and an rpm-selftest matrix entry, so a tag listed here
       # has passed the selftest on this commit before the release job starts. dag-node/rpm routes
       # each package into its served tree by this tag (.el9 -> el/9, .fc44 -> fedora/44).
       RPM_DIST_TAGS: el9 el10 fc44

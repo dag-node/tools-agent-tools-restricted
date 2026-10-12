@@ -147,10 +147,11 @@ the slash kept — and the merge commit keeps
 Every pull request and every push to `develop` runs `shellcheck`.
 The `rpm-selftest` runs:
 
-| Event | Arms |
+| Event | Distributions |
 |---|---|
 | pull request into `develop` | el10 |
-| pull request into `main`, push to `develop`, tag, `workflow_dispatch` | el9, el10, fc44 |
+| merge into `develop` whose tree passed el10 in its pull request | el9, fc44 |
+| any other push to `develop`, pull request into `main`, tag, `workflow_dispatch` | el9, el10, fc44 |
 
 A pull request that does not change any file the selftest image is built from —
 one under `tools/` or `.claude/` alone, for instance — skips the selftest
