@@ -144,8 +144,17 @@ first character uppercased, every other lowercased, each hyphen a space,
 the slash kept — and the merge commit keeps
 `Feat/atr 260729 selinux optional groups` for good.
 
-Every pull request, and every push to `develop` or `main`, runs `shellcheck`
-and the full `rpm-selftest` matrix and uploads snapshot RPMs as workflow
+Every pull request and every push to `develop` runs `shellcheck`.
+The `rpm-selftest` runs:
+
+| Event | Arms |
+|---|---|
+| pull request into `develop` | el10 |
+| pull request into `main`, push to `develop`, tag, `workflow_dispatch` | el9, el10, fc44 |
+
+A pull request that does not change any file the selftest image is built from —
+one under `tools/` or `.claude/` alone, for instance — skips the selftest
+and reports success. Each run of the selftest uploads snapshot RPMs as workflow
 artifacts, so a proposed change is inspectable without cutting a release. Do
 not push `v*` tags — a tag ruleset restricts tag creation to maintainers,
 because under [The one rule that decides everything
@@ -251,12 +260,12 @@ to the same agreement.
 Three rules decide whether that costs one patch or two.
 
 **Prove the fix before the merge, not after.** A patch branch earns the full
-suite green and its own CI run — every push builds the `rpm-selftest` matrix —
-and, where the fix is about the state of an installed host, an install
-on a real one. A branch merged unproven costs a second branch to finish
-the job, and leaves `main` carrying half a fix in between. Tag only once `main`
-is what you mean to ship: the tag is what publishes, so a tag that has to move
-afterwards is the outcome this ordering exists to avoid.
+suite green and its own CI run — its pull request into `main` runs the full
+`rpm-selftest` matrix — and, where the fix is about the state of an installed
+host, an install on a real one. A branch merged unproven costs a second branch
+to finish the job, and leaves `main` carrying half a fix in between. Tag only
+once `main` is what you mean to ship: the tag is what publishes, so a tag
+that has to move afterwards is the outcome this ordering exists to avoid.
 
 **The `%changelog` commit is the last one on the branch**, as it is for a final
 tag in [2. Finalize](#2-finalize-the-one-merge-to-main). It records

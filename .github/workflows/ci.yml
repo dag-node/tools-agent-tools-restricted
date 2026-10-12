@@ -1,8 +1,10 @@
 name: CI
 
 on:
+  # `main` moves only by a merged pull request, which ran these jobs, and a release is published
+  # from a tag, whose own run gates it, so a push to `main` does not run them a third time.
   push:
-    branches: [main, develop]
+    branches: [develop]
     tags: ["v*.*.*"]
   pull_request:
   # Manual trigger so the check jobs can be exercised from any branch (the podman/systemd
@@ -133,9 +135,18 @@ jobs:
   # pinned to the release its dist tag names (packaging/Makefile), so the arm is as stable a
   # target as the EL pair; the next Fedora is a new arm, as a new EL major is.
   #
-  # Every push/PR run builds a dev/snapshot Release (see the comment on Release: in
-  # packaging/ai-tools.spec) and uploads the resulting RPMs as a workflow artifact, so a
-  # build off any commit is downloadable and inspectable without cutting a real release.
+  # A pull request into `develop` runs the el10 arm alone: EL10 sits between EL9 and Fedora in
+  # its package versions, so it is the arm most likely to fail where either of the others
+  # would. A pull request into `main` (a release or a patch to one), a push to `develop`, a tag
+  # and `workflow_dispatch` run every arm. A pull request whose diff does not change any path
+  # the selftest image is built from skips the selftest and reports success: the paths are the
+  # COPY sources of packaging/*.Containerfile, read at run time, plus .containerignore and this
+  # workflow, so a source added to an image joins the set without an edit here. A `git diff`
+  # that fails, or a COPY list that reads empty, runs the selftest.
+  #
+  # Every run that reaches the selftest builds a dev/snapshot Release (see the comment on
+  # Release: in packaging/ai-tools.spec) and uploads the resulting RPMs as a workflow artifact,
+  # so a build off any commit is downloadable and inspectable without cutting a real release.
   #
   # OCI="sudo podman": the selftest container runs systemd as PID 1 plus the sandbox
   # account's own `systemd --user manager`, which needs full cgroup delegation; rootless
@@ -151,14 +162,42 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - { distro: rocky9,   tag: el9 }
-          - { distro: rocky10,  tag: el10 }
-          - { distro: fedora44, tag: fc44 }
+        include: ${{ fromJSON(github.event_name == 'pull_request' && github.base_ref != 'main'
+          && '[{"distro":"rocky10","tag":"el10"}]'
+          || '[{"distro":"rocky9","tag":"el9"},{"distro":"rocky10","tag":"el10"},{"distro":"fedora44","tag":"fc44"}]') }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          # A pull request checks out its merge commit; its first parent is the base branch,
+          # which the scope step diffs against.
+          fetch-depth: 2
+
+      - name: Decide whether the change reaches the selftest image
+        id: scope
+        env:
+          EVENT: ${{ github.event_name }}
+        run: |
+          run=true
+          if [[ "${EVENT}" == pull_request ]] && changed="$(git diff --name-only HEAD^1 HEAD)" \
+                  && mapfile -t sources < <(awk '$1 == "COPY" && $2 !~ /^--/ { print $2 }' packaging/*.Containerfile) \
+                  && (( ${#sources[@]} > 0 )); then
+              run=false
+              sources+=(.containerignore .github/workflows/ci.yml)
+              while IFS= read -r path; do
+                  for source in "${sources[@]}"; do
+                      # shellcheck disable=SC2053  # a source is a glob pattern, matched unquoted
+                      if [[ "${path}" == ${source} || "${path}" == ${source}/* ]]; then
+                          run=true; break 2
+                      fi
+                  done
+              done <<< "${changed}"
+              [[ "${run}" == true ]] \
+                  || printf 'No changed path reaches the selftest image; skipped. Changed:\n%s\n' "${changed}"
+          fi
+          echo "run=${run}" >> "$GITHUB_OUTPUT"
 
       - name: Ensure podman, force the modern runc runtime, and report it
+        if: steps.scope.outputs.run == 'true'
         run: |
           # The runner's podman (3.4.4) defaults to an ancient crun 0.17 (OCI spec 1.0.0) that
           # rejects the runtime spec podman generates -- "crun: unknown version specified" at
@@ -173,10 +212,12 @@ jobs:
           sudo podman info --format 'runtime={{.Host.OCIRuntime.Name}} {{.Host.OCIRuntime.Version}}' 2>/dev/null || true
 
       - name: Compute dev Release
+        if: steps.scope.outputs.run == 'true'
         id: relver
         run: echo "release=0.${{ github.run_number }}.git$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
 
       - name: make -C packaging rpmtest-${{ matrix.distro }}
+        if: steps.scope.outputs.run == 'true'
         run: make -C packaging rpmtest-${{ matrix.distro }} RPM_RELEASE=${{ steps.relver.outputs.release }} OCI="sudo podman"
 
       # `if: always()` so a failed selftest still surfaces the RPMs that caused it --
@@ -184,7 +225,7 @@ jobs:
       # is still cached (only the final test container was `--rm`'d); when even the image
       # build failed that image is absent, hence the image-exists guard.
       - name: Extract dev RPMs
-        if: always()
+        if: always() && steps.scope.outputs.run == 'true'
         run: |
           sudo podman image exists ai-tools-rpmbase:${{ matrix.tag }} || { echo "no image built; nothing to extract"; exit 0; }
           cid=$(sudo podman create ai-tools-rpmbase:${{ matrix.tag }})
@@ -194,7 +235,7 @@ jobs:
           sudo chown -R "$(id -u):$(id -g)" dist-rpms
 
       - name: Upload dev RPM artifacts
-        if: always()
+        if: always() && steps.scope.outputs.run == 'true'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: ai-tools-rpms-${{ matrix.tag }}-${{ steps.relver.outputs.release }}
