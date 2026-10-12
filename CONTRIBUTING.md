@@ -68,8 +68,9 @@ shellcheck install.sh
 
 Extending lint coverage to `tests/`, `selinux/`, or `packaging/` means
 verifying the directory lints clean and updating the rule file
-and `.github/workflows/ci.yml` together. That workflow runs both the lint
-and the container smoke test on every push and pull request.
+and `.github/workflows/ci.yml` together. That workflow runs the lint on every
+pull request and every push to `develop`; which events run the container smoke
+test is in `docs/development/release.md`.
 
 ## Commit style
 
