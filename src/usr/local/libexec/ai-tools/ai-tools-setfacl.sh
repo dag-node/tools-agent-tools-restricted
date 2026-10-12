@@ -235,9 +235,9 @@ _safe_setfacl() {
     # Owner-only guard: the operator sealed this path and the claim honours it. Granting it would be worse than a no-op
     # -- `setfacl -m` RECALCULATES the mask, so the grant on a 0600 file
     # raises its mask from --- to rw- and hands the agent EFFECTIVE read/write while `ls -l` still
-    # shows `-rw-------` and only the trailing `+` hints anything changed. Strip the residue the
-    # path carries instead (owner-only.lib.sh), and report it: an owner-only .git under `--with-git` is a deliberate
-    # no-op the operator has to be told about, not a share that quietly skipped.
+    # shows `-rw-------` and only the trailing `+` hints anything changed. Strip the residue the path carries instead
+    # (owner-only.lib.sh), and report it: an owner-only .git under `--with-git` is a deliberate no-op the operator has
+    # to be told about, not a share that quietly skipped.
     if ai_tools_owner_only__is_owner_only "${got_mode}"; then
         ai_tools_owner_only__strip_sandbox_residue "${fd}" "${got_ftype}" "${got_grp}" "${got_mode}" \
             "${PROJECTS_GROUP:-}" || true

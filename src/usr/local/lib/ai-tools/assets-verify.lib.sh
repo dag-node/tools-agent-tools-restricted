@@ -6,19 +6,19 @@
 # hash. Sourced as root by the assets resolver, which does not link any asset of a set this library refuses; the roots,
 # the binding directory and the reason tokens are in shipped-assets.rule.md.
 #
-# Status contract ref-section-b8h3, shared with entrypoint-verify.lib.sh and npm-verify.lib.sh; here a 2 refuses
-# as a 1 does:
+# Status contract ref-section-b8h3, shared with entrypoint-verify.lib.sh and npm-verify.lib.sh; here a 2 refuses as a 1
+# does:
 #   0  verified; the signer's primary fingerprint is printed on stdout
 #   1  MISMATCH (MSG-T3M3) -- the signed inventory and the tree cannot both be what the publisher built: gpgv rejects
 #      the signature, or the inventory does not describe the tree
 #   2  unable to verify (MSG-Q6Y8) -- an input the check could not read, over its bound, untrusted, or a signer
 #      no binding names
-# The resolver reads 1 as set-tampered and 2 as set-unverified. The signature is checked before the inventory is
-# parsed, so a tree whose signature fails is not read further; each function's doc names the inputs it maps to each
-# status. A path, listed or found, is held to ai_tools_conf__is_portable_name_valid (conf.lib.sh) per component, and
-# a name outside that set is a mismatch: the format's `file.name` rule refuses one at build, so a signed set does not
-# carry one. Every name, line and tool message a diagnostic carries passes log.lib.sh's allowlist sanitizer first,
-# since a refused set's bytes are whoever wrote them.
+# The resolver reads 1 as set-tampered and 2 as set-unverified. The signature is checked before the inventory is parsed,
+# so a tree whose signature fails is not read further; each function's doc names the inputs it maps to each status.
+# A path, listed or found, is held to ai_tools_conf__is_portable_name_valid (conf.lib.sh) per component, and a name
+# outside that set is a mismatch: the format's `file.name` rule refuses one at build, so a signed set does not carry
+# one. Every name, line and tool message a diagnostic carries passes log.lib.sh's allowlist sanitizer first, since
+# a refused set's bytes are whoever wrote them.
 #
 # A binding is <set>.conf in the shared KEY=value grammar, read line by line through conf.lib.sh and not sourced,
 # under AI_TOOLS_ASSETS_BINDINGS_DIR (the bindings base ships) or AI_TOOLS_ASSETS_OPERATOR_BINDINGS_DIR (the operator's,
@@ -118,12 +118,12 @@ ai_tools_assets_verify__is_valid_signer_fingerprint() {
     [[ "${1-}" =~ ^openpgp:[0-9A-Fa-f]{40}$ ]]
 }
 
-# ai_tools_assets_verify__write_binary_keyring <armored-key> <keyring> : write the binary keyring gpgv reads from an
-#   ASCII-armored public key file. gpgv on EL9 exits 2 on an armored keyring, so the keyring is written binary at build
-#   time, by the spec's %install and by install.sh. The armor is base64 between the PUBLIC KEY BLOCK markers, with
-#   header lines and a `=` CRC line, so dropping those and decoding is the whole conversion, and gpgv, the verify-only
-#   half of gnupg2, stays the one dependency: no gpg homedir is made per call. Several armored blocks in one file decode
-#   to one keyring. A partial output is removed; returns 1 when the input does not hold a key.
+# ai_tools_assets_verify__write_binary_keyring <armored-key> <keyring> : write the binary keyring gpgv reads
+#   from an ASCII-armored public key file. gpgv on EL9 exits 2 on an armored keyring, so the keyring is written binary
+#   at build time, by the spec's %install and by install.sh. The armor is base64 between the PUBLIC KEY BLOCK markers,
+#   with header lines and a `=` CRC line, so dropping those and decoding is the whole conversion, and gpgv,
+#   the verify-only half of gnupg2, stays the one dependency: no gpg homedir is made per call. Several armored blocks
+#   in one file decode to one keyring. A partial output is removed; returns 1 when the input does not hold a key.
 ai_tools_assets_verify__write_binary_keyring() {
     local armored="${1:-}" keyring="${2:-}"
     [[ -n "${armored}" && -r "${armored}" && -n "${keyring}" ]] || return 1
@@ -140,8 +140,8 @@ ai_tools_assets_verify__write_binary_keyring() {
 # ai_tools_assets_verify__find_binding <set-name> : print the path of the binding that decides <set-name>:
 #   AI_TOOLS_ASSETS_BINDINGS_DIR/<set-name>.conf where that path exists, else
 #   AI_TOOLS_ASSETS_OPERATOR_BINDINGS_DIR/<set-name>.conf where it exists; 1 and no output where neither does. Presence
-#   alone: a name base ships a binding for is decided by the shipped file whatever the operator directory holds, so an
-#   operator binding cannot add a signer to a shipped set, and ai_tools_assets_verify__read_binding holds the file
+#   alone: a name base ships a binding for is decided by the shipped file whatever the operator directory holds,
+#   so an operator binding cannot add a signer to a shipped set, and ai_tools_assets_verify__read_binding holds the file
 #   this names to every trust check.
 ai_tools_assets_verify__find_binding() {
     local set_name="${1:-}" directory
@@ -155,14 +155,14 @@ ai_tools_assets_verify__find_binding() {
     return 1
 }
 
-# ai_tools_assets_verify__read_binding <set-name> : read the binding that decides <set-name> into
-#   _AI_TOOLS_ASSETS_VERIFY__SIGNERS (the primary fingerprints, upper-case, without their type) and
-#   _AI_TOOLS_ASSETS_VERIFY__KEYRING (the keyring path). Returns 0, or 2 under MSG-Q6Y8 for a name outside the grammar,
-#   a shipped bindings directory ai_tools_conf__is_trusted refuses, an operator bindings directory it refuses where
-#   the binding is the operator's, a binding file it refuses, a binding under neither directory, a line outside `set`,
-#   `signers` and `keyring`, a `set` other than the name, an empty or invalid signers list, a signer outside its shape,
-#   or a keyring that is not an absolute path to a trusted, non-empty regular file in a trusted directory. Every failure
-#   leaves both outputs empty.
+# ai_tools_assets_verify__read_binding <set-name> : read the binding that decides <set-name>
+#   into _AI_TOOLS_ASSETS_VERIFY__SIGNERS (the primary fingerprints, upper-case, without their type)
+#   and _AI_TOOLS_ASSETS_VERIFY__KEYRING (the keyring path). Returns 0, or 2 under MSG-Q6Y8 for a name outside
+#   the grammar, a shipped bindings directory ai_tools_conf__is_trusted refuses, an operator bindings directory it
+#   refuses where the binding is the operator's, a binding file it refuses, a binding under neither directory, a line
+#   outside `set`, `signers` and `keyring`, a `set` other than the name, an empty or invalid signers list, a signer
+#   outside its shape, or a keyring that is not an absolute path to a trusted, non-empty regular file in a trusted
+#   directory. Every failure leaves both outputs empty.
 ai_tools_assets_verify__read_binding() {
     local set_name="${1:-}" directory binding line key item keyring
     local -a signers=() parsed_signers=()
@@ -220,10 +220,10 @@ ai_tools_assets_verify__read_binding() {
 }
 
 # _ai_tools_assets_verify__is_valid_inventory_path <path> : succeed when <path> is a relative path inside a set: no
-#   leading or trailing `/`, every component one ai_tools_conf__is_portable_name_valid accepts, and not the inventory or
-#   its signature, which list themselves nowhere. Read over a listed path and over a found one alike, so the two readers
-#   accept one set of names. The components are split on `/` alone by `read -a`, which does not expand a glob character
-#   on the way and stops at a newline, so a newline is refused ahead of the split.
+#   leading or trailing `/`, every component one ai_tools_conf__is_portable_name_valid accepts, and not the inventory
+#   or its signature, which list themselves nowhere. Read over a listed path and over a found one alike, so the two
+#   readers accept one set of names. The components are split on `/` alone by `read -a`, which does not expand a glob
+#   character on the way and stops at a newline, so a newline is refused ahead of the split.
 _ai_tools_assets_verify__is_valid_inventory_path() {
     local path="${1-}" component
     local -a components=()
@@ -342,13 +342,14 @@ _ai_tools_assets_verify__verify_inventory_listing() {
     return 0
 }
 
-# ai_tools_assets_verify__verify_set <set-directory> <set-name> : the verifier the resolver calls. SHA256SUMS.asc under
-#   <set-directory> verifies through gpgv against the keyring the binding for <set-name> names, by a key whose VALIDSIG
-#   primary the binding's signers list, and SHA256SUMS describes the tree (ai_tools_assets_verify__verify_inventory).
-#   Prints the signer's primary fingerprint and returns 0; returns 1 under MSG-T3M3 for a signature gpgv rejects or an
-#   inventory mismatch, 2 under MSG-Q6Y8 for an input the checks refuse: absent, over its bound, untrusted, or unmatched
-#   by the binding. gpgv reads the keyring named and no default one, and its exit status separates the two refusals as
-#   the contract does: 1 for a signature it rejects, 2 for a key the keyring does not hold.
+# ai_tools_assets_verify__verify_set <set-directory> <set-name> : the verifier the resolver calls. SHA256SUMS.asc
+#   under <set-directory> verifies through gpgv against the keyring the binding for <set-name> names, by a key
+#   whose VALIDSIG primary the binding's signers list, and SHA256SUMS describes the tree
+#   (ai_tools_assets_verify__verify_inventory). Prints the signer's primary fingerprint and returns 0; returns 1
+#   under MSG-T3M3 for a signature gpgv rejects or an inventory mismatch, 2 under MSG-Q6Y8 for an input the checks
+#   refuse: absent, over its bound, untrusted, or unmatched by the binding. gpgv reads the keyring named and no default
+#   one, and its exit status separates the two refusals as the contract does: 1 for a signature it rejects, 2 for a key
+#   the keyring does not hold.
 ai_tools_assets_verify__verify_set() {
     local set_dir="${1:-}" set_name="${2:-}" inventory signature gpgv_status_output gpgv_exit_status=0
     local signer_primary allowed_primary matched=no

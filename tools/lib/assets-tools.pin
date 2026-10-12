@@ -1,5 +1,5 @@
 # The ai-tools-assets-tools release this repository's formatters and the conformance fixtures are read from, resolved
 # by tools/lib/assets.sh. Bump it as tools/README.md states.
-tag=v1.1.0
-archive=ai-tools-assets-tools-1.1.0.tar.gz
-archive_sha256=c48ab67892543786aea914a7e6872789a2e93682c288dbe829e9f4f963351aff
+tag=v1.2.0
+archive=ai-tools-assets-tools-1.2.0.tar.gz
+archive_sha256=6a5db78d4dae37f9cce521d710f02852d41440b314d77e25a6390b31d02f3bc1

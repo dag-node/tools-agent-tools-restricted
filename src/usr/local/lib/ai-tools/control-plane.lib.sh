@@ -81,11 +81,10 @@ readonly CP_UPDATE_TIMER_STAMP=stamp-nvm-update.timer
 # shellcheck source=SCRIPTDIR/providers.lib.sh
 source "${BASH_SOURCE[0]%/*}/providers.lib.sh" 2>/dev/null || true
 
-# ai_tools_control_plane__apply_mode <mode> <path>... : set the mode EXACTLY, special bits included.
-#   Load-bearing here because the control-plane home is setgid (CP_HOME_MODE): every directory
-#   created under it INHERITS setgid, and GNU chmod preserves a directory's setuid/setgid bits
-#   unless the octal mode carries five digits -- so `chmod 0750` leaves 2750 in place and a
-#   declared mode silently does not hold. The RPM sets modes exactly, so without this the two
+# ai_tools_control_plane__apply_mode <mode> <path>... : set the mode EXACTLY, special bits included. Load-bearing here
+#   because the control-plane home is setgid (CP_HOME_MODE): every directory created under it INHERITS setgid, and GNU
+#   chmod preserves a directory's setuid/setgid bits unless the octal mode carries five digits -- so `chmod 0750` leaves
+#   2750 in place and a declared mode silently does not hold. The RPM sets modes exactly, so without this the two
 #   install paths would disagree about the same directory. Normalizes to five digits.
 ai_tools_control_plane__apply_mode() {
     local mode="0000${1}"; shift
@@ -110,9 +109,9 @@ ai_tools_control_plane__find_unexpected_unit_search_path_entries() {
     done < <(find "${data_dir}" -xdev -mindepth 1 -maxdepth 1 -print0 2>/dev/null)
 }
 
-# ai_tools_control_plane__ensure_unit_search_path_closed <home> <account> <group> : bring CP_UNIT_SEARCH_PATH_CHAIN to
-#   CP_UNIT_SEARCH_PATH_MODES and keep CP_TIMER_STAMP_DIR the account's. Requires root; returns 2 for any other caller.
-#   Prints one tagged line per observation and is silent on a converged host:
+# ai_tools_control_plane__ensure_unit_search_path_closed <home> <account> <group> : bring CP_UNIT_SEARCH_PATH_CHAIN
+#   to CP_UNIT_SEARCH_PATH_MODES and keep CP_TIMER_STAMP_DIR the account's. Requires root; returns 2 for any other
+#   caller. Prints one tagged line per observation and is silent on a converged host:
 #       changed <path> <before> <after>     a directory this call brought to its declared owner and mode
 #       error <path> <reason>               a path this call left as it is; the reason names what to do
 #   Returns 1 when it printed an `error` line, 0 otherwise. ai_tools_control_plane__parse_unit_search_path_report reads
@@ -159,8 +158,8 @@ ai_tools_control_plane__ensure_unit_search_path_closed() {
 }
 
 # ai_tools_control_plane__parse_unit_search_path_report <changed_array> <failed_array> : read the tagged lines
-#   ai_tools_control_plane__ensure_unit_search_path_closed prints from stdin into the two arrays the caller names, as
-#   `<path>: <before> -> <after>` and `<path>: <reason>`. A caller renders them in its own voice.
+#   ai_tools_control_plane__ensure_unit_search_path_closed prints from stdin into the two arrays the caller names,
+#   as `<path>: <before> -> <after>` and `<path>: <reason>`. A caller renders them in its own voice.
 ai_tools_control_plane__parse_unit_search_path_report() {
     local -n _cp_changed_lines="$1" _cp_failed_lines="$2"
     local line verdict rest path detail before
@@ -175,10 +174,11 @@ ai_tools_control_plane__parse_unit_search_path_report() {
     done
 }
 
-# ai_tools_control_plane__find_unit_search_path_drift <home> <group> : print one line per chain directory whose owner or
-#   mode is not the declared one, as `<path> <owner:group mode> root:<group> <mode>`; an absent, symlinked or unreadable
-#   path prints that word in place of the owner and mode. Returns 0 when it printed drift, 1 when the chain holds its
-#   layout, and 2 when an argument is missing, so a caller does not render a failed reading as a closed path.
+# ai_tools_control_plane__find_unit_search_path_drift <home> <group> : print one line per chain directory whose owner
+#   or mode is not the declared one, as `<path> <owner:group mode> root:<group> <mode>`; an absent, symlinked
+#   or unreadable path prints that word in place of the owner and mode. Returns 0 when it printed drift, 1
+#   when the chain holds its layout, and 2 when an argument is missing, so a caller does not render a failed reading
+#   as a closed path.
 ai_tools_control_plane__find_unit_search_path_drift() {
     local home="${1:-}" group="${2:-}" relative path mode got drifted=1
     [[ -n "${home}" && -n "${group}" ]] || return 2
@@ -199,10 +199,10 @@ ai_tools_control_plane__find_unit_search_path_drift() {
     return "${drifted}"
 }
 
-# ai_tools_control_plane__is_agent_config_dir_valid <name> : pure check -- succeed when <name> is usable as an
-#   agent's config directory: ONE path component under the home, no traversal, no separator. The
-#   value reaches root helpers as a path and a `semanage fcontext` pattern, so a manifest names a
-#   directory beneath the home and cannot address a path outside it.
+# ai_tools_control_plane__is_agent_config_dir_valid <name> : pure check -- succeed when <name> is usable as an agent's
+#   config directory: ONE path component under the home, no traversal, no separator. The value reaches root helpers
+#   as a path and a `semanage fcontext` pattern, so a manifest names a directory beneath the home and cannot address
+#   a path outside it.
 ai_tools_control_plane__is_agent_config_dir_valid() {
     local name="${1:-}"
     [[ -n "${name}" ]] || return 1
@@ -211,11 +211,10 @@ ai_tools_control_plane__is_agent_config_dir_valid() {
 }
 
 # ai_tools_control_plane__list_agent_asset_dirs <manifest-field> : print "agent<TAB>absolute-path" for the directory
-#   every ENABLED agent declares in <manifest-field> (skills_dir, subagents_dir) -- a single
-#   component inside that agent's config directory, so the agent names WHERE its own product
-#   expects a kind of asset while the layout under the home stays the base package's. An agent that declares
-#   none is given no links of that kind: the shared assets are in the Claude Code format, which
-#   an agent that cannot read it leaves unset.
+#   every ENABLED agent declares in <manifest-field> (skills_dir, subagents_dir) -- a single component inside
+#   that agent's config directory, so the agent names WHERE its own product expects a kind of asset while the layout
+#   under the home stays the base package's. An agent that declares none is given no links of that kind: the shared
+#   assets are in the Claude Code format, which an agent that cannot read it leaves unset.
 ai_tools_control_plane__list_agent_asset_dirs() {
     declare -F ai_tools_providers__list_enabled_agents >/dev/null 2>&1 || return 0
     local field="$1" agent config_dir asset_dir
@@ -227,12 +226,11 @@ ai_tools_control_plane__list_agent_asset_dirs() {
     return 0
 }
 
-# ai_tools_control_plane__list_agent_memory_targets : print "agent<TAB>absolute-path" for the file every ENABLED
-#   agent declares in `memory_file` -- the name its own product reads as user-scope instructions,
-#   loaded in every session in every project (CLAUDE.md for Claude Code). One component inside
-#   that agent's config directory, validated exactly as config_dir is, so a manifest names a file
-#   beneath the home and cannot address a path outside it. An agent that declares none is given
-#   no orientation link, the same way it is given no links of an asset kind it cannot read.
+# ai_tools_control_plane__list_agent_memory_targets : print "agent<TAB>absolute-path" for the file every ENABLED agent
+#   declares in `memory_file` -- the name its own product reads as user-scope instructions, loaded in every session
+#   in every project (CLAUDE.md for Claude Code). One component inside that agent's config directory, validated exactly
+#   as config_dir is, so a manifest names a file beneath the home and cannot address a path outside it. An agent
+#   that declares none is given no orientation link, the same way it is given no links of an asset kind it cannot read.
 ai_tools_control_plane__list_agent_memory_targets() {
     declare -F ai_tools_providers__list_enabled_agents >/dev/null 2>&1 || return 0
     local agent config_dir memory_file
@@ -244,10 +242,10 @@ ai_tools_control_plane__list_agent_memory_targets() {
     return 0
 }
 
-# ai_tools_control_plane__list_agent_config_dirs : print "agent<TAB>absolute-path" for every ENABLED agent that
-#   declares a valid config_dir, in manifest order. The one resolver for "which control-plane
-#   directories exist on this host", used by the installer, the SELinux labelling, the
-#   managed-asset seeding, and the permission test, so none of them names a directory itself.
+# ai_tools_control_plane__list_agent_config_dirs : print "agent<TAB>absolute-path" for every ENABLED agent that declares
+#   a valid config_dir, in manifest order. The one resolver for "which control-plane directories exist on this host",
+#   used by the installer, the SELinux labelling, the managed-asset seeding, and the permission test, so none of them
+#   names a directory itself.
 ai_tools_control_plane__list_agent_config_dirs() {
     declare -F ai_tools_providers__list_enabled_agents >/dev/null 2>&1 || return 0
     local agent config_dir

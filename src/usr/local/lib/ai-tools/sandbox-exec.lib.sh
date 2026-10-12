@@ -78,8 +78,9 @@ _ai_tools_sandbox_exec__get_timeout_seconds() {
 # as `/usr/bin/../../tmp/x` passes a prefix check and names a directory an unprivileged writer holds.
 readonly _AI_TOOLS_SANDBOX_EXEC__SYSTEM_PATH=/usr/sbin:/usr/bin:/sbin:/bin
 
-# _ai_tools_sandbox_exec__find_tool_path <name> : print the absolute path of a host tool this helper execs, looked up
-#   in the system binary directories alone; non-zero and a warning where none of them holds an executable of that name.
+# _ai_tools_sandbox_exec__find_tool_path <name> : print the absolute path of a host tool this helper execs, looked
+#   up in the system binary directories alone; non-zero and a warning where none of them holds an executable
+#   of that name.
 _ai_tools_sandbox_exec__find_tool_path() {
     local tool_name="$1" directory
     for directory in /usr/sbin /usr/bin /sbin /bin; do
@@ -95,12 +96,11 @@ _ai_tools_sandbox_exec__find_tool_path() {
 # _ai_tools_sandbox_exec__is_scope_available : return 0 when a transient scope can be opened for a run -- systemd-run
 #   and systemctl at their system paths, and the system manager answering a probe run -- with the answer kept for this
 #   process. A scope is the boundary a descendant cannot leave: a process that opens a session of its own stays
-#   in the scope's cgroup, so ending the scope ends it. A run without one is refused, since the session setsid opens
-#   is a boundary a descendant's own setsid leaves.
-#   systemd-run expands `${NAME}` in a command's arguments where its `--expand-environment` switch is on -- off for
-#   a scope in the systemd shipped today, on by default in a later release, its manual says -- which would rewrite
-#   a bash snippet this helper carries before privilege drops; the switch is passed as `no` wherever systemd-run
-#   knows it, so the command receives its arguments byte for byte.
+#   in the scope's cgroup, so ending the scope ends it. A run without one is refused, since the session setsid opens is
+#   a boundary a descendant's own setsid leaves. systemd-run expands `${NAME}` in a command's arguments where its
+#   `--expand-environment` switch is on -- off for a scope in the systemd shipped today, on by default in a later
+#   release, its manual says -- which would rewrite a bash snippet this helper carries before privilege drops;
+#   the switch is passed as `no` wherever systemd-run knows it, so the command receives its arguments byte for byte.
 _AI_TOOLS_SANDBOX_EXEC__RUN_OPTIONS=()
 _ai_tools_sandbox_exec__is_scope_available() {
     if [[ -z "${_AI_TOOLS_SANDBOX_EXEC__SCOPE_AVAILABLE:-}" ]]; then

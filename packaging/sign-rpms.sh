@@ -2,9 +2,8 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # Sign release RPMs with the dag-node org signing key and export the matching public key. Runs INSIDE the matching-EL
 # build container (ai-tools-rpmbase:elN) so the rpm/gnupg toolchain that signs is the same one that built the packages
-# -- see docs/rpm-packaging.md. The release workflow invokes it
-# over the freshly built RPMs before publishing, so every published package carries a header signature an operator
-# verifies with `rpm --import RPM-GPG-KEY-dag-node`.
+# -- see docs/rpm-packaging.md. The release workflow invokes it over the freshly built RPMs before publishing, so every
+# published package carries a header signature an operator verifies with `rpm --import RPM-GPG-KEY-dag-node`.
 #
 # Usage (rpm-sign + gnupg2 + rpm-build must be present in the container):
 #   ```bash
@@ -174,13 +173,13 @@ main() {
     command -v rpmsign >/dev/null 2>&1 || die "rpmsign not found (install rpm-sign)"
     command -v rpmkeys >/dev/null 2>&1 || die "rpmkeys not found (install rpm-sign)"
 
-    # One scratch tree holds every secret (imported private keyring, passphrase file), under /dev/shm; a /dev/shm that
-    # is absent or not tmpfs refuses before anything is created there, so key material does not land in a disk-backed
-    # directory. gpg needs the private key in a keyring DIRECTORY (it cannot sign from a variable), and rpmsign forks
-    # gpg once per package, so the passphrase must stay re-readable here rather than a one-shot stream -- keeping it on
-    # the same RAM tree as the unavoidable keyring leaves disk exposure unchanged. The runner VM is ephemeral.
-    # Script-global, not local: the EXIT trap fires after main returns, where a local is out of scope -- an unbound
-    # reference under `set -u` -- and the wipe must still run.
+    # One scratch tree holds every secret (imported private keyring, passphrase file), under /dev/shm; a /dev/shm
+    # that is absent or not tmpfs refuses before anything is created there, so key material does not land
+    # in a disk-backed directory. gpg needs the private key in a keyring DIRECTORY (it cannot sign from a variable),
+    # and rpmsign forks gpg once per package, so the passphrase must stay re-readable here rather than a one-shot stream
+    # -- keeping it on the same RAM tree as the unavoidable keyring leaves disk exposure unchanged. The runner VM is
+    # ephemeral. Script-global, not local: the EXIT trap fires after main returns, where a local is out of scope --
+    # an unbound reference under `set -u` -- and the wipe must still run.
     [[ -d /dev/shm && "$(stat -f -c %T /dev/shm 2>/dev/null)" == tmpfs ]] \
         || die "/dev/shm is absent or not tmpfs"
     workdir="$(mktemp -d -p /dev/shm)" || die "no directory could be created under /dev/shm"

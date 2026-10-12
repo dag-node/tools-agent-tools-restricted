@@ -168,8 +168,8 @@ notice_names_all() {
 }
 # relabel_ran_once_after : ai-tools-relabel.service ran exactly once since the cursor taken before the upgrade,
 # and that run succeeded. Base's pretrans stops the watcher before the first file is placed, so no run starts inside
-# the transaction, and its posttrans starts the service once every package is placed; the run is queued without
-# waiting, so the check first waits for its job to leave the queue and the unit to leave `activating`. A run is read
+# the transaction, and its posttrans starts the service once every package is placed; the run is queued without waiting,
+# so the check first waits for its job to leave the queue and the unit to leave `activating`. A run is read
 # from the manager's own lines for the unit, one `Finished` or `Failed to start` per run.
 relabel_ran_once_after() {
     local lines runs

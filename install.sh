@@ -7,17 +7,18 @@
 # and needs the one-time prerequisites this header lists completed first (the RPM provisions them itself).
 #
 # Usage:
-#   sudo ./install.sh install              deploy all files, enable timer
-#   sudo ./install.sh uninstall            remove deployed files, disable timer
-#   sudo ./install.sh check-perms          run the permissions test (tests/integration/perms.sh; also part of the suite offered at the end of an interactive install)
-#   sudo ./install.sh install --operator op      enrol the named account without asking
-#   sudo ./install.sh install --allow-uncommitted   deploy work in progress: a checkout with
-#                                          uncommitted changes is refused without this flag
-#   sudo ./install.sh install --allow-downgrade      deploy a checkout older than the installed
-#                                          version, which is refused without this flag
-#   sudo ./install.sh check-tree           name the version and the commit an install would deploy, and
-#                                          the downgrade or the uncommitted paths that would refuse it;
-#                                          the host is unchanged
+#   sudo ./install.sh install                      deploy all files, enable timer
+#   sudo ./install.sh uninstall                    remove deployed files, disable timer
+#   sudo ./install.sh check-perms                  run the permissions test (tests/integration/perms.sh; also part
+#                                                  of the suite offered at the end of an interactive install)
+#   sudo ./install.sh install --operator op        enrol the named account without asking
+#   sudo ./install.sh install --allow-uncommitted  deploy work in progress: a checkout with
+#                                                  uncommitted changes is refused without this flag
+#   sudo ./install.sh install --allow-downgrade    deploy a checkout older than the installed
+#                                                  version, which is refused without this flag
+#   sudo ./install.sh check-tree                   name the version and the commit an install would deploy, and
+#                                                  the downgrade or the uncommitted paths that would refuse it;
+#                                                  the host is unchanged
 #
 # Project registration lives in the `ai-tools` CLI (/usr/local/bin/ai-tools), run as the projects user, not
 # in install.sh:
@@ -26,8 +27,8 @@
 #   ai-tools projects clone <dir>          # shallow-clone a repo into the sandbox area
 #   ```
 #
-# Prerequisites (one-time manual steps before running install;
-# `sudo ai-tools-admin system bootstrap` does both in one idempotent command):
+# Prerequisites (one-time manual steps before running install; `sudo ai-tools-admin system bootstrap` does both in one
+# idempotent command):
 #   - ai-tools OS user created at /opt/ai-tools  (README step 2)
 #   - nvm + Node v22 + claude installed as ai-tools  (README step 3)
 

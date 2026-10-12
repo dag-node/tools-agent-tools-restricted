@@ -45,9 +45,9 @@ fi
 source "${BASH_SOURCE[0]%/*}/log.lib.sh" 2>/dev/null || true
 
 # _ai_tools_toolchain__warn [code] <message...> / _ai_tools_toolchain__notice [code] <message...> : report to stderr
-#   (the terminal, or the journal a unit routes it to) and, when log.lib.sh loaded, to journald. A leading message
-#   code (msg.lib.sh states the form) goes on its own line ahead of the message, the shape tests/lib/harness.sh's
-#   assert_msg reads. Both on stderr: this library's stdout is a wire format its callers read with `$(...)`.
+#   (the terminal, or the journal a unit routes it to) and, when log.lib.sh loaded, to journald. A leading message code
+#   (msg.lib.sh states the form) goes on its own line ahead of the message, the shape tests/lib/harness.sh's assert_msg
+#   reads. Both on stderr: this library's stdout is a wire format its callers read with `$(...)`.
 _ai_tools_toolchain__warn() {
     local code=""
     if [[ "${1-}" =~ ^MSG-[A-Z][0-9][A-Z][0-9]$ ]]; then code="$1"; shift; printf '%s\n' "${code}" >&2; fi
@@ -73,8 +73,8 @@ source "${BASH_SOURCE[0]%/*}/sandbox-exec.lib.sh" 2>/dev/null || true
 # _ai_tools_toolchain__require_sandbox <function> : return 0 when this process runs as the sandbox account; otherwise
 #   report under MSG-P6P2 and return 1. Every function here that executes a file of the tree -- npm, node -- calls it
 #   first: root or an operator running one would execute what the sandbox account put there with its own authority
-#   (updater.rule.md). The answer is ai_tools_sandbox_exec__is_sandbox_account's (sandbox-exec.lib.sh); where that
-#   library did not load the identity is unconfirmed, which refuses too.
+#   (updater.rule.md). The answer is ai_tools_sandbox_exec__is_sandbox_account's (sandbox-exec.lib.sh);
+#   where that library did not load the identity is unconfirmed, which refuses too.
 _ai_tools_toolchain__require_sandbox() {
     if declare -F ai_tools_sandbox_exec__is_sandbox_account >/dev/null 2>&1 && ai_tools_sandbox_exec__is_sandbox_account; then
         return 0
@@ -115,13 +115,14 @@ PY
 
 # ai_tools_toolchain__read_nvm_default_version <nvm-dir> : print the version directory name (`v22.23.3`) nvm's `default`
 #   alias selects among the installed versions, or an empty string. Read as data -- the alias file, then the version
-#   directories -- so a root caller learns the version without sourcing nvm.sh, which is the sandbox account's to
-#   rewrite (updater.rule.md). The alias holds what nvm wrote: an exact `vX.Y.Z`, or a prefix of one (`22`, `v22.23`),
-#   which selects the highest installed match, as `nvm version default` does. The file's bytes are validated whole, as
-#   bytes, before any of them becomes a shell value: a line the account put there -- `2 2`, `22;rm -rf /`, `2<NUL>2`,
-#   which a command substitution would read as `22` -- is refused; `node`, `lts/*` and every other nvm keyword are
-#   outside the accepted shape too (ai-tools-bootstrap writes a bare major). Each prints nothing, which the callers
-#   report as an unset alias. A candidate is a real directory: a regular file or a symlink named like a version is not
+#   directories -- so a root caller learns the version without sourcing nvm.sh, which is the sandbox account's
+#   to rewrite (updater.rule.md). The alias holds what nvm wrote: an exact `vX.Y.Z`, or a prefix of one (`22`,
+#   `v22.23`), which selects the highest installed match, as `nvm version default` does. The file's bytes are validated
+#   whole, as bytes, before any of them becomes a shell value: a line the account put there -- `2 2`, `22;rm -rf /`,
+#   `2<NUL>2`, which a command substitution would read as `22` -- is refused; `node`, `lts/*` and every other nvm
+#   keyword are outside the accepted shape too (ai-tools-bootstrap writes a bare major). Each prints nothing,
+#   which the callers report as an unset alias. A candidate is a real directory: a regular file or a symlink named like
+#   a version is not
 #   one.
 ai_tools_toolchain__read_nvm_default_version() {
     local nvm_dir="${1:-}" alias_line prefix candidate best=""
@@ -159,14 +160,13 @@ _AI_TOOLS_TOOLCHAIN__LOADED=1
 # before it is joined.
 readonly _AI_TOOLS_TOOLCHAIN__NPM_PACKAGE_PATTERN='^(@[A-Za-z0-9._-]+/)?[A-Za-z0-9._-]+$'
 
-# ai_tools_toolchain__list_installed_not_enabled_agents : print "name<TAB>npm_package<TAB>launcher" per agent whose
-#   trusted manifest is installed and whose name the enabled set does not carry, in manifest-filename
-#   order. The set both residue readers iterate. An untrusted manifest is not an installed agent
-#   (providers.lib.sh skips and reports it), so it is not residue either: what it would provision
-#   is unknown, and the launch refuses its launcher on its own. An empty enabled set that
-#   ai_tools_providers__evaluate_empty_agents does not classify as `none` -- an invalid AI_TOOLS_AGENTS, an
-#   untrusted operator.conf, a list none of whose names resolved -- does not print a line: the set
-#   the operator declared is unknown rather than empty, and reading it as empty would make every
+# ai_tools_toolchain__list_installed_not_enabled_agents : print "name<TAB>npm_package<TAB>launcher" per agent
+#   whose trusted manifest is installed and whose name the enabled set does not carry, in manifest-filename order.
+#   The set both residue readers iterate. An untrusted manifest is not an installed agent (providers.lib.sh skips
+#   and reports it), so it is not residue either: what it would provision is unknown, and the launch refuses its
+#   launcher on its own. An empty enabled set that ai_tools_providers__evaluate_empty_agents does not classify as `none`
+#   -- an invalid AI_TOOLS_AGENTS, an untrusted operator.conf, a list none of whose names resolved -- does not print
+#   a line: the set the operator declared is unknown rather than empty, and reading it as empty would make every
 #   installed agent's package residue for the writer to remove. Data-only stdout.
 ai_tools_toolchain__list_installed_not_enabled_agents() {
     local name npm_package launcher enabled=" " verdict=""
@@ -187,9 +187,9 @@ ai_tools_toolchain__list_installed_not_enabled_agents() {
 
 # ai_tools_toolchain__find_agent_residue <nvm-dir> : print "name<TAB>npm_package<TAB>version-dir" for every installed,
 #   not enabled agent whose package directory exists under a semver version directory of <nvm-dir>
-#   (<version-dir>/lib/node_modules/<npm_package>), one line per version directory. Read-only;
-#   the definitive read, which needs an account that traverses the tree. A package name outside
-#   npm's charset is skipped and reported, since it cannot be joined to a path.
+#   (<version-dir>/lib/node_modules/<npm_package>), one line per version directory. Read-only; the definitive read,
+#   which needs an account that traverses the tree. A package name outside npm's charset is skipped and reported, since
+#   it cannot be joined to a path.
 ai_tools_toolchain__find_agent_residue() {
     local nvm_dir="${1:-}" name npm_package version_dir
     [[ -n "${nvm_dir}" && -d "${nvm_dir}/versions/node" ]] || return 0
@@ -211,9 +211,9 @@ ai_tools_toolchain__find_agent_residue() {
 
 # ai_tools_toolchain__find_agent_residue_links <launcher-dir> : print "name<TAB>launcher" for every installed, not
 #   enabled agent whose stable launcher symlink exists in <launcher-dir>. The operator-side twin
-#   of ai_tools_toolchain__find_agent_residue: the link is written last by every provisioning of a package and
-#   removed with it, so its presence is what an account that cannot traverse the toolchain reads
-#   as "the package is still there". `-L`, not `-e`: `-e` follows the link into the 0750 tree.
+#   of ai_tools_toolchain__find_agent_residue: the link is written last by every provisioning of a package and removed
+#   with it, so its presence is what an account that cannot traverse the toolchain reads as "the package is still
+#   there". `-L`, not `-e`: `-e` follows the link into the 0750 tree.
 ai_tools_toolchain__find_agent_residue_links() {
     local launcher_dir="${1:-}" name launcher
     [[ -n "${launcher_dir}" ]] || return 0
@@ -227,12 +227,12 @@ ai_tools_toolchain__find_agent_residue_links() {
 
 # ai_tools_toolchain__list_agent_link_node_versions <launcher-dir> : print "name<TAB>launcher<TAB>version" for every
 #   ENABLED agent whose stable launcher symlink in <launcher-dir> names a Node version directory: the target, read back
-#   with readlink(1) and not followed, matched against .../versions/node/v<MAJOR>.<MINOR>.<PATCH>/bin/<launcher>, the
-#   shape ai-tools-launcher-symlink writes and ai-tools-run accepts. This is the operator's read of which Node the
-#   toolchain is on: every path that changes Node repoints the link (the bootstrap as root, the updater through the
-#   handback bridge), so the read is current whichever of them wrote it, and it is unprivileged -- the same one-hop read
-#   the launch wrapper makes, with the 0750 tree never entered. A missing link and a target of another shape each yield
-#   no line. Data-only stdout.
+#   with readlink(1) and not followed, matched against .../versions/node/v<MAJOR>.<MINOR>.<PATCH>/bin/<launcher>,
+#   the shape ai-tools-launcher-symlink writes and ai-tools-run accepts. This is the operator's read of which Node
+#   the toolchain is on: every path that changes Node repoints the link (the bootstrap as root, the updater
+#   through the handback bridge), so the read is current whichever of them wrote it, and it is unprivileged -- the same
+#   one-hop read the launch wrapper makes, with the 0750 tree never entered. A missing link and a target of another
+#   shape each yield no line. Data-only stdout.
 ai_tools_toolchain__list_agent_link_node_versions() {
     local launcher_dir="${1:-}" name launcher target
     [[ -n "${launcher_dir}" ]] || return 0
@@ -248,9 +248,9 @@ ai_tools_toolchain__list_agent_link_node_versions() {
 }
 
 # ai_tools_toolchain__evaluate_node_versions <stamp-node> : read ai_tools_toolchain__list_agent_link_node_versions lines
-#   on stdin and print the one line both status reports render their Node line from. The active version comes from the
-#   links; <stamp-node> is what the updater's last-run stamp recorded (already clamped by
-#   ai_tools_services__read_stamp_field, `unknown` read as none), shown only where it differs, since that is the one
+#   on stdin and print the one line both status reports render their Node line from. The active version comes
+#   from the links; <stamp-node> is what the updater's last-run stamp recorded (already clamped
+#   by ai_tools_services__read_stamp_field, `unknown` read as none), shown only where it differs, since that is the one
 #   fact a link cannot carry: the toolchain changed after the updater last ran.
 #     active<TAB><version>              every link names this version, and the stamp agrees or is absent
 #     active<TAB><version><TAB><stamp>  every link names this version; the stamp recorded another
@@ -284,12 +284,11 @@ ai_tools_toolchain__evaluate_node_versions() {
     return 0
 }
 
-# ai_tools_toolchain__find_incomplete_agents <version-dir> : print "name<TAB>npm_package" for every ENABLED agent whose
-#   manifest declares a launcher_target that <version-dir> does not hold. Read-only, and the definitive
-#   read: the tree is 0750, so it needs the account that traverses it. An agent declaring no
-#   launcher_target yields no line -- npm's own link is its launcher, and this library has no declared
-#   path to compare the tree against -- and a target ai_tools_providers__is_launcher_target_valid refuses is skipped
-#   and reported, since it cannot be joined to a path.
+# ai_tools_toolchain__find_incomplete_agents <version-dir> : print "name<TAB>npm_package" for every ENABLED agent
+#   whose manifest declares a launcher_target that <version-dir> does not hold. Read-only, and the definitive read:
+#   the tree is 0750, so it needs the account that traverses it. An agent declaring no launcher_target yields no line --
+#   npm's own link is its launcher, and this library has no declared path to compare the tree against -- and a target
+#   ai_tools_providers__is_launcher_target_valid refuses is skipped and reported, since it cannot be joined to a path.
 ai_tools_toolchain__find_incomplete_agents() {
     local version_dir="${1:-}" name npm_package launcher_target
     [[ -n "${version_dir}" && -d "${version_dir}" ]] || return 0
@@ -409,10 +408,10 @@ ai_tools_toolchain__relink_copies() {
     return 0
 }
 
-# ai_tools_toolchain__is_path_in_use <dir> [<executable>...] : pure, no I/O -- succeed when any <executable> is
-#   <dir> or lies under it. The predicate behind the deferral: a process executing from a package
-#   directory (codex stages symlinks to its own entrypoint and execs them per edit) would fail
-#   its next exec if that directory were removed under it.
+# ai_tools_toolchain__is_path_in_use <dir> [<executable>...] : pure, no I/O -- succeed when any <executable> is <dir>
+#   or lies under it. The predicate behind the deferral: a process executing from a package directory (codex stages
+#   symlinks to its own entrypoint and execs them per edit) would fail its next exec if that directory were removed
+#   under it.
 ai_tools_toolchain__is_path_in_use() {
     local dir="${1%/}" executable; shift || true
     [[ -n "${dir}" ]] || return 1
@@ -423,9 +422,9 @@ ai_tools_toolchain__is_path_in_use() {
 }
 
 # _ai_tools_toolchain__list_executable_targets : print what each live process's /proc/<pid>/exe resolves to, one
-#   per line, for every process the caller may read. As the sandbox account that is its own
-#   processes -- the set that matters, since every session and the subprocesses it spawns run as
-#   that account. Best-effort in the keeping direction: an exited or unreadable pid is skipped.
+#   per line, for every process the caller may read. As the sandbox account that is its own processes -- the set
+#   that matters, since every session and the subprocesses it spawns run as that account. Best-effort in the keeping
+#   direction: an exited or unreadable pid is skipped.
 _ai_tools_toolchain__list_executable_targets() {
     local exe target
     for exe in /proc/[0-9]*/exe; do
@@ -435,16 +434,16 @@ _ai_tools_toolchain__list_executable_targets() {
     return 0
 }
 
-# ai_tools_toolchain__is_agent_package_in_use <package-dir> : succeed when a live process executes from under
-#   <package-dir>. The I/O around ai_tools_toolchain__is_path_in_use.
+# ai_tools_toolchain__is_agent_package_in_use <package-dir> : succeed when a live process executes
+#   from under <package-dir>. The I/O around ai_tools_toolchain__is_path_in_use.
 ai_tools_toolchain__is_agent_package_in_use() {
     local -a targets=()
     mapfile -t targets < <(_ai_tools_toolchain__list_executable_targets)
     ai_tools_toolchain__is_path_in_use "$1" "${targets[@]+"${targets[@]}"}"
 }
 
-# _ai_tools_toolchain__find_agent_of_package <npm_package> : print the name of the installed agent whose
-#   manifest declares <npm_package>, empty when none does.
+# _ai_tools_toolchain__find_agent_of_package <npm_package> : print the name of the installed agent whose manifest
+#   declares <npm_package>, empty when none does.
 _ai_tools_toolchain__find_agent_of_package() {
     local wanted="$1" name npm_package
     while IFS=$'\t' read -r name npm_package _; do
@@ -453,10 +452,10 @@ _ai_tools_toolchain__find_agent_of_package() {
     return 0
 }
 
-# _ai_tools_toolchain__notice_state_left <agent> : say, once per removal, what a removal leaves. The
-#   agent's state directory under the sandbox home -- its login or token, its history, whatever
-#   else it keeps there -- is not touched, and under the one sandbox account every session of every
-#   enabled agent can read it; moving it out of the account's reach is a manual step.
+# _ai_tools_toolchain__notice_state_left <agent> : say, once per removal, what a removal leaves. The agent's state
+#   directory under the sandbox home -- its login or token, its history, whatever else it keeps there -- is not touched,
+#   and under the one sandbox account every session of every enabled agent can read it; moving it out of the account's
+#   reach is a manual step.
 _ai_tools_toolchain__notice_state_left() {
     local agent="$1" config_dir
     config_dir="$(ai_tools_providers__read_agent_manifest_field "${agent}" config_dir 2>/dev/null || true)"
@@ -464,8 +463,8 @@ _ai_tools_toolchain__notice_state_left() {
 }
 
 # ai_tools_toolchain__remove_agent_package <version-dir> <npm_package> [erase] : the one write -- remove
-#   <version-dir>/lib/node_modules/<npm_package> with that version's own npm (`npm uninstall -g`,
-#   <version-dir> as the prefix; the registry is not reached) and print one word for the outcome:
+#   <version-dir>/lib/node_modules/<npm_package> with that version's own npm (`npm uninstall -g`, <version-dir>
+#   as the prefix; the registry is not reached) and print one word for the outcome:
 #     absent    no such package directory, so no write was made
 #     removed   the package directory is gone (the state-directory notice follows on stderr)
 #     deferred  a live process executes from the package directory, so it is left for the next
@@ -528,13 +527,12 @@ ai_tools_toolchain__remove_agent_package() {
     return 0
 }
 
-# ai_tools_toolchain__erase_agent_package <nvm-dir> <agent> : remove <agent>'s package from every version
-#   directory of <nvm-dir>, enabled or not -- the erase-time form, for an agent package's %preun
-#   and `install.sh uninstall`, run while the manifest that names the package is still on disk.
-#   Prints "version-dir<TAB>outcome" per version directory holding the package (the writer's
-#   words), and returns non-zero when any removal failed, or when the caller is not the sandbox
-#   account (MSG-P6P2). Prints nothing for an agent whose manifest does not name a package,
-#   or whose package no version directory holds.
+# ai_tools_toolchain__erase_agent_package <nvm-dir> <agent> : remove <agent>'s package from every version directory
+#   of <nvm-dir>, enabled or not -- the erase-time form, for an agent package's %preun and `install.sh uninstall`, run
+#   while the manifest that names the package is still on disk. Prints "version-dir<TAB>outcome" per version directory
+#   holding the package (the writer's words), and returns non-zero when any removal failed, or when the caller is not
+#   the sandbox account (MSG-P6P2). Prints nothing for an agent whose manifest does not name a package, or whose package
+#   no version directory holds.
 ai_tools_toolchain__erase_agent_package() {
     local nvm_dir="${1:-}" agent="${2:-}" npm_package version_dir outcome rc=0
     _ai_tools_toolchain__require_sandbox ai_tools_toolchain__erase_agent_package || return 1

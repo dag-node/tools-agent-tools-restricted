@@ -378,9 +378,9 @@ ai_tools_services__evaluate_timer_stamp() {
 }
 
 # ai_tools_services__read_state <unit> <scope> [stamp] [stamp_mode] [max_age]  -- PRINT one of
-# active|skipped|down|failed|stale|absent|unknown; the state is the stdout value and the function
-# ALWAYS returns 0 (so a `state="$(...)"` capture is safe under `set -e` -- no consumer reads the
-# exit status). ai_tools_services__read_record_state takes a whole record and is what consumers call.
+# active|skipped|down|failed|stale|absent|unknown; the state is the stdout value and the function ALWAYS returns 0 (so
+# a `state="$(...)"` capture is safe under `set -e` -- no consumer reads the exit status).
+# ai_tools_services__read_record_state takes a whole record and is what consumers call.
 #   active  -- the unit is running (is-active), or its stamp records a recent healthy run.
 #   skipped -- the last run ended in a transient condition it did not cause and could not fix (the
 #              updater offline: the registry was unreachable, so the toolchain was left alone and

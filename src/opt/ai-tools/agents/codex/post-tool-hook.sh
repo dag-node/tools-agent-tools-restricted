@@ -6,9 +6,9 @@
 # to operator:ai-tools ownership. Codex's payload differs from claude's in the write tool: there is no Write|Edit
 # carrying a `file_path`; a file write is an `apply_patch` whose `tool_input` carries the whole patch text under one
 # of three keys (see PATCH_TOOL_NAME), so the paths are read out of the patch's `*** Add File:` / `*** Update File:` /
-# `*** Delete File:` lines. A `Bash` call carries `tool_input.command`, the same key as claude's, and is recorded
-# alone: a Bash-created file does not name a path here and is swept at turn end (the Stop hook) or at session end (the
-# shim's sweep).
+# `*** Delete File:` lines. A `Bash` call carries `tool_input.command`, the same key as claude's, and is recorded alone:
+# a Bash-created file does not name a path here and is swept at turn end (the Stop hook) or at session end (the shim's
+# sweep).
 #
 # Runs as ai-tools. It deliberately does NOT pre-check the approved-projects allowlist: that file lives
 # under the operator's home .config (mode 700, owned by the operator), which ai-tools cannot traverse --
@@ -58,15 +58,15 @@ readonly RECORDED_LEADING_WORD_COUNT=2
 readonly RECORD_FIELD_SEPARATOR=$'\037'
 
 # The one line of the apply_patch grammar that names a file. Held here once and handed to both jq programs, so the path
-# the record reports and the paths the handback acts on are read by the same rule. A `*** Move to:` line renames the
-# file the preceding `*** Update File:` named; the new name is what exists after the call, so it is read too.
+# the record reports and the paths the handback acts on are read by the same rule. A `*** Move to:` line renames
+# the file the preceding `*** Update File:` named; the new name is what exists after the call, so it is read too.
 readonly PATCH_FILE_LINE='^\*\*\* (Add File|Update File|Delete File|Move to): (?<path>.+)$'
 
 # The tool codex writes files with. Its `tool_input` key is read as every spelling the vendor has used for the patch
 # text -- `input`, `patch`, and `command`, which is what codex 0.154 sends when the model reaches the tool through code
 # mode -- so a rename between releases degrades to "no path" (swept at turn end) rather than to a parse failure. The key
-# is shared with `Bash`, whose value is a shell command rather than a patch; the two never meet, because the tool
-# name selects the branch before the key is read, and a value that is not patch text does not match the `*** ... File:` line.
+# is shared with `Bash`, whose value is a shell command rather than a patch; the two never meet, because the tool name
+# selects the branch before the key is read, and a value that is not patch text does not match the `*** ... File:` line.
 readonly PATCH_TOOL_NAME="apply_patch"
 
 # format_tool_call_record <hook-event-json> -- PRINT the audit-trail record for the tool call this event carries,

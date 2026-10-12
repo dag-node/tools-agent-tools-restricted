@@ -26,12 +26,11 @@ if [[ -n "${_AI_TOOLS_PROVIDERS__LOADED:-}" ]]; then
     return 0
 fi
 
-# _ai_tools_providers__warn [code] <message...> : report to stderr (the operator at the terminal)
-#   and, when log.lib.sh loaded, to journald (the durable trail a tamper refusal belongs in). A
-#   leading message code (msg.lib.sh states the form) goes on its own line ahead of the message,
-#   the shape tests/lib/harness.sh's assert_msg reads; matched inline, since this library takes no
-#   dependency it could read the form from. stderr for every line: this library's STDOUT is a wire
-#   format its callers read with `$(...)`, so nothing a reader parses may land there.
+# _ai_tools_providers__warn [code] <message...> : report to stderr (the operator at the terminal) and, when log.lib.sh
+#   loaded, to journald (the durable trail a tamper refusal belongs in). A leading message code (msg.lib.sh states
+#   the form) goes on its own line ahead of the message, the shape tests/lib/harness.sh's assert_msg reads; matched
+#   inline, since this library takes no dependency it could read the form from. stderr for every line: this library's
+#   STDOUT is a wire format its callers read with `$(...)`, so nothing a reader parses may land there.
 #
 #   Defined ahead of the loads below, so the refusal that reports an unusable conf.lib.sh carries a
 #   code like every other. It is pure printf until log.lib.sh is loaded, which the `declare -F` guard
@@ -92,23 +91,21 @@ ai_tools_providers__is_enabled() {
     [[ "${default_enable}" == yes ]]
 }
 
-# ai_tools_providers__is_exit_sweep_required <handback-declaration> : pure verdict, no I/O -- succeed when the
-#   launcher must run the ownership sweep itself at session end. Ownership handback needs a driver:
-#   an agent that declares handback=hooks carries its own (Claude Code's PostToolUse/Stop hooks
-#   converge the tree per turn), and anything else -- handback=none, an unrecognized value, an
-#   absent key -- gets the launcher's session-end sweep. Only the exact literal disables it, so an
-#   unknown declaration errs toward sweeping: a redundant walk, never a project tree left
+# ai_tools_providers__is_exit_sweep_required <handback-declaration> : pure verdict, no I/O -- succeed when the launcher
+#   must run the ownership sweep itself at session end. Ownership handback needs a driver: an agent that declares
+#   handback=hooks carries its own (Claude Code's PostToolUse/Stop hooks converge the tree per turn), and anything else
+#   -- handback=none, an unrecognized value, an absent key -- gets the launcher's session-end sweep. Only the exact
+#   literal disables it, so an unknown declaration errs toward sweeping: a redundant walk, never a project tree left
 #   sandbox-owned. Unit-tested over that truth table.
 ai_tools_providers__is_exit_sweep_required() {
     [[ "${1:-}" != hooks ]]
 }
 
-# ai_tools_providers__read_gate <conf_key> : print how the enabled set for <conf_key> is decided --
-#   "allowlist" (operator.conf names the key, so its value is the exact enabled set), "baseline"
-#   (it does not, so default_enable governs), or "untrusted" (operator.conf exists but fails the
-#   trust predicate, so it is ignored and the baseline applies). Read-only and side-effect free:
-#   the resolvers and any caller REPORTING the gating both read it, so what an operator is
-#   told matches what a session gets.
+# ai_tools_providers__read_gate <conf_key> : print how the enabled set for <conf_key> is decided -- "allowlist"
+#   (operator.conf names the key, so its value is the exact enabled set), "baseline" (it does not, so default_enable
+#   governs), or "untrusted" (operator.conf exists but fails the trust predicate, so it is ignored and the baseline
+#   applies). Read-only and side-effect free: the resolvers and any caller REPORTING the gating both read it,
+#   so what an operator is told matches what a session gets.
 ai_tools_providers__read_gate() {
     local conf_key="$1"
     [[ -e "${AI_TOOLS_OPERATOR_CONF}" ]] || { printf 'baseline'; return 0; }
@@ -121,15 +118,14 @@ ai_tools_providers__read_gate() {
     return 0
 }
 
-# _ai_tools_providers__read_requested <conf_key> : set requested_active (yes|no) and requested_list from
-#   operator.conf for the given gating key. "yes" means the key was present (its value, possibly
-#   empty, is the allowlist); "no" means absent, unreadable, or UNTRUSTED -- all of which fall
-#   back to the baseline, so a config the agent could have written cannot enable anything its own
-#   package did not already mark default_enable=yes. An untrusted config is reported here rather
-#   than in the pure gate, which stays side-effect free. requested_list holds the bare names joined
-#   by a space, read through the kind-prefixed list reader once here, so an invalid list -- one the
-#   grammar refuses, or one holding an item without its kind prefix -- is reported once per read
-#   and arrives as the empty allowlist: no provider of that kind enabled.
+# _ai_tools_providers__read_requested <conf_key> : set requested_active (yes|no) and requested_list from operator.conf
+#   for the given gating key. "yes" means the key was present (its value, possibly empty, is the allowlist); "no" means
+#   absent, unreadable, or UNTRUSTED -- all of which fall back to the baseline, so a config the agent could have written
+#   cannot enable anything its own package did not already mark default_enable=yes. An untrusted config is reported here
+#   rather than in the pure gate, which stays side-effect free. requested_list holds the bare names joined by a space,
+#   read through the kind-prefixed list reader once here, so an invalid list -- one the grammar refuses, or one holding
+#   an item without its kind prefix -- is reported once per read and arrives as the empty allowlist: no provider
+#   of that kind enabled.
 _ai_tools_providers__read_requested() {
     local conf_key="$1"
     local -a requested_names=()
@@ -146,10 +142,9 @@ _ai_tools_providers__read_requested() {
     return 0
 }
 
-# _ai_tools_providers__is_dir_trusted <manifest-dir> <conf-key> : succeed when the manifest directory
-#   may be read. A missing directory is "no providers installed" (silent); an existing but
-#   untrusted one is a tamper signal and is reported, because a non-root writer there can plant a
-#   manifest that enables a provider nobody installed.
+# _ai_tools_providers__is_dir_trusted <manifest-dir> <conf-key> : succeed when the manifest directory may be read.
+#   A missing directory is "no providers installed" (silent); an existing but untrusted one is a tamper signal and is
+#   reported, because a non-root writer there can plant a manifest that enables a provider nobody installed.
 _ai_tools_providers__is_dir_trusted() {
     local dir="$1" conf_key="$2"
     [[ -d "${dir}" ]] || return 1
@@ -160,25 +155,24 @@ _ai_tools_providers__is_dir_trusted() {
     return 0
 }
 
-# _ai_tools_providers__skip_integration <name> <manifest-file> : report an integration manifest the trust
-#   predicate refused. One situation met by both readers of that directory -- the enabled set and
-#   the installed-declaring set -- so it is written once and each reader calls it.
+# _ai_tools_providers__skip_integration <name> <manifest-file> : report an integration manifest the trust predicate
+#   refused. One situation met by both readers of that directory -- the enabled set and the installed-declaring set --
+#   so it is written once and each reader calls it.
 _ai_tools_providers__skip_integration() {
     _ai_tools_providers__warn MSG-N9X8 "skipping integration $1: $2 $(ai_tools_conf__read_untrusted_reason "$2")"
 }
 
-# _ai_tools_providers__skip_agent <name> <manifest-file> : the same report for an agent manifest, met by the
-#   enabled-set reader and the installed-set reader alike.
+# _ai_tools_providers__skip_agent <name> <manifest-file> : the same report for an agent manifest, met by the enabled-set
+#   reader and the installed-set reader alike.
 _ai_tools_providers__skip_agent() {
     _ai_tools_providers__warn MSG-M3A5 "skipping agent $1: $2 $(ai_tools_conf__read_untrusted_reason "$2")"
 }
 
-# _ai_tools_providers__get_package <conf-key> <name> : print the package that ships <name>'s manifest, by
-#   the naming the packages follow -- ai-tools-agents-<name>-restricted for an agent,
-#   ai-tools-integration-<name> for an integration (the naming convention providers.rule.md states
-#   for the flat namespace). Derived rather than looked up, since a manifest that is not installed
-#   cannot be asked; a derivation that misses costs the operator a dnf "no match". Returns 1 for
-#   a key outside the two provider kinds.
+# _ai_tools_providers__get_package <conf-key> <name> : print the package that ships <name>'s manifest, by the naming
+#   the packages follow -- ai-tools-agents-<name>-restricted for an agent, ai-tools-integration-<name>
+#   for an integration (the naming convention providers.rule.md states for the flat namespace). Derived rather than
+#   looked up, since a manifest that is not installed cannot be asked; a derivation that misses costs the operator a dnf
+#   "no match". Returns 1 for a key outside the two provider kinds.
 _ai_tools_providers__get_package() {
     case "$1" in
         AI_TOOLS_AGENTS)       printf 'ai-tools-agents-%s-restricted' "$2" ;;
@@ -187,11 +181,10 @@ _ai_tools_providers__get_package() {
     esac
 }
 
-# _ai_tools_providers__warn_uninstalled <manifest-dir> <conf-key> <active> <list> : report each
-#   explicitly-requested (allowlisted) name that has no <name>.conf in the manifest dir, as the
-#   operator writes it, with the package that ships it (_ai_tools_providers__get_package). The name
-#   does not enable anything until that package is installed. The baseline case (no allowlist)
-#   can only enable manifests that exist, so it has no name to warn about.
+# _ai_tools_providers__warn_uninstalled <manifest-dir> <conf-key> <active> <list> : report each explicitly-requested
+#   (allowlisted) name that has no <name>.conf in the manifest dir, as the operator writes it, with the package
+#   that ships it (_ai_tools_providers__get_package). The name does not enable anything until that package is installed.
+#   The baseline case (no allowlist) can only enable manifests that exist, so it has no name to warn about.
 _ai_tools_providers__warn_uninstalled() {
     local dir="$1" conf_key="$2" active="$3" list="$4"
     [[ "${active}" == yes ]] || return 0
@@ -207,9 +200,9 @@ _ai_tools_providers__warn_uninstalled() {
     return 0
 }
 
-# ai_tools_providers__list_enabled_agents : print one TAB-separated "name<TAB>npm_package<TAB>launcher" line per
-#   enabled AND installed agent, in manifest-filename order. Data-only stdout (safe in `$(...)`);
-#   an enabled-but-uninstalled agent, and any refusal, is reported on stderr.
+# ai_tools_providers__list_enabled_agents : print one TAB-separated "name<TAB>npm_package<TAB>launcher" line per enabled
+#   AND installed agent, in manifest-filename order. Data-only stdout (safe in `$(...)`); an enabled-but-uninstalled
+#   agent, and any refusal, is reported on stderr.
 ai_tools_providers__list_enabled_agents() {
     local requested_active requested_list
     _ai_tools_providers__read_requested AI_TOOLS_AGENTS
@@ -237,8 +230,8 @@ ai_tools_providers__list_enabled_agents() {
     return 0
 }
 
-# ai_tools_providers__evaluate_empty_agents : for a caller whose ai_tools_providers__list_enabled_agents printed an
-#   empty set, print one line, "<verdict><TAB><reason>", classifying it:
+# ai_tools_providers__evaluate_empty_agents : for a caller whose ai_tools_providers__list_enabled_agents printed
+#   an empty set, print one line, "<verdict><TAB><reason>", classifying it:
 #     fault  an input was refused by the trust predicate (operator.conf, the manifest directory, a
 #            manifest), AI_TOOLS_AGENTS is not a valid list, or it names agents and none of them resolved. A retry reads
 #            the same inputs, so a caller maintaining the toolchain ends the run as a failure
@@ -307,12 +300,11 @@ ai_tools_providers__evaluate_empty_agents() {
 # detect the same state through ai_tools_conf__find_unmigrated_items and name that command; neither rewrites a config
 # file.
 
-# _ai_tools_providers__migrate_kind_item <KEY> <item> : print the spelling <item> takes in <KEY> -- itself
-#   when it already carries the key's prefix around a plain name; the prefix and the name when the
-#   bare name is installed as that kind (agents.d/<name>.conf, integrations.d/<name>.conf,
-#   filters.d/<name>.rules), `core` in AI_TOOLS_FILTERS naming the base set, base.rules. Returns 1,
-#   printing nothing, for any other item: a name not installed, another kind's prefix, a name
-#   outside the manifest-basename charset.
+# _ai_tools_providers__migrate_kind_item <KEY> <item> : print the spelling <item> takes in <KEY> -- itself when it
+#   already carries the key's prefix around a plain name; the prefix and the name when the bare name is installed
+#   as that kind (agents.d/<name>.conf, integrations.d/<name>.conf, filters.d/<name>.rules), `core` in AI_TOOLS_FILTERS
+#   naming the base set, base.rules. Returns 1, printing nothing, for any other item: a name not installed, another
+#   kind's prefix, a name outside the manifest-basename charset.
 _ai_tools_providers__migrate_kind_item() {
     local key="$1" item="$2" prefix name
     prefix="$(ai_tools_conf__get_kind_prefix "${key}")" || return 1
@@ -363,9 +355,9 @@ ai_tools_providers__plan_kind_migration() {
     return 0
 }
 
-# ai_tools_providers__migrate_kinds <file> : rewrite each key ai_tools_providers__plan_kind_migration maps, through
-#   ai_tools_conf__set_list, after one dated .bak of <file> (ai_tools_conf__write_backup) taken before
-#   the first write. Prints one line per outcome, in plan order:
+# ai_tools_providers__migrate_kinds <file> : rewrite each key ai_tools_providers__plan_kind_migration maps,
+#   through ai_tools_conf__set_list, after one dated .bak of <file> (ai_tools_conf__write_backup) taken before the first
+#   write. Prints one line per outcome, in plan order:
 #     backup<TAB>path                               the copy of the file as it was
 #     rewritten<TAB>KEY<TAB>old items<TAB>new items the key now holds the new items
 #     blocked<TAB>KEY<TAB>item                      left as written: the item maps onto no installed name
@@ -402,14 +394,13 @@ ai_tools_providers__migrate_kinds() {
     return "${rc}"
 }
 
-# _ai_tools_providers__read_manifest_field <manifest-dir> <name> <key> : print one field of a trusted manifest in
-#   <manifest-dir>, and return 0. Returns 1 for a key a manifest read whole does not carry and 2 for a manifest
-#   it does not read as trusted data -- a name outside the identifier charset, a manifest absent or untrusted,
-#   or one ai_tools_conf__read reports as not a regular file or not read whole -- printing an empty value
-#   for either, so a caller whose fail direction turns on it tells an absent key from a read that failed
-#   (the assets resolver reads the second as receivers it cannot know); every other caller reads a non-zero
-#   status as no value. Shared by the two public readers so both allowlist the name the same way and both apply
-#   the trust predicate before reading.
+# _ai_tools_providers__read_manifest_field <manifest-dir> <name> <key> : print one field of a trusted manifest
+#   in <manifest-dir>, and return 0. Returns 1 for a key a manifest read whole does not carry and 2 for a manifest it
+#   does not read as trusted data -- a name outside the identifier charset, a manifest absent or untrusted, or one
+#   ai_tools_conf__read reports as not a regular file or not read whole -- printing an empty value for either,
+#   so a caller whose fail direction turns on it tells an absent key from a read that failed (the assets resolver reads
+#   the second as receivers it cannot know); every other caller reads a non-zero status as no value. Shared by the two
+#   public readers so both allowlist the name the same way and both apply the trust predicate before reading.
 _ai_tools_providers__read_manifest_field() {
     local manifest_dir="$1" provider_name="$2" wanted_key="$3"
     # Allowlist the name before it becomes a path: manifest basenames are plain identifiers, so anything else --
@@ -420,20 +411,19 @@ _ai_tools_providers__read_manifest_field() {
     ai_tools_conf__print_value "${manifest_file}" "${wanted_key}"
 }
 
-# ai_tools_providers__read_agent_manifest_field <agent-name> <key> : print one field of an installed agent's
-#   manifest, empty when the agent has no manifest, the manifest is untrusted, or the key is
-#   absent, at the statuses _ai_tools_providers__read_manifest_field states. For a caller that already knows which
-#   agent it resolved and needs a further declarative field (the launcher's display name) without re-listing every
+# ai_tools_providers__read_agent_manifest_field <agent-name> <key> : print one field of an installed agent's manifest,
+#   empty when the agent has no manifest, the manifest is untrusted, or the key is absent, at the statuses
+#   _ai_tools_providers__read_manifest_field states. For a caller that already knows which agent it resolved and needs
+#   a further declarative field (the launcher's display name) without re-listing every
 #   agent.
 ai_tools_providers__read_agent_manifest_field() {
     _ai_tools_providers__read_manifest_field "${AI_TOOLS_AGENTS_DIR}" "$@"
 }
 
-# ai_tools_providers__read_provider_manifest_field <name> <key> : the same read across BOTH manifest kinds, for a
-#   caller holding a provider name with no reason to care which kind carries it -- ai-tools-admin
-#   reads admin_summary this way, a contributed command domain being either kind. The provider
-#   namespace is flat (providers.rule.md), so at most one kind holds the name; integrations are
-#   tried first because every contributed domain today is one.
+# ai_tools_providers__read_provider_manifest_field <name> <key> : the same read across BOTH manifest kinds, for a caller
+#   holding a provider name with no reason to care which kind carries it -- ai-tools-admin reads admin_summary this way,
+#   a contributed command domain being either kind. The provider namespace is flat (providers.rule.md), so at most one
+#   kind holds the name; integrations are tried first because every contributed domain today is one.
 ai_tools_providers__read_provider_manifest_field() {
     _ai_tools_providers__read_manifest_field "${AI_TOOLS_INTEGRATIONS_DIR}" "$@" && return 0
     _ai_tools_providers__read_manifest_field "${AI_TOOLS_AGENTS_DIR}" "$@"
@@ -449,11 +439,10 @@ ai_tools_providers__read_provider_manifest_field() {
 # for the unit test alone; a caller who could set it may already read every file it names.
 : "${AI_TOOLS_MANAGED_REFERENCE_DIR:=/usr/share/ai-tools}"
 
-# ai_tools_providers__evaluate_managed_file <live> <reference> : print one word for how a managed file relates to
-#   the pristine copy its package ships: `shipped` (byte-identical), `edited` (both readable and
-#   they differ), `missing` (the live file is absent), `unknown` (the reference cannot be read,
-#   either path is a symlink, or either is not a regular file -- a report that cannot compare says
-#   so rather than guessing). Pure: two paths in, one token out.
+# ai_tools_providers__evaluate_managed_file <live> <reference> : print one word for how a managed file relates
+#   to the pristine copy its package ships: `shipped` (byte-identical), `edited` (both readable and they differ),
+#   `missing` (the live file is absent), `unknown` (the reference cannot be read, either path is a symlink, or either is
+#   not a regular file -- a report that cannot compare says so rather than guessing). Pure: two paths in, one token out.
 ai_tools_providers__evaluate_managed_file() {
     local live="$1" reference="$2"
     [[ -e "${live}" ]] || { printf 'missing'; return 0; }
@@ -467,16 +456,15 @@ ai_tools_providers__evaluate_managed_file() {
     return 0
 }
 
-# ai_tools_providers__retire_managed_file <live> <reference> : remove a managed file whose package is being
-#   uninstalled, keeping what the host made of it. Prints one word, and the sidecar path with it
-#   where one was written: `absent` (no file at <live>), `removed` (the live file is byte-identical
-#   to <reference>, so the shipped copy is all that is deleted), `kept <sidecar>` (every other state -- an
-#   edit, or a comparison that cannot be made -- moved aside as <live>.<YYYYMMDD>-<N>.retired, the
-#   token this tree gives a file moved rather than deleted, and the treatment rpm gives an edited
-#   %config(noreplace) file on erase). Moving rather than leaving is what keeps a live managed file
-#   from naming hooks this uninstall removed. When the move or the removal fails it
-#   prints nothing, leaves the file where it is, and returns 1 under MSG-X7C4. Only a file
-#   proven to be the shipped one is deleted, so the fail direction is keeping.
+# ai_tools_providers__retire_managed_file <live> <reference> : remove a managed file whose package is being uninstalled,
+#   keeping what the host made of it. Prints one word, and the sidecar path with it where one was written: `absent` (no
+#   file at <live>), `removed` (the live file is byte-identical to <reference>, so the shipped copy is all that is
+#   deleted), `kept <sidecar>` (every other state -- an edit, or a comparison that cannot be made -- moved aside
+#   as <live>.<YYYYMMDD>-<N>.retired, the token this tree gives a file moved rather than deleted, and the treatment rpm
+#   gives an edited %config(noreplace) file on erase). Moving rather than leaving is what keeps a live managed file
+#   from naming hooks this uninstall removed. When the move or the removal fails it prints nothing, leaves the file
+#   where it is, and returns 1 under MSG-X7C4. Only a file proven to be the shipped one is deleted, so the fail
+#   direction is keeping.
 ai_tools_providers__retire_managed_file() {
     local live="$1" reference="$2" sidecar
     [[ -e "${live}" || -L "${live}" ]] || { printf 'absent'; return 0; }
@@ -497,10 +485,10 @@ ai_tools_providers__retire_managed_file() {
 }
 
 # ai_tools_providers__list_agent_managed_files <agent> : print "<live>\t<reference>" per file the agent's trusted
-#   manifest names in managed_files -- the live path directly under /etc/<agent>/, the reference
-#   the pristine copy at AI_TOOLS_MANAGED_REFERENCE_DIR/<agent>/ under the same name, so the two
-#   differ only in their root. An entry naming anything else, and a second entry repeating
-#   a name already paired, is skipped with a refusal on stderr; empty output for an agent declaring
+#   manifest names in managed_files -- the live path directly under /etc/<agent>/, the reference the pristine copy
+#   at AI_TOOLS_MANAGED_REFERENCE_DIR/<agent>/ under the same name, so the two differ only in their root. An entry
+#   naming anything else, and a second entry repeating a name already paired, is skipped with a refusal on stderr; empty
+#   output for an agent declaring
 #   none.
 ai_tools_providers__list_agent_managed_files() {
     local agent="$1" value path base root reason seen=" "
@@ -569,9 +557,10 @@ _ai_tools_providers__read_toml_keys() {
     ' "$1"
 }
 
-# ai_tools_providers__find_managed_file_missing_keys <live> <reference> : print each dotted key <reference> sets that
-#   <live> does not, one per line in byte order -- a key a release added to a managed file the host kept, which codex
-#   does not read until it is carried over. Returns 1, printing nothing, when either path is not a readable regular
+# ai_tools_providers__find_managed_file_missing_keys <live> <reference> : print each dotted key <reference> sets
+#   that <live> does not, one per line in byte order -- a key a release added to a managed file the host kept,
+#   which codex does not read until it is carried over. Returns 1, printing nothing, when either path is not a readable
+#   regular
 #   file.
 ai_tools_providers__find_managed_file_missing_keys() {
     local live="$1" reference="$2"
@@ -581,11 +570,10 @@ ai_tools_providers__find_managed_file_missing_keys() {
         <(_ai_tools_providers__read_toml_keys "${reference}" | LC_ALL=C sort -u)
 }
 
-# ai_tools_providers__list_enabled_integrations : print one enabled AND installed integration name per line, in
-#   manifest-filename order. An integration carries only default_enable; its session env lives in
-#   session-env.d/<name>.env.sh, which ai-tools-run sources by name -- after applying the same trust
-#   check to that fragment and its directory. An enabled-but-uninstalled integration, and any
-#   refusal, is reported on stderr.
+# ai_tools_providers__list_enabled_integrations : print one enabled AND installed integration name per line,
+#   in manifest-filename order. An integration carries only default_enable; its session env lives
+#   in session-env.d/<name>.env.sh, which ai-tools-run sources by name -- after applying the same trust check
+#   to that fragment and its directory. An enabled-but-uninstalled integration, and any refusal, is reported on stderr.
 ai_tools_providers__list_enabled_integrations() {
     local requested_active requested_list
     _ai_tools_providers__read_requested AI_TOOLS_INTEGRATIONS
@@ -610,12 +598,12 @@ ai_tools_providers__list_enabled_integrations() {
     return 0
 }
 
-# ai_tools_providers__list_installed_agents : print one "name<TAB>npm_package<TAB>launcher" line per INSTALLED
-#   agent, enabled or not, in manifest-filename order -- every trusted manifest that names an
-#   npm_package. The set the toolchain provisioning offers an operator to choose from, and the set
-#   a name given on its command line is checked against, before any is enabled. The same trust
-#   rules as ai_tools_providers__list_enabled_agents: an untrusted directory yields an empty set and an untrusted
-#   manifest is skipped, each reported on stderr. Data-only stdout.
+# ai_tools_providers__list_installed_agents : print one "name<TAB>npm_package<TAB>launcher" line per INSTALLED agent,
+#   enabled or not, in manifest-filename order -- every trusted manifest that names an npm_package. The set
+#   the toolchain provisioning offers an operator to choose from, and the set a name given on its command line is
+#   checked against, before any is enabled. The same trust rules as ai_tools_providers__list_enabled_agents:
+#   an untrusted directory yields an empty set and an untrusted manifest is skipped, each reported on stderr. Data-only
+#   stdout.
 ai_tools_providers__list_installed_agents() {
     local manifest_file agent_name npm_package launcher
     _ai_tools_providers__is_dir_trusted "${AI_TOOLS_AGENTS_DIR}" AI_TOOLS_AGENTS || return 0
@@ -634,13 +622,13 @@ ai_tools_providers__list_installed_agents() {
     return 0
 }
 
-# ai_tools_providers__list_integrations_declaring <key> : print "name<TAB>value" for every INSTALLED
-#   integration whose trusted manifest carries <key>, in manifest-filename order, enabled or not.
-#   For a manifest field that describes a toolchain present on the host rather than what a session
-#   receives: relabel.lib.sh reads build_output_dirs this way, because a project's SELinux label is
-#   a property of the tree, applied at claim time, and it stays correct whichever integrations a
-#   later session enables. The same trust rules as ai_tools_providers__list_enabled_integrations: an untrusted
-#   directory yields an empty set and an untrusted manifest is skipped, each reported on stderr.
+# ai_tools_providers__list_integrations_declaring <key> : print "name<TAB>value" for every INSTALLED integration
+#   whose trusted manifest carries <key>, in manifest-filename order, enabled or not. For a manifest field
+#   that describes a toolchain present on the host rather than what a session receives: relabel.lib.sh reads
+#   build_output_dirs this way, because a project's SELinux label is a property of the tree, applied at claim time,
+#   and it stays correct whichever integrations a later session enables. The same trust rules
+#   as ai_tools_providers__list_enabled_integrations: an untrusted directory yields an empty set and an untrusted
+#   manifest is skipped, each reported on stderr.
 ai_tools_providers__list_integrations_declaring() {
     local wanted_key="$1" manifest_file integration_name value
     _ai_tools_providers__is_dir_trusted "${AI_TOOLS_INTEGRATIONS_DIR}" AI_TOOLS_INTEGRATIONS || return 0
@@ -673,10 +661,10 @@ ai_tools_providers__list_integrations_declaring() {
 # (ai_tools_providers__read_agent_manifest_field); the functions here take the values as arguments,
 # so tests/unit/launcher-target.sh drives the write against fixtures with no manifest.
 
-# ai_tools_providers__is_launcher_target_valid <value> : pure check, no I/O -- succeed when <value> is a path
-#   that can only name a file inside the version directory it is joined to: relative, free of
-#   `..`, and drawn from the path characters a declared entrypoint pattern is allowed (letters,
-#   digits, `_ . / @ + -`). ai_tools_providers__relink_launcher checks what the join resolves to, symlinks
+# ai_tools_providers__is_launcher_target_valid <value> : pure check, no I/O -- succeed when <value> is a path that can
+#   only name a file inside the version directory it is joined to: relative, free of `..`, and drawn from the path
+#   characters a declared entrypoint pattern is allowed (letters, digits, `_ . / @ + -`).
+#   ai_tools_providers__relink_launcher checks what the join resolves to, symlinks
 #   followed.
 ai_tools_providers__is_launcher_target_valid() {
     local value="${1:-}"
@@ -687,16 +675,14 @@ ai_tools_providers__is_launcher_target_valid() {
 }
 
 # ai_tools_providers__is_entrypoint_fcontext_valid <pattern> <containment-root> : pure check, no I/O -- succeed
-#   when <pattern> is a file-context regex that can only ever match inside <containment-root>. Two
-#   conditions, both required, because the type the relabel gives what it matches is an exec
-#   entrypoint of the confined domain: with its backslash escapes removed the pattern must start
-#   with <containment-root> (so the literal head is anchored there), and it must contain no `|`,
-#   `(`, or other metacharacter that could match a path outside that head. Character classes, `*`,
-#   `+`, `.`, and escapes are what a path pattern needs and all it gets. An empty pattern or an empty
-#   root is refused. relabel.lib.sh passes the Node versions root it pins
-#   (AI_TOOLS_RELABEL__NODE_VERSIONS_ROOT); the two writers of the launcher chain pass the directory
-#   the resolved version directory sits in, which on the toolchain is that same root and on a test
-#   fixture is the fixture's.
+#   when <pattern> is a file-context regex that can only ever match inside <containment-root>. Two conditions, both
+#   required, because the type the relabel gives what it matches is an exec entrypoint of the confined domain: with its
+#   backslash escapes removed the pattern must start with <containment-root> (so the literal head is anchored there),
+#   and it must contain no `|`, `(`, or other metacharacter that could match a path outside that head. Character
+#   classes, `*`, `+`, `.`, and escapes are what a path pattern needs and all it gets. An empty pattern or an empty root
+#   is refused. relabel.lib.sh passes the Node versions root it pins (AI_TOOLS_RELABEL__NODE_VERSIONS_ROOT); the two
+#   writers of the launcher chain pass the directory the resolved version directory sits in, which on the toolchain is
+#   that same root and on a test fixture is the fixture's.
 ai_tools_providers__is_entrypoint_fcontext_valid() {
     # Path characters, character classes, `*`, `+`, `.` and escapes -- no `|`, no `(`, no `$`, no whitespace. `]` leads
     # the set and `-` closes it, the POSIX way to include both.
@@ -709,17 +695,15 @@ ai_tools_providers__is_entrypoint_fcontext_valid() {
 }
 
 # ai_tools_providers__relink_launcher <version-dir> <launcher> <target> <entrypoint-fcontext> : point
-#   <version-dir>/bin/<launcher> at <version-dir>/<target> -- a symlink written under a temporary
-#   name and renamed over the link, so the launcher is never absent -- and print one word:
-#   `linked` when the link was written, `current` when it already pointed there. Refuses, printing
-#   nothing, returning 1, and reporting the reason on stderr under its code, when <target> fails
-#   ai_tools_providers__is_launcher_target_valid, when it does not resolve (symlinks followed) to a regular
-#   executable file inside <version-dir>, when <entrypoint-fcontext> is empty, is not a plain path
-#   pattern anchored under the directory the resolved <version-dir> sits in
-#   (ai_tools_providers__is_entrypoint_fcontext_valid), or does not match the resolved path (the file would carry
-#   no ai_tools_exec_t, and the launch would refuse it), when the launcher path exists and is not
-#   a symlink, or when the write fails. A refusal leaves whatever is at the launcher path as it
-#   was. The link is relative (`../<target>`), the form npm writes its own in.
+#   <version-dir>/bin/<launcher> at <version-dir>/<target> -- a symlink written under a temporary name and renamed
+#   over the link, so the launcher is never absent -- and print one word: `linked` when the link was written, `current`
+#   when it already pointed there. Refuses, printing nothing, returning 1, and reporting the reason on stderr under its
+#   code, when <target> fails ai_tools_providers__is_launcher_target_valid, when it does not resolve (symlinks followed)
+#   to a regular executable file inside <version-dir>, when <entrypoint-fcontext> is empty, is not a plain path pattern
+#   anchored under the directory the resolved <version-dir> sits in (ai_tools_providers__is_entrypoint_fcontext_valid),
+#   or does not match the resolved path (the file would carry no ai_tools_exec_t, and the launch would refuse it),
+#   when the launcher path exists and is not a symlink, or when the write fails. A refusal leaves whatever is
+#   at the launcher path as it was. The link is relative (`../<target>`), the form npm writes its own in.
 ai_tools_providers__relink_launcher() {
     local version_dir="${1:-}" launcher="${2:-}" target="${3:-}" fcontext="${4:-}"
     local link="${version_dir}/bin/${launcher}" real_version_dir="" resolved="" containment_root pattern reason tmp
