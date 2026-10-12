@@ -185,10 +185,8 @@ or `packaging/` is proven by the next rc tag, which runs the identical path
 and publishes only a prerelease. `workflow_dispatch` still runs the check jobs,
 `rpm-selftest` included, from any branch.
 
-### 1. Cut a release candidate (tag on `develop`)
-
-Before the `VERSION` bump, the tools this tree is checked with are released
-and pinned:
+Before any `v*` tag, an rc, a final or a patch, the tools this tree is checked
+with are released and pinned:
 
 - `AI_TOOLS_DEV_ASSETS_CORE` and `AI_TOOLS_DEV_ASSETS_TOOLS` are unset.
 - `../ai-tools-assets` and `../ai-tools-assets-tools` hold no commit ahead
@@ -198,6 +196,8 @@ and pinned:
 CI on the tag fetches each pin and runs the checks with the pinned tools,
 so a tree that needs an unreleased tool fails there; the unpushed checkouts are
 what CI cannot see.
+
+### 1. Cut a release candidate (tag on `develop`)
 
 ```bash
 echo 0.6.3 > packaging/VERSION
