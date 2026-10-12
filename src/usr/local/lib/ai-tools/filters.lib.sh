@@ -51,9 +51,9 @@
 #                  refuses, is the kill switch, no filtering at all
 #                  -- ai_tools_filters__is_enabled is that verdict, and an adapter gates its noise
 #                  strip on it too, so the switch really does turn off every transform
-# An untrusted operator.conf or filters.d is ignored, which likewise leaves the command unfiltered. Rule
-# sets are not gated on provider enablement: a rule is inert unless the agent runs the command it
-# matches, so the gate would have no effect and this runs on every Bash call.
+# An untrusted operator.conf or filters.d is ignored, which likewise leaves the command unfiltered. Rule sets are not
+# gated on provider enablement: a rule is inert unless the agent runs the command it matches, so the gate would have no
+# effect and this runs on every Bash call.
 
 # Include guard: an if-statement, not `[[ ]] && return`, which returns 1 for an unset guard and trips the sourcing
 # shell's `set -e`.
@@ -104,17 +104,16 @@ _ai_tools_filters__log() {
     return 0
 }
 
-# ai_tools_filters__is_command_simple <command> : succeed when <command> consists only of the
-#   allowlisted characters, which is what makes inserting words into it safe. Pure, no I/O.
+# ai_tools_filters__is_command_simple <command> : succeed when <command> consists only of the allowlisted characters,
+#   which is what makes inserting words into it safe. Pure, no I/O.
 ai_tools_filters__is_command_simple() {
     [[ "${1-}" =~ ${_AI_TOOLS_FILTERS__SAFE_COMMAND} ]]
 }
 
-# ai_tools_filters__apply_rule <command> <match> <action> <blocking> <payload> : set
-#   _ai_tools_filters__result to the rewritten command and return 0 when the rule applies; return 1
-#   leaving the result empty when it does not (the command does not start with <match>, it already
-#   carries a blocking word, or <action> is not one this engine implements). Pure, no I/O --
-#   unit-tested over the rule table.
+# ai_tools_filters__apply_rule <command> <match> <action> <blocking> <payload> : set _ai_tools_filters__result
+#   to the rewritten command and return 0 when the rule applies; return 1 leaving the result empty when it does not (the
+#   command does not start with <match>, it already carries a blocking word, or <action> is not one this engine
+#   implements). Pure, no I/O -- unit-tested over the rule table.
 ai_tools_filters__apply_rule() {
     local command="$1" match="$2" action="$3" blocking="$4" payload="$5"
     local -a command_words=() match_words=() blocking_tokens=()
@@ -151,9 +150,9 @@ ai_tools_filters__apply_rule() {
     return 0
 }
 
-# _ai_tools_filters__load_file <file> : append every well-formed rule in <file> to
-#   _AI_TOOLS_FILTERS__RULES. A file that is not root-owned and non-group/other-writable is refused
-#   whole: a rules file a non-root account can write decides what every command in a session
+# _ai_tools_filters__load_file <file> : append every well-formed rule in <file> to _AI_TOOLS_FILTERS__RULES. A file
+#   that is not root-owned and non-group/other-writable is refused whole: a rules file a non-root account can write
+#   decides what every command in a session
 #   becomes.
 _ai_tools_filters__load_file() {
     local file="$1"
@@ -170,8 +169,8 @@ _ai_tools_filters__load_file() {
     return 0
 }
 
-# _ai_tools_filters__list_installed_sets <array-name> : set the named array to every installed rule-set
-#   name, the base's own set first so a provider's set can override one of its rules.
+# _ai_tools_filters__list_installed_sets <array-name> : set the named array to every installed rule-set name, the base's
+#   own set first so a provider's set can override one of its rules.
 _ai_tools_filters__list_installed_sets() {
     local -n _ai_tools_filters__sets_out="$1"
     _ai_tools_filters__sets_out=()
@@ -185,12 +184,11 @@ _ai_tools_filters__list_installed_sets() {
     return 0
 }
 
-# ai_tools_filters__is_enabled : succeed unless operator.conf carries AI_TOOLS_FILTERS with an EMPTY
-#   value -- the kill switch. The rewrite path honors the switch by loading no rules; this is the
-#   same verdict as a callable predicate, which an adapter gates its noise strip on, so the one
-#   switch turns off every transform. A named list narrows which rule sets load, never this
-#   verdict; an absent key, an absent conf, and an untrusted conf all leave filtering ON -- the
-#   same fallback direction ai_tools_filters__load_rules takes, and still only ever a token cost.
+# ai_tools_filters__is_enabled : succeed unless operator.conf carries AI_TOOLS_FILTERS with an EMPTY value -- the kill
+#   switch. The rewrite path honors the switch by loading no rules; this is the same verdict as a callable predicate,
+#   which an adapter gates its noise strip on, so the one switch turns off every transform. A named list narrows
+#   which rule sets load, never this verdict; an absent key, an absent conf, and an untrusted conf all leave filtering
+#   ON -- the same fallback direction ai_tools_filters__load_rules takes, and still only ever a token cost.
 ai_tools_filters__is_enabled() {
     local -a _ai_tools_filters__enabled_sets=()
     ai_tools_conf__is_trusted "${AI_TOOLS_OPERATOR_CONF}" || return 0
@@ -199,8 +197,8 @@ ai_tools_filters__is_enabled() {
     (( ${#_ai_tools_filters__enabled_sets[@]} > 0 ))
 }
 
-# ai_tools_filters__load_rules : populate _AI_TOOLS_FILTERS__RULES from the enabled rule sets. Returns
-#   0 whether or not any rule loaded -- no rules simply means no rewriting.
+# ai_tools_filters__load_rules : populate _AI_TOOLS_FILTERS__RULES from the enabled rule sets. Returns 0 whether or not
+#   any rule loaded -- no rules simply means no rewriting.
 ai_tools_filters__load_rules() {
     _AI_TOOLS_FILTERS__RULES=()
     if ! ai_tools_conf__is_trusted "${AI_TOOLS_FILTERS_DIR}"; then
@@ -230,9 +228,9 @@ ai_tools_filters__load_rules() {
     return 0
 }
 
-# ai_tools_filters__rewrite <command> : print the rewritten command and return 0 when a loaded rule
-#   applies and actually changes it; return 1 printing no command otherwise (the pass-through case,
-#   which is every failure direction). Call ai_tools_filters__load_rules first.
+# ai_tools_filters__rewrite <command> : print the rewritten command and return 0 when a loaded rule applies and actually
+#   changes it; return 1 printing no command otherwise (the pass-through case, which is every failure direction). Call
+#   ai_tools_filters__load_rules first.
 ai_tools_filters__rewrite() {
     local command="${1-}"
     [[ -n "${command}" ]] || return 1
@@ -259,12 +257,11 @@ ai_tools_filters__rewrite() {
     printf '%s' "${best_result}"
 }
 
-# ai_tools_filters__strip_noise : copy stdin to stdout with terminal control noise removed -- ANSI
-#   CSI and OSC sequences, stray escapes, and carriage-return redraws collapsed to the final state
-#   a terminal would have shown. Byte-level noise only: no line is dropped, truncated, reordered
-#   or summarized, so every line the model would have read survives. The one real cost is a line that
-#   uses a carriage return as data rather than as a redraw (CR-only line endings), which keeps
-#   only its last segment.
+# ai_tools_filters__strip_noise : copy stdin to stdout with terminal control noise removed -- ANSI CSI and OSC
+#   sequences, stray escapes, and carriage-return redraws collapsed to the final state a terminal would have shown.
+#   Byte-level noise only: no line is dropped, truncated, reordered or summarized, so every line the model would have
+#   read survives. The one real cost is a line that uses a carriage return as data rather than as a redraw (CR-only line
+#   endings), which keeps only its last segment.
 ai_tools_filters__strip_noise() {
     LC_ALL=C sed -E \
         -e 's|\x1b\[[0-9;:<=>?]*[ -/]*[@-~]||g' \

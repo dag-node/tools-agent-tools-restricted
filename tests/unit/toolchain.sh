@@ -30,8 +30,8 @@
 # for, and every value that cannot be joined to a path yields no line. The file closes on what the updater does
 # with both readers, read as source order like the re-link's in unit/launcher-target.sh: the removal precedes
 # install_packages, so npm's allow-scripts rescan sees the smaller tree, and a package the completeness reader names
-# reaches npm as an install rather than an update. Beside them, each provisioner empties npm's cache through
-# the remover of cache-cleanup.lib.sh at the point its install order needs, and neither runs `npm cache clean`.
+# reaches npm as an install rather than an update. Beside them, each provisioner empties npm's cache through the remover
+# of cache-cleanup.lib.sh at the point its install order needs, and neither runs `npm cache clean`.
 set -euo pipefail
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")/../lib" && pwd)/harness.sh"
 require_root
@@ -482,10 +482,10 @@ else
         fail "the incomplete-package fault at line ${fault_line} is not between the repoint (${repoint_line}) and the transient skip (${skip_line})"
     fi
 
-    # npm's cache is emptied through the remover that does not follow a link, never through `npm cache clean`, whose
-    # removal walks by path: the updater after its last install (the repoint loop), so the next run's reinstall has
-    # the space, and the bootstrap ahead of its first install, so a repair run does not fetch through a cache a failed
-    # install left inconsistent.
+    # npm's cache is emptied through the remover that does not follow a link, never through `npm cache clean`,
+    # whose removal walks by path: the updater after its last install (the repoint loop), so the next run's reinstall
+    # has the space, and the bootstrap ahead of its first install, so a repair run does not fetch through a cache
+    # a failed install left inconsistent.
     bootstrap="${REPO_ROOT}/src/usr/local/libexec/ai-tools/ai-tools-bootstrap.sh"
     prune_line="$(grep -n -m1 -E '^[[:space:]]+prune_npm_cache$' "${updater}" | cut -d: -f1)"
     remover_line="$(grep -n -m1 -F 'ai_tools_cache_cleanup__remove_group "${AI_TOOLS_CACHE_CLEANUP__SANDBOX_HOME}" npm-cache' "${bootstrap}" | cut -d: -f1)"

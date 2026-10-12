@@ -18,10 +18,9 @@
 #
 # WHY THE TWO NUMBERS NEVER MATCH, since a reader meets them side by side and they look like a contradiction: git stores
 # only two modes for a regular file, 100644 and 100755. It records the OWNER EXECUTE BIT alone -- no group bits, no
-# world bits, no setgid. So this tree's
-# collaborative 770 is tracked as 100755 and its 660 as 100644, and `ls -l` showing `rwxrwx---`
-# for a file reported as 100755 is agreement, not drift. The remediation is therefore stated as a numeric mode to apply
-# on disk, while the assertion it satisfies is about the tracked bit.
+# world bits, no setgid. So this tree's collaborative 770 is tracked as 100755 and its 660 as 100644, and `ls -l`
+# showing `rwxrwx---` for a file reported as 100755 is agreement, not drift. The remediation is therefore stated
+# as a numeric mode to apply on disk, while the assertion it satisfies is about the tracked bit.
 #
 # Pure `git ls-files` comparison -- no root, no install dependency, no file execution.
 set -euo pipefail

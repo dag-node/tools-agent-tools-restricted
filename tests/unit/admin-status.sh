@@ -120,8 +120,8 @@ fi
 # `status` is driven whole, with the sections that read this host stubbed to a known answer (no unit in the registry, no
 # entrypoint, assets, managed-file or unit-search-path section), so each case changes one reading: a section that counts
 # a fault, and the service registry's readers removed after the library was loaded -- its include guard keeps status()'s
-# own re-source from restoring them, which is the shape a half-upgraded install takes. A `?` line stays uncounted, which
-# the Provisioning cases already pin.
+# own re-source from restoring them, which is the shape a half-upgraded install takes. A `?` line stays uncounted,
+# which the Provisioning cases already pin.
 section "ai-tools-admin status: the exit status follows ai-tools-records(5) (unit)"
 
 # call_status <pre> : source the helper with the hooks set, run <pre> in that shell, then `status`; the exit status is

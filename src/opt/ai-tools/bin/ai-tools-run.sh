@@ -234,9 +234,9 @@ agent_handback="$(ai_tools_providers__read_agent_manifest_field "${agent_name}" 
 # value.
 readonly entrypoint_version_root="${AI_TOOLS_RUN__NVM_DIR}/versions/node/${node_version}/"
 
-# resolve_entrypoint : print the launcher's resolved, contained, executable target; non-zero when
-#   it does not resolve or leaves that root. Called twice -- once here, once immediately before the
-#   launch -- so the check and the re-check cannot drift.
+# resolve_entrypoint : print the launcher's resolved, contained, executable target; non-zero when it does not resolve
+#   or leaves that root. Called twice -- once here, once immediately before the launch -- so the check and the re-check
+#   cannot drift.
 resolve_entrypoint() {
     local resolved
     resolved="$(realpath -e "${agent_executable_path}" 2>/dev/null)" || return 1
@@ -245,11 +245,11 @@ resolve_entrypoint() {
     printf '%s' "${resolved}"
 }
 
-# entrypoint_identity <path> : print a change-detecting identity for the file -- device, inode,
-#   size, and ctime at nanosecond precision. Each of the three ways a same-uid process can swap an
-#   entrypoint moves it: a symlink repoint and a rename-over both land a different inode, and an
-#   in-place write bumps ctime (which no unprivileged caller can roll back -- utimes(2) sets atime
-#   and mtime, never ctime). Prints an empty string when the path cannot be stat'd, which compares unequal.
+# entrypoint_identity <path> : print a change-detecting identity for the file -- device, inode, size, and ctime
+#   at nanosecond precision. Each of the three ways a same-uid process can swap an entrypoint moves it: a symlink
+#   repoint and a rename-over both land a different inode, and an in-place write bumps ctime (which no unprivileged
+#   caller can roll back -- utimes(2) sets atime and mtime, never ctime). Prints an empty string when the path cannot be
+#   stat'd, which compares unequal.
 entrypoint_identity() {
     stat -c '%d:%i:%s:%z' -- "$1" 2>/dev/null || true
 }

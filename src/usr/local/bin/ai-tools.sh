@@ -597,20 +597,20 @@ root_helper_reachable() { [[ "${INVOKING_USER}" == "root" ]] || command -v sudo 
 # `sudo -n -l <bin>` asks sudo the question directly and, with -n, cannot prompt. Four answers, and the second is
 # the one this reads:
 #
-#   exit 0                       the rule exists; sudo echoes the command it would run. This is
-#                                what a general-grant operator gets whether or not a credential is
-#                                cached -- LISTING an allowed command is not itself password-gated
-#                                on a stock sudoers.
-#   exit != 0, NO OUTPUT         sudo's answer for "no rule matches this command". It is silent,
-#                                so there is no message to match on: the refusal that reaches the
-#                                terminal ("Sorry, user op is not allowed to execute ...") comes
-#                                from the attempt to RUN the command, never from -l. This is the
-#                                ai-ops-only account the gate exists for.
-#   exit != 0, "password is required"   listing is password-gated here (sudoers `listpw`). The
-#                                grant may well exist, so that caller is left to the ordinary
-#                                prompt.
-#   exit != 0, any other text    not understood -- fall through and let sudo answer at the call
-#                                site, this probe's fail-open direction.
+#   exit 0                             the rule exists; sudo echoes the command it would run. This is
+#                                      what a general-grant operator gets whether or not a credential is
+#                                      cached -- LISTING an allowed command is not itself password-gated
+#                                      on a stock sudoers.
+#   exit != 0, NO OUTPUT               sudo's answer for "no rule matches this command". It is silent,
+#                                      so there is no message to match on: the refusal that reaches the
+#                                      terminal ("Sorry, user op is not allowed to execute ...") comes
+#                                      from the attempt to RUN the command, never from -l. This is the
+#                                      ai-ops-only account the gate exists for.
+#   exit != 0, "password is required"  listing is password-gated here (sudoers `listpw`). The
+#                                      grant may well exist, so that caller is left to the ordinary
+#                                      prompt.
+#   exit != 0, any other text          not understood -- fall through and let sudo answer at the call
+#                                      site, this probe's fail-open direction.
 #
 # Silence is only conclusive while sudo is answering at all, so it is confirmed against a bare `sudo -n -l`: that lists
 # the caller's whole rule set (an ai-ops member always has one), and its success is what separates "sudo knows this
@@ -1214,13 +1214,13 @@ reg_ownership() {
 # agent_can_traverse <dir>  -- 0 if the sandbox account (SANDBOX_USER, a SANDBOX_GROUP member) can ENTER <dir>, decided
 # the way the kernel decides it (acl(5)): the owner entry when the account owns the directory; else the named-user entry
 # for the account when there is one, whatever the group and other entries say; else the owning-group entry
-# when the directory is in SANDBOX_GROUP, and every named-group entry for SANDBOX_GROUP; else the other entry.
-# A named entry and the owning-group entry are narrowed by the mask, so `user:SANDBOX_USER:--x` under `mask::---`
-# -- the state a `chmod 700` after an earlier grant leaves -- reads as blocked, and the grant is offered again. Returns
-# 1 when the account cannot enter, and 2 when the answer cannot be read: the stat fails, or getfacl is installed
-# and fails on the directory. A mode read in place of an ACL that could not be read would say "traversable" over a named
-# entry denying it, so the caller reads 2 as blocked by a directory no grant may cover. Without getfacl on the host
-# the mode bits alone decide, since no ACL can be inspected there at all.
+# when the directory is in SANDBOX_GROUP, and every named-group entry for SANDBOX_GROUP; else the other entry. A named
+# entry and the owning-group entry are narrowed by the mask, so `user:SANDBOX_USER:--x` under `mask::---` -- the state
+# a `chmod 700` after an earlier grant leaves -- reads as blocked, and the grant is offered again. Returns 1
+# when the account cannot enter, and 2 when the answer cannot be read: the stat fails, or getfacl is installed and fails
+# on the directory. A mode read in place of an ACL that could not be read would say "traversable" over a named entry
+# denying it, so the caller reads 2 as blocked by a directory no grant may cover. Without getfacl on the host the mode
+# bits alone decide, since no ACL can be inspected there at all.
 agent_can_traverse() {
     local dir="$1" mode owner grp acl
     # IFS pinned (see join_words).
@@ -1367,8 +1367,8 @@ confirm_ancestor_traversal() {
 
 # traverse_grant_plan <dir> <argv-var> <widened-var>  -- compute the setfacl arguments that give the sandbox account
 # traverse on <dir> without raising the mask past execute, and the entries that gain traverse alongside it. `setfacl -m`
-# recalculates the mask to the union of every group-class entry, so a directory holding `group:devs:rwx` under
-# `mask::---` would end with `mask::rwx` and that group at full access; `-n` keeps the mask as it is, which leaves
+# recalculates the mask to the union of every group-class entry, so a directory holding `group:devs:rwx`
+# under `mask::---` would end with `mask::rwx` and that group at full access; `-n` keeps the mask as it is, which leaves
 # the new entry with no effect where the mask lacks execute. So the call is `-n` with the mask set explicitly to what it
 # was -- `group::` where the directory has no mask, as setfacl derives one -- plus execute. Every other masked entry
 # that holds execute then gains it in effect, and <widened-var> names each as `<tag>:<name> <perms>` for the prompt.

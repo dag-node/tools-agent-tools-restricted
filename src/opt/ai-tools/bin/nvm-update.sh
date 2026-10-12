@@ -17,8 +17,7 @@
 # health: it lives in the sandbox account's own `systemd --user` manager, which `ai-tools status` cannot query
 # from the operator's session.
 #
-# The exit status classifies the run for the two readers that act on it -- that stamp, and the
-# unit's Restart= policy:
+# The exit status classifies the run for the two readers that act on it -- that stamp, and the unit's Restart= policy:
 #   0  the toolchain is current.
 #   1  a fault on this host: something is broken or untrustworthy and it will still be broken on a
 #      retry (no nvm, no curl, an unset alias, a failed signature check, a provider input the
@@ -26,10 +25,10 @@
 #   3  transient: the registry could not be reached, so the toolchain was left alone and the previous,
 #      trusted toolchain stays active and installed. The unit retries this one; the stamp records
 #      it as `skipped` rather than a failure, because an offline host has no fault to fix.
-# The split is deliberately coarse. It is not a diagnosis of why the registry was unreachable -- a
-# disconnected laptop and a registry outage are one state from here -- only of whether a retry is
-# the right response and whether an operator should be alarmed now. A transient condition that
-# PERSISTS still surfaces: the stamp ages, and `ai-tools status` reports it stale past its grace.
+# The split is deliberately coarse. It is not a diagnosis of why the registry was unreachable -- a disconnected laptop
+# and a registry outage are one state from here -- only of whether a retry is the right response and whether an operator
+# should be alarmed now. A transient condition that PERSISTS still surfaces: the stamp ages, and `ai-tools status`
+# reports it stale past its grace.
 
 set -euo pipefail
 IFS=$'\n\t'
@@ -146,14 +145,14 @@ write_stamp() {
         || warn "could not write the last-run stamp at ${NVM_UPDATE_STAMP}"
     return 0
 }
-# npm's own output, kept for the run: install_packages tees each install into it, and a package npm left without
-# its declared entrypoint is reported with the first line that names the cause (npm_cause_line), since npm reports
+# npm's own output, kept for the run: install_packages tees each install into it, and a package npm left without its
+# declared entrypoint is reported with the first line that names the cause (npm_cause_line), since npm reports
 # a dependency it could not unpack as a warning at exit 0.
 _npm_capture="$(mktemp 2>/dev/null)" || _npm_capture=""
 trap 'write_stamp "$?"; [[ -z "${_npm_capture}" ]] || rm -f -- "${_npm_capture}"' EXIT
 
-# npm_cause_line : the first line of this run's npm output that names why a dependency was left out -- tar's entry
-# error (no space left, a refused write), npm's own report of a failed optional dependency, or a platform it refused --
+# npm_cause_line : the first line of this run's npm output that names why a dependency was left out -- tar's entry error
+# (no space left, a refused write), npm's own report of a failed optional dependency, or a platform it refused --
 # through the log sanitizer and bounded; empty where none was captured.
 npm_cause_line() {
     local line
@@ -242,8 +241,8 @@ if ! source "${ENTRYPOINT_VERIFY_LIB}" 2>/dev/null \
 fi
 
 # The cache remover (cache-cleanup.lib.sh), which prune_npm_cache empties npm's cache through. Best-effort source:
-# emptying the cache is housekeeping, so a library that did not load leaves the cache in place with a warning
-# rather than failing the update.
+# emptying the cache is housekeeping, so a library that did not load leaves the cache in place with a warning rather
+# than failing the update.
 readonly CACHE_CLEANUP_LIB="/usr/local/lib/ai-tools/cache-cleanup.lib.sh"
 # shellcheck source=SCRIPTDIR/../../../usr/local/lib/ai-tools/cache-cleanup.lib.sh
 source "${CACHE_CLEANUP_LIB}" 2>/dev/null || true
@@ -450,8 +449,8 @@ install_packages() {
     # for us (it errors EGLOBAL on global installs), so we approve per invocation with `--allow-scripts`, passing
     # the FULL managed set on EVERY call: covering only the package being installed leaves its siblings (e.g.
     # claude-code's required postinstall) flagged. Scoped to the named tools by the caller's list, never a blanket
-    # `--dangerously-allow-all-scripts`. Each invocation's output is kept in _npm_capture as well as sanitized into
-    # the log, so the completeness read after the install can quote the line that names what npm left out.
+    # `--dangerously-allow-all-scripts`. Each invocation's output is kept in _npm_capture as well as sanitized
+    # into the log, so the completeness read after the install can quote the line that names what npm left out.
     local capture="${_npm_capture:-/dev/null}"
     for pkg in "$@"; do
         if [[ -n "${repair_csv}" && ",${repair_csv}," == *",${pkg},"* ]]; then
@@ -473,9 +472,9 @@ install_packages() {
 # prune_npm_cache: empty npm's content cache. It is content-addressed with no eviction, so every tarball a nightly run
 # downloaded stays in it -- an agent's platform build is hundreds of megabytes per release -- until the volume holding
 # the toolchain is full, where npm then drops the optional dependency carrying that build and exits 0. Nothing reads
-# the cache between runs, and a reinstall downloads what it needs again. The removal goes through the library's
-# remover, which does not follow a link a session planted in the cache, and journals itself under this script's tag;
-# the record is written to the state file both status reports read (updater.rule.md).
+# the cache between runs, and a reinstall downloads what it needs again. The removal goes through the library's remover,
+# which does not follow a link a session planted in the cache, and journals itself under this script's tag; the record
+# is written to the state file both status reports read (updater.rule.md).
 prune_npm_cache() {
     if ! declare -F ai_tools_cache_cleanup__remove_group >/dev/null 2>&1; then
         warn "the cache remover (${CACHE_CLEANUP_LIB}) did not load -- the cache under ${HOME}/.npm keeps this run's downloads; reinstall ai-tools-base"
@@ -494,8 +493,7 @@ prune_npm_cache() {
 # active, remove a disabled agent's package left in the toolchain, refresh the sandbox global tools -- reinstalling
 # rather than updating an enabled agent's package that does not hold the entrypoint its manifest declares -- re-link
 # each versioned launcher at the target its manifest declares, prune superseded versions, empty npm's content cache,
-# and repoint each enabled
-# agent's stable /opt/ai-tools/bin/<launcher> symlink at the versioned binary.
+# and repoint each enabled agent's stable /opt/ai-tools/bin/<launcher> symlink at the versioned binary.
 # args:  optional target Node version override (e.g. v22.15.0)
 main() {
     local target_version="${1:-}"
@@ -657,8 +655,8 @@ main() {
 
     # The same read again, now that npm has run: what it names is a package the install did not complete, which npm
     # itself reports as a success (updater.rule.md). Each is reported here with the line of npm's output that names
-    # the cause and counted; the run ends as a fault once every complete agent is repointed (the end of main), so
-    # the stamp names the agent no session can start rather than reporting the run as ok.
+    # the cause and counted; the run ends as a fault once every complete agent is repointed (the end of main),
+    # so the stamp names the agent no session can start rather than reporting the run as ok.
     local incomplete_after=0 npm_reason=""
     if declare -F ai_tools_toolchain__find_incomplete_agents >/dev/null 2>&1; then
         local left_agent left_package
@@ -724,9 +722,9 @@ main() {
 
     # Both verdicts are reported LAST, after every agent that is complete and did verify has been repointed, so one
     # agent's state never strands another's update, and each goes through the stamp because that is the only channel
-    # an operator session can read at all -- see the stamp's own section in this file's header. A package still
-    # without its declared entrypoint is a FAULT: the same install on the same host leaves it incomplete until what
-    # npm's line names is fixed, so it is decided ahead of the transient verdict, which a reader takes as a retry.
+    # an operator session can read at all -- see the stamp's own section in this file's header. A package still without
+    # its declared entrypoint is a FAULT: the same install on the same host leaves it incomplete until what npm's line
+    # names is fixed, so it is decided ahead of the transient verdict, which a reader takes as a retry.
     (( incomplete_after == 0 )) \
         || die MSG-U5N2 "the install left ${incomplete_after} enabled agent(s) without the entrypoint their manifest declares (above, with npm's reason) -- every launch of them is refused until that executable is installed; fix what npm names, then run: sudo ai-tools-admin system bootstrap"
     # TRANSIENT rather than failed: no component is broken and that agent is left as it was.

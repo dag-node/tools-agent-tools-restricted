@@ -36,8 +36,10 @@ mkdir -p "${HOME_DIR}" "${PINS}" "${RELEASE}"
 # shellcheck source=SCRIPTDIR/../../tools/lib/assets.sh
 source "${LIB}"
 CONTROL=1
+CORE_ARCHIVE=""   # the core pin's archive, which the tamper cases rewrite in the served release
 for name in core tools; do
     ai_tools_dev_assets__read_pin "${name}"
+    [[ "${name}" != core ]] || CORE_ARCHIVE="${AI_TOOLS_DEV_ASSETS__PIN_ARCHIVE}"
     cached="$(ai_tools_dev_assets__get_cache_root)/${AI_TOOLS_DEV_ASSETS__PIN_ARCHIVE}.${AI_TOOLS_DEV_ASSETS__PIN_SHA256:0:16}"
     for suffix in "" .sha256 .asc; do
         cp "${cached}/${AI_TOOLS_DEV_ASSETS__PIN_ARCHIVE}${suffix}" "${RELEASE}/" 2>/dev/null || CONTROL=0
@@ -170,17 +172,17 @@ s = u.spec_from_file_location("prose_check", sys.argv[1] + "/prose-check.py"); m
     }
     reset_cache; restore_pins
     set_pin core archive_sha256 "$(sed -n 's/^archive_sha256=//p' "${PINS}/assets-core.pin" | tr '0-9a-f' '1-9a-f0')"
-    sed "s/^[0-9a-f]*/$(sed -n 's/^archive_sha256=//p' "${PINS}/assets-core.pin")/" "${RELEASE}/ai-tools-assets-core-0.1.0.zip.sha256" \
+    sed "s/^[0-9a-f]*/$(sed -n 's/^archive_sha256=//p' "${PINS}/assets-core.pin")/" "${RELEASE}/${CORE_ARCHIVE}.sha256" \
         > "${TESTDIR}/published"
-    cp "${RELEASE}/ai-tools-assets-core-0.1.0.zip.sha256" "${TESTDIR}/published.orig"
-    cp "${TESTDIR}/published" "${RELEASE}/ai-tools-assets-core-0.1.0.zip.sha256"
+    cp "${RELEASE}/${CORE_ARCHIVE}.sha256" "${TESTDIR}/published.orig"
+    cp "${TESTDIR}/published" "${RELEASE}/${CORE_ARCHIVE}.sha256"
     dev fetch
     refused "an archive whose sha256 is not the pin's, though the release publishes the pin's" "does not match the pin's sha256"
-    cp "${TESTDIR}/published.orig" "${RELEASE}/ai-tools-assets-core-0.1.0.zip.sha256"; restore_pins
-    printf '%064d  ai-tools-assets-core-0.1.0.zip\n' 0 > "${RELEASE}/ai-tools-assets-core-0.1.0.zip.sha256"
+    cp "${TESTDIR}/published.orig" "${RELEASE}/${CORE_ARCHIVE}.sha256"; restore_pins
+    printf '%064d  %s\n' 0 "${CORE_ARCHIVE}" > "${RELEASE}/${CORE_ARCHIVE}.sha256"
     reset_cache; dev fetch
     refused "a release whose published sha256 is not the pin's" "the release publishes"
-    cp "${TESTDIR}/published.orig" "${RELEASE}/ai-tools-assets-core-0.1.0.zip.sha256"
+    cp "${TESTDIR}/published.orig" "${RELEASE}/${CORE_ARCHIVE}.sha256"
     STUB='_ai_tools_dev_assets__fetch_file() { [[ "$1" != *.asc ]] && cp -- "${release}/${1##*/}" "$2"; }'
     reset_cache; dev fetch; STUB=""
     refused "a release without its signature" "cannot download"
@@ -188,12 +190,12 @@ s = u.spec_from_file_location("prose_check", sys.argv[1] + "/prose-check.py"); m
     if command -v gpg >/dev/null 2>&1; then
         gnupg="${TESTDIR}/gnupg"; mkdir -m 0700 "${gnupg}"
         GNUPGHOME="${gnupg}" gpg --batch --quiet --passphrase '' --quick-gen-key 'ai-tools test <t@acme.example>' default default never 2>/dev/null
-        cp "${RELEASE}/ai-tools-assets-core-0.1.0.zip.asc" "${TESTDIR}/asc.orig"
-        GNUPGHOME="${gnupg}" gpg --batch --yes --armor --detach-sign -o "${RELEASE}/ai-tools-assets-core-0.1.0.zip.asc" \
-            "${RELEASE}/ai-tools-assets-core-0.1.0.zip" 2>/dev/null
+        cp "${RELEASE}/${CORE_ARCHIVE}.asc" "${TESTDIR}/asc.orig"
+        GNUPGHOME="${gnupg}" gpg --batch --yes --armor --detach-sign -o "${RELEASE}/${CORE_ARCHIVE}.asc" \
+            "${RELEASE}/${CORE_ARCHIVE}" 2>/dev/null
         reset_cache; dev fetch
         refused "an archive signed by a throwaway key, not the package-signing primary" "gpgv refuses the signature"
-        cp "${TESTDIR}/asc.orig" "${RELEASE}/ai-tools-assets-core-0.1.0.zip.asc"
+        cp "${TESTDIR}/asc.orig" "${RELEASE}/${CORE_ARCHIVE}.asc"
     else
         skip "a signature by a throwaway key" "gpg is not installed"
     fi

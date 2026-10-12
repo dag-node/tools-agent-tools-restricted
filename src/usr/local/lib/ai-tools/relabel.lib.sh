@@ -228,12 +228,12 @@ _ai_tools_relabel__list_local_rules_under() {
 }
 
 # _ai_tools_relabel__retire_raw_project_rules <dir>: delete the unescaped rules an earlier label wrote for <dir> -- its
-#   project rule `<dir>(/.*)?` and every rule under `<dir>(/.*)?/` -- when each carries the type this library writes for
-#   it (ai_tools_project_t, ai_tools_project_build_t). Those two facts are the rule's provenance: the pattern is this
-#   directory's raw encoding and the type is ours. A rule on either pattern with any other type was not written here,
-#   and is left in place and named on stderr for the operator to review. Returns 0 when it removed the raw project rule,
-#   1 otherwise -- including when <dir> does not carry a regex metacharacter, since the raw and escaped encodings are
-#   then the same rule. Root-only, since the store is.
+#   project rule `<dir>(/.*)?` and every rule under `<dir>(/.*)?/` -- when each carries the type this library writes
+#   for it (ai_tools_project_t, ai_tools_project_build_t). Those two facts are the rule's provenance: the pattern is
+#   this directory's raw encoding and the type is ours. A rule on either pattern with any other type was not written
+#   here, and is left in place and named on stderr for the operator to review. Returns 0 when it removed the raw project
+#   rule, 1 otherwise -- including when <dir> does not carry a regex metacharacter, since the raw and escaped encodings
+#   are then the same rule. Root-only, since the store is.
 _ai_tools_relabel__retire_raw_project_rules() {
     local dir="$1" line pattern type retired=1
     [[ "$(ai_tools_relabel__get_fcontext_literal "${dir}")" != "${dir}" ]] || return 1
@@ -575,17 +575,16 @@ ai_tools_relabel__resolve_agent_entrypoint_path() {
     printf '%s\n' "${resolved}"
 }
 
-# _ai_tools_relabel__read_live_type <path> : print the TYPE field of the label <path> carries right now, or an
-#   empty string when it cannot be read. The one place a live label is read, shared by the verify
-#   verify pass and by the read-only report at the end of this file, so "what type is on this file"
-#   has one answer however it is asked. Needs to traverse the 0750 toolchain, so in practice root.
+# _ai_tools_relabel__read_live_type <path> : print the TYPE field of the label <path> carries right now, or an empty
+#   string when it cannot be read. The one place a live label is read, shared by the verify verify pass
+#   and by the read-only report at the end of this file, so "what type is on this file" has one answer however it is
+#   asked. Needs to traverse the 0750 toolchain, so in practice root.
 _ai_tools_relabel__read_live_type() {
     stat -c '%C' -- "$1" 2>/dev/null | awk -F: '{print $3}'
 }
 
-# _ai_tools_relabel__verify_label <path> <wanted-type> : restore the label on <path> and report the
-#   outcome as one status line (see ai_tools_relabel__label_agent_paths). Returns non-zero when the path
-#   did not take the type.
+# _ai_tools_relabel__verify_label <path> <wanted-type> : restore the label on <path> and report the outcome as one
+#   status line (see ai_tools_relabel__label_agent_paths). Returns non-zero when the path did not take the type.
 _ai_tools_relabel__verify_label() {
     local path="$1" wanted="$2" context
     restorecon -F "${path}" 2>/dev/null || true
@@ -655,8 +654,8 @@ _ai_tools_relabel__label_agent_entrypoint() {
     return "${status}"
 }
 
-# _ai_tools_relabel__label_agent_config_dir <agent> : the config-directory half. Same shape; the subtree is
-#   restored recursively, and only the directory itself is verified (its contents inherit).
+# _ai_tools_relabel__label_agent_config_dir <agent> : the config-directory half. Same shape; the subtree is restored
+#   recursively, and only the directory itself is verified (its contents inherit).
 _ai_tools_relabel__label_agent_config_dir() {
     local agent="$1" config_dir path pattern
     config_dir="$(ai_tools_providers__read_agent_manifest_field "${agent}" config_dir || true)"
@@ -684,9 +683,9 @@ _ai_tools_relabel__label_agent_config_dir() {
     _ai_tools_relabel__verify_label "${path}" "${AI_TOOLS_RELABEL__AGENT_CONFIG_TYPE}"
 }
 
-# ai_tools_relabel__label_agent_paths: apply every ENABLED agent's declared file-context rules -- its
-#   entrypoint and its config directory -- and restore the labels on what they match. Prints one
-#   status line per outcome, for the caller to render in its own voice:
+# ai_tools_relabel__label_agent_paths: apply every ENABLED agent's declared file-context rules -- its entrypoint and its
+#   config directory -- and restore the labels on what they match. Prints one status line per outcome, for the caller
+#   to render in its own voice:
 #     ok    <path>                     the path carries the type the base pins for it
 #     bad   <path> <actual> <wanted>   it does not -- the session would break or run unconfined
 #     none  <agent> <what>             declared, but not installed (yet)
@@ -851,10 +850,9 @@ readonly AI_TOOLS_RELABEL__OPERATOR_CONF_TYPE="ai_tools_conf_t"
 # the validator and the pattern builder must agree on it.
 readonly AI_TOOLS_RELABEL__OPERATOR_CONF_TAIL="/.config/ai-tools"
 
-# ai_tools_relabel__is_operator_conf_valid <dir> : succeed when <dir> may become an ai_tools_conf_t fcontext
-#   rule. PURE -- no filesystem, no privilege -- so the containment property is unit-tested without
-#   a labelled host. <dir> must be absolute, carry no `..`, and end in the fixed
-#   ~/.config/ai-tools tail with a non-empty home in front of it.
+# ai_tools_relabel__is_operator_conf_valid <dir> : succeed when <dir> may become an ai_tools_conf_t fcontext rule. PURE
+#   -- no filesystem, no privilege -- so the containment property is unit-tested without a labelled host. <dir> must be
+#   absolute, carry no `..`, and end in the fixed ~/.config/ai-tools tail with a non-empty home in front of it.
 #
 #   The home is additionally held to an allowlisted character set, which is the containment guard:
 #   it arrives from a passwd entry, and a regex metacharacter there would reach the rule's pattern
@@ -875,14 +873,13 @@ ai_tools_relabel__is_operator_conf_valid() {
     return 0
 }
 
-# _ai_tools_relabel__get_operator_conf_pattern <dir> : the file-context pattern covering <dir> and everything
-#   under it. The path is escaped (ai_tools_relabel__get_fcontext_literal): a bare `.` in a file-context regex
-#   matches any character, so an unescaped `/home/a.b` would also cover `/home/axb`, a home this
-#   operator does not own.
+# _ai_tools_relabel__get_operator_conf_pattern <dir> : the file-context pattern covering <dir> and everything under it.
+#   The path is escaped (ai_tools_relabel__get_fcontext_literal): a bare `.` in a file-context regex matches any
+#   character, so an unescaped `/home/a.b` would also cover `/home/axb`, a home this operator does not own.
 _ai_tools_relabel__get_operator_conf_pattern() { printf '%s(/.*)?' "$(ai_tools_relabel__get_fcontext_literal "$1")"; }
 
-# ai_tools_relabel__label_operator_conf <dir> : register the local rule mapping <dir> and its contents to
-#   ai_tools_conf_t, then apply it. ROOT ONLY (semanage writes the policy store); the caller takes
+# ai_tools_relabel__label_operator_conf <dir> : register the local rule mapping <dir> and its contents
+#   to ai_tools_conf_t, then apply it. ROOT ONLY (semanage writes the policy store); the caller takes
 #   ai_tools_relabel__lock, as every other writer here does.
 #
 #   Returns 2 where there is no label to apply -- SELinux inactive, or no semanage -- which is the
@@ -909,10 +906,9 @@ ai_tools_relabel__label_operator_conf() {
     [[ "$(_ai_tools_relabel__read_live_type "${dir}")" == "${AI_TOOLS_RELABEL__OPERATOR_CONF_TYPE}" ]]
 }
 
-# ai_tools_relabel__unlabel_operator_conf <dir> : drop the local rule for <dir> and restorecon the subtree
-#   back to its default type (config_home_t). Root-only. Returns 2 where SELinux is inactive, 1 on
-#   a restorecon failure, 0 otherwise. The delete is best-effort: a store that does not hold the
-#   rule is the state this leaves behind anyway.
+# ai_tools_relabel__unlabel_operator_conf <dir> : drop the local rule for <dir> and restorecon the subtree back to its
+#   default type (config_home_t). Root-only. Returns 2 where SELinux is inactive, 1 on a restorecon failure, 0
+#   otherwise. The delete is best-effort: a store that does not hold the rule is the state this leaves behind anyway.
 ai_tools_relabel__unlabel_operator_conf() {
     local dir="${1:-}"
     ai_tools_relabel__is_operator_conf_valid "${dir}" || return 1

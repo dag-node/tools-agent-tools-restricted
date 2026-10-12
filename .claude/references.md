@@ -13,7 +13,7 @@ cannot fix -- a message code's name is a runtime string, and rewording one is a 
 
 | Id | Reftag | Name | File | Cited by | Emitter |
 |---|---|---|---|---|---|
-| u6y5 | [URI-U6Y5](https://github.com/dag-node/ai-tools-assets/blob/core/v0.1.0/sets/core/skills/ai-tools-reftags/SKILL.md#ref-section-h9b7) | The reftags skill's reference rule, at the pinned core release | .claude/rules/authoring.rule.md | .claude/rules/authoring.rule.md |  |
+| u6y5 | [URI-U6Y5](https://github.com/dag-node/ai-tools-assets/blob/core/v0.2.1/sets/core/skills/ai-tools-reftags/SKILL.md#ref-section-h9b7) | The reftags skill's reference rule, at the pinned core release | .claude/rules/authoring.rule.md | .claude/rules/authoring.rule.md |  |
 | z3p9 | [ref-section-z3p9](rules/cli.rule.md#ref-section-z3p9) | Acting for another operator (`--for`) | .claude/rules/cli.rule.md | docs/operators/service-accounts.md |  |
 | v2n3 | [ref-section-v2n3](rules/cli.rule.md#ref-section-v2n3) | Enabled, disabled, absent — the three states of an entry | .claude/rules/cli.rule.md | docs/projects/disable.md, docs/projects/enable.md |  |
 | d7q3 | [ref-table-d7q3](rules/cli.rule.md#ref-table-d7q3) | The three states of an allowlist entry | .claude/rules/cli.rule.md | docs/projects/disable.md |  |

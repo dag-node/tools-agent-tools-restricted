@@ -36,11 +36,10 @@ if ! source "${BASH_SOURCE[0]%/*}/conf.lib.sh" 2>/dev/null \
 fi
 readonly _AI_TOOLS_SETTINGS_MERGE__LOADED=1
 
-# ai_tools_settings_merge__require_jq : succeed when jq is callable. jq is a package dependency, so its
-#   absence is a broken install rather than a host variation -- this reports and fails instead of
-#   degrading, and each JSON path gates on it. Not checked when this library is sourced: install.sh
-#   and ai-tools-admin source it at startup, and a missing jq costs the JSON step alone, not
-#   the install or the post-upgrade pass around it.
+# ai_tools_settings_merge__require_jq : succeed when jq is callable. jq is a package dependency, so its absence is
+#   a broken install rather than a host variation -- this reports and fails instead of degrading, and each JSON path
+#   gates on it. Not checked when this library is sourced: install.sh and ai-tools-admin source it at startup,
+#   and a missing jq costs the JSON step alone, not the install or the post-upgrade pass around it.
 ai_tools_settings_merge__require_jq() {
     command -v jq >/dev/null 2>&1 && return 0
     ai_tools_conf__warn MSG-F9W4 "jq not found -- it is a package dependency; reinstall ai-tools-base"
@@ -125,8 +124,8 @@ readonly _AI_TOOLS_SETTINGS_MERGE__HOOKS_MERGE_FILTER="${_AI_TOOLS_SETTINGS_MERG
           else .hooks[$event.key] = (.hooks[$event.key] | dedupe_event($cmds)).groups end
       )'
 
-# ai_tools_settings_merge__merge_hook_declarations <deployed> <shipped> : merge the shipped hook
-#   declarations into <deployed>.
+# ai_tools_settings_merge__merge_hook_declarations <deployed> <shipped> : merge the shipped hook declarations
+#   into <deployed>.
 #     returns 0  merged      ai_tools_settings_merge__added holds "<event>: <command>" per addition,
 #                            ai_tools_settings_merge__removed the same per duplicate removed,
 #                            ai_tools_settings_merge__backup the copy of what the operator had
@@ -223,8 +222,8 @@ ai_tools_settings_merge__find_permission_gaps() {
 
 # ai_tools_settings_merge__read_settings_rest <settings> : print <settings> without its hook declarations and its
 #   permission rule lists, keys sorted, so two files that differ only in those, or in key order, print the same text.
-#   The hook declarations are compared by ai_tools_settings_merge__merge_hook_declarations and the rule lists by
-#   ai_tools_settings_merge__find_permission_gaps. Returns 1 when jq is missing or <settings> is not a JSON object.
+#   The hook declarations are compared by ai_tools_settings_merge__merge_hook_declarations and the rule lists
+#   by ai_tools_settings_merge__find_permission_gaps. Returns 1 when jq is missing or <settings> is not a JSON object.
 ai_tools_settings_merge__read_settings_rest() {
     ai_tools_settings_merge__require_jq || return 1
     jq -S 'if type != "object" then error else . end
@@ -235,8 +234,8 @@ ai_tools_settings_merge__read_settings_rest() {
           else . end' "$1" 2>/dev/null
 }
 
-# ai_tools_settings_merge__find_ask_gaps <settings> [root] : print each ask entry <settings> does not carry for a
-#   command installed under <root> (default /), one per line. Prints nothing when every installed command asks.
+# ai_tools_settings_merge__find_ask_gaps <settings> [root] : print each ask entry <settings> does not carry
+#   for a command installed under <root> (default /), one per line. Prints nothing when every installed command asks.
 #     returns 0  checked     the gaps, if any, are on stdout
 #     returns 1  not checked jq is missing, <settings> is not readable JSON, or its permissions.ask is not an array
 #   Read-only: the permission arrays are the host's, so a caller reports the gap and does not write the entry.

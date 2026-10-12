@@ -161,11 +161,10 @@ fi
 # Without them here a run of the suite reports its own probes as unclassified gaps.
 readonly BOUNDARY_NAMED_RE='(user_home_t|user_home_dir_t|home_root_t|config_home_t|container_file_t|sendmail_exec_t|sudo_exec_t|semanage_exec_t|ssh_port_t|smtp_port_t|mysqld_port_t|postgresql_port_t|usb_device_t|shadow_t|etc_sudoers_t|admin_home_t|user_runtime_t|user_tmp_t|system_dbusd_var_run_t|syslogd_var_run_t|container_var_run_t|sysctl_t|sysctl_kernel_t|memory_device_t|fixed_disk_device_t|user_cron_spool_t|system_cron_spool_t|systemd_unit_file_t)'
 
-# Target types granted ONLY by an optional policy group (systemd / pkgmgmt /
-# netadmin / podman), all DISABLED by default. With the core module alone these
-# accesses are correctly denied -- that is the group being off, not a hole in the
-# core policy -- so they are EXPECTED, not NEW. Enabling the matching group
-# (install-selinux.sh enable-group <name>) is what would allow them. Mapping:
+# Target types granted ONLY by an optional policy group (systemd / pkgmgmt / netadmin / podman), all DISABLED
+# by default. With the core module alone these accesses are correctly denied -- that is the group being off, not a hole
+# in the core policy -- so they are EXPECTED, not NEW. Enabling the matching group (install-selinux.sh enable-group
+# <name>) is what would allow them. Mapping:
 #   systemd  -> systemd_systemctl_exec_t, journalctl_exec_t, systemd_unit_file_t
 #   pkgmgmt  -> rpm_exec_t, rpm_var_lib_t
 #   netadmin -> firewalld_t, NetworkManager_t   (firewall-cmd/nmcli D-Bus chat)

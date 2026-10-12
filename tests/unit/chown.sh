@@ -71,9 +71,9 @@ else
     fail "script ended $(perm "${scr}") (want 750)"
 fi
 
-# (2c) On an ACL'd file the strip targets the MASK only: an agent data file whose mask is rwx
-# (the mask-execute that surfaces as `-rw-rwx---+`) drops to mask rw, so the operator group keeps
-# read+WRITE and the agent can still edit it next turn -- only execute is removed.
+# (2c) On an ACL'd file the strip targets the MASK only: an agent data file whose mask is rwx (the mask-execute
+# that surfaces as `-rw-rwx---+`) drops to mask rw, so the operator group keeps read+WRITE and the agent can still edit
+# it next turn -- only execute is removed.
 if command -v setfacl >/dev/null 2>&1 && command -v getfacl >/dev/null 2>&1; then
     am="${proj}/acl.txt"; : > "${am}"; chown "${SANDBOX_USER}:${SANDBOX_GROUP}" "${am}"; chmod 0660 "${am}"
     setfacl -m "g:${SANDBOX_GROUP}:rwx" "${am}"                 # forces mask rwx (shows -rw-rwx---+)

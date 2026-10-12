@@ -7,18 +7,18 @@
 # What gives it teeth is the direction a removal must fail in. A sandbox process can rename an entry inside its own
 # caches while a removal runs, and the remover runs outside the confined domain, so a walk that followed a link would
 # delete whatever the account may unlink and a session may not -- the toolchain first. Every case therefore keeps
-# a canary directory outside the fixture home, owned by the account, and asserts it intact: a link as the target,
-# links inside the tree, and the swap race, where a loop running as the account flips a deep directory for a link
-# to the canary while the remover walks. The same loop against a removal that walks by path is run as a control and
-# its outcome recorded with `note`: it shows the race is reachable on this host, and a race that did not fire there
-# does not fail the file. Each refusal is driven -- root and the projects user as the caller, an untrusted home,
-# a symlinked parent, an undeclared group, a non-directory -- and asserted to leave the tree as it was.
+# a canary directory outside the fixture home, owned by the account, and asserts it intact: a link as the target, links
+# inside the tree, and the swap race, where a loop running as the account flips a deep directory for a link
+# to the canary while the remover walks. The same loop against a removal that walks by path is run as a control and its
+# outcome recorded with `note`: it shows the race is reachable on this host, and a race that did not fire there does not
+# fail the file. Each refusal is driven -- root and the projects user as the caller, an untrusted home, a symlinked
+# parent, an undeclared group, a non-directory -- and asserted to leave the tree as it was.
 #
 # The pure half -- the launch decision, the state round trip through the defensive reader, the status verdict, the size
 # format, and the guard and tool paths read as source -- runs unprivileged. The removals need root, which builds
-# the root-owned fixture home the trust predicate accepts and runs each removal as the sandbox account through
-# the harness's as_sandbox. The library names the account the installer substituted, so against a source-tree copy
-# the removals skip with the reason named.
+# the root-owned fixture home the trust predicate accepts and runs each removal as the sandbox account
+# through the harness's as_sandbox. The library names the account the installer substituted, so against a source-tree
+# copy the removals skip with the reason named.
 set -euo pipefail
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")/../lib" && pwd)/harness.sh"
 umask 022
@@ -150,18 +150,18 @@ abc|
 ROWS
 
 # ── The launch step: the admission, which groups it removes, and the bound ─────────────────────
-# Driven over a fixture state file and a fixture admission lock with the removal stubbed as a shell function after
-# the library loaded, so no tree is walked; both locks are the real flock. Each call runs in its own subshell, so a stub
-# a case sets does not reach the next, and the subshell's exit releases the admission the call keeps.
+# Driven over a fixture state file and a fixture admission lock with the removal stubbed as a shell function
+# after the library loaded, so no tree is walked; both locks are the real flock. Each call runs in its own subshell,
+# so a stub a case sets does not reach the next, and the subshell's exit releases the admission the call keeps.
 section "cache-cleanup: the launch step (unit)"
 launch_state="${TESTDIR}/launch.status"
 launch_lock="${TESTDIR}/launch.lock"
 launch_calls="${TESTDIR}/launch-calls"
-# launch_step [removal-seconds] [hold-seconds] [partial-group] [session-count] : run remove_due_groups
-#   with the removal stubbed to take <removal-seconds> and to report <partial-group> as `partial timeout`,
-#   and the manager's listing stubbed to <session-count> (0 by default). The removals it asks for are appended
-#   to launch_calls; stdout carries the records it collected, one per line, then the admission the subshell holds,
-#   probed from another process (`admission held shared|held exclusive|unheld`), which it keeps for <hold-seconds>.
+# launch_step [removal-seconds] [hold-seconds] [partial-group] [session-count] : run remove_due_groups with the removal
+#   stubbed to take <removal-seconds> and to report <partial-group> as `partial timeout`, and the manager's listing
+#   stubbed to <session-count> (0 by default). The removals it asks for are appended to launch_calls; stdout carries
+#   the records it collected, one per line, then the admission the subshell holds, probed from another process
+#   (`admission held shared|held exclusive|unheld`), which it keeps for <hold-seconds>.
 launch_step() {
     (
         stub_seconds="${1:-0}" stub_hold="${2:-0}" stub_partial="${3:-}" stub_sessions="${4:-0}"

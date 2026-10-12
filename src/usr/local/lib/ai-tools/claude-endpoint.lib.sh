@@ -56,9 +56,9 @@ _ai_tools_claude_endpoint__is_local() {
     esac
 }
 
-# ai_tools_claude_endpoint__resolve_setenv_args <out-array-name> <operator-conf> : append the
-#   --setenv= options that route this session at a custom endpoint to the named array, reading the
-#   endpoint file operator.conf's CLAUDE_BASE_URL_FILE points at. Returns:
+# ai_tools_claude_endpoint__resolve_setenv_args <out-array-name> <operator-conf> : append the --setenv= options
+#   that route this session at a custom endpoint to the named array, reading the endpoint file operator.conf's
+#   CLAUDE_BASE_URL_FILE points at. Returns:
 #     0  applied (out holds the valid options) or no option to apply (not configured / inert file).
 #     1  a configured option is invalid, or the pointer names a missing/untrusted file. The caller
 #        must REFUSE the launch rather than route the session with a partial or wrong endpoint.
