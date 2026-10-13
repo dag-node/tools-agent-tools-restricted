@@ -264,9 +264,8 @@ jobs:
         if: steps.scope.outputs.run == 'true'
         run: |
           # runc is the OCI runtime of every podman call, set by a containers.conf.d drop-in, so the runner's crun
-          # does not decide whether podman's runtime spec is accepted (see the job's note). ubuntu-26.04 ships podman
-          # without runc, so the step installs whichever of the two the image lacks. The final `podman info` reports
-          # runtime=runc.
+          # does not decide whether podman's runtime spec is accepted (see the job's note). The step installs podman
+          # or runc where the runner image lacks it. The final `podman info` reports runtime=runc.
           missing=()
           for command in podman runc; do command -v "${command}" >/dev/null || missing+=("${command}"); done
           if (( ${#missing[@]} > 0 )); then
@@ -462,8 +461,8 @@ jobs:
 
       - name: Ensure podman + zip + rpm, force the modern runc runtime
         run: |
-          # runc is the OCI runtime of every podman call, as in rpm-selftest (see that job's note); ubuntu-26.04 ships
-          # podman without runc, so the step installs whichever of the two the image lacks.
+          # runc is the OCI runtime of every podman call, as in rpm-selftest (see that job's note); the step installs
+          # podman or runc where the runner image lacks it.
           packages=(zip rpm)
           for command in podman runc; do command -v "${command}" >/dev/null || packages+=("${command}"); done
           sudo apt-get update
