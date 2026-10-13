@@ -23,15 +23,25 @@ concurrency:
   # mismatch) must not cancel a release publish already in flight for that ref.
   cancel-in-progress: ${{ !startsWith(github.ref, 'refs/tags/') }}
 
+# Every job names its Ubuntu release rather than ubuntu-latest, so a move of the runner image is a reviewed commit with
+# its own run.
 jobs:
   shellcheck:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
+    # Each job's bound is about twice its slowest duration, rounded up to a multiple of 5 minutes, over the push run
+    # of develop at b5d3c859 and the pull request run that moved CI to ubuntu-26.04 (2026-10-13): shellcheck 158 s,
+    # typesafe-client 8 s, assets-conformance 15 s, dev-tools 27 s, selftest-matrix 6 s, and an rpm-selftest leg 801 s
+    # (el9; el10 730 s, fc44 696 s). The release job keeps its own bound.
+    timeout-minutes: 10
     steps:
+      # A job that does not run a git command against the remote checks out without storing the token in .git/config.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
 
       # Pin the version the repo's lint baseline is defined against
-      # (.claude/rules/shellcheck.rule.md pins 0.10); ubuntu-latest's apt ships 0.9,
-      # which reports a different finding set.
+      # (.claude/rules/shellcheck.rule.md pins 0.10); the runner image's apt ships its
+      # own release, which can report a different finding set.
       - name: Install ShellCheck 0.10.0
         run: |
           set -euo pipefail
@@ -72,9 +82,12 @@ jobs:
   # it, fails this job; the offline half (tests/unit/typesafe.sh) sees only the first. The release job
   # needs this job.
   typesafe-client:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
+    timeout-minutes: 5
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
 
       - name: Verify the vendored decide command against its signed release
         run: bash tools/generators/typesafe-client.sh verify
@@ -85,9 +98,12 @@ jobs:
   # fixture of a rule base enforces: each must report that rule alone, and every pass fixture no finding. A rule base
   # reads differently from the publisher fails here, and so does a pin whose sha256 or signature does not hold.
   assets-conformance:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
+    timeout-minutes: 5
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
 
       - name: Fetch the pinned core and tools releases
         run: bash tools/lib/assets.sh fetch
@@ -103,9 +119,12 @@ jobs:
   # the pins are fetched into the runner's own cache; the rpm-selftest containers do not hold that cache, and there
   # these tests skip naming the fetch command.
   dev-tools:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
+    timeout-minutes: 5
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
 
       - name: Fetch the pinned core and tools releases
         run: bash tools/lib/assets.sh fetch
@@ -153,7 +172,8 @@ jobs:
   # podman on hosted runners does not reliably provide that. The Makefile default stays
   # rootless `podman` for local runs.
   selftest-matrix:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
+    timeout-minutes: 5
     permissions:
       contents: read
       actions: read
@@ -163,6 +183,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
+          persist-credentials: false
           fetch-depth: 2
 
       # A pull request into develop widens el10 to every distribution under the `selftest-all` label, read live
@@ -208,12 +229,12 @@ jobs:
 
   rpm-selftest:
     needs: selftest-matrix
-    # Pinned, not ubuntu-latest: this job builds and runs podman containers, and the
-    # apt podman/crun pair on the floating latest image can skew -- a newer podman emits an
-    # OCI spec crun rejects with "unknown version specified" at container create, before any
-    # build step runs. 22.04 is the known-good combo for this pipeline. The release job
-    # pins for the same reason; the container-free shellcheck job stays on latest.
-    runs-on: ubuntu-22.04
+    # This job and the release job build and run podman containers, where an image's podman and crun can skew: a newer
+    # podman emits an OCI spec an older crun rejects with "unknown version specified" at container create. The runc
+    # drop-in in the step below answers that.
+    runs-on: ubuntu-26.04
+    # Per leg.
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
@@ -221,6 +242,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
+          persist-credentials: false
           # A pull request checks out its merge commit; its first parent is the base branch, which the scope step diffs
           # against.
           fetch-depth: 2
@@ -252,12 +274,15 @@ jobs:
       - name: Ensure podman, force the modern runc runtime, and report it
         if: steps.scope.outputs.run == 'true'
         run: |
-          # The runner's podman (3.4.4) defaults to an ancient crun 0.17 (OCI spec 1.0.0) that
-          # rejects the runtime spec podman generates -- "crun: unknown version specified" at
-          # container create, before any build step runs. The same runner also ships a modern runc
-          # (spec 1.2.1), so make runc the default OCI runtime for every podman call via a
-          # containers.conf.d drop-in. The final `podman info` should report runtime=runc.
-          command -v podman >/dev/null || { sudo apt-get update && sudo apt-get install -y podman; }
+          # runc is the OCI runtime of every podman call, set by a containers.conf.d drop-in, so the runner's crun
+          # does not decide whether podman's runtime spec is accepted (see the job's note). The step installs podman
+          # or runc where the runner image lacks it. The final `podman info` reports runtime=runc.
+          missing=()
+          for command in podman runc; do command -v "${command}" >/dev/null || missing+=("${command}"); done
+          if (( ${#missing[@]} > 0 )); then
+              sudo apt-get update
+              sudo apt-get install -y "${missing[@]}"
+          fi
           sudo mkdir -p /etc/containers/containers.conf.d
           printf '[engine]\nruntime = "runc"\n' | sudo tee /etc/containers/containers.conf.d/10-runc.conf
           sudo podman version || true
@@ -324,9 +349,9 @@ jobs:
     if: startsWith(github.ref, 'refs/tags/v')
     needs: [shellcheck, typesafe-client, assets-conformance, dev-tools, rpm-selftest]
     environment: release
-    # Pinned like rpm-selftest: this job builds and signs RPMs inside podman containers,
-    # so it needs the same known-good podman/crun combo (see that job's note).
-    runs-on: ubuntu-22.04
+    # The same release as rpm-selftest: this job builds and signs RPMs inside podman containers, with the same runc
+    # drop-in (see that job's note).
+    runs-on: ubuntu-26.04
     timeout-minutes: 15
     permissions:
       contents: write
@@ -342,6 +367,20 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           persist-credentials: false
+
+      # This step does not receive a secret. Each later step that receives GPG_SIGNING_KEY checks /proc/swaps again
+      # before the key enters a process, so a page holding the key or the passphrase is not written to the runner's
+      # disk. The runner process holds the job's secrets from its start, so a page of it written to swap before this
+      # step is outside the check.
+      - name: Swap is off before the first step that receives a secret
+        run: |
+          sudo swapoff -a \
+            || { echo "::error::sudo swapoff -a failed; the signing steps import the key only while swap is off"; exit 1; }
+          # Swap is off while /proc/swaps holds its header line alone; a file that cannot be read refuses.
+          [[ "$(wc -l < /proc/swaps)" == 1 ]] \
+            || { echo "::error::/proc/swaps lists a swap device or cannot be read; the signing key is imported only while swap is off"; exit 1; }
+          echo "swap is off: /proc/swaps lists no device"
+          awk '/^(MemTotal|MemAvailable|Shmem|SwapTotal|SwapFree):/ { print "memory: " $1 " " $2 " " $3 }' /proc/meminfo
 
       # check-version.sh relaxes the %changelog match for `-rc.N` tags; recovery for a mismatch
       # is fix VERSION/%changelog and re-tag.
@@ -383,6 +422,8 @@ jobs:
           # changes this line in the same reviewed change.
           ORG_SIGNING_PRIMARY_FPR: 67F42DC18BF764B42D82F14256D2F802CF9832E4
         run: |
+          [[ "$(wc -l < /proc/swaps)" == 1 ]] \
+            || { echo "::error::/proc/swaps lists a swap device or cannot be read; the signing key is imported only while swap is off"; exit 1; }
           # Each message names the fix: the secret belongs to the `release` environment of this
           # repository, and the operator sets it with `gh secret set` (docs/development/release.md,
           # "Guardrails behind the process").
@@ -431,11 +472,12 @@ jobs:
 
       - name: Ensure podman + zip + rpm, force the modern runc runtime
         run: |
-          # See the rpm-selftest job's note: the runner's podman defaults to an ancient crun that
-          # rejects the generated OCI spec; force the modern runc via a containers.conf.d drop-in.
+          # runc is the OCI runtime of every podman call, as in rpm-selftest (see that job's note); the step installs
+          # podman or runc where the runner image lacks it.
+          packages=(zip rpm)
+          for command in podman runc; do command -v "${command}" >/dev/null || packages+=("${command}"); done
           sudo apt-get update
-          sudo apt-get install -y zip rpm
-          command -v podman >/dev/null || sudo apt-get install -y podman
+          sudo apt-get install -y "${packages[@]}"
           sudo mkdir -p /etc/containers/containers.conf.d
           printf '[engine]\nruntime = "runc"\n' | sudo tee /etc/containers/containers.conf.d/10-runc.conf
           sudo podman version || true
@@ -456,7 +498,9 @@ jobs:
       # published. A wrong passphrase or a container where rpmsign silently no-ops (the 0.6.1
       # failure mode) fails the job here. The signing key is a step-scoped env var, never baked
       # into an image layer or build cache, and a container that receives it has no network, so
-      # the key cannot leave it whatever the image runs.
+      # the key cannot leave it whatever the image runs. Its /dev/shm, which holds sign-rpms.sh's
+      # scratch tree (the keyring, the passphrase file, the rpm macros and the selftest's build),
+      # is 16 MiB, and sign-rpms.sh prints the size the tree reached.
       # `--entrypoint` bypasses the image's /sbin/init (a bare command is ignored init arguments --
       # the container would boot the selftest instead); the assertion proves sign-rpms.sh ran.
       - name: Prove the signing chain end-to-end (in-container)
@@ -465,11 +509,13 @@ jobs:
           GPG_SIGNING_PASSPHRASE: ${{ secrets.GPG_SIGNING_PASSPHRASE }}
         run: |
           set -euo pipefail
+          [[ "$(wc -l < /proc/swaps)" == 1 ]] \
+            || { echo "::error::/proc/swaps lists a swap device or cannot be read; the signing key is imported only while swap is off"; exit 1; }
           # Secrets travel over stdin (printf is a builtin -- no argv exposure), never the
           # container environment: podman records `-e` values in the on-disk container config.
           for tag in ${RPM_DIST_TAGS}; do
             out="$(printf '%s\n%s\n' "${GPG_SIGNING_PASSPHRASE}" "${GPG_SIGNING_KEY}" \
-              | sudo podman run --rm -i --network=none \
+              | sudo podman run --rm -i --network=none --shm-size=16m \
               --entrypoint /usr/bin/bash \
               ai-tools-rpmbase:${tag} \
               /opt/ai-tools-src/packaging/sign-rpms.sh --secrets-stdin --selftest)"
@@ -484,19 +530,22 @@ jobs:
       # bare command is ignored init arguments, and the container would boot the selftest and power
       # off "successfully" without signing. The success-line assertion pins the workload; the runner
       # re-verify in the next step is the fail-closed backstop. sign-rpms.sh writes its own verify
-      # public key to a container-local path; the PUBLISHED key is exported on the runner.
+      # public key to a container-local path; the PUBLISHED key is exported on the runner. The
+      # container's /dev/shm is sized as in the selftest step.
       - name: Sign and extract release RPMs (in-container)
         env:
           GPG_SIGNING_KEY: ${{ secrets.GPG_SIGNING_KEY }}
           GPG_SIGNING_PASSPHRASE: ${{ secrets.GPG_SIGNING_PASSPHRASE }}
         run: |
           set -euo pipefail
+          [[ "$(wc -l < /proc/swaps)" == 1 ]] \
+            || { echo "::error::/proc/swaps lists a swap device or cannot be read; the signing key is imported only while swap is off"; exit 1; }
           rpmdir=/opt/ai-tools-src/packaging/rpmbuild/RPMS/noarch
           for tag in ${RPM_DIST_TAGS}; do
             mkdir -p "dist-rpms/${tag}"
             cname="ai-tools-sign-${tag}"
             out="$(printf '%s\n%s\n' "${GPG_SIGNING_PASSPHRASE}" "${GPG_SIGNING_KEY}" \
-              | sudo podman run -i --name "${cname}" --network=none \
+              | sudo podman run -i --name "${cname}" --network=none --shm-size=16m \
               --entrypoint /usr/bin/bash \
               ai-tools-rpmbase:${tag} -c '
                 bash /opt/ai-tools-src/packaging/sign-rpms.sh --secrets-stdin /tmp/pubkey.asc \
@@ -522,6 +571,8 @@ jobs:
           GPG_SIGNING_KEY: ${{ secrets.GPG_SIGNING_KEY }}
         run: |
           set -euo pipefail
+          [[ "$(wc -l < /proc/swaps)" == 1 ]] \
+            || { echo "::error::/proc/swaps lists a swap device or cannot be read; the signing key is imported only while swap is off"; exit 1; }
           # The keyring is on tmpfs alone and its agent is stopped in the trap, as in preflight.
           [[ -d /dev/shm && "$(stat -f -c %T /dev/shm 2>/dev/null)" == tmpfs ]] \
             || { echo "::error::/dev/shm is absent or not tmpfs"; exit 1; }

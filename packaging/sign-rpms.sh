@@ -31,11 +31,28 @@
 # use the ::error:: prefix so GitHub Actions surfaces them as annotations; the text reads plainly on a local terminal
 # too. Every secret (imported private key, passphrase) lives in a scratch tree under /dev/shm, which must be tmpfs,
 # and the exit trap stops the gpg-agent and wipes it -- never persistent disk, never the container's real keyring or
-# rpmdb.
+# rpmdb. The trap prints the size the tree reached, which the release job's `--shm-size` for the container is set
+# against.
 set -euo pipefail
 
 err() { echo "::error::sign-rpms: $*" >&2; }
 die() { err "$*"; exit 1; }
+warn() { echo "::warning::sign-rpms: $*" >&2; }
+
+# The EXIT trap main sets once the scratch tree exists: print the tree's size, stop its gpg-agent, then remove the tree.
+# The removal runs whatever the stop answered, so an agent that does not stop does not leave the key and the passphrase
+# file on /dev/shm.
+remove_workdir() {
+    local size
+    if size="$(du -sk "${workdir}" 2>/dev/null)"; then
+        echo "sign-rpms: the scratch tree held ${size%%[[:space:]]*} KiB"
+    else
+        warn "the size of ${workdir} could not be read"
+    fi
+    GNUPGHOME="${workdir}/gnupg" gpgconf --kill gpg-agent 2>/dev/null \
+        || warn "the gpg-agent of ${workdir}/gnupg did not stop"
+    rm -rf "${workdir}" || warn "${workdir} was not removed"
+}
 
 # Import GPG_SIGNING_KEY into <gnupghome> and echo the signer fingerprint (%_gpg_name).
 import_signing_key() {
@@ -183,7 +200,7 @@ main() {
     [[ -d /dev/shm && "$(stat -f -c %T /dev/shm 2>/dev/null)" == tmpfs ]] \
         || die "/dev/shm is absent or not tmpfs"
     workdir="$(mktemp -d -p /dev/shm)" || die "no directory could be created under /dev/shm"
-    trap 'GNUPGHOME="${workdir}/gnupg" gpgconf --kill gpg-agent 2>/dev/null; rm -rf "${workdir}"' EXIT
+    trap remove_workdir EXIT
     [[ "$(stat -f -c %T "${workdir}")" == tmpfs ]] || die "${workdir} is not on tmpfs"
 
     SIGNER_FPR="$(import_signing_key "${workdir}/gnupg")"
