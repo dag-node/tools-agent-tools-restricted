@@ -28,6 +28,11 @@ concurrency:
 jobs:
   shellcheck:
     runs-on: ubuntu-26.04
+    # Each job's bound is about twice its slowest duration, rounded up to a multiple of 5 minutes, over the push run
+    # of develop at b5d3c859 and the pull request run that moved CI to ubuntu-26.04 (2026-10-13): shellcheck 158 s,
+    # typesafe-client 8 s, assets-conformance 15 s, dev-tools 27 s, selftest-matrix 6 s, and an rpm-selftest leg 801 s
+    # (el9; el10 730 s, fc44 696 s). The release job keeps its own bound.
+    timeout-minutes: 10
     steps:
       # A job that does not run a git command against the remote checks out without storing the token in .git/config.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -78,6 +83,7 @@ jobs:
   # needs this job.
   typesafe-client:
     runs-on: ubuntu-26.04
+    timeout-minutes: 5
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
@@ -93,6 +99,7 @@ jobs:
   # reads differently from the publisher fails here, and so does a pin whose sha256 or signature does not hold.
   assets-conformance:
     runs-on: ubuntu-26.04
+    timeout-minutes: 5
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
@@ -113,6 +120,7 @@ jobs:
   # these tests skip naming the fetch command.
   dev-tools:
     runs-on: ubuntu-26.04
+    timeout-minutes: 5
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
@@ -165,6 +173,7 @@ jobs:
   # rootless `podman` for local runs.
   selftest-matrix:
     runs-on: ubuntu-26.04
+    timeout-minutes: 5
     permissions:
       contents: read
       actions: read
@@ -224,6 +233,8 @@ jobs:
     # podman emits an OCI spec an older crun rejects with "unknown version specified" at container create. The runc
     # drop-in in the step below answers that.
     runs-on: ubuntu-26.04
+    # Per leg.
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
