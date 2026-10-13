@@ -477,7 +477,9 @@ jobs:
       # published. A wrong passphrase or a container where rpmsign silently no-ops (the 0.6.1
       # failure mode) fails the job here. The signing key is a step-scoped env var, never baked
       # into an image layer or build cache, and a container that receives it has no network, so
-      # the key cannot leave it whatever the image runs.
+      # the key cannot leave it whatever the image runs. Its /dev/shm, which holds sign-rpms.sh's
+      # scratch tree (the keyring, the passphrase file, the rpm macros and the selftest's build),
+      # is 16 MiB, and sign-rpms.sh prints the size the tree reached.
       # `--entrypoint` bypasses the image's /sbin/init (a bare command is ignored init arguments --
       # the container would boot the selftest instead); the assertion proves sign-rpms.sh ran.
       - name: Prove the signing chain end-to-end (in-container)
@@ -492,7 +494,7 @@ jobs:
           # container environment: podman records `-e` values in the on-disk container config.
           for tag in ${RPM_DIST_TAGS}; do
             out="$(printf '%s\n%s\n' "${GPG_SIGNING_PASSPHRASE}" "${GPG_SIGNING_KEY}" \
-              | sudo podman run --rm -i --network=none \
+              | sudo podman run --rm -i --network=none --shm-size=16m \
               --entrypoint /usr/bin/bash \
               ai-tools-rpmbase:${tag} \
               /opt/ai-tools-src/packaging/sign-rpms.sh --secrets-stdin --selftest)"
@@ -507,7 +509,8 @@ jobs:
       # bare command is ignored init arguments, and the container would boot the selftest and power
       # off "successfully" without signing. The success-line assertion pins the workload; the runner
       # re-verify in the next step is the fail-closed backstop. sign-rpms.sh writes its own verify
-      # public key to a container-local path; the PUBLISHED key is exported on the runner.
+      # public key to a container-local path; the PUBLISHED key is exported on the runner. The
+      # container's /dev/shm is sized as in the selftest step.
       - name: Sign and extract release RPMs (in-container)
         env:
           GPG_SIGNING_KEY: ${{ secrets.GPG_SIGNING_KEY }}
@@ -521,7 +524,7 @@ jobs:
             mkdir -p "dist-rpms/${tag}"
             cname="ai-tools-sign-${tag}"
             out="$(printf '%s\n%s\n' "${GPG_SIGNING_PASSPHRASE}" "${GPG_SIGNING_KEY}" \
-              | sudo podman run -i --name "${cname}" --network=none \
+              | sudo podman run -i --name "${cname}" --network=none --shm-size=16m \
               --entrypoint /usr/bin/bash \
               ai-tools-rpmbase:${tag} -c '
                 bash /opt/ai-tools-src/packaging/sign-rpms.sh --secrets-stdin /tmp/pubkey.asc \
