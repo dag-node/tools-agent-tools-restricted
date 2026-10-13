@@ -347,6 +347,20 @@ jobs:
         with:
           persist-credentials: false
 
+      # This step does not receive a secret. Each later step that receives GPG_SIGNING_KEY checks /proc/swaps again
+      # before the key enters a process, so a page holding the key or the passphrase is not written to the runner's
+      # disk. The runner process holds the job's secrets from its start, so a page of it written to swap before this
+      # step is outside the check.
+      - name: Swap is off before the first step that receives a secret
+        run: |
+          sudo swapoff -a \
+            || { echo "::error::sudo swapoff -a failed; the signing steps import the key only while swap is off"; exit 1; }
+          # Swap is off while /proc/swaps holds its header line alone; a file that cannot be read refuses.
+          [[ "$(wc -l < /proc/swaps)" == 1 ]] \
+            || { echo "::error::/proc/swaps lists a swap device or cannot be read; the signing key is imported only while swap is off"; exit 1; }
+          echo "swap is off: /proc/swaps lists no device"
+          awk '/^(MemTotal|MemAvailable|Shmem|SwapTotal|SwapFree):/ { print "memory: " $1 " " $2 " " $3 }' /proc/meminfo
+
       # check-version.sh relaxes the %changelog match for `-rc.N` tags; recovery for a mismatch
       # is fix VERSION/%changelog and re-tag.
       - name: Verify tag, VERSION, and %changelog agree
@@ -387,6 +401,8 @@ jobs:
           # changes this line in the same reviewed change.
           ORG_SIGNING_PRIMARY_FPR: 67F42DC18BF764B42D82F14256D2F802CF9832E4
         run: |
+          [[ "$(wc -l < /proc/swaps)" == 1 ]] \
+            || { echo "::error::/proc/swaps lists a swap device or cannot be read; the signing key is imported only while swap is off"; exit 1; }
           # Each message names the fix: the secret belongs to the `release` environment of this
           # repository, and the operator sets it with `gh secret set` (docs/development/release.md,
           # "Guardrails behind the process").
@@ -470,6 +486,8 @@ jobs:
           GPG_SIGNING_PASSPHRASE: ${{ secrets.GPG_SIGNING_PASSPHRASE }}
         run: |
           set -euo pipefail
+          [[ "$(wc -l < /proc/swaps)" == 1 ]] \
+            || { echo "::error::/proc/swaps lists a swap device or cannot be read; the signing key is imported only while swap is off"; exit 1; }
           # Secrets travel over stdin (printf is a builtin -- no argv exposure), never the
           # container environment: podman records `-e` values in the on-disk container config.
           for tag in ${RPM_DIST_TAGS}; do
@@ -496,6 +514,8 @@ jobs:
           GPG_SIGNING_PASSPHRASE: ${{ secrets.GPG_SIGNING_PASSPHRASE }}
         run: |
           set -euo pipefail
+          [[ "$(wc -l < /proc/swaps)" == 1 ]] \
+            || { echo "::error::/proc/swaps lists a swap device or cannot be read; the signing key is imported only while swap is off"; exit 1; }
           rpmdir=/opt/ai-tools-src/packaging/rpmbuild/RPMS/noarch
           for tag in ${RPM_DIST_TAGS}; do
             mkdir -p "dist-rpms/${tag}"
@@ -527,6 +547,8 @@ jobs:
           GPG_SIGNING_KEY: ${{ secrets.GPG_SIGNING_KEY }}
         run: |
           set -euo pipefail
+          [[ "$(wc -l < /proc/swaps)" == 1 ]] \
+            || { echo "::error::/proc/swaps lists a swap device or cannot be read; the signing key is imported only while swap is off"; exit 1; }
           # The keyring is on tmpfs alone and its agent is stopped in the trap, as in preflight.
           [[ -d /dev/shm && "$(stat -f -c %T /dev/shm 2>/dev/null)" == tmpfs ]] \
             || { echo "::error::/dev/shm is absent or not tmpfs"; exit 1; }
