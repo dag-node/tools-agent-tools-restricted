@@ -1794,7 +1794,11 @@ the set is refused as tampered \-\- $*
 .TP
 .B MSG-M7J8
 WARNING.
-the target of ${_AI_TOOLS_ASSETS__SET_KEYS_LOST} resolver link(s) could not be read again for the set it names, so their rows sort ahead of the sets of their kind; every row is still written, and only the order differs
+the set a resolver link points into could not be read again (${_AI_TOOLS_ASSETS__SET_KEYS_LOST} read(s) failed), so the rows about those links sort ahead of the sets of their kind; every row is still written, and only the order differs
+.TP
+.B MSG-Q7F7
+ERROR.
+assets: the order of a report's rows could not be computed, so they are written in the order they were recorded
 .TP
 .B MSG-W5Q3
 WARNING.
@@ -1802,7 +1806,7 @@ assets list: an enable\-list entry's state, a link the view transaction would pl
 .TP
 .B MSG-Y8T3
 WARNING.
-the rows could not be sorted (the sort printed ${#_sort_rows_ordered[@]} line(s), not each of the ${#_sort_rows_rows[@]} row(s) once), so they are written in the order they were recorded
+the rows are written in the order they were recorded: the sort of their keys exited ${_sort_rows_status} and printed ${#_sort_rows_ordered[@]} line(s) for ${#_sort_rows_rows[@]} row(s), where it must exit 0 and name each row once
 .TP
 .B MSG-Z3P6
 WARNING.

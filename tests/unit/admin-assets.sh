@@ -366,6 +366,46 @@ for corruption in 'NR == 1 { first = $0 } NR == 2 { print first; next } { print 
     fi
     assert_msg MSG-Y8T3 "${ERR}" "that sort is reported under MSG-Y8T3"
 done
+# A sort or a cut that prints every reference and then fails: the order is not taken.
+for stage in sort cut; do
+    fresh
+    write_conf "${SUB}" "${SKILL}"
+    admin assets reconcile
+    printf -v PRELUDE '%s() { case " $* " in *" -k1,1 "*|*" -f7,8 "*) command %s "$@"; return 7 ;; esac; command %s "$@"; }' \
+        "${stage}" "${stage}" "${stage}"
+    admin assets disable "${SKILL}" acme/skills/acme-other; PRELUDE=""
+    if [[ "${RC}" == 4 && "$(row_identities)" == "${want}" ]]; then
+        pass "a ${stage} that prints every reference and exits 7: every row written once, exit 4"
+    else
+        fail "a ${stage} that exits 7 after its output: rc ${RC}, rows $(row_identities | tr '\n' '|')"
+    fi
+    assert_msg MSG-Y8T3 "${ERR}" "a ${stage} that exits 7 after its output is reported under MSG-Y8T3"
+done
+# The order itself fails, after filling part of the array: every row is still written once, in recording order, beside
+# one unreadable error row, and the verb exits 5 -- the verb calls the reconcile where `set -e` is suspended, so this is
+# the order's own status, read by the report.
+ORDER_FAILS='_ai_tools_assets__sort_rows() { local -n _stub_out="$1"; _stub_out=( bogus ); return 7; }'
+for words in "disable ${SKILL} acme/skills/acme-other" "list"; do
+    fresh
+    write_conf "${SUB}" "${SKILL}"
+    admin assets reconcile
+    # shellcheck disable=SC2086  # the verb and its arguments split on purpose
+    admin assets ${words}
+    order_want="$(row_identities)"
+    fresh
+    write_conf "${SUB}" "${SKILL}"
+    admin assets reconcile
+    PRELUDE="${ORDER_FAILS}"
+    # shellcheck disable=SC2086  # the verb and its arguments split on purpose
+    admin assets ${words}
+    PRELUDE=""
+    if [[ "${RC}" == 5 && "$(code_rows MSG-Q7F7)" == 1 && -n "${order_want}" \
+            && "$(row_identities | grep -v '^MSG-Q7F7 ')" == "${order_want}" ]]; then
+        pass "assets ${words} with an order that fails: every row once, one MSG-Q7F7 error row, exit 5"
+    else
+        fail "assets ${words} with an order that fails: rc ${RC}, rows $(row_identities | tr '\n' '|')"
+    fi
+done
 # A list edit that loses an entry before the write: the identifier sort stubbed to drop the first one it holds.
 for verb in enable disable; do
     fresh
@@ -610,6 +650,13 @@ if grep -qE '\[UNREADABLE\] +receivers-unknown' <<< "${OUT}" && [[ "${OUT}" == *
     pass "a provider reader that fails renders an UNREADABLE line, counted as a reading the section could not make"
 else
     fail "a failed provider reader: ${OUT:0:400}"
+fi
+PRELUDE='ai_tools_assets__sort_report_rows() { return 7; }'; admin status_assets; PRELUDE=""
+if grep -qE '\[UNREADABLE\] +error +the order of the Assets lines could not be computed' <<< "${OUT}" \
+        && grep -qE '\[ATTENTION\] +[^ ]+ +set-tampered' <<< "${OUT}" && [[ "${OUT}" == *unreadable=1* ]]; then
+    pass "an order that fails renders an UNREADABLE line, counted, and the section still prints its lines"
+else
+    fail "a failed order in status: ${OUT:0:400}"
 fi
 fresh
 printf 'skills_root=%s\n' "${TESTDIR}/etc-acme/skills" >> "${AGENTS_D}/acme.conf"

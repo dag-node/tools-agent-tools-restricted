@@ -2979,8 +2979,9 @@ status_selinux_attestation() {
 # the plan resolved to linked, naming `assets` as the reading that lists the link changes a reconcile would make,
 # which this section does not print, so a missing link reads here as resolved. The entry and row lines come in the order
 # the record stream takes (ai_tools_assets__sort_report_rows). A library that did not load is a reading this section
-# could not make. Every string from a set or an agent's directory passes the sanitizer. The section closes
-# with status_assets_summary over the counts it added.
+# could not make, and so is an order that could not be computed, whose lines then come in the order the plan recorded
+# them (ai_tools_assets__get_report_row_references). Every string from a set or an agent's directory passes
+# the sanitizer. The section closes with status_assets_summary over the counts it added.
 status_assets() {
     local problems_before="${STATUS_PROBLEMS}" unreadable_before="${STATUS_UNREADABLE}"
     heading "Assets"
@@ -2993,7 +2994,8 @@ status_assets() {
 status_assets_rows() {
     # shellcheck source=SCRIPTDIR/../../lib/ai-tools/assets.lib.sh
     source "${ASSETS_LIB}" 2>/dev/null || true
-    if ! declare -F ai_tools_assets__plan >/dev/null 2>&1 || ! declare -F ai_tools_assets__sort_report_rows >/dev/null 2>&1; then
+    if ! declare -F ai_tools_assets__plan >/dev/null 2>&1 || ! declare -F ai_tools_assets__sort_report_rows >/dev/null 2>&1 \
+            || ! declare -F ai_tools_assets__get_report_row_references >/dev/null 2>&1; then
         st UNREADABLE "the assets library (${ASSETS_LIB}) did not load -- reinstall ai-tools-base"
         STATUS_UNREADABLE=$(( STATUS_UNREADABLE + 1 ))
         return 0
@@ -3011,7 +3013,13 @@ status_assets_rows() {
                    STATUS_UNREADABLE=$(( STATUS_UNREADABLE + 1 )) ;;
         unset)     status_assets_successors ;;
     esac
-    ai_tools_assets__sort_report_rows references
+    local order_status=0
+    ai_tools_assets__sort_report_rows references || order_status=$?
+    if (( order_status != 0 )); then
+        st UNREADABLE "error  the order of the Assets lines could not be computed (status ${order_status}), so they are printed in the order the plan recorded them"
+        STATUS_UNREADABLE=$(( STATUS_UNREADABLE + 1 ))
+        ai_tools_assets__get_report_row_references references
+    fi
     for reference in "${references[@]}"; do
         case "${reference%%$'\t'*}" in
             entry) status_assets_report_entry "${AI_TOOLS_ASSETS__ENTRIES[${reference#*$'\t'}]}" ;;
