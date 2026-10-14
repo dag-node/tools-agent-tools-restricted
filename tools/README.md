@@ -38,7 +38,8 @@ AI_TOOLS_DEV_ASSETS_CORE=../ai-tools-assets bash tools/generators/ref-index.sh c
 AI_TOOLS_DEV_ASSETS_TOOLS=../ai-tools-assets-tools bash tools/format.sh
 ```
 
-The run then prints a `BYPASS` line naming the checkout and its commit.
+The run then prints a `BYPASS` line naming the checkout and its commit,
+suffixed `-dirty` while the checkout holds an uncommitted edit.
 
 ### Bumping a pin
 

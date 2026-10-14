@@ -29,7 +29,8 @@
 #
 # A checkout stands in for a pin, reported: AI_TOOLS_DEV_ASSETS_CORE names a checkout of ai-tools-assets (its
 # `sets/core` is the tree) and AI_TOOLS_DEV_ASSETS_TOOLS one of ai-tools-assets-tools (holding `formatters/`
-# and `fixtures/`); `path` then prints a BYPASS line on stderr naming the checkout and its commit.
+# and `fixtures/`); `path` then prints a BYPASS line on stderr naming the checkout and its commit,
+# as `git describe --always --dirty` prints it, so a run over uncommitted edits reads `-dirty`.
 #
 # The module name is `dev_assets`, since `assets` is assets.lib.sh's and the conformance checker loads both.
 
@@ -249,7 +250,7 @@ ai_tools_dev_assets__resolve_path() {
             _ai_tools_dev_assets__refuse "${checkout} is not a checkout of the ${name} pin's repository"; return 1
         fi
         printf 'assets: BYPASS -- %s resolved from the checkout %s at %s, not its pin\n' "${name}" "${checkout}" \
-            "$(git -C "${checkout}" rev-parse --short HEAD 2>/dev/null || printf 'an unknown commit')" >&2
+            "$(git -C "${checkout}" describe --always --dirty 2>/dev/null || printf 'an unknown commit')" >&2
         printf '%s\n' "${tree}"
         return 0
     fi
