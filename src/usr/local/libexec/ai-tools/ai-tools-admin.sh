@@ -2976,7 +2976,7 @@ status_selinux_attestation() {
 # whose own entry stands at an enabled asset's name, each counted in STATUS_PROBLEMS; one [UNREADABLE] line per input
 # the plan could not read, counted in STATUS_UNREADABLE; the withdrawn-successor notice (status_assets_successors);
 # an OK line per linked asset that declares a capability; and an OK summary of how many entries are enabled and linked.
-# The entry and row lines come in the order the record stream takes (ai_tools_assets__list_report_order). A library
+# The entry and row lines come in the order the record stream takes (ai_tools_assets__sort_report_rows). A library
 # that did not load is a reading this section could not make. Every string from a set or an agent's directory passes
 # the sanitizer. The section closes with status_assets_summary over the counts it added.
 status_assets() {
@@ -2991,13 +2991,14 @@ status_assets() {
 status_assets_rows() {
     # shellcheck source=SCRIPTDIR/../../lib/ai-tools/assets.lib.sh
     source "${ASSETS_LIB}" 2>/dev/null || true
-    if ! declare -F ai_tools_assets__plan >/dev/null 2>&1 || ! declare -F ai_tools_assets__list_report_order >/dev/null 2>&1; then
+    if ! declare -F ai_tools_assets__plan >/dev/null 2>&1 || ! declare -F ai_tools_assets__sort_report_rows >/dev/null 2>&1; then
         st UNREADABLE "the assets library (${ASSETS_LIB}) did not load -- reinstall ai-tools-base"
         STATUS_UNREADABLE=$(( STATUS_UNREADABLE + 1 ))
         return 0
     fi
     ai_tools_assets__plan 2>/dev/null
-    local entry origin index linked=0
+    local entry reference linked=0
+    local -a references=()
     case "${AI_TOOLS_ASSETS__LIST_STATE}" in
         untrusted) st ATTENTION "enable-list-untrusted  ${AI_TOOLS_OPERATOR_CONF} -- $(ai_tools_log__sanitize "${AI_TOOLS_ASSETS__LIST_DETAIL}")"
                    detail "no asset is linked while it stands; restore the file to root:root 0644"
@@ -3008,12 +3009,13 @@ status_assets_rows() {
                    STATUS_UNREADABLE=$(( STATUS_UNREADABLE + 1 )) ;;
         unset)     status_assets_successors ;;
     esac
-    while IFS=$'\t' read -r origin index; do
-        case "${origin}" in
-            entry) status_assets_entry "${AI_TOOLS_ASSETS__ENTRIES[index]}" ;;
-            row)   status_assets_row "${index}" ;;
+    ai_tools_assets__sort_report_rows references
+    for reference in "${references[@]}"; do
+        case "${reference%%$'\t'*}" in
+            entry) status_assets_entry "${AI_TOOLS_ASSETS__ENTRIES[${reference#*$'\t'}]}" ;;
+            row)   status_assets_row "${reference#*$'\t'}" ;;
         esac
-    done < <(ai_tools_assets__list_report_order)
+    done
     for entry in "${AI_TOOLS_ASSETS__ENTRIES[@]}"; do
         [[ "${AI_TOOLS_ASSETS__STATE[${entry}]}" == linked ]] && linked=$(( linked + 1 ))
     done
@@ -3236,7 +3238,7 @@ status() {
 # and holds it to its exit, so two verbs at once each read the list the other wrote: lock, read, back up, write, plan,
 # apply, report. `assets list` plans and reports without the lock, as `status` does. Every verb prints a record stream
 # (ai-tools-records(5)): its own rows and the reconcile's, as one stream sorted by kind, set and name
-# (ai_tools_assets__list_report_order), so each asset's list edit, entry and links are adjacent. A verb exits 1
+# (ai_tools_assets__sort_report_rows), so each asset's list edit, entry and links are adjacent. A verb exits 1
 # for a write refused or failed, else 5 when the library did not load, else 4 for an attention row, else 0. Each
 # attention row is logged under its code to journald and to the root-only
 # assets.log.

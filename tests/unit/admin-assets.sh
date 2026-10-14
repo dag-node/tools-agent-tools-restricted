@@ -317,6 +317,32 @@ fi
 assert_msg MSG-Y8T3 "${ERR}" "a row sort that fails is reported under MSG-Y8T3"
 [[ "$(finding_of acme/skills/acme-other-pdf)" == enabled && "$(state_of "${SUB}")" == linked ]] \
     && pass "a row sort that fails still writes every row" || fail "rows after a failed sort: $(stream_labels | tr '\n' '|')"
+# row_identities : `<code> <finding> <subject> <item>` of each row of the last stream, sorted, so two streams compare
+# as sets with their multiplicities.
+row_identities() { awk -F'\t' 'NR > 1 { print $3 " " $6 " " $10 " " $9 }' <<< "${OUT}" | LC_ALL=C sort; }
+# A sort whose output is not each row once: each stub runs the real sort on the record stream's keys, keyed
+# from the first field, then repeats a line in place of the next, puts a reference to no row in place of one, or adds
+# a line.
+for corruption in 'NR == 1 { first = $0 } NR == 2 { print first; next } { print }' \
+                  'NR == 2 { print "x\tx\tx\t0\tx\t0\trecorded\t99"; next } { print }' \
+                  '{ print; last = $0 } END { print last }'; do
+    fresh
+    write_conf "${SUB}" "${SKILL}"
+    admin assets reconcile
+    admin assets disable "${SKILL}" acme/skills/acme-other
+    want="$(row_identities)"
+    fresh
+    write_conf "${SUB}" "${SKILL}"
+    admin assets reconcile
+    printf -v PRELUDE 'sort() { case " $* " in *" -k1,1 "*) command sort "$@" | awk %q ;; *) command sort "$@" ;; esac; }' "${corruption}"
+    admin assets disable "${SKILL}" acme/skills/acme-other; PRELUDE=""
+    if [[ "${RC}" == 4 && -n "${want}" && "$(row_identities)" == "${want}" ]]; then
+        pass "a sort printing '${corruption:0:24}...': every row written once, the attention row folding to exit 4"
+    else
+        fail "a sort printing '${corruption:0:24}...': rc ${RC}, rows $(row_identities | tr '\n' '|') want $(tr '\n' '|' <<< "${want}")"
+    fi
+    assert_msg MSG-Y8T3 "${ERR}" "that sort is reported under MSG-Y8T3"
+done
 # A list edit that loses an entry before the write: the identifier sort stubbed to drop the first one it holds.
 for verb in enable disable; do
     fresh

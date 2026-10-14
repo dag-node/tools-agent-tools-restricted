@@ -16,7 +16,7 @@
 #
 # The view transaction is ai_tools_assets__reconcile: the lock, then ai_tools_assets__plan, which reads every input
 # and computes the link changes without writing, then the apply, then one record per entry and per change, sorted
-# by kind, set and name (ai_tools_assets__list_report_order). `status` runs the plan alone, and `assets list` the plan
+# by kind, set and name (ai_tools_assets__sort_report_rows). `status` runs the plan alone, and `assets list` the plan
 # and the report (ai_tools_assets__list).
 #
 # The root-only test hooks AI_TOOLS_ASSETS_ROOTS and AI_TOOLS_ASSETS_HOME move the roots and the directory holding
@@ -2387,7 +2387,7 @@ _ai_tools_assets__format_paths() {
 
 # ai_tools_assets__record_report_row <code> <severity> <finding> <subject-type> <subject> <item> <agent> <detail> :
 # record one row of a caller's own -- a verb's list edit -- for the next report, under its own <code>. The report writes
-# it in key order with the reconcile's rows (ai_tools_assets__list_report_order); a caller that exits before a report
+# it in key order with the reconcile's rows (ai_tools_assets__sort_report_rows); a caller that exits before a report
 # writes it with ai_tools_assets__write_recorded_rows.
 ai_tools_assets__record_report_row() {
     _AI_TOOLS_ASSETS__RECORDED_CODE+=( "$1" ); _AI_TOOLS_ASSETS__RECORDED_SEVERITY+=( "$2" ); _AI_TOOLS_ASSETS__RECORDED_FINDING+=( "$3" )
@@ -2424,56 +2424,75 @@ _ai_tools_assets__get_order_key() {
     printf '%s' "${agent//[$'\t\n']/?}"
 }
 
-# _ai_tools_assets__list_order <origin>... : print `<origin><TAB><index>` for every row of the named origins, in key
-# order. The origins are `recorded` (the rows ai_tools_assets__record_report_row holds), `list` (the enable-list row,
-# where the list is untrusted, invalid or unread), `entry` (AI_TOOLS_ASSETS__ENTRIES) and `row` (the rows the plan
-# and the apply recorded). The key is kind, then set, then name, each under LC_ALL=C (_ai_tools_assets__get_order_key),
-# then the rank within one asset -- the list edit, the entry's state, the view row, the agent rows -- then the agent,
-# then the recording order, so a row without a kind comes first and an empty set ahead of the sets of its kind. A sort
-# whose output does not hold every row leaves the rows in recording order and warns under MSG-Y8T3: every row is still
-# written, and only the order differs.
-_ai_tools_assets__list_order() {
-    local origin index sequence=0 rank
-    local -a keyed=() rows=() ordered=()
-    for origin in "$@"; do
-        case "${origin}" in
+# _ai_tools_assets__sort_rows <array-name> <origin>... : fill the named array, in the caller's shell,
+# with `<origin><TAB><index>` for every row of the named origins, in key order. The origins are `recorded` (the rows
+# ai_tools_assets__record_report_row holds), `list` (the enable-list row, where the list is untrusted, invalid
+# or unread), `entry` (AI_TOOLS_ASSETS__ENTRIES) and `row` (the rows the plan and the apply recorded). The key is kind,
+# then set, then name, each under LC_ALL=C (_ai_tools_assets__get_order_key), then the rank within one asset -- the list
+# edit, the entry's state, the view row, the agent rows -- then the agent, then the recording order, so a row without
+# a kind comes first and an empty set ahead of the sets of its kind. The sort's output is taken only where it names each
+# row once, checked against the rows it was given; any other output -- a sort that failed, dropped, repeated or invented
+# a row -- leaves the rows in recording order and warns under MSG-Y8T3: every row is still written, and only the order
+# differs. Its locals carry a prefix, since the array is the caller's name.
+_ai_tools_assets__sort_rows() {
+    local -n _sort_rows_out="$1"
+    local _sort_rows_origin _sort_rows_index _sort_rows_sequence=0 _sort_rows_rank _sort_rows_reference _sort_rows_complete=0
+    local -a _sort_rows_keyed=() _sort_rows_rows=() _sort_rows_ordered=()
+    local -A _sort_rows_placed=()
+    shift
+    for _sort_rows_origin in "$@"; do
+        case "${_sort_rows_origin}" in
             recorded)
-                for (( index = 0; index < ${#_AI_TOOLS_ASSETS__RECORDED_CODE[@]}; index++ )); do
-                    rows+=( "recorded"$'\t'"${index}" )
-                    keyed+=( "$(_ai_tools_assets__get_order_key "${_AI_TOOLS_ASSETS__RECORDED_ITEM[index]}" "" 0 "")"$'\t'"${sequence}"$'\t'"recorded"$'\t'"${index}" )
-                    sequence=$(( sequence + 1 ))
+                for (( _sort_rows_index = 0; _sort_rows_index < ${#_AI_TOOLS_ASSETS__RECORDED_CODE[@]}; _sort_rows_index++ )); do
+                    _sort_rows_rows+=( "recorded"$'\t'"${_sort_rows_index}" )
+                    _sort_rows_keyed+=( "$(_ai_tools_assets__get_order_key "${_AI_TOOLS_ASSETS__RECORDED_ITEM[_sort_rows_index]}" "" 0 "")"$'\t'"${_sort_rows_sequence}"$'\t'"recorded"$'\t'"${_sort_rows_index}" )
+                    _sort_rows_sequence=$(( _sort_rows_sequence + 1 ))
                 done ;;
             list)
                 case "${AI_TOOLS_ASSETS__LIST_STATE}" in
                     untrusted|invalid|unread)
-                        rows+=( "list"$'\t'"0" )
-                        keyed+=( "$(_ai_tools_assets__get_order_key "" "" 0 "")"$'\t'"${sequence}"$'\t'"list"$'\t'"0" )
-                        sequence=$(( sequence + 1 )) ;;
+                        _sort_rows_rows+=( "list"$'\t'"0" )
+                        _sort_rows_keyed+=( "$(_ai_tools_assets__get_order_key "" "" 0 "")"$'\t'"${_sort_rows_sequence}"$'\t'"list"$'\t'"0" )
+                        _sort_rows_sequence=$(( _sort_rows_sequence + 1 )) ;;
                 esac ;;
             entry)
-                for (( index = 0; index < ${#AI_TOOLS_ASSETS__ENTRIES[@]}; index++ )); do
-                    rows+=( "entry"$'\t'"${index}" )
-                    keyed+=( "$(_ai_tools_assets__get_order_key "${AI_TOOLS_ASSETS__ENTRIES[index]}" "" 1 "")"$'\t'"${sequence}"$'\t'"entry"$'\t'"${index}" )
-                    sequence=$(( sequence + 1 ))
+                for (( _sort_rows_index = 0; _sort_rows_index < ${#AI_TOOLS_ASSETS__ENTRIES[@]}; _sort_rows_index++ )); do
+                    _sort_rows_rows+=( "entry"$'\t'"${_sort_rows_index}" )
+                    _sort_rows_keyed+=( "$(_ai_tools_assets__get_order_key "${AI_TOOLS_ASSETS__ENTRIES[_sort_rows_index]}" "" 1 "")"$'\t'"${_sort_rows_sequence}"$'\t'"entry"$'\t'"${_sort_rows_index}" )
+                    _sort_rows_sequence=$(( _sort_rows_sequence + 1 ))
                 done ;;
             row)
-                for (( index = 0; index < ${#AI_TOOLS_ASSETS__ROW_SEVERITY[@]}; index++ )); do
-                    rank=2
-                    [[ -n "${_AI_TOOLS_ASSETS__ROW_AGENT[index]}" ]] && rank=3
-                    rows+=( "row"$'\t'"${index}" )
-                    keyed+=( "$(_ai_tools_assets__get_order_key "${_AI_TOOLS_ASSETS__ROW_ITEM[index]}" "${_AI_TOOLS_ASSETS__ROW_SET[index]}" "${rank}" \
-                        "${_AI_TOOLS_ASSETS__ROW_AGENT[index]}")"$'\t'"${sequence}"$'\t'"row"$'\t'"${index}" )
-                    sequence=$(( sequence + 1 ))
+                for (( _sort_rows_index = 0; _sort_rows_index < ${#AI_TOOLS_ASSETS__ROW_SEVERITY[@]}; _sort_rows_index++ )); do
+                    _sort_rows_rank=2
+                    [[ -n "${_AI_TOOLS_ASSETS__ROW_AGENT[_sort_rows_index]}" ]] && _sort_rows_rank=3
+                    _sort_rows_rows+=( "row"$'\t'"${_sort_rows_index}" )
+                    _sort_rows_keyed+=( "$(_ai_tools_assets__get_order_key "${_AI_TOOLS_ASSETS__ROW_ITEM[_sort_rows_index]}" "${_AI_TOOLS_ASSETS__ROW_SET[_sort_rows_index]}" \
+                        "${_sort_rows_rank}" "${_AI_TOOLS_ASSETS__ROW_AGENT[_sort_rows_index]}")"$'\t'"${_sort_rows_sequence}"$'\t'"row"$'\t'"${_sort_rows_index}" )
+                    _sort_rows_sequence=$(( _sort_rows_sequence + 1 ))
                 done ;;
         esac
     done
-    (( ${#rows[@]} > 0 )) || return 0
-    mapfile -t ordered < <(printf '%s\n' "${keyed[@]}" | LC_ALL=C sort -t $'\t' -k1,1 -k2,2 -k3,3 -k4,4n -k5,5 -k6,6n 2>/dev/null | cut -f7,8)
-    if (( ${#ordered[@]} != ${#rows[@]} )); then
-        _ai_tools_assets__warn MSG-Y8T3 "the rows could not be sorted (sort returned ${#ordered[@]} of ${#rows[@]}), so they are written in the order they were recorded"
-        ordered=( "${rows[@]}" )
+    _sort_rows_out=()
+    (( ${#_sort_rows_rows[@]} > 0 )) || return 0
+    mapfile -t _sort_rows_ordered < <(printf '%s\n' "${_sort_rows_keyed[@]}" \
+        | LC_ALL=C sort -t $'\t' -k1,1 -k2,2 -k3,3 -k4,4n -k5,5 -k6,6n 2>/dev/null | cut -f7,8)
+    for _sort_rows_reference in "${_sort_rows_rows[@]}"; do _sort_rows_placed["${_sort_rows_reference}"]=0; done
+    if (( ${#_sort_rows_ordered[@]} == ${#_sort_rows_rows[@]} )); then
+        _sort_rows_complete=1
+        for _sort_rows_reference in "${_sort_rows_ordered[@]}"; do
+            if [[ -n "${_sort_rows_reference}" && "${_sort_rows_placed[${_sort_rows_reference}]:-}" == 0 ]]; then
+                _sort_rows_placed["${_sort_rows_reference}"]=1
+            else
+                _sort_rows_complete=0
+                break
+            fi
+        done
     fi
-    printf '%s\n' "${ordered[@]}"
+    if (( ! _sort_rows_complete )); then
+        _ai_tools_assets__warn MSG-Y8T3 "the rows could not be sorted (the sort printed ${#_sort_rows_ordered[@]} line(s), not each of the ${#_sort_rows_rows[@]} row(s) once), so they are written in the order they were recorded"
+        _sort_rows_ordered=( "${_sort_rows_rows[@]}" )
+    fi
+    _sort_rows_out=( "${_sort_rows_ordered[@]}" )
 }
 
 # _ai_tools_assets__warn <code> <message> : a warning on stderr, the code on its own line ahead of the message (the
@@ -2483,22 +2502,24 @@ _ai_tools_assets__warn() {
     ai_tools_log__coded warning "$1" "$2"
 }
 
-# ai_tools_assets__list_report_order : the order a report writes its rows in and `ai-tools-admin status` prints its
-# Assets lines in: `<origin><TAB><index>` for the recorded rows, the enable-list row, the entries and the plan's rows,
-# as _ai_tools_assets__list_order states. Run after ai_tools_assets__plan.
-ai_tools_assets__list_report_order() {
-    _ai_tools_assets__list_order recorded list entry row
+# ai_tools_assets__sort_report_rows <array-name> : fill the named array with the order a report writes its rows
+# in and `ai-tools-admin status` prints its Assets lines in: `<origin><TAB><index>` for the recorded rows,
+# the enable-list row, the entries and the plan's rows, as _ai_tools_assets__sort_rows states. Run
+# after ai_tools_assets__plan.
+ai_tools_assets__sort_report_rows() {
+    _ai_tools_assets__sort_rows "$1" recorded list entry row
 }
 
 # ai_tools_assets__write_recorded_rows : write the rows ai_tools_assets__record_report_row holds, in key order, each
 # under its own code, and empty them -- for a caller that exits before the report that would write them. Does not write
 # anything when none is held.
 ai_tools_assets__write_recorded_rows() {
-    local origin index
-    while IFS=$'\t' read -r origin index; do
-        [[ "${origin}" == recorded ]] || continue
-        _ai_tools_assets__write_recorded_row "${index}"
-    done < <(_ai_tools_assets__list_order recorded)
+    local reference
+    local -a references=()
+    _ai_tools_assets__sort_rows references recorded
+    for reference in "${references[@]}"; do
+        _ai_tools_assets__write_recorded_row "${reference#*$'\t'}"
+    done
     _ai_tools_assets__reset_recorded_rows
 }
 
@@ -2542,14 +2563,17 @@ _ai_tools_assets__write_list_row() {
 }
 
 # _ai_tools_assets__report <code> : the record stream for a plan, and the apply when one ran, in the order
-# ai_tools_assets__list_report_order prints: the rows a caller recorded under their own codes, then under <code>
+# ai_tools_assets__sort_report_rows gives: the rows a caller recorded under their own codes, then under <code>
 # the enable-list row (_ai_tools_assets__write_list_row), one row per entry (`linked` at ok, `error` at unreadable, any
 # other token at attention) and each row the plan and the apply recorded. A verb's rows and the reconcile's are
 # therefore one stream sorted by kind, set and name, an asset's list edit ahead of its entry, its view link and its
 # agent links. The recorded rows are emptied once written.
 _ai_tools_assets__report() {
-    local code="$1" origin index entry
-    while IFS=$'\t' read -r origin index; do
+    local code="$1" reference origin index entry
+    local -a references=()
+    ai_tools_assets__sort_report_rows references
+    for reference in "${references[@]}"; do
+        origin="${reference%%$'\t'*}"; index="${reference#*$'\t'}"
         case "${origin}" in
             recorded) _ai_tools_assets__write_recorded_row "${index}" ;;
             list)     _ai_tools_assets__write_list_row "${code}" ;;
@@ -2568,7 +2592,7 @@ _ai_tools_assets__report() {
                     "${_AI_TOOLS_ASSETS__ROW_SUBJECT_TYPE[index]}" "${AI_TOOLS_ASSETS__ROW_SUBJECT[index]}" "${_AI_TOOLS_ASSETS__ROW_ITEM[index]}" \
                     "${_AI_TOOLS_ASSETS__ROW_AGENT[index]}" "${AI_TOOLS_ASSETS__ROW_DETAIL[index]}" ;;
         esac
-    done < <(ai_tools_assets__list_report_order)
+    done
     _ai_tools_assets__reset_recorded_rows
 }
 
