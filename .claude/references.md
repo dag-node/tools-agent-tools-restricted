@@ -58,6 +58,7 @@ cannot fix -- a message code's name is a runtime string, and rewording one is a 
 | g6c4 | [ref-section-g6c4](../CLAUDE.md#ref-section-g6c4) | What is expected of the agent where a control leaves a choice | CLAUDE.md | .claude/rules/launch.rule.md, README.md |  |
 | x6a9 | [ref-section-x6a9](../CLAUDE.md#ref-section-x6a9) | Boundaries and non-goals | CLAUDE.md | .claude/rules/confinement.rule.md, .claude/rules/dotnet.rule.md, .claude/rules/launch.rule.md, .claude/rules/providers.rule.md, docs/about/scope.md, docs/operators/service-accounts.md |  |
 | e7g6 | [ref-section-e7g6](../README.md#ref-section-e7g6) | Architecture at a glance | README.md | docs/install/from-source.md |  |
+| g6d8 | [ref-section-g6d8](../docs/development/release.md#ref-section-g6d8) | For maintainers: cutting a release | docs/development/release.md | tools/README.md |  |
 | y2t3 | [ref-section-y2t3](../docs/install/from-source.md#ref-section-y2t3) | 1. Install the PATH ordering fragment (root, once) | docs/install/from-source.md | docs/about/index.md, docs/agents/index.md |  |
 | y5t4 | [ref-section-y5t4](../docs/install/upgrade.md#ref-section-y5t4) | 0.24.0: the skills move to the asset set core | docs/install/upgrade.md | docs/development/shipped-assets.md, docs/system/index.md |  |
 | f5q2 | [ref-section-f5q2](../docs/rpm-packaging.md#ref-section-f5q2) | Installing and upgrading | docs/rpm-packaging.md | docs/install/upgrade.md |  |

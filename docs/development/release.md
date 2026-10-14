@@ -176,7 +176,7 @@ into `develop` as well so the next minor carries it; `main` goes on tracking
 the newest release. The pipeline does not change for any of it, since
 the channel follows the tag and not the branch.
 
-## For maintainers: cutting a release
+## For maintainers: cutting a release <a id="ref-section-g6d8"></a>
 
 The release job runs on a `v*.*.*` tag and nowhere else: the signing key lives
 in an environment only such a tag can reference, so there is no dry run
