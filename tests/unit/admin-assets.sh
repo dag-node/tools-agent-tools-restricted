@@ -143,6 +143,27 @@ else
     fail "a pending identifier: rc ${RC}, '$(finding_of acme-two/skills/acme-two-pdf)', '$(listed)'"
 fi
 
+# ── the line is written sorted ───────────────────────────────────────────────────────────────────────────────────────
+section "ai-tools-admin assets: AI_TOOLS_ASSETS is written sorted by kind, set and name"
+fresh
+admin assets enable "${SUB}"; admin assets enable "${SKILL}"; admin assets enable acme-two/skills/acme-two-pdf
+if [[ "$(listed)" == "AI_TOOLS_ASSETS=[${SKILL}, acme-two/skills/acme-two-pdf, ${SUB}]" ]]; then
+    pass "three enables write one line sorted by kind, then set, then name"
+else
+    fail "the sorted line: '$(listed)'"
+fi
+write_conf "${SUB}" acme-two/skills/acme-two-pdf "${SKILL}"
+before="$(cat "${CONF}")"
+admin assets enable "${SKILL}"
+if [[ "$(cat "${CONF}")" == "${before}" ]] && ! compgen -G "${CONF}.*.bak" >/dev/null; then
+    pass "an enable that adds no identifier leaves a hand-written order and does not write a .bak"
+else
+    fail "an enable of a listed identifier rewrote the file: '$(listed)'"
+fi
+admin assets disable acme-two/skills/acme-two-pdf
+[[ "$(listed)" == "AI_TOOLS_ASSETS=[${SKILL}, ${SUB}]" ]] && pass "a disable writes the kept entries sorted" \
+    || fail "the line after a disable: '$(listed)'"
+
 # ── enable, the set form ──────────────────────────────────────────────────────────────────────────────────────────────
 section "ai-tools-admin assets enable --set: a snapshot of the set"
 fresh

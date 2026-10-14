@@ -3291,6 +3291,23 @@ assets_write_list() {
         || notice MSG-T3X4 "assets: AI_TOOLS_ASSETS was added at the end of ${conf}, which predates the key -- sudo ai-tools-admin system post-upgrade carries it under its header from the shipped template"
 }
 
+# assets_sort_identifiers <array-name>: sort the identifiers in the named array by kind, then set, then name, under
+# LC_ALL=C and one component at a time, so `acme/skills/x` sorts ahead of `acme-two/skills/x` although `-` sorts ahead of
+# `/` in a byte order over the whole identifier. An array holding an identifier with a tab or a newline is left
+# in the order it holds, since the sort reads one identifier per line.
+assets_sort_identifiers() {
+    local -n _assets_sort_identifiers_ids="$1"
+    local identifier rest
+    local -a keyed=()
+    for identifier in "${_assets_sort_identifiers_ids[@]}"; do
+        [[ "${identifier}" != *[$'\t\n']* ]] || return 0
+        rest="${identifier#*/}"
+        keyed+=( "${rest%%/*}"$'\t'"${identifier%%/*}"$'\t'"${rest#*/}"$'\t'"${identifier}" )
+    done
+    (( ${#keyed[@]} > 1 )) || return 0
+    mapfile -t _assets_sort_identifiers_ids < <(printf '%s\n' "${keyed[@]}" | LC_ALL=C sort -t $'\t' -k1,1 -k2,2 -k3,3 | cut -f4)
+}
+
 # assets_finish <reconcile-status>: exit as the records page states for a command that changes the host: 1 when a write
 # did not take, else the record stream's own fold.
 assets_finish() {
@@ -3308,8 +3325,9 @@ assets_reconcile_now() {
 
 # assets_enable <identifier>... | --set <set>: check every identifier before writing -- the grammar and a registry kind,
 # then a binding for its set, shipped or the operator's -- refusing the whole call on the first that fails; then add
-# each new one to AI_TOOLS_ASSETS once, after the existing entries in their order, and reconcile. An identifier
-# whose set is not installed is accepted where the set is bound, and the reconcile reports it set-absent.
+# each new one to AI_TOOLS_ASSETS once, write the line sorted (assets_sort_identifiers), and reconcile. A call
+# whose every identifier is already listed leaves the file as it is. An identifier whose set is not installed is
+# accepted where the set is bound, and the reconcile reports it set-absent.
 assets_enable() {
     local identifier status=0 entry
     local -a entries=() added=()
@@ -3333,7 +3351,11 @@ assets_enable() {
         for entry in "${entries[@]}" "${added[@]}"; do [[ "${entry}" == "${identifier}" ]] && continue 2; done
         added+=( "${identifier}" )
     done
-    (( ${#added[@]} == 0 )) || assets_write_list "${entries[@]}" "${added[@]}"
+    if (( ${#added[@]} > 0 )); then
+        entries+=( "${added[@]}" )
+        assets_sort_identifiers entries
+        assets_write_list "${entries[@]}"
+    fi
     status=0
     assets_reconcile_now || status=$?
     assets_finish "${status}"
@@ -3368,14 +3390,19 @@ assets_enable_set() {
         for entry in "${entries[@]}" "${added[@]}"; do [[ "${entry}" == "${identifier}" ]] && continue 2; done
         added+=( "${identifier}" )
     done
-    (( ${#added[@]} == 0 )) || assets_write_list "${entries[@]}" "${added[@]}"
+    if (( ${#added[@]} > 0 )); then
+        entries+=( "${added[@]}" )
+        assets_sort_identifiers entries
+        assets_write_list "${entries[@]}"
+    fi
     assets_reconcile_now || status=$?
     assets_finish "${status}"
 }
 
 # assets_disable <identifier>...: remove each named entry from AI_TOOLS_ASSETS -- one the list does not hold is reported
-# under MSG-Q5T6 and does not refuse the others -- write the list with its backup, and reconcile, which removes
-# the links.
+# under MSG-Q5T6 and does not refuse the others -- write the kept entries sorted (assets_sort_identifiers)
+# with the backup, and reconcile, which removes the links. A call naming only identifiers the list does not hold leaves
+# the file as it is.
 assets_disable() {
     local identifier entry status=0 found
     local -a entries=() kept=() removed=()
@@ -3399,6 +3426,7 @@ assets_disable() {
         kept+=( "${entry}" )
     done
     if (( ${#removed[@]} > 0 )); then
+        assets_sort_identifiers kept
         assets_write_list "${kept[@]}"
         for identifier in "${removed[@]}"; do
             _assets_info_row MSG-Q2C6 "assets disable: an identifier removed from AI_TOOLS_ASSETS" unlinked \

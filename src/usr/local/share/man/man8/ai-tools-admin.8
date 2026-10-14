@@ -624,11 +624,18 @@ An asset whose set is not installed yet is accepted where its set is bound,
 and is reported
 .B set\-absent
 until its package arrives.
-Each new entry is added once, after the ones the line already holds, and
+Each new entry is added once, and the line is written sorted by kind, then
+set, then name, so an order written by hand is replaced by the next
+.B enable
+or
+.B disable
+that changes the line; a call whose every asset is already listed leaves the
+file as it is.
+Before a write,
 .I operator.conf
 is backed up to a dated
 .I .bak
-beside it first.
+beside it.
 .RS
 .TP
 .BI \-\-set " SET"
