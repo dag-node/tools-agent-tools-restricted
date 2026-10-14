@@ -3308,6 +3308,16 @@ assets_sort_identifiers() {
     mapfile -t _assets_sort_identifiers_ids < <(printf '%s\n' "${keyed[@]}" | LC_ALL=C sort -t $'\t' -k1,1 -k2,2 -k3,3 | cut -f4)
 }
 
+# assets_record_enabled <identifier>...: one `enabled` row per identifier an enable added to AI_TOOLS_ASSETS, the list
+# edit an `assets disable` reports as `disabled`.
+assets_record_enabled() {
+    local identifier
+    for identifier in "$@"; do
+        _assets_info_row MSG-N3M8 "assets enable: an identifier added to AI_TOOLS_ASSETS" enabled "${AI_TOOLS_OPERATOR_CONF}" \
+            "${identifier}" "added to AI_TOOLS_ASSETS; the linked rows name the links placed"
+    done
+}
+
 # assets_finish <reconcile-status>: exit as the records page states for a command that changes the host: 1 when a write
 # did not take, else the record stream's own fold.
 assets_finish() {
@@ -3355,6 +3365,7 @@ assets_enable() {
         entries+=( "${added[@]}" )
         assets_sort_identifiers entries
         assets_write_list "${entries[@]}"
+        assets_record_enabled "${added[@]}"
     fi
     status=0
     assets_reconcile_now || status=$?
@@ -3394,6 +3405,7 @@ assets_enable_set() {
         entries+=( "${added[@]}" )
         assets_sort_identifiers entries
         assets_write_list "${entries[@]}"
+        assets_record_enabled "${added[@]}"
     fi
     assets_reconcile_now || status=$?
     assets_finish "${status}"
@@ -3429,7 +3441,7 @@ assets_disable() {
         assets_sort_identifiers kept
         assets_write_list "${kept[@]}"
         for identifier in "${removed[@]}"; do
-            _assets_info_row MSG-Q2C6 "assets disable: an identifier removed from AI_TOOLS_ASSETS" unlinked \
+            _assets_info_row MSG-Q2C6 "assets disable: an identifier removed from AI_TOOLS_ASSETS" disabled \
                 "${AI_TOOLS_OPERATOR_CONF}" "${identifier}" "removed from AI_TOOLS_ASSETS; a session already running keeps what it loaded"
         done
     fi

@@ -205,6 +205,27 @@ else
 fi
 [[ -L "${HOME_DIR}/subagents/acme-reviewer.md" ]] && pass "the other entry stays linked" || fail "the other entry lost its link"
 
+# ── the list edit's own rows ─────────────────────────────────────────────────────────────────────────────────────────
+section "ai-tools-admin assets: the list edit is named enabled and disabled"
+# list_edit_rows <code> : the finding, subject and item of each row under <code>, one per line, tab-separated.
+list_edit_rows() { awk -F'\t' -v code="$1" 'NR > 1 && $3 == code { print $6 "\t" $10 "\t" $9 }' <<< "${OUT}"; }
+fresh
+admin assets enable "${SKILL}"
+admin assets enable "${SKILL}" "${SUB}"
+rows="$(list_edit_rows MSG-N3M8)"
+if [[ "${rows}" == "enabled"$'\t'"${CONF}"$'\t'*"${SUB}"* && "$(wc -l <<< "${rows}")" == 1 ]]; then
+    pass "an enable writes one enabled row per identifier it added, subject operator.conf, and none for one listed"
+else
+    fail "the enable's list-edit rows: '${rows}'"
+fi
+admin assets disable "${SKILL}"
+rows="$(list_edit_rows MSG-Q2C6)"
+if [[ "${rows}" == "disabled"$'\t'"${CONF}"$'\t'*"${SKILL}"* ]]; then
+    pass "a disable's list-edit row carries disabled"
+else
+    fail "the disable's list-edit row: '${rows}'"
+fi
+
 # ── Two verbs at once ────────────────────────────────────────────────────────────────────────────────────────────────
 section "ai-tools-admin assets: two verbs at once each read the list the other wrote"
 # PAUSE holds a verb for two seconds after it read AI_TOOLS_ASSETS: under the lock taken before the read, the other verb
