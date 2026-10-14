@@ -13,7 +13,7 @@ cannot fix -- a message code's name is a runtime string, and rewording one is a 
 
 | Id | Reftag | Name | File | Cited by | Emitter |
 |---|---|---|---|---|---|
-| u6y5 | [URI-U6Y5](https://github.com/dag-node/ai-tools-assets/blob/core/v0.2.1/sets/core/skills/ai-tools-reftags/SKILL.md#ref-section-h9b7) | The reftags skill's reference rule, at the pinned core release | .claude/rules/authoring.rule.md | .claude/rules/authoring.rule.md |  |
+| u6y5 | [URI-U6Y5](https://github.com/dag-node/ai-tools-assets/blob/main/sets/core/skills/ai-tools-reftags/SKILL.md#ref-section-h9b7) | The reftags skill's reference rule, at the latest core release | .claude/rules/authoring.rule.md | .claude/rules/authoring.rule.md |  |
 | z3p9 | [ref-section-z3p9](rules/cli.rule.md#ref-section-z3p9) | Acting for another operator (`--for`) | .claude/rules/cli.rule.md | docs/operators/service-accounts.md |  |
 | v2n3 | [ref-section-v2n3](rules/cli.rule.md#ref-section-v2n3) | Enabled, disabled, absent — the three states of an entry | .claude/rules/cli.rule.md | docs/projects/disable.md, docs/projects/enable.md |  |
 | d7q3 | [ref-table-d7q3](rules/cli.rule.md#ref-table-d7q3) | The three states of an allowlist entry | .claude/rules/cli.rule.md | docs/projects/disable.md |  |
@@ -58,6 +58,7 @@ cannot fix -- a message code's name is a runtime string, and rewording one is a 
 | g6c4 | [ref-section-g6c4](../CLAUDE.md#ref-section-g6c4) | What is expected of the agent where a control leaves a choice | CLAUDE.md | .claude/rules/launch.rule.md, README.md |  |
 | x6a9 | [ref-section-x6a9](../CLAUDE.md#ref-section-x6a9) | Boundaries and non-goals | CLAUDE.md | .claude/rules/confinement.rule.md, .claude/rules/dotnet.rule.md, .claude/rules/launch.rule.md, .claude/rules/providers.rule.md, docs/about/scope.md, docs/operators/service-accounts.md |  |
 | e7g6 | [ref-section-e7g6](../README.md#ref-section-e7g6) | Architecture at a glance | README.md | docs/install/from-source.md |  |
+| g6d8 | [ref-section-g6d8](../docs/development/release.md#ref-section-g6d8) | For maintainers: cutting a release | docs/development/release.md | tools/README.md |  |
 | y2t3 | [ref-section-y2t3](../docs/install/from-source.md#ref-section-y2t3) | 1. Install the PATH ordering fragment (root, once) | docs/install/from-source.md | docs/about/index.md, docs/agents/index.md |  |
 | y5t4 | [ref-section-y5t4](../docs/install/upgrade.md#ref-section-y5t4) | 0.24.0: the skills move to the asset set core | docs/install/upgrade.md | docs/development/shipped-assets.md, docs/system/index.md |  |
 | f5q2 | [ref-section-f5q2](../docs/rpm-packaging.md#ref-section-f5q2) | Installing and upgrading | docs/rpm-packaging.md | docs/install/upgrade.md |  |

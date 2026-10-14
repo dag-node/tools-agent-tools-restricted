@@ -120,6 +120,32 @@ if [[ "${RC}" == 1 && -z "${OUT}" ]]; then
 else
     fail "a wrong checkout: rc ${RC}, out '${OUT}'"
 fi
+# The commit a bypass names is `git describe --always --dirty`'s: a checkout with an uncommitted edit carries `-dirty`,
+# and the same checkout committed does not.
+git_checkout="${TESTDIR}/t-git-checkout"
+mkdir -p "${git_checkout}/formatters"; : > "${git_checkout}/formatters/fill.sh"
+git -C "${git_checkout}" init -q
+git -C "${git_checkout}" add -A
+git -C "${git_checkout}" -c user.email=t@example.invalid -c user.name=t -c commit.gpgsign=false commit -qm base
+head_sha="$(git -C "${git_checkout}" rev-parse --short HEAD)"
+bypass_line() {  # bypass_line: the BYPASS line `path tools` prints for the git checkout
+    AI_TOOLS_DEV_ASSETS_TOOLS="${git_checkout}" HOME="${HOME_DIR}" bash "${LIB}" path tools >/dev/null 2>"${TESTDIR}/err" \
+        || true
+    cat "${TESTDIR}/err"
+}
+ERR="$(bypass_line)"
+if [[ "${ERR}" == *" at ${head_sha}, not its pin"* ]]; then
+    pass "a clean bypass checkout is named by its commit alone"
+else
+    fail "the clean bypass checkout: '${ERR}', expected the commit ${head_sha}"
+fi
+printf 'edited\n' > "${git_checkout}/formatters/fill.sh"
+ERR="$(bypass_line)"
+if [[ "${ERR}" == *" at ${head_sha}-dirty, not its pin"* ]]; then
+    pass "a bypass checkout with an uncommitted edit is named <commit>-dirty"
+else
+    fail "the dirty bypass checkout: '${ERR}', expected ${head_sha}-dirty"
+fi
 
 # ── fetch and verify over a genuine release ──────────────────────────────────────────────────────────────────────────
 section "dev assets: an archive is accepted on its pin and its signature alone"
