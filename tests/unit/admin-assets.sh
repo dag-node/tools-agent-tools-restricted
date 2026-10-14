@@ -66,25 +66,25 @@ fresh() {
 
 # admin <words>... : run `ai-tools-admin <words>` through the sourced helper's dispatch, with the hooks; the record
 # stream in OUT, stderr in ERR, the exit in RC. `unload` as the first word removes the resolver after the helper loaded
-# it, which the include guard keeps the verb's own load from restoring. PRELUDE, when set, is evaluated
+# it, which the include guard keeps the verb's own load from restoring. STUBS, when set, is evaluated
 # after the libraries load, to stub what a case drives; a case sets it for one call and clears it.
-OUT=""; ERR=""; RC=0; PRELUDE=""
+OUT=""; ERR=""; RC=0; STUBS=""
 admin() {
     local unload=0 err
     [[ "${1:-}" == unload ]] && { unload=1; shift; }
     err="$(mktemp "${TESTDIR}/err.XXXXXX")"
     RC=0
     # shellcheck disable=SC2016
-    OUT="$(env "${HOOKS[@]}" bash -c 'helper="$1"; lib="$2"; unload="$3"; prelude="$4"; shift 4; words=( "$@" ); set --
+    OUT="$(env "${HOOKS[@]}" bash -c 'helper="$1"; lib="$2"; unload="$3"; stubs="$4"; shift 4; words=( "$@" ); set --
         source "${helper}" >/dev/null 2>&1 || exit 99
         source "${lib}" 2>/dev/null || true
         (( unload )) && unset -f ai_tools_assets__reconcile
-        eval "${prelude}"
+        eval "${stubs}"
         case "${words[0]}" in
             status_assets) STATUS_PROBLEMS=0; STATUS_UNREADABLE=0; status_assets
                            printf "problems=%s unreadable=%s\n" "${STATUS_PROBLEMS}" "${STATUS_UNREADABLE}" ;;
             *)             assets_dispatch "${words[@]:1}" ;;
-        esac' _ "${HELPER}" "${LIB_DIR}/assets.lib.sh" "${unload}" "${PRELUDE:-:}" "$@" 2>"${err}")" || RC=$?
+        esac' _ "${HELPER}" "${LIB_DIR}/assets.lib.sh" "${unload}" "${STUBS:-:}" "$@" 2>"${err}")" || RC=$?
     ERR="$(<"${err}")"
     rm -f -- "${err}"
 }
@@ -133,10 +133,10 @@ for words in "enable ${SUB}" "enable --set acme" "disable ${SKILL}"; do
     fresh
     write_conf "${SKILL}"
     before="$(cat "${CONF}")"
-    PRELUDE="${READ_FAILS}"
+    STUBS="${READ_FAILS}"
     # shellcheck disable=SC2086  # the verb and its arguments split on purpose
     admin assets ${words}
-    PRELUDE=""
+    STUBS=""
     refused MSG-C7N4 1 "assets ${words} over a file the reader could not read whole"
     if [[ "$(cat "${CONF}")" == "${before}" ]] && ! compgen -G "${CONF}.*.bak" >/dev/null; then
         pass "assets ${words}: operator.conf is byte-identical and no backup was made"
@@ -299,12 +299,12 @@ if [[ "$(stream_labels)" == "${want}" ]]; then
 else
     fail "the disable's stream order: $(stream_labels | tr '\n' '|')"
 fi
-PRELUDE='ai_tools_providers__list_enabled_agents() { return 2; }'; admin assets disable "${SUB}"; PRELUDE=""
+STUBS='ai_tools_providers__list_enabled_agents() { return 2; }'; admin assets disable "${SUB}"; STUBS=""
 first="$(awk -F'\t' 'NR == 2 { print $6 }' <<< "${OUT}")"
 [[ "${first}" == receivers-unknown ]] && pass "a row without a kind comes first" || fail "the first row is '${first}': $(stream_labels | tr '\n' '|')"
 fresh
 write_conf "${SKILL}"
-PRELUDE='ai_tools_conf__set_list() { return 1; }'; admin assets disable "${SKILL}" acme/skills/acme-other; PRELUDE=""
+STUBS='ai_tools_conf__set_list() { return 1; }'; admin assets disable "${SKILL}" acme/skills/acme-other; STUBS=""
 refused MSG-Q8E5 1 "a write that fails"
 [[ "$(finding_of acme/skills/acme-other)" == not-enabled ]] && pass "a write that fails still writes the rows the verb recorded" \
     || fail "rows after a failed write: ${OUT:0:300}"
@@ -312,9 +312,9 @@ refused MSG-Q8E5 1 "a write that fails"
 # and the reconcile.
 fresh
 write_conf "${SKILL}"
-PRELUDE='eval "$(declare -f ai_tools_conf__read_list | sed "1s/^ai_tools_conf__read_list/_stub_read_list_real/")"
+STUBS='eval "$(declare -f ai_tools_conf__read_list | sed "1s/^ai_tools_conf__read_list/_stub_read_list_real/")"
     ai_tools_conf__read_list() { [[ "${FUNCNAME[1]}" == ai_tools_conf__set_list ]] && return 2; _stub_read_list_real "$@"; }'
-admin assets enable "${SUB}"; PRELUDE=""
+admin assets enable "${SUB}"; STUBS=""
 refused MSG-Q8E5 1 "a write whose read-back fails"
 backups=( "${CONF}".*.bak )
 if [[ -e "${backups[0]}" && "${ERR}" == *"${backups[0]}"* && "${ERR}" == *"sudo ai-tools-admin assets reconcile"* \
@@ -333,8 +333,8 @@ want="$(row_identities)"
 fresh
 write_conf "${SUB}" "${SKILL}"
 # The stub fails the record stream's sort, keyed from the first field, and leaves the set walk's.
-PRELUDE='sort() { case " $* " in *" -k1,1 "*) return 1 ;; esac; command sort "$@"; }'
-admin assets enable acme/skills/acme-other-pdf; PRELUDE=""
+STUBS='sort() { case " $* " in *" -k1,1 "*) return 1 ;; esac; command sort "$@"; }'
+admin assets enable acme/skills/acme-other-pdf; STUBS=""
 if [[ "$(listed)" == "AI_TOOLS_ASSETS=[acme/skills/acme-other-pdf, ${SKILL}, ${SUB}]" ]]; then
     pass "a sort process that fails does not reach AI_TOOLS_ASSETS, which is written sorted"
 else
@@ -357,8 +357,8 @@ for corruption in 'NR == 1 { first = $0 } NR == 2 { print first; next } { print 
     fresh
     write_conf "${SUB}" "${SKILL}"
     admin assets reconcile
-    printf -v PRELUDE 'sort() { case " $* " in *" -k1,1 "*) command sort "$@" | awk %q ;; *) command sort "$@" ;; esac; }' "${corruption}"
-    admin assets disable "${SKILL}" acme/skills/acme-other; PRELUDE=""
+    printf -v STUBS 'sort() { case " $* " in *" -k1,1 "*) command sort "$@" | awk %q ;; *) command sort "$@" ;; esac; }' "${corruption}"
+    admin assets disable "${SKILL}" acme/skills/acme-other; STUBS=""
     if [[ "${RC}" == 4 && -n "${want}" && "$(row_identities)" == "${want}" ]]; then
         pass "a sort printing '${corruption:0:24}...': every row written once, the attention row folding to exit 4"
     else
@@ -371,9 +371,9 @@ for stage in sort cut; do
     fresh
     write_conf "${SUB}" "${SKILL}"
     admin assets reconcile
-    printf -v PRELUDE '%s() { case " $* " in *" -k1,1 "*|*" -f7,8 "*) command %s "$@"; return 7 ;; esac; command %s "$@"; }' \
+    printf -v STUBS '%s() { case " $* " in *" -k1,1 "*|*" -f7,8 "*) command %s "$@"; return 7 ;; esac; command %s "$@"; }' \
         "${stage}" "${stage}" "${stage}"
-    admin assets disable "${SKILL}" acme/skills/acme-other; PRELUDE=""
+    admin assets disable "${SKILL}" acme/skills/acme-other; STUBS=""
     if [[ "${RC}" == 4 && "$(row_identities)" == "${want}" ]]; then
         pass "a ${stage} that prints every reference and exits 7: every row written once, exit 4"
     else
@@ -395,10 +395,10 @@ for words in "disable ${SKILL} acme/skills/acme-other" "list"; do
     fresh
     write_conf "${SUB}" "${SKILL}"
     admin assets reconcile
-    PRELUDE="${ORDER_FAILS}"
+    STUBS="${ORDER_FAILS}"
     # shellcheck disable=SC2086  # the verb and its arguments split on purpose
     admin assets ${words}
-    PRELUDE=""
+    STUBS=""
     if [[ "${RC}" == 5 && "$(code_rows MSG-Q7F7)" == 1 && -n "${order_want}" \
             && "$(row_identities | grep -v '^MSG-Q7F7 ')" == "${order_want}" ]]; then
         pass "assets ${words} with an order that fails: every row once, one MSG-Q7F7 error row, exit 5"
@@ -411,9 +411,9 @@ for verb in enable disable; do
     fresh
     write_conf "${SUB}" "${SKILL}"
     before="$(cat "${CONF}")"
-    PRELUDE='assets_sort_identifiers() { local -n _stub_ids="$1"; _stub_ids=( "${_stub_ids[@]:1}" ); }'
+    STUBS='assets_sort_identifiers() { local -n _stub_ids="$1"; _stub_ids=( "${_stub_ids[@]:1}" ); }'
     if [[ "${verb}" == enable ]]; then admin assets enable acme/skills/acme-other-pdf; else admin assets disable acme/skills/acme-gone "${SKILL}"; fi
-    PRELUDE=""
+    STUBS=""
     refused MSG-S4M7 1 "${verb}: a list that lost an entry before the write"
     backups=( "${CONF}".*.bak )
     if [[ "$(cat "${CONF}")" == "${before}" && ! -e "${backups[0]}" ]]; then
@@ -433,7 +433,7 @@ PAUSE='eval "$(declare -f assets_read_list | sed "1s/^assets_read_list/_assets_r
     assets_read_list() { _assets_read_list_unpaused "$@"; sleep 2; }'
 fresh
 asset_signing_build_set "${PKG}" acme-two
-( PRELUDE="${PAUSE}"; admin assets enable "${SKILL}"; printf '%s\n' "${RC}" > "${TESTDIR}/rc-first" ) &
+( STUBS="${PAUSE}"; admin assets enable "${SKILL}"; printf '%s\n' "${RC}" > "${TESTDIR}/rc-first" ) &
 first=$!
 sleep 0.5
 admin assets enable acme-two/skills/acme-two-pdf
@@ -452,7 +452,7 @@ fi
 fresh
 asset_signing_build_set "${PKG}" acme-two
 admin assets enable "${SKILL}" "${SUB}"
-( PRELUDE="${PAUSE}"; admin assets disable "${SUB}" ) &
+( STUBS="${PAUSE}"; admin assets disable "${SUB}" ) &
 first=$!
 sleep 0.5
 admin assets enable acme-two/skills/acme-two-pdf
@@ -563,9 +563,9 @@ admin assets list
     || fail "MSG-M7J8 without a failed read: ${ERR:0:300}"
 # The set reader's read of the stray link fails after the classification read it: the row keeps its finding and is
 # written, and the order warns that its key was lost.
-printf -v PRELUDE 'readlink() { [[ "${FUNCNAME[1]}" == _ai_tools_assets__read_resolver_link_set && "${*: -1}" == %q ]] && return 1; command readlink "$@"; }' \
+printf -v STUBS 'readlink() { [[ "${FUNCNAME[1]}" == _ai_tools_assets__read_resolver_link_set && "${*: -1}" == %q ]] && return 1; command readlink "$@"; }' \
     "${HOME_DIR}/skills/acme-stray"
-admin assets list; PRELUDE=""
+admin assets list; STUBS=""
 [[ "${RC}" == 4 && "$(pending_rows)" == "unlink-pending ${HOME_DIR}/skills/acme-stray attention" ]] \
     && pass "a link whose set could not be read: still unlink-pending, exit 4" || fail "a lost set: rc ${RC}, pending '$(pending_rows)'"
 assert_msg MSG-M7J8 "${ERR}" "a set that could not be read is reported under MSG-M7J8"
@@ -645,13 +645,13 @@ acme-two/skills/acme-two-pdf set-absent"
 chmod 0664 "${CONF}"; admin status_assets
 grep -q 'enable-list-untrusted' <<< "${OUT}" && pass "an untrusted operator.conf renders enable-list-untrusted" || fail "untrusted: ${OUT:0:300}"
 chmod 0644 "${CONF}"
-PRELUDE='ai_tools_providers__list_enabled_agents() { return 2; }'; admin status_assets; PRELUDE=""
+STUBS='ai_tools_providers__list_enabled_agents() { return 2; }'; admin status_assets; STUBS=""
 if grep -qE '\[UNREADABLE\] +receivers-unknown' <<< "${OUT}" && [[ "${OUT}" == *unreadable=1* ]]; then
     pass "a provider reader that fails renders an UNREADABLE line, counted as a reading the section could not make"
 else
     fail "a failed provider reader: ${OUT:0:400}"
 fi
-PRELUDE='ai_tools_assets__sort_report_rows() { return 7; }'; admin status_assets; PRELUDE=""
+STUBS='ai_tools_assets__sort_report_rows() { return 7; }'; admin status_assets; STUBS=""
 if grep -qE '\[UNREADABLE\] +error +the order of the Assets lines could not be computed' <<< "${OUT}" \
         && grep -qE '\[ATTENTION\] +[^ ]+ +set-tampered' <<< "${OUT}" && [[ "${OUT}" == *unreadable=1* ]]; then
     pass "an order that fails renders an UNREADABLE line, counted, and the section still prints its lines"
@@ -738,7 +738,7 @@ else
 fi
 # The notice's reader is the seeder library's; a library that did not load is a reading the section could not make, told
 # apart from a host the notice does not apply to.
-retire ai-tools-reftags; PRELUDE='unset -f ai_tools_managed_assets__list_withdrawn_successors'; admin status_assets; PRELUDE=""
+retire ai-tools-reftags; STUBS='unset -f ai_tools_managed_assets__list_withdrawn_successors'; admin status_assets; STUBS=""
 if grep -qE '\[UNREADABLE\] +error +the seeder library' <<< "${OUT}" && [[ -z "$(notice_row)" && "${OUT}" == *"problems=0 unreadable=1"* ]]; then
     pass "a seeder library that did not load is an UNREADABLE row, not a host without the notice"
 else
