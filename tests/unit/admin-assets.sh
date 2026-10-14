@@ -97,9 +97,13 @@ refused() {
 listed() { grep -E '^AI_TOOLS_ASSETS=' "${CONF}" || true; }
 # finding_of <id> : the finding of the first row whose item carries <id>.
 finding_of() { awk -F'\t' -v id="$1" 'NR > 1 && index($9, id) { print $6; exit }' <<< "${OUT}"; }
-# state_of <id> : the finding of the reconcile's row for the enable-list entry <id> (MSG-Z3P6, the item <id> alone),
-# which the stream writes after the verb's own row for the same identifier.
-state_of() { awk -F'\t' -v id="$1" 'NR > 1 && $3 == "MSG-Z3P6" && $9 == id { print $6; exit }' <<< "${OUT}"; }
+# state_of <id> : the finding of the reconcile's row for the enable-list entry <id>: code MSG-Z3P6, the item <id> alone,
+# a severity other than info, which tells it from the info row placing the same asset's view link. Prints `rows=<n>`
+# unless exactly one row matches.
+state_of() {
+    awk -F'\t' -v id="$1" 'NR > 1 && $3 == "MSG-Z3P6" && $9 == id && $5 != "info" { n++; finding = $6 }
+        END { if (n == 1) print finding; else print "rows=" n + 0 }' <<< "${OUT}"
+}
 
 # ── enable refuses before it writes ──────────────────────────────────────────────────────────────────────────────────
 section "ai-tools-admin assets enable: every argument is checked before a write"
@@ -319,6 +323,13 @@ if [[ -e "${backups[0]}" && "${ERR}" == *"${backups[0]}"* && "${ERR}" == *"sudo 
 else
     fail "a write whose read-back fails: '$(listed)', ${ERR:0:400}"
 fi
+# row_identities : `<code> <finding> <subject> <item>` of each row of the last stream, sorted, so two streams compare
+# as sets with their multiplicities.
+row_identities() { awk -F'\t' 'NR > 1 { print $3 " " $6 " " $10 " " $9 }' <<< "${OUT}" | LC_ALL=C sort; }
+fresh
+write_conf "${SUB}" "${SKILL}"
+admin assets enable acme/skills/acme-other-pdf
+want="$(row_identities)"
 fresh
 write_conf "${SUB}" "${SKILL}"
 # The stub fails the record stream's sort, keyed from the first field, and leaves the set walk's.
@@ -330,11 +341,8 @@ else
     fail "with sort failing, the enable wrote '$(listed)'"
 fi
 assert_msg MSG-Y8T3 "${ERR}" "a row sort that fails is reported under MSG-Y8T3"
-[[ "$(finding_of acme/skills/acme-other-pdf)" == enabled && "$(state_of "${SUB}")" == linked ]] \
-    && pass "a row sort that fails still writes every row" || fail "rows after a failed sort: $(stream_labels | tr '\n' '|')"
-# row_identities : `<code> <finding> <subject> <item>` of each row of the last stream, sorted, so two streams compare
-# as sets with their multiplicities.
-row_identities() { awk -F'\t' 'NR > 1 { print $3 " " $6 " " $10 " " $9 }' <<< "${OUT}" | LC_ALL=C sort; }
+[[ -n "${want}" && "$(row_identities)" == "${want}" ]] && pass "a row sort that fails still writes every row the working sort writes, once" \
+    || fail "rows after a failed sort: $(row_identities | tr '\n' '|') want $(tr '\n' '|' <<< "${want}")"
 # A sort whose output is not each row once: each stub runs the real sort on the record stream's keys, keyed
 # from the first field, then repeats a line in place of the next, puts a reference to no row in place of one, or adds
 # a line.
@@ -531,13 +539,19 @@ first_items="$(awk -F'\t' 'NR > 1 && NR <= 4 { print $9 }' <<< "${OUT}" | tr '\n
     || fail "the first rows: '${first_items}': $(stream_labels | tr '\n' '|')"
 write_conf "${SKILL}" "${SUB}"
 mkdir -p "${TESTDIR}/lock"
-( flock 9; sleep 6 ) 9>>"${TESTDIR}/lock/assets.lock" &
+held="${TESTDIR}/lock/held"; rm -f "${held}"
+( flock 9; : > "${held}"; sleep 6 ) 9>>"${TESTDIR}/lock/assets.lock" &
 holder=$!
-sleep 0.5
-started="${SECONDS}"; admin assets list; elapsed=$(( SECONDS - started ))
+waited=0
+until [[ -e "${held}" ]] || (( waited >= 100 )); do sleep 0.1; waited=$(( waited + 1 )); done
+if [[ -e "${held}" ]]; then
+    started="${SECONDS}"; admin assets list; elapsed=$(( SECONDS - started ))
+    [[ "${RC}" == 0 ]] && (( elapsed < 4 )) && pass "list beside a held lock returns without waiting (${elapsed}s)" \
+        || fail "list beside a held lock: rc ${RC} after ${elapsed}s: ${ERR:0:200}"
+else
+    fail "the fixture holder did not take the assets lock within 10s"
+fi
 wait "${holder}" || true
-[[ "${RC}" == 0 ]] && (( elapsed < 4 )) && pass "list beside a held lock returns without waiting (${elapsed}s)" \
-    || fail "list beside a held lock: rc ${RC} after ${elapsed}s: ${ERR:0:200}"
 fresh
 write_conf "${SKILL}"
 admin assets reconcile
