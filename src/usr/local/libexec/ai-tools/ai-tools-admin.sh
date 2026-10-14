@@ -3014,8 +3014,8 @@ status_assets_rows() {
     ai_tools_assets__sort_report_rows references
     for reference in "${references[@]}"; do
         case "${reference%%$'\t'*}" in
-            entry) status_assets_entry "${AI_TOOLS_ASSETS__ENTRIES[${reference#*$'\t'}]}" ;;
-            row)   status_assets_row "${reference#*$'\t'}" ;;
+            entry) status_assets_report_entry "${AI_TOOLS_ASSETS__ENTRIES[${reference#*$'\t'}]}" ;;
+            row)   status_assets_report_row "${reference#*$'\t'}" ;;
         esac
     done
     for entry in "${AI_TOOLS_ASSETS__ENTRIES[@]}"; do
@@ -3025,9 +3025,9 @@ status_assets_rows() {
     return 0
 }
 
-# status_assets_entry <entry>: the line for one enable-list entry: an OK line for a linked asset that declares
+# status_assets_report_entry <entry>: the line for one enable-list entry: an OK line for a linked asset that declares
 # a capability, none for another linked one, and an [ATTENTION] or [UNREADABLE] line with its reason otherwise.
-status_assets_entry() {
+status_assets_report_entry() {
     local entry="$1" reason="${AI_TOOLS_ASSETS__DETAIL[$1]:-}"
     if [[ "${AI_TOOLS_ASSETS__STATE[${entry}]}" == linked ]]; then
         [[ -z "${AI_TOOLS_ASSETS__CAPS[${entry}]:-}" ]] \
@@ -3044,9 +3044,9 @@ status_assets_entry() {
     detail "$(ai_tools_log__sanitize "${reason:0:200}")"
 }
 
-# status_assets_row <index>: the line for one row the plan recorded: [ATTENTION] or [UNREADABLE] with its detail, none
-# for an info row.
-status_assets_row() {
+# status_assets_report_row <index>: the line for one row the plan recorded: [ATTENTION] or [UNREADABLE] with its detail,
+# none for an info row.
+status_assets_report_row() {
     local index="$1" reason="${AI_TOOLS_ASSETS__ROW_DETAIL[$1]}"
     case "${AI_TOOLS_ASSETS__ROW_SEVERITY[index]}" in
         attention)  st ATTENTION "${AI_TOOLS_ASSETS__ROW_FINDING[index]}  $(ai_tools_log__sanitize "${AI_TOOLS_ASSETS__ROW_SUBJECT[index]}")"
@@ -3251,7 +3251,7 @@ assets_load() {
     # shellcheck source=SCRIPTDIR/../../lib/ai-tools/assets.lib.sh
     source "${ASSETS_LIB}" 2>/dev/null || true
     if ! declare -F ai_tools_assets__reconcile >/dev/null 2>&1 || ! declare -F ai_tools_assets__build_enable_snapshot >/dev/null 2>&1 \
-            || ! declare -F ai_tools_assets__record_report_row >/dev/null 2>&1 || ! declare -F ai_tools_assets__list >/dev/null 2>&1; then
+            || ! declare -F ai_tools_assets__record_report_row >/dev/null 2>&1 || ! declare -F ai_tools_assets__report_state >/dev/null 2>&1; then
         warn MSG-P8M5 "the assets library (${ASSETS_LIB}) did not load, so no asset was read or changed -- reinstall ai-tools-base"
         exit 5
     fi
@@ -3324,15 +3324,15 @@ assets_write_list() {
 }
 
 # assets_sort_identifiers <array-name>: sort the identifiers in the named array in place, by kind, then set, then name
-# (assets_is_identifier_before). An insertion sort over the array itself, without a pipe or a process, so the array
-# keeps every identifier it held.
+# (assets_is_identifier_ordered_before). An insertion sort over the array itself, without a pipe or a process,
+# so the array keeps every identifier it held.
 assets_sort_identifiers() {
     local -n _assets_sort_identifiers_ids="$1"
     local index position identifier
     for (( index = 1; index < ${#_assets_sort_identifiers_ids[@]}; index++ )); do
         identifier="${_assets_sort_identifiers_ids[index]}"
         position="${index}"
-        while (( position > 0 )) && assets_is_identifier_before "${identifier}" "${_assets_sort_identifiers_ids[position - 1]}"; do
+        while (( position > 0 )) && assets_is_identifier_ordered_before "${identifier}" "${_assets_sort_identifiers_ids[position - 1]}"; do
             _assets_sort_identifiers_ids[position]="${_assets_sort_identifiers_ids[position - 1]}"
             position=$(( position - 1 ))
         done
@@ -3340,10 +3340,10 @@ assets_sort_identifiers() {
     done
 }
 
-# assets_is_identifier_before <a> <b>: succeed when identifier <a> sorts ahead of <b>: its kind, then its set, then its
-# name, each compared byte by byte under LC_ALL=C, so `acme/skills/x` sorts ahead of `acme-two/skills/x` although `-`
-# sorts ahead of `/` in a byte order over the whole identifier.
-assets_is_identifier_before() {
+# assets_is_identifier_ordered_before <a> <b>: succeed when identifier <a> sorts ahead of <b>: its kind, then its set,
+# then its name, each compared byte by byte under LC_ALL=C, so `acme/skills/x` sorts ahead of `acme-two/skills/x`
+# although `-` sorts ahead of `/` in a byte order over the whole identifier.
+assets_is_identifier_ordered_before() {
     local LC_ALL=C a_rest="${1#*/}" b_rest="${2#*/}"
     if [[ "${a_rest%%/*}" != "${b_rest%%/*}" ]]; then
         [[ "${a_rest%%/*}" < "${b_rest%%/*}" ]]
@@ -3354,21 +3354,21 @@ assets_is_identifier_before() {
     fi
 }
 
-# assets_require_edit <list-name> <read-name> <added-name> <removed-name>: exit 1 under MSG-S4M7, after the rows
+# assets_assert_list_edit <list-name> <read-name> <added-name> <removed-name>: exit 1 under MSG-S4M7, after the rows
 # the verb recorded and before the backup, unless the list about to be written holds exactly the entries read, less
 # every occurrence of one removed, plus those added -- each as often as that makes it. operator.conf is then as it was:
 # a verb writes only the edit it reports.
-assets_require_edit() {
-    local -n _assets_require_edit_list="$1" _assets_require_edit_read="$2" _assets_require_edit_added="$3" \
-        _assets_require_edit_removed="$4"
+assets_assert_list_edit() {
+    local -n _assets_assert_list_edit_list="$1" _assets_assert_list_edit_read="$2" _assets_assert_list_edit_added="$3" \
+        _assets_assert_list_edit_removed="$4"
     local identifier
     local -A removed_identifiers=() expected_counts=()
-    for identifier in "${_assets_require_edit_removed[@]}"; do removed_identifiers["${identifier}"]=1; done
-    for identifier in "${_assets_require_edit_read[@]}" "${_assets_require_edit_added[@]}"; do
+    for identifier in "${_assets_assert_list_edit_removed[@]}"; do removed_identifiers["${identifier}"]=1; done
+    for identifier in "${_assets_assert_list_edit_read[@]}" "${_assets_assert_list_edit_added[@]}"; do
         [[ -z "${removed_identifiers[${identifier}]+x}" ]] || continue
         expected_counts["${identifier}"]=$(( ${expected_counts[${identifier}]:-0} + 1 ))
     done
-    for identifier in "${_assets_require_edit_list[@]}"; do
+    for identifier in "${_assets_assert_list_edit_list[@]}"; do
         expected_counts["${identifier}"]=$(( ${expected_counts[${identifier}]:-0} - 1 ))
     done
     for identifier in "${!expected_counts[@]}"; do
@@ -3378,9 +3378,9 @@ assets_require_edit() {
     done
 }
 
-# assets_record_enabled <identifier>...: one `enabled` row per identifier an enable added to AI_TOOLS_ASSETS, the list
-# edit an `assets disable` reports as `disabled`.
-assets_record_enabled() {
+# assets_record_enabled_rows <identifier>...: one `enabled` row per identifier an enable added to AI_TOOLS_ASSETS,
+# the list edit an `assets disable` reports as `disabled`.
+assets_record_enabled_rows() {
     local identifier
     for identifier in "$@"; do
         _assets_info_row MSG-N3M8 "assets enable: an identifier added to AI_TOOLS_ASSETS" enabled "${AI_TOOLS_OPERATOR_CONF}" \
@@ -3436,9 +3436,9 @@ assets_enable() {
     if (( ${#added[@]} > 0 )); then
         entries=( "${listed[@]}" "${added[@]}" )
         assets_sort_identifiers entries
-        assets_require_edit entries listed added removed
+        assets_assert_list_edit entries listed added removed
         assets_write_list "${entries[@]}"
-        assets_record_enabled "${added[@]}"
+        assets_record_enabled_rows "${added[@]}"
     fi
     status=0
     assets_reconcile_now || status=$?
@@ -3477,9 +3477,9 @@ assets_enable_set() {
     if (( ${#added[@]} > 0 )); then
         entries=( "${listed[@]}" "${added[@]}" )
         assets_sort_identifiers entries
-        assets_require_edit entries listed added removed
+        assets_assert_list_edit entries listed added removed
         assets_write_list "${entries[@]}"
-        assets_record_enabled "${added[@]}"
+        assets_record_enabled_rows "${added[@]}"
     fi
     assets_reconcile_now || status=$?
     assets_finish "${status}"
@@ -3516,7 +3516,7 @@ assets_disable() {
     done
     if (( ${#removed[@]} > 0 )); then
         assets_sort_identifiers kept
-        assets_require_edit kept entries added removed
+        assets_assert_list_edit kept entries added removed
         assets_write_list "${kept[@]}"
         for identifier in "${removed[@]}"; do
             _assets_info_row MSG-Q2C6 "assets disable: an identifier removed from AI_TOOLS_ASSETS" disabled \
@@ -3528,14 +3528,14 @@ assets_disable() {
 }
 
 # assets_list: `assets list`, and a bare `assets`: every enabled asset's state and each link a reconcile would place
-# or remove, as a record stream (ai_tools_assets__list). Reads without the assets lock, as `status` does, since a read
-# that waited on a reconcile could wait two minutes. Exits 5 when the library did not load, else 4 for an attention row
-# -- a pending change among them -- else 0; it does not write, so it does not exit 1.
+# or remove, as a record stream (ai_tools_assets__report_state). Reads without the assets lock, as `status` does, since
+# a read that waited on a reconcile could wait two minutes. Exits 5 when the library did not load, else 4
+# for an attention row -- a pending change among them -- else 0; it does not write, so it does not exit 1.
 assets_list() {
     (( $# == 0 )) || reject MSG-F3D9 "assets list takes no arguments"
     assets_load
     ai_tools_records_base__begin_report
-    ai_tools_assets__list
+    ai_tools_assets__report_state
     ai_tools_records_base__get_exit_status || exit $?
     exit 0
 }

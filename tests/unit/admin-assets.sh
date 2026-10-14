@@ -523,7 +523,7 @@ admin assets list
     || fail "MSG-M7J8 without a failed read: ${ERR:0:300}"
 # The set reader's read of the stray link fails after the classification read it: the row keeps its finding and is
 # written, and the order warns that its key was lost.
-printf -v PRELUDE 'readlink() { [[ "${FUNCNAME[1]}" == _ai_tools_assets__read_resolver_set && "${*: -1}" == %q ]] && return 1; command readlink "$@"; }' \
+printf -v PRELUDE 'readlink() { [[ "${FUNCNAME[1]}" == _ai_tools_assets__read_resolver_link_set && "${*: -1}" == %q ]] && return 1; command readlink "$@"; }' \
     "${HOME_DIR}/skills/acme-stray"
 admin assets list; PRELUDE=""
 [[ "${RC}" == 4 && "$(pending_rows)" == "unlink-pending ${HOME_DIR}/skills/acme-stray attention" ]] \

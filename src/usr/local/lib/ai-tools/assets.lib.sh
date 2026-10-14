@@ -17,7 +17,7 @@
 # The view transaction is ai_tools_assets__reconcile: the lock, then ai_tools_assets__plan, which reads every input
 # and computes the link changes without writing, then the apply, then one record per entry and per change, sorted
 # by kind, set and name (ai_tools_assets__sort_report_rows). `status` runs the plan alone, and `assets list` the plan
-# and the report (ai_tools_assets__list).
+# and the report (ai_tools_assets__report_state).
 #
 # The root-only test hooks AI_TOOLS_ASSETS_ROOTS and AI_TOOLS_ASSETS_HOME move the roots and the directory holding
 # the view and the agent config directories, with the standing of AI_TOOLS_ASSETS_BINDINGS_DIR (assets-verify.lib.sh).
@@ -1127,7 +1127,7 @@ _ai_tools_assets__reset_plan() {
 # _ai_tools_assets__record_row <severity> <finding> <subject-type> <subject> <item> <agent> <detail> [set] : record one
 # row the report writes: <item> and <agent> become the item's components, the agent's empty for a view-level row. [set]
 # is the set a row about a resolver link sorts under where <item> does not name one
-# (_ai_tools_assets__read_resolver_set); the stream does not carry it.
+# (_ai_tools_assets__read_resolver_link_set); the stream does not carry it.
 _ai_tools_assets__record_row() {
     AI_TOOLS_ASSETS__ROW_SEVERITY+=( "$1" ); AI_TOOLS_ASSETS__ROW_FINDING+=( "$2" ); _AI_TOOLS_ASSETS__ROW_SUBJECT_TYPE+=( "$3" )
     AI_TOOLS_ASSETS__ROW_SUBJECT+=( "$4" ); _AI_TOOLS_ASSETS__ROW_ITEM+=( "$5" ); _AI_TOOLS_ASSETS__ROW_AGENT+=( "$6" )
@@ -1355,14 +1355,14 @@ _ai_tools_assets__is_resolver_link() {
     return 1
 }
 
-# _ai_tools_assets__read_resolver_set <path> : print the set a resolver link at <path> points into, read one hop:
+# _ai_tools_assets__read_resolver_link_set <path> : print the set a resolver link at <path> points into, read one hop:
 # the first component under one of the first two roots, `ai-tools` under the base root. Prints nothing for a path
 # that is not a resolver link, and returns 1 without printing for a link whose target could not be read. The plan reads
 # it while the link is still on disk, and the set is a sort key alone: the row's finding and subject come
 # from the apply's own result, so a set that could not be read moves the row to the head of its kind and leaves its
 # finding, subject and detail as the apply recorded them. A caller counts each status 1
 # in _AI_TOOLS_ASSETS__SET_KEYS_LOST, which the order reports (_ai_tools_assets__sort_rows).
-_ai_tools_assets__read_resolver_set() {
+_ai_tools_assets__read_resolver_link_set() {
     local target index root rest
     [[ -L "$1" ]] || return 0
     target="$(readlink -- "$1" 2>/dev/null)" || return 1
@@ -1824,13 +1824,13 @@ _ai_tools_assets__plan_view() {
     done
     for name in "${!present[@]}"; do
         if [[ "${name}" =~ ^\..+\.ai-tools-assets\.tmp$ ]] && _ai_tools_assets__is_own_leftover "${view}/${name}"; then
-            link_set="$(_ai_tools_assets__read_resolver_set "${view}/${name}")" || _AI_TOOLS_ASSETS__SET_KEYS_LOST=$(( _AI_TOOLS_ASSETS__SET_KEYS_LOST + 1 ))
+            link_set="$(_ai_tools_assets__read_resolver_link_set "${view}/${name}")" || _AI_TOOLS_ASSETS__SET_KEYS_LOST=$(( _AI_TOOLS_ASSETS__SET_KEYS_LOST + 1 ))
             _ai_tools_assets__record_action unlink "${view}/${name}" "" file "${kind}/${name}" "" "a temporary name an interrupted run left" "${link_set}"
             continue
         fi
         [[ "${name}" == README.md || -n "${desired[${name}]+x}" ]] && continue
         if _ai_tools_assets__is_resolver_link "${view}/${name}"; then
-            link_set="$(_ai_tools_assets__read_resolver_set "${view}/${name}")" || _AI_TOOLS_ASSETS__SET_KEYS_LOST=$(( _AI_TOOLS_ASSETS__SET_KEYS_LOST + 1 ))
+            link_set="$(_ai_tools_assets__read_resolver_link_set "${view}/${name}")" || _AI_TOOLS_ASSETS__SET_KEYS_LOST=$(( _AI_TOOLS_ASSETS__SET_KEYS_LOST + 1 ))
             _ai_tools_assets__record_action unlink "${view}/${name}" "" file "${kind}/${name}" "" "no enabled entry justifies it" "${link_set}"
             continue
         fi
@@ -2060,7 +2060,7 @@ _ai_tools_assets__plan_stale_links() {
         [[ "${target}" == "${view}/"* ]] || continue
         after="${_AI_TOOLS_ASSETS__VIEW_AFTER[${target#"${view}/"}]:-}"
         if [[ -z "${after}" || ( "${which}" == resolver && "${after}" == resolver ) ]]; then
-            link_set="$(_ai_tools_assets__read_resolver_set "${target}")" || _AI_TOOLS_ASSETS__SET_KEYS_LOST=$(( _AI_TOOLS_ASSETS__SET_KEYS_LOST + 1 ))
+            link_set="$(_ai_tools_assets__read_resolver_link_set "${target}")" || _AI_TOOLS_ASSETS__SET_KEYS_LOST=$(( _AI_TOOLS_ASSETS__SET_KEYS_LOST + 1 ))
             _ai_tools_assets__record_action unlink "${agent_dir}/${name}" "" agent "${kind}/${target#"${view}/"}" "${agent}" \
                 "$([[ -z "${after}" ]] && printf 'the view does not hold a linkable entry at its name' || printf 'the agent is not enabled')" \
                 "${link_set}"
@@ -2541,14 +2541,14 @@ _ai_tools_assets__write_recorded_row() {
         "${_AI_TOOLS_ASSETS__RECORDED_ITEM[$1]}" "${_AI_TOOLS_ASSETS__RECORDED_AGENT[$1]}" "${_AI_TOOLS_ASSETS__RECORDED_DETAIL[$1]}"
 }
 
-# _ai_tools_assets__write_list_row <code> <applied> : the enable-list row, where the list could not be read. <applied>
-# is 1 where an apply ran. Without one -- `assets list` -- the row says each resolver link stays until a reconcile
-# removes it, each named in an unlink-pending row. After one it says every resolver link is removed only
+# _ai_tools_assets__write_enable_list_row <code> <applied> : the enable-list row, where the list could not be read.
+# <applied> is 1 where an apply ran. Without one -- `assets list` -- the row says each resolver link stays until
+# a reconcile removes it, each named in an unlink-pending row. After one it says every resolver link is removed only
 # where the receiving agents were read, every directory was planned, listed and written and every removal took. Either
 # way it names the directories a link stays under (_AI_TOOLS_ASSETS__DIRS_LEFT), says the agents' directories were not
 # examined (_AI_TOOLS_ASSETS__AGENT_DIRS_UNREAD) and names the write-failed rows, so the stream does not claim
 # a withdrawal the run did not make.
-_ai_tools_assets__write_list_row() {
+_ai_tools_assets__write_enable_list_row() {
     local code="$1" applied="$2" detail
     case "${AI_TOOLS_ASSETS__LIST_STATE}" in
         untrusted)
@@ -2578,7 +2578,7 @@ _ai_tools_assets__write_list_row() {
 
 # _ai_tools_assets__report <code> <applied> : the record stream for a plan, and the apply when one ran (<applied> 1),
 # in the order ai_tools_assets__sort_report_rows gives: the rows a caller recorded under their own codes, then
-# under <code> the enable-list row (_ai_tools_assets__write_list_row), one row per entry (`linked` at ok, `error`
+# under <code> the enable-list row (_ai_tools_assets__write_enable_list_row), one row per entry (`linked` at ok, `error`
 # at unreadable, any other token at attention) and each row the plan and the apply recorded. A verb's rows
 # and the reconcile's are therefore one stream sorted by kind, set and name, an asset's list edit ahead of its entry,
 # its view link and its agent links. The recorded rows are emptied once written.
@@ -2590,7 +2590,7 @@ _ai_tools_assets__report() {
         origin="${reference%%$'\t'*}"; index="${reference#*$'\t'}"
         case "${origin}" in
             recorded) _ai_tools_assets__write_recorded_row "${index}" ;;
-            list)     _ai_tools_assets__write_list_row "${code}" "${applied}" ;;
+            list)     _ai_tools_assets__write_enable_list_row "${code}" "${applied}" ;;
             entry)
                 entry="${AI_TOOLS_ASSETS__ENTRIES[index]}"
                 if [[ "${AI_TOOLS_ASSETS__STATE[${entry}]}" == linked ]]; then
@@ -2622,30 +2622,30 @@ ai_tools_assets__reconcile() {
     ai_tools_managed_assets__lock || return 1
     ai_tools_assets__plan
     _ai_tools_assets__apply_locked "${group}"
-    _ai_tools_assets__reconcile_report MSG-Z3P6 "assets reconcile: an enable-list entry's state, or a link the view transaction placed, removed or found"
+    _ai_tools_assets__write_reconcile_report MSG-Z3P6 "assets reconcile: an enable-list entry's state, or a link the view transaction placed, removed or found"
     (( _AI_TOOLS_ASSETS__WRITE_FAILED == 0 )) || status=1
     ai_tools_managed_assets__unlock
     return "${status}"
 }
 
-# _ai_tools_assets__reconcile_report <code> <situation> : the report a reconcile writes, under the code naming its
+# _ai_tools_assets__write_reconcile_report <code> <situation> : the report a reconcile writes, under the code naming its
 # situation.
-_ai_tools_assets__reconcile_report() {
+_ai_tools_assets__write_reconcile_report() {
     _ai_tools_assets__report "$1" 1
 }
 
-# ai_tools_assets__list : the view transaction's reading without its writes: the plan, then the report a reconcile
-# writes with one attention row added per change the apply would make -- `link-pending` for a link to place, repoint
-# or convert from a managed copy, `unlink-pending` for a link to remove -- whose detail names
+# ai_tools_assets__report_state : the view transaction's reading without its writes: the plan, then the report
+# a reconcile writes with one attention row added per change the apply would make -- `link-pending` for a link to place,
+# repoint or convert from a managed copy, `unlink-pending` for a link to remove -- whose detail names
 # `sudo ai-tools-admin assets reconcile`. The entry rows read as the plan resolved them, so an entry whose link is not
 # on disk reads `linked` beside its `link-pending` row, and the enable-list row of an untrusted operator.conf says
 # the links stay until a reconcile removes them. Like `status`, it does not take the lock and does not change
 # operator.conf or a link: a link a running reconcile stages under its temporary name reads as `unlink-pending` until
 # that reconcile renames it. The records' severities fold into ai_tools_records_base__get_exit_status for the caller.
-ai_tools_assets__list() {
+ai_tools_assets__report_state() {
     ai_tools_assets__plan
     _ai_tools_assets__record_pending_rows
-    _ai_tools_assets__list_report MSG-W5Q3 "assets list: an enable-list entry's state, a link the view transaction would place or remove, or an entry it found"
+    _ai_tools_assets__write_list_report MSG-W5Q3 "assets list: an enable-list entry's state, a link the view transaction would place or remove, or an entry it found"
 }
 
 # _ai_tools_assets__record_pending_rows : one attention row per action the plan recorded, about the action's path, item
@@ -2672,9 +2672,9 @@ _ai_tools_assets__record_pending_rows() {
     done
 }
 
-# _ai_tools_assets__list_report <code> <situation> : the report `assets list` writes, under the code naming its
+# _ai_tools_assets__write_list_report <code> <situation> : the report `assets list` writes, under the code naming its
 # situation.
-_ai_tools_assets__list_report() {
+_ai_tools_assets__write_list_report() {
     _ai_tools_assets__report "$1" 0
 }
 

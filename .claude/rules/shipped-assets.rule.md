@@ -177,7 +177,7 @@ and `ai-tools-bootstrap`.
 
 The verbs are `ai-tools-admin assets list|enable|disable|reconcile`, each root-only. Each verb that writes ends
 with the reconcile; `list`, the default, runs the plan and the report without the lock and without a write, and adds
-a row per change the apply would make (`ai_tools_assets__list`). The record stream and the exit fold are
+a row per change the apply would make (`ai_tools_assets__report_state`). The record stream and the exit fold are
 [records](records.rule.md)'s contract. `ai_tools_assets__validate_set` runs the same subset over a tree as data, without
 the trust walk or the signature, for the conformance job that holds base's reading to the publisher's fixtures.
 
