@@ -3480,22 +3480,25 @@ assets_enable_set() {
 
 # assets_disable <identifier>...: remove each named entry from AI_TOOLS_ASSETS -- one the list does not hold is reported
 # under MSG-Q5T6 and does not refuse the others -- write the kept entries sorted (assets_sort_identifiers)
-# with the backup, and reconcile, which removes the links. A call naming only identifiers the list does not hold leaves
-# the file as it is.
+# with the backup, and reconcile, which removes the links. An identifier named more than once counts once, in the order
+# first named, so it takes one `disabled` or `not-enabled` row. A call naming only identifiers the list does not hold
+# leaves the file as it is.
 assets_disable() {
     local identifier entry status=0 found
-    local -a entries=() kept=() removed=() added=()
+    local -a entries=() kept=() removed=() absent=() added=()
     (( $# > 0 )) || reject MSG-H7A8 "assets disable takes one or more <set>/<kind>/<name>"
     assets_load
     ai_tools_records_base__begin_report
     assets_lock_or_exit
     assets_read_list entries
     for identifier in "$@"; do
+        for entry in "${removed[@]}" "${absent[@]}"; do [[ "${entry}" == "${identifier}" ]] && continue 2; done
         found=0
         for entry in "${entries[@]}"; do [[ "${entry}" == "${identifier}" ]] && found=1; done
         if (( found )); then
             removed+=( "${identifier}" )
         else
+            absent+=( "${identifier}" )
             _assets_attention_row MSG-Q5T6 "assets disable: an identifier AI_TOOLS_ASSETS does not hold" not-enabled \
                 "${AI_TOOLS_OPERATOR_CONF}" "${identifier}" "AI_TOOLS_ASSETS does not list it, so it was not disabled"
         fi

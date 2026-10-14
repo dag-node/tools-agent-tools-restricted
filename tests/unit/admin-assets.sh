@@ -251,6 +251,29 @@ if [[ "${rows}" == "disabled"$'\t'"${CONF}"$'\t'*"${SKILL}"* ]]; then
 else
     fail "the disable's list-edit row: '${rows}'"
 fi
+# code_rows <code> : how many rows of the last stream carry <code>.
+code_rows() { awk -F'\t' -v code="$1" 'NR > 1 && $3 == code { n++ } END { print n + 0 }' <<< "${OUT}"; }
+for shape in "${SKILL} ${SUB}" "${SKILL} ${SKILL} ${SUB}"; do
+    fresh
+    # shellcheck disable=SC2086  # the entries split on purpose
+    write_conf ${shape}
+    admin assets disable "${SKILL}" "${SKILL}"
+    if [[ "$(code_rows MSG-Q2C6)" == 1 && "$(listed)" == "AI_TOOLS_ASSETS=[${SUB}]" ]]; then
+        pass "disable naming an identifier twice over [${shape}]: one disabled row, every occurrence removed"
+    else
+        fail "disable twice over [${shape}]: $(code_rows MSG-Q2C6) disabled row(s), '$(listed)'"
+    fi
+done
+admin assets disable acme/skills/acme-z acme/skills/acme-z
+[[ "$(code_rows MSG-Q5T6)" == 1 ]] && pass "disable naming an absent identifier twice: one not-enabled row" \
+    || fail "disable of an absent identifier twice: $(code_rows MSG-Q5T6) not-enabled row(s)"
+fresh
+admin assets enable "${SKILL}" "${SKILL}"
+if [[ "$(code_rows MSG-N3M8)" == 1 && "$(listed)" == "AI_TOOLS_ASSETS=[${SKILL}]" ]]; then
+    pass "enable naming an identifier twice: one enabled row, one entry"
+else
+    fail "enable twice: $(code_rows MSG-N3M8) enabled row(s), '$(listed)'"
+fi
 
 # ── The order of the stream ──────────────────────────────────────────────────────────────────────────────────────────
 section "ai-tools-admin assets: the stream is sorted by kind, set and name"
