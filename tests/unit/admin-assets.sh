@@ -494,6 +494,10 @@ fi
 # The item's components are the identifier and the agent, joined by a tab the stream writes as `\t`.
 [[ "$(awk -F'\t' '$6 == "link-pending" { print $9 }' <<< "${OUT}")" == "${SKILL}"'\tacme' ]] && pass "the link-pending row names the agent" \
     || fail "the link-pending row's item: $(awk -F'\t' '$6 == "link-pending" { print $9 }' <<< "${OUT}")"
+[[ "$(awk -F'\t' '$6 == "link-pending" { print $11 }' <<< "${OUT}")" \
+        == "a reconcile would point it at ${HOME_DIR}/skills/acme-pdf; run sudo ai-tools-admin assets reconcile" ]] \
+    && pass "the link-pending row says what a reconcile would do" \
+    || fail "the link-pending row's detail: $(awk -F'\t' '$6 == "link-pending" { print $11 }' <<< "${OUT}")"
 [[ "$(snapshot)" == "${before}" ]] && pass "list does not write: the view, the agent's directory and operator.conf are as they were" \
     || fail "list changed the host"
 admin assets reconcile; admin assets list
@@ -503,6 +507,10 @@ ln -s "${PKG}/acme/skills/acme-pdf" "${HOME_DIR}/skills/acme-stray"
 admin assets list
 [[ "${RC}" == 4 && "$(pending_rows)" == "unlink-pending ${HOME_DIR}/skills/acme-stray attention" ]] \
     && pass "a resolver link no entry justifies: unlink-pending, exit 4" || fail "a stray link: rc ${RC}, pending '$(pending_rows)'"
+[[ "$(awk -F'\t' '$6 == "unlink-pending" { print $11 }' <<< "${OUT}")" \
+        == "a reconcile would remove it: no enabled entry justifies it; run sudo ai-tools-admin assets reconcile" ]] \
+    && pass "the unlink-pending row says what a reconcile would do, and why" \
+    || fail "the unlink-pending row's detail: $(awk -F'\t' '$6 == "unlink-pending" { print $11 }' <<< "${OUT}")"
 ! grep -qxF MSG-M7J8 <<< "${ERR}" && pass "a set read whole does not warn that a sort key was lost" \
     || fail "MSG-M7J8 without a failed read: ${ERR:0:300}"
 # The set reader's read of the stray link fails after the classification read it: the row keeps its finding and is
@@ -554,8 +562,9 @@ chmod 0644 "${CONF}"
 section "ai-tools-admin status: the Assets section"
 fresh
 admin status_assets
-if grep -qE '\[OK\] +0 asset\(s\) enabled in AI_TOOLS_ASSETS, 0 linked' <<< "${OUT}" && [[ "${OUT}" == *problems=0* ]]; then
-    pass "a host with no entry prints the OK line with a count of zero"
+if grep -qE '\[OK\] +0 asset\(s\) enabled in AI_TOOLS_ASSETS, 0 resolved to linked; sudo ai-tools-admin assets lists the link changes' \
+        <<< "${OUT}" && [[ "${OUT}" == *problems=0* ]]; then
+    pass "a host with no entry prints the OK line with a count of zero, naming the reading that lists pending link changes"
 else
     fail "zero entries: ${OUT:0:300}"
 fi

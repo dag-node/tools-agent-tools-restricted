@@ -2649,15 +2649,26 @@ ai_tools_assets__list() {
 }
 
 # _ai_tools_assets__record_pending_rows : one attention row per action the plan recorded, about the action's path, item
-# and agent, under the set the action sorts under.
+# and agent, under the set the action sorts under. Its detail says what a reconcile would do -- point the link at its
+# target, replace a managed copy with a link, remove the link for the plan's reason -- and names the reconcile;
+# the apply's own rows keep the detail the action carries.
 _ai_tools_assets__record_pending_rows() {
-    local index pending_finding
+    local index pending_finding pending_detail
     for (( index = 0; index < ${#_AI_TOOLS_ASSETS__ACTION_OPERATION[@]}; index++ )); do
-        pending_finding="link-pending"
-        [[ "${_AI_TOOLS_ASSETS__ACTION_OPERATION[index]}" == unlink ]] && pending_finding="unlink-pending"
+        case "${_AI_TOOLS_ASSETS__ACTION_OPERATION[index]}" in
+            unlink)
+                pending_finding="unlink-pending"
+                pending_detail="a reconcile would remove it: ${_AI_TOOLS_ASSETS__ACTION_DETAIL[index]}" ;;
+            convert)
+                pending_finding="link-pending"
+                pending_detail="a reconcile would replace the managed copy with a link to ${_AI_TOOLS_ASSETS__ACTION_TARGET[index]}" ;;
+            *)
+                pending_finding="link-pending"
+                pending_detail="a reconcile would point it at ${_AI_TOOLS_ASSETS__ACTION_TARGET[index]}" ;;
+        esac
         _ai_tools_assets__record_row attention "${pending_finding}" "${_AI_TOOLS_ASSETS__ACTION_SUBJECT_TYPE[index]}" \
             "${_AI_TOOLS_ASSETS__ACTION_PATH[index]}" "${_AI_TOOLS_ASSETS__ACTION_ITEM[index]}" "${_AI_TOOLS_ASSETS__ACTION_AGENT[index]}" \
-            "${_AI_TOOLS_ASSETS__ACTION_DETAIL[index]}; run sudo ai-tools-admin assets reconcile" "${_AI_TOOLS_ASSETS__ACTION_SET[index]}"
+            "${pending_detail}; run sudo ai-tools-admin assets reconcile" "${_AI_TOOLS_ASSETS__ACTION_SET[index]}"
     done
 }
 

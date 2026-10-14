@@ -2975,10 +2975,12 @@ status_selinux_attestation() {
 # [ATTENTION] line per enabled asset that is not linked, per untrusted or foreign entry the plan met, and per agent
 # whose own entry stands at an enabled asset's name, each counted in STATUS_PROBLEMS; one [UNREADABLE] line per input
 # the plan could not read, counted in STATUS_UNREADABLE; the withdrawn-successor notice (status_assets_successors);
-# an OK line per linked asset that declares a capability; and an OK summary of how many entries are enabled and linked.
-# The entry and row lines come in the order the record stream takes (ai_tools_assets__sort_report_rows). A library
-# that did not load is a reading this section could not make. Every string from a set or an agent's directory passes
-# the sanitizer. The section closes with status_assets_summary over the counts it added.
+# an OK line per linked asset that declares a capability; and an OK summary of how many entries are enabled and how many
+# the plan resolved to linked, naming `assets` as the reading that lists the link changes a reconcile would make,
+# which this section does not print, so a missing link reads here as resolved. The entry and row lines come in the order
+# the record stream takes (ai_tools_assets__sort_report_rows). A library that did not load is a reading this section
+# could not make. Every string from a set or an agent's directory passes the sanitizer. The section closes
+# with status_assets_summary over the counts it added.
 status_assets() {
     local problems_before="${STATUS_PROBLEMS}" unreadable_before="${STATUS_UNREADABLE}"
     heading "Assets"
@@ -3019,7 +3021,7 @@ status_assets_rows() {
     for entry in "${AI_TOOLS_ASSETS__ENTRIES[@]}"; do
         [[ "${AI_TOOLS_ASSETS__STATE[${entry}]}" == linked ]] && linked=$(( linked + 1 ))
     done
-    st OK "${#AI_TOOLS_ASSETS__ENTRIES[@]} asset(s) enabled in AI_TOOLS_ASSETS, ${linked} linked"
+    st OK "${#AI_TOOLS_ASSETS__ENTRIES[@]} asset(s) enabled in AI_TOOLS_ASSETS, ${linked} resolved to linked; sudo ai-tools-admin assets lists the link changes a reconcile would make"
     return 0
 }
 
