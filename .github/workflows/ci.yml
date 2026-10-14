@@ -115,7 +115,8 @@ jobs:
         run: bash tools/checkers/assets-conformance.sh run
 
   # The development tools this repository resolves from its two pins: the reference index and its checks through
-  # the pinned reftags tool, and the formatter tests through the pinned formatters and checker. Container-free, so
+  # the pinned reftags tool, the formatter tests through the pinned formatters and checker, and the width gate, which
+  # holds every file in the format scope to its column through the pinned checker. Container-free, so
   # the pins are fetched into the runner's own cache; the rpm-selftest containers do not hold that cache, and there
   # these tests skip naming the fetch command.
   dev-tools:
@@ -136,7 +137,7 @@ jobs:
 
       - name: Run the formatter and pin tests
         run: |
-          for test in dev-assets format fill-markdown align-tables fill-comments references; do
+          for test in dev-assets format fill-markdown align-tables fill-comments references prose-width; do
               bash "tests/unit/${test}.sh"
           done
 

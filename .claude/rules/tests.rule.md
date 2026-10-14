@@ -404,21 +404,21 @@ of comment paragraphs, a changed code line. Skipped without Emacs. `format.sh` p
 the checker names, at the column it names — a page at 79, a router at 120, a source comment at 120, a header
 under `src/etc/` at 72 — while a generated page (one carrying the ignore-file marker) is reported as skipped with its
 kind and left as it was, since the failure it exists to prevent is the comment filler pointed at a page. What may be
-formatted at all is the explicit scope the front door's `SCOPE` names: a unit file, a log and a Makefile in the fixture
-are outside it, so `--all` counts and leaves them, a man page and a binary never reach the checker, and a file named
-on the command line is reported and skipped, as is a path outside the repository, while a named path is read
-from the directory the command was run in. The scope rule is pinned from both sides: with no file named, only
-the paragraph a diff touched is filled and an over-width paragraph the commit already held is left, `--files` fills
-that one too, an untracked file is filled whole either way, and `--all` warns first. Its exit status is pinned
-as the closing report's: 0 when no measured line is left over its column, 1 while a line no filler can shorten remains
-or a filler refused a file, which is reported with its reason and left as it was. Its last case, which the release's
-suite does not carry yet, runs a copy of the pinned formatter over its own two shell tools: each is one function called
-on its last line, which bash parses whole, so the fill that rewrites the file under the running bash does not end
-the run mid-line. `fill-markdown.sh` is its Markdown counterpart, and pins the filler (`formatters/fill-markdown.py`,
-given the checker with `--checker`) together with the gate that proves a reflow pure (`formatters/verify-reflow.py`),
-because a defect in either looks the same from outside: one fixture carries every shape found by rehearsing the filler
-on real pages — frontmatter, a nested fence, a multi-line HTML comment, a list item with an indented continuation,
-a wide marker, an indented code block, a table, a blockquote with an
+formatted at all is the explicit scope `tools/lib/format-scope.sh` declares for the front door: a unit file, a log
+and a Makefile in the fixture are outside it, so `--all` counts and leaves them, a man page and a binary never reach
+the checker, and a file named on the command line is reported and skipped, as is a path outside the repository, while
+a named path is read from the directory the command was run in. The scope rule is pinned from both sides: with no file
+named, only the paragraph a diff touched is filled and an over-width paragraph the commit already held is left,
+`--files` fills that one too, an untracked file is filled whole either way, and `--all` warns first. Its exit status is
+pinned as the closing report's: 0 when no measured line is left over its column, 1 while a line no filler can shorten
+remains or a filler refused a file, which is reported with its reason and left as it was. Its last case,
+which the release's suite does not carry yet, runs a copy of the pinned formatter over its own two shell tools: each is
+one function called on its last line, which bash parses whole, so the fill that rewrites the file under the running bash
+does not end the run mid-line. `fill-markdown.sh` is its Markdown counterpart, and pins the filler
+(`formatters/fill-markdown.py`, given the checker with `--checker`) together with the gate that proves a reflow pure
+(`formatters/verify-reflow.py`), because a defect in either looks the same from outside: one fixture carries every shape
+found by rehearsing the filler on real pages — frontmatter, a nested fence, a multi-line HTML comment, a list item
+with an indented continuation, a wide marker, an indented code block, a table, a blockquote with an
 alert line, a `prose-check: ignore` line, a dash after a token wider than the column, and inline code spans placed
 where a greedy break lands inside them — and the filler must reflow it to a state the gate passes and the checker's
 `--wrap` finds complete (a filler that copies a region through leaves a clean gate and an over-width line), while each
@@ -449,43 +449,49 @@ and a message string is not prose, so the checker that skips a quoted span never
 with the resolvable form beside it, a non-ASCII URL among them, since matching is on the ASCII delimiter a link needs
 and not on what a URI may contain; the pair that must stay silent is an ordinary message a looser pattern would report —
 a page name in parentheses, and an option set carrying a pipe. Every case id in this file carries the `TEST-` prefix,
-so a result line is told from a reftag or a message code at a glance. `dev-assets.sh` holds `tools/lib/assets.sh`
-to reading a tool from its pin alone: an archive whose sha256 differs from the pin's, a release that publishes another
-sha256, one without its signature, one signed by a throwaway key, a cached tree edited after the unpack, and a pin
-carrying a line outside its three keys each refuse with the reason and do not leave a cache directory `path` would read,
-and `path` does not print a line for a pin not in the cache; the cache is `0700` under the user's own home,
-and a checkout variable resolves with a `BYPASS` line. Its control is the release `fetch` placed in the invoking user's
-cache, served to a stubbed download, so the file runs without a network. With the cache empty the git hooks name
-the fetch command and exit 0 while the front door and the reftags wrapper exit 1 with it. `cli-verbs.sh` is the same
-shape one layer in: a pure text check that the CLI's four **gating tables** — `OPERATOR_VERBS`, `ROOT_ALLOWED_VERBS`,
-`BOOTSTRAP_EXEMPT_VERBS`, `FOR_ALLOWED_VERBS` — still describe the verbs it dispatches. The failure it exists for is
-silent and one-directional: a verb added to the dispatcher and forgotten in `OPERATOR_VERBS` runs for an unenrolled
-caller, with no message to say so until a root helper refuses it midway. So every dispatched verb must be classified —
-operator-acting, or in the informational set the test names — no verb may be both operator-acting and root-allowed, no
-table may name a verb the dispatcher no longer has, and the help must list exactly what the dispatcher accepts. Its last
-check asserts required **content** rather than consistency: `--help` and `--version` must be
-in `BOOTSTRAP_EXEMPT_VERBS`, because a CLI that cannot print its own usage on an unprovisioned host leaves the gate's
-refusal as the only route to the provisioning command — a regression visible only on the host nobody develops against.
-`cli-agent-set.sh` drives the gate those tables surround, `require_bootstrap`, and the `status` section that reports
-the same read: the CLI is sourced as the projects user with the resolver's two hooks and `AI_TOOLS_LAUNCHER_DIR` pointed
-at fixtures, and every read is asserted in its fail direction — any enabled agent's link passes, an enabled set with no
-link refuses naming the bootstrap command, an empty allowlist, an allowlisted name with no manifest,
-and a group-writable manifest directory each refuse with the resolver's reason (a link present for the agent
-that directory names notwithstanding), and the report names each agent as the gate decided it. Its last section drives
-the entrypoint half of that report through three further fixture hooks — the pin, stale-mark and label record
-directories, so the label line under each pin reads from a fixture too — where what must not happen is the opposite
-of a refusal: a pin a reconciliation declined to re-record is left standing and reads, on its own, as a verification
-that succeeded. So the tier line is asserted as a control, then the mark replacing it and counting toward the exit
-status, then a mark saying anything but `stale` leaving the line as it was — the record grammar deciding, rather than
-the file's presence. A further section drives the Version section's Node line against fixture links: the version a link
-points into is the one named, two links naming different versions are reported as such, and a link outside the versioned
-shape claims none. Its closing section drives `cmd_status` whole, the host-reading sections stubbed to a known answer,
-over the exit fold `ai-tools-records(5)` states: a section that read a fault exits 4, the service registry's readers
-removed after the CLI loaded them exits 5 under its code with the later sections still printed, a section returning its
-unreadable status exits 5, and a fault beside an unreadable reading exits 5. Its last section drives the Caches section
-over fixture state files: each verdict the library counts returns 1 with the library's remedy under the line, an overdue
-cache returns 0 with the line its recorded reason selects, and an empty file and a value forged with a control byte read
-as `?` and are not counted.
+so a result line is told from a reftag or a message code at a glance. `prose-width.sh` is the width gate: it holds every
+tracked file in the scope `tools/lib/format-scope.sh` declares to its column through the pinned checker, counting
+the `comment-width`, `document-width` and `header-width` findings alone, since `--wrap` also runs the prose checks
+that belong to the writing pass. It runs the checker and not the formatter, because a gate does not write. Its fixture
+proves the gate before the tree is read: one over-width line of each kind is reported with its file, line and column;
+a vendored file, a file outside the scope and an untracked page, each over its column, are not measured; the corrected
+form passes; and a path the checker cannot read, or a tree git cannot list, fails the gate rather than reading
+as a clean one. `dev-assets.sh` holds `tools/lib/assets.sh` to reading a tool from its pin alone: an archive
+whose sha256 differs from the pin's, a release that publishes another sha256, one without its signature, one signed
+by a throwaway key, a cached tree edited after the unpack, and a pin carrying a line outside its three keys each refuse
+with the reason and do not leave a cache directory `path` would read, and `path` does not print a line for a pin not
+in the cache; the cache is `0700` under the user's own home, and a checkout variable resolves with a `BYPASS` line. Its
+control is the release `fetch` placed in the invoking user's cache, served to a stubbed download, so the file runs
+without a network. With the cache empty the git hooks name the fetch command and exit 0 while the front door
+and the reftags wrapper exit 1 with it. `cli-verbs.sh` is the same shape one layer in: a pure text check that the CLI's
+four **gating tables** — `OPERATOR_VERBS`, `ROOT_ALLOWED_VERBS`, `BOOTSTRAP_EXEMPT_VERBS`, `FOR_ALLOWED_VERBS` — still
+describe the verbs it dispatches. The failure it exists for is silent and one-directional: a verb added
+to the dispatcher and forgotten in `OPERATOR_VERBS` runs for an unenrolled caller, with no message to say so until
+a root helper refuses it midway. So every dispatched verb must be classified — operator-acting, or in the informational
+set the test names — no verb may be both operator-acting and root-allowed, no table may name a verb the dispatcher no
+longer has, and the help must list exactly what the dispatcher accepts. Its last check asserts required **content**
+rather than consistency: `--help` and `--version` must be in `BOOTSTRAP_EXEMPT_VERBS`, because a CLI that cannot print
+its own usage on an unprovisioned host leaves the gate's refusal as the only route to the provisioning command —
+a regression visible only on the host nobody develops against. `cli-agent-set.sh` drives the gate those tables surround,
+`require_bootstrap`, and the `status` section that reports the same read: the CLI is sourced as the projects user
+with the resolver's two hooks and `AI_TOOLS_LAUNCHER_DIR` pointed at fixtures, and every read is asserted in its fail
+direction — any enabled agent's link passes, an enabled set with no link refuses naming the bootstrap command, an empty
+allowlist, an allowlisted name with no manifest, and a group-writable manifest directory each refuse with the resolver's
+reason (a link present for the agent that directory names notwithstanding), and the report names each agent as the gate
+decided it. Its last section drives the entrypoint half of that report through three further fixture hooks — the pin,
+stale-mark and label record directories, so the label line under each pin reads from a fixture too — where what must not
+happen is the opposite of a refusal: a pin a reconciliation declined to re-record is left standing and reads, on its
+own, as a verification that succeeded. So the tier line is asserted as a control, then the mark replacing it
+and counting toward the exit status, then a mark saying anything but `stale` leaving the line as it was — the record
+grammar deciding, rather than the file's presence. A further section drives the Version section's Node line
+against fixture links: the version a link points into is the one named, two links naming different versions are reported
+as such, and a link outside the versioned shape claims none. Its closing section drives `cmd_status` whole,
+the host-reading sections stubbed to a known answer, over the exit fold `ai-tools-records(5)` states: a section
+that read a fault exits 4, the service registry's readers removed after the CLI loaded them exits 5 under its code
+with the later sections still printed, a section returning its unreadable status exits 5, and a fault beside
+an unreadable reading exits 5. Its last section drives the Caches section over fixture state files: each verdict
+the library counts returns 1 with the library's remedy under the line, an overdue cache returns 0 with the line its
+recorded reason selects, and an empty file and a value forged with a control byte read as `?` and are not counted.
 
 `launch-wrapper.sh` drives the gate library every agent's wrapper runs (`launch-wrapper.lib.sh`, see
 [launch](launch.rule.md)), one gate at a time and each in its fail direction, as the account the case is

@@ -72,7 +72,9 @@ hook and the unit suite run.
 holds base's asset-set validator to the conformance fixtures of the pinned
 `ai-tools-assets-tools` release; CI runs it.
 
-**`lib/`** holds what the other tools source: `assets.sh` and its pins.
+**`lib/`** holds what the other tools source: `assets.sh` and its pins,
+and `format-scope.sh`, the path patterns `format.sh` formats
+and `tests/unit/prose-width.sh` holds to their columns.
 
 ## Conventions
 

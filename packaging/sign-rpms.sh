@@ -30,8 +30,8 @@
 # to fail), so a return-code-only test passes a silent rpmsign no-op; the 0.6.1 assets shipped unsigned that way. Errors
 # use the ::error:: prefix so GitHub Actions surfaces them as annotations; the text reads plainly on a local terminal
 # too. Every secret (imported private key, passphrase) lives in a scratch tree under /dev/shm, which must be tmpfs,
-# and the exit trap stops the gpg-agent and wipes it -- never persistent disk, never the container's real keyring or
-# rpmdb. The trap prints the size the tree reached, which the release job's `--shm-size` for the container is set
+# and the exit trap stops the gpg-agent and wipes it -- never persistent disk, never the container's real keyring
+# or rpmdb. The trap prints the size the tree reached, which the release job's `--shm-size` for the container is set
 # against.
 set -euo pipefail
 
