@@ -717,6 +717,10 @@ list\-unmigratable
 ERROR.
 operators remove: name the user to withdraw
 .TP
+.B MSG-S4M7
+ERROR.
+assets: the list to write does not hold exactly the entries read with this call's change (an entry that differs: $(ai_tools_log__sanitize "${identifier}")), so AI_TOOLS_ASSETS was not written and ${AI_TOOLS_OPERATOR_CONF} is unchanged \-\- this is a defect in ai\-tools\-admin; report it
+.TP
 .B MSG-S5P4
 ERROR.
 compiled module ${pp} not found \-\- reinstall ai\-tools\-selinux, or from a checkout: sudo selinux/install\-selinux.sh build
@@ -1774,6 +1778,10 @@ ERROR.
 WARNING.
 left ${hardlinked} hardlinked file(s) untouched \-\- an inode with more than one name can be reached from outside this tree, so changing it here would change a path this pass never authorized. They KEEP the group they have, so the agent is not off them: list them with
 .SS assets.lib.sh
+.TP
+.B MSG-Y8T3
+WARNING.
+the rows could not be sorted (sort returned ${#ordered[@]} of ${#rows[@]}), so they are written in the order they were recorded
 .TP
 .B MSG-Z3P6
 WARNING.

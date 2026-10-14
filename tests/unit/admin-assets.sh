@@ -97,6 +97,9 @@ refused() {
 listed() { grep -E '^AI_TOOLS_ASSETS=' "${CONF}" || true; }
 # finding_of <id> : the finding of the first row whose item carries <id>.
 finding_of() { awk -F'\t' -v id="$1" 'NR > 1 && index($9, id) { print $6; exit }' <<< "${OUT}"; }
+# state_of <id> : the finding of the reconcile's row for the enable-list entry <id> (MSG-Z3P6, the item <id> alone),
+# which the stream writes after the verb's own row for the same identifier.
+state_of() { awk -F'\t' -v id="$1" 'NR > 1 && $3 == "MSG-Z3P6" && $9 == id { print $6; exit }' <<< "${OUT}"; }
 
 # ── enable refuses before it writes ──────────────────────────────────────────────────────────────────────────────────
 section "ai-tools-admin assets enable: every argument is checked before a write"
@@ -132,15 +135,15 @@ fi
 compgen -G "${CONF}.*.bak" >/dev/null && pass "a dated .bak exists after the write" || fail "no .bak beside operator.conf"
 [[ "$(readlink "${HOME_DIR}/skills/acme-pdf")" == "${PKG}/acme/skills/acme-pdf" ]] && pass "the reconcile linked the asset" \
     || fail "the view holds $(readlink "${HOME_DIR}/skills/acme-pdf" 2>&1)"
-[[ "$(finding_of "${SKILL}")" == linked ]] && pass "the record stream carries the entry linked" || fail "rows: ${OUT:0:300}"
+[[ "$(state_of "${SKILL}")" == linked ]] && pass "the record stream carries the entry linked" || fail "rows: ${OUT:0:300}"
 admin assets enable "${SKILL}"
 [[ "$(listed)" == "AI_TOOLS_ASSETS=[${SKILL}, ${SUB}]" ]] && pass "an identifier already listed is not added twice" \
     || fail "a second enable wrote '$(listed)'"
 admin assets enable acme-two/skills/acme-two-pdf
-if [[ "${RC}" == 4 && "$(finding_of acme-two/skills/acme-two-pdf)" == set-absent && "$(listed)" == *acme-two/skills/acme-two-pdf* ]]; then
+if [[ "${RC}" == 4 && "$(state_of acme-two/skills/acme-two-pdf)" == set-absent && "$(listed)" == *acme-two/skills/acme-two-pdf* ]]; then
     pass "a pending identifier of a bound set is accepted, reported set-absent, exit 4"
 else
-    fail "a pending identifier: rc ${RC}, '$(finding_of acme-two/skills/acme-two-pdf)', '$(listed)'"
+    fail "a pending identifier: rc ${RC}, '$(state_of acme-two/skills/acme-two-pdf)', '$(listed)'"
 fi
 
 # ── the line is written sorted ───────────────────────────────────────────────────────────────────────────────────────
@@ -225,6 +228,67 @@ if [[ "${rows}" == "disabled"$'\t'"${CONF}"$'\t'*"${SKILL}"* ]]; then
 else
     fail "the disable's list-edit row: '${rows}'"
 fi
+
+# ── The order of the stream ──────────────────────────────────────────────────────────────────────────────────────────
+section "ai-tools-admin assets: the stream is sorted by kind, set and name"
+# stream_labels : one `<finding> <subject>` per row of the last stream, in its order.
+stream_labels() { awk -F'\t' 'NR > 1 { print $6 " " $10 }' <<< "${OUT}"; }
+fresh
+asset_signing_build_set "${PKG}" acme-two
+write_conf acme-two/subagents/acme-two-reviewer "${SUB}" acme-two/skills/acme-two-pdf "${SKILL}"
+admin assets reconcile
+admin assets disable "${SKILL}"
+want="disabled ${CONF}
+unlinked ${HOME_DIR}/skills/acme-pdf
+unlinked ${HOME_DIR}/.acme/skills/acme-pdf
+linked ${HOME_DIR}/skills/acme-two-pdf
+linked ${HOME_DIR}/subagents/acme-reviewer.md
+linked ${HOME_DIR}/subagents/acme-two-reviewer.md"
+if [[ "$(stream_labels)" == "${want}" ]]; then
+    pass "a disable's rows: the list edit, the view link, the agent link adjacent, then kind, set and name order"
+else
+    fail "the disable's stream order: $(stream_labels | tr '\n' '|')"
+fi
+PRELUDE='ai_tools_providers__list_enabled_agents() { return 2; }'; admin assets disable "${SUB}"; PRELUDE=""
+first="$(awk -F'\t' 'NR == 2 { print $6 }' <<< "${OUT}")"
+[[ "${first}" == receivers-unknown ]] && pass "a row without a kind comes first" || fail "the first row is '${first}': $(stream_labels | tr '\n' '|')"
+fresh
+write_conf "${SKILL}"
+PRELUDE='ai_tools_conf__set_list() { return 1; }'; admin assets disable "${SKILL}" acme/skills/acme-other; PRELUDE=""
+refused MSG-Q8E5 1 "a write that fails"
+[[ "$(finding_of acme/skills/acme-other)" == not-enabled ]] && pass "a write that fails still writes the rows the verb recorded" \
+    || fail "rows after a failed write: ${OUT:0:300}"
+fresh
+write_conf "${SUB}" "${SKILL}"
+# The stub fails the record stream's sort, keyed from the first field, and leaves the set walk's.
+PRELUDE='sort() { case " $* " in *" -k1,1 "*) return 1 ;; esac; command sort "$@"; }'
+admin assets enable acme/skills/acme-other-pdf; PRELUDE=""
+if [[ "$(listed)" == "AI_TOOLS_ASSETS=[acme/skills/acme-other-pdf, ${SKILL}, ${SUB}]" ]]; then
+    pass "a sort process that fails does not reach AI_TOOLS_ASSETS, which is written sorted"
+else
+    fail "with sort failing, the enable wrote '$(listed)'"
+fi
+assert_msg MSG-Y8T3 "${ERR}" "a row sort that fails is reported under MSG-Y8T3"
+[[ "$(finding_of acme/skills/acme-other-pdf)" == enabled && "$(state_of "${SUB}")" == linked ]] \
+    && pass "a row sort that fails still writes every row" || fail "rows after a failed sort: $(stream_labels | tr '\n' '|')"
+# A list edit that loses an entry before the write: the identifier sort stubbed to drop the first one it holds.
+for verb in enable disable; do
+    fresh
+    write_conf "${SUB}" "${SKILL}"
+    before="$(cat "${CONF}")"
+    PRELUDE='assets_sort_identifiers() { local -n _stub_ids="$1"; _stub_ids=( "${_stub_ids[@]:1}" ); }'
+    if [[ "${verb}" == enable ]]; then admin assets enable acme/skills/acme-other-pdf; else admin assets disable acme/skills/acme-gone "${SKILL}"; fi
+    PRELUDE=""
+    refused MSG-S4M7 1 "${verb}: a list that lost an entry before the write"
+    backups=( "${CONF}".*.bak )
+    if [[ "$(cat "${CONF}")" == "${before}" && ! -e "${backups[0]}" ]]; then
+        pass "${verb}: operator.conf is byte-identical and no backup was made"
+    else
+        fail "${verb}: operator.conf changed or a backup was made: '$(listed)'"
+    fi
+done
+[[ "$(finding_of acme/skills/acme-gone)" == not-enabled ]] && pass "the refusal still writes the rows the verb recorded" \
+    || fail "rows beside the refusal: ${OUT:0:300}"
 
 # ── Two verbs at once ────────────────────────────────────────────────────────────────────────────────────────────────
 section "ai-tools-admin assets: two verbs at once each read the list the other wrote"
@@ -331,6 +395,14 @@ for token in set-tampered set-absent kind-unknown; do
         || fail "status: no ATTENTION line for ${token}: ${OUT:0:400}"
 done
 [[ "${OUT}" == *problems=3* ]] && pass "each such line counts toward the exit" || fail "status counted: ${OUT##*problems=}"
+mkdir -p "${HOME_DIR}/skills/foreign"; admin status_assets; rmdir "${HOME_DIR}/skills/foreign"
+order="$(grep -oE '\[ATTENTION\] +[^ ]+ +[^ ]+' <<< "${OUT}" | awk '{ print $2 " " $3 }')"
+want="acme/agents/x kind-unknown
+view-foreign ${HOME_DIR}/skills/foreign
+${SKILL} set-tampered
+acme-two/skills/acme-two-pdf set-absent"
+[[ "${order}" == "${want}" ]] && pass "the Assets section's lines come in the stream's order" \
+    || fail "the Assets section's order: $(tr '\n' '|' <<< "${order}")"
 [[ "$(snapshot)" == "${before}" ]] && pass "the status section does not write: the view is as it was" || fail "status changed the view"
 chmod 0664 "${CONF}"; admin status_assets
 grep -q 'enable-list-untrusted' <<< "${OUT}" && pass "an untrusted operator.conf renders enable-list-untrusted" || fail "untrusted: ${OUT:0:300}"

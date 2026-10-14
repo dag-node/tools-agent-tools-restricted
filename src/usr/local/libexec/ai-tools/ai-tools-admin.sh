@@ -2975,8 +2975,9 @@ status_selinux_attestation() {
 # whose own entry stands at an enabled asset's name, each counted in STATUS_PROBLEMS; one [UNREADABLE] line per input
 # the plan could not read, counted in STATUS_UNREADABLE; the withdrawn-successor notice (status_assets_successors);
 # an OK line per linked asset that declares a capability; and an OK summary of how many entries are enabled and linked.
-# A library that did not load is a reading this section could not make. Every string from a set or an agent's directory
-# passes the sanitizer. The section closes with status_assets_summary over the counts it added.
+# The entry and row lines come in the order the record stream takes (ai_tools_assets__list_report_order). A library
+# that did not load is a reading this section could not make. Every string from a set or an agent's directory passes
+# the sanitizer. The section closes with status_assets_summary over the counts it added.
 status_assets() {
     local problems_before="${STATUS_PROBLEMS}" unreadable_before="${STATUS_UNREADABLE}"
     heading "Assets"
@@ -2989,13 +2990,13 @@ status_assets() {
 status_assets_rows() {
     # shellcheck source=SCRIPTDIR/../../lib/ai-tools/assets.lib.sh
     source "${ASSETS_LIB}" 2>/dev/null || true
-    if ! declare -F ai_tools_assets__plan >/dev/null 2>&1; then
+    if ! declare -F ai_tools_assets__plan >/dev/null 2>&1 || ! declare -F ai_tools_assets__list_report_order >/dev/null 2>&1; then
         st UNREADABLE "the assets library (${ASSETS_LIB}) did not load -- reinstall ai-tools-base"
         STATUS_UNREADABLE=$(( STATUS_UNREADABLE + 1 ))
         return 0
     fi
     ai_tools_assets__plan 2>/dev/null
-    local entry index linked=0 reason
+    local entry origin index linked=0
     case "${AI_TOOLS_ASSETS__LIST_STATE}" in
         untrusted) st ATTENTION "enable-list-untrusted  ${AI_TOOLS_OPERATOR_CONF} -- $(ai_tools_log__sanitize "${AI_TOOLS_ASSETS__LIST_DETAIL}")"
                    detail "no asset is linked while it stands; restore the file to root:root 0644"
@@ -3006,36 +3007,50 @@ status_assets_rows() {
                    STATUS_UNREADABLE=$(( STATUS_UNREADABLE + 1 )) ;;
         unset)     status_assets_successors ;;
     esac
-    for entry in "${AI_TOOLS_ASSETS__ENTRIES[@]}"; do
-        if [[ "${AI_TOOLS_ASSETS__STATE[${entry}]}" == linked ]]; then
-            linked=$(( linked + 1 ))
-            [[ -z "${AI_TOOLS_ASSETS__CAPS[${entry}]:-}" ]] \
-                || st OK "$(ai_tools_log__sanitize "${entry}")  linked, requires ${AI_TOOLS_ASSETS__CAPS[${entry}]}"
-            continue
-        fi
-        reason="${AI_TOOLS_ASSETS__DETAIL[${entry}]:-}"
-        if [[ "${AI_TOOLS_ASSETS__STATE[${entry}]}" == error ]]; then
-            st UNREADABLE "$(ai_tools_log__sanitize "${entry}")  ${AI_TOOLS_ASSETS__STATE[${entry}]}"
-            STATUS_UNREADABLE=$(( STATUS_UNREADABLE + 1 ))
-        else
-            st ATTENTION "$(ai_tools_log__sanitize "${entry}")  ${AI_TOOLS_ASSETS__STATE[${entry}]}"
-            STATUS_PROBLEMS=$(( STATUS_PROBLEMS + 1 ))
-        fi
-        detail "$(ai_tools_log__sanitize "${reason:0:200}")"
-    done
-    for (( index = 0; index < ${#AI_TOOLS_ASSETS__ROW_SEVERITY[@]}; index++ )); do
-        case "${AI_TOOLS_ASSETS__ROW_SEVERITY[index]}" in
-            attention)  st ATTENTION "${AI_TOOLS_ASSETS__ROW_FINDING[index]}  $(ai_tools_log__sanitize "${AI_TOOLS_ASSETS__ROW_SUBJECT[index]}")"
-                        STATUS_PROBLEMS=$(( STATUS_PROBLEMS + 1 )) ;;
-            unreadable) st UNREADABLE "${AI_TOOLS_ASSETS__ROW_FINDING[index]}  $(ai_tools_log__sanitize "${AI_TOOLS_ASSETS__ROW_SUBJECT[index]}")"
-                        STATUS_UNREADABLE=$(( STATUS_UNREADABLE + 1 )) ;;
-            *)          continue ;;
+    while IFS=$'\t' read -r origin index; do
+        case "${origin}" in
+            entry) status_assets_entry "${AI_TOOLS_ASSETS__ENTRIES[index]}" ;;
+            row)   status_assets_row "${index}" ;;
         esac
-        reason="${AI_TOOLS_ASSETS__ROW_DETAIL[index]}"
-        detail "$(ai_tools_log__sanitize "${reason:0:200}")"
+    done < <(ai_tools_assets__list_report_order)
+    for entry in "${AI_TOOLS_ASSETS__ENTRIES[@]}"; do
+        [[ "${AI_TOOLS_ASSETS__STATE[${entry}]}" == linked ]] && linked=$(( linked + 1 ))
     done
     st OK "${#AI_TOOLS_ASSETS__ENTRIES[@]} asset(s) enabled in AI_TOOLS_ASSETS, ${linked} linked"
     return 0
+}
+
+# status_assets_entry <entry>: the line for one enable-list entry: an OK line for a linked asset that declares
+# a capability, none for another linked one, and an [ATTENTION] or [UNREADABLE] line with its reason otherwise.
+status_assets_entry() {
+    local entry="$1" reason="${AI_TOOLS_ASSETS__DETAIL[$1]:-}"
+    if [[ "${AI_TOOLS_ASSETS__STATE[${entry}]}" == linked ]]; then
+        [[ -z "${AI_TOOLS_ASSETS__CAPS[${entry}]:-}" ]] \
+            || st OK "$(ai_tools_log__sanitize "${entry}")  linked, requires ${AI_TOOLS_ASSETS__CAPS[${entry}]}"
+        return 0
+    fi
+    if [[ "${AI_TOOLS_ASSETS__STATE[${entry}]}" == error ]]; then
+        st UNREADABLE "$(ai_tools_log__sanitize "${entry}")  ${AI_TOOLS_ASSETS__STATE[${entry}]}"
+        STATUS_UNREADABLE=$(( STATUS_UNREADABLE + 1 ))
+    else
+        st ATTENTION "$(ai_tools_log__sanitize "${entry}")  ${AI_TOOLS_ASSETS__STATE[${entry}]}"
+        STATUS_PROBLEMS=$(( STATUS_PROBLEMS + 1 ))
+    fi
+    detail "$(ai_tools_log__sanitize "${reason:0:200}")"
+}
+
+# status_assets_row <index>: the line for one row the plan recorded: [ATTENTION] or [UNREADABLE] with its detail, none
+# for an info row.
+status_assets_row() {
+    local index="$1" reason="${AI_TOOLS_ASSETS__ROW_DETAIL[$1]}"
+    case "${AI_TOOLS_ASSETS__ROW_SEVERITY[index]}" in
+        attention)  st ATTENTION "${AI_TOOLS_ASSETS__ROW_FINDING[index]}  $(ai_tools_log__sanitize "${AI_TOOLS_ASSETS__ROW_SUBJECT[index]}")"
+                    STATUS_PROBLEMS=$(( STATUS_PROBLEMS + 1 )) ;;
+        unreadable) st UNREADABLE "${AI_TOOLS_ASSETS__ROW_FINDING[index]}  $(ai_tools_log__sanitize "${AI_TOOLS_ASSETS__ROW_SUBJECT[index]}")"
+                    STATUS_UNREADABLE=$(( STATUS_UNREADABLE + 1 )) ;;
+        *)          return 0 ;;
+    esac
+    detail "$(ai_tools_log__sanitize "${reason:0:200}")"
 }
 
 # status_assets_successors: the notice for a host whose upgrade withdrew assets a set succeeds while AI_TOOLS_ASSETS is
@@ -3218,9 +3233,10 @@ status() {
 # resolves each to `linked` or a reason token and keeps the view and the agents' links current (shipped-assets.rule.md).
 # Every verb takes the assets lock (ai_tools_managed_assets__lock) before its first read of operator.conf and holds it
 # to its exit, so two verbs at once each read the list the other wrote: lock, read, back up, write, plan, apply, report.
-# Every verb prints a record stream (ai-tools-records(5)): the rows of its own, then the rows the reconcile it ends
-# with writes. A verb exits 1 for a write refused or failed, else 5 when the library did not load, else 4
-# for an attention row, else 0. Each attention row is logged under its code to journald and to the root-only
+# Every verb prints a record stream (ai-tools-records(5)): its own rows and the reconcile's, as one stream sorted
+# by kind, set and name (ai_tools_assets__list_report_order), so each asset's list edit, entry and links are adjacent.
+# A verb exits 1 for a write refused or failed, else 5 when the library did not load, else 4 for an attention row, else
+# 0. Each attention row is logged under its code to journald and to the root-only
 # assets.log.
 
 # assets_load: source assets.lib.sh, or exit 5 under its code: a verb whose resolver did not load does not read or write
@@ -3228,7 +3244,8 @@ status() {
 assets_load() {
     # shellcheck source=SCRIPTDIR/../../lib/ai-tools/assets.lib.sh
     source "${ASSETS_LIB}" 2>/dev/null || true
-    if ! declare -F ai_tools_assets__reconcile >/dev/null 2>&1 || ! declare -F ai_tools_assets__build_enable_snapshot >/dev/null 2>&1; then
+    if ! declare -F ai_tools_assets__reconcile >/dev/null 2>&1 || ! declare -F ai_tools_assets__build_enable_snapshot >/dev/null 2>&1 \
+            || ! declare -F ai_tools_assets__record_report_row >/dev/null 2>&1; then
         warn MSG-P8M5 "the assets library (${ASSETS_LIB}) did not load, so no asset was read or changed -- reinstall ai-tools-base"
         exit 5
     fi
@@ -3237,19 +3254,14 @@ assets_load() {
 }
 
 # _assets_attention_row <code> <situation> <finding> <subject> <identifier> <detail> and _assets_info_row (the same
-# at info): write one record of a verb's own, subject-type `file`, its item the identifier; an attention row is logged
-# under its code too. The situation is the code's own wording, for the index; the row carries the finding
-# and the detail.
+# at info): record one row of a verb's own, subject-type `file`, its item the identifier, for the report the verb's
+# reconcile writes (ai_tools_assets__record_report_row), which logs an attention row under its code. The situation is
+# the code's own wording, for the index; the row carries the finding and the detail.
 _assets_attention_row() {
-    local code="$1" finding="$3" subject="$4" identifier="$5" detail="$6" item=""
-    ai_tools_records_tsv__frame_item_components item "${identifier}" || item=""
-    ai_tools_records_tsv__write_record "" "${code}" attention "${finding}" file "" "${item}" "${subject}" "${detail}" || true
-    ai_tools_log__coded warning "${code}" "${finding} ${identifier} ${subject}: ${detail}"
+    ai_tools_assets__record_report_row "$1" attention "$3" file "$4" "$5" "" "$6"
 }
 _assets_info_row() {
-    local code="$1" finding="$3" subject="$4" identifier="$5" detail="$6" item=""
-    ai_tools_records_tsv__frame_item_components item "${identifier}" || item=""
-    ai_tools_records_tsv__write_record "" "${code}" info "${finding}" file "" "${item}" "${subject}" "${detail}" || true
+    ai_tools_assets__record_report_row "$1" info "$3" file "$4" "$5" "" "$6"
 }
 
 # assets_lock_or_exit: take the assets lock for the rest of the verb, or exit 1 with no input read and no link changed;
@@ -3275,37 +3287,79 @@ assets_read_list() {
 }
 
 # assets_write_list <entry>...: write AI_TOOLS_ASSETS as exactly these entries through ai_tools_conf__set_list,
-# after a dated .bak of the file where it exists. Exits 1, the file as it was, when the backup or the write fails.
-# A file carrying neither a live line nor the key's commented default -- one written before the key -- takes the line
-# at its end, and the write says so, since the slot under its header reaches that file through `system post-upgrade`.
+# after a dated .bak of the file where it exists. Exits 1, the file as it was, when the backup or the write fails,
+# after the rows the verb recorded (ai_tools_assets__write_recorded_rows). A file carrying neither a live line
+# nor the key's commented default -- one written before the key -- takes the line at its end, and the write says
+# so, since the slot under its header reaches that file through `system post-upgrade`.
 assets_write_list() {
     local conf="${AI_TOOLS_OPERATOR_CONF}" backup="" rc=0
-    if [[ -e "${conf}" ]]; then
-        backup="$(ai_tools_conf__write_backup "${conf}")" \
-            || die MSG-V3M3 "assets: ${conf} could not be backed up, so AI_TOOLS_ASSETS was not written"
+    if [[ -e "${conf}" ]] && ! backup="$(ai_tools_conf__write_backup "${conf}")"; then
+        ai_tools_assets__write_recorded_rows
+        die MSG-V3M3 "assets: ${conf} could not be backed up, so AI_TOOLS_ASSETS was not written"
     fi
     ai_tools_conf__set_list "${conf}" AI_TOOLS_ASSETS "$@" || rc=$?
-    (( rc == 0 )) || die MSG-Q8E5 "assets: AI_TOOLS_ASSETS could not be written to ${conf} (writer status ${rc})${backup:+; the previous file is ${backup}}"
+    if (( rc != 0 )); then
+        ai_tools_assets__write_recorded_rows
+        die MSG-Q8E5 "assets: AI_TOOLS_ASSETS could not be written to ${conf} (writer status ${rc})${backup:+; the previous file is ${backup}}"
+    fi
     ai_tools_log__info "assets: AI_TOOLS_ASSETS in ${conf} lists ${#} entries${backup:+; backup ${backup}}"
     [[ "${AI_TOOLS_CONF__WRITE_PLACEMENT:-}" != appended ]] \
         || notice MSG-T3X4 "assets: AI_TOOLS_ASSETS was added at the end of ${conf}, which predates the key -- sudo ai-tools-admin system post-upgrade carries it under its header from the shipped template"
 }
 
-# assets_sort_identifiers <array-name>: sort the identifiers in the named array by kind, then set, then name, under
-# LC_ALL=C and one component at a time, so `acme/skills/x` sorts ahead of `acme-two/skills/x` although `-` sorts ahead of
-# `/` in a byte order over the whole identifier. An array holding an identifier with a tab or a newline is left
-# in the order it holds, since the sort reads one identifier per line.
+# assets_sort_identifiers <array-name>: sort the identifiers in the named array in place, by kind, then set, then name
+# (assets_is_identifier_before). An insertion sort over the array itself, without a pipe or a process, so the array
+# keeps every identifier it held.
 assets_sort_identifiers() {
     local -n _assets_sort_identifiers_ids="$1"
-    local identifier rest
-    local -a keyed=()
-    for identifier in "${_assets_sort_identifiers_ids[@]}"; do
-        [[ "${identifier}" != *[$'\t\n']* ]] || return 0
-        rest="${identifier#*/}"
-        keyed+=( "${rest%%/*}"$'\t'"${identifier%%/*}"$'\t'"${rest#*/}"$'\t'"${identifier}" )
+    local index position identifier
+    for (( index = 1; index < ${#_assets_sort_identifiers_ids[@]}; index++ )); do
+        identifier="${_assets_sort_identifiers_ids[index]}"
+        position="${index}"
+        while (( position > 0 )) && assets_is_identifier_before "${identifier}" "${_assets_sort_identifiers_ids[position - 1]}"; do
+            _assets_sort_identifiers_ids[position]="${_assets_sort_identifiers_ids[position - 1]}"
+            position=$(( position - 1 ))
+        done
+        _assets_sort_identifiers_ids[position]="${identifier}"
     done
-    (( ${#keyed[@]} > 1 )) || return 0
-    mapfile -t _assets_sort_identifiers_ids < <(printf '%s\n' "${keyed[@]}" | LC_ALL=C sort -t $'\t' -k1,1 -k2,2 -k3,3 | cut -f4)
+}
+
+# assets_is_identifier_before <a> <b>: succeed when identifier <a> sorts ahead of <b>: its kind, then its set, then its
+# name, each compared byte by byte under LC_ALL=C, so `acme/skills/x` sorts ahead of `acme-two/skills/x` although `-`
+# sorts ahead of `/` in a byte order over the whole identifier.
+assets_is_identifier_before() {
+    local LC_ALL=C a_rest="${1#*/}" b_rest="${2#*/}"
+    if [[ "${a_rest%%/*}" != "${b_rest%%/*}" ]]; then
+        [[ "${a_rest%%/*}" < "${b_rest%%/*}" ]]
+    elif [[ "${1%%/*}" != "${2%%/*}" ]]; then
+        [[ "${1%%/*}" < "${2%%/*}" ]]
+    else
+        [[ "${a_rest#*/}" < "${b_rest#*/}" ]]
+    fi
+}
+
+# assets_require_edit <list-name> <read-name> <added-name> <removed-name>: exit 1 under MSG-S4M7, after the rows
+# the verb recorded and before the backup, unless the list about to be written holds exactly the entries read, less
+# every occurrence of one removed, plus those added -- each as often as that makes it. operator.conf is then as it was:
+# a verb writes only the edit it reports.
+assets_require_edit() {
+    local -n _assets_require_edit_list="$1" _assets_require_edit_read="$2" _assets_require_edit_added="$3" \
+        _assets_require_edit_removed="$4"
+    local identifier
+    local -A removed_identifiers=() expected_counts=()
+    for identifier in "${_assets_require_edit_removed[@]}"; do removed_identifiers["${identifier}"]=1; done
+    for identifier in "${_assets_require_edit_read[@]}" "${_assets_require_edit_added[@]}"; do
+        [[ -z "${removed_identifiers[${identifier}]+x}" ]] || continue
+        expected_counts["${identifier}"]=$(( ${expected_counts[${identifier}]:-0} + 1 ))
+    done
+    for identifier in "${_assets_require_edit_list[@]}"; do
+        expected_counts["${identifier}"]=$(( ${expected_counts[${identifier}]:-0} - 1 ))
+    done
+    for identifier in "${!expected_counts[@]}"; do
+        [[ "${expected_counts[${identifier}]}" == 0 ]] && continue
+        ai_tools_assets__write_recorded_rows
+        die MSG-S4M7 "assets: the list to write does not hold exactly the entries read with this call's change (an entry that differs: $(ai_tools_log__sanitize "${identifier}")), so AI_TOOLS_ASSETS was not written and ${AI_TOOLS_OPERATOR_CONF} is unchanged -- this is a defect in ai-tools-admin; report it"
+    done
 }
 
 # assets_record_enabled <identifier>...: one `enabled` row per identifier an enable added to AI_TOOLS_ASSETS, the list
@@ -3319,8 +3373,10 @@ assets_record_enabled() {
 }
 
 # assets_finish <reconcile-status>: exit as the records page states for a command that changes the host: 1 when a write
-# did not take, else the record stream's own fold.
+# did not take, else the record stream's own fold. A row the verb recorded that no report wrote -- a reconcile
+# that could not take the lock -- is written first.
 assets_finish() {
+    ai_tools_assets__write_recorded_rows
     (( $1 == 0 )) || exit 1
     ai_tools_records_base__get_exit_status || exit $?
     exit 0
@@ -3340,7 +3396,7 @@ assets_reconcile_now() {
 # accepted where the set is bound, and the reconcile reports it set-absent.
 assets_enable() {
     local identifier status=0 entry
-    local -a entries=() added=()
+    local -a listed=() entries=() added=() removed=()
     (( $# > 0 )) || reject MSG-N5U6 "assets enable takes one or more <set>/<kind>/<name>, or --set <set>"
     case "$1" in
         --set) shift; assets_enable_set "$@"; return ;;
@@ -3356,14 +3412,15 @@ assets_enable() {
         ai_tools_assets__is_binding_present "${AI_TOOLS_ASSETS__ID_SET}" \
             || die MSG-W6D7 "assets enable: no binding names the set ${AI_TOOLS_ASSETS__ID_SET} under ${AI_TOOLS_ASSETS_BINDINGS_DIR} or ${AI_TOOLS_ASSETS_OPERATOR_BINDINGS_DIR}, so ${identifier} is accepted only once a binding pins its signer; AI_TOOLS_ASSETS is unchanged"
     done
-    assets_read_list entries
+    assets_read_list listed
     for identifier in "$@"; do
-        for entry in "${entries[@]}" "${added[@]}"; do [[ "${entry}" == "${identifier}" ]] && continue 2; done
+        for entry in "${listed[@]}" "${added[@]}"; do [[ "${entry}" == "${identifier}" ]] && continue 2; done
         added+=( "${identifier}" )
     done
     if (( ${#added[@]} > 0 )); then
-        entries+=( "${added[@]}" )
+        entries=( "${listed[@]}" "${added[@]}" )
         assets_sort_identifiers entries
+        assets_require_edit entries listed added removed
         assets_write_list "${entries[@]}"
         assets_record_enabled "${added[@]}"
     fi
@@ -3378,7 +3435,7 @@ assets_enable() {
 # of the set does not enable a new asset until that asset is enabled by name.
 assets_enable_set() {
     local set="${1:-}" identifier index entry status=0
-    local -a entries=() added=()
+    local -a listed=() entries=() added=() removed=()
     (( $# == 1 )) || reject MSG-Z7D4 "assets enable --set takes exactly one set name"
     assets_load
     ai_tools_records_base__begin_report
@@ -3388,7 +3445,7 @@ assets_enable_set() {
     ai_tools_assets__build_enable_snapshot "${set}"
     [[ "${AI_TOOLS_ASSETS__SNAPSHOT_STATE}" == ok ]] \
         || die MSG-P9Z3 "assets enable --set: the set ${set} is ${AI_TOOLS_ASSETS__SNAPSHOT_STATE} -- $(ai_tools_log__sanitize "${AI_TOOLS_ASSETS__SNAPSHOT_DETAIL:0:300}"); AI_TOOLS_ASSETS is unchanged"
-    assets_read_list entries
+    assets_read_list listed
     for (( index = 0; index < ${#AI_TOOLS_ASSETS__SNAPSHOT_IDS[@]}; index++ )); do
         identifier="${AI_TOOLS_ASSETS__SNAPSHOT_IDS[index]}"
         case "${AI_TOOLS_ASSETS__SNAPSHOT_TOKENS[index]}" in
@@ -3398,12 +3455,13 @@ assets_enable_set() {
                     "not written to AI_TOOLS_ASSETS: the asset fails a rule base enforces"
                 continue ;;
         esac
-        for entry in "${entries[@]}" "${added[@]}"; do [[ "${entry}" == "${identifier}" ]] && continue 2; done
+        for entry in "${listed[@]}" "${added[@]}"; do [[ "${entry}" == "${identifier}" ]] && continue 2; done
         added+=( "${identifier}" )
     done
     if (( ${#added[@]} > 0 )); then
-        entries+=( "${added[@]}" )
+        entries=( "${listed[@]}" "${added[@]}" )
         assets_sort_identifiers entries
+        assets_require_edit entries listed added removed
         assets_write_list "${entries[@]}"
         assets_record_enabled "${added[@]}"
     fi
@@ -3417,7 +3475,7 @@ assets_enable_set() {
 # the file as it is.
 assets_disable() {
     local identifier entry status=0 found
-    local -a entries=() kept=() removed=()
+    local -a entries=() kept=() removed=() added=()
     (( $# > 0 )) || reject MSG-H7A8 "assets disable takes one or more <set>/<kind>/<name>"
     assets_load
     ai_tools_records_base__begin_report
@@ -3439,6 +3497,7 @@ assets_disable() {
     done
     if (( ${#removed[@]} > 0 )); then
         assets_sort_identifiers kept
+        assets_require_edit kept entries added removed
         assets_write_list "${kept[@]}"
         for identifier in "${removed[@]}"; do
             _assets_info_row MSG-Q2C6 "assets disable: an identifier removed from AI_TOOLS_ASSETS" disabled \

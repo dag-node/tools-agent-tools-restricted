@@ -15,8 +15,8 @@
 # a set's files as data: it does not source, execute or import one.
 #
 # The view transaction is ai_tools_assets__reconcile: the lock, then ai_tools_assets__plan, which reads every input
-# and computes the link changes without writing, then the apply, then one record per entry and per change. `status` runs
-# the plan alone.
+# and computes the link changes without writing, then the apply, then one record per entry and per change, sorted
+# by kind, set and name (ai_tools_assets__list_report_order). `status` runs the plan alone.
 #
 # The root-only test hooks AI_TOOLS_ASSETS_ROOTS and AI_TOOLS_ASSETS_HOME move the roots and the directory holding
 # the view and the agent config directories, with the standing of AI_TOOLS_ASSETS_BINDINGS_DIR (assets-verify.lib.sh).
@@ -136,6 +136,12 @@ readonly _AI_TOOLS_ASSETS__MAX_DIRECTORIES=500
 readonly _AI_TOOLS_ASSETS__MAX_DEPTH=32
 readonly _AI_TOOLS_ASSETS__MAX_DIRECTORY_ENTRIES=2000
 readonly _AI_TOOLS_ASSETS__SEMVER='^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-((0|[1-9][0-9]*|[0-9]*[A-Za-z-][0-9A-Za-z-]*)(\.(0|[1-9][0-9]*|[0-9]*[A-Za-z-][0-9A-Za-z-]*))*))?(\+([0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*))?$'
+
+# The rows a caller recorded for the next report (ai_tools_assets__record_report_row), each with its own code. They are
+# kept apart from the plan outputs, which every plan and every enable snapshot empties.
+declare -ga _AI_TOOLS_ASSETS__RECORDED_CODE=() _AI_TOOLS_ASSETS__RECORDED_SEVERITY=() _AI_TOOLS_ASSETS__RECORDED_FINDING=() \
+    _AI_TOOLS_ASSETS__RECORDED_SUBJECT_TYPE=() _AI_TOOLS_ASSETS__RECORDED_SUBJECT=() _AI_TOOLS_ASSETS__RECORDED_ITEM=() \
+    _AI_TOOLS_ASSETS__RECORDED_AGENT=() _AI_TOOLS_ASSETS__RECORDED_DETAIL=()
 
 # ── Small predicates ─────────────────────────────────────────────────────────────────────────────────────────────────
 
@@ -1110,28 +1116,31 @@ _ai_tools_assets__reset_plan() {
         _AI_TOOLS_ASSETS__IDLE_DIR=() \
         _AI_TOOLS_ASSETS__INTEGRATIONS=() _AI_TOOLS_ASSETS__DESIRED_ID=() _AI_TOOLS_ASSETS__DIR_REPORTED=()
     declare -ga _AI_TOOLS_ASSETS__ACTION_OPERATION=() _AI_TOOLS_ASSETS__ACTION_PATH=() _AI_TOOLS_ASSETS__ACTION_TARGET=() _AI_TOOLS_ASSETS__ACTION_SUBJECT_TYPE=() \
-        _AI_TOOLS_ASSETS__ACTION_ITEM=() _AI_TOOLS_ASSETS__ACTION_AGENT=() _AI_TOOLS_ASSETS__ACTION_DETAIL=() \
+        _AI_TOOLS_ASSETS__ACTION_ITEM=() _AI_TOOLS_ASSETS__ACTION_AGENT=() _AI_TOOLS_ASSETS__ACTION_DETAIL=() _AI_TOOLS_ASSETS__ACTION_SET=() \
         AI_TOOLS_ASSETS__ROW_SEVERITY=() AI_TOOLS_ASSETS__ROW_FINDING=() _AI_TOOLS_ASSETS__ROW_SUBJECT_TYPE=() AI_TOOLS_ASSETS__ROW_SUBJECT=() \
-        _AI_TOOLS_ASSETS__ROW_ITEM=() _AI_TOOLS_ASSETS__ROW_AGENT=() AI_TOOLS_ASSETS__ROW_DETAIL=() \
+        _AI_TOOLS_ASSETS__ROW_ITEM=() _AI_TOOLS_ASSETS__ROW_AGENT=() AI_TOOLS_ASSETS__ROW_DETAIL=() _AI_TOOLS_ASSETS__ROW_SET=() \
         _AI_TOOLS_ASSETS__DIRS_LEFT=()
     _AI_TOOLS_ASSETS__UNLINK_FAILED=0; _AI_TOOLS_ASSETS__AGENT_DIRS_UNREAD=0
 }
 
-# _ai_tools_assets__record_row <severity> <finding> <subject-type> <subject> <item> <agent> <detail> : record one row
-# the report writes: <item> and <agent> become the item's components, the agent's empty for a view-level row.
+# _ai_tools_assets__record_row <severity> <finding> <subject-type> <subject> <item> <agent> <detail> [set] : record one
+# row the report writes: <item> and <agent> become the item's components, the agent's empty for a view-level row. [set]
+# is the set a row about a resolver link sorts under where <item> does not name one
+# (_ai_tools_assets__read_resolver_set); the stream does not carry it.
 _ai_tools_assets__record_row() {
     AI_TOOLS_ASSETS__ROW_SEVERITY+=( "$1" ); AI_TOOLS_ASSETS__ROW_FINDING+=( "$2" ); _AI_TOOLS_ASSETS__ROW_SUBJECT_TYPE+=( "$3" )
     AI_TOOLS_ASSETS__ROW_SUBJECT+=( "$4" ); _AI_TOOLS_ASSETS__ROW_ITEM+=( "$5" ); _AI_TOOLS_ASSETS__ROW_AGENT+=( "$6" )
-    AI_TOOLS_ASSETS__ROW_DETAIL+=( "$7" )
+    AI_TOOLS_ASSETS__ROW_DETAIL+=( "$7" ); _AI_TOOLS_ASSETS__ROW_SET+=( "${8:-}" )
 }
 
-# _ai_tools_assets__record_action <op> <path> <target> <subject-type> <item> <agent> <detail> : record one change
+# _ai_tools_assets__record_action <op> <path> <target> <subject-type> <item> <agent> <detail> [set] : record one change
 # the apply makes: `link` (place or repoint <path> at <target>), `unlink` (remove the symlink at <path>), `convert`
-# (replace a managed copy at <path> by a link to <target>).
+# (replace a managed copy at <path> by a link to <target>). [set] passes to the change's row,
+# as _ai_tools_assets__record_row takes it.
 _ai_tools_assets__record_action() {
     _AI_TOOLS_ASSETS__ACTION_OPERATION+=( "$1" ); _AI_TOOLS_ASSETS__ACTION_PATH+=( "$2" ); _AI_TOOLS_ASSETS__ACTION_TARGET+=( "$3" )
     _AI_TOOLS_ASSETS__ACTION_SUBJECT_TYPE+=( "$4" ); _AI_TOOLS_ASSETS__ACTION_ITEM+=( "$5" ); _AI_TOOLS_ASSETS__ACTION_AGENT+=( "$6" )
-    _AI_TOOLS_ASSETS__ACTION_DETAIL+=( "$7" )
+    _AI_TOOLS_ASSETS__ACTION_DETAIL+=( "$7" ); _AI_TOOLS_ASSETS__ACTION_SET+=( "${8:-}" )
 }
 
 # _ai_tools_assets__read_enable_list : the entries of AI_TOOLS_ASSETS, read while operator.conf passes the trust
@@ -1343,6 +1352,28 @@ _ai_tools_assets__is_resolver_link() {
         [[ "${target}" == "${root}/"* ]] && return 0
     done
     return 1
+}
+
+# _ai_tools_assets__read_resolver_set <path> : print the set a resolver link at <path> points into, read one hop:
+# the first component under one of the first two roots, `ai-tools` under the base root. Prints nothing for a path
+# that is not a resolver link. The plan reads it while the link is still on disk, and the set is a sort key alone:
+# the row's finding and subject come from the apply's own result, so a set that could not be read moves the row
+# to the head of its kind and leaves its finding, subject and detail as the apply recorded them.
+_ai_tools_assets__read_resolver_set() {
+    local target index root rest
+    [[ -L "$1" ]] || return 0
+    target="$(readlink -- "$1" 2>/dev/null)" || return 0
+    for (( index = 0; index < ${#_AI_TOOLS_ASSETS__ROOT_LIST[@]}; index++ )); do
+        root="${_AI_TOOLS_ASSETS__ROOT_LIST[index]}"
+        [[ "${target}" == "${root}/"* ]] || continue
+        if (( index < 2 )); then
+            rest="${target#"${root}/"}"
+            printf '%s' "${rest%%/*}"
+        elif (( index == 2 )); then
+            printf 'ai-tools'
+        fi
+        return 0
+    done
 }
 
 # ── Destinations ─────────────────────────────────────────────────────────────────────────────────────────────────────
@@ -1790,12 +1821,14 @@ _ai_tools_assets__plan_view() {
     done
     for name in "${!present[@]}"; do
         if [[ "${name}" =~ ^\..+\.ai-tools-assets\.tmp$ ]] && _ai_tools_assets__is_own_leftover "${view}/${name}"; then
-            _ai_tools_assets__record_action unlink "${view}/${name}" "" file "${kind}/${name}" "" "a temporary name an interrupted run left"
+            _ai_tools_assets__record_action unlink "${view}/${name}" "" file "${kind}/${name}" "" "a temporary name an interrupted run left" \
+                "$(_ai_tools_assets__read_resolver_set "${view}/${name}")"
             continue
         fi
         [[ "${name}" == README.md || -n "${desired[${name}]+x}" ]] && continue
         if _ai_tools_assets__is_resolver_link "${view}/${name}"; then
-            _ai_tools_assets__record_action unlink "${view}/${name}" "" file "${kind}/${name}" "" "no enabled entry justifies it"
+            _ai_tools_assets__record_action unlink "${view}/${name}" "" file "${kind}/${name}" "" "no enabled entry justifies it" \
+                "$(_ai_tools_assets__read_resolver_set "${view}/${name}")"
             continue
         fi
         if _ai_tools_assets__is_seeded_copy "${kind}" "${view}/${name}"; then
@@ -2025,7 +2058,8 @@ _ai_tools_assets__plan_stale_links() {
         after="${_AI_TOOLS_ASSETS__VIEW_AFTER[${target#"${view}/"}]:-}"
         if [[ -z "${after}" || ( "${which}" == resolver && "${after}" == resolver ) ]]; then
             _ai_tools_assets__record_action unlink "${agent_dir}/${name}" "" agent "${kind}/${target#"${view}/"}" "${agent}" \
-                "$([[ -z "${after}" ]] && printf 'the view does not hold a linkable entry at its name' || printf 'the agent is not enabled')"
+                "$([[ -z "${after}" ]] && printf 'the view does not hold a linkable entry at its name' || printf 'the agent is not enabled')" \
+                "$(_ai_tools_assets__read_resolver_set "${target}")"
         fi
     done
 }
@@ -2203,7 +2237,7 @@ _ai_tools_assets__read_occupant() {
 # when a removal did not, so the report does not claim it. The caller holds the assets lock
 # (ai_tools_managed_assets__lock), which ai_tools_assets__reconcile takes before the plan.
 _ai_tools_assets__apply_locked() {
-    local group="$1" index op path target stype item agent detail directory kind
+    local group="$1" index op path target stype item agent detail link_set directory kind
     local -a placed=()
     local -A failed_view=() untrusted_view=() directory_state=()
     _AI_TOOLS_ASSETS__WRITE_FAILED=0; _AI_TOOLS_ASSETS__UNLINK_FAILED=0
@@ -2213,7 +2247,7 @@ _ai_tools_assets__apply_locked() {
     for (( index = 0; index < ${#_AI_TOOLS_ASSETS__ACTION_OPERATION[@]}; index++ )); do
         op="${_AI_TOOLS_ASSETS__ACTION_OPERATION[index]}"; path="${_AI_TOOLS_ASSETS__ACTION_PATH[index]}"; target="${_AI_TOOLS_ASSETS__ACTION_TARGET[index]}"
         stype="${_AI_TOOLS_ASSETS__ACTION_SUBJECT_TYPE[index]}"; item="${_AI_TOOLS_ASSETS__ACTION_ITEM[index]}"; agent="${_AI_TOOLS_ASSETS__ACTION_AGENT[index]}"
-        detail="${_AI_TOOLS_ASSETS__ACTION_DETAIL[index]}"
+        detail="${_AI_TOOLS_ASSETS__ACTION_DETAIL[index]}"; link_set="${_AI_TOOLS_ASSETS__ACTION_SET[index]}"
         if [[ "${stype}" == agent && "${op}" != unlink && -n "${failed_view[${target}]+x}" ]]; then
             continue
         fi
@@ -2229,23 +2263,23 @@ _ai_tools_assets__apply_locked() {
         case "${op}" in
             link|convert)
                 if [[ "${op}" == convert ]] && ! rm -rf -- "${path}" 2>/dev/null; then
-                    _ai_tools_assets__record_failure "${stype}" "${path}" "${item}" "${agent}" "the managed copy could not be removed"
+                    _ai_tools_assets__record_failure "${stype}" "${path}" "${item}" "${agent}" "the managed copy could not be removed" "${link_set}"
                     continue
                 fi
                 if _ai_tools_assets__place_link "${path}" "${target}" "${group}"; then
                     placed+=( "${path}" )
-                    _ai_tools_assets__record_row info linked "${stype}" "${path}" "${item}" "${agent}" "${detail}"
+                    _ai_tools_assets__record_row info linked "${stype}" "${path}" "${item}" "${agent}" "${detail}" "${link_set}"
                 else
                     [[ "${stype}" == file ]] && failed_view["${path}"]=1
-                    _ai_tools_assets__record_failure "${stype}" "${path}" "${item}" "${agent}" "the link to ${target} could not be placed: ${_AI_TOOLS_ASSETS__PLACE_ERROR}"
+                    _ai_tools_assets__record_failure "${stype}" "${path}" "${item}" "${agent}" "the link to ${target} could not be placed: ${_AI_TOOLS_ASSETS__PLACE_ERROR}" "${link_set}"
                 fi ;;
             unlink)
                 if [[ -L "${path}" ]] && rm -f -- "${path}" 2>/dev/null; then
-                    _ai_tools_assets__record_row info unlinked "${stype}" "${path}" "${item}" "${agent}" "${detail}"
+                    _ai_tools_assets__record_row info unlinked "${stype}" "${path}" "${item}" "${agent}" "${detail}" "${link_set}"
                 elif [[ -e "${path}" || -L "${path}" ]]; then
                     _AI_TOOLS_ASSETS__UNLINK_FAILED=1
                     _ai_tools_assets__record_failure "${stype}" "${path}" "${item}" "${agent}" \
-                        "the link could not be removed, so the asset stays reachable through it"
+                        "the link could not be removed, so the asset stays reachable through it" "${link_set}"
                 fi ;;
         esac
     done
@@ -2300,10 +2334,11 @@ _ai_tools_assets__can_apply_in_dir() {
     return 1
 }
 
-# _ai_tools_assets__record_failure <subject-type> <path> <item> <agent> <detail> : report a change that did not take.
+# _ai_tools_assets__record_failure <subject-type> <path> <item> <agent> <detail> [set] : report a change that did not
+# take.
 _ai_tools_assets__record_failure() {
     _AI_TOOLS_ASSETS__WRITE_FAILED=1
-    _ai_tools_assets__record_row attention write-failed "$1" "$2" "$3" "$4" "$5"
+    _ai_tools_assets__record_row attention write-failed "$1" "$2" "$3" "$4" "$5" "${6:-}"
 }
 
 # _ai_tools_assets__get_entry_subject <entry> : the view path an entry's row is about, or operator.conf for an entry
@@ -2349,15 +2384,137 @@ _ai_tools_assets__format_paths() {
     printf '%s' "${joined%, }"
 }
 
-# _ai_tools_assets__report <code> : the record stream for a plan, and the apply when one ran: the enable-list row
-# where the list could not be read, one row per entry in list order (`linked` at ok, `error` at unreadable, any other
-# token at attention), then each row the plan and the apply recorded. The enable-list row says every resolver link is
-# removed only where the receiving agents were read, every directory was planned, listed and written and every removal
-# took; otherwise it names the directories a link stays under (_AI_TOOLS_ASSETS__DIRS_LEFT), says the agents'
-# directories were not examined (_AI_TOOLS_ASSETS__AGENT_DIRS_UNREAD) and names the write-failed rows, so the stream
-# does not claim a withdrawal the run did not make.
-_ai_tools_assets__report() {
-    local code="$1" entry index detail
+# ai_tools_assets__record_report_row <code> <severity> <finding> <subject-type> <subject> <item> <agent> <detail> :
+# record one row of a caller's own -- a verb's list edit -- for the next report, under its own <code>. The report writes
+# it in key order with the reconcile's rows (ai_tools_assets__list_report_order); a caller that exits before a report
+# writes it with ai_tools_assets__write_recorded_rows.
+ai_tools_assets__record_report_row() {
+    _AI_TOOLS_ASSETS__RECORDED_CODE+=( "$1" ); _AI_TOOLS_ASSETS__RECORDED_SEVERITY+=( "$2" ); _AI_TOOLS_ASSETS__RECORDED_FINDING+=( "$3" )
+    _AI_TOOLS_ASSETS__RECORDED_SUBJECT_TYPE+=( "$4" ); _AI_TOOLS_ASSETS__RECORDED_SUBJECT+=( "$5" ); _AI_TOOLS_ASSETS__RECORDED_ITEM+=( "$6" )
+    _AI_TOOLS_ASSETS__RECORDED_AGENT+=( "$7" ); _AI_TOOLS_ASSETS__RECORDED_DETAIL+=( "$8" )
+}
+
+# _ai_tools_assets__reset_recorded_rows : empty the rows ai_tools_assets__record_report_row recorded.
+_ai_tools_assets__reset_recorded_rows() {
+    declare -ga _AI_TOOLS_ASSETS__RECORDED_CODE=() _AI_TOOLS_ASSETS__RECORDED_SEVERITY=() _AI_TOOLS_ASSETS__RECORDED_FINDING=() \
+        _AI_TOOLS_ASSETS__RECORDED_SUBJECT_TYPE=() _AI_TOOLS_ASSETS__RECORDED_SUBJECT=() _AI_TOOLS_ASSETS__RECORDED_ITEM=() \
+        _AI_TOOLS_ASSETS__RECORDED_AGENT=() _AI_TOOLS_ASSETS__RECORDED_DETAIL=()
+}
+
+# _ai_tools_assets__get_order_key <item> <set> <rank> <agent> : print a row's sort key, tab-separated: kind, set, name,
+# rank, agent. A three-component <item> names all three; a two-component one is <kind>/<view name>, its name the view
+# name without the `.md` a file kind adds, and its set <set>; a one-component one is a kind; an empty one gives an empty
+# key. A tab or a newline in a field becomes `?`, since the sort reads one key per line.
+_ai_tools_assets__get_order_key() {
+    local item="$1" key_set="$2" rank="$3" agent="$4" kind="" name="" field
+    local -a components=()
+    IFS=/ read -r -a components <<< "${item//$'\n'/?}"
+    case "${#components[@]}" in
+        0)  ;;
+        2)  kind="${components[0]}"; name="${components[1]}"
+            [[ "$(_ai_tools_assets__get_kind_field "${kind}" shape)" == file ]] && name="${name%.md}" ;;
+        3)  key_set="${components[0]}"; kind="${components[1]}"; name="${components[2]}" ;;
+        *)  kind="${item}" ;;
+    esac
+    for field in "${kind}" "${key_set}" "${name}" "${rank}"; do
+        field="${field//[$'\t\n']/?}"
+        printf '%s\t' "${field}"
+    done
+    printf '%s' "${agent//[$'\t\n']/?}"
+}
+
+# _ai_tools_assets__list_order <origin>... : print `<origin><TAB><index>` for every row of the named origins, in key
+# order. The origins are `recorded` (the rows ai_tools_assets__record_report_row holds), `list` (the enable-list row,
+# where the list is untrusted, invalid or unread), `entry` (AI_TOOLS_ASSETS__ENTRIES) and `row` (the rows the plan
+# and the apply recorded). The key is kind, then set, then name, each under LC_ALL=C (_ai_tools_assets__get_order_key),
+# then the rank within one asset -- the list edit, the entry's state, the view row, the agent rows -- then the agent,
+# then the recording order, so a row without a kind comes first and an empty set ahead of the sets of its kind. A sort
+# whose output does not hold every row leaves the rows in recording order and warns under MSG-Y8T3: every row is still
+# written, and only the order differs.
+_ai_tools_assets__list_order() {
+    local origin index sequence=0 rank
+    local -a keyed=() rows=() ordered=()
+    for origin in "$@"; do
+        case "${origin}" in
+            recorded)
+                for (( index = 0; index < ${#_AI_TOOLS_ASSETS__RECORDED_CODE[@]}; index++ )); do
+                    rows+=( "recorded"$'\t'"${index}" )
+                    keyed+=( "$(_ai_tools_assets__get_order_key "${_AI_TOOLS_ASSETS__RECORDED_ITEM[index]}" "" 0 "")"$'\t'"${sequence}"$'\t'"recorded"$'\t'"${index}" )
+                    sequence=$(( sequence + 1 ))
+                done ;;
+            list)
+                case "${AI_TOOLS_ASSETS__LIST_STATE}" in
+                    untrusted|invalid|unread)
+                        rows+=( "list"$'\t'"0" )
+                        keyed+=( "$(_ai_tools_assets__get_order_key "" "" 0 "")"$'\t'"${sequence}"$'\t'"list"$'\t'"0" )
+                        sequence=$(( sequence + 1 )) ;;
+                esac ;;
+            entry)
+                for (( index = 0; index < ${#AI_TOOLS_ASSETS__ENTRIES[@]}; index++ )); do
+                    rows+=( "entry"$'\t'"${index}" )
+                    keyed+=( "$(_ai_tools_assets__get_order_key "${AI_TOOLS_ASSETS__ENTRIES[index]}" "" 1 "")"$'\t'"${sequence}"$'\t'"entry"$'\t'"${index}" )
+                    sequence=$(( sequence + 1 ))
+                done ;;
+            row)
+                for (( index = 0; index < ${#AI_TOOLS_ASSETS__ROW_SEVERITY[@]}; index++ )); do
+                    rank=2
+                    [[ -n "${_AI_TOOLS_ASSETS__ROW_AGENT[index]}" ]] && rank=3
+                    rows+=( "row"$'\t'"${index}" )
+                    keyed+=( "$(_ai_tools_assets__get_order_key "${_AI_TOOLS_ASSETS__ROW_ITEM[index]}" "${_AI_TOOLS_ASSETS__ROW_SET[index]}" "${rank}" \
+                        "${_AI_TOOLS_ASSETS__ROW_AGENT[index]}")"$'\t'"${sequence}"$'\t'"row"$'\t'"${index}" )
+                    sequence=$(( sequence + 1 ))
+                done ;;
+        esac
+    done
+    (( ${#rows[@]} > 0 )) || return 0
+    mapfile -t ordered < <(printf '%s\n' "${keyed[@]}" | LC_ALL=C sort -t $'\t' -k1,1 -k2,2 -k3,3 -k4,4n -k5,5 -k6,6n 2>/dev/null | cut -f7,8)
+    if (( ${#ordered[@]} != ${#rows[@]} )); then
+        _ai_tools_assets__warn MSG-Y8T3 "the rows could not be sorted (sort returned ${#ordered[@]} of ${#rows[@]}), so they are written in the order they were recorded"
+        ordered=( "${rows[@]}" )
+    fi
+    printf '%s\n' "${ordered[@]}"
+}
+
+# _ai_tools_assets__warn <code> <message> : a warning on stderr, the code on its own line ahead of the message (the
+# shape tests/lib/harness.sh's assert_msg reads), and in journald, for a condition that leaves every record written.
+_ai_tools_assets__warn() {
+    printf '%s\nassets: warning: %s\n' "$1" "$2" >&2
+    ai_tools_log__coded warning "$1" "$2"
+}
+
+# ai_tools_assets__list_report_order : the order a report writes its rows in and `ai-tools-admin status` prints its
+# Assets lines in: `<origin><TAB><index>` for the recorded rows, the enable-list row, the entries and the plan's rows,
+# as _ai_tools_assets__list_order states. Run after ai_tools_assets__plan.
+ai_tools_assets__list_report_order() {
+    _ai_tools_assets__list_order recorded list entry row
+}
+
+# ai_tools_assets__write_recorded_rows : write the rows ai_tools_assets__record_report_row holds, in key order, each
+# under its own code, and empty them -- for a caller that exits before the report that would write them. Does not write
+# anything when none is held.
+ai_tools_assets__write_recorded_rows() {
+    local origin index
+    while IFS=$'\t' read -r origin index; do
+        [[ "${origin}" == recorded ]] || continue
+        _ai_tools_assets__write_recorded_row "${index}"
+    done < <(_ai_tools_assets__list_order recorded)
+    _ai_tools_assets__reset_recorded_rows
+}
+
+# _ai_tools_assets__write_recorded_row <index> : write the recorded row at <index> under its own code.
+_ai_tools_assets__write_recorded_row() {
+    _ai_tools_assets__write_row "${_AI_TOOLS_ASSETS__RECORDED_CODE[$1]}" "${_AI_TOOLS_ASSETS__RECORDED_SEVERITY[$1]}" \
+        "${_AI_TOOLS_ASSETS__RECORDED_FINDING[$1]}" "${_AI_TOOLS_ASSETS__RECORDED_SUBJECT_TYPE[$1]}" "${_AI_TOOLS_ASSETS__RECORDED_SUBJECT[$1]}" \
+        "${_AI_TOOLS_ASSETS__RECORDED_ITEM[$1]}" "${_AI_TOOLS_ASSETS__RECORDED_AGENT[$1]}" "${_AI_TOOLS_ASSETS__RECORDED_DETAIL[$1]}"
+}
+
+# _ai_tools_assets__write_list_row <code> : the enable-list row, where the list could not be read. It says every
+# resolver link is removed only where the receiving agents were read, every directory was planned, listed and written
+# and every removal took; otherwise it names the directories a link stays under (_AI_TOOLS_ASSETS__DIRS_LEFT), says
+# the agents' directories were not examined (_AI_TOOLS_ASSETS__AGENT_DIRS_UNREAD) and names the write-failed rows,
+# so the stream does not claim a withdrawal the run did not make.
+_ai_tools_assets__write_list_row() {
+    local code="$1" detail
     case "${AI_TOOLS_ASSETS__LIST_STATE}" in
         untrusted)
             detail="${AI_TOOLS_ASSETS__LIST_DETAIL}"
@@ -2381,21 +2538,37 @@ _ai_tools_assets__report() {
             _ai_tools_assets__write_row "${code}" unreadable error file "${AI_TOOLS_OPERATOR_CONF}" AI_TOOLS_ASSETS "" \
                 "${AI_TOOLS_ASSETS__LIST_DETAIL}" ;;
     esac
-    for entry in "${AI_TOOLS_ASSETS__ENTRIES[@]}"; do
-        if [[ "${AI_TOOLS_ASSETS__STATE[${entry}]}" == linked ]]; then
-            _ai_tools_assets__write_row "${code}" ok linked file "$(_ai_tools_assets__get_entry_subject "${entry}")" "${entry}" "" \
-                "$(_ai_tools_assets__format_entry_detail "${entry}")"
-        else
-            _ai_tools_assets__write_row "${code}" "$([[ "${AI_TOOLS_ASSETS__STATE[${entry}]}" == error ]] && printf unreadable || printf attention)" \
-                "${AI_TOOLS_ASSETS__STATE[${entry}]}" file "$(_ai_tools_assets__get_entry_subject "${entry}")" "${entry}" "" \
-                "$(_ai_tools_assets__format_entry_detail "${entry}")"
-        fi
-    done
-    for (( index = 0; index < ${#AI_TOOLS_ASSETS__ROW_SEVERITY[@]}; index++ )); do
-        _ai_tools_assets__write_row "${code}" "${AI_TOOLS_ASSETS__ROW_SEVERITY[index]}" "${AI_TOOLS_ASSETS__ROW_FINDING[index]}" \
-            "${_AI_TOOLS_ASSETS__ROW_SUBJECT_TYPE[index]}" "${AI_TOOLS_ASSETS__ROW_SUBJECT[index]}" "${_AI_TOOLS_ASSETS__ROW_ITEM[index]}" \
-            "${_AI_TOOLS_ASSETS__ROW_AGENT[index]}" "${AI_TOOLS_ASSETS__ROW_DETAIL[index]}"
-    done
+}
+
+# _ai_tools_assets__report <code> : the record stream for a plan, and the apply when one ran, in the order
+# ai_tools_assets__list_report_order prints: the rows a caller recorded under their own codes, then under <code>
+# the enable-list row (_ai_tools_assets__write_list_row), one row per entry (`linked` at ok, `error` at unreadable, any
+# other token at attention) and each row the plan and the apply recorded. A verb's rows and the reconcile's are
+# therefore one stream sorted by kind, set and name, an asset's list edit ahead of its entry, its view link and its
+# agent links. The recorded rows are emptied once written.
+_ai_tools_assets__report() {
+    local code="$1" origin index entry
+    while IFS=$'\t' read -r origin index; do
+        case "${origin}" in
+            recorded) _ai_tools_assets__write_recorded_row "${index}" ;;
+            list)     _ai_tools_assets__write_list_row "${code}" ;;
+            entry)
+                entry="${AI_TOOLS_ASSETS__ENTRIES[index]}"
+                if [[ "${AI_TOOLS_ASSETS__STATE[${entry}]}" == linked ]]; then
+                    _ai_tools_assets__write_row "${code}" ok linked file "$(_ai_tools_assets__get_entry_subject "${entry}")" "${entry}" "" \
+                        "$(_ai_tools_assets__format_entry_detail "${entry}")"
+                else
+                    _ai_tools_assets__write_row "${code}" "$([[ "${AI_TOOLS_ASSETS__STATE[${entry}]}" == error ]] && printf unreadable || printf attention)" \
+                        "${AI_TOOLS_ASSETS__STATE[${entry}]}" file "$(_ai_tools_assets__get_entry_subject "${entry}")" "${entry}" "" \
+                        "$(_ai_tools_assets__format_entry_detail "${entry}")"
+                fi ;;
+            row)
+                _ai_tools_assets__write_row "${code}" "${AI_TOOLS_ASSETS__ROW_SEVERITY[index]}" "${AI_TOOLS_ASSETS__ROW_FINDING[index]}" \
+                    "${_AI_TOOLS_ASSETS__ROW_SUBJECT_TYPE[index]}" "${AI_TOOLS_ASSETS__ROW_SUBJECT[index]}" "${_AI_TOOLS_ASSETS__ROW_ITEM[index]}" \
+                    "${_AI_TOOLS_ASSETS__ROW_AGENT[index]}" "${AI_TOOLS_ASSETS__ROW_DETAIL[index]}" ;;
+        esac
+    done < <(ai_tools_assets__list_report_order)
+    _ai_tools_assets__reset_recorded_rows
 }
 
 # ── The transaction ──────────────────────────────────────────────────────────────────────────────────────────────────
