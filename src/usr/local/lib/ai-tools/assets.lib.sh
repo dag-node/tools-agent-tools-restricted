@@ -1121,7 +1121,7 @@ _ai_tools_assets__reset_plan() {
         AI_TOOLS_ASSETS__ROW_SEVERITY=() AI_TOOLS_ASSETS__ROW_FINDING=() _AI_TOOLS_ASSETS__ROW_SUBJECT_TYPE=() AI_TOOLS_ASSETS__ROW_SUBJECT=() \
         _AI_TOOLS_ASSETS__ROW_ITEM=() _AI_TOOLS_ASSETS__ROW_AGENT=() AI_TOOLS_ASSETS__ROW_DETAIL=() _AI_TOOLS_ASSETS__ROW_SET=() \
         _AI_TOOLS_ASSETS__DIRS_LEFT=()
-    _AI_TOOLS_ASSETS__UNLINK_FAILED=0; _AI_TOOLS_ASSETS__AGENT_DIRS_UNREAD=0
+    _AI_TOOLS_ASSETS__UNLINK_FAILED=0; _AI_TOOLS_ASSETS__AGENT_DIRS_UNREAD=0; _AI_TOOLS_ASSETS__SET_KEYS_LOST=0
 }
 
 # _ai_tools_assets__record_row <severity> <finding> <subject-type> <subject> <item> <agent> <detail> [set] : record one
@@ -1357,13 +1357,15 @@ _ai_tools_assets__is_resolver_link() {
 
 # _ai_tools_assets__read_resolver_set <path> : print the set a resolver link at <path> points into, read one hop:
 # the first component under one of the first two roots, `ai-tools` under the base root. Prints nothing for a path
-# that is not a resolver link. The plan reads it while the link is still on disk, and the set is a sort key alone:
-# the row's finding and subject come from the apply's own result, so a set that could not be read moves the row
-# to the head of its kind and leaves its finding, subject and detail as the apply recorded them.
+# that is not a resolver link, and returns 1 without printing for a link whose target could not be read. The plan reads
+# it while the link is still on disk, and the set is a sort key alone: the row's finding and subject come
+# from the apply's own result, so a set that could not be read moves the row to the head of its kind and leaves its
+# finding, subject and detail as the apply recorded them. A caller counts each status 1
+# in _AI_TOOLS_ASSETS__SET_KEYS_LOST, which the order reports (_ai_tools_assets__sort_rows).
 _ai_tools_assets__read_resolver_set() {
     local target index root rest
     [[ -L "$1" ]] || return 0
-    target="$(readlink -- "$1" 2>/dev/null)" || return 0
+    target="$(readlink -- "$1" 2>/dev/null)" || return 1
     for (( index = 0; index < ${#_AI_TOOLS_ASSETS__ROOT_LIST[@]}; index++ )); do
         root="${_AI_TOOLS_ASSETS__ROOT_LIST[index]}"
         [[ "${target}" == "${root}/"* ]] || continue
@@ -1789,7 +1791,7 @@ _ai_tools_assets__mark_name_conflicts() {
 # be listed: the kind is then not planned (_ai_tools_assets__record_kind_unplanned), so no link in the view
 # or in an agent's directory of that kind is placed or removed.
 _ai_tools_assets__plan_view() {
-    local kind="$1" view="${AI_TOOLS_ASSETS_HOME}/$1" name entry target failed
+    local kind="$1" view="${AI_TOOLS_ASSETS_HOME}/$1" name entry target failed link_set
     local -A present=() desired=()
     declare -gA _AI_TOOLS_ASSETS__VIEW_AFTER=()
     if ! failed="$(_ai_tools_assets__is_destination_trusted view "${view}")"; then
@@ -1822,14 +1824,14 @@ _ai_tools_assets__plan_view() {
     done
     for name in "${!present[@]}"; do
         if [[ "${name}" =~ ^\..+\.ai-tools-assets\.tmp$ ]] && _ai_tools_assets__is_own_leftover "${view}/${name}"; then
-            _ai_tools_assets__record_action unlink "${view}/${name}" "" file "${kind}/${name}" "" "a temporary name an interrupted run left" \
-                "$(_ai_tools_assets__read_resolver_set "${view}/${name}")"
+            link_set="$(_ai_tools_assets__read_resolver_set "${view}/${name}")" || _AI_TOOLS_ASSETS__SET_KEYS_LOST=$(( _AI_TOOLS_ASSETS__SET_KEYS_LOST + 1 ))
+            _ai_tools_assets__record_action unlink "${view}/${name}" "" file "${kind}/${name}" "" "a temporary name an interrupted run left" "${link_set}"
             continue
         fi
         [[ "${name}" == README.md || -n "${desired[${name}]+x}" ]] && continue
         if _ai_tools_assets__is_resolver_link "${view}/${name}"; then
-            _ai_tools_assets__record_action unlink "${view}/${name}" "" file "${kind}/${name}" "" "no enabled entry justifies it" \
-                "$(_ai_tools_assets__read_resolver_set "${view}/${name}")"
+            link_set="$(_ai_tools_assets__read_resolver_set "${view}/${name}")" || _AI_TOOLS_ASSETS__SET_KEYS_LOST=$(( _AI_TOOLS_ASSETS__SET_KEYS_LOST + 1 ))
+            _ai_tools_assets__record_action unlink "${view}/${name}" "" file "${kind}/${name}" "" "no enabled entry justifies it" "${link_set}"
             continue
         fi
         if _ai_tools_assets__is_seeded_copy "${kind}" "${view}/${name}"; then
@@ -2051,16 +2053,17 @@ _ai_tools_assets__list_agent_links() {
 # and, for `resolver` (an installed agent that is not enabled), at a resolver link as well. A link to a seeded copy,
 # and every other entry, is left as it is.
 _ai_tools_assets__plan_stale_links() {
-    local agent="$1" kind="$2" agent_dir="$3" which="$4" view="${AI_TOOLS_ASSETS_HOME}/$2" name target after
+    local agent="$1" kind="$2" agent_dir="$3" which="$4" view="${AI_TOOLS_ASSETS_HOME}/$2" name target after link_set
     shift 4
     for name in "$@"; do
         target="$(readlink -- "${agent_dir}/${name}" 2>/dev/null || true)"
         [[ "${target}" == "${view}/"* ]] || continue
         after="${_AI_TOOLS_ASSETS__VIEW_AFTER[${target#"${view}/"}]:-}"
         if [[ -z "${after}" || ( "${which}" == resolver && "${after}" == resolver ) ]]; then
+            link_set="$(_ai_tools_assets__read_resolver_set "${target}")" || _AI_TOOLS_ASSETS__SET_KEYS_LOST=$(( _AI_TOOLS_ASSETS__SET_KEYS_LOST + 1 ))
             _ai_tools_assets__record_action unlink "${agent_dir}/${name}" "" agent "${kind}/${target#"${view}/"}" "${agent}" \
                 "$([[ -z "${after}" ]] && printf 'the view does not hold a linkable entry at its name' || printf 'the agent is not enabled')" \
-                "$(_ai_tools_assets__read_resolver_set "${target}")"
+                "${link_set}"
         fi
     done
 }
@@ -2430,13 +2433,17 @@ _ai_tools_assets__get_order_key() {
 # or unread), `entry` (AI_TOOLS_ASSETS__ENTRIES) and `row` (the rows the plan and the apply recorded). The key is kind,
 # then set, then name, each under LC_ALL=C (_ai_tools_assets__get_order_key), then the rank within one asset -- the list
 # edit, the entry's state, the view row, the agent rows -- then the agent, then the recording order, so a row without
-# a kind comes first and an empty set ahead of the sets of its kind. The sort's output is taken only where it names each
-# row once, checked against the rows it was given; any other output -- a sort that failed, dropped, repeated or invented
-# a row -- leaves the rows in recording order and warns under MSG-Y8T3: every row is still written, and only the order
-# differs. Its locals carry a prefix, since the array is the caller's name.
+# a kind comes first and an empty set ahead of the sets of its kind. An entry the plan did not resolve to a kind
+# (_AI_TOOLS_ASSETS__KIND), one that does not parse, takes the empty key and sorts with the rows without a kind.
+# A resolver link whose set the plan could not read (_AI_TOOLS_ASSETS__SET_KEYS_LOST) sorts under the empty set,
+# and the `row` origin warns once under MSG-M7J8 that the order lost those keys. The sort's output is taken only
+# where it names each row once, checked against the rows it was given; any other output -- a sort that failed, dropped,
+# repeated or invented a row -- leaves the rows in recording order and warns under MSG-Y8T3: every row is still written,
+# and only the order differs. Its locals carry a prefix, since the array is the caller's name.
 _ai_tools_assets__sort_rows() {
     local -n _sort_rows_out="$1"
-    local _sort_rows_origin _sort_rows_index _sort_rows_sequence=0 _sort_rows_rank _sort_rows_reference _sort_rows_complete=0
+    local _sort_rows_origin _sort_rows_index _sort_rows_sequence=0 _sort_rows_rank _sort_rows_reference _sort_rows_complete=0 \
+        _sort_rows_entry
     local -a _sort_rows_keyed=() _sort_rows_rows=() _sort_rows_ordered=()
     local -A _sort_rows_placed=()
     shift
@@ -2457,11 +2464,15 @@ _ai_tools_assets__sort_rows() {
                 esac ;;
             entry)
                 for (( _sort_rows_index = 0; _sort_rows_index < ${#AI_TOOLS_ASSETS__ENTRIES[@]}; _sort_rows_index++ )); do
+                    _sort_rows_entry="${AI_TOOLS_ASSETS__ENTRIES[_sort_rows_index]}"
+                    [[ -n "${_sort_rows_entry}" && -n "${_AI_TOOLS_ASSETS__KIND[${_sort_rows_entry}]+x}" ]] || _sort_rows_entry=""
                     _sort_rows_rows+=( "entry"$'\t'"${_sort_rows_index}" )
-                    _sort_rows_keyed+=( "$(_ai_tools_assets__get_order_key "${AI_TOOLS_ASSETS__ENTRIES[_sort_rows_index]}" "" 1 "")"$'\t'"${_sort_rows_sequence}"$'\t'"entry"$'\t'"${_sort_rows_index}" )
+                    _sort_rows_keyed+=( "$(_ai_tools_assets__get_order_key "${_sort_rows_entry}" "" 1 "")"$'\t'"${_sort_rows_sequence}"$'\t'"entry"$'\t'"${_sort_rows_index}" )
                     _sort_rows_sequence=$(( _sort_rows_sequence + 1 ))
                 done ;;
             row)
+                (( ${_AI_TOOLS_ASSETS__SET_KEYS_LOST:-0} == 0 )) \
+                    || _ai_tools_assets__warn MSG-M7J8 "the target of ${_AI_TOOLS_ASSETS__SET_KEYS_LOST} resolver link(s) could not be read again for the set it names, so their rows sort ahead of the sets of their kind; every row is still written, and only the order differs"
                 for (( _sort_rows_index = 0; _sort_rows_index < ${#AI_TOOLS_ASSETS__ROW_SEVERITY[@]}; _sort_rows_index++ )); do
                     _sort_rows_rank=2
                     [[ -n "${_AI_TOOLS_ASSETS__ROW_AGENT[_sort_rows_index]}" ]] && _sort_rows_rank=3
