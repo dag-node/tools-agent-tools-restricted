@@ -2627,14 +2627,15 @@ _ai_tools_assets__write_enable_list_row() {
     esac
 }
 
-# _ai_tools_assets__report <code> <applied> : the record stream for a plan, and the apply when one ran (<applied> 1),
-# in the order _ai_tools_assets__fill_row_order gives: the rows a caller recorded under their own codes, then
-# under <code> the enable-list row (_ai_tools_assets__write_enable_list_row), one row per entry (`linked` at ok, `error`
-# at unreadable, any other token at attention) and each row the plan and the apply recorded. A verb's rows
-# and the reconcile's are therefore one stream sorted by kind, set and name, an asset's list edit ahead of its entry,
-# its view link and its agent links. The recorded rows are emptied once written.
+# _ai_tools_assets__report <code> <link-code> <applied> : the record stream for a plan, and the apply when one ran
+# (<applied> 1), in the order _ai_tools_assets__fill_row_order gives: the rows a caller recorded under their own codes,
+# under <code> the enable-list row (_ai_tools_assets__write_enable_list_row) and one row per entry (`linked` at ok,
+# `error` at unreadable, any other token at attention), and under <link-code> each row the plan and the apply recorded.
+# An entry's row and the row about its view link share subject and item, so the two codes give them different record
+# ids. A verb's rows and the reconcile's are one stream sorted by kind, set and name, an asset's list edit ahead of its
+# entry, its view link and its agent links. The recorded rows are emptied once written.
 _ai_tools_assets__report() {
-    local code="$1" applied="$2" reference origin index entry
+    local code="$1" link_code="$2" applied="$3" reference origin index entry
     local -a references=()
     _ai_tools_assets__fill_row_order references recorded list entry row
     for reference in "${references[@]}"; do
@@ -2653,7 +2654,7 @@ _ai_tools_assets__report() {
                         "$(_ai_tools_assets__format_entry_detail "${entry}")"
                 fi ;;
             row)
-                _ai_tools_assets__write_row "${code}" "${AI_TOOLS_ASSETS__ROW_SEVERITY[index]}" "${AI_TOOLS_ASSETS__ROW_FINDING[index]}" \
+                _ai_tools_assets__write_row "${link_code}" "${AI_TOOLS_ASSETS__ROW_SEVERITY[index]}" "${AI_TOOLS_ASSETS__ROW_FINDING[index]}" \
                     "${_AI_TOOLS_ASSETS__ROW_SUBJECT_TYPE[index]}" "${AI_TOOLS_ASSETS__ROW_SUBJECT[index]}" "${_AI_TOOLS_ASSETS__ROW_ITEM[index]}" \
                     "${_AI_TOOLS_ASSETS__ROW_AGENT[index]}" "${AI_TOOLS_ASSETS__ROW_DETAIL[index]}" ;;
         esac
@@ -2665,24 +2666,32 @@ _ai_tools_assets__report() {
 
 # ai_tools_assets__reconcile <group> : the view transaction. Takes the assets lock (ai_tools_managed_assets__lock,
 # managed-assets.lib.sh) before any input is read -- a level of it where its caller already holds it -- and holds it
-# to the end, plans, applies, and writes one record per enable-list entry and per row found, under the reconcile code.
-# Returns 0; 1 when a change did not take (each one reported) or the lock could not be taken (no input read and no link
-# changed, MSG-M8T9). The records' severities fold into ai_tools_records_base__get_exit_status for the caller.
+# to the end, plans, applies, and writes one record per enable-list entry under the reconcile's entry code and one
+# per row found under its link code. Returns 0; 1 when a change did not take (each one reported) or the lock could not
+# be taken (no input read and no link changed, MSG-M8T9). The records' severities fold
+# into ai_tools_records_base__get_exit_status for the caller.
 ai_tools_assets__reconcile() {
     local group="${1:?}" status=0
     ai_tools_managed_assets__lock || return 1
     ai_tools_assets__plan
     _ai_tools_assets__apply_locked "${group}"
-    _ai_tools_assets__write_reconcile_report MSG-Z3P6 "assets reconcile: an enable-list entry's state, or a link the view transaction placed, removed or found"
+    _ai_tools_assets__write_reconcile_report MSG-Z3P6 "assets reconcile: an enable-list entry's state, or why the enable list enables no asset" \
+        "$(_ai_tools_assets__get_link_code MSG-K6J2 "assets reconcile: a link the view transaction placed, removed or could not change, or an entry or directory it found")"
     (( _AI_TOOLS_ASSETS__WRITE_FAILED == 0 )) || status=1
     ai_tools_managed_assets__unlock
     return "${status}"
 }
 
-# _ai_tools_assets__write_reconcile_report <code> <situation> : the report a reconcile writes, under the code naming its
-# situation.
+# _ai_tools_assets__get_link_code <code> <situation> : print <code>, the code a report writes its link rows under.
+# A report names two situations and the index reads one code per call, so the link code is named in a call of its own.
+_ai_tools_assets__get_link_code() {
+    printf '%s' "$1"
+}
+
+# _ai_tools_assets__write_reconcile_report <code> <situation> <link-code> : the report a reconcile writes, the entries
+# under the code naming its situation and the link rows under <link-code>.
 _ai_tools_assets__write_reconcile_report() {
-    _ai_tools_assets__report "$1" 1
+    _ai_tools_assets__report "$1" "$3" 1
 }
 
 # ai_tools_assets__report_state : the view transaction's reading without its writes: the plan, then the report
@@ -2696,7 +2705,8 @@ _ai_tools_assets__write_reconcile_report() {
 ai_tools_assets__report_state() {
     ai_tools_assets__plan
     _ai_tools_assets__record_pending_rows
-    _ai_tools_assets__write_list_report MSG-W5Q3 "assets list: an enable-list entry's state, a link the view transaction would place or remove, or an entry it found"
+    _ai_tools_assets__write_list_report MSG-W5Q3 "assets list: an enable-list entry's state, or why the enable list enables no asset" \
+        "$(_ai_tools_assets__get_link_code MSG-B8J9 "assets list: a link the view transaction would place or remove, or an entry or directory it found")"
 }
 
 # _ai_tools_assets__record_pending_rows : one attention row per action the plan recorded, about the action's path, item
@@ -2723,10 +2733,10 @@ _ai_tools_assets__record_pending_rows() {
     done
 }
 
-# _ai_tools_assets__write_list_report <code> <situation> : the report `assets list` writes, under the code naming its
-# situation.
+# _ai_tools_assets__write_list_report <code> <situation> <link-code> : the report `assets list` writes, the entries
+# under the code naming its situation and the link rows under <link-code>.
 _ai_tools_assets__write_list_report() {
-    _ai_tools_assets__report "$1" 0
+    _ai_tools_assets__report "$1" "$3" 0
 }
 
 # ai_tools_assets__is_set_installed <set> : succeed when one of the package roots, the first two

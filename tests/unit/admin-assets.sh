@@ -97,11 +97,10 @@ refused() {
 listed() { grep -E '^AI_TOOLS_ASSETS=' "${CONF}" || true; }
 # finding_of <id> : the finding of the first row whose item carries <id>.
 finding_of() { awk -F'\t' -v id="$1" 'NR > 1 && index($9, id) { print $6; exit }' <<< "${OUT}"; }
-# state_of <id> : the finding of the reconcile's row for the enable-list entry <id>: code MSG-Z3P6, the item <id> alone,
-# a severity other than info, which tells it from the info row placing the same asset's view link. Prints `rows=<n>`
-# unless exactly one row matches.
+# state_of <id> : the finding of the reconcile's row for the enable-list entry <id>: code MSG-Z3P6, the item <id> alone.
+# Prints `rows=<n>` unless exactly one row matches.
 state_of() {
-    awk -F'\t' -v id="$1" 'NR > 1 && $3 == "MSG-Z3P6" && $9 == id && $5 != "info" { n++; finding = $6 }
+    awk -F'\t' -v id="$1" 'NR > 1 && $3 == "MSG-Z3P6" && $9 == id { n++; finding = $6 }
         END { if (n == 1) print finding; else print "rows=" n + 0 }' <<< "${OUT}"
 }
 
@@ -163,6 +162,15 @@ compgen -G "${CONF}.*.bak" >/dev/null && pass "a dated .bak exists after the wri
 [[ "$(readlink "${HOME_DIR}/skills/acme-pdf")" == "${PKG}/acme/skills/acme-pdf" ]] && pass "the reconcile linked the asset" \
     || fail "the view holds $(readlink "${HOME_DIR}/skills/acme-pdf" 2>&1)"
 [[ "$(state_of "${SKILL}")" == linked ]] && pass "the record stream carries the entry linked" || fail "rows: ${OUT:0:300}"
+# The entry's row and the row placing its view link share subject and item, so the code alone keeps their ids apart.
+entry_row="$(awk -F'\t' -v id="${SKILL}" 'NR > 1 && $3 == "MSG-Z3P6" && $9 == id { print $4 " " $5 " " $10 }' <<< "${OUT}")"
+link_row="$(awk -F'\t' -v id="${SKILL}" 'NR > 1 && $3 == "MSG-K6J2" && $9 == id { print $4 " " $5 " " $6 " " $10 }' <<< "${OUT}")"
+if [[ "${entry_row}" == *" ok ${HOME_DIR}/skills/acme-pdf" && "${link_row}" == *" info linked ${HOME_DIR}/skills/acme-pdf" \
+        && "${entry_row%% *}" != "${link_row%% *}" ]]; then
+    pass "the entry's row under MSG-Z3P6 and its view link's row under MSG-K6J2 carry different record ids"
+else
+    fail "the entry's row '${entry_row}', the view link's row '${link_row}'"
+fi
 admin assets enable "${SKILL}"
 [[ "$(listed)" == "AI_TOOLS_ASSETS=[${SKILL}, ${SUB}]" ]] && pass "an identifier already listed is not added twice" \
     || fail "a second enable wrote '$(listed)'"
@@ -206,7 +214,7 @@ else
     fail "--set wrote '$(listed)': ${ERR:0:300}"
 fi
 [[ "$(finding_of acme/skills/acme-bad)" == asset-invalid ]] && pass "an invalid asset is reported and left out" || fail "rows: ${OUT:0:400}"
-written="$(awk -F'\t' 'NR > 1 && $3 == "MSG-Z3P6" && $5 != "info" && $7 == "file" && index($9, "acme/") { print $9 }' <<< "${OUT}" | LC_ALL=C sort | tr '\n' ' ')"
+written="$(awk -F'\t' 'NR > 1 && $3 == "MSG-Z3P6" && index($9, "acme/") { print $9 }' <<< "${OUT}" | LC_ALL=C sort | tr '\n' ' ')"
 [[ "${written}" == "${SKILL} ${SUB} " ]] && pass "the identifiers printed equal the identifiers written" || fail "printed '${written}'"
 [[ "${RC}" == 4 ]] && pass "--set with an invalid asset exits 4" || fail "--set exit ${RC}"
 fresh
@@ -542,6 +550,8 @@ fi
 # The item's components are the identifier and the agent, joined by a tab the stream writes as `\t`.
 [[ "$(awk -F'\t' '$6 == "link-pending" { print $9 }' <<< "${OUT}")" == "${SKILL}"'\tacme' ]] && pass "the link-pending row names the agent" \
     || fail "the link-pending row's item: $(awk -F'\t' '$6 == "link-pending" { print $9 }' <<< "${OUT}")"
+[[ "$(awk -F'\t' '$6 == "link-pending" { print $3 }' <<< "${OUT}")" == MSG-B8J9 ]] && pass "the link-pending row carries the list's link code" \
+    || fail "the link-pending row's code: $(awk -F'\t' '$6 == "link-pending" { print $3 }' <<< "${OUT}")"
 [[ "$(awk -F'\t' '$6 == "link-pending" { print $11 }' <<< "${OUT}")" \
         == "a reconcile would point it at ${HOME_DIR}/skills/acme-pdf; run sudo ai-tools-admin assets reconcile" ]] \
     && pass "the link-pending row says what a reconcile would do" \

@@ -238,7 +238,7 @@ fresh
 printf 'edited\n' >> "${PKG}/acme/skills/acme-pdf/SKILL.md"; reconcile
 expect_state "${SKILL}" set-tampered "an edited file"
 expect_unlinked skills/acme-pdf "an edited file"
-assert_msg MSG-Z3P6 "$(cut -f3 <<< "${OUT}" | sort -u)" "the reconcile rows carry the reconcile code"
+assert_msg MSG-Z3P6 "$(cut -f3 <<< "${OUT}" | sort -u)" "the entry rows carry the reconcile's entry code"
 fresh
 printf 'added\n' > "${PKG}/acme/skills/acme-pdf/extra.md"; chmod 0644 "${PKG}/acme/skills/acme-pdf/extra.md"; reconcile
 expect_state "${SKILL}" set-tampered "an added file"
@@ -918,6 +918,8 @@ printf 'tampered\n' >> "${PKG}/acme/README.md"; reconcile
 expect_unlinked skills/acme-pdf "a set that linked and then fails verification"
 expect_unlinked subagents/acme-reviewer.md "the same set's subagent"
 has_row unlinked "${HOME_DIR}/skills/acme-pdf" && pass "the removal is reported unlinked" || fail "no unlinked row: ${OUT:0:300}"
+removal_code="$(awk -F'\t' -v s="${HOME_DIR}/skills/acme-pdf" 'NR > 1 && $6 == "unlinked" && $10 == s { print $3 }' <<< "${OUT}")"
+[[ "${removal_code}" == MSG-K6J2 ]] && pass "the removal's row carries the reconcile's link code" || fail "the removal's code: '${removal_code}'"
 
 # ── The lock ─────────────────────────────────────────────────────────────────────────────────────────────────────────
 section "assets: the lock serializes runs"

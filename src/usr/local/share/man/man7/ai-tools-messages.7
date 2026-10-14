@@ -1792,6 +1792,14 @@ WARNING.
 the set is refused as tampered \-\- $*
 .SS assets.lib.sh
 .TP
+.B MSG-B8J9
+WARNING.
+assets list: a link the view transaction would place or remove, or an entry or directory it found
+.TP
+.B MSG-K6J2
+WARNING.
+assets reconcile: a link the view transaction placed, removed or could not change, or an entry or directory it found
+.TP
 .B MSG-M7J8
 WARNING.
 the set a resolver link points into could not be read again (${_AI_TOOLS_ASSETS__SET_KEYS_LOST} read(s) failed), so the rows about those links sort ahead of the sets of their kind; every row is still written, and only the order differs
@@ -1802,7 +1810,7 @@ assets: the order of a report's rows could not be computed, so they are written 
 .TP
 .B MSG-W5Q3
 WARNING.
-assets list: an enable\-list entry's state, a link the view transaction would place or remove, or an entry it found
+assets list: an enable\-list entry's state, or why the enable list enables no asset
 .TP
 .B MSG-Y8T3
 WARNING.
@@ -1810,7 +1818,7 @@ the rows are written in the order they were recorded: the sort of their keys exi
 .TP
 .B MSG-Z3P6
 WARNING.
-assets reconcile: an enable\-list entry's state, or a link the view transaction placed, removed or found
+assets reconcile: an enable\-list entry's state, or why the enable list enables no asset
 .SS cache-cleanup.lib.sh
 .TP
 .B MSG-G5U7
