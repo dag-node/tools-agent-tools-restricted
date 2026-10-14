@@ -1,5 +1,5 @@
 # The release of the asset set core this repository's prose checker and reftags tool are read from, resolved
 # by tools/lib/assets.sh. Bump it as tools/README.md states.
-tag=core/v0.2.1
-archive=ai-tools-assets-core-0.2.1.zip
-archive_sha256=429136f67671d9779a35ed9d0e0a39fb7801d8b565256c584386a255cdaf2f18
+tag=core/v0.2.2
+archive=ai-tools-assets-core-0.2.2.zip
+archive_sha256=5e40d784cfb783fea7ec8104103904c927660c25511e989939769f698293feed
