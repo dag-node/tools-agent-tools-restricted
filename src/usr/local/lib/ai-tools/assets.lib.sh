@@ -2232,7 +2232,7 @@ _ai_tools_assets__read_occupant() {
 }
 
 # _ai_tools_assets__apply_locked <group> : take every change the plan computed, in order -- the view first, then
-# the agents' links -- each reported as a row: `linked` or `unlinked` at info, or `write-failed` at attention
+# the agents' links -- each reported as a row: `placed` or `removed` at info, or `write-failed` at attention
 # with the entry it was for left unlinked. A view link that failed is not linked into an agent's directory. Before its
 # first write in a directory the apply holds it to _ai_tools_assets__is_destination_trusted, creating an absent view
 # or agent kind directory root:<group> 0750 first (_ai_tools_assets__prepare_dir); a directory that fails does not take
@@ -2272,14 +2272,14 @@ _ai_tools_assets__apply_locked() {
                 fi
                 if _ai_tools_assets__place_link "${path}" "${target}" "${group}"; then
                     placed+=( "${path}" )
-                    _ai_tools_assets__record_row info linked "${stype}" "${path}" "${item}" "${agent}" "${detail}" "${link_set}"
+                    _ai_tools_assets__record_row info placed "${stype}" "${path}" "${item}" "${agent}" "${detail}" "${link_set}"
                 else
                     [[ "${stype}" == file ]] && failed_view["${path}"]=1
                     _ai_tools_assets__record_failure "${stype}" "${path}" "${item}" "${agent}" "the link to ${target} could not be placed: ${_AI_TOOLS_ASSETS__PLACE_ERROR}" "${link_set}"
                 fi ;;
             unlink)
                 if [[ -L "${path}" ]] && rm -f -- "${path}" 2>/dev/null; then
-                    _ai_tools_assets__record_row info unlinked "${stype}" "${path}" "${item}" "${agent}" "${detail}" "${link_set}"
+                    _ai_tools_assets__record_row info removed "${stype}" "${path}" "${item}" "${agent}" "${detail}" "${link_set}"
                 elif [[ -e "${path}" || -L "${path}" ]]; then
                     _AI_TOOLS_ASSETS__UNLINK_FAILED=1
                     _ai_tools_assets__record_failure "${stype}" "${path}" "${item}" "${agent}" \

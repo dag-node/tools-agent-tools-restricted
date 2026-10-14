@@ -165,7 +165,7 @@ compgen -G "${CONF}.*.bak" >/dev/null && pass "a dated .bak exists after the wri
 # The entry's row and the row placing its view link share subject and item, so the code alone keeps their ids apart.
 entry_row="$(awk -F'\t' -v id="${SKILL}" 'NR > 1 && $3 == "MSG-Z3P6" && $9 == id { print $4 " " $5 " " $10 }' <<< "${OUT}")"
 link_row="$(awk -F'\t' -v id="${SKILL}" 'NR > 1 && $3 == "MSG-K6J2" && $9 == id { print $4 " " $5 " " $6 " " $10 }' <<< "${OUT}")"
-if [[ "${entry_row}" == *" ok ${HOME_DIR}/skills/acme-pdf" && "${link_row}" == *" info linked ${HOME_DIR}/skills/acme-pdf" \
+if [[ "${entry_row}" == *" ok ${HOME_DIR}/skills/acme-pdf" && "${link_row}" == *" info placed ${HOME_DIR}/skills/acme-pdf" \
         && "${entry_row%% *}" != "${link_row%% *}" ]]; then
     pass "the entry's row under MSG-Z3P6 and its view link's row under MSG-K6J2 carry different record ids"
 else
@@ -297,8 +297,8 @@ write_conf acme-two/subagents/acme-two-reviewer "${SUB}" acme-two/skills/acme-tw
 admin assets reconcile
 admin assets disable "${SKILL}"
 want="disabled ${CONF}
-unlinked ${HOME_DIR}/skills/acme-pdf
-unlinked ${HOME_DIR}/.acme/skills/acme-pdf
+removed ${HOME_DIR}/skills/acme-pdf
+removed ${HOME_DIR}/.acme/skills/acme-pdf
 linked ${HOME_DIR}/skills/acme-two-pdf
 linked ${HOME_DIR}/subagents/acme-reviewer.md
 linked ${HOME_DIR}/subagents/acme-two-reviewer.md"

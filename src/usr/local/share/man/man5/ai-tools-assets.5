@@ -324,10 +324,10 @@ added to
 or
 .B "assets disable"
 removed from it,
-.B linked
+.B placed
 or
-.B unlinked
-for a link placed or removed,
+.B removed
+for each link the command changed,
 .B link\-pending
 or
 .B unlink\-pending
@@ -337,6 +337,13 @@ found a reconcile would place or remove, and
 .B kept
 for a file of yours left in an agent's directory where the view also holds an
 entry.
+An enabled asset's own record reads
+.B linked
+at
+.B ok
+on every run while its link is in place;
+.B placed
+appears beside it only on the run that made the link.
 A record of
 .B agent\-root\-absent
 says that path does not exist yet; the agent's package links it when it is
