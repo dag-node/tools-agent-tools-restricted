@@ -219,6 +219,7 @@ ai-tools-admin -- administer the ai-tools host: operators, SELinux groups, the t
       --all                          with --check: list the findings that need no action too
       --format tsv                   with --check: the line format (the default)
   Assets
+    assets [list]                    each enabled asset's state and the links a reconcile would change
     assets enable <id>...            enable assets, each <set>/<kind>/<name>, and reconcile
       --set <set>                    instead: enable each valid asset a set holds now
     assets disable <id>...           disable assets and remove their links
@@ -3231,12 +3232,13 @@ status() {
 # ── assets ───────────────────────────────────────────────────────────────────────────────────────────────────────────
 # The `assets` domain: AI_TOOLS_ASSETS in operator.conf names the assets every enabled agent loads, and assets.lib.sh
 # resolves each to `linked` or a reason token and keeps the view and the agents' links current (shipped-assets.rule.md).
-# Every verb takes the assets lock (ai_tools_managed_assets__lock) before its first read of operator.conf and holds it
-# to its exit, so two verbs at once each read the list the other wrote: lock, read, back up, write, plan, apply, report.
-# Every verb prints a record stream (ai-tools-records(5)): its own rows and the reconcile's, as one stream sorted
-# by kind, set and name (ai_tools_assets__list_report_order), so each asset's list edit, entry and links are adjacent.
-# A verb exits 1 for a write refused or failed, else 5 when the library did not load, else 4 for an attention row, else
-# 0. Each attention row is logged under its code to journald and to the root-only
+# Every verb that writes takes the assets lock (ai_tools_managed_assets__lock) before its first read of operator.conf
+# and holds it to its exit, so two verbs at once each read the list the other wrote: lock, read, back up, write, plan,
+# apply, report. `assets list` plans and reports without the lock, as `status` does. Every verb prints a record stream
+# (ai-tools-records(5)): its own rows and the reconcile's, as one stream sorted by kind, set and name
+# (ai_tools_assets__list_report_order), so each asset's list edit, entry and links are adjacent. A verb exits 1
+# for a write refused or failed, else 5 when the library did not load, else 4 for an attention row, else 0. Each
+# attention row is logged under its code to journald and to the root-only
 # assets.log.
 
 # assets_load: source assets.lib.sh, or exit 5 under its code: a verb whose resolver did not load does not read or write
@@ -3245,7 +3247,7 @@ assets_load() {
     # shellcheck source=SCRIPTDIR/../../lib/ai-tools/assets.lib.sh
     source "${ASSETS_LIB}" 2>/dev/null || true
     if ! declare -F ai_tools_assets__reconcile >/dev/null 2>&1 || ! declare -F ai_tools_assets__build_enable_snapshot >/dev/null 2>&1 \
-            || ! declare -F ai_tools_assets__record_report_row >/dev/null 2>&1; then
+            || ! declare -F ai_tools_assets__record_report_row >/dev/null 2>&1 || ! declare -F ai_tools_assets__list >/dev/null 2>&1; then
         warn MSG-P8M5 "the assets library (${ASSETS_LIB}) did not load, so no asset was read or changed -- reinstall ai-tools-base"
         exit 5
     fi
@@ -3508,6 +3510,19 @@ assets_disable() {
     assets_finish "${status}"
 }
 
+# assets_list: `assets list`, and a bare `assets`: every enabled asset's state and each link a reconcile would place
+# or remove, as a record stream (ai_tools_assets__list). Reads without the assets lock, as `status` does, since a read
+# that waited on a reconcile could wait two minutes. Exits 5 when the library did not load, else 4 for an attention row
+# -- a pending change among them -- else 0; it does not write, so it does not exit 1.
+assets_list() {
+    (( $# == 0 )) || reject MSG-F3D9 "assets list takes no arguments"
+    assets_load
+    ai_tools_records_base__begin_report
+    ai_tools_assets__list
+    ai_tools_records_base__get_exit_status || exit $?
+    exit 0
+}
+
 # assets_reconcile_verb: `assets reconcile`, the view transaction alone.
 assets_reconcile_verb() {
     local status=0
@@ -3519,16 +3534,15 @@ assets_reconcile_verb() {
     assets_finish "${status}"
 }
 
-# assets_dispatch: the domain's verbs. A bare `assets` prints them, since each one changes the host and no `list` exists
-# yet.
+# assets_dispatch: the domain's verbs; a bare `assets` runs `list`, the one that reads.
 assets_dispatch() {
-    [[ $# -ge 1 ]] || reject MSG-E5Z8 "assets takes a verb: 'assets enable <id>...', 'assets enable --set <set>', 'assets disable <id>...', 'assets reconcile'"
-    local verb="$1"; shift
+    local verb="${1:-list}"; [[ $# -eq 0 ]] || shift
     case "${verb}" in
+        list)      assets_list "$@" ;;
         enable)    assets_enable "$@" ;;
         disable)   assets_disable "$@" ;;
         reconcile) assets_reconcile_verb "$@" ;;
-        *)         reject MSG-D4S7 "unknown command 'assets ${verb}' (enable|disable|reconcile)" ;;
+        *)         reject MSG-D4S7 "unknown command 'assets ${verb}' (list|enable|disable|reconcile)" ;;
     esac
 }
 

@@ -30,9 +30,7 @@ A command is a bare word and
 introduces an option, so a collection takes its verb after the noun
 .RB ( "operators add" ,
 .BR "selinux groups enable" ).
-A collection named on its own lists what it holds;
-.BR assets ,
-which does not list yet, prints its commands.
+A collection named on its own lists what it holds.
 A domain named on its own
 .RB ( selinux ,
 .BR system )
@@ -595,6 +593,29 @@ copy),
 The stream format, and the default.
 .RE
 .TP
+.B assets
+Print the state of every entry of
+.B AI_TOOLS_ASSETS
+and each link a reconcile would place, repoint or remove, without changing
+anything.
+A pending change is a
+.B link\-pending
+or
+.B unlink\-pending
+record whose detail names
+.BR "sudo ai\-tools\-admin assets reconcile" .
+This is what a bare
+.B assets
+runs, and
+.B "assets list"
+is the same command spelled in full.
+It reads without the assets lock, as
+.B status
+does, so it answers while a reconcile runs.
+It exits 0 when the view and every agent's links match the line, 4 while
+a change is pending or an entry needs attention, and 5 when a reading could
+not be made; it does not write, so it does not exit 1.
+.TP
 .B assets enable \fIIDENTIFIER\fR...
 Enable each asset, written
 .IB SET / KIND / NAME
@@ -677,11 +698,18 @@ It does not take an argument and runs after every package change to a set, so it
 the command to run after editing the line by hand.
 .RS
 .PP
-Each of the four takes the assets lock before it reads
+Each command that writes \(em
+.BR enable ,
+.B disable
+and
+.B reconcile
+\(em takes the assets lock before it reads
 .B AI_TOOLS_ASSETS
 and holds it to its end, so two of them at once each read the line the other
 wrote; one that waits more than two minutes for the lock exits 1 with the line
 and the view as they were.
+.B "assets list"
+reads without it.
 Each writes one record per entry of
 .B AI_TOOLS_ASSETS
 \(em

@@ -361,8 +361,8 @@ section "ai-tools-admin assets: the exit fold and the usage refusals"
 fresh
 admin unload assets reconcile
 refused MSG-P8M5 5 "a resolver that did not load"
-admin assets
-refused MSG-E5Z8 2 "a bare assets"
+admin assets list extra
+refused MSG-F3D9 2 "list with an argument"
 admin assets bogus
 refused MSG-D4S7 2 "an unknown assets verb"
 admin assets reconcile extra
@@ -374,6 +374,57 @@ refused MSG-H7A8 2 "disable with no identifier"
 write_conf "${SKILL}"
 admin assets reconcile
 [[ "${RC}" == 0 ]] && pass "a reconcile with every entry linked exits 0" || fail "reconcile exit ${RC}: ${ERR:0:200}"
+
+# ── assets list ──────────────────────────────────────────────────────────────────────────────────────────────────────
+section "ai-tools-admin assets list: the state and each pending change, without a write"
+# rows_without_times : the last stream without its observed-at column, which differs between two runs.
+rows_without_times() { cut -f2- <<< "${OUT}"; }
+# pending_rows : `<finding> <subject> <severity>` of each pending row of the last stream.
+pending_rows() { awk -F'\t' 'NR > 1 && $6 ~ /-pending$/ { print $6 " " $10 " " $5 }' <<< "${OUT}"; }
+fresh
+write_conf "${SKILL}" "${SUB}"
+admin assets reconcile
+admin assets list; listed_stream="$(rows_without_times)"; list_rc="${RC}"
+admin assets; bare_stream="$(rows_without_times)"
+[[ "${bare_stream}" == "${listed_stream}" && -n "${listed_stream}" ]] && pass "a bare assets prints the stream assets list prints" \
+    || fail "a bare assets and assets list differ: ${bare_stream:0:200} / ${listed_stream:0:200}"
+linked_rows="$(awk -F'\t' 'NR > 1 && $3 == "MSG-W5Q3" && $5 == "ok" && $6 == "linked"' <<< "${OUT}" | wc -l)"
+if [[ "${list_rc}" == 0 && "${linked_rows}" == 2 && -z "$(pending_rows)" ]]; then
+    pass "after a clean reconcile: exit 0, one ok linked row per entry, no pending row"
+else
+    fail "after a clean reconcile: rc ${list_rc}, ${linked_rows} linked row(s), pending '$(pending_rows)'"
+fi
+snapshot() { find "${HOME_DIR}" "${CONF}" -printf '%p %y %l %m %s\n' | LC_ALL=C sort; }
+rm -f "${HOME_DIR}/.acme/skills/acme-pdf"
+before="$(snapshot)"
+admin assets list
+if [[ "${RC}" == 4 && "$(pending_rows)" == "link-pending ${HOME_DIR}/.acme/skills/acme-pdf attention" \
+        && "$(awk -F'\t' -v id="${SKILL}" 'NR > 1 && $3 == "MSG-W5Q3" && $9 == id { print $6; exit }' <<< "${OUT}")" == linked ]]; then
+    pass "an agent link removed by hand: exit 4, one link-pending row for its path, the entry still linked"
+else
+    fail "a missing agent link: rc ${RC}, pending '$(pending_rows)'"
+fi
+# The item's components are the identifier and the agent, joined by a tab the stream writes as `\t`.
+[[ "$(awk -F'\t' '$6 == "link-pending" { print $9 }' <<< "${OUT}")" == "${SKILL}"'\tacme' ]] && pass "the link-pending row names the agent" \
+    || fail "the link-pending row's item: $(awk -F'\t' '$6 == "link-pending" { print $9 }' <<< "${OUT}")"
+[[ "$(snapshot)" == "${before}" ]] && pass "list does not write: the view, the agent's directory and operator.conf are as they were" \
+    || fail "list changed the host"
+admin assets reconcile; admin assets list
+[[ "${RC}" == 0 && -z "$(pending_rows)" ]] && pass "a reconcile places the link and list returns to exit 0" \
+    || fail "after the reconcile: rc ${RC}, pending '$(pending_rows)'"
+ln -s "${PKG}/acme/skills/acme-pdf" "${HOME_DIR}/skills/acme-stray"
+admin assets list
+[[ "${RC}" == 4 && "$(pending_rows)" == "unlink-pending ${HOME_DIR}/skills/acme-stray attention" ]] \
+    && pass "a resolver link no entry justifies: unlink-pending, exit 4" || fail "a stray link: rc ${RC}, pending '$(pending_rows)'"
+rm -f "${HOME_DIR}/skills/acme-stray"
+mkdir -p "${TESTDIR}/lock"
+( flock 9; sleep 6 ) 9>>"${TESTDIR}/lock/assets.lock" &
+holder=$!
+sleep 0.5
+started="${SECONDS}"; admin assets list; elapsed=$(( SECONDS - started ))
+wait "${holder}" || true
+[[ "${RC}" == 0 ]] && (( elapsed < 4 )) && pass "list beside a held lock returns without waiting (${elapsed}s)" \
+    || fail "list beside a held lock: rc ${RC} after ${elapsed}s: ${ERR:0:200}"
 
 # ── The status section ───────────────────────────────────────────────────────────────────────────────────────────────
 section "ai-tools-admin status: the Assets section"

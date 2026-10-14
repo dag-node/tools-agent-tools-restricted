@@ -451,7 +451,7 @@ refusing ${fragment}: it is a symlink, is not root\-owned, or is writable by gro
 .TP
 .B MSG-D4S7
 ERROR.
-unknown command 'assets ${verb}' (enable|disable|reconcile)
+unknown command 'assets ${verb}' (list|enable|disable|reconcile)
 .TP
 .B MSG-D6K9
 ERROR.
@@ -481,10 +481,6 @@ the provisioning helper is not installed: ${BOOTSTRAP_BIN} \-\- install ai\-tool
 ERROR.
 a verb outside the command charset: ${fragment} declares $(printf '%q' "${verb}") among its verbs, and a verb is a bare lower\-case word
 .TP
-.B MSG-E5Z8
-ERROR.
-assets takes a verb: 'assets enable <id>...', 'assets enable \-\-set <set>', 'assets disable <id>...', 'assets reconcile'
-.TP
 .B MSG-E8S8
 WARNING.
 hook\-repeated
@@ -500,6 +496,10 @@ ask\-missing
 .B MSG-F2G7
 WARNING.
 hook\-missing
+.TP
+.B MSG-F3D9
+ERROR.
+assets list takes no arguments
 .TP
 .B MSG-F4Z5
 ERROR.
@@ -1778,6 +1778,10 @@ ERROR.
 WARNING.
 left ${hardlinked} hardlinked file(s) untouched \-\- an inode with more than one name can be reached from outside this tree, so changing it here would change a path this pass never authorized. They KEEP the group they have, so the agent is not off them: list them with
 .SS assets.lib.sh
+.TP
+.B MSG-W5Q3
+WARNING.
+assets list: an enable\-list entry's state, a link the view transaction would place or remove, or an entry it found
 .TP
 .B MSG-Y8T3
 WARNING.

@@ -16,7 +16,8 @@
 #
 # The view transaction is ai_tools_assets__reconcile: the lock, then ai_tools_assets__plan, which reads every input
 # and computes the link changes without writing, then the apply, then one record per entry and per change, sorted
-# by kind, set and name (ai_tools_assets__list_report_order). `status` runs the plan alone.
+# by kind, set and name (ai_tools_assets__list_report_order). `status` runs the plan alone, and `assets list` the plan
+# and the report (ai_tools_assets__list).
 #
 # The root-only test hooks AI_TOOLS_ASSETS_ROOTS and AI_TOOLS_ASSETS_HOME move the roots and the directory holding
 # the view and the agent config directories, with the standing of AI_TOOLS_ASSETS_BINDINGS_DIR (assets-verify.lib.sh).
@@ -2592,6 +2593,38 @@ ai_tools_assets__reconcile() {
 # _ai_tools_assets__reconcile_report <code> <situation> : the report a reconcile writes, under the code naming its
 # situation.
 _ai_tools_assets__reconcile_report() {
+    _ai_tools_assets__report "$1"
+}
+
+# ai_tools_assets__list : the view transaction's reading without its writes: the plan, then the report a reconcile
+# writes with one attention row added per change the apply would make -- `link-pending` for a link to place, repoint
+# or convert from a managed copy, `unlink-pending` for a link to remove -- whose detail names
+# `sudo ai-tools-admin assets reconcile`. The entry rows read as the plan resolved them, so an entry whose link is not
+# on disk reads `linked` beside its `link-pending` row. Does not take the lock and does not write a file, as `status`
+# does: a link a running reconcile stages under its temporary name reads as `unlink-pending` until that reconcile
+# renames it. The records' severities fold into ai_tools_records_base__get_exit_status for the caller.
+ai_tools_assets__list() {
+    ai_tools_assets__plan
+    _ai_tools_assets__record_pending_rows
+    _ai_tools_assets__list_report MSG-W5Q3 "assets list: an enable-list entry's state, a link the view transaction would place or remove, or an entry it found"
+}
+
+# _ai_tools_assets__record_pending_rows : one attention row per action the plan recorded, about the action's path, item
+# and agent, under the set the action sorts under.
+_ai_tools_assets__record_pending_rows() {
+    local index pending_finding
+    for (( index = 0; index < ${#_AI_TOOLS_ASSETS__ACTION_OPERATION[@]}; index++ )); do
+        pending_finding="link-pending"
+        [[ "${_AI_TOOLS_ASSETS__ACTION_OPERATION[index]}" == unlink ]] && pending_finding="unlink-pending"
+        _ai_tools_assets__record_row attention "${pending_finding}" "${_AI_TOOLS_ASSETS__ACTION_SUBJECT_TYPE[index]}" \
+            "${_AI_TOOLS_ASSETS__ACTION_PATH[index]}" "${_AI_TOOLS_ASSETS__ACTION_ITEM[index]}" "${_AI_TOOLS_ASSETS__ACTION_AGENT[index]}" \
+            "${_AI_TOOLS_ASSETS__ACTION_DETAIL[index]}; run sudo ai-tools-admin assets reconcile" "${_AI_TOOLS_ASSETS__ACTION_SET[index]}"
+    done
+}
+
+# _ai_tools_assets__list_report <code> <situation> : the report `assets list` writes, under the code naming its
+# situation.
+_ai_tools_assets__list_report() {
     _ai_tools_assets__report "$1"
 }
 
