@@ -171,7 +171,7 @@ ROFF
         if [[ -n "${pointer}" ]]; then
             printf 'Documented in\n%s\n' "${pointer}"
         fi
-    done < <(extract | sort -t$'\t' -k1,1 -k2,2)
+    done < <(extract | LC_ALL=C sort -t$'\t' -k1,1 -k2,2)
     cat <<'ROFF'
 .SH SEE ALSO
 .BR ai-tools (1),

@@ -1781,6 +1781,15 @@ ERROR.
 .B MSG-Z5S7
 WARNING.
 left ${hardlinked} hardlinked file(s) untouched \-\- an inode with more than one name can be reached from outside this tree, so changing it here would change a path this pass never authorized. They KEEP the group they have, so the agent is not off them: list them with
+.SS assets-verify.lib.sh
+.TP
+.B MSG-Q6Y8
+WARNING.
+the set is refused as unverified \-\- $*
+.TP
+.B MSG-T3M3
+WARNING.
+the set is refused as tampered \-\- $*
 .SS assets.lib.sh
 .TP
 .B MSG-M7J8
@@ -1798,15 +1807,6 @@ the rows could not be sorted (the sort printed ${#_sort_rows_ordered[@]} line(s)
 .B MSG-Z3P6
 WARNING.
 assets reconcile: an enable\-list entry's state, or a link the view transaction placed, removed or found
-.SS assets-verify.lib.sh
-.TP
-.B MSG-Q6Y8
-WARNING.
-the set is refused as unverified \-\- $*
-.TP
-.B MSG-T3M3
-WARNING.
-the set is refused as tampered \-\- $*
 .SS cache-cleanup.lib.sh
 .TP
 .B MSG-G5U7
