@@ -304,6 +304,21 @@ PRELUDE='ai_tools_conf__set_list() { return 1; }'; admin assets disable "${SKILL
 refused MSG-Q8E5 1 "a write that fails"
 [[ "$(finding_of acme/skills/acme-other)" == not-enabled ]] && pass "a write that fails still writes the rows the verb recorded" \
     || fail "rows after a failed write: ${OUT:0:300}"
+# The writer replaces the file and its read-back fails: the file holds the new list, and the refusal names the backup
+# and the reconcile.
+fresh
+write_conf "${SKILL}"
+PRELUDE='eval "$(declare -f ai_tools_conf__read_list | sed "1s/^ai_tools_conf__read_list/_stub_read_list_real/")"
+    ai_tools_conf__read_list() { [[ "${FUNCNAME[1]}" == ai_tools_conf__set_list ]] && return 2; _stub_read_list_real "$@"; }'
+admin assets enable "${SUB}"; PRELUDE=""
+refused MSG-Q8E5 1 "a write whose read-back fails"
+backups=( "${CONF}".*.bak )
+if [[ -e "${backups[0]}" && "${ERR}" == *"${backups[0]}"* && "${ERR}" == *"sudo ai-tools-admin assets reconcile"* \
+        && "${ERR}" != *unchanged* && "$(listed)" == "AI_TOOLS_ASSETS=[${SKILL}, ${SUB}]" ]]; then
+    pass "a write whose read-back fails: the refusal names the backup and the reconcile, not an unchanged file"
+else
+    fail "a write whose read-back fails: '$(listed)', ${ERR:0:400}"
+fi
 fresh
 write_conf "${SUB}" "${SKILL}"
 # The stub fails the record stream's sort, keyed from the first field, and leaves the set walk's.

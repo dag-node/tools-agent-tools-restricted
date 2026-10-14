@@ -3298,9 +3298,12 @@ assets_read_list() {
 }
 
 # assets_write_list <entry>...: write AI_TOOLS_ASSETS as exactly these entries through ai_tools_conf__set_list,
-# after a dated .bak of the file where it exists. Exits 1, the file as it was, when the backup or the write fails,
-# after the rows the verb recorded (ai_tools_assets__write_recorded_rows). A file carrying neither a live line
-# nor the key's commented default -- one written before the key -- takes the line at its end, and the write says
+# after a dated .bak of the file where it exists. Exits 1 after the rows the verb recorded
+# (ai_tools_assets__write_recorded_rows), without the reconcile, when the backup fails, the file as it was,
+# or when the writer does not confirm the write: ai_tools_conf__set_list returns 1 alike for a file it could not write
+# and for one it replaced and could not read back, so the refusal names the backup and the reconcile that brings
+# the links in line with what the file holds, and does not say the file is unchanged. A file carrying neither a live
+# line nor the key's commented default -- one written before the key -- takes the line at its end, and the write says
 # so, since the slot under its header reaches that file through `system post-upgrade`.
 assets_write_list() {
     local conf="${AI_TOOLS_OPERATOR_CONF}" backup="" rc=0
@@ -3311,7 +3314,7 @@ assets_write_list() {
     ai_tools_conf__set_list "${conf}" AI_TOOLS_ASSETS "$@" || rc=$?
     if (( rc != 0 )); then
         ai_tools_assets__write_recorded_rows
-        die MSG-Q8E5 "assets: AI_TOOLS_ASSETS could not be written to ${conf} (writer status ${rc})${backup:+; the previous file is ${backup}}"
+        die MSG-Q8E5 "assets: the write of AI_TOOLS_ASSETS to ${conf} was not confirmed (writer status ${rc}), so the file holds the list it held or the one this call wrote${backup:+; the file as it was is ${backup}} -- read the line, then run sudo ai-tools-admin assets reconcile to bring the links in line with it"
     fi
     ai_tools_log__info "assets: AI_TOOLS_ASSETS in ${conf} lists ${#} entries${backup:+; backup ${backup}}"
     [[ "${AI_TOOLS_CONF__WRITE_PLACEMENT:-}" != appended ]] \

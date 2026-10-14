@@ -699,7 +699,7 @@ semodule failed to remove ai_tools_${name}
 .TP
 .B MSG-Q8E5
 ERROR.
-assets: AI_TOOLS_ASSETS could not be written to ${conf} (writer status ${rc})${backup:+; the previous file is ${backup}}
+assets: the write of AI_TOOLS_ASSETS to ${conf} was not confirmed (writer status ${rc}), so the file holds the list it held or the one this call wrote${backup:+; the file as it was is ${backup}} \-\- read the line, then run sudo ai\-tools\-admin assets reconcile to bring the links in line with it
 .TP
 .B MSG-R3M6
 ERROR.
