@@ -3274,16 +3274,23 @@ assets_lock_or_exit() {
 
 # assets_read_list <array-name>: the entries of AI_TOOLS_ASSETS in the file the verbs write, after the checks the write
 # makes: the file, where it exists, passes ai_tools_conf__is_trusted -- a file the predicate refuses is not one this
-# tool repairs by writing to it -- and the key, where present, reads as a list, since an invalid one would be lost
-# on the rewrite. Either refusal exits 1 before any write.
+# tool repairs by writing to it -- the file is read whole, and the key, where present, reads as a list, since an invalid
+# one would be lost on the rewrite. An absent key reads as the empty list. Each refusal exits 1 before any write: a file
+# not read whole would otherwise read as an empty list, and the write that follows would drop every entry the file
+# holds.
 assets_read_list() {
     local -n _assets_read_list_out="$1"
-    local conf="${AI_TOOLS_OPERATOR_CONF}"
+    local conf="${AI_TOOLS_OPERATOR_CONF}" status=0
     _assets_read_list_out=()
     [[ -e "${conf}" || -L "${conf}" ]] || return 0
     ai_tools_conf__is_trusted "${conf}" \
         || die MSG-K6K3 "assets: ${conf} is not root's alone ($(ai_tools_conf__read_untrusted_reason "${conf}")), so it is not written -- restore it to root:root 0644 and run the command again"
-    ai_tools_conf__read_list _assets_read_list_out "${conf}" AI_TOOLS_ASSETS 2>/dev/null || return 0
+    ai_tools_conf__read_list _assets_read_list_out "${conf}" AI_TOOLS_ASSETS 2>/dev/null || status=$?
+    case "${status}" in
+        0) ;;
+        1) return 0 ;;
+        *) die MSG-C7N4 "assets: ${conf} could not be read whole (reader status ${status}), so AI_TOOLS_ASSETS is not written and the file is unchanged -- check that it is readable and run the command again" ;;
+    esac
     [[ "${ai_tools_conf__list_invalid:-0}" == 0 ]] \
         || die MSG-B4Z5 "assets: AI_TOOLS_ASSETS in ${conf} is not a valid list, so it is not rewritten -- write it as [<set>/<kind>/<name>, ...] and run the command again"
 }

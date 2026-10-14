@@ -433,6 +433,10 @@ failed to add ${user} to ${OPERATORS_GROUP}
 WARNING.
 The '${name}' SELinux policy group is an EXPERIMENTAL, unaudited draft. It is not shipped prebuilt and cannot be enabled from here \-\- it widens the sandbox domain's access beyond the repo\-only core and must be compiled and verified against a real workload from a source checkout first.
 .TP
+.B MSG-C7N4
+ERROR.
+assets: ${conf} could not be read whole (reader status ${status}), so AI_TOOLS_ASSETS is not written and the file is unchanged \-\- check that it is readable and run the command again
+.TP
 .B MSG-C7S7
 ERROR.
 system takes a resource or a verb: 'system bootstrap', 'system entrypoints relabel', 'system post\-upgrade'

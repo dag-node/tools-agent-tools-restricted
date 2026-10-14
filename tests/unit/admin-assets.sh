@@ -122,6 +122,29 @@ chmod 0644 "${CONF}"
 printf 'AI_TOOLS_ASSETS=[a, b\n' >> "${CONF}"; before="$(cat "${CONF}")"; admin assets enable "${SKILL}"
 refused MSG-B4Z5 1 "an AI_TOOLS_ASSETS that is not a valid list"
 [[ "$(cat "${CONF}")" == "${before}" ]] && pass "an invalid list is not rewritten" || fail "an invalid list was rewritten"
+# The reader fails as for a file not read whole, for the verbs' own read alone: the set walk and the plan read normally.
+READ_FAILS='eval "$(declare -f ai_tools_conf__read_list | sed "1s/^ai_tools_conf__read_list/_stub_read_list_real/")"
+    ai_tools_conf__read_list() { [[ "${FUNCNAME[1]}" == assets_read_list ]] && return 2; _stub_read_list_real "$@"; }'
+for words in "enable ${SUB}" "enable --set acme" "disable ${SKILL}"; do
+    fresh
+    write_conf "${SKILL}"
+    before="$(cat "${CONF}")"
+    PRELUDE="${READ_FAILS}"
+    # shellcheck disable=SC2086  # the verb and its arguments split on purpose
+    admin assets ${words}
+    PRELUDE=""
+    refused MSG-C7N4 1 "assets ${words} over a file the reader could not read whole"
+    if [[ "$(cat "${CONF}")" == "${before}" ]] && ! compgen -G "${CONF}.*.bak" >/dev/null; then
+        pass "assets ${words}: operator.conf is byte-identical and no backup was made"
+    else
+        fail "assets ${words}: operator.conf changed or a backup was made: '$(listed)'"
+    fi
+done
+fresh
+printf '# fixture\nAI_TOOLS_AGENTS=[agent-acme]\n' > "${CONF}"; chown root:root "${CONF}"; chmod 0644 "${CONF}"
+admin assets enable "${SKILL}"
+[[ "${RC}" == 0 && "$(listed)" == "AI_TOOLS_ASSETS=[${SKILL}]" ]] && pass "a file without the key still reads as the empty list and enables" \
+    || fail "an enable over a file without the key: rc ${RC}, '$(listed)': ${ERR:0:300}"
 
 # ── enable writes and links ──────────────────────────────────────────────────────────────────────────────────────────
 section "ai-tools-admin assets enable: the write, the backup, the reconcile"
