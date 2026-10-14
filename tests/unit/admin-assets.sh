@@ -497,6 +497,25 @@ started="${SECONDS}"; admin assets list; elapsed=$(( SECONDS - started ))
 wait "${holder}" || true
 [[ "${RC}" == 0 ]] && (( elapsed < 4 )) && pass "list beside a held lock returns without waiting (${elapsed}s)" \
     || fail "list beside a held lock: rc ${RC} after ${elapsed}s: ${ERR:0:200}"
+fresh
+write_conf "${SKILL}"
+admin assets reconcile
+chmod 0664 "${CONF}"
+before="$(snapshot)"
+admin assets list
+untrusted_detail="$(awk -F'\t' 'NR > 1 && $6 == "enable-list-untrusted" { print $11 }' <<< "${OUT}")"
+if [[ "${RC}" == 4 && "${untrusted_detail}" == *"stays until sudo ai-tools-admin assets reconcile removes it"* \
+        && "${untrusted_detail}" != *"is removed"* && "$(pending_rows)" == *"unlink-pending ${HOME_DIR}/skills/acme-pdf attention"* ]]; then
+    pass "list over an untrusted operator.conf: the links stay until a reconcile, each named unlink-pending, exit 4"
+else
+    fail "list over an untrusted operator.conf: rc ${RC}, '${untrusted_detail}', pending '$(pending_rows)'"
+fi
+if [[ "$(snapshot)" == "${before}" && -L "${HOME_DIR}/skills/acme-pdf" && -L "${HOME_DIR}/.acme/skills/acme-pdf" ]]; then
+    pass "list over an untrusted operator.conf leaves every link on disk"
+else
+    fail "list over an untrusted operator.conf changed the host"
+fi
+chmod 0644 "${CONF}"
 
 # ── The status section ───────────────────────────────────────────────────────────────────────────────────────────────
 section "ai-tools-admin status: the Assets section"

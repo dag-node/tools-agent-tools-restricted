@@ -2530,27 +2530,30 @@ _ai_tools_assets__write_recorded_row() {
         "${_AI_TOOLS_ASSETS__RECORDED_ITEM[$1]}" "${_AI_TOOLS_ASSETS__RECORDED_AGENT[$1]}" "${_AI_TOOLS_ASSETS__RECORDED_DETAIL[$1]}"
 }
 
-# _ai_tools_assets__write_list_row <code> : the enable-list row, where the list could not be read. It says every
-# resolver link is removed only where the receiving agents were read, every directory was planned, listed and written
-# and every removal took; otherwise it names the directories a link stays under (_AI_TOOLS_ASSETS__DIRS_LEFT), says
-# the agents' directories were not examined (_AI_TOOLS_ASSETS__AGENT_DIRS_UNREAD) and names the write-failed rows,
-# so the stream does not claim a withdrawal the run did not make.
+# _ai_tools_assets__write_list_row <code> <applied> : the enable-list row, where the list could not be read. <applied>
+# is 1 where an apply ran. Without one -- `assets list` -- the row says each resolver link stays until a reconcile
+# removes it, each named in an unlink-pending row. After one it says every resolver link is removed only
+# where the receiving agents were read, every directory was planned, listed and written and every removal took. Either
+# way it names the directories a link stays under (_AI_TOOLS_ASSETS__DIRS_LEFT), says the agents' directories were not
+# examined (_AI_TOOLS_ASSETS__AGENT_DIRS_UNREAD) and names the write-failed rows, so the stream does not claim
+# a withdrawal the run did not make.
 _ai_tools_assets__write_list_row() {
-    local code="$1" detail
+    local code="$1" applied="$2" detail
     case "${AI_TOOLS_ASSETS__LIST_STATE}" in
         untrusted)
             detail="${AI_TOOLS_ASSETS__LIST_DETAIL}"
-            if (( ${#_AI_TOOLS_ASSETS__DIRS_LEFT[@]} == 0 && ${_AI_TOOLS_ASSETS__UNLINK_FAILED:-0} == 0 \
+            if (( ! applied )); then
+                detail+="; no asset is enabled while it stands, and each resolver link stays until sudo ai-tools-admin assets reconcile removes it, each named in an unlink-pending row"
+            elif (( ${#_AI_TOOLS_ASSETS__DIRS_LEFT[@]} == 0 && ${_AI_TOOLS_ASSETS__UNLINK_FAILED:-0} == 0 \
                     && ${_AI_TOOLS_ASSETS__AGENT_DIRS_UNREAD:-0} == 0 )); then
                 detail+="; every resolver link is removed"
-            else
-                (( ${#_AI_TOOLS_ASSETS__DIRS_LEFT[@]} == 0 )) \
-                    || detail+="; a resolver link under $(_ai_tools_assets__format_paths "${_AI_TOOLS_ASSETS__DIRS_LEFT[@]}") stays where one was, the directory not planned, not listed or refused a write (its row says why)"
-                (( ${_AI_TOOLS_ASSETS__AGENT_DIRS_UNREAD:-0} == 0 )) \
-                    || detail+="; the agents' directories were not examined, since the receiving agents could not be read (the receivers-unknown row says why)"
-                (( ${_AI_TOOLS_ASSETS__UNLINK_FAILED:-0} == 0 )) \
-                    || detail+="; a resolver link that could not be removed stays, each named in a write-failed row"
             fi
+            (( ${#_AI_TOOLS_ASSETS__DIRS_LEFT[@]} == 0 )) \
+                || detail+="; a resolver link under $(_ai_tools_assets__format_paths "${_AI_TOOLS_ASSETS__DIRS_LEFT[@]}") stays where one was, the directory not planned, not listed or refused a write (its row says why)"
+            (( ${_AI_TOOLS_ASSETS__AGENT_DIRS_UNREAD:-0} == 0 )) \
+                || detail+="; the agents' directories were not examined, since the receiving agents could not be read (the receivers-unknown row says why)"
+            (( ${_AI_TOOLS_ASSETS__UNLINK_FAILED:-0} == 0 )) \
+                || detail+="; a resolver link that could not be removed stays, each named in a write-failed row"
             _ai_tools_assets__write_row "${code}" attention enable-list-untrusted file "${AI_TOOLS_OPERATOR_CONF}" "" "" \
                 "${detail}" ;;
         invalid)
@@ -2562,21 +2565,21 @@ _ai_tools_assets__write_list_row() {
     esac
 }
 
-# _ai_tools_assets__report <code> : the record stream for a plan, and the apply when one ran, in the order
-# ai_tools_assets__sort_report_rows gives: the rows a caller recorded under their own codes, then under <code>
-# the enable-list row (_ai_tools_assets__write_list_row), one row per entry (`linked` at ok, `error` at unreadable, any
-# other token at attention) and each row the plan and the apply recorded. A verb's rows and the reconcile's are
-# therefore one stream sorted by kind, set and name, an asset's list edit ahead of its entry, its view link and its
-# agent links. The recorded rows are emptied once written.
+# _ai_tools_assets__report <code> <applied> : the record stream for a plan, and the apply when one ran (<applied> 1),
+# in the order ai_tools_assets__sort_report_rows gives: the rows a caller recorded under their own codes, then
+# under <code> the enable-list row (_ai_tools_assets__write_list_row), one row per entry (`linked` at ok, `error`
+# at unreadable, any other token at attention) and each row the plan and the apply recorded. A verb's rows
+# and the reconcile's are therefore one stream sorted by kind, set and name, an asset's list edit ahead of its entry,
+# its view link and its agent links. The recorded rows are emptied once written.
 _ai_tools_assets__report() {
-    local code="$1" reference origin index entry
+    local code="$1" applied="$2" reference origin index entry
     local -a references=()
     ai_tools_assets__sort_report_rows references
     for reference in "${references[@]}"; do
         origin="${reference%%$'\t'*}"; index="${reference#*$'\t'}"
         case "${origin}" in
             recorded) _ai_tools_assets__write_recorded_row "${index}" ;;
-            list)     _ai_tools_assets__write_list_row "${code}" ;;
+            list)     _ai_tools_assets__write_list_row "${code}" "${applied}" ;;
             entry)
                 entry="${AI_TOOLS_ASSETS__ENTRIES[index]}"
                 if [[ "${AI_TOOLS_ASSETS__STATE[${entry}]}" == linked ]]; then
@@ -2617,16 +2620,17 @@ ai_tools_assets__reconcile() {
 # _ai_tools_assets__reconcile_report <code> <situation> : the report a reconcile writes, under the code naming its
 # situation.
 _ai_tools_assets__reconcile_report() {
-    _ai_tools_assets__report "$1"
+    _ai_tools_assets__report "$1" 1
 }
 
 # ai_tools_assets__list : the view transaction's reading without its writes: the plan, then the report a reconcile
 # writes with one attention row added per change the apply would make -- `link-pending` for a link to place, repoint
 # or convert from a managed copy, `unlink-pending` for a link to remove -- whose detail names
 # `sudo ai-tools-admin assets reconcile`. The entry rows read as the plan resolved them, so an entry whose link is not
-# on disk reads `linked` beside its `link-pending` row. Does not take the lock and does not write a file, as `status`
-# does: a link a running reconcile stages under its temporary name reads as `unlink-pending` until that reconcile
-# renames it. The records' severities fold into ai_tools_records_base__get_exit_status for the caller.
+# on disk reads `linked` beside its `link-pending` row, and the enable-list row of an untrusted operator.conf says
+# the links stay until a reconcile removes them. Like `status`, it does not take the lock and does not change
+# operator.conf or a link: a link a running reconcile stages under its temporary name reads as `unlink-pending` until
+# that reconcile renames it. The records' severities fold into ai_tools_records_base__get_exit_status for the caller.
 ai_tools_assets__list() {
     ai_tools_assets__plan
     _ai_tools_assets__record_pending_rows
@@ -2649,7 +2653,7 @@ _ai_tools_assets__record_pending_rows() {
 # _ai_tools_assets__list_report <code> <situation> : the report `assets list` writes, under the code naming its
 # situation.
 _ai_tools_assets__list_report() {
-    _ai_tools_assets__report "$1"
+    _ai_tools_assets__report "$1" 0
 }
 
 # ai_tools_assets__is_set_installed <set> : succeed when one of the package roots, the first two
