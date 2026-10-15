@@ -680,6 +680,20 @@ if grep -qE '\[UNREADABLE\] +error +the order of the Assets lines could not be c
 else
     fail "a failed order in status: ${OUT:0:400}"
 fi
+# A sort whose output repeats a line: the library falls back to recording order and warns under MSG-Y8T3,
+# which the section silences, printing every line uncounted. The stub leaves a marker, so the case knows the order ran
+# it.
+sort_ran="${TESTDIR}/sort-ran"; rm -f "${sort_ran}"
+printf -v STUBS 'sort() { case " $* " in *" -k1,1 "*) : > %q; command sort "$@" | awk %q ;; *) command sort "$@" ;; esac; }' \
+    "${sort_ran}" 'NR == 1 { first = $0 } NR == 2 { print first; next } { print }'
+admin status_assets; STUBS=""
+if [[ -e "${sort_ran}" && "${ERR}" != *MSG-Y8T3* && "${OUT}" == *unreadable=0* ]] \
+        && grep -qE '\[ATTENTION\] +[^ ]+ +set-tampered' <<< "${OUT}" && grep -qE '\[ATTENTION\] +[^ ]+ +set-absent' <<< "${OUT}" \
+        && grep -qE '\[ATTENTION\] +[^ ]+ +kind-unknown' <<< "${OUT}"; then
+    pass "a fallback order in status prints every line, does not print MSG-Y8T3 between them, and is not counted"
+else
+    fail "a fallback order in status: ran=$([[ -e "${sort_ran}" ]] && echo yes || echo no) ERR ${ERR:0:200} OUT ${OUT:0:400}"
+fi
 fresh
 printf 'skills_root=%s\n' "${TESTDIR}/etc-acme/skills" >> "${AGENTS_D}/acme.conf"
 mkdir -p "${TESTDIR}/etc-acme"

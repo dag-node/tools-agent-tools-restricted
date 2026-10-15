@@ -2986,8 +2986,10 @@ status_selinux_attestation() {
 # which this section does not print, so a missing link reads here as resolved. The entry and row lines come in the order
 # the record stream takes (ai_tools_assets__sort_report_rows). A library that did not load is a reading this section
 # could not make, and so is an order that could not be computed, whose lines then come in the order the plan recorded
-# them (ai_tools_assets__get_report_row_references). Every string from a set or an agent's directory passes
-# the sanitizer. The section closes with status_assets_summary over the counts it added.
+# them (ai_tools_assets__get_report_row_references). The plan and the order run with stderr sent to /dev/null, so their
+# warnings do not print between the section's lines: an order that failed is the section's own [UNREADABLE] line,
+# and an order the library fell back from changes the lines' order alone. Every string from a set or an agent's
+# directory passes the sanitizer. The section closes with status_assets_summary over the counts it added.
 status_assets() {
     local problems_before="${STATUS_PROBLEMS}" unreadable_before="${STATUS_UNREADABLE}"
     heading "Assets"
@@ -3020,7 +3022,7 @@ status_assets_rows() {
         unset)     status_assets_successors ;;
     esac
     local order_status=0
-    ai_tools_assets__sort_report_rows references || order_status=$?
+    ai_tools_assets__sort_report_rows references 2>/dev/null || order_status=$?
     if (( order_status != 0 )); then
         st UNREADABLE "error  the order of the Assets lines could not be computed (status ${order_status}), so they are printed in the order the plan recorded them"
         STATUS_UNREADABLE=$(( STATUS_UNREADABLE + 1 ))
