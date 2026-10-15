@@ -67,6 +67,7 @@ set +x
 # derived from the RPMs the build produced (the local repo the image installed from), not a list kept by hand here,
 # so a subpackage added to the spec is asserted automatically and a member whose weak dependency silently fails
 # to resolve is caught.
+# shellcheck disable=SC2016  # the $(...) expands in the inner `bash -c`, not here
 phase "Metapackage pulled every built subpackage" \
     bash -c 'set -e; [ -d /tmp/ai-repo ] || { echo "no local repo to derive the expected set from" >&2; exit 1; }
              rpm -q $(rpm -qp --qf "%{NAME}\n" /tmp/ai-repo/*.rpm | sort -u) >/dev/null'
@@ -75,6 +76,7 @@ phase "Metapackage pulled every built subpackage" \
 # docs/rpm-packaging.md). With the Obsoletes alone, anything still depending on the old name loses its provider
 # mid-transaction; with the Provides alone, dnf cannot replace the installed old package at all and the upgrade fails
 # outright. Derived from the built set, so this covers a rename introduced later without being told about it.
+# shellcheck disable=SC2016  # the $(...) expands in the inner `bash -c`, not here
 phase "Renamed subpackages Provide every name they Obsolete" \
     bash -c 'set -e
              for r in /tmp/ai-repo/*.rpm; do
@@ -114,6 +116,7 @@ phase "contributed command domain dispatches (dotnet status)" \
 # and no other. Read from the built RPM rather than the installed tree, so a %files list that drifted
 # from the derivation fails here whether or not the package was installed. getenforce is Disabled in a container,
 # so whether a module LOADS is not covered.
+# shellcheck disable=SC2016  # the $(...) expands in the inner `bash -c`, not here
 phase "ai-tools-selinux ships exactly the derived policy module set" \
     bash -c 'set -e
              rpm=$(ls /tmp/ai-repo/ai-tools-selinux-*.rpm | head -1)
@@ -173,12 +176,15 @@ phase "project is in the operator's allowlist" \
 banner "Re-assert sandbox-area ACL + setgid (OCI layers drop build-time dir attrs)"
 chmod 2750 /var/opt/ai-tools 2>/dev/null || :
 chmod 2770 /var/opt/ai-tools/sandbox-projects 2>/dev/null || :
-setfacl -m  g:ai-ops:r-x /var/opt/ai-tools \
+if setfacl -m  g:ai-ops:r-x /var/opt/ai-tools \
     && setfacl -m  g:ai-ops:rwx /var/opt/ai-tools/sandbox-projects \
     && setfacl -d -m g:ai-ops:rwX /var/opt/ai-tools/sandbox-projects \
     && setfacl -m  g:ai-ops:r-- /var/opt/ai-tools/README.md \
-    && setfacl -m  g:ai-ops:r-x /var/opt/ai-tools/state \
-    && note "sandbox ACL re-applied" || note "sandbox ACL re-apply failed (continuing)"
+    && setfacl -m  g:ai-ops:r-x /var/opt/ai-tools/state; then
+    note "sandbox ACL re-applied"
+else
+    note "sandbox ACL re-apply failed (continuing)"
+fi
 
 # ── the project test suite (DAC + systemd parts; SELinux parts no-op/skip) ────
 if [[ "${RUN_TESTS}" == "1" && -f "${SRC_DIR}/tests/run.sh" ]]; then

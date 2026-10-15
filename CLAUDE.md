@@ -80,7 +80,7 @@ the management CLI (`ai-tools`), and root-helper binary names (`ai-tools-chown`,
 | User-facing message formatting (box, wrap, ties) | `msg.lib.sh` + its consumers | [messaging](.claude/rules/messaging.rule.md) |
 | Test organization, hermeticity, categories | `tests/**` | [tests](.claude/rules/tests.rule.md) |
 | Operator documentation: the category tree, the reader each page is written for, the contract that keeps a page stable while its rule is rewritten, and the navigation form | `README.md`, `docs/**` | [docs-pages](.claude/rules/docs-pages.rule.md) |
-| ShellCheck baseline, `.shellcheckrc`, accepted findings | `src/**/*.sh`, `.shellcheckrc` | [shellcheck](.claude/rules/shellcheck.rule.md) |
+| ShellCheck baseline, `.shellcheckrc`, accepted findings | `src/**/*.sh`, `packaging/**/*.sh`, `.shellcheckrc` | [shellcheck](.claude/rules/shellcheck.rule.md) |
 | Shell names: which file a function or a global belongs to, and how a member is named | `src/**/*.sh`, `install.sh`, `selinux/**/*.sh`, `packaging/**/*.sh`, `tests/**/*.sh`, `tools/**/*.sh` | [shell-names](.claude/rules/shell-names.rule.md) |
 
 ## Trust chain (summary)

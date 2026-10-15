@@ -1,13 +1,15 @@
 ---
 paths:
   - "src/**/*.sh"
+  - "packaging/**/*.sh"
   - ".shellcheckrc"
 ---
 
 # ShellCheck baseline and conventions
 
-Every shell source under `src/` is `bash` and lints under ShellCheck (0.10) with the repository configuration. This rule
-states that configuration, the cross-library following it turns on, and the findings the code keeps by idiom.
+Every shell source under `src/` and `packaging/` is `bash` and lints under ShellCheck (0.10) with the repository
+configuration. This rule states that configuration, the cross-library following it turns on, and the findings the code
+keeps by idiom.
 
 ## Configuration
 
