@@ -93,7 +93,7 @@ ai_tools_dev_assets__read_pin() {
         esac
     done < "${pin}"
     case "${name}" in
-        core)  archive_pattern='^ai-tools-assets-core-[0-9][0-9A-Za-z.+-]*\.zip$' ;;
+        core)  archive_pattern='^ai-tools-assets-sets-core-[0-9][0-9A-Za-z.+-]*\.zip$' ;;
         tools) archive_pattern='^ai-tools-assets-tools-[0-9][0-9A-Za-z.+-]*\.tar\.gz$' ;;
     esac
     if [[ ! "${AI_TOOLS_DEV_ASSETS__PIN_TAG}" =~ ^[A-Za-z0-9][A-Za-z0-9._/+-]*$ ]]; then

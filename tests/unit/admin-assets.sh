@@ -764,7 +764,7 @@ fresh; rm -rf "${HOME_DIR}/retired"; write_conf_unset; retire ai-tools-technical
 admin status_assets
 row="$(notice_row)"
 if [[ "${row}" == *"ai-tools-technical-docs, ai-tools-reftags withdrawn"* && "${row}" == *"AI_TOOLS_ASSETS is not set"* \
-        && "${OUT}" == *"sudo dnf install ai-tools-assets-core && sudo ai-tools-admin assets enable --set core"* \
+        && "${OUT}" == *"sudo dnf install ai-tools-assets-sets-core && sudo ai-tools-admin assets enable --set core"* \
         && "${OUT}" == *"AI_TOOLS_ASSETS=[] in ${CONF}"* && "${OUT}" == *"problems=1 unreadable=0"* ]]; then
     pass "a retired copy with a successor and no AI_TOOLS_ASSETS line: one successor-unenabled row naming both, counted"
 else

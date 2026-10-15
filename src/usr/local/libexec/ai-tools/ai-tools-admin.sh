@@ -3122,7 +3122,7 @@ status_assets_successors() {
     done <<< "${listing}"
     for successor_set in "${sets[@]}"; do
         install=""
-        ai_tools_assets__is_set_installed "${successor_set}" || install="sudo dnf install ai-tools-assets-${successor_set} && "
+        ai_tools_assets__is_set_installed "${successor_set}" || install="sudo dnf install ai-tools-assets-sets-${successor_set} && "
         st ATTENTION "successor-unenabled  ${successor_set} -- ${names[${successor_set}]} withdrawn from ai-tools-base; their successors in the set ${successor_set} are not enabled and AI_TOOLS_ASSETS is not set; copies are under ${AI_TOOLS_ASSETS_HOME}/retired"
         detail "run: ${install}sudo ai-tools-admin assets enable --set ${successor_set}, or set AI_TOOLS_ASSETS=[] in ${AI_TOOLS_OPERATOR_CONF} to keep them off"
         STATUS_PROBLEMS=$(( STATUS_PROBLEMS + 1 ))

@@ -86,7 +86,7 @@ Recommends:     ai-tools-selinux = %{version}-%{release}
 # The writing standard, the engineering and governance skills and the reference-docs subagent are the asset set
 # core's: a fresh install pulls the set, and an upgrade, which does not add a weak dependency, is told to install and
 # enable it by %%post and by `ai-tools-admin status`.
-Recommends:     ai-tools-assets-core
+Recommends:     ai-tools-assets-sets-core
 
 %description -n ai-tools-base
 The provider-agnostic base layer: the ai-tools system account, the ai-ops

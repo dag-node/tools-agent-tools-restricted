@@ -167,7 +167,7 @@ rpmtest-fedora44: rpmbase-fc44
 
 # The upgrade transaction from the published release UPGRADE_FROM to this tree's build, one image per scenario
 # (container-upgrade-selftest.sh states each), since the scenario is fixed when the published release is installed.
-# The images need the network: the published release and ai-tools-assets-core come from the signed repository.
+# The images need the network: the published release and ai-tools-assets-sets-core come from the signed repository.
 # The build stage names the rpmbase image fully qualified, as Podman stores a local build: a short name is resolved
 # against the configured registries where the local image is absent, which prompts on a terminal and can pull an image
 # of that name from a registry; the qualified name is found locally or fails the build.

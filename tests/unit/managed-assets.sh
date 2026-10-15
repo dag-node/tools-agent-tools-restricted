@@ -629,7 +629,7 @@ else
                  for kind in "$@"; do ai_tools_managed_assets__remove_retired_assets_locked "${live}" "${kind}"; done' \
             _ "${LIB_DIR}" "${LIVE}" "$@"
     }
-    closing='their successors are in the asset set core (package ai-tools-assets-core): sudo ai-tools-admin assets enable --set core'
+    closing='their successors are in the asset set core (package ai-tools-assets-sets-core): sudo ai-tools-admin assets enable --set core'
 
     reset_roots
     write_skill "${LIVE}" ai-tools-technical-docs 3

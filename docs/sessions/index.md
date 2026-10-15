@@ -45,7 +45,7 @@ you enable its assets, which links each one under `/opt/ai-tools`
 and into every enabled agent:
 
 ```bash
-sudo dnf install ai-tools-assets-core
+sudo dnf install ai-tools-assets-sets-core
 sudo ai-tools-admin assets enable --set core
 ```
 

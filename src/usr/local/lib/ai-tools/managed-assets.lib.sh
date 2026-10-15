@@ -438,7 +438,7 @@ ai_tools_managed_assets__seed_assets_locked() {
 # what it could not first preserve.
 #
 # After the per-asset lines, the pass prints one line per successor set (AI_TOOLS_MANAGED_ASSETS__SUCCESSORS)
-# for which it moved at least one entry aside, naming the set, the package `ai-tools-assets-<set>` that ships it,
+# for which it moved at least one entry aside, naming the set, the package `ai-tools-assets-sets-<set>` that ships it,
 # and the command that enables it; a set's line is printed once per shell, however many kinds the caller passes one call
 # at a time. The caller holds the assets lock (ai_tools_managed_assets__lock).
 # $1 live_root  $2.. kinds (default: every kind named in the list); a named kind must be one of
@@ -481,7 +481,7 @@ ai_tools_managed_assets__remove_retired_assets_locked() {
         fi
     done
     for successor_set in "${successor_sets[@]}"; do
-        _ai_tools_managed_assets__say "their successors are in the asset set ${successor_set} (package ai-tools-assets-${successor_set}): sudo ai-tools-admin assets enable --set ${successor_set}"
+        _ai_tools_managed_assets__say "their successors are in the asset set ${successor_set} (package ai-tools-assets-sets-${successor_set}): sudo ai-tools-admin assets enable --set ${successor_set}"
     done
     return 0
 }
