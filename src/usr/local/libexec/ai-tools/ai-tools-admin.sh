@@ -2187,17 +2187,31 @@ _pu_copies() {
     } | _pu_sort_copies
 }
 
+# _pu_asset_line <finding> <expected-type> <path> <detail>: one _pu_assets line about <path>, its subject-type the one
+# ai_tools_records_base__read_subject_type observes there, or <expected-type> where no entry is there. Where the reader
+# refuses the entry -- a type the token set does not name, or a read that did not complete -- the line takes
+# <expected-type> too and an `error` line about <path> follows it, so the finding stays and the run reads unreadable.
+_pu_asset_line() {
+    local subject_type read_status=0
+    subject_type="$(ai_tools_records_base__read_subject_type "$3")" || read_status=$?
+    (( read_status == 0 )) || subject_type="$2"
+    printf '%s\t%s\t%s\t%s\n' "$1" "${subject_type}" "$3" "$4"
+    (( read_status == 0 || read_status == 2 )) && return 0
+    printf 'error\t%s\t%s\t%s\n' "$2" "$3" \
+        "the type of the entry here could not be read (it is not a symbolic link, a directory or a regular file, or the read failed), so the $1 line about it carries the type expected here, $2"
+}
+
 # _pu_assets <root>: `<finding> TAB <subject-type> TAB <path> TAB <detail>` for each shipped skill, subagent
 # and orientation text whose live copy or agent link is not the one provisioning places -- the seeding
-# that `system bootstrap` and base's scriptlet run. The subject-type follows the asset kind, `directory` for a skill
-# and `file` otherwise, since a missing asset has no path to stat and a link stands for the asset it points at. A live
-# asset that is absent or an empty directory is missing: a session is not offered it. A real file where an agent's link
-# belongs, or a live asset without the managed marker, is the operator's override and is left to them. A symlink
-# at the live name is the assets resolver's view link and is not compared. Checked only where the pristine assets are
-# installed, under <root>.
+# that `system bootstrap` and base's scriptlet run. Each line's subject-type is what is at its path (_pu_asset_line);
+# where no entry is there, the kind's type for a live copy -- `directory` for a skill, `file` otherwise -- and `link`
+# for an agent's link, the types provisioning places. A live asset that is absent or an empty directory is missing:
+# a session is not offered it. A real file where an agent's link belongs, or a live asset without the managed marker, is
+# the operator's override and is left to them. A symlink at the live name is the assets resolver's view link and is not
+# compared. Checked only where the pristine assets are installed, under <root>.
 _pu_assets() {
     local root="$1" src_root="$1/usr/share/ai-tools" live_root="$1/opt/ai-tools"
-    local kind glob src name marker dst dst_marker cur new field agent dir link target stype
+    local kind glob src name marker dst dst_marker cur new field agent dir link target kind_type
     [[ -d "${src_root}" ]] || return 0
     # shellcheck source=SCRIPTDIR/../../lib/ai-tools/control-plane.lib.sh
     source /usr/local/lib/ai-tools/control-plane.lib.sh 2>/dev/null || true
@@ -2209,15 +2223,16 @@ _pu_assets() {
     source /usr/local/lib/ai-tools/log.lib.sh 2>/dev/null || true
     if ! declare -F ai_tools_managed_assets__is_managed >/dev/null 2>&1 \
             || ! declare -F ai_tools_control_plane__list_agent_asset_dirs >/dev/null 2>&1 \
-            || ! declare -F ai_tools_log__sanitize >/dev/null 2>&1; then
+            || ! declare -F ai_tools_log__sanitize >/dev/null 2>&1 \
+            || ! declare -F ai_tools_records_base__read_subject_type >/dev/null 2>&1; then
         printf 'error\tdirectory\t%s\t%s\n' "${live_root}" "shared assets not checked: the asset libraries did not load"
         return 0
     fi
     for kind in "${AI_TOOLS_MANAGED_ASSETS__KINDS[@]}"; do
         case "${kind}" in
-            skills)      glob="${src_root}/skills/ai-tools-*/";      field=skills_dir;    stype="directory" ;;
-            subagents)   glob="${src_root}/subagents/ai-tools-*.md"; field=subagents_dir; stype="file" ;;
-            orientation) glob="${src_root}/orientation/AGENTS.md";  field="";            stype="file" ;;
+            skills)      glob="${src_root}/skills/ai-tools-*/";      field=skills_dir;    kind_type="directory" ;;
+            subagents)   glob="${src_root}/subagents/ai-tools-*.md"; field=subagents_dir; kind_type="file" ;;
+            orientation) glob="${src_root}/orientation/AGENTS.md";  field="";            kind_type="file" ;;
             *)           continue ;;
         esac
         for src in ${glob}; do
@@ -2232,17 +2247,17 @@ _pu_assets() {
             [[ -L "${dst}" ]] && continue
             if [[ -d "${src}" ]]; then dst_marker="${dst}/SKILL.md"; else dst_marker="${dst}"; fi
             if [[ ! -e "${dst}" ]] || { [[ -d "${dst}" ]] && [[ -z "$(find "${dst}" -mindepth 1 -print -quit)" ]]; }; then
-                printf 'asset-missing\t%s\t%s\t%s\n' "${stype}" "${dst}" "not seeded -- sessions are not offered it"
+                _pu_asset_line asset-missing "${kind_type}" "${dst}" "not seeded -- sessions are not offered it"
                 continue
             fi
             if ! ai_tools_managed_assets__is_managed "${dst_marker}"; then
-                printf 'asset-overridden\t%s\t%s\t%s\n' "${stype}" "${dst}" "not ai-tools-managed, so provisioning leaves it"
+                _pu_asset_line asset-overridden "${kind_type}" "${dst}" "not ai-tools-managed, so provisioning leaves it"
                 continue
             fi
             new="$(ai_tools_managed_assets__read_asset_version "${marker}")"
             cur="$(ai_tools_managed_assets__read_asset_version "${dst_marker}")"
             [[ -n "${new}" && -n "${cur}" && "${new}" -gt "${cur}" ]] \
-                && printf 'asset-outdated\t%s\t%s\t%s\n' "${stype}" "${dst}" "v${cur} live, v${new} shipped"
+                && _pu_asset_line asset-outdated "${kind_type}" "${dst}" "v${cur} live, v${new} shipped"
             while IFS=$'\t' read -r agent dir; do
                 [[ -n "${agent}" ]] || continue
                 if [[ -n "${field}" ]]; then link="${root}${dir}/${name}"; else link="${root}${dir}"; fi
@@ -2250,13 +2265,13 @@ _pu_assets() {
                 if [[ -L "${link}" ]]; then
                     target="$(readlink "${link}")"
                     [[ "${target}" == "${dst}" || "${target}" == "${CP_HOME}/${kind}/${name}" ]] \
-                        || printf 'asset-unlinked\t%s\t%s\t%s\n' "${stype}" "${link}" \
+                        || _pu_asset_line asset-unlinked link "${link}" \
                                "${agent}: points at $(ai_tools_log__sanitize "${target}")"
                 elif [[ -e "${link}" ]]; then
-                    printf 'asset-overridden\t%s\t%s\t%s\n' "${stype}" "${link}" \
+                    _pu_asset_line asset-overridden link "${link}" \
                         "${agent}: a file of its own in place of the link"
                 else
-                    printf 'asset-unlinked\t%s\t%s\t%s\n' "${stype}" "${link}" "${agent}: no link"
+                    _pu_asset_line asset-unlinked link "${link}" "${agent}: no link"
                 fi
             done < <(if [[ -n "${field}" ]]; then ai_tools_control_plane__list_agent_asset_dirs "${field}"
                      else ai_tools_control_plane__list_agent_memory_targets; fi)
