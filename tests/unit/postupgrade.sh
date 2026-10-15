@@ -91,7 +91,7 @@ stream_is_well_formed() {
     header="$(printf '%s\t' "${AI_TOOLS_RECORDS_BASE__COLUMNS[@]%%:*}")"; header="${header%$'\t'}"
     rows="$(tail -n +2 <<< "${out}")"
     [[ "${out%%$'\n'*}" == "${header}" ]] \
-        && ! grep -qvP '^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ\t\tMSG-[A-Z]\d[A-Z]\d\t[0-9a-f]{16}\t(attention|unreadable|info)\t[a-z-]+\t(file|directory)\t\t[^\t]*\t/[^\t]+\t[^\t]*$' \
+        && ! grep -qvP '^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ\t\tMSG-[A-Z]\d[A-Z]\d\t[0-9a-f]{16}\t(attention|unreadable|info)\t[a-z-]+\t(file|directory|link)\t\t[^\t]*\t/[^\t]+\t[^\t]*$' \
             <<< "${rows}"
 }
 
@@ -781,6 +781,38 @@ elif [[ "${out}" != *$'\e'* && "${out}" != *$'\a'* ]] \
     pass "a planted skill link's target is printed with its control bytes replaced"
 else
     fail "a planted skill link's target reached the report unsanitized: $(printf '%q' "${out}")"
+fi
+
+# A row's subject-type is what is at its subject: an agent's link is `link` whether it points elsewhere or is absent,
+# and a real file in its place reads as the file it is. The asset-missing case on ai-tools-demo, its empty live copy
+# read as a directory, is the control. The agent's skills directory comes from the host's enabled manifests.
+
+# subject_type_of <finding> <subject> : the subject-type of the row carrying <finding> about <subject>.
+subject_type_of() {
+    awk -F '\t' -v f="$1" -v s="$2" 'NR == 1 { for (i = 1; i <= NF; i++) col[$i] = i; next }
+        $col["finding"] == f && $col["subject"] == s { print $col["subject-type"] }' <<< "${out}"
+}
+agent_dirs="$(bash -c 'source /usr/local/lib/ai-tools/control-plane.lib.sh 2>/dev/null || exit 0
+    ai_tools_control_plane__list_agent_asset_dirs skills_dir' 2>/dev/null || true)"
+agent_skills_dir="${agent_dirs%%$'\n'*}"; agent_skills_dir="${agent_skills_dir#*$'\t'}"
+if [[ -z "${agent_skills_dir}" ]]; then
+    skip "the subject-type of an agent's skill link" "no enabled agent on this host declares a skills directory"
+else
+    agent_link="${ROOT}${agent_skills_dir}/ai-tools-demo"
+    mkdir -p "${agent_link%/*}"; rm -rf "${agent_link}"
+    ln -s /tmp/elsewhere "${agent_link}"; run_check
+    [[ "$(subject_type_of asset-unlinked "${agent_link}")" == link ]] \
+        && pass "asset-unlinked about a link pointing elsewhere: subject-type link" \
+        || fail "a link pointing elsewhere: '$(subject_type_of asset-unlinked "${agent_link}")': ${out}"
+    rm -f "${agent_link}"; run_check
+    [[ ! -e "${agent_link}" && ! -L "${agent_link}" && "$(subject_type_of asset-unlinked "${agent_link}")" == link ]] \
+        && pass "asset-unlinked about an absent link: subject-type link, the type the path will hold" \
+        || fail "an absent link: '$(subject_type_of asset-unlinked "${agent_link}")': ${out}"
+    printf 'mine\n' > "${agent_link}"; run_check --all
+    [[ -f "${agent_link}" && "$(subject_type_of asset-overridden "${agent_link}")" == file ]] \
+        && pass "asset-overridden about a real file at the agent's link: subject-type file" \
+        || fail "a real file at the agent's link: '$(subject_type_of asset-overridden "${agent_link}")': ${out}"
+    rm -f "${agent_link}"
 fi
 
 for bad in "--all" "--format tsv" "--check --format json" "--check --bogus"; do

@@ -123,6 +123,37 @@ ai_tools_records_base__is_valid_record() {
     return 0
 }
 
+# ai_tools_records_base__read_subject_type <path>: print the observed subject-type of the entry at <path>, from one
+# lstat(2) of its last component: `link` for a symbolic link, `directory` for a directory, `file` for a regular file.
+# Returns 2 without printing where the lstat fails with ENOENT or ENOTDIR (no entry at <path>), and 1 without printing
+# for any other entry type (a FIFO, a socket, a device) and for a read that did not complete (EACCES, an I/O error, no
+# stat(1), output it does not recognize). It does not supply an expected type: a caller that writes one for an absent
+# subject does so on status 2, at its own call site.
+#
+# The result labels a row and is not a check: the path may sit in a directory another account writes, the entry can
+# change before or after the one read, and the ancestors are resolved as the kernel resolves them, symbolic links
+# included. A caller writes it into the subject-type column and does not branch on it; a decision about the entry opens
+# it under a trusted directory descriptor and inspects that descriptor instead.
+# args: $1 the subject's path
+ai_tools_records_base__read_subject_type() {
+    local _records_subject_type_described
+    # `stat` without `-L` reads the entry itself; LC_ALL=C pins the type names and the two error texts this matches.
+    # The output is matched whole, so a line stat(1) adds is an unrecognized read rather than a type.
+    if _records_subject_type_described="$(LC_ALL=C stat -c %F -- "$1" 2>&1)"; then
+        case "${_records_subject_type_described}" in
+            'symbolic link')                    printf link ;;
+            directory)                          printf directory ;;
+            'regular file'|'regular empty file') printf file ;;
+            *)                                  return 1 ;;
+        esac
+        return 0
+    fi
+    case "${_records_subject_type_described}" in
+        *': No such file or directory'|*': Not a directory') return 2 ;;
+    esac
+    return 1
+}
+
 # ai_tools_records_base__get_exit_status: return 0, AI_TOOLS_RECORDS_BASE__EXIT_FINDINGS
 # or AI_TOOLS_RECORDS_BASE__EXIT_UNREADABLE from the folded status. Prints nothing and does not exit the process:
 # a caller ends with `ai_tools_records_base__get_exit_status || exit $?` or returns the status explicitly, so the value

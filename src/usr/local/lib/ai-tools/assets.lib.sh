@@ -1134,11 +1134,28 @@ _ai_tools_assets__record_row() {
     AI_TOOLS_ASSETS__ROW_DETAIL+=( "$7" ); _AI_TOOLS_ASSETS__ROW_SET+=( "${8:-}" )
 }
 
+# _ai_tools_assets__record_typed_row <severity> <finding> <expected-type> <subject> <item> <agent> <detail> [set] :
+# record one row about the entry at <subject>, as _ai_tools_assets__record_row does, its subject-type the one
+# ai_tools_records_base__read_subject_type observes there. <expected-type> is the type the report expects at <subject>,
+# taken where no entry is there. Where the reader refuses the entry -- a type the token set does not name, or a read
+# that did not complete -- the row takes <expected-type> too and an unreadable `error` row about <subject> follows it,
+# so the finding stays in the stream and the reading is marked incomplete.
+_ai_tools_assets__record_typed_row() {
+    local subject_type read_status=0
+    subject_type="$(ai_tools_records_base__read_subject_type "$4")" || read_status=$?
+    (( read_status == 0 )) || subject_type="$3"
+    _ai_tools_assets__record_row "$1" "$2" "${subject_type}" "$4" "$5" "$6" "$7" "${8:-}"
+    (( read_status == 0 || read_status == 2 )) && return 0
+    _ai_tools_assets__record_row unreadable error "$3" "$4" "$5" "$6" \
+        "the type of the entry here could not be read (it is not a symbolic link, a directory or a regular file, or the read failed), so the ${2} row about it carries the type expected here, ${3}" "${8:-}"
+}
+
 # _ai_tools_assets__record_action <op> <path> <target> <item> <agent> <detail> [set] : record one change the apply
 # makes: `link` (place or repoint <path> at <target>), `unlink` (remove the symlink at <path>), `convert` (replace
-# a managed copy at <path> by a link to <target>). Every change is about the link at <path>, so its rows are
-# subject-type `link`; an empty <agent> is the view's link, any other an agent's. [set] passes to the change's row,
-# as _ai_tools_assets__record_row takes it.
+# a managed copy at <path> by a link to <target>). A change's row reads its subject-type from what is at <path>
+# and takes `link`, the type the change puts there: a `link` or `unlink` row is `link`, and a `convert` row reads
+# the managed copy until it is replaced (_ai_tools_assets__record_typed_row). An empty <agent> is the view's link, any
+# other an agent's. [set] passes to the change's row, as _ai_tools_assets__record_row takes it.
 _ai_tools_assets__record_action() {
     _AI_TOOLS_ASSETS__ACTION_OPERATION+=( "$1" ); _AI_TOOLS_ASSETS__ACTION_PATH+=( "$2" ); _AI_TOOLS_ASSETS__ACTION_TARGET+=( "$3" )
     _AI_TOOLS_ASSETS__ACTION_ITEM+=( "$4" ); _AI_TOOLS_ASSETS__ACTION_AGENT+=( "$5" ); _AI_TOOLS_ASSETS__ACTION_DETAIL+=( "$6" )
@@ -1856,7 +1873,7 @@ _ai_tools_assets__plan_view() {
             continue
         fi
         _ai_tools_assets__is_occupied_name "${kind}" "${name}" && continue
-        _ai_tools_assets__record_row attention view-foreign "$(_ai_tools_assets__read_subject_type "${view}/${name}")" "${view}/${name}" "${kind}/${name}" "" \
+        _ai_tools_assets__record_typed_row attention view-foreign file "${view}/${name}" "${kind}/${name}" "" \
             "neither a resolver link nor a copy base seeded; left as it is and not linked into an agent's directory, though an agent that reads the whole view still loads it until it is removed"
     done
     for name in "${!desired[@]}"; do
@@ -1968,7 +1985,7 @@ _ai_tools_assets__is_entry_untrusted() {
 _ai_tools_assets__record_entry_trust() {
     local agent="$1" agent_dir="$2" path="$3" item="$4"
     _ai_tools_assets__is_entry_untrusted "${agent_dir}" "${path}" || return 0
-    _ai_tools_assets__record_row attention agent-entry-untrusted "$(_ai_tools_assets__read_subject_type "${path}")" "${path}" "${item}" "${agent}" \
+    _ai_tools_assets__record_typed_row attention agent-entry-untrusted file "${path}" "${item}" "${agent}" \
         "the sandbox account can rewrite it (not root-owned, or writable by group or other, along its path), and every later session loads it; make it root-owned, directories 750 and files 640"
 }
 
@@ -2008,9 +2025,9 @@ _ai_tools_assets__plan_agent() {
                 _ai_tools_assets__record_action convert "${destination_path}" "${view}/${name}" "${item}" "${agent}" "an identical managed copy, replaced by a link"
                 continue
             fi
-            _ai_tools_assets__record_row "$( (( is_resolver_entry )) && printf attention || printf info )" \
+            _ai_tools_assets__record_typed_row "$( (( is_resolver_entry )) && printf attention || printf info )" \
                 "$( (( is_resolver_entry )) && printf agent-occupied || printf kept )" \
-                "$(_ai_tools_assets__read_subject_type "${destination_path}")" "${destination_path}" "${item}" "${agent}" \
+                file "${destination_path}" "${item}" "${agent}" \
                 "a real entry here wins over the view's, left as it is"
             _ai_tools_assets__record_entry_trust "${agent}" "${agent_dir}" "${destination_path}" "${item}"
         else
@@ -2147,7 +2164,7 @@ _ai_tools_assets__check_agent_root() {
             "absent; the ${agent} agent's package links it to ${view} when it is installed"
         return 0
     fi
-    _ai_tools_assets__record_row attention agent-root-foreign "$(_ai_tools_assets__read_subject_type "${path}")" "${path}" "${kind}" "${agent}" \
+    _ai_tools_assets__record_typed_row attention agent-root-foreign file "${path}" "${kind}" "${agent}" \
         "${found} where ${agent} reads the whole ${kind} view, which the reconcile does not write, so an enable, a disable or a set upgrade does not reach ${agent} through it; move it aside and reinstall the ${agent} agent's package, which links it to ${view}"
 }
 
@@ -2286,7 +2303,9 @@ _ai_tools_assets__apply_locked() {
         case "${op}" in
             link|convert)
                 if [[ "${op}" == convert ]] && ! rm -rf -- "${path}" 2>/dev/null; then
-                    _ai_tools_assets__record_failure link "${path}" "${item}" "${agent}" "the managed copy could not be removed" "${link_set}"
+                    _AI_TOOLS_ASSETS__WRITE_FAILED=1
+                    _ai_tools_assets__record_typed_row attention write-failed link "${path}" "${item}" "${agent}" \
+                        "the managed copy could not be removed" "${link_set}"
                     continue
                 fi
                 if _ai_tools_assets__place_link "${path}" "${target}" "${group}"; then
@@ -2362,18 +2381,6 @@ _ai_tools_assets__can_apply_in_dir() {
 _ai_tools_assets__record_failure() {
     _AI_TOOLS_ASSETS__WRITE_FAILED=1
     _ai_tools_assets__record_row attention write-failed "$1" "$2" "$3" "$4" "$5" "${6:-}"
-}
-
-# _ai_tools_assets__read_subject_type <path> : the subject-type of a row about what is at <path>, read without following
-# a link: `link`, `directory`, or `file` for any other entry and for an absent one.
-_ai_tools_assets__read_subject_type() {
-    if [[ -L "$1" ]]; then
-        printf link
-    elif [[ -d "$1" ]]; then
-        printf directory
-    else
-        printf file
-    fi
 }
 
 # _ai_tools_assets__get_entry_subject_type <entry> : `link` for an entry whose row is about its link in the view,
@@ -2506,13 +2513,15 @@ _ai_tools_assets__get_row_references() {
 # each under LC_ALL=C (_ai_tools_assets__get_order_key), then the rank within one asset -- the list edit, the entry's
 # state, the view row, the agent rows -- then the agent, then the recording order, so a row without a kind comes first
 # and an empty set ahead of the sets of its kind. An entry the plan did not resolve to a kind (_AI_TOOLS_ASSETS__KIND),
-# one that does not parse, takes the empty key and sorts with the rows without a kind. A resolver link whose set
-# the plan could not read (_AI_TOOLS_ASSETS__SET_KEYS_LOST) sorts under the empty set, and the `row` origin warns once
-# under MSG-M7J8. The sort's output is taken only where its pipeline exits 0 and it names each row once, checked
-# against the rows it was given; any other result -- a sort or a cut that failed, dropped, repeated or invented a row --
-# leaves the rows in recording order and warns under MSG-Y8T3: every row is still written, and only the order differs.
-# Returns non-zero only where it could not fill the array; _ai_tools_assets__fill_row_order is the caller that handles
-# that. Its locals carry a prefix, since the array is the caller's name.
+# one that does not parse, takes the empty key and sorts with the rows without a kind, and so does a recorded row
+# whose item ai_tools_assets__parse_id refuses, which runs in a subshell so the identifier it parses is not left
+# in the caller's AI_TOOLS_ASSETS__ID_* globals. A resolver link whose set the plan could not read
+# (_AI_TOOLS_ASSETS__SET_KEYS_LOST) sorts under the empty set, and the `row` origin warns once under MSG-M7J8.
+# The sort's output is taken only where its pipeline exits 0 and it names each row once, checked against the rows it was
+# given; any other result -- a sort or a cut that failed, dropped, repeated or invented a row -- leaves the rows
+# in recording order and warns under MSG-Y8T3: every row is still written, and only the order differs. Returns non-zero
+# only where it could not fill the array; _ai_tools_assets__fill_row_order is the caller that handles that. Its locals
+# carry a prefix, since the array is the caller's name.
 _ai_tools_assets__sort_rows() {
     local -n _sort_rows_out="$1"
     local _sort_rows_origin _sort_rows_index _sort_rows_sequence=0 _sort_rows_rank _sort_rows_reference _sort_rows_complete=0 \
@@ -2528,7 +2537,10 @@ _ai_tools_assets__sort_rows() {
     for _sort_rows_reference in "${_sort_rows_rows[@]}"; do
         _sort_rows_origin="${_sort_rows_reference%%$'\t'*}"; _sort_rows_index="${_sort_rows_reference#*$'\t'}"
         case "${_sort_rows_origin}" in
-            recorded) _sort_rows_key="$(_ai_tools_assets__get_order_key "${_AI_TOOLS_ASSETS__RECORDED_ITEM[_sort_rows_index]}" "" 0 "")" ;;
+            recorded)
+                _sort_rows_entry="${_AI_TOOLS_ASSETS__RECORDED_ITEM[_sort_rows_index]}"
+                ( ai_tools_assets__parse_id "${_sort_rows_entry}" ) || _sort_rows_entry=""
+                _sort_rows_key="$(_ai_tools_assets__get_order_key "${_sort_rows_entry}" "" 0 "")" ;;
             list)     _sort_rows_key="$(_ai_tools_assets__get_order_key "" "" 0 "")" ;;
             entry)
                 _sort_rows_entry="${AI_TOOLS_ASSETS__ENTRIES[_sort_rows_index]}"
@@ -2757,7 +2769,7 @@ ai_tools_assets__report_state() {
 # target, replace a managed copy with a link, remove the link for the plan's reason -- and names the reconcile;
 # the apply's own rows keep the detail the action carries.
 _ai_tools_assets__record_pending_rows() {
-    local index pending_finding pending_detail
+    local index pending_finding pending_detail pending_recorder
     for (( index = 0; index < ${#_AI_TOOLS_ASSETS__ACTION_OPERATION[@]}; index++ )); do
         case "${_AI_TOOLS_ASSETS__ACTION_OPERATION[index]}" in
             unlink)
@@ -2770,7 +2782,13 @@ _ai_tools_assets__record_pending_rows() {
                 pending_finding="link-pending"
                 pending_detail="a reconcile would point it at ${_AI_TOOLS_ASSETS__ACTION_TARGET[index]}" ;;
         esac
-        _ai_tools_assets__record_row attention "${pending_finding}" link \
+        # A convert's path holds the managed copy until the reconcile replaces it, so its row reads that copy.
+        if [[ "${_AI_TOOLS_ASSETS__ACTION_OPERATION[index]}" == convert ]]; then
+            pending_recorder=_ai_tools_assets__record_typed_row
+        else
+            pending_recorder=_ai_tools_assets__record_row
+        fi
+        "${pending_recorder}" attention "${pending_finding}" link \
             "${_AI_TOOLS_ASSETS__ACTION_PATH[index]}" "${_AI_TOOLS_ASSETS__ACTION_ITEM[index]}" "${_AI_TOOLS_ASSETS__ACTION_AGENT[index]}" \
             "${pending_detail}; run sudo ai-tools-admin assets reconcile" "${_AI_TOOLS_ASSETS__ACTION_SET[index]}"
     done

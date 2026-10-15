@@ -2187,17 +2187,31 @@ _pu_copies() {
     } | _pu_sort_copies
 }
 
+# _pu_asset_line <finding> <expected-type> <path> <detail>: one _pu_assets line about <path>, its subject-type the one
+# ai_tools_records_base__read_subject_type observes there, or <expected-type> where no entry is there. Where the reader
+# refuses the entry -- a type the token set does not name, or a read that did not complete -- the line takes
+# <expected-type> too and an `error` line about <path> follows it, so the finding stays and the run reads unreadable.
+_pu_asset_line() {
+    local subject_type read_status=0
+    subject_type="$(ai_tools_records_base__read_subject_type "$3")" || read_status=$?
+    (( read_status == 0 )) || subject_type="$2"
+    printf '%s\t%s\t%s\t%s\n' "$1" "${subject_type}" "$3" "$4"
+    (( read_status == 0 || read_status == 2 )) && return 0
+    printf 'error\t%s\t%s\t%s\n' "$2" "$3" \
+        "the type of the entry here could not be read (it is not a symbolic link, a directory or a regular file, or the read failed), so the $1 line about it carries the type expected here, $2"
+}
+
 # _pu_assets <root>: `<finding> TAB <subject-type> TAB <path> TAB <detail>` for each shipped skill, subagent
 # and orientation text whose live copy or agent link is not the one provisioning places -- the seeding
-# that `system bootstrap` and base's scriptlet run. The subject-type follows the asset kind, `directory` for a skill
-# and `file` otherwise, since a missing asset has no path to stat and a link stands for the asset it points at. A live
-# asset that is absent or an empty directory is missing: a session is not offered it. A real file where an agent's link
-# belongs, or a live asset without the managed marker, is the operator's override and is left to them. A symlink
-# at the live name is the assets resolver's view link and is not compared. Checked only where the pristine assets are
-# installed, under <root>.
+# that `system bootstrap` and base's scriptlet run. Each line's subject-type is what is at its path (_pu_asset_line);
+# where no entry is there, the kind's type for a live copy -- `directory` for a skill, `file` otherwise -- and `link`
+# for an agent's link, the types provisioning places. A live asset that is absent or an empty directory is missing:
+# a session is not offered it. A real file where an agent's link belongs, or a live asset without the managed marker, is
+# the operator's override and is left to them. A symlink at the live name is the assets resolver's view link and is not
+# compared. Checked only where the pristine assets are installed, under <root>.
 _pu_assets() {
     local root="$1" src_root="$1/usr/share/ai-tools" live_root="$1/opt/ai-tools"
-    local kind glob src name marker dst dst_marker cur new field agent dir link target stype
+    local kind glob src name marker dst dst_marker cur new field agent dir link target kind_type
     [[ -d "${src_root}" ]] || return 0
     # shellcheck source=SCRIPTDIR/../../lib/ai-tools/control-plane.lib.sh
     source /usr/local/lib/ai-tools/control-plane.lib.sh 2>/dev/null || true
@@ -2209,15 +2223,16 @@ _pu_assets() {
     source /usr/local/lib/ai-tools/log.lib.sh 2>/dev/null || true
     if ! declare -F ai_tools_managed_assets__is_managed >/dev/null 2>&1 \
             || ! declare -F ai_tools_control_plane__list_agent_asset_dirs >/dev/null 2>&1 \
-            || ! declare -F ai_tools_log__sanitize >/dev/null 2>&1; then
+            || ! declare -F ai_tools_log__sanitize >/dev/null 2>&1 \
+            || ! declare -F ai_tools_records_base__read_subject_type >/dev/null 2>&1; then
         printf 'error\tdirectory\t%s\t%s\n' "${live_root}" "shared assets not checked: the asset libraries did not load"
         return 0
     fi
     for kind in "${AI_TOOLS_MANAGED_ASSETS__KINDS[@]}"; do
         case "${kind}" in
-            skills)      glob="${src_root}/skills/ai-tools-*/";      field=skills_dir;    stype="directory" ;;
-            subagents)   glob="${src_root}/subagents/ai-tools-*.md"; field=subagents_dir; stype="file" ;;
-            orientation) glob="${src_root}/orientation/AGENTS.md";  field="";            stype="file" ;;
+            skills)      glob="${src_root}/skills/ai-tools-*/";      field=skills_dir;    kind_type="directory" ;;
+            subagents)   glob="${src_root}/subagents/ai-tools-*.md"; field=subagents_dir; kind_type="file" ;;
+            orientation) glob="${src_root}/orientation/AGENTS.md";  field="";            kind_type="file" ;;
             *)           continue ;;
         esac
         for src in ${glob}; do
@@ -2232,17 +2247,17 @@ _pu_assets() {
             [[ -L "${dst}" ]] && continue
             if [[ -d "${src}" ]]; then dst_marker="${dst}/SKILL.md"; else dst_marker="${dst}"; fi
             if [[ ! -e "${dst}" ]] || { [[ -d "${dst}" ]] && [[ -z "$(find "${dst}" -mindepth 1 -print -quit)" ]]; }; then
-                printf 'asset-missing\t%s\t%s\t%s\n' "${stype}" "${dst}" "not seeded -- sessions are not offered it"
+                _pu_asset_line asset-missing "${kind_type}" "${dst}" "not seeded -- sessions are not offered it"
                 continue
             fi
             if ! ai_tools_managed_assets__is_managed "${dst_marker}"; then
-                printf 'asset-overridden\t%s\t%s\t%s\n' "${stype}" "${dst}" "not ai-tools-managed, so provisioning leaves it"
+                _pu_asset_line asset-overridden "${kind_type}" "${dst}" "not ai-tools-managed, so provisioning leaves it"
                 continue
             fi
             new="$(ai_tools_managed_assets__read_asset_version "${marker}")"
             cur="$(ai_tools_managed_assets__read_asset_version "${dst_marker}")"
             [[ -n "${new}" && -n "${cur}" && "${new}" -gt "${cur}" ]] \
-                && printf 'asset-outdated\t%s\t%s\t%s\n' "${stype}" "${dst}" "v${cur} live, v${new} shipped"
+                && _pu_asset_line asset-outdated "${kind_type}" "${dst}" "v${cur} live, v${new} shipped"
             while IFS=$'\t' read -r agent dir; do
                 [[ -n "${agent}" ]] || continue
                 if [[ -n "${field}" ]]; then link="${root}${dir}/${name}"; else link="${root}${dir}"; fi
@@ -2250,13 +2265,13 @@ _pu_assets() {
                 if [[ -L "${link}" ]]; then
                     target="$(readlink "${link}")"
                     [[ "${target}" == "${dst}" || "${target}" == "${CP_HOME}/${kind}/${name}" ]] \
-                        || printf 'asset-unlinked\t%s\t%s\t%s\n' "${stype}" "${link}" \
+                        || _pu_asset_line asset-unlinked link "${link}" \
                                "${agent}: points at $(ai_tools_log__sanitize "${target}")"
                 elif [[ -e "${link}" ]]; then
-                    printf 'asset-overridden\t%s\t%s\t%s\n' "${stype}" "${link}" \
+                    _pu_asset_line asset-overridden link "${link}" \
                         "${agent}: a file of its own in place of the link"
                 else
-                    printf 'asset-unlinked\t%s\t%s\t%s\n' "${stype}" "${link}" "${agent}: no link"
+                    _pu_asset_line asset-unlinked link "${link}" "${agent}: no link"
                 fi
             done < <(if [[ -n "${field}" ]]; then ai_tools_control_plane__list_agent_asset_dirs "${field}"
                      else ai_tools_control_plane__list_agent_memory_targets; fi)
@@ -2472,13 +2487,22 @@ status_services() {
             stale)   st STALE "${unit}  ${when:-last run long ago}" ;;
             absent)  st "n/a" "${unit}  not installed" ;;
             # Not a fault report -- it says only that even this vantage point could not tell, and is not counted,
-            # the same rule the operator view follows. The two scopes fail for different reasons and say so: a system
-            # unit is unreadable only where there is no systemctl at all, while a sandbox-user one means root reached
-            # neither that account's manager (no machine transport, no timeout(1), or no answer inside the probe's
-            # window) nor a last-run stamp -- or, separable and said as such, a stamp still empty as the package seeded
-            # it: the unit has never run, which is where a freshly provisioned host stands until its first window.
-            *)       if [[ "${scope}" == system ]]; then
+            # the same rule the operator view follows. The two scopes fail for different reasons and say so. A system
+            # unit reads unknown where there is no systemctl at all, where it is a oneshot with no run since its manager
+            # started, whose verdict is its last run's, and where a property read failed; `command -v systemctl`
+            # and ai_tools_services__is_oneshot_unrun, which succeeds only on reads that completed, tell the three
+            # apart. The oneshot line does not name a command: its .path watcher starts it on the next change,
+            # and a manual start would run work no change asked for. A sandbox-user one means root reached neither
+            # that account's manager (no machine transport, no timeout(1), or no answer inside the probe's window)
+            # nor a last-run stamp -- or, separable and said as such, a stamp still empty as the package seeded it:
+            # the unit has never run, which is where a freshly provisioned host stands until its first window.
+            *)       if [[ "${scope}" == system ]] && ! command -v systemctl >/dev/null 2>&1; then
                          st "?" "${unit}  systemctl is unavailable here"
+                     elif [[ "${scope}" == system ]] && declare -F ai_tools_services__is_oneshot_unrun >/dev/null 2>&1 \
+                             && ai_tools_services__is_oneshot_unrun "${unit}"; then
+                         st "?" "${unit}  has not run since boot -- a oneshot's state is its last run's, known after its first"
+                     elif [[ "${scope}" == system ]]; then
+                         st "?" "${unit}  its state could not be read -- systemctl status ${unit} shows it"
                      elif declare -F ai_tools_services__is_stamp_unwritten >/dev/null 2>&1 \
                              && ai_tools_services__is_stamp_unwritten "${stamp}"; then
                          st "?" "${unit}  no run recorded yet -- its first scheduled run has not happened"
@@ -2976,12 +3000,14 @@ status_selinux_attestation() {
 # whose own entry stands at an enabled asset's name, each counted in STATUS_PROBLEMS; one [UNREADABLE] line per input
 # the plan could not read, counted in STATUS_UNREADABLE; the withdrawn-successor notice (status_assets_successors);
 # an OK line per linked asset that declares a capability; and an OK summary of how many entries are enabled and how many
-# the plan resolved to linked, naming `assets` as the reading that lists the link changes a reconcile would make,
+# the plan resolved to linked, naming `assets list` as the reading that names the link changes a reconcile would make,
 # which this section does not print, so a missing link reads here as resolved. The entry and row lines come in the order
 # the record stream takes (ai_tools_assets__sort_report_rows). A library that did not load is a reading this section
 # could not make, and so is an order that could not be computed, whose lines then come in the order the plan recorded
-# them (ai_tools_assets__get_report_row_references). Every string from a set or an agent's directory passes
-# the sanitizer. The section closes with status_assets_summary over the counts it added.
+# them (ai_tools_assets__get_report_row_references). The plan and the order run with stderr sent to /dev/null, so their
+# warnings do not print between the section's lines: an order that failed is the section's own [UNREADABLE] line,
+# and an order the library fell back from changes the lines' order alone. Every string from a set or an agent's
+# directory passes the sanitizer. The section closes with status_assets_summary over the counts it added.
 status_assets() {
     local problems_before="${STATUS_PROBLEMS}" unreadable_before="${STATUS_UNREADABLE}"
     heading "Assets"
@@ -3014,7 +3040,7 @@ status_assets_rows() {
         unset)     status_assets_successors ;;
     esac
     local order_status=0
-    ai_tools_assets__sort_report_rows references || order_status=$?
+    ai_tools_assets__sort_report_rows references 2>/dev/null || order_status=$?
     if (( order_status != 0 )); then
         st UNREADABLE "error  the order of the Assets lines could not be computed (status ${order_status}), so they are printed in the order the plan recorded them"
         STATUS_UNREADABLE=$(( STATUS_UNREADABLE + 1 ))
@@ -3029,7 +3055,7 @@ status_assets_rows() {
     for entry in "${AI_TOOLS_ASSETS__ENTRIES[@]}"; do
         [[ "${AI_TOOLS_ASSETS__STATE[${entry}]}" == linked ]] && linked=$(( linked + 1 ))
     done
-    st OK "${#AI_TOOLS_ASSETS__ENTRIES[@]} asset(s) enabled in AI_TOOLS_ASSETS, ${linked} resolved to linked; sudo ai-tools-admin assets lists the link changes a reconcile would make"
+    st OK "${#AI_TOOLS_ASSETS__ENTRIES[@]} asset(s) enabled in AI_TOOLS_ASSETS, ${linked} resolved to linked; sudo ai-tools-admin assets list names the link changes a reconcile would make"
     return 0
 }
 

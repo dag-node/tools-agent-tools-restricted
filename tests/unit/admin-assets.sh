@@ -567,6 +567,20 @@ fi
 admin assets reconcile; admin assets list
 [[ "${RC}" == 0 && -z "$(pending_rows)" ]] && pass "a reconcile places the link and list returns to exit 0" \
     || fail "after the reconcile: rc ${RC}, pending '$(pending_rows)'"
+# A convert's pending row is about the managed copy the reconcile would replace, so it reads that copy's type.
+mkdir "${HOME_DIR}/skills/ai-tools-seeded"
+printf -- '---\nname: ai-tools-seeded\nx-ai-tools-managed: true\n---\n' > "${HOME_DIR}/skills/ai-tools-seeded/SKILL.md"
+cp -a "${HOME_DIR}/skills/ai-tools-seeded" "${HOME_DIR}/.acme/skills/ai-tools-seeded"
+admin assets list
+convert_row="$(awk -F'\t' -v s="${HOME_DIR}/.acme/skills/ai-tools-seeded" 'NR > 1 && $6 == "link-pending" && $10 == s { print $7 "|" $11 }' \
+    <<< "${OUT}")"
+if [[ "${RC}" == 4 && "${convert_row}" == "directory|a reconcile would replace the managed copy with a link to ${HOME_DIR}/skills/ai-tools-seeded; run sudo ai-tools-admin assets reconcile" ]]; then
+    pass "a convert's link-pending row is subject-type directory, naming the copy a reconcile would replace"
+else
+    fail "a convert's link-pending row: rc ${RC}, '${convert_row}'"
+fi
+admin assets reconcile
+rm -rf "${HOME_DIR}/skills/ai-tools-seeded" "${HOME_DIR}/.acme/skills/ai-tools-seeded"
 ln -s "${PKG}/acme/skills/acme-pdf" "${HOME_DIR}/skills/acme-stray"
 admin assets list
 [[ "${RC}" == 4 && "$(pending_rows)" == "unlink-pending ${HOME_DIR}/skills/acme-stray attention" ]] \
@@ -599,6 +613,20 @@ admin assets list
 first_items="$(awk -F'\t' 'NR > 1 && NR <= 4 { print $9 }' <<< "${OUT}" | tr '\n' ' ')"
 [[ "${first_items}" == "zzz acme/skills/x/extra skills/acme-x " ]] && pass "entries that do not parse come first, in list order" \
     || fail "the first rows: '${first_items}': $(stream_labels | tr '\n' '|')"
+# A verb's recorded row is keyed the same way: an identifier that does not parse sorts first, and one that does sorts
+# by kind, set and name among the reconcile's rows. Unkeyed, `zzz` would read as a kind and sort after `subagents`.
+fresh
+write_conf "${SKILL}" "${SUB}"
+admin assets reconcile
+admin assets disable zzz acme/skills/acme-other
+recorded_order="$(awk -F'\t' 'NR > 1 { item = $9; sub(/\\t.*/, "", item); if (item != last) print item; last = item }' <<< "${OUT}" \
+    | tr '\n' ' ')"
+if [[ "${RC}" == 4 && "$(finding_of zzz)" == not-enabled \
+        && "${recorded_order}" == "zzz acme/skills/acme-other ${SKILL} ${SUB} " ]]; then
+    pass "a recorded row whose item does not parse comes first, and one that parses sorts by kind, set and name"
+else
+    fail "the recorded rows' order: rc ${RC}, '${recorded_order}': $(stream_labels | tr '\n' '|')"
+fi
 write_conf "${SKILL}" "${SUB}"
 mkdir -p "${TESTDIR}/lock"
 held="${TESTDIR}/lock/held"; rm -f "${held}"
@@ -638,7 +666,7 @@ chmod 0644 "${CONF}"
 section "ai-tools-admin status: the Assets section"
 fresh
 admin status_assets
-if grep -qE '\[OK\] +0 asset\(s\) enabled in AI_TOOLS_ASSETS, 0 resolved to linked; sudo ai-tools-admin assets lists the link changes' \
+if grep -qE '\[OK\] +0 asset\(s\) enabled in AI_TOOLS_ASSETS, 0 resolved to linked; sudo ai-tools-admin assets list names the link changes' \
         <<< "${OUT}" && [[ "${OUT}" == *problems=0* ]]; then
     pass "a host with no entry prints the OK line with a count of zero, naming the reading that lists pending link changes"
 else
@@ -679,6 +707,20 @@ if grep -qE '\[UNREADABLE\] +error +the order of the Assets lines could not be c
     pass "an order that fails renders an UNREADABLE line, counted, and the section still prints its lines"
 else
     fail "a failed order in status: ${OUT:0:400}"
+fi
+# A sort whose output repeats a line: the library falls back to recording order and warns under MSG-Y8T3,
+# which the section silences, printing every line uncounted. The stub leaves a marker, so the case knows the order ran
+# it.
+sort_ran="${TESTDIR}/sort-ran"; rm -f "${sort_ran}"
+printf -v STUBS 'sort() { case " $* " in *" -k1,1 "*) : > %q; command sort "$@" | awk %q ;; *) command sort "$@" ;; esac; }' \
+    "${sort_ran}" 'NR == 1 { first = $0 } NR == 2 { print first; next } { print }'
+admin status_assets; STUBS=""
+if [[ -e "${sort_ran}" && "${ERR}" != *MSG-Y8T3* && "${OUT}" == *unreadable=0* ]] \
+        && grep -qE '\[ATTENTION\] +[^ ]+ +set-tampered' <<< "${OUT}" && grep -qE '\[ATTENTION\] +[^ ]+ +set-absent' <<< "${OUT}" \
+        && grep -qE '\[ATTENTION\] +[^ ]+ +kind-unknown' <<< "${OUT}"; then
+    pass "a fallback order in status prints every line, does not print MSG-Y8T3 between them, and is not counted"
+else
+    fail "a fallback order in status: ran=$([[ -e "${sort_ran}" ]] && echo yes || echo no) ERR ${ERR:0:200} OUT ${OUT:0:400}"
 fi
 fresh
 printf 'skills_root=%s\n' "${TESTDIR}/etc-acme/skills" >> "${AGENTS_D}/acme.conf"

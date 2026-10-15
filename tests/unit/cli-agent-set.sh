@@ -491,4 +491,45 @@ else
         || fail "forged state: rc ${rc}: $(tr '\n\033' '|^' <<<"${out}")"
 fi
 
+# ── A system unit's `?` line says why its state is unknown ─────────────────────────────────────────────────────────
+# The twin of the admin report's case (unit/admin-status.sh): the registry is stubbed to one oneshot record, systemctl
+# to a function answering its properties as a unit with no run since boot, and the no-systemctl case clears PATH.
+section "status: a system unit's unknown state names its cause (unit)"
+# shellcheck disable=SC2016  # the $1/$2 are for the inner `bash -c`, not this shell -- do not expand here
+call_services() {
+    runuser -u "${PROJECTS_USER}" -- env AI_TOOLS_MSG_PLAIN=1 \
+        bash -c 'cli="$1"; pre="$2"; set --; source "${cli}" >/dev/null 2>&1 || exit 99
+                 declare -F status_services >/dev/null || exit 98
+                 ai_tools_services__list_records() { printf "%s\n" "ai-tools-relabel.service|system|critical|none|purpose|remedy|||"; }
+                 eval "${pre}"; status_services' _ "${CLI}" "$1" 2>&1
+}
+rc=0; out="$(call_services 'systemctl() { [[ "$1" == show && "$3" == Type ]] && printf oneshot; return 0; }')" || rc=$?
+if [[ "${rc}" -eq 98 ]]; then
+    skip "status services" "status_services absent from ${CLI} (older CLI)"
+elif [[ "${rc}" -eq 0 ]] && grep -qE 'ai-tools-relabel\.service +.*\? \(has not run since boot -- ' <<<"${out}" \
+        && ! grep -qF 'systemctl unavailable' <<<"${out}"; then
+    pass "a system oneshot with no run since boot reads ? naming that"
+else
+    fail "never-run oneshot (rc ${rc}): $(tr '\n' '|' <<<"${out}")"
+fi
+# A start time whose read failed is not a run that has not happened: `show` fails for that one property.
+rc=0; out="$(call_services 'systemctl() { [[ "$1" == show && "$3" == ExecMainStartTimestamp ]] && return 1
+                                          [[ "$1" == show && "$3" == Type ]] && printf oneshot; return 0; }')" || rc=$?
+if [[ "${rc}" -eq 98 ]]; then
+    skip "status services" "status_services absent from ${CLI} (older CLI)"
+elif [[ "${rc}" -eq 0 ]] && grep -qE 'ai-tools-relabel\.service +.*\? \(its state could not be read -- check: systemctl status ai-tools-relabel\.service\)' <<<"${out}" \
+        && ! grep -qE 'ai-tools-relabel\.service +.*\? \(has not run since boot -- ' <<<"${out}"; then
+    pass "a system oneshot whose start time could not be read reads ? as unreadable, not as a unit that has not run"
+else
+    fail "an unreadable start time (rc ${rc}): $(tr '\n' '|' <<<"${out}")"
+fi
+rc=0; out="$(call_services 'PATH=/nonexistent')" || rc=$?
+if [[ "${rc}" -eq 98 ]]; then
+    skip "status services" "status_services absent from ${CLI} (older CLI)"
+elif [[ "${rc}" -eq 0 ]] && grep -qE 'ai-tools-relabel\.service +.*\? \(systemctl unavailable\)' <<<"${out}"; then
+    pass "a system unit on a host without systemctl reads ? naming that"
+else
+    fail "no systemctl (rc ${rc}): $(tr '\n' '|' <<<"${out}")"
+fi
+
 finish

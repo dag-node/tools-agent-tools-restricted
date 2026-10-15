@@ -184,6 +184,39 @@ else
     fail "a failed oneshot read as '${st_failed}' (needs_attention decides the exit status)"
 fi
 
+# The `?` line a report prints for a oneshot that has not run rests on reads that completed: an empty start time read
+# successfully is a oneshot with no run, and a `show` that failed, or a value the charset refuses, is not. The public
+# reader folds a failed read into an empty string, which is the case the predicate exists to keep apart.
+_SVC_SHOW_FAIL=""
+systemctl_show_real="$(declare -f systemctl)"
+systemctl() { [[ "$1" == show && " $* " == *" ${_SVC_SHOW_FAIL:-<none>} "* ]] && return 1; _svc_stub "$@"; }
+eval "${systemctl_show_real/systemctl ()/_svc_stub ()}"
+unrun_case() {  # <label> <want 0|1> : ai_tools_services__is_oneshot_unrun's status over the current _SVC_PROP
+    local status=0
+    ai_tools_services__is_oneshot_unrun "${ONESHOT}" || status=1
+    [[ "${status}" == "$2" ]] && pass "is_oneshot_unrun: $1 -> ${2/0/succeeds}" || fail "is_oneshot_unrun: $1 -> ${status}, want $2"
+}
+# A library without the predicate would answer `command not found` with status 127, which every negative case reads
+# as the refusal it asserts, so the cases run only where it is defined.
+if ! declare -F ai_tools_services__is_oneshot_unrun >/dev/null 2>&1; then
+    skip "is_oneshot_unrun" "${LIB} does not define it -- install this tree (sudo ./install.sh install) and rerun"
+else
+_SVC_STATE=( [${ONESHOT}]=down )
+_SVC_PROP=( [${ONESHOT}|Type]=oneshot );                                    unrun_case "an empty start time read" 0
+_SVC_PROP=( [${ONESHOT}|Type]=oneshot [${ONESHOT}|ExecMainStartTimestamp]="Tue 2026-08-25 19:49:22 CEST" )
+unrun_case "a start time read" 1
+_SVC_PROP=( [${ONESHOT}|Type]=oneshot ); _SVC_SHOW_FAIL=ExecMainStartTimestamp; unrun_case "a start time read that failed" 1
+[[ "$(ai_tools_services__read_state "${ONESHOT}" system)" == unknown \
+        && -z "$(ai_tools_services__read_unit_property "${ONESHOT}" ExecMainStartTimestamp)" ]] \
+    && pass "the same failed read: the state is unknown and the public reader still prints an empty string" \
+    || fail "a failed start-time read changed the public reader or the state"
+_SVC_SHOW_FAIL=Type;                                                         unrun_case "a type read that failed" 1
+_SVC_SHOW_FAIL=""
+_SVC_PROP=( [${ONESHOT}|Type]=oneshot [${ONESHOT}|ExecMainStartTimestamp]=$'bad\x1b[2J' ); unrun_case "a start time the charset refuses" 1
+_SVC_PROP=( [${ONESHOT}|Type]=simple );                                      unrun_case "a unit that is not a oneshot" 1
+_SVC_PROP=()
+fi
+
 # The unit that triggers it is a .path, which has no Type -- so that reading must not change how any non-service unit is
 # judged.
 _SVC_STATE=( [ai-tools-relabel.path]=active )
