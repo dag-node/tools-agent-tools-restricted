@@ -82,16 +82,16 @@ write_conf() {
 
 # reconcile [NAME=value...] : run ai_tools_assets__reconcile in a fresh shell with the hooks (and any override given),
 # keeping the record stream in OUT, stderr in ERR, and the status the verb takes in RC: 1 for a write that failed, else
-# the stream's exit. PRELUDE, when set, is evaluated in that shell after the library loads, to stub what a case drives;
+# the stream's exit. STUBS, when set, is evaluated in that shell after the library loads, to stub what a case drives;
 # a case sets it for one call and clears it.
-OUT=""; ERR=""; RC=0; PRELUDE=""
+OUT=""; ERR=""; RC=0; STUBS=""
 reconcile() {
     RC=0
     # shellcheck disable=SC2016
     OUT="$(env "${HOOKS[@]}" "$@" bash -c 'source "$1" || exit 99; eval "$2"; failed=0
         ai_tools_assets__reconcile root || failed=1
         status=0; ai_tools_records_base__get_exit_status || status=$?
-        (( failed )) && exit 1; exit "${status}"' _ "${LIB}" "${PRELUDE:-:}" 2>"${TESTDIR}/err")" || RC=$?
+        (( failed )) && exit 1; exit "${status}"' _ "${LIB}" "${STUBS:-:}" 2>"${TESTDIR}/err")" || RC=$?
     ERR="$(<"${TESTDIR}/err")"
 }
 # has_row_at <severity> <finding> : succeed when a row carries <finding> at <severity>.
@@ -102,6 +102,12 @@ finding() { awk -F'\t' -v id="$1" 'NR > 1 && index($9, id) { print $6; exit }' <
 detail() { awk -F'\t' -v id="$1" 'NR > 1 && index($9, id) { print $11; exit }' <<< "${OUT}"; }
 # has_row <finding> [substring] : succeed when a row carries <finding> and, if given, <substring> in its subject.
 has_row() { awk -F'\t' -v f="$1" -v s="${2:-}" 'NR > 1 && $6 == f && index($10, s) { found = 1 } END { exit !found }' <<< "${OUT}"; }
+# expect_subject_type <finding> <subject> <type> : the row carrying <finding> about exactly <subject> is of <type>.
+expect_subject_type() {
+    local got
+    got="$(awk -F'\t' -v f="$1" -v s="$2" 'NR > 1 && $6 == f && $10 == s { print $7 }' <<< "${OUT}")"
+    if [[ "${got}" == "$3" ]]; then pass "$1 about $2: subject-type $3"; else fail "$1 about $2: subject-type '${got}', want $3"; fi
+}
 
 # expect_state <id> <token> <what> : the entry's row carries <token>.
 expect_state() {
@@ -183,7 +189,7 @@ expect_unlinked skills/acme-pdf "a group-writable operator.conf"
 [[ "${RC}" == 4 ]] && pass "a group-writable operator.conf: exit 4" || fail "a group-writable operator.conf: exit ${RC}"
 fresh
 chmod 0664 "${CONF}"
-PRELUDE="rm() { [[ \" \$* \" == *' ${HOME_DIR}/skills/acme-pdf '* ]] && return 1; command rm \"\$@\"; }"; reconcile; PRELUDE=""
+STUBS="rm() { [[ \" \$* \" == *' ${HOME_DIR}/skills/acme-pdf '* ]] && return 1; command rm \"\$@\"; }"; reconcile; STUBS=""
 if [[ "${RC}" == 1 && -L "${HOME_DIR}/skills/acme-pdf" ]] && has_row write-failed "${HOME_DIR}/skills/acme-pdf" \
         && [[ "$(awk -F'\t' 'NR > 1 && $6 == "enable-list-untrusted" { print $11 }' <<< "${OUT}")" == *"could not be removed stays"* ]] \
         && [[ "$(awk -F'\t' 'NR > 1 && $6 == "write-failed" { print $11 }' <<< "${OUT}")" == *"stays reachable"* ]]; then
@@ -238,7 +244,7 @@ fresh
 printf 'edited\n' >> "${PKG}/acme/skills/acme-pdf/SKILL.md"; reconcile
 expect_state "${SKILL}" set-tampered "an edited file"
 expect_unlinked skills/acme-pdf "an edited file"
-assert_msg MSG-Z3P6 "$(cut -f3 <<< "${OUT}" | sort -u)" "the reconcile rows carry the reconcile code"
+assert_msg MSG-Z3P6 "$(cut -f3 <<< "${OUT}" | sort -u)" "the entry rows carry the reconcile's entry code"
 fresh
 printf 'added\n' > "${PKG}/acme/skills/acme-pdf/extra.md"; chmod 0644 "${PKG}/acme/skills/acme-pdf/extra.md"; reconcile
 expect_state "${SKILL}" set-tampered "an added file"
@@ -412,8 +418,8 @@ expect_state "${SKILL}" linked "the declaration with no substitution"
 
 # ── A scan that does not complete ────────────────────────────────────────────────────────────────────────────────────
 section "assets: a substitution scan that does not complete is a finding"
-# validate <prelude> <set-dir> [user] : the validator's findings over <set-dir> under the source profile, one
-# `<rule> <detail>` per line, after <prelude> ran in the same shell -- as root, or as <user>.
+# validate <stubs> <set-dir> [user] : the validator's findings over <set-dir> under the source profile, one
+# `<rule> <detail>` per line, after <stubs> ran in the same shell -- as root, or as <user>.
 validate() {
     local -a runner=()
     [[ -n "${3:-}" ]] && runner=( runuser -u "$3" -- )
@@ -428,7 +434,7 @@ out="$(validate : "${TESTDIR}/scan-hit")"
     || fail "control: a matching file reads '${out}'"
 out="$(validate : "${TESTDIR}/scan-clean")"
 [[ -z "${out}" ]] && pass "control: a file without the substitution reads clean" || fail "control: a clean file reads '${out}'"
-# scan_failed <what> <prelude> [user] : the clean set, with the scan made to fail, is body.dynamic-injection naming
+# scan_failed <what> <stubs> [user] : the clean set, with the scan made to fail, is body.dynamic-injection naming
 # the incomplete scan.
 scan_failed() {
     out="$(validate "$2" "${TESTDIR}/scan-clean" "${3:-}")"
@@ -451,9 +457,8 @@ asset_signing_build_set "${TESTDIR}/reader-src" reader
 printf -- '---\nname: reader-pdf\ndescription: A fixture skill.\ncompatibility: Requires python3.\nmetadata:\n  x-key: value\n---\n\nThe body.\n' \
     > "${TESTDIR}/reader-src/reader/skills/reader-pdf/SKILL.md"
 RSKILL=skills/reader-pdf/SKILL.md; RSUB=agents/reader-reviewer.md
-# reader_case <rule|clean> <what> <command> [prelude] : the validator over a fresh copy of the reader set,
-# after <command> ran in its directory and <prelude> in the validator's shell, reports <rule> alone -- or no finding,
-# for `clean`.
+# reader_case <rule|clean> <what> <command> [stubs] : the validator over a fresh copy of the reader set, after <command>
+# ran in its directory and <stubs> in the validator's shell, reports <rule> alone -- or no finding, for `clean`.
 reader_case() {
     local found
     rm -rf "${TESTDIR}/reader-run/reader"; cp -R "${TESTDIR}/reader-src/reader" "${TESTDIR}/reader-run/reader"
@@ -624,26 +629,26 @@ receivers_unknown() {
     [[ "$(readlink -- "${HOME_DIR}/.acme/skills/acme-pdf")" == "${HOME_DIR}/skills/acme-pdf" ]] \
         && pass "$1: the agent's directory is not changed" || fail "$1: the agent's link was changed"
 }
-fresh; PRELUDE='ai_tools_providers__list_enabled_agents() { return 2; }'; reconcile; PRELUDE=""
+fresh; STUBS='ai_tools_providers__list_enabled_agents() { return 2; }'; reconcile; STUBS=""
 receivers_unknown "an enabled-agents reader that exits 2"
-fresh; PRELUDE='ai_tools_providers__list_enabled_agents() { printf "acme\t@fixture/acme\tacme\n"; return 2; }'; reconcile; PRELUDE=""
+fresh; STUBS='ai_tools_providers__list_enabled_agents() { printf "acme\t@fixture/acme\tacme\n"; return 2; }'; reconcile; STUBS=""
 receivers_unknown "a reader that prints a row, then exits 2"
-fresh; PRELUDE='ai_tools_providers__list_installed_agents() { return 2; }'; reconcile; PRELUDE=""
+fresh; STUBS='ai_tools_providers__list_installed_agents() { return 2; }'; reconcile; STUBS=""
 receivers_unknown "an installed-agents reader that exits 2"
 fresh; chmod 0775 "${AGENTS_D}"; reconcile; chmod 0755 "${AGENTS_D}"
 receivers_unknown "an untrusted manifest directory"
-# failing_field <agent> <key> : a PRELUDE whose manifest field reader refuses <key> of <agent>'s manifest at the status
-# a manifest the trust predicate refuses takes, as one replaced after the discovery listed the agent does, and reads
-# every other field as it is.
+# failing_field <agent> <key> : print STUBS under which the manifest field reader refuses <key> of <agent>'s manifest
+# at the status a manifest the trust predicate refuses takes, as one replaced after the discovery listed the agent does,
+# and reads every other field as it is.
 failing_field() {
     printf 'eval "_orig_$(declare -f ai_tools_providers__read_agent_manifest_field)"; ai_tools_providers__read_agent_manifest_field() { if [[ "$1" == %q && "$2" == %q ]]; then return 2; fi; _orig_ai_tools_providers__read_agent_manifest_field "$@"; }' \
         "$1" "$2"
 }
 for field in config_dir asset_profiles skills_dir; do
-    fresh; PRELUDE="$(failing_field acme "${field}")"; reconcile; PRELUDE=""
+    fresh; STUBS="$(failing_field acme "${field}")"; reconcile; STUBS=""
     receivers_unknown "the ${field} read of an enabled agent's manifest fails after the discovery listed it"
 done
-fresh; PRELUDE="$(failing_field beta skills_dir)"; reconcile; PRELUDE=""
+fresh; STUBS="$(failing_field beta skills_dir)"; reconcile; STUBS=""
 receivers_unknown "a field read of an installed agent's manifest fails"
 # A receiver by profile alone, whose asset_profiles read fails after the discovery: read as absent it would receive
 # the kind without the limit its manifest declares, and the dynamic skill would link into the view it reads whole.
@@ -651,7 +656,7 @@ dynamic_skill; manifest gamma "asset_profiles=[skills.portable.v1]"; AGENTS_LINE
 reconcile
 expect_state "${SKILL}" capability-unsupported "control: a profile-only receiver without skills.dynamic.v1 refuses the dynamic skill"
 expect_detail "${SKILL}" gamma "control: the refusal names the profile-only receiver"
-PRELUDE="$(failing_field gamma asset_profiles)"; reconcile; PRELUDE=""
+STUBS="$(failing_field gamma asset_profiles)"; reconcile; STUBS=""
 if has_row_at unreadable receivers-unknown && [[ "$(finding "${SKILL}")" == receivers-unknown && "${RC}" == 5 ]] \
         && absent "${HOME_DIR}/skills/acme-pdf"; then
     pass "the asset_profiles read of a profile-only receiver fails: receivers-unknown, exit 5, the dynamic skill not linked"
@@ -661,8 +666,8 @@ fi
 # The same through the production readers: gamma's manifest becomes a directory once the discovery has listed it,
 # which the trust predicate accepts and the conf reader reports as not read whole, so the status reaches the resolver
 # through ai_tools_conf__read and the provider reader rather than a stub.
-PRELUDE="eval \"_orig_\$(declare -f ai_tools_providers__list_enabled_agents)\"; ai_tools_providers__list_enabled_agents() { _orig_ai_tools_providers__list_enabled_agents || return \$?; rm -f -- ${AGENTS_D}/gamma.conf; mkdir -- ${AGENTS_D}/gamma.conf; }"
-reconcile; PRELUDE=""; rmdir "${AGENTS_D}/gamma.conf"
+STUBS="eval \"_orig_\$(declare -f ai_tools_providers__list_enabled_agents)\"; ai_tools_providers__list_enabled_agents() { _orig_ai_tools_providers__list_enabled_agents || return \$?; rm -f -- ${AGENTS_D}/gamma.conf; mkdir -- ${AGENTS_D}/gamma.conf; }"
+reconcile; STUBS=""; rmdir "${AGENTS_D}/gamma.conf"
 if has_row_at unreadable receivers-unknown && [[ "$(finding "${SKILL}")" == receivers-unknown && "${RC}" == 5 ]] \
         && absent "${HOME_DIR}/skills/acme-pdf"; then
     pass "a manifest that is a directory once the discovery listed it: receivers-unknown through the production readers, exit 5"
@@ -740,6 +745,7 @@ absent "${HOME_DIR}/skills/.acme-pdf.ai-tools-assets.tmp" && pass "the temporary
 [[ -f "${HOME_DIR}/skills/ai-tools-seeded/SKILL.md" ]] && pass "a seeded managed copy survives" || fail "the seeded copy is gone"
 [[ "$(readlink "${HOME_DIR}/skills/foreign")" == /etc ]] && pass "a foreign link survives" || fail "the foreign link is gone"
 has_row view-foreign "${HOME_DIR}/skills/foreign" && pass "the foreign link is reported view-foreign" || fail "no view-foreign row: ${OUT:0:300}"
+expect_subject_type view-foreign "${HOME_DIR}/skills/foreign" link
 [[ "$(readlink "${HOME_DIR}/.acme/skills/ai-tools-seeded")" == "${HOME_DIR}/skills/ai-tools-seeded" ]] \
     && pass "the agent's directory links the seeded copy too" || fail "the seeded copy is not linked into the agent's directory"
 write_conf "${SUB}"; reconcile
@@ -749,8 +755,8 @@ absent "${HOME_DIR}/skills/acme-pdf" && absent "${HOME_DIR}/.acme/skills/acme-pd
 
 # ── A listing that fails is not an empty directory ───────────────────────────────────────────────────────────────────
 section "assets: a view or agent directory that cannot be listed is reported and not planned"
-# failing_find <directory> [name] : a PRELUDE whose find, asked to list <directory> one level down, prints <name> (when
-# given) and exits 1; every other find runs as it is.
+# failing_find <directory> [name] : print STUBS under which find, asked to list <directory> one level down, prints
+# <name> (when given) and exits 1; every other find runs as it is.
 failing_find() {
     printf 'find() { if [[ "$2" == %q && " $* " == *" -maxdepth 1 "* ]]; then %s return 1; fi; command find "$@"; }' \
         "$1" "${2:+printf '%s\\0' $(printf '%q' "$2");}"
@@ -769,13 +775,13 @@ for partial in "" foreign-dir; do
     fresh
     mkdir "${HOME_DIR}/skills/foreign-dir"; printf 'mine\n' > "${HOME_DIR}/skills/foreign-dir/SKILL.md"
     foreign_before="$(find "${HOME_DIR}/skills/foreign-dir" -printf '%P %y %s %m\n' | sort)"
-    PRELUDE="$(failing_find "${HOME_DIR}/skills" "${partial}")"; reconcile; PRELUDE=""
+    STUBS="$(failing_find "${HOME_DIR}/skills" "${partial}")"; reconcile; STUBS=""
     listing_failed "the view listing fails${partial:+ after one name}" "${HOME_DIR}/skills/foreign-dir"
     [[ "$(finding "${SKILL}")" == error ]] && pass "the view listing fails${partial:+ after one name}: the entry is not reported linked" \
         || fail "the view listing fails: the entry reads '$(finding "${SKILL}")'"
 done
 fresh; write_conf "${SUB}"
-PRELUDE="$(failing_find "${HOME_DIR}/skills")"; reconcile; PRELUDE=""
+STUBS="$(failing_find "${HOME_DIR}/skills")"; reconcile; STUBS=""
 if has_row_at unreadable error && [[ "${RC}" == 5 ]] && linked skills/acme-pdf "${PKG}/acme/skills/acme-pdf"; then
     pass "the view listing fails as the last skill is disabled: its resolver link stays, reported, exit 5"
 else
@@ -786,7 +792,7 @@ for partial in "" acme-gone; do
     ln -s "${HOME_DIR}/skills/acme-gone" "${HOME_DIR}/.acme/skills/acme-gone"
     mkdir "${HOME_DIR}/.acme/skills/own"; printf 'mine\n' > "${HOME_DIR}/.acme/skills/own/SKILL.md"
     foreign_before="$(find "${HOME_DIR}/.acme/skills/own" -printf '%P %y %s %m\n' | sort)"
-    PRELUDE="$(failing_find "${HOME_DIR}/.acme/skills" "${partial}")"; reconcile; PRELUDE=""
+    STUBS="$(failing_find "${HOME_DIR}/.acme/skills" "${partial}")"; reconcile; STUBS=""
     listing_failed "the agent's listing fails${partial:+ after one name}" "${HOME_DIR}/.acme/skills/own"
     [[ -L "${HOME_DIR}/.acme/skills/acme-gone" ]] && pass "the agent's listing fails: the stale link stays in place" \
         || fail "the agent's listing fails: the stale link was removed"
@@ -809,24 +815,24 @@ links_left() {
 fresh; chmod 0664 "${CONF}"; mv "${HOME_DIR}/skills" "${TESTDIR}/skills-real"; ln -s "${TESTDIR}/skills-real" "${HOME_DIR}/skills"; reconcile
 links_left "an untrusted operator.conf beside a symlinked view" "${HOME_DIR}/skills"
 rm -f "${HOME_DIR}/skills"; mv "${TESTDIR}/skills-real" "${HOME_DIR}/skills"
-fresh; chmod 0664 "${CONF}"; PRELUDE="$(failing_find "${HOME_DIR}/skills")"; reconcile; PRELUDE=""
+fresh; chmod 0664 "${CONF}"; STUBS="$(failing_find "${HOME_DIR}/skills")"; reconcile; STUBS=""
 links_left "an untrusted operator.conf beside a view listing that fails" "${HOME_DIR}/skills"
 fresh; chmod 0664 "${CONF}"
-PRELUDE='eval "_orig_$(declare -f ai_tools_assets__plan)"; ai_tools_assets__plan() { _orig_ai_tools_assets__plan; chmod 0775 '"${HOME_DIR}/skills"'; }'
-reconcile; PRELUDE=""; chmod 0750 "${HOME_DIR}/skills"
+STUBS='eval "_orig_$(declare -f ai_tools_assets__plan)"; ai_tools_assets__plan() { _orig_ai_tools_assets__plan; chmod 0775 '"${HOME_DIR}/skills"'; }'
+reconcile; STUBS=""; chmod 0750 "${HOME_DIR}/skills"
 links_left "an untrusted operator.conf beside a view refused in the apply" "${HOME_DIR}/skills"
 has_row view-dir-untrusted "${HOME_DIR}/skills" && pass "a view refused in the apply: its row" || fail "a view refused in the apply: ${OUT:0:300}"
 # An agent's directory the run could not list, and the agents' directories the run could not discover: the agent's link
 # into the view stays in each, and the row says so instead of claiming every link removed.
 untrusted_row() { awk -F'\t' 'NR > 1 && $6 == "enable-list-untrusted" { print $11 }' <<< "${OUT}"; }
-fresh; chmod 0664 "${CONF}"; PRELUDE="$(failing_find "${HOME_DIR}/.acme/skills")"; reconcile; PRELUDE=""
+fresh; chmod 0664 "${CONF}"; STUBS="$(failing_find "${HOME_DIR}/.acme/skills")"; reconcile; STUBS=""
 if [[ "$(untrusted_row)" == *"under ${HOME_DIR}/.acme/skills"* && "$(untrusted_row)" != *"every resolver link is removed"* \
         && -L "${HOME_DIR}/.acme/skills/acme-pdf" ]] && has_row_at unreadable error; then
     pass "an untrusted operator.conf beside an agent listing that fails: the row names the agent's directory, and its link stays"
 else
     fail "an agent listing that fails: '$(untrusted_row)', $(ls -la "${HOME_DIR}/.acme/skills" 2>&1 | tr '\n' '|')"
 fi
-fresh; chmod 0664 "${CONF}"; PRELUDE='ai_tools_providers__list_installed_agents() { return 2; }'; reconcile; PRELUDE=""
+fresh; chmod 0664 "${CONF}"; STUBS='ai_tools_providers__list_installed_agents() { return 2; }'; reconcile; STUBS=""
 if [[ "$(untrusted_row)" == *"directories were not examined"* && "$(untrusted_row)" != *"every resolver link is removed"* \
         && -L "${HOME_DIR}/.acme/skills/acme-pdf" ]] && has_row_at unreadable receivers-unknown && absent "${HOME_DIR}/skills/acme-pdf"; then
     pass "an untrusted operator.conf beside an unknown receiver set: the row says the agents' directories were not examined; the view link goes, the agent's stays"
@@ -861,6 +867,7 @@ for name in own-skill ai-tools-forged etc-link dangling "tab"$'\t'"name" -leadin
 done
 if has_row view-foreign "${HOME_DIR}/subagents/ai-tools-dir-sub.md" && absent "${HOME_DIR}/.acme/agents/ai-tools-dir-sub.md"; then
     pass "view-foreign, not linked into the agent's directory: a directory where a subagent file goes"
+    expect_subject_type view-foreign "${HOME_DIR}/subagents/ai-tools-dir-sub.md" directory
 else
     fail "a directory where a subagent file goes: ${OUT:0:300}"
 fi
@@ -918,7 +925,25 @@ fresh
 printf 'tampered\n' >> "${PKG}/acme/README.md"; reconcile
 expect_unlinked skills/acme-pdf "a set that linked and then fails verification"
 expect_unlinked subagents/acme-reviewer.md "the same set's subagent"
-has_row unlinked "${HOME_DIR}/skills/acme-pdf" && pass "the removal is reported unlinked" || fail "no unlinked row: ${OUT:0:300}"
+has_row removed "${HOME_DIR}/skills/acme-pdf" && pass "the removal is reported removed" || fail "no removed row: ${OUT:0:300}"
+removal_code="$(awk -F'\t' -v s="${HOME_DIR}/skills/acme-pdf" 'NR > 1 && $6 == "removed" && $10 == s { print $3 }' <<< "${OUT}")"
+[[ "${removal_code}" == MSG-K6J2 ]] && pass "the removal's row carries the reconcile's link code" || fail "the removal's code: '${removal_code}'"
+expect_subject_type removed "${HOME_DIR}/skills/acme-pdf" link
+expect_subject_type removed "${HOME_DIR}/.acme/skills/acme-pdf" link
+# A stale link's item is the identifier it was placed for, a file kind's `.md` dropped, and the kind and the view name
+# where the set was not read.
+stale_items="$(bash -c 'source "$1" 2>/dev/null || exit 99
+    for args in "skills acme-pdf acme" "subagents acme-reviewer.md acme" "subagents acme-reviewer.md"; do
+        read -r kind name set <<< "${args}"; _ai_tools_assets__get_stale_link_item "${kind}" "${name}" "${set}"; printf " "
+    done' _ "${LIB}")"
+[[ "${stale_items}" == "acme/skills/acme-pdf acme/subagents/acme-reviewer subagents/acme-reviewer.md " ]] \
+    && pass "a stale link's item: the identifier, or the kind and view name without a set" || fail "stale items: '${stale_items}'"
+# A row's subject-type is what is at its subject, a link read as a link whatever it points at.
+mkdir -p "${TESTDIR}/types/dir"; : > "${TESTDIR}/types/file"; ln -sfn "${TESTDIR}/types/dir" "${TESTDIR}/types/link"
+subject_types="$(bash -c 'source "$1" 2>/dev/null || exit 99
+    for name in link dir file absent; do _ai_tools_assets__read_subject_type "$2/${name}"; printf " "; done' _ "${LIB}" "${TESTDIR}/types")"
+[[ "${subject_types}" == "link directory file file " ]] && pass "a subject's type: link, directory, file, and file for an absent path" \
+    || fail "subject types: '${subject_types}'"
 
 # ── The lock ─────────────────────────────────────────────────────────────────────────────────────────────────────────
 section "assets: the lock serializes runs"
@@ -948,7 +973,7 @@ refused_lock() {
     if [[ "${RC}" == 1 ]]; then pass "$1: exit 1"; else fail "$1: exit ${RC}: ${ERR:0:200}"; fi
     assert_msg MSG-M8T9 "${ERR}" "$1: refused under the lock's code"
 }
-fresh; rm -rf "${LOCK%/*}"; PRELUDE='umask 000'; reconcile; PRELUDE=""
+fresh; rm -rf "${LOCK%/*}"; STUBS='umask 000'; reconcile; STUBS=""
 if [[ "$(stat -c '%U %a' "${LOCK%/*}")" == "root 700" && "$(stat -c '%U %a' "${LOCK}")" == "root 600" ]]; then
     pass "under umask 000 the lock directory is born 0700 and the lock file 0600, both root's"
 else
@@ -1059,6 +1084,7 @@ rm -f "${HOME_DIR}/.acme/skills/acme-pdf"; mkdir "${HOME_DIR}/.acme/skills/acme-
 reconcile
 if has_row agent-occupied "${HOME_DIR}/.acme/skills/acme-pdf" && [[ "$(cat "${HOME_DIR}/.acme/skills/acme-pdf/SKILL.md")" == own ]]; then
     pass "a real entry in the agent's directory is kept and reported agent-occupied"
+    expect_subject_type agent-occupied "${HOME_DIR}/.acme/skills/acme-pdf" directory
 else
     fail "a real entry: ${OUT:0:300}"
 fi
@@ -1121,9 +1147,9 @@ absent "${HOME_DIR}/.gamma/skills" && pass "an agent that declares no skills_dir
 fresh
 # The real-entry listing is read apart from the links listing, so its failure is a row of its own and the links planned
 # in the directory stand.
-PRELUDE="$(printf 'find() { if [[ "$2" == %q && " $* " == *" ! -type l "* ]]; then return 1; fi; command find "$@"; }' \
+STUBS="$(printf 'find() { if [[ "$2" == %q && " $* " == *" ! -type l "* ]]; then return 1; fi; command find "$@"; }' \
     "${HOME_DIR}/.acme/skills")"
-reconcile; PRELUDE=""
+reconcile; STUBS=""
 if [[ "${RC}" == 5 ]] && has_row_at unreadable error && has_row error "${HOME_DIR}/.acme/skills" \
         && [[ "$(readlink -- "${HOME_DIR}/.acme/skills/acme-pdf")" == "${HOME_DIR}/skills/acme-pdf" ]]; then
     pass "a real-entry listing that fails is an unreadable error row, exit 5, with the agent's links in place"
@@ -1134,6 +1160,7 @@ fresh
 ln -sfn /etc/hostname "${HOME_DIR}/.acme/skills/acme-pdf"; reconcile
 if has_row agent-occupied "${HOME_DIR}/.acme/skills/acme-pdf" && [[ "$(readlink "${HOME_DIR}/.acme/skills/acme-pdf")" == /etc/hostname ]]; then
     pass "a link elsewhere in the agent's directory is reported and not repointed"
+    expect_subject_type agent-occupied "${HOME_DIR}/.acme/skills/acme-pdf" link
 else
     fail "a link elsewhere: $(readlink "${HOME_DIR}/.acme/skills/acme-pdf") ${OUT:0:300}"
 fi
@@ -1192,8 +1219,8 @@ two_agents; rm -rf "${HOME_DIR}/.acme/skills"
 # does on a name that exists; then it plants a symlink to a directory outside instead. The create does not follow a link
 # -- `install -d` would re-own and re-mode the link's target -- so the target keeps its owner, mode and entries,
 # and the name is refused either way.
-PRELUDE="mkdir() { if [[ \"\${@: -1}\" == */.acme/skills ]]; then command mkdir -- \"\${@: -1}\" && chown ${PROJECTS_USER} -- \"\${@: -1}\"; return 1; fi; command mkdir \"\$@\"; }"
-reconcile; PRELUDE=""
+STUBS="mkdir() { if [[ \"\${@: -1}\" == */.acme/skills ]]; then command mkdir -- \"\${@: -1}\" && chown ${PROJECTS_USER} -- \"\${@: -1}\"; return 1; fi; command mkdir \"\$@\"; }"
+reconcile; STUBS=""
 destination_case "a kind directory taken between the plan and the apply (a stubbed mkdir)" agent-dir-untrusted
 if [[ "$(stat -c %U "${HOME_DIR}/.acme/skills")" == "${PROJECTS_USER}" && -z "$(ls -A "${HOME_DIR}/.acme/skills")" ]]; then
     pass "a kind directory taken between the plan and the apply: nothing is written into it, and it is not re-owned"
@@ -1203,8 +1230,8 @@ fi
 rm -rf "${HOME_DIR}/.acme/skills"
 two_agents; rm -rf "${HOME_DIR}/.acme/skills"
 mkdir -m 0777 "${OUTSIDE}/planted"; chown "${PROJECTS_USER}" "${OUTSIDE}/planted"; outside_planted="$(outside_snapshot)"
-PRELUDE="mkdir() { if [[ \"\${@: -1}\" == */.acme/skills ]]; then ln -s ${OUTSIDE}/planted -- \"\${@: -1}\"; return 1; fi; command mkdir \"\$@\"; }"
-reconcile; PRELUDE=""
+STUBS="mkdir() { if [[ \"\${@: -1}\" == */.acme/skills ]]; then ln -s ${OUTSIDE}/planted -- \"\${@: -1}\"; return 1; fi; command mkdir \"\$@\"; }"
+reconcile; STUBS=""
 if has_row agent-dir-untrusted "${HOME_DIR}" && [[ "${RC}" == 4 && -L "${HOME_DIR}/.acme/skills" ]] \
         && [[ "$(outside_snapshot)" == "${outside_planted}" ]] \
         && [[ "$(readlink -- "${HOME_DIR}/.beta/skills/acme-pdf")" == "${HOME_DIR}/skills/acme-pdf" ]]; then
@@ -1219,7 +1246,7 @@ rm -f "${HOME_DIR}/.acme/skills"; rm -rf "${OUTSIDE}/planted"
 CREATE_LOG="${TESTDIR}/create.log"
 RECORD_CREATE="mkdir() { case \"\${@: -1}\" in ${HOME_DIR}/*|${OUTSIDE}/*) printf '%s\\n' \"\${@: -1}\" >> ${CREATE_LOG} ;; esac; command mkdir \"\$@\"; }"
 two_agents; rm -rf "${HOME_DIR}/subagents"; mv "${HOME_DIR}" "${TESTDIR}/home-real"; ln -s "${OUTSIDE}" "${HOME_DIR}"
-PRELUDE="${RECORD_CREATE}"; reconcile; PRELUDE=""
+STUBS="${RECORD_CREATE}"; reconcile; STUBS=""
 destination_case "a symlinked home root with an absent view child" view-dir-untrusted
 if [[ ! -s "${CREATE_LOG}" ]] && absent "${OUTSIDE}/subagents"; then
     pass "a symlinked home root with an absent view child: no directory was created, and the child is not created through the link"
@@ -1228,14 +1255,14 @@ else
 fi
 rm -f "${HOME_DIR}" "${CREATE_LOG}"; mv "${TESTDIR}/home-real" "${HOME_DIR}"
 two_agents; rm -rf "${HOME_DIR}/subagents"; chown "${PROJECTS_USER}" "${HOME_DIR}"
-PRELUDE="${RECORD_CREATE}"; reconcile; PRELUDE=""; chown root "${HOME_DIR}"
+STUBS="${RECORD_CREATE}"; reconcile; STUBS=""; chown root "${HOME_DIR}"
 if has_row view-dir-untrusted "${HOME_DIR}" && [[ "${RC}" == 4 && ! -s "${CREATE_LOG}" ]] && absent "${HOME_DIR}/subagents"; then
     pass "a home root owned by the projects user with an absent view child: refused, no directory created, the child absent"
 else
     fail "a home root owned by the projects user: rc ${RC}, created '$(cat "${CREATE_LOG}" 2>/dev/null | tr '\n' '|')', ${OUT:0:300}"
 fi
 rm -f "${CREATE_LOG}"
-two_agents; rm -rf "${HOME_DIR}/subagents"; PRELUDE="${RECORD_CREATE}"; reconcile; PRELUDE=""
+two_agents; rm -rf "${HOME_DIR}/subagents"; STUBS="${RECORD_CREATE}"; reconcile; STUBS=""
 if [[ "${RC}" == 0 && "$(stat -c '%U %a' "${HOME_DIR}/subagents")" == "root 750" ]] && grep -qx -- "${HOME_DIR}/subagents" "${CREATE_LOG}" \
         && linked subagents/acme-reviewer.md "${PKG}/acme/agents/acme-reviewer.md"; then
     pass "control: a trusted home root with an absent view child creates it root 0750 and links into it"
@@ -1312,8 +1339,8 @@ else
         rm -rf "${dir}"; mkdir -p "${dir}"; asset_signing_build_set "${dir}" acme
         printf '%s\n' "$@" > "${dir}/fixture.conf"
     }
-    # conformance <prelude> : the checker's run_fixtures over FIX, read out of the checker into a shell where <prelude>
-    # ran after the library loaded; the output in CHECK_OUT, the status in CHECK_RC.
+    # conformance <stubs> : the checker's run_fixtures over FIX, read out of the checker into a shell where <stubs> ran
+    # after the library loaded; the output in CHECK_OUT, the status in CHECK_RC.
     conformance() {
         CHECK_RC=0
         # shellcheck disable=SC2016  # the $1 to $5 are the inner shell's

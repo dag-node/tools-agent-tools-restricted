@@ -244,7 +244,7 @@ side and authorization middleware expresses it on the HTTP side. Neither needs a
 
 `ai-tools-admin` conforms: `operators [list|add|remove]`, `selinux groups [list|enable|disable]`,
 `system bootstrap [--scope minimal|full] [--agents NAME[,NAME...]]`, `system entrypoints relabel`,
-`system post-upgrade`, `status`, `assets enable|disable|reconcile`, `--help`/`-h`, `--version`, plus one domain
+`system post-upgrade`, `status`, `assets [list|enable|disable|reconcile]`, `--help`/`-h`, `--version`, plus one domain
 per installed provider — `dotnet bootstrap`, `dotnet tools install <pkg...>`, `dotnet status`. `ai-tools-admin(8)`
 documents the base surface and `tests/unit/man.sh` holds the page, the helper's `usage()` and its dispatch arms
 in agreement, so a command renamed in one of the three fails the suite rather than going stale in the others.

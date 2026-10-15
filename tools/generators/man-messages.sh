@@ -38,7 +38,7 @@ _claim_attention=WARNING
 note=NOTICE say_notice=NOTICE notice=NOTICE _ai_tools_toolchain__notice=NOTICE
 ai_tools_msg__notice=NOTICE _pu_info=NOTICE _claim_info=NOTICE
 _ai_tools_secret_patterns__error=ERROR
-_ai_tools_managed_assets__refuse=ERROR _ai_tools_assets__reconcile_report=WARNING _assets_attention_row=WARNING _assets_info_row=NOTICE
+_ai_tools_managed_assets__refuse=ERROR _ai_tools_assets__write_reconcile_report=WARNING _ai_tools_assets__write_list_report=WARNING _ai_tools_assets__get_link_code=WARNING _ai_tools_assets__write_order_error=ERROR _assets_attention_row=WARNING _assets_info_row=NOTICE _ai_tools_assets__warn=WARNING
 _ai_tools_cache_cleanup__error=ERROR _ai_tools_cache_cleanup__warn=WARNING
 '
 
@@ -171,7 +171,7 @@ ROFF
         if [[ -n "${pointer}" ]]; then
             printf 'Documented in\n%s\n' "${pointer}"
         fi
-    done < <(extract | sort -t$'\t' -k1,1 -k2,2)
+    done < <(extract | LC_ALL=C sort -t$'\t' -k1,1 -k2,2)
     cat <<'ROFF'
 .SH SEE ALSO
 .BR ai-tools (1),
