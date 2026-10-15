@@ -638,7 +638,7 @@ chmod 0644 "${CONF}"
 section "ai-tools-admin status: the Assets section"
 fresh
 admin status_assets
-if grep -qE '\[OK\] +0 asset\(s\) enabled in AI_TOOLS_ASSETS, 0 resolved to linked; sudo ai-tools-admin assets lists the link changes' \
+if grep -qE '\[OK\] +0 asset\(s\) enabled in AI_TOOLS_ASSETS, 0 resolved to linked; sudo ai-tools-admin assets list names the link changes' \
         <<< "${OUT}" && [[ "${OUT}" == *problems=0* ]]; then
     pass "a host with no entry prints the OK line with a count of zero, naming the reading that lists pending link changes"
 else
