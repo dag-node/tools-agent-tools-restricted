@@ -326,10 +326,12 @@ an ordinary account read it — a partial view, the file sink being the authorit
   a problem report — it says only that this vantage point cannot tell — so it stays a single line naming the one command
   that can, and the multi-command diagnostic block is reserved for a unit reported broken. A system oneshot that has not
   run since boot reads `?` in both reports with no command on the line: its verdict is its last run's, no reading holds
-  one yet, and its `.path` watcher starts it on the next change. One state is separated from it in both reports: a stamp
-  still empty as the package seeded it (`ai_tools_services__is_stamp_unwritten`) reads `no run recorded yet`, since
-  that is where a freshly provisioned host stands until the updater's first window, and a `?` there would send
-  an operator to check a unit that is fine.
+  one yet, and its `.path` watcher starts it on the next change. That line needs a `systemctl show` of its type
+  and of an empty start time that both completed (`ai_tools_services__is_oneshot_unrun`); a read that did not complete
+  reads `?` as a state that could not be read, naming `systemctl status`. One state is separated from it in both
+  reports: a stamp still empty as the package seeded it (`ai_tools_services__is_stamp_unwritten`) reads
+  `no run recorded yet`, since that is where a freshly provisioned host stands until the updater's first window,
+  and a `?` there would send an operator to check a unit that is fine.
 
   **A stamp is read for two properties, and one stamp can serve two units.** `RESULT` answers *did the last run
   succeed*; its **age** answers *are runs still happening* — a distinct question a `RESULT` cannot express, since

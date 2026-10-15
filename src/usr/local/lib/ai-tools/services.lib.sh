@@ -168,15 +168,36 @@ _ai_tools_services__run_systemctl() {
 # as a stamp field: it reaches the operator's terminal, and while systemd is a trusted writer, one reader for both
 # records means one place where that guarantee is made.
 ai_tools_services__read_unit_property() {
+    _ai_tools_services__read_unit_property_checked "$@" || true
+    return 0
+}
+
+# _ai_tools_services__read_unit_property_checked <unit> <property> [scope]  -- PRINT one systemd property of a unit
+# in <scope> (default 'system'), an empty string where systemd reports the value empty. Returns 1 without printing
+# where <scope>'s manager cannot be reached, `systemctl show` fails, or the value is outside the display-safe charset,
+# so a caller that must tell an empty value from a failed read can; ai_tools_services__read_unit_property prints
+# an empty string for a failed read too.
+_ai_tools_services__read_unit_property_checked() {
     local unit="${1:-}" property="${2:-}" scope="${3:-system}" value
     local -a sctl
-    [[ -n "${unit}" && -n "${property}" ]] || return 0
-    _ai_tools_services__run_systemctl "${scope}" || return 0
+    [[ -n "${unit}" && -n "${property}" ]] || return 1
+    _ai_tools_services__run_systemctl "${scope}" || return 1
     sctl=( "${_AI_TOOLS_SERVICES__SYSTEMCTL[@]}" )
-    value="$("${sctl[@]}" show -p "${property}" --value -- "${unit}" 2>/dev/null)" || return 0
-    [[ "${value}" =~ ^[A-Za-z0-9:+._\ -]{1,64}$ ]] || return 0
+    value="$("${sctl[@]}" show -p "${property}" --value -- "${unit}" 2>/dev/null)" || return 1
+    [[ -z "${value}" || "${value}" =~ ^[A-Za-z0-9:+._\ -]{1,64}$ ]] || return 1
     printf '%s' "${value}"
-    return 0
+}
+
+# ai_tools_services__is_oneshot_unrun <unit> [scope]  -- succeed where the unit's Type reads `oneshot` and its
+# ExecMainStartTimestamp reads empty, each from a `systemctl show` that succeeded: a oneshot with no run since its
+# manager started. A read that failed or a value the charset refuses fails the predicate, so a report that reads
+# `unknown` beside it says the state could not be read rather than that the unit has not run. No output.
+ai_tools_services__is_oneshot_unrun() {
+    local unit="${1:-}" scope="${2:-system}" type started
+    type="$(_ai_tools_services__read_unit_property_checked "${unit}" Type "${scope}")" || return 1
+    [[ "${type}" == oneshot ]] || return 1
+    started="$(_ai_tools_services__read_unit_property_checked "${unit}" ExecMainStartTimestamp "${scope}")" || return 1
+    [[ -z "${started}" ]]
 }
 
 # _ai_tools_services__read_live_state <unit> <scope>  -- PRINT active|down|failed|unknown from the unit's LIVE state
@@ -398,7 +419,8 @@ ai_tools_services__evaluate_timer_stamp() {
 #   absent  -- the unit is not installed on this host (e.g. relabel.path on a base-only install,
 #              or the nvm-update pair without the nodejs integration) -- no fault to warn about.
 #   unknown -- not checkable here: systemctl missing, a system oneshot with no run since its manager
-#              started (its verdict is its last run's), or a sandbox-user unit that is installed but
+#              started (its verdict is its last run's; ai_tools_services__is_oneshot_unrun tells it
+#              from a timestamp that could not be read), or a sandbox-user unit that is installed but
 #              neither reachable live nor publishing a stamp (or has not run since the stamp was
 #              introduced).
 ai_tools_services__read_state() {

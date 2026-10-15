@@ -2488,18 +2488,21 @@ status_services() {
             absent)  st "n/a" "${unit}  not installed" ;;
             # Not a fault report -- it says only that even this vantage point could not tell, and is not counted,
             # the same rule the operator view follows. The two scopes fail for different reasons and say so. A system
-            # unit reads unknown where there is no systemctl at all, or where it is a oneshot with no run since its
-            # manager started, whose verdict is its last run's; `command -v systemctl`, the one test the system scope's
-            # probe makes, tells the two apart. The oneshot line does not name a command: its .path watcher starts it
-            # on the next change, and a manual start would run work no change asked for. A sandbox-user one means root
-            # reached neither that account's manager (no machine transport, no timeout(1), or no answer inside
-            # the probe's window) nor a last-run stamp -- or, separable and said as such, a stamp still empty
-            # as the package seeded it: the unit has never run, which is where a freshly provisioned host stands until
-            # its first window.
+            # unit reads unknown where there is no systemctl at all, where it is a oneshot with no run since its manager
+            # started, whose verdict is its last run's, and where a property read failed; `command -v systemctl`
+            # and ai_tools_services__is_oneshot_unrun, which succeeds only on reads that completed, tell the three
+            # apart. The oneshot line does not name a command: its .path watcher starts it on the next change,
+            # and a manual start would run work no change asked for. A sandbox-user one means root reached neither
+            # that account's manager (no machine transport, no timeout(1), or no answer inside the probe's window)
+            # nor a last-run stamp -- or, separable and said as such, a stamp still empty as the package seeded it:
+            # the unit has never run, which is where a freshly provisioned host stands until its first window.
             *)       if [[ "${scope}" == system ]] && ! command -v systemctl >/dev/null 2>&1; then
                          st "?" "${unit}  systemctl is unavailable here"
-                     elif [[ "${scope}" == system ]]; then
+                     elif [[ "${scope}" == system ]] && declare -F ai_tools_services__is_oneshot_unrun >/dev/null 2>&1 \
+                             && ai_tools_services__is_oneshot_unrun "${unit}"; then
                          st "?" "${unit}  has not run since boot -- a oneshot's state is its last run's, known after its first"
+                     elif [[ "${scope}" == system ]]; then
+                         st "?" "${unit}  its state could not be read -- systemctl status ${unit} shows it"
                      elif declare -F ai_tools_services__is_stamp_unwritten >/dev/null 2>&1 \
                              && ai_tools_services__is_stamp_unwritten "${stamp}"; then
                          st "?" "${unit}  no run recorded yet -- its first scheduled run has not happened"

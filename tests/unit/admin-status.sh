@@ -335,6 +335,17 @@ elif grep -qE '^ +\[\?\] +ai-tools-relabel\.service  has not run since boot -- '
 else
     fail "never-run oneshot (rc ${rc}): $(tr '\n' '|' <<<"${out}")"
 fi
+# A start time whose read failed is not a run that has not happened: `show` fails for that one property.
+rc=0; out="$(call_services 'systemctl() { [[ "$1" == show && "$3" == ExecMainStartTimestamp ]] && return 1
+                                          [[ "$1" == show && "$3" == Type ]] && printf oneshot; return 0; }')" || rc=$?
+if [[ "${rc}" -eq 98 ]]; then
+    skip "admin status services" "status_services absent (older helper?)"
+elif grep -qE '^ +\[\?\] +ai-tools-relabel\.service  its state could not be read -- systemctl status ai-tools-relabel\.service shows it$' <<<"${out}" \
+        && ! grep -qE '^ +\[\?\] +ai-tools-relabel\.service  has not run since boot -- ' <<<"${out}" && grep -qx 'problems=0' <<<"${out}"; then
+    pass "a system oneshot whose start time could not be read reads ? as unreadable, not as a unit that has not run"
+else
+    fail "an unreadable start time (rc ${rc}): $(tr '\n' '|' <<<"${out}")"
+fi
 rc=0; out="$(call_services 'PATH=/nonexistent')" || rc=$?
 if [[ "${rc}" -eq 98 ]]; then
     skip "admin status services" "status_services absent (older helper?)"
