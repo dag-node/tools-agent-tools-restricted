@@ -130,7 +130,8 @@ _AI_TOOLS_SERVICES__SANDBOX_ACCOUNT=""
 # How long a live probe of that manager may take. It crosses the system bus into another account's manager, so a manager
 # that is wedged rather than merely down must cost a bounded wait and then the answer this library gave before there was
 # a transport at all -- never a status report that hangs. Overridable so a test can drive the timeout path without
-# waiting on it.
+# waiting on it. A value outside ^[1-9][0-9]*$ refuses the probe, so the stamp answers: timeout(1) reads `0` as no bound
+# at all, and a value it rejects as an interval ends the probe as a failure the reader would take for the manager's.
 : "${AI_TOOLS_SERVICE_LIVE_TIMEOUT:=5}"
 
 # ai_tools_services__set_sandbox_account <name>  -- name the sandbox account, which is what offers the live probe
@@ -158,6 +159,7 @@ _ai_tools_services__run_systemctl() {
     # No timeout(1), no bounded probe -- and an unbounded one is the failure this whole path must not have, so the stamp
     # answers instead.
     command -v timeout >/dev/null 2>&1 || return 1
+    [[ "${AI_TOOLS_SERVICE_LIVE_TIMEOUT}" =~ ^[1-9][0-9]*$ ]] || return 1
     _AI_TOOLS_SERVICES__SYSTEMCTL=( timeout "${AI_TOOLS_SERVICE_LIVE_TIMEOUT}" \
         systemctl --user -M "${_AI_TOOLS_SERVICES__SANDBOX_ACCOUNT}@.host" )
     return 0

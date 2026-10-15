@@ -729,6 +729,32 @@ else
     else
         pass "a non-root caller (${PROJECTS_USER}) is not offered the live probe, whatever account is named"
     fi
+    # The probe's bound is a whole number of seconds or the probe is refused: timeout(1) reads 0 as no bound,
+    # and a value it rejects as an interval fails the probe as though the manager had. The gate is reached by a root
+    # caller alone, so the rows run as root, with an accepted bound as the control.
+    if [[ "${EUID}" -ne 0 ]]; then
+        skip "live-probe bound" "the probe is offered to a root caller alone"
+    elif ! command -v timeout >/dev/null 2>&1 || ! command -v systemctl >/dev/null 2>&1; then
+        skip "live-probe bound" "timeout(1) or systemctl is absent, which refuses the probe before the bound is read"
+    else
+        for bound in abc 0; do
+            AI_TOOLS_SERVICE_LIVE_TIMEOUT="${bound}"
+            if _ai_tools_services__run_systemctl sandbox-user; then
+                fail "a live-probe bound of '${bound}' was accepted"
+            elif [[ "$(_ai_tools_services__read_live_state nvm-update.service sandbox-user)" != unknown ]]; then
+                fail "a live-probe bound of '${bound}' was refused, but the live state was not unknown"
+            else
+                pass "a live-probe bound of '${bound}' refuses the probe, and the live state reads unknown"
+            fi
+        done
+        AI_TOOLS_SERVICE_LIVE_TIMEOUT=5
+        if _ai_tools_services__run_systemctl sandbox-user \
+                && [[ "${_AI_TOOLS_SERVICES__SYSTEMCTL[*]:0:2}" == "timeout 5" ]]; then
+            pass "a live-probe bound of 5 is accepted and bounds the probe (control)"
+        else
+            fail "a live-probe bound of 5 was refused or not applied: ${_AI_TOOLS_SERVICES__SYSTEMCTL[*]:-<none>}"
+        fi
+    fi
     # A system unit's state is world-readable, so that scope is offered to every caller -- the asymmetry is the point,
     # and reading it as privileged would silently stop the launch wrapper's pre-launch warning from checking anything.
     if _ai_tools_services__run_systemctl system; then
