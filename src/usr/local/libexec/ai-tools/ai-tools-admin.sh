@@ -3392,7 +3392,7 @@ assets_record_enabled_rows() {
     local identifier
     for identifier in "$@"; do
         _assets_info_row MSG-N3M8 "assets enable: an identifier added to AI_TOOLS_ASSETS" enabled "${AI_TOOLS_OPERATOR_CONF}" \
-            "${identifier}" "added to AI_TOOLS_ASSETS; the linked rows name the links placed"
+            "${identifier}" "added to AI_TOOLS_ASSETS; each placed row names a link made for it"
     done
 }
 
