@@ -30,9 +30,7 @@ A command is a bare word and
 introduces an option, so a collection takes its verb after the noun
 .RB ( "operators add" ,
 .BR "selinux groups enable" ).
-A collection named on its own lists what it holds;
-.BR assets ,
-which does not list yet, prints its commands.
+A collection named on its own lists what it holds.
 A domain named on its own
 .RB ( selinux ,
 .BR system )
@@ -528,6 +526,11 @@ permission list and rule, a key, a provider list's key and name) and is empty
 where the subject is the whole finding, and
 .I detail
 is display prose.
+.I subject\-type
+is
+.B file
+for a configuration file, and for an asset the type of what is at its path, or
+the type expected there where no entry is.
 No row carries an
 .IR operator :
 every subject is host-wide.
@@ -595,6 +598,26 @@ copy),
 The stream format, and the default.
 .RE
 .TP
+.B assets
+Print the state of every entry of
+.B AI_TOOLS_ASSETS
+and each link a reconcile would place, repoint or remove, without changing
+anything.
+Each pending change is a record of its own, which
+.BR ai-tools-assets (5)
+describes.
+This is what a bare
+.B assets
+runs, and
+.B "assets list"
+is the same command spelled in full.
+It reads without the assets lock, as
+.B status
+does, so it answers while a reconcile runs.
+It exits 0 when the view and every agent's links match the line, 4 while
+a change is pending or an entry needs attention, and 5 when a reading could
+not be made; it does not write, so it does not exit 1.
+.TP
 .B assets enable \fIIDENTIFIER\fR...
 Enable each asset, written
 .IB SET / KIND / NAME
@@ -624,11 +647,18 @@ An asset whose set is not installed yet is accepted where its set is bound,
 and is reported
 .B set\-absent
 until its package arrives.
-Each new entry is added once, after the ones the line already holds, and
+Each new entry is added once, and the line is written sorted by kind, then
+set, then name, so an order written by hand is replaced by the next
+.B enable
+or
+.B disable
+that changes the line; a call whose every asset is already listed leaves the
+file as it is.
+Before a write,
 .I operator.conf
 is backed up to a dated
 .I .bak
-beside it first.
+beside it.
 .RS
 .TP
 .BI \-\-set " SET"
@@ -670,11 +700,24 @@ It does not take an argument and runs after every package change to a set, so it
 the command to run after editing the line by hand.
 .RS
 .PP
-Each of the four takes the assets lock before it reads
+Each command that writes \(em
+.BR enable ,
+.B disable
+and
+.B reconcile
+\(em takes the assets lock before it reads
 .B AI_TOOLS_ASSETS
 and holds it to its end, so two of them at once each read the line the other
 wrote; one that waits more than two minutes for the lock exits 1 with the line
 and the view as they were.
+An
+.I operator.conf
+that could not be read whole, and a list to write that does not hold exactly
+the entries read with this call's change, refuse the call with the file
+unchanged.
+A write that could not be confirmed exits 1: the file holds the list it held or
+the one the call wrote, and the message names the backup and
+.BR "sudo ai\-tools\-admin assets reconcile" .
 Each writes one record per entry of
 .B AI_TOOLS_ASSETS
 \(em
@@ -683,6 +726,10 @@ or the reason it is not \(em and one per link it placed or removed, in the
 stream
 .BR ai-tools-records (5)
 states.
+The records are sorted by kind, then set, then name, so the rows for one asset
+are adjacent: the change to
+.BR AI_TOOLS_ASSETS ,
+the entry, the link in the view, then each agent's link.
 Each reason, and what to do about it, is in
 .BR ai-tools-assets (5).
 A link is placed only where the name is free or holds an earlier link of these commands:
@@ -725,6 +772,20 @@ SELinux type each agent path carries there; and that account's systemd unit
 search path.
 Every verdict comes from the registry both reports read, so the two differ in
 what each is allowed to see and never in what either says about the same unit.
+An update run that could not reach the package registry reads SKIPPED here too,
+as
+.BR ai-tools (1)
+describes.
+.PP
+A
+.B ?
+line names why the state is unknown: there is no
+.BR systemctl ,
+a oneshot unit has not run since boot (its
+.B .path
+watcher starts it on the next change, so the line does not name a command),
+the state could not be read, with the command that shows it, or neither the
+sandbox account's manager nor its last-run stamp could be read.
 .PP
 In the
 .B Caches
@@ -764,7 +825,7 @@ commands that end it:
 .RS
 .PP
 .EX
-sudo dnf install ai-tools-assets-core
+sudo dnf install ai-tools-assets-sets-core
 sudo ai-tools-admin assets enable --set core
 .EE
 .RE
@@ -793,6 +854,13 @@ It names the counts that are not zero and the exit status the section sets.
 A section without a finding does not print it.
 The line is for a person reading the report; a monitor reads the exit status.
 .PP
+The section's OK line counts the assets
+.B AI_TOOLS_ASSETS
+enables and those that resolved to linked.
+An asset resolves while its link is still missing, and
+.B "ai\-tools\-admin assets list"
+names the links a reconcile would place.
+.PP
 The label reading is the one this command alone can give.
 .B "ai\-tools status"
 reports what the last reconciliation
@@ -812,10 +880,10 @@ not load, so a section could not make a reading it promises (see
 .BR "EXIT STATUS" );
 either way it runs from a monitor or a
 .BR cron (8)
-job without parsing its output. A probe this vantage may fail without the host
-being broken is reported as
+job without parsing its output. A
 .B ?
-and never counted, so an unqueryable unit does not alarm a healthy host.
+line does not change the exit, as in
+.BR ai-tools (1).
 .RE
 .SH OPTIONS
 Both options read no host state and leave the host as it is, so both answer any caller
@@ -848,7 +916,20 @@ with or without
 .TP
 .B 5
 A report could not read one of its sources, so its findings are incomplete
-.RB ( status " and the " assets " verbs: a library the package ships did not load, or the enabled agents or a directory of the view could not be read; " "system post\-upgrade \-\-check" ).
+.RB ( status ,
+the
+.B assets
+commands, and
+.BR "system post\-upgrade \-\-check" ).
+For
+.B status
+and the
+.B assets
+commands, a library the package ships did not load; the enabled agents,
+a directory of the view,
+.IR operator.conf ,
+or the type of an entry a row is about could not be read; or the rows could
+not be put in order.
 The page names the reading it could not make.
 Each is an exit status
 .BR ai-tools-records (5)
@@ -878,6 +959,17 @@ The Node major version
 .B "system bootstrap"
 installs.
 Defaults to 22.
+.TP
+.B AI_TOOLS_SERVICE_LIVE_TIMEOUT
+The whole seconds
+.B status
+waits for an answer from the sandbox account's
+.B "systemd \-\-user"
+manager before it reads that account's units from their last-run stamp
+instead.
+Defaults to 5.
+A value that is not a positive whole number leaves each of those units to its
+stamp.
 .PP
 Host settings are not environment variables: they live in
 .BR ai-tools-operator.conf (5),

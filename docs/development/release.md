@@ -144,8 +144,23 @@ first character uppercased, every other lowercased, each hyphen a space,
 the slash kept — and the merge commit keeps
 `Feat/atr 260729 selinux optional groups` for good.
 
-Every pull request, and every push to `develop` or `main`, runs `shellcheck`
-and the full `rpm-selftest` matrix and uploads snapshot RPMs as workflow
+Every pull request and every push to `develop` runs `shellcheck`.
+The `rpm-selftest` runs:
+
+| Event | Distributions |
+|---|---|
+| pull request into `develop` | el10, plus el9 or fc44 when its Containerfile changes |
+| pull request into `develop` labelled `selftest-all` | el9, el10, fc44 |
+| merge into `develop` whose tree passed el10 in its pull request | el9, fc44 |
+| any other push to `develop`, pull request into `main`, tag, `workflow_dispatch` | el9, el10, fc44 |
+
+A change that affects EL9 or Fedora alone takes the label; re-run the workflow
+after adding it. `workflow_dispatch` on the branch also runs all three,
+against the branch head.
+
+A pull request that does not change any file the selftest image is built from —
+one under `tools/` or `.claude/` alone, for instance — skips the selftest
+and reports success. Each run of the selftest uploads snapshot RPMs as workflow
 artifacts, so a proposed change is inspectable without cutting a release. Do
 not push `v*` tags — a tag ruleset restricts tag creation to maintainers,
 because under [The one rule that decides everything
@@ -161,7 +176,7 @@ into `develop` as well so the next minor carries it; `main` goes on tracking
 the newest release. The pipeline does not change for any of it, since
 the channel follows the tag and not the branch.
 
-## For maintainers: cutting a release
+## For maintainers: cutting a release <a id="ref-section-g6d8"></a>
 
 The release job runs on a `v*.*.*` tag and nowhere else: the signing key lives
 in an environment only such a tag can reference, so there is no dry run
@@ -169,6 +184,19 @@ of the signing path from a branch. A change to `ci.yml`, `sign-rpms.sh`
 or `packaging/` is proven by the next rc tag, which runs the identical path
 and publishes only a prerelease. `workflow_dispatch` still runs the check jobs,
 `rpm-selftest` included, from any branch.
+
+Before any `v*` tag, an rc, a final or a patch, the tools this tree is checked
+with are released and pinned:
+
+- `AI_TOOLS_DEV_ASSETS_CORE` and `AI_TOOLS_DEV_ASSETS_TOOLS` are unset.
+- `../ai-tools-assets` and `../ai-tools-assets-tools` hold no commit ahead
+  of their remotes.
+- `tools/lib/*.pin` name those releases, bumped
+  as [ref-section-j6v8](../../tools/README.md#ref-section-j6v8) states.
+
+CI on the tag fetches each pin and runs the checks with the pinned tools,
+so a tree that needs an unreleased tool fails there; the unpushed checkouts are
+what CI cannot see.
 
 ### 1. Cut a release candidate (tag on `develop`)
 
@@ -251,19 +279,20 @@ to the same agreement.
 Three rules decide whether that costs one patch or two.
 
 **Prove the fix before the merge, not after.** A patch branch earns the full
-suite green and its own CI run — every push builds the `rpm-selftest` matrix —
-and, where the fix is about the state of an installed host, an install
-on a real one. A branch merged unproven costs a second branch to finish
-the job, and leaves `main` carrying half a fix in between. Tag only once `main`
-is what you mean to ship: the tag is what publishes, so a tag that has to move
-afterwards is the outcome this ordering exists to avoid.
+suite green and its own CI run — its pull request into `main` runs the full
+`rpm-selftest` matrix — and, where the fix is about the state of an installed
+host, an install on a real one. A branch merged unproven costs a second branch
+to finish the job, and leaves `main` carrying half a fix in between. Tag only
+once `main` is what you mean to ship: the tag is what publishes, so a tag
+that has to move afterwards is the outcome this ordering exists to avoid.
 
 **The `%changelog` commit is the last one on the branch**, as it is for a final
 tag in [2. Finalize](#2-finalize-the-one-merge-to-main). It records
 what the release contains, which is not known until the fix is complete;
-written first, it is amended by every commit after it, and the entry the tag
-carries is whatever the last amendment happened to leave. Put the `VERSION`
-bump in that same commit, so one commit carries the whole release identity.
+written first, it is rewritten after every commit that follows it (a
+`git commit --fixup` folded in by `git rebase --autosquash`), and the entry
+the tag carries is whatever the last rewrite left. Put the `VERSION` bump
+in that same commit, so one commit carries the whole release identity.
 
 **Merge `main` back into `develop` as the closing step**, then into any live
 feature branch. `develop` is where the next release is built, so a patch it

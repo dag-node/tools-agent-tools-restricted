@@ -133,13 +133,13 @@ if ! source "${ENTRYPOINT_VERIFY_LIB}" 2>/dev/null \
     ai_tools_entrypoint_verify__find_package_dir() { return 1; }
 fi
 
-# reinstall_remedy <agent> <entrypoint> : print the commands that replace a changed binary, one per line,
-#   or an empty string when the package directory cannot be derived. `system bootstrap` alone does NOT do it --
-#   its npm step is a no-op at an already-installed version, so the modified file survives the reprovision
-#   and the host keeps refusing every launch with no explanation. Removing the package directory is what makes
-#   the reinstall fetch it again. Every session ends first, so no process of the sandbox account is running while root
-#   removes files in that account's tree; the operator lets each finish or stops them all, since a session started
-#   before the change keeps running until it ends.
+# reinstall_remedy <agent> <entrypoint> : print the commands that replace a changed binary, one per line, or an empty
+#   string when the package directory cannot be derived. `system bootstrap` alone does NOT do it -- its npm step is
+#   a no-op at an already-installed version, so the modified file survives the reprovision and the host keeps refusing
+#   every launch with no explanation. Removing the package directory is what makes the reinstall fetch it again. Every
+#   session ends first, so no process of the sandbox account is running while root removes files in that account's tree;
+#   the operator lets each finish or stops them all, since a session started before the change keeps running until it
+#   ends.
 reinstall_remedy() {
     local agent="$1" entrypoint="$2" package package_dir
     package="$(ai_tools_providers__read_agent_manifest_field "${agent}" npm_package || true)"
@@ -150,10 +150,10 @@ reinstall_remedy() {
 }
 
 # report_entrypoint_refusal <agent> <version> <reason-token> <entrypoint> : file the stale mark and print the remedy,
-#   for either tier's refusal to re-record a pin. The mark is what the two status reports read: the pin is left
-#   standing on purpose -- that is what makes the next launch refuse -- so without a record beside it both reports
-#   render the stale pin green and the refusal reaches only whoever ran this helper. Best-effort, and it never
-#   changes the outcome of the reconciliation it describes.
+#   for either tier's refusal to re-record a pin. The mark is what the two status reports read: the pin is left standing
+#   on purpose -- that is what makes the next launch refuse -- so without a record beside it both reports render
+#   the stale pin green and the refusal reaches only whoever ran this helper. Best-effort, and it never changes
+#   the outcome of the reconciliation it describes.
 report_entrypoint_refusal() {
     local agent="$1" version="$2" reason="$3" entrypoint="$4" remedy
     ai_tools_entrypoint_verify__write_stale "${agent}" "${version}" "${reason}" \
@@ -210,8 +210,8 @@ observe_agent_entrypoint() {
     return 0
 }
 
-# pin_agent_entrypoint <agent> : verify one agent's installed entrypoint against its vendor's
-#   signed release manifest and record the result. Returns 1 only on a mismatch.
+# pin_agent_entrypoint <agent> : verify one agent's installed entrypoint against its vendor's signed release manifest
+#   and record the result. Returns 1 only on a mismatch.
 #
 #   AI_TOOLS_ENTRYPOINT_PIN_REUSE=1 lets a run answer from the existing pin when no input that
 #   decides the verdict has changed, skipping two network fetches and a gpgv per agent. It is
@@ -279,8 +279,8 @@ pin_agent_entrypoint() {
     return 0
 }
 
-# _installed_agent_version <entrypoint> : print the version the package around the entrypoint declares,
-#   or an empty string. The walk, the bounded read and the clamp are the library's
+# _installed_agent_version <entrypoint> : print the version the package around the entrypoint declares, or an empty
+#   string. The walk, the bounded read and the clamp are the library's
 #   (ai_tools_entrypoint_verify__read_installed_version), which the launch banner reads through as well, so the pin
 #   and the banner cannot report different versions for one binary.
 _installed_agent_version() {
@@ -306,12 +306,11 @@ fi
 report=""; status=0
 report="$(ai_tools_relabel__label_agent_paths)" || status=$?
 
-# record_label_outcome <agent> <ok|failed|skipped> [reason-token] : file what this run could do
-#   about that agent's labels where `ai-tools status` can read it. The operator cannot inspect
-#   the labels themselves -- the entrypoint sits in a toolchain they cannot traverse -- so this
-#   record is the only account of the labelling half they have, the counterpart to the pin the
-#   verification half writes. Best-effort: a record that cannot be written is reported and never
-#   changes the outcome of the relabel it describes.
+# record_label_outcome <agent> <ok|failed|skipped> [reason-token] : file what this run could do about that agent's
+#   labels where `ai-tools status` can read it. The operator cannot inspect the labels themselves -- the entrypoint sits
+#   in a toolchain they cannot traverse -- so this record is the only account of the labelling half they have,
+#   the counterpart to the pin the verification half writes. Best-effort: a record that cannot be written is reported
+#   and never changes the outcome of the relabel it describes.
 record_label_outcome() {
     ai_tools_entrypoint_verify__write_label "$1" "$2" "${3:-}" && return 0
     warn MSG-G5H9 "could not record ${1}'s labelling outcome for ai-tools status"

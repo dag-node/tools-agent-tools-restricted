@@ -67,16 +67,14 @@ _ai_tools_claude_prompt__has_prompt_flag() {
     return 1
 }
 
-# ai_tools_claude_prompt__is_content_text <operator-conf> : the sandbox-side half of the check.
-#   The wrapper resolves the configured prompt as the operator, whose checks are all stats: the
-#   shipped prompt is 0640 root:SANDBOX_GROUP so a sensitive prompt stays unreadable to every other
-#   account, the operator's own included (an operator holds sudo for editing it). This function
-#   runs in the claude-code session-env fragment as the sandbox account, which can read the file:
-#   it resolves the configured prompt the same way (no session arguments -- a per-invocation flag
-#   override is not visible here, so a configured prompt must be text whether or not this launch
-#   uses it) and succeeds when none is configured or the file holds text. Fails, with the reason
-#   warned, when the configured prompt is not plain text; the caller refuses the launch, since the
-#   file's bytes would otherwise go to the model verbatim.
+# ai_tools_claude_prompt__is_content_text <operator-conf> : the sandbox-side half of the check. The wrapper resolves
+#   the configured prompt as the operator, whose checks are all stats: the shipped prompt is 0640 root:SANDBOX_GROUP
+#   so a sensitive prompt stays unreadable to every other account, the operator's own included (an operator holds sudo
+#   for editing it). This function runs in the claude-code session-env fragment as the sandbox account, which can read
+#   the file: it resolves the configured prompt the same way (no session arguments -- a per-invocation flag override is
+#   not visible here, so a configured prompt must be text whether or not this launch uses it) and succeeds when none is
+#   configured or the file holds text. Fails, with the reason warned, when the configured prompt is not plain text;
+#   the caller refuses the launch, since the file's bytes would otherwise go to the model verbatim.
 ai_tools_claude_prompt__is_content_text() {
     local operator_conf="$1"
     local -a configured=()
@@ -88,9 +86,9 @@ ai_tools_claude_prompt__is_content_text() {
     return 1
 }
 
-# ai_tools_claude_prompt__resolve_args <out-array-name> <operator-conf> [session-arg...] : set the
-#   named array to the system-prompt launch arguments an operator has configured -- either
-#   ( --append-system-prompt-file <path> ) or ( --system-prompt-file <path> ) -- or leave it EMPTY.
+# ai_tools_claude_prompt__resolve_args <out-array-name> <operator-conf> [session-arg...] : set the named array
+#   to the system-prompt launch arguments an operator has configured -- either ( --append-system-prompt-file <path> )
+#   or ( --system-prompt-file <path> ) -- or leave it EMPTY.
 #   Returns:
 #     0  the array holds the outcome to launch with. EMPTY means either no prompt is configured
 #        (the baseline) or the operator passed a system-prompt flag for this invocation (they steer

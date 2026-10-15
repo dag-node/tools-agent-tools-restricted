@@ -2,16 +2,16 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # tests/unit/references.sh
 # Unit test for this repository's use of ref-index.py, the cross-reference tool of the ai-tools-reftags skill
-# in the pinned core release, through tools/generators/ref-index.sh. The tool's own findings -- each driven with
-# a fixture it must report and the corrected form it must stay silent on -- are the skill's suite, in the release
+# in the pinned core release, through tools/generators/ref-index.sh. The tool's own findings -- each driven
+# with a fixture it must report and the corrected form it must stay silent on -- are the skill's suite, in the release
 # the pin names; what stays here is what this repository adds around it.
 #
-# The first section holds the tree to its committed index: the index is regenerated and diffed against
-# .claude/references.md, and `check` runs over every tracked file. The second drives the one finding the wrapper
-# holds rather than the tool: a runtime message carrying a link. Both read the checkout through the wrapper, which
-# names the file list once and resolves the tool from the pin, so they skip outside a git checkout and, naming the fetch
-# command, where the pin is not in the cache. An empty tree is a valid index, so the first section is green before
-# the first reftag.
+# The first section holds the tree to its committed index: the index is regenerated and diffed
+# against .claude/references.md, and `check` runs over every tracked file. The second drives the one finding the wrapper
+# holds rather than the tool: a runtime message carrying a link. Both read the checkout through the wrapper, which names
+# the file list once and resolves the tool from the pin, so they skip outside a git checkout and, naming the fetch
+# command, where the pin is not in the cache. An empty tree is a valid index, so the first section is green
+# before the first reftag.
 #
 # Hermetic: fixtures are written in the test's own /tmp testdir. Pure text analysis, so it does not need privilege
 # of its own.

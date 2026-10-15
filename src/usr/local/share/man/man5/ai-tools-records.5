@@ -16,8 +16,10 @@ A report that runs unattended writes what it found as a
 on standard output:
 a header row, then one row per finding, each ending in a line feed,
 every row holding the same number of tab-separated fields as the header.
-.B "ai-tools-admin system post-upgrade --check"
-and
+.BR "ai-tools-admin system post-upgrade --check" ,
+the
+.B "ai-tools-admin assets"
+commands, and
 .B "ai-tools projects claim --format tsv"
 write one.
 The exit status states whether the reading was complete
@@ -83,6 +85,7 @@ The report's own token for the situation
 One of
 .BR file ,
 .BR directory ,
+.BR link ,
 .BR unit ,
 .BR agent ,
 .BR integration ,
@@ -90,7 +93,18 @@ One of
 .B operator
 and
 .BR host .
-Taken from the subject, not from the finding.
+Taken from the subject, not from the finding:
+.B link
+is a symbolic link, whatever it points at, and
+.B file
+a regular file.
+Where no entry is at the subject, the row carries the type the report
+expects there.
+Where the entry is of a type the set does not name, or its type could not
+be read, the row carries that expected type as well and is followed by an
+.B error
+row about the same subject, severity
+.BR unreadable .
 .SS Identifier columns
 .TP
 .B operator

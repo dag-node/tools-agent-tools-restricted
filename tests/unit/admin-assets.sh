@@ -66,25 +66,25 @@ fresh() {
 
 # admin <words>... : run `ai-tools-admin <words>` through the sourced helper's dispatch, with the hooks; the record
 # stream in OUT, stderr in ERR, the exit in RC. `unload` as the first word removes the resolver after the helper loaded
-# it, which the include guard keeps the verb's own load from restoring. PRELUDE, when set, is evaluated
+# it, which the include guard keeps the verb's own load from restoring. STUBS, when set, is evaluated
 # after the libraries load, to stub what a case drives; a case sets it for one call and clears it.
-OUT=""; ERR=""; RC=0; PRELUDE=""
+OUT=""; ERR=""; RC=0; STUBS=""
 admin() {
     local unload=0 err
     [[ "${1:-}" == unload ]] && { unload=1; shift; }
     err="$(mktemp "${TESTDIR}/err.XXXXXX")"
     RC=0
     # shellcheck disable=SC2016
-    OUT="$(env "${HOOKS[@]}" bash -c 'helper="$1"; lib="$2"; unload="$3"; prelude="$4"; shift 4; words=( "$@" ); set --
+    OUT="$(env "${HOOKS[@]}" bash -c 'helper="$1"; lib="$2"; unload="$3"; stubs="$4"; shift 4; words=( "$@" ); set --
         source "${helper}" >/dev/null 2>&1 || exit 99
         source "${lib}" 2>/dev/null || true
         (( unload )) && unset -f ai_tools_assets__reconcile
-        eval "${prelude}"
+        eval "${stubs}"
         case "${words[0]}" in
             status_assets) STATUS_PROBLEMS=0; STATUS_UNREADABLE=0; status_assets
                            printf "problems=%s unreadable=%s\n" "${STATUS_PROBLEMS}" "${STATUS_UNREADABLE}" ;;
             *)             assets_dispatch "${words[@]:1}" ;;
-        esac' _ "${HELPER}" "${LIB_DIR}/assets.lib.sh" "${unload}" "${PRELUDE:-:}" "$@" 2>"${err}")" || RC=$?
+        esac' _ "${HELPER}" "${LIB_DIR}/assets.lib.sh" "${unload}" "${STUBS:-:}" "$@" 2>"${err}")" || RC=$?
     ERR="$(<"${err}")"
     rm -f -- "${err}"
 }
@@ -97,6 +97,12 @@ refused() {
 listed() { grep -E '^AI_TOOLS_ASSETS=' "${CONF}" || true; }
 # finding_of <id> : the finding of the first row whose item carries <id>.
 finding_of() { awk -F'\t' -v id="$1" 'NR > 1 && index($9, id) { print $6; exit }' <<< "${OUT}"; }
+# state_of <id> : the finding of the reconcile's row for the enable-list entry <id>: code MSG-Z3P6, the item <id> alone.
+# Prints `rows=<n>` unless exactly one row matches.
+state_of() {
+    awk -F'\t' -v id="$1" 'NR > 1 && $3 == "MSG-Z3P6" && $9 == id { n++; finding = $6 }
+        END { if (n == 1) print finding; else print "rows=" n + 0 }' <<< "${OUT}"
+}
 
 # ── enable refuses before it writes ──────────────────────────────────────────────────────────────────────────────────
 section "ai-tools-admin assets enable: every argument is checked before a write"
@@ -119,6 +125,29 @@ chmod 0644 "${CONF}"
 printf 'AI_TOOLS_ASSETS=[a, b\n' >> "${CONF}"; before="$(cat "${CONF}")"; admin assets enable "${SKILL}"
 refused MSG-B4Z5 1 "an AI_TOOLS_ASSETS that is not a valid list"
 [[ "$(cat "${CONF}")" == "${before}" ]] && pass "an invalid list is not rewritten" || fail "an invalid list was rewritten"
+# The reader fails as for a file not read whole, for the verbs' own read alone: the set walk and the plan read normally.
+READ_FAILS='eval "$(declare -f ai_tools_conf__read_list | sed "1s/^ai_tools_conf__read_list/_stub_read_list_real/")"
+    ai_tools_conf__read_list() { [[ "${FUNCNAME[1]}" == assets_read_list ]] && return 2; _stub_read_list_real "$@"; }'
+for words in "enable ${SUB}" "enable --set acme" "disable ${SKILL}"; do
+    fresh
+    write_conf "${SKILL}"
+    before="$(cat "${CONF}")"
+    STUBS="${READ_FAILS}"
+    # shellcheck disable=SC2086  # the verb and its arguments split on purpose
+    admin assets ${words}
+    STUBS=""
+    refused MSG-C7N4 1 "assets ${words} over a file the reader could not read whole"
+    if [[ "$(cat "${CONF}")" == "${before}" ]] && ! compgen -G "${CONF}.*.bak" >/dev/null; then
+        pass "assets ${words}: operator.conf is byte-identical and no backup was made"
+    else
+        fail "assets ${words}: operator.conf changed or a backup was made: '$(listed)'"
+    fi
+done
+fresh
+printf '# fixture\nAI_TOOLS_AGENTS=[agent-acme]\n' > "${CONF}"; chown root:root "${CONF}"; chmod 0644 "${CONF}"
+admin assets enable "${SKILL}"
+[[ "${RC}" == 0 && "$(listed)" == "AI_TOOLS_ASSETS=[${SKILL}]" ]] && pass "a file without the key still reads as the empty list and enables" \
+    || fail "an enable over a file without the key: rc ${RC}, '$(listed)': ${ERR:0:300}"
 
 # ── enable writes and links ──────────────────────────────────────────────────────────────────────────────────────────
 section "ai-tools-admin assets enable: the write, the backup, the reconcile"
@@ -132,16 +161,48 @@ fi
 compgen -G "${CONF}.*.bak" >/dev/null && pass "a dated .bak exists after the write" || fail "no .bak beside operator.conf"
 [[ "$(readlink "${HOME_DIR}/skills/acme-pdf")" == "${PKG}/acme/skills/acme-pdf" ]] && pass "the reconcile linked the asset" \
     || fail "the view holds $(readlink "${HOME_DIR}/skills/acme-pdf" 2>&1)"
-[[ "$(finding_of "${SKILL}")" == linked ]] && pass "the record stream carries the entry linked" || fail "rows: ${OUT:0:300}"
+[[ "$(state_of "${SKILL}")" == linked ]] && pass "the record stream carries the entry linked" || fail "rows: ${OUT:0:300}"
+# The entry's row and the row placing its view link share subject and item, so the code alone keeps their ids apart.
+# The entry's row, its view link's row and the agent's link's row are each about a link, so each is subject-type link.
+entry_row="$(awk -F'\t' -v id="${SKILL}" 'NR > 1 && $3 == "MSG-Z3P6" && $9 == id { print $4 " " $5 " " $7 " " $10 }' <<< "${OUT}")"
+link_row="$(awk -F'\t' -v id="${SKILL}" 'NR > 1 && $3 == "MSG-K6J2" && $9 == id { print $4 " " $5 " " $6 " " $7 " " $10 }' <<< "${OUT}")"
+agent_link_type="$(awk -F'\t' -v id="${SKILL}" 'NR > 1 && $6 == "placed" && $9 == (id "\\tacme") { print $7 }' <<< "${OUT}")"
+if [[ "${entry_row}" == *" ok link ${HOME_DIR}/skills/acme-pdf" && "${link_row}" == *" info placed link ${HOME_DIR}/skills/acme-pdf" \
+        && "${agent_link_type}" == link && "${entry_row%% *}" != "${link_row%% *}" ]]; then
+    pass "the entry's row under MSG-Z3P6 and its view link's row under MSG-K6J2: subject-type link, different record ids"
+else
+    fail "the entry's row '${entry_row}', the view link's row '${link_row}', the agent link's type '${agent_link_type}'"
+fi
 admin assets enable "${SKILL}"
 [[ "$(listed)" == "AI_TOOLS_ASSETS=[${SKILL}, ${SUB}]" ]] && pass "an identifier already listed is not added twice" \
     || fail "a second enable wrote '$(listed)'"
 admin assets enable acme-two/skills/acme-two-pdf
-if [[ "${RC}" == 4 && "$(finding_of acme-two/skills/acme-two-pdf)" == set-absent && "$(listed)" == *acme-two/skills/acme-two-pdf* ]]; then
+if [[ "${RC}" == 4 && "$(state_of acme-two/skills/acme-two-pdf)" == set-absent && "$(listed)" == *acme-two/skills/acme-two-pdf* ]]; then
     pass "a pending identifier of a bound set is accepted, reported set-absent, exit 4"
 else
-    fail "a pending identifier: rc ${RC}, '$(finding_of acme-two/skills/acme-two-pdf)', '$(listed)'"
+    fail "a pending identifier: rc ${RC}, '$(state_of acme-two/skills/acme-two-pdf)', '$(listed)'"
 fi
+
+# ── the line is written sorted ───────────────────────────────────────────────────────────────────────────────────────
+section "ai-tools-admin assets: AI_TOOLS_ASSETS is written sorted by kind, set and name"
+fresh
+admin assets enable "${SUB}"; admin assets enable "${SKILL}"; admin assets enable acme-two/skills/acme-two-pdf
+if [[ "$(listed)" == "AI_TOOLS_ASSETS=[${SKILL}, acme-two/skills/acme-two-pdf, ${SUB}]" ]]; then
+    pass "three enables write one line sorted by kind, then set, then name"
+else
+    fail "the sorted line: '$(listed)'"
+fi
+write_conf "${SUB}" acme-two/skills/acme-two-pdf "${SKILL}"
+before="$(cat "${CONF}")"
+admin assets enable "${SKILL}"
+if [[ "$(cat "${CONF}")" == "${before}" ]] && ! compgen -G "${CONF}.*.bak" >/dev/null; then
+    pass "an enable that adds no identifier leaves a hand-written order and does not write a .bak"
+else
+    fail "an enable of a listed identifier rewrote the file: '$(listed)'"
+fi
+admin assets disable acme-two/skills/acme-two-pdf
+[[ "$(listed)" == "AI_TOOLS_ASSETS=[${SKILL}, ${SUB}]" ]] && pass "a disable writes the kept entries sorted" \
+    || fail "the line after a disable: '$(listed)'"
 
 # ── enable, the set form ──────────────────────────────────────────────────────────────────────────────────────────────
 section "ai-tools-admin assets enable --set: a snapshot of the set"
@@ -155,7 +216,7 @@ else
     fail "--set wrote '$(listed)': ${ERR:0:300}"
 fi
 [[ "$(finding_of acme/skills/acme-bad)" == asset-invalid ]] && pass "an invalid asset is reported and left out" || fail "rows: ${OUT:0:400}"
-written="$(awk -F'\t' 'NR > 1 && $3 == "MSG-Z3P6" && $5 != "info" && $7 == "file" && index($9, "acme/") { print $9 }' <<< "${OUT}" | LC_ALL=C sort | tr '\n' ' ')"
+written="$(awk -F'\t' 'NR > 1 && $3 == "MSG-Z3P6" && index($9, "acme/") { print $9 }' <<< "${OUT}" | LC_ALL=C sort | tr '\n' ' ')"
 [[ "${written}" == "${SKILL} ${SUB} " ]] && pass "the identifiers printed equal the identifiers written" || fail "printed '${written}'"
 [[ "${RC}" == 4 ]] && pass "--set with an invalid asset exits 4" || fail "--set exit ${RC}"
 fresh
@@ -184,6 +245,200 @@ else
 fi
 [[ -L "${HOME_DIR}/subagents/acme-reviewer.md" ]] && pass "the other entry stays linked" || fail "the other entry lost its link"
 
+# ── the list edit's own rows ─────────────────────────────────────────────────────────────────────────────────────────
+section "ai-tools-admin assets: the list edit is named enabled and disabled"
+# list_edit_rows <code> : the finding, subject and item of each row under <code>, one per line, tab-separated.
+list_edit_rows() { awk -F'\t' -v code="$1" 'NR > 1 && $3 == code { print $6 "\t" $10 "\t" $9 }' <<< "${OUT}"; }
+fresh
+admin assets enable "${SKILL}"
+admin assets enable "${SKILL}" "${SUB}"
+rows="$(list_edit_rows MSG-N3M8)"
+if [[ "${rows}" == "enabled"$'\t'"${CONF}"$'\t'*"${SUB}"* && "$(wc -l <<< "${rows}")" == 1 ]]; then
+    pass "an enable writes one enabled row per identifier it added, subject operator.conf, and none for one listed"
+else
+    fail "the enable's list-edit rows: '${rows}'"
+fi
+admin assets disable "${SKILL}"
+rows="$(list_edit_rows MSG-Q2C6)"
+if [[ "${rows}" == "disabled"$'\t'"${CONF}"$'\t'*"${SKILL}"* ]]; then
+    pass "a disable's list-edit row carries disabled"
+else
+    fail "the disable's list-edit row: '${rows}'"
+fi
+# code_rows <code> : how many rows of the last stream carry <code>.
+code_rows() { awk -F'\t' -v code="$1" 'NR > 1 && $3 == code { n++ } END { print n + 0 }' <<< "${OUT}"; }
+for shape in "${SKILL} ${SUB}" "${SKILL} ${SKILL} ${SUB}"; do
+    fresh
+    # shellcheck disable=SC2086  # the entries split on purpose
+    write_conf ${shape}
+    admin assets disable "${SKILL}" "${SKILL}"
+    if [[ "$(code_rows MSG-Q2C6)" == 1 && "$(listed)" == "AI_TOOLS_ASSETS=[${SUB}]" ]]; then
+        pass "disable naming an identifier twice over [${shape}]: one disabled row, every occurrence removed"
+    else
+        fail "disable twice over [${shape}]: $(code_rows MSG-Q2C6) disabled row(s), '$(listed)'"
+    fi
+done
+admin assets disable acme/skills/acme-z acme/skills/acme-z
+[[ "$(code_rows MSG-Q5T6)" == 1 ]] && pass "disable naming an absent identifier twice: one not-enabled row" \
+    || fail "disable of an absent identifier twice: $(code_rows MSG-Q5T6) not-enabled row(s)"
+fresh
+admin assets enable "${SKILL}" "${SKILL}"
+if [[ "$(code_rows MSG-N3M8)" == 1 && "$(listed)" == "AI_TOOLS_ASSETS=[${SKILL}]" ]]; then
+    pass "enable naming an identifier twice: one enabled row, one entry"
+else
+    fail "enable twice: $(code_rows MSG-N3M8) enabled row(s), '$(listed)'"
+fi
+
+# ── The order of the stream ──────────────────────────────────────────────────────────────────────────────────────────
+section "ai-tools-admin assets: the stream is sorted by kind, set and name"
+# stream_labels : one `<finding> <subject>` per row of the last stream, in its order.
+stream_labels() { awk -F'\t' 'NR > 1 { print $6 " " $10 }' <<< "${OUT}"; }
+fresh
+asset_signing_build_set "${PKG}" acme-two
+write_conf acme-two/subagents/acme-two-reviewer "${SUB}" acme-two/skills/acme-two-pdf "${SKILL}"
+admin assets reconcile
+admin assets disable "${SKILL}"
+want="disabled ${CONF}
+removed ${HOME_DIR}/skills/acme-pdf
+removed ${HOME_DIR}/.acme/skills/acme-pdf
+linked ${HOME_DIR}/skills/acme-two-pdf
+linked ${HOME_DIR}/subagents/acme-reviewer.md
+linked ${HOME_DIR}/subagents/acme-two-reviewer.md"
+if [[ "$(stream_labels)" == "${want}" ]]; then
+    pass "a disable's rows: the list edit, the view link, the agent link adjacent, then kind, set and name order"
+else
+    fail "the disable's stream order: $(stream_labels | tr '\n' '|')"
+fi
+# The removed rows name the identifier the operator disabled, as the rows that placed the links did.
+removed_items="$(awk -F'\t' 'NR > 1 && $6 == "removed" { print $9 }' <<< "${OUT}" | tr '\n' ' ')"
+[[ "${removed_items}" == "${SKILL} ${SKILL}"'\tacme ' ]] && pass "a disable's removed rows carry the identifier disabled" \
+    || fail "the removed rows' items: '${removed_items}'"
+STUBS='ai_tools_providers__list_enabled_agents() { return 2; }'; admin assets disable "${SUB}"; STUBS=""
+first="$(awk -F'\t' 'NR == 2 { print $6 }' <<< "${OUT}")"
+[[ "${first}" == receivers-unknown ]] && pass "a row without a kind comes first" || fail "the first row is '${first}': $(stream_labels | tr '\n' '|')"
+fresh
+write_conf "${SKILL}"
+STUBS='ai_tools_conf__set_list() { return 1; }'; admin assets disable "${SKILL}" acme/skills/acme-other; STUBS=""
+refused MSG-Q8E5 1 "a write that fails"
+[[ "$(finding_of acme/skills/acme-other)" == not-enabled ]] && pass "a write that fails still writes the rows the verb recorded" \
+    || fail "rows after a failed write: ${OUT:0:300}"
+# The writer replaces the file and its read-back fails: the file holds the new list, and the refusal names the backup
+# and the reconcile.
+fresh
+write_conf "${SKILL}"
+STUBS='eval "$(declare -f ai_tools_conf__read_list | sed "1s/^ai_tools_conf__read_list/_stub_read_list_real/")"
+    ai_tools_conf__read_list() { [[ "${FUNCNAME[1]}" == ai_tools_conf__set_list ]] && return 2; _stub_read_list_real "$@"; }'
+admin assets enable "${SUB}"; STUBS=""
+refused MSG-Q8E5 1 "a write whose read-back fails"
+backups=( "${CONF}".*.bak )
+if [[ -e "${backups[0]}" && "${ERR}" == *"${backups[0]}"* && "${ERR}" == *"sudo ai-tools-admin assets reconcile"* \
+        && "${ERR}" != *unchanged* && "$(listed)" == "AI_TOOLS_ASSETS=[${SKILL}, ${SUB}]" ]]; then
+    pass "a write whose read-back fails: the refusal names the backup and the reconcile, not an unchanged file"
+else
+    fail "a write whose read-back fails: '$(listed)', ${ERR:0:400}"
+fi
+# row_identities : `<code> <finding> <subject> <item>` of each row of the last stream, sorted, so two streams compare
+# as sets with their multiplicities.
+row_identities() { awk -F'\t' 'NR > 1 { print $3 " " $6 " " $10 " " $9 }' <<< "${OUT}" | LC_ALL=C sort; }
+fresh
+write_conf "${SUB}" "${SKILL}"
+admin assets enable acme/skills/acme-other-pdf
+want="$(row_identities)"
+fresh
+write_conf "${SUB}" "${SKILL}"
+# The stub fails the record stream's sort, keyed from the first field, and leaves the set walk's.
+STUBS='sort() { case " $* " in *" -k1,1 "*) return 1 ;; esac; command sort "$@"; }'
+admin assets enable acme/skills/acme-other-pdf; STUBS=""
+if [[ "$(listed)" == "AI_TOOLS_ASSETS=[acme/skills/acme-other-pdf, ${SKILL}, ${SUB}]" ]]; then
+    pass "a sort process that fails does not reach AI_TOOLS_ASSETS, which is written sorted"
+else
+    fail "with sort failing, the enable wrote '$(listed)'"
+fi
+assert_msg MSG-Y8T3 "${ERR}" "a row sort that fails is reported under MSG-Y8T3"
+[[ -n "${want}" && "$(row_identities)" == "${want}" ]] && pass "a row sort that fails still writes every row the working sort writes, once" \
+    || fail "rows after a failed sort: $(row_identities | tr '\n' '|') want $(tr '\n' '|' <<< "${want}")"
+# A sort whose output is not each row once: each stub runs the real sort on the record stream's keys, keyed
+# from the first field, then repeats a line in place of the next, puts a reference to no row in place of one, or adds
+# a line.
+for corruption in 'NR == 1 { first = $0 } NR == 2 { print first; next } { print }' \
+                  'NR == 2 { print "x\tx\tx\t0\tx\t0\trecorded\t99"; next } { print }' \
+                  '{ print; last = $0 } END { print last }'; do
+    fresh
+    write_conf "${SUB}" "${SKILL}"
+    admin assets reconcile
+    admin assets disable "${SKILL}" acme/skills/acme-other
+    want="$(row_identities)"
+    fresh
+    write_conf "${SUB}" "${SKILL}"
+    admin assets reconcile
+    printf -v STUBS 'sort() { case " $* " in *" -k1,1 "*) command sort "$@" | awk %q ;; *) command sort "$@" ;; esac; }' "${corruption}"
+    admin assets disable "${SKILL}" acme/skills/acme-other; STUBS=""
+    if [[ "${RC}" == 4 && -n "${want}" && "$(row_identities)" == "${want}" ]]; then
+        pass "a sort printing '${corruption:0:24}...': every row written once, the attention row folding to exit 4"
+    else
+        fail "a sort printing '${corruption:0:24}...': rc ${RC}, rows $(row_identities | tr '\n' '|') want $(tr '\n' '|' <<< "${want}")"
+    fi
+    assert_msg MSG-Y8T3 "${ERR}" "that sort is reported under MSG-Y8T3"
+done
+# A sort or a cut that prints every reference and then fails: the order is not taken.
+for stage in sort cut; do
+    fresh
+    write_conf "${SUB}" "${SKILL}"
+    admin assets reconcile
+    printf -v STUBS '%s() { case " $* " in *" -k1,1 "*|*" -f7,8 "*) command %s "$@"; return 7 ;; esac; command %s "$@"; }' \
+        "${stage}" "${stage}" "${stage}"
+    admin assets disable "${SKILL}" acme/skills/acme-other; STUBS=""
+    if [[ "${RC}" == 4 && "$(row_identities)" == "${want}" ]]; then
+        pass "a ${stage} that prints every reference and exits 7: every row written once, exit 4"
+    else
+        fail "a ${stage} that exits 7 after its output: rc ${RC}, rows $(row_identities | tr '\n' '|')"
+    fi
+    assert_msg MSG-Y8T3 "${ERR}" "a ${stage} that exits 7 after its output is reported under MSG-Y8T3"
+done
+# The order itself fails, after filling part of the array: every row is still written once, in recording order, beside
+# one unreadable error row, and the verb exits 5 -- the verb calls the reconcile where `set -e` is suspended, so this is
+# the order's own status, read by the report.
+ORDER_FAILS='_ai_tools_assets__sort_rows() { local -n _stub_out="$1"; _stub_out=( bogus ); return 7; }'
+for words in "disable ${SKILL} acme/skills/acme-other" "list"; do
+    fresh
+    write_conf "${SUB}" "${SKILL}"
+    admin assets reconcile
+    # shellcheck disable=SC2086  # the verb and its arguments split on purpose
+    admin assets ${words}
+    order_want="$(row_identities)"
+    fresh
+    write_conf "${SUB}" "${SKILL}"
+    admin assets reconcile
+    STUBS="${ORDER_FAILS}"
+    # shellcheck disable=SC2086  # the verb and its arguments split on purpose
+    admin assets ${words}
+    STUBS=""
+    if [[ "${RC}" == 5 && "$(code_rows MSG-Q7F7)" == 1 && -n "${order_want}" \
+            && "$(row_identities | grep -v '^MSG-Q7F7 ')" == "${order_want}" ]]; then
+        pass "assets ${words} with an order that fails: every row once, one MSG-Q7F7 error row, exit 5"
+    else
+        fail "assets ${words} with an order that fails: rc ${RC}, rows $(row_identities | tr '\n' '|')"
+    fi
+done
+# A list edit that loses an entry before the write: the identifier sort stubbed to drop the first one it holds.
+for verb in enable disable; do
+    fresh
+    write_conf "${SUB}" "${SKILL}"
+    before="$(cat "${CONF}")"
+    STUBS='assets_sort_identifiers() { local -n _stub_ids="$1"; _stub_ids=( "${_stub_ids[@]:1}" ); }'
+    if [[ "${verb}" == enable ]]; then admin assets enable acme/skills/acme-other-pdf; else admin assets disable acme/skills/acme-gone "${SKILL}"; fi
+    STUBS=""
+    refused MSG-S4M7 1 "${verb}: a list that lost an entry before the write"
+    backups=( "${CONF}".*.bak )
+    if [[ "$(cat "${CONF}")" == "${before}" && ! -e "${backups[0]}" ]]; then
+        pass "${verb}: operator.conf is byte-identical and no backup was made"
+    else
+        fail "${verb}: operator.conf changed or a backup was made: '$(listed)'"
+    fi
+done
+[[ "$(finding_of acme/skills/acme-gone)" == not-enabled ]] && pass "the refusal still writes the rows the verb recorded" \
+    || fail "rows beside the refusal: ${OUT:0:300}"
+
 # ── Two verbs at once ────────────────────────────────────────────────────────────────────────────────────────────────
 section "ai-tools-admin assets: two verbs at once each read the list the other wrote"
 # PAUSE holds a verb for two seconds after it read AI_TOOLS_ASSETS: under the lock taken before the read, the other verb
@@ -192,7 +447,7 @@ PAUSE='eval "$(declare -f assets_read_list | sed "1s/^assets_read_list/_assets_r
     assets_read_list() { _assets_read_list_unpaused "$@"; sleep 2; }'
 fresh
 asset_signing_build_set "${PKG}" acme-two
-( PRELUDE="${PAUSE}"; admin assets enable "${SKILL}"; printf '%s\n' "${RC}" > "${TESTDIR}/rc-first" ) &
+( STUBS="${PAUSE}"; admin assets enable "${SKILL}"; printf '%s\n' "${RC}" > "${TESTDIR}/rc-first" ) &
 first=$!
 sleep 0.5
 admin assets enable acme-two/skills/acme-two-pdf
@@ -211,7 +466,7 @@ fi
 fresh
 asset_signing_build_set "${PKG}" acme-two
 admin assets enable "${SKILL}" "${SUB}"
-( PRELUDE="${PAUSE}"; admin assets disable "${SUB}" ) &
+( STUBS="${PAUSE}"; admin assets disable "${SUB}" ) &
 first=$!
 sleep 0.5
 admin assets enable acme-two/skills/acme-two-pdf
@@ -255,8 +510,8 @@ section "ai-tools-admin assets: the exit fold and the usage refusals"
 fresh
 admin unload assets reconcile
 refused MSG-P8M5 5 "a resolver that did not load"
-admin assets
-refused MSG-E5Z8 2 "a bare assets"
+admin assets list extra
+refused MSG-F3D9 2 "list with an argument"
 admin assets bogus
 refused MSG-D4S7 2 "an unknown assets verb"
 admin assets reconcile extra
@@ -269,12 +524,151 @@ write_conf "${SKILL}"
 admin assets reconcile
 [[ "${RC}" == 0 ]] && pass "a reconcile with every entry linked exits 0" || fail "reconcile exit ${RC}: ${ERR:0:200}"
 
+# ── assets list ──────────────────────────────────────────────────────────────────────────────────────────────────────
+section "ai-tools-admin assets list: the state and each pending change, without a write"
+# rows_without_times : the last stream without its observed-at column, which differs between two runs.
+rows_without_times() { cut -f2- <<< "${OUT}"; }
+# pending_rows : `<finding> <subject> <severity>` of each pending row of the last stream.
+pending_rows() { awk -F'\t' 'NR > 1 && $6 ~ /-pending$/ { print $6 " " $10 " " $5 }' <<< "${OUT}"; }
+fresh
+write_conf "${SKILL}" "${SUB}"
+admin assets reconcile
+admin assets list; listed_stream="$(rows_without_times)"; list_rc="${RC}"
+admin assets; bare_stream="$(rows_without_times)"
+[[ "${bare_stream}" == "${listed_stream}" && -n "${listed_stream}" ]] && pass "a bare assets prints the stream assets list prints" \
+    || fail "a bare assets and assets list differ: ${bare_stream:0:200} / ${listed_stream:0:200}"
+linked_rows="$(awk -F'\t' 'NR > 1 && $3 == "MSG-W5Q3" && $5 == "ok" && $6 == "linked"' <<< "${OUT}" | wc -l)"
+if [[ "${list_rc}" == 0 && "${linked_rows}" == 2 && -z "$(pending_rows)" ]]; then
+    pass "after a clean reconcile: exit 0, one ok linked row per entry, no pending row"
+else
+    fail "after a clean reconcile: rc ${list_rc}, ${linked_rows} linked row(s), pending '$(pending_rows)'"
+fi
+snapshot() { find "${HOME_DIR}" "${CONF}" -printf '%p %y %l %m %s\n' | LC_ALL=C sort; }
+rm -f "${HOME_DIR}/.acme/skills/acme-pdf"
+before="$(snapshot)"
+admin assets list
+if [[ "${RC}" == 4 && "$(pending_rows)" == "link-pending ${HOME_DIR}/.acme/skills/acme-pdf attention" \
+        && "$(awk -F'\t' -v id="${SKILL}" 'NR > 1 && $3 == "MSG-W5Q3" && $9 == id { print $6; exit }' <<< "${OUT}")" == linked ]]; then
+    pass "an agent link removed by hand: exit 4, one link-pending row for its path, the entry still linked"
+else
+    fail "a missing agent link: rc ${RC}, pending '$(pending_rows)'"
+fi
+# The item's components are the identifier and the agent, joined by a tab the stream writes as `\t`.
+[[ "$(awk -F'\t' '$6 == "link-pending" { print $9 }' <<< "${OUT}")" == "${SKILL}"'\tacme' ]] && pass "the link-pending row names the agent" \
+    || fail "the link-pending row's item: $(awk -F'\t' '$6 == "link-pending" { print $9 }' <<< "${OUT}")"
+[[ "$(awk -F'\t' '$6 == "link-pending" { print $3 }' <<< "${OUT}")" == MSG-B8J9 ]] && pass "the link-pending row carries the list's link code" \
+    || fail "the link-pending row's code: $(awk -F'\t' '$6 == "link-pending" { print $3 }' <<< "${OUT}")"
+[[ "$(awk -F'\t' '$6 == "link-pending" { print $11 }' <<< "${OUT}")" \
+        == "a reconcile would point it at ${HOME_DIR}/skills/acme-pdf; run sudo ai-tools-admin assets reconcile" ]] \
+    && pass "the link-pending row says what a reconcile would do" \
+    || fail "the link-pending row's detail: $(awk -F'\t' '$6 == "link-pending" { print $11 }' <<< "${OUT}")"
+[[ "$(snapshot)" == "${before}" ]] && pass "list does not write: the view, the agent's directory and operator.conf are as they were" \
+    || fail "list changed the host"
+admin assets reconcile; admin assets list
+[[ "${RC}" == 0 && -z "$(pending_rows)" ]] && pass "a reconcile places the link and list returns to exit 0" \
+    || fail "after the reconcile: rc ${RC}, pending '$(pending_rows)'"
+# A convert's pending row is about the managed copy the reconcile would replace, so it reads that copy's type.
+mkdir "${HOME_DIR}/skills/ai-tools-seeded"
+printf -- '---\nname: ai-tools-seeded\nx-ai-tools-managed: true\n---\n' > "${HOME_DIR}/skills/ai-tools-seeded/SKILL.md"
+cp -a "${HOME_DIR}/skills/ai-tools-seeded" "${HOME_DIR}/.acme/skills/ai-tools-seeded"
+admin assets list
+convert_row="$(awk -F'\t' -v s="${HOME_DIR}/.acme/skills/ai-tools-seeded" 'NR > 1 && $6 == "link-pending" && $10 == s { print $7 "|" $11 }' \
+    <<< "${OUT}")"
+if [[ "${RC}" == 4 && "${convert_row}" == "directory|a reconcile would replace the managed copy with a link to ${HOME_DIR}/skills/ai-tools-seeded; run sudo ai-tools-admin assets reconcile" ]]; then
+    pass "a convert's link-pending row is subject-type directory, naming the copy a reconcile would replace"
+else
+    fail "a convert's link-pending row: rc ${RC}, '${convert_row}'"
+fi
+admin assets reconcile
+rm -rf "${HOME_DIR}/skills/ai-tools-seeded" "${HOME_DIR}/.acme/skills/ai-tools-seeded"
+ln -s "${PKG}/acme/skills/acme-pdf" "${HOME_DIR}/skills/acme-stray"
+admin assets list
+[[ "${RC}" == 4 && "$(pending_rows)" == "unlink-pending ${HOME_DIR}/skills/acme-stray attention" ]] \
+    && pass "a resolver link no entry justifies: unlink-pending, exit 4" || fail "a stray link: rc ${RC}, pending '$(pending_rows)'"
+[[ "$(awk -F'\t' '$6 == "unlink-pending" { print $9 }' <<< "${OUT}")" == acme/skills/acme-stray ]] \
+    && pass "the unlink-pending row's item names the set, the kind and the name at that link" \
+    || fail "the unlink-pending row's item: $(awk -F'\t' '$6 == "unlink-pending" { print $9 }' <<< "${OUT}")"
+[[ "$(awk -F'\t' '$6 == "unlink-pending" { print $11 }' <<< "${OUT}")" \
+        == "a reconcile would remove it: no enabled entry justifies it; run sudo ai-tools-admin assets reconcile" ]] \
+    && pass "the unlink-pending row says what a reconcile would do, and why" \
+    || fail "the unlink-pending row's detail: $(awk -F'\t' '$6 == "unlink-pending" { print $11 }' <<< "${OUT}")"
+! grep -qxF MSG-M7J8 <<< "${ERR}" && pass "a set read whole does not warn that a sort key was lost" \
+    || fail "MSG-M7J8 without a failed read: ${ERR:0:300}"
+# The set reader's read of the stray link fails after the classification read it: the row keeps its finding and is
+# written, and the order warns that its key was lost.
+printf -v STUBS 'readlink() { [[ "${FUNCNAME[1]}" == _ai_tools_assets__read_resolver_link_set && "${*: -1}" == %q ]] && return 1; command readlink "$@"; }' \
+    "${HOME_DIR}/skills/acme-stray"
+admin assets list; STUBS=""
+[[ "${RC}" == 4 && "$(pending_rows)" == "unlink-pending ${HOME_DIR}/skills/acme-stray attention" ]] \
+    && pass "a link whose set could not be read: still unlink-pending, exit 4" || fail "a lost set: rc ${RC}, pending '$(pending_rows)'"
+[[ "$(awk -F'\t' '$6 == "unlink-pending" { print $9 }' <<< "${OUT}")" == skills/acme-stray ]] \
+    && pass "a link whose set could not be read: its item is the kind and the view name" \
+    || fail "a lost set's item: $(awk -F'\t' '$6 == "unlink-pending" { print $9 }' <<< "${OUT}")"
+assert_msg MSG-M7J8 "${ERR}" "a set that could not be read is reported under MSG-M7J8"
+rm -f "${HOME_DIR}/skills/acme-stray"
+# An entry that does not parse sorts with the rows without a kind, in the order the list holds it, ahead of every
+# asset's rows.
+write_conf zzz "${SKILL}" acme/skills/x/extra skills/acme-x
+admin assets list
+first_items="$(awk -F'\t' 'NR > 1 && NR <= 4 { print $9 }' <<< "${OUT}" | tr '\n' ' ')"
+[[ "${first_items}" == "zzz acme/skills/x/extra skills/acme-x " ]] && pass "entries that do not parse come first, in list order" \
+    || fail "the first rows: '${first_items}': $(stream_labels | tr '\n' '|')"
+# A verb's recorded row is keyed the same way: an identifier that does not parse sorts first, and one that does sorts
+# by kind, set and name among the reconcile's rows. Unkeyed, `zzz` would read as a kind and sort after `subagents`.
+fresh
+write_conf "${SKILL}" "${SUB}"
+admin assets reconcile
+admin assets disable zzz acme/skills/acme-other
+recorded_order="$(awk -F'\t' 'NR > 1 { item = $9; sub(/\\t.*/, "", item); if (item != last) print item; last = item }' <<< "${OUT}" \
+    | tr '\n' ' ')"
+if [[ "${RC}" == 4 && "$(finding_of zzz)" == not-enabled \
+        && "${recorded_order}" == "zzz acme/skills/acme-other ${SKILL} ${SUB} " ]]; then
+    pass "a recorded row whose item does not parse comes first, and one that parses sorts by kind, set and name"
+else
+    fail "the recorded rows' order: rc ${RC}, '${recorded_order}': $(stream_labels | tr '\n' '|')"
+fi
+write_conf "${SKILL}" "${SUB}"
+mkdir -p "${TESTDIR}/lock"
+held="${TESTDIR}/lock/held"; rm -f "${held}"
+( flock 9; : > "${held}"; sleep 6 ) 9>>"${TESTDIR}/lock/assets.lock" &
+holder=$!
+waited=0
+until [[ -e "${held}" ]] || (( waited >= 100 )); do sleep 0.1; waited=$(( waited + 1 )); done
+if [[ -e "${held}" ]]; then
+    started="${SECONDS}"; admin assets list; elapsed=$(( SECONDS - started ))
+    [[ "${RC}" == 0 ]] && (( elapsed < 4 )) && pass "list beside a held lock returns without waiting (${elapsed}s)" \
+        || fail "list beside a held lock: rc ${RC} after ${elapsed}s: ${ERR:0:200}"
+else
+    fail "the fixture holder did not take the assets lock within 10s"
+fi
+wait "${holder}" || true
+fresh
+write_conf "${SKILL}"
+admin assets reconcile
+chmod 0664 "${CONF}"
+before="$(snapshot)"
+admin assets list
+untrusted_detail="$(awk -F'\t' 'NR > 1 && $6 == "enable-list-untrusted" { print $11 }' <<< "${OUT}")"
+if [[ "${RC}" == 4 && "${untrusted_detail}" == *"stays until sudo ai-tools-admin assets reconcile removes it"* \
+        && "${untrusted_detail}" != *"is removed"* && "$(pending_rows)" == *"unlink-pending ${HOME_DIR}/skills/acme-pdf attention"* ]]; then
+    pass "list over an untrusted operator.conf: the links stay until a reconcile, each named unlink-pending, exit 4"
+else
+    fail "list over an untrusted operator.conf: rc ${RC}, '${untrusted_detail}', pending '$(pending_rows)'"
+fi
+if [[ "$(snapshot)" == "${before}" && -L "${HOME_DIR}/skills/acme-pdf" && -L "${HOME_DIR}/.acme/skills/acme-pdf" ]]; then
+    pass "list over an untrusted operator.conf leaves every link on disk"
+else
+    fail "list over an untrusted operator.conf changed the host"
+fi
+chmod 0644 "${CONF}"
+
 # ── The status section ───────────────────────────────────────────────────────────────────────────────────────────────
 section "ai-tools-admin status: the Assets section"
 fresh
 admin status_assets
-if grep -qE '\[OK\] +0 asset\(s\) enabled in AI_TOOLS_ASSETS, 0 linked' <<< "${OUT}" && [[ "${OUT}" == *problems=0* ]]; then
-    pass "a host with no entry prints the OK line with a count of zero"
+if grep -qE '\[OK\] +0 asset\(s\) enabled in AI_TOOLS_ASSETS, 0 resolved to linked; sudo ai-tools-admin assets list names the link changes' \
+        <<< "${OUT}" && [[ "${OUT}" == *problems=0* ]]; then
+    pass "a host with no entry prints the OK line with a count of zero, naming the reading that lists pending link changes"
 else
     fail "zero entries: ${OUT:0:300}"
 fi
@@ -289,15 +683,44 @@ for token in set-tampered set-absent kind-unknown; do
         || fail "status: no ATTENTION line for ${token}: ${OUT:0:400}"
 done
 [[ "${OUT}" == *problems=3* ]] && pass "each such line counts toward the exit" || fail "status counted: ${OUT##*problems=}"
+mkdir -p "${HOME_DIR}/skills/foreign"; admin status_assets; rmdir "${HOME_DIR}/skills/foreign"
+order="$(grep -oE '\[ATTENTION\] +[^ ]+ +[^ ]+' <<< "${OUT}" | awk '{ print $2 " " $3 }')"
+want="acme/agents/x kind-unknown
+view-foreign ${HOME_DIR}/skills/foreign
+${SKILL} set-tampered
+acme-two/skills/acme-two-pdf set-absent"
+[[ "${order}" == "${want}" ]] && pass "the Assets section's lines come in the stream's order" \
+    || fail "the Assets section's order: $(tr '\n' '|' <<< "${order}")"
 [[ "$(snapshot)" == "${before}" ]] && pass "the status section does not write: the view is as it was" || fail "status changed the view"
 chmod 0664 "${CONF}"; admin status_assets
 grep -q 'enable-list-untrusted' <<< "${OUT}" && pass "an untrusted operator.conf renders enable-list-untrusted" || fail "untrusted: ${OUT:0:300}"
 chmod 0644 "${CONF}"
-PRELUDE='ai_tools_providers__list_enabled_agents() { return 2; }'; admin status_assets; PRELUDE=""
+STUBS='ai_tools_providers__list_enabled_agents() { return 2; }'; admin status_assets; STUBS=""
 if grep -qE '\[UNREADABLE\] +receivers-unknown' <<< "${OUT}" && [[ "${OUT}" == *unreadable=1* ]]; then
     pass "a provider reader that fails renders an UNREADABLE line, counted as a reading the section could not make"
 else
     fail "a failed provider reader: ${OUT:0:400}"
+fi
+STUBS='ai_tools_assets__sort_report_rows() { return 7; }'; admin status_assets; STUBS=""
+if grep -qE '\[UNREADABLE\] +error +the order of the Assets lines could not be computed' <<< "${OUT}" \
+        && grep -qE '\[ATTENTION\] +[^ ]+ +set-tampered' <<< "${OUT}" && [[ "${OUT}" == *unreadable=1* ]]; then
+    pass "an order that fails renders an UNREADABLE line, counted, and the section still prints its lines"
+else
+    fail "a failed order in status: ${OUT:0:400}"
+fi
+# A sort whose output repeats a line: the library falls back to recording order and warns under MSG-Y8T3,
+# which the section silences, printing every line uncounted. The stub leaves a marker, so the case knows the order ran
+# it.
+sort_ran="${TESTDIR}/sort-ran"; rm -f "${sort_ran}"
+printf -v STUBS 'sort() { case " $* " in *" -k1,1 "*) : > %q; command sort "$@" | awk %q ;; *) command sort "$@" ;; esac; }' \
+    "${sort_ran}" 'NR == 1 { first = $0 } NR == 2 { print first; next } { print }'
+admin status_assets; STUBS=""
+if [[ -e "${sort_ran}" && "${ERR}" != *MSG-Y8T3* && "${OUT}" == *unreadable=0* ]] \
+        && grep -qE '\[ATTENTION\] +[^ ]+ +set-tampered' <<< "${OUT}" && grep -qE '\[ATTENTION\] +[^ ]+ +set-absent' <<< "${OUT}" \
+        && grep -qE '\[ATTENTION\] +[^ ]+ +kind-unknown' <<< "${OUT}"; then
+    pass "a fallback order in status prints every line, does not print MSG-Y8T3 between them, and is not counted"
+else
+    fail "a fallback order in status: ran=$([[ -e "${sort_ran}" ]] && echo yes || echo no) ERR ${ERR:0:200} OUT ${OUT:0:400}"
 fi
 fresh
 printf 'skills_root=%s\n' "${TESTDIR}/etc-acme/skills" >> "${AGENTS_D}/acme.conf"
@@ -341,7 +764,7 @@ fresh; rm -rf "${HOME_DIR}/retired"; write_conf_unset; retire ai-tools-technical
 admin status_assets
 row="$(notice_row)"
 if [[ "${row}" == *"ai-tools-technical-docs, ai-tools-reftags withdrawn"* && "${row}" == *"AI_TOOLS_ASSETS is not set"* \
-        && "${OUT}" == *"sudo dnf install ai-tools-assets-core && sudo ai-tools-admin assets enable --set core"* \
+        && "${OUT}" == *"sudo dnf install ai-tools-assets-sets-core && sudo ai-tools-admin assets enable --set core"* \
         && "${OUT}" == *"AI_TOOLS_ASSETS=[] in ${CONF}"* && "${OUT}" == *"problems=1 unreadable=0"* ]]; then
     pass "a retired copy with a successor and no AI_TOOLS_ASSETS line: one successor-unenabled row naming both, counted"
 else
@@ -377,9 +800,9 @@ if [[ -z "$(notice_row)" && "${OUT}" == *"problems=0 unreadable=0"* ]]; then
 else
     fail "no retired directory: ${OUT:0:400}"
 fi
-# The notice's reader is the seeder library's; a library that did not load is a reading the section could not make,
-# told apart from a host the notice does not apply to.
-retire ai-tools-reftags; PRELUDE='unset -f ai_tools_managed_assets__list_withdrawn_successors'; admin status_assets; PRELUDE=""
+# The notice's reader is the seeder library's; a library that did not load is a reading the section could not make, told
+# apart from a host the notice does not apply to.
+retire ai-tools-reftags; STUBS='unset -f ai_tools_managed_assets__list_withdrawn_successors'; admin status_assets; STUBS=""
 if grep -qE '\[UNREADABLE\] +error +the seeder library' <<< "${OUT}" && [[ -z "$(notice_row)" && "${OUT}" == *"problems=0 unreadable=1"* ]]; then
     pass "a seeder library that did not load is an UNREADABLE row, not a host without the notice"
 else

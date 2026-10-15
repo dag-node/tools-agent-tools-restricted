@@ -9,9 +9,11 @@
 #
 # The formatter, its fillers and the checker are resolved through tools/lib/assets.sh, so no copy of either lives
 # in this tree; with a pin not in the cache it exits 1 naming the fetch command. What the formatter does
-# with the options is its own header's. This file holds the three facts the formatter does not resolve from a path:
+# with the options is its own header's. tools/lib/format-scope.sh declares the three facts the formatter does not
+# resolve from a path, each as `AI_TOOLS_FORMAT_SCOPE__<NAME>`, and tests/unit/prose-width.sh reads the same
+# declarations, so the width gate measures the files this front door formats:
 #
-# - `SCOPE`, the path patterns this repository owns: a page, a source file's comment prose, a policy source's,
+# - `PATTERNS`, the path patterns this repository owns: a page, a source file's comment prose, a policy source's,
 #   a config header. A tracked file outside them -- a systemd unit, the spec, a Containerfile, a Makefile, a filter
 #   rules file, the sudoers drop-in, a gitignore, a licence text, a signing key, a lockfile, a capture or a log -- is
 #   data another program parses, and is left as written.
@@ -24,17 +26,8 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 # shellcheck source=SCRIPTDIR/lib/assets.sh
 source "${ROOT}/tools/lib/assets.sh"
-
-CONFIG_HEADERS='src/etc/*.conf'
-SCOPE=(
-    '*.md'                                         # a page, for a person or for an agent
-    '*.sh' '*.py' '*.el' '.githooks/*'             # a source file: its comment prose
-    'selinux/policy/*.te' 'selinux/policy/*.if' 'selinux/policy/*.fc'   # a policy source: the same
-    "${CONFIG_HEADERS}"                            # a config header, at 72
-)
-VENDORED=(
-    'src/usr/local/lib/ai-tools/typesafe/*'        # the decide command, vendored from its signed release
-)
+# shellcheck source=SCRIPTDIR/lib/format-scope.sh
+source "${ROOT}/tools/lib/format-scope.sh"
 
 if ! formatters="$(ai_tools_dev_assets__resolve_tool formatters)" \
         || ! checker="$(ai_tools_dev_assets__resolve_tool prose-check)"; then
@@ -42,7 +35,7 @@ if ! formatters="$(ai_tools_dev_assets__resolve_tool formatters)" \
     exit 1
 fi
 
-options=( --checker "${checker}" --config-header "${CONFIG_HEADERS}" )
-for pattern in "${SCOPE[@]}"; do options+=( --scope "${pattern}" ); done
-for pattern in "${VENDORED[@]}"; do options+=( --skip "${pattern}" ); done
+options=( --checker "${checker}" --config-header "${AI_TOOLS_FORMAT_SCOPE__CONFIG_HEADERS}" )
+for pattern in "${AI_TOOLS_FORMAT_SCOPE__PATTERNS[@]}"; do options+=( --scope "${pattern}" ); done
+for pattern in "${AI_TOOLS_FORMAT_SCOPE__VENDORED[@]}"; do options+=( --skip "${pattern}" ); done
 exec bash "${formatters}/format.sh" "${options[@]}" "$@"

@@ -68,8 +68,9 @@ shellcheck install.sh
 
 Extending lint coverage to `tests/`, `selinux/`, or `packaging/` means
 verifying the directory lints clean and updating the rule file
-and `.github/workflows/ci.yml` together. That workflow runs both the lint
-and the container smoke test on every push and pull request.
+and `.github/workflows/ci.yml` together. That workflow runs the lint on every
+pull request and every push to `develop`; which events run the container smoke
+test is in `docs/development/release.md`.
 
 ## Commit style
 
@@ -82,8 +83,12 @@ in the body, not the title.
 Commits in this repository frequently carry a `Co-Authored-By` trailer naming
 an AI model. This records how the change was produced. It does not assert
 copyright: model output is not separately copyrightable and Anthropic does not
-claim rights in it. Every commit is authored, reviewed, and signed
-off by a human contributor, whose CLA covers the contribution in full.
+claim rights in it. Every commit other than one Dependabot authors is authored,
+reviewed, and signed off by a human contributor, whose CLA covers
+the contribution in full. A commit Dependabot authors moves an action pin's
+commit SHA and its version comment and does not copy any code into the tree,
+so it does not carry a contribution the CLA covers; a maintainer merges it
+after reading the bump against the action's release.
 
 ## Documentation
 

@@ -111,11 +111,10 @@ ai_tools_ancestor_config__has_project_marker() {
     return 1
 }
 
-# ai_tools_ancestor_config__is_scan_allowed <dir>: 0 while the ancestor walk may look inside <dir> -- it does not
-#   match any protected path, or matches only as a user home root. Every system directory and /home
-#   itself stop the walk, so the report does not name a file under /etc or /usr. Fail-closed on
-#   a backstop the caller has not loaded: an unbounded walk would read directories outside the window
-#   the backstop defines.
+# ai_tools_ancestor_config__is_scan_allowed <dir>: 0 while the ancestor walk may look inside <dir> -- it does not match
+#   any protected path, or matches only as a user home root. Every system directory and /home itself stop the walk,
+#   so the report does not name a file under /etc or /usr. Fail-closed on a backstop the caller has not loaded:
+#   an unbounded walk would read directories outside the window the backstop defines.
 ai_tools_ancestor_config__is_scan_allowed() {
     local path="${1:-}" matched
     [[ -n "${path}" ]] || return 1

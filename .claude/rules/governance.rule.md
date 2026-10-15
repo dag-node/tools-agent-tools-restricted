@@ -64,13 +64,13 @@ here.
 
 ## The stop rung is enforced, not dispositional
 
-The standard's rule that a control the system can decline is not a control applies most sharply to stopping, because
-"the agent stops when asked" is the easiest thing to write and the hardest to mean. `ai-tools stop` is what makes
-that row enforced: the operator signals a cgroup as root, the session's cooperation is not an input, and the account it
-runs as can neither run, read nor alter the helper — asserted from the agent's own vantage
-in `tests/boundary/access.sh`. Its undeclinable command deliberately takes **no** authorization input and **no** target,
-and exempts **no** cgroup in the account's slice, because a stop path the monitored system can put itself outside of is
-not a stop path — and any target or exemption is a way to be outside it.
+The governance standard counts a control only when it holds without the system's cooperation, and stopping is
+where that test matters most: "the agent stops when asked" is the easiest guarantee to write and the hardest to mean.
+`ai-tools stop` is what makes that row enforced: the operator signals a cgroup as root, the session's cooperation is not
+an input, and the account it runs as can neither run, read nor alter the helper — asserted from the agent's own vantage
+in `tests/boundary/access.sh`. Its command takes neither a target nor an authorization input and does not exempt
+a cgroup (I6, [ref-section-a4p8](stop.rule.md#ref-section-a4p8)), because a target or an exemption is an input a session
+could use to put itself outside the sweep.
 
 Two properties of the rung matter to this rule beyond the mechanism, which lives in [stop](stop.rule.md):
 

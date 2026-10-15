@@ -181,9 +181,9 @@ _ai_tools_cache_cleanup__get_group() {
 
 # ai_tools_cache_cleanup__remove_group <home> <group> [seconds] : remove one group's directory under <home> and print
 #   one record, `group<TAB>result<TAB>bytes<TAB>links<TAB>reason`, reason `-` where there is none. 0 for removed
-#   and absent, 1 otherwise. The process is the sandbox account, <group> a declared name whose path comes from
-#   the declaration, <home> passes ai_tools_conf__is_trusted, and the group's first component is a directory that
-#   account owns, so it cannot rename a component between the home and the removed directory; each check that fails
+#   and absent, 1 otherwise. The process is the sandbox account, <group> a declared name whose path comes
+#   from the declaration, <home> passes ai_tools_conf__is_trusted, and the group's first component is a directory
+#   that account owns, so it cannot rename a component between the home and the removed directory; each check that fails
 #   is `refused` with its reason, and the tree is left as it was. With [seconds] the walk runs under timeout -k 5,
 #   and a walk cut short is `partial timeout`.
 #
@@ -312,9 +312,9 @@ ai_tools_cache_cleanup__read_cleaned_epoch() {
 # ai_tools_cache_cleanup__write_state_locked <state-file> <record>... : rewrite the existing, non-symlink <state-file>
 #   in place, one block per declared group: a group a record names takes that record with CHECKED now, FIRST_CHECKED
 #   kept from the file or now where it held none, and, for removed or absent, CLEANED now; every other group keeps
-#   the values the file held. A value outside its shape is not written.
-#   The caller holds the state file's lock (ai_tools_cache_cleanup__lock), so two writers do not interleave
-#   a read of the previous values with a write. Non-zero where the file is absent, a symlink, or not writable.
+#   the values the file held. A value outside its shape is not written. The caller holds the state file's lock
+#   (ai_tools_cache_cleanup__lock), so two writers do not interleave a read of the previous values with a write.
+#   Non-zero where the file is absent, a symlink, or not writable.
 ai_tools_cache_cleanup__write_state_locked() {
     local state="${1:-}"; shift
     [[ -n "${state}" && ! -L "${state}" && -f "${state}" && -w "${state}" ]] || return 1
@@ -396,8 +396,8 @@ AI_TOOLS_CACHE_CLEANUP__ADMISSION=""
 
 # ai_tools_cache_cleanup__admit_session <lock-file> <wait-seconds> : take the admission lock for this process
 #   and publish AI_TOOLS_CACHE_CLEANUP__ADMISSION in the caller's shell -- a published value rather than a printed one,
-#   since the descriptor must be this process's. `cleaner`: the exclusive lock was taken at once, so no session holds
-#   it and this launch may remove a launch-timed group until ai_tools_cache_cleanup__share_admission. `admitted`:
+#   since the descriptor must be this process's. `cleaner`: the exclusive lock was taken at once, so no session holds it
+#   and this launch may remove a launch-timed group until ai_tools_cache_cleanup__share_admission. `admitted`:
 #   the shared lock was taken within <wait-seconds>, beside the sessions that hold it or after the cleaner that held it
 #   exclusive. `unadmitted`: the file could not be opened or the wait ran out, and no lock is held. Always 0.
 ai_tools_cache_cleanup__admit_session() {
@@ -535,9 +535,9 @@ ai_tools_cache_cleanup__format_cleaned_line() {
     return 0
 }
 
-# ai_tools_cache_cleanup__get_remedy <reason|verdict> : print what an operator does about a group: left in place for
-#   a record's <reason>, or reported under the status verdict `links` or `overdue`. The warnings print this text, and
-#   both status reports print it through ai_tools_cache_cleanup__get_status_remedy.
+# ai_tools_cache_cleanup__get_remedy <reason|verdict> : print what an operator does about a group: left in place
+#   for a record's <reason>, or reported under the status verdict `links` or `overdue`. The warnings print this text,
+#   and both status reports print it through ai_tools_cache_cleanup__get_status_remedy.
 ai_tools_cache_cleanup__get_remedy() {
     # shellcheck disable=SC2016  # the backticks mark a command for the reader and are printed, not run
     case "${1:-}" in
@@ -594,10 +594,11 @@ ai_tools_cache_cleanup__format_bytes() {
 }
 
 # ai_tools_cache_cleanup__evaluate_state <timing> <links-policy> <result> <links> <age-seconds|-> [reason] : print
-#   the status verdict for one group: unknown where no result is recorded; failed for refused or failed, and for
-#   a partial removal whose reason is not the bound's `timeout`; links for links in a group whose producer writes none;
-#   overdue for a launch-timed group whose <age-seconds> is past the attention age; ok otherwise. failed and links
-#   count toward a status report's exit; overdue is shown and not counted, since a cache left uncleaned is a valid
+#   the status verdict for one group: unknown where no result is recorded; failed for refused or failed,
+#   and for a partial removal whose reason is not the bound's `timeout`; links for links in a group whose producer
+#   writes none; overdue for a launch-timed group whose <age-seconds> is past the attention age; ok otherwise. failed
+#   and links count toward a status report's exit; overdue is shown and not counted, since a cache left uncleaned is
+#   a valid
 #   state.
 ai_tools_cache_cleanup__evaluate_state() {
     local timing="${1:-}" link_policy="${2:-}" result="${3:-}" links="${4:-}" cleaned_age="${5:--}" reason="${6:--}"

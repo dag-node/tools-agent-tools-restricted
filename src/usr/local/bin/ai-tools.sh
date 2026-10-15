@@ -597,20 +597,20 @@ root_helper_reachable() { [[ "${INVOKING_USER}" == "root" ]] || command -v sudo 
 # `sudo -n -l <bin>` asks sudo the question directly and, with -n, cannot prompt. Four answers, and the second is
 # the one this reads:
 #
-#   exit 0                       the rule exists; sudo echoes the command it would run. This is
-#                                what a general-grant operator gets whether or not a credential is
-#                                cached -- LISTING an allowed command is not itself password-gated
-#                                on a stock sudoers.
-#   exit != 0, NO OUTPUT         sudo's answer for "no rule matches this command". It is silent,
-#                                so there is no message to match on: the refusal that reaches the
-#                                terminal ("Sorry, user op is not allowed to execute ...") comes
-#                                from the attempt to RUN the command, never from -l. This is the
-#                                ai-ops-only account the gate exists for.
-#   exit != 0, "password is required"   listing is password-gated here (sudoers `listpw`). The
-#                                grant may well exist, so that caller is left to the ordinary
-#                                prompt.
-#   exit != 0, any other text    not understood -- fall through and let sudo answer at the call
-#                                site, this probe's fail-open direction.
+#   exit 0                             the rule exists; sudo echoes the command it would run. This is
+#                                      what a general-grant operator gets whether or not a credential is
+#                                      cached -- LISTING an allowed command is not itself password-gated
+#                                      on a stock sudoers.
+#   exit != 0, NO OUTPUT               sudo's answer for "no rule matches this command". It is silent,
+#                                      so there is no message to match on: the refusal that reaches the
+#                                      terminal ("Sorry, user op is not allowed to execute ...") comes
+#                                      from the attempt to RUN the command, never from -l. This is the
+#                                      ai-ops-only account the gate exists for.
+#   exit != 0, "password is required"  listing is password-gated here (sudoers `listpw`). The
+#                                      grant may well exist, so that caller is left to the ordinary
+#                                      prompt.
+#   exit != 0, any other text          not understood -- fall through and let sudo answer at the call
+#                                      site, this probe's fail-open direction.
 #
 # Silence is only conclusive while sudo is answering at all, so it is confirmed against a bare `sudo -n -l`: that lists
 # the caller's whole rule set (an ai-ops member always has one), and its success is what separates "sudo knows this
@@ -1214,13 +1214,13 @@ reg_ownership() {
 # agent_can_traverse <dir>  -- 0 if the sandbox account (SANDBOX_USER, a SANDBOX_GROUP member) can ENTER <dir>, decided
 # the way the kernel decides it (acl(5)): the owner entry when the account owns the directory; else the named-user entry
 # for the account when there is one, whatever the group and other entries say; else the owning-group entry
-# when the directory is in SANDBOX_GROUP, and every named-group entry for SANDBOX_GROUP; else the other entry.
-# A named entry and the owning-group entry are narrowed by the mask, so `user:SANDBOX_USER:--x` under `mask::---`
-# -- the state a `chmod 700` after an earlier grant leaves -- reads as blocked, and the grant is offered again. Returns
-# 1 when the account cannot enter, and 2 when the answer cannot be read: the stat fails, or getfacl is installed
-# and fails on the directory. A mode read in place of an ACL that could not be read would say "traversable" over a named
-# entry denying it, so the caller reads 2 as blocked by a directory no grant may cover. Without getfacl on the host
-# the mode bits alone decide, since no ACL can be inspected there at all.
+# when the directory is in SANDBOX_GROUP, and every named-group entry for SANDBOX_GROUP; else the other entry. A named
+# entry and the owning-group entry are narrowed by the mask, so `user:SANDBOX_USER:--x` under `mask::---` -- the state
+# a `chmod 700` after an earlier grant leaves -- reads as blocked, and the grant is offered again. Returns 1
+# when the account cannot enter, and 2 when the answer cannot be read: the stat fails, or getfacl is installed and fails
+# on the directory. A mode read in place of an ACL that could not be read would say "traversable" over a named entry
+# denying it, so the caller reads 2 as blocked by a directory no grant may cover. Without getfacl on the host the mode
+# bits alone decide, since no ACL can be inspected there at all.
 agent_can_traverse() {
     local dir="$1" mode owner grp acl
     # IFS pinned (see join_words).
@@ -1367,8 +1367,8 @@ confirm_ancestor_traversal() {
 
 # traverse_grant_plan <dir> <argv-var> <widened-var>  -- compute the setfacl arguments that give the sandbox account
 # traverse on <dir> without raising the mask past execute, and the entries that gain traverse alongside it. `setfacl -m`
-# recalculates the mask to the union of every group-class entry, so a directory holding `group:devs:rwx` under
-# `mask::---` would end with `mask::rwx` and that group at full access; `-n` keeps the mask as it is, which leaves
+# recalculates the mask to the union of every group-class entry, so a directory holding `group:devs:rwx`
+# under `mask::---` would end with `mask::rwx` and that group at full access; `-n` keeps the mask as it is, which leaves
 # the new entry with no effect where the mask lacks execute. So the call is `-n` with the mask set explicitly to what it
 # was -- `group::` where the directory has no mask, as setfacl derives one -- plus execute. Every other masked entry
 # that holds execute then gains it in effect, and <widened-var> names each as `<tag>:<name> <perms>` for the prompt.
@@ -4912,10 +4912,9 @@ cmd_status() {
     say "  ai-tools projects    registered projects (in place and sandbox clones)"
     say "  ai-tools --help      the full command list"
 
-    # The exit is the report state's (ai-tools-records(5), EXIT STATUS): 4 when something is broken, 5 when a reading
-    # could not be made, so `status` is usable unattended (a cron check, a monitor) without parsing this output.
-    # 'unknown' and 'n/a' are not faults and do not count -- an unqueryable unit must not make a healthy host alarm
-    # every night.
+    # The exit is the report state's (ai-tools-records(5)): 4 when something is broken, 5 when a reading could not be
+    # made, so `status` is usable unattended (a cron check, a monitor) without parsing this output. 'unknown' and 'n/a'
+    # do not count (cli.rule.md, ref-section-r8u5).
     ai_tools_records_base__get_exit_status || return $?
     return 0
 }
@@ -4949,8 +4948,8 @@ status_services() {
             down)   printf '  %-28s %sDOWN%s\n' "${unit}" "${C_YEL}" "${C_RST}" ;;
             # A run that correctly declined to act (the updater with an unreachable registry) is dim, not yellow: yellow
             # is this report's attention colour, and there is no fault to attend to -- the previous toolchain is intact
-            # and the next run will try again. If the condition persists the line turns STALE on its own once the stamp
-            # ages past its grace, which is where the operator is meant to look.
+            # and the next run will try again. A persisting condition ages into STALE (updater.rule.md,
+            # ref-section-r3m8).
             skipped) reason="$(ai_tools_services__read_stamp_field "${stamp}" REASON)"
                     printf '  %-28s %sSKIPPED%s %s(last run %s%s -- nothing was changed)%s\n' \
                         "${unit}" "${C_DIM}" "${C_RST}" "${C_DIM}" "${age:-at an unknown time}" \
@@ -4971,11 +4970,8 @@ status_services() {
             stale)  printf '  %-28s %sSTALE%s %s(last run %s)%s\n' \
                         "${unit}" "${C_YEL}" "${C_RST}" "${C_DIM}" "${age:-long ago}" "${C_RST}" ;;
             absent) printf '  %-28s %sn/a (not installed)%s\n' "${unit}" "${C_DIM}" "${C_RST}" ;;
-            # 'unknown' is not a problem report -- it says only that this vantage point cannot tell. It stays a single
-            # line carrying the one command that CAN tell, so a healthy host's report does not grow a diagnostic block
-            # per unit it simply cannot query. One reading is separable here: a stamp still empty as the package seeded
-            # it means the unit has never run, the state a freshly provisioned host is in until its first scheduled
-            # window, so the line says that and keeps the check command beside it.
+            # The `?` readings, told apart by checks that completed, and why the oneshot line does not name a command:
+            # cli.rule.md (ref-section-r8u5).
             *)      if [[ "${scope}" == sandbox-user ]]; then
                         if declare -F ai_tools_services__is_stamp_unwritten >/dev/null 2>&1 \
                                 && ai_tools_services__is_stamp_unwritten "${stamp}"; then
@@ -4985,8 +4981,15 @@ status_services() {
                             printf '  %-28s %s? (sandbox --user unit -- check: sudo systemctl --user -M %s@.host status %s)%s\n' \
                                 "${unit}" "${C_DIM}" "${SANDBOX_USER}" "${unit}" "${C_RST}"
                         fi
-                    else
+                    elif ! command -v systemctl >/dev/null 2>&1; then
                         printf '  %-28s %s? (systemctl unavailable)%s\n' "${unit}" "${C_DIM}" "${C_RST}"
+                    elif declare -F ai_tools_services__is_oneshot_unrun >/dev/null 2>&1 \
+                            && ai_tools_services__is_oneshot_unrun "${unit}"; then
+                        printf "  %-28s %s? (has not run since boot -- a oneshot's state is its last run's, known after its first)%s\n" \
+                            "${unit}" "${C_DIM}" "${C_RST}"
+                    else
+                        printf '  %-28s %s? (its state could not be read -- check: systemctl status %s)%s\n' \
+                            "${unit}" "${C_DIM}" "${unit}" "${C_RST}"
                     fi ;;
         esac
         # A unit that IS reported broken names its consequence, then every command that inspects and fixes it.

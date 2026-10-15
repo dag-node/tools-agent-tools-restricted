@@ -646,7 +646,8 @@ fi
 # --- Sidecar files: what an upgrade preserves when it rewrites an operator's config ------------
 # Two copies with two jobs -- .bak is what the operator HAD, .shipped is what they were SUPPOSED to get --
 # and the property that makes .bak worth calling a backup is that a second run in the same day cannot overwrite
-# the first. An operator who ran the installer twice is exactly the one who needs the earlier copy.
+# the first: ai_tools_conf__find_sidecar_path numbers each copy one past the highest the day already holds. An operator
+# who ran the installer twice is exactly the one who needs the earlier copy.
 stamp="$(date +%Y%m%d)"
 cfg="${TESTDIR}/sidecar.conf"
 printf 'ORIGINAL\n' > "${cfg}"; chown root:root "${cfg}"; chmod 640 "${cfg}"
@@ -1241,7 +1242,7 @@ else
     fail "collapse left $(grep -cF "${P1}" "${AL}") line(s):"$'\n'"$(cat "${AL}")"
 fi
 
-# --- a write that cannot happen is REPORTED, not fatal ---
+# --- a write that cannot land in an unwritable directory is REPORTED, not fatal ---
 # The rewrite lands its temporary file in the allowlist's own directory, so an unwritable config directory fails even
 # when the file itself is writable. Under `set -e` a bare I/O error would abort the caller; the function must return 1
 # and leave the file as it was.

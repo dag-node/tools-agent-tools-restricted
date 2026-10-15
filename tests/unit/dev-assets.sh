@@ -4,11 +4,11 @@
 # Unit test for tools/lib/assets.sh, which resolves this repository's prose checker, reftags tool and formatters
 # from two pinned, signed releases into a per-user cache. What it holds is that a tool is read from the pin alone: every
 # way an archive can differ from what its pin and its signature say -- a sha256 other than the pin's, a published sha256
-# other than the pin's, a signature by a key the package-signing primary is not, a tree that no longer matches its
-# inventory, a pin carrying a line outside its keys -- refuses with the reason and does not leave a cache directory
-# a later `path` would read, while `path` prints nothing and exits 1 for a pin not in the cache. And the callers do not
-# read a fallback: with the cache empty the git hooks name the fetch command and let the commit through, while
-# the formatter front door and the reftags wrapper exit 1 with it.
+# other than the pin's, a signature that is absent or by a key the package-signing primary is not, a tree that no longer
+# matches its inventory, a pin carrying a line outside its keys -- refuses with the reason and does not leave a cache
+# directory a later `path` would read, while `path` prints nothing and exits 1 for a pin not in the cache.
+# And the callers do not read a fallback: with the cache empty the git hooks name the fetch command and let the commit
+# through, while the formatter front door and the reftags wrapper exit 1 with it.
 #
 # Hermetic: the cache is under a home in the testdir, the download is a stub serving files from the testdir, and a pin
 # is read from the testdir. The control archives are the ones `bash tools/lib/assets.sh fetch` placed in the invoking
@@ -36,8 +36,10 @@ mkdir -p "${HOME_DIR}" "${PINS}" "${RELEASE}"
 # shellcheck source=SCRIPTDIR/../../tools/lib/assets.sh
 source "${LIB}"
 CONTROL=1
+CORE_ARCHIVE=""   # the core pin's archive, which the tamper cases rewrite in the served release
 for name in core tools; do
     ai_tools_dev_assets__read_pin "${name}"
+    [[ "${name}" != core ]] || CORE_ARCHIVE="${AI_TOOLS_DEV_ASSETS__PIN_ARCHIVE}"
     cached="$(ai_tools_dev_assets__get_cache_root)/${AI_TOOLS_DEV_ASSETS__PIN_ARCHIVE}.${AI_TOOLS_DEV_ASSETS__PIN_SHA256:0:16}"
     for suffix in "" .sha256 .asc; do
         cp "${cached}/${AI_TOOLS_DEV_ASSETS__PIN_ARCHIVE}${suffix}" "${RELEASE}/" 2>/dev/null || CONTROL=0
@@ -118,6 +120,32 @@ if [[ "${RC}" == 1 && -z "${OUT}" ]]; then
 else
     fail "a wrong checkout: rc ${RC}, out '${OUT}'"
 fi
+# The commit a bypass names is `git describe --always --dirty`'s: a checkout with an uncommitted edit carries `-dirty`,
+# and the same checkout committed does not.
+git_checkout="${TESTDIR}/t-git-checkout"
+mkdir -p "${git_checkout}/formatters"; : > "${git_checkout}/formatters/fill.sh"
+git -C "${git_checkout}" init -q
+git -C "${git_checkout}" add -A
+git -C "${git_checkout}" -c user.email=t@example.invalid -c user.name=t -c commit.gpgsign=false commit -qm base
+head_sha="$(git -C "${git_checkout}" rev-parse --short HEAD)"
+bypass_line() {  # bypass_line: the BYPASS line `path tools` prints for the git checkout
+    AI_TOOLS_DEV_ASSETS_TOOLS="${git_checkout}" HOME="${HOME_DIR}" bash "${LIB}" path tools >/dev/null 2>"${TESTDIR}/err" \
+        || true
+    cat "${TESTDIR}/err"
+}
+ERR="$(bypass_line)"
+if [[ "${ERR}" == *" at ${head_sha}, not its pin"* ]]; then
+    pass "a clean bypass checkout is named by its commit alone"
+else
+    fail "the clean bypass checkout: '${ERR}', expected the commit ${head_sha}"
+fi
+printf 'edited\n' > "${git_checkout}/formatters/fill.sh"
+ERR="$(bypass_line)"
+if [[ "${ERR}" == *" at ${head_sha}-dirty, not its pin"* ]]; then
+    pass "a bypass checkout with an uncommitted edit is named <commit>-dirty"
+else
+    fail "the dirty bypass checkout: '${ERR}', expected ${head_sha}-dirty"
+fi
 
 # ── fetch and verify over a genuine release ──────────────────────────────────────────────────────────────────────────
 section "dev assets: an archive is accepted on its pin and its signature alone"
@@ -170,17 +198,17 @@ s = u.spec_from_file_location("prose_check", sys.argv[1] + "/prose-check.py"); m
     }
     reset_cache; restore_pins
     set_pin core archive_sha256 "$(sed -n 's/^archive_sha256=//p' "${PINS}/assets-core.pin" | tr '0-9a-f' '1-9a-f0')"
-    sed "s/^[0-9a-f]*/$(sed -n 's/^archive_sha256=//p' "${PINS}/assets-core.pin")/" "${RELEASE}/ai-tools-assets-core-0.1.0.zip.sha256" \
+    sed "s/^[0-9a-f]*/$(sed -n 's/^archive_sha256=//p' "${PINS}/assets-core.pin")/" "${RELEASE}/${CORE_ARCHIVE}.sha256" \
         > "${TESTDIR}/published"
-    cp "${RELEASE}/ai-tools-assets-core-0.1.0.zip.sha256" "${TESTDIR}/published.orig"
-    cp "${TESTDIR}/published" "${RELEASE}/ai-tools-assets-core-0.1.0.zip.sha256"
+    cp "${RELEASE}/${CORE_ARCHIVE}.sha256" "${TESTDIR}/published.orig"
+    cp "${TESTDIR}/published" "${RELEASE}/${CORE_ARCHIVE}.sha256"
     dev fetch
     refused "an archive whose sha256 is not the pin's, though the release publishes the pin's" "does not match the pin's sha256"
-    cp "${TESTDIR}/published.orig" "${RELEASE}/ai-tools-assets-core-0.1.0.zip.sha256"; restore_pins
-    printf '%064d  ai-tools-assets-core-0.1.0.zip\n' 0 > "${RELEASE}/ai-tools-assets-core-0.1.0.zip.sha256"
+    cp "${TESTDIR}/published.orig" "${RELEASE}/${CORE_ARCHIVE}.sha256"; restore_pins
+    printf '%064d  %s\n' 0 "${CORE_ARCHIVE}" > "${RELEASE}/${CORE_ARCHIVE}.sha256"
     reset_cache; dev fetch
     refused "a release whose published sha256 is not the pin's" "the release publishes"
-    cp "${TESTDIR}/published.orig" "${RELEASE}/ai-tools-assets-core-0.1.0.zip.sha256"
+    cp "${TESTDIR}/published.orig" "${RELEASE}/${CORE_ARCHIVE}.sha256"
     STUB='_ai_tools_dev_assets__fetch_file() { [[ "$1" != *.asc ]] && cp -- "${release}/${1##*/}" "$2"; }'
     reset_cache; dev fetch; STUB=""
     refused "a release without its signature" "cannot download"
@@ -188,12 +216,12 @@ s = u.spec_from_file_location("prose_check", sys.argv[1] + "/prose-check.py"); m
     if command -v gpg >/dev/null 2>&1; then
         gnupg="${TESTDIR}/gnupg"; mkdir -m 0700 "${gnupg}"
         GNUPGHOME="${gnupg}" gpg --batch --quiet --passphrase '' --quick-gen-key 'ai-tools test <t@acme.example>' default default never 2>/dev/null
-        cp "${RELEASE}/ai-tools-assets-core-0.1.0.zip.asc" "${TESTDIR}/asc.orig"
-        GNUPGHOME="${gnupg}" gpg --batch --yes --armor --detach-sign -o "${RELEASE}/ai-tools-assets-core-0.1.0.zip.asc" \
-            "${RELEASE}/ai-tools-assets-core-0.1.0.zip" 2>/dev/null
+        cp "${RELEASE}/${CORE_ARCHIVE}.asc" "${TESTDIR}/asc.orig"
+        GNUPGHOME="${gnupg}" gpg --batch --yes --armor --detach-sign -o "${RELEASE}/${CORE_ARCHIVE}.asc" \
+            "${RELEASE}/${CORE_ARCHIVE}" 2>/dev/null
         reset_cache; dev fetch
         refused "an archive signed by a throwaway key, not the package-signing primary" "gpgv refuses the signature"
-        cp "${TESTDIR}/asc.orig" "${RELEASE}/ai-tools-assets-core-0.1.0.zip.asc"
+        cp "${TESTDIR}/asc.orig" "${RELEASE}/${CORE_ARCHIVE}.asc"
     else
         skip "a signature by a throwaway key" "gpg is not installed"
     fi

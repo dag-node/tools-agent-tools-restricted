@@ -38,9 +38,20 @@ AI_TOOLS_DEV_ASSETS_CORE=../ai-tools-assets bash tools/generators/ref-index.sh c
 AI_TOOLS_DEV_ASSETS_TOOLS=../ai-tools-assets-tools bash tools/format.sh
 ```
 
-The run then prints a `BYPASS` line naming the checkout and its commit.
+The run then prints a `BYPASS` line naming the checkout and its commit,
+suffixed `-dirty` while the checkout holds an uncommitted edit.
 
-### Bumping a pin
+A defect in one of these tools found while working on this repository is fixed
+on a local branch of `../ai-tools-assets` or `../ai-tools-assets-tools`,
+and this repository runs the fix through `AI_TOOLS_DEV_ASSETS_CORE`
+or `AI_TOOLS_DEV_ASSETS_TOOLS` until it settles. The branch is then pushed
+to that repository's `develop`, and released when a CI check here needs
+the behaviour, or at the end of the cycle at the latest. A `v*` tag of this
+repository waits until those fixes are released and pinned, as the release
+checklist [ref-section-g6d8](../docs/development/release.md#ref-section-g6d8)
+states.
+
+### Bumping a pin <a id="ref-section-j6v8"></a>
 
 Edit `tag` and `archive_sha256` together from the release page, in a commit
 of its own, then run `fetch` and `verify`:
@@ -72,7 +83,9 @@ hook and the unit suite run.
 holds base's asset-set validator to the conformance fixtures of the pinned
 `ai-tools-assets-tools` release; CI runs it.
 
-**`lib/`** holds what the other tools source: `assets.sh` and its pins.
+**`lib/`** holds what the other tools source: `assets.sh` and its pins,
+and `format-scope.sh`, the path patterns `format.sh` formats
+and `tests/unit/prose-width.sh` holds to their columns.
 
 ## Conventions
 

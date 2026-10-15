@@ -29,11 +29,11 @@
 #                            and the caller chowns it to the user the CLI runs as.
 # cli_stub_reset             truncates the log and the secrets list, and clears every cli_stub_fail.
 # cli_stub_fail <helper>...  makes each named helper's call exit 1 after it is logged, for a failed root step.
-# cli_calls <helper>         prints the log lines for <helper>, fields after the cwd only
-#                            (tab-separated args).
-# cli_called <helper> [ere]  0 when <helper> was called and, with <ere>, some call's args match it.
-# cli_call_count <helper>    the number of calls.
-# cli_log_empty              0 when no helper was called.
+# cli_calls <helper>             prints the log lines for <helper>, fields after the cwd only
+#                                (tab-separated args).
+# cli_called <helper> [ere]      0 when <helper> was called and, with <ere>, some call's args match it.
+# cli_call_count <helper>        the number of calls.
+# cli_log_empty                  0 when no helper was called.
 # cli_call_index <helper> [ere]  the 1-based log line of the first matching call, for ordering. cli_stub_secrets
 # <path>... makes the lockdown stub report these paths as secret-matching.
 

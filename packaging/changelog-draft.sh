@@ -42,10 +42,10 @@
 # message and the commit itself -- and an entry that reproduces it has copied the wrong thing.
 #
 # Usage:
-#   packaging/changelog-draft.sh             bullets for packaging/VERSION, paste-ready
-#   packaging/changelog-draft.sh --material  the same commits with bodies and touched files
-#   packaging/changelog-draft.sh --check     lint the newest block already in ai-tools.spec
-#   packaging/changelog-draft.sh --check --all   ... and every released block, as a summary
+#   packaging/changelog-draft.sh                bullets for packaging/VERSION, paste-ready
+#   packaging/changelog-draft.sh --material     the same commits with bodies and touched files
+#   packaging/changelog-draft.sh --check        lint the newest block already in ai-tools.spec
+#   packaging/changelog-draft.sh --check --all  ... and every released block, as a summary
 #   (or: make -C packaging changelog)
 #
 # Order of work: `--material` to group, write the block, `--check` to lint it.

@@ -81,10 +81,10 @@ else
 fi
 
 # (A2) an owner-only file (0600) is left out of the agent's reach entirely -- no group entry, no operator entry, no mask
-# raised. `setfacl -m` recalculates the mask, so granting here would
-# give the agent EFFECTIVE rw while `ls -l` still shows `-rw-------`; the operator cannot review a
-# grant they cannot see, so the claim honours the mode instead. secret-handling.rule.md tells operators to use
-# `700 <you>:<you>` for exactly this, which only holds if the walk skips it.
+# raised. `setfacl -m` recalculates the mask, so granting here would give the agent EFFECTIVE rw while `ls -l` still
+# shows `-rw-------`; the operator cannot review a grant they cannot see, so the claim honours the mode instead.
+# secret-handling.rule.md tells operators to use `700 <you>:<you>` for exactly this, which only holds if the walk skips
+# it.
 fr="$(getfacl -p "${proj}/restricted" 2>/dev/null)"
 if ! grep -qE "^(group:${SANDBOX_GROUP}|user:${PROJECTS_USER}):" <<<"${fr}" \
         && [[ "$(perm "${proj}/restricted")" == 600 ]]; then

@@ -20,7 +20,7 @@ once the set's package is installed:
 .PP
 .RS 4
 .EX
-sudo dnf install ai\-tools\-assets\-core
+sudo dnf install ai\-tools\-assets\-sets\-core
 sudo ai\-tools\-admin assets enable core/skills/ai\-tools\-reftags
 .EE
 .RE
@@ -283,9 +283,14 @@ view.
 .B enable\-list\-untrusted
 .I /etc/ai\-tools/operator.conf
 is not owned by root, or is writable by group or other, so no asset is
-enabled and every resolver link the run reaches is removed; the record
+enabled and a reconcile removes every resolver link it reaches; the record
 names each directory a link stayed under, each removal that failed, and
 whether the agents' directories were examined.
+From
+.B "assets list"
+each of those links is still in place, named in an
+.B unlink\-pending
+record, until a reconcile removes it.
 Restore it to
 .B root:root
 .BR 0644 .
@@ -309,13 +314,43 @@ named an identifier
 does not hold.
 .PP
 A record of a change carries
-.B linked
+.B enabled
 or
-.B unlinked
-for a link placed or removed, and
+.B disabled
+for an identifier
+.B "assets enable"
+added to
+.B AI_TOOLS_ASSETS
+or
+.B "assets disable"
+removed from it,
+.B placed
+or
+.B removed
+for each link the command changed,
+.B link\-pending
+or
+.B unlink\-pending
+for one
+.B "assets list"
+found a reconcile would place or remove, its detail naming
+.BR "sudo ai\-tools\-admin assets reconcile" ,
+and
 .B kept
 for a file of yours left in an agent's directory where the view also holds an
 entry.
+An enabled asset's own record reads
+.B linked
+at
+.B ok
+while the asset is enabled and resolves, which says nothing about whether its
+link is on disk:
+.B placed
+appears beside it only on the run that made the link, and
+.B "assets list"
+puts a
+.B link\-pending
+record beside it while the link is missing.
 A record of
 .B agent\-root\-absent
 says that path does not exist yet; the agent's package links it when it is

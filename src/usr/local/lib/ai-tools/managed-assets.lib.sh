@@ -40,7 +40,7 @@ readonly _AI_TOOLS_MANAGED_ASSETS__LOADED=1
 # is held to the same shape, root's with no group or other bit (_ai_tools_managed_assets__is_root_only), so no other
 # account can open it, read-only included: flock(2) takes an exclusive lock through a read-only descriptor, so a file
 # another account can open is one it can hold. AI_TOOLS_ASSETS_LOCK and AI_TOOLS_ASSETS_LOCK_WAIT are root-only test
-# hooks with the standing of AI_TOOLS_ASSETS_BINDINGS_DIR (assets-verify.lib.sh).
+# hooks (tests.rule.md, ref-section-b4y9).
 : "${AI_TOOLS_ASSETS_LOCK:=/run/lock/ai-tools/assets.lock}"
 : "${AI_TOOLS_ASSETS_LOCK_WAIT:=120}"
 _AI_TOOLS_MANAGED_ASSETS__LOCK_DEPTH=0
@@ -438,7 +438,7 @@ ai_tools_managed_assets__seed_assets_locked() {
 # what it could not first preserve.
 #
 # After the per-asset lines, the pass prints one line per successor set (AI_TOOLS_MANAGED_ASSETS__SUCCESSORS)
-# for which it moved at least one entry aside, naming the set, the package `ai-tools-assets-<set>` that ships it,
+# for which it moved at least one entry aside, naming the set, the package `ai-tools-assets-sets-<set>` that ships it,
 # and the command that enables it; a set's line is printed once per shell, however many kinds the caller passes one call
 # at a time. The caller holds the assets lock (ai_tools_managed_assets__lock).
 # $1 live_root  $2.. kinds (default: every kind named in the list); a named kind must be one of
@@ -481,7 +481,7 @@ ai_tools_managed_assets__remove_retired_assets_locked() {
         fi
     done
     for successor_set in "${successor_sets[@]}"; do
-        _ai_tools_managed_assets__say "their successors are in the asset set ${successor_set} (package ai-tools-assets-${successor_set}): sudo ai-tools-admin assets enable --set ${successor_set}"
+        _ai_tools_managed_assets__say "their successors are in the asset set ${successor_set} (package ai-tools-assets-sets-${successor_set}): sudo ai-tools-admin assets enable --set ${successor_set}"
     done
     return 0
 }

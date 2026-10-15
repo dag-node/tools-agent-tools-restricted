@@ -120,8 +120,8 @@ fi
 # `status` is driven whole, with the sections that read this host stubbed to a known answer (no unit in the registry, no
 # entrypoint, assets, managed-file or unit-search-path section), so each case changes one reading: a section that counts
 # a fault, and the service registry's readers removed after the library was loaded -- its include guard keeps status()'s
-# own re-source from restoring them, which is the shape a half-upgraded install takes. A `?` line stays uncounted, which
-# the Provisioning cases already pin.
+# own re-source from restoring them, which is the shape a half-upgraded install takes. A `?` line stays uncounted,
+# which the Provisioning cases already pin.
 section "ai-tools-admin status: the exit status follows ai-tools-records(5) (unit)"
 
 # call_status <pre> : source the helper with the hooks set, run <pre> in that shell, then `status`; the exit status is
@@ -309,6 +309,51 @@ else
         && grep -qF 'problems=1 unreadable=0' <<<"${out}" && grep -qE '\[n/a\]|absent now' <<<"${out}" \
         && pass "a refused group is counted, with the size its cache holds now and an absent cache named as such" \
         || fail "admin caches: $(tr '\n' '|' <<<"${out}")"
+fi
+
+# ── A system unit's `?` line says why its state is unknown ─────────────────────────────────────────────────────────
+# services.lib.sh reads a system unit as unknown where no systemctl is found, and where a Type=oneshot unit has no
+# ExecMainStartTimestamp (no run since its manager started). The registry is stubbed to that one oneshot record
+# and systemctl to a function answering its properties; the no-systemctl case clears PATH, leaving the stub undefined.
+section "ai-tools-admin status: a system unit's unknown state names its cause (unit)"
+# shellcheck disable=SC2016  # the $1..$3 are for the inner `bash -c`, not this shell -- do not expand here
+call_services() {
+    bash -c 'helper="$1"; lib="$2"; pre="$3"; set --; source "${helper}" >/dev/null 2>&1 || exit 99
+             declare -F status_services >/dev/null || exit 98
+             source "${lib}" 2>/dev/null || true
+             ai_tools_services__list_records() { printf "%s\n" "ai-tools-relabel.service|system|critical|none|purpose|remedy|||"; }
+             eval "${pre}"; status_services; printf "problems=%s\n" "${STATUS_PROBLEMS}"' \
+        _ "${HELPER}" "${SERVICES_LIB}" "$1" 2>&1
+}
+# A oneshot that has not run: `cat` finds the unit, `show -p Type` answers oneshot, every other property is empty.
+rc=0; out="$(call_services 'systemctl() { [[ "$1" == show && "$3" == Type ]] && printf oneshot; return 0; }')" || rc=$?
+if [[ "${rc}" -eq 98 ]]; then
+    skip "admin status services" "status_services absent (older helper?)"
+elif grep -qE '^ +\[\?\] +ai-tools-relabel\.service  has not run since boot -- ' <<<"${out}" \
+        && ! grep -qF 'systemctl is unavailable' <<<"${out}" && grep -qx 'problems=0' <<<"${out}"; then
+    pass "a system oneshot with no run since boot reads ? naming that, and is not counted"
+else
+    fail "never-run oneshot (rc ${rc}): $(tr '\n' '|' <<<"${out}")"
+fi
+# A start time whose read failed is not a run that has not happened: `show` fails for that one property.
+rc=0; out="$(call_services 'systemctl() { [[ "$1" == show && "$3" == ExecMainStartTimestamp ]] && return 1
+                                          [[ "$1" == show && "$3" == Type ]] && printf oneshot; return 0; }')" || rc=$?
+if [[ "${rc}" -eq 98 ]]; then
+    skip "admin status services" "status_services absent (older helper?)"
+elif grep -qE '^ +\[\?\] +ai-tools-relabel\.service  its state could not be read -- systemctl status ai-tools-relabel\.service shows it$' <<<"${out}" \
+        && ! grep -qE '^ +\[\?\] +ai-tools-relabel\.service  has not run since boot -- ' <<<"${out}" && grep -qx 'problems=0' <<<"${out}"; then
+    pass "a system oneshot whose start time could not be read reads ? as unreadable, not as a unit that has not run"
+else
+    fail "an unreadable start time (rc ${rc}): $(tr '\n' '|' <<<"${out}")"
+fi
+rc=0; out="$(call_services 'PATH=/nonexistent')" || rc=$?
+if [[ "${rc}" -eq 98 ]]; then
+    skip "admin status services" "status_services absent (older helper?)"
+elif grep -qE '^ +\[\?\] +ai-tools-relabel\.service  systemctl is unavailable here$' <<<"${out}" \
+        && grep -qx 'problems=0' <<<"${out}"; then
+    pass "a system unit on a host without systemctl reads ? naming that, and is not counted"
+else
+    fail "no systemctl (rc ${rc}): $(tr '\n' '|' <<<"${out}")"
 fi
 
 finish

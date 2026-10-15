@@ -5,7 +5,8 @@
 # by ai-tools-upgrade-selftest.service under a live systemd. packaging/Upgrade.Containerfile installs the published
 # release and writes /etc/ai-tools-upgrade-selftest.conf, which names the scenario:
 #
-#   key-first      ai-tools-assets-core installed and AI_TOOLS_ASSETS written in operator.conf before the upgrade:
+#   key-first      ai-tools-assets-sets-core installed by its former name, ai-tools-assets-core, which it provides,
+#                  and AI_TOOLS_ASSETS written in operator.conf before the upgrade:
 #                  the upgrade's %post moves base's copies aside and links every core asset in the same transaction,
 #                  and the Assets section does not report a notice. At a name core reuses, the view holds core's link
 #                  and an agent's existing link to it is kept. A 0.23 host has no `assets` verb, so the key is
@@ -168,8 +169,8 @@ notice_names_all() {
 }
 # relabel_ran_once_after : ai-tools-relabel.service ran exactly once since the cursor taken before the upgrade,
 # and that run succeeded. Base's pretrans stops the watcher before the first file is placed, so no run starts inside
-# the transaction, and its posttrans starts the service once every package is placed; the run is queued without
-# waiting, so the check first waits for its job to leave the queue and the unit to leave `activating`. A run is read
+# the transaction, and its posttrans starts the service once every package is placed; the run is queued without waiting,
+# so the check first waits for its job to leave the queue and the unit to leave `activating`. A run is read
 # from the manager's own lines for the unit, one `Finished` or `Failed to start` per run.
 relabel_ran_once_after() {
     local lines runs
@@ -200,7 +201,8 @@ phase "base's copies stand in the view before the upgrade" withdrawn_in_view
 printf 'AI_TOOLS_AGENTS=[agent-claude-code]\n' >> "${CONF}"
 
 if [[ "${UPGRADE_SCENARIO}" == key-first ]]; then
-    phase "ai-tools-assets-core installs beside ${FROM_VERSION}" dnf -y install ai-tools-assets-core
+    phase "dnf install ai-tools-assets-core beside ${FROM_VERSION}" dnf -y install ai-tools-assets-core
+    phase "the former name installed ai-tools-assets-sets-core" rpm -q ai-tools-assets-sets-core
     printf 'AI_TOOLS_ASSETS=[%s]\n' "$(IFS=,; printf '%s' "${CORE_IDS[*]}" | sed 's/,/, /g')" >> "${CONF}"
 fi
 
@@ -218,12 +220,12 @@ case "${UPGRADE_SCENARIO}" in
         phase "the upgrade's transaction links every core asset, in the view and for the agent" core_linked
         phase "the Assets section reports no successor notice and no view-occupied" notice_absent
         phase "the transaction output names the successor set" \
-            grep -q 'their successors are in the asset set core (package ai-tools-assets-core)' /tmp/upgrade.log ;;
+            grep -q 'their successors are in the asset set core (package ai-tools-assets-sets-core)' /tmp/upgrade.log ;;
     without-core)
         phase "no core asset is linked" core_unlinked
         phase "one successor-unenabled line names every withdrawn entry, and the section closes with its summary" \
             notice_names_all
-        phase "ai-tools-assets-core installs" dnf -y install ai-tools-assets-core
+        phase "ai-tools-assets-sets-core installs" dnf -y install ai-tools-assets-sets-core
         phase "assets enable --set core" "${ADMIN}" assets enable --set core
         phase "every core asset is linked, in the view and for the agent" core_linked
         phase "the notice has ended" notice_absent

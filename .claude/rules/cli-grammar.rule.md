@@ -26,7 +26,7 @@ URI on the other side.
 | A command is a **bare word**; `--` introduces an option and never a command | `operators add`, not `--operator-add` |
 | A collection takes the **plural** noun | `operators`, `groups`, `entrypoints` |
 | The **verb comes after** the noun, and is never hyphenated into it | `groups enable <name>`, not `enable-group <name>` |
-| `list` is the **zero-argument default** on a collection | `ai-tools-admin operators` lists them |
+| `list` is the **zero-argument default** on a collection, and on a domain whose `list` reads without a write | `ai-tools-admin operators` lists them; a bare `assets` runs `assets list` |
 | A bare noun with no `list` yet prints its verbs | it MUST NOT default to a **mutating** verb |
 | A global, one-shot or infrastructure-level action goes top-level or under `system` | `system post-upgrade`, `system bootstrap` |
 | Switches are **descriptive and long** | `--dry-run`, not `-n`; new surface does not add short flags |
@@ -244,7 +244,7 @@ side and authorization middleware expresses it on the HTTP side. Neither needs a
 
 `ai-tools-admin` conforms: `operators [list|add|remove]`, `selinux groups [list|enable|disable]`,
 `system bootstrap [--scope minimal|full] [--agents NAME[,NAME...]]`, `system entrypoints relabel`,
-`system post-upgrade`, `status`, `assets enable|disable|reconcile`, `--help`/`-h`, `--version`, plus one domain
+`system post-upgrade`, `status`, `assets [list|enable|disable|reconcile]`, `--help`/`-h`, `--version`, plus one domain
 per installed provider — `dotnet bootstrap`, `dotnet tools install <pkg...>`, `dotnet status`. `ai-tools-admin(8)`
 documents the base surface and `tests/unit/man.sh` holds the page, the helper's `usage()` and its dispatch arms
 in agreement, so a command renamed in one of the three fails the suite rather than going stale in the others.

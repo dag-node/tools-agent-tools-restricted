@@ -67,6 +67,7 @@ set +x
 # derived from the RPMs the build produced (the local repo the image installed from), not a list kept by hand here,
 # so a subpackage added to the spec is asserted automatically and a member whose weak dependency silently fails
 # to resolve is caught.
+# shellcheck disable=SC2016  # the $(...) expands in the inner `bash -c`, not here
 phase "Metapackage pulled every built subpackage" \
     bash -c 'set -e; [ -d /tmp/ai-repo ] || { echo "no local repo to derive the expected set from" >&2; exit 1; }
              rpm -q $(rpm -qp --qf "%{NAME}\n" /tmp/ai-repo/*.rpm | sort -u) >/dev/null'
@@ -75,6 +76,7 @@ phase "Metapackage pulled every built subpackage" \
 # docs/rpm-packaging.md). With the Obsoletes alone, anything still depending on the old name loses its provider
 # mid-transaction; with the Provides alone, dnf cannot replace the installed old package at all and the upgrade fails
 # outright. Derived from the built set, so this covers a rename introduced later without being told about it.
+# shellcheck disable=SC2016  # the $(...) expands in the inner `bash -c`, not here
 phase "Renamed subpackages Provide every name they Obsolete" \
     bash -c 'set -e
              for r in /tmp/ai-repo/*.rpm; do
@@ -114,6 +116,7 @@ phase "contributed command domain dispatches (dotnet status)" \
 # and no other. Read from the built RPM rather than the installed tree, so a %files list that drifted
 # from the derivation fails here whether or not the package was installed. getenforce is Disabled in a container,
 # so whether a module LOADS is not covered.
+# shellcheck disable=SC2016  # the $(...) expands in the inner `bash -c`, not here
 phase "ai-tools-selinux ships exactly the derived policy module set" \
     bash -c 'set -e
              rpm=$(ls /tmp/ai-repo/ai-tools-selinux-*.rpm | head -1)
@@ -173,12 +176,15 @@ phase "project is in the operator's allowlist" \
 banner "Re-assert sandbox-area ACL + setgid (OCI layers drop build-time dir attrs)"
 chmod 2750 /var/opt/ai-tools 2>/dev/null || :
 chmod 2770 /var/opt/ai-tools/sandbox-projects 2>/dev/null || :
-setfacl -m  g:ai-ops:r-x /var/opt/ai-tools \
+if setfacl -m  g:ai-ops:r-x /var/opt/ai-tools \
     && setfacl -m  g:ai-ops:rwx /var/opt/ai-tools/sandbox-projects \
     && setfacl -d -m g:ai-ops:rwX /var/opt/ai-tools/sandbox-projects \
     && setfacl -m  g:ai-ops:r-- /var/opt/ai-tools/README.md \
-    && setfacl -m  g:ai-ops:r-x /var/opt/ai-tools/state \
-    && note "sandbox ACL re-applied" || note "sandbox ACL re-apply failed (continuing)"
+    && setfacl -m  g:ai-ops:r-x /var/opt/ai-tools/state; then
+    note "sandbox ACL re-applied"
+else
+    note "sandbox ACL re-apply failed (continuing)"
+fi
 
 # ── the project test suite (DAC + systemd parts; SELinux parts no-op/skip) ────
 if [[ "${RUN_TESTS}" == "1" && -f "${SRC_DIR}/tests/run.sh" ]]; then
@@ -200,8 +206,8 @@ ASSET_STAGE=/tmp/asset-selftest
 ASSET_BINDING=/usr/local/lib/ai-tools/assets-bindings.d/acme.conf
 ASSET_KEYRING=/usr/local/lib/ai-tools/keys/selftest-acme.gpg
 
-# asset_set_rpm <version> <skill>... : build ai-tools-assets-acme-<version> holding a signed set `acme` with one skill
-# per name and one subagent, into ${ASSET_STAGE}/rpms.
+# asset_set_rpm <version> <skill>... : build ai-tools-assets-sets-acme-<version> holding a signed set `acme` with one
+# skill per name and one subagent, into ${ASSET_STAGE}/rpms.
 asset_set_rpm() {
     local version="$1" tree="${ASSET_STAGE}/tree-$1" skill file digest
     shift
@@ -219,7 +225,7 @@ asset_set_rpm() {
     GNUPGHOME="${ASSET_STAGE}/gnupg" gpg --batch --quiet --armor --detach-sign \
         --output "${tree}/acme/SHA256SUMS.asc" "${tree}/acme/SHA256SUMS"
     cat > "${ASSET_STAGE}/acme.spec" <<SPEC
-Name: ai-tools-assets-acme
+Name: ai-tools-assets-sets-acme
 Version: ${version}
 Release: 1
 Summary: selftest asset set
@@ -235,7 +241,7 @@ cp -a ${tree}/acme %{buildroot}/usr/share/ai-tools-assets/acme
 /usr/share/ai-tools-assets/acme
 SPEC
     rpmbuild -bb --quiet --define "_topdir ${ASSET_STAGE}/rpmbuild" "${ASSET_STAGE}/acme.spec" >/dev/null
-    ls "${ASSET_STAGE}/rpmbuild/RPMS/noarch/ai-tools-assets-acme-${version}-1.noarch.rpm"
+    ls "${ASSET_STAGE}/rpmbuild/RPMS/noarch/ai-tools-assets-sets-acme-${version}-1.noarch.rpm"
 }
 
 # asset_view_holds <name> <target> / asset_view_lacks <name> : the skills view and every enabled agent's skills
@@ -277,17 +283,17 @@ phase "assets: a throwaway-signed set and its binding, both identifiers enabled 
     bash -c "$(declare -f asset_set_rpm asset_selftest_setup); ASSET_STAGE='${ASSET_STAGE}' ASSET_BINDING='${ASSET_BINDING}' ASSET_KEYRING='${ASSET_KEYRING}' asset_selftest_setup"
 phase "assets: base and a set in one transaction leave the set's skill linked" \
     bash -c "$(declare -f asset_view_holds); set -e
-             rpm -Uvh --replacepkgs /tmp/ai-repo/ai-tools-base-[0-9]*.rpm '${ASSET_STAGE}'/rpmbuild/RPMS/noarch/ai-tools-assets-acme-0.1.0-1.noarch.rpm
+             rpm -Uvh --replacepkgs /tmp/ai-repo/ai-tools-base-[0-9]*.rpm '${ASSET_STAGE}'/rpmbuild/RPMS/noarch/ai-tools-assets-sets-acme-0.1.0-1.noarch.rpm
              asset_view_holds acme-pdf /usr/share/ai-tools-assets/acme/skills/acme-pdf
              [ ! -e /opt/ai-tools/skills/acme-extra ] && [ ! -L /opt/ai-tools/skills/acme-extra ]"
 phase "assets: the set upgraded alone links the skill it adds" \
     bash -c "$(declare -f asset_view_holds); set -e
-             rpm -Uvh '${ASSET_STAGE}'/rpmbuild/RPMS/noarch/ai-tools-assets-acme-0.1.1-1.noarch.rpm
+             rpm -Uvh '${ASSET_STAGE}'/rpmbuild/RPMS/noarch/ai-tools-assets-sets-acme-0.1.1-1.noarch.rpm
              asset_view_holds acme-pdf /usr/share/ai-tools-assets/acme/skills/acme-pdf
              asset_view_holds acme-extra /usr/share/ai-tools-assets/acme/skills/acme-extra"
 phase "assets: the set erased alone leaves no link to it and no dangling link" \
     bash -c "$(declare -f asset_view_lacks); set -e
-             rpm -e ai-tools-assets-acme
+             rpm -e ai-tools-assets-sets-acme
              asset_view_lacks acme-pdf; asset_view_lacks acme-extra"
 banner "Remove the selftest set's binding and entries"
 ai-tools-admin assets disable acme/skills/acme-pdf acme/skills/acme-extra >/dev/null || :

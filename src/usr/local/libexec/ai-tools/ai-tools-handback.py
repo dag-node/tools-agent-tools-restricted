@@ -79,10 +79,8 @@ _PRIO_NUMBER = {'error': '3', 'warning': '4', 'notice': '5', 'info': '6', 'debug
 # selects them whichever sink wrote them.
 _IDENTIFIER = 'ai-tools-handback'
 
-# journald's native datagram socket. AI_TOOLS_JOURNAL_SOCKET moves it for the unit test, with the same standing
-# as AI_TOOLS_LOG_DIR: the daemon's environment comes from its root-owned unit, so neither an operator nor the agent can
-# redirect this trail
-# (tests.rule.md).
+# journald's native datagram socket. AI_TOOLS_JOURNAL_SOCKET moves it for the unit test, a root-only test hook
+# (tests.rule.md, ref-section-b4y9) read from this daemon's root-owned unit alone.
 _JOURNAL_SOCKET = os.environ.get('AI_TOOLS_JOURNAL_SOCKET', '/run/systemd/journal/socket')
 
 # The peer's own systemd user unit, resolved once the SO_PEERCRED check has accepted the peer, and stamped on every

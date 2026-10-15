@@ -19,9 +19,9 @@ sourcing `msg.lib.sh`, so a root helper sources the data layer alone:
 
 - **`records-base.lib.sh`** is the model and the report state: the column registry `AI_TOOLS_RECORDS_BASE__COLUMNS`
   (`name:class` in stream order, the one code-side declaration of the header), the severity and subject-type token sets,
-  the two exit constants (the only place 4 and 5 are spelled in code), and the fold that turns the severities a run
-  noted into `ai_tools_records_base__get_exit_status`. It is format-independent, so a later JSON writer reuses its
-  predicate and its state.
+  the two exit constants (the only place 4 and 5 are spelled in code), the fold that turns the severities a run noted
+  into `ai_tools_records_base__get_exit_status`, and `ai_tools_records_base__read_subject_type`, the one reader
+  of a subject's observed type. It is format-independent, so a later JSON writer reuses its predicate and its state.
 - **`records-tsv.lib.sh`** is the wire format: the canonical escape and its strict decoder, the item framing, the record
   identity (the hash is over the TSV encoding, which is why the identity helper lives here) and the row writer.
 
@@ -34,7 +34,7 @@ non-zero return from the writer is a failed write (a closed pipe), after which t
 The fold itself only rises: `attention` over `ok`, `unreadable` over both, and a token outside the set folds
 as `unreadable`, so no consumer reads a run as clean because of a token the library did not know. A report ends with one
 status path, `ai_tools_records_base__get_exit_status || exit $?`, or on a command that changes the host the combination
-`ai-tools-records(5)` states under EXIT STATUS (1 over 5 over 4).
+`ai-tools-records(5)` states.
 
 A report that prints for a person and does not write a stream takes the same fold for its exit alone: `ai-tools status`,
 `ai-tools-admin status` and `ai-tools audit` source `records-base.lib.sh`, note `attention` for each fault they read
@@ -42,7 +42,7 @@ and `unreadable` for each reading they could not make, and end on `ai_tools_reco
 names every reading that could not be made, so exit 5 is never a page that reads clean. Which readings each command
 counts, and which it leaves at 0, are in [cli](cli.rule.md).
 
-## Rules for a report calling the libraries
+## Rules for a report calling the libraries <a id="ref-section-u5t7"></a>
 
 - **State changes run in the report's own shell.** Every `ai_tools_records_base__*` call that changes state —
   `begin_report`, `accumulate_severity`, `write_record` — is made in the report's own shell, never inside `$(...)`,
@@ -64,6 +64,11 @@ counts, and which it leaves at 0, are in [cli](cli.rule.md).
 - **A line an upstream tool prints that the parser does not recognize is an `error` row, not a guess.** Line output
   (`restorecon -v`) is ambiguous for a path holding a line feed, which is why a claim verifies each path it reports
   on its own rather than trusting the scan's text.
+- **A row's subject-type is what is at the subject**, from `ai_tools_records_base__read_subject_type`. Where no entry is
+  there (status 2), the caller writes the type it expects at that path. Where the reader refuses the entry — a type
+  the token set does not name, or a read that did not complete — the row takes the expected type too and an `error` row
+  about the same subject, severity `unreadable`, follows it, so the finding stays in the stream and the run exits 5.
+  The result labels a row and does not gate a decision.
 - **A shell reader does not split a row with `IFS=$'\t' read`.** Tab is IFS whitespace, and bash collapses adjacent
   empty fields, so positions are lost; `cut -f` or a manual split keeps them.
 
@@ -96,13 +101,13 @@ bytes of an e-acute), which is why the name is on the refused list.
 
 `tests/unit/records.sh` loads the **checkout's** libraries by path and prints the two paths first: after an install,
 an installed-first test would pass against the installed copy while the checkout's code changes. It pins the schema
-against the page's COLUMNS section, the escape against known answers a `python3` snippet writes from the page's rules (a
-round trip alone would share the encoder's defect), the page's Python decoder — extracted between its two marker
-comments, rendered with `groff -man -Tascii -P-cbou` and dedented — over the same fixtures as the shell decoder,
-the reader rules over whole streams, the item framing, the published identity vectors, every severity fold, an invalid
-row under `set -euo pipefail`, a write to a closed pipe, and the rules of [Rules for a report calling
-the libraries](#rules-for-a-report-calling-the-libraries) and [Caps](#caps-a-deliberate-stop-stays-apart-from-a-failure)
-through a fixture collector. `groff`, `python3` and `sha256sum` are dependencies there: a missing one fails rather than
-skips, so the page's decoder is checked on every platform the suite runs on, and the container selftest images install
-`groff-base` for it. The installed copies are covered by `tests/integration/perms.sh`, and each consumer's own suite
-drives the real collectors.
+against the page, the escape against known answers a `python3` snippet writes from the page's rules (a round trip alone
+would share the encoder's defect), the page's Python decoder — extracted between its two marker comments, rendered
+with `groff -man -Tascii -P-cbou` and dedented — over the same fixtures as the shell decoder, the reader rules
+over whole streams, the item framing, the published identity vectors, every severity fold, an invalid row
+under `set -euo pipefail`, a write to a closed pipe, each outcome of the subject-type reader, and the rules of [Rules
+for a report calling the libraries](#rules-for-a-report-calling-the-libraries)
+and [Caps](#caps-a-deliberate-stop-stays-apart-from-a-failure) through a fixture collector. `groff`, `python3`
+and `sha256sum` are dependencies there: a missing one fails rather than skips, so the page's decoder is checked on every
+platform the suite runs on, and the container selftest images install `groff-base` for it. The installed copies are
+covered by `tests/integration/perms.sh`, and each consumer's own suite drives the real collectors.

@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # Test-image only: runs the upgrade transaction selftest once, after the system instance is up and networking is
-# online (the scenarios install ai-tools-assets-core from the signed repository), then stops the container with
+# online (the scenarios install ai-tools-assets-sets-core from the signed repository), then stops the container with
 # the aggregate status via `systemctl exit` from the script.
 [Unit]
 Description=ai-tools RPM upgrade transaction selftest

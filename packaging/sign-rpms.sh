@@ -2,9 +2,8 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # Sign release RPMs with the dag-node org signing key and export the matching public key. Runs INSIDE the matching-EL
 # build container (ai-tools-rpmbase:elN) so the rpm/gnupg toolchain that signs is the same one that built the packages
-# -- see docs/rpm-packaging.md. The release workflow invokes it
-# over the freshly built RPMs before publishing, so every published package carries a header signature an operator
-# verifies with `rpm --import RPM-GPG-KEY-dag-node`.
+# -- see docs/rpm-packaging.md. The release workflow invokes it over the freshly built RPMs before publishing, so every
+# published package carries a header signature an operator verifies with `rpm --import RPM-GPG-KEY-dag-node`.
 #
 # Usage (rpm-sign + gnupg2 + rpm-build must be present in the container):
 #   ```bash
@@ -31,12 +30,29 @@
 # to fail), so a return-code-only test passes a silent rpmsign no-op; the 0.6.1 assets shipped unsigned that way. Errors
 # use the ::error:: prefix so GitHub Actions surfaces them as annotations; the text reads plainly on a local terminal
 # too. Every secret (imported private key, passphrase) lives in a scratch tree under /dev/shm, which must be tmpfs,
-# and the exit trap stops the gpg-agent and wipes it -- never persistent disk, never the container's real keyring or
-# rpmdb.
+# and the exit trap stops the gpg-agent and wipes it -- never persistent disk, never the container's real keyring
+# or rpmdb. The trap prints the size the tree reached, which the release job's `--shm-size` for the container is set
+# against.
 set -euo pipefail
 
 err() { echo "::error::sign-rpms: $*" >&2; }
 die() { err "$*"; exit 1; }
+warn() { echo "::warning::sign-rpms: $*" >&2; }
+
+# The EXIT trap main sets once the scratch tree exists: print the tree's size, stop its gpg-agent, then remove the tree.
+# The removal runs whatever the stop answered, so an agent that does not stop does not leave the key and the passphrase
+# file on /dev/shm.
+remove_workdir() {
+    local size
+    if size="$(du -sk "${workdir}" 2>/dev/null)"; then
+        echo "sign-rpms: the scratch tree held ${size%%[[:space:]]*} KiB"
+    else
+        warn "the size of ${workdir} could not be read"
+    fi
+    GNUPGHOME="${workdir}/gnupg" gpgconf --kill gpg-agent 2>/dev/null \
+        || warn "the gpg-agent of ${workdir}/gnupg did not stop"
+    rm -rf "${workdir}" || warn "${workdir} was not removed"
+}
 
 # Import GPG_SIGNING_KEY into <gnupghome> and echo the signer fingerprint (%_gpg_name).
 import_signing_key() {
@@ -174,17 +190,17 @@ main() {
     command -v rpmsign >/dev/null 2>&1 || die "rpmsign not found (install rpm-sign)"
     command -v rpmkeys >/dev/null 2>&1 || die "rpmkeys not found (install rpm-sign)"
 
-    # One scratch tree holds every secret (imported private keyring, passphrase file), under /dev/shm; a /dev/shm that
-    # is absent or not tmpfs refuses before anything is created there, so key material does not land in a disk-backed
-    # directory. gpg needs the private key in a keyring DIRECTORY (it cannot sign from a variable), and rpmsign forks
-    # gpg once per package, so the passphrase must stay re-readable here rather than a one-shot stream -- keeping it on
-    # the same RAM tree as the unavoidable keyring leaves disk exposure unchanged. The runner VM is ephemeral.
-    # Script-global, not local: the EXIT trap fires after main returns, where a local is out of scope -- an unbound
-    # reference under `set -u` -- and the wipe must still run.
+    # One scratch tree holds every secret (imported private keyring, passphrase file), under /dev/shm; a /dev/shm
+    # that is absent or not tmpfs refuses before anything is created there, so key material does not land
+    # in a disk-backed directory. gpg needs the private key in a keyring DIRECTORY (it cannot sign from a variable),
+    # and rpmsign forks gpg once per package, so the passphrase must stay re-readable here rather than a one-shot stream
+    # -- keeping it on the same RAM tree as the unavoidable keyring leaves disk exposure unchanged. The runner VM is
+    # ephemeral. Script-global, not local: the EXIT trap fires after main returns, where a local is out of scope --
+    # an unbound reference under `set -u` -- and the wipe must still run.
     [[ -d /dev/shm && "$(stat -f -c %T /dev/shm 2>/dev/null)" == tmpfs ]] \
         || die "/dev/shm is absent or not tmpfs"
     workdir="$(mktemp -d -p /dev/shm)" || die "no directory could be created under /dev/shm"
-    trap 'GNUPGHOME="${workdir}/gnupg" gpgconf --kill gpg-agent 2>/dev/null; rm -rf "${workdir}"' EXIT
+    trap remove_workdir EXIT
     [[ "$(stat -f -c %T "${workdir}")" == tmpfs ]] || die "${workdir} is not on tmpfs"
 
     SIGNER_FPR="$(import_signing_key "${workdir}/gnupg")"

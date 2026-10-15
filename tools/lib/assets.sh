@@ -25,11 +25,17 @@
 # it verifies, so running a tool from it does not write into it -- Python's byte-code cache would otherwise add files
 # the core inventory does not list -- and `fetch` restores write access only to replace it. `path` reads the cache
 # alone; `fetch` is the one network step. A fetch is staged in a directory of its own under the cache and renamed
-# into place only after every check passed.
+# into place only after every check passed. A caller does not read a fallback: with the cache empty the git hooks print
+# the fetch command (AI_TOOLS_DEV_ASSETS__FETCH_COMMAND) and exit 0, and the formatter front door and the reftags
+# wrapper exit 1 with it.
+#
+# The pins are this repository's development lockfile: no installed component reads them, and they may lag the latest
+# release of either repository.
 #
 # A checkout stands in for a pin, reported: AI_TOOLS_DEV_ASSETS_CORE names a checkout of ai-tools-assets (its
 # `sets/core` is the tree) and AI_TOOLS_DEV_ASSETS_TOOLS one of ai-tools-assets-tools (holding `formatters/`
-# and `fixtures/`); `path` then prints a BYPASS line on stderr naming the checkout and its commit.
+# and `fixtures/`); `path` then prints a BYPASS line on stderr naming the checkout and its commit,
+# as `git describe --always --dirty` prints it, so a run over uncommitted edits reads `-dirty`.
 #
 # The module name is `dev_assets`, since `assets` is assets.lib.sh's and the conformance checker loads both.
 
@@ -92,7 +98,7 @@ ai_tools_dev_assets__read_pin() {
         esac
     done < "${pin}"
     case "${name}" in
-        core)  archive_pattern='^ai-tools-assets-core-[0-9][0-9A-Za-z.+-]*\.zip$' ;;
+        core)  archive_pattern='^ai-tools-assets-sets-core-[0-9][0-9A-Za-z.+-]*\.zip$' ;;
         tools) archive_pattern='^ai-tools-assets-tools-[0-9][0-9A-Za-z.+-]*\.tar\.gz$' ;;
     esac
     if [[ ! "${AI_TOOLS_DEV_ASSETS__PIN_TAG}" =~ ^[A-Za-z0-9][A-Za-z0-9._/+-]*$ ]]; then
@@ -249,7 +255,7 @@ ai_tools_dev_assets__resolve_path() {
             _ai_tools_dev_assets__refuse "${checkout} is not a checkout of the ${name} pin's repository"; return 1
         fi
         printf 'assets: BYPASS -- %s resolved from the checkout %s at %s, not its pin\n' "${name}" "${checkout}" \
-            "$(git -C "${checkout}" rev-parse --short HEAD 2>/dev/null || printf 'an unknown commit')" >&2
+            "$(git -C "${checkout}" describe --always --dirty 2>/dev/null || printf 'an unknown commit')" >&2
         printf '%s\n' "${tree}"
         return 0
     fi

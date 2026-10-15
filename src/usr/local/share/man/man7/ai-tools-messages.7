@@ -433,6 +433,10 @@ failed to add ${user} to ${OPERATORS_GROUP}
 WARNING.
 The '${name}' SELinux policy group is an EXPERIMENTAL, unaudited draft. It is not shipped prebuilt and cannot be enabled from here \-\- it widens the sandbox domain's access beyond the repo\-only core and must be compiled and verified against a real workload from a source checkout first.
 .TP
+.B MSG-C7N4
+ERROR.
+assets: ${conf} could not be read whole (reader status ${status}), so AI_TOOLS_ASSETS is not written and the file is unchanged \-\- check that it is readable and run the command again
+.TP
 .B MSG-C7S7
 ERROR.
 system takes a resource or a verb: 'system bootstrap', 'system entrypoints relabel', 'system post\-upgrade'
@@ -451,7 +455,7 @@ refusing ${fragment}: it is a symlink, is not root\-owned, or is writable by gro
 .TP
 .B MSG-D4S7
 ERROR.
-unknown command 'assets ${verb}' (enable|disable|reconcile)
+unknown command 'assets ${verb}' (list|enable|disable|reconcile)
 .TP
 .B MSG-D6K9
 ERROR.
@@ -481,10 +485,6 @@ the provisioning helper is not installed: ${BOOTSTRAP_BIN} \-\- install ai\-tool
 ERROR.
 a verb outside the command charset: ${fragment} declares $(printf '%q' "${verb}") among its verbs, and a verb is a bare lower\-case word
 .TP
-.B MSG-E5Z8
-ERROR.
-assets takes a verb: 'assets enable <id>...', 'assets enable \-\-set <set>', 'assets disable <id>...', 'assets reconcile'
-.TP
 .B MSG-E8S8
 WARNING.
 hook\-repeated
@@ -500,6 +500,10 @@ ask\-missing
 .B MSG-F2G7
 WARNING.
 hook\-missing
+.TP
+.B MSG-F3D9
+ERROR.
+assets list takes no arguments
 .TP
 .B MSG-F4Z5
 ERROR.
@@ -609,6 +613,10 @@ unknown command: ${domain}
 WARNING.
 could not create ${cfg} at 700 ${user}:${group}
 .TP
+.B MSG-N3M8
+NOTICE.
+assets enable: an identifier added to AI_TOOLS_ASSETS
+.TP
 .B MSG-N3T7
 WARNING.
 could not label ${cfg} ${AI_TOOLS_RELABEL__OPERATOR_CONF_TYPE}${AI_TOOLS_RELABEL__FCONTEXT_ERROR:+ \-\- ${AI_TOOLS_RELABEL__FCONTEXT_ERROR}}
@@ -691,7 +699,7 @@ semodule failed to remove ai_tools_${name}
 .TP
 .B MSG-Q8E5
 ERROR.
-assets: AI_TOOLS_ASSETS could not be written to ${conf} (writer status ${rc})${backup:+; the previous file is ${backup}}
+assets: the write of AI_TOOLS_ASSETS to ${conf} was not confirmed (writer status ${rc}), so the file holds the list it held or the one this call wrote${backup:+; the file as it was is ${backup}} \-\- read the line, then run sudo ai\-tools\-admin assets reconcile to bring the links in line with it
 .TP
 .B MSG-R3M6
 ERROR.
@@ -712,6 +720,10 @@ list\-unmigratable
 .B MSG-S3E9
 ERROR.
 operators remove: name the user to withdraw
+.TP
+.B MSG-S4M7
+ERROR.
+assets: the list to write does not hold exactly the entries read with this call's change (an entry that differs: $(ai_tools_log__sanitize "${identifier}")), so AI_TOOLS_ASSETS was not written and ${AI_TOOLS_OPERATOR_CONF} is unchanged \-\- this is a defect in ai\-tools\-admin; report it
 .TP
 .B MSG-S5P4
 ERROR.
@@ -1769,11 +1781,6 @@ ERROR.
 .B MSG-Z5S7
 WARNING.
 left ${hardlinked} hardlinked file(s) untouched \-\- an inode with more than one name can be reached from outside this tree, so changing it here would change a path this pass never authorized. They KEEP the group they have, so the agent is not off them: list them with
-.SS assets.lib.sh
-.TP
-.B MSG-Z3P6
-WARNING.
-assets reconcile: an enable\-list entry's state, or a link the view transaction placed, removed or found
 .SS assets-verify.lib.sh
 .TP
 .B MSG-Q6Y8
@@ -1783,6 +1790,35 @@ the set is refused as unverified \-\- $*
 .B MSG-T3M3
 WARNING.
 the set is refused as tampered \-\- $*
+.SS assets.lib.sh
+.TP
+.B MSG-B8J9
+WARNING.
+assets list: a link the view transaction would place or remove, or an entry or directory it found
+.TP
+.B MSG-K6J2
+WARNING.
+assets reconcile: a link the view transaction placed, removed or could not change, or an entry or directory it found
+.TP
+.B MSG-M7J8
+WARNING.
+the set a resolver link points into could not be read again (${_AI_TOOLS_ASSETS__SET_KEYS_LOST} read(s) failed), so the rows about those links sort ahead of the sets of their kind; every row is still written, and only the order differs
+.TP
+.B MSG-Q7F7
+ERROR.
+assets: the order of a report's rows could not be computed, so they are written in the order they were recorded
+.TP
+.B MSG-W5Q3
+WARNING.
+assets list: an enable\-list entry's state, or why the enable list enables no asset
+.TP
+.B MSG-Y8T3
+WARNING.
+the rows are written in the order they were recorded: the sort of their keys exited ${_sort_rows_status} and printed ${#_sort_rows_ordered[@]} line(s) for ${#_sort_rows_rows[@]} row(s), where it must exit 0 and name each row once
+.TP
+.B MSG-Z3P6
+WARNING.
+assets reconcile: an enable\-list entry's state, or why the enable list enables no asset
 .SS cache-cleanup.lib.sh
 .TP
 .B MSG-G5U7

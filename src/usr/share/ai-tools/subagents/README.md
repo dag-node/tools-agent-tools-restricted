@@ -7,7 +7,7 @@ from `/opt/ai-tools/.claude/agents/`; this project says subagent, since
 an agent here is the coding assistant itself. They come from asset sets:
 
 ```bash
-sudo dnf install ai-tools-assets-core
+sudo dnf install ai-tools-assets-sets-core
 sudo ai-tools-admin assets enable --set core
 ```
 

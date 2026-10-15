@@ -86,7 +86,7 @@ Recommends:     ai-tools-selinux = %{version}-%{release}
 # The writing standard, the engineering and governance skills and the reference-docs subagent are the asset set
 # core's: a fresh install pulls the set, and an upgrade, which does not add a weak dependency, is told to install and
 # enable it by %%post and by `ai-tools-admin status`.
-Recommends:     ai-tools-assets-core
+Recommends:     ai-tools-assets-sets-core
 
 %description -n ai-tools-base
 The provider-agnostic base layer: the ai-tools system account, the ai-ops
@@ -1589,6 +1589,53 @@ fi
 %attr(0644, root, root) %{_datadir}/ai-tools/codex/managed_config.toml
 
 %changelog
+* Thu Oct 15 2026 dagnode <tools@dagnode.com> - 0.25.0-1
+- CHANGE: The asset set core's package is ai-tools-assets-sets-core, the name base recommends and
+  'sudo ai-tools-admin status' prints when the set is missing; the plugin keeps the name ai-tools-assets-core.
+  A host that installed the set as ai-tools-assets-core moves to the new name on 'sudo dnf upgrade', with no
+  other step.
+- CHANGE: 'sudo ai-tools-admin assets reconcile', 'enable' and 'disable' write each row about a link they
+  placed, removed, failed on or found under MSG-K6J2, with the tokens 'placed' and 'removed' and subject-type
+  'link'. Before, those rows shared MSG-Z3P6 with the entry rows, read 'linked' and 'unlinked', and were
+  'file' for the view's links and 'agent' for an agent's. An entry's row under MSG-Z3P6 is 'link' where it was
+  'file'. Update a consumer that selects those rows by code, token or subject-type ('man ai-tools-records').
+- CHANGE: A 'sudo ai-tools-admin system post-upgrade --check' row about a link in an agent's directory is
+  subject-type 'link' (was the asset kind's 'directory' or 'file'), and a row about a real entry there reads
+  the entry's own type. A consumer that stores records keyed on subject-type rereads these rows after
+  the upgrade.
+- CHANGE: An assets or 'system post-upgrade --check' row whose subject is of a type the token set does not
+  name, or whose type could not be read, keeps the type the report expects there and is followed by an
+  'unreadable' error row, so the run exits 5. Before, the assets rows read 'file' there.
+- CHANGE: 'assets enable' writes one 'enabled' row per identifier it adds (MSG-N3M8), and the 'assets disable'
+  row (MSG-Q2C6) reads 'disabled' where it read 'unlinked'. A disable that names one identifier twice writes
+  one row.
+- NEW: 'sudo ai-tools-admin assets', and 'assets list', print the state of every enabled asset and each link
+  a reconcile would place, repoint or remove, without the lock and without a write. A pending change is
+  a 'link-pending' or 'unlink-pending' row naming 'assets reconcile', and the command exits 4; a host whose
+  links match its list exits 0. 'man ai-tools-assets' has the rows.
+- NEW: The assets reports and the Assets section of 'sudo ai-tools-admin status' list their rows by kind, set
+  and name, each asset's list edit, entry, view link and agent links together, and AI_TOOLS_ASSETS
+  in operator.conf is written in that order. Where the order cannot be computed, every row is written in the
+  order it was recorded, with an 'unreadable' row under MSG-Q7F7, and the run exits 5.
+- FIX: 'sudo ai-tools status' and 'sudo ai-tools-admin status' read a toolchain updater run that exited 3
+  with a stamp recording 'skipped' as SKIPPED, as 'ai-tools status' does. Before, the root vantage read
+  the unit's 'failed' and printed FAILED with a restart remedy.
+- FIX: A unit whose type, start time or last result 'systemctl show' did not read prints as '?' in both
+  status reports, and a system unit's '?' line says why: systemctl is missing, the unit is a oneshot with no
+  run since its manager started, or the state could not be read. Before, a failed read printed DOWN or FAILED
+  with a remedy, and every system unit's '?' said systemctl was unavailable.
+- FIX: An AI_TOOLS_SERVICE_LIVE_TIMEOUT that is not a positive whole number of seconds leaves the root status
+  to read each unit from its stamp. Before, '0' ran the probe without a bound, and a value timeout(1) rejects
+  read every unit as down.
+- FIX: 'assets enable' and 'assets disable' refuse, with operator.conf unchanged, where the file could not be
+  read whole (MSG-C7N4) or the list to write does not hold exactly the entries read plus the change
+  (MSG-S4M7); before, a partial read could drop every entry the file held. A write the verb could not confirm
+  says the file holds the old list or the new one, and names the backup and 'sudo ai-tools-admin assets
+  reconcile'.
+- FIX: The rows about a link no entry justifies name the identifier that placed it, '<set>/<kind>/<name>',
+  where they named '<kind>/<name>', so the rows of a link a disable removed carry the identifier you
+  disabled.
+
 * Sun Oct 11 2026 dagnode <tools@dagnode.com> - 0.24.1-1
 - NEW: A set from another publisher installs and links the way core does. Write a binding
   at /etc/ai-tools/assets-bindings.d/<set>.conf that names the key's primary fingerprint and points at
