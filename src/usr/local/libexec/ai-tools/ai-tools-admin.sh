@@ -111,8 +111,7 @@ readonly ASSETS_LIB="/usr/local/lib/ai-tools/assets.lib.sh"
 # needs root ownership, so the reach does not add a command. Unset in production.
 readonly ADMIN_COMMANDS_DIR="${AI_TOOLS_ADMIN_COMMANDS_DIR:-/usr/local/lib/ai-tools/admin-commands.d}"
 # The names base owns. A contributed fragment claiming one is refused, so no installed package can shadow a command
-# an administrator relies on. `status` is reserved before it is implemented: a name a provider could take first is not
-# a name base can take back.
+# an administrator relies on.
 readonly -a BASE_COMMANDS=(operators selinux system status assets)
 # What an administrator does about a contributed command that is not root's alone. Stated once and shared by every
 # message that reports one, so the dispatch, the full-scope bootstrap and the help give one answer. It is deliberately
