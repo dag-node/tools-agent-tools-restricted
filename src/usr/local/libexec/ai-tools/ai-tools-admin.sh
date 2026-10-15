@@ -1903,11 +1903,11 @@ postupgrade() {
 # and the rows. Each finding is one situation, so it carries one message code, and _pu_write_finding is the one table
 # tying a finding to its code and its severity: `attention` makes the run exit AI_TOOLS_RECORDS_BASE__EXIT_FINDINGS,
 # `unreadable` (the `error` finding, a check that could not run) AI_TOOLS_RECORDS_BASE__EXIT_UNREADABLE, and `info` is
-# written under `--all` alone and leaves the exit as it is. The caller names the subject-type, since an asset reported
-# missing has no path to stat, and the item is the components the collector's own granularity gives -- the event
-# and the command of a hook, the list and the rule of a permission rule, a key, and for an `error` one token naming
-# the check -- so two findings on one file keep two ids. No row carries an operator: every subject is under /etc
-# or /opt/ai-tools, host-wide.
+# written under `--all` alone and leaves the exit as it is. The caller names the subject-type: `file`
+# for a configuration finding, and for an asset finding the type _pu_asset_line read at its path, and the item is
+# the components the collector's own granularity gives -- the event and the command of a hook, the list and the rule
+# of a permission rule, a key, and for an `error` one token naming the check -- so two findings on one file keep two
+# ids. No row carries an operator: every subject is under /etc or /opt/ai-tools, host-wide.
 #
 # The collectors feed the check through `< <(...)`, and _pu_run_check saves each one's PID on the statement that opens
 # it and waits for it once its output is read (records.rule.md), so a collector that exits non-zero is an `error` row
@@ -2185,10 +2185,8 @@ _pu_copies() {
     } | _pu_sort_copies
 }
 
-# _pu_asset_line <finding> <expected-type> <path> <detail>: one _pu_assets line about <path>, its subject-type the one
-# ai_tools_records_base__read_subject_type observes there, or <expected-type> where no entry is there. Where the reader
-# refuses the entry -- a type the token set does not name, or a read that did not complete -- the line takes
-# <expected-type> too and an `error` line about <path> follows it, so the finding stays and the run reads unreadable.
+# _pu_asset_line <finding> <expected-type> <path> <detail>: one _pu_assets line about <path>, its subject-type read
+# under the policy records.rule.md states (ref-section-u5t7), <expected-type> being the type expected at <path>.
 _pu_asset_line() {
     local subject_type read_status=0
     subject_type="$(ai_tools_records_base__read_subject_type "$3")" || read_status=$?
@@ -3260,14 +3258,9 @@ status() {
 # ── assets ───────────────────────────────────────────────────────────────────────────────────────────────────────────
 # The `assets` domain: AI_TOOLS_ASSETS in operator.conf names the assets every enabled agent loads, and assets.lib.sh
 # resolves each to `linked` or a reason token and keeps the view and the agents' links current (shipped-assets.rule.md).
-# Every verb that writes takes the assets lock (ai_tools_managed_assets__lock) before its first read of operator.conf
-# and holds it to its exit, so two verbs at once each read the list the other wrote: lock, read, back up, write, plan,
-# apply, report. `assets list` plans and reports without the lock, as `status` does. Every verb prints a record stream
-# (ai-tools-records(5)): its own rows and the reconcile's, as one stream sorted by kind, set and name
-# (ai_tools_assets__sort_report_rows), so each asset's list edit, entry and links are adjacent. A verb exits 1
-# for a write refused or failed, else 5 when the library did not load, else 4 for an attention row, else 0. Each
-# attention row is logged under its code to journald and to the root-only
-# assets.log.
+# A verb that writes runs lock (ai_tools_managed_assets__lock), read, back up, write, plan, apply, report; the lock,
+# the one record stream every verb prints and its exit are shipped-assets.rule.md's (ref-section-j4a7). Each attention
+# row is logged under its code to journald and to the root-only assets.log.
 
 # assets_load: source assets.lib.sh, or exit 5 under its code: a verb whose resolver did not load does not read or write
 # any input.
@@ -3552,9 +3545,8 @@ assets_disable() {
 }
 
 # assets_list: `assets list`, and a bare `assets`: every enabled asset's state and each link a reconcile would place
-# or remove, as a record stream (ai_tools_assets__report_state). Reads without the assets lock, as `status` does, since
-# a read that waited on a reconcile could wait two minutes. Exits 5 when the library did not load, else 4
-# for an attention row -- a pending change among them -- else 0; it does not write, so it does not exit 1.
+# or remove, as a record stream (ai_tools_assets__report_state). Reads without the assets lock (shipped-assets.rule.md,
+# ref-section-e5k5) and does not write, so it does not exit 1.
 assets_list() {
     (( $# == 0 )) || reject MSG-F3D9 "assets list takes no arguments"
     assets_load
@@ -3589,8 +3581,8 @@ assets_dispatch() {
 
 # ── dispatch ─────────────────────────────────────────────────────────────────────────────────
 # One arm per name in the grammar's two shapes: `<collection> [verb]`, where the absent verb is `list`,
-# and `<domain> <collection|verb>`. A bare collection lists; a bare domain prints its own commands, since a domain has
-# no reading that a default could safely take and every verb under one of these mutates the host.
+# and `<domain> <collection|verb>`. A bare collection lists, and so does a domain whose `list` reads without a write
+# (`assets`); any other bare domain prints its own commands, since it has no `list` of its own.
 
 operators_dispatch() {
     local verb="${1:-list}"; [[ $# -eq 0 ]] || shift

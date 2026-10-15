@@ -127,8 +127,8 @@ ai_tools_records_base__is_valid_record() {
 # lstat(2) of its last component: `link` for a symbolic link, `directory` for a directory, `file` for a regular file.
 # Returns 2 without printing where the lstat fails with ENOENT or ENOTDIR (no entry at <path>), and 1 without printing
 # for any other entry type (a FIFO, a socket, a device) and for a read that did not complete (EACCES, an I/O error, no
-# stat(1), output it does not recognize). It does not supply an expected type: a caller that writes one for an absent
-# subject does so on status 2, at its own call site.
+# stat(1), output it does not recognize). It does not supply an expected type; what a caller writes on status 1 and 2 is
+# records.rule.md's (ref-section-u5t7).
 #
 # The result labels a row and is not a check: the path may sit in a directory another account writes, the entry can
 # change before or after the one read, and the ancestors are resolved as the kernel resolves them, symbolic links

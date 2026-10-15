@@ -333,7 +333,9 @@ or
 .B unlink\-pending
 for one
 .B "assets list"
-found a reconcile would place or remove, and
+found a reconcile would place or remove, its detail naming
+.BR "sudo ai\-tools\-admin assets reconcile" ,
+and
 .B kept
 for a file of yours left in an agent's directory where the view also holds an
 entry.
@@ -341,9 +343,14 @@ An enabled asset's own record reads
 .B linked
 at
 .B ok
-on every run while its link is in place;
+while the asset is enabled and resolves, which says nothing about whether its
+link is on disk:
 .B placed
-appears beside it only on the run that made the link.
+appears beside it only on the run that made the link, and
+.B "assets list"
+puts a
+.B link\-pending
+record beside it while the link is missing.
 A record of
 .B agent\-root\-absent
 says that path does not exist yet; the agent's package links it when it is

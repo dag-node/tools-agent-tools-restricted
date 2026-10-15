@@ -7,8 +7,8 @@ docs](../index.md)
 Read the rows a report writes for a machine consumer, in the order they arrive,
 from a .NET 10 program that treats the stream as bytes.
 
-`ai-tools projects claim --format tsv`
-and `ai-tools-admin system post-upgrade --check` write what they found
+The reports `man 5 ai-tools-records` lists,
+`ai-tools projects claim --format tsv` among them, write what they found
 as a record stream on standard output: a header row, then one tab-separated row
 per finding, each ending in a line feed. The contract is
 `man 5 ai-tools-records`; this reads one as it arrives:
@@ -40,7 +40,7 @@ foreach (var row in RecordStream.Read(captured.ToArray()))
 Console.WriteLine($"exit {process.ExitCode}");
 return process.ExitCode;
 
-/// <summary>The FIELD ENCODING and ITEMS rules of ai-tools-records(5).
+/// <summary>The field encoding and item rules of ai-tools-records(5).
 /// Each method throws FormatException on input the rules reject.</summary>
 static class RecordStream
 {

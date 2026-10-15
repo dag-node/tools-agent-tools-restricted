@@ -16,8 +16,10 @@ A report that runs unattended writes what it found as a
 on standard output:
 a header row, then one row per finding, each ending in a line feed,
 every row holding the same number of tab-separated fields as the header.
-.B "ai-tools-admin system post-upgrade --check"
-and
+.BR "ai-tools-admin system post-upgrade --check" ,
+the
+.B "ai-tools-admin assets"
+commands, and
 .B "ai-tools projects claim --format tsv"
 write one.
 The exit status states whether the reading was complete

@@ -73,10 +73,9 @@ What the move gives you:
 - **An asset links only after its set verifies.** The set's file list is signed
   with the key the packages are; a copy that does not match it is not linked,
   and `sudo ai-tools-admin status` says why.
-- **Your own copy wins.** A root-owned entry in an agent's own directory, such
-  as `/opt/ai-tools/.claude/skills/<name>/`, is loaded in place of the set's,
-  and a set copy under `/usr/local/share/ai-tools-assets/` is read ahead
-  of the packaged one.
+- **Your own copy wins.** A root-owned entry in an agent's own directory is
+  loaded in place of the set's, and a set copy of your own is read ahead
+  of the packaged one; `man 5 ai-tools-assets` names the directories.
 
 The upgrade moves the copies the base packages shipped
 to `/opt/ai-tools/retired/`; the enable links the set's in their place.
@@ -84,9 +83,12 @@ What `sudo ai-tools-admin status` reports after the upgrade, and what ends it:
 
 | On the host | `status` after the upgrade | What ends it |
 |---|---|---|
-| the shipped skills, as installed | `successor-unenabled`, exit 4 | `assets enable --set core`, after `dnf install ai-tools-assets-sets-core`; or `AI_TOOLS_ASSETS=[]` |
-| a shipped skill edited in place | `successor-unenabled`, exit 4; the edited copy is under `/opt/ai-tools/retired/` | the same; carry the edit into an agent's own directory |
-| a skill of your own under a shipped name, without the managed marker | `view-foreign`; kept, and loaded by codex alone | move it into an agent's own directory, or remove it |
+| the shipped skills, as installed | names the enable, exit 4 | `assets enable --set core`, after `dnf install ai-tools-assets-sets-core`; or `AI_TOOLS_ASSETS=[]` |
+| a shipped skill edited in place | names the enable, exit 4; the edited copy is under `/opt/ai-tools/retired/` | the same; carry the edit into an agent's own directory |
+| a skill of your own under a shipped name, without the managed marker | names it as foreign; kept, and loaded by codex alone | move it into an agent's own directory, or remove it |
+
+`man ai-tools-admin` names the token the first two lines carry,
+and `man 5 ai-tools-assets` the third's.
 
 A fresh install pulls `core` as a weak dependency and does not enable it,
 so an install runs the enable once ([Install](index.md)).

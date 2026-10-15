@@ -32,8 +32,9 @@ sets:
     Summary: 1 finding needs attention in this section (exit 4)
 ```
 
-After the 0.24.0 upgrade that section names `successor-unenabled` until
-the asset set `core` is enabled or turned
+The line is for you; a monitor reads the exit status (`man ai-tools-admin`).
+After the 0.24.0 upgrade that section names the enable until the asset set
+`core` is enabled or turned
 off ([ref-section-y5t4](../install/upgrade.md#ref-section-y5t4)).
 
 ## What is cleaned, and when

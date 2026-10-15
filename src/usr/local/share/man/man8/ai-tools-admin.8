@@ -526,6 +526,11 @@ permission list and rule, a key, a provider list's key and name) and is empty
 where the subject is the whole finding, and
 .I detail
 is display prose.
+.I subject\-type
+is
+.B file
+for a configuration file, and for an asset the type of what is at its path, or
+the type expected there where no entry is.
 No row carries an
 .IR operator :
 every subject is host-wide.
@@ -598,12 +603,9 @@ Print the state of every entry of
 .B AI_TOOLS_ASSETS
 and each link a reconcile would place, repoint or remove, without changing
 anything.
-A pending change is a
-.B link\-pending
-or
-.B unlink\-pending
-record whose detail names
-.BR "sudo ai\-tools\-admin assets reconcile" .
+Each pending change is a record of its own, which
+.BR ai-tools-assets (5)
+describes.
 This is what a bare
 .B assets
 runs, and
@@ -708,8 +710,14 @@ and
 and holds it to its end, so two of them at once each read the line the other
 wrote; one that waits more than two minutes for the lock exits 1 with the line
 and the view as they were.
-.B "assets list"
-reads without it.
+An
+.I operator.conf
+that could not be read whole, and a list to write that does not hold exactly
+the entries read with this call's change, refuse the call with the file
+unchanged.
+A write that could not be confirmed exits 1: the file holds the list it held or
+the one the call wrote, and the message names the backup and
+.BR "sudo ai\-tools\-admin assets reconcile" .
 Each writes one record per entry of
 .B AI_TOOLS_ASSETS
 \(em
@@ -907,7 +915,20 @@ with or without
 .TP
 .B 5
 A report could not read one of its sources, so its findings are incomplete
-.RB ( status " and the " assets " verbs: a library the package ships did not load, or the enabled agents or a directory of the view could not be read; " "system post\-upgrade \-\-check" ).
+.RB ( status ,
+the
+.B assets
+commands, and
+.BR "system post\-upgrade \-\-check" ).
+For
+.B status
+and the
+.B assets
+commands, a library the package ships did not load; the enabled agents,
+a directory of the view,
+.IR operator.conf ,
+or the type of an entry a row is about could not be read; or the rows could
+not be put in order.
 The page names the reading it could not make.
 Each is an exit status
 .BR ai-tools-records (5)
