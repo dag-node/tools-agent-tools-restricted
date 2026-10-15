@@ -219,6 +219,22 @@ _SVC_PROP=( [${ONESHOT}|Type]=simple );                                      unr
 _SVC_PROP=()
 fi
 
+# A property read that did not complete yields an unknown live state: a failed Type read would otherwise judge a oneshot
+# by is-active (down), and a failed Result read would report its run as failed. The control is the same oneshot
+# with every read completing, which reads failed.
+live_case() {  # <label> <want> : the system-scope state of ONESHOT over the current _SVC_PROP and _SVC_SHOW_FAIL
+    local got; got="$(ai_tools_services__read_state "${ONESHOT}" system)"
+    [[ "${got}" == "$2" ]] && pass "live state: $1 -> $2" || fail "live state: $1 -> ${got}, want $2"
+}
+_SVC_STATE=( [${ONESHOT}]=down )
+_SVC_PROP=( [${ONESHOT}|Type]=oneshot [${ONESHOT}|ExecMainStartTimestamp]="Tue 2026-08-25 19:49:22 CEST"
+            [${ONESHOT}|Result]=exit-code )
+_SVC_SHOW_FAIL="";                       live_case "every read completed, the last run failed (control)" failed
+_SVC_SHOW_FAIL=Type;                     live_case "a Type read that failed" unknown
+_SVC_SHOW_FAIL=Result;                   live_case "a Result read that failed" unknown
+_SVC_SHOW_FAIL=ExecMainStartTimestamp;   live_case "a start-time read that failed" unknown
+_SVC_SHOW_FAIL=""; _SVC_PROP=(); _SVC_STATE=()
+
 # The unit that triggers it is a .path, which has no Type -- so that reading must not change how any non-service unit is
 # judged.
 _SVC_STATE=( [ai-tools-relabel.path]=active )

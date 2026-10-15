@@ -208,17 +208,25 @@ ai_tools_services__is_oneshot_unrun() {
 # judge it and would read every successful run as 'down'. Its verdict is the result of its last run instead, which is
 # also the only way a run that failed hours ago is still visible. Read from the unit's own type, so a oneshot added
 # later does not need a registry field: the property is what makes is-active meaningless, not this unit's identity.
+#
+# Each property is read through _ai_tools_services__read_unit_property_checked, and a read that did not complete prints
+# 'unknown': a failed Type read would otherwise judge a oneshot by is-active, and a failed Result read would report
+# a run as failed. An alarm is earned by a reading, not by its absence.
 _ai_tools_services__read_live_state() {
-    local unit="$1" scope="$2"
+    local unit="$1" scope="$2" type started result
     local -a sctl
     _ai_tools_services__run_systemctl "${scope}" || { printf 'unknown'; return 0; }
     sctl=( "${_AI_TOOLS_SERVICES__SYSTEMCTL[@]}" )
-    if [[ "$(ai_tools_services__read_unit_property "${unit}" Type "${scope}")" == oneshot ]]; then
+    type="$(_ai_tools_services__read_unit_property_checked "${unit}" Type "${scope}")" || { printf 'unknown'; return 0; }
+    if [[ "${type}" == oneshot ]]; then
         # Never run: no result to report, and Result reads 'success' on a unit that has not run at all, which would
         # otherwise be an OK no run has earned.
-        [[ -n "$(ai_tools_services__read_unit_property "${unit}" ExecMainStartTimestamp "${scope}")" ]] \
+        started="$(_ai_tools_services__read_unit_property_checked "${unit}" ExecMainStartTimestamp "${scope}")" \
             || { printf 'unknown'; return 0; }
-        if [[ "$(ai_tools_services__read_unit_property "${unit}" Result "${scope}")" == success ]]; then
+        [[ -n "${started}" ]] || { printf 'unknown'; return 0; }
+        result="$(_ai_tools_services__read_unit_property_checked "${unit}" Result "${scope}")" \
+            || { printf 'unknown'; return 0; }
+        if [[ "${result}" == success ]]; then
             printf 'active'
         else
             printf 'failed'
