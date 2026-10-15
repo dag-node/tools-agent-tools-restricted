@@ -130,7 +130,8 @@ _AI_TOOLS_SERVICES__SANDBOX_ACCOUNT=""
 # How long a live probe of that manager may take. It crosses the system bus into another account's manager, so a manager
 # that is wedged rather than merely down must cost a bounded wait and then the answer this library gave before there was
 # a transport at all -- never a status report that hangs. Overridable so a test can drive the timeout path without
-# waiting on it.
+# waiting on it. A value outside ^[1-9][0-9]*$ refuses the probe, so the stamp answers: timeout(1) reads `0` as no bound
+# at all, and a value it rejects as an interval ends the probe as a failure the reader would take for the manager's.
 : "${AI_TOOLS_SERVICE_LIVE_TIMEOUT:=5}"
 
 # ai_tools_services__set_sandbox_account <name>  -- name the sandbox account, which is what offers the live probe
@@ -158,6 +159,7 @@ _ai_tools_services__run_systemctl() {
     # No timeout(1), no bounded probe -- and an unbounded one is the failure this whole path must not have, so the stamp
     # answers instead.
     command -v timeout >/dev/null 2>&1 || return 1
+    [[ "${AI_TOOLS_SERVICE_LIVE_TIMEOUT}" =~ ^[1-9][0-9]*$ ]] || return 1
     _AI_TOOLS_SERVICES__SYSTEMCTL=( timeout "${AI_TOOLS_SERVICE_LIVE_TIMEOUT}" \
         systemctl --user -M "${_AI_TOOLS_SERVICES__SANDBOX_ACCOUNT}@.host" )
     return 0
@@ -208,17 +210,25 @@ ai_tools_services__is_oneshot_unrun() {
 # judge it and would read every successful run as 'down'. Its verdict is the result of its last run instead, which is
 # also the only way a run that failed hours ago is still visible. Read from the unit's own type, so a oneshot added
 # later does not need a registry field: the property is what makes is-active meaningless, not this unit's identity.
+#
+# Each property is read through _ai_tools_services__read_unit_property_checked, and a read that did not complete prints
+# 'unknown': a failed Type read would otherwise judge a oneshot by is-active, and a failed Result read would report
+# a run as failed. An alarm is earned by a reading, not by its absence.
 _ai_tools_services__read_live_state() {
-    local unit="$1" scope="$2"
+    local unit="$1" scope="$2" type started result
     local -a sctl
     _ai_tools_services__run_systemctl "${scope}" || { printf 'unknown'; return 0; }
     sctl=( "${_AI_TOOLS_SERVICES__SYSTEMCTL[@]}" )
-    if [[ "$(ai_tools_services__read_unit_property "${unit}" Type "${scope}")" == oneshot ]]; then
+    type="$(_ai_tools_services__read_unit_property_checked "${unit}" Type "${scope}")" || { printf 'unknown'; return 0; }
+    if [[ "${type}" == oneshot ]]; then
         # Never run: no result to report, and Result reads 'success' on a unit that has not run at all, which would
         # otherwise be an OK no run has earned.
-        [[ -n "$(ai_tools_services__read_unit_property "${unit}" ExecMainStartTimestamp "${scope}")" ]] \
+        started="$(_ai_tools_services__read_unit_property_checked "${unit}" ExecMainStartTimestamp "${scope}")" \
             || { printf 'unknown'; return 0; }
-        if [[ "$(ai_tools_services__read_unit_property "${unit}" Result "${scope}")" == success ]]; then
+        [[ -n "${started}" ]] || { printf 'unknown'; return 0; }
+        result="$(_ai_tools_services__read_unit_property_checked "${unit}" Result "${scope}")" \
+            || { printf 'unknown'; return 0; }
+        if [[ "${result}" == success ]]; then
             printf 'active'
         else
             printf 'failed'
@@ -292,17 +302,24 @@ _ai_tools_services__is_user_unit_installed() {
     return 1
 }
 
-# ai_tools_services__evaluate_stamp <live> <stamp_mode> <result> <trigger> <age> <max_age>  -- the pure decision behind
-# a sandbox-user unit's state: PRINT one of active|skipped|down|failed|stale|unknown from a live reading and a last-run
-# stamp already read. No I/O, no privilege, ALWAYS returns 0 -- so the policy is driven over its whole truth table
-# (tests/unit/services.sh) apart from the probing that gathers its inputs, the same split ai_tools_confinement__evaluate
-# makes for the launch decision.
+# ai_tools_services__evaluate_stamp <live> <stamp_mode> <result> <trigger> <age> <max_age> [live_exit] [stamp_exit]  --
+# the pure decision behind a sandbox-user unit's state: PRINT one of active|skipped|down|failed|stale|unknown
+# from a live reading and a last-run stamp already read. No I/O, no privilege, ALWAYS returns 0 -- so the policy is
+# driven over its whole truth table (tests/unit/services.sh) apart from the probing that gathers its inputs, the same
+# split ai_tools_confinement__evaluate makes for the launch decision.
 #
 # <live> is what the unit's own manager says right now, or `unknown` where it could not be reached -- which is every
-# unprivileged caller. It is authoritative for `failed` and `down`: those are facts about the manager now, which a stamp
-# -- a record of a run that has already ended -- does not revise. `active` is NOT authoritative, because for a timer it
-# says the schedule is loaded rather than that runs are happening; it becomes the answer only where the stamp declines
-# to give one, and it never overrides staleness.
+# unprivileged caller. It is authoritative for `down`, and for `failed` with one exception: those are facts
+# about the manager now, which a stamp -- a record of a run that has already ended -- does not revise. `active` is NOT
+# authoritative, because for a timer it says the schedule is loaded rather than that runs are happening; it becomes
+# the answer only where the stamp declines to give one, and it never overrides staleness.
+#
+# The exception is a run the stamp classifies as `skipped` in 'result' mode, where <live_exit> (the manager's
+# ExecMainStatus) and <stamp_exit> (the stamp's EXIT_CODE) are both non-empty and equal. nvm-update.sh exits 3
+# on a transient condition so that the unit's Restart=on-failure retries it (nvm-update.service states the bound),
+# the manager records that exit as a failed run, and the stamp written by that same exit classifies it as skipped. Equal
+# codes tie the two records to one exit, so a live `failed` falls through to the staleness check and the skipped
+# verdict; a stamp from an earlier run, or an exit code either side could not read, leaves the live `failed` standing.
 #
 # The stamp declines in three places, and each falls back to <live>:
 #   * 'fired' mode reads recency alone -- a run happened, so whatever triggers it is working, and
@@ -322,9 +339,14 @@ _ai_tools_services__is_user_unit_installed() {
 # verdict untouched.
 ai_tools_services__evaluate_stamp() {
     local live="${1:-unknown}" stamp_mode="${2:-result}" result="${3:-}" trigger="${4:-}"
-    local age="${5:-}" max_age="${6:-}"
+    local age="${5:-}" max_age="${6:-}" live_exit="${7:-}" stamp_exit="${8:-}"
     case "${live}" in
-        failed|down) printf '%s' "${live}"; return 0 ;;
+        down) printf 'down'; return 0 ;;
+        failed)
+            [[ "${stamp_mode}" == result && "${result}" == skipped \
+                && -n "${live_exit}" && "${live_exit}" == "${stamp_exit}" ]] \
+                || { printf 'failed'; return 0; }
+            ;;
     esac
     if [[ "${stamp_mode}" == fired ]]; then
         [[ "${trigger}" == unit ]] || { printf '%s' "${live}"; return 0; }
@@ -443,7 +465,9 @@ ai_tools_services__read_state() {
             "$(ai_tools_services__read_stamp_field "${stamp}" RESULT)" \
             "$(ai_tools_services__read_stamp_field "${stamp}" TRIGGER)" \
             "$(ai_tools_services__read_stamp_age "${stamp}")" \
-            "${max_age}"
+            "${max_age}" \
+            "$(ai_tools_services__read_unit_property "${unit}" ExecMainStatus "${scope}")" \
+            "$(ai_tools_services__read_stamp_field "${stamp}" EXIT_CODE)"
         return 0
     fi
     if ! command -v systemctl >/dev/null 2>&1; then

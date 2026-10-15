@@ -19,7 +19,9 @@
 #     registry unreachable, where the previous toolchain stays and there is no fault to fix. It must
 #     not alarm (needs_attention says no, so ai-tools.status stays green and exits zero) and must not
 #     claim health either, so it stays distinct from active, still ages into 'stale' when the
-#     condition persists, and leaves the TRIGGER's own verdict untouched in 'fired' mode;
+#     condition persists, and leaves the TRIGGER's own verdict untouched in 'fired' mode. A root
+#     caller reads it the same: the manager's live 'failed' for that exit gives way to the stamp
+#     only where the unit's exit status equals the stamp's EXIT_CODE;
 #   * ai_tools_services__read_stamp_field's defensive read of that stamp. It is the one input here a
 #     non-root writer controls (the sandbox account writes it) and it is rendered to the operator's
 #     terminal, so each way a hostile or corrupt value could reach that terminal -- a symlinked
@@ -216,6 +218,22 @@ _SVC_PROP=( [${ONESHOT}|Type]=oneshot [${ONESHOT}|ExecMainStartTimestamp]=$'bad\
 _SVC_PROP=( [${ONESHOT}|Type]=simple );                                      unrun_case "a unit that is not a oneshot" 1
 _SVC_PROP=()
 fi
+
+# A property read that did not complete yields an unknown live state: a failed Type read would otherwise judge a oneshot
+# by is-active (down), and a failed Result read would report its run as failed. The control is the same oneshot
+# with every read completing, which reads failed.
+live_case() {  # <label> <want> : the system-scope state of ONESHOT over the current _SVC_PROP and _SVC_SHOW_FAIL
+    local got; got="$(ai_tools_services__read_state "${ONESHOT}" system)"
+    [[ "${got}" == "$2" ]] && pass "live state: $1 -> $2" || fail "live state: $1 -> ${got}, want $2"
+}
+_SVC_STATE=( [${ONESHOT}]=down )
+_SVC_PROP=( [${ONESHOT}|Type]=oneshot [${ONESHOT}|ExecMainStartTimestamp]="Tue 2026-08-25 19:49:22 CEST"
+            [${ONESHOT}|Result]=exit-code )
+_SVC_SHOW_FAIL="";                       live_case "every read completed, the last run failed (control)" failed
+_SVC_SHOW_FAIL=Type;                     live_case "a Type read that failed" unknown
+_SVC_SHOW_FAIL=Result;                   live_case "a Result read that failed" unknown
+_SVC_SHOW_FAIL=ExecMainStartTimestamp;   live_case "a start-time read that failed" unknown
+_SVC_SHOW_FAIL=""; _SVC_PROP=(); _SVC_STATE=()
 
 # The unit that triggers it is a .path, which has no Type -- so that reading must not change how any non-service unit is
 # judged.
@@ -614,7 +632,7 @@ section "services: the live reading, and the verdict it feeds (unit)"
 if ! declare -F ai_tools_services__evaluate_stamp >/dev/null 2>&1; then
     skip "live-reading verdict" "the deployed library predates ai_tools_services__evaluate_stamp"
 else
-    # verdict <expected> <label> <live> <mode> <result> <trigger> <age> <max_age>
+    # verdict <expected> <label> <live> <mode> <result> <trigger> <age> <max_age> [live_exit] [stamp_exit]
     verdict() {
         local expected="$1" label="$2"; shift 2
         local got; got="$(ai_tools_services__evaluate_stamp "$@")"
@@ -662,6 +680,25 @@ else
     verdict failed "a stamped failure is reported with no transport at all" \
         unknown result failed unit 60 172800
 
+    # The one exception to a live 'failed': the updater exits 3 on a transient condition so that Restart=on-failure
+    # retries it, the manager records that exit as a failure, and the stamp the same exit wrote says skipped. The exit
+    # codes tie the two records to one run; every way they fail to tie leaves the live 'failed' standing, and 'down'
+    # stays authoritative whatever the codes say.
+    verdict skipped "a live FAILED run whose exit the skipped stamp recorded reads SKIPPED" \
+        failed result skipped unit 10 100 3 3
+    verdict failed "a live FAILED run with another exit than the skipped stamp's stays FAILED" \
+        failed result skipped unit 10 100 3 1
+    verdict failed "a live FAILED run whose stamp exit could not be read stays FAILED" \
+        failed result skipped unit 10 100 3 ""
+    verdict failed "a live FAILED run with neither exit code read stays FAILED" \
+        failed result skipped unit 10 100 "" ""
+    verdict stale "a live FAILED skipped run past the grace window reads STALE" \
+        failed result skipped unit 500 100 3 3
+    verdict down "a live DOWN unit stays DOWN whatever the exit codes say" \
+        down result skipped unit 10 100 3 3
+    verdict failed "a live FAILED run the stamp records as failed stays FAILED" \
+        failed result failed unit 10 100 1 1
+
     # And the probe's own gate. Both refusals resolve to the stamp-only reading, which is the direction every failure
     # in this path takes.
     _AI_TOOLS_SERVICES__SANDBOX_ACCOUNT=""
@@ -691,6 +728,32 @@ else
         fail "the live probe was offered to a non-root caller (${PROJECTS_USER})"
     else
         pass "a non-root caller (${PROJECTS_USER}) is not offered the live probe, whatever account is named"
+    fi
+    # The probe's bound is a whole number of seconds or the probe is refused: timeout(1) reads 0 as no bound,
+    # and a value it rejects as an interval fails the probe as though the manager had. The gate is reached by a root
+    # caller alone, so the rows run as root, with an accepted bound as the control.
+    if [[ "${EUID}" -ne 0 ]]; then
+        skip "live-probe bound" "the probe is offered to a root caller alone"
+    elif ! command -v timeout >/dev/null 2>&1 || ! command -v systemctl >/dev/null 2>&1; then
+        skip "live-probe bound" "timeout(1) or systemctl is absent, which refuses the probe before the bound is read"
+    else
+        for bound in abc 0; do
+            AI_TOOLS_SERVICE_LIVE_TIMEOUT="${bound}"
+            if _ai_tools_services__run_systemctl sandbox-user; then
+                fail "a live-probe bound of '${bound}' was accepted"
+            elif [[ "$(_ai_tools_services__read_live_state nvm-update.service sandbox-user)" != unknown ]]; then
+                fail "a live-probe bound of '${bound}' was refused, but the live state was not unknown"
+            else
+                pass "a live-probe bound of '${bound}' refuses the probe, and the live state reads unknown"
+            fi
+        done
+        AI_TOOLS_SERVICE_LIVE_TIMEOUT=5
+        if _ai_tools_services__run_systemctl sandbox-user \
+                && [[ "${_AI_TOOLS_SERVICES__SYSTEMCTL[*]:0:2}" == "timeout 5" ]]; then
+            pass "a live-probe bound of 5 is accepted and bounds the probe (control)"
+        else
+            fail "a live-probe bound of 5 was refused or not applied: ${_AI_TOOLS_SERVICES__SYSTEMCTL[*]:-<none>}"
+        fi
     fi
     # A system unit's state is world-readable, so that scope is offered to every caller -- the asymmetry is the point,
     # and reading it as privileged would silently stop the launch wrapper's pre-launch warning from checking anything.
