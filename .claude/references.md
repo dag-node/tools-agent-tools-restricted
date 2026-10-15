@@ -14,6 +14,8 @@ cannot fix -- a message code's name is a runtime string, and rewording one is a 
 | Id | Reftag | Name | File | Cited by | Emitter |
 |---|---|---|---|---|---|
 | u6y5 | [URI-U6Y5](https://github.com/dag-node/ai-tools-assets/blob/main/sets/core/skills/ai-tools-reftags/SKILL.md#ref-section-h9b7) | The reftags skill's reference rule, at the latest core release | .claude/rules/authoring.rule.md | .claude/rules/authoring.rule.md |  |
+| r8u5 | [ref-section-r8u5](rules/cli.rule.md#ref-section-r8u5) | Sandbox-user units and the `?` line | .claude/rules/cli.rule.md | .claude/rules/updater.rule.md, src/usr/local/bin/ai-tools.sh, src/usr/local/libexec/ai-tools/ai-tools-admin.sh |  |
+| w9g8 | [ref-section-w9g8](rules/cli.rule.md#ref-section-w9g8) | What a stamp is read for | .claude/rules/cli.rule.md | .claude/rules/updater.rule.md |  |
 | z3p9 | [ref-section-z3p9](rules/cli.rule.md#ref-section-z3p9) | Acting for another operator (`--for`) | .claude/rules/cli.rule.md | docs/operators/service-accounts.md |  |
 | v2n3 | [ref-section-v2n3](rules/cli.rule.md#ref-section-v2n3) | Enabled, disabled, absent — the three states of an entry | .claude/rules/cli.rule.md | docs/projects/disable.md, docs/projects/enable.md |  |
 | d7q3 | [ref-table-d7q3](rules/cli.rule.md#ref-table-d7q3) | The three states of an allowlist entry | .claude/rules/cli.rule.md | docs/projects/disable.md |  |
@@ -51,11 +53,16 @@ cannot fix -- a message code's name is a runtime string, and rewording one is a 
 | e8k5 | [ref-section-e8k5](rules/stop.rule.md#ref-section-e8k5) | Degradation policy: two inversions, one reason | .claude/rules/stop.rule.md | .claude/rules/logging.rule.md, .claude/rules/messaging.rule.md, docs/sessions/stop.md, src/usr/local/libexec/ai-tools/ai-tools-stop.sh |  |
 | b4y9 | [ref-section-b4y9](rules/tests.rule.md#ref-section-b4y9) | Root-only test hooks | .claude/rules/tests.rule.md | .claude/rules/handback-bridge.rule.md, install.sh, src/usr/local/lib/ai-tools/assets-verify.lib.sh, src/usr/local/lib/ai-tools/assets.lib.sh, src/usr/local/lib/ai-tools/managed-assets.lib.sh, src/usr/local/libexec/ai-tools/ai-tools-admin.sh, src/usr/local/libexec/ai-tools/ai-tools-handback.py, tests/lib/harness.sh |  |
 | s9t9 | [ref-section-s9t9](rules/updater.rule.md#ref-section-s9t9) | Root runs none of the toolchain | .claude/rules/updater.rule.md | .claude/rules/cli.rule.md, CLAUDE.md |  |
+| s7u6 | [ref-section-s7u6](rules/updater.rule.md#ref-section-s7u6) | Last-run stamp | .claude/rules/updater.rule.md | .claude/rules/cli.rule.md |  |
+| r3m8 | [ref-section-r3m8](rules/updater.rule.md#ref-section-r3m8) | The run classifies itself: ok, skipped, or failed | .claude/rules/updater.rule.md | .claude/rules/cli.rule.md, src/usr/local/bin/ai-tools.sh, src/usr/local/lib/ai-tools/services.lib.sh |  |
+| r7b6 | [ref-section-r7b6](rules/updater.rule.md#ref-section-r7b6) | The stamp's fields and their readers | .claude/rules/updater.rule.md | .claude/rules/cli.rule.md |  |
+| c8b7 | [ref-section-c8b7](rules/updater.rule.md#ref-section-c8b7) | What the stamp is trusted for | .claude/rules/updater.rule.md | src/usr/local/lib/ai-tools/services.lib.sh |  |
 | z4t8 | [ref-section-z4t8](rules/updater.rule.md#ref-section-z4t8) | Removing a cache under the sandbox home | .claude/rules/updater.rule.md | .claude/rules/cli.rule.md, .claude/rules/launch.rule.md, .claude/rules/tests.rule.md |  |
 | b3k5 | [ref-section-b3k5](rules/updater.rule.md#ref-section-b3k5) | A refusal leaves a mark too | .claude/rules/updater.rule.md | .claude/rules/cli.rule.md |  |
 | j9w8 | [ref-section-j9w8](rules/updater.rule.md#ref-section-j9w8) | The labelling half leaves a record too | .claude/rules/updater.rule.md | .claude/rules/cli.rule.md |  |
 | q7v4 | [ref-section-q7v4](rules/updater.rule.md#ref-section-q7v4) | Two tiers, and what each one claims | .claude/rules/updater.rule.md | CLAUDE.md |  |
 | b8h3 | [ref-section-b8h3](rules/updater.rule.md#ref-section-b8h3) | Three outcomes, and only one of them is tamper | .claude/rules/updater.rule.md | .claude/rules/shipped-assets.rule.md, src/usr/local/lib/ai-tools/assets-verify.lib.sh |  |
+| z2h7 | [ref-section-z2h7](rules/updater.rule.md#ref-section-z2h7) | Design notes | .claude/rules/updater.rule.md | src/opt/ai-tools/bin/nvm-update.sh |  |
 | e7n8 | [ref-section-e7n8](../CLAUDE.md#ref-section-e7n8) | Security model — what `SANDBOX_USER` can and cannot do | CLAUDE.md | README.md, docs/about/index.md |  |
 | g6c4 | [ref-section-g6c4](../CLAUDE.md#ref-section-g6c4) | What is expected of the agent where a control leaves a choice | CLAUDE.md | .claude/rules/launch.rule.md, README.md |  |
 | x6a9 | [ref-section-x6a9](../CLAUDE.md#ref-section-x6a9) | Boundaries and non-goals | CLAUDE.md | .claude/rules/confinement.rule.md, .claude/rules/dotnet.rule.md, .claude/rules/launch.rule.md, .claude/rules/providers.rule.md, docs/about/scope.md, docs/operators/service-accounts.md |  |

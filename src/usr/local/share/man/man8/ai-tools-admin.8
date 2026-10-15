@@ -764,6 +764,19 @@ SELinux type each agent path carries there; and that account's systemd unit
 search path.
 Every verdict comes from the registry both reports read, so the two differ in
 what each is allowed to see and never in what either says about the same unit.
+An update run that could not reach the package registry reads SKIPPED here too,
+as
+.BR ai-tools (1)
+describes.
+.PP
+A
+.B ?
+line names why the state is unknown: there is no
+.BR systemctl ,
+a oneshot unit has not run since boot (its
+.B .path
+watcher starts it on the next change, so the line does not name a command),
+or the state could not be read, with the command that shows it.
 .PP
 In the
 .B Caches
@@ -832,6 +845,13 @@ It names the counts that are not zero and the exit status the section sets.
 A section without a finding does not print it.
 The line is for a person reading the report; a monitor reads the exit status.
 .PP
+The section's OK line counts the assets
+.B AI_TOOLS_ASSETS
+enables and those the plan resolved to linked, which counts an asset whose link
+is missing as resolved; it names
+.B "ai\-tools\-admin assets list"
+as the reading that names the link changes a reconcile would make.
+.PP
 The label reading is the one this command alone can give.
 .B "ai\-tools status"
 reports what the last reconciliation
@@ -851,10 +871,10 @@ not load, so a section could not make a reading it promises (see
 .BR "EXIT STATUS" );
 either way it runs from a monitor or a
 .BR cron (8)
-job without parsing its output. A probe this vantage may fail without the host
-being broken is reported as
+job without parsing its output. A
 .B ?
-and never counted, so an unqueryable unit does not alarm a healthy host.
+line does not change the exit, as in
+.BR ai-tools (1).
 .RE
 .SH OPTIONS
 Both options read no host state and leave the host as it is, so both answer any caller
@@ -917,6 +937,17 @@ The Node major version
 .B "system bootstrap"
 installs.
 Defaults to 22.
+.TP
+.B AI_TOOLS_SERVICE_LIVE_TIMEOUT
+The whole seconds
+.B status
+waits for an answer from the sandbox account's
+.B "systemd \-\-user"
+manager before it reads that account's units from their last-run stamp
+instead.
+Defaults to 5.
+A value that is not a positive whole number leaves each of those units to its
+stamp.
 .PP
 Host settings are not environment variables: they live in
 .BR ai-tools-operator.conf (5),

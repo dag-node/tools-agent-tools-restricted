@@ -305,35 +305,43 @@ an ordinary account read it — a partial view, the file sink being the authorit
   reported and are not faults — the same rule the unqueryable units follow. The states and the reading behind them are
   [ref-section-p3k8](launch.rule.md#ref-section-p3k8).
 
+  <a id="ref-section-r8u5"></a>**Sandbox-user units and the `?` line**
+
   A unit in the sandbox account's own `systemd --user manager` is not queryable from the operator's session at all,
-  so its state comes from a **last-run stamp** it publishes where the operator can read it (`nvm-update.service`, see
-  [updater](updater.rule.md)) and stays `?` where it publishes none. **A root caller reads it live**, over the machine
-  transport, and gets that reading through this same command: `services.lib.sh` gates the probe on the caller's own
-  capability, so whichever command asks, `sudo ai-tools status` resolves a unit exactly as `ai-tools-admin status` does
-  (see [The root vantage: `ai-tools-admin status`](#the-root-vantage-ai-tools-admin-status)). How a live reading
-  and a stamp compose into one verdict — which of the two decides a state, and which decides freshness — is
-  `ai_tools_services__evaluate_stamp`'s contract, stated there. One live fact about that manager *is* readable
-  unprivileged — whether the unit **file** is installed — and it is checked first, so a unit an optional package never
-  shipped (the `nvm-update` pair without the nodejs integration) reads as not-installed rather than as one this host
-  cannot see, and a stamp an uninstall left behind cannot make a gone unit look present. A run that **correctly declined
-  to act** reads `SKIPPED` with its reason (the updater against an unreachable registry, or under a clock behind a file
-  it wrote, see [updater](updater.rule.md)): it is dim rather than yellow and does not count as a fault,
-  so a disconnected laptop does not make `status` exit non-zero every night — while the same stamp still ages
-  into `STALE` if the condition persists, which is where a toolchain that has genuinely stopped advancing surfaces.
-  The root vantage reads such a run the same way. The manager records the updater's transient exit as a failed run,
-  and that live `failed` gives way to the stamp only where the unit's exit status equals the stamp's `EXIT_CODE`,
-  which ties the two records to one exit. The account's own `~/.config/systemd/user` is not searched: it sits inside
-  a home the operator cannot traverse, and every unit the registry names ships to the system-wide user-unit directory.
-  A stamped unit's OK carries the time of that run, not a claim that it is running now, and a `FAILED` carries the run's
-  exit code. The `?` line is not a problem report — it says only that this vantage point cannot tell — so it stays
-  a single line naming the one command that can, and the multi-command diagnostic block is reserved for a unit reported
-  broken. A system oneshot that has not run since boot reads `?` in both reports with no command on the line: its
-  verdict is its last run's, no reading holds one yet, and its `.path` watcher starts it on the next change. That line
-  needs a `systemctl show` of its type and of an empty start time that both completed
-  (`ai_tools_services__is_oneshot_unrun`); a read that did not complete reads `?` as a state that could not be read,
-  naming `systemctl status`. One state is separated from it in both reports: a stamp still empty as the package seeded
-  it (`ai_tools_services__is_stamp_unwritten`) reads `no run recorded yet`, since that is where a freshly provisioned
-  host stands until the updater's first window, and a `?` there would send an operator to check a unit that is fine.
+  so its state comes from a **last-run stamp** it publishes where the operator can read it (`nvm-update.service`,
+  [ref-section-s7u6](updater.rule.md#ref-section-s7u6)) and stays `?` where it publishes none. **A root caller reads it
+  live**, over the machine transport, and gets that reading through this same command: `services.lib.sh` gates the probe
+  on the caller's own capability, so whichever command asks, `sudo ai-tools status` resolves a unit exactly
+  as `ai-tools-admin status` does (see [The root vantage:
+  `ai-tools-admin status`](#the-root-vantage-ai-tools-admin-status)). How a live reading and a stamp compose into one
+  verdict — which of the two decides a state, and which decides freshness — is `ai_tools_services__evaluate_stamp`'s
+  contract, stated there. One live fact about that manager *is* readable unprivileged — whether the unit **file** is
+  installed — and it is checked first, so a unit an optional package never shipped (the `nvm-update` pair without
+  the nodejs integration) reads as not-installed rather than as one this host cannot see, and a stamp an uninstall left
+  behind cannot make a gone unit look present. A run that **correctly declined to act** reads `SKIPPED` with its reason
+  (the updater against an unreachable registry, or under a clock behind a file it wrote,
+  [ref-section-r3m8](updater.rule.md#ref-section-r3m8)): it is dim rather than yellow and does not count as a fault,
+  so a disconnected laptop does not make `status` exit non-zero every night, and the stamp still ages into `STALE`.
+  The root vantage reads such a run the same way, through the tie on the run's exit code
+  that `ai_tools_services__evaluate_stamp` states in `services.lib.sh`. The account's own `~/.config/systemd/user` is
+  not searched: it sits inside a home the operator cannot traverse, and every unit the registry names ships
+  to the system-wide user-unit directory. A stamped unit's OK carries the time of that run, not a claim that it is
+  running now, and a `FAILED` carries the run's exit code.
+
+  The `?` line is not a problem report — it says only that this vantage point cannot tell — so it stays a single line
+  naming the one command that can, and the multi-command diagnostic block is reserved for a unit reported broken. Both
+  reports print it for the same readings, told apart by checks that completed. A system unit reads `?` where there is no
+  `systemctl` (`command -v`); where it is a oneshot with no run since its manager started, whose verdict is its last
+  run's, read from a `systemctl show` of its type and of an empty start time that both completed
+  (`ai_tools_services__is_oneshot_unrun`); and where a property read did not complete, a state that could not be read,
+  whose line names `systemctl status`. The oneshot's line does not name a command: its `.path` watcher starts it
+  on the next change, and a manual start would run work no change asked for. A sandbox-user unit reads `?` where neither
+  that account's manager nor a last-run stamp could be read — for a root caller, no machine transport, no `timeout(1)`,
+  or no answer inside `AI_TOOLS_SERVICE_LIVE_TIMEOUT`. A stamp still empty as the package seeded it
+  (`ai_tools_services__is_stamp_unwritten`) is separated from that in both reports and reads `no run recorded yet`
+  ([ref-section-s7u6](updater.rule.md#ref-section-s7u6)).
+
+  <a id="ref-section-w9g8"></a>**What a stamp is read for**
 
   **A stamp is read for two properties, and one stamp can serve two units.** `RESULT` answers *did the last run
   succeed*; its **age** answers *are runs still happening* — a distinct question a `RESULT` cannot express, since
@@ -343,17 +351,19 @@ an ordinary account read it — a partial view, the file sink being the authorit
   `result` for the unit that ran, `fired` for the one that triggered it — so `nvm-update.timer` derives a verdict of its
   own from the *same* stamp on recency alone (a systemd-started run, successful or not, proves the timer fired), instead
   of the `?` it could otherwise only report. A failing service therefore does not also condemn the working schedule
-  that started it. Only a systemd-started run counts, read from the stamp's `TRIGGER` (see [updater](updater.rule.md)):
-  a run the operator did by hand is no evidence about a schedule, and counting one would both report a dead timer
-  as healthy and suppress the staleness that is the only way a stopped schedule shows up. An unknown age does not
-  produce a `STALE` verdict either: no `max_age`, an unparseable date, or a stamp dated in the future all decline
-  the judgment.
+  that started it. Only a systemd-started run counts, read from the stamp's `TRIGGER`
+  ([ref-section-r7b6](updater.rule.md#ref-section-r7b6)): a run the operator did by hand is no evidence
+  about a schedule, and counting one would both report a dead timer as healthy and suppress the staleness that is
+  the only way a stopped schedule shows up. An unknown age does not produce a `STALE` verdict either: no `max_age`,
+  an unparseable date, or a stamp dated in the future all decline the judgment.
 
   Times render **relative first** (`last run 3 days ago`), coarsening with distance, because the age is
   what the operator acts on. Every unit line feeds one predicate, `ai_tools_services__is_attention_needed`
   (`down`/`failed`/`stale`, not `unknown`), which is both what the scanner collects and what `status`'s **exit status**
-  reports — 4 when anything is broken, so the command is usable from a monitor or cron without parsing its output.
-  An unqueryable unit is not a fault and does not alarm.
+  reports — 4 when anything is broken, so the command is usable from a monitor or cron without parsing its output. A `?`
+  or `n/a` line is a reading **this vantage** cannot make — an operator reading a sandbox-user unit, a pin the account
+  cannot traverse to — and does not count toward the exit, since a probe the vantage may fail without the host being
+  broken must not make a nightly `status` alarm.
 
   **The exit is the report state's** (`ai-tools-records(5)`, folded through `records-base.lib.sh`, which `cmd_status`
   loads and requires): 4 where a section read a fault, 5 where a section could not make a reading it promises, and 0
@@ -361,9 +371,7 @@ an ordinary account read it — a partial view, the file sink being the authorit
   and `status_fold` turns the two into the fold, so the sections stay free of the library and drivable on their own.
   What exits 5 is a library base ships that did not load — the service registry, the provider resolver, the toolchain
   readers — a broken install, reported under a code and still followed by every later section, so the page carries each
-  reading it could make beside the one it could not. A `?` or `n/a` line is a reading **this vantage** cannot make —
-  an operator reading a sandbox-user unit, a pin the account cannot traverse to — and is neither: it leaves the exit
-  at 0, since a probe the vantage may fail without the host being broken must not make a nightly `status` alarm.
+  reading it could make beside the one it could not.
 
   **Both halves of the entrypoint reconciliation are reported, from the records it writes.** Neither the binary nor its
   label can be inspected from this account, so each half leaves a root-owned record where the operator can read it.
@@ -430,12 +438,12 @@ an ordinary account read it — a partial view, the file sink being the authorit
 
   **The unit that does the labelling is reported too, and answers a different question.** `ai-tools-relabel.service` is
   in the registry beside the `.path` that triggers it, because a healthy watcher says only that a run *started* —
-  on the upgrade that motivated both records, the watcher was `OK` and the relabel it fired had failed. A `Type=oneshot`
-  service is inactive whenever it is healthy, so it is judged by the result of its last run rather than by `is-active`
-  (see `services.lib.sh`), and its remedy is `systemctl start ai-tools-relabel.service`: that re-runs the work *and*
-  clears the recorded failure the report reads, which `ai-tools-admin system entrypoints relabel` does not. The two
-  records answer different questions — the label record covers every caller (an rpm `%post`, the watcher,
-  `system entrypoints relabel`), while the unit covers a watcher run that failed before it reached any labelling at all.
+  on the upgrade that motivated both records, the watcher was `OK` and the relabel it fired had failed. It is judged
+  by the result of its last run, as every `Type=oneshot` unit is (`_ai_tools_services__read_live_state`), and its remedy
+  is `systemctl start ai-tools-relabel.service`: that re-runs the work *and* clears the recorded failure the report
+  reads, which `ai-tools-admin system entrypoints relabel` does not. The two records answer different questions —
+  the label record covers every caller (an rpm `%post`, the watcher, `system entrypoints relabel`), while the unit
+  covers a watcher run that failed before it reached any labelling at all.
 
   Every command for such a unit goes through root, and the CLI composes them rather than the registry storing them: each
   names the sandbox **account**, and `services.lib.sh` is deployed with no `@SANDBOX_USER@` substitution. Status
@@ -537,8 +545,8 @@ is overdue is the Services section's reading alone. The report does not write th
 The report is otherwise the same contract as `status`: it exits 4 when something needs attention and 5 when a library
 base ships did not load, so a section could not make a reading it promises — the two counts `STATUS_PROBLEMS`
 and `STATUS_UNREADABLE`, folded through `records-base.lib.sh` at the end — so it runs unattended without parsing its
-output, and `?` and `n/a` do not count toward that status: a reading this vantage cannot make must not alarm a healthy
-host. A registry that did not load is reported under its code and the later sections still print.
+output, and `?` and `n/a` do not count toward that status, as in `status`. A registry that did not load is reported
+under its code and the later sections still print.
 
 ## Acting for another operator (`--for`) <a id="ref-section-z3p9"></a>
 

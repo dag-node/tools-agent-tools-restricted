@@ -2449,8 +2449,8 @@ detail()  { printf '                  %s\n' "$*"; }
 heading() { printf '\n  %s\n\n' "$*"; }
 
 # The two counts status() folds into its exit (ai-tools-records(5)): STATUS_PROBLEMS, a fault a section read,
-# and STATUS_UNREADABLE, a reading a section could not make because a library base ships did not load. A `?` line is
-# neither: it is a probe this vantage may fail without the host being broken, and does not count.
+# and STATUS_UNREADABLE, a reading a section could not make because a library base ships did not load. A `?` line counts
+# toward neither (cli.rule.md, ref-section-r8u5).
 STATUS_PROBLEMS=0
 STATUS_UNREADABLE=0
 
@@ -2484,16 +2484,8 @@ status_services() {
                      fi ;;
             stale)   st STALE "${unit}  ${when:-last run long ago}" ;;
             absent)  st "n/a" "${unit}  not installed" ;;
-            # Not a fault report -- it says only that even this vantage point could not tell, and is not counted,
-            # the same rule the operator view follows. The two scopes fail for different reasons and say so. A system
-            # unit reads unknown where there is no systemctl at all, where it is a oneshot with no run since its manager
-            # started, whose verdict is its last run's, and where a property read failed; `command -v systemctl`
-            # and ai_tools_services__is_oneshot_unrun, which succeeds only on reads that completed, tell the three
-            # apart. The oneshot line does not name a command: its .path watcher starts it on the next change,
-            # and a manual start would run work no change asked for. A sandbox-user one means root reached neither
-            # that account's manager (no machine transport, no timeout(1), or no answer inside the probe's window)
-            # nor a last-run stamp -- or, separable and said as such, a stamp still empty as the package seeded it:
-            # the unit has never run, which is where a freshly provisioned host stands until its first window.
+            # The `?` readings, told apart by checks that completed, and why the oneshot line does not name a command:
+            # cli.rule.md (ref-section-r8u5).
             *)       if [[ "${scope}" == system ]] && ! command -v systemctl >/dev/null 2>&1; then
                          st "?" "${unit}  systemctl is unavailable here"
                      elif [[ "${scope}" == system ]] && declare -F ai_tools_services__is_oneshot_unrun >/dev/null 2>&1 \

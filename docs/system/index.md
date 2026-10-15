@@ -20,11 +20,13 @@ caller cannot reach the answer, so running the second as root fills
 in the sandbox account's own `systemd --user` units, the entrypoint pin,
 whether the installed binary still matches that pin, the SELinux label each
 path carries now, and whether the sandbox account's own systemd unit directory
-is still closed to the agent. Both exit 4 when something needs attention and 5
-when a reading could not be made, so either runs from `cron` or a monitor
-without its output being parsed. The exit codes are in `man ai-tools`
-and `man ai-tools-admin`. The root report's Assets section, which can run long,
-ends with a line naming its own findings and the status it sets:
+is still closed to the agent. A `?` line names why its state is unknown,
+and `man ai-tools-admin` lists the causes. Both exit 4 when something needs
+attention and 5 when a reading could not be made, so either runs from `cron`
+or a monitor without its output being parsed. The exit codes are
+in `man ai-tools` and `man ai-tools-admin`. The root report's Assets section,
+which can run long, ends with a line naming its own findings and the status it
+sets:
 
 ```text
     Summary: 1 finding needs attention in this section (exit 4)

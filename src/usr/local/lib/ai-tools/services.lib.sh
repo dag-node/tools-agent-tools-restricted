@@ -10,13 +10,13 @@
 # and formats the result however it likes (a framed warn at launch, a plain table in `status`).
 #
 # Detection is two-sourced, by scope. A system unit is queried live (`systemctl is-active`, which any user may read) --
-# except a Type=oneshot service, which is inactive whenever it is healthy and is judged by the result of its last run
-# instead. A unit in the sandbox account's own `systemd --user manager` is not reachable from the operator's session
-# at all -- the machine transport needs root and no NOPASSWD rule grants it -- so its state comes from a LAST-RUN STAMP
-# the unit writes to a path the operator can read (/var/opt/ai-tools/state), and from the one live fact that IS
-# readable: whether its unit file is installed. Both scopes therefore distinguish a unit that is absent from one that is
-# present and in some state, so a unit an optional package never installed is reported as such rather than as something
-# this host merely cannot see.
+# except a Type=oneshot service, judged by the result of its last run (_ai_tools_services__read_live_state). A unit
+# in the sandbox account's own `systemd --user manager` is not reachable from the operator's session at all --
+# the machine transport needs root and no NOPASSWD rule grants it -- so its state comes from a LAST-RUN STAMP the unit
+# writes to a path the operator can read (/var/opt/ai-tools/state), and from the one live fact that IS readable: whether
+# its unit file is installed. Both scopes therefore distinguish a unit that is absent from one that is present
+# and in some state, so a unit an optional package never installed is reported as such rather than as something this
+# host merely cannot see.
 #
 # A ROOT caller reads that manager too, through these same functions. The machine transport
 # (`systemctl --user -M <account>@.host`) reaches it over the system bus, where root is authorized, so the live reading
@@ -25,15 +25,13 @@
 # and any later consumer therefore resolve one unit to one verdict, and an unprivileged vantage reports it as unknown.
 # How a live reading and a stamp compose into that verdict is ai_tools_services__evaluate_stamp.
 #
-# A STAMP IS NOT TRUSTED INPUT, and no reader here treats it as such. Its writer is the sandbox account, so that account
-# can state any outcome it likes; the mode on the file and its directory bound WHAT it can touch (one inode's contents
-# -- not the directory, not another file, not a symlink out of the tree), never whether the contents are true. Two
-# things make that acceptable rather than a hole. The stamp gates NO DECISION: it is rendered in one status report, is
-# never evaluated, and every value is read through ai_tools_services__read_stamp_field, which clamps it to a short
-# safe-charset token so no control byte or escape sequence reaches the operator's terminal. And it is never the weakest
-# link -- an agent able to write it can already write the toolchain the stamp reports on, which is the more valuable
-# target by far. (On an enforcing host the confined ai_tools_t session can write neither: both resolve to usr_t,
-# which the domain may only read.)
+# A STAMP IS NOT TRUSTED INPUT. Its writer is the sandbox account, so that account can state any outcome it likes;
+# the mode on the file and its directory bound WHAT it can touch (one inode's contents -- not the directory, not another
+# file, not a symlink out of the tree), never whether the contents are true. Its contents decide a status line
+# and the status exit, through ai_tools_services__evaluate_stamp, and no launch, access or handback decision;
+# why that is accepted is updater.rule.md's (ref-section-c8b7). Every value is read
+# through ai_tools_services__read_stamp_field, which clamps it to a short safe-charset token so no control byte
+# or escape sequence reaches the operator's terminal.
 #
 # Sourced, not executed. Deployed 644 root:root -- it does not carry any secrets, and the two principals that source it
 # (the operator launch wrapper and the unprivileged CLI) both need to read a system unit's is-active/is-enabled,
@@ -45,7 +43,7 @@ readonly _AI_TOOLS_SERVICES__LOADED=1
 # Registry: "unit|scope|severity|preflight|purpose|remedy|stamp|stamp_mode|max_age".
 #   scope    = system       -- checkable unprivileged (a system unit's state is world-readable):
 #                              from `systemctl is-active`, or, for a Type=oneshot service, from the
-#                              result of its last run, since such a unit is inactive while healthy.
+#                              result of its last run (_ai_tools_services__read_live_state).
 #              sandbox-user  -- a `--user unit` in the sandbox account's own systemd instance, which
 #                              the operator cannot query unprivileged, so its live state comes from
 #                              a last-run stamp if the unit publishes one and is reported as
@@ -75,8 +73,8 @@ readonly _AI_TOOLS_SERVICES__LOADED=1
 # state-neutrally ("without it ...", not "while it is down ..."), since the same sentence is printed under down, failed,
 # and stale. remedy is EMPTY on a sandbox-user unit whose remedy is simply re-running it: the restart (and the journal
 # query) go through that account's `--user manager`, so they name the sandbox account, and this library is deployed
-# with no @SANDBOX_USER@ substitution. The consumer knows the account name and composes both -- see ai-tools'
-# cmd_status, the single place that renders that transport.
+# with no @SANDBOX_USER@ substitution. The consumer knows the account name and composes both: ai-tools' status_services
+# and status_sandbox_unit_commands, and ai-tools-admin's status_services.
 # shellcheck disable=SC2034  # read by this library's accessors and by both consumers (ai-tools, ai-tools-launch)
 # The 172800 (48h) grace on both nvm-update records is twice the timer's daily OnCalendar: one missed window is a reboot
 # or a suspended laptop, two is a schedule that has stopped.
@@ -316,10 +314,10 @@ _ai_tools_services__is_user_unit_installed() {
 #
 # The exception is a run the stamp classifies as `skipped` in 'result' mode, where <live_exit> (the manager's
 # ExecMainStatus) and <stamp_exit> (the stamp's EXIT_CODE) are both non-empty and equal. nvm-update.sh exits 3
-# on a transient condition so that the unit's Restart=on-failure retries it (nvm-update.service states the bound),
-# the manager records that exit as a failed run, and the stamp written by that same exit classifies it as skipped. Equal
-# codes tie the two records to one exit, so a live `failed` falls through to the staleness check and the skipped
-# verdict; a stamp from an earlier run, or an exit code either side could not read, leaves the live `failed` standing.
+# on a transient condition (its header states the code), the manager records that exit as a failed run, and the stamp
+# written by that same exit classifies it as skipped. Equal codes tie the two records to one exit, so a live `failed`
+# falls through to the staleness check and the skipped verdict; a stamp from an earlier run, or an exit code either side
+# could not read, leaves the live `failed` standing.
 #
 # The stamp declines in three places, and each falls back to <live>:
 #   * 'fired' mode reads recency alone -- a run happened, so whatever triggers it is working, and
@@ -333,10 +331,9 @@ _ai_tools_services__is_user_unit_installed() {
 # An unprivileged caller's <live> is `unknown`, so all three yield `unknown` for it -- the reading
 # a caller with no transport has always had.
 #
-# Staleness is judged FIRST of the remaining cases, and for a skipped run as much as a successful one: "the registry was
-# unreachable" is a fine answer once and a stopped toolchain after a week, so the grace window is what separates them.
-# 'fired' mode never reads RESULT (a run of any outcome proves its trigger fired), so a skipped run leaves the timer's
-# verdict untouched.
+# Staleness is judged FIRST of the remaining cases, and for a skipped run as much as a successful one, so a skipped run
+# ages into 'stale' (updater.rule.md, ref-section-r3m8). 'fired' mode never reads RESULT (a run of any outcome proves
+# its trigger fired), so a skipped run leaves the timer's verdict untouched.
 ai_tools_services__evaluate_stamp() {
     local live="${1:-unknown}" stamp_mode="${2:-result}" result="${3:-}" trigger="${4:-}"
     local age="${5:-}" max_age="${6:-}" live_exit="${7:-}" stamp_exit="${8:-}"
@@ -425,12 +422,9 @@ ai_tools_services__evaluate_timer_stamp() {
 # a `state="$(...)"` capture is safe under `set -e` -- no consumer reads the exit status).
 # ai_tools_services__read_record_state takes a whole record and is what consumers call.
 #   active  -- the unit is running (is-active), or its stamp records a recent healthy run.
-#   skipped -- the last run ended in a transient condition it did not cause and could not fix (the
-#              updater offline: the registry was unreachable, so the toolchain was left alone and
-#              the previous version stays). Not a fault -- there is no action for an operator, and calling
-#              it FAILED spends attention a real fault then competes with -- but not a claim of
-#              health either, so it stays distinct from 'active' and keeps AGEING: a host that is
-#              offline once reads skipped, one that has been offline for days reads 'stale'.
+#   skipped -- the last run ended in a transient condition it did not cause and could not fix
+#              (nvm-update.sh's exit 3). Not a fault and not a claim of health, so it stays distinct
+#              from 'active' and ages into 'stale' (ai_tools_services__evaluate_stamp).
 #   down    -- installed but not active (disabled or stopped) -- the state a remedy addresses.
 #   failed  -- the unit's last run ended non-zero: a stamped sandbox-user unit's recorded RESULT, or
 #              a system oneshot's systemd-recorded one. A system unit of any other type that is not
@@ -443,8 +437,7 @@ ai_tools_services__evaluate_timer_stamp() {
 #   unknown -- not checkable here: systemctl missing, a system oneshot with no run since its manager
 #              started (its verdict is its last run's; ai_tools_services__is_oneshot_unrun tells it
 #              from a timestamp that could not be read), or a sandbox-user unit that is installed but
-#              neither reachable live nor publishing a stamp (or has not run since the stamp was
-#              introduced).
+#              neither reachable live nor publishing a stamp.
 ai_tools_services__read_state() {
     local unit="$1" scope="$2" stamp="${3:-}" stamp_mode="${4:-result}" max_age="${5:-}"
     # A sandbox-user unit's live state needs that account's own bus. A root caller reaches it over the machine transport

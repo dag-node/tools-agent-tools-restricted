@@ -198,13 +198,13 @@ Two properties of that make the guard a **unit-file check** (`tests/integration/
 `ai-tools-run`'s session unit sets `RestrictNamespaces=yes` and no mount-namespace option, so the same property holds
 for a session (see [confinement](confinement.rule.md), which covers why `PrivateTmp` is not used there either).
 
-## Last-run stamp
+## Last-run stamp <a id="ref-section-s7u6"></a>
 
 Running there puts the updater's health out of the operator's reach: querying a `--user manager` needs that account's
 own bus, the machine transport (`systemctl --user -M`) needs root, and no sudo rule grants either — so a failing update
 is invisible from an operator session while the toolchain silently stops advancing. `nvm-update.sh` closes
 that by recording every run's outcome in a **last-run stamp**, `/var/opt/ai-tools/state/nvm-update.status`,
-which `ai-tools status` reads through `services.lib.sh` (see [cli](cli.rule.md)).
+which `ai-tools status` reads through `services.lib.sh` (see [ref-section-r8u5](cli.rule.md#ref-section-r8u5)).
 
 The stamp is the second of two independent records, and deliberately so: the first is what the run *says* (its
 `log`/`warn`/`die` output, which the unit routes to the journal), and a run can fail silently. `nvm-update.sh`'s
@@ -218,30 +218,28 @@ the fate of the operation it reports on, here as in `log.lib.sh` (see [logging](
 into a failed unit, and a host whose stamp is absent gets a warning naming the reinstall that restores it, while
 the report states the unit as unknown rather than guessing. The package seeds the stamp empty, and the reports read
 that zero-length file as a unit that has not run yet rather than as one they cannot tell about, until the first run
-rewrites it. The whole text goes out in a single write, so the window in which a reader could see a partial stamp is
-negligible; one that lands there anyway does not carry a parseable `RESULT` and reads as unknown, never as a wrong
-verdict. The content is the shared `KEY=value` grammar: `RESULT=ok|skipped|failed`, `EXIT_CODE`, `FINISHED` (UTC,
-ISO-8601), `TRIGGER=unit|manual`, `NODE`, and `REASON` on a skip.
+rewrites it: that is where a freshly provisioned host stands until the updater's first window, and a `?` there would
+send an operator to check a unit that is fine. The whole text goes out in a single write, so the window
+in which a reader could see a partial stamp is negligible; one that lands there anyway does not carry a parseable
+`RESULT` and reads as unknown, never as a wrong verdict. The content is the shared `KEY=value` grammar:
+`RESULT=ok|skipped|failed`, `EXIT_CODE`, `FINISHED` (UTC, ISO-8601), `TRIGGER=unit|manual`, `NODE`, and `REASON`
+on a skip.
 
-### The run classifies itself: ok, skipped, or failed
+### The run classifies itself: ok, skipped, or failed <a id="ref-section-r3m8"></a>
 
-`RESULT` is the run's exit status classified for a reader, and the classification is the updater's own
-(`nvm-update.sh`'s exit codes: `0` current, `1` a fault on this host, `3` transient). The third exists because the most
-common way this job does not update anything is not a fault at all: the host was offline at the timer's daily window,
-so the registry could not be reached, the toolchain was left alone, and the previous trusted version stays active.
-That run exits `3`, records `RESULT=skipped` with a `REASON` token, and reports as `SKIPPED` rather than `FAILED` —
-there is no fault for an operator to fix, and a red line that means "your laptop was disconnected" spends attention
-that a real fault then has to compete with. A root caller reads the same verdict: the manager records exit `3`
-as a failed run, and `ai_tools_services__evaluate_stamp` reads that live `failed` as the stamp's skip where the unit's
-exit status equals the stamp's `EXIT_CODE` ([cli](cli.rule.md)).
+`RESULT` is the run's exit status classified for a reader, and the classification is the updater's own:
+`nvm-update.sh`'s header states its exit codes, `0` current, `1` a fault on this host, `3` transient. The third is
+the most common way this job does not update anything: the host was offline at the timer's daily window, so the run left
+the previous trusted toolchain active, exits `3`, records `RESULT=skipped` with a `REASON` token, and reports
+as `SKIPPED` rather than `FAILED` ([Design notes](#design-notes) state why the split is coarse and why an offline run
+does not read as a fault). A root caller reads the same verdict: the manager records exit `3` as a failed run,
+which gives way to the stamp's skip under the tie the `ai_tools_services__evaluate_stamp` comment in `services.lib.sh`
+states.
 
-The split is coarse by intent. It does not diagnose *why* the registry was unreachable — a disconnected machine
-and a registry outage are one state from inside a confined `--user` job — only whether a retry is the right response
-(the unit retries `3` and not `1`; see [the retry policy](#retrying-a-transient-failure)) and whether an operator should
-be alarmed now. What keeps `skipped` from becoming a way to hide a real problem is that it does not stop the clock:
-the stamp still ages, and a condition that persists past the record's 48h grace reports `STALE`, the same escalation
-a schedule that stopped firing gets. Offline once is routine; offline for a week is a toolchain that has stopped
-advancing.
+What keeps `skipped` from becoming a way to hide a real problem is that it does not stop the clock: the stamp still
+ages, and a condition that persists past the record's grace (its registry `max_age`) reports `STALE`, the same
+escalation a schedule that stopped firing gets. Offline once is routine; offline for a week is a toolchain that has
+stopped advancing.
 
 **An empty agent set is classified before `npm` alone becomes the managed set.** The resolver reports a refused input
 on stderr and does not print a line for it, so its stdout reads as an empty set for a tampered manifest directory
@@ -260,9 +258,9 @@ as unknown and leave `ai_tools_services__is_attention_needed` unmoved.
 
 `nvm-update.service` carries `Restart=on-failure` with `RestartPreventExitStatus=1`, so the transient class retries
 and the fault class does not: a broken toolchain or a failed signature check will fail the same way on a retry,
-and neither should churn against the registry. Retries are bounded by the unit's start limit — 6 starts per 6h, 30
-minutes apart — which recovers an outage of a couple of hours and then stops, leaving the stamp to age into `STALE`
-for one that lasts longer.
+and neither should churn against the registry. Retries are bounded by the unit's start limit, which `nvm-update.service`
+states with the outage it recovers, and then stop, leaving the stamp to age into `STALE` for an outage that lasts
+longer.
 
 This is the only recovery path a *failed* run has. The timer's `Persistent=true` covers a window missed while
 the manager was not running; a window taken by a run that then failed is spent, because systemd stamps a timer when it
@@ -286,30 +284,33 @@ binary and cannot create its own user namespace, inside which this account's fil
 predicate ([ref-section-x4z9](providers.rule.md#ref-section-x4z9)); `tests/integration/systemd.sh` asserts each
 directive.
 
+### The stamp's fields and their readers <a id="ref-section-r7b6"></a>
+
 Each field has a distinct reader. `RESULT` and `EXIT_CODE` are the service's verdict. `FINISHED` carries two: it dates
 that verdict, and its **age** is what `nvm-update.timer` — which can otherwise report only `?` — infers its own health
-from, since a run systemd started proves the timer fired (see [cli](cli.rule.md) for the `stamp_mode`/`max_age` fields
-that express this). `TRIGGER` is what makes that inference sound: only a systemd-started run is evidence
-about a *schedule*, so it records whether `INVOCATION_ID` — set by systemd for every unit it starts — was present,
-and the timer's verdict is declined for anything else. Without it a run the operator did by hand would report a dead
-timer as healthy for the whole grace window and, worse, suppress the staleness that is the only way a stopped schedule
-surfaces at all. A run started by hand *through* the manager (`systemctl --user start nvm-update.service`) is
-indistinguishable from a triggered one and counts as `unit`: the inference is bounded to systemd-started runs, not
-to scheduled ones. `NODE` records the version the run left active; the status reports read the active version
-off the stable launcher links, which every writer of Node repoints, and print `NODE` beside it only where the two
-differ, which says the toolchain changed after this run (see [cli](cli.rule.md)). `REASON` is written only on a skip
-and says which transient condition ended the run — `offline`, or `clock` when a file this host wrote (the updater
-itself, the previous stamp, an entrypoint pin) is dated after the system clock
+from, since a run systemd started proves the timer fired (the `stamp_mode`/`max_age` fields that express this are
+[ref-section-w9g8](cli.rule.md#ref-section-w9g8)). `TRIGGER` is what makes that inference sound: only a systemd-started
+run is evidence about a *schedule*, so it records whether `INVOCATION_ID` — set by systemd for every unit it starts —
+was present, and the timer's verdict is declined for anything else. Without it a run the operator did by hand would
+report a dead timer as healthy for the whole grace window and, worse, suppress the staleness that is the only way
+a stopped schedule surfaces at all. A run started by hand *through* the manager
+(`systemctl --user start nvm-update.service`) is indistinguishable from a triggered one and counts as `unit`:
+the inference is bounded to systemd-started runs, not to scheduled ones. `NODE` records the version the run left active;
+the status reports read the active version off the stable launcher links, which every writer of Node repoints, and print
+`NODE` beside it only where the two differ, which says the toolchain changed after this run (see [cli](cli.rule.md)).
+`REASON` is written only on a skip and says which transient condition ended the run — `offline`, or `clock` when a file
+this host wrote (the updater itself, the previous stamp, an entrypoint pin) is dated after the system clock
 (`ai_tools_conf__find_paths_ahead_of_clock`, `conf.lib.sh`), the state a host with no battery-backed clock boots
 into until it reaches a time source — so the report can state why a run made no change instead of leaving the operator
 to infer it. The `clock` skip runs before anything is downloaded or written, and its stamp keeps the previous run's
 `FINISHED` rather than dating a run with the wrong time, so the record ages into `STALE` as the condition persists.
 The launch wrapper and `ai-tools-run` make the same read and refuse a session under it ([launch](launch.rule.md)).
 
-### What the stamp is trusted for
+### What the stamp is trusted for <a id="ref-section-c8b7"></a>
 
-Nothing. Its writer is `SANDBOX_USER`, so that account can state any outcome it likes, and the permissions around it
-bound **what it can touch**, never whether the contents are true:
+A status line and the status exit, and no launch, access or handback decision. Its writer is `SANDBOX_USER`,
+so that account can state any outcome it likes, and the permissions around it bound **what it can touch**, never whether
+the contents are true:
 
 - `/var/opt/ai-tools/state` is `0750 root:SANDBOX_GROUP` — root-owned and **not** group-writable, so the account has
   traverse only and cannot create, unlink, rename, or symlink-swap anything there. Operators reach it
@@ -319,16 +320,22 @@ bound **what it can touch**, never whether the contents are true:
 - The stamp itself is `0640 SANDBOX_USER:ai-ops`, created by the package (`%post`, and `install.sh` for the dev flow)
   and only ever **rewritten in place** by the updater. The added surface is therefore exactly one inode's contents.
 
-That the contents are forgeable is accepted, on two grounds. **No decision reads the stamp** — it is rendered in one
-status report and never evaluated, and every value is read defensively (`ai_tools_services__read_stamp_field`: a symlink
-is refused, only the first 4 KiB is examined, and a value must be a short `[A-Za-z0-9:+._-]` token or it reads as no
-value at all), so no control byte or escape sequence can reach the operator's terminal through it and a corrupt stamp
-degrades the unit to *unknown* rather than to a wrong verdict. And it is **never the weakest link**: an account able
-to write the stamp can already write the toolchain the stamp reports on, which is by far the more valuable target.
-On an enforcing host it can write neither. The toolchain is `usr_t`, which `ai_tools_t` may only read. The stamp is
-`usr_t` where the policy aliases `/var/opt` to `/opt` (EL10, Fedora) and `var_t` where it does not (EL9),
-on which the domain holds directory search and no file permission (the `sandbox-projects` note in `ai_tools.fc`).
-`nvm-update.service` runs outside that domain and writes normally.
+That the contents are forgeable is accepted, on two grounds. **The contents decide a status report alone.** Its fields
+are read through `services.lib.sh` by the two status reports (`ai-tools status`, `ai-tools-admin status`) and by no
+launch, access or handback path, and there they decide the unit's line and the report's exit:
+`ai_tools_services__evaluate_stamp` lets a `skipped` stamp stand over a root caller's live `failed` where the exit codes
+tie, and a stamp past its grace reads `STALE`, which the report counts toward exit 4. A forged stamp can therefore
+misreport the updater in `status`, and does not change what a session may do. Its mtime is one of the dates the launch's
+clock gate compares with the system clock ([launch](launch.rule.md)), a read that can refuse a launch and does not
+permit one. Every value is read defensively (`ai_tools_services__read_stamp_field`: a symlink is refused, only the first
+4 KiB is examined, and a value must be a short `[A-Za-z0-9:+._-]` token or it reads as no value at all), so no control
+byte or escape sequence can reach the operator's terminal through it and a corrupt stamp degrades the unit to *unknown*
+rather than to a wrong verdict. And it is **never the weakest link**: an account able to write the stamp can already
+write the toolchain the stamp reports on, which is by far the more valuable target. On an enforcing host it can write
+neither. The toolchain is `usr_t`, which `ai_tools_t` may only read. The stamp is `usr_t` where the policy aliases
+`/var/opt` to `/opt` (EL10, Fedora) and `var_t` where it does not (EL9), on which the domain holds directory search
+and no file permission (the `sandbox-projects` note in `ai_tools.fc`). `nvm-update.service` runs outside that domain
+and writes normally.
 
 ## Version resolution
 
@@ -973,6 +980,20 @@ The costs of that folding are bounded rather than absent, and both are handled w
 sits inside an otherwise-local verb (which is why it fails soft and connects with a short timeout), and a pin mismatch
 fails a command an operator may have run for a label (which is correct — an entrypoint that is not the binary its vendor
 published is the more serious finding, and it is reported first).
+
+## Design notes <a id="ref-section-z2h7"></a>
+
+- **The updater's exit split is coarse by intent.** `nvm-update.sh` classifies a run by whether a retry is the right
+  response (the unit retries `3` and not `1`, [Retrying a transient failure](#retrying-a-transient-failure)) and whether
+  an operator should be alarmed now. It does not diagnose *why* the registry was unreachable: a disconnected machine
+  and a registry outage are one state from inside a confined `--user` job.
+- **An offline run reads `SKIPPED`, not `FAILED`.** There is no fault for an operator to fix, and a red line that means
+  "the laptop was disconnected" spends attention that a real fault then has to compete with. The stamp still ages
+  into `STALE` ([The run classifies itself](#the-run-classifies-itself-ok-skipped-or-failed)).
+- **Exit `3` is not in `SuccessExitStatus=`.** Listing it would make the manager record the offline run as a success,
+  and `Restart=on-failure` would not retry it, so a host that reconnects within the window would wait for the next daily
+  run. The manager records a failed run instead, and the root vantage reads it as the stamp's skip under the tie
+  on the exit code.
 
 ## Deferred
 
