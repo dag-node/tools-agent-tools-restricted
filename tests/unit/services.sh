@@ -15,13 +15,10 @@
 #     staleness, and 'fired' mode reads the recency of a SYSTEMD-STARTED run alone -- letting one
 #     stamp yield two verdicts, a healthy trigger beside the failed run it started, while a run the
 #     operator did by hand (which is no evidence about a schedule) is declined in both directions;
-#   * the 'skipped' verdict for a run that correctly did NOTHING -- the updater finding the
-#     registry unreachable, where the previous toolchain stays and there is no fault to fix. It must
-#     not alarm (needs_attention says no, so ai-tools.status stays green and exits zero) and must not
-#     claim health either, so it stays distinct from active, still ages into 'stale' when the
-#     condition persists, and leaves the TRIGGER's own verdict untouched in 'fired' mode. A root
-#     caller reads it the same: the manager's live 'failed' for that exit gives way to the stamp
-#     only where the unit's exit status equals the stamp's EXIT_CODE;
+#   * the 'skipped' verdict for the updater's offline run: needs_attention says no, so ai-tools.status
+#     stays green and exits zero; it stays distinct from active, ages into 'stale', and leaves the
+#     TRIGGER's own verdict untouched in 'fired' mode; and a root caller's live 'failed' gives way to it
+#     only under the exit-code tie ai_tools_services__evaluate_stamp states;
 #   * ai_tools_services__read_stamp_field's defensive read of that stamp. It is the one input here a
 #     non-root writer controls (the sandbox account writes it) and it is rendered to the operator's
 #     terminal, so each way a hostile or corrupt value could reach that terminal -- a symlinked

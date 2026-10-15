@@ -4,11 +4,11 @@
 # Unit test for tools/lib/assets.sh, which resolves this repository's prose checker, reftags tool and formatters
 # from two pinned, signed releases into a per-user cache. What it holds is that a tool is read from the pin alone: every
 # way an archive can differ from what its pin and its signature say -- a sha256 other than the pin's, a published sha256
-# other than the pin's, a signature by a key the package-signing primary is not, a tree that no longer matches its
-# inventory, a pin carrying a line outside its keys -- refuses with the reason and does not leave a cache directory
-# a later `path` would read, while `path` prints nothing and exits 1 for a pin not in the cache. And the callers do not
-# read a fallback: with the cache empty the git hooks name the fetch command and let the commit through, while
-# the formatter front door and the reftags wrapper exit 1 with it.
+# other than the pin's, a signature that is absent or by a key the package-signing primary is not, a tree that no longer
+# matches its inventory, a pin carrying a line outside its keys -- refuses with the reason and does not leave a cache
+# directory a later `path` would read, while `path` prints nothing and exits 1 for a pin not in the cache.
+# And the callers do not read a fallback: with the cache empty the git hooks name the fetch command and let the commit
+# through, while the formatter front door and the reftags wrapper exit 1 with it.
 #
 # Hermetic: the cache is under a home in the testdir, the download is a stub serving files from the testdir, and a pin
 # is read from the testdir. The control archives are the ones `bash tools/lib/assets.sh fetch` placed in the invoking

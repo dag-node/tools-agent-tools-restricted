@@ -117,8 +117,8 @@ with the stdlib (`socket.sendto`); `sendto` is in `@network-io` (included by `@s
 grants `logging_send_syslog_msg(ai_tools_handback_t)`. `python3-systemd` would add a package dependency,
 and a `logger --journald` subprocess would fork and exec a root process holding `CAP_DAC_OVERRIDE` for every audit line.
 `_journal_entry` assembles the bytes and `_journal_send` sends them, so the record's shape is asserted without a socket
-(`tests/unit/handback.sh`); `AI_TOOLS_JOURNAL_SOCKET` moves the destination for that test, and is read on the rationale
-of `AI_TOOLS_LOG_DIR` (see [tests](tests.rule.md)).
+(`tests/unit/handback.sh`); `AI_TOOLS_JOURNAL_SOCKET` moves the destination for that test, a root-only test hook
+([ref-section-b4y9](tests.rule.md#ref-section-b4y9)).
 
 **The fail direction is a missing field, never a delayed handback.** A send that fails — a full journald buffer,
 an absent socket — falls through to the stderr write, so the `MESSAGE` still lands and only the fields are lost;

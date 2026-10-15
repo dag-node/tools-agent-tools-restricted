@@ -4912,10 +4912,9 @@ cmd_status() {
     say "  ai-tools projects    registered projects (in place and sandbox clones)"
     say "  ai-tools --help      the full command list"
 
-    # The exit is the report state's (ai-tools-records(5), EXIT STATUS): 4 when something is broken, 5 when a reading
-    # could not be made, so `status` is usable unattended (a cron check, a monitor) without parsing this output.
-    # 'unknown' and 'n/a' are not faults and do not count -- an unqueryable unit must not make a healthy host alarm
-    # every night.
+    # The exit is the report state's (ai-tools-records(5)): 4 when something is broken, 5 when a reading could not be
+    # made, so `status` is usable unattended (a cron check, a monitor) without parsing this output. 'unknown' and 'n/a'
+    # do not count (cli.rule.md, ref-section-r8u5).
     ai_tools_records_base__get_exit_status || return $?
     return 0
 }
@@ -4949,8 +4948,8 @@ status_services() {
             down)   printf '  %-28s %sDOWN%s\n' "${unit}" "${C_YEL}" "${C_RST}" ;;
             # A run that correctly declined to act (the updater with an unreachable registry) is dim, not yellow: yellow
             # is this report's attention colour, and there is no fault to attend to -- the previous toolchain is intact
-            # and the next run will try again. If the condition persists the line turns STALE on its own once the stamp
-            # ages past its grace, which is where the operator is meant to look.
+            # and the next run will try again. A persisting condition ages into STALE (updater.rule.md,
+            # ref-section-r3m8).
             skipped) reason="$(ai_tools_services__read_stamp_field "${stamp}" REASON)"
                     printf '  %-28s %sSKIPPED%s %s(last run %s%s -- nothing was changed)%s\n' \
                         "${unit}" "${C_DIM}" "${C_RST}" "${C_DIM}" "${age:-at an unknown time}" \
@@ -4971,16 +4970,8 @@ status_services() {
             stale)  printf '  %-28s %sSTALE%s %s(last run %s)%s\n' \
                         "${unit}" "${C_YEL}" "${C_RST}" "${C_DIM}" "${age:-long ago}" "${C_RST}" ;;
             absent) printf '  %-28s %sn/a (not installed)%s\n' "${unit}" "${C_DIM}" "${C_RST}" ;;
-            # 'unknown' is not a problem report -- it says only that this vantage point cannot tell. It stays a single
-            # line carrying the one command that CAN tell, so a healthy host's report does not grow a diagnostic block
-            # per unit it simply cannot query. One reading is separable here: a stamp still empty as the package seeded
-            # it means the unit has never run, the state a freshly provisioned host is in until its first scheduled
-            # window, so the line says that and keeps the check command beside it. A system unit reads unknown
-            # where there is no systemctl, where it is a oneshot with no run since its manager started,
-            # and where a property read failed; `command -v systemctl` and ai_tools_services__is_oneshot_unrun,
-            # which succeeds only on reads that completed, tell the three apart. The oneshot line does not name
-            # a command, since its .path watcher starts it on the next change and a manual start would run work no
-            # change asked for.
+            # The `?` readings, told apart by checks that completed, and why the oneshot line does not name a command:
+            # cli.rule.md (ref-section-r8u5).
             *)      if [[ "${scope}" == sandbox-user ]]; then
                         if declare -F ai_tools_services__is_stamp_unwritten >/dev/null 2>&1 \
                                 && ai_tools_services__is_stamp_unwritten "${stamp}"; then

@@ -15,13 +15,12 @@
 # a set's files as data: it does not source, execute or import one.
 #
 # The view transaction is ai_tools_assets__reconcile: the lock, then ai_tools_assets__plan, which reads every input
-# and computes the link changes without writing, then the apply, then one record per entry and per change, sorted
-# by kind, set and name (ai_tools_assets__sort_report_rows). `status` runs the plan alone, and `assets list` the plan
-# and the report (ai_tools_assets__report_state).
+# and computes the link changes without writing, then the apply, then one record per entry and per change, in the order
+# ai_tools_assets__sort_report_rows gives (the stream: shipped-assets.rule.md, ref-section-j4a7). `status` runs the plan
+# alone, and `assets list` the plan and the report (ai_tools_assets__report_state).
 #
 # The root-only test hooks AI_TOOLS_ASSETS_ROOTS and AI_TOOLS_ASSETS_HOME move the roots and the directory holding
-# the view and the agent config directories, read on the rationale of AI_TOOLS_ASSETS_BINDINGS_DIR
-# (assets-verify.lib.sh).
+# the view and the agent config directories (tests.rule.md, ref-section-b4y9).
 
 # Sourced more than once in a single shell: the readonly constants would abort under `set -e` on the second pass.
 # An if-statement, not `[[ ]] && return`, which returns 1 for an unset guard and trips the sourcing shell's `set -e`.
@@ -1136,11 +1135,9 @@ _ai_tools_assets__record_row() {
 }
 
 # _ai_tools_assets__record_typed_row <severity> <finding> <expected-type> <subject> <item> <agent> <detail> [set] :
-# record one row about the entry at <subject>, as _ai_tools_assets__record_row does, its subject-type the one
-# ai_tools_records_base__read_subject_type observes there. <expected-type> is the type the report expects at <subject>,
-# taken where no entry is there. Where the reader refuses the entry -- a type the token set does not name, or a read
-# that did not complete -- the row takes <expected-type> too and an unreadable `error` row about <subject> follows it,
-# so the finding stays in the stream and the reading is marked incomplete.
+# record one row about the entry at <subject>, as _ai_tools_assets__record_row does, its subject-type read
+# under the policy records.rule.md states (ref-section-u5t7), <expected-type> being the type the report expects
+# at <subject>.
 _ai_tools_assets__record_typed_row() {
     local subject_type read_status=0
     subject_type="$(ai_tools_records_base__read_subject_type "$4")" || read_status=$?
@@ -1153,10 +1150,9 @@ _ai_tools_assets__record_typed_row() {
 
 # _ai_tools_assets__record_action <op> <path> <target> <item> <agent> <detail> [set] : record one change the apply
 # makes: `link` (place or repoint <path> at <target>), `unlink` (remove the symlink at <path>), `convert` (replace
-# a managed copy at <path> by a link to <target>). A change's row reads its subject-type from what is at <path>
-# and takes `link`, the type the change puts there: a `link` or `unlink` row is `link`, and a `convert` row reads
-# the managed copy until it is replaced (_ai_tools_assets__record_typed_row). An empty <agent> is the view's link, any
-# other an agent's. [set] passes to the change's row, as _ai_tools_assets__record_row takes it.
+# a managed copy at <path> by a link to <target>). A change's row expects `link`, the type the change puts there,
+# and a `convert` row reads the managed copy until it is replaced (_ai_tools_assets__record_typed_row). An empty <agent>
+# is the view's link, any other an agent's. [set] passes to the change's row, as _ai_tools_assets__record_row takes it.
 _ai_tools_assets__record_action() {
     _AI_TOOLS_ASSETS__ACTION_OPERATION+=( "$1" ); _AI_TOOLS_ASSETS__ACTION_PATH+=( "$2" ); _AI_TOOLS_ASSETS__ACTION_TARGET+=( "$3" )
     _AI_TOOLS_ASSETS__ACTION_ITEM+=( "$4" ); _AI_TOOLS_ASSETS__ACTION_AGENT+=( "$5" ); _AI_TOOLS_ASSETS__ACTION_DETAIL+=( "$6" )
@@ -1379,8 +1375,8 @@ _ai_tools_assets__is_resolver_link() {
 # that is not a resolver link, and returns 1 without printing for a link whose target could not be read. The plan reads
 # it while the link is still on disk, and the set is a sort key and the first component of a stale link's item
 # (_ai_tools_assets__get_stale_link_item): the row's finding and subject come from the apply's own result, so a set
-# that could not be read moves the row to the head of its kind, leaves its item `<kind>/<view-name>` and leaves its
-# finding, subject and detail as the apply recorded them. A caller counts each status 1
+# that could not be read sorts the row as _ai_tools_assets__sort_rows states, leaves its item `<kind>/<view-name>`
+# and leaves its finding, subject and detail as the apply recorded them. A caller counts each status 1
 # in _AI_TOOLS_ASSETS__SET_KEYS_LOST, which the order reports (_ai_tools_assets__sort_rows).
 _ai_tools_assets__read_resolver_link_set() {
     local target index root rest
@@ -2684,10 +2680,9 @@ _ai_tools_assets__write_enable_list_row() {
 # _ai_tools_assets__report <code> <link-code> <applied> : the record stream for a plan, and the apply when one ran
 # (<applied> 1), in the order _ai_tools_assets__fill_row_order gives: the rows a caller recorded under their own codes,
 # under <code> the enable-list row (_ai_tools_assets__write_enable_list_row) and one row per entry (`linked` at ok,
-# `error` at unreadable, any other token at attention), and under <link-code> each row the plan and the apply recorded.
-# An entry's row and the row about its view link share subject and item, so the two codes give them different record
-# ids. A verb's rows and the reconcile's are one stream sorted by kind, set and name, an asset's list edit ahead of its
-# entry, its view link and its agent links. The recorded rows are emptied once written.
+# `error` at unreadable, any other token at attention), and under <link-code> each row the plan and the apply recorded,
+# the two codes giving an entry's row and its view link's row different record ids (shipped-assets.rule.md,
+# ref-section-j4a7). The recorded rows are emptied once written.
 _ai_tools_assets__report() {
     local code="$1" link_code="$2" applied="$3" reference origin index entry
     local -a references=()
@@ -2738,8 +2733,8 @@ ai_tools_assets__reconcile() {
     return "${status}"
 }
 
-# _ai_tools_assets__get_link_code <code> <situation> : print <code>, the code a report writes its link rows under.
-# A report names two situations and the index reads one code per call, so the link code is named in a call of its own.
+# _ai_tools_assets__get_link_code <code> <situation> : print <code>, the code a report writes its link rows under, named
+# in a call of its own (shipped-assets.rule.md, ref-section-e5k5).
 _ai_tools_assets__get_link_code() {
     printf '%s' "$1"
 }
@@ -2751,13 +2746,11 @@ _ai_tools_assets__write_reconcile_report() {
 }
 
 # ai_tools_assets__report_state : the view transaction's reading without its writes: the plan, then the report
-# a reconcile writes with one attention row added per change the apply would make -- `link-pending` for a link to place,
-# repoint or convert from a managed copy, `unlink-pending` for a link to remove -- whose detail names
-# `sudo ai-tools-admin assets reconcile`. The entry rows read as the plan resolved them, so an entry whose link is not
-# on disk reads `linked` beside its `link-pending` row, and the enable-list row of an untrusted operator.conf says
-# the links stay until a reconcile removes them. Like `status`, it does not take the lock and does not change
-# operator.conf or a link: a link a running reconcile stages under its temporary name reads as `unlink-pending` until
-# that reconcile renames it. The records' severities fold into ai_tools_records_base__get_exit_status for the caller.
+# a reconcile writes with one attention row added per change the apply would make
+# (_ai_tools_assets__record_pending_rows). The entry rows read as the plan resolved them, and the enable-list row
+# as _ai_tools_assets__write_enable_list_row writes it without an apply. Like `status`, it does not take the lock
+# and does not change operator.conf or a link (shipped-assets.rule.md, ref-section-e5k5). The records' severities fold
+# into ai_tools_records_base__get_exit_status for the caller.
 ai_tools_assets__report_state() {
     ai_tools_assets__plan
     _ai_tools_assets__record_pending_rows

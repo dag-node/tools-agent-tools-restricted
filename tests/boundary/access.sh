@@ -394,8 +394,8 @@ fi
 
 # Second, the agent cannot reach the code that decides what sealing means. owner-only.lib.sh carries the predicate every
 # claim walk gates on and the strip that removes the sandbox's own residue; were it agent-writable, the agent could make
-# its own group read as "not residue" and have the next claim leave the grant standing. Same standing
-# as secret-patterns.lib.sh.
+# its own group read as "not residue" and have the next claim leave the grant standing. secret-patterns.lib.sh is held
+# to the same property: agent-unwritable code that decides how the agent's own files are classified.
 oolib=/usr/local/lib/ai-tools/owner-only.lib.sh
 if [[ ! -e "${oolib}" ]]; then
     skip "owner-only library not agent-writable" "not installed at ${oolib}"

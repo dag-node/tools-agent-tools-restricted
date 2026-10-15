@@ -50,9 +50,10 @@ sudo ai-tools-admin assets enable --set core
 ```
 
 `sudo ai-tools-admin status` names an enabled asset that is not linked,
-and why; `ai-tools-assets(5)` holds the identifier format and each reason.
-Where a skill of your own goes -- for one project, for one agent, for every
-agent -- is in the guide that ships beside the skills,
+and why, and `sudo ai-tools-admin assets list` names each link a reconcile
+would still place or remove; `ai-tools-assets(5)` holds the identifier format
+and each reason. Where a skill of your own goes -- for one project, for one
+agent, for every agent -- is in the guide that ships beside the skills,
 `/usr/share/ai-tools/skills/README.md`.
 
 **A session is capped at 8 GB of memory and 1024 tasks.** Above 6 GB the kernel

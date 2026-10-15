@@ -176,10 +176,21 @@ base's own transaction included), each agent and the typesafe package's scriptle
 and `ai-tools-bootstrap`.
 
 The verbs are `ai-tools-admin assets list|enable|disable|reconcile`, each root-only. Each verb that writes ends
-with the reconcile; `list`, the default, runs the plan and the report without the lock and without a write, and adds
-a row per change the apply would make (`ai_tools_assets__report_state`). The record stream and the exit fold are
-[records](records.rule.md)'s contract. `ai_tools_assets__validate_set` runs the same subset over a tree as data, without
-the trust walk or the signature, for the conformance job that holds base's reading to the publisher's fixtures.
+with the reconcile; `list`, the default, does not write ([The record stream](#the-record-stream)).
+`ai_tools_assets__validate_set` runs the same subset over a tree as data, without the trust walk or the signature,
+for the conformance job that holds base's reading to the publisher's fixtures.
+
+### The record stream <a id="ref-section-j4a7"></a>
+
+Every `assets` verb prints one record stream (`ai-tools-records(5)`): the verb's own rows — a list edit, a refusal —
+and the reconcile's, sorted so one asset's list edit, entry, view link and agent links are adjacent
+(`_ai_tools_assets__sort_rows` holds the key). `assets list` runs the plan and the report and adds one `attention` row
+per change the apply would make (`ai_tools_assets__report_state`), so a pending change exits 4; it reads without
+the assets lock ([Design notes](#design-notes)) and does not write, so it does not exit 1. A verb that writes holds
+the lock from its first read of `operator.conf` to its exit, so two verbs at once each read the list the other wrote,
+and exits as `ai-tools-records(5)` states for a command that changes the host. The link rows are written under a code
+of their own, since an entry's row and its view link's row share subject and item and would otherwise share a record id.
+Each row's subject-type follows the policy [ref-section-u5t7](records.rule.md#ref-section-u5t7) states for every caller.
 
 ### Verifying a set (`assets-verify.lib.sh`)
 
@@ -411,6 +422,14 @@ root, e.g. `/opt/ai-tools/skills(/.*)?` → `ai_tools_home_t`) and an agent's co
 from its own manifest, so the seeder's `restorecon -R` gives every seeded file and link the label the agent
 (`ai_tools_t`) already reads as home state. The datadir copies stay `usr_t` and are read by root, like the gitignore
 datadir. See [confinement](confinement.rule.md).
+
+## Design notes <a id="ref-section-e5k5"></a>
+
+- **`assets list` does not take the assets lock.** A read that waited on a reconcile could wait the lock's two minutes,
+  and the plan it runs is the one `status` runs without the lock. A link a running reconcile stages under its temporary
+  name reads as `unlink-pending` until that reconcile renames it.
+- **The link code is named in a call of its own** (`_ai_tools_assets__get_link_code`). A report names two situations,
+  and the reference index reads one code per emitting call, so the second code takes a call that carries it.
 
 ## Coupling
 

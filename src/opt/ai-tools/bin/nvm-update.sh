@@ -24,11 +24,8 @@
 #      trust predicate refused so that no agent resolved).
 #   3  transient: the registry could not be reached, so the toolchain was left alone and the previous,
 #      trusted toolchain stays active and installed. The unit retries this one; the stamp records
-#      it as `skipped` rather than a failure, because an offline host has no fault to fix.
-# The split is deliberately coarse. It is not a diagnosis of why the registry was unreachable -- a disconnected laptop
-# and a registry outage are one state from here -- only of whether a retry is the right response and whether an operator
-# should be alarmed now. A transient condition that PERSISTS still surfaces: the stamp ages, and `ai-tools status`
-# reports it stale past its grace.
+#      it as `skipped`, and `ai-tools status` reports it stale once it persists past its grace.
+# Why the split is coarse and why an offline run is not a failure: updater.rule.md (ref-section-z2h7).
 
 set -euo pipefail
 IFS=$'\n\t'
@@ -39,8 +36,7 @@ readonly AI_TOOLS_NVM_UPDATE__BIN_DIR="/opt/ai-tools/bin"
 # cannot create, unlink, rename, or symlink-swap anything there: the whole surface the stamp adds is the contents
 # of this single file.
 readonly NVM_UPDATE_STAMP="/var/opt/ai-tools/state/nvm-update.status"
-# The transient exit status (see the header). Its own code, not a reuse of 1: the unit retries only this one, so a fault
-# that a retry cannot fix does not churn against the registry.
+# The transient exit status (see the header), the one the unit retries.
 readonly EXIT_TRANSIENT=3
 # Set by skip() and read by the EXIT trap, which receives only a status. A one-word token, since it reaches the stamp
 # and the stamp's reader clamps to a short safe charset.
@@ -84,12 +80,11 @@ skip() { _run_skip_reason="$1"; shift
 # write_stamp <exit-code>: record this run's outcome where the operator can read it, in the
 # KEY=value grammar services.lib.sh parses (RESULT, EXIT_CODE, FINISHED, TRIGGER, NODE, and REASON
 # on a skip). RESULT is the exit status classified for a reader: ok / failed / `skipped` for the transient case,
-# which is reported as a run that correctly declined to act rather than as a fault -- an offline host has no fault
-# for an operator to fix, and calling it FAILED spends attention that a real fault then has to compete with. Installed
-# as the EXIT trap, so it records EVERY exit path -- a die, an uncaught `set -e` failure, and a clean run alike; without
-# it a failed run is visible only in the sandbox account's journal, which the operator cannot reach either. Best-effort
-# by construction: it must never turn a successful update into a failed unit, so every step tolerates failure
-# and the function always returns 0.
+# which is reported as a run that correctly declined to act rather than as a fault (updater.rule.md, ref-section-z2h7).
+# Installed as the EXIT trap, so it records EVERY exit path -- a die, an uncaught `set -e` failure, and a clean run
+# alike; without it a failed run is visible only in the sandbox account's journal, which the operator cannot reach
+# either. Best-effort by construction: it must never turn a successful update into a failed unit, so every step
+# tolerates failure and the function always returns 0.
 #
 # TRIGGER says whether SYSTEMD started this run, which is what makes the run evidence about the TIMER rather than only
 # about the update: no state nvm-update.timer publishes is reachable from an operator session, so `ai-tools status`

@@ -190,8 +190,9 @@ with are released and pinned:
 
 - `AI_TOOLS_DEV_ASSETS_CORE` and `AI_TOOLS_DEV_ASSETS_TOOLS` are unset.
 - `../ai-tools-assets` and `../ai-tools-assets-tools` hold no commit ahead
-  of their remotes: a local tool fix is pushed, merged and released as a tag.
-- `tools/lib/*.pin` name those releases, bumped as `tools/README.md` states.
+  of their remotes.
+- `tools/lib/*.pin` name those releases, bumped
+  as [ref-section-j6v8](../../tools/README.md#ref-section-j6v8) states.
 
 CI on the tag fetches each pin and runs the checks with the pinned tools,
 so a tree that needs an unreleased tool fails there; the unpushed checkouts are

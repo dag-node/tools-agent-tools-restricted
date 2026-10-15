@@ -104,11 +104,11 @@ readonly PROVIDERS_LIB="/usr/local/lib/ai-tools/providers.lib.sh"
 readonly PATH_ORDER_LIB="/usr/local/lib/ai-tools/path-order.lib.sh"
 readonly RECORDS_TSV_LIB="/usr/local/lib/ai-tools/records-tsv.lib.sh"
 readonly ASSETS_LIB="/usr/local/lib/ai-tools/assets.lib.sh"
-# Where a provider package drops the command fragment carrying its own domain. The environment override is a test hook
-# read on the rationale of AI_TOOLS_POSTUPGRADE_ROOT: sudo strips the name, so tests/unit/admin-commands.sh drives
-# the dispatch against a fixture tree. `--help` lists the domains through it ahead of the root check, so a non-root
-# caller can point the LISTING at another root-owned directory; the dispatch still needs root and each fragment still
-# needs root ownership, so the reach does not add a command. Unset in production.
+# Where a provider package drops the command fragment carrying its own domain. The environment override is a root-only
+# test hook (tests.rule.md, ref-section-b4y9), so tests/unit/admin-commands.sh drives the dispatch against a fixture
+# tree. `--help` lists the domains through it ahead of the root check, so a non-root caller can point the LISTING
+# at another root-owned directory; the dispatch still needs root and each fragment still needs root ownership,
+# so the reach does not add a command. Unset in production.
 readonly ADMIN_COMMANDS_DIR="${AI_TOOLS_ADMIN_COMMANDS_DIR:-/usr/local/lib/ai-tools/admin-commands.d}"
 # The names base owns. A contributed fragment claiming one is refused, so no installed package can shadow a command
 # an administrator relies on.
@@ -1276,10 +1276,8 @@ readonly -a POSTUPGRADE_FILES=(
 readonly -a POSTUPGRADE_DIRS=(/etc/ai-tools /etc/codex /opt/ai-tools/.claude /opt/ai-tools/.codex)
 
 # AI_TOOLS_POSTUPGRADE_ROOT prefixes every path in that registry, so the test suite drives this command against fixtures
-# in its own /tmp testdir instead of the live host's control plane. It is a ROOT-ONLY test hook of the same shape
-# and standing as AI_TOOLS_ALLOWLIST: sudo strips the environment (env_reset, and this name is not in env_keep)
-# and the helper is reachable only as root, so neither an operator nor the agent can set it, and a caller who could is
-# one that may already edit these files outright. Unset in production, where the registry paths are absolute.
+# in its own /tmp testdir instead of the live host's control plane. It is a root-only test hook (tests.rule.md,
+# ref-section-b4y9), unset in production, where the registry paths are absolute.
 
 # _pu_diff <deployed> <rpmnew> [<label> <label>]: show what the package would change, indented, each side named by its
 # label where the files compared are temporary copies. Colourized through colordiff when the host has it AND stdout is
@@ -1904,11 +1902,11 @@ postupgrade() {
 # and the rows. Each finding is one situation, so it carries one message code, and _pu_write_finding is the one table
 # tying a finding to its code and its severity: `attention` makes the run exit AI_TOOLS_RECORDS_BASE__EXIT_FINDINGS,
 # `unreadable` (the `error` finding, a check that could not run) AI_TOOLS_RECORDS_BASE__EXIT_UNREADABLE, and `info` is
-# written under `--all` alone and leaves the exit as it is. The caller names the subject-type, since an asset reported
-# missing has no path to stat, and the item is the components the collector's own granularity gives -- the event
-# and the command of a hook, the list and the rule of a permission rule, a key, and for an `error` one token naming
-# the check -- so two findings on one file keep two ids. No row carries an operator: every subject is under /etc
-# or /opt/ai-tools, host-wide.
+# written under `--all` alone and leaves the exit as it is. The caller names the subject-type: `file`
+# for a configuration finding, and for an asset finding the type _pu_asset_line read at its path, and the item is
+# the components the collector's own granularity gives -- the event and the command of a hook, the list and the rule
+# of a permission rule, a key, and for an `error` one token naming the check -- so two findings on one file keep two
+# ids. No row carries an operator: every subject is under /etc or /opt/ai-tools, host-wide.
 #
 # The collectors feed the check through `< <(...)`, and _pu_run_check saves each one's PID on the statement that opens
 # it and waits for it once its output is read (records.rule.md), so a collector that exits non-zero is an `error` row
@@ -2186,10 +2184,8 @@ _pu_copies() {
     } | _pu_sort_copies
 }
 
-# _pu_asset_line <finding> <expected-type> <path> <detail>: one _pu_assets line about <path>, its subject-type the one
-# ai_tools_records_base__read_subject_type observes there, or <expected-type> where no entry is there. Where the reader
-# refuses the entry -- a type the token set does not name, or a read that did not complete -- the line takes
-# <expected-type> too and an `error` line about <path> follows it, so the finding stays and the run reads unreadable.
+# _pu_asset_line <finding> <expected-type> <path> <detail>: one _pu_assets line about <path>, its subject-type read
+# under the policy records.rule.md states (ref-section-u5t7), <expected-type> being the type expected at <path>.
 _pu_asset_line() {
     local subject_type read_status=0
     subject_type="$(ai_tools_records_base__read_subject_type "$3")" || read_status=$?
@@ -2438,8 +2434,8 @@ readonly TOOLCHAIN_LIB="/usr/local/lib/ai-tools/toolchain.lib.sh"
 readonly CACHE_CLEANUP_LIB="/usr/local/lib/ai-tools/cache-cleanup.lib.sh"
 readonly CONFINEMENT_LIB="/usr/local/lib/ai-tools/confinement.lib.sh"
 # AI_TOOLS_LAUNCHER_DIR is the hook the CLI and relabel.lib.sh read for the same directory,
-# so tests/unit/admin-status.sh drives this report against fixture links. It moves a report: this tool is reachable only
-# as root, sudo strips the name, and no access decision here reads it.
+# so tests/unit/admin-status.sh drives this report against fixture links. It is a root-only test hook here
+# (tests.rule.md, ref-section-b4y9), and it moves a report: no access decision here reads it.
 readonly LAUNCHER_LINK_DIR="${AI_TOOLS_LAUNCHER_DIR:-/opt/ai-tools/bin}"
 
 # st <state> <text>: one report line, state in a bracket token so a scan down the left column finds what needs
@@ -2450,8 +2446,8 @@ detail()  { printf '                  %s\n' "$*"; }
 heading() { printf '\n  %s\n\n' "$*"; }
 
 # The two counts status() folds into its exit (ai-tools-records(5)): STATUS_PROBLEMS, a fault a section read,
-# and STATUS_UNREADABLE, a reading a section could not make because a library base ships did not load. A `?` line is
-# neither: it is a probe this vantage may fail without the host being broken, and does not count.
+# and STATUS_UNREADABLE, a reading a section could not make because a library base ships did not load. A `?` line counts
+# toward neither (cli.rule.md, ref-section-r8u5).
 STATUS_PROBLEMS=0
 STATUS_UNREADABLE=0
 
@@ -2485,16 +2481,8 @@ status_services() {
                      fi ;;
             stale)   st STALE "${unit}  ${when:-last run long ago}" ;;
             absent)  st "n/a" "${unit}  not installed" ;;
-            # Not a fault report -- it says only that even this vantage point could not tell, and is not counted,
-            # the same rule the operator view follows. The two scopes fail for different reasons and say so. A system
-            # unit reads unknown where there is no systemctl at all, where it is a oneshot with no run since its manager
-            # started, whose verdict is its last run's, and where a property read failed; `command -v systemctl`
-            # and ai_tools_services__is_oneshot_unrun, which succeeds only on reads that completed, tell the three
-            # apart. The oneshot line does not name a command: its .path watcher starts it on the next change,
-            # and a manual start would run work no change asked for. A sandbox-user one means root reached neither
-            # that account's manager (no machine transport, no timeout(1), or no answer inside the probe's window)
-            # nor a last-run stamp -- or, separable and said as such, a stamp still empty as the package seeded it:
-            # the unit has never run, which is where a freshly provisioned host stands until its first window.
+            # The `?` readings, told apart by checks that completed, and why the oneshot line does not name a command:
+            # cli.rule.md (ref-section-r8u5).
             *)       if [[ "${scope}" == system ]] && ! command -v systemctl >/dev/null 2>&1; then
                          st "?" "${unit}  systemctl is unavailable here"
                      elif [[ "${scope}" == system ]] && declare -F ai_tools_services__is_oneshot_unrun >/dev/null 2>&1 \
@@ -3269,14 +3257,9 @@ status() {
 # ── assets ───────────────────────────────────────────────────────────────────────────────────────────────────────────
 # The `assets` domain: AI_TOOLS_ASSETS in operator.conf names the assets every enabled agent loads, and assets.lib.sh
 # resolves each to `linked` or a reason token and keeps the view and the agents' links current (shipped-assets.rule.md).
-# Every verb that writes takes the assets lock (ai_tools_managed_assets__lock) before its first read of operator.conf
-# and holds it to its exit, so two verbs at once each read the list the other wrote: lock, read, back up, write, plan,
-# apply, report. `assets list` plans and reports without the lock, as `status` does. Every verb prints a record stream
-# (ai-tools-records(5)): its own rows and the reconcile's, as one stream sorted by kind, set and name
-# (ai_tools_assets__sort_report_rows), so each asset's list edit, entry and links are adjacent. A verb exits 1
-# for a write refused or failed, else 5 when the library did not load, else 4 for an attention row, else 0. Each
-# attention row is logged under its code to journald and to the root-only
-# assets.log.
+# The lock a writing verb holds (ai_tools_managed_assets__lock), the one record stream every verb prints and its exit
+# are shipped-assets.rule.md's (ref-section-j4a7). Each attention row is logged under its code to journald
+# and to the root-only assets.log.
 
 # assets_load: source assets.lib.sh, or exit 5 under its code: a verb whose resolver did not load does not read or write
 # any input.
@@ -3561,9 +3544,8 @@ assets_disable() {
 }
 
 # assets_list: `assets list`, and a bare `assets`: every enabled asset's state and each link a reconcile would place
-# or remove, as a record stream (ai_tools_assets__report_state). Reads without the assets lock, as `status` does, since
-# a read that waited on a reconcile could wait two minutes. Exits 5 when the library did not load, else 4
-# for an attention row -- a pending change among them -- else 0; it does not write, so it does not exit 1.
+# or remove, as a record stream (ai_tools_assets__report_state). Reads without the assets lock (shipped-assets.rule.md,
+# ref-section-e5k5) and does not write, so it does not exit 1.
 assets_list() {
     (( $# == 0 )) || reject MSG-F3D9 "assets list takes no arguments"
     assets_load
@@ -3598,8 +3580,8 @@ assets_dispatch() {
 
 # ── dispatch ─────────────────────────────────────────────────────────────────────────────────
 # One arm per name in the grammar's two shapes: `<collection> [verb]`, where the absent verb is `list`,
-# and `<domain> <collection|verb>`. A bare collection lists; a bare domain prints its own commands, since a domain has
-# no reading that a default could safely take and every verb under one of these mutates the host.
+# and `<domain> <collection|verb>`. A bare collection lists, and so does a domain whose `list` reads without a write
+# (`assets`); any other bare domain prints its own commands, since it has no `list` of its own.
 
 operators_dispatch() {
     local verb="${1:-list}"; [[ $# -eq 0 ]] || shift

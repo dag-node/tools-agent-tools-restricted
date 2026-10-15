@@ -20,7 +20,7 @@ children, and — in the case this control exists for — one that may be doing 
 and may not cooperate. The design is therefore judged by one question: can the monitored system decline, evade,
 or disarm it? Every decision in this rule follows from that.
 
-## The invariants it rests on
+## The invariants it rests on <a id="ref-section-a4p8"></a>
 
 | # | Invariant | Where it comes from | What would break it |
 |---|---|---|---|
@@ -29,7 +29,7 @@ or disarm it? Every decision in this rule follows from that.
 | I3 | `SIGKILL` is neither catchable nor blockable, and `cgroup.kill` (Linux ≥ 5.14) delivers it to a whole cgroup **atomically** — one write freezes the cgroup and kills every member including descendants. | `signal(7)`; `cgroups(7)` | no userspace mechanism |
 | I4 | The kernel answers "is anything alive here" itself: `cgroup.events`' `populated` field is 1 while the cgroup **or any descendant** holds a live process. | cgroup v2 interface files | a threaded subtree, where `cgroup.procs` reads fail — handled by reading `cgroup.threads` beside it |
 | I5 | Only root may signal across accounts and write `cgroup.kill`. The sandbox account does not hold a `sudo` rule, and the session runs under `PR_SET_NO_NEW_PRIVS`, which drops `sudo`'s SUID bit outright. | the sudoers drop-in; `ai-tools-run`'s unit properties | an operator adding a rule for the sandbox account |
-| I6 | The set of sessions terminated is decided by cgroup-slice membership alone — no input the account can write reaches that decision, because the command accepts neither a target nor an authorization argument. | this command's own grammar | adding a per-project form scoped by anything the account reports |
+| I6 | The set of sessions terminated is decided by cgroup-slice membership alone — no input the account can write reaches that decision, because the command accepts neither a target nor an authorization argument, and the sweep does not exempt any cgroup in the slice. | this command's own grammar; the sweep's enumeration in `ai-tools-stop` | adding a per-project form scoped by anything the account reports |
 | I7 | `/proc` and `/sys` reads plus bash builtins need no external binary. The kill path calls `sleep` alone. | the helper's own construction | — |
 
 Two of these carry the whole design. **I1 is why discovery is by cgroup**: a process group is broken by `setsid(2)`
