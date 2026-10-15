@@ -766,21 +766,29 @@ else
     fail "an outdated live skill was not listed under --all: ${out}"
 fi
 
+# The skills directory of the first enabled agent that declares one, read from the host's manifests
+# as "agent<TAB>directory"; the cases that place a link there skip where no enabled agent declares one.
+agent_dirs="$(bash -c 'source /usr/local/lib/ai-tools/control-plane.lib.sh 2>/dev/null || exit 0
+    ai_tools_control_plane__list_agent_asset_dirs skills_dir' 2>/dev/null || true)"
+agent_name=""; agent_skills_dir=""
+IFS=$'\t' read -r agent_name agent_skills_dir <<< "${agent_dirs%%$'\n'*}" || true
+
 # An agent's config directory is group-writable, so the sandbox account can plant the skill link itself, and its target
 # is printed on root's terminal. A target carrying a terminal escape reaches the report with the control bytes replaced.
-# The link path comes from the host's enabled agent manifests, so the case runs where one declares a skills directory.
 cp "${ROOT}/usr/share/ai-tools/skills/ai-tools-demo/SKILL.md" "${ROOT}/opt/ai-tools/skills/ai-tools-demo/SKILL.md"
-mkdir -p "${ROOT}/opt/ai-tools/.claude/skills"
-ln -sfn $'/tmp/planted\e]0;title\a' "${ROOT}/opt/ai-tools/.claude/skills/ai-tools-demo"
-run_check
-if ! grep -q asset-unlinked <<< "${out}"; then
-    skip "a planted skill link's target" "no enabled agent on this host declares a skills directory at /opt/ai-tools/.claude"
-elif [[ "${out}" != *$'\e'* && "${out}" != *$'\a'* ]] \
-        && has_finding MSG-N9S4 "${ROOT}/opt/ai-tools/.claude/skills/ai-tools-demo" asset-unlinked \
-            "claude-code: points at /tmp/planted?]0;title?"; then
-    pass "a planted skill link's target is printed with its control bytes replaced"
+if [[ -z "${agent_skills_dir}" ]]; then
+    skip "a planted skill link's target" "no enabled agent on this host declares a skills directory"
 else
-    fail "a planted skill link's target reached the report unsanitized: $(printf '%q' "${out}")"
+    planted_link="${ROOT}${agent_skills_dir}/ai-tools-demo"
+    mkdir -p "${planted_link%/*}"
+    ln -sfn $'/tmp/planted\e]0;title\a' "${planted_link}"
+    run_check
+    if [[ "${out}" != *$'\e'* && "${out}" != *$'\a'* ]] \
+            && has_finding MSG-N9S4 "${planted_link}" asset-unlinked "${agent_name}: points at /tmp/planted?]0;title?"; then
+        pass "a planted skill link's target is printed with its control bytes replaced"
+    else
+        fail "a planted skill link's target reached the report unsanitized: $(printf '%q' "${out}")"
+    fi
 fi
 
 # A row's subject-type is what is at its subject: an agent's link is `link` whether it points elsewhere or is absent,
@@ -792,9 +800,6 @@ subject_type_of() {
     awk -F '\t' -v f="$1" -v s="$2" 'NR == 1 { for (i = 1; i <= NF; i++) col[$i] = i; next }
         $col["finding"] == f && $col["subject"] == s { print $col["subject-type"] }' <<< "${out}"
 }
-agent_dirs="$(bash -c 'source /usr/local/lib/ai-tools/control-plane.lib.sh 2>/dev/null || exit 0
-    ai_tools_control_plane__list_agent_asset_dirs skills_dir' 2>/dev/null || true)"
-agent_skills_dir="${agent_dirs%%$'\n'*}"; agent_skills_dir="${agent_skills_dir#*$'\t'}"
 if [[ -z "${agent_skills_dir}" ]]; then
     skip "the subject-type of an agent's skill link" "no enabled agent on this host declares a skills directory"
 else
