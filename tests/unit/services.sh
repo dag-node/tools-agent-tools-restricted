@@ -19,7 +19,9 @@
 #     registry unreachable, where the previous toolchain stays and there is no fault to fix. It must
 #     not alarm (needs_attention says no, so ai-tools.status stays green and exits zero) and must not
 #     claim health either, so it stays distinct from active, still ages into 'stale' when the
-#     condition persists, and leaves the TRIGGER's own verdict untouched in 'fired' mode;
+#     condition persists, and leaves the TRIGGER's own verdict untouched in 'fired' mode. A root
+#     caller reads it the same: the manager's live 'failed' for that exit gives way to the stamp
+#     only where the unit's exit status equals the stamp's EXIT_CODE;
 #   * ai_tools_services__read_stamp_field's defensive read of that stamp. It is the one input here a
 #     non-root writer controls (the sandbox account writes it) and it is rendered to the operator's
 #     terminal, so each way a hostile or corrupt value could reach that terminal -- a symlinked
@@ -614,7 +616,7 @@ section "services: the live reading, and the verdict it feeds (unit)"
 if ! declare -F ai_tools_services__evaluate_stamp >/dev/null 2>&1; then
     skip "live-reading verdict" "the deployed library predates ai_tools_services__evaluate_stamp"
 else
-    # verdict <expected> <label> <live> <mode> <result> <trigger> <age> <max_age>
+    # verdict <expected> <label> <live> <mode> <result> <trigger> <age> <max_age> [live_exit] [stamp_exit]
     verdict() {
         local expected="$1" label="$2"; shift 2
         local got; got="$(ai_tools_services__evaluate_stamp "$@")"
@@ -661,6 +663,25 @@ else
         active result skipped unit 60 172800
     verdict failed "a stamped failure is reported with no transport at all" \
         unknown result failed unit 60 172800
+
+    # The one exception to a live 'failed': the updater exits 3 on a transient condition so that Restart=on-failure
+    # retries it, the manager records that exit as a failure, and the stamp the same exit wrote says skipped. The exit
+    # codes tie the two records to one run; every way they fail to tie leaves the live 'failed' standing, and 'down'
+    # stays authoritative whatever the codes say.
+    verdict skipped "a live FAILED run whose exit the skipped stamp recorded reads SKIPPED" \
+        failed result skipped unit 10 100 3 3
+    verdict failed "a live FAILED run with another exit than the skipped stamp's stays FAILED" \
+        failed result skipped unit 10 100 3 1
+    verdict failed "a live FAILED run whose stamp exit could not be read stays FAILED" \
+        failed result skipped unit 10 100 3 ""
+    verdict failed "a live FAILED run with neither exit code read stays FAILED" \
+        failed result skipped unit 10 100 "" ""
+    verdict stale "a live FAILED skipped run past the grace window reads STALE" \
+        failed result skipped unit 500 100 3 3
+    verdict down "a live DOWN unit stays DOWN whatever the exit codes say" \
+        down result skipped unit 10 100 3 3
+    verdict failed "a live FAILED run the stamp records as failed stays FAILED" \
+        failed result failed unit 10 100 1 1
 
     # And the probe's own gate. Both refusals resolve to the stamp-only reading, which is the direction every failure
     # in this path takes.

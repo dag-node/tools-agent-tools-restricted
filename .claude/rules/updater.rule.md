@@ -231,7 +231,9 @@ common way this job does not update anything is not a fault at all: the host was
 so the registry could not be reached, the toolchain was left alone, and the previous trusted version stays active.
 That run exits `3`, records `RESULT=skipped` with a `REASON` token, and reports as `SKIPPED` rather than `FAILED` —
 there is no fault for an operator to fix, and a red line that means "your laptop was disconnected" spends attention
-that a real fault then has to compete with.
+that a real fault then has to compete with. A root caller reads the same verdict: the manager records exit `3`
+as a failed run, and `ai_tools_services__evaluate_stamp` reads that live `failed` as the stamp's skip where the unit's
+exit status equals the stamp's `EXIT_CODE` ([cli](cli.rule.md)).
 
 The split is coarse by intent. It does not diagnose *why* the registry was unreachable — a disconnected machine
 and a registry outage are one state from inside a confined `--user` job — only whether a retry is the right response

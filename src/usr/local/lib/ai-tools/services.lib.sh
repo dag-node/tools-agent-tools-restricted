@@ -292,17 +292,24 @@ _ai_tools_services__is_user_unit_installed() {
     return 1
 }
 
-# ai_tools_services__evaluate_stamp <live> <stamp_mode> <result> <trigger> <age> <max_age>  -- the pure decision behind
-# a sandbox-user unit's state: PRINT one of active|skipped|down|failed|stale|unknown from a live reading and a last-run
-# stamp already read. No I/O, no privilege, ALWAYS returns 0 -- so the policy is driven over its whole truth table
-# (tests/unit/services.sh) apart from the probing that gathers its inputs, the same split ai_tools_confinement__evaluate
-# makes for the launch decision.
+# ai_tools_services__evaluate_stamp <live> <stamp_mode> <result> <trigger> <age> <max_age> [live_exit] [stamp_exit]  --
+# the pure decision behind a sandbox-user unit's state: PRINT one of active|skipped|down|failed|stale|unknown
+# from a live reading and a last-run stamp already read. No I/O, no privilege, ALWAYS returns 0 -- so the policy is
+# driven over its whole truth table (tests/unit/services.sh) apart from the probing that gathers its inputs, the same
+# split ai_tools_confinement__evaluate makes for the launch decision.
 #
 # <live> is what the unit's own manager says right now, or `unknown` where it could not be reached -- which is every
-# unprivileged caller. It is authoritative for `failed` and `down`: those are facts about the manager now, which a stamp
-# -- a record of a run that has already ended -- does not revise. `active` is NOT authoritative, because for a timer it
-# says the schedule is loaded rather than that runs are happening; it becomes the answer only where the stamp declines
-# to give one, and it never overrides staleness.
+# unprivileged caller. It is authoritative for `down`, and for `failed` with one exception: those are facts
+# about the manager now, which a stamp -- a record of a run that has already ended -- does not revise. `active` is NOT
+# authoritative, because for a timer it says the schedule is loaded rather than that runs are happening; it becomes
+# the answer only where the stamp declines to give one, and it never overrides staleness.
+#
+# The exception is a run the stamp classifies as `skipped` in 'result' mode, where <live_exit> (the manager's
+# ExecMainStatus) and <stamp_exit> (the stamp's EXIT_CODE) are both non-empty and equal. nvm-update.sh exits 3
+# on a transient condition so that the unit's Restart=on-failure retries it (nvm-update.service states the bound),
+# the manager records that exit as a failed run, and the stamp written by that same exit classifies it as skipped. Equal
+# codes tie the two records to one exit, so a live `failed` falls through to the staleness check and the skipped
+# verdict; a stamp from an earlier run, or an exit code either side could not read, leaves the live `failed` standing.
 #
 # The stamp declines in three places, and each falls back to <live>:
 #   * 'fired' mode reads recency alone -- a run happened, so whatever triggers it is working, and
@@ -322,9 +329,14 @@ _ai_tools_services__is_user_unit_installed() {
 # verdict untouched.
 ai_tools_services__evaluate_stamp() {
     local live="${1:-unknown}" stamp_mode="${2:-result}" result="${3:-}" trigger="${4:-}"
-    local age="${5:-}" max_age="${6:-}"
+    local age="${5:-}" max_age="${6:-}" live_exit="${7:-}" stamp_exit="${8:-}"
     case "${live}" in
-        failed|down) printf '%s' "${live}"; return 0 ;;
+        down) printf 'down'; return 0 ;;
+        failed)
+            [[ "${stamp_mode}" == result && "${result}" == skipped \
+                && -n "${live_exit}" && "${live_exit}" == "${stamp_exit}" ]] \
+                || { printf 'failed'; return 0; }
+            ;;
     esac
     if [[ "${stamp_mode}" == fired ]]; then
         [[ "${trigger}" == unit ]] || { printf '%s' "${live}"; return 0; }
@@ -443,7 +455,9 @@ ai_tools_services__read_state() {
             "$(ai_tools_services__read_stamp_field "${stamp}" RESULT)" \
             "$(ai_tools_services__read_stamp_field "${stamp}" TRIGGER)" \
             "$(ai_tools_services__read_stamp_age "${stamp}")" \
-            "${max_age}"
+            "${max_age}" \
+            "$(ai_tools_services__read_unit_property "${unit}" ExecMainStatus "${scope}")" \
+            "$(ai_tools_services__read_stamp_field "${stamp}" EXIT_CODE)"
         return 0
     fi
     if ! command -v systemctl >/dev/null 2>&1; then
