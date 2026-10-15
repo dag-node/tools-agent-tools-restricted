@@ -4975,7 +4975,10 @@ status_services() {
             # line carrying the one command that CAN tell, so a healthy host's report does not grow a diagnostic block
             # per unit it simply cannot query. One reading is separable here: a stamp still empty as the package seeded
             # it means the unit has never run, the state a freshly provisioned host is in until its first scheduled
-            # window, so the line says that and keeps the check command beside it.
+            # window, so the line says that and keeps the check command beside it. A system unit reads unknown
+            # where there is no systemctl, or where it is a oneshot with no run since its manager started,
+            # and `command -v systemctl` tells the two apart; the oneshot line does not name a command, since its .path
+            # watcher starts it on the next change and a manual start would run work no change asked for.
             *)      if [[ "${scope}" == sandbox-user ]]; then
                         if declare -F ai_tools_services__is_stamp_unwritten >/dev/null 2>&1 \
                                 && ai_tools_services__is_stamp_unwritten "${stamp}"; then
@@ -4985,6 +4988,9 @@ status_services() {
                             printf '  %-28s %s? (sandbox --user unit -- check: sudo systemctl --user -M %s@.host status %s)%s\n' \
                                 "${unit}" "${C_DIM}" "${SANDBOX_USER}" "${unit}" "${C_RST}"
                         fi
+                    elif command -v systemctl >/dev/null 2>&1; then
+                        printf "  %-28s %s? (has not run since boot -- a oneshot's state is its last run's, known after its first)%s\n" \
+                            "${unit}" "${C_DIM}" "${C_RST}"
                     else
                         printf '  %-28s %s? (systemctl unavailable)%s\n' "${unit}" "${C_DIM}" "${C_RST}"
                     fi ;;

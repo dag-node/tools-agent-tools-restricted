@@ -2472,13 +2472,19 @@ status_services() {
             stale)   st STALE "${unit}  ${when:-last run long ago}" ;;
             absent)  st "n/a" "${unit}  not installed" ;;
             # Not a fault report -- it says only that even this vantage point could not tell, and is not counted,
-            # the same rule the operator view follows. The two scopes fail for different reasons and say so: a system
-            # unit is unreadable only where there is no systemctl at all, while a sandbox-user one means root reached
-            # neither that account's manager (no machine transport, no timeout(1), or no answer inside the probe's
-            # window) nor a last-run stamp -- or, separable and said as such, a stamp still empty as the package seeded
-            # it: the unit has never run, which is where a freshly provisioned host stands until its first window.
-            *)       if [[ "${scope}" == system ]]; then
+            # the same rule the operator view follows. The two scopes fail for different reasons and say so. A system
+            # unit reads unknown where there is no systemctl at all, or where it is a oneshot with no run since its
+            # manager started, whose verdict is its last run's; `command -v systemctl`, the one test the system scope's
+            # probe makes, tells the two apart. The oneshot line does not name a command: its .path watcher starts it
+            # on the next change, and a manual start would run work no change asked for. A sandbox-user one means root
+            # reached neither that account's manager (no machine transport, no timeout(1), or no answer inside
+            # the probe's window) nor a last-run stamp -- or, separable and said as such, a stamp still empty
+            # as the package seeded it: the unit has never run, which is where a freshly provisioned host stands until
+            # its first window.
+            *)       if [[ "${scope}" == system ]] && ! command -v systemctl >/dev/null 2>&1; then
                          st "?" "${unit}  systemctl is unavailable here"
+                     elif [[ "${scope}" == system ]]; then
+                         st "?" "${unit}  has not run since boot -- a oneshot's state is its last run's, known after its first"
                      elif declare -F ai_tools_services__is_stamp_unwritten >/dev/null 2>&1 \
                              && ai_tools_services__is_stamp_unwritten "${stamp}"; then
                          st "?" "${unit}  no run recorded yet -- its first scheduled run has not happened"

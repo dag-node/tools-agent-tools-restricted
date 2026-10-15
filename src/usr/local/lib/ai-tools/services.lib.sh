@@ -397,7 +397,8 @@ ai_tools_services__evaluate_timer_stamp() {
 #              would otherwise read as a permanent, and increasingly wrong, OK.
 #   absent  -- the unit is not installed on this host (e.g. relabel.path on a base-only install,
 #              or the nvm-update pair without the nodejs integration) -- no fault to warn about.
-#   unknown -- not checkable here: systemctl missing, or a sandbox-user unit that is installed but
+#   unknown -- not checkable here: systemctl missing, a system oneshot with no run since its manager
+#              started (its verdict is its last run's), or a sandbox-user unit that is installed but
 #              neither reachable live nor publishing a stamp (or has not run since the stamp was
 #              introduced).
 ai_tools_services__read_state() {
