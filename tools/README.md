@@ -51,7 +51,7 @@ repository waits until those fixes are released and pinned, as the release
 checklist [ref-section-g6d8](../docs/development/release.md#ref-section-g6d8)
 states.
 
-### Bumping a pin
+### Bumping a pin <a id="ref-section-j6v8"></a>
 
 Edit `tag` and `archive_sha256` together from the release page, in a commit
 of its own, then run `fetch` and `verify`:

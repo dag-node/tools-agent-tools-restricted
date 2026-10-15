@@ -65,7 +65,8 @@ What the move gives you:
   `sudo dnf upgrade ai-tools-assets-sets-core` brings a newer text without
   a base release. A host that installed the set under its former name,
   `ai-tools-assets-core`, moves to `ai-tools-assets-sets-core`
-  on `sudo dnf upgrade`.
+  on `sudo dnf upgrade`; the plugin the set carries keeps the name
+  `ai-tools-assets-core`.
 - **You choose each asset by name.** `AI_TOOLS_ASSETS`
   in `/etc/ai-tools/operator.conf` lists what sessions load;
   `assets enable --set core` writes the whole set, and `AI_TOOLS_ASSETS=[]`

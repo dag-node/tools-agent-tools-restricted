@@ -462,15 +462,11 @@ that belong to the writing pass. It runs the checker and not the formatter, beca
 proves the gate before the tree is read: one over-width line of each kind is reported with its file, line and column;
 a vendored file, a file outside the scope and an untracked page, each over its column, are not measured; the corrected
 form passes; and a path the checker cannot read, or a tree git cannot list, fails the gate rather than reading
-as a clean one. `dev-assets.sh` holds `tools/lib/assets.sh` to reading a tool from its pin alone: an archive
-whose sha256 differs from the pin's, a release that publishes another sha256, one without its signature, one signed
-by a throwaway key, a cached tree edited after the unpack, and a pin carrying a line outside its three keys each refuse
-with the reason and do not leave a cache directory `path` would read, and `path` does not print a line for a pin not
-in the cache; the cache is `0700` under the user's own home, and a checkout variable resolves with a `BYPASS` line
-naming its commit, suffixed `-dirty` while the checkout holds an uncommitted edit. Its control is the release `fetch`
-placed in the invoking user's cache, served to a stubbed download, so the file runs without a network. With the cache
-empty the git hooks name the fetch command and exit 0 while the front door and the reftags wrapper exit 1 with it.
-`cli-verbs.sh` is the same shape one layer in: a pure text check that the CLI's four **gating tables** —
+as a clean one. `dev-assets.sh` holds `tools/lib/assets.sh` to reading a tool from its pin alone, and holds that its
+callers do not read a fallback with the cache empty; its header lists the refusals it drives. It also holds the cache
+at `0700` under the user's own home, and a checkout variable to resolving with a `BYPASS` line. Its control is
+the release `fetch` placed in the invoking user's cache, served to a stubbed download, so the file runs without
+a network. `cli-verbs.sh` is the same shape one layer in: a pure text check that the CLI's four **gating tables** —
 `OPERATOR_VERBS`, `ROOT_ALLOWED_VERBS`, `BOOTSTRAP_EXEMPT_VERBS`, `FOR_ALLOWED_VERBS` — still describe the verbs it
 dispatches. The failure it exists for is silent and one-directional: a verb added to the dispatcher and forgotten
 in `OPERATOR_VERBS` runs for an unenrolled caller, with no message to say so until a root helper refuses it midway.

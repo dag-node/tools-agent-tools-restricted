@@ -76,8 +76,8 @@ from how the code is organised; they are not a fixed taxonomy and not a one-file
   the `ai-tools-reftags` skill's, stated in its reference rule
   [URI-U6Y5](https://github.com/dag-node/ai-tools-assets/blob/main/sets/core/skills/ai-tools-reftags/SKILL.md#ref-section-h9b7)
   at the latest release of the asset set `core`, the one a host's tooling follows as `dnf` installs it;
-  `tools/lib/assets-core.pin` is this repository's development lockfile and may lag that release. The index is
-  `.claude/references.md`, regenerated with the tree.
+  `tools/lib/assets-core.pin` may lag that release (`tools/lib/assets.sh`). The index is `.claude/references.md`,
+  regenerated with the tree.
 
 [URI-U6Y5]: https://github.com/dag-node/ai-tools-assets/blob/main/sets/core/skills/ai-tools-reftags/SKILL.md#ref-section-h9b7 "The reftags skill's reference rule, at the latest core release"
 

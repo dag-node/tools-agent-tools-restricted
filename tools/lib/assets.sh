@@ -25,7 +25,12 @@
 # it verifies, so running a tool from it does not write into it -- Python's byte-code cache would otherwise add files
 # the core inventory does not list -- and `fetch` restores write access only to replace it. `path` reads the cache
 # alone; `fetch` is the one network step. A fetch is staged in a directory of its own under the cache and renamed
-# into place only after every check passed.
+# into place only after every check passed. A caller does not read a fallback: with the cache empty the git hooks print
+# the fetch command (AI_TOOLS_DEV_ASSETS__FETCH_COMMAND) and exit 0, and the formatter front door and the reftags
+# wrapper exit 1 with it.
+#
+# The pins are this repository's development lockfile: no installed component reads them, and they may lag the latest
+# release of either repository.
 #
 # A checkout stands in for a pin, reported: AI_TOOLS_DEV_ASSETS_CORE names a checkout of ai-tools-assets (its
 # `sets/core` is the tree) and AI_TOOLS_DEV_ASSETS_TOOLS one of ai-tools-assets-tools (holding `formatters/`
