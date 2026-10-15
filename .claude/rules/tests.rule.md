@@ -238,14 +238,14 @@ so every line is still queryable by its per-component tag.
 `AI_TOOLS_POSTUPGRADE_ROOT` is the fourth hook of that family and the widest in reach:
 `ai-tools-admin system post-upgrade` reconciles a fixed registry of absolute control-plane paths and the files it finds
 under a fixed set of config directories, and this prefixes every one of them, so `unit/postupgrade.sh` drives the real
-command against a fixture tree in its testdir. It carries the same standing as the other three — the helper is reachable
-only as root, `sudo` strips the name, and a caller who could set it may already edit those files outright — and is unset
-in production, where the registry paths stand as written.
+command against a fixture tree in its testdir. It is a root-only test hook on the same rationale as the other three —
+the helper is reachable only as root, `sudo` strips the name, and a caller who could set it may already edit those files
+outright — and is unset in production, where the registry paths stand as written.
 
 `AI_TOOLS_ADMIN_COMMANDS_DIR` (`ai-tools-admin`) belongs to that family too, and redirects the directory the admin
 dispatch discovers its contributed command domains in, so `unit/admin-commands.sh` drives the real dispatch
-against fixture fragments in its testdir instead of the host's own. It carries the same standing
-as `AI_TOOLS_POSTUPGRADE_ROOT` — the tool is reachable only as root, `sudo` strips the name, and a caller who could set
+against fixture fragments in its testdir instead of the host's own. It is read on the rationale
+of `AI_TOOLS_POSTUPGRADE_ROOT` — the tool is reachable only as root, `sudo` strips the name, and a caller who could set
 it may already write the directory it redirects.
 
 `AI_TOOLS_ENTRYPOINT_PIN_DIR` (`entrypoint-verify.lib.sh`) is the fifth, and it carries more weight than the others:
@@ -277,13 +277,13 @@ sudo bash -c 'n=$(find /opt/ai-tools/.nvm/versions/node/*/lib/node_modules/@anth
 
 `AI_TOOLS_RELABEL_LOCK` and `AI_TOOLS_RELABEL_LOCK_WAIT` (`relabel.lib.sh`) are the seventh, and the first of the family
 a test drives directly: they move the lock that serializes writes to the policy store, and shorten the wait for it,
-so `unit/relabel.sh` exercises real cross-process contention against a lock file in its own testdir. They carry
-the lightest standing of the family — what they redirect is an advisory lock, so a caller who sets one can leave a run
+so `unit/relabel.sh` exercises real cross-process contention against a lock file in its own testdir. They are the least
+consequential of the family to set — what they redirect is an advisory lock, so a caller who sets one can leave a run
 unserialized, which is the documented fail-soft and never changes what a label may be applied to.
 
 `AI_TOOLS_SANDBOX_ROOT` (`ai-tools.sh`) is the eighth, and it sits with `AI_TOOLS_GITCONFIG` and `AI_TOOLS_ALLOWLIST`
 on the operator side of the family: the CLI runs as the operator without `sudo`, so the operator's own environment
-reaches it, and it carries the same standing as those two. It moves the directory a clone is made in and read
+reaches it, and it is read on the rationale of those two. It moves the directory a clone is made in and read
 as the sandbox kind from, and the operator owns every clone, so a caller who sets it does not gain any reach beyond
 claiming a clone made elsewhere; the clone kind's destructive removal stays scoped to a direct child of that directory,
 and the protected-paths backstop still refuses a system directory named there. `integration/cli-flags.sh` points it
@@ -307,7 +307,7 @@ who could set it moves where an **attribution field** lands, which does not feed
 (`assets.lib.sh`, the lock pair's in `managed-assets.lib.sh`) join it beside `AI_TOOLS_ASSETS_BINDINGS_DIR`: they move
 the roots a set is read from, the lock the view transaction takes and how long a run waits for it, and the directory
 holding the view and the agents' config directories, so `unit/assets.sh` and `unit/admin-assets.sh` drive a real
-reconcile over fixtures in their testdir and never touch `/opt/ai-tools`. Each has the standing
+reconcile over fixtures in their testdir and never touch `/opt/ai-tools`. Each is read on the rationale
 of `AI_TOOLS_POSTUPGRADE_ROOT`: the consumers are root alone, `sudo` strips the names, and a caller who could set them
 may already write the paths they redirect.
 
