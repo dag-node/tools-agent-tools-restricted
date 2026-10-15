@@ -292,7 +292,7 @@ TREE_LINE=""
 # deployed CLI, a copy without the substitution, either side reading `dev` -- passes with a line saying so: there is no
 # version to order, and this gate reports rather than deciding any access. `install.sh check-tree` runs it
 # before the source-tree gate, which is how the unit test drives it, through AI_TOOLS_INSTALLED_CLI -- a root-only test
-# hook of the same standing as the ones tests.rule.md lists: sudo strips it, and a caller who could set it runs this
+# hook read on the rationale of the ones tests.rule.md lists: sudo strips it, and a caller who could set it runs this
 # script as root
 # already.
 INSTALLED_CLI="${AI_TOOLS_INSTALLED_CLI:-/usr/local/bin/ai-tools}"

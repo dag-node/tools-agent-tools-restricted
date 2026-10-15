@@ -474,7 +474,7 @@ cgroup_unit_name() {
 # they read first after an incident, is untrue, and untrue in the direction that inflates how much agent work was
 # running.
 #
-# THIS CHANGES A LABEL AND A COUNT, NEVER A TARGET. It has the same standing as unit_working_directory and carries
+# THIS CHANGES A LABEL AND A COUNT, NEVER A TARGET. Like unit_working_directory, it is attribution alone, and carries
 # the same caveat: a unit name inside the delegated subtree is the delegatee's to choose, so a session can name itself
 # out of the agent class, and does not gain an exemption by it, because both classes are enumerated, listed and killed
 # identically. Nothing here is consulted to decide what a stop reaches; that remains cgroup-slice membership alone.

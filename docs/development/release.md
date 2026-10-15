@@ -288,9 +288,10 @@ that has to move afterwards is the outcome this ordering exists to avoid.
 **The `%changelog` commit is the last one on the branch**, as it is for a final
 tag in [2. Finalize](#2-finalize-the-one-merge-to-main). It records
 what the release contains, which is not known until the fix is complete;
-written first, it is amended by every commit after it, and the entry the tag
-carries is whatever the last amendment happened to leave. Put the `VERSION`
-bump in that same commit, so one commit carries the whole release identity.
+written first, it is rewritten after every commit that follows it (a
+`git commit --fixup` folded in by `git rebase --autosquash`), and the entry
+the tag carries is whatever the last rewrite left. Put the `VERSION` bump
+in that same commit, so one commit carries the whole release identity.
 
 **Merge `main` back into `develop` as the closing step**, then into any live
 feature branch. `develop` is where the next release is built, so a patch it

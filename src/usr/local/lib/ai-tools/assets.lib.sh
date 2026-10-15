@@ -20,7 +20,8 @@
 # and the report (ai_tools_assets__report_state).
 #
 # The root-only test hooks AI_TOOLS_ASSETS_ROOTS and AI_TOOLS_ASSETS_HOME move the roots and the directory holding
-# the view and the agent config directories, with the standing of AI_TOOLS_ASSETS_BINDINGS_DIR (assets-verify.lib.sh).
+# the view and the agent config directories, read on the rationale of AI_TOOLS_ASSETS_BINDINGS_DIR
+# (assets-verify.lib.sh).
 
 # Sourced more than once in a single shell: the readonly constants would abort under `set -e` on the second pass.
 # An if-statement, not `[[ ]] && return`, which returns 1 for an unset guard and trips the sourcing shell's `set -e`.

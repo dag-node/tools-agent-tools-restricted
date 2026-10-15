@@ -105,14 +105,13 @@ readonly PATH_ORDER_LIB="/usr/local/lib/ai-tools/path-order.lib.sh"
 readonly RECORDS_TSV_LIB="/usr/local/lib/ai-tools/records-tsv.lib.sh"
 readonly ASSETS_LIB="/usr/local/lib/ai-tools/assets.lib.sh"
 # Where a provider package drops the command fragment carrying its own domain. The environment override is a test hook
-# of the same standing as AI_TOOLS_POSTUPGRADE_ROOT: sudo strips the name, so tests/unit/admin-commands.sh drives
+# read on the rationale of AI_TOOLS_POSTUPGRADE_ROOT: sudo strips the name, so tests/unit/admin-commands.sh drives
 # the dispatch against a fixture tree. `--help` lists the domains through it ahead of the root check, so a non-root
 # caller can point the LISTING at another root-owned directory; the dispatch still needs root and each fragment still
 # needs root ownership, so the reach does not add a command. Unset in production.
 readonly ADMIN_COMMANDS_DIR="${AI_TOOLS_ADMIN_COMMANDS_DIR:-/usr/local/lib/ai-tools/admin-commands.d}"
 # The names base owns. A contributed fragment claiming one is refused, so no installed package can shadow a command
-# an administrator relies on. `status` is reserved before it is implemented: a name a provider could take first is not
-# a name base can take back.
+# an administrator relies on.
 readonly -a BASE_COMMANDS=(operators selinux system status assets)
 # What an administrator does about a contributed command that is not root's alone. Stated once and shared by every
 # message that reports one, so the dispatch, the full-scope bootstrap and the help give one answer. It is deliberately
