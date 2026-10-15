@@ -599,6 +599,20 @@ admin assets list
 first_items="$(awk -F'\t' 'NR > 1 && NR <= 4 { print $9 }' <<< "${OUT}" | tr '\n' ' ')"
 [[ "${first_items}" == "zzz acme/skills/x/extra skills/acme-x " ]] && pass "entries that do not parse come first, in list order" \
     || fail "the first rows: '${first_items}': $(stream_labels | tr '\n' '|')"
+# A verb's recorded row is keyed the same way: an identifier that does not parse sorts first, and one that does sorts
+# by kind, set and name among the reconcile's rows. Unkeyed, `zzz` would read as a kind and sort after `subagents`.
+fresh
+write_conf "${SKILL}" "${SUB}"
+admin assets reconcile
+admin assets disable zzz acme/skills/acme-other
+recorded_order="$(awk -F'\t' 'NR > 1 { item = $9; sub(/\\t.*/, "", item); if (item != last) print item; last = item }' <<< "${OUT}" \
+    | tr '\n' ' ')"
+if [[ "${RC}" == 4 && "$(finding_of zzz)" == not-enabled \
+        && "${recorded_order}" == "zzz acme/skills/acme-other ${SKILL} ${SUB} " ]]; then
+    pass "a recorded row whose item does not parse comes first, and one that parses sorts by kind, set and name"
+else
+    fail "the recorded rows' order: rc ${RC}, '${recorded_order}': $(stream_labels | tr '\n' '|')"
+fi
 write_conf "${SKILL}" "${SUB}"
 mkdir -p "${TESTDIR}/lock"
 held="${TESTDIR}/lock/held"; rm -f "${held}"

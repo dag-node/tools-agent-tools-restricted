@@ -2506,13 +2506,15 @@ _ai_tools_assets__get_row_references() {
 # each under LC_ALL=C (_ai_tools_assets__get_order_key), then the rank within one asset -- the list edit, the entry's
 # state, the view row, the agent rows -- then the agent, then the recording order, so a row without a kind comes first
 # and an empty set ahead of the sets of its kind. An entry the plan did not resolve to a kind (_AI_TOOLS_ASSETS__KIND),
-# one that does not parse, takes the empty key and sorts with the rows without a kind. A resolver link whose set
-# the plan could not read (_AI_TOOLS_ASSETS__SET_KEYS_LOST) sorts under the empty set, and the `row` origin warns once
-# under MSG-M7J8. The sort's output is taken only where its pipeline exits 0 and it names each row once, checked
-# against the rows it was given; any other result -- a sort or a cut that failed, dropped, repeated or invented a row --
-# leaves the rows in recording order and warns under MSG-Y8T3: every row is still written, and only the order differs.
-# Returns non-zero only where it could not fill the array; _ai_tools_assets__fill_row_order is the caller that handles
-# that. Its locals carry a prefix, since the array is the caller's name.
+# one that does not parse, takes the empty key and sorts with the rows without a kind, and so does a recorded row
+# whose item ai_tools_assets__parse_id refuses, which runs in a subshell so the identifier it parses is not left
+# in the caller's AI_TOOLS_ASSETS__ID_* globals. A resolver link whose set the plan could not read
+# (_AI_TOOLS_ASSETS__SET_KEYS_LOST) sorts under the empty set, and the `row` origin warns once under MSG-M7J8.
+# The sort's output is taken only where its pipeline exits 0 and it names each row once, checked against the rows it was
+# given; any other result -- a sort or a cut that failed, dropped, repeated or invented a row -- leaves the rows
+# in recording order and warns under MSG-Y8T3: every row is still written, and only the order differs. Returns non-zero
+# only where it could not fill the array; _ai_tools_assets__fill_row_order is the caller that handles that. Its locals
+# carry a prefix, since the array is the caller's name.
 _ai_tools_assets__sort_rows() {
     local -n _sort_rows_out="$1"
     local _sort_rows_origin _sort_rows_index _sort_rows_sequence=0 _sort_rows_rank _sort_rows_reference _sort_rows_complete=0 \
@@ -2528,7 +2530,10 @@ _ai_tools_assets__sort_rows() {
     for _sort_rows_reference in "${_sort_rows_rows[@]}"; do
         _sort_rows_origin="${_sort_rows_reference%%$'\t'*}"; _sort_rows_index="${_sort_rows_reference#*$'\t'}"
         case "${_sort_rows_origin}" in
-            recorded) _sort_rows_key="$(_ai_tools_assets__get_order_key "${_AI_TOOLS_ASSETS__RECORDED_ITEM[_sort_rows_index]}" "" 0 "")" ;;
+            recorded)
+                _sort_rows_entry="${_AI_TOOLS_ASSETS__RECORDED_ITEM[_sort_rows_index]}"
+                ( ai_tools_assets__parse_id "${_sort_rows_entry}" ) || _sort_rows_entry=""
+                _sort_rows_key="$(_ai_tools_assets__get_order_key "${_sort_rows_entry}" "" 0 "")" ;;
             list)     _sort_rows_key="$(_ai_tools_assets__get_order_key "" "" 0 "")" ;;
             entry)
                 _sort_rows_entry="${AI_TOOLS_ASSETS__ENTRIES[_sort_rows_index]}"
