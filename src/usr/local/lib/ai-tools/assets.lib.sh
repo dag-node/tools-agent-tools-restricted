@@ -1358,8 +1358,9 @@ _ai_tools_assets__is_resolver_link() {
 # _ai_tools_assets__read_resolver_link_set <path> : print the set a resolver link at <path> points into, read one hop:
 # the first component under one of the first two roots, `ai-tools` under the base root. Prints nothing for a path
 # that is not a resolver link, and returns 1 without printing for a link whose target could not be read. The plan reads
-# it while the link is still on disk, and the set is a sort key alone: the row's finding and subject come
-# from the apply's own result, so a set that could not be read moves the row to the head of its kind and leaves its
+# it while the link is still on disk, and the set is a sort key and the first component of a stale link's item
+# (_ai_tools_assets__get_stale_link_item): the row's finding and subject come from the apply's own result, so a set
+# that could not be read moves the row to the head of its kind, leaves its item `<kind>/<view-name>` and leaves its
 # finding, subject and detail as the apply recorded them. A caller counts each status 1
 # in _AI_TOOLS_ASSETS__SET_KEYS_LOST, which the order reports (_ai_tools_assets__sort_rows).
 _ai_tools_assets__read_resolver_link_set() {
@@ -1377,6 +1378,20 @@ _ai_tools_assets__read_resolver_link_set() {
         fi
         return 0
     done
+}
+
+# _ai_tools_assets__get_stale_link_item <kind> <view-name> <set> : print the item of a row about a resolver link no
+# entry justifies: the identifier a resolver link at that name is placed for, <set>/<kind>/<name>, its name the view
+# name without the `.md` a file kind adds, so the row names what an operator disabled; `<kind>/<view-name>` where <set>
+# is empty, the set not read (_ai_tools_assets__read_resolver_link_set).
+_ai_tools_assets__get_stale_link_item() {
+    local kind="$1" name="$2" set="$3"
+    if [[ -z "${set}" ]]; then
+        printf '%s/%s' "${kind}" "${name}"
+        return 0
+    fi
+    [[ "$(_ai_tools_assets__get_kind_field "${kind}" shape)" == file ]] && name="${name%.md}"
+    printf '%s/%s/%s' "${set}" "${kind}" "${name}"
 }
 
 # ── Destinations ─────────────────────────────────────────────────────────────────────────────────────────────────────
@@ -1831,7 +1846,8 @@ _ai_tools_assets__plan_view() {
         [[ "${name}" == README.md || -n "${desired[${name}]+x}" ]] && continue
         if _ai_tools_assets__is_resolver_link "${view}/${name}"; then
             link_set="$(_ai_tools_assets__read_resolver_link_set "${view}/${name}")" || _AI_TOOLS_ASSETS__SET_KEYS_LOST=$(( _AI_TOOLS_ASSETS__SET_KEYS_LOST + 1 ))
-            _ai_tools_assets__record_action unlink "${view}/${name}" "" file "${kind}/${name}" "" "no enabled entry justifies it" "${link_set}"
+            _ai_tools_assets__record_action unlink "${view}/${name}" "" file "$(_ai_tools_assets__get_stale_link_item "${kind}" "${name}" "${link_set}")" "" \
+                "no enabled entry justifies it" "${link_set}"
             continue
         fi
         if _ai_tools_assets__is_seeded_copy "${kind}" "${view}/${name}"; then
@@ -2061,7 +2077,8 @@ _ai_tools_assets__plan_stale_links() {
         after="${_AI_TOOLS_ASSETS__VIEW_AFTER[${target#"${view}/"}]:-}"
         if [[ -z "${after}" || ( "${which}" == resolver && "${after}" == resolver ) ]]; then
             link_set="$(_ai_tools_assets__read_resolver_link_set "${target}")" || _AI_TOOLS_ASSETS__SET_KEYS_LOST=$(( _AI_TOOLS_ASSETS__SET_KEYS_LOST + 1 ))
-            _ai_tools_assets__record_action unlink "${agent_dir}/${name}" "" agent "${kind}/${target#"${view}/"}" "${agent}" \
+            _ai_tools_assets__record_action unlink "${agent_dir}/${name}" "" agent \
+                "$(_ai_tools_assets__get_stale_link_item "${kind}" "${target#"${view}/"}" "${link_set}")" "${agent}" \
                 "$([[ -z "${after}" ]] && printf 'the view does not hold a linkable entry at its name' || printf 'the agent is not enabled')" \
                 "${link_set}"
         fi

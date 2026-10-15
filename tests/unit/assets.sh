@@ -920,6 +920,14 @@ expect_unlinked subagents/acme-reviewer.md "the same set's subagent"
 has_row removed "${HOME_DIR}/skills/acme-pdf" && pass "the removal is reported removed" || fail "no removed row: ${OUT:0:300}"
 removal_code="$(awk -F'\t' -v s="${HOME_DIR}/skills/acme-pdf" 'NR > 1 && $6 == "removed" && $10 == s { print $3 }' <<< "${OUT}")"
 [[ "${removal_code}" == MSG-K6J2 ]] && pass "the removal's row carries the reconcile's link code" || fail "the removal's code: '${removal_code}'"
+# A stale link's item is the identifier it was placed for, a file kind's `.md` dropped, and the kind and the view name
+# where the set was not read.
+stale_items="$(bash -c 'source "$1" 2>/dev/null || exit 99
+    for args in "skills acme-pdf acme" "subagents acme-reviewer.md acme" "subagents acme-reviewer.md"; do
+        read -r kind name set <<< "${args}"; _ai_tools_assets__get_stale_link_item "${kind}" "${name}" "${set}"; printf " "
+    done' _ "${LIB}")"
+[[ "${stale_items}" == "acme/skills/acme-pdf acme/subagents/acme-reviewer subagents/acme-reviewer.md " ]] \
+    && pass "a stale link's item: the identifier, or the kind and view name without a set" || fail "stale items: '${stale_items}'"
 
 # ── The lock ─────────────────────────────────────────────────────────────────────────────────────────────────────────
 section "assets: the lock serializes runs"

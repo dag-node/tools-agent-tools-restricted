@@ -307,6 +307,10 @@ if [[ "$(stream_labels)" == "${want}" ]]; then
 else
     fail "the disable's stream order: $(stream_labels | tr '\n' '|')"
 fi
+# The removed rows name the identifier the operator disabled, as the rows that placed the links did.
+removed_items="$(awk -F'\t' 'NR > 1 && $6 == "removed" { print $9 }' <<< "${OUT}" | tr '\n' ' ')"
+[[ "${removed_items}" == "${SKILL} ${SKILL}"'\tacme ' ]] && pass "a disable's removed rows carry the identifier disabled" \
+    || fail "the removed rows' items: '${removed_items}'"
 STUBS='ai_tools_providers__list_enabled_agents() { return 2; }'; admin assets disable "${SUB}"; STUBS=""
 first="$(awk -F'\t' 'NR == 2 { print $6 }' <<< "${OUT}")"
 [[ "${first}" == receivers-unknown ]] && pass "a row without a kind comes first" || fail "the first row is '${first}': $(stream_labels | tr '\n' '|')"
@@ -565,6 +569,9 @@ ln -s "${PKG}/acme/skills/acme-pdf" "${HOME_DIR}/skills/acme-stray"
 admin assets list
 [[ "${RC}" == 4 && "$(pending_rows)" == "unlink-pending ${HOME_DIR}/skills/acme-stray attention" ]] \
     && pass "a resolver link no entry justifies: unlink-pending, exit 4" || fail "a stray link: rc ${RC}, pending '$(pending_rows)'"
+[[ "$(awk -F'\t' '$6 == "unlink-pending" { print $9 }' <<< "${OUT}")" == acme/skills/acme-stray ]] \
+    && pass "the unlink-pending row's item names the set, the kind and the name at that link" \
+    || fail "the unlink-pending row's item: $(awk -F'\t' '$6 == "unlink-pending" { print $9 }' <<< "${OUT}")"
 [[ "$(awk -F'\t' '$6 == "unlink-pending" { print $11 }' <<< "${OUT}")" \
         == "a reconcile would remove it: no enabled entry justifies it; run sudo ai-tools-admin assets reconcile" ]] \
     && pass "the unlink-pending row says what a reconcile would do, and why" \
@@ -578,6 +585,9 @@ printf -v STUBS 'readlink() { [[ "${FUNCNAME[1]}" == _ai_tools_assets__read_reso
 admin assets list; STUBS=""
 [[ "${RC}" == 4 && "$(pending_rows)" == "unlink-pending ${HOME_DIR}/skills/acme-stray attention" ]] \
     && pass "a link whose set could not be read: still unlink-pending, exit 4" || fail "a lost set: rc ${RC}, pending '$(pending_rows)'"
+[[ "$(awk -F'\t' '$6 == "unlink-pending" { print $9 }' <<< "${OUT}")" == skills/acme-stray ]] \
+    && pass "a link whose set could not be read: its item is the kind and the view name" \
+    || fail "a lost set's item: $(awk -F'\t' '$6 == "unlink-pending" { print $9 }' <<< "${OUT}")"
 assert_msg MSG-M7J8 "${ERR}" "a set that could not be read is reported under MSG-M7J8"
 rm -f "${HOME_DIR}/skills/acme-stray"
 # An entry that does not parse sorts with the rows without a kind, in the order the list holds it, ahead of every
