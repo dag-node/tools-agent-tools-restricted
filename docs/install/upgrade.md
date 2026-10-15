@@ -44,7 +44,7 @@ released apart from the base packages. The command that enables a set arrives
 with 0.24.0, so install the set first, upgrade, and enable it right after:
 
 ```bash
-sudo dnf install ai-tools-assets-core
+sudo dnf install ai-tools-assets-sets-core
 sudo dnf upgrade --refresh 'ai-tools*'
 sudo ai-tools-admin assets enable --set core
 ```
@@ -62,8 +62,10 @@ and adopt the merge it offers.
 What the move gives you:
 
 - **A skill update reaches your host on its own.**
-  `sudo dnf upgrade ai-tools-assets-core` brings a newer text without a base
-  release.
+  `sudo dnf upgrade ai-tools-assets-sets-core` brings a newer text without
+  a base release. A host that installed the set under its former name,
+  `ai-tools-assets-core`, moves to `ai-tools-assets-sets-core`
+  on `sudo dnf upgrade`.
 - **You choose each asset by name.** `AI_TOOLS_ASSETS`
   in `/etc/ai-tools/operator.conf` lists what sessions load;
   `assets enable --set core` writes the whole set, and `AI_TOOLS_ASSETS=[]`
@@ -82,7 +84,7 @@ What `sudo ai-tools-admin status` reports after the upgrade, and what ends it:
 
 | On the host | `status` after the upgrade | What ends it |
 |---|---|---|
-| the shipped skills, as installed | `successor-unenabled`, exit 4 | `assets enable --set core`, after `dnf install ai-tools-assets-core`; or `AI_TOOLS_ASSETS=[]` |
+| the shipped skills, as installed | `successor-unenabled`, exit 4 | `assets enable --set core`, after `dnf install ai-tools-assets-sets-core`; or `AI_TOOLS_ASSETS=[]` |
 | a shipped skill edited in place | `successor-unenabled`, exit 4; the edited copy is under `/opt/ai-tools/retired/` | the same; carry the edit into an agent's own directory |
 | a skill of your own under a shipped name, without the managed marker | `view-foreign`; kept, and loaded by codex alone | move it into an agent's own directory, or remove it |
 

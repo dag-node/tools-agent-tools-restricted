@@ -200,8 +200,8 @@ ASSET_STAGE=/tmp/asset-selftest
 ASSET_BINDING=/usr/local/lib/ai-tools/assets-bindings.d/acme.conf
 ASSET_KEYRING=/usr/local/lib/ai-tools/keys/selftest-acme.gpg
 
-# asset_set_rpm <version> <skill>... : build ai-tools-assets-acme-<version> holding a signed set `acme` with one skill
-# per name and one subagent, into ${ASSET_STAGE}/rpms.
+# asset_set_rpm <version> <skill>... : build ai-tools-assets-sets-acme-<version> holding a signed set `acme` with one
+# skill per name and one subagent, into ${ASSET_STAGE}/rpms.
 asset_set_rpm() {
     local version="$1" tree="${ASSET_STAGE}/tree-$1" skill file digest
     shift
@@ -219,7 +219,7 @@ asset_set_rpm() {
     GNUPGHOME="${ASSET_STAGE}/gnupg" gpg --batch --quiet --armor --detach-sign \
         --output "${tree}/acme/SHA256SUMS.asc" "${tree}/acme/SHA256SUMS"
     cat > "${ASSET_STAGE}/acme.spec" <<SPEC
-Name: ai-tools-assets-acme
+Name: ai-tools-assets-sets-acme
 Version: ${version}
 Release: 1
 Summary: selftest asset set
@@ -235,7 +235,7 @@ cp -a ${tree}/acme %{buildroot}/usr/share/ai-tools-assets/acme
 /usr/share/ai-tools-assets/acme
 SPEC
     rpmbuild -bb --quiet --define "_topdir ${ASSET_STAGE}/rpmbuild" "${ASSET_STAGE}/acme.spec" >/dev/null
-    ls "${ASSET_STAGE}/rpmbuild/RPMS/noarch/ai-tools-assets-acme-${version}-1.noarch.rpm"
+    ls "${ASSET_STAGE}/rpmbuild/RPMS/noarch/ai-tools-assets-sets-acme-${version}-1.noarch.rpm"
 }
 
 # asset_view_holds <name> <target> / asset_view_lacks <name> : the skills view and every enabled agent's skills
@@ -277,17 +277,17 @@ phase "assets: a throwaway-signed set and its binding, both identifiers enabled 
     bash -c "$(declare -f asset_set_rpm asset_selftest_setup); ASSET_STAGE='${ASSET_STAGE}' ASSET_BINDING='${ASSET_BINDING}' ASSET_KEYRING='${ASSET_KEYRING}' asset_selftest_setup"
 phase "assets: base and a set in one transaction leave the set's skill linked" \
     bash -c "$(declare -f asset_view_holds); set -e
-             rpm -Uvh --replacepkgs /tmp/ai-repo/ai-tools-base-[0-9]*.rpm '${ASSET_STAGE}'/rpmbuild/RPMS/noarch/ai-tools-assets-acme-0.1.0-1.noarch.rpm
+             rpm -Uvh --replacepkgs /tmp/ai-repo/ai-tools-base-[0-9]*.rpm '${ASSET_STAGE}'/rpmbuild/RPMS/noarch/ai-tools-assets-sets-acme-0.1.0-1.noarch.rpm
              asset_view_holds acme-pdf /usr/share/ai-tools-assets/acme/skills/acme-pdf
              [ ! -e /opt/ai-tools/skills/acme-extra ] && [ ! -L /opt/ai-tools/skills/acme-extra ]"
 phase "assets: the set upgraded alone links the skill it adds" \
     bash -c "$(declare -f asset_view_holds); set -e
-             rpm -Uvh '${ASSET_STAGE}'/rpmbuild/RPMS/noarch/ai-tools-assets-acme-0.1.1-1.noarch.rpm
+             rpm -Uvh '${ASSET_STAGE}'/rpmbuild/RPMS/noarch/ai-tools-assets-sets-acme-0.1.1-1.noarch.rpm
              asset_view_holds acme-pdf /usr/share/ai-tools-assets/acme/skills/acme-pdf
              asset_view_holds acme-extra /usr/share/ai-tools-assets/acme/skills/acme-extra"
 phase "assets: the set erased alone leaves no link to it and no dangling link" \
     bash -c "$(declare -f asset_view_lacks); set -e
-             rpm -e ai-tools-assets-acme
+             rpm -e ai-tools-assets-sets-acme
              asset_view_lacks acme-pdf; asset_view_lacks acme-extra"
 banner "Remove the selftest set's binding and entries"
 ai-tools-admin assets disable acme/skills/acme-pdf acme/skills/acme-extra >/dev/null || :

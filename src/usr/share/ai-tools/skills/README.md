@@ -4,7 +4,7 @@
 copy serves all of them. The skills come from asset sets, signed packages you install and then enable:
 
 ```bash
-sudo dnf install ai-tools-assets-core
+sudo dnf install ai-tools-assets-sets-core
 sudo ai-tools-admin assets enable --set core
 ```
 
