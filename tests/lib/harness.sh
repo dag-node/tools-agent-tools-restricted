@@ -293,11 +293,8 @@ trap _teardown EXIT
 # Redirect the helpers' root-only file logs (chown.log, setgid.log, setfacl.log, ...) away from the production
 # /var/log/ai-tools into a throwaway dir, so a test run never appends to -- or raises spurious ERROR lines in (a
 # negative-path test feeds a helper /etc/passwd, a missing group, a bogus version) -- the real operation trail.
-# AI_TOOLS_LOG_DIR is a root-only hook, exactly like AI_TOOLS_ALLOWLIST / AI_TOOLS_OPERATOR_CONF: sudo strips it
-# and the live handback daemon execs helpers with its own environment, so only a root caller execing a helper directly
-# (this suite) redirects it. The journald sink still carries every line under its per-component tag, so no line is lost.
-# A helper the LIVE daemon execs (integration/handback.sh) keeps the real dir -- the daemon does not inherit this --
-# matching the AI_TOOLS_ALLOWLIST limitation. Registered for teardown.
+# AI_TOOLS_LOG_DIR is a root-only test hook (tests.rule.md, ref-section-b4y9), and a helper the live daemon execs keeps
+# the real dir. Registered for teardown.
 _test_logdir=""; mk_fixture_dir _test_logdir /tmp "${TEST_STEM}-log"
 export AI_TOOLS_LOG_DIR="${_test_logdir}"
 

@@ -51,9 +51,9 @@ if ! source "${BASH_SOURCE[0]%/*}/log.lib.sh" 2>/dev/null || ! declare -F ai_too
 fi
 _AI_TOOLS_ASSETS_VERIFY__LOADED=1
 
-# The shipped bindings and the operator's, each redirected by a root-only test hook on the rationale
-# of AI_TOOLS_ENTRYPOINT_PIN_DIR: `sudo` strips the names, and every consumer runs as root. The operator directory is
-# read for a set name the shipped directory has no file for, and may be absent.
+# The shipped bindings and the operator's, each redirected by a root-only test hook (tests.rule.md, ref-section-b4y9):
+# every consumer runs as root. The operator directory is read for a set name the shipped directory has no file
+# for, and may be absent.
 : "${AI_TOOLS_ASSETS_BINDINGS_DIR:=/usr/local/lib/ai-tools/assets-bindings.d}"
 : "${AI_TOOLS_ASSETS_OPERATOR_BINDINGS_DIR:=/etc/ai-tools/assets-bindings.d}"
 readonly AI_TOOLS_ASSETS_VERIFY__INVENTORY=SHA256SUMS

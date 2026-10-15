@@ -12,17 +12,15 @@ the ones that stub what they drive and build fixtures they own — deliberately 
 as an unprivileged user** during development; the harness then takes the invoker as the project user. Run as root
 with **no** sudo context it refuses: there is no unprivileged identity to derive, and fixtures built root-owned would be
 skipped by every owner guard under test — a suite that passes with no assertion behind it. It streams each file's output
-live, then — on any failure — reprints the failing files and their `FAIL` lines as an end-of-run summary, so a long run
-does not need scrolling; an all-green run exits zero with no summary. Each file runs under a per-file wall-clock budget
-(`AI_TOOLS_TEST_FILE_TIMEOUT`, default 600s): a file that blocks — on a terminal read, a wedged daemon, or a fixture
-process holding a pipe open — is killed and reported as a failure with its transcript, rather than hanging the run.
-That matters beyond convenience because `install.sh` runs this suite as its verification phase, so an unbounded file
-stalls an install. A green file that recorded no `PASS` (every check skipped, or no harness result line) and a category
-with no test files are listed in an end-of-run `no coverage` notice, parsed from `finish()`'s result line:
-green-by-exit-status alone cannot hide a run with no assertions behind it. The default stays lenient — a partial/dev
-install legitimately skips — and `AI_TOOLS_TEST_STRICT=1` turns the notice into a failure. Strict is the enforcing-host
-full-install gate (`sudo AI_TOOLS_TEST_STRICT=1 tests/run.sh all`); the container selftest stays lenient because SELinux
-is legitimately absent there, so `selinux.sh`'s all-skip is a documented limitation, not a broken prerequisite.
+live and closes with the failure summary and the `no coverage` notice `tests/run.sh`'s header describes, the notice
+parsed from `finish()`'s result line, so a green exit status cannot hide a failing file in a long run or a run with no
+assertions behind it. Each file runs under a per-file wall-clock budget (`AI_TOOLS_TEST_FILE_TIMEOUT`, default 600s):
+a file that blocks — on a terminal read, a wedged daemon, or a fixture process holding a pipe open — is killed
+and reported as a failure with its transcript, rather than hanging the run. That matters beyond convenience because
+`install.sh` runs this suite as its verification phase, so an unbounded file stalls an install. `AI_TOOLS_TEST_STRICT=1`
+turns the notice into a failure, and strict is the enforcing-host full-install gate
+(`sudo AI_TOOLS_TEST_STRICT=1 tests/run.sh all`); the container selftest stays lenient because SELinux is legitimately
+absent there, so `selinux.sh`'s all-skip is a documented limitation, not a broken prerequisite.
 
 The harness carries a fourth emitter for that reason. `skip` records a check that could not run, and reaching the notice
 is the point of it. `note` records a fact about the run that is not a verdict — `references.sh` names which tool it
@@ -189,14 +187,13 @@ the path — a clone takes its source's basename or `--dir` — the test hands i
 that ever lands outside the fixture clone area reads as residue. `on_teardown` accumulates: a file may register several
 non-path cleanups, run in order after the path sweep.
 
-`run.sh` runs the **residue sweep** (`lib/residue.sh`) before any category: it lists each directory fixtures are born
-in (`/tmp`, the operator's home, `/var/opt/ai-tools` and its clone area, `/opt/ai-tools`, `.claude`, the `--user unit`
-directories, `/var/log/journal`, the cgroup v2 root) one level deep for that pattern, removes each match, and prints one
-line per removal; a match it cannot remove refuses the run. `sudo tests/run.sh residue` runs the sweep alone. A fixture
-cgroup is killed (`cgroup.kill` over its subtree) and then `rmdir`ed. The suite runs one at a time: a second run started
-while one is live sweeps the first run's fixtures. The manual script names its `--for` drill tree in the clone area
-under the same rule (group `manual`), so a tree its removal did not complete is cleared by the sweep, which holds
-the root that script never takes.
+`run.sh` runs the **residue sweep** (`lib/residue.sh`) before any category, so a run starts from a host that carries
+none of the suite's fixtures: it lists each directory fixtures are born in (`ai_test_residue_sites` declares them) one
+level deep for that pattern, removes each match, and prints one line per removal; a match it cannot remove refuses
+the run. `sudo tests/run.sh residue` runs the sweep alone. The suite runs one at a time: a second run started while one
+is live sweeps the first run's fixtures. The manual script names its `--for` drill tree in the clone area under the same
+rule (group `manual`), so a tree its removal did not complete is cleared by the sweep, which holds the root that script
+never takes.
 
 Two fixtures cannot carry the rule and are listed by their fixed paths instead: `integration/ai-tools-run.sh` probes
 entrypoint containment, and then a disabled agent's package, in `/opt/ai-tools/.nvm/versions/node/v0.0.1`
@@ -221,32 +218,41 @@ in the policy store on a failed run, which costs more than the coverage buys. Wh
 the gap is named at the point it is declined — `integration/selinux.sh` does this
 for `ai_tools_relabel__unlabel_project`'s revert path — so a reader meets it as a decision rather than as an absence.
 
+### Root-only test hooks <a id="ref-section-b4y9"></a>
+
 The deployed root helpers read a fixed allowlist path; a test points them at its own dummy allowlist
 via the `AI_TOOLS_ALLOWLIST` environment override (`mk_allowlist` writes the dummy and exports it). This override is
-a **root-only test hook**: `sudo` strips it (`env_reset`, and it is not in `env_keep`) and the handback daemon execs
-the helpers with its own environment, so neither the operator nor the agent can inject it in production — only a root
-caller that sets the env and execs a helper directly (the test suite) can redirect it.
+a **root-only test hook**, the first of a family of environment names that each move a path a root consumer reads,
+so a test drives the real code against fixtures in its testdir. Every hook of the family whose consumer runs as root is
+read on one rationale. `sudo` strips the name (`env_reset`, and it is not in `env_keep`). The consumer is reached
+as root alone — a root helper, `ai-tools-admin`, `install.sh`, or a daemon whose environment comes from its root-owned
+unit, which is how the handback daemon execs the helpers — so neither the operator nor the agent can inject the name
+in production, and only a root caller that sets it and execs the consumer directly (the test suite) can redirect it.
+A caller who could set it may already write what it redirects. `AI_TOOLS_INSTALLED_CLI` (`install.sh`) belongs
+to the family: it moves the deployed CLI the version gate reads its version from, so `unit/install-guards.sh` drives
+the gate through `install.sh check-tree`. A hook the CLI reads as the operator states its own rationale in its
+paragraph.
 
-The harness redirects the helpers' root-only **file log** the same way: it exports `AI_TOOLS_LOG_DIR` (the third
-root-only hook, same rationale as `AI_TOOLS_ALLOWLIST`) at a throwaway `/tmp` dir cleaned up on exit, so a helper a test
-execs directly writes its `chown.log`/`setgid.log`/… lines there instead of appending to — or raising spurious `ERROR`
-lines in (a negative-path test feeds a helper `/etc/passwd`, a missing group, a bogus version) — the production
-`/var/log/ai-tools` trail. A helper the **live daemon** execs (`integration/handback.sh`) keeps the real dir, since
-the daemon does not inherit the override — the same limitation as `AI_TOOLS_ALLOWLIST`. The journald sink is unaffected,
-so every line is still queryable by its per-component tag.
+The harness redirects the helpers' root-only **file log** the same way: it exports `AI_TOOLS_LOG_DIR` (a root-only test
+hook of the family) at a throwaway `/tmp` dir cleaned up on exit, so a helper a test execs directly writes its
+`chown.log`/`setgid.log`/… lines there instead of appending to — or raising spurious `ERROR` lines in (a negative-path
+test feeds a helper `/etc/passwd`, a missing group, a bogus version) — the production `/var/log/ai-tools` trail.
+A helper the **live daemon** execs (`integration/handback.sh`) keeps the real dir, since the daemon does not inherit
+the override — the same limitation as `AI_TOOLS_ALLOWLIST`. The journald sink is unaffected, so every line is still
+queryable by its per-component tag.
 
 `AI_TOOLS_POSTUPGRADE_ROOT` is the fourth hook of that family and the widest in reach:
 `ai-tools-admin system post-upgrade` reconciles a fixed registry of absolute control-plane paths and the files it finds
 under a fixed set of config directories, and this prefixes every one of them, so `unit/postupgrade.sh` drives the real
-command against a fixture tree in its testdir. It is a root-only test hook on the same rationale as the other three —
-the helper is reachable only as root, `sudo` strips the name, and a caller who could set it may already edit those files
-outright — and is unset in production, where the registry paths stand as written.
+command against a fixture tree in its testdir. It is read on the family's rationale — a caller who could set it may
+already edit those files outright — and is unset in production, where the registry paths stand as written.
 
-`AI_TOOLS_ADMIN_COMMANDS_DIR` (`ai-tools-admin`) belongs to that family too, and redirects the directory the admin
+`AI_TOOLS_ADMIN_COMMANDS_DIR` (`ai-tools-admin`) is a root-only test hook too, and redirects the directory the admin
 dispatch discovers its contributed command domains in, so `unit/admin-commands.sh` drives the real dispatch
-against fixture fragments in its testdir instead of the host's own. It is read on the rationale
-of `AI_TOOLS_POSTUPGRADE_ROOT` — the tool is reachable only as root, `sudo` strips the name, and a caller who could set
-it may already write the directory it redirects.
+against fixture fragments in its testdir instead of the host's own. It is read on the family's rationale — a caller
+who could set it may already write the directory it redirects — except that `--help` lists the domains through it ahead
+of the root check, so a non-root caller can point the listing at another root-owned directory. The dispatch still needs
+root and each fragment still needs root ownership, so that reach does not add a command.
 
 `AI_TOOLS_ENTRYPOINT_PIN_DIR` (`entrypoint-verify.lib.sh`) is the fifth, and it carries more weight than the others:
 the production pin decides whether a session may launch at all, so a test that wrote a deliberately wrong checksum
@@ -275,6 +281,14 @@ warning and exit non-zero:
 sudo bash -c 'n=$(find /opt/ai-tools/.nvm/versions/node/*/lib/node_modules/@anthropic-ai/claude-code/node_modules -name claude -type f | head -1); d=$(mktemp -d); ln -s "$n" "$d/claude"; env AI_TOOLS_LAUNCHER_DIR="$d" /usr/local/libexec/ai-tools/ai-tools-relabel-agent; echo "exit=$?"; rm -rf "$d"'
 ```
 
+That live-host command is not in the suite because the full function registers a `semanage fcontext` rule, and this
+suite does not mutate the host's SELinux policy to test a helper — the same line `integration/selinux.sh` draws
+for `ai_tools_relabel__unlabel_project`. That check is safe *because* it re-asserts the rule that is already registered,
+leaving the policy store unchanged; a fixture manifest would not, which is why the hook redirects the **launcher**
+rather than the manifest directory. The pure decision behind the verdict is covered hermetically in `unit/relabel.sh`,
+and the live agreement between declaration and installation in `integration/selinux.sh`; what this exercises is
+the wiring between them and the renderer's exit status.
+
 `AI_TOOLS_RELABEL_LOCK` and `AI_TOOLS_RELABEL_LOCK_WAIT` (`relabel.lib.sh`) are the seventh, and the first of the family
 a test drives directly: they move the lock that serializes writes to the policy store, and shorten the wait for it,
 so `unit/relabel.sh` exercises real cross-process contention against a lock file in its own testdir. They are the least
@@ -297,27 +311,19 @@ with `AI_TOOLS_LAUNCHER_DIR`: it moves a report and no access decision, and the 
 and `ai-tools-run`, as the sandbox account -- take its path from a constant in `cache-cleanup.lib.sh` that no variable
 moves.
 
-`AI_TOOLS_JOURNAL_SOCKET` (`ai-tools-handback`) joins that family: it moves where the daemon sends its journal datagram,
-so `unit/handback.sh` binds a throwaway socket in its testdir instead of writing the host's journal. The daemon's
-environment comes from its root-owned unit, so neither an operator nor the agent can set it in production, and a caller
-who could set it moves where an **attribution field** lands, which does not feed any authorization decision (see
-[handback-bridge](handback-bridge.rule.md)).
+`AI_TOOLS_JOURNAL_SOCKET` (`ai-tools-handback`) is a root-only test hook: it moves where the daemon sends its journal
+datagram, so `unit/handback.sh` binds a throwaway socket in its testdir instead of writing the host's journal.
+The daemon's environment comes from its root-owned unit, so neither an operator nor the agent can set it in production,
+and a caller who could set it moves where an **attribution field** lands, which does not feed any authorization decision
+(see [handback-bridge](handback-bridge.rule.md)).
 
 `AI_TOOLS_ASSETS_ROOTS`, `AI_TOOLS_ASSETS_LOCK`, `AI_TOOLS_ASSETS_LOCK_WAIT` and `AI_TOOLS_ASSETS_HOME`
-(`assets.lib.sh`, the lock pair's in `managed-assets.lib.sh`) join it beside `AI_TOOLS_ASSETS_BINDINGS_DIR`: they move
-the roots a set is read from, the lock the view transaction takes and how long a run waits for it, and the directory
-holding the view and the agents' config directories, so `unit/assets.sh` and `unit/admin-assets.sh` drive a real
-reconcile over fixtures in their testdir and never touch `/opt/ai-tools`. Each is read on the rationale
-of `AI_TOOLS_POSTUPGRADE_ROOT`: the consumers are root alone, `sudo` strips the names, and a caller who could set them
-may already write the paths they redirect.
-
-It is not in the suite because the full function registers a `semanage fcontext` rule, and this suite does not mutate
-the host's SELinux policy to test a helper — the same line `integration/selinux.sh` draws
-for `ai_tools_relabel__unlabel_project`. That check is safe *because* it re-asserts the rule that is already registered,
-leaving the policy store unchanged; a fixture manifest would not, which is why the hook redirects the **launcher**
-rather than the manifest directory. The pure decision behind the verdict is covered hermetically in `unit/relabel.sh`,
-and the live agreement between declaration and installation in `integration/selinux.sh`; what this exercises is
-the wiring between them and the renderer's exit status.
+(`assets.lib.sh`, the lock pair's in `managed-assets.lib.sh`) are root-only test hooks: they move the roots a set is
+read from, the lock the view transaction takes and how long a run waits for it, and the directory holding the view
+and the agents' config directories, and `AI_TOOLS_ASSETS_BINDINGS_DIR` and `AI_TOOLS_ASSETS_OPERATOR_BINDINGS_DIR`
+(`assets-verify.lib.sh`) move the shipped and the operator's binding directories, so `unit/assets.sh`
+and `unit/admin-assets.sh` drive a real reconcile over fixtures in their testdir and never touch `/opt/ai-tools`. Each
+is read on the family's rationale: a caller who could set them may already write the paths they redirect.
 
 ## Two-ended assertions
 

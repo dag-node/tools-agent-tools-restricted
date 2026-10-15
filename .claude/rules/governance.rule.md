@@ -68,9 +68,9 @@ The governance standard counts a control only when it holds without the system's
 where that test matters most: "the agent stops when asked" is the easiest guarantee to write and the hardest to mean.
 `ai-tools stop` is what makes that row enforced: the operator signals a cgroup as root, the session's cooperation is not
 an input, and the account it runs as can neither run, read nor alter the helper — asserted from the agent's own vantage
-in `tests/boundary/access.sh`. Its undeclinable command deliberately takes **no** authorization input and **no** target,
-and exempts **no** cgroup in the account's slice, because a target or an exemption is an input a session could use
-to put itself outside the sweep.
+in `tests/boundary/access.sh`. Its command takes neither a target nor an authorization input and does not exempt
+a cgroup (I6, [ref-section-a4p8](stop.rule.md#ref-section-a4p8)), because a target or an exemption is an input a session
+could use to put itself outside the sweep.
 
 Two properties of the rung matter to this rule beyond the mechanism, which lives in [stop](stop.rule.md):
 

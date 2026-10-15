@@ -104,11 +104,11 @@ readonly PROVIDERS_LIB="/usr/local/lib/ai-tools/providers.lib.sh"
 readonly PATH_ORDER_LIB="/usr/local/lib/ai-tools/path-order.lib.sh"
 readonly RECORDS_TSV_LIB="/usr/local/lib/ai-tools/records-tsv.lib.sh"
 readonly ASSETS_LIB="/usr/local/lib/ai-tools/assets.lib.sh"
-# Where a provider package drops the command fragment carrying its own domain. The environment override is a test hook
-# read on the rationale of AI_TOOLS_POSTUPGRADE_ROOT: sudo strips the name, so tests/unit/admin-commands.sh drives
-# the dispatch against a fixture tree. `--help` lists the domains through it ahead of the root check, so a non-root
-# caller can point the LISTING at another root-owned directory; the dispatch still needs root and each fragment still
-# needs root ownership, so the reach does not add a command. Unset in production.
+# Where a provider package drops the command fragment carrying its own domain. The environment override is a root-only
+# test hook (tests.rule.md, ref-section-b4y9), so tests/unit/admin-commands.sh drives the dispatch against a fixture
+# tree. `--help` lists the domains through it ahead of the root check, so a non-root caller can point the LISTING
+# at another root-owned directory; the dispatch still needs root and each fragment still needs root ownership,
+# so the reach does not add a command. Unset in production.
 readonly ADMIN_COMMANDS_DIR="${AI_TOOLS_ADMIN_COMMANDS_DIR:-/usr/local/lib/ai-tools/admin-commands.d}"
 # The names base owns. A contributed fragment claiming one is refused, so no installed package can shadow a command
 # an administrator relies on.
@@ -1276,10 +1276,9 @@ readonly -a POSTUPGRADE_FILES=(
 readonly -a POSTUPGRADE_DIRS=(/etc/ai-tools /etc/codex /opt/ai-tools/.claude /opt/ai-tools/.codex)
 
 # AI_TOOLS_POSTUPGRADE_ROOT prefixes every path in that registry, so the test suite drives this command against fixtures
-# in its own /tmp testdir instead of the live host's control plane. It is a ROOT-ONLY test hook of the same shape
-# and standing as AI_TOOLS_ALLOWLIST: sudo strips the environment (env_reset, and this name is not in env_keep)
-# and the helper is reachable only as root, so neither an operator nor the agent can set it, and a caller who could is
-# one that may already edit these files outright. Unset in production, where the registry paths are absolute.
+# in its own /tmp testdir instead of the live host's control plane. It is a root-only test hook (tests.rule.md,
+# ref-section-b4y9): a caller who could set it may already edit these files outright. Unset in production,
+# where the registry paths are absolute.
 
 # _pu_diff <deployed> <rpmnew> [<label> <label>]: show what the package would change, indented, each side named by its
 # label where the files compared are temporary copies. Colourized through colordiff when the host has it AND stdout is
@@ -2438,8 +2437,8 @@ readonly TOOLCHAIN_LIB="/usr/local/lib/ai-tools/toolchain.lib.sh"
 readonly CACHE_CLEANUP_LIB="/usr/local/lib/ai-tools/cache-cleanup.lib.sh"
 readonly CONFINEMENT_LIB="/usr/local/lib/ai-tools/confinement.lib.sh"
 # AI_TOOLS_LAUNCHER_DIR is the hook the CLI and relabel.lib.sh read for the same directory,
-# so tests/unit/admin-status.sh drives this report against fixture links. It moves a report: this tool is reachable only
-# as root, sudo strips the name, and no access decision here reads it.
+# so tests/unit/admin-status.sh drives this report against fixture links. It is a root-only test hook here
+# (tests.rule.md, ref-section-b4y9), and it moves a report: no access decision here reads it.
 readonly LAUNCHER_LINK_DIR="${AI_TOOLS_LAUNCHER_DIR:-/opt/ai-tools/bin}"
 
 # st <state> <text>: one report line, state in a bracket token so a scan down the left column finds what needs
