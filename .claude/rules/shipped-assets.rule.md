@@ -176,21 +176,20 @@ base's own transaction included), each agent and the typesafe package's scriptle
 and `ai-tools-bootstrap`.
 
 The verbs are `ai-tools-admin assets list|enable|disable|reconcile`, each root-only. Each verb that writes ends
-with the reconcile; `list`, the default, runs the plan and the report without a write ([The record
-stream](#the-record-stream)). `ai_tools_assets__validate_set` runs the same subset over a tree as data, without
-the trust walk or the signature, for the conformance job that holds base's reading to the publisher's fixtures.
+with the reconcile; `list`, the default, does not write ([The record stream](#the-record-stream)).
+`ai_tools_assets__validate_set` runs the same subset over a tree as data, without the trust walk or the signature,
+for the conformance job that holds base's reading to the publisher's fixtures.
 
 ### The record stream <a id="ref-section-j4a7"></a>
 
 Every `assets` verb prints one record stream (`ai-tools-records(5)`): the verb's own rows — a list edit, a refusal —
-and the reconcile's, in one order by kind, then set, then name, so one asset's list edit, entry, view link and agent
-links are adjacent (`_ai_tools_assets__sort_rows` holds the key). `assets list` runs the plan and the report and adds
-one `attention` row per change the apply would make (`ai_tools_assets__report_state`), so a pending change exits 4. It
-reads without the assets lock and without a write, as `status` does ([Design notes](#design-notes)). A verb that writes
-holds the lock from its first read of `operator.conf` to its exit, so two verbs at once each read the list the other
-wrote. A writing verb's exit is the combination `ai-tools-records(5)` states for a command that changes the host,
-and `list`, which does not write, does not exit 1. An entry's row and the row about its view link share subject
-and item, so the report writes the link rows under a code of their own, which gives the two rows different record ids.
+and the reconcile's, sorted so one asset's list edit, entry, view link and agent links are adjacent
+(`_ai_tools_assets__sort_rows` holds the key). `assets list` runs the plan and the report and adds one `attention` row
+per change the apply would make (`ai_tools_assets__report_state`), so a pending change exits 4; it reads without
+the assets lock ([Design notes](#design-notes)) and does not write, so it does not exit 1. A verb that writes holds
+the lock from its first read of `operator.conf` to its exit, so two verbs at once each read the list the other wrote,
+and exits as `ai-tools-records(5)` states for a command that changes the host. The link rows are written under a code
+of their own, since an entry's row and its view link's row share subject and item and would otherwise share a record id.
 Each row's subject-type follows the policy [ref-section-u5t7](records.rule.md#ref-section-u5t7) states for every caller.
 
 ### Verifying a set (`assets-verify.lib.sh`)

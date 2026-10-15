@@ -784,7 +784,8 @@ line names why the state is unknown: there is no
 a oneshot unit has not run since boot (its
 .B .path
 watcher starts it on the next change, so the line does not name a command),
-or the state could not be read, with the command that shows it.
+the state could not be read, with the command that shows it, or neither the
+sandbox account's manager nor its last-run stamp could be read.
 .PP
 In the
 .B Caches
@@ -855,10 +856,10 @@ The line is for a person reading the report; a monitor reads the exit status.
 .PP
 The section's OK line counts the assets
 .B AI_TOOLS_ASSETS
-enables and those the plan resolved to linked, which counts an asset whose link
-is missing as resolved; it names
+enables and those that resolved to linked.
+An asset resolves while its link is still missing, and
 .B "ai\-tools\-admin assets list"
-as the reading that names the link changes a reconcile would make.
+names the links a reconcile would place.
 .PP
 The label reading is the one this command alone can give.
 .B "ai\-tools status"

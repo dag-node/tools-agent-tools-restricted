@@ -241,31 +241,29 @@ A helper the **live daemon** execs (`integration/handback.sh`) keeps the real di
 the override — the same limitation as `AI_TOOLS_ALLOWLIST`. The journald sink is unaffected, so every line is still
 queryable by its per-component tag.
 
-`AI_TOOLS_POSTUPGRADE_ROOT` is the fourth hook of that family and the widest in reach:
+`AI_TOOLS_POSTUPGRADE_ROOT` (`ai-tools-admin`) is the widest of the family in reach:
 `ai-tools-admin system post-upgrade` reconciles a fixed registry of absolute control-plane paths and the files it finds
 under a fixed set of config directories, and this prefixes every one of them, so `unit/postupgrade.sh` drives the real
-command against a fixture tree in its testdir. It is read on the family's rationale — a caller who could set it may
-already edit those files outright — and is unset in production, where the registry paths stand as written.
+command against a fixture tree in its testdir. It is unset in production, where the registry paths stand as written.
 
-`AI_TOOLS_ADMIN_COMMANDS_DIR` (`ai-tools-admin`) is a root-only test hook too, and redirects the directory the admin
-dispatch discovers its contributed command domains in, so `unit/admin-commands.sh` drives the real dispatch
-against fixture fragments in its testdir instead of the host's own. It is read on the family's rationale — a caller
-who could set it may already write the directory it redirects — except that `--help` lists the domains through it ahead
-of the root check, so a non-root caller can point the listing at another root-owned directory. The dispatch still needs
-root and each fragment still needs root ownership, so that reach does not add a command.
+`AI_TOOLS_ADMIN_COMMANDS_DIR` (`ai-tools-admin`) redirects the directory the admin dispatch discovers its contributed
+command domains in, so `unit/admin-commands.sh` drives the real dispatch against fixture fragments in its testdir
+instead of the host's own. One reach exceeds the family's: `--help` lists the domains through it ahead of the root
+check, so a non-root caller can point the listing at another root-owned directory; `ai-tools-admin`'s header states
+why that reach does not add a command.
 
-`AI_TOOLS_ENTRYPOINT_PIN_DIR` (`entrypoint-verify.lib.sh`) is the fifth, and it carries more weight than the others:
-the production pin decides whether a session may launch at all, so a test that wrote a deliberately wrong checksum
-into it would refuse every launch on the host until the next reconcile. `integration/ai-tools-run.sh` redirects it
-at a `mktemp -d` instead and drives the mismatch refusal through the deployed shim — the feature's actual guarantee,
-and the one gate that needs a VALID executable to reach, since every other refusal case exits before it. Its complement
-(an unpinned entrypoint must NOT be refused, or an air-gapped host stops launching) is deliberately left to the pure
-verdict: no other part of that run is invalid, so driving it would start a real session. Its sibling
-`AI_TOOLS_ENTRYPOINT_LABEL_DIR`, which moves the labelling record written beside the pin, carries none of that weight —
-the record is reported without gating a launch — so `unit/entrypoint-verify.sh` redirects it at its testdir and writes
-real records through the library.
+`AI_TOOLS_ENTRYPOINT_PIN_DIR` (`entrypoint-verify.lib.sh`) carries more weight than the others: the production pin
+decides whether a session may launch at all, so a test that wrote a deliberately wrong checksum into it would refuse
+every launch on the host until the next reconcile. `integration/ai-tools-run.sh` redirects it at a `mktemp -d` instead
+and drives the mismatch refusal through the deployed shim — the feature's actual guarantee, and the one gate that needs
+a VALID executable to reach, since every other refusal case exits before it. Its complement (an unpinned entrypoint must
+NOT be refused, or an air-gapped host stops launching) is deliberately left to the pure verdict: no other part
+of that run is invalid, so driving it would start a real session. Its sibling `AI_TOOLS_ENTRYPOINT_LABEL_DIR`,
+which moves the labelling record written beside the pin, carries none of that weight — the record is reported without
+gating a launch — so `unit/entrypoint-verify.sh` redirects it at its testdir and writes real records
+through the library.
 
-`AI_TOOLS_LAUNCHER_DIR` is the sixth, read by each consumer of the one directory the stable launcher symlinks live in.
+`AI_TOOLS_LAUNCHER_DIR` is read by each consumer of the one directory the stable launcher symlinks live in.
 In `ai-tools.sh` it is where the bootstrap gate and `status` read the enabled agents' links, operator-settable there
 like `AI_TOOLS_GITCONFIG` since it moves a report and an early refusal and no access decision; `unit/cli-agent-set.sh`
 drives the gate through it against fixture manifests and links. In `launch-wrapper.lib.sh` it is where every wrapper's
@@ -289,17 +287,17 @@ rather than the manifest directory. The pure decision behind the verdict is cove
 and the live agreement between declaration and installation in `integration/selinux.sh`; what this exercises is
 the wiring between them and the renderer's exit status.
 
-`AI_TOOLS_RELABEL_LOCK` and `AI_TOOLS_RELABEL_LOCK_WAIT` (`relabel.lib.sh`) are the seventh, and the first of the family
-a test drives directly: they move the lock that serializes writes to the policy store, and shorten the wait for it,
+`AI_TOOLS_RELABEL_LOCK` and `AI_TOOLS_RELABEL_LOCK_WAIT` (`relabel.lib.sh`) are the first of the family a test drives
+directly: they move the lock that serializes writes to the policy store, and shorten the wait for it,
 so `unit/relabel.sh` exercises real cross-process contention against a lock file in its own testdir. They are the least
 consequential of the family to set — what they redirect is an advisory lock, so a caller who sets one can leave a run
 unserialized, which is the documented fail-soft and never changes what a label may be applied to.
 
-`AI_TOOLS_SANDBOX_ROOT` (`ai-tools.sh`) is the eighth, and it sits with `AI_TOOLS_GITCONFIG` and `AI_TOOLS_ALLOWLIST`
-on the operator side of the family: the CLI runs as the operator without `sudo`, so the operator's own environment
-reaches it, and it is read on the rationale of those two. It moves the directory a clone is made in and read
-as the sandbox kind from, and the operator owns every clone, so a caller who sets it does not gain any reach beyond
-claiming a clone made elsewhere; the clone kind's destructive removal stays scoped to a direct child of that directory,
+`AI_TOOLS_SANDBOX_ROOT` (`ai-tools.sh`) sits with `AI_TOOLS_GITCONFIG` and `AI_TOOLS_ALLOWLIST` on the operator side
+of the family: the CLI runs as the operator without `sudo`, so the operator's own environment reaches it, and it is read
+on the rationale of those two. It moves the directory a clone is made in and read as the sandbox kind
+from, and the operator owns every clone, so a caller who sets it does not gain any reach beyond claiming a clone made
+elsewhere; the clone kind's destructive removal stays scoped to a direct child of that directory,
 and the protected-paths backstop still refuses a system directory named there. `integration/cli-flags.sh` points it
 at a clone area in its fixtures so the clone rows never touch the shared one, and `integration/cli.sh` aims the clone
 removal's refusal rows at a fixture root the same way; both skip on an installed CLI that predates the override, since
@@ -311,19 +309,16 @@ with `AI_TOOLS_LAUNCHER_DIR`: it moves a report and no access decision, and the 
 and `ai-tools-run`, as the sandbox account -- take its path from a constant in `cache-cleanup.lib.sh` that no variable
 moves.
 
-`AI_TOOLS_JOURNAL_SOCKET` (`ai-tools-handback`) is a root-only test hook: it moves where the daemon sends its journal
-datagram, so `unit/handback.sh` binds a throwaway socket in its testdir instead of writing the host's journal.
-The daemon's environment comes from its root-owned unit, so neither an operator nor the agent can set it in production,
-and a caller who could set it moves where an **attribution field** lands, which does not feed any authorization decision
-(see [handback-bridge](handback-bridge.rule.md)).
+`AI_TOOLS_JOURNAL_SOCKET` (`ai-tools-handback`) moves where the daemon sends its journal datagram, so `unit/handback.sh`
+binds a throwaway socket in its testdir instead of writing the host's journal; what it moves is where an **attribution
+field** lands, which does not feed any authorization decision (see [handback-bridge](handback-bridge.rule.md)).
 
 `AI_TOOLS_ASSETS_ROOTS`, `AI_TOOLS_ASSETS_LOCK`, `AI_TOOLS_ASSETS_LOCK_WAIT` and `AI_TOOLS_ASSETS_HOME`
-(`assets.lib.sh`, the lock pair's in `managed-assets.lib.sh`) are root-only test hooks: they move the roots a set is
-read from, the lock the view transaction takes and how long a run waits for it, and the directory holding the view
-and the agents' config directories, and `AI_TOOLS_ASSETS_BINDINGS_DIR` and `AI_TOOLS_ASSETS_OPERATOR_BINDINGS_DIR`
-(`assets-verify.lib.sh`) move the shipped and the operator's binding directories, so `unit/assets.sh`
-and `unit/admin-assets.sh` drive a real reconcile over fixtures in their testdir and never touch `/opt/ai-tools`. Each
-is read on the family's rationale: a caller who could set them may already write the paths they redirect.
+(`assets.lib.sh`, the lock pair's in `managed-assets.lib.sh`) move the roots a set is read from, the lock the view
+transaction takes and how long a run waits for it, and the directory holding the view and the agents' config
+directories, and `AI_TOOLS_ASSETS_BINDINGS_DIR` and `AI_TOOLS_ASSETS_OPERATOR_BINDINGS_DIR` (`assets-verify.lib.sh`)
+move the shipped and the operator's binding directories, so `unit/assets.sh` and `unit/admin-assets.sh` drive a real
+reconcile over fixtures in their testdir and never touch `/opt/ai-tools`.
 
 ## Two-ended assertions
 

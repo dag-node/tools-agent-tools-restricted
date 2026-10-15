@@ -227,14 +227,13 @@ on a skip.
 
 ### The run classifies itself: ok, skipped, or failed <a id="ref-section-r3m8"></a>
 
-`RESULT` is the run's exit status classified for a reader, and the classification is the updater's own:
-`nvm-update.sh`'s header states its exit codes, `0` current, `1` a fault on this host, `3` transient. The third is
-the most common way this job does not update anything: the host was offline at the timer's daily window, so the run left
-the previous trusted toolchain active, exits `3`, records `RESULT=skipped` with a `REASON` token, and reports
-as `SKIPPED` rather than `FAILED` ([Design notes](#design-notes) state why the split is coarse and why an offline run
-does not read as a fault). A root caller reads the same verdict: the manager records exit `3` as a failed run,
-which gives way to the stamp's skip under the tie the `ai_tools_services__evaluate_stamp` comment in `services.lib.sh`
-states.
+`RESULT` is the run's exit status classified for a reader, and the classification is the updater's own
+(`nvm-update.sh`'s header states its exit codes). The transient exit, `3`, is the most common way this job does not
+update anything: the host was offline at the timer's daily window, so the run left the previous trusted toolchain
+active, exits `3`, records `RESULT=skipped` with a `REASON` token, and reports as `SKIPPED` rather than `FAILED`
+([Design notes](#design-notes) state why the split is coarse and why an offline run does not read as a fault). A root
+caller reads the same verdict: the manager records exit `3` as a failed run, which gives way to the stamp's skip
+under the tie the `ai_tools_services__evaluate_stamp` comment in `services.lib.sh` states.
 
 What keeps `skipped` from becoming a way to hide a real problem is that it does not stop the clock: the stamp still
 ages, and a condition that persists past the record's grace (its registry `max_age`) reports `STALE`, the same
@@ -308,9 +307,10 @@ The launch wrapper and `ai-tools-run` make the same read and refuse a session un
 
 ### What the stamp is trusted for <a id="ref-section-c8b7"></a>
 
-A status line and the status exit, and no launch, access or handback decision. Its writer is `SANDBOX_USER`,
-so that account can state any outcome it likes, and the permissions around it bound **what it can touch**, never whether
-the contents are true:
+Its contents decide a status line and the status exit, and no launch, access or handback decision; its mtime is one
+of the dates the launch's clock gate compares with the system clock ([launch](launch.rule.md)), a read that can refuse
+a launch and does not permit one. Its writer is `SANDBOX_USER`, so that account can state any outcome it likes,
+and the permissions around it bound **what it can touch**, never whether the contents are true:
 
 - `/var/opt/ai-tools/state` is `0750 root:SANDBOX_GROUP` — root-owned and **not** group-writable, so the account has
   traverse only and cannot create, unlink, rename, or symlink-swap anything there. Operators reach it
@@ -320,22 +320,18 @@ the contents are true:
 - The stamp itself is `0640 SANDBOX_USER:ai-ops`, created by the package (`%post`, and `install.sh` for the dev flow)
   and only ever **rewritten in place** by the updater. The added surface is therefore exactly one inode's contents.
 
-That the contents are forgeable is accepted, on two grounds. **The contents decide a status report alone.** Its fields
-are read through `services.lib.sh` by the two status reports (`ai-tools status`, `ai-tools-admin status`) and by no
-launch, access or handback path, and there they decide the unit's line and the report's exit:
-`ai_tools_services__evaluate_stamp` lets a `skipped` stamp stand over a root caller's live `failed` where the exit codes
-tie, and a stamp past its grace reads `STALE`, which the report counts toward exit 4. A forged stamp can therefore
-misreport the updater in `status`, and does not change what a session may do. Its mtime is one of the dates the launch's
-clock gate compares with the system clock ([launch](launch.rule.md)), a read that can refuse a launch and does not
-permit one. Every value is read defensively (`ai_tools_services__read_stamp_field`: a symlink is refused, only the first
-4 KiB is examined, and a value must be a short `[A-Za-z0-9:+._-]` token or it reads as no value at all), so no control
-byte or escape sequence can reach the operator's terminal through it and a corrupt stamp degrades the unit to *unknown*
-rather than to a wrong verdict. And it is **never the weakest link**: an account able to write the stamp can already
-write the toolchain the stamp reports on, which is by far the more valuable target. On an enforcing host it can write
-neither. The toolchain is `usr_t`, which `ai_tools_t` may only read. The stamp is `usr_t` where the policy aliases
-`/var/opt` to `/opt` (EL10, Fedora) and `var_t` where it does not (EL9), on which the domain holds directory search
-and no file permission (the `sandbox-projects` note in `ai_tools.fc`). `nvm-update.service` runs outside that domain
-and writes normally.
+That the contents are forgeable is accepted, on two grounds. **The contents decide a status report alone.**
+`services.lib.sh` reads the fields for the two status reports (`ai-tools status`, `ai-tools-admin status`) and no
+launch, access or handback path does, so a forged stamp can misreport the updater — a `skipped` that stands over a live
+`failed`, a `STALE` the report counts toward exit 4 — and does not change what a session may do. Every value is read
+defensively (`ai_tools_services__read_stamp_field`: a symlink is refused, only the first 4 KiB is examined, and a value
+must be a short `[A-Za-z0-9:+._-]` token or it reads as no value at all), so no control byte or escape sequence can
+reach the operator's terminal through it and a corrupt stamp degrades the unit to *unknown* rather than to a wrong
+verdict. And it is **never the weakest link**: an account able to write the stamp can already write the toolchain
+the stamp reports on, which is by far the more valuable target. On an enforcing host it can write neither. The toolchain
+is `usr_t`, which `ai_tools_t` may only read. The stamp is `usr_t` where the policy aliases `/var/opt` to `/opt` (EL10,
+Fedora) and `var_t` where it does not (EL9), on which the domain holds directory search and no file permission (the
+`sandbox-projects` note in `ai_tools.fc`). `nvm-update.service` runs outside that domain and writes normally.
 
 ## Version resolution
 
@@ -992,8 +988,8 @@ published is the more serious finding, and it is reported first).
   into `STALE` ([The run classifies itself](#the-run-classifies-itself-ok-skipped-or-failed)).
 - **Exit `3` is not in `SuccessExitStatus=`.** Listing it would make the manager record the offline run as a success,
   and `Restart=on-failure` would not retry it, so a host that reconnects within the window would wait for the next daily
-  run. The manager records a failed run instead, and the root vantage reads it as the stamp's skip under the tie
-  on the exit code.
+  run. The manager records a failed run instead, which the root vantage reads as the stamp's skip ([The run classifies
+  itself](#the-run-classifies-itself-ok-skipped-or-failed)).
 
 ## Deferred
 

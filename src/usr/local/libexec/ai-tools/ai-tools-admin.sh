@@ -1277,8 +1277,7 @@ readonly -a POSTUPGRADE_DIRS=(/etc/ai-tools /etc/codex /opt/ai-tools/.claude /op
 
 # AI_TOOLS_POSTUPGRADE_ROOT prefixes every path in that registry, so the test suite drives this command against fixtures
 # in its own /tmp testdir instead of the live host's control plane. It is a root-only test hook (tests.rule.md,
-# ref-section-b4y9): a caller who could set it may already edit these files outright. Unset in production,
-# where the registry paths are absolute.
+# ref-section-b4y9), unset in production, where the registry paths are absolute.
 
 # _pu_diff <deployed> <rpmnew> [<label> <label>]: show what the package would change, indented, each side named by its
 # label where the files compared are temporary copies. Colourized through colordiff when the host has it AND stdout is
@@ -3258,9 +3257,9 @@ status() {
 # ── assets ───────────────────────────────────────────────────────────────────────────────────────────────────────────
 # The `assets` domain: AI_TOOLS_ASSETS in operator.conf names the assets every enabled agent loads, and assets.lib.sh
 # resolves each to `linked` or a reason token and keeps the view and the agents' links current (shipped-assets.rule.md).
-# A verb that writes runs lock (ai_tools_managed_assets__lock), read, back up, write, plan, apply, report; the lock,
-# the one record stream every verb prints and its exit are shipped-assets.rule.md's (ref-section-j4a7). Each attention
-# row is logged under its code to journald and to the root-only assets.log.
+# The lock a writing verb holds (ai_tools_managed_assets__lock), the one record stream every verb prints and its exit
+# are shipped-assets.rule.md's (ref-section-j4a7). Each attention row is logged under its code to journald
+# and to the root-only assets.log.
 
 # assets_load: source assets.lib.sh, or exit 5 under its code: a verb whose resolver did not load does not read or write
 # any input.

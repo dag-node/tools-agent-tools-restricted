@@ -329,17 +329,16 @@ an ordinary account read it — a partial view, the file sink being the authorit
   running now, and a `FAILED` carries the run's exit code.
 
   The `?` line is not a problem report — it says only that this vantage point cannot tell — so it stays a single line
-  naming the one command that can, and the multi-command diagnostic block is reserved for a unit reported broken. Both
-  reports print it for the same readings, told apart by checks that completed. A system unit reads `?` where there is no
-  `systemctl` (`command -v`); where it is a oneshot with no run since its manager started, whose verdict is its last
-  run's, read from a `systemctl show` of its type and of an empty start time that both completed
-  (`ai_tools_services__is_oneshot_unrun`); and where a property read did not complete, a state that could not be read,
-  whose line names `systemctl status`. The oneshot's line does not name a command: its `.path` watcher starts it
-  on the next change, and a manual start would run work no change asked for. A sandbox-user unit reads `?` where neither
-  that account's manager nor a last-run stamp could be read — for a root caller, no machine transport, no `timeout(1)`,
-  or no answer inside `AI_TOOLS_SERVICE_LIVE_TIMEOUT`. A stamp still empty as the package seeded it
-  (`ai_tools_services__is_stamp_unwritten`) is separated from that in both reports and reads `no run recorded yet`
-  ([ref-section-s7u6](updater.rule.md#ref-section-s7u6)).
+  naming the one command that can, the multi-command diagnostic block is reserved for a unit reported broken, and it
+  does not count toward the exit, since a probe the vantage may fail without the host being broken must not make
+  a nightly `status` alarm; an `n/a` line counts the same way. Both reports print it for the same readings
+  (`status_services` in each CLI holds the arms), each told from the others by a check that completed, so a read
+  that did not complete is reported as a state that could not be read and not as a diagnosis. The oneshot's line does
+  not name a command: its `.path` watcher starts it on the next change, and a manual start would run work no change
+  asked for. A sandbox-user unit reads `?` where neither that account's manager nor a last-run stamp could be read —
+  for a root caller, no machine transport, no `timeout(1)`, or no answer inside `AI_TOOLS_SERVICE_LIVE_TIMEOUT` —
+  and a stamp still empty as the package seeded it (`ai_tools_services__is_stamp_unwritten`) is separated
+  from that in both reports and reads `no run recorded yet` ([ref-section-s7u6](updater.rule.md#ref-section-s7u6)).
 
   <a id="ref-section-w9g8"></a>**What a stamp is read for**
 
@@ -361,9 +360,8 @@ an ordinary account read it — a partial view, the file sink being the authorit
   what the operator acts on. Every unit line feeds one predicate, `ai_tools_services__is_attention_needed`
   (`down`/`failed`/`stale`, not `unknown`), which is both what the scanner collects and what `status`'s **exit status**
   reports — 4 when anything is broken, so the command is usable from a monitor or cron without parsing its output. A `?`
-  or `n/a` line is a reading **this vantage** cannot make — an operator reading a sandbox-user unit, a pin the account
-  cannot traverse to — and does not count toward the exit, since a probe the vantage may fail without the host being
-  broken must not make a nightly `status` alarm.
+  or `n/a` line — a reading **this vantage** cannot make, a pin the account cannot traverse to among them — does not
+  count toward it.
 
   **The exit is the report state's** (`ai-tools-records(5)`, folded through `records-base.lib.sh`, which `cmd_status`
   loads and requires): 4 where a section read a fault, 5 where a section could not make a reading it promises, and 0
