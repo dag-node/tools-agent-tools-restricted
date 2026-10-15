@@ -20,6 +20,8 @@
 #     when sha256sum is missing -- no row, exit 5;
 #   * the report state: every severity fold, an unknown token, an invalid row under `set -euo pipefail` (the script
 #     must reach its exit and return 5), the reset between two reports, and a write to a closed pipe;
+#   * the subject-type reader: one lstat, `file` for a regular file alone, a distinct status for a confirmed absence,
+#     and a refusal for an unnamed type or a read that did not complete;
 #   * the collector rules a report follows: the saved PID reporting a collector's exit where a bare `wait $!` reports
 #     the wrong process, a collector failing before and after a row, the cap that keeps a deliberate stop apart from a
 #     failure, and a path holding a tab and one holding a line feed carried end to end.
@@ -472,6 +474,35 @@ result="$(bash -c 'set -uo pipefail; source "$1"; trap "" PIPE
     ai_tools_records_base__get_exit_status; printf "write=%s exit=%s" "${rc}" "$?"' _ "${TSV_LIB}" "${TEST_CODE}")"
 [[ "${result}" == "write=1 exit=5" ]] && pass "a write to a closed pipe returns 1 and the report reads unreadable" \
                                        || fail "closed pipe: '${result}'"
+
+# ── A subject's observed type ────────────────────────────────────────────────────────────────────────────────────
+# One lstat: a link reads as a link whatever it points at, `file` is a regular file alone, a confirmed absence (ENOENT,
+# ENOTDIR) returns 2 and every other outcome 1, each without output. /dev/null is the entry of a type the set does not
+# name; a PATH without stat(1) is the read that did not complete, the same outcome as EACCES, which a root run cannot
+# produce.
+section "records: a subject's observed type (unit)"
+types="${TESTDIR}/types"
+mkdir -p "${types}/dir"; : > "${types}/empty"; printf x > "${types}/file"
+ln -s "${types}/dir" "${types}/link"; ln -s "${types}/absent" "${types}/dangling"
+if [[ -d "${types}/dir" && -f "${types}/empty" && -s "${types}/file" && -L "${types}/link" && -L "${types}/dangling" \
+        && ! -e "${types}/dangling" && -c /dev/null && ! -e "${types}/absent" ]]; then
+    pass "the type fixtures are in place: a directory, an empty and a full file, two links, a device, an absent path"
+else
+    fail "the type fixtures are not in place"
+fi
+# observed <path> : `<status>:<output>` of one read.
+observed() {
+    local output status=0
+    output="$(ai_tools_records_base__read_subject_type "$1")" || status=$?
+    printf '%s:%s' "${status}" "${output}"
+}
+got=""
+for name in dir empty file link dangling absent file/below; do got+="${name}=$(observed "${types}/${name}") "; done
+got+="device=$(observed /dev/null) "
+got+="no-stat=$(PATH=/nonexistent observed "${types}/file")"
+want="dir=0:directory empty=0:file file=0:file link=0:link dangling=0:link absent=2: file/below=2: device=1: no-stat=1:"
+[[ "${got}" == "${want}" ]] && pass "observed types: directory, file, link; 2 for an absence, 1 for a device or a failed read" \
+    || fail "observed types: '${got}'"
 
 # ── Collectors ───────────────────────────────────────────────────────────────────────────────────
 section "records: the collector rules -- saved PID, failure, cap, exact bytes (unit)"

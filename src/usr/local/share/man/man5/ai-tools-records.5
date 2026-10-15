@@ -93,7 +93,16 @@ and
 .BR host .
 Taken from the subject, not from the finding:
 .B link
-is a symbolic link, whatever it points at.
+is a symbolic link, whatever it points at, and
+.B file
+a regular file.
+Where no entry is at the subject, the row carries the type the report
+expects there.
+Where the entry is of a type the set does not name, or its type could not
+be read, the row carries that expected type as well and is followed by an
+.B error
+row about the same subject, severity
+.BR unreadable .
 .SS Identifier columns
 .TP
 .B operator

@@ -19,9 +19,9 @@ sourcing `msg.lib.sh`, so a root helper sources the data layer alone:
 
 - **`records-base.lib.sh`** is the model and the report state: the column registry `AI_TOOLS_RECORDS_BASE__COLUMNS`
   (`name:class` in stream order, the one code-side declaration of the header), the severity and subject-type token sets,
-  the two exit constants (the only place 4 and 5 are spelled in code), and the fold that turns the severities a run
-  noted into `ai_tools_records_base__get_exit_status`. It is format-independent, so a later JSON writer reuses its
-  predicate and its state.
+  the two exit constants (the only place 4 and 5 are spelled in code), the fold that turns the severities a run noted
+  into `ai_tools_records_base__get_exit_status`, and `ai_tools_records_base__read_subject_type`, the one reader
+  of a subject's observed type. It is format-independent, so a later JSON writer reuses its predicate and its state.
 - **`records-tsv.lib.sh`** is the wire format: the canonical escape and its strict decoder, the item framing, the record
   identity (the hash is over the TSV encoding, which is why the identity helper lives here) and the row writer.
 
@@ -100,9 +100,9 @@ against the page's COLUMNS section, the escape against known answers a `python3`
 round trip alone would share the encoder's defect), the page's Python decoder — extracted between its two marker
 comments, rendered with `groff -man -Tascii -P-cbou` and dedented — over the same fixtures as the shell decoder,
 the reader rules over whole streams, the item framing, the published identity vectors, every severity fold, an invalid
-row under `set -euo pipefail`, a write to a closed pipe, and the rules of [Rules for a report calling
-the libraries](#rules-for-a-report-calling-the-libraries) and [Caps](#caps-a-deliberate-stop-stays-apart-from-a-failure)
-through a fixture collector. `groff`, `python3` and `sha256sum` are dependencies there: a missing one fails rather than
-skips, so the page's decoder is checked on every platform the suite runs on, and the container selftest images install
-`groff-base` for it. The installed copies are covered by `tests/integration/perms.sh`, and each consumer's own suite
-drives the real collectors.
+row under `set -euo pipefail`, a write to a closed pipe, each outcome of the subject-type reader, and the rules
+of [Rules for a report calling the libraries](#rules-for-a-report-calling-the-libraries)
+and [Caps](#caps-a-deliberate-stop-stays-apart-from-a-failure) through a fixture collector. `groff`, `python3`
+and `sha256sum` are dependencies there: a missing one fails rather than skips, so the page's decoder is checked on every
+platform the suite runs on, and the container selftest images install `groff-base` for it. The installed copies are
+covered by `tests/integration/perms.sh`, and each consumer's own suite drives the real collectors.

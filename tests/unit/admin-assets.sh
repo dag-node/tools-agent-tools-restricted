@@ -567,6 +567,20 @@ fi
 admin assets reconcile; admin assets list
 [[ "${RC}" == 0 && -z "$(pending_rows)" ]] && pass "a reconcile places the link and list returns to exit 0" \
     || fail "after the reconcile: rc ${RC}, pending '$(pending_rows)'"
+# A convert's pending row is about the managed copy the reconcile would replace, so it reads that copy's type.
+mkdir "${HOME_DIR}/skills/ai-tools-seeded"
+printf -- '---\nname: ai-tools-seeded\nx-ai-tools-managed: true\n---\n' > "${HOME_DIR}/skills/ai-tools-seeded/SKILL.md"
+cp -a "${HOME_DIR}/skills/ai-tools-seeded" "${HOME_DIR}/.acme/skills/ai-tools-seeded"
+admin assets list
+convert_row="$(awk -F'\t' -v s="${HOME_DIR}/.acme/skills/ai-tools-seeded" 'NR > 1 && $6 == "link-pending" && $10 == s { print $7 "|" $11 }' \
+    <<< "${OUT}")"
+if [[ "${RC}" == 4 && "${convert_row}" == "directory|a reconcile would replace the managed copy with a link to ${HOME_DIR}/skills/ai-tools-seeded; run sudo ai-tools-admin assets reconcile" ]]; then
+    pass "a convert's link-pending row is subject-type directory, naming the copy a reconcile would replace"
+else
+    fail "a convert's link-pending row: rc ${RC}, '${convert_row}'"
+fi
+admin assets reconcile
+rm -rf "${HOME_DIR}/skills/ai-tools-seeded" "${HOME_DIR}/.acme/skills/ai-tools-seeded"
 ln -s "${PKG}/acme/skills/acme-pdf" "${HOME_DIR}/skills/acme-stray"
 admin assets list
 [[ "${RC}" == 4 && "$(pending_rows)" == "unlink-pending ${HOME_DIR}/skills/acme-stray attention" ]] \

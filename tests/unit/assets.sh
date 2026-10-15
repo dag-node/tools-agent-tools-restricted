@@ -753,6 +753,54 @@ absent "${HOME_DIR}/skills/acme-pdf" && absent "${HOME_DIR}/.acme/skills/acme-pd
     && pass "a resolver link whose asset left the list is removed, with the agent's link" || fail "the link of a disabled asset stays"
 [[ -L "${HOME_DIR}/.acme/skills/ai-tools-seeded" ]] && pass "the seeded copy's agent link stays" || fail "the seeded copy's agent link was removed"
 
+# ── A row's subject-type is what is at its subject ───────────────────────────────────────────────────────────────────
+section "assets: a row's subject-type is read from its subject"
+# seed_convert : the view holds base's seeded copy and the agent acme's directory an identical managed copy of it,
+# the state a convert replaces with a link.
+seed_convert() {
+    fresh
+    mkdir "${HOME_DIR}/skills/ai-tools-seeded"
+    printf -- '---\nname: ai-tools-seeded\nx-ai-tools-managed: true\n---\n' > "${HOME_DIR}/skills/ai-tools-seeded/SKILL.md"
+    cp -a "${HOME_DIR}/skills/ai-tools-seeded" "${HOME_DIR}/.acme/skills/ai-tools-seeded"
+}
+converted="${HOME_DIR}/.acme/skills/ai-tools-seeded"
+seed_convert
+if [[ -d "${converted}" && ! -L "${converted}" ]] && bash -c 'source "$1"; ai_tools_managed_assets__is_stale_copy "$2" "$3"' _ \
+        "${MANAGED_LIB}" "${HOME_DIR}/skills/ai-tools-seeded" "${converted}"; then
+    pass "the convert fixture: a managed copy identical to the view's seeded copy"
+else
+    fail "the convert fixture is not a stale copy"
+fi
+reconcile
+[[ "${RC}" == 0 && "$(readlink -- "${converted}")" == "${HOME_DIR}/skills/ai-tools-seeded" ]] \
+    && pass "a reconcile replaces the managed copy with a link" || fail "the convert: rc ${RC}, ${ERR:0:300}"
+expect_subject_type placed "${converted}" link
+seed_convert
+printf -v STUBS 'rm() { [[ "${1:-}" == -rf && "${*: -1}" == %q ]] && return 1; command rm "$@"; }' "${converted}"
+reconcile; STUBS=""
+[[ "${RC}" == 1 && -d "${converted}" && ! -L "${converted}" ]] && pass "a convert whose removal fails exits 1, the copy left" \
+    || fail "a failed convert: rc ${RC}, ${ERR:0:300}"
+expect_subject_type write-failed "${converted}" directory
+[[ "$(awk -F'\t' -v s="${converted}" 'NR > 1 && $6 == "write-failed" && $10 == s { print $11 }' <<< "${OUT}")" \
+        == "the managed copy could not be removed" ]] && pass "the failed convert's detail names the copy" \
+    || fail "the failed convert's detail: ${OUT:0:400}"
+# An entry of a type the token set does not name: the finding row takes the type expected there, and an unreadable error
+# row about the same path follows it.
+fresh
+fifo="${HOME_DIR}/.acme/skills/acme-pdf"
+rm -f "${fifo}"; mkfifo -m 0640 "${fifo}"
+if [[ -p "${fifo}" ]]; then
+    reconcile
+    expect_subject_type agent-occupied "${fifo}" file
+    error_rows="$(awk -F'\t' -v s="${fifo}" 'NR > 1 && $6 == "error" && $10 == s { print $5 " " $7 }' <<< "${OUT}")"
+    [[ "${error_rows}" == "unreadable file" && "${RC}" == 5 ]] \
+        && pass "a FIFO at an asset's name: an unreadable error row beside its finding, exit 5" \
+        || fail "a FIFO at an asset's name: rc ${RC}, error rows '${error_rows}': ${OUT:0:400}"
+else
+    fail "the FIFO fixture was not created at ${fifo}"
+fi
+rm -f "${fifo}"
+
 # ── A listing that fails is not an empty directory ───────────────────────────────────────────────────────────────────
 section "assets: a view or agent directory that cannot be listed is reported and not planned"
 # failing_find <directory> [name] : print STUBS under which find, asked to list <directory> one level down, prints
@@ -938,12 +986,6 @@ stale_items="$(bash -c 'source "$1" 2>/dev/null || exit 99
     done' _ "${LIB}")"
 [[ "${stale_items}" == "acme/skills/acme-pdf acme/subagents/acme-reviewer subagents/acme-reviewer.md " ]] \
     && pass "a stale link's item: the identifier, or the kind and view name without a set" || fail "stale items: '${stale_items}'"
-# A row's subject-type is what is at its subject, a link read as a link whatever it points at.
-mkdir -p "${TESTDIR}/types/dir"; : > "${TESTDIR}/types/file"; ln -sfn "${TESTDIR}/types/dir" "${TESTDIR}/types/link"
-subject_types="$(bash -c 'source "$1" 2>/dev/null || exit 99
-    for name in link dir file absent; do _ai_tools_assets__read_subject_type "$2/${name}"; printf " "; done' _ "${LIB}" "${TESTDIR}/types")"
-[[ "${subject_types}" == "link directory file file " ]] && pass "a subject's type: link, directory, file, and file for an absent path" \
-    || fail "subject types: '${subject_types}'"
 
 # ── The lock ─────────────────────────────────────────────────────────────────────────────────────────────────────────
 section "assets: the lock serializes runs"
