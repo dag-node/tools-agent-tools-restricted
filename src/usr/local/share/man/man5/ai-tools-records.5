@@ -83,6 +83,7 @@ The report's own token for the situation
 One of
 .BR file ,
 .BR directory ,
+.BR link ,
 .BR unit ,
 .BR agent ,
 .BR integration ,
@@ -90,7 +91,9 @@ One of
 .B operator
 and
 .BR host .
-Taken from the subject, not from the finding.
+Taken from the subject, not from the finding:
+.B link
+is a symbolic link, whatever it points at.
 .SS Identifier columns
 .TP
 .B operator

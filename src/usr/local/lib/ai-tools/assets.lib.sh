@@ -1116,7 +1116,7 @@ _ai_tools_assets__reset_plan() {
         _AI_TOOLS_ASSETS__AGENT_DIR=() _AI_TOOLS_ASSETS__AGENT_ROOT=() _AI_TOOLS_ASSETS__RECEIVES=() _AI_TOOLS_ASSETS__IMPLEMENTS=() \
         _AI_TOOLS_ASSETS__IDLE_DIR=() \
         _AI_TOOLS_ASSETS__INTEGRATIONS=() _AI_TOOLS_ASSETS__DESIRED_ID=() _AI_TOOLS_ASSETS__DIR_REPORTED=()
-    declare -ga _AI_TOOLS_ASSETS__ACTION_OPERATION=() _AI_TOOLS_ASSETS__ACTION_PATH=() _AI_TOOLS_ASSETS__ACTION_TARGET=() _AI_TOOLS_ASSETS__ACTION_SUBJECT_TYPE=() \
+    declare -ga _AI_TOOLS_ASSETS__ACTION_OPERATION=() _AI_TOOLS_ASSETS__ACTION_PATH=() _AI_TOOLS_ASSETS__ACTION_TARGET=() \
         _AI_TOOLS_ASSETS__ACTION_ITEM=() _AI_TOOLS_ASSETS__ACTION_AGENT=() _AI_TOOLS_ASSETS__ACTION_DETAIL=() _AI_TOOLS_ASSETS__ACTION_SET=() \
         AI_TOOLS_ASSETS__ROW_SEVERITY=() AI_TOOLS_ASSETS__ROW_FINDING=() _AI_TOOLS_ASSETS__ROW_SUBJECT_TYPE=() AI_TOOLS_ASSETS__ROW_SUBJECT=() \
         _AI_TOOLS_ASSETS__ROW_ITEM=() _AI_TOOLS_ASSETS__ROW_AGENT=() AI_TOOLS_ASSETS__ROW_DETAIL=() _AI_TOOLS_ASSETS__ROW_SET=() \
@@ -1134,14 +1134,15 @@ _ai_tools_assets__record_row() {
     AI_TOOLS_ASSETS__ROW_DETAIL+=( "$7" ); _AI_TOOLS_ASSETS__ROW_SET+=( "${8:-}" )
 }
 
-# _ai_tools_assets__record_action <op> <path> <target> <subject-type> <item> <agent> <detail> [set] : record one change
-# the apply makes: `link` (place or repoint <path> at <target>), `unlink` (remove the symlink at <path>), `convert`
-# (replace a managed copy at <path> by a link to <target>). [set] passes to the change's row,
+# _ai_tools_assets__record_action <op> <path> <target> <item> <agent> <detail> [set] : record one change the apply
+# makes: `link` (place or repoint <path> at <target>), `unlink` (remove the symlink at <path>), `convert` (replace
+# a managed copy at <path> by a link to <target>). Every change is about the link at <path>, so its rows are
+# subject-type `link`; an empty <agent> is the view's link, any other an agent's. [set] passes to the change's row,
 # as _ai_tools_assets__record_row takes it.
 _ai_tools_assets__record_action() {
     _AI_TOOLS_ASSETS__ACTION_OPERATION+=( "$1" ); _AI_TOOLS_ASSETS__ACTION_PATH+=( "$2" ); _AI_TOOLS_ASSETS__ACTION_TARGET+=( "$3" )
-    _AI_TOOLS_ASSETS__ACTION_SUBJECT_TYPE+=( "$4" ); _AI_TOOLS_ASSETS__ACTION_ITEM+=( "$5" ); _AI_TOOLS_ASSETS__ACTION_AGENT+=( "$6" )
-    _AI_TOOLS_ASSETS__ACTION_DETAIL+=( "$7" ); _AI_TOOLS_ASSETS__ACTION_SET+=( "${8:-}" )
+    _AI_TOOLS_ASSETS__ACTION_ITEM+=( "$4" ); _AI_TOOLS_ASSETS__ACTION_AGENT+=( "$5" ); _AI_TOOLS_ASSETS__ACTION_DETAIL+=( "$6" )
+    _AI_TOOLS_ASSETS__ACTION_SET+=( "${7:-}" )
 }
 
 # _ai_tools_assets__read_enable_list : the entries of AI_TOOLS_ASSETS, read while operator.conf passes the trust
@@ -1840,13 +1841,13 @@ _ai_tools_assets__plan_view() {
     for name in "${!present[@]}"; do
         if [[ "${name}" =~ ^\..+\.ai-tools-assets\.tmp$ ]] && _ai_tools_assets__is_own_leftover "${view}/${name}"; then
             link_set="$(_ai_tools_assets__read_resolver_link_set "${view}/${name}")" || _AI_TOOLS_ASSETS__SET_KEYS_LOST=$(( _AI_TOOLS_ASSETS__SET_KEYS_LOST + 1 ))
-            _ai_tools_assets__record_action unlink "${view}/${name}" "" file "${kind}/${name}" "" "a temporary name an interrupted run left" "${link_set}"
+            _ai_tools_assets__record_action unlink "${view}/${name}" "" "${kind}/${name}" "" "a temporary name an interrupted run left" "${link_set}"
             continue
         fi
         [[ "${name}" == README.md || -n "${desired[${name}]+x}" ]] && continue
         if _ai_tools_assets__is_resolver_link "${view}/${name}"; then
             link_set="$(_ai_tools_assets__read_resolver_link_set "${view}/${name}")" || _AI_TOOLS_ASSETS__SET_KEYS_LOST=$(( _AI_TOOLS_ASSETS__SET_KEYS_LOST + 1 ))
-            _ai_tools_assets__record_action unlink "${view}/${name}" "" file "$(_ai_tools_assets__get_stale_link_item "${kind}" "${name}" "${link_set}")" "" \
+            _ai_tools_assets__record_action unlink "${view}/${name}" "" "$(_ai_tools_assets__get_stale_link_item "${kind}" "${name}" "${link_set}")" "" \
                 "no enabled entry justifies it" "${link_set}"
             continue
         fi
@@ -1855,7 +1856,7 @@ _ai_tools_assets__plan_view() {
             continue
         fi
         _ai_tools_assets__is_occupied_name "${kind}" "${name}" && continue
-        _ai_tools_assets__record_row attention view-foreign file "${view}/${name}" "${kind}/${name}" "" \
+        _ai_tools_assets__record_row attention view-foreign "$(_ai_tools_assets__read_subject_type "${view}/${name}")" "${view}/${name}" "${kind}/${name}" "" \
             "neither a resolver link nor a copy base seeded; left as it is and not linked into an agent's directory, though an agent that reads the whole view still loads it until it is removed"
     done
     for name in "${!desired[@]}"; do
@@ -1867,9 +1868,9 @@ _ai_tools_assets__plan_view() {
             continue
         fi
         if [[ -n "${present[${name}]+x}" ]]; then
-            _ai_tools_assets__record_action link "${view}/${name}" "${target}" file "${entry}" "" "repointed at ${target}"
+            _ai_tools_assets__record_action link "${view}/${name}" "${target}" "${entry}" "" "repointed at ${target}"
         else
-            _ai_tools_assets__record_action link "${view}/${name}" "${target}" file "${entry}" "" "linked to ${target}"
+            _ai_tools_assets__record_action link "${view}/${name}" "${target}" "${entry}" "" "linked to ${target}"
         fi
     done
 }
@@ -1967,7 +1968,7 @@ _ai_tools_assets__is_entry_untrusted() {
 _ai_tools_assets__record_entry_trust() {
     local agent="$1" agent_dir="$2" path="$3" item="$4"
     _ai_tools_assets__is_entry_untrusted "${agent_dir}" "${path}" || return 0
-    _ai_tools_assets__record_row attention agent-entry-untrusted agent "${path}" "${item}" "${agent}" \
+    _ai_tools_assets__record_row attention agent-entry-untrusted "$(_ai_tools_assets__read_subject_type "${path}")" "${path}" "${item}" "${agent}" \
         "the sandbox account can rewrite it (not root-owned, or writable by group or other, along its path), and every later session loads it; make it root-owned, directories 750 and files 640"
 }
 
@@ -1995,24 +1996,25 @@ _ai_tools_assets__plan_agent() {
             target="$(readlink -- "${destination_path}" 2>/dev/null || true)"
             [[ "${target}" == "${view}/${name}" ]] && continue
             if [[ "${target}" == "${view}/"* ]]; then
-                _ai_tools_assets__record_action link "${destination_path}" "${view}/${name}" agent "${item}" "${agent}" "repointed at ${view}/${name}"
+                _ai_tools_assets__record_action link "${destination_path}" "${view}/${name}" "${item}" "${agent}" "repointed at ${view}/${name}"
                 continue
             fi
             _ai_tools_assets__record_row "$( (( is_resolver_entry )) && printf attention || printf info )" \
-                "$( (( is_resolver_entry )) && printf agent-occupied || printf kept )" agent "${destination_path}" "${item}" "${agent}" \
+                "$( (( is_resolver_entry )) && printf agent-occupied || printf kept )" link "${destination_path}" "${item}" "${agent}" \
                 "the host's link to $(_ai_tools_assets__sanitize_for_display "${target}"), left as it is"
         elif [[ -e "${destination_path}" ]]; then
             if (( ! is_resolver_entry )) && [[ "${_AI_TOOLS_ASSETS__VIEW_AFTER[${name}]}" == seeded ]] \
                     && ai_tools_managed_assets__is_stale_copy "${view}/${name}" "${destination_path}"; then
-                _ai_tools_assets__record_action convert "${destination_path}" "${view}/${name}" agent "${item}" "${agent}" "an identical managed copy, replaced by a link"
+                _ai_tools_assets__record_action convert "${destination_path}" "${view}/${name}" "${item}" "${agent}" "an identical managed copy, replaced by a link"
                 continue
             fi
             _ai_tools_assets__record_row "$( (( is_resolver_entry )) && printf attention || printf info )" \
-                "$( (( is_resolver_entry )) && printf agent-occupied || printf kept )" agent "${destination_path}" "${item}" "${agent}" \
+                "$( (( is_resolver_entry )) && printf agent-occupied || printf kept )" \
+                "$(_ai_tools_assets__read_subject_type "${destination_path}")" "${destination_path}" "${item}" "${agent}" \
                 "a real entry here wins over the view's, left as it is"
             _ai_tools_assets__record_entry_trust "${agent}" "${agent_dir}" "${destination_path}" "${item}"
         else
-            _ai_tools_assets__record_action link "${destination_path}" "${view}/${name}" agent "${item}" "${agent}" "linked to ${view}/${name}"
+            _ai_tools_assets__record_action link "${destination_path}" "${view}/${name}" "${item}" "${agent}" "linked to ${view}/${name}"
         fi
     done
     _ai_tools_assets__plan_stale_links "${agent}" "${kind}" "${agent_dir}" all "${links[@]}"
@@ -2077,7 +2079,7 @@ _ai_tools_assets__plan_stale_links() {
         after="${_AI_TOOLS_ASSETS__VIEW_AFTER[${target#"${view}/"}]:-}"
         if [[ -z "${after}" || ( "${which}" == resolver && "${after}" == resolver ) ]]; then
             link_set="$(_ai_tools_assets__read_resolver_link_set "${target}")" || _AI_TOOLS_ASSETS__SET_KEYS_LOST=$(( _AI_TOOLS_ASSETS__SET_KEYS_LOST + 1 ))
-            _ai_tools_assets__record_action unlink "${agent_dir}/${name}" "" agent \
+            _ai_tools_assets__record_action unlink "${agent_dir}/${name}" "" \
                 "$(_ai_tools_assets__get_stale_link_item "${kind}" "${target#"${view}/"}" "${link_set}")" "${agent}" \
                 "$([[ -z "${after}" ]] && printf 'the view does not hold a linkable entry at its name' || printf 'the agent is not enabled')" \
                 "${link_set}"
@@ -2120,7 +2122,7 @@ _ai_tools_assets__plan_without_receivers() {
 # The agent's package places the link when it is installed (ai_tools_managed_assets__link_shared_root,
 # managed-assets.lib.sh) and keeps what a host holds there, so a reconcile reaches that agent through the link alone.
 _ai_tools_assets__check_agent_root() {
-    local agent="$1" kind="$2" path="$3" view="${AI_TOOLS_ASSETS_HOME}/$2" rest="${3#/}" found subject_type=file valid=1
+    local agent="$1" kind="$2" path="$3" view="${AI_TOOLS_ASSETS_HOME}/$2" rest="${3#/}" found valid=1
     [[ "${path}" == /?* && "${path}" != */ ]] || valid=0
     while (( valid )); do
         ai_tools_conf__is_portable_name_valid "${rest%%/*}" || valid=0
@@ -2137,7 +2139,7 @@ _ai_tools_assets__check_agent_root() {
         [[ "${found}" == "${view}" ]] && return 0
         found="a link to $(_ai_tools_assets__sanitize_for_display "${found}")"
     elif [[ -d "${path}" ]]; then
-        found="a real directory"; subject_type=directory
+        found="a real directory"
     elif [[ -e "${path}" ]]; then
         found="a file that is not a directory"
     else
@@ -2145,7 +2147,7 @@ _ai_tools_assets__check_agent_root() {
             "absent; the ${agent} agent's package links it to ${view} when it is installed"
         return 0
     fi
-    _ai_tools_assets__record_row attention agent-root-foreign "${subject_type}" "${path}" "${kind}" "${agent}" \
+    _ai_tools_assets__record_row attention agent-root-foreign "$(_ai_tools_assets__read_subject_type "${path}")" "${path}" "${kind}" "${agent}" \
         "${found} where ${agent} reads the whole ${kind} view, which the reconcile does not write, so an enable, a disable or a set upgrade does not reach ${agent} through it; move it aside and reinstall the ${agent} agent's package, which links it to ${view}"
 }
 
@@ -2258,7 +2260,7 @@ _ai_tools_assets__read_occupant() {
 # when a removal did not, so the report does not claim it. The caller holds the assets lock
 # (ai_tools_managed_assets__lock), which ai_tools_assets__reconcile takes before the plan.
 _ai_tools_assets__apply_locked() {
-    local group="$1" index op path target stype item agent detail link_set directory kind
+    local group="$1" index op path target item agent detail link_set directory kind
     local -a placed=()
     local -A failed_view=() untrusted_view=() directory_state=()
     _AI_TOOLS_ASSETS__WRITE_FAILED=0; _AI_TOOLS_ASSETS__UNLINK_FAILED=0
@@ -2267,15 +2269,15 @@ _ai_tools_assets__apply_locked() {
     done
     for (( index = 0; index < ${#_AI_TOOLS_ASSETS__ACTION_OPERATION[@]}; index++ )); do
         op="${_AI_TOOLS_ASSETS__ACTION_OPERATION[index]}"; path="${_AI_TOOLS_ASSETS__ACTION_PATH[index]}"; target="${_AI_TOOLS_ASSETS__ACTION_TARGET[index]}"
-        stype="${_AI_TOOLS_ASSETS__ACTION_SUBJECT_TYPE[index]}"; item="${_AI_TOOLS_ASSETS__ACTION_ITEM[index]}"; agent="${_AI_TOOLS_ASSETS__ACTION_AGENT[index]}"
+        item="${_AI_TOOLS_ASSETS__ACTION_ITEM[index]}"; agent="${_AI_TOOLS_ASSETS__ACTION_AGENT[index]}"
         detail="${_AI_TOOLS_ASSETS__ACTION_DETAIL[index]}"; link_set="${_AI_TOOLS_ASSETS__ACTION_SET[index]}"
-        if [[ "${stype}" == agent && "${op}" != unlink && -n "${failed_view[${target}]+x}" ]]; then
+        if [[ -n "${agent}" && "${op}" != unlink && -n "${failed_view[${target}]+x}" ]]; then
             continue
         fi
         directory="${path%/*}"; kind="${item%/*}"; kind="${kind##*/}"
-        if ! _ai_tools_assets__can_apply_in_dir "$([[ "${stype}" == file ]] && printf view || printf agent)" "${directory}" \
+        if ! _ai_tools_assets__can_apply_in_dir "$([[ -z "${agent}" ]] && printf view || printf agent)" "${directory}" \
                 "${kind}" "${agent}" "${group}" "$([[ "${op}" == unlink ]] && printf 0 || printf 1)"; then
-            if [[ "${stype}" == file && "${op}" != unlink ]]; then
+            if [[ -z "${agent}" && "${op}" != unlink ]]; then
                 failed_view["${path}"]=1
                 untrusted_view["${path}"]=1
             fi
@@ -2284,22 +2286,22 @@ _ai_tools_assets__apply_locked() {
         case "${op}" in
             link|convert)
                 if [[ "${op}" == convert ]] && ! rm -rf -- "${path}" 2>/dev/null; then
-                    _ai_tools_assets__record_failure "${stype}" "${path}" "${item}" "${agent}" "the managed copy could not be removed" "${link_set}"
+                    _ai_tools_assets__record_failure link "${path}" "${item}" "${agent}" "the managed copy could not be removed" "${link_set}"
                     continue
                 fi
                 if _ai_tools_assets__place_link "${path}" "${target}" "${group}"; then
                     placed+=( "${path}" )
-                    _ai_tools_assets__record_row info placed "${stype}" "${path}" "${item}" "${agent}" "${detail}" "${link_set}"
+                    _ai_tools_assets__record_row info placed link "${path}" "${item}" "${agent}" "${detail}" "${link_set}"
                 else
-                    [[ "${stype}" == file ]] && failed_view["${path}"]=1
-                    _ai_tools_assets__record_failure "${stype}" "${path}" "${item}" "${agent}" "the link to ${target} could not be placed: ${_AI_TOOLS_ASSETS__PLACE_ERROR}" "${link_set}"
+                    [[ -z "${agent}" ]] && failed_view["${path}"]=1
+                    _ai_tools_assets__record_failure link "${path}" "${item}" "${agent}" "the link to ${target} could not be placed: ${_AI_TOOLS_ASSETS__PLACE_ERROR}" "${link_set}"
                 fi ;;
             unlink)
                 if [[ -L "${path}" ]] && rm -f -- "${path}" 2>/dev/null; then
-                    _ai_tools_assets__record_row info removed "${stype}" "${path}" "${item}" "${agent}" "${detail}" "${link_set}"
+                    _ai_tools_assets__record_row info removed link "${path}" "${item}" "${agent}" "${detail}" "${link_set}"
                 elif [[ -e "${path}" || -L "${path}" ]]; then
                     _AI_TOOLS_ASSETS__UNLINK_FAILED=1
-                    _ai_tools_assets__record_failure "${stype}" "${path}" "${item}" "${agent}" \
+                    _ai_tools_assets__record_failure link "${path}" "${item}" "${agent}" \
                         "the link could not be removed, so the asset stays reachable through it" "${link_set}"
                 fi ;;
         esac
@@ -2360,6 +2362,28 @@ _ai_tools_assets__can_apply_in_dir() {
 _ai_tools_assets__record_failure() {
     _AI_TOOLS_ASSETS__WRITE_FAILED=1
     _ai_tools_assets__record_row attention write-failed "$1" "$2" "$3" "$4" "$5" "${6:-}"
+}
+
+# _ai_tools_assets__read_subject_type <path> : the subject-type of a row about what is at <path>, read without following
+# a link: `link`, `directory`, or `file` for any other entry and for an absent one.
+_ai_tools_assets__read_subject_type() {
+    if [[ -L "$1" ]]; then
+        printf link
+    elif [[ -d "$1" ]]; then
+        printf directory
+    else
+        printf file
+    fi
+}
+
+# _ai_tools_assets__get_entry_subject_type <entry> : `link` for an entry whose row is about its link in the view,
+# whether or not that link is on disk; `file` for one whose kind has no row, whose row is about operator.conf.
+_ai_tools_assets__get_entry_subject_type() {
+    if [[ -n "${_AI_TOOLS_ASSETS__KIND[$1]+x}" ]]; then
+        printf link
+    else
+        printf file
+    fi
 }
 
 # _ai_tools_assets__get_entry_subject <entry> : the view path an entry's row is about, or operator.conf for an entry
@@ -2663,11 +2687,13 @@ _ai_tools_assets__report() {
             entry)
                 entry="${AI_TOOLS_ASSETS__ENTRIES[index]}"
                 if [[ "${AI_TOOLS_ASSETS__STATE[${entry}]}" == linked ]]; then
-                    _ai_tools_assets__write_row "${code}" ok linked file "$(_ai_tools_assets__get_entry_subject "${entry}")" "${entry}" "" \
+                    _ai_tools_assets__write_row "${code}" ok linked "$(_ai_tools_assets__get_entry_subject_type "${entry}")" \
+                        "$(_ai_tools_assets__get_entry_subject "${entry}")" "${entry}" "" \
                         "$(_ai_tools_assets__format_entry_detail "${entry}")"
                 else
                     _ai_tools_assets__write_row "${code}" "$([[ "${AI_TOOLS_ASSETS__STATE[${entry}]}" == error ]] && printf unreadable || printf attention)" \
-                        "${AI_TOOLS_ASSETS__STATE[${entry}]}" file "$(_ai_tools_assets__get_entry_subject "${entry}")" "${entry}" "" \
+                        "${AI_TOOLS_ASSETS__STATE[${entry}]}" "$(_ai_tools_assets__get_entry_subject_type "${entry}")" \
+                        "$(_ai_tools_assets__get_entry_subject "${entry}")" "${entry}" "" \
                         "$(_ai_tools_assets__format_entry_detail "${entry}")"
                 fi ;;
             row)
@@ -2744,7 +2770,7 @@ _ai_tools_assets__record_pending_rows() {
                 pending_finding="link-pending"
                 pending_detail="a reconcile would point it at ${_AI_TOOLS_ASSETS__ACTION_TARGET[index]}" ;;
         esac
-        _ai_tools_assets__record_row attention "${pending_finding}" "${_AI_TOOLS_ASSETS__ACTION_SUBJECT_TYPE[index]}" \
+        _ai_tools_assets__record_row attention "${pending_finding}" link \
             "${_AI_TOOLS_ASSETS__ACTION_PATH[index]}" "${_AI_TOOLS_ASSETS__ACTION_ITEM[index]}" "${_AI_TOOLS_ASSETS__ACTION_AGENT[index]}" \
             "${pending_detail}; run sudo ai-tools-admin assets reconcile" "${_AI_TOOLS_ASSETS__ACTION_SET[index]}"
     done

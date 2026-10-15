@@ -163,13 +163,15 @@ compgen -G "${CONF}.*.bak" >/dev/null && pass "a dated .bak exists after the wri
     || fail "the view holds $(readlink "${HOME_DIR}/skills/acme-pdf" 2>&1)"
 [[ "$(state_of "${SKILL}")" == linked ]] && pass "the record stream carries the entry linked" || fail "rows: ${OUT:0:300}"
 # The entry's row and the row placing its view link share subject and item, so the code alone keeps their ids apart.
-entry_row="$(awk -F'\t' -v id="${SKILL}" 'NR > 1 && $3 == "MSG-Z3P6" && $9 == id { print $4 " " $5 " " $10 }' <<< "${OUT}")"
-link_row="$(awk -F'\t' -v id="${SKILL}" 'NR > 1 && $3 == "MSG-K6J2" && $9 == id { print $4 " " $5 " " $6 " " $10 }' <<< "${OUT}")"
-if [[ "${entry_row}" == *" ok ${HOME_DIR}/skills/acme-pdf" && "${link_row}" == *" info placed ${HOME_DIR}/skills/acme-pdf" \
-        && "${entry_row%% *}" != "${link_row%% *}" ]]; then
-    pass "the entry's row under MSG-Z3P6 and its view link's row under MSG-K6J2 carry different record ids"
+# The entry's row, its view link's row and the agent's link's row are each about a link, so each is subject-type link.
+entry_row="$(awk -F'\t' -v id="${SKILL}" 'NR > 1 && $3 == "MSG-Z3P6" && $9 == id { print $4 " " $5 " " $7 " " $10 }' <<< "${OUT}")"
+link_row="$(awk -F'\t' -v id="${SKILL}" 'NR > 1 && $3 == "MSG-K6J2" && $9 == id { print $4 " " $5 " " $6 " " $7 " " $10 }' <<< "${OUT}")"
+agent_link_type="$(awk -F'\t' -v id="${SKILL}" 'NR > 1 && $6 == "placed" && $9 == (id "\\tacme") { print $7 }' <<< "${OUT}")"
+if [[ "${entry_row}" == *" ok link ${HOME_DIR}/skills/acme-pdf" && "${link_row}" == *" info placed link ${HOME_DIR}/skills/acme-pdf" \
+        && "${agent_link_type}" == link && "${entry_row%% *}" != "${link_row%% *}" ]]; then
+    pass "the entry's row under MSG-Z3P6 and its view link's row under MSG-K6J2: subject-type link, different record ids"
 else
-    fail "the entry's row '${entry_row}', the view link's row '${link_row}'"
+    fail "the entry's row '${entry_row}', the view link's row '${link_row}', the agent link's type '${agent_link_type}'"
 fi
 admin assets enable "${SKILL}"
 [[ "$(listed)" == "AI_TOOLS_ASSETS=[${SKILL}, ${SUB}]" ]] && pass "an identifier already listed is not added twice" \

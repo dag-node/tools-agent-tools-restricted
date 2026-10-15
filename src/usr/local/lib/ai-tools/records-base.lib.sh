@@ -59,7 +59,7 @@ readonly -a AI_TOOLS_RECORDS_BASE__COLUMNS=(
     detail:text
 )
 readonly -a AI_TOOLS_RECORDS_BASE__SEVERITIES=( ok info attention unreadable )
-readonly -a AI_TOOLS_RECORDS_BASE__SUBJECT_TYPES=( file directory unit agent integration project operator host )
+readonly -a AI_TOOLS_RECORDS_BASE__SUBJECT_TYPES=( file directory link unit agent integration project operator host )
 # shellcheck disable=SC2034  # read by every report that returns an exit status
 readonly AI_TOOLS_RECORDS_BASE__EXIT_FINDINGS=4
 readonly AI_TOOLS_RECORDS_BASE__EXIT_UNREADABLE=5

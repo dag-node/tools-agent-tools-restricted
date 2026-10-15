@@ -420,6 +420,7 @@ fold_case 5 "ok, unreadable, ok" ok unreadable ok
 fold_case 5 "an unknown severity" ok bogus
 fold_case 5 "an empty severity" ""
 if ai_tools_records_base__is_valid_record "" "${TEST_CODE}" info f file op "" /p d \
+        && ai_tools_records_base__is_valid_record "" "${TEST_CODE}" info f link op "" /p d \
         && ! ai_tools_records_base__is_valid_record "" "${TEST_CODE}" bogus f file op "" /p d \
         && ! ai_tools_records_base__is_valid_record "" "${TEST_CODE}" info f bogus op "" /p d \
         && ! ai_tools_records_base__is_valid_record "" "${TEST_CODE}" info f file op "" /p \

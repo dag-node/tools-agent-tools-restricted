@@ -102,6 +102,12 @@ finding() { awk -F'\t' -v id="$1" 'NR > 1 && index($9, id) { print $6; exit }' <
 detail() { awk -F'\t' -v id="$1" 'NR > 1 && index($9, id) { print $11; exit }' <<< "${OUT}"; }
 # has_row <finding> [substring] : succeed when a row carries <finding> and, if given, <substring> in its subject.
 has_row() { awk -F'\t' -v f="$1" -v s="${2:-}" 'NR > 1 && $6 == f && index($10, s) { found = 1 } END { exit !found }' <<< "${OUT}"; }
+# expect_subject_type <finding> <subject> <type> : the row carrying <finding> about exactly <subject> is of <type>.
+expect_subject_type() {
+    local got
+    got="$(awk -F'\t' -v f="$1" -v s="$2" 'NR > 1 && $6 == f && $10 == s { print $7 }' <<< "${OUT}")"
+    if [[ "${got}" == "$3" ]]; then pass "$1 about $2: subject-type $3"; else fail "$1 about $2: subject-type '${got}', want $3"; fi
+}
 
 # expect_state <id> <token> <what> : the entry's row carries <token>.
 expect_state() {
@@ -739,6 +745,7 @@ absent "${HOME_DIR}/skills/.acme-pdf.ai-tools-assets.tmp" && pass "the temporary
 [[ -f "${HOME_DIR}/skills/ai-tools-seeded/SKILL.md" ]] && pass "a seeded managed copy survives" || fail "the seeded copy is gone"
 [[ "$(readlink "${HOME_DIR}/skills/foreign")" == /etc ]] && pass "a foreign link survives" || fail "the foreign link is gone"
 has_row view-foreign "${HOME_DIR}/skills/foreign" && pass "the foreign link is reported view-foreign" || fail "no view-foreign row: ${OUT:0:300}"
+expect_subject_type view-foreign "${HOME_DIR}/skills/foreign" link
 [[ "$(readlink "${HOME_DIR}/.acme/skills/ai-tools-seeded")" == "${HOME_DIR}/skills/ai-tools-seeded" ]] \
     && pass "the agent's directory links the seeded copy too" || fail "the seeded copy is not linked into the agent's directory"
 write_conf "${SUB}"; reconcile
@@ -860,6 +867,7 @@ for name in own-skill ai-tools-forged etc-link dangling "tab"$'\t'"name" -leadin
 done
 if has_row view-foreign "${HOME_DIR}/subagents/ai-tools-dir-sub.md" && absent "${HOME_DIR}/.acme/agents/ai-tools-dir-sub.md"; then
     pass "view-foreign, not linked into the agent's directory: a directory where a subagent file goes"
+    expect_subject_type view-foreign "${HOME_DIR}/subagents/ai-tools-dir-sub.md" directory
 else
     fail "a directory where a subagent file goes: ${OUT:0:300}"
 fi
@@ -920,6 +928,8 @@ expect_unlinked subagents/acme-reviewer.md "the same set's subagent"
 has_row removed "${HOME_DIR}/skills/acme-pdf" && pass "the removal is reported removed" || fail "no removed row: ${OUT:0:300}"
 removal_code="$(awk -F'\t' -v s="${HOME_DIR}/skills/acme-pdf" 'NR > 1 && $6 == "removed" && $10 == s { print $3 }' <<< "${OUT}")"
 [[ "${removal_code}" == MSG-K6J2 ]] && pass "the removal's row carries the reconcile's link code" || fail "the removal's code: '${removal_code}'"
+expect_subject_type removed "${HOME_DIR}/skills/acme-pdf" link
+expect_subject_type removed "${HOME_DIR}/.acme/skills/acme-pdf" link
 # A stale link's item is the identifier it was placed for, a file kind's `.md` dropped, and the kind and the view name
 # where the set was not read.
 stale_items="$(bash -c 'source "$1" 2>/dev/null || exit 99
@@ -928,6 +938,12 @@ stale_items="$(bash -c 'source "$1" 2>/dev/null || exit 99
     done' _ "${LIB}")"
 [[ "${stale_items}" == "acme/skills/acme-pdf acme/subagents/acme-reviewer subagents/acme-reviewer.md " ]] \
     && pass "a stale link's item: the identifier, or the kind and view name without a set" || fail "stale items: '${stale_items}'"
+# A row's subject-type is what is at its subject, a link read as a link whatever it points at.
+mkdir -p "${TESTDIR}/types/dir"; : > "${TESTDIR}/types/file"; ln -sfn "${TESTDIR}/types/dir" "${TESTDIR}/types/link"
+subject_types="$(bash -c 'source "$1" 2>/dev/null || exit 99
+    for name in link dir file absent; do _ai_tools_assets__read_subject_type "$2/${name}"; printf " "; done' _ "${LIB}" "${TESTDIR}/types")"
+[[ "${subject_types}" == "link directory file file " ]] && pass "a subject's type: link, directory, file, and file for an absent path" \
+    || fail "subject types: '${subject_types}'"
 
 # ── The lock ─────────────────────────────────────────────────────────────────────────────────────────────────────────
 section "assets: the lock serializes runs"
@@ -1068,6 +1084,7 @@ rm -f "${HOME_DIR}/.acme/skills/acme-pdf"; mkdir "${HOME_DIR}/.acme/skills/acme-
 reconcile
 if has_row agent-occupied "${HOME_DIR}/.acme/skills/acme-pdf" && [[ "$(cat "${HOME_DIR}/.acme/skills/acme-pdf/SKILL.md")" == own ]]; then
     pass "a real entry in the agent's directory is kept and reported agent-occupied"
+    expect_subject_type agent-occupied "${HOME_DIR}/.acme/skills/acme-pdf" directory
 else
     fail "a real entry: ${OUT:0:300}"
 fi
@@ -1143,6 +1160,7 @@ fresh
 ln -sfn /etc/hostname "${HOME_DIR}/.acme/skills/acme-pdf"; reconcile
 if has_row agent-occupied "${HOME_DIR}/.acme/skills/acme-pdf" && [[ "$(readlink "${HOME_DIR}/.acme/skills/acme-pdf")" == /etc/hostname ]]; then
     pass "a link elsewhere in the agent's directory is reported and not repointed"
+    expect_subject_type agent-occupied "${HOME_DIR}/.acme/skills/acme-pdf" link
 else
     fail "a link elsewhere: $(readlink "${HOME_DIR}/.acme/skills/acme-pdf") ${OUT:0:300}"
 fi
