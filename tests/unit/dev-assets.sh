@@ -219,7 +219,7 @@ s = u.spec_from_file_location("prose_check", sys.argv[1] + "/prose-check.py"); m
     reset_cache; dev fetch
     refused "an archive whose signature file holds its signature twice" "more than one signature"
     # The release's own signature followed by a copy with its last byte flipped: the mismatch decides, whatever
-    # signature precedes it. Both are written binary, which gpgv reads under the .asc name.
+    # signature precedes it. The file is written binary, which gpgv reads under the .asc name.
     awk '/^-----BEGIN PGP SIGNATURE-----/ { f = 1; next }
          /^-----END PGP SIGNATURE-----/   { f = 0; next }
          f && !/^[A-Za-z-]+:/ && !/^=/ && NF' "${TESTDIR}/asc.orig" | base64 -d > "${TESTDIR}/sig.good"

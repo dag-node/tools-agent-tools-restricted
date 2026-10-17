@@ -949,7 +949,8 @@ status comes from `gpgv`'s status lines, with its exit status one input: `gpgv` 
 keyring holds as expired or revoked and reports that on the status stream alone. A signature that does not match or has
 expired is `1`, a key the keyring does not hold and a signature file holding more than one signature are `2`, and a key
 the keyring holds as expired or revoked takes the status each verifier passes: `2` here, the rotation case, and `1`
-for an asset set ([shipped-assets](shipped-assets.rule.md)).
+for an asset set ([shipped-assets](shipped-assets.rule.md)). A signature that decides `1` does so beside a second one
+in the file, so a signature added to the file does not turn a mismatch into a `2`.
 
 - **Mismatch** refuses, everywhere and unconditionally: the relabel fails, the updater declines to activate, the launch
   refuses. No configuration turns it off.
@@ -960,11 +961,13 @@ for an asset set ([shipped-assets](shipped-assets.rule.md)).
   fingerprints for the overlap.
 
 `openpgp.lib.sh` holds the reader both signature verifiers use, `ai_tools_openpgp__evaluate_gpgv_status`, whose doc
-comment holds the order its rows decide in, beside the armor-to-keyring conversion and the fingerprint predicate. It is
-the twin of the tools' `openpgp.py`, member by member, so a set the tools' `verify-set` accepts is one this host
-accepts, and the set verifier and the release verifier hold one copy of the policy. It is pure bash and does not source
-any other library. The set verifier requires it at load; the release verifier loads it when it verifies a release,
-so the launch-side pin check, which `ai-tools-run` sources on every launch, does not load it.
+comment holds the order its rows decide in, beside the armor-to-keyring conversion and the fingerprint predicate,
+so the set verifier and the release verifier hold one copy of the policy. The tools' `openpgp.py` holds the same three
+members, and on one status stream its `check_signature` and this reader reach `0` together, so a set the tools'
+`verify-set` accepts carries a signature this host accepts; the library's header names where the two differ. It does not
+source any other library, and its conversion runs `awk` and `base64`. The set verifier requires it at load; the release
+verifier loads it when it verifies a release, so the launch-side pin check, which `ai-tools-run` sources on every
+launch, does not load it.
 
 `AI_TOOLS_REQUIRE_ENTRYPOINT_VERIFY` (`operator.conf`, read through `ai_tools_entrypoint_verify__is_required`
 so the updater and the launch cannot disagree about how strict the host is) turns the *unverifiable* case

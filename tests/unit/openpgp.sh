@@ -227,8 +227,8 @@ IFS=$'\n\t'
 expect "the control under a caller's IFS without a space" 0 "${PRIMARY}" "${PRIMARY}" 0 1 "${CONTROL}"
 IFS="${saved_ifs}"
 
-# A mismatch is absorbing: every stream decided at 1 above still decides 1 with the control's lines appended, which
-# adds a second NEWSIG, a second VALIDSIG and a GOODSIG.
+# A mismatch is absorbing: every stream an expect case decided at 1 still decides 1 with the control's lines appended,
+# which adds a second NEWSIG, a second VALIDSIG and a GOODSIG.
 (( ${#MISMATCH_STREAMS[@]} > 0 )) || fail "absorbing: no case decided 1 to re-run"
 mismatch_count="${#MISMATCH_STREAMS[@]}"
 for (( index = 0; index < mismatch_count; index++ )); do
