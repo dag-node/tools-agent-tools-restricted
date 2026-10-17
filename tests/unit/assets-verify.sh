@@ -4,8 +4,10 @@
 # Unit test for the set verifier (assets-verify.lib.sh): the runtime half of the guarantee that a set links only
 # under a signature a shipped binding names. Drives the INSTALLED library over a set signed in this run by a throwaway
 # key, through the root-only hook AI_TOOLS_ASSETS_BINDINGS_DIR, and asserts every refusal of the status contract:
-#   * status 1, MSG-T3M3, for a signature gpgv rejects and for every way the inventory stops describing the tree;
-#   * status 2, MSG-Q6Y8, for every input that is absent, untrusted or names a signer the binding does not;
+#   * status 1, MSG-T3M3, for a bad or expired signature, a signature by a key the keyring holds as expired or revoked,
+#     and every way the inventory stops describing the tree;
+#   * status 2, MSG-Q6Y8, for every input that is absent, untrusted or names a signer the binding does not, and for
+#     a signature file holding two signatures;
 #   * status 0 for the control set, printing the signer's primary.
 # The boundary half, that the key, the binding and the keyring are not writable by the sandbox account, is
 # tests/boundary/assets.sh. The key is made in the run, so the tree does not hold any secret, and the "signed
@@ -60,7 +62,7 @@ export ASSET_KEYS_DIR="${KEYS}" ASSET_BINDINGS_DIR="${BINDINGS}"
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")/../lib" && pwd)/asset-signing.sh"
 gen_key() { asset_signing_gen_key "$@"; }
 write_inventory() { asset_signing_write_inventory "${SET}"; }
-sign_set() { asset_signing_sign "${SET}" "$1"; }
+sign_set() { asset_signing_sign "${SET}" "$@"; }
 write_binding() { asset_signing_write_binding "$@"; }
 
 # write_set: the throwaway set, with its inventory in build-set's shape.
@@ -267,6 +269,60 @@ chmod 0644 "${KEYS}/signer.gpg"; chmod 0775 "${KEYS}"
 expect 2 "a group-writable keyring directory" ai_tools_assets_verify__verify_set "${SET}" acme
 chmod 0755 "${KEYS}"
 expect 0 "control: the set verifies again once every input is restored" ai_tools_assets_verify__verify_set "${SET}" acme
+
+# Signatures gpgv exits 0 or 1 for and reports on its status lines: a key the keyring holds as expired or revoked,
+# an expired signature, and a signature file holding two signatures. Each setup is asserted from gpgv's own status lines
+# before the verdict, since a key gpg did not expire would otherwise read as one that verifies. gpgv_keywords <keyring>
+# : the status keywords gpgv prints for the set's signature, space-separated.
+gpgv_keywords() {
+    gpgv --status-fd 1 --keyring "$1" "${SET}/SHA256SUMS.asc" "${SET}/SHA256SUMS" 2>/dev/null | awk '{ print $2 }' | tr '\n' ' '
+}
+gen_key EXPIRED expired 1d 20200101T000000
+write_set; sign_set expired
+write_binding acme "${KEYS}/expired.gpg" "openpgp:${EXPIRED}"
+if [[ " $(gpgv_keywords "${KEYS}/expired.gpg")" == *" EXPKEYSIG "* ]]; then
+    expect 1 "signed, before its expiry, by a key the keyring holds as expired" ai_tools_assets_verify__verify_set "${SET}" acme
+    assert_msg MSG-T3M3 "${err}" "a signature by an expired key is reported under MSG-T3M3"
+    if [[ "${err}" == *"expired or revoked"* ]]; then pass "the refusal names the key as expired or revoked"; else fail "the refusal does not name the expired key: ${err}"; fi
+else
+    fail "setup: gpgv does not report EXPKEYSIG for the key made under faked-system-time with a one-day expiry"
+fi
+gen_key REVOKED revoked
+write_set; sign_set revoked
+if asset_signing_revoke_key revoked "${REVOKED}"; then
+    write_binding acme "${KEYS}/revoked.gpg" "openpgp:${REVOKED}"
+    if [[ " $(gpgv_keywords "${KEYS}/revoked.gpg")" == *" REVKEYSIG "* ]]; then
+        expect 1 "signed by a key the keyring holds as revoked" ai_tools_assets_verify__verify_set "${SET}" acme
+        assert_msg MSG-T3M3 "${err}" "a signature by a revoked key is reported under MSG-T3M3"
+    else
+        fail "setup: gpgv does not report REVKEYSIG once the revocation is in the keyring"
+    fi
+else
+    fail "setup: gpg wrote no revocation certificate for the key it made"
+fi
+gen_key EXPSIG expsig never 20200101T000000
+write_set; sign_set expsig --default-sig-expire 1d
+write_binding acme "${KEYS}/expsig.gpg" "openpgp:${EXPSIG}"
+if [[ " $(gpgv_keywords "${KEYS}/expsig.gpg")" == *" EXPSIG "* ]]; then
+    expect 1 "an expired signature by a key that does not expire" ai_tools_assets_verify__verify_set "${SET}" acme
+else
+    fail "setup: gpgv does not report EXPSIG for a one-day signature made under faked-system-time"
+fi
+# Two binary detached signatures in one file, which gpgv reads without armor: the signer's and the other key's.
+write_set
+GNUPGHOME="${KEYS}/gnupg-signer" gpg --batch --quiet --detach-sign --output "${TESTDIR}/signer.sig" "${SET}/SHA256SUMS"
+GNUPGHOME="${KEYS}/gnupg-other" gpg --batch --quiet --detach-sign --output "${TESTDIR}/other.sig" "${SET}/SHA256SUMS"
+cat "${TESTDIR}/signer.sig" "${TESTDIR}/other.sig" > "${SET}/SHA256SUMS.asc"; chmod 0644 "${SET}/SHA256SUMS.asc"
+write_binding acme "${KEYS}/both.gpg" "openpgp:${SIGNER}" "openpgp:${OTHER}"
+if [[ "$(gpgv_keywords "${KEYS}/both.gpg" | tr ' ' '\n' | grep -c '^NEWSIG$')" == 2 ]]; then
+    expect 2 "a signature file holding two signatures, both by keys the binding names" ai_tools_assets_verify__verify_set "${SET}" acme
+    assert_msg MSG-Q6Y8 "${err}" "a second signature is reported under MSG-Q6Y8"
+else
+    fail "setup: gpgv does not read two signatures from the concatenated file"
+fi
+write_set; sign_set signer
+write_binding acme "${KEYS}/signer.gpg" "openpgp:${SIGNER}"
+expect 0 "control: the set verifies again once signed once by its key" ai_tools_assets_verify__verify_set "${SET}" acme
 
 # A binding refused at a later line publishes neither output. The reader runs in this shell, not under `expect`,
 # whose capture is a subshell that would leave the outputs of the last read made here in place.

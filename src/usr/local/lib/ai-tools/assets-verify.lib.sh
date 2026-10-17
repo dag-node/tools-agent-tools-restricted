@@ -9,16 +9,18 @@
 # Status contract ref-section-b8h3, shared with entrypoint-verify.lib.sh and npm-verify.lib.sh; here a 2 refuses as a 1
 # does:
 #   0  verified; the signer's primary fingerprint is printed on stdout
-#   1  MISMATCH (MSG-T3M3) -- the signed inventory and the tree cannot both be what the publisher built: gpgv rejects
-#      the signature, or the inventory does not describe the tree
-#   2  unable to verify (MSG-Q6Y8) -- an input the check could not read, over its bound, untrusted, or a signer
-#      no binding names
-# The resolver reads 1 as set-tampered and 2 as set-unverified. The signature is checked before the inventory is parsed,
-# so a tree whose signature fails is not read further; each function's doc names the inputs it maps to each status.
-# A path, listed or found, is held to ai_tools_conf__is_portable_name_valid (conf.lib.sh) per component, and a name
-# outside that set is a mismatch: the format's `file.name` rule refuses one at build, so a signed set does not carry
-# one. Every name, line and tool message a diagnostic carries passes log.lib.sh's allowlist sanitizer first, since
-# a refused set's bytes are whoever wrote them.
+#   1  MISMATCH (MSG-T3M3) -- the signed inventory and the tree cannot both be what the publisher built: the signature
+#      does not match or is expired (BADSIG, EXPSIG), its key is one the keyring holds as expired or revoked
+#      (EXPKEYSIG, REVKEYSIG, KEYREVOKED), or the inventory does not describe the tree
+#   2  unable to verify (MSG-Q6Y8) -- an input the check could not read, over its bound, untrusted, a key the keyring
+#      does not hold (NO_PUBKEY, ERRSIG), a signature file holding more than one signature, or a signer no binding names
+# gpgv's status lines decide the signature's status through ai_tools_openpgp__classify_gpgv_status (openpgp.lib.sh),
+# whose doc holds the order of the rows. The resolver reads 1 as set-tampered and 2 as set-unverified. The signature is
+# checked before the inventory is parsed, so a tree whose signature fails is not read further; each function's doc names
+# the inputs it maps to each status. A path, listed or found, is held to ai_tools_conf__is_portable_name_valid
+# (conf.lib.sh) per component, and a name outside that set is a mismatch: the format's `file.name` rule refuses one
+# at build, so a signed set does not carry one. Every name, line and tool message a diagnostic carries passes
+# log.lib.sh's allowlist sanitizer first, since a refused set's bytes are whoever wrote them.
 #
 # A binding is <set>.conf in the shared KEY=value grammar, read line by line through conf.lib.sh and not sourced,
 # under AI_TOOLS_ASSETS_BINDINGS_DIR (the bindings base ships) or AI_TOOLS_ASSETS_OPERATOR_BINDINGS_DIR (the operator's,
@@ -123,7 +125,7 @@ ai_tools_assets_verify__is_valid_set_name() {
 #   `openpgp:` then 40 hex digits. The type is a prefix so a later signature scheme is a new prefix and not a new key
 #   of the binding.
 ai_tools_assets_verify__is_valid_signer_fingerprint() {
-    [[ "${1-}" =~ ^openpgp:[0-9A-Fa-f]{40}$ ]]
+    [[ "${1-}" == openpgp:* ]] && ai_tools_openpgp__is_fingerprint "${1#openpgp:}"
 }
 
 # ai_tools_assets_verify__find_binding <set-name> : print the path of the binding that decides <set-name>:
@@ -335,13 +337,13 @@ _ai_tools_assets_verify__verify_inventory_listing() {
 #   under <set-directory> verifies through gpgv against the keyring the binding for <set-name> names, by a key
 #   whose VALIDSIG primary the binding's signers list, and SHA256SUMS describes the tree
 #   (ai_tools_assets_verify__verify_inventory). Prints the signer's primary fingerprint and returns 0; returns 1
-#   under MSG-T3M3 for a signature gpgv rejects or an inventory mismatch, 2 under MSG-Q6Y8 for an input the checks
-#   refuse: absent, over its bound, untrusted, or unmatched by the binding. gpgv reads the keyring named and no default
-#   one, and its exit status separates the two refusals as the contract does: 1 for a signature it rejects, 2 for a key
-#   the keyring does not hold.
+#   under MSG-T3M3 for a signature the reader refuses at 1 or an inventory mismatch, 2 under MSG-Q6Y8 for an input
+#   the checks refuse: absent, over its bound, untrusted, a signature the reader cannot verify, or a signer the binding
+#   does not name. gpgv reads the keyring named and no default one, and ai_tools_openpgp__classify_gpgv_status decides
+#   its exit status and status lines, with a key the keyring holds as expired or revoked at 1.
 ai_tools_assets_verify__verify_set() {
     local set_dir="${1:-}" set_name="${2:-}" inventory signature gpgv_status_output gpgv_exit_status=0
-    local signer_primary allowed_primary matched=no
+    local verdict verdict_status=0 signer_primary reason allowed_primary matched=no
     [[ -n "${set_dir}" && ! -L "${set_dir}" && -d "${set_dir}" ]] \
         || { _ai_tools_assets_verify__report_unverifiable "'$(_ai_tools_assets_verify__sanitize_for_display "${set_dir}")' is not a directory"; return 2; }
     ai_tools_assets_verify__is_valid_set_name "${set_name}" \
@@ -357,17 +359,17 @@ ai_tools_assets_verify__verify_set() {
     ai_tools_assets_verify__read_binding "${set_name}" || return 2
     gpgv_status_output="$(gpgv --status-fd 1 --keyring "${_AI_TOOLS_ASSETS_VERIFY__KEYRING}" "${signature}" "${inventory}" 2>/dev/null)" \
         || gpgv_exit_status=$?
-    if (( gpgv_exit_status == 1 )); then
-        _ai_tools_assets_verify__report_mismatch "set ${set_name}: gpgv rejects the signature ${signature} over ${inventory}"
+    verdict="$(ai_tools_openpgp__classify_gpgv_status "${gpgv_exit_status}" "${gpgv_status_output}" 1)" \
+        || verdict_status=$?
+    IFS=' ' read -r _ _ signer_primary reason <<< "${verdict}"
+    if (( verdict_status == 1 )); then
+        _ai_tools_assets_verify__report_mismatch "set ${set_name}: ${signature} over ${inventory} is refused: ${reason}"
         return 1
     fi
-    if (( gpgv_exit_status != 0 )); then
-        _ai_tools_assets_verify__report_unverifiable "set ${set_name}: gpgv could not verify ${signature} (exit ${gpgv_exit_status}): the signing key is not in ${_AI_TOOLS_ASSETS_VERIFY__KEYRING}, or a file could not be read"
+    if (( verdict_status != 0 )); then
+        _ai_tools_assets_verify__report_unverifiable "set ${set_name}: ${signature} could not be verified against ${_AI_TOOLS_ASSETS_VERIFY__KEYRING}: ${reason}"
         return 2
     fi
-    signer_primary="$(printf '%s\n' "${gpgv_status_output}" | awk '/^\[GNUPG:\] VALIDSIG / { print $NF; exit }')"
-    [[ "${signer_primary}" =~ ^[0-9A-F]{40}$ ]] \
-        || { _ai_tools_assets_verify__report_unverifiable "set ${set_name}: gpgv accepted ${signature} without a VALIDSIG line"; return 2; }
     for allowed_primary in "${_AI_TOOLS_ASSETS_VERIFY__SIGNERS[@]}"; do
         [[ "${allowed_primary}" == "${signer_primary}" ]] && { matched=yes; break; }
     done
