@@ -5,18 +5,14 @@
 # predicate, and the reader that turns a gpgv run into the status contract (ref-section-b8h3 in updater.rule.md).
 # Sourced by assets-verify.lib.sh at load and by entrypoint-verify.lib.sh when it verifies a release, so each verifier
 # holds one copy of the policy. It does not source any library and does not run gpgv: a caller runs `gpgv --status-fd 1`
-# itself and hands this library the exit status and the status text. The conversion runs awk and base64; the predicate
-# and the reader use bash builtins alone.
+# itself and hands this library the exit status and the status text, so the verdict is tested over recorded streams
+# where gpg is not installed.
 #
-# The tools' tools/lib/openpgp.py (ai-tools-assets-tools) holds the same three members: dearmor, FINGERPRINT_PATTERN
-# and check_signature, for write_binary_keyring, is_valid_fingerprint and evaluate_gpgv_status here. The reader's rows
-# are check_signature's, and on one status stream the two reach 0 together, so a set verify-set accepts carries
-# a signature this host's reader accepts. They differ in three places. check_signature tests the multiple-signature row
-# first, so a mismatch beside a second signature reads 2 there and 1 here. dearmor accepts CRLF line endings and refuses
-# a block without its END line, where write_binary_keyring refuses the first and accepts the second.
-# And is_valid_fingerprint accepts lower-case hex, which FINGERPRINT_PATTERN refuses; each reader upper-cases
-# the VALIDSIG fields before the test, so the readers agree there. The one parameter check_signature does not have is
-# the status for a key the keyring holds as expired or revoked, which each caller states (evaluate_gpgv_status).
+# The reader's rows, in their order, are the policy the tools' tools/lib/openpgp.py (ai-tools-assets-tools) takes
+# for check_signature, so a set verify-set accepts carries a signature this host's set verifier accepts. Neither
+# repository runs the other's code, so a change to a row here is made in check_signature too, with its tests. The one
+# input check_signature does not take is the status for a key the keyring holds as expired or revoked, which each
+# verifier here passes (ai_tools_openpgp__evaluate_gpgv_status).
 
 # Include guard: an if-statement, not `[[ ]] && return`, which returns 1 for an unset guard and trips the sourcing
 # shell's `set -e`.

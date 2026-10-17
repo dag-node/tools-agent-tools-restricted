@@ -962,12 +962,11 @@ in the file, so a signature added to the file does not turn a mismatch into a `2
 
 `openpgp.lib.sh` holds the reader both signature verifiers use, `ai_tools_openpgp__evaluate_gpgv_status`, whose doc
 comment holds the order its rows decide in, beside the armor-to-keyring conversion and the fingerprint predicate,
-so the set verifier and the release verifier hold one copy of the policy. The tools' `openpgp.py` holds the same three
-members, and on one status stream its `check_signature` and this reader reach `0` together, so a set the tools'
-`verify-set` accepts carries a signature this host accepts; the library's header names where the two differ. It does not
-source any other library, and its conversion runs `awk` and `base64`. The set verifier requires it at load; the release
-verifier loads it when it verifies a release, so the launch-side pin check, which `ai-tools-run` sources on every
-launch, does not load it.
+so the set verifier and the release verifier hold one copy of the policy. The tools' `openpgp.py`
+(`ai-tools-assets-tools`) takes that policy for `check_signature`, so a set the tools' `verify-set` accepts carries
+a signature this host's set verifier accepts; the library's header states what a change to a row owes the tools. It does
+not source any other library. The set verifier requires it at load; the release verifier loads it when it verifies
+a release, so the launch-side pin check, which `ai-tools-run` sources on every launch, does not load it.
 
 `AI_TOOLS_REQUIRE_ENTRYPOINT_VERIFY` (`operator.conf`, read through `ai_tools_entrypoint_verify__is_required`
 so the updater and the launch cannot disagree about how strict the host is) turns the *unverifiable* case
