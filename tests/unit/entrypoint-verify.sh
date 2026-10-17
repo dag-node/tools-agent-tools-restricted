@@ -17,7 +17,7 @@
 #   * only https, and only a character set that cannot carry a shell metacharacter into curl.
 #
 # The fetch-and-pin caller (ai_tools_entrypoint_verify__verify_release) needs the vendor's live endpoint and a 300 MB
-# hash, so it is not driven here. Its signature step, ai_tools_entrypoint_verify__verify_manifest_signature, is,
+# hash, so it is not driven here. Its signature step, _ai_tools_entrypoint_verify__verify_manifest_signature, is,
 # with keys made in the run where gpg runs: the declared primary and subkey, an undeclared key, and a key the keyring
 # holds as expired or revoked. Run as root via sudo (the suite's convention), though no case here needs it.
 
@@ -819,13 +819,13 @@ ROWS
 fi
 
 # ── The release manifest's signature ─────────────────────────────────────────────────────────────
-# ai_tools_entrypoint_verify__verify_manifest_signature is the gpgv call and the fingerprint match of the release
+# _ai_tools_entrypoint_verify__verify_manifest_signature is the gpgv call and the fingerprint match of the release
 # verifier, taking its manifest, signature and keyring as files, so it runs here with keys made in the run
 # (tests/lib/asset-signing.sh) and without the vendor's endpoint. A key the keyring holds as expired or revoked is
 # the rotation case, status 2. Each setup is asserted from gpgv's own status lines before the verdict.
 section "entrypoint-verify: the release manifest's signature (unit)"
-if ! declare -F ai_tools_entrypoint_verify__verify_manifest_signature >/dev/null; then
-    fail "${LIB} does not define ai_tools_entrypoint_verify__verify_manifest_signature; reinstall from this checkout"
+if ! declare -F _ai_tools_entrypoint_verify__verify_manifest_signature >/dev/null; then
+    fail "${LIB} does not define _ai_tools_entrypoint_verify__verify_manifest_signature; reinstall from this checkout"
 elif ! command -v gpg >/dev/null 2>&1 || ! command -v gpgv >/dev/null 2>&1; then
     skip "release manifest signature cases" "gpg or gpgv not installed"
 else
@@ -849,8 +849,8 @@ else
     expect_signature() { # expect_signature <want> <label> <keyring> <fingerprint>...
         local want="$1" label="$2" got=0
         shift 2
-        ai_tools_entrypoint_verify__verify_manifest_signature "${MANIFEST}" "${TESTDIR}/manifest.sig" "$1" 1.0.0 "${@:2}" \
-            2>"${TESTDIR}/err" || got=$?
+        _ai_tools_entrypoint_verify__verify_manifest_signature "${MANIFEST}" "${TESTDIR}/manifest.sig" "$1" 1.0.0 \
+            "${@:2}" 2>"${TESTDIR}/err" || got=$?
         if [[ "${got}" == "${want}" ]]; then
             pass "${label} -> ${want}"
         else

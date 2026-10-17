@@ -23,7 +23,7 @@
 #      operator required verification (ai_tools_entrypoint_verify__is_required): among the causes, a key the shipped
 #      keyring does not hold (NO_PUBKEY) or holds as expired or revoked (EXPKEYSIG, REVKEYSIG, KEYREVOKED), the rotation
 #      case, and a signature file holding more than one signature
-# gpgv's status lines decide the signature's status through ai_tools_openpgp__classify_gpgv_status (openpgp.lib.sh).
+# gpgv's status lines decide the signature's status through ai_tools_openpgp__evaluate_gpgv_status (openpgp.lib.sh).
 # The pure decisions take no I/O and are unit-tested over their truth tables
 # (tests/unit/entrypoint-verify.sh).
 
@@ -556,34 +556,35 @@ _ai_tools_entrypoint_verify__load_openpgp() {
     # shellcheck source=SCRIPTDIR/openpgp.lib.sh
     source "${BASH_SOURCE[0]%/*}/openpgp.lib.sh" 2>/dev/null || return 1
     declare -F ai_tools_openpgp__write_binary_keyring >/dev/null 2>&1 \
-        && declare -F ai_tools_openpgp__is_fingerprint >/dev/null 2>&1 \
-        && declare -F ai_tools_openpgp__classify_gpgv_status >/dev/null 2>&1
+        && declare -F ai_tools_openpgp__is_valid_fingerprint >/dev/null 2>&1 \
+        && declare -F ai_tools_openpgp__evaluate_gpgv_status >/dev/null 2>&1
 }
 
-# ai_tools_entrypoint_verify__verify_manifest_signature <manifest> <signature> <keyring> <version> <fingerprint>...
+# _ai_tools_entrypoint_verify__verify_manifest_signature <manifest> <signature> <keyring> <version> <fingerprint>...
 #   Verify the detached <signature> over <manifest> against the binary <keyring>, then assert that a declared
 #   <fingerprint> names the key that made it, matched against the signing key or its primary, since gpgv reports
 #   both. Returns the status contract: 0 verified; 1 for a signature that does not match or has expired, and for
 #   a signer no declared fingerprint names; 2 for a key the keyring does not hold, a key it holds as expired or revoked,
 #   a signature file holding more than one signature, a fingerprint that is not 40 hex digits, or another row
-#   of the reader that returns 2. ai_tools_openpgp__classify_gpgv_status decides gpgv's exit status and status
+#   of the reader that returns 2. ai_tools_openpgp__evaluate_gpgv_status decides gpgv's exit status and status
 #   lines; a key the keyring holds as expired or revoked takes 2, the rotation case, so the previous pin stands
 #   and the host warns unless the operator required verification. <version> names the release in a message.
-ai_tools_entrypoint_verify__verify_manifest_signature() {
+_ai_tools_entrypoint_verify__verify_manifest_signature() {
     local manifest="${1:-}" signature="${2:-}" keyring="${3:-}" version="${4:-}"
-    local gpgv_output gpgv_status=0 verdict verdict_status=0 signing_key primary reason declared matched=no
+    local gpgv_output gpgv_exit_status=0 verdict verdict_status=0 signing_key primary reason declared matched=no
     if (( $# >= 4 )); then shift 4; else set --; fi
     _ai_tools_entrypoint_verify__load_openpgp \
         || { _ai_tools_entrypoint_verify__warn "openpgp.lib.sh did not load -- cannot verify the release manifest signature"; return 2; }
     (( $# > 0 )) || { _ai_tools_entrypoint_verify__warn "no release key fingerprint declared"; return 2; }
     for declared in "$@"; do
-        ai_tools_openpgp__is_fingerprint "${declared}" \
+        ai_tools_openpgp__is_valid_fingerprint "${declared}" \
             || { _ai_tools_entrypoint_verify__warn "declared release key fingerprint '${declared}' is not 40 hex digits"; return 2; }
     done
     command -v gpgv >/dev/null 2>&1 \
         || { _ai_tools_entrypoint_verify__warn "gpgv not found -- cannot verify the release manifest signature; install gnupg2"; return 2; }
-    gpgv_output="$(gpgv --status-fd 1 --keyring "${keyring}" "${signature}" "${manifest}" 2>/dev/null)" || gpgv_status=$?
-    verdict="$(ai_tools_openpgp__classify_gpgv_status "${gpgv_status}" "${gpgv_output}" 2)" || verdict_status=$?
+    gpgv_output="$(gpgv --status-fd 1 --keyring "${keyring}" "${signature}" "${manifest}" 2>/dev/null)" \
+        || gpgv_exit_status=$?
+    verdict="$(ai_tools_openpgp__evaluate_gpgv_status "${gpgv_exit_status}" "${gpgv_output}" 2)" || verdict_status=$?
     IFS=' ' read -r _ signing_key primary reason <<< "${verdict}"
     if (( verdict_status == 1 )); then
         _ai_tools_entrypoint_verify__warn "release manifest for ${version} FAILED signature verification (${reason}) -- refusing to trust its checksums"
@@ -618,7 +619,7 @@ ai_tools_entrypoint_verify__verify_manifest_signature() {
 #   ai_tools_conf__is_trusted, and the key is a file the agent package ships -- fetched from the
 #   vendor, this would be npm's own weakness (a compromised source serving package, signature, and
 #   key together). The fingerprint is declared separately and asserted against the key gpgv reports
-#   (ai_tools_entrypoint_verify__verify_manifest_signature), so a keyring swapped for another VALID key is still
+#   (_ai_tools_entrypoint_verify__verify_manifest_signature), so a keyring swapped for another VALID key is still
 #   refused.
 ai_tools_entrypoint_verify__verify_release() {
     local entrypoint="${1:-}" version="${2:-}" url_template="${3:-}" key_file="${4:-}" fingerprint="${5:-}"
@@ -643,7 +644,7 @@ ai_tools_entrypoint_verify__verify_release() {
         || { _ai_tools_entrypoint_verify__warn "openpgp.lib.sh did not load -- cannot verify the release manifest signature"; return 2; }
     local declared
     for declared in "${accepted_fingerprints[@]}"; do
-        ai_tools_openpgp__is_fingerprint "${declared}" \
+        ai_tools_openpgp__is_valid_fingerprint "${declared}" \
             || { _ai_tools_entrypoint_verify__warn "declared release key fingerprint '${declared}' is not 40 hex digits"; return 2; }
     done
 
@@ -671,7 +672,7 @@ ai_tools_entrypoint_verify__verify_release() {
     ai_tools_openpgp__write_binary_keyring "${key_file}" "${workdir}/key.gpg" \
         || { _ai_tools_entrypoint_verify__warn "could not read the release signing key at ${key_file}"; return 2; }
     local signature_status=0
-    ai_tools_entrypoint_verify__verify_manifest_signature "${workdir}/manifest.json" "${workdir}/manifest.sig" \
+    _ai_tools_entrypoint_verify__verify_manifest_signature "${workdir}/manifest.json" "${workdir}/manifest.sig" \
         "${workdir}/key.gpg" "${version}" "${accepted_fingerprints[@]}" || signature_status=$?
     (( signature_status == 0 )) || return "${signature_status}"
 

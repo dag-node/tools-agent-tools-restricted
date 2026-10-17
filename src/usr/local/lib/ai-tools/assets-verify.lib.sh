@@ -14,7 +14,7 @@
 #      (EXPKEYSIG, REVKEYSIG, KEYREVOKED), or the inventory does not describe the tree
 #   2  unable to verify (MSG-Q6Y8) -- an input the check could not read, over its bound, untrusted, a key the keyring
 #      does not hold (NO_PUBKEY, ERRSIG), a signature file holding more than one signature, or a signer no binding names
-# gpgv's status lines decide the signature's status through ai_tools_openpgp__classify_gpgv_status (openpgp.lib.sh),
+# gpgv's status lines decide the signature's status through ai_tools_openpgp__evaluate_gpgv_status (openpgp.lib.sh),
 # whose doc holds the order of the rows. The resolver reads 1 as set-tampered and 2 as set-unverified. The signature is
 # checked before the inventory is parsed, so a tree whose signature fails is not read further; each function's doc names
 # the inputs it maps to each status. A path, listed or found, is held to ai_tools_conf__is_portable_name_valid
@@ -55,7 +55,8 @@ fi
 # to give.
 # shellcheck source=SCRIPTDIR/openpgp.lib.sh
 if ! source "${BASH_SOURCE[0]%/*}/openpgp.lib.sh" 2>/dev/null \
-    || ! declare -F ai_tools_openpgp__classify_gpgv_status >/dev/null 2>&1; then
+    || ! declare -F ai_tools_openpgp__is_valid_fingerprint >/dev/null 2>&1 \
+    || ! declare -F ai_tools_openpgp__evaluate_gpgv_status >/dev/null 2>&1; then
     printf 'assets-verify: openpgp.lib.sh did not load, so the set verifier is not defined\n' >&2
     return 1
 fi
@@ -125,7 +126,7 @@ ai_tools_assets_verify__is_valid_set_name() {
 #   `openpgp:` then 40 hex digits. The type is a prefix so a later signature scheme is a new prefix and not a new key
 #   of the binding.
 ai_tools_assets_verify__is_valid_signer_fingerprint() {
-    [[ "${1-}" == openpgp:* ]] && ai_tools_openpgp__is_fingerprint "${1#openpgp:}"
+    [[ "${1-}" == openpgp:* ]] && ai_tools_openpgp__is_valid_fingerprint "${1#openpgp:}"
 }
 
 # ai_tools_assets_verify__find_binding <set-name> : print the path of the binding that decides <set-name>:
@@ -339,7 +340,7 @@ _ai_tools_assets_verify__verify_inventory_listing() {
 #   (ai_tools_assets_verify__verify_inventory). Prints the signer's primary fingerprint and returns 0; returns 1
 #   under MSG-T3M3 for a signature the reader refuses at 1 or an inventory mismatch, 2 under MSG-Q6Y8 for an input
 #   the checks refuse: absent, over its bound, untrusted, a signature the reader cannot verify, or a signer the binding
-#   does not name. gpgv reads the keyring named and no default one, and ai_tools_openpgp__classify_gpgv_status decides
+#   does not name. gpgv reads the keyring named and no default one, and ai_tools_openpgp__evaluate_gpgv_status decides
 #   its exit status and status lines, with a key the keyring holds as expired or revoked at 1.
 ai_tools_assets_verify__verify_set() {
     local set_dir="${1:-}" set_name="${2:-}" inventory signature gpgv_status_output gpgv_exit_status=0
@@ -359,7 +360,7 @@ ai_tools_assets_verify__verify_set() {
     ai_tools_assets_verify__read_binding "${set_name}" || return 2
     gpgv_status_output="$(gpgv --status-fd 1 --keyring "${_AI_TOOLS_ASSETS_VERIFY__KEYRING}" "${signature}" "${inventory}" 2>/dev/null)" \
         || gpgv_exit_status=$?
-    verdict="$(ai_tools_openpgp__classify_gpgv_status "${gpgv_exit_status}" "${gpgv_status_output}" 1)" \
+    verdict="$(ai_tools_openpgp__evaluate_gpgv_status "${gpgv_exit_status}" "${gpgv_status_output}" 1)" \
         || verdict_status=$?
     IFS=' ' read -r _ _ signer_primary reason <<< "${verdict}"
     if (( verdict_status == 1 )); then

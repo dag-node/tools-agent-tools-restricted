@@ -959,7 +959,7 @@ for an asset set ([shipped-assets](shipped-assets.rule.md)).
   every host closed on an untouched binary, so the agent package ships old and new keys in one keyring and declares both
   fingerprints for the overlap.
 
-`openpgp.lib.sh` holds the reader both signature verifiers use, `ai_tools_openpgp__classify_gpgv_status`, whose doc
+`openpgp.lib.sh` holds the reader both signature verifiers use, `ai_tools_openpgp__evaluate_gpgv_status`, whose doc
 comment holds the order its rows decide in, beside the armor-to-keyring conversion and the fingerprint predicate. It is
 the twin of the tools' `openpgp.py`, member by member, so a set the tools' `verify-set` accepts is one this host
 accepts, and the set verifier and the release verifier hold one copy of the policy. It is pure bash and does not source

@@ -23,8 +23,8 @@ fi
 source "${LIB}"
 # Every function this file calls, checked before the first case: an absent one exits 127, which a refusal case would
 # read as a correct refusal.
-for function_name in ai_tools_openpgp__write_binary_keyring ai_tools_openpgp__is_fingerprint \
-    ai_tools_openpgp__classify_gpgv_status; do
+for function_name in ai_tools_openpgp__write_binary_keyring ai_tools_openpgp__is_valid_fingerprint \
+    ai_tools_openpgp__evaluate_gpgv_status; do
     if ! declare -F "${function_name}" >/dev/null; then
         fail "${LIB} does not define ${function_name}"
         finish; exit 1
@@ -35,7 +35,7 @@ mktestdir
 # ── The fingerprint predicate ────────────────────────────────────────────────────────────────────
 while IFS='|' read -r item want why; do
     [[ -n "${why}" ]] || continue
-    got=0; ai_tools_openpgp__is_fingerprint "${item}" || got=$?
+    got=0; ai_tools_openpgp__is_valid_fingerprint "${item}" || got=$?
     if [[ "${got}" == "${want}" ]]; then pass "fingerprint: ${why}"; else fail "fingerprint: ${why} -> got ${got}, want ${want}"; fi
 done <<'EOF'
 67F42DC18BF764B42D82F14256D2F802CF9832E4|0|40 hex digits
@@ -126,7 +126,7 @@ expect() {
     local label="$1" want="$2" want_key="$3" want_primary="$4" exit_status="$5" key_status="$6" text="$7"
     local want_reason="${8-}"
     local line status rc=0 signing_key primary reason
-    line="$(ai_tools_openpgp__classify_gpgv_status "${exit_status}" "${text}" "${key_status}")" || rc=$?
+    line="$(ai_tools_openpgp__evaluate_gpgv_status "${exit_status}" "${text}" "${key_status}")" || rc=$?
     IFS=' ' read -r status signing_key primary reason <<< "${line}"
     if [[ "${status}" == "${want}" && "${rc}" == "${want}" && "${signing_key}" == "${want_key}" \
         && "${primary}" == "${want_primary}" && ( -z "${want_reason}" || "${reason}" == "${want_reason}" ) ]]; then
@@ -202,7 +202,7 @@ expect "a key status that is neither 1 nor 2" 2 - - 0 0 "${CONTROL}"
 NOT_AN_EXIT="2 - - the gpgv exit status is not a process exit status"
 while IFS='|' read -r exit_status want_line why; do
     [[ -n "${why}" ]] || continue
-    rc=0; line="$(ai_tools_openpgp__classify_gpgv_status "${exit_status}" "${CONTROL}" 1 2>"${TESTDIR}/stderr")" || rc=$?
+    rc=0; line="$(ai_tools_openpgp__evaluate_gpgv_status "${exit_status}" "${CONTROL}" 1 2>"${TESTDIR}/stderr")" || rc=$?
     if [[ "${line}" == "${want_line}" && "${rc}" == "${want_line%% *}" && ! -s "${TESTDIR}/stderr" ]]; then
         pass "exit status: ${why} -> ${want_line%% *}"
     else

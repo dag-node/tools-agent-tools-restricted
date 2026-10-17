@@ -215,7 +215,7 @@ anchor covers the package and the sets it reads — and the keyring `keys/dag-no
 `%install` and `install.sh` write from the armored key beside it with `ai_tools_openpgp__write_binary_keyring`
 (`openpgp.lib.sh`). The signer is asserted against `gpgv`'s `VALIDSIG` primary, so a keyring swapped for another valid
 key is refused, as is a signature by a key the keyring holds but no binding names. The signature's status comes
-from `gpgv`'s status lines through `ai_tools_openpgp__classify_gpgv_status`: a signature by a key the keyring holds
+from `gpgv`'s status lines through `ai_tools_openpgp__evaluate_gpgv_status`: a signature by a key the keyring holds
 as expired or revoked and an expired signature are refused at `1`, which `gpgv`'s exit status of `0` does not show,
 and a signature file holding more than one signature at `2`. Every path of a set, listed in the inventory or found
 by the walk, is held to `ai_tools_conf__is_portable_name_valid` ([providers](providers.rule.md)) component by component.
