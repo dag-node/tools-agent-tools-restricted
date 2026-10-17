@@ -944,15 +944,27 @@ in full.
 ### Three outcomes, and only one of them is tamper <a id="ref-section-b8h3"></a>
 
 The status contract is `npm-verify.lib.sh`'s, so the two gates in `nvm-update` read alike: `0` verified, `1`
-**mismatch**, `2` **unable to verify**. Keeping `1` and `2` apart is the whole usability of the feature, and `gpgv`'s
-own exit status separates them exactly — `1` for a signature it rejects, `2` for a key it does not hold.
+**mismatch**, `2` **unable to verify**. Keeping `1` and `2` apart is the whole usability of the feature. A signature's
+status comes from `gpgv`'s status lines, with its exit status one input: `gpgv` exits `0` for a signature by a key its
+keyring holds as expired or revoked and reports that on the status stream alone. A signature that does not match or has
+expired is `1`, a key the keyring does not hold and a signature file holding more than one signature are `2`, and a key
+the keyring holds as expired or revoked takes the status each verifier passes: `2` here, the rotation case, and `1`
+for an asset set ([shipped-assets](shipped-assets.rule.md)).
 
 - **Mismatch** refuses, everywhere and unconditionally: the relabel fails, the updater declines to activate, the launch
   refuses. No configuration turns it off.
 - **Unable to verify** — offline, no manifest published for that release (they are per-release and not guaranteed), no
-  `gpgv`, an agent declaring no provenance, or a **vendor key rotation** — warns and proceeds, leaving any previous pin
-  standing. A rotation reporting as tamper would fail every host closed on an untouched binary, so the agent package
-  ships old and new keys in one keyring and declares both fingerprints for the overlap.
+  `gpgv`, an agent declaring no provenance, or a **vendor key rotation**, a key the shipped keyring holds as expired
+  or revoked included — warns and proceeds, leaving any previous pin standing. A rotation reporting as tamper would fail
+  every host closed on an untouched binary, so the agent package ships old and new keys in one keyring and declares both
+  fingerprints for the overlap.
+
+`openpgp.lib.sh` holds the reader both signature verifiers use, `ai_tools_openpgp__classify_gpgv_status`, whose doc
+comment holds the order its rows decide in, beside the armor-to-keyring conversion and the fingerprint predicate. It is
+the twin of the tools' `openpgp.py`, member by member, so a set the tools' `verify-set` accepts is one this host
+accepts, and the set verifier and the release verifier hold one copy of the policy. It is pure bash and does not source
+any other library. The set verifier requires it at load; the release verifier loads it when it verifies a release,
+so the launch-side pin check, which `ai-tools-run` sources on every launch, does not load it.
 
 `AI_TOOLS_REQUIRE_ENTRYPOINT_VERIFY` (`operator.conf`, read through `ai_tools_entrypoint_verify__is_required`
 so the updater and the launch cannot disagree about how strict the host is) turns the *unverifiable* case

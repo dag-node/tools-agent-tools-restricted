@@ -214,12 +214,15 @@ package-signing primary — the key `rpm.dagnode.com` serves and the key that si
 anchor covers the package and the sets it reads — and the keyring `keys/dag-node-package-signing.gpg`, which the spec's
 `%install` and `install.sh` write from the armored key beside it with `ai_tools_openpgp__write_binary_keyring`
 (`openpgp.lib.sh`). The signer is asserted against `gpgv`'s `VALIDSIG` primary, so a keyring swapped for another valid
-key is refused, as is a signature by a key the keyring holds but no binding names. Every path of a set, listed
-in the inventory or found by the walk, is held to `ai_tools_conf__is_portable_name_valid`
-([providers](providers.rule.md)) component by component. The directory, each binding and the keyring are `644 root:root`
-under `755 root:root` and must pass `ai_tools_conf__is_trusted`, file and directory both, or the set is unverified:
-the sandbox account cannot change what signs a set, which `tests/boundary/assets.sh` asserts from that account's
-vantage, while `tests/unit/assets-verify.sh` drives every refusal over a set signed in the run by a throwaway key,
+key is refused, as is a signature by a key the keyring holds but no binding names. The signature's status comes
+from `gpgv`'s status lines through `ai_tools_openpgp__classify_gpgv_status`: a signature by a key the keyring holds
+as expired or revoked and an expired signature are refused at `1`, which `gpgv`'s exit status of `0` does not show,
+and a signature file holding more than one signature at `2`. Every path of a set, listed in the inventory or found
+by the walk, is held to `ai_tools_conf__is_portable_name_valid` ([providers](providers.rule.md)) component by component.
+The directory, each binding and the keyring are `644 root:root` under `755 root:root` and must pass
+`ai_tools_conf__is_trusted`, file and directory both, or the set is unverified: the sandbox account cannot change
+what signs a set, which `tests/boundary/assets.sh` asserts from that account's vantage, while
+`tests/unit/assets-verify.sh` drives every refusal over a set signed in the run by a throwaway key,
 through the root-only hook `AI_TOOLS_ASSETS_BINDINGS_DIR`.
 
 `ai_tools_assets_verify__find_binding` decides which file binds a name: the shipped file where one exists, else
