@@ -114,7 +114,7 @@ readonly -a AI_TOOLS_ASSETS__ENFORCED_RULES=(
 readonly -a _AI_TOOLS_ASSETS__SET_ENTRIES=( set.conf:f CHANGELOG.md:f README.md:f LICENSE:f LICENSES:d plugin.json:f
                                        .claude-plugin:d skills:d agents:d metadata:d )
 readonly -a _AI_TOOLS_ASSETS__RELEASE_ENTRIES=( SHA256SUMS:f SHA256SUMS.asc:f )
-readonly -a _AI_TOOLS_ASSETS__RESERVED_ENTRIES=( jobs libs variants llms.txt )
+readonly -a _AI_TOOLS_ASSETS__RESERVED_ENTRIES=( jobs libs variants attestations llms.txt )
 readonly -a _AI_TOOLS_ASSETS__RESERVED_KINDS=( jobs mcps commands instructions hooks lsps output-styles settings workflows
                                           themes monitors tools )
 readonly -a _AI_TOOLS_ASSETS__SET_CONF_REQUIRED=( format name version summary license maintainers source )
