@@ -707,7 +707,7 @@ the grant, so no input this command reads is agent-writable.
 `admin-commands.sh` pins the seam that lets a provider package add a domain to `ai-tools-admin` (see
 [providers](providers.rule.md)). What it drives is a dispatch that **execs a file as root**, so every assertion targets
 a way discovery could widen the surface: a group-writable or non-root-owned fragment, a group-writable directory,
-a fragment claiming a base name (`system`, and the reserved `status`), and a basename outside the domain charset are
+a fragment claiming a name base owns (driven with `system` and `status`), and a basename outside the domain charset are
 each driven and asserted to leave the command surface smaller, with the refusal reported — and a path-shaped command
 name must read as an unknown command rather than reaching an exec, since membership of the discovered set is the gate
 and not the string. The positive half is the same contract from the other side: a trusted fragment is exec'd

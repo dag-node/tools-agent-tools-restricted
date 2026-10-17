@@ -296,14 +296,15 @@ a stopped schedule surfaces at all. A run started by hand *through* the manager
 (`systemctl --user start nvm-update.service`) is indistinguishable from a triggered one and counts as `unit`:
 the inference is bounded to systemd-started runs, not to scheduled ones. `NODE` records the version the run left active;
 the status reports read the active version off the stable launcher links, which every writer of Node repoints, and print
-`NODE` beside it only where the two differ, which says the toolchain changed after this run (see [cli](cli.rule.md)).
-`REASON` is written only on a skip and says which transient condition ended the run — `offline`, or `clock` when a file
-this host wrote (the updater itself, the previous stamp, an entrypoint pin) is dated after the system clock
-(`ai_tools_conf__find_paths_ahead_of_clock`, `conf.lib.sh`), the state a host with no battery-backed clock boots
-into until it reaches a time source — so the report can state why a run made no change instead of leaving the operator
-to infer it. The `clock` skip runs before anything is downloaded or written, and its stamp keeps the previous run's
-`FINISHED` rather than dating a run with the wrong time, so the record ages into `STALE` as the condition persists.
-The launch wrapper and `ai-tools-run` make the same read and refuse a session under it ([launch](launch.rule.md)).
+`NODE` beside it only where the two differ, which says the toolchain changed after this run
+([ref-section-q8z7](cli.rule.md#ref-section-q8z7)). `REASON` is written only on a skip and says which transient
+condition ended the run — `offline`, or `clock` when a file this host wrote (the updater itself, the previous stamp,
+an entrypoint pin) is dated after the system clock (`ai_tools_conf__find_paths_ahead_of_clock`, `conf.lib.sh`),
+the state a host with no battery-backed clock boots into until it reaches a time source — so the report can state
+why a run made no change instead of leaving the operator to infer it. The `clock` skip runs before anything is
+downloaded or written, and its stamp keeps the previous run's `FINISHED` rather than dating a run with the wrong time,
+so the record ages into `STALE` as the condition persists. The launch wrapper and `ai-tools-run` make the same read
+and refuse a session under it ([launch](launch.rule.md)).
 
 ### What the stamp is trusted for <a id="ref-section-c8b7"></a>
 

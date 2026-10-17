@@ -33,9 +33,8 @@
 # through ai_tools_services__read_stamp_field, which clamps it to a short safe-charset token so no control byte
 # or escape sequence reaches the operator's terminal.
 #
-# Sourced, not executed. Deployed 644 root:root -- it does not carry any secrets, and the two principals that source it
-# (the operator launch wrapper and the unprivileged CLI) both need to read a system unit's is-active/is-enabled,
-# which any user may.
+# Sourced, not executed. Deployed 644 root:root -- it does not carry any secrets, and unprivileged principals source it
+# as well as root: every consumer reads a system unit's is-active/is-enabled, which any user may.
 
 [[ -n "${_AI_TOOLS_SERVICES__LOADED:-}" ]] && return 0
 readonly _AI_TOOLS_SERVICES__LOADED=1
