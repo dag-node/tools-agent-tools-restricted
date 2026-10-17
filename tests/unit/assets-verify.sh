@@ -327,7 +327,8 @@ signature = bytearray(open(sys.argv[1], "rb").read()); signature[-1] ^= 0x01
 open(sys.argv[2], "wb").write(signature)' "${TESTDIR}/signer.sig" "${TESTDIR}/signer-flipped.sig"
 cat "${TESTDIR}/signer.sig" "${TESTDIR}/signer-flipped.sig" > "${SET}/SHA256SUMS.asc"; chmod 0644 "${SET}/SHA256SUMS.asc"
 write_binding acme "${KEYS}/signer.gpg" "openpgp:${SIGNER}"
-keywords="$(gpgv_keywords "${KEYS}/signer.gpg")"
+# gpgv exits 1 on the BADSIG, which under pipefail would end the file; the next line is the check.
+keywords="$(gpgv_keywords "${KEYS}/signer.gpg")" || true
 if [[ " ${keywords}" == *" BADSIG "* && "$(tr ' ' '\n' <<< "${keywords}" | grep -c '^NEWSIG$')" == 2 ]]; then
     expect 1 "a signature file holding the signer's signature, then one that does not match" \
         ai_tools_assets_verify__verify_set "${SET}" acme

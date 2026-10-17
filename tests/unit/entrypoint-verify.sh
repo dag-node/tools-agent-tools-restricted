@@ -912,7 +912,8 @@ else
 signature = bytearray(open(sys.argv[1], "rb").read()); signature[-1] ^= 0x01
 open(sys.argv[2], "wb").write(signature)' "${TESTDIR}/manifest-good.sig" "${TESTDIR}/manifest-flipped.sig"
     cat "${TESTDIR}/manifest-good.sig" "${TESTDIR}/manifest-flipped.sig" > "${TESTDIR}/manifest.sig"
-    keywords="$(manifest_keywords "${ASSET_KEYS_DIR}/signer.gpg")"
+    # gpgv exits 1 on the BADSIG, which under pipefail would end the file; the next line is the check.
+    keywords="$(manifest_keywords "${ASSET_KEYS_DIR}/signer.gpg")" || true
     if [[ " ${keywords}" == *" BADSIG "* && "$(tr ' ' '\n' <<< "${keywords}" | grep -c '^NEWSIG$')" == 2 ]]; then
         expect_signature 1 "the declared primary's signature, then one that does not match" \
             "${ASSET_KEYS_DIR}/signer.gpg" "${SIGNER}"
