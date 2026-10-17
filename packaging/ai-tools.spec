@@ -368,7 +368,7 @@ ln -s %{ai_bindir}/ai-tools %{buildroot}%{_sbindir}/ai-tools
 # SANDBOX_GROUP member under multi-operator) can traverse in to source the 644
 # world-readable libs by path without listing the dir. The 640 files self-protect.
 install -d -m 0751 %{buildroot}%{ai_libdir}
-for l in log msg conf settings-merge skip-dirs owner-only project-permissions relabel secret-patterns operator control-plane safe-paths launch-wrapper confinement npm-verify entrypoint-verify assets-verify assets managed-assets providers ancestor-config sandbox-exec toolchain cache-cleanup selinux-groups filters services path-order agent-installs records-base records-tsv; do
+for l in log msg conf settings-merge skip-dirs owner-only project-permissions relabel secret-patterns operator control-plane safe-paths launch-wrapper confinement npm-verify openpgp entrypoint-verify assets-verify assets managed-assets providers ancestor-config sandbox-exec toolchain cache-cleanup selinux-groups filters services path-order agent-installs records-base records-tsv; do
     install -m 0644 src%{ai_libdir}/${l}.lib.sh %{buildroot}%{ai_libdir}/${l}.lib.sh
 done
 # Provider manifest + fragment directories (base owns the dirs; each member package ships its own
@@ -398,14 +398,14 @@ install -m 0644 src%{ai_libdir}/filters.d/base.rules %{buildroot}%{ai_libdir}/fi
 # manifest against the key its manifest names, so the key is SHIPPED rather than fetched (a fetched
 # key proves only that whoever served the manifest served the key). Base ships one key of its own:
 # the dag-node package-signing key, the key rpm.dagnode.com serves, as published, and beside it the
-# binary keyring ai_tools_assets_verify__write_binary_keyring writes from it here (its doc says why gpgv needs
+# binary keyring ai_tools_openpgp__write_binary_keyring writes from it here (its doc says why gpgv needs
 # one). assets-verify.lib.sh verifies a set's SHA256SUMS.asc against the keyring a root-owned
 # binding names and asserts the signer's primary against that binding, so this file alone does not
 # decide what may sign a set.
 install -d -m 0755 %{buildroot}%{ai_libdir}/keys
 install -m 0644 src%{ai_libdir}/keys/dag-node-package-signing.asc %{buildroot}%{ai_libdir}/keys/dag-node-package-signing.asc
-bash -c '. "$1" && ai_tools_assets_verify__write_binary_keyring "$2" "$3"' _ \
-    src%{ai_libdir}/assets-verify.lib.sh \
+bash -c '. "$1" && ai_tools_openpgp__write_binary_keyring "$2" "$3"' _ \
+    src%{ai_libdir}/openpgp.lib.sh \
     src%{ai_libdir}/keys/dag-node-package-signing.asc \
     %{buildroot}%{ai_libdir}/keys/dag-node-package-signing.gpg
 chmod 0644 %{buildroot}%{ai_libdir}/keys/dag-node-package-signing.gpg
@@ -1386,6 +1386,7 @@ fi
 %attr(0644, root, root) %{ai_libdir}/launch-wrapper.lib.sh
 %attr(0644, root, root) %{ai_libdir}/confinement.lib.sh
 %attr(0644, root, root) %{ai_libdir}/npm-verify.lib.sh
+%attr(0644, root, root) %{ai_libdir}/openpgp.lib.sh
 %attr(0644, root, root) %{ai_libdir}/entrypoint-verify.lib.sh
 %attr(0644, root, root) %{ai_libdir}/assets-verify.lib.sh
 %attr(0644, root, root) %{ai_libdir}/assets.lib.sh

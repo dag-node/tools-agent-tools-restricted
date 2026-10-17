@@ -24,8 +24,8 @@
 # under AI_TOOLS_ASSETS_BINDINGS_DIR (the bindings base ships) or AI_TOOLS_ASSETS_OPERATOR_BINDINGS_DIR (the operator's,
 # for a set of another publisher); ai_tools_assets_verify__find_binding states which file decides a name,
 # and ai_tools_assets_verify__read_binding states its keys and every refusal. The shipped keyring is binary, written
-# at build time by ai_tools_assets_verify__write_binary_keyring from the armored key beside it; an operator writes one
-# with gpg.
+# at build time by ai_tools_openpgp__write_binary_keyring (openpgp.lib.sh) from the armored key beside it; an operator
+# writes one with gpg.
 
 # Sourced more than once in a single shell: the readonly constants would abort under `set -e` on the second pass.
 # An if-statement, not `[[ ]] && return`, which returns 1 for an unset guard and trips the sourcing shell's `set -e`.
@@ -47,6 +47,14 @@ fi
 # shellcheck source=SCRIPTDIR/log.lib.sh
 if ! source "${BASH_SOURCE[0]%/*}/log.lib.sh" 2>/dev/null || ! declare -F ai_tools_log__sanitize >/dev/null 2>&1; then
     printf 'assets-verify: log.lib.sh did not load, so the set verifier is not defined\n' >&2
+    return 1
+fi
+# openpgp.lib.sh is REQUIRED: it holds the reader that decides a gpgv run, and a verifier without it has no verdict
+# to give.
+# shellcheck source=SCRIPTDIR/openpgp.lib.sh
+if ! source "${BASH_SOURCE[0]%/*}/openpgp.lib.sh" 2>/dev/null \
+    || ! declare -F ai_tools_openpgp__classify_gpgv_status >/dev/null 2>&1; then
+    printf 'assets-verify: openpgp.lib.sh did not load, so the set verifier is not defined\n' >&2
     return 1
 fi
 _AI_TOOLS_ASSETS_VERIFY__LOADED=1
@@ -116,25 +124,6 @@ ai_tools_assets_verify__is_valid_set_name() {
 #   of the binding.
 ai_tools_assets_verify__is_valid_signer_fingerprint() {
     [[ "${1-}" =~ ^openpgp:[0-9A-Fa-f]{40}$ ]]
-}
-
-# ai_tools_assets_verify__write_binary_keyring <armored-key> <keyring> : write the binary keyring gpgv reads
-#   from an ASCII-armored public key file. gpgv on EL9 exits 2 on an armored keyring, so the keyring is written binary
-#   at build time, by the spec's %install and by install.sh. The armor is base64 between the PUBLIC KEY BLOCK markers,
-#   with header lines and a `=` CRC line, so dropping those and decoding is the whole conversion, and gpgv,
-#   the verify-only half of gnupg2, stays the one dependency: no gpg homedir is made per call. Several armored blocks
-#   in one file decode to one keyring. A partial output is removed; returns 1 when the input does not hold a key.
-ai_tools_assets_verify__write_binary_keyring() {
-    local armored="${1:-}" keyring="${2:-}"
-    [[ -n "${armored}" && -r "${armored}" && -n "${keyring}" ]] || return 1
-    if ! awk '/^-----BEGIN PGP PUBLIC KEY BLOCK-----/ { f = 1; next }
-              /^-----END PGP PUBLIC KEY BLOCK-----/   { f = 0; next }
-              f && !/^[A-Za-z-]+:/ && !/^=/ && NF' "${armored}" | base64 -d > "${keyring}" 2>/dev/null \
-        || [[ ! -s "${keyring}" ]]; then
-        rm -f -- "${keyring}"
-        return 1
-    fi
-    return 0
 }
 
 # ai_tools_assets_verify__find_binding <set-name> : print the path of the binding that decides <set-name>:

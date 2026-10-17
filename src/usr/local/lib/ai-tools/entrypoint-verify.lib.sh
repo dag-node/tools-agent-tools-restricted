@@ -545,16 +545,14 @@ ai_tools_entrypoint_verify__is_pin_reusable() {
     return 0
 }
 
-# _ai_tools_entrypoint_verify__dearmor <armored-key> <out> : convert a published ASCII-armored key to the binary keyring
-#   gpgv wants, without gpg. The armor is base64 with an RFC 4880 header block and a `=` CRC line, so stripping those
-#   and decoding is the whole conversion -- which keeps gnupg2's verify-only half (gpgv) as the single dependency rather
-#   than a full gpg with a homedir and a trustdb this would have to build per call.
-_ai_tools_entrypoint_verify__dearmor() {
-    local armored="${1:-}" out="${2:-}"
-    [[ -r "${armored}" ]] || return 1
-    awk '/^-----BEGIN/{f=1;next} /^-----END/{f=0} f && !/^[A-Za-z]+:/ && !/^=/ && NF' "${armored}" \
-        | base64 -d > "${out}" 2>/dev/null || return 1
-    [[ -s "${out}" ]]
+# _ai_tools_entrypoint_verify__load_openpgp : source openpgp.lib.sh, which holds the key conversion and the gpgv reader
+#   the release verifier uses, and succeed when its functions are defined. It loads here rather than at the top
+#   of this file: the launch-side check sources this library on every launch and does not verify a signature.
+_ai_tools_entrypoint_verify__load_openpgp() {
+    # shellcheck source=SCRIPTDIR/openpgp.lib.sh
+    source "${BASH_SOURCE[0]%/*}/openpgp.lib.sh" 2>/dev/null || return 1
+    declare -F ai_tools_openpgp__write_binary_keyring >/dev/null 2>&1 \
+        && declare -F ai_tools_openpgp__classify_gpgv_status >/dev/null 2>&1
 }
 
 # ai_tools_entrypoint_verify__verify_release <entrypoint> <version> <url-template> <key> <fingerprint>
@@ -613,7 +611,9 @@ ai_tools_entrypoint_verify__verify_release() {
         || { _ai_tools_entrypoint_verify__warn "no release manifest published at ${url} (or the host is offline)"; return 2; }
     curl -fsSL --connect-timeout 5 --max-time 30 -o "${workdir}/manifest.sig" -- "${url}.sig" 2>/dev/null \
         || { _ai_tools_entrypoint_verify__warn "no detached signature published at ${url}.sig"; return 2; }
-    _ai_tools_entrypoint_verify__dearmor "${key_file}" "${workdir}/key.gpg" \
+    _ai_tools_entrypoint_verify__load_openpgp \
+        || { _ai_tools_entrypoint_verify__warn "openpgp.lib.sh did not load -- cannot verify the release manifest signature"; return 2; }
+    ai_tools_openpgp__write_binary_keyring "${key_file}" "${workdir}/key.gpg" \
         || { _ai_tools_entrypoint_verify__warn "could not read the release signing key at ${key_file}"; return 2; }
 
     # gpgv's exit status already separates the two failures that must not collapse, and separates them exactly

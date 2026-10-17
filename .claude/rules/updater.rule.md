@@ -6,6 +6,7 @@ paths:
   - "src/usr/local/lib/ai-tools/sandbox-exec.lib.sh"
   - "src/usr/local/lib/ai-tools/npm-verify.lib.sh"
   - "src/usr/local/lib/ai-tools/entrypoint-verify.lib.sh"
+  - "src/usr/local/lib/ai-tools/openpgp.lib.sh"
   - "src/usr/local/lib/ai-tools/keys/**"
   - "src/usr/local/libexec/ai-tools/ai-tools-bootstrap.sh"
   - "src/usr/local/libexec/ai-tools/ai-tools-launcher-symlink.sh"

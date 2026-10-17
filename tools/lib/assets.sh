@@ -139,8 +139,8 @@ _ai_tools_dev_assets__verify_archive() {
     published="$(cut -c1-64 < "${dir}/${archive}.sha256")"
     [[ "${published}" == "${want}" ]] \
         || { _ai_tools_dev_assets__refuse "the release publishes ${published:-nothing} for ${archive}, the pin ${want}"; return 1; }
-    bash -c '. "$1" >/dev/null 2>&1 && ai_tools_assets_verify__write_binary_keyring "$2" "$3"' _ \
-        "${_AI_TOOLS_DEV_ASSETS__LIB_DIR}/assets-verify.lib.sh" "${_AI_TOOLS_DEV_ASSETS__SIGNING_KEY}" "${dir}/keyring.gpg" \
+    bash -c '. "$1" >/dev/null 2>&1 && ai_tools_openpgp__write_binary_keyring "$2" "$3"' _ \
+        "${_AI_TOOLS_DEV_ASSETS__LIB_DIR}/openpgp.lib.sh" "${_AI_TOOLS_DEV_ASSETS__SIGNING_KEY}" "${dir}/keyring.gpg" \
         || { _ai_tools_dev_assets__refuse "${archive}: the package-signing key did not dearmor into a keyring"; return 1; }
     status="$(gpgv --status-fd 1 --keyring "${dir}/keyring.gpg" "${dir}/${archive}.asc" "${dir}/${archive}" 2>/dev/null)" \
         || { rm -f -- "${dir}/keyring.gpg"; _ai_tools_dev_assets__refuse "gpgv refuses the signature over ${archive}"; return 1; }

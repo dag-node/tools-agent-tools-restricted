@@ -30,7 +30,7 @@ source "${LIB}"
 # verdicts.
 for function_name in ai_tools_assets_verify__verify_set ai_tools_assets_verify__verify_inventory ai_tools_assets_verify__read_binding \
     ai_tools_assets_verify__find_binding \
-    ai_tools_assets_verify__write_binary_keyring ai_tools_assets_verify__is_valid_set_name \
+    ai_tools_openpgp__write_binary_keyring ai_tools_assets_verify__is_valid_set_name \
     ai_tools_assets_verify__is_valid_signer_fingerprint; do
     if ! declare -F "${function_name}" >/dev/null; then
         fail "${LIB} does not define ${function_name}; reinstall from this checkout (sudo ./install.sh)"
@@ -125,7 +125,7 @@ EOF
 readonly SHIPPED_KEY=/usr/local/lib/ai-tools/keys/dag-node-package-signing
 readonly SHIPPED_BINDINGS=/usr/local/lib/ai-tools/assets-bindings.d
 if [[ -r "${SHIPPED_KEY}.asc" && -r "${SHIPPED_KEY}.gpg" && -d "${SHIPPED_BINDINGS}" ]]; then
-    ai_tools_assets_verify__write_binary_keyring "${SHIPPED_KEY}.asc" "${TESTDIR}/shipped.gpg"
+    ai_tools_openpgp__write_binary_keyring "${SHIPPED_KEY}.asc" "${TESTDIR}/shipped.gpg"
     if cmp -s "${TESTDIR}/shipped.gpg" "${SHIPPED_KEY}.gpg"; then
         pass "the shipped keyring is the dearmored form of the shipped armored key"
     else
