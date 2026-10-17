@@ -269,7 +269,7 @@ asset_selftest_setup() {
     local fpr
     fpr="$(GNUPGHOME="${ASSET_STAGE}/gnupg" gpg --batch --with-colons --list-keys | awk -F: '$1 == "fpr" { print $10; exit }')"
     GNUPGHOME="${ASSET_STAGE}/gnupg" gpg --batch --armor --export "${fpr}" > "${ASSET_STAGE}/acme.asc"
-    bash -c '. /usr/local/lib/ai-tools/assets-verify.lib.sh && ai_tools_assets_verify__write_binary_keyring "$1" "$2"' _ \
+    bash -c '. /usr/local/lib/ai-tools/openpgp.lib.sh && ai_tools_openpgp__write_binary_keyring "$1" "$2"' _ \
         "${ASSET_STAGE}/acme.asc" "${ASSET_KEYRING}"
     chmod 0644 "${ASSET_KEYRING}"
     printf 'set=acme\nsigners=[openpgp:%s]\nkeyring=%s\n' "${fpr}" "${ASSET_KEYRING}" > "${ASSET_BINDING}"

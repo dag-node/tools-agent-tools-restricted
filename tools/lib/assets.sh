@@ -13,10 +13,10 @@
 #
 # A pin is `tools/lib/assets-<name>.pin`, data read line by line: `tag`, `archive` and `archive_sha256`, each once,
 # comments and blank lines beside them, and a line outside those keys refuses the pin. An archive is accepted when its
-# sha256 equals the pin's and the one its release publishes, and `gpgv` reports a VALIDSIG whose primary is the dag-node
-# package-signing primary, read through the key base itself ships, so the anchor is the one every set binding names.
-# The `core` tree is held to its own inventory after the unpack (ai_tools_assets_verify__verify_inventory), so a tree
-# that is not whole is refused as well.
+# sha256 equals the pin's and the one its release publishes, and its signature verifies, as the set verifier decides one
+# (ai_tools_openpgp__evaluate_gpgv_status), by the dag-node package-signing primary, read through the key base itself
+# ships, so the anchor is the one every set binding names. The `core` tree is held to its own inventory after the unpack
+# (ai_tools_assets_verify__verify_inventory), so a tree that is not whole is refused as well.
 #
 # The cache is per user and outside the tree, `${XDG_CACHE_HOME:-$HOME/.cache}/ai-tools-dev/<archive>.<sha256-prefix>/`
 # at 0700, holding the archive, its .sha256 and .asc, and the unpacked `tree/`. The project tree is collaborative:
@@ -128,10 +128,12 @@ _ai_tools_dev_assets__fetch_file() {
 }
 
 # _ai_tools_dev_assets__verify_archive <dir> : hold the archive of the pin read last, in <dir> with its .sha256
-# and .asc, to the pin's sha256, the published one and a VALIDSIG by the package-signing primary. Returns 1
-# with the reason.
+# and .asc, to the pin's sha256, the published one and a signature by the package-signing primary, decided from gpgv's
+# status lines by ai_tools_openpgp__evaluate_gpgv_status (openpgp.lib.sh) with a key the keyring holds as expired
+# or revoked refused, as the set verifier refuses it. Returns 1 with the reason.
 _ai_tools_dev_assets__verify_archive() {
     local dir="$1" archive="${AI_TOOLS_DEV_ASSETS__PIN_ARCHIVE}" want="${AI_TOOLS_DEV_ASSETS__PIN_SHA256}" got published status
+    local gpgv_exit_status=0 verdict verdict_status=0 primary reason
     [[ -f "${dir}/${archive}" && -f "${dir}/${archive}.sha256" && -f "${dir}/${archive}.asc" ]] \
         || { _ai_tools_dev_assets__refuse "${archive}: the archive, its .sha256 or its .asc is absent"; return 1; }
     got="$(sha256sum < "${dir}/${archive}" | cut -c1-64)"
@@ -139,14 +141,19 @@ _ai_tools_dev_assets__verify_archive() {
     published="$(cut -c1-64 < "${dir}/${archive}.sha256")"
     [[ "${published}" == "${want}" ]] \
         || { _ai_tools_dev_assets__refuse "the release publishes ${published:-nothing} for ${archive}, the pin ${want}"; return 1; }
-    bash -c '. "$1" >/dev/null 2>&1 && ai_tools_assets_verify__write_binary_keyring "$2" "$3"' _ \
-        "${_AI_TOOLS_DEV_ASSETS__LIB_DIR}/assets-verify.lib.sh" "${_AI_TOOLS_DEV_ASSETS__SIGNING_KEY}" "${dir}/keyring.gpg" \
+    bash -c '. "$1" >/dev/null 2>&1 && ai_tools_openpgp__write_binary_keyring "$2" "$3"' _ \
+        "${_AI_TOOLS_DEV_ASSETS__LIB_DIR}/openpgp.lib.sh" "${_AI_TOOLS_DEV_ASSETS__SIGNING_KEY}" "${dir}/keyring.gpg" \
         || { _ai_tools_dev_assets__refuse "${archive}: the package-signing key did not dearmor into a keyring"; return 1; }
     status="$(gpgv --status-fd 1 --keyring "${dir}/keyring.gpg" "${dir}/${archive}.asc" "${dir}/${archive}" 2>/dev/null)" \
-        || { rm -f -- "${dir}/keyring.gpg"; _ai_tools_dev_assets__refuse "gpgv refuses the signature over ${archive}"; return 1; }
+        || gpgv_exit_status=$?
     rm -f -- "${dir}/keyring.gpg"
-    grep -qE "^\[GNUPG:\] VALIDSIG .* ${_AI_TOOLS_DEV_ASSETS__SIGNING_PRIMARY}$" <<< "${status}" \
-        || { _ai_tools_dev_assets__refuse "${archive} is not signed by the primary ${_AI_TOOLS_DEV_ASSETS__SIGNING_PRIMARY}"; return 1; }
+    verdict="$(bash -c '. "$1" && ai_tools_openpgp__evaluate_gpgv_status "$2" "$3" 1' _ \
+        "${_AI_TOOLS_DEV_ASSETS__LIB_DIR}/openpgp.lib.sh" "${gpgv_exit_status}" "${status}")" || verdict_status=$?
+    IFS=' ' read -r _ _ primary reason <<< "${verdict}"
+    (( verdict_status == 0 )) \
+        || { _ai_tools_dev_assets__refuse "${archive}: the signature is refused: ${reason:-openpgp.lib.sh did not load}"; return 1; }
+    [[ "${primary}" == "${_AI_TOOLS_DEV_ASSETS__SIGNING_PRIMARY}" ]] \
+        || { _ai_tools_dev_assets__refuse "${archive} is signed by the primary ${primary}, not ${_AI_TOOLS_DEV_ASSETS__SIGNING_PRIMARY}"; return 1; }
     return 0
 }
 

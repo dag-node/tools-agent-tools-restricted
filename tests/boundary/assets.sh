@@ -47,6 +47,8 @@ not_writable() {
 # The verifier itself, sourced by the resolver as root.
 not_writable "${LIBDIR}/assets-verify.lib.sh" \
     "rewrite the verifier to accept any signature"
+not_writable "${LIBDIR}/openpgp.lib.sh" \
+    "rewrite the reader that decides a gpgv run to report any signature as good"
 
 # The key and the keyring gpgv reads. Writable, the agent swaps in a key of its own; the binding's fingerprint would
 # still refuse the swap, which is why the key and the keyring are each asserted.
@@ -168,6 +170,7 @@ fi
 section "Asset-set signing inputs ship at the modes the verifier requires"
 
 check_file "${LIBDIR}/assets-verify.lib.sh" root root 644
+check_file "${LIBDIR}/openpgp.lib.sh" root root 644
 check_file "${LIBDIR}/keys" root root 755
 check_file "${LIBDIR}/keys/dag-node-package-signing.asc" root root 644
 check_file "${LIBDIR}/keys/dag-node-package-signing.gpg" root root 644

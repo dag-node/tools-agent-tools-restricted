@@ -75,6 +75,7 @@ check_file /usr/local/lib/ai-tools/safe-paths.lib.sh         root              r
 check_file /usr/local/lib/ai-tools/launch-wrapper.lib.sh     root              root              644
 check_file /usr/local/lib/ai-tools/confinement.lib.sh        root              root              644
 check_file /usr/local/lib/ai-tools/npm-verify.lib.sh         root              root              644
+check_file /usr/local/lib/ai-tools/openpgp.lib.sh            root              root              644
 check_file /usr/local/lib/ai-tools/entrypoint-verify.lib.sh  root              root              644
 check_file /usr/local/lib/ai-tools/keys/claude-code.asc      root              root              644
 # Shared KEY=value grammar + the trust predicate: 644 root:root -- world-readable, sourced by operator.lib.sh,

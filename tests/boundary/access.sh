@@ -441,6 +441,7 @@ for _ev_path in /var/opt/ai-tools/state/entrypoint-pin.d \
                 /var/opt/ai-tools/state/entrypoint-stale.d \
                 /usr/local/lib/ai-tools/keys \
                 /usr/local/lib/ai-tools/keys/claude-code.asc \
+                /usr/local/lib/ai-tools/openpgp.lib.sh \
                 /usr/local/lib/ai-tools/entrypoint-verify.lib.sh; do
     if [[ ! -e "${_ev_path}" ]]; then
         skip "entrypoint verification not agent-writable" "${_ev_path} not installed"
