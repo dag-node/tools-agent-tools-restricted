@@ -118,18 +118,25 @@ stream() {
     done
 }
 
-# expect <label> <want-status> <want-signing-key> <want-primary> <exit> <key-status> <stream> : run the reader once
-# and compare its status, its returned value and both fingerprints with the expected ones.
+# expect <label> <want-status> <want-signing-key> <want-primary> <exit> <key-status> <stream> [<want-reason>] : run
+# the reader once and compare its status, its returned value, both fingerprints and, where given, its reason with
+# the expected ones. A case expected at 1 is recorded for the absorbing check, which re-runs it with CONTROL appended.
+MISMATCH_LABELS=() MISMATCH_EXITS=() MISMATCH_KEY_STATUSES=() MISMATCH_STREAMS=()
 expect() {
     local label="$1" want="$2" want_key="$3" want_primary="$4" exit_status="$5" key_status="$6" text="$7"
+    local want_reason="${8-}"
     local line status rc=0 signing_key primary reason
     line="$(ai_tools_openpgp__classify_gpgv_status "${exit_status}" "${text}" "${key_status}")" || rc=$?
     IFS=' ' read -r status signing_key primary reason <<< "${line}"
     if [[ "${status}" == "${want}" && "${rc}" == "${want}" && "${signing_key}" == "${want_key}" \
-        && "${primary}" == "${want_primary}" ]]; then
+        && "${primary}" == "${want_primary}" && ( -z "${want_reason}" || "${reason}" == "${want_reason}" ) ]]; then
         pass "reader: ${label} -> ${want}${reason:+ (${reason})}"
     else
-        fail "reader: ${label} -> printed '${line}', returned ${rc}; want ${want} ${want_key} ${want_primary}"
+        fail "reader: ${label} -> printed '${line}', returned ${rc}; want ${want} ${want_key} ${want_primary}${want_reason:+ (${want_reason})}"
+    fi
+    if [[ "${want}" == 1 ]]; then
+        MISMATCH_LABELS+=("${label}") MISMATCH_EXITS+=("${exit_status}")
+        MISMATCH_KEY_STATUSES+=("${key_status}") MISMATCH_STREAMS+=("${text}")
     fi
 }
 
@@ -147,8 +154,15 @@ expect "a revoked key at exit 0, the caller's status 1" 1 - - 0 1 "${revoked_key
 expect "a revoked key at exit 0, the caller's status 2" 2 - - 0 2 "${revoked_key}"
 expect "an expired signature (EXPSIG)" 1 - - 1 2 \
     "$(stream NEWSIG KEY_CONSIDERED SIG_ID KEY_CONSIDERED EXPSIG VALIDSIG)"
-expect "two signatures, good then expired" 2 - - 1 1 \
+expect "two signatures, good then expired: the expired one decides" 1 - - 1 1 \
     "$(stream NEWSIG KEY_CONSIDERED SIG_ID KEY_CONSIDERED GOODSIG VALIDSIG NEWSIG KEY_CONSIDERED SIG_ID KEY_CONSIDERED EXPSIG VALIDSIG)"
+expect "two signatures, good then not matching: the mismatch decides" 1 - - 1 1 \
+    "$(stream NEWSIG GOODSIG VALIDSIG NEWSIG BADSIG)" "the signature does not match the file"
+good_then_expired_key="$(stream NEWSIG GOODSIG VALIDSIG NEWSIG EXPKEYSIG VALIDSIG)"
+expect "two signatures, good then by an expired key, the caller's status 1" 1 - - 0 1 "${good_then_expired_key}" \
+    "the signing key is expired or revoked"
+expect "two signatures, good then by an expired key, the caller's status 2" 2 - - 0 2 "${good_then_expired_key}" \
+    "the signing key is expired or revoked"
 expect "two signatures, expired then good: gpgv stops at the first" 1 - - 1 1 \
     "$(stream NEWSIG KEY_CONSIDERED SIG_ID KEY_CONSIDERED EXPSIG VALIDSIG)"
 expect "two signatures, good then a key not held" 2 - - 2 1 \
@@ -170,8 +184,10 @@ expect "VALIDSIG without GOODSIG" 2 - - 0 1 "$(stream NEWSIG KEY_CONSIDERED SIG_
 expect "GOODSIG at exit 0 without VALIDSIG" 2 - - 0 1 "$(stream NEWSIG KEY_CONSIDERED SIG_ID GOODSIG)"
 expect "BADSIG at exit 0" 1 - - 0 1 "$(stream NEWSIG BADSIG)"
 expect "a good stream at exit 2" 2 - - 2 1 "${CONTROL}"
-expect "two result lines without a second NEWSIG" 2 - - 0 1 "$(stream NEWSIG GOODSIG VALIDSIG GOODSIG)"
-expect "two VALIDSIG lines" 2 - - 0 1 "$(stream NEWSIG GOODSIG VALIDSIG VALIDSIG)"
+expect "two result lines without a second NEWSIG" 2 - - 0 1 "$(stream NEWSIG GOODSIG VALIDSIG GOODSIG)" \
+    "the signature file holds more than one signature"
+expect "two VALIDSIG lines" 2 - - 0 1 "$(stream NEWSIG GOODSIG VALIDSIG VALIDSIG)" \
+    "the signature file holds more than one signature"
 expect "KEYREVOKED beside a good signature, the caller's status 1" 1 - - 0 1 "${CONTROL}"$'\n'"$(stream KEYREVOKED)"
 expect "KEYREVOKED beside a good signature, the caller's status 2" 2 - - 0 2 "${CONTROL}"$'\n'"$(stream KEYREVOKED)"
 expect "KEYEXPIRED beside a good signature leaves it good" 0 "${PRIMARY}" "${PRIMARY}" 0 1 \
@@ -186,5 +202,14 @@ saved_ifs="${IFS}"
 IFS=$'\n\t'
 expect "the control under a caller's IFS without a space" 0 "${PRIMARY}" "${PRIMARY}" 0 1 "${CONTROL}"
 IFS="${saved_ifs}"
+
+# A mismatch is absorbing: every stream decided at 1 above still decides 1 with the control's lines appended, which
+# adds a second NEWSIG, a second VALIDSIG and a GOODSIG.
+(( ${#MISMATCH_STREAMS[@]} > 0 )) || fail "absorbing: no case decided 1 to re-run"
+mismatch_count="${#MISMATCH_STREAMS[@]}"
+for (( index = 0; index < mismatch_count; index++ )); do
+    expect "${MISMATCH_LABELS[index]}, the control appended" 1 - - "${MISMATCH_EXITS[index]}" \
+        "${MISMATCH_KEY_STATUSES[index]}" "${MISMATCH_STREAMS[index]}"$'\n'"${CONTROL}"
+done
 
 finish

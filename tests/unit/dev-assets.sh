@@ -218,6 +218,27 @@ s = u.spec_from_file_location("prose_check", sys.argv[1] + "/prose-check.py"); m
     cat "${TESTDIR}/asc.orig" "${TESTDIR}/asc.orig" > "${RELEASE}/${CORE_ARCHIVE}.asc"
     reset_cache; dev fetch
     refused "an archive whose signature file holds its signature twice" "more than one signature"
+    # The release's own signature followed by a copy with its last byte flipped: the mismatch decides, whatever
+    # signature precedes it. Both are written binary, which gpgv reads under the .asc name.
+    awk '/^-----BEGIN PGP SIGNATURE-----/ { f = 1; next }
+         /^-----END PGP SIGNATURE-----/   { f = 0; next }
+         f && !/^[A-Za-z-]+:/ && !/^=/ && NF' "${TESTDIR}/asc.orig" | base64 -d > "${TESTDIR}/sig.good"
+    python3 -I -c 'import sys
+signature = bytearray(open(sys.argv[1], "rb").read()); signature[-1] ^= 0x01
+open(sys.argv[2], "wb").write(signature)' "${TESTDIR}/sig.good" "${TESTDIR}/sig.bad"
+    cat "${TESTDIR}/sig.good" "${TESTDIR}/sig.bad" > "${RELEASE}/${CORE_ARCHIVE}.asc"
+    bash -c '. "$1" && ai_tools_openpgp__write_binary_keyring "$2" "$3"' _ "${_AI_TOOLS_DEV_ASSETS__LIB_DIR}/openpgp.lib.sh" \
+        "${_AI_TOOLS_DEV_ASSETS__SIGNING_KEY}" "${TESTDIR}/keyring.gpg"
+    setup="$(gpgv --status-fd 1 --keyring "${TESTDIR}/keyring.gpg" "${RELEASE}/${CORE_ARCHIVE}.asc" \
+        "${RELEASE}/${CORE_ARCHIVE}" 2>/dev/null)" || true
+    if [[ "$(grep -c '^\[GNUPG:\] NEWSIG' <<< "${setup}" || true)" == 2 && "${setup}" == *'[GNUPG:] GOODSIG '* \
+            && "${setup}" == *'[GNUPG:] BADSIG '* ]]; then
+        reset_cache; dev fetch
+        refused "an archive whose signature file holds its signature, then one that does not match" \
+            "does not match the file"
+    else
+        fail "setup: gpgv did not report a good and then a bad signature: '${setup//$'\n'/ | }'"
+    fi
     cp "${TESTDIR}/asc.orig" "${RELEASE}/${CORE_ARCHIVE}.asc"
 
     if command -v gpg >/dev/null 2>&1; then

@@ -320,6 +320,21 @@ if [[ "$(gpgv_keywords "${KEYS}/both.gpg" | tr ' ' '\n' | grep -c '^NEWSIG$')" =
 else
     fail "setup: gpgv does not read two signatures from the concatenated file"
 fi
+# The signer's signature followed by a copy with its last byte flipped: the mismatch decides, whatever signature
+# precedes it.
+python3 -I -c 'import sys
+signature = bytearray(open(sys.argv[1], "rb").read()); signature[-1] ^= 0x01
+open(sys.argv[2], "wb").write(signature)' "${TESTDIR}/signer.sig" "${TESTDIR}/signer-flipped.sig"
+cat "${TESTDIR}/signer.sig" "${TESTDIR}/signer-flipped.sig" > "${SET}/SHA256SUMS.asc"; chmod 0644 "${SET}/SHA256SUMS.asc"
+write_binding acme "${KEYS}/signer.gpg" "openpgp:${SIGNER}"
+keywords="$(gpgv_keywords "${KEYS}/signer.gpg")"
+if [[ " ${keywords}" == *" BADSIG "* && "$(tr ' ' '\n' <<< "${keywords}" | grep -c '^NEWSIG$')" == 2 ]]; then
+    expect 1 "a signature file holding the signer's signature, then one that does not match" \
+        ai_tools_assets_verify__verify_set "${SET}" acme
+    assert_msg MSG-T3M3 "${err}" "a mismatch after a good signature is reported under MSG-T3M3"
+else
+    fail "setup: gpgv does not report two signatures and a BADSIG for the good-then-flipped file: ${keywords}"
+fi
 write_set; sign_set signer
 write_binding acme "${KEYS}/signer.gpg" "openpgp:${SIGNER}"
 expect 0 "control: the set verifies again once signed once by its key" ai_tools_assets_verify__verify_set "${SET}" acme

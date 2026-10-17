@@ -904,6 +904,21 @@ else
     else
         fail "setup: gpgv does not report REVKEYSIG once the revocation is in the keyring"
     fi
+    # The signer's signature followed by a copy with its last byte flipped: the mismatch decides, whatever signature
+    # precedes it.
+    sign_manifest signer
+    cp "${TESTDIR}/manifest.sig" "${TESTDIR}/manifest-good.sig"
+    python3 -I -c 'import sys
+signature = bytearray(open(sys.argv[1], "rb").read()); signature[-1] ^= 0x01
+open(sys.argv[2], "wb").write(signature)' "${TESTDIR}/manifest-good.sig" "${TESTDIR}/manifest-flipped.sig"
+    cat "${TESTDIR}/manifest-good.sig" "${TESTDIR}/manifest-flipped.sig" > "${TESTDIR}/manifest.sig"
+    keywords="$(manifest_keywords "${ASSET_KEYS_DIR}/signer.gpg")"
+    if [[ " ${keywords}" == *" BADSIG "* && "$(tr ' ' '\n' <<< "${keywords}" | grep -c '^NEWSIG$')" == 2 ]]; then
+        expect_signature 1 "the declared primary's signature, then one that does not match" \
+            "${ASSET_KEYS_DIR}/signer.gpg" "${SIGNER}"
+    else
+        fail "setup: gpgv does not report two signatures and a BADSIG for the good-then-flipped file: ${keywords}"
+    fi
     sign_manifest signer
     expect_signature 0 "control: signed by the declared primary again" "${ASSET_KEYS_DIR}/signer.gpg" "${SIGNER}"
 fi

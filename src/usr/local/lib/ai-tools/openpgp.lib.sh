@@ -55,17 +55,18 @@ ai_tools_openpgp__is_fingerprint() {
 #   otherwise; <reason> is `-` at 0 and the text of the row that decided otherwise. A line of <status-text> is
 #   a status line when its first whitespace-separated field is `[GNUPG:]`, and its second field is the keyword;
 #   every other line is ignored. The first row that matches decides:
-#     1. a second NEWSIG, a second VALIDSIG, or a second result line (GOODSIG, BADSIG, EXPSIG, EXPKEYSIG,
+#     1. BADSIG, whatever the exit: 1, the signature does not match the file
+#     2. EXPSIG: 1, the signature is expired
+#     3. EXPKEYSIG, REVKEYSIG or KEYREVOKED: <expired-or-revoked-key-status>, the signing key is expired or revoked
+#     4. a second NEWSIG, a second VALIDSIG, or a second result line (GOODSIG, BADSIG, EXPSIG, EXPKEYSIG,
 #        REVKEYSIG, ERRSIG): 2, the signature file holds more than one signature
-#     2. BADSIG, whatever the exit: 1, the signature does not match the file
-#     3. EXPSIG: 1, the signature is expired
-#     4. EXPKEYSIG, REVKEYSIG or KEYREVOKED: <expired-or-revoked-key-status>, the signing key is expired or revoked
 #     5. NO_PUBKEY: 2, the signing key is not in the keyring
 #     6. ERRSIG, or a non-zero exit: 2, gpgv could not check the signature (exit N)
 #     7. GOODSIG and a VALIDSIG of nine fields or more whose first field and tenth (the first where there is no tenth)
 #        are each 40 hex digits: 0; the first is the signing key, the tenth the primary
 #     8. anything else, a zero exit included: 2, gpgv did not report a complete good signature
-#   gpgv exits 0 for a good signature by a key the keyring holds as expired or revoked and reports it on the status
+#   Rows 1 to 3 test for a keyword's presence and precede every row that decides 2, so a line added to a stream that
+#   decides 1 leaves it at 1. gpgv exits 0 for a good signature by a key the keyring holds as expired or revoked and reports it on the status
 #   stream alone, which is why the exit status is one input and not the verdict. KEYEXPIRED alone does not change
 #   the outcome, since gpgv prints it for an expired subkey the signature does not use. <expired-or-revoked-key-status>
 #   is 1 or 2, and <gpgv-exit> a number; any other value decides 2, with the argument named as the reason.
@@ -97,9 +98,6 @@ ai_tools_openpgp__classify_gpgv_status() {
             [[ "${keyword}" == "${result}" ]] && results=$(( results + 1 ))
         done
     done <<< "${status_text}"
-    if (( new_signatures > 1 || valid_signatures > 1 || results > 1 )); then
-        printf '2 - - the signature file holds more than one signature\n'; return 2
-    fi
     if [[ -n "${seen[BADSIG]+x}" ]]; then
         printf '1 - - the signature does not match the file\n'; return 1
     fi
@@ -108,6 +106,9 @@ ai_tools_openpgp__classify_gpgv_status() {
     fi
     if [[ -n "${seen[EXPKEYSIG]+x}" || -n "${seen[REVKEYSIG]+x}" || -n "${seen[KEYREVOKED]+x}" ]]; then
         printf '%s - - the signing key is expired or revoked\n' "${key_refusal_status}"; return "${key_refusal_status}"
+    fi
+    if (( new_signatures > 1 || valid_signatures > 1 || results > 1 )); then
+        printf '2 - - the signature file holds more than one signature\n'; return 2
     fi
     if [[ -n "${seen[NO_PUBKEY]+x}" ]]; then
         printf '2 - - the signing key is not in the keyring\n'; return 2
