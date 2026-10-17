@@ -69,15 +69,18 @@ ai_tools_openpgp__is_fingerprint() {
 #   decides 1 leaves it at 1. gpgv exits 0 for a good signature by a key the keyring holds as expired or revoked and reports it on the status
 #   stream alone, which is why the exit status is one input and not the verdict. KEYEXPIRED alone does not change
 #   the outcome, since gpgv prints it for an expired subkey the signature does not use. <expired-or-revoked-key-status>
-#   is 1 or 2, and <gpgv-exit> a number; any other value decides 2, with the argument named as the reason.
+#   is 1 or 2, and <gpgv-exit> a process exit status, 0 to 255 written without a leading zero; any other value
+#   decides 2, with the argument named as the reason.
 ai_tools_openpgp__classify_gpgv_status() {
     local gpgv_exit="${1-}" status_text="${2-}" key_refusal_status="${3-}"
     local line keyword result signing_key primary
     local new_signatures=0 valid_signatures=0 results=0
     local -a fields=() validsig_fields=()
     local -A seen=()
-    if [[ ! "${gpgv_exit}" =~ ^[0-9]+$ ]]; then
-        printf '2 - - the gpgv exit status is not a number\n'; return 2
+    # The regex bounds the argument to three digits before the one arithmetic on it, so a leading zero does not reach
+    # bash's octal reading and a long decimal does not wrap to 0.
+    if [[ ! "${gpgv_exit}" =~ ^(0|[1-9][0-9]{0,2})$ ]] || (( gpgv_exit > 255 )); then
+        printf '2 - - the gpgv exit status is not a process exit status\n'; return 2
     fi
     if [[ "${key_refusal_status}" != 1 && "${key_refusal_status}" != 2 ]]; then
         printf '2 - - the status for an expired or revoked key is neither 1 nor 2\n'; return 2
@@ -113,7 +116,7 @@ ai_tools_openpgp__classify_gpgv_status() {
     if [[ -n "${seen[NO_PUBKEY]+x}" ]]; then
         printf '2 - - the signing key is not in the keyring\n'; return 2
     fi
-    if [[ -n "${seen[ERRSIG]+x}" ]] || (( gpgv_exit != 0 )); then
+    if [[ -n "${seen[ERRSIG]+x}" || "${gpgv_exit}" != 0 ]]; then
         printf '2 - - gpgv could not check the signature (exit %s)\n' "${gpgv_exit}"; return 2
     fi
     if [[ -n "${seen[GOODSIG]+x}" ]] && (( ${#validsig_fields[@]} >= _AI_TOOLS_OPENPGP__VALIDSIG_FIELDS )); then

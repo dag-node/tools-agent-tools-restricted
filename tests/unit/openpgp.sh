@@ -195,8 +195,32 @@ expect "KEYEXPIRED beside a good signature leaves it good" 0 "${PRIMARY}" "${PRI
 expect "the empty stream at exit 0" 2 - - 0 1 ""
 expect "a line that spells a keyword without the [GNUPG:] prefix is ignored" 0 "${PRIMARY}" "${PRIMARY}" 0 1 \
     "BADSIG 56D2F802CF9832E4 not a status line"$'\n'"gpgv: [GNUPG:] REVKEYSIG quoted"$'\n'"${CONTROL}"
-expect "an exit status that is not a number" 2 - - x 1 "${CONTROL}"
 expect "a key status that is neither 1 nor 2" 2 - - 0 0 "${CONTROL}"
+
+# The exit-status argument on CONTROL: a process exit status alone, with stderr empty, since the defect a value outside
+# it shows is an arithmetic diagnostic printed beside a success. 0 and the in-range non-zero statuses are the controls.
+NOT_AN_EXIT="2 - - the gpgv exit status is not a process exit status"
+while IFS='|' read -r exit_status want_line why; do
+    [[ -n "${why}" ]] || continue
+    rc=0; line="$(ai_tools_openpgp__classify_gpgv_status "${exit_status}" "${CONTROL}" 1 2>"${TESTDIR}/stderr")" || rc=$?
+    if [[ "${line}" == "${want_line}" && "${rc}" == "${want_line%% *}" && ! -s "${TESTDIR}/stderr" ]]; then
+        pass "exit status: ${why} -> ${want_line%% *}"
+    else
+        fail "exit status: ${why} -> printed '${line}', returned ${rc}, stderr '$(<"${TESTDIR}/stderr")'; want '${want_line}'"
+    fi
+done <<EOF
+0|0 ${PRIMARY} ${PRIMARY} -|control: 0
+1|2 - - gpgv could not check the signature (exit 1)|control: 1
+8|2 - - gpgv could not check the signature (exit 8)|control: 8
+255|2 - - gpgv could not check the signature (exit 255)|control: 255
+08|${NOT_AN_EXIT}|a leading zero
+256|${NOT_AN_EXIT}|256
+18446744073709551616|${NOT_AN_EXIT}|a decimal past 64 bits
+-1|${NOT_AN_EXIT}|a negative number
+1 |${NOT_AN_EXIT}|a trailing space
+|${NOT_AN_EXIT}|the empty string
+x|${NOT_AN_EXIT}|a word
+EOF
 
 saved_ifs="${IFS}"
 IFS=$'\n\t'
