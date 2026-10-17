@@ -14,6 +14,7 @@ cannot fix -- a message code's name is a runtime string, and rewording one is a 
 | Id | Reftag | Name | File | Cited by | Emitter |
 |---|---|---|---|---|---|
 | u6y5 | [URI-U6Y5](https://github.com/dag-node/ai-tools-assets/blob/main/sets/core/skills/ai-tools-reftags/SKILL.md#ref-section-h9b7) | The reftags skill's reference rule, at the latest core release | .claude/rules/authoring.rule.md | .claude/rules/authoring.rule.md |  |
+| q8z7 | [ref-section-q8z7](rules/cli.rule.md#ref-section-q8z7) | The Node version line | .claude/rules/cli.rule.md | .claude/rules/updater.rule.md |  |
 | r8u5 | [ref-section-r8u5](rules/cli.rule.md#ref-section-r8u5) | Sandbox-user units and the `?` line | .claude/rules/cli.rule.md | .claude/rules/updater.rule.md, src/usr/local/bin/ai-tools.sh, src/usr/local/libexec/ai-tools/ai-tools-admin.sh |  |
 | w9g8 | [ref-section-w9g8](rules/cli.rule.md#ref-section-w9g8) | What a stamp is read for | .claude/rules/cli.rule.md | .claude/rules/updater.rule.md |  |
 | z3p9 | [ref-section-z3p9](rules/cli.rule.md#ref-section-z3p9) | Acting for another operator (`--for`) | .claude/rules/cli.rule.md | docs/operators/service-accounts.md |  |
