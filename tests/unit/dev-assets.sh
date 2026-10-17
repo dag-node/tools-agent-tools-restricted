@@ -212,6 +212,13 @@ s = u.spec_from_file_location("prose_check", sys.argv[1] + "/prose-check.py"); m
     STUB='_ai_tools_dev_assets__fetch_file() { [[ "$1" != *.asc ]] && cp -- "${release}/${1##*/}" "$2"; }'
     reset_cache; dev fetch; STUB=""
     refused "a release without its signature" "cannot download"
+    # The release's own signature twice in one file: gpgv verifies each, and a file holding two signatures is refused,
+    # as the set verifier refuses one.
+    cp "${RELEASE}/${CORE_ARCHIVE}.asc" "${TESTDIR}/asc.orig"
+    cat "${TESTDIR}/asc.orig" "${TESTDIR}/asc.orig" > "${RELEASE}/${CORE_ARCHIVE}.asc"
+    reset_cache; dev fetch
+    refused "an archive whose signature file holds its signature twice" "more than one signature"
+    cp "${TESTDIR}/asc.orig" "${RELEASE}/${CORE_ARCHIVE}.asc"
 
     if command -v gpg >/dev/null 2>&1; then
         gnupg="${TESTDIR}/gnupg"; mkdir -m 0700 "${gnupg}"
@@ -220,7 +227,7 @@ s = u.spec_from_file_location("prose_check", sys.argv[1] + "/prose-check.py"); m
         GNUPGHOME="${gnupg}" gpg --batch --yes --armor --detach-sign -o "${RELEASE}/${CORE_ARCHIVE}.asc" \
             "${RELEASE}/${CORE_ARCHIVE}" 2>/dev/null
         reset_cache; dev fetch
-        refused "an archive signed by a throwaway key, not the package-signing primary" "gpgv refuses the signature"
+        refused "an archive signed by a throwaway key, not the package-signing primary" "the signing key is not in the keyring"
         cp "${TESTDIR}/asc.orig" "${RELEASE}/${CORE_ARCHIVE}.asc"
     else
         skip "a signature by a throwaway key" "gpg is not installed"
