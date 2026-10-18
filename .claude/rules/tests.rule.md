@@ -457,42 +457,46 @@ that belong to the writing pass. It runs the checker and not the formatter, beca
 proves the gate before the tree is read: one over-width line of each kind is reported with its file, line and column;
 a vendored file, a file outside the scope and an untracked page, each over its column, are not measured; the corrected
 form passes; and a path the checker cannot read, or a tree git cannot list, fails the gate rather than reading
-as a clean one. `license-texts.sh` holds each licence text under `LICENSES/` to the SHA-256 of the SPDX License List's
-copy, the variant the SPDX headers name, and the root `LICENSE` to `LICENSES/AGPL-3.0-only.txt`, since REUSE lint does
-not read a licence text; a file without a pin and a pin without a file each fail. `dev-assets.sh` holds
-`tools/lib/assets.sh` to reading a tool from its pin alone, and holds that its callers do not read a fallback
-with the cache empty; its header lists the refusals it drives. It also holds the cache at `0700` under the user's own
-home, and a checkout variable to resolving with a `BYPASS` line. Its control is the release `fetch` placed
-in the invoking user's cache, served to a stubbed download, so the file runs without a network. `cli-verbs.sh` is
-the same shape one layer in: a pure text check that the CLI's four **gating tables** — `OPERATOR_VERBS`,
-`ROOT_ALLOWED_VERBS`, `BOOTSTRAP_EXEMPT_VERBS`, `FOR_ALLOWED_VERBS` — still describe the verbs it dispatches.
-The failure it exists for is silent and one-directional: a verb added to the dispatcher and forgotten
-in `OPERATOR_VERBS` runs for an unenrolled caller, with no message to say so until a root helper refuses it midway.
-So every dispatched verb must be classified — operator-acting, or in the informational set the test names — no verb may
-be both operator-acting and root-allowed, no table may name a verb the dispatcher no longer has, and the help must list
-exactly what the dispatcher accepts. Its last check asserts required **content** rather than consistency: `--help`
-and `--version` must be in `BOOTSTRAP_EXEMPT_VERBS`, because a CLI that cannot print its own usage on an unprovisioned
-host leaves the gate's refusal as the only route to the provisioning command — a regression visible only on the host
-nobody develops against. `cli-agent-set.sh` drives the gate those tables surround, `require_bootstrap`, and the `status`
-section that reports the same read: the CLI is sourced as the projects user with the resolver's two hooks
-and `AI_TOOLS_LAUNCHER_DIR` pointed at fixtures, and every read is asserted in its fail direction — any enabled agent's
-link passes, an enabled set with no link refuses naming the bootstrap command, an empty allowlist, an allowlisted name
-with no manifest, and a group-writable manifest directory each refuse with the resolver's reason (a link present
-for the agent that directory names notwithstanding), and the report names each agent as the gate decided it. Its last
-section drives the entrypoint half of that report through three further fixture hooks — the pin, stale-mark and label
-record directories, so the label line under each pin reads from a fixture too — where what must not happen is
-the opposite of a refusal: a pin a reconciliation declined to re-record is left standing and reads, on its own,
-as a verification that succeeded. So the tier line is asserted as a control, then the mark replacing it and counting
-toward the exit status, then a mark saying anything but `stale` leaving the line as it was — the record grammar
-deciding, rather than the file's presence. A further section drives the Version section's Node line against fixture
-links: the version a link points into is the one named, two links naming different versions are reported as such,
-and a link outside the versioned shape claims none. Its closing section drives `cmd_status` whole, the host-reading
-sections stubbed to a known answer, over the exit fold `ai-tools-records(5)` states: a section that read a fault exits
-4, the service registry's readers removed after the CLI loaded them exits 5 under its code with the later sections still
-printed, a section returning its unreadable status exits 5, and a fault beside an unreadable reading exits 5. Its last
-section drives the Caches section over fixture state files: each verdict the library counts returns 1 with the library's
-remedy under the line, an overdue cache returns 0 with the line its recorded reason selects, and an empty file
-and a value forged with a control byte read as `?` and are not counted.
+as a clean one. `diagrams.sh` holds the diagrams to their placement rule ([docs-pages](docs-pages.rule.md)): each SVG
+under `docs/static/diagrams/` is what its layout in `tools/generators/diagrams.py` draws, through the generator's
+`stale` verb, each is embedded by a page whose embedding resolves, each diagram follows its `ref-diagram-` caption,
+and a Mermaid block or an SVG embedding sits in `README.md` or under `docs/` alone. A copy of the generator
+and a fixture repository first show each finding reported, a changed, a missing and a leftover SVG among them.
+`license-texts.sh` holds each licence text under `LICENSES/` to the SHA-256 of the SPDX License List's copy, the variant
+the SPDX headers name, and the root `LICENSE` to `LICENSES/AGPL-3.0-only.txt`, since REUSE lint does not read a licence
+text; a file without a pin and a pin without a file each fail. `dev-assets.sh` holds `tools/lib/assets.sh` to reading
+a tool from its pin alone, and holds that its callers do not read a fallback with the cache empty; its header lists
+the refusals it drives. It also holds the cache at `0700` under the user's own home, and a checkout variable
+to resolving with a `BYPASS` line. Its control is the release `fetch` placed in the invoking user's cache, served
+to a stubbed download, so the file runs without a network. `cli-verbs.sh` is the same shape one layer in: a pure text
+check that the CLI's four **gating tables** — `OPERATOR_VERBS`, `ROOT_ALLOWED_VERBS`, `BOOTSTRAP_EXEMPT_VERBS`,
+`FOR_ALLOWED_VERBS` — still describe the verbs it dispatches. The failure it exists for is silent and one-directional:
+a verb added to the dispatcher and forgotten in `OPERATOR_VERBS` runs for an unenrolled caller, with no message to say
+so until a root helper refuses it midway. So every dispatched verb must be classified — operator-acting,
+or in the informational set the test names — no verb may be both operator-acting and root-allowed, no table may name
+a verb the dispatcher no longer has, and the help must list exactly what the dispatcher accepts. Its last check asserts
+required **content** rather than consistency: `--help` and `--version` must be in `BOOTSTRAP_EXEMPT_VERBS`, because
+a CLI that cannot print its own usage on an unprovisioned host leaves the gate's refusal as the only route
+to the provisioning command — a regression visible only on the host nobody develops against. `cli-agent-set.sh` drives
+the gate those tables surround, `require_bootstrap`, and the `status` section that reports the same read: the CLI is
+sourced as the projects user with the resolver's two hooks and `AI_TOOLS_LAUNCHER_DIR` pointed at fixtures, and every
+read is asserted in its fail direction — any enabled agent's link passes, an enabled set with no link refuses naming
+the bootstrap command, an empty allowlist, an allowlisted name with no manifest, and a group-writable manifest directory
+each refuse with the resolver's reason (a link present for the agent that directory names notwithstanding),
+and the report names each agent as the gate decided it. Its last section drives the entrypoint half of that report
+through three further fixture hooks — the pin, stale-mark and label record directories, so the label line under each pin
+reads from a fixture too — where what must not happen is the opposite of a refusal: a pin a reconciliation declined
+to re-record is left standing and reads, on its own, as a verification that succeeded. So the tier line is asserted
+as a control, then the mark replacing it and counting toward the exit status, then a mark saying anything but `stale`
+leaving the line as it was — the record grammar deciding, rather than the file's presence. A further section drives
+the Version section's Node line against fixture links: the version a link points into is the one named, two links naming
+different versions are reported as such, and a link outside the versioned shape claims none. Its closing section drives
+`cmd_status` whole, the host-reading sections stubbed to a known answer, over the exit fold `ai-tools-records(5)`
+states: a section that read a fault exits 4, the service registry's readers removed after the CLI loaded them exits 5
+under its code with the later sections still printed, a section returning its unreadable status exits 5, and a fault
+beside an unreadable reading exits 5. Its last section drives the Caches section over fixture state files: each verdict
+the library counts returns 1 with the library's remedy under the line, an overdue cache returns 0 with the line its
+recorded reason selects, and an empty file and a value forged with a control byte read as `?` and are not counted.
 
 `launch-wrapper.sh` drives the gate library every agent's wrapper runs (`launch-wrapper.lib.sh`, see
 [launch](launch.rule.md)), one gate at a time and each in its fail direction, as the account the case is
