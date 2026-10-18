@@ -19,6 +19,20 @@ what a running session may read. The directory you launch in is canonicalized
 before it is matched, so a symlink or a `..` resolves to its real target
 and cannot slip a path past the gate; past the gate, file permissions govern.
 
+<a id="ref-diagram-k9z8"></a>**The two gates: a launch and a read**
+
+```mermaid
+flowchart LR
+  start["you launch the coding agent<br/>in a directory"] --> canon["real path resolved:<br/>symlinks and .. followed"]
+  canon --> gate1{"Gate 1<br/>your allowlist"}
+  gate1 -- "not listed" --> refused["launch refused"]
+  gate1 -- listed --> session["session runs<br/>as ai-tools"]
+  gate1 -.- handback["also decides which<br/>written files come<br/>back to you"]
+  session --> gate2{"Gate 2<br/>permissions<br/>+ ai_tools_t"}
+  gate2 -- permitted --> open["file opened"]
+  gate2 -- not permitted --> denied["denied by<br/>the kernel"]
+```
+
 That is why every flow granting the agent access locks secret-named files
 down first, and why declining a lockdown stops the claim
 ([Lockdown](../projects/lockdown.md)). A per-session `bubblewrap` mount

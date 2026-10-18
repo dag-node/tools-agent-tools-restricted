@@ -25,9 +25,10 @@ users.
 `sudo ai-tools-admin system bootstrap` installs Node and the agent's npm
 package into `/opt/ai-tools`, which the sandbox account owns and whose mode
 grants no other account entry, so your own login cannot traverse it. You reach
-the agent through the wrapper at `/usr/local/bin/claude`, which runs as you,
-checks what it has to check, and then drops to the sandbox account. An agent
-**you** installed answers to the same name, so what `claude` resolves
+the coding agent through its wrapper at `/usr/local/bin/{coding-agent-name}`,
+`/usr/local/bin/claude` for Claude Code, which runs as you, checks what it has
+to check, and then drops to the sandbox account. A coding agent **you**
+installed answers to the same name, so what `{coding-agent-name}` resolves
 to on your `PATH` is the one thing to get right — `ai-tools status` reads
 which binary your shell runs, and the ordering this project installs for it is
 [ref-section-y2t3](../install/from-source.md#ref-section-y2t3).
@@ -39,6 +40,38 @@ session needs — handing a written file back to you, normalizing a setgid bit,
 repointing the launcher symlink after a toolchain update — go through a socket
 daemon that verifies the caller's uid with a kernel credential the caller
 cannot forge, so none of them is a command the agent can aim somewhere else.
+
+<a id="ref-diagram-z9p7"></a>**The system overview**
+
+<picture> <source media="(prefers-color-scheme: dark)"
+srcset="../static/diagrams/system-overview-dark.svg"> <source
+media="(prefers-color-scheme: light)"
+srcset="../static/diagrams/system-overview-light.svg"> <img alt="System
+overview: your shell runs the coding-agent wrapper
+/usr/local/bin/{coding-agent-name} as you; it checks ai-ops membership
+and other gates, then calls a sudo rule of the operators group
+in /etc/sudoers.d/ai-tools, which holds two, to launch a session and to stop
+every session. ~/.config/ai-tools holds your allowlist, maintained
+with the ai-tools projects CLI, and your secret-patterns file, which you edit
+and the root helpers read to lock secret-named files away. The ai-tools CLI
+runs as you, claims projects, keeps your allowlist and reports status,
+and takes its root steps through sudo; ai-tools-admin runs as root alone,
+enrols operators and provisions the toolchain and the SELinux policy. The rule
+starts ai-tools-run as the sandbox account ai-tools, which has no login shell,
+password or sudo rule. ai-tools-run checks the entrypoint pin and starts
+a restricted transient systemd service in ai_tools_t, where the coding agent's
+versioned file from .nvm reads and writes the claimed project. After each tool
+call and turn, coding-agent hooks ask the root handback daemon, which checks
+the caller's uid by kernel credential, to hand written files back: owned
+by you, reached by the coding agent through group bits, with world access
+removed. Secret-named files such as .env, *.key and *.pem are locked to you
+at mode 600 before a claim grants anything, owner-only paths stay closed,
+and the coding agent reaches the files you write through the ACL grant a claim
+writes. Prompts and file contents go to the model service. nvm-update.timer,
+running as ai-tools, installs Node and each coding agent's package from npm
+once their signatures verify; a root watcher verifies, pins and labels the new
+entrypoint; root helpers log to /var/log/ai-tools, which root alone reads."
+src="../static/diagrams/system-overview-light.svg"> </picture>
 
 Three more properties follow, and each has a page that says what you do
 about it:

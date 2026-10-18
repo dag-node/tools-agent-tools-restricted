@@ -18,6 +18,30 @@ from source](install/from-source.md).
 
 ## The identities
 
+<a id="ref-diagram-t3q8"></a>**The identities and their groups**
+
+<picture> <source media="(prefers-color-scheme: dark)"
+srcset="static/diagrams/identities-dark.svg"> <source
+media="(prefers-color-scheme: light)"
+srcset="static/diagrams/identities-light.svg"> <img alt="Identities: operators
+op and svc-ci each hold ai-ops membership, a name in OPERATORS=[op, svc-ci]
+in /etc/ai-tools/operator.conf and their own allowlist. op also holds a general
+sudo grant from the host's sudoers, so op claims, unclaims, locks
+down and claims for others; svc-ci holds none, launches sessions, and has its
+projects claimed for it with --for. The sandbox account ai-tools runs every
+session of every operator, has no login shell, password or sudo rule, owns none
+of your files, and is not in ai-ops, which ai-tools-run refuses to launch
+under; the package fixes its name. root is not an operator: every mutating
+command refuses root, so a host needs at least one operator holding a sudo
+grant. Every operator is in the group ai-ops, whose two sudo rules start
+a session as ai-tools and stop every sandbox session without a password.
+The group ai-tools is the sandbox account's: a claim grants it on the project
+tree, so the coding agent reaches the files you write, and a handed-back file
+keeps it. Your own group takes a secret-named file, locked to you and it
+at mode 600, and a handed-back file after an unclaim. No operator is
+in the group ai-tools, and ai-tools is in no operator's group."
+src="static/diagrams/identities-light.svg"> </picture>
+
 ### Operators — the login accounts that drive the sandbox
 
 The login accounts that own projects and drive the sandbox through the one

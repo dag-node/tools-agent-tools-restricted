@@ -14,6 +14,29 @@ ls -l  ~/src/api/newfile.go   # you own it; the agent reads it through the group
 getfacl -e ~/src/api          # the two grants a claim writes, and their effective access
 ```
 
+<a id="ref-diagram-r3t3"></a>**The life of a file in a claimed project**
+
+<picture> <source media="(prefers-color-scheme: dark)"
+srcset="../static/diagrams/ownership-lifecycle-dark.svg"> <source
+media="(prefers-color-scheme: light)"
+srcset="../static/diagrams/ownership-lifecycle-light.svg"> <img alt="The life
+of a file in a claimed project, as owner, group, and who reads and writes it.
+Before the claim a file of yours has your group, and the coding agent
+and others reach it as its mode allows. After projects claim its group is
+ai-tools: you and the coding agent read and write it, others have no access,
+and owner-only paths and secret-named files are left out. A new file the coding
+agent writes is owned by ai-tools with the group ai-tools, and you read
+and write it through your grant before any handback. Handed back after each
+tool call and turn, or by projects handback for the rest, it is owned by you
+with the group ai-tools; a secret-named file is locked to you and your group,
+and the coding agent loses access. After projects unclaim a handed-back file is
+yours with your group, the coding agent has no access, and world access does
+not come back. No step re-owns a file you wrote, an owner-only path or a path
+on a ! line of your allowlist; ai-tools projects handback returns files
+a session that ended early left behind, and the files the coding agent writes
+inside .git come back at the start and end of each session."
+src="../static/diagrams/ownership-lifecycle-light.svg"> </picture>
+
 ## Files the agent writes come back to you
 
 A file the agent creates is born owned by the sandbox account. Getting it back
@@ -45,6 +68,25 @@ permission tier: you do not gain blanket read of the agent's own session state,
 and your access does not wait on the handback having run yet. The grants,
 and the check a re-claim reads them with, are
 [ref-section-h7d3](../../.claude/rules/cli.rule.md#ref-section-h7d3).
+
+<a id="ref-diagram-j7k9"></a>**The two grants on a claimed project**
+
+<picture> <source media="(prefers-color-scheme: dark)"
+srcset="../static/diagrams/two-grants-dark.svg"> <source
+media="(prefers-color-scheme: light)"
+srcset="../static/diagrams/two-grants-light.svg"> <img alt="Two grants
+on a claimed project, set on every directory and inherited. You, the operator
+in the ai-ops group and not in the group ai-tools, reach your files as their
+owner; the coding agent, running as the ai-tools service in none of your
+groups, reaches its files as their owner. Grant 1, the coding agent's group
+grant, lets it read and write a file you write under any umask. Grant 2, your
+named grant, lets you open a file the coding agent writes before the handback
+makes you its owner. Others have no access, since a claim closes world access
+on every path it touches; a project directory gives every new file the sandbox
+group and both grants; owner-only paths, lines of your allowlist starting
+with ! and secret-named files get neither grant. getfacl -e shows a path's
+effective access, and ls -l marks a file carrying an ACL with +."
+src="../static/diagrams/two-grants-light.svg"> </picture>
 
 ## What a claim leaves alone, and what does not come back
 
