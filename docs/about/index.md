@@ -25,9 +25,10 @@ users.
 `sudo ai-tools-admin system bootstrap` installs Node and the agent's npm
 package into `/opt/ai-tools`, which the sandbox account owns and whose mode
 grants no other account entry, so your own login cannot traverse it. You reach
-the agent through the wrapper at `/usr/local/bin/claude`, which runs as you,
-checks what it has to check, and then drops to the sandbox account. An agent
-**you** installed answers to the same name, so what `claude` resolves
+the coding agent through its wrapper at `/usr/local/bin/{coding-agent-name}`,
+`/usr/local/bin/claude` for Claude Code, which runs as you, checks what it has
+to check, and then drops to the sandbox account. A coding agent **you**
+installed answers to the same name, so what `{coding-agent-name}` resolves
 to on your `PATH` is the one thing to get right — `ai-tools status` reads
 which binary your shell runs, and the ordering this project installs for it is
 [ref-section-y2t3](../install/from-source.md#ref-section-y2t3).

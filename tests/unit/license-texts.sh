@@ -25,6 +25,7 @@ fi
 # The SHA-256 of spdx/license-list-data's text/<id>.txt, as `reuse download <id>` writes it.
 declare -A SPDX_TEXT_SHA256=(
     [AGPL-3.0-only]=d8a6cc31abc16b6748c7a21f21611f5a1ec33f67d22ca23d7da1c19b95496bee
+    [CC-BY-4.0]=d557539df68e771cc1eedcc91d13f70fca930e508d11eedcafa4b15db49e3744
     [CC0-1.0]=a2010f343487d3f7618affe54f789f5487602331c0a8d03f49e9a7c547cf0499
     [GPL-2.0-or-later]=aaf135472f81c5b4a0dca9367e5bb5e9750032b5bebe5442b36e4c0a47430df3
     [MIT]=b05785f9f18e6716bab63424b11454513b9943a222595b70411009202fc592b5
