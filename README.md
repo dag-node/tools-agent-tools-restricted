@@ -1,10 +1,10 @@
 # Agent Tools Restricted
 
 [![CI](https://github.com/dag-node/tools-agent-tools-restricted/actions/workflows/ci.yml/badge.svg)](https://github.com/dag-node/tools-agent-tools-restricted/actions/workflows/ci.yml)
-[![License: AGPL
-v3](https://img.shields.io/badge/license-AGPL--3.0-blue.svg)](LICENSE)
-[![Platform: EL 9 | EL
-10](https://img.shields.io/badge/platform-EL%209%20%7C%20EL%2010-blue.svg)](#requirements)
+[![License:
+AGPL-3.0-only](https://img.shields.io/badge/license-AGPL--3.0--only-blue.svg)](LICENSE)
+[![Platform: EL 9 | EL 10 | Fedora
+44](https://img.shields.io/badge/platform-EL%209%20%7C%20EL%2010%20%7C%20Fedora%2044-blue.svg)](#requirements)
 [![Website:
 tools.dagnode.com](https://img.shields.io/badge/website-tools.dagnode.com-blue.svg)](https://tools.dagnode.com/agents)
 
@@ -47,11 +47,11 @@ at a glance](#architecture-at-a-glance) · [From source](#from-source) ·
 
 ## Requirements
 
-**Enterprise Linux 9 or 10** — RHEL and its rebuilds — with systemd, `sudo`,
-and POSIX ACL support on the filesystem holding your projects. SELinux
-in enforcing mode confines the session; without it the stack runs in a DAC-only
-posture. The full list, and what the install needs the network for, are
-in [docs/install/index.md](docs/install/index.md).
+**Enterprise Linux 9 or 10** — RHEL and its rebuilds — or **Fedora 44**,
+with systemd, `sudo`, and POSIX ACL support on the filesystem holding your
+projects. SELinux in enforcing mode confines the session; without it the stack
+runs in a DAC-only posture. The full list, and what the install needs
+the network for, are in [docs/install/index.md](docs/install/index.md).
 
 > [!WARNING]
 > **Pre-1.0 and fast moving.** Ahead of 1.0, interfaces, package layout, CLI
