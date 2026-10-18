@@ -18,8 +18,9 @@ under their own locked-down system account."> </p>
 Agent Tools Restricted runs autonomous coding agents under a dedicated,
 unprivileged system user (`ai-tools`) with tightly scoped privileges, SELinux
 confinement, ownership hand-back, and automatic toolchain updates. The agent
-never runs as you. Claude Code is the first supported agent; the confinement,
-ownership-handback, and toolchain machinery are deliberately agent-agnostic.
+never runs as you. Claude Code and Codex are the first two supported agents;
+the confinement, ownership-handback, and toolchain machinery are deliberately
+agent-agnostic.
 
 **Scope.** The model defends the host from the agent *while it runs*. It does
 not make agent-written code safe for you to execute afterwards, and reviewing
@@ -193,6 +194,38 @@ published as signed
 [releases](https://github.com/dag-node/ai-tools-assets/releases).
 
 ## Architecture at a glance <a id="ref-section-e7g6"></a>
+
+<a id="ref-diagram-z9p7"></a>**The system overview**
+
+<picture> <source media="(prefers-color-scheme: dark)"
+srcset="docs/static/diagrams/system-overview-dark.svg"> <source
+media="(prefers-color-scheme: light)"
+srcset="docs/static/diagrams/system-overview-light.svg"> <img alt="System
+overview: your shell runs the coding-agent wrapper
+/usr/local/bin/{coding-agent-name} as you; it checks ai-ops membership
+and other gates, then calls a sudo rule of the operators group
+in /etc/sudoers.d/ai-tools, which holds two, to launch a session and to stop
+every session. ~/.config/ai-tools holds your allowlist, maintained
+with the ai-tools projects CLI, and your secret-patterns file, which you edit
+and the root helpers read to lock secret-named files away. The ai-tools CLI
+runs as you, claims projects, keeps your allowlist and reports status,
+and takes its root steps through sudo; ai-tools-admin runs as root alone,
+enrols operators and provisions the toolchain and the SELinux policy. The rule
+starts ai-tools-run as the sandbox account ai-tools, which has no login shell,
+password or sudo rule. ai-tools-run checks the entrypoint pin and starts
+a restricted transient systemd service in ai_tools_t, where the coding agent's
+versioned file from .nvm reads and writes the claimed project. After each tool
+call and turn, coding-agent hooks ask the root handback daemon, which checks
+the caller's uid by kernel credential, to hand written files back: owned
+by you, reached by the coding agent through group bits, with world access
+removed. Secret-named files such as .env, *.key and *.pem are locked to you
+at mode 600 before a claim grants anything, owner-only paths stay closed,
+and the coding agent reaches the files you write through the ACL grant a claim
+writes. Prompts and file contents go to the model service. nvm-update.timer,
+running as ai-tools, installs Node and each coding agent's package from npm
+once their signatures verify; a root watcher verifies, pins and labels the new
+entrypoint; root helpers log to /var/log/ai-tools, which root alone reads."
+src="docs/static/diagrams/system-overview-light.svg"> </picture>
 
 ```
 you type `claude`

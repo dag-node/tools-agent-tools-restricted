@@ -162,7 +162,7 @@ class Svg:
 
 
 # --------------------------------------------------------------------------
-# system-overview: docs/about/index.md
+# system-overview: README.md
 # --------------------------------------------------------------------------
 def system_overview():
     s = Svg(1280, 770, "ai-tools system overview",
