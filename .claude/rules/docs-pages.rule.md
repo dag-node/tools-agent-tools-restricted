@@ -66,7 +66,7 @@ index and does not mirror this one.
 
 ```text
 docs/
-├── index.md                     the categories, and the path a new operator takes through them
+├── index.md                     the categories with every page under them, and a new operator's path
 ├── naming-conventions.md        the glossary every category reaches
 ├── option-spellings.md          generated
 ├── rpm-packaging.md             the package set
@@ -140,7 +140,8 @@ Four rules, applied while the page is written:
 - **One `H1`, naming the task**, under 60 characters, and a heading tree under it that does not skip a level.
 - **A lead sentence of 120–160 characters** under the `H1` and before any code block, stating what the page answers.
   The example-first rule still holds: the lead sentence is one line, and the runnable block follows it.
-- **No orphan pages.** Every page is linked from its category `index.md` and links back through its breadcrumb.
+- **No orphan pages.** Every page is linked from its category `index.md` and from `docs/index.md`, which lists each
+  category's pages under it, and links back through its breadcrumb.
 - **`alt` text on any image.** The ASCII diagrams in fenced blocks need none.
 
 Prose here wraps at **79** columns, the width configured for `README.md` and `docs/`, which a person reads:

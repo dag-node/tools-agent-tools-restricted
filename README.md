@@ -22,6 +22,9 @@ never runs as you. Claude Code and Codex are the first two supported agents;
 the confinement, ownership-handback, and toolchain machinery are deliberately
 agent-agnostic.
 
+[Permissions model](docs/projects/permissions.md) is special, read it
+before using this project.
+
 **Scope.** The model defends the host from the agent *while it runs*. It does
 not make agent-written code safe for you to execute afterwards, and reviewing
 a diff before running from the tree is the control — see [The boundary,
