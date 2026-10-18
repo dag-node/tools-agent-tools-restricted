@@ -1,11 +1,12 @@
 #!/usr/bin/env bash
-# SPDX-License-Identifier: AGPL-3.0-only /usr/local/lib/ai-tools/path-order.lib.sh Where an operator's shell finds
-# an agent launcher. Every wrapper this project ships lives in /usr/local/bin and is the only route into the sandbox,
-# so a launcher of the same name earlier on that operator's PATH -- an agent they installed under their own nvm --
-# starts an UNCONFINED session as them, holding their credentials and their home and outside the allowlist, the SELinux
-# domain and the ownership handback. path-order.sh ranks /usr/local/bin first and is what settles it; this library reads
-# which of the two an account gets, so the question can be asked with the stake named and re-checked afterwards.
-# What each state means is launch.rule.md's PATH ordering section.
+# SPDX-License-Identifier: AGPL-3.0-only
+# /usr/local/lib/ai-tools/path-order.lib.sh
+# Where an operator's shell finds an agent launcher. Every wrapper this project ships lives in /usr/local/bin and is
+# the only route into the sandbox, so a launcher of the same name earlier on that operator's PATH -- an agent they
+# installed under their own nvm -- starts an UNCONFINED session as them, holding their credentials and their home
+# and outside the allowlist, the SELinux domain and the ownership handback. path-order.sh ranks /usr/local/bin first
+# and is what settles it; this library reads which of the two an account gets, so the question can be asked
+# with the stake named and re-checked afterwards. What each state means is launch.rule.md's PATH ordering section.
 #
 # The decision is pure (ai_tools_path_order__evaluate) and the probing is separate, the split confinement.lib.sh makes
 # for the launch decision, so the truth table is driven in tests/unit/path-order.sh against no account at all.
