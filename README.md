@@ -82,32 +82,50 @@ sudo dnf install https://rpm.dagnode.com/dagnode-release-latest.noarch.rpm      
 sudo dnf install https://rpm.dagnode.com/fedora/dagnode-release-latest.noarch.rpm  # Fedora 44
 
 # Sandbox
-sudo dnf install ai-tools-selinux ai-tools-agents-claude-code-restricted  # Claude Code
-sudo dnf install ai-tools-selinux ai-tools-agents-codex-restricted        # Codex
-sudo dnf install ai-tools-integration-dotnet                              # .NET projects
-sudo dnf install ai-tools-integration-typesafe                            # TypeSafe for RLCD
+sudo dnf install ai-tools-base ai-tools-selinux          # account, CLI, confinement
+
+# Node.js (with automatic updates)
+sudo dnf install ai-tools-integration-nodejs             # nvm, Node, update timer
+
+# Coding agents
+sudo dnf install ai-tools-agents-claude-code-restricted  # Claude Code
+sudo dnf install ai-tools-agents-codex-restricted        # Codex
+
+# Integrations
+sudo dnf install ai-tools-integration-dotnet             # .NET projects
+sudo dnf install ai-tools-integration-typesafe           # TypeSafe for RLCD
+
+# Assets (from https://github.com/dag-node/ai-tools-assets)
+sudo dnf install ai-tools-assets-sets-core               # shared skills and subagents
+
+# Assets tooling (optional)
+sudo dnf install ai-tools-assets-tools                   # check, build and sign a set
+
+# Full stack (all above)
+sudo dnf install 'ai-tools-*'
 ```
 
-Run the line for the agent you want: each one is a complete install on its own,
-and naming more than one agent package puts several agents on the host —
-[Scope](docs/about/scope.md) covers what they then share. An agent package
-requires `ai-tools-base` and `ai-tools-integration-nodejs`, so the sandbox
-account, the CLI, and the Node toolchain come with it; `ai-tools-selinux` is
-named beside it because it is a `Recommends`, and a minimal image installing
-without weak dependencies would otherwise come up unconfined. The `ai-tools`
-metapackage takes every agent and every integration in one command instead.
+A coding agent package requires `ai-tools-base`
+and `ai-tools-integration-nodejs`, so one coding agent line installs
+the sandbox account, the CLI and the Node toolchain with it. `ai-tools-selinux`
+is named on the sandbox line because `ai-tools-base` only recommends it,
+and a minimal image installing without weak dependencies would otherwise come
+up unconfined. Naming more than one coding agent package puts several coding
+agents on the host — [Scope](docs/about/scope.md) covers what they then share.
 `ai-tools providers` lists what is installed and which of it is enabled.
 
-Then finish setup. An installed agent package puts its wrapper, hooks,
-and manifest on the host and leaves the agent itself off: `system bootstrap`
-asks which installed agent to enable, records the answer in `AI_TOOLS_AGENTS`
-(`/etc/ai-tools/operator.conf`, root-owned), and only then fetches that agent's
-npm package into the sandbox toolchain — `--agents agent-<name>` makes
-the choice without asking. The first two commands are independent of each other
-and both run before the third:
+Then finish setup. An installed coding agent package puts its wrapper, hooks,
+and manifest on the host and leaves the coding agent itself
+off: `system bootstrap` asks which installed coding agent to enable, records
+the answer in `AI_TOOLS_AGENTS` (`/etc/ai-tools/operator.conf`, root-owned),
+and only then fetches that coding agent's npm package into the sandbox
+toolchain — `--agents agent-<name>` makes the choice without asking.
+An installed asset set stays off until it is enabled. The root commands are
+independent of each other and run before the first project:
 
 ```bash
-sudo ai-tools-admin system bootstrap             # Node, nvm, the agent you pick, the update timer
+sudo ai-tools-admin system bootstrap             # Node, nvm, the coding agent you pick, the update timer
+sudo ai-tools-admin assets enable --set core     # the core skills, in every enabled coding agent
 sudo ai-tools-admin operators add "$(id -un)"    # enrol yourself: operator.conf + ai-ops
 ai-tools projects create ~/src/demo              # a new project, claimed, no prompts
 cd ~/src/demo && claude
