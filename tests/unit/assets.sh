@@ -334,6 +334,7 @@ set_case set-invalid set.entry.unknown "an unknown top-level file" ': > "${PKG}/
 set_case set-invalid set.entry.unknown "LICENSES as a file" ': > "${PKG}/acme/LICENSES"'
 set_case set-invalid set.entry.reserved "an empty libs/" 'mkdir "${PKG}/acme/libs"'
 set_case set-invalid set.entry.reserved "llms.txt" ': > "${PKG}/acme/llms.txt"'
+set_case set-invalid set.entry.reserved "an empty attestations/" 'mkdir "${PKG}/acme/attestations"'
 set_case set-invalid kind.shape "a file under skills/" ': > "${PKG}/acme/skills/notes.md"'
 set_case set-invalid kind.shape "a skill without SKILL.md" 'mkdir "${PKG}/acme/skills/acme-empty"; : > "${PKG}/acme/skills/acme-empty/README.md"'
 set_case set-invalid kind.reserved "a reserved kind directory, empty" 'mkdir "${PKG}/acme/commands"'

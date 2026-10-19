@@ -38,3 +38,12 @@ path = "assets/cc0/**"
 precedence = "closest"
 SPDX-FileCopyrightText = "2026 Ondřej Nedomlel <tools@dagnode.com>"
 SPDX-License-Identifier = "CC0-1.0"
+
+# Documentation media released under CC-BY-4.0, so a page elsewhere may reuse a diagram or an image with
+# attribution: the generated diagrams, and the images directory beside them. The generator that draws the diagrams,
+# and any stylesheet or script under docs/static/, stay under the project licence.
+[[annotations]]
+path = ["docs/static/diagrams/**", "docs/static/images/**"]
+precedence = "closest"
+SPDX-FileCopyrightText = "2026 Ondřej Nedomlel <tools@dagnode.com>"
+SPDX-License-Identifier = "CC-BY-4.0"

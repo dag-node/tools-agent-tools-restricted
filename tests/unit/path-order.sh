@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
-# SPDX-License-Identifier: AGPL-3.0-only tests/unit/path-order.sh Hermetic unit test for path-order.lib.sh:
-# where an operator's shell finds an agent launcher, the reading `ai-tools-admin operators add` asks
-# with, ai-tools.status re-checks with, and `ai-tools-admin system bootstrap` reports from.
+# SPDX-License-Identifier: AGPL-3.0-only
+# tests/unit/path-order.sh
+# Hermetic unit test for path-order.lib.sh: where an operator's shell finds an agent launcher, the reading
+# `ai-tools-admin operators add` asks with, ai-tools.status re-checks with, and `ai-tools-admin system bootstrap`
+# reports from.
 #
 # What makes it worth pinning is the direction each answer sends an operator. A launcher resolving to a file other than
 # the wrapper means typing its name starts an UNCONFINED agent, so a verdict that read that state as fine would turn

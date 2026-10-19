@@ -16,9 +16,10 @@
 #     every version reads as "verified" while checking the wrong release.
 #   * only https, and only a character set that cannot carry a shell metacharacter into curl.
 #
-# The impure half (ai_tools_entrypoint_verify__verify_release) needs the vendor's live endpoint, gpgv, and a 300 MB
-# hash, so it is not driven here; its status contract is exercised where it is wired in. Run as root via sudo (the
-# suite's convention), though no case here needs it.
+# The fetch-and-pin caller (ai_tools_entrypoint_verify__verify_release) needs the vendor's live endpoint and a 300 MB
+# hash, so it is not driven here. Its signature step, _ai_tools_entrypoint_verify__verify_manifest_signature, is,
+# with keys made in the run where gpg runs: the declared primary and subkey, an undeclared key, and a key the keyring
+# holds as expired or revoked. Run as root via sudo (the suite's convention), though no case here needs it.
 
 set -euo pipefail
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")/../lib" && pwd)/harness.sh"
@@ -815,6 +816,112 @@ else
 /opt/ai-tools/.nvm/versions/node/v22.20.0/lib/node_modules/x/bin/x||no package name at all
 |@openai/codex|no entrypoint at all
 ROWS
+fi
+
+# ── The release manifest's signature ─────────────────────────────────────────────────────────────
+# _ai_tools_entrypoint_verify__verify_manifest_signature is the gpgv call and the fingerprint match of the release
+# verifier, taking its manifest, signature and keyring as files, so it runs here with keys made in the run
+# (tests/lib/asset-signing.sh) and without the vendor's endpoint. A key the keyring holds as expired or revoked is
+# the rotation case, status 2. Each setup is asserted from gpgv's own status lines before the verdict.
+section "entrypoint-verify: the release manifest's signature (unit)"
+if ! declare -F _ai_tools_entrypoint_verify__verify_manifest_signature >/dev/null; then
+    fail "${LIB} does not define _ai_tools_entrypoint_verify__verify_manifest_signature; reinstall from this checkout"
+elif ! command -v gpg >/dev/null 2>&1 || ! command -v gpgv >/dev/null 2>&1; then
+    skip "release manifest signature cases" "gpg or gpgv not installed"
+else
+    # shellcheck source=/dev/null
+    source /usr/local/lib/ai-tools/openpgp.lib.sh
+    mktestdir
+    export ASSET_KEYS_DIR="${TESTDIR}/keys" ASSET_BINDINGS_DIR="${TESTDIR}/bindings.d"
+    mkdir -p "${ASSET_KEYS_DIR}" "${ASSET_BINDINGS_DIR}"; chmod 0755 "${ASSET_KEYS_DIR}" "${ASSET_BINDINGS_DIR}"
+    source "$(cd "$(dirname "${BASH_SOURCE[0]}")/../lib" && pwd)/asset-signing.sh"
+    readonly MANIFEST="${TESTDIR}/manifest.json"
+    printf '{"version": "1.0.0", "platforms": {}}\n' > "${MANIFEST}"
+    # sign_manifest <key-name> [gpg option...] : a detached binary signature over MANIFEST, at manifest.sig.
+    sign_manifest() {
+        local key_name="$1"; shift
+        GNUPGHOME="${ASSET_KEYS_DIR}/gnupg-${key_name}" gpg --batch --quiet "$@" --yes --detach-sign \
+            --output "${TESTDIR}/manifest.sig" "${MANIFEST}"
+    }
+    manifest_keywords() {
+        gpgv --status-fd 1 --keyring "$1" "${TESTDIR}/manifest.sig" "${MANIFEST}" 2>/dev/null | awk '{ print $2 }' | tr '\n' ' '
+    }
+    expect_signature() { # expect_signature <want> <label> <keyring> <fingerprint>...
+        local want="$1" label="$2" got=0
+        shift 2
+        _ai_tools_entrypoint_verify__verify_manifest_signature "${MANIFEST}" "${TESTDIR}/manifest.sig" "$1" 1.0.0 \
+            "${@:2}" 2>"${TESTDIR}/err" || got=$?
+        if [[ "${got}" == "${want}" ]]; then
+            pass "${label} -> ${want}"
+        else
+            fail "${label} -> got ${got}, want ${want}: $(tr '\n' '|' < "${TESTDIR}/err")"
+        fi
+    }
+
+    asset_signing_gen_key SIGNER signer
+    asset_signing_gen_key OTHER other
+    cat "${ASSET_KEYS_DIR}/signer.gpg" "${ASSET_KEYS_DIR}/other.gpg" > "${ASSET_KEYS_DIR}/both.gpg"
+    sign_manifest signer
+    expect_signature 0 "control: signed by the declared primary" "${ASSET_KEYS_DIR}/signer.gpg" "${SIGNER}"
+    expect_signature 0 "the declared primary in lower case" "${ASSET_KEYS_DIR}/signer.gpg" "${SIGNER,,}"
+    expect_signature 1 "an undeclared key in a keyring holding two" "${ASSET_KEYS_DIR}/both.gpg" "${OTHER}"
+    expect_signature 2 "a keyring that does not hold the key" "${ASSET_KEYS_DIR}/other.gpg" "${SIGNER}"
+    expect_signature 2 "a declared fingerprint that is not 40 hex digits" "${ASSET_KEYS_DIR}/signer.gpg" "${SIGNER:0:39}"
+    printf 'changed\n' >> "${MANIFEST}"
+    expect_signature 1 "a manifest changed after it was signed" "${ASSET_KEYS_DIR}/signer.gpg" "${SIGNER}"
+    printf '{"version": "1.0.0", "platforms": {}}\n' > "${MANIFEST}"
+
+    # A certify-only primary with a signing subkey: either fingerprint may be the declared one.
+    home="${ASSET_KEYS_DIR}/gnupg-subkey"; mkdir -p "${home}"; chmod 0700 "${home}"
+    GNUPGHOME="${home}" gpg --batch --quiet --passphrase '' --quick-gen-key 'ai-tools test subkey <subkey@acme.example>' \
+        ed25519 cert never 2>/dev/null
+    SUBKEY_PRIMARY="$(GNUPGHOME="${home}" gpg --batch --with-colons --list-keys | awk -F: '$1 == "fpr" { print $10; exit }')"
+    GNUPGHOME="${home}" gpg --batch --quiet --passphrase '' --quick-add-key "${SUBKEY_PRIMARY}" ed25519 sign never 2>/dev/null
+    SIGNING_SUBKEY="$(GNUPGHOME="${home}" gpg --batch --with-colons --with-subkey-fingerprints --list-keys "${SUBKEY_PRIMARY}" \
+        | awk -F: '$1 == "fpr" { f = $10 } END { print f }')"
+    asset_signing_export_key subkey "${SUBKEY_PRIMARY}"
+    sign_manifest subkey
+    if [[ -n "${SIGNING_SUBKEY}" && "${SIGNING_SUBKEY}" != "${SUBKEY_PRIMARY}" ]]; then
+        expect_signature 0 "a declared signing subkey" "${ASSET_KEYS_DIR}/subkey.gpg" "${SIGNING_SUBKEY}"
+        expect_signature 0 "the declared primary of a signing subkey" "${ASSET_KEYS_DIR}/subkey.gpg" "${SUBKEY_PRIMARY}"
+    else
+        fail "setup: gpg did not add a signing subkey to the certify-only primary"
+    fi
+
+    asset_signing_gen_key EXPIRED expired 1d 20200101T000000
+    sign_manifest expired
+    if [[ " $(manifest_keywords "${ASSET_KEYS_DIR}/expired.gpg")" == *" EXPKEYSIG "* ]]; then
+        expect_signature 2 "signed, before its expiry, by a key the keyring holds as expired" \
+            "${ASSET_KEYS_DIR}/expired.gpg" "${EXPIRED}"
+    else
+        fail "setup: gpgv does not report EXPKEYSIG for the key made under faked-system-time with a one-day expiry"
+    fi
+    asset_signing_gen_key REVOKED revoked
+    sign_manifest revoked
+    if asset_signing_revoke_key revoked "${REVOKED}" \
+        && [[ " $(manifest_keywords "${ASSET_KEYS_DIR}/revoked.gpg")" == *" REVKEYSIG "* ]]; then
+        expect_signature 2 "signed by a key the keyring holds as revoked" "${ASSET_KEYS_DIR}/revoked.gpg" "${REVOKED}"
+    else
+        fail "setup: gpgv does not report REVKEYSIG once the revocation is in the keyring"
+    fi
+    # The signer's signature followed by a copy with its last byte flipped: the mismatch decides, whatever signature
+    # precedes it.
+    sign_manifest signer
+    cp "${TESTDIR}/manifest.sig" "${TESTDIR}/manifest-good.sig"
+    python3 -I -c 'import sys
+signature = bytearray(open(sys.argv[1], "rb").read()); signature[-1] ^= 0x01
+open(sys.argv[2], "wb").write(signature)' "${TESTDIR}/manifest-good.sig" "${TESTDIR}/manifest-flipped.sig"
+    cat "${TESTDIR}/manifest-good.sig" "${TESTDIR}/manifest-flipped.sig" > "${TESTDIR}/manifest.sig"
+    # gpgv exits 1 on the BADSIG, which under pipefail would end the file; the next line is the check.
+    keywords="$(manifest_keywords "${ASSET_KEYS_DIR}/signer.gpg")" || true
+    if [[ " ${keywords}" == *" BADSIG "* && "$(tr ' ' '\n' <<< "${keywords}" | grep -c '^NEWSIG$')" == 2 ]]; then
+        expect_signature 1 "the declared primary's signature, then one that does not match" \
+            "${ASSET_KEYS_DIR}/signer.gpg" "${SIGNER}"
+    else
+        fail "setup: gpgv does not report two signatures and a BADSIG for the good-then-flipped file: ${keywords}"
+    fi
+    sign_manifest signer
+    expect_signature 0 "control: signed by the declared primary again" "${ASSET_KEYS_DIR}/signer.gpg" "${SIGNER}"
 fi
 
 finish

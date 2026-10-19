@@ -2,6 +2,7 @@
 paths:
   - "README.md"
   - "docs/**/*.md"
+  - "tools/generators/diagrams.py"
 ---
 
 # Operator pages: `README.md` and `docs/**`
@@ -65,7 +66,7 @@ index and does not mirror this one.
 
 ```text
 docs/
-├── index.md                     the categories, and the path a new operator takes through them
+├── index.md                     the categories with every page under them, and a new operator's path
 ├── naming-conventions.md        the glossary every category reaches
 ├── option-spellings.md          generated
 ├── rpm-packaging.md             the package set
@@ -126,7 +127,7 @@ The three link forms are not interchangeable:
 |---|---|---|
 | another file as a whole | ordinary link, text is the page's title | `[Project lifecycle](../projects/index.md)` |
 | a section in **this** file | jump link on the heading's own slug | `[Upgrade behaviour](#upgrade-behaviour)` |
-| a section, table or diagram in **another** file | a reftag, minted at the first citation | `[ref-section-y2t3](../install/from-source.md#ref-section-y2t3)` |
+| a section, table or diagram in **another** file | a reftag, minted at the first citation; a diagram carries its own from the start | `[ref-section-y2t3](../install/from-source.md#ref-section-y2t3)` |
 
 A page moves by `git mv`, then `bash tools/generators/ref-index.sh relink`, `check`, and `generate`: `relink` rewrites
 every reftag destination from where the targets now are, and `check` reports a stale destination and an ordinary link
@@ -139,7 +140,8 @@ Four rules, applied while the page is written:
 - **One `H1`, naming the task**, under 60 characters, and a heading tree under it that does not skip a level.
 - **A lead sentence of 120–160 characters** under the `H1` and before any code block, stating what the page answers.
   The example-first rule still holds: the lead sentence is one line, and the runnable block follows it.
-- **No orphan pages.** Every page is linked from its category `index.md` and links back through its breadcrumb.
+- **No orphan pages.** Every page is linked from its category `index.md` and from `docs/index.md`, which lists each
+  category's pages under it, and links back through its breadcrumb.
 - **`alt` text on any image.** The ASCII diagrams in fenced blocks need none.
 
 Prose here wraps at **79** columns, the width configured for `README.md` and `docs/`, which a person reads:
@@ -148,3 +150,48 @@ Prose here wraps at **79** columns, the width configured for `README.md` and `do
 python3 "$(bash tools/lib/assets.sh path core)/skills/ai-tools-technical-writing/scripts/prose-check.py" --all --wrap docs/<page>.md
 bash tools/format.sh docs/<page>.md
 ```
+
+## Diagrams
+
+A diagram states only what its page states. A Mermaid block follows the prose that states its facts, since a reader
+without a renderer sees the fenced source; an SVG pair's `<img alt>` states its claims in prose, which a reader without
+the image gets in its place. Each label is a claim read against the code, as a sentence is, and a diagram stays
+at the altitude of its page: an overview leaves out a branch its prose leaves out, such as the path a launch takes only
+on a terminal.
+
+**A label states an invariant**: a property this project holds for every coding agent and across releases — the account
+a session runs as, which gate decides a launch and which a read, where a written file's ownership returns, the toolchain
+a session runs from. A tunable value and a schedule stay in the prose and the rule that own them, as does a mechanism
+one coding agent has and another lacks: no test reads a label against the code, so a label naming one goes stale
+on the next change to it unreported.
+
+**A label names a coding agent and its parts generically.** The program an operator starts is a *coding agent*,
+and what a coding agent runs is a *subagent*, so a label does not use *agent* bare. A coding agent's command is
+`{coding-agent-name}`, and a path that would otherwise be read as one file is written `/path/to/the/{file-or-concept}`.
+
+**Every diagram carries a caption and a reftag from the start**, ahead of a citation: a published page is cited
+from outside this tree, where a citation does not reach the index. The caption is a bold line naming the diagram, opened
+by its anchor, `<a id="ref-diagram-{id}"></a>**The two gates**`, minted
+with `bash tools/generators/ref-index.sh new diagram`, and a blank line separates it from the block, so the prose
+checker does not read a `<picture>` block as a sentence; the caption is the name the index records. A citing sentence
+states the fact in its own words with the reftag as the link text. The `alt` text does not take a reftag of its own.
+
+A diagram goes on a page GitHub renders, `README.md` or one under `docs/`, and not in a man page or a plain-text file.
+It takes one of two forms, held to the same rules:
+
+- **A Mermaid block** for a flow or a sequence.
+- **An SVG pair** for a layout Mermaid does not place. `tools/generators/diagrams.py` draws each diagram once and writes
+  its light and dark variants under `docs/static/diagrams/`, which `REUSE.toml` releases under CC-BY-4.0 so a page
+  elsewhere may reuse a diagram with attribution; the generator stays under the project licence. The page embeds
+  the pair through `<picture>` with a `prefers-color-scheme` source. `tools/format.sh` fills the `<picture>` block
+  as one paragraph, which stays valid HTML.
+
+**A colour says whose a thing is**, and means the same on every SVG pair: you, the sandbox account and the coding agent,
+the shared tree, root and what stays out of the coding agent's reach, your own group, and what is outside or leaves
+the host. The theme table in `tools/generators/diagrams.py` states each colour key's meaning once, and a new layout
+picks a key by that meaning. A Mermaid block keeps GitHub's theme, since a colour set in the block does not switch
+between the light and dark themes.
+
+A diagram is dropped or renamed in one change on every side it has: the block, or the layout with its SVGs and the page
+embedding them, an SVG leaving through `git rm` and a renamed one through `git mv`. `tests/unit/diagrams.sh` reports
+the side left behind and a diagram without its caption.

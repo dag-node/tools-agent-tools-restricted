@@ -27,6 +27,11 @@ Only you push. The sandbox account does not hold any git credentials,
 so a session in the clone commits and does not reach the remote; the push is
 your step, made with your credentials, and the command does not run `sudo`.
 
+The push runs git as you over the clone's `.git`, which a session co-writes.
+A push URL, an SSH command or a credential helper set in `.git/config`,
+and a `pre-push` hook under `.git/hooks`, run with your credentials when you
+push. Read both before you confirm.
+
 ## What it refuses
 
 It does not take an option. One given is refused with exit 2 before anything is

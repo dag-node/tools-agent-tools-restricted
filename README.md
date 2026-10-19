@@ -1,10 +1,10 @@
 # Agent Tools Restricted
 
 [![CI](https://github.com/dag-node/tools-agent-tools-restricted/actions/workflows/ci.yml/badge.svg)](https://github.com/dag-node/tools-agent-tools-restricted/actions/workflows/ci.yml)
-[![License: AGPL
-v3](https://img.shields.io/badge/license-AGPL--3.0-blue.svg)](LICENSE)
-[![Platform: EL 9 | EL
-10](https://img.shields.io/badge/platform-EL%209%20%7C%20EL%2010-blue.svg)](#requirements)
+[![License:
+AGPL-3.0-only](https://img.shields.io/badge/license-AGPL--3.0--only-blue.svg)](LICENSE)
+[![Platform: EL 9 | EL 10 | Fedora
+44](https://img.shields.io/badge/platform-EL%209%20%7C%20EL%2010%20%7C%20Fedora%2044-blue.svg)](#requirements)
 [![Website:
 tools.dagnode.com](https://img.shields.io/badge/website-tools.dagnode.com-blue.svg)](https://tools.dagnode.com/agents)
 
@@ -18,8 +18,12 @@ under their own locked-down system account."> </p>
 Agent Tools Restricted runs autonomous coding agents under a dedicated,
 unprivileged system user (`ai-tools`) with tightly scoped privileges, SELinux
 confinement, ownership hand-back, and automatic toolchain updates. The agent
-never runs as you. Claude Code is the first supported agent; the confinement,
-ownership-handback, and toolchain machinery are deliberately agent-agnostic.
+never runs as you. Claude Code and Codex are the first two supported agents;
+the confinement, ownership-handback, and toolchain machinery are deliberately
+agent-agnostic.
+
+[Permissions model](docs/projects/permissions.md) is special, read it
+before using this project.
 
 **Scope.** The model defends the host from the agent *while it runs*. It does
 not make agent-written code safe for you to execute afterwards, and reviewing
@@ -47,11 +51,11 @@ at a glance](#architecture-at-a-glance) · [From source](#from-source) ·
 
 ## Requirements
 
-**Enterprise Linux 9 or 10** — RHEL and its rebuilds — with systemd, `sudo`,
-and POSIX ACL support on the filesystem holding your projects. SELinux
-in enforcing mode confines the session; without it the stack runs in a DAC-only
-posture. The full list, and what the install needs the network for, are
-in [docs/install/index.md](docs/install/index.md).
+**Enterprise Linux 9 or 10** — RHEL and its rebuilds — or **Fedora 44**,
+with systemd, `sudo`, and POSIX ACL support on the filesystem holding your
+projects. SELinux in enforcing mode confines the session; without it the stack
+runs in a DAC-only posture. The full list, and what the install needs
+the network for, are in [docs/install/index.md](docs/install/index.md).
 
 > [!WARNING]
 > **Pre-1.0 and fast moving.** Ahead of 1.0, interfaces, package layout, CLI
@@ -78,32 +82,50 @@ sudo dnf install https://rpm.dagnode.com/dagnode-release-latest.noarch.rpm      
 sudo dnf install https://rpm.dagnode.com/fedora/dagnode-release-latest.noarch.rpm  # Fedora 44
 
 # Sandbox
-sudo dnf install ai-tools-selinux ai-tools-agents-claude-code-restricted  # Claude Code
-sudo dnf install ai-tools-selinux ai-tools-agents-codex-restricted        # Codex
-sudo dnf install ai-tools-integration-dotnet                              # .NET projects
-sudo dnf install ai-tools-integration-typesafe                            # TypeSafe for RLCD
+sudo dnf install ai-tools-base ai-tools-selinux          # account, CLI, confinement
+
+# Node.js (with automatic updates)
+sudo dnf install ai-tools-integration-nodejs             # nvm, Node, update timer
+
+# Coding agents
+sudo dnf install ai-tools-agents-claude-code-restricted  # Claude Code
+sudo dnf install ai-tools-agents-codex-restricted        # Codex
+
+# Integrations
+sudo dnf install ai-tools-integration-dotnet             # .NET projects
+sudo dnf install ai-tools-integration-typesafe           # TypeSafe for RLCD
+
+# Assets (from https://github.com/dag-node/ai-tools-assets)
+sudo dnf install ai-tools-assets-sets-core               # shared skills and subagents
+
+# Assets tooling (optional)
+sudo dnf install ai-tools-assets-tools                   # check, build and sign a set
+
+# Full stack (all above)
+sudo dnf install 'ai-tools-*'
 ```
 
-Run the line for the agent you want: each one is a complete install on its own,
-and naming more than one agent package puts several agents on the host —
-[Scope](docs/about/scope.md) covers what they then share. An agent package
-requires `ai-tools-base` and `ai-tools-integration-nodejs`, so the sandbox
-account, the CLI, and the Node toolchain come with it; `ai-tools-selinux` is
-named beside it because it is a `Recommends`, and a minimal image installing
-without weak dependencies would otherwise come up unconfined. The `ai-tools`
-metapackage takes every agent and every integration in one command instead.
+A coding agent package requires `ai-tools-base`
+and `ai-tools-integration-nodejs`, so one coding agent line installs
+the sandbox account, the CLI and the Node toolchain with it. `ai-tools-selinux`
+is named on the sandbox line because `ai-tools-base` only recommends it,
+and a minimal image installing without weak dependencies would otherwise come
+up unconfined. Naming more than one coding agent package puts several coding
+agents on the host — [Scope](docs/about/scope.md) covers what they then share.
 `ai-tools providers` lists what is installed and which of it is enabled.
 
-Then finish setup. An installed agent package puts its wrapper, hooks,
-and manifest on the host and leaves the agent itself off: `system bootstrap`
-asks which installed agent to enable, records the answer in `AI_TOOLS_AGENTS`
-(`/etc/ai-tools/operator.conf`, root-owned), and only then fetches that agent's
-npm package into the sandbox toolchain — `--agents agent-<name>` makes
-the choice without asking. The first two commands are independent of each other
-and both run before the third:
+Then finish setup. An installed coding agent package puts its wrapper, hooks,
+and manifest on the host and leaves the coding agent itself
+off: `system bootstrap` asks which installed coding agent to enable, records
+the answer in `AI_TOOLS_AGENTS` (`/etc/ai-tools/operator.conf`, root-owned),
+and only then fetches that coding agent's npm package into the sandbox
+toolchain — `--agents agent-<name>` makes the choice without asking.
+An installed asset set stays off until it is enabled. The root commands are
+independent of each other and run before the first project:
 
 ```bash
-sudo ai-tools-admin system bootstrap             # Node, nvm, the agent you pick, the update timer
+sudo ai-tools-admin system bootstrap             # Node, nvm, the coding agent you pick, the update timer
+sudo ai-tools-admin assets enable --set core     # the core skills, in every enabled coding agent
 sudo ai-tools-admin operators add "$(id -un)"    # enrol yourself: operator.conf + ai-ops
 ai-tools projects create ~/src/demo              # a new project, claimed, no prompts
 cd ~/src/demo && claude
@@ -193,6 +215,38 @@ published as signed
 [releases](https://github.com/dag-node/ai-tools-assets/releases).
 
 ## Architecture at a glance <a id="ref-section-e7g6"></a>
+
+<a id="ref-diagram-z9p7"></a>**The system overview**
+
+<picture> <source media="(prefers-color-scheme: dark)"
+srcset="docs/static/diagrams/system-overview-dark.svg"> <source
+media="(prefers-color-scheme: light)"
+srcset="docs/static/diagrams/system-overview-light.svg"> <img alt="System
+overview: your shell runs the coding-agent wrapper
+/usr/local/bin/{coding-agent-name} as you; it checks ai-ops membership
+and other gates, then calls a sudo rule of the operators group
+in /etc/sudoers.d/ai-tools, which holds two, to launch a session and to stop
+every session. ~/.config/ai-tools holds your allowlist, maintained
+with the ai-tools projects CLI, and your secret-patterns file, which you edit
+and the root helpers read to lock secret-named files away. The ai-tools CLI
+runs as you, claims projects, keeps your allowlist and reports status,
+and takes its root steps through sudo; ai-tools-admin runs as root alone,
+enrols operators and provisions the toolchain and the SELinux policy. The rule
+starts ai-tools-run as the sandbox account ai-tools, which has no login shell,
+password or sudo rule. ai-tools-run checks the entrypoint pin and starts
+a restricted transient systemd service in ai_tools_t, where the coding agent's
+versioned file from .nvm reads and writes the claimed project. After each tool
+call and turn, coding-agent hooks ask the root handback daemon, which checks
+the caller's uid by kernel credential, to hand written files back: owned
+by you, reached by the coding agent through group bits, with world access
+removed. Secret-named files such as .env, *.key and *.pem are locked to you
+at mode 600 before a claim grants anything, owner-only paths stay closed,
+and the coding agent reaches the files you write through the ACL grant a claim
+writes. Prompts and file contents go to the model service. nvm-update.timer,
+running as ai-tools, installs Node and each coding agent's package from npm
+once their signatures verify; a root watcher verifies, pins and labels the new
+entrypoint; root helpers log to /var/log/ai-tools, which root alone reads."
+src="docs/static/diagrams/system-overview-light.svg"> </picture>
 
 ```
 you type `claude`

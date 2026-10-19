@@ -14,6 +14,7 @@ cannot fix -- a message code's name is a runtime string, and rewording one is a 
 | Id | Reftag | Name | File | Cited by | Emitter |
 |---|---|---|---|---|---|
 | u6y5 | [URI-U6Y5](https://github.com/dag-node/ai-tools-assets/blob/main/sets/core/skills/ai-tools-reftags/SKILL.md#ref-section-h9b7) | The reftags skill's reference rule, at the latest core release | .claude/rules/authoring.rule.md | .claude/rules/authoring.rule.md |  |
+| q8z7 | [ref-section-q8z7](rules/cli.rule.md#ref-section-q8z7) | The Node version line | .claude/rules/cli.rule.md | .claude/rules/updater.rule.md |  |
 | r8u5 | [ref-section-r8u5](rules/cli.rule.md#ref-section-r8u5) | Sandbox-user units and the `?` line | .claude/rules/cli.rule.md | .claude/rules/updater.rule.md, src/usr/local/bin/ai-tools.sh, src/usr/local/libexec/ai-tools/ai-tools-admin.sh |  |
 | w9g8 | [ref-section-w9g8](rules/cli.rule.md#ref-section-w9g8) | What a stamp is read for | .claude/rules/cli.rule.md | .claude/rules/updater.rule.md |  |
 | z3p9 | [ref-section-z3p9](rules/cli.rule.md#ref-section-z3p9) | Acting for another operator (`--for`) | .claude/rules/cli.rule.md | docs/operators/service-accounts.md |  |
@@ -64,15 +65,19 @@ cannot fix -- a message code's name is a runtime string, and rewording one is a 
 | b3k5 | [ref-section-b3k5](rules/updater.rule.md#ref-section-b3k5) | A refusal leaves a mark too | .claude/rules/updater.rule.md | .claude/rules/cli.rule.md |  |
 | j9w8 | [ref-section-j9w8](rules/updater.rule.md#ref-section-j9w8) | The labelling half leaves a record too | .claude/rules/updater.rule.md | .claude/rules/cli.rule.md |  |
 | q7v4 | [ref-section-q7v4](rules/updater.rule.md#ref-section-q7v4) | Two tiers, and what each one claims | .claude/rules/updater.rule.md | CLAUDE.md |  |
-| b8h3 | [ref-section-b8h3](rules/updater.rule.md#ref-section-b8h3) | Three outcomes, and only one of them is tamper | .claude/rules/updater.rule.md | .claude/rules/shipped-assets.rule.md, src/usr/local/lib/ai-tools/assets-verify.lib.sh |  |
+| b8h3 | [ref-section-b8h3](rules/updater.rule.md#ref-section-b8h3) | Three outcomes, and only one of them is tamper | .claude/rules/updater.rule.md | .claude/rules/shipped-assets.rule.md, src/usr/local/lib/ai-tools/assets-verify.lib.sh, src/usr/local/lib/ai-tools/openpgp.lib.sh |  |
 | z2h7 | [ref-section-z2h7](rules/updater.rule.md#ref-section-z2h7) | Design notes | .claude/rules/updater.rule.md | src/opt/ai-tools/bin/nvm-update.sh |  |
 | e7n8 | [ref-section-e7n8](../CLAUDE.md#ref-section-e7n8) | Security model — what `SANDBOX_USER` can and cannot do | CLAUDE.md | README.md, docs/about/index.md |  |
 | g6c4 | [ref-section-g6c4](../CLAUDE.md#ref-section-g6c4) | What is expected of the agent where a control leaves a choice | CLAUDE.md | .claude/rules/launch.rule.md, README.md |  |
 | x6a9 | [ref-section-x6a9](../CLAUDE.md#ref-section-x6a9) | Boundaries and non-goals | CLAUDE.md | .claude/rules/confinement.rule.md, .claude/rules/dotnet.rule.md, .claude/rules/launch.rule.md, .claude/rules/providers.rule.md, docs/about/scope.md, docs/operators/service-accounts.md |  |
 | e7g6 | [ref-section-e7g6](../README.md#ref-section-e7g6) | Architecture at a glance | README.md | docs/install/from-source.md |  |
+| z9p7 | [ref-diagram-z9p7](../README.md#ref-diagram-z9p7) | The system overview | README.md |  |  |
 | g6d8 | [ref-section-g6d8](../docs/development/release.md#ref-section-g6d8) | For maintainers: cutting a release | docs/development/release.md | tools/README.md |  |
 | y2t3 | [ref-section-y2t3](../docs/install/from-source.md#ref-section-y2t3) | 1. Install the PATH ordering fragment (root, once) | docs/install/from-source.md | docs/about/index.md, docs/agents/index.md |  |
 | y5t4 | [ref-section-y5t4](../docs/install/upgrade.md#ref-section-y5t4) | 0.24.0: the skills move to the asset set core | docs/install/upgrade.md | docs/development/shipped-assets.md, docs/system/index.md |  |
+| t3q8 | [ref-diagram-t3q8](../docs/naming-conventions.md#ref-diagram-t3q8) | The identities and their groups | docs/naming-conventions.md |  |  |
+| r3t3 | [ref-diagram-r3t3](../docs/projects/permissions.md#ref-diagram-r3t3) | The life of a file in a claimed project | docs/projects/permissions.md |  |  |
+| j7k9 | [ref-diagram-j7k9](../docs/projects/permissions.md#ref-diagram-j7k9) | The two grants on a claimed project | docs/projects/permissions.md |  |  |
 | f5q2 | [ref-section-f5q2](../docs/rpm-packaging.md#ref-section-f5q2) | Installing and upgrading | docs/rpm-packaging.md | docs/install/upgrade.md |  |
 | a6s8 | [ref-section-a6s8](../docs/rpm-packaging.md#ref-section-a6s8) | Signing and distribution | docs/rpm-packaging.md | docs/development/release.md |  |
 | g7c5 | [ref-section-g7c5](../docs/system/selinux.md#ref-section-g7c5) | Denials a healthy session raises | docs/system/selinux.md | docs/agents/codex.md |  |

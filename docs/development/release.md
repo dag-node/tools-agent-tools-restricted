@@ -201,10 +201,18 @@ what CI cannot see.
 ### 1. Cut a release candidate (tag on `develop`)
 
 ```bash
-echo 0.6.3 > packaging/VERSION
-git commit -am "chore(release): bump VERSION to 0.6.3"
+cat packaging/VERSION             # 0.6.3, set by step 3 of the previous release
+git tag -s v0.6.3-rc.1 -m "ai-tools v0.6.3-rc.1" && git push origin v0.6.3-rc.1
+```
+
+Step 3 of the previous release sets `packaging/VERSION` to the version this
+cycle anticipated. Where the release is a different one, commit the number
+before the tag:
+
+```bash
+echo 0.7.0 > packaging/VERSION
+git commit -am "chore(release): bump VERSION to 0.7.0"
 git push
-git tag -s v0.6.3-rc.1 -m "v0.6.3-rc.1" && git push origin v0.6.3-rc.1
 ```
 
 An RC carries the *next* version (SemVer: `0.6.3-rc.1` sorts after the released
@@ -221,13 +229,18 @@ merges, no re-tags.
 ```bash
 # on develop, pointing at the last green RC commit:
 vi packaging/ai-tools.spec        # finalize the %changelog entry for 0.6.3
+bash tools/generators/ref-index.sh generate
 git commit -am "chore(release): finalize %changelog for 0.6.3"
 git push
 gh pr create --base main --head develop --title "release: 0.6.3" --body ""
 gh pr merge --merge --admin           # a merge commit, through the admin bypass
 git switch main && git pull
-git tag -s v0.6.3 -m "v0.6.3" && git push origin v0.6.3
+git tag -s v0.6.3 -m "ai-tools v0.6.3" && git push origin v0.6.3
 ```
+
+An entry that names a message code or a reftag makes the spec a citer of it,
+and the `dev-tools` check fails until `ref-index.sh generate` has rewritten
+`.claude/references.md`.
 
 `main` takes changes only through a pull request with a review and a green
 `shellcheck`, and refuses a direct push. The release merge is that pull

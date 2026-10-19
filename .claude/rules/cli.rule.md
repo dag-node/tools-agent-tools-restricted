@@ -274,26 +274,29 @@ an ordinary account read it — a partial view, the file sink being the authorit
   to `stop.log` and journald, including which path gave consent and which pass ended each session. Exit codes are
   in `ai-tools(1)`.
 - `status` — read-only health report: the installed `ai-tools` version, the Node version the enabled agents' stable
-  launcher links point into (the link's target read one hop with `readlink` and never followed, the read the launch
-  wrapper makes; every path that changes Node repoints the link, so the line is current after a bootstrap
-  as after an update, with the version the updater's last run recorded shown beside it only where the two differ —
-  the one fact a link cannot carry, that the toolchain changed after that run — and links naming different versions
-  reported as such; the decision is `ai_tools_toolchain__evaluate_node_versions` in `toolchain.lib.sh`, so this report
-  and `ai-tools-admin status` render one answer), a version pointer per enabled agent whose wrapper is installed,
-  which enabled agents are provisioned (one line each, from the read the bootstrap gate makes — see [Bootstrap
-  preflight](#bootstrap-preflight)) and, under each, every managed file its manifest names whose live copy is not
-  the shipped one (`managed_files`, [providers](providers.rule.md): an edited file is reported with its two consequences
-  and not counted, a missing one is counted, since the package is then broken), then each installed agent that is not
-  enabled and still has its launcher link (residue, counted: no launch starts until the provisioning run it names
-  removes the package), **where this shell finds each enabled agent's launcher**, then each managed systemd unit
-  the `services.lib.sh` registry names as OK / SKIPPED / STALE / DOWN / FAILED / not-installed, with the consequence
-  and the exact remedy for anything broken, and a closing **More** block that points at the sibling reports
-  (`providers`, `projects list`, `--help`) without repeating their detail — so it reads as a hub. That registry is
-  the **same one** the launch wrapper's pre-launch health warning reads (`ai-tools-launch`, see
-  [launch](launch.rule.md)), so the status view and the launch warning never disagree on which units matter
-  or how to fix one, and the rows live there alone. `status` runs ahead of the bootstrap gate, as the other diagnostics
-  do (see [Bootstrap preflight](#bootstrap-preflight)), so it reports the unprovisioned state rather than being blocked
-  by it.
+  launcher links point into, a version pointer per enabled agent whose wrapper is installed, which enabled agents are
+  provisioned (one line each, from the read the bootstrap gate makes — see [Bootstrap preflight](#bootstrap-preflight))
+  and, under each, every managed file its manifest names whose live copy is not the shipped one (`managed_files`,
+  [providers](providers.rule.md): an edited file is reported with its two consequences and not counted, a missing one is
+  counted, since the package is then broken), then each installed agent that is not enabled and still has its launcher
+  link (residue, counted: no launch starts until the provisioning run it names removes the package), **where this shell
+  finds each enabled agent's launcher**, then each managed systemd unit the `services.lib.sh` registry names as OK /
+  SKIPPED / STALE / DOWN / FAILED / not-installed, with the consequence and the exact remedy for anything broken,
+  and a closing **More** block that points at the sibling reports (`providers`, `projects list`, `--help`) without
+  repeating their detail — so it reads as a hub. That registry is the **same one** the launch wrapper's pre-launch
+  health warning reads (`ai-tools-launch`, see [launch](launch.rule.md)), so the status view and the launch warning
+  never disagree on which units matter or how to fix one, and the rows live there alone. `status` runs ahead
+  of the bootstrap gate, as the other diagnostics do (see [Bootstrap preflight](#bootstrap-preflight)), so it reports
+  the unprovisioned state rather than being blocked by it.
+
+  <a id="ref-section-q8z7"></a>**The Node version line**
+
+  The report reads each stable launcher link's target one hop with `readlink` and never follows it, the read the launch
+  wrapper makes. Every path that changes Node repoints the link, so the line is current after a bootstrap
+  as after an update. The version the updater's last run recorded is shown beside it only where the two differ — the one
+  fact a link cannot carry, that the toolchain changed after that run — and links naming different versions are reported
+  as such. The decision is `ai_tools_toolchain__evaluate_node_versions` in `toolchain.lib.sh`, so this report
+  and `ai-tools-admin status` render one answer.
 
   The PATH-ordering line is the one reading this report makes that needs **no** privilege and that no other vantage can
   make at all: the CLI runs in the operator's own login shell, so `command -v` there resolves exactly what typing

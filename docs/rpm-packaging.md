@@ -22,9 +22,18 @@ ai-tools.spec  (one source RPM, BuildArch: noarch)
  │   ├─ ai-tools-integration-nodejs               Requires: ai-tools-base
  │   ├─ ai-tools-integration-dotnet               Requires: ai-tools-base  (host dotnet; no dotnet RPM dep)
  │   └─ ai-tools-integration-typesafe             Requires: ai-tools-integration-nodejs
- └─ ai-tools-agents             Recommends: ai-tools-agents-claude-code-restricted
-     └─ ai-tools-agents-claude-code-restricted    Requires: ai-tools-integration-nodejs
+ └─ ai-tools-agents             Recommends: ai-tools-agents-{claude-code,codex}-restricted
+     ├─ ai-tools-agents-claude-code-restricted    Requires: ai-tools-integration-nodejs
+     └─ ai-tools-agents-codex-restricted          Requires: ai-tools-integration-nodejs
 ```
+
+The same repository serves two packages built elsewhere: the asset set
+`ai-tools-assets-sets-core`,
+from [ai-tools-assets](https://github.com/dag-node/ai-tools-assets),
+which `ai-tools-base` recommends, and `ai-tools-assets-tools`, the tools
+that check, build and sign a set,
+from [ai-tools-assets-tools](https://github.com/dag-node/ai-tools-assets-tools),
+which no package here depends on.
 
 `ai-tools-base` carries the sandbox account, the project-management workflow,
 and the ownership/secret machinery — everything independent of which AI tool
@@ -43,10 +52,10 @@ glue for a host-managed .NET toolchain (inert without one),
 to and a credential file that is inert until an operator sets the key
 ([Decide](sessions/decide.md)), and further integrations join
 as `ai-tools-integration-*` siblings. The `ai-tools-agents` umbrella groups
-the sandboxed agents: `ai-tools-agents-claude-code-restricted` is the Claude
-Code provider layer, and other providers join as `ai-tools-agents-*` siblings
-on the same base and integration layers, so the base is shared rather than
-duplicated.
+the sandboxed coding agents: `ai-tools-agents-claude-code-restricted` is
+the Claude Code provider layer, `ai-tools-agents-codex-restricted` the Codex
+one, and further providers join as `ai-tools-agents-*` siblings on the same
+base and integration layers, so the base is shared rather than duplicated.
 
 The `ai-tools` metapackage `Requires` the base (the mandatory foundation)
 and weakly `Recommends` both umbrellas, each of which weakly `Recommends` its
@@ -129,6 +138,7 @@ between versions.
 | `ai-tools-integration-dotnet` | the dotnet session-env fragment (`session-env.d/dotnet.env.sh`), manifest (`integrations.d/dotnet.conf`) and the `dotnet` domain of `ai-tools-admin` (`admin-commands.d/dotnet`), which provisions a writable NuGet cache + read-only shared tools under its own `/opt/ai-tools/integrations/dotnet` state root, covered by the base's single fcontext rule for that tree. No .NET runtime — the host's dotnet is used |
 | `ai-tools-integration-typesafe` | the decide command (`/usr/local/lib/ai-tools/typesafe`, JavaScript the sandbox's Node runs, with no runtime dependency), its session-env fragment (`session-env.d/typesafe.env.sh`) and manifest (`integrations.d/typesafe.conf`), the credential file `/etc/ai-tools/endpoints/typesafe.conf` (`%config(noreplace)`, shipped with the key commented) and its `ai-tools-typesafe.conf(5)` page, the `/opt/ai-tools/integrations/typesafe` state root the usage log lands in, and the pristine copy of the `ai-tools-typesafe-filter` skill, which its `%post` seeds and links and its `%postun` withdraws |
 | `ai-tools-agents-claude-code-restricted` | the `claude` command, a symlink to `ai-tools-launch`, and its launch hook (`launch.d/claude-code.sh`, the custom system prompt); `/opt/ai-tools/bin/claude`; the Claude Code hooks (`post-tool-hook.sh`, `session-hook.sh`) and `settings.json`; its agent manifest (`agents.d/claude-code.conf`, naming the npm package, launcher, display name, handback capability, config directory, and the SELinux entrypoint file-context for `claude.exe`); its own config directory `/opt/ai-tools/.claude`, the shipped Claude-format agents seeded into it, its session pins and session-env fragment (`session-env.d/claude-code.pins.env.sh`, `session-env.d/claude-code.env.sh`); the scriptlets that register that file-context on install and drop it on erase. Confinement itself is base-owned, so this package does not ship a shim and does not need a sudoers rule of its own |
+| `ai-tools-agents-codex-restricted` | the `codex` command, a symlink to `ai-tools-launch`; its agent manifest (`agents.d/codex.conf`, naming the npm package, the vendor binary the launcher is re-linked at, and its SELinux entrypoint file-context) and session pins (`session-env.d/codex.pins.env.sh`); its own config directory `/opt/ai-tools/.codex` with the two handback hooks; codex's managed files `/etc/codex/requirements.toml` and `/etc/codex/managed_config.toml` (`%config(noreplace)`), which pin the session to the host's confinement and declare those hooks as the only hooks, with pristine copies under `/usr/share/ai-tools/codex` for the status reports; the scriptlets that register the file-context, link the shared skills into `/etc/codex/skills` and the orientation text into `.codex`, and on final erase drop the file-context, the skills link, codex's npm package and its launcher link. Like Claude Code, it ships disabled and does not need a shim or a sudoers rule of its own |
 
 The handback daemon is a verb dispatcher over a helper table; the generic verbs
 (`CHOWN`, `SETGID`, `SETFACL`) and the daemon live in the base, while
@@ -292,6 +302,13 @@ that instance, so a changed unit is in force after an upgrade without a reboot.
 `ai-tools-agents-claude-code-restricted`: `%post` applies the entrypoint
 file-context and, when SELinux is enabled, relabels `/opt/ai-tools/bin`; no
 service of its own.
+
+`ai-tools-agents-codex-restricted`: `%post` applies its entrypoint file-context
+the same way, links the shared skills into `/etc/codex/skills` where that path
+is free, and names a waiting `.rpmnew` of either managed file, since codex
+reads the live file alone; `%preun` on final erase drops the file-context,
+the skills link, codex's npm package and its launcher link. No service of its
+own.
 
 The `nvm-update` user units ship in `%{_userunitdir}`, so RPM owns them and one
 shipped copy serves the `ai-tools` instance that runs the timer.

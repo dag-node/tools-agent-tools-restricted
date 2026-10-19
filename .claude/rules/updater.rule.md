@@ -6,6 +6,7 @@ paths:
   - "src/usr/local/lib/ai-tools/sandbox-exec.lib.sh"
   - "src/usr/local/lib/ai-tools/npm-verify.lib.sh"
   - "src/usr/local/lib/ai-tools/entrypoint-verify.lib.sh"
+  - "src/usr/local/lib/ai-tools/openpgp.lib.sh"
   - "src/usr/local/lib/ai-tools/keys/**"
   - "src/usr/local/libexec/ai-tools/ai-tools-bootstrap.sh"
   - "src/usr/local/libexec/ai-tools/ai-tools-launcher-symlink.sh"
@@ -296,14 +297,15 @@ a stopped schedule surfaces at all. A run started by hand *through* the manager
 (`systemctl --user start nvm-update.service`) is indistinguishable from a triggered one and counts as `unit`:
 the inference is bounded to systemd-started runs, not to scheduled ones. `NODE` records the version the run left active;
 the status reports read the active version off the stable launcher links, which every writer of Node repoints, and print
-`NODE` beside it only where the two differ, which says the toolchain changed after this run (see [cli](cli.rule.md)).
-`REASON` is written only on a skip and says which transient condition ended the run — `offline`, or `clock` when a file
-this host wrote (the updater itself, the previous stamp, an entrypoint pin) is dated after the system clock
-(`ai_tools_conf__find_paths_ahead_of_clock`, `conf.lib.sh`), the state a host with no battery-backed clock boots
-into until it reaches a time source — so the report can state why a run made no change instead of leaving the operator
-to infer it. The `clock` skip runs before anything is downloaded or written, and its stamp keeps the previous run's
-`FINISHED` rather than dating a run with the wrong time, so the record ages into `STALE` as the condition persists.
-The launch wrapper and `ai-tools-run` make the same read and refuse a session under it ([launch](launch.rule.md)).
+`NODE` beside it only where the two differ, which says the toolchain changed after this run
+([ref-section-q8z7](cli.rule.md#ref-section-q8z7)). `REASON` is written only on a skip and says which transient
+condition ended the run — `offline`, or `clock` when a file this host wrote (the updater itself, the previous stamp,
+an entrypoint pin) is dated after the system clock (`ai_tools_conf__find_paths_ahead_of_clock`, `conf.lib.sh`),
+the state a host with no battery-backed clock boots into until it reaches a time source — so the report can state
+why a run made no change instead of leaving the operator to infer it. The `clock` skip runs before anything is
+downloaded or written, and its stamp keeps the previous run's `FINISHED` rather than dating a run with the wrong time,
+so the record ages into `STALE` as the condition persists. The launch wrapper and `ai-tools-run` make the same read
+and refuse a session under it ([launch](launch.rule.md)).
 
 ### What the stamp is trusted for <a id="ref-section-c8b7"></a>
 
@@ -942,15 +944,29 @@ in full.
 ### Three outcomes, and only one of them is tamper <a id="ref-section-b8h3"></a>
 
 The status contract is `npm-verify.lib.sh`'s, so the two gates in `nvm-update` read alike: `0` verified, `1`
-**mismatch**, `2` **unable to verify**. Keeping `1` and `2` apart is the whole usability of the feature, and `gpgv`'s
-own exit status separates them exactly — `1` for a signature it rejects, `2` for a key it does not hold.
+**mismatch**, `2` **unable to verify**. Keeping `1` and `2` apart is the whole usability of the feature. A signature's
+status comes from `gpgv`'s status lines, with its exit status one input: `gpgv` exits `0` for a signature by a key its
+keyring holds as expired or revoked and reports that on the status stream alone. A signature that does not match or has
+expired is `1`, a key the keyring does not hold and a signature file holding more than one signature are `2`, and a key
+the keyring holds as expired or revoked takes the status each verifier passes: `2` here, the rotation case, and `1`
+for an asset set ([shipped-assets](shipped-assets.rule.md)). A signature that decides `1` does so beside a second one
+in the file, so a signature added to the file does not turn a mismatch into a `2`.
 
 - **Mismatch** refuses, everywhere and unconditionally: the relabel fails, the updater declines to activate, the launch
   refuses. No configuration turns it off.
 - **Unable to verify** — offline, no manifest published for that release (they are per-release and not guaranteed), no
-  `gpgv`, an agent declaring no provenance, or a **vendor key rotation** — warns and proceeds, leaving any previous pin
-  standing. A rotation reporting as tamper would fail every host closed on an untouched binary, so the agent package
-  ships old and new keys in one keyring and declares both fingerprints for the overlap.
+  `gpgv`, an agent declaring no provenance, or a **vendor key rotation**, a key the shipped keyring holds as expired
+  or revoked included — warns and proceeds, leaving any previous pin standing. A rotation reporting as tamper would fail
+  every host closed on an untouched binary, so the agent package ships old and new keys in one keyring and declares both
+  fingerprints for the overlap.
+
+`openpgp.lib.sh` holds the reader both signature verifiers use, `ai_tools_openpgp__evaluate_gpgv_status`, whose doc
+comment holds the order its rows decide in, beside the armor-to-keyring conversion and the fingerprint predicate,
+so the set verifier and the release verifier hold one copy of the policy. The tools' `openpgp.py`
+(`ai-tools-assets-tools`) takes that policy for `check_signature`, so a set the tools' `verify-set` accepts carries
+a signature this host's set verifier accepts; the library's header states what a change to a row owes the tools. It does
+not source any other library. The set verifier requires it at load; the release verifier loads it when it verifies
+a release, so the launch-side pin check, which `ai-tools-run` sources on every launch, does not load it.
 
 `AI_TOOLS_REQUIRE_ENTRYPOINT_VERIFY` (`operator.conf`, read through `ai_tools_entrypoint_verify__is_required`
 so the updater and the launch cannot disagree about how strict the host is) turns the *unverifiable* case

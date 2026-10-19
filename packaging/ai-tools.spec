@@ -368,7 +368,7 @@ ln -s %{ai_bindir}/ai-tools %{buildroot}%{_sbindir}/ai-tools
 # SANDBOX_GROUP member under multi-operator) can traverse in to source the 644
 # world-readable libs by path without listing the dir. The 640 files self-protect.
 install -d -m 0751 %{buildroot}%{ai_libdir}
-for l in log msg conf settings-merge skip-dirs owner-only project-permissions relabel secret-patterns operator control-plane safe-paths launch-wrapper confinement npm-verify entrypoint-verify assets-verify assets managed-assets providers ancestor-config sandbox-exec toolchain cache-cleanup selinux-groups filters services path-order agent-installs records-base records-tsv; do
+for l in log msg conf settings-merge skip-dirs owner-only project-permissions relabel secret-patterns operator control-plane safe-paths launch-wrapper confinement npm-verify openpgp entrypoint-verify assets-verify assets managed-assets providers ancestor-config sandbox-exec toolchain cache-cleanup selinux-groups filters services path-order agent-installs records-base records-tsv; do
     install -m 0644 src%{ai_libdir}/${l}.lib.sh %{buildroot}%{ai_libdir}/${l}.lib.sh
 done
 # Provider manifest + fragment directories (base owns the dirs; each member package ships its own
@@ -398,14 +398,14 @@ install -m 0644 src%{ai_libdir}/filters.d/base.rules %{buildroot}%{ai_libdir}/fi
 # manifest against the key its manifest names, so the key is SHIPPED rather than fetched (a fetched
 # key proves only that whoever served the manifest served the key). Base ships one key of its own:
 # the dag-node package-signing key, the key rpm.dagnode.com serves, as published, and beside it the
-# binary keyring ai_tools_assets_verify__write_binary_keyring writes from it here (its doc says why gpgv needs
+# binary keyring ai_tools_openpgp__write_binary_keyring writes from it here (its doc says why gpgv needs
 # one). assets-verify.lib.sh verifies a set's SHA256SUMS.asc against the keyring a root-owned
 # binding names and asserts the signer's primary against that binding, so this file alone does not
 # decide what may sign a set.
 install -d -m 0755 %{buildroot}%{ai_libdir}/keys
 install -m 0644 src%{ai_libdir}/keys/dag-node-package-signing.asc %{buildroot}%{ai_libdir}/keys/dag-node-package-signing.asc
-bash -c '. "$1" && ai_tools_assets_verify__write_binary_keyring "$2" "$3"' _ \
-    src%{ai_libdir}/assets-verify.lib.sh \
+bash -c '. "$1" && ai_tools_openpgp__write_binary_keyring "$2" "$3"' _ \
+    src%{ai_libdir}/openpgp.lib.sh \
     src%{ai_libdir}/keys/dag-node-package-signing.asc \
     %{buildroot}%{ai_libdir}/keys/dag-node-package-signing.gpg
 chmod 0644 %{buildroot}%{ai_libdir}/keys/dag-node-package-signing.gpg
@@ -1386,6 +1386,7 @@ fi
 %attr(0644, root, root) %{ai_libdir}/launch-wrapper.lib.sh
 %attr(0644, root, root) %{ai_libdir}/confinement.lib.sh
 %attr(0644, root, root) %{ai_libdir}/npm-verify.lib.sh
+%attr(0644, root, root) %{ai_libdir}/openpgp.lib.sh
 %attr(0644, root, root) %{ai_libdir}/entrypoint-verify.lib.sh
 %attr(0644, root, root) %{ai_libdir}/assets-verify.lib.sh
 %attr(0644, root, root) %{ai_libdir}/assets.lib.sh
@@ -1589,6 +1590,29 @@ fi
 %attr(0644, root, root) %{_datadir}/ai-tools/codex/managed_config.toml
 
 %changelog
+* Mon Oct 19 2026 dagnode <tools@dagnode.com> - 0.26.0-1
+- SECURITY: An asset set whose signature is by a key the binding's keyring holds as expired or revoked,
+  or has itself expired, is refused as set-tampered, and a signature file holding more than one
+  signature as set-unverified. Each of them verified before. A release manifest signed by a key the
+  agent package's keyring holds as expired or revoked reads as unable to verify, so the previous pin
+  stands and AI_TOOLS_REQUIRE_ENTRYPOINT_VERIFY=yes refuses it; before, its checksum was pinned.
+- FIX: An asset set carrying an attestations/ entry is refused under the reason set.entry.reserved,
+  the token a record consumer reads ('man ai-tools-records'). Before, the row read set.entry.unknown.
+- DOCS: The about pages, the naming conventions and the permissions page carry diagrams of the
+  system, its two gates, its identities, and a file's lifecycle and grants, and docs/index.md lists
+  every page under its category.
+- DOCS: The push page states that 'ai-tools projects push' runs git over the clone's .git, which a
+  session co-writes, so a push URL, an SSH command or a pre-push hook set there runs under your
+  credentials; read .git/config and .git/hooks before confirming.
+- DOCS: The README's package install puts the sandbox, Node.js, each coding agent, the integrations,
+  the asset set core and its tooling on lines of their own, with 'ai-tools-*' for the full stack,
+  and enables the core set in its setup steps. It names Fedora 44 beside EL 9 and EL 10, and
+  docs/rpm-packaging.md names the Codex agent package.
+- LICENSE: The licence texts under LICENSES/ and the root LICENSE are the SPDX License List's copies,
+  and LICENSES/MIT.txt keeps the published placeholder holder line. Earlier releases carried the FSF's
+  copies of the GNU licences and a filled MIT holder line.
+- LICENSE: The documentation diagrams under docs/static/diagrams/ are released under CC-BY-4.0.
+
 * Thu Oct 15 2026 dagnode <tools@dagnode.com> - 0.25.0-1
 - CHANGE: The asset set core's package is ai-tools-assets-sets-core, the name base recommends and
   'sudo ai-tools-admin status' prints when the set is missing; the plugin keeps the name ai-tools-assets-core.

@@ -694,10 +694,10 @@ end_session() {
 #
 # BOUNDED IN TIME, because "the user manager is wedged" is not a hypothetical here -- it is one of the states
 # an operator reaches for this command IN. A d-bus call to a hung manager blocks indefinitely, and a stop that hangs
-# while attributing sessions is a stop that did not happen, which is the one outcome this file exists to prevent. Both
-# calls therefore run under a short `timeout`, and every way that can fail -- the manager not answering, `timeout`
-# itself absent -- returns an empty WorkingDirectory, which refuses the SCOPED form and sends the operator to `--all`.
-# `--all` does not read one at all, so the undeclinable form cannot be delayed by this.
+# while attributing sessions is a stop that did not happen, which is the one outcome this file exists to prevent. Every
+# session is attributed before the first one is ended, so both calls run under a short `timeout`, and every way that
+# can fail -- the manager not answering, `timeout` itself absent -- returns an empty WorkingDirectory. That session
+# reads as `unknown` in the table, without a `projects handback` line, and is stopped like any other.
 unit_working_directory() {
     local raw
     raw="$(timeout 5 systemctl --user -M "${SANDBOX_USER}@.host" show --property=WorkingDirectory "$1" 2>/dev/null)"

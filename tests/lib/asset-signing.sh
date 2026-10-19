@@ -5,23 +5,48 @@
 # inventory written in build-set's shape, a detached armored signature over it as release-steps.sh makes one, a binding
 # naming the key, and a set built to pass every rule base enforces and sealed that way. gpg makes the keys
 # and the signatures; gpgv alone verifies, as on a host. Sourced after harness.sh and the set verifier (whose
-# ai_tools_assets_verify__write_binary_keyring writes each keyring) by tests/unit/assets-verify.sh, tests/unit/assets.sh
-# and tests/unit/admin-assets.sh. The caller sets ASSET_KEYS_DIR (each key's armored export and keyring, and its
-# GNUPGHOME beside them) and ASSET_BINDINGS_DIR, both root-owned 0755, before the first call; every file written here is
+# openpgp.lib.sh supplies ai_tools_openpgp__write_binary_keyring for each keyring) by tests/unit/assets-verify.sh,
+# tests/unit/assets.sh and tests/unit/admin-assets.sh. The caller sets ASSET_KEYS_DIR (each key's armored export
+# and keyring, and its GNUPGHOME beside them) and ASSET_BINDINGS_DIR, both root-owned 0755, before the first call; every
+# file written here is
 # 0644.
 
-# asset_signing_gen_key <var> <name> : make a throwaway key <name> in its own GNUPGHOME, write its armored public key
-# and the binary keyring gpgv reads as <name>.asc and <name>.gpg, and assign its primary fingerprint to <var>.
+# asset_signing_gen_key <var> <name> [expiry] [faked-time] : make a throwaway key <name> in its own GNUPGHOME, write its
+# armored public key and the binary keyring gpgv reads as <name>.asc and <name>.gpg, and assign its primary fingerprint
+# to <var>. <expiry> is gpg's (`never` by default, `1d` for a day). <faked-time>, an ISO time such as 20200101T000000,
+# goes into the key's gpg.conf as faked-system-time, so the key is made, and every later signature by it is made,
+# at that time: a one-day key made in 2020 has expired by the time gpgv reads its signature.
 asset_signing_gen_key() {
     local -n _asset_signing_fpr="$1"
-    local name="$2" home="${ASSET_KEYS_DIR}/gnupg-$2"
+    local name="$2" expiry="${3:-never}" faked_time="${4:-}" home="${ASSET_KEYS_DIR}/gnupg-$2"
     mkdir -p "${home}"; chmod 0700 "${home}"
+    if [[ -n "${faked_time}" ]]; then
+        printf 'faked-system-time %s\n' "${faked_time}" > "${home}/gpg.conf"
+    fi
     GNUPGHOME="${home}" gpg --batch --quiet --passphrase '' --quick-gen-key "ai-tools test ${name} <${name}@acme.example>" \
-        default default never 2>/dev/null
+        default default "${expiry}" 2>/dev/null
     _asset_signing_fpr="$(GNUPGHOME="${home}" gpg --batch --with-colons --list-keys | awk -F: '$1 == "fpr" { print $10; exit }')"
-    GNUPGHOME="${home}" gpg --batch --armor --export "${_asset_signing_fpr}" > "${ASSET_KEYS_DIR}/${name}.asc"
-    ai_tools_assets_verify__write_binary_keyring "${ASSET_KEYS_DIR}/${name}.asc" "${ASSET_KEYS_DIR}/${name}.gpg"
+    asset_signing_export_key "${name}" "${_asset_signing_fpr}"
+}
+
+# asset_signing_export_key <name> <fpr> : write the key's armored public key and its binary keyring as <name>.asc
+# and <name>.gpg, from the key's GNUPGHOME as it stands, revocations included.
+asset_signing_export_key() {
+    local name="$1" fpr="$2" home="${ASSET_KEYS_DIR}/gnupg-$1"
+    GNUPGHOME="${home}" gpg --batch --armor --export "${fpr}" > "${ASSET_KEYS_DIR}/${name}.asc"
+    ai_tools_openpgp__write_binary_keyring "${ASSET_KEYS_DIR}/${name}.asc" "${ASSET_KEYS_DIR}/${name}.gpg"
     chmod 0644 "${ASSET_KEYS_DIR}/${name}.asc" "${ASSET_KEYS_DIR}/${name}.gpg"
+}
+
+# asset_signing_revoke_key <name> <fpr> : revoke the key with the certificate gpg wrote at its generation, then export
+# it again, so <name>.gpg holds the key with its revocation. The certificate's armor opens with `:` so an accidental
+# import does not revoke the key; the `:` is removed before the import. Returns non-zero when no certificate is there.
+asset_signing_revoke_key() {
+    local name="$1" fpr="$2" home="${ASSET_KEYS_DIR}/gnupg-$1"
+    [[ -f "${home}/openpgp-revocs.d/${fpr}.rev" ]] || return 1
+    sed 's/^:-----BEGIN/-----BEGIN/' "${home}/openpgp-revocs.d/${fpr}.rev" > "${home}/revocation.asc"
+    GNUPGHOME="${home}" gpg --batch --quiet --import "${home}/revocation.asc" 2>/dev/null
+    asset_signing_export_key "${name}" "${fpr}"
 }
 
 # asset_signing_write_inventory <set-dir> : SHA256SUMS as build-set writes it, every file but the inventory and its
@@ -38,11 +63,15 @@ asset_signing_write_inventory() {
     chmod 0644 "${set_dir}/SHA256SUMS"
 }
 
-# asset_signing_sign <set-dir> <key-name> : sign the set's inventory with the key <key-name>, armored and detached.
+# asset_signing_sign <set-dir> <key-name> [gpg option...] : sign the set's inventory with the key <key-name>, armored
+# and detached; an option given (`--default-sig-expire 1d`) reaches gpg ahead of the command.
 asset_signing_sign() {
-    rm -f "$1/SHA256SUMS.asc"
-    GNUPGHOME="${ASSET_KEYS_DIR}/gnupg-$2" gpg --batch --quiet --armor --detach-sign --output "$1/SHA256SUMS.asc" "$1/SHA256SUMS"
-    chmod 0644 "$1/SHA256SUMS.asc"
+    local set_dir="$1" key_name="$2"
+    shift 2
+    rm -f "${set_dir}/SHA256SUMS.asc"
+    GNUPGHOME="${ASSET_KEYS_DIR}/gnupg-${key_name}" gpg --batch --quiet "$@" --armor --detach-sign \
+        --output "${set_dir}/SHA256SUMS.asc" "${set_dir}/SHA256SUMS"
+    chmod 0644 "${set_dir}/SHA256SUMS.asc"
 }
 
 # asset_signing_write_binding <set> <keyring-file> <signer>... : a binding naming the keyring and the signers,

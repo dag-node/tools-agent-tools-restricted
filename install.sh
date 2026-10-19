@@ -1038,6 +1038,7 @@ do_summary() {
     _chk /usr/local/lib/ai-tools/launch-wrapper.lib.sh
     _chk /usr/local/lib/ai-tools/confinement.lib.sh
     _chk /usr/local/lib/ai-tools/npm-verify.lib.sh
+    _chk /usr/local/lib/ai-tools/openpgp.lib.sh
     _chk /usr/local/lib/ai-tools/entrypoint-verify.lib.sh
     _chk /usr/local/lib/ai-tools/assets-verify.lib.sh
     _chk /usr/local/lib/ai-tools/assets.lib.sh
@@ -1429,6 +1430,14 @@ do_install() {
         "${SCRIPT_DIR}/src/usr/local/lib/ai-tools/npm-verify.lib.sh" \
         /usr/local/lib/ai-tools/npm-verify.lib.sh
 
+    # The OpenPGP members both signature verifiers share: the armor-to-keyring conversion and the reader that decides
+    # a gpgv run. Sourced by root (the set verifier, the release verifier, the package-signing keyring step); 644
+    # root:root like the other libraries, no secrets.
+    log "/usr/local/lib/ai-tools/openpgp.lib.sh"
+    install -o root -g root -m 644 \
+        "${SCRIPT_DIR}/src/usr/local/lib/ai-tools/openpgp.lib.sh" \
+        /usr/local/lib/ai-tools/openpgp.lib.sh
+
     # Entrypoint verifier: proves an agent's installed entrypoint is the binary its vendor published,
     # against a per-release manifest the vendor SIGNED with a key this install pins. Read by root
     # (ai-tools-relabel-agent writes the pin) and by the sandbox account (ai-tools-run compares it at launch), so 644
@@ -1454,9 +1463,9 @@ do_install() {
         /usr/local/lib/ai-tools/keys/claude-code.asc
 
     # Set verifier: proves an installed asset set is the one its publisher signed, against the keyring
-    # ai_tools_assets_verify__write_binary_keyring writes here from the dag-node package-signing key, as the spec's
-    # %install writes it, and a root-owned binding per set name that pins the signer's primary. Read by root alone (the
-    # assets resolver); 644 root:root like the other libraries, no secrets, no tokens.
+    # ai_tools_openpgp__write_binary_keyring writes here from the dag-node package-signing key, as the spec's %install
+    # writes it, and a root-owned binding per set name that pins the signer's primary. Read by root alone (the assets
+    # resolver); 644 root:root like the other libraries, no secrets, no tokens.
     log "/usr/local/lib/ai-tools/assets-verify.lib.sh"
     install -o root -g root -m 644 \
         "${SCRIPT_DIR}/src/usr/local/lib/ai-tools/assets-verify.lib.sh" \
@@ -1473,8 +1482,8 @@ do_install() {
         /usr/local/lib/ai-tools/keys/dag-node-package-signing.asc
     log "/usr/local/lib/ai-tools/keys/dag-node-package-signing.gpg"
     _keyring="$(mktemp)"
-    bash -c '. "$1" && ai_tools_assets_verify__write_binary_keyring "$2" "$3"' _ \
-        "${SCRIPT_DIR}/src/usr/local/lib/ai-tools/assets-verify.lib.sh" \
+    bash -c '. "$1" && ai_tools_openpgp__write_binary_keyring "$2" "$3"' _ \
+        "${SCRIPT_DIR}/src/usr/local/lib/ai-tools/openpgp.lib.sh" \
         "${SCRIPT_DIR}/src/usr/local/lib/ai-tools/keys/dag-node-package-signing.asc" \
         "${_keyring}" \
         || { rm -f "${_keyring}"; die "the package-signing key did not dearmor into a keyring"; }

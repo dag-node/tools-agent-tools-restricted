@@ -173,14 +173,18 @@ names the rule and the path.
 The set's publisher fixes it in a new release.
 .TP
 .B set\-tampered
-The set's files are not the ones its signature covers.
+The set's files are not the ones its signature covers, or its signature
+has expired or is by a key the keyring holds as expired or revoked.
 Reinstall the package; a copy under the local root is replaced from its
 release.
+A signature by an expired or revoked key needs a release the publisher
+signs with a current key.
 .TP
 .B set\-unverified
 The signature could not be checked: no
 .IR SHA256SUMS.asc ,
-a key the binding does not name,
+a key the keyring does not hold or the binding does not name,
+a signature file holding more than one signature,
 .BR gpgv (1)
 missing, or a binding or keyring that does not read or is not root's alone.
 The detail says which.
