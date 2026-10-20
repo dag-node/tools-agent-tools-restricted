@@ -244,15 +244,15 @@ stopped advancing.
 **An empty agent set is classified before `npm` alone becomes the managed set.** The resolver reports a refused input
 on stderr and does not print a line for it, so its stdout reads as an empty set for a tampered manifest directory
 and for a host with no agent package alike. `nvm-update.sh` asks `ai_tools_providers__evaluate_empty_agents` (see
-[providers](providers.rule.md)) which it is: a refused input, or an `AI_TOOLS_AGENTS` naming agents none
-of which resolved, is a **fault** — `die`, exit `1`, `RESULT=failed` — because a retry reads the same inputs, and `1` is
-the status the unit's `RestartPreventExitStatus=` already withholds a retry from. A configuration that asks for no agent
-(`AI_TOOLS_AGENTS` set and empty, no manifest installed, or every manifest `default_enable=no` with the key unset) is
-logged and the run continues over `npm`. The fault reason carries every refused path with the owner and mode
-the predicate read, so `ai-tools status` reports `FAILED` on the first run after the fault and the journal line names
-the input to look at. The verdict is a `fault`/`none` line and not a new `RESULT` token:
-`ai_tools_services__evaluate_stamp` declines a word outside `ok|skipped|failed`, so a token added there would report
-as unknown and leave `ai_tools_services__is_attention_needed` unmoved.
+[providers](providers.rule.md)) which it is: a refused input, an `operator.conf` the account cannot read,
+or an `AI_TOOLS_AGENTS` naming agents none of which resolved, is a **fault** — `die`, exit `1`, `RESULT=failed` —
+because a retry reads the same inputs, and `1` is the status the unit's `RestartPreventExitStatus=` already withholds
+a retry from. A configuration that asks for no agent (`AI_TOOLS_AGENTS` set and empty, no manifest installed, or every
+manifest `default_enable=no` with the key unset) is logged and the run continues over `npm`. The fault reason carries
+every refused path with the owner and mode the predicate read, so `ai-tools status` reports `FAILED` on the first run
+after the fault and the journal line names the input to look at. The verdict is a `fault`/`none` line and not a new
+`RESULT` token: `ai_tools_services__evaluate_stamp` declines a word outside `ok|skipped|failed`, so a token added there
+would report as unknown and leave `ai_tools_services__is_attention_needed` unmoved.
 
 ### Retrying a transient failure
 
@@ -368,10 +368,11 @@ from the manifests, with no agent name in its code:
   whose link exists, through `-L` so the read stays out of the tree. Both iterate
   `ai_tools_toolchain__list_installed_not_enabled_agents`, the installed set minus the enabled set
   ([providers](providers.rule.md)): a manifest the trust predicate refuses is not an agent and so not residue,
-  and an enabled agent's package is never residue whatever the tree holds. An empty enabled set counts only
-  under the `none` verdict: under a `fault` — an invalid `AI_TOOLS_AGENTS`, an untrusted `operator.conf` — the set
-  the operator declared is unknown rather than empty, so the set does not print a line, and every installed agent's
-  package stays where it is instead of reaching the writer.
+  and an enabled agent's package is never residue whatever the tree holds. Where the set the operator declared is
+  unknown the set does not print a line, and every installed agent's package stays where it is instead of reaching
+  the writer: an `operator.conf` the gate reads as `untrusted` or `unreadable`, whatever the baseline enables,
+  and an empty enabled set under a `fault` verdict, such as an invalid `AI_TOOLS_AGENTS`. An empty enabled set counts
+  as empty only under the `none` verdict.
 - **One writer.** `ai_tools_toolchain__remove_agent_package <version-dir> <npm_package> [erase]` runs that version's own
   `npm uninstall -g` with the version directory pinned as the prefix (no registry is reached) and prints one word:
   `absent`, `removed`, or `deferred` when a live process executes from the package directory

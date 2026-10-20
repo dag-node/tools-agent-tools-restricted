@@ -2516,6 +2516,29 @@ status_services() {
     return 0
 }
 
+# status_operator_conf [operator-conf]: whether the sandbox account can read operator.conf. Root reads any file,
+# so the reading is made as that account, through runuser over the root-owned /usr/bin/test, which does not execute
+# a file the account can write. A file that account cannot read leaves nvm-update and ai-tools-run
+# on the default-enabled providers with the declared set unknown (ai_tools_providers__read_gate), so it is counted.
+# A control run of /usr/bin/true first separates "cannot read" from a runuser that did not run, which reads `?` and is
+# not counted. Prints no line for a readable file or a host without the file or the account. <operator-conf> is
+# a parameter so a unit test drives it over a fixture.
+status_operator_conf() {
+    local operator_conf="${1:-${OPERATOR_CONF}}" meta
+    [[ -e "${operator_conf}" ]] || return 0
+    id -u "${SANDBOX_USER}" >/dev/null 2>&1 || return 0
+    if ! runuser -u "${SANDBOX_USER}" -- /usr/bin/true >/dev/null 2>&1; then
+        st "?" "cannot test whether ${SANDBOX_USER} reads ${operator_conf} -- runuser did not run as that account"
+        return 0
+    fi
+    runuser -u "${SANDBOX_USER}" -- /usr/bin/test -r "${operator_conf}" >/dev/null 2>&1 && return 0
+    STATUS_PROBLEMS=$(( STATUS_PROBLEMS + 1 ))
+    meta="$(stat -c '%F, owner=%U:%G, mode=%a' -- "${operator_conf}" 2>/dev/null)" || meta="could not be stat-ed"
+    st "NOT READABLE" "${SANDBOX_USER} cannot read ${operator_conf} (${meta}) -- sessions and the updater read the default-enabled providers alone, and each updater run fails"
+    detail "sudo ai-tools-admin system layout reconcile"
+    return 0
+}
+
 # status_provisioning: per enabled agent, whether its stable launcher link exists -- bootstrap's last artifact
 # for that agent, and the link the CLI's bootstrap gate reads, so the two reports answer alike. The link is tested
 # per launcher, since the launcher directory also holds the base package's own files and is never empty on an installed
@@ -2524,6 +2547,7 @@ status_services() {
 # section could not make, so the report exits 5.
 status_provisioning() {
     heading "Provisioning"
+    status_operator_conf "${AI_TOOLS_OPERATOR_CONF:-${OPERATOR_CONF}}"
     if ! declare -F ai_tools_providers__list_enabled_agents >/dev/null 2>&1; then
         st UNREADABLE "cannot read the enabled agents -- ${PROVIDERS_LIB} did not load; reinstall ai-tools-base"
         STATUS_UNREADABLE=$(( STATUS_UNREADABLE + 1 ))

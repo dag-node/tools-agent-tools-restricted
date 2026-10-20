@@ -202,21 +202,21 @@ an ordinary account read it — a partial view, the file sink being the authorit
 - `providers` — read-only report of the installed agents and integrations, which of them a session gets, and why. It
   resolves through `providers.lib.sh` (see [providers](providers.rule.md)) rather than re-reading `operator.conf`,
   so the report and the launch agree by construction: the per-kind gating line comes
-  from `ai_tools_providers__read_gate` (`allowlist` / `baseline` / `untrusted`), the enabled set from the same
-  `ai_tools_providers__list_enabled_{agents,integrations}` the toolchain and `ai-tools-run` use, and the installed set
-  from the manifest directory listing — so a manifest the resolver refuses shows as disabled. The resolvers' refusals,
-  which at launch reach only the terminal and journald, are captured from their stderr and reported in a closing block.
-  On a host where SELinux is not `Disabled` it adds a **SELinux policy groups** section: the core module's load state
-  and every loaded optional group, read unprivileged via `semodule -l`, keyed off the shared `selinux-groups.lib.sh`
-  registry. The whole section is **omitted** when that list is not readable unprivileged (common — the policy store is
-  root-only on many hosts): every line it prints needs the module list, so a section that could only say "cannot read"
-  is not shown at all (inspect groups with `sudo ai-tools-admin selinux groups`). Under **Enforcing** it then reads each
-  enabled integration's manifest for the policy groups its toolchain declares (`selinux_groups`,
-  `ai-tools-providers(5)`) and names the ones not loaded, each with the registry's description, followed by one
-  `ai-tools-admin selinux groups enable` command carrying every missing stable group and, on its own line,
-  the source-checkout command for an experimental one. The block does not name any toolchain: the manifest declares
-  the set, the registry supplies the words, and the same read is what `ai-tools-admin <integration> status` reports.
-  The .NET set is in [dotnet](dotnet.rule.md).
+  from `ai_tools_providers__read_gate` (`allowlist` / `baseline` / `untrusted` / `unreadable`), the enabled set
+  from the same `ai_tools_providers__list_enabled_{agents,integrations}` the toolchain and `ai-tools-run` use,
+  and the installed set from the manifest directory listing — so a manifest the resolver refuses shows as disabled.
+  The resolvers' refusals, which at launch reach only the terminal and journald, are captured from their stderr
+  and reported in a closing block. On a host where SELinux is not `Disabled` it adds a **SELinux policy groups**
+  section: the core module's load state and every loaded optional group, read unprivileged via `semodule -l`, keyed
+  off the shared `selinux-groups.lib.sh` registry. The whole section is **omitted** when that list is not readable
+  unprivileged (common — the policy store is root-only on many hosts): every line it prints needs the module list,
+  so a section that could only say "cannot read" is not shown at all (inspect groups
+  with `sudo ai-tools-admin selinux groups`). Under **Enforcing** it then reads each enabled integration's manifest
+  for the policy groups its toolchain declares (`selinux_groups`, `ai-tools-providers(5)`) and names the ones not
+  loaded, each with the registry's description, followed by one `ai-tools-admin selinux groups enable` command carrying
+  every missing stable group and, on its own line, the source-checkout command for an experimental one. The block does
+  not name any toolchain: the manifest declares the set, the registry supplies the words, and the same read is
+  what `ai-tools-admin <integration> status` reports. The .NET set is in [dotnet](dotnet.rule.md).
 - `audit [--since <when>]` — report what has refused, been rejected, been stranded, or been flagged since a given time,
   through the `ai-tools-audit` root helper (`sudo`, no NOPASSWD; the root carve-out in `ROOT_ALLOWED_VERBS` exists
   for it, and it runs ahead of the bootstrap gate — see [Bootstrap preflight](#bootstrap-preflight)). The detections it

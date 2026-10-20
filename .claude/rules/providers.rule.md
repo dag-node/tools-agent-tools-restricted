@@ -492,7 +492,13 @@ grammar](#the-shared-config-grammar-conflibsh)) gates each kind:
   ignored, so an operator's explicit list always wins.
 - **key absent** → enabled = installed providers with `default_enable=yes` (the baseline). Both keys ship commented
   in the template, so a fresh or upgraded host (whose `%config(noreplace)` file may predate them) runs the baseline.
-- **config unreadable, malformed, or untrusted** → treated as absent (the baseline; never "enable all").
+- **config malformed or untrusted** → treated as absent (the baseline; never "enable all").
+- **config present, trusted, and unreadable to the reader** → its own gate state, `unreadable`: the trust predicate
+  reads the file with `stat` alone, so a `0600 root:root` file passes it while the sandbox account's read of the content
+  fails. The enabled set is the baseline, as for an untrusted file, and the state is reported under `MSG-V2R5`
+  with the account, the mode read and `sudo ai-tools-admin system layout reconcile`. The set the file declares is
+  unknown rather than absent, so the empty-set verdict is a `fault` and the residue readers do not read any package
+  as residue ([updater](updater.rule.md)).
 - **a listed name with no installed manifest** → reported and skipped, never guessed.
 
 For an **integration**, `default_enable=yes` is the shipping package's claim that its provider leaves host surface
@@ -528,6 +534,7 @@ for the operator, journald for the trail), never silently:
 | untrusted input | verdict |
 |---|---|
 | `operator.conf` | ignored → the baseline (which only enables what a package marked `default_enable=yes`) |
+| `operator.conf` trusted and unreadable to the reader | the baseline, reported; the declared set is unknown, so no package is residue |
 | a manifest directory | that whole provider kind is refused |
 | one manifest | that one provider is skipped |
 | `session-env.d` or a fragment | that fragment is not sourced |
@@ -653,8 +660,9 @@ the shim from inside such a namespace.
   from naming hook scripts the same uninstall removed. `tests/unit/providers.sh` drives the verdict, the reader
   and the write.
 - `ai_tools_providers__read_gate <conf-key>` — how a kind's enabled set is being decided (`allowlist` / `baseline` /
-  `untrusted`), read-only and side-effect free. The resolvers read it, and so does `ai-tools providers` (see
-  [cli](cli.rule.md)), so an operator asking what is enabled and a session being launched consult one implementation.
+  `untrusted` / `unreadable`), read-only and side-effect free. The resolvers read it, and so does `ai-tools providers`
+  (see [cli](cli.rule.md)), so an operator asking what is enabled and a session being launched consult one
+  implementation.
 
 Data-only stdout (safe in `$(...)`); enabled-but-uninstalled names and every trust refusal go to stderr, and to journald
 when `log.lib.sh` is loadable. `AI_TOOLS_{AGENTS,INTEGRATIONS}_DIR` and `AI_TOOLS_OPERATOR_CONF` are root-only test

@@ -116,6 +116,44 @@ else
     fail "provisioning with the agent link (rc ${rc}): $(head -c 300 <<<"${out}" | tr '\n' '|')"
 fi
 
+# The operator.conf line: root reads any file, so whether the sandbox account reads it is asked as that account.
+# The 0644 fixture is the control the two Provisioning cases already ran over (no line); at 0600 root:root the account
+# cannot read it, which the line reports and counts. A runuser that does not run reads `?` and is not counted, driven
+# by a stub that refuses every command, since the control run is what separates it from "cannot read".
+section "ai-tools-admin status: the sandbox account's read of operator.conf (unit)"
+reset_fixtures; manifest alpha la; vlink la v9.9.9
+rc=0; out="$(call_provisioning)" || rc=$?
+if [[ "${rc}" -eq 98 ]]; then
+    skip "admin status operator.conf" "status_provisioning absent (older helper?)"
+elif ! runuser -u "${SANDBOX_USER}" -- /usr/bin/true >/dev/null 2>&1; then
+    skip "admin status operator.conf" "runuser does not run as ${SANDBOX_USER} here"
+else
+    if ! grep -qF 'NOT READABLE' <<<"${out}" && grep -qx 'problems=0' <<<"${out}"; then
+        pass "control: a 0644 operator.conf prints no line and is not counted"
+    else
+        fail "a 0644 operator.conf (rc ${rc}): $(head -c 300 <<<"${out}" | tr '\n' '|')"
+    fi
+    chmod 0600 "${CONF}"
+    rc=0; out="$(call_provisioning)" || rc=$?
+    if grep -qE '^ +\[NOT READABLE\] +'"${SANDBOX_USER}"' cannot read .*mode=600' <<<"${out}" \
+            && grep -qF 'sudo ai-tools-admin system layout reconcile' <<<"${out}" && grep -qx 'problems=1' <<<"${out}"; then
+        pass "a 0600 root:root operator.conf is reported as unreadable by the sandbox account, with the reconcile, and counted"
+    else
+        fail "a 0600 operator.conf (rc ${rc}): $(head -c 400 <<<"${out}" | tr '\n' '|')"
+    fi
+    # shellcheck disable=SC2016  # the $1 is for the inner `bash -c`, not this shell -- do not expand here
+    out="$(env AI_TOOLS_AGENTS_DIR="${AGENTS_DIR}" AI_TOOLS_OPERATOR_CONF="${CONF}" AI_TOOLS_LAUNCHER_DIR="${LINKS}" \
+        bash -c 'helper="$1"; set --; source "${helper}" >/dev/null 2>&1 || exit 99
+                 runuser() { return 1; }
+                 status_provisioning; printf "problems=%s\n" "${STATUS_PROBLEMS}"' _ "${HELPER}" 2>&1)" || true
+    if grep -qE '^ +\[\?\] +cannot test whether' <<<"${out}" && grep -qx 'problems=0' <<<"${out}"; then
+        pass "a runuser that does not run reads ? and is not counted"
+    else
+        fail "a refusing runuser: $(head -c 300 <<<"${out}" | tr '\n' '|')"
+    fi
+    chmod 0644 "${CONF}"
+fi
+
 # ── The exit status: 0 clean, 4 for a fault a section read, 5 for a reading a section could not make ──────────────
 # `status` is driven whole, with the sections that read this host stubbed to a known answer (no unit in the registry, no
 # entrypoint, assets, managed-file or unit-search-path section), so each case changes one reading: a section that counts

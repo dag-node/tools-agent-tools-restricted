@@ -315,6 +315,58 @@ chmod 0644 "${agents_dir}/claude-code.conf"
 printf 'AI_TOOLS_AGENTS="agent-claude-code"\n' > "${conf}"; chmod 0666 "${conf}"
 assert_empty "an untrusted operator.conf is a fault"      fault "${conf}: owner=0 mode=666"    "${conf}"
 chmod 0644 "${conf}"
+
+# An operator.conf the trust predicate accepts and the reader cannot read is its own gate state: the predicate reads
+# the file with stat, so 0600 root:root passes it, while the sandbox account's read of the content fails. The declared
+# set is then unknown, so the gate reads `unreadable`, the read is reported under its code, the enabled set is
+# the baseline, and the empty-set verdict is a fault. Root passes `test -r` on any file, so the state exists only
+# for another account: each case runs the library as the sandbox account (as_sandbox), with the fixture's paths passed
+# as the two hooks the library honours for any caller. The same file at 0644 is the control, and the setup is asserted
+# before the verdict is read: the account's own `test -r` fails at 0600 and passes at 0644.
+section "providers: an operator.conf the reader cannot read"
+sandbox_err="${TESTDIR}/sandbox-err"
+# as_sandbox_providers <function> [arg...] : stdout of one providers.lib.sh call made as the sandbox account
+#   over the fixture tree; its stderr lands in ${sandbox_err}.
+as_sandbox_providers() {
+    # shellcheck disable=SC2016  # the inner shell expands these, not this one
+    as_sandbox env AI_TOOLS_OPERATOR_CONF="${conf}" AI_TOOLS_AGENTS_DIR="${agents_dir}" \
+        bash -c 'source "$1" || exit 99; shift; "$@"' _ "${LIB}" "$@" 2>"${sandbox_err}"
+}
+if ! as_sandbox /usr/bin/true >/dev/null 2>&1; then
+    skip "unreadable operator.conf" "cannot run a command as ${SANDBOX_USER} here (no account, or the sandbox-exec route refused)"
+else
+    printf 'AI_TOOLS_AGENTS="agent-experimental"\n' > "${conf}"; chmod 0644 "${conf}"
+    if as_sandbox /usr/bin/test -r "${conf}" && [[ "$(as_sandbox_providers ai_tools_providers__read_gate AI_TOOLS_AGENTS || true)" == allowlist ]]; then
+        pass "control: ${SANDBOX_USER} reads the 0644 fixture and the gate reads allowlist"
+    else
+        fail "control: the 0644 fixture does not read as allowlist for ${SANDBOX_USER} -- the cases below cannot be trusted"
+    fi
+    chmod 0600 "${conf}"
+    if as_sandbox /usr/bin/test -r "${conf}"; then
+        fail "setup: ${SANDBOX_USER} still reads the 0600 fixture, so the unreadable state was not produced"
+    else
+        pass "setup: ${SANDBOX_USER} cannot read the 0600 root:root fixture, which the trust predicate accepts"
+        gate_out="$(as_sandbox_providers ai_tools_providers__read_gate AI_TOOLS_AGENTS || true)"
+        [[ "${gate_out}" == unreadable ]] && pass "the gate reads unreadable" \
+                                          || fail "the gate reads '${gate_out}', expected unreadable"
+        enabled_out="$( { as_sandbox_providers ai_tools_providers__list_enabled_agents || true; } | cut -f1 | tr '\n' ' ')"
+        [[ "${enabled_out}" == "claude-code " ]] \
+            && pass "the enabled set is the baseline, not the allowlist the file declares" \
+            || fail "enabled set under an unreadable operator.conf: got '${enabled_out}', expected 'claude-code '"
+        assert_msg MSG-V2R5 "$(<"${sandbox_err}")" "an unreadable operator.conf is reported, not read as an absent key"
+        grep -qF 'sudo ai-tools-admin system layout reconcile' "${sandbox_err}" \
+            && pass "the report names the layout reconcile as its remedy" \
+            || fail "the report does not name the layout reconcile: $(_san "$(<"${sandbox_err}")")"
+        empty_line="$(as_sandbox_providers ai_tools_providers__evaluate_empty_agents || true)"
+        IFS=$'\t' read -r empty_verdict empty_reason <<< "${empty_line}"
+        if [[ "${empty_verdict}" == fault && "${empty_reason}" == *"cannot read ${conf}"*"mode=600"* ]]; then
+            pass "the empty-set verdict is a fault naming the file and the mode read"
+        else
+            fail "empty-set verdict under an unreadable operator.conf: got '$(_san "${empty_line}")'"
+        fi
+    fi
+    chmod 0644 "${conf}"
+fi
 # The caller parses this under IFS=$'\n\t'; the TAB is what keeps verdict and reason apart there.
 ifs_line="$( IFS=$'\n\t'; AI_TOOLS_OPERATOR_CONF=/nonexistent AI_TOOLS_AGENTS_DIR="${empty_dir}" ai_tools_providers__evaluate_empty_agents )"
 if [[ "${ifs_line}" == none$'\t'* ]]; then

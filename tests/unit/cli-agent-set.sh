@@ -167,6 +167,24 @@ else
     fail "status without residue (rc ${rc}): $(head -c 300 <<<"${out}" | tr '\n' '|')"
 fi
 
+# ── (4c) An operator.conf this account cannot read is reported and counted ── The trust predicate reads the file
+# with stat, so 0600 root:root passes it while the projects user's read of the content fails: the enabled set falls back
+# to the default-enabled agents and the set the file declares is unknown. The line names the file, the mode read
+# and the reconcile, and counts; beta's remaining link is not reported as residue, since residue is read
+# against the declared set and that set is unknown. (4b) is the control: the same fixture at 0644 reports beta
+# as residue.
+reset_fixtures; manifest alpha la yes; manifest beta lb no; link la; link lb
+chmod 0600 "${CONF}"
+rc=0; out="$(call status_provisioning)" || rc=$?
+if [[ "${rc}" -ne 0 ]] && grep -qF "cannot read ${CONF}" <<<"${out}" && grep -qF 'mode=600' <<<"${out}" \
+        && ! grep -q 'not enabled' <<<"${out}"; then
+    pass "status reports an operator.conf it cannot read, counts it, and reads no residue against the unknown set"
+else
+    fail "status over an unreadable operator.conf (rc ${rc}): $(head -c 400 <<<"${out}" | tr '\n' '|')"
+fi
+says "the unreadable line names the layout reconcile" 'sudo ai-tools-admin system layout reconcile' "${out}"
+chmod 0644 "${CONF}"
+
 # ── (5) A pin a reconciliation refused to re-record is never rendered as a good one ── The refusal leaves the pin
 # exactly as it was -- that staleness is what makes the next launch refuse -- so the pin still carries a VERSION
 # and a VERIFIED date and reads, on its own, as a verification that succeeded. What tells the reports otherwise is

@@ -45,6 +45,23 @@ not_writable() {
 # a default_enable=no one held back precisely because it widens host surface.
 not_writable /etc/ai-tools/operator.conf \
     "enable a surface-widening provider its package ships disabled"
+# The directory holding it. Writable, the agent unlinks the file and places its own under the name -- which the trust
+# predicate refuses -- or a 0600 root-owned copy no reader as the account can open, the unreadable gate state.
+not_writable /etc/ai-tools \
+    "replace operator.conf with a file of its choosing"
+# Its mode. chmod(2) takes the file's owner or CAP_FOWNER, and the account holds neither when root owns the file,
+# so owner 0 is the property that keeps the account from making the file unreadable to its own readers.
+if [[ -e /etc/ai-tools/operator.conf ]]; then
+    conf_owner="$(stat -c '%u' /etc/ai-tools/operator.conf 2>/dev/null || printf 'unknown')"
+    sandbox_uid="$(id -u "${SANDBOX_USER}" 2>/dev/null || printf 'unknown')"
+    if [[ "${conf_owner}" == 0 ]]; then
+        pass "operator.conf is root-owned: the agent cannot change its mode"
+    elif [[ "${conf_owner}" == "${sandbox_uid}" ]]; then
+        fail "operator.conf is owned by ${SANDBOX_USER} (uid ${conf_owner}): the agent can change the mode its readers depend on"
+    else
+        fail "operator.conf is owned by uid ${conf_owner}, not root: that account can change the mode its readers depend on"
+    fi
+fi
 
 # The two libraries that make the decision, and are sourced by ai-tools-run in the session's own pre-launch scope.
 # Writable, the agent rewrites the verdict -- or executes arbitrary code as the sandbox account before confinement is
