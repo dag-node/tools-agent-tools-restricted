@@ -105,6 +105,21 @@ ai_tools_conf__read_untrusted_reason() {
     return 0
 }
 
+# ai_tools_conf__read_unreadable_reason <path> : print, on one line, why a <path> ai_tools_conf__is_trusted accepted
+#   could not be read by this process -- the account, and the type, owner and mode stat read -- and the command
+#   that restores the installed layout. The twin of ai_tools_conf__read_untrusted_reason: the trust predicate reads
+#   a path with stat alone, so an input can pass it and still be unreadable, and every reader of an installed input
+#   reports that state through this one text. Always prints and returns 0.
+ai_tools_conf__read_unreadable_reason() {
+    local path="${1:-}" account meta
+    [[ -n "${path}" ]] || { printf 'no path given'; return 0; }
+    account="$(id -un 2>/dev/null)" || account="uid ${EUID}"
+    meta="$(stat -c '%F, owner=%U:%G, mode=%a' -- "${path}" 2>/dev/null)" || meta="could not be stat-ed"
+    printf '%s cannot read it (%s) -- restore the installed layout: sudo ai-tools-admin system layout reconcile' \
+        "${account}" "${meta}"
+    return 0
+}
+
 # _ai_tools_conf__strip_inline_comment <text> : set ai_tools_conf__value to <text> with an inline comment removed. `#`
 #   ends the value only where a comment conventionally starts -- at the very beginning, or after whitespace --
 #   so an interior `#` (a fragment, a C# name, a colour) stays part of an unquoted value.

@@ -154,6 +154,38 @@ AI_TOOLS_AGENTS=[]|0644|0666|
 AI_TOOLS_AGENTS=[]|0644|0644|acme beta gamma
 ROWS
 chmod 0666 "${AGENTS_DIR}/gamma.conf"
+
+# An operator.conf the gate ignores leaves the declared set unknown even where the baseline it falls back to is not
+# empty: with a default-enabled manifest the enabled set holds that agent, and every other installed agent would read
+# as residue. acme is made default-enabled for this case alone, and the trusted file is the control that still yields
+# the agent it does not name.
+manifest acme @acme/experimental acme; sed -i 's/^default_enable=no$/default_enable=yes/' "${AGENTS_DIR}/acme.conf"
+printf 'AI_TOOLS_AGENTS="agent-acme"\n' > "${CONF}"; chmod 0644 "${CONF}"
+got_set="$(ai_tools_toolchain__list_installed_not_enabled_agents 2>/dev/null | cut -f1 | tr '\n' ' ')"
+[[ "${got_set}" == "beta " ]] && pass "control: a trusted operator.conf naming acme leaves beta installed-not-enabled" \
+                              || fail "control: installed-not-enabled is '${got_set}', expected 'beta '"
+chmod 0666 "${CONF}"
+got_set="$(ai_tools_toolchain__list_installed_not_enabled_agents 2>/dev/null | cut -f1 | tr '\n' ' ')"
+[[ -z "${got_set}" ]] && pass "an untrusted operator.conf over a default-enabled baseline yields no installed-not-enabled agent" \
+                      || fail "an untrusted operator.conf over a default-enabled baseline yields '${got_set}'"
+
+# The same read as the sandbox account, the reader nvm-update is, over a 0600 root:root operator.conf: the trust
+# predicate accepts it and the account cannot read it, a state root's own run cannot produce. The gate reads unreadable,
+# so the set does not print a line; the account's failed `test -r` is the setup the verdict rests on.
+chmod 0600 "${CONF}"
+if ! as_sandbox /usr/bin/true >/dev/null 2>&1; then
+    skip "unreadable operator.conf" "cannot run a command as ${SANDBOX_USER} here (no account, or the sandbox-exec route refused)"
+elif as_sandbox /usr/bin/test -r "${CONF}"; then
+    fail "setup: ${SANDBOX_USER} still reads the 0600 fixture, so the unreadable state was not produced"
+else
+    # shellcheck disable=SC2016  # the inner shell expands these, not this one
+    got_set="$( { as_sandbox env AI_TOOLS_OPERATOR_CONF="${CONF}" AI_TOOLS_AGENTS_DIR="${AGENTS_DIR}" \
+        bash -c 'source "$1" || exit 99; ai_tools_toolchain__list_installed_not_enabled_agents' _ "${LIB}" 2>/dev/null \
+        || printf 'call-failed\n'; } | cut -f1 | tr '\n' ' ')"
+    [[ -z "${got_set}" ]] && pass "an operator.conf the sandbox account cannot read yields no installed-not-enabled agent" \
+                          || fail "an unreadable operator.conf yields '${got_set}' as the sandbox account"
+fi
+manifest acme @acme/experimental acme
 printf 'AI_TOOLS_AGENTS="agent-acme"\n' > "${CONF}"; chmod 0644 "${CONF}"
 
 # ── ai_tools_toolchain__find_agent_residue: the tree read ───────────────────────────────────────────────────────

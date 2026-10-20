@@ -51,6 +51,7 @@ if ! source "${BASH_SOURCE[0]%/*}/conf.lib.sh" 2>/dev/null \
         || ! declare -F ai_tools_conf__read >/dev/null 2>&1 \
         || ! declare -F ai_tools_conf__is_trusted >/dev/null 2>&1 \
         || ! declare -F ai_tools_conf__read_untrusted_reason >/dev/null 2>&1 \
+        || ! declare -F ai_tools_conf__read_unreadable_reason >/dev/null 2>&1 \
         || ! declare -F ai_tools_conf__read_kind_list >/dev/null 2>&1; then
     _ai_tools_providers__warn MSG-P4M9 \
         "providers.lib.sh: conf.lib.sh missing or incomplete -- no providers resolved"
@@ -103,29 +104,32 @@ ai_tools_providers__is_exit_sweep_required() {
 
 # ai_tools_providers__read_gate <conf_key> : print how the enabled set for <conf_key> is decided -- "allowlist"
 #   (operator.conf names the key, so its value is the exact enabled set), "baseline" (it does not, so default_enable
-#   governs), or "untrusted" (operator.conf exists but fails the trust predicate, so it is ignored and the baseline
-#   applies). Read-only and side-effect free: the resolvers and any caller REPORTING the gating both read it,
-#   so what an operator is told matches what a session gets.
+#   governs), "untrusted" (operator.conf exists but fails the trust predicate, so it is ignored and the baseline
+#   applies), or "unreadable" (operator.conf passes the trust predicate, which reads it with stat alone, and this
+#   process cannot read its content, so the baseline applies and the set the operator declared is unknown). Read-only
+#   and side-effect free: the resolvers and any caller REPORTING the gating both read it, so what an operator is told
+#   matches what a session gets.
 ai_tools_providers__read_gate() {
-    local conf_key="$1"
+    local conf_key="$1" read_status=0
     [[ -e "${AI_TOOLS_OPERATOR_CONF}" ]] || { printf 'baseline'; return 0; }
     ai_tools_conf__is_trusted "${AI_TOOLS_OPERATOR_CONF}" || { printf 'untrusted'; return 0; }
-    if ai_tools_conf__read "${AI_TOOLS_OPERATOR_CONF}" "${conf_key}"; then
-        printf 'allowlist'
-    else
-        printf 'baseline'
-    fi
+    ai_tools_conf__read "${AI_TOOLS_OPERATOR_CONF}" "${conf_key}" || read_status=$?
+    case "${read_status}" in
+        0) printf 'allowlist' ;;
+        2) printf 'unreadable' ;;
+        *) printf 'baseline' ;;
+    esac
     return 0
 }
 
 # _ai_tools_providers__read_requested <conf_key> : set requested_active (yes|no) and requested_list from operator.conf
 #   for the given gating key. "yes" means the key was present (its value, possibly empty, is the allowlist); "no" means
 #   absent, unreadable, or UNTRUSTED -- all of which fall back to the baseline, so a config the agent could have written
-#   cannot enable anything its own package did not already mark default_enable=yes. An untrusted config is reported here
-#   rather than in the pure gate, which stays side-effect free. requested_list holds the bare names joined by a space,
-#   read through the kind-prefixed list reader once here, so an invalid list -- one the grammar refuses, or one holding
-#   an item without its kind prefix -- is reported once per read and arrives as the empty allowlist: no provider
-#   of that kind enabled.
+#   cannot enable anything its own package did not already mark default_enable=yes. An untrusted or unreadable config is
+#   reported here rather than in the pure gate, which stays side-effect free. requested_list holds the bare names joined
+#   by a space, read through the kind-prefixed list reader once here, so an invalid list -- one the grammar refuses,
+#   or one holding an item without its kind prefix -- is reported once per read and arrives as the empty allowlist: no
+#   provider of that kind enabled.
 _ai_tools_providers__read_requested() {
     local conf_key="$1"
     local -a requested_names=()
@@ -133,6 +137,8 @@ _ai_tools_providers__read_requested() {
     case "$(ai_tools_providers__read_gate "${conf_key}")" in
         untrusted)
             _ai_tools_providers__warn MSG-C4F9 "ignoring ${AI_TOOLS_OPERATOR_CONF} for ${conf_key}: $(ai_tools_conf__read_untrusted_reason "${AI_TOOLS_OPERATOR_CONF}") -- using the default-enabled providers only" ;;
+        unreadable)
+            _ai_tools_providers__warn MSG-V2R5 "cannot read ${AI_TOOLS_OPERATOR_CONF} for ${conf_key}, so the providers it enables are unknown and only the default-enabled ones apply: $(ai_tools_conf__read_unreadable_reason "${AI_TOOLS_OPERATOR_CONF}")" ;;
         allowlist)
             requested_active=yes
             ai_tools_conf__read_kind_list requested_names "${AI_TOOLS_OPERATOR_CONF}" "${conf_key}" || true
@@ -233,7 +239,8 @@ ai_tools_providers__list_enabled_agents() {
 # ai_tools_providers__evaluate_empty_agents : for a caller whose ai_tools_providers__list_enabled_agents printed
 #   an empty set, print one line, "<verdict><TAB><reason>", classifying it:
 #     fault  an input was refused by the trust predicate (operator.conf, the manifest directory, a
-#            manifest), AI_TOOLS_AGENTS is not a valid list, or it names agents and none of them resolved. A retry reads
+#            manifest), operator.conf is present and this process cannot read it, so the agents it enables are
+#            unknown, AI_TOOLS_AGENTS is not a valid list, or it names agents and none of them resolved. A retry reads
 #            the same inputs, so a caller maintaining the toolchain ends the run as a failure
 #            rather than treating npm alone as the managed set.
 #     none   the configuration asks for no agent: AI_TOOLS_AGENTS is set and empty, no manifest is
@@ -244,7 +251,7 @@ ai_tools_providers__list_enabled_agents() {
 #   because the callers run under IFS=$'\n\t'. Any output shape the caller does not recognize is
 #   its cue to treat the set as a fault.
 ai_tools_providers__evaluate_empty_agents() {
-    local gate manifest_file installed=0 joined
+    local gate manifest_file installed=0 joined detail=""
     local -a refused=() requested_names=()
     gate="$(ai_tools_providers__read_gate AI_TOOLS_AGENTS)"
     [[ "${gate}" == untrusted ]] \
@@ -259,9 +266,16 @@ ai_tools_providers__evaluate_empty_agents() {
                 || refused+=("${manifest_file}: $(ai_tools_conf__read_untrusted_reason "${manifest_file}")")
         done
     fi
+    # An unreadable operator.conf is a fault rather than a configuration asking for no agent: the set it declares is
+    # unknown, and reading it as empty would make every installed agent's package residue for the writer to remove.
+    [[ "${gate}" == unreadable ]] \
+        && detail="cannot read ${AI_TOOLS_OPERATOR_CONF}, so the agents it enables are unknown: $(ai_tools_conf__read_unreadable_reason "${AI_TOOLS_OPERATOR_CONF}")"
     if (( ${#refused[@]} > 0 )); then
         printf -v joined '%s; ' "${refused[@]}"
-        printf 'fault\t%d input(s) failed the trust check: %s\n' "${#refused[@]}" "${joined%; }"
+        detail+="${detail:+; }${#refused[@]} input(s) failed the trust check: ${joined%; }"
+    fi
+    if [[ -n "${detail}" ]]; then
+        printf 'fault\t%s\n' "${detail}"
         return 0
     fi
     if [[ "${gate}" == allowlist ]]; then

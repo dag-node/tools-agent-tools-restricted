@@ -299,6 +299,9 @@ choose_agents() {
         untrusted)
             log "agent choice: ${AI_TOOLS_OPERATOR_CONF} is not trusted, so no agent is enabled and none is asked about (the refusal is reported below)"
             return 0 ;;
+        unreadable)
+            log "agent choice: ${AI_TOOLS_OPERATOR_CONF} cannot be read, so no agent is enabled and none is asked about (the refusal is reported below)"
+            return 0 ;;
     esac
     if (( ${#installed_names[@]} == 0 )); then
         log "agent choice: no agent manifest is installed under ${AI_TOOLS_AGENTS_DIR} -- provisioning Node only; install an ai-tools-agents-* package, then re-run to choose one"
@@ -346,11 +349,11 @@ migrate_provider_lists() {
 
 # refuse_unresolved_agents -- end the run when the agent set choose_agents left is empty and the configuration did not
 # ask for that: ai_tools_providers__evaluate_empty_agents classifies it, and anything but `none` -- an invalid
-# AI_TOOLS_AGENTS, an untrusted operator.conf or manifest, a list none of whose names resolved -- ends the run here,
-# before the residue removal and the network step, the same fault nvm-update ends on. Provisioning Node alone would
-# report a host as provisioned whose agents are neither maintained nor launchable; the residue readers already print no
-# residue for such a set (toolchain.lib.sh), so this is the run saying why, not the guard against the removal. Gated
-# on the resolver having loaded, as choose_agents is.
+# AI_TOOLS_AGENTS, an untrusted or unreadable operator.conf, an untrusted manifest, a list none of whose names resolved
+# -- ends the run here, before the residue removal and the network step, the same fault nvm-update ends on. Provisioning
+# Node alone would report a host as provisioned whose agents are neither maintained nor launchable; the residue readers
+# already print no residue for such a set (toolchain.lib.sh), so this is the run saying why, not the guard
+# against the removal. Gated on the resolver having loaded, as choose_agents is.
 refuse_unresolved_agents() {
     local name verdict="" reason=""
     (( _providers_loaded )) || return 0

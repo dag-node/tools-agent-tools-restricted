@@ -147,6 +147,7 @@ if ! source "${BASH_SOURCE[0]%/*}/providers.lib.sh" 2>/dev/null \
         || ! declare -F ai_tools_providers__list_installed_agents >/dev/null 2>&1 \
         || ! declare -F ai_tools_providers__list_enabled_agents >/dev/null 2>&1 \
         || ! declare -F ai_tools_providers__evaluate_empty_agents >/dev/null 2>&1 \
+        || ! declare -F ai_tools_providers__read_gate >/dev/null 2>&1 \
         || ! declare -F ai_tools_providers__is_launcher_target_valid >/dev/null 2>&1 \
         || ! declare -F ai_tools_providers__read_agent_manifest_field >/dev/null 2>&1; then
     _ai_tools_toolchain__warn "toolchain.lib.sh: providers.lib.sh missing or incomplete -- no toolchain reader defined"
@@ -164,12 +165,15 @@ readonly _AI_TOOLS_TOOLCHAIN__NPM_PACKAGE_PATTERN='^(@[A-Za-z0-9._-]+/)?[A-Za-z0
 #   whose trusted manifest is installed and whose name the enabled set does not carry, in manifest-filename order.
 #   The set both residue readers iterate. An untrusted manifest is not an installed agent (providers.lib.sh skips
 #   and reports it), so it is not residue either: what it would provision is unknown, and the launch refuses its
-#   launcher on its own. An empty enabled set that ai_tools_providers__evaluate_empty_agents does not classify as `none`
-#   -- an invalid AI_TOOLS_AGENTS, an untrusted operator.conf, a list none of whose names resolved -- does not print
-#   a line: the set the operator declared is unknown rather than empty, and reading it as empty would make every
-#   installed agent's package residue for the writer to remove. Data-only stdout.
+#   launcher on its own. Where the set the operator declared is unknown, this does not print a line, since reading it
+#   as the baseline or as empty would make installed agents' packages residue for the writer to remove: an operator.conf
+#   the gate reads as untrusted or unreadable (ai_tools_providers__read_gate), whatever the baseline enables,
+#   and an empty enabled set that ai_tools_providers__evaluate_empty_agents does not classify as `none` -- an invalid
+#   AI_TOOLS_AGENTS, a list none of whose names resolved. Data-only stdout.
 ai_tools_toolchain__list_installed_not_enabled_agents() {
-    local name npm_package launcher enabled=" " verdict=""
+    local name npm_package launcher enabled=" " verdict="" gate
+    gate="$(ai_tools_providers__read_gate AI_TOOLS_AGENTS)"
+    [[ "${gate}" == untrusted || "${gate}" == unreadable ]] && return 0
     while IFS=$'\t' read -r name _ _; do
         [[ -n "${name}" ]] && enabled+="${name} "
     done < <(ai_tools_providers__list_enabled_agents 2>/dev/null)

@@ -171,10 +171,22 @@ while IFS=$'\t' read -r manifest_agent_name _ manifest_launcher; do
     agent_name_by_launcher["${manifest_launcher}"]="${manifest_agent_name}"
     enabled_agent_names+=( "${manifest_agent_name}" )
 done < <(ai_tools_providers__list_enabled_agents 2>/dev/null)
-(( ${#agent_name_by_launcher[@]} > 0 )) \
-    || refuse 'no agent is enabled on this host -- nothing can launch' \
-              'enable one in /etc/ai-tools/operator.conf (AI_TOOLS_AGENTS), then provision it:' \
-              '  sudo ai-tools-admin system bootstrap'
+# An empty set names its cause: the resolver's own refusals went to /dev/null in the loop that read the set,
+# and an operator.conf this account cannot read or does not trust reads as an empty set too, where the remedy is
+# the file and not AI_TOOLS_AGENTS.
+if (( ${#agent_name_by_launcher[@]} == 0 )); then
+    empty_verdict=""; empty_reason=""
+    IFS=$'\t' read -r empty_verdict empty_reason < <(ai_tools_providers__evaluate_empty_agents 2>/dev/null) || true
+    if [[ "${empty_verdict}" == none ]]; then
+        refuse 'no agent is enabled on this host' \
+               "${empty_reason}" \
+               'enable one in /etc/ai-tools/operator.conf (AI_TOOLS_AGENTS), then provision it:' \
+               '  sudo ai-tools-admin system bootstrap'
+    fi
+    refuse 'the enabled agents could not be resolved' \
+           "${empty_reason:-the classification of the empty set printed nothing}" \
+           'repair the input named there, then launch again'
+fi
 
 # The toolchain must hold the enabled agents' packages ALONE before any session starts: a package of an agent the host
 # installed but did not enable keeps an entrypoint a session can exec at its real path, so its presence refuses every

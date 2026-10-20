@@ -2357,6 +2357,10 @@ skipping integration $1: $2 $(ai_tools_conf__read_untrusted_reason "$2")
 WARNING.
 providers.lib.sh: conf.lib.sh missing or incomplete \-\- no providers resolved
 .TP
+.B MSG-V2R5
+WARNING.
+cannot read ${AI_TOOLS_OPERATOR_CONF} for ${conf_key}, so the providers it enables are unknown and only the default\-enabled ones apply: $(ai_tools_conf__read_unreadable_reason "${AI_TOOLS_OPERATOR_CONF}")
+.TP
 .B MSG-W3Q3
 WARNING.
 refusing every ${conf_key} provider: ${dir} $(ai_tools_conf__read_untrusted_reason "${dir}")
