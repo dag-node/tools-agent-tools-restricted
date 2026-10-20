@@ -21,7 +21,8 @@
 # recorded, and a pass that skips rpm cannot read a `verified` an earlier pass left. The public surface is begin_pass,
 # ai_tools_layout__list_entries (the entries that apply on this host, in the records framing, sorted by path
 # over the static and the dynamic rows together, then an `error` line per input it could not read; returns 1 when it
-# printed one), ai_tools_layout__read_entry_state (one entry into the caller's arrays) and write_check_records.
+# printed one), ai_tools_layout__read_entry_state (one entry into the caller's arrays), write_check_records,
+# and ai_tools_layout__reconcile, which brings each entry to its row under the rules its own section states.
 #
 # The library depends on control-plane.lib.sh (the /opt/ai-tools modes stay declared there), operator.lib.sh,
 # records-tsv.lib.sh, project-permissions.lib.sh and log.lib.sh, each beside it. Every public function it calls is
@@ -741,7 +742,8 @@ _ai_tools_layout__clamp_reason() { ai_tools_log__sanitize "${1:0:120}"; }
 # an unrecognized line too. The attribute marker is one lowercase letter: the path begins with `/`, so the parse stays
 # unambiguous across the marker sets rpm versions document.
 _ai_tools_layout__list_package_verify_results() {
-    local root line fd pid status=0
+    # The C locale for the match as for the command: the path range collates differently under UTF-8.
+    local LC_ALL=C root line fd pid status=0
     root="$(_ai_tools_layout__get_root)"
     exec {fd}< <(LC_ALL=C rpm -Vv --nodeps --noscripts --nouser --nogroup --nomode --nomtime --nordev --nocaps \
         --nolinkto -- "$1" 2>&1); pid=$!
@@ -1291,5 +1293,526 @@ ai_tools_layout__write_check_records() {
         fi
         _ai_tools_layout__write_entry_records check_state check_findings "${all}" || return 1
     done
+    return 0
+}
+
+# ── The reconcile ────────────────────────────────────────────────────────────────────────────
+# ai_tools_layout__reconcile brings each entry to its row and prints one tagged line per observation, each field encoded
+# as the entry set's lines are:
+#
+#     changed <path> <field> <from> <to>      a field this pass brought to its row, read back after the write
+#     refused <path> <field> <reason>         an entry left as it is: a state the reconcile does not repair
+#     error   <path> <field> <reason>         an observation that did not complete, or a write that failed
+#
+# The order is the discovery-input rows first (the agents directory, each manifest under it, operator.conf, and their
+# ancestors in the table), then one pass over the union of the static and the dynamic rows, sorted so a parent precedes
+# every path under it. A row is acted on while every ancestor row of it is at its row after that ancestor's own step;
+# otherwise it is refused naming the ancestor and is not read through it. An ancestor outside the table is the host's.
+#
+# A file or directory row is repaired through a descriptor pinned to the inode the read observed, the sequence
+# ai-tools-chown's apply block takes (safe-paths.rule.md): the identity read through the path, the open, the identity,
+# type and link count read from the descriptor, ai_tools_safe_paths__is_pinned_fd_at_path, then each write
+# through /proc/self/fd. The parents .claude, .codex, .local and .local/share are sandbox-group-writable and sticky,
+# so a sandbox-owned entry under one can be renamed aside and a symlink planted between the read and the write,
+# which a plain chmod would follow.
+#
+# The lock serializes two reconciles: two passes interleaving their `setfacl --set` calls is the one way this library
+# could leave an entry at neither state, so a lock it cannot take is an `error` line and no write, where the relabel
+# lock proceeds. AI_TOOLS_LAYOUT_LOCK and AI_TOOLS_LAYOUT_LOCK_WAIT are root-only test hooks (tests.rule.md).
+: "${AI_TOOLS_LAYOUT_LOCK:=/run/lock/ai-tools-layout.lock}"
+: "${AI_TOOLS_LAYOUT_LOCK_WAIT:=60}"
+readonly _AI_TOOLS_LAYOUT__LIBRARY_DIR="${BASH_SOURCE[0]%/*}"
+readonly _AI_TOOLS_LAYOUT__FULL_PASS_REMEDY="sudo ai-tools-admin system layout reconcile, or sudo ./install.sh install on a source install"
+
+# What one reconcile accumulates: the outcome counts its exit status folds, the paths of the rows in the set,
+# and the state each row reached after its own step, which the rows under it read.
+_AI_TOOLS_LAYOUT__RECONCILE_WRITE_FAILED=0
+_AI_TOOLS_LAYOUT__RECONCILE_INCOMPLETE=0
+_AI_TOOLS_LAYOUT__RECONCILE_REFUSED=0
+declare -A _AI_TOOLS_LAYOUT__ROW_PATHS=()
+declare -A _AI_TOOLS_LAYOUT__ANCESTOR_STATES=()
+
+# _ai_tools_layout__reset_reconcile_state : the counters and the maps of one reconcile, cleared.
+_ai_tools_layout__reset_reconcile_state() {
+    _AI_TOOLS_LAYOUT__RECONCILE_WRITE_FAILED=0
+    _AI_TOOLS_LAYOUT__RECONCILE_INCOMPLETE=0
+    _AI_TOOLS_LAYOUT__RECONCILE_REFUSED=0
+    _AI_TOOLS_LAYOUT__ROW_PATHS=()
+    _AI_TOOLS_LAYOUT__ANCESTOR_STATES=()
+}
+
+# _ai_tools_layout__log <level> <message> : one line to journald under the layout tag and to layout.log.
+_ai_tools_layout__log() { AI_TOOLS_LOG_TAG=ai-tools-layout AI_TOOLS_LOG_FILE=layout.log ai_tools_log__write "$@"; }
+
+# _ai_tools_layout__is_under <path> <ancestor> : 0 when <ancestor>/ is a prefix of <path> by path component,
+# so a refusal of /a/b does not reach /a/bc.
+_ai_tools_layout__is_under() { [[ "$1" == "$2"/* ]]; }
+
+# _ai_tools_layout__evaluate_change_log_level <field> <from> <to> : pure. The level a `changed` line logs at: `notice`
+# for a widening -- an owner or group moving to an account other than root, a mode bit set that was clear or a setgid
+# or sticky bit cleared, an ACL entry added or one gaining a bit, and any label change, since what a type grants is
+# the policy's -- and `info` otherwise. A value outside its grammar reads as a widening.
+_ai_tools_layout__evaluate_change_log_level() {
+    local field="$1" from="$2" to="$3" line tag perm
+    local -A from_entries=()
+    case "${field}" in
+        owner)
+            if [[ "${to%%:*}" != root && "${to%%:*}" != "${from%%:*}" ]] \
+                    || [[ "${to#*:}" != root && "${to#*:}" != "${from#*:}" ]]; then
+                printf notice
+            else
+                printf info
+            fi ;;
+        mode)
+            if [[ ! "${from}" =~ ^[0-7]{4}$ || ! "${to}" =~ ^[0-7]{4}$ ]] \
+                    || (( (8#${to} & ~8#${from} & 8#7777) != 0 || (8#${from} & ~8#${to} & 8#3000) != 0 )); then
+                printf notice
+            else
+                printf info
+            fi ;;
+        acl)
+            while IFS= read -r line; do
+                [[ -n "${line}" ]] || continue
+                from_entries["${line%:*}"]="${line##*:}"
+            done <<< "${from}"
+            while IFS= read -r line; do
+                [[ -n "${line}" ]] || continue
+                tag="${line%:*}" perm="${line##*:}"
+                if [[ -z "${from_entries[${tag}]+x}" ]] \
+                        || ! _ai_tools_layout__is_permission_within "${perm}" "${from_entries[${tag}]}"; then
+                    printf notice; return 0
+                fi
+            done <<< "${to}"
+            printf info ;;
+        *) printf notice ;;
+    esac
+}
+
+# _ai_tools_layout__report_change <path> <field> <from> <to> : one `changed` line, logged at the level the change earns,
+# the ACL text's line feeds as commas in the log.
+_ai_tools_layout__report_change() {
+    local line level
+    _ai_tools_layout__encode_line line changed "$1" "$2" "$3" "$4"
+    printf '%s\n' "${line}"
+    level="$(_ai_tools_layout__evaluate_change_log_level "$2" "$3" "$4")"
+    _ai_tools_layout__log "${level}" "$1 $2 ${3//$'\n'/,} -> ${4//$'\n'/,}"
+}
+
+# _ai_tools_layout__report_refusal <path> <field> <reason> : one `refused` line, counted and logged at warning.
+_ai_tools_layout__report_refusal() {
+    local line
+    _AI_TOOLS_LAYOUT__RECONCILE_REFUSED=$(( _AI_TOOLS_LAYOUT__RECONCILE_REFUSED + 1 ))
+    _ai_tools_layout__encode_line line refused "$1" "$2" "$3"
+    printf '%s\n' "${line}"
+    _ai_tools_layout__log warning "refused $1 $2: $3"
+}
+
+# _ai_tools_layout__report_error <path> <field> <reason> : one `error` line, counted and logged at warning.
+_ai_tools_layout__report_error() {
+    local line
+    _AI_TOOLS_LAYOUT__RECONCILE_INCOMPLETE=$(( _AI_TOOLS_LAYOUT__RECONCILE_INCOMPLETE + 1 ))
+    _ai_tools_layout__encode_line line error "$1" "$2" "$3"
+    printf '%s\n' "${line}"
+    _ai_tools_layout__log warning "error $1 $2: $3"
+}
+
+# _ai_tools_layout__report_write_failure <path> <field> <tool> <status> : a write that returned non-zero, the error line
+# and the exit the outcome table folds it to.
+_ai_tools_layout__report_write_failure() {
+    _AI_TOOLS_LAYOUT__RECONCILE_WRITE_FAILED=1
+    _ai_tools_layout__report_error "$1" "$2" "$3 exited $4"
+}
+
+# _ai_tools_layout__lock <reason-var> : hold AI_TOOLS_LAYOUT_LOCK in the calling shell until _ai_tools_layout__unlock
+# or the end of the process. Returns 0 while it is held, and 1 with the reason in <reason-var> where flock is absent,
+# the lock file cannot be created, or the wait ran out. The file is created by a simple command and stderr is redirected
+# before the create, for the two bash properties the relabel lock states.
+_ai_tools_layout__lock() {
+    local -n _layout_lock_reason="$1"
+    _layout_lock_reason=""
+    [[ -z "${_AI_TOOLS_LAYOUT__LOCK_FD:-}" ]] || return 0
+    if ! command -v flock >/dev/null 2>&1; then _layout_lock_reason="flock is not installed"; return 1; fi
+    if ! : 2>/dev/null >"${AI_TOOLS_LAYOUT_LOCK}"; then
+        _layout_lock_reason="cannot write ${AI_TOOLS_LAYOUT_LOCK}"; return 1
+    fi
+    exec {_AI_TOOLS_LAYOUT__LOCK_FD}>"${AI_TOOLS_LAYOUT_LOCK}"
+    if ! flock -w "${AI_TOOLS_LAYOUT_LOCK_WAIT}" "${_AI_TOOLS_LAYOUT__LOCK_FD}"; then
+        _ai_tools_layout__unlock
+        _layout_lock_reason="another reconcile held ${AI_TOOLS_LAYOUT_LOCK} for more than ${AI_TOOLS_LAYOUT_LOCK_WAIT}s"
+        return 1
+    fi
+    return 0
+}
+
+# _ai_tools_layout__unlock : release the lock by closing its descriptor; a no-op while it is not held.
+_ai_tools_layout__unlock() {
+    [[ -n "${_AI_TOOLS_LAYOUT__LOCK_FD:-}" ]] || return 0
+    exec {_AI_TOOLS_LAYOUT__LOCK_FD}>&-
+    unset _AI_TOOLS_LAYOUT__LOCK_FD
+    return 0
+}
+
+# _ai_tools_layout__is_discovery_input <path> : 0 for a row the dynamic enumeration reads before it can list a dynamic
+# row -- the agents directory, a manifest under it, operator.conf -- or an ancestor of one of them.
+_ai_tools_layout__is_discovery_input() {
+    local path="$1" input
+    for input in "${AI_TOOLS_AGENTS_DIR}" "${AI_TOOLS_OPERATOR_CONF}"; do
+        [[ "${path}" == "${input}" ]] && return 0
+        _ai_tools_layout__is_under "${input}" "${path}" && return 0
+    done
+    [[ "${path}" == "${AI_TOOLS_AGENTS_DIR}"/*.conf && "${path#"${AI_TOOLS_AGENTS_DIR}"/}" != */* ]]
+}
+
+# _ai_tools_layout__record_ancestor_state <state-var> : record whether the entry is at its row after its step --
+# the observed type, owner and mode are the declared ones, or the entry is absent and the row allows that --
+# for the rows under it to read.
+_ai_tools_layout__record_ancestor_state() {
+    local -n _layout_record_state="$1"
+    local _layout_record_verdict=bad
+    if [[ "${_layout_record_state[type]:-}" == "${_layout_record_state[expected_type]}" \
+            && "${_layout_record_state[owner]:-}" == "${_layout_record_state[expected_owner]}" ]] \
+            && { [[ "${_layout_record_state[expected_type]}" == link ]] \
+                 || [[ "${_layout_record_state[mode]:-}" == "${_layout_record_state[expected_mode]}" ]]; }; then
+        _layout_record_verdict=ok
+    elif [[ "${_layout_record_state[type]:-}" == absent ]] \
+            && [[ ",${_layout_record_state[flags]}," == *,ghost,* || ",${_layout_record_state[flags]}," == *,optional,* ]]; then
+        _layout_record_verdict=ok
+    fi
+    _AI_TOOLS_LAYOUT__ANCESTOR_STATES["${_layout_record_state[path]}"]="${_layout_record_verdict}"
+}
+
+# _ai_tools_layout__find_refusing_ancestor <path> : print the nearest ancestor row of <path> that is not at its row,
+# or one the pass has not reached, and return 0; return 1 when every ancestor row is at its row.
+_ai_tools_layout__find_refusing_ancestor() {
+    local ancestor="$1"
+    while [[ "${ancestor}" == */* ]]; do
+        ancestor="${ancestor%/*}"
+        [[ -n "${ancestor}" ]] || break
+        [[ -n "${_AI_TOOLS_LAYOUT__ROW_PATHS[${ancestor}]+x}" ]] || continue
+        if [[ "${_AI_TOOLS_LAYOUT__ANCESTOR_STATES[${ancestor}]:-bad}" != ok ]]; then
+            printf '%s' "${ancestor}"; return 0
+        fi
+    done
+    return 1
+}
+
+# _ai_tools_layout__create_directory <state-var> : create a missing directory row with install -d at its owner and mode,
+# then the exact mode, and only under a parent that exists as a directory (lstat): a missing parent is a refusal naming
+# it, so install -d is never asked to create an intermediate component. Returns 0 when the directory was created, 1
+# after a refusal or a failed write.
+_ai_tools_layout__create_directory() {
+    local -n _layout_create_state="$1"
+    local _layout_create_path="${_layout_create_state[path]}" _layout_create_parent _layout_create_status=0
+    _layout_create_parent="${_layout_create_path%/*}"
+    [[ -n "${_layout_create_parent}" ]] || _layout_create_parent=/
+    if [[ -L "${_layout_create_parent}" || ! -d "${_layout_create_parent}" ]]; then
+        _ai_tools_layout__report_refusal "${_layout_create_path}" type \
+            "the directory is not created: its parent ${_layout_create_parent} is not a directory"
+        return 1
+    fi
+    install -d -o "${_layout_create_state[expected_owner]%%:*}" -g "${_layout_create_state[expected_owner]#*:}" \
+        -m "${_layout_create_state[expected_mode]}" -- "${_layout_create_path}" 2>/dev/null \
+        || _layout_create_status=$?
+    if (( _layout_create_status != 0 )); then
+        _ai_tools_layout__report_write_failure "${_layout_create_path}" type "install -d" "${_layout_create_status}"
+        return 1
+    fi
+    ai_tools_control_plane__apply_mode "${_layout_create_state[expected_mode]}" "${_layout_create_path}" 2>/dev/null \
+        || _layout_create_status=$?
+    if (( _layout_create_status != 0 )); then
+        _ai_tools_layout__report_write_failure "${_layout_create_path}" mode chmod "${_layout_create_status}"
+        return 1
+    fi
+    return 0
+}
+
+# _ai_tools_layout__apply_pinned <state-var> <field>... : the writes for one file or directory row -- from owner, acl,
+# mode and label, in that order -- through a descriptor pinned to the inode the read observed. The parent is resolved
+# once (an ancestor outside the table is the host's and may be a symlink; one inside it is a directory at its row
+# before this runs) and the leaf is not, since a symlink planted there is what the pin exists to catch: the identity is
+# read through the path, the entry opened, and the descriptor must report the same identity, the row's type and link
+# count 1 for a file, with the kernel's own name for it equal to the path. A mismatch is an `error` with no write.
+# `setfacl` runs without `-P` on the magic link, which is what it follows; restorecon takes the path, after the checks
+# held, since it derives the context from the path. Returns 0 when every write returned 0 and 1 after an error line.
+_ai_tools_layout__apply_pinned() {
+    local -n _layout_apply_state="$1"
+    local _layout_apply_path="${_layout_apply_state[path]}" _layout_apply_parent _layout_apply_leaf _layout_apply_pinned
+    local _layout_apply_identity _layout_apply_fd _layout_apply_got_identity _layout_apply_nlink _layout_apply_ftype
+    local _layout_apply_type _layout_apply_field _layout_apply_status
+    shift
+    _layout_apply_parent="${_layout_apply_path%/*}" _layout_apply_leaf="${_layout_apply_path##*/}"
+    [[ -n "${_layout_apply_parent}" ]] || _layout_apply_parent=/
+    if ! _layout_apply_parent="$(realpath -e -- "${_layout_apply_parent}" 2>/dev/null)"; then
+        _ai_tools_layout__report_error "${_layout_apply_path}" identity "the parent directory could not be resolved"
+        return 1
+    fi
+    _layout_apply_pinned="${_layout_apply_parent%/}/${_layout_apply_leaf}"
+    if ! _layout_apply_identity="$(LC_ALL=C stat -c '%d:%i' -- "${_layout_apply_pinned}" 2>/dev/null)"; then
+        _ai_tools_layout__report_error "${_layout_apply_path}" identity "the entry could not be read before the repair"
+        return 1
+    fi
+    if ! { exec {_layout_apply_fd}< "${_layout_apply_pinned}"; } 2>/dev/null; then
+        _ai_tools_layout__report_error "${_layout_apply_path}" identity "the entry could not be opened"
+        return 1
+    fi
+    if ! read -r _layout_apply_got_identity _layout_apply_nlink _layout_apply_ftype \
+            < <(LC_ALL=C stat -L -c '%d:%i %h %F' "/proc/self/fd/${_layout_apply_fd}" 2>/dev/null); then
+        exec {_layout_apply_fd}<&-
+        _ai_tools_layout__report_error "${_layout_apply_path}" identity "the pinned entry could not be read"
+        return 1
+    fi
+    case "${_layout_apply_ftype}" in
+        "regular file"|"regular empty file") _layout_apply_type="file" ;;
+        directory)                           _layout_apply_type=directory ;;
+        *)                                   _layout_apply_type=other ;;
+    esac
+    if [[ "${_layout_apply_got_identity}" != "${_layout_apply_identity}" \
+            || "${_layout_apply_type}" != "${_layout_apply_state[expected_type]}" ]] \
+            || { [[ "${_layout_apply_type}" == file ]] && (( _layout_apply_nlink != 1 )); } \
+            || ! ai_tools_safe_paths__is_pinned_fd_at_path "${_layout_apply_fd}" "${_layout_apply_pinned}"; then
+        exec {_layout_apply_fd}<&-
+        _ai_tools_layout__report_error "${_layout_apply_path}" identity "the entry changed during the repair"
+        return 1
+    fi
+    for _layout_apply_field in owner acl mode label; do
+        [[ " $* " == *" ${_layout_apply_field} "* ]] || continue
+        _layout_apply_status=0
+        case "${_layout_apply_field}" in
+            owner)
+                chown -- "${_layout_apply_state[expected_owner]}" "/proc/self/fd/${_layout_apply_fd}" 2>/dev/null \
+                    || _layout_apply_status=$?
+                (( _layout_apply_status == 0 )) || { _ai_tools_layout__report_write_failure "${_layout_apply_path}" \
+                    owner chown "${_layout_apply_status}"; break; } ;;
+            acl)
+                # Where the row does not declare a default block and the entry carries one, `setfacl -k` removes it
+                # first; `--set-file` then replaces the access ACL whole, base entries included, so a masked-off foreign
+                # entry goes in the same operation that sets the mode bits and no intermediate state activates it.
+                if [[ "${_layout_apply_state[expected_acl]}" != *default:* \
+                        && "${_layout_apply_state[acl]:-}" == *default:* ]]; then
+                    setfacl -k "/proc/self/fd/${_layout_apply_fd}" 2>/dev/null || _layout_apply_status=$?
+                    (( _layout_apply_status == 0 )) || { _ai_tools_layout__report_write_failure \
+                        "${_layout_apply_path}" acl "setfacl -k" "${_layout_apply_status}"; break; }
+                fi
+                printf '%s\n' "${_layout_apply_state[expected_acl]}" \
+                    | setfacl --set-file=- "/proc/self/fd/${_layout_apply_fd}" 2>/dev/null || _layout_apply_status=$?
+                (( _layout_apply_status == 0 )) || { _ai_tools_layout__report_write_failure "${_layout_apply_path}" \
+                    acl "setfacl --set-file" "${_layout_apply_status}"; break; } ;;
+            mode)
+                ai_tools_control_plane__apply_mode "${_layout_apply_state[expected_mode]}" \
+                    "/proc/self/fd/${_layout_apply_fd}" 2>/dev/null || _layout_apply_status=$?
+                (( _layout_apply_status == 0 )) || { _ai_tools_layout__report_write_failure "${_layout_apply_path}" \
+                    mode chmod "${_layout_apply_status}"; break; } ;;
+            label)
+                restorecon -- "${_layout_apply_pinned}" 2>/dev/null || _layout_apply_status=$?
+                (( _layout_apply_status == 0 )) || { _ai_tools_layout__report_write_failure "${_layout_apply_path}" \
+                    label restorecon "${_layout_apply_status}"; break; } ;;
+        esac
+    done
+    exec {_layout_apply_fd}<&-
+    (( _layout_apply_status == 0 ))
+}
+
+# _ai_tools_layout__reconcile_entry <encoded-entry> : one row, through the ancestor rule, the preconditions
+# and the repair, with the lines it earns printed and its state recorded for the rows under it. A row under an ancestor
+# that is not at its row is refused unread. A finding the reader could not complete is an `error` and no write.
+# A missing directory is created under an existing parent; a missing file or link, an entry of another type,
+# and a package file whose content differs are refused with the remedy the finding carries. A drifted package file
+# whose content is unverified is left as it is, each drifted field named. Otherwise the drifted fields are written --
+# a link's owner by name, the rest through the pinned descriptor -- and the entry read again: `changed` per field
+# from the two reads, and `error` for a field that still reports its finding.
+_ai_tools_layout__reconcile_entry() {
+    # The arrays are handed to the reader by name, so they carry a name the output-name check accepts.
+    local entry="$1" ancestor path field token detail line content_reason refusal_detail="" link_status
+    local -A first=() current=() final=()
+    local -a first_findings=() current_findings=() final_findings=() finding=() drifted=() apply_fields=()
+    local is_missing=0 is_mismatch=0 content_drift=0 unreadable=0 created=0
+    _ai_tools_layout__parse_entry_line "${entry}" finding || finding=()
+    path="${finding[0]:-}"
+    if [[ -n "${path}" ]] && ancestor="$(_ai_tools_layout__find_refusing_ancestor "${path}")"; then
+        _ai_tools_layout__report_refusal "${path}" ancestor "not read: ${ancestor} is not at its row"
+        _AI_TOOLS_LAYOUT__ANCESTOR_STATES["${path}"]=bad
+        return 0
+    fi
+    if ! ai_tools_layout__read_entry_state "${entry}" first first_findings; then
+        _ai_tools_layout__report_error "${path:-layout.lib.sh}" entry "the entry did not decode"
+        [[ -z "${path}" ]] || _AI_TOOLS_LAYOUT__ANCESTOR_STATES["${path}"]=bad
+        return 0
+    fi
+    path="${first[path]}"
+    for line in "${first_findings[@]}"; do
+        _ai_tools_layout__parse_entry_line "${line}" finding || continue
+        token="${finding[0]}" field="${finding[1]:-}" detail="${finding[4]:-}"
+        case "${token}" in
+            unreadable)    unreadable=1; _ai_tools_layout__report_error "${path}" "${field}" "${detail}" ;;
+            missing)       is_missing=1; refusal_detail="${detail}" ;;
+            type-mismatch) is_mismatch=1; refusal_detail="${detail}" ;;
+            content-drift) content_drift=1; refusal_detail="${detail}" ;;
+            *-drift)       drifted+=( "${field}" ) ;;
+        esac
+    done
+    if (( unreadable )); then
+        _ai_tools_layout__record_ancestor_state first; return 0
+    fi
+    if (( ${#first_findings[@]} == 0 )); then
+        _ai_tools_layout__record_ancestor_state first; return 0
+    fi
+    if (( is_mismatch )); then
+        _ai_tools_layout__report_refusal "${path}" type "${refusal_detail}"
+        _ai_tools_layout__record_ancestor_state first; return 0
+    fi
+    if (( content_drift )); then
+        _ai_tools_layout__report_refusal "${path}" content "${refusal_detail}"
+        _ai_tools_layout__record_ancestor_state first; return 0
+    fi
+    current=(); for field in "${!first[@]}"; do current["${field}"]="${first[${field}]}"; done
+    if (( is_missing )); then
+        if [[ "${first[expected_type]}" != directory || -n "${first[link_target]:-}" ]]; then
+            _ai_tools_layout__report_refusal "${path}" type "${refusal_detail}"
+            _ai_tools_layout__record_ancestor_state first; return 0
+        fi
+        if ! _ai_tools_layout__create_directory first; then
+            _ai_tools_layout__record_ancestor_state first; return 0
+        fi
+        created=1
+        current=(); current_findings=()
+        if ! ai_tools_layout__read_entry_state "${entry}" current current_findings; then
+            _ai_tools_layout__report_error "${path}" entry "the created directory could not be read back"
+            _AI_TOOLS_LAYOUT__ANCESTOR_STATES["${path}"]=bad; return 0
+        fi
+        drifted=()
+        for line in "${current_findings[@]}"; do
+            _ai_tools_layout__parse_entry_line "${line}" finding || continue
+            case "${finding[0]}" in
+                unreadable) _ai_tools_layout__report_error "${path}" "${finding[1]:-}" "${finding[4]:-}"
+                            _ai_tools_layout__record_ancestor_state current; return 0 ;;
+                *-drift)    drifted+=( "${finding[1]}" ) ;;
+            esac
+        done
+    fi
+    if (( ${#drifted[@]} > 0 )); then
+        # A package file is repaired only on verified content; one the pass could not verify is reported and left whole,
+        # since a mode fixed on unverified bytes would re-bless them.
+        if _ai_tools_layout__is_payload_file "${current[expected_type]}" "${current[flags]}" \
+                && [[ "${current[content]:-}" != verified ]]; then
+            content_reason="${current[content_reason]:-the content was not verified}"
+            for field in "${drifted[@]}"; do
+                _ai_tools_layout__report_refusal "${path}" "${field}" \
+                    "left as it is: the content is ${current[content]:-unverified} (${content_reason}); run ${_AI_TOOLS_LAYOUT__FULL_PASS_REMEDY}"
+            done
+            _ai_tools_layout__record_ancestor_state current; return 0
+        fi
+        if [[ "${current[expected_type]}" == link ]]; then
+            link_status=0
+            chown --no-dereference -- "${current[expected_owner]}" "${path}" 2>/dev/null || link_status=$?
+            (( link_status == 0 )) \
+                || _ai_tools_layout__report_write_failure "${path}" owner "chown --no-dereference" "${link_status}"
+        else
+            apply_fields=()
+            for field in owner acl mode label; do
+                [[ " ${drifted[*]} " == *" ${field} "* ]] && apply_fields+=( "${field}" )
+                # The mode is re-asserted after an ACL write, for the special bits and the base bits setfacl set.
+                [[ "${field}" == mode && " ${drifted[*]} " == *" acl "* && " ${apply_fields[*]} " != *" mode "* ]] \
+                    && apply_fields+=( mode )
+            done
+            _ai_tools_layout__apply_pinned current "${apply_fields[@]}" || true
+        fi
+    fi
+    final=(); final_findings=()
+    if ! ai_tools_layout__read_entry_state "${entry}" final final_findings; then
+        _ai_tools_layout__report_error "${path}" entry "the entry could not be read back after the repair"
+        _AI_TOOLS_LAYOUT__ANCESTOR_STATES["${path}"]=bad; return 0
+    fi
+    (( created )) && _ai_tools_layout__report_change "${path}" type absent "${final[type]:-}"
+    for field in owner mode acl label; do
+        [[ -n "${first[${field}]:-}" ]] || continue
+        [[ "${first[${field}]}" != "${final[${field}]:-}" ]] || continue
+        _ai_tools_layout__report_change "${path}" "${field}" "${first[${field}]}" "${final[${field}]:-}"
+    done
+    for line in "${final_findings[@]}"; do
+        _ai_tools_layout__parse_entry_line "${line}" finding || continue
+        case "${finding[0]}" in
+            *-drift) [[ " ${drifted[*]} " == *" ${finding[1]} "* ]] \
+                         && _ai_tools_layout__report_error "${path}" "${finding[1]}" "the change did not take" ;;
+            unreadable) _ai_tools_layout__report_error "${path}" "${finding[1]:-}" "${finding[4]:-}" ;;
+        esac
+    done
+    _ai_tools_layout__record_ancestor_state final
+    return 0
+}
+
+# _ai_tools_layout__reconcile_lines <lines-var> : run _ai_tools_layout__reconcile_entry over the entry lines
+# of the caller's array in path order, an `error` line of the set reported as it is, and mark each path handled
+# in _AI_TOOLS_LAYOUT__ROW_PATHS so a later phase does not act on it again.
+_ai_tools_layout__reconcile_lines() {
+    local -n _layout_run_lines="$1"
+    local _layout_run_line _layout_run_path
+    local -a _layout_run_fields=()
+    for _layout_run_line in "${_layout_run_lines[@]}"; do
+        if [[ "${_layout_run_line}" == error$'\t'* ]]; then
+            _ai_tools_layout__parse_entry_line "${_layout_run_line}" _layout_run_fields \
+                || _layout_run_fields=( error host layout.lib.sh entries "a line of the entry set did not decode" )
+            _ai_tools_layout__report_error "${_layout_run_fields[2]:-layout.lib.sh}" "${_layout_run_fields[3]:-entries}" \
+                "${_layout_run_fields[4]:-}"
+            continue
+        fi
+        _layout_run_path="${_layout_run_line%%$'\t'*}"
+        [[ "${_AI_TOOLS_LAYOUT__ROW_PATHS[${_layout_run_path}]:-}" != handled ]] || continue
+        _ai_tools_layout__reconcile_entry "${_layout_run_line}"
+        _AI_TOOLS_LAYOUT__ROW_PATHS["${_layout_run_path}"]=handled
+    done
+}
+
+# ai_tools_layout__reconcile <without-rpm> : bring every entry that applies on this host to its row, printing the tagged
+# lines the section header states. Returns 2 without output for a caller that is not root and while the table did not
+# validate; 5 after an `error` line for the lock, the safe-paths library or the enumeration, and otherwise the outcome
+# ai-tools-records(5) folds -- 1 where a write failed or a repaired field did not take, 5 where an observation was
+# incomplete, 4 where a refusal remains, 0 otherwise. The unattended callers ignore the status.
+ai_tools_layout__reconcile() {
+    [[ -z "${AI_TOOLS_LAYOUT__DECLARATION_ERROR}" ]] || return 2
+    [[ "${EUID}" -eq 0 ]] || return 2
+    local without_rpm="${1:-0}" reason="" line path sorted
+    local -a static_lines=() phase_lines=() union_lines=()
+    _ai_tools_layout__reset_reconcile_state
+    if ! declare -F ai_tools_safe_paths__is_pinned_fd_at_path >/dev/null 2>&1; then
+        # shellcheck source=SCRIPTDIR/safe-paths.lib.sh
+        source "${_AI_TOOLS_LAYOUT__LIBRARY_DIR}/safe-paths.lib.sh" 2>/dev/null || true
+    fi
+    if ! declare -F ai_tools_safe_paths__is_pinned_fd_at_path >/dev/null 2>&1; then
+        _ai_tools_layout__report_error "${_AI_TOOLS_LAYOUT__LIBRARY_DIR}/safe-paths.lib.sh" load \
+            "the library did not load or does not define the pinned-descriptor predicate; reinstall ai-tools-base"
+        return "${AI_TOOLS_RECORDS_BASE__EXIT_UNREADABLE}"
+    fi
+    if ! _ai_tools_layout__lock reason; then
+        _ai_tools_layout__report_error "${AI_TOOLS_LAYOUT_LOCK}" lock "${reason}"
+        return "${AI_TOOLS_RECORDS_BASE__EXIT_UNREADABLE}"
+    fi
+    ai_tools_layout__begin_pass "${without_rpm}"
+    # The discovery-input rows first, parent-first, so the dynamic enumeration reads inputs at their rows.
+    _ai_tools_layout__append_static_entries static_lines
+    for line in "${static_lines[@]}"; do
+        path="${line%%$'\t'*}"
+        _AI_TOOLS_LAYOUT__ROW_PATHS["${path}"]=row
+        _ai_tools_layout__is_discovery_input "${path}" && phase_lines+=( "${line}" )
+    done
+    if (( ${#phase_lines[@]} > 0 )); then
+        if sorted="$(printf '%s\n' "${phase_lines[@]}" | LC_ALL=C sort -t $'\t' -k1,1)"; then
+            mapfile -t phase_lines <<< "${sorted}"
+            _ai_tools_layout__reconcile_lines phase_lines
+        else
+            _ai_tools_layout__report_error layout.lib.sh entries "sort did not complete"
+        fi
+    fi
+    # Then one pass over the union, the rows the first phase handled taking no step.
+    mapfile -t union_lines < <(ai_tools_layout__list_entries)
+    for line in "${union_lines[@]}"; do
+        [[ "${line}" == error$'\t'* ]] && continue
+        path="${line%%$'\t'*}"
+        [[ -n "${_AI_TOOLS_LAYOUT__ROW_PATHS[${path}]+x}" ]] || _AI_TOOLS_LAYOUT__ROW_PATHS["${path}"]=row
+    done
+    _ai_tools_layout__reconcile_lines union_lines
+    _ai_tools_layout__unlock
+    (( _AI_TOOLS_LAYOUT__RECONCILE_WRITE_FAILED == 0 )) || return 1
+    (( _AI_TOOLS_LAYOUT__RECONCILE_INCOMPLETE == 0 )) || return "${AI_TOOLS_RECORDS_BASE__EXIT_UNREADABLE}"
+    (( _AI_TOOLS_LAYOUT__RECONCILE_REFUSED == 0 )) || return "${AI_TOOLS_RECORDS_BASE__EXIT_FINDINGS}"
     return 0
 }
