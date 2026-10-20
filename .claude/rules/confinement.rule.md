@@ -306,6 +306,11 @@ The enforced `/tmp` isolation is ordinary Unix permissions plus the `ai_tools_tm
 but which keeps it off other domains' `tmp_t`/`user_tmp_t` files. Per-session `/tmp` isolation would require
 a privileged (`--system`) manager that mounts and pivots `PrivateTmp` for the payload during unit setup.
 
+`mv` keeps the type a file was born with, so a file the session made in `/tmp` and moved into a project is
+`ai_tools_tmp_t` inside `ai_tools_project_t`. The handback domain manages that type as it manages the agent's home,
+so the file is handed back like any other, and it does not hold a relabel right on it: the type stays until a re-claim,
+whose drift scan lists the path and whose relabel resets it ([cli](cli.rule.md)).
+
 Node's V8 compile cache is the one piece of session scratch kept OUT of `/tmp` — pinned to `ai_tools_home_t`
 via `NODE_COMPILE_CACHE` (see [launch](launch.rule.md)) — because its default `/tmp/node-compile-cache` otherwise
 collides with `user_tmp_t` leftovers and other uids, and an entry carrying `user_tmp_t` denies node's own `open()`
