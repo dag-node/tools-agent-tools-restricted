@@ -1131,6 +1131,13 @@ function emitting one line per `printf`, so a single-write listing cannot hide t
 in `man.sh` failed at random on the EL container runners for exactly this reason), so each remaining `semodule -l` probe
 now captures the listing before matching it.
 
+`sweep-bound.sh` pins the bound every agent's Stop sweep puts on its walk
+([ownership-and-hooks](ownership-and-hooks.rule.md)): over a fixture, `-cnewer` against the marker selects a file
+renamed into the tree and one moved in from another filesystem, each dated before the marker, while `-newer`,
+the control, selects neither and a file untouched since before the marker is selected by neither; it then reads each
+session hook's source for the bound. The cross-filesystem case needs a writable directory on another filesystem than
+the testdir's, and skips naming that otherwise.
+
 `fcontext-twins.sh` reads the policy sources and requires every file-context rule under the sandbox-clone area to appear
 under both `/opt` and `/var/opt`, with the same tail and context. A host reaches one of each pair, decided by whether
 its `file_contexts.subs_dist` aliases `/var/opt` to `/opt` (the note in `ai_tools.fc`), so `integration/selinux.sh`

@@ -18,7 +18,7 @@
 # Three modes, selected by $1:
 #
 #   stop          (default) -- Stop hook, fires at each turn's end. Bounded by a
-#                 timestamp marker: only paths modified since the previous sweep
+#                 timestamp marker: only paths whose status changed since the previous sweep
 #                 are processed, so the turn-end pass stays cheap. It is a turn-end
 #                 net, NOT a per-tool action -- handing a file back makes it
 #                 <you>:ai-tools 640 (group ai-tools loses write), which would break
@@ -274,13 +274,15 @@ fi
 # sweeps bound from session start.
 newref="$(mktemp "${HOOK_DIR}/.sweep.XXXXXX" 2>/dev/null)" || exit 0
 
-# `find DIR -xdev \( skip heavy trees \) -prune -o \( ai-tools-owned [newer] file|dir \) -print0`
+# `find DIR -xdev \( skip heavy trees \) -prune -o \( ai-tools-owned [cnewer] file|dir \) -print0`
 ai_tools_skip_dirs__build_find_expression sweep '' "${dir}"
 declare -a expr=( "${dir}" -xdev "${AI_TOOLS_SKIP_DIRS__FIND_EXPRESSION[@]}" '(' -user @SANDBOX_USER@ )
-# Bound to paths changed since the marker, EXCEPT an unbounded (session-start) pass, which sweeps every ai-tools-owned
-# path. A first-ever stop run (no marker) is likewise a full sweep.
+# Bound to paths whose status changed since the marker, EXCEPT an unbounded (session-start) pass, which sweeps every
+# ai-tools-owned path. A first-ever stop run (no marker) is likewise a full sweep. The bound reads ctime: a rename
+# or an `mv` from another filesystem keeps the source's mtime and sets the ctime, so an mtime bound passes over a file
+# moved into the tree. A path handed back is no longer ai-tools-owned, so its new ctime does not select it again.
 if [[ "${unbounded}" -eq 0 && -f "${MARKER}" ]]; then
-    expr+=( -newer "${MARKER}" )
+    expr+=( -cnewer "${MARKER}" )
 fi
 expr+=( '(' -type f -o -type d ')' -print0 ')' )
 

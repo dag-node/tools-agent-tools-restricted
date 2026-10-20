@@ -66,9 +66,11 @@ caught by the `Stop` and `SessionStart` sweeps instead.
 ## `Stop` — the per-turn catch-all sweep
 
 A `Stop` hook (`session-hook.sh`) closes the `Bash`-tool gap: at each turn's end it reads `.cwd`, finds
-the `SANDBOX_USER`-owned paths under it (bounded by a timestamp marker; heavy trees like `.git`/`node_modules` skipped)
-and hands each to `ai-tools-chown`. Running at turn end rather than per-Bash-call means handing a file back (world
-stripped) cannot break an in-progress in-place Bash edit.
+the `SANDBOX_USER`-owned paths under it (heavy trees like `.git`/`node_modules` skipped) and hands each
+to `ai-tools-chown`. The walk is bounded by a timestamp marker on status-change time (`find -cnewer`): a rename
+and an `mv` from another filesystem keep a file's mtime and set its ctime, so a file the agent moved into the tree is
+selected though its contents are older than the marker. Running at turn end rather than per-Bash-call means handing
+a file back (world stripped) cannot break an in-progress in-place Bash edit.
 
 On an ordinary file `ai-tools-chown` strips the world bits and, keyed on the *owner*-execute bit (the only exec bit git
 records), a stray group/mask **execute** that Claude Code's Write tool leaves on a data file — a data file drops
