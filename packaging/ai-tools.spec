@@ -1404,6 +1404,7 @@ fi
 %attr(0644, root, root) %{ai_libdir}/agent-installs.lib.sh
 %attr(0644, root, root) %{ai_libdir}/records-base.lib.sh
 %attr(0644, root, root) %{ai_libdir}/records-tsv.lib.sh
+%attr(0644, root, root) %{ai_libdir}/layout.lib.sh
 %dir %attr(0755, root, root) %{ai_libdir}/keys
 %attr(0644, root, root) %{ai_libdir}/keys/dag-node-package-signing.asc
 %attr(0644, root, root) %{ai_libdir}/keys/dag-node-package-signing.gpg
@@ -1461,6 +1462,7 @@ fi
 %ghost %attr(0600, root, root) /var/log/ai-tools/relabel.log
 %ghost %attr(0600, root, root) /var/log/ai-tools/handback.log
 %ghost %attr(0600, root, root) /var/log/ai-tools/install.log
+%ghost %attr(0600, root, root) /var/log/ai-tools/layout.log
 # Control-plane root and dirs are owned root:ai-tools: root owns the locked control files, the
 # agent reaches its state through group ai-tools, and the o+x search bits on the home and bin let
 # an operator readlink the launcher without reading anything deeper. ai-tools-bootstrap populates
