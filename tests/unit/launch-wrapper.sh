@@ -238,8 +238,31 @@ refused "the launcher program invoked by its own name is refused" MSG-F8N3
 chmod 0664 "${fixture_agents}/acme.conf"
 FIXTURE_AGENTS_DIR="${fixture_agents}" FIXTURE_OPERATOR_CONF="${fixture_conf}" \
     run "${LIB}" "${PROJECTS_USER}" "${approved}" ai_tools_launch_wrapper__gate_launcher
-refused "a launcher whose manifest is group-writable is refused (the resolver does not accept it)" MSG-F8N3
+refused "a launcher whose manifest is group-writable is refused as an unresolved set (the resolver does not accept it)" \
+    MSG-V4U4
+says "and the refusal names the manifest the trust check refused" "${fixture_agents}/acme.conf"
 chmod 0644 "${fixture_agents}/acme.conf"
+# An empty set names its cause. An operator.conf the operator cannot read reads as the baseline, which does not enable
+# an agent here, so the refusal names the file and not AI_TOOLS_AGENTS; any non-root account reads the 0600 fixture
+# that way.
+chmod 0600 "${fixture_conf}"
+FIXTURE_AGENTS_DIR="${fixture_agents}" FIXTURE_OPERATOR_CONF="${fixture_conf}" \
+    run "${LIB}" "${PROJECTS_USER}" "${approved}" ai_tools_launch_wrapper__gate_launcher
+refused "an operator.conf the operator cannot read refuses the launch as an unresolved set" MSG-V4U4
+assert_msg MSG-V2R5 "${OUT}" "and the resolver reports the unreadable file"
+says "and the reason names the file" "cannot read ${fixture_conf}"
+silent "and the AI_TOOLS_AGENTS remedy is not offered" 'MSG-F8N3'
+chmod 0644 "${fixture_conf}"
+printf 'AI_TOOLS_AGENTS="agent-beta"\n' > "${fixture_conf}"
+FIXTURE_AGENTS_DIR="${fixture_agents}" FIXTURE_OPERATOR_CONF="${fixture_conf}" \
+    run "${LIB}" "${PROJECTS_USER}" "${approved}" ai_tools_launch_wrapper__gate_launcher
+refused "control: the same file readable, enabling another agent, refuses under the not-enabled code" MSG-F8N3
+printf 'AI_TOOLS_AGENTS=""\n' > "${fixture_conf}"
+FIXTURE_AGENTS_DIR="${fixture_agents}" FIXTURE_OPERATOR_CONF="${fixture_conf}" \
+    run "${LIB}" "${PROJECTS_USER}" "${approved}" ai_tools_launch_wrapper__gate_launcher
+refused "a configuration asking for no agent refuses under the not-enabled code" MSG-F8N3
+says "and the refusal names AI_TOOLS_AGENTS" "AI_TOOLS_AGENTS"
+printf 'AI_TOOLS_AGENTS="agent-acme"\n' > "${fixture_conf}"
 broken_providers="${TESTDIR}/launch-noproviders.lib.sh"
 sed 's#^readonly PROVIDERS_LIB=.*#readonly PROVIDERS_LIB="/nonexistent/ai-tools/providers.lib.sh"#' \
     "${LIB}" > "${broken_providers}"

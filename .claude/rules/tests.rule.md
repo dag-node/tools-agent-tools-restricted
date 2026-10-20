@@ -512,12 +512,15 @@ with the canonical path published; the claim guard refuses an approved directory
 terminal can answer its confirm; the session exec refuses without the gates' results; and the gate runner answers
 the sandbox account before it reads the allowlist. Every launcher is one program, so the name is an input: init refuses
 one outside a launcher's charset, a non-ASCII letter included under a UTF-8 locale where a bracket range matches it,
-and the launcher gate refuses a name no enabled manifest claims, the launcher program's own among them. The hook loader
-is driven through a copy of the library with its hook directory repointed: an undeclared hook is not read though
-present, and every other state refuses. The launcher's startup hardening is measured against a control: the same run
-without `-p` takes a `BASH_ENV` file and an exported function, so their absence with `-p` is evidence rather than
-an untaken branch. The installed wrapper's own test is `integration/wrapper.sh`, which proves the deployed wrapper
-reaches those gates in that order through its launcher symlinks.
+and the launcher gate refuses a name no enabled manifest claims, the launcher program's own among them, while an empty
+enabled set is refused naming its cause: an unreadable `operator.conf` and a refused manifest under the unresolved-set
+code without the `AI_TOOLS_AGENTS` remedy, a configuration asking for no agent and a readable file enabling another
+agent under the not-enabled code. The hook loader is driven through a copy of the library with its hook directory
+repointed: an undeclared hook is not read though present, and every other state refuses. The launcher's startup
+hardening is measured against a control: the same run without `-p` takes a `BASH_ENV` file and an exported function,
+so their absence with `-p` is evidence rather than an untaken branch. The installed wrapper's own test is
+`integration/wrapper.sh`, which proves the deployed wrapper reaches those gates in that order through its launcher
+symlinks.
 
 `man.sh` is a pure text-sync check over this project's man pages and what each documents. The two command pages are held
 to the `usage()` heredoc of their command — `ai-tools(1)` against the CLI, `ai-tools-admin(8)` against the admin helper
