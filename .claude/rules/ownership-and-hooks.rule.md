@@ -59,6 +59,11 @@ keeps writing into a dir it made) — but **only** for directories the agent cre
 the walk stops at the first pre-existing user-owned dir, and `ai-tools-chown` independently refuses any
 non-`SANDBOX_USER` directory, so it never grants the agent group access to a dir it did not already own.
 
+Claude Code does not pass a hook's stderr to the model at exit 0, so the hook keeps what the client relays
+from the helper and, when a relayed line is a message code, replies with those lines as `additionalContext` beside
+the tool result and the first of them as `systemMessage`; that reply is the route the secret-file NOTICE takes
+into the session. Codex's adapter keeps the stderr relay alone until a reply shape is measured on a codex release.
+
 `PostToolUse` is the only path that quarantines a secret the instant it is written. It fires only for `Write`/`Edit`,
 so files the agent creates via the `Bash` tool (build output, codegen, `mv`, redirects) carry no `file_path` and are
 caught by the `Stop` and `SessionStart` sweeps instead.

@@ -904,6 +904,14 @@ and after one (a finding beside an entry that is not a readable file) — and ea
 The live half is `integration/selinux.sh` (`sesearch` over the loaded policy) and the boundary half `boundary/access.sh`
 (the audit log and the policy store are out of the sandbox account's reach).
 
+`claude-hooks.sh` pins the reply claude-code's `PostToolUse` hook gives when the root helper prints a NOTICE, since
+the model does not see a hook's stderr at exit 0 ([ownership-and-hooks](ownership-and-hooks.rule.md)): the hook's two
+functions are read out of the checkout as text and driven with the client stubbed as a shell function, and a relayed
+message code yields one `PostToolUse` reply carrying the helper's lines as context and the NOTICE as `systemMessage`,
+without the client's own error lines and within the hook's bound, while a relay without a code and an empty one yield
+none. It reads the hook's source for the one direct client call inside the relaying function and for the reply following
+the handback, and a hook without the functions fails the file rather than ending it on an undefined name.
+
 `codex-package.sh` pins the files `ai-tools-agents-codex-restricted` ships to the seams they plug into, before any host
 installs them ([agent-codex](agent-codex.rule.md)): the manifest through the readers that parse it, with its
 `launcher_target` and `entrypoint_fcontext` asserted to agree by pattern and, where the executable bit is visible,
