@@ -1967,8 +1967,11 @@ _ai_tools_layout__reconcile_entry() {
     done
     # `changed` for each field the repair wrote whose final value is the row's, from the state the repair started
     # from: the first read, or for a created directory the read after the create, so its lines come from the pinned
-    # apply.
-    (( created )) && _ai_tools_layout__report_change "${path}" type absent "${final_state[type]}"
+    # apply. A created directory's `type` line waits for a final type at the row: an unreadable one is the incomplete
+    # observation the loop already reported.
+    if (( created )) && [[ "${final_state[type]:-}" == "${final_state[expected_type]}" ]]; then
+        _ai_tools_layout__report_change "${path}" type absent "${final_state[type]}"
+    fi
     for field in owner mode acl label; do
         [[ " ${fields_to_repair[*]} " == *" ${field} "* ]] || continue
         [[ "${final_state[${field}]:-}" == "${final_state[expected_${field}]:-}" ]] || continue

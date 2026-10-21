@@ -931,6 +931,51 @@ else
         && grep -q '^write_failed=1 ' <<< "${out}" \
         && pass "a field the repair did not write drifting meanwhile is a failed repair, the written field still changed" \
         || fail "drifted during the repair: $(tr '\n\t' '| ' <<< "${out}")"
+    # A created directory over the same seeded reader: the first read missing, the read after the create a 0700
+    # directory, the final read's type the argument. seeded_create_step <final-type> : the entry step
+    # over /review/newdir with the create and the apply no-ops; prints the lines, then
+    # `create=<calls> write_failed=<n> incomplete=<n> ancestor=<verdict>`.
+    seeded_create_step() {
+        local stub_final_type="$1" stub_reads=0 stub_creates=0
+        _ai_tools_layout__create_directory() { stub_creates=$(( stub_creates + 1 )); return 0; }
+        _ai_tools_layout__apply_entry_fields() { return 0; }
+        ai_tools_layout__read_entry_state() {
+            local -n stub_created_state="$2" stub_created_findings="$3"; local stub_line=""
+            stub_reads=$(( stub_reads + 1 ))
+            stub_created_state=( [path]=/review/newdir [expected_type]=directory [expected_owner]=root:root
+                [expected_mode]=0750 [expected_acl]=base [expected_label]=n/a [flags]=- [package]=ai-tools-base
+                [operator]='' )
+            case "${stub_reads}" in
+                1) stub_created_state[type]=absent
+                   _ai_tools_layout__encode_line stub_line missing type directory absent "no entry" ;;
+                2) stub_created_state+=( [type]=directory [owner]=root:root [mode]=0700 [acl]=base [label]=n/a )
+                   _ai_tools_layout__encode_line stub_line mode-drift mode 0750 0700 "mode differs" ;;
+                *) stub_created_state[type]="${stub_final_type}"
+                   if [[ "${stub_final_type}" == unreadable ]]; then
+                       _ai_tools_layout__encode_line stub_line unreadable type directory unreadable "final lstat failed"
+                   else
+                       stub_created_state+=( [owner]=root:root [mode]=0750 [acl]=base [label]=n/a )
+                   fi ;;
+            esac
+            [[ -z "${stub_line}" ]] || stub_created_findings+=( "${stub_line}" )
+        }
+        _ai_tools_layout__reset_reconcile_state
+        entry_step "$(entry /review/newdir directory root:root 0750 - ai-tools-base -)"
+        printf 'create=%s write_failed=%s incomplete=%s ancestor=%s\n' "${stub_creates}" \
+            "${_AI_TOOLS_LAYOUT__RECONCILE_WRITE_FAILED}" "${_AI_TOOLS_LAYOUT__RECONCILE_INCOMPLETE}" \
+            "${_AI_TOOLS_LAYOUT__ANCESTOR_VERDICTS[/review/newdir]:-}"
+    }
+    out="$(seeded_create_step unreadable)"
+    has_reconcile_observation "${out}" error /review/newdir type "final lstat failed" \
+        && grep -qx 'create=1 write_failed=0 incomplete=1 ancestor=bad' <<< "${out}" && ! grep -q '^changed' <<< "${out}" \
+        && pass "a created directory whose final type is unreadable is an incomplete observation with no changed line" \
+        || fail "created, final type unreadable: $(tr '\n\t' '| ' <<< "${out}")"
+    out="$(seeded_create_step directory)"
+    [[ "$(grep -m 1 '^changed' <<< "${out}" || true)" == "changed	/review/newdir	type	absent	directory" ]] \
+        && has_reconcile_observation "${out}" changed /review/newdir mode "0700	0750" \
+        && grep -qx 'create=1 write_failed=0 incomplete=0 ancestor=ok' <<< "${out}" \
+        && pass "a created directory whose final read is at the row prints its type line first (control)" \
+        || fail "created, final at the row: $(tr '\n\t' '| ' <<< "${out}")"
     # An error line of the entry set is reported as it is.
     _ai_tools_layout__encode_line errline error file "${repair_root}/x" agents "the manifest is not root's"
     declare -a set_lines=( "${errline}" )

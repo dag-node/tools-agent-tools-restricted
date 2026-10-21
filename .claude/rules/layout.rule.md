@@ -171,7 +171,8 @@ exists to catch. A `link` row takes `chown --no-dereference` alone. **The read a
 from (the read after the create, for a created directory, whose `type` line comes first); a field they wrote that still
 reports its finding, a field they did not write that drifted meanwhile, and an entry no longer at its path or of another
 type are each a repair that did not hold, an `error` at the write-failed outcome, the last with no `changed` line
-and its ancestor verdict `bad`; an `unreadable` field there is an incomplete observation.
+and its ancestor verdict `bad`; an `unreadable` field there is an incomplete observation, and a created directory
+whose final type is `unreadable` does not write its `type` line.
 
 **Each change is one log line** through `log.lib.sh` under the tag `ai-tools-layout` and `layout.log`, at `notice`
 for a widening — an owner or group moving to an account other than root, a mode bit set that was clear or a setgid
