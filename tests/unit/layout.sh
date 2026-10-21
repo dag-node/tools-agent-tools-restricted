@@ -1099,17 +1099,31 @@ else
         && pass "a foreign entry and an undeclared default block are removed, the declared entry kept" || fail "acl drift: $(brief "${out}") / $(tr '\n' '|' <<< "${live}")"
     SP="${R}/var/opt/ai-tools/sandbox-projects"
     setfacl -m "g:nobody:rwx" "${SP}"; chmod g= "${SP}"
-    activated="${TESTDIR}/activated"; rm -f "${activated}"
+    # A watcher samples the ACL while the reconcile runs: it signals readiness after its first read and counts its
+    # reads, so the case fails where it never read. Polling can miss an interval between two writes, so the result is
+    # sampled evidence of the one `setfacl --set-file` replacement.
+    activated="${TESTDIR}/activated" observations="${TESTDIR}/observations" ready="${TESTDIR}/ready"
+    rm -f "${activated}" "${observations}" "${ready}"
     ( while [[ ! -e "${TESTDIR}/stop-watch" ]]; do
-          if getfacl -e --omit-header -P -- "${SP}" 2>/dev/null | grep "^group:nobody:rwx" | grep -qv '#effective:---'; then : > "${activated}"; fi
+          watch_acl="$(getfacl -e --omit-header -P -- "${SP}" 2>/dev/null)" || continue
+          printf . >> "${observations}"; [[ -e "${ready}" ]] || : > "${ready}"
+          watch_line="$(grep '^group:nobody:rwx' <<< "${watch_acl}" || true)"
+          [[ -z "${watch_line}" || "${watch_line}" == *'#effective:---'* ]] || : > "${activated}"
       done ) &
     watcher=$!
-    out="$(reconcile_run)"
-    : > "${TESTDIR}/stop-watch"; wait "${watcher}" 2>/dev/null || true; rm -f "${TESTDIR}/stop-watch"
-    live="$(getfacl --omit-header -P -- "${SP}")"
-    [[ "${live}" != *"group:nobody"* && "$(stat -c '%a' "${SP}")" == 2770 && ! -e "${activated}" ]] \
-        && pass "a masked-off foreign entry is removed as the group bits widen, with no state in which it was effective" \
-        || fail "masked entry: $(tr '\n' '|' <<< "${live}") mode $(stat -c '%a' "${SP}") activated=$([[ -e "${activated}" ]] && echo yes || echo no)"
+    for (( ready_wait = 0; ready_wait < 50; ready_wait++ )); do [[ -e "${ready}" ]] && break; sleep 0.1; done
+    if [[ ! -e "${ready}" ]]; then
+        : > "${TESTDIR}/stop-watch"; wait "${watcher}" 2>/dev/null || true; rm -f "${TESTDIR}/stop-watch"
+        fail "masked entry: the ACL watcher did not read ${SP} within 5s, so the run is not observed"
+    else
+        out="$(reconcile_run)"
+        : > "${TESTDIR}/stop-watch"; wait "${watcher}" 2>/dev/null || true; rm -f "${TESTDIR}/stop-watch"
+        live="$(getfacl --omit-header -P -- "${SP}")"
+        sampled="$(stat -c '%s' "${observations}" 2>/dev/null || printf 0)"
+        [[ "${live}" != *"group:nobody"* && "$(stat -c '%a' "${SP}")" == 2770 && ! -e "${activated}" ]] && (( sampled > 0 )) \
+            && pass "a masked-off foreign entry is removed as the group bits widen, effective in none of ${sampled} sampled ACL reads" \
+            || fail "masked entry: $(tr '\n' '|' <<< "${live}") mode $(stat -c '%a' "${SP}") sampled=${sampled} activated=$([[ -e "${activated}" ]] && echo yes || echo no)"
+    fi
     LINK="${R}/usr/sbin/ai-tools"
     chown --no-dereference nobody:nobody "${LINK}"
     out="$(reconcile_run)"
@@ -1465,7 +1479,9 @@ else
     declare -A row_by_path=() macros=( [_sysconfdir]=/etc [_datadir]=/usr/share [_unitdir]=/usr/lib/systemd/system
         [_userunitdir]=/usr/lib/systemd/user [_presetdir]=/usr/lib/systemd/system-preset [_sbindir]=/usr/sbin
         [_sysusersdir]=/usr/lib/sysusers.d )
-    declare -A spec_paths=() tree_lines=() dynamic_paths=()
+    # spec_paths holds a path's last package for the %dir check; the reverse pass reads membership per package, since
+    # a directory two packages own is a %files line of each.
+    declare -A spec_paths=() spec_members=() tree_members=() dynamic_paths=()
     for entry in "${_AI_TOOLS_LAYOUT__STATIC_ENTRIES[@]}"; do row_by_path["${entry%%$'\t'*}"]="${entry#*$'\t'}"; done
     # expand <text> : the spec macros substituted; a macro left is a failure.
     expand() { local t="$1" m; for m in "${!macros[@]}"; do t="${t//%\{${m}\}/${macros[${m}]}}"; done; printf '%s' "${t}"; }
@@ -1474,7 +1490,10 @@ else
         [[ "${line}" =~ ^%global\ (ai_[a-z]+)\ +(/[^ ]+) ]] && macros["${BASH_REMATCH[1]}"]="${BASH_REMATCH[2]}"
         # The SELinux package lists its files through a list %install writes: each literal path echoed into it is
         # that package's %files line.
-        [[ "${line}" =~ ${list_re} ]] && spec_paths["$(expand "${BASH_REMATCH[1]}")"]=ai-tools-selinux
+        if [[ "${line}" =~ ${list_re} ]]; then
+            spec_paths["$(expand "${BASH_REMATCH[1]}")"]=ai-tools-selinux
+            spec_members["$(expand "${BASH_REMATCH[1]}")"$'\t'ai-tools-selinux]=1
+        fi
     done < "${SPEC}"
     # A shipped agent's config directory is a dynamic row by design (no static row names it); its %dir line is held
     # to the manifest in the closing case.
@@ -1499,12 +1518,12 @@ else
         [[ "${line}" == *'%config'* ]] && is_config=1
         [[ "${line}" == *'%ghost'* ]] && is_ghost=1
         path="${line##* }"; path="${path%\*}"
-        spec_paths["${path}"]="${package}"
+        spec_paths["${path}"]="${package}"; spec_members["${path}"$'\t'"${package}"]=1
         lines=$(( lines + 1 ))
         [[ -n "${dynamic_paths[${path}]+x}" ]] && continue
         # A line naming a directory without %dir ships the whole tree under it.
         (( is_dir )) || [[ "${row_by_path[${path}]+x}" != x ]] || [[ "${row_by_path[${path}]%%$'\t'*}" != directory ]] \
-            || tree_lines["${path}"]=1
+            || tree_members["${path}"$'\t'"${package}"]=1
         if [[ -z "${row_by_path[${path}]+x}" ]]; then
             if [[ -z "${attr_mode}" && "${path}" == /usr/share/ai-tools/* ]]; then continue; fi  # shipped data, rpm's defaults
             fail "lockstep: %files line has no row: ${path} (${package})"; problems=$(( problems + 1 )); continue
@@ -1534,16 +1553,36 @@ else
     done < "${SPEC}"
     (( lines > 100 )) && pass "the spec's %files lines were read (${lines})" || fail "the spec parser read ${lines} lines"
     (( problems == 0 )) && pass "every %files line resolves to its row with the same owner, mode, package and flags"
-    # The reverse: every files row of a package is a %files line of that package's section.
-    reverse=0
-    for entry in "${_AI_TOOLS_LAYOUT__STATIC_ENTRIES[@]}"; do
-        IFS=$'\t' read -r r_path r_type r_owner r_mode r_acl r_packages r_flags <<< "${entry}"
-        [[ ",${r_flags}," == *,files,* ]] || continue
-        covered=0; [[ -n "${spec_paths[${r_path}]+x}" ]] && covered=1
-        for tree in "${!tree_lines[@]}"; do [[ "${r_path}" == "${tree}/"* ]] && covered=1; done
-        (( covered )) || { fail "lockstep: files row ${r_path} is not a %files line"; reverse=$(( reverse + 1 )); }
-    done
-    (( reverse == 0 )) && pass "every files row is a %files line of its package"
+    # The reverse: every files row is a %files line, or under a tree, of each package it names. reverse_uncovered
+    # <entry>... : print `<path><TAB><package>` for each package a files row names whose section does not list the path.
+    reverse_uncovered() {
+        local rv_entry rv_path rv_type rv_owner rv_mode rv_acl rv_packages rv_flags rv_package rv_member rv_covered
+        for rv_entry in "$@"; do
+            IFS=$'\t' read -r rv_path rv_type rv_owner rv_mode rv_acl rv_packages rv_flags <<< "${rv_entry}"
+            [[ ",${rv_flags}," == *,files,* ]] || continue
+            for rv_package in ${rv_packages//,/ }; do
+                rv_covered=0; [[ -n "${spec_members[${rv_path}$'\t'${rv_package}]+x}" ]] && rv_covered=1
+                for rv_member in "${!tree_members[@]}"; do
+                    [[ "${rv_member#*$'\t'}" == "${rv_package}" && "${rv_path}" == "${rv_member%%$'\t'*}/"* ]] && rv_covered=1
+                done
+                (( rv_covered )) || printf '%s\t%s\n' "${rv_path}" "${rv_package}"
+            done
+        done
+    }
+    reverse="$(reverse_uncovered "${_AI_TOOLS_LAYOUT__STATIC_ENTRIES[@]}")"
+    if [[ -z "${reverse}" ]]; then
+        pass "every files row is a %files line of each package it names"
+    else
+        while IFS=$'\t' read -r rv_path rv_package; do
+            fail "lockstep: files row ${rv_path} names ${rv_package}, whose %files section does not list it"
+        done <<< "${reverse}"
+    fi
+    # The negative control: the library directory with a second package that does not ship it fails the pass, naming
+    # the row and that package alone.
+    reverse="$(reverse_uncovered "$(raw /usr/local/lib/ai-tools directory root:ai-tools 0751 - ai-tools-base,ai-tools-selinux files)")"
+    [[ "${reverse}" == "/usr/local/lib/ai-tools"$'\t'ai-tools-selinux ]] \
+        && pass "a files row naming a second package whose section lacks it fails the reverse pass (control)" \
+        || fail "reverse control: '$(tr '\t\n' ' |' <<< "${reverse}")'"
     # Each shipped agent's config_dir has its %dir line in that agent's package section.
     for manifest in "${LIB_DIR}"/agents.d/*.conf; do
         agent="${manifest##*/}"; agent="${agent%.conf}"

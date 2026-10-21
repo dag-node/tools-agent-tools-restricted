@@ -210,18 +210,20 @@ through the pin and a name occupied before the create left as an error, a repair
 at the write-failed outcome, a write that fails named with its tool, a row under an ancestor whose name the stream
 encoder escapes refused naming it — the command's option grammar through the sourced helper, the boundary-pair map,
 and the lockstep with `packaging/ai-tools.spec`: every `%attr` line resolves to a row with the same owner, mode, package
-and `config`/`ghost` flag, every `files` row is a `%files` line of its package, and each shipped agent's `config_dir`
-has its `%dir` line in its package. As root it builds a tree from the table itself over `AI_TOOLS_LAYOUT_ROOT`
-and drives the whole-tree cases: a converged tree does not print a line, each planted drift the reconcile repairs
-converges in one run, content drift beside owner, mode and ACL drift leaves every field, a package file at another
-owner, at group write or with a foreign entry carrying write is refused and left while the same file at `0600`
-converges, a missing directory at a non-root owner takes it through the pin, a masked-off foreign entry goes with no
-state in which it is effective, a symlink at a directory row refuses the rows under it, and under an operator home
-carrying a backslash as well, an untrusted discovery input and the drift in the dynamic rows it hides converge in one
-invocation, an invalid manifest, an unresolved account and a lost entry set stay visible at exit 5, a held lock is
-an error with no write, the exit order holds, and a non-root caller is refused. `tests/integration/perms.sh` is the loop
-over the installed library, and `tests/boundary/access.sh` probes the library, the reconcile and every boundary row
-as the sandbox account.
+and `config`/`ghost` flag, every `files` row is a `%files` line of each package it names, a row naming a second package
+as the control, and each shipped agent's `config_dir` has its `%dir` line in its package. As root it builds a tree
+from the table itself over `AI_TOOLS_LAYOUT_ROOT` and drives the whole-tree cases: a converged tree does not print
+a line, each planted drift the reconcile repairs converges in one run, content drift beside owner, mode and ACL drift
+leaves every field, a package file at another owner, at group write or with a foreign entry carrying write is refused
+and left while the same file at `0600` converges, a missing directory at a non-root owner takes it through the pin,
+a masked-off foreign entry goes with no effective state among the ACL reads a watcher samples while the reconcile runs,
+a symlink at a directory row refuses the rows under it, and under an operator home carrying a backslash as well,
+an untrusted discovery input and the drift in the dynamic rows it hides converge in one invocation, an invalid manifest,
+an unresolved account and a lost entry set stay visible at exit 5, a held lock is an error with no write, the exit order
+holds, and a non-root caller is refused. `tests/integration/perms.sh` is the loop over the installed library,
+and `tests/boundary/access.sh` probes the library, every boundary row, and the reconcile through the installed
+`/usr/sbin/ai-tools-admin` link, established as root first, as the sandbox account, holding the status to the two
+a refusal produces.
 
 ## Design notes
 

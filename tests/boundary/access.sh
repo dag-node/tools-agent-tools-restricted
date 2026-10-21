@@ -751,10 +751,22 @@ elif runuser -u "${SANDBOX_USER}" -- test -w "${_layout_lib}" 2>/dev/null; then
 else
     pass "the agent cannot write the layout library"
 fi
-if runuser -u "${SANDBOX_USER}" -- /usr/local/sbin/ai-tools-admin system layout reconcile >/dev/null 2>&1; then
-    fail "ai-tools-admin system layout reconcile ran as ${SANDBOX_USER}"
+# The reconcile as the sandbox account, through the link an operator types. The link is established as root first,
+# so a missing executable fails here instead of reading as the refusal, and the status is held to the two a refusal
+# produces: 126, the exec denied by the 750 root:root helper directory, or the helper's own root check.
+_layout_admin=/usr/sbin/ai-tools-admin
+if [[ ! -L "${_layout_admin}" || ! -x "${_layout_admin}" ]]; then
+    fail "${_layout_admin} is not an executable link as root, so the reconcile's refusal is not probed -- reinstall ai-tools-base"
 else
-    pass "ai-tools-admin system layout reconcile is refused as ${SANDBOX_USER}"
+    _layout_rc=0
+    _layout_out="$(runuser -u "${SANDBOX_USER}" -- "${_layout_admin}" system layout reconcile 2>&1)" || _layout_rc=$?
+    if (( _layout_rc == 126 )); then
+        pass "ai-tools-admin system layout reconcile is refused as ${SANDBOX_USER}: the helper directory denies the exec"
+    elif (( _layout_rc == 1 )) && grep -qxF MSG-D7D4 <<< "${_layout_out}"; then
+        pass "ai-tools-admin system layout reconcile is refused as ${SANDBOX_USER} by its root check"
+    else
+        fail "ai-tools-admin system layout reconcile as ${SANDBOX_USER} exited ${_layout_rc}, not a refusal (127 is a missing executable): $(head -c 200 <<< "${_layout_out}" | tr '\n' '|')"
+    fi
 fi
 # shellcheck source=/dev/null
 if source "${_layout_lib}" 2>/dev/null && declare -F ai_tools_layout__list_entries >/dev/null 2>&1 \
