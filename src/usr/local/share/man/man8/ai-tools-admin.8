@@ -702,9 +702,11 @@ without
 A missing directory is created under an existing parent.
 The states it does not repair are each printed as a refused line naming the
 remedy: a package file whose content differs from its package or could not be
-verified, a missing file or link, an entry of another type where a directory
-or a file belongs, and a row under an ancestor that is not at its row after
-its own step.
+verified, a regular file at another owner or writable by an account its row
+does not name (reinstalled, or for a configuration or an operator's file
+reviewed and restored by hand), a missing file or link, an entry of another
+type where a directory or a file belongs, and a row under an ancestor that is
+not at its row after its own step.
 Each change is one line in the journal under the tag
 .B ai\-tools\-layout
 and in
