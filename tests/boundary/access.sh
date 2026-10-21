@@ -738,4 +738,48 @@ for attestation_input_path in /sys/fs/selinux/booleans/nis_enabled /sys/fs/selin
     fi
 done
 
+# ── The installed layout: the library, the reconcile and every boundary row are out of the agent's reach ──────
+# The layout library declares which rows gate a session and the reconcile rewrites owners, modes and ACLs as root,
+# so the agent must write neither; and every row the library flags `boundary` is read by a gate that refuses a session
+# on it, so none may be agent-writable. The rows come from the library's own list rather than a copy here, so a boundary
+# row a release adds is probed without editing this file.
+_layout_lib=/usr/local/lib/ai-tools/layout.lib.sh
+if [[ ! -e "${_layout_lib}" ]]; then
+    skip "layout library not agent-writable" "${_layout_lib} not installed"
+elif runuser -u "${SANDBOX_USER}" -- test -w "${_layout_lib}" 2>/dev/null; then
+    fail "the agent can write ${_layout_lib} -- it could change which paths the reconcile rewrites as root"
+else
+    pass "the agent cannot write the layout library"
+fi
+if runuser -u "${SANDBOX_USER}" -- /usr/local/sbin/ai-tools-admin system layout reconcile >/dev/null 2>&1; then
+    fail "ai-tools-admin system layout reconcile ran as ${SANDBOX_USER}"
+else
+    pass "ai-tools-admin system layout reconcile is refused as ${SANDBOX_USER}"
+fi
+# shellcheck source=/dev/null
+if source "${_layout_lib}" 2>/dev/null && declare -F ai_tools_layout__list_entries >/dev/null 2>&1 \
+        && [[ -z "${AI_TOOLS_LAYOUT__DECLARATION_ERROR:-}" ]]; then
+    _boundary_rows=0; _boundary_writable=0
+    declare -a _layout_fields=()
+    while IFS= read -r _layout_line; do
+        [[ "${_layout_line}" == error$'\t'* ]] && continue
+        ai_tools_layout__parse_line "${_layout_line}" _layout_fields || continue
+        [[ ",${_layout_fields[6]}," == *,boundary,* ]] || continue
+        _boundary_rows=$(( _boundary_rows + 1 ))
+        # An absent row is integration/perms.sh's finding; this probe is about the rows that exist.
+        [[ -e "${_layout_fields[0]}" || -L "${_layout_fields[0]}" ]] || continue
+        if runuser -u "${SANDBOX_USER}" -- test -w "${_layout_fields[0]}" 2>/dev/null; then
+            fail "the agent can write the boundary row ${_layout_fields[0]} -- the gate reading it decides what a session may do"
+            _boundary_writable=$(( _boundary_writable + 1 ))
+        fi
+    done < <(ai_tools_layout__list_entries)
+    if (( _boundary_rows == 0 )); then
+        fail "the layout library listed no boundary row"
+    elif (( _boundary_writable == 0 )); then
+        pass "none of the ${_boundary_rows} boundary rows the layout library lists is agent-writable"
+    fi
+else
+    skip "boundary rows not agent-writable" "${_layout_lib} did not load or its table did not validate"
+fi
+
 finish

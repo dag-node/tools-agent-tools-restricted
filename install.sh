@@ -2131,7 +2131,7 @@ do_install() {
     ensure_dir 700 root root /var/log/ai-tools
     chown root:root /var/log/ai-tools
     chmod 700 /var/log/ai-tools
-    for _logfile in chown setgid symlink lockdown relabel handback install; do
+    for _logfile in chown setgid symlink lockdown relabel handback install layout; do
         if [[ ! -e "/var/log/ai-tools/${_logfile}.log" ]]; then
             install -o root -g root -m 600 /dev/null "/var/log/ai-tools/${_logfile}.log"
         fi
