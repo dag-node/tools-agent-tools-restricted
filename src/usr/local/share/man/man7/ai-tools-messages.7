@@ -433,13 +433,17 @@ failed to add ${user} to ${OPERATORS_GROUP}
 WARNING.
 The '${name}' SELinux policy group is an EXPERIMENTAL, unaudited draft. It is not shipped prebuilt and cannot be enabled from here \-\- it widens the sandbox domain's access beyond the repo\-only core and must be compiled and verified against a real workload from a source checkout first.
 .TP
+.B MSG-C6D2
+ERROR.
+the layout library did not load or does not define the readers this command calls: ${LAYOUT_LIB} \-\- reinstall ai\-tools\-base (sudo dnf reinstall ai\-tools\-base, or sudo ./install.sh install from a checkout)
+.TP
 .B MSG-C7N4
 ERROR.
 assets: ${conf} could not be read whole (reader status ${status}), so AI_TOOLS_ASSETS is not written and the file is unchanged \-\- check that it is readable and run the command again
 .TP
 .B MSG-C7S7
 ERROR.
-system takes a resource or a verb: 'system bootstrap', 'system entrypoints relabel', 'system post\-upgrade'
+system takes a resource or a verb: 'system bootstrap', 'system entrypoints relabel', 'system layout', 'system post\-upgrade'
 .TP
 .B MSG-C9C4
 ERROR.
@@ -573,6 +577,10 @@ rpmnew\-residual
 WARNING.
 assets enable \-\-set: an asset of the set that fails the asset\-scope rules, left out of AI_TOOLS_ASSETS
 .TP
+.B MSG-J7S6
+WARNING.
+the reconcile did not run: ${layout_fields[3]}
+.TP
 .B MSG-J9F9
 WARNING.
 could not remove ${user} from ${OPERATORS_GROUP}
@@ -671,7 +679,7 @@ assets disable: an identifier removed from AI_TOOLS_ASSETS
 .TP
 .B MSG-Q2X5
 ERROR.
-unknown command 'system ${name}' (bootstrap|entrypoints|post\-upgrade)
+unknown command 'system ${name}' (bootstrap|entrypoints|layout|post\-upgrade)
 .TP
 .B MSG-Q3Z5
 ERROR.
@@ -712,6 +720,14 @@ asset\-outdated
 .B MSG-R7U6
 WARNING.
 no home directory on this host for ${user}; skipping the config seed
+.TP
+.B MSG-R7Y4
+ERROR.
+system layout: ${1}
+.TP
+.B MSG-R8U8
+ERROR.
+the layout table did not validate: ${AI_TOOLS_LAYOUT__DECLARATION_ERROR} \-\- reinstall ai\-tools\-base
 .TP
 .B MSG-S3D8
 WARNING.
@@ -817,6 +833,10 @@ asset\-overridden
 ERROR.
 an incompatible contract: ${fragment} needs contributed\-command interface ${declared_floor}, and this ai\-tools\-admin implements ${ADMIN_COMMAND_API} \-\- a different major is a different contract, so upgrade whichever of the two is behind
 .TP
+.B MSG-W5G4
+WARNING.
+a state the reconcile does not repair remains; each refused line above names its remedy (man ai\-tools\-admin)
+.TP
 .B MSG-W6D7
 ERROR.
 assets enable: no binding names the set ${AI_TOOLS_ASSETS__ID_SET} under ${AI_TOOLS_ASSETS_BINDINGS_DIR} or ${AI_TOOLS_ASSETS_OPERATOR_BINDINGS_DIR}, so ${identifier} is accepted only once a binding pins its signer; AI_TOOLS_ASSETS is unchanged
@@ -848,6 +868,10 @@ system bootstrap: \-\-agents takes a value (NAME[,NAME...])
 .B MSG-X9F8
 WARNING.
 the merge failed: ${ai_tools_settings_merge__reason} \-\- ${deployed} is unchanged
+.TP
+.B MSG-Y2F7
+WARNING.
+a record could not be written, so the stream is incomplete
 .TP
 .B MSG-Y3J5
 ERROR.

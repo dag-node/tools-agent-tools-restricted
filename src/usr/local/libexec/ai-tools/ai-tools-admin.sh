@@ -104,6 +104,7 @@ readonly PROVIDERS_LIB="/usr/local/lib/ai-tools/providers.lib.sh"
 readonly PATH_ORDER_LIB="/usr/local/lib/ai-tools/path-order.lib.sh"
 readonly RECORDS_TSV_LIB="/usr/local/lib/ai-tools/records-tsv.lib.sh"
 readonly ASSETS_LIB="/usr/local/lib/ai-tools/assets.lib.sh"
+readonly LAYOUT_LIB="/usr/local/lib/ai-tools/layout.lib.sh"
 # Where a provider package drops the command fragment carrying its own domain. The environment override is a root-only
 # test hook (tests.rule.md, ref-section-b4y9), so tests/unit/admin-commands.sh drives the dispatch against a fixture
 # tree. `--help` lists the domains through it ahead of the root check, so a non-root caller can point the LISTING
@@ -217,6 +218,11 @@ ai-tools-admin -- administer the ai-tools host: operators, SELinux groups, the t
     system post-upgrade [--check]    reconcile the .rpmnew files an upgrade leaves; --check only reports
       --all                          with --check: list the findings that need no action too
       --format tsv                   with --check: the line format (the default)
+    system layout [list] [--check]   every installed path with its owner, mode, ACL and SELinux type, and what drifted
+      --all                          with --check: list the entries at their row too
+      --format tsv                   with --check: the line format (the default)
+    system layout reconcile          bring every installed path to its declared owner, mode, ACL and SELinux type
+      --without-rpm                  leave each package file whose content is not verified as it is
   Assets
     assets [list]                    each enabled asset's state and the links a reconcile would change
     assets enable <id>...            enable assets, each <set>/<kind>/<name>, and reconcile
@@ -3636,6 +3642,218 @@ selinux_dispatch() {
     esac
 }
 
+# ── system layout ────────────────────────────────────────────────────────────────────────────
+# The installed layout as one table (layout.lib.sh): `system layout` prints every entry that applies on this host
+# with what it carries now and names each field that drifted, `--check` writes the record stream ai-tools-records(5)
+# states, and `system layout reconcile` brings each entry to its row. This command owns the rendering and the option
+# grammar; what a row is, how each field is read and what the reconcile repairs are the library's (layout.rule.md).
+# Every read and write is root's: the table reports what root sees, and the gate that refuses a session is the row's own
+# reader in the process making the decision.
+
+# layout_load: source the library and require every function this command calls. An absent reader is a refusal naming
+# the library and the recovery, never an empty table.
+layout_load() {
+    # shellcheck source=SCRIPTDIR/../../lib/ai-tools/layout.lib.sh
+    source "${LAYOUT_LIB}" 2>/dev/null || true
+    declare -F ai_tools_layout__begin_pass ai_tools_layout__list_entries ai_tools_layout__read_entry_state \
+            ai_tools_layout__parse_line ai_tools_layout__write_check_records ai_tools_layout__reconcile >/dev/null 2>&1 \
+        || die MSG-C6D2 "the layout library did not load or does not define the readers this command calls: ${LAYOUT_LIB} -- reinstall ai-tools-base (sudo dnf reinstall ai-tools-base, or sudo ./install.sh install from a checkout)"
+}
+
+# layout_require_table: refuse while the table did not validate, naming the declaration refused. `--check` does not call
+# it: the library writes that refusal as the stream's one error row.
+layout_require_table() {
+    [[ -z "${AI_TOOLS_LAYOUT__DECLARATION_ERROR}" ]] \
+        || die MSG-R8U8 "the layout table did not validate: ${AI_TOOLS_LAYOUT__DECLARATION_ERROR} -- reinstall ai-tools-base"
+}
+
+# layout_reject_option <text>: the one refusal for a command line this domain does not parse, at reject's exit 2.
+layout_reject_option() { reject MSG-R7Y4 "system layout: ${1}"; }
+
+# layout_format_acl <text>: the named and default entries of an ACL text, comma-joined, or `-` where the text holds
+# the base entries alone; the base entries are the mode column's.
+layout_format_acl() {
+    local acl_line named_entries=""
+    while IFS= read -r acl_line; do
+        case "${acl_line}" in user::*|group::*|other::*|mask::*|"") continue ;; esac
+        named_entries+="${named_entries:+,}${acl_line}"
+    done <<< "$1"
+    printf '%s' "${named_entries:--}"
+}
+
+# layout_cell <observed> <expected> <drifted>: one attribute column, the read value with the declared one in brackets
+# where the field drifted.
+layout_cell() {
+    if [[ "$3" == 1 ]]; then printf '%s [%s]' "${1:--}" "${2:--}"; else printf '%s' "${1:--}"; fi
+}
+
+# layout_table: the human table, one line per entry -- the drift column first, so a drifted line is found by eye, then
+# the path (an operator's row with the operator in front), the type, the owner, the mode, the named ACL entries
+# and the SELinux type, every attribute as read now -- then the counts and, while a finding remains, the remedy.
+# The exit is the report state's: a finding counts toward 4, an unreadable field or an error toward 5.
+layout_table() {
+    local layout_line finding_line type_cell drift_cell finding_token finding_field operator_prefix label_expected
+    local entry_count=0 clean_count=0 drifted_count=0 unreadable_count=0 error_count=0
+    local -a layout_lines=() layout_fields=() layout_finding=()
+    local -A layout_state=() drift_fields=()
+    local -a layout_findings=()
+    ai_tools_records_base__begin_report
+    ai_tools_layout__begin_pass 0
+    mapfile -t layout_lines < <(ai_tools_layout__list_entries)
+    printf '%-18s %s\n' "drift" "path  type owner mode acl selinux-type"
+    for layout_line in "${layout_lines[@]}"; do
+        if [[ "${layout_line}" == error$'\t'* ]]; then
+            ai_tools_layout__parse_line "${layout_line}" layout_fields \
+                || layout_fields=( error host layout.lib.sh entries "a line of the entry set did not decode" )
+            printf '%-18s %s (%s): %s\n' "error" "${layout_fields[2]:-?}" "${layout_fields[3]:-?}" "${layout_fields[4]:-}"
+            error_count=$(( error_count + 1 )); ai_tools_records_base__accumulate_severity unreadable
+            continue
+        fi
+        layout_state=(); layout_findings=(); drift_fields=(); drift_cell=""
+        if ! ai_tools_layout__read_entry_state "${layout_line}" layout_state layout_findings; then
+            printf '%-18s %s\n' "error" "an entry of the set did not decode"
+            error_count=$(( error_count + 1 )); ai_tools_records_base__accumulate_severity unreadable
+            continue
+        fi
+        entry_count=$(( entry_count + 1 ))
+        for finding_line in "${layout_findings[@]}"; do
+            ai_tools_layout__parse_line "${finding_line}" layout_finding || layout_finding=( error entry )
+            finding_token="${layout_finding[0]}" finding_field="${layout_finding[1]:-}"
+            case "${finding_token}" in
+                *-drift)          drift_fields["${finding_field}"]=1; drift_cell+="${drift_cell:+,}${finding_field}"
+                                  ai_tools_records_base__accumulate_severity attention ;;
+                unreadable|error) drift_cell+="${drift_cell:+,}${finding_token}"
+                                  unreadable_count=$(( unreadable_count + 1 ))
+                                  ai_tools_records_base__accumulate_severity unreadable ;;
+                *)                drift_cell+="${drift_cell:+,}${finding_token}"
+                                  ai_tools_records_base__accumulate_severity attention ;;
+            esac
+        done
+        if (( ${#layout_findings[@]} == 0 )); then
+            clean_count=$(( clean_count + 1 )); drift_cell=ok
+        else
+            drifted_count=$(( drifted_count + 1 ))
+        fi
+        case "${layout_state[type]:-}" in
+            file|directory|link|absent) type_cell="${layout_state[type]}" ;;
+            *)                          type_cell="?" ;;
+        esac
+        operator_prefix="${layout_state[operator]:+${layout_state[operator]}: }"
+        label_expected="${layout_state[expected_label]:-}"
+        printf '%-18s %s%s  %s %s %s %s %s\n' "${drift_cell}" "${operator_prefix}" "${layout_state[path]}" "${type_cell}" \
+            "$(layout_cell "${layout_state[owner]:-}" "${layout_state[expected_owner]}" "${drift_fields[owner]:-0}")" \
+            "$(layout_cell "${layout_state[mode]:-}" "${layout_state[expected_mode]}" "${drift_fields[mode]:-0}")" \
+            "$(layout_cell "$(layout_format_acl "${layout_state[acl]:-}")" \
+                "$(layout_format_acl "${layout_state[expected_acl]}")" "${drift_fields[acl]:-0}")" \
+            "$(layout_cell "${layout_state[label]:-}" "${label_expected:-${layout_state[label]:-}}" \
+                "${drift_fields[label]:-0}")"
+    done
+    printf '\n%s entries: %s at their row, %s with a finding, %s unreadable, %s error line(s)\n' \
+        "${entry_count}" "${clean_count}" "${drifted_count}" "${unreadable_count}" "${error_count}"
+    (( drifted_count + error_count == 0 )) \
+        || printf 'restore each entry to its row:  sudo ai-tools-admin system layout reconcile\n'
+    ai_tools_records_base__get_exit_status || return $?
+    return 0
+}
+
+# layout_list [--check [--all] [--format tsv]]: the table, or with `--check` the record stream of ai-tools-records(5)
+# in the report's own shell, read-only in both forms. A record the shared writer could not write ends the stream
+# with the warning the exit 5 reports.
+layout_list() {
+    local check=0 all=0 stream_format=tsv stream_format_given=0 refusal=""
+    while [[ $# -gt 0 && -z "${refusal}" ]]; do
+        case "$1" in
+            --check)  check=1 ;;
+            --all)    all=1 ;;
+            --format) if [[ $# -ge 2 ]]; then stream_format="$2"; stream_format_given=1; shift
+                      else refusal="--format takes a value (tsv)"; fi ;;
+            *)        refusal="unknown argument '$1' (--check [--all] [--format tsv])" ;;
+        esac
+        shift
+    done
+    if [[ -z "${refusal}" ]] && (( ! check && (all || stream_format_given) )); then
+        refusal="--all and --format apply to --check alone"
+    elif [[ -z "${refusal}" && "${stream_format}" != tsv ]]; then
+        refusal="unknown --format '${stream_format}' (tsv)"
+    fi
+    [[ -z "${refusal}" ]] || layout_reject_option "${refusal}"
+    layout_load
+    if (( check )); then
+        ai_tools_records_base__begin_report
+        if ! ai_tools_layout__write_check_records "${all}"; then
+            warn MSG-Y2F7 "a record could not be written, so the stream is incomplete"
+            return "${AI_TOOLS_RECORDS_BASE__EXIT_UNREADABLE}"
+        fi
+        ai_tools_records_base__get_exit_status || return $?
+        return 0
+    fi
+    layout_require_table
+    layout_table
+}
+
+# layout_reconcile [--without-rpm]: bring every entry to its row through the library, each of its lines printed in this
+# command's voice as it arrives, then the counts. The library runs as a collector (records.rule.md): its PID is saved
+# on the statement that opens it, and its status, the outcome ai-tools-admin(8) states, is the command's.
+layout_reconcile() {
+    local without_rpm=0 refusal="" collector_fd collector_pid reconcile_status=0 layout_line line_tag entry_path
+    local finding_field changed_count=0 refused_count=0 error_count=0
+    local -a layout_fields=()
+    while [[ $# -gt 0 && -z "${refusal}" ]]; do
+        case "$1" in
+            --without-rpm) without_rpm=1 ;;
+            *)             refusal="unknown argument '$1' (--without-rpm)" ;;
+        esac
+        shift
+    done
+    [[ -z "${refusal}" ]] || layout_reject_option "reconcile: ${refusal}"
+    layout_load
+    layout_require_table
+    exec {collector_fd}< <(ai_tools_layout__reconcile "${without_rpm}"); collector_pid=$!
+    while IFS= read -r -u "${collector_fd}" layout_line; do
+        if ! ai_tools_layout__parse_line "${layout_line}" layout_fields || (( ${#layout_fields[@]} < 4 )); then
+            printf 'ai-tools-admin: error: a line of the reconcile did not decode\n' >&2
+            error_count=$(( error_count + 1 )); continue
+        fi
+        line_tag="${layout_fields[0]}" entry_path="${layout_fields[1]}" finding_field="${layout_fields[2]}"
+        case "${line_tag}" in
+            changed) changed_count=$(( changed_count + 1 ))
+                     log "changed ${entry_path} ${finding_field}: ${layout_fields[3]//$'\n'/,} -> ${layout_fields[4]//$'\n'/,}" ;;
+            refused) refused_count=$(( refused_count + 1 ))
+                     printf 'ai-tools-admin: refused %s %s: %s\n' "${entry_path}" "${finding_field}" "${layout_fields[3]}" >&2 ;;
+            error)   error_count=$(( error_count + 1 ))
+                     case "${finding_field}" in
+                         lock) warn MSG-J7S6 "the reconcile did not run: ${layout_fields[3]}" ;;
+                         *)    printf 'ai-tools-admin: error %s %s: %s\n' "${entry_path}" "${finding_field}" "${layout_fields[3]}" >&2 ;;
+                     esac ;;
+            *)       error_count=$(( error_count + 1 ))
+                     printf 'ai-tools-admin: error: a line of the reconcile carries no tag\n' >&2 ;;
+        esac
+    done
+    exec {collector_fd}<&-
+    wait "${collector_pid}" || reconcile_status=$?
+    log "layout: ${changed_count} changed, ${refused_count} refused, ${error_count} error(s)"
+    (( refused_count == 0 )) \
+        || warn MSG-W5G4 "a state the reconcile does not repair remains; each refused line above names its remedy (man ai-tools-admin)"
+    # 2 is the library refusing a caller that is not root or a table that did not validate, each answered before this
+    # ran; it is reported as a failure rather than read as a rejected command line.
+    if (( reconcile_status == 2 )); then
+        printf 'ai-tools-admin: error: the layout library refused the reconcile\n' >&2
+        reconcile_status=1
+    fi
+    return "${reconcile_status}"
+}
+
+system_layout_dispatch() {
+    # `list` is the zero-argument default, and an option after `layout` is the list's.
+    local verb="${1:-list}"
+    case "${verb}" in
+        list)      shift; layout_list "$@" ;;
+        reconcile) shift; layout_reconcile "$@" ;;
+        --*)       layout_list "$@" ;;
+        *)         layout_reject_option "unknown command '${verb}' (list|reconcile)" ;;
+    esac
+}
+
 system_entrypoints_dispatch() {
     # No `list` yet, so a bare `system entrypoints` names its verb rather than running one: relabel re-fetches a signed
     # manifest and rewrites a pin, which is not a reading a default may take.
@@ -3648,13 +3866,14 @@ system_entrypoints_dispatch() {
 }
 
 system_dispatch() {
-    [[ $# -ge 1 ]] || reject MSG-C7S7 "system takes a resource or a verb: 'system bootstrap', 'system entrypoints relabel', 'system post-upgrade'"
+    [[ $# -ge 1 ]] || reject MSG-C7S7 "system takes a resource or a verb: 'system bootstrap', 'system entrypoints relabel', 'system layout', 'system post-upgrade'"
     local name="$1"; shift
     case "${name}" in
         bootstrap)    system_bootstrap "$@" ;;
         entrypoints)  system_entrypoints_dispatch "$@" ;;
+        layout)       system_layout_dispatch "$@" ;;
         post-upgrade) postupgrade "$@" ;;
-        *)            reject MSG-Q2X5 "unknown command 'system ${name}' (bootstrap|entrypoints|post-upgrade)" ;;
+        *)            reject MSG-Q2X5 "unknown command 'system ${name}' (bootstrap|entrypoints|layout|post-upgrade)" ;;
     esac
 }
 

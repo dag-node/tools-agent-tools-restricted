@@ -470,10 +470,10 @@ _ai_tools_layout__encode_line() {
     _layout_encode_out="${_layout_encode_line}"
 }
 
-# _ai_tools_layout__parse_entry_line <line> <array-var> : decode one line into the caller's array, one element
-# per field. Splits on TAB by hand, since `IFS=$'\t' read` collapses empty fields. Returns 1 and empties the array
-# when a field does not decode.
-_ai_tools_layout__parse_entry_line() {
+# ai_tools_layout__parse_line <line> <array-var> : decode one line into the caller's array, one element per field.
+# Splits on TAB by hand, since `IFS=$'\t' read` collapses empty fields. Returns 1 and empties the array when a field
+# does not decode.
+ai_tools_layout__parse_line() {
     local -n _layout_parse_out="$2"
     local _layout_parse_rest="$1" _layout_parse_field _layout_parse_decoded
     _layout_parse_out=()
@@ -1018,7 +1018,7 @@ ai_tools_layout__read_entry_state() {
         && [[ "$2" != "$3" ]] || return 1
     local -n _layout_state="$2" _layout_out_findings="$3"
     local -a _layout_fields=()
-    _ai_tools_layout__parse_entry_line "$1" _layout_fields || return 1
+    ai_tools_layout__parse_line "$1" _layout_fields || return 1
     (( ${#_layout_fields[@]} == 8 )) || return 1
     local _layout_path="${_layout_fields[0]}" _layout_subject_type="${_layout_fields[1]}"
     local _layout_owner="${_layout_fields[2]}" _layout_mode="${_layout_fields[3]}" _layout_acl="${_layout_fields[4]}"
@@ -1194,7 +1194,7 @@ _ai_tools_layout__write_row() {
 # _ai_tools_layout__write_error_line <encoded-error-line> : one `error` line of the entry set as a record.
 _ai_tools_layout__write_error_line() {
     local -a fields=()
-    if ! _ai_tools_layout__parse_entry_line "$1" fields || (( ${#fields[@]} != 5 )); then
+    if ! ai_tools_layout__parse_line "$1" fields || (( ${#fields[@]} != 5 )); then
         _ai_tools_layout__write_row error host "" layout.lib.sh "a line of the entry set did not decode" entries - -
         return
     fi
@@ -1236,7 +1236,7 @@ _ai_tools_layout__write_entry_records() {
         return
     fi
     for _layout_write_line in "${_layout_write_findings[@]}"; do
-        if ! _ai_tools_layout__parse_entry_line "${_layout_write_line}" _layout_write_finding \
+        if ! ai_tools_layout__parse_line "${_layout_write_line}" _layout_write_finding \
                 || (( ${#_layout_write_finding[@]} != 5 )); then
             _layout_write_finding=( error entry - - "a finding did not decode" )
         fi
@@ -1626,7 +1626,7 @@ _ai_tools_layout__reconcile_entry() {
     local -A first=() current=() final=()
     local -a first_findings=() current_findings=() final_findings=() finding=() drifted=() apply_fields=()
     local is_missing=0 is_mismatch=0 content_drift=0 unreadable=0 created=0
-    _ai_tools_layout__parse_entry_line "${entry}" finding || finding=()
+    ai_tools_layout__parse_line "${entry}" finding || finding=()
     path="${finding[0]:-}"
     if [[ -n "${path}" ]] && ancestor="$(_ai_tools_layout__find_refusing_ancestor "${path}")"; then
         _ai_tools_layout__report_refusal "${path}" ancestor "not read: ${ancestor} is not at its row"
@@ -1640,7 +1640,7 @@ _ai_tools_layout__reconcile_entry() {
     fi
     path="${first[path]}"
     for line in "${first_findings[@]}"; do
-        _ai_tools_layout__parse_entry_line "${line}" finding || continue
+        ai_tools_layout__parse_line "${line}" finding || continue
         token="${finding[0]}" field="${finding[1]:-}" detail="${finding[4]:-}"
         case "${token}" in
             unreadable)    unreadable=1; _ai_tools_layout__report_error "${path}" "${field}" "${detail}" ;;
@@ -1681,7 +1681,7 @@ _ai_tools_layout__reconcile_entry() {
         fi
         drifted=()
         for line in "${current_findings[@]}"; do
-            _ai_tools_layout__parse_entry_line "${line}" finding || continue
+            ai_tools_layout__parse_line "${line}" finding || continue
             case "${finding[0]}" in
                 unreadable) _ai_tools_layout__report_error "${path}" "${finding[1]:-}" "${finding[4]:-}"
                             _ai_tools_layout__record_ancestor_state current; return 0 ;;
@@ -1729,7 +1729,7 @@ _ai_tools_layout__reconcile_entry() {
         _ai_tools_layout__report_change "${path}" "${field}" "${first[${field}]}" "${final[${field}]:-}"
     done
     for line in "${final_findings[@]}"; do
-        _ai_tools_layout__parse_entry_line "${line}" finding || continue
+        ai_tools_layout__parse_line "${line}" finding || continue
         case "${finding[0]}" in
             *-drift) [[ " ${drifted[*]} " == *" ${finding[1]} "* ]] \
                          && _ai_tools_layout__report_error "${path}" "${finding[1]}" "the change did not take" ;;
@@ -1749,7 +1749,7 @@ _ai_tools_layout__reconcile_lines() {
     local -a _layout_run_fields=()
     for _layout_run_line in "${_layout_run_lines[@]}"; do
         if [[ "${_layout_run_line}" == error$'\t'* ]]; then
-            _ai_tools_layout__parse_entry_line "${_layout_run_line}" _layout_run_fields \
+            ai_tools_layout__parse_line "${_layout_run_line}" _layout_run_fields \
                 || _layout_run_fields=( error host layout.lib.sh entries "a line of the entry set did not decode" )
             _ai_tools_layout__report_error "${_layout_run_fields[2]:-layout.lib.sh}" "${_layout_run_fields[3]:-entries}" \
                 "${_layout_run_fields[4]:-}"

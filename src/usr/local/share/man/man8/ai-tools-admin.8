@@ -193,6 +193,30 @@ reports an entrypoint unverified or not labelled.
 answers from the labels themselves, where
 .B "ai\-tools status"
 answers from the last reconciliation's record.
+.SS Layout
+Every path this stack installs or creates is one row of a table the base
+package ships, with the owner, the mode, the ACL and, where the policy
+declares one, the SELinux type the row carries.
+.B "system layout"
+prints that table as the host carries it now and names each field that
+drifted;
+.B "system layout reconcile"
+brings each entry back to its row and logs every change.
+An upgrade, a source install, the provisioning run and the entrypoint relabel
+each run the reconcile, so a mode an upgrade or a hand edit changed is
+restored unattended.
+The command assumes this executable and the libraries beside it are the ones
+the package installed; a host where that does not hold is repaired by
+reinstalling the package or redeploying from source.
+A row whose file gates a session (a provider manifest,
+.IR operator.conf ,
+the shim) is reported and converged like any other: no launch reads this
+table, and the gate that refuses a session is that file's own reader, in the
+process making the decision.
+A package is read as installed while either of two files it ships exists;
+with both gone its rows leave the table, which
+.B "rpm \-Va"
+still reports.
 .SH COMMANDS
 .TP
 .B operators
@@ -598,6 +622,124 @@ copy),
 The stream format, and the default.
 .RE
 .TP
+.B system layout \fR[\fBlist\fR] [\fB\-\-check \fR[\fB\-\-all\fR] [\fB\-\-format tsv\fR]]
+Print every entry the layout table declares for the packages installed on
+this host, one line each: what drifted, the path, the subject type, the
+owner, the mode, the named ACL entries and the SELinux type.
+Every attribute column is the value read now; a drifted cell carries the
+declared value in brackets.
+The entries are the shipped paths under
+.IR /usr/local ,
+.IR /etc/ai\-tools ,
+.IR /opt/ai\-tools ,
+.IR /var/opt/ai\-tools ,
+.I /var/log/ai\-tools
+and the unit directories, each installed agent's configuration directory,
+and the configuration directory of each enrolled operator, printed with the
+operator in front.
+A manual page row is the compressed file where one exists.
+The content of a package file is compared with its package through
+.BR rpm (8)
+and reads as unverified where
+.B rpm
+is absent or the package was installed from source.
+Exits 0 when every entry is at its row, 4 when one drifted, is missing, is of
+another type or holds other content, and 5 when a field or an input could not
+be read.
+.RS
+.TP
+.B \-\-check
+Write the findings as the record stream
+.BR ai-tools-records (5)
+states, and no output on a converged host.
+Each row's
+.I subject
+is the path,
+.I subject\-type
+the type read there or the declared type where no entry is,
+.I operator
+the account for an operator's row,
+.I item
+the field with its declared and its read value
+.RB ( "mode 0644 0600" ),
+and
+.I detail
+display prose carrying, for a state the reconcile does not repair, the
+remedy.
+The findings
+.BR owner\-drift ,
+.BR mode\-drift ,
+.BR acl\-drift ,
+.BR label\-drift ,
+.B content\-drift
+(the file's bytes are not the package's),
+.B missing
+and
+.B type\-mismatch
+each exit 4;
+.B unreadable
+(a field whose reading did not complete) and
+.B error
+(an input the enumeration could not read, or a reader that refused the entry)
+exit 5.
+.TP
+.B \-\-all
+Also write an
+.B ok
+row per entry at its row, without changing the exit status.
+.TP
+.B \-\-format tsv
+The stream format, and the default.
+.RE
+.TP
+.B system layout reconcile \fR[\fB\-\-without\-rpm\fR]
+Bring every entry to its row: the owner, the ACL and the mode through a
+descriptor pinned to the entry the read observed, then the SELinux type
+through
+.BR restorecon (8)
+without
+.BR \-F .
+A missing directory is created under an existing parent.
+The states it does not repair are each printed as a refused line naming the
+remedy: a package file whose content differs from its package or could not be
+verified, a missing file or link, an entry of another type where a directory
+or a file belongs, and a row under an ancestor that is not at its row after
+its own step.
+Each change is one line in the journal under the tag
+.B ai\-tools\-layout
+and in
+.IR /var/log/ai\-tools/layout.log ,
+at notice where it widens access and at info otherwise.
+Runs are serialized on
+.IR /run/lock/ai\-tools\-layout.lock ;
+a lock the command cannot take within a minute is an error and no write.
+Exits 0 with every entry at its row, 1 when a write failed or a field did
+not take, 5 when an observation was incomplete, and 4 while a refused state
+remains, each after every entry it could act on.
+The unattended callers ignore the status: an upgrade, a source install, the
+provisioning run and
+.B ai\-tools\-relabel.service
+each run it, the last ahead of the relabel helper, whose result stays the
+unit's.
+A host's own adjustment runs after it through a drop-in,
+.IR /etc/systemd/system/ai\-tools\-relabel.service.d/local.conf ,
+holding
+.B Wants=
+for a unit ordered
+.BR After=ai\-tools\-relabel.service ;
+a direct run of this command, an install and a bootstrap do not start that
+unit, so a value it applies waits for the next relabel or a
+.BR systemctl (1)
+start.
+.RS
+.TP
+.B \-\-without\-rpm
+Skip the content comparison: every package file reads as unverified, and a
+drifted one is reported, not repaired.
+The transaction trigger passes it, since the rpm database is held while a
+transaction runs; the relabel the transaction starts runs the full pass.
+.RE
+.TP
 .B assets
 Print the state of every entry of
 .B AI_TOOLS_ASSETS
@@ -902,7 +1044,9 @@ An idempotent command that found no work left lands here, as does a
 command with no policy to manage because SELinux is disabled.
 .TP
 .B 1
-The operation failed.
+The operation failed; for
+.B "system layout reconcile"
+a write returned non-zero or a repaired field did not take.
 .TP
 .B 2
 The command line was rejected \(em an unknown command, a missing argument, or
@@ -910,17 +1054,23 @@ a domain named with no command after it.
 .TP
 .B 4
 A report found something that needs attention and read every source
-.RB ( status ", the " assets " verbs, and " "system post\-upgrade"
+.RB ( status ", the " assets " verbs, " "system post\-upgrade"
 with or without
-.BR \-\-check ).
+.BR \-\-check ,
+and the
+.B "system layout"
+commands, for which a refused state remaining is the finding).
 .TP
 .B 5
 A report could not read one of its sources, so its findings are incomplete
 .RB ( status ,
 the
 .B assets
-commands, and
-.BR "system post\-upgrade \-\-check" ).
+commands,
+.BR "system post\-upgrade \-\-check" ,
+and the
+.B "system layout"
+commands).
 For
 .B status
 and the

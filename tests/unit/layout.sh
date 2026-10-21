@@ -343,7 +343,7 @@ rc=0; ( AI_TOOLS_LAYOUT__DECLARATION_ERROR="x is bad"; ai_tools_layout__reconcil
 (( rc == 2 )) && pass "reconcile returns 2 under a declaration error" || fail "reconcile under error: ${rc}"
 # The framing decodes: a path carrying a TAB round-trips through the line.
 declare -a decoded=()
-_ai_tools_layout__parse_entry_line "$(entry $'/a\tb' file root:root 0644 - ai-tools-base files)" decoded
+ai_tools_layout__parse_line "$(entry $'/a\tb' file root:root 0644 - ai-tools-base files)" decoded
 [[ "${decoded[0]}" == $'/a\tb' && ${#decoded[@]} -eq 8 ]] && pass "a path holding a tab is carried whole through the framing" \
     || fail "framing: '${decoded[0]}' (${#decoded[@]} fields)"
 
@@ -354,7 +354,7 @@ stream() { ai_tools_records_base__begin_report; AI_TOOLS_LAYOUT_ROOT="${R2}" ai_
 # an empty field between two tabs.
 column() {
     local -a names=() fields=(); local i
-    _ai_tools_layout__parse_entry_line "$2" names; _ai_tools_layout__parse_entry_line "$3" fields
+    ai_tools_layout__parse_line "$2" names; ai_tools_layout__parse_line "$3" fields
     for i in "${!names[@]}"; do [[ "${names[$i]}" == "$1" ]] && { printf '%s' "${fields[$i]:-}"; return 0; }; done
     return 1
 }
@@ -680,7 +680,7 @@ else
     build_errors=0
     for line in "${tree_lines[@]}"; do
         if [[ "${line}" == error$'\t'* ]]; then build_errors=$(( build_errors + 1 )); continue; fi
-        _ai_tools_layout__parse_entry_line "${line}" row_fields
+        ai_tools_layout__parse_line "${line}" row_fields
         build_entry "${row_fields[0]}" "${row_fields[1]}" "${row_fields[2]}" "${row_fields[3]}" "${row_fields[4]}" "${row_fields[6]}"
     done
     (( build_errors == 0 )) && pass "the tree is built from the entry set with no error line (${#tree_lines[@]} rows)" \
@@ -871,6 +871,43 @@ else
         skip "a non-root caller" "runuser unavailable"
     fi
     skip "a label drift converging" "every fixture is under /tmp, where the policy declares no label expectation; the label field is driven on a packaged host"
+fi
+
+section "layout: the command's option grammar"
+# The admin helper is sourced rather than run (it stops before its dispatch), each case in a fresh shell since
+# the helper and the harness both declare SANDBOX_USER readonly, so the grammar is driven without root and without
+# an installed library: every refusal here is answered before the library loads.
+ADMIN="${ROOT}/src/usr/local/libexec/ai-tools/ai-tools-admin.sh"
+# admin_layout <argument>... : dispatch `system layout` with the arguments in a fresh shell; prints both streams
+# and `rc=<status>` last.
+admin_layout() {
+    local rc=0 out
+    # shellcheck disable=SC2016  # the inner bash expands these
+    out="$(bash -c 'source "$1" >/dev/null 2>&1 || exit 3; shift; system_layout_dispatch "$@"' _ "${ADMIN}" "$@" 2>&1)" || rc=$?
+    printf '%s\nrc=%s\n' "${out}" "${rc}"
+}
+# refused_option <desc> <argument>... : the dispatch rejects the command line under the option code, exit 2.
+refused_option() {
+    local desc="$1" out; shift
+    out="$(admin_layout "$@")"
+    if grep -qx 'MSG-R7Y4' <<< "${out}" && grep -qx 'rc=2' <<< "${out}"; then pass "${desc}"
+    else fail "${desc}: $(tr '\n' '|' <<< "${out}")"; fi
+}
+refused_option "--all without --check is refused"          --all
+refused_option "--format without --check is refused"       --format tsv
+refused_option "a format other than tsv is refused"        --check --format json
+refused_option "--format without a value is refused"       --check --format
+refused_option "--check on reconcile is refused"           reconcile --check
+refused_option "--without-rpm on list is refused"          list --without-rpm
+refused_option "an unknown verb is refused"                bogus
+refused_option "an unknown option is refused"              --bogus
+if [[ -e /usr/local/lib/ai-tools/layout.lib.sh ]]; then
+    skip "the library-load refusal" "the library is installed on this host, so the load does not fail"
+else
+    out="$(admin_layout --check)"
+    grep -qx 'MSG-C6D2' <<< "${out}" && grep -qx 'rc=1' <<< "${out}" \
+        && pass "a host without the library is refused under the load code, naming the recovery" \
+        || fail "library-load refusal: $(tr '\n' '|' <<< "${out}")"
 fi
 
 section "layout: the boundary pair"
