@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: GPL-2.0-or-later
-policy_module(ai_tools, 0.9.0)
+policy_module(ai_tools, 0.10.0)
 
 ########################################
 #
@@ -666,6 +666,13 @@ manage_dirs_pattern(ai_tools_handback_t, ai_tools_project_build_t, ai_tools_proj
 manage_lnk_files_pattern(ai_tools_handback_t, ai_tools_project_build_t, ai_tools_project_build_t)
 manage_files_pattern(ai_tools_handback_t, ai_tools_home_t, ai_tools_home_t)
 manage_dirs_pattern(ai_tools_handback_t, ai_tools_home_t, ai_tools_home_t)
+# The agent's own temp files, for the same reason as its home: `mv` keeps the type a file was born with, so a file
+# the session made in /tmp and moved into a project is ai_tools_tmp_t inside ai_tools_project_t, and the helper opens it
+# to pin it before the chown. This domain gets on that type the access the agent already holds on it, and no relabel
+# right: the type stays until a re-claim relabels the path, which the claim's drift scan lists.
+manage_files_pattern(ai_tools_handback_t, ai_tools_tmp_t, ai_tools_tmp_t)
+manage_dirs_pattern(ai_tools_handback_t, ai_tools_tmp_t, ai_tools_tmp_t)
+manage_lnk_files_pattern(ai_tools_handback_t, ai_tools_tmp_t, ai_tools_tmp_t)
 
 # Reach project paths (same parent traversal as ai_tools_t).
 userdom_search_user_home_dirs(ai_tools_handback_t)

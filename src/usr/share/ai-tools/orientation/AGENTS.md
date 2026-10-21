@@ -1,6 +1,6 @@
 <!--
 x-ai-tools-managed: true
-x-ai-tools-version: 4
+x-ai-tools-version: 5
 -->
 
 # Sandbox boundaries
@@ -20,6 +20,8 @@ not a broken environment. These are boundaries sessions have repeatedly misdiagn
 - Project files you create become operator-owned during the session. ACLs preserve your read/write access;
   `chmod`/`chown` on them then fail. Executable-mode changes are the operator's: surface the `chmod +x <path>` that is
   needed, and do not record it with `git update-index --chmod=+x`.
+- Create a file inside the project rather than moving it in from `/tmp` or your home: a moved-in file keeps the SELinux
+  type of the place it came from until the operator re-claims the project. Within a claimed tree, move with `git mv`.
 - Any project claimed for this operator is reachable by exact path, not only the one you were launched in. Project
   parents, and the operator's home caches and dotfiles, cannot be listed.
 - Credential-pattern files (`.env`, `*.pem`, `*.key`, `id_rsa`, and similar) are operator-only, including inside

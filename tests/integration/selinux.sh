@@ -249,6 +249,30 @@ else
     fi
 fi
 
+# (7c) The handback domain opens the agent's temp type and does not hold a relabel right. A file the session made
+# in /tmp and moved into a project keeps ai_tools_tmp_t, and the helper opens it to pin it before the chown,
+# so the loaded policy must grant ai_tools_handback_t `open` on that type. The same domain must not hold `relabelfrom`
+# on any type: the type of a moved-in path stays until a re-claim relabels it, and a relabel right in an agent-reachable
+# domain is a decision this assertion makes visible. Read-only, as (7b).
+section "SELinux: the handback domain opens the agent's temp files and holds no relabel right"
+
+if ! command -v sesearch >/dev/null 2>&1; then
+    skip "handback domain grants" "sesearch (setools-console) not installed"
+else
+    tmp_open_rules="$(sesearch --allow -s ai_tools_handback_t -t ai_tools_tmp_t -c file -p open 2>/dev/null || true)"
+    if [[ "$(grep -c '^allow ' <<<"${tmp_open_rules}")" -ge 1 ]]; then
+        pass "the loaded policy lets ai_tools_handback_t open ai_tools_tmp_t files"
+    else
+        fail "the loaded policy does not let ai_tools_handback_t open ai_tools_tmp_t files -- a file moved in from /tmp stays sandbox-owned; rebuild: sudo selinux/install-selinux.sh rebuild"
+    fi
+    relabel_rules="$(sesearch --allow -s ai_tools_handback_t -p relabelfrom 2>/dev/null || true)"
+    if [[ "$(grep -c '^allow ' <<<"${relabel_rules}")" == 0 ]]; then
+        pass "ai_tools_handback_t does not hold relabelfrom on any type"
+    else
+        fail "ai_tools_handback_t holds relabelfrom: $(grep -m1 '^allow ' <<<"${relabel_rules}")"
+    fi
+fi
+
 # (8) The build-output type, where the dotnet layout module is loaded. Its static rule must win over the clone rule
 # for a path under one of the named directories and lose everywhere else -- the precedence the narrowing rests
 # on, decided by libselinux from the two rules' stems, which no unit test can read. matchpathcon reads the loaded file
