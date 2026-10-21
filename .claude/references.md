@@ -43,7 +43,7 @@ cannot fix -- a message code's name is a runtime string, and rewording one is a 
 | d2n3 | [ref-section-d2n3](rules/providers.rule.md#ref-section-d2n3) | The gate-side read of `allowed-projects` | .claude/rules/providers.rule.md | .claude/rules/launch.rule.md, src/usr/local/lib/ai-tools/conf.lib.sh |  |
 | x4z9 | [ref-section-x4z9](rules/providers.rule.md#ref-section-x4z9) | The uid a trust predicate reads is the reader's uid map's | .claude/rules/providers.rule.md | .claude/rules/launch.rule.md, .claude/rules/tests.rule.md, .claude/rules/updater.rule.md, src/opt/ai-tools/bin/ai-tools-run.sh, src/usr/local/lib/ai-tools/conf.lib.sh, tests/integration/ai-tools-run.sh, tests/integration/systemd.sh, tests/unit/conf.sh |  |
 | u5t7 | [ref-section-u5t7](rules/records.rule.md#ref-section-u5t7) | Rules for a report calling the libraries | .claude/rules/records.rule.md | .claude/rules/shipped-assets.rule.md, src/usr/local/lib/ai-tools/assets.lib.sh, src/usr/local/lib/ai-tools/records-base.lib.sh, src/usr/local/libexec/ai-tools/ai-tools-admin.sh |  |
-| u5h4 | [ref-section-u5h4](rules/safe-paths.rule.md#ref-section-u5h4) | `ai_tools_safe_paths__is_pinned_fd_at_path <fd> <path>` — the pinned inode is the one at the authorized path | .claude/rules/safe-paths.rule.md | .claude/rules/tests.rule.md |  |
+| u5h4 | [ref-section-u5h4](rules/safe-paths.rule.md#ref-section-u5h4) | `ai_tools_safe_paths__is_pinned_fd_at_path <fd> <path>` — the pinned inode is the one at the authorized path | .claude/rules/safe-paths.rule.md | .claude/rules/tests.rule.md, CLAUDE.md |  |
 | e3h3 | [ref-definition-e3h3](rules/secret-handling.rule.md#ref-definition-e3h3) | Owner-only seal | .claude/rules/secret-handling.rule.md | .claude/rules/cli.rule.md, .claude/rules/ownership-and-hooks.rule.md, .claude/rules/providers.rule.md, docs/projects/lockdown.md |  |
 | h4j6 | [ref-section-h4j6](rules/secret-handling.rule.md#ref-section-h4j6) | Shared secret-pattern set (one source, one matcher) | .claude/rules/secret-handling.rule.md | .claude/rules/launch.rule.md, .claude/rules/shellcheck.rule.md, CLAUDE.md |  |
 | g6s6 | [ref-section-g6s6](rules/secret-handling.rule.md#ref-section-g6s6) | Proactive: `ai-tools-lockdown` | .claude/rules/secret-handling.rule.md | docs/projects/lockdown.md |  |
@@ -100,8 +100,8 @@ cannot fix -- a message code's name is a runtime string, and rewording one is a 
 | j8f2 | [MSG-J8F2](../install.sh) | the kept ${deployed} differs from this version's beyond its hooks: | install.sh |  | warn |
 | k2p8 | [MSG-K2P8](../install.sh) | the kept $1 runs these commands without asking, and each sends data off the host: | install.sh |  | warn |
 | g6h3 | [MSG-G6H3](../install.sh) | systemctl --user $* failed by both the machine transport and the account's own | install.sh |  | warn |
-| v9c7 | [MSG-V9C7](../install.sh) | lockdown: failed to chown ${d} | install.sh |  | warn |
-| y3e5 | [MSG-Y3E5](../install.sh) | lockdown: failed to chmod 750 ${d} | install.sh |  | warn |
+| v9c7 | [MSG-V9C7](../install.sh) | lockdown: failed to chown ${ai_nvm_dir} | install.sh |  | warn |
+| y3e5 | [MSG-Y3E5](../install.sh) | lockdown: failed to chmod 750 ${ai_nvm_dir} | install.sh |  | warn |
 | q4h5 | [MSG-Q4H5](../install.sh) | nvm not found at ${ai_nvm_dir}/nvm.sh -- launcher symlinks skipped | install.sh |  | warn |
 | e5s3 | [MSG-E5S3](../install.sh) | nvm 'default' alias not set -- launcher symlinks skipped | install.sh |  | warn |
 | j2h9 | [MSG-J2H9](../install.sh) | the ${node_version}/bin directory holds copies where npm keeps symlinks (${copied_bins}) -- a transfer of the tree replaced the links with their targets, so launcher symlinks are skipped | install.sh |  | warn |
@@ -267,11 +267,7 @@ cannot fix -- a message code's name is a runtime string, and rewording one is a 
 | z4z5 | [MSG-Z4Z5](../src/usr/local/lib/ai-tools/admin-commands.d/dotnet.sh) | layout module ${module} is not installed (${pp}); install ai-tools-selinux -- until then build output is typed at relabel time only | src/usr/local/lib/ai-tools/admin-commands.d/dotnet.sh |  | warn |
 | m4a7 | [MSG-M4A7](../src/usr/local/lib/ai-tools/admin-commands.d/dotnet.sh) | could not load the SELinux layout module ${module}; build output is typed at relabel time only. Re-run: sudo semodule -i ${pp} | src/usr/local/lib/ai-tools/admin-commands.d/dotnet.sh |  | warn |
 | y9d9 | [MSG-Y9D9](../src/usr/local/lib/ai-tools/admin-commands.d/dotnet.sh) | dotnet bootstrap: takes no arguments | src/usr/local/lib/ai-tools/admin-commands.d/dotnet.sh |  | reject |
-| n6g6 | [MSG-N6G6](../src/usr/local/lib/ai-tools/admin-commands.d/dotnet.sh) | could not create the dotnet state root ${STATE_DIR} | src/usr/local/lib/ai-tools/admin-commands.d/dotnet.sh |  | die |
-| g6e2 | [MSG-G6E2](../src/usr/local/lib/ai-tools/admin-commands.d/dotnet.sh) | could not set the mode on ${STATE_DIR} | src/usr/local/lib/ai-tools/admin-commands.d/dotnet.sh |  | die |
-| a5r2 | [MSG-A5R2](../src/usr/local/lib/ai-tools/admin-commands.d/dotnet.sh) | could not create the writable dotnet state under ${STATE_DIR} | src/usr/local/lib/ai-tools/admin-commands.d/dotnet.sh |  | die |
-| q7p2 | [MSG-Q7P2](../src/usr/local/lib/ai-tools/admin-commands.d/dotnet.sh) | could not create the shared tools dir ${TOOLS_DIR} | src/usr/local/lib/ai-tools/admin-commands.d/dotnet.sh |  | die |
-| v3f4 | [MSG-V3F4](../src/usr/local/lib/ai-tools/admin-commands.d/dotnet.sh) | could not set the mode on ${TOOLS_DIR} | src/usr/local/lib/ai-tools/admin-commands.d/dotnet.sh |  | die |
+| n6g6 | [MSG-N6G6](../src/usr/local/lib/ai-tools/admin-commands.d/dotnet.sh) | the layout reconcile did not create ${dir} as a directory; see: sudo ai-tools-admin system layout | src/usr/local/lib/ai-tools/admin-commands.d/dotnet.sh |  | die |
 | b7z4 | [MSG-B7Z4](../src/usr/local/lib/ai-tools/admin-commands.d/dotnet.sh) | dotnet tools install: name at least one package | src/usr/local/lib/ai-tools/admin-commands.d/dotnet.sh |  | reject |
 | n2c6 | [MSG-N2C6](../src/usr/local/lib/ai-tools/admin-commands.d/dotnet.sh) | dotnet not found on PATH -- install a host dotnet-sdk package first | src/usr/local/lib/ai-tools/admin-commands.d/dotnet.sh |  | die |
 | y6z3 | [MSG-Y6Z3](../src/usr/local/lib/ai-tools/admin-commands.d/dotnet.sh) | failed to install or update ${package} | src/usr/local/lib/ai-tools/admin-commands.d/dotnet.sh |  | die |

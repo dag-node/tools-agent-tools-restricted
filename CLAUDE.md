@@ -226,6 +226,17 @@ The invariants the agent operates under:
   and what it prints reaches a terminal or the journal through the shared allowlist sanitizer. A function that executes
   such a file requires that identity of its own process. The test suite, which runs as root, holds to the same rule. See
   [ref-section-s9t9](.claude/rules/updater.rule.md#ref-section-s9t9).
+- **Root does not write through a path component the sandbox can replace.** No root or operator process places a name,
+  or sets an owner, a mode or an ACL, by a path with a component `SANDBOX_USER` can rename, remove or create —
+  a directory that account owns, or one it holds group write on — because `chown`, `chmod`, `setfacl` and `install -d`
+  at an existing name each follow a symlink planted there and act on the inode that account chose. A privileged writer
+  creates a missing entry exclusively, so a name planted first fails the create and is reported, and changes an existing
+  one through a descriptor pinned to the inode it observed, writing through `/proc/self/fd` once
+  `ai_tools_safe_paths__is_pinned_fd_at_path` holds
+  ([ref-section-u5h4](.claude/rules/safe-paths.rule.md#ref-section-u5h4)); the layout reconcile is the one writer
+  for every row of the installed layout, the rows under sandbox-group-writable parents included
+  ([layout](.claude/rules/layout.rule.md)), and a tree that account owns past its root — the toolchain, a cache — does
+  not take a root write inside it, so its interior is that account's as its content is.
 - **Rewriting a command does not widen what it may do.** A `PreToolUse` filter narrows how much a command prints (see
   [filters](.claude/rules/filters.rule.md)); it does not return a permission decision, so the harness re-runs its full
   permission pipeline on the **rewritten** command — an `allow` entry must still match it and a `deny` entry still

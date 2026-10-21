@@ -1329,6 +1329,26 @@ else
         && [[ "$(stat -c '%U:%G %a' "${DOTNET_CLI}")" == "root:${SANDBOX_GROUP} 2770" && "$(parse_reconcile_status "${out}")" == rc=0 ]] \
         && pass "a missing dotnet state directory is created and brought to its row through the pin" \
         || fail "dotnet cli: $(brief "${out}") / $(stat -c '%U:%G %a' "${DOTNET_CLI}")"
+    # The NuGet cache is sandbox-group-writable, so the account can rename `packages` aside and plant a link of its
+    # name. `dotnet bootstrap` runs this reconcile, which refuses the link and leaves the directory it names alone.
+    DOTNET_PACKAGES="${fixture_root}${CP_INTEGRATIONS}/dotnet/nuget/packages"; OUTSIDE="${TESTDIR}/outside-packages"
+    install -d -o nobody -g nobody -m 0700 "${OUTSIDE}"; rmdir "${DOTNET_PACKAGES}"; ln -s "${OUTSIDE}" "${DOTNET_PACKAGES}"
+    outside_before="$(stat -c '%U:%G %a' "${OUTSIDE}")"
+    [[ -L "${DOTNET_PACKAGES}" && "${outside_before}" == "nobody:nobody 700" ]] \
+        || fail "planted packages link: setup did not take ($(stat -c '%F' "${DOTNET_PACKAGES}") / ${outside_before})"
+    out="$(reconcile_run)"
+    has_reconcile_observation "${out}" refused "${DOTNET_PACKAGES}" type \
+        && [[ -L "${DOTNET_PACKAGES}" && "$(stat -c '%U:%G %a' "${OUTSIDE}")" == "${outside_before}" \
+              && "$(parse_reconcile_status "${out}")" == rc=4 ]] \
+        && pass "a link planted at the NuGet cache is refused, and the directory it names keeps its owner and mode" \
+        || fail "planted packages link: $(brief "${out}") / $(stat -c '%U:%G %a' "${OUTSIDE}")"
+    rm "${DOTNET_PACKAGES}"
+    out="$(reconcile_run)"
+    has_reconcile_observation "${out}" changed "${DOTNET_PACKAGES}" type "absent	directory" \
+        && [[ "$(stat -c '%U:%G %a' "${DOTNET_PACKAGES}")" == "root:${SANDBOX_GROUP} 2770" && "$(parse_reconcile_status "${out}")" == rc=0 ]] \
+        && pass "the link removed, the NuGet cache is created at its row" \
+        || fail "packages recreated: $(brief "${out}") / $(stat -c '%U:%G %a' "${DOTNET_PACKAGES}" 2>&1)"
+    rmdir "${OUTSIDE}"
     LAUNCH="${fixture_root}/usr/local/bin/ai-tools-launch"; rm "${LAUNCH}"
     out="$(reconcile_run)"
     has_reconcile_observation "${out}" refused "${LAUNCH}" type && [[ "${out}" == *"dnf reinstall ai-tools-base"* && ! -e "${LAUNCH}" && "$(parse_reconcile_status "${out}")" == rc=4 ]] \
