@@ -116,8 +116,8 @@ scope_out="$(bash -c '
     load "$1"; shift
     for name in "$@"; do declare -p "${name}" >/dev/null 2>&1 || printf "not global: %s\n" "${name}"; done
     _ai_tools_layout__reset_reconcile_state
-    _AI_TOOLS_LAYOUT__ROW_PATHS["/usr/local/libexec/ai-tools"]=row
-    [[ "${_AI_TOOLS_LAYOUT__ROW_PATHS[/usr/local/libexec/ai-tools]:-}" == row ]] || printf "a path key did not read back\n"
+    _AI_TOOLS_LAYOUT__ENTRY_PROGRESS["/usr/local/libexec/ai-tools"]=row
+    [[ "${_AI_TOOLS_LAYOUT__ENTRY_PROGRESS[/usr/local/libexec/ai-tools]:-}" == row ]] || printf "a path key did not read back\n"
 ' _ "${TESTDIR}/lib/layout.lib.sh" "${scope_names[@]}" 2>&1)" && scope_status=0 || scope_status=$?
 if (( ${#scope_names[@]} == 0 )); then
     fail "the file-scope declarations were not found in the library copy"
@@ -298,29 +298,29 @@ rc=0; ai_tools_layout__read_entry_state "not	an	entry" both seven || rc=$?
 
 section "layout: the content evaluator over seeded collector results"
 ai_tools_layout__begin_pass 0
-_AI_TOOLS_LAYOUT__PACKAGE_VERIFY[p]=verified
-_AI_TOOLS_LAYOUT__CONTENT_FLAGS[/a]='.........'; _AI_TOOLS_LAYOUT__CONTENT_FLAGS[/b]='..5......'
-_AI_TOOLS_LAYOUT__CONTENT_FLAGS[/c]='..?......'; _AI_TOOLS_LAYOUT__CONTENT_FLAGS[/d]=missing
-_AI_TOOLS_LAYOUT__CONTENT_FLAGS[/f]='S.......T'
-state_of() { local out; out="$(_ai_tools_layout__evaluate_content "$1" "$2")"; printf '%s' "${out%%$'\t'*}"; }
+_AI_TOOLS_LAYOUT__PACKAGE_VERIFICATION_STATES[p]=verified
+_AI_TOOLS_LAYOUT__FILE_VERIFICATION_FLAGS[/a]='.........'; _AI_TOOLS_LAYOUT__FILE_VERIFICATION_FLAGS[/b]='..5......'
+_AI_TOOLS_LAYOUT__FILE_VERIFICATION_FLAGS[/c]='..?......'; _AI_TOOLS_LAYOUT__FILE_VERIFICATION_FLAGS[/d]=missing
+_AI_TOOLS_LAYOUT__FILE_VERIFICATION_FLAGS[/f]='S.......T'
+state_of() { local out; out="$(_ai_tools_layout__evaluate_content_state "$1" "$2")"; printf '%s' "${out%%$'\t'*}"; }
 [[ "$(state_of p /a)" == verified ]]   && pass "a line of dots is verified"           || fail "/a: $(state_of p /a)"
 [[ "$(state_of p /f)" == verified ]]   && pass "a difference outside the digest is verified" || fail "/f: $(state_of p /f)"
 [[ "$(state_of p /b)" == drift ]]      && pass "a 5 at the digest position is drift"  || fail "/b: $(state_of p /b)"
 [[ "$(state_of p /c)" == unreadable ]] && pass "a ? at the digest position is unreadable" || fail "/c: $(state_of p /c)"
 [[ "$(state_of p /d)" == unreadable ]] && pass "a file rpm reported missing is unreadable, not verified" || fail "/d: $(state_of p /d)"
 [[ "$(state_of p /e)" == unverified ]] && pass "a path the package prints no line for is unverified, not verified" || fail "/e: $(state_of p /e)"
-_AI_TOOLS_LAYOUT__PACKAGE_VERIFY[q]=error
+_AI_TOOLS_LAYOUT__PACKAGE_VERIFICATION_STATES[q]=error
 [[ "$(state_of q /a)" == unreadable ]] && pass "a package whose collector failed is unreadable" || fail "q: $(state_of q /a)"
 [[ "$(state_of r /a)" == unverified ]] && pass "a package the pass did not verify is unverified" || fail "r: $(state_of r /a)"
 ai_tools_layout__begin_pass 1
-(( ${#_AI_TOOLS_LAYOUT__PACKAGE_VERIFY[@]} == 0 && ${#_AI_TOOLS_LAYOUT__CONTENT_FLAGS[@]} == 0 )) \
+(( ${#_AI_TOOLS_LAYOUT__PACKAGE_VERIFICATION_STATES[@]} == 0 && ${#_AI_TOOLS_LAYOUT__FILE_VERIFICATION_FLAGS[@]} == 0 )) \
     && pass "a new pass forgets the last pass's results" || fail "results survived begin_pass"
 [[ "$(state_of p /b)" == unverified ]] && pass "after a new pass without rpm, a drifted path reads unverified" || fail "/b after reset: $(state_of p /b)"
-_ai_tools_layout__is_payload_file file files && pass "a files regular file is a payload file" || fail "payload: files"
-_ai_tools_layout__is_payload_file file files,config && fail "a config file is not a payload file" || pass "a config file is not a payload file"
-_ai_tools_layout__is_payload_file file files,ghost  && fail "a ghost is not a payload file"      || pass "a ghost is not a payload file"
-_ai_tools_layout__is_payload_file directory files   && fail "a directory is not a payload file"  || pass "a directory is not a payload file"
-_ai_tools_layout__is_payload_file file -            && fail "a runtime file is not a payload file" || pass "a runtime file is not a payload file"
+_ai_tools_layout__is_content_verification_required file files && pass "a files regular file is a payload file" || fail "payload: files"
+_ai_tools_layout__is_content_verification_required file files,config && fail "a config file is not a payload file" || pass "a config file is not a payload file"
+_ai_tools_layout__is_content_verification_required file files,ghost  && fail "a ghost is not a payload file"      || pass "a ghost is not a payload file"
+_ai_tools_layout__is_content_verification_required directory files   && fail "a directory is not a payload file"  || pass "a directory is not a payload file"
+_ai_tools_layout__is_content_verification_required file -            && fail "a runtime file is not a payload file" || pass "a runtime file is not a payload file"
 
 section "layout: the content collector's line shapes"
 # The parser over the lines verbose verify prints, rpm a shell function the collector's process substitution sees.
@@ -440,7 +440,7 @@ rc=0; ( AI_TOOLS_LAYOUT__DECLARATION_ERROR="x is bad"; ai_tools_layout__reconcil
 (( rc == 2 )) && pass "reconcile returns 2 under a declaration error" || fail "reconcile under error: ${rc}"
 # The framing decodes: a path carrying a TAB round-trips through the line.
 declare -a decoded=()
-ai_tools_layout__parse_line "$(entry $'/a\tb' file root:root 0644 - ai-tools-base files)" decoded
+ai_tools_layout__parse_stream_line "$(entry $'/a\tb' file root:root 0644 - ai-tools-base files)" decoded
 [[ "${decoded[0]}" == $'/a\tb' && ${#decoded[@]} -eq 8 ]] && pass "a path holding a tab is carried whole through the framing" \
     || fail "framing: '${decoded[0]}' (${#decoded[@]} fields)"
 
@@ -451,7 +451,7 @@ stream() { ai_tools_records_base__begin_report; AI_TOOLS_LAYOUT_ROOT="${R2}" ai_
 # an empty field between two tabs.
 column() {
     local -a names=() fields=(); local i
-    ai_tools_layout__parse_line "$2" names; ai_tools_layout__parse_line "$3" fields
+    ai_tools_layout__parse_stream_line "$2" names; ai_tools_layout__parse_stream_line "$3" fields
     for i in "${!names[@]}"; do [[ "${names[$i]}" == "$1" ]] && { printf '%s' "${fields[$i]:-}"; return 0; }; done
     return 1
 }
@@ -541,15 +541,15 @@ row="$(grep "	error	host	" <<< "${out}" | head -n1 || true)"
 # shellcheck disable=SC2016  # the inner bash expands these
 out="$(bash -c 'source "$1" >/dev/null 2>&1 || exit 3; source "$2" || exit 4
     ai_tools_layout__list_entries() { return 9; }
-    rc=0; layout_table || rc=$?; printf "rc=%s\n" "${rc}"' _ "${ROOT}/src/usr/local/libexec/ai-tools/ai-tools-admin.sh" \
+    rc=0; layout_write_table || rc=$?; printf "rc=%s\n" "${rc}"' _ "${ROOT}/src/usr/local/libexec/ai-tools/ai-tools-admin.sh" \
     "${TESTDIR}/lib/layout.lib.sh" 2>&1)" || true
 grep -q '^error .*layout.lib.sh (entries): the entry set exited 9$' <<< "${out}" && grep -qx 'rc=5' <<< "${out}" \
     && pass "the human table prints the lost entry set as an error line and exits 5" || fail "lost set in the table: $(tr '\n' '|' <<< "${out}")"
 
 section "layout: the reconcile's pure decisions"
-_ai_tools_layout__is_under /a/b/c /a/b && pass "a path under an ancestor is contained" || fail "/a/b/c is not under /a/b"
-_ai_tools_layout__is_under /a/bc /a/b && fail "/a/bc reads as under /a/b" || pass "containment is by path component: /a/bc is not under /a/b"
-_ai_tools_layout__is_under /a/b /a/b && fail "a path reads as under itself" || pass "a path is not under itself"
+_ai_tools_layout__is_descendant_path /a/b/c /a/b && pass "a path under an ancestor is contained" || fail "/a/b/c is not under /a/b"
+_ai_tools_layout__is_descendant_path /a/bc /a/b && fail "/a/bc reads as under /a/b" || pass "containment is by path component: /a/bc is not under /a/b"
+_ai_tools_layout__is_descendant_path /a/b /a/b && fail "a path reads as under itself" || pass "a path is not under itself"
 level() { _ai_tools_layout__evaluate_change_log_level "$@"; }
 expect_level() { local got; got="$(level "$2" "$3" "$4")"; [[ "${got}" == "$5" ]] && pass "$1" || fail "$1: ${got}, wanted $5"; }
 expect_level "an owner moving to root is info"            owner ai-tools:ai-tools root:root info
@@ -610,23 +610,23 @@ _ai_tools_layout__is_discovery_input "${OPERATOR_CONF%/*}" && pass "its director
 _ai_tools_layout__is_discovery_input "${FIXTURE_ROOT}/usr/local/lib/ai-tools" && pass "the library directory is a discovery input, as an ancestor" || fail "the library directory is not"
 _ai_tools_layout__is_discovery_input "${FIXTURE_ROOT}/usr/local/lib/ai-tools/log.lib.sh" && fail "a library beside the agents directory reads as a discovery input" || pass "a library beside it is not one"
 _ai_tools_layout__reset_reconcile_state
-_AI_TOOLS_LAYOUT__ROW_PATHS[/r/a]=row; _AI_TOOLS_LAYOUT__ROW_PATHS[/r/a/b]=row
-_AI_TOOLS_LAYOUT__ANCESTOR_STATES[/r/a]=ok; _AI_TOOLS_LAYOUT__ANCESTOR_STATES[/r/a/b]=bad
+_AI_TOOLS_LAYOUT__ENTRY_PROGRESS[/r/a]=row; _AI_TOOLS_LAYOUT__ENTRY_PROGRESS[/r/a/b]=row
+_AI_TOOLS_LAYOUT__ANCESTOR_VERDICTS[/r/a]=ok; _AI_TOOLS_LAYOUT__ANCESTOR_VERDICTS[/r/a/b]=bad
 [[ "$(_ai_tools_layout__find_refusing_ancestor /r/a/b/c)" == /r/a/b ]] && pass "a row under an ancestor not at its row names that ancestor" || fail "refusing ancestor: $(_ai_tools_layout__find_refusing_ancestor /r/a/b/c)"
 _ai_tools_layout__find_refusing_ancestor /r/a/x >/dev/null && fail "a row under an ancestor at its row is refused" || pass "a row under an ancestor at its row is not refused"
 _ai_tools_layout__find_refusing_ancestor /r/a/bc/x >/dev/null && fail "/r/a/bc/x is refused under /r/a/b" || pass "a refusal of /r/a/b does not reach /r/a/bc/x"
-unset '_AI_TOOLS_LAYOUT__ANCESTOR_STATES[/r/a]'
+unset '_AI_TOOLS_LAYOUT__ANCESTOR_VERDICTS[/r/a]'
 [[ "$(_ai_tools_layout__find_refusing_ancestor /r/a/x)" == /r/a ]] && pass "an ancestor row the pass has not reached refuses the rows under it" || fail "unreached ancestor not refusing"
 declare -A anc_state=( [path]=/r/p [expected_type]=directory [expected_owner]=root:root [expected_mode]=0755 [flags]=files [type]=directory [owner]=root:root [mode]=0755 )
-_ai_tools_layout__record_ancestor_state anc_state
-[[ "${_AI_TOOLS_LAYOUT__ANCESTOR_STATES[/r/p]}" == ok ]] && pass "an entry at its row records ok" || fail "at-row state: ${_AI_TOOLS_LAYOUT__ANCESTOR_STATES[/r/p]}"
-anc_state[mode]=0775; _ai_tools_layout__record_ancestor_state anc_state
-[[ "${_AI_TOOLS_LAYOUT__ANCESTOR_STATES[/r/p]}" == bad ]] && pass "an entry at another mode records bad" || fail "drifted state: ${_AI_TOOLS_LAYOUT__ANCESTOR_STATES[/r/p]}"
+_ai_tools_layout__record_ancestor_verdict anc_state
+[[ "${_AI_TOOLS_LAYOUT__ANCESTOR_VERDICTS[/r/p]}" == ok ]] && pass "an entry at its row records ok" || fail "at-row state: ${_AI_TOOLS_LAYOUT__ANCESTOR_VERDICTS[/r/p]}"
+anc_state[mode]=0775; _ai_tools_layout__record_ancestor_verdict anc_state
+[[ "${_AI_TOOLS_LAYOUT__ANCESTOR_VERDICTS[/r/p]}" == bad ]] && pass "an entry at another mode records bad" || fail "drifted state: ${_AI_TOOLS_LAYOUT__ANCESTOR_VERDICTS[/r/p]}"
 anc_state=( [path]=/r/p [expected_type]=directory [expected_owner]=root:root [expected_mode]=0755 [flags]="files,optional" [type]=absent )
-_ai_tools_layout__record_ancestor_state anc_state
-[[ "${_AI_TOOLS_LAYOUT__ANCESTOR_STATES[/r/p]}" == ok ]] && pass "an absent optional entry records ok" || fail "absent optional: ${_AI_TOOLS_LAYOUT__ANCESTOR_STATES[/r/p]}"
-anc_state[flags]=files; _ai_tools_layout__record_ancestor_state anc_state
-[[ "${_AI_TOOLS_LAYOUT__ANCESTOR_STATES[/r/p]}" == bad ]] && pass "an absent required entry records bad" || fail "absent required: ${_AI_TOOLS_LAYOUT__ANCESTOR_STATES[/r/p]}"
+_ai_tools_layout__record_ancestor_verdict anc_state
+[[ "${_AI_TOOLS_LAYOUT__ANCESTOR_VERDICTS[/r/p]}" == ok ]] && pass "an absent optional entry records ok" || fail "absent optional: ${_AI_TOOLS_LAYOUT__ANCESTOR_VERDICTS[/r/p]}"
+anc_state[flags]=files; _ai_tools_layout__record_ancestor_verdict anc_state
+[[ "${_AI_TOOLS_LAYOUT__ANCESTOR_VERDICTS[/r/p]}" == bad ]] && pass "an absent required entry records bad" || fail "absent required: ${_AI_TOOLS_LAYOUT__ANCESTOR_VERDICTS[/r/p]}"
 _ai_tools_layout__reset_reconcile_state
 
 section "layout: the reconcile lock"
@@ -659,12 +659,12 @@ if ! source "${TESTDIR}/lib/safe-paths.lib.sh" 2>/dev/null \
         || ! declare -F ai_tools_safe_paths__is_pinned_fd_at_path >/dev/null 2>&1; then
     skip "the per-entry repair" "safe-paths.lib.sh did not load from the copy"
 else
-    RE="${FIXTURE_ROOT}/re"; mkdir -p "${RE}"
+    repair_root="${FIXTURE_ROOT}/re"; mkdir -p "${repair_root}"
     LOG="${AI_TOOLS_LOG_DIR}/layout.log"
     # entry_step <entry-line> : one entry through the entry step, given its decoded fields as the reconcile gives them.
     entry_step() {
         local -a step_fields=()
-        ai_tools_layout__parse_line "$1" step_fields
+        ai_tools_layout__parse_stream_line "$1" step_fields
         _ai_tools_layout__reconcile_entry "$1" "${step_fields[@]}"
     }
     # entry_run <entry-line> [<without-rpm>] : one entry through the reconcile from a fresh state, its lines on stdout.
@@ -673,75 +673,75 @@ else
         ai_tools_layout__begin_pass "${2:-0}"
         entry_step "$1"
     }
-    # has_line <output> <tag> <path> <field> [<rest>] : the output carries that tagged line.
-    has_line() { grep -q "^$2	$3	$4	${5:-}" <<< "$1"; }
-    mode_of() { stat -c '%a' -- "$1"; }
-    : > "${RE}/w"; chmod 0600 "${RE}/w"
-    out="$(entry_run "$(entry "${RE}/w" file "${me}" 0644 - ai-tools-base -)")"
-    has_line "${out}" changed "${RE}/w" mode "0600	0644" && [[ "$(mode_of "${RE}/w")" == 644 ]] \
-        && pass "a mode drift converges through the pinned descriptor with its changed line" || fail "mode drift: ${out} / $(mode_of "${RE}/w")"
-    has_line "${out}" changed "${RE}/w" acl && pass "the ACL text changed with the mode, and says so" || fail "no acl changed line: ${out}"
-    grep -q "NOTICE.*${RE}/w mode 0600 -> 0644" "${LOG}" 2>/dev/null && pass "a widening is logged at notice" || fail "no notice line in ${LOG}: $(grep "${RE}/w" "${LOG}" 2>/dev/null | tr '\n' '|')"
+    # has_reconcile_observation <output> <tag> <path> <field> [<rest>] : the output carries that tagged line.
+    has_reconcile_observation() { grep -q "^$2	$3	$4	${5:-}" <<< "$1"; }
+    read_mode() { stat -c '%a' -- "$1"; }
+    : > "${repair_root}/w"; chmod 0600 "${repair_root}/w"
+    out="$(entry_run "$(entry "${repair_root}/w" file "${me}" 0644 - ai-tools-base -)")"
+    has_reconcile_observation "${out}" changed "${repair_root}/w" mode "0600	0644" && [[ "$(read_mode "${repair_root}/w")" == 644 ]] \
+        && pass "a mode drift converges through the pinned descriptor with its changed line" || fail "mode drift: ${out} / $(read_mode "${repair_root}/w")"
+    has_reconcile_observation "${out}" changed "${repair_root}/w" acl && pass "the ACL text changed with the mode, and says so" || fail "no acl changed line: ${out}"
+    grep -q "NOTICE.*${repair_root}/w mode 0600 -> 0644" "${LOG}" 2>/dev/null && pass "a widening is logged at notice" || fail "no notice line in ${LOG}: $(grep "${repair_root}/w" "${LOG}" 2>/dev/null | tr '\n' '|')"
     # A narrowing that does not grant group or other write: 0666 would be refused under the write-exposure precondition.
-    chmod 0755 "${RE}/w"
-    out="$(entry_run "$(entry "${RE}/w" file "${me}" 0644 - ai-tools-base -)")"
-    grep -q "INFO.*${RE}/w mode 0755 -> 0644" "${LOG}" 2>/dev/null && pass "a narrowing is logged at info" || fail "no info line: $(grep "${RE}/w mode 0755" "${LOG}" 2>/dev/null)"
-    out="$(entry_run "$(entry "${RE}/w" file "${me}" 0644 - ai-tools-base -)")"
+    chmod 0755 "${repair_root}/w"
+    out="$(entry_run "$(entry "${repair_root}/w" file "${me}" 0644 - ai-tools-base -)")"
+    grep -q "INFO.*${repair_root}/w mode 0755 -> 0644" "${LOG}" 2>/dev/null && pass "a narrowing is logged at info" || fail "no info line: $(grep "${repair_root}/w mode 0755" "${LOG}" 2>/dev/null)"
+    out="$(entry_run "$(entry "${repair_root}/w" file "${me}" 0644 - ai-tools-base -)")"
     [[ -z "${out}" ]] && pass "an entry at its row prints no line" || fail "converged entry printed: ${out}"
     # A regular file writable by an account the row does not name is refused on the field that widened it and left,
     # with the remedy that replaces the inode; the converging 0600 case at the head of this section is the control.
     # The rows are runtime ones, so the content gate, which answers first for a package file, does not decide them.
-    : > "${RE}/exposed"; chmod 0664 "${RE}/exposed"
-    out="$(entry_run "$(entry "${RE}/exposed" file "${me}" 0644 - ai-tools-base -)")"
-    has_line "${out}" refused "${RE}/exposed" mode "the bytes were writable by another account; review its content" \
-        && [[ "$(mode_of "${RE}/exposed")" == 664 && "$(grep -c . <<< "${out}")" -eq 1 ]] \
-        && pass "a file at group write the row lacks is refused on its mode and left" || fail "exposed mode: ${out} / $(mode_of "${RE}/exposed")"
-    chmod 0644 "${RE}/exposed"
-    if setfacl -m u:nobody:rw-,m::r-- "${RE}/exposed" 2>/dev/null; then
-        out="$(entry_run "$(entry "${RE}/exposed" file "${me}" 0644 - ai-tools-base -)")"
-        has_line "${out}" refused "${RE}/exposed" acl "the bytes were writable by another account" \
-            && getfacl --omit-header -P -- "${RE}/exposed" 2>/dev/null | grep -q '^user:nobody:rw-' \
+    : > "${repair_root}/exposed"; chmod 0664 "${repair_root}/exposed"
+    out="$(entry_run "$(entry "${repair_root}/exposed" file "${me}" 0644 - ai-tools-base -)")"
+    has_reconcile_observation "${out}" refused "${repair_root}/exposed" mode "the bytes were writable by another account; review its content" \
+        && [[ "$(read_mode "${repair_root}/exposed")" == 664 && "$(grep -c . <<< "${out}")" -eq 1 ]] \
+        && pass "a file at group write the row lacks is refused on its mode and left" || fail "exposed mode: ${out} / $(read_mode "${repair_root}/exposed")"
+    chmod 0644 "${repair_root}/exposed"
+    if setfacl -m u:nobody:rw-,m::r-- "${repair_root}/exposed" 2>/dev/null; then
+        out="$(entry_run "$(entry "${repair_root}/exposed" file "${me}" 0644 - ai-tools-base -)")"
+        has_reconcile_observation "${out}" refused "${repair_root}/exposed" acl "the bytes were writable by another account" \
+            && getfacl --omit-header -P -- "${repair_root}/exposed" 2>/dev/null | grep -q '^user:nobody:rw-' \
             && pass "a file with a masked foreign entry carrying write is refused on its ACL and left" || fail "exposed acl: ${out}"
     else
-        skip "a file with a foreign ACL entry" "setfacl is refused on ${RE}/exposed"
+        skip "a file with a foreign ACL entry" "setfacl is refused on ${repair_root}/exposed"
     fi
     # A foreign named entry masked off beside a group widening, and a default block where none is declared: one
     # `setfacl --set` replaces both, and the mode re-asserts the base bits.
-    mkdir -p "${RE}/d"; chmod 0750 "${RE}/d"
-    if setfacl -m "g:${PROJECTS_GROUP}:r-x" -d -m "u::rwx,g::r-x,o::---" "${RE}/d" 2>/dev/null && chmod g= "${RE}/d"; then
-        out="$(entry_run "$(entry "${RE}/d" directory "${me}" 0750 - ai-tools-base -)")"
-        live="$(getfacl --omit-header -P -- "${RE}/d" 2>/dev/null)"
-        if has_line "${out}" changed "${RE}/d" acl && [[ "${live}" != *"group:${PROJECTS_GROUP}:"* && "${live}" != *default:* ]] \
-                && [[ "$(mode_of "${RE}/d")" == 750 ]]; then
+    mkdir -p "${repair_root}/d"; chmod 0750 "${repair_root}/d"
+    if setfacl -m "g:${PROJECTS_GROUP}:r-x" -d -m "u::rwx,g::r-x,o::---" "${repair_root}/d" 2>/dev/null && chmod g= "${repair_root}/d"; then
+        out="$(entry_run "$(entry "${repair_root}/d" directory "${me}" 0750 - ai-tools-base -)")"
+        live="$(getfacl --omit-header -P -- "${repair_root}/d" 2>/dev/null)"
+        if has_reconcile_observation "${out}" changed "${repair_root}/d" acl && [[ "${live}" != *"group:${PROJECTS_GROUP}:"* && "${live}" != *default:* ]] \
+                && [[ "$(read_mode "${repair_root}/d")" == 750 ]]; then
             pass "a masked-off foreign entry and an undeclared default block are removed as the group bits widen"
         else
-            fail "foreign entry: ${out} / $(tr '\n' '|' <<< "${live}") / $(mode_of "${RE}/d")"
+            fail "foreign entry: ${out} / $(tr '\n' '|' <<< "${live}") / $(read_mode "${repair_root}/d")"
         fi
     else
-        skip "a foreign ACL entry" "setfacl is refused on ${RE}/d"
+        skip "a foreign ACL entry" "setfacl is refused on ${repair_root}/d"
     fi
-    out="$(entry_run "$(entry "${RE}/newdir" directory "${me}" 0750 - ai-tools-base -)")"
-    has_line "${out}" changed "${RE}/newdir" type "absent	directory" && [[ -d "${RE}/newdir" && "$(mode_of "${RE}/newdir")" == 750 ]] \
+    out="$(entry_run "$(entry "${repair_root}/newdir" directory "${me}" 0750 - ai-tools-base -)")"
+    has_reconcile_observation "${out}" changed "${repair_root}/newdir" type "absent	directory" && [[ -d "${repair_root}/newdir" && "$(read_mode "${repair_root}/newdir")" == 750 ]] \
         && pass "a missing directory is created under an existing parent at its mode, with a changed line" || fail "create: ${out}"
-    out="$(entry_run "$(entry "${RE}/acldir" directory "${me}" 0750 "group:${PROJECTS_GROUP}:r-x" ai-tools-base -)")"
-    [[ -d "${RE}/acldir" ]] && getfacl --omit-header -P -- "${RE}/acldir" 2>/dev/null | grep -q "^group:${PROJECTS_GROUP}:r-x" \
+    out="$(entry_run "$(entry "${repair_root}/acldir" directory "${me}" 0750 "group:${PROJECTS_GROUP}:r-x" ai-tools-base -)")"
+    [[ -d "${repair_root}/acldir" ]] && getfacl --omit-header -P -- "${repair_root}/acldir" 2>/dev/null | grep -q "^group:${PROJECTS_GROUP}:r-x" \
         && pass "a created directory takes the row's ACL in the same run" || fail "created ACL: ${out}"
     # The create is an exclusive mkdir, and the row's mode and ACL arrive through the pinned apply: each field earns its
     # changed line from the owner-only directory the create made, after the type line. An `install` function that marks
     # a call shadows the command, so a create through `install -d` fails the case.
     out="$(install() { : > "${TESTDIR}/install-called"; return 99; }
-        entry_run "$(entry "${RE}/viapin" directory "${me}" 0750 "group:${PROJECTS_GROUP}:r-x" ai-tools-base -)")"
+        entry_run "$(entry "${repair_root}/viapin" directory "${me}" 0750 "group:${PROJECTS_GROUP}:r-x" ai-tools-base -)")"
     mapfile -t create_tags < <(cut -f1,3 <<< "${out}")
-    if [[ "${create_tags[*]}" == $'changed\ttype changed\tmode changed\tacl' && "$(mode_of "${RE}/viapin")" == 750 \
-            && ! -e "${TESTDIR}/install-called" ]] && has_line "${out}" changed "${RE}/viapin" mode "0700	0750"; then
+    if [[ "${create_tags[*]}" == $'changed\ttype changed\tmode changed\tacl' && "$(read_mode "${repair_root}/viapin")" == 750 \
+            && ! -e "${TESTDIR}/install-called" ]] && has_reconcile_observation "${out}" changed "${repair_root}/viapin" mode "0700	0750"; then
         pass "a missing directory is made owner-only by mkdir and brought to its mode and ACL through the pin, type line first"
     else
-        fail "create through the pin: $(tr '\n\t' '| ' <<< "${out}") / $(mode_of "${RE}/viapin") install-called=$([[ -e "${TESTDIR}/install-called" ]] && echo yes || echo no)"
+        fail "create through the pin: $(tr '\n\t' '| ' <<< "${out}") / $(read_mode "${repair_root}/viapin") install-called=$([[ -e "${TESTDIR}/install-called" ]] && echo yes || echo no)"
     fi
     # A name occupied between the read and the create -- a symlink to a directory outside, planted after a read
     # that found the name absent -- is an error with no write: the directory behind the link keeps its mode. The first
     # read is seeded; any later read is the library's own.
-    mkdir -p "${RE}/foreign"; chmod 0755 "${RE}/foreign"; ln -sfn "${RE}/foreign" "${RE}/occupied"
+    mkdir -p "${repair_root}/foreign"; chmod 0755 "${repair_root}/foreign"; ln -sfn "${repair_root}/foreign" "${repair_root}/occupied"
     eval "stub_real_read_entry_state () $(declare -f ai_tools_layout__read_entry_state | sed '1d')"
     out="$(stub_reads=0
         ai_tools_layout__read_entry_state() {
@@ -749,61 +749,61 @@ else
             (( stub_reads == 1 )) || { stub_real_read_entry_state "$@"; return; }
             local -n stub_state="$2" stub_findings="$3"
             local stub_line
-            stub_state=( [path]="${RE}/occupied" [operator]="" [package]=ai-tools-base [flags]=- [expected_type]=directory
+            stub_state=( [path]="${repair_root}/occupied" [operator]="" [package]=ai-tools-base [flags]=- [expected_type]=directory
                 [expected_owner]="${me}" [expected_mode]=0750 [expected_acl]="$(acl_text 0750 -)" [type]=absent )
             _ai_tools_layout__encode_line stub_line missing type directory absent "no entry at the path"
             stub_findings+=( "${stub_line}" )
         }
-        entry_run "$(entry "${RE}/occupied" directory "${me}" 0750 - ai-tools-base -)"
+        entry_run "$(entry "${repair_root}/occupied" directory "${me}" 0750 - ai-tools-base -)"
         printf 'incomplete=%s\n' "${_AI_TOOLS_LAYOUT__RECONCILE_INCOMPLETE}")"
-    has_line "${out}" error "${RE}/occupied" type "the name was occupied before the directory was created" \
-        && grep -qx 'incomplete=1' <<< "${out}" && [[ "$(mode_of "${RE}/foreign")" == 755 && -L "${RE}/occupied" ]] \
+    has_reconcile_observation "${out}" error "${repair_root}/occupied" type "the name was occupied before the directory was created" \
+        && grep -qx 'incomplete=1' <<< "${out}" && [[ "$(read_mode "${repair_root}/foreign")" == 755 && -L "${repair_root}/occupied" ]] \
         && [[ "$(grep -c '^changed' <<< "${out}")" -eq 0 ]] \
         && pass "a name a symlink takes before the create is an error with no write, the directory behind it left" \
-        || fail "occupied name: $(tr '\n\t' '| ' <<< "${out}") / foreign $(mode_of "${RE}/foreign")"
-    out="$(entry_run "$(entry "${RE}/nope/x" directory "${me}" 0750 - ai-tools-base -)")"
-    has_line "${out}" refused "${RE}/nope/x" type && [[ ! -e "${RE}/nope" ]] \
+        || fail "occupied name: $(tr '\n\t' '| ' <<< "${out}") / foreign $(read_mode "${repair_root}/foreign")"
+    out="$(entry_run "$(entry "${repair_root}/nope/x" directory "${me}" 0750 - ai-tools-base -)")"
+    has_reconcile_observation "${out}" refused "${repair_root}/nope/x" type && [[ ! -e "${repair_root}/nope" ]] \
         && pass "a missing directory under a missing parent is refused naming it, and no component is created" || fail "missing parent: ${out}"
-    out="$(entry_run "$(entry "${RE}/nofile" file "${me}" 0644 - ai-tools-base files)")"
-    has_line "${out}" refused "${RE}/nofile" type && [[ "${out}" == *"dnf reinstall"* && ! -e "${RE}/nofile" ]] \
+    out="$(entry_run "$(entry "${repair_root}/nofile" file "${me}" 0644 - ai-tools-base files)")"
+    has_reconcile_observation "${out}" refused "${repair_root}/nofile" type && [[ "${out}" == *"dnf reinstall"* && ! -e "${repair_root}/nofile" ]] \
         && pass "a missing file is refused with the package remedy" || fail "missing file: ${out}"
-    ln -sfn /nonexistent "${RE}/dangle"
-    out="$(entry_run "$(entry "${RE}/dangle" link "${me}" 0777 - ai-tools-base files)")"
-    has_line "${out}" refused "${RE}/dangle" type && [[ "${out}" == *"target does not exist"* ]] \
+    ln -sfn /nonexistent "${repair_root}/dangle"
+    out="$(entry_run "$(entry "${repair_root}/dangle" link "${me}" 0777 - ai-tools-base files)")"
+    has_reconcile_observation "${out}" refused "${repair_root}/dangle" type && [[ "${out}" == *"target does not exist"* ]] \
         && pass "a dangling link is refused" || fail "dangling: ${out}"
-    out="$(entry_run "$(entry "${RE}/d" file "${me}" 0644 - ai-tools-base files)")"
-    has_line "${out}" refused "${RE}/d" type && [[ -d "${RE}/d" && "${out}" == *"move it aside"* ]] \
+    out="$(entry_run "$(entry "${repair_root}/d" file "${me}" 0644 - ai-tools-base files)")"
+    has_reconcile_observation "${out}" refused "${repair_root}/d" type && [[ -d "${repair_root}/d" && "${out}" == *"move it aside"* ]] \
         && pass "an entry of another type is refused and left" || fail "type mismatch: ${out}"
     # The content gate: a package file is repaired on verified content alone. The collector is a stub function, seen
     # inside the process substitution the collector reads from; its line names the path with the fixture root stripped.
-    : > "${RE}/pay"; chmod 0600 "${RE}/pay"
+    : > "${repair_root}/pay"; chmod 0600 "${repair_root}/pay"
     STUB_FLAGS='..5......' STUB_RC=0
     rpm() { case "$1" in -q) return 0 ;; esac; printf '%s    /re/pay\n' "${STUB_FLAGS}"; return "${STUB_RC}"; }
-    pay="$(entry "${RE}/pay" file "${me}" 0644 - ai-tools-base files)"
+    pay="$(entry "${repair_root}/pay" file "${me}" 0644 - ai-tools-base files)"
     out="$(entry_run "${pay}")"
-    has_line "${out}" refused "${RE}/pay" content && [[ "${out}" == *"dnf reinstall"* && "$(mode_of "${RE}/pay")" == 600 ]] \
-        && pass "drifted content refuses the entry whole: the mode is left" || fail "content drift: ${out} / $(mode_of "${RE}/pay")"
+    has_reconcile_observation "${out}" refused "${repair_root}/pay" content && [[ "${out}" == *"dnf reinstall"* && "$(read_mode "${repair_root}/pay")" == 600 ]] \
+        && pass "drifted content refuses the entry whole: the mode is left" || fail "content drift: ${out} / $(read_mode "${repair_root}/pay")"
     STUB_FLAGS='..?......'
     out="$(entry_run "${pay}")"
-    has_line "${out}" error "${RE}/pay" content && [[ "$(mode_of "${RE}/pay")" == 600 ]] \
+    has_reconcile_observation "${out}" error "${repair_root}/pay" content && [[ "$(read_mode "${repair_root}/pay")" == 600 ]] \
         && pass "an unreadable digest is an error and the entry is left whole" || fail "unreadable digest: ${out}"
     STUB_FLAGS='.........' STUB_RC=3
     out="$(entry_run "${pay}")"
-    has_line "${out}" error "${RE}/pay" content && [[ "$(mode_of "${RE}/pay")" == 600 ]] \
+    has_reconcile_observation "${out}" error "${repair_root}/pay" content && [[ "$(read_mode "${repair_root}/pay")" == 600 ]] \
         && pass "a failing collector is an error and the entry is left whole" || fail "failing collector: ${out}"
     STUB_RC=0
     out="$(entry_run "${pay}" 1)"
-    has_line "${out}" refused "${RE}/pay" mode "left as it is: the content is unverified" && has_line "${out}" refused "${RE}/pay" acl \
-        && [[ "${out}" == *"system layout reconcile"* && "$(mode_of "${RE}/pay")" == 600 ]] \
+    has_reconcile_observation "${out}" refused "${repair_root}/pay" mode "left as it is: the content is unverified" && has_reconcile_observation "${out}" refused "${repair_root}/pay" acl \
+        && [[ "${out}" == *"system layout reconcile"* && "$(read_mode "${repair_root}/pay")" == 600 ]] \
         && pass "under a pass without rpm a drifted package file is reported per field and left, naming the full pass" || fail "without rpm: ${out}"
     out="$(entry_run "${pay}")"
-    has_line "${out}" changed "${RE}/pay" mode "0600	0644" && [[ "$(mode_of "${RE}/pay")" == 644 ]] \
+    has_reconcile_observation "${out}" changed "${repair_root}/pay" mode "0600	0644" && [[ "$(read_mode "${repair_root}/pay")" == 644 ]] \
         && pass "verified content lets the same drift converge" || fail "verified: ${out}"
     unset -f rpm
     # A leaf swapped for a symlink between the identity read and the open: the descriptor names another inode,
     # so the write is refused and the file the link points at is left as it was. The swap is made by a stat stub
     # on the identity read alone; every other stat is the real one.
-    mkdir -p "${RE}/swap"; : > "${RE}/swap/target"; : > "${RE}/swap/victim"; chmod 0600 "${RE}/swap/target" "${RE}/swap/victim"
+    mkdir -p "${repair_root}/swap"; : > "${repair_root}/swap/target"; : > "${repair_root}/swap/victim"; chmod 0600 "${repair_root}/swap/target" "${repair_root}/swap/victim"
     stub_swap_kind="" stub_swap_entry="" stub_swap_victim=""
     stat() {
         if [[ -n "${stub_swap_kind}" && "$*" == *'%d:%i'* && "$*" != *-L* ]]; then
@@ -818,62 +818,62 @@ else
         fi
         command stat "$@"
     }
-    stub_swap_kind=leaf stub_swap_entry="${RE}/swap/target" stub_swap_victim="${RE}/swap/victim"
-    out="$(entry_run "$(entry "${RE}/swap/target" file "${me}" 0644 - ai-tools-base -)")"
+    stub_swap_kind=leaf stub_swap_entry="${repair_root}/swap/target" stub_swap_victim="${repair_root}/swap/victim"
+    out="$(entry_run "$(entry "${repair_root}/swap/target" file "${me}" 0644 - ai-tools-base -)")"
     stub_swap_kind=""
-    if has_line "${out}" error "${RE}/swap/target" identity "the entry changed during the repair" \
-            && [[ "$(mode_of "${RE}/swap/victim")" == 600 && "$(mode_of "${RE}/swap/target.aside")" == 600 ]]; then
+    if has_reconcile_observation "${out}" error "${repair_root}/swap/target" identity "the entry changed during the repair" \
+            && [[ "$(read_mode "${repair_root}/swap/victim")" == 600 && "$(read_mode "${repair_root}/swap/target.aside")" == 600 ]]; then
         pass "a leaf swapped for a symlink after the identity read is refused, and the file it points at is left"
     else
-        fail "leaf swap: ${out} / victim $(mode_of "${RE}/swap/victim") original $(mode_of "${RE}/swap/target.aside")"
+        fail "leaf swap: ${out} / victim $(read_mode "${repair_root}/swap/victim") original $(read_mode "${repair_root}/swap/target.aside")"
     fi
-    rm -f "${RE}/swap/target"; mv -- "${RE}/swap/target.aside" "${RE}/swap/target"
-    out="$(entry_run "$(entry "${RE}/swap/target" file "${me}" 0644 - ai-tools-base -)")"
-    has_line "${out}" changed "${RE}/swap/target" mode "0600	0644" && pass "the same entry converges once the path is stable (control)" || fail "control: ${out}"
-    mkdir -p "${RE}/pswap/dir" "${RE}/pswap/victim"; : > "${RE}/pswap/dir/target"; : > "${RE}/pswap/victim/target"
-    chmod 0600 "${RE}/pswap/dir/target" "${RE}/pswap/victim/target"
-    stub_swap_kind=parent stub_swap_entry="${RE}/pswap/dir/target" stub_swap_victim="${RE}/pswap/victim/target"
-    out="$(entry_run "$(entry "${RE}/pswap/dir/target" file "${me}" 0644 - ai-tools-base -)")"
+    rm -f "${repair_root}/swap/target"; mv -- "${repair_root}/swap/target.aside" "${repair_root}/swap/target"
+    out="$(entry_run "$(entry "${repair_root}/swap/target" file "${me}" 0644 - ai-tools-base -)")"
+    has_reconcile_observation "${out}" changed "${repair_root}/swap/target" mode "0600	0644" && pass "the same entry converges once the path is stable (control)" || fail "control: ${out}"
+    mkdir -p "${repair_root}/pswap/dir" "${repair_root}/pswap/victim"; : > "${repair_root}/pswap/dir/target"; : > "${repair_root}/pswap/victim/target"
+    chmod 0600 "${repair_root}/pswap/dir/target" "${repair_root}/pswap/victim/target"
+    stub_swap_kind=parent stub_swap_entry="${repair_root}/pswap/dir/target" stub_swap_victim="${repair_root}/pswap/victim/target"
+    out="$(entry_run "$(entry "${repair_root}/pswap/dir/target" file "${me}" 0644 - ai-tools-base -)")"
     stub_swap_kind=""
-    if has_line "${out}" error "${RE}/pswap/dir/target" identity "the entry changed during the repair" \
-            && [[ "$(mode_of "${RE}/pswap/victim/target")" == 600 ]]; then
+    if has_reconcile_observation "${out}" error "${repair_root}/pswap/dir/target" identity "the entry changed during the repair" \
+            && [[ "$(read_mode "${repair_root}/pswap/victim/target")" == 600 ]]; then
         pass "a parent swapped for a symlink under the entry is refused by the pinned-path predicate, the outside file left"
     else
-        fail "parent swap: ${out} / victim $(mode_of "${RE}/pswap/victim/target")"
+        fail "parent swap: ${out} / victim $(read_mode "${repair_root}/pswap/victim/target")"
     fi
     unset -f stat
-    rm -f "${RE}/pswap/dir"; mv -- "${RE}/pswap/dir.aside" "${RE}/pswap/dir"
+    rm -f "${repair_root}/pswap/dir"; mv -- "${repair_root}/pswap/dir.aside" "${repair_root}/pswap/dir"
     # The ancestor rule: a row under an ancestor not at its row is refused without a read.
-    mkdir -p "${RE}/anc"; : > "${RE}/anc/child"; chmod 0600 "${RE}/anc/child"
+    mkdir -p "${repair_root}/anc"; : > "${repair_root}/anc/child"; chmod 0600 "${repair_root}/anc/child"
     _ai_tools_layout__reset_reconcile_state; ai_tools_layout__begin_pass 0
-    _AI_TOOLS_LAYOUT__ROW_PATHS["${RE}/anc"]=row; _AI_TOOLS_LAYOUT__ANCESTOR_STATES["${RE}/anc"]=bad
-    out="$(entry_step "$(entry "${RE}/anc/child" file "${me}" 0644 - ai-tools-base -)")"
-    has_line "${out}" refused "${RE}/anc/child" ancestor "not read: ${RE}/anc is not at its row" && [[ "$(mode_of "${RE}/anc/child")" == 600 ]] \
+    _AI_TOOLS_LAYOUT__ENTRY_PROGRESS["${repair_root}/anc"]=row; _AI_TOOLS_LAYOUT__ANCESTOR_VERDICTS["${repair_root}/anc"]=bad
+    out="$(entry_step "$(entry "${repair_root}/anc/child" file "${me}" 0644 - ai-tools-base -)")"
+    has_reconcile_observation "${out}" refused "${repair_root}/anc/child" ancestor "not read: ${repair_root}/anc is not at its row" && [[ "$(read_mode "${repair_root}/anc/child")" == 600 ]] \
         && pass "a row under an ancestor not at its row is refused unread, naming the ancestor" || fail "ancestor rule: ${out}"
-    _AI_TOOLS_LAYOUT__ANCESTOR_STATES["${RE}/anc"]=ok
-    out="$(entry_step "$(entry "${RE}/anc/child" file "${me}" 0644 - ai-tools-base -)")"
-    has_line "${out}" changed "${RE}/anc/child" mode && pass "the same row converges once its ancestor is at its row" || fail "ancestor ok: ${out}"
+    _AI_TOOLS_LAYOUT__ANCESTOR_VERDICTS["${repair_root}/anc"]=ok
+    out="$(entry_step "$(entry "${repair_root}/anc/child" file "${me}" 0644 - ai-tools-base -)")"
+    has_reconcile_observation "${out}" changed "${repair_root}/anc/child" mode && pass "the same row converges once its ancestor is at its row" || fail "ancestor ok: ${out}"
     # A write that fails names its tool and is the outcome the reconcile folds to exit 1.
-    chmod 2600 "${RE}/w" 2>/dev/null || true
+    chmod 2600 "${repair_root}/w" 2>/dev/null || true
     chmod() { return 7; }
     out="$(_ai_tools_layout__reset_reconcile_state; ai_tools_layout__begin_pass 0
-        entry_step "$(entry "${RE}/w" file "${me}" 0644 - ai-tools-base -)"
+        entry_step "$(entry "${repair_root}/w" file "${me}" 0644 - ai-tools-base -)"
         printf 'failed=%s\n' "${_AI_TOOLS_LAYOUT__RECONCILE_WRITE_FAILED}")"
     unset -f chmod
-    has_line "${out}" error "${RE}/w" mode "chmod exited 7" && grep -qx 'failed=1' <<< "${out}" \
+    has_reconcile_observation "${out}" error "${repair_root}/w" mode "chmod exited 7" && grep -qx 'failed=1' <<< "${out}" \
         && pass "a write that returns non-zero is an error naming the tool, and the write-failed outcome" || fail "failed write: ${out}"
-    chmod 0644 "${RE}/w"
+    chmod 0644 "${repair_root}/w"
     # The final read is the postcondition. With the apply a no-op over an owned fixture, a repaired field that still
     # carries its finding did not take: an error per field, the write-failed outcome, and no changed line.
-    chmod 0600 "${RE}/w"
-    out="$(_ai_tools_layout__apply_pinned() { return 0; }
+    chmod 0600 "${repair_root}/w"
+    out="$(_ai_tools_layout__apply_entry_fields() { return 0; }
         _ai_tools_layout__reset_reconcile_state; ai_tools_layout__begin_pass 0
-        entry_step "$(entry "${RE}/w" file "${me}" 0644 - ai-tools-base -)"
+        entry_step "$(entry "${repair_root}/w" file "${me}" 0644 - ai-tools-base -)"
         printf 'failed=%s\n' "${_AI_TOOLS_LAYOUT__RECONCILE_WRITE_FAILED}")"
-    has_line "${out}" error "${RE}/w" mode "the change did not take" && has_line "${out}" error "${RE}/w" acl "the change did not take" \
+    has_reconcile_observation "${out}" error "${repair_root}/w" mode "the change did not take" && has_reconcile_observation "${out}" error "${repair_root}/w" acl "the change did not take" \
         && grep -qx 'failed=1' <<< "${out}" && ! grep -q '^changed' <<< "${out}" \
         && pass "a repair the final read shows did not take is an error per field at the write-failed outcome" || fail "did not take: ${out}"
-    chmod 0644 "${RE}/w"
+    chmod 0644 "${repair_root}/w"
     # The same over a seeded reader, in the shapes the review drove: an ACL drift that survives a successful apply;
     # an entry the final read finds absent, with no changed line and its ancestor verdict bad; and a field the repair
     # did not write drifting meanwhile, beside the field it did write, which converged. seeded_step <first-finding>
@@ -882,7 +882,7 @@ else
     # `write_failed=<n> ancestor=<verdict>`.
     seeded_step() {
         local stub_first="$1" stub_final="$2" stub_final_type="$3" stub_reads=0
-        _ai_tools_layout__apply_pinned() { return 0; }
+        _ai_tools_layout__apply_entry_fields() { return 0; }
         ai_tools_layout__read_entry_state() {
             local -n stub_seeded_state="$2" stub_seeded_findings="$3"; local stub_line stub_finding
             stub_reads=$(( stub_reads + 1 ))
@@ -903,28 +903,28 @@ else
         _ai_tools_layout__reset_reconcile_state
         entry_step "$(entry /review/item directory root:root 0750 - - -)"
         printf 'write_failed=%s ancestor=%s\n' "${_AI_TOOLS_LAYOUT__RECONCILE_WRITE_FAILED}" \
-            "${_AI_TOOLS_LAYOUT__ANCESTOR_STATES[/review/item]:-}"
+            "${_AI_TOOLS_LAYOUT__ANCESTOR_VERDICTS[/review/item]:-}"
     }
     out="$(seeded_step acl-drift acl-drift directory)"
-    has_line "${out}" error /review/item acl "the change did not take" && grep -q '^write_failed=1 ' <<< "${out}" \
+    has_reconcile_observation "${out}" error /review/item acl "the change did not take" && grep -q '^write_failed=1 ' <<< "${out}" \
         && ! grep -q '^changed' <<< "${out}" \
         && pass "an ACL drift a successful apply did not remove is a failed repair (unchanged-write)" || fail "unchanged-write: $(tr '\n\t' '| ' <<< "${out}")"
     out="$(seeded_step mode-drift missing absent)"
-    has_line "${out}" error /review/item type "the entry is not at its path after the repair" \
+    has_reconcile_observation "${out}" error /review/item type "the entry is not at its path after the repair" \
         && grep -qx 'write_failed=1 ancestor=bad' <<< "${out}" && ! grep -q '^changed' <<< "${out}" \
         && pass "an entry the final read finds absent is a failed repair with no changed line (entry-disappears)" \
         || fail "entry-disappears: $(tr '\n\t' '| ' <<< "${out}")"
     out="$(seeded_step mode-drift owner-drift directory)"
-    has_line "${out}" error /review/item owner "drifted during the repair" && has_line "${out}" changed /review/item mode "0700	0750" \
+    has_reconcile_observation "${out}" error /review/item owner "drifted during the repair" && has_reconcile_observation "${out}" changed /review/item mode "0700	0750" \
         && grep -q '^write_failed=1 ' <<< "${out}" \
         && pass "a field the repair did not write drifting meanwhile is a failed repair, the written field still changed" \
         || fail "drifted during the repair: $(tr '\n\t' '| ' <<< "${out}")"
     # An error line of the entry set is reported as it is.
-    _ai_tools_layout__encode_line errline error file "${RE}/x" agents "the manifest is not root's"
+    _ai_tools_layout__encode_line errline error file "${repair_root}/x" agents "the manifest is not root's"
     declare -a set_lines=( "${errline}" )
-    out="$(_ai_tools_layout__reset_reconcile_state; _ai_tools_layout__reconcile_lines set_lines
+    out="$(_ai_tools_layout__reset_reconcile_state; _ai_tools_layout__reconcile_entry_lines set_lines
         printf 'incomplete=%s\n' "${_AI_TOOLS_LAYOUT__RECONCILE_INCOMPLETE}")"
-    has_line "${out}" error "${RE}/x" agents "the manifest is not root's" && grep -qx 'incomplete=1' <<< "${out}" \
+    has_reconcile_observation "${out}" error "${repair_root}/x" agents "the manifest is not root's" && grep -qx 'incomplete=1' <<< "${out}" \
         && pass "an error line of the entry set is an error of the reconcile, counted as incomplete" || fail "set error: ${out}"
     # The progress map and the ancestor verdicts are keyed by the decoded path. The map alone first: a TAB-bearing row
     # registered through the line runner, its verdict `bad`, refuses a path under it (the entry step is stubbed,
@@ -933,8 +933,8 @@ else
     out="$(_ai_tools_layout__reconcile_entry() { :; }
         _ai_tools_layout__reset_reconcile_state
         declare -a probe_lines=( "$(entry "${probe_path}" directory root:root 0700 - - boundary operator)" )
-        _ai_tools_layout__reconcile_lines probe_lines
-        _AI_TOOLS_LAYOUT__ANCESTOR_STATES["${probe_path}"]=bad
+        _ai_tools_layout__reconcile_entry_lines probe_lines
+        _AI_TOOLS_LAYOUT__ANCESTOR_VERDICTS["${probe_path}"]=bad
         probe_result=0; _ai_tools_layout__find_refusing_ancestor "${probe_path}/allowed-projects" || probe_result=$?
         printf '\nancestor_lookup_status=%s\n' "${probe_result}")"
     grep -qx 'ancestor_lookup_status=0' <<< "${out}" && [[ "${out%%$'\n'*}" == "${probe_path}" ]] \
@@ -945,17 +945,17 @@ else
     anc_index=0
     for anc_name in $'tab\there' 'back\slash'; do
         anc_index=$(( anc_index + 1 ))
-        anc="${RE}/${anc_name}" anc_victim="${RE}/anc-victim-${anc_index}"
+        anc="${repair_root}/${anc_name}" anc_victim="${repair_root}/anc-victim-${anc_index}"
         mkdir -p "${anc_victim}"; : > "${anc_victim}/child"; chmod 0600 "${anc_victim}/child"
         ln -sfn "${anc_victim}" "${anc}"
         anc_lines=( "$(entry "${anc}" directory "${me}" 0750 - ai-tools-base -)" \
             "$(entry "${anc}/child" file "${me}" 0644 - ai-tools-base -)" )
-        out="$(_ai_tools_layout__reset_reconcile_state; ai_tools_layout__begin_pass 0; _ai_tools_layout__reconcile_lines anc_lines)"
+        out="$(_ai_tools_layout__reset_reconcile_state; ai_tools_layout__begin_pass 0; _ai_tools_layout__reconcile_entry_lines anc_lines)"
         _ai_tools_layout__encode_line wanted refused "${anc}/child" ancestor "not read: ${anc} is not at its row"
-        if grep -qxF -- "${wanted}" <<< "${out}" && [[ "$(mode_of "${anc_victim}/child")" == 600 ]]; then
+        if grep -qxF -- "${wanted}" <<< "${out}" && [[ "$(read_mode "${anc_victim}/child")" == 600 ]]; then
             pass "a row under an ancestor whose name the encoder escapes (${anc_index}) is refused naming it, the outside file left"
         else
-            fail "escaped ancestor ${anc_index}: $(tr '\n\t' '| ' <<< "${out}") / victim $(mode_of "${anc_victim}/child")"
+            fail "escaped ancestor ${anc_index}: $(tr '\n\t' '| ' <<< "${out}") / victim $(read_mode "${anc_victim}/child")"
         fi
     done
     if (( EUID != 0 )); then
@@ -973,7 +973,7 @@ elif ! getent passwd "${SANDBOX_USER}" >/dev/null 2>&1 || ! getent group ai-ops 
 elif ! declare -F ai_tools_safe_paths__is_pinned_fd_at_path >/dev/null 2>&1 || ! command -v flock >/dev/null 2>&1; then
     skip "the reconcile as root" "safe-paths.lib.sh or flock is not available"
 else
-    R="${FIXTURE_ROOT}"
+    fixture_root="${FIXTURE_ROOT}"
     # The tree is built from the table itself: the sentinels of every package first, then each row the entry set yields
     # at its owner, mode and ACL, ghost rows left absent. The manifests the agents directory holds are the shipped
     # names, so their config directories become dynamic rows.
@@ -981,7 +981,7 @@ else
             /usr/local/lib/ai-tools/launch.d/claude-code.sh /usr/local/lib/ai-tools/session-env.d/codex.pins.env.sh \
             /usr/local/lib/ai-tools/integrations.d/dotnet.conf /usr/local/lib/ai-tools/integrations.d/typesafe.conf \
             /usr/share/selinux/devel/include/distributed/ai_tools.if; do
-        mkdir -p "${R}${sentinel%/*}"; : > "${R}${sentinel}"
+        mkdir -p "${fixture_root}${sentinel%/*}"; : > "${fixture_root}${sentinel}"
     done
     printf 'config_dir=.claude\nlauncher=claude\n' > "${AGENTS_DIR}/claude-code.conf"
     printf 'config_dir=.codex\nlauncher=codex\n' > "${AGENTS_DIR}/codex.conf"
@@ -1004,19 +1004,19 @@ else
             IFS=, read -ra acl_entries <<< "${acl}"
             for acl_entry in "${acl_entries[@]}"; do setfacl -m "${acl_entry}" "${path}"; done
         fi
-        _ai_tools_layout__is_payload_file "${type}" "${flags}" && printf '%s\n' "${path#"${R}"}" >> "${PAYLOAD_LIST}"
+        _ai_tools_layout__is_content_verification_required "${type}" "${flags}" && printf '%s\n' "${path#"${fixture_root}"}" >> "${PAYLOAD_LIST}"
         return 0
     }
     ai_tools_layout__read_entry_lines built_lines || :
     build_errors=0
     for line in "${built_lines[@]}"; do
         if [[ "${line}" == error$'\t'* ]]; then build_errors=$(( build_errors + 1 )); continue; fi
-        ai_tools_layout__parse_line "${line}" row_fields
+        ai_tools_layout__parse_stream_line "${line}" row_fields
         build_entry "${row_fields[0]}" "${row_fields[1]}" "${row_fields[2]}" "${row_fields[3]}" "${row_fields[4]}" "${row_fields[6]}"
     done
     (( build_errors == 0 )) && pass "the tree is built from the entry set with no error line (${#built_lines[@]} rows)" \
         || fail "the entry set carried ${build_errors} error line(s) while building: $(grep '^error' <<< "$(printf '%s\n' "${built_lines[@]}")" | tr '\n\t' '| ')"
-    [[ -d "${R}/opt/ai-tools/.claude" && -d "${R}${PROJECTS_HOME}/.config/ai-tools" ]] \
+    [[ -d "${fixture_root}/opt/ai-tools/.claude" && -d "${fixture_root}${PROJECTS_HOME}/.config/ai-tools" ]] \
         && pass "the dynamic rows are in the tree: an agent config directory and an operator's config" || fail "dynamic rows not built"
     # The collector stub prints every payload path verified, with per-path flags and file states and an exit status
     # the case sets, then a line of each shape verbose verify prints for paths outside the table, as a host installed
@@ -1045,7 +1045,7 @@ else
     }
     # reconcile_run [<without-rpm>] : the reconcile over the fixture root; prints its lines, then `rc=<status>`.
     reconcile_run() { local rc=0; ai_tools_layout__reconcile "${1:-0}" || rc=$?; printf 'rc=%s\n' "${rc}"; }
-    rc_of() { grep -o '^rc=.*' <<< "$1" | tail -n1; }
+    parse_reconcile_status() { grep -o '^rc=.*' <<< "$1" | tail -n1; }
     # brief <output> : a run's output for a failure line -- its first three lines, the count of the rest, and its last
     # line (the `rc=`), tabs and newlines as `| `, so a run over the whole tree does not report every row.
     brief() {
@@ -1058,54 +1058,54 @@ else
         printf '%s' "${brief_text}"
     }
     out="$(reconcile_run)"
-    [[ "$(rc_of "${out}")" == rc=0 && "$(grep -vc '^rc=' <<< "${out}")" -eq 0 ]] \
+    [[ "$(parse_reconcile_status "${out}")" == rc=0 && "$(grep -vc '^rc=' <<< "${out}")" -eq 0 ]] \
         && pass "a converged tree prints no line and exits 0" || fail "first run over the built tree: $(brief "${out}")"
     out="$(reconcile_run)"
-    [[ "$(rc_of "${out}")" == rc=0 && "$(grep -vc '^rc=' <<< "${out}")" -eq 0 ]] \
+    [[ "$(parse_reconcile_status "${out}")" == rc=0 && "$(grep -vc '^rc=' <<< "${out}")" -eq 0 ]] \
         && pass "a second run prints no line and exits 0" || fail "second run: $(brief "${out}")"
     # A manual page rpm records as not installed, absent: not a finding, the run still clean.
-    MAN1="${R}/usr/local/share/man/man1/ai-tools.1"; rm -- "${MAN1}"
+    MAN1="${fixture_root}/usr/local/share/man/man1/ai-tools.1"; rm -- "${MAN1}"
     STUB_SUFFIX[/usr/local/share/man/man1/ai-tools.1]="not installed"
     out="$(reconcile_run)"
-    [[ "$(rc_of "${out}")" == rc=0 && "$(grep -vc '^rc=' <<< "${out}")" -eq 0 ]] \
+    [[ "$(parse_reconcile_status "${out}")" == rc=0 && "$(grep -vc '^rc=' <<< "${out}")" -eq 0 ]] \
         && pass "an absent manual page rpm records as not installed prints no line and exits 0" || fail "not installed: $(brief "${out}")"
     unset 'STUB_SUFFIX[/usr/local/share/man/man1/ai-tools.1]'; install -o root -g root -m 0644 /dev/null "${MAN1}"
     LOG="${AI_TOOLS_LOG_DIR}/layout.log"
-    OC="${OPERATOR_CONF}"
-    PROMPTS="${R}/etc/ai-tools/prompts"
+    operator_conf="${OPERATOR_CONF}"
+    PROMPTS="${fixture_root}/etc/ai-tools/prompts"
     chown nobody:nobody "${PROMPTS}"
     out="$(reconcile_run)"
-    has_line "${out}" changed "${PROMPTS}" owner "nobody:nobody	root:root" && [[ "$(stat -c '%U:%G' "${PROMPTS}")" == root:root && "$(rc_of "${out}")" == rc=0 ]] \
+    has_reconcile_observation "${out}" changed "${PROMPTS}" owner "nobody:nobody	root:root" && [[ "$(stat -c '%U:%G' "${PROMPTS}")" == root:root && "$(parse_reconcile_status "${out}")" == rc=0 ]] \
         && pass "an owner drift on a directory converges with its changed line" || fail "owner drift: $(brief "${out}")"
     grep -q "INFO.*${PROMPTS} owner nobody:nobody -> root:root" "${LOG}" && pass "an owner moving to root is logged at info" || fail "owner log line: $(grep "${PROMPTS} owner" "${LOG}" | tail -n1)"
     # A regular file at another owner is refused and left: its bytes were that account's to write. operator.conf
     # at another owner is also an untrusted discovery input, so its rows are an error line and the run exits 5.
-    chown nobody:nobody "${OC}"
+    chown nobody:nobody "${operator_conf}"
     out="$(reconcile_run)"
-    has_line "${out}" refused "${OC}" owner "the bytes were writable by another account; review its content, then sudo chown root:root ${OC}" \
-        && [[ "$(stat -c '%U:%G' "${OC}")" == nobody:nobody && "$(rc_of "${out}")" == rc=5 ]] \
+    has_reconcile_observation "${out}" refused "${operator_conf}" owner "the bytes were writable by another account; review its content, then sudo chown root:root ${operator_conf}" \
+        && [[ "$(stat -c '%U:%G' "${operator_conf}")" == nobody:nobody && "$(parse_reconcile_status "${out}")" == rc=5 ]] \
         && pass "operator.conf at another owner is refused and left, naming the review and the chown by hand" || fail "owner refused: $(brief "${out}")"
-    chown root:root "${OC}"
-    chmod 0600 "${OC}"
+    chown root:root "${operator_conf}"
+    chmod 0600 "${operator_conf}"
     out="$(reconcile_run)"
-    has_line "${out}" changed "${OC}" mode "0600	0644" && [[ "$(stat -c '%a' "${OC}")" == 644 ]] \
+    has_reconcile_observation "${out}" changed "${operator_conf}" mode "0600	0644" && [[ "$(stat -c '%a' "${operator_conf}")" == 644 ]] \
         && pass "a mode drift on operator.conf converges" || fail "mode drift: $(brief "${out}")"
-    grep -q "NOTICE.*${OC} mode 0600 -> 0644" "${LOG}" && pass "the widening is logged at notice" || fail "mode log line: $(grep "${OC} mode" "${LOG}" | tail -n1)"
-    STATE="${R}/var/opt/ai-tools/state"
+    grep -q "NOTICE.*${operator_conf} mode 0600 -> 0644" "${LOG}" && pass "the widening is logged at notice" || fail "mode log line: $(grep "${operator_conf} mode" "${LOG}" | tail -n1)"
+    STATE="${fixture_root}/var/opt/ai-tools/state"
     setfacl -m "g:nobody:r-x" -d -m "g:ai-ops:r-x" "${STATE}"
     out="$(reconcile_run)"
     live="$(getfacl --omit-header -P -- "${STATE}")"
-    has_line "${out}" changed "${STATE}" acl && [[ "${live}" != *"group:nobody"* && "${live}" != *default:* && "${live}" == *"group:ai-ops:r-x"* ]] \
+    has_reconcile_observation "${out}" changed "${STATE}" acl && [[ "${live}" != *"group:nobody"* && "${live}" != *default:* && "${live}" == *"group:ai-ops:r-x"* ]] \
         && pass "a foreign entry and an undeclared default block are removed, the declared entry kept" || fail "acl drift: $(brief "${out}") / $(tr '\n' '|' <<< "${live}")"
-    SP="${R}/var/opt/ai-tools/sandbox-projects"
-    setfacl -m "g:nobody:rwx" "${SP}"; chmod g= "${SP}"
+    projects_dir="${fixture_root}/var/opt/ai-tools/sandbox-projects"
+    setfacl -m "g:nobody:rwx" "${projects_dir}"; chmod g= "${projects_dir}"
     # A watcher samples the ACL while the reconcile runs: it signals readiness after its first read and counts its
     # reads, so the case fails where it never read. Polling can miss an interval between two writes, so the result is
     # sampled evidence of the one `setfacl --set-file` replacement.
     activated="${TESTDIR}/activated" observations="${TESTDIR}/observations" ready="${TESTDIR}/ready"
     rm -f "${activated}" "${observations}" "${ready}"
     ( while [[ ! -e "${TESTDIR}/stop-watch" ]]; do
-          watch_acl="$(getfacl -e --omit-header -P -- "${SP}" 2>/dev/null)" || continue
+          watch_acl="$(getfacl -e --omit-header -P -- "${projects_dir}" 2>/dev/null)" || continue
           printf . >> "${observations}"; [[ -e "${ready}" ]] || : > "${ready}"
           watch_line="$(grep '^group:nobody:rwx' <<< "${watch_acl}" || true)"
           [[ -z "${watch_line}" || "${watch_line}" == *'#effective:---'* ]] || : > "${activated}"
@@ -1114,174 +1114,174 @@ else
     for (( ready_wait = 0; ready_wait < 50; ready_wait++ )); do [[ -e "${ready}" ]] && break; sleep 0.1; done
     if [[ ! -e "${ready}" ]]; then
         : > "${TESTDIR}/stop-watch"; wait "${watcher}" 2>/dev/null || true; rm -f "${TESTDIR}/stop-watch"
-        fail "masked entry: the ACL watcher did not read ${SP} within 5s, so the run is not observed"
+        fail "masked entry: the ACL watcher did not read ${projects_dir} within 5s, so the run is not observed"
     else
         out="$(reconcile_run)"
         : > "${TESTDIR}/stop-watch"; wait "${watcher}" 2>/dev/null || true; rm -f "${TESTDIR}/stop-watch"
-        live="$(getfacl --omit-header -P -- "${SP}")"
+        live="$(getfacl --omit-header -P -- "${projects_dir}")"
         sampled="$(stat -c '%s' "${observations}" 2>/dev/null || printf 0)"
-        [[ "${live}" != *"group:nobody"* && "$(stat -c '%a' "${SP}")" == 2770 && ! -e "${activated}" ]] && (( sampled > 0 )) \
+        [[ "${live}" != *"group:nobody"* && "$(stat -c '%a' "${projects_dir}")" == 2770 && ! -e "${activated}" ]] && (( sampled > 0 )) \
             && pass "a masked-off foreign entry is removed as the group bits widen, effective in none of ${sampled} sampled ACL reads" \
-            || fail "masked entry: $(tr '\n' '|' <<< "${live}") mode $(stat -c '%a' "${SP}") sampled=${sampled} activated=$([[ -e "${activated}" ]] && echo yes || echo no)"
+            || fail "masked entry: $(tr '\n' '|' <<< "${live}") mode $(stat -c '%a' "${projects_dir}") sampled=${sampled} activated=$([[ -e "${activated}" ]] && echo yes || echo no)"
     fi
-    LINK="${R}/usr/sbin/ai-tools"
+    LINK="${fixture_root}/usr/sbin/ai-tools"
     chown --no-dereference nobody:nobody "${LINK}"
     out="$(reconcile_run)"
-    has_line "${out}" changed "${LINK}" owner "nobody:nobody	root:root" && [[ "$(stat -c '%U' "${LINK}")" == root ]] \
+    has_reconcile_observation "${out}" changed "${LINK}" owner "nobody:nobody	root:root" && [[ "$(stat -c '%U' "${LINK}")" == root ]] \
         && pass "a link's owner converges by name" || fail "link owner: $(brief "${out}")"
     # Content drift beside owner, mode and ACL drift leaves every field, under each state the content gate refuses.
-    CLI="${R}/usr/local/bin/ai-tools"
+    CLI="${fixture_root}/usr/local/bin/ai-tools"
     chown nobody:nobody "${CLI}"; chmod 0600 "${CLI}"
     STUB_OVERRIDE[/usr/local/bin/ai-tools]='..5......'
     out="$(reconcile_run)"
-    has_line "${out}" refused "${CLI}" content && [[ "$(stat -c '%U %a' "${CLI}")" == "nobody 600" && "$(rc_of "${out}")" == rc=4 ]] \
+    has_reconcile_observation "${out}" refused "${CLI}" content && [[ "$(stat -c '%U %a' "${CLI}")" == "nobody 600" && "$(parse_reconcile_status "${out}")" == rc=4 ]] \
         && pass "drifted content refuses the entry whole at exit 4: owner and mode are left" || fail "content drift: $(brief "${out}") / $(stat -c '%U %a' "${CLI}")"
     STUB_OVERRIDE[/usr/local/bin/ai-tools]='..?......'
     out="$(reconcile_run)"
-    has_line "${out}" error "${CLI}" content && [[ "$(stat -c '%U %a' "${CLI}")" == "nobody 600" && "$(rc_of "${out}")" == rc=5 ]] \
+    has_reconcile_observation "${out}" error "${CLI}" content && [[ "$(stat -c '%U %a' "${CLI}")" == "nobody 600" && "$(parse_reconcile_status "${out}")" == rc=5 ]] \
         && pass "an unreadable digest is an error at exit 5, the entry left whole" || fail "unreadable digest: $(brief "${out}")"
     unset 'STUB_OVERRIDE[/usr/local/bin/ai-tools]'; STUB_RC=3
     out="$(reconcile_run)"
-    has_line "${out}" error "${CLI}" content && [[ "$(stat -c '%U %a' "${CLI}")" == "nobody 600" ]] \
+    has_reconcile_observation "${out}" error "${CLI}" content && [[ "$(stat -c '%U %a' "${CLI}")" == "nobody 600" ]] \
         && pass "a failing collector leaves every package file whole" || fail "failing collector: $(brief "${out}")"
     STUB_RC=0
     out="$(reconcile_run 1)"
-    has_line "${out}" refused "${CLI}" owner "left as it is: the content is unverified" && [[ "$(stat -c '%U %a' "${CLI}")" == "nobody 600" && "$(rc_of "${out}")" == rc=4 ]] \
+    has_reconcile_observation "${out}" refused "${CLI}" owner "left as it is: the content is unverified" && [[ "$(stat -c '%U %a' "${CLI}")" == "nobody 600" && "$(parse_reconcile_status "${out}")" == rc=4 ]] \
         && pass "a pass without rpm reports the drifted package file per field and leaves it" || fail "without rpm: $(brief "${out}")"
     # Verified content does not bless bytes another account owned: the owner is refused, naming the reinstall.
     out="$(reconcile_run)"
-    has_line "${out}" refused "${CLI}" owner "the bytes were writable by another account; sudo dnf reinstall ai-tools-base" \
-        && [[ "$(stat -c '%U %a' "${CLI}")" == "nobody 600" && "$(rc_of "${out}")" == rc=4 ]] \
+    has_reconcile_observation "${out}" refused "${CLI}" owner "the bytes were writable by another account; sudo dnf reinstall ai-tools-base" \
+        && [[ "$(stat -c '%U %a' "${CLI}")" == "nobody 600" && "$(parse_reconcile_status "${out}")" == rc=4 ]] \
         && pass "with the content verified, a package file at another owner is refused on its owner and left" || fail "verified, other owner: $(brief "${out}")"
     chown root:root "${CLI}"
     out="$(reconcile_run)"
-    [[ "$(stat -c '%U %a' "${CLI}")" == "root 755" && "$(rc_of "${out}")" == rc=0 ]] \
+    [[ "$(stat -c '%U %a' "${CLI}")" == "root 755" && "$(parse_reconcile_status "${out}")" == rc=0 ]] \
         && pass "with the owner restored by hand, the verified file's mode drift converges" || fail "verified: $(brief "${out}")"
     # The payload file a sandbox-writable parent holds, replaced by the projects user with the package's bytes (the rpm
     # stub reports them verified): refused on its owner and left at that owner.
-    HOOK="${R}/opt/ai-tools/.claude/post-tool-hook.sh"
+    HOOK="${fixture_root}/opt/ai-tools/.claude/post-tool-hook.sh"
     cp -- "${HOOK}" "${HOOK}.planted"; chown "${PROJECTS_USER}" "${HOOK}.planted"; mv -f -- "${HOOK}.planted" "${HOOK}"
     out="$(reconcile_run)"
-    has_line "${out}" refused "${HOOK}" owner "the bytes were writable by another account; sudo dnf reinstall ai-tools-agents-claude-code-restricted" \
-        && [[ "$(stat -c '%U' "${HOOK}")" == "${PROJECTS_USER}" && "$(rc_of "${out}")" == rc=4 ]] \
+    has_reconcile_observation "${out}" refused "${HOOK}" owner "the bytes were writable by another account; sudo dnf reinstall ai-tools-agents-claude-code-restricted" \
+        && [[ "$(stat -c '%U' "${HOOK}")" == "${PROJECTS_USER}" && "$(parse_reconcile_status "${out}")" == rc=4 ]] \
         && pass "a hook with the package's bytes at the projects user's owner is refused and left at that owner" || fail "planted hook: $(brief "${out}")"
     chown "root:${SANDBOX_GROUP}" "${HOOK}"; chmod 0750 "${HOOK}"
     # A root-owned package file at group write, then with a masked foreign entry carrying write: each refused
     # on the field that widened it and left. At 0600 the same file converges, since no account but root could write it.
-    CONF_LIB="${R}/usr/local/lib/ai-tools/conf.lib.sh"
+    CONF_LIB="${fixture_root}/usr/local/lib/ai-tools/conf.lib.sh"
     chmod 0664 "${CONF_LIB}"
     out="$(reconcile_run)"
-    has_line "${out}" refused "${CONF_LIB}" mode "the bytes were writable by another account; sudo dnf reinstall ai-tools-base" \
-        && [[ "$(stat -c '%a' "${CONF_LIB}")" == 664 && "$(rc_of "${out}")" == rc=4 ]] \
+    has_reconcile_observation "${out}" refused "${CONF_LIB}" mode "the bytes were writable by another account; sudo dnf reinstall ai-tools-base" \
+        && [[ "$(stat -c '%a' "${CONF_LIB}")" == 664 && "$(parse_reconcile_status "${out}")" == rc=4 ]] \
         && pass "a package file at group write is refused on its mode and left" || fail "group write: $(brief "${out}")"
     chmod 0644 "${CONF_LIB}"; setfacl -m g:nobody:rw-,m::r-- "${CONF_LIB}"
     out="$(reconcile_run)"
-    has_line "${out}" refused "${CONF_LIB}" acl "the bytes were writable by another account" \
-        && getfacl --omit-header -P -- "${CONF_LIB}" | grep -q '^group:nobody:rw-' && [[ "$(rc_of "${out}")" == rc=4 ]] \
+    has_reconcile_observation "${out}" refused "${CONF_LIB}" acl "the bytes were writable by another account" \
+        && getfacl --omit-header -P -- "${CONF_LIB}" | grep -q '^group:nobody:rw-' && [[ "$(parse_reconcile_status "${out}")" == rc=4 ]] \
         && pass "a package file with a masked foreign entry carrying write is refused on its ACL and left" || fail "foreign entry: $(brief "${out}")"
     setfacl -b "${CONF_LIB}"; chmod 0600 "${CONF_LIB}"
     out="$(reconcile_run)"
-    has_line "${out}" changed "${CONF_LIB}" mode "0600	0644" && [[ "$(stat -c '%a' "${CONF_LIB}")" == 644 && "$(rc_of "${out}")" == rc=0 ]] \
+    has_reconcile_observation "${out}" changed "${CONF_LIB}" mode "0600	0644" && [[ "$(stat -c '%a' "${CONF_LIB}")" == 644 && "$(parse_reconcile_status "${out}")" == rc=0 ]] \
         && pass "the same file at 0600 converges" || fail "0600: $(brief "${out}")"
     # Missing entries: a directory is created, a file and a dangling link are refused with their remedies.
     PIN="${STATE}/entrypoint-pin.d"; rm -r "${PIN}"
     out="$(reconcile_run)"
-    has_line "${out}" changed "${PIN}" type "absent	directory" && has_line "${out}" changed "${PIN}" mode "0700	0755" \
-        && ! has_line "${out}" changed "${PIN}" owner && [[ "$(stat -c '%U:%G %a' "${PIN}")" == "root:root 755" ]] \
+    has_reconcile_observation "${out}" changed "${PIN}" type "absent	directory" && has_reconcile_observation "${out}" changed "${PIN}" mode "0700	0755" \
+        && ! has_reconcile_observation "${out}" changed "${PIN}" owner && [[ "$(stat -c '%U:%G %a' "${PIN}")" == "root:root 755" ]] \
         && pass "a missing root-owned directory is created owner-only and brought to its mode, with no owner line" \
         || fail "create: $(brief "${out}")"
     # The timer-stamp directory belongs to the sandbox account: its owner arrives through the pin, after the create.
-    STAMP_DIR="${R}${CP_HOME}/${CP_TIMER_STAMP_DIR}"; rmdir "${STAMP_DIR}"
+    STAMP_DIR="${fixture_root}${CP_HOME}/${CP_TIMER_STAMP_DIR}"; rmdir "${STAMP_DIR}"
     out="$(reconcile_run)"
-    has_line "${out}" changed "${STAMP_DIR}" type "absent	directory" && has_line "${out}" changed "${STAMP_DIR}" owner \
+    has_reconcile_observation "${out}" changed "${STAMP_DIR}" type "absent	directory" && has_reconcile_observation "${out}" changed "${STAMP_DIR}" owner \
         && [[ "$(stat -c '%U:%G %a' "${STAMP_DIR}")" == "${SANDBOX_USER}:${SANDBOX_GROUP} $(( 10#${CP_TIMER_STAMP_DIR_MODE} ))" \
-              && "$(rc_of "${out}")" == rc=0 ]] \
+              && "$(parse_reconcile_status "${out}")" == rc=0 ]] \
         && pass "a missing directory at a non-root owner takes that owner through the pin, with its owner line" \
         || fail "stamp directory: $(brief "${out}") / $(stat -c '%U:%G %a' "${STAMP_DIR}")"
-    LAUNCH="${R}/usr/local/bin/ai-tools-launch"; rm "${LAUNCH}"
+    LAUNCH="${fixture_root}/usr/local/bin/ai-tools-launch"; rm "${LAUNCH}"
     out="$(reconcile_run)"
-    has_line "${out}" refused "${LAUNCH}" type && [[ "${out}" == *"dnf reinstall ai-tools-base"* && ! -e "${LAUNCH}" && "$(rc_of "${out}")" == rc=4 ]] \
+    has_reconcile_observation "${out}" refused "${LAUNCH}" type && [[ "${out}" == *"dnf reinstall ai-tools-base"* && ! -e "${LAUNCH}" && "$(parse_reconcile_status "${out}")" == rc=4 ]] \
         && pass "a missing file is refused naming the package, at exit 4" || fail "missing file: $(brief "${out}")"
     install -o root -g root -m 0755 /dev/null "${LAUNCH}"
-    ln -sfn "${R}/nonexistent" "${LINK}"
+    ln -sfn "${fixture_root}/nonexistent" "${LINK}"
     out="$(reconcile_run)"
-    has_line "${out}" refused "${LINK}" type && [[ "${out}" == *"target does not exist"* ]] \
+    has_reconcile_observation "${out}" refused "${LINK}" type && [[ "${out}" == *"target does not exist"* ]] \
         && pass "a dangling link is refused" || fail "dangling: $(brief "${out}")"
     ln -sfn /dev/null "${LINK}"
     # Type mismatch, both ways, and the rows under a replaced directory refused unread.
-    KEYS="${R}/usr/local/lib/ai-tools/keys"; ASC="${KEYS}/dag-node-package-signing.asc"
+    KEYS="${fixture_root}/usr/local/lib/ai-tools/keys"; ASC="${KEYS}/dag-node-package-signing.asc"
     rm "${ASC}"; mkdir "${ASC}"
     out="$(reconcile_run)"
-    has_line "${out}" refused "${ASC}" type && [[ -d "${ASC}" ]] && pass "a directory where a file belongs is refused and left" || fail "dir for file: $(brief "${out}")"
+    has_reconcile_observation "${out}" refused "${ASC}" type && [[ -d "${ASC}" ]] && pass "a directory where a file belongs is refused and left" || fail "dir for file: $(brief "${out}")"
     rmdir "${ASC}"; install -o root -g root -m 0644 /dev/null "${ASC}"
     mv "${KEYS}" "${KEYS}.aside"; : > "${KEYS}"
     out="$(reconcile_run)"
-    has_line "${out}" refused "${KEYS}" type && has_line "${out}" refused "${ASC}" ancestor "not read: ${KEYS} is not at its row" \
+    has_reconcile_observation "${out}" refused "${KEYS}" type && has_reconcile_observation "${out}" refused "${ASC}" ancestor "not read: ${KEYS} is not at its row" \
         && pass "a file where a directory belongs is refused, and the rows under it refused unread naming it" || fail "file for dir: $(brief "${out}")"
     rm "${KEYS}"; mv "${KEYS}.aside" "${KEYS}"
     ELSEWHERE="${TESTDIR}/elsewhere"; mkdir -p "${ELSEWHERE}"
     mv "${STATE}" "${STATE}.aside"; ln -s "${ELSEWHERE}" "${STATE}"
     out="$(reconcile_run)"
-    has_line "${out}" refused "${STATE}" type && has_line "${out}" refused "${PIN}" ancestor && [[ ! -e "${ELSEWHERE}/entrypoint-pin.d" ]] \
+    has_reconcile_observation "${out}" refused "${STATE}" type && has_reconcile_observation "${out}" refused "${PIN}" ancestor && [[ ! -e "${ELSEWHERE}/entrypoint-pin.d" ]] \
         && pass "a symlink at a directory row refuses the rows under it, with no directory created at the target" \
         || fail "symlink at a directory row: $(brief "${out}") / $(ls -A "${ELSEWHERE}" | tr '\n' ' ')"
     rm "${STATE}"; mv "${STATE}.aside" "${STATE}"
-    PKGS="${R}/usr/share/selinux/packages"; rm -r "${PKGS}"
+    PKGS="${fixture_root}/usr/share/selinux/packages"; rm -r "${PKGS}"
     out="$(reconcile_run)"
-    has_line "${out}" refused "${PKGS}/ai-tools" type && [[ "${out}" == *"${PKGS} is not a directory"* && ! -e "${PKGS}" ]] \
+    has_reconcile_observation "${out}" refused "${PKGS}/ai-tools" type && [[ "${out}" == *"${PKGS} is not a directory"* && ! -e "${PKGS}" ]] \
         && pass "a missing directory under a missing parent outside the table is refused, and no component is created" \
         || fail "missing parent: $(brief "${out}")"
     install -d -o root -g root -m 0755 "${PKGS}" "${PKGS}/ai-tools"
     # A discovery input the enumeration refuses, and the drift in the dynamic rows it hides, converge in one run.
-    ACME="${R}/opt/ai-tools/.acme"
-    chmod 0777 "${AGENTS_DIR}"; chmod 0700 "${ACME}"
+    agent_config_dir="${fixture_root}/opt/ai-tools/.acme"
+    chmod 0777 "${AGENTS_DIR}"; chmod 0700 "${agent_config_dir}"
     out="$(reconcile_run)"
-    has_line "${out}" changed "${AGENTS_DIR}" mode && has_line "${out}" changed "${ACME}" mode \
-        && [[ "$(stat -c '%a' "${AGENTS_DIR}")" == 755 && "$(stat -c '%a' "${ACME}")" == 3770 && "$(rc_of "${out}")" == rc=0 ]] \
+    has_reconcile_observation "${out}" changed "${AGENTS_DIR}" mode && has_reconcile_observation "${out}" changed "${agent_config_dir}" mode \
+        && [[ "$(stat -c '%a' "${AGENTS_DIR}")" == 755 && "$(stat -c '%a' "${agent_config_dir}")" == 3770 && "$(parse_reconcile_status "${out}")" == rc=0 ]] \
         && pass "an untrusted agents directory and the drift in an agent config directory converge in one invocation" \
         || fail "agents.d then .acme: $(brief "${out}")"
     # operator.conf read untrusted through a group-writable directory: the directory is repaired first, so the operator
     # rows the file names are read in the same run.
-    OPDIR="${R}${PROJECTS_HOME}/.config/ai-tools" ETC="${OC%/*}"
+    OPDIR="${fixture_root}${PROJECTS_HOME}/.config/ai-tools" ETC="${operator_conf%/*}"
     chmod 0777 "${ETC}"; chmod 0755 "${OPDIR}"
     out="$(reconcile_run)"
-    has_line "${out}" changed "${ETC}" mode && has_line "${out}" changed "${OPDIR}" mode \
-        && [[ "$(stat -c '%a' "${ETC}")" == 755 && "$(stat -c '%a' "${OPDIR}")" == 700 && "$(rc_of "${out}")" == rc=0 ]] \
+    has_reconcile_observation "${out}" changed "${ETC}" mode && has_reconcile_observation "${out}" changed "${OPDIR}" mode \
+        && [[ "$(stat -c '%a' "${ETC}")" == 755 && "$(stat -c '%a' "${OPDIR}")" == 700 && "$(parse_reconcile_status "${out}")" == rc=0 ]] \
         && pass "operator.conf untrusted through its directory and the drift in an operator's config directory converge in one invocation" \
         || fail "/etc/ai-tools then the operator directory: $(brief "${out}")"
     # operator.conf itself writable by other accounts is refused and left, so the rows it names stay unread (exit 5)
     # until the file is restored by hand; the next run then converges them.
-    chmod 0666 "${OC}"; chmod 0755 "${OPDIR}"
+    chmod 0666 "${operator_conf}"; chmod 0755 "${OPDIR}"
     out="$(reconcile_run)"
-    has_line "${out}" refused "${OC}" mode "the bytes were writable by another account" && has_line "${out}" error "${OC}" operators \
-        && [[ "$(stat -c '%a' "${OC}")" == 666 && "$(stat -c '%a' "${OPDIR}")" == 755 && "$(rc_of "${out}")" == rc=5 ]] \
+    has_reconcile_observation "${out}" refused "${operator_conf}" mode "the bytes were writable by another account" && has_reconcile_observation "${out}" error "${operator_conf}" operators \
+        && [[ "$(stat -c '%a' "${operator_conf}")" == 666 && "$(stat -c '%a' "${OPDIR}")" == 755 && "$(parse_reconcile_status "${out}")" == rc=5 ]] \
         && pass "operator.conf writable by other accounts is refused and left, and the rows it names stay unread at exit 5" \
         || fail "exposed operator.conf: $(brief "${out}")"
-    chmod 0644 "${OC}"
+    chmod 0644 "${operator_conf}"
     out="$(reconcile_run)"
-    has_line "${out}" changed "${OPDIR}" mode && [[ "$(stat -c '%a' "${OPDIR}")" == 700 && "$(rc_of "${out}")" == rc=0 ]] \
+    has_reconcile_observation "${out}" changed "${OPDIR}" mode && [[ "$(stat -c '%a' "${OPDIR}")" == 700 && "$(parse_reconcile_status "${out}")" == rc=0 ]] \
         && pass "once operator.conf is restored by hand the rows it names converge" || fail "after the restore: $(brief "${out}")"
     # An input the enumeration cannot use stays visible, at exit 5, run after run.
     BAD="${AGENTS_DIR}/bad.conf"; printf 'config_dir=../x\n' > "${BAD}"; chmod 0644 "${BAD}"
     out="$(reconcile_run)"
-    has_line "${out}" error "${BAD}" agents && [[ "$(rc_of "${out}")" == rc=5 ]] \
+    has_reconcile_observation "${out}" error "${BAD}" agents && [[ "$(parse_reconcile_status "${out}")" == rc=5 ]] \
         && pass "an invalid manifest is an error at exit 5" || fail "invalid manifest: $(brief "${out}")"
     out="$(reconcile_run)"
-    has_line "${out}" error "${BAD}" agents && [[ "$(rc_of "${out}")" == rc=5 ]] \
+    has_reconcile_observation "${out}" error "${BAD}" agents && [[ "$(parse_reconcile_status "${out}")" == rc=5 ]] \
         && pass "and stays visible on the next run" || fail "invalid manifest, second run: $(brief "${out}")"
     rm "${BAD}"
-    printf 'OPERATORS="%s,no-such-user-zz"\n' "${PROJECTS_USER}" > "${OC}"
+    printf 'OPERATORS="%s,no-such-user-zz"\n' "${PROJECTS_USER}" > "${operator_conf}"
     out="$(reconcile_run)"
-    has_line "${out}" error no-such-user-zz operators && [[ "$(rc_of "${out}")" == rc=5 ]] \
+    has_reconcile_observation "${out}" error no-such-user-zz operators && [[ "$(parse_reconcile_status "${out}")" == rc=5 ]] \
         && pass "an account that does not resolve is an error at exit 5, the other operator's rows unaffected" || fail "unresolved account: $(brief "${out}")"
     # An operator whose home carries a backslash, for an account the host does not have (getent and id stubbed
     # for that name alone): its ~/.config/ai-tools a symlink to a directory outside, the rows under it are refused
     # naming it through the decoded keys, and the file behind the link is left.
     stub_fake_home="${TESTDIR}/home/fix\\op"; mkdir -p "${stub_fake_home}"
-    FAKE_DIR="${R}${stub_fake_home}/.config/ai-tools" FAKE_VICTIM="${TESTDIR}/fake-victim"
+    FAKE_DIR="${fixture_root}${stub_fake_home}/.config/ai-tools" FAKE_VICTIM="${TESTDIR}/fake-victim"
     mkdir -p "${FAKE_VICTIM}" "${FAKE_DIR%/*}"; install -o root -g root -m 0644 /dev/null "${FAKE_VICTIM}/allowed-projects"
     ln -sfn "${FAKE_VICTIM}" "${FAKE_DIR}"
-    printf 'OPERATORS="%s,fixop"\n' "${PROJECTS_USER}" > "${OC}"
+    printf 'OPERATORS="%s,fixop"\n' "${PROJECTS_USER}" > "${operator_conf}"
     out="$(getent() {
             if [[ "$1" == passwd && "$2" == fixop ]]; then printf 'fixop:x:59999:59999::%s:/sbin/nologin\n' "${stub_fake_home}"
             else command getent "$@"; fi; }
@@ -1292,49 +1292,49 @@ else
         && pass "an operator home carrying a backslash keeps the ancestor rule: the rows under its link are refused, the file behind it left" \
         || fail "backslash home: $(brief "${out}") / $(stat -c '%U:%G %a' "${FAKE_VICTIM}/allowed-projects")"
     rm -f "${FAKE_DIR}"
-    printf 'OPERATORS="%s"\n' "${PROJECTS_USER}" > "${OC}"
+    printf 'OPERATORS="%s"\n' "${PROJECTS_USER}" > "${operator_conf}"
     # The lock held by another process: an error, exit 5, and no write.
-    chmod 0600 "${OC}"
+    chmod 0600 "${operator_conf}"
     flock -x "${AI_TOOLS_LAYOUT_LOCK}" sleep 4 &
     locker=$!
     sleep 0.5
     out="$(reconcile_run)"
-    has_line "${out}" error "${AI_TOOLS_LAYOUT_LOCK}" lock && [[ "$(rc_of "${out}")" == rc=5 && "$(stat -c '%a' "${OC}")" == 600 ]] \
-        && pass "a lock another process holds is an error at exit 5 with no write" || fail "held lock: $(brief "${out}") / $(stat -c '%a' "${OC}")"
+    has_reconcile_observation "${out}" error "${AI_TOOLS_LAYOUT_LOCK}" lock && [[ "$(parse_reconcile_status "${out}")" == rc=5 && "$(stat -c '%a' "${operator_conf}")" == 600 ]] \
+        && pass "a lock another process holds is an error at exit 5 with no write" || fail "held lock: $(brief "${out}") / $(stat -c '%a' "${operator_conf}")"
     wait "${locker}" 2>/dev/null || true
     # The exit order: a failed write outranks an incomplete observation, which outranks a refusal.
     printf 'config_dir=../x\n' > "${BAD}"; chmod 0644 "${BAD}"; rm "${LAUNCH}"
     chmod() { return 1; }
     out="$(reconcile_run)"
     unset -f chmod
-    [[ "$(rc_of "${out}")" == rc=1 ]] && has_line "${out}" error "${OC}" mode "chmod exited 1" \
+    [[ "$(parse_reconcile_status "${out}")" == rc=1 ]] && has_reconcile_observation "${out}" error "${operator_conf}" mode "chmod exited 1" \
         && pass "a failed write beside an error and a refusal exits 1" || fail "exit order 1: $(brief "${out}")"
     out="$(reconcile_run)"
-    [[ "$(rc_of "${out}")" == rc=5 ]] && pass "an error beside a refusal exits 5" || fail "exit order 5: $(brief "${out}")"
+    [[ "$(parse_reconcile_status "${out}")" == rc=5 ]] && pass "an error beside a refusal exits 5" || fail "exit order 5: $(brief "${out}")"
     rm "${BAD}"
     out="$(reconcile_run)"
-    [[ "$(rc_of "${out}")" == rc=4 ]] && has_line "${out}" refused "${LAUNCH}" type && pass "a refusal alone exits 4" || fail "exit order 4: $(brief "${out}")"
+    [[ "$(parse_reconcile_status "${out}")" == rc=4 ]] && has_reconcile_observation "${out}" refused "${LAUNCH}" type && pass "a refusal alone exits 4" || fail "exit order 4: $(brief "${out}")"
     install -o root -g root -m 0755 /dev/null "${LAUNCH}"
     out="$(reconcile_run)"
-    [[ "$(rc_of "${out}")" == rc=0 && "$(grep -vc '^rc=' <<< "${out}")" -eq 0 ]] && pass "the tree converges again and exits 0" || fail "final: $(brief "${out}")"
+    [[ "$(parse_reconcile_status "${out}")" == rc=0 && "$(grep -vc '^rc=' <<< "${out}")" -eq 0 ]] && pass "the tree converges again and exits 0" || fail "final: $(brief "${out}")"
     # The postcondition branch of the exit order: an apply that returns 0 without writing exits 1, the drift named
     # as a repair that did not take.
-    chmod 0600 "${OC}"
-    out="$(_ai_tools_layout__apply_pinned() { return 0; }; reconcile_run)"
-    [[ "$(rc_of "${out}")" == rc=1 ]] && has_line "${out}" error "${OC}" mode "the change did not take" \
+    chmod 0600 "${operator_conf}"
+    out="$(_ai_tools_layout__apply_entry_fields() { return 0; }; reconcile_run)"
+    [[ "$(parse_reconcile_status "${out}")" == rc=1 ]] && has_reconcile_observation "${out}" error "${operator_conf}" mode "the change did not take" \
         && pass "a repair whose final read still carries the drift exits 1" || fail "exit order, postcondition: $(brief "${out}")"
-    chmod 0644 "${OC}"
+    chmod 0644 "${operator_conf}"
     # The union pass reads the entry set as a collector: an enumerator that exits 9 is an error line and exit 5.
     out="$(ai_tools_layout__list_entries() { return 9; }; reconcile_run)"
-    has_line "${out}" error layout.lib.sh entries "the entry set exited 9" && [[ "$(rc_of "${out}")" == rc=5 ]] \
+    has_reconcile_observation "${out}" error layout.lib.sh entries "the entry set exited 9" && [[ "$(parse_reconcile_status "${out}")" == rc=5 ]] \
         && pass "a lost entry set in the reconcile is an error at exit 5" || fail "lost set in the reconcile: $(brief "${out}")"
     unset -f rpm
     if command -v runuser >/dev/null 2>&1; then
         chmod 0755 "${TESTDIR}"
         rc=0; err=""
         # shellcheck disable=SC2016  # the inner bash expands these
-        err="$(runuser -u "${PROJECTS_USER}" -- env AI_TOOLS_LAYOUT_ROOT="${R}" AI_TOOLS_AGENTS_DIR="${AGENTS_DIR}" \
-            AI_TOOLS_OPERATOR_CONF="${OC}" AI_TOOLS_LAYOUT_LOCK="${AI_TOOLS_LAYOUT_LOCK}" \
+        err="$(runuser -u "${PROJECTS_USER}" -- env AI_TOOLS_LAYOUT_ROOT="${fixture_root}" AI_TOOLS_AGENTS_DIR="${AGENTS_DIR}" \
+            AI_TOOLS_OPERATOR_CONF="${operator_conf}" AI_TOOLS_LAYOUT_LOCK="${AI_TOOLS_LAYOUT_LOCK}" \
             bash -c 'source "$1" || exit 3; ai_tools_layout__reconcile 0' _ "${TESTDIR}/lib/layout.lib.sh" 2>&1 >/dev/null)" || rc=$?
         (( rc == 2 )) && pass "a non-root caller is refused with status 2" || fail "non-root reconcile: ${rc} ${err}"
     else
@@ -1449,26 +1449,26 @@ cites() {
 declare -A boundary_seen=()
 map_problems=0
 for entry in "${_AI_TOOLS_LAYOUT__STATIC_ENTRIES[@]}"; do
-    IFS=$'\t' read -r r_path r_type r_owner r_mode r_acl r_packages r_flags <<< "${entry}"
-    [[ ",${r_flags}," == *,boundary,* ]] || continue
-    boundary_seen["${r_path}"]=1
-    if [[ -z "${boundary_map[${r_path}]+x}" ]]; then fail "boundary pair: ${r_path} is a boundary row with no map entry"; map_problems=$(( map_problems + 1 )); continue; fi
-    IFS='|' read -r kind gate runtime boundary <<< "${boundary_map[${r_path}]}"
-    case "${kind}" in predicate|loader|program|mode) ;; *) fail "boundary pair: ${r_path}: kind ${kind} is not one of the four"; map_problems=$(( map_problems + 1 )); continue ;; esac
-    [[ -n "${gate}" ]] || { fail "boundary pair: ${r_path} names no gate"; map_problems=$(( map_problems + 1 )); continue; }
-    cites "${runtime}" || { fail "boundary pair: ${r_path}: ${runtime%%:*} does not hold '${runtime#*:}'"; map_problems=$(( map_problems + 1 )); continue; }
-    cites "${boundary}" || { fail "boundary pair: ${r_path}: ${boundary%%:*} does not hold '${boundary#*:}'"; map_problems=$(( map_problems + 1 )); continue; }
-    [[ "${boundary}" != - ]] || { fail "boundary pair: ${r_path} has no boundary file"; map_problems=$(( map_problems + 1 )); continue; }
-    [[ "${runtime}" != - ]] || note "boundary pair: ${r_path} has no runtime file driving its gate (${gate})" "a gap the planner's table holds"
+    IFS=$'\t' read -r entry_path entry_type entry_owner entry_mode entry_acl entry_packages entry_flags <<< "${entry}"
+    [[ ",${entry_flags}," == *,boundary,* ]] || continue
+    boundary_seen["${entry_path}"]=1
+    if [[ -z "${boundary_map[${entry_path}]+x}" ]]; then fail "boundary pair: ${entry_path} is a boundary row with no map entry"; map_problems=$(( map_problems + 1 )); continue; fi
+    IFS='|' read -r kind gate runtime boundary <<< "${boundary_map[${entry_path}]}"
+    case "${kind}" in predicate|loader|program|mode) ;; *) fail "boundary pair: ${entry_path}: kind ${kind} is not one of the four"; map_problems=$(( map_problems + 1 )); continue ;; esac
+    [[ -n "${gate}" ]] || { fail "boundary pair: ${entry_path} names no gate"; map_problems=$(( map_problems + 1 )); continue; }
+    cites "${runtime}" || { fail "boundary pair: ${entry_path}: ${runtime%%:*} does not hold '${runtime#*:}'"; map_problems=$(( map_problems + 1 )); continue; }
+    cites "${boundary}" || { fail "boundary pair: ${entry_path}: ${boundary%%:*} does not hold '${boundary#*:}'"; map_problems=$(( map_problems + 1 )); continue; }
+    [[ "${boundary}" != - ]] || { fail "boundary pair: ${entry_path} has no boundary file"; map_problems=$(( map_problems + 1 )); continue; }
+    [[ "${runtime}" != - ]] || note "boundary pair: ${entry_path} has no runtime file driving its gate (${gate})" "a gap the planner's table holds"
 done
 # The dynamic operator rows, keyed by their path under the operator's home.
-for r_path in HOME/.config/ai-tools HOME/.config/ai-tools/allowed-projects HOME/.config/ai-tools/secret-patterns; do
-    boundary_seen["${r_path}"]=1
-    IFS='|' read -r kind gate runtime boundary <<< "${boundary_map[${r_path}]}"
-    cites "${runtime}" && cites "${boundary}" || { fail "boundary pair: ${r_path}: a cited file does not hold its literal"; map_problems=$(( map_problems + 1 )); }
+for entry_path in HOME/.config/ai-tools HOME/.config/ai-tools/allowed-projects HOME/.config/ai-tools/secret-patterns; do
+    boundary_seen["${entry_path}"]=1
+    IFS='|' read -r kind gate runtime boundary <<< "${boundary_map[${entry_path}]}"
+    cites "${runtime}" && cites "${boundary}" || { fail "boundary pair: ${entry_path}: a cited file does not hold its literal"; map_problems=$(( map_problems + 1 )); }
 done
-for r_path in "${!boundary_map[@]}"; do
-    [[ -n "${boundary_seen[${r_path}]+x}" ]] || { fail "boundary pair: the map names ${r_path}, which no boundary row carries"; map_problems=$(( map_problems + 1 )); }
+for entry_path in "${!boundary_map[@]}"; do
+    [[ -n "${boundary_seen[${entry_path}]+x}" ]] || { fail "boundary pair: the map names ${entry_path}, which no boundary row carries"; map_problems=$(( map_problems + 1 )); }
 done
 (( map_problems == 0 )) && pass "every boundary row names its gate and the two test files that drive the pair, each holding the cited literal (${#boundary_seen[@]} rows)"
 
@@ -1528,26 +1528,26 @@ else
             if [[ -z "${attr_mode}" && "${path}" == /usr/share/ai-tools/* ]]; then continue; fi  # shipped data, rpm's defaults
             fail "lockstep: %files line has no row: ${path} (${package})"; problems=$(( problems + 1 )); continue
         fi
-        IFS=$'\t' read -r r_type r_owner r_mode r_acl r_packages r_flags <<< "${row_by_path[${path}]}"
-        if [[ ",${r_packages}," != *",${package},"* ]]; then
-            fail "lockstep: ${path} is in ${package}'s %files, the row names ${r_packages}"; problems=$(( problems + 1 )); continue
+        IFS=$'\t' read -r entry_type entry_owner entry_mode entry_acl entry_packages entry_flags <<< "${row_by_path[${path}]}"
+        if [[ ",${entry_packages}," != *",${package},"* ]]; then
+            fail "lockstep: ${path} is in ${package}'s %files, the row names ${entry_packages}"; problems=$(( problems + 1 )); continue
         fi
-        if [[ ",${r_flags}," != *,files,* ]]; then
+        if [[ ",${entry_flags}," != *,files,* ]]; then
             fail "lockstep: ${path} is a %files line, the row lacks files"; problems=$(( problems + 1 )); continue
         fi
-        if (( is_dir )) && [[ "${r_type}" != directory ]]; then
-            fail "lockstep: %dir ${path} is a ${r_type} row"; problems=$(( problems + 1 )); continue
+        if (( is_dir )) && [[ "${entry_type}" != directory ]]; then
+            fail "lockstep: %dir ${path} is a ${entry_type} row"; problems=$(( problems + 1 )); continue
         fi
         if [[ -n "${attr_mode}" && "${attr_mode}" != - ]]; then
-            [[ "${attr_mode}" == "${r_mode}" && "${attr_owner}" == "${r_owner}" ]] \
-                || { fail "lockstep: ${path} is %attr(${attr_mode}, ${attr_owner}), the row says ${r_mode} ${r_owner}"; problems=$(( problems + 1 )); continue; }
+            [[ "${attr_mode}" == "${entry_mode}" && "${attr_owner}" == "${entry_owner}" ]] \
+                || { fail "lockstep: ${path} is %attr(${attr_mode}, ${attr_owner}), the row says ${entry_mode} ${entry_owner}"; problems=$(( problems + 1 )); continue; }
         fi
-        [[ "${line}" == *'*' ]] && [[ ",${r_flags}," != *,compressed,* ]] \
+        [[ "${line}" == *'*' ]] && [[ ",${entry_flags}," != *,compressed,* ]] \
             && { fail "lockstep: ${path}* is not a compressed row"; problems=$(( problems + 1 )); continue; }
-        if (( is_config )) && [[ ",${r_flags}," != *,config,* ]] || { (( ! is_config )) && [[ ",${r_flags}," == *,config,* ]]; }; then
+        if (( is_config )) && [[ ",${entry_flags}," != *,config,* ]] || { (( ! is_config )) && [[ ",${entry_flags}," == *,config,* ]]; }; then
             fail "lockstep: ${path}: %config and the config flag disagree"; problems=$(( problems + 1 )); continue
         fi
-        if (( is_ghost )) && [[ ",${r_flags}," != *,ghost,* ]] || { (( ! is_ghost )) && [[ ",${r_flags}," == *,ghost,* ]]; }; then
+        if (( is_ghost )) && [[ ",${entry_flags}," != *,ghost,* ]] || { (( ! is_ghost )) && [[ ",${entry_flags}," == *,ghost,* ]]; }; then
             fail "lockstep: ${path}: %ghost and the ghost flag disagree"; problems=$(( problems + 1 )); continue
         fi
     done < "${SPEC}"

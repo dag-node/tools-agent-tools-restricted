@@ -775,7 +775,7 @@ if source "${_layout_lib}" 2>/dev/null && declare -F ai_tools_layout__list_entri
     declare -a _layout_fields=()
     while IFS= read -r _layout_line; do
         [[ "${_layout_line}" == error$'\t'* ]] && continue
-        ai_tools_layout__parse_line "${_layout_line}" _layout_fields || continue
+        ai_tools_layout__parse_stream_line "${_layout_line}" _layout_fields || continue
         [[ ",${_layout_fields[6]}," == *,boundary,* ]] || continue
         _boundary_rows=$(( _boundary_rows + 1 ))
         # An absent row is integration/perms.sh's finding; this probe is about the rows that exist.

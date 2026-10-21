@@ -3656,7 +3656,7 @@ layout_load() {
     # shellcheck source=SCRIPTDIR/../../lib/ai-tools/layout.lib.sh
     source "${LAYOUT_LIB}" 2>/dev/null || true
     declare -F ai_tools_layout__begin_pass ai_tools_layout__read_entry_lines ai_tools_layout__read_entry_state \
-            ai_tools_layout__parse_line ai_tools_layout__write_check_records ai_tools_layout__reconcile >/dev/null 2>&1 \
+            ai_tools_layout__parse_stream_line ai_tools_layout__write_check_records ai_tools_layout__reconcile >/dev/null 2>&1 \
         || die MSG-C6D2 "the layout library did not load or does not define the readers this command calls: ${LAYOUT_LIB} -- reinstall ai-tools-base (sudo dnf reinstall ai-tools-base, or sudo ./install.sh install from a checkout)"
 }
 
@@ -3670,9 +3670,9 @@ layout_require_table() {
 # layout_reject_option <text>: the one refusal for a command line this domain does not parse, at reject's exit 2.
 layout_reject_option() { reject MSG-R7Y4 "system layout: ${1}"; }
 
-# layout_format_acl <text>: the named and default entries of an ACL text, comma-joined, or `-` where the text holds
-# the base entries alone; the base entries are the mode column's.
-layout_format_acl() {
+# layout_format_named_acl_entries <text>: the named and default entries of an ACL text, comma-joined, or `-`
+# where the text holds the base entries alone; the base entries are the mode column's.
+layout_format_named_acl_entries() {
     local acl_line named_entries=""
     while IFS= read -r acl_line; do
         case "${acl_line}" in user::*|group::*|other::*|mask::*|"") continue ;; esac
@@ -3681,17 +3681,17 @@ layout_format_acl() {
     printf '%s' "${named_entries:--}"
 }
 
-# layout_cell <observed> <expected> <drifted>: one attribute column, the read value with the declared one in brackets
-# where the field drifted.
-layout_cell() {
+# layout_format_attribute_cell <observed> <expected> <drifted>: one attribute column, the read value with the declared
+# one in brackets where the field drifted.
+layout_format_attribute_cell() {
     if [[ "$3" == 1 ]]; then printf '%s [%s]' "${1:--}" "${2:--}"; else printf '%s' "${1:--}"; fi
 }
 
-# layout_table: the human table, one line per entry -- the drift column first, so a drifted line is found by eye, then
-# the path (an operator's row with the operator in front), the type, the owner, the mode, the named ACL entries
+# layout_write_table: the human table, one line per entry -- the drift column first, so a drifted line is found by eye,
+# then the path (an operator's row with the operator in front), the type, the owner, the mode, the named ACL entries
 # and the SELinux type, every attribute as read now -- then the counts and, while a finding remains, the remedy.
 # The exit is the report state's: a finding counts toward 4, an unreadable field or an error toward 5.
-layout_table() {
+layout_write_table() {
     local layout_line finding_line type_cell drift_cell finding_token finding_field operator_prefix label_expected
     local entry_count=0 clean_count=0 drifted_count=0 unreadable_count=0 error_count=0
     local -a layout_lines=() layout_fields=() layout_finding=()
@@ -3703,7 +3703,7 @@ layout_table() {
     printf '%-18s %s\n' "drift" "path  type owner mode acl selinux-type"
     for layout_line in "${layout_lines[@]}"; do
         if [[ "${layout_line}" == error$'\t'* ]]; then
-            ai_tools_layout__parse_line "${layout_line}" layout_fields \
+            ai_tools_layout__parse_stream_line "${layout_line}" layout_fields \
                 || layout_fields=( error host layout.lib.sh entries "a line of the entry set did not decode" )
             printf '%-18s %s (%s): %s\n' "error" "${layout_fields[2]:-?}" "${layout_fields[3]:-?}" "${layout_fields[4]:-}"
             error_count=$(( error_count + 1 )); ai_tools_records_base__accumulate_severity unreadable
@@ -3717,7 +3717,7 @@ layout_table() {
         fi
         entry_count=$(( entry_count + 1 ))
         for finding_line in "${layout_findings[@]}"; do
-            ai_tools_layout__parse_line "${finding_line}" layout_finding || layout_finding=( error entry )
+            ai_tools_layout__parse_stream_line "${finding_line}" layout_finding || layout_finding=( error entry )
             finding_token="${layout_finding[0]}" finding_field="${layout_finding[1]:-}"
             case "${finding_token}" in
                 *-drift)          drift_fields["${finding_field}"]=1; drift_cell+="${drift_cell:+,}${finding_field}"
@@ -3741,11 +3741,11 @@ layout_table() {
         operator_prefix="${layout_state[operator]:+${layout_state[operator]}: }"
         label_expected="${layout_state[expected_label]:-}"
         printf '%-18s %s%s  %s %s %s %s %s\n' "${drift_cell}" "${operator_prefix}" "${layout_state[path]}" "${type_cell}" \
-            "$(layout_cell "${layout_state[owner]:-}" "${layout_state[expected_owner]}" "${drift_fields[owner]:-0}")" \
-            "$(layout_cell "${layout_state[mode]:-}" "${layout_state[expected_mode]}" "${drift_fields[mode]:-0}")" \
-            "$(layout_cell "$(layout_format_acl "${layout_state[acl]:-}")" \
-                "$(layout_format_acl "${layout_state[expected_acl]}")" "${drift_fields[acl]:-0}")" \
-            "$(layout_cell "${layout_state[label]:-}" "${label_expected:-${layout_state[label]:-}}" \
+            "$(layout_format_attribute_cell "${layout_state[owner]:-}" "${layout_state[expected_owner]}" "${drift_fields[owner]:-0}")" \
+            "$(layout_format_attribute_cell "${layout_state[mode]:-}" "${layout_state[expected_mode]}" "${drift_fields[mode]:-0}")" \
+            "$(layout_format_attribute_cell "$(layout_format_named_acl_entries "${layout_state[acl]:-}")" \
+                "$(layout_format_named_acl_entries "${layout_state[expected_acl]}")" "${drift_fields[acl]:-0}")" \
+            "$(layout_format_attribute_cell "${layout_state[label]:-}" "${label_expected:-${layout_state[label]:-}}" \
                 "${drift_fields[label]:-0}")"
     done
     printf '\n%s entries: %s at their row, %s with a finding, %s unreadable, %s error line(s)\n' \
@@ -3788,7 +3788,7 @@ layout_list() {
         return 0
     fi
     layout_require_table
-    layout_table
+    layout_write_table
 }
 
 # layout_reconcile [--without-rpm]: bring every entry to its row through the library, each of its lines printed in this
@@ -3810,7 +3810,7 @@ layout_reconcile() {
     layout_require_table
     exec {collector_fd}< <(ai_tools_layout__reconcile "${without_rpm}"); collector_pid=$!
     while IFS= read -r -u "${collector_fd}" layout_line; do
-        if ! ai_tools_layout__parse_line "${layout_line}" layout_fields || (( ${#layout_fields[@]} < 4 )); then
+        if ! ai_tools_layout__parse_stream_line "${layout_line}" layout_fields || (( ${#layout_fields[@]} < 4 )); then
             printf 'ai-tools-admin: error: a line of the reconcile did not decode\n' >&2
             error_count=$(( error_count + 1 )); continue
         fi

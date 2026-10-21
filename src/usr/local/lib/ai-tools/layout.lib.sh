@@ -88,17 +88,18 @@ AI_TOOLS_LAYOUT__DECLARATION_ERROR=""
 
 _AI_TOOLS_LAYOUT__STATIC_ENTRIES=()
 
-# _ai_tools_layout__declare <path> <subject-type> <owner> <mode> <acl> <package> <flags> : append one row.
-_ai_tools_layout__declare() {
+# _ai_tools_layout__append_static_entry <path> <subject-type> <owner> <mode> <acl> <package> <flags> : append one row.
+_ai_tools_layout__append_static_entry() {
     local IFS=$'\t'
     _AI_TOOLS_LAYOUT__STATIC_ENTRIES+=( "$*" )
 }
 
 # The rows, by package. A comment beside a row states why the mode is what it is where the mode is a decision rather
 # than the shape every row of its kind takes.
-_ai_tools_layout__declare_static_entries() {
-    local su="${_AI_TOOLS_LAYOUT__SANDBOX_USER}" sg="${_AI_TOOLS_LAYOUT__SANDBOX_GROUP}"
-    local og="${_AI_TOOLS_LAYOUT__OPERATORS_GROUP}" lib=/usr/local/lib/ai-tools libexec=/usr/local/libexec/ai-tools
+_ai_tools_layout__populate_static_entries() {
+    local sandbox_user="${_AI_TOOLS_LAYOUT__SANDBOX_USER}" sandbox_group="${_AI_TOOLS_LAYOUT__SANDBOX_GROUP}"
+    local operators_group="${_AI_TOOLS_LAYOUT__OPERATORS_GROUP}" lib=/usr/local/lib/ai-tools \
+        libexec=/usr/local/libexec/ai-tools
     local man=/usr/local/share/man base=ai-tools-base helper library page log relative
     local -a man_pages=(
         man1/ai-tools.1 man5/ai-tools-operator.conf.5 man5/ai-tools-providers.5 man5/ai-tools-allowed-projects.5
@@ -108,202 +109,247 @@ _ai_tools_layout__declare_static_entries() {
 
     # ── ai-tools-base ── The root helpers: 0750 root:root, so a non-root account cannot list the directory or run
     # a helper; the CLI and the handback daemon reach each one at its fixed path as root.
-    _ai_tools_layout__declare "${libexec}"                 directory root:root 0750 - "${base}" files
+    _ai_tools_layout__append_static_entry "${libexec}"                 directory root:root 0750 - "${base}" files
     for helper in chown setgid setfacl unclaim lockdown relabel safedir reclaim allowlist audit stop admin handback; do
-        _ai_tools_layout__declare "${libexec}/ai-tools-${helper}" file root:root 0750 - "${base}" files
+        _ai_tools_layout__append_static_entry "${libexec}/ai-tools-${helper}" file root:root 0750 - "${base}" files
     done
     # The sudo-PATH links: sudoers secure_path on stock EL excludes /usr/local/sbin, so `sudo <name>` resolves here.
-    _ai_tools_layout__declare /usr/sbin/ai-tools-admin     link root:root 0777 - "${base}" files
-    _ai_tools_layout__declare /usr/sbin/ai-tools           link root:root 0777 - "${base}" files
+    _ai_tools_layout__append_static_entry /usr/sbin/ai-tools-admin     link root:root 0777 - "${base}" files
+    _ai_tools_layout__append_static_entry /usr/sbin/ai-tools           link root:root 0777 - "${base}" files
     # The CLI and the launch wrapper run as the invoking operator; root-owned so the agent cannot rewrite either.
-    _ai_tools_layout__declare /usr/local/bin/ai-tools        file root:root 0755 - "${base}" files
-    _ai_tools_layout__declare /usr/local/bin/ai-tools-launch file root:root 0755 - "${base}" files
+    _ai_tools_layout__append_static_entry /usr/local/bin/ai-tools        file root:root 0755 - "${base}" files
+    _ai_tools_layout__append_static_entry /usr/local/bin/ai-tools-launch file root:root 0755 - "${base}" files
     # Group-executable so the sandbox account runs it from the hooks; no world bit, so no other account reaches
     # the bridge.
-    _ai_tools_layout__declare /usr/local/bin/ai-tools-handback-client file root:"${sg}" 0750 - "${base}" files
+    _ai_tools_layout__append_static_entry /usr/local/bin/ai-tools-handback-client file root:"${sandbox_group}" 0750 - \
+        "${base}" files
     for page in "${man_pages[@]}"; do
-        _ai_tools_layout__declare "${man}/${page}" file root:root 0644 - "${base}" files,compressed
+        _ai_tools_layout__append_static_entry "${man}/${page}" file root:root 0644 - "${base}" files,compressed
     done
     # The library directory: world-execute lets an operator outside the sandbox group source a library by path without
     # listing the directory. Every library is 0644: shipped logic, so read is open and root-only write is the boundary.
-    _ai_tools_layout__declare "${lib}"                     directory root:"${sg}" 0751 - "${base}" files
+    _ai_tools_layout__append_static_entry "${lib}"                     directory root:"${sandbox_group}" 0751 - \
+        "${base}" files
     for library in log msg skip-dirs owner-only project-permissions relabel secret-patterns operator control-plane \
             managed-assets safe-paths launch-wrapper confinement npm-verify openpgp entrypoint-verify assets-verify \
             assets conf settings-merge providers ancestor-config sandbox-exec toolchain cache-cleanup selinux-groups \
             filters services path-order agent-installs records-base records-tsv layout; do
-        _ai_tools_layout__declare "${lib}/${library}.lib.sh" file root:root 0644 - "${base}" files
+        _ai_tools_layout__append_static_entry "${lib}/${library}.lib.sh" file root:root 0644 - "${base}" files
     done
-    _ai_tools_layout__declare "${lib}/path-order.sh"       file root:root 0644 - "${base}" files
+    _ai_tools_layout__append_static_entry "${lib}/path-order.sh"       file root:root 0644 - "${base}" files
     # The keys and bindings that decide which signer the verifiers accept.
-    _ai_tools_layout__declare "${lib}/keys"                directory root:root 0755 - "${base}" files
-    _ai_tools_layout__declare "${lib}/keys/dag-node-package-signing.asc" file root:root 0644 - "${base}" files,boundary
-    _ai_tools_layout__declare "${lib}/keys/dag-node-package-signing.gpg" file root:root 0644 - "${base}" files,boundary
-    _ai_tools_layout__declare "${lib}/assets-bindings.d"   directory root:root 0755 - "${base}" files
-    _ai_tools_layout__declare "${lib}/assets-bindings.d/core.conf"     file root:root 0644 - "${base}" files,boundary
-    _ai_tools_layout__declare "${lib}/assets-bindings.d/ai-tools.conf" file root:root 0644 - "${base}" files,boundary
+    _ai_tools_layout__append_static_entry "${lib}/keys"                directory root:root 0755 - "${base}" files
+    _ai_tools_layout__append_static_entry "${lib}/keys/dag-node-package-signing.asc" file root:root 0644 - "${base}" \
+        files,boundary
+    _ai_tools_layout__append_static_entry "${lib}/keys/dag-node-package-signing.gpg" file root:root 0644 - "${base}" \
+        files,boundary
+    _ai_tools_layout__append_static_entry "${lib}/assets-bindings.d"   directory root:root 0755 - "${base}" files
+    _ai_tools_layout__append_static_entry "${lib}/assets-bindings.d/core.conf"     file root:root 0644 - "${base}" \
+        files,boundary
+    _ai_tools_layout__append_static_entry "${lib}/assets-bindings.d/ai-tools.conf" file root:root 0644 - "${base}" \
+        files,boundary
     # The provider directories: a group- or other-writable one would let a non-root writer replace a root-owned manifest
     # or fragment inside it, which the trust predicate refuses (providers.rule.md).
     for relative in agents.d integrations.d session-env.d launch.d admin-commands.d filters.d; do
-        _ai_tools_layout__declare "${lib}/${relative}"     directory root:root 0755 - "${base}" files,boundary
+        _ai_tools_layout__append_static_entry "${lib}/${relative}"     directory root:root 0755 - "${base}" \
+            files,boundary
     done
-    _ai_tools_layout__declare "${lib}/filters.d/base.rules" file root:root 0644 - "${base}" files,boundary
+    _ai_tools_layout__append_static_entry "${lib}/filters.d/base.rules" file root:root 0644 - "${base}" files,boundary
     # The confinement shim: the sandbox account executes it and can neither modify nor replace it.
-    _ai_tools_layout__declare /opt/ai-tools/bin/ai-tools-run file root:"${sg}" 0550 - "${base}" files,boundary
-    _ai_tools_layout__declare /usr/lib/systemd/system/ai-tools-handback.socket   file root:root 0644 - "${base}" files
-    _ai_tools_layout__declare /usr/lib/systemd/system/ai-tools-handback@.service file root:root 0644 - "${base}" files
-    _ai_tools_layout__declare /usr/lib/systemd/system-preset/85-ai-tools.preset  file root:root 0644 - "${base}" files
-    _ai_tools_layout__declare /usr/lib/sysusers.d/ai-tools.conf                  file root:root 0644 - "${base}" files
-    _ai_tools_layout__declare /etc/sudoers.d/ai-tools      file root:root 0440 - "${base}" files,config,boundary
-    _ai_tools_layout__declare /etc/ai-tools                directory root:root 0755 - "${base}" files
+    _ai_tools_layout__append_static_entry /opt/ai-tools/bin/ai-tools-run file root:"${sandbox_group}" 0550 - "${base}" \
+        files,boundary
+    _ai_tools_layout__append_static_entry /usr/lib/systemd/system/ai-tools-handback.socket   file root:root 0644 - \
+        "${base}" files
+    _ai_tools_layout__append_static_entry /usr/lib/systemd/system/ai-tools-handback@.service file root:root 0644 - \
+        "${base}" files
+    _ai_tools_layout__append_static_entry /usr/lib/systemd/system-preset/85-ai-tools.preset  file root:root 0644 - \
+        "${base}" files
+    _ai_tools_layout__append_static_entry /usr/lib/sysusers.d/ai-tools.conf                  file root:root 0644 - \
+        "${base}" files
+    _ai_tools_layout__append_static_entry /etc/sudoers.d/ai-tools      file root:root 0440 - "${base}" \
+        files,config,boundary
+    _ai_tools_layout__append_static_entry /etc/ai-tools                directory root:root 0755 - "${base}" files
     # World-readable (the agent hooks and the root helpers read it), root-write-only (the agent cannot rewrite
     # the identity root hands files back to).
-    _ai_tools_layout__declare /etc/ai-tools/operator.conf  file root:root 0644 - "${base}" files,config,boundary
-    _ai_tools_layout__declare /etc/ai-tools/assets-bindings.d directory root:root 0755 - "${base}" files,boundary
+    _ai_tools_layout__append_static_entry /etc/ai-tools/operator.conf  file root:root 0644 - "${base}" \
+        files,config,boundary
+    _ai_tools_layout__append_static_entry /etc/ai-tools/assets-bindings.d directory root:root 0755 - "${base}" \
+        files,boundary
     # The sandbox area: the setgid bit makes a clone born in the sandbox group, and the ai-ops entries let an operator
     # outside that group traverse the area, work in a clone, and read the state stamps.
-    _ai_tools_layout__declare /var/opt/ai-tools            directory root:"${sg}" 2750 "group:${og}:r-x" \
+    _ai_tools_layout__append_static_entry /var/opt/ai-tools            directory root:"${sandbox_group}" 2750 \
+        "group:${operators_group}:r-x" \
         "${base}" files
-    _ai_tools_layout__declare /var/opt/ai-tools/sandbox-projects directory root:"${sg}" 2770 \
-        "group:${og}:rwx,default:group:${og}:rwx" "${base}" files
-    _ai_tools_layout__declare /var/opt/ai-tools/README.md  file root:"${sg}" 0640 "group:${og}:r--" "${base}" files
+    _ai_tools_layout__append_static_entry /var/opt/ai-tools/sandbox-projects directory root:"${sandbox_group}" 2770 \
+        "group:${operators_group}:rwx,default:group:${operators_group}:rwx" "${base}" files
+    _ai_tools_layout__append_static_entry /var/opt/ai-tools/README.md  file root:"${sandbox_group}" 0640 \
+        "group:${operators_group}:r--" "${base}" files
     # Root-owned and not group-writable: the sandbox account traverses and rewrites the stamps it owns in place,
     # and cannot add, unlink, rename or swap anything here.
-    _ai_tools_layout__declare /var/opt/ai-tools/state      directory root:"${sg}" 0750 "group:${og}:r-x" \
+    _ai_tools_layout__append_static_entry /var/opt/ai-tools/state      directory root:"${sandbox_group}" 0750 \
+        "group:${operators_group}:r-x" \
         "${base}" files
     # The entrypoint pins and the records beside them: root:root, since a pin decides whether a session launches.
     for relative in entrypoint-pin.d entrypoint-label.d entrypoint-stale.d; do
-        _ai_tools_layout__declare "/var/opt/ai-tools/state/${relative}" directory root:root 0755 - "${base}" \
+        _ai_tools_layout__append_static_entry "/var/opt/ai-tools/state/${relative}" directory root:root 0755 - \
+            "${base}" \
             files,boundary
     done
-    _ai_tools_layout__declare /var/opt/ai-tools/state/cache-cleanup.status file "${su}:${og}" 0640 - "${base}" \
+    _ai_tools_layout__append_static_entry /var/opt/ai-tools/state/cache-cleanup.status file \
+        "${sandbox_user}:${operators_group}" 0640 - "${base}" \
         files,ghost
-    _ai_tools_layout__declare /var/opt/ai-tools/state/cache-cleanup.lock   file root:"${sg}" 0440 - "${base}" \
+    _ai_tools_layout__append_static_entry /var/opt/ai-tools/state/cache-cleanup.lock   file root:"${sandbox_group}" \
+        0440 - "${base}" \
         files,ghost
     # The operation logs: the sandbox account can neither read nor tamper with the trail.
-    _ai_tools_layout__declare /var/log/ai-tools            directory root:root 0700 - "${base}" files
+    _ai_tools_layout__append_static_entry /var/log/ai-tools            directory root:root 0700 - "${base}" files
     for log in chown setgid setfacl symlink lockdown relabel handback install layout; do
-        _ai_tools_layout__declare "/var/log/ai-tools/${log}.log" file root:root 0600 - "${base}" files,ghost
+        _ai_tools_layout__append_static_entry "/var/log/ai-tools/${log}.log" file root:root 0600 - "${base}" files,ghost
     done
     # The control plane, at the modes control-plane.lib.sh declares.
-    _ai_tools_layout__declare "${CP_HOME}"                 directory root:"${sg}" "${CP_HOME_MODE}" - "${base}" files
+    _ai_tools_layout__append_static_entry "${CP_HOME}"                 directory root:"${sandbox_group}" \
+        "${CP_HOME_MODE}" - "${base}" files
     for relative in bin skills subagents orientation integrations; do
-        _ai_tools_layout__declare "${CP_HOME}/${relative}" directory root:"${sg}" "${CP_DIR_MODES[${relative}]}" - \
+        _ai_tools_layout__append_static_entry "${CP_HOME}/${relative}" directory root:"${sandbox_group}" \
+            "${CP_DIR_MODES[${relative}]}" - \
             "${base}" files
     done
-    _ai_tools_layout__declare /usr/share/ai-tools          directory root:root 0755 - "${base}" files
-    _ai_tools_layout__declare /usr/share/ai-tools/audit    directory root:root 0755 - "${base}" files,optional
-    _ai_tools_layout__declare /usr/share/ai-tools/audit/ai-tools-cmd.rules.example file root:root 0644 - "${base}" \
+    _ai_tools_layout__append_static_entry /usr/share/ai-tools          directory root:root 0755 - "${base}" files
+    _ai_tools_layout__append_static_entry /usr/share/ai-tools/audit    directory root:root 0755 - "${base}" \
+        files,optional
+    _ai_tools_layout__append_static_entry /usr/share/ai-tools/audit/ai-tools-cmd.rules.example file root:root 0644 - \
+        "${base}" \
         files,optional
     # Created at runtime by the scriptlet and the installer, not rpm-owned, so an erase keeps them.
-    _ai_tools_layout__declare "${CP_HOME}/.gitconfig"      file root:"${sg}" 0644 - "${base}" -
-    _ai_tools_layout__declare "${CP_HOME}/.gitignore"      file root:"${sg}" 0640 - "${base}" -
+    _ai_tools_layout__append_static_entry "${CP_HOME}/.gitconfig"      file root:"${sandbox_group}" 0644 - "${base}" -
+    _ai_tools_layout__append_static_entry "${CP_HOME}/.gitignore"      file root:"${sandbox_group}" 0640 - "${base}" -
     # The sandbox account's systemd unit search path, root-owned on the way to it (ownership-and-hooks.rule.md);
     # the timer-stamp directory at the end stays the account's, since its manager writes the Persistent= stamps.
     for relative in "${CP_UNIT_SEARCH_PATH_CHAIN[@]}"; do
-        _ai_tools_layout__declare "${CP_HOME}/${relative}" directory root:"${sg}" \
+        _ai_tools_layout__append_static_entry "${CP_HOME}/${relative}" directory root:"${sandbox_group}" \
             "${CP_UNIT_SEARCH_PATH_MODES[${relative}]}" - "${base}" -
     done
-    _ai_tools_layout__declare "${CP_HOME}/${CP_TIMER_STAMP_DIR}" directory "${su}:${sg}" "${CP_TIMER_STAMP_DIR_MODE}" - \
+    _ai_tools_layout__append_static_entry "${CP_HOME}/${CP_TIMER_STAMP_DIR}" directory \
+        "${sandbox_user}:${sandbox_group}" "${CP_TIMER_STAMP_DIR_MODE}" - \
         "${base}" -
-    _ai_tools_layout__declare "${CP_SHARED_ORIENTATION}/AGENTS.md" file root:"${sg}" 0640 - "${base}" optional
+    _ai_tools_layout__append_static_entry "${CP_SHARED_ORIENTATION}/AGENTS.md" file root:"${sandbox_group}" 0640 - \
+        "${base}" optional
 
     # ── ai-tools-integration-nodejs ──
     for helper in launcher-symlink relabel-agent bootstrap; do
-        _ai_tools_layout__declare "${libexec}/ai-tools-${helper}" file root:root 0750 - ai-tools-integration-nodejs files
+        _ai_tools_layout__append_static_entry "${libexec}/ai-tools-${helper}" file root:root 0750 - \
+            ai-tools-integration-nodejs files
     done
-    _ai_tools_layout__declare /opt/ai-tools/bin/nvm-update.sh file root:"${sg}" 0550 - ai-tools-integration-nodejs \
+    _ai_tools_layout__append_static_entry /opt/ai-tools/bin/nvm-update.sh file root:"${sandbox_group}" 0550 - \
+        ai-tools-integration-nodejs \
         files,boundary
-    _ai_tools_layout__declare /var/opt/ai-tools/state/nvm-update.status file "${su}:${og}" 0640 - \
+    _ai_tools_layout__append_static_entry /var/opt/ai-tools/state/nvm-update.status file \
+        "${sandbox_user}:${operators_group}" 0640 - \
         ai-tools-integration-nodejs files,ghost,optional
-    _ai_tools_layout__declare /usr/lib/systemd/user/nvm-update.service      file root:root 0644 - \
+    _ai_tools_layout__append_static_entry /usr/lib/systemd/user/nvm-update.service      file root:root 0644 - \
         ai-tools-integration-nodejs files
-    _ai_tools_layout__declare /usr/lib/systemd/user/nvm-update.timer        file root:root 0644 - \
+    _ai_tools_layout__append_static_entry /usr/lib/systemd/user/nvm-update.timer        file root:root 0644 - \
         ai-tools-integration-nodejs files
-    _ai_tools_layout__declare /usr/lib/systemd/system/ai-tools-relabel.path    file root:root 0644 - \
+    _ai_tools_layout__append_static_entry /usr/lib/systemd/system/ai-tools-relabel.path    file root:root 0644 - \
         ai-tools-integration-nodejs files
-    _ai_tools_layout__declare /usr/lib/systemd/system/ai-tools-relabel.service file root:root 0644 - \
+    _ai_tools_layout__append_static_entry /usr/lib/systemd/system/ai-tools-relabel.service file root:root 0644 - \
         ai-tools-integration-nodejs files
     # The account's `--user` unit configuration: root-owned, so a confined session cannot register a unit the account's
     # unconfined manager runs.
-    _ai_tools_layout__declare "${CP_HOME}/.config/systemd/user" directory root:"${sg}" 2750 - \
+    _ai_tools_layout__append_static_entry "${CP_HOME}/.config/systemd/user" directory root:"${sandbox_group}" 2750 - \
         ai-tools-integration-nodejs -
-    _ai_tools_layout__declare "${CP_HOME}/.config/systemd/user/timers.target.wants" directory root:"${sg}" 2750 - \
+    _ai_tools_layout__append_static_entry "${CP_HOME}/.config/systemd/user/timers.target.wants" directory \
+        root:"${sandbox_group}" 2750 - \
         ai-tools-integration-nodejs -
 
     # ── ai-tools-agents-claude-code-restricted ──
     local claude=ai-tools-agents-claude-code-restricted
     for relative in agents.d/claude-code.conf keys/claude-code.asc session-env.d/claude-code.pins.env.sh \
             session-env.d/claude-code.env.sh claude-prompt.lib.sh claude-endpoint.lib.sh launch.d/claude-code.sh; do
-        _ai_tools_layout__declare "${lib}/${relative}"     file root:root 0644 - "${claude}" files,boundary
+        _ai_tools_layout__append_static_entry "${lib}/${relative}"     file root:root 0644 - "${claude}" files,boundary
     done
-    _ai_tools_layout__declare /usr/local/bin/claude        link root:root 0777 - "${claude}" files
-    _ai_tools_layout__declare /etc/ai-tools/prompts        directory root:root 0755 - "${claude}" files
-    _ai_tools_layout__declare /etc/ai-tools/prompts/claude-system-prompt.md file root:"${sg}" 0640 - "${claude}" \
+    _ai_tools_layout__append_static_entry /usr/local/bin/claude        link root:root 0777 - "${claude}" files
+    _ai_tools_layout__append_static_entry /etc/ai-tools/prompts        directory root:root 0755 - "${claude}" files
+    _ai_tools_layout__append_static_entry /etc/ai-tools/prompts/claude-system-prompt.md file root:"${sandbox_group}" \
+        0640 - "${claude}" \
         files,config
     # Owned by either package that installs a file in it, on the same attributes.
-    _ai_tools_layout__declare /etc/ai-tools/endpoints      directory root:root 0755 - \
+    _ai_tools_layout__append_static_entry /etc/ai-tools/endpoints      directory root:root 0755 - \
         "${claude},ai-tools-integration-typesafe" files
     # 0640: the file may hold a bearer token, which the sandbox account needs and an operator does not.
-    _ai_tools_layout__declare /etc/ai-tools/endpoints/custom-claude-endpoint.conf file root:"${sg}" 0640 - "${claude}" \
+    _ai_tools_layout__append_static_entry /etc/ai-tools/endpoints/custom-claude-endpoint.conf file \
+        root:"${sandbox_group}" 0640 - "${claude}" \
         files,config
     for relative in post-tool-hook.sh session-hook.sh filter-hook.sh; do
-        _ai_tools_layout__declare "${CP_HOME}/.claude/${relative}" file root:"${sg}" 0750 - "${claude}" files,boundary
+        _ai_tools_layout__append_static_entry "${CP_HOME}/.claude/${relative}" file root:"${sandbox_group}" 0750 - \
+            "${claude}" files,boundary
     done
-    _ai_tools_layout__declare "${CP_HOME}/.claude/settings.json" file root:"${sg}" 0640 - "${claude}" \
+    _ai_tools_layout__append_static_entry "${CP_HOME}/.claude/settings.json" file root:"${sandbox_group}" 0640 - \
+        "${claude}" \
         files,config,boundary
 
     # ── ai-tools-agents-codex-restricted ──
     local codex=ai-tools-agents-codex-restricted
     for relative in post-tool-hook.sh session-hook.sh; do
-        _ai_tools_layout__declare "${CP_HOME}/.codex/${relative}" file root:"${sg}" 0750 - "${codex}" files,boundary
+        _ai_tools_layout__append_static_entry "${CP_HOME}/.codex/${relative}" file root:"${sandbox_group}" 0750 - \
+            "${codex}" files,boundary
     done
-    _ai_tools_layout__declare "${lib}/agents.d/codex.conf" file root:root 0644 - "${codex}" files,boundary
-    _ai_tools_layout__declare "${lib}/session-env.d/codex.pins.env.sh" file root:root 0644 - "${codex}" files,boundary
-    _ai_tools_layout__declare /usr/local/bin/codex         link root:root 0777 - "${codex}" files
-    _ai_tools_layout__declare /etc/codex                   directory root:root 0755 - "${codex}" files
-    _ai_tools_layout__declare /etc/codex/requirements.toml   file root:root 0644 - "${codex}" files,config
-    _ai_tools_layout__declare /etc/codex/managed_config.toml file root:root 0644 - "${codex}" files,config
-    _ai_tools_layout__declare /usr/share/ai-tools/codex    directory root:root 0755 - "${codex}" files
-    _ai_tools_layout__declare /usr/share/ai-tools/codex/requirements.toml   file root:root 0644 - "${codex}" files
-    _ai_tools_layout__declare /usr/share/ai-tools/codex/managed_config.toml file root:root 0644 - "${codex}" files
+    _ai_tools_layout__append_static_entry "${lib}/agents.d/codex.conf" file root:root 0644 - "${codex}" files,boundary
+    _ai_tools_layout__append_static_entry "${lib}/session-env.d/codex.pins.env.sh" file root:root 0644 - "${codex}" \
+        files,boundary
+    _ai_tools_layout__append_static_entry /usr/local/bin/codex         link root:root 0777 - "${codex}" files
+    _ai_tools_layout__append_static_entry /etc/codex                   directory root:root 0755 - "${codex}" files
+    _ai_tools_layout__append_static_entry /etc/codex/requirements.toml   file root:root 0644 - "${codex}" files,config
+    _ai_tools_layout__append_static_entry /etc/codex/managed_config.toml file root:root 0644 - "${codex}" files,config
+    _ai_tools_layout__append_static_entry /usr/share/ai-tools/codex    directory root:root 0755 - "${codex}" files
+    _ai_tools_layout__append_static_entry /usr/share/ai-tools/codex/requirements.toml   file root:root 0644 - \
+        "${codex}" files
+    _ai_tools_layout__append_static_entry /usr/share/ai-tools/codex/managed_config.toml file root:root 0644 - \
+        "${codex}" files
 
     # ── ai-tools-integration-dotnet ──
     local dotnet=ai-tools-integration-dotnet
     for relative in session-env.d/dotnet.env.sh integrations.d/dotnet.conf filters.d/dotnet.rules; do
-        _ai_tools_layout__declare "${lib}/${relative}"     file root:root 0644 - "${dotnet}" files,boundary
+        _ai_tools_layout__append_static_entry "${lib}/${relative}"     file root:root 0644 - "${dotnet}" files,boundary
     done
     # A command ai-tools-admin executes as root, so 0750 like every root helper.
-    _ai_tools_layout__declare "${lib}/admin-commands.d/dotnet" file root:root 0750 - "${dotnet}" files,boundary
-    _ai_tools_layout__declare /var/log/ai-tools/dotnet.log file root:root 0600 - "${dotnet}" files,ghost
+    _ai_tools_layout__append_static_entry "${lib}/admin-commands.d/dotnet" file root:root 0750 - "${dotnet}" \
+        files,boundary
+    _ai_tools_layout__append_static_entry /var/log/ai-tools/dotnet.log file root:root 0600 - "${dotnet}" files,ghost
 
     # ── ai-tools-integration-typesafe ──
     local typesafe=ai-tools-integration-typesafe
     # Read by node as the sandbox account and written by root alone, so the agent cannot change what a call sends.
-    _ai_tools_layout__declare "${lib}/typesafe"            directory root:root 0755 - "${typesafe}" files
+    _ai_tools_layout__append_static_entry "${lib}/typesafe"            directory root:root 0755 - "${typesafe}" files
     for relative in decide.mjs transport.mjs LICENSE; do
-        _ai_tools_layout__declare "${lib}/typesafe/${relative}" file root:root 0644 - "${typesafe}" files
+        _ai_tools_layout__append_static_entry "${lib}/typesafe/${relative}" file root:root 0644 - "${typesafe}" files
     done
     for relative in session-env.d/typesafe.env.sh integrations.d/typesafe.conf; do
-        _ai_tools_layout__declare "${lib}/${relative}"     file root:root 0644 - "${typesafe}" files,boundary
+        _ai_tools_layout__append_static_entry "${lib}/${relative}"     file root:root 0644 - "${typesafe}" \
+            files,boundary
     done
     # An API key: the same 0640 root:<sandbox group> as the endpoint file.
-    _ai_tools_layout__declare /etc/ai-tools/endpoints/typesafe.conf file root:"${sg}" 0640 - "${typesafe}" files,config
-    _ai_tools_layout__declare "${man}/man5/ai-tools-typesafe.conf.5" file root:root 0644 - "${typesafe}" \
+    _ai_tools_layout__append_static_entry /etc/ai-tools/endpoints/typesafe.conf file root:"${sandbox_group}" 0640 - \
+        "${typesafe}" files,config
+    _ai_tools_layout__append_static_entry "${man}/man5/ai-tools-typesafe.conf.5" file root:root 0644 - "${typesafe}" \
         files,compressed
     # The one path a call writes: agent-writable, setgid so its log is group-owned.
-    _ai_tools_layout__declare "${CP_INTEGRATIONS}/typesafe" directory root:"${sg}" 2770 - "${typesafe}" files
+    _ai_tools_layout__append_static_entry "${CP_INTEGRATIONS}/typesafe" directory root:"${sandbox_group}" 2770 - \
+        "${typesafe}" files
 
     # ── ai-tools-selinux ──
-    _ai_tools_layout__declare /usr/share/selinux/packages/ai-tools directory root:root 0755 - ai-tools-selinux files
-    _ai_tools_layout__declare /usr/share/selinux/devel/include/distributed/ai_tools.if file root:root 0644 - \
+    _ai_tools_layout__append_static_entry /usr/share/selinux/packages/ai-tools directory root:root 0755 - \
+        ai-tools-selinux files
+    _ai_tools_layout__append_static_entry /usr/share/selinux/devel/include/distributed/ai_tools.if file root:root 0644 \
+        - \
         ai-tools-selinux files
 }
 
 # ── Validation ───────────────────────────────────────────────────────────────────────────────
 
-# _ai_tools_layout__get_mode_bits <mode> <class> <out-var> : the rwx string of one class of a four-digit mode,
+# _ai_tools_layout__get_mode_permissions <mode> <class> <out-var> : the rwx string of one class of a four-digit mode,
 # where <class> is u, g or o.
-_ai_tools_layout__get_mode_bits() {
+_ai_tools_layout__get_mode_permissions() {
     local -n _layout_bits_out="$3"
     local _layout_bits_digit _layout_bits_perms=""
     case "$2" in
@@ -368,7 +414,7 @@ _ai_tools_layout__is_entry_valid() {
         [[ "${acl}" == - ]] || { printf '%s: a link row carries no ACL' "${path}"; return 1; }
     fi
     if [[ "${acl}" != - ]]; then
-        _ai_tools_layout__get_mode_bits "${mode}" g group_bits
+        _ai_tools_layout__get_mode_permissions "${mode}" g group_bits
         IFS=, read -ra acl_entries <<< "${acl}"
         for acl_entry in "${acl_entries[@]}"; do
             [[ "${acl_entry}" =~ ^(default:)?(user|group):[a-z_][a-z0-9_-]*:([r-][w-][x-])$ ]] \
@@ -440,7 +486,7 @@ _ai_tools_layout__validate_table() {
     return 0
 }
 
-_ai_tools_layout__declare_static_entries
+_ai_tools_layout__populate_static_entries
 readonly -a _AI_TOOLS_LAYOUT__STATIC_ENTRIES
 _ai_tools_layout__validate_table || true
 
@@ -452,8 +498,8 @@ _ai_tools_layout__validate_table || true
 #
 # A path is absolute, so a first field `error` names the second shape.
 
-# _ai_tools_layout__get_root : print the test hook's prefix, empty in production.
-_ai_tools_layout__get_root() { printf '%s' "${AI_TOOLS_LAYOUT_ROOT:-}"; }
+# _ai_tools_layout__get_path_prefix : print the test hook's prefix, empty in production.
+_ai_tools_layout__get_path_prefix() { printf '%s' "${AI_TOOLS_LAYOUT_ROOT:-}"; }
 
 # _ai_tools_layout__encode_line <out-var> <field>... : one line into <out-var>, each field encoded, TAB-separated.
 _ai_tools_layout__encode_line() {
@@ -471,10 +517,10 @@ _ai_tools_layout__encode_line() {
     _layout_encode_out="${_layout_encode_line}"
 }
 
-# ai_tools_layout__parse_line <line> <array-var> : decode one line into the caller's array, one element per field.
-# Splits on TAB by hand, since `IFS=$'\t' read` collapses empty fields. Returns 1 and empties the array when a field
-# does not decode.
-ai_tools_layout__parse_line() {
+# ai_tools_layout__parse_stream_line <line> <array-var> : decode one line into the caller's array, one element
+# per field. Splits on TAB by hand, since `IFS=$'\t' read` collapses empty fields. Returns 1 and empties the array
+# when a field does not decode.
+ai_tools_layout__parse_stream_line() {
     local -n _layout_parse_out="$2"
     local _layout_parse_rest="$1" _layout_parse_field _layout_parse_decoded
     _layout_parse_out=()
@@ -494,7 +540,7 @@ ai_tools_layout__parse_line() {
 _ai_tools_layout__is_package_present() {
     local sentinel root
     local -a sentinels=()
-    root="$(_ai_tools_layout__get_root)"
+    root="$(_ai_tools_layout__get_path_prefix)"
     read -ra sentinels <<< "${_AI_TOOLS_LAYOUT__PACKAGE_SENTINELS[$1]:-}"
     for sentinel in "${sentinels[@]}"; do
         [[ -e "${root}${sentinel}" || -L "${root}${sentinel}" ]] && return 0
@@ -510,14 +556,16 @@ _ai_tools_layout__append_static_entries() {
     local _layout_static_acl _layout_static_packages _layout_static_flags _layout_static_package _layout_static_applies
     local _layout_static_root _layout_static_line
     local -a _layout_static_package_list=()
-    _layout_static_root="$(_ai_tools_layout__get_root)"
+    _layout_static_root="$(_ai_tools_layout__get_path_prefix)"
     for _layout_static_entry in "${_AI_TOOLS_LAYOUT__STATIC_ENTRIES[@]}"; do
         IFS=$'\t' read -r _layout_static_path _layout_static_type _layout_static_owner _layout_static_mode \
             _layout_static_acl _layout_static_packages _layout_static_flags <<< "${_layout_static_entry}"
         _layout_static_applies=0
         IFS=, read -ra _layout_static_package_list <<< "${_layout_static_packages}"
         for _layout_static_package in "${_layout_static_package_list[@]}"; do
-            if _ai_tools_layout__is_package_present "${_layout_static_package}"; then _layout_static_applies=1; break; fi
+            if _ai_tools_layout__is_package_present "${_layout_static_package}"; then
+                _layout_static_applies=1; break
+            fi
         done
         (( _layout_static_applies )) || continue
         _layout_static_path="${_layout_static_root}${_layout_static_path}"
@@ -540,7 +588,8 @@ _ai_tools_layout__append_static_entries() {
 # an `error` line rather than an empty set. Unsorted.
 _ai_tools_layout__append_dynamic_entries() {
     local -n _layout_dynamic_out="$1" _layout_dynamic_errors="$2"
-    local _layout_dynamic_root _layout_dynamic_status _layout_dynamic_type _layout_dynamic_manifest _layout_dynamic_agent
+    local _layout_dynamic_root _layout_dynamic_status _layout_dynamic_type _layout_dynamic_manifest
+    local _layout_dynamic_agent
     local _layout_dynamic_config_dir _layout_dynamic_path _layout_dynamic_operator _layout_dynamic_home
     local _layout_dynamic_group _layout_dynamic_entry _layout_dynamic_line _layout_dynamic_index
     local -a _layout_dynamic_operators=()
@@ -549,7 +598,7 @@ _ai_tools_layout__append_dynamic_entries() {
     local -a _layout_dynamic_modes=( 0700 0600 0600 )
     local -a _layout_dynamic_flags=( boundary boundary 'optional,boundary' )
     local -A _layout_dynamic_homes=() _layout_dynamic_declared=()
-    _layout_dynamic_root="$(_ai_tools_layout__get_root)"
+    _layout_dynamic_root="$(_ai_tools_layout__get_path_prefix)"
     for _layout_dynamic_entry in "${_AI_TOOLS_LAYOUT__STATIC_ENTRIES[@]}"; do
         _layout_dynamic_declared["${_layout_dynamic_root}${_layout_dynamic_entry%%$'\t'*}"]=1
     done
@@ -738,10 +787,10 @@ ai_tools_layout__read_entry_lines() {
 # and the reset after it returns recreates the name as an indexed array whose subscript is arithmetic.
 _AI_TOOLS_LAYOUT__PASS_WITHOUT_RPM=0
 _AI_TOOLS_LAYOUT__SELINUX=""
-declare -gA _AI_TOOLS_LAYOUT__PACKAGE_VERIFY=()
-declare -gA _AI_TOOLS_LAYOUT__PACKAGE_VERIFY_REASON=()
-declare -gA _AI_TOOLS_LAYOUT__CONTENT_FLAGS=()
-declare -gA _AI_TOOLS_LAYOUT__CONTENT_STATES=()
+declare -gA _AI_TOOLS_LAYOUT__PACKAGE_VERIFICATION_STATES=()
+declare -gA _AI_TOOLS_LAYOUT__PACKAGE_VERIFICATION_REASONS=()
+declare -gA _AI_TOOLS_LAYOUT__FILE_VERIFICATION_FLAGS=()
+declare -gA _AI_TOOLS_LAYOUT__FILE_VERIFICATION_STATES=()
 
 # ai_tools_layout__begin_pass <without-rpm> : start one pass -- forget every observation an earlier pass recorded,
 # and record whether this one reads rpm (0) or leaves every package file `unverified` (1). Called once before the first
@@ -749,10 +798,10 @@ declare -gA _AI_TOOLS_LAYOUT__CONTENT_STATES=()
 ai_tools_layout__begin_pass() {
     _AI_TOOLS_LAYOUT__PASS_WITHOUT_RPM="${1:-0}"
     _AI_TOOLS_LAYOUT__SELINUX=""
-    _AI_TOOLS_LAYOUT__PACKAGE_VERIFY=()
-    _AI_TOOLS_LAYOUT__PACKAGE_VERIFY_REASON=()
-    _AI_TOOLS_LAYOUT__CONTENT_FLAGS=()
-    _AI_TOOLS_LAYOUT__CONTENT_STATES=()
+    _AI_TOOLS_LAYOUT__PACKAGE_VERIFICATION_STATES=()
+    _AI_TOOLS_LAYOUT__PACKAGE_VERIFICATION_REASONS=()
+    _AI_TOOLS_LAYOUT__FILE_VERIFICATION_FLAGS=()
+    _AI_TOOLS_LAYOUT__FILE_VERIFICATION_STATES=()
 }
 
 # _ai_tools_layout__read_selinux_state : set the label applicability, `n/a` where /sys/fs/selinux/enforce does not exist
@@ -765,9 +814,9 @@ _ai_tools_layout__read_selinux_state() {
     fi
 }
 
-# _ai_tools_layout__clamp_reason <text> : the first 120 bytes of <text> through ai_tools_log__sanitize, for a line
-# another program wrote that a record carries.
-_ai_tools_layout__clamp_reason() { ai_tools_log__sanitize "${1:0:120}"; }
+# _ai_tools_layout__format_external_reason <text> : the first 120 bytes of <text> through ai_tools_log__sanitize,
+# for a line another program wrote that a record carries.
+_ai_tools_layout__format_external_reason() { ai_tools_log__sanitize "${1:0:120}"; }
 
 # _ai_tools_layout__list_package_verify_results <package> : the rpm -V collector for one package, verbose so every
 # payload file prints a line (`.........` for one that passed), which is the positive evidence a `verified` state rests
@@ -782,16 +831,17 @@ _ai_tools_layout__clamp_reason() { ai_tools_log__sanitize "${1:0:120}"; }
 _ai_tools_layout__list_package_verify_results() {
     # The C locale for the match as for the command: the path range collates differently under UTF-8.
     local LC_ALL=C root line fd pid status=0
-    root="$(_ai_tools_layout__get_root)"
+    root="$(_ai_tools_layout__get_path_prefix)"
     exec {fd}< <(LC_ALL=C rpm -Vv --nodeps --noscripts --nouser --nogroup --nomode --nomtime --nordev --nocaps \
         --nolinkto -- "$1" 2>&1); pid=$!
     while IFS= read -r -u "${fd}" line; do
         if [[ "${line}" =~ ^([SM5DLUGTP.?]{9})\ +([a-z]\ )?(/[!-~]+)(\ \((not installed|replaced|net shared|wrong color|no state|unknown state)\))?$ ]]; then
             printf '%s\t%s\t%s\n' "${BASH_REMATCH[1]}" "${root}${BASH_REMATCH[3]}" "${BASH_REMATCH[5]}"
         elif [[ "${line}" =~ ^missing\ +([a-z]\ )?(/[!-~]+)(\ \(([^()]*)\))?$ ]]; then
-            printf 'missing\t%s\t%s\n' "${root}${BASH_REMATCH[2]}" "$(_ai_tools_layout__clamp_reason "${BASH_REMATCH[4]}")"
+            printf 'missing\t%s\t%s\n' "${root}${BASH_REMATCH[2]}" \
+                "$(_ai_tools_layout__format_external_reason "${BASH_REMATCH[4]}")"
         else
-            printf 'error\t%s\n' "$(_ai_tools_layout__clamp_reason "${line}")"
+            printf 'error\t%s\n' "$(_ai_tools_layout__format_external_reason "${line}")"
         fi
     done
     exec {fd}<&-
@@ -799,34 +849,36 @@ _ai_tools_layout__list_package_verify_results() {
     return "${status}"
 }
 
-# _ai_tools_layout__read_content_states <package> : run the content collector for one package the pass has no result
-# for, into _AI_TOOLS_LAYOUT__PACKAGE_VERIFY (verified, unverified, error), _AI_TOOLS_LAYOUT__PACKAGE_VERIFY_REASON,
-# _AI_TOOLS_LAYOUT__CONTENT_FLAGS (the flags rpm printed per path) and _AI_TOOLS_LAYOUT__CONTENT_STATES (the file state,
-# or a missing line's errno text, per path). `unverified` where the pass skips rpm, where rpm is not installed,
-# and where rpm reports the package not installed (a source install); `error` where the query failed in another way,
-# where the collector printed a line it did not recognize, or where it exited 1 (differences found) without a difference
-# line, or with any other status. Runs in the caller's shell, so the arrays it fills are the
+# _ai_tools_layout__read_package_verification <package> : run the content collector for one package the pass has no
+# result for, into _AI_TOOLS_LAYOUT__PACKAGE_VERIFICATION_STATES (verified, unverified, error),
+# _AI_TOOLS_LAYOUT__PACKAGE_VERIFICATION_REASONS, _AI_TOOLS_LAYOUT__FILE_VERIFICATION_FLAGS (the flags rpm printed
+# per path) and _AI_TOOLS_LAYOUT__FILE_VERIFICATION_STATES (the file state, or a missing line's errno text, per path).
+# `unverified` where the pass skips rpm, where rpm is not installed, and where rpm reports the package not installed (a
+# source install); `error` where the query failed in another way, where the collector printed a line it did not
+# recognize, or where it exited 1 (differences found) without a difference line, or with any other status. Runs
+# in the caller's shell, so the arrays it fills are the
 # pass's.
-_ai_tools_layout__read_content_states() {
+_ai_tools_layout__read_package_verification() {
     local package="$1" line flags rest path fd pid status=0 query reason="" differences=0
-    [[ -z "${_AI_TOOLS_LAYOUT__PACKAGE_VERIFY[${package}]+x}" ]] || return 0
+    [[ -z "${_AI_TOOLS_LAYOUT__PACKAGE_VERIFICATION_STATES[${package}]+x}" ]] || return 0
     if (( _AI_TOOLS_LAYOUT__PASS_WITHOUT_RPM )); then
-        _AI_TOOLS_LAYOUT__PACKAGE_VERIFY["${package}"]=unverified
-        _AI_TOOLS_LAYOUT__PACKAGE_VERIFY_REASON["${package}"]="the pass did not read rpm"
+        _AI_TOOLS_LAYOUT__PACKAGE_VERIFICATION_STATES["${package}"]=unverified
+        _AI_TOOLS_LAYOUT__PACKAGE_VERIFICATION_REASONS["${package}"]="the pass did not read rpm"
         return 0
     fi
     if ! command -v rpm >/dev/null 2>&1; then
-        _AI_TOOLS_LAYOUT__PACKAGE_VERIFY["${package}"]=unverified
-        _AI_TOOLS_LAYOUT__PACKAGE_VERIFY_REASON["${package}"]="rpm is not installed"
+        _AI_TOOLS_LAYOUT__PACKAGE_VERIFICATION_STATES["${package}"]=unverified
+        _AI_TOOLS_LAYOUT__PACKAGE_VERIFICATION_REASONS["${package}"]="rpm is not installed"
         return 0
     fi
     if ! query="$(LC_ALL=C rpm -q -- "${package}" 2>&1)"; then
         if [[ "${query}" == *"is not installed"* ]]; then
-            _AI_TOOLS_LAYOUT__PACKAGE_VERIFY["${package}"]=unverified
-            _AI_TOOLS_LAYOUT__PACKAGE_VERIFY_REASON["${package}"]="rpm does not report the package installed"
+            _AI_TOOLS_LAYOUT__PACKAGE_VERIFICATION_STATES["${package}"]=unverified
+            _AI_TOOLS_LAYOUT__PACKAGE_VERIFICATION_REASONS["${package}"]="rpm does not report the package installed"
         else
-            _AI_TOOLS_LAYOUT__PACKAGE_VERIFY["${package}"]=error
-            _AI_TOOLS_LAYOUT__PACKAGE_VERIFY_REASON["${package}"]="rpm -q ${package} failed: $(_ai_tools_layout__clamp_reason "${query}")"
+            _AI_TOOLS_LAYOUT__PACKAGE_VERIFICATION_STATES["${package}"]=error
+            _AI_TOOLS_LAYOUT__PACKAGE_VERIFICATION_REASONS["${package}"]="rpm -q ${package} failed: $(
+                _ai_tools_layout__format_external_reason "${query}")"
         fi
         return 0
     fi
@@ -840,8 +892,8 @@ _ai_tools_layout__read_content_states() {
         fi
         path="${rest%%$'\t'*}"
         [[ "${flags}" == missing || "${flags}" == *[^.]* ]] && differences=1
-        _AI_TOOLS_LAYOUT__CONTENT_FLAGS["${path}"]="${flags}"
-        _AI_TOOLS_LAYOUT__CONTENT_STATES["${path}"]="${rest#*$'\t'}"
+        _AI_TOOLS_LAYOUT__FILE_VERIFICATION_FLAGS["${path}"]="${flags}"
+        _AI_TOOLS_LAYOUT__FILE_VERIFICATION_STATES["${path}"]="${rest#*$'\t'}"
     done
     exec {fd}<&-
     wait "${pid}" || status=$?
@@ -853,30 +905,32 @@ _ai_tools_layout__read_content_states() {
         esac
     fi
     if [[ -n "${reason}" ]]; then
-        _AI_TOOLS_LAYOUT__PACKAGE_VERIFY["${package}"]=error
-        _AI_TOOLS_LAYOUT__PACKAGE_VERIFY_REASON["${package}"]="${reason}"
+        _AI_TOOLS_LAYOUT__PACKAGE_VERIFICATION_STATES["${package}"]=error
+        _AI_TOOLS_LAYOUT__PACKAGE_VERIFICATION_REASONS["${package}"]="${reason}"
     else
-        _AI_TOOLS_LAYOUT__PACKAGE_VERIFY["${package}"]=verified
+        _AI_TOOLS_LAYOUT__PACKAGE_VERIFICATION_STATES["${package}"]=verified
     fi
 }
 
-# _ai_tools_layout__evaluate_content <package> <path> : print the content state of one package file and its reason,
-# TAB-separated, from what the collector recorded: `verified` for a line whose digest test passed; `drift` for a `5`;
-# `unreadable` for a `?` at the digest position, for a path rpm reported missing (the entry there now is not the one rpm
-# compared; the errno text rpm appended carried in the reason), for the file states `wrong color`, `no state`
-# and `unknown state`, which do not establish that the bytes are the package's, and for a package whose collector
-# failed; `unverified` for a package the pass did not verify, for a path the installed package does not print a line
-# for, and for a file rpm records as `not installed`, `net shared` or `replaced`, whose bytes it did not compare
-# against the package.
-_ai_tools_layout__evaluate_content() {
+# _ai_tools_layout__evaluate_content_state <package> <path> : print the content state of one package file and its
+# reason, TAB-separated, from what the collector recorded: `verified` for a line whose digest test passed; `drift`
+# for a `5`; `unreadable` for a `?` at the digest position, for a path rpm reported missing (the entry there now is not
+# the one rpm compared; the errno text rpm appended carried in the reason), for the file states `wrong color`,
+# `no state` and `unknown state`, which do not establish that the bytes are the package's, and for a package
+# whose collector failed; `unverified` for a package the pass did not verify, for a path the installed package does not
+# print a line for, and for a file rpm records as `not installed`, `net shared` or `replaced`, whose bytes it did not
+# compare against the package.
+_ai_tools_layout__evaluate_content_state() {
     local package="$1" flags state
-    case "${_AI_TOOLS_LAYOUT__PACKAGE_VERIFY[${package}]:-unverified}" in
+    case "${_AI_TOOLS_LAYOUT__PACKAGE_VERIFICATION_STATES[${package}]:-unverified}" in
         verified) ;;
-        error) printf 'unreadable\t%s' "${_AI_TOOLS_LAYOUT__PACKAGE_VERIFY_REASON[${package}]:-}"; return 0 ;;
-        *) printf 'unverified\t%s' "${_AI_TOOLS_LAYOUT__PACKAGE_VERIFY_REASON[${package}]:-rpm did not compare the bytes}"
+        error) printf 'unreadable\t%s' "${_AI_TOOLS_LAYOUT__PACKAGE_VERIFICATION_REASONS[${package}]:-}"; return 0 ;;
+        *) printf 'unverified\t%s' \
+               "${_AI_TOOLS_LAYOUT__PACKAGE_VERIFICATION_REASONS[${package}]:-rpm did not compare the bytes}"
            return 0 ;;
     esac
-    flags="${_AI_TOOLS_LAYOUT__CONTENT_FLAGS[$2]:-}" state="${_AI_TOOLS_LAYOUT__CONTENT_STATES[$2]:-}"
+    flags="${_AI_TOOLS_LAYOUT__FILE_VERIFICATION_FLAGS[$2]:-}"
+    state="${_AI_TOOLS_LAYOUT__FILE_VERIFICATION_STATES[$2]:-}"
     if [[ -z "${flags}" ]]; then printf 'unverified\tthe installed package does not list the path'
     elif [[ "${flags}" == missing ]]; then
         printf 'unreadable\trpm reported the file missing when it verified the package%s' "${state:+: ${state}}"
@@ -891,9 +945,9 @@ _ai_tools_layout__evaluate_content() {
 
 # ── How each entry is read ───────────────────────────────────────────────────────────────────
 
-# _ai_tools_layout__is_payload_file <subject-type> <flags> : 0 for a row whose bytes rpm owns -- a `file` row
-# with `files` and neither `config` nor `ghost` -- so its content is read.
-_ai_tools_layout__is_payload_file() {
+# _ai_tools_layout__is_content_verification_required <subject-type> <flags> : 0 for a row whose bytes rpm owns --
+# a `file` row with `files` and neither `config` nor `ghost` -- so its content is read.
+_ai_tools_layout__is_content_verification_required() {
     [[ "$1" == file && ",$2," == *,files,* && ",$2," != *,config,* && ",$2," != *,ghost,* ]]
 }
 
@@ -912,7 +966,8 @@ _ai_tools_layout__get_refusal_remedy() {
         elif [[ ",$1," == *,files,* ]]; then
             printf 'sudo dnf reinstall %s, or sudo ./install.sh install on a source install' "${2%%,*}"
         else
-            printf 'review its content, then remove it so sudo dnf reinstall %s, or sudo ./install.sh install' "${2%%,*}"
+            printf 'review its content, then remove it so sudo dnf reinstall %s, or sudo ./install.sh install' \
+                "${2%%,*}"
             printf ' on a source install, writes it again'
         fi
         return 0
@@ -936,9 +991,9 @@ _ai_tools_layout__get_expected_acl() {
     local _layout_acl_other_bits
     local -a _layout_acl_access_users=() _layout_acl_access_groups=() _layout_acl_default_users=()
     local -a _layout_acl_default_groups=() _layout_acl_entries=() _layout_acl_text=()
-    _ai_tools_layout__get_mode_bits "${_layout_acl_mode}" u _layout_acl_owner_bits
-    _ai_tools_layout__get_mode_bits "${_layout_acl_mode}" g _layout_acl_group_bits
-    _ai_tools_layout__get_mode_bits "${_layout_acl_mode}" o _layout_acl_other_bits
+    _ai_tools_layout__get_mode_permissions "${_layout_acl_mode}" u _layout_acl_owner_bits
+    _ai_tools_layout__get_mode_permissions "${_layout_acl_mode}" g _layout_acl_group_bits
+    _ai_tools_layout__get_mode_permissions "${_layout_acl_mode}" o _layout_acl_other_bits
     if [[ "${_layout_acl_spec}" != - ]]; then
         IFS=, read -ra _layout_acl_entries <<< "${_layout_acl_spec}"
         for _layout_acl_entry in "${_layout_acl_entries[@]}"; do
@@ -1086,7 +1141,7 @@ ai_tools_layout__read_entry_state() {
         && [[ "$2" != "$3" ]] || return 1
     local -n _layout_state="$2" _layout_out_findings="$3"
     local -a _layout_fields=()
-    ai_tools_layout__parse_line "$1" _layout_fields || return 1
+    ai_tools_layout__parse_stream_line "$1" _layout_fields || return 1
     (( ${#_layout_fields[@]} == 8 )) || return 1
     local _layout_path="${_layout_fields[0]}" _layout_subject_type="${_layout_fields[1]}"
     local _layout_owner="${_layout_fields[2]}" _layout_mode="${_layout_fields[3]}" _layout_acl="${_layout_fields[4]}"
@@ -1106,7 +1161,7 @@ ai_tools_layout__read_entry_state() {
     _layout_state["expected_acl"]="${_layout_expected_state[acl]}"
     [[ ",${_layout_flags}," == *,ghost,* || ",${_layout_flags}," == *,optional,* ]] \
         && _layout_expected_state["absent_ok"]=1
-    _ai_tools_layout__is_payload_file "${_layout_subject_type}" "${_layout_flags}" \
+    _ai_tools_layout__is_content_verification_required "${_layout_subject_type}" "${_layout_flags}" \
         && _layout_expected_state["content_checked"]=1
 
     _layout_status=0
@@ -1121,11 +1176,11 @@ ai_tools_layout__read_entry_state() {
     # file, or `net shared` -- is absent by rpm's own decision, which the row reads as it reads an optional absence.
     # A compressed row whose entry is absent looks the state up under its `.gz` too.
     if [[ "${_layout_observed_state[type]}" == absent ]] && (( ${_layout_expected_state[content_checked]:-0} )); then
-        _ai_tools_layout__read_content_states "${_layout_package%%,*}"
-        _layout_excluded="${_AI_TOOLS_LAYOUT__CONTENT_STATES[${_layout_path}]:-}"
+        _ai_tools_layout__read_package_verification "${_layout_package%%,*}"
+        _layout_excluded="${_AI_TOOLS_LAYOUT__FILE_VERIFICATION_STATES[${_layout_path}]:-}"
         [[ -n "${_layout_excluded}" || ",${_layout_flags}," != *,compressed,* ]] \
-            || _layout_excluded="${_AI_TOOLS_LAYOUT__CONTENT_STATES[${_layout_path}.gz]:-}"
-        if [[ "${_AI_TOOLS_LAYOUT__PACKAGE_VERIFY[${_layout_package%%,*}]:-}" == verified ]] \
+            || _layout_excluded="${_AI_TOOLS_LAYOUT__FILE_VERIFICATION_STATES[${_layout_path}.gz]:-}"
+        if [[ "${_AI_TOOLS_LAYOUT__PACKAGE_VERIFICATION_STATES[${_layout_package%%,*}]:-}" == verified ]] \
                 && [[ "${_layout_excluded}" == "not installed" || "${_layout_excluded}" == "net shared" ]]; then
             _layout_expected_state["absent_ok"]=1
             _layout_observed_state["absent_detail"]="rpm records the file as ${_layout_excluded}"
@@ -1144,10 +1199,10 @@ ai_tools_layout__read_entry_state() {
                 _layout_observed_state["mode_error"]="stat could not read the mode"
             fi
             _ai_tools_layout__read_acl "${_layout_path}" _layout_observed_state
-            _ai_tools_layout__read_labels "${_layout_path}" _layout_expected_state _layout_observed_state
+            _ai_tools_layout__read_entry_label_types "${_layout_path}" _layout_expected_state _layout_observed_state
             if (( ${_layout_expected_state[content_checked]:-0} )); then
-                _ai_tools_layout__read_content_states "${_layout_package%%,*}"
-                _layout_content="$(_ai_tools_layout__evaluate_content "${_layout_package%%,*}" "${_layout_path}")"
+                _ai_tools_layout__read_package_verification "${_layout_package%%,*}"
+                _layout_content="$(_ai_tools_layout__evaluate_content_state "${_layout_package%%,*}" "${_layout_path}")"
                 _layout_observed_state["content"]="${_layout_content%%$'\t'*}"
                 _layout_observed_state["content_reason"]="${_layout_content#*$'\t'}"
             fi
@@ -1185,7 +1240,8 @@ _ai_tools_layout__read_acl() {
     exec {_layout_acl_fd}<&-
     wait "${_layout_acl_pid}" || _layout_acl_status=$?
     if [[ -n "${_layout_acl_bad}" ]]; then
-        _layout_acl_observed["acl_error"]="getfacl wrote: $(_ai_tools_layout__clamp_reason "${_layout_acl_bad}")"
+        _layout_acl_observed["acl_error"]="getfacl wrote: $(
+            _ai_tools_layout__format_external_reason "${_layout_acl_bad}")"
     elif (( _layout_acl_status != 0 )); then
         _layout_acl_observed["acl_error"]="getfacl exited ${_layout_acl_status}"
     else
@@ -1194,12 +1250,12 @@ _ai_tools_layout__read_acl() {
     fi
 }
 
-# _ai_tools_layout__read_labels <path> <expected-var> <observed-var> : the type matchpathcon gives the path
+# _ai_tools_layout__read_entry_label_types <path> <expected-var> <observed-var> : the type matchpathcon gives the path
 # into <expected-var>[label] and the type the entry carries into <observed-var>[label]. `n/a` for both where SELinux
 # does not apply; no expectation where matchpathcon prints <<none>>; `label_error` on either side where a tool is
 # missing, a lookup fails or a context does not validate. The command owns the type alone, so user, role and range are
 # not read.
-_ai_tools_layout__read_labels() {
+_ai_tools_layout__read_entry_label_types() {
     local -n _layout_label_expected="$2" _layout_label_observed="$3"
     local _layout_label_context _layout_label_type
     [[ -n "${_AI_TOOLS_LAYOUT__SELINUX}" ]] || _ai_tools_layout__read_selinux_state
@@ -1229,45 +1285,46 @@ _ai_tools_layout__read_labels() {
 
 # ── The record stream ────────────────────────────────────────────────────────────────────────
 # One code per finding token. The words that read as a severity map each line to the message catalog.
-_ai_tools_layout__attention()  { _AI_TOOLS_LAYOUT__CODE="$1"; _AI_TOOLS_LAYOUT__SEVERITY=attention; }
-_ai_tools_layout__unreadable() { _AI_TOOLS_LAYOUT__CODE="$1"; _AI_TOOLS_LAYOUT__SEVERITY=unreadable; }
-_ai_tools_layout__info()       { _AI_TOOLS_LAYOUT__CODE="$1"; _AI_TOOLS_LAYOUT__SEVERITY=ok; }
+_ai_tools_layout__set_attention_record_code()  { _AI_TOOLS_LAYOUT__CODE="$1"; _AI_TOOLS_LAYOUT__SEVERITY=attention; }
+_ai_tools_layout__set_unreadable_record_code() { _AI_TOOLS_LAYOUT__CODE="$1"; _AI_TOOLS_LAYOUT__SEVERITY=unreadable; }
+_ai_tools_layout__set_ok_record_code()       { _AI_TOOLS_LAYOUT__CODE="$1"; _AI_TOOLS_LAYOUT__SEVERITY=ok; }
 _AI_TOOLS_LAYOUT__CODE=""
 _AI_TOOLS_LAYOUT__SEVERITY=""
 
-# _ai_tools_layout__select_finding <token> : set _AI_TOOLS_LAYOUT__CODE and _AI_TOOLS_LAYOUT__SEVERITY for a finding
-# token. Returns 1 for a token the table does not carry.
-_ai_tools_layout__select_finding() {
+# _ai_tools_layout__set_finding_record_metadata <token> : set _AI_TOOLS_LAYOUT__CODE and _AI_TOOLS_LAYOUT__SEVERITY
+# for a finding token. Returns 1 for a token the table does not carry.
+_ai_tools_layout__set_finding_record_metadata() {
     case "$1" in
-        owner-drift)   _ai_tools_layout__attention MSG-K7Y7 "owner-drift" ;;
-        mode-drift)    _ai_tools_layout__attention MSG-A7Z4 "mode-drift" ;;
-        acl-drift)     _ai_tools_layout__attention MSG-P3W4 "acl-drift" ;;
-        label-drift)   _ai_tools_layout__attention MSG-G2B3 "label-drift" ;;
-        content-drift) _ai_tools_layout__attention MSG-A3J4 "content-drift" ;;
-        missing)       _ai_tools_layout__attention MSG-C6Y6 "missing" ;;
-        type-mismatch) _ai_tools_layout__attention MSG-Z5D2 "type-mismatch" ;;
-        unreadable)    _ai_tools_layout__unreadable MSG-Q6A4 "unreadable" ;;
-        error)         _ai_tools_layout__unreadable MSG-U7U5 "error" ;;
-        ok)            _ai_tools_layout__info MSG-P7W4 "ok" ;;
+        owner-drift)   _ai_tools_layout__set_attention_record_code MSG-K7Y7 "owner-drift" ;;
+        mode-drift)    _ai_tools_layout__set_attention_record_code MSG-A7Z4 "mode-drift" ;;
+        acl-drift)     _ai_tools_layout__set_attention_record_code MSG-P3W4 "acl-drift" ;;
+        label-drift)   _ai_tools_layout__set_attention_record_code MSG-G2B3 "label-drift" ;;
+        content-drift) _ai_tools_layout__set_attention_record_code MSG-A3J4 "content-drift" ;;
+        missing)       _ai_tools_layout__set_attention_record_code MSG-C6Y6 "missing" ;;
+        type-mismatch) _ai_tools_layout__set_attention_record_code MSG-Z5D2 "type-mismatch" ;;
+        unreadable)    _ai_tools_layout__set_unreadable_record_code MSG-Q6A4 "unreadable" ;;
+        error)         _ai_tools_layout__set_unreadable_record_code MSG-U7U5 "error" ;;
+        ok)            _ai_tools_layout__set_ok_record_code MSG-P7W4 "ok" ;;
         *) return 1 ;;
     esac
 }
 
-# _ai_tools_layout__write_row <token> <subject-type> <operator> <subject> <detail> <component>... : write one record
-# through the shared writer, in the report's own shell. Returns the writer's status, so a failed write reaches the
+# _ai_tools_layout__write_finding_record <token> <subject-type> <operator> <subject> <detail> <component>... : write one
+# record through the shared writer, in the report's own shell. Returns the writer's status, so a failed write reaches
+# the
 # caller.
-_ai_tools_layout__write_row() {
+_ai_tools_layout__write_finding_record() {
     local token="$1" subject_type="$2" operator="$3" subject="$4" detail="$5" item
     shift 5
-    if ! _ai_tools_layout__select_finding "${token}"; then
+    if ! _ai_tools_layout__set_finding_record_metadata "${token}"; then
         detail="a finding token outside the table, ${token}: ${detail}"
         token=error
-        _ai_tools_layout__select_finding error
+        _ai_tools_layout__set_finding_record_metadata error
     fi
     if ! ai_tools_records_tsv__frame_item_components item "$@"; then
         detail="an empty item component for ${token}: ${detail}"
         token=error
-        _ai_tools_layout__select_finding error
+        _ai_tools_layout__set_finding_record_metadata error
         ai_tools_records_tsv__frame_item_components item 'finding-table' - - || item='finding-table'
     fi
     ai_tools_records_tsv__write_record "" "${_AI_TOOLS_LAYOUT__CODE}" "${_AI_TOOLS_LAYOUT__SEVERITY}" "${token}" \
@@ -1277,11 +1334,12 @@ _ai_tools_layout__write_row() {
 # _ai_tools_layout__write_error_line <encoded-error-line> : one `error` line of the entry set as a record.
 _ai_tools_layout__write_error_line() {
     local -a fields=()
-    if ! ai_tools_layout__parse_line "$1" fields || (( ${#fields[@]} != 5 )); then
-        _ai_tools_layout__write_row error host "" layout.lib.sh "a line of the entry set did not decode" entries - -
+    if ! ai_tools_layout__parse_stream_line "$1" fields || (( ${#fields[@]} != 5 )); then
+        _ai_tools_layout__write_finding_record error host "" layout.lib.sh "a line of the entry set did not decode" \
+            entries - -
         return
     fi
-    _ai_tools_layout__write_row error "${fields[1]}" "" "${fields[2]}" "${fields[4]}" "${fields[3]}" - -
+    _ai_tools_layout__write_finding_record error "${fields[1]}" "" "${fields[2]}" "${fields[4]}" "${fields[3]}" - -
 }
 
 # _ai_tools_layout__get_record_subject_type <observed> <expected> : the subject-type a row takes -- the type read
@@ -1309,36 +1367,36 @@ _ai_tools_layout__write_entry_records() {
             _layout_write_detail="absent; ${_layout_write_state[absent_detail]:-the row is optional}"
         else
             _layout_write_detail="at its row"
-            if _ai_tools_layout__is_payload_file "${_layout_write_state[expected_type]}" \
+            if _ai_tools_layout__is_content_verification_required "${_layout_write_state[expected_type]}" \
                     "${_layout_write_state[flags]}" && [[ "${_layout_write_state[content]:-}" == unverified ]]; then
                 _layout_write_detail+="; content unverified: ${_layout_write_state[content_reason]:-}"
             fi
         fi
-        _ai_tools_layout__write_row ok "${_layout_write_subject_type}" "${_layout_write_state[operator]}" \
+        _ai_tools_layout__write_finding_record ok "${_layout_write_subject_type}" "${_layout_write_state[operator]}" \
             "${_layout_write_state[path]}" "${_layout_write_detail}" all - -
         return
     fi
     for _layout_write_line in "${_layout_write_findings[@]}"; do
-        if ! ai_tools_layout__parse_line "${_layout_write_line}" _layout_write_finding \
+        if ! ai_tools_layout__parse_stream_line "${_layout_write_line}" _layout_write_finding \
                 || (( ${#_layout_write_finding[@]} != 5 )); then
             _layout_write_finding=( error entry - - "a finding did not decode" )
         fi
         case "${_layout_write_finding[0]}" in
             missing)
-                _ai_tools_layout__write_row missing "${_layout_write_subject_type}" \
+                _ai_tools_layout__write_finding_record missing "${_layout_write_subject_type}" \
                     "${_layout_write_state[operator]}" "${_layout_write_state[path]}" "${_layout_write_finding[4]}" \
                     type "${_layout_write_finding[2]}" "${_layout_write_finding[3]}" || return 1 ;;
             unreadable)
-                _ai_tools_layout__write_row unreadable "${_layout_write_subject_type}" \
+                _ai_tools_layout__write_finding_record unreadable "${_layout_write_subject_type}" \
                     "${_layout_write_state[operator]}" "${_layout_write_state[path]}" "${_layout_write_finding[4]}" \
                     "${_layout_write_finding[1]}" - - || return 1
                 if [[ "${_layout_write_finding[1]}" == type ]]; then
-                    _ai_tools_layout__write_row error "${_layout_write_subject_type}" \
+                    _ai_tools_layout__write_finding_record error "${_layout_write_subject_type}" \
                         "${_layout_write_state[operator]}" "${_layout_write_state[path]}" \
                         "the reader refused the entry at this path" type - - || return 1
                 fi ;;
             *)
-                _ai_tools_layout__write_row "${_layout_write_finding[0]}" "${_layout_write_subject_type}" \
+                _ai_tools_layout__write_finding_record "${_layout_write_finding[0]}" "${_layout_write_subject_type}" \
                     "${_layout_write_state[operator]}" "${_layout_write_state[path]}" "${_layout_write_finding[4]}" \
                     "${_layout_write_finding[1]}" "${_layout_write_finding[2]:--}" "${_layout_write_finding[3]:--}" \
                     || return 1 ;;
@@ -1358,7 +1416,8 @@ ai_tools_layout__write_check_records() {
     local -a lines=() check_findings=()
     local -A check_state=()
     if [[ -n "${AI_TOOLS_LAYOUT__DECLARATION_ERROR}" ]]; then
-        _ai_tools_layout__write_row error host "" layout.lib.sh "${AI_TOOLS_LAYOUT__DECLARATION_ERROR}" declarations - -
+        _ai_tools_layout__write_finding_record error host "" layout.lib.sh "${AI_TOOLS_LAYOUT__DECLARATION_ERROR}" \
+            declarations - -
         return
     fi
     ai_tools_layout__begin_pass 0
@@ -1371,7 +1430,8 @@ ai_tools_layout__write_check_records() {
         fi
         check_state=(); check_findings=()
         if ! ai_tools_layout__read_entry_state "${line}" check_state check_findings; then
-            _ai_tools_layout__write_row error host "" layout.lib.sh "an entry did not decode" entries - - || return 1
+            _ai_tools_layout__write_finding_record error host "" layout.lib.sh "an entry did not decode" entries - - \
+                || return 1
             continue
         fi
         _ai_tools_layout__write_entry_records check_state check_findings "${all}" || return 1
@@ -1413,24 +1473,24 @@ readonly _AI_TOOLS_LAYOUT__FULL_PASS_REMEDY="sudo ai-tools-admin system layout r
 _AI_TOOLS_LAYOUT__RECONCILE_WRITE_FAILED=0
 _AI_TOOLS_LAYOUT__RECONCILE_INCOMPLETE=0
 _AI_TOOLS_LAYOUT__RECONCILE_REFUSED=0
-declare -gA _AI_TOOLS_LAYOUT__ROW_PATHS=()
-declare -gA _AI_TOOLS_LAYOUT__ANCESTOR_STATES=()
+declare -gA _AI_TOOLS_LAYOUT__ENTRY_PROGRESS=()
+declare -gA _AI_TOOLS_LAYOUT__ANCESTOR_VERDICTS=()
 
 # _ai_tools_layout__reset_reconcile_state : the counters and the maps of one reconcile, cleared.
 _ai_tools_layout__reset_reconcile_state() {
     _AI_TOOLS_LAYOUT__RECONCILE_WRITE_FAILED=0
     _AI_TOOLS_LAYOUT__RECONCILE_INCOMPLETE=0
     _AI_TOOLS_LAYOUT__RECONCILE_REFUSED=0
-    _AI_TOOLS_LAYOUT__ROW_PATHS=()
-    _AI_TOOLS_LAYOUT__ANCESTOR_STATES=()
+    _AI_TOOLS_LAYOUT__ENTRY_PROGRESS=()
+    _AI_TOOLS_LAYOUT__ANCESTOR_VERDICTS=()
 }
 
 # _ai_tools_layout__log <level> <message> : one line to journald under the layout tag and to layout.log.
 _ai_tools_layout__log() { AI_TOOLS_LOG_TAG=ai-tools-layout AI_TOOLS_LOG_FILE=layout.log ai_tools_log__write "$@"; }
 
-# _ai_tools_layout__is_under <path> <ancestor> : 0 when <ancestor>/ is a prefix of <path> by path component,
+# _ai_tools_layout__is_descendant_path <path> <ancestor> : 0 when <ancestor>/ is a prefix of <path> by path component,
 # so a refusal of /a/b does not reach /a/bc.
-_ai_tools_layout__is_under() { [[ "$1" == "$2"/* ]]; }
+_ai_tools_layout__is_descendant_path() { [[ "$1" == "$2"/* ]]; }
 
 # _ai_tools_layout__evaluate_change_log_level <field> <from> <to> : pure. The level a `changed` line logs at: `notice`
 # for a widening -- an owner or group moving to an account other than root, a mode bit set that was clear or a setgid
@@ -1577,15 +1637,15 @@ _ai_tools_layout__is_discovery_input() {
     local path="$1" input
     for input in "${AI_TOOLS_AGENTS_DIR}" "${AI_TOOLS_OPERATOR_CONF}"; do
         [[ "${path}" == "${input}" ]] && return 0
-        _ai_tools_layout__is_under "${input}" "${path}" && return 0
+        _ai_tools_layout__is_descendant_path "${input}" "${path}" && return 0
     done
     [[ "${path}" == "${AI_TOOLS_AGENTS_DIR}"/*.conf && "${path#"${AI_TOOLS_AGENTS_DIR}"/}" != */* ]]
 }
 
-# _ai_tools_layout__record_ancestor_state <state-var> : record whether the entry is at its row after its step --
+# _ai_tools_layout__record_ancestor_verdict <state-var> : record whether the entry is at its row after its step --
 # the observed type, owner and mode are the declared ones, or the entry is absent and the row allows that --
 # for the rows under it to read.
-_ai_tools_layout__record_ancestor_state() {
+_ai_tools_layout__record_ancestor_verdict() {
     local -n _layout_record_state="$1"
     local _layout_record_verdict=bad
     if [[ "${_layout_record_state[type]:-}" == "${_layout_record_state[expected_type]}" \
@@ -1594,10 +1654,11 @@ _ai_tools_layout__record_ancestor_state() {
                  || [[ "${_layout_record_state[mode]:-}" == "${_layout_record_state[expected_mode]}" ]]; }; then
         _layout_record_verdict=ok
     elif [[ "${_layout_record_state[type]:-}" == absent ]] \
-            && [[ ",${_layout_record_state[flags]}," == *,ghost,* || ",${_layout_record_state[flags]}," == *,optional,* ]]; then
+            && [[ ",${_layout_record_state[flags]}," == *,ghost,* \
+                  || ",${_layout_record_state[flags]}," == *,optional,* ]]; then
         _layout_record_verdict=ok
     fi
-    _AI_TOOLS_LAYOUT__ANCESTOR_STATES["${_layout_record_state[path]}"]="${_layout_record_verdict}"
+    _AI_TOOLS_LAYOUT__ANCESTOR_VERDICTS["${_layout_record_state[path]}"]="${_layout_record_verdict}"
 }
 
 # _ai_tools_layout__find_refusing_ancestor <path> : print the nearest ancestor row of <path> that is not at its row,
@@ -1607,8 +1668,8 @@ _ai_tools_layout__find_refusing_ancestor() {
     while [[ "${ancestor}" == */* ]]; do
         ancestor="${ancestor%/*}"
         [[ -n "${ancestor}" ]] || break
-        [[ -n "${_AI_TOOLS_LAYOUT__ROW_PATHS[${ancestor}]+x}" ]] || continue
-        if [[ "${_AI_TOOLS_LAYOUT__ANCESTOR_STATES[${ancestor}]:-bad}" != ok ]]; then
+        [[ -n "${_AI_TOOLS_LAYOUT__ENTRY_PROGRESS[${ancestor}]+x}" ]] || continue
+        if [[ "${_AI_TOOLS_LAYOUT__ANCESTOR_VERDICTS[${ancestor}]:-bad}" != ok ]]; then
             printf '%s' "${ancestor}"; return 0
         fi
     done
@@ -1645,18 +1706,19 @@ _ai_tools_layout__create_directory() {
     return 0
 }
 
-# _ai_tools_layout__apply_pinned <state-var> <field>... : the writes for one file or directory row -- from owner, acl,
-# mode and label, in that order -- through a descriptor pinned to the inode the read observed. The parent is resolved
-# once (an ancestor outside the table is the host's and may be a symlink; one inside it is a directory at its row
-# before this runs) and the leaf is not, since a symlink planted there is what the pin exists to catch: the identity is
-# read through the path, the entry opened, and the descriptor must report the same identity, the row's type and link
+# _ai_tools_layout__apply_entry_fields <state-var> <field>... : the writes for one file or directory row -- from owner,
+# acl, mode and label, in that order -- through a descriptor pinned to the inode the read observed. The parent is
+# resolved once (an ancestor outside the table is the host's and may be a symlink; one inside it is a directory at its
+# row before this runs) and the leaf is not, since a symlink planted there is what the pin exists to catch: the identity
+# is read through the path, the entry opened, and the descriptor must report the same identity, the row's type and link
 # count 1 for a file, with the kernel's own name for it equal to the path. A mismatch is an `error` with no write.
 # `setfacl` runs without `-P` on the magic link, which is what it follows; restorecon takes the path, after the checks
 # held, since it derives the context from the path. Returns 0 when every write returned 0 and 1 after an error line.
-_ai_tools_layout__apply_pinned() {
+_ai_tools_layout__apply_entry_fields() {
     local -n _layout_apply_state="$1"
     local _layout_apply_path="${_layout_apply_state[path]}" _layout_apply_parent _layout_apply_leaf _layout_apply_pinned
-    local _layout_apply_identity _layout_apply_fd _layout_apply_got_identity _layout_apply_nlink _layout_apply_ftype
+    local _layout_apply_identity _layout_apply_fd _layout_apply_pinned_identity _layout_apply_link_count
+    local _layout_apply_stat_type
     local _layout_apply_type _layout_apply_field _layout_apply_status
     shift
     _layout_apply_parent="${_layout_apply_path%/*}" _layout_apply_leaf="${_layout_apply_path##*/}"
@@ -1674,20 +1736,20 @@ _ai_tools_layout__apply_pinned() {
         _ai_tools_layout__report_error "${_layout_apply_path}" identity "the entry could not be opened"
         return 1
     fi
-    if ! read -r _layout_apply_got_identity _layout_apply_nlink _layout_apply_ftype \
+    if ! read -r _layout_apply_pinned_identity _layout_apply_link_count _layout_apply_stat_type \
             < <(LC_ALL=C stat -L -c '%d:%i %h %F' "/proc/self/fd/${_layout_apply_fd}" 2>/dev/null); then
         exec {_layout_apply_fd}<&-
         _ai_tools_layout__report_error "${_layout_apply_path}" identity "the pinned entry could not be read"
         return 1
     fi
-    case "${_layout_apply_ftype}" in
+    case "${_layout_apply_stat_type}" in
         "regular file"|"regular empty file") _layout_apply_type="file" ;;
         directory)                           _layout_apply_type=directory ;;
         *)                                   _layout_apply_type=other ;;
     esac
-    if [[ "${_layout_apply_got_identity}" != "${_layout_apply_identity}" \
+    if [[ "${_layout_apply_pinned_identity}" != "${_layout_apply_identity}" \
             || "${_layout_apply_type}" != "${_layout_apply_state[expected_type]}" ]] \
-            || { [[ "${_layout_apply_type}" == file ]] && (( _layout_apply_nlink != 1 )); } \
+            || { [[ "${_layout_apply_type}" == file ]] && (( _layout_apply_link_count != 1 )); } \
             || ! ai_tools_safe_paths__is_pinned_fd_at_path "${_layout_apply_fd}" "${_layout_apply_pinned}"; then
         exec {_layout_apply_fd}<&-
         _ai_tools_layout__report_error "${_layout_apply_path}" identity "the entry changed during the repair"
@@ -1732,7 +1794,7 @@ _ai_tools_layout__apply_pinned() {
 }
 
 # _ai_tools_layout__reconcile_entry <encoded-entry> <field>... : one row, given as its line and the eight fields
-# _ai_tools_layout__reconcile_lines decoded from it, through the ancestor rule, the preconditions and the repair,
+# _ai_tools_layout__reconcile_entry_lines decoded from it, through the ancestor rule, the preconditions and the repair,
 # with the lines it earns printed and its state recorded for the rows under it. A row under an ancestor that is not
 # at its row is refused unread. A finding the reader could not complete is an `error` and no write. A missing directory
 # is created under an existing parent; a missing file or link, an entry of another type, and a package file
@@ -1745,182 +1807,188 @@ _ai_tools_layout__apply_pinned() {
 _ai_tools_layout__reconcile_entry() {
     # The arrays are handed to the reader by name, so they carry a name the output-name check accepts.
     local entry="$1" ancestor path field token detail line content_reason refusal_detail="" link_status exposure=""
-    local -A first=() current=() final=()
-    local -a entry_fields=( "${@:2}" ) first_findings=() current_findings=() final_findings=() finding=() drifted=()
-    local -a apply_fields=()
+    local -A initial_state=() repair_state=() final_state=()
+    local -a entry_fields=( "${@:2}" ) initial_findings=() repair_findings=() final_findings=() finding_fields=()
+    local -a drifted_fields=() fields_to_repair=()
     local is_missing=0 is_mismatch=0 content_drift=0 unreadable=0 created=0
     path="${entry_fields[0]:-}"
     if (( ${#entry_fields[@]} != 8 )) || [[ -z "${path}" ]]; then
         _ai_tools_layout__report_error "${path:-layout.lib.sh}" entry "the entry did not decode"
-        [[ -z "${path}" ]] || _AI_TOOLS_LAYOUT__ANCESTOR_STATES["${path}"]=bad
+        [[ -z "${path}" ]] || _AI_TOOLS_LAYOUT__ANCESTOR_VERDICTS["${path}"]=bad
         return 0
     fi
     if ancestor="$(_ai_tools_layout__find_refusing_ancestor "${path}")"; then
         _ai_tools_layout__report_refusal "${path}" ancestor "not read: ${ancestor} is not at its row"
-        _AI_TOOLS_LAYOUT__ANCESTOR_STATES["${path}"]=bad
+        _AI_TOOLS_LAYOUT__ANCESTOR_VERDICTS["${path}"]=bad
         return 0
     fi
-    if ! ai_tools_layout__read_entry_state "${entry}" first first_findings; then
+    if ! ai_tools_layout__read_entry_state "${entry}" initial_state initial_findings; then
         _ai_tools_layout__report_error "${path}" entry "the entry did not decode"
-        _AI_TOOLS_LAYOUT__ANCESTOR_STATES["${path}"]=bad
+        _AI_TOOLS_LAYOUT__ANCESTOR_VERDICTS["${path}"]=bad
         return 0
     fi
-    path="${first[path]}"
-    for line in "${first_findings[@]}"; do
-        ai_tools_layout__parse_line "${line}" finding || continue
-        token="${finding[0]}" field="${finding[1]:-}" detail="${finding[4]:-}"
+    path="${initial_state[path]}"
+    for line in "${initial_findings[@]}"; do
+        ai_tools_layout__parse_stream_line "${line}" finding_fields || continue
+        token="${finding_fields[0]}" field="${finding_fields[1]:-}" detail="${finding_fields[4]:-}"
         case "${token}" in
             unreadable)    unreadable=1; _ai_tools_layout__report_error "${path}" "${field}" "${detail}" ;;
             missing)       is_missing=1; refusal_detail="${detail}" ;;
             type-mismatch) is_mismatch=1; refusal_detail="${detail}" ;;
             content-drift) content_drift=1; refusal_detail="${detail}" ;;
-            *-drift)       drifted+=( "${field}" ) ;;
+            *-drift)       drifted_fields+=( "${field}" ) ;;
         esac
     done
     if (( unreadable )); then
-        _ai_tools_layout__record_ancestor_state first; return 0
+        _ai_tools_layout__record_ancestor_verdict initial_state; return 0
     fi
-    if (( ${#first_findings[@]} == 0 )); then
-        _ai_tools_layout__record_ancestor_state first; return 0
+    if (( ${#initial_findings[@]} == 0 )); then
+        _ai_tools_layout__record_ancestor_verdict initial_state; return 0
     fi
     if (( is_mismatch )); then
         _ai_tools_layout__report_refusal "${path}" type "${refusal_detail}"
-        _ai_tools_layout__record_ancestor_state first; return 0
+        _ai_tools_layout__record_ancestor_verdict initial_state; return 0
     fi
     if (( content_drift )); then
         _ai_tools_layout__report_refusal "${path}" content "${refusal_detail}"
-        _ai_tools_layout__record_ancestor_state first; return 0
+        _ai_tools_layout__record_ancestor_verdict initial_state; return 0
     fi
-    current=(); for field in "${!first[@]}"; do current["${field}"]="${first[${field}]}"; done
+    repair_state=(); for field in "${!initial_state[@]}"; do repair_state["${field}"]="${initial_state[${field}]}"; done
     if (( is_missing )); then
-        if [[ "${first[expected_type]}" != directory || -n "${first[link_target]:-}" ]]; then
+        if [[ "${initial_state[expected_type]}" != directory || -n "${initial_state[link_target]:-}" ]]; then
             _ai_tools_layout__report_refusal "${path}" type "${refusal_detail}"
-            _ai_tools_layout__record_ancestor_state first; return 0
+            _ai_tools_layout__record_ancestor_verdict initial_state; return 0
         fi
-        if ! _ai_tools_layout__create_directory first; then
-            _ai_tools_layout__record_ancestor_state first; return 0
+        if ! _ai_tools_layout__create_directory initial_state; then
+            _ai_tools_layout__record_ancestor_verdict initial_state; return 0
         fi
         created=1
-        current=(); current_findings=()
-        if ! ai_tools_layout__read_entry_state "${entry}" current current_findings; then
+        repair_state=(); repair_findings=()
+        if ! ai_tools_layout__read_entry_state "${entry}" repair_state repair_findings; then
             _ai_tools_layout__report_error "${path}" entry "the created directory could not be read back"
-            _AI_TOOLS_LAYOUT__ANCESTOR_STATES["${path}"]=bad; return 0
+            _AI_TOOLS_LAYOUT__ANCESTOR_VERDICTS["${path}"]=bad; return 0
         fi
-        drifted=()
-        for line in "${current_findings[@]}"; do
-            ai_tools_layout__parse_line "${line}" finding || continue
-            case "${finding[0]}" in
-                unreadable) _ai_tools_layout__report_error "${path}" "${finding[1]:-}" "${finding[4]:-}"
-                            _ai_tools_layout__record_ancestor_state current; return 0 ;;
-                *-drift)    drifted+=( "${finding[1]}" ) ;;
+        drifted_fields=()
+        for line in "${repair_findings[@]}"; do
+            ai_tools_layout__parse_stream_line "${line}" finding_fields || continue
+            case "${finding_fields[0]}" in
+                unreadable) _ai_tools_layout__report_error "${path}" "${finding_fields[1]:-}" "${finding_fields[4]:-}"
+                            _ai_tools_layout__record_ancestor_verdict repair_state; return 0 ;;
+                *-drift)    drifted_fields+=( "${finding_fields[1]}" ) ;;
             esac
         done
     fi
-    if (( ${#drifted[@]} > 0 )); then
+    if (( ${#drifted_fields[@]} > 0 )); then
         # A package file is repaired only on verified content; one the pass could not verify is reported and left whole,
         # since a mode fixed on unverified bytes would re-bless them.
-        if _ai_tools_layout__is_payload_file "${current[expected_type]}" "${current[flags]}" \
-                && [[ "${current[content]:-}" != verified ]]; then
-            content_reason="${current[content_reason]:-the content was not verified}"
-            for field in "${drifted[@]}"; do
+        if _ai_tools_layout__is_content_verification_required "${repair_state[expected_type]}" \
+                "${repair_state[flags]}" \
+                && [[ "${repair_state[content]:-}" != verified ]]; then
+            content_reason="${repair_state[content_reason]:-the content was not verified}"
+            for field in "${drifted_fields[@]}"; do
                 _ai_tools_layout__report_refusal "${path}" "${field}" \
-                    "left as it is: the content is ${current[content]:-unverified} (${content_reason}); run ${_AI_TOOLS_LAYOUT__FULL_PASS_REMEDY}"
+                    "left as it is: the content is ${repair_state[content]:-unverified} (${content_reason}); run ${_AI_TOOLS_LAYOUT__FULL_PASS_REMEDY}"
             done
-            _ai_tools_layout__record_ancestor_state current; return 0
+            _ai_tools_layout__record_ancestor_verdict repair_state; return 0
         fi
         # A regular file is repaired in place only at the row's owner and while no account the row does not name could
         # write it: every content observation is by path, and no pin binds one to the inode, so a chown or a chmod would
         # bless bytes that account wrote, or writes later through a descriptor it holds open.
-        if [[ "${current[expected_type]}" == file ]]; then
-            if [[ " ${drifted[*]} " == *" owner "* ]]; then
+        if [[ "${repair_state[expected_type]}" == file ]]; then
+            if [[ " ${drifted_fields[*]} " == *" owner "* ]]; then
                 exposure=owner
             else
-                exposure="$(_ai_tools_layout__evaluate_file_write_exposure "${current[expected_mode]}" \
-                    "${current[mode]:-}" "${current[expected_acl]}" "${current[acl]:-}")"
+                exposure="$(_ai_tools_layout__evaluate_file_write_exposure "${repair_state[expected_mode]}" \
+                    "${repair_state[mode]:-}" "${repair_state[expected_acl]}" "${repair_state[acl]:-}")"
             fi
             if [[ -n "${exposure}" ]]; then
                 _ai_tools_layout__report_refusal "${path}" "${exposure}" "the bytes were writable by another account; $(
-                    _ai_tools_layout__get_refusal_remedy "${current[flags]}" "${current[package]}" \
-                        "${current[operator]}" exposure "${path}" "${current[expected_owner]}" \
-                        "${current[expected_mode]}")"
-                _ai_tools_layout__record_ancestor_state current; return 0
+                    _ai_tools_layout__get_refusal_remedy "${repair_state[flags]}" "${repair_state[package]}" \
+                        "${repair_state[operator]}" exposure "${path}" "${repair_state[expected_owner]}" \
+                        "${repair_state[expected_mode]}")"
+                _ai_tools_layout__record_ancestor_verdict repair_state; return 0
             fi
         fi
-        if [[ "${current[expected_type]}" == link ]]; then
-            apply_fields=( owner ) link_status=0
-            chown --no-dereference -- "${current[expected_owner]}" "${path}" 2>/dev/null || link_status=$?
+        if [[ "${repair_state[expected_type]}" == link ]]; then
+            fields_to_repair=( owner ) link_status=0
+            chown --no-dereference -- "${repair_state[expected_owner]}" "${path}" 2>/dev/null || link_status=$?
             (( link_status == 0 )) \
                 || _ai_tools_layout__report_write_failure "${path}" owner "chown --no-dereference" "${link_status}"
         else
-            apply_fields=()
+            fields_to_repair=()
             for field in owner acl mode label; do
-                [[ " ${drifted[*]} " == *" ${field} "* ]] && apply_fields+=( "${field}" )
+                [[ " ${drifted_fields[*]} " == *" ${field} "* ]] && fields_to_repair+=( "${field}" )
                 # The mode is re-asserted after an ACL write, for the special bits and the base bits setfacl set.
-                [[ "${field}" == mode && " ${drifted[*]} " == *" acl "* && " ${apply_fields[*]} " != *" mode "* ]] \
-                    && apply_fields+=( mode )
+                [[ "${field}" == mode && " ${drifted_fields[*]} " == *" acl "* \
+                   && " ${fields_to_repair[*]} " != *" mode "* ]] \
+                    && fields_to_repair+=( mode )
             done
-            _ai_tools_layout__apply_pinned current "${apply_fields[@]}" || true
+            _ai_tools_layout__apply_entry_fields repair_state "${fields_to_repair[@]}" || true
         fi
     fi
-    final=(); final_findings=()
-    if ! ai_tools_layout__read_entry_state "${entry}" final final_findings; then
+    final_state=(); final_findings=()
+    if ! ai_tools_layout__read_entry_state "${entry}" final_state final_findings; then
         _ai_tools_layout__report_error "${path}" entry "the entry could not be read back after the repair"
-        _AI_TOOLS_LAYOUT__ANCESTOR_STATES["${path}"]=bad; return 0
+        _AI_TOOLS_LAYOUT__ANCESTOR_VERDICTS["${path}"]=bad; return 0
     fi
     # The final read is the postcondition. An entry no longer at its path, or of another type, is a repair that did not
     # hold, with no `changed` line; a drift on a field the repair wrote did not take, and one on a field it left drifted
     # during the repair, each a failed repair; an unreadable field is an incomplete observation.
-    if [[ "${final[type]:-}" != unreadable ]] && { [[ "${final[type]:-}" != "${final[expected_type]}" ]] \
-            || [[ " ${final_findings[*]%%$'\t'*} " == *" missing "* ]]; }; then
+    if [[ "${final_state[type]:-}" != unreadable ]] \
+            && { [[ "${final_state[type]:-}" != "${final_state[expected_type]}" ]] \
+                 || [[ " ${final_findings[*]%%$'\t'*} " == *" missing "* ]]; }; then
         _ai_tools_layout__report_postcondition_failure "${path}" type "the entry is not at its path after the repair"
-        _AI_TOOLS_LAYOUT__ANCESTOR_STATES["${path}"]=bad; return 0
+        _AI_TOOLS_LAYOUT__ANCESTOR_VERDICTS["${path}"]=bad; return 0
     fi
     for line in "${final_findings[@]}"; do
-        ai_tools_layout__parse_line "${line}" finding || continue
-        case "${finding[0]}" in
-            unreadable) _ai_tools_layout__report_error "${path}" "${finding[1]:-}" "${finding[4]:-}" ;;
+        ai_tools_layout__parse_stream_line "${line}" finding_fields || continue
+        case "${finding_fields[0]}" in
+            unreadable) _ai_tools_layout__report_error "${path}" "${finding_fields[1]:-}" "${finding_fields[4]:-}" ;;
             *-drift)
-                if [[ " ${apply_fields[*]} " == *" ${finding[1]} "* ]]; then
-                    _ai_tools_layout__report_postcondition_failure "${path}" "${finding[1]}" "the change did not take"
+                if [[ " ${fields_to_repair[*]} " == *" ${finding_fields[1]} "* ]]; then
+                    _ai_tools_layout__report_postcondition_failure "${path}" "${finding_fields[1]}" \
+                        "the change did not take"
                 else
-                    _ai_tools_layout__report_postcondition_failure "${path}" "${finding[1]}" "drifted during the repair"
+                    _ai_tools_layout__report_postcondition_failure "${path}" "${finding_fields[1]}" \
+                        "drifted during the repair"
                 fi ;;
         esac
     done
     # `changed` for each field the repair wrote whose final value is the row's, from the state the repair started
     # from: the first read, or for a created directory the read after the create, so its lines come from the pinned
     # apply.
-    (( created )) && _ai_tools_layout__report_change "${path}" type absent "${final[type]}"
+    (( created )) && _ai_tools_layout__report_change "${path}" type absent "${final_state[type]}"
     for field in owner mode acl label; do
-        [[ " ${apply_fields[*]} " == *" ${field} "* ]] || continue
-        [[ "${final[${field}]:-}" == "${final[expected_${field}]:-}" ]] || continue
-        [[ "${current[${field}]:-}" != "${final[${field}]:-}" ]] || continue
-        _ai_tools_layout__report_change "${path}" "${field}" "${current[${field}]:-}" "${final[${field}]}"
+        [[ " ${fields_to_repair[*]} " == *" ${field} "* ]] || continue
+        [[ "${final_state[${field}]:-}" == "${final_state[expected_${field}]:-}" ]] || continue
+        [[ "${repair_state[${field}]:-}" != "${final_state[${field}]:-}" ]] || continue
+        _ai_tools_layout__report_change "${path}" "${field}" "${repair_state[${field}]:-}" "${final_state[${field}]}"
     done
-    _ai_tools_layout__record_ancestor_state final
+    _ai_tools_layout__record_ancestor_verdict final_state
     return 0
 }
 
-# _ai_tools_layout__reconcile_lines <lines-var> : run _ai_tools_layout__reconcile_entry over the entry lines
+# _ai_tools_layout__reconcile_entry_lines <lines-var> : run _ai_tools_layout__reconcile_entry over the entry lines
 # of the caller's array in path order, an `error` line of the set reported as it is, and mark each path handled
-# in _AI_TOOLS_LAYOUT__ROW_PATHS so a later phase does not act on it again. Each line is decoded once here, and its
+# in _AI_TOOLS_LAYOUT__ENTRY_PROGRESS so a later phase does not act on it again. Each line is decoded once here, and its
 # fields reach the entry step decoded.
-_ai_tools_layout__reconcile_lines() {
+_ai_tools_layout__reconcile_entry_lines() {
     local -n _layout_run_lines="$1"
     local _layout_run_line _layout_run_path
     local -a _layout_run_fields=()
     for _layout_run_line in "${_layout_run_lines[@]}"; do
-        ai_tools_layout__parse_line "${_layout_run_line}" _layout_run_fields \
+        ai_tools_layout__parse_stream_line "${_layout_run_line}" _layout_run_fields \
             || _layout_run_fields=( error host layout.lib.sh entries "a line of the entry set did not decode" )
         if [[ "${_layout_run_fields[0]}" == error ]]; then
-            _ai_tools_layout__report_error "${_layout_run_fields[2]:-layout.lib.sh}" "${_layout_run_fields[3]:-entries}" \
+            _ai_tools_layout__report_error "${_layout_run_fields[2]:-layout.lib.sh}" \
+                "${_layout_run_fields[3]:-entries}" \
                 "${_layout_run_fields[4]:-}"
             continue
         fi
         _layout_run_path="${_layout_run_fields[0]}"
-        [[ "${_AI_TOOLS_LAYOUT__ROW_PATHS[${_layout_run_path}]:-}" != handled ]] || continue
+        [[ "${_AI_TOOLS_LAYOUT__ENTRY_PROGRESS[${_layout_run_path}]:-}" != handled ]] || continue
         _ai_tools_layout__reconcile_entry "${_layout_run_line}" "${_layout_run_fields[@]}"
-        _AI_TOOLS_LAYOUT__ROW_PATHS["${_layout_run_path}"]=handled
+        _AI_TOOLS_LAYOUT__ENTRY_PROGRESS["${_layout_run_path}"]=handled
     done
 }
 
@@ -1952,15 +2020,15 @@ ai_tools_layout__reconcile() {
     # The discovery-input rows first, parent-first, so the dynamic enumeration reads inputs at their rows.
     _ai_tools_layout__append_static_entries static_lines
     for line in "${static_lines[@]}"; do
-        ai_tools_layout__parse_line "${line}" fields || continue
+        ai_tools_layout__parse_stream_line "${line}" fields || continue
         path="${fields[0]}"
-        _AI_TOOLS_LAYOUT__ROW_PATHS["${path}"]=row
+        _AI_TOOLS_LAYOUT__ENTRY_PROGRESS["${path}"]=row
         _ai_tools_layout__is_discovery_input "${path}" && phase_lines+=( "${line}" )
     done
     if (( ${#phase_lines[@]} > 0 )); then
         if sorted="$(printf '%s\n' "${phase_lines[@]}" | LC_ALL=C sort -t $'\t' -k1,1)"; then
             mapfile -t phase_lines <<< "${sorted}"
-            _ai_tools_layout__reconcile_lines phase_lines
+            _ai_tools_layout__reconcile_entry_lines phase_lines
         else
             _ai_tools_layout__report_error layout.lib.sh entries "sort did not complete"
         fi
@@ -1969,11 +2037,11 @@ ai_tools_layout__reconcile() {
     ai_tools_layout__read_entry_lines union_lines || :
     for line in "${union_lines[@]}"; do
         [[ "${line}" == error$'\t'* ]] && continue
-        ai_tools_layout__parse_line "${line}" fields || continue
+        ai_tools_layout__parse_stream_line "${line}" fields || continue
         path="${fields[0]}"
-        [[ -n "${_AI_TOOLS_LAYOUT__ROW_PATHS[${path}]+x}" ]] || _AI_TOOLS_LAYOUT__ROW_PATHS["${path}"]=row
+        [[ -n "${_AI_TOOLS_LAYOUT__ENTRY_PROGRESS[${path}]+x}" ]] || _AI_TOOLS_LAYOUT__ENTRY_PROGRESS["${path}"]=row
     done
-    _ai_tools_layout__reconcile_lines union_lines
+    _ai_tools_layout__reconcile_entry_lines union_lines
     _ai_tools_layout__unlock
     (( _AI_TOOLS_LAYOUT__RECONCILE_WRITE_FAILED == 0 )) || return 1
     (( _AI_TOOLS_LAYOUT__RECONCILE_INCOMPLETE == 0 )) || return "${AI_TOOLS_RECORDS_BASE__EXIT_UNREADABLE}"

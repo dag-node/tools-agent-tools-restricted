@@ -35,7 +35,7 @@ else
     ai_tools_layout__read_entry_lines perms_lines || :
     for perms_line in "${perms_lines[@]}"; do
         if [[ "${perms_line}" == error$'\t'* ]]; then
-            ai_tools_layout__parse_line "${perms_line}" perms_fields \
+            ai_tools_layout__parse_stream_line "${perms_line}" perms_fields \
                 || perms_fields=( error host layout.lib.sh entries "a line of the entry set did not decode" )
             fail "layout: ${perms_fields[2]:-?} (${perms_fields[3]:-?}): ${perms_fields[4]:-}"
             continue
@@ -45,7 +45,7 @@ else
         if (( perms_status != 0 )); then
             # The reader refuses an output name or a row that does not decode, which is this file's call
             # or the library's own line, not one row's state: reported once, and the rows after it are not read.
-            ai_tools_layout__parse_line "${perms_line}" perms_fields || perms_fields=()
+            ai_tools_layout__parse_stream_line "${perms_line}" perms_fields || perms_fields=()
             fail "layout: the reader returned ${perms_status} on the row ${perms_fields[0]:-?}; the rows after it are not read"
             break
         fi
@@ -61,7 +61,7 @@ else
         fi
         perms_detail=""
         for perms_finding_line in "${perms_findings[@]}"; do
-            ai_tools_layout__parse_line "${perms_finding_line}" perms_finding || perms_finding=( error )
+            ai_tools_layout__parse_stream_line "${perms_finding_line}" perms_finding || perms_finding=( error )
             perms_expected="${perms_finding[2]:-}"; perms_observed="${perms_finding[3]:-?}"
             perms_detail+="${perms_detail:+; }${perms_finding[0]}"
             [[ -z "${perms_finding[1]:-}" ]] || perms_detail+=" ${perms_finding[1]}"

@@ -332,16 +332,16 @@ cannot fix -- a message code's name is a runtime string, and rewording one is a 
 | b6g2 | [MSG-B6G2](../src/usr/local/lib/ai-tools/launch-wrapper.lib.sh) | the launch gates did not run -- refusing to start | src/usr/local/lib/ai-tools/launch-wrapper.lib.sh | tests/unit/launch-wrapper.sh | ai_tools_launch_wrapper__die |
 | u9g5 | [MSG-U9G5](../src/usr/local/lib/ai-tools/launch.d/claude-code.sh) | a custom system prompt is configured but its resolver library is unavailable | src/usr/local/lib/ai-tools/launch.d/claude-code.sh |  | ai_tools_launch_wrapper__die |
 | a3u4 | [MSG-A3U4](../src/usr/local/lib/ai-tools/launch.d/claude-code.sh) | a custom system prompt is configured but cannot be applied -- refusing to launch | src/usr/local/lib/ai-tools/launch.d/claude-code.sh |  | ai_tools_launch_wrapper__die |
-| k7y7 | [MSG-K7Y7](../src/usr/local/lib/ai-tools/layout.lib.sh) | owner-drift | src/usr/local/lib/ai-tools/layout.lib.sh |  | _ai_tools_layout__attention |
-| a7z4 | [MSG-A7Z4](../src/usr/local/lib/ai-tools/layout.lib.sh) | mode-drift | src/usr/local/lib/ai-tools/layout.lib.sh |  | _ai_tools_layout__attention |
-| p3w4 | [MSG-P3W4](../src/usr/local/lib/ai-tools/layout.lib.sh) | acl-drift | src/usr/local/lib/ai-tools/layout.lib.sh |  | _ai_tools_layout__attention |
-| g2b3 | [MSG-G2B3](../src/usr/local/lib/ai-tools/layout.lib.sh) | label-drift | src/usr/local/lib/ai-tools/layout.lib.sh |  | _ai_tools_layout__attention |
-| a3j4 | [MSG-A3J4](../src/usr/local/lib/ai-tools/layout.lib.sh) | content-drift | src/usr/local/lib/ai-tools/layout.lib.sh |  | _ai_tools_layout__attention |
-| c6y6 | [MSG-C6Y6](../src/usr/local/lib/ai-tools/layout.lib.sh) | missing | src/usr/local/lib/ai-tools/layout.lib.sh | tests/unit/layout.sh | _ai_tools_layout__attention |
-| z5d2 | [MSG-Z5D2](../src/usr/local/lib/ai-tools/layout.lib.sh) | type-mismatch | src/usr/local/lib/ai-tools/layout.lib.sh |  | _ai_tools_layout__attention |
-| q6a4 | [MSG-Q6A4](../src/usr/local/lib/ai-tools/layout.lib.sh) | unreadable | src/usr/local/lib/ai-tools/layout.lib.sh |  | _ai_tools_layout__unreadable |
-| u7u5 | [MSG-U7U5](../src/usr/local/lib/ai-tools/layout.lib.sh) | error | src/usr/local/lib/ai-tools/layout.lib.sh | tests/unit/layout.sh | _ai_tools_layout__unreadable |
-| p7w4 | [MSG-P7W4](../src/usr/local/lib/ai-tools/layout.lib.sh) | ok | src/usr/local/lib/ai-tools/layout.lib.sh | tests/unit/layout.sh | _ai_tools_layout__info |
+| k7y7 | [MSG-K7Y7](../src/usr/local/lib/ai-tools/layout.lib.sh) | owner-drift | src/usr/local/lib/ai-tools/layout.lib.sh |  | _ai_tools_layout__set_attention_record_code |
+| a7z4 | [MSG-A7Z4](../src/usr/local/lib/ai-tools/layout.lib.sh) | mode-drift | src/usr/local/lib/ai-tools/layout.lib.sh |  | _ai_tools_layout__set_attention_record_code |
+| p3w4 | [MSG-P3W4](../src/usr/local/lib/ai-tools/layout.lib.sh) | acl-drift | src/usr/local/lib/ai-tools/layout.lib.sh |  | _ai_tools_layout__set_attention_record_code |
+| g2b3 | [MSG-G2B3](../src/usr/local/lib/ai-tools/layout.lib.sh) | label-drift | src/usr/local/lib/ai-tools/layout.lib.sh |  | _ai_tools_layout__set_attention_record_code |
+| a3j4 | [MSG-A3J4](../src/usr/local/lib/ai-tools/layout.lib.sh) | content-drift | src/usr/local/lib/ai-tools/layout.lib.sh |  | _ai_tools_layout__set_attention_record_code |
+| c6y6 | [MSG-C6Y6](../src/usr/local/lib/ai-tools/layout.lib.sh) | missing | src/usr/local/lib/ai-tools/layout.lib.sh | tests/unit/layout.sh | _ai_tools_layout__set_attention_record_code |
+| z5d2 | [MSG-Z5D2](../src/usr/local/lib/ai-tools/layout.lib.sh) | type-mismatch | src/usr/local/lib/ai-tools/layout.lib.sh |  | _ai_tools_layout__set_attention_record_code |
+| q6a4 | [MSG-Q6A4](../src/usr/local/lib/ai-tools/layout.lib.sh) | unreadable | src/usr/local/lib/ai-tools/layout.lib.sh |  | _ai_tools_layout__set_unreadable_record_code |
+| u7u5 | [MSG-U7U5](../src/usr/local/lib/ai-tools/layout.lib.sh) | error | src/usr/local/lib/ai-tools/layout.lib.sh | tests/unit/layout.sh | _ai_tools_layout__set_unreadable_record_code |
+| p7w4 | [MSG-P7W4](../src/usr/local/lib/ai-tools/layout.lib.sh) | ok | src/usr/local/lib/ai-tools/layout.lib.sh | tests/unit/layout.sh | _ai_tools_layout__set_ok_record_code |
 | m8t9 | [MSG-M8T9](../src/usr/local/lib/ai-tools/managed-assets.lib.sh) | the lock ${lock} could not be taken (${error}), so the shared assets were not read or changed | src/usr/local/lib/ai-tools/managed-assets.lib.sh | packaging/ai-tools.spec, src/usr/local/lib/ai-tools/assets.lib.sh, src/usr/local/lib/ai-tools/managed-assets.lib.sh, src/usr/local/libexec/ai-tools/ai-tools-admin.sh, tests/unit/assets.sh | _ai_tools_managed_assets__refuse |
 | p4m9 | [MSG-P4M9](../src/usr/local/lib/ai-tools/providers.lib.sh) | providers.lib.sh: conf.lib.sh missing or incomplete -- no providers resolved | src/usr/local/lib/ai-tools/providers.lib.sh |  | _ai_tools_providers__warn |
 | c4f9 | [MSG-C4F9](../src/usr/local/lib/ai-tools/providers.lib.sh) | ignoring ${AI_TOOLS_OPERATOR_CONF} for ${conf_key}: $(ai_tools_conf__read_untrusted_reason "${AI_TOOLS_OPERATOR_CONF}") -- using the default-enabled providers only | src/usr/local/lib/ai-tools/providers.lib.sh |  | _ai_tools_providers__warn |
@@ -385,7 +385,7 @@ cannot fix -- a message code's name is a runtime string, and rewording one is a 
 | e3g7 | [MSG-E3G7](../src/usr/local/libexec/ai-tools/ai-tools-admin.sh) | a verb outside the command charset: ${fragment} declares $(printf '%q' "${verb}") among its verbs, and a verb is a bare lower-case word | src/usr/local/libexec/ai-tools/ai-tools-admin.sh | tests/unit/admin-commands.sh | coded_refusal |
 | n2a5 | [MSG-N2A5](../src/usr/local/libexec/ai-tools/ai-tools-admin.sh) | unknown command: ${domain} | src/usr/local/libexec/ai-tools/ai-tools-admin.sh | tests/unit/admin-commands.sh | reject_with_usage |
 | a3p2 | [MSG-A3P2](../src/usr/local/libexec/ai-tools/ai-tools-admin.sh) | refusing every contributed command while ${ADMIN_COMMANDS_DIR} holds a file that is not root's alone (named above) -- ${ADMIN_COMMANDS_TAMPER_REMEDY} | src/usr/local/libexec/ai-tools/ai-tools-admin.sh | tests/unit/admin-commands.sh | die |
-| d7d4 | [MSG-D7D4](../src/usr/local/libexec/ai-tools/ai-tools-admin.sh) | run as root (sudo) | src/usr/local/libexec/ai-tools/ai-tools-admin.sh |  | die |
+| d7d4 | [MSG-D7D4](../src/usr/local/libexec/ai-tools/ai-tools-admin.sh) | run as root (sudo) | src/usr/local/libexec/ai-tools/ai-tools-admin.sh | tests/boundary/access.sh | die |
 | n4h9 | [MSG-N4H9](../src/usr/local/libexec/ai-tools/ai-tools-admin.sh) | could not write OPERATORS into ${OPERATOR_CONF} -- the enrolment is incomplete; check the file and re-run | src/usr/local/libexec/ai-tools/ai-tools-admin.sh |  | die |
 | p5c5 | [MSG-P5C5](../src/usr/local/libexec/ai-tools/ai-tools-admin.sh) | could not seed ${file} | src/usr/local/libexec/ai-tools/ai-tools-admin.sh |  | warn |
 | z6v4 | [MSG-Z6V4](../src/usr/local/libexec/ai-tools/ai-tools-admin.sh) | not a directory: ${cfg_home} -- ${user}'s ai-tools config cannot be seeded inside it | src/usr/local/libexec/ai-tools/ai-tools-admin.sh | tests/unit/admin-operator-add.sh | warn |
