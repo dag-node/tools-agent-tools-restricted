@@ -295,6 +295,14 @@ TREE_LINE=""
 # hook (tests.rule.md, ref-section-b4y9): a caller who could set it runs this script as root already.
 INSTALLED_CLI="${AI_TOOLS_INSTALLED_CLI:-/usr/local/bin/ai-tools}"
 
+# report_packaged_host -- warn where rpm reports ai-tools-base installed. Each package file this install replaces keeps
+# its rpm database entry with other bytes under it, so `rpm -V` and the layout table read it as content drift, which
+# the reconcile refuses to repair (layout.rule.md), and the next `dnf upgrade` writes over it. A warning and not
+# a refusal: the operator is installing on purpose, and the review box still asks before the first write.
+report_packaged_host() {
+    command -v rpm >/dev/null 2>&1 && rpm -q ai-tools-base >/dev/null 2>&1 || return 0
+    warn MSG-Q8T8 "installing over the ai-tools packages: each package file this install replaces reads as content drift in rpm -V and in ai-tools-admin system layout, whose reconcile does not repair it, and the next dnf upgrade writes over it -- return to the packages with sudo dnf reinstall 'ai-tools-*', build this checkout as packages and upgrade to them (docs/install/from-source.md), or make this a source-only host with sudo dnf remove 'ai-tools-*'"
+}
 
 version_gate() {
     local installed="" lower
@@ -1250,6 +1258,7 @@ do_install() {
     say "  sandbox user  : ${SANDBOX_USER}:${SANDBOX_GROUP}"
 
     version_gate
+    report_packaged_host
     source_tree_gate
 
     # Proceed gate -- everything up to here is print-only; the first change to the host (including the install log
@@ -3061,8 +3070,10 @@ case "${ACTION}" in
         ;;
     check-tree)
         # The two gates alone: the version and the commit an install would deploy, and the refusals a downgrade
-        # and an uncommitted tree meet, leaving the host unchanged. What the unit test drives.
+        # and an uncommitted tree meet, and the packaged-host warning, leaving the host unchanged. What the unit test
+        # drives.
         version_gate
+        report_packaged_host
         source_tree_gate
         ;;
     *)

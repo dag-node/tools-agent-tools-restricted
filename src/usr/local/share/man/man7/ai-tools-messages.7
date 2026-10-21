@@ -2125,6 +2125,10 @@ SELinux is inactive \-\- the agent runs DAC\-only (no ai_tools_t domain). DAC\-o
 WARNING.
 setfacl unavailable \-\- operators need ${SANDBOX_GROUP} membership for sandbox\-create
 .TP
+.B MSG-Q8T8
+WARNING.
+installing over the ai\-tools packages: each package file this install replaces reads as content drift in rpm \-V and in ai\-tools\-admin system layout, whose reconcile does not repair it, and the next dnf upgrade writes over it \-\- return to the packages with sudo dnf reinstall 'ai\-tools\-*', build this checkout as packages and upgrade to them (docs/install/from\-source.md), or make this a source\-only host with sudo dnf remove 'ai\-tools\-*'
+.TP
 .B MSG-Q9D3
 WARNING.
 no enabled agent to link \-\- launcher symlinks skipped

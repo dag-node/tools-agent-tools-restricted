@@ -90,7 +90,9 @@ state rests on a line whose digest column passed; a `5` there is `drift`, a `?` 
 and a path with no line is `unverified`. `--nodeps --noscripts` keep a dependency line and a `%verifyscript`
 out of the stream, and the collector does not run package-defined code; an unrecognized line makes the package `error`.
 Where `rpm` is absent, where the package is not in the rpm database (a source install), and under `--without-rpm`, every
-package file is `unverified`, which the reconcile reads as a precondition. **One pass owns its observations**:
+package file is `unverified`, which the reconcile reads as a precondition. A host that holds the packages and takes
+a source install over them reads each file the install replaced as `drift`, since the rpm database still lists the file
+with the package's digest; `install.sh` warns before it writes there. **One pass owns its observations**:
 `ai_tools_layout__begin_pass` resets the SELinux applicability and the collector's results, so a second report
 or a repair's re-read does not reuse what an earlier pass recorded.
 

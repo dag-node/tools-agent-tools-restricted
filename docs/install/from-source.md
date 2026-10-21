@@ -8,6 +8,24 @@ install (see the README) automates all of it;
 `sudo ai-tools-admin system bootstrap` automates steps 2–3 once `install.sh`
 has deployed it, and `install.sh` automates everything from step 4 on.
 
+Use one route per host. On a host that has the `ai-tools-*` packages,
+`install.sh` warns before it writes: each package file it replaces then reads
+as content drift in `rpm -V` and in `sudo ai-tools-admin system layout`,
+and the next `dnf upgrade` writes over it. To run a checkout on such a host,
+build it as packages and upgrade to them, as your own user rather than root:
+
+```bash
+make -C packaging clean && \
+  make -C packaging rpm RPM_RELEASE=0.$(date +%Y%m%d%H%M).git$(git rev-parse --short HEAD) && \
+  sudo dnf upgrade --nogpgcheck ./packaging/rpmbuild/RPMS/*/*.rpm
+```
+
+The timestamp in the release makes each build newer than the last, and still
+older than the published release of the same version. The packages are
+unsigned, so `--nogpgcheck` lets this one transaction install them on a host
+that checks signatures on local files. `dnf upgrade` replaces only the packages
+the host already has.
+
 ```bash
 git clone https://github.com/dag-node/tools-agent-tools-restricted.git
 cd tools-agent-tools-restricted
