@@ -731,12 +731,14 @@ if [ -d /var/opt/ai-tools/state ]; then
     chmod 0440 /var/opt/ai-tools/state/cache-cleanup.lock 2>/dev/null || :
 fi
 # Re-assert the setgid bit on the sandbox tree -- rpm 4.19+ drops it from these %attr(2xxx) %dir
-# entries on install. Done in %post AND %posttrans because which one survives is rpm-dependent
-# (some rpm re-applies %attr after %post); both are idempotent no-ops on a host that kept the bit.
-# NB the container-image (OCI) layer preserves these two writes inconsistently across distros, so
-# the rpm-selftest RE-ASSERTS setgid at runtime (container-selftest.sh) -- this pair is for real
-# hosts, which have no image layer. A setgid %%dir added to any package takes the same re-assertion
-# in its own %%post, or it installs without the bit on EL10 (the typesafe state root is one).
+# entries on install. The layout reconcile the transaction file trigger runs converges the same
+# rows once every package is placed; this pair and this scriptlet's setfacl lines are the first state,
+# before any library loads, and a later release removes them. Idempotent no-ops on a host that
+# kept the bit. NB the container-image (OCI) layer preserves these writes inconsistently across
+# distros, so the rpm-selftest RE-ASSERTS setgid at runtime (container-selftest.sh) -- this pair
+# is for real hosts, which have no image layer. A setgid %%dir added to any package takes the same
+# re-assertion in its own %%post, or it installs without the bit on EL10 (the typesafe state root
+# is one).
 chmod 2750 /var/opt/ai-tools 2>/dev/null || :
 chmod 2770 /var/opt/ai-tools/sandbox-projects 2>/dev/null || :
 # Control-plane git guard + identity for the repo ai-tools-bootstrap captures (the RPM
@@ -914,6 +916,19 @@ cat >/dev/null 2>&1 || :
 cat >/dev/null 2>&1 || :
 %{ai_libexecdir}/ai-tools-admin assets reconcile >/dev/null 2>&1 || :
 
+# The installed layout (layout.lib.sh): one reconcile per transaction, whichever packages placed
+# files under the prefixes, so a subpackage-only install, upgrade or erase converges too. Without
+# the content comparison, since the transaction holds the rpm database; the relabel service
+# %posttrans starts runs the full pass. Output is kept, so the transaction log names each change;
+# the status is ignored, since a layout finding does not fail an upgrade.
+%transfiletriggerin -n ai-tools-base -- /usr/local/lib/ai-tools /usr/local/libexec/ai-tools /opt/ai-tools /etc/ai-tools /etc/codex /var/opt/ai-tools /var/log/ai-tools /usr/share/ai-tools
+cat >/dev/null 2>&1 || :
+%{ai_libexecdir}/ai-tools-admin system layout reconcile --without-rpm || :
+
+%transfiletriggerpostun -n ai-tools-base -- /usr/local/lib/ai-tools /usr/local/libexec/ai-tools /opt/ai-tools /etc/ai-tools /etc/codex /var/opt/ai-tools /var/log/ai-tools /usr/share/ai-tools
+cat >/dev/null 2>&1 || :
+%{ai_libexecdir}/ai-tools-admin system layout reconcile --without-rpm || :
+
 %posttrans -n ai-tools-base
 # Start the socket so the handback is live without a reboot (posttrans runs after the systemd
 # daemon-reload file trigger). Idempotent; guarded so a systemd-less build/image fails soft.
@@ -924,24 +939,9 @@ systemctl start ai-tools-handback.socket 2>/dev/null || :
 # Idempotent; a host without the nodejs integration has no such unit and fails soft.
 systemctl start ai-tools-relabel.path 2>/dev/null || :
 systemctl start --no-block ai-tools-relabel.service 2>/dev/null || :
-
-# Re-assert setgid after all file ops (some rpm re-applies %attr after %post, dropping it). Paired
-# with the %post copy; both idempotent. See the %post comment for the container-image caveat.
-chmod 2750 /var/opt/ai-tools 2>/dev/null || :
-chmod 2770 /var/opt/ai-tools/sandbox-projects 2>/dev/null || :
-
-# Close the sandbox account's systemd unit search path (control-plane.lib.sh) on every transition, since the home
-# subtrees are not rpm-owned. Under an explicit bash: the library is bash and a scriptlet runs under /bin/sh.
-if [ -d /opt/ai-tools ] && command -v bash >/dev/null 2>&1; then
-    bash -c '. /usr/local/lib/ai-tools/control-plane.lib.sh 2>/dev/null || exit 0
-             declare -F ai_tools_control_plane__ensure_unit_search_path_closed >/dev/null 2>&1 || exit 0
-             ai_tools_control_plane__ensure_unit_search_path_closed /opt/ai-tools ai-tools ai-tools | while read -r verdict rest; do
-                 [ "${verdict}" = error ] && echo "ai-tools-base: WARNING the sandbox systemd unit search path is not fully closed: ${rest}" >&2
-             done' || :
-    if command -v restorecon >/dev/null 2>&1; then
-        restorecon -R /opt/ai-tools/.local >/dev/null 2>&1 || :
-    fi
-fi
+# The setgid bits, the sandbox account's unit search path and every other row of the installed
+# layout are converged by this package's transaction file trigger, and again with the content comparison
+# by the relabel service this scriptlet starts.
 
 # Helper-layout migration (0.10.0): the root helper tree moved
 # /usr/local/sbin/ai-tools -> /usr/local/libexec/ai-tools so ONE layout serves EL and the

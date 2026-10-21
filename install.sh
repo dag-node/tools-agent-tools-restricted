@@ -552,20 +552,12 @@ ensure_dir() {
     [[ "${before}" == absent || "${before}" == "${after}" ]] || log "  ${dir}: ${before} -> ${after}"
 }
 
-# close_unit_search_path <home>: apply the unit search path layout under <home>
-# (ai_tools_control_plane__ensure_unit_search_path_closed) and log what it changed. A path it could not close is
-# a warning, and the install continues.
-close_unit_search_path() {
-    local home="$1" line
-    local -a changed=() failed=()
-    ai_tools_control_plane__parse_unit_search_path_report changed failed \
-        < <(ai_tools_control_plane__ensure_unit_search_path_closed "${home}" "${SANDBOX_USER}" "${SANDBOX_GROUP}" || true)
-    log "systemd unit search path under ${home} (${#changed[@]} director(ies) changed)"
-    for line in "${changed[@]+"${changed[@]}"}"; do log "  ${line}"; done
-    if (( ${#failed[@]} > 0 )); then
-        warn MSG-A2Y5 "the sandbox account's systemd unit search path is not fully closed, so a path listed here could still reach its unconfined --user manager; settle each one and re-run this installer:"
-        for line in "${failed[@]}"; do warn "    ${line}"; done
-    fi
+# reconcile_layout: bring every installed path to its row through the installed command, the same pass an upgrade's
+# transaction trigger runs; its lines go to the install log, and a finding it leaves is reported
+# by `ai-tools-admin status` and `ai-tools-admin system layout`, so the install continues.
+reconcile_layout() {
+    log "installed layout: sudo ai-tools-admin system layout reconcile"
+    /usr/local/libexec/ai-tools/ai-tools-admin system layout reconcile || true
 }
 
 # Make sure `<home>/.config` exists and belongs to the account whose home it is, before the ai-tools config directory is
@@ -2605,8 +2597,8 @@ do_install() {
     # repoint -> relabel chain races the operator's first launch, so the first claude refuses on a mislabelled
     # entrypoint. The toolchain is current at install time, so "last run = now" is truthful (mtime is all systemd
     # reads). Same fix as ai-tools-bootstrap; see .claude/rules/updater.rule.md. The home is root-owned, so root creates
-    # the stamp directory through close_unit_search_path, which also closes the directories on the way to it.
-    close_unit_search_path "/opt/ai-tools"
+    # the stamp directory through the layout reconcile, whose rows hold the directories on the way to it.
+    reconcile_layout
     install -o "${SANDBOX_USER}" -g "${SANDBOX_GROUP}" -m 0644 /dev/null \
         "/opt/ai-tools/${CP_TIMER_STAMP_DIR}/${CP_UPDATE_TIMER_STAMP}"
     if (( manager_ready )); then

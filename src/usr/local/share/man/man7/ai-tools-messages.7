@@ -1231,7 +1231,7 @@ signature\-verification library not deployed yet \-\- skipping the check; the nv
 .TP
 .B MSG-Q3P4
 ERROR.
-cannot close the sandbox account's systemd unit search path: ${_control_plane_lib} did not load \-\- reinstall ai\-tools\-base, then re\-run: sudo ai\-tools\-admin system bootstrap
+cannot read the control plane's layout: ${_control_plane_lib} did not load \-\- reinstall ai\-tools\-base, then re\-run: sudo ai\-tools\-admin system bootstrap
 .TP
 .B MSG-R5Z3
 ERROR.
@@ -2016,10 +2016,6 @@ building ${1:\-this policy module} needs the selinux\-policy\-devel toolchain,
 WARNING.
 SELinux or the ai_tools module is not active \-\- no agent paths to label
 .SS install.sh
-.TP
-.B MSG-A2Y5
-WARNING.
-the sandbox account's systemd unit search path is not fully closed, so a path listed here could still reach its unconfined \-\-user manager; settle each one and re\-run this installer:
 .TP
 .B MSG-A7X8
 WARNING.

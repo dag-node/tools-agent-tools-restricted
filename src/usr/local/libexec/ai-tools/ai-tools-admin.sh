@@ -2810,7 +2810,7 @@ status_unit_search_path() {
             done <<< "${drift_out}"
             if (( open )); then
                 detail "${SANDBOX_USER}'s --user manager runs unconfined, so a unit left on this path would run with none of the properties a session unit sets"
-                detail "sudo ai-tools-admin system bootstrap"
+                detail "sudo ai-tools-admin system layout reconcile"
             fi ;;
         1)  st OK "root owns every directory down to ${home}/${CP_UNIT_SEARCH_PATH_CHAIN[-1]}" ;;
         *)  st UNREADABLE "the unit search path under ${home} could not be read -- reinstall ai-tools-base"
