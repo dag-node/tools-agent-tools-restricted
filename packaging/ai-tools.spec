@@ -1758,7 +1758,7 @@ fi
   which states each setting refuses or launches. The file is kept on upgrade, so the new comments
   arrive as operator.conf.rpmnew; 'sudo ai-tools-admin system post-upgrade' shows them.
 
-* Fri Oct 03 2026 dagnode <tools@dagnode.com> - 0.23.1-1
+* Sat Oct 03 2026 dagnode <tools@dagnode.com> - 0.23.1-1
 - SECURITY: The root helpers that change a project's files (the handback, the setgid and ACL passes,
   lockdown, unclaim) refuse a path whose ancestor was swapped for a symbolic link while they ran.
   Before, the swap could persuade them to land a group change or an ACL on a directory you own
@@ -1776,7 +1776,7 @@ fi
   file -- no session starts and no helper acts on any of its entries -- until you write the entry as
   the real path (MSG-Y5N6 names the link and the path to write).
 
-* Fri Oct 03 2026 dagnode <tools@dagnode.com> - 0.23.0-1
+* Sat Oct 03 2026 dagnode <tools@dagnode.com> - 0.23.0-1
 - CHANGE: A launch requires SELinux unless operator.conf sets AI_TOOLS_REQUIRE_SELINUX=no, and under
   it refuses a permissive ai_tools_t domain, a widening Boolean that is on (nis_enabled,
   domain_can_mmap_files, domain_can_write_kmsg) and a confinement input it cannot read. A host with
