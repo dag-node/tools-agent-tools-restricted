@@ -49,8 +49,10 @@ a source install, the provisioning run and the entrypoint relabel each run
 and logs every change under the journal tag `ai-tools-layout`, so a mode
 an upgrade or a hand edit changed does not stay changed until a refusal names
 it. A package file whose content is not the package's, or that another account
-owned or could write, is reported and left for `dnf reinstall`;
-`man ai-tools-admin` states the rest of what the reconcile refuses to repair.
+owned or could write, is reported and left for `dnf reinstall`; any other file
+another account owned or could write is reported and left to be reviewed
+and restored by hand. `man ai-tools-admin` states the rest
+of what the reconcile refuses to repair.
 
 ## 0.24.0: the skills move to the asset set core <a id="ref-section-y5t4"></a>
 

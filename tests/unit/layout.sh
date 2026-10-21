@@ -247,8 +247,10 @@ remedy_of() {
     || fail "package remedy: $(remedy_of files ai-tools-base "")"
 [[ "$(remedy_of boundary - xd)" == *"operators add xd"* ]] && pass "a missing operator file names operators add" \
     || fail "operator remedy: $(remedy_of boundary - xd)"
-[[ "$(remedy_of - ai-tools-base "")" == *"system bootstrap"* ]] && pass "a missing runtime file names system bootstrap" \
-    || fail "runtime remedy: $(remedy_of - ai-tools-base "")"
+out="$(remedy_of - ai-tools-base "")"
+[[ "${out}" == *"dnf reinstall ai-tools-base, or sudo ./install.sh install on a source install"* \
+   && "${out}" != *"system bootstrap"* ]] && pass "a missing runtime file names the reinstall that places it again" \
+    || fail "runtime remedy: ${out}"
 
 section "layout: the entry reader over owned fixtures"
 FX="${FIXTURE_ROOT}/fx"; mkdir -p "${FX}/dir"
@@ -582,7 +584,7 @@ expect_level "a created entry is notice"                  type absent directory 
 # expect_exposure <desc> <expected-mode> <observed-mode> <expected-acl> <observed-acl> <wanted> : the field the write
 # exposure evaluator prints, `none` for its empty line.
 expect_exposure() {
-    local got; got="$(_ai_tools_layout__evaluate_file_write_exposure "$2" "$3" "$4" "$5")"
+    local got; got="$(_ai_tools_layout__evaluate_file_write_exposure "$2" "$3" "$4" "$5")"; got="${got%%$'\t'*}"
     [[ "${got:-none}" == "$6" ]] && pass "write exposure: $1" || fail "write exposure: $1: ${got:-none}, wanted $6"
 }
 base_acl=$'user::rw-\ngroup::r--\nother::r--'
@@ -604,15 +606,42 @@ expect_exposure "an entry the row names gaining w"        0640 0640 $'user::rw-\
     $'user::rw-\ngroup::r--\ngroup:ai-ops:rw-\nmask::r--\nother::---' acl
 expect_exposure "mode and ACL both widening: mode first"  0644 0664 "${base_acl}" \
     $'user::rw-\nuser:nobody:rw-\ngroup::r--\nmask::rw-\nother::r--' mode
-exposure_remedy() { _ai_tools_layout__get_refusal_remedy "$1" "$2" "$3" exposure /p root:root 0644; }
-[[ "$(exposure_remedy files ai-tools-base "")" == *"dnf reinstall ai-tools-base"* ]] \
-    && pass "an exposed package file names dnf reinstall" || fail "exposure files: $(exposure_remedy files ai-tools-base "")"
-[[ "$(exposure_remedy files,config ai-tools-base "")" == *"review its content, then sudo chown root:root /p and sudo chmod 0644 /p by hand"*"%config"* ]] \
-    && pass "an exposed config file names a review and the chown and chmod by hand" || fail "exposure config: $(exposure_remedy files,config ai-tools-base "")"
-[[ "$(exposure_remedy boundary - xd)" == "review its content, then sudo chown root:root /p and sudo chmod 0644 /p by hand" ]] \
-    && pass "an exposed operator file names a review and the chown and chmod by hand" || fail "exposure operator: $(exposure_remedy boundary - xd)"
-[[ "$(exposure_remedy - ai-tools-base "")" == *"remove it so sudo dnf reinstall ai-tools-base"*"writes it again" ]] \
-    && pass "an exposed runtime file names its removal and what writes it again" || fail "exposure runtime: $(exposure_remedy - ai-tools-base "")"
+# The ACL case names the entry that widened, so the refusal can quote it.
+out="$(_ai_tools_layout__evaluate_file_write_exposure 0644 0644 "${base_acl}" \
+    $'user::rw-\nuser:nobody:rw-\ngroup::r--\nmask::r--\nother::r--')"
+[[ "${out}" == $'acl\tuser:nobody:rw-' ]] && pass "write exposure: a masked foreign entry is named with its permissions" \
+    || fail "write exposure names the entry: $(tr '\t' '|' <<< "${out}")"
+out="$(_ai_tools_layout__evaluate_file_write_exposure 0640 0640 $'user::rw-\ngroup::r--\ngroup:ai-ops:r--\nmask::r--\nother::---' \
+    $'user::rw-\ngroup::r--\ngroup:ai-ops:rw-\nmask::r--\nother::---')"
+[[ "${out}" == $'acl\tgroup:ai-ops:rw-' ]] && pass "write exposure: an entry the row names gaining w is named as observed" \
+    || fail "write exposure names the gained entry: $(tr '\t' '|' <<< "${out}")"
+# get_exposure_remedy <flags> <package> <operator> [<path> <owner> <mode> <acl-field>] : the exposure remedy for a row
+# of that class.
+get_exposure_remedy() {
+    _ai_tools_layout__get_refusal_remedy "$1" "$2" "$3" exposure "${4:-/p}" "${5:-root:root}" "${6:-0644}" "${7:--}"
+}
+restore_p='review its content, then restore it by hand: sudo setfacl -b -- /p; sudo chown root:root -- /p; sudo chmod 0644 -- /p'
+out="$(get_exposure_remedy files ai-tools-base "")"
+[[ "${out}" == "sudo dnf reinstall ai-tools-base, or sudo ./install.sh install on a source install" ]] \
+    && pass "an exposed payload file names the reinstall" || fail "exposure payload: ${out}"
+out="$(get_exposure_remedy files,config ai-tools-base "")"
+[[ "${out}" == "${restore_p}" ]] && pass "an exposed config file names the review and the restore by hand, setfacl -b first" \
+    || fail "exposure config: ${out}"
+out="$(get_exposure_remedy files,ghost ai-tools-base "")"
+[[ "${out}" == "${restore_p}" ]] && pass "an exposed ghost names the restore by hand, not the reinstall (a ghost is not a payload)" \
+    || fail "exposure ghost: ${out}"
+out="$(get_exposure_remedy - ai-tools-base "")"
+[[ "${out}" == "${restore_p}" && "${out}" != *remove* ]] \
+    && pass "an exposed runtime file names the restore by hand and not its removal" || fail "exposure runtime: ${out}"
+out="$(get_exposure_remedy boundary - xd /home/xd/.config/ai-tools/allowed-projects xd:xd 0600)"
+[[ "${out}" == "review its content, then restore it by hand: sudo setfacl -b -- /home/xd/.config/ai-tools/allowed-projects; sudo chown xd:xd -- /home/xd/.config/ai-tools/allowed-projects; sudo chmod 0600 -- /home/xd/.config/ai-tools/allowed-projects" ]] \
+    && pass "an exposed operator file names the restore at the operator's owner and mode" || fail "exposure operator: ${out}"
+out="$(get_exposure_remedy - ai-tools-base "" /p root:ai-tools 0640 group:ai-ops:r--)"
+[[ "${out}" == *"; sudo chmod 0640 -- /p; sudo setfacl -m group:ai-ops:r-- -- /p" ]] \
+    && pass "a row with named entries ends its restore with setfacl -m of the row's entries" || fail "exposure named entries: ${out}"
+out="$(get_exposure_remedy - ai-tools-base "" '/p/a b' root:root 0644)"
+[[ "${out}" == 'review its content, then restore it by hand: sudo setfacl -b -- /p/a\ b; sudo chown root:root -- /p/a\ b; sudo chmod 0644 -- /p/a\ b' ]] \
+    && pass "a path holding a space is quoted for a shell in every command" || fail "exposure quoting: ${out}"
 _ai_tools_layout__is_discovery_input "${AGENTS_DIR}" && pass "the agents directory is a discovery input" || fail "agents.d is not a discovery input"
 _ai_tools_layout__is_discovery_input "${AGENTS_DIR}/acme.conf" && pass "a manifest under it is a discovery input" || fail "a manifest is not"
 _ai_tools_layout__is_discovery_input "${AGENTS_DIR}/sub/x.conf" && fail "a nested .conf reads as a discovery input" || pass "a nested .conf is not one"
@@ -705,13 +734,13 @@ else
     # The rows are runtime ones, so the content gate, which answers first for a package file, does not decide them.
     : > "${repair_root}/exposed"; chmod 0664 "${repair_root}/exposed"
     out="$(entry_run "$(entry "${repair_root}/exposed" file "${me}" 0644 - ai-tools-base -)")"
-    has_reconcile_observation "${out}" refused "${repair_root}/exposed" mode "the bytes were writable by another account; review its content" \
+    has_reconcile_observation "${out}" refused "${repair_root}/exposed" mode "the mode 0664 grants write beyond the row's 0644; so another account may have written the bytes; review its content, then restore it by hand" \
         && [[ "$(read_mode "${repair_root}/exposed")" == 664 && "$(grep -c . <<< "${out}")" -eq 1 ]] \
         && pass "a file at group write the row lacks is refused on its mode and left" || fail "exposed mode: ${out} / $(read_mode "${repair_root}/exposed")"
     chmod 0644 "${repair_root}/exposed"
     if setfacl -m u:nobody:rw-,m::r-- "${repair_root}/exposed" 2>/dev/null; then
         out="$(entry_run "$(entry "${repair_root}/exposed" file "${me}" 0644 - ai-tools-base -)")"
-        has_reconcile_observation "${out}" refused "${repair_root}/exposed" acl "the bytes were writable by another account" \
+        has_reconcile_observation "${out}" refused "${repair_root}/exposed" acl "the entry user:nobody:rw- grants write beyond the row; so another account may have written the bytes" \
             && getfacl --omit-header -P -- "${repair_root}/exposed" 2>/dev/null | grep -q '^user:nobody:rw-' \
             && pass "a file with a masked foreign entry carrying write is refused on its ACL and left" || fail "exposed acl: ${out}"
     else
@@ -1140,9 +1169,9 @@ else
     # at another owner is also an untrusted discovery input, so its rows are an error line and the run exits 5.
     chown nobody:nobody "${operator_conf}"
     out="$(reconcile_run)"
-    has_reconcile_observation "${out}" refused "${operator_conf}" owner "the bytes were writable by another account; review its content, then sudo chown root:root ${operator_conf}" \
+    has_reconcile_observation "${out}" refused "${operator_conf}" owner "the owner nobody:nobody is not the row's root:root; so another account may have written the bytes; review its content, then restore it by hand: sudo setfacl -b -- ${operator_conf}; sudo chown root:root -- ${operator_conf}; sudo chmod 0644 -- ${operator_conf}" \
         && [[ "$(stat -c '%U:%G' "${operator_conf}")" == nobody:nobody && "$(parse_reconcile_status "${out}")" == rc=5 ]] \
-        && pass "operator.conf at another owner is refused and left, naming the review and the chown by hand" || fail "owner refused: $(brief "${out}")"
+        && pass "operator.conf at another owner is refused and left, naming the review and the restore by hand" || fail "owner refused: $(brief "${out}")"
     chown root:root "${operator_conf}"
     chmod 0600 "${operator_conf}"
     out="$(reconcile_run)"
@@ -1208,7 +1237,7 @@ else
         && pass "a pass without rpm reports the drifted package file per field and leaves it" || fail "without rpm: $(brief "${out}")"
     # Verified content does not bless bytes another account owned: the owner is refused, naming the reinstall.
     out="$(reconcile_run)"
-    has_reconcile_observation "${out}" refused "${CLI}" owner "the bytes were writable by another account; sudo dnf reinstall ai-tools-base" \
+    has_reconcile_observation "${out}" refused "${CLI}" owner "the owner nobody:nobody is not the row's root:root; so another account may have written the bytes; sudo dnf reinstall ai-tools-base" \
         && [[ "$(stat -c '%U %a' "${CLI}")" == "nobody 600" && "$(parse_reconcile_status "${out}")" == rc=4 ]] \
         && pass "with the content verified, a package file at another owner is refused on its owner and left" || fail "verified, other owner: $(brief "${out}")"
     chown root:root "${CLI}"
@@ -1219,8 +1248,9 @@ else
     # stub reports them verified): refused on its owner and left at that owner.
     HOOK="${fixture_root}/opt/ai-tools/.claude/post-tool-hook.sh"
     cp -- "${HOOK}" "${HOOK}.planted"; chown "${PROJECTS_USER}" "${HOOK}.planted"; mv -f -- "${HOOK}.planted" "${HOOK}"
+    hook_owner="$(stat -c '%U:%G' -- "${HOOK}")"
     out="$(reconcile_run)"
-    has_reconcile_observation "${out}" refused "${HOOK}" owner "the bytes were writable by another account; sudo dnf reinstall ai-tools-agents-claude-code-restricted" \
+    has_reconcile_observation "${out}" refused "${HOOK}" owner "the owner ${hook_owner} is not the row's root:${SANDBOX_GROUP}; so another account may have written the bytes; sudo dnf reinstall ai-tools-agents-claude-code-restricted" \
         && [[ "$(stat -c '%U' "${HOOK}")" == "${PROJECTS_USER}" && "$(parse_reconcile_status "${out}")" == rc=4 ]] \
         && pass "a hook with the package's bytes at the projects user's owner is refused and left at that owner" || fail "planted hook: $(brief "${out}")"
     chown "root:${SANDBOX_GROUP}" "${HOOK}"; chmod 0750 "${HOOK}"
@@ -1229,18 +1259,39 @@ else
     CONF_LIB="${fixture_root}/usr/local/lib/ai-tools/conf.lib.sh"
     chmod 0664 "${CONF_LIB}"
     out="$(reconcile_run)"
-    has_reconcile_observation "${out}" refused "${CONF_LIB}" mode "the bytes were writable by another account; sudo dnf reinstall ai-tools-base" \
+    has_reconcile_observation "${out}" refused "${CONF_LIB}" mode "the mode 0664 grants write beyond the row's 0644; so another account may have written the bytes; sudo dnf reinstall ai-tools-base" \
         && [[ "$(stat -c '%a' "${CONF_LIB}")" == 664 && "$(parse_reconcile_status "${out}")" == rc=4 ]] \
         && pass "a package file at group write is refused on its mode and left" || fail "group write: $(brief "${out}")"
     chmod 0644 "${CONF_LIB}"; setfacl -m g:nobody:rw-,m::r-- "${CONF_LIB}"
     out="$(reconcile_run)"
-    has_reconcile_observation "${out}" refused "${CONF_LIB}" acl "the bytes were writable by another account" \
+    has_reconcile_observation "${out}" refused "${CONF_LIB}" acl "the entry group:nobody:rw- grants write beyond the row; so another account may have written the bytes; sudo dnf reinstall ai-tools-base" \
         && getfacl --omit-header -P -- "${CONF_LIB}" | grep -q '^group:nobody:rw-' && [[ "$(parse_reconcile_status "${out}")" == rc=4 ]] \
         && pass "a package file with a masked foreign entry carrying write is refused on its ACL and left" || fail "foreign entry: $(brief "${out}")"
     setfacl -b "${CONF_LIB}"; chmod 0600 "${CONF_LIB}"
     out="$(reconcile_run)"
     has_reconcile_observation "${out}" changed "${CONF_LIB}" mode "0600	0644" && [[ "$(stat -c '%a' "${CONF_LIB}")" == 644 && "$(parse_reconcile_status "${out}")" == rc=0 ]] \
         && pass "the same file at 0600 converges" || fail "0600: $(brief "${out}")"
+    # A payload row with named entries is reinstalled whatever its ACL carries, the entry named as observed.
+    README="${fixture_root}/var/opt/ai-tools/README.md"
+    setfacl -m g:nobody:rw-,m::r-- "${README}"
+    out="$(reconcile_run)"
+    has_reconcile_observation "${out}" refused "${README}" acl "the entry group:nobody:rw- grants write beyond the row; so another account may have written the bytes; sudo dnf reinstall ai-tools-base" \
+        && getfacl --omit-header -P -- "${README}" | grep -q '^group:nobody:rw-' && [[ "$(parse_reconcile_status "${out}")" == rc=4 ]] \
+        && pass "README.md with a foreign entry carrying write is refused naming that entry and left" || fail "README foreign entry: $(brief "${out}")"
+    setfacl -x g:nobody "${README}"; setfacl -m m::r-- "${README}"
+    # A log is a ghost, so an exposed one names the restore by hand: a reinstall does not write a %ghost, and removing
+    # the log would remove the evidence it holds. Restored as printed, the next run is clean.
+    LAYOUT_LOG="${fixture_root}/var/log/ai-tools/layout.log"
+    [[ -e "${LAYOUT_LOG}" ]] || : > "${LAYOUT_LOG}"
+    chown root:root "${LAYOUT_LOG}"; chmod 0660 "${LAYOUT_LOG}"
+    out="$(reconcile_run)"
+    has_reconcile_observation "${out}" refused "${LAYOUT_LOG}" mode "the mode 0660 grants write beyond the row's 0600; so another account may have written the bytes; review its content, then restore it by hand: sudo setfacl -b -- ${LAYOUT_LOG}; sudo chown root:root -- ${LAYOUT_LOG}; sudo chmod 0600 -- ${LAYOUT_LOG}" \
+        && [[ "$(stat -c '%a' "${LAYOUT_LOG}")" == 660 && "$(parse_reconcile_status "${out}")" == rc=4 ]] \
+        && pass "layout.log at group write is refused naming the restore by hand, and left" || fail "exposed log: $(brief "${out}")"
+    setfacl -b -- "${LAYOUT_LOG}"; chown root:root -- "${LAYOUT_LOG}"; chmod 0600 -- "${LAYOUT_LOG}"
+    out="$(reconcile_run)"
+    [[ "$(parse_reconcile_status "${out}")" == rc=0 ]] && pass "the log restored as the remedy prints converges with no line" \
+        || fail "restored log: $(brief "${out}")"
     # Missing entries: a directory is created, a file and a dangling link are refused with their remedies.
     PIN="${STATE}/entrypoint-pin.d"; rm -r "${PIN}"
     out="$(reconcile_run)"
@@ -1311,7 +1362,7 @@ else
     # until the file is restored by hand; the next run then converges them.
     chmod 0666 "${operator_conf}"; chmod 0755 "${OPDIR}"
     out="$(reconcile_run)"
-    has_reconcile_observation "${out}" refused "${operator_conf}" mode "the bytes were writable by another account" && has_reconcile_observation "${out}" error "${operator_conf}" operators \
+    has_reconcile_observation "${out}" refused "${operator_conf}" mode "the mode 0666 grants write beyond the row's 0644; so another account may have written the bytes; review its content, then restore it by hand" && has_reconcile_observation "${out}" error "${operator_conf}" operators \
         && [[ "$(stat -c '%a' "${operator_conf}")" == 666 && "$(stat -c '%a' "${OPDIR}")" == 755 && "$(parse_reconcile_status "${out}")" == rc=5 ]] \
         && pass "operator.conf writable by other accounts is refused and left, and the rows it names stay unread at exit 5" \
         || fail "exposed operator.conf: $(brief "${out}")"

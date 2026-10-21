@@ -962,33 +962,35 @@ _ai_tools_layout__is_content_verification_required() {
     [[ "$1" == file && ",$2," == *,files,* && ",$2," != *,config,* && ",$2," != *,ghost,* ]]
 }
 
-# _ai_tools_layout__get_refusal_remedy <flags> <package> <operator> [exposure <path> <owner> <mode>] : the command
-# that places a row the reconcile does not create -- a missing file or link, and a package file whose content drifted.
-# With `exposure`, the remedy for a regular file another account could have written, which replaces or restores
-# the inode rather than blessing its bytes: a package payload file is reinstalled; a `config` file and an operator's
-# file are reviewed and restored by hand to <owner> and <mode>, since a reinstall keeps an edited %config(noreplace)
-# file and an operator's file holds that operator's data; a runtime-created file is reviewed and removed, so its
-# package's scriptlet, or install.sh, writes it again.
+# _ai_tools_layout__get_refusal_remedy <flags> <package> <operator> [exposure <path> <owner> <mode> <acl-field>] :
+# the command that places a row the reconcile does not create -- `sudo ai-tools-admin operators add <name>`
+# for a missing operator file, and a reinstall for every other missing file or link and for a package file whose content
+# drifted, since the package's scriptlet or install.sh places a runtime-written file. With `exposure`, the remedy
+# for a regular file another account could have written, in one of two forms. A payload file (`files` without `config`
+# or `ghost`) is reinstalled, which replaces the inode with the package's bytes. Every other regular file is reviewed
+# and restored by hand: `setfacl -b` removes a foreign named entry, which `chmod` leaves in place masked, then `chown`,
+# `chmod` and, where <acl-field> is not `-`, `setfacl -m` with the row's named entries; each path goes
+# through `printf %q`, so the line pastes into a shell whole. A reinstall is named for payload bytes alone: it keeps
+# an edited %config(noreplace) file, re-chmods a stamp through its %post and leaves a log as it is, and removing
+# a runtime file would drop the claims' safe.directory entries `.gitconfig` holds or the evidence a log holds.
 _ai_tools_layout__get_refusal_remedy() {
+    local quoted_path
     if [[ "${4:-}" == exposure ]]; then
-        if [[ ",$1," == *,config,* || -n "$3" ]]; then
-            printf 'review its content, then sudo chown %s %s and sudo chmod %s %s by hand' "$6" "$5" "$7" "$5"
-            [[ -n "$3" ]] || printf ' (dnf reinstall keeps an edited %%config file)'
-        elif [[ ",$1," == *,files,* ]]; then
+        if _ai_tools_layout__is_content_verification_required file "$1"; then
             printf 'sudo dnf reinstall %s, or sudo ./install.sh install on a source install' "${2%%,*}"
         else
-            printf 'review its content, then remove it so sudo dnf reinstall %s, or sudo ./install.sh install' \
-                "${2%%,*}"
-            printf ' on a source install, writes it again'
+            printf -v quoted_path '%q' "$5"
+            printf 'review its content, then restore it by hand: sudo setfacl -b -- %s; sudo chown %s -- %s;' \
+                "${quoted_path}" "$6" "${quoted_path}"
+            printf ' sudo chmod %s -- %s' "$7" "${quoted_path}"
+            [[ "${8:--}" == - ]] || printf '; sudo setfacl -m %s -- %s' "$8" "${quoted_path}"
         fi
         return 0
     fi
     if [[ -n "$3" ]]; then
         printf 'sudo ai-tools-admin operators add %s' "$3"
-    elif [[ ",$1," == *,files,* || ",$1," == *,config,* ]]; then
-        printf 'sudo dnf reinstall %s, or sudo ./install.sh install on a source install' "${2%%,*}"
     else
-        printf 'sudo ai-tools-admin system bootstrap'
+        printf 'sudo dnf reinstall %s, or sudo ./install.sh install on a source install' "${2%%,*}"
     fi
 }
 
@@ -1546,9 +1548,9 @@ _ai_tools_layout__evaluate_change_log_level() {
 # _ai_tools_layout__evaluate_file_write_exposure <expected-mode> <observed-mode> <expected-acl> <observed-acl> : pure.
 # Print the first field through which an account the row does not name could write a regular file, and an empty line
 # where neither does: `mode` for a group or other `w` bit the observed mode carries and the expected mode lacks, then
-# `acl` for a named access entry carrying `w` where the expected text has no such entry carrying it. A masked named
-# entry counts, since its bits are effective once the mask widens; a mode outside the four-digit grammar reads
-# as `mode`.
+# `acl<TAB><tag>:<perm>` for the first named access entry carrying `w` where the expected text has no such entry
+# carrying it, so the refusal can name it. A masked named entry counts, since its bits are effective once the mask
+# widens; a mode outside the four-digit grammar reads as `mode`.
 _ai_tools_layout__evaluate_file_write_exposure() {
     local expected_mode="$1" observed_mode="$2" line tag perm
     local -A expected_entries=()
@@ -1565,7 +1567,7 @@ _ai_tools_layout__evaluate_file_write_exposure() {
         tag="${BASH_REMATCH[1]}:${BASH_REMATCH[2]}" perm="${BASH_REMATCH[3]}"
         [[ "${perm:1:1}" == w ]] || continue
         [[ "${expected_entries[${tag}]:-}" == ?w? ]] && continue
-        printf 'acl\n'; return 0
+        printf 'acl\t%s:%s\n' "${tag}" "${perm}"; return 0
     done <<< "$4"
     printf '\n'
 }
@@ -1691,9 +1693,11 @@ _ai_tools_layout__find_refusing_ancestor() {
 # under a parent that exists as a directory (lstat): a missing parent is a refusal naming it, so no intermediate
 # component is created. `mkdir` fails on a name occupied since the read, a symlink included, which is an `error` with no
 # further write; the created directory is the caller's to bring to its row through the pinned apply. `-m 0700` sets
-# the mode at the create and masks every entry a parent's default ACL hands the directory, which a umask does not,
-# so until the apply the directory is one no account but its owner can enter. Returns 0 when the directory was created,
-# 1 after a refusal or an error.
+# the mode at the create and masks every entry a parent's default ACL hands the directory, which a umask does not;
+# where that default ACL narrowed the owner bits, coreutils adjusts them on the new directory through fchmod or lchmod,
+# which do not follow a link. Until the apply the directory is one no account but root can enter, and under a setgid
+# parent it carries that parent's group and bit, which the apply brings to the row. Returns 0 when the directory was
+# created, 1 after a refusal or an error.
 _ai_tools_layout__create_directory() {
     local -n _layout_create_state="$1"
     local _layout_create_path="${_layout_create_state[path]}" _layout_create_parent _layout_create_status=0
@@ -1811,13 +1815,15 @@ _ai_tools_layout__apply_entry_fields() {
 # is created under an existing parent; a missing file or link, an entry of another type, and a package file
 # whose content differs are refused with the remedy the finding carries. A drifted package file whose content is
 # unverified is left as it is, each drifted field named. A regular file at another owner, or writable by an account its
-# row does not name, is refused on that field with the remedy that replaces or restores the inode by hand
-# (_ai_tools_layout__get_refusal_remedy). Otherwise the drifted fields are written -- a link's owner by name, the rest
-# through the pinned descriptor -- and the entry read again as the postcondition: `changed` for each field written
-# whose final value is the row's, and an `error` at the write-failed outcome for a repair the read shows did not hold.
+# row does not name, is refused on that field, naming what was observed and the remedy that replaces the inode
+# or restores it by hand (_ai_tools_layout__get_refusal_remedy). Otherwise the drifted fields are written -- a link's
+# owner by name, the rest through the pinned descriptor -- and the entry read again as the postcondition: `changed`
+# for each field written whose final value is the row's, and an `error` at the write-failed outcome for a repair
+# the read shows did not hold.
 _ai_tools_layout__reconcile_entry() {
     # The arrays are handed to the reader by name, so they carry a name the output-name check accepts.
     local entry="$1" ancestor path field token detail line content_reason refusal_detail="" link_status exposure=""
+    local exposure_detail
     local -A initial_state=() repair_state=() final_state=()
     local -a entry_fields=( "${@:2}" ) initial_findings=() repair_findings=() final_findings=() finding_fields=()
     local -a drifted_fields=() fields_to_repair=()
@@ -1913,10 +1919,15 @@ _ai_tools_layout__reconcile_entry() {
                     "${repair_state[mode]:-}" "${repair_state[expected_acl]}" "${repair_state[acl]:-}")"
             fi
             if [[ -n "${exposure}" ]]; then
-                _ai_tools_layout__report_refusal "${path}" "${exposure}" "the bytes were writable by another account; $(
+                case "${exposure}" in
+                    owner) exposure_detail="the owner ${repair_state[owner]:-} is not the row's ${repair_state[expected_owner]}" ;;
+                    mode)  exposure_detail="the mode ${repair_state[mode]:-} grants write beyond the row's ${repair_state[expected_mode]}" ;;
+                    *)     exposure_detail="the entry ${exposure#*$'\t'} grants write beyond the row"; exposure=acl ;;
+                esac
+                _ai_tools_layout__report_refusal "${path}" "${exposure}" "${exposure_detail}; so another account may have written the bytes; $(
                     _ai_tools_layout__get_refusal_remedy "${repair_state[flags]}" "${repair_state[package]}" \
                         "${repair_state[operator]}" exposure "${path}" "${repair_state[expected_owner]}" \
-                        "${repair_state[expected_mode]}")"
+                        "${repair_state[expected_mode]}" "${entry_fields[4]}")"
                 _ai_tools_layout__record_ancestor_verdict repair_state; return 0
             fi
         fi

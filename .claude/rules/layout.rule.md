@@ -146,17 +146,24 @@ fixed on unverified bytes would re-bless them. A regular file, whatever its flag
 at the row's owner and while no account the row does not name could write it: no group or other `w` bit the row lacks,
 and no named ACL entry carrying `w` the row's text lacks, masked or not
 (`_ai_tools_layout__evaluate_file_write_exposure`). A file at another owner is refused on `owner`, and one writable
-beyond its row on the field that widened it, each with the detail that the bytes were writable by another account
-and the remedy that replaces or restores the inode: a reinstall for a package file, a review and a `chown` and `chmod`
-by hand for a `config` file and an operator's file, a review and a removal for a runtime-created file. A file at a mode
-narrower than its row converges, since no account but root could write it, and a directory and a link take the owner
-repair. A missing `directory` is created by `mkdir -m 0700`, exclusively and only under a parent that exists
-as a directory: a name occupied since the read, a symlink included, fails the create and is an `error` with no further
-write, and a missing parent is a refusal naming it, so no intermediate component is created. The created directory is
-read again and its owner, ACL, mode and label go through the pinned apply like any drifted entry, which gives it its
-`changed` lines after the `type` line; until then only its owner, root, can enter it, since `-m` also masks every entry
-a parent's default ACL hands the directory, which a umask does not. A missing file or link and an entry of another type
-are refused with the remedy the finding carries.
+beyond its row on the field that widened it, each with a detail naming the observation — the owner that is not
+the row's, the mode or the named entry that grants write beyond the row — and that another account may therefore have
+written the bytes, then the remedy, in one of two forms (`_ai_tools_layout__get_refusal_remedy`). A payload file names
+the reinstall, which replaces the inode with the package's bytes. Every other regular file — `config`, `ghost`,
+runtime-written, an operator's — names a review of its content and its restore by hand, `setfacl -b`, `chown`, `chmod`
+and the row's named entries, each path quoted for a shell: `setfacl -b` removes a foreign entry `chmod` leaves masked,
+a reinstall keeps an edited `%config(noreplace)` file and leaves a log as it is, and removing `.gitconfig` or a log
+would drop the claims' `safe.directory` entries or the evidence. A file at a mode narrower than its row converges, since
+no account the row does not name could write it, and a directory and a link take the owner repair. A missing `directory`
+is created by `mkdir -m 0700`, exclusively and only under a parent that exists as a directory: a name occupied since
+the read, a symlink included, fails the create and is an `error` with no further write, and a missing parent is
+a refusal naming it, so no intermediate component is created. The created directory is read again and its owner, ACL,
+mode and label go through the pinned apply like any drifted entry, which gives it its `changed` lines after the `type`
+line. Until then no account but root can enter it: `-m` also masks every entry a parent's default ACL hands
+the directory, which a umask does not, coreutils adjusts owner bits that default ACL narrowed through `fchmod`
+or `lchmod`, which do not follow a link, and under a setgid parent the directory carries that parent's group and bit,
+which the apply brings to the row. A missing file or link and an entry of another type are refused with the remedy
+the finding carries: `operators add` for an operator's file, the reinstall for every other row.
 
 **Fields, through a pinned descriptor.** A file or directory row is repaired the way `ai-tools-chown`'s apply block
 repairs a path ([safe-paths](safe-paths.rule.md)): the identity is read through the path, the entry opened,
@@ -239,13 +246,15 @@ a refusal produces.
   verify a descriptor, so a `verified` state does not bind to the inode the pin later holds: a `chown` or a `chmod`
   on a file another account owns or could write would hand root's trust to bytes that account wrote, or writes
   after the observation through a descriptor it holds open, which a digest of the pinned descriptor would not close
-  either. Refusing the file with a remedy that replaces the inode closes both without a second content oracle.
-  A directory has no bytes, and every link row sits in a root-only directory, so both keep the owner repair. With no
-  sandbox-owned regular file reaching the repair, the path `restorecon` labels after the pin is a root-owned entry
-  the sandbox cannot rename, or the timer-stamp directory the sandbox owns by design, which the pin's type check holds
-  to a directory. The cost is the operator's: a package file an operator chowned or chmodded by hand is reinstalled,
-  or a `config` file reviewed and restored, and an `operator.conf` another account could write stays unread,
-  with the rows it names, until it is restored by hand.
+  either. Refusing the file with a remedy that replaces the inode or restores it by hand closes both without a second
+  content oracle. A directory has no bytes, and every link row sits in a root-only directory, so both keep the owner
+  repair. A row whose declared owner is the sandbox account (`cache-cleanup.status`, `nvm-update.status`) reaches
+  the repair at that owner: the precondition holds the writer set to the row's, the content is that account's by design
+  and `services.lib.sh` reads it as untrusted status, and the path `restorecon` labels after the pin is stable because
+  the `state` parent is root-owned and not group-writable; the timer-stamp directory the sandbox owns by design is
+  a directory, which the pin's type check holds. The cost is the operator's: a package file an operator chowned
+  or chmodded by hand is reinstalled, any other file reviewed and restored, and an `operator.conf` another account could
+  write stays unread, with the rows it names, until it is restored by hand.
 - **The discovery inputs go first because the dynamic rows are read through them.** An untrusted `agents.d` does not
   yield an agent config directory row, and an untrusted `operator.conf` does not yield an operator row, so a pass
   over the union alone would converge the input and leave the rows it hides for the next run. The first phase brings
