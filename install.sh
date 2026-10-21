@@ -294,6 +294,8 @@ TREE_LINE=""
 # before the source-tree gate, which is how the unit test drives it, through AI_TOOLS_INSTALLED_CLI -- a root-only test
 # hook (tests.rule.md, ref-section-b4y9): a caller who could set it runs this script as root already.
 INSTALLED_CLI="${AI_TOOLS_INSTALLED_CLI:-/usr/local/bin/ai-tools}"
+
+
 version_gate() {
     local installed="" lower
     [[ -f "${INSTALLED_CLI}" ]] \
@@ -1874,14 +1876,15 @@ do_install() {
     # by an administrator and documented as a bare command. sudo resolves a bare command against the sudoers
     # secure_path, which on stock EL is /sbin:/bin:/usr/sbin:/usr/bin -- it does NOT include /usr/local/sbin --
     # so the symlink lives in /usr/sbin (also on root's shell PATH). The target keeps its canonical
-    # /usr/local/libexec/ai-tools/ path (sudoers, perms checks, docs reference it).
+    # /usr/local/libexec/ai-tools/ path (sudoers, perms checks, docs reference it). Both links are relative (`-r`),
+    # as the package writes them.
     log "/usr/sbin/ai-tools-admin -> /usr/local/libexec/ai-tools/ai-tools-admin"
-    ln -sfn /usr/local/libexec/ai-tools/ai-tools-admin /usr/sbin/ai-tools-admin
+    ln -sfnr /usr/local/libexec/ai-tools/ai-tools-admin /usr/sbin/ai-tools-admin
     # The ai-tools CLI gets the same secure_path symlink for the OPPOSITE reason: it must never run under sudo,
     # and without the symlink `sudo ai-tools` dies with sudo's "command not found" (/usr/local/bin is not
     # in secure_path) before the CLI's own refusal -- "run as the projects user" -- can explain the right invocation.
     log "/usr/sbin/ai-tools -> /usr/local/bin/ai-tools"
-    ln -sfn /usr/local/bin/ai-tools /usr/sbin/ai-tools
+    ln -sfnr /usr/local/bin/ai-tools /usr/sbin/ai-tools
 
     # Handback privilege bridge daemon.  750 root:root -- root-owned and only root-executable: this is the privileged
     # endpoint; the SANDBOX_USER reaches it via the socket, never by exec'ing it directly.  install_subst substitutes

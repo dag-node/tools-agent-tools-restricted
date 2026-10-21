@@ -313,9 +313,11 @@ install -m 0750 src%{ai_libexecdir}/ai-tools-handback.py %{buildroot}%{ai_libexe
 # %{_sbindir}: sudo resolves a bare command against the sudoers secure_path, which on stock
 # EL is /sbin:/bin:/usr/sbin:/usr/bin and does NOT include /usr/local/sbin. The target keeps
 # its canonical %{ai_libexecdir} path. Provisioning is a verb on it (`system bootstrap`) rather
-# than a name of its own.
+# than a name of its own. Both %{_sbindir} links are relative (`ln -sr`): rpmbuild's file
+# classifier resolves a link on the build host, and an absolute target there is the installed
+# helper inside a root-only directory, which fails the build where ai-tools is installed.
 install -d -m 0755 %{buildroot}%{_sbindir}
-ln -s %{ai_libexecdir}/ai-tools-admin %{buildroot}%{_sbindir}/ai-tools-admin
+ln -sr %{buildroot}%{ai_libexecdir}/ai-tools-admin %{buildroot}%{_sbindir}/ai-tools-admin
 
 # ── base: CLI + handback client ──────────────────────────────────────────────
 install -d -m 0755 %{buildroot}%{ai_bindir}
@@ -361,7 +363,7 @@ install -m 0644 src%{ai_mandir}/man7/ai-tools-messages.7        %{buildroot}%{ai
 # That only holds for a caller sudo will exec at all: an operator whose only grant is the
 # %%ai-ops drop-in is refused by sudo first, and meets sudo's message rather than the CLI's.
 # The symlink also carries the read-only reports, which the CLI now accepts as root.
-ln -s %{ai_bindir}/ai-tools %{buildroot}%{_sbindir}/ai-tools
+ln -sr %{buildroot}%{ai_bindir}/ai-tools %{buildroot}%{_sbindir}/ai-tools
 
 # ── base: shared libraries ───────────────────────────────────────────────────
 # 0751: group SANDBOX_GROUP r-x for the agent; world-execute so an operator (not a
