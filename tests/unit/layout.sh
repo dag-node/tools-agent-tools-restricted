@@ -498,6 +498,40 @@ expect_level "an ACL entry added is notice" acl $'user::rwx\ngroup::r-x\nother::
 expect_level "an ACL entry removed is info"  acl $'user::rwx\ngroup::r-x\ngroup:x:r-x\nmask::r-x\nother::---' $'user::rwx\ngroup::r-x\nother::---' info
 expect_level "a label change is notice"                   label etc_t var_t notice
 expect_level "a created entry is notice"                  type absent directory notice
+# expect_exposure <desc> <expected-mode> <observed-mode> <expected-acl> <observed-acl> <wanted> : the field the write
+# exposure evaluator prints, `none` for its empty line.
+expect_exposure() {
+    local got; got="$(_ai_tools_layout__evaluate_file_write_exposure "$2" "$3" "$4" "$5")"
+    [[ "${got:-none}" == "$6" ]] && pass "write exposure: $1" || fail "write exposure: $1: ${got:-none}, wanted $6"
+}
+base_acl=$'user::rw-\ngroup::r--\nother::r--'
+expect_exposure "a file at its row"                       0644 0644 "${base_acl}" "${base_acl}" none
+expect_exposure "group write the row lacks"               0644 0664 "${base_acl}" "${base_acl}" mode
+expect_exposure "other write the row lacks"               0644 0646 "${base_acl}" "${base_acl}" mode
+expect_exposure "group write the row declares"            0664 0664 "${base_acl}" "${base_acl}" none
+expect_exposure "a narrowing"                             0644 0600 "${base_acl}" "${base_acl}" none
+expect_exposure "an execute bit"                          0644 0755 "${base_acl}" "${base_acl}" none
+expect_exposure "owner write alone"                       0444 0644 "${base_acl}" "${base_acl}" none
+expect_exposure "a mode outside the grammar"              0644 absent "${base_acl}" "${base_acl}" mode
+expect_exposure "a masked foreign entry carrying w"       0644 0644 "${base_acl}" \
+    $'user::rw-\nuser:nobody:rw-\ngroup::r--\nmask::r--\nother::r--' acl
+expect_exposure "a foreign entry reading only"            0644 0644 "${base_acl}" \
+    $'user::rw-\ngroup::r--\ngroup:nobody:r--\nmask::r--\nother::r--' none
+expect_exposure "an entry the row names carrying its w"   0660 0660 $'user::rw-\ngroup::rw-\ngroup:ai-ops:rw-\nmask::rw-\nother::---' \
+    $'user::rw-\ngroup::rw-\ngroup:ai-ops:rw-\nmask::rw-\nother::---' none
+expect_exposure "an entry the row names gaining w"        0640 0640 $'user::rw-\ngroup::r--\ngroup:ai-ops:r--\nmask::r--\nother::---' \
+    $'user::rw-\ngroup::r--\ngroup:ai-ops:rw-\nmask::r--\nother::---' acl
+expect_exposure "mode and ACL both widening: mode first"  0644 0664 "${base_acl}" \
+    $'user::rw-\nuser:nobody:rw-\ngroup::r--\nmask::rw-\nother::r--' mode
+exposure_remedy() { _ai_tools_layout__get_refusal_remedy "$1" "$2" "$3" exposure /p root:root 0644; }
+[[ "$(exposure_remedy files ai-tools-base "")" == *"dnf reinstall ai-tools-base"* ]] \
+    && pass "an exposed package file names dnf reinstall" || fail "exposure files: $(exposure_remedy files ai-tools-base "")"
+[[ "$(exposure_remedy files,config ai-tools-base "")" == *"review its content, then sudo chown root:root /p and sudo chmod 0644 /p by hand"*"%config"* ]] \
+    && pass "an exposed config file names a review and the chown and chmod by hand" || fail "exposure config: $(exposure_remedy files,config ai-tools-base "")"
+[[ "$(exposure_remedy boundary - xd)" == "review its content, then sudo chown root:root /p and sudo chmod 0644 /p by hand" ]] \
+    && pass "an exposed operator file names a review and the chown and chmod by hand" || fail "exposure operator: $(exposure_remedy boundary - xd)"
+[[ "$(exposure_remedy - ai-tools-base "")" == *"remove it so sudo dnf reinstall ai-tools-base"*"writes it again" ]] \
+    && pass "an exposed runtime file names its removal and what writes it again" || fail "exposure runtime: $(exposure_remedy - ai-tools-base "")"
 _ai_tools_layout__is_discovery_input "${AGENTS_DIR}" && pass "the agents directory is a discovery input" || fail "agents.d is not a discovery input"
 _ai_tools_layout__is_discovery_input "${AGENTS_DIR}/acme.conf" && pass "a manifest under it is a discovery input" || fail "a manifest is not"
 _ai_tools_layout__is_discovery_input "${AGENTS_DIR}/sub/x.conf" && fail "a nested .conf reads as a discovery input" || pass "a nested .conf is not one"
@@ -579,11 +613,29 @@ else
         && pass "a mode drift converges through the pinned descriptor with its changed line" || fail "mode drift: ${out} / $(mode_of "${RE}/w")"
     has_line "${out}" changed "${RE}/w" acl && pass "the ACL text changed with the mode, and says so" || fail "no acl changed line: ${out}"
     grep -q "NOTICE.*${RE}/w mode 0600 -> 0644" "${LOG}" 2>/dev/null && pass "a widening is logged at notice" || fail "no notice line in ${LOG}: $(grep "${RE}/w" "${LOG}" 2>/dev/null | tr '\n' '|')"
-    chmod 0666 "${RE}/w"
+    # A narrowing that does not grant group or other write: 0666 would be refused under the write-exposure precondition.
+    chmod 0755 "${RE}/w"
     out="$(entry_run "$(entry "${RE}/w" file "${me}" 0644 - ai-tools-base -)")"
-    grep -q "INFO.*${RE}/w mode 0666 -> 0644" "${LOG}" 2>/dev/null && pass "a narrowing is logged at info" || fail "no info line: $(grep "${RE}/w mode 0666" "${LOG}" 2>/dev/null)"
+    grep -q "INFO.*${RE}/w mode 0755 -> 0644" "${LOG}" 2>/dev/null && pass "a narrowing is logged at info" || fail "no info line: $(grep "${RE}/w mode 0755" "${LOG}" 2>/dev/null)"
     out="$(entry_run "$(entry "${RE}/w" file "${me}" 0644 - ai-tools-base -)")"
     [[ -z "${out}" ]] && pass "an entry at its row prints no line" || fail "converged entry printed: ${out}"
+    # A regular file writable by an account the row does not name is refused on the field that widened it and left,
+    # with the remedy that replaces the inode; the converging 0600 case at the head of this section is the control.
+    # The rows are runtime ones, so the content gate, which answers first for a package file, does not decide them.
+    : > "${RE}/exposed"; chmod 0664 "${RE}/exposed"
+    out="$(entry_run "$(entry "${RE}/exposed" file "${me}" 0644 - ai-tools-base -)")"
+    has_line "${out}" refused "${RE}/exposed" mode "the bytes were writable by another account; review its content" \
+        && [[ "$(mode_of "${RE}/exposed")" == 664 && "$(grep -c . <<< "${out}")" -eq 1 ]] \
+        && pass "a file at group write the row lacks is refused on its mode and left" || fail "exposed mode: ${out} / $(mode_of "${RE}/exposed")"
+    chmod 0644 "${RE}/exposed"
+    if setfacl -m u:nobody:rw-,m::r-- "${RE}/exposed" 2>/dev/null; then
+        out="$(entry_run "$(entry "${RE}/exposed" file "${me}" 0644 - ai-tools-base -)")"
+        has_line "${out}" refused "${RE}/exposed" acl "the bytes were writable by another account" \
+            && getfacl --omit-header -P -- "${RE}/exposed" 2>/dev/null | grep -q '^user:nobody:rw-' \
+            && pass "a file with a masked foreign entry carrying write is refused on its ACL and left" || fail "exposed acl: ${out}"
+    else
+        skip "a file with a foreign ACL entry" "setfacl is refused on ${RE}/exposed"
+    fi
     # A foreign named entry masked off beside a group widening, and a default block where none is declared: one
     # `setfacl --set` replaces both, and the mode re-asserts the base bits.
     mkdir -p "${RE}/d"; chmod 0750 "${RE}/d"
@@ -842,11 +894,20 @@ else
         && pass "a second run prints no line and exits 0" || fail "second run: $(brief "${out}")"
     LOG="${AI_TOOLS_LOG_DIR}/layout.log"
     OC="${OPERATOR_CONF}"
+    PROMPTS="${R}/etc/ai-tools/prompts"
+    chown nobody:nobody "${PROMPTS}"
+    out="$(reconcile_run)"
+    has_line "${out}" changed "${PROMPTS}" owner "nobody:nobody	root:root" && [[ "$(stat -c '%U:%G' "${PROMPTS}")" == root:root && "$(rc_of "${out}")" == rc=0 ]] \
+        && pass "an owner drift on a directory converges with its changed line" || fail "owner drift: $(brief "${out}")"
+    grep -q "INFO.*${PROMPTS} owner nobody:nobody -> root:root" "${LOG}" && pass "an owner moving to root is logged at info" || fail "owner log line: $(grep "${PROMPTS} owner" "${LOG}" | tail -n1)"
+    # A regular file at another owner is refused and left: its bytes were that account's to write. operator.conf
+    # at another owner is also an untrusted discovery input, so its rows are an error line and the run exits 5.
     chown nobody:nobody "${OC}"
     out="$(reconcile_run)"
-    has_line "${out}" changed "${OC}" owner "nobody:nobody	root:root" && [[ "$(stat -c '%U:%G' "${OC}")" == root:root && "$(rc_of "${out}")" == rc=0 ]] \
-        && pass "an owner drift converges with its changed line" || fail "owner drift: $(brief "${out}")"
-    grep -q "INFO.*${OC} owner nobody:nobody -> root:root" "${LOG}" && pass "an owner moving to root is logged at info" || fail "owner log line: $(grep "${OC} owner" "${LOG}" | tail -n1)"
+    has_line "${out}" refused "${OC}" owner "the bytes were writable by another account; review its content, then sudo chown root:root ${OC}" \
+        && [[ "$(stat -c '%U:%G' "${OC}")" == nobody:nobody && "$(rc_of "${out}")" == rc=5 ]] \
+        && pass "operator.conf at another owner is refused and left, naming the review and the chown by hand" || fail "owner refused: $(brief "${out}")"
+    chown root:root "${OC}"
     chmod 0600 "${OC}"
     out="$(reconcile_run)"
     has_line "${out}" changed "${OC}" mode "0600	0644" && [[ "$(stat -c '%a' "${OC}")" == 644 ]] \
@@ -895,9 +956,41 @@ else
     out="$(reconcile_run 1)"
     has_line "${out}" refused "${CLI}" owner "left as it is: the content is unverified" && [[ "$(stat -c '%U %a' "${CLI}")" == "nobody 600" && "$(rc_of "${out}")" == rc=4 ]] \
         && pass "a pass without rpm reports the drifted package file per field and leaves it" || fail "without rpm: $(brief "${out}")"
+    # Verified content does not bless bytes another account owned: the owner is refused, naming the reinstall.
+    out="$(reconcile_run)"
+    has_line "${out}" refused "${CLI}" owner "the bytes were writable by another account; sudo dnf reinstall ai-tools-base" \
+        && [[ "$(stat -c '%U %a' "${CLI}")" == "nobody 600" && "$(rc_of "${out}")" == rc=4 ]] \
+        && pass "with the content verified, a package file at another owner is refused on its owner and left" || fail "verified, other owner: $(brief "${out}")"
+    chown root:root "${CLI}"
     out="$(reconcile_run)"
     [[ "$(stat -c '%U %a' "${CLI}")" == "root 755" && "$(rc_of "${out}")" == rc=0 ]] \
-        && pass "with the content verified the same drift converges" || fail "verified: $(brief "${out}")"
+        && pass "with the owner restored by hand, the verified file's mode drift converges" || fail "verified: $(brief "${out}")"
+    # The payload file a sandbox-writable parent holds, replaced by the projects user with the package's bytes (the rpm
+    # stub reports them verified): refused on its owner and left at that owner.
+    HOOK="${R}/opt/ai-tools/.claude/post-tool-hook.sh"
+    cp -- "${HOOK}" "${HOOK}.planted"; chown "${PROJECTS_USER}" "${HOOK}.planted"; mv -f -- "${HOOK}.planted" "${HOOK}"
+    out="$(reconcile_run)"
+    has_line "${out}" refused "${HOOK}" owner "the bytes were writable by another account; sudo dnf reinstall ai-tools-agents-claude-code-restricted" \
+        && [[ "$(stat -c '%U' "${HOOK}")" == "${PROJECTS_USER}" && "$(rc_of "${out}")" == rc=4 ]] \
+        && pass "a hook with the package's bytes at the projects user's owner is refused and left at that owner" || fail "planted hook: $(brief "${out}")"
+    chown "root:${SANDBOX_GROUP}" "${HOOK}"; chmod 0750 "${HOOK}"
+    # A root-owned package file at group write, then with a masked foreign entry carrying write: each refused
+    # on the field that widened it and left. At 0600 the same file converges, since no account but root could write it.
+    CONF_LIB="${R}/usr/local/lib/ai-tools/conf.lib.sh"
+    chmod 0664 "${CONF_LIB}"
+    out="$(reconcile_run)"
+    has_line "${out}" refused "${CONF_LIB}" mode "the bytes were writable by another account; sudo dnf reinstall ai-tools-base" \
+        && [[ "$(stat -c '%a' "${CONF_LIB}")" == 664 && "$(rc_of "${out}")" == rc=4 ]] \
+        && pass "a package file at group write is refused on its mode and left" || fail "group write: $(brief "${out}")"
+    chmod 0644 "${CONF_LIB}"; setfacl -m g:nobody:rw-,m::r-- "${CONF_LIB}"
+    out="$(reconcile_run)"
+    has_line "${out}" refused "${CONF_LIB}" acl "the bytes were writable by another account" \
+        && getfacl --omit-header -P -- "${CONF_LIB}" | grep -q '^group:nobody:rw-' && [[ "$(rc_of "${out}")" == rc=4 ]] \
+        && pass "a package file with a masked foreign entry carrying write is refused on its ACL and left" || fail "foreign entry: $(brief "${out}")"
+    setfacl -b "${CONF_LIB}"; chmod 0600 "${CONF_LIB}"
+    out="$(reconcile_run)"
+    has_line "${out}" changed "${CONF_LIB}" mode "0600	0644" && [[ "$(stat -c '%a' "${CONF_LIB}")" == 644 && "$(rc_of "${out}")" == rc=0 ]] \
+        && pass "the same file at 0600 converges" || fail "0600: $(brief "${out}")"
     # Missing entries: a directory is created, a file and a dangling link are refused with their remedies.
     PIN="${STATE}/entrypoint-pin.d"; rm -r "${PIN}"
     out="$(reconcile_run)"
@@ -945,13 +1038,27 @@ else
         && [[ "$(stat -c '%a' "${AGENTS_DIR}")" == 755 && "$(stat -c '%a' "${ACME}")" == 3770 && "$(rc_of "${out}")" == rc=0 ]] \
         && pass "an untrusted agents directory and the drift in an agent config directory converge in one invocation" \
         || fail "agents.d then .acme: $(brief "${out}")"
-    OPDIR="${R}${PROJECTS_HOME}/.config/ai-tools"
+    # operator.conf read untrusted through a group-writable directory: the directory is repaired first, so the operator
+    # rows the file names are read in the same run.
+    OPDIR="${R}${PROJECTS_HOME}/.config/ai-tools" ETC="${OC%/*}"
+    chmod 0777 "${ETC}"; chmod 0755 "${OPDIR}"
+    out="$(reconcile_run)"
+    has_line "${out}" changed "${ETC}" mode && has_line "${out}" changed "${OPDIR}" mode \
+        && [[ "$(stat -c '%a' "${ETC}")" == 755 && "$(stat -c '%a' "${OPDIR}")" == 700 && "$(rc_of "${out}")" == rc=0 ]] \
+        && pass "operator.conf untrusted through its directory and the drift in an operator's config directory converge in one invocation" \
+        || fail "/etc/ai-tools then the operator directory: $(brief "${out}")"
+    # operator.conf itself writable by other accounts is refused and left, so the rows it names stay unread (exit 5)
+    # until the file is restored by hand; the next run then converges them.
     chmod 0666 "${OC}"; chmod 0755 "${OPDIR}"
     out="$(reconcile_run)"
-    has_line "${out}" changed "${OC}" mode && has_line "${out}" changed "${OPDIR}" mode \
-        && [[ "$(stat -c '%a' "${OC}")" == 644 && "$(stat -c '%a' "${OPDIR}")" == 700 && "$(rc_of "${out}")" == rc=0 ]] \
-        && pass "an untrusted operator.conf and the drift in an operator's config directory converge in one invocation" \
-        || fail "operator.conf then the operator directory: $(brief "${out}")"
+    has_line "${out}" refused "${OC}" mode "the bytes were writable by another account" && has_line "${out}" error "${OC}" operators \
+        && [[ "$(stat -c '%a' "${OC}")" == 666 && "$(stat -c '%a' "${OPDIR}")" == 755 && "$(rc_of "${out}")" == rc=5 ]] \
+        && pass "operator.conf writable by other accounts is refused and left, and the rows it names stay unread at exit 5" \
+        || fail "exposed operator.conf: $(brief "${out}")"
+    chmod 0644 "${OC}"
+    out="$(reconcile_run)"
+    has_line "${out}" changed "${OPDIR}" mode && [[ "$(stat -c '%a' "${OPDIR}")" == 700 && "$(rc_of "${out}")" == rc=0 ]] \
+        && pass "once operator.conf is restored by hand the rows it names converge" || fail "after the restore: $(brief "${out}")"
     # An input the enumeration cannot use stays visible, at exit 5, run after run.
     BAD="${AGENTS_DIR}/bad.conf"; printf 'config_dir=../x\n' > "${BAD}"; chmod 0644 "${BAD}"
     out="$(reconcile_run)"

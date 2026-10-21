@@ -880,9 +880,26 @@ _ai_tools_layout__is_payload_file() {
     [[ "$1" == file && ",$2," == *,files,* && ",$2," != *,config,* && ",$2," != *,ghost,* ]]
 }
 
-# _ai_tools_layout__get_refusal_remedy <flags> <package> <operator> : the command that places a row the reconcile does
-# not create -- a missing file or link, and a package file whose content drifted.
+# _ai_tools_layout__get_refusal_remedy <flags> <package> <operator> [exposure <path> <owner> <mode>] : the command
+# that places a row the reconcile does not create -- a missing file or link, and a package file whose content drifted.
+# With `exposure`, the remedy for a regular file another account could have written, which replaces or restores
+# the inode rather than blessing its bytes: a package payload file is reinstalled; a `config` file and an operator's
+# file are reviewed and restored by hand to <owner> and <mode>, since a reinstall keeps an edited %config(noreplace)
+# file and an operator's file holds that operator's data; a runtime-created file is reviewed and removed, so its
+# package's scriptlet, or install.sh, writes it again.
 _ai_tools_layout__get_refusal_remedy() {
+    if [[ "${4:-}" == exposure ]]; then
+        if [[ ",$1," == *,config,* || -n "$3" ]]; then
+            printf 'review its content, then sudo chown %s %s and sudo chmod %s %s by hand' "$6" "$5" "$7" "$5"
+            [[ -n "$3" ]] || printf ' (dnf reinstall keeps an edited %%config file)'
+        elif [[ ",$1," == *,files,* ]]; then
+            printf 'sudo dnf reinstall %s, or sudo ./install.sh install on a source install' "${2%%,*}"
+        else
+            printf 'review its content, then remove it so sudo dnf reinstall %s, or sudo ./install.sh install' "${2%%,*}"
+            printf ' on a source install, writes it again'
+        fi
+        return 0
+    fi
     if [[ -n "$3" ]]; then
         printf 'sudo ai-tools-admin operators add %s' "$3"
     elif [[ ",$1," == *,files,* || ",$1," == *,config,* ]]; then
@@ -1422,6 +1439,33 @@ _ai_tools_layout__evaluate_change_log_level() {
     esac
 }
 
+# _ai_tools_layout__evaluate_file_write_exposure <expected-mode> <observed-mode> <expected-acl> <observed-acl> : pure.
+# Print the first field through which an account the row does not name could write a regular file, and an empty line
+# where neither does: `mode` for a group or other `w` bit the observed mode carries and the expected mode lacks, then
+# `acl` for a named access entry carrying `w` where the expected text has no such entry carrying it. A masked named
+# entry counts, since its bits are effective once the mask widens; a mode outside the four-digit grammar reads
+# as `mode`.
+_ai_tools_layout__evaluate_file_write_exposure() {
+    local expected_mode="$1" observed_mode="$2" line tag perm
+    local -A expected_entries=()
+    if [[ ! "${expected_mode}" =~ ^[0-7]{4}$ || ! "${observed_mode}" =~ ^[0-7]{4}$ ]] \
+            || (( (8#${observed_mode} & ~8#${expected_mode} & 8#0022) != 0 )); then
+        printf 'mode\n'; return 0
+    fi
+    while IFS= read -r line; do
+        [[ "${line}" =~ ^(user|group):([^:]+):([r-][w-][x-])$ ]] || continue
+        expected_entries["${BASH_REMATCH[1]}:${BASH_REMATCH[2]}"]="${BASH_REMATCH[3]}"
+    done <<< "$3"
+    while IFS= read -r line; do
+        [[ "${line}" =~ ^(user|group):([^:]+):([r-][w-][x-])$ ]] || continue
+        tag="${BASH_REMATCH[1]}:${BASH_REMATCH[2]}" perm="${BASH_REMATCH[3]}"
+        [[ "${perm:1:1}" == w ]] || continue
+        [[ "${expected_entries[${tag}]:-}" == ?w? ]] && continue
+        printf 'acl\n'; return 0
+    done <<< "$4"
+    printf '\n'
+}
+
 # _ai_tools_layout__report_change <path> <field> <from> <to> : one `changed` line, logged at the level the change earns,
 # the ACL text's line feeds as commas in the log.
 _ai_tools_layout__report_change() {
@@ -1652,12 +1696,14 @@ _ai_tools_layout__apply_pinned() {
 # at its row is refused unread. A finding the reader could not complete is an `error` and no write. A missing directory
 # is created under an existing parent; a missing file or link, an entry of another type, and a package file
 # whose content differs are refused with the remedy the finding carries. A drifted package file whose content is
-# unverified is left as it is, each drifted field named. Otherwise the drifted fields are written -- a link's owner
-# by name, the rest through the pinned descriptor -- and the entry read again: `changed` per field from the two reads,
-# and `error` for a field that still reports its finding.
+# unverified is left as it is, each drifted field named. A regular file at another owner, or writable by an account its
+# row does not name, is refused on that field with the remedy that replaces or restores the inode by hand
+# (_ai_tools_layout__get_refusal_remedy). Otherwise the drifted fields are written -- a link's owner by name, the rest
+# through the pinned descriptor -- and the entry read again: `changed` per field from the two reads, and `error`
+# for a field that still reports its finding.
 _ai_tools_layout__reconcile_entry() {
     # The arrays are handed to the reader by name, so they carry a name the output-name check accepts.
-    local entry="$1" ancestor path field token detail line content_reason refusal_detail="" link_status
+    local entry="$1" ancestor path field token detail line content_reason refusal_detail="" link_status exposure=""
     local -A first=() current=() final=()
     local -a entry_fields=( "${@:2}" ) first_findings=() current_findings=() final_findings=() finding=() drifted=()
     local -a apply_fields=()
@@ -1740,6 +1786,24 @@ _ai_tools_layout__reconcile_entry() {
                     "left as it is: the content is ${current[content]:-unverified} (${content_reason}); run ${_AI_TOOLS_LAYOUT__FULL_PASS_REMEDY}"
             done
             _ai_tools_layout__record_ancestor_state current; return 0
+        fi
+        # A regular file is repaired in place only at the row's owner and while no account the row does not name could
+        # write it: every content observation is by path, and no pin binds one to the inode, so a chown or a chmod would
+        # bless bytes that account wrote, or writes later through a descriptor it holds open.
+        if [[ "${current[expected_type]}" == file ]]; then
+            if [[ " ${drifted[*]} " == *" owner "* ]]; then
+                exposure=owner
+            else
+                exposure="$(_ai_tools_layout__evaluate_file_write_exposure "${current[expected_mode]}" \
+                    "${current[mode]:-}" "${current[expected_acl]}" "${current[acl]:-}")"
+            fi
+            if [[ -n "${exposure}" ]]; then
+                _ai_tools_layout__report_refusal "${path}" "${exposure}" "the bytes were writable by another account; $(
+                    _ai_tools_layout__get_refusal_remedy "${current[flags]}" "${current[package]}" \
+                        "${current[operator]}" exposure "${path}" "${current[expected_owner]}" \
+                        "${current[expected_mode]}")"
+                _ai_tools_layout__record_ancestor_state current; return 0
+            fi
         fi
         if [[ "${current[expected_type]}" == link ]]; then
             link_status=0
