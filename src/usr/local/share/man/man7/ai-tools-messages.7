@@ -902,10 +902,6 @@ WARNING.
 rule\-missing
 .SS ai-tools-admin dotnet
 .TP
-.B MSG-A5R2
-ERROR.
-could not create the writable dotnet state under ${STATE_DIR}
-.TP
 .B MSG-A7X9
 ERROR.
 dotnet takes a command: 'dotnet bootstrap', 'dotnet tools install <pkg>...', 'dotnet status'
@@ -917,10 +913,6 @@ dotnet tools install: name at least one package
 .B MSG-C4T6
 ERROR.
 run as root (sudo)
-.TP
-.B MSG-G6E2
-ERROR.
-could not set the mode on ${STATE_DIR}
 .TP
 .B MSG-J4C7
 ERROR.
@@ -940,19 +932,11 @@ dotnet not found on PATH \-\- install a host dotnet\-sdk package first
 .TP
 .B MSG-N6G6
 ERROR.
-could not create the dotnet state root ${STATE_DIR}
+the layout reconcile did not create ${dir} as a directory; see: sudo ai\-tools\-admin system layout
 .TP
 .B MSG-P8N7
 ERROR.
 dotnet status: takes no arguments
-.TP
-.B MSG-Q7P2
-ERROR.
-could not create the shared tools dir ${TOOLS_DIR}
-.TP
-.B MSG-V3F4
-ERROR.
-could not set the mode on ${TOOLS_DIR}
 .TP
 .B MSG-V3Y2
 ERROR.
