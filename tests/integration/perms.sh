@@ -16,13 +16,14 @@ require_root
 section "File permissions"
 # The loop over the installed layout. A row at its row passes with its owner and mode; a ghost or optional row that is
 # absent skips, since the absence is permitted; every finding fails naming the field, the declared and the read value;
-# and an input the enumeration could not read fails naming it, so an untrusted agents directory or operator.conf does
-# not read as a host with fewer rows. The library is the installed one: this suite asserts what the install
-# deployed. The arrays it writes carry this file's prefix: its output-name check refuses one in its own `_layout_`
-# prefix, since a nameref landing on one of its locals would report a read that reached no caller.
+# and an input the enumeration could not read, or an enumeration that ended on a status its lines do not account
+# for, fails naming it, so an untrusted agents directory or operator.conf does not read as a host with fewer rows.
+# The library is the installed one: this suite asserts what the install deployed. The arrays it writes carry this file's
+# prefix: its output-name check refuses one in its own `_layout_` prefix, since a nameref landing on one of its locals
+# would report a read that reached no caller.
 perms_layout_lib=/usr/local/lib/ai-tools/layout.lib.sh
 # shellcheck source=/dev/null
-if ! source "${perms_layout_lib}" 2>/dev/null || ! declare -F ai_tools_layout__list_entries >/dev/null 2>&1; then
+if ! source "${perms_layout_lib}" 2>/dev/null || ! declare -F ai_tools_layout__read_entry_lines >/dev/null 2>&1; then
     fail "${perms_layout_lib} did not load, so the installed layout is not asserted -- reinstall ai-tools-base"
 elif [[ -n "${AI_TOOLS_LAYOUT__DECLARATION_ERROR}" ]]; then
     fail "the layout table did not validate: ${AI_TOOLS_LAYOUT__DECLARATION_ERROR}"
@@ -31,7 +32,7 @@ else
     declare -a perms_lines=() perms_fields=() perms_findings=() perms_finding=()
     declare -A perms_state=()
     perms_rows=0
-    mapfile -t perms_lines < <(ai_tools_layout__list_entries)
+    ai_tools_layout__read_entry_lines perms_lines || :
     for perms_line in "${perms_lines[@]}"; do
         if [[ "${perms_line}" == error$'\t'* ]]; then
             ai_tools_layout__parse_line "${perms_line}" perms_fields \

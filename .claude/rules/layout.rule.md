@@ -48,7 +48,11 @@ from `control-plane.lib.sh`'s constants, which stay declared there.
 `ai_tools_layout__list_entries` prints the rows that apply on this host in the records framing, the static
 and the dynamic rows sorted together by path under `LC_ALL=C` so a parent precedes every path under it, then an `error`
 line for each input it needed and could not read. It returns 0 for a complete discovery, 1 after an `error` line, and 2
-without output while the table did not validate, so a consumer tells a complete empty set from a failed discovery.
+without output while the table did not validate, so a consumer tells a complete empty set from a failed discovery. Every
+consumer reads the set through `ai_tools_layout__read_entry_lines`, a collector under the rule
+[records](records.rule.md) states, which waits for the enumerator and appends one `error` line for a status the lines do
+not account for — 1 with no `error` line among them, or any other non-zero status — so an enumerator that ends
+on a shell error or a signal reads as an incomplete discovery and never as a complete smaller set.
 
 **A package applies while either of two files it ships exists.** `_AI_TOOLS_LAYOUT__PACKAGE_SENTINELS` names two `files`
 rows per package, read with `lstat`, so one of them deleted is a `missing` row with its remedy and not a package gone
@@ -173,20 +177,21 @@ release's.
 as `install.sh` substitutes them, and prints the path first. Unprivileged it drives the load and the validator in both
 provenances, the ACL derivation against a live `setfacl`, the pure comparison over every finding token, the entry reader
 and the output names it refuses, the content evaluator over seeded collector results, the entry set over fixture roots
-with each untrusted input an `error` line, the `--check` stream by column name, the reconcile's pure decisions, the lock
-across processes, the per-entry repair over owned fixtures — a leaf swapped for a symlink after the identity read
-and a parent swapped under the entry each refused with the outside file untouched, the content gate under each state it
-refuses, a write that fails named with its tool — the command's option grammar through the sourced helper,
+with each untrusted input an `error` line, the `--check` stream by column name, the collector reader and the check
+stream and the human table over an enumerator that ends without its `error` line, the reconcile's pure decisions,
+the lock across processes, the per-entry repair over owned fixtures — a leaf swapped for a symlink after the identity
+read and a parent swapped under the entry each refused with the outside file untouched, the content gate under each
+state it refuses, a write that fails named with its tool — the command's option grammar through the sourced helper,
 the boundary-pair map, and the lockstep with `packaging/ai-tools.spec`: every `%attr` line resolves to a row
 with the same owner, mode, package and `config`/`ghost` flag, every `files` row is a `%files` line of its package,
 and each shipped agent's `config_dir` has its `%dir` line in its package. As root it builds a tree from the table itself
 over `AI_TOOLS_LAYOUT_ROOT` and drives the whole-tree cases: a converged tree does not print a line, each planted drift
 converges in one run, content drift beside owner, mode and ACL drift leaves every field, a masked-off foreign entry goes
 with no state in which it is effective, a symlink at a directory row refuses the rows under it, an untrusted discovery
-input and the drift in the dynamic rows it hides converge in one invocation, an invalid manifest and an unresolved
-account stay visible at exit 5, a held lock is an error with no write, the exit order holds, and a non-root caller is
-refused. `tests/integration/perms.sh` is the loop over the installed library, and `tests/boundary/access.sh` probes
-the library, the reconcile and every boundary row as the sandbox account.
+input and the drift in the dynamic rows it hides converge in one invocation, an invalid manifest, an unresolved account
+and a lost entry set stay visible at exit 5, a held lock is an error with no write, the exit order holds, and a non-root
+caller is refused. `tests/integration/perms.sh` is the loop over the installed library, and `tests/boundary/access.sh`
+probes the library, the reconcile and every boundary row as the sandbox account.
 
 ## Design notes
 

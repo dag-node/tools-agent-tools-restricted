@@ -424,6 +424,59 @@ stream 1 >/dev/null
 after="$(cd "${R2}" && find . -printf '%p %U:%G %m\n' | LC_ALL=C sort)"
 [[ "${before}" == "${after}" ]] && pass "a --check pass leaves owner and mode unchanged" || fail "the fixture tree changed under --check"
 
+section "layout: the entry set read as a collector"
+# collected : read_entry_lines into an array; prints `status=<n>`, then each line.
+collected() {
+    local -a collected_lines=(); local rc=0
+    ai_tools_layout__read_entry_lines collected_lines || rc=$?
+    printf 'status=%s\n' "${rc}"
+    (( ${#collected_lines[@]} == 0 )) || printf '%s\n' "${collected_lines[@]}"
+}
+# Each case replaces the enumerator inside a subshell, so the library's own stands for the rest of the file. A status
+# the lines do not account for must add one `error` line; one they account for must add none.
+generic_9="$(raw error host layout.lib.sh entries "the entry set exited 9")"
+generic_1="$(raw error host layout.lib.sh entries "the entry set ended without reporting its incomplete discovery")"
+out="$( ai_tools_layout__list_entries() { return 9; }; collected )"
+[[ "${out}" == "status=9"$'\n'"${generic_9}" ]] \
+    && pass "an enumerator that exits 9 without a line is one error line naming the status" || fail "exit 9: $(tr '\n\t' '| ' <<< "${out}")"
+out="$( ai_tools_layout__list_entries() { return 1; }; collected )"
+[[ "${out}" == "status=1"$'\n'"${generic_1}" ]] \
+    && pass "an enumerator that returns 1 without its error line is one error line saying so" || fail "exit 1 bare: $(tr '\n\t' '| ' <<< "${out}")"
+own_error="$(raw error file /x agents "the manifest is not root's")"
+out="$( ai_tools_layout__list_entries() { printf '%s\n' "$(entry /a file root:root 0644 - ai-tools-base files)" "${own_error}"; return 1; }
+    collected )"
+[[ "${out}" == "status=1"$'\n'"$(entry /a file root:root 0644 - ai-tools-base files)"$'\n'"${own_error}" ]] \
+    && pass "an enumerator that prints its own error line and returns 1 keeps that line alone" || fail "own error line: $(tr '\n\t' '| ' <<< "${out}")"
+out="$( ai_tools_layout__list_entries() { printf '%s\n' "$(entry /a file root:root 0644 - ai-tools-base files)"; return 0; }
+    collected )"
+[[ "${out}" == "status=0"$'\n'"$(entry /a file root:root 0644 - ai-tools-base files)" ]] \
+    && pass "a complete set reads status 0 with no line added" || fail "clean set: $(tr '\n\t' '| ' <<< "${out}")"
+# The real enumerator over R2, as the control: its status and its own lines arrive, and no generic line is added.
+real_rc=0; AI_TOOLS_LAYOUT_ROOT="${R2}" ai_tools_layout__list_entries >/dev/null || real_rc=$?
+out="$(AI_TOOLS_LAYOUT_ROOT="${R2}" collected)"
+[[ "${out%%$'\n'*}" == "status=${real_rc}" && "${out}" != *"the entry set e"* ]] \
+    && pass "the real enumerator's status (${real_rc}) and lines arrive with no line added" || fail "real set: $(head -n1 <<< "${out}")"
+declare -a _layout_refused=()
+rc=0; ai_tools_layout__read_entry_lines _layout_refused || rc=$?
+(( rc == 2 && ${#_layout_refused[@]} == 0 )) && pass "a name under the library's own prefix is refused with 2, unwritten" \
+    || fail "refused name: rc ${rc}, ${#_layout_refused[@]} lines"
+# The consumers the command reaches. The check stream, with the enumerator exiting 9: one error row naming the status,
+# and the report exits 5 (unreadable) rather than reading as a clean empty host.
+out="$( ai_tools_layout__list_entries() { return 9; }; stream 0
+        report_status=0; ai_tools_records_base__get_exit_status || report_status=$?; printf 'report_status=%s\n' "${report_status}" )"
+row="$(grep "	error	host	" <<< "${out}" | head -n1 || true)"
+[[ "$(column detail "${header}" "${row}")" == "the entry set exited 9" && "$(grep -c "	error	" <<< "${out}")" -eq 1 ]] \
+    && grep -qx 'report_status=5' <<< "${out}" \
+    && pass "the check stream writes one error row for a lost entry set and reports 5" || fail "lost set in the stream: $(tr '\n\t' '| ' <<< "${out}")"
+# The human table, through the admin helper sourced in a fresh shell with the library copy beside it.
+# shellcheck disable=SC2016  # the inner bash expands these
+out="$(bash -c 'source "$1" >/dev/null 2>&1 || exit 3; source "$2" || exit 4
+    ai_tools_layout__list_entries() { return 9; }
+    rc=0; layout_table || rc=$?; printf "rc=%s\n" "${rc}"' _ "${ROOT}/src/usr/local/libexec/ai-tools/ai-tools-admin.sh" \
+    "${TESTDIR}/lib/layout.lib.sh" 2>&1)" || true
+grep -q '^error .*layout.lib.sh (entries): the entry set exited 9$' <<< "${out}" && grep -qx 'rc=5' <<< "${out}" \
+    && pass "the human table prints the lost entry set as an error line and exits 5" || fail "lost set in the table: $(tr '\n' '|' <<< "${out}")"
+
 section "layout: the reconcile's pure decisions"
 _ai_tools_layout__is_under /a/b/c /a/b && pass "a path under an ancestor is contained" || fail "/a/b/c is not under /a/b"
 _ai_tools_layout__is_under /a/bc /a/b && fail "/a/bc reads as under /a/b" || pass "containment is by path component: /a/bc is not under /a/b"
@@ -683,7 +736,7 @@ else
     printf 'config_dir=.claude\nlauncher=claude\n' > "${AGENTS_DIR}/claude-code.conf"
     printf 'config_dir=.codex\nlauncher=codex\n' > "${AGENTS_DIR}/codex.conf"
     chown -R root:root "${AGENTS_DIR}" "${OPERATOR_CONF}"; chmod 0755 "${AGENTS_DIR}"; chmod 0644 "${AGENTS_DIR}"/*.conf "${OPERATOR_CONF}"
-    declare -a tree_lines=(); declare -a row_fields=()
+    declare -a built_lines=(); declare -a row_fields=()
     PAYLOAD_LIST="${TESTDIR}/payload-paths"; : > "${PAYLOAD_LIST}"
     build_entry() {
         local path="$1" type="$2" owner="$3" mode="$4" acl="$5" flags="$6" acl_entry
@@ -704,15 +757,15 @@ else
         _ai_tools_layout__is_payload_file "${type}" "${flags}" && printf '%s\n' "${path#"${R}"}" >> "${PAYLOAD_LIST}"
         return 0
     }
-    mapfile -t tree_lines < <(ai_tools_layout__list_entries)
+    ai_tools_layout__read_entry_lines built_lines || :
     build_errors=0
-    for line in "${tree_lines[@]}"; do
+    for line in "${built_lines[@]}"; do
         if [[ "${line}" == error$'\t'* ]]; then build_errors=$(( build_errors + 1 )); continue; fi
         ai_tools_layout__parse_line "${line}" row_fields
         build_entry "${row_fields[0]}" "${row_fields[1]}" "${row_fields[2]}" "${row_fields[3]}" "${row_fields[4]}" "${row_fields[6]}"
     done
-    (( build_errors == 0 )) && pass "the tree is built from the entry set with no error line (${#tree_lines[@]} rows)" \
-        || fail "the entry set carried ${build_errors} error line(s) while building: $(grep '^error' <<< "$(printf '%s\n' "${tree_lines[@]}")" | tr '\n\t' '| ')"
+    (( build_errors == 0 )) && pass "the tree is built from the entry set with no error line (${#built_lines[@]} rows)" \
+        || fail "the entry set carried ${build_errors} error line(s) while building: $(grep '^error' <<< "$(printf '%s\n' "${built_lines[@]}")" | tr '\n\t' '| ')"
     [[ -d "${R}/opt/ai-tools/.claude" && -d "${R}${PROJECTS_HOME}/.config/ai-tools" ]] \
         && pass "the dynamic rows are in the tree: an agent config directory and an operator's config" || fail "dynamic rows not built"
     # The collector stub prints every payload path verified, with per-path overrides and an exit status the case sets;
@@ -899,6 +952,10 @@ else
     install -o root -g root -m 0755 /dev/null "${LAUNCH}"
     out="$(reconcile_run)"
     [[ "$(rc_of "${out}")" == rc=0 && "$(grep -vc '^rc=' <<< "${out}")" -eq 0 ]] && pass "the tree converges again and exits 0" || fail "final: $(brief "${out}")"
+    # The union pass reads the entry set as a collector: an enumerator that exits 9 is an error line and exit 5.
+    out="$(ai_tools_layout__list_entries() { return 9; }; reconcile_run)"
+    has_line "${out}" error layout.lib.sh entries "the entry set exited 9" && [[ "$(rc_of "${out}")" == rc=5 ]] \
+        && pass "a lost entry set in the reconcile is an error at exit 5" || fail "lost set in the reconcile: $(brief "${out}")"
     unset -f rpm
     if command -v runuser >/dev/null 2>&1; then
         chmod 0755 "${TESTDIR}"

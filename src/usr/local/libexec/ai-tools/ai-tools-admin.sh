@@ -3655,7 +3655,7 @@ selinux_dispatch() {
 layout_load() {
     # shellcheck source=SCRIPTDIR/../../lib/ai-tools/layout.lib.sh
     source "${LAYOUT_LIB}" 2>/dev/null || true
-    declare -F ai_tools_layout__begin_pass ai_tools_layout__list_entries ai_tools_layout__read_entry_state \
+    declare -F ai_tools_layout__begin_pass ai_tools_layout__read_entry_lines ai_tools_layout__read_entry_state \
             ai_tools_layout__parse_line ai_tools_layout__write_check_records ai_tools_layout__reconcile >/dev/null 2>&1 \
         || die MSG-C6D2 "the layout library did not load or does not define the readers this command calls: ${LAYOUT_LIB} -- reinstall ai-tools-base (sudo dnf reinstall ai-tools-base, or sudo ./install.sh install from a checkout)"
 }
@@ -3699,7 +3699,7 @@ layout_table() {
     local -a layout_findings=()
     ai_tools_records_base__begin_report
     ai_tools_layout__begin_pass 0
-    mapfile -t layout_lines < <(ai_tools_layout__list_entries)
+    ai_tools_layout__read_entry_lines layout_lines || :
     printf '%-18s %s\n' "drift" "path  type owner mode acl selinux-type"
     for layout_line in "${layout_lines[@]}"; do
         if [[ "${layout_line}" == error$'\t'* ]]; then

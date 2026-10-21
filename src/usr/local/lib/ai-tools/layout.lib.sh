@@ -21,7 +21,8 @@
 # recorded, and a pass that skips rpm cannot read a `verified` an earlier pass left. The public surface is begin_pass,
 # ai_tools_layout__list_entries (the entries that apply on this host, in the records framing, sorted by path
 # over the static and the dynamic rows together, then an `error` line per input it could not read; returns 1 when it
-# printed one), ai_tools_layout__read_entry_state (one entry into the caller's arrays), write_check_records,
+# printed one), ai_tools_layout__read_entry_lines (that set into the caller's array as a collector, the one way every
+# consumer reads it), ai_tools_layout__read_entry_state (one entry into the caller's arrays), write_check_records,
 # and ai_tools_layout__reconcile, which brings each entry to its row under the rules its own section states.
 #
 # The library depends on control-plane.lib.sh (the /opt/ai-tools modes stay declared there), operator.lib.sh,
@@ -700,6 +701,36 @@ ai_tools_layout__list_entries() {
     return 1
 }
 
+# ai_tools_layout__read_entry_lines <array-var> : the entry set into the caller's indexed array, read as a collector
+# (records.rule.md): ai_tools_layout__list_entries opened on a descriptor with its PID saved on the same statement, its
+# lines read, then waited for. A status the lines do not account for appends one `error` line naming it -- status 1
+# with no `error` line among them, or any status other than 0 and 1 -- so an enumerator that ended on a shell error
+# or a signal reads as an incomplete discovery and never as a complete smaller set. Returns the enumerator's status,
+# and 2 without writing while the table did not validate or when the name is refused as read_entry_state refuses one.
+ai_tools_layout__read_entry_lines() {
+    [[ -z "${AI_TOOLS_LAYOUT__DECLARATION_ERROR}" ]] || return 2
+    _ai_tools_layout__is_output_name_valid "$1" list || return 2
+    local -n _layout_lines_out="$1"
+    local _layout_lines_fd _layout_lines_pid _layout_lines_status=0 _layout_lines_line _layout_lines_reason=""
+    exec {_layout_lines_fd}< <(ai_tools_layout__list_entries); _layout_lines_pid=$!
+    mapfile -t -u "${_layout_lines_fd}" _layout_lines_out
+    exec {_layout_lines_fd}<&-
+    wait "${_layout_lines_pid}" || _layout_lines_status=$?
+    case "${_layout_lines_status}" in
+        0) ;;
+        1) _layout_lines_reason="the entry set ended without reporting its incomplete discovery"
+           for _layout_lines_line in "${_layout_lines_out[@]}"; do
+               [[ "${_layout_lines_line}" != error$'\t'* ]] || { _layout_lines_reason=""; break; }
+           done ;;
+        *) _layout_lines_reason="the entry set exited ${_layout_lines_status}" ;;
+    esac
+    if [[ -n "${_layout_lines_reason}" ]]; then
+        _ai_tools_layout__encode_line _layout_lines_line error host layout.lib.sh entries "${_layout_lines_reason}"
+        _layout_lines_out+=( "${_layout_lines_line}" )
+    fi
+    return "${_layout_lines_status}"
+}
+
 # ── The pass ─────────────────────────────────────────────────────────────────────────────────
 # What one pass observes once and every entry read in it shares: whether SELinux labels apply, and what `rpm -V` said
 # per package and per path. ai_tools_layout__begin_pass resets them. Every map here and below is `declare -gA`:
@@ -1281,8 +1312,8 @@ ai_tools_layout__write_check_records() {
         return
     fi
     ai_tools_layout__begin_pass 0
-    # The entry set's status is carried by its lines: it returns 1 when and only when it printed an `error` line.
-    mapfile -t lines < <(ai_tools_layout__list_entries)
+    # The status is carried by the lines: the reader appends an `error` line for a status they do not account for.
+    ai_tools_layout__read_entry_lines lines || :
     for line in "${lines[@]}"; do
         if [[ "${line}" == error$'\t'* ]]; then
             _ai_tools_layout__write_error_line "${line}" || return 1
@@ -1805,7 +1836,7 @@ ai_tools_layout__reconcile() {
         fi
     fi
     # Then one pass over the union, the rows the first phase handled taking no step.
-    mapfile -t union_lines < <(ai_tools_layout__list_entries)
+    ai_tools_layout__read_entry_lines union_lines || :
     for line in "${union_lines[@]}"; do
         [[ "${line}" == error$'\t'* ]] && continue
         path="${line%%$'\t'*}"
