@@ -36,6 +36,22 @@ collection form; [option spellings](../option-spellings.md) lists each one.
 Installing offline from a release archive, and what an upgrade preserves, are
 in [ref-section-f5q2](../rpm-packaging.md#ref-section-f5q2).
 
+## Every installed path is restored to its owner, mode and ACL
+
+```bash
+sudo ai-tools-admin system layout
+```
+
+The command lists every path the stack installs with the owner, mode, ACL
+and SELinux type it carries now and names each that drifted. An upgrade,
+a source install, the provisioning run and the entrypoint relabel each run
+`sudo ai-tools-admin system layout reconcile`, which restores a drifted entry
+and logs every change under the journal tag `ai-tools-layout`, so a mode
+an upgrade or a hand edit changed does not stay changed until a refusal names
+it. A package file whose content is not the package's is reported and left
+for `dnf reinstall`; `man ai-tools-admin` states the rest of what the reconcile
+refuses to repair.
+
 ## 0.24.0: the skills move to the asset set core <a id="ref-section-y5t4"></a>
 
 From 0.24.0 the writing standard, the reftags, engineering and governance

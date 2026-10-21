@@ -313,6 +313,15 @@ moves.
 binds a throwaway socket in its testdir instead of writing the host's journal; what it moves is where an **attribution
 field** lands, which does not feed any authorization decision (see [handback-bridge](handback-bridge.rule.md)).
 
+`AI_TOOLS_LAYOUT_ROOT` (`layout.lib.sh`) prefixes every row path and every package sentinel of the installed layout,
+so `unit/layout.sh` builds a tree from the table itself in its testdir and drives the real reconcile over it,
+with `AI_TOOLS_AGENTS_DIR` and `AI_TOOLS_OPERATOR_CONF` pointed at the rows under that root. It is the widest
+of the family in what it moves — the reconcile rewrites owners, modes and ACLs as root — and reaches the consumer
+the same way `AI_TOOLS_POSTUPGRADE_ROOT` does, through `ai-tools-admin` run as root with the name set.
+`AI_TOOLS_LAYOUT_LOCK` and `AI_TOOLS_LAYOUT_LOCK_WAIT` move the reconcile's lock and shorten its wait, as the relabel
+pair does; here a lock that cannot be taken is a refusal with no write, so a caller who sets them can make a run refuse
+and not run one unserialized.
+
 `AI_TOOLS_ASSETS_ROOTS`, `AI_TOOLS_ASSETS_LOCK`, `AI_TOOLS_ASSETS_LOCK_WAIT` and `AI_TOOLS_ASSETS_HOME`
 (`assets.lib.sh`, the lock pair's in `managed-assets.lib.sh`) move the roots a set is read from, the lock the view
 transaction takes and how long a run waits for it, and the directory holding the view and the agents' config
@@ -365,54 +374,57 @@ the predicate they share is pinned in `safe-paths.sh`, and why that guarantee ca
 user before the run, or the owner guard skips it. `secret-patterns.sh` is the odd one out: it sources the shared
 classifier library (`secret-patterns.lib.sh`) and forces the built-in default pattern set, pinning the matcher itself —
 credential names match case-insensitively, while plain configs and build artifacts the toolchain must read do not.
-`control-plane.sh` pins `ai_tools_control_plane__ensure_unit_search_path_closed` to less access in every direction:
-the chain ends root-owned, an unexpected entry is an error left in place, a symlink ends the descent without creating
-a directory at its target, a non-root caller is refused, and the drift reader tells a clean chain from a failed reading
-by status. `source-modes.sh` and `source-text.sh` are the pair that reads the **repository's own record** rather than
-any deployed artifact, each covering a property no review catches unaided: the exec bit git tracks for every `.sh`,
-which must agree within a directory, and that every tracked text file ends with a newline. Both classify without
-a maintained list — the first by the majority bit in a directory, the second by git's own binary heuristic (a NUL byte
-in the first 8000 bytes), so a file a later commit adds is judged the way `git diff` already judges it. `source-text.sh`
-reports one result line per offender, since the harness reduces a message to safe-for-display characters and a newline
-inside one would run the paths together. Each skips outside a git checkout. `check-version.sh` departs
-the installed-helper pattern the other way: it runs a `TESTDIR` copy of `packaging/check-version.sh` (a repo
-release-gate script, not a deployed artifact) against fixture `VERSION`/spec files, pinning the tag grammar — final
-`vX.Y.Z` requires the three-way match, `vX.Y.Z-rc.N` compares its base and relaxes only the `%changelog` match, any
-other dashed tag is refused, a missing `%changelog` entry is fatal for every form. The formatter tests drive
-the `formatters/` of the pinned `ai-tools-assets-tools` release and the checker of the pinned `core` release, resolved
-through `tools/lib/assets.sh`, and skip naming the fetch command where the pins are not in the cache; they stay in base
-until that release's suite carries their cases. `fill-comments.sh` drives `formatters/fill-comments.sh`,
-the Emacs-driven formatter for the comment wrap rule, over one fixture carrying every shape the tool must fill or leave
-alone. Filled: a long paragraph inside the column with no line ending on a tie word (the checker's `--wrap` mode is
-the oracle), one indented inside a function body, and a sentence pair the join gives one space. Left as written:
-an aligned table, a doc comment's contract line, a config header's `Values:` and `Default:` field lines (with
-the description before them filled and ending there), a column of three or more spaces, a table drawn with vertical
-rules, a heredoc body, the commands a header shows in a fenced block, a CDATA section, a `<pre>` block, a linter
-directive, a commented default, a shebang and a code line. Each of those is a way a formatter silently rewrites
-what a file emits or what a reader reads as a column, and none is visible in review. It also holds the filler's own
-output to the rule no checker reads — a code span is never split — and asserts a second run leaves the file as the first
-left it, that `--lines` fills the paragraph it names alone, and that two ranges in one run are both filled, since
-the first fill moves every line the later range names. Refused before Emacs sees it, through the reader every formatter
-shares (`formatters/text_file.py`): a file holding an escape sequence, and a symlink, each reported with its reason
-and left as it was while the clean file beside it is filled. Two more pin the Emacs side: a file named like one of its
-options (`-Q`) is filled rather than obeyed, since the files are handed over after `--`, and a file-local `eval:` form
-is not run. It closes on the reflow gate over its own output, which is where the gate's reading of a source file is
-pinned: a comment marker is a line prefix there, as a blockquote's `>` is on a page, so a marker the fill moved
-onto another line is not a difference and a marker it dropped is one. The gate's own fixture is a page, which reaches
-none of that, so the classes injected here are the ones only a source file carries: a dropped marker, a merged pair
-of comment paragraphs, a changed code line. Skipped without Emacs. `format.sh` pins this repository's front door
-(`tools/format.sh`) over the pinned formatter: every file in a fixture repository goes to the filler for the kind
-the checker names, at the column it names — a page at 79, a router at 120, a source comment at 120, a header
-under `src/etc/` at 72 — while a generated page (one carrying the ignore-file marker) is reported as skipped with its
-kind and left as it was, since the failure it exists to prevent is the comment filler pointed at a page. What may be
-formatted at all is the explicit scope `tools/lib/format-scope.sh` declares for the front door: a unit file, a log
-and a Makefile in the fixture are outside it, so `--all` counts and leaves them, a man page and a binary never reach
-the checker, and a file named on the command line is reported and skipped, as is a path outside the repository, while
-a named path is read from the directory the command was run in. The scope rule is pinned from both sides: with no file
-named, only the paragraph a diff touched is filled and an over-width paragraph the commit already held is left,
-`--files` fills that one too, an untracked file is filled whole either way, and `--all` warns first. Its exit status is
-pinned as the closing report's: 0 when no measured line is left over its column, 1 while a line no filler can shorten
-remains or a filler refused a file, which is reported with its reason and left as it was. Its last case,
+`control-plane.sh` pins the two unit-search-path readers `ai-tools-admin status` reports from: the drift reader tells
+a clean chain from a failed reading by status and names a symlink and an absent directory by their word,
+and the unexpected-entry reader names what is under the chain's last directory, passes over the timer-stamp directory,
+leaves the entry in place and clamps a name the account chose. `layout.sh` pins the library that brings the chain to its
+modes ([layout](layout.rule.md)): the table and its validator, each reader, the entry set, the `--check` stream,
+the reconcile over owned fixtures unprivileged and over a tree built from the table as root, the command's option
+grammar through the sourced helper, the boundary-pair map, and the lockstep with the spec's `%files`. `source-modes.sh`
+and `source-text.sh` are the pair that reads the **repository's own record** rather than any deployed artifact, each
+covering a property no review catches unaided: the exec bit git tracks for every `.sh`, which must agree within
+a directory, and that every tracked text file ends with a newline. Both classify without a maintained list — the first
+by the majority bit in a directory, the second by git's own binary heuristic (a NUL byte in the first 8000 bytes),
+so a file a later commit adds is judged the way `git diff` already judges it. `source-text.sh` reports one result line
+per offender, since the harness reduces a message to safe-for-display characters and a newline inside one would run
+the paths together. Each skips outside a git checkout. `check-version.sh` departs the installed-helper pattern the other
+way: it runs a `TESTDIR` copy of `packaging/check-version.sh` (a repo release-gate script, not a deployed artifact)
+against fixture `VERSION`/spec files, pinning the tag grammar — final `vX.Y.Z` requires the three-way match,
+`vX.Y.Z-rc.N` compares its base and relaxes only the `%changelog` match, any other dashed tag is refused, a missing
+`%changelog` entry is fatal for every form. The formatter tests drive the `formatters/` of the pinned
+`ai-tools-assets-tools` release and the checker of the pinned `core` release, resolved through `tools/lib/assets.sh`,
+and skip naming the fetch command where the pins are not in the cache; they stay in base until that release's suite
+carries their cases. `fill-comments.sh` drives `formatters/fill-comments.sh`, the Emacs-driven formatter for the comment
+wrap rule, over one fixture carrying every shape the tool must fill or leave alone. Filled: a long paragraph inside
+the column with no line ending on a tie word (the checker's `--wrap` mode is the oracle), one indented inside a function
+body, and a sentence pair the join gives one space. Left as written: an aligned table, a doc comment's contract line,
+a config header's `Values:` and `Default:` field lines (with the description before them filled and ending there),
+a column of three or more spaces, a table drawn with vertical rules, a heredoc body, the commands a header shows
+in a fenced block, a CDATA section, a `<pre>` block, a linter directive, a commented default, a shebang and a code line.
+Each of those is a way a formatter silently rewrites what a file emits or what a reader reads as a column, and none is
+visible in review. It also holds the filler's own output to the rule no checker reads — a code span is never split —
+and asserts a second run leaves the file as the first left it, that `--lines` fills the paragraph it names alone,
+and that two ranges in one run are both filled, since the first fill moves every line the later range names. Refused
+before Emacs sees it, through the reader every formatter shares (`formatters/text_file.py`): a file holding an escape
+sequence, and a symlink, each reported with its reason and left as it was while the clean file beside it is filled. Two
+more pin the Emacs side: a file named like one of its options (`-Q`) is filled rather than obeyed, since the files are
+handed over after `--`, and a file-local `eval:` form is not run. It closes on the reflow gate over its own output,
+which is where the gate's reading of a source file is pinned: a comment marker is a line prefix there, as a blockquote's
+`>` is on a page, so a marker the fill moved onto another line is not a difference and a marker it dropped is one.
+The gate's own fixture is a page, which reaches none of that, so the classes injected here are the ones only a source
+file carries: a dropped marker, a merged pair of comment paragraphs, a changed code line. Skipped without Emacs.
+`format.sh` pins this repository's front door (`tools/format.sh`) over the pinned formatter: every file in a fixture
+repository goes to the filler for the kind the checker names, at the column it names — a page at 79, a router at 120,
+a source comment at 120, a header under `src/etc/` at 72 — while a generated page (one carrying the ignore-file marker)
+is reported as skipped with its kind and left as it was, since the failure it exists to prevent is the comment filler
+pointed at a page. What may be formatted at all is the explicit scope `tools/lib/format-scope.sh` declares for the front
+door: a unit file, a log and a Makefile in the fixture are outside it, so `--all` counts and leaves them, a man page
+and a binary never reach the checker, and a file named on the command line is reported and skipped, as is a path outside
+the repository, while a named path is read from the directory the command was run in. The scope rule is pinned from both
+sides: with no file named, only the paragraph a diff touched is filled and an over-width paragraph the commit already
+held is left, `--files` fills that one too, an untracked file is filled whole either way, and `--all` warns first. Its
+exit status is pinned as the closing report's: 0 when no measured line is left over its column, 1 while a line no filler
+can shorten remains or a filler refused a file, which is reported with its reason and left as it was. Its last case,
 which the release's suite does not carry yet, runs a copy of the pinned formatter over its own two shell tools: each is
 one function called on its last line, which bash parses whole, so the fill that rewrites the file under the running bash
 does not end the run mid-line. `fill-markdown.sh` is its Markdown counterpart, and pins the filler
@@ -1254,10 +1266,14 @@ out-of-range value is paired with an in-range one that passes the configuration 
 when `AI_TOOLS_TEST_TYPESAFE_LIVE=1` is set, since each sends its listing with the host's key, and they assert
 the integration's contract; which lines the classifier kept is reported as a note.
 
-`perms.sh` is the **single source** for the deployed-artifact permission assertions (every installed file
-and directory's owner/group/mode): `install.sh` does not carry a parallel checker — `sudo ./install.sh check-perms`
-execs `perms.sh`, and the install's verification phase reaches it through `tests/run.sh all`. Adding or repermissioning
-an installed file means updating the `check_file` list here, nowhere else.
+`perms.sh` asserts every installed file and directory's owner, group, mode, ACL and SELinux type by looping
+over the installed layout table ([layout](layout.rule.md)): each row the library lists is read, a finding fails naming
+the field and the two values, an absent ghost or optional row skips, and an input the enumeration could not read fails
+naming it. `install.sh` does not carry a parallel checker — `sudo ./install.sh check-perms` execs `perms.sh`,
+and the install's verification phase reaches it through `tests/run.sh all`. Adding or repermissioning an installed file
+means editing its row in `layout.lib.sh`, nowhere else; the blocks that are not rows — the staged policy module set,
+the codex skills link, each agent's links into the shared asset roots — stay in the file, and `check_file` stays
+in the harness for them and for the other suites that assert a fixed path.
 
 **`boundary`** — confinement assertions executed **as the agent** (`sudo -u SANDBOX_USER`) (`access.sh`, `providers.sh`,
 `filters.sh`, `assets.sh`, `typesafe.sh`, `sudo.sh`): the agent cannot write the secret-pattern library or the control
