@@ -123,7 +123,10 @@ directory, each manifest under it, `operator.conf`, and their ancestors in the t
 and repairs it parent-first, and prints one tagged line per observation: `changed <path> <field> <from> <to>`,
 `refused <path> <field> <reason>`, `error <path> <field> <reason>`. A row is acted on while every ancestor row of it is
 at its row after that ancestor's own step; otherwise it is refused naming the ancestor and is not read through it,
-containment being by path component. An ancestor outside the table is the host's.
+containment being by path component. An ancestor outside the table is the host's. The rule reads paths decoded: an entry
+line is decoded once where the reconcile consumes it, and the maps that record which rows are in the set and where each
+row stands are keyed by the bytes the filesystem holds, so an operator home carrying a TAB, a backslash or a byte
+outside ASCII, which the stream encoder escapes, keeps the rule.
 
 **The lock fails closed.** The reconcile takes `flock` on `/run/lock/ai-tools-layout.lock` for up to 60 seconds,
 and a wait that runs out, a host without `flock` or a lock file it cannot create is an `error` line and exit 5 with no
@@ -181,17 +184,19 @@ with each untrusted input an `error` line, the `--check` stream by column name, 
 stream and the human table over an enumerator that ends without its `error` line, the reconcile's pure decisions,
 the lock across processes, the per-entry repair over owned fixtures — a leaf swapped for a symlink after the identity
 read and a parent swapped under the entry each refused with the outside file untouched, the content gate under each
-state it refuses, a write that fails named with its tool — the command's option grammar through the sourced helper,
-the boundary-pair map, and the lockstep with `packaging/ai-tools.spec`: every `%attr` line resolves to a row
-with the same owner, mode, package and `config`/`ghost` flag, every `files` row is a `%files` line of its package,
-and each shipped agent's `config_dir` has its `%dir` line in its package. As root it builds a tree from the table itself
-over `AI_TOOLS_LAYOUT_ROOT` and drives the whole-tree cases: a converged tree does not print a line, each planted drift
-converges in one run, content drift beside owner, mode and ACL drift leaves every field, a masked-off foreign entry goes
-with no state in which it is effective, a symlink at a directory row refuses the rows under it, an untrusted discovery
-input and the drift in the dynamic rows it hides converge in one invocation, an invalid manifest, an unresolved account
-and a lost entry set stay visible at exit 5, a held lock is an error with no write, the exit order holds, and a non-root
-caller is refused. `tests/integration/perms.sh` is the loop over the installed library, and `tests/boundary/access.sh`
-probes the library, the reconcile and every boundary row as the sandbox account.
+state it refuses, a write that fails named with its tool, a row under an ancestor whose name the stream encoder escapes
+refused naming it — the command's option grammar through the sourced helper, the boundary-pair map, and the lockstep
+with `packaging/ai-tools.spec`: every `%attr` line resolves to a row with the same owner, mode, package
+and `config`/`ghost` flag, every `files` row is a `%files` line of its package, and each shipped agent's `config_dir`
+has its `%dir` line in its package. As root it builds a tree from the table itself over `AI_TOOLS_LAYOUT_ROOT`
+and drives the whole-tree cases: a converged tree does not print a line, each planted drift converges in one run,
+content drift beside owner, mode and ACL drift leaves every field, a masked-off foreign entry goes with no state
+in which it is effective, a symlink at a directory row refuses the rows under it, and under an operator home carrying
+a backslash as well, an untrusted discovery input and the drift in the dynamic rows it hides converge in one invocation,
+an invalid manifest, an unresolved account and a lost entry set stay visible at exit 5, a held lock is an error with no
+write, the exit order holds, and a non-root caller is refused. `tests/integration/perms.sh` is the loop
+over the installed library, and `tests/boundary/access.sh` probes the library, the reconcile and every boundary row
+as the sandbox account.
 
 ## Design notes
 

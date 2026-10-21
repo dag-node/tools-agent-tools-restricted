@@ -558,11 +558,17 @@ if ! source "${TESTDIR}/lib/safe-paths.lib.sh" 2>/dev/null \
 else
     RE="${FIXTURE_ROOT}/re"; mkdir -p "${RE}"
     LOG="${AI_TOOLS_LOG_DIR}/layout.log"
-    # entry_run <entry-line> [<without-rpm>] : one entry through the reconcile, its lines on stdout.
+    # entry_step <entry-line> : one entry through the entry step, given its decoded fields as the reconcile gives them.
+    entry_step() {
+        local -a step_fields=()
+        ai_tools_layout__parse_line "$1" step_fields
+        _ai_tools_layout__reconcile_entry "$1" "${step_fields[@]}"
+    }
+    # entry_run <entry-line> [<without-rpm>] : one entry through the reconcile from a fresh state, its lines on stdout.
     entry_run() {
         _ai_tools_layout__reset_reconcile_state
         ai_tools_layout__begin_pass "${2:-0}"
-        _ai_tools_layout__reconcile_entry "$1"
+        entry_step "$1"
     }
     # has_line <output> <tag> <path> <field> [<rest>] : the output carries that tagged line.
     has_line() { grep -q "^$2	$3	$4	${5:-}" <<< "$1"; }
@@ -685,17 +691,17 @@ else
     mkdir -p "${RE}/anc"; : > "${RE}/anc/child"; chmod 0600 "${RE}/anc/child"
     _ai_tools_layout__reset_reconcile_state; ai_tools_layout__begin_pass 0
     _AI_TOOLS_LAYOUT__ROW_PATHS["${RE}/anc"]=row; _AI_TOOLS_LAYOUT__ANCESTOR_STATES["${RE}/anc"]=bad
-    out="$(_ai_tools_layout__reconcile_entry "$(entry "${RE}/anc/child" file "${me}" 0644 - ai-tools-base -)")"
+    out="$(entry_step "$(entry "${RE}/anc/child" file "${me}" 0644 - ai-tools-base -)")"
     has_line "${out}" refused "${RE}/anc/child" ancestor "not read: ${RE}/anc is not at its row" && [[ "$(mode_of "${RE}/anc/child")" == 600 ]] \
         && pass "a row under an ancestor not at its row is refused unread, naming the ancestor" || fail "ancestor rule: ${out}"
     _AI_TOOLS_LAYOUT__ANCESTOR_STATES["${RE}/anc"]=ok
-    out="$(_ai_tools_layout__reconcile_entry "$(entry "${RE}/anc/child" file "${me}" 0644 - ai-tools-base -)")"
+    out="$(entry_step "$(entry "${RE}/anc/child" file "${me}" 0644 - ai-tools-base -)")"
     has_line "${out}" changed "${RE}/anc/child" mode && pass "the same row converges once its ancestor is at its row" || fail "ancestor ok: ${out}"
     # A write that fails names its tool and is the outcome the reconcile folds to exit 1.
     chmod 2600 "${RE}/w" 2>/dev/null || true
     chmod() { return 7; }
     out="$(_ai_tools_layout__reset_reconcile_state; ai_tools_layout__begin_pass 0
-        _ai_tools_layout__reconcile_entry "$(entry "${RE}/w" file "${me}" 0644 - ai-tools-base -)"
+        entry_step "$(entry "${RE}/w" file "${me}" 0644 - ai-tools-base -)"
         printf 'failed=%s\n' "${_AI_TOOLS_LAYOUT__RECONCILE_WRITE_FAILED}")"
     unset -f chmod
     has_line "${out}" error "${RE}/w" mode "chmod exited 7" && grep -qx 'failed=1' <<< "${out}" \
@@ -708,6 +714,38 @@ else
         printf 'incomplete=%s\n' "${_AI_TOOLS_LAYOUT__RECONCILE_INCOMPLETE}")"
     has_line "${out}" error "${RE}/x" agents "the manifest is not root's" && grep -qx 'incomplete=1' <<< "${out}" \
         && pass "an error line of the entry set is an error of the reconcile, counted as incomplete" || fail "set error: ${out}"
+    # The progress map and the ancestor verdicts are keyed by the decoded path. The map alone first: a TAB-bearing row
+    # registered through the line runner, its verdict `bad`, refuses a path under it (the entry step is stubbed,
+    # so the case reads the keying alone).
+    probe_path=$'/review/a\tb'
+    out="$(_ai_tools_layout__reconcile_entry() { :; }
+        _ai_tools_layout__reset_reconcile_state
+        declare -a probe_lines=( "$(entry "${probe_path}" directory root:root 0700 - - boundary operator)" )
+        _ai_tools_layout__reconcile_lines probe_lines
+        _AI_TOOLS_LAYOUT__ANCESTOR_STATES["${probe_path}"]=bad
+        probe_result=0; _ai_tools_layout__find_refusing_ancestor "${probe_path}/allowed-projects" || probe_result=$?
+        printf '\nancestor_lookup_status=%s\n' "${probe_result}")"
+    grep -qx 'ancestor_lookup_status=0' <<< "${out}" && [[ "${out%%$'\n'*}" == "${probe_path}" ]] \
+        && pass "a TAB-bearing row the runner registered refuses the path under it, named decoded" \
+        || fail "decoded keys: $(tr '\n\t' '| ' <<< "${out}")"
+    # Then the whole step over owned fixtures: a TAB-bearing and a backslash-bearing ancestor, each a symlink
+    # to a directory outside, each child refused naming its ancestor and the file behind the link left at 0600.
+    anc_index=0
+    for anc_name in $'tab\there' 'back\slash'; do
+        anc_index=$(( anc_index + 1 ))
+        anc="${RE}/${anc_name}" anc_victim="${RE}/anc-victim-${anc_index}"
+        mkdir -p "${anc_victim}"; : > "${anc_victim}/child"; chmod 0600 "${anc_victim}/child"
+        ln -sfn "${anc_victim}" "${anc}"
+        anc_lines=( "$(entry "${anc}" directory "${me}" 0750 - ai-tools-base -)" \
+            "$(entry "${anc}/child" file "${me}" 0644 - ai-tools-base -)" )
+        out="$(_ai_tools_layout__reset_reconcile_state; ai_tools_layout__begin_pass 0; _ai_tools_layout__reconcile_lines anc_lines)"
+        _ai_tools_layout__encode_line wanted refused "${anc}/child" ancestor "not read: ${anc} is not at its row"
+        if grep -qxF -- "${wanted}" <<< "${out}" && [[ "$(mode_of "${anc_victim}/child")" == 600 ]]; then
+            pass "a row under an ancestor whose name the encoder escapes (${anc_index}) is refused naming it, the outside file left"
+        else
+            fail "escaped ancestor ${anc_index}: $(tr '\n\t' '| ' <<< "${out}") / victim $(mode_of "${anc_victim}/child")"
+        fi
+    done
     if (( EUID != 0 )); then
         rc=0; ai_tools_layout__reconcile 0 >/dev/null 2>&1 || rc=$?
         (( rc == 2 )) && pass "a non-root caller is refused with status 2" || fail "non-root reconcile: ${rc}"
@@ -927,6 +965,24 @@ else
     out="$(reconcile_run)"
     has_line "${out}" error no-such-user-zz operators && [[ "$(rc_of "${out}")" == rc=5 ]] \
         && pass "an account that does not resolve is an error at exit 5, the other operator's rows unaffected" || fail "unresolved account: $(brief "${out}")"
+    # An operator whose home carries a backslash, for an account the host does not have (getent and id stubbed
+    # for that name alone): its ~/.config/ai-tools a symlink to a directory outside, the rows under it are refused
+    # naming it through the decoded keys, and the file behind the link is left.
+    stub_fake_home="${TESTDIR}/home/fix\\op"; mkdir -p "${stub_fake_home}"
+    FAKE_DIR="${R}${stub_fake_home}/.config/ai-tools" FAKE_VICTIM="${TESTDIR}/fake-victim"
+    mkdir -p "${FAKE_VICTIM}" "${FAKE_DIR%/*}"; install -o root -g root -m 0644 /dev/null "${FAKE_VICTIM}/allowed-projects"
+    ln -sfn "${FAKE_VICTIM}" "${FAKE_DIR}"
+    printf 'OPERATORS="%s,fixop"\n' "${PROJECTS_USER}" > "${OC}"
+    out="$(getent() {
+            if [[ "$1" == passwd && "$2" == fixop ]]; then printf 'fixop:x:59999:59999::%s:/sbin/nologin\n' "${stub_fake_home}"
+            else command getent "$@"; fi; }
+        id() { if [[ "$1" == -gn && "$2" == fixop ]]; then printf 'fixop\n'; else command id "$@"; fi; }
+        reconcile_run)"
+    _ai_tools_layout__encode_line wanted refused "${FAKE_DIR}/allowed-projects" ancestor "not read: ${FAKE_DIR} is not at its row"
+    grep -qxF -- "${wanted}" <<< "${out}" && [[ "$(stat -c '%U:%G %a' "${FAKE_VICTIM}/allowed-projects")" == "root:root 644" ]] \
+        && pass "an operator home carrying a backslash keeps the ancestor rule: the rows under its link are refused, the file behind it left" \
+        || fail "backslash home: $(brief "${out}") / $(stat -c '%U:%G %a' "${FAKE_VICTIM}/allowed-projects")"
+    rm -f "${FAKE_DIR}"
     printf 'OPERATORS="%s"\n' "${PROJECTS_USER}" > "${OC}"
     # The lock held by another process: an error, exit 5, and no write.
     chmod 0600 "${OC}"

@@ -1358,7 +1358,8 @@ readonly _AI_TOOLS_LAYOUT__LIBRARY_DIR="${BASH_SOURCE[0]%/*}"
 readonly _AI_TOOLS_LAYOUT__FULL_PASS_REMEDY="sudo ai-tools-admin system layout reconcile, or sudo ./install.sh install on a source install"
 
 # What one reconcile accumulates: the outcome counts its exit status folds, the paths of the rows in the set,
-# and the state each row reached after its own step, which the rows under it read.
+# and the state each row reached after its own step, which the rows under it read. Both maps are keyed by the decoded
+# path, so an operator home carrying a byte the stream encoder escapes keeps the ancestor rule.
 _AI_TOOLS_LAYOUT__RECONCILE_WRITE_FAILED=0
 _AI_TOOLS_LAYOUT__RECONCILE_INCOMPLETE=0
 _AI_TOOLS_LAYOUT__RECONCILE_REFUSED=0
@@ -1645,30 +1646,36 @@ _ai_tools_layout__apply_pinned() {
     (( _layout_apply_status == 0 ))
 }
 
-# _ai_tools_layout__reconcile_entry <encoded-entry> : one row, through the ancestor rule, the preconditions
-# and the repair, with the lines it earns printed and its state recorded for the rows under it. A row under an ancestor
-# that is not at its row is refused unread. A finding the reader could not complete is an `error` and no write.
-# A missing directory is created under an existing parent; a missing file or link, an entry of another type,
-# and a package file whose content differs are refused with the remedy the finding carries. A drifted package file
-# whose content is unverified is left as it is, each drifted field named. Otherwise the drifted fields are written --
-# a link's owner by name, the rest through the pinned descriptor -- and the entry read again: `changed` per field
-# from the two reads, and `error` for a field that still reports its finding.
+# _ai_tools_layout__reconcile_entry <encoded-entry> <field>... : one row, given as its line and the eight fields
+# _ai_tools_layout__reconcile_lines decoded from it, through the ancestor rule, the preconditions and the repair,
+# with the lines it earns printed and its state recorded for the rows under it. A row under an ancestor that is not
+# at its row is refused unread. A finding the reader could not complete is an `error` and no write. A missing directory
+# is created under an existing parent; a missing file or link, an entry of another type, and a package file
+# whose content differs are refused with the remedy the finding carries. A drifted package file whose content is
+# unverified is left as it is, each drifted field named. Otherwise the drifted fields are written -- a link's owner
+# by name, the rest through the pinned descriptor -- and the entry read again: `changed` per field from the two reads,
+# and `error` for a field that still reports its finding.
 _ai_tools_layout__reconcile_entry() {
     # The arrays are handed to the reader by name, so they carry a name the output-name check accepts.
     local entry="$1" ancestor path field token detail line content_reason refusal_detail="" link_status
     local -A first=() current=() final=()
-    local -a first_findings=() current_findings=() final_findings=() finding=() drifted=() apply_fields=()
+    local -a entry_fields=( "${@:2}" ) first_findings=() current_findings=() final_findings=() finding=() drifted=()
+    local -a apply_fields=()
     local is_missing=0 is_mismatch=0 content_drift=0 unreadable=0 created=0
-    ai_tools_layout__parse_line "${entry}" finding || finding=()
-    path="${finding[0]:-}"
-    if [[ -n "${path}" ]] && ancestor="$(_ai_tools_layout__find_refusing_ancestor "${path}")"; then
+    path="${entry_fields[0]:-}"
+    if (( ${#entry_fields[@]} != 8 )) || [[ -z "${path}" ]]; then
+        _ai_tools_layout__report_error "${path:-layout.lib.sh}" entry "the entry did not decode"
+        [[ -z "${path}" ]] || _AI_TOOLS_LAYOUT__ANCESTOR_STATES["${path}"]=bad
+        return 0
+    fi
+    if ancestor="$(_ai_tools_layout__find_refusing_ancestor "${path}")"; then
         _ai_tools_layout__report_refusal "${path}" ancestor "not read: ${ancestor} is not at its row"
         _AI_TOOLS_LAYOUT__ANCESTOR_STATES["${path}"]=bad
         return 0
     fi
     if ! ai_tools_layout__read_entry_state "${entry}" first first_findings; then
-        _ai_tools_layout__report_error "${path:-layout.lib.sh}" entry "the entry did not decode"
-        [[ -z "${path}" ]] || _AI_TOOLS_LAYOUT__ANCESTOR_STATES["${path}"]=bad
+        _ai_tools_layout__report_error "${path}" entry "the entry did not decode"
+        _AI_TOOLS_LAYOUT__ANCESTOR_STATES["${path}"]=bad
         return 0
     fi
     path="${first[path]}"
@@ -1775,22 +1782,23 @@ _ai_tools_layout__reconcile_entry() {
 
 # _ai_tools_layout__reconcile_lines <lines-var> : run _ai_tools_layout__reconcile_entry over the entry lines
 # of the caller's array in path order, an `error` line of the set reported as it is, and mark each path handled
-# in _AI_TOOLS_LAYOUT__ROW_PATHS so a later phase does not act on it again.
+# in _AI_TOOLS_LAYOUT__ROW_PATHS so a later phase does not act on it again. Each line is decoded once here, and its
+# fields reach the entry step decoded.
 _ai_tools_layout__reconcile_lines() {
     local -n _layout_run_lines="$1"
     local _layout_run_line _layout_run_path
     local -a _layout_run_fields=()
     for _layout_run_line in "${_layout_run_lines[@]}"; do
-        if [[ "${_layout_run_line}" == error$'\t'* ]]; then
-            ai_tools_layout__parse_line "${_layout_run_line}" _layout_run_fields \
-                || _layout_run_fields=( error host layout.lib.sh entries "a line of the entry set did not decode" )
+        ai_tools_layout__parse_line "${_layout_run_line}" _layout_run_fields \
+            || _layout_run_fields=( error host layout.lib.sh entries "a line of the entry set did not decode" )
+        if [[ "${_layout_run_fields[0]}" == error ]]; then
             _ai_tools_layout__report_error "${_layout_run_fields[2]:-layout.lib.sh}" "${_layout_run_fields[3]:-entries}" \
                 "${_layout_run_fields[4]:-}"
             continue
         fi
-        _layout_run_path="${_layout_run_line%%$'\t'*}"
+        _layout_run_path="${_layout_run_fields[0]}"
         [[ "${_AI_TOOLS_LAYOUT__ROW_PATHS[${_layout_run_path}]:-}" != handled ]] || continue
-        _ai_tools_layout__reconcile_entry "${_layout_run_line}"
+        _ai_tools_layout__reconcile_entry "${_layout_run_line}" "${_layout_run_fields[@]}"
         _AI_TOOLS_LAYOUT__ROW_PATHS["${_layout_run_path}"]=handled
     done
 }
@@ -1804,7 +1812,7 @@ ai_tools_layout__reconcile() {
     [[ -z "${AI_TOOLS_LAYOUT__DECLARATION_ERROR}" ]] || return 2
     [[ "${EUID}" -eq 0 ]] || return 2
     local without_rpm="${1:-0}" reason="" line path sorted
-    local -a static_lines=() phase_lines=() union_lines=()
+    local -a static_lines=() phase_lines=() union_lines=() fields=()
     _ai_tools_layout__reset_reconcile_state
     if ! declare -F ai_tools_safe_paths__is_pinned_fd_at_path >/dev/null 2>&1; then
         # shellcheck source=SCRIPTDIR/safe-paths.lib.sh
@@ -1823,7 +1831,8 @@ ai_tools_layout__reconcile() {
     # The discovery-input rows first, parent-first, so the dynamic enumeration reads inputs at their rows.
     _ai_tools_layout__append_static_entries static_lines
     for line in "${static_lines[@]}"; do
-        path="${line%%$'\t'*}"
+        ai_tools_layout__parse_line "${line}" fields || continue
+        path="${fields[0]}"
         _AI_TOOLS_LAYOUT__ROW_PATHS["${path}"]=row
         _ai_tools_layout__is_discovery_input "${path}" && phase_lines+=( "${line}" )
     done
@@ -1839,7 +1848,8 @@ ai_tools_layout__reconcile() {
     ai_tools_layout__read_entry_lines union_lines || :
     for line in "${union_lines[@]}"; do
         [[ "${line}" == error$'\t'* ]] && continue
-        path="${line%%$'\t'*}"
+        ai_tools_layout__parse_line "${line}" fields || continue
+        path="${fields[0]}"
         [[ -n "${_AI_TOOLS_LAYOUT__ROW_PATHS[${path}]+x}" ]] || _AI_TOOLS_LAYOUT__ROW_PATHS["${path}"]=row
     done
     _ai_tools_layout__reconcile_lines union_lines
