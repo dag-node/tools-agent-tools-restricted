@@ -651,25 +651,23 @@ wait_user_manager() {
     return 1
 }
 
-# Assert the sandbox nvm tree's intended ownership/mode on every (re)install, even when the dirs pre-exist from README
-# step 3. The tree is the agent's PRIVATE Node install (the agent runs AS ai-tools and legitimately writes here
-# on update); lock the three top dirs to 750 ai-tools:ai-tools -- owner rwx, no world access -- so whatever the initial
-# `nvm install` left behind cannot stay broader than intended. The version subtrees nvm creates at 700 are already
-# tighter and are left untouched; this is the top-level assertion, not a recursive sweep. Skips when nvm is not
-# yet installed, and WARNS rather than swallowing a chown/chmod failure -- a hardening step that fails quietly could
-# leave the tree mis-permissioned with no signal.
+# Assert the owner and mode of the sandbox toolchain's top directory, `.nvm`, on every (re)install: a hand-made nvm
+# install (docs/install/from-source.md step 3) runs nvm as the sandbox account, whose umask decides the mode it creates,
+# so this sets 750 <sandbox user>:<sandbox group> -- owner rwx, no world access. Its parent is the control-plane home
+# root, root-owned at CP_HOME_MODE without group write, so the sandbox account cannot replace the name
+# (boundary/access.sh: "cannot create files in /opt/ai-tools"). The interior of `.nvm` is that account's tree,
+# which root does not set a mode in: a name there is one the account can replace, and chown and chmod follow a link
+# planted at it (the write-side bullet in CLAUDE.md). Skips when nvm is not yet installed, and WARNS rather than
+# swallowing a chown/chmod failure -- a hardening step that fails quietly could leave the tree mis-permissioned with no
+# signal.
 lockdown_nvm_permissions() {
     local ai_nvm_dir="/opt/ai-tools/.nvm"
     [[ -d "${ai_nvm_dir}" ]] || return 0   # nvm not yet installed
 
-    local d
-    for d in "${ai_nvm_dir}" "${ai_nvm_dir}/versions" "${ai_nvm_dir}/versions/node"; do
-        [[ -d "${d}" ]] || continue
-        chown "${SANDBOX_USER}:${SANDBOX_GROUP}" "${d}" \
-            || warn MSG-V9C7 "lockdown: failed to chown ${d}"
-        chmod 750 "${d}" \
-            || warn MSG-Y3E5 "lockdown: failed to chmod 750 ${d}"
-    done
+    chown "${SANDBOX_USER}:${SANDBOX_GROUP}" "${ai_nvm_dir}" \
+        || warn MSG-V9C7 "lockdown: failed to chown ${ai_nvm_dir}"
+    chmod 750 "${ai_nvm_dir}" \
+        || warn MSG-Y3E5 "lockdown: failed to chmod 750 ${ai_nvm_dir}"
 }
 
 # Point /opt/ai-tools/bin/<launcher> at each enabled agent's versioned binary directly, without running

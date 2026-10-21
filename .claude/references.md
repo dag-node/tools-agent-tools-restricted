@@ -100,8 +100,8 @@ cannot fix -- a message code's name is a runtime string, and rewording one is a 
 | j8f2 | [MSG-J8F2](../install.sh) | the kept ${deployed} differs from this version's beyond its hooks: | install.sh |  | warn |
 | k2p8 | [MSG-K2P8](../install.sh) | the kept $1 runs these commands without asking, and each sends data off the host: | install.sh |  | warn |
 | g6h3 | [MSG-G6H3](../install.sh) | systemctl --user $* failed by both the machine transport and the account's own | install.sh |  | warn |
-| v9c7 | [MSG-V9C7](../install.sh) | lockdown: failed to chown ${d} | install.sh |  | warn |
-| y3e5 | [MSG-Y3E5](../install.sh) | lockdown: failed to chmod 750 ${d} | install.sh |  | warn |
+| v9c7 | [MSG-V9C7](../install.sh) | lockdown: failed to chown ${ai_nvm_dir} | install.sh |  | warn |
+| y3e5 | [MSG-Y3E5](../install.sh) | lockdown: failed to chmod 750 ${ai_nvm_dir} | install.sh |  | warn |
 | q4h5 | [MSG-Q4H5](../install.sh) | nvm not found at ${ai_nvm_dir}/nvm.sh -- launcher symlinks skipped | install.sh |  | warn |
 | e5s3 | [MSG-E5S3](../install.sh) | nvm 'default' alias not set -- launcher symlinks skipped | install.sh |  | warn |
 | j2h9 | [MSG-J2H9](../install.sh) | the ${node_version}/bin directory holds copies where npm keeps symlinks (${copied_bins}) -- a transfer of the tree replaced the links with their targets, so launcher symlinks are skipped | install.sh |  | warn |
