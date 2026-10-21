@@ -276,16 +276,17 @@ the setgid+sticky shape of an agent config directory, so the account keeps its o
 directory at the end stays the account's, because its manager writes the `Persistent=` stamps; DAC cannot close it,
 and the SELinux type on the path does ([confinement](confinement.rule.md)).
 
-`ai_tools_control_plane__ensure_unit_search_path_closed` applies the layout from `install.sh`, the provisioning run,
-and the base package's `%posttrans`, so an upgraded host converges unattended; every change it makes narrows access. It
-works top-down, and a symlink or non-directory on the chain ends the descent, since carrying on would create
-a root-owned directory at its target. An unexpected entry under `.local/share/systemd` is reported as an `error`
-and left in place for the operator, and `ai-tools-admin status` names it ([cli](cli.rule.md)).
+Each directory of the chain is a row of the installed layout, so the layout reconcile brings it to its mode
+from `install.sh`, the provisioning run, an upgrade's transaction trigger and the relabel service, parent-first
+and through a pinned descriptor, and a symlink on the chain is refused with the rows under it unread
+([layout](layout.rule.md)). An unexpected entry under `.local/share/systemd` is not a row: `ai-tools-admin status` names
+it and leaves it in place for the operator ([cli](cli.rule.md)).
 
 The control-plane modes are single-sourced as constants in `/usr/local/lib/ai-tools/control-plane.lib.sh`
 (`CP_HOME_MODE`, `CP_DIR_MODES` for the base-owned `bin`, and `CP_AGENT_CONFIG_MODE` for every agent's config
-directory), which `install.sh` and the RPM `%files` both apply; cite the constants rather than re-stating the octal
-so the modes stay defined in one place.
+directory), which `install.sh`, the RPM `%files` and the layout table's rows all apply; cite the constants rather than
+re-stating the octal so the modes stay defined in one place. The layout reconcile restores a control-plane file to its
+row on every install, upgrade and relabel ([layout](layout.rule.md)).
 
 **Which directory that is belongs to the agent, not the base.** Its name comes from the agent manifest's `config_dir`,
 its files (`settings.json`, the hooks) are shipped by that agent's package, and its SELinux label is applied

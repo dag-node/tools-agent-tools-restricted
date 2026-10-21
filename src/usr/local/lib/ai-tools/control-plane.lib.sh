@@ -109,70 +109,9 @@ ai_tools_control_plane__find_unexpected_unit_search_path_entries() {
     done < <(find "${data_dir}" -xdev -mindepth 1 -maxdepth 1 -print0 2>/dev/null)
 }
 
-# ai_tools_control_plane__ensure_unit_search_path_closed <home> <account> <group> : bring CP_UNIT_SEARCH_PATH_CHAIN
-#   to CP_UNIT_SEARCH_PATH_MODES and keep CP_TIMER_STAMP_DIR the account's. Requires root; returns 2 for any other
-#   caller. Prints one tagged line per observation and is silent on a converged host:
-#       changed <path> <before> <after>     a directory this call brought to its declared owner and mode
-#       error <path> <reason>               a path this call left as it is; the reason names what to do
-#   Returns 1 when it printed an `error` line, 0 otherwise. ai_tools_control_plane__parse_unit_search_path_report reads
-#   the lines.
-#
-#   Top-down, so each parent is closed before the account could rename the child acted on next. A symlink
-#   or a non-directory on the chain ends the descent: every deeper link resolves through it, so carrying on would create
-#   a root-owned directory at its target. An unexpected entry is reported and left in place: it is evidence,
-#   and removing it is the operator's call.
-ai_tools_control_plane__ensure_unit_search_path_closed() {
-    local home="${1:-}" account="${2:-}" group="${3:-}" relative path mode owner before after entry rc=0
-    [[ -n "${home}" && -n "${account}" && -n "${group}" ]] || return 2
-    [[ "${EUID:-$(id -u)}" -eq 0 ]] || return 2
-
-    for relative in "${CP_UNIT_SEARCH_PATH_CHAIN[@]}" "${CP_TIMER_STAMP_DIR}"; do
-        path="${home}/${relative}"
-        if [[ -L "${path}" || ( -e "${path}" && ! -d "${path}" ) ]]; then
-            printf 'error %s %s\n' "${path}" "is a symlink or not a directory, so the paths under it were not touched; move it aside and re-run"
-            return 1
-        fi
-        if [[ "${relative}" == "${CP_TIMER_STAMP_DIR}" ]]; then
-            mode="${CP_TIMER_STAMP_DIR_MODE}" owner="${account}"
-        else
-            mode="${CP_UNIT_SEARCH_PATH_MODES[${relative}]}" owner=root
-        fi
-        before=absent
-        [[ -d "${path}" ]] && before="$(stat -c '%U:%G %a' -- "${path}")"
-        if install -d -o "${owner}" -g "${group}" -m "${mode}" -- "${path}" \
-                && ai_tools_control_plane__apply_mode "${mode}" "${path}" \
-                && chown --no-dereference "${owner}:${group}" -- "${path}"; then
-            after="$(stat -c '%U:%G %a' -- "${path}")"
-            [[ "${before}" == "${after}" ]] || printf 'changed %s %s %s\n' "${path}" "${before}" "${after}"
-        else
-            rc=1
-        fi
-    done
-
-    while IFS= read -r entry; do
-        [[ -n "${entry}" ]] || continue
-        printf 'error %s %s\n' "${entry}" "is on the account's unit search path and no ai-tools step writes it; inspect it, remove it, then re-run"
-        rc=1
-    done < <(ai_tools_control_plane__find_unexpected_unit_search_path_entries "${home}")
-    return "${rc}"
-}
-
-# ai_tools_control_plane__parse_unit_search_path_report <changed_array> <failed_array> : read the tagged lines
-#   ai_tools_control_plane__ensure_unit_search_path_closed prints from stdin into the two arrays the caller names,
-#   as `<path>: <before> -> <after>` and `<path>: <reason>`. A caller renders them in its own voice.
-ai_tools_control_plane__parse_unit_search_path_report() {
-    local -n _cp_changed_lines="$1" _cp_failed_lines="$2"
-    local line verdict rest path detail before
-    while IFS= read -r line; do
-        verdict="${line%% *}"; rest="${line#* }"; path="${rest%% *}"; detail="${rest#* }"
-        case "${verdict}" in
-            # <after> is always `owner:group mode`; <before> is that or the single word `absent`.
-            changed) before="${detail% * *}"
-                     _cp_changed_lines+=("${path}: ${before} -> ${detail#"${before} "}") ;;
-            error)   _cp_failed_lines+=("${path}: ${detail}") ;;
-        esac
-    done
-}
+# The chain is brought to these modes by the layout reconcile (layout.lib.sh), whose rows hold each directory of it
+# and the timer-stamp directory; ai_tools_control_plane__find_unit_search_path_drift
+# and ai_tools_control_plane__find_unexpected_unit_search_path_entries are what `ai-tools-admin status` reports from.
 
 # ai_tools_control_plane__find_unit_search_path_drift <home> <group> : print one line per chain directory whose owner
 #   or mode is not the declared one, as `<path> <owner:group mode> root:<group> <mode>`; an absent, symlinked

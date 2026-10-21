@@ -738,4 +738,73 @@ for attestation_input_path in /sys/fs/selinux/booleans/nis_enabled /sys/fs/selin
     fi
 done
 
+# ── The installed layout: the library, the reconcile and every boundary row are out of the agent's reach ──────
+# The layout library declares which rows gate a session and the reconcile rewrites owners, modes and ACLs as root,
+# so the agent must write neither; and every row the library flags `boundary` is read by a gate that refuses a session
+# on it, so none may be agent-writable. The rows come from the library's own list rather than a copy here, so a boundary
+# row a release adds is probed without editing this file.
+_layout_lib=/usr/local/lib/ai-tools/layout.lib.sh
+if [[ ! -e "${_layout_lib}" ]]; then
+    skip "layout library not agent-writable" "${_layout_lib} not installed"
+elif runuser -u "${SANDBOX_USER}" -- test -w "${_layout_lib}" 2>/dev/null; then
+    fail "the agent can write ${_layout_lib} -- it could change which paths the reconcile rewrites as root"
+else
+    pass "the agent cannot write the layout library"
+fi
+# The reconcile as the sandbox account, through the link an operator types. The link is established as root first,
+# so a missing executable fails here instead of reading as the refusal, and the status is held to the two a refusal
+# produces: 126, the exec denied by the 750 root:root helper directory, or the helper's own root check. bash runs
+# the command, since its status tells a denied exec (126) from a name that does not resolve (127), and runuser exits 1
+# on a denied exec.
+_layout_admin=/usr/sbin/ai-tools-admin
+if [[ ! -L "${_layout_admin}" || ! -x "${_layout_admin}" ]]; then
+    fail "${_layout_admin} is not an executable link as root, so the reconcile's refusal is not probed -- reinstall ai-tools-base"
+else
+    _layout_rc=0
+    # shellcheck disable=SC2016  # the inner bash expands $0
+    _layout_out="$(runuser -u "${SANDBOX_USER}" -- bash -c '"$0" system layout reconcile' "${_layout_admin}" 2>&1)" \
+        || _layout_rc=$?
+    if (( _layout_rc == 126 )); then
+        pass "ai-tools-admin system layout reconcile is refused as ${SANDBOX_USER}: the helper directory denies the exec"
+    elif (( _layout_rc == 1 )) && grep -qxF MSG-D7D4 <<< "${_layout_out}"; then
+        pass "ai-tools-admin system layout reconcile is refused as ${SANDBOX_USER} by its root check"
+    else
+        fail "ai-tools-admin system layout reconcile as ${SANDBOX_USER} exited ${_layout_rc}, not a refusal (127 is a missing executable): $(head -c 200 <<< "${_layout_out}" | tr '\n' '|')"
+    fi
+fi
+# shellcheck source=/dev/null
+if source "${_layout_lib}" 2>/dev/null && declare -F ai_tools_layout__read_entry_lines >/dev/null 2>&1 \
+        && [[ -z "${AI_TOOLS_LAYOUT__DECLARATION_ERROR:-}" ]]; then
+    _boundary_rows=0; _boundary_writable=0
+    # The set is read through the library's collector, which waits for the enumerator and appends an error line
+    # for a status the lines do not account for; the output names carry the test's own prefix, since the library refuses
+    # one in its own.
+    declare -a boundary_entry_lines=() boundary_fields=()
+    ai_tools_layout__read_entry_lines boundary_entry_lines || :
+    for boundary_line in "${boundary_entry_lines[@]}"; do
+        if ! ai_tools_layout__parse_stream_line "${boundary_line}" boundary_fields; then
+            fail "a line of the layout entry set did not decode, so the rows it names are not probed"; continue
+        fi
+        if [[ "${boundary_fields[0]}" == error ]]; then
+            fail "the layout entry set could not read ${boundary_fields[2]:-an input} (${boundary_fields[4]:-no reason}), so the rows it names are not probed"
+            continue
+        fi
+        [[ ",${boundary_fields[6]:-}," == *,boundary,* ]] || continue
+        _boundary_rows=$(( _boundary_rows + 1 ))
+        # An absent row is integration/perms.sh's finding; this probe is about the rows that exist.
+        [[ -e "${boundary_fields[0]}" || -L "${boundary_fields[0]}" ]] || continue
+        if runuser -u "${SANDBOX_USER}" -- test -w "${boundary_fields[0]}" 2>/dev/null; then
+            fail "the agent can write the boundary row ${boundary_fields[0]} -- the gate reading it decides what a session may do"
+            _boundary_writable=$(( _boundary_writable + 1 ))
+        fi
+    done
+    if (( _boundary_rows == 0 )); then
+        fail "the layout library listed no boundary row"
+    elif (( _boundary_writable == 0 )); then
+        pass "none of the ${_boundary_rows} boundary rows the layout library lists is agent-writable"
+    fi
+else
+    skip "boundary rows not agent-writable" "${_layout_lib} did not load or its table did not validate"
+fi
+
 finish

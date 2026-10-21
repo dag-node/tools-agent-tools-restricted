@@ -779,6 +779,7 @@ main() {
         printf '    %-45s %s\n' "ai-tools status"                                 "service health and verification, live"
         printf '    %-45s %s\n' "sudo ai-tools-admin system entrypoints relabel"  "re-verify and relabel the entrypoints"
         printf '    %-45s %s\n' "journalctl -t ai-tools-chown _UID=0"             "the full ownership trail"
+        printf '    %-45s %s\n' "journalctl -t ai-tools-layout _UID=0"            "each change the layout reconcile made"
     fi
     ai_tools_records_base__get_exit_status || return $?
     return 0

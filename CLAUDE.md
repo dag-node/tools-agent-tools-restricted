@@ -61,6 +61,7 @@ the management CLI (`ai-tools`), and root-helper binary names (`ai-tools-chown`,
 | Namespaces, SELinux transition, preflight, `/tmp`, optional-group management, how the policy ships and why it is separately licensed | `selinux/**`, `bin/ai-tools-run.sh`, `selinux-groups.lib.sh`, `ai-tools-admin.sh` (`selinux` subcommand), `packaging/ai-tools.spec` (`ai-tools-selinux`) | [confinement](.claude/rules/confinement.rule.md) |
 | Root-op socket (daemon/client/units) | `ai-tools-handback*`, `ai-tools-handback-client*` | [handback-bridge](.claude/rules/handback-bridge.rule.md) |
 | Hooks, sweeps, `.git` reclaim, setgid, control-plane integrity | `opt/ai-tools/agents/**`, `ai-tools-chown.sh`, `ai-tools-setgid.sh`, `owner-only.lib.sh` | [ownership-and-hooks](.claude/rules/ownership-and-hooks.rule.md) |
+| The installed layout as one table: every path this project installs or creates with its owner, mode, ACL and SELinux type, the readers, the reconcile and its preconditions, where it runs, and the loop the permission test is | `layout.lib.sh`, `ai-tools-admin.sh` (`system layout`) | [layout](.claude/rules/layout.rule.md) |
 | Claude Code settings, Bash deny rules ↔ SELinux policy, the hook-declaration merge a kept file takes on upgrade | `opt/ai-tools/agents/*/settings.json`, `settings-merge.lib.sh` | [claude-settings](.claude/rules/claude-settings.rule.md) |
 | Token-saving command filters: rewrite rules + output noise stripping | `filters.lib.sh`, `lib/ai-tools/filters.d/**`, `agents/*/filter-hook.sh` | [filters](.claude/rules/filters.rule.md) |
 | Shipped assets: shared skills, subagents, and the per-session orientation text, their placement chain and seeding; the asset sets an operator enables, the view and each agent's links into it, and the set verifier | `usr/share/ai-tools/**`, `lib/ai-tools/managed-assets.lib.sh`, `lib/ai-tools/assets.lib.sh`, `lib/ai-tools/assets-verify.lib.sh`, `lib/ai-tools/assets-bindings.d/**` | [shipped-assets](.claude/rules/shipped-assets.rule.md) |
@@ -176,6 +177,7 @@ shape of guarantee: it deletes only after that confirmation, and a failure leave
 | which paths handback may touch | born-`SANDBOX_USER` ownership, re-checked race-safely as root | the path is left alone |
 | which names a walk over a tree treats as secrets | the operator's own `secret-patterns` file, read once the path's owner is resolved, with the shipped baseline in force where it is absent or empty ([ref-section-h4j6](.claude/rules/secret-handling.rule.md#ref-section-h4j6)) | a present file that cannot be read keeps the baseline for classification, and every helper that changes a tree refuses before its first write |
 | which toolchain may be activated | npm registry signature verification | the previous, trusted version stays |
+| whether the installed layout holds | the layout table, read as root; a boundary row's own reader refuses at read ([layout](.claude/rules/layout.rule.md)) | reported and converged; a session is never refused on the table's reading, since no launch reads it |
 | which agent binary may start a session | its checksum against a root-owned pin, recorded either from the vendor's signed release manifest or, for a vendor publishing none, from the binary as installed ([ref-section-q7v4](.claude/rules/updater.rule.md#ref-section-q7v4)) | a mismatch refuses the launch at either tier; where the operator required verification, an entrypoint that no reconcile has pinned does not launch and an unverifiable release stays inactive |
 
 The invariants the agent operates under:
@@ -330,7 +332,7 @@ not gaps, so a reader tells bounded design from an oversight:
   `owner-only`, `project-permissions`, `safe-paths`, `relabel`, `operator`, `control-plane`, `confinement`,
   `launch-wrapper`, `npm-verify`, `openpgp`, `entrypoint-verify`, `assets-verify`, `managed-assets`, `providers`,
   `ancestor-config`, `sandbox-exec`, `toolchain`, `cache-cleanup`, `selinux-groups`, `filters`, `services`, `msg`,
-  `log`, `path-order`, `agent-installs`, `records-base`, `records-tsv`, `assets`, and the claude-code pair
+  `log`, `path-order`, `agent-installs`, `records-base`, `records-tsv`, `assets`, `layout`, and the claude-code pair
   `claude-prompt`/`claude-endpoint`), plus `path-order.sh`, the PATH-ordering fragment `ai-tools-admin` wires
   into operator dotfiles (see [launch](.claude/rules/launch.rule.md)). That directory and its contents are `root`-owned
   and non-group-writable, and the sandbox group reads them — load-bearing, since the sandbox account sources several

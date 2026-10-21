@@ -56,14 +56,16 @@ cache), so a session gets dotnet only when `integration-dotnet` is in `AI_TOOLS_
 - `admin-commands.d/dotnet` is this package's contributed domain, so its administration is spelled
   `sudo ai-tools-admin dotnet <verb>` ([cli-grammar](cli-grammar.rule.md) for the spelling). `dotnet bootstrap` creates
   that state root and its three directories: the NuGet cache and the SDK's CLI home are agent-**writable** (`2770`,
-  setgid), the shared tools are **read-only** to the agent (`0755`, root-only writes). It applies **no** SELinux policy
-  of its own — the base's static rule on `integrations(/.*)?` already maps the whole tree to `ai_tools_home_t`,
-  so the type grants `ai_tools_t` the access (write on the cache, exec on the tools) while the DAC modes are
-  the enforced read/write boundary. It also drops the local fcontext rules earlier versions added for the old home-root
-  dotdirs. `dotnet tools install <pkg...>` installs shared global tools; `dotnet status` reports host SDKs/runtimes,
-  and reads enablement through `ai_tools_providers__list_enabled_integrations` so it reports the same verdict
-  `ai-tools-run` reaches. Its journald tag and log file are `ai-tools-dotnet`/`dotnet.log`, the identity an operator
-  queries.
+  setgid), the shared tools are **read-only** to the agent (`0755`, root-only writes). The state root and those
+  directories are rows of the installed layout table ([layout](layout.rule.md)) while the package's sentinel files
+  exist, so `ai-tools-admin system layout` reports their drift and its reconcile creates a missing one, and a host
+  without the package does not carry the rows. It applies **no** SELinux policy of its own — the base's static rule
+  on `integrations(/.*)?` already maps the whole tree to `ai_tools_home_t`, so the type grants `ai_tools_t` the access
+  (write on the cache, exec on the tools) while the DAC modes are the enforced read/write boundary. It also drops
+  the local fcontext rules earlier versions added for the old home-root dotdirs. `dotnet tools install <pkg...>`
+  installs shared global tools; `dotnet status` reports host SDKs/runtimes, and reads enablement
+  through `ai_tools_providers__list_enabled_integrations` so it reports the same verdict `ai-tools-run` reaches. Its
+  journald tag and log file are `ai-tools-dotnet`/`dotnet.log`, the identity an operator queries.
 - Every step **fails loudly**. A directory it cannot create, or a label it cannot apply on a host that supports
   labelling, exits non-zero with the cause logged through `log.lib.sh` to journald and `/var/log/ai-tools/dotnet.log`
   (see [logging](logging.rule.md)) — a half-provisioned integration that looks installed surfaces later as an opaque

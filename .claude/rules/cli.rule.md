@@ -536,12 +536,14 @@ the reconcile. It is **read-only**, which is what makes it safe to call from a r
 from `ai_tools_relabel__label_agent_paths`; that function's header states which calls each one makes.
 
 **The sandbox unit search path is a section of its own, because only root can read it.** A chain directory that exists
-at another owner or mode is `DRIFTED` and counts; an absent one is `n/a`, a host provisioning has not reached;
-and an entry under `.local/share/systemd` other than the stamp directory is `UNEXPECTED` and counts. The drift reader's
-status keeps a failed reading apart from a clean chain. The `Persistent=` timer stamp is read by its mtime
-through `ai_tools_services__evaluate_timer_stamp`, with the tolerance taken from the timer's own accuracy and randomized
-delay; `FUTURE` counts, since a future-dated stamp suppresses the catch-up run a missed window gets. Whether the timer
-is overdue is the Services section's reading alone. The report does not write the stamp.
+at another owner or mode is `DRIFTED` and counts, with `sudo ai-tools-admin system layout reconcile` as the remedy line,
+since each directory of the chain is a row of the installed layout ([layout](layout.rule.md)); an absent one is `n/a`,
+a host provisioning has not reached; and an entry under `.local/share/systemd` other than the stamp directory is
+`UNEXPECTED` and counts. The drift reader's status keeps a failed reading apart from a clean chain. The `Persistent=`
+timer stamp is read by its mtime through `ai_tools_services__evaluate_timer_stamp`, with the tolerance taken
+from the timer's own accuracy and randomized delay; `FUTURE` counts, since a future-dated stamp suppresses the catch-up
+run a missed window gets. Whether the timer is overdue is the Services section's reading alone. The report does not
+write the stamp.
 
 The report is otherwise the same contract as `status`: it exits 4 when something needs attention and 5 when a library
 base ships did not load, so a section could not make a reading it promises — the two counts `STATUS_PROBLEMS`

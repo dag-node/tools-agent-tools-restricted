@@ -294,6 +294,16 @@ TREE_LINE=""
 # before the source-tree gate, which is how the unit test drives it, through AI_TOOLS_INSTALLED_CLI -- a root-only test
 # hook (tests.rule.md, ref-section-b4y9): a caller who could set it runs this script as root already.
 INSTALLED_CLI="${AI_TOOLS_INSTALLED_CLI:-/usr/local/bin/ai-tools}"
+
+# report_packaged_host -- warn where rpm reports ai-tools-base installed. Each package file this install replaces keeps
+# its rpm database entry with other bytes under it, so `rpm -V` and the layout table read it as content drift, which
+# the reconcile refuses to repair (layout.rule.md), and the next `dnf upgrade` writes over it. A warning and not
+# a refusal: the operator is installing on purpose, and the review box still asks before the first write.
+report_packaged_host() {
+    command -v rpm >/dev/null 2>&1 && rpm -q ai-tools-base >/dev/null 2>&1 || return 0
+    warn MSG-Q8T8 "installing over the ai-tools packages: each package file this install replaces reads as content drift in rpm -V and in ai-tools-admin system layout, whose reconcile does not repair it, and the next dnf upgrade writes over it -- return to the packages with sudo dnf reinstall 'ai-tools-*', build this checkout as packages and upgrade to them (docs/install/from-source.md), or make this a source-only host with sudo dnf remove 'ai-tools-*'"
+}
+
 version_gate() {
     local installed="" lower
     [[ -f "${INSTALLED_CLI}" ]] \
@@ -552,20 +562,12 @@ ensure_dir() {
     [[ "${before}" == absent || "${before}" == "${after}" ]] || log "  ${dir}: ${before} -> ${after}"
 }
 
-# close_unit_search_path <home>: apply the unit search path layout under <home>
-# (ai_tools_control_plane__ensure_unit_search_path_closed) and log what it changed. A path it could not close is
-# a warning, and the install continues.
-close_unit_search_path() {
-    local home="$1" line
-    local -a changed=() failed=()
-    ai_tools_control_plane__parse_unit_search_path_report changed failed \
-        < <(ai_tools_control_plane__ensure_unit_search_path_closed "${home}" "${SANDBOX_USER}" "${SANDBOX_GROUP}" || true)
-    log "systemd unit search path under ${home} (${#changed[@]} director(ies) changed)"
-    for line in "${changed[@]+"${changed[@]}"}"; do log "  ${line}"; done
-    if (( ${#failed[@]} > 0 )); then
-        warn MSG-A2Y5 "the sandbox account's systemd unit search path is not fully closed, so a path listed here could still reach its unconfined --user manager; settle each one and re-run this installer:"
-        for line in "${failed[@]}"; do warn "    ${line}"; done
-    fi
+# reconcile_layout: bring every installed path to its row through the installed command, the same pass an upgrade's
+# transaction trigger runs; its lines go to the install log, and a finding it leaves is reported
+# by `ai-tools-admin status` and `ai-tools-admin system layout`, so the install continues.
+reconcile_layout() {
+    log "installed layout: sudo ai-tools-admin system layout reconcile"
+    /usr/local/libexec/ai-tools/ai-tools-admin system layout reconcile || true
 }
 
 # Make sure `<home>/.config` exists and belongs to the account whose home it is, before the ai-tools config directory is
@@ -1060,6 +1062,7 @@ do_summary() {
     _chk /usr/local/lib/ai-tools/services.lib.sh
     _chk /usr/local/lib/ai-tools/records-base.lib.sh
     _chk /usr/local/lib/ai-tools/records-tsv.lib.sh
+    _chk /usr/local/lib/ai-tools/layout.lib.sh
     _chk /usr/local/lib/ai-tools/agents.d/claude-code.conf
     _chk /usr/local/lib/ai-tools/session-env.d/claude-code.pins.env.sh
     _chk /usr/local/lib/ai-tools/session-env.d/claude-code.env.sh
@@ -1255,6 +1258,7 @@ do_install() {
     say "  sandbox user  : ${SANDBOX_USER}:${SANDBOX_GROUP}"
 
     version_gate
+    report_packaged_host
     source_tree_gate
 
     # Proceed gate -- everything up to here is print-only; the first change to the host (including the install log
@@ -1601,6 +1605,11 @@ do_install() {
     install -o root -g root -m 644 \
         "${SCRIPT_DIR}/src/usr/local/lib/ai-tools/records-tsv.lib.sh" \
         /usr/local/lib/ai-tools/records-tsv.lib.sh
+    # The installed layout as one table: 644 root:root, read by ai-tools-admin system layout and perms.sh as root.
+    log "/usr/local/lib/ai-tools/layout.lib.sh"
+    install_subst 644 root root \
+        "${SCRIPT_DIR}/src/usr/local/lib/ai-tools/layout.lib.sh" \
+        /usr/local/lib/ai-tools/layout.lib.sh
 
     # Agent manifests: the agents.d directory (0755 root:root) plus each agent's <name>.conf (644, parsed data naming
     # its npm package + launcher). This from-source installer deploys the full stack, so it lays down the claude-code
@@ -1876,14 +1885,15 @@ do_install() {
     # by an administrator and documented as a bare command. sudo resolves a bare command against the sudoers
     # secure_path, which on stock EL is /sbin:/bin:/usr/sbin:/usr/bin -- it does NOT include /usr/local/sbin --
     # so the symlink lives in /usr/sbin (also on root's shell PATH). The target keeps its canonical
-    # /usr/local/libexec/ai-tools/ path (sudoers, perms checks, docs reference it).
+    # /usr/local/libexec/ai-tools/ path (sudoers, perms checks, docs reference it). Both links are relative (`-r`),
+    # as the package writes them.
     log "/usr/sbin/ai-tools-admin -> /usr/local/libexec/ai-tools/ai-tools-admin"
-    ln -sfn /usr/local/libexec/ai-tools/ai-tools-admin /usr/sbin/ai-tools-admin
+    ln -sfnr /usr/local/libexec/ai-tools/ai-tools-admin /usr/sbin/ai-tools-admin
     # The ai-tools CLI gets the same secure_path symlink for the OPPOSITE reason: it must never run under sudo,
     # and without the symlink `sudo ai-tools` dies with sudo's "command not found" (/usr/local/bin is not
     # in secure_path) before the CLI's own refusal -- "run as the projects user" -- can explain the right invocation.
     log "/usr/sbin/ai-tools -> /usr/local/bin/ai-tools"
-    ln -sfn /usr/local/bin/ai-tools /usr/sbin/ai-tools
+    ln -sfnr /usr/local/bin/ai-tools /usr/sbin/ai-tools
 
     # Handback privilege bridge daemon.  750 root:root -- root-owned and only root-executable: this is the privileged
     # endpoint; the SANDBOX_USER reaches it via the socket, never by exec'ing it directly.  install_subst substitutes
@@ -2133,7 +2143,7 @@ do_install() {
     ensure_dir 700 root root /var/log/ai-tools
     chown root:root /var/log/ai-tools
     chmod 700 /var/log/ai-tools
-    for _logfile in chown setgid symlink lockdown relabel handback install; do
+    for _logfile in chown setgid symlink lockdown relabel handback install layout; do
         if [[ ! -e "/var/log/ai-tools/${_logfile}.log" ]]; then
             install -o root -g root -m 600 /dev/null "/var/log/ai-tools/${_logfile}.log"
         fi
@@ -2599,8 +2609,8 @@ do_install() {
     # repoint -> relabel chain races the operator's first launch, so the first claude refuses on a mislabelled
     # entrypoint. The toolchain is current at install time, so "last run = now" is truthful (mtime is all systemd
     # reads). Same fix as ai-tools-bootstrap; see .claude/rules/updater.rule.md. The home is root-owned, so root creates
-    # the stamp directory through close_unit_search_path, which also closes the directories on the way to it.
-    close_unit_search_path "/opt/ai-tools"
+    # the stamp directory through the layout reconcile, whose rows hold the directories on the way to it.
+    reconcile_layout
     install -o "${SANDBOX_USER}" -g "${SANDBOX_GROUP}" -m 0644 /dev/null \
         "/opt/ai-tools/${CP_TIMER_STAMP_DIR}/${CP_UPDATE_TIMER_STAMP}"
     if (( manager_ready )); then
@@ -3060,8 +3070,10 @@ case "${ACTION}" in
         ;;
     check-tree)
         # The two gates alone: the version and the commit an install would deploy, and the refusals a downgrade
-        # and an uncommitted tree meet, leaving the host unchanged. What the unit test drives.
+        # and an uncommitted tree meet, and the packaged-host warning, leaving the host unchanged. What the unit test
+        # drives.
         version_gate
+        report_packaged_host
         source_tree_gate
         ;;
     *)

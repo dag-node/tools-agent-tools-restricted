@@ -313,9 +313,11 @@ install -m 0750 src%{ai_libexecdir}/ai-tools-handback.py %{buildroot}%{ai_libexe
 # %{_sbindir}: sudo resolves a bare command against the sudoers secure_path, which on stock
 # EL is /sbin:/bin:/usr/sbin:/usr/bin and does NOT include /usr/local/sbin. The target keeps
 # its canonical %{ai_libexecdir} path. Provisioning is a verb on it (`system bootstrap`) rather
-# than a name of its own.
+# than a name of its own. Both %{_sbindir} links are relative (`ln -sr`): rpmbuild's file
+# classifier resolves a link on the build host, and an absolute target there is the installed
+# helper inside a root-only directory, which fails the build where ai-tools is installed.
 install -d -m 0755 %{buildroot}%{_sbindir}
-ln -s %{ai_libexecdir}/ai-tools-admin %{buildroot}%{_sbindir}/ai-tools-admin
+ln -sr %{buildroot}%{ai_libexecdir}/ai-tools-admin %{buildroot}%{_sbindir}/ai-tools-admin
 
 # ── base: CLI + handback client ──────────────────────────────────────────────
 install -d -m 0755 %{buildroot}%{ai_bindir}
@@ -361,14 +363,14 @@ install -m 0644 src%{ai_mandir}/man7/ai-tools-messages.7        %{buildroot}%{ai
 # That only holds for a caller sudo will exec at all: an operator whose only grant is the
 # %%ai-ops drop-in is refused by sudo first, and meets sudo's message rather than the CLI's.
 # The symlink also carries the read-only reports, which the CLI now accepts as root.
-ln -s %{ai_bindir}/ai-tools %{buildroot}%{_sbindir}/ai-tools
+ln -sr %{buildroot}%{ai_bindir}/ai-tools %{buildroot}%{_sbindir}/ai-tools
 
 # ── base: shared libraries ───────────────────────────────────────────────────
 # 0751: group SANDBOX_GROUP r-x for the agent; world-execute so an operator (not a
 # SANDBOX_GROUP member under multi-operator) can traverse in to source the 644
 # world-readable libs by path without listing the dir. The 640 files self-protect.
 install -d -m 0751 %{buildroot}%{ai_libdir}
-for l in log msg conf settings-merge skip-dirs owner-only project-permissions relabel secret-patterns operator control-plane safe-paths launch-wrapper confinement npm-verify openpgp entrypoint-verify assets-verify assets managed-assets providers ancestor-config sandbox-exec toolchain cache-cleanup selinux-groups filters services path-order agent-installs records-base records-tsv; do
+for l in log msg conf settings-merge skip-dirs owner-only project-permissions relabel secret-patterns operator control-plane safe-paths launch-wrapper confinement npm-verify openpgp entrypoint-verify assets-verify assets managed-assets providers ancestor-config sandbox-exec toolchain cache-cleanup selinux-groups filters services path-order agent-installs records-base records-tsv layout; do
     install -m 0644 src%{ai_libdir}/${l}.lib.sh %{buildroot}%{ai_libdir}/${l}.lib.sh
 done
 # Provider manifest + fragment directories (base owns the dirs; each member package ships its own
@@ -731,12 +733,14 @@ if [ -d /var/opt/ai-tools/state ]; then
     chmod 0440 /var/opt/ai-tools/state/cache-cleanup.lock 2>/dev/null || :
 fi
 # Re-assert the setgid bit on the sandbox tree -- rpm 4.19+ drops it from these %attr(2xxx) %dir
-# entries on install. Done in %post AND %posttrans because which one survives is rpm-dependent
-# (some rpm re-applies %attr after %post); both are idempotent no-ops on a host that kept the bit.
-# NB the container-image (OCI) layer preserves these two writes inconsistently across distros, so
-# the rpm-selftest RE-ASSERTS setgid at runtime (container-selftest.sh) -- this pair is for real
-# hosts, which have no image layer. A setgid %%dir added to any package takes the same re-assertion
-# in its own %%post, or it installs without the bit on EL10 (the typesafe state root is one).
+# entries on install. The layout reconcile the transaction file trigger runs converges the same
+# rows once every package is placed; this pair and this scriptlet's setfacl lines are the first state,
+# before any library loads, and a later release removes them. Idempotent no-ops on a host that
+# kept the bit. NB the container-image (OCI) layer preserves these writes inconsistently across
+# distros, so the rpm-selftest RE-ASSERTS setgid at runtime (container-selftest.sh) -- this pair
+# is for real hosts, which have no image layer. A setgid %%dir added to any package takes the same
+# re-assertion in its own %%post, or it installs without the bit on EL10 (the typesafe state root
+# is one).
 chmod 2750 /var/opt/ai-tools 2>/dev/null || :
 chmod 2770 /var/opt/ai-tools/sandbox-projects 2>/dev/null || :
 # Control-plane git guard + identity for the repo ai-tools-bootstrap captures (the RPM
@@ -914,6 +918,19 @@ cat >/dev/null 2>&1 || :
 cat >/dev/null 2>&1 || :
 %{ai_libexecdir}/ai-tools-admin assets reconcile >/dev/null 2>&1 || :
 
+# The installed layout (layout.lib.sh): one reconcile per transaction, whichever packages placed
+# files under the prefixes, so a subpackage-only install, upgrade or erase converges too. Without
+# the content comparison, since the transaction holds the rpm database; the relabel service
+# %posttrans starts runs the full pass. Output is kept, so the transaction log names each change;
+# the status is ignored, since a layout finding does not fail an upgrade.
+%transfiletriggerin -n ai-tools-base -- /usr/local/lib/ai-tools /usr/local/libexec/ai-tools /opt/ai-tools /etc/ai-tools /etc/codex /var/opt/ai-tools /var/log/ai-tools /usr/share/ai-tools
+cat >/dev/null 2>&1 || :
+%{ai_libexecdir}/ai-tools-admin system layout reconcile --without-rpm || :
+
+%transfiletriggerpostun -n ai-tools-base -- /usr/local/lib/ai-tools /usr/local/libexec/ai-tools /opt/ai-tools /etc/ai-tools /etc/codex /var/opt/ai-tools /var/log/ai-tools /usr/share/ai-tools
+cat >/dev/null 2>&1 || :
+%{ai_libexecdir}/ai-tools-admin system layout reconcile --without-rpm || :
+
 %posttrans -n ai-tools-base
 # Start the socket so the handback is live without a reboot (posttrans runs after the systemd
 # daemon-reload file trigger). Idempotent; guarded so a systemd-less build/image fails soft.
@@ -924,24 +941,9 @@ systemctl start ai-tools-handback.socket 2>/dev/null || :
 # Idempotent; a host without the nodejs integration has no such unit and fails soft.
 systemctl start ai-tools-relabel.path 2>/dev/null || :
 systemctl start --no-block ai-tools-relabel.service 2>/dev/null || :
-
-# Re-assert setgid after all file ops (some rpm re-applies %attr after %post, dropping it). Paired
-# with the %post copy; both idempotent. See the %post comment for the container-image caveat.
-chmod 2750 /var/opt/ai-tools 2>/dev/null || :
-chmod 2770 /var/opt/ai-tools/sandbox-projects 2>/dev/null || :
-
-# Close the sandbox account's systemd unit search path (control-plane.lib.sh) on every transition, since the home
-# subtrees are not rpm-owned. Under an explicit bash: the library is bash and a scriptlet runs under /bin/sh.
-if [ -d /opt/ai-tools ] && command -v bash >/dev/null 2>&1; then
-    bash -c '. /usr/local/lib/ai-tools/control-plane.lib.sh 2>/dev/null || exit 0
-             declare -F ai_tools_control_plane__ensure_unit_search_path_closed >/dev/null 2>&1 || exit 0
-             ai_tools_control_plane__ensure_unit_search_path_closed /opt/ai-tools ai-tools ai-tools | while read -r verdict rest; do
-                 [ "${verdict}" = error ] && echo "ai-tools-base: WARNING the sandbox systemd unit search path is not fully closed: ${rest}" >&2
-             done' || :
-    if command -v restorecon >/dev/null 2>&1; then
-        restorecon -R /opt/ai-tools/.local >/dev/null 2>&1 || :
-    fi
-fi
+# The setgid bits, the sandbox account's unit search path and every other row of the installed
+# layout are converged by this package's transaction file trigger, and again with the content comparison
+# by the relabel service this scriptlet starts.
 
 # Helper-layout migration (0.10.0): the root helper tree moved
 # /usr/local/sbin/ai-tools -> /usr/local/libexec/ai-tools so ONE layout serves EL and the
@@ -1404,6 +1406,7 @@ fi
 %attr(0644, root, root) %{ai_libdir}/agent-installs.lib.sh
 %attr(0644, root, root) %{ai_libdir}/records-base.lib.sh
 %attr(0644, root, root) %{ai_libdir}/records-tsv.lib.sh
+%attr(0644, root, root) %{ai_libdir}/layout.lib.sh
 %dir %attr(0755, root, root) %{ai_libdir}/keys
 %attr(0644, root, root) %{ai_libdir}/keys/dag-node-package-signing.asc
 %attr(0644, root, root) %{ai_libdir}/keys/dag-node-package-signing.gpg
@@ -1461,6 +1464,7 @@ fi
 %ghost %attr(0600, root, root) /var/log/ai-tools/relabel.log
 %ghost %attr(0600, root, root) /var/log/ai-tools/handback.log
 %ghost %attr(0600, root, root) /var/log/ai-tools/install.log
+%ghost %attr(0600, root, root) /var/log/ai-tools/layout.log
 # Control-plane root and dirs are owned root:ai-tools: root owns the locked control files, the
 # agent reaches its state through group ai-tools, and the o+x search bits on the home and bin let
 # an operator readlink the launcher without reading anything deeper. ai-tools-bootstrap populates
@@ -1754,7 +1758,7 @@ fi
   which states each setting refuses or launches. The file is kept on upgrade, so the new comments
   arrive as operator.conf.rpmnew; 'sudo ai-tools-admin system post-upgrade' shows them.
 
-* Fri Oct 03 2026 dagnode <tools@dagnode.com> - 0.23.1-1
+* Sat Oct 03 2026 dagnode <tools@dagnode.com> - 0.23.1-1
 - SECURITY: The root helpers that change a project's files (the handback, the setgid and ACL passes,
   lockdown, unclaim) refuse a path whose ancestor was swapped for a symbolic link while they ran.
   Before, the swap could persuade them to land a group change or an ACL on a directory you own
@@ -1772,7 +1776,7 @@ fi
   file -- no session starts and no helper acts on any of its entries -- until you write the entry as
   the real path (MSG-Y5N6 names the link and the path to write).
 
-* Fri Oct 03 2026 dagnode <tools@dagnode.com> - 0.23.0-1
+* Sat Oct 03 2026 dagnode <tools@dagnode.com> - 0.23.0-1
 - CHANGE: A launch requires SELinux unless operator.conf sets AI_TOOLS_REQUIRE_SELINUX=no, and under
   it refuses a permissive ai_tools_t domain, a widening Boolean that is on (nis_enabled,
   domain_can_mmap_files, domain_can_write_kmsg) and a confinement input it cannot read. A host with

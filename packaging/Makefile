@@ -199,8 +199,13 @@ rpmupgrade-rocky10: rpmbase-el10
 # TREE, so a local build made after importing a shipped script would package a __pycache__ that a
 # CI build from a fresh checkout never has. Asserted alongside the file counts, since an exclude
 # that stops matching is invisible in a tarball that still builds.
+#
+# The modes are normalized to a fresh checkout's (755 directories and executables, 644 files, no
+# setgid): %doc and %license carry no %attr and install at the tarball's modes, so a working tree
+# with the collaborative 2770/660 modes would otherwise ship docs no operator can read.
 dist:
 	tar czf $(TARBALL) -C $(ROOT) \
+	    --mode='a-s,u=rwX,go=rX' \
 	    --transform 's,^,$(NAME)-$(VERSION)/,' \
 	    --exclude='.git' --exclude='*.tar.gz' --exclude='rpmbuild' \
 	    --exclude='__pycache__' --exclude='*.pyc' \
