@@ -18,57 +18,62 @@ section "File permissions"
 # absent skips, since the absence is permitted; every finding fails naming the field, the declared and the read value;
 # and an input the enumeration could not read fails naming it, so an untrusted agents directory or operator.conf does
 # not read as a host with fewer rows. The library is the installed one: this suite asserts what the install
-# deployed.
-_layout_lib=/usr/local/lib/ai-tools/layout.lib.sh
+# deployed. The arrays it writes carry this file's prefix: its output-name check refuses one in its own `_layout_`
+# prefix, since a nameref landing on one of its locals would report a read that reached no caller.
+perms_layout_lib=/usr/local/lib/ai-tools/layout.lib.sh
 # shellcheck source=/dev/null
-if ! source "${_layout_lib}" 2>/dev/null || ! declare -F ai_tools_layout__list_entries >/dev/null 2>&1; then
-    fail "${_layout_lib} did not load, so the installed layout is not asserted -- reinstall ai-tools-base"
+if ! source "${perms_layout_lib}" 2>/dev/null || ! declare -F ai_tools_layout__list_entries >/dev/null 2>&1; then
+    fail "${perms_layout_lib} did not load, so the installed layout is not asserted -- reinstall ai-tools-base"
 elif [[ -n "${AI_TOOLS_LAYOUT__DECLARATION_ERROR}" ]]; then
     fail "the layout table did not validate: ${AI_TOOLS_LAYOUT__DECLARATION_ERROR}"
 else
     ai_tools_layout__begin_pass 0
-    declare -a _layout_lines=() _layout_fields=() _layout_findings=() _layout_finding=()
-    declare -A _layout_state=()
-    _layout_rows=0
-    mapfile -t _layout_lines < <(ai_tools_layout__list_entries)
-    for _layout_line in "${_layout_lines[@]}"; do
-        if [[ "${_layout_line}" == error$'\t'* ]]; then
-            ai_tools_layout__parse_line "${_layout_line}" _layout_fields \
-                || _layout_fields=( error host layout.lib.sh entries "a line of the entry set did not decode" )
-            fail "layout: ${_layout_fields[2]:-?} (${_layout_fields[3]:-?}): ${_layout_fields[4]:-}"
+    declare -a perms_lines=() perms_fields=() perms_findings=() perms_finding=()
+    declare -A perms_state=()
+    perms_rows=0
+    mapfile -t perms_lines < <(ai_tools_layout__list_entries)
+    for perms_line in "${perms_lines[@]}"; do
+        if [[ "${perms_line}" == error$'\t'* ]]; then
+            ai_tools_layout__parse_line "${perms_line}" perms_fields \
+                || perms_fields=( error host layout.lib.sh entries "a line of the entry set did not decode" )
+            fail "layout: ${perms_fields[2]:-?} (${perms_fields[3]:-?}): ${perms_fields[4]:-}"
             continue
         fi
-        _layout_state=(); _layout_findings=()
-        if ! ai_tools_layout__read_entry_state "${_layout_line}" _layout_state _layout_findings; then
-            fail "layout: an entry of the set did not decode"
-            continue
+        perms_state=(); perms_findings=(); perms_status=0
+        ai_tools_layout__read_entry_state "${perms_line}" perms_state perms_findings || perms_status=$?
+        if (( perms_status != 0 )); then
+            # The reader refuses an output name or a row that does not decode, which is this file's call or the
+            # library's own line, not one row's state: reported once, and the rows after it are not read.
+            ai_tools_layout__parse_line "${perms_line}" perms_fields || perms_fields=()
+            fail "layout: the reader returned ${perms_status} on the row ${perms_fields[0]:-?}; the rows after it are not read"
+            break
         fi
-        _layout_rows=$(( _layout_rows + 1 ))
-        _layout_label="${_layout_state[operator]:+${_layout_state[operator]}: }${_layout_state[path]}"
-        if (( ${#_layout_findings[@]} == 0 )); then
-            if [[ "${_layout_state[type]:-}" == absent ]]; then
-                skip "${_layout_label}" "absent until created on demand"
+        perms_rows=$(( perms_rows + 1 ))
+        perms_label="${perms_state[operator]:+${perms_state[operator]}: }${perms_state[path]}"
+        if (( ${#perms_findings[@]} == 0 )); then
+            if [[ "${perms_state[type]:-}" == absent ]]; then
+                skip "${perms_label}" "absent until created on demand"
             else
-                pass "${_layout_label}  (${_layout_state[expected_owner]} ${_layout_state[expected_mode]})"
+                pass "${perms_label}  (${perms_state[expected_owner]} ${perms_state[expected_mode]})"
             fi
             continue
         fi
-        _layout_detail=""
-        for _layout_finding_line in "${_layout_findings[@]}"; do
-            ai_tools_layout__parse_line "${_layout_finding_line}" _layout_finding || _layout_finding=( error )
-            _layout_expected="${_layout_finding[2]:-}"; _layout_observed="${_layout_finding[3]:-?}"
-            _layout_detail+="${_layout_detail:+; }${_layout_finding[0]}"
-            [[ -z "${_layout_finding[1]:-}" ]] || _layout_detail+=" ${_layout_finding[1]}"
-            [[ -z "${_layout_expected}" || "${_layout_expected}" == - ]] \
-                || _layout_detail+=": declared ${_layout_expected//$'\n'/,}, read ${_layout_observed//$'\n'/,}"
-            [[ -z "${_layout_finding[4]:-}" ]] || _layout_detail+=" (${_layout_finding[4]})"
+        perms_detail=""
+        for perms_finding_line in "${perms_findings[@]}"; do
+            ai_tools_layout__parse_line "${perms_finding_line}" perms_finding || perms_finding=( error )
+            perms_expected="${perms_finding[2]:-}"; perms_observed="${perms_finding[3]:-?}"
+            perms_detail+="${perms_detail:+; }${perms_finding[0]}"
+            [[ -z "${perms_finding[1]:-}" ]] || perms_detail+=" ${perms_finding[1]}"
+            [[ -z "${perms_expected}" || "${perms_expected}" == - ]] \
+                || perms_detail+=": declared ${perms_expected//$'\n'/,}, read ${perms_observed//$'\n'/,}"
+            [[ -z "${perms_finding[4]:-}" ]] || perms_detail+=" (${perms_finding[4]})"
         done
-        fail "${_layout_label}: ${_layout_detail}"
+        fail "${perms_label}: ${perms_detail}"
     done
-    if (( _layout_rows > 100 )); then
-        pass "the installed layout was read row by row (${_layout_rows} rows)"
+    if (( perms_rows > 100 )); then
+        pass "the installed layout was read row by row (${perms_rows} rows)"
     else
-        fail "the installed layout listed ${_layout_rows} rows"
+        fail "the installed layout listed ${perms_rows} rows"
     fi
 fi
 
