@@ -1832,7 +1832,7 @@ _ai_tools_layout__apply_entry_fields() {
 # the read shows did not hold.
 _ai_tools_layout__reconcile_entry() {
     # The arrays are handed to the reader by name, so they carry a name the output-name check accepts.
-    local entry="$1" ancestor path field token detail line content_reason refusal_detail="" link_status exposure=""
+    local entry="$1" ancestor path field token detail line content_reason refusal_detail="" link_status exposure_field=""
     local exposure_detail
     local -A initial_state=() repair_state=() final_state=()
     local -a entry_fields=( "${@:2}" ) initial_findings=() repair_findings=() final_findings=() finding_fields=()
@@ -1923,18 +1923,18 @@ _ai_tools_layout__reconcile_entry() {
         # bless bytes that account wrote, or writes later through a descriptor it holds open.
         if [[ "${repair_state[expected_type]}" == file ]]; then
             if [[ " ${drifted_fields[*]} " == *" owner "* ]]; then
-                exposure=owner
+                exposure_field=owner
             else
-                exposure="$(_ai_tools_layout__evaluate_file_write_exposure "${repair_state[expected_mode]}" \
+                exposure_field="$(_ai_tools_layout__evaluate_file_write_exposure "${repair_state[expected_mode]}" \
                     "${repair_state[mode]:-}" "${repair_state[expected_acl]}" "${repair_state[acl]:-}")"
             fi
-            if [[ -n "${exposure}" ]]; then
-                case "${exposure}" in
+            if [[ -n "${exposure_field}" ]]; then
+                case "${exposure_field}" in
                     owner) exposure_detail="the owner ${repair_state[owner]:-} is not the row's ${repair_state[expected_owner]}" ;;
                     mode)  exposure_detail="the mode ${repair_state[mode]:-} grants write beyond the row's ${repair_state[expected_mode]}" ;;
-                    *)     exposure_detail="the entry ${exposure#*$'\t'} grants write beyond the row"; exposure=acl ;;
+                    *)     exposure_detail="the entry ${exposure_field#*$'\t'} grants write beyond the row"; exposure_field=acl ;;
                 esac
-                _ai_tools_layout__report_refusal "${path}" "${exposure}" "${exposure_detail}; so another account may have written the bytes; $(
+                _ai_tools_layout__report_refusal "${path}" "${exposure_field}" "${exposure_detail}; so another account may have written the bytes; $(
                     _ai_tools_layout__get_refusal_remedy "${repair_state[flags]}" "${repair_state[package]}" \
                         "${repair_state[operator]}" exposure "${path}" "${repair_state[expected_owner]}" \
                         "${repair_state[expected_mode]}" "${entry_fields[4]}")"
