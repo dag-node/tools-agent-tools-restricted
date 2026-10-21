@@ -1574,10 +1574,13 @@ _ai_tools_layout__find_refusing_ancestor() {
     return 1
 }
 
-# _ai_tools_layout__create_directory <state-var> : create a missing directory row with install -d at its owner and mode,
-# then the exact mode, and only under a parent that exists as a directory (lstat): a missing parent is a refusal naming
-# it, so install -d is never asked to create an intermediate component. Returns 0 when the directory was created, 1
-# after a refusal or a failed write.
+# _ai_tools_layout__create_directory <state-var> : create a missing directory row exclusively, owner-only, and only
+# under a parent that exists as a directory (lstat): a missing parent is a refusal naming it, so no intermediate
+# component is created. `mkdir` fails on a name occupied since the read, a symlink included, which is an `error` with no
+# further write; the created directory is the caller's to bring to its row through the pinned apply. `-m 0700` sets
+# the mode at the create and masks every entry a parent's default ACL hands the directory, which a umask does not,
+# so until the apply the directory is one no account but its owner can enter. Returns 0 when the directory was created,
+# 1 after a refusal or an error.
 _ai_tools_layout__create_directory() {
     local -n _layout_create_state="$1"
     local _layout_create_path="${_layout_create_state[path]}" _layout_create_parent _layout_create_status=0
@@ -1588,17 +1591,14 @@ _ai_tools_layout__create_directory() {
             "the directory is not created: its parent ${_layout_create_parent} is not a directory"
         return 1
     fi
-    install -d -o "${_layout_create_state[expected_owner]%%:*}" -g "${_layout_create_state[expected_owner]#*:}" \
-        -m "${_layout_create_state[expected_mode]}" -- "${_layout_create_path}" 2>/dev/null \
-        || _layout_create_status=$?
+    mkdir -m 0700 -- "${_layout_create_path}" 2>/dev/null || _layout_create_status=$?
     if (( _layout_create_status != 0 )); then
-        _ai_tools_layout__report_write_failure "${_layout_create_path}" type "install -d" "${_layout_create_status}"
-        return 1
-    fi
-    ai_tools_control_plane__apply_mode "${_layout_create_state[expected_mode]}" "${_layout_create_path}" 2>/dev/null \
-        || _layout_create_status=$?
-    if (( _layout_create_status != 0 )); then
-        _ai_tools_layout__report_write_failure "${_layout_create_path}" mode chmod "${_layout_create_status}"
+        if [[ -e "${_layout_create_path}" || -L "${_layout_create_path}" ]]; then
+            _ai_tools_layout__report_error "${_layout_create_path}" type \
+                "the name was occupied before the directory was created"
+        else
+            _ai_tools_layout__report_write_failure "${_layout_create_path}" type mkdir "${_layout_create_status}"
+        fi
         return 1
     fi
     return 0
@@ -1826,11 +1826,13 @@ _ai_tools_layout__reconcile_entry() {
         _ai_tools_layout__report_error "${path}" entry "the entry could not be read back after the repair"
         _AI_TOOLS_LAYOUT__ANCESTOR_STATES["${path}"]=bad; return 0
     fi
+    # The fields are compared with the state the repair started from: the first read, or for a created directory
+    # the read after the create, so its owner, mode and ACL lines come from the pinned apply.
     (( created )) && _ai_tools_layout__report_change "${path}" type absent "${final[type]:-}"
     for field in owner mode acl label; do
-        [[ -n "${first[${field}]:-}" ]] || continue
-        [[ "${first[${field}]}" != "${final[${field}]:-}" ]] || continue
-        _ai_tools_layout__report_change "${path}" "${field}" "${first[${field}]}" "${final[${field}]:-}"
+        [[ -n "${current[${field}]:-}" ]] || continue
+        [[ "${current[${field}]}" != "${final[${field}]:-}" ]] || continue
+        _ai_tools_layout__report_change "${path}" "${field}" "${current[${field}]}" "${final[${field}]:-}"
     done
     for line in "${final_findings[@]}"; do
         ai_tools_layout__parse_line "${line}" finding || continue

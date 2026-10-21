@@ -657,6 +657,41 @@ else
     out="$(entry_run "$(entry "${RE}/acldir" directory "${me}" 0750 "group:${PROJECTS_GROUP}:r-x" ai-tools-base -)")"
     [[ -d "${RE}/acldir" ]] && getfacl --omit-header -P -- "${RE}/acldir" 2>/dev/null | grep -q "^group:${PROJECTS_GROUP}:r-x" \
         && pass "a created directory takes the row's ACL in the same run" || fail "created ACL: ${out}"
+    # The create is an exclusive mkdir, and the row's mode and ACL arrive through the pinned apply: each field earns its
+    # changed line from the owner-only directory the create made, after the type line. An `install` function that marks
+    # a call shadows the command, so a create through `install -d` fails the case.
+    out="$(install() { : > "${TESTDIR}/install-called"; return 99; }
+        entry_run "$(entry "${RE}/viapin" directory "${me}" 0750 "group:${PROJECTS_GROUP}:r-x" ai-tools-base -)")"
+    mapfile -t create_tags < <(cut -f1,3 <<< "${out}")
+    if [[ "${create_tags[*]}" == $'changed\ttype changed\tmode changed\tacl' && "$(mode_of "${RE}/viapin")" == 750 \
+            && ! -e "${TESTDIR}/install-called" ]] && has_line "${out}" changed "${RE}/viapin" mode "0700	0750"; then
+        pass "a missing directory is made owner-only by mkdir and brought to its mode and ACL through the pin, type line first"
+    else
+        fail "create through the pin: $(tr '\n\t' '| ' <<< "${out}") / $(mode_of "${RE}/viapin") install-called=$([[ -e "${TESTDIR}/install-called" ]] && echo yes || echo no)"
+    fi
+    # A name occupied between the read and the create -- a symlink to a directory outside, planted after a read
+    # that found the name absent -- is an error with no write: the directory behind the link keeps its mode. The first
+    # read is seeded; any later read is the library's own.
+    mkdir -p "${RE}/foreign"; chmod 0755 "${RE}/foreign"; ln -sfn "${RE}/foreign" "${RE}/occupied"
+    eval "stub_real_read_entry_state () $(declare -f ai_tools_layout__read_entry_state | sed '1d')"
+    out="$(stub_reads=0
+        ai_tools_layout__read_entry_state() {
+            stub_reads=$(( stub_reads + 1 ))
+            (( stub_reads == 1 )) || { stub_real_read_entry_state "$@"; return; }
+            local -n stub_state="$2" stub_findings="$3"
+            local stub_line
+            stub_state=( [path]="${RE}/occupied" [operator]="" [package]=ai-tools-base [flags]=- [expected_type]=directory
+                [expected_owner]="${me}" [expected_mode]=0750 [expected_acl]="$(acl_text 0750 -)" [type]=absent )
+            _ai_tools_layout__encode_line stub_line missing type directory absent "no entry at the path"
+            stub_findings+=( "${stub_line}" )
+        }
+        entry_run "$(entry "${RE}/occupied" directory "${me}" 0750 - ai-tools-base -)"
+        printf 'incomplete=%s\n' "${_AI_TOOLS_LAYOUT__RECONCILE_INCOMPLETE}")"
+    has_line "${out}" error "${RE}/occupied" type "the name was occupied before the directory was created" \
+        && grep -qx 'incomplete=1' <<< "${out}" && [[ "$(mode_of "${RE}/foreign")" == 755 && -L "${RE}/occupied" ]] \
+        && [[ "$(grep -c '^changed' <<< "${out}")" -eq 0 ]] \
+        && pass "a name a symlink takes before the create is an error with no write, the directory behind it left" \
+        || fail "occupied name: $(tr '\n\t' '| ' <<< "${out}") / foreign $(mode_of "${RE}/foreign")"
     out="$(entry_run "$(entry "${RE}/nope/x" directory "${me}" 0750 - ai-tools-base -)")"
     has_line "${out}" refused "${RE}/nope/x" type && [[ ! -e "${RE}/nope" ]] \
         && pass "a missing directory under a missing parent is refused naming it, and no component is created" || fail "missing parent: ${out}"
@@ -994,8 +1029,18 @@ else
     # Missing entries: a directory is created, a file and a dangling link are refused with their remedies.
     PIN="${STATE}/entrypoint-pin.d"; rm -r "${PIN}"
     out="$(reconcile_run)"
-    has_line "${out}" changed "${PIN}" type "absent	directory" && [[ "$(stat -c '%U:%G %a' "${PIN}")" == "root:root 755" ]] \
-        && pass "a missing directory is created at its row" || fail "create: $(brief "${out}")"
+    has_line "${out}" changed "${PIN}" type "absent	directory" && has_line "${out}" changed "${PIN}" mode "0700	0755" \
+        && ! has_line "${out}" changed "${PIN}" owner && [[ "$(stat -c '%U:%G %a' "${PIN}")" == "root:root 755" ]] \
+        && pass "a missing root-owned directory is created owner-only and brought to its mode, with no owner line" \
+        || fail "create: $(brief "${out}")"
+    # The timer-stamp directory belongs to the sandbox account: its owner arrives through the pin, after the create.
+    STAMP_DIR="${R}${CP_HOME}/${CP_TIMER_STAMP_DIR}"; rmdir "${STAMP_DIR}"
+    out="$(reconcile_run)"
+    has_line "${out}" changed "${STAMP_DIR}" type "absent	directory" && has_line "${out}" changed "${STAMP_DIR}" owner \
+        && [[ "$(stat -c '%U:%G %a' "${STAMP_DIR}")" == "${SANDBOX_USER}:${SANDBOX_GROUP} $(( 10#${CP_TIMER_STAMP_DIR_MODE} ))" \
+              && "$(rc_of "${out}")" == rc=0 ]] \
+        && pass "a missing directory at a non-root owner takes that owner through the pin, with its owner line" \
+        || fail "stamp directory: $(brief "${out}") / $(stat -c '%U:%G %a' "${STAMP_DIR}")"
     LAUNCH="${R}/usr/local/bin/ai-tools-launch"; rm "${LAUNCH}"
     out="$(reconcile_run)"
     has_line "${out}" refused "${LAUNCH}" type && [[ "${out}" == *"dnf reinstall ai-tools-base"* && ! -e "${LAUNCH}" && "$(rc_of "${out}")" == rc=4 ]] \

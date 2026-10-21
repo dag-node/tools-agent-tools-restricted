@@ -145,10 +145,13 @@ beyond its row on the field that widened it, each with the detail that the bytes
 and the remedy that replaces or restores the inode: a reinstall for a package file, a review and a `chown` and `chmod`
 by hand for a `config` file and an operator's file, a review and a removal for a runtime-created file. A file at a mode
 narrower than its row converges, since no account but root could write it, and a directory and a link take the owner
-repair. A missing `directory` is created with `install -d` at its owner and mode, then the exact mode, and only
-under a parent that exists as a directory; a missing parent is a refusal naming it, so `install -d` is never asked
-to create an intermediate component. A missing file or link and an entry of another type are refused with the remedy
-the finding carries.
+repair. A missing `directory` is created by `mkdir -m 0700`, exclusively and only under a parent that exists
+as a directory: a name occupied since the read, a symlink included, fails the create and is an `error` with no further
+write, and a missing parent is a refusal naming it, so no intermediate component is created. The created directory is
+read again and its owner, ACL, mode and label go through the pinned apply like any drifted entry, which gives it its
+`changed` lines after the `type` line; until then only its owner, root, can enter it, since `-m` also masks every entry
+a parent's default ACL hands the directory, which a umask does not. A missing file or link and an entry of another type
+are refused with the remedy the finding carries.
 
 **Fields, through a pinned descriptor.** A file or directory row is repaired the way `ai-tools-chown`'s apply block
 repairs a path ([safe-paths](safe-paths.rule.md)): the identity is read through the path, the entry opened,
@@ -192,7 +195,8 @@ with each untrusted input an `error` line, the `--check` stream by column name, 
 stream and the human table over an enumerator that ends without its `error` line, the reconcile's pure decisions,
 the lock across processes, the per-entry repair over owned fixtures — a leaf swapped for a symlink after the identity
 read and a parent swapped under the entry each refused with the outside file untouched, the content gate under each
-state it refuses, a file writable beyond its row refused and left, a write that fails named with its tool, a row
+state it refuses, a file writable beyond its row refused and left, a missing directory brought to its row
+through the pin and a name occupied before the create left as an error, a write that fails named with its tool, a row
 under an ancestor whose name the stream encoder escapes refused naming it — the command's option grammar
 through the sourced helper, the boundary-pair map, and the lockstep with `packaging/ai-tools.spec`: every `%attr` line
 resolves to a row with the same owner, mode, package and `config`/`ghost` flag, every `files` row is a `%files` line
@@ -200,12 +204,13 @@ of its package, and each shipped agent's `config_dir` has its `%dir` line in its
 from the table itself over `AI_TOOLS_LAYOUT_ROOT` and drives the whole-tree cases: a converged tree does not print
 a line, each planted drift the reconcile repairs converges in one run, content drift beside owner, mode and ACL drift
 leaves every field, a package file at another owner, at group write or with a foreign entry carrying write is refused
-and left while the same file at `0600` converges, a masked-off foreign entry goes with no state in which it is
-effective, a symlink at a directory row refuses the rows under it, and under an operator home carrying a backslash
-as well, an untrusted discovery input and the drift in the dynamic rows it hides converge in one invocation, an invalid
-manifest, an unresolved account and a lost entry set stay visible at exit 5, a held lock is an error with no write,
-the exit order holds, and a non-root caller is refused. `tests/integration/perms.sh` is the loop over the installed
-library, and `tests/boundary/access.sh` probes the library, the reconcile and every boundary row as the sandbox account.
+and left while the same file at `0600` converges, a missing directory at a non-root owner takes it through the pin,
+a masked-off foreign entry goes with no state in which it is effective, a symlink at a directory row refuses the rows
+under it, and under an operator home carrying a backslash as well, an untrusted discovery input and the drift
+in the dynamic rows it hides converge in one invocation, an invalid manifest, an unresolved account and a lost entry set
+stay visible at exit 5, a held lock is an error with no write, the exit order holds, and a non-root caller is refused.
+`tests/integration/perms.sh` is the loop over the installed library, and `tests/boundary/access.sh` probes the library,
+the reconcile and every boundary row as the sandbox account.
 
 ## Design notes
 
@@ -213,8 +218,9 @@ library, and `tests/boundary/access.sh` probes the library, the reconcile and ev
   and `.local/share` are `3770`: sandbox-group-writable and sticky, with rows under each. A sandbox-owned drifted entry
   under one can be renamed aside and a symlink planted between the read and the write,
   and `ai_tools_control_plane__apply_mode` is a `chmod`, which follows the link. The sequence every elevated helper
-  that changes a path takes ([safe-paths](safe-paths.rule.md)) closes it; the residual is the chown helper's: a FIFO
-  planted at a row's path blocks the open, and the lock bounds the next run to its wait.
+  that changes a path takes ([safe-paths](safe-paths.rule.md)) closes it, and the create is exclusive for the same
+  reason: `install -d` accepts an existing entry and follows a symlink to a directory. The residual is the chown
+  helper's: a FIFO planted at a row's path blocks the open, and the lock bounds the next run to its wait.
 - **Owner and write exposure are preconditions on a file.** Every content observation reads by path, and `rpm` does not
   verify a descriptor, so a `verified` state does not bind to the inode the pin later holds: a `chown` or a `chmod`
   on a file another account owns or could write would hand root's trust to bytes that account wrote, or writes
