@@ -753,13 +753,17 @@ else
 fi
 # The reconcile as the sandbox account, through the link an operator types. The link is established as root first,
 # so a missing executable fails here instead of reading as the refusal, and the status is held to the two a refusal
-# produces: 126, the exec denied by the 750 root:root helper directory, or the helper's own root check.
+# produces: 126, the exec denied by the 750 root:root helper directory, or the helper's own root check. bash runs
+# the command, since its status tells a denied exec (126) from a name that does not resolve (127), and runuser exits 1
+# on a denied exec.
 _layout_admin=/usr/sbin/ai-tools-admin
 if [[ ! -L "${_layout_admin}" || ! -x "${_layout_admin}" ]]; then
     fail "${_layout_admin} is not an executable link as root, so the reconcile's refusal is not probed -- reinstall ai-tools-base"
 else
     _layout_rc=0
-    _layout_out="$(runuser -u "${SANDBOX_USER}" -- "${_layout_admin}" system layout reconcile 2>&1)" || _layout_rc=$?
+    # shellcheck disable=SC2016  # the inner bash expands $0
+    _layout_out="$(runuser -u "${SANDBOX_USER}" -- bash -c '"$0" system layout reconcile' "${_layout_admin}" 2>&1)" \
+        || _layout_rc=$?
     if (( _layout_rc == 126 )); then
         pass "ai-tools-admin system layout reconcile is refused as ${SANDBOX_USER}: the helper directory denies the exec"
     elif (( _layout_rc == 1 )) && grep -qxF MSG-D7D4 <<< "${_layout_out}"; then
