@@ -415,6 +415,15 @@ grep -qx /etc/ai-tools/operator.conf <<< "${set1}" && pass "base's sentinel brin
 grep -q '^/usr/local/lib/ai-tools/typesafe' <<< "${set1}" && fail "typesafe rows present without its sentinel" || pass "an absent integration contributes no row"
 grep -qx /etc/ai-tools/endpoints <<< "${set1}" && fail "the shared endpoints directory present without either owner" \
     || pass "the shared endpoints directory is absent without either owner"
+# The dotnet state tree is created by the reconcile where it is missing, so it is a row only where the package is.
+grep -q "^${CP_INTEGRATIONS}/dotnet" <<< "${set1}" && fail "dotnet state rows present without the dotnet package" \
+    || pass "without the dotnet package's sentinels no integrations/dotnet row is listed, so none is created"
+R3="${TESTDIR}/r3"; mkdir -p "${R3}/usr/local/libexec/ai-tools" "${R3}/usr/local/lib/ai-tools/integrations.d"
+: > "${R3}/usr/local/libexec/ai-tools/ai-tools-admin"; : > "${R3}/usr/local/lib/ai-tools/integrations.d/dotnet.conf"
+set3="$(entries "${R3}")"
+[[ "$(grep -c "^${CP_INTEGRATIONS}/dotnet\(/\|$\)" <<< "${set3}")" == 5 ]] \
+    && pass "the dotnet package's sentinel brings its five state rows (control)" \
+    || fail "dotnet state rows under its sentinel: $(grep "^${CP_INTEGRATIONS}/dotnet" <<< "${set3}" | tr '\n' ' ')"
 R2="${TESTDIR}/r2"; mkdir -p "${R2}/usr/local/libexec/ai-tools" "${R2}/usr/local/lib/ai-tools/typesafe" "${R2}/usr/local/share/man/man5"
 : > "${R2}/usr/local/libexec/ai-tools/ai-tools-admin"; : > "${R2}/usr/local/lib/ai-tools/typesafe/decide.mjs"
 : > "${R2}/usr/local/share/man/man5/ai-tools-typesafe.conf.5.gz"
@@ -1307,6 +1316,16 @@ else
               && "$(parse_reconcile_status "${out}")" == rc=0 ]] \
         && pass "a missing directory at a non-root owner takes that owner through the pin, with its owner line" \
         || fail "stamp directory: $(brief "${out}") / $(stat -c '%U:%G %a' "${STAMP_DIR}")"
+    # A dotnet state directory, which no %files line places: created as root's under the state root, which is not
+    # setgid, so its group arrives through the pin with an owner line.
+    DOTNET_CLI="${fixture_root}${CP_INTEGRATIONS}/dotnet/cli"; rmdir "${DOTNET_CLI}"
+    out="$(reconcile_run)"
+    has_reconcile_observation "${out}" changed "${DOTNET_CLI}" type "absent	directory" \
+        && has_reconcile_observation "${out}" changed "${DOTNET_CLI}" mode "0700	2770" \
+        && has_reconcile_observation "${out}" changed "${DOTNET_CLI}" owner "root:root	root:${SANDBOX_GROUP}" \
+        && [[ "$(stat -c '%U:%G %a' "${DOTNET_CLI}")" == "root:${SANDBOX_GROUP} 2770" && "$(parse_reconcile_status "${out}")" == rc=0 ]] \
+        && pass "a missing dotnet state directory is created and brought to its row through the pin" \
+        || fail "dotnet cli: $(brief "${out}") / $(stat -c '%U:%G %a' "${DOTNET_CLI}")"
     LAUNCH="${fixture_root}/usr/local/bin/ai-tools-launch"; rm "${LAUNCH}"
     out="$(reconcile_run)"
     has_reconcile_observation "${out}" refused "${LAUNCH}" type && [[ "${out}" == *"dnf reinstall ai-tools-base"* && ! -e "${LAUNCH}" && "$(parse_reconcile_status "${out}")" == rc=4 ]] \

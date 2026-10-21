@@ -316,6 +316,16 @@ _ai_tools_layout__populate_static_entries() {
     _ai_tools_layout__append_static_entry "${lib}/admin-commands.d/dotnet" file root:root 0750 - "${dotnet}" \
         files,boundary
     _ai_tools_layout__append_static_entry /var/log/ai-tools/dotnet.log file root:root 0600 - "${dotnet}" files,ghost
+    # The state tree the package's %post creates through `dotnet bootstrap` (admin-commands.d/dotnet.sh), so the values
+    # are that command's: the agent writes the restore cache and the CLI home, and reads the shared tools.
+    _ai_tools_layout__append_static_entry "${CP_INTEGRATIONS}/dotnet" directory root:"${sandbox_group}" \
+        "${CP_DIR_MODES[integrations]}" - "${dotnet}" -
+    for relative in nuget nuget/packages cli; do
+        _ai_tools_layout__append_static_entry "${CP_INTEGRATIONS}/dotnet/${relative}" directory \
+            root:"${sandbox_group}" 2770 - "${dotnet}" -
+    done
+    _ai_tools_layout__append_static_entry "${CP_INTEGRATIONS}/dotnet/tools" directory root:"${sandbox_group}" 0755 - \
+        "${dotnet}" -
 
     # ── ai-tools-integration-typesafe ──
     local typesafe=ai-tools-integration-typesafe
