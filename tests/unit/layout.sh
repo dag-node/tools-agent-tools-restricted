@@ -794,6 +794,62 @@ else
     has_line "${out}" error "${RE}/w" mode "chmod exited 7" && grep -qx 'failed=1' <<< "${out}" \
         && pass "a write that returns non-zero is an error naming the tool, and the write-failed outcome" || fail "failed write: ${out}"
     chmod 0644 "${RE}/w"
+    # The final read is the postcondition. With the apply a no-op over an owned fixture, a repaired field that still
+    # carries its finding did not take: an error per field, the write-failed outcome, and no changed line.
+    chmod 0600 "${RE}/w"
+    out="$(_ai_tools_layout__apply_pinned() { return 0; }
+        _ai_tools_layout__reset_reconcile_state; ai_tools_layout__begin_pass 0
+        entry_step "$(entry "${RE}/w" file "${me}" 0644 - ai-tools-base -)"
+        printf 'failed=%s\n' "${_AI_TOOLS_LAYOUT__RECONCILE_WRITE_FAILED}")"
+    has_line "${out}" error "${RE}/w" mode "the change did not take" && has_line "${out}" error "${RE}/w" acl "the change did not take" \
+        && grep -qx 'failed=1' <<< "${out}" && ! grep -q '^changed' <<< "${out}" \
+        && pass "a repair the final read shows did not take is an error per field at the write-failed outcome" || fail "did not take: ${out}"
+    chmod 0644 "${RE}/w"
+    # The same over a seeded reader, in the shapes the review drove: an ACL drift that survives a successful apply;
+    # an entry the final read finds absent, with no changed line and its ancestor verdict bad; and a field the repair
+    # did not write drifting meanwhile, beside the field it did write, which converged. seeded_step <first-finding>
+    # <final-finding> <final-type> : the entry step over /review/item with the apply a no-op and the reader seeded,
+    # the first read's state carrying the drift the first finding names; prints the lines, then
+    # `write_failed=<n> ancestor=<verdict>`.
+    seeded_step() {
+        local stub_first="$1" stub_final="$2" stub_final_type="$3" stub_reads=0
+        _ai_tools_layout__apply_pinned() { return 0; }
+        ai_tools_layout__read_entry_state() {
+            local -n stub_seeded_state="$2" stub_seeded_findings="$3"; local stub_line stub_finding
+            stub_reads=$(( stub_reads + 1 ))
+            stub_seeded_state=( [path]=/review/item [type]=directory [expected_type]=directory [owner]=root:root
+                [expected_owner]=root:root [mode]=0750 [expected_mode]=0750 [acl]=base [expected_acl]=base [flags]=- )
+            if (( stub_reads == 1 )); then stub_finding="${stub_first}"
+            else stub_finding="${stub_final}"; stub_seeded_state[type]="${stub_final_type}"; fi
+            case "${stub_finding}" in
+                acl-drift)   stub_seeded_state[acl]=foreign; _ai_tools_layout__encode_line stub_line acl-drift acl base foreign "ACL differs" ;;
+                mode-drift)  stub_seeded_state[mode]=0700; _ai_tools_layout__encode_line stub_line mode-drift mode 0750 0700 "mode differs" ;;
+                owner-drift) stub_seeded_state[owner]=nobody:nobody
+                             _ai_tools_layout__encode_line stub_line owner-drift owner root:root nobody:nobody "owner differs" ;;
+                missing)     _ai_tools_layout__encode_line stub_line missing type directory absent "no entry" ;;
+                *)           return 0 ;;
+            esac
+            stub_seeded_findings+=( "${stub_line}" )
+        }
+        _ai_tools_layout__reset_reconcile_state
+        entry_step "$(entry /review/item directory root:root 0750 - - -)"
+        printf 'write_failed=%s ancestor=%s\n' "${_AI_TOOLS_LAYOUT__RECONCILE_WRITE_FAILED}" \
+            "${_AI_TOOLS_LAYOUT__ANCESTOR_STATES[/review/item]:-}"
+    }
+    out="$(seeded_step acl-drift acl-drift directory)"
+    has_line "${out}" error /review/item acl "the change did not take" && grep -q '^write_failed=1 ' <<< "${out}" \
+        && ! grep -q '^changed' <<< "${out}" \
+        && pass "an ACL drift a successful apply did not remove is a failed repair (unchanged-write)" || fail "unchanged-write: $(tr '\n\t' '| ' <<< "${out}")"
+    out="$(seeded_step mode-drift missing absent)"
+    has_line "${out}" error /review/item type "the entry is not at its path after the repair" \
+        && grep -qx 'write_failed=1 ancestor=bad' <<< "${out}" && ! grep -q '^changed' <<< "${out}" \
+        && pass "an entry the final read finds absent is a failed repair with no changed line (entry-disappears)" \
+        || fail "entry-disappears: $(tr '\n\t' '| ' <<< "${out}")"
+    out="$(seeded_step mode-drift owner-drift directory)"
+    has_line "${out}" error /review/item owner "drifted during the repair" && has_line "${out}" changed /review/item mode "0700	0750" \
+        && grep -q '^write_failed=1 ' <<< "${out}" \
+        && pass "a field the repair did not write drifting meanwhile is a failed repair, the written field still changed" \
+        || fail "drifted during the repair: $(tr '\n\t' '| ' <<< "${out}")"
     # An error line of the entry set is reported as it is.
     _ai_tools_layout__encode_line errline error file "${RE}/x" agents "the manifest is not root's"
     declare -a set_lines=( "${errline}" )
@@ -1160,6 +1216,13 @@ else
     install -o root -g root -m 0755 /dev/null "${LAUNCH}"
     out="$(reconcile_run)"
     [[ "$(rc_of "${out}")" == rc=0 && "$(grep -vc '^rc=' <<< "${out}")" -eq 0 ]] && pass "the tree converges again and exits 0" || fail "final: $(brief "${out}")"
+    # The postcondition branch of the exit order: an apply that returns 0 without writing exits 1, the drift named
+    # as a repair that did not take.
+    chmod 0600 "${OC}"
+    out="$(_ai_tools_layout__apply_pinned() { return 0; }; reconcile_run)"
+    [[ "$(rc_of "${out}")" == rc=1 ]] && has_line "${out}" error "${OC}" mode "the change did not take" \
+        && pass "a repair whose final read still carries the drift exits 1" || fail "exit order, postcondition: $(brief "${out}")"
+    chmod 0644 "${OC}"
     # The union pass reads the entry set as a collector: an enumerator that exits 9 is an error line and exit 5.
     out="$(ai_tools_layout__list_entries() { return 9; }; reconcile_run)"
     has_line "${out}" error layout.lib.sh entries "the entry set exited 9" && [[ "$(rc_of "${out}")" == rc=5 ]] \

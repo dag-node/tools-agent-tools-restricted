@@ -713,8 +713,8 @@ at notice where it widens access and at info otherwise.
 Runs are serialized on
 .IR /run/lock/ai\-tools\-layout.lock ;
 a lock the command cannot take within a minute is an error and no write.
-Exits 0 with every entry at its row, 1 when a write failed or a field did
-not take, 5 when an observation was incomplete, and 4 while a refused state
+Exits 0 with every entry at its row, 1 when a write failed or the read
+after a repair found it did not hold, 5 when an observation was incomplete, and 4 while a refused state
 remains, each after every entry it could act on.
 The unattended callers ignore the status: an upgrade, a source install, the
 provisioning run and
@@ -1046,7 +1046,8 @@ command with no policy to manage because SELinux is disabled.
 .B 1
 The operation failed; for
 .B "system layout reconcile"
-a write returned non-zero or a repaired field did not take.
+a write returned non-zero, or the read after a repair found a field that
+did not take, a field that drifted meanwhile, or the entry gone from its path.
 .TP
 .B 2
 The command line was rejected \(em an unknown command, a missing argument, or

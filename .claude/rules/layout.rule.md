@@ -161,8 +161,12 @@ a default block and the entry carries one, one `setfacl --set-file=-` fed the ex
 in the five-digit form each name `/proc/self/fd/N`, and `restorecon` without `-F` takes the path. A mismatch at any
 check is `error` with no write. The parent is resolved once before the identity read, since an ancestor outside
 the table may be a symlink by the host's choice, and the leaf is not resolved, since a symlink there is what the pin
-exists to catch. A `link` row takes `chown --no-dereference` alone. After its steps the entry is read again: `changed`
-is written per field from the two reads, and a field that still reports its finding is an `error`.
+exists to catch. A `link` row takes `chown --no-dereference` alone. **The read after the steps is the postcondition.**
+`changed` is written for each field the steps wrote whose final value is the row's, from the state the repair started
+from (the read after the create, for a created directory, whose `type` line comes first); a field they wrote that still
+reports its finding, a field they did not write that drifted meanwhile, and an entry no longer at its path or of another
+type are each a repair that did not hold, an `error` at the write-failed outcome, the last with no `changed` line
+and its ancestor verdict `bad`; an `unreadable` field there is an incomplete observation.
 
 **Each change is one log line** through `log.lib.sh` under the tag `ai-tools-layout` and `layout.log`, at `notice`
 for a widening — an owner or group moving to an account other than root, a mode bit set that was clear or a setgid
@@ -170,9 +174,10 @@ or sticky bit cleared, an ACL entry added or one gaining a bit, any label change
 (`_ai_tools_layout__evaluate_change_log_level`, pure). A refusal and an error log at `warning`.
 
 **The outcome folds in the order `ai-tools-records(5)` states for a command that changes the host:** 1 where a write
-returned non-zero or a repaired field did not take, else 5 where an observation was incomplete, else 4 where a refusal
-remains, else 0. The unattended callers ignore the status: a layout finding is logged and does not fail an upgrade,
-an install, a bootstrap or the relabel's recorded result, which stays the relabel helper's through `ExecStart=-`.
+returned non-zero or the read after a repair found it did not hold, else 5 where an observation was incomplete, else 4
+where a refusal remains, else 0. The unattended callers ignore the status: a layout finding is logged and does not fail
+an upgrade, an install, a bootstrap or the relabel's recorded result, which stays the relabel helper's
+through `ExecStart=-`.
 
 ## Where it runs
 
@@ -196,21 +201,22 @@ stream and the human table over an enumerator that ends without its `error` line
 the lock across processes, the per-entry repair over owned fixtures — a leaf swapped for a symlink after the identity
 read and a parent swapped under the entry each refused with the outside file untouched, the content gate under each
 state it refuses, a file writable beyond its row refused and left, a missing directory brought to its row
-through the pin and a name occupied before the create left as an error, a write that fails named with its tool, a row
-under an ancestor whose name the stream encoder escapes refused naming it — the command's option grammar
-through the sourced helper, the boundary-pair map, and the lockstep with `packaging/ai-tools.spec`: every `%attr` line
-resolves to a row with the same owner, mode, package and `config`/`ghost` flag, every `files` row is a `%files` line
-of its package, and each shipped agent's `config_dir` has its `%dir` line in its package. As root it builds a tree
-from the table itself over `AI_TOOLS_LAYOUT_ROOT` and drives the whole-tree cases: a converged tree does not print
-a line, each planted drift the reconcile repairs converges in one run, content drift beside owner, mode and ACL drift
-leaves every field, a package file at another owner, at group write or with a foreign entry carrying write is refused
-and left while the same file at `0600` converges, a missing directory at a non-root owner takes it through the pin,
-a masked-off foreign entry goes with no state in which it is effective, a symlink at a directory row refuses the rows
-under it, and under an operator home carrying a backslash as well, an untrusted discovery input and the drift
-in the dynamic rows it hides converge in one invocation, an invalid manifest, an unresolved account and a lost entry set
-stay visible at exit 5, a held lock is an error with no write, the exit order holds, and a non-root caller is refused.
-`tests/integration/perms.sh` is the loop over the installed library, and `tests/boundary/access.sh` probes the library,
-the reconcile and every boundary row as the sandbox account.
+through the pin and a name occupied before the create left as an error, a repair the read after it shows did not hold
+at the write-failed outcome, a write that fails named with its tool, a row under an ancestor whose name the stream
+encoder escapes refused naming it — the command's option grammar through the sourced helper, the boundary-pair map,
+and the lockstep with `packaging/ai-tools.spec`: every `%attr` line resolves to a row with the same owner, mode, package
+and `config`/`ghost` flag, every `files` row is a `%files` line of its package, and each shipped agent's `config_dir`
+has its `%dir` line in its package. As root it builds a tree from the table itself over `AI_TOOLS_LAYOUT_ROOT`
+and drives the whole-tree cases: a converged tree does not print a line, each planted drift the reconcile repairs
+converges in one run, content drift beside owner, mode and ACL drift leaves every field, a package file at another
+owner, at group write or with a foreign entry carrying write is refused and left while the same file at `0600`
+converges, a missing directory at a non-root owner takes it through the pin, a masked-off foreign entry goes with no
+state in which it is effective, a symlink at a directory row refuses the rows under it, and under an operator home
+carrying a backslash as well, an untrusted discovery input and the drift in the dynamic rows it hides converge in one
+invocation, an invalid manifest, an unresolved account and a lost entry set stay visible at exit 5, a held lock is
+an error with no write, the exit order holds, and a non-root caller is refused. `tests/integration/perms.sh` is the loop
+over the installed library, and `tests/boundary/access.sh` probes the library, the reconcile and every boundary row
+as the sandbox account.
 
 ## Design notes
 

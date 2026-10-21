@@ -1501,6 +1501,14 @@ _ai_tools_layout__report_write_failure() {
     _ai_tools_layout__report_error "$1" "$2" "$3 exited $4"
 }
 
+# _ai_tools_layout__report_postcondition_failure <path> <field> <reason> : a repair the final read shows did not hold --
+# a field it wrote still drifted, one it left drifted meanwhile, the entry gone from its path -- the error line
+# and the exit the outcome table folds it to, as a write that returned non-zero.
+_ai_tools_layout__report_postcondition_failure() {
+    _AI_TOOLS_LAYOUT__RECONCILE_WRITE_FAILED=1
+    _ai_tools_layout__report_error "$1" "$2" "$3"
+}
+
 # _ai_tools_layout__lock <reason-var> : hold AI_TOOLS_LAYOUT_LOCK in the calling shell until _ai_tools_layout__unlock
 # or the end of the process. Returns 0 while it is held, and 1 with the reason in <reason-var> where flock is absent,
 # the lock file cannot be created, or the wait ran out. The file is created by a simple command and stderr is redirected
@@ -1699,8 +1707,8 @@ _ai_tools_layout__apply_pinned() {
 # unverified is left as it is, each drifted field named. A regular file at another owner, or writable by an account its
 # row does not name, is refused on that field with the remedy that replaces or restores the inode by hand
 # (_ai_tools_layout__get_refusal_remedy). Otherwise the drifted fields are written -- a link's owner by name, the rest
-# through the pinned descriptor -- and the entry read again: `changed` per field from the two reads, and `error`
-# for a field that still reports its finding.
+# through the pinned descriptor -- and the entry read again as the postcondition: `changed` for each field written
+# whose final value is the row's, and an `error` at the write-failed outcome for a repair the read shows did not hold.
 _ai_tools_layout__reconcile_entry() {
     # The arrays are handed to the reader by name, so they carry a name the output-name check accepts.
     local entry="$1" ancestor path field token detail line content_reason refusal_detail="" link_status exposure=""
@@ -1806,7 +1814,7 @@ _ai_tools_layout__reconcile_entry() {
             fi
         fi
         if [[ "${current[expected_type]}" == link ]]; then
-            link_status=0
+            apply_fields=( owner ) link_status=0
             chown --no-dereference -- "${current[expected_owner]}" "${path}" 2>/dev/null || link_status=$?
             (( link_status == 0 )) \
                 || _ai_tools_layout__report_write_failure "${path}" owner "chown --no-dereference" "${link_status}"
@@ -1826,21 +1834,35 @@ _ai_tools_layout__reconcile_entry() {
         _ai_tools_layout__report_error "${path}" entry "the entry could not be read back after the repair"
         _AI_TOOLS_LAYOUT__ANCESTOR_STATES["${path}"]=bad; return 0
     fi
-    # The fields are compared with the state the repair started from: the first read, or for a created directory
-    # the read after the create, so its owner, mode and ACL lines come from the pinned apply.
-    (( created )) && _ai_tools_layout__report_change "${path}" type absent "${final[type]:-}"
-    for field in owner mode acl label; do
-        [[ -n "${current[${field}]:-}" ]] || continue
-        [[ "${current[${field}]}" != "${final[${field}]:-}" ]] || continue
-        _ai_tools_layout__report_change "${path}" "${field}" "${current[${field}]}" "${final[${field}]:-}"
-    done
+    # The final read is the postcondition. An entry no longer at its path, or of another type, is a repair that did not
+    # hold, with no `changed` line; a drift on a field the repair wrote did not take, and one on a field it left drifted
+    # during the repair, each a failed repair; an unreadable field is an incomplete observation.
+    if [[ "${final[type]:-}" != unreadable ]] && { [[ "${final[type]:-}" != "${final[expected_type]}" ]] \
+            || [[ " ${final_findings[*]%%$'\t'*} " == *" missing "* ]]; }; then
+        _ai_tools_layout__report_postcondition_failure "${path}" type "the entry is not at its path after the repair"
+        _AI_TOOLS_LAYOUT__ANCESTOR_STATES["${path}"]=bad; return 0
+    fi
     for line in "${final_findings[@]}"; do
         ai_tools_layout__parse_line "${line}" finding || continue
         case "${finding[0]}" in
-            *-drift) [[ " ${drifted[*]} " == *" ${finding[1]} "* ]] \
-                         && _ai_tools_layout__report_error "${path}" "${finding[1]}" "the change did not take" ;;
             unreadable) _ai_tools_layout__report_error "${path}" "${finding[1]:-}" "${finding[4]:-}" ;;
+            *-drift)
+                if [[ " ${apply_fields[*]} " == *" ${finding[1]} "* ]]; then
+                    _ai_tools_layout__report_postcondition_failure "${path}" "${finding[1]}" "the change did not take"
+                else
+                    _ai_tools_layout__report_postcondition_failure "${path}" "${finding[1]}" "drifted during the repair"
+                fi ;;
         esac
+    done
+    # `changed` for each field the repair wrote whose final value is the row's, from the state the repair started
+    # from: the first read, or for a created directory the read after the create, so its lines come from the pinned
+    # apply.
+    (( created )) && _ai_tools_layout__report_change "${path}" type absent "${final[type]}"
+    for field in owner mode acl label; do
+        [[ " ${apply_fields[*]} " == *" ${field} "* ]] || continue
+        [[ "${final[${field}]:-}" == "${final[expected_${field}]:-}" ]] || continue
+        [[ "${current[${field}]:-}" != "${final[${field}]:-}" ]] || continue
+        _ai_tools_layout__report_change "${path}" "${field}" "${current[${field}]:-}" "${final[${field}]}"
     done
     _ai_tools_layout__record_ancestor_state final
     return 0
@@ -1872,8 +1894,8 @@ _ai_tools_layout__reconcile_lines() {
 # ai_tools_layout__reconcile <without-rpm> : bring every entry that applies on this host to its row, printing the tagged
 # lines the section header states. Returns 2 without output for a caller that is not root and while the table did not
 # validate; 5 after an `error` line for the lock, the safe-paths library or the enumeration, and otherwise the outcome
-# ai-tools-records(5) folds -- 1 where a write failed or a repaired field did not take, 5 where an observation was
-# incomplete, 4 where a refusal remains, 0 otherwise. The unattended callers ignore the status.
+# ai-tools-records(5) folds -- 1 where a write failed or the read after a repair found it did not hold, 5
+# where an observation was incomplete, 4 where a refusal remains, 0 otherwise. The unattended callers ignore the status.
 ai_tools_layout__reconcile() {
     [[ -z "${AI_TOOLS_LAYOUT__DECLARATION_ERROR}" ]] || return 2
     [[ "${EUID}" -eq 0 ]] || return 2
