@@ -334,19 +334,27 @@ collect_shapes() {
 # The three lines the review drove the copied predicates over, which the parser takes with their state.
 out="$(collect_shapes '.........  d /usr/share/doc/ai-tools-base/README.md' \
     '.........  d /usr/share/doc/ai-tools-base/README.md (not installed)' 'missing     /usr/local/bin/ai-tools (Permission denied)')"
-[[ "${out}" == $'.........\t/usr/share/doc/ai-tools-base/README.md\t\n.........\t/usr/share/doc/ai-tools-base/README.md\tnot installed\nmissing\t/usr/local/bin/ai-tools\tPermission denied' ]] \
+[[ "${out}" == $'.........\t/usr/share/doc/ai-tools-base/README.md\t\t\n.........\t/usr/share/doc/ai-tools-base/README.md\tnot installed\t\nmissing\t/usr/local/bin/ai-tools\t\tPermission denied' ]] \
     && pass "a plain line, a not-installed line and a missing line with its errno text each parse (verify-line-shapes)" \
     || fail "verify-line-shapes: $(tr '\n\t' '| ' <<< "${out}")"
 for state in replaced "net shared" "wrong color" "no state" "unknown state"; do
     out="$(collect_shapes ".........    /p (${state})")"
-    [[ "${out}" == $'.........\t/p\t'"${state}" ]] && pass "a line ending (${state}) parses with that state" || fail "${state}: $(tr '\t' '|' <<< "${out}")"
+    [[ "${out}" == $'.........\t/p\t'"${state}"$'\t' ]] && pass "a line ending (${state}) parses with that state" || fail "${state}: $(tr '\t' '|' <<< "${out}")"
 done
+# rpm's verifyHeader appends a missing line's errno text inside the missing branch and the file state after it.
+out="$(collect_shapes 'missing     /p (Too many levels of symbolic links) (replaced)')"
+[[ "${out}" == $'missing\t/p\treplaced\tToo many levels of symbolic links' ]] \
+    && pass "a missing line ending in its errno text and then a state parses with both" \
+    || fail "errno and state: $(tr '\t' '|' <<< "${out}")"
+out="$(collect_shapes 'missing     /p (replaced)')"
+[[ "${out}" == $'missing\t/p\treplaced\t' ]] && pass "a missing line ending in a state alone carries no errno text" \
+    || fail "missing with a state: $(tr '\t' '|' <<< "${out}")"
 out="$(collect_shapes '.........    /p (frobnicated)')"
 [[ "${out}" == error$'\t'* ]] && pass "a suffix outside rpm's states is an unrecognized line" || fail "unknown suffix: $(tr '\t' '|' <<< "${out}")"
 # The states read where each row is compared, one pass over a stub that prints a line per fixture path (the collector
 # prefixes the fixture root). content_of <entry-line> : the observed type, content and reason, then the finding tokens.
 SHP="${FIXTURE_ROOT}/shp"; mkdir -p "${SHP}/man1"
-for name in excluded-present replaced wrong-color denied; do : > "${SHP}/${name}"; chmod 0644 "${SHP}/${name}"; done
+for name in excluded-present replaced wrong-color denied looped; do : > "${SHP}/${name}"; chmod 0644 "${SHP}/${name}"; done
 content_of() {
     local -A co_state=(); local -a co_findings=(); local line got=""
     ai_tools_layout__read_entry_state "$1" co_state co_findings
@@ -359,6 +367,7 @@ rpm() {
     printf '%s\n' '.........  d /shp/man1/absent.1.gz (not installed)' '.........  d /shp/man1/netshared.1 (net shared)' \
         '.........    /shp/excluded-present (not installed)' '.........    /shp/replaced (replaced)' \
         '.........    /shp/wrong-color (wrong color)' 'missing     /shp/denied (Permission denied)' \
+        'missing     /shp/looped (Too many levels of symbolic links) (replaced)' \
         '.........  d /usr/share/doc/ai-tools-base/README.md (not installed)'
     return 1
 }
@@ -381,6 +390,9 @@ expect_content "a file rpm records as wrong color is unreadable" \
 expect_content "a missing line's errno text reaches the unreadable reason" \
     "$(entry "${SHP}/denied" file "${me}" 0644 - ai-tools-base files)" \
     "file|unreadable|rpm reported the file missing when it verified the package: Permission denied||unreadable"
+expect_content "a missing line with its errno text and a state names both in the unreadable reason" \
+    "$(entry "${SHP}/looped" file "${me}" 0644 - ai-tools-base files)" \
+    "file|unreadable|rpm reported the file missing when it verified the package: Too many levels of symbolic links; rpm records the file as replaced||unreadable"
 expect_content "an absent file rpm does not record as excluded stays missing (control)" \
     "$(entry "${SHP}/man1/gone.1" file "${me}" 0644 - ai-tools-base files,compressed)" "absent||||missing"
 rpm() { case "$1" in -q) return 0 ;; esac; printf '%s\n' '.........    /shp/replaced (frobnicated)'; return 0; }
@@ -1038,7 +1050,8 @@ else
             '.........  d /usr/share/doc/ai-tools-base/docs/c.md (wrong color)' \
             '.........  d /usr/share/doc/ai-tools-base/docs/d.md (no state)' \
             '.........  d /usr/share/doc/ai-tools-base/docs/e.md (unknown state)' \
-            'missing   d /usr/share/doc/ai-tools-base/docs/f.md (Permission denied)'
+            'missing   d /usr/share/doc/ai-tools-base/docs/f.md (Permission denied)' \
+            'missing   d /usr/share/doc/ai-tools-base/docs/g.md (Too many levels of symbolic links) (replaced)'
         status=1
         (( STUB_RC != 0 )) && return "${STUB_RC}"
         return "${status}"

@@ -791,6 +791,7 @@ declare -gA _AI_TOOLS_LAYOUT__PACKAGE_VERIFICATION_STATES=()
 declare -gA _AI_TOOLS_LAYOUT__PACKAGE_VERIFICATION_REASONS=()
 declare -gA _AI_TOOLS_LAYOUT__FILE_VERIFICATION_FLAGS=()
 declare -gA _AI_TOOLS_LAYOUT__FILE_VERIFICATION_STATES=()
+declare -gA _AI_TOOLS_LAYOUT__FILE_VERIFICATION_DETAILS=()
 
 # ai_tools_layout__begin_pass <without-rpm> : start one pass -- forget every observation an earlier pass recorded,
 # and record whether this one reads rpm (0) or leaves every package file `unverified` (1). Called once before the first
@@ -802,6 +803,7 @@ ai_tools_layout__begin_pass() {
     _AI_TOOLS_LAYOUT__PACKAGE_VERIFICATION_REASONS=()
     _AI_TOOLS_LAYOUT__FILE_VERIFICATION_FLAGS=()
     _AI_TOOLS_LAYOUT__FILE_VERIFICATION_STATES=()
+    _AI_TOOLS_LAYOUT__FILE_VERIFICATION_DETAILS=()
 }
 
 # _ai_tools_layout__read_selinux_state : set the label applicability, `n/a` where /sys/fs/selinux/enforce does not exist
@@ -820,25 +822,31 @@ _ai_tools_layout__format_external_reason() { ai_tools_log__sanitize "${1:0:120}"
 
 # _ai_tools_layout__list_package_verify_results <package> : the rpm -V collector for one package, verbose so every
 # payload file prints a line (`.........` for one that passed), which is the positive evidence a `verified` state rests
-# on. Prints one line per path, `<flags><TAB><path><TAB><state>` with the root prefixed, and `error<TAB><reason>`
-# for a line it does not recognize; exits with rpm's status. <state> is the file state rpm appends to a verbose line,
-# without its parentheses -- `not installed`, `replaced`, `net shared`, `wrong color`, `no state`, `unknown state` --
-# or for `missing` the errno text it appends where the lstat failed other than ENOENT, and empty where the line carries
-# none; any other suffix is an unrecognized line. Dependencies and %verifyscript are left out: a line of theirs would
-# read as an unrecognized one, and the collector does not run package-defined code. Stderr is merged, so an rpm warning
-# is an unrecognized line too. The attribute marker is one lowercase letter: the path begins with `/` and does not hold
-# a space, so the parse stays unambiguous across the marker sets rpm versions document.
+# on. Prints one line per path, `<flags><TAB><path><TAB><state><TAB><errno text>` with the root prefixed,
+# and `error<TAB><reason>` for a line it does not recognize; exits with rpm's status. <state> is the file state rpm
+# appends to a verbose line, without its parentheses -- `not installed`, `replaced`, `net shared`, `wrong color`,
+# `no state`, `unknown state` -- and <errno text> what it appends to a `missing` line where the lstat failed other than
+# ENOENT; each is empty where the line carries none. rpm's verifyHeader appends the errno text inside the missing branch
+# and the state after it, so a known state is stripped from the end of a line first and a missing line may then carry
+# its errno text; any other suffix is an unrecognized line. Dependencies and %verifyscript are left out: a line
+# of theirs would read as an unrecognized one, and the collector does not run package-defined code. Stderr is merged,
+# so an rpm warning is an unrecognized line too. The attribute marker is one lowercase letter: the path begins with `/`
+# and does not hold a space, so the parse stays unambiguous across the marker sets rpm versions document.
 _ai_tools_layout__list_package_verify_results() {
     # The C locale for the match as for the command: the path range collates differently under UTF-8.
-    local LC_ALL=C root line fd pid status=0
+    local LC_ALL=C root line body state fd pid status=0
     root="$(_ai_tools_layout__get_path_prefix)"
     exec {fd}< <(LC_ALL=C rpm -Vv --nodeps --noscripts --nouser --nogroup --nomode --nomtime --nordev --nocaps \
         --nolinkto -- "$1" 2>&1); pid=$!
     while IFS= read -r -u "${fd}" line; do
-        if [[ "${line}" =~ ^([SM5DLUGTP.?]{9})\ +([a-z]\ )?(/[!-~]+)(\ \((not installed|replaced|net shared|wrong color|no state|unknown state)\))?$ ]]; then
-            printf '%s\t%s\t%s\n' "${BASH_REMATCH[1]}" "${root}${BASH_REMATCH[3]}" "${BASH_REMATCH[5]}"
-        elif [[ "${line}" =~ ^missing\ +([a-z]\ )?(/[!-~]+)(\ \(([^()]*)\))?$ ]]; then
-            printf 'missing\t%s\t%s\n' "${root}${BASH_REMATCH[2]}" \
+        body="${line}" state=""
+        if [[ "${line}" =~ ^(.*)\ \((not installed|replaced|net shared|wrong color|no state|unknown state)\)$ ]]; then
+            body="${BASH_REMATCH[1]}" state="${BASH_REMATCH[2]}"
+        fi
+        if [[ "${body}" =~ ^([SM5DLUGTP.?]{9})\ +([a-z]\ )?(/[!-~]+)$ ]]; then
+            printf '%s\t%s\t%s\t\n' "${BASH_REMATCH[1]}" "${root}${BASH_REMATCH[3]}" "${state}"
+        elif [[ "${body}" =~ ^missing\ +([a-z]\ )?(/[!-~]+)(\ \(([^()]*)\))?$ ]]; then
+            printf 'missing\t%s\t%s\t%s\n' "${root}${BASH_REMATCH[2]}" "${state}" \
                 "$(_ai_tools_layout__format_external_reason "${BASH_REMATCH[4]}")"
         else
             printf 'error\t%s\n' "$(_ai_tools_layout__format_external_reason "${line}")"
@@ -852,12 +860,12 @@ _ai_tools_layout__list_package_verify_results() {
 # _ai_tools_layout__read_package_verification <package> : run the content collector for one package the pass has no
 # result for, into _AI_TOOLS_LAYOUT__PACKAGE_VERIFICATION_STATES (verified, unverified, error),
 # _AI_TOOLS_LAYOUT__PACKAGE_VERIFICATION_REASONS, _AI_TOOLS_LAYOUT__FILE_VERIFICATION_FLAGS (the flags rpm printed
-# per path) and _AI_TOOLS_LAYOUT__FILE_VERIFICATION_STATES (the file state, or a missing line's errno text, per path).
-# `unverified` where the pass skips rpm, where rpm is not installed, and where rpm reports the package not installed (a
-# source install); `error` where the query failed in another way, where the collector printed a line it did not
-# recognize, or where it exited 1 (differences found) without a difference line, or with any other status. Runs
-# in the caller's shell, so the arrays it fills are the
-# pass's.
+# per path), _AI_TOOLS_LAYOUT__FILE_VERIFICATION_STATES (the file state per path)
+# and _AI_TOOLS_LAYOUT__FILE_VERIFICATION_DETAILS (a missing line's errno text per path). `unverified` where the pass
+# skips rpm, where rpm is not installed, and where rpm reports the package not installed (a source install); `error`
+# where the query failed in another way, where the collector printed a line it did not recognize or one with fewer than
+# four fields, or where it exited 1 (differences found) without a difference line, or with any other status. Runs
+# in the caller's shell, so the arrays it fills are the pass's.
 _ai_tools_layout__read_package_verification() {
     local package="$1" line flags rest path fd pid status=0 query reason="" differences=0
     [[ -z "${_AI_TOOLS_LAYOUT__PACKAGE_VERIFICATION_STATES[${package}]+x}" ]] || return 0
@@ -886,14 +894,15 @@ _ai_tools_layout__read_package_verification() {
     # Split by hand, since `IFS=$'\t' read` collapses an empty field (records.rule.md).
     while IFS= read -r -u "${fd}" line; do
         flags="${line%%$'\t'*}" rest="${line#*$'\t'}"
-        if [[ "${flags}" == error || "${line}" != *$'\t'*$'\t'* ]]; then
+        if [[ "${flags}" == error || "${line}" != *$'\t'*$'\t'*$'\t'* ]]; then
             [[ -n "${reason}" ]] || reason="rpm -V ${package} printed a line the reader does not recognize: ${rest}"
             continue
         fi
-        path="${rest%%$'\t'*}"
+        path="${rest%%$'\t'*}" rest="${rest#*$'\t'}"
         [[ "${flags}" == missing || "${flags}" == *[^.]* ]] && differences=1
         _AI_TOOLS_LAYOUT__FILE_VERIFICATION_FLAGS["${path}"]="${flags}"
-        _AI_TOOLS_LAYOUT__FILE_VERIFICATION_STATES["${path}"]="${rest#*$'\t'}"
+        _AI_TOOLS_LAYOUT__FILE_VERIFICATION_STATES["${path}"]="${rest%%$'\t'*}"
+        _AI_TOOLS_LAYOUT__FILE_VERIFICATION_DETAILS["${path}"]="${rest#*$'\t'}"
     done
     exec {fd}<&-
     wait "${pid}" || status=$?
@@ -915,13 +924,13 @@ _ai_tools_layout__read_package_verification() {
 # _ai_tools_layout__evaluate_content_state <package> <path> : print the content state of one package file and its
 # reason, TAB-separated, from what the collector recorded: `verified` for a line whose digest test passed; `drift`
 # for a `5`; `unreadable` for a `?` at the digest position, for a path rpm reported missing (the entry there now is not
-# the one rpm compared; the errno text rpm appended carried in the reason), for the file states `wrong color`,
-# `no state` and `unknown state`, which do not establish that the bytes are the package's, and for a package
-# whose collector failed; `unverified` for a package the pass did not verify, for a path the installed package does not
-# print a line for, and for a file rpm records as `not installed`, `net shared` or `replaced`, whose bytes it did not
-# compare against the package.
+# the one rpm compared; the errno text and the file state rpm appended carried in the reason), for the file states
+# `wrong color`, `no state` and `unknown state`, which do not establish that the bytes are the package's,
+# and for a package whose collector failed; `unverified` for a package the pass did not verify, for a path the installed
+# package does not print a line for, and for a file rpm records as `not installed`, `net shared` or `replaced`,
+# whose bytes it did not compare against the package.
 _ai_tools_layout__evaluate_content_state() {
-    local package="$1" flags state
+    local package="$1" flags state detail
     case "${_AI_TOOLS_LAYOUT__PACKAGE_VERIFICATION_STATES[${package}]:-unverified}" in
         verified) ;;
         error) printf 'unreadable\t%s' "${_AI_TOOLS_LAYOUT__PACKAGE_VERIFICATION_REASONS[${package}]:-}"; return 0 ;;
@@ -931,9 +940,11 @@ _ai_tools_layout__evaluate_content_state() {
     esac
     flags="${_AI_TOOLS_LAYOUT__FILE_VERIFICATION_FLAGS[$2]:-}"
     state="${_AI_TOOLS_LAYOUT__FILE_VERIFICATION_STATES[$2]:-}"
+    detail="${_AI_TOOLS_LAYOUT__FILE_VERIFICATION_DETAILS[$2]:-}"
     if [[ -z "${flags}" ]]; then printf 'unverified\tthe installed package does not list the path'
     elif [[ "${flags}" == missing ]]; then
-        printf 'unreadable\trpm reported the file missing when it verified the package%s' "${state:+: ${state}}"
+        printf 'unreadable\trpm reported the file missing when it verified the package%s%s' "${detail:+: ${detail}}" \
+            "${state:+; rpm records the file as ${state}}"
     elif [[ "${state}" == "not installed" || "${state}" == "net shared" || "${state}" == replaced ]]; then
         printf 'unverified\trpm records the file as %s' "${state}"
     elif [[ -n "${state}" ]]; then printf 'unreadable\trpm records the file state as %s' "${state}"
