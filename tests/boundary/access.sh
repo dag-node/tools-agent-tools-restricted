@@ -773,22 +773,31 @@ else
     fi
 fi
 # shellcheck source=/dev/null
-if source "${_layout_lib}" 2>/dev/null && declare -F ai_tools_layout__list_entries >/dev/null 2>&1 \
+if source "${_layout_lib}" 2>/dev/null && declare -F ai_tools_layout__read_entry_lines >/dev/null 2>&1 \
         && [[ -z "${AI_TOOLS_LAYOUT__DECLARATION_ERROR:-}" ]]; then
     _boundary_rows=0; _boundary_writable=0
-    declare -a _layout_fields=()
-    while IFS= read -r _layout_line; do
-        [[ "${_layout_line}" == error$'\t'* ]] && continue
-        ai_tools_layout__parse_stream_line "${_layout_line}" _layout_fields || continue
-        [[ ",${_layout_fields[6]}," == *,boundary,* ]] || continue
+    # The set is read through the library's collector, which waits for the enumerator and appends an error line
+    # for a status the lines do not account for; the output names carry the test's own prefix, since the library refuses
+    # one in its own.
+    declare -a boundary_entry_lines=() boundary_fields=()
+    ai_tools_layout__read_entry_lines boundary_entry_lines || :
+    for boundary_line in "${boundary_entry_lines[@]}"; do
+        if ! ai_tools_layout__parse_stream_line "${boundary_line}" boundary_fields; then
+            fail "a line of the layout entry set did not decode, so the rows it names are not probed"; continue
+        fi
+        if [[ "${boundary_fields[0]}" == error ]]; then
+            fail "the layout entry set could not read ${boundary_fields[2]:-an input} (${boundary_fields[4]:-no reason}), so the rows it names are not probed"
+            continue
+        fi
+        [[ ",${boundary_fields[6]:-}," == *,boundary,* ]] || continue
         _boundary_rows=$(( _boundary_rows + 1 ))
         # An absent row is integration/perms.sh's finding; this probe is about the rows that exist.
-        [[ -e "${_layout_fields[0]}" || -L "${_layout_fields[0]}" ]] || continue
-        if runuser -u "${SANDBOX_USER}" -- test -w "${_layout_fields[0]}" 2>/dev/null; then
-            fail "the agent can write the boundary row ${_layout_fields[0]} -- the gate reading it decides what a session may do"
+        [[ -e "${boundary_fields[0]}" || -L "${boundary_fields[0]}" ]] || continue
+        if runuser -u "${SANDBOX_USER}" -- test -w "${boundary_fields[0]}" 2>/dev/null; then
+            fail "the agent can write the boundary row ${boundary_fields[0]} -- the gate reading it decides what a session may do"
             _boundary_writable=$(( _boundary_writable + 1 ))
         fi
-    done < <(ai_tools_layout__list_entries)
+    done
     if (( _boundary_rows == 0 )); then
         fail "the layout library listed no boundary row"
     elif (( _boundary_writable == 0 )); then
