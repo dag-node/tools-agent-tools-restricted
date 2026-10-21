@@ -127,8 +127,9 @@ source /usr/local/lib/ai-tools/msg.lib.sh
 export AI_TOOLS_MSG_FULLWIDTH=1
 
 # _notify_secret: emit a one-line NOTICE that a secret-named file was written and ai-tools' read access revoked,
-# to stderr (the PostToolUse hook relays it into the session) and -- at WARNING level -- to journald + the root-owned
-# chown.log. log.lib.sh wraps each sink in `|| true`, so a sink that cannot be written never blocks the NOTICE.
+# to stderr (the PostToolUse hook hands it to the session as context) and -- at WARNING level -- to journald +
+# the root-owned chown.log. log.lib.sh wraps each sink in `|| true`, so a sink that cannot be written never blocks
+# the NOTICE.
 # args:  path  old_owner  new_owner  old_mode  new_mode
 _notify_secret() {
     local path="$1" old_owner="$2" new_owner="$3" old_mode="$4" new_mode="$5"
