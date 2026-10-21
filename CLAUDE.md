@@ -332,7 +332,7 @@ not gaps, so a reader tells bounded design from an oversight:
   `owner-only`, `project-permissions`, `safe-paths`, `relabel`, `operator`, `control-plane`, `confinement`,
   `launch-wrapper`, `npm-verify`, `openpgp`, `entrypoint-verify`, `assets-verify`, `managed-assets`, `providers`,
   `ancestor-config`, `sandbox-exec`, `toolchain`, `cache-cleanup`, `selinux-groups`, `filters`, `services`, `msg`,
-  `log`, `path-order`, `agent-installs`, `records-base`, `records-tsv`, `assets`, and the claude-code pair
+  `log`, `path-order`, `agent-installs`, `records-base`, `records-tsv`, `assets`, `layout`, and the claude-code pair
   `claude-prompt`/`claude-endpoint`), plus `path-order.sh`, the PATH-ordering fragment `ai-tools-admin` wires
   into operator dotfiles (see [launch](.claude/rules/launch.rule.md)). That directory and its contents are `root`-owned
   and non-group-writable, and the sandbox group reads them — load-bearing, since the sandbox account sources several
