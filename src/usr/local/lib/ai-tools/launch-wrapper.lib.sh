@@ -207,8 +207,11 @@ ai_tools_launch_wrapper__gate_operator() {
 # ai-tools-launch, so the name decides which agent this launch is for; ai-tools-run re-derives the agent
 # from the resolved path after the drop, and this gate is the diagnostician that answers before sudo. It reads
 # the enabled set through the provider resolver, whose trust checks refuse an untrusted operator.conf, manifest
-# directory or manifest (reported on stderr), so an input the resolver refuses yields no agent and a refusal here.
-# The provider library is required: without it no launcher can be matched, and refusing names the missing component.
+# directory or manifest (reported on stderr), so an input the resolver refuses yields no agent and a refusal here. A set
+# that is empty is classified by ai_tools_providers__evaluate_empty_agents: `none` refuses naming AI_TOOLS_AGENTS
+# (MSG-F8N3), every other verdict refuses naming the input that failed (MSG-V4U4). A set that is not empty and does not
+# claim the name refuses under MSG-F8N3, listing the enabled launchers. The provider library is required: without it no
+# launcher can be matched, and refusing names the missing component.
 ai_tools_launch_wrapper__gate_launcher() {
     local name="${AI_TOOLS_LAUNCH_WRAPPER__NAME}" agent launcher
     local -a enabled=()
@@ -233,6 +236,20 @@ ai_tools_launch_wrapper__gate_launcher() {
         fi
         enabled+=("${launcher}")
     done < <(ai_tools_providers__list_enabled_agents)
+    # An empty set names its cause: an operator.conf this operator cannot read or does not trust reads as the baseline,
+    # where the remedy is the file and not AI_TOOLS_AGENTS. The verdict is ai_tools_providers__evaluate_empty_agents's;
+    # `none` keeps the AI_TOOLS_AGENTS remedy of MSG-F8N3, and any other answer, an unrecognized one included, is
+    # a fault.
+    if (( ${#enabled[@]} == 0 )); then
+        local empty_verdict="" empty_reason=""
+        IFS=$'\t' read -r empty_verdict empty_reason \
+            < <(ai_tools_providers__evaluate_empty_agents 2>/dev/null) || true
+        if [[ "${empty_verdict}" != none ]]; then
+            ai_tools_launch_wrapper__die MSG-V4U4 "the enabled agents could not be resolved -- refusing to start" \
+                "       ${empty_reason:-the empty set of enabled agents could not be classified}" \
+                "       repair the input named there, then run ${name} again"
+        fi
+    fi
     local joined="none"
     (( ${#enabled[@]} )) && printf -v joined '%s, ' "${enabled[@]}" && joined="${joined%, }"
     ai_tools_launch_wrapper__die MSG-F8N3 "not the launcher of an agent enabled on this host (enabled: ${joined})" \
