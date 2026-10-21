@@ -702,12 +702,14 @@ ai_tools_layout__list_entries() {
 
 # ── The pass ─────────────────────────────────────────────────────────────────────────────────
 # What one pass observes once and every entry read in it shares: whether SELinux labels apply, and what `rpm -V` said
-# per package and per path. ai_tools_layout__begin_pass resets them.
+# per package and per path. ai_tools_layout__begin_pass resets them. Every map here and below is `declare -gA`:
+# ai-tools-admin sources this file inside a function, where a bare `declare` makes the map that function's local,
+# and the reset after it returns recreates the name as an indexed array whose subscript is arithmetic.
 _AI_TOOLS_LAYOUT__PASS_WITHOUT_RPM=0
 _AI_TOOLS_LAYOUT__SELINUX=""
-declare -A _AI_TOOLS_LAYOUT__PACKAGE_VERIFY=()
-declare -A _AI_TOOLS_LAYOUT__PACKAGE_VERIFY_REASON=()
-declare -A _AI_TOOLS_LAYOUT__CONTENT_FLAGS=()
+declare -gA _AI_TOOLS_LAYOUT__PACKAGE_VERIFY=()
+declare -gA _AI_TOOLS_LAYOUT__PACKAGE_VERIFY_REASON=()
+declare -gA _AI_TOOLS_LAYOUT__CONTENT_FLAGS=()
 
 # ai_tools_layout__begin_pass <without-rpm> : start one pass -- forget every observation an earlier pass recorded,
 # and record whether this one reads rpm (0) or leaves every package file `unverified` (1). Called once before the first
@@ -1329,8 +1331,8 @@ readonly _AI_TOOLS_LAYOUT__FULL_PASS_REMEDY="sudo ai-tools-admin system layout r
 _AI_TOOLS_LAYOUT__RECONCILE_WRITE_FAILED=0
 _AI_TOOLS_LAYOUT__RECONCILE_INCOMPLETE=0
 _AI_TOOLS_LAYOUT__RECONCILE_REFUSED=0
-declare -A _AI_TOOLS_LAYOUT__ROW_PATHS=()
-declare -A _AI_TOOLS_LAYOUT__ANCESTOR_STATES=()
+declare -gA _AI_TOOLS_LAYOUT__ROW_PATHS=()
+declare -gA _AI_TOOLS_LAYOUT__ANCESTOR_STATES=()
 
 # _ai_tools_layout__reset_reconcile_state : the counters and the maps of one reconcile, cleared.
 _ai_tools_layout__reset_reconcile_state() {

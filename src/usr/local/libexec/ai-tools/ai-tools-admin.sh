@@ -3844,10 +3844,11 @@ layout_reconcile() {
 }
 
 system_layout_dispatch() {
-    # `list` is the zero-argument default, and an option after `layout` is the list's.
+    # `list` is the zero-argument default, and an option after `layout` is the list's. A bare `system layout` has no
+    # word to shift, and a failed `shift` ends the command silently under `set -e`.
     local verb="${1:-list}"
     case "${verb}" in
-        list)      shift; layout_list "$@" ;;
+        list)      [[ $# -eq 0 ]] || shift; layout_list "$@" ;;
         reconcile) shift; layout_reconcile "$@" ;;
         --*)       layout_list "$@" ;;
         *)         layout_reject_option "unknown command '${verb}' (list|reconcile)" ;;

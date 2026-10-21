@@ -104,6 +104,28 @@ for required in /etc/ai-tools/operator.conf /opt/ai-tools/bin/ai-tools-run /usr/
     for entry in "${_AI_TOOLS_LAYOUT__STATIC_ENTRIES[@]}"; do [[ "${entry%%$'\t'*}" == "${required}" ]] && found=1; done
     (( found )) && pass "declared: ${required}" || fail "not declared: ${required}"
 done
+# ai-tools-admin sources the library inside a function (layout_load), where a file-scope `declare` without -g makes
+# the map that function's local: once it returns, the reconcile's reset recreates the name as an indexed array
+# and a path key is read as arithmetic. A fresh shell sources it the same way and reads every file-scope declaration
+# back.
+scope_text="$(grep -oE '^declare -[a-zA-Z]+ _AI_TOOLS_LAYOUT__[A-Z_]+' "${TESTDIR}/lib/layout.lib.sh" || true)"
+scope_names=()
+[[ -z "${scope_text}" ]] || mapfile -t scope_names < <(awk '{print $3}' <<< "${scope_text}")
+scope_out="$(bash -c '
+    load() { source "$1" || exit 3; }
+    load "$1"; shift
+    for name in "$@"; do declare -p "${name}" >/dev/null 2>&1 || printf "not global: %s\n" "${name}"; done
+    _ai_tools_layout__reset_reconcile_state
+    _AI_TOOLS_LAYOUT__ROW_PATHS["/usr/local/libexec/ai-tools"]=row
+    [[ "${_AI_TOOLS_LAYOUT__ROW_PATHS[/usr/local/libexec/ai-tools]:-}" == row ]] || printf "a path key did not read back\n"
+' _ "${TESTDIR}/lib/layout.lib.sh" "${scope_names[@]}" 2>&1)" && scope_status=0 || scope_status=$?
+if (( ${#scope_names[@]} == 0 )); then
+    fail "the file-scope declarations were not found in the library copy"
+elif (( scope_status == 0 )) && [[ -z "${scope_out}" ]]; then
+    pass "sourced inside a function, every file-scope map stays global and takes a path key (${#scope_names[@]} maps)"
+else
+    fail "sourced inside a function (status ${scope_status}): $(tr '\n' '|' <<< "${scope_out}")"
+fi
 
 # entry <path> <type> <owner> <mode> <acl> <package> <flags> [operator] : one encoded entry line on stdout.
 entry() { local line; _ai_tools_layout__encode_line line "$1" "$2" "$3" "$4" "$5" "$6" "$7" "${8-}"; printf '%s' "${line}"; }
@@ -920,6 +942,16 @@ refused_option "--check on reconcile is refused"           reconcile --check
 refused_option "--without-rpm on list is refused"          list --without-rpm
 refused_option "an unknown verb is refused"                bogus
 refused_option "an unknown option is refused"              --bogus
+# The list is the zero-argument default: a bare `system layout` and an option-only one reach it with their arguments,
+# under the helper's own `set -e` (a `shift` with no word to shift ends the command without a line).
+# shellcheck disable=SC2016  # the inner bash expands these
+list_reach="$(bash -c 'source "$1" >/dev/null 2>&1 || exit 3
+    layout_list() { printf "list:%s\n" "$*"; }
+    system_layout_dispatch; system_layout_dispatch list; system_layout_dispatch --check --all' _ "${ADMIN}" 2>&1)" \
+    && list_rc=0 || list_rc=$?
+[[ "${list_rc}" == 0 && "${list_reach}" == $'list:\nlist:\nlist:--check --all' ]] \
+    && pass "a bare system layout, list and an option-only command line each reach the list with their arguments" \
+    || fail "list default: rc ${list_rc}: $(tr '\n' '|' <<< "${list_reach}")"
 if [[ -e /usr/local/lib/ai-tools/layout.lib.sh ]]; then
     skip "the library-load refusal" "the library is installed on this host, so the load does not fail"
 else
