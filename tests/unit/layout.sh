@@ -322,6 +322,75 @@ _ai_tools_layout__is_payload_file file files,ghost  && fail "a ghost is not a pa
 _ai_tools_layout__is_payload_file directory files   && fail "a directory is not a payload file"  || pass "a directory is not a payload file"
 _ai_tools_layout__is_payload_file file -            && fail "a runtime file is not a payload file" || pass "a runtime file is not a payload file"
 
+section "layout: the content collector's line shapes"
+# The parser over the lines verbose verify prints, rpm a shell function the collector's process substitution sees.
+# collect_shapes <line>... : the collector's lines for an rpm that prints the given lines, with no root prefix.
+collect_shapes() {
+    local -a stub_shape_lines=( "$@" )
+    rpm() { printf '%s\n' "${stub_shape_lines[@]}"; }
+    AI_TOOLS_LAYOUT_ROOT="" _ai_tools_layout__list_package_verify_results ai-tools-base || true
+    unset -f rpm
+}
+# The three lines the review drove the copied predicates over, which the parser takes with their state.
+out="$(collect_shapes '.........  d /usr/share/doc/ai-tools-base/README.md' \
+    '.........  d /usr/share/doc/ai-tools-base/README.md (not installed)' 'missing     /usr/local/bin/ai-tools (Permission denied)')"
+[[ "${out}" == $'.........\t/usr/share/doc/ai-tools-base/README.md\t\n.........\t/usr/share/doc/ai-tools-base/README.md\tnot installed\nmissing\t/usr/local/bin/ai-tools\tPermission denied' ]] \
+    && pass "a plain line, a not-installed line and a missing line with its errno text each parse (verify-line-shapes)" \
+    || fail "verify-line-shapes: $(tr '\n\t' '| ' <<< "${out}")"
+for state in replaced "net shared" "wrong color" "no state" "unknown state"; do
+    out="$(collect_shapes ".........    /p (${state})")"
+    [[ "${out}" == $'.........\t/p\t'"${state}" ]] && pass "a line ending (${state}) parses with that state" || fail "${state}: $(tr '\t' '|' <<< "${out}")"
+done
+out="$(collect_shapes '.........    /p (frobnicated)')"
+[[ "${out}" == error$'\t'* ]] && pass "a suffix outside rpm's states is an unrecognized line" || fail "unknown suffix: $(tr '\t' '|' <<< "${out}")"
+# The states read where each row is compared, one pass over a stub that prints a line per fixture path (the collector
+# prefixes the fixture root). content_of <entry-line> : the observed type, content and reason, then the finding tokens.
+SHP="${FIXTURE_ROOT}/shp"; mkdir -p "${SHP}/man1"
+for name in excluded-present replaced wrong-color denied; do : > "${SHP}/${name}"; chmod 0644 "${SHP}/${name}"; done
+content_of() {
+    local -A co_state=(); local -a co_findings=(); local line got=""
+    ai_tools_layout__read_entry_state "$1" co_state co_findings
+    for line in "${co_findings[@]}"; do got+=" ${line%%$'\t'*}"; done
+    printf '%s|%s|%s|%s|%s' "${co_state[type]}" "${co_state[content]:-}" "${co_state[content_reason]:-}" \
+        "${co_state[absent_detail]:-}" "${got# }"
+}
+rpm() {
+    case "$1" in -q) return 0 ;; esac
+    printf '%s\n' '.........  d /shp/man1/absent.1.gz (not installed)' '.........  d /shp/man1/netshared.1 (net shared)' \
+        '.........    /shp/excluded-present (not installed)' '.........    /shp/replaced (replaced)' \
+        '.........    /shp/wrong-color (wrong color)' 'missing     /shp/denied (Permission denied)' \
+        '.........  d /usr/share/doc/ai-tools-base/README.md (not installed)'
+    return 1
+}
+ai_tools_layout__begin_pass 0
+expect_content() { local got; got="$(content_of "$2")"; [[ "${got}" == "$3" ]] && pass "$1" || fail "$1: got '${got}', wanted '$3'"; }
+expect_content "an absent manual page rpm records as not installed (its .gz) is not a finding" \
+    "$(entry "${SHP}/man1/absent.1" file "${me}" 0644 - ai-tools-base files,compressed)" \
+    "absent|||rpm records the file as not installed|"
+expect_content "an absent file rpm records as net shared is not a finding" \
+    "$(entry "${SHP}/man1/netshared.1" file "${me}" 0644 - ai-tools-base files,compressed)" \
+    "absent|||rpm records the file as net shared|"
+expect_content "a present file rpm records as not installed is unverified, naming the state" \
+    "$(entry "${SHP}/excluded-present" file "${me}" 0644 - ai-tools-base files)" \
+    "file|unverified|rpm records the file as not installed||"
+expect_content "a file rpm records as replaced is unverified" \
+    "$(entry "${SHP}/replaced" file "${me}" 0644 - ai-tools-base files)" "file|unverified|rpm records the file as replaced||"
+expect_content "a file rpm records as wrong color is unreadable" \
+    "$(entry "${SHP}/wrong-color" file "${me}" 0644 - ai-tools-base files)" \
+    "file|unreadable|rpm records the file state as wrong color||unreadable"
+expect_content "a missing line's errno text reaches the unreadable reason" \
+    "$(entry "${SHP}/denied" file "${me}" 0644 - ai-tools-base files)" \
+    "file|unreadable|rpm reported the file missing when it verified the package: Permission denied||unreadable"
+expect_content "an absent file rpm does not record as excluded stays missing (control)" \
+    "$(entry "${SHP}/man1/gone.1" file "${me}" 0644 - ai-tools-base files,compressed)" "absent||||missing"
+rpm() { case "$1" in -q) return 0 ;; esac; printf '%s\n' '.........    /shp/replaced (frobnicated)'; return 0; }
+ai_tools_layout__begin_pass 0
+expect_content "an unknown suffix makes the package's files unreadable" \
+    "$(entry "${SHP}/replaced" file "${me}" 0644 - ai-tools-base files)" \
+    "file|unreadable|rpm -V ai-tools-base printed a line the reader does not recognize: .........    /shp/replaced (frobnicated)||unreadable"
+unset -f rpm
+ai_tools_layout__begin_pass 1
+
 section "layout: the entry set"
 # entries <root> : the entry lines (no error lines) for a fixture root, their paths with the root stripped.
 entries() { AI_TOOLS_LAYOUT_ROOT="$1" ai_tools_layout__list_entries | grep -v '^error' | cut -f1 | sed "s#^$1##" || true; }
@@ -949,17 +1018,28 @@ else
         || fail "the entry set carried ${build_errors} error line(s) while building: $(grep '^error' <<< "$(printf '%s\n' "${built_lines[@]}")" | tr '\n\t' '| ')"
     [[ -d "${R}/opt/ai-tools/.claude" && -d "${R}${PROJECTS_HOME}/.config/ai-tools" ]] \
         && pass "the dynamic rows are in the tree: an agent config directory and an operator's config" || fail "dynamic rows not built"
-    # The collector stub prints every payload path verified, with per-path overrides and an exit status the case sets;
-    # as rpm does, it exits 1 once a line carries a difference or reads `missing`, and 0 otherwise.
-    declare -A STUB_OVERRIDE=(); STUB_RC=0
+    # The collector stub prints every payload path verified, with per-path flags and file states and an exit status
+    # the case sets, then a line of each shape verbose verify prints for paths outside the table, as a host installed
+    # with tsflags=nodocs prints its documentation: every run of this section therefore holds the parser to those
+    # shapes, since one it did not recognize would make each package file unreadable. As rpm does, it exits 1 once
+    # a line carries a difference or reads `missing`, and 0 otherwise.
+    declare -A STUB_OVERRIDE=() STUB_SUFFIX=(); STUB_RC=0
     rpm() {
         local p flags status=0
         case "$1" in -q) return 0 ;; esac
         while IFS= read -r p; do
             flags="${STUB_OVERRIDE[${p}]:-.........}"
-            printf '%s    %s\n' "${flags}" "${p}"
+            printf '%s    %s%s\n' "${flags}" "${p}" "${STUB_SUFFIX[${p}]:+ (${STUB_SUFFIX[${p}]})}"
             [[ "${flags}" == missing || "${flags}" == *[^.]* ]] && status=1
         done < "${PAYLOAD_LIST}"
+        printf '%s\n' '.........  d /usr/share/doc/ai-tools-base/README.md (not installed)' \
+            '.........  d /usr/share/doc/ai-tools-base/docs/a.md (net shared)' \
+            '.........  d /usr/share/doc/ai-tools-base/docs/b.md (replaced)' \
+            '.........  d /usr/share/doc/ai-tools-base/docs/c.md (wrong color)' \
+            '.........  d /usr/share/doc/ai-tools-base/docs/d.md (no state)' \
+            '.........  d /usr/share/doc/ai-tools-base/docs/e.md (unknown state)' \
+            'missing   d /usr/share/doc/ai-tools-base/docs/f.md (Permission denied)'
+        status=1
         (( STUB_RC != 0 )) && return "${STUB_RC}"
         return "${status}"
     }
@@ -983,6 +1063,13 @@ else
     out="$(reconcile_run)"
     [[ "$(rc_of "${out}")" == rc=0 && "$(grep -vc '^rc=' <<< "${out}")" -eq 0 ]] \
         && pass "a second run prints no line and exits 0" || fail "second run: $(brief "${out}")"
+    # A manual page rpm records as not installed, absent: not a finding, the run still clean.
+    MAN1="${R}/usr/local/share/man/man1/ai-tools.1"; rm -- "${MAN1}"
+    STUB_SUFFIX[/usr/local/share/man/man1/ai-tools.1]="not installed"
+    out="$(reconcile_run)"
+    [[ "$(rc_of "${out}")" == rc=0 && "$(grep -vc '^rc=' <<< "${out}")" -eq 0 ]] \
+        && pass "an absent manual page rpm records as not installed prints no line and exits 0" || fail "not installed: $(brief "${out}")"
+    unset 'STUB_SUFFIX[/usr/local/share/man/man1/ai-tools.1]'; install -o root -g root -m 0644 /dev/null "${MAN1}"
     LOG="${AI_TOOLS_LOG_DIR}/layout.log"
     OC="${OPERATOR_CONF}"
     PROMPTS="${R}/etc/ai-tools/prompts"

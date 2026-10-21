@@ -43,8 +43,8 @@ else
         perms_state=(); perms_findings=(); perms_status=0
         ai_tools_layout__read_entry_state "${perms_line}" perms_state perms_findings || perms_status=$?
         if (( perms_status != 0 )); then
-            # The reader refuses an output name or a row that does not decode, which is this file's call or the
-            # library's own line, not one row's state: reported once, and the rows after it are not read.
+            # The reader refuses an output name or a row that does not decode, which is this file's call
+            # or the library's own line, not one row's state: reported once, and the rows after it are not read.
             ai_tools_layout__parse_line "${perms_line}" perms_fields || perms_fields=()
             fail "layout: the reader returned ${perms_status} on the row ${perms_fields[0]:-?}; the rows after it are not read"
             break
@@ -53,7 +53,7 @@ else
         perms_label="${perms_state[operator]:+${perms_state[operator]}: }${perms_state[path]}"
         if (( ${#perms_findings[@]} == 0 )); then
             if [[ "${perms_state[type]:-}" == absent ]]; then
-                skip "${perms_label}" "absent until created on demand"
+                skip "${perms_label}" "${perms_state[absent_detail]:-absent until created on demand}"
             else
                 pass "${perms_label}  (${perms_state[expected_owner]} ${perms_state[expected_mode]})"
             fi

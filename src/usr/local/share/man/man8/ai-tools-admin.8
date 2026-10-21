@@ -682,6 +682,12 @@ each exit 4;
 .B error
 (an input the enumeration could not read, or a reader that refused the entry)
 exit 5.
+A package file
+.BR rpm (8)
+records as not installed or as net shared, as an install with
+.B tsflags=nodocs
+records a documentation file it leaves out, is not a finding while it is
+absent.
 .TP
 .B \-\-all
 Also write an

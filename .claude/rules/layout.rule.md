@@ -93,9 +93,14 @@ and range are not compared, logged or changed.
 state rests on a line whose digest column passed; a `5` there is `drift`, a `?` and a `missing` line are `unreadable`,
 and a path with no line is `unverified`. `--nodeps --noscripts` keep a dependency line and a `%verifyscript`
 out of the stream, and the collector does not run package-defined code; an unrecognized line makes the package `error`.
-Where `rpm` is absent, where the package is not in the rpm database (a source install), and under `--without-rpm`, every
-package file is `unverified`, which the reconcile reads as a precondition. A host that holds the packages and takes
-a source install over them reads each file the install replaced as `drift`, since the rpm database still lists the file
+A verbose line may end in the file state rpm records: `not installed` and `net shared` make a row's absence not
+a finding and its presence `unverified`, `replaced` is `unverified`, and `wrong color`, `no state` and `unknown state`
+are `unreadable`; a `missing` line's errno text is carried in its reason, and any other suffix is an unrecognized line.
+rpm records the first two for a file it left out at install (`--excludepath`, `tsflags=nodocs`) or shares with another
+host (`%_netsharedpath`), so a host installed that way does not read as one package `error`. Where `rpm` is absent,
+where the package is not in the rpm database (a source install), and under `--without-rpm`, every package file is
+`unverified`, which the reconcile reads as a precondition. A host that holds the packages and takes a source install
+over them reads each file the install replaced as `drift`, since the rpm database still lists the file
 with the package's digest; `install.sh` warns before it writes there. **One pass owns its observations**:
 `ai_tools_layout__begin_pass` resets the SELinux applicability and the collector's results, so a second report
 or a repair's re-read does not reuse what an earlier pass recorded.
