@@ -202,9 +202,10 @@ prints that table as the host carries it now and names each field that
 drifted;
 .B "system layout reconcile"
 brings each entry back to its row and logs every change.
-An upgrade, a source install, the provisioning run and the entrypoint relabel
-each run the reconcile, so a mode an upgrade or a hand edit changed is
-restored unattended.
+The reconcile also runs unattended, so a mode an upgrade or a hand edit
+changed is restored without an operator step; its entry under
+.B COMMANDS
+names each caller.
 The command assumes this executable and the libraries beside it are the ones
 the package installed; a host where that does not hold is repaired by
 reinstalling the package or redeploying from source.
