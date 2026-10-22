@@ -1473,8 +1473,7 @@ ai_tools_layout__write_check_records() {
 #
 # The order the rows are repaired in, the ancestor rule a row is acted on under, why every write goes through a pinned
 # descriptor and why the lock fails closed are layout.rule.md's; _ai_tools_layout__apply_entry_fields holds the pinned
-# sequence.
-# AI_TOOLS_LAYOUT_LOCK and AI_TOOLS_LAYOUT_LOCK_WAIT are root-only test hooks (tests.rule.md).
+# sequence. AI_TOOLS_LAYOUT_LOCK and AI_TOOLS_LAYOUT_LOCK_WAIT are root-only test hooks (tests.rule.md).
 : "${AI_TOOLS_LAYOUT_LOCK:=/run/lock/ai-tools-layout.lock}"
 : "${AI_TOOLS_LAYOUT_LOCK_WAIT:=60}"
 readonly _AI_TOOLS_LAYOUT__LIBRARY_DIR="${BASH_SOURCE[0]%/*}"

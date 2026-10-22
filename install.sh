@@ -658,8 +658,7 @@ wait_user_manager() {
 # create files in /opt/ai-tools"). The interior of `.nvm` is that account's tree, which root does not set a mode
 # in: a name there is one the account can replace, and chown and chmod follow a link planted at it (the write-side
 # bullet in CLAUDE.md). Skips when nvm is not yet installed, and WARNS rather than swallowing a chown/chmod failure --
-# a hardening step that fails quietly could leave the tree mis-permissioned with no
-# signal.
+# a hardening step that fails quietly could leave the tree mis-permissioned with no signal.
 lockdown_nvm_permissions() {
     local ai_nvm_dir="/opt/ai-tools/.nvm"
     [[ -d "${ai_nvm_dir}" ]] || return 0   # nvm not yet installed
