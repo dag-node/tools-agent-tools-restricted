@@ -286,17 +286,16 @@ the setgid+sticky shape of an agent config directory, so the account keeps its o
 directory at the end stays the account's, because its manager writes the `Persistent=` stamps; DAC cannot close it,
 and the SELinux type on the path does ([confinement](confinement.rule.md)).
 
-Each directory of the chain is a row of the installed layout, so the layout reconcile brings it to its mode
-from `install.sh`, the provisioning run, an upgrade's transaction trigger and the relabel service, parent-first
-and through a pinned descriptor, and a symlink on the chain is refused with the rows under it unread
-([layout](layout.rule.md)). An unexpected entry under `.local/share/systemd` is not a row: `ai-tools-admin status` names
-it and leaves it in place for the operator ([cli](cli.rule.md)).
+Each directory of the chain is a row of the installed layout, so the layout reconcile brings it to its mode wherever
+the reconcile runs, and a symlink on the chain is refused with the rows under it unread ([layout](layout.rule.md) states
+the callers and the pinned apply). An unexpected entry under `.local/share/systemd` is not a row:
+`ai-tools-admin status` names it and leaves it in place for the operator ([cli](cli.rule.md)).
 
 The control-plane modes are single-sourced as constants in `/usr/local/lib/ai-tools/control-plane.lib.sh`
 (`CP_HOME_MODE`, `CP_DIR_MODES` for the base-owned `bin`, and `CP_AGENT_CONFIG_MODE` for every agent's config
 directory), which `install.sh`, the RPM `%files` and the layout table's rows all apply; cite the constants rather than
 re-stating the octal so the modes stay defined in one place. The layout reconcile restores a control-plane file to its
-row on every install, upgrade and relabel ([layout](layout.rule.md)).
+row ([layout](layout.rule.md)).
 
 **Which directory that is belongs to the agent, not the base.** Its name comes from the agent manifest's `config_dir`,
 its files (`settings.json`, the hooks) are shipped by that agent's package, and its SELinux label is applied
