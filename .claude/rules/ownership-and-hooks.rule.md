@@ -42,9 +42,9 @@ of the path or of one of its ancestors between validation and mutation cannot re
 outside the tree. The owner check holds for the same reason: the reads made through the path string are separate lookups
 a rename exchange can answer from different inodes, so the apply re-reads the owner and mode from the pinned descriptor
 and refuses unless they still match. The full sequence is in `ai-tools-chown.sh`'s apply block. An open of the path
-the kernel refuses root — on an enforcing host, a type the handback domain does not hold — exits 4, which the daemon
-answers as `ERR` and every sweep counts as not handed back; it does not write a line, since the daemon relays each line
-of the helper's stderr into the journal and a tree moved in whole would write one per file.
+the kernel refuses root — on an enforcing host, a type the handback domain does not hold — exits 4 without writing
+a line, which the daemon answers as `ERR` and every sweep counts as not handed back; the comment at that exit states
+why it is silent.
 
 ## `PostToolUse` — the immediate path
 
@@ -286,17 +286,16 @@ the setgid+sticky shape of an agent config directory, so the account keeps its o
 directory at the end stays the account's, because its manager writes the `Persistent=` stamps; DAC cannot close it,
 and the SELinux type on the path does ([confinement](confinement.rule.md)).
 
-Each directory of the chain is a row of the installed layout, so the layout reconcile brings it to its mode
-from `install.sh`, the provisioning run, an upgrade's transaction trigger and the relabel service, parent-first
-and through a pinned descriptor, and a symlink on the chain is refused with the rows under it unread
-([layout](layout.rule.md)). An unexpected entry under `.local/share/systemd` is not a row: `ai-tools-admin status` names
-it and leaves it in place for the operator ([cli](cli.rule.md)).
+Each directory of the chain is a row of the installed layout, so the layout reconcile brings it to its mode wherever
+the reconcile runs, and a symlink on the chain is refused with the rows under it unread ([layout](layout.rule.md) states
+the callers and the pinned apply). An unexpected entry under `.local/share/systemd` is not a row:
+`ai-tools-admin status` names it and leaves it in place for the operator ([cli](cli.rule.md)).
 
 The control-plane modes are single-sourced as constants in `/usr/local/lib/ai-tools/control-plane.lib.sh`
 (`CP_HOME_MODE`, `CP_DIR_MODES` for the base-owned `bin`, and `CP_AGENT_CONFIG_MODE` for every agent's config
 directory), which `install.sh`, the RPM `%files` and the layout table's rows all apply; cite the constants rather than
 re-stating the octal so the modes stay defined in one place. The layout reconcile restores a control-plane file to its
-row on every install, upgrade and relabel ([layout](layout.rule.md)).
+row ([layout](layout.rule.md)).
 
 **Which directory that is belongs to the agent, not the base.** Its name comes from the agent manifest's `config_dir`,
 its files (`settings.json`, the hooks) are shipped by that agent's package, and its SELinux label is applied

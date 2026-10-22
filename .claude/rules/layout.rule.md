@@ -12,9 +12,8 @@ the mode and the ACL the row carries; the SELinux type is derived at read time f
 what each row carries now and repairs a drifted row under the preconditions this rule states. Three consumers read it:
 `ai-tools-admin system layout` (the human table and the `--check` record stream, [cli-grammar](cli-grammar.rule.md)
 for the spelling, `ai-tools-admin(8)` for the contract), `ai-tools-admin system layout reconcile`,
-and `tests/integration/perms.sh`, whose first section is the table's loop. The reconcile runs from a transaction file
-trigger of `ai-tools-base`, from `install.sh`, from `ai-tools-bootstrap`, and as the first line
-of `ai-tools-relabel.service`.
+and `tests/integration/perms.sh`, whose first section is the table's loop. [Where it runs](#where-it-runs) names
+the callers of the reconcile.
 
 **The trusted-bootstrap assumption.** The admin executable and the libraries beside it are the ones the package
 installed before a repair starts: the reconcile reads its own table from a root-owned file and writes as root, so a host
@@ -62,12 +61,12 @@ as absent and does not contribute a row or a finding: `rpm -Va` is the check bey
 and `ai-tools-admin(8)` states it.
 
 **The dynamic rows come from inputs the reconcile has brought to their rows first.** One `directory` row per installed
-agent manifest with a valid `config_dir`, at `CP_AGENT_CONFIG_MODE`, and three rows per enrolled operator
-(`~/.config/ai-tools`, `allowed-projects`, `secret-patterns`). Each input is read
-through `ai_tools_records_base__read_subject_type` and `ai_tools_conf__is_trusted` before anything in it: an absent
-input does not contribute a row, since its static row reports the absence, and an input that is present but unreadable,
-untrusted, of another type or not parsed whole is an `error` line and never an empty set. A dynamic path the table
-declares is an `error` line too.
+agent manifest with a valid `config_dir`, at `CP_AGENT_CONFIG_MODE`, and per enrolled operator a row
+for `~/.config/ai-tools` and for each file `operators add` seeds in it (`allowed-projects`, `secret-patterns`). Each
+input is read through `ai_tools_records_base__read_subject_type` and `ai_tools_conf__is_trusted` before anything in it:
+an absent input does not contribute a row, since its static row reports the absence, and an input that is present
+but unreadable, untrusted, of another type or not parsed whole is an `error` line and never an empty set. A dynamic path
+the table declares is an `error` line too.
 
 **Not rows:** the sandbox account's own trees and the toolchain under them, every project tree and clone, the asset
 contents under the shared roots ([shipped-assets](shipped-assets.rule.md)), the entrypoint and its label
@@ -159,27 +158,24 @@ is created by `mkdir -m 0700`, exclusively and only under a parent that exists a
 the read, a symlink included, fails the create and is an `error` with no further write, and a missing parent is
 a refusal naming it, so no intermediate component is created. The created directory is read again and its owner, ACL,
 mode and label go through the pinned apply like any drifted entry, which gives it its `changed` lines after the `type`
-line. Until then no account but root can enter it: `-m` also masks every entry a parent's default ACL hands
-the directory, which a umask does not, coreutils adjusts owner bits that default ACL narrowed through `fchmod`
-or `lchmod`, which do not follow a link, and under a setgid parent the directory carries that parent's group and bit,
+line. Until then no account but root can enter it, since `-m` also masks every entry a parent's default ACL hands
+the directory, which a umask does not. Under a setgid parent the directory carries that parent's group and bit,
 which the apply brings to the row. A missing file or link and an entry of another type are refused with the remedy
 the finding carries: `operators add` for an operator's file, the reinstall for every other row.
 
 **Fields, through a pinned descriptor.** A file or directory row is repaired the way `ai-tools-chown`'s apply block
-repairs a path ([safe-paths](safe-paths.rule.md)): the identity is read through the path, the entry opened,
-the descriptor held to the same identity, the row's type and link count 1 for a file,
-and `ai_tools_safe_paths__is_pinned_fd_at_path` must hold; then `chown`, `setfacl -k` where the row does not declare
-a default block and the entry carries one, one `setfacl --set-file=-` fed the expected text, and `chmod`
-in the five-digit form each name `/proc/self/fd/N`, and `restorecon` without `-F` takes the path. A mismatch at any
-check is `error` with no write. The parent is resolved once before the identity read, since an ancestor outside
-the table may be a symlink by the host's choice, and the leaf is not resolved, since a symlink there is what the pin
-exists to catch. A `link` row takes `chown --no-dereference` alone. **The read after the steps is the postcondition.**
-`changed` is written for each field the steps wrote whose final value is the row's, from the state the repair started
-from (the read after the create, for a created directory, whose `type` line comes first); a field they wrote that still
-reports its finding, a field they did not write that drifted meanwhile, and an entry no longer at its path or of another
-type are each a repair that did not hold, an `error` at the write-failed outcome, the last with no `changed` line
-and its ancestor verdict `bad`; an `unreadable` field there is an incomplete observation, and a created directory
-whose final type is `unreadable` does not write its `type` line.
+repairs a path ([safe-paths](safe-paths.rule.md)): each write names `/proc/self/fd/N` once the descriptor holds
+the identity the read observed and `ai_tools_safe_paths__is_pinned_fd_at_path` holds, and `restorecon` without `-F`
+takes the path after those checks. A mismatch at any check is `error` with no write.
+`_ai_tools_layout__apply_entry_fields` states the checks and the order of the writes. The parent is resolved once
+before the identity read, since an ancestor outside the table may be a symlink by the host's choice, and the leaf is not
+resolved, since a symlink there is what the pin exists to catch. A `link` row takes `chown --no-dereference` alone.
+**The read after the steps is the postcondition.** `changed` is written for each field the steps wrote whose final value
+is the row's, from the state the repair started from (the read after the create, for a created directory, whose `type`
+line comes first); a field they wrote that still reports its finding, a field they did not write that drifted meanwhile,
+and an entry no longer at its path or of another type are each a repair that did not hold, an `error`
+at the write-failed outcome, the last with no `changed` line and its ancestor verdict `bad`; an `unreadable` field there
+is an incomplete observation, and a created directory whose final type is `unreadable` does not write its `type` line.
 
 **Each change is one log line** through `log.lib.sh` under the tag `ai-tools-layout` and `layout.log`, at `notice`
 for a widening — an owner or group moving to an account other than root, a mode bit set that was clear or a setgid
@@ -198,40 +194,24 @@ The transaction file trigger of `ai-tools-base` runs the reconcile with `--witho
 packages placed files under the install prefixes, and a `%transfiletriggerpostun` twin runs it after an erase,
 so a removed package's rows leave with its sentinel; the rpm database is held while a transaction runs, so the content
 comparison waits for the relabel service the base `%posttrans` starts, whose first `ExecStart=-` line is the full pass.
-`install.sh` and `ai-tools-bootstrap` run the installed command where each creates the unit search path chain,
-which the reconcile's rows hold ([ownership-and-hooks](ownership-and-hooks.rule.md)). The base `%post` keeps its
-`setfacl` lines and its setgid re-assert as the first state before any library loads; removing them is a later
-release's.
+`install.sh` and `ai-tools-bootstrap` run the installed command before each seeds the timer stamp, so the reconcile
+creates the unit search path chain and the stamp directory as rows ([ownership-and-hooks](ownership-and-hooks.rule.md)).
+The base `%post` keeps its `setfacl` lines and its setgid re-assert as the first state before any library loads;
+removing them is a later release's.
 
 ## Tests
 
 `tests/unit/layout.sh` loads the checkout's library by path, with the sandbox tokens substituted into a copy
-as `install.sh` substitutes them, and prints the path first. Unprivileged it drives the load and the validator in both
-provenances, the ACL derivation against a live `setfacl`, the pure comparison over every finding token, the entry reader
-and the output names it refuses, the content evaluator over seeded collector results, the entry set over fixture roots
-with each untrusted input an `error` line, the `--check` stream by column name, the collector reader and the check
-stream and the human table over an enumerator that ends without its `error` line, the reconcile's pure decisions,
-the lock across processes, the per-entry repair over owned fixtures — a leaf swapped for a symlink after the identity
-read and a parent swapped under the entry each refused with the outside file untouched, the content gate under each
-state it refuses, a file writable beyond its row refused and left, a missing directory brought to its row
-through the pin and a name occupied before the create left as an error, a repair the read after it shows did not hold
-at the write-failed outcome, a write that fails named with its tool, a row under an ancestor whose name the stream
-encoder escapes refused naming it — the command's option grammar through the sourced helper, the boundary-pair map,
-and the lockstep with `packaging/ai-tools.spec`: every `%attr` line resolves to a row with the same owner, mode, package
-and `config`/`ghost` flag, every `files` row is a `%files` line of each package it names, a row naming a second package
-as the control, and each shipped agent's `config_dir` has its `%dir` line in its package. As root it builds a tree
-from the table itself over `AI_TOOLS_LAYOUT_ROOT` and drives the whole-tree cases: a converged tree does not print
-a line, each planted drift the reconcile repairs converges in one run, content drift beside owner, mode and ACL drift
-leaves every field, a package file at another owner, at group write or with a foreign entry carrying write is refused
-and left while the same file at `0600` converges, a missing directory at a non-root owner takes it through the pin,
-a masked-off foreign entry goes with no effective state among the ACL reads a watcher samples while the reconcile runs,
-a symlink at a directory row refuses the rows under it, and under an operator home carrying a backslash as well,
-an untrusted discovery input and the drift in the dynamic rows it hides converge in one invocation, an invalid manifest,
-an unresolved account and a lost entry set stay visible at exit 5, a held lock is an error with no write, the exit order
-holds, and a non-root caller is refused. `tests/integration/perms.sh` is the loop over the installed library,
-and `tests/boundary/access.sh` probes the library, every boundary row, and the reconcile through the installed
-`/usr/sbin/ai-tools-admin` link, established as root first, as the sandbox account, holding the status to the two
-a refusal produces.
+as `install.sh` substitutes them, and prints the path first. Unprivileged it drives each reader, the validator,
+the entry set, the `--check` stream and the reconcile's decisions, and the per-entry repair over owned fixtures,
+where a leaf or a parent swapped after the identity read is refused with the file outside the fixture left as it was. It
+holds the table in lockstep with `packaging/ai-tools.spec` — every `%attr` line resolves to a row with the same owner,
+mode, package and `config`/`ghost` flag, and every `files` row is a `%files` line of each package it names. As root it
+builds a tree from the table itself over `AI_TOOLS_LAYOUT_ROOT` and drives the reconcile over the whole tree: each
+planted drift it repairs converges in one run, each state it refuses is left as it was, and the exit order holds.
+`tests/integration/perms.sh` is the loop over the installed library, and `tests/boundary/access.sh` probes the library,
+every boundary row, and the reconcile through the installed `/usr/sbin/ai-tools-admin` link, established as root first,
+as the sandbox account, holding the status to the two a refusal produces.
 
 ## Design notes
 

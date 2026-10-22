@@ -253,9 +253,9 @@ newref="$(mktemp "${HOOK_DIR}/.sweep.XXXXXX" 2>/dev/null)" || exit 0
 ai_tools_skip_dirs__build_find_expression sweep '' "${dir}"
 declare -a expr=( "${dir}" -xdev "${AI_TOOLS_SKIP_DIRS__FIND_EXPRESSION[@]}" '(' -user @SANDBOX_USER@ )
 # Bound to paths whose status changed since the marker, EXCEPT an unbounded (session-start) pass, which sweeps every
-# ai-tools-owned path. A first-ever stop run (no marker) is likewise a full sweep. The bound reads ctime: a rename
-# or an `mv` from another filesystem keeps the source's mtime and sets the ctime, so an mtime bound passes over a file
-# moved into the tree. A path handed back is no longer ai-tools-owned, so its new ctime does not select it again.
+# ai-tools-owned path. A first-ever stop run (no marker) is likewise a full sweep. The bound reads ctime, so a file
+# moved into the tree is selected (ownership-and-hooks.rule.md). A path handed back is no longer ai-tools-owned, so its
+# new ctime does not select it again.
 if [[ "${unbounded}" -eq 0 && -f "${MARKER}" ]]; then
     expr+=( -cnewer "${MARKER}" )
 fi

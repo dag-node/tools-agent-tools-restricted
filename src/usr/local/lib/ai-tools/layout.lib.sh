@@ -16,14 +16,12 @@
 # and every public reader then returns 2 without output, except ai_tools_layout__write_check_records, which writes
 # the one `error` row that is the command's refusal.
 #
-# One pass owns its observations: ai_tools_layout__begin_pass resets the SELinux applicability and the content
-# collector's results, so a second report or a repair that re-reads an entry does not reuse what an earlier pass
-# recorded, and a pass that skips rpm cannot read a `verified` an earlier pass left. The public surface is begin_pass,
-# ai_tools_layout__list_entries (the entries that apply on this host, in the records framing, sorted by path
-# over the static and the dynamic rows together, then an `error` line per input it could not read; returns 1 when it
-# printed one), ai_tools_layout__read_entry_lines (that set into the caller's array as a collector, the one way every
-# consumer reads it), ai_tools_layout__read_entry_state (one entry into the caller's arrays), write_check_records,
-# and ai_tools_layout__reconcile, which brings each entry to its row under the rules its own section states.
+# The public surface is ai_tools_layout__begin_pass, ai_tools_layout__list_entries (the entries that apply on this host,
+# in the records framing, sorted by path over the static and the dynamic rows together, then an `error` line per input
+# it could not read; returns 1 when it printed one), ai_tools_layout__read_entry_lines (that set into the caller's array
+# as a collector, the one way every consumer reads it), ai_tools_layout__read_entry_state (one entry into the caller's
+# arrays), write_check_records, and ai_tools_layout__reconcile, which brings each entry to its row under the rules its
+# own section states.
 #
 # The library depends on control-plane.lib.sh (the /opt/ai-tools modes stay declared there), operator.lib.sh,
 # records-tsv.lib.sh, project-permissions.lib.sh and log.lib.sh, each beside it. Every public function it calls is
@@ -793,9 +791,11 @@ ai_tools_layout__read_entry_lines() {
 
 # ── The pass ─────────────────────────────────────────────────────────────────────────────────
 # What one pass observes once and every entry read in it shares: whether SELinux labels apply, and what `rpm -V` said
-# per package and per path. ai_tools_layout__begin_pass resets them. Every map here and below is `declare -gA`:
-# ai-tools-admin sources this file inside a function, where a bare `declare` makes the map that function's local,
-# and the reset after it returns recreates the name as an indexed array whose subscript is arithmetic.
+# per package and per path. ai_tools_layout__begin_pass resets them, so a second report or a repair that re-reads
+# an entry does not reuse what an earlier pass recorded, and a pass that skips rpm cannot read a `verified` an earlier
+# pass left. Every map here and below is `declare -gA`: ai-tools-admin sources this file inside a function, where a bare
+# `declare` makes the map that function's local, and the reset after it returns recreates the name as an indexed array
+# whose subscript is arithmetic.
 _AI_TOOLS_LAYOUT__PASS_WITHOUT_RPM=0
 _AI_TOOLS_LAYOUT__SELINUX=""
 declare -gA _AI_TOOLS_LAYOUT__PACKAGE_VERIFICATION_STATES=()
@@ -1471,21 +1471,10 @@ ai_tools_layout__write_check_records() {
 #     refused <path> <field> <reason>         an entry left as it is: a state the reconcile does not repair
 #     error   <path> <field> <reason>         an observation that did not complete, or a write that failed
 #
-# The order is the discovery-input rows first (the agents directory, each manifest under it, operator.conf, and their
-# ancestors in the table), then one pass over the union of the static and the dynamic rows, sorted so a parent precedes
-# every path under it. A row is acted on while every ancestor row of it is at its row after that ancestor's own step;
-# otherwise it is refused naming the ancestor and is not read through it. An ancestor outside the table is the host's.
-#
-# A file or directory row is repaired through a descriptor pinned to the inode the read observed, the sequence
-# ai-tools-chown's apply block takes (safe-paths.rule.md): the identity read through the path, the open, the identity,
-# type and link count read from the descriptor, ai_tools_safe_paths__is_pinned_fd_at_path, then each write
-# through /proc/self/fd. The parents .claude, .codex, .local and .local/share are sandbox-group-writable and sticky,
-# so a sandbox-owned entry under one can be renamed aside and a symlink planted between the read and the write,
-# which a plain chmod would follow.
-#
-# The lock serializes two reconciles: two passes interleaving their `setfacl --set` calls is the one way this library
-# could leave an entry at neither state, so a lock it cannot take is an `error` line and no write, where the relabel
-# lock proceeds. AI_TOOLS_LAYOUT_LOCK and AI_TOOLS_LAYOUT_LOCK_WAIT are root-only test hooks (tests.rule.md).
+# The order the rows are repaired in, the ancestor rule a row is acted on under, why every write goes through a pinned
+# descriptor and why the lock fails closed are layout.rule.md's; _ai_tools_layout__apply_entry_fields holds the pinned
+# sequence.
+# AI_TOOLS_LAYOUT_LOCK and AI_TOOLS_LAYOUT_LOCK_WAIT are root-only test hooks (tests.rule.md).
 : "${AI_TOOLS_LAYOUT_LOCK:=/run/lock/ai-tools-layout.lock}"
 : "${AI_TOOLS_LAYOUT_LOCK_WAIT:=60}"
 readonly _AI_TOOLS_LAYOUT__LIBRARY_DIR="${BASH_SOURCE[0]%/*}"
@@ -1704,11 +1693,11 @@ _ai_tools_layout__find_refusing_ancestor() {
 # under a parent that exists as a directory (lstat): a missing parent is a refusal naming it, so no intermediate
 # component is created. `mkdir` fails on a name occupied since the read, a symlink included, which is an `error` with no
 # further write; the created directory is the caller's to bring to its row through the pinned apply. `-m 0700` sets
-# the mode at the create and masks every entry a parent's default ACL hands the directory, which a umask does not;
-# where that default ACL narrowed the owner bits, coreutils adjusts them on the new directory through fchmod or lchmod,
-# which do not follow a link. Until the apply the directory is one no account but root can enter, and under a setgid
-# parent it carries that parent's group and bit, which the apply brings to the row. Returns 0 when the directory was
-# created, 1 after a refusal or an error.
+# the mode at the create and masks every entry a parent's default ACL hands the directory, which a umask does not,
+# so until the apply no account but root can enter the directory. Where that default ACL narrowed the owner bits,
+# coreutils adjusts them on the new directory through fchmod or lchmod, which do not follow a link. Under a setgid
+# parent the directory carries that parent's group and bit, which the apply brings to the row. Returns 0
+# when the directory was created, 1 after a refusal or an error.
 _ai_tools_layout__create_directory() {
     local -n _layout_create_state="$1"
     local _layout_create_path="${_layout_create_state[path]}" _layout_create_parent _layout_create_status=0
