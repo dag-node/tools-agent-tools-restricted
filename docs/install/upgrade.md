@@ -46,11 +46,12 @@ The command lists every path the stack installs with the owner, mode, ACL
 and SELinux type it carries now and names each that drifted. An upgrade,
 a source install, the provisioning run and the entrypoint relabel each run
 `sudo ai-tools-admin system layout reconcile`, which restores a drifted entry
-and logs every change under the journal tag `ai-tools-layout`, so a mode
-an upgrade or a hand edit changed does not stay changed until a refusal names
-it. A file whose content is not the package's, or that another account owns
-or can write, is reported and left as it is, with the command that restores it.
-`man ai-tools-admin` lists every state the reconcile leaves to you.
+and logs every change under the journal tag `ai-tools-layout`. A mode
+an upgrade or a hand edit changed is restored by the next of those runs,
+without a step of yours. A file whose content is not the package's,
+or that another account owns or can write, is reported and left as it is,
+with the command that restores it. `man ai-tools-admin` lists every state
+the reconcile leaves to you.
 
 ## 0.24.0: the skills move to the asset set core <a id="ref-section-y5t4"></a>
 
