@@ -652,13 +652,13 @@ wait_user_manager() {
 }
 
 # Assert the owner and mode of the sandbox toolchain's top directory, `.nvm`, on every (re)install: a hand-made nvm
-# install (docs/install/from-source.md step 3) runs nvm as the sandbox account, whose umask decides the mode it creates,
-# so this sets 750 <sandbox user>:<sandbox group> -- owner rwx, no world access. Its parent is the control-plane home
-# root, root-owned at CP_HOME_MODE without group write, so the sandbox account cannot replace the name
-# (boundary/access.sh: "cannot create files in /opt/ai-tools"). The interior of `.nvm` is that account's tree,
-# which root does not set a mode in: a name there is one the account can replace, and chown and chmod follow a link
-# planted at it (the write-side bullet in CLAUDE.md). Skips when nvm is not yet installed, and WARNS rather than
-# swallowing a chown/chmod failure -- a hardening step that fails quietly could leave the tree mis-permissioned with no
+# install runs nvm as the sandbox account, whose umask decides the mode it creates, so this sets 750
+# `<sandbox user>:<sandbox group>` -- owner rwx, no world access. Its parent is the control-plane home root, root-owned
+# at CP_HOME_MODE without group write, so the sandbox account cannot replace the name (boundary/access.sh: "cannot
+# create files in /opt/ai-tools"). The interior of `.nvm` is that account's tree, which root does not set a mode
+# in: a name there is one the account can replace, and chown and chmod follow a link planted at it (the write-side
+# bullet in CLAUDE.md). Skips when nvm is not yet installed, and WARNS rather than swallowing a chown/chmod failure --
+# a hardening step that fails quietly could leave the tree mis-permissioned with no
 # signal.
 lockdown_nvm_permissions() {
     local ai_nvm_dir="/opt/ai-tools/.nvm"
