@@ -1125,10 +1125,11 @@ systemctl start ai-tools-relabel.path 2>/dev/null || :
 systemctl --user -M ai-tools@.host daemon-reload 2>/dev/null || :
 
 %post -n ai-tools-integration-dotnet
-# Create + SELinux-label the sandbox-side dotnet dirs (writable NuGet cache, read-only shared
-# tools) the session-env fragment relies on. Offline + idempotent; the command recognizes a host
-# with no enforcing ai-tools policy and skips labelling there rather than failing. Not the network
-# tool install -- that stays the operator's `sudo ai-tools-admin dotnet tools install`.
+# Bring the sandbox-side dotnet state tree (writable NuGet cache, read-only shared tools) the
+# session-env fragment relies on to its layout rows, then SELinux-label it. Offline + idempotent;
+# the command recognizes a host with no enforcing ai-tools policy and skips labelling there rather
+# than failing. Not the network tool install -- that stays the operator's
+# `sudo ai-tools-admin dotnet tools install`.
 #
 # The command fragment is exec'd at its own path rather than through ai-tools-admin: this package
 # ships it, so its presence is what the guard tests, and the dispatch would add a discovery step
