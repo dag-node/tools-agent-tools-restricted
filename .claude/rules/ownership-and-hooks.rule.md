@@ -42,9 +42,9 @@ of the path or of one of its ancestors between validation and mutation cannot re
 outside the tree. The owner check holds for the same reason: the reads made through the path string are separate lookups
 a rename exchange can answer from different inodes, so the apply re-reads the owner and mode from the pinned descriptor
 and refuses unless they still match. The full sequence is in `ai-tools-chown.sh`'s apply block. An open of the path
-the kernel refuses root — on an enforcing host, a type the handback domain does not hold — exits 4, which the daemon
-answers as `ERR` and every sweep counts as not handed back; it does not write a line, since the daemon relays each line
-of the helper's stderr into the journal and a tree moved in whole would write one per file.
+the kernel refuses root — on an enforcing host, a type the handback domain does not hold — exits 4 without writing
+a line, which the daemon answers as `ERR` and every sweep counts as not handed back; the comment at that exit states
+why it is silent.
 
 ## `PostToolUse` — the immediate path
 

@@ -24,9 +24,8 @@ and chowns a match (when `SANDBOX_USER`-owned, per the agent-written-paths rule)
 `ai-tools-chown` resolves it per path via `operator.lib.sh` (`ai_tools_operator__resolve_owner`) and loads
 that operator's pattern set, so a secret returns to its project's operator at `600`, where only that operator can read
 it. It writes a NOTICE to stderr, which claude-code's `PostToolUse` hook hands the model as context beside the tool
-result, since Claude Code does not pass a hook's stderr to the model at exit 0
-([ownership-and-hooks](ownership-and-hooks.rule.md)), and, at `WARNING` level, to the operation log
-(`/var/log/ai-tools/chown.log` and journald; see [logging](logging.rule.md)).
+result ([ownership-and-hooks](ownership-and-hooks.rule.md) states the route), and, at `WARNING` level, to the operation
+log (`/var/log/ai-tools/chown.log` and journald; see [logging](logging.rule.md)).
 
 The revocation applies to an open made after it. The kernel checks owner and mode when a file is opened, so a descriptor
 a session process opened before the handback keeps reading and writing the file; the quarantine responds to an exposure
