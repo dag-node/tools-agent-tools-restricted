@@ -61,12 +61,12 @@ as absent and does not contribute a row or a finding: `rpm -Va` is the check bey
 and `ai-tools-admin(8)` states it.
 
 **The dynamic rows come from inputs the reconcile has brought to their rows first.** One `directory` row per installed
-agent manifest with a valid `config_dir`, at `CP_AGENT_CONFIG_MODE`, and three rows per enrolled operator
-(`~/.config/ai-tools`, `allowed-projects`, `secret-patterns`). Each input is read
-through `ai_tools_records_base__read_subject_type` and `ai_tools_conf__is_trusted` before anything in it: an absent
-input does not contribute a row, since its static row reports the absence, and an input that is present but unreadable,
-untrusted, of another type or not parsed whole is an `error` line and never an empty set. A dynamic path the table
-declares is an `error` line too.
+agent manifest with a valid `config_dir`, at `CP_AGENT_CONFIG_MODE`, and per enrolled operator a row
+for `~/.config/ai-tools` and for each file `operators add` seeds in it (`allowed-projects`, `secret-patterns`). Each
+input is read through `ai_tools_records_base__read_subject_type` and `ai_tools_conf__is_trusted` before anything in it:
+an absent input does not contribute a row, since its static row reports the absence, and an input that is present
+but unreadable, untrusted, of another type or not parsed whole is an `error` line and never an empty set. A dynamic path
+the table declares is an `error` line too.
 
 **Not rows:** the sandbox account's own trees and the toolchain under them, every project tree and clone, the asset
 contents under the shared roots ([shipped-assets](shipped-assets.rule.md)), the entrypoint and its label
