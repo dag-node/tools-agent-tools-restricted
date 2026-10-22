@@ -377,19 +377,18 @@ fixtures). A fixture tree is `chown`ed to the projects user before the run, or t
 `secret-patterns.sh` is the odd one out: it sources the shared classifier library (`secret-patterns.lib.sh`) and forces
 the built-in default pattern set, pinning the matcher itself — credential names match case-insensitively, while plain
 configs and build artifacts the toolchain must read do not. `control-plane.sh` pins the two unit-search-path readers
-`ai-tools-admin status` reports from: the drift reader tells a clean chain from a failed reading by status and names
-a symlink and an absent directory by their word, and the unexpected-entry reader names what is under the chain's last
-directory, passes over the timer-stamp directory, leaves the entry in place and clamps a name the account chose.
-`layout.sh` pins the library that brings the chain to its modes, and [layout](layout.rule.md) states what it drives.
-`source-modes.sh` and `source-text.sh` are the pair that reads the **repository's own record** rather than any deployed
-artifact, each covering a property no review catches unaided: the exec bit git tracks for every `.sh`, which must agree
-within a directory, and that every tracked text file ends with a newline. Both classify without a maintained list —
-the first by the majority bit in a directory, the second by git's own binary heuristic (a NUL byte in the first 8000
-bytes), so a file a later commit adds is judged the way `git diff` already judges it. `source-text.sh` reports one
-result line per offender, since the harness reduces a message to safe-for-display characters and a newline inside one
-would run the paths together. Each skips outside a git checkout. `check-version.sh` departs the installed-helper pattern
-the other way: it runs a `TESTDIR` copy of `packaging/check-version.sh` (a repo release-gate script, not a deployed
-artifact) against fixture `VERSION`/spec files, pinning the tag grammar — final `vX.Y.Z` requires the three-way match,
+`ai-tools-admin status` reports from: the drift reader tells a clean chain from a failed reading by status,
+and the unexpected-entry reader leaves the entry in place and clamps a name the account chose. `layout.sh` pins
+the library that brings the chain to its modes, and [layout](layout.rule.md) states what it drives. `source-modes.sh`
+and `source-text.sh` are the pair that reads the **repository's own record** rather than any deployed artifact, each
+covering a property no review catches unaided: the exec bit git tracks for every `.sh`, which must agree within
+a directory, and that every tracked text file ends with a newline. Both classify without a maintained list — the first
+by the majority bit in a directory, the second by git's own binary heuristic (a NUL byte in the first 8000 bytes),
+so a file a later commit adds is judged the way `git diff` already judges it. `source-text.sh` reports one result line
+per offender, since the harness reduces a message to safe-for-display characters and a newline inside one would run
+the paths together. Each skips outside a git checkout. `check-version.sh` departs the installed-helper pattern the other
+way: it runs a `TESTDIR` copy of `packaging/check-version.sh` (a repo release-gate script, not a deployed artifact)
+against fixture `VERSION`/spec files, pinning the tag grammar — final `vX.Y.Z` requires the three-way match,
 `vX.Y.Z-rc.N` compares its base and relaxes only the `%changelog` match, any other dashed tag is refused, a missing
 `%changelog` entry is fatal for every form. The formatter tests drive the `formatters/` of the pinned
 `ai-tools-assets-tools` release and the checker of the pinned `core` release, resolved through `tools/lib/assets.sh`,
@@ -525,14 +524,13 @@ terminal can answer its confirm; the session exec refuses without the gates' res
 the sandbox account before it reads the allowlist. Every launcher is one program, so the name is an input: init refuses
 one outside a launcher's charset, a non-ASCII letter included under a UTF-8 locale where a bracket range matches it,
 and the launcher gate refuses a name no enabled manifest claims, the launcher program's own among them, while an empty
-enabled set is refused naming its cause: an unreadable `operator.conf` and a refused manifest under the unresolved-set
-code without the `AI_TOOLS_AGENTS` remedy, a configuration asking for no agent and a readable file enabling another
-agent under the not-enabled code. The hook loader is driven through a copy of the library with its hook directory
-repointed: an undeclared hook is not read though present, and every other state refuses. The launcher's startup
-hardening is measured against a control: the same run without `-p` takes a `BASH_ENV` file and an exported function,
-so their absence with `-p` is evidence rather than an untaken branch. The installed wrapper's own test is
-`integration/wrapper.sh`, which proves the deployed wrapper reaches those gates in that order through its launcher
-symlinks.
+enabled set is refused naming its cause, an input the resolver refused or could not read apart from a configuration
+that asks for no agent ([launch](launch.rule.md) states the split). The hook loader is driven through a copy
+of the library with its hook directory repointed: an undeclared hook is not read though present, and every other state
+refuses. The launcher's startup hardening is measured against a control: the same run without `-p` takes a `BASH_ENV`
+file and an exported function, so their absence with `-p` is evidence rather than an untaken branch. The installed
+wrapper's own test is `integration/wrapper.sh`, which proves the deployed wrapper reaches those gates in that order
+through its launcher symlinks.
 
 `man.sh` is a pure text-sync check over this project's man pages and what each documents. The two command pages are held
 to the `usage()` heredoc of their command — `ai-tools(1)` against the CLI, `ai-tools-admin(8)` against the admin helper
