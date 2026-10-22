@@ -524,7 +524,7 @@ terminal can answer its confirm; the session exec refuses without the gates' res
 the sandbox account before it reads the allowlist. Every launcher is one program, so the name is an input: init refuses
 one outside a launcher's charset, a non-ASCII letter included under a UTF-8 locale where a bracket range matches it,
 and the launcher gate refuses a name no enabled manifest claims, the launcher program's own among them, while an empty
-enabled set is refused naming its cause, an input the resolver refused or could not read apart from a configuration
+enabled set is refused naming its cause, telling an input the resolver refused or could not read from a configuration
 that asks for no agent ([launch](launch.rule.md) states the split). The hook loader is driven through a copy
 of the library with its hook directory repointed: an undeclared hook is not read though present, and every other state
 refuses. The launcher's startup hardening is measured against a control: the same run without `-p` takes a `BASH_ENV`
@@ -921,9 +921,9 @@ The live half is `integration/selinux.sh` (`sesearch` over the loaded policy) an
 
 `claude-hooks.sh` pins the reply claude-code's `PostToolUse` hook gives when the root helper prints a NOTICE
 ([ownership-and-hooks](ownership-and-hooks.rule.md)): the hook's functions are read out of the checkout as text
-and driven with the client stubbed as a shell function, so a relayed message code yields one reply carrying the helper's
-lines and a relay without a code yields none, and the hook's source is read for the client call and the reply
-that follows the handback. A hook without the functions fails the file rather than ending it on an undefined name.
+and driven with the client stubbed as a shell function, where a relayed message code yields one reply carrying
+the helper's lines and a relay without a code yields none. It reads the hook's source for the client call and the reply
+that follows the handback, and a hook without the functions fails the file rather than ending it on an undefined name.
 
 `codex-package.sh` pins the files `ai-tools-agents-codex-restricted` ships to the seams they plug into, before any host
 installs them ([agent-codex](agent-codex.rule.md)): the manifest through the readers that parse it, with its
