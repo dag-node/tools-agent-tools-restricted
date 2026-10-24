@@ -1,17 +1,20 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: AGPL-3.0-only
 # tests/unit/install-writes.sh
-# Hermetic read of install.sh's text for the root writes it does not make: a root process does not write through a path
-# component the sandbox account can replace (CLAUDE.md), so a name the account owns or could have placed is written
+# Hermetic check of the root writes install.sh does not make: a root process does not write through a path component
+# the sandbox account can replace (CLAUDE.md), so a name the account owns or could have placed is written
 # by the account, or read through its layout row before root writes it.
 #
 # The writes under test run inside do_install, which needs root and a whole host, so the file reads the source rather
 # than driving it, the shape tests/unit/admin-commands.sh takes for the dotnet command. Each reader joins
 # backslash-continued lines first, since a command and the path it writes are often on different lines, drops comment
 # lines, and runs over a control fixture carrying the form it must find before it reads install.sh, so a reader gone
-# blind fails rather than passing.
+# blind fails rather than passing. The settings.json keep decision is a function, so it is also driven: read
+# out of install.sh as text (extract_function) and run over a fixture tree through the checkout's layout library
+# under AI_TOOLS_LAYOUT_ROOT. A file at its row needs a root-owned fixture, so that half runs as root and skips
+# otherwise.
 #
-# Pure text: no root, no install, no command executed. Skips outside a checkout.
+# No install and no command of install.sh's but the extracted function. Skips outside a checkout.
 
 set -euo pipefail
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")/../lib" && pwd)/harness.sh"
@@ -77,6 +80,130 @@ elif [[ -z "${account_writes}" ]]; then
     fail "install.sh does not seed the timer stamp as the sandbox account"
 else
     pass "install.sh seeds the timer stamp as the sandbox account and writes nothing there as root"
+fi
+
+# ── settings.json is kept only at its row ───────────────────────────────────────────────────
+# .claude is sticky and sandbox-group-writable, so the account can place settings.json before the file exists; a by-path
+# chown or chmod there makes root bless what it placed. The file is kept only when its layout row reads clean,
+# and the by-path writes are gone.
+settings_writes="$(code_lines "${INSTALLER}" | grep -E '(^|[^[:alnum:]_])(chown|chmod)[[:space:]]' \
+    | grep -F '${settings}' || true)"
+settings_reader="$(code_lines "${INSTALLER}" | grep -F 'read_settings_keep_refusal "${settings}"' || true)"
+if [[ -n "${settings_writes}" ]]; then
+    fail "install.sh changes settings.json's owner or mode by path: $(_san "${settings_writes}")"
+elif [[ -z "${settings_reader}" ]]; then
+    fail "install.sh does not read settings.json's layout row before keeping it"
+else
+    pass "install.sh reads settings.json's layout row before keeping it and does not chown or chmod it by path"
+fi
+
+# The name stays plantable between the reader and the next step, so the keep prompt is reached only inside the branch
+# the reader passed (a file planted after a set-aside is never offered to keep_existing), and the shipped file is
+# installed with `-T`, which replaces a symlink planted at the name and refuses a directory there, where a plain install
+# writes into the directory the link names. settings_keep_shape <file>: print `keep=<nested|flat|none>
+# install=<T|plain|none>`, reading the keep call's indentation against the reader's `if` line as its nesting.
+settings_keep_shape() {
+    local lines reader_line keep_line install_line reader_indent keep_indent keep=none install=none
+    lines="$(code_lines "$1")"
+    reader_line="$(grep -F 'if settings_refusal="$(read_settings_keep_refusal "${settings}"' <<<"${lines}" | head -n1 || true)"
+    keep_line="$(grep -F 'keep_existing "${settings}"' <<<"${lines}" | head -n1 || true)"
+    install_line="$(grep -E '(^|[^[:alnum:]_-])install[[:space:]]' <<<"${lines}" \
+        | grep -F 'agents/claude-code/settings.json" "${settings}"' | head -n1 || true)"
+    if [[ -n "${reader_line}" && -n "${keep_line}" ]]; then
+        reader_indent="${reader_line#*:}"; reader_indent="${reader_indent%%[^ ]*}"
+        keep_indent="${keep_line#*:}"; keep_indent="${keep_indent%%[^ ]*}"
+        if (( ${#keep_indent} > ${#reader_indent} )); then keep=nested; else keep=flat; fi
+    fi
+    if [[ -n "${install_line}" ]]; then
+        if [[ "${install_line}" =~ install[[:space:]]+-T[[:space:]] ]]; then install=T; else install=plain; fi
+    fi
+    printf 'keep=%s install=%s\n' "${keep}" "${install}"
+}
+control_fixed="${TESTDIR}/keep-fixed.sh"; control_flat="${TESTDIR}/keep-flat.sh"
+# shellcheck disable=SC2016,SC1003  # the fixtures are code text: expansions and trailing backslashes stay literal
+printf '%s\n' '    if settings_refusal="$(read_settings_keep_refusal "${settings}" lib)"; then' \
+    '        if keep_existing "${settings}" "prompt"; then settings_kept=1; fi' \
+    '    fi' \
+    '        install -T -o root -g "${SANDBOX_GROUP}" -m 640 \' \
+    '            "${SCRIPT_DIR}/src/opt/ai-tools/agents/claude-code/settings.json" "${settings}"' > "${control_fixed}"
+# shellcheck disable=SC2016,SC1003
+printf '%s\n' '    if settings_refusal="$(read_settings_keep_refusal "${settings}" lib)"; then' \
+    '        :' \
+    '    fi' \
+    '    if keep_existing "${settings}" "prompt"; then' \
+    '        install -o root -g "${SANDBOX_GROUP}" -m 640 \' \
+    '            "${SCRIPT_DIR}/src/opt/ai-tools/agents/claude-code/settings.json" "${settings}"' > "${control_flat}"
+shape_fixed="$(settings_keep_shape "${control_fixed}")"; shape_flat="$(settings_keep_shape "${control_flat}")"
+shape="$(settings_keep_shape "${INSTALLER}")"
+if [[ "${shape_fixed}" != "keep=nested install=T" || "${shape_flat}" != "keep=flat install=plain" ]]; then
+    fail "the keep-shape reader missed its controls: fixed=$(_san "${shape_fixed}") flat=$(_san "${shape_flat}")"
+elif [[ "${shape}" != "keep=nested install=T" ]]; then
+    fail "install.sh offers settings.json to keep outside the reader's branch, or installs the shipped file without -T: ${shape}"
+else
+    pass "install.sh offers settings.json to keep only inside the reader's branch and installs the shipped file with -T"
+fi
+
+# The checkout's library, the sandbox tokens substituted as install.sh substitutes them, with its siblings beside it;
+# the agent package's sentinel under the fixture root, so the settings row applies.
+cp -r "${ROOT}/src/usr/local/lib/ai-tools" "${TESTDIR}/lib"
+chmod -R u+rwX,go+rX "${TESTDIR}/lib"
+sed -i -e "s/@SANDBOX_USER@/${SANDBOX_USER}/g" -e "s/@SANDBOX_GROUP@/${SANDBOX_GROUP}/g" "${TESTDIR}/lib/layout.lib.sh"
+FIXTURE_ROOT="${TESTDIR}/root"
+CLAUDE_DIR="${FIXTURE_ROOT}/opt/ai-tools/.claude"
+SETTINGS="${CLAUDE_DIR}/settings.json"
+mkdir -p "${CLAUDE_DIR}" "${FIXTURE_ROOT}/usr/local/lib/ai-tools/agents.d"
+: > "${FIXTURE_ROOT}/usr/local/lib/ai-tools/agents.d/claude-code.conf"
+reader_text="$(extract_function "${INSTALLER}" read_settings_keep_refusal)"
+# keep_refusal: run the extracted function over SETTINGS in a fresh shell under install.sh's strict mode, printing its
+# reason and `status=<n>` on the last line.
+keep_refusal() {
+    AI_TOOLS_LAYOUT_ROOT="${FIXTURE_ROOT}" AI_TOOLS_AGENTS_DIR="${FIXTURE_ROOT}/usr/local/lib/ai-tools/agents.d" \
+        AI_TOOLS_OPERATOR_CONF="${FIXTURE_ROOT}/etc/ai-tools/operator.conf" bash -c '
+        set -euo pipefail
+        eval "$1"
+        status=0; read_settings_keep_refusal "$2" "$3" || status=$?
+        printf "\nstatus=%s\n" "${status}"' _ "${reader_text}" "${SETTINGS}" "${TESTDIR}/lib/layout.lib.sh" 2>&1
+}
+# refused_with <what> <reason-pattern> <output>
+refused_with() {
+    if [[ "$3" == *$'\n'status=1 && "$3" =~ $2 ]]; then
+        pass "$1"
+    else
+        fail "$1: $(_san "$3")"
+    fi
+}
+
+if [[ -z "${reader_text}" ]]; then
+    fail "read_settings_keep_refusal is not defined in install.sh"
+else
+    printf '{}\n' > "${SETTINGS}"; chmod 0640 "${SETTINGS}"
+    if (( EUID == 0 )); then chown "${SANDBOX_USER}:${SANDBOX_GROUP}" "${SETTINGS}"; fi
+    out="$(keep_refusal)"; note "the reason the owner case reads" "${out%%$'\n'*}"
+    refused_with "a settings.json at another owner is not kept" 'its owner is [^ ]+, not root:' "${out}"
+    rm -f "${SETTINGS}"; printf '{}\n' > "${TESTDIR}/planted.json"; ln -s "${TESTDIR}/planted.json" "${SETTINGS}"
+    refused_with "a settings.json that is a symlink is not kept" 'it is a link' "$(keep_refusal)"
+    # Without the agent package's sentinel the row does not apply on this host.
+    rm -f "${SETTINGS}" "${FIXTURE_ROOT}/usr/local/lib/ai-tools/agents.d/claude-code.conf"; printf '{}\n' > "${SETTINGS}"
+    refused_with "a settings.json the layout does not list is not kept" 'does not list it' "$(keep_refusal)"
+    : > "${FIXTURE_ROOT}/usr/local/lib/ai-tools/agents.d/claude-code.conf"; rm -f "${SETTINGS}"
+
+    if (( EUID != 0 )); then
+        skip "a settings.json at its row is kept" "needs root to make the fixture root-owned"
+    else
+        install -o root -g "${SANDBOX_GROUP}" -m 0640 /dev/null "${SETTINGS}"
+        out="$(keep_refusal)"
+        if [[ "${out}" == $'\n'status=0 ]]; then
+            pass "a root:${SANDBOX_GROUP} 0640 settings.json is kept"
+        else
+            fail "a settings.json at its row was refused: $(_san "${out}")"
+        fi
+        chmod 0660 "${SETTINGS}"
+        refused_with "a group-writable settings.json is not kept" 'its mode is 0660, not 0640' "$(keep_refusal)"
+        chmod 0640 "${SETTINGS}"; setfacl -m "u:${SANDBOX_USER}:rw-" "${SETTINGS}"
+        refused_with "a settings.json with a named ACL entry is not kept" 'its (ACL|mode) is' "$(keep_refusal)"
+        setfacl -b "${SETTINGS}"; chmod 0640 "${SETTINGS}"; ln "${SETTINGS}" "${CLAUDE_DIR}/second-name"
+        refused_with "a hardlinked settings.json is not kept" 'it has 2 hard links' "$(keep_refusal)"
+    fi
 fi
 
 finish

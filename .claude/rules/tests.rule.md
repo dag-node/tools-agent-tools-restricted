@@ -705,9 +705,14 @@ open.
 
 `install-writes.sh` reads `install.sh`'s text for the writes the write-side invariant keeps away from root: the timer
 stamp, written into the sandbox account's directory, is written by that account through `sudo -u`, and no root
-`install`, `touch` or redirection names that directory. The writes run inside `do_install`, which needs a whole host,
+`install`, `touch` or redirection names that directory; and `settings.json` is read through its layout row before it is
+kept, with no by-path `chown` or `chmod` on it. The writes run inside `do_install`, which needs a whole host,
 so the file reads the source, joining continued lines and dropping comments, and runs each reader over a control fixture
-carrying the form it must find first. Pure text and unprivileged.
+carrying the form it must find first. The keep decision, `read_settings_keep_refusal`, is also driven, extracted as text
+and run over a fixture tree through the checkout's layout library under `AI_TOOLS_LAYOUT_ROOT`: a file at another owner,
+a symlink, and a file the layout does not list are refused, unprivileged; a `root:SANDBOX_GROUP 0640` file is kept,
+and the same file group-writable, with a named ACL entry, or hardlinked is refused, as root, the half that skips
+otherwise.
 
 `postupgrade.sh` is that same reconciliation seen from the RPM side: `ai-tools-admin system post-upgrade` end to end,
 from dispatch through the registry to each treatment (see [providers](providers.rule.md)

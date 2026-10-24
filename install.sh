@@ -397,6 +397,50 @@ keep_existing() {
     return 1
 }
 
+# read_settings_keep_refusal <path> <layout-lib> -- print why <path> may not be kept and return 1, or return 0 without
+# printing when it may. A kept settings.json becomes the control plane as it stands, and its directory is sticky
+# and sandbox-group-writable, so the account can place the name before the file exists; the file is therefore kept only
+# at its layout row: the row's reader in <layout-lib> returns a label finding or none, and the file has one link.
+# A label does not decide who can write a root-owned file the mode and ACL keep to root, and the layout reconcile later
+# in this run restores it. A row the table does not list here, a reader that does not load or complete, and every other
+# finding -- another owner, a mode or an ACL the row does not declare, a link, an entry of another type -- are refusals.
+# The read runs in a subshell, so the library's globals stay out of this shell.
+read_settings_keep_refusal() {
+    local path="$1" lib="$2"
+    (
+        # shellcheck source=SCRIPTDIR/src/usr/local/lib/ai-tools/layout.lib.sh
+        if ! source "${lib}" 2>/dev/null || ! declare -F ai_tools_layout__begin_pass ai_tools_layout__read_entry_lines \
+                ai_tools_layout__parse_stream_line ai_tools_layout__read_entry_state >/dev/null 2>&1; then
+            printf 'the layout library %s did not load' "${lib}"; exit 1
+        fi
+        lines=() fields=() findings=() entry="" status=0
+        declare -A state=()
+        # Status 1 is a discovery input the enumeration could not read; the static rows it printed stand.
+        ai_tools_layout__read_entry_lines lines || status=$?
+        (( status <= 1 )) || { printf 'the installed layout could not be read'; exit 1; }
+        for line in "${lines[@]}"; do
+            ai_tools_layout__parse_stream_line "${line}" fields || continue
+            if [[ "${fields[0]}" == "${path}" ]]; then entry="${line}"; break; fi
+        done
+        [[ -n "${entry}" ]] || { printf 'the installed layout does not list it'; exit 1; }
+        ai_tools_layout__begin_pass 1
+        ai_tools_layout__read_entry_state "${entry}" state findings || { printf 'its layout row could not be read'; exit 1; }
+        for finding in "${findings[@]}"; do
+            ai_tools_layout__parse_stream_line "${finding}" fields || { printf 'a finding on it did not decode'; exit 1; }
+            case "${fields[0]}:${fields[1]}" in label-drift:label|unreadable:label) continue ;; esac
+            case "${fields[0]}" in
+                acl-drift)     printf 'its ACL is not the one it is installed with' ;;
+                *-drift)       printf 'its %s is %s, not %s' "${fields[1]}" "${fields[3]}" "${fields[2]}" ;;
+                type-mismatch) printf 'it is a %s, not a regular file' "${fields[3]}" ;;
+                *)             printf 'its %s could not be read' "${fields[1]}" ;;
+            esac
+            exit 1
+        done
+        links="$(stat -c %h -- "${path}" 2>/dev/null)" || { printf 'its link count could not be read'; exit 1; }
+        [[ "${links}" == 1 ]] || { printf 'it has %s hard links' "${links}"; exit 1; }
+    )
+}
+
 # Report a keep_existing outcome in one consistent line, so every seeded file confirms what happened in the same
 # vocabulary regardless of the branch taken: kept, reseeded (an existing file replaced), or created (none was there).
 # $1 path  $2 existed(1/0)  $3 kept(1/0)  $4 detail (optional parenthetical)
@@ -2341,16 +2385,32 @@ do_install() {
     # settings.json is kept by default when it already exists (keep_existing prompt; unattended installs always keep):
     # it may carry deliberate host tuning -- e.g. a deny entry relaxed alongside an enabled SELinux group (see
     # claude-settings.rule.md) -- that a reset would revert, so it passes a warn and the reset is gated behind
-    # the second confirmation. Ownership and mode are re-asserted either way, so a kept file still satisfies
-    # the control-plane integrity checks. A kept file additionally has this version's hook DECLARATIONS reconciled
-    # into it, so keeping host tuning never costs a shipped hook (reconcile_hook_declarations); the permission rules it
-    # was kept for are not touched.
-    local settings="${claude_config_dir}/settings.json" settings_existed=0
-    [[ -f "${settings}" ]] && settings_existed=1
-    if keep_existing "${settings}" \
-            "Discards any host-tuned permission rules; reverts to the shipped hooks and deny set."; then
-        chown root:"${SANDBOX_GROUP}" "${settings}"
-        chmod 640 "${settings}"
+    # the second confirmation. A kept file becomes the control plane, so only a file already at the control plane's row
+    # is kept (read_settings_keep_refusal); any other is moved aside under a dated .bak name, named, and replaced
+    # by the shipped file, and the operator is not asked to keep it. The keep prompt is reached inside the branch
+    # the reader passed alone: the sticky directory keeps a root-owned file in place, where the name a set-aside
+    # or an absent file leaves is one the account can fill before the next step, so a file found there later is not
+    # offered to keep. The shipped file is installed with `-T`, which replaces a symlink planted at the name and refuses
+    # a directory there, where a plain install writes into the directory the link names. A kept file additionally has
+    # this version's hook DECLARATIONS reconciled into it, so keeping host tuning never costs a shipped hook
+    # (reconcile_hook_declarations); the permission rules it was kept for are not touched.
+    local settings="${claude_config_dir}/settings.json" settings_existed=0 settings_kept=0 settings_refusal settings_aside
+    [[ -e "${settings}" || -L "${settings}" ]] && settings_existed=1
+    if (( settings_existed )); then
+        if settings_refusal="$(read_settings_keep_refusal "${settings}" /usr/local/lib/ai-tools/layout.lib.sh)"; then
+            if keep_existing "${settings}" \
+                    "Discards any host-tuned permission rules; reverts to the shipped hooks and deny set."; then
+                settings_kept=1
+            fi
+        else
+            if ! settings_aside="$(ai_tools_conf__find_sidecar_path "${settings}" bak)" \
+                    || ! mv -T -- "${settings}" "${settings_aside}"; then
+                die MSG-H5B4 "could not move ${settings} aside, which is not kept (${settings_refusal}) -- move it out of ${claude_config_dir} by hand, then re-run the install"
+            fi
+            warn MSG-Y3Z9 "did not keep ${settings} (${settings_refusal}) -- it is saved as ${settings_aside} and the shipped file is installed; review the saved copy before merging any of it back"
+        fi
+    fi
+    if (( settings_kept )); then
         seed_result "${settings}" "${settings_existed}" 1 "host-tuned permission rules preserved"
         reconcile_hook_declarations "${settings}" \
             "${SCRIPT_DIR}/src/opt/ai-tools/agents/claude-code/settings.json"
@@ -2358,8 +2418,9 @@ do_install() {
             "${SCRIPT_DIR}/src/opt/ai-tools/agents/claude-code/settings.json"
         report_ask_gaps "${settings}"
     else
-        install -o root -g "${SANDBOX_GROUP}" -m 640 \
-            "${SCRIPT_DIR}/src/opt/ai-tools/agents/claude-code/settings.json" "${settings}"
+        install -T -o root -g "${SANDBOX_GROUP}" -m 640 \
+            "${SCRIPT_DIR}/src/opt/ai-tools/agents/claude-code/settings.json" "${settings}" \
+            || die MSG-T3Q7 "could not install ${settings}: an entry that is not a regular file is in the way -- move it out of ${claude_config_dir} by hand, then re-run the install"
         seed_result "${settings}" "${settings_existed}" 0
     fi
 

@@ -119,6 +119,9 @@ cannot fix -- a message code's name is a runtime string, and rewording one is a 
 | q7e7 | [MSG-Q7E7](../install.sh) | setfacl unavailable -- operators need ${SANDBOX_GROUP} membership for sandbox-create | install.sh |  | warn |
 | n2w3 | [MSG-N2W3](../install.sh) | sudoers syntax check failed | install.sh |  | die |
 | c2x3 | [MSG-C2X3](../install.sh) | could not add ${PROJECTS_USER} to ai-ops | install.sh |  | warn |
+| h5b4 | [MSG-H5B4](../install.sh) | could not move ${settings} aside, which is not kept (${settings_refusal}) -- move it out of ${claude_config_dir} by hand, then re-run the install | install.sh |  | die |
+| y3z9 | [MSG-Y3Z9](../install.sh) | did not keep ${settings} (${settings_refusal}) -- it is saved as ${settings_aside} and the shipped file is installed; review the saved copy before merging any of it back | install.sh |  | warn |
+| t3q7 | [MSG-T3Q7](../install.sh) | could not install ${settings}: an entry that is not a regular file is in the way -- move it out of ${claude_config_dir} by hand, then re-run the install | install.sh |  | die |
 | g2u4 | [MSG-G2U4](../install.sh) | the asset reconcile reported a finding -- sudo ai-tools-admin status names each one and what ends it | install.sh |  | warn |
 | p2n9 | [MSG-P2N9](../install.sh) | the asset reconcile did not complete (exit ${_reconcile_status}) -- run: sudo ai-tools-admin assets reconcile | install.sh |  | warn |
 | e6n7 | [MSG-E6N7](../install.sh) | the shared assets were not seeded and the asset view was not reconciled: the assets lock could not be taken -- run: sudo ./install.sh install, once the other assets command has ended | install.sh |  | warn |

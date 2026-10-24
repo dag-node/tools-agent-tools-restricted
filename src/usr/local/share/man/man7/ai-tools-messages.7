@@ -2057,6 +2057,10 @@ could not write the timer stamp in /opt/ai\-tools/${CP_TIMER_STAMP_DIR} as ${SAN
 WARNING.
 systemctl \-\-user $* failed by both the machine transport and the account's own
 .TP
+.B MSG-H5B4
+ERROR.
+could not move ${settings} aside, which is not kept (${settings_refusal}) \-\- move it out of ${claude_config_dir} by hand, then re\-run the install
+.TP
 .B MSG-J2H9
 WARNING.
 the ${node_version}/bin directory holds copies where npm keeps symlinks (${copied_bins}) \-\- a transfer of the tree replaced the links with their targets, so launcher symlinks are skipped
@@ -2141,6 +2145,10 @@ the operator must not be the sandbox account ${SANDBOX_USER}
 WARNING.
 failed to create the ${ai_tools_bin}/${launcher} symlink
 .TP
+.B MSG-T3Q7
+ERROR.
+could not install ${settings}: an entry that is not a regular file is in the way \-\- move it out of ${claude_config_dir} by hand, then re\-run the install
+.TP
 .B MSG-U5E6
 ERROR.
 error: \-\-operator needs an account name
@@ -2180,6 +2188,10 @@ no such user: ${name}
 .B MSG-Y3E5
 WARNING.
 lockdown: failed to chmod 750 ${ai_nvm_dir}
+.TP
+.B MSG-Y3Z9
+WARNING.
+did not keep ${settings} (${settings_refusal}) \-\- it is saved as ${settings_aside} and the shipped file is installed; review the saved copy before merging any of it back
 .TP
 .B MSG-Y4G6
 WARNING.
