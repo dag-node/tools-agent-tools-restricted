@@ -117,10 +117,11 @@ Node and each enabled agent's npm package are updated on a daily timer running
 in the sandbox account's own systemd instance. That is a separate mechanism
 from `dnf upgrade`, which moves this project's own packages: the timer moves
 the toolchain they run the agent with. Each run installs the current release
-under `/opt/ai-tools`, verifies the toolchain's npm registry signatures,
-and repoints each agent's launcher at the new binary only once
-that verification passes — so a toolchain that does not verify leaves
-the previous, verified one in place.
+under `/opt/ai-tools` with every package's install scripts held back, verifies
+the toolchain's npm registry signatures, and only once that verification passes
+runs those scripts and repoints each agent's launcher at the new binary —
+so a toolchain that does not verify leaves the previous, verified one in place,
+and no code from the unverified one has run.
 
 Two consequences reach an operator:
 
