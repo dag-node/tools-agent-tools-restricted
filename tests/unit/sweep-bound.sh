@@ -235,29 +235,48 @@ run_library() {
         ' _ "${LIB_COPY}/session-sweep.lib.sh" "$1" "$2" "$3" "$4"
 }
 
+# quote_c <path> : <path> in bash's %q encoding under the C locale, the form the library prints a command's path in.
+quote_c() { local LC_ALL=C; printf '%q' "$1"; }
+
 # ── The interrupted-session notice ───────────────────────────────────────────────────────────────────────────────────
 # The notice a session-start pass emits after an interrupted session carries a command the user is asked to paste:
-# the handback command, which resolves each path's owner, with the project in bash's %q encoding. Each project is named
-# with characters a shell reads as syntax inside double quotes, holds an agent-owned .git object (the walked owner is
-# the invoker, as in the moved-directory case) and is named by a planted clean-exit marker, so the run reads it
-# as interrupted. The command line the run printed is then run with `printf` in place of the CLI, as a recorder,
-# and must print the path whole.
+# the handback command, which resolves each path's owner, with the project in bash's %q encoding under the C locale.
+# Each project is named with characters a shell reads as syntax inside double quotes, or with a multibyte character
+# or a Unicode control, holds an agent-owned .git object (the walked owner is the invoker, as in the moved-directory
+# case) and is named by a planted clean-exit marker, so the run reads it as interrupted. The runs take a UTF-8 locale,
+# the one a session inherits from the operator, under which a plain %q leaves those characters raw; the command line
+# must hold printable ASCII alone, and run with `printf` in place of the CLI, as a recorder, must print the path whole.
 section "sweep bound: the interrupted-session notice names the handback command with the project path quoted"
+locales="$(locale -a 2>/dev/null || true)"
+UTF8_LOCALE=""
+grep -qiE '^c\.utf-?8$' <<<"${locales}" && UTF8_LOCALE="C.UTF-8"
 if ! command -v jq >/dev/null 2>&1; then
     skip "the interrupted-session notice" "jq not available (the sweep parses its event with it)"
 elif [[ ! -S "${SOCKET}" ]]; then
     skip "the interrupted-session notice" "no socket to answer the sweep's check: the bind is refused here and ${SOCKET} is down"
 else
     NOTICE_STATE="${TESTDIR}/notice-state"; mkdir -p "${NOTICE_STATE}"
+    BIDI_NAME="bidi-$(printf '\342\200\256')abc"
     # shellcheck disable=SC2016  # literal shell syntax in the directory names, the case under test
-    for name in 'notice proj-$(x)' 'tick-`x`' "single-'quote" 'double-"quote' 'dollar-$HOME' $'new\nline'; do
+    names=( 'notice proj-$(x)' 'tick-`x`' "single-'quote" 'double-"quote' 'dollar-$HOME' $'new\nline' )
+    if [[ -n "${UTF8_LOCALE}" ]]; then
+        # Control: under that locale a plain %q leaves U+202E raw, so the locale rows test the library's encoding.
+        raw="$(LC_ALL="${UTF8_LOCALE}" bash -c 'printf "%q" "$1"' _ "${BIDI_NAME}")"
+        [[ "${raw}" == *$'\342\200\256'* ]] \
+            && pass "control: under ${UTF8_LOCALE} a plain %q leaves U+202E as its raw bytes" \
+            || fail "control: under ${UTF8_LOCALE} a plain %q encoded U+202E, so the locale rows test nothing"
+        names+=( "caf$(printf '\303\251')" "${BIDI_NAME}" "isolate-$(printf '\342\201\246')abc" )
+    else
+        skip "a project named with a multibyte character or a Unicode control" "no C.UTF-8 locale in locale -a"
+    fi
+    for name in "${names[@]}"; do
         project="${TESTDIR}/${name}"
         mkdir -p "${project}/.git/objects"; printf 'o\n' > "${project}/.git/objects/x"
         printf '%s\n' "${project}" > "${NOTICE_STATE}/.session-active"
         payload="$(jq -cn --arg cwd "${project}" '{cwd:$cwd, source:"startup"}')"
-        label="$(printf '%q' "${name}")"
-        context="$(run_library session-start "${NOTICE_STATE}" "${SOCKET}" ':' <<<"${payload}" 2>/dev/null \
-            | jq -r '.hookSpecificOutput.additionalContext // empty' 2>/dev/null || true)"
+        label="$(quote_c "${name}")"
+        context="$(LC_ALL="${UTF8_LOCALE}" run_library session-start "${NOTICE_STATE}" "${SOCKET}" ':' <<<"${payload}" \
+            2>/dev/null | jq -r '.hookSpecificOutput.additionalContext // empty' 2>/dev/null || true)"
         if [[ "${context}" == *interrupted* ]]; then
             pass "control: ${label}: the session-start run emits the interrupted-session notice"
         else
@@ -265,9 +284,12 @@ else
             continue
         fi
         command_line="$(grep -m1 '^  ai-tools projects handback ' <<<"${context}" || true)"
-        [[ "${command_line}" == "  ai-tools projects handback $(printf '%q' "${project}")" && "${context}" != *chown* ]] \
+        [[ "${command_line}" == "  ai-tools projects handback $(quote_c "${project}")" && "${context}" != *chown* ]] \
             && pass "${label}: the notice names ai-tools projects handback with the %q path, and no chown" \
             || fail "${label}: the notice's command reads '$(_san "${command_line}")'"
+        LC_ALL=C bash -c '[[ "$1" != *[![:print:]]* ]]' _ "${command_line}" \
+            && pass "${label}: the notice's command holds printable ASCII alone" \
+            || fail "${label}: the notice's command carries a byte outside printable ASCII"
         recorded="$(bash -c "printf '%s.' ${command_line#  ai-tools projects handback }" 2>/dev/null || true)"
         [[ "${recorded%.}" == "${project}" ]] \
             && pass "${label}: the pasted command passes the project path as one argument, byte for byte" \
@@ -282,10 +304,37 @@ else
     context="$(run_library session-start "${NOTICE_STATE}" "${TESTDIR}/no-socket" ':' <<<"${payload}" 2>/dev/null \
         | jq -r '.hookSpecificOutput.additionalContext // empty' 2>/dev/null || true)"
     if grep -qxF '  sudo systemctl enable --now ai-tools-handback.socket' <<<"${context}" \
-            && grep -qxF "  ai-tools projects handback $(printf '%q' "${project}")" <<<"${context}"; then
+            && grep -qxF "  ai-tools projects handback $(quote_c "${project}")" <<<"${context}"; then
         pass "the socket-down notice names the socket's start and the handback command with the %q path"
     else
         fail "the socket-down notice reads '$(_san "${context}")'"
+    fi
+
+    # The journal's copy of the command: both warnings a socket-down session-start logs for the U+202E project,
+    # the walk's and the stranded .git paths', end in the handback command. The library's own sanitizer, which every log
+    # line passes, leaves each line as written, and the command read back from the logged line names the project.
+    if [[ -n "${UTF8_LOCALE}" ]]; then
+        project="${TESTDIR}/${BIDI_NAME}"
+        printf '%s\n' "${project}" > "${NOTICE_STATE}/.session-active"
+        payload="$(jq -cn --arg cwd "${project}" '{cwd:$cwd, source:"startup"}')"
+        warnings="$(LC_ALL="${UTF8_LOCALE}" run_library session-start "${NOTICE_STATE}" "${TESTDIR}/no-socket" ':' \
+            <<<"${payload}" 2>&1 >/dev/null || true)"
+        walk_line="$(grep -m1 'sweep skipped: handback socket' <<<"${warnings}" || true)"
+        git_line="$(grep -m1 'agent-owned .git path(s)' <<<"${warnings}" || true)"
+        [[ -n "${walk_line}" && -n "${git_line}" ]] \
+            && pass "control: the socket-down run logged the walk's warning and the stranded .git warning" \
+            || fail "control: the socket-down run's warnings: $(_san "${warnings}")"
+        for logged in "${walk_line}" "${git_line}"; do
+            command_word="${logged##*ai-tools projects handback }"; command_word="${command_word%)}"
+            [[ "${command_word}" == "$(quote_c "${project}")" ]] \
+                && pass "a socket-down warning names the handback command with the C-locale %q path" \
+                || fail "a socket-down warning's command reads '$(_san "${command_word}")'"
+            sanitized="$(bash -c 'source "$1"; ai_tools_log__sanitize "$2"' _ "${LIB_COPY}/log.lib.sh" "${command_word}")"
+            recorded="$(bash -c "printf '%s.' ${sanitized}" 2>/dev/null || true)"
+            [[ "${recorded%.}" == "${project}" ]] \
+                && pass "the logged command, through the log sanitizer, still names the project byte for byte" \
+                || fail "the logged command, through the log sanitizer, names '$(_san "${recorded%.}")'"
+        done
     fi
 fi
 

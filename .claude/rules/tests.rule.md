@@ -1177,9 +1177,10 @@ must set the marker to a time inside the run and must not leave another file in 
 the stubbed client kills mid-walk must leave the marker where it was and no file behind, as must a run whose socket is
 down; a file written during a run must be offered by the next, which a marker stamped at the walk's end fails. A failed
 call is left out of the count and logged. The interrupted-session notice's command, run through a `printf` recorder,
-must pass a project path carrying shell syntax as one argument, and a planted `.sweep.??????` file must survive a stop
-run and not a session-start run. It then reads the library's source for the bound, and each agent's session hook
-for the library it sources. The cross-filesystem case needs a writable directory on another filesystem than
+must pass a project path carrying shell syntax as one argument, and under a UTF-8 locale must hold printable ASCII alone
+for a name carrying a multibyte character or a Unicode control, the logged copy included; a planted `.sweep.??????` file
+must survive a stop run and not a session-start run. It then reads the library's source for the bound, and each agent's
+session hook for the library it sources. The cross-filesystem case needs a writable directory on another filesystem than
 the testdir's, and skips naming that otherwise.
 
 `fcontext-twins.sh` reads the policy sources and requires every file-context rule under the sandbox-clone area to appear

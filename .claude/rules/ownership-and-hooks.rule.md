@@ -167,10 +167,11 @@ the **interrupted** case is also surfaced as a `SessionStart` `additionalContext
 since a killed prior session can leave cross-project mixed ownership the agent should relay,
 with `ai-tools projects handback <project>` as the manual reconcile ([cli](cli.rule.md)), which resolves the owner
 per path. The command sits on its own line, outside the frame, with the path in bash's `%q` encoding, so it pastes
-as the same path. The routine post-git-activity reclaim runs on nearly every `session-start` and has already repaired
-ownership, so it stays journald-only: injecting it would force a TUI re-render that clobbers claude's startup banner
-with a line the user cannot act on. The surfaced NOTICE is framed through `msg.lib.sh` (see
-[messaging](messaging.rule.md)).
+as the same path. The encoding runs under the C locale, so the line is printable ASCII whatever locale the session
+inherited, and a Unicode control in the name reaches the model as its escape. The routine post-git-activity reclaim runs
+on nearly every `session-start` and has already repaired ownership, so it stays journald-only: injecting it would force
+a TUI re-render that clobbers claude's startup banner with a line the user cannot act on. The surfaced NOTICE is framed
+through `msg.lib.sh` (see [messaging](messaging.rule.md)).
 
 Every pass checks the handback socket before acting, since a socket that is down fails every `CHOWN` and a count
 of attempts would then report work that did not happen. So the sweeps and the reclaim count **confirmed** handbacks

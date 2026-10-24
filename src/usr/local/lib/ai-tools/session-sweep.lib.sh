@@ -130,6 +130,18 @@ _ai_tools_session_sweep__emit_session_context() {
         2>/dev/null || true
 }
 
+# _ai_tools_session_sweep__quote_path <path> -- print <path> as one bash word for a command a warning or the NOTICE
+# carries. `printf %q` encodes a byte the locale calls non-printable and leaves the rest raw, so it runs under the C
+# locale, where every byte outside printable ASCII is encoded: bash reads the word back as the same path under any
+# locale, the logger's sanitizer (which replaces a byte outside printable ASCII) leaves the word as written,
+# and a Unicode control in a directory name reaches the model as its escape. The hook inherits the operator's locale
+# through ai-tools-run's environment allowlist. The path is encoded as it is, never sanitized first: the command has
+# to name the directory that exists.
+_ai_tools_session_sweep__quote_path() {
+    local LC_ALL=C
+    printf '%q' "$1"
+}
+
 # _ai_tools_session_sweep__reclaim_git_tree <project> -- hand every ai-tools-owned path under <project>/.git
 # to ai-tools-chown, which re-validates the allowlist, exclusions and secret rules exactly as the sweep does. Echoes
 # the count of paths processed on stdout. The client writes only to stderr -- MSG relays of the helper's stderr, and its
@@ -187,7 +199,7 @@ _ai_tools_session_sweep__sweep_project() {
     local dir="$1" marker="$2" unbounded="$3" mode="$4"
     local bounded=0 swept=0 failed=0 path below quoted
     # The project as a command argument, for the remedy a warning prints (the %q form, as the NOTICE carries it).
-    quoted="$(printf '%q' "${dir}")"
+    quoted="$(_ai_tools_session_sweep__quote_path "${dir}")"
     # `find DIR -xdev \( skip heavy trees \) -prune -o \( ai-tools-owned [cnewer] file|dir \) -print0`
     ai_tools_skip_dirs__build_find_expression sweep '' "${dir}"
     local -a expr=( "${dir}" -xdev "${AI_TOOLS_SKIP_DIRS__FIND_EXPRESSION[@]}" '(' -user @SANDBOX_USER@ )
@@ -298,9 +310,9 @@ ai_tools_session_sweep__run() {
     dir="$(jq -r '.cwd // empty' <<<"${payload}" 2>/dev/null)" || return 0
     [[ -n "${dir}" && -d "${dir}" ]] || return 0
     # The path as the NOTICE prints it, from the hook payload: the prose takes it sanitized, and a command takes bash's
-    # %q encoding, which pastes back as the same path and does not carry a byte outside printable ASCII.
+    # %q encoding, which pastes back as the same path.
     display_dir="$(ai_tools_log__sanitize "${dir}")"
-    quoted_dir="$(printf '%q' "${dir}")"
+    quoted_dir="$(_ai_tools_session_sweep__quote_path "${dir}")"
 
     # Decide whether this pass ignores the marker. Only session-start mode sets it, and only for a freshly started
     # process, so a Stop pass stays bounded by the marker. An agent's declaration may already select these two sources
