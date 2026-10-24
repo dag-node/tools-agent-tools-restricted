@@ -4,15 +4,15 @@
 # The sandbox housekeeping each agent's session-hook.sh runs at lifecycle boundaries (Stop, SessionStart, SessionEnd).
 # The stub sources this library and calls ai_tools_session_sweep__run with its mode and its own directory, which holds
 # the state files. The sweep hands back every @SANDBOX_USER@-owned file and directory under the session's project
-# that the per-call PostToolUse hook did not catch -- chiefly files created or modified via the Bash tool (npm/build
-# output, codegen, sed/mv, redirects), which name no path in their event -- and, at session start, normalizes
+# that the per-call PostToolUse hook did not catch -- mostly files the Bash tool creates or modifies (npm/build output,
+# codegen, sed/mv, redirects), since a Bash call does not name a path in its event -- and, at session start, normalizes
 # the project's setgid bit (via ai-tools-setgid) so files the projects user creates inherit @SANDBOX_GROUP@.
 #
 # Runs as @SANDBOX_USER@. Reads the hook JSON on stdin for .cwd (the allowlisted project root the agent launched
 # in) and sweeps there. Each path is handed to the root validator ai-tools-chown (via the handback socket bridge),
-# which independently re-checks the allowlist and the agent-owned guard -- so this sweep cannot reach a path
-# the per-call hook could not. Each agent's Stop and SessionStart payloads carry .cwd and .source under the same keys,
-# so the reading is the same for every agent.
+# which re-checks the allowlist and the agent-owned guard itself, so ai-tools-chown decides which paths change, for this
+# sweep and the per-call hook alike. Each agent's Stop and SessionStart payloads carry .cwd and .source under the same
+# keys, so the reading is the same for every agent.
 #
 # Three modes, selected by the stub's $1:
 #
