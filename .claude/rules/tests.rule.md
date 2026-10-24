@@ -320,7 +320,9 @@ of the family in what it moves — the reconcile rewrites owners, modes and ACLs
 the same way `AI_TOOLS_POSTUPGRADE_ROOT` does, through `ai-tools-admin` run as root with the name set.
 `AI_TOOLS_LAYOUT_LOCK` and `AI_TOOLS_LAYOUT_LOCK_WAIT` move the reconcile's lock and shorten its wait, as the relabel
 pair does; here a lock that cannot be taken is a refusal with no write, so a caller who sets them can make a run refuse
-and not run one unserialized.
+and not run one unserialized. `AI_TOOLS_LAYOUT_RUN_BOUND` (`ai-tools-admin`) shortens the deadline the command holds
+a run to, so `unit/layout-bound.sh` drives a stopped run in seconds; a caller who sets it can stop a run early,
+which leaves rows short and reports it, and does not widen any access.
 
 `AI_TOOLS_ASSETS_ROOTS`, `AI_TOOLS_ASSETS_LOCK`, `AI_TOOLS_ASSETS_LOCK_WAIT` and `AI_TOOLS_ASSETS_HOME`
 (`assets.lib.sh`, the lock pair's in `managed-assets.lib.sh`) move the roots a set is read from, the lock the view
