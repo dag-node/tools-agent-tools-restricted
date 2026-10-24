@@ -266,7 +266,6 @@ cannot fix -- a message code's name is a runtime string, and rewording one is a 
 | c4y4 | [MSG-C4Y4](../src/usr/local/bin/ai-tools.sh) | root is not an operator | src/usr/local/bin/ai-tools.sh |  | die |
 | e3d2 | [MSG-E3D2](../src/usr/local/bin/ai-tools.sh) | not a configured ai-tools operator: ${FOR_OPERATOR} -- enrol it first with: | src/usr/local/bin/ai-tools.sh | tests/integration/cli.sh | die |
 | c4t6 | [MSG-C4T6](../src/usr/local/lib/ai-tools/admin-commands.d/dotnet.sh) | run as root (sudo) | src/usr/local/lib/ai-tools/admin-commands.d/dotnet.sh |  | die |
-| j4c7 | [MSG-J4C7](../src/usr/local/lib/ai-tools/admin-commands.d/dotnet.sh) | could not relabel ${path} (restorecon failed) | src/usr/local/lib/ai-tools/admin-commands.d/dotnet.sh |  | die |
 | y4u5 | [MSG-Y4U5](../src/usr/local/lib/ai-tools/admin-commands.d/dotnet.sh) | manifest names a layout module that is not ai_tools_<name>: ${module} | src/usr/local/lib/ai-tools/admin-commands.d/dotnet.sh |  | warn |
 | z4z5 | [MSG-Z4Z5](../src/usr/local/lib/ai-tools/admin-commands.d/dotnet.sh) | layout module ${module} is not installed (${pp}); install ai-tools-selinux -- until then build output is typed at relabel time only | src/usr/local/lib/ai-tools/admin-commands.d/dotnet.sh |  | warn |
 | m4a7 | [MSG-M4A7](../src/usr/local/lib/ai-tools/admin-commands.d/dotnet.sh) | could not load the SELinux layout module ${module}; build output is typed at relabel time only. Re-run: sudo semodule -i ${pp} | src/usr/local/lib/ai-tools/admin-commands.d/dotnet.sh |  | warn |

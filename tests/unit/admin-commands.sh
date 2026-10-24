@@ -545,6 +545,18 @@ else
     else
         pass "the dotnet command reads its state directories through the layout reader, with no type test"
     fi
+    # The state tree takes its label from its rows; a recursive walk is by path, and the account writes `nuget`. Only
+    # `tools`, root's alone, is relabelled recursively.
+    recursive_walks="$(grep -nE 'restorecon[[:space:]]+(-[A-Za-z]*R|-R)' -- "${dotnet_fragment}" \
+        | grep -vE '^[0-9]+:[[:space:]]*#' || true)"
+    # shellcheck disable=SC2016  # matching the literal ${TOOLS_DIR}
+    if [[ -z "${recursive_walks}" ]]; then
+        fail "the dotnet command does not relabel its tools after installing them"
+    elif grep -vqF '"${TOOLS_DIR}"' <<< "${recursive_walks}"; then
+        fail "the dotnet command walks a tree other than its tools recursively: $(_san "${recursive_walks}")"
+    else
+        pass "the dotnet command's one recursive relabel is over its root-owned tools"
+    fi
 fi
 
 finish

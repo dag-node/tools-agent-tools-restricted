@@ -17,10 +17,10 @@
 # The .NET SDK/runtime itself is the HOST's RPM-managed dotnet (this integration does not ship a runtime of its own,
 # and does not take a dotnet RPM dependency). This command brings the sandbox-side state tree the session-env fragment
 # (session-env.d/dotnet.env.sh) relies on, /opt/ai-tools/integrations/dotnet with its nuget, cli and tools directories,
-# to its rows through the layout reconcile, which is the one writer under it, reads each directory back against its row,
-# and labels it; the modes are the rows' in layout.lib.sh. It also installs shared global tools an operator wants
-# available to every project. The tools directory is root-owned and read-only to the agent, so only this command changes
-# its content.
+# to its rows through the layout reconcile, which is the one writer under it and applies each row's label, and reads
+# each directory back against its row; the modes are the rows' in layout.lib.sh. It also installs shared global tools
+# an operator wants available to every project. The tools directory is root-owned and read-only to the agent, so only
+# this command changes its content.
 #
 #   sudo ai-tools-admin dotnet bootstrap             # create and label the state tree (offline, idempotent)
 #   sudo ai-tools-admin dotnet tools install <pkg...> # install global tools into the shared dir (network)
@@ -135,17 +135,6 @@ selinux_active() {
     grep -qx ai_tools <<<"${modules}"
 }
 
-# label_state <path> : give <path> the label the base policy already maps it to. No `semanage`: the integrations root
-# carries a STATIC rule in ai_tools.fc, so every integration's state is covered by one base-owned rule and a new
-# toolchain does not add policy of its own. A failure is fatal -- a silently unlabelled dir breaks the integration only
-# later, inside a confined session, as an opaque denial.
-label_state() {
-    local path="$1"
-    restorecon -R "${path}" >/dev/null 2>&1 \
-        || die MSG-J4C7 "could not relabel ${path} (restorecon failed)"
-    ai_tools_log__debug "labelled ${path} from the base file-context rule"
-}
-
 # drop_legacy_fcontexts : remove the local fcontext rules earlier versions of this command added for its home-root
 # dotdirs. They name paths this integration no longer uses, and they would outlive the ai_tools module that defines
 # their type. Best-effort: absent rules are the normal case on a fresh host.
@@ -240,11 +229,12 @@ bootstrap() {
     local refusal
     refusal="$(read_state_rows_refusal)" \
         || die MSG-N6G6 "the state tree is not at its layout rows after the reconcile: ${refusal}; see: sudo ai-tools-admin system layout"
-    # One label for the whole tree, from the base policy's static rule: the type grants ai_tools_t the SELinux access
-    # (write on the cache, exec on the tools), while the DAC modes are the enforced read/write boundary.
+    # The rows carry the label, from the base policy's static rule, and the reconcile applies it to each directory
+    # through its pin; a file a session creates under them takes the type from its parent. A recursive restorecon here
+    # would walk `nuget` and `nuget/packages`, which the account writes, by path. The type grants ai_tools_t the SELinux
+    # access (write on the cache, exec on the tools), while the DAC modes are the enforced read/write boundary.
     if selinux_active; then
         drop_legacy_fcontexts
-        label_state "${STATE_DIR}"
         load_layout_module
     else
         log "SELinux labelling skipped: no enforcing ai-tools policy on this host (DAC governs)"
@@ -267,7 +257,9 @@ tools_install() {
             || die MSG-Y6Z3 "failed to install or update ${package}"
     done
     # Relabel the freshly written tool binaries ai_tools_home_t (so the agent may exec them) while they stay root-owned
-    # and non-group-writable (RO to the agent).
+    # and non-group-writable (RO to the agent). The walk is recursive because `tools` is root's alone
+    # under the root-owned `dotnet` row and `dotnet tool install` wrote it as root, so no component of the walk is
+    # the account's.
     if selinux_active; then
         restorecon -R "${TOOLS_DIR}" >/dev/null 2>&1 \
             || die MSG-J9Z8 "installed ${*}, but could not relabel ${TOOLS_DIR} -- the agent cannot exec the tools until it is relabelled"
