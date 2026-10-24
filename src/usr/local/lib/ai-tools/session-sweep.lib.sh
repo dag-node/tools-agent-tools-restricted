@@ -110,17 +110,6 @@ if ! source "${BASH_SOURCE[0]%/*}/msg.lib.sh" 2>/dev/null; then
     ai_tools_msg__wrap() { shift; printf '%s\n' "$*"; }
 fi
 
-# Operator identity (PROJECTS_USER) from /etc/ai-tools/operator.conf via the shared resolver, used only to render
-# the reconcile command in the interrupted-session NOTICE. Sweeping itself does not need an operator identity -- it
-# finds @SANDBOX_USER@-owned paths and the root validator re-checks ownership. Best-effort: an unenrolled/missing config
-# leaves PROJECTS_USER empty, degrading only the suggested command's owner field.
-# shellcheck source=SCRIPTDIR/operator.lib.sh
-if source "${BASH_SOURCE[0]%/*}/operator.lib.sh" 2>/dev/null; then
-    ai_tools_operator__load_operator || true
-else
-    PROJECTS_USER=''
-fi
-
 # Directory-skip selector from the shared library (single source of truth, shared with ai-tools-setgid /
 # ai-tools-lockdown). A missing lib leaves a stub that descends everywhere.
 # shellcheck source=SCRIPTDIR/skip-dirs.lib.sh
@@ -194,7 +183,9 @@ ai_tools_session_sweep__count_git_agent_owned() {
 # handbacks on stdout. <mode> names the pass in its log lines.
 ai_tools_session_sweep__sweep_project() {
     local dir="$1" marker="$2" unbounded="$3" mode="$4"
-    local bounded=0 swept=0 path below
+    local bounded=0 swept=0 path below quoted
+    # The project as a command argument, for the remedy a warning prints (the %q form, as the NOTICE carries it).
+    quoted="$(printf '%q' "${dir}")"
     # `find DIR -xdev \( skip heavy trees \) -prune -o \( ai-tools-owned [cnewer] file|dir \) -print0`
     ai_tools_skip_dirs__build_find_expression sweep '' "${dir}"
     local -a expr=( "${dir}" -xdev "${AI_TOOLS_SKIP_DIRS__FIND_EXPRESSION[@]}" '(' -user @SANDBOX_USER@ )
@@ -219,7 +210,7 @@ ai_tools_session_sweep__sweep_project() {
     if [[ ! -S "${AI_TOOLS_SESSION_SWEEP__HANDBACK_SOCKET}" ]]; then
         # Socket down: every CHOWN would fail, so skip the walk and record it once. Counting the failed calls would also
         # mis-fire the large-batch skip-list hint.
-        ai_tools_log__warn "${mode} sweep skipped: handback socket ${AI_TOOLS_SESSION_SWEEP__HANDBACK_SOCKET} is down -- paths under ${dir} stay @SANDBOX_USER@-owned (reclaim with: ai-tools projects handback ${dir})"
+        ai_tools_log__warn "${mode} sweep skipped: handback socket ${AI_TOOLS_SESSION_SWEEP__HANDBACK_SOCKET} is down -- paths under ${dir} stay @SANDBOX_USER@-owned (reclaim with: ai-tools projects handback ${quoted})"
     else
         # Count CONFIRMED handbacks (client exit 0), not attempts.
         local -A offered=()
@@ -259,7 +250,7 @@ ai_tools_session_sweep__run() {
     # sees the first's marker as "interrupted"); the sandbox is single-session by design, same caveat as the sweep
     # marker.
     local active_marker="${state_dir}/.session-active"
-    local end_payload end_cwd end_found payload dir display_dir src unbounded interrupted prev_cwd scan_start
+    local end_payload end_cwd end_found payload dir display_dir quoted_dir src unbounded interrupted prev_cwd scan_start
     local git_found prev_found total_found scope prose reconcile stranded
 
     # session-end: graceful process exit. Clear the clean-exit marker FIRST -- codex kills this hook at 3 s,
@@ -289,10 +280,13 @@ ai_tools_session_sweep__run() {
     # The session's working dir (allowlisted project root). No cwd -> return without acting.
     dir="$(jq -r '.cwd // empty' <<<"${payload}" 2>/dev/null)" || return 0
     [[ -n "${dir}" && -d "${dir}" ]] || return 0
-    # The same path as it is PRINTED -- into the NOTICE the model reads, and into the command that notice carries. It
-    # arrives in the hook payload, so it is reduced to the characters the log sanitizer keeps before it is displayed;
-    # every use that acts on the tree keeps the real path.
+    # The same path as it is PRINTED. It arrives in the hook payload, so the NOTICE prose shows it reduced
+    # to the characters the log sanitizer keeps; every use that acts on the tree keeps the real path. A command
+    # the NOTICE carries takes the real path in bash's %q encoding instead: bash reads that back as the same path,
+    # and it encodes every byte outside printable ASCII, so a pasted command neither expands a `$(…)` in a directory
+    # name nor carries an escape sequence.
     display_dir="$(ai_tools_log__sanitize "${dir}")"
+    quoted_dir="$(printf '%q' "${dir}")"
 
     # Decide whether this pass ignores the marker. Only session-start mode sets it, and only for a freshly started
     # process, so a Stop pass stays bounded by the marker. An agent's declaration may already select these two sources
@@ -386,8 +380,10 @@ ai_tools_session_sweep__run() {
                     "The previous session ended without cleanup (interrupted). Reclaimed ${total_found} agent-owned path(s) under ${scope} to repair the mixed ownership that makes git report \"dubious ownership\".")"
                 # The command names THIS session's project for the same reason the prose does: it is the one the user
                 # asking is working in, and a command naming a path from the marker would be a command typed
-                # against a tree nobody in this session chose.
-                reconcile="If git still complains, ask the user to run:"$'\n'"  sudo chown -R --from=@SANDBOX_USER@ ${PROJECTS_USER}:@SANDBOX_GROUP@ \"${display_dir}\""
+                # against a tree nobody in this session chose. It is the operator's handback command, which hands each
+                # path to ai-tools-chown: that helper resolves the owner per path and applies the exclusions,
+                # the hardlink refusal and the secret rules, and its default walk includes .git.
+                reconcile="If git still complains, ask the user to run:"$'\n'"  ai-tools projects handback ${quoted_dir}"
                 ai_tools_session_sweep__emit_session_context "${prose}"$'\n'"${reconcile}"
             fi
         fi
@@ -400,10 +396,10 @@ ai_tools_session_sweep__run() {
             stranded=$(( stranded + $(ai_tools_session_sweep__count_git_agent_owned "${prev_cwd}") ))
         fi
         if [[ "${stranded}" -gt 0 ]]; then
-            ai_tools_log__warn "handback socket ${AI_TOOLS_SESSION_SWEEP__HANDBACK_SOCKET} is down -- ${stranded} agent-owned .git path(s) under ${dir} not reclaimed; run: ai-tools projects handback ${dir}"
+            ai_tools_log__warn "handback socket ${AI_TOOLS_SESSION_SWEEP__HANDBACK_SOCKET} is down -- ${stranded} agent-owned .git path(s) under ${dir} not reclaimed; run: ai-tools projects handback ${quoted_dir}"
             prose="$(AI_TOOLS_MSG_BOX=1 ai_tools_msg__alert NOTICE 1 \
                 "The ownership handback socket is down, so ${stranded} file(s) the agent wrote to git stay ai-tools-owned and git may report \"dubious ownership\". Bring the socket up, then reclaim the tree:")"
-            reconcile="  sudo systemctl enable --now ai-tools-handback.socket"$'\n'"  ai-tools projects handback \"${display_dir}\""
+            reconcile="  sudo systemctl enable --now ai-tools-handback.socket"$'\n'"  ai-tools projects handback ${quoted_dir}"
             ai_tools_session_sweep__emit_session_context "${prose}"$'\n'"${reconcile}"
         fi
     fi

@@ -164,12 +164,14 @@ goes through `ai_tools_log__sanitize`, so a crafted directory name cannot put an
 context or onto the terminal. A gracefully-exited session clears its marker and reclaims its `.git` at `session-end`;
 the cross-project pointer is needed only for a kill. Every reclaim is logged to journald (the audit trail), but only
 the **interrupted** case is also surfaced as a `SessionStart` `additionalContext` NOTICE — the only actionable one,
-since a killed prior session can leave cross-project mixed ownership the agent should relay, with the manual
-`sudo chown -R --from=SANDBOX_USER <you>:SANDBOX_GROUP <project>` reconcile for anything the helper could not reach (the
-command is kept on its own line, outside the frame, so it stays copy-pasteable). The routine post-git-activity reclaim
-runs on nearly every `session-start` and has already repaired ownership, so it stays journald-only: injecting it would
-force a TUI re-render that clobbers claude's startup banner with a line the user cannot act on. The surfaced NOTICE is
-framed through `msg.lib.sh` (see [messaging](messaging.rule.md)).
+since a killed prior session can leave cross-project mixed ownership the agent should relay, with the operator's
+`ai-tools projects handback <project>` as the manual reconcile (the `ai-tools-reclaim` helper, [cli](cli.rule.md)),
+which resolves the owner per path through `ai-tools-chown` and applies its exclusions and secret rules. The command is
+kept on its own line, outside the frame, so it stays copy-pasteable, and carries the project path in bash's `%q`
+encoding, so a pasted command takes a directory name with a space or a `$(…)` as the same path. The routine
+post-git-activity reclaim runs on nearly every `session-start` and has already repaired ownership, so it stays
+journald-only: injecting it would force a TUI re-render that clobbers claude's startup banner with a line the user
+cannot act on. The surfaced NOTICE is framed through `msg.lib.sh` (see [messaging](messaging.rule.md)).
 
 Every pass checks the handback socket before acting, since a socket that is down fails every `CHOWN` and a count
 of attempts would then report work that did not happen. So the sweeps and the reclaim count **confirmed** handbacks

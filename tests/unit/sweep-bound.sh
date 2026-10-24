@@ -220,6 +220,77 @@ else
         || fail "a run killed mid-walk left ${leftover}in ${STATE}"
 fi
 
+# run_library <mode> <state_dir> <socket> <client-body> : run ai_tools_session_sweep__run from the library copy
+# in a shell of its own, the event on stdin. The handback client is a function whose body is <client-body>; the logger's
+# warnings go to stderr as `warn: <text>` lines and its other levels are silent. Prints what the run prints on stdout.
+run_library() {
+    # shellcheck disable=SC2016  # the inner bash expands these
+    bash -c '
+        set -euo pipefail
+        source "$1"
+        ai_tools_log__debug() { :; }; ai_tools_log__info() { :; }
+        ai_tools_log__warn() { printf "warn: %s\n" "$*" >&2; }
+        eval "stub_client() { $5; }"
+        AI_TOOLS_SESSION_SWEEP__HANDBACK_CLIENT=stub_client
+        AI_TOOLS_SESSION_SWEEP__HANDBACK_SOCKET="$4"
+        ai_tools_session_sweep__run "$2" "$3"
+        ' _ "${LIB_COPY}/session-sweep.lib.sh" "$1" "$2" "$3" "$4"
+}
+
+# ── The interrupted-session notice ───────────────────────────────────────────────────────────────────────────────────
+# The notice a session-start pass emits after an interrupted session carries a command the user is asked to paste:
+# the handback command, which resolves each path's owner, with the project in bash's %q encoding. Each project is named
+# with characters a shell reads as syntax inside double quotes, holds an agent-owned .git object (the walked owner is
+# the invoker, as in the moved-directory case) and is named by a planted clean-exit marker, so the run reads it
+# as interrupted. The command line the run printed is then run with `printf` in place of the CLI, as a recorder,
+# and must print the path whole.
+section "sweep bound: the interrupted-session notice names the handback command with the project path quoted"
+if ! command -v jq >/dev/null 2>&1; then
+    skip "the interrupted-session notice" "jq not available (the sweep parses its event with it)"
+elif [[ ! -S "${SOCKET}" ]]; then
+    skip "the interrupted-session notice" "no socket to answer the sweep's check: the bind is refused here and ${SOCKET} is down"
+else
+    NOTICE_STATE="${TESTDIR}/notice-state"; mkdir -p "${NOTICE_STATE}"
+    # shellcheck disable=SC2016  # literal shell syntax in the directory names, the case under test
+    for name in 'notice proj-$(x)' 'tick-`x`' "single-'quote" 'double-"quote' 'dollar-$HOME' $'new\nline'; do
+        project="${TESTDIR}/${name}"
+        mkdir -p "${project}/.git/objects"; printf 'o\n' > "${project}/.git/objects/x"
+        printf '%s\n' "${project}" > "${NOTICE_STATE}/.session-active"
+        payload="$(jq -cn --arg cwd "${project}" '{cwd:$cwd, source:"startup"}')"
+        label="$(printf '%q' "${name}")"
+        context="$(run_library session-start "${NOTICE_STATE}" "${SOCKET}" ':' <<<"${payload}" 2>/dev/null \
+            | jq -r '.hookSpecificOutput.additionalContext // empty' 2>/dev/null || true)"
+        if [[ "${context}" == *interrupted* ]]; then
+            pass "control: ${label}: the session-start run emits the interrupted-session notice"
+        else
+            fail "control: ${label}: no interrupted-session notice: $(_san "${context}")"
+            continue
+        fi
+        command_line="$(grep -m1 '^  ai-tools projects handback ' <<<"${context}" || true)"
+        [[ "${command_line}" == "  ai-tools projects handback $(printf '%q' "${project}")" && "${context}" != *chown* ]] \
+            && pass "${label}: the notice names ai-tools projects handback with the %q path, and no chown" \
+            || fail "${label}: the notice's command reads '$(_san "${command_line}")'"
+        recorded="$(bash -c "printf '%s.' ${command_line#  ai-tools projects handback }" 2>/dev/null || true)"
+        [[ "${recorded%.}" == "${project}" ]] \
+            && pass "${label}: the pasted command passes the project path as one argument, byte for byte" \
+            || fail "${label}: the pasted command passes '$(_san "${recorded%.}")'"
+    done
+
+    # The socket down: the notice names the socket's start and the same handback command. The first project's .git
+    # object is still the invoker's (a stub client does not change an owner), so the pass counts it as stranded.
+    project="${TESTDIR}/notice proj-\$(x)"
+    printf '%s\n' "${project}" > "${NOTICE_STATE}/.session-active"
+    payload="$(jq -cn --arg cwd "${project}" '{cwd:$cwd, source:"startup"}')"
+    context="$(run_library session-start "${NOTICE_STATE}" "${TESTDIR}/no-socket" ':' <<<"${payload}" 2>/dev/null \
+        | jq -r '.hookSpecificOutput.additionalContext // empty' 2>/dev/null || true)"
+    if grep -qxF '  sudo systemctl enable --now ai-tools-handback.socket' <<<"${context}" \
+            && grep -qxF "  ai-tools projects handback $(printf '%q' "${project}")" <<<"${context}"; then
+        pass "the socket-down notice names the socket's start and the handback command with the %q path"
+    else
+        fail "the socket-down notice reads '$(_san "${context}")'"
+    fi
+fi
+
 # ── The bound the library carries ────────────────────────────────────────────────────────────────────────────────────
 section "sweep bound: the session sweep bounds its Stop walk on ctime, and every agent's hook runs it"
 SWEEP_LIB_SRC="${ROOT}/src/usr/local/lib/ai-tools/session-sweep.lib.sh"
