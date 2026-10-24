@@ -1174,9 +1174,13 @@ in is selected without the older file inside it, the control; the session sweep 
 from a token-substituted copy of the checkout's libraries with the handback client stubbed, must then offer both, each
 once, leave a skipped tree inside it unwalked, and print the count of what it offered. A stop run through the library
 must set the marker to a time inside the run and must not leave another file in the state directory, and a run
-the stubbed client kills mid-walk must leave the marker where it was and no file behind. It then reads the library's
-source for the bound, and each agent's session hook for the library it sources. The cross-filesystem case needs
-a writable directory on another filesystem than the testdir's, and skips naming that otherwise.
+the stubbed client kills mid-walk must leave the marker where it was and no file behind, as must a run whose socket is
+down; a file written during a run must be offered by the next, which a marker stamped at the walk's end fails. A failed
+call is left out of the count and logged. The interrupted-session notice's command, run through a `printf` recorder,
+must pass a project path carrying shell syntax as one argument, and a planted `.sweep.??????` file must survive a stop
+run and not a session-start run. It then reads the library's source for the bound, and each agent's session hook
+for the library it sources. The cross-filesystem case needs a writable directory on another filesystem than
+the testdir's, and skips naming that otherwise.
 
 `fcontext-twins.sh` reads the policy sources and requires every file-context rule under the sandbox-clone area to appear
 under both `/opt` and `/var/opt`, with the same tail and context. A host reaches one of each pair, decided by whether

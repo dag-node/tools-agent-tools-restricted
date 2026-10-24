@@ -6,14 +6,12 @@
 # filesystem, or moved from another -- is selected though its mtime is older than the marker. The live chain runs only
 # inside a claimed project (tests/manual/verify-live-flows.sh), so this file drives the bound's find shape
 # over a fixture, with `-newer` as the control that misses both moves, and reads the session sweep library's source
-# for the bound it
-# carries.
+# for the bound it carries.
 #
 # The bound narrows only which sandbox-owned paths a pass offers to ai-tools-chown; the `-user` test and the helper's
-# own guard decide what is handed back, so no boundary half is owed here. A directory moved in is the bound's one blind
-# spot, since its descendants keep their ctimes: the library's sweep function is run over a moved directory, and must
-# offer what is inside it. A stop run through the library sets the marker to its scan start and does not leave another
-# file in the state directory, and one killed mid-walk leaves the marker where it was. Runs unprivileged or as root.
+# own guard decide what is handed back, so no boundary half is owed here. The library's functions are then driven
+# over fixtures: the moved-directory walk, the marker a run leaves, the failed-call count, the interrupted-session
+# notice and the leftover cleanup. Runs unprivileged or as root.
 set -euo pipefail
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")/../lib" && pwd)/harness.sh"
 
@@ -367,6 +365,41 @@ else
     [[ ! -e "${LEFT_STATE}/.sweep.abcdef" ]] \
         && pass "the session-start run removes an earlier hook's .sweep.abcdef" \
         || fail "the session-start run left .sweep.abcdef in ${LEFT_STATE}"
+fi
+
+# ── A file written during the sweep ──────────────────────────────────────────────────────────────────────────────────
+# The marker takes the scan's start time so that a file written while the walk runs is offered by the next pass. Pass
+# one's client writes during.txt at its first offer, then waits, so the walk ends after that write; pass two records its
+# offers. A marker stamped when the walk ended would be newer than during.txt, and pass two would not offer it.
+# during.txt goes into a subdirectory: the write changes that directory's ctime, so pass two selects it and walks it
+# again without the bound, as it walks a directory moved in. before.txt, written ahead of pass one at the project's top
+# and untouched since, is then the control pass two must not offer.
+section "sweep bound: a file written during the sweep is offered by the next pass"
+if ! command -v jq >/dev/null 2>&1; then
+    skip "a file written during the sweep" "jq not available (the sweep parses its event with it)"
+elif [[ ! -S "${SOCKET}" ]]; then
+    skip "a file written during the sweep" "no socket to answer the sweep's check: the bind is refused here and ${SOCKET} is down"
+else
+    DURING_PROJECT="${TESTDIR}/during-project"; DURING_STATE="${TESTDIR}/during-state"
+    mkdir -p "${DURING_PROJECT}/fresh" "${DURING_STATE}"
+    printf 'before\n' > "${DURING_PROJECT}/before.txt"
+    touch -d '-1 hour' "${DURING_STATE}/.sweep-marker"
+    first_offer="${TESTDIR}/during.first"
+    writer="if [[ ! -e $(printf '%q' "${first_offer}") ]]; then : > $(printf '%q' "${first_offer}");"
+    writer+=" printf 'during\n' > $(printf '%q' "${DURING_PROJECT}/fresh/during.txt"); sleep 0.05; fi"
+    run_library stop "${DURING_STATE}" "${SOCKET}" "${writer}" <<<"{\"cwd\":\"${DURING_PROJECT}\"}" >/dev/null 2>&1 || true
+    : > "${TESTDIR}/during.offers"
+    recorder="printf '%s\n' \"\$2\" >> $(printf '%q' "${TESTDIR}/during.offers")"
+    run_library stop "${DURING_STATE}" "${SOCKET}" "${recorder}" <<<"{\"cwd\":\"${DURING_PROJECT}\"}" >/dev/null 2>&1 || true
+    [[ -f "${DURING_PROJECT}/fresh/during.txt" ]] \
+        && pass "control: pass one's client wrote during.txt while the walk ran" \
+        || fail "control: pass one did not reach its client, so during.txt was not written"
+    grep -qxF "${DURING_PROJECT}/fresh/during.txt" "${TESTDIR}/during.offers" \
+        && pass "the next pass offers the file written during the sweep" \
+        || fail "the next pass did not offer during.txt: $(_san "$(cat "${TESTDIR}/during.offers")")"
+    ! grep -qxF "${DURING_PROJECT}/before.txt" "${TESTDIR}/during.offers" \
+        && pass "control: the next pass does not offer a file untouched since before the sweep" \
+        || fail "the next pass offered before.txt, so the bound did not hold"
 fi
 
 # ── The bound the library carries ────────────────────────────────────────────────────────────────────────────────────
