@@ -127,9 +127,9 @@ else
         ai_tools_log__debug() { :; }; ai_tools_log__warn() { :; }
         stub_walked="$2"
         stub_client() { printf "%s\n" "${2#"${stub_walked}/"}" >&2; }
-        AI_TOOLS_SESSION_SWEEP__HANDBACK_CLIENT=stub_client
-        AI_TOOLS_SESSION_SWEEP__HANDBACK_SOCKET="$4"
-        ai_tools_session_sweep__sweep_project "$2" "$3" 0 stop
+        _AI_TOOLS_SESSION_SWEEP__HANDBACK_CLIENT=stub_client
+        _AI_TOOLS_SESSION_SWEEP__HANDBACK_SOCKET="$4"
+        _ai_tools_session_sweep__sweep_project "$2" "$3" 0 stop
         ' _ "${LIB_COPY}/session-sweep.lib.sh" "${WALKED}" "${MARKER}" "${SOCKET}" 2>"${TESTDIR}/offered")" \
         || count="the sweep did not run"
     offered="$(LC_ALL=C sort "${TESTDIR}/offered")"
@@ -165,8 +165,8 @@ else
         source "$1"
         ai_tools_log__debug() { :; }; ai_tools_log__warn() { :; }
         stub_client() { :; }
-        AI_TOOLS_SESSION_SWEEP__HANDBACK_CLIENT=stub_client
-        AI_TOOLS_SESSION_SWEEP__HANDBACK_SOCKET="$3"
+        _AI_TOOLS_SESSION_SWEEP__HANDBACK_CLIENT=stub_client
+        _AI_TOOLS_SESSION_SWEEP__HANDBACK_SOCKET="$3"
         ai_tools_session_sweep__run stop "$2"
         ' _ "${LIB_COPY}/session-sweep.lib.sh" "${STATE}" "${SOCKET}" <<<"{\"cwd\":\"${WALKED}\"}" >/dev/null 2>&1 \
         && run_rc=0 || run_rc=$?
@@ -199,8 +199,8 @@ else
         source "$1"
         ai_tools_log__debug() { :; }; ai_tools_log__warn() { :; }
         stub_client() { kill -KILL "$$"; }
-        AI_TOOLS_SESSION_SWEEP__HANDBACK_CLIENT=stub_client
-        AI_TOOLS_SESSION_SWEEP__HANDBACK_SOCKET="$3"
+        _AI_TOOLS_SESSION_SWEEP__HANDBACK_CLIENT=stub_client
+        _AI_TOOLS_SESSION_SWEEP__HANDBACK_SOCKET="$3"
         ai_tools_session_sweep__run stop "$2"
         ' _ "${LIB_COPY}/session-sweep.lib.sh" "${STATE}" "${SOCKET}" <<<"{\"cwd\":\"${WALKED}\"}" >/dev/null 2>&1; exit "$?" ) 2>/dev/null \
         && killed_rc=0 || killed_rc=$?
@@ -229,8 +229,8 @@ run_library() {
         ai_tools_log__debug() { :; }; ai_tools_log__info() { :; }
         ai_tools_log__warn() { printf "warn: %s\n" "$*" >&2; }
         eval "stub_client() { $5; }"
-        AI_TOOLS_SESSION_SWEEP__HANDBACK_CLIENT=stub_client
-        AI_TOOLS_SESSION_SWEEP__HANDBACK_SOCKET="$4"
+        _AI_TOOLS_SESSION_SWEEP__HANDBACK_CLIENT=stub_client
+        _AI_TOOLS_SESSION_SWEEP__HANDBACK_SOCKET="$4"
         ai_tools_session_sweep__run "$2" "$3"
         ' _ "${LIB_COPY}/session-sweep.lib.sh" "$1" "$2" "$3" "$4"
 }
@@ -320,9 +320,9 @@ else
         stub_warnings="$4" stub_offers="$5"
         ai_tools_log__warn() { printf "warn: %s\n" "$*" >> "${stub_warnings}"; }
         stub_client() { printf "%s\n" "$2" >> "${stub_offers}"; [[ "$2" != */refused.txt ]]; }
-        AI_TOOLS_SESSION_SWEEP__HANDBACK_CLIENT=stub_client
-        AI_TOOLS_SESSION_SWEEP__HANDBACK_SOCKET="$3"
-        ai_tools_session_sweep__sweep_project "$2" "" 1 stop
+        _AI_TOOLS_SESSION_SWEEP__HANDBACK_CLIENT=stub_client
+        _AI_TOOLS_SESSION_SWEEP__HANDBACK_SOCKET="$3"
+        _ai_tools_session_sweep__sweep_project "$2" "" 1 stop
         ' _ "${LIB_COPY}/session-sweep.lib.sh" "${FAIL_PROJECT}" "${SOCKET}" "${TESTDIR}/fail.warn" "${TESTDIR}/fail.offers")" \
         || count="the sweep returned non-zero"
     offers="$(grep -c . "${TESTDIR}/fail.offers" 2>/dev/null || true)"

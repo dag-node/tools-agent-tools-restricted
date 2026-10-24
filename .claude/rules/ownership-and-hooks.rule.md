@@ -154,7 +154,7 @@ That signal **widens** the `.git` reclaim to also cover the killed session's rec
 project than the new session's — and selects the interrupted-session NOTICE wording.
 
 **The line in that marker is agent-written, and it is read through one predicate.** The file sits in the agent's
-group-writable config directory, so its contents are the session's to choose; `ai_tools_session_sweep__read_prior_cwd`
+group-writable config directory, so its contents are the session's to choose; `_ai_tools_session_sweep__read_prior_cwd`
 accepts the line only as an existing directory named by an absolute path, and a line failing that is logged and costs
 the cross-project reclaim rather than aiming a walk at something that is not a project (`ai-tools-chown` re-validates
 every path it is offered regardless). What the NOTICE relays is narrower still: it names *a prior session's project*

@@ -61,20 +61,20 @@
 # Heavy/transient trees are skipped in both sweeping modes (their contents are world-readable anyway, so <you> can
 # already read them) and the scan stays on one filesystem (`-xdev`).
 #
-# Handback socket down: every CHOWN runs over AI_TOOLS_SESSION_SWEEP__HANDBACK_SOCKET, so a socket that is not listening
-# fails every hand-back. Each pass checks the socket first and, when it is down, skips its walk, leaves the sweep marker
-# where it was and records the STRANDED count rather than tallying failed calls -- and the session-start pass emits
-# a distinct NOTICE naming the fix instead of a reassuring "Reclaimed N". Every pass otherwise counts CONFIRMED
-# hand-backs (client exit 0), not attempts, and logs the calls that failed in one warning. The socket is
-# a data-ownership convenience, not a confinement boundary (the user:<operator> ACL keeps <you> reading agent files
-# regardless), so this warns and proceeds -- it never blocks a session.
+# Handback socket down: every CHOWN runs over _AI_TOOLS_SESSION_SWEEP__HANDBACK_SOCKET, so a socket that is not
+# listening fails every hand-back. Each pass checks the socket first and, when it is down, skips its walk, leaves
+# the sweep marker where it was and records the STRANDED count rather than tallying failed calls --
+# and the session-start pass emits a distinct NOTICE naming the fix instead of a reassuring "Reclaimed N". Every pass
+# otherwise counts CONFIRMED hand-backs (client exit 0), not attempts, and logs the calls that failed in one warning.
+# The socket is a data-ownership convenience, not a confinement boundary (the user:<operator> ACL keeps <you> reading
+# agent files regardless), so this warns and proceeds -- it never blocks a session.
 #
 # The state files (.sweep-marker, .session-active) live in the directory the stub passes, its own -- the agent's config
 # directory, whose name its manifest declares -- so this library does not name an agent (ownership-and-hooks.rule.md).
-# The mode reaches ai_tools_session_sweep__sweep_project as its fourth argument, for its log lines. Installed 644
+# The mode reaches _ai_tools_session_sweep__sweep_project as its fourth argument, for its log lines. Installed 644
 # root:root; the stub that sources it is root-owned and not agent-writable, so the session cannot rewrite either.
-# Assigned at load and not readonly: the handback client and socket globals, which tests/unit/sweep-bound.sh reassigns
-# after sourcing.
+# ai_tools_session_sweep__run is the one public member; every other member is private, and the tests that reassign
+# the private client and socket globals after sourcing (tests/unit/sweep-bound.sh) are why those are not readonly.
 
 # shellcheck disable=SC2034  # include guard, read on the next source of this lib
 if [[ -n "${_AI_TOOLS_SESSION_SWEEP__LOADED:-}" ]]; then return 0; fi
@@ -82,8 +82,8 @@ readonly _AI_TOOLS_SESSION_SWEEP__LOADED=1
 
 # The root-op client every CHOWN and SETGID goes through, and the socket it talks to. Literals rather than environment
 # reads: a project's agent settings reach a hook's environment, and neither path may be the session's to choose.
-AI_TOOLS_SESSION_SWEEP__HANDBACK_CLIENT=/usr/local/bin/ai-tools-handback-client
-AI_TOOLS_SESSION_SWEEP__HANDBACK_SOCKET=/run/ai-tools/handback.sock
+_AI_TOOLS_SESSION_SWEEP__HANDBACK_CLIENT=/usr/local/bin/ai-tools-handback-client
+_AI_TOOLS_SESSION_SWEEP__HANDBACK_SOCKET=/run/ai-tools/handback.sock
 
 # Shared leveled logger -- journald only (this hook runs as the agent and cannot write the root-only /var/log/ai-tools
 # files; the root helpers it calls record the actual file mutations there). Best-effort no-op fallback if the lib is
@@ -117,33 +117,33 @@ fi
 source "${BASH_SOURCE[0]%/*}/skip-dirs.lib.sh" 2>/dev/null \
     || ai_tools_skip_dirs__build_find_expression() { AI_TOOLS_SKIP_DIRS__FIND_EXPRESSION=(); return 0; }
 
-# ai_tools_session_sweep__emit_session_context <text> -- hand <text> to the agent as the session's additional context,
+# _ai_tools_session_sweep__emit_session_context <text> -- hand <text> to the agent as the session's additional context,
 # in the `hookSpecificOutput` envelope and in that spelling alone. Claude Code reads the envelope; codex 0.154 rejects
 # a reply carrying the top-level `additionalContext` key its own hook contract names: measured one shape per session,
 # the envelope read `SessionStart Completed` while the top-level key and the two keys together each read
 # `SessionStart Failed`, which loses the whole reply rather than the unknown key. A release that moves the key is
 # a failed hook line in every session that has something to report, so the shape is re-measured rather than carried
 # in two spellings. Best-effort: a jq failure emits nothing rather than half a reply.
-ai_tools_session_sweep__emit_session_context() {
+_ai_tools_session_sweep__emit_session_context() {
     jq -cn --arg ctx "$1" \
         '{hookSpecificOutput:{hookEventName:"SessionStart",additionalContext:$ctx}}' \
         2>/dev/null || true
 }
 
-# ai_tools_session_sweep__reclaim_git_tree <project> -- hand every ai-tools-owned path under <project>/.git
+# _ai_tools_session_sweep__reclaim_git_tree <project> -- hand every ai-tools-owned path under <project>/.git
 # to ai-tools-chown, which re-validates the allowlist, exclusions and secret rules exactly as the sweep does. Echoes
 # the count of paths processed on stdout. The client writes only to stderr -- MSG relays of the helper's stderr, and its
 # own errors -- and leaves stdout empty, so it cannot corrupt this function's captured count or the JSON the hook emits.
 # No <project>/.git -> echo 0. Used by the session-end reclaim and the session-start pass.
-ai_tools_session_sweep__reclaim_git_tree() {
+_ai_tools_session_sweep__reclaim_git_tree() {
     local proj="$1" n=0 path
     # Socket down: no path can be handed back -- report zero, not a count of failed calls.
-    [[ -S "${AI_TOOLS_SESSION_SWEEP__HANDBACK_SOCKET}" ]] || { printf '0'; return 0; }
+    [[ -S "${_AI_TOOLS_SESSION_SWEEP__HANDBACK_SOCKET}" ]] || { printf '0'; return 0; }
     if [[ -n "${proj}" && -d "${proj}/.git" ]]; then
         while IFS= read -r -d '' path; do
             # Count CONFIRMED handbacks (client exit 0), not attempts, so the reported total reflects what changed
             # owner.
-            if "${AI_TOOLS_SESSION_SWEEP__HANDBACK_CLIENT}" CHOWN "${path}"; then
+            if "${_AI_TOOLS_SESSION_SWEEP__HANDBACK_CLIENT}" CHOWN "${path}"; then
                 n=$((n + 1))
             fi
         done < <(find "${proj}/.git" -xdev -user @SANDBOX_USER@ \
@@ -152,13 +152,13 @@ ai_tools_session_sweep__reclaim_git_tree() {
     printf '%s' "${n}"
 }
 
-# ai_tools_session_sweep__read_prior_cwd <marker> -- PRINT the project a prior session recorded, or an empty string.
+# _ai_tools_session_sweep__read_prior_cwd <marker> -- PRINT the project a prior session recorded, or an empty string.
 # The marker sits in the group-writable config directory, so its first line is AGENT-WRITTEN, and it decides which tree
 # the cross-project .git reclaim walks. It is accepted only as an existing directory named by an absolute path,
 # so a crafted line costs that one reclaim and cannot aim a walk at something that is not a project; the root helper
 # re-validates every path either way. The path does not reach the model: the interrupted-session NOTICE names a prior
 # project without printing its path, since under one shared config directory that project may be another operator's.
-ai_tools_session_sweep__read_prior_cwd() {
+_ai_tools_session_sweep__read_prior_cwd() {
     local marker="${1:-}" recorded
     [[ -f "${marker}" ]] || return 0
     recorded="$(head -n1 "${marker}" 2>/dev/null || true)"
@@ -170,20 +170,20 @@ ai_tools_session_sweep__read_prior_cwd() {
     printf '%s' "${recorded}"
 }
 
-# ai_tools_session_sweep__count_git_agent_owned <project> -- number of @SANDBOX_USER@-owned paths under <project>/.git
+# _ai_tools_session_sweep__count_git_agent_owned <project> -- number of @SANDBOX_USER@-owned paths under <project>/.git
 # (0 if there is no such tree). Used only when the socket is down, to tell whether there is stranded git work to warn
 # about.
-ai_tools_session_sweep__count_git_agent_owned() {
+_ai_tools_session_sweep__count_git_agent_owned() {
     local proj="$1"
     [[ -n "${proj}" && -d "${proj}/.git" ]] || { printf '0'; return 0; }
     find "${proj}/.git" -xdev -user @SANDBOX_USER@ \( -type f -o -type d \) -printf '.' 2>/dev/null | wc -c
 }
 
-# ai_tools_session_sweep__sweep_project <project> <marker> <unbounded 0|1> <mode> -- hand every @SANDBOX_USER@-owned
+# _ai_tools_session_sweep__sweep_project <project> <marker> <unbounded 0|1> <mode> -- hand every @SANDBOX_USER@-owned
 # path under <project> to ai-tools-chown, bounded by <marker> unless <unbounded> is 1, and print the count of confirmed
 # handbacks on stdout. <mode> names the pass in its log lines. Returns 0 after a walk, and 1 when the socket was
 # down and no path was offered.
-ai_tools_session_sweep__sweep_project() {
+_ai_tools_session_sweep__sweep_project() {
     local dir="$1" marker="$2" unbounded="$3" mode="$4"
     local bounded=0 swept=0 failed=0 path below quoted
     # The project as a command argument, for the remedy a warning prints (the %q form, as the NOTICE carries it).
@@ -209,10 +209,10 @@ ai_tools_session_sweep__sweep_project() {
     # reads via process substitution (not a pipe) so the count survives the loop; a find non-zero (e.g. an unreadable
     # subdir) only ends the stream and cannot trip `set -e` / pipefail or skip the marker update.
     ai_tools_log__debug "${mode} sweep: handing back agent-owned paths under ${dir}$([[ "${unbounded}" -eq 1 ]] && echo ' (unbounded)' || echo ' (since marker)')"
-    if [[ ! -S "${AI_TOOLS_SESSION_SWEEP__HANDBACK_SOCKET}" ]]; then
+    if [[ ! -S "${_AI_TOOLS_SESSION_SWEEP__HANDBACK_SOCKET}" ]]; then
         # Socket down: every CHOWN would fail, so skip the walk and record it once. Counting the failed calls would also
         # mis-fire the large-batch skip-list hint.
-        ai_tools_log__warn "${mode} sweep skipped: handback socket ${AI_TOOLS_SESSION_SWEEP__HANDBACK_SOCKET} is down -- paths under ${dir} stay @SANDBOX_USER@-owned (reclaim with: ai-tools projects handback ${quoted})"
+        ai_tools_log__warn "${mode} sweep skipped: handback socket ${_AI_TOOLS_SESSION_SWEEP__HANDBACK_SOCKET} is down -- paths under ${dir} stay @SANDBOX_USER@-owned (reclaim with: ai-tools projects handback ${quoted})"
         printf '%s\n' "${swept}"
         return 1
     fi
@@ -223,7 +223,7 @@ ai_tools_session_sweep__sweep_project() {
         # A path an earlier walk offered sits under a directory that walk covered whole, so it is not walked again.
         [[ -z "${offered[${path}]+x}" ]] || continue
         offered["${path}"]=1
-        if "${AI_TOOLS_SESSION_SWEEP__HANDBACK_CLIENT}" CHOWN "${path}"; then
+        if "${_AI_TOOLS_SESSION_SWEEP__HANDBACK_CLIENT}" CHOWN "${path}"; then
             swept=$((swept + 1))
         else
             failed=$((failed + 1))
@@ -232,7 +232,7 @@ ai_tools_session_sweep__sweep_project() {
         while IFS= read -r -d '' below; do
             [[ -z "${offered[${below}]+x}" ]] || continue
             offered["${below}"]=1
-            if "${AI_TOOLS_SESSION_SWEEP__HANDBACK_CLIENT}" CHOWN "${below}"; then
+            if "${_AI_TOOLS_SESSION_SWEEP__HANDBACK_CLIENT}" CHOWN "${below}"; then
                 swept=$((swept + 1))
             else
                 failed=$((failed + 1))
@@ -284,7 +284,7 @@ ai_tools_session_sweep__run() {
         end_payload="$(cat 2>/dev/null)" || return 0
         end_cwd="$(jq -r '.cwd // empty' <<<"${end_payload}" 2>/dev/null)" || true
         if [[ -n "${end_cwd}" && -d "${end_cwd}" ]]; then
-            end_found="$(ai_tools_session_sweep__reclaim_git_tree "${end_cwd}")"
+            end_found="$(_ai_tools_session_sweep__reclaim_git_tree "${end_cwd}")"
             if [[ "${end_found}" -gt 0 ]]; then
                 ai_tools_log__info "session-end: reclaimed ${end_found} agent-owned .git path(s) under ${end_cwd}"
             fi
@@ -327,7 +327,7 @@ ai_tools_session_sweep__run() {
     if [[ "${unbounded}" -eq 1 ]]; then
         if [[ -f "${active_marker}" ]]; then
             interrupted=1
-            prev_cwd="$(ai_tools_session_sweep__read_prior_cwd "${active_marker}")"
+            prev_cwd="$(_ai_tools_session_sweep__read_prior_cwd "${active_marker}")"
         fi
         printf '%s\n' "${dir}" > "${active_marker}" 2>/dev/null || true
         # The hooks of releases before 0.27.0 created the sweep marker through a mktemp file in this directory
@@ -343,7 +343,7 @@ ai_tools_session_sweep__run() {
     # turn does not repeat it.
     if [[ "${unbounded}" -eq 1 ]]; then
         ai_tools_log__debug "session-start: normalizing setgid on ${dir}"
-        "${AI_TOOLS_SESSION_SWEEP__HANDBACK_CLIENT}" SETGID "${dir}" || true
+        "${_AI_TOOLS_SESSION_SWEEP__HANDBACK_CLIENT}" SETGID "${dir}" || true
     fi
 
     # The scan's start time, set on the marker only after the sweep completes, so anything written during the sweep is
@@ -361,7 +361,7 @@ ai_tools_session_sweep__run() {
     # as it was, and the turn or session proceeds either way. The call sits in an `if` because the stub runs
     # under `set -e`; the count goes to the tests that call the walk directly, since this pass's stdout is the reply
     # the agent reads.
-    if ai_tools_session_sweep__sweep_project "${dir}" "${marker}" "${unbounded}" "${mode}" >/dev/null; then
+    if _ai_tools_session_sweep__sweep_project "${dir}" "${marker}" "${unbounded}" "${mode}" >/dev/null; then
         [[ -z "${scan_start}" ]] || touch -d "${scan_start}" "${marker}" 2>/dev/null || true
     fi
 
@@ -372,15 +372,15 @@ ai_tools_session_sweep__run() {
     # and repacks. The marker does not gate this reclaim; it only selects the cross-project target and the NOTICE
     # wording.
     [[ "${unbounded}" -eq 1 ]] || return 0
-    if [[ -S "${AI_TOOLS_SESSION_SWEEP__HANDBACK_SOCKET}" ]]; then
-        git_found="$(ai_tools_session_sweep__reclaim_git_tree "${dir}")"
+    if [[ -S "${_AI_TOOLS_SESSION_SWEEP__HANDBACK_SOCKET}" ]]; then
+        git_found="$(_ai_tools_session_sweep__reclaim_git_tree "${dir}")"
 
         # A killed prior session may have been working in a DIFFERENT project; its recorded cwd is the only pointer
         # to that repo, so reclaim its .git too when it differs from this session's project. A graceful prior session
         # clears the marker, so its own next start reclaims its .git -- no cross-project pointer needed.
         prev_found=0
         if [[ "${interrupted}" -eq 1 && -n "${prev_cwd}" && "${prev_cwd}" != "${dir}" ]]; then
-            prev_found="$(ai_tools_session_sweep__reclaim_git_tree "${prev_cwd}")"
+            prev_found="$(_ai_tools_session_sweep__reclaim_git_tree "${prev_cwd}")"
         fi
 
         # Report the reclaim. Every reclaim is logged to journald (the audit trail of what was handed back). Only
@@ -413,23 +413,23 @@ ai_tools_session_sweep__run() {
                 # path to ai-tools-chown: that helper resolves the owner per path and applies the exclusions,
                 # the hardlink refusal and the secret rules, and its default walk includes .git.
                 reconcile="If git still complains, ask the user to run:"$'\n'"  ai-tools projects handback ${quoted_dir}"
-                ai_tools_session_sweep__emit_session_context "${prose}"$'\n'"${reconcile}"
+                _ai_tools_session_sweep__emit_session_context "${prose}"$'\n'"${reconcile}"
             fi
         fi
     else
         # Socket DOWN: every CHOWN would fail, so the reclaim is skipped. Surface the stranded paths and the fix rather
         # than a count of a reclaim that did not happen. Count the strand under this session's project and, if a prior
         # session was killed elsewhere, that project too.
-        stranded="$(ai_tools_session_sweep__count_git_agent_owned "${dir}")"
+        stranded="$(_ai_tools_session_sweep__count_git_agent_owned "${dir}")"
         if [[ "${interrupted}" -eq 1 && -n "${prev_cwd}" && "${prev_cwd}" != "${dir}" ]]; then
-            stranded=$(( stranded + $(ai_tools_session_sweep__count_git_agent_owned "${prev_cwd}") ))
+            stranded=$(( stranded + $(_ai_tools_session_sweep__count_git_agent_owned "${prev_cwd}") ))
         fi
         if [[ "${stranded}" -gt 0 ]]; then
-            ai_tools_log__warn "handback socket ${AI_TOOLS_SESSION_SWEEP__HANDBACK_SOCKET} is down -- ${stranded} agent-owned .git path(s) under ${dir} not reclaimed; run: ai-tools projects handback ${quoted_dir}"
+            ai_tools_log__warn "handback socket ${_AI_TOOLS_SESSION_SWEEP__HANDBACK_SOCKET} is down -- ${stranded} agent-owned .git path(s) under ${dir} not reclaimed; run: ai-tools projects handback ${quoted_dir}"
             prose="$(AI_TOOLS_MSG_BOX=1 ai_tools_msg__alert NOTICE 1 \
                 "The ownership handback socket is down, so ${stranded} file(s) the agent wrote to git stay ai-tools-owned and git may report \"dubious ownership\". Bring the socket up, then reclaim the tree:")"
             reconcile="  sudo systemctl enable --now ai-tools-handback.socket"$'\n'"  ai-tools projects handback ${quoted_dir}"
-            ai_tools_session_sweep__emit_session_context "${prose}"$'\n'"${reconcile}"
+            _ai_tools_session_sweep__emit_session_context "${prose}"$'\n'"${reconcile}"
         fi
     fi
     return 0

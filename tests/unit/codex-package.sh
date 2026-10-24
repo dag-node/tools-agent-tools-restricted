@@ -647,7 +647,7 @@ rm -f "${HOOKS}/session-hook-nolib.sh"
 # an empty string: a path that is not a directory, and one carrying a terminal escape.
 for marker_line in '/nonexistent-prior-project' "/nonexistent$(printf '\033')[31m" '' 'relative/path'; do
     printf '%s\n' "${marker_line}" > "${HOOKS}/.session-active"
-    got="$(bash -c 'source "$1"; ai_tools_session_sweep__read_prior_cwd "$2"' _ "${SWEEP_LIB_COPY}" "${HOOKS}/.session-active" 2>/dev/null)"
+    got="$(bash -c 'source "$1"; _ai_tools_session_sweep__read_prior_cwd "$2"' _ "${SWEEP_LIB_COPY}" "${HOOKS}/.session-active" 2>/dev/null)"
     if [[ -z "${got}" ]]; then
         pass "read_prior_cwd yields nothing for a marker naming $(printf '%q' "${marker_line}")"
     else
@@ -655,13 +655,13 @@ for marker_line in '/nonexistent-prior-project' "/nonexistent$(printf '\033')[31
     fi
 done
 printf '%s\n' "${PROJECT}" > "${HOOKS}/.session-active"
-got="$(bash -c 'source "$1"; ai_tools_session_sweep__read_prior_cwd "$2"' _ "${SWEEP_LIB_COPY}" "${HOOKS}/.session-active" 2>/dev/null)"
+got="$(bash -c 'source "$1"; _ai_tools_session_sweep__read_prior_cwd "$2"' _ "${SWEEP_LIB_COPY}" "${HOOKS}/.session-active" 2>/dev/null)"
 [[ "${got}" == "${PROJECT}" ]] \
     && pass "read_prior_cwd returns a marker naming a real directory, so the cross-project reclaim still runs" \
     || fail "read_prior_cwd dropped a valid prior project: '${got}'"
 rm -f "${HOOKS}/.session-active"
 
-reply="$(bash -c 'source "$1"; ai_tools_session_sweep__emit_session_context hello' _ "${SWEEP_LIB_COPY}" 2>/dev/null)"
+reply="$(bash -c 'source "$1"; _ai_tools_session_sweep__emit_session_context hello' _ "${SWEEP_LIB_COPY}" 2>/dev/null)"
 [[ "$(jq -r '.hookSpecificOutput.additionalContext' <<<"${reply}")" == "hello" \
         && "$(jq -r '.hookSpecificOutput.hookEventName' <<<"${reply}")" == "SessionStart" \
         && "$(jq -r 'keys == ["hookSpecificOutput"]' <<<"${reply}")" == true ]] 2>/dev/null \
