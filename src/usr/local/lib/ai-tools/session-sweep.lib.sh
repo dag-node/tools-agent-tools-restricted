@@ -62,11 +62,12 @@
 # already read them) and the scan stays on one filesystem (`-xdev`).
 #
 # Handback socket down: every CHOWN runs over AI_TOOLS_SESSION_SWEEP__HANDBACK_SOCKET, so a socket that is not listening
-# fails every hand-back. Each pass checks the socket first and, when it is down, skips its walk and records the STRANDED
-# count rather than tallying failed calls -- and the session-start pass emits a distinct NOTICE naming the fix instead
-# of a reassuring "Reclaimed N". Every pass otherwise counts CONFIRMED hand-backs (client exit 0), not attempts.
-# The socket is a data-ownership convenience, not a confinement boundary (the user:<operator> ACL keeps <you> reading
-# agent files regardless), so this warns and proceeds -- it never blocks a session.
+# fails every hand-back. Each pass checks the socket first and, when it is down, skips its walk, leaves the sweep marker
+# where it was and records the STRANDED count rather than tallying failed calls -- and the session-start pass emits
+# a distinct NOTICE naming the fix instead of a reassuring "Reclaimed N". Every pass otherwise counts CONFIRMED
+# hand-backs (client exit 0), not attempts, and logs the calls that failed in one warning. The socket is
+# a data-ownership convenience, not a confinement boundary (the user:<operator> ACL keeps <you> reading agent files
+# regardless), so this warns and proceeds -- it never blocks a session.
 #
 # The state files (.sweep-marker, .session-active) live in the directory the stub passes, its own -- the agent's config
 # directory, whose name its manifest declares -- so this library does not name an agent (ownership-and-hooks.rule.md).
@@ -180,10 +181,11 @@ ai_tools_session_sweep__count_git_agent_owned() {
 
 # ai_tools_session_sweep__sweep_project <project> <marker> <unbounded 0|1> <mode> -- hand every @SANDBOX_USER@-owned
 # path under <project> to ai-tools-chown, bounded by <marker> unless <unbounded> is 1, and print the count of confirmed
-# handbacks on stdout. <mode> names the pass in its log lines.
+# handbacks on stdout. <mode> names the pass in its log lines. Returns 0 after a walk, and 1 when the socket was
+# down and no path was offered.
 ai_tools_session_sweep__sweep_project() {
     local dir="$1" marker="$2" unbounded="$3" mode="$4"
-    local bounded=0 swept=0 path below quoted
+    local bounded=0 swept=0 failed=0 path below quoted
     # The project as a command argument, for the remedy a warning prints (the %q form, as the NOTICE carries it).
     quoted="$(printf '%q' "${dir}")"
     # `find DIR -xdev \( skip heavy trees \) -prune -o \( ai-tools-owned [cnewer] file|dir \) -print0`
@@ -211,21 +213,38 @@ ai_tools_session_sweep__sweep_project() {
         # Socket down: every CHOWN would fail, so skip the walk and record it once. Counting the failed calls would also
         # mis-fire the large-batch skip-list hint.
         ai_tools_log__warn "${mode} sweep skipped: handback socket ${AI_TOOLS_SESSION_SWEEP__HANDBACK_SOCKET} is down -- paths under ${dir} stay @SANDBOX_USER@-owned (reclaim with: ai-tools projects handback ${quoted})"
-    else
-        # Count CONFIRMED handbacks (client exit 0), not attempts.
-        local -A offered=()
-        while IFS= read -r -d '' path; do
-            # A path an earlier walk offered sits under a directory that walk covered whole, so it is not walked again.
-            [[ -z "${offered[${path}]+x}" ]] || continue
-            offered["${path}"]=1
-            if "${AI_TOOLS_SESSION_SWEEP__HANDBACK_CLIENT}" CHOWN "${path}"; then swept=$((swept + 1)); fi
-            (( bounded )) && [[ -d "${path}" && ! -L "${path}" ]] || continue
-            while IFS= read -r -d '' below; do
-                [[ -z "${offered[${below}]+x}" ]] || continue
-                offered["${below}"]=1
-                if "${AI_TOOLS_SESSION_SWEEP__HANDBACK_CLIENT}" CHOWN "${below}"; then swept=$((swept + 1)); fi
-            done < <(find "${path}" "${descendant_expr[@]}" 2>/dev/null) || true
-        done < <(find "${expr[@]}" 2>/dev/null) || true
+        printf '%s\n' "${swept}"
+        return 1
+    fi
+
+    # Count CONFIRMED handbacks (client exit 0), not attempts, and the calls that failed apart from them.
+    local -A offered=()
+    while IFS= read -r -d '' path; do
+        # A path an earlier walk offered sits under a directory that walk covered whole, so it is not walked again.
+        [[ -z "${offered[${path}]+x}" ]] || continue
+        offered["${path}"]=1
+        if "${AI_TOOLS_SESSION_SWEEP__HANDBACK_CLIENT}" CHOWN "${path}"; then
+            swept=$((swept + 1))
+        else
+            failed=$((failed + 1))
+        fi
+        (( bounded )) && [[ -d "${path}" && ! -L "${path}" ]] || continue
+        while IFS= read -r -d '' below; do
+            [[ -z "${offered[${below}]+x}" ]] || continue
+            offered["${below}"]=1
+            if "${AI_TOOLS_SESSION_SWEEP__HANDBACK_CLIENT}" CHOWN "${below}"; then
+                swept=$((swept + 1))
+            else
+                failed=$((failed + 1))
+            fi
+        done < <(find "${path}" "${descendant_expr[@]}" 2>/dev/null) || true
+    done < <(find "${expr[@]}" 2>/dev/null) || true
+
+    # A failed call is a path the helper refused or one the socket stopped answering for mid-walk; the client's exit
+    # status does not tell the two apart. Either way the path stays @SANDBOX_USER@-owned, so the next session-start pass
+    # offers it again.
+    if [[ "${failed}" -gt 0 ]]; then
+        ai_tools_log__warn "${mode} sweep: ${failed} path(s) under ${dir} not handed back -- the helper refused them or the socket stopped answering mid-walk; reclaim with: ai-tools projects handback ${quoted}"
     fi
 
     # A large sweep is the skip-list signal: hundreds of agent-owned paths per pass usually means a build or dependency
@@ -327,14 +346,19 @@ ai_tools_session_sweep__run() {
     # from session start.
     scan_start="$(date --rfc-3339=ns 2>/dev/null)" || scan_start=""
 
-    # The count goes to the tests that call the walk directly; this pass's stdout is the reply the agent reads.
-    ai_tools_session_sweep__sweep_project "${dir}" "${marker}" "${unbounded}" "${mode}" >/dev/null
-
-    # Advance the marker to this scan's start time. A run that ends mid-walk leaves the marker where it was, so the next
-    # pass covers the same span. No file is written to carry the time: a Stop hook codex kills at its timeout cannot run
-    # a trap, and a temporary file would stay behind in the config directory. Best-effort: a time that did not read
-    # or a touch that fails leaves the marker as it was, and the turn or session proceeds either way.
-    [[ -z "${scan_start}" ]] || touch -d "${scan_start}" "${marker}" 2>/dev/null || true
+    # Advance the marker to this scan's start time once the walk ran. A pass whose walk did not run (the socket was
+    # down) and a run that ends mid-walk each leave the marker where it was, so the next pass covers the same span.
+    # A failed call does not hold the marker: the client's exit status does not tell a helper refusal from a transport
+    # failure, a path the helper refuses for good would pin the marker and make every turn a full re-walk
+    # from that time, and the path stays @SANDBOX_USER@-owned, so the next session-start pass offers it. No file is
+    # written to carry the time: a Stop hook codex kills at its timeout cannot run a trap, and a temporary file would
+    # stay behind in the config directory. Best-effort: a time that did not read or a touch that fails leaves the marker
+    # as it was, and the turn or session proceeds either way. The call sits in an `if` because the stub runs
+    # under `set -e`; the count goes to the tests that call the walk directly, since this pass's stdout is the reply
+    # the agent reads.
+    if ai_tools_session_sweep__sweep_project "${dir}" "${marker}" "${unbounded}" "${mode}" >/dev/null; then
+        [[ -z "${scan_start}" ]] || touch -d "${scan_start}" "${marker}" 2>/dev/null || true
+    fi
 
     # .git ownership reclaim, run on every unbounded (session-start) pass. Every sweep SKIPS .git, so ai-tools-owned
     # objects the agent writes there via `git commit` (Bash tool, no path in the event, so no PostToolUse handback)

@@ -291,6 +291,56 @@ else
     fi
 fi
 
+# ── A pass whose walk did not run, and a call that failed ────────────────────────────────────────────────────────────
+# A stop run with the socket down skips its walk, so it leaves the marker where it was, and the span it skipped is
+# walked once the socket is back; the stop-run case's advance is the control. A walk in which the client fails for one
+# path counts it apart: the warning names one path not handed back, and the printed count is the offers less that one.
+section "sweep bound: a pass whose walk did not run holds the marker, and a failed call is counted"
+if ! command -v jq >/dev/null 2>&1; then
+    skip "the marker and the failed call" "jq not available (the sweep parses its event with it)"
+elif [[ ! -S "${SOCKET}" ]]; then
+    skip "the marker and the failed call" "no socket to answer the sweep's check: the bind is refused here and ${SOCKET} is down"
+else
+    HOLD_STATE="${TESTDIR}/hold-state"; mkdir -p "${HOLD_STATE}"
+    touch -d '-1 hour' "${HOLD_STATE}/.sweep-marker"
+    marker_before="$(stat -c '%Y' "${HOLD_STATE}/.sweep-marker")"
+    warnings="$(run_library stop "${HOLD_STATE}" "${TESTDIR}/no-socket" ':' <<<"{\"cwd\":\"${WALKED}\"}" 2>&1 >/dev/null || true)"
+    [[ "${warnings}" == *'sweep skipped: handback socket'* ]] \
+        && pass "control: the stop run read the socket as down and skipped its walk" \
+        || fail "control: the stop run did not report the socket down: $(_san "${warnings}")"
+    [[ "$(stat -c '%Y' "${HOLD_STATE}/.sweep-marker")" == "${marker_before}" ]] \
+        && pass "a stop run whose walk did not run leaves the marker where it was" \
+        || fail "a stop run with the socket down advanced the marker"
+
+    FAIL_PROJECT="${TESTDIR}/fail-project"; mkdir -p "${FAIL_PROJECT}"
+    printf 'a\n' > "${FAIL_PROJECT}/a.txt"; printf 'b\n' > "${FAIL_PROJECT}/refused.txt"
+    # shellcheck disable=SC2016  # the inner bash expands these
+    count="$(bash -c '
+        set -euo pipefail
+        source "$1"
+        ai_tools_log__debug() { :; }; ai_tools_log__info() { :; }
+        stub_warnings="$4" stub_offers="$5"
+        ai_tools_log__warn() { printf "warn: %s\n" "$*" >> "${stub_warnings}"; }
+        stub_client() { printf "%s\n" "$2" >> "${stub_offers}"; [[ "$2" != */refused.txt ]]; }
+        AI_TOOLS_SESSION_SWEEP__HANDBACK_CLIENT=stub_client
+        AI_TOOLS_SESSION_SWEEP__HANDBACK_SOCKET="$3"
+        ai_tools_session_sweep__sweep_project "$2" "" 1 stop
+        ' _ "${LIB_COPY}/session-sweep.lib.sh" "${FAIL_PROJECT}" "${SOCKET}" "${TESTDIR}/fail.warn" "${TESTDIR}/fail.offers")" \
+        || count="the sweep returned non-zero"
+    offers="$(grep -c . "${TESTDIR}/fail.offers" 2>/dev/null || true)"
+    if [[ "${offers}" -ge 3 ]] && grep -qxF "${FAIL_PROJECT}/refused.txt" "${TESTDIR}/fail.offers"; then
+        pass "control: the walk offered the project, both files and the refused one among them (${offers} offers)"
+    else
+        fail "control: the walk's offers: $(_san "$(cat "${TESTDIR}/fail.offers" 2>/dev/null || true)")"
+    fi
+    [[ "${count}" == "$(( offers - 1 ))" ]] \
+        && pass "the printed count leaves out the failed call (${count} of ${offers})" \
+        || fail "the sweep printed '$(_san "${count}")' for ${offers} offers with one failed"
+    grep -q '1 path(s) under .* not handed back' "${TESTDIR}/fail.warn" 2>/dev/null \
+        && pass "one warning names the one path not handed back" \
+        || fail "no warning named the failed call: $(_san "$(cat "${TESTDIR}/fail.warn" 2>/dev/null || true)")"
+fi
+
 # ── The bound the library carries ────────────────────────────────────────────────────────────────────────────────────
 section "sweep bound: the session sweep bounds its Stop walk on ctime, and every agent's hook runs it"
 SWEEP_LIB_SRC="${ROOT}/src/usr/local/lib/ai-tools/session-sweep.lib.sh"

@@ -179,12 +179,15 @@ of attempts would then report work that did not happen. So the sweeps and the re
 because `ai-tools-chown` exits 0 both for a path it handed back and for one it deliberately left alone (an excluded
 path, a hardlinked file, a secret-named one it quarantined elsewhere) — the walk selected `SANDBOX_USER`-owned paths,
 so a path no longer owned by that account is one the call changed, and the paths left as they were are reported beside
-the handbacks rather than folded into them; a down socket makes each pass skip its walk and record the stranded count,
-and the `session-start` pass — the one the operator reads — surfaces a distinct `SessionStart` NOTICE naming the fix
-(`systemctl enable --now ai-tools-handback.socket`, then `ai-tools projects handback <project>`) whenever agent-owned
-`.git` paths are stranded, instead of the "reclaimed N" wording. `ai-tools-run`'s launch-time preflight is
-the front-line detector for the same condition (see [launch](launch.rule.md),
-[handback-bridge](handback-bridge.rule.md)).
+the handbacks rather than folded into them. A down socket makes each pass skip its walk, record the stranded count
+and leave the sweep marker where it was, so the span it skipped is walked once the socket is back. A call that fails
+on a walk that ran is counted in one journald warning and does not hold the marker, since the client's exit does not
+tell a helper refusal from a transport failure and a path refused for good would pin it; the path stays
+`SANDBOX_USER`-owned, so the next `session-start` pass offers it again. The `session-start` pass — the one the operator
+reads — surfaces a distinct `SessionStart` NOTICE naming the fix (`systemctl enable --now ai-tools-handback.socket`,
+then `ai-tools projects handback <project>`) whenever agent-owned `.git` paths are stranded, instead of the "reclaimed
+N" wording. `ai-tools-run`'s launch-time preflight is the front-line detector for the same condition (see
+[launch](launch.rule.md), [handback-bridge](handback-bridge.rule.md)).
 
 ## Setgid normalization <a id="ref-section-y9z4"></a>
 
