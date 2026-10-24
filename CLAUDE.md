@@ -60,7 +60,7 @@ the management CLI (`ai-tools`), and root-helper binary names (`ai-tools-chown`,
 | **Provider-specific: codex** — its manifest and the re-linked launcher chain, the two managed files codex reads from `/etc/codex` (the mode pin that keeps the host's confinement closed, managed hooks only), the hook adapters, the admin-scope skills link, the session pin, the reduced set | `lib/ai-tools/agents.d/codex.conf`, `lib/ai-tools/session-env.d/codex.pins.env.sh`, `etc/codex/**`, `opt/ai-tools/agents/codex/**` | [agent-codex](.claude/rules/agent-codex.rule.md) |
 | Namespaces, SELinux transition, preflight, `/tmp`, optional-group management, how the policy ships and why it is separately licensed | `selinux/**`, `bin/ai-tools-run.sh`, `selinux-groups.lib.sh`, `ai-tools-admin.sh` (`selinux` subcommand), `packaging/ai-tools.spec` (`ai-tools-selinux`) | [confinement](.claude/rules/confinement.rule.md) |
 | Root-op socket (daemon/client/units) | `ai-tools-handback*`, `ai-tools-handback-client*` | [handback-bridge](.claude/rules/handback-bridge.rule.md) |
-| Hooks, sweeps, `.git` reclaim, setgid, control-plane integrity | `opt/ai-tools/agents/**`, `ai-tools-chown.sh`, `ai-tools-setgid.sh`, `owner-only.lib.sh` | [ownership-and-hooks](.claude/rules/ownership-and-hooks.rule.md) |
+| Hooks, sweeps, `.git` reclaim, setgid, control-plane integrity | `opt/ai-tools/agents/**`, `session-sweep.lib.sh`, `ai-tools-chown.sh`, `ai-tools-setgid.sh`, `owner-only.lib.sh` | [ownership-and-hooks](.claude/rules/ownership-and-hooks.rule.md) |
 | The installed layout as one table: every path this project installs or creates with its owner, mode, ACL and SELinux type, the readers, the reconcile and its preconditions, where it runs, and the loop the permission test is | `layout.lib.sh`, `ai-tools-admin.sh` (`system layout`) | [layout](.claude/rules/layout.rule.md) |
 | Claude Code settings, Bash deny rules ↔ SELinux policy, the hook-declaration merge a kept file takes on upgrade | `opt/ai-tools/agents/*/settings.json`, `settings-merge.lib.sh` | [claude-settings](.claude/rules/claude-settings.rule.md) |
 | Token-saving command filters: rewrite rules + output noise stripping | `filters.lib.sh`, `lib/ai-tools/filters.d/**`, `agents/*/filter-hook.sh` | [filters](.claude/rules/filters.rule.md) |
@@ -340,11 +340,11 @@ not gaps, so a reader tells bounded design from an oversight:
   `ai-tools-admin` domain**, an executable at `/usr/local/lib/ai-tools/admin-commands.d/<name>` that the dispatcher
   execs once it and its directory pass the provider trust predicate (`dotnet` is the one installed today). **Shared
   libraries** live under `/usr/local/lib/ai-tools/` (`conf`, `settings-merge`, `secret-patterns`, `skip-dirs`,
-  `owner-only`, `project-permissions`, `safe-paths`, `relabel`, `operator`, `control-plane`, `confinement`,
-  `launch-wrapper`, `npm-verify`, `openpgp`, `entrypoint-verify`, `assets-verify`, `managed-assets`, `providers`,
-  `ancestor-config`, `sandbox-exec`, `toolchain`, `cache-cleanup`, `selinux-groups`, `filters`, `services`, `msg`,
-  `log`, `path-order`, `agent-installs`, `records-base`, `records-tsv`, `assets`, `layout`, and the claude-code pair
-  `claude-prompt`/`claude-endpoint`), plus `path-order.sh`, the PATH-ordering fragment `ai-tools-admin` wires
+  `session-sweep`, `owner-only`, `project-permissions`, `safe-paths`, `relabel`, `operator`, `control-plane`,
+  `confinement`, `launch-wrapper`, `npm-verify`, `openpgp`, `entrypoint-verify`, `assets-verify`, `managed-assets`,
+  `providers`, `ancestor-config`, `sandbox-exec`, `toolchain`, `cache-cleanup`, `selinux-groups`, `filters`, `services`,
+  `msg`, `log`, `path-order`, `agent-installs`, `records-base`, `records-tsv`, `assets`, `layout`, and the claude-code
+  pair `claude-prompt`/`claude-endpoint`), plus `path-order.sh`, the PATH-ordering fragment `ai-tools-admin` wires
   into operator dotfiles (see [launch](.claude/rules/launch.rule.md)). That directory and its contents are `root`-owned
   and non-group-writable, and the sandbox group reads them — load-bearing, since the sandbox account sources several
   of these libraries. Read is open on every one of them and **write** is the boundary: a shared library carries shipped

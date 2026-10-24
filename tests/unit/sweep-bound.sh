@@ -1,16 +1,18 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: AGPL-3.0-only
 # tests/unit/sweep-bound.sh
-# Unit test for the bound the Stop sweep puts on its walk: every agent's session hook selects the paths whose status
-# changed since the sweep marker (`find -cnewer`), so a file moved into the project -- renamed within one filesystem,
-# or moved from another -- is selected though its mtime is older than the marker. The live chain runs only inside
-# a claimed project (tests/manual/verify-live-flows.sh), so this file drives the bound's find shape over a fixture,
-# with `-newer` as the control that misses both moves, and reads both hooks' source for the bound they carry.
+# Unit test for the bound the Stop sweep puts on its walk: the session sweep every agent's hook runs selects the paths
+# whose status changed since the sweep marker (`find -cnewer`), so a file moved into the project -- renamed within one
+# filesystem, or moved from another -- is selected though its mtime is older than the marker. The live chain runs only
+# inside a claimed project (tests/manual/verify-live-flows.sh), so this file drives the bound's find shape
+# over a fixture, with `-newer` as the control that misses both moves, and reads the session sweep library's source
+# for the bound it
+# carries.
 #
 # The bound narrows only which sandbox-owned paths a pass offers to ai-tools-chown; the `-user` test and the helper's
 # own guard decide what is handed back, so no boundary half is owed here. A directory moved in is the bound's one blind
-# spot, since its descendants keep their ctimes: each hook's sweep block is read out of its source and run over a moved
-# directory, and must offer what is inside it. Runs unprivileged or as root.
+# spot, since its descendants keep their ctimes: the library's sweep function is run over a moved directory, and must
+# offer what is inside it. Runs unprivileged or as root.
 set -euo pipefail
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")/../lib" && pwd)/harness.sh"
 
@@ -86,11 +88,11 @@ fi
 
 # ── A directory moved into the tree ──────────────────────────────────────────────────────────────────────────────────
 # A directory moved in takes a new ctime and its descendants keep theirs, so the bound alone selects the directory
-# and not the file inside it. Each hook walks a directory its bounded pass selects once more without the bound.
-# That block of each hook is read out of its source and run over the fixture, with the handback client replaced
-# by a stub recording each path it is offered, its socket test read as a socket that is up, the hook's skip expression
-# stubbed to prune `node_modules`, and the walked owner the invoker; the walked root is the invoker's here too, so its
-# own new ctime selects it as well, which the de-dup
+# and not the file inside it. The sweep walks a directory its bounded pass selects once more without the bound. Its
+# function is sourced from a copy of the checkout's libraries, with the walked owner -- the invoker -- substituted
+# for the sandbox account as install.sh substitutes it, and called over the fixture with the handback client replaced
+# by a stub recording each path it is offered, its socket a socket the test binds, the skip expression stubbed to prune
+# `node_modules`; the walked root is the invoker's here too, so its own new ctime selects it as well, which the de-dup
 # answers.
 section "sweep bound: a directory moved into the project is walked for its descendants"
 MOVED="${OUTSIDE}/moved-dir"
@@ -106,45 +108,63 @@ else
     fail "control: the moved directory's selection is not the state under test: '${by_ctime_dir}'"
 fi
 walk_owner="$(stat -c '%U' "${WALKED}")"
-for hook in "${ROOT}"/src/opt/ai-tools/agents/*/session-hook.sh; do
-    agent="${hook%/session-hook.sh}"; agent="${agent##*/}"
-    sweep_block="$(awk '/^ai_tools_skip_dirs__build_find_expression sweep /{on=1} on{print} on && /^fi$/ && seen{exit} /done < <\(find "\$\{expr\[@\]\}"/{seen=1}' "${hook}")"
-    sweep_block="${sweep_block//\/usr\/local\/bin\/ai-tools-handback-client/stub_client}"
-    sweep_block="${sweep_block//@SANDBOX_USER@/${walk_owner}}"
-    # shellcheck disable=SC2016  # the hook's own text, matched and replaced as written
-    socket_test='! -S "${HANDBACK_SOCKET}"'
-    if [[ "${sweep_block}" != *'swept=0'* || "${sweep_block}" != *'find "${expr[@]}"'* \
-            || "${sweep_block}" != *"${socket_test}"* ]]; then
-        fail "${agent}: the sweep block is no longer where this reads it"
-        continue
-    fi
-    sweep_block="${sweep_block//"${socket_test}"/-z socket-is-up}"
-    offered="$(bash -c '
+LIB_COPY="${TESTDIR}/lib"; mkdir -p "${LIB_COPY}"
+for lib in "${ROOT}"/src/usr/local/lib/ai-tools/*.lib.sh; do
+    sed -e "s/@SANDBOX_USER@/${walk_owner}/g" -e "s/@SANDBOX_GROUP@/${SANDBOX_GROUP}/g" "${lib}" > "${LIB_COPY}/${lib##*/}"
+done
+# The sweep checks the socket before it walks. A socket bound here answers that check; where the host refuses the bind
+# (a confined session), the host's own handback socket does, since the stubbed client is what each offer reaches.
+SOCKET="${TESTDIR}/handback.sock"
+python3 -c 'import socket, sys; socket.socket(socket.AF_UNIX).bind(sys.argv[1])' "${SOCKET}" 2>/dev/null || true
+[[ -S "${SOCKET}" ]] || SOCKET=/run/ai-tools/handback.sock
+if [[ ! -S "${SOCKET}" ]]; then
+    skip "the moved directory's walk" "no socket to answer the sweep's check: the bind is refused here and ${SOCKET} is down"
+else
+    # shellcheck disable=SC2016  # the inner bash expands these
+    count="$(bash -c '
         set -euo pipefail
-        dir="$1" MARKER="$2" MODE=stop unbounded=0
+        source "$1"
         ai_tools_skip_dirs__build_find_expression() { AI_TOOLS_SKIP_DIRS__FIND_EXPRESSION=( "(" -name node_modules ")" -prune -o ); }
         ai_tools_log__debug() { :; }; ai_tools_log__warn() { :; }
-        stub_client() { printf "%s\n" "${2#"${dir}/"}"; }
-        eval "$3"
-        ' _ "${WALKED}" "${MARKER}" "${sweep_block}" 2>&1 | LC_ALL=C sort)" || offered="the block did not run: ${offered}"
+        stub_walked="$2"
+        stub_client() { printf "%s\n" "${2#"${stub_walked}/"}" >&2; }
+        AI_TOOLS_SESSION_SWEEP__HANDBACK_CLIENT=stub_client
+        AI_TOOLS_SESSION_SWEEP__HANDBACK_SOCKET="$4"
+        ai_tools_session_sweep__sweep_project "$2" "$3" 0 stop
+        ' _ "${LIB_COPY}/session-sweep.lib.sh" "${WALKED}" "${MARKER}" "${SOCKET}" 2>"${TESTDIR}/offered")" \
+        || count="the sweep did not run"
+    offered="$(LC_ALL=C sort "${TESTDIR}/offered")"
     if [[ "$(grep -cxF moved-dir <<< "${offered}")" == 1 && "$(grep -cxF moved-dir/inside.txt <<< "${offered}")" == 1 ]] \
             && ! grep -q 'node_modules' <<< "${offered}"; then
-        pass "${agent}: the bounded sweep offers the moved directory and the older file inside it, each once, with the skip kept"
+        pass "the bounded sweep offers the moved directory and the older file inside it, each once, with the skip kept"
     else
-        fail "${agent}: the moved directory's offers: $(_san "${offered}")"
+        fail "the moved directory's offers: $(_san "${offered}")"
     fi
-done
+    if [[ "${count}" == "$(grep -c . <<< "${offered}")" ]]; then
+        pass "the sweep prints the count of confirmed handbacks (${count})"
+    else
+        fail "the sweep printed '$(_san "${count}")' for $(grep -c . <<< "${offered}") offers, each confirmed"
+    fi
+fi
 
-# ── The bound each hook carries ──────────────────────────────────────────────────────────────────────────────────────
-section "sweep bound: every agent's session hook bounds its Stop sweep on ctime"
+# ── The bound the library carries ────────────────────────────────────────────────────────────────────────────────────
+section "sweep bound: the session sweep bounds its Stop walk on ctime, and every agent's hook runs it"
+SWEEP_LIB_SRC="${ROOT}/src/usr/local/lib/ai-tools/session-sweep.lib.sh"
+source_text="$(<"${SWEEP_LIB_SRC}")"
+if grep -qF 'expr+=( -cnewer "${marker}" )' <<<"${source_text}" \
+        && ! grep -qF -- '-newer "${marker}"' <<<"${source_text//-cnewer/}"; then
+    pass "session-sweep.lib.sh: the Stop sweep is bounded by -cnewer on the marker, with no -newer bound"
+else
+    fail "session-sweep.lib.sh does not carry the -cnewer bound alone"
+fi
 for hook in "${ROOT}"/src/opt/ai-tools/agents/*/session-hook.sh; do
     agent="${hook%/session-hook.sh}"; agent="${agent##*/}"
-    source_text="$(<"${hook}")"
-    if grep -qF 'expr+=( -cnewer "${MARKER}" )' <<<"${source_text}" \
-            && ! grep -qF -- '-newer "${MARKER}"' <<<"${source_text//-cnewer/}"; then
-        pass "${agent}: the Stop sweep is bounded by -cnewer on the marker, with no -newer bound"
+    hook_text="$(<"${hook}")"
+    if grep -qxF 'readonly SWEEP_LIB="/usr/local/lib/ai-tools/session-sweep.lib.sh"' <<<"${hook_text}" \
+            && grep -qxF 'ai_tools_session_sweep__run "${1:-stop}" "${HOOK_DIR}"' <<<"${hook_text}"; then
+        pass "${agent}: session-hook.sh sources the installed library and runs it over its own directory"
     else
-        fail "${agent}: session-hook.sh does not carry the -cnewer bound alone"
+        fail "${agent}: session-hook.sh does not source the installed session sweep and run it over its own directory"
     fi
 done
 

@@ -4,6 +4,7 @@ paths:
   - "src/usr/local/libexec/ai-tools/ai-tools-chown.sh"
   - "src/usr/local/libexec/ai-tools/ai-tools-setgid.sh"
   - "src/usr/local/lib/ai-tools/skip-dirs.lib.sh"
+  - "src/usr/local/lib/ai-tools/session-sweep.lib.sh"
   - "src/usr/local/lib/ai-tools/owner-only.lib.sh"
   - "src/usr/local/lib/ai-tools/control-plane.lib.sh"
 ---
@@ -16,16 +17,23 @@ through `ai-tools-chown` (via the [handback bridge](handback-bridge.rule.md)) so
 The hooks this rule states are **Claude Code's** driver for that handback, declared by its manifest as `handback=hooks`.
 An agent that declares otherwise gets `ai-tools-run`'s sweep of the project at session end — same `ai-tools-chown`
 boundary, per session instead of per turn (see [providers](providers.rule.md)) — and may still ship hooks of its own
-beside it as the per-turn cadence, which is what codex does with adapters of these two scripts
-([agent-codex](agent-codex.rule.md)). `<you>` is the operator that **owns** the path — the one whose allowlist covers
-it, which `ai-tools-chown` resolves per path via `operator.lib.sh` (`ai_tools_operator__resolve_owner`), so on a host
-with several operators each project's files return to that project's operator. Secret-named files take a different path
-(see [secrets](secret-handling.rule.md)).
+beside it as the per-turn cadence, which is what codex does: its session hook runs the same sweep, and its post-tool
+hook is an adapter of claude's ([agent-codex](agent-codex.rule.md)). `<you>` is the operator that **owns** the path —
+the one whose allowlist covers it, which `ai-tools-chown` resolves per path via `operator.lib.sh`
+(`ai_tools_operator__resolve_owner`), so on a host with several operators each project's files return to that project's
+operator. Secret-named files take a different path (see [secrets](secret-handling.rule.md)).
 
 Every hook an agent package ships parses its event JSON with `jq`, so the package `Requires: jq`. Where `jq` is absent,
 a hook takes its no-op path without an error: the handback stops returning ownership, the sweeps stop running,
 and the filters stop filtering. The dependency stays on the agent packages that ship hooks; base does not assume `jq`,
 and `npm-verify.lib.sh` parses the audit JSON with `node` for that reason.
+
+Each agent's `session-hook.sh` is a stub over one base library, `/usr/local/lib/ai-tools/session-sweep.lib.sh`: it
+sources the library at its installed path and calls `ai_tools_session_sweep__run` with its mode and its own directory,
+so the `Stop`, `SessionStart` and `SessionEnd` passes this rule states run the same code for every agent. A library
+that does not load is reported under `MSG-N6U2` and the hook exits 0 without handing any path to anyone; the tree keeps
+the owners it has until the library is restored (or, for an agent declaring `handback` other than `hooks`, until
+`ai-tools-run`'s session-end sweep).
 
 ## `ai-tools-chown` acts only on agent-written paths
 
@@ -146,14 +154,14 @@ That signal **widens** the `.git` reclaim to also cover the killed session's rec
 project than the new session's — and selects the interrupted-session NOTICE wording.
 
 **The line in that marker is agent-written, and it is read through one predicate.** The file sits in the agent's
-group-writable config directory, so its contents are the session's to choose; `read_prior_cwd` accepts the line only
-as an existing directory named by an absolute path, and a line failing that is logged and costs the cross-project
-reclaim rather than aiming a walk at something that is not a project (`ai-tools-chown` re-validates every path it is
-offered regardless). What the NOTICE relays is narrower still: it names *a prior session's project* without printing
-that path, since under one shared config directory the project may be another operator's, and the path an operator needs
-is in journald already. The path it does carry — this session's own project, from the hook payload — goes
-through `ai_tools_log__sanitize`, so a crafted directory name cannot put an escape sequence into the model's context
-or onto the terminal. A gracefully-exited session clears its marker and reclaims its `.git` at `session-end`;
+group-writable config directory, so its contents are the session's to choose; `ai_tools_session_sweep__read_prior_cwd`
+accepts the line only as an existing directory named by an absolute path, and a line failing that is logged and costs
+the cross-project reclaim rather than aiming a walk at something that is not a project (`ai-tools-chown` re-validates
+every path it is offered regardless). What the NOTICE relays is narrower still: it names *a prior session's project*
+without printing that path, since under one shared config directory the project may be another operator's, and the path
+an operator needs is in journald already. The path it does carry — this session's own project, from the hook payload —
+goes through `ai_tools_log__sanitize`, so a crafted directory name cannot put an escape sequence into the model's
+context or onto the terminal. A gracefully-exited session clears its marker and reclaims its `.git` at `session-end`;
 the cross-project pointer is needed only for a kill. Every reclaim is logged to journald (the audit trail), but only
 the **interrupted** case is also surfaced as a `SessionStart` `additionalContext` NOTICE — the only actionable one,
 since a killed prior session can leave cross-project mixed ownership the agent should relay, with the manual
@@ -302,5 +310,6 @@ row ([layout](layout.rule.md)).
 **Which directory that is belongs to the agent, not the base.** Its name comes from the agent manifest's `config_dir`,
 its files (`settings.json`, the hooks) are shipped by that agent's package, and its SELinux label is applied
 from the same manifest — so a second agent brings its own control-plane directory instead of sharing this one,
-and the base names none of them (see [providers](providers.rule.md)). The hook bodies derive their state paths
-(`.sweep-marker`, `.session-active`) from their own location for the same reason.
+and the base names none of them (see [providers](providers.rule.md)). For the same reason each agent's `session-hook.sh`
+passes its own directory to the session sweep library, which keeps the state files (`.sweep-marker`, `.session-active`)
+there.

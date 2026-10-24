@@ -44,7 +44,8 @@ _ai_tools_layout__set_attention_record_code=WARNING _ai_tools_layout__set_unread
 '
 
 # Source file to the component an operator names it by: the commands spelled differently from their file (an agent's
-# launch hook is named for the agent's command), the two installers, and otherwise the installed basename -- a libexec helper without its .sh, a shared library as it
+# launch hook is named for the agent's command), the two installers and an agent's session hook, whose installed names
+# keep their .sh, and otherwise the installed basename -- a libexec helper without its .sh, a shared library as it
 # is installed.
 COMPONENT_MAP='
 src/usr/local/bin/ai-tools.sh=ai-tools
@@ -54,6 +55,7 @@ src/usr/local/lib/ai-tools/launch.d/claude-code.sh=claude
 src/opt/ai-tools/bin/ai-tools-run.sh=ai-tools-run
 install.sh=install.sh
 selinux/install-selinux.sh=install-selinux.sh
+src/opt/ai-tools/agents/claude-code/session-hook.sh=session-hook.sh
 '
 
 # ── Extract: one tab-separated record per code ────────────────────────────────────────────────

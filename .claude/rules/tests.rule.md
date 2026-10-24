@@ -1170,10 +1170,11 @@ now captures the listing before matching it.
 ([ownership-and-hooks](ownership-and-hooks.rule.md)): over a fixture, `-cnewer` against the marker selects a file
 renamed into the tree and one moved in from another filesystem, each dated before the marker, while `-newer`,
 the control, selects neither and a file untouched since before the marker is selected by neither. A directory moved
-in is selected without the older file inside it, the control; each session hook's sweep block, read out of its source
-with the handback client stubbed, must then offer both, each once, and leave a skipped tree inside it unwalked. It then
-reads each session hook's source for the bound. The cross-filesystem case needs a writable directory on another
-filesystem than the testdir's, and skips naming that otherwise.
+in is selected without the older file inside it, the control; the session sweep library's walk, sourced
+from a token-substituted copy of the checkout's libraries with the handback client stubbed, must then offer both, each
+once, leave a skipped tree inside it unwalked, and print the count of what it offered. It then reads the library's
+source for the bound, and each agent's session hook for the library it sources. The cross-filesystem case needs
+a writable directory on another filesystem than the testdir's, and skips naming that otherwise.
 
 `fcontext-twins.sh` reads the policy sources and requires every file-context rule under the sandbox-clone area to appear
 under both `/opt` and `/var/opt`, with the same tail and context. A host reaches one of each pair, decided by whether

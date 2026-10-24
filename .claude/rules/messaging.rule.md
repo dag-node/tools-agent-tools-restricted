@@ -6,6 +6,7 @@ paths:
   - src/usr/local/bin/ai-tools.sh
   - src/opt/ai-tools/bin/ai-tools-run.sh
   - src/opt/ai-tools/agents/*/session-hook.sh
+  - src/usr/local/lib/ai-tools/session-sweep.lib.sh
   - src/usr/local/libexec/ai-tools/ai-tools-bootstrap.sh
   - src/usr/local/libexec/ai-tools/ai-tools-stop.sh
   - install.sh
@@ -104,16 +105,17 @@ by review: the shipped prose checker skips a quoted span by design and never rea
 local `die()`/`warn()` that routes to the emitters (`launch-wrapper.lib.sh`, `ai-tools.sh`, `ai-tools-run`,
 `ai-tools-stop`) recognises a code exactly as the library does.
 
-The components that report without the library — the root helpers and the two installers, each with a `printf`
-`die()`/`warn()` of its own — match the same anchored form inline and render it the same way plain mode does: the code
-on its own line, then the helper's prefixed message whole. A refusal that answers **before** the library is loaded takes
-the same treatment even in a component that goes on to source it: `ai-tools.sh` refuses the sandbox account, refuses
-root, and refuses a `--for` with no operator name ahead of every load, through a `refuse_early` carrying that inline
-matcher, and `install.sh` refuses a valueless `--operator` and a non-root caller through one of its own.
-A `${VAR:?message}` guard is printed by bash itself, so it does not carry a code and a test keeps its prose grep. One
-shape everywhere is what lets the harness's `assert_msg` read a code with a single whole-line match, and what keeps
-every prose grep on a helper's message intact; `tests/unit/msg.sh` holds each inline copy to the library's constant,
-so a copy cannot drift into printing a code as prose.
+The components that report without the library — the root helpers, the two installers, and each agent's
+`session-hook.sh`, which reports a sweep library it could not load, each with a `printf` `die()`/`warn()` of its own —
+match the same anchored form inline and render it the same way plain mode does: the code on its own line, then
+the helper's prefixed message whole. A refusal that answers **before** the library is loaded takes the same treatment
+even in a component that goes on to source it: `ai-tools.sh` refuses the sandbox account, refuses root, and refuses
+a `--for` with no operator name ahead of every load, through a `refuse_early` carrying that inline matcher,
+and `install.sh` refuses a valueless `--operator` and a non-root caller through one of its own. A `${VAR:?message}`
+guard is printed by bash itself, so it does not carry a code and a test keeps its prose grep. One shape everywhere is
+what lets the harness's `assert_msg` read a code with a single whole-line match, and what keeps every prose grep
+on a helper's message intact; `tests/unit/msg.sh` holds each inline copy to the library's constant, so a copy cannot
+drift into printing a code as prose.
 
 `ai-tools-stop` carries that inline matcher for a third reason: its emitters have **two branches**. `say_error`,
 `say_warn` and `say_notice` hand the code to the library where it loaded and render it themselves where it did not,
@@ -341,13 +343,13 @@ The library carries an **include guard** (`_AI_TOOLS_MSG__LOADED`), so a consume
 receives it transitively (`safe-paths.lib.sh` requires it too) re-sources a no-op; without the guard the `readonly`
 constants would abort the second source under `set -e`.
 
-One deliberate exception: `session-hook.sh` keeps a plain-text fallback, because it only *emits* (never prompts) and its
-sweep is itself the safety action — the handback must run even on an install broken enough to lose the formatter,
-so fail-closing there would skip a security sweep. Every consumer that *prompts or refuses* fails closed instead —
-including `ai-tools-bootstrap`, whose git-identity prompt is gated on the control plane already being present (the
-gitconfig exists), where `msg.lib` is deployed too, so it requires the lib past that gate rather than carrying
-a fallback. The emitters still only format: they never change the exit status of the operation whose outcome they
-report.
+One deliberate exception: `session-sweep.lib.sh`, the body of every agent's `session-hook.sh`, keeps a plain-text
+fallback, because it only *emits* (never prompts) and its sweep is itself the safety action — the handback must run even
+on an install broken enough to lose the formatter, so fail-closing there would skip a security sweep. Every consumer
+that *prompts or refuses* fails closed instead — including `ai-tools-bootstrap`, whose git-identity prompt is gated
+on the control plane already being present (the gitconfig exists), where `msg.lib` is deployed too, so it requires
+the lib past that gate rather than carrying a fallback. The emitters still only format: they never change the exit
+status of the operation whose outcome they report.
 
 ## Where it is wired
 
@@ -372,8 +374,8 @@ report.
   [ref-list-g6f5](cli.rule.md#ref-list-g6f5) states. The flows carry **no sudo-password notices**: the first sudo prompt
   (the secret scan) lands directly under the Secret-lockdown headline, and sudo's own prompt is self-explanatory.
 - **`ai-tools-run.sh`** routes its pre-launch refusals and the podman NOTICE.
-- **`session-hook.sh`** frames the interrupted-session `SessionStart` NOTICE (see
-  [ownership-and-hooks](ownership-and-hooks.rule.md)).
+- **`session-sweep.lib.sh`**, the body of every agent's `session-hook.sh`, frames the interrupted-session `SessionStart`
+  NOTICE (see [ownership-and-hooks](ownership-and-hooks.rule.md)).
 - **`ai-tools-bootstrap.sh`** frames three screens with `ai_tools_msg__block`. Two sit over an `ai_tools_msg__pick`
   menu: the agent choice (`none` mode — one option per installed agent and one for none, where the caller decides every
   unanswered outcome as no agent, Node alone, exit 0) and the git-identity offer (a default index: adopt the operator's
