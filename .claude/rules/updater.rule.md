@@ -241,10 +241,12 @@ ages, and a condition that persists past the record's grace (its registry `max_a
 escalation a schedule that stopped firing gets. Offline once is routine; offline for a week is a toolchain that has
 stopped advancing.
 
-**An empty agent set is classified before `npm` alone becomes the managed set.** The resolver reports a refused input
-on stderr and does not print a line for it, so its stdout reads as an empty set for a tampered manifest directory
-and for a host with no agent package alike. `nvm-update.sh` asks `ai_tools_providers__evaluate_empty_agents` (see
-[providers](providers.rule.md)) which it is: a refused input, an `operator.conf` the account cannot read,
+**An empty agent set is classified before `npm` alone becomes the managed set**, and before the run's first write
+to the toolchain, as the bootstrap's is: a fault ends the run with no Node version installed and no package reinstalled,
+and ahead of the version lookup, so an offline run over a faulted set fails rather than skips. The resolver reports
+a refused input on stderr and does not print a line for it, so its stdout reads as an empty set for a tampered manifest
+directory and for a host with no agent package alike. `nvm-update.sh` asks `ai_tools_providers__evaluate_empty_agents`
+(see [providers](providers.rule.md)) which it is: a refused input, an `operator.conf` the account cannot read,
 or an `AI_TOOLS_AGENTS` naming agents none of which resolved, is a **fault** — `die`, exit `1`, `RESULT=failed` —
 because a retry reads the same inputs, and `1` is the status the unit's `RestartPreventExitStatus=` already withholds
 a retry from. A configuration that asks for no agent (`AI_TOOLS_AGENTS` set and empty, no manifest installed, or every
