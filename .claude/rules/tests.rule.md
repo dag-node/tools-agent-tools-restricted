@@ -871,13 +871,14 @@ over its table and against this shell's own executable as the live control — w
 `ai_tools_t` does not grant, so the control fails when the file is run as the agent and belongs to the root run), issues
 exactly one uninstall with the version directory as the prefix for a removal and names the state directory it leaves,
 and reports an uninstall that left the directory. Like `launcher-target.sh` it needs the executable bit visible
-and takes the same fallback, and it reads one order as source: the updater's removal precedes `install_packages`.
-`bootstrap.sh` reads the bootstrap's the same way — the removal after the agent choice and before the version resolve,
-the first network step, with the refusal of an unresolved agent set between the choice and the removal. The two launch
-tiers are driven where each gate lives: `launch-wrapper.sh` refuses on a fixture link for an agent the fixture manifests
-install and the fixture `operator.conf` does not enable, before the executable resolves and fail-closed on a missing
-library, and `integration/ai-tools-run.sh` refuses on a package planted in `v0.0.1` for a synthetic manifest read beside
-copies of the deployed ones, with the package gone as the control. The same file drives the shim's provider-list refusal
+and takes the same fallback, and it reads the updater's order as source: the removal precedes `install_packages`,
+and the classification of the agent set precedes the copy repair and the Node install. `bootstrap.sh` reads
+the bootstrap's the same way — the removal after the agent choice and before the version resolve, the first network
+step, with the refusal of an unresolved agent set between the choice and the removal. The two launch tiers are driven
+where each gate lives: `launch-wrapper.sh` refuses on a fixture link for an agent the fixture manifests install
+and the fixture `operator.conf` does not enable, before the executable resolves and fail-closed on a missing library,
+and `integration/ai-tools-run.sh` refuses on a package planted in `v0.0.1` for a synthetic manifest read beside copies
+of the deployed ones, with the package gone as the control. The same file drives the shim's provider-list refusal
 through a fixture `operator.conf`, with this host's enabled agents written prefixed as the control. `cli-agent-set.sh`
 reports and counts the same link. The link's third reading, the Node version its target names, is driven in the same
 file in its fail direction — a disabled agent's link, a target outside the versioned shape, one naming another launcher,
