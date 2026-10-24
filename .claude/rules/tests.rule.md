@@ -683,7 +683,7 @@ install does not report a gap the package left. It drives the deployed `settings
 library unit tests: the decision lives there rather than in `install.sh` precisely so it can be exercised without stubs
 or text extraction, and the installer keeps only the rendering.
 
-`install-guards.sh` is the other `install.sh` unit test, and it covers the decision that sits before the dispatch:
+`install-guards.sh` is an `install.sh` unit test too, and it covers the decision that sits before the dispatch:
 which account the install enrols. Every refusal is driven through `--operator`, the one route by which a name reaches
 that decision without a terminal (the prompt reads `/dev/tty`, so its branch is not drivable here) — root, the sandbox
 account, an account that does not exist, and the flag's own valueless form. Each case runs the installer
@@ -702,6 +702,12 @@ but the version gate's own orders against an installed CLI that does not exist, 
 decide a result. A fixture, and the action that leaves the host unchanged, because the real checkout reports whatever
 state the developer left it in and an `install` run against a fixture would install from it if the gate ever failed
 open.
+
+`install-writes.sh` reads `install.sh`'s text for the writes the write-side invariant keeps away from root: the timer
+stamp, written into the sandbox account's directory, is written by that account through `sudo -u`, and no root
+`install`, `touch` or redirection names that directory. The writes run inside `do_install`, which needs a whole host,
+so the file reads the source, joining continued lines and dropping comments, and runs each reader over a control fixture
+carrying the form it must find first. Pure text and unprivileged.
 
 `postupgrade.sh` is that same reconciliation seen from the RPM side: `ai-tools-admin system post-upgrade` end to end,
 from dispatch through the registry to each treatment (see [providers](providers.rule.md)

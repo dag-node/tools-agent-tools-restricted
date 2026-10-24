@@ -2606,10 +2606,13 @@ do_install() {
     # repoint -> relabel chain races the operator's first launch, so the first claude refuses on a mislabelled
     # entrypoint. The toolchain is current at install time, so "last run = now" is truthful (mtime is all systemd
     # reads). Same fix as ai-tools-bootstrap; see .claude/rules/updater.rule.md. The home is root-owned, so root creates
-    # the stamp directory through the layout reconcile, whose rows hold the directories on the way to it.
+    # the stamp directory through the layout reconcile, whose rows hold the directories on the way to it. The stamp is
+    # the account's file in the account's directory, so the account writes it: a root write there would follow a name
+    # the account placed. The write runs from `/`, so the child does not start in the operator's checkout, a directory
+    # the account may not read.
     reconcile_layout
-    install -o "${SANDBOX_USER}" -g "${SANDBOX_GROUP}" -m 0644 /dev/null \
-        "/opt/ai-tools/${CP_TIMER_STAMP_DIR}/${CP_UPDATE_TIMER_STAMP}"
+    (cd / && sudo -u "${SANDBOX_USER}" touch "/opt/ai-tools/${CP_TIMER_STAMP_DIR}/${CP_UPDATE_TIMER_STAMP}") \
+        || warn MSG-G3P2 "could not write the timer stamp in /opt/ai-tools/${CP_TIMER_STAMP_DIR} as ${SANDBOX_USER}, so the first timer window runs an immediate update -- see: sudo ai-tools-admin system layout"
     if (( manager_ready )); then
         log "enable nvm-update.timer in ${SANDBOX_USER}'s --user instance"
         user_systemctl "${SANDBOX_USER}" daemon-reload

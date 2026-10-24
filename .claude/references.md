@@ -122,6 +122,7 @@ cannot fix -- a message code's name is a runtime string, and rewording one is a 
 | g2u4 | [MSG-G2U4](../install.sh) | the asset reconcile reported a finding -- sudo ai-tools-admin status names each one and what ends it | install.sh |  | warn |
 | p2n9 | [MSG-P2N9](../install.sh) | the asset reconcile did not complete (exit ${_reconcile_status}) -- run: sudo ai-tools-admin assets reconcile | install.sh |  | warn |
 | e6n7 | [MSG-E6N7](../install.sh) | the shared assets were not seeded and the asset view was not reconciled: the assets lock could not be taken -- run: sudo ./install.sh install, once the other assets command has ended | install.sh |  | warn |
+| g3p2 | [MSG-G3P2](../install.sh) | could not write the timer stamp in /opt/ai-tools/${CP_TIMER_STAMP_DIR} as ${SANDBOX_USER}, so the first timer window runs an immediate update -- see: sudo ai-tools-admin system layout | install.sh |  | warn |
 | m7k6 | [MSG-M7K6](../install.sh) | the systemd --user manager of ${SANDBOX_USER} did not come up -- the auto-update timer | install.sh |  | warn |
 | a7x8 | [MSG-A7X8](../install.sh) | toolchain not provisioned -- the wrapper/handback/SELinux checks skip or fail | install.sh |  | warn |
 | n7s2 | [MSG-N7S2](../install.sh) | operator.conf names providers without their kind prefix -- every launch refuses and the | install.sh | install.sh | warn |
