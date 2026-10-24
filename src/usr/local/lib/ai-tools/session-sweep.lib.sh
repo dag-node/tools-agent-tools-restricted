@@ -259,7 +259,7 @@ ai_tools_session_sweep__run() {
     # sees the first's marker as "interrupted"); the sandbox is single-session by design, same caveat as the sweep
     # marker.
     local active_marker="${state_dir}/.session-active"
-    local end_payload end_cwd end_found payload dir display_dir src unbounded interrupted prev_cwd newref
+    local end_payload end_cwd end_found payload dir display_dir src unbounded interrupted prev_cwd scan_start
     local git_found prev_found total_found scope prose reconcile stranded
 
     # session-end: graceful process exit. Clear the clean-exit marker FIRST -- codex kills this hook at 3 s,
@@ -328,17 +328,19 @@ ai_tools_session_sweep__run() {
         "${AI_TOOLS_SESSION_SWEEP__HANDBACK_CLIENT}" SETGID "${dir}" || true
     fi
 
-    # New marker stamped to "now" (scan start). Applied to the marker only after the sweep completes, so anything
-    # written during the sweep is still caught next time. In session-start mode this resets the marker, so this
-    # session's Stop sweeps bound from session start.
-    newref="$(mktemp "${state_dir}/.sweep.XXXXXX" 2>/dev/null)" || return 0
+    # The scan's start time, set on the marker only after the sweep completes, so anything written during the sweep is
+    # still caught next time. In session-start mode this resets the marker, so this session's Stop sweeps bound
+    # from session start.
+    scan_start="$(date --rfc-3339=ns 2>/dev/null)" || scan_start=""
 
     # The count goes to the tests that call the walk directly; this pass's stdout is the reply the agent reads.
     ai_tools_session_sweep__sweep_project "${dir}" "${marker}" "${unbounded}" "${mode}" >/dev/null
 
-    # Advance the marker to this scan's start time (rename within the same dir keeps the mtime). Best-effort: a failed
-    # rename falls through to `|| true`, so the turn or session proceeds either way.
-    mv -f "${newref}" "${marker}" 2>/dev/null || rm -f "${newref}" 2>/dev/null || true
+    # Advance the marker to this scan's start time. A run that ends mid-walk leaves the marker where it was, so the next
+    # pass covers the same span. No file is written to carry the time: a Stop hook codex kills at its timeout cannot run
+    # a trap, and a temporary file would stay behind in the config directory. Best-effort: a time that did not read
+    # or a touch that fails leaves the marker as it was, and the turn or session proceeds either way.
+    [[ -z "${scan_start}" ]] || touch -d "${scan_start}" "${marker}" 2>/dev/null || true
 
     # .git ownership reclaim, run on every unbounded (session-start) pass. Every sweep SKIPS .git, so ai-tools-owned
     # objects the agent writes there via `git commit` (Bash tool, no path in the event, so no PostToolUse handback)

@@ -12,7 +12,8 @@
 # The bound narrows only which sandbox-owned paths a pass offers to ai-tools-chown; the `-user` test and the helper's
 # own guard decide what is handed back, so no boundary half is owed here. A directory moved in is the bound's one blind
 # spot, since its descendants keep their ctimes: the library's sweep function is run over a moved directory, and must
-# offer what is inside it. Runs unprivileged or as root.
+# offer what is inside it. A stop run through the library sets the marker to its scan start and does not leave another
+# file in the state directory, and one killed mid-walk leaves the marker where it was. Runs unprivileged or as root.
 set -euo pipefail
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")/../lib" && pwd)/harness.sh"
 
@@ -145,6 +146,78 @@ else
     else
         fail "the sweep printed '$(_san "${count}")' for $(grep -c . <<< "${offered}") offers, each confirmed"
     fi
+fi
+
+# ── The marker a stop run leaves ─────────────────────────────────────────────────────────────────────────────────────
+# A stop run sets the marker to the time its scan started and does not write another file into the state directory:
+# a hook killed at its timeout cannot clean up after itself, so a file the run created would stay behind. The marker
+# starts an hour back, so its time inside the run's window is evidence the run advanced it.
+section "sweep bound: a stop run advances the marker to its scan start and leaves no other file"
+if ! command -v jq >/dev/null 2>&1; then
+    skip "the marker a stop run leaves" "jq not available (the sweep parses its event with it)"
+elif [[ ! -S "${SOCKET}" ]]; then
+    skip "the marker a stop run leaves" "no socket to answer the sweep's check: the bind is refused here and ${SOCKET} is down"
+else
+    STATE="${TESTDIR}/state"; mkdir -p "${STATE}"
+    touch -d '-1 hour' "${STATE}/.sweep-marker"
+    before="$(date +%s)"
+    # shellcheck disable=SC2016  # the inner bash expands these
+    bash -c '
+        set -euo pipefail
+        source "$1"
+        ai_tools_log__debug() { :; }; ai_tools_log__warn() { :; }
+        stub_client() { :; }
+        AI_TOOLS_SESSION_SWEEP__HANDBACK_CLIENT=stub_client
+        AI_TOOLS_SESSION_SWEEP__HANDBACK_SOCKET="$3"
+        ai_tools_session_sweep__run stop "$2"
+        ' _ "${LIB_COPY}/session-sweep.lib.sh" "${STATE}" "${SOCKET}" <<<"{\"cwd\":\"${WALKED}\"}" >/dev/null 2>&1 \
+        && run_rc=0 || run_rc=$?
+    after="$(date +%s)"
+    marker_time="$(stat -c '%Y' "${STATE}/.sweep-marker" 2>/dev/null || true)"
+    if [[ "${run_rc}" -eq 0 && -f "${STATE}/.sweep-marker" ]]; then
+        pass "control: the stop run exits 0 and the marker exists"
+    else
+        fail "control: the stop run exited ${run_rc} or left no marker in ${STATE}"
+    fi
+    if [[ -n "${marker_time}" ]] && (( marker_time >= before && marker_time <= after )); then
+        pass "the stop run sets the marker to its scan start (${marker_time} within ${before}..${after})"
+    else
+        fail "the marker reads '${marker_time}', outside the run's window ${before}..${after}"
+    fi
+    leftover="$(find "${STATE}" -mindepth 1 -name '.sweep.??????' -printf '%f ')"
+    [[ -z "${leftover}" ]] \
+        && pass "the stop run leaves no .sweep.?????? file in the state directory" \
+        || fail "the stop run left ${leftover}in ${STATE}"
+
+    # The run codex kills at its Stop timeout: the stubbed client sends SIGKILL to the run's shell at the first path it
+    # is offered, so the run ends mid-walk with no trap.
+    touch -d '-1 hour' "${STATE}/.sweep-marker"
+    marker_before="$(stat -c '%Y' "${STATE}/.sweep-marker")"
+    # The subshell waits on the child itself (the `exit` keeps bash from exec'ing it), so the job notice bash prints
+    # for a killed child goes to the subshell's discarded stderr and the result lines stay the file's own.
+    # shellcheck disable=SC2016  # the inner bash expands these
+    ( bash -c '
+        set -euo pipefail
+        source "$1"
+        ai_tools_log__debug() { :; }; ai_tools_log__warn() { :; }
+        stub_client() { kill -KILL "$$"; }
+        AI_TOOLS_SESSION_SWEEP__HANDBACK_CLIENT=stub_client
+        AI_TOOLS_SESSION_SWEEP__HANDBACK_SOCKET="$3"
+        ai_tools_session_sweep__run stop "$2"
+        ' _ "${LIB_COPY}/session-sweep.lib.sh" "${STATE}" "${SOCKET}" <<<"{\"cwd\":\"${WALKED}\"}" >/dev/null 2>&1; exit "$?" ) 2>/dev/null \
+        && killed_rc=0 || killed_rc=$?
+    if [[ "${killed_rc}" -eq 137 ]]; then
+        pass "control: the killed run ended on SIGKILL mid-walk"
+    else
+        fail "control: the killed run exited ${killed_rc}, not on SIGKILL, so it may not have reached the walk"
+    fi
+    [[ "$(stat -c '%Y' "${STATE}/.sweep-marker" 2>/dev/null || true)" == "${marker_before}" ]] \
+        && pass "a run killed mid-walk leaves the marker where it was, so the next pass covers the same span" \
+        || fail "a run killed mid-walk moved the marker"
+    leftover="$(find "${STATE}" -mindepth 1 -name '.sweep.??????' -printf '%f ')"
+    [[ -z "${leftover}" ]] \
+        && pass "a run killed mid-walk leaves no .sweep.?????? file in the state directory" \
+        || fail "a run killed mid-walk left ${leftover}in ${STATE}"
 fi
 
 # ── The bound the library carries ────────────────────────────────────────────────────────────────────────────────────

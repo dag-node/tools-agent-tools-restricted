@@ -206,10 +206,10 @@ so only a `SIGKILL` or a failed `rm` leaves residue for the sweep. The stable la
 
 No automated file writes live runtime state. The one place a real hook runs is the manual script, where the Stop sweep
 advances the shared sweep marker under `.claude` as a session's would; the automated suite never moves that marker,
-which the hook rotates by `mv` inside the sticky `.claude` directory and a root-written one could never be replaced in.
-No file starts or stops a service: `integration/systemd.sh` reads the sandbox account's linger record (what keeps its
-`--user manager` up with no login) and fails when it is absent; a manager down despite linger is skipped, with the start
-command named, and the test does not start it.
+which the hook advances with `touch -d`, and `touch -d` sets a time only on a file the account owns, so a root-written
+marker would stop advancing. No file starts or stops a service: `integration/systemd.sh` reads the sandbox account's
+linger record (what keeps its `--user manager` up with no login) and fails when it is absent; a manager down despite
+linger is skipped, with the start command named, and the test does not start it.
 
 Nor does a test mutate **global system state** to exercise a helper — the host's local SELinux policy
 (`semanage fcontext`) most of all. A helper whose real work *is* to add and then remove a policy entry is therefore
@@ -1172,7 +1172,9 @@ renamed into the tree and one moved in from another filesystem, each dated befor
 the control, selects neither and a file untouched since before the marker is selected by neither. A directory moved
 in is selected without the older file inside it, the control; the session sweep library's walk, sourced
 from a token-substituted copy of the checkout's libraries with the handback client stubbed, must then offer both, each
-once, leave a skipped tree inside it unwalked, and print the count of what it offered. It then reads the library's
+once, leave a skipped tree inside it unwalked, and print the count of what it offered. A stop run through the library
+must set the marker to a time inside the run and must not leave another file in the state directory, and a run
+the stubbed client kills mid-walk must leave the marker where it was and no file behind. It then reads the library's
 source for the bound, and each agent's session hook for the library it sources. The cross-filesystem case needs
 a writable directory on another filesystem than the testdir's, and skips naming that otherwise.
 
