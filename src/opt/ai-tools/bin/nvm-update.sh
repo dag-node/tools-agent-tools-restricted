@@ -519,6 +519,43 @@ main() {
     [[ -n "${current_version}" && "${current_version}" != "N/A" ]] \
         || die "nvm alias '${node_alias}' not set"
 
+    # The enabled agents -- their npm packages (installed by this run) and their launchers (repointed at the end) --
+    # come from the manifests via providers.lib.sh, the same seam ai-tools-bootstrap uses, so this updater is
+    # agent-agnostic. Guarded load: providers.lib.sh returns non-zero and does not define its resolvers when its own
+    # dependency (conf.lib.sh, the shared
+    # KEY=value grammar) is missing, so probe the resolver rather than assume the source
+    # succeeded -- a bare `source` under `set -e` would abort the run instead of degrading. A missing lib is a broken
+    # install (root-owned, so not agent action): existing agents keep working, they are simply not refreshed
+    # or repointed this run.
+    local providers_lib=/usr/local/lib/ai-tools/providers.lib.sh
+    local -a agent_packages=() agent_launchers=()
+    # shellcheck source=SCRIPTDIR/../../../usr/local/lib/ai-tools/providers.lib.sh
+    if source "${providers_lib}" 2>/dev/null \
+            && declare -F ai_tools_providers__list_enabled_agents >/dev/null 2>&1; then
+        local manifest_package manifest_launcher
+        while IFS=$'\t' read -r _ manifest_package manifest_launcher; do
+            [[ -n "${manifest_package}" ]]  && agent_packages+=("${manifest_package}")
+            [[ -n "${manifest_launcher}" ]] && agent_launchers+=("${manifest_launcher}")
+        done < <(ai_tools_providers__list_enabled_agents)
+        # A resolver that loaded and returned an empty set is classified before npm alone becomes the managed set,
+        # and before the run's first write to the toolchain, so a fault ends the run with no package installed.
+        # The resolver refuses an input the trust predicate declines and reports it on stderr only, so without this step
+        # a host whose inputs all read as untrusted -- every manifest, operator.conf -- maintains npm, exits 0
+        # and stamps RESULT=ok while the agent stops updating. The fault class exits 1: the same inputs are read
+        # on a retry, and that is the status the unit's RestartPreventExitStatus= names. A set the configuration asks
+        # to be empty is logged and the run continues.
+        if (( ${#agent_packages[@]} == 0 )); then
+            local empty_verdict="" empty_reason=""
+            IFS=$'\t' read -r empty_verdict empty_reason < <(ai_tools_providers__evaluate_empty_agents) || true
+            case "${empty_verdict}" in
+                none) log "no agent to maintain: ${empty_reason} -- updating npm only" ;;
+                *)    die "no agent resolved: ${empty_reason:-the classification printed nothing} -- enabled agents are unrefreshed and their launchers unrepointed until this is fixed" ;;
+            esac
+        fi
+    else
+        warn "provider resolver unavailable (${providers_lib}) -- updating npm only; enabled agents are unrefreshed and their launchers unrepointed this run"
+    fi
+
     # A transfer of the tree can leave a regular-file copy in bin/ where npm keeps a symlink, and npm does not start
     # from such a copy; every later step of main runs it. The repair (toolchain.lib.sh) replaces only a copy whose bytes
     # equal its target, and runs here as the tree's owner. Best-effort: a library that does not load leaves the tree
@@ -570,42 +607,6 @@ main() {
     fi
 
     nvm use "${node_alias}"
-
-    # The enabled agents -- their npm packages (installed by this run) and their launchers (repointed at the end) --
-    # come from the manifests via providers.lib.sh, the same seam ai-tools-bootstrap uses, so this updater is
-    # agent-agnostic. Guarded load: providers.lib.sh returns non-zero and does not define its resolvers when its own
-    # dependency (conf.lib.sh, the shared
-    # KEY=value grammar) is missing, so probe the resolver rather than assume the source
-    # succeeded -- a bare `source` under `set -e` would abort the run instead of degrading. A missing lib is a broken
-    # install (root-owned, so not agent action): existing agents keep working, they are simply not refreshed
-    # or repointed this run.
-    local providers_lib=/usr/local/lib/ai-tools/providers.lib.sh
-    local -a agent_packages=() agent_launchers=()
-    # shellcheck source=SCRIPTDIR/../../../usr/local/lib/ai-tools/providers.lib.sh
-    if source "${providers_lib}" 2>/dev/null \
-            && declare -F ai_tools_providers__list_enabled_agents >/dev/null 2>&1; then
-        local manifest_package manifest_launcher
-        while IFS=$'\t' read -r _ manifest_package manifest_launcher; do
-            [[ -n "${manifest_package}" ]]  && agent_packages+=("${manifest_package}")
-            [[ -n "${manifest_launcher}" ]] && agent_launchers+=("${manifest_launcher}")
-        done < <(ai_tools_providers__list_enabled_agents)
-        # A resolver that loaded and returned an empty set is classified before npm alone becomes the managed set.
-        # The resolver refuses an input the trust predicate declines and reports it on stderr only, so without this step
-        # a host whose inputs all read as untrusted -- every manifest, operator.conf -- maintains npm, exits 0
-        # and stamps RESULT=ok while the agent stops updating. The fault class exits 1: the same inputs are read
-        # on a retry, and that is the status the unit's RestartPreventExitStatus= names. A set the configuration asks
-        # to be empty is logged and the run continues.
-        if (( ${#agent_packages[@]} == 0 )); then
-            local empty_verdict="" empty_reason=""
-            IFS=$'\t' read -r empty_verdict empty_reason < <(ai_tools_providers__evaluate_empty_agents) || true
-            case "${empty_verdict}" in
-                none) log "no agent to maintain: ${empty_reason} -- updating npm only" ;;
-                *)    die "no agent resolved: ${empty_reason:-the classification printed nothing} -- enabled agents are unrefreshed and their launchers unrepointed until this is fixed" ;;
-            esac
-        fi
-    else
-        warn "provider resolver unavailable (${providers_lib}) -- updating npm only; enabled agents are unrefreshed and their launchers unrepointed this run"
-    fi
 
     # The residue routine, from the library the resolver came from. Same guarded load: a library that will not load
     # leaves residue in place and says so, and every launch goes on refusing until a run that can read it.

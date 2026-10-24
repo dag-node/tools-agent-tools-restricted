@@ -320,7 +320,9 @@ of the family in what it moves — the reconcile rewrites owners, modes and ACLs
 the same way `AI_TOOLS_POSTUPGRADE_ROOT` does, through `ai-tools-admin` run as root with the name set.
 `AI_TOOLS_LAYOUT_LOCK` and `AI_TOOLS_LAYOUT_LOCK_WAIT` move the reconcile's lock and shorten its wait, as the relabel
 pair does; here a lock that cannot be taken is a refusal with no write, so a caller who sets them can make a run refuse
-and not run one unserialized.
+and not run one unserialized. `AI_TOOLS_LAYOUT_RUN_BOUND` (`ai-tools-admin`) shortens the deadline the command holds
+a run to, so `unit/layout-bound.sh` drives a stopped run in seconds; a caller who sets it can stop a run early,
+which leaves rows short and reports it, and does not widen any access.
 
 `AI_TOOLS_ASSETS_ROOTS`, `AI_TOOLS_ASSETS_LOCK`, `AI_TOOLS_ASSETS_LOCK_WAIT` and `AI_TOOLS_ASSETS_HOME`
 (`assets.lib.sh`, the lock pair's in `managed-assets.lib.sh`) move the roots a set is read from, the lock the view
@@ -683,7 +685,7 @@ install does not report a gap the package left. It drives the deployed `settings
 library unit tests: the decision lives there rather than in `install.sh` precisely so it can be exercised without stubs
 or text extraction, and the installer keeps only the rendering.
 
-`install-guards.sh` is the other `install.sh` unit test, and it covers the decision that sits before the dispatch:
+`install-guards.sh` is an `install.sh` unit test too, and it covers the decision that sits before the dispatch:
 which account the install enrols. Every refusal is driven through `--operator`, the one route by which a name reaches
 that decision without a terminal (the prompt reads `/dev/tty`, so its branch is not drivable here) — root, the sandbox
 account, an account that does not exist, and the flag's own valueless form. Each case runs the installer
@@ -702,6 +704,17 @@ but the version gate's own orders against an installed CLI that does not exist, 
 decide a result. A fixture, and the action that leaves the host unchanged, because the real checkout reports whatever
 state the developer left it in and an `install` run against a fixture would install from it if the gate ever failed
 open.
+
+`install-writes.sh` reads `install.sh`'s text for the writes the write-side invariant keeps away from root: the timer
+stamp, written into the sandbox account's directory, is written by that account through `sudo -u`, and no root
+`install`, `touch` or redirection names that directory; and `settings.json` is read through its layout row before it is
+kept, with no by-path `chown` or `chmod` on it. The writes run inside `do_install`, which needs a whole host,
+so the file reads the source, joining continued lines and dropping comments, and runs each reader over a control fixture
+carrying the form it must find first. The keep decision, `read_settings_keep_refusal`, is also driven, extracted as text
+and run over a fixture tree through the checkout's layout library under `AI_TOOLS_LAYOUT_ROOT`: a file at another owner,
+a symlink, and a file the layout does not list are refused, unprivileged; a `root:SANDBOX_GROUP 0640` file is kept,
+and the same file group-writable, with a named ACL entry, or hardlinked is refused, as root, the half that skips
+otherwise.
 
 `postupgrade.sh` is that same reconciliation seen from the RPM side: `ai-tools-admin system post-upgrade` end to end,
 from dispatch through the registry to each treatment (see [providers](providers.rule.md)
@@ -858,13 +871,14 @@ over its table and against this shell's own executable as the live control — w
 `ai_tools_t` does not grant, so the control fails when the file is run as the agent and belongs to the root run), issues
 exactly one uninstall with the version directory as the prefix for a removal and names the state directory it leaves,
 and reports an uninstall that left the directory. Like `launcher-target.sh` it needs the executable bit visible
-and takes the same fallback, and it reads one order as source: the updater's removal precedes `install_packages`.
-`bootstrap.sh` reads the bootstrap's the same way — the removal after the agent choice and before the version resolve,
-the first network step, with the refusal of an unresolved agent set between the choice and the removal. The two launch
-tiers are driven where each gate lives: `launch-wrapper.sh` refuses on a fixture link for an agent the fixture manifests
-install and the fixture `operator.conf` does not enable, before the executable resolves and fail-closed on a missing
-library, and `integration/ai-tools-run.sh` refuses on a package planted in `v0.0.1` for a synthetic manifest read beside
-copies of the deployed ones, with the package gone as the control. The same file drives the shim's provider-list refusal
+and takes the same fallback, and it reads the updater's order as source: the removal precedes `install_packages`,
+and the classification of the agent set precedes the copy repair and the Node install. `bootstrap.sh` reads
+the bootstrap's the same way — the removal after the agent choice and before the version resolve, the first network
+step, with the refusal of an unresolved agent set between the choice and the removal. The two launch tiers are driven
+where each gate lives: `launch-wrapper.sh` refuses on a fixture link for an agent the fixture manifests install
+and the fixture `operator.conf` does not enable, before the executable resolves and fail-closed on a missing library,
+and `integration/ai-tools-run.sh` refuses on a package planted in `v0.0.1` for a synthetic manifest read beside copies
+of the deployed ones, with the package gone as the control. The same file drives the shim's provider-list refusal
 through a fixture `operator.conf`, with this host's enabled agents written prefixed as the control. `cli-agent-set.sh`
 reports and counts the same link. The link's third reading, the Node version its target names, is driven in the same
 file in its fail direction — a disabled agent's link, a target outside the versioned shape, one naming another launcher,
@@ -1155,9 +1169,11 @@ now captures the listing before matching it.
 `sweep-bound.sh` pins the bound every agent's Stop sweep puts on its walk
 ([ownership-and-hooks](ownership-and-hooks.rule.md)): over a fixture, `-cnewer` against the marker selects a file
 renamed into the tree and one moved in from another filesystem, each dated before the marker, while `-newer`,
-the control, selects neither and a file untouched since before the marker is selected by neither; it then reads each
-session hook's source for the bound. The cross-filesystem case needs a writable directory on another filesystem than
-the testdir's, and skips naming that otherwise.
+the control, selects neither and a file untouched since before the marker is selected by neither. A directory moved
+in is selected without the older file inside it, the control; each session hook's sweep block, read out of its source
+with the handback client stubbed, must then offer both, each once, and leave a skipped tree inside it unwalked. It then
+reads each session hook's source for the bound. The cross-filesystem case needs a writable directory on another
+filesystem than the testdir's, and skips naming that otherwise.
 
 `fcontext-twins.sh` reads the policy sources and requires every file-context rule under the sandbox-clone area to appear
 under both `/opt` and `/var/opt`, with the same tail and context. A host reaches one of each pair, decided by whether

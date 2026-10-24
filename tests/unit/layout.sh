@@ -1349,6 +1349,40 @@ else
         && pass "the link removed, the NuGet cache is created at its row" \
         || fail "packages recreated: $(brief "${out}") / $(stat -c '%U:%G %a' "${DOTNET_PACKAGES}" 2>&1)"
     rmdir "${OUTSIDE}"
+    # `dotnet bootstrap`'s own check after its reconcile, read out of the checkout's command and run over this tree:
+    # a link planted at `nuget`, with a real `packages` under its target, passes a type test on `nuget/packages`,
+    # and the row read refuses it at `nuget`. The converged tree is the control the same check passes.
+    DOTNET_COMMAND="${ROOT}/src/usr/local/lib/ai-tools/admin-commands.d/dotnet.sh"
+    DOTNET_STATE="${fixture_root}${CP_INTEGRATIONS}/dotnet"; DOTNET_NUGET="${DOTNET_STATE}/nuget"
+    OUTSIDE="${TESTDIR}/outside-nuget"
+    # dotnet_state_check: run read_state_rows_refusal over the fixture's state tree; prints its refusal, or `passed`.
+    dotnet_state_check() {
+        ( STATE_DIR="${DOTNET_STATE}" NUGET_DIR="${DOTNET_NUGET}" CLI_HOME_DIR="${DOTNET_STATE}/cli"
+          TOOLS_DIR="${DOTNET_STATE}/tools" LAYOUT_LIB="${TESTDIR}/lib/layout.lib.sh"
+          eval "$(extract_function "${DOTNET_COMMAND}" read_state_rows_refusal)"
+          read_state_rows_refusal && printf 'passed\n' ) 2>&1 || true
+    }
+    out="$(dotnet_state_check)"
+    [[ "${out}" == passed ]] && pass "dotnet bootstrap's row check passes the converged state tree (control)" \
+        || fail "dotnet row check on the converged tree: $(brief "${out}")"
+    install -d -o nobody -g nobody -m 0700 "${OUTSIDE}" "${OUTSIDE}/packages"
+    mv "${DOTNET_NUGET}" "${TESTDIR}/nuget-aside"; ln -s "${OUTSIDE}" "${DOTNET_NUGET}"
+    outside_before="$(stat -c '%U:%G %a' "${OUTSIDE}" "${OUTSIDE}/packages" | tr '\n' ' ')"
+    if [[ -L "${DOTNET_NUGET}" && -d "${DOTNET_NUGET}/packages" && ! -L "${DOTNET_NUGET}/packages" ]]; then
+        pass "a link planted at nuget passes a type test on nuget/packages (setup)"
+    else
+        fail "planted nuget link: setup did not take ($(stat -c '%F' "${DOTNET_NUGET}" "${DOTNET_NUGET}/packages" 2>&1 | tr '\n' ' '))"
+    fi
+    out="$(reconcile_run)"
+    check_out="$(dotnet_state_check)"
+    if has_reconcile_observation "${out}" refused "${DOTNET_NUGET}" type \
+            && [[ "${check_out}" == "${DOTNET_NUGET} is not at its layout row (type-mismatch on its type)" ]] \
+            && [[ "$(stat -c '%U:%G %a' "${OUTSIDE}" "${OUTSIDE}/packages" | tr '\n' ' ')" == "${outside_before}" ]]; then
+        pass "a link planted at nuget fails dotnet bootstrap's row check at nuget, the directories it names left as they were"
+    else
+        fail "planted nuget link: $(brief "${out}") / check $(brief "${check_out}") / $(stat -c '%U:%G %a' "${OUTSIDE}" "${OUTSIDE}/packages" | tr '\n' ' ')"
+    fi
+    rm "${DOTNET_NUGET}"; mv "${TESTDIR}/nuget-aside" "${DOTNET_NUGET}"; rm -r "${OUTSIDE}"
     LAUNCH="${fixture_root}/usr/local/bin/ai-tools-launch"; rm "${LAUNCH}"
     out="$(reconcile_run)"
     has_reconcile_observation "${out}" refused "${LAUNCH}" type && [[ "${out}" == *"dnf reinstall ai-tools-base"* && ! -e "${LAUNCH}" && "$(parse_reconcile_status "${out}")" == rc=4 ]] \

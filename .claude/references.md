@@ -119,9 +119,13 @@ cannot fix -- a message code's name is a runtime string, and rewording one is a 
 | q7e7 | [MSG-Q7E7](../install.sh) | setfacl unavailable -- operators need ${SANDBOX_GROUP} membership for sandbox-create | install.sh |  | warn |
 | n2w3 | [MSG-N2W3](../install.sh) | sudoers syntax check failed | install.sh |  | die |
 | c2x3 | [MSG-C2X3](../install.sh) | could not add ${PROJECTS_USER} to ai-ops | install.sh |  | warn |
+| h5b4 | [MSG-H5B4](../install.sh) | could not move ${settings} aside, which is not kept (${settings_refusal}) -- move it out of ${claude_config_dir} by hand, then re-run the install | install.sh |  | die |
+| y3z9 | [MSG-Y3Z9](../install.sh) | did not keep ${settings} (${settings_refusal}) -- it is saved as ${settings_aside} and the shipped file is installed; review the saved copy before merging any of it back | install.sh |  | warn |
+| t3q7 | [MSG-T3Q7](../install.sh) | could not install ${settings}: an entry that is not a regular file is in the way -- move it out of ${claude_config_dir} by hand, then re-run the install | install.sh |  | die |
 | g2u4 | [MSG-G2U4](../install.sh) | the asset reconcile reported a finding -- sudo ai-tools-admin status names each one and what ends it | install.sh |  | warn |
 | p2n9 | [MSG-P2N9](../install.sh) | the asset reconcile did not complete (exit ${_reconcile_status}) -- run: sudo ai-tools-admin assets reconcile | install.sh |  | warn |
 | e6n7 | [MSG-E6N7](../install.sh) | the shared assets were not seeded and the asset view was not reconciled: the assets lock could not be taken -- run: sudo ./install.sh install, once the other assets command has ended | install.sh |  | warn |
+| g3p2 | [MSG-G3P2](../install.sh) | could not write the timer stamp in /opt/ai-tools/${CP_TIMER_STAMP_DIR} as ${SANDBOX_USER}, so the first timer window runs an immediate update -- see: sudo ai-tools-admin system layout | install.sh |  | warn |
 | m7k6 | [MSG-M7K6](../install.sh) | the systemd --user manager of ${SANDBOX_USER} did not come up -- the auto-update timer | install.sh |  | warn |
 | a7x8 | [MSG-A7X8](../install.sh) | toolchain not provisioned -- the wrapper/handback/SELinux checks skip or fail | install.sh |  | warn |
 | n7s2 | [MSG-N7S2](../install.sh) | operator.conf names providers without their kind prefix -- every launch refuses and the | install.sh | install.sh | warn |
@@ -262,12 +266,11 @@ cannot fix -- a message code's name is a runtime string, and rewording one is a 
 | c4y4 | [MSG-C4Y4](../src/usr/local/bin/ai-tools.sh) | root is not an operator | src/usr/local/bin/ai-tools.sh |  | die |
 | e3d2 | [MSG-E3D2](../src/usr/local/bin/ai-tools.sh) | not a configured ai-tools operator: ${FOR_OPERATOR} -- enrol it first with: | src/usr/local/bin/ai-tools.sh | tests/integration/cli.sh | die |
 | c4t6 | [MSG-C4T6](../src/usr/local/lib/ai-tools/admin-commands.d/dotnet.sh) | run as root (sudo) | src/usr/local/lib/ai-tools/admin-commands.d/dotnet.sh |  | die |
-| j4c7 | [MSG-J4C7](../src/usr/local/lib/ai-tools/admin-commands.d/dotnet.sh) | could not relabel ${path} (restorecon failed) | src/usr/local/lib/ai-tools/admin-commands.d/dotnet.sh |  | die |
 | y4u5 | [MSG-Y4U5](../src/usr/local/lib/ai-tools/admin-commands.d/dotnet.sh) | manifest names a layout module that is not ai_tools_<name>: ${module} | src/usr/local/lib/ai-tools/admin-commands.d/dotnet.sh |  | warn |
 | z4z5 | [MSG-Z4Z5](../src/usr/local/lib/ai-tools/admin-commands.d/dotnet.sh) | layout module ${module} is not installed (${pp}); install ai-tools-selinux -- until then build output is typed at relabel time only | src/usr/local/lib/ai-tools/admin-commands.d/dotnet.sh |  | warn |
 | m4a7 | [MSG-M4A7](../src/usr/local/lib/ai-tools/admin-commands.d/dotnet.sh) | could not load the SELinux layout module ${module}; build output is typed at relabel time only. Re-run: sudo semodule -i ${pp} | src/usr/local/lib/ai-tools/admin-commands.d/dotnet.sh |  | warn |
 | y9d9 | [MSG-Y9D9](../src/usr/local/lib/ai-tools/admin-commands.d/dotnet.sh) | dotnet bootstrap: takes no arguments | src/usr/local/lib/ai-tools/admin-commands.d/dotnet.sh |  | reject |
-| n6g6 | [MSG-N6G6](../src/usr/local/lib/ai-tools/admin-commands.d/dotnet.sh) | the layout reconcile did not create ${dir} as a directory; see: sudo ai-tools-admin system layout | src/usr/local/lib/ai-tools/admin-commands.d/dotnet.sh |  | die |
+| n6g6 | [MSG-N6G6](../src/usr/local/lib/ai-tools/admin-commands.d/dotnet.sh) | the state tree is not at its layout rows after the reconcile: ${refusal}; see: sudo ai-tools-admin system layout | src/usr/local/lib/ai-tools/admin-commands.d/dotnet.sh | tests/unit/admin-commands.sh | die |
 | b7z4 | [MSG-B7Z4](../src/usr/local/lib/ai-tools/admin-commands.d/dotnet.sh) | dotnet tools install: name at least one package | src/usr/local/lib/ai-tools/admin-commands.d/dotnet.sh |  | reject |
 | n2c6 | [MSG-N2C6](../src/usr/local/lib/ai-tools/admin-commands.d/dotnet.sh) | dotnet not found on PATH -- install a host dotnet-sdk package first | src/usr/local/lib/ai-tools/admin-commands.d/dotnet.sh |  | die |
 | y6z3 | [MSG-Y6Z3](../src/usr/local/lib/ai-tools/admin-commands.d/dotnet.sh) | failed to install or update ${package} | src/usr/local/lib/ai-tools/admin-commands.d/dotnet.sh |  | die |
@@ -489,6 +492,7 @@ cannot fix -- a message code's name is a runtime string, and rewording one is a 
 | r7y4 | [MSG-R7Y4](../src/usr/local/libexec/ai-tools/ai-tools-admin.sh) | system layout: ${1} | src/usr/local/libexec/ai-tools/ai-tools-admin.sh | tests/unit/layout.sh | reject |
 | y2f7 | [MSG-Y2F7](../src/usr/local/libexec/ai-tools/ai-tools-admin.sh) | a record could not be written, so the stream is incomplete | src/usr/local/libexec/ai-tools/ai-tools-admin.sh |  | warn |
 | j7s6 | [MSG-J7S6](../src/usr/local/libexec/ai-tools/ai-tools-admin.sh) | the reconcile did not run: ${layout_fields[3]} | src/usr/local/libexec/ai-tools/ai-tools-admin.sh |  | warn |
+| h8u2 | [MSG-H8U2](../src/usr/local/libexec/ai-tools/ai-tools-admin.sh) | the reconcile did not finish within ${run_bound}s and was stopped; a row may be left short of its state -- see: sudo ai-tools-admin system layout | src/usr/local/libexec/ai-tools/ai-tools-admin.sh | src/usr/local/libexec/ai-tools/ai-tools-admin.sh, tests/unit/layout-bound.sh | warn |
 | w5g4 | [MSG-W5G4](../src/usr/local/libexec/ai-tools/ai-tools-admin.sh) | a state the reconcile does not repair remains; each refused line above names its remedy (man ai-tools-admin) | src/usr/local/libexec/ai-tools/ai-tools-admin.sh |  | warn |
 | u8g3 | [MSG-U8G3](../src/usr/local/libexec/ai-tools/ai-tools-admin.sh) | system entrypoints takes a verb: 'system entrypoints relabel' | src/usr/local/libexec/ai-tools/ai-tools-admin.sh |  | reject |
 | t7n9 | [MSG-T7N9](../src/usr/local/libexec/ai-tools/ai-tools-admin.sh) | unknown command 'system entrypoints ${verb}' (relabel) | src/usr/local/libexec/ai-tools/ai-tools-admin.sh |  | reject |

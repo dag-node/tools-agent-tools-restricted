@@ -722,6 +722,8 @@ at notice where it widens access and at info otherwise.
 Runs are serialized on
 .IR /run/lock/ai\-tools\-layout.lock ;
 a lock the command cannot take within a minute is an error and no write.
+A run that has not finished within ten minutes is stopped and reported as an
+error at exit 1, so a run blocked on an entry does not hold the lock.
 Exits 0 with every entry at its row, 1 when a write failed or the read
 after a repair found it did not hold, 5 when an observation was incomplete, and 4 while a refused state
 remains, each after every entry it could act on.

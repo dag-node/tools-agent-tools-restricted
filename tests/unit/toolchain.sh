@@ -481,6 +481,19 @@ else
         fail "the updater installs packages at line ${install_line}, ahead of the removal at ${remove_line}"
     fi
 
+    # The agent set is classified before the run's first write to the toolchain, so a fault ends the run with no Node
+    # version installed and no package reinstalled.
+    classify_line="$(grep -n -m1 -F '< <(ai_tools_providers__evaluate_empty_agents)' "${updater}" | cut -d: -f1)"
+    node_install_line="$(grep -n -m1 -E '^[^#]*nvm install "\$\{target_version\}"' "${updater}" | cut -d: -f1)"
+    relink_copies_line="$(grep -n -m1 -F 'done < <(ai_tools_toolchain__relink_copies ' "${updater}" | cut -d: -f1)"
+    if [[ -z "${classify_line}" || -z "${node_install_line}" || -z "${relink_copies_line}" ]]; then
+        fail "the updater's classification, Node install or copy repair is no longer where this reads it (classify -> ${classify_line:-none}, nvm install -> ${node_install_line:-none}, repair -> ${relink_copies_line:-none})"
+    elif (( classify_line < relink_copies_line && classify_line < node_install_line )); then
+        pass "the updater classifies its agent set before the copy repair and the Node install"
+    else
+        fail "the updater writes the toolchain before it classifies the agent set (classify -> ${classify_line}, repair -> ${relink_copies_line}, nvm install -> ${node_install_line})"
+    fi
+
     incomplete_line="$(grep -n -m1 -E 'ai_tools_toolchain__find_incomplete_agents "' "${updater}" | cut -d: -f1)"
     if [[ -z "${incomplete_line}" || -z "${install_line}" ]]; then
         fail "the updater no longer reads ai_tools_toolchain__find_incomplete_agents before install_packages (read -> ${incomplete_line:-none}, install -> ${install_line:-none})"
