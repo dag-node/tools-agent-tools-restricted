@@ -77,8 +77,10 @@ A `Stop` hook (`session-hook.sh`) closes the `Bash`-tool gap: at each turn's end
 the `SANDBOX_USER`-owned paths under it (heavy trees like `.git`/`node_modules` skipped) and hands each
 to `ai-tools-chown`. The walk is bounded by a timestamp marker on status-change time (`find -cnewer`): a rename
 and an `mv` from another filesystem keep a file's mtime and set its ctime, so a file the agent moved into the tree is
-selected though its contents are older than the marker. Running at turn end rather than per-Bash-call means handing
-a file back (world stripped) cannot break an in-progress in-place Bash edit.
+selected though its contents are older than the marker. A directory moved in takes a new ctime and its descendants keep
+theirs, so each directory a bounded pass selects is walked once more without the bound, under the same skip expression,
+and each path is offered once. Running at turn end rather than per-Bash-call means handing a file back (world stripped)
+cannot break an in-progress in-place Bash edit.
 
 On an ordinary file `ai-tools-chown` strips the world bits and, keyed on the *owner*-execute bit (the only exec bit git
 records), a stray group/mask **execute** that Claude Code's Write tool leaves on a data file — a data file drops

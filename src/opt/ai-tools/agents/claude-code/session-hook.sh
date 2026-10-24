@@ -255,11 +255,17 @@ declare -a expr=( "${dir}" -xdev "${AI_TOOLS_SKIP_DIRS__FIND_EXPRESSION[@]}" '('
 # Bound to paths whose status changed since the marker, EXCEPT an unbounded (session-start) pass, which sweeps every
 # ai-tools-owned path. A first-ever stop run (no marker) is likewise a full sweep. The bound reads ctime, so a file
 # moved into the tree is selected (ownership-and-hooks.rule.md). A path handed back is no longer ai-tools-owned, so its
-# new ctime does not select it again.
+# new ctime does not select it again. A directory moved in keeps its descendants' ctimes, so the bound selects
+# the directory alone; each directory a bounded pass selects is walked once more without the bound (descendant_expr),
+# each path is offered once, and a directory an earlier walk reached is not walked again.
+bounded=0
 if [[ "${unbounded}" -eq 0 && -f "${MARKER}" ]]; then
     expr+=( -cnewer "${MARKER}" )
+    bounded=1
 fi
 expr+=( '(' -type f -o -type d ')' -print0 ')' )
+declare -a descendant_expr=( -mindepth 1 -xdev "${AI_TOOLS_SKIP_DIRS__FIND_EXPRESSION[@]}" '(' -user @SANDBOX_USER@ \
+    '(' -type f -o -type d ')' -print0 ')' )
 
 # Delegate each path to the root validator. </dev/null keeps ai-tools-chown on its non-interactive branch. The find
 # reads via process substitution (not a pipe) so the count survives the loop; a find non-zero (e.g. an unreadable
@@ -272,10 +278,18 @@ if [[ ! -S "${HANDBACK_SOCKET}" ]]; then
     ai_tools_log__warn "${MODE} sweep skipped: handback socket ${HANDBACK_SOCKET} is down -- paths under ${dir} stay @SANDBOX_USER@-owned (reclaim with: ai-tools projects handback ${dir})"
 else
     # Count CONFIRMED handbacks (client exit 0), not attempts.
+    declare -A offered=()
     while IFS= read -r -d '' path; do
-        if /usr/local/bin/ai-tools-handback-client CHOWN "${path}"; then
-            swept=$((swept + 1))
-        fi
+        # A path an earlier walk offered sits under a directory that walk covered whole, so it is not walked again.
+        [[ -z "${offered[${path}]+x}" ]] || continue
+        offered["${path}"]=1
+        if /usr/local/bin/ai-tools-handback-client CHOWN "${path}"; then swept=$((swept + 1)); fi
+        (( bounded )) && [[ -d "${path}" && ! -L "${path}" ]] || continue
+        while IFS= read -r -d '' below; do
+            [[ -z "${offered[${below}]+x}" ]] || continue
+            offered["${below}"]=1
+            if /usr/local/bin/ai-tools-handback-client CHOWN "${below}"; then swept=$((swept + 1)); fi
+        done < <(find "${path}" "${descendant_expr[@]}" 2>/dev/null) || true
     done < <(find "${expr[@]}" 2>/dev/null) || true
 fi
 
