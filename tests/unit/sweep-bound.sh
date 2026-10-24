@@ -450,11 +450,13 @@ fi
 
 # ── A file written during the sweep ──────────────────────────────────────────────────────────────────────────────────
 # The marker takes the scan's start time so that a file written while the walk runs is offered by the next pass. Pass
-# one's client writes during.txt at its first offer, then waits, so the walk ends after that write; pass two records its
-# offers. A marker stamped when the walk ended would be newer than during.txt, and pass two would not offer it.
-# during.txt goes into a subdirectory: the write changes that directory's ctime, so pass two selects it and walks it
-# again without the bound, as it walks a directory moved in. before.txt, written ahead of pass one at the project's top
-# and untouched since, is then the control pass two must not offer.
+# one's client waits, writes during.txt at its first offer, then waits again, so the walk ends after that write; pass
+# two records its offers. A marker stamped when the walk ended would be newer than during.txt, and pass two would not
+# offer it. The wait before the write clears the kernel's coarse clock, which stamps a ctime up to a tick behind
+# the fine clock `date` reads the scan's start from. during.txt goes into a subdirectory: the write changes
+# that directory's ctime, so pass two selects it and walks it again without the bound, as it walks a directory moved in.
+# before.txt, written ahead of pass one at the project's top and untouched since, is then the control pass two must not
+# offer.
 section "sweep bound: a file written during the sweep is offered by the next pass"
 if ! command -v jq >/dev/null 2>&1; then
     skip "a file written during the sweep" "jq not available (the sweep parses its event with it)"
@@ -467,7 +469,7 @@ else
     touch -d '-1 hour' "${DURING_STATE}/.sweep-marker"
     first_offer="${TESTDIR}/during.first"
     writer="if [[ ! -e $(printf '%q' "${first_offer}") ]]; then : > $(printf '%q' "${first_offer}");"
-    writer+=" printf 'during\n' > $(printf '%q' "${DURING_PROJECT}/fresh/during.txt"); sleep 0.05; fi"
+    writer+=" sleep 0.01; printf 'during\n' > $(printf '%q' "${DURING_PROJECT}/fresh/during.txt"); sleep 0.05; fi"
     run_library stop "${DURING_STATE}" "${SOCKET}" "${writer}" <<<"{\"cwd\":\"${DURING_PROJECT}\"}" >/dev/null 2>&1 || true
     : > "${TESTDIR}/during.offers"
     recorder="printf '%s\n' \"\$2\" >> $(printf '%q' "${TESTDIR}/during.offers")"
