@@ -25,8 +25,8 @@ operator. Secret-named files take a different path (see [secrets](secret-handlin
 
 Every hook an agent package ships parses its event JSON with `jq`, so the package `Requires: jq`. Where `jq` is absent,
 a hook takes its no-op path without an error: the handback stops returning ownership, the sweeps stop running,
-and the filters stop filtering. The dependency stays on the agent packages that ship hooks; base does not assume `jq`,
-and `npm-verify.lib.sh` parses the audit JSON with `node` for that reason.
+and the filters stop filtering. The dependency stays on the agent packages that ship hooks; base does not assume `jq`:
+`session-sweep.lib.sh` calls it only under an agent's stub, and `npm-verify.lib.sh` parses the audit JSON with `node`.
 
 Each agent's `session-hook.sh` is a stub over one base library, `/usr/local/lib/ai-tools/session-sweep.lib.sh`: it
 sources the library at its installed path and calls `ai_tools_session_sweep__run` with its mode and its own directory,
@@ -164,14 +164,13 @@ goes through `ai_tools_log__sanitize`, so a crafted directory name cannot put an
 context or onto the terminal. A gracefully-exited session clears its marker and reclaims its `.git` at `session-end`;
 the cross-project pointer is needed only for a kill. Every reclaim is logged to journald (the audit trail), but only
 the **interrupted** case is also surfaced as a `SessionStart` `additionalContext` NOTICE — the only actionable one,
-since a killed prior session can leave cross-project mixed ownership the agent should relay, with the operator's
-`ai-tools projects handback <project>` as the manual reconcile (the `ai-tools-reclaim` helper, [cli](cli.rule.md)),
-which resolves the owner per path through `ai-tools-chown` and applies its exclusions and secret rules. The command is
-kept on its own line, outside the frame, so it stays copy-pasteable, and carries the project path in bash's `%q`
-encoding, so a pasted command takes a directory name with a space or a `$(…)` as the same path. The routine
-post-git-activity reclaim runs on nearly every `session-start` and has already repaired ownership, so it stays
-journald-only: injecting it would force a TUI re-render that clobbers claude's startup banner with a line the user
-cannot act on. The surfaced NOTICE is framed through `msg.lib.sh` (see [messaging](messaging.rule.md)).
+since a killed prior session can leave cross-project mixed ownership the agent should relay,
+with `ai-tools projects handback <project>` as the manual reconcile ([cli](cli.rule.md)), which resolves the owner
+per path. The command sits on its own line, outside the frame, with the path in bash's `%q` encoding, so it pastes
+as the same path. The routine post-git-activity reclaim runs on nearly every `session-start` and has already repaired
+ownership, so it stays journald-only: injecting it would force a TUI re-render that clobbers claude's startup banner
+with a line the user cannot act on. The surfaced NOTICE is framed through `msg.lib.sh` (see
+[messaging](messaging.rule.md)).
 
 Every pass checks the handback socket before acting, since a socket that is down fails every `CHOWN` and a count
 of attempts would then report work that did not happen. So the sweeps and the reclaim count **confirmed** handbacks
@@ -180,14 +179,13 @@ because `ai-tools-chown` exits 0 both for a path it handed back and for one it d
 path, a hardlinked file, a secret-named one it quarantined elsewhere) — the walk selected `SANDBOX_USER`-owned paths,
 so a path no longer owned by that account is one the call changed, and the paths left as they were are reported beside
 the handbacks rather than folded into them. A down socket makes each pass skip its walk, record the stranded count
-and leave the sweep marker where it was, so the span it skipped is walked once the socket is back. A call that fails
-on a walk that ran is counted in one journald warning and does not hold the marker, since the client's exit does not
-tell a helper refusal from a transport failure and a path refused for good would pin it; the path stays
-`SANDBOX_USER`-owned, so the next `session-start` pass offers it again. The `session-start` pass — the one the operator
-reads — surfaces a distinct `SessionStart` NOTICE naming the fix (`systemctl enable --now ai-tools-handback.socket`,
-then `ai-tools projects handback <project>`) whenever agent-owned `.git` paths are stranded, instead of the "reclaimed
-N" wording. `ai-tools-run`'s launch-time preflight is the front-line detector for the same condition (see
-[launch](launch.rule.md), [handback-bridge](handback-bridge.rule.md)).
+and leave the sweep marker where it was. A call that fails on a walk that ran is logged and does not hold the marker,
+since a path the helper refuses for good would pin it; the path stays `SANDBOX_USER`-owned for the next `session-start`
+pass. The `session-start` pass — the one the operator reads — surfaces a distinct `SessionStart` NOTICE naming the fix
+(`systemctl enable --now ai-tools-handback.socket`, then `ai-tools projects handback <project>`) whenever agent-owned
+`.git` paths are stranded, instead of the "reclaimed N" wording. `ai-tools-run`'s launch-time preflight is
+the front-line detector for the same condition (see [launch](launch.rule.md),
+[handback-bridge](handback-bridge.rule.md)).
 
 ## Setgid normalization <a id="ref-section-y9z4"></a>
 

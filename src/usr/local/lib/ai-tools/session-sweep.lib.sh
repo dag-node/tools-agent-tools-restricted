@@ -240,9 +240,7 @@ _ai_tools_session_sweep__sweep_project() {
         done < <(find "${path}" "${descendant_expr[@]}" 2>/dev/null) || true
     done < <(find "${expr[@]}" 2>/dev/null) || true
 
-    # A failed call is a path the helper refused or one the socket stopped answering for mid-walk; the client's exit
-    # status does not tell the two apart. Either way the path stays @SANDBOX_USER@-owned, so the next session-start pass
-    # offers it again.
+    # A failed call is a helper refusal or a socket lost mid-walk, which the client's exit does not tell apart.
     if [[ "${failed}" -gt 0 ]]; then
         ai_tools_log__warn "${mode} sweep: ${failed} path(s) under ${dir} not handed back -- the helper refused them or the socket stopped answering mid-walk; reclaim with: ai-tools projects handback ${quoted}"
     fi
@@ -299,11 +297,8 @@ ai_tools_session_sweep__run() {
     # The session's working dir (allowlisted project root). No cwd -> return without acting.
     dir="$(jq -r '.cwd // empty' <<<"${payload}" 2>/dev/null)" || return 0
     [[ -n "${dir}" && -d "${dir}" ]] || return 0
-    # The same path as it is PRINTED. It arrives in the hook payload, so the NOTICE prose shows it reduced
-    # to the characters the log sanitizer keeps; every use that acts on the tree keeps the real path. A command
-    # the NOTICE carries takes the real path in bash's %q encoding instead: bash reads that back as the same path,
-    # and it encodes every byte outside printable ASCII, so a pasted command neither expands a `$(…)` in a directory
-    # name nor carries an escape sequence.
+    # The path as the NOTICE prints it, from the hook payload: the prose takes it sanitized, and a command takes bash's
+    # %q encoding, which pastes back as the same path and does not carry a byte outside printable ASCII.
     display_dir="$(ai_tools_log__sanitize "${dir}")"
     quoted_dir="$(printf '%q' "${dir}")"
 
@@ -330,10 +325,8 @@ ai_tools_session_sweep__run() {
             prev_cwd="$(_ai_tools_session_sweep__read_prior_cwd "${active_marker}")"
         fi
         printf '%s\n' "${dir}" > "${active_marker}" 2>/dev/null || true
-        # The hooks of releases before 0.27.0 created the sweep marker through a mktemp file in this directory
-        # and renamed it after the walk, so a hook killed mid-walk left the file. The account owns those files and this
-        # directory is its to write, so the pass that reclaims a prior session's leftovers removes them; a glob without
-        # a match stays literal, which `rm -f` ignores. Removed once 0.27.0 is the oldest release in use.
+        # Hooks before 0.27.0 left a .sweep.XXXXXX file here when killed mid-walk; the account owns them. Retired once
+        # 0.27.0 is the oldest release in use.
         rm -f -- "${state_dir}"/.sweep.?????? 2>/dev/null || true
     fi
 
@@ -351,16 +344,11 @@ ai_tools_session_sweep__run() {
     # from session start.
     scan_start="$(date --rfc-3339=ns 2>/dev/null)" || scan_start=""
 
-    # Advance the marker to this scan's start time once the walk ran. A pass whose walk did not run (the socket was
-    # down) and a run that ends mid-walk each leave the marker where it was, so the next pass covers the same span.
-    # A failed call does not hold the marker: the client's exit status does not tell a helper refusal from a transport
-    # failure, a path the helper refuses for good would pin the marker and make every turn a full re-walk
-    # from that time, and the path stays @SANDBOX_USER@-owned, so the next session-start pass offers it. No file is
-    # written to carry the time: a Stop hook codex kills at its timeout cannot run a trap, and a temporary file would
-    # stay behind in the config directory. Best-effort: a time that did not read or a touch that fails leaves the marker
-    # as it was, and the turn or session proceeds either way. The call sits in an `if` because the stub runs
-    # under `set -e`; the count goes to the tests that call the walk directly, since this pass's stdout is the reply
-    # the agent reads.
+    # Advance the marker to the scan's start once the walk ran; a skipped walk or a run ended mid-walk leaves it,
+    # so the next pass covers the same span. A failed call does not hold it, since a path refused for good would pin it.
+    # No file carries the time: a Stop hook codex kills at its timeout does not run a trap, so one would stay behind.
+    # The `if` keeps the stub's `set -e` off the walk's status; its count is for the tests, as stdout is the agent's
+    # reply.
     if _ai_tools_session_sweep__sweep_project "${dir}" "${marker}" "${unbounded}" "${mode}" >/dev/null; then
         [[ -z "${scan_start}" ]] || touch -d "${scan_start}" "${marker}" 2>/dev/null || true
     fi
@@ -409,9 +397,8 @@ ai_tools_session_sweep__run() {
                     "The previous session ended without cleanup (interrupted). Reclaimed ${total_found} agent-owned path(s) under ${scope} to repair the mixed ownership that makes git report \"dubious ownership\".")"
                 # The command names THIS session's project for the same reason the prose does: it is the one the user
                 # asking is working in, and a command naming a path from the marker would be a command typed
-                # against a tree nobody in this session chose. It is the operator's handback command, which hands each
-                # path to ai-tools-chown: that helper resolves the owner per path and applies the exclusions,
-                # the hardlink refusal and the secret rules, and its default walk includes .git.
+                # against a tree nobody in this session chose. The handback command resolves each path's owner
+                # through ai-tools-chown, with its exclusion and secret rules, and walks .git by default.
                 reconcile="If git still complains, ask the user to run:"$'\n'"  ai-tools projects handback ${quoted_dir}"
                 _ai_tools_session_sweep__emit_session_context "${prose}"$'\n'"${reconcile}"
             fi
