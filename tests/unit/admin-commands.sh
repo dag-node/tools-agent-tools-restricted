@@ -530,6 +530,21 @@ else
     else
         pass "the dotnet command writes no directory under its state tree by path"
     fi
+    # After its reconcile the command reads each state directory's layout row; a type test on a path resolves
+    # through a link planted at a parent, which the row read of that parent refuses (tests/unit/layout.sh drives it).
+    type_tests="$(grep -nE '\-d[[:space:]]+"\$\{[A-Za-z_]+\}[^"]*"[[:space:]]*&&[[:space:]]*!' -- "${dotnet_fragment}" \
+        | grep -vE '^[0-9]+:[[:space:]]*#' || true)"
+    refusal_code=MSG-N6G6
+    refusal_exit="$(grep -A1 -F 'refusal="$(read_state_rows_refusal)"' -- "${dotnet_fragment}" || true)"
+    if ! grep -q 'ai_tools_layout__read_entry_state' -- "${dotnet_fragment}"; then
+        fail "the dotnet command does not read its state directories through the layout reader"
+    elif [[ "${refusal_exit}" != *"|| die ${refusal_code} "* ]]; then
+        fail "the dotnet bootstrap does not end under ${refusal_code} on a state-row refusal: $(_san "${refusal_exit:-no line}")"
+    elif [[ -n "${type_tests}" ]]; then
+        fail "the dotnet command decides its state tree by a type test: $(_san "${type_tests}")"
+    else
+        pass "the dotnet command reads its state directories through the layout reader, with no type test"
+    fi
 fi
 
 finish

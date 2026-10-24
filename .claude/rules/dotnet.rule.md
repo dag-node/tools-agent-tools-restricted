@@ -56,7 +56,8 @@ cache), so a session gets dotnet only when `integration-dotnet` is in `AI_TOOLS_
 - `admin-commands.d/dotnet` is this package's contributed domain, so its administration is spelled
   `sudo ai-tools-admin dotnet <verb>` ([cli-grammar](cli-grammar.rule.md) for the spelling). `dotnet bootstrap` brings
   that state root and the directories under it to their rows by running the layout reconcile ([layout](layout.rule.md)),
-  and the rows in `layout.lib.sh` hold the modes: the NuGet cache and the SDK's CLI home are agent-**writable**
+  then reads each of those directories through the layout's own reader, which decides whether the command goes
+  on, and the rows in `layout.lib.sh` hold the modes: the NuGet cache and the SDK's CLI home are agent-**writable**
   (setgid), the shared tools are **read-only** to the agent (root-only writes). The command does not create a directory
   itself, since the NuGet cache is sandbox-group-writable and a by-path `install -d` follows a link planted there;
   the reconcile is the one writer under the state root. The rows apply while the package's sentinel files exist,
@@ -69,10 +70,11 @@ cache), so a session gets dotnet only when `integration-dotnet` is in `AI_TOOLS_
   verdict `ai-tools-run` reaches. Its journald tag and log file are `ai-tools-dotnet`/`dotnet.log`, the identity
   an operator queries.
 - Every step **fails loudly**. The command exits non-zero, with the cause logged through `log.lib.sh` to journald
-  and `/var/log/ai-tools/dotnet.log` (see [logging](logging.rule.md)), when a state directory is missing or of another
-  type, a symlink included, after the reconcile (`MSG-N6G6`), or when it cannot apply a label on a host that supports
-  labelling — a half-provisioned integration that looks installed surfaces later as an opaque denial inside a confined
-  session. The genuine no-ops are recognized as such: `selinux_active` gates the labelling on SELinux being enabled,
+  and `/var/log/ai-tools/dotnet.log` (see [logging](logging.rule.md)), when a state directory is not at its row
+  after the reconcile — missing, a link or another type at its name, another owner, mode, ACL or label, or a row
+  the reader could not read (`MSG-N6G6`) — or when it cannot apply a label on a host that supports labelling —
+  a half-provisioned integration that looks installed surfaces later as an opaque denial inside a confined session.
+  The genuine no-ops are recognized as such: `selinux_active` gates the labelling on SELinux being enabled,
   `policycoreutils` present, and the `ai_tools` module loaded, and skips with a logged line otherwise. The RPM `%post`
   runs `dotnet bootstrap`, reports the remedy and exits non-zero on failure (rpm records a scriptlet failure
   against this package while the transaction completes — the right blast radius for a weakly-pulled optional
