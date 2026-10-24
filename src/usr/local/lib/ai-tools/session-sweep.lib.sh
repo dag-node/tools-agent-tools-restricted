@@ -218,8 +218,9 @@ _ai_tools_session_sweep__sweep_project() {
         '(' -type f -o -type d ')' -print0 ')' )
 
     # Delegate each path to the root validator. </dev/null keeps ai-tools-chown on its non-interactive branch. The find
-    # reads via process substitution (not a pipe) so the count survives the loop; a find non-zero (e.g. an unreadable
-    # subdir) only ends the stream and cannot trip `set -e` / pipefail or skip the marker update.
+    # reads via process substitution (not a pipe) so the count survives the loop; a find non-zero (an owner-only
+    # directory the account cannot enter, which ends every pass over that project at 1) only ends the stream and cannot
+    # trip `set -e` / pipefail or skip the marker update.
     ai_tools_log__debug "${mode} sweep: handing back agent-owned paths under ${dir}$([[ "${unbounded}" -eq 1 ]] && echo ' (unbounded)' || echo ' (since marker)')"
     if [[ ! -S "${_AI_TOOLS_SESSION_SWEEP__HANDBACK_SOCKET}" ]]; then
         # Socket down: every CHOWN would fail, so skip the walk and record it once. Counting the failed calls would also

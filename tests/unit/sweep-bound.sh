@@ -386,6 +386,38 @@ else
     grep -q '1 path(s) under .* not handed back' "${TESTDIR}/fail.warn" 2>/dev/null \
         && pass "one warning names the one path not handed back" \
         || fail "no warning named the failed call: $(_san "$(cat "${TESTDIR}/fail.warn" 2>/dev/null || true)")"
+
+    # A walk that ran advances the marker though a call failed, since a path the helper refuses for good would otherwise
+    # pin it; the socket-down case is the contrast. The refused path then waits for the unbounded pass: the next stop
+    # pass does not offer it, and a session-start pass does. The control file that pass must offer goes
+    # into a subdirectory made ahead of the run: a write at the project's top would change the project directory's
+    # ctime, and the next pass would walk it whole, as it walks a directory moved in.
+    mkdir -p "${FAIL_PROJECT}/later"
+    refuser='[[ "$2" != */refused.txt ]]'
+    warnings="$(run_library stop "${HOLD_STATE}" "${SOCKET}" "${refuser}" <<<"{\"cwd\":\"${FAIL_PROJECT}\"}" 2>&1 >/dev/null \
+        || true)"
+    [[ "${warnings}" == *'1 path(s) under'*'not handed back'* ]] \
+        && pass "control: the stop run's client refused one path, and the run logged it" \
+        || fail "control: the stop run's warnings: $(_san "${warnings}")"
+    [[ "$(stat -c '%Y' "${HOLD_STATE}/.sweep-marker")" != "${marker_before}" ]] \
+        && pass "a stop run whose walk ran advances the marker though a call failed" \
+        || fail "a stop run with one failed call left the marker where it was"
+    : > "${TESTDIR}/after.offers"
+    recorder="printf '%s\n' \"\$2\" >> $(printf '%q' "${TESTDIR}/after.offers")"
+    sleep 0.05; printf 'c\n' > "${FAIL_PROJECT}/later/fresh.txt"
+    run_library stop "${HOLD_STATE}" "${SOCKET}" "${recorder}" <<<"{\"cwd\":\"${FAIL_PROJECT}\"}" >/dev/null 2>&1 || true
+    grep -qxF "${FAIL_PROJECT}/later/fresh.txt" "${TESTDIR}/after.offers" \
+        && pass "control: the next stop pass offers a file written after the marker" \
+        || fail "control: the next stop pass did not offer fresh.txt: $(_san "$(cat "${TESTDIR}/after.offers")")"
+    ! grep -qxF "${FAIL_PROJECT}/refused.txt" "${TESTDIR}/after.offers" \
+        && pass "the next stop pass does not offer the refused path, which the marker passed" \
+        || fail "the next stop pass offered the refused path, so the marker did not advance past it"
+    : > "${TESTDIR}/after.offers"
+    run_library session-start "${HOLD_STATE}" "${SOCKET}" "${recorder}" \
+        <<<"$(jq -cn --arg cwd "${FAIL_PROJECT}" '{cwd:$cwd, source:"startup"}')" >/dev/null 2>&1 || true
+    grep -qxF "${FAIL_PROJECT}/refused.txt" "${TESTDIR}/after.offers" \
+        && pass "a session-start pass offers the refused path again" \
+        || fail "the session-start pass did not offer the refused path: $(_san "$(cat "${TESTDIR}/after.offers")")"
 fi
 
 # ── The temporary files earlier hooks left ───────────────────────────────────────────────────────────────────────────
