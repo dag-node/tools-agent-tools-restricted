@@ -914,10 +914,6 @@ dotnet tools install: name at least one package
 ERROR.
 run as root (sudo)
 .TP
-.B MSG-J4C7
-ERROR.
-could not relabel ${path} (restorecon failed)
-.TP
 .B MSG-J9Z8
 ERROR.
 installed ${*}, but could not relabel ${TOOLS_DIR} \-\- the agent cannot exec the tools until it is relabelled
@@ -932,7 +928,7 @@ dotnet not found on PATH \-\- install a host dotnet\-sdk package first
 .TP
 .B MSG-N6G6
 ERROR.
-the layout reconcile did not create ${dir} as a directory; see: sudo ai\-tools\-admin system layout
+the state tree is not at its layout rows after the reconcile: ${refusal}; see: sudo ai\-tools\-admin system layout
 .TP
 .B MSG-P8N7
 ERROR.
