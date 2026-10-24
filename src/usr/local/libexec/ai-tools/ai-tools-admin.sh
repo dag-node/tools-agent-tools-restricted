@@ -3794,10 +3794,19 @@ layout_list() {
 # layout_reconcile [--without-rpm]: bring every entry to its row through the library, each of its lines printed in this
 # command's voice as it arrives, then the counts. The library runs as a collector (records.rule.md): its PID is saved
 # on the statement that opens it, and its status, the outcome ai-tools-admin(8) states, is the command's.
+#
+# The run is bounded by AI_TOOLS_LAYOUT_RUN_BOUND seconds (600 by default; a root-only test hook, tests.rule.md,
+# whose malformed value takes the default). The lock bounds how long a run waits for another; the deadline bounds
+# the run holding it, which an open blocked on a FIFO at a row's path would otherwise hold until the host is restarted.
+# Past it the collector and its direct children take SIGTERM, then SIGKILL a second later, which ends the lock's
+# holders, and the command reports MSG-H8U2 at exit 1: the run did not complete its table, so it is a failure and not
+# a cap.
 layout_reconcile() {
     local without_rpm=0 refusal="" collector_fd collector_pid reconcile_status=0 layout_line line_tag entry_path
     local finding_field changed_count=0 refused_count=0 error_count=0
-    local -a layout_fields=()
+    local run_bound="${AI_TOOLS_LAYOUT_RUN_BOUND:-600}" deadline remaining read_status timed_out=0
+    local -a layout_fields=() collector_children=()
+    [[ "${run_bound}" =~ ^[1-9][0-9]{0,5}$ ]] || run_bound=600
     while [[ $# -gt 0 && -z "${refusal}" ]]; do
         case "$1" in
             --without-rpm) without_rpm=1 ;;
@@ -3808,8 +3817,15 @@ layout_reconcile() {
     [[ -z "${refusal}" ]] || layout_reject_option "reconcile: ${refusal}"
     layout_load
     layout_require_table
+    deadline=$(( SECONDS + run_bound ))
     exec {collector_fd}< <(ai_tools_layout__reconcile "${without_rpm}"); collector_pid=$!
-    while IFS= read -r -u "${collector_fd}" layout_line; do
+    while :; do
+        remaining=$(( deadline - SECONDS ))
+        (( remaining > 0 )) || { timed_out=1; break; }
+        read_status=0
+        IFS= read -r -t "${remaining}" -u "${collector_fd}" layout_line || read_status=$?
+        (( read_status <= 128 )) || { timed_out=1; break; }
+        (( read_status == 0 )) || break
         if ! ai_tools_layout__parse_stream_line "${layout_line}" layout_fields || (( ${#layout_fields[@]} < 4 )); then
             printf 'ai-tools-admin: error: a line of the reconcile did not decode\n' >&2
             error_count=$(( error_count + 1 )); continue
@@ -3829,8 +3845,18 @@ layout_reconcile() {
                      printf 'ai-tools-admin: error: a line of the reconcile carries no tag\n' >&2 ;;
         esac
     done
+    if (( timed_out )); then
+        mapfile -t collector_children < <(pgrep -P "${collector_pid}" 2>/dev/null || true)
+        kill -TERM "${collector_pid}" "${collector_children[@]}" 2>/dev/null || :
+        sleep 1
+        kill -KILL "${collector_pid}" "${collector_children[@]}" 2>/dev/null || :
+    fi
     exec {collector_fd}<&-
     wait "${collector_pid}" || reconcile_status=$?
+    if (( timed_out )); then
+        warn MSG-H8U2 "the reconcile did not finish within ${run_bound}s and was stopped; a row may be left short of its state -- see: sudo ai-tools-admin system layout"
+        error_count=$(( error_count + 1 )); reconcile_status=1
+    fi
     log "layout: ${changed_count} changed, ${refused_count} refused, ${error_count} error(s)"
     (( refused_count == 0 )) \
         || warn MSG-W5G4 "a state the reconcile does not repair remains; each refused line above names its remedy (man ai-tools-admin)"

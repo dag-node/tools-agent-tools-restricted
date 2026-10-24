@@ -136,7 +136,12 @@ outside ASCII, which the stream encoder escapes, keeps the rule.
 and a wait that runs out, a host without `flock` or a lock file it cannot create is an `error` line and exit 5 with no
 write: two reconciles interleaving their `setfacl --set` calls is the one way this library could leave an entry
 at neither state. The relabel lock proceeds unserialized for the opposite reason, stated in [updater](updater.rule.md).
-`AI_TOOLS_LAYOUT_LOCK` and `AI_TOOLS_LAYOUT_LOCK_WAIT` move the pair under test.
+`AI_TOOLS_LAYOUT_LOCK` and `AI_TOOLS_LAYOUT_LOCK_WAIT` move the pair under test. The lock bounds how long a run waits
+for another; **a deadline bounds the run holding it.** `ai-tools-admin system layout reconcile` reads the library's
+lines against `AI_TOOLS_LAYOUT_RUN_BOUND` seconds (600 by default, a root-only test hook whose malformed value takes
+the default), and past it sends the collector and its direct children `SIGTERM`, then `SIGKILL`, and reports `MSG-H8U2`
+at exit 1, since the run did not complete its table: an open blocked on a FIFO at a row's path, which the pin does not
+time out, would otherwise hold the lock every caller in [Where it runs](#where-it-runs) waits on.
 
 **Preconditions, per entry.** A `files` regular file is repaired only when its content is `verified`: `content-drift`
 refuses the whole entry naming `dnf reinstall`, `unreadable` content is `error` and the entry is left whole,
@@ -196,8 +201,8 @@ so a removed package's rows leave with its sentinel; the rpm database is held wh
 comparison waits for the relabel service the base `%posttrans` starts, whose first `ExecStart=-` line is the full pass.
 `install.sh` and `ai-tools-bootstrap` run the installed command before each seeds the timer stamp, so the reconcile
 creates the unit search path chain and the stamp directory as rows ([ownership-and-hooks](ownership-and-hooks.rule.md)).
-The base `%post` keeps its `setfacl` lines and its setgid re-assert as the first state before any library loads;
-removing them is a later release's.
+Every caller runs the command, so every caller takes its deadline. The base `%post` keeps its `setfacl` lines and its
+setgid re-assert as the first state before any library loads; removing them is a later release's.
 
 ## Tests
 
@@ -209,9 +214,12 @@ holds the table in lockstep with `packaging/ai-tools.spec` — every `%attr` lin
 mode, package and `config`/`ghost` flag, and every `files` row is a `%files` line of each package it names. As root it
 builds a tree from the table itself over `AI_TOOLS_LAYOUT_ROOT` and drives the reconcile over the whole tree: each
 planted drift it repairs converges in one run, each state it refuses is left as it was, and the exit order holds.
-`tests/integration/perms.sh` is the loop over the installed library, and `tests/boundary/access.sh` probes the library,
-every boundary row, and the reconcile through the installed `/usr/sbin/ai-tools-admin` link, established as root first,
-as the sandbox account, holding the status to the two a refusal produces.
+`tests/unit/layout-bound.sh` sources the checkout's `ai-tools-admin.sh` with the library stubbed and holds the command's
+deadline: a reconcile sleeping past a two-second bound returns within a few seconds at exit 1 under its code, its
+collector gone, beside a control that finishes inside it. `tests/integration/perms.sh` is the loop over the installed
+library, and `tests/boundary/access.sh` probes the library, every boundary row, and the reconcile through the installed
+`/usr/sbin/ai-tools-admin` link, established as root first, as the sandbox account, holding the status to the two
+a refusal produces.
 
 ## Design notes
 
@@ -221,7 +229,8 @@ as the sandbox account, holding the status to the two a refusal produces.
   and `ai_tools_control_plane__apply_mode` is a `chmod`, which follows the link. The sequence every elevated helper
   that changes a path takes ([safe-paths](safe-paths.rule.md)) closes it, and the create is exclusive for the same
   reason: `install -d` accepts an existing entry and follows a symlink to a directory. The residual is the chown
-  helper's: a FIFO planted at a row's path blocks the open, and the lock bounds the next run to its wait.
+  helper's: a FIFO planted at a row's path blocks the open, the command's deadline ends that run, and the lock bounds
+  the next run to its wait.
 - **Owner and write exposure are preconditions on a file.** Every content observation reads by path, and `rpm` does not
   verify a descriptor, so a `verified` state does not bind to the inode the pin later holds: a `chown` or a `chmod`
   on a file another account owns or could write would hand root's trust to bytes that account wrote, or writes
