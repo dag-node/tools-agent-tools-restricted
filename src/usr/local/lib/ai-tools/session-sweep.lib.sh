@@ -330,6 +330,11 @@ ai_tools_session_sweep__run() {
             prev_cwd="$(ai_tools_session_sweep__read_prior_cwd "${active_marker}")"
         fi
         printf '%s\n' "${dir}" > "${active_marker}" 2>/dev/null || true
+        # The hooks of releases before 0.27.0 created the sweep marker through a mktemp file in this directory
+        # and renamed it after the walk, so a hook killed mid-walk left the file. The account owns those files and this
+        # directory is its to write, so the pass that reclaims a prior session's leftovers removes them; a glob without
+        # a match stays literal, which `rm -f` ignores. Removed once 0.27.0 is the oldest release in use.
+        rm -f -- "${state_dir}"/.sweep.?????? 2>/dev/null || true
     fi
 
     # Session start on a genuinely new process (the unbounded pass): normalize the project's setgid bit so files

@@ -341,6 +341,34 @@ else
         || fail "no warning named the failed call: $(_san "$(cat "${TESTDIR}/fail.warn" 2>/dev/null || true)")"
 fi
 
+# ── The temporary files earlier hooks left ───────────────────────────────────────────────────────────────────────────
+# Hooks before 0.27.0 left a .sweep.?????? file in the state directory when they were killed mid-walk. The session-start
+# pass, the one that reclaims what a prior session left, removes them; a stop pass does not touch them.
+section "sweep bound: the session-start pass removes the temporary files earlier hooks left"
+if ! command -v jq >/dev/null 2>&1; then
+    skip "the temporary files earlier hooks left" "jq not available (the sweep parses its event with it)"
+elif [[ ! -S "${SOCKET}" ]]; then
+    skip "the temporary files earlier hooks left" "no socket to answer the sweep's check: the bind is refused here and ${SOCKET} is down"
+else
+    LEFT_STATE="${TESTDIR}/left-state"; mkdir -p "${LEFT_STATE}"
+    : > "${LEFT_STATE}/.sweep.abcdef"
+    run_library stop "${LEFT_STATE}" "${SOCKET}" ':' <<<"{\"cwd\":\"${WALKED}\"}" >/dev/null 2>&1 || true
+    [[ -f "${LEFT_STATE}/.sweep-marker" ]] \
+        && pass "control: the stop run wrote the marker" \
+        || fail "control: the stop run left no marker in ${LEFT_STATE}"
+    [[ -f "${LEFT_STATE}/.sweep.abcdef" ]] \
+        && pass "a stop run leaves an earlier hook's .sweep.abcdef in place" \
+        || fail "a stop run removed an earlier hook's .sweep.abcdef"
+    run_library session-start "${LEFT_STATE}" "${SOCKET}" ':' \
+        <<<"$(jq -cn --arg cwd "${WALKED}" '{cwd:$cwd, source:"startup"}')" >/dev/null 2>&1 || true
+    [[ -f "${LEFT_STATE}/.sweep-marker" && -f "${LEFT_STATE}/.session-active" ]] \
+        && pass "control: the session-start run kept the marker and wrote the clean-exit marker" \
+        || fail "control: the session-start run did not leave both markers in ${LEFT_STATE}"
+    [[ ! -e "${LEFT_STATE}/.sweep.abcdef" ]] \
+        && pass "the session-start run removes an earlier hook's .sweep.abcdef" \
+        || fail "the session-start run left .sweep.abcdef in ${LEFT_STATE}"
+fi
+
 # ── The bound the library carries ────────────────────────────────────────────────────────────────────────────────────
 section "sweep bound: the session sweep bounds its Stop walk on ctime, and every agent's hook runs it"
 SWEEP_LIB_SRC="${ROOT}/src/usr/local/lib/ai-tools/session-sweep.lib.sh"
