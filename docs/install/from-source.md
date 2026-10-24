@@ -336,6 +336,7 @@ which `sudo ./install.sh check-perms` runs):
 | `src/usr/lib/systemd/system/ai-tools-handback@.service` | `/usr/lib/systemd/system/ai-tools-handback@.service` (root) |
 | `src/usr/local/lib/ai-tools/secret-patterns.lib.sh` | `/usr/local/lib/ai-tools/secret-patterns.lib.sh` (root) |
 | `src/usr/local/lib/ai-tools/skip-dirs.lib.sh` | `/usr/local/lib/ai-tools/skip-dirs.lib.sh` (root) |
+| `src/usr/local/lib/ai-tools/session-sweep.lib.sh` | `/usr/local/lib/ai-tools/session-sweep.lib.sh` (root) |
 | `src/usr/local/lib/ai-tools/ancestor-config.lib.sh` | `/usr/local/lib/ai-tools/ancestor-config.lib.sh` (root) |
 | `src/usr/local/lib/ai-tools/filters.lib.sh` | `/usr/local/lib/ai-tools/filters.lib.sh` (root) |
 | `src/usr/local/lib/ai-tools/filters.d/base.rules` | `/usr/local/lib/ai-tools/filters.d/base.rules` (root) |

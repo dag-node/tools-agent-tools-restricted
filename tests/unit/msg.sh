@@ -503,6 +503,8 @@ inline_matchers=(
     src/usr/local/libexec/ai-tools/ai-tools-stop.sh
     src/usr/local/libexec/ai-tools/ai-tools-unclaim.sh
     src/opt/ai-tools/bin/nvm-update.sh
+    src/opt/ai-tools/agents/claude-code/session-hook.sh
+    src/opt/ai-tools/agents/codex/session-hook.sh
     src/usr/local/bin/ai-tools.sh
     src/usr/local/lib/ai-tools/admin-commands.d/dotnet.sh
     src/usr/local/lib/ai-tools/conf.lib.sh

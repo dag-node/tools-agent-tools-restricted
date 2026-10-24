@@ -79,13 +79,28 @@ else
     fail "can write ${splib} -- agent can edit the secret-pattern matcher and avoid triggering it"
 fi
 
-# Skip-dir library (644 root:root) is sourced by session-hook.sh while it runs AS the agent. World read is intentional
+# Skip-dir library (644 root:root) is sourced by the session sweep while it runs AS the agent. World read is intentional
 # and required; the content is not sensitive.
 skip_dirs_lib=/usr/local/lib/ai-tools/skip-dirs.lib.sh
 if runuser -u "${SANDBOX_USER}" -- test -r "${skip_dirs_lib}" 2>/dev/null; then
-    pass "can read ${skip_dirs_lib} (644 root:root): required by session-hook.sh at runtime"
+    pass "can read ${skip_dirs_lib} (644 root:root): required by session-sweep.lib.sh at runtime"
 else
-    fail "cannot read ${skip_dirs_lib} -- session-hook.sh will fail to source the skip list"
+    fail "cannot read ${skip_dirs_lib} -- session-sweep.lib.sh will fail to source the skip list"
+fi
+
+# Session sweep library (644 root:root): every agent's session-hook.sh sources it AS the agent, so the agent reads it,
+# and a hook that cannot read it does not sweep.
+session_sweep_lib=/usr/local/lib/ai-tools/session-sweep.lib.sh
+if runuser -u "${SANDBOX_USER}" -- test -r "${session_sweep_lib}" 2>/dev/null; then
+    pass "can read ${session_sweep_lib} (644 root:root): required by session-hook.sh at runtime"
+else
+    fail "cannot read ${session_sweep_lib} -- every session-hook.sh reports MSG-N6U2 and does not sweep"
+fi
+# It is the body of every session hook, so a write would rewrite the sweep each hook runs.
+if ! runuser -u "${SANDBOX_USER}" -- test -w "${session_sweep_lib}" 2>/dev/null; then
+    pass "cannot write ${session_sweep_lib} (644 root:root): the stop-sweep and session-start bodies are protected"
+else
+    fail "can write ${session_sweep_lib} -- agent could disable the stop-sweep or session-start reclaim of every agent"
 fi
 
 # /usr/local/libexec/ai-tools (750 root:root) holds the root helpers. Listing it lets the agent enumerate helper names

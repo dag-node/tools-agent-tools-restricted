@@ -206,10 +206,10 @@ so only a `SIGKILL` or a failed `rm` leaves residue for the sweep. The stable la
 
 No automated file writes live runtime state. The one place a real hook runs is the manual script, where the Stop sweep
 advances the shared sweep marker under `.claude` as a session's would; the automated suite never moves that marker,
-which the hook rotates by `mv` inside the sticky `.claude` directory and a root-written one could never be replaced in.
-No file starts or stops a service: `integration/systemd.sh` reads the sandbox account's linger record (what keeps its
-`--user manager` up with no login) and fails when it is absent; a manager down despite linger is skipped, with the start
-command named, and the test does not start it.
+which the hook advances with `touch -d`, and `touch -d` sets a time only on a file the account owns, so a root-written
+marker would stop advancing. No file starts or stops a service: `integration/systemd.sh` reads the sandbox account's
+linger record (what keeps its `--user manager` up with no login) and fails when it is absent; a manager down despite
+linger is skipped, with the start command named, and the test does not start it.
 
 Nor does a test mutate **global system state** to exercise a helper — the host's local SELinux policy
 (`semanage fcontext`) most of all. A helper whose real work *is* to add and then remove a policy entry is therefore
@@ -1170,10 +1170,19 @@ now captures the listing before matching it.
 ([ownership-and-hooks](ownership-and-hooks.rule.md)): over a fixture, `-cnewer` against the marker selects a file
 renamed into the tree and one moved in from another filesystem, each dated before the marker, while `-newer`,
 the control, selects neither and a file untouched since before the marker is selected by neither. A directory moved
-in is selected without the older file inside it, the control; each session hook's sweep block, read out of its source
-with the handback client stubbed, must then offer both, each once, and leave a skipped tree inside it unwalked. It then
-reads each session hook's source for the bound. The cross-filesystem case needs a writable directory on another
-filesystem than the testdir's, and skips naming that otherwise.
+in is selected without the older file inside it, the control; the session sweep library's walk, sourced
+from a token-substituted copy of the checkout's libraries with the handback client stubbed, must then offer both, each
+once, leave a skipped tree inside it unwalked, and print the count of what it offered. A stop run through the library
+must set the marker to a time inside the run and must not leave another file in the state directory, and a run
+the stubbed client kills mid-walk must leave the marker where it was and no file behind, as must a run whose socket is
+down; a file written during a run must be offered by the next, which a marker stamped at the walk's end fails. A failed
+call is left out of the count and logged, and does not hold the marker: the next stop run does not offer the refused
+path, and a session-start run does. The interrupted-session notice's command, run through a `printf` recorder, must pass
+a project path carrying shell syntax as one argument, and under a UTF-8 locale must hold printable ASCII alone
+for a name carrying a multibyte character or a Unicode control, the logged copy included; a planted `.sweep.??????` file
+must survive a stop run and not a session-start run. It then reads the library's source for the bound, and each agent's
+session hook for the library it sources. The cross-filesystem case needs a writable directory on another filesystem than
+the testdir's, and skips naming that otherwise.
 
 `fcontext-twins.sh` reads the policy sources and requires every file-context rule under the sandbox-clone area to appear
 under both `/opt` and `/var/opt`, with the same tail and context. A host reaches one of each pair, decided by whether

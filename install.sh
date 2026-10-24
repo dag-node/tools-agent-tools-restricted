@@ -1072,6 +1072,7 @@ do_summary() {
     _chk /var/opt/ai-tools/README.md
     _chk /usr/local/lib/ai-tools/secret-patterns.lib.sh
     _chk /usr/local/lib/ai-tools/skip-dirs.lib.sh
+    _chk /usr/local/lib/ai-tools/session-sweep.lib.sh
     _chk /usr/local/lib/ai-tools/owner-only.lib.sh
     _chk /usr/local/lib/ai-tools/project-permissions.lib.sh
     _chk /usr/local/lib/ai-tools/log.lib.sh
@@ -1458,14 +1459,21 @@ do_install() {
         "${SCRIPT_DIR}/src/usr/local/lib/ai-tools/project-permissions.lib.sh" \
         /usr/local/lib/ai-tools/project-permissions.lib.sh
 
-    # Skip-dir list/selector: sourced by the root helpers, by session-hook.sh (as the agent), and by the operator-run
-    # CLI (the claim drift scan) -- 644 root:root, like msg/log/safe-paths. It does not carry any secrets: the names are
-    # documented. No tokens to
+    # Skip-dir list/selector: sourced by the root helpers, by session-sweep.lib.sh (as the agent),
+    # and by the operator-run CLI (the claim drift scan) -- 644 root:root, like msg/log/safe-paths. It does not carry
+    # any secrets: the names are documented. No tokens to
     # substitute.
     log "/usr/local/lib/ai-tools/skip-dirs.lib.sh"
     install -o root -g root -m 644 \
         "${SCRIPT_DIR}/src/usr/local/lib/ai-tools/skip-dirs.lib.sh" \
         /usr/local/lib/ai-tools/skip-dirs.lib.sh
+
+    # Session sweep: the body of every agent's session-hook.sh, sourced by the hook as the agent -- 644 root:root, like
+    # skip-dirs. Substituted: the sweep selects the sandbox account's paths by name.
+    log "/usr/local/lib/ai-tools/session-sweep.lib.sh"
+    install_subst 644 root root \
+        "${SCRIPT_DIR}/src/usr/local/lib/ai-tools/session-sweep.lib.sh" \
+        /usr/local/lib/ai-tools/session-sweep.lib.sh
 
     # npm signature verifier: sourced by nvm-update.sh and ai-tools-bootstrap (both run as the sandbox account)
     # to verify the toolchain's npm registry signatures before activation. 644 root:root -- world-readable, no secrets;
