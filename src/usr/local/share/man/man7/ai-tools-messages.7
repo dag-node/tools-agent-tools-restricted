@@ -1175,7 +1175,7 @@ managed assets: not seeded, and the asset view not reconciled \-\- the assets lo
 .TP
 .B MSG-F3Y2
 ERROR.
-npm signature verification FAILED (possible registry tampering) \-\- aborting before wiring the launcher; the installed package is left unactivated
+npm signature verification FAILED (possible registry tampering) \-\- aborting before any install script of the toolchain runs and before wiring the launcher; the installed package is left unactivated
 .TP
 .B MSG-H3H3
 ERROR.
@@ -1224,6 +1224,10 @@ offline, and no toolchain is installed under ${NVM_DIR}: the nvm and Node downlo
 .B MSG-S8B6
 WARNING.
 network: no answer from ${unreachable[*]} \-\- this run applies what needs no download (the account and its home, the launcher links, the labels, the units, the managed assets) and skips the nvm, Node and npm install; connect this host and re\-run to install or update the toolchain
+.TP
+.B MSG-T3P5
+ERROR.
+an install script of the agents' packages did not complete (npm's output above names it) \-\- the package is installed without it, so an agent whose entrypoint such a script places is refused at launch until it runs; fix what npm names, then re\-run: sudo ai\-tools\-admin system bootstrap
 .TP
 .B MSG-T3R5
 WARNING.

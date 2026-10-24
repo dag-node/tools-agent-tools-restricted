@@ -786,6 +786,24 @@ operation.
 behind an `--allow-scripts` allowlist scoped to the named managed tools (never a blanket allow-all). `npm install`
 verifies each package's registry integrity hash, so a corrupted download is rejected.
 
+**No package code runs before the signature verdict.** Both provisioners set `npm_config_ignore_scripts` for every
+install of the run. npm reads it from the environment, so the installs `nvm install` and `nvm reinstall-packages` make
+are covered with `install_packages`'s. The scripts run afterwards, once `ai_tools_npm_verify__verify_signatures` has
+returned verified or unable to verify; a tamper ends the run ahead of them. Each managed package's own `preinstall`,
+`install` and `postinstall` run through `npm run --if-present` in that package's directory (`run_install_scripts`
+in `nvm-update.sh`; in `ai-tools-bootstrap` the same loop runs as `SANDBOX_USER` between its signature check and its
+launcher re-link), so the packages named are the set whose scripts run and a dependency's script does not run,
+as at install. `npm rebuild` under the `--allow-scripts` allowlist does not serve here: its gate reads a package's
+identity from the registry URL a lockfile records, and a global tree does not carry a hidden lockfile, so it blocks
+every script. The scripts run in the sandbox account's own `--user` manager, outside `ai_tools_t`, where the account's
+DAC reach is the boundary: each enabled agent's credential files, every claimed project and the TypeSafe key. A package
+the registry signature does not cover is therefore on disk when the gate dies and has not run any code as that account.
+The scripts are what complete a package — `@anthropic-ai/claude-code`'s postinstall copies its native binary
+over the `bin/claude.exe` placeholder — so the launcher re-link, the entrypoint verifier and the incomplete-package read
+run after them. A script that fails ends the run as a fault naming the provisioning command: the package is installed
+without it, and a launch of such an agent is refused at the pin until a run completes it. An unverifiable tree runs its
+scripts, the posture the install already takes. `tests/unit/toolchain.sh` reads both provisioners for the order.
+
 The integrity hash proves only that the download matches what the registry advertised, so npm registry **signature**
 verification closes the compromised-registry/mirror vector. `npm-verify.lib.sh` runs `npm audit signatures` (the
 registry ECDSA signature over each package, plus SLSA provenance where published) over the installed toolchain.
@@ -807,8 +825,11 @@ as the sandbox account through `runuser`, with that directory alone on its `PATH
 to replace, and root does not execute it ([tests](tests.rule.md)). Resolving from `PATH` alone would skip the file
 on a fully provisioned host, which strict mode reports as no coverage.
 
-The verdict gates activation fail-closed. An **invalid** signature (tamper) aborts before the prune
-and the launcher-symlink repoint, so the previous, trusted version stays active and the tampered tree is left unwired.
+The verdict gates activation fail-closed. An **invalid** signature (tamper) aborts before the install scripts, the prune
+and the launcher-symlink repoint, so the previous, trusted version stays active and the tampered tree is left unwired
+with none of its code run. On an update that leaves Node at its version, the tampered packages sit in the version
+directory the stable links already resolve into: the agent entrypoints there are refused at launch by the pin ([Two
+tiers](#two-tiers-and-what-each-one-claims)), and `npm` itself is not pinned, which [Deferred](#deferred) states.
 An **inability to verify** — offline, an npm without `audit signatures`, an npm that does not start, or a missing
 library (root-owned, so a missing one is a broken install, not agent action) — warns and proceeds, since the update
 itself is not the danger and the check is best-effort against such hosts. The verifier asks `npm --version` first
