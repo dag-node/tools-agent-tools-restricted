@@ -38,7 +38,7 @@ the sandbox account.
 |---|---|---|---|
 | `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC` | `1` | `settings.json` `env` | Opts out of telemetry, error reporting, `/feedback` upload, and the quality survey in one variable. |
 | `CLAUDE_CODE_MAX_OUTPUT_TOKENS` | `131072` | `settings.json` `env` | Per-response output-token cap. Shapes response length and cost, not what a session may do. |
-| `disableAutoMode` | `"disable"` | `settings.json` | Removes `auto` from the `Shift+Tab` cycle and rejects `--permission-mode auto`, so a session confirms its actions. |
+| `disableAutoMode` | `"disable"` | `settings.json` | Removes `auto` from the `Shift+Tab` cycle and rejects `--permission-mode auto`, so auto mode cannot approve an action in your place. `bypassPermissions` is not covered. |
 | `showThinkingSummaries` | `true` | `settings.json` | Re-shows the thinking blocks Claude Code hides by default, so the operator confirming an action sees the reasoning behind it. |
 | `verbose` | `true` | `settings.json` | Shows Bash and command output in full rather than truncated. |
 | `DISABLE_AUTOUPDATER` | `1` | `session-env.d/claude-code.pins.env.sh` | The agent's Node tree is read-only to the session; updates run out-of-band via the toolchain updater. |

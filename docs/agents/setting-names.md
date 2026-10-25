@@ -51,7 +51,7 @@ one, about reach.
 | `approval: never` (Codex) | no command is ever approved | Codex asks you about a command only where a rule in its requirements marks it `prompt`, and the shipped rules mark none. Maximally permissive inside its layer, not restrictive. The refused-command table is what mediates instead. |
 | `read-only` in `allowed_sandbox_modes` (Codex) | sessions may run read-only | It is listed because Codex refuses the whole list without it. A session that selects it still lands on the managed default. |
 | `decision = "forbidden"` (Codex) | one of several outcomes, some of them permissive | A rule takes `forbidden` or `prompt`, with `allow` absent from the grammar, so the table can only narrow a session and no row anywhere can grant anything. |
-| `disableAutoMode: "disable"` (Claude Code) | a double negative — auto mode disabled, or the disabling itself disabled? | Auto mode is off. It is removed from the `Shift+Tab` cycle and `--permission-mode auto` is rejected, so the session confirms its actions. |
+| `disableAutoMode: "disable"` (Claude Code) | a double negative — auto mode disabled, or the disabling itself disabled? | Auto mode is off. It is removed from the `Shift+Tab` cycle and `--permission-mode auto` is rejected, so auto mode cannot approve an action in your place. It does not cover `bypassPermissions`, which stays your choice. |
 | `permissions.deny` on `ps`, `df`, `id`, `rpm` (Claude Code) | these commands are dangerous | They are ordinary and they succeed. They are denied because the harness auto-approves safe reads silently, and `deny` is the one layer that overrides that silence. |
 
 ## Why `danger-full-access` is the safe choice here

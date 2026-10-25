@@ -44,9 +44,11 @@ the tag, so no other input could carry the decision.
                 v
       GitHub prerelease: RPMs X.Y.Z-0.rcN            == testing channel
                 |
-                |  last RC is green: finalize %changelog,
-                |  PR develop -> main, merged with a merge commit
-                |  (the ONE merge per release), tag vX.Y.Z on main
+                |  last RC is green: a release branch off the rc
+                |  tag, whose one commit is the %changelog; PR ->
+                |  main, merged with a merge commit (the ONE merge
+                |  per release), tag vX.Y.Z on main, then merge
+                |  main back into develop
                 v
       +---------------------+
       | release job (final) |
@@ -227,12 +229,13 @@ merges, no re-tags.
 ### 2. Finalize (the one merge to `main`)
 
 ```bash
-# on develop, pointing at the last green RC commit:
+git switch -c chore/atr-260718-release-0.6.3 v0.6.3-rc.1   # the last green RC tag
 vi packaging/ai-tools.spec        # finalize the %changelog entry for 0.6.3
 bash tools/generators/ref-index.sh generate
 git commit -am "chore(release): finalize %changelog for 0.6.3"
-git push
-gh pr create --base main --head develop --title "release: 0.6.3" --body ""
+git push -u origin chore/atr-260718-release-0.6.3
+gh pr create --base main --head chore/atr-260718-release-0.6.3 \
+  --title "release: 0.6.3" --body ""
 gh pr merge --merge --admin           # a merge commit, through the admin bypass
 git switch main && git pull
 git tag -s v0.6.3 -m "ai-tools v0.6.3" && git push origin v0.6.3
@@ -244,8 +247,10 @@ and the `dev-tools` check fails until `ref-index.sh generate` has rewritten
 
 `main` takes changes only through a pull request with a review and a green
 `shellcheck`, and refuses a direct push. The release merge is that pull
-request, from `develop`, merged with a merge commit so `main` keeps `develop`'s
-history. The author cannot approve their own review, so the merge goes
+request, from a branch cut at the last green RC tag whose one commit is
+the `%changelog` entry. It is merged with a merge commit, so `main` keeps
+the RC's history and the `%changelog` commit is the last commit of the release.
+The author cannot approve their own review, so the merge goes
 through the bypass the Admin role holds for pull requests: the merge button
 offers it, and `--admin` is the same bypass from the terminal; either way
 the audit log records it. The tag is signed: the tag ruleset restricts creation
@@ -253,24 +258,28 @@ to maintainers and makes a tag immutable for everyone, and the environment
 that holds the signing key allows a `v*.*.*` tag alone.
 
 The final tag points at the last green RC's content plus only the `%changelog`
-finalization — no functional commits slip in between `rc.N` and final,
-so what ships is what the RC tested (the RPM is rebuilt because `0.rcN` and `1`
-are different `Release` values, but from the same source). `check-version.sh`
-enforces the full tag = `VERSION` = newest-`%changelog` agreement. The job
-builds `0.6.3-1`, signs, verifies, publishes the GitHub Release, and notifies
-dag-node/rpm, which rebuilds `rpm.dagnode.com`. This merge is the only
-`develop` → `main` merge of the release.
+finalization. The branch is cut from the RC tag, so a commit that lands
+on `develop` after the RC does not reach the final, and what ships is
+what the RC tested (the RPM is rebuilt because `0.rcN` and `1` are different
+`Release` values, but from the same source). `check-version.sh` enforces
+the full tag = `VERSION` = newest-`%changelog` agreement. The job builds
+`0.6.3-1`, signs, verifies, publishes the GitHub Release, and notifies
+dag-node/rpm, which rebuilds `rpm.dagnode.com`. This merge is the only merge
+into `main` of the release.
 
 ### 3. Open the next cycle
 
 ```bash
-git switch develop
+git switch develop && git pull
+git merge --no-edit origin/main   # the %changelog commit and the release merge
 echo 0.6.4 > packaging/VERSION
 git commit -am "chore(release): bump VERSION to 0.6.4"
 git push
 ```
 
-After the final release publishes, bump `packaging/VERSION` on `develop`
+After the final release publishes, merge `main` back into `develop`,
+so the `%changelog` block the release added is on `develop` before the next
+release's block is written. Then bump `packaging/VERSION` on `develop`
 to the next anticipated version. Dev/snapshot RPMs (`Release: 0.<n>.git<sha>`)
 then sort after the last release and before the next one; left at the released
 number, a newer snapshot sorts as an older package.
