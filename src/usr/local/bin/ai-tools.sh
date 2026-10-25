@@ -709,9 +709,10 @@ find_unenterable_ancestor() {
 
 # refuse_unreachable <path> <ancestor>  -- die naming <ancestor>, an ancestor of <path> the invoking user cannot
 # enter. Every unprivileged read the CLI makes of a project runs as the invoker, a `--for` run included, so a project
-# under such a directory cannot be read at all. On a `--for` run the traverse-only grant that opens the directory is
-# printed where grantable_ancestor permits a grant on it -- the predicate the claim's own traverse grant passes,
-# so a protected system directory and any home root but the target's own are never offered.
+# under such a directory cannot be read at all. On a `--for` run the remedies print ahead of the refusal: a location
+# both accounts reach first, the clone area as the example, then the traverse-only grant that opens the directory
+# where grantable_ancestor permits a grant on it -- the predicate the claim's own traverse grant passes, so a protected
+# system directory and any home root but the target's own are never offered.
 refuse_unreachable() {
     local path blocked
     path="$(ai_tools_log__sanitize "$1")"
@@ -719,13 +720,14 @@ refuse_unreachable() {
     local -a why=("ai-tools reads a project as the account that runs it, ${INVOKING_USER}, so every directory on the path to the project has to be one ${INVOKING_USER} can enter.")
     if [[ -n "${FOR_OPERATOR}" ]]; then
         why+=("A --for run writes the tree as ${FOR_OPERATOR} and still reads it as ${INVOKING_USER}.")
+        # Remedies print plain ahead of die(), whose emitter would wrap a command across lines (messaging.rule.md).
+        local -a remedy=("Put the project in a directory both ${INVOKING_USER} and ${FOR_OPERATOR} reach, such as one under ${SANDBOX_ROOT}.")
         if grantable_ancestor "$2"; then
-            # A command, so it prints plain ahead of die(), whose emitter would wrap it across lines
-            # (messaging.rule.md).
-            printf '\n' >&2
-            printf '  %s\n' "${blocked} belongs to ${OWNER_USER}. To let ${INVOKING_USER} enter it without listing it, run as root or as ${OWNER_USER}:" "" \
-                            "    setfacl -m u:${INVOKING_USER}:--x ${blocked}" >&2
+            remedy+=("" "Or, since ${blocked} belongs to ${OWNER_USER}, let ${INVOKING_USER} enter it without listing it -- run as root or as ${OWNER_USER}:" "" \
+                     "    setfacl -m u:${INVOKING_USER}:--x ${blocked}")
         fi
+        printf '\n' >&2
+        printf '  %s\n' "${remedy[@]}" >&2
     fi
     die MSG-D4Z6 "cannot enter ${blocked} as ${INVOKING_USER}, so ${path} cannot be reached from this account" "${why[@]}"
 }

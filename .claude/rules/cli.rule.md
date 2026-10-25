@@ -584,11 +584,11 @@ that silently cloned as the invoker would leave the tree owned by the wrong oper
 was disregarded. The target must be **enrolled in `OPERATORS`**, since the ownership helpers resolve a path's owner
 over that list and an entry written for an unenrolled name would be a launch gate no helper can act on; the sandbox
 account and `root` are refused outright. It must also be **in `ai-ops`**, the second fact `ai-tools-admin operators add`
-writes: the target's launch wrapper refuses a caller outside the group, and a create in the clone area writes through
-that area's `g:ai-ops` ACL. `id -nG` reads the membership without a password, and an account whose groups cannot be read
-is refused like one outside the group, so a name written into `OPERATORS` by hand is refused before the snapshot.
-The snapshot then refuses a target with no allowlist file, which `ai-tools-allowlist --print` reports as the add does,
-so a half-enrolled target stops a create before its first write.
+writes: the target's launch wrapper refuses a caller outside the group, and a create in the clone area writes
+through that area's `g:ai-ops` ACL. `id -nG` reads the membership without a password, and an account whose groups cannot
+be read is refused like one outside the group, so a name written into `OPERATORS` by hand is refused
+before the snapshot. The snapshot then refuses a target with no allowlist file, which `ai-tools-allowlist --print`
+reports as the add does, so a half-enrolled target stops a create before its first write.
 
 `--for` is **refused with `projects unclaim --force`**. That mode reaches a tree no allowlist names,
 so `ai-tools-unclaim` cannot resolve an owner from an entry and binds the walk to the **invoking uid** instead —
@@ -623,9 +623,10 @@ from the invoker's `~/.gitconfig`.
 the project's state and every scan run unprivileged as the invoking operator. A project under a directory that operator
 cannot enter is refused naming the directory, and a state inside the tree that operator cannot read is reported rather
 than taken for its absence ([Claim in place](#claim-in-place)). A `create --for` into the target's private home
-therefore needs the invoker to hold traverse on that home. The refusal prints the traverse-only grant that opens
-the directory where the predicate the claim's own traverse grant passes permits one ([safe-paths](safe-paths.rule.md)):
-a directory the target owns that is not protected, or the target's own home root.
+therefore needs the invoker to hold traverse on that home. The refusal names a location both accounts reach first,
+the clone area as the example, and then the traverse-only grant that opens the directory where the predicate the claim's
+own traverse grant passes permits one ([safe-paths](safe-paths.rule.md)): a directory the target owns that is not
+protected, or the target's own home root.
 
 **It uses a grant the caller already holds.** `sudo -u <target>` rides the caller's **general** sudo grant, the axis
 [CLAUDE.md](../../CLAUDE.md) names, so an operator who reaches it could already act as that account; the sandbox account
@@ -846,8 +847,9 @@ toolchain claims does not raise a notice. The .NET measurements are [ref-section
 The second notice (`sealed_setgid_scan`) is a setgid bit on an owner-only directory whose group is neither
 `SANDBOX_GROUP` nor the group of that directory's owner, compared per path against the resolved owner's primary group:
 the claim walks keep such a bit, since they cannot ask whether it was deliberate, so the claim names the paths
-and the `chmod g-s` that clears one, ahead of the confirm rather than from a helper's stderr under Apply. Where
-the invoker cannot list the project root, the Review block says the scan was not made, rather than showing no notice.
+and the `chmod g-s` that clears one, ahead of the confirm rather than from a helper's stderr under Apply.
+Where the invoker cannot list the project root, the Review block says the scan was not made, rather than showing no
+notice.
 
 ## Interior drift <a id="ref-section-a9b2"></a>
 

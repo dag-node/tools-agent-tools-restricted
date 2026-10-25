@@ -101,7 +101,32 @@ mkdir: cannot create directory '/home/you/projects/api': Permission denied
 
 A shared location fixes it. On a stock install every enrolled operator can
 create under the clone area, `/var/opt/ai-tools/sandbox-projects`; any other
-directory works as long as both accounts can reach it.
+directory works as long as both accounts can reach it. A tree created
+under the clone area takes the area's default ACL for `ai-ops`, so every
+enrolled operator can read and write it, not only the account it was created
+for.
+
+The account's own home is the other usual target, and the opposite case: there
+the account can write, and **you** cannot enter. The create and every later
+claim read the project as you, so the run is refused before anything exists,
+naming the directory and both ways past it:
+
+```text
+  Put the project in a directory both you and svc-ci reach, such as one
+  under /var/opt/ai-tools/sandbox-projects.
+
+  Or, since /home/svc-ci belongs to svc-ci, let you enter it without listing
+  it -- run as root or as svc-ci:
+
+    setfacl -m u:you:--x /home/svc-ci
+
+ai-tools: cannot enter /home/svc-ci as you, so /home/svc-ci/api cannot be
+reached from this account
+```
+
+The `setfacl` line grants traverse alone: you can then reach a path inside
+the home by name, and still cannot list the home. It is printed only
+for a directory the account itself owns.
 
 ## What every operator shares
 

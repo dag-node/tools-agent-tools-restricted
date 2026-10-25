@@ -205,6 +205,12 @@ and leave the agent without access to it, so the claim refuses it up front
 and names the `chown` that fixes it. The worked flow for a service account is
 on [Service accounts](../operators/service-accounts.md).
 
+The claim reads the project as you, with or without `--for`, so a project
+under a directory you cannot enter is refused, naming that directory.
+Under `--for` the refusal also names a location both accounts reach
+and, where the directory belongs to the target, the traverse-only `setfacl`
+that lets you enter it.
+
 ## Exit status
 
 0 when the tree is claimed or there was no work; 1 when a root step failed,
