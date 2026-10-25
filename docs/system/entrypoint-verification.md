@@ -41,8 +41,8 @@ You do not maintain any of this by hand. There is no per-release step.
   │                                                                             │
   │        ✓ match      → continue                                              │
   │        ✗ MISMATCH   → stop. 2.1.233 stays active and pinned.                │
-  │        ? can't tell → continue anyway, unpinned  (offline / no manifest)     │
-  │                       …unless AI_TOOLS_REQUIRE_ENTRYPOINT_VERIFY=yes         │
+  │        ? can't tell → continue anyway, unpinned  (offline / no manifest)    │
+  │                       …unless AI_TOOLS_REQUIRE_ENTRYPOINT_VERIFY=yes        │
   │        ▼                                                                    │
   │   ②  repoint  /opt/ai-tools/bin/claude → 2.1.240   (via a root helper)      │
   │        ▼                                                                    │
