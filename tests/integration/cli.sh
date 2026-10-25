@@ -261,6 +261,30 @@ if command -v runuser >/dev/null 2>&1; then
         fail "ai-tools.projects.create did not refuse a missing parent (rc=${rc}): $(brief "${out}")"
     fi
 
+    # A location under a directory the operator cannot enter is refused by name (MSG-D4Z6) before anything is created:
+    # the claim reads the tree as the operator, and both existence checks read such a path as absent. The existing
+    # directory behind the seal is the case that tells the two apart: read as absent, it would take the missing-parent
+    # refusal (MSG-J3R8), and `projects claim` would report it as a path not found.
+    sealed="${TESTDIR}/sealed"; mkdir -p "${sealed}/inner"; chmod 0700 "${sealed}"
+    if [[ -d "${sealed}/inner" ]] && ! runuser -u "${PROJECTS_USER}" -- test -x "${sealed}"; then
+        out="$(create_cli "${sealed}/inner/proj")" && rc=0 || rc=$?
+        refused "ai-tools.projects.create refuses a location under a directory the operator cannot enter" MSG-D4Z6 1
+        if [[ ! -e "${sealed}/inner/proj" ]] && grep -qF "${sealed}" <<<"${out}"; then
+            pass "the refusal names the directory the operator cannot enter, and nothing was created"
+        else
+            fail "the unreachable-location refusal did not name ${sealed} or left a directory: $(brief "${out}")"
+        fi
+        out="$(create_cli "${sealed}/inner")" && rc=0 || rc=$?
+        refused "ai-tools.projects.create refuses an existing directory it cannot see behind a sealed parent" MSG-D4Z6 1
+        spell ai-tools.projects.claim
+        out="$(runuser -u "${PROJECTS_USER}" -- env HOME="${PROJECTS_HOME}" \
+                AI_TOOLS_OPERATOR_CONF="${oconf}" AI_TOOLS_ALLOWLIST="${emptyal}" \
+                setsid "${CLI}" "${CLI_ARGV[@]}" "${sealed}/inner" 2>&1)" && rc=0 || rc=$?
+        refused "ai-tools.projects.claim refuses a project under a directory the operator cannot enter" MSG-D4Z6 1
+    else
+        fail "the sealed-parent fixture did not set up: ${sealed} is enterable by ${PROJECTS_USER} or inner is missing"
+    fi
+
     # The protected-paths backstop on the target: a create must not be able to MANUFACTURE a protected directory. Exits
     # 3, the backstop's own code. Driven against a protected path this host does not have; if it has all of them there
     # is no path to assert and the case skips.

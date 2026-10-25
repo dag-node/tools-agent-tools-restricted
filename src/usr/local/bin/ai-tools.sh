@@ -688,13 +688,60 @@ ask() {
 
 # ── Path helpers ─────────────────────────────────────────────────────────────────
 
-# resolve_dir <path>  -- canonicalize <path> (realpath -e) to stdout; die if it is absent or its canonical form holds
-# a control character.
+# find_unenterable_ancestor <path>  -- print the first ancestor of the absolute, normalized <path>, walking down
+# from /, that exists and that the invoking user cannot enter (`test -x`, which asks access(2), so the mode and the ACL
+# both count), and return 0. Return 1 when the walk reaches a component that does not exist or every ancestor can be
+# entered. realpath and `test -e` fail alike for a path that is absent and for one under a directory the caller cannot
+# enter; this walk is what tells the two apart.
+find_unenterable_ancestor() {
+    local rest="${1#/}" prefix=""
+    while [[ "${rest}" == */* ]]; do
+        prefix+="/${rest%%/*}"
+        rest="${rest#*/}"
+        [[ -e "${prefix}" ]] || return 1
+        if [[ -d "${prefix}" && ! -x "${prefix}" ]]; then
+            printf '%s\n' "${prefix}"
+            return 0
+        fi
+    done
+    return 1
+}
+
+# refuse_unreachable <path> <ancestor>  -- die naming <ancestor>, an ancestor of <path> the invoking user cannot
+# enter. Every unprivileged read the CLI makes of a project runs as the invoker, a `--for` run included, so a project
+# under such a directory cannot be read at all. On a `--for` run the traverse-only grant that opens the directory is
+# printed where grantable_ancestor permits a grant on it -- the predicate the claim's own traverse grant passes,
+# so a protected system directory and any home root but the target's own are never offered.
+refuse_unreachable() {
+    local path blocked
+    path="$(ai_tools_log__sanitize "$1")"
+    blocked="$(ai_tools_log__sanitize "$2")"
+    local -a why=("ai-tools reads a project as the account that runs it, ${INVOKING_USER}, so every directory on the path to the project has to be one ${INVOKING_USER} can enter.")
+    if [[ -n "${FOR_OPERATOR}" ]]; then
+        why+=("A --for run writes the tree as ${FOR_OPERATOR} and still reads it as ${INVOKING_USER}.")
+        if grantable_ancestor "$2"; then
+            # A command, so it prints plain ahead of die(), whose emitter would wrap it across lines
+            # (messaging.rule.md).
+            printf '\n' >&2
+            printf '  %s\n' "${blocked} belongs to ${OWNER_USER}. To let ${INVOKING_USER} enter it without listing it, run as root or as ${OWNER_USER}:" "" \
+                            "    setfacl -m u:${INVOKING_USER}:--x ${blocked}" >&2
+        fi
+    fi
+    die MSG-D4Z6 "cannot enter ${blocked} as ${INVOKING_USER}, so ${path} cannot be reached from this account" "${why[@]}"
+}
+
+# resolve_dir <path>  -- canonicalize <path> (realpath -e) to stdout; die if it is absent, if it sits under a directory
+# the invoking user cannot enter (refuse_unreachable), or if its canonical form holds a control character.
 resolve_dir() {
-    local p LC_ALL=C
+    local p blocked LC_ALL=C
     # realpath ends its answer with one line feed; the sentinel keeps a line feed that is part of the name, which a bare
     # command substitution would strip and so resolve `project<LF>` to its sibling `project`.
-    p="$(realpath -e -- "$1" 2>/dev/null && printf x)" || die "path not found: $(ai_tools_log__sanitize "$1")"
+    if ! p="$(realpath -e -- "$1" 2>/dev/null && printf x)"; then
+        if blocked="$(find_unenterable_ancestor "$(realpath -m -- "$1" 2>/dev/null)")"; then
+            refuse_unreachable "$1" "${blocked}"
+        fi
+        die "path not found: $(ai_tools_log__sanitize "$1")"
+    fi
     p="${p%x}"
     p="${p%$'\n'}"
     # A project root is registered one per line in allowed-projects and printed on the claim's page, so a control byte
@@ -1642,17 +1689,24 @@ clear_lockdown_guard() {
 # group access (see dir_owngap); acl is true when the group-permission ACL still needs applying (see acl_gap); labelled
 # is the live SELinux type check -- true/false when SELinux is active, "na" when it is disabled (no label needed); git
 # is true when a .git tree is present but not yet normalized for agent history sharing (see git_gap), false otherwise --
-# it gates the opt-in .git prompt, not a mandatory claim step. Read-only, no privilege. The ai_tools_project_t string is
-# the single fact mirrored from the root labelling lib; the authoritative semanage/restorecon logic is NOT duplicated
-# here.
+# it gates the opt-in .git prompt, not a mandatory claim step. filemode and git read "unknown" when the invoking user
+# cannot make the reading: git is unknown when <dir> cannot be entered, and filemode also when a .git is present
+# and the invoker's git refuses the repository (another account's repository, which git's ownership check refuses).
+# A reading that could not be made is not reported as a gap or as its absence. Read-only, no privilege.
+# The ai_tools_project_t string is the single fact mirrored from the root labelling lib; the authoritative
+# semanage/restorecon logic is NOT duplicated here.
 project_state() {
     local dir="$1" listed=false safedir=false filemode=na owngap=true acl=false labelled=na git=false
     ai_tools_conf__has_allowlist_entry "${ALLOWLIST}" "${dir}" 2>/dev/null && listed=true
     git config --file "${GITCONFIG}" --get-all safe.directory 2>/dev/null \
         | grep -qxF "${dir}" && safedir=true
-    if git -C "${dir}" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+    if [[ ! -x "${dir}" ]]; then
+        filemode=unknown
+    elif git -C "${dir}" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
         [[ "$(git -C "${dir}" config --local --get core.filemode 2>/dev/null)" == "true" ]] \
             && filemode=true || filemode=false
+    elif [[ -e "${dir}/.git" || -L "${dir}/.git" ]]; then
+        filemode=unknown
     fi
     dir_owngap "${dir}" || owngap=false
     acl_gap "${dir}" && acl=true
@@ -1663,7 +1717,11 @@ project_state() {
             labelled=false
         fi
     fi
-    git_gap "${dir}" && git=true
+    if [[ ! -x "${dir}" ]]; then
+        git=unknown
+    elif git_gap "${dir}"; then
+        git=true
+    fi
     printf '%s %s %s %s %s %s %s\n' \
         "${listed}" "${safedir}" "${filemode}" "${owngap}" "${acl}" "${labelled}" "${git}"
 }
@@ -1849,10 +1907,11 @@ _claim_info()       { _CLAIM_CODE="$1"; _CLAIM_SEVERITY=info; }
 _claim_attention()  { _CLAIM_CODE="$1"; _CLAIM_SEVERITY=attention; }
 _claim_unreadable() { _CLAIM_CODE="$1"; _CLAIM_SEVERITY=unreadable; }
 
-# claim_write_row <finding> <subject-type> <kind> <path> <detail>  -- record one outcome of the claim's drift checks
-# and fold its severity into the report state the exit is read from. <kind> is `label` or `group`, the row's one item
-# component; the operator is the one the run acts for. Under `--format tsv` the row goes to fd 3 as a record;
-# on the page it is an outcome_record line whose first field is the finding without its kind.
+# claim_write_row <finding> <subject-type> <kind> <path> <detail>  -- record one outcome of the claim's checks and fold
+# its severity into the report state the exit is read from. <kind> is the row's one item component: `label` or `group`
+# for a drift row, and `git` or `filemode` for the `error` row of a step the invoker could not read; the operator is
+# the one the run acts for. Under `--format tsv` the row goes to fd 3 as a record; on the page it is an outcome_record
+# line whose first field is the finding without its kind.
 claim_write_row() {
     local finding="$1" subject_type="$2" kind="$3" path="$4" detail="$5" item=""
     case "${finding}" in
@@ -2049,12 +2108,20 @@ under_skip_listed_name() {
 # It is re-derived here rather than trusted from the caller, because what it gates is the secret scan: a stale
 # or planted CLAIM_FRESH_TREE must not be able to skip that on a tree with content in it. Both halves are the actual
 # preconditions -- no files means no secret-named files, and no commits means no history -- so the answer is a property
-# of the tree, not a claim about it.
+# of the tree, not a claim about it. Every reading the invoker cannot make returns 1: a root it cannot list and enter,
+# a walk `find` reports an error for, and a .git its git does not open as this tree's own repository (git refuses
+# another account's repository, and walks past a .git it cannot read to whatever repository encloses the tree), since
+# an unread tree and an empty one look the same to `find` and `git rev-parse`.
 tree_is_pristine() {
-    local d="$1"
-    [[ -z "$(find "${d}" -path "${d}/.git" -prune -o ! -type d ! -path "${d}/README.md" \
-                 -print -quit 2>/dev/null)" ]] || return 1
-    [[ -d "${d}/.git" ]] || return 0
+    local d="$1" hit git_dir own_git_dir
+    [[ -r "${d}" && -x "${d}" ]] || return 1
+    hit="$(find "${d}" -path "${d}/.git" -prune -o ! -type d ! -path "${d}/README.md" \
+               -print -quit 2>/dev/null)" || return 1
+    [[ -z "${hit}" ]] || return 1
+    [[ -e "${d}/.git" || -L "${d}/.git" ]] || return 0
+    git_dir="$(git -C "${d}" rev-parse --absolute-git-dir 2>/dev/null)" || return 1
+    own_git_dir="$(realpath -e -- "${d}/.git" 2>/dev/null)" || return 1
+    [[ "${git_dir}" == "${own_git_dir}" ]] || return 1
     ! git -C "${d}" rev-parse --verify --quiet HEAD >/dev/null 2>&1
 }
 
@@ -2148,6 +2215,11 @@ cmd_project_claim() {
     local need_filemode=false; [[ "${filemode}" == false ]] && need_filemode=true
     local need_acl=false; [[ "${acl}" == true ]] && need_acl=true
     local need_git=false; [[ "${git}" == true ]] && need_git=true
+    # A step whose state the invoker could not read (project_state's `unknown`) is neither applied nor reported done:
+    # each is announced in the Review block, written as an `error` row, and named with the command that finishes it.
+    local git_unread=false filemode_unread=false
+    [[ "${git}" == unknown ]] && git_unread=true
+    [[ "${filemode}" == unknown ]] && filemode_unread=true
 
     # Interior drift is detected here and repaired in Apply, behind the same confirm and gate as the other in-place
     # steps; scanned on a re-claim whose ownership is in place, since a first claim repairs the whole tree
@@ -2257,7 +2329,25 @@ cmd_project_claim() {
             "the label scan stopped at ${CLAIM_SCAN_CAP} paths; re-claim once these are settled"
         ! ${group_capped} || claim_write_row scan-capped directory group "${d}" \
             "the group scan stopped at ${CLAIM_SCAN_CAP} paths; re-claim once these are settled"
+        ! ${git_unread} || claim_write_row error directory git "${d}/.git" \
+            "not read as ${INVOKING_USER}; .git sharing was not checked"
+        ! ${filemode_unread} || claim_write_row error directory filemode "${d}/.git" \
+            "not read as ${INVOKING_USER}; core.filemode was not checked"
         return 0
+    }
+
+    # claim_unread_note: the commands that finish each step claim_scan_rows wrote an unread row for. Each is the call
+    # the claim makes for that step (claim_setfacl's `--with-git`, reg_filemode's `git config`), run by its owner.
+    claim_unread_note() {
+        ${git_unread} || ${filemode_unread} || return 0
+        [[ "${CLAIM_FORMAT}" == tsv ]] && return 0
+        local _as_owner=""
+        [[ -n "${FOR_OPERATOR}" ]] && _as_owner="sudo -u ${OWNER_USER} -H "
+        say "      ${C_DIM}not checked, since ${INVOKING_USER} cannot read them; to finish them by hand:${C_RST}"
+        ! ${git_unread} \
+            || say "      ${C_BOLD}sudo ${SETFACL_BIN} --with-git ${d}${C_RST}   ${C_DIM}(shares .git history)${C_RST}"
+        ! ${filemode_unread} \
+            || say "      ${C_BOLD}${_as_owner}git -C ${d} config core.filemode true${C_RST}"
     }
 
     # claim_drift_records: after the Apply block, check each drifted path on its own and write one row per path --
@@ -2374,6 +2464,7 @@ cmd_project_claim() {
     # the pending-steps flow rather than this path.
     if [[ "${listed}" == true && "${safedir}" == true && "${owngap}" == false ]] \
             && ! ${need_filemode} && ! ${need_acl} && ! ${need_label} && ! ${need_git} \
+            && ! ${git_unread} && ! ${filemode_unread} \
             && (( ${#drift[@]} == 0 && ${#label_drift[@]} == 0 && ${#TRAVERSAL_GRANT_PATHS[@]} == 0 )); then
         skip_listed_note
         sealed_setgid_note
@@ -2420,6 +2511,13 @@ cmd_project_claim() {
         else say "    - normalize .git so the agent can access git history -- you will be asked"; fi
     fi
     (( ${#TRAVERSAL_GRANT_PATHS[@]} )) && say "    - grant traverse-only access on ${#TRAVERSAL_GRANT_PATHS[@]} parent path(s) -- you will be asked"
+    ${git_unread} && say "    - .git history sharing -- not checked, named at the end"
+    ${filemode_unread} && say "    - git core.filemode -- not checked, named at the end"
+
+    if ${git_unread} || ${filemode_unread}; then
+        headline_warn "NOTICE: part of this project cannot be read as ${INVOKING_USER}" \
+            "The claim reads the project's state as ${INVOKING_USER}, and could not read the repository at ${d}/.git as that account -- the directory is closed to it, or git refuses another account's repository. The steps marked not checked are left as they are; each is named at the end with the command that finishes it, and the claim ends non-zero."
+    fi
 
     skip_listed_note
     sealed_setgid_note
@@ -2576,6 +2674,7 @@ cmd_project_claim() {
     fi
     say ""
     claim_drift_records
+    claim_unread_note
 
     # A claim whose access-granting steps did not apply exits 1 in place of the ✓: no success mark over a project
     # the agent has no group or ACL entry into. The registry entries stand, so a re-run applies what is missing.
@@ -2615,7 +2714,7 @@ claim_end() {
     (( status )) || return 0
     if [[ "${CLAIM_FORMAT}" != tsv ]]; then
         if (( status == AI_TOOLS_RECORDS_BASE__EXIT_UNREADABLE )); then
-            say "  ${C_DIM}exit ${status}: a drift check could not be read -- the unverified and error rows name it${C_RST}"
+            say "  ${C_DIM}exit ${status}: a check could not be read -- the unverified and error rows name it${C_RST}"
         else
             say "  ${C_DIM}exit ${status}: drift is left in place -- the not-fixed and scan-capped rows name it${C_RST}"
         fi
@@ -2624,12 +2723,12 @@ claim_end() {
 }
 
 # cmd_project_create <path>  -- create a NEW project directory and claim it: ONE mkdir, an empty git repository,
-# a README.md, then cmd_project_claim unchanged on the result. It refuses a path that exists (naming `projects claim`)
-# and a parent that does not, and <path> is required with no cwd default. Every filesystem step goes
-# through run_as_owner, so a create under `--for` produces a TARGET-owned tree, the one require_claimable_owner then
-# accepts. It does not take `-y`: it does not ask a question a flag could pre-answer, and the traverse grant
-# on an ancestor, the one question that can still appear, is answered by a person at a terminal alone. The refusals,
-# the modes it sets and the claim questions it infers are cli.rule.md's.
+# a README.md, then cmd_project_claim unchanged on the result. It refuses a location under a directory the invoker
+# cannot enter (refuse_unreachable), a path that exists (naming `projects claim`) and a parent that does not, and <path>
+# is required with no cwd default. Every filesystem step goes through run_as_owner, so a create under `--for` produces
+# a TARGET-owned tree, the one require_claimable_owner then accepts. It does not take `-y`: it does not ask a question
+# a flag could pre-answer, and the traverse grant on an ancestor, the one question that can still appear, is answered
+# by a person at a terminal alone. The refusals, the modes it sets and the claim questions it infers are cli.rule.md's.
 cmd_project_create() {
     local a path=""
     for a in "$@"; do
@@ -2643,8 +2742,13 @@ cmd_project_create() {
     [[ -n "${path}" ]] || die MSG-A7D3 "projects create needs a path: it creates a NEW project directory." \
         "To claim a directory that already exists, use: ai-tools projects claim [path]"
 
-    local d
+    local d blocked
     d="$(realpath -m -- "${path}" 2>/dev/null)" || die "cannot resolve the path: ${path}"
+    # Ahead of the existence checks, which read a path under a directory the invoker cannot enter as absent, and ahead
+    # of the mkdir: the claim that follows reads the tree as the invoker, and could not resolve it.
+    if blocked="$(find_unenterable_ancestor "${d}")"; then
+        refuse_unreachable "${d}" "${blocked}"
+    fi
     if [[ -e "${d}" ]]; then
         die MSG-T4B9 "this path already exists: ${d}" \
             "projects create only ever creates. Claim what is already there instead:" \
@@ -2699,7 +2803,10 @@ cmd_project_create() {
         if [[ -n "${home_dir}" && -d "${home_dir}" ]]; then
             candidate="${home_dir%/}/${d##*/}"
             find_blocking_ancestors "${candidate}"
-            if [[ -z "${TRAVERSAL_BLOCKED_PATH}" && ! -e "${candidate}" ]]; then
+            # Reachable by the invoker as well, or the create offered here would be refused
+            # by the find_unenterable_ancestor pre-flight.
+            if [[ -z "${TRAVERSAL_BLOCKED_PATH}" && ! -e "${candidate}" ]] \
+                    && ! find_unenterable_ancestor "${candidate}" >/dev/null; then
                 say ""
                 say "  this location is reachable:"
                 say "      ${C_BOLD}ai-tools projects create ${candidate}${C_RST}"

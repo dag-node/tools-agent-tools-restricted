@@ -614,6 +614,14 @@ to the target on a `--for` run, and `reg_filemode` for the `core.filemode` pin i
 pointing at the **invoker's** home, so the `git init` inside a create would configure the target's repository
 from the invoker's `~/.gitconfig`.
 
+**The seam covers what a `--for` run writes, and the run still reads as the invoker.** Resolving the path, reading
+the project's state and every scan run unprivileged as the invoking operator. A project under a directory that operator
+cannot enter is refused naming the directory, and a state inside the tree that operator cannot read is reported rather
+than taken for its absence ([Claim in place](#claim-in-place)). A `create --for` into the target's private home
+therefore needs the invoker to hold traverse on that home. The refusal prints the traverse-only grant that opens
+the directory where the predicate the claim's own traverse grant passes permits one ([safe-paths](safe-paths.rule.md)):
+a directory the target owns that is not protected, or the target's own home root.
+
 **It uses a grant the caller already holds.** `sudo -u <target>` rides the caller's **general** sudo grant, the axis
 [CLAUDE.md](../../CLAUDE.md) names, so an operator who reaches it could already act as that account; the sandbox account
 does not hold a sudo rule and runs under `PR_SET_NO_NEW_PRIVS`, which drops sudo's SUID bit, so the seam is out of its
@@ -800,6 +808,15 @@ the Apply block counts that, and a non-zero count closes the flow with a warning
 instead of the `claimed` ✓. The registries stand either way, and the claim is idempotent, so a re-run applies exactly
 what is missing.
 
+**A step whose state the invoker cannot read is neither applied nor reported done.** `projects claim` refuses a path
+under a directory the invoker cannot enter, naming that directory (`resolve_dir`, through `find_unenterable_ancestor`),
+since `realpath` fails alike for an absent path and an unreachable one. Inside a tree it can enter, `project_state`
+reads the `.git` and `core.filemode` steps as `unknown` where the invoker cannot make the reading — a root it cannot
+enter, or a `.git` its git refuses as another account's repository — and the claim announces each in the Review block,
+writes it as an `error` row naming the step, prints the command that finishes it, and ends with exit 5. Each such step
+is the opt-in history share or a registry pin, so a reading that cannot be made stays a smaller grant until the operator
+runs that command.
+
 **A failed step asks once before attempting the next.** Every root step authenticates separately and no step can be
 pre-authenticated (a sudoers `timestamp_timeout=0` prompts on every invocation), so a mistyped password would cost
 a round of attempts per step. `note_root_failure` asks once per run, default no, which is also the no-terminal answer;
@@ -934,9 +951,11 @@ the one the claim then accepts under the owner rule. `<path>` is required, since
 Two refusals keep a create from being a claim in disguise. A path that **already exists** is refused naming
 `projects claim`: the operation that grants an agent access to an existing tree must not be reachable by a typo,
 and a half-finished create is recovered with a claim. A **parent that does not exist** is refused rather than created,
-so a mistyped path surfaces instead of becoming a manufactured tree with a claimed project inside it. A reachability
-pre-flight refuses a location the sandbox account could never enter before anything exists, and names an alternative
-only after checking it on this host.
+so a mistyped path surfaces instead of becoming a manufactured tree with a claimed project inside it. Both checks read
+the path as the invoker, so a location under a directory the invoker cannot enter is refused first, naming
+that directory, and the claim that follows could not resolve it either. A reachability pre-flight refuses a location
+the sandbox account could never enter before anything exists, and names an alternative only after checking it on this
+host, the invoker's own reach included.
 
 The tree is empty by construction, so the claim infers three answers without asking, gated on `tree_is_pristine`,
 which the claim re-derives from the tree (no file outside `.git` but `README.md`, and no commits) rather than trusting

@@ -191,6 +191,46 @@ else
     fail "an empty directory was not recognised as pristine"
 fi
 
+# A reading the projects user cannot make is not an empty tree: `find` and `git rev-parse` see an unread tree the way
+# they see an empty one, so each of these must read as NOT pristine. The fresh tree of the first case, rebuilt, is
+# the control each fixture is a variation of.
+mk_fresh() {  # mk_fresh <dir> : an empty repository and a README, owned by the projects user
+    mkdir -p "$1"; git init -q "$1"; printf '# fresh\n' > "$1/README.md"
+    chown -R "${PROJECTS_USER}:${PROJECTS_GROUP}" "$1"
+}
+control="${work}/control"; mk_fresh "${control}"
+if pristine "${control}"; then
+    pass "control: a rebuilt fresh project reads as pristine"
+else
+    fail "control: a rebuilt fresh project did not read as pristine -- the cases below prove nothing"
+fi
+
+unlisted="${work}/unlisted"; mk_fresh "${unlisted}"
+chown root:root "${unlisted}"; chmod 0711 "${unlisted}"
+if pristine "${unlisted}"; then
+    fail "a root the projects user cannot list read as pristine -- the secret scan would be skipped unread"
+else
+    pass "a root the projects user cannot list is not pristine"
+fi
+
+sealed_sub="${work}/sealed-sub"; mk_fresh "${sealed_sub}"
+mkdir "${sealed_sub}/private"; printf 'TOKEN=x\n' > "${sealed_sub}/private/.env"; chmod 0700 "${sealed_sub}/private"
+if pristine "${sealed_sub}"; then
+    fail "a subdirectory the projects user cannot read read as pristine -- its .env went unscanned"
+else
+    pass "a subdirectory the walk cannot read makes a tree non-pristine"
+fi
+
+# Another account's .git, which the projects user's git refuses by its ownership check: the shape a `--for` create
+# leaves, where the claim reads a target-owned repository as the invoker.
+foreign_git="${work}/foreign-git"; mk_fresh "${foreign_git}"
+chown -R root:root "${foreign_git}/.git"
+if pristine "${foreign_git}"; then
+    fail "a .git the projects user's git refuses read as pristine -- its history was never read"
+else
+    pass "a .git the projects user's git refuses makes a tree non-pristine"
+fi
+
 # ── allowlist_exclusions ──────────────────────────────────────────────────────────────────────
 # The read-only scans a claim runs (acl_drift_scan, sealed_setgid_scan) prune every '!' exclusion from their walk,
 # and read the registry through the shared allowlist grammar: an exclusion line carrying an end-of-line comment

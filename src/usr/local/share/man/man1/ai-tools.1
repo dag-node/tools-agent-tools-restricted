@@ -132,7 +132,14 @@ exist: only the final component is created, so a mistyped path is refused rather
 than manufactured. Every filesystem step runs as the operator the run acts for, so
 a create under
 .B \-\-for
-produces a tree that operator owns. Every refusal fires before the directory
+produces a tree that operator owns. The tree is still read as you, so a location
+under a directory you cannot enter is refused, naming that directory; under
+.B \-\-for
+the refusal prints the traverse-only
+.B setfacl
+that lets you enter it, where that directory belongs to the other operator
+and is not a protected system directory.
+Every refusal fires before the directory
 is made; a step that fails after it leaves the directory in place, and
 .B "projects claim"
 on it finishes the claim.
@@ -186,6 +193,15 @@ Access to the
 repository's git history
 .RB ( .git )
 is a separate opt-in prompt.
+The claim reads the project as you. Where you cannot read its
+.B .git
+\(em another operator's repository under
+.BR \-\-for ,
+which git's ownership check refuses \(em the history share and the
+.B core.filemode
+pin are not checked: each is printed as an
+.B error
+line with the command that finishes it, and the claim exits 5.
 .RS
 .TP
 .B \-\-format tsv
