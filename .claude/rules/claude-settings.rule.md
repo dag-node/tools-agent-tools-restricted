@@ -271,7 +271,11 @@ and that layer lives in the agent-writable project tree. The layers compose diff
 
 An install **keeps** an existing `settings.json` by default (`install.sh`'s `keep_existing` prompt; an unattended run
 always keeps), because the file carries host tuning a reset would revert — a deny entry relaxed alongside an enabled
-SELinux group, an added `env` key. Kept files then have this version's **hook declarations** merged
+SELinux group, an added `env` key. The file is kept only at its layout row ([layout](layout.rule.md)), since a kept file
+becomes the control plane and the sticky, sandbox-group-writable `.claude` lets the sandbox account place the name
+before the file exists: `read_settings_keep_refusal` keeps a file whose row reader returns a label finding or none,
+with one link, and any other is moved aside as a dated `.bak`, named under `MSG-Y3Z9`, and replaced by the shipped file
+without the operator being asked. Kept files then have this version's **hook declarations** merged
 in (`ai_tools_settings_merge__merge_hook_declarations`, in `settings-merge.lib.sh`): each shipped declaration the file
 does not carry is added under its shipped matcher, every other key — the permission arrays it was kept
 for, an operator's own hook — is left as written, and each addition is named in the install log. A shipped command
@@ -293,7 +297,7 @@ Two sidecar files serve two different recoveries, and neither substitutes for th
 
 | file | written when | answers |
 |---|---|---|
-| `settings.json.<YYYYMMDD>-<N>.bak` | a merge is about to replace the file | "what did I have?" — the only copy that can restore host tuning if a merge produces valid JSON that is nonetheless wrong, the one failure a parse check cannot catch |
+| `settings.json.<YYYYMMDD>-<N>.bak` | a merge is about to replace the file, and an install sets aside a file not at its row | "what did I have?" — the only copy that can restore host tuning if a merge produces valid JSON that is nonetheless wrong, the one failure a parse check cannot catch |
 | `settings.json.<YYYYMMDD>-<N>.shipped` | a kept file differs from the shipped copy beyond its hooks (a rule it lacks, another setting), and when a merge could **not** run — absent `jq`, malformed JSON, a result that does not parse | "what was I supposed to get?" — the baseline to merge from by hand, and the copy `system post-upgrade` compares the file with on a host no rpm parks a `.rpmnew` on |
 
 Each failure direction leaves the deployed file byte-identical and warns, naming which check refused. Both sidecars are

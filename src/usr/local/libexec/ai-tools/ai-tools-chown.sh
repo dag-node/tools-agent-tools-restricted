@@ -16,6 +16,12 @@
 #   Not a sudo target -- ai-tools has no sudo rights (the session runs under NNP,
 #   which drops sudo's SUID bit).
 #
+# Exit status: 0 for a path handed back, and for one left as it was -- gone, owned by no operator, excluded, hardlinked,
+# neither a regular file nor a directory, not sandbox-owned, declined at the prompt, or changed between the checks
+# and the apply; 1 for a path under no allowed project, and for a refusal that names its cause; 2 for a usage error; 3
+# for a protected path, or a required library that loads without the function this helper calls; 4 for a path the kernel
+# refused to open for the pin, which stays sandbox-owned.
+#
 # Installed 750 root:root, so only root runs it. Its domain rule is ownership-and-hooks.rule.md.
 
 set -euo pipefail
@@ -121,8 +127,9 @@ source /usr/local/lib/ai-tools/msg.lib.sh
 export AI_TOOLS_MSG_FULLWIDTH=1
 
 # _notify_secret: emit a one-line NOTICE that a secret-named file was written and ai-tools' read access revoked,
-# to stderr (the PostToolUse hook relays it into the session) and -- at WARNING level -- to journald + the root-owned
-# chown.log. log.lib.sh wraps each sink in `|| true`, so a sink that cannot be written never blocks the NOTICE.
+# to stderr (the PostToolUse hook hands it to the session as context) and -- at WARNING level -- to journald +
+# the root-owned chown.log. log.lib.sh wraps each sink in `|| true`, so a sink that cannot be written never blocks
+# the NOTICE.
 # args:  path  old_owner  new_owner  old_mode  new_mode
 _notify_secret() {
     local path="$1" old_owner="$2" new_owner="$3" old_mode="$4" new_mode="$5"
@@ -262,7 +269,12 @@ if [[ "${#allowed_directories[@]}" -gt 0 ]]; then
             # a race -- bail. NB: brace-group the redirection. A bare `exec {fd}< file 2>/dev/null` applies 2>/dev/null
             # to the SHELL permanently (exec with no command), which would swallow the secret-file NOTICE emitted
             # on stderr. The group scopes 2>/dev/null to just the open; fd2 is restored after.
-            { exec {fd}< "${canonical}"; } 2>/dev/null || exit 0
+            #
+            # Every check so far passed, so an open that fails here is the kernel refusing root, or a path removed since
+            # the checks; either way it is not handed back, and exit 4 lets the daemon answer ERR and the sweep count it
+            # so. It is silent, since the daemon relays every stderr line into the journal and a tree moved in whole
+            # would write one line per file.
+            { exec {fd}< "${canonical}"; } 2>/dev/null || exit 4
             # One stat of the pinned inode supplies every fact the decision rests on. The type goes last because `%F`
             # can span several words ("regular empty file"), which `read` gathers into its final variable.
             read -r got_ident got_nlink got_owner got_mode got_ftype \

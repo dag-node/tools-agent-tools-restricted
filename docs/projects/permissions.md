@@ -184,3 +184,8 @@ A moved-in file under a build or dependency directory (`node_modules`, `bin`,
 `obj`) keeps its group: the claim does not walk those directories. The notice
 names the `operator.conf` settings that open one to the claim
 ([Claim](claim.md)).
+
+A file the coding agent moves in from `/tmp` comes back to you like any file it
+writes, and keeps the temporary-file SELinux type until you re-claim
+the project: the re-claim lists it under SELinux type, and the relabel gives it
+the project's type.

@@ -40,10 +40,12 @@ ai_tools_msg__notice=NOTICE _pu_info=NOTICE _claim_info=NOTICE
 _ai_tools_secret_patterns__error=ERROR
 _ai_tools_managed_assets__refuse=ERROR _ai_tools_assets__write_reconcile_report=WARNING _ai_tools_assets__write_list_report=WARNING _ai_tools_assets__get_link_code=WARNING _ai_tools_assets__write_order_error=ERROR _assets_attention_row=WARNING _assets_info_row=NOTICE _ai_tools_assets__warn=WARNING
 _ai_tools_cache_cleanup__error=ERROR _ai_tools_cache_cleanup__warn=WARNING
+_ai_tools_layout__set_attention_record_code=WARNING _ai_tools_layout__set_unreadable_record_code=ERROR _ai_tools_layout__set_ok_record_code=NOTICE
 '
 
 # Source file to the component an operator names it by: the commands spelled differently from their file (an agent's
-# launch hook is named for the agent's command), the two installers, and otherwise the installed basename -- a libexec helper without its .sh, a shared library as it
+# launch hook is named for the agent's command), the two installers and an agent's session hook, whose installed names
+# keep their .sh, and otherwise the installed basename -- a libexec helper without its .sh, a shared library as it
 # is installed.
 COMPONENT_MAP='
 src/usr/local/bin/ai-tools.sh=ai-tools
@@ -53,6 +55,7 @@ src/usr/local/lib/ai-tools/launch.d/claude-code.sh=claude
 src/opt/ai-tools/bin/ai-tools-run.sh=ai-tools-run
 install.sh=install.sh
 selinux/install-selinux.sh=install-selinux.sh
+src/opt/ai-tools/agents/claude-code/session-hook.sh=session-hook.sh
 '
 
 # ── Extract: one tab-separated record per code ────────────────────────────────────────────────

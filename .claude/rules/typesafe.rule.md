@@ -30,15 +30,16 @@ skill is what tells an agent when the command is worth running and what it does 
 The fragment `session-env.d/typesafe.env.sh` self-gates on the credential file's presence and appends two `--setenv=`
 entries, both paths: `AI_TOOLS_TYPESAFE_CONF=/etc/ai-tools/endpoints/typesafe.conf`
 and `AI_TOOLS_TYPESAFE_USAGE_LOG=/opt/ai-tools/integrations/typesafe/usage.log`. It does not add a PATH tail, does not
-export a variable, and does not take either of the seam's fragment exceptions; `tests/unit/typesafe.sh` holds it
-to that shape. The command itself does not read any environment variable: the skill passes the two values as `--config`
-and `--usage-log`, so in a session the integration is not enabled for, `--config` is empty and the command exits 3.
-The credential reaches the process at **call time**: `config.mjs` reads the file `--config` names, as the sandbox
-account, and every option the transport uses is pinned from it, so the key is in no session's environment and in no
-child process's. The read refuses a symlink, a file readable or writable by other, an empty or placeholder key, a base
-URL other than an https origin, and a base URL whose host differs from the one `TYPESAFE_ENDPOINT_HOST` names — the key
-is sent only to a host the file names twice. The group bits are not read: on a file under a claimed project the group
-class shows the ACL mask, and the group is the sandbox account, which reads the key in any case.
+export a variable into the launcher's own shell, and does not take either of the seam's fragment exceptions;
+`tests/unit/typesafe.sh` holds it to that shape. The command itself does not read any environment variable: the skill
+passes the two values as `--config` and `--usage-log`, so in a session the integration is not enabled for, `--config` is
+empty and the command exits 3. The credential reaches the process at **call time**: `config.mjs` reads the file
+`--config` names, as the sandbox account, and every option the transport uses is pinned from it, so the key is in no
+session's environment and in no child process's. The read refuses a symlink, a file readable or writable by other,
+an empty or placeholder key, a base URL other than an https origin, and a base URL whose host differs from the one
+`TYPESAFE_ENDPOINT_HOST` names — the key is sent only to a host the file names twice. The group bits are not read:
+on a file under a claimed project the group class shows the ACL mask, and the group is the sandbox account, which reads
+the key in any case.
 
 `/etc/ai-tools/endpoints/typesafe.conf` ships `0640 root:ai-tools`, `%config(noreplace)`, with `TYPESAFE_API_KEY`
 commented and `TYPESAFE_MODEL` set to the alias `jev-latest`: installing and enabling the integration does not make
@@ -176,10 +177,10 @@ failing the listing. `prose-check` reads the checker's two-line records. `msbuil
 log's diagnostics, collapses the repeat MSBuild prints in its summary, and reports how many lines it set aside --
 a `dotnet build -v n` log carries its compiler invocations in the same stream, and one of those lines alone runs to tens
 of kilobytes. A listing is untrusted input in every format, so `parse` first holds stdin to text within the size bound
-and refuses a stream carrying a NUL or a run of undecodable bytes, which is what keeps a binary file from reaching
-the provider. An item carrying a Unicode tag character is refused, since the model reads it; zero-width characters
-and bidi controls are counted on the summary line and sent unchanged, since they mislead a reader of the output rather
-than the model.
+and refuses a stream whose first 65,536 characters carry a NUL or more than one control or undecodable character
+per hundred, which is what keeps a binary file from reaching the provider. An item carrying a Unicode tag character is
+refused, since the model reads it; zero-width characters and bidi controls are counted on the summary line and sent
+unchanged, since they mislead a reader of the output rather than the model.
 
 A `triage` template (a verdict per checker finding) is written but not dispatched: in the live measurement its precision
 on the accepted class did not reach the criterion set for it, so asking for it exits with the input status

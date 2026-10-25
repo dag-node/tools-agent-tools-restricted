@@ -30,8 +30,17 @@ Edit it as root; it is owned by
 .B root
 at mode
 .BR 0644 .
-An upgrade never overwrites it; see
-.BR UPGRADES .
+Every operator and the sandbox account read it, so it keeps that owner and
+mode. A file root does not own, that group or other can write, or that one of
+those accounts cannot read is ignored by that reader and reported, and only the
+default-enabled providers apply. Every agent package ships disabled by default,
+so every launch is then refused and each updater run fails, until
+.B sudo ai\-tools\-admin system layout reconcile
+restores the owner and mode.
+An upgrade never overwrites its content; see
+.B Upgrades
+under
+.BR NOTES .
 .SH GRAMMAR
 One
 .I KEY=VALUE

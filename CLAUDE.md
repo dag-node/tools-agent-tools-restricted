@@ -60,7 +60,8 @@ the management CLI (`ai-tools`), and root-helper binary names (`ai-tools-chown`,
 | **Provider-specific: codex** — its manifest and the re-linked launcher chain, the two managed files codex reads from `/etc/codex` (the mode pin that keeps the host's confinement closed, managed hooks only), the hook adapters, the admin-scope skills link, the session pin, the reduced set | `lib/ai-tools/agents.d/codex.conf`, `lib/ai-tools/session-env.d/codex.pins.env.sh`, `etc/codex/**`, `opt/ai-tools/agents/codex/**` | [agent-codex](.claude/rules/agent-codex.rule.md) |
 | Namespaces, SELinux transition, preflight, `/tmp`, optional-group management, how the policy ships and why it is separately licensed | `selinux/**`, `bin/ai-tools-run.sh`, `selinux-groups.lib.sh`, `ai-tools-admin.sh` (`selinux` subcommand), `packaging/ai-tools.spec` (`ai-tools-selinux`) | [confinement](.claude/rules/confinement.rule.md) |
 | Root-op socket (daemon/client/units) | `ai-tools-handback*`, `ai-tools-handback-client*` | [handback-bridge](.claude/rules/handback-bridge.rule.md) |
-| Hooks, sweeps, `.git` reclaim, setgid, control-plane integrity | `opt/ai-tools/agents/**`, `ai-tools-chown.sh`, `ai-tools-setgid.sh`, `owner-only.lib.sh` | [ownership-and-hooks](.claude/rules/ownership-and-hooks.rule.md) |
+| Hooks, sweeps, `.git` reclaim, setgid, control-plane integrity | `opt/ai-tools/agents/**`, `session-sweep.lib.sh`, `ai-tools-chown.sh`, `ai-tools-setgid.sh`, `owner-only.lib.sh` | [ownership-and-hooks](.claude/rules/ownership-and-hooks.rule.md) |
+| The installed layout as one table: every path this project installs or creates with its owner, mode, ACL and SELinux type, the readers, the reconcile and its preconditions, where it runs, and the loop the permission test is | `layout.lib.sh`, `ai-tools-admin.sh` (`system layout`) | [layout](.claude/rules/layout.rule.md) |
 | Claude Code settings, Bash deny rules ↔ SELinux policy, the hook-declaration merge a kept file takes on upgrade | `opt/ai-tools/agents/*/settings.json`, `settings-merge.lib.sh` | [claude-settings](.claude/rules/claude-settings.rule.md) |
 | Token-saving command filters: rewrite rules + output noise stripping | `filters.lib.sh`, `lib/ai-tools/filters.d/**`, `agents/*/filter-hook.sh` | [filters](.claude/rules/filters.rule.md) |
 | Shipped assets: shared skills, subagents, and the per-session orientation text, their placement chain and seeding; the asset sets an operator enables, the view and each agent's links into it, and the set verifier | `usr/share/ai-tools/**`, `lib/ai-tools/managed-assets.lib.sh`, `lib/ai-tools/assets.lib.sh`, `lib/ai-tools/assets-verify.lib.sh`, `lib/ai-tools/assets-bindings.d/**` | [shipped-assets](.claude/rules/shipped-assets.rule.md) |
@@ -176,6 +177,7 @@ shape of guarantee: it deletes only after that confirmation, and a failure leave
 | which paths handback may touch | born-`SANDBOX_USER` ownership, re-checked race-safely as root | the path is left alone |
 | which names a walk over a tree treats as secrets | the operator's own `secret-patterns` file, read once the path's owner is resolved, with the shipped baseline in force where it is absent or empty ([ref-section-h4j6](.claude/rules/secret-handling.rule.md#ref-section-h4j6)) | a present file that cannot be read keeps the baseline for classification, and every helper that changes a tree refuses before its first write |
 | which toolchain may be activated | npm registry signature verification | the previous, trusted version stays |
+| whether the installed layout holds | the layout table, read as root; a boundary row's own reader refuses at read ([layout](.claude/rules/layout.rule.md)) | reported and converged; a session is never refused on the table's reading, since no launch reads it |
 | which agent binary may start a session | its checksum against a root-owned pin, recorded either from the vendor's signed release manifest or, for a vendor publishing none, from the binary as installed ([ref-section-q7v4](.claude/rules/updater.rule.md#ref-section-q7v4)) | a mismatch refuses the launch at either tier; where the operator required verification, an entrypoint that no reconcile has pinned does not launch and an unverifiable release stays inactive |
 
 The invariants the agent operates under:
@@ -224,6 +226,17 @@ The invariants the agent operates under:
   and what it prints reaches a terminal or the journal through the shared allowlist sanitizer. A function that executes
   such a file requires that identity of its own process. The test suite, which runs as root, holds to the same rule. See
   [ref-section-s9t9](.claude/rules/updater.rule.md#ref-section-s9t9).
+- **Root does not write through a path component the sandbox can replace.** No root or operator process places a name,
+  or sets an owner, a mode or an ACL, by a path with a component `SANDBOX_USER` can rename, remove or create —
+  a directory that account owns, or one it holds group write on — because `chown`, `chmod`, `setfacl` and `install -d`
+  at an existing name each follow a symlink planted there and act on the inode that account chose. A privileged writer
+  creates a missing entry exclusively, so a name planted first fails the create and is reported, and changes an existing
+  one through a descriptor pinned to the inode it observed, writing through `/proc/self/fd` once
+  `ai_tools_safe_paths__is_pinned_fd_at_path` holds
+  ([ref-section-u5h4](.claude/rules/safe-paths.rule.md#ref-section-u5h4)); the layout reconcile is the one writer
+  for every row of the installed layout, the rows under sandbox-group-writable parents included
+  ([layout](.claude/rules/layout.rule.md)), and a tree that account owns past its root — the toolchain, a cache — does
+  not take a root write inside it, so its interior is that account's as its content is.
 - **Rewriting a command does not widen what it may do.** A `PreToolUse` filter narrows how much a command prints (see
   [filters](.claude/rules/filters.rule.md)); it does not return a permission decision, so the harness re-runs its full
   permission pipeline on the **rewritten** command — an `allow` entry must still match it and a `deny` entry still
@@ -327,11 +340,11 @@ not gaps, so a reader tells bounded design from an oversight:
   `ai-tools-admin` domain**, an executable at `/usr/local/lib/ai-tools/admin-commands.d/<name>` that the dispatcher
   execs once it and its directory pass the provider trust predicate (`dotnet` is the one installed today). **Shared
   libraries** live under `/usr/local/lib/ai-tools/` (`conf`, `settings-merge`, `secret-patterns`, `skip-dirs`,
-  `owner-only`, `project-permissions`, `safe-paths`, `relabel`, `operator`, `control-plane`, `confinement`,
-  `launch-wrapper`, `npm-verify`, `openpgp`, `entrypoint-verify`, `assets-verify`, `managed-assets`, `providers`,
-  `ancestor-config`, `sandbox-exec`, `toolchain`, `cache-cleanup`, `selinux-groups`, `filters`, `services`, `msg`,
-  `log`, `path-order`, `agent-installs`, `records-base`, `records-tsv`, `assets`, and the claude-code pair
-  `claude-prompt`/`claude-endpoint`), plus `path-order.sh`, the PATH-ordering fragment `ai-tools-admin` wires
+  `session-sweep`, `owner-only`, `project-permissions`, `safe-paths`, `relabel`, `operator`, `control-plane`,
+  `confinement`, `launch-wrapper`, `npm-verify`, `openpgp`, `entrypoint-verify`, `assets-verify`, `managed-assets`,
+  `providers`, `ancestor-config`, `sandbox-exec`, `toolchain`, `cache-cleanup`, `selinux-groups`, `filters`, `services`,
+  `msg`, `log`, `path-order`, `agent-installs`, `records-base`, `records-tsv`, `assets`, `layout`, and the claude-code
+  pair `claude-prompt`/`claude-endpoint`), plus `path-order.sh`, the PATH-ordering fragment `ai-tools-admin` wires
   into operator dotfiles (see [launch](.claude/rules/launch.rule.md)). That directory and its contents are `root`-owned
   and non-group-writable, and the sandbox group reads them — load-bearing, since the sandbox account sources several
   of these libraries. Read is open on every one of them and **write** is the boundary: a shared library carries shipped

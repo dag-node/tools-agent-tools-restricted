@@ -445,11 +445,18 @@ if ! command -v jq >/dev/null 2>&1; then
     skip "hook adapters" "jq not available (the hooks parse their events with it)"
     finish; exit
 fi
-# Copies with the sandbox tokens substituted, in the testdir: the session hook derives its state files from its own
-# location, so a copy keeps the checkout clean.
+# Copies with the sandbox tokens substituted, in the testdir: the session hook keeps its state files beside itself,
+# so a copy keeps the checkout clean. The libraries are copied the same way, and the session hook's copy sources
+# the session sweep from that copy, so what it runs is the checkout's library and not the host's installed one.
+LIB_COPY="${TESTDIR}/lib"; mkdir -p "${LIB_COPY}"
+for lib in "${LIB_DIR}"/*.lib.sh; do
+    sed -e "s/@SANDBOX_USER@/${SANDBOX_USER}/g" -e "s/@SANDBOX_GROUP@/${SANDBOX_GROUP}/g" "${lib}" > "${LIB_COPY}/${lib##*/}"
+done
+readonly SWEEP_LIB_COPY="${LIB_COPY}/session-sweep.lib.sh"
 HOOKS="${TESTDIR}/hooks"; mkdir -p "${HOOKS}"
 for h in post-tool-hook.sh session-hook.sh; do
     sed -e "s/@SANDBOX_USER@/${SANDBOX_USER}/g" -e "s/@SANDBOX_GROUP@/${SANDBOX_GROUP}/g" \
+        -e "s|/usr/local/lib/ai-tools/session-sweep.lib.sh|${SWEEP_LIB_COPY}|" \
         "${HOOK_SRC_DIR}/${h}" > "${HOOKS}/${h}"
     if bash -n "${HOOKS}/${h}" 2>"${TESTDIR}/hook.syntax"; then
         pass "${h} parses"
@@ -619,17 +626,28 @@ out="$(bash "${HOOKS}/session-hook.sh" <<<'{"hook_event_name":"Stop"}' 2>&1)" &&
 [[ "${src_rc}" -eq 0 && -z "${out}" ]] \
     && pass "session-hook.sh with no cwd exits 0 silently" \
     || fail "session-hook.sh with no cwd exited ${src_rc}: ${out}"
+# The stub does not carry a sweep of its own: a library that does not load is reported under its code, and the hook
+# still exits 0, since a failed Stop hook is a failed turn. The control is the session hook's copy, which loaded it.
+grep -qF "${SWEEP_LIB_COPY}" "${HOOKS}/session-hook.sh" \
+    && pass "control: the session hook's copy sources the checkout's library" \
+    || fail "the session hook's copy does not name ${SWEEP_LIB_COPY}, so the cases above ran another library"
+sed -e "s|${SWEEP_LIB_COPY}|${TESTDIR}/absent/session-sweep.lib.sh|" "${HOOKS}/session-hook.sh" > "${HOOKS}/session-hook-nolib.sh"
+out="$(bash "${HOOKS}/session-hook-nolib.sh" <<<"${stop_event}" 2>&1)" && nolib_rc=0 || nolib_rc=$?
+[[ "${nolib_rc}" -eq 0 ]] \
+    && pass "session-hook.sh with its library missing exits 0" \
+    || fail "session-hook.sh with its library missing exited ${nolib_rc}: $(_san "${out}")"
+assert_msg MSG-N6U2 "${out}" "session-hook.sh with its library missing reports the library it could not load"
+rm -f "${HOOKS}/session-hook-nolib.sh"
 # The SessionStart reply carries the context in the envelope and in no other key: codex 0.154 rejects the whole reply
 # over a top-level `additionalContext`, so the extra spelling costs the relay rather than buying a release's reading.
-# The session hook is sourced in a shell of its own: its readonly constants share names with the adapter already sourced
-# here.
+# The session sweep library is sourced in a shell of its own, so this shell keeps only the adapter's definitions.
 # What a prior session recorded is read through one predicate, and this is its runtime half. The marker is written
 # by the hook AS THE AGENT into the group-writable config directory, its first line selects the tree the cross-project
 # .git reclaim walks, and (before this predicate) it was echoed into the reply the model reads. Two shapes must yield
 # an empty string: a path that is not a directory, and one carrying a terminal escape.
 for marker_line in '/nonexistent-prior-project' "/nonexistent$(printf '\033')[31m" '' 'relative/path'; do
     printf '%s\n' "${marker_line}" > "${HOOKS}/.session-active"
-    got="$(bash -c 'source "$1"; read_prior_cwd "$2"' _ "${HOOKS}/session-hook.sh" "${HOOKS}/.session-active" 2>/dev/null)"
+    got="$(bash -c 'source "$1"; _ai_tools_session_sweep__read_prior_cwd "$2"' _ "${SWEEP_LIB_COPY}" "${HOOKS}/.session-active" 2>/dev/null)"
     if [[ -z "${got}" ]]; then
         pass "read_prior_cwd yields nothing for a marker naming $(printf '%q' "${marker_line}")"
     else
@@ -637,13 +655,13 @@ for marker_line in '/nonexistent-prior-project' "/nonexistent$(printf '\033')[31
     fi
 done
 printf '%s\n' "${PROJECT}" > "${HOOKS}/.session-active"
-got="$(bash -c 'source "$1"; read_prior_cwd "$2"' _ "${HOOKS}/session-hook.sh" "${HOOKS}/.session-active" 2>/dev/null)"
+got="$(bash -c 'source "$1"; _ai_tools_session_sweep__read_prior_cwd "$2"' _ "${SWEEP_LIB_COPY}" "${HOOKS}/.session-active" 2>/dev/null)"
 [[ "${got}" == "${PROJECT}" ]] \
     && pass "read_prior_cwd returns a marker naming a real directory, so the cross-project reclaim still runs" \
     || fail "read_prior_cwd dropped a valid prior project: '${got}'"
 rm -f "${HOOKS}/.session-active"
 
-reply="$(bash -c 'source "$1"; emit_session_context hello' _ "${HOOKS}/session-hook.sh" 2>/dev/null)"
+reply="$(bash -c 'source "$1"; _ai_tools_session_sweep__emit_session_context hello' _ "${SWEEP_LIB_COPY}" 2>/dev/null)"
 [[ "$(jq -r '.hookSpecificOutput.additionalContext' <<<"${reply}")" == "hello" \
         && "$(jq -r '.hookSpecificOutput.hookEventName' <<<"${reply}")" == "SessionStart" \
         && "$(jq -r 'keys == ["hookSpecificOutput"]' <<<"${reply}")" == true ]] 2>/dev/null \

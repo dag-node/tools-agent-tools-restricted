@@ -13,6 +13,10 @@
 #                            (npm plus each enabled agent's npm package, resolved from the
 #                            agent manifests via providers.lib.sh -- see main)
 #
+# No package code runs before the registry signature over the installed tree is checked: every npm install of the run
+# skips the packages' install scripts (npm_config_ignore_scripts, set in main), and run_install_scripts runs each
+# managed package's own once verify_toolchain_signatures has passed. updater.rule.md states what that covers.
+#
 # Every run records its outcome in a last-run stamp (see write_stamp), the only evidence an operator has of this unit's
 # health: it lives in the sandbox account's own `systemd --user` manager, which `ai-tools status` cannot query
 # from the operator's session.
@@ -212,9 +216,9 @@ if ! source "${NPM_VERIFY_LIB}" 2>/dev/null \
 fi
 
 # verify_toolchain_signatures: run the signature check and apply the fail-closed policy. rc 0 verified; rc 1 TAMPER ->
-# die BEFORE the prune/repoint, so the previous trusted version stays active and installed; rc 2 unable to verify ->
-# warn and proceed (the toolchain is installed regardless, and the check is best-effort against offline/unsupported
-# hosts).
+# die BEFORE the install scripts, the prune and the repoint, so no code of the installed tree has run and the previous
+# trusted version stays active and installed; rc 2 unable to verify -> warn and proceed (the toolchain is installed
+# regardless, and the check is best-effort against offline/unsupported hosts).
 verify_toolchain_signatures() {
     local rc=0
     ai_tools_npm_verify__verify_signatures || rc=$?
@@ -445,7 +449,10 @@ install_packages() {
     # the FULL managed set on EVERY call: covering only the package being installed leaves its siblings (e.g.
     # claude-code's required postinstall) flagged. Scoped to the named tools by the caller's list, never a blanket
     # `--dangerously-allow-all-scripts`. Each invocation's output is kept in _npm_capture as well as sanitized
-    # into the log, so the completeness read after the install can quote the line that names what npm left out.
+    # into the log, so the completeness read after the install can quote the line that names what npm left out. None
+    # of these invocations runs a script: main sets npm_config_ignore_scripts for the run's installs, and the allowlist
+    # is passed so that npm's rescan of the global tree does not report the set as unreviewed; the scripts run
+    # in run_install_scripts, after the signature verdict.
     local capture="${_npm_capture:-/dev/null}"
     for pkg in "$@"; do
         if [[ -n "${repair_csv}" && ",${repair_csv}," == *",${pkg},"* ]]; then
@@ -461,6 +468,38 @@ install_packages() {
             npm install -g --allow-scripts="${allow_csv}" "${pkg}" 2>&1 | tee -a "${capture}" | npm_output \
                 || warn "  npm install failed for ${pkg} -- skipping"
         fi
+    done
+}
+
+# run_install_scripts <version-dir> <package>...: run each named package's own install scripts -- preinstall, install
+# and postinstall, in lifecycle order, through `npm run --if-present` in that package's directory
+# under <version-dir>/lib/node_modules -- once the signature gate has passed. The packages named are the set
+# whose scripts run, so a dependency's script does not run here, as it does not at install. Every install of the run
+# skipped the scripts (npm_config_ignore_scripts), so a package the registry signature does not cover has not run any
+# code as this account when the gate dies; the caller unsets the variable before this runs. `npm rebuild`
+# under `--allow-scripts` does not serve here: its gate reads a package's identity from the registry URL a lockfile
+# records, and a global tree carries none, so it blocks every script. claude-code's postinstall is what copies its
+# native binary over the bin/claude.exe placeholder, so the entrypoint verifier and the launcher re-link run after this.
+# A script that fails is a FAULT (die): the package is installed without it, so an agent whose entrypoint such a script
+# places is refused at launch, under the pin's mismatch, until a provisioning run completes it. A name outside npm's
+# package-name charset is refused before it is joined to a path (the shape toolchain.lib.sh holds a manifest's
+# npm_package to).
+run_install_scripts() {
+    local version_dir="$1"; shift
+    local capture="${_npm_capture:-/dev/null}" pkg package_dir script
+    for pkg in "$@"; do
+        [[ "${pkg}" =~ ^(@[A-Za-z0-9._-]+/)?[A-Za-z0-9._-]+$ ]] \
+            || die "refusing to run the install scripts of $(printf '%q' "${pkg}"): not an npm package name"
+        package_dir="${version_dir}/lib/node_modules/${pkg}"
+        if [[ ! -d "${package_dir}" ]]; then
+            log "  ${pkg}: not installed in ${version_dir##*/} -- no install script to run"
+            continue
+        fi
+        log "  running the install scripts of ${pkg}"
+        for script in preinstall install postinstall; do
+            (cd "${package_dir}" && npm run --if-present "${script}") 2>&1 | tee -a "${capture}" | npm_output \
+                || die "the ${script} script of ${pkg} did not complete -- the package is installed without it, so an agent whose entrypoint such a script places is refused at launch until it runs; fix what npm's output names, then run: sudo ai-tools-admin system bootstrap"
+        done
     done
 }
 
@@ -486,9 +525,10 @@ prune_npm_cache() {
 
 # main: resolve the latest LTS in the vMAJOR series (or take it from $1), install it under /opt/ai-tools if not already
 # active, remove a disabled agent's package left in the toolchain, refresh the sandbox global tools -- reinstalling
-# rather than updating an enabled agent's package that does not hold the entrypoint its manifest declares -- re-link
-# each versioned launcher at the target its manifest declares, prune superseded versions, empty npm's content cache,
-# and repoint each enabled agent's stable /opt/ai-tools/bin/<launcher> symlink at the versioned binary.
+# rather than updating an enabled agent's package that does not hold the entrypoint its manifest declares -- with every
+# install script held back, verify the installed tree's registry signatures, run the scripts, re-link each versioned
+# launcher at the target its manifest declares, prune superseded versions, empty npm's content cache, and repoint each
+# enabled agent's stable /opt/ai-tools/bin/<launcher> symlink at the versioned binary.
 # args:  optional target Node version override (e.g. v22.15.0)
 main() {
     local target_version="${1:-}"
@@ -518,6 +558,43 @@ main() {
     current_version="$(nvm version "${node_alias}" 2>/dev/null || true)"
     [[ -n "${current_version}" && "${current_version}" != "N/A" ]] \
         || die "nvm alias '${node_alias}' not set"
+
+    # The enabled agents -- their npm packages (installed by this run) and their launchers (repointed at the end) --
+    # come from the manifests via providers.lib.sh, the same seam ai-tools-bootstrap uses, so this updater is
+    # agent-agnostic. Guarded load: providers.lib.sh returns non-zero and does not define its resolvers when its own
+    # dependency (conf.lib.sh, the shared
+    # KEY=value grammar) is missing, so probe the resolver rather than assume the source
+    # succeeded -- a bare `source` under `set -e` would abort the run instead of degrading. A missing lib is a broken
+    # install (root-owned, so not agent action): existing agents keep working, they are simply not refreshed
+    # or repointed this run.
+    local providers_lib=/usr/local/lib/ai-tools/providers.lib.sh
+    local -a agent_packages=() agent_launchers=()
+    # shellcheck source=SCRIPTDIR/../../../usr/local/lib/ai-tools/providers.lib.sh
+    if source "${providers_lib}" 2>/dev/null \
+            && declare -F ai_tools_providers__list_enabled_agents >/dev/null 2>&1; then
+        local manifest_package manifest_launcher
+        while IFS=$'\t' read -r _ manifest_package manifest_launcher; do
+            [[ -n "${manifest_package}" ]]  && agent_packages+=("${manifest_package}")
+            [[ -n "${manifest_launcher}" ]] && agent_launchers+=("${manifest_launcher}")
+        done < <(ai_tools_providers__list_enabled_agents)
+        # A resolver that loaded and returned an empty set is classified before npm alone becomes the managed set,
+        # and before the run's first write to the toolchain, so a fault ends the run with no package installed.
+        # The resolver refuses an input the trust predicate declines and reports it on stderr only, so without this step
+        # a host whose inputs all read as untrusted -- every manifest, operator.conf -- maintains npm, exits 0
+        # and stamps RESULT=ok while the agent stops updating. The fault class exits 1: the same inputs are read
+        # on a retry, and that is the status the unit's RestartPreventExitStatus= names. A set the configuration asks
+        # to be empty is logged and the run continues.
+        if (( ${#agent_packages[@]} == 0 )); then
+            local empty_verdict="" empty_reason=""
+            IFS=$'\t' read -r empty_verdict empty_reason < <(ai_tools_providers__evaluate_empty_agents) || true
+            case "${empty_verdict}" in
+                none) log "no agent to maintain: ${empty_reason} -- updating npm only" ;;
+                *)    die "no agent resolved: ${empty_reason:-the classification printed nothing} -- enabled agents are unrefreshed and their launchers unrepointed until this is fixed" ;;
+            esac
+        fi
+    else
+        warn "provider resolver unavailable (${providers_lib}) -- updating npm only; enabled agents are unrefreshed and their launchers unrepointed this run"
+    fi
 
     # A transfer of the tree can leave a regular-file copy in bin/ where npm keeps a symlink, and npm does not start
     # from such a copy; every later step of main runs it. The repair (toolchain.lib.sh) replaces only a copy whose bytes
@@ -558,6 +635,13 @@ main() {
 
     log "Current: ${current_version}  ->  target: ${target_version}"
 
+    # Every npm install from here to the signature gate skips the packages' install scripts, so no package code runs
+    # as this account before the registry signature over the installed tree is checked. npm reads the variable
+    # from the environment, which covers the installs nvm makes (`nvm install` over the default packages,
+    # `nvm reinstall-packages` over the previous version's) as well as install_packages. run_install_scripts runs them
+    # after the gate.
+    export npm_config_ignore_scripts=true
+
     if [[ "${current_version}" != "${target_version}" ]]; then
         log "Installing ${target_version}"
         # One subshell for the two, piped through npm_output: reinstall-packages runs npm installs under the version
@@ -570,42 +654,6 @@ main() {
     fi
 
     nvm use "${node_alias}"
-
-    # The enabled agents -- their npm packages (installed by this run) and their launchers (repointed at the end) --
-    # come from the manifests via providers.lib.sh, the same seam ai-tools-bootstrap uses, so this updater is
-    # agent-agnostic. Guarded load: providers.lib.sh returns non-zero and does not define its resolvers when its own
-    # dependency (conf.lib.sh, the shared
-    # KEY=value grammar) is missing, so probe the resolver rather than assume the source
-    # succeeded -- a bare `source` under `set -e` would abort the run instead of degrading. A missing lib is a broken
-    # install (root-owned, so not agent action): existing agents keep working, they are simply not refreshed
-    # or repointed this run.
-    local providers_lib=/usr/local/lib/ai-tools/providers.lib.sh
-    local -a agent_packages=() agent_launchers=()
-    # shellcheck source=SCRIPTDIR/../../../usr/local/lib/ai-tools/providers.lib.sh
-    if source "${providers_lib}" 2>/dev/null \
-            && declare -F ai_tools_providers__list_enabled_agents >/dev/null 2>&1; then
-        local manifest_package manifest_launcher
-        while IFS=$'\t' read -r _ manifest_package manifest_launcher; do
-            [[ -n "${manifest_package}" ]]  && agent_packages+=("${manifest_package}")
-            [[ -n "${manifest_launcher}" ]] && agent_launchers+=("${manifest_launcher}")
-        done < <(ai_tools_providers__list_enabled_agents)
-        # A resolver that loaded and returned an empty set is classified before npm alone becomes the managed set.
-        # The resolver refuses an input the trust predicate declines and reports it on stderr only, so without this step
-        # a host whose inputs all read as untrusted -- every manifest, operator.conf -- maintains npm, exits 0
-        # and stamps RESULT=ok while the agent stops updating. The fault class exits 1: the same inputs are read
-        # on a retry, and that is the status the unit's RestartPreventExitStatus= names. A set the configuration asks
-        # to be empty is logged and the run continues.
-        if (( ${#agent_packages[@]} == 0 )); then
-            local empty_verdict="" empty_reason=""
-            IFS=$'\t' read -r empty_verdict empty_reason < <(ai_tools_providers__evaluate_empty_agents) || true
-            case "${empty_verdict}" in
-                none) log "no agent to maintain: ${empty_reason} -- updating npm only" ;;
-                *)    die "no agent resolved: ${empty_reason:-the classification printed nothing} -- enabled agents are unrefreshed and their launchers unrepointed until this is fixed" ;;
-            esac
-        fi
-    else
-        warn "provider resolver unavailable (${providers_lib}) -- updating npm only; enabled agents are unrefreshed and their launchers unrepointed this run"
-    fi
 
     # The residue routine, from the library the resolver came from. Same guarded load: a library that will not load
     # leaves residue in place and says so, and every launch goes on refusing until a run that can read it.
@@ -648,10 +696,21 @@ main() {
     log "Packages: ${tools[*]}"
     install_packages "${allow_csv}" "${repair_csv}" "${tools[@]}"
 
-    # The same read again, now that npm has run: what it names is a package the install did not complete, which npm
-    # itself reports as a success (updater.rule.md). Each is reported here with the line of npm's output that names
-    # the cause and counted; the run ends as a fault once every complete agent is repointed (the end of main),
-    # so the stamp names the agent no session can start rather than reporting the run as ok.
+    # Fail-closed signature gate BEFORE the install scripts, the prune and the repoint: a detected tamper (die) leaves
+    # the tree installed with no script of it run, the previous version un-pruned and the launcher symlink un-repointed,
+    # so the trusted toolchain stays active. Runs against the just-installed global tree as the sandbox
+    # account.
+    verify_toolchain_signatures
+
+    # The install scripts, once the gate has returned verified or unable to verify; a tamper ended the run
+    # in verify_toolchain_signatures (see the function).
+    unset npm_config_ignore_scripts
+    run_install_scripts "${version_dir}" "${tools[@]}"
+
+    # The same read again, now that npm has run and the scripts with it: what it names is a package the install did not
+    # complete, which npm itself reports as a success (updater.rule.md). Each is reported here with the line of npm's
+    # output that names the cause and counted; the run ends as a fault once every complete agent is repointed (the end
+    # of main), so the stamp names the agent no session can start rather than reporting the run as ok.
     local incomplete_after=0 npm_reason=""
     if declare -F ai_tools_toolchain__find_incomplete_agents >/dev/null 2>&1; then
         local left_agent left_package
@@ -663,17 +722,13 @@ main() {
         done < <(ai_tools_toolchain__find_incomplete_agents "${version_dir}")
     fi
 
-    # The versioned launcher chain takes its final shape here, ahead of every gate that reads it (see the function).
+    # The versioned launcher chain takes its final shape here, after the install scripts, and ahead of every gate
+    # that reads it (see the function).
     relink_agent_launchers "${target_version}"
 
-    # Fail-closed signature gate BEFORE prune and repoint: a detected tamper (die) leaves the previous version un-pruned
-    # and the launcher symlink un-repointed, so the trusted toolchain stays active. Runs against the just-installed
-    # global tree as the sandbox account.
-    verify_toolchain_signatures
-
-    # Second gate, same position and the same fail-closed shape, asking the other question: the signature gate says
-    # the package was DELIVERED untampered, this says the binary inside it is the one the vendor published. It runs
-    # as the sandbox account, so it is a fail-fast economy measure rather than the boundary -- the root-side pin is
+    # Second gate, the same fail-closed shape, asking the other question: the signature gate says the package was
+    # DELIVERED untampered, this says the binary inside it is the one the vendor published. It runs as the sandbox
+    # account, so it is a fail-fast economy measure rather than the boundary -- the root-side pin is
     # (updater.rule.md).
     verify_agent_entrypoints "${target_version}"
 

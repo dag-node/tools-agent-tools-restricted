@@ -93,8 +93,8 @@ chain races the operator's first launch into the mislabel refusal. Provisioning 
 toolchain, so recording "last run = now" is truthful; the next run is the next scheduled window. `ai-tools-bootstrap`
 and `install.sh` both seed the stamp before starting the timer (the RPM/dev flows), and each also runs from a neutral
 CWD so the `sudo -u SANDBOX_USER` steps do not inherit an operator directory the account cannot traverse back into. Each
-closes the unit search path first, which creates the stamp directory
-([ownership-and-hooks](ownership-and-hooks.rule.md)).
+runs the layout reconcile first, which creates the unit search path chain and the stamp directory in it as rows
+([layout](layout.rule.md)).
 
 It closes by **naming each enrolled operator whose shell reaches an agent other than the wrapper**, read per account
 from a login shell of that account — which needs the root this command already holds (see the PATH ordering section
@@ -241,18 +241,20 @@ ages, and a condition that persists past the record's grace (its registry `max_a
 escalation a schedule that stopped firing gets. Offline once is routine; offline for a week is a toolchain that has
 stopped advancing.
 
-**An empty agent set is classified before `npm` alone becomes the managed set.** The resolver reports a refused input
-on stderr and does not print a line for it, so its stdout reads as an empty set for a tampered manifest directory
-and for a host with no agent package alike. `nvm-update.sh` asks `ai_tools_providers__evaluate_empty_agents` (see
-[providers](providers.rule.md)) which it is: a refused input, or an `AI_TOOLS_AGENTS` naming agents none
-of which resolved, is a **fault** — `die`, exit `1`, `RESULT=failed` — because a retry reads the same inputs, and `1` is
-the status the unit's `RestartPreventExitStatus=` already withholds a retry from. A configuration that asks for no agent
-(`AI_TOOLS_AGENTS` set and empty, no manifest installed, or every manifest `default_enable=no` with the key unset) is
-logged and the run continues over `npm`. The fault reason carries every refused path with the owner and mode
-the predicate read, so `ai-tools status` reports `FAILED` on the first run after the fault and the journal line names
-the input to look at. The verdict is a `fault`/`none` line and not a new `RESULT` token:
-`ai_tools_services__evaluate_stamp` declines a word outside `ok|skipped|failed`, so a token added there would report
-as unknown and leave `ai_tools_services__is_attention_needed` unmoved.
+**An empty agent set is classified before `npm` alone becomes the managed set**, and before the run's first write
+to the toolchain, as the bootstrap's is: a fault ends the run with no Node version installed and no package reinstalled,
+and ahead of the version lookup, so an offline run over a faulted set fails rather than skips. The resolver reports
+a refused input on stderr and does not print a line for it, so its stdout reads as an empty set for a tampered manifest
+directory and for a host with no agent package alike. `nvm-update.sh` asks `ai_tools_providers__evaluate_empty_agents`
+(see [providers](providers.rule.md)) which it is: a refused input, an `operator.conf` the account cannot read,
+or an `AI_TOOLS_AGENTS` naming agents none of which resolved, is a **fault** — `die`, exit `1`, `RESULT=failed` —
+because a retry reads the same inputs, and `1` is the status the unit's `RestartPreventExitStatus=` already withholds
+a retry from. A configuration that asks for no agent (`AI_TOOLS_AGENTS` set and empty, no manifest installed, or every
+manifest `default_enable=no` with the key unset) is logged and the run continues over `npm`. The fault reason carries
+every refused path with the owner and mode the predicate read, so `ai-tools status` reports `FAILED` on the first run
+after the fault and the journal line names the input to look at. The verdict is a `fault`/`none` line and not a new
+`RESULT` token: `ai_tools_services__evaluate_stamp` declines a word outside `ok|skipped|failed`, so a token added there
+would report as unknown and leave `ai_tools_services__is_attention_needed` unmoved.
 
 ### Retrying a transient failure
 
@@ -368,10 +370,11 @@ from the manifests, with no agent name in its code:
   whose link exists, through `-L` so the read stays out of the tree. Both iterate
   `ai_tools_toolchain__list_installed_not_enabled_agents`, the installed set minus the enabled set
   ([providers](providers.rule.md)): a manifest the trust predicate refuses is not an agent and so not residue,
-  and an enabled agent's package is never residue whatever the tree holds. An empty enabled set counts only
-  under the `none` verdict: under a `fault` — an invalid `AI_TOOLS_AGENTS`, an untrusted `operator.conf` — the set
-  the operator declared is unknown rather than empty, so the set does not print a line, and every installed agent's
-  package stays where it is instead of reaching the writer.
+  and an enabled agent's package is never residue whatever the tree holds. Where the set the operator declared is
+  unknown the set does not print a line, and every installed agent's package stays where it is instead of reaching
+  the writer: an `operator.conf` the gate reads as `untrusted` or `unreadable`, whatever the baseline enables,
+  and an empty enabled set under a `fault` verdict, such as an invalid `AI_TOOLS_AGENTS`. An empty enabled set counts
+  as empty only under the `none` verdict.
 - **One writer.** `ai_tools_toolchain__remove_agent_package <version-dir> <npm_package> [erase]` runs that version's own
   `npm uninstall -g` with the version directory pinned as the prefix (no registry is reached) and prints one word:
   `absent`, `removed`, or `deferred` when a live process executes from the package directory
@@ -783,6 +786,24 @@ operation.
 behind an `--allow-scripts` allowlist scoped to the named managed tools (never a blanket allow-all). `npm install`
 verifies each package's registry integrity hash, so a corrupted download is rejected.
 
+**No package code runs before the signature verdict.** Both provisioners set `npm_config_ignore_scripts` for every
+install of the run. npm reads it from the environment, so the installs `nvm install` and `nvm reinstall-packages` make
+are covered with `install_packages`'s. The scripts run afterwards, once `ai_tools_npm_verify__verify_signatures` has
+returned verified or unable to verify; a tamper ends the run ahead of them. Each managed package's own `preinstall`,
+`install` and `postinstall` run through `npm run --if-present` in that package's directory (`run_install_scripts`
+in `nvm-update.sh`; in `ai-tools-bootstrap` the same loop runs as `SANDBOX_USER` between its signature check and its
+launcher re-link), so the packages named are the set whose scripts run and a dependency's script does not run,
+as at install. `npm rebuild` under the `--allow-scripts` allowlist does not serve here: its gate reads a package's
+identity from the registry URL a lockfile records, and a global tree does not carry a hidden lockfile, so it blocks
+every script. The scripts run in the sandbox account's own `--user` manager, outside `ai_tools_t`, where the account's
+DAC reach is the boundary: each enabled agent's credential files, every claimed project and the TypeSafe key. A package
+the registry signature does not cover is therefore on disk when the gate dies and has not run any code as that account.
+The scripts are what complete a package — `@anthropic-ai/claude-code`'s postinstall copies its native binary
+over the `bin/claude.exe` placeholder — so the launcher re-link, the entrypoint verifier and the incomplete-package read
+run after them. A script that fails ends the run as a fault naming the provisioning command: the package is installed
+without it, and a launch of such an agent is refused at the pin until a run completes it. An unverifiable tree runs its
+scripts, the posture the install already takes. `tests/unit/toolchain.sh` reads both provisioners for the order.
+
 The integrity hash proves only that the download matches what the registry advertised, so npm registry **signature**
 verification closes the compromised-registry/mirror vector. `npm-verify.lib.sh` runs `npm audit signatures` (the
 registry ECDSA signature over each package, plus SLSA provenance where published) over the installed toolchain.
@@ -804,8 +825,11 @@ as the sandbox account through `runuser`, with that directory alone on its `PATH
 to replace, and root does not execute it ([tests](tests.rule.md)). Resolving from `PATH` alone would skip the file
 on a fully provisioned host, which strict mode reports as no coverage.
 
-The verdict gates activation fail-closed. An **invalid** signature (tamper) aborts before the prune
-and the launcher-symlink repoint, so the previous, trusted version stays active and the tampered tree is left unwired.
+The verdict gates activation fail-closed. An **invalid** signature (tamper) aborts before the install scripts, the prune
+and the launcher-symlink repoint, so the previous, trusted version stays active and the tampered tree is left unwired
+with none of its code run. On an update that leaves Node at its version, the tampered packages sit in the version
+directory the stable links already resolve into: the agent entrypoints there are refused at launch by the pin ([Two
+tiers](#two-tiers-and-what-each-one-claims)), and `npm` itself is not pinned, which [Deferred](#deferred) states.
 An **inability to verify** — offline, an npm without `audit signatures`, an npm that does not start, or a missing
 library (root-owned, so a missing one is a broken install, not agent action) — warns and proceeds, since the update
 itself is not the danger and the check is best-effort against such hosts. The verifier asks `npm --version` first

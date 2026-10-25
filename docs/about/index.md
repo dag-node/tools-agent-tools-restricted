@@ -54,18 +54,18 @@ about it:
 
 One property ties those together, and it is the one to check when reviewing
 this project: **every input that decides what a session gets is read
-through the same trust predicate, and every way that predicate can fail gives
-the agent *less*.** A config it cannot read, a manifest someone made writable,
-an entrypoint whose SELinux label does not verify, a toolchain whose npm
-signatures do not check out — each one costs a capability and is reported,
-and none of them grants one. So there is no state the agent can arrange
-that improves its own position, only states that shut it down. Which decision
-each predicate governs, and what each failure yields, are
+through a single trust predicate for its kind, and every way that predicate can
+fail gives the agent *less*.** A config it cannot read, a manifest someone made
+writable, an entrypoint whose SELinux label does not verify, a toolchain
+whose npm signatures do not check out — each one costs a capability and is
+reported, and none of them grants one. So there is no state the agent can
+arrange that improves its own position, only states that shut it down.
+Which decision each predicate governs, and what each failure yields, are
 in [ref-section-e7n8](../../CLAUDE.md#ref-section-e7n8).
 
 Each of those refusals is tested from both ends: once that the refusal fires,
 and once — running *as* the sandbox account — that the agent cannot create
 the state the refusal exists to catch.
 
-Where that boundary stops, and the three things this project deliberately does
-not defend against, are on [Scope](scope.md).
+Where that boundary stops, and what this project deliberately does not defend
+against, are on [Scope](scope.md).

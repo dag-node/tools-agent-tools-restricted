@@ -54,25 +54,36 @@ cache), so a session gets dotnet only when `integration-dotnet` is in `AI_TOOLS_
 - `filters.d/dotnet.rules` quiets `build`, `publish`, `restore`, `run` and `test` with `-v q`; the rule,
   and why verbosity is a command rule rather than a fragment variable, are in [filters](filters.rule.md).
 - `admin-commands.d/dotnet` is this package's contributed domain, so its administration is spelled
-  `sudo ai-tools-admin dotnet <verb>` ([cli-grammar](cli-grammar.rule.md) for the spelling). `dotnet bootstrap` creates
-  that state root and its three directories: the NuGet cache and the SDK's CLI home are agent-**writable** (`2770`,
-  setgid), the shared tools are **read-only** to the agent (`0755`, root-only writes). It applies **no** SELinux policy
-  of its own — the base's static rule on `integrations(/.*)?` already maps the whole tree to `ai_tools_home_t`,
-  so the type grants `ai_tools_t` the access (write on the cache, exec on the tools) while the DAC modes are
-  the enforced read/write boundary. It also drops the local fcontext rules earlier versions added for the old home-root
-  dotdirs. `dotnet tools install <pkg...>` installs shared global tools; `dotnet status` reports host SDKs/runtimes,
-  and reads enablement through `ai_tools_providers__list_enabled_integrations` so it reports the same verdict
-  `ai-tools-run` reaches. Its journald tag and log file are `ai-tools-dotnet`/`dotnet.log`, the identity an operator
-  queries.
-- Every step **fails loudly**. A directory it cannot create, or a label it cannot apply on a host that supports
-  labelling, exits non-zero with the cause logged through `log.lib.sh` to journald and `/var/log/ai-tools/dotnet.log`
-  (see [logging](logging.rule.md)) — a half-provisioned integration that looks installed surfaces later as an opaque
-  denial inside a confined session. The genuine no-ops are recognized as such: `selinux_active` gates the labelling
+  `sudo ai-tools-admin dotnet <verb>` ([cli-grammar](cli-grammar.rule.md) for the spelling). `dotnet bootstrap` brings
+  that state root and the directories under it to their rows by running the layout reconcile ([layout](layout.rule.md)),
+  then reads each of those directories through the layout's own reader, which decides whether the command goes
+  on, and the rows in `layout.lib.sh` hold the modes: the NuGet cache and the SDK's CLI home are agent-**writable**
+  (setgid), the shared tools are **read-only** to the agent (root-only writes). The command does not create a directory
+  itself, since the NuGet cache is sandbox-group-writable and a by-path `install -d` follows a link planted there;
+  the reconcile is the one writer under the state root. The rows apply while the package's sentinel files exist,
+  so `ai-tools-admin system layout` reports their drift and a host without the package does not carry them. It applies
+  **no** SELinux policy of its own — the base's static rule on `integrations(/.*)?` already maps the whole tree
+  to `ai_tools_home_t`, so the type grants `ai_tools_t` the access (write on the cache, exec on the tools) while the DAC
+  modes are the enforced read/write boundary. The rows carry that label and the reconcile applies it to each directory;
+  a file a session creates under them takes the type from its parent at creation. The command does not run a recursive
+  `restorecon` over the tree, whose `nuget` rows the sandbox account writes; an interior a move left mislabelled is
+  relabelled by an operator running `sudo restorecon -R /opt/ai-tools/integrations/dotnet` while no session runs.
+  `dotnet tools install` relabels `tools` recursively after writing it, since that tree is root's alone. It also drops
+  the local fcontext rules earlier versions added for the old home-root dotdirs. `dotnet tools install <pkg...>`
+  installs shared global tools; `dotnet status` reports host SDKs/runtimes, and reads enablement
+  through `ai_tools_providers__list_enabled_integrations` so it reports the same verdict `ai-tools-run` reaches. Its
+  journald tag and log file are `ai-tools-dotnet`/`dotnet.log`, the identity an operator queries.
+- Every step **fails loudly**. The command exits non-zero, with the cause logged through `log.lib.sh` to journald
+  and `/var/log/ai-tools/dotnet.log` (see [logging](logging.rule.md)), when a state directory is not at its row
+  after the reconcile — missing, a link or another type at its name, another owner, mode, ACL or label, or a row
+  the reader could not read (`MSG-N6G6`) — or when `dotnet tools install` cannot relabel the tools it wrote on a host
+  that supports labelling — a half-provisioned integration that looks installed surfaces later as an opaque denial
+  inside a confined session. The genuine no-ops are recognized as such: `selinux_active` gates the SELinux steps
   on SELinux being enabled, `policycoreutils` present, and the `ai_tools` module loaded, and skips with a logged line
   otherwise. The RPM `%post` runs `dotnet bootstrap`, reports the remedy and exits non-zero on failure (rpm records
   a scriptlet failure against this package while the transaction completes — the right blast radius for a weakly-pulled
-  optional integration); `%postun` drops the fcontexts and `restorecon`s what stays behind on final erase. `bootstrap`
-  also loads the layout module the manifest declares, and `status` reports it and the declared groups' state.
+  optional integration); `%postun` unloads the layout module on final erase. `bootstrap` also loads the layout module
+  the manifest declares, and `status` reports it and the declared groups' state.
 
 The state root's label comes from the base's static rule on `integrations(/.*)?`; the CLR runs on the already-granted
 `execmem` (shared with V8). Everything past that point is the optional groups, which a DAC-only host does not need.

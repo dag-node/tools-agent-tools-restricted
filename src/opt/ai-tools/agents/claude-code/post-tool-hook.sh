@@ -133,14 +133,54 @@ record_tool_call() {
     ai_tools_log__warn "tool call NOT recorded (${failure_reason}) -- this is a gap in the trail"
 }
 
+# The lines the handback client relayed from the root helper during this event, kept so one reply carries them.
+handback_relay=""
+
+# The bound on the context a reply hands the model: the helper's lines are short, so the bound only has to be finite.
+readonly MAX_NOTICE_CONTEXT_LENGTH=2000
+
+# hand_back_path <path> -- one CHOWN through the client. Its stderr, the helper's lines the daemon relays
+# and the client's own errors, is appended to handback_relay and written to this hook's stderr, which reaches the debug
+# log.
+hand_back_path() {
+    local relayed=""
+    relayed="$("${HANDBACK_CLIENT}" CHOWN "$1" 2>&1 >/dev/null)" || true
+    if [[ -n "${relayed}" ]]; then
+        printf '%s\n' "${relayed}" >&2
+        handback_relay+="${relayed}"$'\n'
+    fi
+}
+
+# emit_notice_context -- when a relayed line is a message code, PRINT the PostToolUse reply that hands the helper's
+# lines to the model next to the tool result (additionalContext) and the first of them to the user (systemMessage);
+# print nothing otherwise. Claude Code does not pass a hook's stderr to the model at exit 0, so this reply is the route
+# a secret-file NOTICE takes into the session. The client's own error lines are left out. The daemon reduced each
+# relayed line to printable text, and the context is clamped to MAX_NOTICE_CONTEXT_LENGTH.
+emit_notice_context() {
+    local line context="" headline=""
+    grep -qxE 'MSG-[A-Z][0-9][A-Z][0-9]' <<< "${handback_relay}" || return 0
+    while IFS= read -r line; do
+        if [[ -z "${line}" || "${line}" == ai-tools-handback-client:* ]]; then
+            continue
+        fi
+        context+="${line}"$'\n'
+        if [[ -z "${headline}" && ! "${line}" =~ ^MSG-[A-Z][0-9][A-Z][0-9]$ ]]; then
+            headline="${line}"
+        fi
+    done <<< "${handback_relay}"
+    jq -cn --arg context "${context:0:${MAX_NOTICE_CONTEXT_LENGTH}}" --arg headline "${headline:0:500}" \
+        '{hookSpecificOutput:{hookEventName:"PostToolUse",additionalContext:$context},systemMessage:$headline}' \
+        2>/dev/null || true
+}
+
 # hand_back_written_path <hook-event-json> -- restore operator ownership of the file this Write/Edit produced,
 # and of any parent directory the write itself created.
 #
 # The call is made only for a path currently owned by @SANDBOX_USER@ -- the same set ai-tools-chown will act
 # on under its own owner guard, and the same signal the parent-dir walk uses -- so an already-handed-back file
 # (operator-owned, or a quarantined secret) does not reach the socket. The root-owned validator does the real work,
-# the allowlist check only it can read included. Its stderr is deliberately NOT redirected to /dev/null,
-# so a secret-file NOTICE reaches the agent's session.
+# the allowlist check only it can read included. Each call goes through hand_back_path, which keeps what the helper
+# printed for emit_notice_context.
 hand_back_written_path() {
     local hook_event_json="$1" written_file_path="" current_owner_name="" parent_directory=""
 
@@ -151,7 +191,7 @@ hand_back_written_path() {
     current_owner_name="$(stat -c '%U' "${written_file_path}" 2>/dev/null || true)"
     if [[ "${current_owner_name}" == "@SANDBOX_USER@" ]]; then
         ai_tools_log__debug "PostToolUse handing back ${written_file_path} (owner ${current_owner_name})"
-        "${HANDBACK_CLIENT}" CHOWN "${written_file_path}" || true
+        hand_back_path "${written_file_path}"
     fi
 
     # Normalize any directories the write just created: the Write tool makes missing parent dirs owned by ai-tools
@@ -163,7 +203,7 @@ hand_back_written_path() {
     parent_directory="$(dirname -- "${written_file_path}")"
     while [[ "${parent_directory}" != "/" && "${parent_directory}" != "." ]]; do
         [[ "$(stat -c '%U' "${parent_directory}" 2>/dev/null || true)" == "@SANDBOX_USER@" ]] || break
-        "${HANDBACK_CLIENT}" CHOWN "${parent_directory}" || true
+        hand_back_path "${parent_directory}"
         parent_directory="$(dirname -- "${parent_directory}")"
     done
     return 0
@@ -191,6 +231,7 @@ main() {
     fi
 
     hand_back_written_path "${hook_event_json}"
+    emit_notice_context
 }
 
 main "$@"

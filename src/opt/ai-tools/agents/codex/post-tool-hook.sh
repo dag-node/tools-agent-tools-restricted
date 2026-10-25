@@ -182,8 +182,10 @@ patch_written_paths() {
 # The call is made only for a path currently owned by @SANDBOX_USER@ -- the same set ai-tools-chown will act
 # on under its own owner guard, and the same signal the parent-dir walk uses -- so an already-handed-back file
 # (operator-owned, or a quarantined secret), and a path the patch deleted, do not reach the socket. The root-owned
-# validator does the real work, the allowlist check only it can read included. Its stderr is deliberately NOT redirected
-# to /dev/null, so a secret-file NOTICE reaches the agent's session.
+# validator does the real work, the allowlist check only it can read included. Its stderr is not redirected,
+# so a secret-file NOTICE reaches this hook's stderr. Whether codex hands a PostToolUse hook's stderr or a JSON reply
+# to the model is not measured; claude-code's hook replies with the NOTICE as context, and this adapter takes a reply
+# shape once one is measured on a codex release.
 hand_back_patch_paths() {
     local hook_event_json="$1" written_file_path="" parent_directory=""
 

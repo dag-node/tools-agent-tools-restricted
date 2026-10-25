@@ -13,7 +13,8 @@
 # Hermetic: the cache is under a home in the testdir, the download is a stub serving files from the testdir, and a pin
 # is read from the testdir. The control archives are the ones `bash tools/lib/assets.sh fetch` placed in the invoking
 # user's own cache, copied and never written; without them the cases that need a genuine release skip naming
-# the command. The throwaway-key case needs gpg. Runs unprivileged.
+# the command. The throwaway-key case needs gpg. Runs unprivileged or as root; under root, the probe of the read-only
+# tree drops the capabilities that write past a mode, so it measures the mode.
 set -euo pipefail
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")/../lib" && pwd)/harness.sh"
 
@@ -173,18 +174,46 @@ else
     dev verify
     [[ "${RC}" == 0 ]] && pass "control: verify accepts both cached archives" || fail "control verify: rc ${RC}, ${ERR:0:300}"
     # A tool run or imported from the cache leaves the tree as it was: Python writes a module's byte-code beside it only
-    # where the directory takes a write, which a read-only tree does not.
-    tree="$(env -u XDG_CACHE_HOME HOME="${HOME_DIR}" bash "${LIB}" path core 2>/dev/null)" || tree=""
-    python3 "${tree}/skills/ai-tools-technical-writing/scripts/prose-check.py" "${tree}/skills/ai-tools-reftags/SKILL.md" >/dev/null 2>&1 || true
-    python3 -c 'import sys; sys.path.insert(0, sys.argv[1]); import importlib.util as u
+    # where the directory takes a write, which a read-only tree does not. Root writes past a mode, so under a root run
+    # the probes drop the capabilities that do it across the exec and measure what the mode does to an unprivileged
+    # tool. The cache is 0700 under root's fixture home, which the projects user cannot traverse, so the drop is
+    # setpriv's rather than runuser's.
+    unprivileged() {
+        if (( EUID == 0 )); then
+            setpriv --inh-caps=-all --bounding-set=-dac_override,-dac_read_search,-fowner -- "$@"
+        else
+            "$@"
+        fi
+    }
+    # run_tool <scripts-dir> : run the checker from <scripts-dir> as a script, then import it, both unprivileged.
+    run_tool() {
+        unprivileged python3 "$1/prose-check.py" "${tree}/skills/ai-tools-reftags/SKILL.md" >/dev/null 2>&1 || true
+        unprivileged python3 -c 'import sys; sys.path.insert(0, sys.argv[1]); import importlib.util as u
 s = u.spec_from_file_location("prose_check", sys.argv[1] + "/prose-check.py"); m = u.module_from_spec(s); s.loader.exec_module(m)' \
-        "${tree}/skills/ai-tools-technical-writing/scripts" >/dev/null 2>&1 || true
-    dev verify
-    if [[ "${RC}" == 0 && -z "$(find "${tree}" -name __pycache__ -print -quit)" ]] \
-            && [[ -z "$(find "${tree}" ! -type l -perm /222 -print -quit)" ]]; then
-        pass "the unpacked tree is read-only, so a tool run and imported from it leaves the inventory whole"
+            "$1" >/dev/null 2>&1 || true
+    }
+    tree="$(env -u XDG_CACHE_HOME HOME="${HOME_DIR}" bash "${LIB}" path core 2>/dev/null)" || tree=""
+    if (( EUID == 0 )) && ! command -v setpriv >/dev/null 2>&1; then
+        skip "a tool run from the cache" "setpriv is not installed, so a root run cannot drop the override"
     else
-        fail "a tool run from the cache changed the tree: rc ${RC}, ${ERR:0:200}"
+        # Control: the same two runs over a writable copy of the scripts write byte-code there, so the runs took place
+        # and an absent __pycache__ in the tree is the mode's doing.
+        cp -R "${tree}/skills/ai-tools-technical-writing/scripts" "${TESTDIR}/scripts-copy"
+        chmod -R u+w "${TESTDIR}/scripts-copy"
+        run_tool "${TESTDIR}/scripts-copy"
+        if [[ -n "$(find "${TESTDIR}/scripts-copy" -name __pycache__ -print -quit)" ]]; then
+            pass "control: the same runs over a writable copy write byte-code beside the checker"
+        else
+            fail "control: the runs over a writable copy wrote no __pycache__, so the measurement below would not be evidence"
+        fi
+        run_tool "${tree}/skills/ai-tools-technical-writing/scripts"
+        dev verify
+        if [[ "${RC}" == 0 && -z "$(find "${tree}" -name __pycache__ -print -quit)" ]] \
+                && [[ -z "$(find "${tree}" ! -type l -perm /222 -print -quit)" ]]; then
+            pass "the unpacked tree is read-only, so a tool run and imported from it leaves the inventory whole"
+        else
+            fail "a tool run from the cache changed the tree: rc ${RC}, ${ERR:0:200}"
+        fi
     fi
 
     # refused <what> <reason> : the last fetch of core refused naming <reason> and left no cache directory for core

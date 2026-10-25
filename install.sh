@@ -294,6 +294,16 @@ TREE_LINE=""
 # before the source-tree gate, which is how the unit test drives it, through AI_TOOLS_INSTALLED_CLI -- a root-only test
 # hook (tests.rule.md, ref-section-b4y9): a caller who could set it runs this script as root already.
 INSTALLED_CLI="${AI_TOOLS_INSTALLED_CLI:-/usr/local/bin/ai-tools}"
+
+# report_packaged_host -- warn where rpm reports ai-tools-base installed. Each package file this install replaces keeps
+# its rpm database entry with other bytes under it, so `rpm -V` and the layout table read it as content drift, which
+# the reconcile refuses to repair (layout.rule.md), and the next `dnf upgrade` writes over it. A warning and not
+# a refusal: the operator is installing on purpose, and the review box still asks before the first write.
+report_packaged_host() {
+    command -v rpm >/dev/null 2>&1 && rpm -q ai-tools-base >/dev/null 2>&1 || return 0
+    warn MSG-Q8T8 "installing over the ai-tools packages: each package file this install replaces reads as content drift in rpm -V and in ai-tools-admin system layout, whose reconcile does not repair it, and the next dnf upgrade writes over it -- return to the packages with sudo dnf reinstall 'ai-tools-*', build this checkout as packages and upgrade to them (docs/install/from-source.md), or make this a source-only host with sudo dnf remove 'ai-tools-*'"
+}
+
 version_gate() {
     local installed="" lower
     [[ -f "${INSTALLED_CLI}" ]] \
@@ -385,6 +395,50 @@ keep_existing() {
     confirm_boxed "Confirm reset" n "Reset it now?" "${warn}" \
         || return 0                            # cancelled: keep
     return 1
+}
+
+# read_settings_keep_refusal <path> <layout-lib> -- print why <path> may not be kept and return 1, or return 0 without
+# printing when it may. A kept settings.json becomes the control plane as it stands, and its directory is sticky
+# and sandbox-group-writable, so the account can place the name before the file exists; the file is therefore kept only
+# at its layout row: the row's reader in <layout-lib> returns a label finding or none, and the file has one link.
+# A label does not decide who can write a root-owned file the mode and ACL keep to root, and the layout reconcile later
+# in this run restores it. A row the table does not list here, a reader that does not load or complete, and every other
+# finding -- another owner, a mode or an ACL the row does not declare, a link, an entry of another type -- are refusals.
+# The read runs in a subshell, so the library's globals stay out of this shell.
+read_settings_keep_refusal() {
+    local path="$1" lib="$2"
+    (
+        # shellcheck source=SCRIPTDIR/src/usr/local/lib/ai-tools/layout.lib.sh
+        if ! source "${lib}" 2>/dev/null || ! declare -F ai_tools_layout__begin_pass ai_tools_layout__read_entry_lines \
+                ai_tools_layout__parse_stream_line ai_tools_layout__read_entry_state >/dev/null 2>&1; then
+            printf 'the layout library %s did not load' "${lib}"; exit 1
+        fi
+        lines=() fields=() findings=() entry="" status=0
+        declare -A state=()
+        # Status 1 is a discovery input the enumeration could not read; the static rows it printed stand.
+        ai_tools_layout__read_entry_lines lines || status=$?
+        (( status <= 1 )) || { printf 'the installed layout could not be read'; exit 1; }
+        for line in "${lines[@]}"; do
+            ai_tools_layout__parse_stream_line "${line}" fields || continue
+            if [[ "${fields[0]}" == "${path}" ]]; then entry="${line}"; break; fi
+        done
+        [[ -n "${entry}" ]] || { printf 'the installed layout does not list it'; exit 1; }
+        ai_tools_layout__begin_pass 1
+        ai_tools_layout__read_entry_state "${entry}" state findings || { printf 'its layout row could not be read'; exit 1; }
+        for finding in "${findings[@]}"; do
+            ai_tools_layout__parse_stream_line "${finding}" fields || { printf 'a finding on it did not decode'; exit 1; }
+            case "${fields[0]}:${fields[1]}" in label-drift:label|unreadable:label) continue ;; esac
+            case "${fields[0]}" in
+                acl-drift)     printf 'its ACL is not the one it is installed with' ;;
+                *-drift)       printf 'its %s is %s, not %s' "${fields[1]}" "${fields[3]}" "${fields[2]}" ;;
+                type-mismatch) printf 'it is a %s, not a regular file' "${fields[3]}" ;;
+                *)             printf 'its %s could not be read' "${fields[1]}" ;;
+            esac
+            exit 1
+        done
+        links="$(stat -c %h -- "${path}" 2>/dev/null)" || { printf 'its link count could not be read'; exit 1; }
+        [[ "${links}" == 1 ]] || { printf 'it has %s hard links' "${links}"; exit 1; }
+    )
 }
 
 # Report a keep_existing outcome in one consistent line, so every seeded file confirms what happened in the same
@@ -552,20 +606,12 @@ ensure_dir() {
     [[ "${before}" == absent || "${before}" == "${after}" ]] || log "  ${dir}: ${before} -> ${after}"
 }
 
-# close_unit_search_path <home>: apply the unit search path layout under <home>
-# (ai_tools_control_plane__ensure_unit_search_path_closed) and log what it changed. A path it could not close is
-# a warning, and the install continues.
-close_unit_search_path() {
-    local home="$1" line
-    local -a changed=() failed=()
-    ai_tools_control_plane__parse_unit_search_path_report changed failed \
-        < <(ai_tools_control_plane__ensure_unit_search_path_closed "${home}" "${SANDBOX_USER}" "${SANDBOX_GROUP}" || true)
-    log "systemd unit search path under ${home} (${#changed[@]} director(ies) changed)"
-    for line in "${changed[@]+"${changed[@]}"}"; do log "  ${line}"; done
-    if (( ${#failed[@]} > 0 )); then
-        warn MSG-A2Y5 "the sandbox account's systemd unit search path is not fully closed, so a path listed here could still reach its unconfined --user manager; settle each one and re-run this installer:"
-        for line in "${failed[@]}"; do warn "    ${line}"; done
-    fi
+# reconcile_layout: bring every installed path to its row through the installed command, the same pass an upgrade's
+# transaction trigger runs; its lines go to the install log, and a finding it leaves is reported
+# by `ai-tools-admin status` and `ai-tools-admin system layout`, so the install continues.
+reconcile_layout() {
+    log "installed layout: sudo ai-tools-admin system layout reconcile"
+    /usr/local/libexec/ai-tools/ai-tools-admin system layout reconcile || true
 }
 
 # Make sure `<home>/.config` exists and belongs to the account whose home it is, before the ai-tools config directory is
@@ -649,25 +695,22 @@ wait_user_manager() {
     return 1
 }
 
-# Assert the sandbox nvm tree's intended ownership/mode on every (re)install, even when the dirs pre-exist from README
-# step 3. The tree is the agent's PRIVATE Node install (the agent runs AS ai-tools and legitimately writes here
-# on update); lock the three top dirs to 750 ai-tools:ai-tools -- owner rwx, no world access -- so whatever the initial
-# `nvm install` left behind cannot stay broader than intended. The version subtrees nvm creates at 700 are already
-# tighter and are left untouched; this is the top-level assertion, not a recursive sweep. Skips when nvm is not
-# yet installed, and WARNS rather than swallowing a chown/chmod failure -- a hardening step that fails quietly could
-# leave the tree mis-permissioned with no signal.
+# Assert the owner and mode of the sandbox toolchain's top directory, `.nvm`, on every (re)install: a hand-made nvm
+# install runs nvm as the sandbox account, whose umask decides the mode it creates, so this sets 750
+# `<sandbox user>:<sandbox group>` -- owner rwx, no world access. Its parent is the control-plane home root, root-owned
+# at CP_HOME_MODE without group write, so the sandbox account cannot replace the name (boundary/access.sh: "cannot
+# create files in /opt/ai-tools"). The interior of `.nvm` is that account's tree, which root does not set a mode
+# in: a name there is one the account can replace, and chown and chmod follow a link planted at it (the write-side
+# bullet in CLAUDE.md). Skips when nvm is not yet installed, and WARNS rather than swallowing a chown/chmod failure --
+# a hardening step that fails quietly could leave the tree mis-permissioned with no signal.
 lockdown_nvm_permissions() {
     local ai_nvm_dir="/opt/ai-tools/.nvm"
     [[ -d "${ai_nvm_dir}" ]] || return 0   # nvm not yet installed
 
-    local d
-    for d in "${ai_nvm_dir}" "${ai_nvm_dir}/versions" "${ai_nvm_dir}/versions/node"; do
-        [[ -d "${d}" ]] || continue
-        chown "${SANDBOX_USER}:${SANDBOX_GROUP}" "${d}" \
-            || warn MSG-V9C7 "lockdown: failed to chown ${d}"
-        chmod 750 "${d}" \
-            || warn MSG-Y3E5 "lockdown: failed to chmod 750 ${d}"
-    done
+    chown "${SANDBOX_USER}:${SANDBOX_GROUP}" "${ai_nvm_dir}" \
+        || warn MSG-V9C7 "lockdown: failed to chown ${ai_nvm_dir}"
+    chmod 750 "${ai_nvm_dir}" \
+        || warn MSG-Y3E5 "lockdown: failed to chmod 750 ${ai_nvm_dir}"
 }
 
 # Point /opt/ai-tools/bin/<launcher> at each enabled agent's versioned binary directly, without running
@@ -1029,6 +1072,7 @@ do_summary() {
     _chk /var/opt/ai-tools/README.md
     _chk /usr/local/lib/ai-tools/secret-patterns.lib.sh
     _chk /usr/local/lib/ai-tools/skip-dirs.lib.sh
+    _chk /usr/local/lib/ai-tools/session-sweep.lib.sh
     _chk /usr/local/lib/ai-tools/owner-only.lib.sh
     _chk /usr/local/lib/ai-tools/project-permissions.lib.sh
     _chk /usr/local/lib/ai-tools/log.lib.sh
@@ -1060,6 +1104,7 @@ do_summary() {
     _chk /usr/local/lib/ai-tools/services.lib.sh
     _chk /usr/local/lib/ai-tools/records-base.lib.sh
     _chk /usr/local/lib/ai-tools/records-tsv.lib.sh
+    _chk /usr/local/lib/ai-tools/layout.lib.sh
     _chk /usr/local/lib/ai-tools/agents.d/claude-code.conf
     _chk /usr/local/lib/ai-tools/session-env.d/claude-code.pins.env.sh
     _chk /usr/local/lib/ai-tools/session-env.d/claude-code.env.sh
@@ -1255,6 +1300,7 @@ do_install() {
     say "  sandbox user  : ${SANDBOX_USER}:${SANDBOX_GROUP}"
 
     version_gate
+    report_packaged_host
     source_tree_gate
 
     # Proceed gate -- everything up to here is print-only; the first change to the host (including the install log
@@ -1413,14 +1459,21 @@ do_install() {
         "${SCRIPT_DIR}/src/usr/local/lib/ai-tools/project-permissions.lib.sh" \
         /usr/local/lib/ai-tools/project-permissions.lib.sh
 
-    # Skip-dir list/selector: sourced by the root helpers, by session-hook.sh (as the agent), and by the operator-run
-    # CLI (the claim drift scan) -- 644 root:root, like msg/log/safe-paths. It does not carry any secrets: the names are
-    # documented. No tokens to
+    # Skip-dir list/selector: sourced by the root helpers, by session-sweep.lib.sh (as the agent),
+    # and by the operator-run CLI (the claim drift scan) -- 644 root:root, like msg/log/safe-paths. It does not carry
+    # any secrets: the names are documented. No tokens to
     # substitute.
     log "/usr/local/lib/ai-tools/skip-dirs.lib.sh"
     install -o root -g root -m 644 \
         "${SCRIPT_DIR}/src/usr/local/lib/ai-tools/skip-dirs.lib.sh" \
         /usr/local/lib/ai-tools/skip-dirs.lib.sh
+
+    # Session sweep: the body of every agent's session-hook.sh, sourced by the hook as the agent -- 644 root:root, like
+    # skip-dirs. Substituted: the sweep selects the sandbox account's paths by name.
+    log "/usr/local/lib/ai-tools/session-sweep.lib.sh"
+    install_subst 644 root root \
+        "${SCRIPT_DIR}/src/usr/local/lib/ai-tools/session-sweep.lib.sh" \
+        /usr/local/lib/ai-tools/session-sweep.lib.sh
 
     # npm signature verifier: sourced by nvm-update.sh and ai-tools-bootstrap (both run as the sandbox account)
     # to verify the toolchain's npm registry signatures before activation. 644 root:root -- world-readable, no secrets;
@@ -1601,6 +1654,11 @@ do_install() {
     install -o root -g root -m 644 \
         "${SCRIPT_DIR}/src/usr/local/lib/ai-tools/records-tsv.lib.sh" \
         /usr/local/lib/ai-tools/records-tsv.lib.sh
+    # The installed layout as one table: 644 root:root, read by ai-tools-admin system layout and perms.sh as root.
+    log "/usr/local/lib/ai-tools/layout.lib.sh"
+    install_subst 644 root root \
+        "${SCRIPT_DIR}/src/usr/local/lib/ai-tools/layout.lib.sh" \
+        /usr/local/lib/ai-tools/layout.lib.sh
 
     # Agent manifests: the agents.d directory (0755 root:root) plus each agent's <name>.conf (644, parsed data naming
     # its npm package + launcher). This from-source installer deploys the full stack, so it lays down the claude-code
@@ -1876,14 +1934,15 @@ do_install() {
     # by an administrator and documented as a bare command. sudo resolves a bare command against the sudoers
     # secure_path, which on stock EL is /sbin:/bin:/usr/sbin:/usr/bin -- it does NOT include /usr/local/sbin --
     # so the symlink lives in /usr/sbin (also on root's shell PATH). The target keeps its canonical
-    # /usr/local/libexec/ai-tools/ path (sudoers, perms checks, docs reference it).
+    # /usr/local/libexec/ai-tools/ path (sudoers, perms checks, docs reference it). Both links are relative (`-r`),
+    # as the package writes them.
     log "/usr/sbin/ai-tools-admin -> /usr/local/libexec/ai-tools/ai-tools-admin"
-    ln -sfn /usr/local/libexec/ai-tools/ai-tools-admin /usr/sbin/ai-tools-admin
+    ln -sfnr /usr/local/libexec/ai-tools/ai-tools-admin /usr/sbin/ai-tools-admin
     # The ai-tools CLI gets the same secure_path symlink for the OPPOSITE reason: it must never run under sudo,
     # and without the symlink `sudo ai-tools` dies with sudo's "command not found" (/usr/local/bin is not
     # in secure_path) before the CLI's own refusal -- "run as the projects user" -- can explain the right invocation.
     log "/usr/sbin/ai-tools -> /usr/local/bin/ai-tools"
-    ln -sfn /usr/local/bin/ai-tools /usr/sbin/ai-tools
+    ln -sfnr /usr/local/bin/ai-tools /usr/sbin/ai-tools
 
     # Handback privilege bridge daemon.  750 root:root -- root-owned and only root-executable: this is the privileged
     # endpoint; the SANDBOX_USER reaches it via the socket, never by exec'ing it directly.  install_subst substitutes
@@ -2133,7 +2192,7 @@ do_install() {
     ensure_dir 700 root root /var/log/ai-tools
     chown root:root /var/log/ai-tools
     chmod 700 /var/log/ai-tools
-    for _logfile in chown setgid symlink lockdown relabel handback install; do
+    for _logfile in chown setgid symlink lockdown relabel handback install layout; do
         if [[ ! -e "/var/log/ai-tools/${_logfile}.log" ]]; then
             install -o root -g root -m 600 /dev/null "/var/log/ai-tools/${_logfile}.log"
         fi
@@ -2334,16 +2393,32 @@ do_install() {
     # settings.json is kept by default when it already exists (keep_existing prompt; unattended installs always keep):
     # it may carry deliberate host tuning -- e.g. a deny entry relaxed alongside an enabled SELinux group (see
     # claude-settings.rule.md) -- that a reset would revert, so it passes a warn and the reset is gated behind
-    # the second confirmation. Ownership and mode are re-asserted either way, so a kept file still satisfies
-    # the control-plane integrity checks. A kept file additionally has this version's hook DECLARATIONS reconciled
-    # into it, so keeping host tuning never costs a shipped hook (reconcile_hook_declarations); the permission rules it
-    # was kept for are not touched.
-    local settings="${claude_config_dir}/settings.json" settings_existed=0
-    [[ -f "${settings}" ]] && settings_existed=1
-    if keep_existing "${settings}" \
-            "Discards any host-tuned permission rules; reverts to the shipped hooks and deny set."; then
-        chown root:"${SANDBOX_GROUP}" "${settings}"
-        chmod 640 "${settings}"
+    # the second confirmation. A kept file becomes the control plane, so only a file already at the control plane's row
+    # is kept (read_settings_keep_refusal); any other is moved aside under a dated .bak name, named, and replaced
+    # by the shipped file, and the operator is not asked to keep it. The keep prompt is reached inside the branch
+    # the reader passed alone: the sticky directory keeps a root-owned file in place, where the name a set-aside
+    # or an absent file leaves is one the account can fill before the next step, so a file found there later is not
+    # offered to keep. The shipped file is installed with `-T`, which replaces a symlink planted at the name and refuses
+    # a directory there, where a plain install writes into the directory the link names. A kept file additionally has
+    # this version's hook DECLARATIONS reconciled into it, so keeping host tuning never costs a shipped hook
+    # (reconcile_hook_declarations); the permission rules it was kept for are not touched.
+    local settings="${claude_config_dir}/settings.json" settings_existed=0 settings_kept=0 settings_refusal settings_aside
+    [[ -e "${settings}" || -L "${settings}" ]] && settings_existed=1
+    if (( settings_existed )); then
+        if settings_refusal="$(read_settings_keep_refusal "${settings}" /usr/local/lib/ai-tools/layout.lib.sh)"; then
+            if keep_existing "${settings}" \
+                    "Discards any host-tuned permission rules; reverts to the shipped hooks and deny set."; then
+                settings_kept=1
+            fi
+        else
+            if ! settings_aside="$(ai_tools_conf__find_sidecar_path "${settings}" bak)" \
+                    || ! mv -T -- "${settings}" "${settings_aside}"; then
+                die MSG-H5B4 "could not move ${settings} aside, which is not kept (${settings_refusal}) -- move it out of ${claude_config_dir} by hand, then re-run the install"
+            fi
+            warn MSG-Y3Z9 "did not keep ${settings} (${settings_refusal}) -- it is saved as ${settings_aside} and the shipped file is installed; review the saved copy before merging any of it back"
+        fi
+    fi
+    if (( settings_kept )); then
         seed_result "${settings}" "${settings_existed}" 1 "host-tuned permission rules preserved"
         reconcile_hook_declarations "${settings}" \
             "${SCRIPT_DIR}/src/opt/ai-tools/agents/claude-code/settings.json"
@@ -2351,8 +2426,9 @@ do_install() {
             "${SCRIPT_DIR}/src/opt/ai-tools/agents/claude-code/settings.json"
         report_ask_gaps "${settings}"
     else
-        install -o root -g "${SANDBOX_GROUP}" -m 640 \
-            "${SCRIPT_DIR}/src/opt/ai-tools/agents/claude-code/settings.json" "${settings}"
+        install -T -o root -g "${SANDBOX_GROUP}" -m 640 \
+            "${SCRIPT_DIR}/src/opt/ai-tools/agents/claude-code/settings.json" "${settings}" \
+            || die MSG-T3Q7 "could not install ${settings}: an entry that is not a regular file is in the way -- move it out of ${claude_config_dir} by hand, then re-run the install"
         seed_result "${settings}" "${settings_existed}" 0
     fi
 
@@ -2599,10 +2675,13 @@ do_install() {
     # repoint -> relabel chain races the operator's first launch, so the first claude refuses on a mislabelled
     # entrypoint. The toolchain is current at install time, so "last run = now" is truthful (mtime is all systemd
     # reads). Same fix as ai-tools-bootstrap; see .claude/rules/updater.rule.md. The home is root-owned, so root creates
-    # the stamp directory through close_unit_search_path, which also closes the directories on the way to it.
-    close_unit_search_path "/opt/ai-tools"
-    install -o "${SANDBOX_USER}" -g "${SANDBOX_GROUP}" -m 0644 /dev/null \
-        "/opt/ai-tools/${CP_TIMER_STAMP_DIR}/${CP_UPDATE_TIMER_STAMP}"
+    # the stamp directory through the layout reconcile, whose rows hold the directories on the way to it. The stamp is
+    # the account's file in the account's directory, so the account writes it: a root write there would follow a name
+    # the account placed. The write runs from `/`, so the child does not start in the operator's checkout, a directory
+    # the account may not read.
+    reconcile_layout
+    (cd / && sudo -u "${SANDBOX_USER}" touch "/opt/ai-tools/${CP_TIMER_STAMP_DIR}/${CP_UPDATE_TIMER_STAMP}") \
+        || warn MSG-G3P2 "could not write the timer stamp in /opt/ai-tools/${CP_TIMER_STAMP_DIR} as ${SANDBOX_USER}, so the first timer window runs an immediate update -- see: sudo ai-tools-admin system layout"
     if (( manager_ready )); then
         log "enable nvm-update.timer in ${SANDBOX_USER}'s --user instance"
         user_systemctl "${SANDBOX_USER}" daemon-reload
@@ -3060,8 +3139,10 @@ case "${ACTION}" in
         ;;
     check-tree)
         # The two gates alone: the version and the commit an install would deploy, and the refusals a downgrade
-        # and an uncommitted tree meet, leaving the host unchanged. What the unit test drives.
+        # and an uncommitted tree meet, and the packaged-host warning, leaving the host unchanged. What the unit test
+        # drives.
         version_gate
+        report_packaged_host
         source_tree_gate
         ;;
     *)

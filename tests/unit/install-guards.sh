@@ -258,6 +258,26 @@ else
     fail "no installed CLI: rc=${GATE_RC}: ${GATE_OUT}"
 fi
 
+# (13b) The packaged-host warning: where rpm reports ai-tools-base installed the run warns and continues, and where
+# it reports the package absent the run does not warn. rpm is a function exported into the run, so the host's own
+# rpm database decides neither case.
+rpm() { return "${stub_rpm_status}"; }
+export -f rpm
+for stub_rpm_status in 0 1; do
+    export stub_rpm_status
+    run_gate --allow-uncommitted
+    if (( stub_rpm_status == 0 )); then
+        assert_msg MSG-Q8T8 "${GATE_OUT}" "an install over the packages warns"
+        if (( GATE_RC == 0 )); then pass "the packaged-host warning does not stop the run"
+        else fail "packaged host: rc=${GATE_RC}: ${GATE_OUT}"; fi
+    elif ! grep -qx 'MSG-Q8T8' <<<"${GATE_OUT}"; then
+        pass "a host without ai-tools-base installed is not warned"
+    else
+        fail "warned without the package installed: ${GATE_OUT}"
+    fi
+done
+unset -f rpm; export -n stub_rpm_status
+
 # (13) A path the sandbox account owns is marked: that is a session's write no one has committed.
 chown "${SANDBOX_USER}:${SANDBOX_GROUP}" "${FIX}/untracked.txt"
 run_gate

@@ -359,4 +359,39 @@ else
 fi
 assert_msg MSG-S4T9 "${err}" "the refusal names the unreadable file under the library's code"
 
+# A file and a directory the session made in /tmp and moved into the project keep ai_tools_tmp_t. The helper hands each
+# back and does not change its type, which stays until a re-claim relabels it; the fixture at the type it was born
+# with is the control. The helper runs here as unconfined root, so whether ai_tools_handback_t may open the type is
+# integration/selinux.sh's assertion over the loaded policy, and this case is about what the helper writes.
+moved_file="${proj}/moved.txt"; moved_dir="${proj}/moved-dir"; born="${proj}/born.txt"
+: > "${moved_file}"; : > "${born}"; mkdir -p "${moved_dir}"
+chown "${SANDBOX_USER}:${SANDBOX_GROUP}" "${moved_file}" "${moved_dir}" "${born}"
+chmod 0660 "${moved_file}" "${born}"; chmod 0770 "${moved_dir}"
+if chcon -t ai_tools_tmp_t "${moved_file}" "${moved_dir}" 2>/dev/null; then
+    born_type="$(stat -c '%C' "${born}" | cut -d: -f3)"
+    run "${moved_file}"; run "${moved_dir}"; run "${born}"
+    for case in "${moved_file}:ai_tools_tmp_t" "${moved_dir}:ai_tools_tmp_t" "${born}:${born_type}"; do
+        path="${case%:*}"; want="${case##*:}"
+        got_owner="$(stat -c '%U' "${path}")"; got_type="$(stat -c '%C' "${path}" | cut -d: -f3)"
+        if [[ "${got_owner}" == "${PROJECTS_USER}" && "${got_type}" == "${want}" ]]; then
+            pass "${path##*/} (${want}) is handed back and keeps its SELinux type"
+        else
+            fail "${path##*/}: owner ${got_owner}, type ${got_type} (want ${PROJECTS_USER}, ${want})"
+        fi
+    done
+else
+    skip "a path moved in from /tmp" "chcon -t ai_tools_tmp_t failed: SELinux is disabled here or the ai_tools module is not loaded"
+fi
+
+# A refused open of the pin exits 4, so the daemon answers ERR and a sweep counts the path as not handed back. Root
+# opens any regular file and a FIFO is refused earlier by type, so no fixture a root run arranges reaches that branch:
+# the open line is read from the helper instead.
+# shellcheck disable=SC2016  # the helper's source text, matched literally
+open_line="$(grep -F '{ exec {fd}< "${canonical}"; } 2>/dev/null' "${HELPER}" || true)"
+if [[ "${open_line}" == *'|| exit 4' && "${open_line}" != *'|| exit 0'* ]]; then
+    pass "a refused open of the pin exits 4, not the silent-skip 0"
+else
+    fail "the pin's open line does not exit 4: '${open_line}'"
+fi
+
 finish

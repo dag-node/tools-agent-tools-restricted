@@ -504,4 +504,59 @@ else
     fi
 fi
 
+# ── the dotnet command does not write its state tree by path ────────────────────────────────
+# The NuGet cache is sandbox-group-writable, so a by-path owner, mode or ACL write there follows a link the account
+# planted; the layout reconcile is the one writer under the state tree (layout.rule.md). Comment lines are not code.
+# find_by_path_writes <file>: print each code line carrying a by-path write token.
+find_by_path_writes() {
+    grep -nE '(^|[^[:alnum:]_])(install[[:space:]]+-d|chown|chmod|setfacl)([^[:alnum:]_]|$)|apply_mode' -- "$1" \
+        | grep -vE '^[0-9]+:[[:space:]]*#' || true
+}
+dotnet_fragment="${shipped_dir}/dotnet.sh"
+if [[ ! -f "${dotnet_fragment}" ]]; then
+    skip "the dotnet command writes no directory by path" "not a source checkout"
+else
+    control="${TESTDIR}/by-path-control.sh"
+    # shellcheck disable=SC2016  # the fixture is code text, so its expansions stay literal
+    printf '%s\n' '# install -d in a comment is not code' \
+        '    install -d -o root -g ai-tools -m 2770 "${NUGET_DIR}/packages"' \
+        '    ai_tools_control_plane__apply_mode 0755 "${TOOLS_DIR}"' > "${control}"
+    control_hits="$(find_by_path_writes "${control}")"
+    hits="$(find_by_path_writes "${dotnet_fragment}")"
+    if [[ "${control_hits}" != $'2:'*$'\n3:'* ]]; then
+        fail "the by-path write reader missed its control: $(_san "${control_hits:-no line}")"
+    elif [[ -n "${hits}" ]]; then
+        fail "the dotnet command writes by path, where the state tree is the layout reconcile's: $(_san "${hits}")"
+    else
+        pass "the dotnet command writes no directory under its state tree by path"
+    fi
+    # After its reconcile the command reads each state directory's layout row; a type test on a path resolves
+    # through a link planted at a parent, which the row read of that parent refuses (tests/unit/layout.sh drives it).
+    type_tests="$(grep -nE '\-d[[:space:]]+"\$\{[A-Za-z_]+\}[^"]*"[[:space:]]*&&[[:space:]]*!' -- "${dotnet_fragment}" \
+        | grep -vE '^[0-9]+:[[:space:]]*#' || true)"
+    refusal_code=MSG-N6G6
+    refusal_exit="$(grep -A1 -F 'refusal="$(read_state_rows_refusal)"' -- "${dotnet_fragment}" || true)"
+    if ! grep -q 'ai_tools_layout__read_entry_state' -- "${dotnet_fragment}"; then
+        fail "the dotnet command does not read its state directories through the layout reader"
+    elif [[ "${refusal_exit}" != *"|| die ${refusal_code} "* ]]; then
+        fail "the dotnet bootstrap does not end under ${refusal_code} on a state-row refusal: $(_san "${refusal_exit:-no line}")"
+    elif [[ -n "${type_tests}" ]]; then
+        fail "the dotnet command decides its state tree by a type test: $(_san "${type_tests}")"
+    else
+        pass "the dotnet command reads its state directories through the layout reader, with no type test"
+    fi
+    # The state tree takes its label from its rows; a recursive walk is by path, and the account writes `nuget`. Only
+    # `tools`, root's alone, is relabelled recursively.
+    recursive_walks="$(grep -nE 'restorecon[[:space:]]+(-[A-Za-z]*R|-R)' -- "${dotnet_fragment}" \
+        | grep -vE '^[0-9]+:[[:space:]]*#' || true)"
+    # shellcheck disable=SC2016  # matching the literal ${TOOLS_DIR}
+    if [[ -z "${recursive_walks}" ]]; then
+        fail "the dotnet command does not relabel its tools after installing them"
+    elif grep -vqF '"${TOOLS_DIR}"' <<< "${recursive_walks}"; then
+        fail "the dotnet command walks a tree other than its tools recursively: $(_san "${recursive_walks}")"
+    else
+        pass "the dotnet command's one recursive relabel is over its root-owned tools"
+    fi
+fi
+
 finish

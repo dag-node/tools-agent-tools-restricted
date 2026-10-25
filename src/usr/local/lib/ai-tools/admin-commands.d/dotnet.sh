@@ -15,12 +15,14 @@
 # provisioning to do, rather than running the command to find out.
 #
 # The .NET SDK/runtime itself is the HOST's RPM-managed dotnet (this integration does not ship a runtime of its own,
-# and does not take a dotnet RPM dependency). This command creates the sandbox-side state root the session-env fragment
+# and does not take a dotnet RPM dependency). This command brings the sandbox-side state tree the session-env fragment
 # (session-env.d/dotnet.env.sh) relies on, /opt/ai-tools/integrations/dotnet with its nuget, cli and tools directories,
-# and installs shared global tools an operator wants available to every project. The tools directory is root-owned
-# and read-only to the agent, so only this command changes it.
+# to its rows through the layout reconcile, which is the one writer under it and applies each row's label, and reads
+# each directory back against its row; the modes are the rows' in layout.lib.sh. It also installs shared global tools
+# an operator wants available to every project. The tools directory is root-owned and read-only to the agent, so only
+# this command changes its content.
 #
-#   sudo ai-tools-admin dotnet bootstrap             # create the state root (offline, idempotent)
+#   sudo ai-tools-admin dotnet bootstrap             # create and label the state tree (offline, idempotent)
 #   sudo ai-tools-admin dotnet tools install <pkg...> # install global tools into the shared dir (network)
 #   sudo ai-tools-admin dotnet status                # show host SDKs/runtimes + sandbox state
 #
@@ -35,12 +37,11 @@
 
 set -euo pipefail
 
-readonly SANDBOX_GROUP="@SANDBOX_GROUP@"
 readonly OPERATOR_CONF="/etc/ai-tools/operator.conf"
 
 # The control-plane contract: CP_INTEGRATIONS is the one root every integration keeps its sandbox-side state
 # under, and the base's static file-context rule already maps that whole tree to ai_tools_home_t -- so this command
-# creates directories and never touches SELinux policy. REQUIRED: without it this command's paths are unknown,
+# labels its state and does not touch SELinux policy. REQUIRED: without it this command's paths are unknown,
 # and guessing them would put the cache somewhere the policy does not cover. Bare source under `set -e`.
 # shellcheck source=SCRIPTDIR/../control-plane.lib.sh
 source /usr/local/lib/ai-tools/control-plane.lib.sh
@@ -48,6 +49,9 @@ readonly STATE_DIR="${CP_INTEGRATIONS}/dotnet"
 readonly NUGET_DIR="${STATE_DIR}/nuget"
 readonly CLI_HOME_DIR="${STATE_DIR}/cli"
 readonly TOOLS_DIR="${STATE_DIR}/tools"
+# The installed layout's table and its readers, which decide whether the state tree is at its rows
+# (read_state_rows_refusal).
+readonly LAYOUT_LIB="/usr/local/lib/ai-tools/layout.lib.sh"
 
 # Shared leveled logger: journald (always) + the root-only file /var/log/ai-tools/dotnet.log.
 # shellcheck disable=SC2034  # read by log.lib.sh
@@ -131,17 +135,6 @@ selinux_active() {
     grep -qx ai_tools <<<"${modules}"
 }
 
-# label_state <path> : give <path> the label the base policy already maps it to. No `semanage`: the integrations root
-# carries a STATIC rule in ai_tools.fc, so every integration's state is covered by one base-owned rule and a new
-# toolchain does not add policy of its own. A failure is fatal -- a silently unlabelled dir breaks the integration only
-# later, inside a confined session, as an opaque denial.
-label_state() {
-    local path="$1"
-    restorecon -R "${path}" >/dev/null 2>&1 \
-        || die MSG-J4C7 "could not relabel ${path} (restorecon failed)"
-    ai_tools_log__debug "labelled ${path} from the base file-context rule"
-}
-
 # drop_legacy_fcontexts : remove the local fcontext rules earlier versions of this command added for its home-root
 # dotdirs. They name paths this integration no longer uses, and they would outlive the ai_tools module that defines
 # their type. Best-effort: absent rules are the normal case on a fresh host.
@@ -187,36 +180,61 @@ load_layout_module() {
     fi
 }
 
+# read_state_rows_refusal : print why the state tree is not at its rows of the installed layout and return 1, or return
+# 0 without printing when every directory of it is, read through LAYOUT_LIB's own reader: any finding -- a missing
+# directory, a link or another type at the name, an owner, mode, ACL or label the row does not declare -- a path
+# the table does not list on this host, and a reader that does not load or complete. Each directory is read at its own
+# name, so a link planted at `nuget` is refused at `nuget`, where a type test on `nuget/packages` would resolve
+# through it. A status 1 from the entry set is a discovery input it could not read, which adds rows and does not remove
+# these static ones. Called in a command substitution, so the library's globals stay out of this shell.
+read_state_rows_refusal() {
+    local dir line finding status=0
+    local -a lines=() fields=() findings=()
+    local -A entries=() state=()
+    # shellcheck source=SCRIPTDIR/../layout.lib.sh
+    if ! source "${LAYOUT_LIB}" 2>/dev/null || ! declare -F ai_tools_layout__begin_pass ai_tools_layout__read_entry_lines \
+            ai_tools_layout__parse_stream_line ai_tools_layout__read_entry_state >/dev/null 2>&1; then
+        printf '%s did not load' "${LAYOUT_LIB}"; return 1
+    fi
+    ai_tools_layout__read_entry_lines lines || status=$?
+    (( status <= 1 )) || { printf 'the entry set exited %s' "${status}"; return 1; }
+    for line in "${lines[@]}"; do
+        ai_tools_layout__parse_stream_line "${line}" fields || continue
+        entries["${fields[0]}"]="${line}"
+    done
+    ai_tools_layout__begin_pass 1
+    for dir in "${STATE_DIR}" "${NUGET_DIR}" "${NUGET_DIR}/packages" "${CLI_HOME_DIR}" "${TOOLS_DIR}"; do
+        [[ -n "${entries[${dir}]+x}" ]] || { printf '%s is not a row on this host' "${dir}"; return 1; }
+        findings=()
+        ai_tools_layout__read_entry_state "${entries[${dir}]}" state findings \
+            || { printf '%s could not be read against its row' "${dir}"; return 1; }
+        for finding in "${findings[@]}"; do
+            ai_tools_layout__parse_stream_line "${finding}" fields || fields=( unreadable finding )
+            printf '%s is not at its layout row (%s on its %s)' "${dir}" "${fields[0]}" "${fields[1]}"; return 1
+        done
+    done
+}
+
 # bootstrap : the integration's first-run setup, and the verb every provider takes for it (cli-grammar.rule.md).
 # Idempotent and offline, so `system bootstrap --scope full` and this package's own %post both reach it without asking
 # what the host is already carrying.
 bootstrap() {
     [[ $# -eq 0 ]] || reject MSG-Y9D9 "dotnet bootstrap: takes no arguments"
-    # This integration's state root, inside the base-owned integrations tree. Root-owned and group-traversable:
-    # what the agent may write is decided per directory, not here.
-    install -d -o root -g "${SANDBOX_GROUP}" -m "${CP_DIR_MODES[integrations]}" \
-        "${CP_INTEGRATIONS}" "${STATE_DIR}" \
-        || die MSG-N6G6 "could not create the dotnet state root ${STATE_DIR}"
-    # Set both modes exactly: created under the setgid control-plane home, a new directory inherits setgid, and a plain
-    # chmod would not clear it (see ai_tools_control_plane__apply_mode).
-    ai_tools_control_plane__apply_mode "${CP_DIR_MODES[integrations]}" "${CP_INTEGRATIONS}" "${STATE_DIR}" \
-        || die MSG-G6E2 "could not set the mode on ${STATE_DIR}"
-    # NuGet restore cache and the SDK's own state: agent-WRITABLE (setgid, group ai-tools rwx). The cache is shared
-    # across projects, so a package restored once serves every project; the CLI home is what keeps the shared tools tree
-    # under it read-only, since the SDK would otherwise write its state into $HOME/.dotnet.
-    install -d -o root -g "${SANDBOX_GROUP}" -m 2770 \
-        "${NUGET_DIR}" "${NUGET_DIR}/packages" "${CLI_HOME_DIR}" \
-        || die MSG-A5R2 "could not create the writable dotnet state under ${STATE_DIR}"
-    # Shared global tools: admin-managed, READ-ONLY to the agent (no group write), so only this command (root) changes
-    # them.
-    install -d -o root -g "${SANDBOX_GROUP}" -m 0755 "${TOOLS_DIR}" \
-        || die MSG-Q7P2 "could not create the shared tools dir ${TOOLS_DIR}"
-    ai_tools_control_plane__apply_mode 0755 "${TOOLS_DIR}" || die MSG-V3F4 "could not set the mode on ${TOOLS_DIR}"
-    # One label for the whole tree, from the base policy's static rule: the type grants ai_tools_t the SELinux access
-    # (write on the cache, exec on the tools), while the DAC modes are the enforced read/write boundary.
+    # The state tree is rows of the installed layout, and the layout reconcile is the one writer under it: `nuget` is
+    # sandbox-group-writable, and `install -d` at a name planted there follows it (layout.rule.md). `--without-rpm`
+    # because the package's %post runs this while the rpm database is held; the content pass is the reconcile's own full
+    # run. A finding on another row is the layout's, which `ai-tools-admin status` reports, so its status is not folded
+    # here; the state tree's own rows are read after it, and decide.
+    /usr/local/libexec/ai-tools/ai-tools-admin system layout reconcile --without-rpm || :
+    local refusal
+    refusal="$(read_state_rows_refusal)" \
+        || die MSG-N6G6 "the state tree is not at its layout rows after the reconcile: ${refusal}; see: sudo ai-tools-admin system layout"
+    # The rows carry the label, from the base policy's static rule, and the reconcile applies it to each directory
+    # through its pin; a file a session creates under them takes the type from its parent. A recursive restorecon here
+    # would walk `nuget` and `nuget/packages`, which the account writes, by path. The type grants ai_tools_t the SELinux
+    # access (write on the cache, exec on the tools), while the DAC modes are the enforced read/write boundary.
     if selinux_active; then
         drop_legacy_fcontexts
-        label_state "${STATE_DIR}"
         load_layout_module
     else
         log "SELinux labelling skipped: no enforcing ai-tools policy on this host (DAC governs)"
@@ -239,7 +257,9 @@ tools_install() {
             || die MSG-Y6Z3 "failed to install or update ${package}"
     done
     # Relabel the freshly written tool binaries ai_tools_home_t (so the agent may exec them) while they stay root-owned
-    # and non-group-writable (RO to the agent).
+    # and non-group-writable (RO to the agent). The walk is recursive because `tools` is root's alone
+    # under the root-owned `dotnet` row and `dotnet tool install` wrote it as root, so no component of the walk is
+    # the account's.
     if selinux_active; then
         restorecon -R "${TOOLS_DIR}" >/dev/null 2>&1 \
             || die MSG-J9Z8 "installed ${*}, but could not relabel ${TOOLS_DIR} -- the agent cannot exec the tools until it is relabelled"

@@ -154,6 +154,38 @@ AI_TOOLS_AGENTS=[]|0644|0666|
 AI_TOOLS_AGENTS=[]|0644|0644|acme beta gamma
 ROWS
 chmod 0666 "${AGENTS_DIR}/gamma.conf"
+
+# An operator.conf the gate ignores leaves the declared set unknown even where the baseline it falls back to is not
+# empty: with a default-enabled manifest the enabled set holds that agent, and every other installed agent would read
+# as residue. acme is made default-enabled for this case alone, and the trusted file is the control that still yields
+# the agent it does not name.
+manifest acme @acme/experimental acme; sed -i 's/^default_enable=no$/default_enable=yes/' "${AGENTS_DIR}/acme.conf"
+printf 'AI_TOOLS_AGENTS="agent-acme"\n' > "${CONF}"; chmod 0644 "${CONF}"
+got_set="$(ai_tools_toolchain__list_installed_not_enabled_agents 2>/dev/null | cut -f1 | tr '\n' ' ')"
+[[ "${got_set}" == "beta " ]] && pass "control: a trusted operator.conf naming acme leaves beta installed-not-enabled" \
+                              || fail "control: installed-not-enabled is '${got_set}', expected 'beta '"
+chmod 0666 "${CONF}"
+got_set="$(ai_tools_toolchain__list_installed_not_enabled_agents 2>/dev/null | cut -f1 | tr '\n' ' ')"
+[[ -z "${got_set}" ]] && pass "an untrusted operator.conf over a default-enabled baseline yields no installed-not-enabled agent" \
+                      || fail "an untrusted operator.conf over a default-enabled baseline yields '${got_set}'"
+
+# The same read as the sandbox account, the reader nvm-update is, over a 0600 root:root operator.conf: the trust
+# predicate accepts it and the account cannot read it, a state root's own run cannot produce. The gate reads unreadable,
+# so the set does not print a line; the account's failed `test -r` is the setup the verdict rests on.
+chmod 0600 "${CONF}"
+if ! as_sandbox /usr/bin/true >/dev/null 2>&1; then
+    skip "unreadable operator.conf" "cannot run a command as ${SANDBOX_USER} here (no account, or the sandbox-exec route refused)"
+elif as_sandbox /usr/bin/test -r "${CONF}"; then
+    fail "setup: ${SANDBOX_USER} still reads the 0600 fixture, so the unreadable state was not produced"
+else
+    # shellcheck disable=SC2016  # the inner shell expands these, not this one
+    got_set="$( { as_sandbox env AI_TOOLS_OPERATOR_CONF="${CONF}" AI_TOOLS_AGENTS_DIR="${AGENTS_DIR}" \
+        bash -c 'source "$1" || exit 99; ai_tools_toolchain__list_installed_not_enabled_agents' _ "${LIB}" 2>/dev/null \
+        || printf 'call-failed\n'; } | cut -f1 | tr '\n' ' ')"
+    [[ -z "${got_set}" ]] && pass "an operator.conf the sandbox account cannot read yields no installed-not-enabled agent" \
+                          || fail "an unreadable operator.conf yields '${got_set}' as the sandbox account"
+fi
+manifest acme @acme/experimental acme
 printf 'AI_TOOLS_AGENTS="agent-acme"\n' > "${CONF}"; chmod 0644 "${CONF}"
 
 # ── ai_tools_toolchain__find_agent_residue: the tree read ───────────────────────────────────────────────────────
@@ -449,6 +481,19 @@ else
         fail "the updater installs packages at line ${install_line}, ahead of the removal at ${remove_line}"
     fi
 
+    # The agent set is classified before the run's first write to the toolchain, so a fault ends the run with no Node
+    # version installed and no package reinstalled.
+    classify_line="$(grep -n -m1 -F '< <(ai_tools_providers__evaluate_empty_agents)' "${updater}" | cut -d: -f1)"
+    node_install_line="$(grep -n -m1 -E '^[^#]*nvm install "\$\{target_version\}"' "${updater}" | cut -d: -f1)"
+    relink_copies_line="$(grep -n -m1 -F 'done < <(ai_tools_toolchain__relink_copies ' "${updater}" | cut -d: -f1)"
+    if [[ -z "${classify_line}" || -z "${node_install_line}" || -z "${relink_copies_line}" ]]; then
+        fail "the updater's classification, Node install or copy repair is no longer where this reads it (classify -> ${classify_line:-none}, nvm install -> ${node_install_line:-none}, repair -> ${relink_copies_line:-none})"
+    elif (( classify_line < relink_copies_line && classify_line < node_install_line )); then
+        pass "the updater classifies its agent set before the copy repair and the Node install"
+    else
+        fail "the updater writes the toolchain before it classifies the agent set (classify -> ${classify_line}, repair -> ${relink_copies_line}, nvm install -> ${node_install_line})"
+    fi
+
     incomplete_line="$(grep -n -m1 -E 'ai_tools_toolchain__find_incomplete_agents "' "${updater}" | cut -d: -f1)"
     if [[ -z "${incomplete_line}" || -z "${install_line}" ]]; then
         fail "the updater no longer reads ai_tools_toolchain__find_incomplete_agents before install_packages (read -> ${incomplete_line:-none}, install -> ${install_line:-none})"
@@ -509,6 +554,53 @@ else
         pass "the bootstrap empties npm's cache through the remover, ahead of its first install"
     else
         fail "the bootstrap installs at line ${first_install_line}, ahead of its cache removal at ${remover_line}"
+    fi
+
+    # No package code runs before the signature verdict: every install of a run holds the install scripts back
+    # (npm_config_ignore_scripts, set ahead of the Node install so nvm's own installs are covered), and `npm rebuild`
+    # runs them after verify_toolchain_signatures, ahead of the re-link, which the rebuild's bin links would otherwise
+    # undo, and of the entrypoint verifier, which hashes what a script put in place. The bootstrap keeps the same order
+    # around its verifier.
+    ignore_line="$(grep -n -m1 -E '^[[:space:]]+export npm_config_ignore_scripts=true$' "${updater}" | cut -d: -f1)"
+    verify_line="$(grep -n -m1 -E '^[[:space:]]+verify_toolchain_signatures$' "${updater}" | cut -d: -f1)"
+    unset_line="$(grep -n -m1 -E '^[[:space:]]+unset npm_config_ignore_scripts$' "${updater}" | cut -d: -f1)"
+    scripts_line="$(grep -n -m1 -E '^[[:space:]]+run_install_scripts "\$\{version_dir\}"' "${updater}" | cut -d: -f1)"
+    relink_line="$(grep -n -m1 -E '^[[:space:]]+relink_agent_launchers "\$\{target_version\}"' "${updater}" | cut -d: -f1)"
+    entrypoint_line="$(grep -n -m1 -E '^[[:space:]]+verify_agent_entrypoints "\$\{target_version\}"' "${updater}" | cut -d: -f1)"
+    if [[ -z "${ignore_line}" || -z "${verify_line}" || -z "${unset_line}" || -z "${scripts_line}" \
+            || -z "${relink_line}" || -z "${entrypoint_line}" || -z "${node_install_line}" || -z "${install_line}" ]]; then
+        fail "the updater's script hold-back, signature gate, rebuild, re-link or entrypoint check is no longer where this reads it (hold-back -> ${ignore_line:-none}, gate -> ${verify_line:-none}, unset -> ${unset_line:-none}, rebuild -> ${scripts_line:-none}, re-link -> ${relink_line:-none}, entrypoints -> ${entrypoint_line:-none})"
+    elif (( ignore_line < node_install_line && ignore_line < install_line && install_line < verify_line \
+            && verify_line < unset_line && unset_line < scripts_line && scripts_line < relink_line \
+            && scripts_line < entrypoint_line )); then
+        pass "the updater holds the install scripts back through its installs and runs them after the signature gate, ahead of the re-link and the entrypoint check"
+    else
+        fail "the updater's order is not hold-back (${ignore_line}) < installs (${node_install_line}, ${install_line}) < gate (${verify_line}) < unset (${unset_line}) < rebuild (${scripts_line}) < re-link (${relink_line}), entrypoints (${entrypoint_line})"
+    fi
+    # The scripts run per named package, in its own directory, so the set whose scripts run is the managed set itself;
+    # `npm rebuild` is not used -- its allow-scripts gate reads an identity a global tree does not record.
+    scripts_body="$(sed -n '/^run_install_scripts() {/,/^}/p' "${updater}")"
+    if grep -qE '^[^#]*npm run --if-present "\$\{script\}"' <<<"${scripts_body}" \
+            && grep -qE '^[^#]*for script in preinstall install postinstall' <<<"${scripts_body}" \
+            && ! grep -qE '^[^#]*npm rebuild' <<<"${scripts_body}"; then
+        pass "the updater runs each managed package's own install scripts with npm run, never npm rebuild"
+    else
+        fail "run_install_scripts does not run each package's lifecycle scripts with npm run: '$(tr '\n' '|' <<<"${scripts_body}")'"
+    fi
+    bootstrap_ignore_line="$(grep -n -m1 -E '^export npm_config_ignore_scripts=true$' "${bootstrap}" | cut -d: -f1)"
+    bootstrap_node_line="$(grep -n -m1 -E '^nvm install "\$\{NODE_MAJOR\}"$' "${bootstrap}" | cut -d: -f1)"
+    bootstrap_verify_line="$(grep -n -m1 -E '^[[:space:]]+ai_tools_npm_verify__verify_signatures$' "${bootstrap}" | cut -d: -f1)"
+    bootstrap_rebuild_line="$(grep -n -m1 -E '^[^#]*npm run --if-present "\$\{script\}"' "${bootstrap}" | cut -d: -f1)"
+    bootstrap_relink_line="$(grep -n -m1 -F 'ai_tools_providers__relink_launcher "$@"' "${bootstrap}" | cut -d: -f1)"
+    if [[ -z "${bootstrap_ignore_line}" || -z "${bootstrap_node_line}" || -z "${bootstrap_verify_line}" \
+            || -z "${bootstrap_rebuild_line}" || -z "${bootstrap_relink_line}" || -z "${first_install_line}" ]]; then
+        fail "the bootstrap's script hold-back, installs, verifier, rebuild or re-link is no longer where this reads it (hold-back -> ${bootstrap_ignore_line:-none}, nvm install -> ${bootstrap_node_line:-none}, install -> ${first_install_line:-none}, verifier -> ${bootstrap_verify_line:-none}, rebuild -> ${bootstrap_rebuild_line:-none}, re-link -> ${bootstrap_relink_line:-none})"
+    elif (( bootstrap_ignore_line < bootstrap_node_line && bootstrap_node_line < first_install_line \
+            && first_install_line < bootstrap_verify_line && bootstrap_verify_line < bootstrap_rebuild_line \
+            && bootstrap_rebuild_line < bootstrap_relink_line )); then
+        pass "the bootstrap holds the install scripts back through its installs and runs them after its verifier, ahead of the re-link"
+    else
+        fail "the bootstrap's order is not hold-back (${bootstrap_ignore_line}) < nvm install (${bootstrap_node_line}) < install (${first_install_line}) < verifier (${bootstrap_verify_line}) < rebuild (${bootstrap_rebuild_line}) < re-link (${bootstrap_relink_line})"
     fi
 fi
 

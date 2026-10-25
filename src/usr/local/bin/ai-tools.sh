@@ -4137,6 +4137,8 @@ cmd_providers() {
             allowlist) printf '%s in %s (an exact allowlist)' "$1" "${AI_TOOLS_OPERATOR_CONF}" ;;
             untrusted) printf '%sdefault_enable only -- %s is ignored (not root-owned, or writable by group/other)%s' \
                            "${C_YEL}" "${AI_TOOLS_OPERATOR_CONF}" "${C_RST}" ;;
+            unreadable) printf '%sdefault_enable only -- %s cannot be read by this account%s' \
+                           "${C_YEL}" "${AI_TOOLS_OPERATOR_CONF}" "${C_RST}" ;;
             *)         printf 'default_enable (no %s in %s)' "$1" "${AI_TOOLS_OPERATOR_CONF}" ;;
         esac
     }
@@ -4667,6 +4669,7 @@ status_provisioning() {
         say "  ${C_YEL}cannot read the enabled agents${C_RST} -- ${ENABLED_AGENTS_ERROR}"
         return "${STATUS_UNREADABLE}"
     fi
+    status_operator_conf || faults=$(( faults + 1 ))
     if (( ${#ENABLED_AGENTS[@]} == 0 )); then
         IFS=$'\t' read -r _ reason <<<"$(ai_tools_providers__evaluate_empty_agents)"
         say "  ${C_YEL}no agent enabled${C_RST} -- ${reason}"
@@ -4686,6 +4689,17 @@ status_provisioning() {
         faults=$(( faults + 1 ))
     }
     (( faults == 0 ))
+}
+
+# status_operator_conf -- the operator.conf line, printed where this account cannot read a present, trusted file
+# (ai_tools_providers__read_gate's `unreadable`): the enabled agents and integrations then fall back to the default-
+# enabled ones and the set the file declares is unknown. Returns 1 for that line, so it counts toward the exit status;
+# does not print a line otherwise. The account read is the operator's own: whether the sandbox account reads the file is
+# a reading root makes, in ai-tools-admin status.
+status_operator_conf() {
+    [[ "$(ai_tools_providers__read_gate AI_TOOLS_AGENTS)" == unreadable ]] || return 0
+    say "  ${C_RED}cannot read ${AI_TOOLS_OPERATOR_CONF}${C_RST} -- only the default-enabled providers apply: $(ai_tools_conf__read_unreadable_reason "${AI_TOOLS_OPERATOR_CONF}")"
+    return 1
 }
 
 # status_residue -- one line per agent this host installed, did not enable, and still holds the stable launcher link

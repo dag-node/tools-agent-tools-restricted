@@ -58,10 +58,13 @@ what the security model rests on, and every one of them refuses toward *less* ac
 3. **Launcher gate** — the invoked name must be the launcher of an enabled agent manifest, read
    through `ai_tools_providers__list_enabled_agents` ([providers](providers.rule.md)), and the gate records that agent;
    any other name, `ai-tools-launch` itself included, is refused (`MSG-F8N3`), and a provider library that will not load
-   refuses too (`MSG-C2C9`). Every launcher is one program, so the name is what selects the agent before `sudo`;
-   the gate runs after the operator gate, so its refusal, which lists the enabled launchers, does not reach
-   a non-operator, and after the provider-list gate, so an unmigrated list is not reported as "not enabled".
-   `ai-tools-run` re-derives the agent from the resolved path after the drop.
+   refuses too (`MSG-C2C9`). An empty enabled set is classified first (`ai_tools_providers__evaluate_empty_agents`):
+   a configuration that asks for no agent keeps `MSG-F8N3` and its `AI_TOOLS_AGENTS` remedy, while an input the resolver
+   refused or could not read — an `operator.conf` the operator cannot read included — refuses under `MSG-V4U4` naming
+   that input, since `AI_TOOLS_AGENTS` is then the wrong file to edit. Every launcher is one program, so the name is
+   what selects the agent before `sudo`; the gate runs after the operator gate, so its refusal, which lists the enabled
+   launchers, does not reach a non-operator, and after the provider-list gate, so an unmigrated list is not reported
+   as "not enabled". `ai-tools-run` re-derives the agent from the resolved path after the drop.
 4. **Residue gate** — a launch is refused (`MSG-H4E2`) while any agent the host installed but did not enable still has
    its stable launcher link, the operator-side evidence that its package is in the sandbox toolchain
    (`ai_tools_toolchain__find_agent_residue_links`, [updater](updater.rule.md)); the refusal names the agent

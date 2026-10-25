@@ -299,6 +299,9 @@ choose_agents() {
         untrusted)
             log "agent choice: ${AI_TOOLS_OPERATOR_CONF} is not trusted, so no agent is enabled and none is asked about (the refusal is reported below)"
             return 0 ;;
+        unreadable)
+            log "agent choice: ${AI_TOOLS_OPERATOR_CONF} cannot be read, so no agent is enabled and none is asked about (the refusal is reported below)"
+            return 0 ;;
     esac
     if (( ${#installed_names[@]} == 0 )); then
         log "agent choice: no agent manifest is installed under ${AI_TOOLS_AGENTS_DIR} -- provisioning Node only; install an ai-tools-agents-* package, then re-run to choose one"
@@ -346,11 +349,11 @@ migrate_provider_lists() {
 
 # refuse_unresolved_agents -- end the run when the agent set choose_agents left is empty and the configuration did not
 # ask for that: ai_tools_providers__evaluate_empty_agents classifies it, and anything but `none` -- an invalid
-# AI_TOOLS_AGENTS, an untrusted operator.conf or manifest, a list none of whose names resolved -- ends the run here,
-# before the residue removal and the network step, the same fault nvm-update ends on. Provisioning Node alone would
-# report a host as provisioned whose agents are neither maintained nor launchable; the residue readers already print no
-# residue for such a set (toolchain.lib.sh), so this is the run saying why, not the guard against the removal. Gated
-# on the resolver having loaded, as choose_agents is.
+# AI_TOOLS_AGENTS, an untrusted or unreadable operator.conf, an untrusted manifest, a list none of whose names resolved
+# -- ends the run here, before the residue removal and the network step, the same fault nvm-update ends on. Provisioning
+# Node alone would report a host as provisioned whose agents are neither maintained nor launchable; the residue readers
+# already print no residue for such a set (toolchain.lib.sh), so this is the run saying why, not the guard
+# against the removal. Gated on the resolver having loaded, as choose_agents is.
 refuse_unresolved_agents() {
     local name verdict="" reason=""
     (( _providers_loaded )) || return 0
@@ -630,20 +633,11 @@ preflight_network() {
     return 1
 }
 
-# close_unit_search_path -- apply the unit search path layout (ai_tools_control_plane__ensure_unit_search_path_closed)
-# before the stamp step writes into it, and warn where a path stays open; the run continues.
-close_unit_search_path() {
-    local line
-    local -a changed=() failed=()
-    ai_tools_control_plane__parse_unit_search_path_report changed failed \
-        < <(ai_tools_control_plane__ensure_unit_search_path_closed "${SANDBOX_HOME}" "${SANDBOX_USER}" "${SANDBOX_GROUP}" || true)
-    for line in "${changed[@]+"${changed[@]}"}"; do log "unit search path: ${line}"; done
-    if (( ${#failed[@]} > 0 )); then
-        # A twin of install.sh's warning, which defines the code (messaging.rule.md).
-        printf 'MSG-A2Y5\n' >&2
-        warn "the sandbox account's systemd unit search path is not fully closed, so a path listed here could still reach its unconfined --user manager; settle each one and re-run: sudo ai-tools-admin system bootstrap"
-        for line in "${failed[@]}"; do warn "    ${line}"; done
-    fi
+# reconcile_layout -- bring every installed path to its row through the admin command, the unit search path chain
+# the stamp step writes into among them; its lines go to this run's output, and a finding it leaves is reported
+# by `ai-tools-admin status`, so the run continues.
+reconcile_layout() {
+    /usr/local/libexec/ai-tools/ai-tools-admin system layout reconcile || true
     return 0
 }
 
@@ -715,13 +709,16 @@ if ! declare -F ai_tools_sandbox_exec__run_as_sandbox >/dev/null 2>&1 || ! decla
     die MSG-E2X2 "cannot run the sandbox toolchain: ${_sandbox_exec_lib}, ${_toolchain_lib} or the log library did not load, and they are what run that account's files without root's terminal and keep their bytes off it -- reinstall ai-tools-base, then re-run: sudo ai-tools-admin system bootstrap"
 fi
 
-# The unit search path layout (control-plane.lib.sh). Required: a run without it would leave that path the account's.
+# The control plane's constants and readers (control-plane.lib.sh): the shared asset roots this run seeds, each agent's
+# config directory, and the timer-stamp directory the stamp step writes into. Required: a run without them would seed
+# into paths it guessed.
 _control_plane_lib=/usr/local/lib/ai-tools/control-plane.lib.sh
 # shellcheck source=SCRIPTDIR/../../lib/ai-tools/control-plane.lib.sh
 source "${_control_plane_lib}" 2>/dev/null || true
-if ! declare -F ai_tools_control_plane__ensure_unit_search_path_closed >/dev/null 2>&1 \
-        || ! declare -F ai_tools_control_plane__parse_unit_search_path_report >/dev/null 2>&1; then
-    die MSG-Q3P4 "cannot close the sandbox account's systemd unit search path: ${_control_plane_lib} did not load -- reinstall ai-tools-base, then re-run: sudo ai-tools-admin system bootstrap"
+if ! declare -F ai_tools_control_plane__list_agent_asset_dirs >/dev/null 2>&1 \
+        || ! declare -F ai_tools_control_plane__list_agent_memory_targets >/dev/null 2>&1 \
+        || [[ -z "${CP_TIMER_STAMP_DIR:-}" ]]; then
+    die MSG-Q3P4 "cannot read the control plane's layout: ${_control_plane_lib} did not load -- reinstall ai-tools-base, then re-run: sudo ai-tools-admin system bootstrap"
 fi
 
 # Which agents this run provisions, decided and written before the first network step: a name given on the command line,
@@ -778,8 +775,9 @@ for _sub in .nvm .cache .npm; do
     install -d -o "${SANDBOX_USER}" -g "${SANDBOX_GROUP}" -m 0750 "${SANDBOX_HOME}/${_sub}"
 done
 
-# `.local` heads the unit search path chain, which root owns.
-close_unit_search_path
+# `.local` heads the unit search path chain, which root owns; the layout reconcile creates it with the rest
+# of the installed layout.
+reconcile_layout
 
 # Resolve the enabled agents -- read AFTER choose_agents, so the set is the one this run just wrote. Each enabled line
 # is "name<TAB>npm_package<TAB>launcher"; collect the packages (installed in step 2) and launchers (symlinked in step
@@ -824,11 +822,15 @@ if [ ! -s "${NVM_DIR}/nvm.sh" ]; then
 fi
 # shellcheck source=/dev/null
 . "${NVM_DIR}/nvm.sh"
+# No install script runs in this step: npm reads the variable from the environment, so every install here -- nvm's
+# of its default packages included -- lands the package and holds its scripts back until the signature check (2a)
+# has passed, and `npm rebuild` runs them (2b). The same order nvm-update keeps.
+export npm_config_ignore_scripts=true
 nvm install "${NODE_MAJOR}"
 nvm alias default "${NODE_MAJOR}"
 # Install each enabled agent's npm package. npm 11.5+ gates preinstall/install/postinstall
 # behind an allowScripts allowlist, so a bare `npm install -g` BLOCKS the postinstall --
-# @anthropic-ai/claude-code fetches and wires its platform-native binary there (node
+# @anthropic-ai/claude-code copies its platform-native binary over bin/claude.exe there (node
 # install.cjs); blocked, the JS launcher installs but exits "native binary not installed" at
 # every launch. npm re-scans the WHOLE global tree on each install, so the allowlist must cover
 # the full set on every call (mirrors nvm-update.sh's install_packages) -- scoped to the named
@@ -858,15 +860,81 @@ if [ "${#agent_packages[@]}" -gt 0 ]; then
 fi
 EOSU
 
-# 2a. Point each enabled agent's versioned launcher at the executable its manifest declares
+# 2a. Verify the installed toolchain's npm registry signatures BEFORE any of its install scripts
+#     runs and before wiring the launcher, so a compromised registry serving a tampered package is
+#     caught before any code of it runs as ${SANDBOX_USER} and before the first launch can use it.
+#     Runs as ${SANDBOX_USER} (the verifier refuses root: it audits the sandbox-owned global tree
+#     and as root would resolve the wrong prefix). nvm is re-sourced so npm/node are on PATH.
+#     Gated on the lib being deployed: a bootstrap that precedes the control plane has no lib yet
+#     -- the nvm-update timer verifies on its first run instead. A tamper aborts the bootstrap
+#     here, leaving the tampered tree installed with none of its scripts run and unwired; an
+#     inability to verify (offline/unsupported) warns and proceeds, matching the check's
+#     best-effort posture.
+_verify_lib=/usr/local/lib/ai-tools/npm-verify.lib.sh
+if [[ -r "${_verify_lib}" ]]; then
+    _vrc=0
+    # shellcheck disable=SC2016  # the inner shell expands these, not this one
+    ai_tools_sandbox_exec__run_as_sandbox "${SANDBOX_USER}" env \
+        NVM_DIR="${NVM_DIR}" HOME="${SANDBOX_HOME}" VERIFY_LIB="${_verify_lib}" \
+        bash -c '
+            set -euo pipefail
+            . "${NVM_DIR}/nvm.sh" >/dev/null 2>&1
+            nvm use default >/dev/null 2>&1 || true
+            . "${VERIFY_LIB}"
+            ai_tools_npm_verify__verify_signatures
+        ' || _vrc=$?
+    case "${_vrc}" in
+        0) log "npm registry signatures verified for the installed toolchain" ;;
+        1) die MSG-F3Y2 "npm signature verification FAILED (possible registry tampering) -- aborting before any install script of the toolchain runs and before wiring the launcher; the installed package is left unactivated" ;;
+        *) warn MSG-H6A8 "could not verify npm signatures (the npm-verify line states why) -- proceeding; the toolchain is installed but unverified" ;;
+    esac
+else
+    warn MSG-P9Q6 "signature-verification library not deployed yet -- skipping the check; the nvm-update timer verifies on its first run"
+fi
+
+# 2b. The install scripts of the agents' packages, once the verifier has returned verified or
+#     unable to verify (a tamper ended the run in 2a). Every install in step 2 held them back
+#     (npm_config_ignore_scripts); here each agent package's own preinstall, install and
+#     postinstall run through `npm run --if-present` in that package's directory, as
+#     ${SANDBOX_USER}, so the packages named are the set whose scripts run and no dependency's
+#     script runs, as at install. `npm rebuild` under `--allow-scripts` does not serve: its gate
+#     reads a package's identity from the registry URL a lockfile records, and a global tree
+#     carries none, so it blocks every script. @anthropic-ai/claude-code's postinstall is what
+#     copies its native binary over the bin/claude.exe placeholder, so the re-link (2c) and the
+#     relabel (3b) follow this step. A script that fails ends the run: the package is installed
+#     without it, and a launch of an agent whose entrypoint a script places is refused until a run
+#     completes it. An offline run made no install, so this step has no package to complete.
+if (( _online )) && [[ ${#_agent_packages[@]} -gt 0 ]]; then
+    # shellcheck disable=SC2016  # the inner shell expands these, not this one
+    ai_tools_sandbox_exec__run_as_sandbox "${SANDBOX_USER}" env \
+        NVM_DIR="${NVM_DIR}" HOME="${SANDBOX_HOME}" AGENT_PACKAGES="${_agent_packages[*]}" \
+        bash -c '
+            set -euo pipefail
+            . "${NVM_DIR}/nvm.sh" >/dev/null 2>&1
+            nvm use default >/dev/null 2>&1 || true
+            global_root="$(npm root -g)"
+            read -ra agent_packages <<< "${AGENT_PACKAGES}"
+            for agent_package in "${agent_packages[@]}"; do
+                # The npm package-name charset: the name becomes a path component under the global root.
+                [[ "${agent_package}" =~ ^(@[A-Za-z0-9._-]+/)?[A-Za-z0-9._-]+$ ]] || exit 1
+                [[ -d "${global_root}/${agent_package}" ]] || continue
+                for script in preinstall install postinstall; do
+                    (cd "${global_root}/${agent_package}" && npm run --if-present "${script}")
+                done
+            done
+        ' || die MSG-T3P5 "an install script of the agents' packages did not complete (npm's output above names it) -- the package is installed without it, so an agent whose entrypoint such a script places is refused at launch until it runs; fix what npm names, then re-run: sudo ai-tools-admin system bootstrap"
+fi
+
+# 2c. Point each enabled agent's versioned launcher at the executable its manifest declares
 #     (launcher_target, ai-tools-providers(5)): npm links bin/<launcher> at the package's entry
 #     file, which for a shim-started agent is not the binary the session runs. Runs as
-#     ${SANDBOX_USER}, the owner of that tree, through the library the resolver came from, and
-#     before the verification (2b) and the stable symlink (3), so each reads the chain in its
-#     final shape. The library reports a refusal and leaves npm's link in place: that agent's
-#     launch then fails closed at the label preflight until its manifest and its package agree.
-#     The active Node version is read once here and reused by step 3, as data: nvm's default alias
-#     and the installed version directories (ai_tools_toolchain__read_nvm_default_version), not by sourcing nvm.sh.
+#     ${SANDBOX_USER}, the owner of that tree, through the library the resolver came from, after
+#     the rebuild (2b), which rewrites npm's links, and before the stable symlink (3), so each
+#     reads the chain in its final shape. The library reports a refusal and leaves npm's link in
+#     place: that agent's launch then fails closed at the label preflight until its manifest and
+#     its package agree. The active Node version is read once here and reused by step 3, as data:
+#     nvm's default alias and the installed version directories
+#     (ai_tools_toolchain__read_nvm_default_version), not by sourcing nvm.sh.
 _node_version="$(ai_tools_toolchain__read_nvm_default_version "${NVM_DIR}")"
 
 # What the install did NOT complete (toolchain.lib.sh), reported here -- before the re-link and the relabel, each
@@ -898,36 +966,6 @@ if [[ -n "${_node_version}" ]] && declare -F ai_tools_providers__relink_launcher
             warn "${_agent}: ${_launcher} was not re-linked at its declared target (see above) -- npm's own link stays, and a launch fails closed at the label preflight until the manifest and the installed package agree"
         fi
     done < <(ai_tools_providers__list_enabled_agents 2>/dev/null)
-fi
-
-# 2b. Verify the installed toolchain's npm registry signatures BEFORE wiring the launcher, so a
-#     compromised registry serving a tampered package is caught before the first launch can use
-#     it. Runs as ${SANDBOX_USER} (the verifier refuses root: it audits the sandbox-owned global
-#     tree and as root would resolve the wrong prefix). nvm is re-sourced so npm/node are on
-#     PATH. Gated on the lib being deployed: a bootstrap that precedes the control plane has no
-#     lib yet -- the nvm-update timer verifies on its first run instead. A tamper aborts the
-#     bootstrap before the symlink/relabel, leaving the tampered tree unwired; an inability to
-#     verify (offline/unsupported) warns and proceeds, matching the check's best-effort posture.
-_verify_lib=/usr/local/lib/ai-tools/npm-verify.lib.sh
-if [[ -r "${_verify_lib}" ]]; then
-    _vrc=0
-    # shellcheck disable=SC2016  # the inner shell expands these, not this one
-    ai_tools_sandbox_exec__run_as_sandbox "${SANDBOX_USER}" env \
-        NVM_DIR="${NVM_DIR}" HOME="${SANDBOX_HOME}" VERIFY_LIB="${_verify_lib}" \
-        bash -c '
-            set -euo pipefail
-            . "${NVM_DIR}/nvm.sh" >/dev/null 2>&1
-            nvm use default >/dev/null 2>&1 || true
-            . "${VERIFY_LIB}"
-            ai_tools_npm_verify__verify_signatures
-        ' || _vrc=$?
-    case "${_vrc}" in
-        0) log "npm registry signatures verified for the installed toolchain" ;;
-        1) die MSG-F3Y2 "npm signature verification FAILED (possible registry tampering) -- aborting before wiring the launcher; the installed package is left unactivated" ;;
-        *) warn MSG-H6A8 "could not verify npm signatures (the npm-verify line states why) -- proceeding; the toolchain is installed but unverified" ;;
-    esac
-else
-    warn MSG-P9Q6 "signature-verification library not deployed yet -- skipping the check; the nvm-update timer verifies on its first run"
 fi
 
 # 3. Point /opt/ai-tools/bin/<launcher> at the versioned binary, once per enabled agent whose

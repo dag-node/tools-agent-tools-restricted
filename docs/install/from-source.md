@@ -8,6 +8,24 @@ install (see the README) automates all of it;
 `sudo ai-tools-admin system bootstrap` automates steps 2–3 once `install.sh`
 has deployed it, and `install.sh` automates everything from step 4 on.
 
+Use one route per host. On a host that has the `ai-tools-*` packages,
+`install.sh` warns before it writes: each package file it replaces then reads
+as content drift in `rpm -V` and in `sudo ai-tools-admin system layout`,
+and the next `dnf upgrade` writes over it. To run a checkout on such a host,
+build it as packages and upgrade to them, as your own user rather than root:
+
+```bash
+make -C packaging clean && \
+  make -C packaging rpm RPM_RELEASE=0.$(date +%Y%m%d%H%M).git$(git rev-parse --short HEAD) && \
+  sudo dnf upgrade --nogpgcheck ./packaging/rpmbuild/RPMS/*/*.rpm
+```
+
+The timestamp in the release makes each build newer than the last, and still
+older than the published release of the same version. The packages are
+unsigned, so `--nogpgcheck` lets this one transaction install them on a host
+that checks signatures on local files. `dnf upgrade` replaces only the packages
+the host already has.
+
 ```bash
 git clone https://github.com/dag-node/tools-agent-tools-restricted.git
 cd tools-agent-tools-restricted
@@ -295,49 +313,11 @@ would hand a codex you keep a configuration naming scripts that are gone.
 
 ## Files
 
-The source→deploy map `install.sh` applies (the authoritative per-artifact
-owner/group/mode list is `tests/integration/perms.sh`,
-which `sudo ./install.sh check-perms` runs):
+```bash
+sudo ai-tools-admin system layout
+```
 
-| File | Deploy path |
-|---|---|
-| `src/usr/local/lib/ai-tools/path-order.sh` | `/usr/local/lib/ai-tools/path-order.sh` (root) |
-| `src/usr/local/lib/ai-tools/path-order.lib.sh` | `/usr/local/lib/ai-tools/path-order.lib.sh` (root) |
-| `src/usr/local/lib/ai-tools/agent-installs.lib.sh` | `/usr/local/lib/ai-tools/agent-installs.lib.sh` (root) |
-| `src/opt/ai-tools/bin/nvm-update.sh` | `/opt/ai-tools/bin/nvm-update.sh` |
-| `src/usr/local/libexec/ai-tools/ai-tools-chown.sh` | `/usr/local/libexec/ai-tools/ai-tools-chown` (root) |
-| `src/usr/local/libexec/ai-tools/ai-tools-setgid.sh` | `/usr/local/libexec/ai-tools/ai-tools-setgid` (root) |
-| `src/usr/local/libexec/ai-tools/ai-tools-launcher-symlink.sh` | `/usr/local/libexec/ai-tools/ai-tools-launcher-symlink` (root) |
-| `src/usr/local/libexec/ai-tools/ai-tools-relabel-agent.sh` | `/usr/local/libexec/ai-tools/ai-tools-relabel-agent` (root) |
-| `src/usr/local/libexec/ai-tools/ai-tools-bootstrap.sh` | `/usr/local/libexec/ai-tools/ai-tools-bootstrap` (root) |
-| `src/usr/local/libexec/ai-tools/ai-tools-admin.sh` | `/usr/local/libexec/ai-tools/ai-tools-admin` (root) |
-| `src/usr/local/libexec/ai-tools/ai-tools-lockdown.sh` | `/usr/local/libexec/ai-tools/ai-tools-lockdown` (root) |
-| `src/usr/local/libexec/ai-tools/ai-tools-handback.py` | `/usr/local/libexec/ai-tools/ai-tools-handback` (root) |
-| `src/usr/local/bin/ai-tools-handback-client.py` | `/usr/local/bin/ai-tools-handback-client` (root:ai-tools) |
-| `src/usr/lib/systemd/system/ai-tools-handback.socket` | `/usr/lib/systemd/system/ai-tools-handback.socket` (root) |
-| `src/usr/lib/systemd/system/ai-tools-handback@.service` | `/usr/lib/systemd/system/ai-tools-handback@.service` (root) |
-| `src/usr/local/lib/ai-tools/secret-patterns.lib.sh` | `/usr/local/lib/ai-tools/secret-patterns.lib.sh` (root) |
-| `src/usr/local/lib/ai-tools/skip-dirs.lib.sh` | `/usr/local/lib/ai-tools/skip-dirs.lib.sh` (root) |
-| `src/usr/local/lib/ai-tools/ancestor-config.lib.sh` | `/usr/local/lib/ai-tools/ancestor-config.lib.sh` (root) |
-| `src/usr/local/lib/ai-tools/filters.lib.sh` | `/usr/local/lib/ai-tools/filters.lib.sh` (root) |
-| `src/usr/local/lib/ai-tools/filters.d/base.rules` | `/usr/local/lib/ai-tools/filters.d/base.rules` (root) |
-| `src/usr/local/lib/ai-tools/filters.d/dotnet.rules` | `/usr/local/lib/ai-tools/filters.d/dotnet.rules` (root) |
-| `src/usr/local/lib/ai-tools/integrations.d/typesafe.conf` | `/usr/local/lib/ai-tools/integrations.d/typesafe.conf` (root) |
-| `src/usr/local/lib/ai-tools/session-env.d/typesafe.env.sh` | `/usr/local/lib/ai-tools/session-env.d/typesafe.env.sh` (root) |
-| `src/usr/local/lib/ai-tools/typesafe/` | `/usr/local/lib/ai-tools/typesafe/` (root; the decide command) |
-| `src/etc/ai-tools/endpoints/typesafe.conf` | `/etc/ai-tools/endpoints/typesafe.conf` (root:ai-tools, kept when it exists) |
-| `src/usr/local/share/man/man5/ai-tools-typesafe.conf.5` | `/usr/local/share/man/man5/ai-tools-typesafe.conf.5` (root) |
-| `src/usr/local/bin/ai-tools-launch.sh` | `/usr/local/bin/ai-tools-launch` (root), linked as `/usr/local/bin/claude` and `/usr/local/bin/codex` |
-| `src/usr/local/lib/ai-tools/launch.d/claude-code.sh` | `/usr/local/lib/ai-tools/launch.d/claude-code.sh` (root) |
-| `src/opt/ai-tools/bin/ai-tools-run.sh` | `/opt/ai-tools/bin/ai-tools-run` |
-| `src/opt/ai-tools/agents/claude-code/post-tool-hook.sh` | `/opt/ai-tools/.claude/post-tool-hook.sh` |
-| `src/opt/ai-tools/agents/claude-code/session-hook.sh` | `/opt/ai-tools/.claude/session-hook.sh` |
-| `src/opt/ai-tools/agents/claude-code/filter-hook.sh` | `/opt/ai-tools/.claude/filter-hook.sh` |
-| `src/opt/ai-tools/agents/claude-code/settings.json` | `/opt/ai-tools/.claude/settings.json` |
-| `src/usr/lib/systemd/user/nvm-update.service` | `/usr/lib/systemd/user/nvm-update.service` (root) |
-| `src/usr/lib/systemd/user/nvm-update.timer` | `/usr/lib/systemd/user/nvm-update.timer` (root) |
-| `src/usr/lib/systemd/system/ai-tools-relabel.path` | `/usr/lib/systemd/system/ai-tools-relabel.path` (root) |
-| `src/usr/lib/systemd/system/ai-tools-relabel.service` | `/usr/lib/systemd/system/ai-tools-relabel.service` (root) |
-| `src/etc/sudoers.d/ai-tools` | `/etc/sudoers.d/ai-tools` (root) |
-| `src/etc/ai-tools/operator.conf` | `/etc/ai-tools/operator.conf` (root; seeded once, then operator-maintained) |
-| `install.sh` | run in place via sudo |
+The command lists every path the install places or creates, with its owner,
+mode, ACL and SELinux type, and names each one that drifted.
+`sudo ai-tools-admin system layout reconcile` restores a drifted entry.
+`man ai-tools-admin` documents the listing and the reconcile.

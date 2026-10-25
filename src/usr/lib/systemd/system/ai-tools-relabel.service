@@ -20,4 +20,10 @@ Type=oneshot
 # takes the full fetch-and-verify path, as does `ai-tools-admin system entrypoints relabel`, which reaches the helper
 # through sudo and so never carries this variable.
 Environment=AI_TOOLS_ENTRYPOINT_PIN_REUSE=1
+# The installed layout is reconciled first (ai-tools-admin(8), system layout reconcile), with the
+# content comparison the transaction trigger runs without. Under `-`, so a layout finding leaves
+# the unit's result to the relabel helper, which `ai-tools status` reads; the two serialize on the
+# layout lock against a trigger pass still running. The command stops a reconcile still running
+# after its deadline, so a blocked one does not keep the relabel from running.
+ExecStart=-/usr/local/libexec/ai-tools/ai-tools-admin system layout reconcile
 ExecStart=/usr/local/libexec/ai-tools/ai-tools-relabel-agent

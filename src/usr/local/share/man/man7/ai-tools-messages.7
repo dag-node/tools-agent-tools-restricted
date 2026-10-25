@@ -433,13 +433,17 @@ failed to add ${user} to ${OPERATORS_GROUP}
 WARNING.
 The '${name}' SELinux policy group is an EXPERIMENTAL, unaudited draft. It is not shipped prebuilt and cannot be enabled from here \-\- it widens the sandbox domain's access beyond the repo\-only core and must be compiled and verified against a real workload from a source checkout first.
 .TP
+.B MSG-C6D2
+ERROR.
+the layout library did not load or does not define the readers this command calls: ${LAYOUT_LIB} \-\- reinstall ai\-tools\-base (sudo dnf reinstall ai\-tools\-base, or sudo ./install.sh install from a checkout)
+.TP
 .B MSG-C7N4
 ERROR.
 assets: ${conf} could not be read whole (reader status ${status}), so AI_TOOLS_ASSETS is not written and the file is unchanged \-\- check that it is readable and run the command again
 .TP
 .B MSG-C7S7
 ERROR.
-system takes a resource or a verb: 'system bootstrap', 'system entrypoints relabel', 'system post\-upgrade'
+system takes a resource or a verb: 'system bootstrap', 'system entrypoints relabel', 'system layout', 'system post\-upgrade'
 .TP
 .B MSG-C9C4
 ERROR.
@@ -561,6 +565,10 @@ selinux groups enable: name the group(s) to load
 WARNING.
 This file defines the sudo grant that lets an operator launch the sandbox. It is shown, never merged: check any change yourself with visudo \-c before adopting it.
 .TP
+.B MSG-H8U2
+WARNING.
+the reconcile did not finish within ${run_bound}s and was stopped; a row may be left short of its state \-\- see: sudo ai\-tools\-admin system layout
+.TP
 .B MSG-J2Y8
 WARNING.
 provisioning failed \-\- ${integration}: its bootstrap failed, with the cause above and in its own log
@@ -572,6 +580,10 @@ rpmnew\-residual
 .B MSG-J4E9
 WARNING.
 assets enable \-\-set: an asset of the set that fails the asset\-scope rules, left out of AI_TOOLS_ASSETS
+.TP
+.B MSG-J7S6
+WARNING.
+the reconcile did not run: ${layout_fields[3]}
 .TP
 .B MSG-J9F9
 WARNING.
@@ -671,7 +683,7 @@ assets disable: an identifier removed from AI_TOOLS_ASSETS
 .TP
 .B MSG-Q2X5
 ERROR.
-unknown command 'system ${name}' (bootstrap|entrypoints|post\-upgrade)
+unknown command 'system ${name}' (bootstrap|entrypoints|layout|post\-upgrade)
 .TP
 .B MSG-Q3Z5
 ERROR.
@@ -712,6 +724,14 @@ asset\-outdated
 .B MSG-R7U6
 WARNING.
 no home directory on this host for ${user}; skipping the config seed
+.TP
+.B MSG-R7Y4
+ERROR.
+system layout: ${1}
+.TP
+.B MSG-R8U8
+ERROR.
+the layout table did not validate: ${AI_TOOLS_LAYOUT__DECLARATION_ERROR} \-\- reinstall ai\-tools\-base
 .TP
 .B MSG-S3D8
 WARNING.
@@ -817,6 +837,10 @@ asset\-overridden
 ERROR.
 an incompatible contract: ${fragment} needs contributed\-command interface ${declared_floor}, and this ai\-tools\-admin implements ${ADMIN_COMMAND_API} \-\- a different major is a different contract, so upgrade whichever of the two is behind
 .TP
+.B MSG-W5G4
+WARNING.
+a state the reconcile does not repair remains; each refused line above names its remedy (man ai\-tools\-admin)
+.TP
 .B MSG-W6D7
 ERROR.
 assets enable: no binding names the set ${AI_TOOLS_ASSETS__ID_SET} under ${AI_TOOLS_ASSETS_BINDINGS_DIR} or ${AI_TOOLS_ASSETS_OPERATOR_BINDINGS_DIR}, so ${identifier} is accepted only once a binding pins its signer; AI_TOOLS_ASSETS is unchanged
@@ -849,6 +873,10 @@ system bootstrap: \-\-agents takes a value (NAME[,NAME...])
 WARNING.
 the merge failed: ${ai_tools_settings_merge__reason} \-\- ${deployed} is unchanged
 .TP
+.B MSG-Y2F7
+WARNING.
+a record could not be written, so the stream is incomplete
+.TP
 .B MSG-Y3J5
 ERROR.
 error
@@ -878,10 +906,6 @@ WARNING.
 rule\-missing
 .SS ai-tools-admin dotnet
 .TP
-.B MSG-A5R2
-ERROR.
-could not create the writable dotnet state under ${STATE_DIR}
-.TP
 .B MSG-A7X9
 ERROR.
 dotnet takes a command: 'dotnet bootstrap', 'dotnet tools install <pkg>...', 'dotnet status'
@@ -893,14 +917,6 @@ dotnet tools install: name at least one package
 .B MSG-C4T6
 ERROR.
 run as root (sudo)
-.TP
-.B MSG-G6E2
-ERROR.
-could not set the mode on ${STATE_DIR}
-.TP
-.B MSG-J4C7
-ERROR.
-could not relabel ${path} (restorecon failed)
 .TP
 .B MSG-J9Z8
 ERROR.
@@ -916,19 +932,11 @@ dotnet not found on PATH \-\- install a host dotnet\-sdk package first
 .TP
 .B MSG-N6G6
 ERROR.
-could not create the dotnet state root ${STATE_DIR}
+the state tree is not at its layout rows after the reconcile: ${refusal}; see: sudo ai\-tools\-admin system layout
 .TP
 .B MSG-P8N7
 ERROR.
 dotnet status: takes no arguments
-.TP
-.B MSG-Q7P2
-ERROR.
-could not create the shared tools dir ${TOOLS_DIR}
-.TP
-.B MSG-V3F4
-ERROR.
-could not set the mode on ${TOOLS_DIR}
 .TP
 .B MSG-V3Y2
 ERROR.
@@ -1167,7 +1175,7 @@ managed assets: not seeded, and the asset view not reconciled \-\- the assets lo
 .TP
 .B MSG-F3Y2
 ERROR.
-npm signature verification FAILED (possible registry tampering) \-\- aborting before wiring the launcher; the installed package is left unactivated
+npm signature verification FAILED (possible registry tampering) \-\- aborting before any install script of the toolchain runs and before wiring the launcher; the installed package is left unactivated
 .TP
 .B MSG-H3H3
 ERROR.
@@ -1207,7 +1215,7 @@ signature\-verification library not deployed yet \-\- skipping the check; the nv
 .TP
 .B MSG-Q3P4
 ERROR.
-cannot close the sandbox account's systemd unit search path: ${_control_plane_lib} did not load \-\- reinstall ai\-tools\-base, then re\-run: sudo ai\-tools\-admin system bootstrap
+cannot read the control plane's layout: ${_control_plane_lib} did not load \-\- reinstall ai\-tools\-base, then re\-run: sudo ai\-tools\-admin system bootstrap
 .TP
 .B MSG-R5Z3
 ERROR.
@@ -1216,6 +1224,10 @@ offline, and no toolchain is installed under ${NVM_DIR}: the nvm and Node downlo
 .B MSG-S8B6
 WARNING.
 network: no answer from ${unreachable[*]} \-\- this run applies what needs no download (the account and its home, the launcher links, the labels, the units, the managed assets) and skips the nvm, Node and npm install; connect this host and re\-run to install or update the toolchain
+.TP
+.B MSG-T3P5
+ERROR.
+an install script of the agents' packages did not complete (npm's output above names it) \-\- the package is installed without it, so an agent whose entrypoint such a script places is refused at launch until it runs; fix what npm names, then re\-run: sudo ai\-tools\-admin system bootstrap
 .TP
 .B MSG-T3R5
 WARNING.
@@ -1993,10 +2005,6 @@ WARNING.
 SELinux or the ai_tools module is not active \-\- no agent paths to label
 .SS install.sh
 .TP
-.B MSG-A2Y5
-WARNING.
-the sandbox account's systemd unit search path is not fully closed, so a path listed here could still reach its unconfined \-\-user manager; settle each one and re\-run this installer:
-.TP
 .B MSG-A7X8
 WARNING.
 toolchain not provisioned \-\- the wrapper/handback/SELinux checks skip or fail
@@ -2045,9 +2053,17 @@ an agent outside the sandbox is installed at ${install_path}
 WARNING.
 the asset reconcile reported a finding \-\- sudo ai\-tools\-admin status names each one and what ends it
 .TP
+.B MSG-G3P2
+WARNING.
+could not write the timer stamp in /opt/ai\-tools/${CP_TIMER_STAMP_DIR} as ${SANDBOX_USER}, so the first timer window runs an immediate update \-\- see: sudo ai\-tools\-admin system layout
+.TP
 .B MSG-G6H3
 WARNING.
 systemctl \-\-user $* failed by both the machine transport and the account's own
+.TP
+.B MSG-H5B4
+ERROR.
+could not move ${settings} aside, which is not kept (${settings_refusal}) \-\- move it out of ${claude_config_dir} by hand, then re\-run the install
 .TP
 .B MSG-J2H9
 WARNING.
@@ -2105,6 +2121,10 @@ SELinux is inactive \-\- the agent runs DAC\-only (no ai_tools_t domain). DAC\-o
 WARNING.
 setfacl unavailable \-\- operators need ${SANDBOX_GROUP} membership for sandbox\-create
 .TP
+.B MSG-Q8T8
+WARNING.
+installing over the ai\-tools packages: each package file this install replaces reads as content drift in rpm \-V and in ai\-tools\-admin system layout, whose reconcile does not repair it, and the next dnf upgrade writes over it \-\- return to the packages with sudo dnf reinstall 'ai\-tools\-*', build this checkout as packages and upgrade to them (docs/install/from\-source.md), or make this a source\-only host with sudo dnf remove 'ai\-tools\-*'
+.TP
 .B MSG-Q9D3
 WARNING.
 no enabled agent to link \-\- launcher symlinks skipped
@@ -2129,6 +2149,10 @@ the operator must not be the sandbox account ${SANDBOX_USER}
 WARNING.
 failed to create the ${ai_tools_bin}/${launcher} symlink
 .TP
+.B MSG-T3Q7
+ERROR.
+could not install ${settings}: an entry that is not a regular file is in the way \-\- move it out of ${claude_config_dir} by hand, then re\-run the install
+.TP
 .B MSG-U5E6
 ERROR.
 error: \-\-operator needs an account name
@@ -2143,7 +2167,7 @@ hook declarations not merged into ${deployed}: ${ai_tools_settings_merge__reason
 .TP
 .B MSG-V9C7
 WARNING.
-lockdown: failed to chown ${d}
+lockdown: failed to chown ${ai_nvm_dir}
 .TP
 .B MSG-W6B3
 ERROR.
@@ -2167,7 +2191,11 @@ no such user: ${name}
 .TP
 .B MSG-Y3E5
 WARNING.
-lockdown: failed to chmod 750 ${d}
+lockdown: failed to chmod 750 ${ai_nvm_dir}
+.TP
+.B MSG-Y3Z9
+WARNING.
+did not keep ${settings} (${settings_refusal}) \-\- it is saved as ${settings_aside} and the shipped file is installed; review the saved copy before merging any of it back
 .TP
 .B MSG-Y4G6
 WARNING.
@@ -2278,6 +2306,10 @@ cannot load the toolchain library \-\- refusing to start
 ERROR.
 no session starts while operator.conf names a provider without its kind prefix: ${joined}
 .TP
+.B MSG-V4U4
+ERROR.
+the enabled agents could not be resolved \-\- refusing to start
+.TP
 .B MSG-W2P3
 ERROR.
 excluded by '!' rule in approved projects list: $(pwd)
@@ -2297,6 +2329,47 @@ refusing to launch \-\- an exclusion in the approved\-projects allowlist cannot 
 .B MSG-Z6F8
 ERROR.
 invoked under a name that is not a launcher \-\- refusing to start
+.SS layout.lib.sh
+.TP
+.B MSG-A3J4
+WARNING.
+content\-drift
+.TP
+.B MSG-A7Z4
+WARNING.
+mode\-drift
+.TP
+.B MSG-C6Y6
+WARNING.
+missing
+.TP
+.B MSG-G2B3
+WARNING.
+label\-drift
+.TP
+.B MSG-K7Y7
+WARNING.
+owner\-drift
+.TP
+.B MSG-P3W4
+WARNING.
+acl\-drift
+.TP
+.B MSG-P7W4
+NOTICE.
+ok
+.TP
+.B MSG-Q6A4
+ERROR.
+unreadable
+.TP
+.B MSG-U7U5
+ERROR.
+error
+.TP
+.B MSG-Z5D2
+WARNING.
+type\-mismatch
 .SS managed-assets.lib.sh
 .TP
 .B MSG-M8T9
@@ -2357,6 +2430,10 @@ skipping integration $1: $2 $(ai_tools_conf__read_untrusted_reason "$2")
 WARNING.
 providers.lib.sh: conf.lib.sh missing or incomplete \-\- no providers resolved
 .TP
+.B MSG-V2R5
+WARNING.
+cannot read ${AI_TOOLS_OPERATOR_CONF} for ${conf_key}, so the providers it enables are unknown and only the default\-enabled ones apply: $(ai_tools_conf__read_unreadable_reason "${AI_TOOLS_OPERATOR_CONF}")
+.TP
 .B MSG-W3Q3
 WARNING.
 refusing every ${conf_key} provider: ${dir} $(ai_tools_conf__read_untrusted_reason "${dir}")
@@ -2391,6 +2468,11 @@ ended a command as ${account} that ${what_ran_over} ${timeout_seconds}s, with ev
 .B MSG-S4T9
 ERROR.
 the secret\-patterns file ${file} is present and cannot be read as a regular file \-\- the shipped baseline classifies instead, and a helper that changes a tree refuses; make it a readable file, or remove it to keep the baseline
+.SS session-hook.sh
+.TP
+.B MSG-N6U2
+WARNING.
+the session sweep library ${SWEEP_LIB} did not load \-\- no handback ran this turn; reinstall ai\-tools\-base (sudo ai\-tools\-admin system layout names the row)
 .SS settings-merge.lib.sh
 .TP
 .B MSG-F9W4

@@ -36,6 +36,23 @@ collection form; [option spellings](../option-spellings.md) lists each one.
 Installing offline from a release archive, and what an upgrade preserves, are
 in [ref-section-f5q2](../rpm-packaging.md#ref-section-f5q2).
 
+## Every installed path is restored to its owner, mode and ACL
+
+```bash
+sudo ai-tools-admin system layout
+```
+
+The command lists every path the stack installs with the owner, mode, ACL
+and SELinux type it carries now and names each that drifted. An upgrade,
+a source install, the provisioning run and the entrypoint relabel each run
+`sudo ai-tools-admin system layout reconcile`, which restores a drifted entry
+and logs every change under the journal tag `ai-tools-layout`. A mode
+an upgrade or a hand edit changed is restored by the next of those runs,
+without a step of yours. A file whose content is not the package's,
+or that another account owns or can write, is reported and left as it is,
+with the command that restores it. `man ai-tools-admin` lists every state
+the reconcile leaves to you.
+
 ## 0.24.0: the skills move to the asset set core <a id="ref-section-y5t4"></a>
 
 From 0.24.0 the writing standard, the reftags, engineering and governance
@@ -100,10 +117,11 @@ Node and each enabled agent's npm package are updated on a daily timer running
 in the sandbox account's own systemd instance. That is a separate mechanism
 from `dnf upgrade`, which moves this project's own packages: the timer moves
 the toolchain they run the agent with. Each run installs the current release
-under `/opt/ai-tools`, verifies the toolchain's npm registry signatures,
-and repoints each agent's launcher at the new binary only once
-that verification passes — so a toolchain that does not verify leaves
-the previous, verified one in place.
+under `/opt/ai-tools` with every package's install scripts held back, verifies
+the toolchain's npm registry signatures, and only once that verification passes
+runs those scripts and repoints each agent's launcher at the new binary —
+so a toolchain that does not verify leaves the previous, verified one in place,
+and no code from the unverified one has run.
 
 Two consequences reach an operator:
 

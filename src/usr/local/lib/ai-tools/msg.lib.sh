@@ -82,7 +82,7 @@
 #
 # This library is REQUIRED by its consumers (bare-sourced under `set -e`, like safe-paths.lib.sh): ai_tools_msg__confirm
 # carries yes/no decisions, so there is no per-consumer fallback -- a valid install ships the lib, and a broken one
-# fails closed. The one exception is session-hook.sh, which only emits and whose sweep must run regardless (see its
+# fails closed. The one exception is session-sweep.lib.sh, which only emits and whose sweep must run regardless (see its
 # header). The emitters still only format: they never change the exit status of the operation whose outcome they report.
 
 # Include guard. Consumers source this lib directly AND through safe-paths.lib.sh; the readonly constants would abort

@@ -239,8 +239,10 @@ or `ai-tools stop` leaves in-flight writes to the next session's `SessionStart` 
 or `ai-tools projects handback`.
 
 The hooks live in the config directory, `750 root:SANDBOX_GROUP` under the sticky `.codex`, and are declared
-in `requirements.toml` with the argument each dispatches on. They are adapters of claude's to codex's payload shapes,
-which differ in the write tool and in none of the keys the sweep reads (`cwd` and `source` arrive under the same keys):
+in `requirements.toml` with the argument each dispatches on. The session hook is the same stub over the shared session
+sweep library that claude's is ([ownership-and-hooks](ownership-and-hooks.rule.md)), since codex's payloads carry
+the keys the sweep reads (`cwd` and `source`) under claude's names; the post-tool hook is an adapter of claude's
+to codex's write tool:
 
 | event | matcher | runs | what differs from claude |
 |---|---|---|---|
@@ -354,5 +356,4 @@ and no entrypoint provenance on the npm channel. Egress is not controlled by thi
 
 A token-saving filter adapter on `PreToolUse` (codex's `updatedInput`), entrypoint provenance through the vendor's
 standalone sigstore-signed tarball, an egress boundary, and root-owned integrity tracking over the agents' shared state
-are each their own ticket. The two session hooks share most of their body with claude's; factoring that body into a base
-library is deferred until the codex hooks have run on a host.
+are each their own ticket.

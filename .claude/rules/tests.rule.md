@@ -206,10 +206,10 @@ so only a `SIGKILL` or a failed `rm` leaves residue for the sweep. The stable la
 
 No automated file writes live runtime state. The one place a real hook runs is the manual script, where the Stop sweep
 advances the shared sweep marker under `.claude` as a session's would; the automated suite never moves that marker,
-which the hook rotates by `mv` inside the sticky `.claude` directory and a root-written one could never be replaced in.
-No file starts or stops a service: `integration/systemd.sh` reads the sandbox account's linger record (what keeps its
-`--user manager` up with no login) and fails when it is absent; a manager down despite linger is skipped, with the start
-command named, and the test does not start it.
+which the hook advances with `touch -d`, and `touch -d` sets a time only on a file the account owns, so a root-written
+marker would stop advancing. No file starts or stops a service: `integration/systemd.sh` reads the sandbox account's
+linger record (what keeps its `--user manager` up with no login) and fails when it is absent; a manager down despite
+linger is skipped, with the start command named, and the test does not start it.
 
 Nor does a test mutate **global system state** to exercise a helper — the host's local SELinux policy
 (`semanage fcontext`) most of all. A helper whose real work *is* to add and then remove a policy entry is therefore
@@ -313,6 +313,17 @@ moves.
 binds a throwaway socket in its testdir instead of writing the host's journal; what it moves is where an **attribution
 field** lands, which does not feed any authorization decision (see [handback-bridge](handback-bridge.rule.md)).
 
+`AI_TOOLS_LAYOUT_ROOT` (`layout.lib.sh`) prefixes every row path and every package sentinel of the installed layout,
+so `unit/layout.sh` builds a tree from the table itself in its testdir and drives the real reconcile over it,
+with `AI_TOOLS_AGENTS_DIR` and `AI_TOOLS_OPERATOR_CONF` pointed at the rows under that root. It is the widest
+of the family in what it moves — the reconcile rewrites owners, modes and ACLs as root — and reaches the consumer
+the same way `AI_TOOLS_POSTUPGRADE_ROOT` does, through `ai-tools-admin` run as root with the name set.
+`AI_TOOLS_LAYOUT_LOCK` and `AI_TOOLS_LAYOUT_LOCK_WAIT` move the reconcile's lock and shorten its wait, as the relabel
+pair does; here a lock that cannot be taken is a refusal with no write, so a caller who sets them can make a run refuse
+and not run one unserialized. `AI_TOOLS_LAYOUT_RUN_BOUND` (`ai-tools-admin`) shortens the deadline the command holds
+a run to, so `unit/layout-bound.sh` drives a stopped run in seconds; a caller who sets it can stop a run early,
+which leaves rows short and reports it, and does not widen any access.
+
 `AI_TOOLS_ASSETS_ROOTS`, `AI_TOOLS_ASSETS_LOCK`, `AI_TOOLS_ASSETS_LOCK_WAIT` and `AI_TOOLS_ASSETS_HOME`
 (`assets.lib.sh`, the lock pair's in `managed-assets.lib.sh`) move the roots a set is read from, the lock the view
 transaction takes and how long a run waits for it, and the directory holding the view and the agents' config
@@ -347,72 +358,74 @@ the secret/exclusion/skip-list skips, and -- for `-lockdown` -- the proactive sw
 user-owned** secrets (files `600`, dirs `700`, `<you>:<you>`) which the reactive `-chown` never reaches, plus its seal
 pass over the paths sealed by *mode* rather than by name — held to leave the target directory itself alone, on a fixture
 shaped like a fresh sandbox clone, whose owner-only root the seal would otherwise strip of the group and setgid bit
-`normalize_clone` does not restore — and its refusal to run as the sandbox account. The seal cases run across three
-files, because the same guarantee has three consumers: `owner-only.sh` pins the primitives, while `setgid.sh`
-and `lockdown.sh` assert the deployed helpers apply them. What each asserts is that a sealed path is never pulled
-into the agent's group and that the residue behind its mode is removed without the mode widening -- a strip that raised
-the ACL mask would leave the residue "gone" and the path more open than before. `unclaim.sh` closes with the CLI-side
-decision that feeds the helper — the hand-back group — because it publishes **two** results (the group, and the hint
-that no hand-back can run) as globals in its caller's shell rather than on stdout, which a `$(...)`-capturing test
-cannot observe: the assertion is made from a real caller, under `set -u`, so a result the function fails to publish
-aborts the test the same way it would abort an unclaim. `setgid.sh`, `setfacl.sh`, `lockdown.sh` and `unclaim.sh` each
-also drive the installed helper's pinned-descriptor function, read out of the helper as text through `extract_function`
-(`lib/harness.sh`), over a path whose ancestor is a symlink to a directory outside the project — a state the walk itself
-never emits — and assert that directory is left as it was, with the same function on a real path as the control;
-the predicate they share is pinned in `safe-paths.sh`, and why that guarantee carries a runtime half alone is
-[ref-section-u5h4](safe-paths.rule.md#ref-section-u5h4). No live daemon, no SELinux dependency, no wrapper. Run as root
-(needed to set arbitrary ownership and create third-party-owned fixtures). A fixture tree is `chown`ed to the projects
-user before the run, or the owner guard skips it. `secret-patterns.sh` is the odd one out: it sources the shared
-classifier library (`secret-patterns.lib.sh`) and forces the built-in default pattern set, pinning the matcher itself —
-credential names match case-insensitively, while plain configs and build artifacts the toolchain must read do not.
-`control-plane.sh` pins `ai_tools_control_plane__ensure_unit_search_path_closed` to less access in every direction:
-the chain ends root-owned, an unexpected entry is an error left in place, a symlink ends the descent without creating
-a directory at its target, a non-root caller is refused, and the drift reader tells a clean chain from a failed reading
-by status. `source-modes.sh` and `source-text.sh` are the pair that reads the **repository's own record** rather than
-any deployed artifact, each covering a property no review catches unaided: the exec bit git tracks for every `.sh`,
-which must agree within a directory, and that every tracked text file ends with a newline. Both classify without
-a maintained list — the first by the majority bit in a directory, the second by git's own binary heuristic (a NUL byte
-in the first 8000 bytes), so a file a later commit adds is judged the way `git diff` already judges it. `source-text.sh`
-reports one result line per offender, since the harness reduces a message to safe-for-display characters and a newline
-inside one would run the paths together. Each skips outside a git checkout. `check-version.sh` departs
-the installed-helper pattern the other way: it runs a `TESTDIR` copy of `packaging/check-version.sh` (a repo
-release-gate script, not a deployed artifact) against fixture `VERSION`/spec files, pinning the tag grammar — final
-`vX.Y.Z` requires the three-way match, `vX.Y.Z-rc.N` compares its base and relaxes only the `%changelog` match, any
-other dashed tag is refused, a missing `%changelog` entry is fatal for every form. The formatter tests drive
-the `formatters/` of the pinned `ai-tools-assets-tools` release and the checker of the pinned `core` release, resolved
-through `tools/lib/assets.sh`, and skip naming the fetch command where the pins are not in the cache; they stay in base
-until that release's suite carries their cases. `fill-comments.sh` drives `formatters/fill-comments.sh`,
-the Emacs-driven formatter for the comment wrap rule, over one fixture carrying every shape the tool must fill or leave
-alone. Filled: a long paragraph inside the column with no line ending on a tie word (the checker's `--wrap` mode is
-the oracle), one indented inside a function body, and a sentence pair the join gives one space. Left as written:
-an aligned table, a doc comment's contract line, a config header's `Values:` and `Default:` field lines (with
-the description before them filled and ending there), a column of three or more spaces, a table drawn with vertical
-rules, a heredoc body, the commands a header shows in a fenced block, a CDATA section, a `<pre>` block, a linter
-directive, a commented default, a shebang and a code line. Each of those is a way a formatter silently rewrites
-what a file emits or what a reader reads as a column, and none is visible in review. It also holds the filler's own
-output to the rule no checker reads — a code span is never split — and asserts a second run leaves the file as the first
-left it, that `--lines` fills the paragraph it names alone, and that two ranges in one run are both filled, since
-the first fill moves every line the later range names. Refused before Emacs sees it, through the reader every formatter
-shares (`formatters/text_file.py`): a file holding an escape sequence, and a symlink, each reported with its reason
-and left as it was while the clean file beside it is filled. Two more pin the Emacs side: a file named like one of its
-options (`-Q`) is filled rather than obeyed, since the files are handed over after `--`, and a file-local `eval:` form
-is not run. It closes on the reflow gate over its own output, which is where the gate's reading of a source file is
-pinned: a comment marker is a line prefix there, as a blockquote's `>` is on a page, so a marker the fill moved
-onto another line is not a difference and a marker it dropped is one. The gate's own fixture is a page, which reaches
-none of that, so the classes injected here are the ones only a source file carries: a dropped marker, a merged pair
-of comment paragraphs, a changed code line. Skipped without Emacs. `format.sh` pins this repository's front door
-(`tools/format.sh`) over the pinned formatter: every file in a fixture repository goes to the filler for the kind
-the checker names, at the column it names — a page at 79, a router at 120, a source comment at 120, a header
-under `src/etc/` at 72 — while a generated page (one carrying the ignore-file marker) is reported as skipped with its
-kind and left as it was, since the failure it exists to prevent is the comment filler pointed at a page. What may be
-formatted at all is the explicit scope `tools/lib/format-scope.sh` declares for the front door: a unit file, a log
-and a Makefile in the fixture are outside it, so `--all` counts and leaves them, a man page and a binary never reach
-the checker, and a file named on the command line is reported and skipped, as is a path outside the repository, while
-a named path is read from the directory the command was run in. The scope rule is pinned from both sides: with no file
-named, only the paragraph a diff touched is filled and an over-width paragraph the commit already held is left,
-`--files` fills that one too, an untracked file is filled whole either way, and `--all` warns first. Its exit status is
-pinned as the closing report's: 0 when no measured line is left over its column, 1 while a line no filler can shorten
-remains or a filler refused a file, which is reported with its reason and left as it was. Its last case,
+`normalize_clone` does not restore — and its refusal to run as the sandbox account. `chown.sh` also hands back a file
+and a directory typed `ai_tools_tmp_t`, as a move from `/tmp` leaves them, and asserts the helper keeps their type,
+and it reads the pin's open line for the exit 4 a refused open takes, since no fixture a root run arranges reaches
+that branch. The seal cases run across three files, because the same guarantee has three consumers: `owner-only.sh` pins
+the primitives, while `setgid.sh` and `lockdown.sh` assert the deployed helpers apply them. What each asserts is
+that a sealed path is never pulled into the agent's group and that the residue behind its mode is removed without
+the mode widening -- a strip that raised the ACL mask would leave the residue "gone" and the path more open than before.
+`unclaim.sh` closes with the CLI-side decision that feeds the helper — the hand-back group — because it publishes
+**two** results (the group, and the hint that no hand-back can run) as globals in its caller's shell rather than
+on stdout, which a `$(...)`-capturing test cannot observe: the assertion is made from a real caller, under `set -u`,
+so a result the function fails to publish aborts the test the same way it would abort an unclaim. `setgid.sh`,
+`setfacl.sh`, `lockdown.sh` and `unclaim.sh` each also drive the installed helper's pinned-descriptor function, read
+out of the helper as text through `extract_function` (`lib/harness.sh`), over a path whose ancestor is a symlink
+to a directory outside the project — a state the walk itself never emits — and assert that directory is left as it was,
+with the same function on a real path as the control; the predicate they share is pinned in `safe-paths.sh`,
+and why that guarantee carries a runtime half alone is [ref-section-u5h4](safe-paths.rule.md#ref-section-u5h4). No live
+daemon, no SELinux dependency, no wrapper. Run as root (needed to set arbitrary ownership and create third-party-owned
+fixtures). A fixture tree is `chown`ed to the projects user before the run, or the owner guard skips it.
+`secret-patterns.sh` is the odd one out: it sources the shared classifier library (`secret-patterns.lib.sh`) and forces
+the built-in default pattern set, pinning the matcher itself — credential names match case-insensitively, while plain
+configs and build artifacts the toolchain must read do not. `control-plane.sh` pins the two unit-search-path readers
+`ai-tools-admin status` reports from: the drift reader tells a clean chain from a failed reading by status,
+and the unexpected-entry reader leaves the entry in place and clamps a name the account chose. `layout.sh` pins
+the library that brings the chain to its modes, and [layout](layout.rule.md) states what it drives. `source-modes.sh`
+and `source-text.sh` are the pair that reads the **repository's own record** rather than any deployed artifact, each
+covering a property no review catches unaided: the exec bit git tracks for every `.sh`, which must agree within
+a directory, and that every tracked text file ends with a newline. Both classify without a maintained list — the first
+by the majority bit in a directory, the second by git's own binary heuristic (a NUL byte in the first 8000 bytes),
+so a file a later commit adds is judged the way `git diff` already judges it. `source-text.sh` reports one result line
+per offender, since the harness reduces a message to safe-for-display characters and a newline inside one would run
+the paths together. Each skips outside a git checkout. `check-version.sh` departs the installed-helper pattern the other
+way: it runs a `TESTDIR` copy of `packaging/check-version.sh` (a repo release-gate script, not a deployed artifact)
+against fixture `VERSION`/spec files, pinning the tag grammar — final `vX.Y.Z` requires the three-way match,
+`vX.Y.Z-rc.N` compares its base and relaxes only the `%changelog` match, any other dashed tag is refused, a missing
+`%changelog` entry is fatal for every form. The formatter tests drive the `formatters/` of the pinned
+`ai-tools-assets-tools` release and the checker of the pinned `core` release, resolved through `tools/lib/assets.sh`,
+and skip naming the fetch command where the pins are not in the cache; they stay in base until that release's suite
+carries their cases. `fill-comments.sh` drives `formatters/fill-comments.sh`, the Emacs-driven formatter for the comment
+wrap rule, over one fixture carrying every shape the tool must fill or leave alone. Filled: a long paragraph inside
+the column with no line ending on a tie word (the checker's `--wrap` mode is the oracle), one indented inside a function
+body, and a sentence pair the join gives one space. Left as written: an aligned table, a doc comment's contract line,
+a config header's `Values:` and `Default:` field lines (with the description before them filled and ending there),
+a column of three or more spaces, a table drawn with vertical rules, a heredoc body, the commands a header shows
+in a fenced block, a CDATA section, a `<pre>` block, a linter directive, a commented default, a shebang and a code line.
+Each of those is a way a formatter silently rewrites what a file emits or what a reader reads as a column, and none is
+visible in review. It also holds the filler's own output to the rule no checker reads — a code span is never split —
+and asserts a second run leaves the file as the first left it, that `--lines` fills the paragraph it names alone,
+and that two ranges in one run are both filled, since the first fill moves every line the later range names. Refused
+before Emacs sees it, through the reader every formatter shares (`formatters/text_file.py`): a file holding an escape
+sequence, and a symlink, each reported with its reason and left as it was while the clean file beside it is filled. Two
+more pin the Emacs side: a file named like one of its options (`-Q`) is filled rather than obeyed, since the files are
+handed over after `--`, and a file-local `eval:` form is not run. It closes on the reflow gate over its own output,
+which is where the gate's reading of a source file is pinned: a comment marker is a line prefix there, as a blockquote's
+`>` is on a page, so a marker the fill moved onto another line is not a difference and a marker it dropped is one.
+The gate's own fixture is a page, which reaches none of that, so the classes injected here are the ones only a source
+file carries: a dropped marker, a merged pair of comment paragraphs, a changed code line. Skipped without Emacs.
+`format.sh` pins this repository's front door (`tools/format.sh`) over the pinned formatter: every file in a fixture
+repository goes to the filler for the kind the checker names, at the column it names — a page at 79, a router at 120,
+a source comment at 120, a header under `src/etc/` at 72 — while a generated page (one carrying the ignore-file marker)
+is reported as skipped with its kind and left as it was, since the failure it exists to prevent is the comment filler
+pointed at a page. What may be formatted at all is the explicit scope `tools/lib/format-scope.sh` declares for the front
+door: a unit file, a log and a Makefile in the fixture are outside it, so `--all` counts and leaves them, a man page
+and a binary never reach the checker, and a file named on the command line is reported and skipped, as is a path outside
+the repository, while a named path is read from the directory the command was run in. The scope rule is pinned from both
+sides: with no file named, only the paragraph a diff touched is filled and an over-width paragraph the commit already
+held is left, `--files` fills that one too, an untracked file is filled whole either way, and `--all` warns first. Its
+exit status is pinned as the closing report's: 0 when no measured line is left over its column, 1 while a line no filler
+can shorten remains or a filler refused a file, which is reported with its reason and left as it was. Its last case,
 which the release's suite does not carry yet, runs a copy of the pinned formatter over its own two shell tools: each is
 one function called on its last line, which bash parses whole, so the fill that rewrites the file under the running bash
 does not end the run mid-line. `fill-markdown.sh` is its Markdown counterpart, and pins the filler
@@ -512,12 +525,14 @@ with the canonical path published; the claim guard refuses an approved directory
 terminal can answer its confirm; the session exec refuses without the gates' results; and the gate runner answers
 the sandbox account before it reads the allowlist. Every launcher is one program, so the name is an input: init refuses
 one outside a launcher's charset, a non-ASCII letter included under a UTF-8 locale where a bracket range matches it,
-and the launcher gate refuses a name no enabled manifest claims, the launcher program's own among them. The hook loader
-is driven through a copy of the library with its hook directory repointed: an undeclared hook is not read though
-present, and every other state refuses. The launcher's startup hardening is measured against a control: the same run
-without `-p` takes a `BASH_ENV` file and an exported function, so their absence with `-p` is evidence rather than
-an untaken branch. The installed wrapper's own test is `integration/wrapper.sh`, which proves the deployed wrapper
-reaches those gates in that order through its launcher symlinks.
+and the launcher gate refuses a name no enabled manifest claims, the launcher program's own among them, while an empty
+enabled set is refused naming its cause, telling an input the resolver refused or could not read from a configuration
+that asks for no agent ([launch](launch.rule.md) states the split). The hook loader is driven through a copy
+of the library with its hook directory repointed: an undeclared hook is not read though present, and every other state
+refuses. The launcher's startup hardening is measured against a control: the same run without `-p` takes a `BASH_ENV`
+file and an exported function, so their absence with `-p` is evidence rather than an untaken branch. The installed
+wrapper's own test is `integration/wrapper.sh`, which proves the deployed wrapper reaches those gates in that order
+through its launcher symlinks.
 
 `man.sh` is a pure text-sync check over this project's man pages and what each documents. The two command pages are held
 to the `usage()` heredoc of their command — `ai-tools(1)` against the CLI, `ai-tools-admin(8)` against the admin helper
@@ -625,17 +640,20 @@ and an untrusted manifest or directory does not yield any value, under the same 
 drives the empty-set verdict the updater reads once the resolver printed an empty set: each refused input,
 and an allowlist none of whose names resolved, reads `fault` with the path and the owner and mode named on one line,
 while an empty allowlist, an empty manifest directory, and a set of `default_enable=no` manifests read `none` —
-the split that decides whether the updater exits `1` or maintains `npm` and exits `0`. Its last section pins
-the managed-file reading the two status reports share: the pure verdict over a byte-identical, an edited, an absent,
-a symlinked and a directory-shaped file (each way the comparison cannot be made reads `unknown`, never either answer),
-and the manifest reader that turns `managed_files` into (live, reference) pairs, refusing an entry that is not a plain
-name under `/etc/<agent>/` and a name already paired, since the reference is composed from that name. The write beside
-them is driven the same way, and every case there is about which file is destroyed: only one proven byte-identical
-to its reference is removed, an edit and an uncomparable file are moved aside under the dated `.retired` name,
-and a move that cannot be made leaves the file where it is — that last case as the **projects user**, since root ignores
-the directory mode the refusal turns on. Its last section drives the kind-prefix migration over a table of lines: a key
-is rewritten only when every item maps onto an installed name, one `.bak` precedes the first write, every other line
-survives byte for byte, and an untrusted file is not touched.
+the split that decides whether the updater exits `1` or maintains `npm` and exits `0`. An `operator.conf` the trust
+predicate accepts and the sandbox account cannot read is driven as that account through `as_sandbox`, since root reads
+any file: the gate reads `unreadable` under its code, the enabled set is the baseline, and the verdict is `fault`,
+beside the same file at `0644` as the control. Its last section pins the managed-file reading the two status reports
+share: the pure verdict over a byte-identical, an edited, an absent, a symlinked and a directory-shaped file (each way
+the comparison cannot be made reads `unknown`, never either answer), and the manifest reader that turns `managed_files`
+into (live, reference) pairs, refusing an entry that is not a plain name under `/etc/<agent>/` and a name already
+paired, since the reference is composed from that name. The write beside them is driven the same way, and every case
+there is about which file is destroyed: only one proven byte-identical to its reference is removed, an edit
+and an uncomparable file are moved aside under the dated `.retired` name, and a move that cannot be made leaves the file
+where it is — that last case as the **projects user**, since root ignores the directory mode the refusal turns on. Its
+last section drives the kind-prefix migration over a table of lines: a key is rewritten only when every item maps
+onto an installed name, one `.bak` precedes the first write, every other line survives byte for byte, and an untrusted
+file is not touched.
 
 `claude-prompt.sh` and `claude-endpoint.sh` are the runtime half of the custom system prompt and custom API endpoint
 (see [launch](launch.rule.md) and [providers](providers.rule.md)). Each drives its resolver over a root-only base-dir
@@ -667,7 +685,7 @@ install does not report a gap the package left. It drives the deployed `settings
 library unit tests: the decision lives there rather than in `install.sh` precisely so it can be exercised without stubs
 or text extraction, and the installer keeps only the rendering.
 
-`install-guards.sh` is the other `install.sh` unit test, and it covers the decision that sits before the dispatch:
+`install-guards.sh` is an `install.sh` unit test too, and it covers the decision that sits before the dispatch:
 which account the install enrols. Every refusal is driven through `--operator`, the one route by which a name reaches
 that decision without a terminal (the prompt reads `/dev/tty`, so its branch is not drivable here) — root, the sandbox
 account, an account that does not exist, and the flag's own valueless form. Each case runs the installer
@@ -680,10 +698,23 @@ of the installer with the libraries it sources, in a repository of its own): a c
 the gate leaves an operator-owned `.git/index` with its owner when the stat cache is stale (a plain root `git status`
 rewrites it root-owned, which the case runs first as its control), an uncommitted tree is refused with its paths listed
 and the flag named, a path the sandbox account owns is marked `[agent]`, `--allow-uncommitted` allows the same tree
-with a warning, and a tree without a `.git` directory passes with no commit to name. Every case but the version gate's
-own orders against an installed CLI that does not exist, so the host's installed release does not decide a result.
-A fixture, and the action that leaves the host unchanged, because the real checkout reports whatever state the developer
-left it in and an `install` run against a fixture would install from it if the gate ever failed open.
+with a warning, and a tree without a `.git` directory passes with no commit to name. The packaged-host warning is driven
+both ways, with `rpm` a function exported into the run, so the host's own rpm database decides neither. Every case
+but the version gate's own orders against an installed CLI that does not exist, so the host's installed release does not
+decide a result. A fixture, and the action that leaves the host unchanged, because the real checkout reports whatever
+state the developer left it in and an `install` run against a fixture would install from it if the gate ever failed
+open.
+
+`install-writes.sh` reads `install.sh`'s text for the writes the write-side invariant keeps away from root: the timer
+stamp, written into the sandbox account's directory, is written by that account through `sudo -u`, and no root
+`install`, `touch` or redirection names that directory; and `settings.json` is read through its layout row before it is
+kept, with no by-path `chown` or `chmod` on it. The writes run inside `do_install`, which needs a whole host,
+so the file reads the source, joining continued lines and dropping comments, and runs each reader over a control fixture
+carrying the form it must find first. The keep decision, `read_settings_keep_refusal`, is also driven, extracted as text
+and run over a fixture tree through the checkout's layout library under `AI_TOOLS_LAYOUT_ROOT`: a file at another owner,
+a symlink, and a file the layout does not list are refused, unprivileged; a `root:SANDBOX_GROUP 0640` file is kept,
+and the same file group-writable, with a named ACL entry, or hardlinked is refused, as root, the half that skips
+otherwise.
 
 `postupgrade.sh` is that same reconciliation seen from the RPM side: `ai-tools-admin system post-upgrade` end to end,
 from dispatch through the registry to each treatment (see [providers](providers.rule.md)
@@ -840,13 +871,14 @@ over its table and against this shell's own executable as the live control — w
 `ai_tools_t` does not grant, so the control fails when the file is run as the agent and belongs to the root run), issues
 exactly one uninstall with the version directory as the prefix for a removal and names the state directory it leaves,
 and reports an uninstall that left the directory. Like `launcher-target.sh` it needs the executable bit visible
-and takes the same fallback, and it reads one order as source: the updater's removal precedes `install_packages`.
-`bootstrap.sh` reads the bootstrap's the same way — the removal after the agent choice and before the version resolve,
-the first network step, with the refusal of an unresolved agent set between the choice and the removal. The two launch
-tiers are driven where each gate lives: `launch-wrapper.sh` refuses on a fixture link for an agent the fixture manifests
-install and the fixture `operator.conf` does not enable, before the executable resolves and fail-closed on a missing
-library, and `integration/ai-tools-run.sh` refuses on a package planted in `v0.0.1` for a synthetic manifest read beside
-copies of the deployed ones, with the package gone as the control. The same file drives the shim's provider-list refusal
+and takes the same fallback, and it reads the updater's order as source: the removal precedes `install_packages`,
+and the classification of the agent set precedes the copy repair and the Node install. `bootstrap.sh` reads
+the bootstrap's the same way — the removal after the agent choice and before the version resolve, the first network
+step, with the refusal of an unresolved agent set between the choice and the removal. The two launch tiers are driven
+where each gate lives: `launch-wrapper.sh` refuses on a fixture link for an agent the fixture manifests install
+and the fixture `operator.conf` does not enable, before the executable resolves and fail-closed on a missing library,
+and `integration/ai-tools-run.sh` refuses on a package planted in `v0.0.1` for a synthetic manifest read beside copies
+of the deployed ones, with the package gone as the control. The same file drives the shim's provider-list refusal
 through a fixture `operator.conf`, with this host's enabled agents written prefixed as the control. `cli-agent-set.sh`
 reports and counts the same link. The link's third reading, the Node version its target names, is driven in the same
 file in its fail direction — a disabled agent's link, a target outside the versioned shape, one naming another launcher,
@@ -900,6 +932,12 @@ exits 5 with the reading named and no clean headline — driven both before any 
 and after one (a finding beside an entry that is not a readable file) — and each observed absence leaves the exit at 0.
 The live half is `integration/selinux.sh` (`sesearch` over the loaded policy) and the boundary half `boundary/access.sh`
 (the audit log and the policy store are out of the sandbox account's reach).
+
+`claude-hooks.sh` pins the reply claude-code's `PostToolUse` hook gives when the root helper prints a NOTICE
+([ownership-and-hooks](ownership-and-hooks.rule.md)): the hook's functions are read out of the checkout as text
+and driven with the client stubbed as a shell function, where a relayed message code yields one reply carrying
+the helper's lines and a relay without a code yields none. It reads the hook's source for the client call and the reply
+that follows the handback, and a hook without the functions fails the file rather than ending it on an undefined name.
 
 `codex-package.sh` pins the files `ai-tools-agents-codex-restricted` ships to the seams they plug into, before any host
 installs them ([agent-codex](agent-codex.rule.md)): the manifest through the readers that parse it, with its
@@ -1128,6 +1166,24 @@ function emitting one line per `printf`, so a single-write listing cannot hide t
 in `man.sh` failed at random on the EL container runners for exactly this reason), so each remaining `semodule -l` probe
 now captures the listing before matching it.
 
+`sweep-bound.sh` pins the bound every agent's Stop sweep puts on its walk
+([ownership-and-hooks](ownership-and-hooks.rule.md)): over a fixture, `-cnewer` against the marker selects a file
+renamed into the tree and one moved in from another filesystem, each dated before the marker, while `-newer`,
+the control, selects neither and a file untouched since before the marker is selected by neither. A directory moved
+in is selected without the older file inside it, the control; the session sweep library's walk, sourced
+from a token-substituted copy of the checkout's libraries with the handback client stubbed, must then offer both, each
+once, leave a skipped tree inside it unwalked, and print the count of what it offered. A stop run through the library
+must set the marker to a time inside the run and must not leave another file in the state directory, and a run
+the stubbed client kills mid-walk must leave the marker where it was and no file behind, as must a run whose socket is
+down; a file written during a run must be offered by the next, which a marker stamped at the walk's end fails. A failed
+call is left out of the count and logged, and does not hold the marker: the next stop run does not offer the refused
+path, and a session-start run does. The interrupted-session notice's command, run through a `printf` recorder, must pass
+a project path carrying shell syntax as one argument, and under a UTF-8 locale must hold printable ASCII alone
+for a name carrying a multibyte character or a Unicode control, the logged copy included; a planted `.sweep.??????` file
+must survive a stop run and not a session-start run. It then reads the library's source for the bound, and each agent's
+session hook for the library it sources. The cross-filesystem case needs a writable directory on another filesystem than
+the testdir's, and skips naming that otherwise.
+
 `fcontext-twins.sh` reads the policy sources and requires every file-context rule under the sandbox-clone area to appear
 under both `/opt` and `/var/opt`, with the same tail and context. A host reaches one of each pair, decided by whether
 its `file_contexts.subs_dist` aliases `/var/opt` to `/opt` (the note in `ai_tools.fc`), so `integration/selinux.sh`
@@ -1162,8 +1218,9 @@ when the `ai_tools` module is loaded the system is `Enforcing` and neither `ai_t
 marked permissive; it skips when the module is absent (the layer is optional). It also holds the entrypoint assertions
 that need a labelled host — that each agent's declared file-context rule still covers what its package installed,
 that no link in the exec chain carries a type the confined domain may manage, and that the loaded core module audits
-an in-session exec of the entrypoint, read with `sesearch` and skipped without it — and, where the `ai_tools_dotnet`
-layout module is loaded, the build-output labelling that only libselinux can answer: a path under one of the module's
+an in-session exec of the entrypoint, read with `sesearch` and skipped without it, beside the handback domain's grant
+to open the agent's temp type and its holding no `relabelfrom` on any type — and, where the `ai_tools_dotnet` layout
+module is loaded, the build-output labelling that only libselinux can answer: a path under one of the module's
 directories resolves to `ai_tools_project_build_t` and every other clone path to `ai_tools_project_t` (the rule
 precedence the narrowing rests on, read with `matchpathcon`), and a `bin/` directory created in the sandbox area
 by `unconfined_t` is born on the build type with no `restorecon`. It closes by reading the live type of **every**
@@ -1251,10 +1308,14 @@ out-of-range value is paired with an in-range one that passes the configuration 
 when `AI_TOOLS_TEST_TYPESAFE_LIVE=1` is set, since each sends its listing with the host's key, and they assert
 the integration's contract; which lines the classifier kept is reported as a note.
 
-`perms.sh` is the **single source** for the deployed-artifact permission assertions (every installed file
-and directory's owner/group/mode): `install.sh` does not carry a parallel checker — `sudo ./install.sh check-perms`
-execs `perms.sh`, and the install's verification phase reaches it through `tests/run.sh all`. Adding or repermissioning
-an installed file means updating the `check_file` list here, nowhere else.
+`perms.sh` asserts every installed file and directory's owner, group, mode, ACL and SELinux type by looping
+over the installed layout table ([layout](layout.rule.md)): each row the library lists is read, a finding fails naming
+the field and the two values, an absent ghost or optional row skips, and an input the enumeration could not read fails
+naming it. `install.sh` does not carry a parallel checker — `sudo ./install.sh check-perms` execs `perms.sh`,
+and the install's verification phase reaches it through `tests/run.sh all`. Adding or repermissioning an installed file
+means editing its row in `layout.lib.sh`, nowhere else; the blocks that are not rows — the staged policy module set,
+the codex skills link, each agent's links into the shared asset roots — stay in the file, and `check_file` stays
+in the harness for them and for the other suites that assert a fixed path.
 
 **`boundary`** — confinement assertions executed **as the agent** (`sudo -u SANDBOX_USER`) (`access.sh`, `providers.sh`,
 `filters.sh`, `assets.sh`, `typesafe.sh`, `sudo.sh`): the agent cannot write the secret-pattern library or the control
