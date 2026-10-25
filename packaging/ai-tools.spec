@@ -1596,6 +1596,65 @@ fi
 %attr(0644, root, root) %{_datadir}/ai-tools/codex/managed_config.toml
 
 %changelog
+* Sun Oct 25 2026 dagnode <tools@dagnode.com> - 0.27.0-1
+- CHANGE: The toolchain updater and 'sudo ai-tools-admin system bootstrap' run a package's install
+  scripts only after the npm registry signature over the installed tree has verified, so a tampered
+  package is refused with none of its code run. Before, the claude-code package's postinstall ran at
+  install, ahead of the check. A script that does not complete ends the run (MSG-T3P5 in the
+  bootstrap) and names 'sudo ai-tools-admin system bootstrap' as the remedy.
+- CHANGE: 'sudo ai-tools-admin system layout' lists every path this stack installs or creates with its
+  owner, mode, ACL and SELinux type and names each that drifted; 'system layout reconcile' restores a
+  drifted entry, logs each change, and leaves as it is a package file whose content differs from its
+  package, and a file another account owned or could write, naming the remedy each needs. An upgrade,
+  a source install, the bootstrap and the entrypoint relabel each run it. Before, a changed mode on
+  operator.conf stayed until an operator read a refusal.
+- CHANGE: 'sudo ./install.sh install' on a host running the ai-tools packages warns (MSG-Q8T8) that each
+  file it replaces reads as content drift to rpm, and docs/install/from-source.md carries the
+  build-and-upgrade sequence to use instead.
+- SECURITY: Root does not write through a path the sandbox account can replace. The update timer's
+  stamp is written by that account (a failure is a warning, MSG-G3P2); an existing
+  /opt/ai-tools/.claude/settings.json is kept only at the owner, mode and ACL it is installed with,
+  any other is saved as a dated .bak (MSG-Y3Z9) and the shipped file installed in its place, refusing
+  an entry in the way (MSG-T3Q7); the source install sets the toolchain's top directory alone.
+- SECURITY: 'sudo ai-tools-admin dotnet bootstrap' creates its state tree through the layout reconcile
+  and labels each directory by its layout row, so a name the sandbox account plants under the NuGet
+  cache does not redirect root's owner, mode or label writes on an upgrade; such a link fails the
+  bootstrap (MSG-N6G6) naming the directory.
+- SECURITY: A file the session moves into a project from its /tmp keeps the type it was born with, and
+  the handback domain now manages that type (policy module 0.10.0), so the file is handed back;
+  the type stays until a re-claim relabels it. Before, the handback could not open such a file, it
+  stayed sandbox-owned, and the helper exited as for a deliberate skip.
+- FIX: An operator.conf the sandbox account cannot read is reported as unreadable (MSG-V2R5) by
+  'ai-tools status', 'sudo ai-tools-admin status', the launch wrapper (MSG-V4U4, naming the input)
+  and the toolchain updater, whose run then fails and leaves the toolchain as it is. Before, the file
+  read as absent: the launch was refused naming AI_TOOLS_AGENTS, and the nightly updater removed
+  every installed agent's package as residue.
+- FIX: The toolchain updater decides whether its agent set is usable before it changes the toolchain,
+  so a run that ends on that fault leaves Node and the packages as they were.
+- FIX: 'sudo ai-tools-admin system layout reconcile' stops a run still going after ten minutes and
+  reports it (MSG-H8U2) at exit 1, so a blocked run does not hold the layout lock for every later
+  caller.
+- FIX: The per-turn ownership sweep selects a file by status-change time, so a file renamed or moved
+  into the project from another filesystem is handed back in the same turn, and it hands back the
+  files inside a moved directory, not the directory alone. Before, a moved file kept its modification
+  time and waited for the next session start.
+- FIX: The per-turn sweep does not leave a .sweep.?????? file in the agent's config directory when a
+  turn's hook is stopped mid-walk, and the first session start after the upgrade removes the ones
+  earlier releases left; a sweep whose handback socket is down keeps its marker, so the next sweep
+  covers the same span, and a refused handback is counted in the journal. Each agent's session hook
+  runs one shared library; a hook that cannot load it reports MSG-N6U2 and exits 0.
+- FIX: The notice after an interrupted session names 'ai-tools projects handback <project>' as the
+  reconcile, which returns each path to the project's own operator and applies the secret and
+  exclusion rules. Before, the line read 'sudo chown -R' with the first operator in operator.conf.
+- FIX: The secret-file NOTICE a handback prints, with its rotate-the-secret instruction, reaches the
+  Claude Code session as context beside the tool result. Before, it went to the hook's debug log
+  alone. Codex keeps the stderr relay until a reply shape is measured on a codex release.
+- DOCS: The about page names the out-of-scope set it points at instead of counting it, the agent
+  settings pages state what disableAutoMode removes, and docs/install/from-source.md points at
+  'sudo ai-tools-admin system layout' for the installed paths in place of a partial table.
+- DOCS: The orientation every session loads tells the agent not to use 'sed -i' in a project, where it
+  fails on a file the claim labelled, and names the edits that work.
+
 * Mon Oct 19 2026 dagnode <tools@dagnode.com> - 0.26.0-1
 - SECURITY: An asset set whose signature is by a key the binding's keyring holds as expired or revoked,
   or has itself expired, is refused as set-tampered, and a signature file holding more than one
