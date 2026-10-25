@@ -867,7 +867,7 @@ reg_allow() {
                 || die "allowed-projects not updated -- ${dir} is still disabled"
             return 0
         fi
-        die "could not add ${dir} to ${FOR_OPERATOR}'s allowed-projects"
+        die MSG-A8Z6 "could not add ${dir} to ${FOR_OPERATOR}'s allowed-projects -- it is not registered"
     fi
     [[ -f "${ALLOWLIST}" ]] || die "no allowlist at ${ALLOWLIST} -- nothing changed.
        If this account is meant to run sandboxed sessions, enrol it first with:
@@ -5611,6 +5611,8 @@ require_runas_target() {
 # The copy is read-only input for THIS run: every mutation goes back through the helper, which re-reads the real file,
 # so a stale snapshot can never be what a write is based on -- and reg_allow/unreg_allow refresh it after theirs. mktemp
 # creates it 0600, and the EXIT trap removes it, so another operator's project list does not outlive the command.
+# The helper refuses a target with no allowlist file, and its refusal reaches the terminal on stderr, so a failed read
+# ends the run with a line naming the target under the helper's own text and code.
 ALLOWLIST_SNAPSHOT=""
 snapshot_allowlist() {
     if [[ -z "${ALLOWLIST_SNAPSHOT}" ]]; then
@@ -5621,7 +5623,7 @@ snapshot_allowlist() {
     # 0600 allowlist, this shell writes the snapshot it owns. `sudo tee` would create the temp file as root and leave
     # the CLI unable to read back what it just asked for.
     sudo "${ALLOWLIST_BIN}" --operator "${FOR_OPERATOR}" --print > "${ALLOWLIST_SNAPSHOT}" \
-        || die "could not read ${FOR_OPERATOR}'s allowed-projects"
+        || die MSG-E8W4 "could not read ${FOR_OPERATOR}'s allowed-projects -- nothing changed"
     ALLOWLIST="${ALLOWLIST_SNAPSHOT}"
 }
 
@@ -5650,6 +5652,11 @@ remove_run_files() {
 # over that list, so an entry written for an unenrolled name would create a launch gate no ownership machinery can act
 # on. Enrollment is checked before the group lookup, so an unknown name is refused with the enrolment command rather
 # than a getent failure.
+#
+# The target must also be in ai-ops, the other fact `ai-tools-admin operators add` writes: the target's launch wrapper
+# refuses a caller outside the group, and a create under the clone area writes through that area's `g:ai-ops` ACL.
+# `id -nG` reads the group database without a password, so an account in OPERATORS and not in the group -- a name
+# written into operator.conf by hand -- is refused before the snapshot, rather than after the run's first writes.
 require_for_target() {
     [[ -n "${FOR_OPERATOR}" ]] || return 0
     verb_in "${COMMAND}" "${FOR_ALLOWED_VERBS[@]}" \
@@ -5678,6 +5685,12 @@ require_for_target() {
     fi
     ${found} || die MSG-E3D2 "not a configured ai-tools operator: ${FOR_OPERATOR} -- enrol it first with:" \
         "       sudo ai-tools-admin operators add ${FOR_OPERATOR}"
+    # An account whose groups id cannot read reads as outside the group, so it is refused here too.
+    local groups=""
+    groups="$(id -nG "${FOR_OPERATOR}" 2>/dev/null)" || groups=""
+    [[ " ${groups} " == *" ai-ops "* ]] \
+        || die MSG-B9Y4 "the --for target ${FOR_OPERATOR} is listed in OPERATORS and is not in the ai-ops group -- enrol it with:" \
+               "       sudo ai-tools-admin operators add ${FOR_OPERATOR}"
     OWNER_GROUP="$(id -gn "${FOR_OPERATOR}" 2>/dev/null)" \
         || die "cannot resolve the primary group of ${FOR_OPERATOR}"
     snapshot_allowlist

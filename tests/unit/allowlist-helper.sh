@@ -4,8 +4,8 @@
 # Hermetic unit tests for the deployed ai-tools-allowlist helper: the privileged seam behind
 # `ai-tools ... --for <operator>`, which reads and edits ANOTHER enrolled operator's allowed-projects. Because that file
 # is a LAUNCH GATE, every gate on the way to it is asserted to fire and to leave the registry byte-identical: an absent
-# sudo context, an unenrolled caller, an unenrolled or non-operator target, and a protected system directory
-# as the path.
+# sudo context, an unenrolled caller, an unenrolled or non-operator target, a target with no allowlist file (refused
+# for --print as for an edit), and a protected system directory as the path.
 #
 # This is the runtime half of the pair -- that each refusal actually fires. The boundary half, that the sandbox account
 # cannot reach the helper at all, is in tests/boundary/access.sh.
@@ -138,6 +138,20 @@ elif [[ "${before_missing}" != "$(md5sum < "${ALLOWFILE}")" ]]; then
     fail "a target with no allowlist: another operator's registry changed"
 else
     pass "refuses a target with no config and names 'operators add'"
+fi
+# --print refuses the same state, so the CLI's snapshot -- a --for run's first sudo -- stops the run before any write.
+out="$(env SUDO_UID="${OPERATOR_UID}" \
+    AI_TOOLS_ALLOWLIST="${TESTDIR}/no-config/allowed-projects" \
+    AI_TOOLS_OPERATOR_CONF="${TESTDIR}/operator.conf" \
+    "${HELPER}" --operator "${PROJECTS_USER}" --print 2>&1)" && rc=0 || rc=$?
+if (( rc == 0 )); then
+    fail "a target with no allowlist: --print succeeded where it must refuse: ${out}"
+elif ! grep -qxF -- MSG-S7Y3 <<<"${out}"; then
+    fail "a target with no allowlist: --print refused without the code naming that situation: ${out}"
+elif [[ -e "${TESTDIR}/no-config/allowed-projects" ]]; then
+    fail "a target with no allowlist: --print created the file"
+else
+    pass "--print refuses a target with no config, with the code the add refuses it with"
 fi
 
 # ── Mechanics: add / print / remove against the primary operator's fixture registry ──────────

@@ -768,7 +768,14 @@ must already be enrolled
 .RB ( "sudo ai\-tools\-admin operators add " \fIoperator\fR ),
 since the ownership helpers resolve a project's owner from the
 .B OPERATORS
-list.
+list. Enrolment also adds the account to the
+.B ai\-ops
+group and seeds its allowlist. An account listed in
+.B OPERATORS
+without the group is refused before the run's first
+.BR sudo (8)
+prompt, and one without the allowlist at that prompt, before the run writes
+anything; both refusals name the same command.
 .IP
 .B "projects create"
 and

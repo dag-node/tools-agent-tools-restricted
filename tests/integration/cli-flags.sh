@@ -137,6 +137,8 @@ make_fixtures() {
     git_q -C "${SRC}" push origin main base2
 
     cli_stubs_install "${R}"
+    # The `--for` target holds both facts of an operator: OPERATORS (the fixture operator.conf) and ai-ops (the id shim).
+    cli_stub_ai_ops "${FOR_USER}"
     # Explicit modes: the suite runs under sudo, and a root umask of 077 would leave every fixture owner-only --
     # readable by the projects user where it owns them, and closed to it where the `--for` target does, which is
     # where the claim's secret scan then fails to enter the tree.
@@ -839,6 +841,19 @@ drive_rows() {
     cli_stub_reset; drive cli ai-tools.projects.claim "$(f for)" "not-an-operator" "$(f yes)" "${R}/for1"
     expect "--for refuses an unenrolled target"                       rc_not0
     expect "that refusal reaches no helper"                           cli_log_empty
+    # A target in OPERATORS and outside ai-ops, the state a name written into operator.conf by hand leaves: the create is
+    # refused before the snapshot, so it reaches no helper and makes no directory. The control puts the target back
+    # in the group and drives the same create into the refusal that follows the snapshot, a missing parent.
+    cli_stub_ai_ops
+    cli_stub_reset; drive cli ai-tools.projects.create "$(f for)" "${FOR_USER}" "${R}/for-new"
+    expect "create --for refuses a target outside ai-ops with exit 1" rc_is 1
+    expect "that refusal carries its code"                            out_has_text MSG-B9Y4
+    expect "that refusal reaches no helper"                           cli_log_empty
+    expect "that refusal creates no directory"                        test ! -e "${R}/for-new"
+    cli_stub_ai_ops "${FOR_USER}"
+    cli_stub_reset; drive cli ai-tools.projects.create "$(f for)" "${FOR_USER}" "${R}/for-none/new"
+    expect "control: a target in ai-ops reaches the snapshot"         cli_called ai-tools-allowlist "^--operator${T}${FOR_USER}${T}--print$"
+    expect "control: the create then refuses the missing parent"      out_has_text MSG-J3R8
     for who in root "${SANDBOX_USER}"; do
         cli_stub_reset; drive cli ai-tools.projects.claim "$(f for)" "${who}" "$(f yes)" "${R}/for1"
         expect "--for refuses ${who}"                                 rc_not0

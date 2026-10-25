@@ -58,6 +58,10 @@ stop takes no path: ${argument}. It TERMINATES every agent session on this host 
 ERROR.
 projects create needs a path: it creates a NEW project directory.
 .TP
+.B MSG-A8Z6
+ERROR.
+could not add ${dir} to ${FOR_OPERATOR}'s allowed\-projects \-\- it is not registered
+.TP
 .B MSG-B4G2
 ERROR.
 ai\-tools: \-\-for needs an operator name
@@ -81,6 +85,10 @@ scan\-capped
 .B MSG-B9A2
 ERROR.
 cannot load ${RECORDS_BASE_LIB}, which states this report's exit codes \-\- reinstall the ai\-tools package
+.TP
+.B MSG-B9Y4
+ERROR.
+the \-\-for target ${FOR_OPERATOR} is listed in OPERATORS and is not in the ai\-ops group \-\- enrol it with:
 .TP
 .B MSG-C2U5
 ERROR.
@@ -125,6 +133,10 @@ not a configured ai\-tools operator: ${FOR_OPERATOR} \-\- enrol it first with:
 .B MSG-E4Y3
 NOTICE.
 label\-gone
+.TP
+.B MSG-E8W4
+ERROR.
+could not read ${FOR_OPERATOR}'s allowed\-projects \-\- nothing changed
 .TP
 .B MSG-F4D8
 ERROR.

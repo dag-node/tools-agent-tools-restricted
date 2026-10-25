@@ -190,6 +190,7 @@ cannot fix -- a message code's name is a runtime string, and rewording one is a 
 | v8z5 | [MSG-V8Z5](../src/usr/local/bin/ai-tools.sh) | project path holds a control character: $(ai_tools_log__sanitize "${p}") -- rename it first | src/usr/local/bin/ai-tools.sh |  | die |
 | t4z6 | [MSG-T4Z6](../src/usr/local/bin/ai-tools.sh) | not a sandbox clone (must be a clone under ${SANDBOX_ROOT}): ${d} | src/usr/local/bin/ai-tools.sh |  | die |
 | w3h3 | [MSG-W3H3](../src/usr/local/bin/ai-tools.sh) | not a sandbox clone (expected ${SANDBOX_ROOT}/<clone>, one level deep): ${d} | src/usr/local/bin/ai-tools.sh |  | die |
+| a8z6 | [MSG-A8Z6](../src/usr/local/bin/ai-tools.sh) | could not add ${dir} to ${FOR_OPERATOR}'s allowed-projects -- it is not registered | src/usr/local/bin/ai-tools.sh |  | die |
 | k8s2 | [MSG-K8S2](../src/usr/local/bin/ai-tools.sh) | allowed-projects not updated -- ${dir} is still registered | src/usr/local/bin/ai-tools.sh | tests/integration/cli.sh | die |
 | x3g7 | [MSG-X3G7](../src/usr/local/bin/ai-tools.sh) | cannot load the libraries the claim checks its drift and states its exit codes with -- reinstall the ai-tools package | src/usr/local/bin/ai-tools.sh |  | die |
 | t8f5 | [MSG-T8F5](../src/usr/local/bin/ai-tools.sh) | label-fixed | src/usr/local/bin/ai-tools.sh |  | _claim_info |
@@ -210,7 +211,7 @@ cannot fix -- a message code's name is a runtime string, and rewording one is a 
 | z5y7 | [MSG-Z5Y7](../src/usr/local/bin/ai-tools.sh) | projects create takes a single path | src/usr/local/bin/ai-tools.sh |  | die_usage |
 | a7d3 | [MSG-A7D3](../src/usr/local/bin/ai-tools.sh) | projects create needs a path: it creates a NEW project directory. | src/usr/local/bin/ai-tools.sh | tests/integration/cli.sh | die |
 | t4b9 | [MSG-T4B9](../src/usr/local/bin/ai-tools.sh) | this path already exists: ${d} | src/usr/local/bin/ai-tools.sh | tests/integration/cli.sh | die |
-| j3r8 | [MSG-J3R8](../src/usr/local/bin/ai-tools.sh) | the parent directory does not exist: ${parent} | src/usr/local/bin/ai-tools.sh | tests/integration/cli.sh | die |
+| j3r8 | [MSG-J3R8](../src/usr/local/bin/ai-tools.sh) | the parent directory does not exist: ${parent} | src/usr/local/bin/ai-tools.sh | tests/integration/cli-flags.sh, tests/integration/cli.sh | die |
 | w4s7 | [MSG-W4S7](../src/usr/local/bin/ai-tools.sh) | this is an excluded path inside a claimed project, not a disabled project: ${d} | src/usr/local/bin/ai-tools.sh | tests/integration/cli.sh | die |
 | d8c8 | [MSG-D8C8](../src/usr/local/bin/ai-tools.sh) | this project is nested inside another claimed project: ${d} | src/usr/local/bin/ai-tools.sh | tests/integration/cli.sh | die |
 | w3s4 | [MSG-W3S4](../src/usr/local/bin/ai-tools.sh) | this project is disabled: ${d} | src/usr/local/bin/ai-tools.sh |  | die |
@@ -262,11 +263,13 @@ cannot fix -- a message code's name is a runtime string, and rewording one is a 
 | x6u2 | [MSG-X6U2](../src/usr/local/bin/ai-tools.sh) | you (${INVOKING_USER}) are not a configured ai-tools operator -- add your name to OPERATORS in ${conf} with: | src/usr/local/bin/ai-tools.sh | tests/integration/cli.sh | die |
 | r4j2 | [MSG-R4J2](../src/usr/local/bin/ai-tools.sh) | this run needs root: ${what} goes through ${bin##*/}, and ${INVOKING_USER} holds no sudo grant for it. | src/usr/local/bin/ai-tools.sh | tests/integration/cli.sh | die |
 | z6q6 | [MSG-Z6Q6](../src/usr/local/bin/ai-tools.sh) | a --for run acts on the filesystem AS the target: ${COMMAND} --for ${FOR_OPERATOR} runs ${blocked##*/} as ${FOR_OPERATOR}, and ${INVOKING_USER} holds no sudo grant to do that. | src/usr/local/bin/ai-tools.sh | tests/integration/cli.sh | die |
+| e8w4 | [MSG-E8W4](../src/usr/local/bin/ai-tools.sh) | could not read ${FOR_OPERATOR}'s allowed-projects -- nothing changed | src/usr/local/bin/ai-tools.sh |  | die |
 | u7r7 | [MSG-U7R7](../src/usr/local/bin/ai-tools.sh) | --for is not accepted on ${COMMAND} | src/usr/local/bin/ai-tools.sh | tests/integration/cli.sh | die |
 | b5k3 | [MSG-B5K3](../src/usr/local/bin/ai-tools.sh) | --for cannot be combined with --force | src/usr/local/bin/ai-tools.sh | tests/integration/cli.sh | die |
 | m3z3 | [MSG-M3Z3](../src/usr/local/bin/ai-tools.sh) | the sandbox account is not an operator and must not own projects | src/usr/local/bin/ai-tools.sh | tests/integration/cli.sh | die |
 | c4y4 | [MSG-C4Y4](../src/usr/local/bin/ai-tools.sh) | root is not an operator | src/usr/local/bin/ai-tools.sh |  | die |
 | e3d2 | [MSG-E3D2](../src/usr/local/bin/ai-tools.sh) | not a configured ai-tools operator: ${FOR_OPERATOR} -- enrol it first with: | src/usr/local/bin/ai-tools.sh | tests/integration/cli.sh | die |
+| b9y4 | [MSG-B9Y4](../src/usr/local/bin/ai-tools.sh) | the --for target ${FOR_OPERATOR} is listed in OPERATORS and is not in the ai-ops group -- enrol it with: | src/usr/local/bin/ai-tools.sh | tests/integration/cli-flags.sh | die |
 | c4t6 | [MSG-C4T6](../src/usr/local/lib/ai-tools/admin-commands.d/dotnet.sh) | run as root (sudo) | src/usr/local/lib/ai-tools/admin-commands.d/dotnet.sh |  | die |
 | y4u5 | [MSG-Y4U5](../src/usr/local/lib/ai-tools/admin-commands.d/dotnet.sh) | manifest names a layout module that is not ai_tools_<name>: ${module} | src/usr/local/lib/ai-tools/admin-commands.d/dotnet.sh |  | warn |
 | z4z5 | [MSG-Z4Z5](../src/usr/local/lib/ai-tools/admin-commands.d/dotnet.sh) | layout module ${module} is not installed (${pp}); install ai-tools-selinux -- until then build output is typed at relabel time only | src/usr/local/lib/ai-tools/admin-commands.d/dotnet.sh |  | warn |
@@ -519,9 +522,9 @@ cannot fix -- a message code's name is a runtime string, and rewording one is a 
 | m3r6 | [MSG-M3R6](../src/usr/local/libexec/ai-tools/ai-tools-allowlist.sh) | target ${OPERATOR} is not a configured ai-tools operator -- enrol it first with: | src/usr/local/libexec/ai-tools/ai-tools-allowlist.sh | tests/unit/allowlist-helper.sh | die |
 | a2m5 | [MSG-A2M5](../src/usr/local/libexec/ai-tools/ai-tools-allowlist.sh) | cannot resolve ${OPERATOR} -- nothing changed | src/usr/local/libexec/ai-tools/ai-tools-allowlist.sh |  | die |
 | r4c4 | [MSG-R4C4](../src/usr/local/libexec/ai-tools/ai-tools-allowlist.sh) | no home directory for ${OPERATOR} -- nothing changed | src/usr/local/libexec/ai-tools/ai-tools-allowlist.sh |  | die |
+| s7y3 | [MSG-S7Y3](../src/usr/local/libexec/ai-tools/ai-tools-allowlist.sh) | no ai-tools config yet for ${OPERATOR} (no ${allowlist}) -- nothing changed. | src/usr/local/libexec/ai-tools/ai-tools-allowlist.sh | tests/unit/allowlist-helper.sh | die |
 | q5x7 | [MSG-Q5X7](../src/usr/local/libexec/ai-tools/ai-tools-allowlist.sh) | not an existing path: ${TARGET_PATH} -- nothing changed | src/usr/local/libexec/ai-tools/ai-tools-allowlist.sh | tests/unit/allowlist-helper.sh | die |
 | r6c5 | [MSG-R6C5](../src/usr/local/libexec/ai-tools/ai-tools-allowlist.sh) | not a directory: ${canonical} -- nothing changed | src/usr/local/libexec/ai-tools/ai-tools-allowlist.sh | tests/unit/allowlist-helper.sh | die |
-| s7y3 | [MSG-S7Y3](../src/usr/local/libexec/ai-tools/ai-tools-allowlist.sh) | no ai-tools config yet for ${OPERATOR} (no ${allowlist}) -- nothing changed. | src/usr/local/libexec/ai-tools/ai-tools-allowlist.sh | tests/unit/allowlist-helper.sh | die |
 | t7b6 | [MSG-T7B6](../src/usr/local/libexec/ai-tools/ai-tools-allowlist.sh) | that project is DISABLED for ${OPERATOR}: ${canonical} -- a '!' line | src/usr/local/libexec/ai-tools/ai-tools-allowlist.sh | tests/unit/allowlist-helper.sh | die |
 | d3t3 | [MSG-D3T3](../src/usr/local/libexec/ai-tools/ai-tools-allowlist.sh) | could not add ${canonical} to ${OPERATOR}'s allowlist -- nothing changed | src/usr/local/libexec/ai-tools/ai-tools-allowlist.sh |  | die |
 | v9k7 | [MSG-V9K7](../src/usr/local/libexec/ai-tools/ai-tools-allowlist.sh) | no allowlist for ${OPERATOR} -- nothing to remove | src/usr/local/libexec/ai-tools/ai-tools-allowlist.sh |  | note |

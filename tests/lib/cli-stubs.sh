@@ -13,6 +13,10 @@
 # `sudo -n -l [-u <user>] <helper>` (answered as "grant present": exit 0, the helper echoed), and the run-as-owner form
 # `sudo -u <user> -H -- <cmd>` (run directly, as the invoker).
 #
+# An `id` shim beside it answers the one group read a `--for` run gates on, `id -nG <user>`: the account's real groups
+# with `ai-ops` removed, and `ai-ops` added for each name cli_stub_ai_ops listed, so the fixture target's membership is
+# the test's to set whatever the host's group database says. Every other form runs the real `id`.
+#
 # The stubs answer only what the CLI PARSES from a helper:
 #   ai-tools-lockdown   prints the secret-scan count line and one `[file]` line per path listed
 #                       in <root>/stubs/lockdown.secrets (empty or absent: a clean tree), the form
@@ -36,16 +40,36 @@
 # cli_log_empty                  0 when no helper was called.
 # cli_call_index <helper> [ere]  the 1-based log line of the first matching call, for ordering. cli_stub_secrets
 # <path>... makes the lockdown stub report these paths as secret-matching.
+# cli_stub_ai_ops [<user>...]    sets the accounts the `id` shim reports in ai-ops (none without an argument); kept
+#                                across cli_stub_reset.
 
 cli_stubs_install() {
-    local root="$1"
+    local root="$1" real_id
     CLI_STUB_PATH="${root}/stub-bin"
     CLI_STUB_DIR="${root}/stubs"
     CLI_STUB_LOG="${root}/sudo-calls.log"
     CLI_STUB_SECRETS="${CLI_STUB_DIR}/lockdown.secrets"
+    CLI_STUB_AI_OPS="${CLI_STUB_DIR}/ai-ops.members"
     mkdir -p "${CLI_STUB_PATH}" "${CLI_STUB_DIR}"
     : > "${CLI_STUB_LOG}"
     : > "${CLI_STUB_SECRETS}"
+    : > "${CLI_STUB_AI_OPS}"
+    real_id="$(type -P id)"
+
+    cat > "${CLI_STUB_PATH}/id" <<EOF
+#!/usr/bin/env bash
+# id shim written by tests/lib/cli-stubs.sh: answers ai-ops membership from a fixture list.
+set -u
+if [[ \$# -eq 2 && "\$1" == -nG ]]; then
+    groups="\$("${real_id}" -nG "\$2")" || exit
+    out=""
+    for g in \${groups}; do [[ "\${g}" == ai-ops ]] || out+="\${out:+ }\${g}"; done
+    if grep -qxF -- "\$2" "${CLI_STUB_AI_OPS}"; then out+=" ai-ops"; fi
+    printf '%s\n' "\${out}"
+    exit 0
+fi
+exec "${real_id}" "\$@"
+EOF
 
     cat > "${CLI_STUB_PATH}/sudo" <<EOF
 #!/usr/bin/env bash
@@ -136,8 +160,10 @@ else
 fi
 EOF
 
-    chmod 0755 "${CLI_STUB_PATH}/sudo" "${CLI_STUB_DIR}"/ai-tools-*
+    chmod 0755 "${CLI_STUB_PATH}/sudo" "${CLI_STUB_PATH}/id" "${CLI_STUB_DIR}"/ai-tools-*
 }
+
+cli_stub_ai_ops() { : > "${CLI_STUB_AI_OPS}"; (( $# )) && printf '%s\n' "$@" > "${CLI_STUB_AI_OPS}"; return 0; }
 
 cli_stub_reset() { : > "${CLI_STUB_LOG}"; : > "${CLI_STUB_SECRETS}"; rm -f "${CLI_STUB_DIR}"/fail.* "${CLI_STUB_DIR}"/decline.*; }
 
