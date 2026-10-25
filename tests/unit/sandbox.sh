@@ -2,9 +2,10 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # tests/unit/sandbox.sh
 # Unit test for the pure decisions behind the ai-tools.sh flows -- the ai-tools.projects.clone pair, the precondition
-# ai-tools.projects.create's skipped prompts rest on (tree_is_pristine), the exclusion reader the claim-time scans prune
-# their walks with (allowlist_exclusions), the re-claim's SELinux drift scan (label_drift_scan), and the checks
-# the claim runs after its Apply block (claim_verify_label, claim_verify_group, at the end).
+# ai-tools.projects.create's skipped prompts rest on (tree_is_pristine), the sealed-setgid scan's report of a walk it
+# could not start (sealed_setgid_scan), the exclusion reader the claim-time scans prune their walks
+# with (allowlist_exclusions), the re-claim's SELinux drift scan (label_drift_scan), and the checks the claim runs
+# after its Apply block (claim_verify_label, claim_verify_group, at the end).
 #
 # The ai-tools.projects.clone pair:
 #   * sandbox_default_branch -- composes the DEFAULT sandbox branch (sandbox/<leaf-of-from>) with no
@@ -229,6 +230,36 @@ if pristine "${foreign_git}"; then
     fail "a .git the projects user's git refuses read as pristine -- its history was never read"
 else
     pass "a .git the projects user's git refuses makes a tree non-pristine"
+fi
+
+# ── sealed_setgid_scan ────────────────────────────────────────────────────────────────────────
+# The claim's Review block reports a setgid bit on an owner-only directory from this scan, so a walk that cannot start
+# must not read as a tree with no such directory: on a root the projects user cannot list, the scan returns 1 and does
+# not list a path, and the claim says the scan was not made. The control is the rebuilt fresh tree, which the scan reads
+# and finds nothing in. The registry it prunes exclusions from is an empty fixture, so the projects user's own is not
+# read.
+section "sealed_setgid_scan: a scan it cannot make is reported, not read as clean (unit)"
+sg_list="${work}/sg-allowed-projects"; : > "${sg_list}"
+chown "${PROJECTS_USER}:${PROJECTS_GROUP}" "${sg_list}"
+sg_scan() {  # sg_scan <dir> : the scan's output, then rc=<its status>
+    # shellcheck disable=SC2016  # the $N are for the inner `bash -c`, not this shell -- do not expand here
+    runuser -u "${PROJECTS_USER}" -- env AI_TOOLS_ALLOWLIST="${sg_list}" bash -c \
+        'cli="$1"; dir="$2"; set --
+         source "${cli}" >/dev/null 2>&1 || exit 99
+         rc=0; sealed_setgid_scan "${dir}" || rc=$?
+         printf "rc=%s\n" "${rc}"' _ "${CLI}" "$1"
+}
+sg_got="$(sg_scan "${control}")" || true
+if [[ "${sg_got}" == "rc=0" ]]; then
+    pass "control: the scan reads the fresh tree and lists no directory"
+else
+    fail "control: the scan over the fresh tree printed '${sg_got}' (want rc=0) -- the case below proves nothing"
+fi
+sg_got="$(sg_scan "${unlisted}")" || true
+if [[ "${sg_got}" == "rc=1" ]]; then
+    pass "a root the projects user cannot list is a scan not made: status 1, no path listed"
+else
+    fail "the scan over a root the projects user cannot list printed '${sg_got}' (want rc=1)"
 fi
 
 # ── allowlist_exclusions ──────────────────────────────────────────────────────────────────────

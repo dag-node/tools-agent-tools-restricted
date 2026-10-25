@@ -846,7 +846,8 @@ toolchain claims does not raise a notice. The .NET measurements are [ref-section
 The second notice (`sealed_setgid_scan`) is a setgid bit on an owner-only directory whose group is neither
 `SANDBOX_GROUP` nor the group of that directory's owner, compared per path against the resolved owner's primary group:
 the claim walks keep such a bit, since they cannot ask whether it was deliberate, so the claim names the paths
-and the `chmod g-s` that clears one, ahead of the confirm rather than from a helper's stderr under Apply.
+and the `chmod g-s` that clears one, ahead of the confirm rather than from a helper's stderr under Apply. Where
+the invoker cannot list the project root, the Review block says the scan was not made, rather than showing no notice.
 
 ## Interior drift <a id="ref-section-a9b2"></a>
 

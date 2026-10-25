@@ -597,7 +597,9 @@ confirm when it returns 0, so every way it could wrongly say yes is a way to gra
 covered — which is why the claim re-derives it from the tree rather than trusting the caller's hint, and why the cases
 driven here are the states that must read as **not** pristine (any file beyond the README, one nested deeper, any
 commit, and each reading the projects user cannot make: a root it cannot list, a subdirectory it cannot read,
-and a `.git` its git refuses as another account's), with a rebuilt fresh tree as the control those last three vary. It
+and a `.git` its git refuses as another account's), with a rebuilt fresh tree as the control those last three vary.
+`sealed_setgid_scan` follows, over the same control and the root the projects user cannot list: there the scan returns 1
+and does not list a path, so the claim reports a scan it did not make rather than a tree with no sealed directory. It
 closes with `label_drift_scan`, the re-claim's SELinux half, over a canned `restorecon` transcript: the scan must ask
 for a forced, non-recursive dry run over a NUL list, since it runs unprivileged ahead of the question, must keep a type
 difference while dropping a difference in the SELinux user alone, an owner-only file and a carved-out path, and must

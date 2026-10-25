@@ -1214,9 +1214,12 @@ label_drift_scan() {
 # the claim did not touch. "Third party" is decided per path, against the OWNER's primary group and not the invoking
 # user's: on a multi-operator host the group the claim walks treat as legitimate is the resolved project owner's, since
 # they act only on paths that owner or the sandbox account holds, so reporting against the invoker's would flag a bit
-# the claim goes on to strip, or stay silent about one it keeps.
+# the claim goes on to strip, or stay silent about one it keeps. Returns 1 without printing a path when the invoker
+# cannot list and enter <dir>, since a walk that cannot start reads like a tree with no such directory; a subdirectory
+# the walk cannot read is left out of the list.
 sealed_setgid_scan() {
     local dir="$1" excl
+    [[ -r "${dir}" && -x "${dir}" ]] || return 1
     local -a skip=( -name .git -prune )
     while IFS= read -r excl; do
         [[ "${excl}" == "${dir}"/* ]] && skip+=( -o -path "${excl}" -prune )
@@ -1231,7 +1234,7 @@ sealed_setgid_scan() {
     | while IFS=$'\t' read -r _uid _grp _path; do
           [[ "${_grp}" == "$(id -gn "${_uid}" 2>/dev/null || true)" ]] && continue
           printf '%s\n' "${_path}"
-      done
+      done || true
 }
 
 # reg_ownership <dir> [force]  -- make <dir> usable by the sandbox account: group SANDBOX_GROUP + the setgid bit
@@ -2279,10 +2282,17 @@ cmd_project_claim() {
     # A setgid bit on a sealed dir that belongs to some third group is the one piece of residue the claim walks decline
     # to remove, so it is surfaced here rather than left to the helper's stderr, where it scrolls past under the Apply
     # step.
+    # The scan's status says whether it was made, so its output goes through the work directory rather than a pipe.
     local -a sealed_setgid=()
-    mapfile -t sealed_setgid < <(sealed_setgid_scan "${d}" | head -n 200)
+    local sealed_setgid_unread=false
+    sealed_setgid_scan "${d}" > "${CLAIM_WORK}/sealed-setgid" || sealed_setgid_unread=true
+    mapfile -t sealed_setgid < <(head -n 200 "${CLAIM_WORK}/sealed-setgid")
 
     sealed_setgid_note() {
+        if ${sealed_setgid_unread}; then
+            say "      ${C_DIM}the sealed-setgid scan was not made as ${INVOKING_USER}${C_RST}"
+            return 0
+        fi
         (( ${#sealed_setgid[@]} )) || return 0
         headline_warn "NOTICE: setgid on an owner-only directory" \
             "${#sealed_setgid[@]} sealed director(ies) carry a setgid bit set to a group that is neither ${SANDBOX_GROUP} nor yours. The claim keeps it -- it cannot tell a deliberate choice from a leftover -- so new files there are still born in that group."
