@@ -137,7 +137,7 @@ make_fixtures() {
     git_q -C "${SRC}" push origin main base2
 
     cli_stubs_install "${R}"
-    # The `--for` target holds both facts of an operator: OPERATORS (the fixture operator.conf) and ai-ops (the id shim).
+    # The `--for` target holds both facts of an operator: OPERATORS (the fixture conf) and ai-ops (the id shim).
     cli_stub_ai_ops "${FOR_USER}"
     # Explicit modes: the suite runs under sudo, and a root umask of 077 would leave every fixture owner-only --
     # readable by the projects user where it owns them, and closed to it where the `--for` target does, which is
@@ -565,6 +565,14 @@ drive_rows() {
     expect "the unread core.filemode step is an error row"            out_has_item error filemode
     cli_stub_reset; drive cli ai-tools.projects.claim "$(f yes)" "${R}/pm"
     expect "the page names the command that pins core.filemode"       out_has_text "config core.filemode true"
+    # The same reading under a path holding a space: the printed command carries the path as one bash word, so it pastes
+    # whole. The entry is quoted, the form the allowlist grammar reads a path with a space in.
+    claimed_fixture "${R}/pm space"; rm -f "${R}/pm space/moved-in.txt"
+    git init -q "${R}/pm space"
+    seed "\"${R}/pm space\""; seed_gc "${R}/pm space"
+    cli_stub_reset; drive cli ai-tools.projects.claim "$(f yes)" "${R}/pm space"
+    expect "control: the claim of the spaced path reads core.filemode as unread" rc_is 5
+    expect "the printed command quotes a path with a space"           out_has_text "git -C $(LC_ALL=C printf '%q' "${R}/pm space") config core.filemode true"
 
     # The unattended relabel: a root carrying the project type, so the label scan runs, with its own type other than
     # the one the policy gives its path, so it is drift. Without a terminal only `--yes` relabels,
@@ -841,8 +849,8 @@ drive_rows() {
     cli_stub_reset; drive cli ai-tools.projects.claim "$(f for)" "not-an-operator" "$(f yes)" "${R}/for1"
     expect "--for refuses an unenrolled target"                       rc_not0
     expect "that refusal reaches no helper"                           cli_log_empty
-    # A target in OPERATORS and outside ai-ops, the state a name written into operator.conf by hand leaves: the create is
-    # refused before the snapshot, so it reaches no helper and makes no directory. The control puts the target back
+    # A target in OPERATORS and outside ai-ops, the state a name written into operator.conf by hand leaves: the create
+    # is refused before the snapshot, so it reaches no helper and makes no directory. The control puts the target back
     # in the group and drives the same create into the refusal that follows the snapshot, a missing parent.
     cli_stub_ai_ops
     cli_stub_reset; drive cli ai-tools.projects.create "$(f for)" "${FOR_USER}" "${R}/for-new"

@@ -707,6 +707,15 @@ find_unenterable_ancestor() {
     return 1
 }
 
+# _quote_path <path>  -- print <path> as one bash word, for a command the CLI prints for the operator to paste, in the
+# shape of the session-sweep library's private quoter: `printf %q` under the C locale encodes every byte outside
+# printable ASCII, so bash reads the word back as the same path under any locale. The path is quoted as it is, not
+# sanitized first, since the command has to name the directory that exists.
+_quote_path() {
+    local LC_ALL=C
+    printf '%q' "$1"
+}
+
 # refuse_unreachable <path> <ancestor>  -- die naming <ancestor>, an ancestor of <path> the invoking user cannot
 # enter. Every unprivileged read the CLI makes of a project runs as the invoker, a `--for` run included, so a project
 # under such a directory cannot be read at all. On a `--for` run the remedies print ahead of the refusal: a location
@@ -724,7 +733,7 @@ refuse_unreachable() {
         local -a remedy=("Put the project in a directory both ${INVOKING_USER} and ${FOR_OPERATOR} reach, such as one under ${SANDBOX_ROOT}.")
         if grantable_ancestor "$2"; then
             remedy+=("" "Or, since ${blocked} belongs to ${OWNER_USER}, let ${INVOKING_USER} enter it without listing it -- run as root or as ${OWNER_USER}:" "" \
-                     "    setfacl -m u:${INVOKING_USER}:--x ${blocked}")
+                     "    setfacl -m u:${INVOKING_USER}:--x $(_quote_path "$2")")
         fi
         printf '\n' >&2
         printf '  %s\n' "${remedy[@]}" >&2
@@ -2353,13 +2362,14 @@ cmd_project_claim() {
     claim_unread_note() {
         ${git_unread} || ${filemode_unread} || return 0
         [[ "${CLAIM_FORMAT}" == tsv ]] && return 0
-        local _as_owner=""
+        local _as_owner="" _quoted
         [[ -n "${FOR_OPERATOR}" ]] && _as_owner="sudo -u ${OWNER_USER} -H "
+        _quoted="$(_quote_path "${d}")"
         say "      ${C_DIM}not checked, since ${INVOKING_USER} cannot read them; to finish them by hand:${C_RST}"
         ! ${git_unread} \
-            || say "      ${C_BOLD}sudo ${SETFACL_BIN} --with-git ${d}${C_RST}   ${C_DIM}(shares .git history)${C_RST}"
+            || say "      ${C_BOLD}sudo ${SETFACL_BIN} --with-git ${_quoted}${C_RST}   ${C_DIM}(shares .git history)${C_RST}"
         ! ${filemode_unread} \
-            || say "      ${C_BOLD}${_as_owner}git -C ${d} config core.filemode true${C_RST}"
+            || say "      ${C_BOLD}${_as_owner}git -C ${_quoted} config core.filemode true${C_RST}"
     }
 
     # claim_drift_records: after the Apply block, check each drifted path on its own and write one row per path --

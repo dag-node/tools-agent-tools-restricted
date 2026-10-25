@@ -820,8 +820,9 @@ since `realpath` fails alike for an absent path and an unreachable one. Inside a
 reads the `.git` and `core.filemode` steps as `unknown` where the invoker cannot make the reading — a root it cannot
 enter, or a `.git` its git refuses as another account's repository — and the claim announces each in the Review block,
 writes it as an `error` row naming the step, prints the command that finishes it, and ends with exit 5. Each such step
-is the opt-in history share or a registry pin, so a reading that cannot be made stays a smaller grant until the operator
-runs that command.
+is the opt-in history share or a registry pin, so it is not applied, and the agent has less access to the project until
+the operator runs the printed command. That command, and the traverse grant the unreachable-location refusal prints,
+carry the path in bash's `%q` encoding, so each pastes as one word.
 
 **A failed step asks once before attempting the next.** Every root step authenticates separately and no step can be
 pre-authenticated (a sudoers `timestamp_timeout=0` prompts on every invocation), so a mistyped password would cost
