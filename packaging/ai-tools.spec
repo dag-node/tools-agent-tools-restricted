@@ -1084,8 +1084,8 @@ if [ "$(getenforce 2>/dev/null)" != "Disabled" ] && command -v semodule >/dev/nu
         fi
     fi
     if [ "${_sandbox_trees_skipped}" = 1 ]; then
-        echo "ai-tools-selinux: WARNING left the labels under /opt/ai-tools and the sandbox clones as they were: an agent session or the toolchain update runs as the sandbox account, or this host's sessions could not be read. End them, then restore the labels:" >&2
-        echo "ai-tools-selinux:   sudo ai-tools stop && sudo restorecon -R /opt/ai-tools /var/opt/ai-tools/sandbox-projects" >&2
+        echo "ai-tools-selinux: WARNING left the labels under /opt/ai-tools and the sandbox clones as they were: an agent session or the toolchain update runs as the sandbox account, or this host's sessions could not be read. Let each session end (/exit inside it) and the toolchain update finish, or end them all with sudo ai-tools stop, then restore the labels:" >&2
+        echo "ai-tools-selinux:   sudo restorecon -R /opt/ai-tools /var/opt/ai-tools/sandbox-projects" >&2
     fi
     exec 9>&-
     if command -v systemctl >/dev/null 2>&1 \

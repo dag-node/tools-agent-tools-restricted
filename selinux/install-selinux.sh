@@ -733,7 +733,7 @@ _unlabel_one() { local rc=0; ai_tools_relabel__unlabel_project "$1" || rc=$?
                      *) warn MSG-W8J4 "could not unlabel $1" ;;
                  esac; }
 _warn_live_session() {
-    warn MSG-E9S6 "left the label on $1 as it was: an agent session or the toolchain update runs as the sandbox account, or this host's sessions could not be read; end them with 'sudo ai-tools stop', then re-run this command"
+    warn MSG-E9S6 "left the label on $1 as it was: an agent session or the toolchain update runs as the sandbox account, or this host's sessions could not be read; let each session end (/exit inside it) and the toolchain update finish, or end them all with 'sudo ai-tools stop', then re-run this command"
 }
 _restore_one() { restorecon -FR "$1" 2>/dev/null || true; }
 # _label_sandbox_clones: apply the static ai_tools_project_t label (ai_tools.fc) to every existing sandbox clone, then

@@ -450,7 +450,7 @@ if ${UNLISTED} && [[ "$(getenforce 2>/dev/null || echo Disabled)" != "Disabled" 
             sessions_state="$(ai_tools_sessions__read_live_session_state)"
         fi
         if [[ "${sessions_state}" != none ]]; then
-            warn MSG-T6T2 "left the SELinux label under ${canonical} as it was: an agent session or the toolchain update runs as the sandbox account, or this host's sessions could not be read; end them with 'ai-tools stop', then run: sudo restorecon -RF ${canonical}"
+            warn MSG-T6T2 "left the SELinux label under ${canonical} as it was: an agent session or the toolchain update runs as the sandbox account, or this host's sessions could not be read; let each session end (/exit inside it) and the toolchain update finish, or end them all with 'ai-tools stop', then run: sudo restorecon -RF ${canonical}"
             ai_tools_log__coded warning "${_warn_code}" \
                 "left the SELinux label under ${canonical}: a session of the sandbox account was live" \
                 "AI_TOOLS_RESULT=skipped"

@@ -143,7 +143,7 @@ fi
 # is live, or because the reading could not be made, naming the stop and the command that re-runs this step. The tree is
 # left as it was: the library gates before its first write.
 die_live_session() {
-    die MSG-H8V6 "left the SELinux label on ${dir} as it was: an agent session or the toolchain update runs as the sandbox account, or this host's sessions could not be read, and a walk while one runs could be redirected outside the tree; end them with 'ai-tools stop', then re-run: $1 ${dir}"
+    die MSG-H8V6 "left the SELinux label on ${dir} as it was: an agent session or the toolchain update runs as the sandbox account, or this host's sessions could not be read, and a walk while one runs could be redirected outside the tree; let each session end (/exit inside it) and the toolchain update finish, or end them all with 'ai-tools stop', then re-run: $1 ${dir}"
 }
 
 if ${remove}; then

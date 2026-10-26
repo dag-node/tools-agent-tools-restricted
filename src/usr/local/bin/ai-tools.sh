@@ -2424,7 +2424,7 @@ cmd_project_claim() {
         declare -F ai_tools_sessions__read_live_session_state >/dev/null 2>&1 || return 0
         [[ "$(ai_tools_sessions__read_live_session_state)" != none ]] || return 0
         headline_warn "NOTICE: a session of the sandbox account is running" \
-            "An agent session or the toolchain update runs as ${SANDBOX_USER}, or this host's sessions could not be read, and the SELinux label step walks the tree as root, which the helper refuses while one runs. The other steps apply; the label is reported pending and the claim ends non-zero. End the sessions first, then re-run this claim:"
+            "An agent session or the toolchain update runs as ${SANDBOX_USER}, or this host's sessions could not be read, and the SELinux label step walks the tree as root, which the helper refuses while one runs. The other steps apply; the label is reported pending and the claim ends non-zero. Let each session end (/exit inside it) and the toolchain update finish, or end them all with the command below, then re-run this claim:"
         say "      ${C_BOLD}ai-tools stop${C_RST}"
     }
 

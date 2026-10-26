@@ -1121,7 +1121,7 @@ _restore_group_static_labels() {
         state="$(ai_tools_sessions__read_live_session_state)"
     fi
     if [[ "${state}" != none ]]; then
-        warn MSG-B9C4 "left the labels under ${clones} as they were: an agent session or the toolchain update runs as the sandbox account, or this host's sessions could not be read; end them with 'sudo ai-tools stop', then run: sudo restorecon -FR ${clones}"
+        warn MSG-B9C4 "left the labels under ${clones} as they were: an agent session or the toolchain update runs as the sandbox account, or this host's sessions could not be read; let each session end (/exit inside it) and the toolchain update finish, or end them all with 'sudo ai-tools stop', then run: sudo restorecon -FR ${clones}"
         return 0
     fi
     restorecon -FR "${clones}" >/dev/null 2>&1 \
