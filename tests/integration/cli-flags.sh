@@ -859,6 +859,15 @@ drive_rows() {
     expect "that refusal reaches no helper"                           cli_log_empty
     expect "that refusal creates no directory"                        test ! -e "${R}/for-new"
     cli_stub_ai_ops "${FOR_USER}"
+    # The snapshot's own refusal, the run's first sudo: the helper fails, and the run stops there having called it once
+    # and made no directory.
+    cli_stub_reset; cli_stub_fail ai-tools-allowlist
+    drive cli ai-tools.projects.create "$(f for)" "${FOR_USER}" "${R}/for-new"
+    expect "create --for stops at a snapshot the helper refuses, exit 1" rc_is 1
+    expect "that refusal carries its code"                            out_has_text MSG-E8W4
+    expect "that run called the helper once"                          test "$(cli_call_count ai-tools-allowlist)" = 1
+    expect "that one call is the snapshot"                            cli_called ai-tools-allowlist "^--operator${T}${FOR_USER}${T}--print$"
+    expect "that refusal creates no directory"                        test ! -e "${R}/for-new"
     cli_stub_reset; drive cli ai-tools.projects.create "$(f for)" "${FOR_USER}" "${R}/for-none/new"
     expect "control: a target in ai-ops reaches the snapshot"         cli_called ai-tools-allowlist "^--operator${T}${FOR_USER}${T}--print$"
     expect "control: the create then refuses the missing parent"      out_has_text MSG-J3R8

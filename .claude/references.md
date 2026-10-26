@@ -263,7 +263,7 @@ cannot fix -- a message code's name is a runtime string, and rewording one is a 
 | x6u2 | [MSG-X6U2](../src/usr/local/bin/ai-tools.sh) | you (${INVOKING_USER}) are not a configured ai-tools operator -- add your name to OPERATORS in ${conf} with: | src/usr/local/bin/ai-tools.sh | tests/integration/cli.sh | die |
 | r4j2 | [MSG-R4J2](../src/usr/local/bin/ai-tools.sh) | this run needs root: ${what} goes through ${bin##*/}, and ${INVOKING_USER} holds no sudo grant for it. | src/usr/local/bin/ai-tools.sh | tests/integration/cli.sh | die |
 | z6q6 | [MSG-Z6Q6](../src/usr/local/bin/ai-tools.sh) | a --for run acts on the filesystem AS the target: ${COMMAND} --for ${FOR_OPERATOR} runs ${blocked##*/} as ${FOR_OPERATOR}, and ${INVOKING_USER} holds no sudo grant to do that. | src/usr/local/bin/ai-tools.sh | tests/integration/cli.sh | die |
-| e8w4 | [MSG-E8W4](../src/usr/local/bin/ai-tools.sh) | could not read ${FOR_OPERATOR}'s allowed-projects -- nothing changed | src/usr/local/bin/ai-tools.sh |  | die |
+| e8w4 | [MSG-E8W4](../src/usr/local/bin/ai-tools.sh) | could not read ${FOR_OPERATOR}'s allowed-projects -- nothing changed | src/usr/local/bin/ai-tools.sh | tests/integration/cli-flags.sh | die |
 | u7r7 | [MSG-U7R7](../src/usr/local/bin/ai-tools.sh) | --for is not accepted on ${COMMAND} | src/usr/local/bin/ai-tools.sh | tests/integration/cli.sh | die |
 | b5k3 | [MSG-B5K3](../src/usr/local/bin/ai-tools.sh) | --for cannot be combined with --force | src/usr/local/bin/ai-tools.sh | tests/integration/cli.sh | die |
 | m3z3 | [MSG-M3Z3](../src/usr/local/bin/ai-tools.sh) | the sandbox account is not an operator and must not own projects | src/usr/local/bin/ai-tools.sh | tests/integration/cli.sh | die |

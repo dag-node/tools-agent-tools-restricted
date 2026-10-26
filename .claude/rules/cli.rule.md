@@ -588,7 +588,8 @@ writes: the target's launch wrapper refuses a caller outside the group, and a cr
 through that area's `g:ai-ops` ACL. `id -nG` reads the membership without a password, and an account whose groups cannot
 be read is refused like one outside the group, so a name written into `OPERATORS` by hand is refused
 before the snapshot. The snapshot then refuses a target with no allowlist file, which `ai-tools-allowlist --print`
-reports as the add does, so a half-enrolled target stops a create before its first write.
+reports as the add does: that refusal comes at the snapshot, the run's first `sudo`, before the run writes anything,
+the snapshot's own file included, and it names the same enrolment command as the group refusal.
 
 `--for` is **refused with `projects unclaim --force`**. That mode reaches a tree no allowlist names,
 so `ai-tools-unclaim` cannot resolve an owner from an entry and binds the walk to the **invoking uid** instead —

@@ -5667,21 +5667,22 @@ require_runas_target() {
 
 # snapshot_allowlist -- point ALLOWLIST at a private copy of the --for target's registry, read through the root helper.
 # The copy is read-only input for THIS run: every mutation goes back through the helper, which re-reads the real file,
-# so a stale snapshot can never be what a write is based on -- and reg_allow/unreg_allow refresh it after theirs. mktemp
-# creates it 0600, and the EXIT trap removes it, so another operator's project list does not outlive the command.
+# so a stale snapshot can never be what a write is based on -- and reg_allow/unreg_allow refresh it after theirs.
 # The helper refuses a target with no allowlist file, and its refusal reaches the terminal on stderr, so a failed read
-# ends the run with a line naming the target under the helper's own text and code.
+# ends the run with a line naming the target under the helper's own text and code. The file exists only once the helper
+# has answered: mktemp creates it 0600, and the EXIT trap removes it, so another operator's project list does not
+# outlive the command.
 ALLOWLIST_SNAPSHOT=""
 snapshot_allowlist() {
+    local entries
+    entries="$(sudo "${ALLOWLIST_BIN}" --operator "${FOR_OPERATOR}" --print)" \
+        || die MSG-E8W4 "could not read ${FOR_OPERATOR}'s allowed-projects -- nothing changed"
     if [[ -z "${ALLOWLIST_SNAPSHOT}" ]]; then
         ALLOWLIST_SNAPSHOT="$(mktemp)" || die "cannot create a temporary file for the allowlist snapshot"
         trap remove_run_files EXIT
     fi
-    # shellcheck disable=SC2024  # the redirect is meant to be the CALLER's: root reads the
-    # 0600 allowlist, this shell writes the snapshot it owns. `sudo tee` would create the temp file as root and leave
-    # the CLI unable to read back what it just asked for.
-    sudo "${ALLOWLIST_BIN}" --operator "${FOR_OPERATOR}" --print > "${ALLOWLIST_SNAPSHOT}" \
-        || die MSG-E8W4 "could not read ${FOR_OPERATOR}'s allowed-projects -- nothing changed"
+    # The capture drops the final line feeds, so one is put back; an empty registry stays an empty file.
+    printf '%s' "${entries}${entries:+$'\n'}" > "${ALLOWLIST_SNAPSHOT}"
     ALLOWLIST="${ALLOWLIST_SNAPSHOT}"
 }
 
