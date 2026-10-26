@@ -688,11 +688,13 @@ ask() {
 
 # ── Path helpers ─────────────────────────────────────────────────────────────────
 
-# find_unenterable_ancestor <path>  -- print the first ancestor of the absolute, normalized <path>, walking down
-# from /, that exists and that the invoking user cannot enter (`test -x`, which asks access(2), so the mode and the ACL
-# both count), and return 0. Return 1 when the walk reaches a component that does not exist or every ancestor can be
-# entered. realpath and `test -e` fail alike for a path that is absent and for one under a directory the caller cannot
-# enter; this walk is what tells the two apart.
+# find_unenterable_ancestor <path>  -- print the first ancestor of the absolute <path>, walking down from /, that
+# exists and that the invoking user cannot enter (`test -x`, which asks access(2), so the mode and the ACL both count),
+# and return 0. Return 1 when the walk reaches a component that does not exist or every ancestor can be entered.
+# realpath and `test -e` fail alike for a path that is absent and for one under a directory the caller cannot enter;
+# this walk is what tells the two apart. resolve_dir and the create walk the path as typed first and its `realpath -m`
+# form second: `realpath -m` collapses `..` lexically past a component it cannot stat, so a sealed directory
+# before a `..` leaves the normalized path, and the typed walk is what still reads it.
 find_unenterable_ancestor() {
     local rest="${1#/}" prefix=""
     while [[ "${rest}" == */* ]]; do
@@ -748,7 +750,10 @@ resolve_dir() {
     # realpath ends its answer with one line feed; the sentinel keeps a line feed that is part of the name, which a bare
     # command substitution would strip and so resolve `project<LF>` to its sibling `project`.
     if ! p="$(realpath -e -- "$1" 2>/dev/null && printf x)"; then
-        if blocked="$(find_unenterable_ancestor "$(realpath -m -- "$1" 2>/dev/null)")"; then
+        local typed="$1"
+        [[ "${typed}" == /* ]] || typed="${PWD}/${typed}"
+        if blocked="$(find_unenterable_ancestor "${typed}")" \
+                || blocked="$(find_unenterable_ancestor "$(realpath -m -- "$1" 2>/dev/null)")"; then
             refuse_unreachable "$1" "${blocked}"
         fi
         die "path not found: $(ai_tools_log__sanitize "$1")"
@@ -2750,6 +2755,16 @@ claim_end() {
     exit "${status}"
 }
 
+# refuse_unresolved_parent <parent>  -- die naming <parent>, the parent directory of a create that does not resolve.
+# `realpath -e` fails alike for an absent directory and for a symbolic link leading through a directory the invoker
+# cannot enter, so the refusal names both.
+refuse_unresolved_parent() {
+    local parent="$1"
+    die MSG-J3R8 "cannot resolve the parent directory: ${parent} -- it does not exist, or a symbolic link on its path leads through a directory ${INVOKING_USER} cannot enter" \
+        "projects create creates ONE directory, not a path of them, so a mistyped path is refused here rather than created. Check the path; if it is right and the parent is missing, create the parent yourself and re-run:" \
+        "       mkdir -p ${parent}"
+}
+
 # cmd_project_create <path>  -- create a NEW project directory and claim it: ONE mkdir, an empty git repository,
 # a README.md, then cmd_project_claim unchanged on the result. It refuses a location under a directory the invoker
 # cannot enter (refuse_unreachable), a path that exists (naming `projects claim`) and a parent that does not, and <path>
@@ -2770,10 +2785,28 @@ cmd_project_create() {
     [[ -n "${path}" ]] || die MSG-A7D3 "projects create needs a path: it creates a NEW project directory." \
         "To claim a directory that already exists, use: ai-tools projects claim [path]"
 
-    local d blocked
-    d="$(realpath -m -- "${path}" 2>/dev/null)" || die "cannot resolve the path: ${path}"
+    # The parent is resolved as the kernel resolves it for the mkdir, every component and symlink target read
+    # as the invoker. `realpath -m` alone collapses `..` lexically past a component it cannot stat,
+    # so `sealed/link/../../new` would lose the sealed directory and create a directory the operator did not name.
+    local typed="${path}" leaf parent_typed parent_real d blocked
+    while [[ "${typed}" == */ && "${typed}" != / ]]; do typed="${typed%/}"; done
+    [[ "${typed}" == /* ]] || typed="${PWD}/${typed}"
+    leaf="${typed##*/}"
+    parent_typed="${typed%/*}"; [[ -n "${parent_typed}" ]] || parent_typed=/
     # Ahead of the existence checks, which read a path under a directory the invoker cannot enter as absent, and ahead
-    # of the mkdir: the claim that follows reads the tree as the invoker, and could not resolve it.
+    # of the mkdir: the claim that follows reads the tree as the invoker, and could not resolve it. The trailing slash
+    # makes the walk read every component of the parent.
+    if blocked="$(find_unenterable_ancestor "${parent_typed}/")"; then
+        refuse_unreachable "${typed}" "${blocked}"
+    fi
+    if ! parent_real="$(realpath -e -- "${parent_typed}" 2>/dev/null)"; then
+        if blocked="$(find_unenterable_ancestor "$(realpath -m -- "${parent_typed}" 2>/dev/null)/")"; then
+            refuse_unreachable "${typed}" "${blocked}"
+        fi
+        refuse_unresolved_parent "${parent_typed}"
+    fi
+    # The leaf may be `.`, `..` or a symbolic link; each resolves here to a path the existence check reads.
+    d="$(realpath -m -- "${parent_real}/${leaf}" 2>/dev/null)" || die "cannot resolve the path: ${path}"
     if blocked="$(find_unenterable_ancestor "${d}")"; then
         refuse_unreachable "${d}" "${blocked}"
     fi
@@ -2785,13 +2818,10 @@ cmd_project_create() {
 
     # ONE directory is created, the final component, and a parent that does not exist is refused: a mistyped path
     # surfaces as a refusal naming the missing directory and does not become a manufactured tree with a claimed project
-    # inside it.
+    # inside it. `realpath -e` has resolved the typed parent, so this guards the leaf's own resolution: a leaf that is
+    # a symbolic link names a parent of its own.
     local parent="${d%/*}"; [[ -n "${parent}" ]] || parent=/
-    if [[ ! -d "${parent}" ]]; then
-        die MSG-J3R8 "the parent directory does not exist: ${parent}" \
-            "projects create creates ONE directory, not a path of them, so a mistyped path is refused here rather than created. Check the path; if it is right, create the parent yourself and re-run:" \
-            "       mkdir -p ${parent}"
-    fi
+    [[ -d "${parent}" ]] || refuse_unresolved_parent "${parent}"
 
     # The backstop on the target. Only one directory is created, so this is the whole surface: it refuses a create
     # that would MANUFACTURE a protected directory (`/efi` or `/lost+found` on a host without one). It does not refuse

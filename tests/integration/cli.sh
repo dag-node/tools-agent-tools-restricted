@@ -281,6 +281,35 @@ if command -v runuser >/dev/null 2>&1; then
                 AI_TOOLS_OPERATOR_CONF="${oconf}" AI_TOOLS_ALLOWLIST="${emptyal}" \
                 setsid "${CLI}" "${CLI_ARGV[@]}" "${sealed}/inner" 2>&1)" && rc=0 || rc=$?
         refused "ai-tools.projects.claim refuses a project under a directory the operator cannot enter" MSG-D4Z6 1
+
+        # A symbolic link inside the sealed directory, leading out of it. `realpath -m` run as the operator cannot stat
+        # the link and collapses `link/../..` lexically, so the sealed directory leaves the path and a create would make
+        # ${TESTDIR}/new, a directory nobody named. The control shows the collapse; root reads through the seal
+        # and follows the link, so it is run as the operator.
+        mkdir -p "${TESTDIR}/elsewhere/deep/deeper"
+        ln -s "${TESTDIR}/elsewhere/deep/deeper" "${sealed}/link"
+        through="${sealed}/link/../../new"
+        collapsed="$(runuser -u "${PROJECTS_USER}" -- realpath -m -- "${through}" 2>/dev/null)" || collapsed=""
+        if [[ "${collapsed}" == "${TESTDIR}/new" ]]; then
+            note "control: realpath -m as the operator collapses the path past the sealed directory" "${collapsed}"
+        else
+            fail "control: realpath -m as the operator printed '${collapsed}' (want ${TESTDIR}/new) -- the rows below prove nothing"
+        fi
+        out="$(create_cli "${through}")" && rc=0 || rc=$?
+        refused "ai-tools.projects.create refuses a path through a link inside a directory the operator cannot enter" \
+            MSG-D4Z6 1
+        if [[ ! -e "${TESTDIR}/new" && ! -e "${TESTDIR}/elsewhere/new" ]] \
+                && grep -qF "cannot enter ${sealed} as" <<<"${out}"; then
+            pass "the refusal names the sealed directory the link sits in, and nothing was created"
+        else
+            fail "the refusal did not name ${sealed} or a directory was created: $(brief "${out}")"
+        fi
+        spell ai-tools.projects.claim
+        out="$(runuser -u "${PROJECTS_USER}" -- env HOME="${PROJECTS_HOME}" \
+                AI_TOOLS_OPERATOR_CONF="${oconf}" AI_TOOLS_ALLOWLIST="${emptyal}" \
+                setsid "${CLI}" "${CLI_ARGV[@]}" "${through}" 2>&1)" && rc=0 || rc=$?
+        refused "ai-tools.projects.claim refuses a path through a link inside a directory the operator cannot enter" \
+            MSG-D4Z6 1
     else
         fail "the sealed-parent fixture did not set up: ${sealed} is enterable by ${PROJECTS_USER} or inner is missing"
     fi
