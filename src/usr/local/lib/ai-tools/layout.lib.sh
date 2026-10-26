@@ -130,8 +130,8 @@ _ai_tools_layout__populate_static_entries() {
         "${base}" files
     for library in log msg skip-dirs session-sweep owner-only project-permissions relabel secret-patterns operator \
             control-plane managed-assets safe-paths launch-wrapper confinement npm-verify openpgp entrypoint-verify \
-            assets-verify assets conf settings-merge providers ancestor-config sandbox-exec toolchain cache-cleanup \
-            selinux-groups filters services path-order agent-installs records-base records-tsv layout; do
+            assets-verify assets conf settings-merge providers ancestor-config sandbox-exec sessions toolchain \
+            cache-cleanup selinux-groups filters services path-order agent-installs records-base records-tsv layout; do
         _ai_tools_layout__append_static_entry "${lib}/${library}.lib.sh" file root:root 0644 - "${base}" files
     done
     _ai_tools_layout__append_static_entry "${lib}/path-order.sh"       file root:root 0644 - "${base}" files

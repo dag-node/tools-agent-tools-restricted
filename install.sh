@@ -1096,6 +1096,7 @@ do_summary() {
     _chk /usr/local/lib/ai-tools/providers.lib.sh
     _chk /usr/local/lib/ai-tools/ancestor-config.lib.sh
     _chk /usr/local/lib/ai-tools/sandbox-exec.lib.sh
+    _chk /usr/local/lib/ai-tools/sessions.lib.sh
     _chk /usr/local/lib/ai-tools/toolchain.lib.sh
     _chk /usr/local/lib/ai-tools/cache-cleanup.lib.sh
     _chk /usr/local/lib/ai-tools/filters.lib.sh
@@ -1592,6 +1593,13 @@ do_install() {
     install_subst 644 root root \
         "${SCRIPT_DIR}/src/usr/local/lib/ai-tools/sandbox-exec.lib.sh" \
         /usr/local/lib/ai-tools/sandbox-exec.lib.sh
+
+    # The live-session reader the recursive relabels gate on (sessions.lib.sh): 644 root:root, shipped logic alone,
+    # sourced by the relabel helpers and this installer as root and by the CLI as the operator.
+    log "/usr/local/lib/ai-tools/sessions.lib.sh"
+    install -o root -g root -m 644 \
+        "${SCRIPT_DIR}/src/usr/local/lib/ai-tools/sessions.lib.sh" \
+        /usr/local/lib/ai-tools/sessions.lib.sh
 
     # The residue readers and the one package removal (toolchain.lib.sh): 644 root:root like the resolver it requires,
     # sourced by the launch wrapper (as the operator), ai-tools-run, nvm-update and the bootstrap's sandbox-account

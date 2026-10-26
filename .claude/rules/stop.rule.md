@@ -1,6 +1,7 @@
 ---
 paths:
   - "src/usr/local/libexec/ai-tools/ai-tools-stop.sh"
+  - "src/usr/local/lib/ai-tools/sessions.lib.sh"
 ---
 
 # Stopping running sessions (`ai-tools-stop`)

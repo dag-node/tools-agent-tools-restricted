@@ -9,6 +9,7 @@ paths:
   - "src/usr/local/libexec/ai-tools/ai-tools-stop.sh"
   - "src/usr/local/libexec/ai-tools/ai-tools-admin.sh"
   - "src/usr/local/lib/ai-tools/relabel.lib.sh"
+  - "src/usr/local/lib/ai-tools/sessions.lib.sh"
   - "src/usr/local/lib/ai-tools/project-permissions.lib.sh"
   - "src/usr/local/lib/ai-tools/services.lib.sh"
 ---

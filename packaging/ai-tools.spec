@@ -370,7 +370,7 @@ ln -sr %{buildroot}%{ai_bindir}/ai-tools %{buildroot}%{_sbindir}/ai-tools
 # SANDBOX_GROUP member under multi-operator) can traverse in to source the 644
 # world-readable libs by path without listing the dir. The 640 files self-protect.
 install -d -m 0751 %{buildroot}%{ai_libdir}
-for l in log msg conf settings-merge skip-dirs session-sweep owner-only project-permissions relabel secret-patterns operator control-plane safe-paths launch-wrapper confinement npm-verify openpgp entrypoint-verify assets-verify assets managed-assets providers ancestor-config sandbox-exec toolchain cache-cleanup selinux-groups filters services path-order agent-installs records-base records-tsv layout; do
+for l in log msg conf settings-merge skip-dirs session-sweep owner-only project-permissions relabel secret-patterns operator control-plane safe-paths launch-wrapper confinement npm-verify openpgp entrypoint-verify assets-verify assets managed-assets providers ancestor-config sandbox-exec sessions toolchain cache-cleanup selinux-groups filters services path-order agent-installs records-base records-tsv layout; do
     install -m 0644 src%{ai_libdir}/${l}.lib.sh %{buildroot}%{ai_libdir}/${l}.lib.sh
 done
 # Provider manifest + fragment directories (base owns the dirs; each member package ships its own
@@ -1399,6 +1399,7 @@ fi
 %attr(0644, root, root) %{ai_libdir}/providers.lib.sh
 %attr(0644, root, root) %{ai_libdir}/ancestor-config.lib.sh
 %attr(0644, root, root) %{ai_libdir}/sandbox-exec.lib.sh
+%attr(0644, root, root) %{ai_libdir}/sessions.lib.sh
 %attr(0644, root, root) %{ai_libdir}/toolchain.lib.sh
 %attr(0644, root, root) %{ai_libdir}/cache-cleanup.lib.sh
 %attr(0644, root, root) %{ai_libdir}/selinux-groups.lib.sh
