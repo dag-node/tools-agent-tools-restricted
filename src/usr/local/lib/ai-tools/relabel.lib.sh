@@ -38,6 +38,16 @@
 # already be root. The functions are best-effort -- a disabled SELinux or a missing toolchain is reported via the return
 # code (2 = unavailable, 1 = hard failure), never an abort -- so a sourcing script keeps `set -e` semantics by checking
 # the return value.
+#
+# A recursive relabel of a tree the sandbox account can write -- a project, a clone, an agent's config directory -- runs
+# only while no process of that account is live (_ai_tools_relabel__require_no_live_session), and returns 3 otherwise.
+# restorecon walks by path, and on libselinux before 3.11 resolves each path again before it writes the label, so a live
+# process of the account could swap a directory for a symlink inside the walk and send the tree's type onto an inode it
+# chose. The reading is the kernel's cgroup tree (sessions.lib.sh), and the user manager's own plumbing is exempt
+# by name, which holds where a walk runs: none runs where SELinux is Disabled, and where the policy is loaded ai_tools_t
+# can neither write a cgroup file nor ask its manager for a unit, so the names are the manager's. A session launched
+# between the reading and the walk is inside it; cli.rule.md states that residual and what closes it. The per-path
+# `restorecon -F` of an entrypoint is not a walk and does not take the gate.
 
 # Every type this library applies is pinned in this file, and the labelling functions do not take a type argument:
 # a manifest or a caller names WHICH path is a project, a build-output directory, an entrypoint or a config directory,
@@ -146,6 +156,20 @@ ai_tools_relabel__unlock() {
 ai_tools_relabel__is_available() {
     command -v restorecon >/dev/null 2>&1 || return 2
     [[ "$(getenforce 2>/dev/null)" == "Disabled" ]] && return 2
+    return 0
+}
+
+# _ai_tools_relabel__require_no_live_session: return 0 when no process of the sandbox account is live, and 3 when one is
+#   or the reading cannot be made (ai_tools_sessions__read_live_session_state printing `live` or `unreadable`).
+#   sessions.lib.sh is loaded on first use; a copy that does not load, or loads without the reader, returns 3, since
+#   a walk the gate could not read for runs as though a session were live.
+_ai_tools_relabel__require_no_live_session() {
+    if ! declare -F ai_tools_sessions__read_live_session_state >/dev/null 2>&1; then
+        # shellcheck source=SCRIPTDIR/sessions.lib.sh
+        source "${BASH_SOURCE[0]%/*}/sessions.lib.sh" 2>/dev/null || true
+    fi
+    declare -F ai_tools_sessions__read_live_session_state >/dev/null 2>&1 || return 3
+    [[ "$(ai_tools_sessions__read_live_session_state)" == none ]] || return 3
     return 0
 }
 
@@ -329,10 +353,12 @@ _ai_tools_relabel__relabel_raw_rule_matches() {
 # ai_tools_relabel__label_project <dir>: ensure <dir> and its subtree carry ai_tools_project_t, and its declared
 # build-output directories ai_tools_project_build_t. Adds (or refreshes) the per-project fcontext rules -- skipped
 # for sandbox clones, which the static rules already cover -- then forces the label with `restorecon -FR`. Returns 2 if
-# SELinux is unavailable, 1 on a hard failure (e.g. a type is not in the loaded policy because the module is not
-# installed, or restorecon left the tree on the wrong type because no fcontext rule matched the path), 0 on success.
-# Both rules must register: a build rule the store refuses is a policy older than this library, and reporting it
-# as a failed label is what gets the module rebuilt rather than leaving output on a type the group cannot run.
+# SELinux is unavailable, 3 when a process of the sandbox account is live, before any write
+# (_ai_tools_relabel__require_no_live_session; the raw-rule relabel beside the project walks too, so the gate precedes
+# every write), 1 on a hard failure (e.g. a type is not in the loaded policy because the module is not installed,
+# or restorecon left the tree on the wrong type because no fcontext rule matched the path), 0 on success. Both rules
+# must register: a build rule the store refuses is a policy older than this library, and reporting it as a failed label
+# is what gets the module rebuilt rather than leaving output on a type the group cannot run.
 #
 # The relabel is FORCED (`-F`), and that is load-bearing, not a tuning choice. A file created inside a labelled
 # directory inherits ai_tools_project_t on its own, so an ordinary edit never drifts. But a file brought in carrying
@@ -351,6 +377,7 @@ _ai_tools_relabel__relabel_raw_rule_matches() {
 ai_tools_relabel__label_project() {
     local dir="$1" build_pattern literal
     ai_tools_relabel__is_available || return 2
+    _ai_tools_relabel__require_no_live_session || return 3
     if ! _ai_tools_relabel__is_under_sandbox_root "${dir}"; then
         literal="$(ai_tools_relabel__get_fcontext_literal "${dir}")"
         # `-a` on an existing entry reports it on stdout as well as failing, so both streams are dropped: the fallback
@@ -383,7 +410,8 @@ ai_tools_relabel__label_project() {
 # ai_tools_relabel__unlabel_project <dir>: drop the per-project fcontext rules for <dir> -- its own rule and every local
 # rule registered under it (the build rule, under whatever name set it was written with) -- and restorecon the subtree
 # back to its default type (e.g. user_home_t). The semanage deletes are skipped for sandbox clones (no local rule was
-# ever added); the restorecon still runs. Returns 2 if SELinux is unavailable, 1 on restorecon failure, 0 otherwise.
+# ever added); the restorecon still runs. Returns 2 if SELinux is unavailable, 3 when a process of the sandbox account
+# is live, before any write (_ai_tools_relabel__require_no_live_session), 1 on restorecon failure, 0 otherwise.
 #
 # The rules are looked up under the escaped encoding ai_tools_relabel__label_project writes and, where it differs,
 # under the raw path, which is how a rule registered before paths were escaped is found: one left behind would keep
@@ -392,6 +420,7 @@ ai_tools_relabel__unlabel_project() {
     local dir="$1" pattern encoding raw_retired=1
     local -a encodings
     ai_tools_relabel__is_available || return 2
+    _ai_tools_relabel__require_no_live_session || return 3
     if ! _ai_tools_relabel__is_under_sandbox_root "${dir}"; then
         encodings=("$(ai_tools_relabel__get_fcontext_literal "${dir}")")
         [[ "${encodings[0]}" == "${dir}" ]] || encodings+=("${dir}")
@@ -655,7 +684,9 @@ _ai_tools_relabel__label_agent_entrypoint() {
 }
 
 # _ai_tools_relabel__label_agent_config_dir <agent> : the config-directory half. Same shape; the subtree is restored
-#   recursively, and only the directory itself is verified (its contents inherit).
+#   recursively, and only the directory itself is verified (its contents inherit). Returns 3 when the directory is not
+#   there, and 4, after printing `live <agent> its config directory`, when a process of the sandbox account is live:
+#   the rule is registered and the walk is left for a run with no session (_ai_tools_relabel__require_no_live_session).
 _ai_tools_relabel__label_agent_config_dir() {
     local agent="$1" config_dir path pattern
     config_dir="$(ai_tools_providers__read_agent_manifest_field "${agent}" config_dir || true)"
@@ -679,6 +710,10 @@ _ai_tools_relabel__label_agent_config_dir() {
         printf 'none %s its config directory\n' "${agent}"
         return 3
     fi
+    if ! _ai_tools_relabel__require_no_live_session; then
+        printf 'live %s its config directory\n' "${agent}"
+        return 4
+    fi
     restorecon -FR "${path}" 2>/dev/null || true
     _ai_tools_relabel__verify_label "${path}" "${AI_TOOLS_RELABEL__AGENT_CONFIG_TYPE}"
 }
@@ -697,9 +732,13 @@ _ai_tools_relabel__label_agent_config_dir() {
 #                                      file at all -- the package did not install the entrypoint it
 #                                      declares, and the toolchain has to reinstall it
 #     skip  <agent> <reason...>        no rule to apply, or a declaration was refused
-#     agent <agent> <ok|failed|none>   that agent's whole outcome, closing its lines: every path it
-#                                      declares took its type, one of them did not, or neither is
-#                                      installed to label. This is what ai-tools-relabel-agent
+#     live  <agent> <what>             a process of the sandbox account is live, so the recursive
+#                                      relabel of that path was left for a later run
+#     agent <agent> <ok|failed|none|live-session>
+#                                      that agent's whole outcome, closing its lines: every path it
+#                                      declares took its type, one of them did not, neither is
+#                                      installed to label, or the config directory's walk was left
+#                                      to a run with no session. This is what ai-tools-relabel-agent
 #                                      records per agent for `ai-tools status` to report, so the
 #                                      operator can see the labelling half from outside the
 #                                      toolchain they cannot read.
@@ -716,9 +755,11 @@ ai_tools_relabel__label_agent_paths() {
         _ai_tools_relabel__label_agent_entrypoint "${agent}" || entrypoint_rc=$?
         _ai_tools_relabel__label_agent_config_dir  "${agent}" || config_rc=$?
         # Only 1 is a failure. 3 says the path is not installed yet, which is the ordinary pre-bootstrap state and must
-        # not fail a relabel that did everything it could.
+        # not fail a relabel that did everything it could; 4 says a session was live, which a later run settles.
         if [[ "${entrypoint_rc}" -eq 1 || "${config_rc}" -eq 1 ]]; then
             agent_status=failed; status=1
+        elif [[ "${config_rc}" -eq 4 ]]; then
+            agent_status='live-session'
         elif [[ "${entrypoint_rc}" -eq 3 && "${config_rc}" -eq 3 ]]; then
             agent_status=none
         else
@@ -733,7 +774,9 @@ ai_tools_relabel__label_agent_paths() {
 #   default labels on what they matched -- the erase-time counterpart, so a removed agent package
 #   leaves behind no rule for types its host may stop defining. Reads the manifest, so it runs
 #   while that package's files are still present (rpm %preun). Returns 2 when the SELinux layer is
-#   inactive, 1 when the agent does not declare a usable value, 0 otherwise.
+#   inactive, 1 when the agent does not declare a usable value, 3 when the rules were dropped and the config directory's
+#   walk was left because a process of the sandbox account is live (_ai_tools_relabel__require_no_live_session), 0
+#   otherwise.
 ai_tools_relabel__unlabel_agent_paths() {
     local agent="$1" pattern config_dir path dropped=1
     _ai_tools_relabel__is_entrypoint_policy_active || return 2
@@ -756,7 +799,10 @@ ai_tools_relabel__unlabel_agent_paths() {
         # The directory itself is agent STATE and survives the package (like .nvm), so it is relabelled to whatever
         # the remaining policy maps it to rather than left on a type this host may stop defining.
         path="${CP_HOME}/${config_dir}"
-        [[ -d "${path}" ]] && restorecon -FR "${path}" 2>/dev/null
+        if [[ -d "${path}" ]]; then
+            _ai_tools_relabel__require_no_live_session || return 3
+            restorecon -FR "${path}" 2>/dev/null
+        fi
         dropped=0
     fi
     return "${dropped}"

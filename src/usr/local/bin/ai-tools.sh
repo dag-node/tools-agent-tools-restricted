@@ -4888,10 +4888,15 @@ status_entrypoint_label() {
                      say "      retry: ${C_BOLD}sudo systemctl start ai-tools-relabel.service${C_RST} ${C_DIM}(then: journalctl -t ai-tools-relabel-agent)${C_RST}"
                  fi
                  return 1 ;;
-        # Nothing to label -- a DAC-only host, or an agent the toolchain has not provisioned yet. Neither is a fault,
-        # so neither is coloured or counted.
+        # Nothing to label -- a DAC-only host, or an agent the toolchain has not provisioned yet -- or the config
+        # directory's walk left while a session ran, over a directory an earlier run labelled. None is a fault, so none
+        # is coloured or counted; the last names the run that completes it.
         skipped) printf '  %-28s %snot labelled (%s)%s\n' "" "${C_DIM}" \
-                     "${reason:-nothing to label}" "${C_RST}" ;;
+                     "${reason:-nothing to label}" "${C_RST}"
+                 if [[ "${reason}" == live-session ]]; then
+                     say "      ${C_DIM}the config directory was not relabelled while a session ran; once none runs:${C_RST}"
+                     say "      ${C_BOLD}sudo systemctl start ai-tools-relabel.service${C_RST}"
+                 fi ;;
         # No record at all: this host has not run a reconciliation since the record was introduced, or the state
         # directory is unreadable from this account. It says only that, and never counts against the exit status --
         # the same rule the unqueryable units follow.

@@ -139,13 +139,21 @@ if ai_tools_relabel__is_available; then :; else
     exit 0
 fi
 
+# die_live_session <command> -- refuse a walk the library declined (status 3) because a process of the sandbox account
+# is live, or because the reading could not be made, naming the stop and the command that re-runs this step. The tree is
+# left as it was: the library gates before its first write.
+die_live_session() {
+    die MSG-H8V6 "left the SELinux label on ${dir} as it was: an agent session or the toolchain update runs as the sandbox account, or this host's sessions could not be read, and a walk while one runs could be redirected outside the tree; end them with 'ai-tools stop', then re-run: $1 ${dir}"
+}
+
 if ${remove}; then
-    if ai_tools_relabel__unlabel_project "${dir}"; then
-        echo "ai-tools-relabel: reverted ${dir} to its default SELinux type"
-        ai_tools_log__structured info "unlabelled project ${dir}" "AI_TOOLS_RESULT=ok"
-    else
-        die MSG-Q4X9 "failed to revert SELinux label on ${dir}"
-    fi
+    rc=0; ai_tools_relabel__unlabel_project "${dir}" || rc=$?
+    case "${rc}" in
+        0) echo "ai-tools-relabel: reverted ${dir} to its default SELinux type"
+           ai_tools_log__structured info "unlabelled project ${dir}" "AI_TOOLS_RESULT=ok" ;;
+        3) die_live_session "ai-tools projects unclaim" ;;
+        *) die MSG-Q4X9 "failed to revert SELinux label on ${dir}" ;;
+    esac
 else
     allowlisted "${dir}" \
         || die MSG-P8J7 "refusing to label ${dir}: not in the allowed-projects allowlist"
@@ -155,6 +163,7 @@ else
            ai_tools_log__structured info "labelled project ${dir} ai_tools_project_t" \
                "AI_TOOLS_RESULT=ok" ;;
         2) echo "ai-tools-relabel: SELinux inactive -- no labelling needed for ${dir}" ;;
+        3) die_live_session "ai-tools projects claim" ;;
         *) die MSG-M2D2 "failed to label ${dir} (is the ai_tools policy module loaded? install ai-tools-selinux, or from a checkout run: sudo selinux/install-selinux.sh install)" ;;
     esac
 fi

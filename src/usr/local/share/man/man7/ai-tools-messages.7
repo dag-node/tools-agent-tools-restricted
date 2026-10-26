@@ -445,6 +445,10 @@ a malformed interface floor: ${fragment} declares $(printf '%q' "${declared_floo
 WARNING.
 declined: ${cfg_home} was not created, so ${user}'s ai\-tools config cannot be seeded
 .TP
+.B MSG-B9C4
+WARNING.
+left the labels under ${clones} as they were: an agent session or the toolchain update runs as the sandbox account, or this host's sessions could not be read; end them with 'sudo ai\-tools stop', then run: sudo restorecon \-FR ${clones}
+.TP
 .B MSG-C4A8
 ERROR.
 failed to add ${user} to ${OPERATORS_GROUP}
@@ -1467,6 +1471,10 @@ must run as root (via sudo)
 ERROR.
 takes a single path
 .TP
+.B MSG-H8V6
+ERROR.
+left the SELinux label on ${dir} as it was: an agent session or the toolchain update runs as the sandbox account, or this host's sessions could not be read, and a walk while one runs could be redirected outside the tree; end them with 'ai\-tools stop', then re\-run: $1 ${dir}
+.TP
 .B MSG-M2D2
 ERROR.
 failed to label ${dir} (is the ai_tools policy module loaded? install ai\-tools\-selinux, or from a checkout run: sudo selinux/install\-selinux.sh install)
@@ -1508,6 +1516,10 @@ could not verify the entrypoint for ${agent} against release ${version} (see abo
 ERROR.
 an incomplete agent package stops this relabel: ${incomplete} agent(s) do not have the entrypoint their manifest declares installed at all, so it cannot be labelled; that executable comes from the sandbox toolchain rather than from the RPM, so reinstall it: sudo ai\-tools\-admin system bootstrap, then rerun; where that run reports the package incomplete again, its npm output names what was left out
 .TP
+.B MSG-E4E8
+WARNING.
+the config directory of ${live_session} agent(s) was not relabelled: an agent session or the toolchain update runs as the sandbox account, or this host's sessions could not be read; once they end (or after 'ai\-tools stop'), run: sudo systemctl start ai\-tools\-relabel.service
+.TP
 .B MSG-E4U5
 WARNING.
 relabels are not serialized on this host \-\- ${AI_TOOLS_RELABEL__LOCK_NOTE}
@@ -1519,6 +1531,10 @@ could not record ${1}'s labelling outcome for ai\-tools status
 .B MSG-G7C7
 WARNING.
 wrong type on ${subject}: it is '${detail}', NOT ${wanted}
+.TP
+.B MSG-G9X3
+WARNING.
+dropped the file\-context rules for ${agent} and left the labels on its config directory as they were: an agent session or the toolchain update runs as the sandbox account, or this host's sessions could not be read; end them with 'ai\-tools stop', then run: sudo restorecon \-FR ${remove_config_dir}
 .TP
 .B MSG-H9M5
 WARNING.
@@ -1806,6 +1822,10 @@ could not reset the SELinux label \-\- run: sudo restorecon \-RF ${canonical}
 WARNING.
 unknown option: ${_arg}
 .TP
+.B MSG-T6T2
+WARNING.
+left the SELinux label under ${canonical} as it was: an agent session or the toolchain update runs as the sandbox account, or this host's sessions could not be read; end them with 'ai\-tools stop', then run: sudo restorecon \-RF ${canonical}
+.TP
 .B MSG-V9Q6
 ERROR.
 \-\-unlisted: unknown invoking uid ${caller_uid} \-\- nothing changed
@@ -1919,6 +1939,10 @@ could not derive the shipped module set (policy/shipped\-modules.sh)
 .B MSG-E6C4
 WARNING.
 labelling did not complete for ${subject} \-\- see its lines above
+.TP
+.B MSG-E9S6
+WARNING.
+left the label on $1 as it was: an agent session or the toolchain update runs as the sandbox account, or this host's sessions could not be read; end them with 'sudo ai\-tools stop', then re\-run this command
 .TP
 .B MSG-F2V5
 WARNING.

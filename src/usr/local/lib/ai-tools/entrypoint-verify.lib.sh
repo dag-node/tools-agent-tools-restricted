@@ -253,8 +253,9 @@ _ai_tools_entrypoint_verify__write_record() {
 # ai_tools_entrypoint_verify__write_label <agent> <ok|failed|skipped> [reason-token] : record what the last
 #   reconciliation could do about <agent>'s labels. ROOT ONLY.
 #
-#   `skipped` is the SELinux layer being inactive -- a DAC-only host, where there is no
-#   ai_tools_exec_t to assign and no fault to fix. The reason is a short TOKEN, not prose: every
+#   `skipped` is a run that left a label it could not apply without a fault to fix -- the SELinux
+#   layer inactive, no installed entrypoint or config directory, or a walk left while a session of the sandbox
+#   account was live -- and the reason token says which. The reason is a short TOKEN, not prose: every
 #   field here is read back through the stamp accessors' charset clamp, which excludes spaces, and
 #   the operator-facing detail (semanage's own message) belongs in the log the refusal already
 #   writes. This says which class of failure, so the report can name the remedy.

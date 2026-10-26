@@ -718,10 +718,23 @@ _home_state()  { local p; for p in "${HOME_STATE[@]}"; do
 # Re-asserts the label on every registered project each run. The relabel is idempotent (restorecon writes only a file
 # whose context differs), so a clean tree costs a walk and no writes; a file that drifted in with a foreign context --
 # a customizable type a plain restorecon would preserve -- is forced back to ai_tools_project_t by the lib's `-F`,
-# which is the whole point of the sweep.
-_label_one()   { if ai_tools_relabel__label_project "$1"; then ok "labelled project ai_tools_project_t: $1"
-                 else warn MSG-S5E4 "could not label $1 -- is the ai_tools module loaded?"; fi; }
-_unlabel_one() { ai_tools_relabel__unlabel_project "$1" || warn MSG-W8J4 "could not unlabel $1"; }
+# which is the whole point of the sweep. A status of 3 is the library's live-session gate (relabel.lib.sh): the project
+# was left as it was.
+_label_one()   { local rc=0; ai_tools_relabel__label_project "$1" || rc=$?
+                 case "${rc}" in
+                     0) ok "labelled project ai_tools_project_t: $1" ;;
+                     3) _warn_live_session "$1" ;;
+                     *) warn MSG-S5E4 "could not label $1 -- is the ai_tools module loaded?" ;;
+                 esac; }
+_unlabel_one() { local rc=0; ai_tools_relabel__unlabel_project "$1" || rc=$?
+                 case "${rc}" in
+                     0) ;;
+                     3) _warn_live_session "$1" ;;
+                     *) warn MSG-W8J4 "could not unlabel $1" ;;
+                 esac; }
+_warn_live_session() {
+    warn MSG-E9S6 "left the label on $1 as it was: an agent session or the toolchain update runs as the sandbox account, or this host's sessions could not be read; end them with 'sudo ai-tools stop', then re-run this command"
+}
 _restore_one() { restorecon -FR "$1" 2>/dev/null || true; }
 # _label_sandbox_clones: apply the static ai_tools_project_t label (ai_tools.fc) to every existing sandbox clone, then
 # REPORT and VERIFY each one. The per-project loop skips sandbox paths (they carry no dynamic semanage rule --

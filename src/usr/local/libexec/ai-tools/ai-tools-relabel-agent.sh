@@ -109,6 +109,11 @@ if [[ "${1:-}" == --remove ]]; then
         0) say "dropped the file-context rules for ${agent}"
            ai_tools_log__info "dropped the file-context rules for ${agent}" ;;
         2) say "SELinux confinement inactive -- no file-context to drop" ;;
+        # The rules are dropped; the config directory keeps its type until a walk runs with no session live, since
+        # a walk while one runs could be redirected outside the directory. A package erase completes either way.
+        3) remove_config_dir="${CP_HOME:-/opt/ai-tools}/$(ai_tools_providers__read_agent_manifest_field "${agent}" config_dir 2>/dev/null || true)"
+           warn MSG-G9X3 "dropped the file-context rules for ${agent} and left the labels on its config directory as they were: an agent session or the toolchain update runs as the sandbox account, or this host's sessions could not be read; end them with 'ai-tools stop', then run: sudo restorecon -FR ${remove_config_dir}"
+           ai_tools_log__warn "dropped the file-context rules for ${agent}; its config directory was not relabelled while a session was live" ;;
         *) die MSG-S6C5 "no usable path rules declared by ${agent} -- nothing dropped" ;;
     esac
     exit 0
@@ -331,7 +336,7 @@ fi
 
 # Render the lib's status lines: it reports per path and per agent, this decides what an operator reads and what fails
 # the run. The wanted type travels with a "bad" line, since an agent declares two paths that carry different types.
-labelled=0 mislabelled=0 stale=0 incomplete=0 copied=0
+labelled=0 mislabelled=0 stale=0 incomplete=0 copied=0 live_session=0
 declare -A agent_outcome=() agent_reason=()
 if [[ -n "${report}" ]]; then
     while read -r verdict subject detail wanted; do
@@ -366,6 +371,10 @@ if [[ -n "${report}" ]]; then
                    ai_tools_log__warn "${subject}: the entrypoint declared by its manifest is not installed; the launcher resolves to ${detail}" ;;
             none)  say "${subject}: ${detail} is not installed -- nothing to label"
                    ai_tools_log__info "${subject}: ${detail} absent, nothing to label" ;;
+            # The library left a recursive relabel for a run with no session live; the entrypoint half still ran.
+            live)  live_session=$(( live_session + 1 ))
+                   say "${subject}: ${detail} ${wanted} -- not relabelled while a session runs"
+                   ai_tools_log__info "${subject}: ${detail} ${wanted} not relabelled, a session of the sandbox account is live" ;;
             skip)  agent_reason["${subject}"]="rule-not-registered"
                    warn MSG-X7F9 "labelling skipped for ${subject} -- ${detail} ${wanted}"
                    ai_tools_log__warn "${subject}: labelling skipped -- ${detail} ${wanted}" ;;
@@ -383,6 +392,7 @@ for label_agent in "${!agent_outcome[@]}"; do
         # Nothing installed to label: the ordinary state before ai-tools-bootstrap provisions the toolchain, and not
         # a fault -- so it is filed the same way an inactive SELinux layer is.
         none)   record_label_outcome "${label_agent}" skipped not-provisioned ;;
+        live-session) record_label_outcome "${label_agent}" skipped live-session ;;
         failed) record_label_outcome "${label_agent}" failed \
                     "${agent_reason[${label_agent}]:-did-not-take-its-type}" ;;
     esac
@@ -408,6 +418,11 @@ done
     || die MSG-A3B5 "the relabel did not take: ${mislabelled} path(s) did not take their type -- is the ai_tools module loaded? run: sudo selinux/install-selinux.sh install"
 (( status == 0 )) \
     || die MSG-N9B9 "an agent's file-context rule could not be applied (see above)"
+
+# Not a failure: the config directory already carries the type a previous run gave it, and what was left is the forced
+# re-walk that repairs drift. It is named so the operator can run it once the sessions end.
+(( live_session == 0 )) \
+    || warn MSG-E4E8 "the config directory of ${live_session} agent(s) was not relabelled: an agent session or the toolchain update runs as the sandbox account, or this host's sessions could not be read; once they end (or after 'ai-tools stop'), run: sudo systemctl start ai-tools-relabel.service"
 
 if (( labelled > 0 )); then
     say "all ${labelled} path(s) labelled -- exit any running session and relaunch"
