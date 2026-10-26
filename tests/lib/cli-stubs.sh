@@ -32,7 +32,8 @@
 #                            to PATH), CLI_STUB_LOG, CLI_STUB_SECRETS. <root> must be exec-capable
 #                            and the caller chowns it to the user the CLI runs as.
 # cli_stub_reset             truncates the log and the secrets list, and clears every cli_stub_fail.
-# cli_stub_fail <helper>...  makes each named helper's call exit 1 after it is logged, for a failed root step.
+# cli_stub_fail <helper>...  makes each named helper's call exit 1 after it is logged, for a failed root step;
+#                            <helper>:<option> fails only a call carrying that option (`ai-tools-allowlist:--remove`).
 # cli_calls <helper>             prints the log lines for <helper>, fields after the cwd only
 #                                (tab-separated args).
 # cli_called <helper> [ere]      0 when <helper> was called and, with <ere>, some call's args match it.
@@ -97,6 +98,9 @@ name="\${bin##*/}"
     printf '\n'
 } >> "\${LOG}"
 [[ -e "\${STUBS}/fail.\${name}" ]] && exit 1
+for a in "\$@"; do
+    [[ "\${a}" == --* && -e "\${STUBS}/fail.\${name}:\${a}" ]] && exit 1
+done
 if [[ -x "\${STUBS}/\${name}" ]]; then
     exec "\${STUBS}/\${name}" "\$@"
 fi

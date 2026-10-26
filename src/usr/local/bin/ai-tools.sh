@@ -937,45 +937,48 @@ allow_escape() { printf '%s' "$1" | sed 's/[]\.*^$|[]/\\&/g'; }
 
 unreg_allow() {
     local dir="$1"
-    # A --for run de-lists through the root helper, which applies the same raw-line matcher to the real file;
-    # the snapshot is refreshed so a later read in this run agrees with it.
+    # A removal that did not apply ends the verb in both arms, through the one refusal at the tail: the entry is
+    # the launch gate, so a verb that carried on would report access removed while a session can still start there,
+    # and cmd_project_remove deletes the tree in its next step.
     if [[ -n "${FOR_OPERATOR}" ]]; then
+        # A --for run de-lists through the root helper, which applies the same raw-line matcher to the real file;
+        # the snapshot is refreshed so a later read in this run agrees with it.
         if sudo "${ALLOWLIST_BIN}" --operator "${FOR_OPERATOR}" --remove "${dir}" >/dev/null; then
             refresh_target_allowlist_snapshot
             say "    allowed-projects: removed for ${FOR_OPERATOR}"
-        else
-            warn "could not remove ${dir} from ${FOR_OPERATOR}'s allowed-projects -- run:"
-            say  "      ${C_BOLD}sudo ${ALLOWLIST_BIN} --operator ${FOR_OPERATOR} --remove ${dir}${C_RST}"
+            return 0
         fi
-        return 0
-    fi
-    [[ -f "${ALLOWLIST}" ]] || return 0
-    # The library deletes every RAW line naming ${dir} -- allow AND exclusion -- matched through the shared grammar
-    # rather than rebuilt from the path, so an entry carrying a comment or quotes is not missed (the blind spot
-    # that used to leave the entry, and the agent's access, behind on unclaim), and a project the operator had parked
-    # leaves no '!' behind to disable whatever is claimed at that path next.
-    local -a lines=() excl=(); local raw before
-    before="$(allow_state "${dir}")"
-    ai_tools_conf__read_allowlist_matching_lines  lines "${ALLOWLIST}" "${dir}" || true
-    ai_tools_conf__read_allowlist_exclusion_lines excl  "${ALLOWLIST}" "${dir}" || true
-    lines+=("${excl[@]}")
-    # The library verifies the removal by re-reading the file: this entry is the launch gate, and cmd_project_remove
-    # deletes the tree in its next step. Reported and fatal, since `sed -i` writes its temporary file
-    # into the allowlist's own DIRECTORY and so fails on a config dir this operator cannot write even when the allowlist
-    # itself is writable.
-    if ! ai_tools_conf__allowlist_remove "${ALLOWLIST}" "${dir}"; then
+        warn "could not remove ${dir} from ${FOR_OPERATOR}'s allowed-projects -- while its line stands a session can still launch there. Remove it with:"
+        say  "      ${C_BOLD}sudo ${ALLOWLIST_BIN} --operator ${FOR_OPERATOR} --remove $(_quote_path "${dir}")${C_RST}"
+    else
+        [[ -f "${ALLOWLIST}" ]] || return 0
+        # The library deletes every RAW line naming ${dir} -- allow AND exclusion -- matched through the shared grammar
+        # rather than rebuilt from the path, so an entry carrying a comment or quotes is not missed (the blind spot
+        # that used to leave the entry, and the agent's access, behind on unclaim), and a project the operator had
+        # parked leaves no '!' behind to disable whatever is claimed at that path next.
+        local -a lines=() excl=(); local raw before
+        before="$(allow_state "${dir}")"
+        ai_tools_conf__read_allowlist_matching_lines  lines "${ALLOWLIST}" "${dir}" || true
+        ai_tools_conf__read_allowlist_exclusion_lines excl  "${ALLOWLIST}" "${dir}" || true
+        lines+=("${excl[@]}")
+        # The library verifies the removal by re-reading the file rather than trusting `sed`, which writes its temporary
+        # file into the allowlist's own DIRECTORY and so fails on a config dir this operator cannot write even
+        # when the allowlist itself is writable.
+        if ai_tools_conf__allowlist_remove "${ALLOWLIST}" "${dir}"; then
+            if [[ "${before}" == absent ]]; then
+                say "    allowed-projects: not listed"
+            else
+                say "    allowed-projects: removed"
+            fi
+            return 0
+        fi
         warn "could not remove ${dir} from allowed-projects -- a line naming it survived. While an allow line stands the agent can still launch there, and a '!' line left behind parks the path against a future claim. Remove it by hand:"
         for raw in "${lines[@]}"; do
             printf "      %ssed -i '\\\\|^%s\$|d' %s%s\n" \
                 "${C_BOLD}" "$(allow_escape "${raw}")" "${ALLOWLIST}" "${C_RST}"
         done
-        die MSG-K8S2 "allowed-projects not updated -- ${dir} is still registered"
     fi
-    if [[ "${before}" == absent ]]; then
-        say "    allowed-projects: not listed"
-    else
-        say "    allowed-projects: removed"
-    fi
+    die MSG-K8S2 "allowed-projects not updated -- ${dir} is still registered"
 }
 
 # reg_safedir <dir>  -- register <dir> in the agent's git safe.directory list: read unprivileged for idempotency, then

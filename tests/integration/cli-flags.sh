@@ -841,6 +841,31 @@ drive_rows() {
     cli_stub_reset; drive cli ai-tools.projects.unclaim "$(f for)" "${FOR_USER}" "$(f yes)" "${R}/for2"
     expect "unclaim --for drops the target's entry through the helper" cli_called ai-tools-allowlist "^--operator${T}${FOR_USER}${T}--remove${T}${R}/for2$"
     expect "the target's entry is gone"                               st_for_is "${R}/for2" absent
+    # A registry removal the helper refuses ends the verb non-zero with the entry still listed (MSG-K8S2): the unclaim
+    # after its hand-back, the remove before its deletion. The marker fails the helper's `--remove` call alone,
+    # so the snapshot's `--print` still answers; each case's control is the same command without it.
+    cli_stub_reset; drive cli ai-tools.projects.claim "$(f for)" "${FOR_USER}" "$(f yes)" "${R}/for2"
+    cli_stub_reset; cli_stub_fail ai-tools-allowlist:--remove
+    drive cli ai-tools.projects.unclaim "$(f for)" "${FOR_USER}" "$(f yes)" "${R}/for2"
+    expect "unclaim --for exits non-zero when the target's entry cannot be removed" rc_not0
+    expect "that refusal carries its code"                            out_has_text MSG-K8S2
+    expect "the target's entry is still listed"                       st_for_is "${R}/for2" listed
+    expect "the hand-back ran ahead of the registry step"             cli_called ai-tools-unclaim "^${R}/for2${T}"
+    expect "the helper was asked to remove the entry"                 cli_called ai-tools-allowlist "^--operator${T}${FOR_USER}${T}--remove${T}${R}/for2$"
+    cli_stub_reset; drive cli ai-tools.projects.unclaim "$(f for)" "${FOR_USER}" "$(f yes)" "${R}/for2"
+    expect "control: the same unclaim --for drops the entry"          st_for_is "${R}/for2" absent
+    # The removal's tree belongs to the projects user, since the shim runs the owner's steps as the invoker.
+    mkdir -p "${R}/for3"; chown "${PROJECTS_USER}:${PROJECTS_USER}" "${R}/for3"
+    printf '%s\n' "${R}/for3" >> "${FOR_AL}"
+    cli_stub_reset; cli_stub_fail ai-tools-allowlist:--remove
+    drive cli ai-tools.projects.remove.inplace "$(f for)" "${FOR_USER}" "$(f yes)" "${R}/for3"
+    expect "remove --for exits non-zero when the target's entry cannot be removed" rc_not0
+    expect "that refusal carries its code"                            out_has_text MSG-K8S2
+    expect "the tree is not deleted past the refused registry step"  test -d "${R}/for3"
+    expect "the target's entry is still listed"                       st_for_is "${R}/for3" listed
+    cli_stub_reset; drive cli ai-tools.projects.remove.inplace "$(f for)" "${FOR_USER}" "$(f yes)" "${R}/for3"
+    expect "control: the same remove --for deletes the tree"         test ! -e "${R}/for3"
+    expect "control: and drops the target's entry"                    st_for_is "${R}/for3" absent
 
     for key in ai-tools.projects.clone ai-tools.projects.push ai-tools.status ai-tools.stop; do
         cli_stub_reset; drive cli "${key}" "$(f for)" "${FOR_USER}" "${SRC}"

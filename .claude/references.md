@@ -191,7 +191,7 @@ cannot fix -- a message code's name is a runtime string, and rewording one is a 
 | t4z6 | [MSG-T4Z6](../src/usr/local/bin/ai-tools.sh) | not a sandbox clone (must be a clone under ${SANDBOX_ROOT}): ${d} | src/usr/local/bin/ai-tools.sh |  | die |
 | w3h3 | [MSG-W3H3](../src/usr/local/bin/ai-tools.sh) | not a sandbox clone (expected ${SANDBOX_ROOT}/<clone>, one level deep): ${d} | src/usr/local/bin/ai-tools.sh |  | die |
 | a8z6 | [MSG-A8Z6](../src/usr/local/bin/ai-tools.sh) | could not add ${dir} to ${FOR_OPERATOR}'s allowed-projects -- it is not registered | src/usr/local/bin/ai-tools.sh |  | die |
-| k8s2 | [MSG-K8S2](../src/usr/local/bin/ai-tools.sh) | allowed-projects not updated -- ${dir} is still registered | src/usr/local/bin/ai-tools.sh | tests/integration/cli.sh | die |
+| k8s2 | [MSG-K8S2](../src/usr/local/bin/ai-tools.sh) | allowed-projects not updated -- ${dir} is still registered | src/usr/local/bin/ai-tools.sh | tests/integration/cli-flags.sh, tests/integration/cli.sh | die |
 | x3g7 | [MSG-X3G7](../src/usr/local/bin/ai-tools.sh) | cannot load the libraries the claim checks its drift and states its exit codes with -- reinstall the ai-tools package | src/usr/local/bin/ai-tools.sh |  | die |
 | t8f5 | [MSG-T8F5](../src/usr/local/bin/ai-tools.sh) | label-fixed | src/usr/local/bin/ai-tools.sh |  | _claim_info |
 | q4g7 | [MSG-Q4G7](../src/usr/local/bin/ai-tools.sh) | label-not-fixed | src/usr/local/bin/ai-tools.sh |  | _claim_attention |
