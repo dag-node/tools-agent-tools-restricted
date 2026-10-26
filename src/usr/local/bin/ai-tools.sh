@@ -1899,6 +1899,9 @@ claim_load_libraries() {
     fi
 }
 
+# The fresh-tree hint is projects create's alone, so the run clears what the environment hands it.
+CLAIM_FRESH_TREE=""
+
 # claim_work_dir -- create CLAIM_WORK, the private directory (`mktemp -d`, 0700) holding a claim's path lists
 # and the tool output its checks capture, removed by the EXIT trap with the allowlist snapshot.
 CLAIM_WORK=""
@@ -2116,18 +2119,20 @@ under_skip_listed_name() {
 }
 
 # tree_is_pristine <dir>  -- 0 when <dir> holds only what `projects create` just put there: no file outside .git except
-# README.md, and a git repository with no commits. One `find` that stops at the first hit and one `git rev-parse`,
+# README.md, and a git repository with no commits. One `find` that stops at the first hit and three git reads,
 # unprivileged.
 #
 # It is re-derived here rather than trusted from the caller, because what it gates is the secret scan: a stale
 # or planted CLAIM_FRESH_TREE must not be able to skip that on a tree with content in it. Both halves are the actual
 # preconditions -- no files means no secret-named files, and no commits means no history -- so the answer is a property
 # of the tree, not a claim about it. Every reading the invoker cannot make returns 1: a root it cannot list and enter,
-# a walk `find` reports an error for, and a .git its git does not open as this tree's own repository (git refuses
-# another account's repository, and walks past a .git it cannot read to whatever repository encloses the tree), since
-# an unread tree and an empty one look the same to `find` and `git rev-parse`.
+# a walk `find` reports an error for, a .git its git does not open as this tree's own repository (git refuses another
+# account's repository, and walks past a .git it cannot read to whatever repository encloses the tree), and a branch
+# reference its git cannot read, since an unread tree and an empty one look the same to `find`, and `git rev-parse HEAD`
+# fails alike for an unborn branch and an unreadable one. So no commits is proved from a reading that succeeds:
+# `git rev-list --all --count` printing 0, where a reference it cannot read, loose or packed, exits non-zero.
 tree_is_pristine() {
-    local d="$1" hit git_dir own_git_dir
+    local d="$1" hit git_dir own_git_dir commit_count
     [[ -r "${d}" && -x "${d}" ]] || return 1
     hit="$(find "${d}" -path "${d}/.git" -prune -o ! -type d ! -path "${d}/README.md" \
                -print -quit 2>/dev/null)" || return 1
@@ -2136,7 +2141,8 @@ tree_is_pristine() {
     git_dir="$(git -C "${d}" rev-parse --absolute-git-dir 2>/dev/null)" || return 1
     own_git_dir="$(realpath -e -- "${d}/.git" 2>/dev/null)" || return 1
     [[ "${git_dir}" == "${own_git_dir}" ]] || return 1
-    ! git -C "${d}" rev-parse --verify --quiet HEAD >/dev/null 2>&1
+    commit_count="$(LC_ALL=C git -C "${d}" rev-list --all --count 2>/dev/null)" || return 1
+    [[ "${commit_count}" == "0" ]]
 }
 
 # require_claimable_owner <dir>  -- die unless <dir> is held by the operator this run acts FOR or by the sandbox

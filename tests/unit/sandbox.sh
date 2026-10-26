@@ -232,6 +232,32 @@ else
     pass "a .git the projects user's git refuses makes a tree non-pristine"
 fi
 
+# A committed repository whose branch reference the projects user cannot read: `git rev-parse HEAD` fails for it as it
+# does for an unborn branch, so the predicate must prove no commits from a reading that read every reference.
+# The reference is sealed by mode, which a root run reads through, so the fixture is asserted as the projects user.
+mk_committed() {  # mk_committed <dir> : mk_fresh with the README committed
+    mk_fresh "$1"
+    git -C "$1" add README.md
+    git -C "$1" -c user.email=t@example.invalid -c user.name=t -c commit.gpgsign=false commit -qm first
+    chown -R "${PROJECTS_USER}:${PROJECTS_GROUP}" "$1"
+}
+sealed_ref_case() {  # sealed_ref_case <dir> <ref-file> <what> : <ref-file> made 000 must leave <dir> not pristine
+    chmod 000 "$2"
+    if runuser -u "${PROJECTS_USER}" -- test -r "$2"; then
+        fail "fixture: the projects user still reads $2 -- the ${3} case proves nothing"
+    elif pristine "$1"; then
+        fail "a repository whose ${3} the projects user cannot read read as pristine -- its commit was never seen"
+    else
+        pass "a repository whose ${3} the projects user cannot read is not pristine"
+    fi
+}
+loose_ref="${work}/loose-ref"; mk_committed "${loose_ref}"
+sealed_ref_case "${loose_ref}" "${loose_ref}/.git/$(git -C "${loose_ref}" symbolic-ref HEAD)" "loose branch reference"
+packed_ref="${work}/packed-ref"; mk_committed "${packed_ref}"
+git -C "${packed_ref}" pack-refs --all
+chown -R "${PROJECTS_USER}:${PROJECTS_GROUP}" "${packed_ref}"
+sealed_ref_case "${packed_ref}" "${packed_ref}/.git/packed-refs" "packed-refs file"
+
 # ── sealed_setgid_scan ────────────────────────────────────────────────────────────────────────
 # The claim's Review block reports a setgid bit on an owner-only directory from this scan, so a walk that cannot start
 # must not read as a tree with no such directory: on a root the projects user cannot list, the scan returns 1 and does
