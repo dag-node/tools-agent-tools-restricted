@@ -688,23 +688,25 @@ ask() {
 
 # ── Path helpers ─────────────────────────────────────────────────────────────────
 
-# find_unenterable_ancestor <path>  -- print the first ancestor of the absolute <path>, walking down from /, that
-# exists and that the invoking user cannot enter (`test -x`, which asks access(2), so the mode and the ACL both count),
-# and return 0. Return 1 when the walk reaches a component that does not exist or every ancestor can be entered.
-# realpath and `test -e` fail alike for a path that is absent and for one under a directory the caller cannot enter;
-# this walk is what tells the two apart. It reads the path as typed, component by component as the kernel looks it
-# up, so a `..` is never collapsed lexically: `missing/..` stops the walk at `missing`, where the kernel's lookup fails,
-# and a sealed directory before a `..` is read before the `..` is. A component `test -e` cannot stat that is a symbolic
-# link -- one leading into a directory the invoker cannot enter -- is followed as `realpath -m` resolves it,
-# so that directory is still named; the hop bound is the kernel's own (MAXSYMLINKS), and a link `realpath -m` cannot
-# move past, a loop among them, ends the walk.
+# find_unenterable_ancestor <path> <var>  -- set the caller's variable <var> to the first ancestor of the absolute
+# <path>, walking down from /, that exists and that the invoking user cannot enter (`test -x`, which asks access(2),
+# so the mode and the ACL both count), and return 0. The result is returned in <var> rather than printed, since
+# a `$(...)` capture strips a line feed that ends a directory's name. Return 1 when the walk reaches a component
+# that does not exist or every ancestor can be entered. realpath and `test -e` fail alike for a path that is absent
+# and for one under a directory the caller cannot enter; this walk is what tells the two apart. It reads the path
+# as typed, component by component as the kernel looks it up, so a `..` is never collapsed lexically: `missing/..` stops
+# the walk at `missing`, where the kernel's lookup fails, and a sealed directory before a `..` is read before the `..`
+# is. A component `test -e` cannot stat that is a symbolic link -- one leading into a directory the invoker cannot enter
+# -- is followed as `realpath -m` resolves it, so that directory is still named; the hop bound is the kernel's own
+# (MAXSYMLINKS), and a link `realpath -m` cannot move past, a loop among them, ends the walk.
 find_unenterable_ancestor() {
+    local -n _unenterable_ancestor="$2"
     local remaining_path="${1#/}" ancestor_path="" resolved_path link_hops=0 LC_ALL=C
     while [[ "${remaining_path}" == */* ]]; do
         ancestor_path+="/${remaining_path%%/*}"
         remaining_path="${remaining_path#*/}"
         if [[ -d "${ancestor_path}" && ! -x "${ancestor_path}" ]]; then
-            printf '%s\n' "${ancestor_path}"
+            _unenterable_ancestor="${ancestor_path}"
             return 0
         fi
         [[ -e "${ancestor_path}" ]] && continue
@@ -764,19 +766,25 @@ resolve_dir() {
     if ! p="$(realpath -e -- "$1" 2>/dev/null && printf x)"; then
         local typed="$1"
         [[ "${typed}" == /* ]] || typed="${PWD}/${typed}"
-        if blocked_ancestor="$(find_unenterable_ancestor "${typed}")"; then
+        if find_unenterable_ancestor "${typed}" blocked_ancestor; then
             refuse_unreachable "$1" "${blocked_ancestor}"
         fi
         die "path not found: $(ai_tools_log__sanitize "$1")"
     fi
     p="${p%x}"
     p="${p%$'\n'}"
-    # A project root is registered one per line in allowed-projects and printed on the claim's page, so a control byte
-    # in it, a line feed first among them, is refused before any verb acts on the path.
-    if [[ "${p}" =~ [[:cntrl:]] ]]; then
-        die MSG-V8Z5 "project path holds a control character: $(ai_tools_log__sanitize "${p}") -- rename it first"
-    fi
+    refuse_control_character_path "${p}"
     printf '%s' "${p}"
+}
+
+# refuse_control_character_path <path>  -- die when <path> holds a control character. A project root is registered one
+# per line in allowed-projects and printed on the claim's page, so a control byte in it, a line feed first among them,
+# is refused before any verb acts on the path: resolve_dir for a claim, and the create before its first write.
+refuse_control_character_path() {
+    local LC_ALL=C
+    if [[ "$1" =~ [[:cntrl:]] ]]; then
+        die MSG-V8Z5 "project path holds a control character: $(ai_tools_log__sanitize "$1") -- rename it first"
+    fi
 }
 
 # require_sandbox_clone <path>  -- die unless <path> is a real sandbox CLONE: it passes the protected-paths backstop, is
@@ -2842,15 +2850,21 @@ cmd_project_create() {
     # Ahead of the existence checks, which read a path under a directory the invoker cannot enter as absent, and ahead
     # of the mkdir: the claim that follows reads the tree as the invoker, and could not resolve it. The trailing slash
     # makes the walk read every component of the parent.
-    if blocked_ancestor="$(find_unenterable_ancestor "${parent_typed}/")"; then
+    if find_unenterable_ancestor "${parent_typed}/" blocked_ancestor; then
         refuse_unreachable "${typed}" "${blocked_ancestor}"
     fi
-    if ! parent_real="$(realpath -e -- "${parent_typed}" 2>/dev/null)"; then
+    # Each capture keeps the line feed a name may end in, with resolve_dir's sentinel: a bare command substitution
+    # strips it, and `parent<LF>/new` would then be created under the sibling `parent`.
+    if ! parent_real="$(realpath -e -- "${parent_typed}" 2>/dev/null && printf x)"; then
         refuse_unresolved_parent "${parent_typed}"
     fi
+    parent_real="${parent_real%x}"
+    parent_real="${parent_real%$'\n'}"
     # The leaf may be `.`, `..` or a symbolic link; each resolves here to a path the existence check reads.
-    d="$(realpath -m -- "${parent_real}/${leaf}" 2>/dev/null)" || die "cannot resolve the path: ${path}"
-    if blocked_ancestor="$(find_unenterable_ancestor "${d}")"; then
+    d="$(realpath -m -- "${parent_real}/${leaf}" 2>/dev/null && printf x)" || die "cannot resolve the path: ${path}"
+    d="${d%x}"
+    d="${d%$'\n'}"
+    if find_unenterable_ancestor "${d}" blocked_ancestor; then
         refuse_unreachable "${d}" "${blocked_ancestor}"
     fi
     if [[ -e "${d}" ]]; then
@@ -2858,6 +2872,7 @@ cmd_project_create() {
             "projects create only ever creates. Claim what is already there instead:" \
             "       ai-tools projects claim ${d}"
     fi
+    refuse_control_character_path "${d}"
 
     # ONE directory is created, the final component, and a parent that does not exist is refused: a mistyped path
     # surfaces as a refusal naming the missing directory and does not become a manufactured tree with a claimed project
@@ -2899,7 +2914,8 @@ cmd_project_create() {
         # One alternative is offered, and only after it has been CHECKED on this host rather than assumed: the owner's
         # home is the usual reachable location, but whether it is depends on its ancestry, which differs per host.
         # A suggestion that cannot be verified is not made at all.
-        local home_dir candidate
+        # shellcheck disable=SC2034  # find_unenterable_ancestor writes it through its nameref; the status is the reading
+        local home_dir candidate candidate_blocker
         home_dir="$(getent passwd "${OWNER_USER}" 2>/dev/null | cut -d: -f6)"
         if [[ -n "${home_dir}" && -d "${home_dir}" ]]; then
             candidate="${home_dir%/}/${d##*/}"
@@ -2907,7 +2923,7 @@ cmd_project_create() {
             # Reachable by the invoker as well, or the create offered here would be refused
             # by the find_unenterable_ancestor pre-flight.
             if [[ -z "${TRAVERSAL_BLOCKED_PATH}" && ! -e "${candidate}" ]] \
-                    && ! find_unenterable_ancestor "${candidate}" >/dev/null; then
+                    && ! find_unenterable_ancestor "${candidate}" candidate_blocker; then
                 say ""
                 say "  this location is reachable:"
                 say "      ${C_BOLD}ai-tools projects create ${candidate}${C_RST}"

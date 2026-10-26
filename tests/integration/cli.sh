@@ -261,6 +261,26 @@ if command -v runuser >/dev/null 2>&1; then
         fail "ai-tools.projects.create did not refuse a missing parent (rc=${rc}): $(brief "${out}")"
     fi
 
+    # A directory whose name ends in a line feed, beside its sibling without one. A bare `$(...)` capture of the parent
+    # strips the line feed, so `twin<LF>/new` would be created under the sibling `twin` and claimed there. Every capture
+    # keeps it, so the create reaches the control-character refusal (MSG-V8Z5) before its first write, and creates
+    # neither directory. The control is that capture, made as the operator, reading the sibling.
+    twin="${TESTDIR}/twin"; twin_lf="${TESTDIR}/twin"$'\n'
+    mkdir -- "${twin}" "${twin_lf}"; chown "${PROJECTS_USER}:${PROJECTS_USER}" "${twin}" "${twin_lf}"
+    stripped="$(runuser -u "${PROJECTS_USER}" -- realpath -e -- "${twin_lf}" 2>/dev/null)" || stripped=""
+    if [[ "${stripped}" == "${twin}" ]]; then
+        note "control: a bare capture of the line-feed directory reads its sibling" "${stripped}"
+    else
+        fail "control: a bare capture of ${twin}<LF> read '${stripped}' (want ${twin}) -- the row below proves nothing"
+    fi
+    out="$(create_cli "${twin_lf}/new")" && rc=0 || rc=$?
+    refused "ai-tools.projects.create refuses a parent whose name ends in a line feed" MSG-V8Z5 1
+    if [[ ! -e "${twin}/new" && ! -e "${twin_lf}/new" ]]; then
+        pass "the line-feed parent creates neither ${twin}/new nor its twin"
+    else
+        fail "the line-feed parent created a directory: $(ls -A "${twin}" "${twin_lf}" 2>&1)"
+    fi
+
     # A location under a directory the operator cannot enter is refused by name (MSG-D4Z6) before anything is created:
     # the claim reads the tree as the operator, and both existence checks read such a path as absent. The existing
     # directory behind the seal is the case that tells the two apart: read as absent, it would take the missing-parent
@@ -333,6 +353,19 @@ if command -v runuser >/dev/null 2>&1; then
             pass "ai-tools.projects.claim reports missing/../sealed/new as a path not found, not as unreachable"
         else
             fail "ai-tools.projects.claim over missing/../sealed/new (rc=${rc}): $(brief "${out}")"
+        fi
+
+        # A blocker whose own name ends in a line feed is named whole: the walk returns its result in a variable,
+        # so the sanitized name the refusal prints ends in the sanitizer's `?` for the line feed, not in the sibling's
+        # name.
+        blocked_lf="${TESTDIR}/blocked"$'\n'; mkdir -p -- "${blocked_lf}/inner"; chmod 0700 "${blocked_lf}"
+        out="$(create_cli "${blocked_lf}/inner/proj")" && rc=0 || rc=$?
+        refused "ai-tools.projects.create refuses a location under a sealed directory whose name ends in a line feed" \
+            MSG-D4Z6 1
+        if grep -qF "cannot enter ${TESTDIR}/blocked? as" <<<"${out}" && [[ ! -e "${blocked_lf}/inner/proj" ]]; then
+            pass "the refusal names the line-feed directory whole, and nothing was created"
+        else
+            fail "the refusal did not name ${TESTDIR}/blocked<LF> whole: $(brief "${out}")"
         fi
 
         # The case the walk follows a link for: a link in a directory the operator enters, leading into the sealed one.
