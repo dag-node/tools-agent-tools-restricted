@@ -967,8 +967,11 @@ so a mistyped path surfaces instead of becoming a manufactured tree with a claim
 the path as the invoker, so a location under a directory the invoker cannot enter is refused first, naming
 that directory, and the claim that follows could not resolve it either. The parent is resolved with `realpath -e`,
 the kernel's resolution, so a symbolic link inside a directory the invoker cannot enter is refused rather than collapsed
-away by `..`. A reachability pre-flight refuses a location the sandbox account could never enter before anything exists,
-and names an alternative only after checking it on this host, the invoker's own reach included.
+away by `..`. The walk that names the directory reads the typed path a component at a time: a component it cannot stat
+is followed where it is a symbolic link, and ends the walk where it is absent, so `missing/../sealed/new` is refused
+as a parent that does not resolve rather than naming `sealed`. A reachability pre-flight refuses a location the sandbox
+account could never enter before anything exists, and names an alternative only after checking it on this host,
+the invoker's own reach included.
 
 The tree is empty by construction, so the claim infers three answers without asking, gated on `tree_is_pristine`,
 which the claim re-derives from the tree (no file outside `.git` but `README.md`, and no commits) rather than trusting

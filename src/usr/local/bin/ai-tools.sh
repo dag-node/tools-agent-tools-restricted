@@ -692,19 +692,31 @@ ask() {
 # exists and that the invoking user cannot enter (`test -x`, which asks access(2), so the mode and the ACL both count),
 # and return 0. Return 1 when the walk reaches a component that does not exist or every ancestor can be entered.
 # realpath and `test -e` fail alike for a path that is absent and for one under a directory the caller cannot enter;
-# this walk is what tells the two apart. resolve_dir and the create walk the path as typed first and its `realpath -m`
-# form second: `realpath -m` collapses `..` lexically past a component it cannot stat, so a sealed directory
-# before a `..` leaves the normalized path, and the typed walk is what still reads it.
+# this walk is what tells the two apart. It reads the path as typed, component by component as the kernel looks it
+# up, so a `..` is never collapsed lexically: `missing/..` stops the walk at `missing`, where the kernel's lookup fails,
+# and a sealed directory before a `..` is read before the `..` is. A component `test -e` cannot stat that is a symbolic
+# link -- one leading into a directory the invoker cannot enter -- is followed as `realpath -m` resolves it,
+# so that directory is still named; the hop bound is the kernel's own (MAXSYMLINKS), and a link `realpath -m` cannot
+# move past, a loop among them, ends the walk.
 find_unenterable_ancestor() {
-    local remaining_path="${1#/}" ancestor_path=""
+    local remaining_path="${1#/}" ancestor_path="" resolved_path link_hops=0 LC_ALL=C
     while [[ "${remaining_path}" == */* ]]; do
         ancestor_path+="/${remaining_path%%/*}"
         remaining_path="${remaining_path#*/}"
-        [[ -e "${ancestor_path}" ]] || return 1
         if [[ -d "${ancestor_path}" && ! -x "${ancestor_path}" ]]; then
             printf '%s\n' "${ancestor_path}"
             return 0
         fi
+        [[ -e "${ancestor_path}" ]] && continue
+        [[ -L "${ancestor_path}" ]] || return 1
+        (( ++link_hops <= 40 )) || return 1
+        # The sentinel keeps a line feed that ends the link's target, which a bare command substitution would strip.
+        resolved_path="$(realpath -m -- "${ancestor_path}" 2>/dev/null && printf x)" || return 1
+        resolved_path="${resolved_path%x}"
+        resolved_path="${resolved_path%$'\n'}"
+        [[ "${resolved_path}" != "${ancestor_path}" ]] || return 1
+        remaining_path="${resolved_path#/}/${remaining_path}"
+        ancestor_path=""
     done
     return 1
 }
@@ -752,8 +764,7 @@ resolve_dir() {
     if ! p="$(realpath -e -- "$1" 2>/dev/null && printf x)"; then
         local typed="$1"
         [[ "${typed}" == /* ]] || typed="${PWD}/${typed}"
-        if blocked_ancestor="$(find_unenterable_ancestor "${typed}")" \
-                || blocked_ancestor="$(find_unenterable_ancestor "$(realpath -m -- "$1" 2>/dev/null)")"; then
+        if blocked_ancestor="$(find_unenterable_ancestor "${typed}")"; then
             refuse_unreachable "$1" "${blocked_ancestor}"
         fi
         die "path not found: $(ai_tools_log__sanitize "$1")"
@@ -2835,9 +2846,6 @@ cmd_project_create() {
         refuse_unreachable "${typed}" "${blocked_ancestor}"
     fi
     if ! parent_real="$(realpath -e -- "${parent_typed}" 2>/dev/null)"; then
-        if blocked_ancestor="$(find_unenterable_ancestor "$(realpath -m -- "${parent_typed}" 2>/dev/null)/")"; then
-            refuse_unreachable "${typed}" "${blocked_ancestor}"
-        fi
         refuse_unresolved_parent "${parent_typed}"
     fi
     # The leaf may be `.`, `..` or a symbolic link; each resolves here to a path the existence check reads.

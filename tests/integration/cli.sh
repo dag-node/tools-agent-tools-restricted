@@ -310,6 +310,41 @@ if command -v runuser >/dev/null 2>&1; then
                 setsid "${CLI}" "${CLI_ARGV[@]}" "${through}" 2>&1)" && rc=0 || rc=$?
         refused "ai-tools.projects.claim refuses a path through a link inside a directory the operator cannot enter" \
             MSG-D4Z6 1
+
+        # A component that does not exist, or one that is a file, ends the kernel's lookup there, so the `..` after it
+        # never reaches the sealed directory: the create refuses the parent it cannot resolve (MSG-J3R8) and the claim
+        # reports a path not found, neither naming ${sealed}. A walk over the lexically collapsed form would name it,
+        # and under `--for` offer a traverse grant on a directory that is not the cause.
+        : > "${TESTDIR}/regular"
+        for through in "${TESTDIR}/missing/../sealed/new" "${TESTDIR}/regular/../sealed/new"; do
+            out="$(create_cli "${through}")" && rc=0 || rc=$?
+            refused "ai-tools.projects.create refuses ${through#"${TESTDIR}/"} as a parent it cannot resolve" MSG-J3R8 1
+            if [[ ! -e "${sealed}/new" ]] && ! grep -qF "cannot enter ${sealed}" <<<"${out}"; then
+                pass "the refusal of ${through#"${TESTDIR}/"} does not name ${sealed}, and nothing was created"
+            else
+                fail "the refusal of ${through#"${TESTDIR}/"} named ${sealed} or a directory was created: $(brief "${out}")"
+            fi
+        done
+        spell ai-tools.projects.claim
+        out="$(runuser -u "${PROJECTS_USER}" -- env HOME="${PROJECTS_HOME}" \
+                AI_TOOLS_OPERATOR_CONF="${oconf}" AI_TOOLS_ALLOWLIST="${emptyal}" \
+                setsid "${CLI}" "${CLI_ARGV[@]}" "${TESTDIR}/missing/../sealed/new" 2>&1)" && rc=0 || rc=$?
+        if (( rc != 0 )) && grep -qF "path not found" <<<"${out}" && ! grep -qx "MSG-D4Z6" <<<"${out}"; then
+            pass "ai-tools.projects.claim reports missing/../sealed/new as a path not found, not as unreachable"
+        else
+            fail "ai-tools.projects.claim over missing/../sealed/new (rc=${rc}): $(brief "${out}")"
+        fi
+
+        # The case the walk follows a link for: a link in a directory the operator enters, leading into the sealed one.
+        # `test -e` cannot stat it, so the walk resolves it and still names ${sealed}; passes before and after.
+        ln -s "${sealed}/inner" "${TESTDIR}/alias"
+        out="$(create_cli "${TESTDIR}/alias/new")" && rc=0 || rc=$?
+        refused "ai-tools.projects.create refuses a link leading into a directory the operator cannot enter" MSG-D4Z6 1
+        if [[ ! -e "${sealed}/inner/new" ]] && grep -qF "cannot enter ${sealed} as" <<<"${out}"; then
+            pass "the refusal follows the link and names ${sealed}, and nothing was created"
+        else
+            fail "the refusal over the link did not name ${sealed} or a directory was created: $(brief "${out}")"
+        fi
     else
         fail "the sealed-parent fixture did not set up: ${sealed} is enterable by ${PROJECTS_USER} or inner is missing"
     fi
