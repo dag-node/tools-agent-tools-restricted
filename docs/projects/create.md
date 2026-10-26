@@ -105,9 +105,8 @@ missing.
 ## Exit status
 
 0 when the project is created and claimed; 1 for a refusal before the directory
-is made (the path exists, the parent is missing, a directory on the way is one
-you cannot enter) and when a step failed after it was made; 2 for a rejected
-command line (a missing `DIRECTORY`, an unknown option); 3 when the path is
-a protected system directory or a home root; 5 when the claim could not read
-a step of the new tree as you, which under `--for` is the target's repository,
+is made, and when a step failed after it was made; 2 for a rejected command
+line (a missing `DIRECTORY`, an unknown option); 3 when the path is a protected
+system directory or a home root; 5 when the claim could not read a step
+of the new tree as you, which under `--for` is the target's repository,
 and names the command that finishes it. `man ai-tools` has the full list.

@@ -9,9 +9,9 @@
 # Root is needed for READS as well as writes: an allowlist is 0600 inside a 0700 .config/ai-tools (ai-tools-admin seeds
 # an operator's config), so one operator cannot see another's list at all. `--print` exists for exactly
 # that, and the CLI snapshots it for the decisions a claim makes (is the path listed, disabled, or absent)
-# before routing the mutation back through the four editing actions. It reads an existing registry and refuses
-# a missing one with the code the add refuses it with, so the snapshot -- a --for run's first sudo -- carries
-# the refusal ahead of any write the run makes.
+# before routing the mutation back through the four editing actions. It reads an existing registry and refuses a missing
+# one with the code the add refuses it with, so the snapshot -- a --for run's first sudo -- carries the refusal ahead
+# of any write the run makes.
 #
 # The allowlist is the LAUNCH GATE: an entry here is what lets that operator's agent start in the directory,
 # and what makes the ownership handback restore files to them. Editing another operator's gate stays inside the trust
@@ -194,9 +194,9 @@ require_target_config() {
 }
 
 # ── print ────────────────────────────────────────────────────────────────────────
-# Read-only, and the only action that does not require a path. A missing allowlist is refused like the add refuses
-# it, so a --for run against a half-enrolled target stops at its snapshot rather than at its first write. An existing
-# file is printed as it stands; one holding only comments is an empty list to the caller (the CLI's snapshot).
+# Read-only, and the only action that does not require a path. A missing allowlist is refused as the add refuses it.
+# An existing file is printed as it stands; one holding only comments is an empty list to the caller (the CLI's
+# snapshot).
 if [[ "${ACTION}" == print ]]; then
     require_target_config
     cat -- "${allowlist}"

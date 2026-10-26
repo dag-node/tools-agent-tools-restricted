@@ -585,11 +585,9 @@ was disregarded. The target must be **enrolled in `OPERATORS`**, since the owner
 over that list and an entry written for an unenrolled name would be a launch gate no helper can act on; the sandbox
 account and `root` are refused outright. It must also be **in `ai-ops`**, the second fact `ai-tools-admin operators add`
 writes: the target's launch wrapper refuses a caller outside the group, and a create in the clone area writes
-through that area's `g:ai-ops` ACL. `id -nG` reads the membership without a password, and an account whose groups cannot
-be read is refused like one outside the group, so a name written into `OPERATORS` by hand is refused
-before the snapshot. The snapshot then refuses a target with no allowlist file, which `ai-tools-allowlist --print`
-reports as the add does: that refusal comes at the snapshot, the run's first `sudo`, before the run writes anything,
-the snapshot's own file included, and it names the same enrolment command as the group refusal.
+through that area's `g:ai-ops` ACL. The membership is read without a password and before the snapshot, and an account
+whose groups cannot be read is refused like one outside the group. The snapshot then refuses a target with no allowlist
+file, at the run's first `sudo` and before the run writes anything, naming the same enrolment command.
 
 `--for` is **refused with `projects unclaim --force`**. That mode reaches a tree no allowlist names,
 so `ai-tools-unclaim` cannot resolve an owner from an entry and binds the walk to the **invoking uid** instead —
@@ -621,13 +619,11 @@ pointing at the **invoker's** home, so the `git init` inside a create would conf
 from the invoker's `~/.gitconfig`.
 
 **The seam covers what a `--for` run writes, and the run still reads as the invoker.** Resolving the path, reading
-the project's state and every scan run unprivileged as the invoking operator. A project under a directory that operator
-cannot enter is refused naming the directory, and a state inside the tree that operator cannot read is reported rather
-than taken for its absence ([Claim in place](#claim-in-place)). A `create --for` into the target's private home
-therefore needs the invoker to hold traverse on that home. The refusal names a location both accounts reach first,
-the clone area as the example, and then the traverse-only grant that opens the directory where the predicate the claim's
-own traverse grant passes permits one ([safe-paths](safe-paths.rule.md)): a directory the target owns that is not
-protected, or the target's own home root.
+the project's state and every scan run unprivileged as the invoking operator, with the refusals and the `unknown`
+readings [Claim in place](#claim-in-place) states. A `create --for` into the target's private home therefore needs
+the invoker to hold traverse on that home, so its refusal names a location both accounts reach first, the clone area
+as the example, and then the traverse-only grant that opens the directory, where the predicate the claim's own traverse
+grant passes permits one ([safe-paths](safe-paths.rule.md)).
 
 **It uses a grant the caller already holds.** `sudo -u <target>` rides the caller's **general** sudo grant, the axis
 [CLAUDE.md](../../CLAUDE.md) names, so an operator who reaches it could already act as that account; the sandbox account
@@ -968,12 +964,11 @@ whose **last component is a symbolic link**, dangling or not, is refused by the 
 directory, and following the link would make and claim it wherever the link points, a link the sandbox account planted
 in a project it co-writes among them. Both checks read the path as the invoker, so a location under a directory
 the invoker cannot enter is refused first, naming that directory, and the claim that follows could not resolve it
-either. The parent is resolved with `realpath -e`, the kernel's resolution, so a symbolic link inside a directory
-the invoker cannot enter is refused rather than collapsed away by `..`. The walk that names the directory reads
-the typed path a component at a time: a component it cannot stat is followed where it is a symbolic link, and ends
-the walk where it is absent, so `missing/../sealed/new` is refused as a parent that does not resolve rather than naming
-`sealed`. A reachability pre-flight refuses a location the sandbox account could never enter before anything exists,
-and names an alternative only after checking it on this host, the invoker's own reach included.
+either. The path is resolved as the kernel resolves it for the `mkdir`, so the directory made is the one the typed path
+names, and the directory the unreachable-location refusal names is one the lookup reaches
+(`find_invoker_traversal_blocker`), never one a lexical `..` collapses to. A reachability pre-flight refuses a location
+the sandbox account could never enter before anything exists, and names an alternative only after checking it on this
+host, the invoker's own reach included.
 
 The tree is empty by construction, so the claim infers three answers without asking, gated
 on `is_project_tree_pristine`, which the claim re-derives from the tree (no file outside `.git` but `README.md`,

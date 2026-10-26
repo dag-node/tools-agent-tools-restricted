@@ -3,8 +3,8 @@
 # tests/unit/sandbox.sh
 # Unit test for the pure decisions behind the ai-tools.sh flows -- the ai-tools.projects.clone pair, the precondition
 # ai-tools.projects.create's skipped prompts rest on (is_project_tree_pristine), the sealed-setgid scan's report
-# of a walk it could not start (find_sealed_setgid_directories), the .git and filemode readings the claim takes
-# as unknown (read_project_state), the exclusion reader the claim-time scans prune their walks
+# of a walk it could not start or finish (find_sealed_setgid_directories), the .git and filemode readings the claim
+# takes as unknown (read_project_state), the exclusion reader the claim-time scans prune their walks
 # with (allowlist_exclusions), the re-claim's SELinux drift scan (label_drift_scan), and the checks the claim runs
 # after its Apply block (claim_verify_label, claim_verify_group, at the end).
 #

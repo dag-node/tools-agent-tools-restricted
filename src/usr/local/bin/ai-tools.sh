@@ -712,7 +712,7 @@ find_invoker_traversal_blocker() {
         [[ -e "${ancestor_path}" ]] && continue
         [[ -L "${ancestor_path}" ]] || return 1
         (( ++link_hops <= 40 )) || return 1
-        # The sentinel keeps a line feed that ends the link's target, which a bare command substitution would strip.
+        # resolve_existing_path's sentinel: the link's target may end in a line feed.
         resolved_path="$(realpath -m -- "${ancestor_path}" 2>/dev/null && printf x)" || return 1
         resolved_path="${resolved_path%x}"
         resolved_path="${resolved_path%$'\n'}"
@@ -2282,9 +2282,7 @@ cmd_project_claim() {
     local need_filemode=false; [[ "${filemode}" == false ]] && need_filemode=true
     local need_acl=false; [[ "${acl}" == true ]] && need_acl=true
     local need_git=false; [[ "${git}" == true ]] && need_git=true
-    # A step whose state the invoker could not read (read_project_state's `unknown`) is neither applied nor reported
-    # done: each is announced in the Review block, written as an `error` row, and named with the command that finishes
-    # it.
+    # A step read_project_state reads as `unknown` is not applied (cli.rule.md, Claim in place).
     local git_unreadable=false filemode_unreadable=false
     [[ "${git}" == unknown ]] && git_unreadable=true
     [[ "${filemode}" == unknown ]] && filemode_unreadable=true
@@ -2824,12 +2822,11 @@ refuse_unresolved_parent() {
 }
 
 # cmd_project_create <path>  -- create a NEW project directory and claim it: ONE mkdir, an empty git repository,
-# a README.md, then cmd_project_claim unchanged on the result. It refuses a location under a directory the invoker
-# cannot enter (refuse_unreachable_path), a path that exists (naming `projects claim`) and a parent that does not,
-# and <path> is required with no cwd default. Every filesystem step goes through run_as_owner, so a create under `--for`
-# produces a TARGET-owned tree, the one require_claimable_owner then accepts. It does not take `-y`: it does not ask
-# a question a flag could pre-answer, and the traverse grant on an ancestor, the one question that can still appear, is
-# answered by a person at a terminal alone. The refusals, the modes it sets and the claim questions it infers are
+# a README.md, then cmd_project_claim unchanged on the result. <path> is required with no cwd default. Every filesystem
+# step goes through run_as_owner, so a create under `--for` produces a TARGET-owned tree, the one
+# require_claimable_owner then accepts. It does not take `-y`: it does not ask a question a flag could pre-answer,
+# and the traverse grant on an ancestor, the one question that can still appear, is answered by a person at a terminal
+# alone. The refusals, the modes it sets and the claim questions it infers are
 # cli.rule.md's.
 cmd_project_create() {
     local a path=""
@@ -2845,8 +2842,7 @@ cmd_project_create() {
         "To claim a directory that already exists, use: ai-tools projects claim [path]"
 
     # The parent is resolved as the kernel resolves it for the mkdir, every component and symlink target read
-    # as the invoker. `realpath -m` alone collapses `..` lexically past a component it cannot stat,
-    # so `sealed/link/../../new` would lose the sealed directory and create a directory the operator did not name.
+    # as the invoker (`realpath -e`, and find_invoker_traversal_blocker to name a directory it cannot enter).
     local typed="${path}" leaf parent_typed parent_real d blocked_ancestor
     while [[ "${typed}" == */ && "${typed}" != / ]]; do typed="${typed%/}"; done
     [[ "${typed}" == /* ]] || typed="${PWD}/${typed}"
@@ -2858,8 +2854,7 @@ cmd_project_create() {
     if find_invoker_traversal_blocker "${parent_typed}/" blocked_ancestor; then
         refuse_unreachable_path "${typed}" "${blocked_ancestor}"
     fi
-    # Each capture keeps the line feed a name may end in, with resolve_existing_path's sentinel: a bare command
-    # substitution strips it, and `parent<LF>/new` would then be created under the sibling `parent`.
+    # Each capture takes resolve_existing_path's sentinel, or `parent<LF>/new` would be created under `parent`.
     if ! parent_real="$(realpath -e -- "${parent_typed}" 2>/dev/null && printf x)"; then
         refuse_unresolved_parent "${parent_typed}"
     fi
