@@ -1230,11 +1230,12 @@ label_drift_scan() {
 # the claim did not touch. "Third party" is decided per path, against the OWNER's primary group and not the invoking
 # user's: on a multi-operator host the group the claim walks treat as legitimate is the resolved project owner's, since
 # they act only on paths that owner or the sandbox account holds, so reporting against the invoker's would flag a bit
-# the claim goes on to strip, or stay silent about one it keeps. Returns 1 without printing a path when the invoker
-# cannot list and enter <dir>, since a walk that cannot start reads like a tree with no such directory; a subdirectory
-# the walk cannot read is left out of the list.
+# the claim goes on to strip, or stay silent about one it keeps. Returns 0 when the walk covered the tree. Returns 1
+# without printing a path when the invoker cannot list and enter <dir>, since a walk that cannot start reads like a tree
+# with no such directory. Returns 2 when `find` exits non-zero, a subdirectory the walk cannot read among the causes,
+# with every path it did reach printed, so a list that may be short is not read as complete.
 sealed_setgid_scan() {
-    local dir="$1" excl
+    local dir="$1" excl find_status=0
     [[ -r "${dir}" && -x "${dir}" ]] || return 1
     local -a skip=( -name .git -prune )
     while IFS= read -r excl; do
@@ -1250,7 +1251,8 @@ sealed_setgid_scan() {
     | while IFS=$'\t' read -r _uid _grp _path; do
           [[ "${_grp}" == "$(id -gn "${_uid}" 2>/dev/null || true)" ]] && continue
           printf '%s\n' "${_path}"
-      done || true
+      done || find_status="${PIPESTATUS[0]}"
+    (( find_status == 0 )) || return 2
 }
 
 # reg_ownership <dir> [force]  -- make <dir> usable by the sandbox account: group SANDBOX_GROUP + the setgid bit
@@ -2324,20 +2326,34 @@ cmd_project_claim() {
     # step.
     # The scan's status says whether it was made, so its output goes through the work directory rather than a pipe.
     local -a sealed_setgid=()
-    local sealed_setgid_unread=false
-    sealed_setgid_scan "${d}" > "${CLAIM_WORK}/sealed-setgid" || sealed_setgid_unread=true
+    local sealed_setgid_scan_result=complete sealed_setgid_status=0
+    sealed_setgid_scan "${d}" > "${CLAIM_WORK}/sealed-setgid" || sealed_setgid_status=$?
+    case "${sealed_setgid_status}" in
+        0) ;;
+        2) sealed_setgid_scan_result=incomplete ;;
+        *) sealed_setgid_scan_result=not-made ;;
+    esac
     mapfile -t sealed_setgid < <(head -n 200 "${CLAIM_WORK}/sealed-setgid")
 
     sealed_setgid_note() {
-        if ${sealed_setgid_unread}; then
+        if [[ "${sealed_setgid_scan_result}" == not-made ]]; then
             say "      ${C_DIM}the sealed-setgid scan was not made as ${INVOKING_USER}${C_RST}"
             return 0
         fi
-        (( ${#sealed_setgid[@]} )) || return 0
-        headline_warn "NOTICE: setgid on an owner-only directory" \
-            "${#sealed_setgid[@]} sealed director(ies) carry a setgid bit set to a group that is neither ${SANDBOX_GROUP} nor yours. The claim keeps it -- it cannot tell a deliberate choice from a leftover -- so new files there are still born in that group."
-        path_listing "director(ies)" "${sealed_setgid[@]}"
-        say "      ${C_DIM}if it was not intended, clear it yourself:  chmod g-s <dir>${C_RST}"
+        if (( ${#sealed_setgid[@]} )); then
+            headline_warn "NOTICE: setgid on an owner-only directory" \
+                "${#sealed_setgid[@]} sealed director(ies) carry a setgid bit set to a group that is neither ${SANDBOX_GROUP} nor yours. The claim keeps it -- it cannot tell a deliberate choice from a leftover -- so new files there are still born in that group."
+            path_listing "director(ies)" "${sealed_setgid[@]}"
+            say "      ${C_DIM}if it was not intended, clear it yourself:  chmod g-s <dir>${C_RST}"
+        fi
+        if [[ "${sealed_setgid_scan_result}" == incomplete ]]; then
+            say "      ${C_DIM}the sealed-setgid scan did not cover every directory as ${INVOKING_USER},${C_RST}"
+            if (( ${#sealed_setgid[@]} )); then
+                say "      ${C_DIM}so the list may be short${C_RST}"
+            else
+                say "      ${C_DIM}so a directory it could not read may carry such a bit${C_RST}"
+            fi
+        fi
     }
 
     # Configuration a build reads from the project's ancestor directories. The toolchain walks the ancestry and opens

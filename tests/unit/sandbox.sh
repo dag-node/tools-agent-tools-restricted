@@ -288,6 +288,30 @@ if [[ "${sg_got}" == "rc=1" ]]; then
 else
     fail "the scan over a root the projects user cannot list printed '${sg_got}' (want rc=1)"
 fi
+# A walk that starts and cannot read a directory inside the tree: a sealed setgid directory held by root in a third
+# group, which find lists from its parent and cannot enter. The scan keeps the path it reached and returns 2.
+third_group=""
+for candidate_group in tty users; do
+    if getent group "${candidate_group}" >/dev/null 2>&1 && [[ "${candidate_group}" != "${PROJECTS_GROUP}" ]]; then
+        third_group="${candidate_group}"; break
+    fi
+done
+if [[ -n "${third_group}" ]]; then
+    incomplete="${work}/incomplete-scan"; mk_fresh "${incomplete}"
+    mkdir "${incomplete}/sealed"; chown "root:${third_group}" "${incomplete}/sealed"; chmod 2700 "${incomplete}/sealed"
+    if runuser -u "${PROJECTS_USER}" -- test -r "${incomplete}/sealed"; then
+        fail "fixture: the projects user still reads ${incomplete}/sealed -- the case proves nothing"
+    else
+        sg_got="$(sg_scan "${incomplete}")" || true
+        if [[ "${sg_got}" == "${incomplete}/sealed"$'\n'"rc=2" ]]; then
+            pass "a directory the walk cannot read is an incomplete scan: status 2, the path it reached listed"
+        else
+            fail "the scan over a tree with a directory it cannot read printed '${sg_got}' (want the path, then rc=2)"
+        fi
+    fi
+else
+    skip "sealed_setgid_scan over a directory it cannot read" "neither tty nor users is a group here apart from the projects group"
+fi
 
 # ── project_state ────────────────────────────────────────────────────────────────────────────
 # The claim decides its .git and core.filemode steps from project_state, read as the projects user. A .git present
