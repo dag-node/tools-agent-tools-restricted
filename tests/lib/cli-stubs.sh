@@ -62,10 +62,10 @@ cli_stubs_install() {
 set -u
 if [[ \$# -eq 2 && "\$1" == -nG ]]; then
     groups="\$("${real_id}" -nG "\$2")" || exit
-    out=""
-    for g in \${groups}; do [[ "\${g}" == ai-ops ]] || out+="\${out:+ }\${g}"; done
-    if grep -qxF -- "\$2" "${CLI_STUB_AI_OPS}"; then out+=" ai-ops"; fi
-    printf '%s\n' "\${out}"
+    reported_groups=""
+    for group in \${groups}; do [[ "\${group}" == ai-ops ]] || reported_groups+="\${reported_groups:+ }\${group}"; done
+    if grep -qxF -- "\$2" "${CLI_STUB_AI_OPS}"; then reported_groups+=" ai-ops"; fi
+    printf '%s\n' "\${reported_groups}"
     exit 0
 fi
 exec "${real_id}" "\$@"

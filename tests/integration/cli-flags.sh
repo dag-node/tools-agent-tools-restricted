@@ -353,8 +353,9 @@ out_is_records() {
                  END { exit (bad || rows < 1) }' <<< "${out}"
 }
 out_has_row() { awk -F'\t' -v f="$1" 'NR > 1 && $6 == f { found = 1 } END { exit !found }' <<< "${out}"; }
-# out_has_item <finding> <item>: a row with that finding whose item column (the ninth, ai-tools-records(5)) is <item>.
-out_has_item() {
+# out_has_finding_item <finding> <item>: a row with that finding whose item column (the ninth, ai-tools-records(5)) is
+# <item>.
+out_has_finding_item() {
     awk -F'\t' -v f="$1" -v i="$2" 'NR > 1 && $6 == f && $9 == i { found = 1 } END { exit !found }' <<< "${out}"
 }
 err_has() { grep -qF -- "$1" "${R}/.stderr"; }
@@ -562,7 +563,7 @@ drive_rows() {
     seed "${R}/pm"; seed_gc "${R}/pm"
     cli_stub_reset; drive cli_stdout ai-tools.projects.claim "$(f format)" tsv "$(f yes)" "${R}/pm"
     expect "a repository the operator's git refuses exits 5"          rc_is 5
-    expect "the unread core.filemode step is an error row"            out_has_item error filemode
+    expect "the unread core.filemode step is an error row"            out_has_finding_item error filemode
     cli_stub_reset; drive cli ai-tools.projects.claim "$(f yes)" "${R}/pm"
     expect "the page names the command that pins core.filemode"       out_has_text "config core.filemode true"
     # The same reading under a path holding a space: the printed command carries the path as one bash word, so it pastes

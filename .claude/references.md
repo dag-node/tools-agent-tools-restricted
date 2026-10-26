@@ -186,7 +186,7 @@ cannot fix -- a message code's name is a runtime string, and rewording one is a 
 | b4g2 | [MSG-B4G2](../src/usr/local/bin/ai-tools.sh) | ai-tools: --for needs an operator name | src/usr/local/bin/ai-tools.sh | tests/integration/cli.sh | refuse_early |
 | h6w7 | [MSG-H6W7](../src/usr/local/bin/ai-tools.sh) | ai-tools: do not run as root -- run as the projects user, without sudo | src/usr/local/bin/ai-tools.sh | tests/integration/cli.sh | refuse_early |
 | w3w8 | [MSG-W3W8](../src/usr/local/bin/ai-tools.sh) | option spelling ${used%%$'\t'*} is kept for compatibility -- the preferred form is: | src/usr/local/bin/ai-tools.sh | docs/option-spellings.md, tests/integration/cli-flags.sh, tools/generators/option-spellings.sh | note |
-| d4z6 | [MSG-D4Z6](../src/usr/local/bin/ai-tools.sh) | cannot enter ${blocked} as ${INVOKING_USER}, so ${path} cannot be reached from this account | src/usr/local/bin/ai-tools.sh | tests/integration/cli.sh | die |
+| d4z6 | [MSG-D4Z6](../src/usr/local/bin/ai-tools.sh) | cannot enter ${blocked_ancestor} as ${INVOKING_USER}, so ${path} cannot be reached from this account | src/usr/local/bin/ai-tools.sh | tests/integration/cli.sh | die |
 | v8z5 | [MSG-V8Z5](../src/usr/local/bin/ai-tools.sh) | project path holds a control character: $(ai_tools_log__sanitize "${p}") -- rename it first | src/usr/local/bin/ai-tools.sh |  | die |
 | t4z6 | [MSG-T4Z6](../src/usr/local/bin/ai-tools.sh) | not a sandbox clone (must be a clone under ${SANDBOX_ROOT}): ${d} | src/usr/local/bin/ai-tools.sh |  | die |
 | w3h3 | [MSG-W3H3](../src/usr/local/bin/ai-tools.sh) | not a sandbox clone (expected ${SANDBOX_ROOT}/<clone>, one level deep): ${d} | src/usr/local/bin/ai-tools.sh |  | die |

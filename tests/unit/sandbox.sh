@@ -207,9 +207,9 @@ else
     fail "control: a rebuilt fresh project did not read as pristine -- the cases below prove nothing"
 fi
 
-unlisted="${work}/unlisted"; mk_fresh "${unlisted}"
-chown root:root "${unlisted}"; chmod 0711 "${unlisted}"
-if pristine "${unlisted}"; then
+unlistable_project="${work}/unlisted"; mk_fresh "${unlistable_project}"
+chown root:root "${unlistable_project}"; chmod 0711 "${unlistable_project}"
+if pristine "${unlistable_project}"; then
     fail "a root the projects user cannot list read as pristine -- the secret scan would be skipped unread"
 else
     pass "a root the projects user cannot list is not pristine"
@@ -266,27 +266,27 @@ sealed_ref_case "${packed_ref}" "${packed_ref}/.git/packed-refs" "packed-refs fi
 # and finds nothing in. The registry it prunes exclusions from is an empty fixture, so the projects user's own is not
 # read.
 section "sealed_setgid_scan: a scan it cannot make is reported, not read as clean (unit)"
-sg_list="${work}/sg-allowed-projects"; : > "${sg_list}"
-chown "${PROJECTS_USER}:${PROJECTS_GROUP}" "${sg_list}"
-sg_scan() {  # sg_scan <dir> : the scan's output, then rc=<its status>
+sealed_setgid_allowlist="${work}/sg-allowed-projects"; : > "${sealed_setgid_allowlist}"
+chown "${PROJECTS_USER}:${PROJECTS_GROUP}" "${sealed_setgid_allowlist}"
+sealed_setgid_probe() {  # sealed_setgid_probe <dir> : the scan's output, then rc=<its status>
     # shellcheck disable=SC2016  # the $N are for the inner `bash -c`, not this shell -- do not expand here
-    runuser -u "${PROJECTS_USER}" -- env AI_TOOLS_ALLOWLIST="${sg_list}" bash -c \
+    runuser -u "${PROJECTS_USER}" -- env AI_TOOLS_ALLOWLIST="${sealed_setgid_allowlist}" bash -c \
         'cli="$1"; dir="$2"; set --
          source "${cli}" >/dev/null 2>&1 || exit 99
          rc=0; sealed_setgid_scan "${dir}" || rc=$?
          printf "rc=%s\n" "${rc}"' _ "${CLI}" "$1"
 }
-sg_got="$(sg_scan "${control}")" || true
-if [[ "${sg_got}" == "rc=0" ]]; then
+sealed_setgid_result="$(sealed_setgid_probe "${control}")" || true
+if [[ "${sealed_setgid_result}" == "rc=0" ]]; then
     pass "control: the scan reads the fresh tree and lists no directory"
 else
-    fail "control: the scan over the fresh tree printed '${sg_got}' (want rc=0) -- the case below proves nothing"
+    fail "control: the scan over the fresh tree printed '${sealed_setgid_result}' (want rc=0) -- the case below proves nothing"
 fi
-sg_got="$(sg_scan "${unlisted}")" || true
-if [[ "${sg_got}" == "rc=1" ]]; then
+sealed_setgid_result="$(sealed_setgid_probe "${unlistable_project}")" || true
+if [[ "${sealed_setgid_result}" == "rc=1" ]]; then
     pass "a root the projects user cannot list is a scan not made: status 1, no path listed"
 else
-    fail "the scan over a root the projects user cannot list printed '${sg_got}' (want rc=1)"
+    fail "the scan over a root the projects user cannot list printed '${sealed_setgid_result}' (want rc=1)"
 fi
 # A walk that starts and cannot read a directory inside the tree: a sealed setgid directory held by root in a third
 # group, which find lists from its parent and cannot enter. The scan keeps the path it reached and returns 2.
@@ -302,11 +302,11 @@ if [[ -n "${third_group}" ]]; then
     if runuser -u "${PROJECTS_USER}" -- test -r "${incomplete}/sealed"; then
         fail "fixture: the projects user still reads ${incomplete}/sealed -- the case proves nothing"
     else
-        sg_got="$(sg_scan "${incomplete}")" || true
-        if [[ "${sg_got}" == "${incomplete}/sealed"$'\n'"rc=2" ]]; then
+        sealed_setgid_result="$(sealed_setgid_probe "${incomplete}")" || true
+        if [[ "${sealed_setgid_result}" == "${incomplete}/sealed"$'\n'"rc=2" ]]; then
             pass "a directory the walk cannot read is an incomplete scan: status 2, the path it reached listed"
         else
-            fail "the scan over a tree with a directory it cannot read printed '${sg_got}' (want the path, then rc=2)"
+            fail "the scan over a tree with a directory it cannot read printed '${sealed_setgid_result}' (want the path, then rc=2)"
         fi
     fi
 else
