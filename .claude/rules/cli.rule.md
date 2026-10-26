@@ -583,7 +583,11 @@ effect is decided by *which* operator's allowlist covers the path — the verbs 
 that silently cloned as the invoker would leave the tree owned by the wrong operator, with no output to show the flag
 was disregarded. The target must be **enrolled in `OPERATORS`**, since the ownership helpers resolve a path's owner
 over that list and an entry written for an unenrolled name would be a launch gate no helper can act on; the sandbox
-account and `root` are refused outright.
+account and `root` are refused outright. It must also be **in `ai-ops`**, the second fact `ai-tools-admin operators add`
+writes: the target's launch wrapper refuses a caller outside the group, and a create in the clone area writes
+through that area's `g:ai-ops` ACL. The membership is read without a password and before the snapshot, and an account
+whose groups cannot be read is refused like one outside the group. The snapshot then refuses a target with no allowlist
+file, at the run's first `sudo` and before the run writes anything, naming the same enrolment command.
 
 `--for` is **refused with `projects unclaim --force`**. That mode reaches a tree no allowlist names,
 so `ai-tools-unclaim` cannot resolve an owner from an entry and binds the walk to the **invoking uid** instead —
@@ -613,6 +617,13 @@ to the target on a `--for` run, and `reg_filemode` for the `core.filemode` pin i
 `-H` is load-bearing rather than tidiness: without it (and without sudoers' `always_set_home`) sudo leaves `HOME`
 pointing at the **invoker's** home, so the `git init` inside a create would configure the target's repository
 from the invoker's `~/.gitconfig`.
+
+**The seam covers what a `--for` run writes, and the run still reads as the invoker.** Resolving the path, reading
+the project's state and every scan run unprivileged as the invoking operator, with the refusals and the `unknown`
+readings [Claim in place](#claim-in-place) states. A `create --for` into the target's private home therefore needs
+the invoker to hold traverse on that home, so its refusal names a location both accounts reach first, the clone area
+as the example, and then the traverse-only grant that opens the directory, where the predicate the claim's own traverse
+grant passes permits one ([safe-paths](safe-paths.rule.md)).
 
 **It uses a grant the caller already holds.** `sudo -u <target>` rides the caller's **general** sudo grant, the axis
 [CLAUDE.md](../../CLAUDE.md) names, so an operator who reaches it could already act as that account; the sandbox account
@@ -738,8 +749,8 @@ reverses either and deletes the tree. Each verb has a section here; the operator
 ## Claim in place <a id="ref-section-h7d3"></a>
 
 `projects claim` refuses a path whose canonical form holds a control character before any verb acts on it
-(`resolve_dir`): `allowed-projects` holds one entry per line, and the path is printed on the claim's page. It then
-registers the tree — the allowlist entry, the `safe.directory` entry through `ai-tools-safedir`, and repo-local
+(`resolve_existing_path`): `allowed-projects` holds one entry per line, and the path is printed on the claim's page. It
+then registers the tree — the allowlist entry, the `safe.directory` entry through `ai-tools-safedir`, and repo-local
 `core.filemode=true` through `run_as_owner`, since under `--for` the `.git/config` it writes belongs to the target —
 and grants access: group `SANDBOX_GROUP` with the setgid bit on every directory (`ai-tools-setgid`), the two ACL grants
 built by `project-permissions.lib.sh` (`ai-tools-setfacl`), and the `ai_tools_project_t` label
@@ -800,6 +811,17 @@ the Apply block counts that, and a non-zero count closes the flow with a warning
 instead of the `claimed` ✓. The registries stand either way, and the claim is idempotent, so a re-run applies exactly
 what is missing.
 
+**A step whose state the invoker cannot read is neither applied nor reported done.** `projects claim` refuses a path
+under a directory the invoker cannot enter, naming that directory (`resolve_existing_path`,
+through `find_invoker_traversal_blocker`), since `realpath` fails alike for an absent path and an unreachable one.
+Inside a tree it can enter, `read_project_state` reads the `.git` and `core.filemode` steps as `unknown`
+where the invoker cannot make the reading — a root it cannot enter, a `.git` its git refuses as another account's
+repository, or a `.git` whose repository is not the one its git opens, or one it cannot list and enter — and the claim
+announces each in the Review block, writes it as an `error` row naming the step, prints the command that finishes it,
+and ends with exit 5. Each such step is the opt-in history share or a registry pin, so it is not applied, and the agent
+has less access to the project until the operator runs the printed command. That command, and the traverse grant
+the unreachable-location refusal prints, carry the path in bash's `%q` encoding, so each pastes as one word.
+
 **A failed step asks once before attempting the next.** Every root step authenticates separately and no step can be
 pre-authenticated (a sudoers `timestamp_timeout=0` prompts on every invocation), so a mistyped password would cost
 a round of attempts per step. `note_root_failure` asks once per run, default no, which is also the no-terminal answer;
@@ -821,10 +843,13 @@ by walking from the project toward `/`, and a file it opens in an ancestor the s
 with an error naming that path; the Review block reports each one (`ancestor-config.lib.sh`), on the fully-claimed no-op
 path as well, from the markers and filenames the installed integration manifests declare, so a project no installed
 toolchain claims does not raise a notice. The .NET measurements are [ref-section-t8k3](dotnet.rule.md#ref-section-t8k3).
-The second notice (`sealed_setgid_scan`) is a setgid bit on an owner-only directory whose group is neither
+The second notice (`find_sealed_setgid_directories`) is a setgid bit on an owner-only directory whose group is neither
 `SANDBOX_GROUP` nor the group of that directory's owner, compared per path against the resolved owner's primary group:
 the claim walks keep such a bit, since they cannot ask whether it was deliberate, so the claim names the paths
 and the `chmod g-s` that clears one, ahead of the confirm rather than from a helper's stderr under Apply.
+Where the invoker cannot list the project root, the Review block says the scan was not made, rather than showing no
+notice, and where the walk could not read a directory inside the tree, that the scan is incomplete, beside the paths it
+did reach.
 
 ## Interior drift <a id="ref-section-a9b2"></a>
 
@@ -931,20 +956,27 @@ the directory, then runs `cmd_project_claim` unchanged on the result, so there i
 means. Every filesystem step goes through `run_as_owner`, so a create under `--for` produces a target-owned tree —
 the one the claim then accepts under the owner rule. `<path>` is required, since the cwd always exists.
 
-Two refusals keep a create from being a claim in disguise. A path that **already exists** is refused naming
+Its refusals keep a create from being a claim in disguise. A path that **already exists** is refused naming
 `projects claim`: the operation that grants an agent access to an existing tree must not be reachable by a typo,
 and a half-finished create is recovered with a claim. A **parent that does not exist** is refused rather than created,
-so a mistyped path surfaces instead of becoming a manufactured tree with a claimed project inside it. A reachability
-pre-flight refuses a location the sandbox account could never enter before anything exists, and names an alternative
-only after checking it on this host.
+so a mistyped path surfaces instead of becoming a manufactured tree with a claimed project inside it. A path
+whose **last component is a symbolic link**, dangling or not, is refused by the name typed: the create makes one new
+directory, and following the link would make and claim it wherever the link points, a link the sandbox account planted
+in a project it co-writes among them. Both checks read the path as the invoker, so a location under a directory
+the invoker cannot enter is refused first, naming that directory, and the claim that follows could not resolve it
+either. The path is resolved as the kernel resolves it for the `mkdir`, so the directory made is the one the typed path
+names, and the directory the unreachable-location refusal names is one the lookup reaches
+(`find_invoker_traversal_blocker`), never one a lexical `..` collapses to. A reachability pre-flight refuses a location
+the sandbox account could never enter before anything exists, and names an alternative only after checking it on this
+host, the invoker's own reach included.
 
-The tree is empty by construction, so the claim infers three answers without asking, gated on `tree_is_pristine`,
-which the claim re-derives from the tree (no file outside `.git` but `README.md`, and no commits) rather than trusting
-the caller's hint, since what it gates is the secret scan. The proceed confirm and its warnings are not shown, being
-false for a directory that did not exist a moment ago; the secret gate is skipped, since the tree holds one file this
-command wrote and the scan would cost a sudo password; the `.git` question is inferred yes, since there is no history
-to expose and normalizing keeps later commits readable. The traverse grant still asks: it widens access on ancestors,
-which exist.
+The tree is empty by construction, so the claim infers three answers without asking, gated
+on `is_project_tree_pristine`, which the claim re-derives from the tree (no file outside `.git` but `README.md`,
+and an empty object store, since a commit no reference names is still history) rather than trusting the caller's hint,
+since what it gates is the secret scan. The proceed confirm and its warnings are not shown, being false for a directory
+that did not exist a moment ago; the secret gate is skipped, since the tree holds one file this command wrote
+and the scan would cost a sudo password; the `.git` question is inferred yes, since there is no history to expose
+and normalizing keeps later commits readable. The traverse grant still asks: it widens access on ancestors, which exist.
 
 No path it seeds is left owner-only: under an `077` umask (the `/etc/login.defs` default on many hosts, which a PAM
 session hands the command) the directory, `.git` and the README would come out `0700`/`0600`, the seal `ai-tools-setgid`
@@ -1033,8 +1065,11 @@ to the files; the registry work stops a session launching there but leaves the t
 so a bare ✓ over it would tell the operator access was removed when it was not. On a parked target the unclaim asks
 to lift the exclusion first, since the helpers do not act under one; declining does not abort — the registry reversal
 still applies, and only the hand-back is given up, reported with the `projects enable` + `projects handback --full` pair
-that completes it. A failed root step follows the per-verb table under [Claim in place](#claim-in-place). The filesystem
-effect per mode is [ref-table-b5v7](ownership-and-hooks.rule.md#ref-table-b5v7).
+that completes it. An allowlist line the unclaim could not change ends it non-zero as well, in a `--for` run
+as in a plain one, since the line is the launch gate: a drop that did not apply refuses (`unreg_allow`), naming the line
+or the helper command that removes it, and a park that did not apply closes with the entry reported still enabled and no
+✓. A failed root step follows the per-verb table under [Claim in place](#claim-in-place). The filesystem effect per mode
+is [ref-table-b5v7](ownership-and-hooks.rule.md#ref-table-b5v7).
 
 ## Sandbox clone <a id="ref-section-u9a9"></a>
 

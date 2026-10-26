@@ -58,6 +58,10 @@ stop takes no path: ${argument}. It TERMINATES every agent session on this host 
 ERROR.
 projects create needs a path: it creates a NEW project directory.
 .TP
+.B MSG-A8Z6
+ERROR.
+could not add ${dir} to ${FOR_OPERATOR}'s allowed\-projects \-\- it is not registered
+.TP
 .B MSG-B4G2
 ERROR.
 ai\-tools: \-\-for needs an operator name
@@ -82,6 +86,10 @@ scan\-capped
 ERROR.
 cannot load ${RECORDS_BASE_LIB}, which states this report's exit codes \-\- reinstall the ai\-tools package
 .TP
+.B MSG-B9Y4
+ERROR.
+the \-\-for target ${FOR_OPERATOR} is listed in OPERATORS and is not in the ai\-ops group \-\- enrol it with:
+.TP
 .B MSG-C2U5
 ERROR.
 unknown projects push option: ${a} (projects push takes no options)
@@ -101,6 +109,10 @@ projects unclaim takes a single path
 .B MSG-D3K4
 ERROR.
 group\-unverified
+.TP
+.B MSG-D4Z6
+ERROR.
+cannot enter ${blocked_ancestor} as ${INVOKING_USER}, so ${path} cannot be reached from this account
 .TP
 .B MSG-D8C8
 ERROR.
@@ -122,6 +134,10 @@ not a configured ai\-tools operator: ${FOR_OPERATOR} \-\- enrol it first with:
 NOTICE.
 label\-gone
 .TP
+.B MSG-E8W4
+ERROR.
+could not read ${FOR_OPERATOR}'s allowed\-projects \-\- nothing changed
+.TP
 .B MSG-F4D8
 ERROR.
 this is not a claimed project, but ${#nested[@]} claimed project(s) are nested under it: ${d}
@@ -133,6 +149,10 @@ unknown projects unclaim option: ${a}
 .B MSG-F8G9
 ERROR.
 projects claim takes a single path
+.TP
+.B MSG-G7D3
+ERROR.
+cannot create at a symbolic link: $(ai_tools_log__sanitize "${typed}") \-\- projects create makes a new directory and does not follow a link there
 .TP
 .B MSG-H2D4
 ERROR.
@@ -164,7 +184,7 @@ projects clone takes a single path: unexpected extra argument $1
 .TP
 .B MSG-J3R8
 ERROR.
-the parent directory does not exist: ${parent}
+cannot resolve the parent directory: $(ai_tools_log__sanitize "${parent}") \-\- it does not exist, or a symbolic link on its path leads through a directory ${INVOKING_USER} cannot enter
 .TP
 .B MSG-J4P9
 ERROR.
@@ -328,7 +348,7 @@ the provider resolver is unavailable: ${ENABLED_AGENTS_ERROR}
 .TP
 .B MSG-V8Z5
 ERROR.
-project path holds a control character: $(ai_tools_log__sanitize "${p}") \-\- rename it first
+project path holds a control character: $(ai_tools_log__sanitize "$1") \-\- rename it first
 .TP
 .B MSG-W3C7
 ERROR.

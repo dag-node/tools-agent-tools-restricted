@@ -137,6 +137,8 @@ make_fixtures() {
     git_q -C "${SRC}" push origin main base2
 
     cli_stubs_install "${R}"
+    # The `--for` target holds both facts of an operator: OPERATORS (the fixture conf) and ai-ops (the id shim).
+    cli_stub_ai_ops "${FOR_USER}"
     # Explicit modes: the suite runs under sudo, and a root umask of 077 would leave every fixture owner-only --
     # readable by the projects user where it owns them, and closed to it where the `--for` target does, which is
     # where the claim's secret scan then fails to enter the tree.
@@ -351,6 +353,11 @@ out_is_records() {
                  END { exit (bad || rows < 1) }' <<< "${out}"
 }
 out_has_row() { awk -F'\t' -v f="$1" 'NR > 1 && $6 == f { found = 1 } END { exit !found }' <<< "${out}"; }
+# out_has_finding_item <finding> <item>: a row with that finding whose item column (the ninth, ai-tools-records(5)) is
+# <item>.
+out_has_finding_item() {
+    awk -F'\t' -v f="$1" -v i="$2" 'NR > 1 && $6 == f && $9 == i { found = 1 } END { exit !found }' <<< "${out}"
+}
 err_has() { grep -qF -- "$1" "${R}/.stderr"; }
 # out_has_text <text>: the row's captured output holds <text>.
 out_has_text() { grep -qF -- "$1" <<< "${out}"; }
@@ -547,6 +554,26 @@ drive_rows() {
     expect "an unreadable directory in the tree exits 5"              rc_is 5
     expect "the unread walk is an error row"                          out_has_row error
     chmod 0755 "${R}/pk/locked"
+
+    # A repository the projects user's git refuses: a `.git` root owns, the shape a `--for` claim reads a target-owned
+    # repository in. The core.filemode reading cannot be made, so the claim writes an `error` row whose item names
+    # the step and exits 5 rather than reading the step as not applicable.
+    claimed_fixture "${R}/pm"; rm -f "${R}/pm/moved-in.txt"
+    git init -q "${R}/pm"
+    seed "${R}/pm"; seed_gc "${R}/pm"
+    cli_stub_reset; drive cli_stdout ai-tools.projects.claim "$(f format)" tsv "$(f yes)" "${R}/pm"
+    expect "a repository the operator's git refuses exits 5"          rc_is 5
+    expect "the unread core.filemode step is an error row"            out_has_finding_item error filemode
+    cli_stub_reset; drive cli ai-tools.projects.claim "$(f yes)" "${R}/pm"
+    expect "the page names the command that pins core.filemode"       out_has_text "config core.filemode true"
+    # The same reading under a path holding a space: the printed command carries the path as one bash word, so it pastes
+    # whole. The entry is quoted, the form the allowlist grammar reads a path with a space in.
+    claimed_fixture "${R}/pm space"; rm -f "${R}/pm space/moved-in.txt"
+    git init -q "${R}/pm space"
+    seed "\"${R}/pm space\""; seed_gc "${R}/pm space"
+    cli_stub_reset; drive cli ai-tools.projects.claim "$(f yes)" "${R}/pm space"
+    expect "control: the claim of the spaced path reads core.filemode as unread" rc_is 5
+    expect "the printed command quotes a path with a space"           out_has_text "git -C $(LC_ALL=C printf '%q' "${R}/pm space") config core.filemode true"
 
     # The unattended relabel: a root carrying the project type, so the label scan runs, with its own type other than
     # the one the policy gives its path, so it is drift. Without a terminal only `--yes` relabels,
@@ -814,6 +841,42 @@ drive_rows() {
     cli_stub_reset; drive cli ai-tools.projects.unclaim "$(f for)" "${FOR_USER}" "$(f yes)" "${R}/for2"
     expect "unclaim --for drops the target's entry through the helper" cli_called ai-tools-allowlist "^--operator${T}${FOR_USER}${T}--remove${T}${R}/for2$"
     expect "the target's entry is gone"                               st_for_is "${R}/for2" absent
+    # A registry removal the helper refuses ends the verb non-zero with the entry still listed (MSG-K8S2): the unclaim
+    # after its hand-back, the remove before its deletion. The marker fails the helper's `--remove` call alone,
+    # so the snapshot's `--print` still answers; each case's control is the same command without it.
+    cli_stub_reset; drive cli ai-tools.projects.claim "$(f for)" "${FOR_USER}" "$(f yes)" "${R}/for2"
+    cli_stub_reset; cli_stub_fail ai-tools-allowlist:--remove
+    drive cli ai-tools.projects.unclaim "$(f for)" "${FOR_USER}" "$(f yes)" "${R}/for2"
+    expect "unclaim --for exits non-zero when the target's entry cannot be removed" rc_not0
+    expect "that refusal carries its code"                            out_has_text MSG-K8S2
+    expect "the target's entry is still listed"                       st_for_is "${R}/for2" listed
+    expect "the hand-back ran ahead of the registry step"             cli_called ai-tools-unclaim "^${R}/for2${T}"
+    expect "the helper was asked to remove the entry"                 cli_called ai-tools-allowlist "^--operator${T}${FOR_USER}${T}--remove${T}${R}/for2$"
+    cli_stub_reset; drive cli ai-tools.projects.unclaim "$(f for)" "${FOR_USER}" "$(f yes)" "${R}/for2"
+    expect "control: the same unclaim --for drops the entry"          st_for_is "${R}/for2" absent
+    # The removal's tree belongs to the projects user, since the shim runs the owner's steps as the invoker.
+    mkdir -p "${R}/for3"; chown "${PROJECTS_USER}:${PROJECTS_USER}" "${R}/for3"
+    printf '%s\n' "${R}/for3" >> "${FOR_AL}"
+    cli_stub_reset; cli_stub_fail ai-tools-allowlist:--remove
+    drive cli ai-tools.projects.remove.inplace "$(f for)" "${FOR_USER}" "$(f yes)" "${R}/for3"
+    expect "remove --for exits non-zero when the target's entry cannot be removed" rc_not0
+    expect "that refusal carries its code"                            out_has_text MSG-K8S2
+    expect "the tree is not deleted past the refused registry step"  test -d "${R}/for3"
+    expect "the target's entry is still listed"                       st_for_is "${R}/for3" listed
+    cli_stub_reset; drive cli ai-tools.projects.remove.inplace "$(f for)" "${FOR_USER}" "$(f yes)" "${R}/for3"
+    expect "control: the same remove --for deletes the tree"         test ! -e "${R}/for3"
+    expect "control: and drops the target's entry"                    st_for_is "${R}/for3" absent
+    # A park the helper refuses ends the unclaim non-zero with the entry still enabled, after the hand-back ran.
+    mkdir -p "${R}/for4"; chown "${PROJECTS_USER}:${PROJECTS_USER}" "${R}/for4"
+    printf '%s\n' "${R}/for4" >> "${FOR_AL}"
+    cli_stub_reset; cli_stub_fail ai-tools-allowlist:--disable
+    drive cli ai-tools.projects.unclaim "$(f for)" "${FOR_USER}" "$(f yes)" "$(f keep-entry)" "${R}/for4"
+    expect "unclaim --for --keep-entry exits non-zero when the park is refused" rc_not0
+    expect "the target's entry is still enabled"                      st_for_is "${R}/for4" listed
+    expect "the hand-back ran ahead of the park"                      cli_called ai-tools-unclaim "^${R}/for4${T}"
+    cli_stub_reset; drive cli ai-tools.projects.unclaim "$(f for)" "${FOR_USER}" "$(f yes)" "$(f keep-entry)" "${R}/for4"
+    expect "control: the same unclaim parks the target's entry"       st_for_is "${R}/for4" disabled
+    expect "control: and exits 0"                                     rc_is 0
 
     for key in ai-tools.projects.clone ai-tools.projects.push ai-tools.status ai-tools.stop; do
         cli_stub_reset; drive cli "${key}" "$(f for)" "${FOR_USER}" "${SRC}"
@@ -823,6 +886,28 @@ drive_rows() {
     cli_stub_reset; drive cli ai-tools.projects.claim "$(f for)" "not-an-operator" "$(f yes)" "${R}/for1"
     expect "--for refuses an unenrolled target"                       rc_not0
     expect "that refusal reaches no helper"                           cli_log_empty
+    # A target in OPERATORS and outside ai-ops, the state a name written into operator.conf by hand leaves: the create
+    # is refused before the snapshot, so it reaches no helper and makes no directory. The control puts the target back
+    # in the group and drives the same create into the refusal that follows the snapshot, a missing parent.
+    cli_stub_ai_ops
+    cli_stub_reset; drive cli ai-tools.projects.create "$(f for)" "${FOR_USER}" "${R}/for-new"
+    expect "create --for refuses a target outside ai-ops with exit 1" rc_is 1
+    expect "that refusal carries its code"                            out_has_text MSG-B9Y4
+    expect "that refusal reaches no helper"                           cli_log_empty
+    expect "that refusal creates no directory"                        test ! -e "${R}/for-new"
+    cli_stub_ai_ops "${FOR_USER}"
+    # The snapshot's own refusal, the run's first sudo: the helper fails, and the run stops there having called it once
+    # and made no directory.
+    cli_stub_reset; cli_stub_fail ai-tools-allowlist
+    drive cli ai-tools.projects.create "$(f for)" "${FOR_USER}" "${R}/for-new"
+    expect "create --for stops at a snapshot the helper refuses, exit 1" rc_is 1
+    expect "that refusal carries its code"                            out_has_text MSG-E8W4
+    expect "that run called the helper once"                          test "$(cli_call_count ai-tools-allowlist)" = 1
+    expect "that one call is the snapshot"                            cli_called ai-tools-allowlist "^--operator${T}${FOR_USER}${T}--print$"
+    expect "that refusal creates no directory"                        test ! -e "${R}/for-new"
+    cli_stub_reset; drive cli ai-tools.projects.create "$(f for)" "${FOR_USER}" "${R}/for-none/new"
+    expect "control: a target in ai-ops reaches the snapshot"         cli_called ai-tools-allowlist "^--operator${T}${FOR_USER}${T}--print$"
+    expect "control: the create then refuses the missing parent"      out_has_text MSG-J3R8
     for who in root "${SANDBOX_USER}"; do
         cli_stub_reset; drive cli ai-tools.projects.claim "$(f for)" "${who}" "$(f yes)" "${R}/for1"
         expect "--for refuses ${who}"                                 rc_not0

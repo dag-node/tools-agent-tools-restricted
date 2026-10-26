@@ -58,14 +58,16 @@ them without asking, are
 ## What it refuses
 
 ```text
-ai-tools: the parent directory does not exist: /home/you/Devlopment
+ai-tools: cannot resolve the parent directory: /home/you/Devlopment -- it does not exist, or a symbolic link on its path leads through a directory you cannot enter
 ```
 
 It creates exactly one directory, so the parent has to exist. A `mkdir -p`
 would have created `Devlopment/`, put the project inside it, claimed it
 and reported success — a claimed project in a directory nobody meant to make.
 The refusal names the missing parent, and a `mkdir -p` of your own, once you
-have checked the path, makes it.
+have checked the path, makes it. A symbolic link that leads through a directory
+you cannot enter looks the same as a missing directory from your account,
+so the refusal names both causes.
 
 ```text
 ai-tools: this path already exists: /home/you/src/newproject
@@ -73,10 +75,19 @@ ai-tools: this path already exists: /home/you/src/newproject
 
 A path that already exists is refused, naming `ai-tools projects claim`
 instead: claiming grants an agent access to whatever a tree already holds,
-which is not an operation to arrive at by a typo. A location the sandbox
-account could not reach through any grant — under a directory owned by someone
-else, or under a system directory — is refused before anything exists,
-and names the clone as the way in.
+which is not an operation to arrive at by a typo.
+
+```text
+ai-tools: cannot create at a symbolic link: /home/you/src/link -- projects create makes a new directory and does not follow a link there
+```
+
+A path whose last part is a symbolic link is refused by the name you gave,
+whether or not the link points at anything. Remove the link and create
+the project there, or name the directory the link points at.
+
+A location the sandbox account could not reach through any grant —
+under a directory owned by someone else, or under a system directory — is
+refused before anything exists, and names the clone as the way in.
 
 Every refusal fires before the directory is made. A step that fails after it —
 a root step whose password round did not complete — leaves the directory
@@ -93,7 +104,9 @@ missing.
 
 ## Exit status
 
-0 when the project is created and claimed; 1 when a step failed
-after the directory was made; 2 for a rejected command line (a missing
-`DIRECTORY`, an unknown option); 3 when the path is a protected system
-directory or a home root. `man ai-tools` has the full list.
+0 when the project is created and claimed; 1 for a refusal before the directory
+is made, and when a step failed after it was made; 2 for a rejected command
+line (a missing `DIRECTORY`, an unknown option); 3 when the path is a protected
+system directory or a home root; 5 when the claim could not read a step
+of the new tree as you, which under `--for` is the target's repository,
+and names the command that finishes it. `man ai-tools` has the full list.

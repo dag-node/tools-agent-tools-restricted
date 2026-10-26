@@ -129,10 +129,20 @@ and keeping the two apart is what stops the operation that grants an agent acces
 to an existing tree from being reachable by a typo. Its parent
 .I must
 exist: only the final component is created, so a mistyped path is refused rather
-than manufactured. Every filesystem step runs as the operator the run acts for, so
+than manufactured. A final component that is a symbolic link, dangling or not, is
+refused by the name given, since the create does not follow a link to place the
+directory where it points. Every filesystem step runs as the operator the run acts for, so
 a create under
 .B \-\-for
-produces a tree that operator owns. Every refusal fires before the directory
+produces a tree that operator owns. The tree is still read as you, so a location
+under a directory you cannot enter is refused, naming that directory; under
+.B \-\-for
+the refusal names a location both accounts reach, the clone area as the
+example, and then the traverse-only
+.B setfacl
+that lets you enter the directory, where it belongs to the other operator
+and is not a protected system directory.
+Every refusal fires before the directory
 is made; a step that fails after it leaves the directory in place, and
 .B "projects claim"
 on it finishes the claim.
@@ -186,6 +196,15 @@ Access to the
 repository's git history
 .RB ( .git )
 is a separate opt-in prompt.
+The claim reads the project as you. Where you cannot read its
+.B .git
+\(em another operator's repository under
+.BR \-\-for ,
+which git's ownership check refuses \(em the history share and the
+.B core.filemode
+pin are not checked: each is printed as an
+.B error
+line with the command that finishes it, and the claim exits 5.
 .RS
 .TP
 .B \-\-format tsv
@@ -752,7 +771,14 @@ must already be enrolled
 .RB ( "sudo ai\-tools\-admin operators add " \fIoperator\fR ),
 since the ownership helpers resolve a project's owner from the
 .B OPERATORS
-list.
+list. Enrolment also adds the account to the
+.B ai\-ops
+group and seeds its allowlist. An account listed in
+.B OPERATORS
+without the group is refused before the run's first
+.BR sudo (8)
+prompt, and one without the allowlist at that prompt, before the run writes
+anything; both refusals name the same command.
 .IP
 .B "projects create"
 and

@@ -261,6 +261,167 @@ if command -v runuser >/dev/null 2>&1; then
         fail "ai-tools.projects.create did not refuse a missing parent (rc=${rc}): $(brief "${out}")"
     fi
 
+    # A directory whose name ends in a line feed, beside its sibling without one. A bare `$(...)` capture of the parent
+    # strips the line feed, so `twin<LF>/new` would be created under the sibling `twin` and claimed there. Every capture
+    # keeps it, so the create reaches the control-character refusal (MSG-V8Z5) before its first write, and creates
+    # neither directory. The control is that capture, made as the operator, reading the sibling.
+    twin="${TESTDIR}/twin"; twin_lf="${TESTDIR}/twin"$'\n'
+    mkdir -- "${twin}" "${twin_lf}"; chown "${PROJECTS_USER}:${PROJECTS_USER}" "${twin}" "${twin_lf}"
+    stripped="$(runuser -u "${PROJECTS_USER}" -- realpath -e -- "${twin_lf}" 2>/dev/null)" || stripped=""
+    if [[ "${stripped}" == "${twin}" ]]; then
+        note "control: a bare capture of the line-feed directory reads its sibling" "${stripped}"
+    else
+        fail "control: a bare capture of ${twin}<LF> read '${stripped}' (want ${twin}) -- the row below proves nothing"
+    fi
+    out="$(create_cli "${twin_lf}/new")" && rc=0 || rc=$?
+    refused "ai-tools.projects.create refuses a parent whose name ends in a line feed" MSG-V8Z5 1
+    if [[ ! -e "${twin}/new" && ! -e "${twin_lf}/new" ]]; then
+        pass "the line-feed parent creates neither ${twin}/new nor its twin"
+    else
+        fail "the line-feed parent created a directory: $(ls -A "${twin}" "${twin_lf}" 2>&1)"
+    fi
+    # The line-feed directory itself exists: the control-character refusal precedes the existence check, so the path is
+    # refused under its own code and is not printed by the existence refusal.
+    out="$(create_cli "${twin_lf}")" && rc=0 || rc=$?
+    refused "ai-tools.projects.create refuses an existing path holding a line feed under its own code" MSG-V8Z5 1
+    if grep -qx "MSG-T4B9" <<<"${out}"; then
+        fail "the existing line-feed path reached the existence refusal: $(brief "${out}")"
+    else
+        pass "the existing line-feed path is not reported as an existing path"
+    fi
+
+    # A path whose last component is a symbolic link is refused by the name typed (MSG-G7D3), dangling or not:
+    # the create resolving the leaf would otherwise make and claim the directory a dangling link points at, and a link
+    # to a directory that exists is refused by name rather than as the path it leads to. A trailing slash does not
+    # change which component is the leaf.
+    link_target_dir="${TESTDIR}/link-target"; mkdir -p "${link_target_dir}"
+    chown "${PROJECTS_USER}:${PROJECTS_USER}" "${link_target_dir}"
+    ln -s "${link_target_dir}/absent" "${TESTDIR}/dangling"
+    ln -s "${exists}" "${TESTDIR}/to-existing"
+    for leaf_link in "${TESTDIR}/dangling" "${TESTDIR}/dangling/" "${TESTDIR}/to-existing"; do
+        out="$(create_cli "${leaf_link}")" && rc=0 || rc=$?
+        refused "ai-tools.projects.create refuses ${leaf_link#"${TESTDIR}/"}, a symbolic-link leaf" MSG-G7D3 1
+    done
+    if [[ ! -e "${link_target_dir}/absent" && -L "${TESTDIR}/dangling" && -z "$(ls -A "${exists}")" ]]; then
+        pass "a symbolic-link leaf creates nothing where the link points, and the link is left in place"
+    else
+        fail "a symbolic-link leaf created a directory or lost the link: $(ls -lA "${link_target_dir}" "${exists}" 2>&1)"
+    fi
+
+    # A location under a directory the operator cannot enter is refused by name (MSG-D4Z6) before anything is created:
+    # the claim reads the tree as the operator, and both existence checks read such a path as absent. The existing
+    # directory behind the seal is the case that tells the two apart: read as absent, it would take the missing-parent
+    # refusal (MSG-J3R8), and `projects claim` would report it as a path not found.
+    sealed="${TESTDIR}/sealed"; mkdir -p "${sealed}/inner"; chmod 0700 "${sealed}"
+    if [[ -d "${sealed}/inner" ]] && ! runuser -u "${PROJECTS_USER}" -- test -x "${sealed}"; then
+        out="$(create_cli "${sealed}/inner/proj")" && rc=0 || rc=$?
+        refused "ai-tools.projects.create refuses a location under a directory the operator cannot enter" MSG-D4Z6 1
+        if [[ ! -e "${sealed}/inner/proj" ]] && grep -qF "${sealed}" <<<"${out}"; then
+            pass "the refusal names the directory the operator cannot enter, and nothing was created"
+        else
+            fail "the unreachable-location refusal did not name ${sealed} or left a directory: $(brief "${out}")"
+        fi
+        out="$(create_cli "${sealed}/inner")" && rc=0 || rc=$?
+        refused "ai-tools.projects.create refuses an existing directory it cannot see behind a sealed parent" MSG-D4Z6 1
+        spell ai-tools.projects.claim
+        out="$(runuser -u "${PROJECTS_USER}" -- env HOME="${PROJECTS_HOME}" \
+                AI_TOOLS_OPERATOR_CONF="${oconf}" AI_TOOLS_ALLOWLIST="${emptyal}" \
+                setsid "${CLI}" "${CLI_ARGV[@]}" "${sealed}/inner" 2>&1)" && rc=0 || rc=$?
+        refused "ai-tools.projects.claim refuses a project under a directory the operator cannot enter" MSG-D4Z6 1
+
+        # A symbolic link inside the sealed directory, leading out of it. `realpath -m` run as the operator cannot stat
+        # the link and collapses `link/../..` lexically, so the sealed directory leaves the path and a create would make
+        # ${TESTDIR}/new, a directory nobody named. The control shows the collapse; root reads through the seal
+        # and follows the link, so it is run as the operator.
+        mkdir -p "${TESTDIR}/elsewhere/deep/deeper"
+        ln -s "${TESTDIR}/elsewhere/deep/deeper" "${sealed}/link"
+        through="${sealed}/link/../../new"
+        collapsed="$(runuser -u "${PROJECTS_USER}" -- realpath -m -- "${through}" 2>/dev/null)" || collapsed=""
+        if [[ "${collapsed}" == "${TESTDIR}/new" ]]; then
+            note "control: realpath -m as the operator collapses the path past the sealed directory" "${collapsed}"
+        else
+            fail "control: realpath -m as the operator printed '${collapsed}' (want ${TESTDIR}/new) -- the rows below prove nothing"
+        fi
+        out="$(create_cli "${through}")" && rc=0 || rc=$?
+        refused "ai-tools.projects.create refuses a path through a link inside a directory the operator cannot enter" \
+            MSG-D4Z6 1
+        if [[ ! -e "${TESTDIR}/new" && ! -e "${TESTDIR}/elsewhere/new" ]] \
+                && grep -qF "cannot enter ${sealed} as" <<<"${out}"; then
+            pass "the refusal names the sealed directory the link sits in, and nothing was created"
+        else
+            fail "the refusal did not name ${sealed} or a directory was created: $(brief "${out}")"
+        fi
+        spell ai-tools.projects.claim
+        out="$(runuser -u "${PROJECTS_USER}" -- env HOME="${PROJECTS_HOME}" \
+                AI_TOOLS_OPERATOR_CONF="${oconf}" AI_TOOLS_ALLOWLIST="${emptyal}" \
+                setsid "${CLI}" "${CLI_ARGV[@]}" "${through}" 2>&1)" && rc=0 || rc=$?
+        refused "ai-tools.projects.claim refuses a path through a link inside a directory the operator cannot enter" \
+            MSG-D4Z6 1
+
+        # A component that does not exist, or one that is a file, ends the kernel's lookup there, so the `..` after it
+        # never reaches the sealed directory: the create refuses the parent it cannot resolve (MSG-J3R8) and the claim
+        # reports a path not found, neither naming ${sealed}. A walk over the lexically collapsed form would name it,
+        # and under `--for` offer a traverse grant on a directory that is not the cause.
+        : > "${TESTDIR}/regular"
+        for through in "${TESTDIR}/missing/../sealed/new" "${TESTDIR}/regular/../sealed/new"; do
+            out="$(create_cli "${through}")" && rc=0 || rc=$?
+            refused "ai-tools.projects.create refuses ${through#"${TESTDIR}/"} as a parent it cannot resolve" MSG-J3R8 1
+            if [[ ! -e "${sealed}/new" ]] && ! grep -qF "cannot enter ${sealed}" <<<"${out}"; then
+                pass "the refusal of ${through#"${TESTDIR}/"} does not name ${sealed}, and nothing was created"
+            else
+                fail "the refusal of ${through#"${TESTDIR}/"} named ${sealed} or a directory was created: $(brief "${out}")"
+            fi
+        done
+        spell ai-tools.projects.claim
+        out="$(runuser -u "${PROJECTS_USER}" -- env HOME="${PROJECTS_HOME}" \
+                AI_TOOLS_OPERATOR_CONF="${oconf}" AI_TOOLS_ALLOWLIST="${emptyal}" \
+                setsid "${CLI}" "${CLI_ARGV[@]}" "${TESTDIR}/missing/../sealed/new" 2>&1)" && rc=0 || rc=$?
+        if (( rc != 0 )) && grep -qF "path not found" <<<"${out}" && ! grep -qx "MSG-D4Z6" <<<"${out}"; then
+            pass "ai-tools.projects.claim reports missing/../sealed/new as a path not found, not as unreachable"
+        else
+            fail "ai-tools.projects.claim over missing/../sealed/new (rc=${rc}): $(brief "${out}")"
+        fi
+
+        # A blocker whose own name ends in a line feed is named whole: the walk returns its result in a variable,
+        # so the sanitized name the refusal prints ends in the sanitizer's `?` for the line feed, not in the sibling's
+        # name.
+        blocked_lf="${TESTDIR}/blocked"$'\n'; mkdir -p -- "${blocked_lf}/inner"; chmod 0700 "${blocked_lf}"
+        out="$(create_cli "${blocked_lf}/inner/proj")" && rc=0 || rc=$?
+        refused "ai-tools.projects.create refuses a location under a sealed directory whose name ends in a line feed" \
+            MSG-D4Z6 1
+        if grep -qF "cannot enter ${TESTDIR}/blocked? as" <<<"${out}" && [[ ! -e "${blocked_lf}/inner/proj" ]]; then
+            pass "the refusal names the line-feed directory whole, and nothing was created"
+        else
+            fail "the refusal did not name ${TESTDIR}/blocked<LF> whole: $(brief "${out}")"
+        fi
+
+        # The case the walk follows a link for: a link in a directory the operator enters, leading into the sealed one.
+        # `test -e` cannot stat it, so the walk resolves it and still names ${sealed}; passes before and after.
+        ln -s "${sealed}/inner" "${TESTDIR}/alias"
+        out="$(create_cli "${TESTDIR}/alias/new")" && rc=0 || rc=$?
+        refused "ai-tools.projects.create refuses a link leading into a directory the operator cannot enter" MSG-D4Z6 1
+        if [[ ! -e "${sealed}/inner/new" ]] && grep -qF "cannot enter ${sealed} as" <<<"${out}"; then
+            pass "the refusal follows the link and names ${sealed}, and nothing was created"
+        else
+            fail "the refusal over the link did not name ${sealed} or a directory was created: $(brief "${out}")"
+        fi
+        # The same link as the claim's own path: the link is the leaf, so the walk must read the leaf to name ${sealed},
+        # and not report the path as not found.
+        spell ai-tools.projects.claim
+        out="$(runuser -u "${PROJECTS_USER}" -- env HOME="${PROJECTS_HOME}" \
+                AI_TOOLS_OPERATOR_CONF="${oconf}" AI_TOOLS_ALLOWLIST="${emptyal}" \
+                setsid "${CLI}" "${CLI_ARGV[@]}" "${TESTDIR}/alias" 2>&1)" && rc=0 || rc=$?
+        refused "ai-tools.projects.claim refuses a link leaf leading into a directory the operator cannot enter" \
+            MSG-D4Z6 1
+        if grep -qF "cannot enter ${sealed} as" <<<"${out}" && ! grep -qF "path not found" <<<"${out}"; then
+            pass "the claim's refusal over the link leaf names ${sealed}, not a path not found"
+        else
+            fail "the claim's refusal over the link leaf did not name ${sealed}: $(brief "${out}")"
+        fi
+    else
+        fail "the sealed-parent fixture did not set up: ${sealed} is enterable by ${PROJECTS_USER} or inner is missing"
+    fi
+
     # The protected-paths backstop on the target: a create must not be able to MANUFACTURE a protected directory. Exits
     # 3, the backstop's own code. Driven against a protected path this host does not have; if it has all of them there
     # is no path to assert and the case skips.

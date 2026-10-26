@@ -150,8 +150,11 @@ the registry steps stop a session from launching there and leave the tree as it
 was. When the hand-back did not run — a declined password round, or a parked
 project whose `!` you kept — the command reports it, names
 the `projects enable` and `projects handback --full` pair, and exits non-zero;
-it does not print a clean `unclaimed`. What each verb does after a root step
-fails is [ref-table-b9q6](../../.claude/rules/cli.rule.md#ref-table-b9q6).
+it does not print a clean `unclaimed`. An allowlist line the command could not
+remove, or could not park under `--keep-entry`, is reported the same way,
+with the command that finishes the edit, because a session can still start
+there while the line stands. What each verb does after a root step fails is
+[ref-table-b9q6](../../.claude/rules/cli.rule.md#ref-table-b9q6).
 
 ## For another operator
 
@@ -163,7 +166,8 @@ to you.
 
 ## Exit status
 
-0 when the project is unclaimed; 1 when a step failed, or the hand-back did not
-run; 2 for a rejected command line (`--keep-entry` with `--force`, `--yes`
-with `--dry-run`); 3 when the path is a protected system directory or a home
-root. `man ai-tools` has the full list.
+0 when the project is unclaimed; 1 when a step failed, the hand-back did not
+run, or the allowlist line could not be removed or parked; 2 for a rejected
+command line (`--keep-entry` with `--force`, `--yes` with `--dry-run`); 3
+when the path is a protected system directory or a home root. `man ai-tools`
+has the full list.

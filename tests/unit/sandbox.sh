@@ -2,9 +2,11 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # tests/unit/sandbox.sh
 # Unit test for the pure decisions behind the ai-tools.sh flows -- the ai-tools.projects.clone pair, the precondition
-# ai-tools.projects.create's skipped prompts rest on (tree_is_pristine), the exclusion reader the claim-time scans prune
-# their walks with (allowlist_exclusions), the re-claim's SELinux drift scan (label_drift_scan), and the checks
-# the claim runs after its Apply block (claim_verify_label, claim_verify_group, at the end).
+# ai-tools.projects.create's skipped prompts rest on (is_project_tree_pristine), the sealed-setgid scan's report
+# of a walk it could not start or finish (find_sealed_setgid_directories), the .git and filemode readings the claim
+# takes as unknown (read_project_state), the exclusion reader the claim-time scans prune their walks
+# with (allowlist_exclusions), the re-claim's SELinux drift scan (label_drift_scan), and the checks the claim runs
+# after its Apply block (claim_verify_label, claim_verify_group, at the end).
 #
 # The ai-tools.projects.clone pair:
 #   * sandbox_default_branch -- composes the DEFAULT sandbox branch (sandbox/<leaf-of-from>) with no
@@ -123,15 +125,15 @@ else
     pass "resolve_base refuses a base that is not a branch, remote branch, or ref"
 fi
 
-# ── tree_is_pristine ──────────────────────────────────────────────────────────────────────────
+# ── is_project_tree_pristine ──────────────────────────────────────────────────────────────────────────
 # The predicate ai-tools.projects.create's flow rests on, and the reason it is pinned here rather than left to the CLI
 # test: what it gates is the SECRET SCAN. A claim skips that scan, the git-history prompt, and the proceed confirm
 # when this returns 0, so every way it could wrongly say yes is a way to grant an agent access to a tree no scan has
 # covered. It must answer for the tree as it is on disk -- never for what a caller asserts about it -- so the cases are
 # the states that must read as NOT pristine.
-section "tree_is_pristine: the precondition behind ai-tools.projects.create's skipped prompts (unit)"
+section "is_project_tree_pristine: the precondition behind ai-tools.projects.create's skipped prompts (unit)"
 
-pristine() { call tree_is_pristine "$1"; }
+pristine() { call is_project_tree_pristine "$1"; }
 
 # Fixtures are built AS ROOT and handed over at the end, the same way the repo fixture is. The predicate only reads
 # the tree, so what matters is that the projects user can read it when `call` runs; driving each mkdir/git
@@ -191,9 +193,270 @@ else
     fail "an empty directory was not recognised as pristine"
 fi
 
+# A reading the projects user cannot make is not an empty tree: `find` and `git rev-parse` see an unread tree the way
+# they see an empty one, so each of these must read as NOT pristine. The fresh tree of the first case, rebuilt, is
+# the control each fixture is a variation of.
+mk_fresh() {  # mk_fresh <dir> : an empty repository and a README, owned by the projects user
+    mkdir -p "$1"; git init -q "$1"; printf '# fresh\n' > "$1/README.md"
+    chown -R "${PROJECTS_USER}:${PROJECTS_GROUP}" "$1"
+}
+control="${work}/control"; mk_fresh "${control}"
+if pristine "${control}"; then
+    pass "control: a rebuilt fresh project reads as pristine"
+else
+    fail "control: a rebuilt fresh project did not read as pristine -- the cases below prove nothing"
+fi
+
+unlistable_project="${work}/unlisted"; mk_fresh "${unlistable_project}"
+chown root:root "${unlistable_project}"; chmod 0711 "${unlistable_project}"
+if pristine "${unlistable_project}"; then
+    fail "a root the projects user cannot list read as pristine -- the secret scan would be skipped unread"
+else
+    pass "a root the projects user cannot list is not pristine"
+fi
+
+sealed_sub="${work}/sealed-sub"; mk_fresh "${sealed_sub}"
+mkdir "${sealed_sub}/private"; printf 'TOKEN=x\n' > "${sealed_sub}/private/.env"; chmod 0700 "${sealed_sub}/private"
+if pristine "${sealed_sub}"; then
+    fail "a subdirectory the projects user cannot read read as pristine -- its .env went unscanned"
+else
+    pass "a subdirectory the walk cannot read makes a tree non-pristine"
+fi
+
+# Another account's .git, which the projects user's git refuses by its ownership check: the shape a `--for` create
+# leaves, where the claim reads a target-owned repository as the invoker.
+foreign_git="${work}/foreign-git"; mk_fresh "${foreign_git}"
+chown -R root:root "${foreign_git}/.git"
+if pristine "${foreign_git}"; then
+    fail "a .git the projects user's git refuses read as pristine -- its history was never read"
+else
+    pass "a .git the projects user's git refuses makes a tree non-pristine"
+fi
+
+# A committed repository whose branch reference the projects user cannot read: `git rev-parse HEAD` fails for it as it
+# does for an unborn branch. The predicate reads the object store rather than the references, so these are regression
+# rows for a reading that never consults a reference. The reference is sealed by mode, which a root run reads
+# through, so the fixture is asserted as the projects user.
+mk_committed() {  # mk_committed <dir> : mk_fresh with the README committed
+    mk_fresh "$1"
+    git -C "$1" add README.md
+    git -C "$1" -c user.email=t@example.invalid -c user.name=t -c commit.gpgsign=false commit -qm first
+    chown -R "${PROJECTS_USER}:${PROJECTS_GROUP}" "$1"
+}
+sealed_ref_case() {  # sealed_ref_case <dir> <ref-file> <what> : <ref-file> made 000 must leave <dir> not pristine
+    chmod 000 "$2"
+    if runuser -u "${PROJECTS_USER}" -- test -r "$2"; then
+        fail "fixture: the projects user still reads $2 -- the ${3} case proves nothing"
+    elif pristine "$1"; then
+        fail "a repository whose ${3} the projects user cannot read read as pristine -- its commit was never seen"
+    else
+        pass "a repository whose ${3} the projects user cannot read is not pristine"
+    fi
+}
+loose_ref="${work}/loose-ref"; mk_committed "${loose_ref}"
+sealed_ref_case "${loose_ref}" "${loose_ref}/.git/$(git -C "${loose_ref}" symbolic-ref HEAD)" "loose branch reference"
+packed_ref="${work}/packed-ref"; mk_committed "${packed_ref}"
+git -C "${packed_ref}" pack-refs --all
+chown -R "${PROJECTS_USER}:${PROJECTS_GROUP}" "${packed_ref}"
+sealed_ref_case "${packed_ref}" "${packed_ref}/.git/packed-refs" "packed-refs file"
+
+# The history half reads the object store, because a count of the commits the references reach reads 0 over a commit no
+# listable reference names. Each fixture here holds such a commit, and asserts first that the count reads 0
+# and the commit is there, which is the state a reference-based proof accepted.
+unreferenced_case() {  # unreferenced_case <dir> <what> : <dir> holds a commit `rev-list --all` does not count
+    if pristine "$1"; then
+        fail "a repository holding ${2} read as pristine -- its history would be shared unasked"
+    else
+        pass "a repository holding ${2} is not pristine"
+    fi
+}
+delete_branch() {  # delete_branch <dir> : point HEAD at an unborn branch and delete the one that held the commit
+    local held_branch
+    held_branch="$(git -C "$1" symbolic-ref HEAD)"
+    git -C "$1" symbolic-ref HEAD refs/heads/unborn
+    git -C "$1" update-ref -d "${held_branch}"
+}
+deleted_branch="${work}/deleted-branch"; mk_committed "${deleted_branch}"
+saved_commit="$(git -C "${deleted_branch}" rev-parse HEAD)"
+delete_branch "${deleted_branch}"
+chown -R "${PROJECTS_USER}:${PROJECTS_GROUP}" "${deleted_branch}"
+if [[ "$(git -C "${deleted_branch}" rev-list --all --count)" == 0 \
+        && "$(git -C "${deleted_branch}" cat-file -t "${saved_commit}")" == commit ]]; then
+    unreferenced_case "${deleted_branch}" "a commit whose branch was deleted"
+else
+    fail "fixture: the deleted-branch repository does not hold an uncounted commit -- the case proves nothing"
+fi
+
+packed_object="${work}/packed-object"; mk_committed "${packed_object}"
+git -C "${packed_object}" repack -q -a -d
+delete_branch "${packed_object}"
+chown -R "${PROJECTS_USER}:${PROJECTS_GROUP}" "${packed_object}"
+loose_objects="$(find "${packed_object}/.git/objects" -path "${packed_object}/.git/objects/pack" -prune \
+                     -o -path "${packed_object}/.git/objects/info" -prune -o ! -type d -print)"
+packs=("${packed_object}"/.git/objects/pack/*.pack)
+if [[ -z "${loose_objects}" && -f "${packs[0]}" && "$(git -C "${packed_object}" rev-list --all --count)" == 0 ]]; then
+    unreferenced_case "${packed_object}" "a commit in a pack, with no loose object"
+else
+    fail "fixture: the packed repository kept a loose object or has no pack -- the case proves nothing"
+fi
+
+alternate="${work}/alternate"; mk_fresh "${alternate}"
+printf '%s\n' "${deleted_branch}/.git/objects" > "${alternate}/.git/objects/info/alternates"
+chown "${PROJECTS_USER}:${PROJECTS_GROUP}" "${alternate}/.git/objects/info/alternates"
+if [[ "$(git -C "${alternate}" rev-list --all --count)" == 0 ]]; then
+    unreferenced_case "${alternate}" "an alternates entry naming another store"
+else
+    fail "fixture: the alternates repository counts a commit -- the case proves nothing"
+fi
+
+# A store the walk cannot read is not an empty one: an object directory the projects user cannot list must fail the walk
+# closed. A fresh store does not hold such a directory, so the old proof passed this case too; it pins the fail
+# direction.
+sealed_store="${work}/sealed-store"; mk_fresh "${sealed_store}"
+mkdir "${sealed_store}/.git/objects/ab"; chown root:root "${sealed_store}/.git/objects/ab"
+chmod 0111 "${sealed_store}/.git/objects/ab"
+if runuser -u "${PROJECTS_USER}" -- ls "${sealed_store}/.git/objects/ab" >/dev/null 2>&1; then
+    fail "fixture: the projects user still lists ${sealed_store}/.git/objects/ab -- the case proves nothing"
+elif pristine "${sealed_store}"; then
+    fail "a repository whose object store the projects user cannot read read as pristine"
+else
+    pass "a repository whose object store the projects user cannot read is not pristine"
+fi
+
+# ── find_sealed_setgid_directories ────────────────────────────────────────────────────────────────────────
+# The claim's Review block reports a setgid bit on an owner-only directory from this scan, so a walk that cannot start
+# must not read as a tree with no such directory: on a root the projects user cannot list, the scan returns 1 and does
+# not list a path, and the claim says the scan was not made. The control is the rebuilt fresh tree, which the scan reads
+# and finds nothing in. The registry it prunes exclusions from is an empty fixture, so the projects user's own is not
+# read.
+section "find_sealed_setgid_directories: a scan it cannot make is reported, not read as clean (unit)"
+sealed_setgid_allowlist="${work}/sg-allowed-projects"; : > "${sealed_setgid_allowlist}"
+chown "${PROJECTS_USER}:${PROJECTS_GROUP}" "${sealed_setgid_allowlist}"
+sealed_setgid_probe() {  # sealed_setgid_probe <dir> : the scan's output, then rc=<its status>
+    # shellcheck disable=SC2016  # the $N are for the inner `bash -c`, not this shell -- do not expand here
+    runuser -u "${PROJECTS_USER}" -- env AI_TOOLS_ALLOWLIST="${sealed_setgid_allowlist}" bash -c \
+        'cli="$1"; dir="$2"; set --
+         source "${cli}" >/dev/null 2>&1 || exit 99
+         rc=0; find_sealed_setgid_directories "${dir}" || rc=$?
+         printf "rc=%s\n" "${rc}"' _ "${CLI}" "$1"
+}
+sealed_setgid_result="$(sealed_setgid_probe "${control}")" || true
+if [[ "${sealed_setgid_result}" == "rc=0" ]]; then
+    pass "control: the scan reads the fresh tree and lists no directory"
+else
+    fail "control: the scan over the fresh tree printed '${sealed_setgid_result}' (want rc=0) -- the case below proves nothing"
+fi
+sealed_setgid_result="$(sealed_setgid_probe "${unlistable_project}")" || true
+if [[ "${sealed_setgid_result}" == "rc=1" ]]; then
+    pass "a root the projects user cannot list is a scan not made: status 1, no path listed"
+else
+    fail "the scan over a root the projects user cannot list printed '${sealed_setgid_result}' (want rc=1)"
+fi
+# A walk that starts and cannot read a directory inside the tree: a sealed setgid directory held by root in a third
+# group, which find lists from its parent and cannot enter. The scan keeps the path it reached and returns 2.
+third_group=""
+for candidate_group in tty users; do
+    if getent group "${candidate_group}" >/dev/null 2>&1 && [[ "${candidate_group}" != "${PROJECTS_GROUP}" ]]; then
+        third_group="${candidate_group}"; break
+    fi
+done
+if [[ -n "${third_group}" ]]; then
+    incomplete="${work}/incomplete-scan"; mk_fresh "${incomplete}"
+    mkdir "${incomplete}/sealed"; chown "root:${third_group}" "${incomplete}/sealed"; chmod 2700 "${incomplete}/sealed"
+    if runuser -u "${PROJECTS_USER}" -- test -r "${incomplete}/sealed"; then
+        fail "fixture: the projects user still reads ${incomplete}/sealed -- the case proves nothing"
+    else
+        sealed_setgid_result="$(sealed_setgid_probe "${incomplete}")" || true
+        if [[ "${sealed_setgid_result}" == "${incomplete}/sealed"$'\n'"rc=2" ]]; then
+            pass "a directory the walk cannot read is an incomplete scan: status 2, the path it reached listed"
+        else
+            fail "the scan over a tree with a directory it cannot read printed '${sealed_setgid_result}' (want the path, then rc=2)"
+        fi
+    fi
+else
+    skip "find_sealed_setgid_directories over a directory it cannot read" "neither tty nor users is a group here apart from the projects group"
+fi
+
+# ── read_project_state ────────────────────────────────────────────────────────────────────────────
+# The claim decides its .git and core.filemode steps from read_project_state, read as the projects user. A .git present
+# at the root that git does not open as the project's own repository, or one the projects user cannot list and enter,
+# must read unknown: git walks past a .git it cannot read to an enclosing repository and reads that one's filemode,
+# and a .git symlink into a closed directory is not a directory to `test -d`. Each case has a control the same reading
+# answers, and a worktree checkout, whose gitfile .git names a git directory elsewhere, keeps its filemode reading.
+section "read_project_state: a .git the projects user cannot read as the project's own reads unknown (unit)"
+project_state_work="${TESTDIR}/project-state"
+project_state_list="${project_state_work}/allowed-projects"
+project_state_gitconfig="${project_state_work}/gitconfig"
+mkdir -p "${project_state_work}"; : > "${project_state_list}"; : > "${project_state_gitconfig}"
+project_state_field() {  # project_state_field <dir> <token> : one of the seven tokens read_project_state prints for <dir>
+    local printed position
+    local -a tokens=()
+    # shellcheck disable=SC2016  # the $N are for the inner `bash -c`, not this shell -- do not expand here
+    printed="$(runuser -u "${PROJECTS_USER}" -- env AI_TOOLS_ALLOWLIST="${project_state_list}" \
+            AI_TOOLS_GITCONFIG="${project_state_gitconfig}" bash -c \
+        'cli="$1"; dir="$2"; set --
+         source "${cli}" >/dev/null 2>&1 || exit 99
+         read_project_state "${dir}"' _ "${CLI}" "$1")" || printed=""
+    read -r -a tokens <<< "${printed}" || true
+    case "$2" in
+        listed) position=0 ;; safedir) position=1 ;; filemode) position=2 ;; owngap) position=3 ;;
+        acl) position=4 ;; labelled) position=5 ;; git) position=6 ;;
+    esac
+    printf '%s' "${tokens[position]:-}"
+}
+project_state_expect() {  # project_state_expect <dir> <token> <want> <what>
+    local got; got="$(project_state_field "$1" "$2")"
+    if [[ "${got}" == "$3" ]]; then
+        pass "${4}: ${2} reads ${3}"
+    else
+        fail "${4}: ${2} read '${got}' (want ${3})"
+    fi
+}
+
+# An inner project inside a repository the projects user owns. The outer repository's filemode is true and each inner
+# project's is false, so a read of the enclosing repository shows as the wrong token.
+outer="${project_state_work}/outer"
+git init -q "${outer}"; git -C "${outer}" config core.filemode true
+for inner in open-inner sealed-inner; do
+    git init -q "${outer}/${inner}"; git -C "${outer}/${inner}" config core.filemode false
+done
+chown -R "${PROJECTS_USER}:${PROJECTS_GROUP}" "${project_state_work}"
+chown -R root:root "${outer}/sealed-inner/.git"; chmod 0700 "${outer}/sealed-inner/.git"
+project_state_expect "${outer}/open-inner" filemode false "control: an inner project with its own readable .git"
+if runuser -u "${PROJECTS_USER}" -- test -x "${outer}/sealed-inner/.git"; then
+    fail "fixture: the projects user still enters ${outer}/sealed-inner/.git -- the case proves nothing"
+else
+    project_state_expect "${outer}/sealed-inner" filemode unknown "an inner project whose .git the projects user cannot read"
+fi
+
+# A .git symlink into a closed directory, beside an unnormalized real .git directory as the control.
+if command -v getfacl >/dev/null 2>&1; then
+    plain="${project_state_work}/plain"; git init -q "${plain}"
+    closed="${project_state_work}/closed"; mkdir -p "${closed}"; git init -q --bare "${closed}/repo.git"
+    linked="${project_state_work}/linked-git"; mkdir -p "${linked}"; ln -s "${closed}/repo.git" "${linked}/.git"
+    chown -R -h "${PROJECTS_USER}:${PROJECTS_GROUP}" "${plain}" "${linked}"
+    chown root:root "${closed}"; chmod 0700 "${closed}"
+    project_state_expect "${plain}" git true "control: an unnormalized .git directory"
+    if runuser -u "${PROJECTS_USER}" -- test -e "${linked}/.git"; then
+        fail "fixture: the projects user still resolves ${linked}/.git -- the case proves nothing"
+    else
+        project_state_expect "${linked}" git unknown "a .git symlink into a directory the projects user cannot enter"
+    fi
+else
+    skip "read_project_state over a .git symlink into a closed directory" "getfacl is unavailable, so git_gap reads no gap"
+fi
+
+# A worktree checkout: its .git is a gitfile naming a git directory under the main repository, and its toplevel is
+# the checkout itself, so the identity check keeps its filemode reading.
+main="${project_state_work}/main"; git init -q "${main}"
+git -C "${main}" -c user.email=t@example.invalid -c user.name=t -c commit.gpgsign=false commit -qm first --allow-empty
+git -C "${main}" worktree add -q "${project_state_work}/worktree"
+chown -R "${PROJECTS_USER}:${PROJECTS_GROUP}" "${main}" "${project_state_work}/worktree"
+project_state_expect "${project_state_work}/worktree" filemode true "a worktree checkout of the projects user's repository"
+
 # ── allowlist_exclusions ──────────────────────────────────────────────────────────────────────
-# The read-only scans a claim runs (acl_drift_scan, sealed_setgid_scan) prune every '!' exclusion from their walk,
-# and read the registry through the shared allowlist grammar: an exclusion line carrying an end-of-line comment
+# The read-only scans a claim runs (acl_drift_scan, find_sealed_setgid_directories) prune every '!' exclusion from their
+# walk, and read the registry through the shared allowlist grammar: an exclusion line carrying an end-of-line comment
 # or quotes names the same path here as in the launch wrapper, so a carve-out is neither reported as drift nor offered
 # to the repair walk. Only the exclusions are printed, without their '!', and a commented-out line is not one.
 section "allowlist_exclusions: the carve-outs the claim-time scans prune (unit)"

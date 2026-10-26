@@ -825,7 +825,7 @@ else
 fi
 
 # --- Allowlist membership: one exact-entry matcher every consumer shares -----------------------
-# The launch wrapper, the CLI (reg/unreg/project_state), and the relabel helper all decide "is this path listed"
+# The launch wrapper, the CLI (reg/unreg/read_project_state), and the relabel helper all decide "is this path listed"
 # through these predicates instead of a raw `grep -qxF` against the stored line. The property under test: an entry
 # written in the documented grammar -- an end-of-line comment, quotes, or a spelling reached by a symlink or trailing
 # slash -- MATCHES, where a raw grep would miss it and report the project unlisted (the divergence that duplicated

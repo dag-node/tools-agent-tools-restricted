@@ -9,7 +9,9 @@
 # Root is needed for READS as well as writes: an allowlist is 0600 inside a 0700 .config/ai-tools (ai-tools-admin seeds
 # an operator's config), so one operator cannot see another's list at all. `--print` exists for exactly
 # that, and the CLI snapshots it for the decisions a claim makes (is the path listed, disabled, or absent)
-# before routing the mutation back through the four editing actions.
+# before routing the mutation back through the four editing actions. It reads an existing registry and refuses a missing
+# one with the code the add refuses it with, so the snapshot -- a --for run's first sudo -- carries the refusal ahead
+# of any write the run makes.
 #
 # The allowlist is the LAUNCH GATE: an entry here is what lets that operator's agent start in the directory,
 # and what makes the ownership handback restore files to them. Editing another operator's gate stays inside the trust
@@ -22,6 +24,7 @@
 #   - the CALLER is not in OPERATORS                              -> refuse, write no entry
 #   - the TARGET is not in OPERATORS                              -> refuse, write no entry
 #   - the target is the sandbox account or root                   -> refuse, write no entry
+#   - the target has no allowlist file yet                        -> refuse, print nothing, write no entry
 #   - the path is not a real directory, or is a protected system  -> refuse, write no entry
 #     directory (safe-paths backstop)
 #   - a required library will not load                            -> refuse, write no entry
@@ -177,12 +180,25 @@ is_primary=secondary
 allowlist="$(ai_tools_operator__get_allowlist_path "${OPERATOR}" "${is_primary}")"
 readonly caller allowlist target_home
 
+# require_target_config: the target's allowlist must already exist. This helper reads or changes an existing file
+# and does not create one: `ai-tools-admin operators add` is where an operator's config comes from -- the config files,
+# at the modes that keep the sandbox account out (0700 dir, 0600 files) -- and it is idempotent. A missing allowlist
+# therefore means the name reached OPERATORS another way, or the home did not exist at enrolment; seeding it from here
+# would write the allowlist and leave the account without the secret-patterns file beside it, so the refusal names
+# the command that writes the whole config.
+require_target_config() {
+    [[ -f "${allowlist}" ]] && return 0
+    die MSG-S7Y3 "no ai-tools config yet for ${OPERATOR} (no ${allowlist}) -- nothing changed.
+       If the ${OPERATOR} account is meant to run sandboxed sessions, enrol it first with:
+       sudo ai-tools-admin operators add ${OPERATOR}"
+}
+
 # ── print ────────────────────────────────────────────────────────────────────────
-# Read-only, and the only action that does not require a path. An absent allowlist prints an empty list and succeeds:
-# "this operator has approved no projects" is a complete answer, and the caller (the CLI's snapshot) treats an empty
-# list exactly as it treats a file of comments.
+# Read-only, and the only action that does not require a path. A missing allowlist is refused as the add refuses it.
+# An existing file is printed as it stands; one holding only comments is an empty list to the caller (the CLI's
+# snapshot).
 if [[ "${ACTION}" == print ]]; then
-    [[ -r "${allowlist}" ]] || exit 0
+    require_target_config
     cat -- "${allowlist}"
     exit 0
 fi
@@ -202,19 +218,6 @@ readonly canonical
 # the command is recorded as AI_TOOLS_CALLER, so an edit made through `--for` keeps the two apart in the trail.
 AI_TOOLS_LOG_OPERATOR="${OPERATOR}"
 AI_TOOLS_LOG_PROJECT="${canonical}"
-
-# require_target_config: the target's allowlist must already exist. This helper applies the one entry change it was
-# asked for and does not create the file: `ai-tools-admin operators add` is where an operator's config comes from --
-# the config files, at the modes that keep the sandbox account out (0700 dir, 0600 files) -- and it is idempotent.
-# A missing allowlist therefore means the name reached OPERATORS and ai-ops another way, or the home did not exist
-# at enrolment; seeding it from here would write the allowlist and leave the account without the secret-patterns file
-# beside it, so the refusal names the command that writes the whole config.
-require_target_config() {
-    [[ -f "${allowlist}" ]] && return 0
-    die MSG-S7Y3 "no ai-tools config yet for ${OPERATOR} (no ${allowlist}) -- nothing changed.
-       If the ${OPERATOR} account is meant to run sandboxed sessions, enrol it first with:
-       sudo ai-tools-admin operators add ${OPERATOR}"
-}
 
 # Every edit here is one call into conf.lib.sh's allowlist-editing functions -- the same implementation the CLI runs
 # against the operator's own file and install.sh against its checkout. What is left here is this helper's own job:
