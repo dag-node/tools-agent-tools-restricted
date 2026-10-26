@@ -3,9 +3,10 @@
 # tests/unit/sandbox.sh
 # Unit test for the pure decisions behind the ai-tools.sh flows -- the ai-tools.projects.clone pair, the precondition
 # ai-tools.projects.create's skipped prompts rest on (tree_is_pristine), the sealed-setgid scan's report of a walk it
-# could not start (sealed_setgid_scan), the exclusion reader the claim-time scans prune their walks
-# with (allowlist_exclusions), the re-claim's SELinux drift scan (label_drift_scan), and the checks the claim runs
-# after its Apply block (claim_verify_label, claim_verify_group, at the end).
+# could not start (sealed_setgid_scan), the .git and filemode readings the claim takes as unknown (project_state),
+# the exclusion reader the claim-time scans prune their walks with (allowlist_exclusions), the re-claim's SELinux drift
+# scan (label_drift_scan), and the checks the claim runs after its Apply block (claim_verify_label, claim_verify_group,
+# at the end).
 #
 # The ai-tools.projects.clone pair:
 #   * sandbox_default_branch -- composes the DEFAULT sandbox branch (sandbox/<leaf-of-from>) with no
@@ -287,6 +288,83 @@ if [[ "${sg_got}" == "rc=1" ]]; then
 else
     fail "the scan over a root the projects user cannot list printed '${sg_got}' (want rc=1)"
 fi
+
+# ── project_state ────────────────────────────────────────────────────────────────────────────
+# The claim decides its .git and core.filemode steps from project_state, read as the projects user. A .git present
+# at the root that git does not open as the project's own repository, or one the projects user cannot list and enter,
+# must read unknown: git walks past a .git it cannot read to an enclosing repository and reads that one's filemode,
+# and a .git symlink into a closed directory is not a directory to `test -d`. Each case has a control the same reading
+# answers, and a worktree checkout, whose gitfile .git names a git directory elsewhere, keeps its filemode reading.
+section "project_state: a .git the projects user cannot read as the project's own reads unknown (unit)"
+project_state_work="${TESTDIR}/project-state"
+project_state_list="${project_state_work}/allowed-projects"
+project_state_gitconfig="${project_state_work}/gitconfig"
+mkdir -p "${project_state_work}"; : > "${project_state_list}"; : > "${project_state_gitconfig}"
+project_state_field() {  # project_state_field <dir> <token> : one of the seven tokens project_state prints for <dir>
+    local printed position
+    local -a tokens=()
+    # shellcheck disable=SC2016  # the $N are for the inner `bash -c`, not this shell -- do not expand here
+    printed="$(runuser -u "${PROJECTS_USER}" -- env AI_TOOLS_ALLOWLIST="${project_state_list}" \
+            AI_TOOLS_GITCONFIG="${project_state_gitconfig}" bash -c \
+        'cli="$1"; dir="$2"; set --
+         source "${cli}" >/dev/null 2>&1 || exit 99
+         project_state "${dir}"' _ "${CLI}" "$1")" || printed=""
+    read -r -a tokens <<< "${printed}" || true
+    case "$2" in
+        listed) position=0 ;; safedir) position=1 ;; filemode) position=2 ;; owngap) position=3 ;;
+        acl) position=4 ;; labelled) position=5 ;; git) position=6 ;;
+    esac
+    printf '%s' "${tokens[position]:-}"
+}
+project_state_expect() {  # project_state_expect <dir> <token> <want> <what>
+    local got; got="$(project_state_field "$1" "$2")"
+    if [[ "${got}" == "$3" ]]; then
+        pass "${4}: ${2} reads ${3}"
+    else
+        fail "${4}: ${2} read '${got}' (want ${3})"
+    fi
+}
+
+# An inner project inside a repository the projects user owns. The outer repository's filemode is true and each inner
+# project's is false, so a read of the enclosing repository shows as the wrong token.
+outer="${project_state_work}/outer"
+git init -q "${outer}"; git -C "${outer}" config core.filemode true
+for inner in open-inner sealed-inner; do
+    git init -q "${outer}/${inner}"; git -C "${outer}/${inner}" config core.filemode false
+done
+chown -R "${PROJECTS_USER}:${PROJECTS_GROUP}" "${project_state_work}"
+chown -R root:root "${outer}/sealed-inner/.git"; chmod 0700 "${outer}/sealed-inner/.git"
+project_state_expect "${outer}/open-inner" filemode false "control: an inner project with its own readable .git"
+if runuser -u "${PROJECTS_USER}" -- test -x "${outer}/sealed-inner/.git"; then
+    fail "fixture: the projects user still enters ${outer}/sealed-inner/.git -- the case proves nothing"
+else
+    project_state_expect "${outer}/sealed-inner" filemode unknown "an inner project whose .git the projects user cannot read"
+fi
+
+# A .git symlink into a closed directory, beside an unnormalized real .git directory as the control.
+if command -v getfacl >/dev/null 2>&1; then
+    plain="${project_state_work}/plain"; git init -q "${plain}"
+    closed="${project_state_work}/closed"; mkdir -p "${closed}"; git init -q --bare "${closed}/repo.git"
+    linked="${project_state_work}/linked-git"; mkdir -p "${linked}"; ln -s "${closed}/repo.git" "${linked}/.git"
+    chown -R -h "${PROJECTS_USER}:${PROJECTS_GROUP}" "${plain}" "${linked}"
+    chown root:root "${closed}"; chmod 0700 "${closed}"
+    project_state_expect "${plain}" git true "control: an unnormalized .git directory"
+    if runuser -u "${PROJECTS_USER}" -- test -e "${linked}/.git"; then
+        fail "fixture: the projects user still resolves ${linked}/.git -- the case proves nothing"
+    else
+        project_state_expect "${linked}" git unknown "a .git symlink into a directory the projects user cannot enter"
+    fi
+else
+    skip "project_state over a .git symlink into a closed directory" "getfacl is unavailable, so git_gap reads no gap"
+fi
+
+# A worktree checkout: its .git is a gitfile naming a git directory under the main repository, and its toplevel is
+# the checkout itself, so the identity check keeps its filemode reading.
+main="${project_state_work}/main"; git init -q "${main}"
+git -C "${main}" -c user.email=t@example.invalid -c user.name=t -c commit.gpgsign=false commit -qm first --allow-empty
+git -C "${main}" worktree add -q "${project_state_work}/worktree"
+chown -R "${PROJECTS_USER}:${PROJECTS_GROUP}" "${main}" "${project_state_work}/worktree"
+project_state_expect "${project_state_work}/worktree" filemode true "a worktree checkout of the projects user's repository"
 
 # ── allowlist_exclusions ──────────────────────────────────────────────────────────────────────
 # The read-only scans a claim runs (acl_drift_scan, sealed_setgid_scan) prune every '!' exclusion from their walk,

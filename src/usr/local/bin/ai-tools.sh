@@ -1709,23 +1709,35 @@ clear_lockdown_guard() {
 # is the live SELinux type check -- true/false when SELinux is active, "na" when it is disabled (no label needed); git
 # is true when a .git tree is present but not yet normalized for agent history sharing (see git_gap), false otherwise --
 # it gates the opt-in .git prompt, not a mandatory claim step. filemode and git read "unknown" when the invoking user
-# cannot make the reading: git is unknown when <dir> cannot be entered, and filemode also when a .git is present
-# and the invoker's git refuses the repository (another account's repository, which git's ownership check refuses).
-# A reading that could not be made is not reported as a gap or as its absence. Read-only, no privilege.
-# The ai_tools_project_t string is the single fact mirrored from the root labelling lib; the authoritative
-# semanage/restorecon logic is NOT duplicated here.
+# cannot make the reading: both when <dir> cannot be entered; filemode when a .git is present and the repository its git
+# opens is not the project's own (another account's repository, which git's ownership check refuses, or an enclosing one
+# git walked to past a .git it cannot read); git when a .git is present that is neither a readable gitfile
+# nor a directory the invoker can list and enter, a symlink into a closed directory among them. A reading that could not
+# be made is not reported as a gap or as its absence. Read-only, no privilege. The ai_tools_project_t string is
+# the single fact mirrored from the root labelling lib; the authoritative semanage/restorecon logic is NOT duplicated
+# here.
 project_state() {
     local dir="$1" listed=false safedir=false filemode=na owngap=true acl=false labelled=na git=false
     ai_tools_conf__has_allowlist_entry "${ALLOWLIST}" "${dir}" 2>/dev/null && listed=true
     git config --file "${GITCONFIG}" --get-all safe.directory 2>/dev/null \
         | grep -qxF "${dir}" && safedir=true
+    local toplevel
     if [[ ! -x "${dir}" ]]; then
         filemode=unknown
+    elif [[ -e "${dir}/.git" || -L "${dir}/.git" ]]; then
+        # The repository git opens must be the project's own. `git rev-parse --show-toplevel` and not
+        # `--absolute-git-dir`: a worktree or submodule checkout has a gitfile .git whose git directory is elsewhere
+        # and whose toplevel is the project.
+        if toplevel="$(git -C "${dir}" rev-parse --show-toplevel 2>/dev/null)" \
+                && [[ "$(realpath -e -- "${toplevel}" 2>/dev/null)" == "$(realpath -e -- "${dir}" 2>/dev/null)" ]]; then
+            [[ "$(git -C "${dir}" config --local --get core.filemode 2>/dev/null)" == "true" ]] \
+                && filemode=true || filemode=false
+        else
+            filemode=unknown
+        fi
     elif git -C "${dir}" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
         [[ "$(git -C "${dir}" config --local --get core.filemode 2>/dev/null)" == "true" ]] \
             && filemode=true || filemode=false
-    elif [[ -e "${dir}/.git" || -L "${dir}/.git" ]]; then
-        filemode=unknown
     fi
     dir_owngap "${dir}" || owngap=false
     acl_gap "${dir}" && acl=true
@@ -1736,10 +1748,16 @@ project_state() {
             labelled=false
         fi
     fi
+    # A readable gitfile is git_gap's documented no-tree case; git_gap reads a .git directory only where the invoker can
+    # list and enter it.
     if [[ ! -x "${dir}" ]]; then
         git=unknown
-    elif git_gap "${dir}"; then
-        git=true
+    elif [[ -f "${dir}/.git" && -r "${dir}/.git" ]]; then
+        git=false
+    elif [[ -d "${dir}/.git" && -r "${dir}/.git" && -x "${dir}/.git" ]]; then
+        git_gap "${dir}" && git=true
+    elif [[ -e "${dir}/.git" || -L "${dir}/.git" ]]; then
+        git=unknown
     fi
     printf '%s %s %s %s %s %s %s\n' \
         "${listed}" "${safedir}" "${filemode}" "${owngap}" "${acl}" "${labelled}" "${git}"
@@ -2549,7 +2567,7 @@ cmd_project_claim() {
 
     if ${git_unread} || ${filemode_unread}; then
         headline_warn "NOTICE: part of this project cannot be read as ${INVOKING_USER}" \
-            "The claim reads the project's state as ${INVOKING_USER}, and could not read the repository at ${d}/.git as that account -- the directory is closed to it, or git refuses another account's repository. The steps marked not checked are left as they are; each is named at the end with the command that finishes it, and the claim ends non-zero."
+            "The claim reads the project's state as ${INVOKING_USER}, and could not read the repository at ${d}/.git as that account -- the directory is closed to it, git refuses another account's repository, or the repository git opens there is not this project's own. The steps marked not checked are left as they are; each is named at the end with the command that finishes it, and the claim ends non-zero."
     fi
 
     skip_listed_note

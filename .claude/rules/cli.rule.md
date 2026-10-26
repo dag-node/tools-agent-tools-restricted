@@ -819,11 +819,12 @@ what is missing.
 under a directory the invoker cannot enter, naming that directory (`resolve_dir`, through `find_unenterable_ancestor`),
 since `realpath` fails alike for an absent path and an unreachable one. Inside a tree it can enter, `project_state`
 reads the `.git` and `core.filemode` steps as `unknown` where the invoker cannot make the reading — a root it cannot
-enter, or a `.git` its git refuses as another account's repository — and the claim announces each in the Review block,
-writes it as an `error` row naming the step, prints the command that finishes it, and ends with exit 5. Each such step
-is the opt-in history share or a registry pin, so it is not applied, and the agent has less access to the project until
-the operator runs the printed command. That command, and the traverse grant the unreachable-location refusal prints,
-carry the path in bash's `%q` encoding, so each pastes as one word.
+enter, a `.git` its git refuses as another account's repository, or a `.git` whose repository is not the one its git
+opens, or one it cannot list and enter — and the claim announces each in the Review block, writes it as an `error` row
+naming the step, prints the command that finishes it, and ends with exit 5. Each such step is the opt-in history share
+or a registry pin, so it is not applied, and the agent has less access to the project until the operator runs
+the printed command. That command, and the traverse grant the unreachable-location refusal prints, carry the path
+in bash's `%q` encoding, so each pastes as one word.
 
 **A failed step asks once before attempting the next.** Every root step authenticates separately and no step can be
 pre-authenticated (a sudoers `timestamp_timeout=0` prompts on every invocation), so a mistyped password would cost
