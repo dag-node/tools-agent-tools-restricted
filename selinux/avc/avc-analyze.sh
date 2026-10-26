@@ -158,8 +158,9 @@ fi
 # See the portability note in ai_tools.te section (6). sudo_exec_t and semanage_exec_t are the privilege tools
 # themselves: reaching either is the escalation attempt section (6) is written to keep visible, and the agent half
 # probes both deliberately (the explicit sudo -> chown step, and `semodule -l` behind each optional-group check).
-# Without them here a run of the suite reports its own probes as unclassified gaps.
-readonly BOUNDARY_NAMED_RE='(user_home_t|user_home_dir_t|home_root_t|config_home_t|container_file_t|sendmail_exec_t|sudo_exec_t|semanage_exec_t|ssh_port_t|smtp_port_t|mysqld_port_t|postgresql_port_t|usb_device_t|shadow_t|etc_sudoers_t|admin_home_t|user_runtime_t|user_tmp_t|system_dbusd_var_run_t|syslogd_var_run_t|container_var_run_t|sysctl_t|sysctl_kernel_t|memory_device_t|fixed_disk_device_t|user_cron_spool_t|system_cron_spool_t|systemd_unit_file_t)'
+# Without them here a run of the suite reports its own probes as unclassified gaps. cgroup_t is the account's own cgroup
+# files, which section Y of avc-denials.sh opens for write: the relabel gate's plumbing exemption rests on that refusal.
+readonly BOUNDARY_NAMED_RE='(user_home_t|user_home_dir_t|home_root_t|config_home_t|container_file_t|sendmail_exec_t|sudo_exec_t|semanage_exec_t|ssh_port_t|smtp_port_t|mysqld_port_t|postgresql_port_t|usb_device_t|shadow_t|etc_sudoers_t|admin_home_t|user_runtime_t|user_tmp_t|system_dbusd_var_run_t|syslogd_var_run_t|container_var_run_t|sysctl_t|sysctl_kernel_t|memory_device_t|fixed_disk_device_t|user_cron_spool_t|system_cron_spool_t|systemd_unit_file_t|cgroup_t)'
 
 # Target types granted ONLY by an optional policy group (systemd / pkgmgmt / netadmin / podman), all DISABLED
 # by default. With the core module alone these accesses are correctly denied -- that is the group being off, not a hole

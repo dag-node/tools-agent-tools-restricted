@@ -273,6 +273,30 @@ else
     fi
 fi
 
+# (7d) The confined domain cannot write a cgroup file or create a cgroup. The relabel gate exempts the account's
+# user-manager plumbing by unit name (sessions.lib.sh), which holds only while a session can neither move a task
+# into a cgroup it names nor make one; both are writes on cgroup_t. Read-only, as (7b): the loaded policy is asked,
+# and selinux/avc/avc-denials.sh section Y makes the same writes from inside a session.
+section "SELinux: the confined domain cannot write a cgroup file or create a cgroup"
+
+if ! command -v sesearch >/dev/null 2>&1; then
+    skip "cgroup writes" "sesearch (setools-console) not installed"
+else
+    cgroup_file_rules="$(sesearch --allow -s ai_tools_t -t cgroup_t -c file -p write,append 2>/dev/null || true)"
+    cgroup_dir_rules="$(sesearch --allow -s ai_tools_t -t cgroup_t -c dir -p add_name,create,write 2>/dev/null || true)"
+    # The control: the same query over a type the domain does write returns a rule, so an empty answer for cgroup_t
+    # is a reading of the policy and not a query that read no rule at all.
+    control_rules="$(sesearch --allow -s ai_tools_t -t ai_tools_project_t -c file -p write 2>/dev/null || true)"
+    if [[ "$(grep -c '^allow ' <<<"${control_rules}")" -eq 0 ]]; then
+        fail "sesearch returns no write rule for ai_tools_t on ai_tools_project_t either -- the query reads nothing on this host"
+    elif [[ "$(grep -c '^allow ' <<<"${cgroup_file_rules}")" -eq 0 \
+            && "$(grep -c '^allow ' <<<"${cgroup_dir_rules}")" -eq 0 ]]; then
+        pass "ai_tools_t holds no write on a cgroup_t file and no create in a cgroup_t directory (control: it writes ai_tools_project_t)"
+    else
+        fail "ai_tools_t can write cgroup_t: $(grep -m1 '^allow ' <<<"${cgroup_file_rules}${cgroup_dir_rules}") -- the relabel gate's plumbing exemption no longer holds"
+    fi
+fi
+
 # (8) The build-output type, where the dotnet layout module is loaded. Its static rule must win over the clone rule
 # for a path under one of the named directories and lose everywhere else -- the precedence the narrowing rests
 # on, decided by libselinux from the two rules' stems, which no unit test can read. matchpathcon reads the loaded file

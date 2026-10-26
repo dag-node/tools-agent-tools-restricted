@@ -26,6 +26,7 @@
 #   V    Lateral: systemd journal socket                   (goal 4)
 #   W    Lateral: raw IP socket, /dev/shm                  (goal 4)
 #   X    Network: privileged port bind (<1024)             (goal 5)
+#   Y    The account's own cgroups and user manager        (goals 2, 4)
 #
 # Two modes, split by privilege like avc-testsuite.sh / avc-analyze.sh:
 #
@@ -972,6 +973,44 @@ manipulate traffic. net_bind_service capability is the SELinux gate."
       "python3 absent (needed for bind() syscall)"
   fi
 
+  section "SECTION Y: THE ACCOUNT'S OWN CGROUPS AND USER MANAGER  [goals 2, 4]" \
+"A recursive relabel run by root exempts the sandbox account's user-manager
+plumbing (init.scope, the dbus broker) by unit name, and refuses its walk while
+any other cgroup of the account holds a task (cli.rule.md). The names are
+trustworthy only while a session can neither move a task between cgroups nor
+ask its manager for a unit. cgroup_t and the account's runtime directory are
+the SELinux gates."
+
+  local _own_cg _own_uid
+  _own_cg="$(sed -n 's/^0:://p' /proc/self/cgroup 2>/dev/null || true)"
+  _own_uid="$(id -u 2>/dev/null || true)"
+  if [[ -n "${_own_cg}" && -n "${_own_uid}" ]] && command -v python3 >/dev/null 2>&1; then
+    _type="cgroup_t:file write"
+    _why="Writing a pid into a cgroup.procs moves that task into the cgroup. A session that could do it would move its own tasks into the manager's init.scope, which the relabel gate exempts by name, and the gate would read the account as idle while the session runs."
+    check SES-001 SELinux "open this session's own cgroup.procs for write (no write made)" \
+      _py write "/sys/fs/cgroup${_own_cg}/cgroup.procs"
+
+    _type="cgroup_t:dir add_name"
+    _why="Creating a cgroup under the account's slice gives a session a place to put tasks the gate's walk reads by name. The check asks access(2) for write on the slice directory, which creates nothing."
+    check SES-002 SELinux "write the account's slice directory (access W_OK, nothing created)" \
+      _py dirwrite "/sys/fs/cgroup/user.slice/user-${_own_uid}.slice/user@${_own_uid}.service"
+
+    _type="user_runtime_t|user_tmp_t:sock_file (connectto the user manager)"
+    _why="The user manager's private socket accepts unit requests from processes of its account. A session that could reach it would start a unit by any name, outside the cgroup it was launched in."
+    check SES-003 SELinux "connect the account's user-manager socket (no message sent)" \
+      _py unix "/run/user/${_own_uid}/systemd/private" stream
+
+    _type="user_runtime_t|user_tmp_t:sock_file (connectto the account's session bus)"
+    _why="The account's session bus reaches the same manager over D-Bus (org.freedesktop.systemd1 on the user bus), so a unit could be requested by name there as well."
+    check SES-004 SELinux "connect the account's session bus (no message sent)" \
+      _py unix "/run/user/${_own_uid}/bus" stream
+  else
+    skip_check SES-001 SELinux "this session's own cgroup.procs" "no cgroup v2 line, no uid, or no python3"
+    skip_check SES-002 SELinux "the account's slice directory" "no cgroup v2 line, no uid, or no python3"
+    skip_check SES-003 SELinux "the account's user-manager socket" "no cgroup v2 line, no uid, or no python3"
+    skip_check SES-004 SELinux "the account's session bus" "no cgroup v2 line, no uid, or no python3"
+  fi
+
   # ── Audit footer ──────────────────────────────────────────────────────────
   printf '\n\n================================================================\n'
   printf 'END OF PROBE AUDIT TRAIL\n'
@@ -984,7 +1023,7 @@ manipulate traffic. net_bind_service capability is the SELinux gate."
   printf '\nNext steps:\n'
   printf '  1. Let this turn finish (Stop sweep AVCs land), then press Enter in root terminal.\n'
   printf '  2. Sections A-F: AVCs appear under -DB only (dontaudit'"'"'d). Expected.\n'
-  printf '  3. Sections G-X: AVCs log without -DB. A confirmed boundary type is added to\n'
+  printf '  3. Sections G-Y: AVCs log without -DB. A confirmed boundary type is added to\n'
   printf '     BOUNDARY_NAMED_RE in avc-analyze.sh so it files as EXPECTED BOUNDARY. A\n'
   printf '     dontaudit is for a flood alone: the core policy keeps breach attempts\n'
   printf '     visible on purpose, and a silenced denial is not evidence the boundary holds.\n'
