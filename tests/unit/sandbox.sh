@@ -2,11 +2,11 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # tests/unit/sandbox.sh
 # Unit test for the pure decisions behind the ai-tools.sh flows -- the ai-tools.projects.clone pair, the precondition
-# ai-tools.projects.create's skipped prompts rest on (tree_is_pristine), the sealed-setgid scan's report of a walk it
-# could not start (sealed_setgid_scan), the .git and filemode readings the claim takes as unknown (project_state),
-# the exclusion reader the claim-time scans prune their walks with (allowlist_exclusions), the re-claim's SELinux drift
-# scan (label_drift_scan), and the checks the claim runs after its Apply block (claim_verify_label, claim_verify_group,
-# at the end).
+# ai-tools.projects.create's skipped prompts rest on (is_project_tree_pristine), the sealed-setgid scan's report
+# of a walk it could not start (find_sealed_setgid_directories), the .git and filemode readings the claim takes
+# as unknown (read_project_state), the exclusion reader the claim-time scans prune their walks
+# with (allowlist_exclusions), the re-claim's SELinux drift scan (label_drift_scan), and the checks the claim runs
+# after its Apply block (claim_verify_label, claim_verify_group, at the end).
 #
 # The ai-tools.projects.clone pair:
 #   * sandbox_default_branch -- composes the DEFAULT sandbox branch (sandbox/<leaf-of-from>) with no
@@ -125,15 +125,15 @@ else
     pass "resolve_base refuses a base that is not a branch, remote branch, or ref"
 fi
 
-# ── tree_is_pristine ──────────────────────────────────────────────────────────────────────────
+# ── is_project_tree_pristine ──────────────────────────────────────────────────────────────────────────
 # The predicate ai-tools.projects.create's flow rests on, and the reason it is pinned here rather than left to the CLI
 # test: what it gates is the SECRET SCAN. A claim skips that scan, the git-history prompt, and the proceed confirm
 # when this returns 0, so every way it could wrongly say yes is a way to grant an agent access to a tree no scan has
 # covered. It must answer for the tree as it is on disk -- never for what a caller asserts about it -- so the cases are
 # the states that must read as NOT pristine.
-section "tree_is_pristine: the precondition behind ai-tools.projects.create's skipped prompts (unit)"
+section "is_project_tree_pristine: the precondition behind ai-tools.projects.create's skipped prompts (unit)"
 
-pristine() { call tree_is_pristine "$1"; }
+pristine() { call is_project_tree_pristine "$1"; }
 
 # Fixtures are built AS ROOT and handed over at the end, the same way the repo fixture is. The predicate only reads
 # the tree, so what matters is that the projects user can read it when `call` runs; driving each mkdir/git
@@ -323,13 +323,13 @@ else
     pass "a repository whose object store the projects user cannot read is not pristine"
 fi
 
-# ── sealed_setgid_scan ────────────────────────────────────────────────────────────────────────
+# ── find_sealed_setgid_directories ────────────────────────────────────────────────────────────────────────
 # The claim's Review block reports a setgid bit on an owner-only directory from this scan, so a walk that cannot start
 # must not read as a tree with no such directory: on a root the projects user cannot list, the scan returns 1 and does
 # not list a path, and the claim says the scan was not made. The control is the rebuilt fresh tree, which the scan reads
 # and finds nothing in. The registry it prunes exclusions from is an empty fixture, so the projects user's own is not
 # read.
-section "sealed_setgid_scan: a scan it cannot make is reported, not read as clean (unit)"
+section "find_sealed_setgid_directories: a scan it cannot make is reported, not read as clean (unit)"
 sealed_setgid_allowlist="${work}/sg-allowed-projects"; : > "${sealed_setgid_allowlist}"
 chown "${PROJECTS_USER}:${PROJECTS_GROUP}" "${sealed_setgid_allowlist}"
 sealed_setgid_probe() {  # sealed_setgid_probe <dir> : the scan's output, then rc=<its status>
@@ -337,7 +337,7 @@ sealed_setgid_probe() {  # sealed_setgid_probe <dir> : the scan's output, then r
     runuser -u "${PROJECTS_USER}" -- env AI_TOOLS_ALLOWLIST="${sealed_setgid_allowlist}" bash -c \
         'cli="$1"; dir="$2"; set --
          source "${cli}" >/dev/null 2>&1 || exit 99
-         rc=0; sealed_setgid_scan "${dir}" || rc=$?
+         rc=0; find_sealed_setgid_directories "${dir}" || rc=$?
          printf "rc=%s\n" "${rc}"' _ "${CLI}" "$1"
 }
 sealed_setgid_result="$(sealed_setgid_probe "${control}")" || true
@@ -374,21 +374,21 @@ if [[ -n "${third_group}" ]]; then
         fi
     fi
 else
-    skip "sealed_setgid_scan over a directory it cannot read" "neither tty nor users is a group here apart from the projects group"
+    skip "find_sealed_setgid_directories over a directory it cannot read" "neither tty nor users is a group here apart from the projects group"
 fi
 
-# ── project_state ────────────────────────────────────────────────────────────────────────────
-# The claim decides its .git and core.filemode steps from project_state, read as the projects user. A .git present
+# ── read_project_state ────────────────────────────────────────────────────────────────────────────
+# The claim decides its .git and core.filemode steps from read_project_state, read as the projects user. A .git present
 # at the root that git does not open as the project's own repository, or one the projects user cannot list and enter,
 # must read unknown: git walks past a .git it cannot read to an enclosing repository and reads that one's filemode,
 # and a .git symlink into a closed directory is not a directory to `test -d`. Each case has a control the same reading
 # answers, and a worktree checkout, whose gitfile .git names a git directory elsewhere, keeps its filemode reading.
-section "project_state: a .git the projects user cannot read as the project's own reads unknown (unit)"
+section "read_project_state: a .git the projects user cannot read as the project's own reads unknown (unit)"
 project_state_work="${TESTDIR}/project-state"
 project_state_list="${project_state_work}/allowed-projects"
 project_state_gitconfig="${project_state_work}/gitconfig"
 mkdir -p "${project_state_work}"; : > "${project_state_list}"; : > "${project_state_gitconfig}"
-project_state_field() {  # project_state_field <dir> <token> : one of the seven tokens project_state prints for <dir>
+project_state_field() {  # project_state_field <dir> <token> : one of the seven tokens read_project_state prints for <dir>
     local printed position
     local -a tokens=()
     # shellcheck disable=SC2016  # the $N are for the inner `bash -c`, not this shell -- do not expand here
@@ -396,7 +396,7 @@ project_state_field() {  # project_state_field <dir> <token> : one of the seven 
             AI_TOOLS_GITCONFIG="${project_state_gitconfig}" bash -c \
         'cli="$1"; dir="$2"; set --
          source "${cli}" >/dev/null 2>&1 || exit 99
-         project_state "${dir}"' _ "${CLI}" "$1")" || printed=""
+         read_project_state "${dir}"' _ "${CLI}" "$1")" || printed=""
     read -r -a tokens <<< "${printed}" || true
     case "$2" in
         listed) position=0 ;; safedir) position=1 ;; filemode) position=2 ;; owngap) position=3 ;;
@@ -443,7 +443,7 @@ if command -v getfacl >/dev/null 2>&1; then
         project_state_expect "${linked}" git unknown "a .git symlink into a directory the projects user cannot enter"
     fi
 else
-    skip "project_state over a .git symlink into a closed directory" "getfacl is unavailable, so git_gap reads no gap"
+    skip "read_project_state over a .git symlink into a closed directory" "getfacl is unavailable, so git_gap reads no gap"
 fi
 
 # A worktree checkout: its .git is a gitfile naming a git directory under the main repository, and its toplevel is
@@ -455,8 +455,8 @@ chown -R "${PROJECTS_USER}:${PROJECTS_GROUP}" "${main}" "${project_state_work}/w
 project_state_expect "${project_state_work}/worktree" filemode true "a worktree checkout of the projects user's repository"
 
 # ── allowlist_exclusions ──────────────────────────────────────────────────────────────────────
-# The read-only scans a claim runs (acl_drift_scan, sealed_setgid_scan) prune every '!' exclusion from their walk,
-# and read the registry through the shared allowlist grammar: an exclusion line carrying an end-of-line comment
+# The read-only scans a claim runs (acl_drift_scan, find_sealed_setgid_directories) prune every '!' exclusion from their
+# walk, and read the registry through the shared allowlist grammar: an exclusion line carrying an end-of-line comment
 # or quotes names the same path here as in the launch wrapper, so a carve-out is neither reported as drift nor offered
 # to the repair walk. Only the exclusions are printed, without their '!', and a commented-out line is not one.
 section "allowlist_exclusions: the carve-outs the claim-time scans prune (unit)"

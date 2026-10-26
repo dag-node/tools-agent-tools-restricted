@@ -953,7 +953,7 @@ ai_tools_conf__is_path_excluded() {
 
 # ── Allowlist membership (exact-entry matching) ──────────────────────────────────────────────
 # One predicate for "is this path an entry of allowed-projects", shared by every component that asks: the launch
-# wrapper's post-claim confirm, the claim/unclaim CLI (reg/unreg, project_state), and the relabel helper. They read
+# wrapper's post-claim confirm, the claim/unclaim CLI (reg/unreg, read_project_state), and the relabel helper. They read
 # the file through that grammar, so an entry written in
 # that grammar -- an end-of-line comment (`/p   # why`), a quoted path (`"/p with space"`), or a
 # spelling reached by a symlink or trailing slash -- is a MATCH here, where a raw `grep -qxF` against the stored line

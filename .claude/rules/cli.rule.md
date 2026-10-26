@@ -753,8 +753,8 @@ reverses either and deletes the tree. Each verb has a section here; the operator
 ## Claim in place <a id="ref-section-h7d3"></a>
 
 `projects claim` refuses a path whose canonical form holds a control character before any verb acts on it
-(`resolve_dir`): `allowed-projects` holds one entry per line, and the path is printed on the claim's page. It then
-registers the tree — the allowlist entry, the `safe.directory` entry through `ai-tools-safedir`, and repo-local
+(`resolve_existing_path`): `allowed-projects` holds one entry per line, and the path is printed on the claim's page. It
+then registers the tree — the allowlist entry, the `safe.directory` entry through `ai-tools-safedir`, and repo-local
 `core.filemode=true` through `run_as_owner`, since under `--for` the `.git/config` it writes belongs to the target —
 and grants access: group `SANDBOX_GROUP` with the setgid bit on every directory (`ai-tools-setgid`), the two ACL grants
 built by `project-permissions.lib.sh` (`ai-tools-setfacl`), and the `ai_tools_project_t` label
@@ -816,15 +816,15 @@ instead of the `claimed` ✓. The registries stand either way, and the claim is 
 what is missing.
 
 **A step whose state the invoker cannot read is neither applied nor reported done.** `projects claim` refuses a path
-under a directory the invoker cannot enter, naming that directory (`resolve_dir`, through `find_unenterable_ancestor`),
-since `realpath` fails alike for an absent path and an unreachable one. Inside a tree it can enter, `project_state`
-reads the `.git` and `core.filemode` steps as `unknown` where the invoker cannot make the reading — a root it cannot
-enter, a `.git` its git refuses as another account's repository, or a `.git` whose repository is not the one its git
-opens, or one it cannot list and enter — and the claim announces each in the Review block, writes it as an `error` row
-naming the step, prints the command that finishes it, and ends with exit 5. Each such step is the opt-in history share
-or a registry pin, so it is not applied, and the agent has less access to the project until the operator runs
-the printed command. That command, and the traverse grant the unreachable-location refusal prints, carry the path
-in bash's `%q` encoding, so each pastes as one word.
+under a directory the invoker cannot enter, naming that directory (`resolve_existing_path`,
+through `find_invoker_traversal_blocker`), since `realpath` fails alike for an absent path and an unreachable one.
+Inside a tree it can enter, `read_project_state` reads the `.git` and `core.filemode` steps as `unknown`
+where the invoker cannot make the reading — a root it cannot enter, a `.git` its git refuses as another account's
+repository, or a `.git` whose repository is not the one its git opens, or one it cannot list and enter — and the claim
+announces each in the Review block, writes it as an `error` row naming the step, prints the command that finishes it,
+and ends with exit 5. Each such step is the opt-in history share or a registry pin, so it is not applied, and the agent
+has less access to the project until the operator runs the printed command. That command, and the traverse grant
+the unreachable-location refusal prints, carry the path in bash's `%q` encoding, so each pastes as one word.
 
 **A failed step asks once before attempting the next.** Every root step authenticates separately and no step can be
 pre-authenticated (a sudoers `timestamp_timeout=0` prompts on every invocation), so a mistyped password would cost
@@ -847,7 +847,7 @@ by walking from the project toward `/`, and a file it opens in an ancestor the s
 with an error naming that path; the Review block reports each one (`ancestor-config.lib.sh`), on the fully-claimed no-op
 path as well, from the markers and filenames the installed integration manifests declare, so a project no installed
 toolchain claims does not raise a notice. The .NET measurements are [ref-section-t8k3](dotnet.rule.md#ref-section-t8k3).
-The second notice (`sealed_setgid_scan`) is a setgid bit on an owner-only directory whose group is neither
+The second notice (`find_sealed_setgid_directories`) is a setgid bit on an owner-only directory whose group is neither
 `SANDBOX_GROUP` nor the group of that directory's owner, compared per path against the resolved owner's primary group:
 the claim walks keep such a bit, since they cannot ask whether it was deliberate, so the claim names the paths
 and the `chmod g-s` that clears one, ahead of the confirm rather than from a helper's stderr under Apply.
@@ -975,13 +975,13 @@ the walk where it is absent, so `missing/../sealed/new` is refused as a parent t
 `sealed`. A reachability pre-flight refuses a location the sandbox account could never enter before anything exists,
 and names an alternative only after checking it on this host, the invoker's own reach included.
 
-The tree is empty by construction, so the claim infers three answers without asking, gated on `tree_is_pristine`,
-which the claim re-derives from the tree (no file outside `.git` but `README.md`, and an empty object store, since
-a commit no reference names is still history) rather than trusting the caller's hint, since what it gates is the secret
-scan. The proceed confirm and its warnings are not shown, being false for a directory that did not exist a moment ago;
-the secret gate is skipped, since the tree holds one file this command wrote and the scan would cost a sudo password;
-the `.git` question is inferred yes, since there is no history to expose and normalizing keeps later commits readable.
-The traverse grant still asks: it widens access on ancestors, which exist.
+The tree is empty by construction, so the claim infers three answers without asking, gated
+on `is_project_tree_pristine`, which the claim re-derives from the tree (no file outside `.git` but `README.md`,
+and an empty object store, since a commit no reference names is still history) rather than trusting the caller's hint,
+since what it gates is the secret scan. The proceed confirm and its warnings are not shown, being false for a directory
+that did not exist a moment ago; the secret gate is skipped, since the tree holds one file this command wrote
+and the scan would cost a sudo password; the `.git` question is inferred yes, since there is no history to expose
+and normalizing keeps later commits readable. The traverse grant still asks: it widens access on ancestors, which exist.
 
 No path it seeds is left owner-only: under an `077` umask (the `/etc/login.defs` default on many hosts, which a PAM
 session hands the command) the directory, `.git` and the README would come out `0700`/`0600`, the seal `ai-tools-setgid`
