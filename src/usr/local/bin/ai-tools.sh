@@ -2163,20 +2163,21 @@ under_skip_listed_name() {
 }
 
 # tree_is_pristine <dir>  -- 0 when <dir> holds only what `projects create` just put there: no file outside .git except
-# README.md, and a git repository with no commits. One `find` that stops at the first hit and three git reads,
-# unprivileged.
+# README.md, and a git repository whose object store is empty. Two `find` walks that each stop at the first hit and two
+# reads of the git directory, unprivileged.
 #
 # It is re-derived here rather than trusted from the caller, because what it gates is the secret scan: a stale
 # or planted CLAIM_FRESH_TREE must not be able to skip that on a tree with content in it. Both halves are the actual
-# preconditions -- no files means no secret-named files, and no commits means no history -- so the answer is a property
-# of the tree, not a claim about it. Every reading the invoker cannot make returns 1: a root it cannot list and enter,
-# a walk `find` reports an error for, a .git its git does not open as this tree's own repository (git refuses another
-# account's repository, and walks past a .git it cannot read to whatever repository encloses the tree), and a branch
-# reference its git cannot read, since an unread tree and an empty one look the same to `find`, and `git rev-parse HEAD`
-# fails alike for an unborn branch and an unreadable one. So no commits is proved from a reading that succeeds:
-# `git rev-list --all --count` printing 0, where a reference it cannot read, loose or packed, exits non-zero.
+# preconditions -- no files means no secret-named files, and an empty object store means no history -- so the answer is
+# a property of the tree, not a claim about it. Every reading the invoker cannot make returns 1: a root it cannot list
+# and enter, a walk `find` reports an error for, and a .git its git does not open as this tree's own repository (git
+# refuses another account's repository, and walks past a .git it cannot read to whatever repository encloses the tree),
+# since an unread tree and an empty one look the same to `find`. The history half reads the store, not the references:
+# no loose object, no pack and no `info/alternates` entry under `objects`, from a walk `find` completes. A count
+# of the commits the references reach reads 0 over a commit whose branch was deleted, one under a reference directory
+# the invoker cannot list, and one a template or an alternate brought in; `git init` does not write a file in the store.
 tree_is_pristine() {
-    local d="$1" hit discovered_git_dir expected_git_dir commit_count
+    local d="$1" hit discovered_git_dir expected_git_dir
     [[ -r "${d}" && -x "${d}" ]] || return 1
     hit="$(find "${d}" -path "${d}/.git" -prune -o ! -type d ! -path "${d}/README.md" \
                -print -quit 2>/dev/null)" || return 1
@@ -2185,8 +2186,8 @@ tree_is_pristine() {
     discovered_git_dir="$(git -C "${d}" rev-parse --absolute-git-dir 2>/dev/null)" || return 1
     expected_git_dir="$(realpath -e -- "${d}/.git" 2>/dev/null)" || return 1
     [[ "${discovered_git_dir}" == "${expected_git_dir}" ]] || return 1
-    commit_count="$(LC_ALL=C git -C "${d}" rev-list --all --count 2>/dev/null)" || return 1
-    [[ "${commit_count}" == "0" ]]
+    hit="$(find "${expected_git_dir}/objects" ! -type d -print -quit 2>/dev/null)" || return 1
+    [[ -z "${hit}" ]]
 }
 
 # require_claimable_owner <dir>  -- die unless <dir> is held by the operator this run acts FOR or by the sandbox

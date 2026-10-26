@@ -234,8 +234,9 @@ else
 fi
 
 # A committed repository whose branch reference the projects user cannot read: `git rev-parse HEAD` fails for it as it
-# does for an unborn branch, so the predicate must prove no commits from a reading that read every reference.
-# The reference is sealed by mode, which a root run reads through, so the fixture is asserted as the projects user.
+# does for an unborn branch. The predicate reads the object store rather than the references, so these are regression
+# rows for a reading that never consults a reference. The reference is sealed by mode, which a root run reads
+# through, so the fixture is asserted as the projects user.
 mk_committed() {  # mk_committed <dir> : mk_fresh with the README committed
     mk_fresh "$1"
     git -C "$1" add README.md
@@ -258,6 +259,69 @@ packed_ref="${work}/packed-ref"; mk_committed "${packed_ref}"
 git -C "${packed_ref}" pack-refs --all
 chown -R "${PROJECTS_USER}:${PROJECTS_GROUP}" "${packed_ref}"
 sealed_ref_case "${packed_ref}" "${packed_ref}/.git/packed-refs" "packed-refs file"
+
+# The history half reads the object store, because a count of the commits the references reach reads 0 over a commit no
+# listable reference names. Each fixture here holds such a commit, and asserts first that the count reads 0
+# and the commit is there, which is the state a reference-based proof accepted.
+unreferenced_case() {  # unreferenced_case <dir> <what> : <dir> holds a commit `rev-list --all` does not count
+    if pristine "$1"; then
+        fail "a repository holding ${2} read as pristine -- its history would be shared unasked"
+    else
+        pass "a repository holding ${2} is not pristine"
+    fi
+}
+delete_branch() {  # delete_branch <dir> : point HEAD at an unborn branch and delete the one that held the commit
+    local held_branch
+    held_branch="$(git -C "$1" symbolic-ref HEAD)"
+    git -C "$1" symbolic-ref HEAD refs/heads/unborn
+    git -C "$1" update-ref -d "${held_branch}"
+}
+deleted_branch="${work}/deleted-branch"; mk_committed "${deleted_branch}"
+saved_commit="$(git -C "${deleted_branch}" rev-parse HEAD)"
+delete_branch "${deleted_branch}"
+chown -R "${PROJECTS_USER}:${PROJECTS_GROUP}" "${deleted_branch}"
+if [[ "$(git -C "${deleted_branch}" rev-list --all --count)" == 0 \
+        && "$(git -C "${deleted_branch}" cat-file -t "${saved_commit}")" == commit ]]; then
+    unreferenced_case "${deleted_branch}" "a commit whose branch was deleted"
+else
+    fail "fixture: the deleted-branch repository does not hold an uncounted commit -- the case proves nothing"
+fi
+
+packed_object="${work}/packed-object"; mk_committed "${packed_object}"
+git -C "${packed_object}" repack -q -a -d
+delete_branch "${packed_object}"
+chown -R "${PROJECTS_USER}:${PROJECTS_GROUP}" "${packed_object}"
+loose_objects="$(find "${packed_object}/.git/objects" -path "${packed_object}/.git/objects/pack" -prune \
+                     -o -path "${packed_object}/.git/objects/info" -prune -o ! -type d -print)"
+packs=("${packed_object}"/.git/objects/pack/*.pack)
+if [[ -z "${loose_objects}" && -f "${packs[0]}" && "$(git -C "${packed_object}" rev-list --all --count)" == 0 ]]; then
+    unreferenced_case "${packed_object}" "a commit in a pack, with no loose object"
+else
+    fail "fixture: the packed repository kept a loose object or has no pack -- the case proves nothing"
+fi
+
+alternate="${work}/alternate"; mk_fresh "${alternate}"
+printf '%s\n' "${deleted_branch}/.git/objects" > "${alternate}/.git/objects/info/alternates"
+chown "${PROJECTS_USER}:${PROJECTS_GROUP}" "${alternate}/.git/objects/info/alternates"
+if [[ "$(git -C "${alternate}" rev-list --all --count)" == 0 ]]; then
+    unreferenced_case "${alternate}" "an alternates entry naming another store"
+else
+    fail "fixture: the alternates repository counts a commit -- the case proves nothing"
+fi
+
+# A store the walk cannot read is not an empty one: an object directory the projects user cannot list must fail the walk
+# closed. A fresh store does not hold such a directory, so the old proof passed this case too; it pins the fail
+# direction.
+sealed_store="${work}/sealed-store"; mk_fresh "${sealed_store}"
+mkdir "${sealed_store}/.git/objects/ab"; chown root:root "${sealed_store}/.git/objects/ab"
+chmod 0111 "${sealed_store}/.git/objects/ab"
+if runuser -u "${PROJECTS_USER}" -- ls "${sealed_store}/.git/objects/ab" >/dev/null 2>&1; then
+    fail "fixture: the projects user still lists ${sealed_store}/.git/objects/ab -- the case proves nothing"
+elif pristine "${sealed_store}"; then
+    fail "a repository whose object store the projects user cannot read read as pristine"
+else
+    pass "a repository whose object store the projects user cannot read is not pristine"
+fi
 
 # ── sealed_setgid_scan ────────────────────────────────────────────────────────────────────────
 # The claim's Review block reports a setgid bit on an owner-only directory from this scan, so a walk that cannot start

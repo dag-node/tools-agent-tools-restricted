@@ -974,12 +974,12 @@ account could never enter before anything exists, and names an alternative only 
 the invoker's own reach included.
 
 The tree is empty by construction, so the claim infers three answers without asking, gated on `tree_is_pristine`,
-which the claim re-derives from the tree (no file outside `.git` but `README.md`, and no commits) rather than trusting
-the caller's hint, since what it gates is the secret scan. The proceed confirm and its warnings are not shown, being
-false for a directory that did not exist a moment ago; the secret gate is skipped, since the tree holds one file this
-command wrote and the scan would cost a sudo password; the `.git` question is inferred yes, since there is no history
-to expose and normalizing keeps later commits readable. The traverse grant still asks: it widens access on ancestors,
-which exist.
+which the claim re-derives from the tree (no file outside `.git` but `README.md`, and an empty object store, since
+a commit no reference names is still history) rather than trusting the caller's hint, since what it gates is the secret
+scan. The proceed confirm and its warnings are not shown, being false for a directory that did not exist a moment ago;
+the secret gate is skipped, since the tree holds one file this command wrote and the scan would cost a sudo password;
+the `.git` question is inferred yes, since there is no history to expose and normalizing keeps later commits readable.
+The traverse grant still asks: it widens access on ancestors, which exist.
 
 No path it seeds is left owner-only: under an `077` umask (the `/etc/login.defs` default on many hosts, which a PAM
 session hands the command) the directory, `.git` and the README would come out `0700`/`0600`, the seal `ai-tools-setgid`

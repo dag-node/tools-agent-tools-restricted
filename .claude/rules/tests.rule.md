@@ -596,21 +596,22 @@ decision with a security consequence. `projects create` skips the secret scan, t
 confirm when it returns 0, so every way it could wrongly say yes is a way to grant an agent access to a tree no scan has
 covered — which is why the claim re-derives it from the tree rather than trusting the caller's hint, and why the cases
 driven here are the states that must read as **not** pristine (any file beyond the README, one nested deeper, any
-commit, and each reading the projects user cannot make: a root it cannot list, a subdirectory it cannot read, a `.git`
-its git refuses as another account's, and a branch reference it cannot read, loose or packed), with a rebuilt fresh tree
-as the control those readings vary. `sealed_setgid_scan` follows, over the same control and the root the projects user
-cannot list: there the scan returns 1 and does not list a path, so the claim reports a scan it did not make rather than
-a tree with no sealed directory; over a tree holding a sealed directory the projects user cannot read, it returns 2
-with the path it reached listed, so the claim reports an incomplete scan. `project_state` is driven over the `.git`
-states the claim must read as `unknown` — an inner project whose `.git` the projects user cannot read, inside
-a repository it owns, and a `.git` symlink into a directory it cannot enter — each beside a control the same reading
-answers, and over a worktree checkout, which keeps its filemode reading. It closes with `label_drift_scan`,
-the re-claim's SELinux half, over a canned `restorecon` transcript: the scan must ask for a forced, non-recursive dry
-run over a NUL list, since it runs unprivileged ahead of the question, must keep a type difference while dropping
-a difference in the SELinux user alone, an owner-only file and a carved-out path, and must read a stray line
-among the records as an incomplete scan that still reports the drift it read. Its last section drives the two verifiers
-the claim runs after its Apply block over a stubbed `restorecon`, and pins that a batch which fails is never read
-as `fixed`.
+commit, a commit no listable reference names — a deleted branch's, a packed one, one an alternate holds — and each
+reading the projects user cannot make: a root it cannot list, a subdirectory it cannot read, a `.git` its git refuses
+as another account's, and a branch reference it cannot read, loose or packed, and an object directory it cannot list),
+with a rebuilt fresh tree as the control those readings vary. `sealed_setgid_scan` follows, over the same control
+and the root the projects user cannot list: there the scan returns 1 and does not list a path, so the claim reports
+a scan it did not make rather than a tree with no sealed directory; over a tree holding a sealed directory the projects
+user cannot read, it returns 2 with the path it reached listed, so the claim reports an incomplete scan. `project_state`
+is driven over the `.git` states the claim must read as `unknown` — an inner project whose `.git` the projects user
+cannot read, inside a repository it owns, and a `.git` symlink into a directory it cannot enter — each beside a control
+the same reading answers, and over a worktree checkout, which keeps its filemode reading. It closes
+with `label_drift_scan`, the re-claim's SELinux half, over a canned `restorecon` transcript: the scan must ask
+for a forced, non-recursive dry run over a NUL list, since it runs unprivileged ahead of the question, must keep a type
+difference while dropping a difference in the SELinux user alone, an owner-only file and a carved-out path, and must
+read a stray line among the records as an incomplete scan that still reports the drift it read. Its last section drives
+the two verifiers the claim runs after its Apply block over a stubbed `restorecon`, and pins that a batch which fails is
+never read as `fixed`.
 
 `project-permissions.sh` pins the checks that scan and the claim's verification rest on, unprivileged
 and against the checkout: every way `restorecon`'s output can be incomplete is asserted to read unknown, not `match`,
