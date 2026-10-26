@@ -2861,7 +2861,13 @@ cmd_project_create() {
     fi
     parent_real="${parent_real%x}"
     parent_real="${parent_real%$'\n'}"
-    # The leaf may be `.`, `..` or a symbolic link; each resolves here to a path the existence check reads.
+    # A leaf that is a symbolic link, dangling or not, is refused by the name typed: `realpath -m` would resolve it
+    # to its target, so a dangling link would have the create make and claim the directory the link points at.
+    if [[ -L "${parent_real}/${leaf}" ]]; then
+        die MSG-G7D3 "cannot create at a symbolic link: $(ai_tools_log__sanitize "${typed}") -- projects create makes a new directory and does not follow a link there" \
+            "Remove the link, or name the directory it points at."
+    fi
+    # The leaf may be `.` or `..`; each resolves here to a path the existence check reads.
     d="$(realpath -m -- "${parent_real}/${leaf}" 2>/dev/null && printf x)" || die "cannot resolve the path: ${path}"
     d="${d%x}"
     d="${d%$'\n'}"
@@ -2877,8 +2883,8 @@ cmd_project_create() {
 
     # ONE directory is created, the final component, and a parent that does not exist is refused: a mistyped path
     # surfaces as a refusal naming the missing directory and does not become a manufactured tree with a claimed project
-    # inside it. `realpath -e` has resolved the typed parent, so this guards the leaf's own resolution: a leaf that is
-    # a symbolic link names a parent of its own.
+    # inside it. `realpath -e` has resolved the typed parent and a symbolic-link leaf is refused, so the parent of `d`
+    # exists here; the check stays as the guard on that ordering.
     local parent="${d%/*}"; [[ -n "${parent}" ]] || parent=/
     [[ -d "${parent}" ]] || refuse_unresolved_parent "${parent}"
 

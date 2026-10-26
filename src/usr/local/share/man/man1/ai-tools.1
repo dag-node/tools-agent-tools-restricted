@@ -129,7 +129,9 @@ and keeping the two apart is what stops the operation that grants an agent acces
 to an existing tree from being reachable by a typo. Its parent
 .I must
 exist: only the final component is created, so a mistyped path is refused rather
-than manufactured. Every filesystem step runs as the operator the run acts for, so
+than manufactured. A final component that is a symbolic link, dangling or not, is
+refused by the name given, since the create does not follow a link to place the
+directory where it points. Every filesystem step runs as the operator the run acts for, so
 a create under
 .B \-\-for
 produces a tree that operator owns. The tree is still read as you, so a location

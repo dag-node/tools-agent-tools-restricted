@@ -211,6 +211,7 @@ cannot fix -- a message code's name is a runtime string, and rewording one is a 
 | c5t8 | [MSG-C5T8](../src/usr/local/bin/ai-tools.sh) | unknown projects create option: ${a} | src/usr/local/bin/ai-tools.sh |  | die_usage |
 | z5y7 | [MSG-Z5Y7](../src/usr/local/bin/ai-tools.sh) | projects create takes a single path | src/usr/local/bin/ai-tools.sh |  | die_usage |
 | a7d3 | [MSG-A7D3](../src/usr/local/bin/ai-tools.sh) | projects create needs a path: it creates a NEW project directory. | src/usr/local/bin/ai-tools.sh | tests/integration/cli.sh | die |
+| g7d3 | [MSG-G7D3](../src/usr/local/bin/ai-tools.sh) | cannot create at a symbolic link: $(ai_tools_log__sanitize "${typed}") -- projects create makes a new directory and does not follow a link there | src/usr/local/bin/ai-tools.sh | tests/integration/cli.sh | die |
 | t4b9 | [MSG-T4B9](../src/usr/local/bin/ai-tools.sh) | this path already exists: ${d} | src/usr/local/bin/ai-tools.sh | tests/integration/cli.sh | die |
 | w4s7 | [MSG-W4S7](../src/usr/local/bin/ai-tools.sh) | this is an excluded path inside a claimed project, not a disabled project: ${d} | src/usr/local/bin/ai-tools.sh | tests/integration/cli.sh | die |
 | d8c8 | [MSG-D8C8](../src/usr/local/bin/ai-tools.sh) | this project is nested inside another claimed project: ${d} | src/usr/local/bin/ai-tools.sh | tests/integration/cli.sh | die |

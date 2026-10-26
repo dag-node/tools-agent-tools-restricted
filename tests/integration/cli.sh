@@ -281,6 +281,24 @@ if command -v runuser >/dev/null 2>&1; then
         fail "the line-feed parent created a directory: $(ls -A "${twin}" "${twin_lf}" 2>&1)"
     fi
 
+    # A path whose last component is a symbolic link is refused by the name typed (MSG-G7D3), dangling or not:
+    # the create resolving the leaf would otherwise make and claim the directory a dangling link points at, and a link
+    # to a directory that exists is refused by name rather than as the path it leads to. A trailing slash does not
+    # change which component is the leaf.
+    link_target_dir="${TESTDIR}/link-target"; mkdir -p "${link_target_dir}"
+    chown "${PROJECTS_USER}:${PROJECTS_USER}" "${link_target_dir}"
+    ln -s "${link_target_dir}/absent" "${TESTDIR}/dangling"
+    ln -s "${exists}" "${TESTDIR}/to-existing"
+    for leaf_link in "${TESTDIR}/dangling" "${TESTDIR}/dangling/" "${TESTDIR}/to-existing"; do
+        out="$(create_cli "${leaf_link}")" && rc=0 || rc=$?
+        refused "ai-tools.projects.create refuses ${leaf_link#"${TESTDIR}/"}, a symbolic-link leaf" MSG-G7D3 1
+    done
+    if [[ ! -e "${link_target_dir}/absent" && -L "${TESTDIR}/dangling" && -z "$(ls -A "${exists}")" ]]; then
+        pass "a symbolic-link leaf creates nothing where the link points, and the link is left in place"
+    else
+        fail "a symbolic-link leaf created a directory or lost the link: $(ls -lA "${link_target_dir}" "${exists}" 2>&1)"
+    fi
+
     # A location under a directory the operator cannot enter is refused by name (MSG-D4Z6) before anything is created:
     # the claim reads the tree as the operator, and both existence checks read such a path as absent. The existing
     # directory behind the seal is the case that tells the two apart: read as absent, it would take the missing-parent

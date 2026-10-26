@@ -960,18 +960,20 @@ the directory, then runs `cmd_project_claim` unchanged on the result, so there i
 means. Every filesystem step goes through `run_as_owner`, so a create under `--for` produces a target-owned tree —
 the one the claim then accepts under the owner rule. `<path>` is required, since the cwd always exists.
 
-Two refusals keep a create from being a claim in disguise. A path that **already exists** is refused naming
+Its refusals keep a create from being a claim in disguise. A path that **already exists** is refused naming
 `projects claim`: the operation that grants an agent access to an existing tree must not be reachable by a typo,
 and a half-finished create is recovered with a claim. A **parent that does not exist** is refused rather than created,
-so a mistyped path surfaces instead of becoming a manufactured tree with a claimed project inside it. Both checks read
-the path as the invoker, so a location under a directory the invoker cannot enter is refused first, naming
-that directory, and the claim that follows could not resolve it either. The parent is resolved with `realpath -e`,
-the kernel's resolution, so a symbolic link inside a directory the invoker cannot enter is refused rather than collapsed
-away by `..`. The walk that names the directory reads the typed path a component at a time: a component it cannot stat
-is followed where it is a symbolic link, and ends the walk where it is absent, so `missing/../sealed/new` is refused
-as a parent that does not resolve rather than naming `sealed`. A reachability pre-flight refuses a location the sandbox
-account could never enter before anything exists, and names an alternative only after checking it on this host,
-the invoker's own reach included.
+so a mistyped path surfaces instead of becoming a manufactured tree with a claimed project inside it. A path
+whose **last component is a symbolic link**, dangling or not, is refused by the name typed: the create makes one new
+directory, and following the link would make and claim it wherever the link points, a link the sandbox account planted
+in a project it co-writes among them. Both checks read the path as the invoker, so a location under a directory
+the invoker cannot enter is refused first, naming that directory, and the claim that follows could not resolve it
+either. The parent is resolved with `realpath -e`, the kernel's resolution, so a symbolic link inside a directory
+the invoker cannot enter is refused rather than collapsed away by `..`. The walk that names the directory reads
+the typed path a component at a time: a component it cannot stat is followed where it is a symbolic link, and ends
+the walk where it is absent, so `missing/../sealed/new` is refused as a parent that does not resolve rather than naming
+`sealed`. A reachability pre-flight refuses a location the sandbox account could never enter before anything exists,
+and names an alternative only after checking it on this host, the invoker's own reach included.
 
 The tree is empty by construction, so the claim infers three answers without asking, gated on `tree_is_pristine`,
 which the claim re-derives from the tree (no file outside `.git` but `README.md`, and an empty object store, since

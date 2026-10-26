@@ -75,10 +75,19 @@ ai-tools: this path already exists: /home/you/src/newproject
 
 A path that already exists is refused, naming `ai-tools projects claim`
 instead: claiming grants an agent access to whatever a tree already holds,
-which is not an operation to arrive at by a typo. A location the sandbox
-account could not reach through any grant — under a directory owned by someone
-else, or under a system directory — is refused before anything exists,
-and names the clone as the way in.
+which is not an operation to arrive at by a typo.
+
+```text
+ai-tools: cannot create at a symbolic link: /home/you/src/link -- projects create makes a new directory and does not follow a link there
+```
+
+A path whose last part is a symbolic link is refused by the name you gave,
+whether or not the link points at anything. Remove the link and create
+the project there, or name the directory the link points at.
+
+A location the sandbox account could not reach through any grant —
+under a directory owned by someone else, or under a system directory — is
+refused before anything exists, and names the clone as the way in.
 
 Every refusal fires before the directory is made. A step that fails after it —
 a root step whose password round did not complete — leaves the directory
