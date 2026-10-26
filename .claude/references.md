@@ -109,6 +109,7 @@ cannot fix -- a message code's name is a runtime string, and rewording one is a 
 | k6n8 | [MSG-K6N8](../install.sh) | launcher ${launcher} not found at ${versioned_launcher} -- its symlink is skipped | install.sh |  | warn |
 | t2e2 | [MSG-T2E2](../install.sh) | failed to create the ${ai_tools_bin}/${launcher} symlink | install.sh |  | warn |
 | p2n3 | [MSG-P2N3](../install.sh) | restorecon not found -- skipping SELinux context restoration | install.sh |  | warn |
+| d6a5 | [MSG-D6A5](../install.sh) | left the labels on the agents' config directories as they were: an agent session or the toolchain update runs as ${SANDBOX_USER}, or this host's sessions could not be read; end them with 'sudo ai-tools stop', then run: sudo systemctl start ai-tools-relabel.service | install.sh |  | warn |
 | w6y7 | [MSG-W6Y7](../install.sh) | SELinux step refused: a source install compiles its policy modules, and the | install.sh |  | warn |
 | k9p5 | [MSG-K9P5](../install.sh) | the SELinux policy modules did not compile (see above); fix the cause and re-run | install.sh |  | die |
 | q5r3 | [MSG-Q5R3](../install.sh) | SELinux is inactive -- the agent runs DAC-only (no ai_tools_t domain). DAC-only | install.sh |  | warn |
