@@ -3185,8 +3185,9 @@ not_covered_die() {
 # THE ALLOWLIST ENTRY IS STILL PRESENT (ai-tools-unclaim refuses a target not in allowed-projects), and only then drop
 # the two registries. <group> empty means "unregister only, leave permissions"; <hint> non-empty prints the manual
 # hand-back command (used when the hand-back was wanted but could not run); the fourth argument is what becomes
-# of the allowlist line (the <registry> disposition). Best-effort throughout: a step warns with its manual command
-# and never aborts the pass.
+# of the allowlist line (the <registry> disposition). Best-effort except for the allowlist line: every other step warns
+# with its manual command and the pass goes on, while a drop that did not apply refuses (unreg_allow) and a park
+# that did not apply returns 1 without the ✓, since either leaves a session able to start here.
 unclaim_one() {
     local d="$1" group="$2" hint="$3" registry="$4"; shift 4
     local flags=""; (( $# )) && flags=" $*"
@@ -3234,15 +3235,26 @@ unclaim_one() {
     # and comment for an operator whose allowed-projects is an ordered, commented document and who unclaims
     # between development stages. Parking runs AFTER the hand-back for the same reason dropping does -- the helpers
     # resolve this path's owner through the allowlist, and an exclusion stops them as surely as a missing entry.
+    local entry_active=false
     if [[ "${registry}" == park ]]; then
-        retag_allow "${d}" disable || warn "the allowlist entry could not be parked -- it is still active"
+        retag_allow "${d}" disable || entry_active=true
     else
         unreg_allow "${d}"
     fi
 
-    # No bare ✓ over an unclaim whose hand-back did not run. A claim that under-applies leaves the agent with too little
-    # access, which is merely inconvenient; an unclaim that under-applies leaves it with access the operator has just
-    # been told was removed.
+    # No bare ✓ over an unclaim whose hand-back did not run, or whose entry still lets a session start. A claim
+    # that under-applies leaves the agent with too little access, which is merely inconvenient; an unclaim
+    # that under-applies leaves it with access the operator has just been told was removed.
+    if ${entry_active}; then
+        local files_note=""
+        ${handback_missing} && files_note=" Its files were not handed back either, so they still carry group ${SANDBOX_GROUP}."
+        headline_warn "WARNING: the allowlist entry was not parked" \
+            "${d} is still enabled in allowed-projects, so a session can still start there.${files_note} The lines above name what completes the reversal."
+        ai_tools_log__structured warning \
+            "unclaim of ${d} incomplete (allowlist entry not parked, still active)" \
+            "AI_TOOLS_PROJECT=${d}" "AI_TOOLS_RESULT=failed"
+        return 1
+    fi
     if ${handback_missing}; then
         headline_warn "WARNING: deregistered, but the files were not handed back" \
             "${d} is out of allowed-projects, so no session can launch there. Its files still carry group ${SANDBOX_GROUP}, so an agent session that can reach the path keeps its access to them. The command above completes the reversal."

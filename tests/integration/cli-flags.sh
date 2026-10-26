@@ -866,6 +866,17 @@ drive_rows() {
     cli_stub_reset; drive cli ai-tools.projects.remove.inplace "$(f for)" "${FOR_USER}" "$(f yes)" "${R}/for3"
     expect "control: the same remove --for deletes the tree"         test ! -e "${R}/for3"
     expect "control: and drops the target's entry"                    st_for_is "${R}/for3" absent
+    # A park the helper refuses ends the unclaim non-zero with the entry still enabled, after the hand-back ran.
+    mkdir -p "${R}/for4"; chown "${PROJECTS_USER}:${PROJECTS_USER}" "${R}/for4"
+    printf '%s\n' "${R}/for4" >> "${FOR_AL}"
+    cli_stub_reset; cli_stub_fail ai-tools-allowlist:--disable
+    drive cli ai-tools.projects.unclaim "$(f for)" "${FOR_USER}" "$(f yes)" "$(f keep-entry)" "${R}/for4"
+    expect "unclaim --for --keep-entry exits non-zero when the park is refused" rc_not0
+    expect "the target's entry is still enabled"                      st_for_is "${R}/for4" listed
+    expect "the hand-back ran ahead of the park"                      cli_called ai-tools-unclaim "^${R}/for4${T}"
+    cli_stub_reset; drive cli ai-tools.projects.unclaim "$(f for)" "${FOR_USER}" "$(f yes)" "$(f keep-entry)" "${R}/for4"
+    expect "control: the same unclaim parks the target's entry"       st_for_is "${R}/for4" disabled
+    expect "control: and exits 0"                                     rc_is 0
 
     for key in ai-tools.projects.clone ai-tools.projects.push ai-tools.status ai-tools.stop; do
         cli_stub_reset; drive cli "${key}" "$(f for)" "${FOR_USER}" "${SRC}"

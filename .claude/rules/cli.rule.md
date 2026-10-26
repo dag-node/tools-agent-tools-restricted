@@ -1065,8 +1065,11 @@ to the files; the registry work stops a session launching there but leaves the t
 so a bare ✓ over it would tell the operator access was removed when it was not. On a parked target the unclaim asks
 to lift the exclusion first, since the helpers do not act under one; declining does not abort — the registry reversal
 still applies, and only the hand-back is given up, reported with the `projects enable` + `projects handback --full` pair
-that completes it. A failed root step follows the per-verb table under [Claim in place](#claim-in-place). The filesystem
-effect per mode is [ref-table-b5v7](ownership-and-hooks.rule.md#ref-table-b5v7).
+that completes it. An allowlist line the unclaim could not change ends it non-zero as well, in a `--for` run
+as in a plain one, since the line is the launch gate: a drop that did not apply refuses (`unreg_allow`), naming the line
+or the helper command that removes it, and a park that did not apply closes with the entry reported still enabled and no
+✓. A failed root step follows the per-verb table under [Claim in place](#claim-in-place). The filesystem effect per mode
+is [ref-table-b5v7](ownership-and-hooks.rule.md#ref-table-b5v7).
 
 ## Sandbox clone <a id="ref-section-u9a9"></a>
 
