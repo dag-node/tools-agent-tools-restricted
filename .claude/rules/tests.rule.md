@@ -1076,6 +1076,16 @@ a readonly constant, so the config directory cannot be moved into the testdir; t
 package ships, which makes that half report deterministically as not installed and leaves the entrypoint half to carry
 the type comparisons.
 
+A fifth covers the live-session gate ([ref-section-e6c6](cli.rule.md#ref-section-e6c6)): each gated walk is driven
+with the session reader stubbed to `live` and to `unreadable`, and must return its status with no `semanage`
+or `restorecon` call recorded, while `none` runs it and the per-path entrypoint label runs under `live`; a copy
+of the library with no `sessions.lib.sh` beside it reads as live. Every other section stubs the reader to `none`, since
+a session may be running on the host the suite runs on. `sessions.sh` pins the reader itself: its walk functions are
+held to `ai-tools-stop`'s through `declare -f`, beside a control that a one-character change breaks the equality,
+and a fixture cgroup tree drives the truth table, each reading that cannot be made asserted to read `unreadable`
+and a mode root reads through asked as the projects user. Its boundary half is a type rule, so it is
+`integration/selinux.sh`'s policy read and `selinux/avc/avc-denials.sh` section Y, made from inside a session.
+
 `entrypoint-verify.sh` pins the pure half of the entrypoint verifier (`entrypoint-verify.lib.sh`, see
 [updater](updater.rule.md)). Every assertion targets a way the gate could fail **open**: an absent pin must read
 as `unpinned` and never as a mismatch (collapsing them would report a fresh install as tamper, or — inverted — bless

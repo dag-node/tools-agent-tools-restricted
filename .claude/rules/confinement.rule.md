@@ -556,9 +556,11 @@ cannot be labelled until the module's types exist in the kernel — at the defau
 the entrypoint and project labels name comes from this module, so a load that did not happen surfaces later as a relabel
 that cannot register its rules and a launch that fail-closes, with no message naming this as the cause. The transaction
 still completes — the remedy is a re-run, not a rollback. After the module load, `%post` also `restorecon`s the trees
-that carry `ai_tools*` types (the handback daemon among them) and, when the handback socket is already active —
-an upgrade — refreshes the live listener: `restorecon` fixes the daemon binary's on-disk label, but the socket bound
-on tmpfs `/run/ai-tools` keeps its stale context and its per-connection handler keeps running `unconfined_service_t`,
+that carry `ai_tools*` types (the handback daemon among them) — the root-owned ones always, and `/opt/ai-tools`
+and the clone area only while no process of the sandbox account is live, with a warning naming the walk to run when it
+skips ([ref-section-e6c6](cli.rule.md#ref-section-e6c6)) — and, when the handback socket is already active — an upgrade
+— refreshes the live listener: `restorecon` fixes the daemon binary's on-disk label, but the socket bound on tmpfs
+`/run/ai-tools` keeps its stale context and its per-connection handler keeps running `unconfined_service_t`,
 so `daemon-reexec` + a socket restart re-derive the listener context from the now-correct binary label (the same
 sequence `install-selinux.sh` `_relabel_runtime` runs; see [handback-bridge](handback-bridge.rule.md)). Without it
 a session's `connectto` to the handback socket is denied under enforcing and every hook handback silently no-ops.

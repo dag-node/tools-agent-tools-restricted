@@ -816,7 +816,11 @@ re-run it. For
 .B "projects remove"
 it also covers a removal that left paths behind: the project is already
 unregistered by then, so what remains is out of the agent's reach and can be
-deleted by hand.
+deleted by hand. For
+.B "projects claim"
+it covers a SELinux label step refused while an agent session or the toolchain
+update runs as the sandbox account: the other steps applied, and a re-run once
+none runs applies the label.
 .TP
 .B 2
 The command line was rejected, before any helper or

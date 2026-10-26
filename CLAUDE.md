@@ -236,7 +236,10 @@ The invariants the agent operates under:
   ([ref-section-u5h4](.claude/rules/safe-paths.rule.md#ref-section-u5h4)); the layout reconcile is the one writer
   for every row of the installed layout, the rows under sandbox-group-writable parents included
   ([layout](.claude/rules/layout.rule.md)), and a tree that account owns past its root — the toolchain, a cache — does
-  not take a root write inside it, so its interior is that account's as its content is.
+  not take a root write inside it, so its interior is that account's as its content is. A recursive relabel of a tree
+  that account can write runs only while no process of the account is live, read from the kernel's cgroup tree,
+  which leaves a session launched during the walk as the stated residual
+  ([ref-section-e6c6](.claude/rules/cli.rule.md#ref-section-e6c6)).
 - **Rewriting a command does not widen what it may do.** A `PreToolUse` filter narrows how much a command prints (see
   [filters](.claude/rules/filters.rule.md)); it does not return a permission decision, so the harness re-runs its full
   permission pipeline on the **rewritten** command — an `allow` entry must still match it and a `deny` entry still

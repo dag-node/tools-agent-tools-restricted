@@ -232,6 +232,11 @@ confirm_stop → end_session → terminate_gracefully → kill_outright → rest
 
 ### Degradation policy: two inversions, one reason <a id="ref-section-e8k5"></a>
 
+`sessions.lib.sh` carries a copy of four walk functions from this helper, `find_session_cgroups` and the liveness reads
+beneath it, for the relabel gate ([ref-section-e6c6](cli.rule.md#ref-section-e6c6)). The helper stays the original
+and does not source the library, by the first inversion in this section, and `tests/unit/sessions.sh` holds each copy
+equal to it, so a fix to the walk lands in both or fails the suite.
+
 For every other component here the safe direction is **don't act**. For this one it is **act**, so two project-wide
 conventions are inverted, each for that reason alone:
 
@@ -312,4 +317,5 @@ Known, bounded, and not built:
   what](#who-may-stop-what)).
 - **A launch/stop gate.** A session launched after the final sweep is outside the window; closing that needs
   the launcher to take the same lock. It would also serialize concurrent stops, whose current cost is duplicate audit
-  events rather than a wrong result.
+  events rather than a wrong result, and the recursive relabels, whose live-session gate has the same window
+  ([ref-section-e6c6](cli.rule.md#ref-section-e6c6)).

@@ -1101,6 +1101,59 @@ applied by `install.sh`), so an operator creates and works in clones without `SA
 the shared-area counterpart to the per-project `user:<operator>` grant. The agent is not in `ai-ops` (`ai-tools-run`
 refuses to launch otherwise), so the grant adds it no access.
 
+## The recursive relabels and the live-session gate <a id="ref-section-e6c6"></a>
+
+A `restorecon -R` over a tree the sandbox account can write — a claimed project, a clone, an agent's config directory,
+the toolchain under `/opt/ai-tools` — walks by path, and on libselinux before 3.11 it resolves each path again before it
+writes the label. A process of that account that renames a directory aside and plants a symlink of its name inside
+the walk sends the tree's type onto an inode it chose. The account's only writers are its live processes, agent sessions
+and the toolchain update with the install scripts it runs, so every such walk runs **only while no process
+of the account is live**.
+
+The reading is `sessions.lib.sh`'s: a cgroup under the account's slice `user-<uid>.slice` that holds a task, read
+from `cgroup.procs` and `cgroup.events` as `ai-tools-stop` reads them, makes the account live. Its walk functions are
+a copy of the stop helper's, which does not load a project library, and `tests/unit/sessions.sh` holds each pair equal.
+Every reading it cannot make — no cgroup v2 mount, no uid, a slice the caller cannot list, a `cgroup.procs` it cannot
+read — reads `unreadable`, which each gate treats as live. The toolchain update is live by the same reading: it writes
+the toolchain the `%post` walk crosses.
+
+**The user manager's own plumbing is exempt by name**: its `init.scope` and the dbus broker it starts. The stop helper
+does not exempt any cgroup, because on a DAC-only host a session can move its tasks into any cgroup it names. Here
+the name is sound because of where the gate runs. `ai_tools_relabel__is_available` returns 2 and no walk happens
+where SELinux is `Disabled`; where the policy is loaded, `ai_tools_t` does not hold a write on `cgroup_t` and cannot
+reach its user manager's socket or its session bus, so the names under the slice are the ones `ai-tools-run`
+and the manager gave them; `Permissive` refuses every launch under the default `AI_TOOLS_REQUIRE_SELINUX`. The residual
+is a permissive host whose operator wrote `AI_TOOLS_REQUIRE_SELINUX=no`. `tests/integration/selinux.sh` reads the cgroup
+half from the loaded policy, and `selinux/avc/avc-denials.sh` makes all four accesses from inside a session.
+
+Where each walk takes the gate:
+
+- `relabel.lib.sh` gates its own walks — the project label and unlabel, an agent config directory's label and the config
+  half of its unlabel — and returns 3 before any write, so a re-run applies the whole step. `ai-tools-relabel` refuses
+  under a code, the claim then reports its label step pending and exits 1, and an unclaim or removal reports the revert
+  as not applied. `ai-tools-relabel-agent` files the config directory as `skipped live-session`, which `ai-tools status`
+  renders with the `ai-tools-relabel.service` start that completes it, and labels the entrypoint as it otherwise would:
+  that write is per path, not a walk.
+- The selinux `%post` restores the root-owned trees unconditionally and `/opt/ai-tools` and the clone area behind
+  the reading, with one WARNING naming the `restorecon` to run when it skips; `install.sh` does the same for the agent
+  config directories. `ai-tools-admin`'s clone restore after a group change, and `ai-tools-unclaim --unlisted`'s label
+  reset, warn the same way.
+- `projects claim` reads the state unprivileged when its label step is pending and names a live session in the Review
+  block, ahead of the first `sudo`. The notice does not ask anything; the helper's refusal decides.
+- A clone is labelled while it is still private, ahead of `normalize_clone`, so its walk does not cross a directory
+  the account can rename, and the clone's own entry sits in an area whose type `ai_tools_t` may search and not write;
+  that walk does not take the gate.
+
+Every message leads with letting the sessions end and the update finish, and offers `ai-tools stop` beside it, since
+a stop ends a session without its session-end handback and an update mid-run.
+
+**The gate narrows the exposure and does not close it.** A session launched between the reading and the walk is inside
+the walk. What closes it is either a libselinux at or above 3.11, whose walker holds a descriptor, or the launch lock
+[stop](stop.rule.md) defers, which would serialize `ai-tools-run` against the stop and the relabel alike. No libselinux
+version is read: the gate holds on every version, and a version read is a label rather than a check. The per-path
+`restorecon -F` of an agent entrypoint through the account-owned toolchain is outside this gate: it is a root label
+write by a path, the class the write-side invariant in [CLAUDE.md](../../CLAUDE.md) states, and it does not walk.
+
 ## Privilege model
 
 The CLI is unprivileged. Every root helper it reaches — the `*_BIN` constants at the top of `ai-tools.sh` name the set —
