@@ -396,6 +396,19 @@ if command -v runuser >/dev/null 2>&1; then
         else
             fail "the refusal over the link did not name ${sealed} or a directory was created: $(brief "${out}")"
         fi
+        # The same link as the claim's own path: the link is the leaf, so the walk must read the leaf to name ${sealed},
+        # and not report the path as not found.
+        spell ai-tools.projects.claim
+        out="$(runuser -u "${PROJECTS_USER}" -- env HOME="${PROJECTS_HOME}" \
+                AI_TOOLS_OPERATOR_CONF="${oconf}" AI_TOOLS_ALLOWLIST="${emptyal}" \
+                setsid "${CLI}" "${CLI_ARGV[@]}" "${TESTDIR}/alias" 2>&1)" && rc=0 || rc=$?
+        refused "ai-tools.projects.claim refuses a link leaf leading into a directory the operator cannot enter" \
+            MSG-D4Z6 1
+        if grep -qF "cannot enter ${sealed} as" <<<"${out}" && ! grep -qF "path not found" <<<"${out}"; then
+            pass "the claim's refusal over the link leaf names ${sealed}, not a path not found"
+        else
+            fail "the claim's refusal over the link leaf did not name ${sealed}: $(brief "${out}")"
+        fi
     else
         fail "the sealed-parent fixture did not set up: ${sealed} is enterable by ${PROJECTS_USER} or inner is missing"
     fi

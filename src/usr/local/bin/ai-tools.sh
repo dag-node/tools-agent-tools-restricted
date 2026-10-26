@@ -759,7 +759,8 @@ refuse_unreachable_path() {
 
 # resolve_existing_path <path>  -- canonicalize <path> (realpath -e) to stdout; die if it is absent, if it sits
 # under a directory the invoking user cannot enter (refuse_unreachable_path), or if its canonical form holds a control
-# character.
+# character. The walk reads the leaf too, so a leaf that is a link into a directory the invoker cannot enter names that
+# directory.
 resolve_existing_path() {
     local p blocked_ancestor LC_ALL=C
     # realpath ends its answer with one line feed; the sentinel keeps a line feed that is part of the name, which a bare
@@ -767,7 +768,7 @@ resolve_existing_path() {
     if ! p="$(realpath -e -- "$1" 2>/dev/null && printf x)"; then
         local typed="$1"
         [[ "${typed}" == /* ]] || typed="${PWD}/${typed}"
-        if find_invoker_traversal_blocker "${typed}" blocked_ancestor; then
+        if find_invoker_traversal_blocker "${typed}/" blocked_ancestor; then
             refuse_unreachable_path "$1" "${blocked_ancestor}"
         fi
         die "path not found: $(ai_tools_log__sanitize "$1")"
