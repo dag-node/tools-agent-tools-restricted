@@ -207,7 +207,7 @@ cannot fix -- a message code's name is a runtime string, and rewording one is a 
 | j2a7 | [MSG-J2A7](../src/usr/local/bin/ai-tools.sh) | unknown projects claim option: ${a} (allowed: -y/--yes, --format tsv) | src/usr/local/bin/ai-tools.sh |  | die_usage |
 | f8g9 | [MSG-F8G9](../src/usr/local/bin/ai-tools.sh) | projects claim takes a single path | src/usr/local/bin/ai-tools.sh |  | die_usage |
 | s9a3 | [MSG-S9A3](../src/usr/local/bin/ai-tools.sh) | projects claim --format takes one value, tsv | src/usr/local/bin/ai-tools.sh |  | die_usage |
-| j3r8 | [MSG-J3R8](../src/usr/local/bin/ai-tools.sh) | cannot resolve the parent directory: ${parent} -- it does not exist, or a symbolic link on its path leads through a directory ${INVOKING_USER} cannot enter | src/usr/local/bin/ai-tools.sh | tests/integration/cli-flags.sh, tests/integration/cli.sh | die |
+| j3r8 | [MSG-J3R8](../src/usr/local/bin/ai-tools.sh) | cannot resolve the parent directory: $(ai_tools_log__sanitize "${parent}") -- it does not exist, or a symbolic link on its path leads through a directory ${INVOKING_USER} cannot enter | src/usr/local/bin/ai-tools.sh | tests/integration/cli-flags.sh, tests/integration/cli.sh | die |
 | c5t8 | [MSG-C5T8](../src/usr/local/bin/ai-tools.sh) | unknown projects create option: ${a} | src/usr/local/bin/ai-tools.sh |  | die_usage |
 | z5y7 | [MSG-Z5Y7](../src/usr/local/bin/ai-tools.sh) | projects create takes a single path | src/usr/local/bin/ai-tools.sh |  | die_usage |
 | a7d3 | [MSG-A7D3](../src/usr/local/bin/ai-tools.sh) | projects create needs a path: it creates a NEW project directory. | src/usr/local/bin/ai-tools.sh | tests/integration/cli.sh | die |

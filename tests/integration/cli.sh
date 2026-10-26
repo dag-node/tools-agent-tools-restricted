@@ -280,6 +280,15 @@ if command -v runuser >/dev/null 2>&1; then
     else
         fail "the line-feed parent created a directory: $(ls -A "${twin}" "${twin_lf}" 2>&1)"
     fi
+    # The line-feed directory itself exists: the control-character refusal precedes the existence check, so the path is
+    # refused under its own code and is not printed by the existence refusal.
+    out="$(create_cli "${twin_lf}")" && rc=0 || rc=$?
+    refused "ai-tools.projects.create refuses an existing path holding a line feed under its own code" MSG-V8Z5 1
+    if grep -qx "MSG-T4B9" <<<"${out}"; then
+        fail "the existing line-feed path reached the existence refusal: $(brief "${out}")"
+    else
+        pass "the existing line-feed path is not reported as an existing path"
+    fi
 
     # A path whose last component is a symbolic link is refused by the name typed (MSG-G7D3), dangling or not:
     # the create resolving the leaf would otherwise make and claim the directory a dangling link points at, and a link

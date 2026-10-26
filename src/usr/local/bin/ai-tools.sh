@@ -701,24 +701,25 @@ ask() {
 # (MAXSYMLINKS), and a link `realpath -m` cannot move past, a loop among them, ends the walk.
 find_invoker_traversal_blocker() {
     local -n _unenterable_ancestor="$2"
-    local remaining_path="${1#/}" ancestor_path="" resolved_path link_hops=0 LC_ALL=C
-    while [[ "${remaining_path}" == */* ]]; do
-        ancestor_path+="/${remaining_path%%/*}"
-        remaining_path="${remaining_path#*/}"
-        if [[ -d "${ancestor_path}" && ! -x "${ancestor_path}" ]]; then
-            _unenterable_ancestor="${ancestor_path}"
+    local _blocker_remaining_path="${1#/}" _blocker_ancestor_path="" _blocker_resolved_path
+    local _blocker_link_hops=0 LC_ALL=C
+    while [[ "${_blocker_remaining_path}" == */* ]]; do
+        _blocker_ancestor_path+="/${_blocker_remaining_path%%/*}"
+        _blocker_remaining_path="${_blocker_remaining_path#*/}"
+        if [[ -d "${_blocker_ancestor_path}" && ! -x "${_blocker_ancestor_path}" ]]; then
+            _unenterable_ancestor="${_blocker_ancestor_path}"
             return 0
         fi
-        [[ -e "${ancestor_path}" ]] && continue
-        [[ -L "${ancestor_path}" ]] || return 1
-        (( ++link_hops <= 40 )) || return 1
+        [[ -e "${_blocker_ancestor_path}" ]] && continue
+        [[ -L "${_blocker_ancestor_path}" ]] || return 1
+        (( ++_blocker_link_hops <= 40 )) || return 1
         # resolve_existing_path's sentinel: the link's target may end in a line feed.
-        resolved_path="$(realpath -m -- "${ancestor_path}" 2>/dev/null && printf x)" || return 1
-        resolved_path="${resolved_path%x}"
-        resolved_path="${resolved_path%$'\n'}"
-        [[ "${resolved_path}" != "${ancestor_path}" ]] || return 1
-        remaining_path="${resolved_path#/}/${remaining_path}"
-        ancestor_path=""
+        _blocker_resolved_path="$(realpath -m -- "${_blocker_ancestor_path}" 2>/dev/null && printf x)" || return 1
+        _blocker_resolved_path="${_blocker_resolved_path%x}"
+        _blocker_resolved_path="${_blocker_resolved_path%$'\n'}"
+        [[ "${_blocker_resolved_path}" != "${_blocker_ancestor_path}" ]] || return 1
+        _blocker_remaining_path="${_blocker_resolved_path#/}/${_blocker_remaining_path}"
+        _blocker_ancestor_path=""
     done
     return 1
 }
@@ -2817,9 +2818,9 @@ claim_end() {
 # cannot enter, so the refusal names both.
 refuse_unresolved_parent() {
     local parent="$1"
-    die MSG-J3R8 "cannot resolve the parent directory: ${parent} -- it does not exist, or a symbolic link on its path leads through a directory ${INVOKING_USER} cannot enter" \
+    die MSG-J3R8 "cannot resolve the parent directory: $(ai_tools_log__sanitize "${parent}") -- it does not exist, or a symbolic link on its path leads through a directory ${INVOKING_USER} cannot enter" \
         "projects create creates ONE directory, not a path of them, so a mistyped path is refused here rather than created. Check the path; if it is right and the parent is missing, create the parent yourself and re-run:" \
-        "       mkdir -p ${parent}"
+        "       mkdir -p $(_quote_path "${parent}")"
 }
 
 # cmd_project_create <path>  -- create a NEW project directory and claim it: ONE mkdir, an empty git repository,
@@ -2874,12 +2875,13 @@ cmd_project_create() {
     if find_invoker_traversal_blocker "${d}" blocked_ancestor; then
         refuse_unreachable_path "${d}" "${blocked_ancestor}"
     fi
+    # Ahead of the existence check, so a path holding a control byte is refused under its own code and is not printed.
+    refuse_control_character_path "${d}"
     if [[ -e "${d}" ]]; then
         die MSG-T4B9 "this path already exists: ${d}" \
             "projects create only ever creates. Claim what is already there instead:" \
             "       ai-tools projects claim ${d}"
     fi
-    refuse_control_character_path "${d}"
 
     # ONE directory is created, the final component, and a parent that does not exist is refused: a mistyped path
     # surfaces as a refusal naming the missing directory and does not become a manufactured tree with a claimed project
