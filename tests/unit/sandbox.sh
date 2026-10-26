@@ -792,6 +792,38 @@ fi
 # take its target's mode with it -- and re-open a path the gate locked, which `-path` would miss if the locked name
 # carried a pattern character (the bracket here) and were not escaped, or ended in a newline a `$(...)` capture
 # of the escaped pattern would strip.
+# ── sandbox_finalize: the order of the opening steps ──────────────────────────────────────────
+# relabel_clone walks the clone by path, and once normalize_clone has opened the tree the sandbox account can rename
+# a directory in it mid-walk. So the relabel runs while the root is still owner-only, ahead of the normalize,
+# and a resume over a clone already opened runs neither. Every step around the two is stubbed and the order recorded.
+section "sandbox_finalize: the clone is labelled while it is still private (unit)"
+# shellcheck disable=SC2016  # the script runs inside the sourced CLI's shell; its expansions are that shell's
+finalize_order='
+    stub_calls=""
+    reg_allow()            { stub_calls+="reg_allow "; }
+    secret_gate()          { return 0; }
+    clear_lockdown_guard() { :; }
+    clone_is_private()     { [[ "${stub_private}" == yes ]]; }
+    relabel_clone()        { stub_calls+="relabel_clone "; }
+    normalize_clone()      { stub_calls+="normalize_clone "; }
+    reg_safedir()          { stub_calls+="reg_safedir "; return 0; }
+    stub_private="${args[1]}"
+    sandbox_finalize "${args[0]}" >/dev/null 2>&1 || true
+    printf "%s" "${stub_calls}"
+'
+order="$(call_script "${finalize_order}" "${TESTDIR}/clone" yes 2>/dev/null || true)"
+if [[ "${order}" == "reg_allow relabel_clone normalize_clone reg_safedir " ]]; then
+    pass "a private clone is relabelled before normalize_clone opens it"
+else
+    fail "the finalize order on a private clone was: ${order:-<none>}"
+fi
+order="$(call_script "${finalize_order}" "${TESTDIR}/clone" no 2>/dev/null || true)"
+if [[ "${order}" == "reg_allow reg_safedir " ]]; then
+    pass "a resume over a clone already opened runs neither the relabel nor the normalize"
+else
+    fail "the finalize order on an opened clone was: ${order:-<none>}"
+fi
+
 section "normalize_clone: opens files and directories alone, and keeps a locked path locked (unit)"
 nc_work="${TESTDIR}/nc"; nc_out="${TESTDIR}/nc-outside"; nc_newline="${nc_work}/"$'.env.production\n'
 mkdir -p "${nc_work}/config[prod]" "${nc_work}/sub"

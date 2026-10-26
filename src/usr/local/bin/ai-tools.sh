@@ -520,6 +520,14 @@ readonly ANCESTOR_CONFIG_LIB="/usr/local/lib/ai-tools/ancestor-config.lib.sh"
 # shellcheck source=SCRIPTDIR/../lib/ai-tools/ancestor-config.lib.sh
 source "${ANCESTOR_CONFIG_LIB}" 2>/dev/null || true
 
+# Live sessions of the sandbox account (sessions.lib.sh): ai-tools-relabel refuses its walk while one runs,
+# and the claim reads the same state unprivileged from the world-readable cgroup files so its Review block names
+# the refusal before the first sudo. Best-effort: the helper's refusal is the decision, so a missing lib costs
+# the notice alone.
+readonly SESSIONS_LIB="/usr/local/lib/ai-tools/sessions.lib.sh"
+# shellcheck source=SCRIPTDIR/../lib/ai-tools/sessions.lib.sh
+source "${SESSIONS_LIB}" 2>/dev/null || true
+
 # Service-health registry (services.lib.sh): the single source `ai-tools status`, the launch wrapper's pre-launch health
 # warning and `ai-tools-admin status` share, so no two of them disagree on which units matter, what one is doing,
 # or how to fix it. Best-effort -- only `status` reads it, and it degrades to a "registry unavailable" notice rather
@@ -1566,6 +1574,13 @@ clone_is_private() {
 # which the policy grants relabel to ai_tools_project_t. No-op when SELinux is disabled (or the module is not loaded,
 # in which case the label stays the default until the operator installs ai-tools-selinux, or from a checkout runs
 # selinux/install-selinux.sh install).
+#
+# sandbox_finalize runs it while the clone root is still 0700 and the operator's, ahead of normalize_clone: restorecon
+# walks by path, and once the tree is open the sandbox account can rename a directory in it and plant a symlink in its
+# place mid-walk, sending the label onto an inode it chose. While the root is private no directory inside the clone is
+# that account's to rename, and the clone's own entry sits in the clone area, a directory whose type ai_tools_t may
+# search and not write (ai_tools.fc), so this walk does not take the live-session gate. A resume over a clone already
+# opened does not run a relabel: the first finalize labelled it, before it opened.
 relabel_clone() {
     local d="$1"
     command -v restorecon >/dev/null 2>&1 || return 0
@@ -2400,6 +2415,19 @@ cmd_project_claim() {
         say "      ${C_DIM}which one above it is not${C_RST}"
     }
 
+    # The SELinux label walks the tree as root, and ai-tools-relabel refuses that walk while a process of the sandbox
+    # account is live, or where it cannot read whether one is (cli.rule.md). The same reading, made here
+    # as the operator, says so ahead of the first sudo; it does not ask anything, and the helper's refusal is
+    # what decides.
+    live_session_note() {
+        ${need_label} || (( ${#label_drift[@]} )) || return 0
+        declare -F ai_tools_sessions__read_live_session_state >/dev/null 2>&1 || return 0
+        [[ "$(ai_tools_sessions__read_live_session_state)" != none ]] || return 0
+        headline_warn "NOTICE: a session of the sandbox account is running" \
+            "An agent session or the toolchain update runs as ${SANDBOX_USER}, or this host's sessions could not be read, and the SELinux label step walks the tree as root, which the helper refuses while one runs. The other steps apply; the label is reported pending and the claim ends non-zero. End the sessions first, then re-run this claim:"
+        say "      ${C_BOLD}ai-tools stop${C_RST}"
+    }
+
     skip_listed_note() {
         (( ${#drift_skipped[@]} )) || return 0
         headline_warn "NOTICE: drift under skip-listed directories" \
@@ -2616,6 +2644,7 @@ cmd_project_claim() {
     skip_listed_note
     sealed_setgid_note
     ancestor_config_note
+    live_session_note
 
     # Heavy steps close the Review block behind the proceed confirm, the one prompt `--yes` pre-answers; a pristine tree
     # skips it with the warnings it authorizes.
@@ -3839,9 +3868,10 @@ cmd_project_remove() {
 
 # sandbox_finalize <dst>  -- the access-granting tail of every sandbox create, run once the clone exists: allowlist
 # entry (the lockdown scan acts only on an allowlisted path; rolled back on a failed gate), the secret gate, then --
-# past the gate alone -- normalize (pruning the locked paths), relabel, and register. A declined or failed gate leaves
+# past the gate alone -- relabel, normalize (pruning the locked paths), and register. A declined or failed gate leaves
 # the clone on disk, private and unregistered, with a guard CLAUDE.md and the resume command printed (fail closed:
-# cli.rule.md, Sandbox clone). The normalize runs once, while the root is still owner-only (clone_is_private).
+# cli.rule.md, Sandbox clone). The relabel and the normalize run once, while the root is still owner-only
+# (clone_is_private), in that order (relabel_clone states why).
 sandbox_finalize() {
     local dst="$1"
     reg_allow "${dst}"
@@ -3857,12 +3887,12 @@ sandbox_finalize() {
     clear_lockdown_guard "${dst}"
     # A resume over a clone already opened leaves the tree as it is (normalize_clone's header states why).
     if clone_is_private "${dst}"; then
+        relabel_clone "${dst}"
         normalize_clone "${dst}" "${SECRET_MATCH_PATHS[@]}"
         say "    access: group ${SANDBOX_GROUP} rwX + setgid dirs (locked secrets stay private)"
     else
         say "    access: already granted; the tree is left as it is"
     fi
-    relabel_clone "${dst}"
     # A clone exists to run git in, and without safe.directory the agent's git refuses the tree ("dubious ownership"),
     # so the failure is reported at the close rather than left under the ✓; reg_safedir returns non-zero, so a bare call
     # under `set -e` would abort the create.
