@@ -4050,13 +4050,13 @@ sandbox_resolve_base() {
 # stripped before git writes into it, and git creates every path inside under umask 077; git accepts an existing empty
 # directory as a clone destination. A failure removes the directory while it is empty, and dies.
 clone_privately() {
-    local url="$1" br="$2" dst="$3"
+    local url="$1" branch="$2" dst="$3"
     mkdir -m 0700 -- "${dst}" || die "could not create ${dst}"
     if ! setfacl -b -- "${dst}"; then
         rmdir -- "${dst}" 2>/dev/null || true
         die MSG-U3Q6 "could not strip the inherited ACL from ${dst} -- the clone was not created"
     fi
-    if ! ( umask 077 && git clone --depth=1 -b "${br}" "${url}" "${dst}" ); then
+    if ! ( umask 077 && git clone --depth=1 -b "${branch}" "${url}" "${dst}" ); then
         rmdir -- "${dst}" 2>/dev/null || true
         die "git clone into ${dst} failed"
     fi

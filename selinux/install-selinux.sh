@@ -578,10 +578,10 @@ _restore_account_tree_labels() {
         _left_trees+=("$1")
     fi
 }
-# _note_left_agent_config <agent>: record <agent>'s config directory for the closing warning, after the library left its
-# walk (a `live` line, or status 3 from the unlabel). The path is the manifest's config_dir under CP_HOME, the one
+# _record_left_agent_config <agent>: record <agent>'s config directory for the closing warning, after the library left
+# its walk (a `live` line, or status 3 from the unlabel). The path is the manifest's config_dir under CP_HOME, the one
 # the library walks; an agent whose manifest does not name one is warned about by name alone.
-_note_left_agent_config() {
+_record_left_agent_config() {
     local config_dir
     warn MSG-S7C2 "left the label on ${1}'s config directory as it was -- the closing warning names the walk to run"
     config_dir="$(ai_tools_providers__read_agent_manifest_field "$1" config_dir 2>/dev/null || true)"
@@ -640,7 +640,7 @@ _labels_drop() {
         rc=0; ai_tools_relabel__unlabel_agent_paths "${agent}" || rc=$?
         case "${rc}" in
             0) ;;
-            3) _note_left_agent_config "${agent}" ;;
+            3) _record_left_agent_config "${agent}" ;;
             *) log "  ${agent}: no file-context rules to drop" ;;
         esac
     done
@@ -717,7 +717,7 @@ verify_agent_labels() {
                 # the rule is registered, and the closing warning names the walk that completes it. The type
                 # the directory carries is kept for the agent's closing line.
                 live) live_types["${subject}"]="${detail}"
-                      _note_left_agent_config "${subject}" ;;
+                      _record_left_agent_config "${subject}" ;;
                 skip) warn MSG-S9J3 "labelling skipped for ${subject} -- ${detail} ${wanted}" ;;
                 # The per-agent verdict closing that agent's lines: `ok` and `none` restate the per-path arms,
                 # so `failed` prints, naming the agent those lines omit, and so does a config directory a live session

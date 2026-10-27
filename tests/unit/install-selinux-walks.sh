@@ -120,7 +120,7 @@ grep -qF 'sudo ./install.sh install' <<<"${warnings}" \
 # verdict, and the manifest reader to name the config directory.
 section "install-selinux.sh: a config directory walk the reading left is reported as left (unit)"
 agent_text=""
-for name in warn _note_left_agent_config _warn_left_trees verify_agent_labels; do
+for name in warn _record_left_agent_config _warn_left_trees verify_agent_labels; do
     body="$(extract_function "${INSTALLER}" "${name}")"
     if [[ -z "${body}" ]]; then
         fail "install-selinux.sh does not define ${name}() in the form this file reads"
