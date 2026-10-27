@@ -1097,12 +1097,15 @@ the same secret gate as a claim, and only past it labels and opens the clone: th
 still owner-only, then `normalize_clone` adds group `rwX`, setgid directories and the ACL the area would have given each
 path, pruning every path the gate locked, and the clone is registered. A declined or failed gate, and a label the clone
 root does not take, **fail closed**: the clone stays on disk, private and unregistered, and the resume command is
-printed. A declined or failed gate also leaves a guard `CLAUDE.md` (sentinel `ai-tools-lockdown-guard`) telling
-the agent to wait until the lockdown runs, with a real `CLAUDE.md` preserved by `git mv` to `CLAUDE.md.bak`. Re-running
-`projects clone` on the clone path resumes `sandbox_finalize`, which removes the guard and restores the original
-on success. A resume is idempotent: the label and `normalize_clone` run while the root is still owner-only
-(`clone_is_private`), the state the private create and a stopped finalize each leave, so a resume over an opened clone
-re-runs the gate and leaves the tree's modes alone, and a directory the operator sealed inside it keeps its mode.
+printed. A host where SELinux runs with no `ai_tools` policy, the DAC-only state the launch proceeds
+through (`ai_tools_confinement__evaluate_dac_only_state`), creates the clone unlabelled and says so, since the type does
+not exist there; a module shipped and not loaded, and a reading that cannot be made, keep the stop. A declined or failed
+gate also leaves a guard `CLAUDE.md` (sentinel `ai-tools-lockdown-guard`) telling the agent to wait until the lockdown
+runs, with a real `CLAUDE.md` preserved by `git mv` to `CLAUDE.md.bak`. Re-running `projects clone` on the clone path
+resumes `sandbox_finalize`, which removes the guard and restores the original on success. A resume is idempotent:
+the label and `normalize_clone` run while the root is still owner-only (`clone_is_private`), the state the private
+create and a stopped finalize each leave, so a resume over an opened clone re-runs the gate and leaves the tree's modes
+alone, and a directory the operator sealed inside it keeps its mode.
 
 The shared area carries a `g:ai-ops:rwX` ACL (traverse on `/var/opt/ai-tools`, `rwX` plus default on `sandbox-projects`,
 applied by `install.sh`), so an operator creates and works in clones without `SANDBOX_GROUP` membership —

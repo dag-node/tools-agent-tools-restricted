@@ -59,8 +59,10 @@ or a lockdown that failed, stops the command with the clone on disk, private
 and unregistered, and a guard `CLAUDE.md` inside it that tells a session
 to wait until the lockdown runs. A clone SELinux could not label stops
 the command too, before anything in it is opened, with the clone private
-and unregistered. Your real `CLAUDE.md`, where there is one, is kept beside it
-as `CLAUDE.md.bak`. The gate and the order it imposes are
+and unregistered. On a host where SELinux runs without the `ai-tools-selinux`
+policy, the command says the clone is not labelled and goes on; installing
+the policy labels it. Your real `CLAUDE.md`, where there is one, is kept beside
+it as `CLAUDE.md.bak`. The gate and the order it imposes are
 [ref-section-u9a9](../../.claude/rules/cli.rule.md#ref-section-u9a9).
 
 ## Resume a clone that stopped

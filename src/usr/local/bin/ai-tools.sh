@@ -1607,10 +1607,36 @@ clone_is_private() {
 # that account's to rename, and the clone's own entry sits in the clone area, a directory whose type ai_tools_t may
 # search and not write (ai_tools.fc), so this walk does not take the live-session gate. A resume over a clone already
 # opened does not run a relabel: the first finalize labelled it, before it opened.
+#
+# Where SELinux runs and no ai_tools policy is on the host -- neither its file contexts live nor its compiled module
+# staged -- ai_tools_project_t does not exist to read the clone with, so it returns 0 and says the clone is unlabelled.
+# That reading is ai_tools_confinement__evaluate_dac_only_state's `module-absent`, the launch's own predicate:
+# ai-tools-run proceeds through that state with MSG-K6W6, so it is a host sessions run on. Every other reading keeps
+# the restorecon and the stop -- a module shipped and not loaded, where the label is achievable once the policy is
+# installed, a matchpathcon that could not be read, and a confinement library that did not load. A resume does not label
+# a clone already opened, so the line names the policy install, which labels the clone area. A claim's label step
+# on such a host goes through ai-tools-relabel, which this reading does not change.
 relabel_clone() {
-    local d="$1"
+    local d="$1" selinux_mode module_present policy_shipped dac_only_state=""
     command -v restorecon >/dev/null 2>&1 || return 0
-    [[ "$(getenforce 2>/dev/null)" == "Disabled" ]] && return 0
+    selinux_mode="$(getenforce 2>/dev/null || true)"
+    [[ "${selinux_mode}" == "Disabled" ]] && return 0
+    # shellcheck source=SCRIPTDIR/../lib/ai-tools/confinement.lib.sh
+    source "${CONFINEMENT_LIB}" 2>/dev/null || true
+    if declare -F ai_tools_confinement__evaluate_dac_only_state >/dev/null 2>&1 \
+            && declare -F ai_tools_confinement__read_module_present >/dev/null 2>&1 \
+            && declare -F ai_tools_confinement__read_policy_shipped >/dev/null 2>&1 \
+            && module_present="$(ai_tools_confinement__read_module_present \
+                                     "${AI_TOOLS_CONFINEMENT__MODULE_PROBE_PATH}" 2>/dev/null)"; then
+        policy_shipped="$(ai_tools_confinement__read_policy_shipped "${AI_TOOLS_CONFINEMENT__CORE_MODULE_FILE}")"
+        dac_only_state="$(ai_tools_confinement__evaluate_dac_only_state \
+                              "${selinux_mode}" "${module_present}" "${policy_shipped}")" || dac_only_state=""
+    fi
+    if [[ "${dac_only_state}" == module-absent ]]; then
+        say "  - the clone is not labelled: no ai_tools policy is on this host, so ai_tools_t does not exist to read it;"
+        say "    installing ai-tools-selinux labels the sandbox clones (from a checkout: sudo selinux/install-selinux.sh install)"
+        return 0
+    fi
     local context
     if ! restorecon -FR "${d}" 2>/dev/null; then
         warn "could not label ${d} ai_tools_project_t for SELinux -- restorecon -FR failed"

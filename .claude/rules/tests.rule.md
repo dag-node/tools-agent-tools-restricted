@@ -607,7 +607,9 @@ must ask for a forced, non-recursive dry run over a NUL list, since it runs unpr
 keep a type difference while dropping a difference in the SELinux user alone, an owner-only file and a carved-out path,
 and must read a stray line among the records as an incomplete scan that still reports the drift it read. Its last
 section drives the two verifiers the claim runs after its Apply block over a stubbed `restorecon`, and pins that a batch
-which fails is never read as `fixed`.
+which fails is never read as `fixed`. `relabel_clone` is driven over the host readings with `restorecon` stubbed:
+SELinux running with no `ai_tools` policy creates the clone unlabelled with no `restorecon` call, while a module shipped
+and not loaded and a module reading that cannot be made each keep the stop.
 
 `project-permissions.sh` pins the checks that scan and the claim's verification rest on, unprivileged
 and against the checkout: every way `restorecon`'s output can be incomplete is asserted to read unknown, not `match`,

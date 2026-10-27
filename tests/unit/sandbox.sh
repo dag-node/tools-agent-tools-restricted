@@ -835,6 +835,48 @@ else
     fail "the finalize after a failed clone label ran: ${order:-<none>} (exit ${order_status})"
 fi
 
+# ── relabel_clone: a host with no ai_tools policy ─────────────────────────────────────────────
+# Where SELinux runs and no ai_tools policy is on the host, ai_tools_project_t does not exist to label the clone
+# with, and the launch proceeds through that state, so the create proceeds unlabelled rather than stopping on a type
+# the host cannot hold. getenforce answers Enforcing and matchpathcon a usr_t context, so the confinement library's real
+# reader reads the module's file contexts as absent; the compiled module's presence is a fixed path, so its reader is
+# stubbed. The library is sourced ahead of the stubs, and its include guard keeps relabel_clone's own source
+# from replacing them. restorecon prints a marker where it is called, and a module shipped and not loaded and a reader
+# that cannot be made each keep the stop.
+section "relabel_clone: a host with no ai_tools policy creates the clone unlabelled (unit)"
+# shellcheck disable=SC2016  # the script runs inside the sourced CLI's shell; its expansions are that shell's
+relabel_clone_case='
+    source "${CONFINEMENT_LIB}" 2>/dev/null || exit 98
+    getenforce()  { printf "Enforcing\n"; }
+    restorecon()  { printf "RESTORECON-CALLED\n"; return 0; }
+    matchpathcon() { printf "system_u:object_r:usr_t:s0\n"; }
+    case "${args[1]}" in
+        module-absent)  ai_tools_confinement__read_policy_shipped() { printf no; } ;;
+        module-shipped) ai_tools_confinement__read_policy_shipped() { printf yes; } ;;
+        reader-failed)  ai_tools_confinement__read_policy_shipped() { printf no; }
+                        ai_tools_confinement__read_module_present() { return 1; } ;;
+    esac
+    rc=0; relabel_clone "${args[0]}" 2>&1 || rc=$?
+    printf "rc=%s\n" "${rc}"
+'
+for reading in module-absent module-shipped reader-failed; do
+    out="$(call_script "${relabel_clone_case}" "${TESTDIR}" "${reading}" 2>&1 || true)"
+    case "${reading}" in
+        module-absent)
+            if [[ "${out}" == *"rc=0"* && "${out}" != *RESTORECON-CALLED* && "${out}" == *"not labelled"* ]]; then
+                pass "no ai_tools policy on the host: the clone is created unlabelled, says so, and no restorecon runs"
+            else
+                fail "no ai_tools policy on the host: ${out//$'\n'/ | }"
+            fi ;;
+        *)
+            if [[ "${out}" == *"rc=1"* && "${out}" == *RESTORECON-CALLED* ]]; then
+                pass "${reading}: the restorecon runs and the unlabelled root stops the create (control)"
+            else
+                fail "${reading}: expected the restorecon and rc=1: ${out//$'\n'/ | }"
+            fi ;;
+    esac
+done
+
 section "normalize_clone: opens files and directories alone, and keeps a locked path locked (unit)"
 nc_work="${TESTDIR}/nc"; nc_out="${TESTDIR}/nc-outside"; nc_newline="${nc_work}/"$'.env.production\n'
 mkdir -p "${nc_work}/config[prod]" "${nc_work}/sub"
