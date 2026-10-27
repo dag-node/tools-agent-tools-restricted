@@ -103,8 +103,8 @@ ROOTOK="$(array_items ROOT_ALLOWED_VERBS)"
 BOOTEXEMPT="$(array_items BOOTSTRAP_EXEMPT_VERBS)"
 FORALLOWED="$(array_items FOR_ALLOWED_VERBS)"
 
-# An empty extraction would make every check pass vacuously, which is the one way a test like this fails silently --
-# so the extractor is asserted before anything is compared.
+# An empty extraction would let every check pass without comparing a verb, which is the one way a test like this fails
+# silently, so the extractor is asserted before anything is compared.
 if [[ -z "${DISPATCH}" || -z "${OPERATOR}" || -z "${ROOTOK}" || -z "${BOOTEXEMPT}" || -z "${FORALLOWED}" ]]; then
     fail "could not extract a verb set (dispatch=$(wc -l <<<"${DISPATCH}") operator=$(wc -l <<<"${OPERATOR}") root=$(wc -l <<<"${ROOTOK}") bootstrap=$(wc -l <<<"${BOOTEXEMPT}") for=$(wc -l <<<"${FORALLOWED}"))"
     finish; exit

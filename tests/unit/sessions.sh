@@ -84,7 +84,7 @@ if [[ "$(declare -f has_own_tasks | twin_substitute | sed 's/return 1/return 0/'
         != "$(declare -f _ai_tools_sessions__has_own_tasks)" ]]; then
     pass "the comparison tells a changed body from its twin (control)"
 else
-    fail "the comparison reads a changed body as equal -- every twin pass above is vacuous"
+    fail "the comparison reads a changed body as equal, so no twin pass above can detect a drifted body"
 fi
 
 # ── The fixture tree ─────────────────────────────────────────────────────────────────────────

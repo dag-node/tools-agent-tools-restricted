@@ -209,7 +209,7 @@ printf '%s\n' '_restore_one() { restorecon -FR "$1"; }' '    restorecon -FR "${N
 if [[ "$(find_ungated_walks "${TESTDIR}/control.sh" | grep -c .)" -eq 2 ]]; then
     pass "the reader flags a restorecon of an account-writable tree (control)"
 else
-    fail "control: the reader does not flag an ungated restorecon -- the check below is vacuous"
+    fail "control: the reader does not flag an ungated restorecon, so the check below cannot fail"
 fi
 found="$(find_ungated_walks "${INSTALLER}")"
 [[ -z "${found}" ]] && pass "every restorecon outside the gate names a root-owned tree" \
@@ -230,7 +230,7 @@ printf '%s\n' '  remove)' '    _locked _labels_drop' '    [[ "${_sandbox_session
 if [[ "$(remove_guard_order "${TESTDIR}/remove-control.sh")" == unguarded ]]; then
     pass "the reader flags a remove whose guard follows its first store write (control)"
 else
-    fail "control: the reader does not flag a late guard -- the check below is vacuous"
+    fail "control: the reader does not flag a late guard, so the check below cannot fail"
 fi
 [[ "$(remove_guard_order "${INSTALLER}")" == guarded ]] \
     && pass "remove refuses on a live-session reading before its first store write" \

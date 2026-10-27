@@ -239,7 +239,7 @@ else
     if [[ -n "$(find_early_account_walks "${TESTDIR}/restore-control.sh")" ]]; then
         pass "the reader flags a walk of an account-writable tree ahead of the reading (control)"
     else
-        fail "control: the reader does not flag an early walk -- the check below is vacuous"
+        fail "control: the reader does not flag an early walk, so the check below cannot fail"
     fi
     printf '%s\n' "${restore_text}" > "${TESTDIR}/restore.sh"
     if ! grep -q '_sandbox_session_state=' "${TESTDIR}/restore.sh"; then
