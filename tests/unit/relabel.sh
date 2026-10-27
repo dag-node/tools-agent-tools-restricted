@@ -613,6 +613,8 @@ if declare -F ai_tools_relabel__label_agent_paths >/dev/null 2>&1; then
     outcome_is live-session 0 0 4 "the config directory's walk was left while a session ran"
     outcome_is live-session 0 3 4 "the entrypoint is not installed and the config directory's walk was left"
     outcome_is failed 1 1 4 "a real failure outranks a walk left while a session ran"
+    outcome_is live-session-mislabelled 0 0 5 "the walk was left over a config directory at another type"
+    outcome_is failed 1 1 5 "a real failure outranks a walk left over a directory at another type"
 
     unset -f _ai_tools_relabel__is_entrypoint_policy_active ai_tools_providers__list_enabled_agents \
              _ai_tools_relabel__label_agent_entrypoint _ai_tools_relabel__label_agent_config_dir
@@ -677,15 +679,25 @@ if declare -F _ai_tools_relabel__require_no_live_session >/dev/null 2>&1; then
     eval "gate_real_verify_label() $(declare -f _ai_tools_relabel__verify_label | tail -n +2)"
     _ai_tools_relabel__verify_label() { restorecon -F "$1"; printf 'ok %s\n' "$1"; }
     if [[ -d "${CP_HOME:-/opt/ai-tools}/bin" ]]; then
+        # The directory's own type decides the status the left walk returns, read through a stubbed type reader: 4
+        # where it already carries the config type, 5 where it carries another, which ai-tools-relabel-agent files
+        # as a fault.
+        eval "gate_real_read_live_type() $(declare -f _ai_tools_relabel__read_live_type | tail -n +2)"
         for state in live unreadable; do
-            : > "${GATE_CALLS}"; stub_session_state="${state}"; status=0
-            line="$(_ai_tools_relabel__label_agent_config_dir acme)" || status=$?
-            if [[ "${status}" -eq 4 && "${line}" == "live acme its config directory" && ! -s "${GATE_CALLS}" ]]; then
-                pass "the config-directory walk with the reader at ${state}: status 4, a live line, no restorecon call"
-            else
-                fail "the config-directory walk with the reader at ${state}: status ${status}, '${line}', calls: $(tr '\n' '|' < "${GATE_CALLS}")"
-            fi
+            for stub_live_type in "${AI_TOOLS_RELABEL__AGENT_CONFIG_TYPE}" usr_t; do
+                _ai_tools_relabel__read_live_type() { printf '%s\n' "${stub_live_type}"; }
+                want_status=4; [[ "${stub_live_type}" == usr_t ]] && want_status=5
+                : > "${GATE_CALLS}"; stub_session_state="${state}"; status=0
+                line="$(_ai_tools_relabel__label_agent_config_dir acme)" || status=$?
+                if [[ "${status}" -eq "${want_status}" && "${line}" == "live acme ${stub_live_type} its config directory" \
+                        && ! -s "${GATE_CALLS}" ]]; then
+                    pass "the config-directory walk with the reader at ${state} over ${stub_live_type}: status ${want_status}, a live line naming the type, no restorecon call"
+                else
+                    fail "the config-directory walk with the reader at ${state} over ${stub_live_type}: status ${status}, '${line}', calls: $(tr '\n' '|' < "${GATE_CALLS}")"
+                fi
+            done
         done
+        eval "_ai_tools_relabel__read_live_type() $(declare -f gate_real_read_live_type | tail -n +2)"
         : > "${GATE_CALLS}"; stub_session_state=none; status=0
         line="$(_ai_tools_relabel__label_agent_config_dir acme)" || status=$?
         if [[ "${status}" -eq 0 ]] && grep -q -- '^restorecon -FR ' "${GATE_CALLS}"; then

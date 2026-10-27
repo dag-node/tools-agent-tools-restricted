@@ -685,8 +685,11 @@ _ai_tools_relabel__label_agent_entrypoint() {
 
 # _ai_tools_relabel__label_agent_config_dir <agent> : the config-directory half. Same shape; the subtree is restored
 #   recursively, and only the directory itself is verified (its contents inherit). Returns 3 when the directory is not
-#   there, and 4, after printing `live <agent> its config directory`, when a process of the sandbox account is live:
-#   the rule is registered and the walk is left for a run with no session (_ai_tools_relabel__require_no_live_session).
+#   there. When a process of the sandbox account is live the rule is registered, the walk is left for a run with no
+#   session (_ai_tools_relabel__require_no_live_session), and `live <agent> <type> its config directory` is printed
+#   with the directory's own type, read without a walk; it then returns 4 where that type is the one the walk applies,
+#   and 5 where it is another. The layout creates the directory without a type and /opt/ai-tools's base is usr_t,
+#   so a directory created while a session runs is one ai_tools_t cannot write until a walk labels it.
 _ai_tools_relabel__label_agent_config_dir() {
     local agent="$1" config_dir path pattern
     config_dir="$(ai_tools_providers__read_agent_manifest_field "${agent}" config_dir || true)"
@@ -711,8 +714,11 @@ _ai_tools_relabel__label_agent_config_dir() {
         return 3
     fi
     if ! _ai_tools_relabel__require_no_live_session; then
-        printf 'live %s its config directory\n' "${agent}"
-        return 4
+        local live_type
+        live_type="$(_ai_tools_relabel__read_live_type "${path}")"
+        printf 'live %s %s its config directory\n' "${agent}" "${live_type:-unreadable}"
+        [[ "${live_type}" == "${AI_TOOLS_RELABEL__AGENT_CONFIG_TYPE}" ]] && return 4
+        return 5
     fi
     restorecon -FR "${path}" 2>/dev/null || true
     _ai_tools_relabel__verify_label "${path}" "${AI_TOOLS_RELABEL__AGENT_CONFIG_TYPE}"
@@ -732,13 +738,15 @@ _ai_tools_relabel__label_agent_config_dir() {
 #                                      file at all -- the package did not install the entrypoint it
 #                                      declares, and the toolchain has to reinstall it
 #     skip  <agent> <reason...>        no rule to apply, or a declaration was refused
-#     live  <agent> <what>             a process of the sandbox account is live, so the recursive
-#                                      relabel of that path was left for a later run
-#     agent <agent> <ok|failed|none|live-session>
+#     live  <agent> <type> <what>      a process of the sandbox account is live, so the recursive
+#                                      relabel of that path was left for a later run; <type> is the
+#                                      type the path carries now
+#     agent <agent> <ok|failed|none|live-session|live-session-mislabelled>
 #                                      that agent's whole outcome, closing its lines: every path it
 #                                      declares took its type, one of them did not, neither is
 #                                      installed to label, or the config directory's walk was left
-#                                      to a run with no session. This is what ai-tools-relabel-agent
+#                                      to a run with no session, over a directory already at its
+#                                      type or at another one. This is what ai-tools-relabel-agent
 #                                      records per agent for `ai-tools status` to report, so the
 #                                      operator can see the labelling half from outside the
 #                                      toolchain they cannot read.
@@ -755,11 +763,14 @@ ai_tools_relabel__label_agent_paths() {
         _ai_tools_relabel__label_agent_entrypoint "${agent}" || entrypoint_rc=$?
         _ai_tools_relabel__label_agent_config_dir  "${agent}" || config_rc=$?
         # Only 1 is a failure. 3 says the path is not installed yet, which is the ordinary pre-bootstrap state and must
-        # not fail a relabel that did everything it could; 4 says a session was live, which a later run settles.
+        # not fail a relabel that did everything it could; 4 and 5 say a session was live, which a later run settles,
+        # and 5 that the directory meanwhile carries a type the agent cannot write.
         if [[ "${entrypoint_rc}" -eq 1 || "${config_rc}" -eq 1 ]]; then
             agent_status=failed; status=1
         elif [[ "${config_rc}" -eq 4 ]]; then
             agent_status='live-session'
+        elif [[ "${config_rc}" -eq 5 ]]; then
+            agent_status='live-session-mislabelled'
         elif [[ "${entrypoint_rc}" -eq 3 && "${config_rc}" -eq 3 ]]; then
             agent_status=none
         else

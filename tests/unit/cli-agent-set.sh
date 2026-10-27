@@ -241,6 +241,40 @@ else
     fail "a non-stale mark changed the rendering (rc ${rc}): $(head -c 300 <<<"${out}" | tr '\n' '|')"
 fi
 
+# ── (5b) A config directory the live-session gate left at another type is a counted fault ── The labelling record
+# ai-tools-relabel-agent files for that state is `failed` with the `live-session` reason, and the label line must count
+# it and name the service start that completes it; the same reason under `skipped`, a directory already at its type, is
+# the control that is shown and not counted. status_entrypoint_label takes the agent, so it is driven through a call
+# of its own.
+label_record() {
+    printf '# fixture label record\nAGENT=%s\nRESULT=%s\nLABELLED=%s\nREASON=%s\n' \
+        "$1" "$2" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$3" > "${LABELS}/$1"
+    chmod 0644 "${LABELS}/$1"
+}
+# shellcheck disable=SC2016  # the $1/$2 are for the inner `bash -c`, not this shell -- do not expand here
+call_label() {
+    runuser -u "${PROJECTS_USER}" -- env AI_TOOLS_ENTRYPOINT_LABEL_DIR="${LABELS}" AI_TOOLS_MSG_PLAIN=1 \
+        bash -c 'cli="$1"; agent="$2"; set --; source "${cli}" >/dev/null 2>&1 || exit 99
+                 status_entrypoint_label "${agent}"' _ "${CLI}" "$1" 2>&1
+}
+rm -f "${LABELS}"/*
+label_record alpha skipped live-session
+rc=0; out="$(call_label alpha)" || rc=$?
+if [[ "${rc}" -eq 0 ]] && grep -q 'not labelled (live-session)' <<<"${out}"; then
+    pass "a walk left over a directory at its type is shown and not counted (the control for the case below)"
+else
+    fail "a skipped live-session record (rc ${rc}): $(head -c 300 <<<"${out}" | tr '\n' '|')"
+fi
+label_record alpha failed live-session
+rc=0; out="$(call_label alpha)" || rc=$?
+if [[ "${rc}" -ne 0 ]] && grep -q 'NOT LABELLED' <<<"${out}"; then
+    pass "a walk left over a directory at another type is a counted fault"
+else
+    fail "a failed live-session record was not counted (rc ${rc}): $(head -c 300 <<<"${out}" | tr '\n' '|')"
+fi
+says "that fault names the service start that completes it" 'systemctl start ai-tools-relabel\.service' "${out}"
+rm -f "${LABELS}"/*
+
 # ── (6) The Version section's Node line reads the launcher link, not the updater's record ── The link is repointed
 # by every path that changes Node, so the line is right after a bootstrap as after an update, and it is the read
 # the launch banner makes; the updater's stamp is the host's real one here and is read alongside, so what is asserted is

@@ -135,7 +135,7 @@ agent_warnings="$(bash -c '
     C_YEL="" C_RST="" C_GRN=""
     ok() { :; }; log() { :; }
     die() { printf "DIED %s\n" "$*" >&2; exit 1; }
-    ai_tools_relabel__label_agent_paths() { printf "%s\n" "live acme its config directory" "agent acme live-session"; }
+    ai_tools_relabel__label_agent_paths() { printf "%s\n" "live acme usr_t its config directory" "agent acme live-session-mislabelled"; }
     ai_tools_providers__read_agent_manifest_field() { [[ "$2" == config_dir ]] && printf ".acme\n"; }
     CP_HOME="$2"; _sessions_state=live; _left_trees=()
     SANDBOX_EXEC_LIB=/usr/local/lib/ai-tools/sandbox-exec.lib.sh

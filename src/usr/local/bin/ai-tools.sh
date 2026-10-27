@@ -4991,13 +4991,17 @@ status_entrypoint_label() {
         # One reason is read rather than only printed: `incomplete-package` (written by ai-tools-relabel-agent) says
         # the executable the manifest declares is not installed, which no relabel can supply -- so naming the relabel
         # as the retry would send the operator around the loop this report exists to end. The package is what has to be
-        # reinstalled, and the provisioning command is what does it.
+        # reinstalled, and the provisioning command is what does it. `live-session` on a failure is a config directory
+        # the walk left at a type the agent cannot write, which the next run with no session labels.
         failed)  printf '  %-28s %sNOT LABELLED%s %s(%s%s)%s\n' "" "${C_RED}" "${C_RST}" \
                      "${C_DIM}" "${age:-at an unknown time}" "${reason:+, ${reason}}" "${C_RST}"
                  if [[ "${reason}" == incomplete-package ]]; then
                      say "      this agent's package does not hold the executable its manifest declares, so there is"
                      say "      nothing to label and no session of it starts; reinstall the package:"
                      say "      ${C_BOLD}sudo ai-tools-admin system bootstrap${C_RST} ${C_DIM}(its output names an install that did not complete)${C_RST}"
+                 elif [[ "${reason}" == live-session ]]; then
+                     say "      its config directory was not labelled while a session ran and carries a type the"
+                     say "      agent cannot write; once none runs: ${C_BOLD}sudo systemctl start ai-tools-relabel.service${C_RST}"
                  else
                      say "      the last reconciliation could not apply this agent's labels; the label its"
                      say "      entrypoint carries now is read by: ${C_BOLD}sudo ai-tools-admin status${C_RST}"

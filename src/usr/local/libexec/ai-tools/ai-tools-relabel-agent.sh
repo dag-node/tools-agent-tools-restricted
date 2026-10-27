@@ -373,8 +373,8 @@ if [[ -n "${report}" ]]; then
                    ai_tools_log__info "${subject}: ${detail} absent, nothing to label" ;;
             # The library left a recursive relabel for a run with no session live; the entrypoint half still ran.
             live)  live_session=$(( live_session + 1 ))
-                   say "${subject}: ${detail} ${wanted} -- not relabelled while a session runs"
-                   ai_tools_log__info "${subject}: ${detail} ${wanted} not relabelled, a session of the sandbox account is live" ;;
+                   say "${subject}: ${wanted} (${detail}) -- not relabelled while a session runs"
+                   ai_tools_log__info "${subject}: ${wanted} (${detail}) not relabelled, a session of the sandbox account is live" ;;
             skip)  agent_reason["${subject}"]="rule-not-registered"
                    warn MSG-X7F9 "labelling skipped for ${subject} -- ${detail} ${wanted}"
                    ai_tools_log__warn "${subject}: labelling skipped -- ${detail} ${wanted}" ;;
@@ -393,6 +393,9 @@ for label_agent in "${!agent_outcome[@]}"; do
         # a fault -- so it is filed the same way an inactive SELinux layer is.
         none)   record_label_outcome "${label_agent}" skipped not-provisioned ;;
         live-session) record_label_outcome "${label_agent}" skipped live-session ;;
+        # The walk was left over a directory at another type, which ai_tools_t cannot write: a fault ai-tools status
+        # counts, completed by the run the live-session token names.
+        live-session-mislabelled) record_label_outcome "${label_agent}" failed live-session ;;
         failed) record_label_outcome "${label_agent}" failed \
                     "${agent_reason[${label_agent}]:-did-not-take-its-type}" ;;
     esac
