@@ -836,7 +836,7 @@ do_selinux_restore() {
             [[ -d "${_cfg}" ]] && restorecon -R "${_cfg}"
         done < <(ai_tools_control_plane__list_agent_config_dirs)
     else
-        warn MSG-D6A5 "left the labels on /opt/ai-tools/.config and the agents' config directories as they were: an agent session or the toolchain update runs as ${SANDBOX_USER}, or this host's sessions could not be read; let each session end (/exit inside it) and the toolchain update finish, or end them all with 'sudo ai-tools stop', then run: sudo restorecon -R /opt/ai-tools/.config/ && sudo systemctl start ai-tools-relabel.service"
+        warn MSG-D6A5 "left the labels on /opt/ai-tools/.config and the agents' config directories as they were: an agent session or the toolchain update runs as ${SANDBOX_USER}, or this host's sessions could not be read; let each session end (/exit inside it) and the toolchain update finish, or end them all with 'ai-tools stop', then run: sudo restorecon -R /opt/ai-tools/.config/ && sudo systemctl start ai-tools-relabel.service"
     fi
     restorecon \
         /usr/local/bin/ai-tools-launch \

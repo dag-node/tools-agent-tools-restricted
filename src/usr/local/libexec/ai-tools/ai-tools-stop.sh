@@ -271,7 +271,7 @@ parse_command_line() {
 resolve_run_context() {
     if [[ "$(id -u)" != "0" ]]; then
         say_error MSG-Z5W3 "This command must run as root: stopping a session means signalling ${SANDBOX_USER}'s cgroups" \
-                  "run it as: sudo ai-tools stop"
+                  "run it as: ai-tools stop"
         exit 5
     fi
 

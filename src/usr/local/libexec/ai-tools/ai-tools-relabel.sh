@@ -145,7 +145,9 @@ fi
 
 # die_live_session <command> -- refuse a walk the library declined (status 3) because a process of the sandbox account
 # is live, or because the reading could not be made, naming the stop and the command that re-runs this step, and exit 4.
-# The tree is left as it was: the library gates before its first write.
+# A removal names this helper's own re-run at its fixed path, the line the CLI's unclaim and removal print beside their
+# own, since the helper's directory is not on sudo's PATH; a label names the claim, which re-runs it, since this helper
+# refuses a path no allowlist names. The tree is left as it was: the library gates before its first write.
 die_live_session() {
     DIE_STATUS=4
     die MSG-H8V6 "left the SELinux label on ${dir} as it was: an agent session or the toolchain update runs as the sandbox account, or this host's sessions could not be read, and a walk while one runs could be redirected outside the tree; let each session end (/exit inside it) and the toolchain update finish, or end them all with 'ai-tools stop', then re-run: $1 ${dir}"
@@ -156,7 +158,7 @@ if ${remove}; then
     case "${rc}" in
         0) echo "ai-tools-relabel: reverted ${dir} to its default SELinux type"
            ai_tools_log__structured info "unlabelled project ${dir}" "AI_TOOLS_RESULT=ok" ;;
-        3) die_live_session "ai-tools projects unclaim (or projects remove)" ;;
+        3) die_live_session "sudo /usr/local/libexec/ai-tools/ai-tools-relabel --remove" ;;
         *) die MSG-Q4X9 "failed to revert SELinux label on ${dir}" ;;
     esac
 else

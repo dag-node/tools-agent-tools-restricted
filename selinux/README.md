@@ -411,8 +411,7 @@ agent's config directory, the nvm tree, and each project back to default
 contexts. DAC hardening (ownership/permissions/sticky `.claude`/locked `bin`)
 is untouched. While an agent session or the toolchain update runs, the command
 refuses before it changes anything: let each session end (`/exit` inside it)
-and the update finish, or end them all with `sudo ai-tools stop`, then run it
-again.
+and the update finish, or end them all with `ai-tools stop`, then run it again.
 
 ## Notes
 

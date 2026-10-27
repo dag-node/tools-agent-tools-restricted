@@ -150,9 +150,9 @@ could redirect the walk
 ([ref-section-e6c6](../../.claude/rules/cli.rule.md#ref-section-e6c6)).
 An upgrade made while one runs completes and prints that warning once. Let each
 session end with `/exit` and the update finish, or end them all
-with `sudo ai-tools stop`, then run the command it names. A label left as it
-was is the one the tree already carried, so a session started before you run it
-is confined as before.
+with `ai-tools stop`, then run the command it names. A label left as it was is
+the one the tree already carried, so a session started before you run it is
+confined as before.
 
 ## A new entrypoint is relabelled before it is launched
 

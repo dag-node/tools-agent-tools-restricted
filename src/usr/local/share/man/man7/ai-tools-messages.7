@@ -459,7 +459,7 @@ declined: ${cfg_home} was not created, so ${user}'s ai\-tools config cannot be s
 .TP
 .B MSG-B9C4
 WARNING.
-left the labels under ${clones} as they were: an agent session or the toolchain update runs as the sandbox account, or this host's sessions could not be read; let each session end (/exit inside it) and the toolchain update finish, or end them all with 'sudo ai\-tools stop', then run: sudo restorecon \-FR ${clones}
+left the labels under ${clones} as they were: an agent session or the toolchain update runs as the sandbox account, or this host's sessions could not be read; let each session end (/exit inside it) and the toolchain update finish, or end them all with 'ai\-tools stop', then run: sudo restorecon \-FR ${clones}
 .TP
 .B MSG-C4A8
 ERROR.
@@ -1540,6 +1540,10 @@ relabels are not serialized on this host \-\- ${AI_TOOLS_RELABEL__LOCK_NOTE}
 WARNING.
 could not record ${1}'s labelling outcome for ai\-tools status
 .TP
+.B MSG-G6D2
+ERROR.
+the config directory of ${live_mislabelled_count} agent(s) carries a type the agent cannot write (${live_mislabelled_types}), so no session of those agents can write its state; it was not relabelled because an agent session or the toolchain update runs as the sandbox account, or this host's sessions could not be read; let each session end (/exit inside it) and the toolchain update finish, or end them all with 'ai\-tools stop', then run: sudo systemctl start ai\-tools\-relabel.service
+.TP
 .B MSG-G7C7
 WARNING.
 wrong type on ${subject}: it is '${detail}', NOT ${wanted}
@@ -1954,7 +1958,7 @@ labelling did not complete for ${subject} \-\- see its lines above
 .TP
 .B MSG-E9S6
 WARNING.
-left the label on $1 as it was: an agent session or the toolchain update runs as the sandbox account, or this host's sessions could not be read; let each session end (/exit inside it) and the toolchain update finish, or end them all with 'sudo ai\-tools stop', then re\-run this command
+left the label on $1 as it was: an agent session or the toolchain update runs as the sandbox account, or this host's sessions could not be read; let each session end (/exit inside it) and the toolchain update finish, or end them all with 'ai\-tools stop', then re\-run this command
 .TP
 .B MSG-F2V5
 WARNING.
@@ -1974,7 +1978,7 @@ selinux: cannot source required library ${1}
 .TP
 .B MSG-H7Q2
 ERROR.
-left the policy loaded: an agent session or the toolchain update runs as the sandbox account, or this host's sessions could not be read; let each session end (/exit inside it) and the toolchain update finish, or end them all with 'sudo ai\-tools stop', then re\-run: sudo $0 remove
+left the policy loaded: an agent session or the toolchain update runs as the sandbox account, or this host's sessions could not be read; let each session end (/exit inside it) and the toolchain update finish, or end them all with 'ai\-tools stop', then re\-run: sudo $0 remove
 .TP
 .B MSG-J7J5
 ERROR.
@@ -2036,13 +2040,17 @@ left the label on ${1}'s config directory as it was \-\- the closing warning nam
 WARNING.
 labelling skipped for ${subject} \-\- ${detail} ${wanted}
 .TP
+.B MSG-T7X3
+WARNING.
+the config directory of ${subject} carries ${live_types[${subject}]:\-an unreadable type}, a type the agent cannot write, so no session of ${subject} can write its state until the walk the closing warning names runs
+.TP
 .B MSG-U3S8
 ERROR.
 an agent path is not correctly labelled (see above) \-\- the session would be refused, or run UNCONFINED
 .TP
 .B MSG-U8U4
 WARNING.
-left the labels on these trees as they were: ${reason}; let each session end (/exit inside it) and the toolchain update finish, or end them all with 'sudo ai\-tools stop', then run:
+left the labels on these trees as they were: ${reason}; let each session end (/exit inside it) and the toolchain update finish, or end them all with 'ai\-tools stop', then run:
 .TP
 .B MSG-V8U7
 WARNING.
@@ -2095,7 +2103,7 @@ no account named
 .TP
 .B MSG-D6A5
 WARNING.
-left the labels on /opt/ai\-tools/.config and the agents' config directories as they were: an agent session or the toolchain update runs as ${SANDBOX_USER}, or this host's sessions could not be read; let each session end (/exit inside it) and the toolchain update finish, or end them all with 'sudo ai\-tools stop', then run: sudo restorecon \-R /opt/ai\-tools/.config/ && sudo systemctl start ai\-tools\-relabel.service
+left the labels on /opt/ai\-tools/.config and the agents' config directories as they were: an agent session or the toolchain update runs as ${SANDBOX_USER}, or this host's sessions could not be read; let each session end (/exit inside it) and the toolchain update finish, or end them all with 'ai\-tools stop', then run: sudo restorecon \-R /opt/ai\-tools/.config/ && sudo systemctl start ai\-tools\-relabel.service
 .TP
 .B MSG-D7C6
 ERROR.
