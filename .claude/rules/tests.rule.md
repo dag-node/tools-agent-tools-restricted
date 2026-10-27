@@ -19,8 +19,10 @@ a file that blocks — on a terminal read, a wedged daemon, or a fixture process
 and reported as a failure with its transcript, rather than hanging the run. That matters beyond convenience because
 `install.sh` runs this suite as its verification phase, so an unbounded file stalls an install. `AI_TOOLS_TEST_STRICT=1`
 turns the notice into a failure, and strict is the enforcing-host full-install gate
-(`sudo AI_TOOLS_TEST_STRICT=1 tests/run.sh all`); the container selftest stays lenient because SELinux is legitimately
-absent there, so `selinux.sh`'s all-skip is a documented limitation, not a broken prerequisite.
+(`sudo AI_TOOLS_TEST_STRICT=1 tests/run.sh all`), run with no process of the sandbox account live, since
+`integration/selinux.sh` skips its clone label cases while the live-session gate refuses the walk; the container
+selftest stays lenient because SELinux is legitimately absent there, so `selinux.sh`'s all-skip is a documented
+limitation, not a broken prerequisite.
 
 The harness carries a fourth emitter for that reason. `skip` records a check that could not run, and reaching the notice
 is the point of it. `note` records a fact about the run that is not a verdict — `references.sh` names which tool it

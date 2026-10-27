@@ -157,7 +157,14 @@ fi
 # here does, and a teardown that can leave a policy entry behind is worse than the coverage it buys. That leaves
 # ai_tools_relabel__unlabel_project's revert path (the one ai-tools.projects.unclaim drives) uncovered: a known gap,
 # recorded rather than papered over.
+#
+# The label is a recursive walk, which the live-session gate refuses while a process of the sandbox account is live
+# (cli.rule.md, ref-section-e6c6). The state is read first, through the installed sessions.lib.sh the relabel sources:
+# `none` drives the two label cases; `live` or `unreadable` asserts the refusal on that real reading instead, the gate's
+# runtime half unit/relabel.sh can only stub, and skips the label cases naming the state, so a strict run is made
+# with no session open.
 RELABEL_LIB=/usr/local/lib/ai-tools/relabel.lib.sh
+SESSIONS_LIB=/usr/local/lib/ai-tools/sessions.lib.sh
 if [[ ! -d "${SANDBOX_ROOT}" ]]; then
     skip "sandbox clone label" "sandbox area ${SANDBOX_ROOT} not present"
 elif [[ ! -r "${RELABEL_LIB}" ]] || ! source "${RELABEL_LIB}" 2>/dev/null \
@@ -167,6 +174,28 @@ else
     # A real clone-area path, since the static rule is keyed on that prefix; named and registered through the harness
     # so the sweep finds what an aborted run leaves.
     sprobe=""; mk_fixture_dir sprobe "${SANDBOX_ROOT}" relabel
+    session_state=unreadable
+    if [[ -r "${SESSIONS_LIB}" ]] && source "${SESSIONS_LIB}" 2>/dev/null \
+            && declare -F ai_tools_sessions__read_live_session_state >/dev/null 2>&1; then
+        session_state="$(ai_tools_sessions__read_live_session_state)"
+    fi
+fi
+if [[ -n "${sprobe:-}" && "${session_state}" != none ]]; then
+    sprobe_before="$(ls -Zd "${sprobe}" 2>/dev/null || true)"
+    label_status=0
+    ai_tools_relabel__label_project "${sprobe}" >/dev/null 2>&1 || label_status=$?
+    sprobe_after="$(ls -Zd "${sprobe}" 2>/dev/null || true)"
+    if (( label_status == 3 )) && [[ -n "${sprobe_before}" && "${sprobe_after}" == "${sprobe_before}" ]]; then
+        pass "the sandbox account's sessions read ${session_state}: ai_tools_relabel__label_project returns 3 and leaves the clone's label as it was"
+    else
+        fail "the sandbox account's sessions read ${session_state}, and ai_tools_relabel__label_project returned ${label_status} (want 3) with the label ${sprobe_before:-unread} -> ${sprobe_after:-unread}"
+    fi
+    for label_case in "ai_tools_relabel__label_project applies AND verifies ai_tools_project_t on a sandbox clone" \
+            "an unlabel leaves a sandbox clone labelled"; do
+        skip "${label_case}" "the sandbox account's sessions read ${session_state} -- let each session end (/exit inside it) and the toolchain update finish, or end them all with \`ai-tools stop\`, then re-run"
+    done
+    rmdir "${sprobe}" 2>/dev/null || true
+elif [[ -n "${sprobe:-}" ]]; then
     if ai_tools_relabel__label_project "${sprobe}" && ai_tools_relabel__is_project_labelled "${sprobe}"; then
         pass "ai_tools_relabel__label_project applies AND verifies ai_tools_project_t on a sandbox clone"
     else
