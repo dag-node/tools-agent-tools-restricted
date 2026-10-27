@@ -726,10 +726,11 @@ names a root-owned tree, beside a control that walks `/opt/ai-tools/.config` the
 `install-selinux-walks.sh` runs `selinux/install-selinux.sh`'s account-writable walks, extracted as text, under each
 live-session reading with `restorecon` recorded, `none` first as the recorder's control: `live` and `unreadable` walk no
 tree and name each one left under the warning's code, and the clone verify loop does not run over a walk it left;
-a config directory the relabel library reports left is named under its own code and joins the trees left;
-and the script's text sources the installed `sandbox-exec.lib.sh` ahead of the relabel library, holds every other
-`restorecon` to a root-owned tree, and reads the live-session state in the `remove` action ahead of its first
-policy-store write.
+a config directory the relabel library reports left is named under its own code and joins the trees left, and one left
+at a type the agent cannot write is named under a further code with that type, beside the same directory at its own type
+as the control; and the script's text sources the installed `sandbox-exec.lib.sh` ahead of the relabel library, holds
+every other `restorecon` to a root-owned tree, and reads the live-session state in the `remove` action ahead of its
+first policy-store write.
 
 `postupgrade.sh` is that same reconciliation seen from the RPM side: `ai-tools-admin system post-upgrade` end to end,
 from dispatch through the registry to each treatment (see [providers](providers.rule.md)

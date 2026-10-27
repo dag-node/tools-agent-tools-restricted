@@ -12,7 +12,7 @@
 # cannot show: the installed sandbox-exec.lib.sh is sourced ahead of the relabel library, and every restorecon outside
 # the gate names a root-owned tree, held against a control line the reader must flag, and the remove action reads
 # the live-session state ahead of its first policy-store write. verify_agent_labels is driven over a stubbed library
-# line for a config directory whose walk was left.
+# line for a config directory whose walk was left, at the type the agent writes and at another.
 #
 # Unprivileged, and reads the checkout alone; skips outside one.
 
@@ -128,28 +128,54 @@ for name in warn _note_left_agent_config _warn_left_trees verify_agent_labels; d
     fi
     agent_text+="${body}"$'\n'
 done
+# agent_run <verdict> <type> : verify_agent_labels over a `live` line for acme's config directory at <type>
+#   and the agent line closing it with <verdict>; prints both streams of the run.
 # shellcheck disable=SC2016  # the inner shell expands these, not this one
-agent_warnings="$(bash -c '
-    set -euo pipefail
-    eval "$1"
-    C_YEL="" C_RST="" C_GRN=""
-    ok() { :; }; log() { :; }
-    die() { printf "DIED %s\n" "$*" >&2; exit 1; }
-    ai_tools_relabel__label_agent_paths() { printf "%s\n" "live acme usr_t its config directory" "agent acme live-session-mislabelled"; }
-    ai_tools_providers__read_agent_manifest_field() { [[ "$2" == config_dir ]] && printf ".acme\n"; }
-    CP_HOME="$2"; _sandbox_session_state=live; _left_trees=()
-    SANDBOX_EXEC_LIB=/usr/local/lib/ai-tools/sandbox-exec.lib.sh
-    trap _warn_left_trees EXIT
-    verify_agent_labels
-' _ "${agent_text}" "${TESTDIR}/home" 2>&1)" || true
-assert_msg MSG-S7C2 "${agent_warnings}" "live: the config directory's walk is named as left"
-grep -qF "sudo restorecon -FR ${TESTDIR}/home/.acme" <<<"${agent_warnings}" \
-    && pass "live: the config directory is in the closing list of trees left" \
-    || fail "live: the closing warning does not name ${TESTDIR}/home/.acme: ${agent_warnings//$'\n'/ | }"
-if grep -q '^MSG-K2W4$\|^DIED' <<<"${agent_warnings}"; then
-    fail "live: the left walk read as an unrecognized result or a failed install: ${agent_warnings//$'\n'/ | }"
+agent_run() {
+    bash -c '
+        set -euo pipefail
+        eval "$1"
+        C_YEL="" C_RST="" C_GRN=""
+        ok() { :; }; log() { :; }
+        die() { printf "DIED %s\n" "$*" >&2; exit 1; }
+        stub_lines="live acme $4 its config directory"$'"'"'\n'"'"'"agent acme $3"
+        ai_tools_relabel__label_agent_paths() { printf "%s\n" "${stub_lines}"; }
+        ai_tools_providers__read_agent_manifest_field() { [[ "$2" == config_dir ]] && printf ".acme\n"; }
+        CP_HOME="$2"; _sandbox_session_state=live; _left_trees=()
+        SANDBOX_EXEC_LIB=/usr/local/lib/ai-tools/sandbox-exec.lib.sh
+        trap _warn_left_trees EXIT
+        verify_agent_labels
+    ' _ "${agent_text}" "${TESTDIR}/home" "$1" "$2" 2>&1 || true
+}
+for verdict in live-session-mislabelled live-session; do
+    type=usr_t; [[ "${verdict}" == live-session ]] && type=ai_tools_home_t
+    agent_warnings="$(agent_run "${verdict}" "${type}")"
+    assert_msg MSG-S7C2 "${agent_warnings}" "${verdict}: the config directory's walk is named as left"
+    if grep -qF "sudo restorecon -FR ${TESTDIR}/home/.acme" <<<"${agent_warnings}"; then
+        pass "${verdict}: the config directory is in the closing list of trees left"
+    else
+        fail "${verdict}: the closing warning does not name ${TESTDIR}/home/.acme: ${agent_warnings//$'\n'/ | }"
+    fi
+    if grep -q '^MSG-K2W4$\|^DIED' <<<"${agent_warnings}"; then
+        fail "${verdict}: the left walk read as an unrecognized result or a failed install: ${agent_warnings//$'\n'/ | }"
+    else
+        pass "${verdict}: the left walk is neither an unrecognized result nor a failure"
+    fi
+done
+# The directory at a type the agent cannot write is named as such, with the type; at its own type, the control, it is
+# not.
+agent_warnings="$(agent_run live-session-mislabelled usr_t)"
+assert_msg MSG-T7X3 "${agent_warnings}" "live-session-mislabelled: the directory is named as one the agent cannot write"
+if grep -qF 'the config directory of acme carries usr_t' <<<"${agent_warnings}"; then
+    pass "live-session-mislabelled: the warning names the type the directory carries"
 else
-    pass "live: the left walk is neither an unrecognized result nor a failure"
+    fail "live-session-mislabelled: the warning does not name usr_t: ${agent_warnings//$'\n'/ | }"
+fi
+agent_warnings="$(agent_run live-session ai_tools_home_t)"
+if grep -qx 'MSG-T7X3' <<<"${agent_warnings}"; then
+    fail "live-session: a directory at its own type is named as one the agent cannot write"
+else
+    pass "live-session: a directory at its own type is not named as one the agent cannot write (control)"
 fi
 
 # ── the script's text ─────────────────────────────────────────────────────────────────────────

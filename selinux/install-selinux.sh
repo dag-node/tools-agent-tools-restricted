@@ -666,6 +666,7 @@ source "${OPERATOR_LIB}" 2>/dev/null \
 # under /usr/local/lib/ai-tools/agents.d.
 verify_agent_labels() {
     local report="" status=0 verdict subject detail wanted bad=0 labelled=0
+    local -A live_types=()
     report="$(ai_tools_relabel__label_agent_paths)" || status=$?
     if [[ "${status}" -eq 2 ]]; then
         warn MSG-Y9V3 "SELinux or the ai_tools module is not active -- no agent paths to label"
@@ -713,14 +714,20 @@ verify_agent_labels() {
                       warn "    Reinstall it: sudo ai-tools-admin system bootstrap" ;;
                 none) warn MSG-S4K9 "no path to label for ${subject}: ${detail} is not installed" ;;
                 # The config directory's walk was left because a process of the sandbox account is live. Not `bad`:
-                # the rule is registered, and the closing warning names the walk that completes it.
-                live) _note_left_agent_config "${subject}" ;;
+                # the rule is registered, and the closing warning names the walk that completes it. The type
+                # the directory carries is kept for the agent's closing line.
+                live) live_types["${subject}"]="${detail}"
+                      _note_left_agent_config "${subject}" ;;
                 skip) warn MSG-S9J3 "labelling skipped for ${subject} -- ${detail} ${wanted}" ;;
-                # The per-agent verdict closing that agent's lines: `ok` and `none` restate the per-path arms, so only
-                # `failed` prints, naming the agent those lines omit.
+                # The per-agent verdict closing that agent's lines: `ok` and `none` restate the per-path arms,
+                # so `failed` prints, naming the agent those lines omit, and so does a config directory a live session
+                # left at a type the agent cannot write. That one is not `bad` either: the rule and the policy are
+                # in place, and the closing MSG-U8U4 names the restorecon that labels the directory.
                 agent)
                     if [[ "${detail}" == failed ]]; then
                         warn MSG-E6C4 "labelling did not complete for ${subject} -- see its lines above"
+                    elif [[ "${detail}" == live-session-mislabelled ]]; then
+                        warn MSG-T7X3 "the config directory of ${subject} carries ${live_types[${subject}]:-an unreadable type}, a type the agent cannot write, so no session of ${subject} can write its state until the walk the closing warning names runs"
                     fi ;;
                 # A verdict this renderer does not know is REPORTED, not dropped. Silently ignoring one turns
                 # a labelling result into no output at all, which reads as "no change" for the one path whose label
