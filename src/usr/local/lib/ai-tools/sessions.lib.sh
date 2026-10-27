@@ -143,10 +143,35 @@ _ai_tools_sessions__is_plumbing() {
     return 1
 }
 
+# _ai_tools_sessions__is_slice_listable <slice-dir>: succeed when every directory under the slice, the slice included,
+#   is one this process can list and enter; fail at the first that is not. A directory removed during the check is
+#   skipped, as the walk reads a removed cgroup as empty: a unit that ends during the reading is not a failed reading.
+#   Needs nullglob and dotglob in the calling shell, as the walk does.
+#
+#   The check precedes the walk and is not part of the twin: under nullglob a glob into a directory this process cannot
+#   list expands to an empty list, so the walk reads such a directory as empty, and the walk's status cannot carry that
+#   failure (a `while` loop returns its last body command's status). The stop helper runs as root, which reads every
+#   cgroup directory, so its copy keeps the walk alone and this reader proves the tree listable ahead of it.
+_ai_tools_sessions__is_slice_listable() {
+    local -a directories=("$1")
+    local index=0 current child
+    while (( index < ${#directories[@]} )); do
+        current="${directories[index]}"; index=$(( index + 1 ))
+        [[ -e "${current}" ]] || continue
+        [[ -r "${current}" && -x "${current}" ]] || return 1
+        for child in "${current}"/*/; do
+            directories+=("${child%/}")
+        done
+    done
+    return 0
+}
+
 # ai_tools_sessions__list_live_sessions <uid>: print each live cgroup under the account's slice user-<uid>.slice
 #   that is not the manager's plumbing, one per line. Returns 0 with an empty listing when the account has no slice,
-#   and 1 where the reading cannot be made: a uid that is not a number, no cgroup v2 mount, or a user.slice or account
-#   slice this process cannot enter and list.
+#   and 1 where the reading cannot be made: a uid that is not a number, no cgroup v2 mount, a user.slice this process
+#   cannot enter, or a directory under the account slice, the slice included, that it cannot list and enter.
+#   The walk's own status is not read: it is the status of the last unit the walk tested, so an empty unit that sorts
+#   last would turn a complete listing into a failed one. The subshell returns 0 once the walk has run.
 ai_tools_sessions__list_live_sessions() {
     local uid="${1:-}" mount slice manager cgroup
     [[ "${uid}" =~ ^[0-9]+$ ]] || return 1
@@ -155,15 +180,17 @@ ai_tools_sessions__list_live_sessions() {
     slice="${mount}/user.slice/user-${uid}.slice"
     manager="${slice}/user@${uid}.service"
     [[ -e "${slice}" ]] || return 0
-    [[ -d "${slice}" && -r "${slice}" && -x "${slice}" ]] || return 1
+    [[ -d "${slice}" ]] || return 1
     # A subshell, so the walk's glob options do not reach the caller's shell.
     (
         shopt -s dotglob nullglob
+        _ai_tools_sessions__is_slice_listable "${slice}" || exit 1
         while IFS= read -r cgroup; do
             [[ -n "${cgroup}" ]] || continue
             _ai_tools_sessions__is_plumbing "${cgroup}" "${manager}" && continue
             _ai_tools_sessions__is_cgroup_live "${cgroup}" && printf '%s\n' "${cgroup}"
         done < <(_ai_tools_sessions__list_session_cgroups "${slice}" "${manager}")
+        exit 0
     )
 }
 

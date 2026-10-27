@@ -1113,9 +1113,9 @@ of the account is live**.
 The reading is `sessions.lib.sh`'s: a cgroup under the account's slice `user-<uid>.slice` that holds a task, read
 from `cgroup.procs` and `cgroup.events` as `ai-tools-stop` reads them, makes the account live. Its walk functions are
 a copy of the stop helper's, which does not load a project library, and `tests/unit/sessions.sh` holds each pair equal.
-Every reading it cannot make — no cgroup v2 mount, no uid, a slice the caller cannot list, a `cgroup.procs` it cannot
-read — reads `unreadable`, which each gate treats as live. The toolchain update is live by the same reading: it writes
-the toolchain the `%post` walk crosses.
+Every reading it cannot make — no cgroup v2 mount, no uid, a directory under the account's slice the caller cannot list,
+a `cgroup.procs` it cannot read — reads `unreadable`, which each gate treats as live. The toolchain update is live
+by the same reading: it writes the toolchain the `%post` walk crosses.
 
 **The user manager's own plumbing is exempt by name**: its `init.scope` and the dbus broker it starts. The stop helper
 does not exempt any cgroup, because on a DAC-only host a session can move its tasks into any cgroup it names. Here

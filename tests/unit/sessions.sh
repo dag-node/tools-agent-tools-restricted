@@ -9,9 +9,10 @@
 # the other.
 #
 # THE FAIL DIRECTION. The gate refuses a walk on `live` and on `unreadable`, so a reading that cannot be made must never
-# come back `none`: no cgroup v2 mount, no uid, a user.slice the caller cannot enter, and a cgroup.procs it cannot read
-# are each driven. A fixture cgroup tree under TESTDIR stands in for /sys/fs/cgroup, reached by stubbing the mount
-# reader after its twin is pinned; no host cgroup is read.
+# come back `none`: no cgroup v2 mount, no uid, a user.slice the caller cannot enter, a slice under the account's
+# that it cannot list, and a cgroup.procs it cannot read are each driven, and an empty unit that sorts last must not
+# turn a complete listing into `unreadable`. A fixture cgroup tree under TESTDIR stands in for /sys/fs/cgroup, reached
+# by stubbing the mount reader after its twin is pinned; no host cgroup is read.
 #
 # Runs as root with the rest of the suite and unprivileged during development. The unreadable-file case holds only
 # for an unprivileged caller, since root reads any mode, so a root run drives it as the projects user through runuser.
@@ -159,6 +160,20 @@ printf 'populated 0\nfrozen 0\n' > "${MANAGER}/app.slice/acme-acme-13.service/cg
 state_is none "a unit whose cgroup.events reports it empty (the kernel's answer wins)"
 rm -rf "${MANAGER}/app.slice/acme-acme-13.service"
 
+# The walk's status is the last unit's test, so an empty unit that sorts after the broker is the order that would read
+# a complete listing as failed.
+mkcg "${MANAGER}/app.slice/zzz-empty.service"
+state_is none "an empty unit that sorts after the broker"
+mkcg "${MANAGER}/app.slice/acme-acme-15.service"   502
+state_is live "a live unit followed by an empty one"
+listed="$(ai_tools_sessions__list_live_sessions 4242 || true)"
+if [[ "${listed}" == "${MANAGER}/app.slice/acme-acme-15.service" ]]; then
+    pass "the listing names the live unit alone when an empty unit follows it"
+else
+    fail "the listing with an empty unit after the live one printed: ${listed//$'\n'/ | }"
+fi
+rm -rf "${MANAGER}/app.slice/acme-acme-15.service" "${MANAGER}/app.slice/zzz-empty.service"
+
 state_is none "an account with no slice at all" 4343
 
 before="$(shopt -p dotglob nullglob || true)"
@@ -236,5 +251,17 @@ rm -rf "${MANAGER}/app.slice/acme-acme-14.service"
 chmod 0311 "${SLICE}"
 state_unprivileged_is unreadable "an account slice the caller cannot list"
 chmod 0755 "${SLICE}"
+
+# A slice nested under the manager, unlistable, holding a session: under nullglob the walk reads it as empty.
+mkcg "${MANAGER}/sealed.slice"
+mkcg "${MANAGER}/sealed.slice/acme-acme-16.service" 701
+chmod 0755 "${MANAGER}/sealed.slice/acme-acme-16.service"
+chmod 0644 "${MANAGER}/sealed.slice/cgroup.procs" "${MANAGER}/sealed.slice/acme-acme-16.service/cgroup.procs"
+chmod 0755 "${MANAGER}/sealed.slice"
+state_unprivileged_is live "a session in a nested slice the caller can list (control)"
+chmod 0311 "${MANAGER}/sealed.slice"
+state_unprivileged_is unreadable "a session in a nested slice the caller cannot list"
+chmod 0755 "${MANAGER}/sealed.slice"
+rm -rf "${MANAGER}/sealed.slice"
 
 finish
