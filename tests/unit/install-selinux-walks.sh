@@ -7,10 +7,10 @@
 #
 # The script loads policy and needs root and a whole host, so the functions are read out of the checkout as text
 # (extract_function) and run in a fresh bash per reading, with restorecon stubbed as a recorder and the reading set
-# to each of `live`, `unreadable` and `none`. _home_state names /opt/ai-tools in its body, which the case rewrites
-# to a fixture root, so no host path is read. The script's text is then read for the two properties a function cannot
-# show: the installed sandbox-exec.lib.sh is sourced ahead of the relabel library, and every restorecon outside the gate
-# names a root-owned tree, held against a control line the reader must flag, and the remove action reads
+# to each of `live`, `unreadable` and `none`. _restore_home_state_labels names /opt/ai-tools in its body, which the case
+# rewrites to a fixture root, so no host path is read. The script's text is then read for the two properties a function
+# cannot show: the installed sandbox-exec.lib.sh is sourced ahead of the relabel library, and every restorecon outside
+# the gate names a root-owned tree, held against a control line the reader must flag, and the remove action reads
 # the live-session state ahead of its first policy-store write. verify_agent_labels is driven over a stubbed library
 # line for a config directory whose walk was left.
 #
@@ -30,7 +30,7 @@ fi
 mktestdir
 
 functions_text=""
-for name in warn _restore_account_tree _report_left_trees _home_state _label_sandbox_clones; do
+for name in warn _restore_account_tree_labels _warn_left_trees _restore_home_state_labels _label_sandbox_clones; do
     body="$(extract_function "${INSTALLER}" "${name}")"
     if [[ -z "${body}" ]]; then
         fail "install-selinux.sh does not define ${name}() in the form this file reads"
@@ -57,14 +57,14 @@ run_walks() {
         ai_tools_relabel__is_available() { return 0; }
         ai_tools_relabel__is_project_labelled() { printf "%s\n" "$1" >> "${stub_testdir}/verified"; }
         stub_testdir="$2"
-        _sessions_state="$3"; _left_trees=()
+        _sandbox_session_state="$3"; _left_trees=()
         SANDBOX_EXEC_LIB=/usr/local/lib/ai-tools/sandbox-exec.lib.sh
         HOME_STATE=(.npm .gitconfig .absent)
         SANDBOX_PROJECTS="$2/clones"
-        trap _report_left_trees EXIT
-        _home_state
+        trap _warn_left_trees EXIT
+        _restore_home_state_labels
         _label_sandbox_clones
-        _restore_account_tree "$2/nvm"
+        _restore_account_tree_labels "$2/nvm"
     ' _ "${functions_text}" "${TESTDIR}" "$1" 2>"${TESTDIR}/warnings"
 }
 
@@ -120,7 +120,7 @@ grep -qF 'sudo ./install.sh install' <<<"${warnings}" \
 # verdict, and the manifest reader to name the config directory.
 section "install-selinux.sh: a config directory walk the reading left is reported as left (unit)"
 agent_text=""
-for name in warn _note_left_agent_config _report_left_trees verify_agent_labels; do
+for name in warn _note_left_agent_config _warn_left_trees verify_agent_labels; do
     body="$(extract_function "${INSTALLER}" "${name}")"
     if [[ -z "${body}" ]]; then
         fail "install-selinux.sh does not define ${name}() in the form this file reads"
@@ -137,9 +137,9 @@ agent_warnings="$(bash -c '
     die() { printf "DIED %s\n" "$*" >&2; exit 1; }
     ai_tools_relabel__label_agent_paths() { printf "%s\n" "live acme usr_t its config directory" "agent acme live-session-mislabelled"; }
     ai_tools_providers__read_agent_manifest_field() { [[ "$2" == config_dir ]] && printf ".acme\n"; }
-    CP_HOME="$2"; _sessions_state=live; _left_trees=()
+    CP_HOME="$2"; _sandbox_session_state=live; _left_trees=()
     SANDBOX_EXEC_LIB=/usr/local/lib/ai-tools/sandbox-exec.lib.sh
-    trap _report_left_trees EXIT
+    trap _warn_left_trees EXIT
     verify_agent_labels
 ' _ "${agent_text}" "${TESTDIR}/home" 2>&1)" || true
 assert_msg MSG-S7C2 "${agent_warnings}" "live: the config directory's walk is named as left"
@@ -155,10 +155,10 @@ fi
 # ── the script's text ─────────────────────────────────────────────────────────────────────────
 section "the installed library is read first, and no other walk crosses an account-writable tree"
 
-line_of() { grep -n -m1 -F -- "$1" "${INSTALLER}" | cut -d: -f1; }
-exec_lib_line="$(line_of 'source "${SANDBOX_EXEC_LIB}"')"
-relabel_lib_line="$(line_of 'source "${RELABEL_LIB}"')"
-sessions_lib_line="$(line_of 'source "${SESSIONS_LIB}"')"
+read_line_number() { grep -n -m1 -F -- "$1" "${INSTALLER}" | cut -d: -f1; }
+exec_lib_line="$(read_line_number 'source "${SANDBOX_EXEC_LIB}"')"
+relabel_lib_line="$(read_line_number 'source "${RELABEL_LIB}"')"
+sessions_lib_line="$(read_line_number 'source "${SESSIONS_LIB}"')"
 if grep -qxF 'SANDBOX_EXEC_LIB="/usr/local/lib/ai-tools/sandbox-exec.lib.sh"' "${INSTALLER}" \
         && [[ -n "${exec_lib_line}" && -n "${relabel_lib_line}" && "${exec_lib_line}" -lt "${relabel_lib_line}" ]]; then
     pass "the installed sandbox-exec.lib.sh is sourced ahead of the relabel library"
@@ -169,10 +169,10 @@ fi
     && pass "sessions.lib.sh is sourced beside the relabel library, after it" \
     || fail "sessions.lib.sh is not sourced after RELABEL_LIB (line ${sessions_lib_line:-none})"
 
-# ungated_walks <file>: print each code line calling restorecon that is neither the gate's own call nor a walk
+# find_ungated_walks <file>: print each code line calling restorecon that is neither the gate's own call nor a walk
 # of a root-owned tree, nor a command a warning prints.
 # shellcheck disable=SC2016  # the patterns match the literal ${...} text
-ungated_walks() {
+find_ungated_walks() {
     grep -nE '(^|[^[:alnum:]_-])restorecon[[:space:]]' "$1" \
         | grep -vE '^[0-9]+:[[:space:]]*#' \
         | grep -vE 'warn |restorecon -FR "\$1" 2>/dev/null' \
@@ -180,12 +180,12 @@ ungated_walks() {
 }
 printf '%s\n' '_restore_one() { restorecon -FR "$1"; }' '    restorecon -FR "${NVM_DIR}"  2>/dev/null || true' \
     > "${TESTDIR}/control.sh"
-if [[ "$(ungated_walks "${TESTDIR}/control.sh" | grep -c .)" -eq 2 ]]; then
+if [[ "$(find_ungated_walks "${TESTDIR}/control.sh" | grep -c .)" -eq 2 ]]; then
     pass "the reader flags a restorecon of an account-writable tree (control)"
 else
     fail "control: the reader does not flag an ungated restorecon -- the check below is vacuous"
 fi
-found="$(ungated_walks "${INSTALLER}")"
+found="$(find_ungated_walks "${INSTALLER}")"
 [[ -z "${found}" ]] && pass "every restorecon outside the gate names a root-owned tree" \
     || fail "a restorecon crosses a tree the gate does not cover: ${found//$'\n'/ | }"
 
@@ -195,11 +195,11 @@ remove_guard_order() {
     awk '
         /^  remove\)/ { inside = 1; next }
         inside && /^    ;;/ { exit }
-        inside && /_sessions_state/ && /== none/ && !dropped { guard = 1 }
+        inside && /_sandbox_session_state/ && /== none/ && !dropped { guard = 1 }
         inside && /_labels_drop/ { dropped = 1; print (guard ? "guarded" : "unguarded"); exit }
     ' "$1"
 }
-printf '%s\n' '  remove)' '    _locked _labels_drop' '    [[ "${_sessions_state}" == none ]] || die x' '    ;;' \
+printf '%s\n' '  remove)' '    _locked _labels_drop' '    [[ "${_sandbox_session_state}" == none ]] || die x' '    ;;' \
     > "${TESTDIR}/remove-control.sh"
 if [[ "$(remove_guard_order "${TESTDIR}/remove-control.sh")" == unguarded ]]; then
     pass "the reader flags a remove whose guard follows its first store write (control)"

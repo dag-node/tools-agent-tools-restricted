@@ -981,14 +981,14 @@ trustworthy only while a session can neither move a task between cgroups nor
 ask its manager for a unit. cgroup_t and the account's runtime directory are
 the SELinux gates."
 
-  local _own_cg _own_uid
-  _own_cg="$(sed -n 's/^0:://p' /proc/self/cgroup 2>/dev/null || true)"
+  local _own_cgroup_path _own_uid
+  _own_cgroup_path="$(sed -n 's/^0:://p' /proc/self/cgroup 2>/dev/null || true)"
   _own_uid="$(id -u 2>/dev/null || true)"
-  if [[ -n "${_own_cg}" && -n "${_own_uid}" ]] && command -v python3 >/dev/null 2>&1; then
+  if [[ -n "${_own_cgroup_path}" && -n "${_own_uid}" ]] && command -v python3 >/dev/null 2>&1; then
     _type="cgroup_t:file write"
     _why="Writing a pid into a cgroup.procs moves that task into the cgroup. A session that could do it would move its own tasks into the manager's init.scope, which the relabel gate exempts by name, and the gate would read the account as idle while the session runs."
     check SES-001 SELinux "open this session's own cgroup.procs for write (no write made)" \
-      _py write "/sys/fs/cgroup${_own_cg}/cgroup.procs"
+      _py write "/sys/fs/cgroup${_own_cgroup_path}/cgroup.procs"
 
     _type="cgroup_t:dir add_name"
     _why="Creating a cgroup under the account's slice gives a session a place to put tasks the gate's walk reads by name. The check asks access(2) for write on the slice directory, which creates nothing."

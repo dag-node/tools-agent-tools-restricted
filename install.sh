@@ -825,12 +825,12 @@ do_selinux_restore() {
     # the state is read in a child shell, so the checkout's libraries do not load into this one. /opt/ai-tools/.config
     # takes the same gate: it is root-owned and its systemd/user chain is a layout row at that owner, but a descendant
     # an older install left sandbox-owned is a tree the account can write.
-    local _cfg _sessions_state
+    local _cfg _sandbox_session_state
     # shellcheck disable=SC2016  # $1 and $2 are the inner shell's positionals
-    _sessions_state="$(bash -c '. "$1" && ai_tools_sessions__read_live_session_state_for_uid "$2"' _ \
+    _sandbox_session_state="$(bash -c '. "$1" && ai_tools_sessions__read_live_session_state_for_uid "$2"' _ \
         "${SCRIPT_DIR}/src/usr/local/lib/ai-tools/sessions.lib.sh" "$(id -u "${SANDBOX_USER}" 2>/dev/null)" \
         2>/dev/null || true)"
-    if [[ "${_sessions_state}" == none ]]; then
+    if [[ "${_sandbox_session_state}" == none ]]; then
         [[ -d /opt/ai-tools/.config ]] && restorecon -R /opt/ai-tools/.config/
         while IFS=$'\t' read -r _ _cfg; do
             [[ -d "${_cfg}" ]] && restorecon -R "${_cfg}"

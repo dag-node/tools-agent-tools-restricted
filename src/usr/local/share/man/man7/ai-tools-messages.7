@@ -1530,7 +1530,7 @@ an incomplete agent package stops this relabel: ${incomplete} agent(s) do not ha
 .TP
 .B MSG-E4E8
 WARNING.
-the config directory of ${live_session} agent(s) was not relabelled: an agent session or the toolchain update runs as the sandbox account, or this host's sessions could not be read; let each session end (/exit inside it) and the toolchain update finish, or end them all with 'ai\-tools stop', then run: sudo systemctl start ai\-tools\-relabel.service
+the config directory of ${live_session_count} agent(s) was not relabelled: an agent session or the toolchain update runs as the sandbox account, or this host's sessions could not be read; let each session end (/exit inside it) and the toolchain update finish, or end them all with 'ai\-tools stop', then run: sudo systemctl start ai\-tools\-relabel.service
 .TP
 .B MSG-E4U5
 WARNING.
@@ -2095,7 +2095,7 @@ no account named
 .TP
 .B MSG-D6A5
 WARNING.
-left the labels on the agents' config directories as they were: an agent session or the toolchain update runs as ${SANDBOX_USER}, or this host's sessions could not be read; let each session end (/exit inside it) and the toolchain update finish, or end them all with 'sudo ai\-tools stop', then run: sudo systemctl start ai\-tools\-relabel.service
+left the labels on /opt/ai\-tools/.config and the agents' config directories as they were: an agent session or the toolchain update runs as ${SANDBOX_USER}, or this host's sessions could not be read; let each session end (/exit inside it) and the toolchain update finish, or end them all with 'sudo ai\-tools stop', then run: sudo restorecon \-R /opt/ai\-tools/.config/ && sudo systemctl start ai\-tools\-relabel.service
 .TP
 .B MSG-D7C6
 ERROR.

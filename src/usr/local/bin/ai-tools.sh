@@ -2454,7 +2454,7 @@ cmd_project_claim() {
     # account is live, or where it cannot read whether one is (cli.rule.md). The same reading, made here
     # as the operator, says so ahead of the verb's first sudo; it does not ask anything, and the helper's refusal is
     # what decides. It shows for a drift relabel too, which the operator may then decline.
-    live_session_note() {
+    note_live_session() {
         ${need_label} || (( ${#label_drift[@]} )) || return 0
         declare -F ai_tools_sessions__read_live_session_state >/dev/null 2>&1 || return 0
         [[ "$(ai_tools_sessions__read_live_session_state)" != none ]] || return 0
@@ -2679,7 +2679,7 @@ cmd_project_claim() {
     skip_listed_note
     sealed_setgid_note
     ancestor_config_note
-    live_session_note
+    note_live_session
 
     # Heavy steps close the Review block behind the proceed confirm, the one prompt `--yes` pre-answers; a pristine tree
     # skips it with the warnings it authorizes.

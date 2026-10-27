@@ -106,8 +106,8 @@ _ai_tools_sandbox_exec__find_tool_path() {
 _AI_TOOLS_SANDBOX_EXEC__RUN_OPTIONS=()
 _ai_tools_sandbox_exec__is_scope_available() {
     local slice="$1"
-    if [[ "${_AI_TOOLS_SANDBOX_EXEC__SCOPE_SLICE:-}" != "${slice}" ]]; then
-        _AI_TOOLS_SANDBOX_EXEC__SCOPE_SLICE="${slice}"
+    if [[ "${_AI_TOOLS_SANDBOX_EXEC__PROBED_SLICE:-}" != "${slice}" ]]; then
+        _AI_TOOLS_SANDBOX_EXEC__PROBED_SLICE="${slice}"
         _AI_TOOLS_SANDBOX_EXEC__SCOPE_AVAILABLE=no
         if [[ -x /usr/bin/systemd-run && -x /usr/bin/systemctl && -x /usr/bin/true ]]; then
             /usr/bin/systemd-run --help 2>/dev/null | grep -q -- '--expand-environment' \

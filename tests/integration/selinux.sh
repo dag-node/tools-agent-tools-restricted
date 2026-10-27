@@ -173,18 +173,18 @@ elif [[ ! -r "${RELABEL_LIB}" ]] || ! source "${RELABEL_LIB}" 2>/dev/null \
 else
     # A real clone-area path, since the static rule is keyed on that prefix; named and registered through the harness
     # so the sweep finds what an aborted run leaves.
-    sprobe=""; mk_fixture_dir sprobe "${SANDBOX_ROOT}" relabel
+    sandbox_probe_dir=""; mk_fixture_dir sandbox_probe_dir "${SANDBOX_ROOT}" relabel
     session_state=unreadable
     if [[ -r "${SESSIONS_LIB}" ]] && source "${SESSIONS_LIB}" 2>/dev/null \
             && declare -F ai_tools_sessions__read_live_session_state >/dev/null 2>&1; then
         session_state="$(ai_tools_sessions__read_live_session_state)"
     fi
 fi
-if [[ -n "${sprobe:-}" && "${session_state}" != none ]]; then
-    sprobe_before="$(ls -Zd "${sprobe}" 2>/dev/null || true)"
+if [[ -n "${sandbox_probe_dir:-}" && "${session_state}" != none ]]; then
+    sprobe_before="$(ls -Zd "${sandbox_probe_dir}" 2>/dev/null || true)"
     label_status=0
-    ai_tools_relabel__label_project "${sprobe}" >/dev/null 2>&1 || label_status=$?
-    sprobe_after="$(ls -Zd "${sprobe}" 2>/dev/null || true)"
+    ai_tools_relabel__label_project "${sandbox_probe_dir}" >/dev/null 2>&1 || label_status=$?
+    sprobe_after="$(ls -Zd "${sandbox_probe_dir}" 2>/dev/null || true)"
     if (( label_status == 3 )) && [[ -n "${sprobe_before}" && "${sprobe_after}" == "${sprobe_before}" ]]; then
         pass "the sandbox account's sessions read ${session_state}: ai_tools_relabel__label_project returns 3 and leaves the clone's label as it was"
     else
@@ -194,20 +194,20 @@ if [[ -n "${sprobe:-}" && "${session_state}" != none ]]; then
             "an unlabel leaves a sandbox clone labelled"; do
         skip "${label_case}" "the sandbox account's sessions read ${session_state} -- let each session end (/exit inside it) and the toolchain update finish, or end them all with \`ai-tools stop\`, then re-run"
     done
-    rmdir "${sprobe}" 2>/dev/null || true
-elif [[ -n "${sprobe:-}" ]]; then
-    if ai_tools_relabel__label_project "${sprobe}" && ai_tools_relabel__is_project_labelled "${sprobe}"; then
+    rmdir "${sandbox_probe_dir}" 2>/dev/null || true
+elif [[ -n "${sandbox_probe_dir:-}" ]]; then
+    if ai_tools_relabel__label_project "${sandbox_probe_dir}" && ai_tools_relabel__is_project_labelled "${sandbox_probe_dir}"; then
         pass "ai_tools_relabel__label_project applies AND verifies ai_tools_project_t on a sandbox clone"
     else
-        fail "sandbox clone ${sprobe} is not ai_tools_project_t ($(ls -Zd "${sprobe}" 2>/dev/null))"
+        fail "sandbox clone ${sandbox_probe_dir} is not ai_tools_project_t ($(ls -Zd "${sandbox_probe_dir}" 2>/dev/null))"
     fi
-    ai_tools_relabel__unlabel_project "${sprobe}" >/dev/null 2>&1 || true
-    if ai_tools_relabel__is_project_labelled "${sprobe}"; then
+    ai_tools_relabel__unlabel_project "${sandbox_probe_dir}" >/dev/null 2>&1 || true
+    if ai_tools_relabel__is_project_labelled "${sandbox_probe_dir}"; then
         pass "an unlabel leaves a sandbox clone labelled (the static rule is authoritative)"
     else
         fail "unlabel stripped ai_tools_project_t from a sandbox clone -- the agent loses access to every clone"
     fi
-    rmdir "${sprobe}" 2>/dev/null || true
+    rmdir "${sandbox_probe_dir}" 2>/dev/null || true
 fi
 
 # (7) The declared entrypoint rule still describes where each enabled agent's package installs its executable. This is

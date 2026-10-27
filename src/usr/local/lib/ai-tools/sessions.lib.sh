@@ -47,7 +47,7 @@ _AI_TOOLS_SESSIONS__LOADED=1
 # directly under it, and the dbus broker directly under whichever slice the manager starts it in. A path matches
 # a pattern only at the pattern's own depth (_ai_tools_sessions__is_plumbing).
 # shellcheck disable=SC2034  # read by tests/unit/sessions.sh, which names the set it exempts
-readonly -a AI_TOOLS_SESSIONS__PLUMBING_UNITS=(
+readonly -a AI_TOOLS_SESSIONS__PLUMBING_UNIT_PATTERNS=(
     init.scope
     dbus-broker.service '*/dbus-broker.service'
     dbus.service '*/dbus.service'
@@ -138,15 +138,15 @@ _ai_tools_sessions__is_cgroup_live() {
 
 # ── The reader ───────────────────────────────────────────────────────────────────────────────
 # _ai_tools_sessions__is_plumbing <cgroup-dir> <manager-service-dir>: succeed when the cgroup is one of the manager's
-#   own units (AI_TOOLS_SESSIONS__PLUMBING_UNITS), matched on its path relative to the manager's directory and holding
-#   as many `/` as the pattern does: a `*` in a bash pattern matches `/`, so the glob alone would exempt a unit
-#   of the exempt name nested at any depth under a slice of the manager.
+#   own units (AI_TOOLS_SESSIONS__PLUMBING_UNIT_PATTERNS), matched on its path relative to the manager's directory
+#   and holding as many `/` as the pattern does: a `*` in a bash pattern matches `/`, so the glob alone would exempt
+#   a unit of the exempt name nested at any depth under a slice of the manager.
 _ai_tools_sessions__is_plumbing() {
     local relative pattern relative_slashes pattern_slashes
     [[ "$1" == "$2/"* ]] || return 1
     relative="${1#"$2/"}"
     relative_slashes="${relative//[!\/]/}"
-    for pattern in "${AI_TOOLS_SESSIONS__PLUMBING_UNITS[@]}"; do
+    for pattern in "${AI_TOOLS_SESSIONS__PLUMBING_UNIT_PATTERNS[@]}"; do
         pattern_slashes="${pattern//[!\/]/}"
         # shellcheck disable=SC2053  # the pattern is this file's constant, matched as a glob
         [[ "${relative}" == ${pattern} && "${relative_slashes}" == "${pattern_slashes}" ]] && return 0
@@ -177,19 +177,19 @@ _ai_tools_sessions__is_slice_listable() {
     return 0
 }
 
-# ai_tools_sessions__list_live_sessions <uid>: print each live cgroup under the account's slice user-<uid>.slice
+# ai_tools_sessions__list_live_cgroups <uid>: print each live cgroup under the account's slice user-<uid>.slice
 #   that is not the manager's plumbing, one per line. Returns 0 with an empty listing when the account has no slice,
 #   and 1 where the reading cannot be made: a uid that is not a number, no cgroup v2 mount, a user.slice this process
 #   cannot enter, or a directory under the account slice, the slice included, that it cannot list and enter. A unit
 #   whose cgroup.procs or cgroup.events this process cannot read is listed as live, the twins' fail-closed answer.
 #   The walk's own status is not read: it is the status of the last unit the walk tested, so an empty unit that sorts
 #   last would turn a complete listing into a failed one. The subshell returns 0 once the walk has run.
-ai_tools_sessions__list_live_sessions() {
-    local uid="${1:-}" mount slice manager cgroup
+ai_tools_sessions__list_live_cgroups() {
+    local uid="${1:-}" mount_point slice manager cgroup
     [[ "${uid}" =~ ^[0-9]+$ ]] || return 1
-    mount="$(ai_tools_sessions__read_cgroup2_mount)" || return 1
-    [[ -n "${mount}" && -d "${mount}/user.slice" && -x "${mount}/user.slice" ]] || return 1
-    slice="${mount}/user.slice/user-${uid}.slice"
+    mount_point="$(ai_tools_sessions__read_cgroup2_mount)" || return 1
+    [[ -n "${mount_point}" && -d "${mount_point}/user.slice" && -x "${mount_point}/user.slice" ]] || return 1
+    slice="${mount_point}/user.slice/user-${uid}.slice"
     manager="${slice}/user@${uid}.service"
     [[ -e "${slice}" ]] || return 0
     [[ -d "${slice}" ]] || return 1
@@ -208,13 +208,13 @@ ai_tools_sessions__list_live_sessions() {
 
 # ai_tools_sessions__read_live_session_state_for_uid <uid>: print `live` when a process of the account <uid> is live
 #   outside its manager's plumbing, `none` when none is, and `unreadable` when the reading cannot be made
-#   (ai_tools_sessions__list_live_sessions returning 1). A caller gating a walk treats `unreadable` as `live`.
+#   (ai_tools_sessions__list_live_cgroups returning 1). A caller gating a walk treats `unreadable` as `live`.
 #   Always returns 0, so the answer is read from stdout.
 ai_tools_sessions__read_live_session_state_for_uid() {
-    local live
-    if ! live="$(ai_tools_sessions__list_live_sessions "${1:-}")"; then
+    local live_cgroups
+    if ! live_cgroups="$(ai_tools_sessions__list_live_cgroups "${1:-}")"; then
         printf 'unreadable\n'
-    elif [[ -n "${live}" ]]; then
+    elif [[ -n "${live_cgroups}" ]]; then
         printf 'live\n'
     else
         printf 'none\n'

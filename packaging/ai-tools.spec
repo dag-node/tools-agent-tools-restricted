@@ -1028,11 +1028,11 @@ if [ "$(getenforce 2>/dev/null)" != "Disabled" ] && command -v semodule >/dev/nu
     # process of the account is live, read through sessions.lib.sh (a library or reader this host lacks reads as live),
     # and a skip prints one WARNING naming the stop and the restorecon to run after it. A scriptlet must succeed, so
     # the skip is not an error. cli.rule.md states the gate.
-    _sessions_state=$(bash -c '. /usr/local/lib/ai-tools/sessions.lib.sh; declare -F ai_tools_sessions__read_live_session_state >/dev/null 2>&1 || { echo unreadable; exit 0; }; ai_tools_sessions__read_live_session_state' 2>/dev/null || :)
+    _sandbox_session_state=$(bash -c '. /usr/local/lib/ai-tools/sessions.lib.sh; declare -F ai_tools_sessions__read_live_session_state >/dev/null 2>&1 || { echo unreadable; exit 0; }; ai_tools_sessions__read_live_session_state' 2>/dev/null || :)
     _sandbox_trees_skipped=0
     if command -v restorecon >/dev/null 2>&1; then
         restorecon -R %{ai_libexecdir} %{ai_libdir} /var/log/ai-tools >/dev/null 2>&1 || :
-        if [ "${_sessions_state}" = none ]; then
+        if [ "${_sandbox_session_state}" = none ]; then
             restorecon -R /opt/ai-tools >/dev/null 2>&1 || :
         else
             _sandbox_trees_skipped=1
@@ -1077,7 +1077,7 @@ if [ "$(getenforce 2>/dev/null)" != "Disabled" ] && command -v semodule >/dev/nu
     # not alias /var/opt to /opt (EL9) a clone created before this module version carries var_t
     # until it is relabelled.
     if command -v restorecon >/dev/null 2>&1 && [ -d /var/opt/ai-tools/sandbox-projects ]; then
-        if [ "${_sessions_state}" = none ]; then
+        if [ "${_sandbox_session_state}" = none ]; then
             restorecon -R /var/opt/ai-tools/sandbox-projects >/dev/null 2>&1 || :
         else
             _sandbox_trees_skipped=1

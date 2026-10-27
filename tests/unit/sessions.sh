@@ -87,9 +87,9 @@ else
 fi
 
 # ── The fixture tree ─────────────────────────────────────────────────────────────────────────
-# mkcg <dir> [pid...] -- a cgroup directory whose cgroup.procs lists the pids. No cgroup.events is written, so liveness
-# is read through the walk; the events file has a case of its own.
-mkcg() {
+# mk_cgroup <dir> [pid...] -- a cgroup directory whose cgroup.procs lists the pids. No cgroup.events is written,
+# so liveness is read through the walk; the events file has a case of its own.
+mk_cgroup() {
     local dir="$1" pid; shift
     mkdir -p "${dir}"
     : > "${dir}/cgroup.procs"
@@ -99,12 +99,12 @@ mkcg() {
 MOUNT="${TESTDIR}/cgroup2"
 SLICE="${MOUNT}/user.slice/user-4242.slice"
 MANAGER="${SLICE}/user@4242.service"
-mkcg "${MOUNT}/user.slice"
-mkcg "${SLICE}"
-mkcg "${MANAGER}"
-mkcg "${MANAGER}/init.scope"                       101
-mkcg "${MANAGER}/app.slice"
-mkcg "${MANAGER}/app.slice/dbus-broker.service"    102
+mk_cgroup "${MOUNT}/user.slice"
+mk_cgroup "${SLICE}"
+mk_cgroup "${MANAGER}"
+mk_cgroup "${MANAGER}/init.scope"                       101
+mk_cgroup "${MANAGER}/app.slice"
+mk_cgroup "${MANAGER}/app.slice/dbus-broker.service"    102
 chmod -R a+rX "${MOUNT}"
 
 # With its twin pinned, the mount reader is stubbed from here on to aim the reader at the fixture.
@@ -129,9 +129,9 @@ section "what reads as live"
 
 state_is none "the manager's init.scope and its dbus broker alone"
 
-mkcg "${MANAGER}/app.slice/acme-acme-11.service"   201
+mk_cgroup "${MANAGER}/app.slice/acme-acme-11.service"   201
 state_is live "an acme session unit holding a task"
-listed="$(ai_tools_sessions__list_live_sessions 4242)"
+listed="$(ai_tools_sessions__list_live_cgroups 4242)"
 if [[ "${listed}" == "${MANAGER}/app.slice/acme-acme-11.service" ]]; then
     pass "the listing names the session unit and leaves the plumbing out"
 else
@@ -139,18 +139,18 @@ else
 fi
 rm -rf "${MANAGER}/app.slice/acme-acme-11.service"
 
-mkcg "${MANAGER}/app.slice/acme-acme-12.service"
+mk_cgroup "${MANAGER}/app.slice/acme-acme-12.service"
 state_is none "a unit directory left behind with no task"
 rm -rf "${MANAGER}/app.slice/acme-acme-12.service"
 
-mkcg "${SLICE}/session-3.scope"                    301
+mk_cgroup "${SLICE}/session-3.scope"                    301
 state_is live "a login session scope beside the manager (a process a sudo -u started)"
 rm -rf "${SLICE}/session-3.scope"
 
 # A root caller's run as the account (sandbox-exec.lib.sh) is a system-manager scope placed directly under the slice.
-mkcg "${SLICE}/ai-tools-sandbox-exec-1-2.scope"    303
+mk_cgroup "${SLICE}/ai-tools-sandbox-exec-1-2.scope"    303
 state_is live "a run a root caller placed in the account's slice"
-listed="$(ai_tools_sessions__list_live_sessions 4242 || true)"
+listed="$(ai_tools_sessions__list_live_cgroups 4242 || true)"
 if [[ "${listed}" == "${SLICE}/ai-tools-sandbox-exec-1-2.scope" ]]; then
     pass "the listing names the run's scope"
 else
@@ -158,38 +158,38 @@ else
 fi
 rm -rf "${SLICE}/ai-tools-sandbox-exec-1-2.scope"
 
-mkcg "${MANAGER}/app.slice/.hidden.scope"          401
+mk_cgroup "${MANAGER}/app.slice/.hidden.scope"          401
 state_is live "a dot-named unit (the walk sees it)"
 rm -rf "${MANAGER}/app.slice/.hidden.scope"
 
-mkcg "${MANAGER}/app.slice/evil"
-mkcg "${MANAGER}/app.slice/evil/init.scope"        402
+mk_cgroup "${MANAGER}/app.slice/evil"
+mk_cgroup "${MANAGER}/app.slice/evil/init.scope"        402
 state_is live "a cgroup named init.scope away from the manager's own"
 rm -rf "${MANAGER}/app.slice/evil"
 
 # A `*` in a bash pattern matches `/`, so the broker's patterns hold only at their own depth: a unit of the broker's
 # name directly under a slice of the manager is plumbing (the baseline's dbus-broker.service, and dbus.service here),
 # and one nested a slice deeper is not.
-mkcg "${MANAGER}/app.slice/dbus.service"           403
+mk_cgroup "${MANAGER}/app.slice/dbus.service"           403
 state_is none "a dbus.service directly under a slice of the manager"
 rm -rf "${MANAGER}/app.slice/dbus.service"
-mkcg "${MANAGER}/app.slice/deep.slice"
-mkcg "${MANAGER}/app.slice/deep.slice/dbus.service" 404
+mk_cgroup "${MANAGER}/app.slice/deep.slice"
+mk_cgroup "${MANAGER}/app.slice/deep.slice/dbus.service" 404
 state_is live "a unit of the broker's name nested a slice deeper"
 rm -rf "${MANAGER}/app.slice/deep.slice"
 
-mkcg "${MANAGER}/app.slice/acme-acme-13.service"   501
+mk_cgroup "${MANAGER}/app.slice/acme-acme-13.service"   501
 printf 'populated 0\nfrozen 0\n' > "${MANAGER}/app.slice/acme-acme-13.service/cgroup.events"
 state_is none "a unit whose cgroup.events reports it empty (the kernel's answer wins)"
 rm -rf "${MANAGER}/app.slice/acme-acme-13.service"
 
 # The walk's status is the last unit's test, so an empty unit that sorts after the broker is the order that would read
 # a complete listing as failed.
-mkcg "${MANAGER}/app.slice/zzz-empty.service"
+mk_cgroup "${MANAGER}/app.slice/zzz-empty.service"
 state_is none "an empty unit that sorts after the broker"
-mkcg "${MANAGER}/app.slice/acme-acme-15.service"   502
+mk_cgroup "${MANAGER}/app.slice/acme-acme-15.service"   502
 state_is live "a live unit followed by an empty one"
-listed="$(ai_tools_sessions__list_live_sessions 4242 || true)"
+listed="$(ai_tools_sessions__list_live_cgroups 4242 || true)"
 if [[ "${listed}" == "${MANAGER}/app.slice/acme-acme-15.service" ]]; then
     pass "the listing names the live unit alone when an empty unit follows it"
 else
@@ -255,7 +255,7 @@ state_unprivileged_is() {
 
 # The fixture is opened explicitly: a root umask of 077 would close each new directory to the projects user,
 # and a cgroup it cannot enter reads as removed.
-mkcg "${MANAGER}/app.slice/acme-acme-14.service"   601
+mk_cgroup "${MANAGER}/app.slice/acme-acme-14.service"   601
 chmod 0755 "${MANAGER}/app.slice/acme-acme-14.service"
 printf 'populated 0\nfrozen 0\n' > "${MANAGER}/app.slice/acme-acme-14.service/cgroup.events"
 chmod 0644 "${MANAGER}/app.slice/acme-acme-14.service/cgroup.events"
@@ -276,8 +276,8 @@ state_unprivileged_is unreadable "an account slice the caller cannot list"
 chmod 0755 "${SLICE}"
 
 # A slice nested under the manager, unlistable, holding a session: under nullglob the walk reads it as empty.
-mkcg "${MANAGER}/sealed.slice"
-mkcg "${MANAGER}/sealed.slice/acme-acme-16.service" 701
+mk_cgroup "${MANAGER}/sealed.slice"
+mk_cgroup "${MANAGER}/sealed.slice/acme-acme-16.service" 701
 chmod 0755 "${MANAGER}/sealed.slice/acme-acme-16.service"
 chmod 0644 "${MANAGER}/sealed.slice/cgroup.procs" "${MANAGER}/sealed.slice/acme-acme-16.service/cgroup.procs"
 chmod 0755 "${MANAGER}/sealed.slice"

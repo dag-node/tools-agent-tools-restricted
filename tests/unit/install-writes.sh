@@ -216,7 +216,7 @@ fi
 find_early_account_walks() {
     local line path
     while IFS= read -r line; do
-        [[ "${line}" == *_sessions_state=* ]] && break
+        [[ "${line}" == *_sandbox_session_state=* ]] && break
         [[ "${line}" =~ restorecon[[:space:]]+-R ]] || continue
         for path in ${line#*restorecon}; do
             case "${path}" in
@@ -232,14 +232,14 @@ if [[ -z "${restore_text}" ]]; then
     fail "install.sh does not define do_selinux_restore() in the form this file reads"
 else
     printf '%s\n' 'do_selinux_restore() {' '    restorecon -R \\' '        /opt/ai-tools/bin/ \\' \
-        '        /opt/ai-tools/.config/' '    _sessions_state="$(read)"' '}' > "${TESTDIR}/restore-control.sh"
+        '        /opt/ai-tools/.config/' '    _sandbox_session_state="$(read)"' '}' > "${TESTDIR}/restore-control.sh"
     if [[ -n "$(find_early_account_walks "${TESTDIR}/restore-control.sh")" ]]; then
         pass "the reader flags a walk of an account-writable tree ahead of the reading (control)"
     else
         fail "control: the reader does not flag an early walk -- the check below is vacuous"
     fi
     printf '%s\n' "${restore_text}" > "${TESTDIR}/restore.sh"
-    if ! grep -q '_sessions_state=' "${TESTDIR}/restore.sh"; then
+    if ! grep -q '_sandbox_session_state=' "${TESTDIR}/restore.sh"; then
         fail "do_selinux_restore does not take the live-session reading this check splits on"
     else
         found="$(find_early_account_walks "${TESTDIR}/restore.sh")"

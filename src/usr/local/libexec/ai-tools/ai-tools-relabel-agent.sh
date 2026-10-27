@@ -336,7 +336,7 @@ fi
 
 # Render the lib's status lines: it reports per path and per agent, this decides what an operator reads and what fails
 # the run. The wanted type travels with a "bad" line, since an agent declares two paths that carry different types.
-labelled=0 mislabelled=0 stale=0 incomplete=0 copied=0 live_session=0
+labelled=0 mislabelled=0 stale=0 incomplete=0 copied=0 live_session_count=0
 declare -A agent_outcome=() agent_reason=()
 if [[ -n "${report}" ]]; then
     while read -r verdict subject detail wanted; do
@@ -372,7 +372,7 @@ if [[ -n "${report}" ]]; then
             none)  say "${subject}: ${detail} is not installed -- nothing to label"
                    ai_tools_log__info "${subject}: ${detail} absent, nothing to label" ;;
             # The library left a recursive relabel for a run with no session live; the entrypoint half still ran.
-            live)  live_session=$(( live_session + 1 ))
+            live)  live_session_count=$(( live_session_count + 1 ))
                    say "${subject}: ${wanted} (${detail}) -- not relabelled while a session runs"
                    ai_tools_log__info "${subject}: ${wanted} (${detail}) not relabelled, a session of the sandbox account is live" ;;
             skip)  agent_reason["${subject}"]="rule-not-registered"
@@ -424,8 +424,8 @@ done
 
 # Not a failure: the config directory already carries the type a previous run gave it, and what was left is the forced
 # re-walk that repairs drift. It is named so the operator can run it once the sessions end.
-(( live_session == 0 )) \
-    || warn MSG-E4E8 "the config directory of ${live_session} agent(s) was not relabelled: an agent session or the toolchain update runs as the sandbox account, or this host's sessions could not be read; let each session end (/exit inside it) and the toolchain update finish, or end them all with 'ai-tools stop', then run: sudo systemctl start ai-tools-relabel.service"
+(( live_session_count == 0 )) \
+    || warn MSG-E4E8 "the config directory of ${live_session_count} agent(s) was not relabelled: an agent session or the toolchain update runs as the sandbox account, or this host's sessions could not be read; let each session end (/exit inside it) and the toolchain update finish, or end them all with 'ai-tools stop', then run: sudo systemctl start ai-tools-relabel.service"
 
 if (( labelled > 0 )); then
     say "all ${labelled} path(s) labelled -- exit any running session and relaunch"
