@@ -1150,10 +1150,11 @@ Where each walk takes the gate:
   reports the revert as not applied and exits 1 once its other steps have run, and a removal stops before either
   registry changes, since the helper cannot revert a path the removal has deleted. `ai-tools-relabel-agent` files
   the config directory as `skipped live-session` where it already carries its type, and as `failed live-session`,
-  which `ai-tools status` counts, where it carries another: the layout creates the directory without a type
-  under a `usr_t` base, so one created while a session runs is one the agent cannot write. `ai-tools status` renders
-  either with the `ai-tools-relabel.service` start that completes it. The helper labels the entrypoint as it otherwise
-  would: that write is per path, not a walk.
+  which `ai-tools status` counts, where it carries another, and exits non-zero, so the relabel unit reads failed until
+  a run with no session labels it: the layout creates the directory without a type under a `usr_t` base, so one created
+  while a session runs is one the agent cannot write. `ai-tools status` renders either
+  with the `ai-tools-relabel.service` start that completes it. The helper labels the entrypoint as it otherwise would:
+  that write is per path, not a walk.
 - The selinux `%post` restores the root-owned trees unconditionally and `/opt/ai-tools` and the clone area behind
   the reading, with one WARNING naming the `restorecon` to run when it skips; `install.sh` does the same
   for `/opt/ai-tools/.config` and the agent config directories, and `selinux/install-selinux.sh` for every tree

@@ -18,6 +18,12 @@
 # Why both live in one helper, and why a mismatch fails the run while an unverifiable entrypoint does not:
 # .claude/rules/updater.rule.md.
 #
+# Exits 1 for an entrypoint that does not match its pin, a path that did not take its type, a rule that could not be
+# applied, a launcher the declared rule does not cover, and a config directory a live session left at a type the agent
+# cannot write, each a session that breaks, and for every refusal ahead of the work (a caller that is not root,
+# a library that did not load, a usage error). Exits 0 where SELinux confinement is inactive, an entrypoint could not be
+# verified, and a live session left a config directory at the type it already carries.
+#
 # It is agent-agnostic: each ai-tools-agents-* package declares its own paths (entrypoint_fcontext and config_dir in its
 # manifest under /usr/local/lib/ai-tools/agents.d), and this helper registers them as local file-context rules.
 # The labelling body lives in relabel.lib.sh, shared with selinux/install-selinux.sh's verify pass so the two cannot
@@ -334,11 +340,15 @@ if (( status == 2 )); then
     exit 0
 fi
 
-# Render the lib's status lines: it reports per path and per agent, this decides what an operator reads and what fails
-# the run. The wanted type travels with a "bad" line, since an agent declares two paths that carry different types.
-labelled=0 mislabelled=0 stale=0 incomplete=0 copied=0 live_session_count=0
-declare -A agent_outcome=() agent_reason=()
-if [[ -n "${report}" ]]; then
+# render_label_report <report> : render the lib's status lines. The lib reports per path and per agent; this decides
+#   what an operator reads, and sets the per-verdict counts and the per-agent arrays (agent_outcome, agent_reason,
+#   agent_live_type) the outcome filing and the closing checks read. The wanted type travels with a "bad" line, since
+#   an agent declares two paths that carry different types.
+render_label_report() {
+    local verdict subject detail wanted
+    labelled=0 mislabelled=0 stale=0 incomplete=0 copied=0
+    declare -gA agent_outcome=() agent_reason=() agent_live_type=()
+    [[ -n "$1" ]] || return 0
     while read -r verdict subject detail wanted; do
         case "${verdict}" in
             ok)    labelled=$(( labelled + 1 ))
@@ -372,7 +382,8 @@ if [[ -n "${report}" ]]; then
             none)  say "${subject}: ${detail} is not installed -- nothing to label"
                    ai_tools_log__info "${subject}: ${detail} absent, nothing to label" ;;
             # The library left a recursive relabel for a run with no session live; the entrypoint half still ran.
-            live)  live_session_count=$(( live_session_count + 1 ))
+            # The type is kept for the agent's closing line, which says whether the agent can write it.
+            live)  agent_live_type["${subject}"]="${detail}"
                    say "${subject}: ${wanted} (${detail}) -- not relabelled while a session runs"
                    ai_tools_log__info "${subject}: ${wanted} (${detail}) not relabelled, a session of the sandbox account is live" ;;
             skip)  agent_reason["${subject}"]="rule-not-registered"
@@ -383,23 +394,49 @@ if [[ -n "${report}" ]]; then
             # "failed".
             agent) agent_outcome["${subject}"]="${detail}" ;;
         esac
-    done <<< "${report}"
-fi
+    done <<< "$1"
+}
 
-for label_agent in "${!agent_outcome[@]}"; do
-    case "${agent_outcome[${label_agent}]}" in
-        ok)     record_label_outcome "${label_agent}" ok ;;
-        # Nothing installed to label: the ordinary state before ai-tools-bootstrap provisions the toolchain, and not
-        # a fault -- so it is filed the same way an inactive SELinux layer is.
-        none)   record_label_outcome "${label_agent}" skipped not-provisioned ;;
-        live-session) record_label_outcome "${label_agent}" skipped live-session ;;
-        # The walk was left over a directory at another type, which ai_tools_t cannot write: a fault ai-tools status
-        # counts, completed by the run the live-session token names.
-        live-session-mislabelled) record_label_outcome "${label_agent}" failed live-session ;;
-        failed) record_label_outcome "${label_agent}" failed \
-                    "${agent_reason[${label_agent}]:-did-not-take-its-type}" ;;
-    esac
-done
+# record_label_outcomes : file each agent's closing verdict through record_label_outcome, counting the agents
+#   whose config directory a live session left at its own type (live_session_count) apart from those it left at another
+#   (live_mislabelled_count, with each agent and the type it carries in live_mislabelled_types).
+record_label_outcomes() {
+    local label_agent
+    live_session_count=0 live_mislabelled_count=0 live_mislabelled_types=""
+    for label_agent in "${!agent_outcome[@]}"; do
+        case "${agent_outcome[${label_agent}]}" in
+            ok)     record_label_outcome "${label_agent}" ok ;;
+            # Nothing installed to label: the ordinary state before ai-tools-bootstrap provisions the toolchain, and not
+            # a fault -- so it is filed the same way an inactive SELinux layer is.
+            none)   record_label_outcome "${label_agent}" skipped not-provisioned ;;
+            live-session) live_session_count=$(( live_session_count + 1 ))
+                    record_label_outcome "${label_agent}" skipped live-session ;;
+            # The walk was left over a directory at another type, which ai_tools_t cannot write: a fault ai-tools status
+            # counts, completed by the run the live-session token names; report_live_sessions fails the run over it.
+            live-session-mislabelled) live_mislabelled_count=$(( live_mislabelled_count + 1 ))
+                    live_mislabelled_types+="${live_mislabelled_types:+, }${label_agent}: ${agent_live_type[${label_agent}]:-unreadable}"
+                    record_label_outcome "${label_agent}" failed live-session ;;
+            failed) record_label_outcome "${label_agent}" failed \
+                        "${agent_reason[${label_agent}]:-did-not-take-its-type}" ;;
+        esac
+    done
+}
+
+# report_live_sessions : name the config-directory walks a live session left. The usable class is a warning:
+#   the directory already carries the type a previous run gave it, and what was left is the forced re-walk that repairs
+#   drift. The other class fails the run, as a mislabelled path does: a config directory at a type ai_tools_t cannot
+#   write leaves every session of that agent unable to write its state. ai-tools-relabel.service is a oneshot,
+#   so the non-zero exit leaves the unit failed, which ai-tools status reports with the start that re-runs it, beside
+#   the record already filed.
+report_live_sessions() {
+    (( live_session_count == 0 )) \
+        || warn MSG-E4E8 "the config directory of ${live_session_count} agent(s) was not relabelled: an agent session or the toolchain update runs as the sandbox account, or this host's sessions could not be read; let each session end (/exit inside it) and the toolchain update finish, or end them all with 'ai-tools stop', then run: sudo systemctl start ai-tools-relabel.service"
+    (( live_mislabelled_count == 0 )) \
+        || die MSG-G6D2 "the config directory of ${live_mislabelled_count} agent(s) carries a type the agent cannot write (${live_mislabelled_types}), so no session of those agents can write its state; it was not relabelled because an agent session or the toolchain update runs as the sandbox account, or this host's sessions could not be read; let each session end (/exit inside it) and the toolchain update finish, or end them all with 'ai-tools stop', then run: sudo systemctl start ai-tools-relabel.service"
+}
+
+render_label_report "${report}"
+record_label_outcomes
 
 # A divergence between what a manifest declares and what is installed is reported FIRST, because it is the more specific
 # cause and the only one here this helper cannot clear: the entrypoint is installed somewhere the declared rule does not
@@ -422,10 +459,7 @@ done
 (( status == 0 )) \
     || die MSG-N9B9 "an agent's file-context rule could not be applied (see above)"
 
-# Not a failure: the config directory already carries the type a previous run gave it, and what was left is the forced
-# re-walk that repairs drift. It is named so the operator can run it once the sessions end.
-(( live_session_count == 0 )) \
-    || warn MSG-E4E8 "the config directory of ${live_session_count} agent(s) was not relabelled: an agent session or the toolchain update runs as the sandbox account, or this host's sessions could not be read; let each session end (/exit inside it) and the toolchain update finish, or end them all with 'ai-tools stop', then run: sudo systemctl start ai-tools-relabel.service"
+report_live_sessions
 
 if (( labelled > 0 )); then
     say "all ${labelled} path(s) labelled -- exit any running session and relaunch"

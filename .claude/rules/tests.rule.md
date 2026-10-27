@@ -1097,7 +1097,11 @@ and a fixture cgroup tree drives the truth table, each reading that cannot be ma
 and a mode root reads through asked as the projects user, and the mount read and a unit's `cgroup.events` read are each
 driven under the strict-mode `IFS` its in-process callers set, beside the default and a control that the strict `IFS`
 breaks the bare read. Its boundary half is a type rule, so it is `integration/selinux.sh`'s policy read
-and `selinux/avc/avc-denials.sh` section Y, made from inside a session.
+and `selinux/avc/avc-denials.sh` section Y, made from inside a session. `relabel-agent.sh` drives
+how `ai-tools-relabel-agent` closes a run over the library's status lines, its closing functions read out of the helper
+as text with the record writer stubbed: a config directory the gate left at the type the agent writes is filed `skipped`
+and warns at exit 0, the control, one left at another type is filed `failed` and exits 1 under its code, and with both
+the warning precedes the refusal.
 
 `entrypoint-verify.sh` pins the pure half of the entrypoint verifier (`entrypoint-verify.lib.sh`, see
 [updater](updater.rule.md)). Every assertion targets a way the gate could fail **open**: an absent pin must read

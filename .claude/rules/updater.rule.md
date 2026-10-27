@@ -692,12 +692,18 @@ that fails leaves its account in a journal the operator does not read; the pin, 
 standing and green.
 
 The record is written by `ai-tools-relabel-agent` from a per-agent verdict the labelling library closes each agent's
-report with (`agent <name> <ok|failed|none>`, see `relabel.lib.sh`), so one place decides an agent's outcome and one
-place files it. `none` — no entrypoint installed to label — is filed as `skipped`, not `ok`: before `ai-tools-bootstrap`
-provisions the toolchain there is no entrypoint to label, and reporting that as labels applied would show green for work
-that did not happen. It is written on the DAC-only path too, where the run exits early because there is no
-`ai_tools_exec_t` to assign, so that host reports "nothing to label" rather than "cannot tell". Writing it is
-best-effort and never changes the outcome of the relabel it describes.
+report with (`agent <name> <verdict>`, the verdicts in `relabel.lib.sh`), so one place decides an agent's outcome
+and one place files it. `none` — no entrypoint installed to label — is filed as `skipped`, not `ok`:
+before `ai-tools-bootstrap` provisions the toolchain there is no entrypoint to label, and reporting that as labels
+applied would show green for work that did not happen. It is written on the DAC-only path too, where the run exits early
+because there is no `ai_tools_exec_t` to assign, so that host reports "nothing to label" rather than "cannot tell".
+Writing it is best-effort and never changes the outcome of the relabel it describes.
+
+A config directory the live-session gate left ([ref-section-e6c6](cli.rule.md#ref-section-e6c6)) is filed by the type it
+carries. At the type the agent writes it is `skipped`, and the run warns and exits 0. At another type it is `failed`,
+and the run exits non-zero as it does for a path that did not take its type, since no session of that agent can write
+its state: `ai-tools-relabel.service` is a oneshot, so the unit then reads failed until a run with no session labels
+the directory.
 
 The helper then **reconciles** what it applied against what is installed: it resolves `/opt/ai-tools/bin/<launcher>`
 the way the launch preflight does and fails — non-zero — when an entrypoint is installed at a path the declared pattern
