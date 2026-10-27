@@ -1131,8 +1131,12 @@ the name is sound because of where the gate runs. `ai_tools_relabel__is_availabl
 where SELinux is `Disabled`; where the policy is loaded, `ai_tools_t` does not hold a write on `cgroup_t` and cannot
 reach its user manager's socket or its session bus, so the names under the slice are the ones `ai-tools-run`
 and the manager gave them; `Permissive` refuses every launch under the default `AI_TOOLS_REQUIRE_SELINUX`. The residual
-is a permissive host whose operator wrote `AI_TOOLS_REQUIRE_SELINUX=no`. `tests/integration/selinux.sh` reads the cgroup
-half from the loaded policy, and `selinux/avc/avc-denials.sh` makes all four accesses from inside a session.
+is a permissive host whose operator wrote `AI_TOOLS_REQUIRE_SELINUX=no`. A name is exempt only at the depth the manager
+gives it, so a unit of that name under a further slice is read like any other. The name is not sound against a process
+of the account outside `ai_tools_t`, the updater's unit and the install scripts it runs: the gate reads such a process
+live by its own unit until it moves, and one that moves itself into an exempt name is a compromised install script
+that already holds the account's whole DAC reach. `tests/integration/selinux.sh` reads the cgroup half from the loaded
+policy, and `selinux/avc/avc-denials.sh` makes all four accesses from inside a session.
 
 Where each walk takes the gate:
 

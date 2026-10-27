@@ -166,6 +166,17 @@ mkcg "${MANAGER}/app.slice/evil/init.scope"        402
 state_is live "a cgroup named init.scope away from the manager's own"
 rm -rf "${MANAGER}/app.slice/evil"
 
+# A `*` in a bash pattern matches `/`, so the broker's patterns hold only at their own depth: a unit of the broker's
+# name directly under a slice of the manager is plumbing (the baseline's dbus-broker.service, and dbus.service here),
+# and one nested a slice deeper is not.
+mkcg "${MANAGER}/app.slice/dbus.service"           403
+state_is none "a dbus.service directly under a slice of the manager"
+rm -rf "${MANAGER}/app.slice/dbus.service"
+mkcg "${MANAGER}/app.slice/deep.slice"
+mkcg "${MANAGER}/app.slice/deep.slice/dbus.service" 404
+state_is live "a unit of the broker's name nested a slice deeper"
+rm -rf "${MANAGER}/app.slice/deep.slice"
+
 mkcg "${MANAGER}/app.slice/acme-acme-13.service"   501
 printf 'populated 0\nfrozen 0\n' > "${MANAGER}/app.slice/acme-acme-13.service/cgroup.events"
 state_is none "a unit whose cgroup.events reports it empty (the kernel's answer wins)"

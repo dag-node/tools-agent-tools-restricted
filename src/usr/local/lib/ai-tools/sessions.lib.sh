@@ -23,6 +23,12 @@
 # on first use (the units `ai-tools stop` lists as account plumbing). A login session scope (session-N.scope) is not
 # plumbing: it holds a process of the account that a `sudo -u` started.
 #
+# The exemption is sound against ai_tools_t and not against a process of the account outside that domain: the updater's
+# unit and the install scripts it runs. Such a process can name a cgroup. The gate reads its unit as live by that unit's
+# own cgroup until the process moves, and a process that moves itself into an exempt name is a compromised install
+# script already holding the account's whole DAC reach. The close is the pinned-descriptor walk of libselinux 3.11
+# or the launch lock, the deferred close cli.rule.md names.
+#
 # Sourced, not executed. Deployed 644 root:root: shipped logic alone, sourced by root (the relabel helpers,
 # the installers) and by the operator's CLI, which reads the world-readable cgroup files unprivileged.
 # sandbox-exec.lib.sh is loaded best-effort for the account's uid; without it the state reads as unreadable.
@@ -38,7 +44,8 @@ source "${BASH_SOURCE[0]%/*}/sandbox-exec.lib.sh" 2>/dev/null || true
 _AI_TOOLS_SESSIONS__LOADED=1
 
 # The user manager's own units, as glob patterns over a cgroup's path relative to the manager's directory: init.scope
-# directly under it, and the dbus broker under whichever slice the manager starts it in.
+# directly under it, and the dbus broker directly under whichever slice the manager starts it in. A path matches
+# a pattern only at the pattern's own depth (_ai_tools_sessions__is_plumbing).
 # shellcheck disable=SC2034  # read by tests/unit/sessions.sh, which names the set it exempts
 readonly -a AI_TOOLS_SESSIONS__PLUMBING_UNITS=(
     init.scope
@@ -131,14 +138,18 @@ _ai_tools_sessions__is_cgroup_live() {
 
 # ── The reader ───────────────────────────────────────────────────────────────────────────────
 # _ai_tools_sessions__is_plumbing <cgroup-dir> <manager-service-dir>: succeed when the cgroup is one of the manager's
-#   own units (AI_TOOLS_SESSIONS__PLUMBING_UNITS), matched on its path relative to the manager's directory.
+#   own units (AI_TOOLS_SESSIONS__PLUMBING_UNITS), matched on its path relative to the manager's directory and holding
+#   as many `/` as the pattern does: a `*` in a bash pattern matches `/`, so the glob alone would exempt a unit
+#   of the exempt name nested at any depth under a slice of the manager.
 _ai_tools_sessions__is_plumbing() {
-    local relative pattern
+    local relative pattern relative_slashes pattern_slashes
     [[ "$1" == "$2/"* ]] || return 1
     relative="${1#"$2/"}"
+    relative_slashes="${relative//[!\/]/}"
     for pattern in "${AI_TOOLS_SESSIONS__PLUMBING_UNITS[@]}"; do
+        pattern_slashes="${pattern//[!\/]/}"
         # shellcheck disable=SC2053  # the pattern is this file's constant, matched as a glob
-        [[ "${relative}" == ${pattern} ]] && return 0
+        [[ "${relative}" == ${pattern} && "${relative_slashes}" == "${pattern_slashes}" ]] && return 0
     done
     return 1
 }
