@@ -722,6 +722,12 @@ a symlink, and a file the layout does not list are refused, unprivileged; a `roo
 and the same file group-writable, with a named ACL entry, or hardlinked is refused, as root, the half that skips
 otherwise.
 
+`install-selinux-walks.sh` runs `selinux/install-selinux.sh`'s account-writable walks, extracted as text, under each
+live-session reading with `restorecon` recorded, `none` first as the recorder's control: `live` and `unreadable` walk no
+tree and name each one left under the warning's code, the clone verify loop still reads, and the script's text sources
+the installed `sandbox-exec.lib.sh` ahead of the relabel library and holds every other `restorecon` to a root-owned
+tree.
+
 `postupgrade.sh` is that same reconciliation seen from the RPM side: `ai-tools-admin system post-upgrade` end to end,
 from dispatch through the registry to each treatment (see [providers](providers.rule.md)
 and [claude-settings](claude-settings.rule.md)). It asserts which treatment each file got — the settings JSON merged

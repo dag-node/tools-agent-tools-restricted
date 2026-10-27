@@ -542,10 +542,55 @@ prompt_groups() {
 # The per-project label primitive (semanage fcontext + restorecon) lives in the shared relabel.lib.sh -- the SAME body
 # the ai-tools-relabel root helper runs, so `projects create`/`projects claim` and this sweep cannot drift. Prefer
 # the repo copy alongside this script; fall back to the deployed lib.
+#
+# The installed sandbox-exec.lib.sh is sourced first where it is readable: it carries the account name the installer
+# substituted, where the checkout's copy holds the token no account resolves, and its include guard makes the checkout
+# copy sessions.lib.sh sources a no-op, so the live-session reading (_sessions_state) resolves the sandbox account.
+# A host with no base install has no installed copy, and its reading is `unreadable`: every account-writable walk is
+# left, and the warning names `sudo ./install.sh install` as what deploys the library.
+SANDBOX_EXEC_LIB="/usr/local/lib/ai-tools/sandbox-exec.lib.sh"
+if [[ -r "${SANDBOX_EXEC_LIB}" ]]; then
+    # shellcheck source=/dev/null
+    source "${SANDBOX_EXEC_LIB}" || refuse_unsourced "${SANDBOX_EXEC_LIB}"
+fi
 RELABEL_LIB="${DIR}/../src/usr/local/lib/ai-tools/relabel.lib.sh"
 [[ -r "${RELABEL_LIB}" ]] || RELABEL_LIB="/usr/local/lib/ai-tools/relabel.lib.sh"
 # shellcheck source=/dev/null
 source "${RELABEL_LIB}" || refuse_unsourced "${RELABEL_LIB}"
+SESSIONS_LIB="${RELABEL_LIB%/*}/sessions.lib.sh"
+# shellcheck source=/dev/null
+source "${SESSIONS_LIB}" || refuse_unsourced "${SESSIONS_LIB}"
+
+# The trees the sandbox account can write -- the toolchain, the home state, the clones, a claimed project -- are
+# restored only while no process of that account is live: a recursive restorecon resolves each path again before it
+# writes, so a live process can redirect the label (cli.rule.md, ref-section-e6c6). One reading per run, taken here;
+# a session launched after it is the residual that rule states. The root-owned trees (the log and runtime directories,
+# the helpers) and the operators' config directories are restored whatever it reads.
+_sessions_state="$(ai_tools_sessions__read_live_session_state)"
+_left_trees=()
+# _restore_account_tree <path>: restorecon -FR <path> where the reading is `none`; otherwise record <path> for the one
+# warning the run closes with. A path that does not exist is neither.
+_restore_account_tree() {
+    [[ -e "$1" || -L "$1" ]] || return 0
+    if [[ "${_sessions_state}" == none ]]; then
+        restorecon -FR "$1" 2>/dev/null || true
+    else
+        _left_trees+=("$1")
+    fi
+}
+# _report_left_trees: the run's EXIT trap, so a run that ends in a die still names what it left.
+_report_left_trees() {
+    (( ${#_left_trees[@]} )) || return 0
+    local reason="an agent session, the toolchain update, or a step run as the sandbox account is live"
+    [[ "${_sessions_state}" == live ]] \
+        || reason="this host's sessions could not be read (where ${SANDBOX_EXEC_LIB} is absent, sudo ./install.sh install deploys it)"
+    warn MSG-U8U4 "left the labels on these trees as they were: ${reason}; let each session end (/exit inside it) and the toolchain update finish, or end them all with 'sudo ai-tools stop', then run:"
+    local tree
+    for tree in "${_left_trees[@]}"; do
+        warn "    sudo restorecon -FR $(printf '%q' "${tree}")"
+    done
+}
+trap _report_left_trees EXIT
 
 # _locked <command...>: run one store-writing command under ai_tools_relabel__lock, released when it returns. semanage
 # and semodule report an error to whichever process finds the policy store held, and ai-tools-relabel.path fires
@@ -709,17 +754,19 @@ for_each_project() {
     done < "${ALLOWLIST}"
 }
 
-_home_state()  { local p; for p in "${HOME_STATE[@]}"; do
-                   restorecon -FR "/opt/ai-tools/${p}" 2>/dev/null || true
-                 done; }
+_home_state() {
+    local p
+    for p in "${HOME_STATE[@]}"; do
+        _restore_account_tree "/opt/ai-tools/${p}"
+    done
+}
 # _label_one/_unlabel_one: thin wrappers over the shared lib so this sweep and the ai-tools-relabel helper share one
 # implementation. Non-zero is swallowed (warn, don't die) so one bad project never aborts a whole relabel. _unlabel_one
-# already restorecons via the lib; the remove action's later _restore_one pass is a harmless belt-and-suspenders.
-# Re-asserts the label on every registered project each run. The relabel is idempotent (restorecon writes only a file
-# whose context differs), so a clean tree costs a walk and no writes; a file that drifted in with a foreign context --
-# a customizable type a plain restorecon would preserve -- is forced back to ai_tools_project_t by the lib's `-F`,
-# which is the whole point of the sweep. A status of 3 is the library's live-session gate (relabel.lib.sh): the project
-# was left as it was.
+# already restorecons via the lib; the remove action's later project pass is a harmless belt-and-suspenders. Re-asserts
+# the label on every registered project each run. The relabel is idempotent (restorecon writes only a file whose context
+# differs), so a clean tree costs a walk and no writes; a file that drifted in with a foreign context -- a customizable
+# type a plain restorecon would preserve -- is forced back to ai_tools_project_t by the lib's `-F`, which is the whole
+# point of the sweep. A status of 3 is the library's live-session gate (relabel.lib.sh): the project was left as it was.
 _label_one()   { local rc=0; ai_tools_relabel__label_project "$1" || rc=$?
                  case "${rc}" in
                      0) ok "labelled project ai_tools_project_t: $1" ;;
@@ -735,7 +782,6 @@ _unlabel_one() { local rc=0; ai_tools_relabel__unlabel_project "$1" || rc=$?
 _warn_live_session() {
     warn MSG-E9S6 "left the label on $1 as it was: an agent session or the toolchain update runs as the sandbox account, or this host's sessions could not be read; let each session end (/exit inside it) and the toolchain update finish, or end them all with 'sudo ai-tools stop', then re-run this command"
 }
-_restore_one() { restorecon -FR "$1" 2>/dev/null || true; }
 # _label_sandbox_clones: apply the static ai_tools_project_t label (ai_tools.fc) to every existing sandbox clone, then
 # REPORT and VERIFY each one. The per-project loop skips sandbox paths (they carry no dynamic semanage rule --
 # the static rule covers them), so without this an operator is shown no evidence the clones were relabelled even though
@@ -746,7 +792,7 @@ _restore_one() { restorecon -FR "$1" 2>/dev/null || true; }
 # without SELinux the restorecon no-ops and the verify/report is skipped.
 _label_sandbox_clones() {
     [[ -d "${SANDBOX_PROJECTS}" ]] || return 0
-    restorecon -FR "${SANDBOX_PROJECTS}" 2>/dev/null || true
+    _restore_account_tree "${SANDBOX_PROJECTS}"
     ai_tools_relabel__is_available || return 0
     local clone
     for clone in "${SANDBOX_PROJECTS}"/*/; do
@@ -862,7 +908,7 @@ case "${ACTION}" in
     stage_shipped_modules
 
     section "Labelling"
-    restorecon -FR "${NVM_DIR}"  2>/dev/null || true
+    _restore_account_tree "${NVM_DIR}"
     # Apply and verify the static sandbox-clone label (ai_tools.fc) on any existing clones.
     _label_sandbox_clones
     # Apply ai_tools_log_t to the root-helper operation logs (ai_tools.fc).
@@ -943,7 +989,7 @@ case "${ACTION}" in
 
   relabel)
     section "Re-applying labels"
-    restorecon -FR "${NVM_DIR}"  2>/dev/null || true
+    _restore_account_tree "${NVM_DIR}"
     # Apply and verify the static sandbox-clone label (ai_tools.fc) on any existing clones.
     _label_sandbox_clones
     # Apply ai_tools_log_t to the root-helper operation logs (ai_tools.fc).
@@ -985,7 +1031,7 @@ case "${ACTION}" in
     stage_shipped_modules force
 
     section "Re-applying labels"
-    restorecon -FR "${NVM_DIR}"  2>/dev/null || true
+    _restore_account_tree "${NVM_DIR}"
     # Apply and verify the static sandbox-clone label (ai_tools.fc) on any existing clones.
     _label_sandbox_clones
     [[ -d "${LOG_DIR}" ]] && restorecon -FR "${LOG_DIR}" 2>/dev/null || true
@@ -1010,9 +1056,9 @@ case "${ACTION}" in
         _locked semodule -r "${loaded[@]}" 2>/dev/null || true
     fi
     log "reverting contexts to defaults"
-    _restore_one "${NVM_DIR}"
+    _restore_account_tree "${NVM_DIR}"
     _home_state
-    for_each_project _restore_one
+    for_each_project _restore_account_tree
     ok "removed"
     ;;
 

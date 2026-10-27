@@ -1136,8 +1136,10 @@ Where each walk takes the gate:
   that write is per path, not a walk.
 - The selinux `%post` restores the root-owned trees unconditionally and `/opt/ai-tools` and the clone area behind
   the reading, with one WARNING naming the `restorecon` to run when it skips; `install.sh` does the same for the agent
-  config directories. `ai-tools-admin`'s clone restore after a group change, and `ai-tools-unclaim --unlisted`'s label
-  reset, warn the same way.
+  config directories, and `selinux/install-selinux.sh` for every tree the account can write that its actions walk,
+  the toolchain, the home state, the clones and the projects its removal restores, reading the account
+  through the installed `sandbox-exec.lib.sh`. `ai-tools-admin`'s clone restore after a group change,
+  and `ai-tools-unclaim --unlisted`'s label reset, warn the same way.
 - `projects claim` reads the state unprivileged when its label step is pending and names a live session in the Review
   block, ahead of the first `sudo`. The notice does not ask anything; the helper's refusal decides.
 - A clone is labelled while it is still private, ahead of `normalize_clone`, so its walk does not cross a directory
