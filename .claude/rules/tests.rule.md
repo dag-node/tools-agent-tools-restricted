@@ -1094,8 +1094,10 @@ of the library with no `sessions.lib.sh` beside it reads as live. Every other se
 a session may be running on the host the suite runs on. `sessions.sh` pins the reader itself: its walk functions are
 held to `ai-tools-stop`'s through `declare -f`, beside a control that a one-character change breaks the equality,
 and a fixture cgroup tree drives the truth table, each reading that cannot be made asserted to read `unreadable`
-and a mode root reads through asked as the projects user. Its boundary half is a type rule, so it is
-`integration/selinux.sh`'s policy read and `selinux/avc/avc-denials.sh` section Y, made from inside a session.
+and a mode root reads through asked as the projects user, and the mount read and a unit's `cgroup.events` read are each
+driven under the strict-mode `IFS` its in-process callers set, beside the default and a control that the strict `IFS`
+breaks the bare read. Its boundary half is a type rule, so it is `integration/selinux.sh`'s policy read
+and `selinux/avc/avc-denials.sh` section Y, made from inside a session.
 
 `entrypoint-verify.sh` pins the pure half of the entrypoint verifier (`entrypoint-verify.lib.sh`, see
 [updater](updater.rule.md)). Every assertion targets a way the gate could fail **open**: an absent pin must read

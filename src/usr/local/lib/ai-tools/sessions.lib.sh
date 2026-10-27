@@ -32,6 +32,8 @@
 # Sourced, not executed. Deployed 644 root:root: shipped logic alone, sourced by root (the relabel helpers,
 # the installers) and by the operator's CLI, which reads the world-readable cgroup files unprivileged.
 # sandbox-exec.lib.sh is loaded best-effort for the account's uid; without it the state reads as unreadable.
+# The installer and the CLI source it under IFS=$'\n\t', and the reader's entry pins the default IFS for the reads
+# beneath it.
 
 # Include guard, as an if-statement: `[[ ]] && return` returns 1 for an unset guard and trips a sourcing shell's
 # `set -e`.
@@ -185,6 +187,11 @@ _ai_tools_sessions__is_slice_listable() {
 #   The walk's own status is not read: it is the status of the last unit the walk tested, so an empty unit that sorts
 #   last would turn a complete listing into a failed one. The subshell returns 0 once the walk has run.
 ai_tools_sessions__list_live_cgroups() {
+    # The default IFS for every read beneath this call: bash scopes a local to the functions it calls
+    # and to the subshell, so the twins' space-split reads of /proc/mounts and cgroup.events hold under a caller's
+    # IFS=$'\n\t'. It is set here and not on each read because the reads are ai-tools-stop's, and both public readers
+    # enter here.
+    local IFS=$' \t\n'
     local uid="${1:-}" mount_point slice manager cgroup
     [[ "${uid}" =~ ^[0-9]+$ ]] || return 1
     mount_point="$(ai_tools_sessions__read_cgroup2_mount)" || return 1

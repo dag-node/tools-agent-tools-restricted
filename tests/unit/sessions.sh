@@ -13,7 +13,8 @@
 # under the account's slice it cannot list and enter each read `unreadable`, a cgroup.procs or cgroup.events it cannot
 # read makes its unit `live`, and an empty unit that sorts last must not turn a complete listing into `unreadable`.
 # A fixture cgroup tree under TESTDIR stands in for /sys/fs/cgroup, reached by stubbing the mount reader after its twin
-# is pinned; no host cgroup is read.
+# is pinned; no host cgroup is read. The strict-IFS section reads the host's /proc/mounts through the real mount reader,
+# and skips where that does not name a cgroup v2 mount.
 #
 # Runs as root with the rest of the suite and unprivileged during development. The unreadable-file case holds only
 # for an unprivileged caller, since root reads any mode, so a root run drives it as the projects user through runuser.
@@ -286,5 +287,84 @@ chmod 0311 "${MANAGER}/sealed.slice"
 state_unprivileged_is unreadable "a session in a nested slice the caller cannot list"
 chmod 0755 "${MANAGER}/sealed.slice"
 rm -rf "${MANAGER}/sealed.slice"
+
+# ── A caller's IFS ───────────────────────────────────────────────────────────────────────────
+section "the reading holds under a caller's strict-mode IFS"
+
+# install-selinux.sh and ai-tools.sh set IFS=$'\n\t' and call the reader in-process, where a space-split `read` keeps
+# a whole line in one field. Each probe runs in a fresh bash, the IFS set ahead of the source as those callers set it.
+#
+# The mount probe keeps the library's real mount reader under another name and stubs the public one to call it, record
+# what it read, and aim the walk at the fixture: the real body then runs at the depth the reader calls it
+# from, under whatever IFS the reader's entry gives it. `direct` calls the real body at the top level instead.
+mount_probe="${TESTDIR}/mount-probe.sh"
+cat > "${mount_probe}" <<'PROBE'
+mode="$1"; lib="$2"; fixture_mount="$3"
+[[ "${mode}" == *strict ]] && IFS=$'\n\t'
+source "${lib}"
+eval "$(declare -f ai_tools_sessions__read_cgroup2_mount | sed '1s/^ai_tools_sessions__read_cgroup2_mount/probe_real_mount/')"
+if [[ "${mode}" == direct-* ]]; then
+    rc=0; real="$(probe_real_mount)" || rc=$?
+    printf 'rc=%s mount=[%s]\n' "${rc}" "${real}"
+    exit 0
+fi
+ai_tools_sessions__read_cgroup2_mount() {
+    local real rc=0
+    real="$(probe_real_mount)" || rc=$?
+    printf 'rc=%s mount=[%s]\n' "${rc}" "${real}" > "${fixture_mount}.read"
+    printf '%s' "${fixture_mount}"
+}
+ai_tools_sessions__read_live_session_state_for_uid 4242 >/dev/null
+cat "${fixture_mount}.read"
+PROBE
+
+mount_read() { bash "${mount_probe}" "$1" "${LIB}" "${MOUNT}"; }
+host_read="$(mount_read direct-default)"
+if [[ "${host_read}" != "rc=0 mount=["?*"]" ]]; then
+    skip "the mount read under a strict IFS" "this host's /proc/mounts names no cgroup v2 mount (${host_read})"
+else
+    pass "the mount read under the default IFS, called directly (control): ${host_read}"
+    got="$(mount_read direct-strict)"
+    if [[ "${got}" == "rc=1 mount=[]" ]]; then
+        pass "the same read called directly under IFS=\$'\\n\\t' fails, so the cases below run under an IFS that breaks it (control)"
+    else
+        fail "the strict IFS does not break the direct read (${got}), so the cases below do not show the reader's pin"
+    fi
+    for mode in default strict; do
+        got="$(mount_read "entry-${mode}")"
+        if [[ "${got}" == "${host_read}" ]]; then
+            pass "the mount read beneath the reader, ${mode} IFS: ${got}"
+        else
+            fail "the mount read beneath the reader, ${mode} IFS: expected ${host_read}, read ${got}"
+        fi
+    done
+fi
+
+# The whole reader over the fixture, the mount stubbed. The unit's cgroup.events decides it: under a strict IFS
+# an unpinned read keeps `populated 0` in one field, does not match a `populated` line, and reads the idle unit live.
+state_probe="${TESTDIR}/state-probe.sh"
+cat > "${state_probe}" <<'PROBE'
+mode="$1"; lib="$2"; stub_mount="$3"
+[[ "${mode}" == strict ]] && IFS=$'\n\t'
+source "${lib}"
+ai_tools_sessions__read_cgroup2_mount() { printf '%s' "${stub_mount}"; }
+ai_tools_sessions__read_live_session_state_for_uid 4242
+PROBE
+
+unit="${MANAGER}/app.slice/acme-acme-17.service"
+mk_cgroup "${unit}"
+for populated in 0 1; do
+    printf 'populated %s\nfrozen 0\n' "${populated}" > "${unit}/cgroup.events"
+    want=none; (( populated )) && want=live
+    for mode in default strict; do
+        got="$(bash "${state_probe}" "${mode}" "${LIB}" "${MOUNT}")"
+        if [[ "${got}" == "${want}" ]]; then
+            pass "a unit whose cgroup.events reads populated ${populated}, ${mode} IFS: ${want}"
+        else
+            fail "a unit whose cgroup.events reads populated ${populated}, ${mode} IFS: expected ${want}, read ${got}"
+        fi
+    done
+done
+rm -rf "${unit}"
 
 finish
