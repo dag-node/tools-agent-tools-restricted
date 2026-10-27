@@ -206,4 +206,46 @@ else
     fi
 fi
 
+
+# ── do_selinux_restore walks only root-owned trees ahead of the live-session reading ──────────────
+# A recursive restorecon resolves each path again before it writes, so a walk of a tree the sandbox account can write
+# runs behind the reading (cli.rule.md, ref-section-e6c6). Every `restorecon -R` the function makes before the reading
+# must name a root-owned tree from the set find_early_account_walks lists; a control fixture walking
+# /opt/ai-tools/.config there must be flagged. find_early_account_walks <file>: print each `restorecon -R` code line
+# ahead of the reading that names a path outside the root-owned set.
+find_early_account_walks() {
+    local line path
+    while IFS= read -r line; do
+        [[ "${line}" == *_sessions_state=* ]] && break
+        [[ "${line}" =~ restorecon[[:space:]]+-R ]] || continue
+        for path in ${line#*restorecon}; do
+            case "${path}" in
+                -R|\\) ;;
+                /usr/local/libexec/ai-tools/|/usr/local/lib/ai-tools/|/opt/ai-tools/bin/|/var/log/ai-tools/) ;;
+                *) printf '%s\n' "${line}"; break ;;
+            esac
+        done
+    done < <(code_lines "$1")
+}
+restore_text="$(extract_function "${INSTALLER}" do_selinux_restore)"
+if [[ -z "${restore_text}" ]]; then
+    fail "install.sh does not define do_selinux_restore() in the form this file reads"
+else
+    printf '%s\n' 'do_selinux_restore() {' '    restorecon -R \\' '        /opt/ai-tools/bin/ \\' \
+        '        /opt/ai-tools/.config/' '    _sessions_state="$(read)"' '}' > "${TESTDIR}/restore-control.sh"
+    if [[ -n "$(find_early_account_walks "${TESTDIR}/restore-control.sh")" ]]; then
+        pass "the reader flags a walk of an account-writable tree ahead of the reading (control)"
+    else
+        fail "control: the reader does not flag an early walk -- the check below is vacuous"
+    fi
+    printf '%s\n' "${restore_text}" > "${TESTDIR}/restore.sh"
+    if ! grep -q '_sessions_state=' "${TESTDIR}/restore.sh"; then
+        fail "do_selinux_restore does not take the live-session reading this check splits on"
+    else
+        found="$(find_early_account_walks "${TESTDIR}/restore.sh")"
+        [[ -z "${found}" ]] && pass "do_selinux_restore walks only root-owned trees ahead of the live-session reading" \
+            || fail "do_selinux_restore walks a tree the account can write ahead of the reading: $(_san "${found}")"
+    fi
+fi
+
 finish

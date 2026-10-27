@@ -818,23 +818,25 @@ do_selinux_restore() {
         /usr/local/libexec/ai-tools/ \
         /usr/local/lib/ai-tools/ \
         /opt/ai-tools/bin/ \
-        /opt/ai-tools/.config/ \
         /var/log/ai-tools/
     # Each agent's config directory is labelled from the rule its own manifest declares, applied
     # by ai-tools-relabel-agent after this; restore what is already mapped. The sandbox account writes inside each one,
     # and restorecon walks by path, so the walk runs only while no process of that account is live (cli.rule.md);
-    # the state is read in a child shell, so the checkout's libraries do not load into this one.
+    # the state is read in a child shell, so the checkout's libraries do not load into this one. /opt/ai-tools/.config
+    # takes the same gate: it is root-owned and its systemd/user chain is a layout row at that owner, but a descendant
+    # an older install left sandbox-owned is a tree the account can write.
     local _cfg _sessions_state
     # shellcheck disable=SC2016  # $1 and $2 are the inner shell's positionals
     _sessions_state="$(bash -c '. "$1" && ai_tools_sessions__read_live_session_state_for_uid "$2"' _ \
         "${SCRIPT_DIR}/src/usr/local/lib/ai-tools/sessions.lib.sh" "$(id -u "${SANDBOX_USER}" 2>/dev/null)" \
         2>/dev/null || true)"
     if [[ "${_sessions_state}" == none ]]; then
+        [[ -d /opt/ai-tools/.config ]] && restorecon -R /opt/ai-tools/.config/
         while IFS=$'\t' read -r _ _cfg; do
             [[ -d "${_cfg}" ]] && restorecon -R "${_cfg}"
         done < <(ai_tools_control_plane__list_agent_config_dirs)
     else
-        warn MSG-D6A5 "left the labels on the agents' config directories as they were: an agent session or the toolchain update runs as ${SANDBOX_USER}, or this host's sessions could not be read; let each session end (/exit inside it) and the toolchain update finish, or end them all with 'sudo ai-tools stop', then run: sudo systemctl start ai-tools-relabel.service"
+        warn MSG-D6A5 "left the labels on /opt/ai-tools/.config and the agents' config directories as they were: an agent session or the toolchain update runs as ${SANDBOX_USER}, or this host's sessions could not be read; let each session end (/exit inside it) and the toolchain update finish, or end them all with 'sudo ai-tools stop', then run: sudo restorecon -R /opt/ai-tools/.config/ && sudo systemctl start ai-tools-relabel.service"
     fi
     restorecon \
         /usr/local/bin/ai-tools-launch \

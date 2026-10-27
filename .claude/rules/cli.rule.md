@@ -1144,12 +1144,13 @@ Where each walk takes the gate:
   the config directory as `skipped live-session`, which `ai-tools status` renders with the `ai-tools-relabel.service`
   start that completes it, and labels the entrypoint as it otherwise would: that write is per path, not a walk.
 - The selinux `%post` restores the root-owned trees unconditionally and `/opt/ai-tools` and the clone area behind
-  the reading, with one WARNING naming the `restorecon` to run when it skips; `install.sh` does the same for the agent
-  config directories, and `selinux/install-selinux.sh` for every tree the account can write that its actions walk,
-  the toolchain, the home state, the clones and the projects its removal restores, reading the account
-  through the installed `sandbox-exec.lib.sh`; its `remove` refuses before its first policy-store write while
-  the reading is not idle, since the module unload fails on a project rule the gate left in place. `ai-tools-admin`'s
-  clone restore after a group change, and `ai-tools-unclaim --unlisted`'s label reset, warn the same way.
+  the reading, with one WARNING naming the `restorecon` to run when it skips; `install.sh` does the same
+  for `/opt/ai-tools/.config` and the agent config directories, and `selinux/install-selinux.sh` for every tree
+  the account can write that its actions walk, the toolchain, the home state, the clones and the projects its removal
+  restores, reading the account through the installed `sandbox-exec.lib.sh`; its `remove` refuses before its first
+  policy-store write while the reading is not idle, since the module unload fails on a project rule the gate left
+  in place. `ai-tools-admin`'s clone restore after a group change, and `ai-tools-unclaim --unlisted`'s label reset, warn
+  the same way.
 - `projects claim` reads the state unprivileged when its label step is pending and names a live session in the Review
   block, ahead of the first `sudo`. The notice does not ask anything; the helper's refusal decides.
 - A clone is labelled while it is still private, ahead of `normalize_clone`, so its walk does not cross a directory
