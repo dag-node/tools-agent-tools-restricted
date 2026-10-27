@@ -15,7 +15,10 @@
 # otherwise.
 #
 # The ACL tools check, require_acl_tools, is driven the same way under a PATH without the tools, and do_install's text
-# is read for the call's place ahead of the first write.
+# is read for the call's place ahead of the first write. ensure_dir is driven over fixtures: a name that is not
+# a directory is refused with the link's target untouched, beside `install -d` following the link as the control;
+# and do_install's text is read for the home, then bin, brought to their rows ahead of the first file written
+# under them.
 #
 # No install and no command of install.sh's but the extracted functions. Skips outside a checkout.
 
@@ -325,6 +328,103 @@ if call_precedes_first_write "${INSTALLER}"; then
     pass "do_install refuses a host without the ACL tools ahead of its first write"
 else
     fail "do_install does not call require_acl_tools ahead of its install log's directory"
+fi
+
+# ── ensure_dir sets an owner and a mode on a directory alone ─────────────────────────────────────
+# `install -d`, chown and chmod each follow a symlink at the name, so ensure_dir reads the name first and refuses one
+# that exists and is not a directory. It is driven extracted with the real die, over fixtures the test owns
+# at the test's own owner and group; the control is `install -d` itself over a symlink, which changes the mode
+# of the link's target.
+section "install.sh: ensure_dir refuses a name that is not a directory (unit)"
+ensure_text=""
+for name in die ensure_dir; do
+    body="$(extract_function "${INSTALLER}" "${name}")"
+    if [[ -z "${body}" ]]; then
+        fail "install.sh does not define ${name}() in the form this file reads"
+        ensure_text=""; break
+    fi
+    ensure_text+="${body}"$'\n'
+done
+if [[ -n "${ensure_text}" ]]; then
+    fixture_owner="$(stat -c '%U' "${TESTDIR}")"; fixture_group="$(stat -c '%G' "${TESTDIR}")"
+    # ensure_run <mode> <dir> : ensure_dir out of install.sh, under the IFS install.sh sets, with log a no-op.
+    # shellcheck disable=SC2016  # the inner shell expands these, not this one
+    ensure_run() {
+        env -i PATH=/usr/bin:/bin "${BASH}" -c '
+            set -euo pipefail
+            C_RED="" C_RST=""
+            log() { :; }
+            eval "$1"
+            IFS=$'"'"'\n\t'"'"'
+            ensure_dir "$2" "$3" "$4" "$5"
+            printf "returned\n"
+        ' _ "${ensure_text}" "$1" "${fixture_owner}" "${fixture_group}" "$2" 2>&1
+    }
+    mkdir -m 0755 "${TESTDIR}/target" "${TESTDIR}/home"
+    ln -s "${TESTDIR}/target" "${TESTDIR}/home/link"
+    install -d -m 0551 "${TESTDIR}/home/link"
+    if [[ "$(stat -c '%a' "${TESTDIR}/target")" == 551 ]]; then
+        pass "install -d over a symlink changes the mode of the link's target (control)"
+    else
+        fail "control: install -d over a symlink left the target at $(stat -c '%a' "${TESTDIR}/target"), so the refusal below guards against a write this host does not make"
+    fi
+    chmod 0755 "${TESTDIR}/target"
+    rc=0; out="$(ensure_run 0551 "${TESTDIR}/home/link")" || rc=$?
+    assert_msg MSG-W4A2 "${out}" "a symlink at the name is refused"
+    if (( rc != 0 )) && [[ "$(stat -c '%a' "${TESTDIR}/target")" == 755 ]]; then
+        pass "the refusal exits non-zero and the link's target keeps its mode"
+    else
+        fail "a symlink at the name (exit ${rc}, target now $(stat -c '%a' "${TESTDIR}/target")): ${out//$'\n'/ | }"
+    fi
+    : > "${TESTDIR}/home/file"
+    rc=0; out="$(ensure_run 0551 "${TESTDIR}/home/file")" || rc=$?
+    assert_msg MSG-W4A2 "${out}" "a regular file at the name is refused"
+    chmod 0700 "${TESTDIR}/target"
+    rc=0; out="$(ensure_run 0551 "${TESTDIR}/target")" || rc=$?
+    if (( rc == 0 )) && [[ "${out}" == returned && "$(stat -c '%a' "${TESTDIR}/target")" == 551 ]]; then
+        pass "an existing directory is brought to the mode"
+    else
+        fail "an existing directory (exit ${rc}, mode $(stat -c '%a' "${TESTDIR}/target")): ${out//$'\n'/ | }"
+    fi
+    rc=0; out="$(ensure_run 0551 "${TESTDIR}/home/new")" || rc=$?
+    if (( rc == 0 )) && [[ -d "${TESTDIR}/home/new" && "$(stat -c '%a' "${TESTDIR}/home/new")" == 551 ]]; then
+        pass "a missing directory is created at the mode"
+    else
+        fail "a missing directory (exit ${rc}): ${out//$'\n'/ | }"
+    fi
+    chmod -R u+rwx "${TESTDIR}/target" "${TESTDIR}/home"
+fi
+
+# ── the sandbox home, then bin, ahead of the first file written into bin ─────────────────────────
+# useradd leaves the home the account's, so a name under it is the account's to place until the home is root-owned
+# without group write; and the RPM owns /opt/ai-tools/bin and an erase removes it once empty, so a source install
+# over a host that left the packages does not find the directory, and `install` of a file into an absent one fails.
+# do_install's text is read for the order: the home's ensure_dir, then bin's, then the first `install` into bin, beside
+# a control with the three inverted.
+section "install.sh: the home, then bin, are brought to their rows ahead of the first file under them (unit)"
+# home_then_bin_precede_first_file <file> : succeed when do_install's ensure_dir of /opt/ai-tools comes before its
+# ensure_dir of /opt/ai-tools/bin, which comes before its first `install` or install_subst of a file under bin.
+home_then_bin_precede_first_file() {
+    local lines home_line dir_line file_line
+    lines="$(extract_function "$1" do_install | code_lines /dev/stdin)"
+    home_line="$(grep -E '^[0-9]+:[[:space:]]*ensure_dir .* /opt/ai-tools$' <<<"${lines}" | head -n 1 | cut -d: -f1)"
+    dir_line="$(grep -E '^[0-9]+:[[:space:]]*ensure_dir .* /opt/ai-tools/bin$' <<<"${lines}" | head -n 1 | cut -d: -f1)"
+    file_line="$(grep -E '^[0-9]+:[[:space:]]*install(_subst)? .* /opt/ai-tools/bin/' <<<"${lines}" | head -n 1 | cut -d: -f1)"
+    [[ -n "${home_line}" && -n "${dir_line}" && -n "${file_line}" ]] \
+        && (( home_line < dir_line )) && (( dir_line < file_line ))
+}
+printf '%s\n' 'do_install() {' '    install -o root -g ai-tools -m 550 \' '        src/nvm-update.sh /opt/ai-tools/bin/nvm-update.sh' \
+    '    ensure_dir 0551 root ai-tools /opt/ai-tools/bin' '    ensure_dir 2751 root ai-tools /opt/ai-tools' '}' \
+    > "${TESTDIR}/bin-order-control.sh"
+if home_then_bin_precede_first_file "${TESTDIR}/bin-order-control.sh"; then
+    fail "control: the reader accepts the home and bin brought to their rows after the first file, so the check below cannot fail"
+else
+    pass "the reader flags the home and bin brought to their rows after the first file (control)"
+fi
+if home_then_bin_precede_first_file "${INSTALLER}"; then
+    pass "do_install brings the home, then bin, to their rows ahead of the first file it writes under them"
+else
+    fail "do_install does not bring /opt/ai-tools, then /opt/ai-tools/bin, to their rows ahead of its first install into bin"
 fi
 
 finish

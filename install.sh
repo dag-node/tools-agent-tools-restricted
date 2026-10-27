@@ -598,8 +598,18 @@ report_ask_gaps() {
 # tests/integration/perms.sh asserts, whatever the tree came with. The mode is applied again as a five-digit octal
 # (00755), the one numeric form chmod clears a directory's setuid, setgid and sticky bits with: a directory
 # under a setgid parent inherits the bit at creation, and `install -d -m` and a four-digit chmod both leave it set.
+#
+# A name that exists and is not a directory is refused: `install -d` accepts an existing entry and follows a symlink
+# to a directory, as the chown and the chmod do, so a link planted at the name would hand the owner and mode
+# to the inode its planter chose (layout.rule.md states the same for the reconcile's exclusive create). The read
+# decides, since every call names a directory under a parent root or the operator owns: the sandbox home is brought
+# to its root-owned mode ahead of the first name created under it, so the account cannot place or swap an entry there
+# between the read and the write.
 ensure_dir() {
     local mode="$1" owner="$2" group="$3" dir="$4" before="absent" after
+    if [[ -L "${dir}" || ( -e "${dir}" && ! -d "${dir}" ) ]]; then
+        die MSG-W4A2 "the name ${dir} exists and is not a directory, so the install does not set an owner or a mode through it -- move the entry aside and re-run: sudo ./install.sh install"
+    fi
     [[ -d "${dir}" ]] && before="$(stat -c '%a %U:%G' "${dir}")"
     install -d -o "${owner}" -g "${group}" -m "${mode}" "${dir}"
     chmod "$(printf '%05o' "$(( 8#${mode} ))")" "${dir}"
@@ -2377,9 +2387,18 @@ do_install() {
 
     # The control plane is owned root:ai-tools: root owns the locked control files while the agent (which runs
     # AS ai-tools) reaches them through group ai-tools. The home and bin dirs' owner and boundary modes (home 2751, bin
-    # 0551, .claude 3770) are asserted at the END of this section from the constants in control-plane.lib.sh, so the dev
-    # install and the spec %files declare the same boundary. Files land with their explicit owner/group and content
-    # modes, and .claude is created up front so the hooks can land in it.
+    # 0551, .claude 3770) come from the constants in control-plane.lib.sh, so the dev install and the spec %files
+    # declare the same boundary. The home root goes FIRST: useradd leaves it the account's, and a name under a directory
+    # the account can write is one it can place or swap, so the home is brought to root:ai-tools without group write
+    # before any entry is created or written under it (the layout reconcile holds the same rule for its rows,
+    # layout.rule.md). Every directory is then created ahead of the first file placed in it, bin here and each agent's
+    # config directory in the agent layer of this section; the RPM owns bin as a directory of its own and an erase
+    # removes it once empty, so a host that leaves the packages has none. The modes are re-asserted at the END of this
+    # section.
+    log "/opt/ai-tools/"
+    ensure_dir "${CP_HOME_MODE}" root "${SANDBOX_GROUP}" /opt/ai-tools
+    log "/opt/ai-tools/bin/"
+    ensure_dir "${CP_DIR_MODES[bin]}" root "${SANDBOX_GROUP}" /opt/ai-tools/bin
 
     # Control-plane files are owned root, group ai-tools: the agent gets group read/exec but can never write them, so it
     # cannot rewrite its own updater, hook, or hook config.
@@ -2525,10 +2544,10 @@ do_install() {
         seed_result "${_gitignore}" "${_gitignore_existed}" 0
     fi
 
-    # Assert the control-plane home and dir boundary modes from the shared constants: the home is owned root:ai-tools
-    # with the o+x search bit and setgid (CP_HOME_MODE), bin is locked, and every agent's config directory is
-    # setgid+sticky. The agent reaches the tree through group ai-tools; root owns the locked control files so the agent
-    # cannot replace them.
+    # Re-assert the control-plane home and dir boundary modes from the shared constants after every write of this
+    # section: the home is owned root:ai-tools with the o+x search bit and setgid (CP_HOME_MODE), bin is locked,
+    # and every agent's config directory is setgid+sticky. The agent reaches the tree through group ai-tools; root owns
+    # the locked control files so the agent cannot replace them.
     section "Control-plane assertions"
     log "ownership and boundary modes (root:${SANDBOX_GROUP})"
     chown "root:${SANDBOX_GROUP}" /opt/ai-tools /opt/ai-tools/bin
