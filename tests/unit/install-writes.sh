@@ -14,7 +14,10 @@
 # under AI_TOOLS_LAYOUT_ROOT. A file at its row needs a root-owned fixture, so that half runs as root and skips
 # otherwise.
 #
-# No install and no command of install.sh's but the extracted function. Skips outside a checkout.
+# The ACL tools check, require_acl_tools, is driven the same way under a PATH without the tools, and do_install's text
+# is read for the call's place ahead of the first write.
+#
+# No install and no command of install.sh's but the extracted functions. Skips outside a checkout.
 
 set -euo pipefail
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")/../lib" && pwd)/harness.sh"
@@ -246,6 +249,82 @@ else
         [[ -z "${found}" ]] && pass "do_selinux_restore walks only root-owned trees ahead of the live-session reading" \
             || fail "do_selinux_restore walks a tree the account can write ahead of the reading: $(_san "${found}")"
     fi
+fi
+
+# ── a source install requires the ACL tools ──────────────────────────────────────────────────
+# Every grant the ownership model makes is a POSIX ACL, so the install refuses a host without setfacl and getfacl,
+# and does so ahead of its first write. require_acl_tools is driven out of install.sh as text with the real die,
+# under a PATH holding neither tool; a shell function named for a tool answers `command -v` as a binary would,
+# which stands for an installed tool without needing an executable fixture. Then do_install's text is read
+# for the call's place: beside the account check, ahead of the install log's directory, the first path the install
+# creates.
+section "install.sh: a source install refuses a host without the ACL tools (unit)"
+acl_text=""
+for name in die require_acl_tools; do
+    body="$(extract_function "${INSTALLER}" "${name}")"
+    if [[ -z "${body}" ]]; then
+        fail "install.sh does not define ${name}() in the form this file reads"
+        acl_text=""; break
+    fi
+    acl_text+="${body}"$'\n'
+done
+if [[ -n "${acl_text}" ]]; then
+    # acl_run <tool-functions> : require_acl_tools under an empty PATH with the named tools defined as functions, run
+    #   under the IFS install.sh sets.
+    # shellcheck disable=SC2016  # the inner shell expands these, not this one
+    acl_run() {
+        env -i PATH="${TESTDIR}/no-bin" "${BASH}" -c '
+            set -euo pipefail
+            C_RED="" C_RST=""
+            eval "$1"
+            for tool in $2; do eval "${tool}() { :; }"; done
+            IFS=$'"'"'\n\t'"'"'
+            require_acl_tools
+            printf "returned\n"
+        ' _ "${acl_text}" "$1" 2>&1
+    }
+    mkdir -p "${TESTDIR}/no-bin"
+    rc=0; out="$(acl_run "setfacl getfacl")" || rc=$?
+    if (( rc == 0 )) && [[ "${out}" == returned ]]; then
+        pass "with both tools present the check passes (control)"
+    else
+        fail "with both tools present the check exited ${rc}: ${out//$'\n'/ | }"
+    fi
+    rc=0; out="$(acl_run "")" || rc=$?
+    assert_msg MSG-Q7E7 "${out}" "with neither tool the install is refused"
+    if (( rc != 0 )) && [[ "${out}" == *"(setfacl and getfacl not found)"* && "${out}" == *"dnf install acl"* ]]; then
+        pass "the refusal exits non-zero, names both tools and the acl package"
+    else
+        fail "the refusal with neither tool (exit ${rc}): ${out//$'\n'/ | }"
+    fi
+    rc=0; out="$(acl_run "setfacl")" || rc=$?
+    if (( rc != 0 )) && [[ "${out}" == *"(getfacl not found)"* ]]; then
+        pass "with getfacl alone missing the refusal names it alone"
+    else
+        fail "the refusal with getfacl missing (exit ${rc}): ${out//$'\n'/ | }"
+    fi
+fi
+
+# call_precedes_first_write <file> : succeed when do_install's require_acl_tools call comes before its first
+# `install -d` of /var/log/ai-tools, the first path the install creates.
+call_precedes_first_write() {
+    local body call_line write_line
+    body="$(extract_function "$1" do_install)"
+    call_line="$(grep -n -m1 -E '^[[:space:]]+require_acl_tools$' <<<"${body}" | cut -d: -f1 || true)"
+    write_line="$(grep -n -m1 -E '^[[:space:]]+install -d .*/var/log/ai-tools' <<<"${body}" | cut -d: -f1 || true)"
+    [[ -n "${call_line}" && -n "${write_line}" ]] && (( call_line < write_line ))
+}
+printf '%s\n' 'do_install() {' '    install -d -o root -g root -m 700 /var/log/ai-tools' '    require_acl_tools' '}' \
+    > "${TESTDIR}/acl-order-control.sh"
+if call_precedes_first_write "${TESTDIR}/acl-order-control.sh"; then
+    fail "control: the reader accepts a check placed after the first write, so the check below cannot fail"
+else
+    pass "the reader flags a check placed after the first write (control)"
+fi
+if call_precedes_first_write "${INSTALLER}"; then
+    pass "do_install refuses a host without the ACL tools ahead of its first write"
+else
+    fail "do_install does not call require_acl_tools ahead of its install log's directory"
 fi
 
 finish

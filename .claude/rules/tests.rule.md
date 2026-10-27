@@ -722,8 +722,11 @@ carrying the form it must find first. The keep decision, `read_settings_keep_ref
 and run over a fixture tree through the checkout's layout library under `AI_TOOLS_LAYOUT_ROOT`: a file at another owner,
 a symlink, and a file the layout does not list are refused, unprivileged; a `root:SANDBOX_GROUP 0640` file is kept,
 and the same file group-writable, with a named ACL entry, or hardlinked is refused, as root, the half that skips
-otherwise. It closes on `do_selinux_restore`, read the same way: every `restorecon -R` ahead of the live-session reading
-names a root-owned tree, beside a control that walks `/opt/ai-tools/.config` there.
+otherwise. It reads `do_selinux_restore` the same way: every `restorecon -R` ahead of the live-session reading names
+a root-owned tree, beside a control that walks `/opt/ai-tools/.config` there. It closes on the ACL tools a source
+install requires: `require_acl_tools`, extracted, refuses under its code with either tool absent from `PATH` and passes
+with both present, the control, and `do_install` calls it ahead of its first write, beside a control placing the call
+after it.
 
 `install-selinux-walks.sh` runs `selinux/install-selinux.sh`'s account-writable walks, extracted as text, under each
 live-session reading with `restorecon` recorded, `none` first as the recorder's control: `live` and `unreadable` walk no

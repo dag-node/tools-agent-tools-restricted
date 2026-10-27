@@ -2198,8 +2198,8 @@ WARNING.
 SELinux is inactive \-\- the agent runs DAC\-only (no ai_tools_t domain). DAC\-only
 .TP
 .B MSG-Q7E7
-WARNING.
-setfacl unavailable \-\- operators need ${SANDBOX_GROUP} membership for sandbox\-create
+ERROR.
+the ACL tools are missing (${missing} not found) \-\- every grant the ownership model makes is a POSIX ACL, so install the acl package first: dnf install acl
 .TP
 .B MSG-Q8T8
 WARNING.

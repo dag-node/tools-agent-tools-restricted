@@ -31,6 +31,7 @@
 # idempotent command):
 #   - ai-tools OS user created at /opt/ai-tools  (README step 2)
 #   - nvm + Node v22 + claude installed as ai-tools  (README step 3)
+#   - the acl package (setfacl, getfacl), which the RPM requires; the install refuses without it
 
 set -euo pipefail
 IFS=$'\n\t'
@@ -1304,9 +1305,23 @@ probe_shadowing_agents() {
 # restore SELinux contexts, offer the optional SELinux bring-up, and -- if confirmed at the end -- run
 # the installed-files summary and the test suite (which includes the permissions check). Aborts if the sandbox user is
 # absent.
+# require_acl_tools -- refuse a host without setfacl and getfacl, ahead of the install's first write. Every grant
+# the ownership model makes is a POSIX ACL -- a claim's two entries, the clone area's g:ai-ops entries, a clone's
+# private create -- so a host without the tools does not hold the model. The RPM states the same requirement
+# as Requires: acl.
+require_acl_tools() {
+    local tool missing=""
+    for tool in setfacl getfacl; do
+        command -v "${tool}" >/dev/null 2>&1 || missing+="${missing:+ and }${tool}"
+    done
+    [[ -z "${missing}" ]] && return 0
+    die MSG-Q7E7 "the ACL tools are missing (${missing} not found) -- every grant the ownership model makes is a POSIX ACL, so install the acl package first: dnf install acl"
+}
+
 do_install() {
     id "${SANDBOX_USER}" &>/dev/null \
         || die MSG-R6Y6 "sandbox account ${SANDBOX_USER} not found -- create it first (README step 2)"
+    require_acl_tools
 
     print_banner
     say "  projects user : ${PROJECTS_USER} (${PROJECTS_HOME})"
@@ -2191,18 +2206,15 @@ do_install() {
     # (idempotent).
     log "ai-ops ACL on the sandbox area"
     getent group ai-ops >/dev/null 2>&1 || groupadd -r ai-ops
-    if command -v setfacl >/dev/null 2>&1; then
-        setfacl -m g:ai-ops:r-x /var/opt/ai-tools
-        setfacl -m g:ai-ops:rwx /var/opt/ai-tools/sandbox-projects
-        setfacl -d -m g:ai-ops:rwX /var/opt/ai-tools/sandbox-projects
-        setfacl -m g:ai-ops:r-- /var/opt/ai-tools/README.md
-        # Traverse only on the state dir: operators read the stamps inside (whose own group is ai-ops), never write
-        # there. What the mode buys is scope, not integrity -- a stamp's CONTENT is written by the sandbox account
-        # and trusted accordingly (services.lib.sh).
-        setfacl -m g:ai-ops:r-x /var/opt/ai-tools/state
-    else
-        warn MSG-Q7E7 "setfacl unavailable -- operators need ${SANDBOX_GROUP} membership for sandbox-create"
-    fi
+    # setfacl is present: require_acl_tools refused the install without it.
+    setfacl -m g:ai-ops:r-x /var/opt/ai-tools
+    setfacl -m g:ai-ops:rwx /var/opt/ai-tools/sandbox-projects
+    setfacl -d -m g:ai-ops:rwX /var/opt/ai-tools/sandbox-projects
+    setfacl -m g:ai-ops:r-- /var/opt/ai-tools/README.md
+    # Traverse only on the state dir: operators read the stamps inside (whose own group is ai-ops), never write there.
+    # What the mode buys is scope, not integrity -- a stamp's CONTENT is written by the sandbox account and trusted
+    # accordingly (services.lib.sh).
+    setfacl -m g:ai-ops:r-x /var/opt/ai-tools/state
 
     # Operation-log directory for the root helpers. Dir 700 root:root, each file 600 root:root -- the helpers append
     # as root; ai-tools cannot read or tamper with the trail (secret filenames recorded by ai-tools-chown are not

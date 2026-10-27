@@ -197,7 +197,10 @@ and 3 first** — the account must exist (else the script stops
 with `ai-tools user not found`) and `/opt/ai-tools/bin` must exist (step 3
 creates it; the script writes `nvm-update.sh` into it).
 `sudo ai-tools-admin system bootstrap` does both in one idempotent command.
-Then run `sudo ./install.sh install`.
+The host also needs the `acl` package, which the RPM requires: every grant
+a claim and a clone make is a POSIX ACL, so the script stops before it writes
+anything where `setfacl` or `getfacl` is missing (`sudo dnf install acl`). Then
+run `sudo ./install.sh install`.
 
 The script asks which account to enrol as the operator, offering the invoking
 `SUDO_USER` as the default — answer No to name another. A non-interactive run
