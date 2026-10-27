@@ -1972,6 +1972,10 @@ incomplete package for ${subject}: its launcher resolves to
 ERROR.
 selinux: cannot source required library ${1}
 .TP
+.B MSG-H7Q2
+ERROR.
+left the policy loaded: an agent session or the toolchain update runs as the sandbox account, or this host's sessions could not be read; let each session end (/exit inside it) and the toolchain update finish, or end them all with 'sudo ai\-tools stop', then re\-run: sudo $0 remove
+.TP
 .B MSG-J7J5
 ERROR.
 compiled module ${pp} was built for policy module version ${reading%% *}, and this host reads ${reading#* }: semodule refuses it. Install the toolchain and recompile it here: sudo dnf install selinux\-policy\-devel && sudo $0 rebuild
@@ -2023,6 +2027,10 @@ no path to label for ${subject}: ${detail} is not installed
 .B MSG-S5E4
 WARNING.
 could not label $1 \-\- is the ai_tools module loaded?
+.TP
+.B MSG-S7C2
+WARNING.
+left the label on ${1}'s config directory as it was \-\- the closing warning names the walk to run
 .TP
 .B MSG-S9J3
 WARNING.

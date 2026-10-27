@@ -578,6 +578,16 @@ _restore_account_tree() {
         _left_trees+=("$1")
     fi
 }
+# _note_left_agent_config <agent>: record <agent>'s config directory for the closing warning, after the library left its
+# walk (a `live` line, or status 3 from the unlabel). The path is the manifest's config_dir under CP_HOME, the one
+# the library walks; an agent whose manifest does not name one is warned about by name alone.
+_note_left_agent_config() {
+    local config_dir
+    warn MSG-S7C2 "left the label on ${1}'s config directory as it was -- the closing warning names the walk to run"
+    config_dir="$(ai_tools_providers__read_agent_manifest_field "$1" config_dir 2>/dev/null || true)"
+    [[ -n "${config_dir}" ]] && _left_trees+=("${CP_HOME}/${config_dir}")
+    return 0
+}
 # _report_left_trees: the run's EXIT trap, so a run that ends in a die still names what it left.
 _report_left_trees() {
     (( ${#_left_trees[@]} )) || return 0
@@ -618,7 +628,7 @@ _locked() {
 # types.
 _labels_apply() { verify_agent_labels; _label_conf; for_each_project _label_one; }
 _labels_drop() {
-    local manifest agent
+    local manifest agent rc
     for_each_project _unlabel_one
     _unlabel_conf
     # The agents' path rules are local fcontexts naming types the module unload removes. Dropped for EVERY installed
@@ -627,8 +637,12 @@ _labels_drop() {
     for manifest in /usr/local/lib/ai-tools/agents.d/*.conf; do
         [[ -e "${manifest}" ]] || continue
         agent="${manifest##*/}"; agent="${agent%.conf}"
-        ai_tools_relabel__unlabel_agent_paths "${agent}" \
-            || log "  ${agent}: no file-context rules to drop"
+        rc=0; ai_tools_relabel__unlabel_agent_paths "${agent}" || rc=$?
+        case "${rc}" in
+            0) ;;
+            3) _note_left_agent_config "${agent}" ;;
+            *) log "  ${agent}: no file-context rules to drop" ;;
+        esac
     done
 }
 
@@ -698,6 +712,9 @@ verify_agent_labels() {
                       warn "    -- and no installed file matches the entrypoint its manifest declares"
                       warn "    Reinstall it: sudo ai-tools-admin system bootstrap" ;;
                 none) warn MSG-S4K9 "no path to label for ${subject}: ${detail} is not installed" ;;
+                # The config directory's walk was left because a process of the sandbox account is live. Not `bad`:
+                # the rule is registered, and the closing warning names the walk that completes it.
+                live) _note_left_agent_config "${subject}" ;;
                 skip) warn MSG-S9J3 "labelling skipped for ${subject} -- ${detail} ${wanted}" ;;
                 # The per-agent verdict closing that agent's lines: `ok` and `none` restate the per-path arms, so only
                 # `failed` prints, naming the agent those lines omit.
@@ -789,11 +806,17 @@ _warn_live_session() {
 # the WRONG type -- e.g. a module loaded before the clone rule was carried under both /opt and /var/opt, on a host
 # whose file_contexts.subs_dist does not alias one to the other -- so each clone's achieved label is checked
 # and a mismatch warns rather than passing silently. Best-effort and SELinux-gated like the rest of the sweep: on a host
-# without SELinux the restorecon no-ops and the verify/report is skipped.
+# without SELinux the restorecon no-ops and the verify/report is skipped, and so it is where the live-session reading
+# left the walk.
 _label_sandbox_clones() {
     [[ -d "${SANDBOX_PROJECTS}" ]] || return 0
     _restore_account_tree "${SANDBOX_PROJECTS}"
     ai_tools_relabel__is_available || return 0
+    # A walk the reading left is not verified: a clone's type then says what an earlier walk gave it.
+    if [[ "${_sessions_state}" != none ]]; then
+        log "sandbox clone labels were not re-applied this run -- the clone area is in the closing warning"
+        return 0
+    fi
     local clone
     for clone in "${SANDBOX_PROJECTS}"/*/; do
         [[ -d "${clone}" ]] || continue           # no clones: the glob stays literal, -d fails
@@ -1047,6 +1070,11 @@ case "${ACTION}" in
 
   remove)
     section "Removing SELinux confinement"
+    # Refused before the first store write while the reading is not `none`. The project unlabel leaves a project's local
+    # fcontext rule in place under the gate, and `semodule -r` validates the local rules against the policy it leaves,
+    # so the unload would fail on that rule's type; the run would then report a removal over a loaded module.
+    [[ "${_sessions_state}" == none ]] \
+        || die MSG-H7Q2 "left the policy loaded: an agent session or the toolchain update runs as the sandbox account, or this host's sessions could not be read; let each session end (/exit inside it) and the toolchain update finish, or end them all with 'sudo ai-tools stop', then re-run: sudo $0 remove"
     log "dropping project fcontext rules"
     _locked _labels_drop
     log "unloading all ai_tools* modules"

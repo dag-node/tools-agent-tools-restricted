@@ -10,7 +10,9 @@
 # to each of `live`, `unreadable` and `none`. _home_state names /opt/ai-tools in its body, which the case rewrites
 # to a fixture root, so no host path is read. The script's text is then read for the two properties a function cannot
 # show: the installed sandbox-exec.lib.sh is sourced ahead of the relabel library, and every restorecon outside the gate
-# names a root-owned tree, held against a control line the reader must flag.
+# names a root-owned tree, held against a control line the reader must flag, and the remove action reads
+# the live-session state ahead of its first policy-store write. verify_agent_labels is driven over a stubbed library
+# line for a config directory whose walk was left.
 #
 # Unprivileged, and reads the checkout alone; skips outside one.
 
@@ -51,7 +53,7 @@ run_walks() {
         eval "$1"
         C_YEL="" C_RST="" C_GRN=""
         restorecon() { printf "%s\n" "$*" >> "${stub_testdir}/recorder"; }
-        ok() { :; }
+        ok() { :; }; log() { :; }
         ai_tools_relabel__is_available() { return 0; }
         ai_tools_relabel__is_project_labelled() { printf "%s\n" "$1" >> "${stub_testdir}/verified"; }
         stub_testdir="$2"
@@ -79,6 +81,9 @@ done
     || fail "none: not walked:${missing} (recorded: $(tr '\n' ';' <"${TESTDIR}/recorder"))"
 grep -q '^MSG-U8U4$' "${TESTDIR}/warnings" && fail "none: the left-trees warning was printed" \
     || pass "none: no tree is reported left"
+grep -qxF "${TESTDIR}/clones/acme-clone" "${TESTDIR}/verified" \
+    && pass "none: the clone verify loop reads each clone (the control for the cases after it)" \
+    || fail "none: the clone verify loop did not run"
 
 for state in live unreadable; do
     run_walks "${state}"
@@ -98,13 +103,54 @@ for state in live unreadable; do
     grep -qF "${TESTDIR}/home/.absent" <<<"${warnings}" \
         && fail "${state}: the warning names a path that does not exist" \
         || pass "${state}: a path that does not exist is not named"
-    grep -qxF "${TESTDIR}/clones/acme-clone" "${TESTDIR}/verified" \
-        && pass "${state}: the clone verify loop still reads each clone" \
-        || fail "${state}: the clone verify loop did not run"
+    if [[ -s "${TESTDIR}/verified" ]]; then
+        fail "${state}: the clone verify loop reported a walk it left: $(tr '\n' ';' <"${TESTDIR}/verified")"
+    else
+        pass "${state}: the clone verify loop does not run over a walk it left"
+    fi
 done
 grep -qF 'sudo ./install.sh install' <<<"${warnings}" \
     && pass "unreadable: the warning names the install that deploys the library the reading needs" \
     || fail "unreadable: the warning does not name sudo ./install.sh install: ${warnings}"
+
+# ── verify_agent_labels: a config directory's walk left under a live session ───────────────────
+# The relabel library prints `live <agent> its config directory` when it left that walk. The renderer must name it
+# under its own code and list the directory with the trees the run left, and must not read it as an unrecognized result,
+# which would report an unconfirmed entrypoint. The library is stubbed to print that line and the closing per-agent
+# verdict, and the manifest reader to name the config directory.
+section "install-selinux.sh: a config directory walk the reading left is reported as left (unit)"
+agent_text=""
+for name in warn _note_left_agent_config _report_left_trees verify_agent_labels; do
+    body="$(extract_function "${INSTALLER}" "${name}")"
+    if [[ -z "${body}" ]]; then
+        fail "install-selinux.sh does not define ${name}() in the form this file reads"
+        finish; exit
+    fi
+    agent_text+="${body}"$'\n'
+done
+# shellcheck disable=SC2016  # the inner shell expands these, not this one
+agent_warnings="$(bash -c '
+    set -euo pipefail
+    eval "$1"
+    C_YEL="" C_RST="" C_GRN=""
+    ok() { :; }; log() { :; }
+    die() { printf "DIED %s\n" "$*" >&2; exit 1; }
+    ai_tools_relabel__label_agent_paths() { printf "%s\n" "live acme its config directory" "agent acme live-session"; }
+    ai_tools_providers__read_agent_manifest_field() { [[ "$2" == config_dir ]] && printf ".acme\n"; }
+    CP_HOME="$2"; _sessions_state=live; _left_trees=()
+    SANDBOX_EXEC_LIB=/usr/local/lib/ai-tools/sandbox-exec.lib.sh
+    trap _report_left_trees EXIT
+    verify_agent_labels
+' _ "${agent_text}" "${TESTDIR}/home" 2>&1)" || true
+assert_msg MSG-S7C2 "${agent_warnings}" "live: the config directory's walk is named as left"
+grep -qF "sudo restorecon -FR ${TESTDIR}/home/.acme" <<<"${agent_warnings}" \
+    && pass "live: the config directory is in the closing list of trees left" \
+    || fail "live: the closing warning does not name ${TESTDIR}/home/.acme: ${agent_warnings//$'\n'/ | }"
+if grep -q '^MSG-K2W4$\|^DIED' <<<"${agent_warnings}"; then
+    fail "live: the left walk read as an unrecognized result or a failed install: ${agent_warnings//$'\n'/ | }"
+else
+    pass "live: the left walk is neither an unrecognized result nor a failure"
+fi
 
 # ── the script's text ─────────────────────────────────────────────────────────────────────────
 section "the installed library is read first, and no other walk crosses an account-writable tree"
@@ -142,5 +188,29 @@ fi
 found="$(ungated_walks "${INSTALLER}")"
 [[ -z "${found}" ]] && pass "every restorecon outside the gate names a root-owned tree" \
     || fail "a restorecon crosses a tree the gate does not cover: ${found//$'\n'/ | }"
+
+# remove_guard_order <file>: print `guarded` when the remove action reads the live-session state ahead of its first
+# store write (_labels_drop), and `unguarded` otherwise. The action is read from its `remove)` arm to the next `;;`.
+remove_guard_order() {
+    awk '
+        /^  remove\)/ { inside = 1; next }
+        inside && /^    ;;/ { exit }
+        inside && /_sessions_state/ && /== none/ && !dropped { guard = 1 }
+        inside && /_labels_drop/ { dropped = 1; print (guard ? "guarded" : "unguarded"); exit }
+    ' "$1"
+}
+printf '%s\n' '  remove)' '    _locked _labels_drop' '    [[ "${_sessions_state}" == none ]] || die x' '    ;;' \
+    > "${TESTDIR}/remove-control.sh"
+if [[ "$(remove_guard_order "${TESTDIR}/remove-control.sh")" == unguarded ]]; then
+    pass "the reader flags a remove whose guard follows its first store write (control)"
+else
+    fail "control: the reader does not flag a late guard -- the check below is vacuous"
+fi
+[[ "$(remove_guard_order "${INSTALLER}")" == guarded ]] \
+    && pass "remove refuses on a live-session reading before its first store write" \
+    || fail "remove does not read the live-session state ahead of _labels_drop"
+grep -qF 'die MSG-H7Q2' "${INSTALLER}" \
+    && pass "the remove refusal carries its code" \
+    || fail "the remove refusal does not carry MSG-H7Q2"
 
 finish
