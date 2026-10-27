@@ -820,7 +820,13 @@ deleted by hand. For
 .B "projects claim"
 it covers a SELinux label step refused while an agent session or the toolchain
 update runs as the sandbox account: the other steps applied, and a re-run once
-none runs applies the label.
+none runs applies the label. For
+.B "projects unclaim"
+it covers a label reversal refused for the same reason, or failed: the
+registries and the hand-back applied, and the printed command reverts the
+label. The same refusal stops
+.B "projects remove"
+before it changes anything, so the tree and its entries stay as they were.
 .TP
 .B 2
 The command line was rejected, before any helper or

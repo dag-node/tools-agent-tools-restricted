@@ -21,6 +21,9 @@
 #       sudo ai-tools-relabel --remove <dir>   # revert <dir> to its default type
 #       ```
 #
+# Exits 0 on success and where SELinux is inactive, 4 when the live-session gate left the tree as it was (a re-run
+# applies the step), 3 on a protected target, and 1 on every other refusal or failure.
+#
 # Installed 750 root:root, so only root runs it. Its domain rule is cli.rule.md.
 
 set -euo pipefail
@@ -54,13 +57,14 @@ fi
 
 # A leading message code (msg.lib.sh states the form) is printed on its own line ahead of the message, the shape
 # tests/lib/harness.sh's assert_msg reads, and carried into the log line. Matched inline: this helper does not load
-# the library.
+# the library. It exits DIE_STATUS, which die_live_session sets for the one refusal a caller re-runs.
+DIE_STATUS=1
 die() {
     local code=""
     if [[ "${1-}" =~ ^MSG-[A-Z][0-9][A-Z][0-9]$ ]]; then code="$1"; shift; fi
     ai_tools_log__coded error "${code}" "$*" "AI_TOOLS_RESULT=failed"
     [[ -z "${code}" ]] || printf '%s\n' "${code}" >&2
-    printf 'ai-tools-relabel: error: %s\n' "$*" >&2; exit 1
+    printf 'ai-tools-relabel: error: %s\n' "$*" >&2; exit "${DIE_STATUS}"
 }
 
 # Protected-paths backstop (safe-paths.lib.sh): refuse to relabel a system directory even when the allowlist includes
@@ -140,9 +144,10 @@ if ai_tools_relabel__is_available; then :; else
 fi
 
 # die_live_session <command> -- refuse a walk the library declined (status 3) because a process of the sandbox account
-# is live, or because the reading could not be made, naming the stop and the command that re-runs this step. The tree is
-# left as it was: the library gates before its first write.
+# is live, or because the reading could not be made, naming the stop and the command that re-runs this step, and exit 4.
+# The tree is left as it was: the library gates before its first write.
 die_live_session() {
+    DIE_STATUS=4
     die MSG-H8V6 "left the SELinux label on ${dir} as it was: an agent session or the toolchain update runs as the sandbox account, or this host's sessions could not be read, and a walk while one runs could be redirected outside the tree; let each session end (/exit inside it) and the toolchain update finish, or end them all with 'ai-tools stop', then re-run: $1 ${dir}"
 }
 
@@ -151,7 +156,7 @@ if ${remove}; then
     case "${rc}" in
         0) echo "ai-tools-relabel: reverted ${dir} to its default SELinux type"
            ai_tools_log__structured info "unlabelled project ${dir}" "AI_TOOLS_RESULT=ok" ;;
-        3) die_live_session "ai-tools projects unclaim" ;;
+        3) die_live_session "ai-tools projects unclaim (or projects remove)" ;;
         *) die MSG-Q4X9 "failed to revert SELinux label on ${dir}" ;;
     esac
 else

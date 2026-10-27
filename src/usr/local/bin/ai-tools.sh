@@ -1636,7 +1636,9 @@ run_lockdown() {
 }
 
 # run_relabel <dir> [--remove]  -- apply (or revert) the SELinux project label on <dir> via the root helper (sudo,
-# password); returns its status. The helper parses the path and the optional flag in any order.
+# password); returns its status, RELABEL_LIVE_SESSION_STATUS where the live-session gate left the tree as it was.
+# The helper parses the path and the optional flag in any order.
+readonly RELABEL_LIVE_SESSION_STATUS=4
 run_relabel() {
     local d="$1"; shift
     # stdout suppressed: the helper narrates its own success ("labelled <path> ai_tools_project_t"), which lands
@@ -3249,19 +3251,25 @@ not_covered_die() {
 # hand-back command (used when the hand-back was wanted but could not run); the fourth argument is what becomes
 # of the allowlist line (the <registry> disposition). Best-effort except for the allowlist line: every other step warns
 # with its manual command and the pass goes on, while a drop that did not apply refuses (unreg_allow) and a park
-# that did not apply returns 1 without the ✓, since either leaves a session able to start here.
+# that did not apply returns 1 without the ✓, since either leaves a session able to start here. A label reversal
+# that did not apply, or that the live-session gate refused, returns 1 without the ✓ as well, after the registry
+# reversal: the project type and its rule stay on a tree no entry names until the printed command runs.
 unclaim_one() {
     local d="$1" group="$2" hint="$3" registry="$4"; shift 4
     local flags=""; (( $# )) && flags=" $*"
-    local stopped=false handback_missing=false
+    local stopped=false handback_missing=false label_left=false
 
     if command -v sudo >/dev/null 2>&1 \
             && command -v getenforce >/dev/null 2>&1 \
             && [[ "$(getenforce 2>/dev/null)" != "Disabled" ]]; then
-        if ! run_relabel "${d}" --remove; then
+        local relabel_status=0
+        run_relabel "${d}" --remove || relabel_status=$?
+        if (( relabel_status != 0 )); then
+            label_left=true
             warn "could not revert the SELinux label -- run it by hand:"
             say  "      ${C_BOLD}sudo ${RELABEL_BIN} --remove ${d}${C_RST}"
-            note_root_failure || stopped=true
+            # The gate's refusal came after sudo authenticated, so the steps after it are attempted without asking.
+            (( relabel_status == RELABEL_LIVE_SESSION_STATUS )) || note_root_failure || stopped=true
         fi
     fi
 
@@ -3322,6 +3330,14 @@ unclaim_one() {
             "${d} is out of allowed-projects, so no session can launch there. Its files still carry group ${SANDBOX_GROUP}, so an agent session that can reach the path keeps its access to them. The command above completes the reversal."
         ai_tools_log__structured warning \
             "unclaimed ${d} (registries dropped; filesystem hand-back did NOT run)" \
+            "AI_TOOLS_PROJECT=${d}" "AI_TOOLS_RESULT=failed"
+        return 1
+    fi
+    if ${label_left}; then
+        headline_warn "WARNING: deregistered, but the SELinux label was not reverted" \
+            "${d} is out of allowed-projects, so no session can launch there. It still carries the type the agent reads and writes. The command above reverts it."
+        ai_tools_log__structured warning \
+            "unclaimed ${d} (registries dropped; SELinux label NOT reverted)" \
             "AI_TOOLS_PROJECT=${d}" "AI_TOOLS_RESULT=failed"
         return 1
     fi
@@ -3850,12 +3866,20 @@ cmd_project_remove() {
     # ── Apply: registries first, deletion last. ──
     headline "Removing the project" "${d}"
     # A failed cleanup step asks once (note_root_failure) and does not stop the removal: the registries drop regardless,
-    # and `ai-tools projects` reports what is left behind.
+    # and `ai-tools projects` reports what is left behind. The live-session gate's refusal stops it instead,
+    # before either registry changes: that state is known and passes once the sessions end, while a label reversal left
+    # for later cannot be applied to a path this run deletes, since the helper refuses a path that does not exist.
     local cleanup_stopped=false
     if command -v sudo >/dev/null 2>&1 \
             && command -v getenforce >/dev/null 2>&1 \
             && [[ "$(getenforce 2>/dev/null)" != "Disabled" ]]; then
-        if ! run_relabel "${d}" --remove; then
+        local relabel_status=0
+        run_relabel "${d}" --remove || relabel_status=$?
+        if (( relabel_status == RELABEL_LIVE_SESSION_STATUS )); then
+            say  "    let each session end (/exit inside it) and the toolchain update finish, or end them all"
+            say  "    with ${C_BOLD}ai-tools stop${C_RST}, then re-run the removal; the project is left as it was"
+            die MSG-S3B9 "project remove stopped before any change -- the helper left the SELinux label of ${d} while an agent session or the toolchain update may be running"
+        elif (( relabel_status != 0 )); then
             warn "could not revert the SELinux label -- run it by hand:"
             say  "      ${C_BOLD}sudo ${RELABEL_BIN} --remove ${d}${C_RST}"
             note_root_failure || cleanup_stopped=true

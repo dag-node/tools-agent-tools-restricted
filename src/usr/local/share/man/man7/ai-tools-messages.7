@@ -286,6 +286,10 @@ unknown projects lockdown option: ${a} (allowed: \-\-dry\-run, \-\-yes)
 ERROR.
 this run needs root: ${what} goes through ${bin##*/}, and ${INVOKING_USER} holds no sudo grant for it.
 .TP
+.B MSG-S3B9
+ERROR.
+project remove stopped before any change \-\- the helper left the SELinux label of ${d} while an agent session or the toolchain update may be running
+.TP
 .B MSG-S6Q5
 ERROR.
 projects remove has no \-\-force: a registry entry is what authorizes a deletion here.

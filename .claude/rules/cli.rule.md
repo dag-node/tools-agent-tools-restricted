@@ -1005,7 +1005,10 @@ a tree deleted down to the first directory it could not enter, with no entry lef
 **parent** is checked first and separately, since `rm -rf <d>` finishes by unlinking `<d>` from it, and that directory
 is not part of the project; missing it leaves an empty, deregistered husk, so its refusal names `projects unclaim`
 instead. Teardown then runs registries first, deletion last — the label, the `safe.directory` entry, the allowlist
-entry, then the tree — so a failed deletion leaves an *unregistered* tree, less access rather than more. The allowlist
+entry, then the tree — so a failed deletion leaves an *unregistered* tree, less access rather than more. A label
+reversal the live-session gate refuses stops the removal at that step, with the tree and both registries as they were
+and exit 1: the refusal is a state a re-run passes once the sessions end, and a label left for later could not be
+reverted over a path the removal deleted, since `ai-tools-relabel` refuses a path that does not exist. The allowlist
 step is fatal if it cannot complete, since that entry is the launch gate: `unreg_allow` verifies the entry is gone
 by re-reading the file rather than trusting `sed`, and names the line to delete by hand (`sed -i` writes its temporary
 file into the allowlist's own directory, which the operator may not be able to write). The filesystem hand-back
@@ -1069,8 +1072,10 @@ still applies, and only the hand-back is given up, reported with the `projects e
 that completes it. An allowlist line the unclaim could not change ends it non-zero as well, in a `--for` run
 as in a plain one, since the line is the launch gate: a drop that did not apply refuses (`unreg_allow`), naming the line
 or the helper command that removes it, and a park that did not apply closes with the entry reported still enabled and no
-✓. A failed root step follows the per-verb table under [Claim in place](#claim-in-place). The filesystem effect per mode
-is [ref-table-b5v7](ownership-and-hooks.rule.md#ref-table-b5v7).
+✓. A label reversal that failed, or that the live-session gate refused, closes the same way, without the ✓ and non-zero,
+after the hand-back and the registry reversal have run: the project type and its rule stay on a tree no entry names
+until the printed command runs. A failed root step follows the per-verb table under [Claim in place](#claim-in-place).
+The filesystem effect per mode is [ref-table-b5v7](ownership-and-hooks.rule.md#ref-table-b5v7).
 
 ## Sandbox clone <a id="ref-section-u9a9"></a>
 
@@ -1133,10 +1138,11 @@ Where each walk takes the gate:
 
 - `relabel.lib.sh` gates its own walks — the project label and unlabel, an agent config directory's label and the config
   half of its unlabel — and returns 3 before any write, so a re-run applies the whole step. `ai-tools-relabel` refuses
-  under a code, the claim then reports its label step pending and exits 1, and an unclaim or removal reports the revert
-  as not applied. `ai-tools-relabel-agent` files the config directory as `skipped live-session`, which `ai-tools status`
-  renders with the `ai-tools-relabel.service` start that completes it, and labels the entrypoint as it otherwise would:
-  that write is per path, not a walk.
+  under a code with an exit status of its own, the claim then reports its label step pending and exits 1, an unclaim
+  reports the revert as not applied and exits 1 once its other steps have run, and a removal stops before either
+  registry changes, since the helper cannot revert a path the removal has deleted. `ai-tools-relabel-agent` files
+  the config directory as `skipped live-session`, which `ai-tools status` renders with the `ai-tools-relabel.service`
+  start that completes it, and labels the entrypoint as it otherwise would: that write is per path, not a walk.
 - The selinux `%post` restores the root-owned trees unconditionally and `/opt/ai-tools` and the clone area behind
   the reading, with one WARNING naming the `restorecon` to run when it skips; `install.sh` does the same for the agent
   config directories, and `selinux/install-selinux.sh` for every tree the account can write that its actions walk,

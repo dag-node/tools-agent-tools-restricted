@@ -34,6 +34,8 @@
 # cli_stub_reset             truncates the log and the secrets list, and clears every cli_stub_fail.
 # cli_stub_fail <helper>...  makes each named helper's call exit 1 after it is logged, for a failed root step;
 #                            <helper>:<option> fails only a call carrying that option (`ai-tools-allowlist:--remove`).
+# cli_stub_fail_status <helper> <status>  makes <helper>'s call exit <status> after it is logged, for a helper whose
+#                            exit status the CLI reads (ai-tools-relabel's live-session refusal).
 # cli_calls <helper>             prints the log lines for <helper>, fields after the cwd only
 #                                (tab-separated args).
 # cli_called <helper> [ere]      0 when <helper> was called and, with <ere>, some call's args match it.
@@ -97,7 +99,7 @@ name="\${bin##*/}"
     for a in "\$@"; do printf '\t%s' "\${a}"; done
     printf '\n'
 } >> "\${LOG}"
-[[ -e "\${STUBS}/fail.\${name}" ]] && exit 1
+if [[ -e "\${STUBS}/fail.\${name}" ]]; then status="\$(<"\${STUBS}/fail.\${name}")"; exit "\${status:-1}"; fi
 for a in "\$@"; do
     [[ "\${a}" == --* && -e "\${STUBS}/fail.\${name}:\${a}" ]] && exit 1
 done
@@ -172,6 +174,7 @@ cli_stub_ai_ops() { : > "${CLI_STUB_AI_OPS}"; (( $# )) && printf '%s\n' "$@" > "
 cli_stub_reset() { : > "${CLI_STUB_LOG}"; : > "${CLI_STUB_SECRETS}"; rm -f "${CLI_STUB_DIR}"/fail.* "${CLI_STUB_DIR}"/decline.*; }
 
 cli_stub_fail() { local helper; for helper in "$@"; do : > "${CLI_STUB_DIR}/fail.${helper}"; done; }
+cli_stub_fail_status() { printf '%s\n' "$2" > "${CLI_STUB_DIR}/fail.$1"; }
 
 cli_stub_secrets() { printf '%s\n' "$@" > "${CLI_STUB_SECRETS}"; }
 # cli_stub_decline_lockdown -- the lockdown stub answers a found secret as a declined confirmation, exit 6.

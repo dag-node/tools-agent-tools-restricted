@@ -236,6 +236,7 @@ cannot fix -- a message code's name is a runtime string, and rewording one is a 
 | p8y8 | [MSG-P8Y8](../src/usr/local/bin/ai-tools.sh) | not a claimed project: ${d} | src/usr/local/bin/ai-tools.sh | tests/integration/cli.sh | die |
 | q3r9 | [MSG-Q3R9](../src/usr/local/bin/ai-tools.sh) | this project contains ${#nested[@]} other claimed project(s), listed above: ${d} | src/usr/local/bin/ai-tools.sh | tests/integration/cli.sh | die |
 | h3f6 | [MSG-H3F6](../src/usr/local/bin/ai-tools.sh) | the parent directory is not writable by ${OWNER_USER}: ${rm_parent} | src/usr/local/bin/ai-tools.sh | tests/integration/cli.sh | die |
+| s3b9 | [MSG-S3B9](../src/usr/local/bin/ai-tools.sh) | project remove stopped before any change -- the helper left the SELinux label of ${d} while an agent session or the toolchain update may be running | src/usr/local/bin/ai-tools.sh |  | die |
 | s6v2 | [MSG-S6V2](../src/usr/local/bin/ai-tools.sh) | removed ${d}, but ${ROOT_STEP_FAILURES} cleanup step(s) did not run | src/usr/local/bin/ai-tools.sh | tests/integration/cli.sh | warn |
 | z7b9 | [MSG-Z7B9](../src/usr/local/bin/ai-tools.sh) | sandbox create stopped -- the clone could not be labelled ai_tools_project_t | src/usr/local/bin/ai-tools.sh |  | die |
 | u3q6 | [MSG-U3Q6](../src/usr/local/bin/ai-tools.sh) | could not strip the inherited ACL from ${dst} -- the clone was not created | src/usr/local/bin/ai-tools.sh |  | die |
