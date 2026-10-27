@@ -114,7 +114,7 @@ ai_tools_sessions__read_cgroup2_mount() {
 
 state_is() {
     local want="$1" what="$2" uid="${3:-4242}" got
-    got="$(ai_tools_sessions__read_live_session_state "${uid}")"
+    got="$(ai_tools_sessions__read_live_session_state_for_uid "${uid}")"
     if [[ "${got}" == "${want}" ]]; then
         pass "${what}: ${want}"
     else
@@ -162,7 +162,7 @@ rm -rf "${MANAGER}/app.slice/acme-acme-13.service"
 state_is none "an account with no slice at all" 4343
 
 before="$(shopt -p dotglob nullglob || true)"
-ai_tools_sessions__read_live_session_state 4242 >/dev/null
+ai_tools_sessions__read_live_session_state_for_uid 4242 >/dev/null
 after="$(shopt -p dotglob nullglob || true)"
 if [[ "${before}" == "${after}" ]]; then
     pass "the walk's glob options do not reach the caller's shell"
@@ -179,6 +179,17 @@ fixture_mount_ok=1
 
 state_is unreadable "a uid that is not a number" "4242x"
 
+# The account form reads the uid through sandbox-exec.lib.sh, and an empty answer from that reader reads as unreadable.
+ai_tools_sandbox_exec__read_sandbox_uid() { printf '%s' "${stub_sandbox_uid}"; }
+stub_sandbox_uid=""
+got="$(ai_tools_sessions__read_live_session_state)"
+[[ "${got}" == unreadable ]] && pass "the account form with no sandbox uid: unreadable" \
+    || fail "the account form with no sandbox uid read ${got}"
+stub_sandbox_uid=4242
+got="$(ai_tools_sessions__read_live_session_state)"
+[[ "${got}" == none ]] && pass "the account form reads the sandbox uid's slice (control): none" \
+    || fail "the account form with the sandbox uid 4242 read ${got}"
+
 mv "${MOUNT}/user.slice" "${MOUNT}/user.slice.away"
 state_is unreadable "no user.slice under the mount"
 mv "${MOUNT}/user.slice.away" "${MOUNT}/user.slice"
@@ -186,7 +197,7 @@ mv "${MOUNT}/user.slice.away" "${MOUNT}/user.slice"
 # The remaining readings turn on a mode, which root reads through, so a root run asks them as the projects user.
 # state_unprivileged_is <want> <what> -- the reader's answer for an unprivileged caller, over the same fixture.
 # shellcheck disable=SC2016  # $1..$3 are the inner shell's positionals
-probe='source "$1"; stub_mount="$2"; ai_tools_sessions__read_cgroup2_mount() { printf "%s" "${stub_mount}"; }; ai_tools_sessions__read_live_session_state "$3"'
+probe='source "$1"; stub_mount="$2"; ai_tools_sessions__read_cgroup2_mount() { printf "%s" "${stub_mount}"; }; ai_tools_sessions__read_live_session_state_for_uid "$3"'
 state_unprivileged_is() {
     local want="$1" what="$2" got who
     if [[ "${EUID}" -ne 0 ]]; then

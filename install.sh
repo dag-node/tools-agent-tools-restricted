@@ -826,7 +826,7 @@ do_selinux_restore() {
     # the state is read in a child shell, so the checkout's libraries do not load into this one.
     local _cfg _sessions_state
     # shellcheck disable=SC2016  # $1 and $2 are the inner shell's positionals
-    _sessions_state="$(bash -c '. "$1" && ai_tools_sessions__read_live_session_state "$2"' _ \
+    _sessions_state="$(bash -c '. "$1" && ai_tools_sessions__read_live_session_state_for_uid "$2"' _ \
         "${SCRIPT_DIR}/src/usr/local/lib/ai-tools/sessions.lib.sh" "$(id -u "${SANDBOX_USER}" 2>/dev/null)" \
         2>/dev/null || true)"
     if [[ "${_sessions_state}" == none ]]; then

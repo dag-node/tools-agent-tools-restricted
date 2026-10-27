@@ -143,15 +143,12 @@ _ai_tools_sessions__is_plumbing() {
     return 1
 }
 
-# ai_tools_sessions__list_live_sessions [uid]: print each live cgroup under the account's slice user-<uid>.slice
-#   that is not the manager's plumbing, one per line. <uid> defaults to the sandbox account's. Returns 0 with an empty
-#   listing when the account has no slice, and 1 where the reading cannot be made: no uid, no cgroup v2 mount, or
-#   a user.slice or account slice this process cannot enter and list.
+# ai_tools_sessions__list_live_sessions <uid>: print each live cgroup under the account's slice user-<uid>.slice
+#   that is not the manager's plumbing, one per line. Returns 0 with an empty listing when the account has no slice,
+#   and 1 where the reading cannot be made: a uid that is not a number, no cgroup v2 mount, or a user.slice or account
+#   slice this process cannot enter and list.
 ai_tools_sessions__list_live_sessions() {
     local uid="${1:-}" mount slice manager cgroup
-    if [[ -z "${uid}" ]] && declare -F ai_tools_sandbox_exec__read_sandbox_uid >/dev/null 2>&1; then
-        uid="$(ai_tools_sandbox_exec__read_sandbox_uid)"
-    fi
     [[ "${uid}" =~ ^[0-9]+$ ]] || return 1
     mount="$(ai_tools_sessions__read_cgroup2_mount)" || return 1
     [[ -n "${mount}" && -d "${mount}/user.slice" && -x "${mount}/user.slice" ]] || return 1
@@ -170,11 +167,11 @@ ai_tools_sessions__list_live_sessions() {
     )
 }
 
-# ai_tools_sessions__read_live_session_state [uid]: print `live` when a process of the account is live outside its
-#   manager's plumbing, `none` when none is, and `unreadable` when the reading cannot be made
+# ai_tools_sessions__read_live_session_state_for_uid <uid>: print `live` when a process of the account <uid> is live
+#   outside its manager's plumbing, `none` when none is, and `unreadable` when the reading cannot be made
 #   (ai_tools_sessions__list_live_sessions returning 1). A caller gating a walk treats `unreadable` as `live`.
 #   Always returns 0, so the answer is read from stdout.
-ai_tools_sessions__read_live_session_state() {
+ai_tools_sessions__read_live_session_state_for_uid() {
     local live
     if ! live="$(ai_tools_sessions__list_live_sessions "${1:-}")"; then
         printf 'unreadable\n'
@@ -184,4 +181,15 @@ ai_tools_sessions__read_live_session_state() {
         printf 'none\n'
     fi
     return 0
+}
+
+# ai_tools_sessions__read_live_session_state: the same answer for the sandbox account, its uid read through
+#   sandbox-exec.lib.sh; where that library did not load or does not
+#   resolve an account, the answer is `unreadable`.
+ai_tools_sessions__read_live_session_state() {
+    local uid=""
+    if declare -F ai_tools_sandbox_exec__read_sandbox_uid >/dev/null 2>&1; then
+        uid="$(ai_tools_sandbox_exec__read_sandbox_uid)"
+    fi
+    ai_tools_sessions__read_live_session_state_for_uid "${uid}"
 }
