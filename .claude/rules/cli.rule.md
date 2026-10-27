@@ -1083,18 +1083,21 @@ by `ai-tools-relabel`. `projects push` and the clone kind of `projects remove` g
 through `require_sandbox_clone`: a direct child of `SANDBOX_ROOT` that is a git worktree and passes the protected-paths
 backstop, which scopes the `rm -rf` to one recognized clone.
 
-The create is **lock-before-grant**. The clone is born owner-only (`umask 077` around the `git clone`), so a checked-in
-credential is unreadable to the sandbox account from the first instant; `sandbox_finalize` then registers the allowlist
-entry (the lockdown acts only on an allowlisted path; rolled back on a failed gate), runs the same secret gate
-as a claim, and only past it opens the clone: `normalize_clone` adds group `rwX` and setgid directories while pruning
-every path the gate locked, then the clone is labelled and registered. A declined or failed gate **fails closed**:
-the clone stays on disk, private, unlabelled and unregistered, with a guard `CLAUDE.md` (sentinel
-`ai-tools-lockdown-guard`) telling the agent to wait until the lockdown runs, a real `CLAUDE.md` preserved by `git mv`
-to `CLAUDE.md.bak`, and the resume command printed. Re-running `projects clone` on the clone path resumes
-`sandbox_finalize`, which removes the guard and restores the original on success. A resume is idempotent:
-`normalize_clone` runs while the root is still owner-only (`clone_is_private`), the state the pinned umask
-and a declined gate each leave, so a resume over an opened clone re-runs the gate and leaves the tree's modes alone,
-and a directory the operator sealed inside it keeps its mode.
+The create is **lock-before-grant**, by construction. `clone_privately` creates the clone root `0700` with its inherited
+ACL stripped before git writes into it, and git creates every path inside under `umask 077`. A umask alone does not make
+the clone private: the clone area carries a default ACL, which a path created under it takes in place of the umask.
+A checked-in credential is therefore unreadable to the sandbox account until the gate has run. `sandbox_finalize` then
+registers the allowlist entry (the lockdown acts only on an allowlisted path; rolled back on a failed gate), runs
+the same secret gate as a claim, and only past it labels and opens the clone: the label is applied while the root is
+still owner-only, then `normalize_clone` adds group `rwX`, setgid directories and the ACL the area would have given each
+path, pruning every path the gate locked, and the clone is registered. A declined or failed gate, and a label the clone
+root does not take, **fail closed**: the clone stays on disk, private and unregistered, and the resume command is
+printed. A declined or failed gate also leaves a guard `CLAUDE.md` (sentinel `ai-tools-lockdown-guard`) telling
+the agent to wait until the lockdown runs, with a real `CLAUDE.md` preserved by `git mv` to `CLAUDE.md.bak`. Re-running
+`projects clone` on the clone path resumes `sandbox_finalize`, which removes the guard and restores the original
+on success. A resume is idempotent: the label and `normalize_clone` run while the root is still owner-only
+(`clone_is_private`), the state the private create and a stopped finalize each leave, so a resume over an opened clone
+re-runs the gate and leaves the tree's modes alone, and a directory the operator sealed inside it keeps its mode.
 
 The shared area carries a `g:ai-ops:rwX` ACL (traverse on `/var/opt/ai-tools`, `rwX` plus default on `sandbox-projects`,
 applied by `install.sh`), so an operator creates and works in clones without `SANDBOX_GROUP` membership —
@@ -1144,7 +1147,8 @@ Where each walk takes the gate:
   block, ahead of the first `sudo`. The notice does not ask anything; the helper's refusal decides.
 - A clone is labelled while it is still private, ahead of `normalize_clone`, so its walk does not cross a directory
   the account can rename, and the clone's own entry sits in an area whose type `ai_tools_t` may search and not write;
-  that walk does not take the gate.
+  that walk does not take the gate. The clone is private by construction, its root created without the area's inherited
+  ACL ([Sandbox clone](#sandbox-clone)), and a label the root does not take stops the create before anything opens.
 
 Every message leads with letting the sessions end and the update finish, and offers `ai-tools stop` beside it, since
 a stop ends a session without its session-end handback and an update mid-run.

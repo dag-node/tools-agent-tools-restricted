@@ -237,6 +237,8 @@ cannot fix -- a message code's name is a runtime string, and rewording one is a 
 | q3r9 | [MSG-Q3R9](../src/usr/local/bin/ai-tools.sh) | this project contains ${#nested[@]} other claimed project(s), listed above: ${d} | src/usr/local/bin/ai-tools.sh | tests/integration/cli.sh | die |
 | h3f6 | [MSG-H3F6](../src/usr/local/bin/ai-tools.sh) | the parent directory is not writable by ${OWNER_USER}: ${rm_parent} | src/usr/local/bin/ai-tools.sh | tests/integration/cli.sh | die |
 | s6v2 | [MSG-S6V2](../src/usr/local/bin/ai-tools.sh) | removed ${d}, but ${ROOT_STEP_FAILURES} cleanup step(s) did not run | src/usr/local/bin/ai-tools.sh | tests/integration/cli.sh | warn |
+| z7b9 | [MSG-Z7B9](../src/usr/local/bin/ai-tools.sh) | sandbox create stopped -- the clone could not be labelled ai_tools_project_t | src/usr/local/bin/ai-tools.sh |  | die |
+| u3q6 | [MSG-U3Q6](../src/usr/local/bin/ai-tools.sh) | could not strip the inherited ACL from ${dst} -- the clone was not created | src/usr/local/bin/ai-tools.sh |  | die |
 | j4p9 | [MSG-J4P9](../src/usr/local/bin/ai-tools.sh) | a value is required after ${flag} | src/usr/local/bin/ai-tools.sh | packaging/ai-tools.spec | die |
 | z5v5 | [MSG-Z5V5](../src/usr/local/bin/ai-tools.sh) | a value is required after ${flag}, not another option: $1 | src/usr/local/bin/ai-tools.sh | packaging/ai-tools.spec, tests/manual/verify-live-flows.sh | die |
 | u8n3 | [MSG-U8N3](../src/usr/local/bin/ai-tools.sh) | unknown projects clone option: $1 (see: ai-tools --help) | src/usr/local/bin/ai-tools.sh |  | die_usage |

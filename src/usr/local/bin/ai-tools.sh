@@ -1536,6 +1536,14 @@ grant_ancestor_traversal() {
 # (`-xdev`): chmod follows a symlink named on its command line, so a tracked symlink handed to it would change a target
 # outside the clone. A locked path is pruned by its literal name: `-path` reads its argument as a pattern, so `[`, `*`,
 # `?` and `\` are escaped first (find_pattern_literal), or the walk would re-open the secret.
+#
+# The clone is created with its ACL stripped (clone_privately), so the walk then gives every opened path the access ACL
+# the clone area's default ACL would have given it at creation, and every directory that default ACL itself: the named
+# and `group::` entries as the default holds them, and the mask the kernel derives from the create mode -- `rwx`
+# on a directory and on a file with an execute bit, `rw-` on any other file, which is what `chmod g+rwX` leaves
+# after the inherited mask. A plain `setfacl -m` recalculates the mask from the entries and would open every file
+# to execute, so each class takes its mask explicitly under `-n`. `user::` and `other::` keep the bits the create's
+# umask 077 left.
 normalize_clone() {
     local d="$1"; shift
     local -a prune=() p pattern
@@ -1545,6 +1553,24 @@ normalize_clone() {
     done
     find "${d}" -xdev "${prune[@]}" '(' -type f -o -type d ')' -exec chmod g+rwX {} +
     find "${d}" -xdev "${prune[@]}" -type d -exec chmod g+s {} +
+
+    local area_acl entry access="" defaults=""
+    if ! area_acl="$(getfacl -p -c -E -d -- "${d%/*}" 2>/dev/null)"; then
+        warn "could not read the default ACL of ${d%/*}; the clone is open to group ${SANDBOX_GROUP} alone"
+        return 0
+    fi
+    while IFS= read -r entry; do
+        [[ -n "${entry}" ]] || continue
+        defaults+="${defaults:+,}d:${entry}"
+        case "${entry}" in
+            user::*|mask::*|other::*) ;;
+            *) access+="${access:+,}${entry}" ;;
+        esac
+    done <<< "${area_acl}"
+    [[ -n "${defaults}" ]] || return 0
+    find "${d}" -xdev "${prune[@]}" -type d -exec setfacl -n -m "${access}${access:+,}m::rwx,${defaults}" {} +
+    find "${d}" -xdev "${prune[@]}" -type f -perm /111 -exec setfacl -n -m "${access}${access:+,}m::rwx" {} +
+    find "${d}" -xdev "${prune[@]}" -type f ! -perm /111 -exec setfacl -n -m "${access}${access:+,}m::rw-" {} +
 }
 
 # find_pattern_literal <output-variable> <path>  -- set <output-variable> to <path> escaped for find's `-path`/`-name`
@@ -1558,7 +1584,7 @@ find_pattern_literal() {
     _pattern_out="${s}"
 }
 
-# clone_is_private <dir>  -- 0 while the clone root is owner-only: the state cmd_project_clone's pinned umask leaves
+# clone_is_private <dir>  -- 0 while the clone root is owner-only: the state cmd_project_clone's private create leaves
 # a clone in, and a declined gate leaves it in (owner-only.lib.sh states the predicate the root helpers apply). A mode
 # that cannot be read counts as opened, so a resume does not widen a tree it could not read.
 clone_is_private() {
@@ -1571,9 +1597,9 @@ clone_is_private() {
 # relabel_clone <dir>  -- apply the SELinux project label so the agent (ai_tools_t) can read/write the clone. A static
 # fcontext rule in selinux/policy/ai_tools.fc maps every directory under sandbox-projects/ to ai_tools_project_t,
 # so a plain restorecon labels it -- no per-project semanage and no root: the projects user runs as unconfined_t,
-# which the policy grants relabel to ai_tools_project_t. No-op when SELinux is disabled (or the module is not loaded,
-# in which case the label stays the default until the operator installs ai-tools-selinux, or from a checkout runs
-# selinux/install-selinux.sh install).
+# which the policy grants relabel to ai_tools_project_t. Returns 0 when the root carries ai_tools_project_t afterwards,
+# read back from the inode as ai_tools_relabel__label_project reads it, since restorecon exits 0 over a type no rule
+# maps (the module not loaded); 0 as well where SELinux is disabled or restorecon is absent, with no walk; 1 otherwise.
 #
 # sandbox_finalize runs it while the clone root is still 0700 and the operator's, ahead of normalize_clone: restorecon
 # walks by path, and once the tree is open the sandbox account can rename a directory in it and plant a symlink in its
@@ -1585,11 +1611,18 @@ relabel_clone() {
     local d="$1"
     command -v restorecon >/dev/null 2>&1 || return 0
     [[ "$(getenforce 2>/dev/null)" == "Disabled" ]] && return 0
-    if restorecon -FR "${d}" 2>/dev/null; then
-        ok "labelled clone ai_tools_project_t (SELinux)"
-    else
-        warn "could not relabel ${d} for SELinux; if enforcing, run: sudo restorecon -FR ${d}"
+    local context
+    if ! restorecon -FR "${d}" 2>/dev/null; then
+        warn "could not label ${d} ai_tools_project_t for SELinux -- restorecon -FR failed"
+        return 1
     fi
+    context="$(stat -c '%C' -- "${d}" 2>/dev/null)" || context=""
+    if [[ "${context}" == *:ai_tools_project_t:* ]]; then
+        ok "labelled clone ai_tools_project_t (SELinux)"
+        return 0
+    fi
+    warn "could not label ${d} ai_tools_project_t for SELinux -- the root reads ${context:-an unreadable context}"
+    return 1
 }
 
 # ── Lockdown helpers ───────────────────────────────────────────────────────────
@@ -3871,7 +3904,9 @@ cmd_project_remove() {
 # past the gate alone -- relabel, normalize (pruning the locked paths), and register. A declined or failed gate leaves
 # the clone on disk, private and unregistered, with a guard CLAUDE.md and the resume command printed (fail closed:
 # cli.rule.md, Sandbox clone). The relabel and the normalize run once, while the root is still owner-only
-# (clone_is_private), in that order (relabel_clone states why).
+# (clone_is_private), in that order (relabel_clone states why), and the relabel before the guard comes off: a clone
+# that could not be labelled stops the create the same way, since the agent cannot enter a clone opened unlabelled
+# and a resume over an opened clone does not label it.
 sandbox_finalize() {
     local dst="$1"
     reg_allow "${dst}"
@@ -3884,10 +3919,19 @@ sandbox_finalize() {
         say  "      ${C_BOLD}ai-tools projects clone ${dst}${C_RST}"
         die "sandbox create stopped -- secrets not locked down"
     fi
-    clear_lockdown_guard "${dst}"
     # A resume over a clone already opened leaves the tree as it is (normalize_clone's header states why).
-    if clone_is_private "${dst}"; then
-        relabel_clone "${dst}"
+    local opening=false
+    clone_is_private "${dst}" && opening=true
+    if ${opening} && ! relabel_clone "${dst}"; then
+        unreg_allow "${dst}"
+        warn "sandbox not labelled -- the clone stays private to you:" \
+             "not group-accessible, not registered; the agent has no access to it"
+        say  "    with the ai-tools-selinux policy loaded, finish the create:"
+        say  "      ${C_BOLD}ai-tools projects clone ${dst}${C_RST}"
+        die MSG-Z7B9 "sandbox create stopped -- the clone could not be labelled ai_tools_project_t"
+    fi
+    clear_lockdown_guard "${dst}"
+    if ${opening}; then
         normalize_clone "${dst}" "${SECRET_MATCH_PATHS[@]}"
         say "    access: group ${SANDBOX_GROUP} rwX + setgid dirs (locked secrets stay private)"
     else
@@ -3948,13 +3992,33 @@ sandbox_resolve_base() {
     return 1
 }
 
+# clone_privately <url> <branch> <dst>  -- shallow-clone <branch> of <url> into <dst>, a directory this creates,
+# owner-only throughout: the tip commit's files -- possibly checked-in credentials -- stay unreadable to the sandbox
+# account until the gate has run and normalize_clone opens the non-secret paths. A umask alone does not do it: the clone
+# area carries a default ACL, and a path created under one takes that ACL in place of the umask (acl(5)), so git's own
+# mkdir would make the root group-accessible at creation. The root is therefore made here, 0700, with its inherited ACL
+# stripped before git writes into it, and git creates every path inside under umask 077; git accepts an existing empty
+# directory as a clone destination. A failure removes the directory while it is empty, and dies.
+clone_privately() {
+    local url="$1" br="$2" dst="$3"
+    mkdir -m 0700 -- "${dst}" || die "could not create ${dst}"
+    if ! setfacl -b -- "${dst}"; then
+        rmdir -- "${dst}" 2>/dev/null || true
+        die MSG-U3Q6 "could not strip the inherited ACL from ${dst} -- the clone was not created"
+    fi
+    if ! ( umask 077 && git clone --depth=1 -b "${br}" "${url}" "${dst}" ); then
+        rmdir -- "${dst}" 2>/dev/null || true
+        die "git clone into ${dst} failed"
+    fi
+}
+
 # cmd_project_clone [path] [--from <ref>] [--branch <name>] [--dir <name>] [-y|--yes]  -- create or reuse a sandbox
-# branch, shallow-clone it PRIVATELY (umask 077) into SANDBOX_ROOT, then hand off to sandbox_finalize, which gates
-# and opens it. Pointed at an EXISTING clone under SANDBOX_ROOT, it resumes sandbox_finalize on it (the flags are then
-# not read). Every input has a default and an optional flag, so the command is scriptable and the prompts are
-# the interactive fallback: a flag skips its prompt, and no flag with no tty takes the default. The branch is a FULL git
-# ref of any shape -- the "sandbox/<leaf>" default is a convention (sandbox_default_branch) -- validated with git
-# check-ref-format and refused rather than rewritten.
+# branch, shallow-clone it PRIVATELY (an owner-only root without an ACL, umask 077 inside) into SANDBOX_ROOT, then hand
+# off to sandbox_finalize, which gates and opens it. Pointed at an EXISTING clone under SANDBOX_ROOT, it resumes
+# sandbox_finalize on it (the flags are then not read). Every input has a default and an optional flag, so the command
+# is scriptable and the prompts are the interactive fallback: a flag skips its prompt, and no flag with no tty takes
+# the default. The branch is a FULL git ref of any shape -- the "sandbox/<leaf>" default is a convention
+# (sandbox_default_branch) -- validated with git check-ref-format and refused rather than rewritten.
 cmd_project_clone() {
     local o_path="" o_from="" o_branch="" o_dir="" o_yes=false
     local have_from=false have_branch=false have_dir=false
@@ -4090,9 +4154,7 @@ cmd_project_clone() {
         ok "pushed ${br} to ${remote}"
     fi
 
-    # umask 077: the clone is born OWNER-ONLY, so the tip commit's files -- possibly checked-in credentials -- are
-    # unreadable to the sandbox account until the gate has run and normalize_clone opens the non-secret paths.
-    ( umask 077 && git clone --depth=1 -b "${br}" "${clone_url}" "${dst}" )
+    clone_privately "${clone_url}" "${br}" "${dst}"
     ok "shallow-cloned into ${dst} (private until secured)"
     ai_tools_log__structured info \
         "created sandbox clone ${dst} (branch ${br}, base ${base_ref}, remote ${remote})" \
