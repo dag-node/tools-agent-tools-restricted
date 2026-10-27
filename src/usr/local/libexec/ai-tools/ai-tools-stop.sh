@@ -489,6 +489,11 @@ session_is_agent() {
 # session_class_note <unit-name> -- PRINT the parenthetical a non-agent row is marked with, or empty for an agent
 # session.
 #
+# A root caller's run as the account (sandbox-exec.lib.sh's ai-tools-sandbox-exec-*.scope, a bootstrap's npm step
+# among them) is a system-manager scope in the account's slice: it is a .scope, so it is marked here like the rest
+# of the plumbing, and its attribution reads `unknown`, since the account's user manager does not know a system-manager
+# unit, and no `projects handback` line is printed for it. It is swept and verified like every other unit in the slice.
+#
 # ONE MARKER, deliberately, rather than naming the user manager separately. Distinguishing it would take either a path
 # test against MANAGER_SERVICE -- which is wrong, since every unit that manager starts is inside its subtree, agent
 # sessions included, so the account's dbus broker came out labelled "user manager" -- or an `init.scope` literal,

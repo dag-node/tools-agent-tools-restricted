@@ -73,10 +73,13 @@ the stop a target.
 
 **Agent sessions and the account's own plumbing are counted separately.**
 The slice holds more than sessions: the account's `systemd --user` and its
-`init.scope`, a dbus broker, and a login session scope for every `sudo -u`
-that crossed `pam_systemd`. All of them are terminated — no cgroup is exempt —
-but they are listed after the agent sessions and marked `(account plumbing)`,
-and the headline gives the two counts apart:
+`init.scope`, a dbus broker, a login session scope for every `sudo -u`
+that crossed `pam_systemd`, and a scope for each step a root command runs
+as the account, such as the npm install of `ai-tools-admin system bootstrap`,
+which a stop ends like the toolchain update and a re-run completes. All of them
+are terminated — no cgroup is exempt — but they are listed after the agent
+sessions and marked `(account plumbing)`, and the headline gives the two counts
+apart:
 
 ```
 1 agent session(s) will be terminated, with everything they spawned. 3 unit(s) of the

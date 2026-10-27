@@ -8,9 +8,10 @@
 #
 # ai_tools_sandbox_exec__run_as_sandbox runs a command as the sandbox account with no controlling terminal, no inherited
 # descriptor above 2, a clean environment, a bound on its run, and each of its streams through the log allowlist.
-# ai_tools_sandbox_exec__is_sandbox_account answers whether this process is that account, which is what the updater
-# and the toolchain writers require before they source nvm.sh or run npm: a process of any other account that ran them
-# would execute the tree with that account's authority.
+# The run is placed in the account's own slice, which ai-tools-stop sweeps and sessions.lib.sh reads for the relabel
+# gate. ai_tools_sandbox_exec__is_sandbox_account answers whether this process is that account, which is
+# what the updater and the toolchain writers require before they source nvm.sh or run npm: a process of any other
+# account that ran them would execute the tree with that account's authority.
 #
 # Sourced, not executed. Deployed 644 root:root: it holds shipped logic and the account name the installer substituted,
 # and does not read any operator data. It depends on no provider resolver, so a bootstrap provisioning Node alone,
@@ -93,23 +94,26 @@ _ai_tools_sandbox_exec__find_tool_path() {
     return 1
 }
 
-# _ai_tools_sandbox_exec__is_scope_available : return 0 when a transient scope can be opened for a run -- systemd-run
-#   and systemctl at their system paths, and the system manager answering a probe run -- with the answer kept for this
-#   process. A scope is the boundary a descendant cannot leave: a process that opens a session of its own stays
-#   in the scope's cgroup, so ending the scope ends it. A run without one is refused, since the session setsid opens is
-#   a boundary a descendant's own setsid leaves. systemd-run expands `${NAME}` in a command's arguments where its
+# _ai_tools_sandbox_exec__is_scope_available <slice> : return 0 when a transient scope can be opened in <slice>
+#   for a run -- systemd-run and systemctl at their system paths, and the system manager answering a probe run placed
+#   there -- with the answer kept for this process and that slice. A scope is the boundary a descendant cannot leave:
+#   a process that opens a session of its own stays in the scope's cgroup, so ending the scope ends it. A run without
+#   one is refused, since the session setsid opens is a boundary a descendant's own setsid leaves, and so is a run
+#   the manager will not place in the slice. systemd-run expands `${NAME}` in a command's arguments where its
 #   `--expand-environment` switch is on -- off for a scope in the systemd shipped today, on by default in a later
 #   release, its manual says -- which would rewrite a bash snippet this helper carries before privilege drops;
 #   the switch is passed as `no` wherever systemd-run knows it, so the command receives its arguments byte for byte.
 _AI_TOOLS_SANDBOX_EXEC__RUN_OPTIONS=()
 _ai_tools_sandbox_exec__is_scope_available() {
-    if [[ -z "${_AI_TOOLS_SANDBOX_EXEC__SCOPE_AVAILABLE:-}" ]]; then
+    local slice="$1"
+    if [[ "${_AI_TOOLS_SANDBOX_EXEC__SCOPE_SLICE:-}" != "${slice}" ]]; then
+        _AI_TOOLS_SANDBOX_EXEC__SCOPE_SLICE="${slice}"
         _AI_TOOLS_SANDBOX_EXEC__SCOPE_AVAILABLE=no
         if [[ -x /usr/bin/systemd-run && -x /usr/bin/systemctl && -x /usr/bin/true ]]; then
             /usr/bin/systemd-run --help 2>/dev/null | grep -q -- '--expand-environment' \
                 && _AI_TOOLS_SANDBOX_EXEC__RUN_OPTIONS=(--expand-environment=no)
-            /usr/bin/systemd-run --scope --quiet --collect "${_AI_TOOLS_SANDBOX_EXEC__RUN_OPTIONS[@]}" -- \
-                /usr/bin/true >/dev/null 2>&1 \
+            /usr/bin/systemd-run --scope --quiet --collect --slice="${slice}" "${_AI_TOOLS_SANDBOX_EXEC__RUN_OPTIONS[@]}" \
+                -- /usr/bin/true >/dev/null 2>&1 \
                 && _AI_TOOLS_SANDBOX_EXEC__SCOPE_AVAILABLE=yes
         fi
     fi
@@ -144,7 +148,11 @@ _ai_tools_sandbox_exec__end_scope() {
 #       it, every process of the run gets SIGTERM, then SIGKILL, and the call returns 124 under MSG-W8B7, so a hung
 #       child -- or a descendant it left holding its output open -- ends the step rather than the run. The run is
 #       a transient systemd scope, the boundary a descendant cannot leave whatever session it opens; where the system
-#       manager does not answer, the run is refused under MSG-Q2K6 rather than made with a weaker boundary.
+#       manager does not answer, the run is refused under MSG-Q2K6 rather than made with a weaker boundary;
+#     - a place in the account's own slice, user-<uid>.slice: the scope is a child of that slice beside the account's
+#       user manager, the one tree ai-tools-stop sweeps and the relabel gate (sessions.lib.sh) reads, so a process of
+#       the account a root caller starts is ended by a stop and holds off a recursive relabel like any session. A run
+#       the manager will not place there is refused under MSG-Q2K6, since one in system.slice is outside both.
 #   Every host tool -- setsid, runuser, env, bash, and the sleep and getent beside them -- comes from the system
 #   binary directories, never from the caller's PATH. Returns the command's own status; returns 1 without running
 #   anything when the caller is not root (runuser needs root), <account> is not the sandbox account, a host tool is
@@ -164,8 +172,9 @@ ai_tools_sandbox_exec__run_as_sandbox() {
         _ai_tools_sandbox_exec__warn "ai_tools_sandbox_exec__run_as_sandbox: $(printf '%q' "${account}") is not the sandbox account (${_AI_TOOLS_SANDBOX_EXEC__ACCOUNT}) -- not run"
         return 1
     fi
-    if ! _ai_tools_sandbox_exec__is_scope_available; then
-        _ai_tools_sandbox_exec__warn MSG-Q2K6 "cannot open a transient scope for a run as ${account} (systemd-run --scope did not start a probe: no system manager answers here) -- a run outside one could leave a process behind, so $(printf '%q' "$1") was not run"
+    local sandbox_slice="user-${sandbox_uid}.slice"
+    if ! _ai_tools_sandbox_exec__is_scope_available "${sandbox_slice}"; then
+        _ai_tools_sandbox_exec__warn MSG-Q2K6 "cannot open a transient scope for a run as ${account} (systemd-run --scope --slice=${sandbox_slice} did not start a probe) -- a run outside one could leave a process behind, so $(printf '%q' "$1") was not run"
         return 1
     fi
     local setsid_path runuser_path env_path bash_path
@@ -204,7 +213,7 @@ ai_tools_sandbox_exec__run_as_sandbox() {
     local scope_unit="ai-tools-sandbox-exec-$$-${RANDOM}${RANDOM}.scope" job_control_was_enabled=0
     [[ -o monitor ]] && job_control_was_enabled=1
     set +m
-    /usr/bin/systemd-run --scope --quiet --collect "${_AI_TOOLS_SANDBOX_EXEC__RUN_OPTIONS[@]}" \
+    /usr/bin/systemd-run --scope --quiet --collect --slice="${sandbox_slice}" "${_AI_TOOLS_SANDBOX_EXEC__RUN_OPTIONS[@]}" \
         --unit="${scope_unit%.scope}" -- \
         "${setsid_path}" --wait "${runuser_path}" -u "${account}" -- \
         "${env_path}" -i HOME="${sandbox_home}" PATH=/usr/bin:/bin LANG=C.UTF-8 \

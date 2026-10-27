@@ -146,6 +146,17 @@ mkcg "${SLICE}/session-3.scope"                    301
 state_is live "a login session scope beside the manager (a process a sudo -u started)"
 rm -rf "${SLICE}/session-3.scope"
 
+# A root caller's run as the account (sandbox-exec.lib.sh) is a system-manager scope placed directly under the slice.
+mkcg "${SLICE}/ai-tools-sandbox-exec-1-2.scope"    303
+state_is live "a run a root caller placed in the account's slice"
+listed="$(ai_tools_sessions__list_live_sessions 4242 || true)"
+if [[ "${listed}" == "${SLICE}/ai-tools-sandbox-exec-1-2.scope" ]]; then
+    pass "the listing names the run's scope"
+else
+    fail "the listing with a run's scope printed: ${listed//$'\n'/ | }"
+fi
+rm -rf "${SLICE}/ai-tools-sandbox-exec-1-2.scope"
+
 mkcg "${MANAGER}/app.slice/.hidden.scope"          401
 state_is live "a dot-named unit (the walk sees it)"
 rm -rf "${MANAGER}/app.slice/.hidden.scope"

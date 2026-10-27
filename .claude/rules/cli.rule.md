@@ -1106,9 +1106,9 @@ refuses to launch otherwise), so the grant adds it no access.
 A `restorecon -R` over a tree the sandbox account can write — a claimed project, a clone, an agent's config directory,
 the toolchain under `/opt/ai-tools` — walks by path, and on libselinux before 3.11 it resolves each path again before it
 writes the label. A process of that account that renames a directory aside and plants a symlink of its name inside
-the walk sends the tree's type onto an inode it chose. The account's only writers are its live processes, agent sessions
-and the toolchain update with the install scripts it runs, so every such walk runs **only while no process
-of the account is live**.
+the walk sends the tree's type onto an inode it chose. The account's only writers are its live processes, agent
+sessions, the toolchain update with the install scripts it runs, and the steps a bootstrap and a package erase run
+as the account, so every such walk runs **only while no process of the account is live**.
 
 The reading is `sessions.lib.sh`'s: a cgroup under the account's slice `user-<uid>.slice` that holds a task, read
 from `cgroup.procs` and `cgroup.events` as `ai-tools-stop` reads them, makes the account live. Its walk functions are

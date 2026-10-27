@@ -2506,7 +2506,7 @@ Refusing the ${operation}: the target is a protected system directory.
 .TP
 .B MSG-Q2K6
 WARNING.
-cannot open a transient scope for a run as ${account} (systemd\-run \-\-scope did not start a probe: no system manager answers here) \-\- a run outside one could leave a process behind, so $(printf '%q' "$1") was not run
+cannot open a transient scope for a run as ${account} (systemd\-run \-\-scope \-\-slice=${sandbox_slice} did not start a probe) \-\- a run outside one could leave a process behind, so $(printf '%q' "$1") was not run
 .TP
 .B MSG-W8B7
 WARNING.

@@ -26,7 +26,7 @@ or disarm it? Every decision in this rule follows from that.
 | # | Invariant | Where it comes from | What would break it |
 |---|---|---|---|
 | I1 | A process stays in the cgroup it is in until something writes its pid to a `cgroup.procs`, and a child inherits it across `fork()`. Membership survives `setsid(2)` and the double fork that re-parents to PID 1. | `cgroups(7)` | a kernel that lets a task rewrite its own membership |
-| I2 | Every process of the sandbox account lives under that account's per-user slice, `user-<uid>.slice`. | `systemd-logind(8)` places user processes there; the account has no login shell, so no other path creates one | a process escaping to another slice — needs the user manager, which SELinux denies and DAC-only leaves as a residual |
+| I2 | Every process of the sandbox account lives under that account's per-user slice, `user-<uid>.slice`. | `systemd-logind(8)` places the account's user manager there, and `ai_tools_sandbox_exec__run_as_sandbox`, the route this project's root code takes to run as the account, places each run's scope there | a process escaping to another slice — needs the user manager, which SELinux denies and DAC-only leaves as a residual; a root process started as the account by another route (a plain `runuser`), which stays in its caller's cgroup |
 | I3 | `SIGKILL` is neither catchable nor blockable, and `cgroup.kill` (Linux ≥ 5.14) delivers it to a whole cgroup **atomically** — one write freezes the cgroup and kills every member including descendants. | `signal(7)`; `cgroups(7)` | no userspace mechanism |
 | I4 | The kernel answers "is anything alive here" itself: `cgroup.events`' `populated` field is 1 while the cgroup **or any descendant** holds a live process. | cgroup v2 interface files | a threaded subtree, where `cgroup.procs` reads fail — handled by reading `cgroup.threads` beside it |
 | I5 | Only root may signal across accounts and write `cgroup.kill`. The sandbox account does not hold a `sudo` rule, and the session runs under `PR_SET_NO_NEW_PRIVS`, which drops `sudo`'s SUID bit outright. | the sudoers drop-in; `ai-tools-run`'s unit properties | an operator adding a rule for the sandbox account |
@@ -132,9 +132,11 @@ Stated so the guarantee is bounded rather than overstated.
   a gate shared with the launcher, which does not exist; for the incident case the operator holds the launch path
   anyway, and for an adversarial session the answer is a revoked launch grant beside the stop, not a stronger promise
   here.
-- **Blast radius.** Everything in the account's slice is in scope, including an in-flight toolchain update
-  and the account's own user manager. The updater is fail-closed on interruption and leaves the previous, trusted
-  version active ([updater](updater.rule.md)); the manager is restarted afterwards.
+- **Blast radius.** Everything in the account's slice is in scope, including an in-flight toolchain update, a step
+  a bootstrap or an uninstall runs as the account, and the account's own user manager. The updater is fail-closed
+  on interruption and leaves the previous, trusted version active ([updater](updater.rule.md)), a bootstrap whose step
+  was ended fails and is re-run, and the manager is restarted afterwards. Such a step reads as account plumbing
+  with an `unknown` project: the account's user manager does not know a system-manager scope.
 - **The manager does not come back.** The restart is best-effort and reported separately. Until it succeeds no *new*
   session starts, since `ai-tools-run` launches each one as a transient unit of that manager, which is nearer
   to the point of this command than against it; the message names the command that fixes it.
