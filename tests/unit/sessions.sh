@@ -9,10 +9,11 @@
 # the other.
 #
 # THE FAIL DIRECTION. The gate refuses a walk on `live` and on `unreadable`, so a reading that cannot be made must never
-# come back `none`: no cgroup v2 mount, no uid, a user.slice the caller cannot enter, a slice under the account's
-# that it cannot list, and a cgroup.procs it cannot read are each driven, and an empty unit that sorts last must not
-# turn a complete listing into `unreadable`. A fixture cgroup tree under TESTDIR stands in for /sys/fs/cgroup, reached
-# by stubbing the mount reader after its twin is pinned; no host cgroup is read.
+# come back `none`: no cgroup v2 mount, no uid, a user.slice the caller cannot enter, and a directory
+# under the account's slice it cannot list and enter each read `unreadable`, a cgroup.procs or cgroup.events it cannot
+# read makes its unit `live`, and an empty unit that sorts last must not turn a complete listing into `unreadable`.
+# A fixture cgroup tree under TESTDIR stands in for /sys/fs/cgroup, reached by stubbing the mount reader after its twin
+# is pinned; no host cgroup is read.
 #
 # Runs as root with the rest of the suite and unprivileged during development. The unreadable-file case holds only
 # for an unprivileged caller, since root reads any mode, so a root run drives it as the projects user through runuser.

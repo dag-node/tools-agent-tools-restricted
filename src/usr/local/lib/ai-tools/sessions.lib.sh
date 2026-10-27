@@ -180,7 +180,8 @@ _ai_tools_sessions__is_slice_listable() {
 # ai_tools_sessions__list_live_sessions <uid>: print each live cgroup under the account's slice user-<uid>.slice
 #   that is not the manager's plumbing, one per line. Returns 0 with an empty listing when the account has no slice,
 #   and 1 where the reading cannot be made: a uid that is not a number, no cgroup v2 mount, a user.slice this process
-#   cannot enter, or a directory under the account slice, the slice included, that it cannot list and enter.
+#   cannot enter, or a directory under the account slice, the slice included, that it cannot list and enter. A unit
+#   whose cgroup.procs or cgroup.events this process cannot read is listed as live, the twins' fail-closed answer.
 #   The walk's own status is not read: it is the status of the last unit the walk tested, so an empty unit that sorts
 #   last would turn a complete listing into a failed one. The subshell returns 0 once the walk has run.
 ai_tools_sessions__list_live_sessions() {

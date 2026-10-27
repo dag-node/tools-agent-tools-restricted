@@ -2452,14 +2452,14 @@ cmd_project_claim() {
 
     # The SELinux label walks the tree as root, and ai-tools-relabel refuses that walk while a process of the sandbox
     # account is live, or where it cannot read whether one is (cli.rule.md). The same reading, made here
-    # as the operator, says so ahead of the first sudo; it does not ask anything, and the helper's refusal is
-    # what decides.
+    # as the operator, says so ahead of the verb's first sudo; it does not ask anything, and the helper's refusal is
+    # what decides. It shows for a drift relabel too, which the operator may then decline.
     live_session_note() {
         ${need_label} || (( ${#label_drift[@]} )) || return 0
         declare -F ai_tools_sessions__read_live_session_state >/dev/null 2>&1 || return 0
         [[ "$(ai_tools_sessions__read_live_session_state)" != none ]] || return 0
         headline_warn "NOTICE: a session of the sandbox account is running" \
-            "An agent session or the toolchain update runs as ${SANDBOX_USER}, or this host's sessions could not be read, and the SELinux label step walks the tree as root, which the helper refuses while one runs. The other steps apply; the label is reported pending and the claim ends non-zero. Let each session end (/exit inside it) and the toolchain update finish, or end them all with the command below, then re-run this claim:"
+            "An agent session or the toolchain update runs as ${SANDBOX_USER}, or this host's sessions could not be read. The SELinux label step walks the tree as root, and the helper refuses that step while one runs, where the claim runs it: the other steps apply, the label is reported pending and the claim ends non-zero. A drift relabel you decline does not run the step. Let each session end (/exit inside it) and the toolchain update finish, or end them all with the command below, then re-run this claim:"
         say "      ${C_BOLD}ai-tools stop${C_RST}"
     }
 

@@ -1121,9 +1121,13 @@ as the account, so every such walk runs **only while no process of the account i
 The reading is `sessions.lib.sh`'s: a cgroup under the account's slice `user-<uid>.slice` that holds a task, read
 from `cgroup.procs` and `cgroup.events` as `ai-tools-stop` reads them, makes the account live. Its walk functions are
 a copy of the stop helper's, which does not load a project library, and `tests/unit/sessions.sh` holds each pair equal.
-Every reading it cannot make — no cgroup v2 mount, no uid, a directory under the account's slice the caller cannot list,
-a `cgroup.procs` it cannot read — reads `unreadable`, which each gate treats as live. The toolchain update is live
-by the same reading: it writes the toolchain the `%post` walk crosses.
+Every reading the reader cannot make — no cgroup v2 mount, no uid, a `user.slice` the caller cannot enter, a directory
+under the account's slice it cannot list and enter — reads `unreadable`, which each gate treats as live.
+A `cgroup.procs` or `cgroup.events` it cannot read makes its unit live, the stop helper's fail-closed answer,
+which the copy shares. The toolchain update is live by the same reading: it writes the toolchain the `%post` walk
+crosses. A step this project's root code runs as the account outside the slice — the shim's cache cleanup ahead of its
+unit, the bootstrap's link repair under a plain `sudo -u` on a host whose sudo stack does not place it in a session
+scope — runs root-owned code, and is not a writer the gate defends against.
 
 **The user manager's own plumbing is exempt by name**: its `init.scope` and the dbus broker it starts. The stop helper
 does not exempt any cgroup, because on a DAC-only host a session can move its tasks into any cgroup it names. Here
@@ -1159,7 +1163,9 @@ Where each walk takes the gate:
   in place. `ai-tools-admin`'s clone restore after a group change, and `ai-tools-unclaim --unlisted`'s label reset, warn
   the same way.
 - `projects claim` reads the state unprivileged when its label step is pending and names a live session in the Review
-  block, ahead of the first `sudo`. The notice does not ask anything; the helper's refusal decides.
+  block, ahead of the verb's first `sudo`; a `--for` run's allowlist snapshot precedes it ([Acting for another
+  operator](#acting-for-another-operator---for)). The notice does not ask anything; the helper's refusal decides,
+  where the claim runs the label step, and a drift relabel the operator declines does not run it.
 - A clone is labelled while it is still private, ahead of `normalize_clone`, so its walk does not cross a directory
   the account can rename, and the clone's own entry sits in an area whose type `ai_tools_t` may search and not write;
   that walk does not take the gate. The clone is private by construction, its root created without the area's inherited

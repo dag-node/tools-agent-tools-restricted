@@ -161,8 +161,9 @@ runs says so in the same block, before it asks for a password:
 
 ```text
 NOTICE: a session of the sandbox account is running
-  ... the SELinux label step walks the tree as root, which the helper refuses
-  while one runs. The other steps apply; the label is reported pending ...
+  ... The SELinux label step walks the tree as root, and the helper refuses
+  that step while one runs, where the claim runs it: the other steps apply,
+  the label is reported pending ...
       ai-tools stop
 ```
 
