@@ -546,11 +546,13 @@ ai_tools_layout__parse_stream_line() {
 }
 
 # _ai_tools_layout__is_package_present <package> : 0 when one of the package's sentinels exists under the root (lstat).
+#   The sentinels are space-separated, and the split pins its own IFS: install.sh sources this library under
+#   IFS=$'\n\t', where a bare read keeps both paths in one field that exists nowhere, so every package reads absent.
 _ai_tools_layout__is_package_present() {
     local sentinel root
     local -a sentinels=()
     root="$(_ai_tools_layout__get_path_prefix)"
-    read -ra sentinels <<< "${_AI_TOOLS_LAYOUT__PACKAGE_SENTINELS[$1]:-}"
+    IFS=$' \t\n' read -ra sentinels <<< "${_AI_TOOLS_LAYOUT__PACKAGE_SENTINELS[$1]:-}"
     for sentinel in "${sentinels[@]}"; do
         [[ -e "${root}${sentinel}" || -L "${root}${sentinel}" ]] && return 0
     done

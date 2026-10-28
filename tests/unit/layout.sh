@@ -439,6 +439,21 @@ grep -qx /usr/local/share/man/man5/ai-tools-typesafe.conf.5.gz <<< "${set2}" && 
 grep -qx /usr/local/share/man/man1/ai-tools.1 <<< "${set2}" && pass "a compressed row stays plain where no .gz exists" || fail "plain page absent"
 sorted_ok=0; cut -f1 <<< "$(AI_TOOLS_LAYOUT_ROOT="${R2}" ai_tools_layout__list_entries | grep -v '^error')" | LC_ALL=C sort -c 2>/dev/null && sorted_ok=1
 (( sorted_ok )) && pass "the entry set is sorted by path, so a parent precedes every path under it" || fail "entry set not sorted"
+# install.sh sources the library under IFS=$'\n\t': the sentinel split pins its own IFS, so the set read under
+# the installer's IFS is the set read under the default, package rows included. Each read runs in a subshell, so the IFS
+# reaches no case after it; the control shows the strict IFS splits a bare read differently.
+default_count="$(entries "${R2}" | grep -c . || true)"
+strict_count="$(IFS=$'\n\t'; entries "${R2}" | grep -c . || true)"
+if [[ "${strict_count}" == "${default_count}" && "${default_count}" -gt 0 ]]; then
+    pass "the entry set holds under IFS=\$'\\n\\t' (${strict_count} rows, as under the default)"
+else
+    fail "the entry set under IFS=\$'\\n\\t': ${strict_count} rows, ${default_count} under the default"
+fi
+grep -qx /usr/local/lib/ai-tools/typesafe/decide.mjs <<< "$(IFS=$'\n\t'; entries "${R2}")" \
+    && pass "a package's rows are listed under the installer's IFS" || fail "package rows absent under IFS=\$'\\n\\t'"
+declare -a bare_split=(); IFS=$'\n\t' read -ra bare_split <<< "a b"
+[[ ${#bare_split[@]} -eq 1 ]] && pass "a bare read under IFS=\$'\\n\\t' keeps two space-separated paths in one field (control)" \
+    || fail "control: the strict IFS split the bare read into ${#bare_split[@]} fields"
 rc=0; AI_TOOLS_LAYOUT_ROOT="${R2}" ai_tools_layout__list_entries >/dev/null || rc=$?
 errs="$(errors "${R2}")"
 if (( EUID == 0 )); then
