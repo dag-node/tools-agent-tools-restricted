@@ -832,10 +832,10 @@ do_selinux_restore() {
         /var/log/ai-tools/
     # Each agent's config directory is labelled from the rule its own manifest declares, applied
     # by ai-tools-relabel-agent after this; restore what is already mapped. The sandbox account writes inside each one,
-    # and restorecon walks by path, so the walk runs only while no process of that account is live (cli.rule.md);
-    # the state is read in a child shell, so the checkout's libraries do not load into this one. /opt/ai-tools/.config
-    # takes the same gate: it is root-owned and its systemd/user chain is a layout row at that owner, but a descendant
-    # an older install left sandbox-owned is a tree the account can write.
+    # so the walk runs only while no process of that account is live (cli.rule.md, ref-section-e6c6); the state is read
+    # in a child shell, so the checkout's libraries do not load into this one. /opt/ai-tools/.config takes the same
+    # gate: it is root-owned and its systemd/user chain is a layout row at that owner, but a descendant an older install
+    # left sandbox-owned is a tree the account can write.
     local _cfg _sandbox_session_state
     # shellcheck disable=SC2016  # $1 and $2 are the inner shell's positionals
     _sandbox_session_state="$(bash -c '. "$1" && ai_tools_sessions__read_live_session_state_for_uid "$2"' _ \

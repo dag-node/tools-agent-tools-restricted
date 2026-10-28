@@ -149,10 +149,9 @@ _ai_tools_sandbox_exec__end_scope() {
 #       child -- or a descendant it left holding its output open -- ends the step rather than the run. The run is
 #       a transient systemd scope, the boundary a descendant cannot leave whatever session it opens; where the system
 #       manager does not answer, the run is refused under MSG-Q2K6 rather than made with a weaker boundary;
-#     - a place in the account's own slice, user-<uid>.slice: the scope is a child of that slice beside the account's
-#       user manager, the one tree ai-tools-stop sweeps and the relabel gate (sessions.lib.sh) reads, so a process of
-#       the account a root caller starts is ended by a stop and holds off a recursive relabel like any session. A run
-#       the manager will not place there is refused under MSG-Q2K6, since one in system.slice is outside both.
+#     - a place in the account's own slice, user-<uid>.slice, beside the account's user manager: the one tree
+#       ai-tools-stop sweeps and the relabel gate (sessions.lib.sh) reads. A run the manager will not place there is
+#       refused under MSG-Q2K6, since one in system.slice is outside both.
 #   Every host tool -- setsid, runuser, env, bash, and the sleep and getent beside them -- comes from the system
 #   binary directories, never from the caller's PATH. Returns the command's own status; returns 1 without running
 #   anything when the caller is not root (runuser needs root), <account> is not the sandbox account, a host tool is

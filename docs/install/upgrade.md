@@ -145,8 +145,7 @@ ai-tools-selinux:   sudo restorecon -R /opt/ai-tools /var/opt/ai-tools/sandbox-p
 An upgrade of `ai-tools-selinux` restores the SELinux labels of the trees it
 covers. The ones the agent's account writes into — the toolchain, its caches,
 each agent's config directory, the sandbox clones — are restored only while no
-session of that account and no toolchain update is running, since a running one
-could redirect the walk
+session of that account and no toolchain update is running
 ([ref-section-e6c6](../../.claude/rules/cli.rule.md#ref-section-e6c6)).
 An upgrade made while one runs completes and prints that warning once. Let each
 session end with `/exit` and the update finish, or end them all

@@ -566,10 +566,9 @@ SAFE_PATHS_LIB="${RELABEL_LIB%/*}/safe-paths.lib.sh"
 source "${SAFE_PATHS_LIB}" || refuse_unsourced "${SAFE_PATHS_LIB}"
 
 # The trees the sandbox account can write -- the toolchain, the home state, the clones, a claimed project -- are
-# restored only while no process of that account is live: a recursive restorecon resolves each path again before it
-# writes, so a live process can redirect the label (cli.rule.md, ref-section-e6c6). One reading per run, taken here;
-# a session launched after it is the residual that rule states. The root-owned trees (the log and runtime directories,
-# the helpers) and the operators' config directories are restored whatever it reads.
+# restored only while no process of that account is live (cli.rule.md, ref-section-e6c6). One reading per run, taken
+# here; a session launched after it is the residual that rule states. The root-owned trees (the log and runtime
+# directories, the helpers) and the operators' config directories are restored whatever it reads.
 _sandbox_session_state="$(ai_tools_sessions__read_live_session_state)"
 _left_trees=()
 # _restore_account_tree_labels <path>: restorecon -FR <path> where the reading is `none`; otherwise record <path>
@@ -650,12 +649,12 @@ _labels_drop() {
     done
 }
 
-# _resolve_pattern_tree <pattern>: print the directory a project-shaped rule `<literal>(/.*)?` was written for,
-# unescaped, where it exists, is its own canonical path, and the protected-paths backstop allows it as a target; fail
-# without output for any other pattern, and for every pattern where the backstop did not load. The tree is walked
+# _resolve_pattern_tree <pattern>: print the directory a project-shaped rule `<literal>(/.*)?` was written
+# for, unescaped, where it exists, is its own canonical path, and the protected-paths backstop allows it as a target;
+# fail without output for any other pattern, and for every pattern where the backstop did not load. The tree is walked
 # as root by `restorecon -FR`, so the literal must name it directly: one carrying a `..`, a symlinked component
-# or a link leaf resolves somewhere the rule did not name, and the backstop reads the string it is given, not what
-# the kernel resolves. The paths a raw rule's regex also matched are not its.
+# or a link leaf resolves somewhere the rule did not name, and the backstop reads the string it is given, not
+# what the kernel resolves. The paths a raw rule's regex also matched are not its.
 _resolve_pattern_tree() {
     local literal="${1%(/.*)?}"
     [[ "${literal}" != "$1" && "${literal}" != *'(/.*)?'* ]] || return 1

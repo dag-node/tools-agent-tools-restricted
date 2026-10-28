@@ -1032,11 +1032,9 @@ if [ "$(getenforce 2>/dev/null)" != "Disabled" ] && command -v semodule >/dev/nu
         echo "ai-tools-selinux: sessions run unconfined until it loads; re-run: sudo semodule -i %{_datadir}/selinux/packages/ai-tools/ai_tools.pp" >&2
     }
     # The root-owned trees are restored unconditionally. /opt/ai-tools and the clone area hold trees the sandbox account
-    # writes -- the toolchain, the caches, each agent's config directory, every clone -- and restorecon walks by path,
-    # so a live process of that account could redirect the walk's label writes. Those two are restored only while no
-    # process of the account is live, read through sessions.lib.sh (a library or reader this host lacks reads as live),
-    # and a skip prints one WARNING naming the stop and the restorecon to run after it. A scriptlet must succeed, so
-    # the skip is not an error. cli.rule.md states the gate.
+    # writes, so they are restored only while no process of that account is live (cli.rule.md, ref-section-e6c6), read
+    # through sessions.lib.sh -- a library or reader this host lacks reads as live -- and a skip prints one WARNING
+    # naming the stop and the restorecon to run after it. A scriptlet must succeed, so the skip is not an error.
     _sandbox_session_state=$(bash -c '. /usr/local/lib/ai-tools/sessions.lib.sh; declare -F ai_tools_sessions__read_live_session_state >/dev/null 2>&1 || { echo unreadable; exit 0; }; ai_tools_sessions__read_live_session_state' 2>/dev/null || :)
     _sandbox_trees_skipped=0
     if command -v restorecon >/dev/null 2>&1; then

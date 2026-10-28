@@ -215,11 +215,11 @@ fi
 
 
 # ── do_selinux_restore walks only root-owned trees ahead of the live-session reading ──────────────
-# A recursive restorecon resolves each path again before it writes, so a walk of a tree the sandbox account can write
-# runs behind the reading (cli.rule.md, ref-section-e6c6). Every `restorecon -R` the function makes before the reading
-# must name a root-owned tree from the set find_early_account_walks lists; a control fixture walking
-# /opt/ai-tools/.config there must be flagged. find_early_account_walks <file>: print each `restorecon -R` code line
-# ahead of the reading that names a path outside the root-owned set.
+# A walk of a tree the sandbox account can write runs behind the live-session reading (cli.rule.md, ref-section-e6c6).
+# Every `restorecon -R` the function makes before the reading must name a root-owned tree from the set
+# find_early_account_walks lists; a control fixture walking /opt/ai-tools/.config there must be flagged.
+# find_early_account_walks <file>: print each `restorecon -R` code line ahead of the reading that names a path outside
+# the root-owned set.
 find_early_account_walks() {
     local line path
     while IFS= read -r line; do
@@ -429,9 +429,9 @@ else
 fi
 # The same rule for every other directory the install brings to a row under the home: each ensure_dir of a path
 # under /opt/ai-tools follows the home's, and no `install -d` names a path under the home at all -- the reconcile
-# and ensure_dir are the writers there, and `install -d` follows a link at the name.
-# home_precedes_every_home_row <file> : succeed when every ensure_dir of /opt/ai-tools/<...> in do_install comes after
-# the home's, and no install -d line names a path under /opt/ai-tools.
+# and ensure_dir are the writers there, and `install -d` follows a link at the name. home_precedes_every_home_row <file>
+# : succeed when every ensure_dir of /opt/ai-tools/<...> in do_install comes after the home's, and no install -d line
+# names a path under /opt/ai-tools.
 home_precedes_every_home_row() {
     local lines home_line row_line
     lines="$(extract_function "$1" do_install | code_lines /dev/stdin)"

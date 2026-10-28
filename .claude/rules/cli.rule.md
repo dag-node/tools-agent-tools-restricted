@@ -1122,15 +1122,14 @@ sessions, the toolchain update with the install scripts it runs, and the steps a
 as the account, so every such walk runs **only while no process of the account is live**.
 
 The reading is `sessions.lib.sh`'s: a cgroup under the account's slice `user-<uid>.slice` that holds a task, read
-from `cgroup.procs` and `cgroup.events` as `ai-tools-stop` reads them, makes the account live. Its walk functions are
-a copy of the stop helper's, which does not load a project library, and `tests/unit/sessions.sh` holds each pair equal.
-Every reading the reader cannot make — no cgroup v2 mount, no uid, a `user.slice` the caller cannot enter, a directory
-under the account's slice it cannot list and enter — reads `unreadable`, which each gate treats as live.
-A `cgroup.procs` or `cgroup.events` it cannot read makes its unit live, the stop helper's fail-closed answer,
-which the copy shares. The toolchain update is live by the same reading: it writes the toolchain the `%post` walk
-crosses. A step this project's root code runs as the account outside the slice — the shim's cache cleanup ahead of its
-unit, the bootstrap's link repair under a plain `sudo -u` on a host whose sudo stack does not place it in a session
-scope — runs root-owned code, and is not a writer the gate defends against.
+from `cgroup.procs` and `cgroup.events` as `ai-tools-stop` reads them, makes the account live; the enumeration is a twin
+of the stop helper's ([ref-section-e8k5](stop.rule.md#ref-section-e8k5)). Every reading the reader cannot make — no
+cgroup v2 mount, no uid, a `user.slice` the caller cannot enter, a directory under the account's slice it cannot list
+and enter — reads `unreadable`, and a `cgroup.procs` or `cgroup.events` it cannot read makes its unit live; each gate
+treats both as live. The toolchain update is live by the same reading: it writes the toolchain the `%post` walk crosses.
+A step this project's root code runs as the account outside the slice — the shim's cache cleanup ahead of its unit,
+the bootstrap's link repair under a plain `sudo -u` on a host whose sudo stack does not place it in a session scope —
+runs root-owned code, and is not a writer the gate defends against.
 
 **The user manager's own plumbing is exempt by name**: its `init.scope` and the dbus broker it starts. The stop helper
 does not exempt any cgroup, because on a DAC-only host a session can move its tasks into any cgroup it names. Here
@@ -1149,15 +1148,11 @@ Where each walk takes the gate:
 
 - `relabel.lib.sh` gates its own walks — the project label and unlabel, an agent config directory's label and the config
   half of its unlabel — and returns 3 before any write, so a re-run applies the whole step. `ai-tools-relabel` refuses
-  under a code with an exit status of its own, the claim then reports its label step pending and exits 1, an unclaim
-  reports the revert as not applied and exits 1 once its other steps have run, and a removal stops before either
-  registry changes, since the helper cannot revert a path the removal has deleted. `ai-tools-relabel-agent` files
-  the config directory as `skipped live-session` where it already carries its type, and as `failed live-session`,
-  which `ai-tools status` counts, where it carries another, and exits non-zero, so the relabel unit reads failed until
-  a run with no session labels it: the layout creates the directory without a type under a `usr_t` base, so one created
-  while a session runs is one the agent cannot write. `ai-tools status` renders either
-  with the `ai-tools-relabel.service` start that completes it. The helper labels the entrypoint as it otherwise would:
-  that write is per path, not a walk.
+  under a code with an exit status of its own; the claim then reports its label step pending and exits 1, an unclaim
+  reports the revert as not applied once its other steps have run ([Unclaim](#unclaim)), and a removal stops
+  before either registry changes ([Remove](#remove)). `ai-tools-relabel-agent` files a config directory the gate left
+  by the type it carries ([updater](updater.rule.md)), and labels the entrypoint as it otherwise would: that write is
+  per path, not a walk.
 - The selinux `%post` restores the root-owned trees unconditionally and `/opt/ai-tools` and the clone area behind
   the reading, with one WARNING naming the `restorecon` to run when it skips; the selinux `%postun` makes both its
   policy-store writes behind the same reading, leaving the policy loaded with one WARNING naming the re-run
@@ -1175,10 +1170,9 @@ Where each walk takes the gate:
   its slices owner-only, the state EL10's manager leaves (`app.slice`, `session.slice` and `background.slice`
   under `user@<uid>.service` at `0700`, the account's), so on such a host the helper's refusal at the label step is
   the first report, and a notice on `unreadable` would open every labelling claim with it.
-- A clone is labelled while it is still private, ahead of `normalize_clone`, so its walk does not cross a directory
-  the account can rename, and the clone's own entry sits in an area whose type `ai_tools_t` may search and not write;
-  that walk does not take the gate. The clone is private by construction, its root created without the area's inherited
-  ACL ([Sandbox clone](#sandbox-clone)), and a label the root does not take stops the create before anything opens.
+- A clone is labelled while it is still private ([Sandbox clone](#sandbox-clone)), ahead of `normalize_clone`, so its
+  walk does not cross a directory the account can rename, and the clone's own entry sits in an area whose type
+  `ai_tools_t` may search and not write; that walk does not take the gate.
 
 Every message leads with letting the sessions end and the update finish, and offers `ai-tools stop` beside it, since
 a stop ends a session without its session-end handback and an update mid-run.

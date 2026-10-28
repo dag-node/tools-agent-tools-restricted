@@ -40,14 +40,10 @@
 # the return value.
 #
 # A recursive relabel of a tree the sandbox account can write -- a project, a clone, an agent's config directory -- runs
-# only while no process of that account is live (_ai_tools_relabel__require_no_live_session), and returns 3 otherwise.
-# restorecon walks by path, and on libselinux before 3.11 resolves each path again before it writes the label, so a live
-# process of the account could swap a directory for a symlink inside the walk and send the tree's type onto an inode it
-# chose. The reading is the kernel's cgroup tree (sessions.lib.sh), and the user manager's own plumbing is exempt
-# by name, which holds where a walk runs: none runs where SELinux is Disabled, and where the policy is loaded ai_tools_t
-# can neither write a cgroup file nor ask its manager for a unit, so the names are the manager's. A session launched
-# between the reading and the walk is inside it; cli.rule.md states that residual and what closes it. The per-path
-# `restorecon -F` of an entrypoint is not a walk and does not take the gate.
+# only while no process of that account is live (_ai_tools_relabel__require_no_live_session), and returns 3 before any
+# write otherwise. The reading (sessions.lib.sh), why the user manager's plumbing is exempt from it, and the residual
+# a session launched during the walk is are cli.rule.md's (ref-section-e6c6). The per-path `restorecon -F`
+# of an entrypoint is not a walk and does not take the gate.
 
 # Every type this library applies is pinned in this file, and the labelling functions do not take a type argument:
 # a manifest or a caller names WHICH path is a project, a build-output directory, an entrypoint or a config directory,
