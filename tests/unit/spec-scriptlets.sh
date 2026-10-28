@@ -12,7 +12,9 @@
 #
 # Two further reads over the erase scriptlets, each a property a package host alone would otherwise show: no agent
 # %preun nulls the relabel helper's stderr, the stream its deferred-cleanup warning is on; and the selinux %postun reads
-# the sandbox account's sessions ahead of its first policy-store write, the gate its comment states.
+# the sandbox account's sessions ahead of its first policy-store write, read as source order over its command lines.
+# Source order does not show that the writes wait on the reading; unit/spec-selinux-erase.sh runs the scriptlet
+# under stubs for that.
 
 set -euo pipefail
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")/../lib" && pwd)/harness.sh"
@@ -86,12 +88,12 @@ else
 fi
 
 # The selinux %postun's first policy-store write (a rule delete, the module unload) follows its reading of the sandbox
-# account's sessions, so an erase with a session open leaves the store as it is. Read as source order over the
-# section's code lines.
+# account's sessions. Read as source order over the section's command lines: an echo or printf line names those commands
+# in the text it prints, so each is dropped first.
 postun_code=""
 for sec in "${sections[@]}"; do
     [[ "${sec%%$'\n'*}" == "%postun -n ai-tools-selinux" ]] || continue
-    postun_code="$(grep -vE '^[[:space:]]*#' <<< "${sec}" || true)"
+    postun_code="$(grep -vE '^[[:space:]]*(#|echo |printf )' <<< "${sec}" || true)"
 done
 if [[ -z "${postun_code}" ]]; then
     fail "the selinux %postun section was not found; the parser or the spec changed shape"
