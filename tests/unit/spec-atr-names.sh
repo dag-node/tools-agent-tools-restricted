@@ -3,17 +3,14 @@
 # tests/unit/spec-atr-names.sh
 # Hermetic check of the ai-tools-base %pre in packaging/ai-tools.spec: it reads each name the short command atr takes
 # and exits 1 at the first one in none of this project's forms, ahead of the account creation, a gzip stub that fails
-# `gzip -t` and a page past 4096 bytes among them, and on that refusal
-# starts the relabel watcher %pretrans stopped, since %posttrans does not run after a failed %pre. Where the watcher
-# cannot be started, the refusal names the line that starts it.
+# `gzip -t` and a page past 4096 bytes among them. The refusal does not start the relabel watcher %pretrans stopped,
+# since rpm may still place the packages ordered after base, and names the check and the start to run once
+# the transaction ends.
 #
 # A scriptlet runs inside an rpm transaction as root, so its body is read out of the spec as RPM parses it, its host
 # paths rewritten to a fixture tree, and run under /bin/sh with getent, groupadd, useradd and systemctl defined as shell
-# functions ahead of it: each records its call, and a file in the fixture makes systemctl fail. The wrapper's marker
-# line names /usr/local/bin/atr as content, so it is kept out of the rewrite, and the rewritten body is checked
-# for that before any case runs. The scriptlet reads /usr/bin/systemctl with `[ -x ]`, so the fixture takes a directory
-# where a 0755 file reads as executable, as tests/unit/agent-installs.sh does; with none, the cases that need a running
-# watcher skip and the rest run.
+# functions ahead of it, each recording its call. The wrapper's marker line names /usr/local/bin/atr as content, so it
+# is kept out of the rewrite, and the rewritten body is checked for that before any case runs.
 #
 # Unprivileged, and reads the checkout alone; skips outside one.
 
@@ -25,7 +22,7 @@ SPEC="${ROOT}/packaging/ai-tools.spec"
 WRAPPER_SRC="${ROOT}/src/usr/local/bin/atr.sh"
 PAGE1_SRC="${ROOT}/src/usr/local/share/man/man1/atr.1"
 PAGE8_SRC="${ROOT}/src/usr/local/share/man/man8/atr.8"
-section "ai-tools-base %pre: a name atr takes is refused unless it is this project's, and the refusal restarts the relabel watcher (unit)"
+section "ai-tools-base %pre: a name atr takes is refused unless it is this project's, and the refusal leaves the relabel watcher alone (unit)"
 
 if [[ ! -r "${SPEC}" || ! -r "${WRAPPER_SRC}" ]]; then
     skip "base %pre" "not a source checkout (no ${SPEC})"
@@ -50,25 +47,10 @@ if [[ -z "${body}" ]]; then
     finish; exit
 fi
 
-# x_bit_visible <dir>: succeed when a 0755 file created there reads as executable.
-x_bit_visible() {
-    local probe="$1/.x-probe.$$" ok=1
-    printf '' > "${probe}" 2>/dev/null || return 1
-    chmod 0755 "${probe}" 2>/dev/null || { rm -f "${probe}"; return 1; }
-    [[ -x "${probe}" ]] && ok=0
-    rm -f "${probe}"
-    return "${ok}"
-}
-BASE="${TESTDIR}" XBIT=1
-if ! x_bit_visible "${BASE}"; then
-    alt=""
-    mk_fixture_dir alt "${PROJECTS_HOME}" spec-atr 2>/dev/null || alt=""
-    if [[ -n "${alt}" ]] && x_bit_visible "${alt}"; then BASE="${alt}"; else XBIT=0; fi
-fi
-FX="${BASE}/root"
-WRAPPER="${FX}/usr/local/bin/atr" LINK="${FX}/usr/sbin/atr" SYSTEMCTL="${FX}/usr/bin/systemctl"
+FX="${TESTDIR}/root"
+WRAPPER="${FX}/usr/local/bin/atr" LINK="${FX}/usr/sbin/atr"
 MAN1="${FX}/usr/local/share/man/man1" MAN8="${FX}/usr/local/share/man/man8"
-mkdir -p "${FX}/usr/local/bin" "${FX}/usr/sbin" "${FX}/usr/bin" "${MAN1}" "${MAN8}"
+mkdir -p "${FX}/usr/local/bin" "${FX}/usr/sbin" "${MAN1}" "${MAN8}"
 
 # The host paths become the fixture's; the marker is content, so it is set aside first and put back after.
 marker='# /usr/local/bin/atr --'
@@ -76,9 +58,8 @@ body="${body//"${marker}"/"# @ATR-MARKER@ --"}"
 body="${body//"/usr/local/bin/atr"/"${FX}/usr/local/bin/atr"}"
 body="${body//"/usr/sbin/atr"/"${FX}/usr/sbin/atr"}"
 body="${body//"/usr/local/share/man/"/"${FX}/usr/local/share/man/"}"
-body="${body//"/usr/bin/systemctl"/"${SYSTEMCTL}"}"
 body="${body//"# @ATR-MARKER@ --"/"${marker}"}"
-leftover="$(grep -nE '(^|[^[:alnum:]_/.-])/usr/(local/bin/atr|sbin/atr|local/share/man/|bin/systemctl)' <<< "${body}" \
+leftover="$(grep -nE '(^|[^[:alnum:]_/.-])/usr/(local/bin/atr|sbin/atr|local/share/man/)' <<< "${body}" \
     | grep -vF "${marker}" || true)"
 if [[ -z "${leftover}" && "$(grep -cF "'${marker}'" <<< "${body}")" == 1 ]]; then
     pass "the body's host paths point at the fixture and the wrapper's marker is kept as content"
@@ -93,7 +74,7 @@ STUB="__STUB__"
 getent() { printf "getent %s\n" "$*" >> "${STUB}/recorder"; return 2; }
 groupadd() { printf "groupadd %s\n" "$*" >> "${STUB}/recorder"; }
 useradd() { printf "useradd %s\n" "$*" >> "${STUB}/recorder"; }
-systemctl() { printf "systemctl %s\n" "$*" >> "${STUB}/recorder"; [ ! -f "${STUB}/systemctl_fails" ]; }
+systemctl() { printf "systemctl %s\n" "$*" >> "${STUB}/recorder"; }
 '
 stubs="${stubs//__STUB__/${TESTDIR}}"
 printf '%s\n%s\n' "${stubs}" "${body}" > "${TESTDIR}/run.sh"
@@ -106,11 +87,8 @@ for tool in sed readlink zcat gzip cat head od tr wc; do
     [[ "${tool}" == zcat || "${tool}" == gzip ]] || ln -s "$(type -P "${tool}")" "${TESTDIR}/bin-nozcat/${tool}"
 done
 
-# reset_names: remove every name the scriptlet reads, and the systemctl failure marker; place the systemctl file.
-reset_names() {
-    rm -rf "${WRAPPER}" "${LINK}" "${MAN1}"/atr.1* "${MAN8}"/atr.8* "${TESTDIR}/systemctl_fails"
-    printf '#!/bin/sh\n' > "${SYSTEMCTL}"; chmod 0755 "${SYSTEMCTL}"
-}
+# reset_names: remove every name the scriptlet reads.
+reset_names() { rm -rf "${WRAPPER}" "${LINK}" "${MAN1}"/atr.1* "${MAN8}"/atr.8*; }
 # run_pre [path-dir]: run the scriptlet; sets status, recorder and err.
 run_pre() {
     : > "${TESTDIR}/recorder"
@@ -119,14 +97,15 @@ run_pre() {
     recorder="$(cat "${TESTDIR}/recorder")"; err="$(cat "${TESTDIR}/err")"
 }
 account_created() { grep -qE '^(groupadd|useradd) ' <<< "${recorder}"; }
-watcher_starts() { grep -cxF 'systemctl start ai-tools-relabel.path' <<< "${recorder}" || true; }
-readonly RUNNING='ai-tools-base: the relabel watcher %pretrans stopped is running again'
-readonly BY_HAND='ai-tools-base: start the relabel watcher by hand: systemctl start ai-tools-relabel.path'
+systemctl_calls() { grep -c '^systemctl ' <<< "${recorder}" || true; }
+RECOVERY='ai-tools-base: this refusal does not start the relabel watcher the transaction stopped -- once the transaction'
+RECOVERY+=' ends, check it with systemctl is-active ai-tools-relabel.path, and start it if it should run:'
+readonly RECOVERY+=' systemctl start ai-tools-relabel.path'
 
 # ── Names absent, or in this project's forms, pass ──────────────────────────────────────────────
 reset_names
 run_pre
-if (( status == 0 )) && account_created && [[ "$(watcher_starts)" == 0 && -z "${err}" ]]; then
+if (( status == 0 )) && account_created && [[ "$(systemctl_calls)" == 0 && -z "${err}" ]]; then
     pass "every name absent: exit 0, the account is created, the watcher is left to %posttrans"
 else
     fail "every name absent: exit ${status}, stderr [${err}], calls [${recorder//$'\n'/; }]"
@@ -153,7 +132,7 @@ run_pre
     && pass "a marked wrapper with other content passes, as this project's name" \
     || fail "the marked wrapper: exit ${status}, stderr [${err}]"
 
-# ── Each foreign entry refuses ahead of the account, and the watcher is started again ─────────
+# ── Each foreign entry refuses ahead of the account, and the watcher is left to the transaction's end ──
 # place_foreign <what>: put one foreign entry in a tree otherwise empty, and print its path.
 place_foreign() {
     reset_names
@@ -204,35 +183,12 @@ for kind in unmarked directory link-elsewhere file-at-link gz-without-so wrong-s
     else
         fail "${what}: exit ${status}, stderr [${err}], calls [${recorder//$'\n'/; }]"
     fi
-    if (( XBIT == 0 )); then
-        continue
-    fi
-    if [[ "$(watcher_starts)" == 1 ]] && grep -qxF "${RUNNING}" <<< "${err}" && ! grep -qxF "${BY_HAND}" <<< "${err}"; then
-        pass "${what}: the watcher is started once and the refusal says it runs again"
+    if [[ "$(systemctl_calls)" == 0 ]] && grep -qxF "${RECOVERY}" <<< "${err}"; then
+        pass "${what}: no systemctl call, and the refusal names the check and the start for the transaction's end"
     else
-        fail "${what}: watcher starts $(watcher_starts), stderr [${err}]"
+        fail "${what}: systemctl calls [$(grep '^systemctl ' <<< "${recorder}" | tr '\n' ';')], stderr [${err}]"
     fi
 done
-(( XBIT == 1 )) || skip "the watcher restart" "no directory here reports a 0755 file as executable (a noexec mount)"
-
-# ── A watcher that cannot be started is named with the line that starts it ───────────────────────
-if (( XBIT == 1 )); then
-    place_foreign unmarked >/dev/null; : > "${TESTDIR}/systemctl_fails"
-    run_pre
-    if (( status == 1 )) && [[ "$(watcher_starts)" == 1 ]] && grep -qxF "${BY_HAND}" <<< "${err}" \
-            && ! grep -qxF "${RUNNING}" <<< "${err}"; then
-        pass "a failed start: the refusal names the line that starts the watcher by hand"
-    else
-        fail "a failed start: exit ${status}, watcher starts $(watcher_starts), stderr [${err}]"
-    fi
-fi
-place_foreign unmarked >/dev/null; rm -f "${SYSTEMCTL}"
-run_pre
-if (( status == 1 )) && [[ "$(watcher_starts)" == 0 ]] && grep -qxF "${BY_HAND}" <<< "${err}"; then
-    pass "no systemctl: the refusal names the line that starts the watcher by hand, with no start attempted"
-else
-    fail "no systemctl: exit ${status}, watcher starts $(watcher_starts), stderr [${err}]"
-fi
 
 # ── The tools the %pre reads with are ordered ahead of it ────────────────────────────────────────
 # The scriptlet reads a page through zcat and sed before base's files are placed, so without zcat this project's own

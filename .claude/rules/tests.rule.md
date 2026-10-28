@@ -759,8 +759,9 @@ calls, no agent `%preun` nulling the relabel helper's stderr, the `%postun`'s se
 write, and the escaping rule the spec's preamble states, held against the parsed text where `rpmspec` is on the host.
 `spec-atr-names.sh` runs the `ai-tools-base` `%pre` the same way over a fixture tree of the names `atr` takes: each
 of this project's forms passes, each foreign entry exits 1 ahead of the account creation, the gzip stubs failing
-`gzip -t` and a page past the stub's size among them, and the refusal starts
-the relabel watcher `%pretrans` stopped, or names the line that starts it where `systemctl` is absent or fails. Without
+`gzip -t` and a page past the stub's size among them, and the refusal does not call `systemctl` and names the check
+and the start of the relabel watcher to run once the transaction ends, since a start inside it would let a run fire
+while rpm places the packages ordered after base. Without
 `zcat` the scriptlet refuses this project's own gzip stub, so the file also holds the package to the `Requires(pre)`
 lines that place the tools ahead of it.
 

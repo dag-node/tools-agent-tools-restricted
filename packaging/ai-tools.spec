@@ -715,9 +715,10 @@ end
 # in the forms install.sh's ATR_NAMES states and exits 1 at the first entry that is in none of them, which stops rpm
 # unpacking this package's files and no more: %%pretrans has already stopped ai-tools-relabel.path for the transaction,
 # a package rpm ordered ahead of this one has placed its files, and %%posttrans, which starts the watcher again, does not
-# run after a failed %%pre. The failure branch therefore starts the watcher %%pretrans stopped, and names the line that
-# starts it where it could not. A path another package owns has conflicted before this runs, so there is no rpm query
-# here.
+# run after a failed %%pre. The refusal does not start the watcher: a start here would let a run fire while rpm places
+# the packages ordered after this one, the state %%pretrans stops it for. It names the check and the start to run once
+# the transaction ends; ai-tools-integration-nodejs's %%posttrans starts the watcher where that package is
+# in the transaction. A path another package owns has conflicted before this runs, so there is no rpm query here.
 for _p in /usr/local/bin/atr /usr/sbin/atr \
           /usr/local/share/man/man1/atr.1 /usr/local/share/man/man1/atr.1.gz \
           /usr/local/share/man/man1/atr.1.bz2 /usr/local/share/man/man1/atr.1.xz /usr/local/share/man/man1/atr.1.zst \
@@ -750,12 +751,7 @@ for _p in /usr/local/bin/atr /usr/sbin/atr \
             fi ;;
     esac
     if [ "${_ours}" = no ]; then
-        if [ -x /usr/bin/systemctl ] && systemctl start ai-tools-relabel.path >/dev/null 2>&1; then
-            _watcher='the relabel watcher %%pretrans stopped is running again'
-        else
-            _watcher='start the relabel watcher by hand: systemctl start ai-tools-relabel.path'
-        fi
-        printf 'MSG-W5Z8\nai-tools-base: the name %s holds an entry that is not this project'"'"'s, so the install does not replace it -- move the entry aside and re-run the transaction\nai-tools-base: %s\n' "${_p}" "${_watcher}" >&2
+        printf 'MSG-W5Z8\nai-tools-base: the name %s holds an entry that is not this project'"'"'s, so the install does not replace it -- move the entry aside and re-run the transaction\nai-tools-base: this refusal does not start the relabel watcher the transaction stopped -- once the transaction ends, check it with systemctl is-active ai-tools-relabel.path, and start it if it should run: systemctl start ai-tools-relabel.path\n' "${_p}" >&2
         exit 1
     fi
 done
