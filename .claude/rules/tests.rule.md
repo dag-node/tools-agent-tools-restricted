@@ -755,6 +755,9 @@ run through the stub, so a tree name carrying a space is held to reach `restorec
 it reads the spec as text for what source order shows: the `declare -F` guard on every library function a scriptlet
 calls, no agent `%preun` nulling the relabel helper's stderr, the `%postun`'s session read ahead of its first store
 write, and the escaping rule the spec's preamble states, held against the parsed text where `rpmspec` is on the host.
+`spec-atr-names.sh` runs the `ai-tools-base` `%pre` the same way over a fixture tree of the names `atr` takes: each
+of this project's forms passes, each foreign occupant exits 1 ahead of the account creation, and the refusal starts
+the relabel watcher `%pretrans` stopped, or names the line that starts it where `systemctl` is absent or fails.
 
 `claim-notice.sh` drives the live-session reader's one unprivileged caller, the claim's `note_live_session`, read
 out of the checkout's `ai-tools.sh` as text: the notice prints on `live` alone, with a label step or a drift relabel
