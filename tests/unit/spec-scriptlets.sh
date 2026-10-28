@@ -9,6 +9,10 @@
 # so a function the new release renamed is reached by a scriptlet that does not know the new name. The guard turns
 # that into one line and a skip the installed version's own scriptlet covers. Pure text over the spec; skips outside
 # a checkout. %prep and the build sections are not read: they call this tree's own library.
+#
+# Two further reads over the erase scriptlets, each a property a package host alone would otherwise show: no agent
+# %preun nulls the relabel helper's stderr, the stream its deferred-cleanup warning is on; and the selinux %postun reads
+# the sandbox account's sessions ahead of its first policy-store write, the gate its comment states.
 
 set -euo pipefail
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")/../lib" && pwd)/harness.sh"
@@ -67,6 +71,39 @@ if (( checked == 0 )); then
     fail "no scriptlet section calling a library function was found; the parser or the spec changed shape"
 else
     pass "${checked} scriptlet section(s) call a library function and were checked"
+fi
+
+section "the erase scriptlets keep the helper's stderr and gate the store on the sessions (unit)"
+
+# ai-tools-relabel-agent --remove prints its deferred-cleanup warning on stderr (the config directory left labelled
+# while a session runs, with the restorecon the operator owes), so a %preun that nulls that stream hides the one line
+# the erase has to show. Read over the whole spec: every agent package's %preun runs the helper.
+nulled="$(grep -nE 'relabel-agent --remove.*2>&1' "${SPEC}" || true)"
+if [[ -z "${nulled}" ]]; then
+    pass "no agent %preun nulls the relabel helper's stderr"
+else
+    fail "an agent %preun nulls the relabel helper's stderr: ${nulled//$'\n'/; }"
+fi
+
+# The selinux %postun's first policy-store write (a rule delete, the module unload) follows its reading of the sandbox
+# account's sessions, so an erase with a session open leaves the store as it is. Read as source order over the
+# section's code lines.
+postun_code=""
+for sec in "${sections[@]}"; do
+    [[ "${sec%%$'\n'*}" == "%postun -n ai-tools-selinux" ]] || continue
+    postun_code="$(grep -vE '^[[:space:]]*#' <<< "${sec}" || true)"
+done
+if [[ -z "${postun_code}" ]]; then
+    fail "the selinux %postun section was not found; the parser or the spec changed shape"
+else
+    read_hits="$(grep -nE 'ai_tools_sessions__read_live_session_state' <<< "${postun_code}" || true)"
+    write_hits="$(grep -nE 'semanage fcontext -d|semodule .*-r ' <<< "${postun_code}" || true)"
+    read_line="${read_hits%%:*}"; write_line="${write_hits%%:*}"
+    if [[ -n "${read_line}" && -n "${write_line}" ]] && (( read_line < write_line )); then
+        pass "the selinux %postun reads the sessions (line ${read_line}) ahead of its first store write (line ${write_line})"
+    else
+        fail "the selinux %postun does not read the sessions ahead of its first store write (read: '${read_line}', write: '${write_line}')"
+    fi
 fi
 
 finish

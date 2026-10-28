@@ -1342,10 +1342,12 @@ exit "${relabel_rc}"
 # tree's owner, through ai_tools_sandbox_exec__run_as_sandbox (sandbox-exec.lib.sh: no terminal, no inherited
 # descriptor, a clean environment), offline (npm uninstall does not reach a registry), and best-effort (`|| :`), so
 # the erase completes whatever it prints; a removal deferred under a live session is left for
-# the next update run.
+# the next update run. The relabel helper's stderr reaches the transaction output: a session open
+# at erase time leaves its config directory labelled, and the restorecon the operator then owes is
+# printed on that stream alone.
 if [ "$1" -eq 0 ]; then
     [ -x %{ai_libexecdir}/ai-tools-relabel-agent ] \
-        && %{ai_libexecdir}/ai-tools-relabel-agent --remove claude-code >/dev/null 2>&1 || :
+        && %{ai_libexecdir}/ai-tools-relabel-agent --remove claude-code >/dev/null || :
     if [ -r /usr/local/lib/ai-tools/sandbox-exec.lib.sh ] && [ -r /usr/local/lib/ai-tools/toolchain.lib.sh ] && id ai-tools >/dev/null 2>&1; then
         bash -c '. /usr/local/lib/ai-tools/sandbox-exec.lib.sh; declare -F ai_tools_sandbox_exec__run_as_sandbox >/dev/null 2>&1 || { echo "skipped: the installed ai-tools-base library does not define a function this package version calls, so the installed version runs the step from its own scriptlet" >&2; exit 0; }; ai_tools_sandbox_exec__run_as_sandbox ai-tools bash -c ". /usr/local/lib/ai-tools/toolchain.lib.sh; declare -F ai_tools_toolchain__erase_agent_package >/dev/null 2>&1 || exit 0; ai_tools_toolchain__erase_agent_package /opt/ai-tools/.nvm claude-code"' 2>&1 | sed 's/^/ai-tools: /' || :
     fi
@@ -1426,10 +1428,11 @@ chmod 3770 /opt/ai-tools/.codex 2>/dev/null || :
 # On final erase, drop the entrypoint file-context rule this package registered (the pattern is
 # read from this package's manifest, still on disk in %%preun), and remove the skills link the
 # %%post created -- the link to the shared root, or our links inside a host-owned /etc/codex/skills.
-# Anything the host placed there is left as it is; the shared root belongs to the base.
+# Anything the host placed there is left as it is; the shared root belongs to the base. The relabel
+# helper's stderr reaches the transaction output, as in the claude-code %%preun.
 if [ "$1" -eq 0 ]; then
     [ -x %{ai_libexecdir}/ai-tools-relabel-agent ] \
-        && %{ai_libexecdir}/ai-tools-relabel-agent --remove codex >/dev/null 2>&1 || :
+        && %{ai_libexecdir}/ai-tools-relabel-agent --remove codex >/dev/null || :
     if [ -r /usr/local/lib/ai-tools/managed-assets.lib.sh ] && command -v bash >/dev/null 2>&1; then
         bash -c ". /usr/local/lib/ai-tools/msg.lib.sh; . /usr/local/lib/ai-tools/managed-assets.lib.sh; declare -F ai_tools_managed_assets__unlink_shared_root >/dev/null 2>&1 || { echo 'ai-tools: skipped: the installed ai-tools-base library does not define a function this package version calls, so the installed version runs the step from its own scriptlet' >&2; exit 0; }; ai_tools_managed_assets__unlink_shared_root /opt/ai-tools/skills %{_sysconfdir}/codex/skills %{_datadir}/ai-tools/skills/README.md" >/dev/null 2>&1 || :
     fi
