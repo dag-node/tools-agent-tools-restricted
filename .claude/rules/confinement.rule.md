@@ -575,14 +575,17 @@ made, the erase leaves the policy loaded and every rule in place and prints the 
 `install-selinux.sh remove` refuses in. A dropped rule shaped like a project's names its tree with the `restorecon -R`
 that returns it to its default type, printed single-quoted and only where the decoded tree re-escapes to the literal
 the rule carried, and not walked, since a scriptlet holds neither the protected-paths backstop nor the literal check
-the installer's `remove` walks a tree under. The listing, the deletes, the unload and the read-back run under the lock
-every writer of the policy store takes ([updater](updater.rule.md)), and once the read-back shows every `ai_tools`
-module gone the trees the `%post` restores take one `restorecon` each, the account's under the same `none` reading, a tree the walk could not
-restore named with its retry. A module left loaded is reported with semanage's reason, read back from the store rather
-than from the exit status, and a rule semanage will not delete is named with the delete to run. A store that cannot be
-listed is reported as that and never read as an empty one, since an empty store is what `removed` rests on: the erase
-prints the failed read and skips the unload, and `install-selinux.sh remove`, which takes the same two steps
-from a checkout, refuses at either read and exits 1 over a module left loaded.
+the installer's `remove` walks a tree under; a project-shaped rule an earlier release wrote raw is named for review
+with the `restorecon` to run over each tree it covered. The listing, the deletes, the unload and the read-back run
+under the lock every writer of the policy store takes ([updater](updater.rule.md)), the sessions read once the lock is
+held, since a session can start during the wait, and a lock not taken is reported ahead of the erase proceeding; once
+the read-back shows every `ai_tools` module gone the trees the `%post` restores take one `restorecon` each,
+the account's under the same `none` reading, a tree the walk could not restore named with its retry. A module left
+loaded is reported with semanage's reason, read back from the store rather than from the exit status, and a rule
+semanage will not delete is named with the delete to run. A store that cannot be listed is reported as that and never
+read as an empty one, since an empty store is what `removed` rests on: the erase prints the failed read and skips
+the unload, and `install-selinux.sh remove`, which takes the same two steps from a checkout, refuses at either read
+and exits 1 over a module left loaded.
 
 The `%selinux_*` rpm macros are not used. `%selinux_requires` records the build host's `selinux-policy` version
 as a `Requires`, which a `noarch` package cannot satisfy across both EL targets; `%selinux_modules_install`/`_uninstall`

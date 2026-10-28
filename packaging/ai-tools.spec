@@ -1014,10 +1014,12 @@ if [ "$(getenforce 2>/dev/null)" != "Disabled" ] && command -v semodule >/dev/nu
     # ai-tools-relabel.path, and semodule and semanage report an error to whichever process finds
     # the store held. Open-coded because a scriptlet runs under /bin/sh and does not source the
     # library. Best-effort as the library is: no /run/lock, or a wait that runs out, proceeds
-    # unserialized. The file is created by a simple command first, because a failed redirection
-    # on a bare `exec` ends the scriptlet.
+    # unserialized and says so. The file is created by a simple command first, because a failed
+    # redirection on a bare `exec` ends the scriptlet.
     _store_lock=/run/lock/ai-tools-relabel.lock
-    if : 2>/dev/null >"${_store_lock}"; then exec 9>"${_store_lock}"; flock -w 120 9 || :; fi
+    _lock_note=""
+    if : 2>/dev/null >"${_store_lock}"; then exec 9>"${_store_lock}"; flock -w 120 9 || _lock_note="the wait for ${_store_lock} ran out"; else _lock_note="${_store_lock} cannot be opened"; fi
+    [ -z "${_lock_note}" ] || echo "ai-tools-selinux: NOTE proceeding without the relabel lock -- ${_lock_note}" >&2
     _semodule_error=$(semodule -i %{_datadir}/selinux/packages/ai-tools/ai_tools.pp 2>&1) || {
         echo "ai-tools-selinux: WARNING could not load the ai_tools policy module: ${_semodule_error}" >&2
         echo "ai-tools-selinux: sessions run unconfined until it loads; re-run: sudo semodule -i %{_datadir}/selinux/packages/ai-tools/ai_tools.pp" >&2
@@ -1121,8 +1123,13 @@ fi
 # single-quoted, only where the decoded tree re-escapes to the literal the rule carried (the
 # encoding ai_tools_relabel__get_fcontext_literal writes), and not walked, since this scriptlet
 # holds neither the protected-paths backstop nor the literal check the installer's `remove` walks
-# a tree under. The listing, the deletes, the unload and the read-back run under the lock every
-# writer of the policy store takes (%%post states it). A module left loaded is reported with
+# a tree under. A dropped project-shaped rule whose literal is not in that encoding -- one an
+# earlier release wrote raw -- matched paths the decoding does not derive, so it is named for
+# review with the restorecon to run over each tree it covered. The listing, the deletes, the
+# unload and the read-back run under the lock every writer of the policy store takes (%%post
+# states it), and the sessions are read once the lock is held: a session can start during the
+# wait, and a reading made before it would let the sweep run beside that session. A lock not
+# taken is reported and the erase proceeds, as %%post does. A module left loaded is reported with
 # semanage's reason, and a module store that cannot be listed is reported as that rather than read
 # as empty; the erase completes either way. Once the read-back shows every ai_tools module gone,
 # the trees %%post restores take one restorecon each, the account's under the same `none`
@@ -1130,15 +1137,18 @@ fi
 # tree the walk could not restore is named with the restorecon to re-run. Before that read-back
 # the policy's own file contexts still apply, so the walk waits for it.
 if [ "$1" -eq 0 ] && command -v semodule >/dev/null 2>&1; then
+    _store_lock=/run/lock/ai-tools-relabel.lock
+    _lock_note=""
+    if : 2>/dev/null >"${_store_lock}"; then exec 9>"${_store_lock}"; flock -w 120 9 || _lock_note="the wait for ${_store_lock} ran out"; else _lock_note="${_store_lock} cannot be opened"; fi
+    [ -z "${_lock_note}" ] || echo "ai-tools-selinux: NOTE proceeding without the relabel lock -- ${_lock_note}; a relabel running now can leave a rule the unload refuses on, which is reported below" >&2
     _sandbox_session_state=$(bash -c '. /usr/local/lib/ai-tools/sessions.lib.sh; declare -F ai_tools_sessions__read_live_session_state >/dev/null 2>&1 || { echo unreadable; exit 0; }; ai_tools_sessions__read_live_session_state' 2>/dev/null || :)
     if [ "${_sandbox_session_state}" != none ]; then
         loaded_modules=$(semodule -l 2>/dev/null | grep -E '^ai_tools(_|$)' | tr '\n' ' ' || :)
         echo "ai-tools-selinux: WARNING left the policy loaded and every local file-context rule in place: an agent session or the toolchain update runs as the sandbox account, or this host's sessions could not be read. Let each session end (/exit inside it) and the toolchain update finish, or end them all with ai-tools stop, then re-run this step:" >&2
         echo "ai-tools-selinux:   sudo dnf install ai-tools-selinux && sudo dnf remove ai-tools-selinux" >&2
         echo "ai-tools-selinux:   or by hand: drop each rule 'sudo semanage fcontext -l -C | grep ai_tools' lists (sudo semanage fcontext -d -f <letter> -- <pattern>), unload with: sudo semodule -r ${loaded_modules:-<module>...}, then restore the labels: sudo restorecon -R %{ai_libexecdir} %{ai_libdir} /var/log/ai-tools /opt/ai-tools /var/opt/ai-tools/sandbox-projects, and each project tree a dropped rule named" >&2
+        exec 9>&-
     else
-    _store_lock=/run/lock/ai-tools-relabel.lock
-    if : 2>/dev/null >"${_store_lock}"; then exec 9>"${_store_lock}"; flock -w 120 9 || :; fi
     if command -v semanage >/dev/null 2>&1; then
         semanage fcontext -l -C -n 2>/dev/null | awk '
             {
@@ -1161,7 +1171,10 @@ if [ "$1" -eq 0 ] && command -v semodule >/dev/null 2>&1; then
                         literal="${pattern%(/.*)?}"
                         tree=$(printf '%s' "${literal}" | sed -E 's/\\(.)/\1/g')
                         escaped=$(printf '%s' "${tree}" | sed 's/[][\\.(){}*+?^$|]/\\&/g')
-                        if [ "${escaped}" = "${literal}" ] && [ -d "${tree}" ]; then
+                        if [ "${escaped}" != "${literal}" ]; then
+                            printf 'ai-tools-selinux: dropped the rule %s (%s), whose pattern is not a literal path this release writes; the trees it matched keep that type -- review them and restore each with: sudo restorecon -R <tree>\n' \
+                                "${pattern}" "${type}" >&2
+                        elif [ -d "${tree}" ]; then
                             quoted=$(printf '%s' "${tree}" | sed "s/'/'\\\\''/g")
                             printf "ai-tools-selinux: %s keeps labels of a type the policy no longer defines (%s); restore its default types with: sudo restorecon -R '%s'\n" \
                                 "${tree}" "${type}" "${quoted}" >&2
