@@ -743,6 +743,12 @@ as the control; and the script's text sources the installed `sandbox-exec.lib.sh
 every other `restorecon` to a root-owned tree, and reads the live-session state in the `remove` action ahead of its
 first policy-store write.
 
+`claim-notice.sh` drives the live-session reader's one unprivileged caller, the claim's `note_live_session`, read
+out of the checkout's `ai-tools.sh` as text with the reader, the renderers and the pending-label state stubbed: a `live`
+reading with the label step or a drift relabel pending prints the notice and the stop command, `none` and `unreadable`
+print no line, and no reading prints one while no label step is pending. The `live` case reaching the renderer is
+the control that the extraction found the function.
+
 `postupgrade.sh` is that same reconciliation seen from the RPM side: `ai-tools-admin system post-upgrade` end to end,
 from dispatch through the registry to each treatment (see [providers](providers.rule.md)
 and [claude-settings](claude-settings.rule.md)). It asserts which treatment each file got — the settings JSON merged

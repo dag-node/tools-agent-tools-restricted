@@ -156,8 +156,10 @@ Two more notices name what the claim saw and left alone:
   and claim again; for ownership alone inside them, run
   `ai-tools projects handback --full`.
 
-A claim whose label step is pending while a session or the toolchain update
-runs says so in the same block, before it asks for a password:
+Where your account can read the sandbox account's sessions, a claim whose label
+step is pending while a session or the toolchain update runs says
+so in the same block, before it asks for a password. On a host where it cannot,
+the refusal of the label step is the first report, after the password:
 
 ```text
 NOTICE: a session of the sandbox account is running

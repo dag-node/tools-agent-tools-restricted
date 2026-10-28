@@ -1169,7 +1169,11 @@ Where each walk takes the gate:
 - `projects claim` reads the state unprivileged when its label step is pending and names a live session in the Review
   block, ahead of the verb's first `sudo`; a `--for` run's allowlist snapshot precedes it ([Acting for another
   operator](#acting-for-another-operator---for)). The notice does not ask anything; the helper's refusal decides,
-  where the claim runs the label step, and a drift relabel the operator declines does not run it.
+  where the claim runs the label step, and a drift relabel the operator declines does not run it. The notice shows
+  on a `live` reading alone: the operator account reads `unreadable` where the sandbox account's user manager creates
+  its slices owner-only, the state EL10's manager leaves (`app.slice`, `session.slice` and `background.slice`
+  under `user@<uid>.service` at `0700`, the account's), so on such a host the helper's refusal at the label step is
+  the first report, and a notice on `unreadable` would open every labelling claim with it.
 - A clone is labelled while it is still private, ahead of `normalize_clone`, so its walk does not cross a directory
   the account can rename, and the clone's own entry sits in an area whose type `ai_tools_t` may search and not write;
   that walk does not take the gate. The clone is private by construction, its root created without the area's inherited
