@@ -1104,14 +1104,34 @@ fi
 # never in the rpm database at all. Leaving one loaded would keep a domain alive for files the
 # package no longer owns.
 #
+# Both store writes wait on the reading %%post makes of the sandbox account's sessions (its comment
+# states the gate): a process of that account live at the unload runs on in a domain the loaded
+# policy no longer defines, which the kernel maps to the unlabeled context, so while the reading is
+# anything but `none` the erase leaves the policy loaded and every rule in place and names the stop
+# and the re-run -- the direction install-selinux.sh's `remove` refuses in. A scriptlet must
+# succeed, so the skip is not an error.
+#
 # Every local file-context rule naming a type of this policy goes first: semodule refuses the
 # unload while one stands, and a claimed project's rule is one, so without this step the unload
 # failed on every erase. The rules are the types' and go with them; a claim writes them again.
 # A rule semanage will not delete is named with the delete to run (MSG-N5W8 is the installer's
-# code for it, printed here as the citation a twin carries). A module left loaded is reported
-# with semanage's reason, and a module store that cannot be listed is reported as that rather
-# than read as empty; the erase completes either way.
+# code for it, printed here as the citation a twin carries). A dropped rule shaped like a project's
+# leaves its tree carrying a type the policy no longer defines, which a confined domain is denied
+# on, so the tree is named with the restorecon that returns it to its default type -- printed and
+# not walked, since this scriptlet holds neither the protected-paths backstop nor the literal check
+# the installer's `remove` walks a tree under. A module left loaded is reported with semanage's
+# reason, and a module store that cannot be listed is reported as that rather than read as empty;
+# the erase completes either way. After the unload the trees %%post restores take the same
+# restorecon, the account's under the same `none` reading, so the control plane and the sandbox
+# home leave the erase at their default types.
 if [ "$1" -eq 0 ] && command -v semodule >/dev/null 2>&1; then
+    _sandbox_session_state=$(bash -c '. /usr/local/lib/ai-tools/sessions.lib.sh; declare -F ai_tools_sessions__read_live_session_state >/dev/null 2>&1 || { echo unreadable; exit 0; }; ai_tools_sessions__read_live_session_state' 2>/dev/null || :)
+    if [ "${_sandbox_session_state}" != none ]; then
+        loaded_modules=$(semodule -l 2>/dev/null | grep -E '^ai_tools(_|$)' | tr '\n' ' ' || :)
+        echo "ai-tools-selinux: WARNING left the policy loaded and every local file-context rule in place: an agent session or the toolchain update runs as the sandbox account, or this host's sessions could not be read. Let each session end (/exit inside it) and the toolchain update finish, or end them all with ai-tools stop, then re-run this step:" >&2
+        echo "ai-tools-selinux:   sudo dnf install ai-tools-selinux && sudo dnf remove ai-tools-selinux" >&2
+        echo "ai-tools-selinux:   or by hand: sudo semanage fcontext -l -C | grep ai_tools, drop each rule it lists (sudo semanage fcontext -d ...), then: sudo semodule -r ${loaded_modules:-<module>...}" >&2
+    else
     if command -v semanage >/dev/null 2>&1; then
         semanage fcontext -l -C -n 2>/dev/null | awk '
             {
@@ -1128,9 +1148,17 @@ if [ "$1" -eq 0 ] && command -v semodule >/dev/null 2>&1; then
                 printf "%s\t%s\t%s\n", letter, context[3], pattern
             }' | while IFS="$(printf '\t')" read -r letter type pattern; do
             [ -n "${pattern}" ] || continue
-            semanage fcontext -d -f "${letter}" -- "${pattern}" >/dev/null 2>&1 \
-                || printf 'MSG-N5W8\nai-tools-selinux: could not drop the local file-context rule %s (%s) -- the module unload refuses while it stands; remove it with: sudo semanage fcontext -d -f %s -- %s\n' \
+            if semanage fcontext -d -f "${letter}" -- "${pattern}" >/dev/null 2>&1; then
+                case "${pattern}" in
+                    *'(/.*)?')
+                        tree=$(printf '%s' "${pattern%(/.*)?}" | sed -E 's/\\(.)/\1/g')
+                        [ -d "${tree}" ] && printf 'ai-tools-selinux: %s keeps labels of a type the policy no longer defines (%s); restore its default types with: sudo restorecon -R %s\n' \
+                            "${tree}" "${type}" "${tree}" >&2 ;;
+                esac
+            else
+                printf 'MSG-N5W8\nai-tools-selinux: could not drop the local file-context rule %s (%s) -- the module unload refuses while it stands; remove it with: sudo semanage fcontext -d -f %s -- %s\n' \
                     "${pattern}" "${type}" "${letter}" "${pattern}" >&2
+            fi
         done
     fi
     if listing=$(semodule -l 2>&1); then
@@ -1152,6 +1180,10 @@ if [ "$1" -eq 0 ] && command -v semodule >/dev/null 2>&1; then
     else
         printf 'ai-tools-selinux: could not read the module store -- %s -- the ai_tools modules were not unloaded; run: sudo semodule -l, then: sudo semodule -r <module>... for each ai_tools module it lists\n' \
             "$(printf '%s' "${listing}" | tr '\n' ' ')" >&2
+    fi
+    if command -v restorecon >/dev/null 2>&1; then
+        restorecon -R %{ai_libexecdir} %{ai_libdir} /var/log/ai-tools /opt/ai-tools /var/opt/ai-tools/sandbox-projects >/dev/null 2>&1 || :
+    fi
     fi
 fi
 

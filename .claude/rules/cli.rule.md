@@ -1159,13 +1159,14 @@ Where each walk takes the gate:
   with the `ai-tools-relabel.service` start that completes it. The helper labels the entrypoint as it otherwise would:
   that write is per path, not a walk.
 - The selinux `%post` restores the root-owned trees unconditionally and `/opt/ai-tools` and the clone area behind
-  the reading, with one WARNING naming the `restorecon` to run when it skips; `install.sh` does the same
-  for `/opt/ai-tools/.config` and the agent config directories, and `selinux/install-selinux.sh` for every tree
-  the account can write that its actions walk, the toolchain, the home state, the clones and the projects its removal
-  restores, reading the account through the installed `sandbox-exec.lib.sh`; its `remove` refuses before its first
-  policy-store write while the reading is not idle, since the module unload fails on a project rule the gate left
-  in place. `ai-tools-admin`'s clone restore after a group change, and `ai-tools-unclaim --unlisted`'s label reset, warn
-  the same way.
+  the reading, with one WARNING naming the `restorecon` to run when it skips; the selinux `%postun` makes both its
+  policy-store writes behind the same reading, leaving the policy loaded with one WARNING naming the re-run
+  ([confinement](confinement.rule.md)); `install.sh` does the same for `/opt/ai-tools/.config` and the agent config
+  directories, and `selinux/install-selinux.sh` for every tree the account can write that its actions walk,
+  the toolchain, the home state, the clones and the projects its removal restores, reading the account
+  through the installed `sandbox-exec.lib.sh`; its `remove` refuses before its first policy-store write while
+  the reading is not idle, since the module unload fails on a project rule the gate left in place. `ai-tools-admin`'s
+  clone restore after a group change, and `ai-tools-unclaim --unlisted`'s label reset, warn the same way.
 - `projects claim` reads the state unprivileged when its label step is pending and names a live session in the Review
   block, ahead of the verb's first `sudo`; a `--for` run's allowlist snapshot precedes it ([Acting for another
   operator](#acting-for-another-operator---for)). The notice does not ask anything; the helper's refusal decides,
