@@ -108,7 +108,8 @@ is. The helper directory the program sits in is root-only, so the caller that re
 **`atr` is the command a reader types, and it adds a spelling, not a program.** `atr admin <command>` runs
 `ai-tools-admin` at its fixed path — directly as root, and otherwise through `sudo` after one line on stderr saying so —
 and every other `atr <command>` runs `ai-tools`, whose own refusals stand. `admin` is read as the first word alone,
-so `atr --for <operator> admin …` is `ai-tools`'s to refuse as an unknown command, and `ai-tools` does not take
+so `atr --for <operator> admin …` runs `ai-tools`, whose `--for` gate refuses it (`require_for_target` runs ahead
+of the dispatch, so the refusal is `MSG-U7R7` and not the unknown-command one), and `ai-tools` does not take
 an `admin` verb. The wrapper does not hold a help of its own: each program answers its own `--help`, reached as it is
 reached without the wrapper. The dispatch lives in `atr.sh` rather than in `ai-tools.sh`, since the operator CLI is
 the file that refuses root for every writing verb ([cli](cli.rule.md)).
