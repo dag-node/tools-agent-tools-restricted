@@ -46,7 +46,8 @@ eval "${escaper}"
 # erased it on) and for the trees local rules name.
 libexec="${TESTDIR}/libexec"; lib="${TESTDIR}/lib"; log="${TESTDIR}/log"; home="${TESTDIR}/home"; clones="${TESTDIR}/clones"
 project="${TESTDIR}/proj with spaces"; raw="${TESTDIR}/raw[0-9]+"; absent="${TESTDIR}/absent"; conf="${TESTDIR}/conf"
-mkdir -p "${libexec}" "${lib}" "${home}/.nvm" "${clones}" "${project}" "${raw}" "${conf}"
+legacy="${TESTDIR}/legacy.v1"
+mkdir -p "${libexec}" "${lib}" "${home}/.nvm" "${clones}" "${project}" "${raw}" "${conf}" "${legacy}"
 
 body="${body//\/var\/opt\/ai-tools\/sandbox-projects/${clones}}"
 body="${body//\/opt\/ai-tools/${home}}"
@@ -60,6 +61,7 @@ body="${body//\/run\/lock\/ai-tools-relabel.lock/${TESTDIR}/relabel.lock}"
 printf '%s(/.*)?    all files    system_u:object_r:ai_tools_project_t:s0\n' \
     "$(ai_tools_relabel__get_fcontext_literal "${project}")" \
     "${raw}" \
+    "${legacy}" \
     "$(ai_tools_relabel__get_fcontext_literal "${absent}")" > "${TESTDIR}/rules.base"
 printf '%s(/.*)?    all files    system_u:object_r:ai_tools_conf_t:s0\n' \
     "$(ai_tools_relabel__get_fcontext_literal "${conf}")" >> "${TESTDIR}/rules.base"
@@ -69,8 +71,13 @@ printf 'zebra\nai_tools\nai_tools_tmpmap\n' > "${TESTDIR}/modules.base"
 # shellcheck disable=SC2016  # the stubs expand these when the scriptlet runs, not this shell
 stubs='
 STUB="__STUB__"
-bash() { cat "${STUB}/session"; }
-flock() { printf "flock %s\n" "$*" >> "${STUB}/recorder"; }
+bash() { printf "read-session\n" >> "${STUB}/recorder"; cat "${STUB}/session"; }
+flock() {
+    printf "flock %s\n" "$*" >> "${STUB}/recorder"
+    [ -f "${STUB}/flock_flips" ] && printf "live\n" > "${STUB}/session"
+    [ -f "${STUB}/flock_fails" ] && return 1
+    return 0
+}
 semanage() {
     if [ "$1 $2 $3" = "fcontext -l -C" ]; then cat "${STUB}/rules"; return 0; fi
     printf "semanage %s\n" "$*" >> "${STUB}/recorder"
@@ -89,6 +96,7 @@ semodule() {
 }
 restorecon() {
     printf "restorecon %s\n" "$*" >> "${STUB}/recorder"
+    printf "%s\n" "$#" "$@" > "${STUB}/last_args"
     [ -f "${STUB}/restore_fails" ] && [ "$2" = "$(cat "${STUB}/restore_fails")" ] && return 1
     return 0
 }
@@ -103,7 +111,8 @@ run_erase() {
     printf '%s\n' "${state}" > "${TESTDIR}/session"
     cp "${TESTDIR}/rules.base" "${TESTDIR}/rules"; cp "${TESTDIR}/modules.base" "${TESTDIR}/modules"
     rm -f "${TESTDIR}/recorder" "${TESTDIR}/list_fails" "${TESTDIR}/unload_fails" "${TESTDIR}/delete_fails" \
-          "${TESTDIR}/restore_fails" "${TESTDIR}/relabel.lock"
+          "${TESTDIR}/restore_fails" "${TESTDIR}/flock_flips" "${TESTDIR}/flock_fails" "${TESTDIR}/last_args" \
+          "${TESTDIR}/relabel.lock"
     : > "${TESTDIR}/recorder"
     local marker; for marker in "$@"; do case "${marker}" in restore_fails=*) printf '%s' "${marker#*=}" > "${TESTDIR}/restore_fails" ;; *) : > "${TESTDIR}/${marker}" ;; esac; done
     status=0
@@ -114,7 +123,7 @@ run_erase() {
 # ── A live or unreadable reading writes nothing and names the re-run ────────────────────────────
 for state in live unreadable; do
     run_erase "${state}"
-    if [[ -z "${recorder}" && "${status}" -eq 0 ]]; then
+    if ! grep -qE '^(semanage|semodule|restorecon) ' <<< "${recorder}" && [[ "${status}" -eq 0 ]]; then
         pass "${state}: no store write, no restore, exit 0"
     else
         fail "${state}: the scriptlet wrote or walked (exit ${status}): ${recorder//$'\n'/; }"
@@ -127,17 +136,34 @@ for state in live unreadable; do
     else
         fail "${state}: the warning lacks the re-run or the label restore: ${err//$'\n'/; }"
     fi
-    if [[ ! -e "${TESTDIR}/relabel.lock" ]]; then
-        pass "${state}: the store lock is not opened"
+    if [[ "${recorder}" == "flock -w 120 9"$'\n'"read-session" ]]; then
+        pass "${state}: the sessions are read once the lock is held, and nothing else runs"
     else
-        fail "${state}: the store lock was opened without a store write"
+        fail "${state}: the lock and the reading are not the run's two steps in that order: ${recorder//$'\n'/; }"
     fi
 done
+
+# A session that starts during the lock wait is read: the flock stub flips the reading to live while it waits.
+run_erase none flock_flips
+if ! grep -qE '^(semanage|semodule|restorecon) ' <<< "${recorder}" && grep -q 'WARNING left the policy loaded' <<< "${err}"; then
+    pass "none at the start, live once the lock is held: no store write, the warning printed"
+else
+    fail "none at the start, live once the lock is held: the stale reading wrote the store: ${recorder//$'\n'/; }"
+fi
+
+# A lock not taken is reported, and the erase proceeds as the %post does.
+run_erase none flock_fails
+if grep -qF "NOTE proceeding without the relabel lock -- the wait for ${TESTDIR}/relabel.lock ran out" <<< "${err}" \
+        && grep -q '^semanage fcontext -d ' <<< "${recorder}" && [[ "${status}" -eq 0 ]]; then
+    pass "none, lock wait ran out: the loss of serialization is reported and the erase proceeds"
+else
+    fail "none, lock wait ran out: ${err//$'\n'/; } / ${recorder//$'\n'/; }"
+fi
 
 # ── An idle reading sweeps, unloads and restores under the lock ────────────────────────────────
 run_erase none
 deletes="$(grep -c '^semanage fcontext -d ' <<< "${recorder}" || true)"
-if (( deletes == 5 )) && grep -qF "semanage fcontext -d -f a -- $(ai_tools_relabel__get_fcontext_literal "${project}")(/.*)?" <<< "${recorder}" \
+if (( deletes == 6 )) && grep -qF "semanage fcontext -d -f a -- $(ai_tools_relabel__get_fcontext_literal "${project}")(/.*)?" <<< "${recorder}" \
         && grep -qF "semanage fcontext -d -f f -- ${home}/bin/claude\\.exe" <<< "${recorder}"; then
     pass "none: every local rule naming a policy type is deleted with its file-type letter (${deletes})"
 else
@@ -145,10 +171,12 @@ else
 fi
 first_write="$(grep -n '^semanage fcontext -d \|^semodule ' <<< "${recorder}" || true)"; first_write="${first_write%%:*}"
 lock_line="$(grep -n '^flock -w 120 9$' <<< "${recorder}" || true)"; lock_line="${lock_line%%:*}"
-if [[ -n "${lock_line}" && -n "${first_write}" ]] && (( lock_line < first_write )) && [[ -e "${TESTDIR}/relabel.lock" ]]; then
-    pass "none: the relabel lock is taken (line ${lock_line}) ahead of the first store write (line ${first_write})"
+read_line="$(grep -n '^read-session$' <<< "${recorder}" || true)"; read_line="${read_line%%:*}"
+if [[ -n "${lock_line}" && -n "${read_line}" && -n "${first_write}" ]] && (( lock_line < read_line && read_line < first_write )) \
+        && [[ -e "${TESTDIR}/relabel.lock" ]]; then
+    pass "none: the relabel lock (line ${lock_line}), then the reading (line ${read_line}), then the first store write (line ${first_write})"
 else
-    fail "none: the store is written without the relabel lock ahead of it (lock '${lock_line}', write '${first_write}')"
+    fail "none: the lock, the reading and the first write are not in that order (lock '${lock_line}', read '${read_line}', write '${first_write}')"
 fi
 if grep -qF 'semodule -r ai_tools -r ai_tools_tmpmap' <<< "${recorder}"; then
     pass "none: every loaded ai_tools module is unloaded in one transaction"
@@ -169,20 +197,42 @@ restore_lines="$(grep 'restore its default types with: ' <<< "${err}" || true)"
 if [[ "$(grep -c . <<< "${restore_lines}")" -eq 2 ]] \
         && grep -qF "${project} keeps labels of a type the policy no longer defines (ai_tools_project_t); restore its default types with: sudo restorecon -R '${project}'" <<< "${restore_lines}" \
         && grep -qF "sudo restorecon -R '${conf}'" <<< "${restore_lines}" \
-        && ! grep -qF "${raw}" <<< "${restore_lines}" && ! grep -qF "${absent}" <<< "${restore_lines}"; then
-    pass "none: the project and config trees are named with a single-quoted restorecon; the raw and absent rules are not"
+        && ! grep -qF "${raw}" <<< "${restore_lines}" && ! grep -qF "${legacy}" <<< "${restore_lines}" \
+        && ! grep -qF "${absent}" <<< "${restore_lines}"; then
+    pass "none: the project and config trees are named with a single-quoted restorecon; the raw, legacy and absent rules are not"
 else
     fail "none: the restore lines are not the two expected: ${restore_lines//$'\n'/; }"
 fi
-# The command as the operator pastes it, with the stub reading what reaches restorecon.
+# A dropped rule whose pattern is not a literal this release writes -- the raw one, and the legacy one an earlier
+# release wrote without escaping its dot -- is named for review with its pattern.
+review_lines="$(grep 'whose pattern is not a literal path this release writes' <<< "${err}" || true)"
+if [[ "$(grep -c . <<< "${review_lines}")" -eq 2 ]] \
+        && grep -qF "dropped the rule ${raw}(/.*)? (ai_tools_project_t), whose pattern" <<< "${review_lines}" \
+        && grep -qF "dropped the rule ${legacy}(/.*)? (ai_tools_project_t), whose pattern" <<< "${review_lines}" \
+        && grep -qF 'restore each with: sudo restorecon -R <tree>' <<< "${review_lines}"; then
+    pass "none: the raw and the legacy rule are each named for review with the restorecon to run"
+else
+    fail "none: the review lines are not the two expected: ${review_lines//$'\n'/; }"
+fi
+# The command as the operator pastes it, with the stub reading the arguments that reach restorecon, and the same command
+# with its quotes removed as the control the argument count tells apart.
 pasted="$(grep -F "'${project}'" <<< "${restore_lines}" | sed 's/.*restore its default types with: sudo //')"
-: > "${TESTDIR}/recorder"
-# shellcheck disable=SC2034  # the stub functions the eval defines read STUB
-( STUB="${TESTDIR}"; eval "${stubs#*$'\n'}"; eval "${pasted}" )
-if [[ "$(cat "${TESTDIR}/recorder")" == "restorecon -R ${project}" ]]; then
+run_pasted() {
+    rm -f "${TESTDIR}/last_args"
+    # shellcheck disable=SC2034  # the stub functions the eval defines read STUB
+    ( STUB="${TESTDIR}"; eval "${stubs#*$'\n'}"; eval "$1" )
+    cat "${TESTDIR}/last_args" 2>/dev/null || true
+}
+if [[ "$(run_pasted "${pasted}")" == $'2\n-R\n'"${project}" ]]; then
     pass "none: the pasted command hands the project path to restorecon as one argument"
 else
-    fail "none: the pasted command '${pasted}' reached restorecon as: $(tr '\n' ';' < "${TESTDIR}/recorder")"
+    fail "none: the pasted command '${pasted}' reached restorecon as: $(run_pasted "${pasted}" | tr '\n' ';')"
+fi
+unquoted="${pasted//\'/}"
+if [[ "$(run_pasted "${unquoted}" | head -n 1)" -gt 2 ]]; then
+    pass "control: the same command without its quotes reaches restorecon as several arguments"
+else
+    fail "control: the unquoted command '${unquoted}' did not split; the argument count does not tell the two apart"
 fi
 
 # ── The restore waits for a read-back listing no module ─────────────────────────────────────────

@@ -749,14 +749,18 @@ the exit status said, with the step order read from the arm's text.
 `spec-selinux-erase.sh` runs the `ai-tools-selinux` `%postun` the same way: its body read out of the spec, its macros
 and host paths rewritten to fixture trees, and run under `/bin/sh` with the session reader, `semanage`, `semodule`,
 `restorecon` and `flock` defined as recording functions ahead of it. A `live` and an `unreadable` reading make no store
-write and no restore and name the package re-run and the by-hand steps through the label restore; `none` deletes every
-rule with its file-type letter under the relabel lock, unloads the modules in one transaction, and restores the present
-trees one call each; the printed restore line for a project tree carrying a space is run through the stub and held
-to reach `restorecon` as one argument, while a rule holding a raw metacharacter over an existing directory is not named;
-a refused listing, a refused unload and a refused restore are each driven, the first two leaving every tree unwalked;
-and the gate's test rewritten is the control, under which a live reading deletes rules. `spec-scriptlets.sh` beside it
-reads the spec as text: the `declare -F` guard on every library function a scriptlet calls, no agent `%preun` nulling
-the relabel helper's stderr, and the `%postun`'s session read ahead of its first store write in source order.
+write and no restore and name the package re-run and the by-hand steps through the label restore, and a reading
+the `flock` stub flips to `live` while it waits is the one the run acts on; `none` deletes every rule with its file-type
+letter under the relabel lock, read before the sessions and the sessions before the first write, unloads the modules
+in one transaction, and restores the present trees one call each; the printed restore line for a project tree carrying
+a space is run through the stub and held to reach `restorecon` as two arguments, the same line with its quotes removed
+as the control that splits, while a rule holding a raw metacharacter over an existing directory and one an earlier
+release wrote without escaping its dot are each named for review with their pattern; a lock wait that runs out is
+reported with the erase proceeding; a refused listing, a refused unload and a refused restore are each driven, the first
+two leaving every tree unwalked; and the gate's test rewritten is the control, under which a live reading deletes rules.
+`spec-scriptlets.sh` beside it reads the spec as text: the `declare -F` guard on every library function a scriptlet
+calls, no agent `%preun` nulling the relabel helper's stderr, and the `%postun`'s session read ahead of its first store
+write in source order.
 
 `claim-notice.sh` drives the live-session reader's one unprivileged caller, the claim's `note_live_session`, read
 out of the checkout's `ai-tools.sh` as text with the reader, the renderers and the pending-label state stubbed: a `live`
