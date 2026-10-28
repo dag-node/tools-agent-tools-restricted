@@ -1117,21 +1117,28 @@ fi
 # A rule semanage will not delete is named with the delete to run (MSG-N5W8 is the installer's
 # code for it, printed here as the citation a twin carries). A dropped rule shaped like a project's
 # leaves its tree carrying a type the policy no longer defines, which a confined domain is denied
-# on, so the tree is named with the restorecon that returns it to its default type -- printed and
-# not walked, since this scriptlet holds neither the protected-paths backstop nor the literal check
-# the installer's `remove` walks a tree under. A module left loaded is reported with semanage's
-# reason, and a module store that cannot be listed is reported as that rather than read as empty;
-# the erase completes either way. After the unload the trees %%post restores take the same
-# restorecon, the account's under the same `none` reading, so the control plane and the sandbox
-# home leave the erase at their default types.
+# on, so the tree is named with the restorecon that returns it to its default type -- printed
+# single-quoted, only where the decoded tree re-escapes to the literal the rule carried (the
+# encoding ai_tools_relabel__get_fcontext_literal writes), and not walked, since this scriptlet
+# holds neither the protected-paths backstop nor the literal check the installer's `remove` walks
+# a tree under. The listing, the deletes, the unload and the read-back run under the lock every
+# writer of the policy store takes (%%post states it). A module left loaded is reported with
+# semanage's reason, and a module store that cannot be listed is reported as that rather than read
+# as empty; the erase completes either way. Once the read-back shows every ai_tools module gone,
+# the trees %%post restores take one restorecon each, the account's under the same `none`
+# reading, so the control plane and the sandbox home leave the erase at their default types; a
+# tree the walk could not restore is named with the restorecon to re-run. Before that read-back
+# the policy's own file contexts still apply, so the walk waits for it.
 if [ "$1" -eq 0 ] && command -v semodule >/dev/null 2>&1; then
     _sandbox_session_state=$(bash -c '. /usr/local/lib/ai-tools/sessions.lib.sh; declare -F ai_tools_sessions__read_live_session_state >/dev/null 2>&1 || { echo unreadable; exit 0; }; ai_tools_sessions__read_live_session_state' 2>/dev/null || :)
     if [ "${_sandbox_session_state}" != none ]; then
         loaded_modules=$(semodule -l 2>/dev/null | grep -E '^ai_tools(_|$)' | tr '\n' ' ' || :)
         echo "ai-tools-selinux: WARNING left the policy loaded and every local file-context rule in place: an agent session or the toolchain update runs as the sandbox account, or this host's sessions could not be read. Let each session end (/exit inside it) and the toolchain update finish, or end them all with ai-tools stop, then re-run this step:" >&2
         echo "ai-tools-selinux:   sudo dnf install ai-tools-selinux && sudo dnf remove ai-tools-selinux" >&2
-        echo "ai-tools-selinux:   or by hand: sudo semanage fcontext -l -C | grep ai_tools, drop each rule it lists (sudo semanage fcontext -d ...), then: sudo semodule -r ${loaded_modules:-<module>...}" >&2
+        echo "ai-tools-selinux:   or by hand: drop each rule 'sudo semanage fcontext -l -C | grep ai_tools' lists (sudo semanage fcontext -d -f <letter> -- <pattern>), unload with: sudo semodule -r ${loaded_modules:-<module>...}, then restore the labels: sudo restorecon -R %{ai_libexecdir} %{ai_libdir} /var/log/ai-tools /opt/ai-tools /var/opt/ai-tools/sandbox-projects, and each project tree a dropped rule named" >&2
     else
+    _store_lock=/run/lock/ai-tools-relabel.lock
+    if : 2>/dev/null >"${_store_lock}"; then exec 9>"${_store_lock}"; flock -w 120 9 || :; fi
     if command -v semanage >/dev/null 2>&1; then
         semanage fcontext -l -C -n 2>/dev/null | awk '
             {
@@ -1151,9 +1158,14 @@ if [ "$1" -eq 0 ] && command -v semodule >/dev/null 2>&1; then
             if semanage fcontext -d -f "${letter}" -- "${pattern}" >/dev/null 2>&1; then
                 case "${pattern}" in
                     *'(/.*)?')
-                        tree=$(printf '%s' "${pattern%(/.*)?}" | sed -E 's/\\(.)/\1/g')
-                        [ -d "${tree}" ] && printf 'ai-tools-selinux: %s keeps labels of a type the policy no longer defines (%s); restore its default types with: sudo restorecon -R %s\n' \
-                            "${tree}" "${type}" "${tree}" >&2 ;;
+                        literal="${pattern%(/.*)?}"
+                        tree=$(printf '%s' "${literal}" | sed -E 's/\\(.)/\1/g')
+                        escaped=$(printf '%s' "${tree}" | sed 's/[][\\.(){}*+?^$|]/\\&/g')
+                        if [ "${escaped}" = "${literal}" ] && [ -d "${tree}" ]; then
+                            quoted=$(printf '%s' "${tree}" | sed "s/'/'\\\\''/g")
+                            printf "ai-tools-selinux: %s keeps labels of a type the policy no longer defines (%s); restore its default types with: sudo restorecon -R '%s'\n" \
+                                "${tree}" "${type}" "${quoted}" >&2
+                        fi ;;
                 esac
             else
                 printf 'MSG-N5W8\nai-tools-selinux: could not drop the local file-context rule %s (%s) -- the module unload refuses while it stands; remove it with: sudo semanage fcontext -d -f %s -- %s\n' \
@@ -1161,6 +1173,7 @@ if [ "$1" -eq 0 ] && command -v semodule >/dev/null 2>&1; then
             fi
         done
     fi
+    unloaded=0
     if listing=$(semodule -l 2>&1); then
         loaded_modules=$(printf '%s\n' "${listing}" | grep -E '^ai_tools(_|$)' | tr '\n' ' ' || :)
         if [ -n "${loaded_modules}" ]; then
@@ -1171,18 +1184,27 @@ if [ "$1" -eq 0 ] && command -v semodule >/dev/null 2>&1; then
                 if [ -n "${remaining_modules}" ]; then
                     printf 'ai-tools-selinux: left loaded: %s-- %s -- remove each rule named above, then run: sudo semodule -r %s\n' \
                         "${remaining_modules}" "$(printf '%s' "${reason}" | tr '\n' ' ')" "${remaining_modules}" >&2
+                else
+                    unloaded=1
                 fi
             else
                 printf 'ai-tools-selinux: could not read the module store back after the unload -- %s -- what is loaded is not known; run: sudo semodule -l\n' \
                     "$(printf '%s' "${listing}" | tr '\n' ' ')" >&2
             fi
+        else
+            unloaded=1
         fi
     else
         printf 'ai-tools-selinux: could not read the module store -- %s -- the ai_tools modules were not unloaded; run: sudo semodule -l, then: sudo semodule -r <module>... for each ai_tools module it lists\n' \
             "$(printf '%s' "${listing}" | tr '\n' ' ')" >&2
     fi
-    if command -v restorecon >/dev/null 2>&1; then
-        restorecon -R %{ai_libexecdir} %{ai_libdir} /var/log/ai-tools /opt/ai-tools /var/opt/ai-tools/sandbox-projects >/dev/null 2>&1 || :
+    exec 9>&-
+    if [ "${unloaded}" = 1 ] && command -v restorecon >/dev/null 2>&1; then
+        for tree in %{ai_libexecdir} %{ai_libdir} /var/log/ai-tools /opt/ai-tools /var/opt/ai-tools/sandbox-projects; do
+            [ -e "${tree}" ] || continue
+            restorecon -R "${tree}" >/dev/null 2>&1 \
+                || echo "ai-tools-selinux: could not restore the default types under ${tree}; run: sudo restorecon -R ${tree}" >&2
+        done
     fi
     fi
 fi

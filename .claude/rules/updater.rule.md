@@ -649,10 +649,10 @@ neither caused. `ai_tools_relabel__lock` (`relabel.lib.sh`) makes the later one 
 (`ai-tools-relabel-agent`, `ai-tools-relabel`, `ai-tools-admin`'s operator labelling) hold it for the run;
 `install-selinux.sh` takes it per store-writing command through `ai_tools_relabel__unlock`, since its install action
 prompts between loads and a lock held across a prompt would make the watcher's run wait out `AI_TOOLS_RELABEL_LOCK_WAIT`
-and proceed unserialized; the selinux `%post` open-codes `flock` on the same path, which `tests/unit/relabel.sh` pins
-to the library's default. The lock is best-effort in one direction only: no `flock`, an uncreatable lock file, or a wait
-that runs out proceeds unserialized and says so, since labelling is idempotent and every refusal is reported,
-so an untaken lock costs a repeat run rather than a wrong label.
+and proceed unserialized; the selinux `%post` and `%postun` open-code `flock` on the same path,
+which `tests/unit/relabel.sh` pins to the library's default. The lock is best-effort in one direction only: no `flock`,
+an uncreatable lock file, or a wait that runs out proceeds unserialized and says so, since labelling is idempotent
+and every refusal is reported, so an untaken lock costs a repeat run rather than a wrong label.
 
 `semanage`'s own stderr is what a refusal reports, carried on the status line the helper renders and logs
 (`relabel.log`, journald, and so `ai-tools audit`) — the store being held and a type the loaded policy does not define
