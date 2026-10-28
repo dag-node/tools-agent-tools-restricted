@@ -147,10 +147,11 @@ fi
 # is live, or because the reading could not be made, naming the stop and the command that re-runs this step, and exit 4.
 # A removal names this helper's own re-run at its fixed path, the line the CLI's unclaim and removal print beside their
 # own, since the helper's directory is not on sudo's PATH; a label names the claim, which re-runs it, since this helper
-# refuses a path no allowlist names. The tree is left as it was: the library gates before its first write.
+# refuses a path no allowlist names. The path is shell-quoted, so the printed command names the tree a space or a shell
+# metacharacter in its name would otherwise split. The tree is left as it was: the library gates before its first write.
 die_live_session() {
     DIE_STATUS=4
-    die MSG-H8V6 "left the SELinux label on ${dir} as it was: an agent session or the toolchain update runs as the sandbox account, or this host's sessions could not be read, and a walk while one runs could be redirected outside the tree; let each session end (/exit inside it) and the toolchain update finish, or end them all with 'ai-tools stop', then re-run: $1 ${dir}"
+    die MSG-H8V6 "left the SELinux label on ${dir} as it was: an agent session or the toolchain update runs as the sandbox account, or this host's sessions could not be read, and a walk while one runs could be redirected outside the tree; let each session end (/exit inside it) and the toolchain update finish, or end them all with 'ai-tools stop', then re-run: $1 $(printf '%q' "${dir}")"
 }
 
 if ${remove}; then
