@@ -21,7 +21,9 @@
 # under them. The sysusers fragment the layout declares a payload file of base is read the same way: do_install places
 # it from packaging/ai-tools.sysusers and do_uninstall removes it. The names the short command atr takes are decided
 # by read_atr_name_state, driven over a fixture tree with rpm a shell function and under a PATH without gzip,
-# where a gzip page reads as unreadable and a plain one as this project's, and ensure_atr_names_free
+# where a gzip page reads as unreadable and a plain one as this project's; a gzip stub whose CRC does not match, one cut
+# before its trailer, and a page past ATR_STUB_MAX_BYTES each read as another's, with the corrupt streams' decompressed
+# .so line read first as the control, and ensure_atr_names_free
 # and remove_atr_names over the same tree; do_install's text is read for the check ahead of the first write,
 # and do_uninstall's for a removal through remove_atr_names alone.
 #
@@ -530,7 +532,8 @@ if [[ -n "${atr_text}" ]]; then
     done
     # atr_run <rpm-answer> <command>... : the extracted functions in a fresh shell under install.sh's strict mode
     #   and IFS, rpm answering per <rpm-answer> (`unowned`, `base`, `other`, `error`, `none` for a PATH without it,
-    #   or `nogzip` for a PATH without rpm, gzip and zcat), ATR_NAMES set to the fixture's names; prints the command's
+    #   or `nogzip` for a PATH without rpm, gzip and zcat), ATR_NAMES set to the fixture's names and ATR_STUB_MAX_BYTES
+    #   to install.sh's; prints the command's
     #   output and `status=<n>` last.
     # shellcheck disable=SC2016  # the inner shell expands these, not this one
     atr_run() {
@@ -541,7 +544,7 @@ if [[ -n "${atr_text}" ]]; then
             set -euo pipefail
             C_RED="" C_RST="" C_YEL=""
             eval "$1"
-            stub_rpm="$2" fx="$3"; shift 3
+            stub_rpm="$2" fx="$3" ATR_STUB_MAX_BYTES="$4"; shift 4
             if [[ "${stub_rpm}" != none && "${stub_rpm}" != nogzip ]]; then
                 rpm() {
                     case "${stub_rpm}" in
@@ -557,8 +560,11 @@ if [[ -n "${atr_text}" ]]; then
                         "${fx}/man/man1/atr.1 page" "${fx}/man/man1/atr.1.gz page" "${fx}/man/man8/atr.8.xz page" )
             rc=0; "$@" || rc=$?
             printf "status=%s\n" "${rc}"
-        ' _ "${atr_text}" "$1" "${FX}" "${@:2}" 2>&1
+        ' _ "${atr_text}" "$1" "${FX}" "${stub_max_bytes}" "${@:2}" 2>&1
     }
+    stub_max_bytes="$(sed -n 's/^readonly ATR_STUB_MAX_BYTES=\([0-9][0-9]*\)$/\1/p' "${INSTALLER}")"
+    [[ -n "${stub_max_bytes}" ]] && pass "install.sh bounds the stub read at ${stub_max_bytes} bytes" \
+        || fail "install.sh does not declare ATR_STUB_MAX_BYTES in the form this file reads"
     # state_is <expected-prefix> <what> <rpm-answer> <path> <kind>
     state_is() {
         local out
@@ -606,8 +612,32 @@ if [[ -n "${atr_text}" ]]; then
     state_is "unreadable a gzip page with no gzip" "the gzip man1 stub, read with no gzip on PATH" nogzip \
         "${PAGE1}.gz" page
     printf '\037\213junk' > "${PAGE8}.gz"
-    state_is "foreign a page without" "a truncated gzip page, read with gzip present" unowned "${PAGE8}.gz" page
-    rm -f "${PAGE8}.gz"
+    state_is "foreign a gzip page that fails gzip -t" "gzip magic and no stream, read with gzip present" unowned \
+        "${PAGE8}.gz" page
+    # A stream that fails its CRC, and one cut after its last block, each still decompress to the stub's .so line, which
+    # is read first as the control that the integrity test and not the text decides them.
+    gzip -c "${PAGE1}" > "${TESTDIR}/atr-whole.gz"
+    whole_size="$(stat -c '%s' "${TESTDIR}/atr-whole.gz")"
+    { head -c "$(( whole_size - 8 ))" "${TESTDIR}/atr-whole.gz"; printf '\0\0\0\0'
+      tail -c 4 "${TESTDIR}/atr-whole.gz"; } > "${PAGE1}.gz"
+    head -c "$(( whole_size - 8 ))" "${TESTDIR}/atr-whole.gz" > "${PAGE8}.gz"
+    for corrupt in "${PAGE1}.gz:a CRC that does not match" "${PAGE8}.gz:a stream cut before its trailer"; do
+        prefix="$(gzip -dc -- "${corrupt%%:*}" 2>/dev/null | sed -n '/^\.\\"/d;p;q')" || true
+        gzip -t -- "${corrupt%%:*}" 2>/dev/null \
+            && fail "control: ${corrupt#*:} passes gzip -t, so the case below cannot fail"
+        [[ "${prefix}" == '.so man1/ai-tools.1' ]] \
+            || fail "control: ${corrupt#*:} decompresses to '${prefix}', not the stub's .so line"
+    done
+    state_is "foreign a gzip page that fails gzip -t" "a gzip stub with a CRC that does not match" unowned \
+        "${PAGE1}.gz" page
+    cp "${PAGE8}.gz" "${PAGE1}.gz"
+    state_is "foreign a gzip page that fails gzip -t" "a gzip stub cut before its trailer" unowned "${PAGE1}.gz" page
+    { cat "${ROOT}/src/usr/local/share/man/man1/atr.1"; head -c "${stub_max_bytes}" /dev/zero | tr '\0' 'x'
+      printf '\n'; } > "${PAGE1}"
+    state_is "foreign a page larger than the atr stub" "a page opening with the stub's .so line, past the bound" \
+        unowned "${PAGE1}" page
+    cp "${ROOT}/src/usr/local/share/man/man1/atr.1" "${PAGE1}"
+    rm -f "${PAGE8}.gz" "${PAGE8}" "${PAGE1}.gz"
     cp "${ROOT}/src/usr/local/share/man/man8/atr.8" "${PAGE8}"
     state_is ours "the shipped man8 stub" unowned "${PAGE8}" page
     cp "${ROOT}/src/usr/local/share/man/man1/atr.1" "${PAGE8}"
@@ -655,6 +685,24 @@ if [[ -n "${atr_text}" ]]; then
         pass "the uninstall leaves a page it could not read, naming it"
     else
         fail "the uninstall over an unreadable page: ${out//$'\n'/ | }"
+    fi
+
+    # A gzip stub that fails its integrity test refuses the install as an entry that is not this project's, ahead of any
+    # write, and the uninstall leaves it.
+    gzip -c "${ROOT}/src/usr/local/share/man/man1/atr.1" > "${TESTDIR}/atr-whole.gz"
+    whole_size="$(stat -c '%s' "${TESTDIR}/atr-whole.gz")"
+    head -c "$(( whole_size - 8 ))" "${TESTDIR}/atr-whole.gz" > "${PAGE1}.gz"
+    out="$(atr_run unowned ensure_atr_names_free)" || true
+    assert_msg MSG-W5Z8 "${out}" "a gzip stub failing gzip -t refuses the install"
+    [[ "${out}" == *"the name ${PAGE1}.gz holds a gzip page that fails gzip -t"* && "${out}" != *status=0 ]] \
+        && pass "the refusal names the page and the failed integrity test" \
+        || fail "the refusal over a corrupt gzip stub: ${out//$'\n'/ | }"
+    out="$(atr_run unowned remove_atr_names)"
+    if [[ -e "${PAGE1}.gz" && "${out}" == *"${PAGE1}.gz left in place -- it holds a gzip page that fails gzip -t"* \
+          && "${out}" == *status=0 ]]; then
+        pass "the uninstall leaves a gzip stub that fails gzip -t, naming it"
+    else
+        fail "the uninstall over a corrupt gzip stub: ${out//$'\n'/ | }"
     fi
 fi
 

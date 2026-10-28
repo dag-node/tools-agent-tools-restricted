@@ -736,9 +736,17 @@ for _p in /usr/local/bin/atr /usr/sbin/atr \
             fi ;;
         */man1/atr.1*|*/man8/atr.8*)
             case "${_p}" in */man1/*) _so='.so man1/ai-tools.1' ;; *) _so='.so man8/ai-tools-admin.8' ;; esac
-            if [ -f "${_p}" ] && [ ! -L "${_p}" ] \
-               && [ "$(zcat -f -- "${_p}" 2>/dev/null | sed -n '/^\.\\"/d;p;q')" = "${_so}" ]; then
-                _ours=yes
+            # A stub is one .so line: a page past install.sh's ATR_STUB_MAX_BYTES is not one, and a gzip page is
+            # tested whole first, since a stream that fails its CRC or ends early still decompresses to its prefix.
+            if [ -f "${_p}" ] && [ ! -L "${_p}" ] && [ "$(wc -c < "${_p}")" -le 4096 ]; then
+                if [ "$(head -c 2 -- "${_p}" | od -An -tx1 | tr -d ' \n')" = 1f8b ]; then
+                    if gzip -t -- "${_p}" 2>/dev/null \
+                       && [ "$(zcat -- "${_p}" 2>/dev/null | sed -n '/^\.\\"/d;p;q')" = "${_so}" ]; then
+                        _ours=yes
+                    fi
+                elif [ "$(sed -n '/^\.\\"/d;p;q' "${_p}")" = "${_so}" ]; then
+                    _ours=yes
+                fi
             fi ;;
     esac
     if [ "${_ours}" = no ]; then

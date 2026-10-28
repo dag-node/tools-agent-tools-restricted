@@ -2,7 +2,8 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # tests/unit/spec-atr-names.sh
 # Hermetic check of the ai-tools-base %pre in packaging/ai-tools.spec: it reads each name the short command atr takes
-# and exits 1 at the first one in none of this project's forms, ahead of the account creation, and on that refusal
+# and exits 1 at the first one in none of this project's forms, ahead of the account creation, a gzip stub that fails
+# `gzip -t` and a page past 4096 bytes among them, and on that refusal
 # starts the relabel watcher %pretrans stopped, since %posttrans does not run after a failed %pre. Where the watcher
 # cannot be started, the refusal names the line that starts it.
 #
@@ -100,7 +101,7 @@ printf '  rewritten %%pre under test: %s\n' "${TESTDIR}/run.sh"
 
 # The scriptlet's tools reach it through a PATH of links, so a case can leave one out.
 mkdir -p "${TESTDIR}/bin-full" "${TESTDIR}/bin-nozcat"
-for tool in sed readlink zcat gzip cat; do
+for tool in sed readlink zcat gzip cat head od tr wc; do
     ln -s "$(type -P "${tool}")" "${TESTDIR}/bin-full/${tool}"
     [[ "${tool}" == zcat || "${tool}" == gzip ]] || ln -s "$(type -P "${tool}")" "${TESTDIR}/bin-nozcat/${tool}"
 done
@@ -164,15 +165,35 @@ place_foreign() {
         gz-without-so) printf '.TH ATR 1\n.SH NAME\natr \\- another tool\n' | gzip -c > "${MAN1}/atr.1.gz"; printf '%s' "${MAN1}/atr.1.gz" ;;
         wrong-section) cp "${PAGE1_SRC}" "${MAN8}/atr.8"; printf '%s' "${MAN8}/atr.8" ;;
         xz) xz -c "${PAGE8_SRC}" > "${MAN8}/atr.8.xz"; printf '%s' "${MAN8}/atr.8.xz" ;;
+        gz-crc) { head -c "$(( WHOLE_SIZE - 8 ))" "${WHOLE_GZ}"; printf '\0\0\0\0'; tail -c 4 "${WHOLE_GZ}"; } \
+                    > "${MAN1}/atr.1.gz"; printf '%s' "${MAN1}/atr.1.gz" ;;
+        gz-cut) head -c "$(( WHOLE_SIZE - 8 ))" "${WHOLE_GZ}" > "${MAN1}/atr.1.gz"; printf '%s' "${MAN1}/atr.1.gz" ;;
+        oversized) { cat "${PAGE1_SRC}"; head -c 4096 /dev/zero | tr '\0' 'x'; printf '\n'; } > "${MAN1}/atr.1"
+                   printf '%s' "${MAN1}/atr.1" ;;
     esac
 }
+# A gzip stub whose CRC does not match, and one cut before its trailer, each decompress to the stub's .so line, which is
+# read first as the control that the integrity test and not the text decides them.
+WHOLE_GZ="${TESTDIR}/atr.1.whole.gz"
+gzip -c "${PAGE1_SRC}" > "${WHOLE_GZ}"
+WHOLE_SIZE="$(stat -c '%s' "${WHOLE_GZ}")"
+for kind in gz-crc gz-cut; do
+    path="$(place_foreign "${kind}")"
+    prefix="$(gzip -dc -- "${path}" 2>/dev/null | sed -n '/^\.\\"/d;p;q')" || true
+    if ! gzip -t -- "${path}" 2>/dev/null && [[ "${prefix}" == '.so man1/ai-tools.1' ]]; then
+        pass "control: the ${kind} page fails gzip -t and decompresses to the stub's .so line"
+    else
+        fail "control: the ${kind} page reads '${prefix}', or passes gzip -t, so its case below cannot fail"
+    fi
+done
 declare -A FOREIGN_WHAT=(
     [unmarked]="an unmarked regular file at the wrapper name" [directory]="a directory at the wrapper name"
     [link-elsewhere]="a symlink elsewhere at the link name" [file-at-link]="a regular file at the link name"
     [gz-without-so]="a gzip page without the .so line" [wrong-section]="a man8 page pointing at the man1 page"
-    [xz]="an xz page, read as bytes"
+    [xz]="an xz page, read as bytes" [gz-crc]="a gzip stub whose CRC does not match"
+    [gz-cut]="a gzip stub cut before its trailer" [oversized]="a page opening with the stub's .so line, past 4096 bytes"
 )
-for kind in unmarked directory link-elsewhere file-at-link gz-without-so wrong-section xz; do
+for kind in unmarked directory link-elsewhere file-at-link gz-without-so wrong-section xz gz-crc gz-cut oversized; do
     what="${FOREIGN_WHAT[${kind}]}"
     path="$(place_foreign "${kind}")"
     run_pre
@@ -224,6 +245,12 @@ if (( status == 1 )) && grep -qF "the name ${MAN1}/atr.1.gz holds an entry" <<< 
 else
     fail "no zcat: exit ${status}, stderr [${err}]"
 fi
+reset_names
+cp "${PAGE1_SRC}" "${MAN1}/atr.1"
+run_pre "${TESTDIR}/bin-nozcat"
+(( status == 0 )) && [[ -z "${err}" ]] \
+    && pass "with no zcat on PATH a plain stub passes, read without a decompressor" \
+    || fail "a plain stub with no zcat: exit ${status}, stderr [${err}]"
 preamble="$(awk '/^%package -n ai-tools-base$/{open=1; next} /^%(package|description)/{open=0} open' "${SPEC}")"
 missing=""
 for package in coreutils gzip sed; do

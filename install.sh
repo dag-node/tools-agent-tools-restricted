@@ -1344,6 +1344,8 @@ for _form in "" .gz .bz2 .xz .zst; do
 done
 unset _form
 readonly ATR_NAMES
+# The largest page the stub check reads; a page past it is not this project's stub, which is one `.so` line.
+readonly ATR_STUB_MAX_BYTES=4096
 
 # is_atr_wrapper_file <path> : the file's third line begins with the wrapper's header line.
 is_atr_wrapper_file() {
@@ -1361,19 +1363,24 @@ is_atr_link() {
 }
 
 # is_atr_stub_page <path> : 0 when the page's first line that is not a roff comment is the `.so` request naming the page
-# the stub stands for, 1 when it is not, 2 when the page is gzip and gzip is not on PATH. The gzip magic bytes decide
-# whether the page is decompressed, so a plain page is read without a decompressor. A page in another compression reads
-# as bytes and does not match.
+# the stub stands for; 1 when it is not; 2 when the page is gzip and gzip is not on PATH; 3 when the page is gzip
+# and fails `gzip -t`; 4 when the page is larger than ATR_STUB_MAX_BYTES. The gzip magic bytes decide whether the page
+# is decompressed, so a plain page is read without a decompressor. A gzip page is tested whole before its text is read,
+# since a stream that fails its CRC or ends early still decompresses to the prefix it holds, and the size bound keeps
+# that read to a stub's size. A page in another compression reads as bytes and does not match.
 is_atr_stub_page() {
-    local section="${1##*/atr.}" magic text line
+    local section="${1##*/atr.}" size magic text line
     section="${section%%.*}"
     case "${section}" in 1) section='man1/ai-tools.1' ;; 8) section='man8/ai-tools-admin.8' ;; *) return 1 ;; esac
+    size="$(stat -c '%s' -- "$1" 2>/dev/null)" || return 1
+    (( size <= ATR_STUB_MAX_BYTES )) || return 4
     magic="$(head -c 2 -- "$1" 2>/dev/null | od -An -tx1 | tr -d ' \n')" || magic=""
     if [[ "${magic}" == 1f8b ]]; then
         command -v gzip >/dev/null 2>&1 || return 2
-        text="$(gzip -dc -- "$1" 2>/dev/null | head -c 4096 | tr -d '\000')" || true
+        gzip -t -- "$1" 2>/dev/null || return 3
+        text="$(gzip -dc -- "$1" 2>/dev/null | head -c "${ATR_STUB_MAX_BYTES}" | tr -d '\000')" || true
     else
-        text="$(head -c 4096 -- "$1" 2>/dev/null | tr -d '\000')" || true
+        text="$(tr -d '\000' < "$1" 2>/dev/null)" || true
     fi
     while IFS= read -r line; do
         [[ "${line}" == '.\"'* ]] && continue
@@ -1404,6 +1411,8 @@ read_atr_name_state() {
                 case "${page_status}" in
                     0) ;;
                     2) printf 'unreadable a gzip page with no gzip on PATH\n'; return 0 ;;
+                    3) printf 'foreign a gzip page that fails gzip -t\n'; return 0 ;;
+                    4) printf 'foreign a page larger than the atr stub\n'; return 0 ;;
                     *) printf 'foreign a page without the atr .so line\n'; return 0 ;;
                 esac
             fi ;;
