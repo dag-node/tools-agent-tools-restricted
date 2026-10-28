@@ -121,8 +121,8 @@ done
 
 # reset_names: remove every name the scriptlet reads.
 reset_names() { rm -rf "${WRAPPER}" "${LINK}" "${MAN1}"/atr.1* "${MAN8}"/atr.8*; }
-# run_pre [path-dir]: run the scriptlet; sets status, recorder and err.
-run_pre() {
+# run_base_pre_scriptlet [path-dir]: run the scriptlet; sets status, recorder and err.
+run_base_pre_scriptlet() {
     : > "${TESTDIR}/recorder"
     status=0
     env -i PATH="${1:-${TESTDIR}/bin-full}" /bin/sh "${TESTDIR}/run.sh" > "${TESTDIR}/out" 2> "${TESTDIR}/err" || status=$?
@@ -136,7 +136,7 @@ readonly RECOVERY+=' should run, start both: systemctl start ai-tools-relabel.pa
 
 # ── Names absent, or in this project's forms, pass ──────────────────────────────────────────────
 reset_names
-run_pre
+run_base_pre_scriptlet
 if (( status == 0 )) && account_created && [[ "$(systemctl_calls)" == 0 && -z "${err}" ]]; then
     pass "every name absent: exit 0, the account is created, the watcher is left to %posttrans"
 else
@@ -147,26 +147,26 @@ cp "${WRAPPER_SRC}" "${WRAPPER}"
 ln -s ../local/bin/atr "${LINK}"
 cp "${PAGE1_SRC}" "${MAN1}/atr.1"; gzip -c "${PAGE1_SRC}" > "${MAN1}/atr.1.gz"
 cp "${PAGE8_SRC}" "${MAN8}/atr.8"; gzip -c "${PAGE8_SRC}" > "${MAN8}/atr.8.gz"
-run_pre
+run_base_pre_scriptlet
 (( status == 0 )) && account_created && [[ -z "${err}" ]] \
     && pass "the shipped wrapper, the ln -sr link and both stubs plain and gzip-compressed pass" \
     || fail "this project's forms: exit ${status}, stderr [${err}]"
 
 rm -f "${WRAPPER}" "${LINK}"; ln -s "${WRAPPER}" "${LINK}"
-run_pre
+run_base_pre_scriptlet
 (( status == 0 )) && [[ -z "${err}" ]] \
     && pass "the link by its absolute target, dangling, passes" \
     || fail "the absolute dangling link: exit ${status}, stderr [${err}]"
 
 { sed -n '1,3p' "${WRAPPER_SRC}"; printf 'echo other content\n'; } > "${WRAPPER}"
-run_pre
+run_base_pre_scriptlet
 (( status == 0 )) && [[ -z "${err}" ]] \
     && pass "a marked wrapper with other content passes, as this project's name" \
     || fail "the marked wrapper: exit ${status}, stderr [${err}]"
 
 # ── Each foreign entry refuses ahead of the account, and the watcher is left to the transaction's end ──
-# place_foreign <what>: put one foreign entry in a tree otherwise empty, and print its path.
-place_foreign() {
+# create_foreign_entry <what>: put one foreign entry in a tree otherwise empty, and print its path.
+create_foreign_entry() {
     reset_names
     case "$1" in
         unmarked) printf '#!/bin/sh\necho another tool\n' > "${WRAPPER}"; printf '%s' "${WRAPPER}" ;;
@@ -192,7 +192,7 @@ WHOLE_GZ="${TESTDIR}/atr.1.whole.gz"
 gzip -c "${PAGE1_SRC}" > "${WHOLE_GZ}"
 WHOLE_SIZE="$(stat -c '%s' "${WHOLE_GZ}")"
 for kind in gz-crc gz-cut; do
-    path="$(place_foreign "${kind}")"
+    path="$(create_foreign_entry "${kind}")"
     prefix="$(gzip -dc -- "${path}" 2>/dev/null | sed -n '/^\.\\"/d;p;q')" || true
     if ! gzip -t -- "${path}" 2>/dev/null && [[ "${prefix}" == '.so man1/ai-tools.1' ]]; then
         pass "control: the ${kind} page fails gzip -t and decompresses to the stub's .so line"
@@ -211,8 +211,8 @@ declare -A FOREIGN_WHAT=(
 for kind in unmarked directory link-elsewhere file-at-link gz-without-so wrong-section xz gz-crc gz-cut oversized \
         gz-expands; do
     what="${FOREIGN_WHAT[${kind}]}"
-    path="$(place_foreign "${kind}")"
-    run_pre
+    path="$(create_foreign_entry "${kind}")"
+    run_base_pre_scriptlet
     assert_msg MSG-W5Z8 "${err}" "${what}: refused under its code"
     if (( status == 1 )) && grep -qF "the name ${path} holds an entry" <<< "${err}" && ! account_created \
             && ! grep -q '^getent ' <<< "${recorder}"; then
@@ -232,7 +232,7 @@ done
 # gzip stub is refused; the Requires(pre) lines are what keep that state off a package host.
 reset_names
 gzip -c "${PAGE1_SRC}" > "${MAN1}/atr.1.gz"
-run_pre "${TESTDIR}/bin-nozcat"
+run_base_pre_scriptlet "${TESTDIR}/bin-nozcat"
 if (( status == 1 )) && grep -qF "the name ${MAN1}/atr.1.gz holds an entry" <<< "${err}"; then
     pass "with no zcat on PATH the scriptlet refuses this project's own gzip stub"
 else
@@ -240,7 +240,7 @@ else
 fi
 reset_names
 cp "${PAGE1_SRC}" "${MAN1}/atr.1"
-run_pre "${TESTDIR}/bin-nozcat"
+run_base_pre_scriptlet "${TESTDIR}/bin-nozcat"
 (( status == 0 )) && [[ -z "${err}" ]] \
     && pass "with no zcat on PATH a plain stub passes, read without a decompressor" \
     || fail "a plain stub with no zcat: exit ${status}, stderr [${err}]"

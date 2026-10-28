@@ -1347,29 +1347,29 @@ readonly ATR_NAMES
 # The largest page the stub check reads; a page past it is not this project's stub, which is one `.so` line.
 readonly ATR_STUB_MAX_BYTES=4096
 
-# is_atr_wrapper_file <path> : the file's third line begins with the wrapper's header line.
-is_atr_wrapper_file() {
+# has_atr_wrapper_marker <path> : the file's third line begins with the wrapper's header line.
+has_atr_wrapper_marker() {
     local line
     line="$(sed -n '3{p;q}' -- "$1" 2>/dev/null)" || return 1
     [[ "${line}" == '# /usr/local/bin/atr --'* ]]
 }
 
-# is_atr_link <path> : the link's target is /usr/local/bin/atr, as `ln -sr` writes it from /usr/sbin or by its absolute
-# path; a dangling link included, since the wrapper may be the name the install is about to place.
-is_atr_link() {
+# is_atr_wrapper_link <path> : the link's target is /usr/local/bin/atr, as `ln -sr` writes it from /usr/sbin or by its
+# absolute path; a dangling link included, since the wrapper may be the name the install is about to place.
+is_atr_wrapper_link() {
     local target
     target="$(readlink -- "$1")" || return 1
     [[ "${target}" == ../local/bin/atr || "${target}" == /usr/local/bin/atr ]]
 }
 
-# is_atr_stub_page <path> : 0 when the page's first line that is not a roff comment is the `.so` request naming the page
-# the stub stands for; 1 when it is not; 2 when the page is gzip and gzip is not on PATH; 3 when the page is gzip
-# and fails `gzip -t`; 4 when the page, or the text a gzip page decompresses to, is larger than ATR_STUB_MAX_BYTES.
+# read_atr_stub_page_status <path> : 0 when the page's first line that is not a roff comment is the `.so` request naming
+# the page the stub stands for; 1 when it is not; 2 when the page is gzip and gzip is not on PATH; 3 when the page is
+# gzip and fails `gzip -t`; 4 when the page, or the text a gzip page decompresses to, is larger than ATR_STUB_MAX_BYTES.
 # The gzip magic bytes decide whether the page is decompressed, so a plain page is read without a decompressor. A gzip
 # page is tested whole before its text is read, since a stream that fails its CRC or ends early still decompresses
 # to the prefix it holds, and its text is counted one byte past the bound, since a stream a stub's size can expand
 # to many times it. A page in another compression reads as bytes and does not match.
-is_atr_stub_page() {
+read_atr_stub_page_status() {
     local section="${1##*/atr.}" size magic text line
     section="${section%%.*}"
     case "${section}" in 1) section='man1/ai-tools.1' ;; 8) section='man8/ai-tools-admin.8' ;; *) return 1 ;; esac
@@ -1393,12 +1393,12 @@ is_atr_stub_page() {
     return 1
 }
 
-# read_atr_name_state <path> <kind> : print `absent`, `ours`, `foreign <what was read>`, or `unreadable <why>` for one
+# read_atr_entry_state <path> <kind> : print `absent`, `ours`, `foreign <what was read>`, or `unreadable <why>` for one
 # name. The kind comes from one lstat; a kind the read cannot settle is foreign. A page the read needs a missing tool
 # for is unreadable, so a host without the tool does not see its own page as another's. A name in this project's form
 # that rpm attributes to a package other than ai-tools-base is foreign, as is one rpm cannot attribute for a reason
 # other than the path being unowned.
-read_atr_name_state() {
+read_atr_entry_state() {
     local path="$1" kind="$2" type owners page_status
     if ! type="$(LC_ALL=C stat -c '%F' -- "${path}" 2>&1)"; then
         [[ "${type}" == *'No such file or directory' ]] && { printf 'absent\n'; return 0; }
@@ -1407,10 +1407,10 @@ read_atr_name_state() {
     case "${kind}:${type}" in
         wrapper:'regular file'|page:'regular file')
             if [[ "${kind}" == wrapper ]]; then
-                is_atr_wrapper_file "${path}" || { printf 'foreign a regular file without the atr header line\n'; return 0; }
+                has_atr_wrapper_marker "${path}" || { printf 'foreign a regular file without the atr header line\n'; return 0; }
             else
                 page_status=0
-                is_atr_stub_page "${path}" || page_status=$?
+                read_atr_stub_page_status "${path}" || page_status=$?
                 case "${page_status}" in
                     0) ;;
                     2) printf 'unreadable a gzip page with no gzip on PATH\n'; return 0 ;;
@@ -1420,7 +1420,7 @@ read_atr_name_state() {
                 esac
             fi ;;
         link:'symbolic link')
-            is_atr_link "${path}" \
+            is_atr_wrapper_link "${path}" \
                 || { printf 'foreign a symlink to %s\n' "$(readlink -- "${path}" 2>/dev/null || printf '?')"; return 0; } ;;
         *) printf 'foreign a %s\n' "${type}"; return 0 ;;
     esac
@@ -1435,12 +1435,12 @@ read_atr_name_state() {
     printf 'ours\n'
 }
 
-# ensure_atr_names_free -- refuse the install ahead of its first write while any of the names `atr` takes holds an entry
-# that is not this project's, or one the read could not decide.
-ensure_atr_names_free() {
+# require_atr_entries_replaceable -- refuse the install ahead of its first write while any of the names `atr` takes
+# holds an entry that is not this project's, or one the read could not decide.
+require_atr_entries_replaceable() {
     local entry state
     for entry in "${ATR_NAMES[@]}"; do
-        state="$(read_atr_name_state "${entry% *}" "${entry##* }")"
+        state="$(read_atr_entry_state "${entry% *}" "${entry##* }")"
         case "${state}" in
             foreign\ *)
                 die MSG-W5Z8 "the name ${entry% *} holds ${state#foreign } that is not this project's, so the install does not replace it -- move the entry aside, or remove the package that owns it, and re-run: sudo ./install.sh install" ;;
@@ -1450,11 +1450,12 @@ ensure_atr_names_free() {
     done
 }
 
-# remove_atr_names -- remove each name `atr` takes while it is in this project's form; log and leave every other one.
-remove_atr_names() {
+# remove_recognized_atr_entries -- remove each name `atr` takes while it is in this project's form; log and leave every
+# other one.
+remove_recognized_atr_entries() {
     local entry state
     for entry in "${ATR_NAMES[@]}"; do
-        state="$(read_atr_name_state "${entry% *}" "${entry##* }")"
+        state="$(read_atr_entry_state "${entry% *}" "${entry##* }")"
         case "${state}" in
             absent) ;;
             ours) rm -f -- "${entry% *}" ;;
@@ -1468,7 +1469,7 @@ do_install() {
     id "${SANDBOX_USER}" &>/dev/null \
         || die MSG-R6Y6 "sandbox account ${SANDBOX_USER} not found -- create it first (README step 2)"
     require_acl_tools
-    ensure_atr_names_free
+    require_atr_entries_replaceable
 
     print_banner
     say "  projects user : ${PROJECTS_USER} (${PROJECTS_HOME})"
@@ -2123,7 +2124,7 @@ do_install() {
     log "/usr/sbin/ai-tools -> /usr/local/bin/ai-tools"
     ln -sfnr /usr/local/bin/ai-tools /usr/sbin/ai-tools
     # The short command takes the same link, so `sudo atr admin …` resolves through secure_path for a caller whose grant
-    # covers the wrapper. ensure_atr_names_free has read the name.
+    # covers the wrapper. require_atr_entries_replaceable has read the name.
     log "/usr/sbin/atr -> /usr/local/bin/atr"
     ln -sfnr /usr/local/bin/atr /usr/sbin/atr
 
@@ -3152,7 +3153,7 @@ do_uninstall() {
     [ -d /usr/local/sbin/ai-tools ] && [ ! -L /usr/local/sbin/ai-tools ] && rm -rf /usr/local/sbin/ai-tools
     rm -f /usr/sbin/ai-tools-admin             # sudo-PATH symlinks -> /usr/local/libexec/ai-tools/...
     rm -f /usr/sbin/ai-tools                   # secure_path symlink -> /usr/local/bin/ai-tools
-    remove_atr_names                           # the short command's names, each only while it is this project's
+    remove_recognized_atr_entries                           # the short command's names, each only while it is this project's
     rm -rf /usr/local/lib/ai-tools
     rm -f /usr/local/bin/ai-tools-handback-client
     rm -f /usr/local/bin/ai-tools

@@ -65,7 +65,8 @@ fi
 chmod 0755 "${FIXTURE}"
 mkdir -p "${FIXTURE}/bin" "${FIXTURE}/log" "${FIXTURE}/nosudo"
 # The projects user reads the recorders and the copy through runuser, and the host umask decides the mode of a directory
-# this run makes, so each directory that account reads takes its mode here; set_status sets each status file's.
+# this run makes, so each directory that account reads takes its mode here; write_recorder_exit_status sets each status
+# file's.
 chmod 0755 "${FIXTURE}/bin" "${FIXTURE}/nosudo"
 chmod 0777 "${FIXTURE}/log"
 COPY="${FIXTURE}/atr.sh"
@@ -95,8 +96,8 @@ atr_run() {
     env -i PATH="${path_list}" "${BASH}" "${COPY}" "$@" > "${FIXTURE}/out" 2> "${FIXTURE}/err" || RC=$?
     OUT="$(cat "${FIXTURE}/out")"; ERR="$(cat "${FIXTURE}/err"; printf x)"; ERR="${ERR%x}"
 }
-# records <name> : print each call <name>'s recorder logged as one line, fields joined by `|`; empty for no call.
-records() {
+# list_calls <name> : print each call <name>'s recorder logged as one line, fields joined by `|`; empty for no call.
+list_calls() {
     local -a fields=(); local i=0 count j line
     [[ -r "${FIXTURE}/log/$1" ]] || return 0
     mapfile -d '' -t fields < "${FIXTURE}/log/$1"
@@ -106,8 +107,8 @@ records() {
         printf '%s\n' "${line:-<no arguments>}"
     done
 }
-# set_status <name> <status|-> : the exit status <name>'s recorder takes; `-` for 0.
-set_status() {
+# write_recorder_exit_status <name> <status|-> : the exit status <name>'s recorder takes; `-` for 0.
+write_recorder_exit_status() {
     if [[ "$2" == - ]]; then rm -f "${FIXTURE}/log/$1.status"
     else printf '%s\n' "$2" > "${FIXTURE}/log/$1.status"; chmod 0644 "${FIXTURE}/log/$1.status"; fi
 }
@@ -119,56 +120,59 @@ if (( EUID == 0 )); then
     note "the CLI cases run as root" "the wrapper does not read the caller for a CLI command"
 fi
 atr_run "${WITH_SUDO}"
-[[ "$(records ai-tools)" == '<no arguments>' && -z "$(records sudo)" && -z "${ERR}" ]] \
+[[ "$(list_calls ai-tools)" == '<no arguments>' && -z "$(list_calls sudo)" && -z "${ERR}" ]] \
     && pass "no argument runs ai-tools with an empty argv" \
-    || fail "no argument: ai-tools=[$(records ai-tools)] sudo=[$(records sudo)] stderr=[${ERR}]"
+    || fail "no argument: ai-tools=[$(list_calls ai-tools)] sudo=[$(list_calls sudo)] stderr=[${ERR}]"
 for args in "--for|op|projects|claim" "status" "--help" "--for|op|admin|x" "administer"; do
     IFS='|' read -r -a argv <<< "${args}"
     atr_run "${WITH_SUDO}" "${argv[@]}"
-    if [[ "$(records ai-tools)" == "${args}" && -z "$(records sudo)" && -z "$(records ai-tools-admin)" \
+    if [[ "$(list_calls ai-tools)" == "${args}" && -z "$(list_calls sudo)" && -z "$(list_calls ai-tools-admin)" \
           && -z "${ERR}" ]]; then
         pass "atr ${args//|/ } runs ai-tools with its argv intact and nothing on stderr"
     else
-        fail "atr ${args//|/ }: ai-tools=[$(records ai-tools)] sudo=[$(records sudo)] stderr=[${ERR}]"
+        fail "atr ${args//|/ }: ai-tools=[$(list_calls ai-tools)] sudo=[$(list_calls sudo)] stderr=[${ERR}]"
     fi
 done
-set_status ai-tools 3
+write_recorder_exit_status ai-tools 3
 atr_run "${WITH_SUDO}" status
 (( RC == 3 )) && pass "ai-tools exiting 3 makes atr exit 3" || fail "ai-tools exited 3, atr exited ${RC}"
-set_status ai-tools -
+write_recorder_exit_status ai-tools -
 
 # ── admin through sudo, for a caller that is not root ──────────────────────────────────────────
-# admin_cases <runner> : the sudo-route cases, each run through <runner> (atr_run, or atr_run_as_operator as root).
-admin_cases() {
+# check_admin_dispatch_cases <runner> : the sudo-route cases, each run through <runner> (atr_run, or atr_run_as_operator
+# as root).
+check_admin_dispatch_cases() {
     local runner="$1" args expected
     for args in "status" "--help" "-h" "--version" ""; do
         local -a argv=()
         [[ -n "${args}" ]] && IFS='|' read -r -a argv <<< "${args}"
         "${runner}" "${WITH_SUDO}" admin "${argv[@]}"
         expected="--|${ADMIN_PATH}${args:+|${args}}"
-        if [[ "$(records sudo)" == "${expected}" && -z "$(records ai-tools-admin)" && -z "$(records ai-tools)" \
+        if [[ "$(list_calls sudo)" == "${expected}" && -z "$(list_calls ai-tools-admin)" \
+              && -z "$(list_calls ai-tools)" \
               && "${ERR}" == "${NOTICE}" && -z "${OUT}" && "${RC}" == 0 ]]; then
             pass "atr admin ${args:-(bare)} asks sudo for the fixed admin path, after the one notice line"
         else
-            fail "atr admin ${args:-(bare)}: sudo=[$(records sudo)] admin=[$(records ai-tools-admin)] rc=${RC} stderr=[${ERR}] stdout=[${OUT}]"
+            fail "atr admin ${args:-(bare)}: sudo=[$(list_calls sudo)] admin=[$(list_calls ai-tools-admin)] rc=${RC} stderr=[${ERR}] stdout=[${OUT}]"
         fi
     done
     "${runner}" "${WITH_SUDO}" admin system bootstrap --agents 'a b' '' --dry-run -- x
     expected="--|${ADMIN_PATH}|system|bootstrap|--agents|a b|<empty>|--dry-run|--|x"
-    [[ "$(records sudo)" == "${expected}" ]] \
+    [[ "$(list_calls sudo)" == "${expected}" ]] \
         && pass "each argument reaches sudo as one field, the spaced and the empty one included" \
-        || fail "argv through sudo: [$(records sudo)], expected [${expected}]"
-    set_status sudo 7
+        || fail "argv through sudo: [$(list_calls sudo)], expected [${expected}]"
+    write_recorder_exit_status sudo 7
     "${runner}" "${WITH_SUDO}" admin status
     (( RC == 7 )) && pass "sudo exiting 7 makes atr exit 7" || fail "sudo exited 7, atr exited ${RC}"
-    set_status sudo -
+    write_recorder_exit_status sudo -
     "${runner}" "${FIXTURE}/nosudo" admin status
     if (( RC == 1 )) \
           && [[ "${ERR}" == $'atr admin: runs as root, and sudo is not installed -- run the command as root: ai-tools-admin\n' ]] \
-          && [[ -z "$(records sudo)$(records ai-tools-admin)$(records ai-tools)" ]]; then
+          && [[ -z "$(list_calls sudo)$(list_calls ai-tools-admin)$(list_calls ai-tools)" ]]; then
         pass "with no sudo on PATH atr admin exits 1 with the one line and runs no program"
     else
-        fail "no sudo: rc=${RC} stderr=[${ERR}] records=[$(records sudo)$(records ai-tools-admin)$(records ai-tools)]"
+        fail "no sudo: rc=${RC} stderr=[${ERR}]" \
+             "records=[$(list_calls sudo)$(list_calls ai-tools-admin)$(list_calls ai-tools)]"
     fi
 }
 # atr_run_as_operator <path-list> <arg>... : atr_run as the projects user through runuser.
@@ -182,21 +186,21 @@ atr_run_as_operator() {
 }
 
 if (( EUID != 0 )); then
-    admin_cases atr_run
+    check_admin_dispatch_cases atr_run
     skip "atr admin as root" "the direct exec needs a root run"
 else
     # ── as root: the program directly ─────────────────────────────────────────────────────────────
     atr_run "${WITH_SUDO}" admin status
-    if [[ "$(records ai-tools-admin)" == status && -z "$(records sudo)" && -z "${ERR}" && "${RC}" == 0 ]]; then
+    if [[ "$(list_calls ai-tools-admin)" == status && -z "$(list_calls sudo)" && -z "${ERR}" && "${RC}" == 0 ]]; then
         pass "as root, atr admin status runs the admin program directly with no notice"
     else
-        fail "as root: admin=[$(records ai-tools-admin)] sudo=[$(records sudo)] rc=${RC} stderr=[${ERR}]"
+        fail "as root: admin=[$(list_calls ai-tools-admin)] sudo=[$(list_calls sudo)] rc=${RC} stderr=[${ERR}]"
     fi
-    set_status ai-tools-admin 4
+    write_recorder_exit_status ai-tools-admin 4
     atr_run "${WITH_SUDO}" admin status
     (( RC == 4 )) && pass "as root, the admin program exiting 4 makes atr exit 4" || fail "as root, atr exited ${RC}"
-    set_status ai-tools-admin -
-    admin_cases atr_run_as_operator
+    write_recorder_exit_status ai-tools-admin -
+    check_admin_dispatch_cases atr_run_as_operator
 fi
 
 finish

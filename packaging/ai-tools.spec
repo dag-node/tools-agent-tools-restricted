@@ -721,41 +721,41 @@ end
 # starts on a transaction that completes; ai-tools-integration-nodejs's %%posttrans starts the watcher where that
 # package is in the transaction. A path another package owns has conflicted before this runs, so there is no rpm query
 # here.
-for _p in /usr/local/bin/atr /usr/sbin/atr \
+for _atr_path in /usr/local/bin/atr /usr/sbin/atr \
           /usr/local/share/man/man1/atr.1 /usr/local/share/man/man1/atr.1.gz \
           /usr/local/share/man/man1/atr.1.bz2 /usr/local/share/man/man1/atr.1.xz /usr/local/share/man/man1/atr.1.zst \
           /usr/local/share/man/man8/atr.8 /usr/local/share/man/man8/atr.8.gz \
           /usr/local/share/man/man8/atr.8.bz2 /usr/local/share/man/man8/atr.8.xz /usr/local/share/man/man8/atr.8.zst; do
-    [ -e "${_p}" ] || [ -L "${_p}" ] || continue
-    _ours=no
-    case "${_p}" in
+    [ -e "${_atr_path}" ] || [ -L "${_atr_path}" ] || continue
+    _atr_is_ours=no
+    case "${_atr_path}" in
         /usr/local/bin/atr)
-            if [ -f "${_p}" ] && [ ! -L "${_p}" ]; then
-                case "$(sed -n '3{p;q}' "${_p}" 2>/dev/null)" in '# /usr/local/bin/atr --'*) _ours=yes ;; esac
+            if [ -f "${_atr_path}" ] && [ ! -L "${_atr_path}" ]; then
+                case "$(sed -n '3{p;q}' "${_atr_path}" 2>/dev/null)" in '# /usr/local/bin/atr --'*) _atr_is_ours=yes ;; esac
             fi ;;
         /usr/sbin/atr)
-            if [ -L "${_p}" ]; then
-                case "$(readlink "${_p}")" in ../local/bin/atr|/usr/local/bin/atr) _ours=yes ;; esac
+            if [ -L "${_atr_path}" ]; then
+                case "$(readlink "${_atr_path}")" in ../local/bin/atr|/usr/local/bin/atr) _atr_is_ours=yes ;; esac
             fi ;;
         */man1/atr.1*|*/man8/atr.8*)
-            case "${_p}" in */man1/*) _so='.so man1/ai-tools.1' ;; *) _so='.so man8/ai-tools-admin.8' ;; esac
+            case "${_atr_path}" in */man1/*) _atr_so_request='.so man1/ai-tools.1' ;; *) _atr_so_request='.so man8/ai-tools-admin.8' ;; esac
             # A stub is one .so line: a page past install.sh's ATR_STUB_MAX_BYTES is not one, compressed or as the text
             # it decompresses to, and a gzip page is tested whole first, since a stream that fails its CRC or ends early
             # still decompresses to its prefix.
-            if [ -f "${_p}" ] && [ ! -L "${_p}" ] && [ "$(wc -c < "${_p}")" -le 4096 ]; then
-                if [ "$(head -c 2 -- "${_p}" | od -An -tx1 | tr -d ' \n')" = 1f8b ]; then
-                    if gzip -t -- "${_p}" 2>/dev/null \
-                       && [ "$(zcat -- "${_p}" 2>/dev/null | head -c 4097 | wc -c)" -le 4096 ] \
-                       && [ "$(zcat -- "${_p}" 2>/dev/null | sed -n '/^\.\\"/d;p;q')" = "${_so}" ]; then
-                        _ours=yes
+            if [ -f "${_atr_path}" ] && [ ! -L "${_atr_path}" ] && [ "$(wc -c < "${_atr_path}")" -le 4096 ]; then
+                if [ "$(head -c 2 -- "${_atr_path}" | od -An -tx1 | tr -d ' \n')" = 1f8b ]; then
+                    if gzip -t -- "${_atr_path}" 2>/dev/null \
+                       && [ "$(zcat -- "${_atr_path}" 2>/dev/null | head -c 4097 | wc -c)" -le 4096 ] \
+                       && [ "$(zcat -- "${_atr_path}" 2>/dev/null | sed -n '/^\.\\"/d;p;q')" = "${_atr_so_request}" ]; then
+                        _atr_is_ours=yes
                     fi
-                elif [ "$(sed -n '/^\.\\"/d;p;q' "${_p}")" = "${_so}" ]; then
-                    _ours=yes
+                elif [ "$(sed -n '/^\.\\"/d;p;q' "${_atr_path}")" = "${_atr_so_request}" ]; then
+                    _atr_is_ours=yes
                 fi
             fi ;;
     esac
-    if [ "${_ours}" = no ]; then
-        printf 'MSG-W5Z8\nai-tools-base: the name %s holds an entry that is not this project'"'"'s, so the install does not replace it -- move the entry aside and re-run the transaction\nai-tools-base: this refusal does not start the relabel watcher or the relabel run the transaction stopped -- once the transaction ends, check the watcher with systemctl is-active ai-tools-relabel.path, and where it should run, start both: systemctl start ai-tools-relabel.path ai-tools-relabel.service\n' "${_p}" >&2
+    if [ "${_atr_is_ours}" = no ]; then
+        printf 'MSG-W5Z8\nai-tools-base: the name %s holds an entry that is not this project'"'"'s, so the install does not replace it -- move the entry aside and re-run the transaction\nai-tools-base: this refusal does not start the relabel watcher or the relabel run the transaction stopped -- once the transaction ends, check the watcher with systemctl is-active ai-tools-relabel.path, and where it should run, start both: systemctl start ai-tools-relabel.path ai-tools-relabel.service\n' "${_atr_path}" >&2
         exit 1
     fi
 done

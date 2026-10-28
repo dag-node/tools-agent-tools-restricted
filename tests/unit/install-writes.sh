@@ -20,12 +20,12 @@
 # and do_install's text is read for the home, then bin, brought to their rows ahead of the first file written
 # under them. The sysusers fragment the layout declares a payload file of base is read the same way: do_install places
 # it from packaging/ai-tools.sysusers and do_uninstall removes it. The names the short command atr takes are decided
-# by read_atr_name_state, driven over a fixture tree with rpm a shell function and under a PATH without gzip,
+# by read_atr_entry_state, driven over a fixture tree with rpm a shell function and under a PATH without gzip,
 # where a gzip page reads as unreadable and a plain one as this project's; a gzip stub whose CRC does not match, one cut
 # before its trailer, a page past ATR_STUB_MAX_BYTES, and a gzip page under it whose text is past it each read
-# as another's, with the corrupt streams' decompressed .so line read first as the control, and ensure_atr_names_free
-# and remove_atr_names over the same tree; do_install's text is read for the check ahead of the first write,
-# and do_uninstall's for a removal through remove_atr_names alone.
+# as another's, with the corrupt streams' decompressed .so line read first as the control,
+# and require_atr_entries_replaceable and remove_recognized_atr_entries over the same tree; do_install's text is read
+# for the check ahead of the first write, and do_uninstall's for a removal through remove_recognized_atr_entries alone.
 #
 # No install and no command of install.sh's but the extracted functions. Skips outside a checkout.
 
@@ -509,12 +509,12 @@ removes_sysusers "${INSTALLER}" && pass "do_uninstall removes ${sysusers_path}" 
 # and refuses an entry in none of this project's forms, and the uninstall removes a name only in one of them.
 # The readers are driven out of install.sh as text over a fixture tree, with rpm a shell function answering
 # the attribution each case names, and under a PATH of links to the tools the readers call, without rpm, for the host
-# without the package database. ensure_atr_names_free and remove_atr_names read ATR_NAMES, which the inner shell sets
-# to the fixture's names; install.sh's own declaration is read as text for the four names.
+# without the package database. require_atr_entries_replaceable and remove_recognized_atr_entries read ATR_NAMES,
+# which the inner shell sets to the fixture's names; install.sh's own declaration is read as text for the four names.
 section "install.sh: the names atr takes are replaced and removed only while they are this project's (unit)"
 atr_text=""
-for name in die warn is_atr_wrapper_file is_atr_link is_atr_stub_page read_atr_name_state ensure_atr_names_free \
-        remove_atr_names; do
+for name in die warn has_atr_wrapper_marker is_atr_wrapper_link read_atr_stub_page_status read_atr_entry_state require_atr_entries_replaceable \
+        remove_recognized_atr_entries; do
     body="$(extract_function "${INSTALLER}" "${name}")"
     if [[ -z "${body}" ]]; then
         fail "install.sh does not define ${name}() in the form this file reads"
@@ -568,7 +568,7 @@ if [[ -n "${atr_text}" ]]; then
     # state_is <expected-prefix> <what> <rpm-answer> <path> <kind>
     state_is() {
         local out
-        out="$(atr_run "$3" read_atr_name_state "$4" "$5")"
+        out="$(atr_run "$3" read_atr_entry_state "$4" "$5")"
         if [[ "${out%%$'\n'*}" == "$1"* && "${out}" == *status=0 ]]; then
             pass "${2}: ${out%%$'\n'*}"
         else
@@ -656,7 +656,7 @@ if [[ -n "${atr_text}" ]]; then
     rm -f "${PAGE8}"
 
     # The fixture now holds: the man1 stub (ours), a foreign atr.1.gz, a foreign atr.8.xz, no wrapper and no link.
-    out="$(atr_run unowned ensure_atr_names_free)" || true
+    out="$(atr_run unowned require_atr_entries_replaceable)" || true
     assert_msg MSG-W5Z8 "${out}" "a foreign entry refuses the install"
     if [[ "${out}" == *"the name ${PAGE1}.gz holds a page without the atr .so line"* && "${out}" != *status=0 ]]; then
         pass "the refusal names the first foreign entry and what was read, and exits non-zero"
@@ -664,12 +664,12 @@ if [[ -n "${atr_text}" ]]; then
         fail "the refusal: ${out//$'\n'/ | }"
     fi
     gzip -c "${PAGE1}" > "${PAGE1}.gz"; rm -f "${PAGE8}.xz"
-    out="$(atr_run unowned ensure_atr_names_free)"
+    out="$(atr_run unowned require_atr_entries_replaceable)"
     [[ "${out}" == status=0 ]] && pass "names absent or in this project's form pass the check (control)" \
         || fail "names in this project's form: ${out//$'\n'/ | }"
     printf '.TH ATR 8\n' | xz -c > "${PAGE8}.xz"
     cp "${ROOT}/src/usr/local/bin/atr.sh" "${WRAPPER_FX}"; ln -s ../local/bin/atr "${LINK_FX}"
-    out="$(atr_run unowned remove_atr_names)"
+    out="$(atr_run unowned remove_recognized_atr_entries)"
     if [[ ! -e "${WRAPPER_FX}" && ! -L "${LINK_FX}" && ! -e "${PAGE1}" && ! -e "${PAGE1}.gz" && -e "${PAGE8}.xz" \
           && "${out}" == *"${PAGE8}.xz left in place"* && "${out}" == *status=0 ]]; then
         pass "the uninstall removes the names in this project's form and leaves the foreign page, naming it"
@@ -679,7 +679,7 @@ if [[ -n "${atr_text}" ]]; then
 
     # A page the read cannot decide refuses the install under its own code, and the uninstall leaves it.
     rm -f "${PAGE8}.xz"; gzip -c "${ROOT}/src/usr/local/share/man/man1/atr.1" > "${PAGE1}.gz"
-    out="$(atr_run nogzip ensure_atr_names_free)" || true
+    out="$(atr_run nogzip require_atr_entries_replaceable)" || true
     assert_msg MSG-V2H5 "${out}" "an unreadable page refuses the install"
     if [[ "${out}" == *"the name ${PAGE1}.gz could not be read (a gzip page with no gzip on PATH)"* \
           && "${out}" != *MSG-W5Z8* && "${out}" != *status=0 ]]; then
@@ -687,7 +687,7 @@ if [[ -n "${atr_text}" ]]; then
     else
         fail "the unreadable refusal: ${out//$'\n'/ | }"
     fi
-    out="$(atr_run nogzip remove_atr_names)"
+    out="$(atr_run nogzip remove_recognized_atr_entries)"
     if [[ -e "${PAGE1}.gz" && "${out}" == *"${PAGE1}.gz left in place -- it could not be read"* && "${out}" == *status=0 ]]; then
         pass "the uninstall leaves a page it could not read, naming it"
     else
@@ -699,12 +699,12 @@ if [[ -n "${atr_text}" ]]; then
     gzip -c "${ROOT}/src/usr/local/share/man/man1/atr.1" > "${TESTDIR}/atr-whole.gz"
     whole_size="$(stat -c '%s' "${TESTDIR}/atr-whole.gz")"
     head -c "$(( whole_size - 8 ))" "${TESTDIR}/atr-whole.gz" > "${PAGE1}.gz"
-    out="$(atr_run unowned ensure_atr_names_free)" || true
+    out="$(atr_run unowned require_atr_entries_replaceable)" || true
     assert_msg MSG-W5Z8 "${out}" "a gzip stub failing gzip -t refuses the install"
     [[ "${out}" == *"the name ${PAGE1}.gz holds a gzip page that fails gzip -t"* && "${out}" != *status=0 ]] \
         && pass "the refusal names the page and the failed integrity test" \
         || fail "the refusal over a corrupt gzip stub: ${out//$'\n'/ | }"
-    out="$(atr_run unowned remove_atr_names)"
+    out="$(atr_run unowned remove_recognized_atr_entries)"
     if [[ -e "${PAGE1}.gz" && "${out}" == *"${PAGE1}.gz left in place -- it holds a gzip page that fails gzip -t"* \
           && "${out}" == *status=0 ]]; then
         pass "the uninstall leaves a gzip stub that fails gzip -t, naming it"
@@ -713,33 +713,33 @@ if [[ -n "${atr_text}" ]]; then
     fi
 fi
 
-# atr_check_precedes_first_write <file> : succeed when do_install calls ensure_atr_names_free ahead of its first
-# `install -d` of /var/log/ai-tools, the first path the install creates. removes_atr_by_form <file> : succeed
-# when do_uninstall calls remove_atr_names and no `rm` line names an atr path.
+# atr_check_precedes_first_write <file> : succeed when do_install calls require_atr_entries_replaceable ahead of its
+# first `install -d` of /var/log/ai-tools, the first path the install creates. removes_atr_by_form <file> : succeed
+# when do_uninstall calls remove_recognized_atr_entries and no `rm` line names an atr path.
 atr_check_precedes_first_write() {
     local body call_line write_line
     body="$(extract_function "$1" do_install)"
-    call_line="$(grep -n -m1 -E '^[[:space:]]+ensure_atr_names_free$' <<<"${body}" | cut -d: -f1 || true)"
+    call_line="$(grep -n -m1 -E '^[[:space:]]+require_atr_entries_replaceable$' <<<"${body}" | cut -d: -f1 || true)"
     write_line="$(grep -n -m1 -E '^[[:space:]]+install -d .*/var/log/ai-tools' <<<"${body}" | cut -d: -f1 || true)"
     [[ -n "${call_line}" && -n "${write_line}" ]] && (( call_line < write_line ))
 }
 removes_atr_by_form() {
     local body
     body="$(extract_function "$1" do_uninstall)"
-    grep -qE '^[[:space:]]+remove_atr_names([[:space:]]|$)' <<<"${body}" \
+    grep -qE '^[[:space:]]+remove_recognized_atr_entries([[:space:]]|$)' <<<"${body}" \
         && ! grep -qE '^[[:space:]]*rm .*/atr(\.[18][^[:space:]]*)?([[:space:]]|$)' <<<"${body}"
 }
-printf '%s\n' 'do_install() {' '    install -d -o root -g root -m 700 /var/log/ai-tools' '    ensure_atr_names_free' '}' \
-    'do_uninstall() {' '    remove_atr_names' '    rm -f /usr/local/bin/atr' '}' > "${TESTDIR}/atr-order-control.sh"
+printf '%s\n' 'do_install() {' '    install -d -o root -g root -m 700 /var/log/ai-tools' '    require_atr_entries_replaceable' '}' \
+    'do_uninstall() {' '    remove_recognized_atr_entries' '    rm -f /usr/local/bin/atr' '}' > "${TESTDIR}/atr-order-control.sh"
 if atr_check_precedes_first_write "${TESTDIR}/atr-order-control.sh" || removes_atr_by_form "${TESTDIR}/atr-order-control.sh"; then
     fail "control: the readers accept a check after the first write and a by-path removal, so the checks below cannot fail"
 else
     pass "the readers flag a check after the first write and a by-path removal (control)"
 fi
 atr_check_precedes_first_write "${INSTALLER}" && pass "do_install reads the names atr takes ahead of its first write" \
-    || fail "do_install does not call ensure_atr_names_free ahead of its install log's directory"
-removes_atr_by_form "${INSTALLER}" && pass "do_uninstall removes the names atr takes through remove_atr_names alone" \
-    || fail "do_uninstall does not remove the atr names through remove_atr_names alone"
+    || fail "do_install does not call require_atr_entries_replaceable ahead of its install log's directory"
+removes_atr_by_form "${INSTALLER}" && pass "do_uninstall removes the names atr takes through remove_recognized_atr_entries alone" \
+    || fail "do_uninstall does not remove the atr names through remove_recognized_atr_entries alone"
 names_text="$(sed -n '/^ATR_NAMES=(/,/^readonly ATR_NAMES$/p' -- "${INSTALLER}")"
 if [[ "${names_text}" == *'"/usr/local/bin/atr wrapper"'* && "${names_text}" == *'"/usr/sbin/atr link"'* \
       && "${names_text}" == *'/usr/local/share/man/man1/atr.1${_form} page'* \
