@@ -237,9 +237,10 @@ EOF
     --version                        the installed version
     --help                           this summary
 
-  Type each command as atr admin COMMAND, which runs it through sudo: each one
-  administers the host and refuses a non-root caller. The project lifecycle is
-  the unprivileged ai-tools CLI, which you run as yourself.
+  Type each command as atr admin COMMAND, which runs it as root, through sudo
+  when you are not root: each one administers the host and refuses a non-root
+  caller. The project lifecycle is the unprivileged ai-tools CLI, which you run
+  as yourself.
 
   Every command, exit code and example:  man ai-tools-admin
 EOT

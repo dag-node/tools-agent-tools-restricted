@@ -274,7 +274,7 @@ unset _forless_args
 # an alias: the command reconciles a root-owned pin and a file context, so it runs as root, which this CLI refuses.
 #
 # It answers ahead of every gate on purpose. The bootstrap gate would otherwise send an unprovisioned host
-# to the provisioning command, and the root guard would answer `sudo atr --relabel` -- the spelling the older docs
+# to the provisioning command, and the root guard would answer `sudo ai-tools --relabel` -- the spelling the older docs
 # printed -- with a list of the verbs root may run, none of which reconciles an entrypoint. Exit 2 is the documented
 # code for a rejected command line (ai-tools(1)).
 if [[ "${1:-}" == "--relabel" ]]; then
