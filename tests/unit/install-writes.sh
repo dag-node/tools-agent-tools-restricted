@@ -18,7 +18,8 @@
 # is read for the call's place ahead of the first write. ensure_dir is driven over fixtures: a name that is not
 # a directory is refused with the link's target untouched, beside `install -d` following the link as the control;
 # and do_install's text is read for the home, then bin, brought to their rows ahead of the first file written
-# under them.
+# under them. The sysusers fragment the layout declares a payload file of base is read the same way: do_install places
+# it from packaging/ai-tools.sysusers and do_uninstall removes it.
 #
 # No install and no command of install.sh's but the extracted functions. Skips outside a checkout.
 
@@ -426,5 +427,45 @@ if home_then_bin_precede_first_file "${INSTALLER}"; then
 else
     fail "do_install does not bring /opt/ai-tools, then /opt/ai-tools/bin, to their rows ahead of its first install into bin"
 fi
+
+# ── the account declaration a source install places ──────────────────────────────────────────────
+# layout.lib.sh declares /usr/lib/sysusers.d/ai-tools.conf a payload file of base and the RPM installs it
+# from packaging/ai-tools.sysusers, so a source install places the same file, or every layout reconcile reports the row
+# missing with a remedy a source install cannot meet. do_install's text is read for the install of that source
+# at that path and do_uninstall's for its removal, each beside a control lacking the line; the row's declaration is read
+# out of layout.lib.sh first, so a row that moves takes this check with it.
+section "install.sh: a source install places the sysusers fragment the layout declares (unit)"
+sysusers_path=/usr/lib/sysusers.d/ai-tools.conf
+if grep -qE "append_static_entry[[:space:]]+${sysusers_path}[[:space:]]+file[[:space:]]+root:root" \
+        "${ROOT}/src/usr/local/lib/ai-tools/layout.lib.sh"; then
+    pass "layout.lib.sh declares ${sysusers_path} a root-owned payload file (control)"
+else
+    fail "control: layout.lib.sh does not declare ${sysusers_path} in the form this file reads, so the checks below guard a row that does not exist"
+fi
+# places_sysusers <file> : succeed when do_install installs packaging/ai-tools.sysusers at the fragment's path.
+# The lines are captured before the match, so a match does not end the producer early under pipefail.
+places_sysusers() {
+    local lines
+    lines="$(extract_function "$1" do_install | code_lines /dev/stdin)"
+    grep -qE "install .*packaging/ai-tools\.sysusers\"? ${sysusers_path}$" <<<"${lines}"
+}
+# removes_sysusers <file> : succeed when do_uninstall removes the fragment.
+removes_sysusers() {
+    local lines
+    lines="$(extract_function "$1" do_uninstall | code_lines /dev/stdin)"
+    grep -qE "rm -f ${sysusers_path}$" <<<"${lines}"
+}
+# shellcheck disable=SC2016  # the fixture is code text: its expansion stays literal
+printf '%s\n' 'do_install() {' '    install -o root -g root -m 644 "${SCRIPT_DIR}/src/x" /usr/lib/x' '}' \
+    'do_uninstall() {' '    rm -f /usr/lib/x' '}' > "${TESTDIR}/sysusers-control.sh"
+if places_sysusers "${TESTDIR}/sysusers-control.sh" || removes_sysusers "${TESTDIR}/sysusers-control.sh"; then
+    fail "control: the readers accept an installer without the fragment, so the checks below cannot fail"
+else
+    pass "the readers flag an installer without the fragment's install and removal (control)"
+fi
+places_sysusers "${INSTALLER}" && pass "do_install places ${sysusers_path} from packaging/ai-tools.sysusers" \
+    || fail "do_install does not install packaging/ai-tools.sysusers at ${sysusers_path}"
+removes_sysusers "${INSTALLER}" && pass "do_uninstall removes ${sysusers_path}" \
+    || fail "do_uninstall does not remove ${sysusers_path}"
 
 finish

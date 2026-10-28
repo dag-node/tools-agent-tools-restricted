@@ -1075,6 +1075,7 @@ do_summary() {
     _chk /usr/lib/systemd/system/ai-tools-handback.socket
     _chk /usr/lib/systemd/system/ai-tools-handback@.service
     _chk /usr/lib/systemd/system-preset/85-ai-tools.preset
+    _chk /usr/lib/sysusers.d/ai-tools.conf
     _chk /usr/lib/systemd/user/nvm-update.service
     _chk /usr/lib/systemd/user/nvm-update.timer
     _chk /usr/lib/systemd/system/ai-tools-relabel.path
@@ -2024,6 +2025,15 @@ do_install() {
         "${SCRIPT_DIR}/src/usr/lib/systemd/system-preset/85-ai-tools.preset" \
         /usr/lib/systemd/system-preset/85-ai-tools.preset
 
+    # The sandbox account and the ai-ops group as sysusers.d declares them, the fragment the RPM creates the account
+    # from. layout.lib.sh declares the path a payload file of base, so a source install places it too and the layout
+    # reconcile converges the row on either channel; systemd-sysusers re-creates a deleted account or group from it
+    # at boot. The install does not run it: do_install requires the account at its top, and the from-source page creates
+    # the account ahead of the install.
+    log "/usr/lib/sysusers.d/ai-tools.conf"
+    install -d -o root -g root -m 755 /usr/lib/sysusers.d
+    install -o root -g root -m 644 "${SCRIPT_DIR}/packaging/ai-tools.sysusers" /usr/lib/sysusers.d/ai-tools.conf
+
     # Toolchain update units. The service+timer live in %{_userunitdir} and are enabled in the sandbox account's own
     # `systemd --user instance` (it owns and writes the shared .nvm tree). 644 root:root -- systemd reads them as root;
     # no world write.
@@ -2967,6 +2977,7 @@ do_uninstall() {
     systemctl disable --now ai-tools-handback.socket 2>/dev/null || true
     systemctl disable --now ai-tools-relabel.path 2>/dev/null || true
     rm -f /usr/lib/systemd/system-preset/85-ai-tools.preset
+    rm -f /usr/lib/sysusers.d/ai-tools.conf
     systemctl daemon-reload 2>/dev/null || true
 
     section "Removing files"

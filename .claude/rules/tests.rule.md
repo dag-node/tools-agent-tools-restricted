@@ -726,11 +726,13 @@ otherwise. It reads `do_selinux_restore` the same way: every `restorecon -R` ahe
 a root-owned tree, beside a control that walks `/opt/ai-tools/.config` there. Then the ACL tools a source install
 requires: `require_acl_tools`, extracted, refuses under its code with either tool absent from `PATH` and passes
 with both present, the control, and `do_install` calls it ahead of its first write, beside a control placing the call
-after it. It closes on the directories the install writes into: `ensure_dir`, extracted, refuses a symlink and a regular
-file at the name and leaves the link's target at its mode, beside `install -d` over the same link changing that mode
+after it. Then the directories the install writes into: `ensure_dir`, extracted, refuses a symlink and a regular file
+at the name and leaves the link's target at its mode, beside `install -d` over the same link changing that mode
 as the control, and brings an existing directory to the mode and creates a missing one; and `do_install`'s text brings
 the sandbox home, then `bin`, to their rows ahead of the first file written under them, beside a control with the three
-inverted.
+inverted. It closes on the account declaration a source install places: `do_install` installs
+`packaging/ai-tools.sysusers` at the path `layout.lib.sh` declares a payload file of base, read out of the table first,
+and `do_uninstall` removes it, each beside a control lacking the line.
 
 `install-selinux-walks.sh` runs `selinux/install-selinux.sh`'s account-writable walks, extracted as text, under each
 live-session reading with `restorecon` recorded, `none` first as the recorder's control: `live` and `unreadable` walk no

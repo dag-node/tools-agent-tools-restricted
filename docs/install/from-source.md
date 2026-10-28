@@ -145,8 +145,11 @@ sudo passwd -l "${SANDBOX_USER}"
 ```
 
 The `install -d` creates `/opt/ai-tools` owned by the account with `+x`
-for all, so `${PROJECTS_USER}` can traverse into `bin/`. The RPM ships this
-account via `sysusers.d`, so this step applies only to the from-source path.
+for all, so `${PROJECTS_USER}` can traverse into `bin/`. The RPM creates this
+account from its `sysusers.d` fragment. `install.sh` places the same fragment
+at `/usr/lib/sysusers.d/ai-tools.conf`, which keeps the account
+and the `ai-ops` group declared to `systemd-sysusers` across a reboot, and it
+does not create the account itself, so this step runs ahead of the install.
 
 `/home` is mounted `nosuid`, which would prevent the `sudo` UID-switch
 from taking effect. `/opt/ai-tools` has no `nosuid` restriction, so the switch
