@@ -2655,7 +2655,7 @@ _ai_tools_assets__write_enable_list_row() {
         untrusted)
             detail="${AI_TOOLS_ASSETS__LIST_DETAIL}"
             if (( ! applied )); then
-                detail+="; no asset is enabled while it stands, and each resolver link the plan reached stays until sudo ai-tools-admin assets reconcile removes it, each named in an unlink-pending row"
+                detail+="; no asset is enabled while it stands, and each resolver link the plan reached stays until atr admin assets reconcile removes it, each named in an unlink-pending row"
             elif (( ${#_AI_TOOLS_ASSETS__DIRS_LEFT[@]} == 0 && ${_AI_TOOLS_ASSETS__UNLINK_FAILED:-0} == 0 \
                     && ${_AI_TOOLS_ASSETS__AGENT_DIRS_UNREAD:-0} == 0 )); then
                 detail+="; every resolver link is removed"
@@ -2784,7 +2784,7 @@ _ai_tools_assets__record_pending_rows() {
         fi
         "${pending_recorder}" attention "${pending_finding}" link \
             "${_AI_TOOLS_ASSETS__ACTION_PATH[index]}" "${_AI_TOOLS_ASSETS__ACTION_ITEM[index]}" "${_AI_TOOLS_ASSETS__ACTION_AGENT[index]}" \
-            "${pending_detail}; run sudo ai-tools-admin assets reconcile" "${_AI_TOOLS_ASSETS__ACTION_SET[index]}"
+            "${pending_detail}; run atr admin assets reconcile" "${_AI_TOOLS_ASSETS__ACTION_SET[index]}"
     done
 }
 

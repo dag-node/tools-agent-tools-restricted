@@ -230,15 +230,15 @@ FORCE_KILL=false
 refuse_positional_argument() {
     printf 'MSG-A3M9\nai-tools-stop: stop takes no path: %s\n' "$1" >&2
     printf '%s' '
-  ai-tools stop TERMINATES every agent session on this host, and has no per-project
+  atr stop TERMINATES every agent session on this host, and has no per-project
   form. It is not the way to end a session you are finished with -- it kills the process
   tree, so the session cannot run its own session-end handback.
   A session is attributed to a project by asking the sandbox account'"'"'s own user manager
   -- the account being stopped -- so that attribution is reported, never trusted to
   decide what a stop reaches.
 
-  Terminate every session:    ai-tools stop
-  See what is running first:  ai-tools stop --dry-run
+  Terminate every session:    atr stop
+  See what is running first:  atr stop --dry-run
   End one session cleanly:    /exit inside it, which runs its session-end handback
   Terminate one by hand:      sudo systemctl --user -M @SANDBOX_USER@@.host stop <unit>
 ' >&2
@@ -271,7 +271,7 @@ parse_command_line() {
 resolve_run_context() {
     if [[ "$(id -u)" != "0" ]]; then
         say_error MSG-Z5W3 "This command must run as root: stopping a session means signalling ${SANDBOX_USER}'s cgroups" \
-                  "run it as: ai-tools stop"
+                  "run it as: atr stop"
         exit 5
     fi
 
@@ -304,7 +304,7 @@ resolve_run_context() {
     if [[ -z "${SANDBOX_UID}" ]]; then
         say_error MSG-Q9Y2 "This host cannot resolve the uid of ${SANDBOX_USER}, so no cgroup can be located" \
                   "the sandbox account is missing -- reprovision with:" \
-                  "  sudo ai-tools-admin system bootstrap"
+                  "  atr admin system bootstrap"
         log_event error "REFUSED: ${SANDBOX_USER} has no uid; cannot locate any session cgroup"
         exit 5
     fi
@@ -865,7 +865,7 @@ print_reclaim_guidance() {
     printf '\n  %s\n' "A stopped session cannot run its own session-end handback, so the last turn's"
     printf '  %s\n'   "writes may still be ${SANDBOX_USER}-owned. Hand them back with:"
     for directory in "${targets[@]}"; do
-        printf '  %s\n' "    ai-tools projects handback $(sanitize "${directory}")"
+        printf '  %s\n' "    atr projects handback $(sanitize "${directory}")"
     done
 }
 

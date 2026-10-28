@@ -296,7 +296,7 @@ echo "counts: boundary=$(cnt "${boundary}")  group-disabled=$(cnt "${groupdis}")
 # Granted records are reported apart from the counts above, which are denials. A non-zero count here is the core
 # module's auditallow doing its job, not a finding; `ai-tools audit` resolves each exec to an agent.
 [[ -z "${GRANTED}" ]] \
-    || echo "        granted=$(cnt "${GRANTED}")  audited-on-purpose entrypoint exec(s) -- evidence, not denials; read them with 'ai-tools audit'"
+    || echo "        granted=$(cnt "${GRANTED}")  audited-on-purpose entrypoint exec(s) -- evidence, not denials; read them with 'atr audit'"
 echo
 
 hr

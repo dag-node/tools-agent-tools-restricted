@@ -201,7 +201,7 @@ write_agents() {
     install -d -o root -g root -m 755 "${AI_TOOLS_OPERATOR_CONF%/*}"
     if (( ${#items[@]} != $# )) \
             || ! ai_tools_conf__set_list "${AI_TOOLS_OPERATOR_CONF}" AI_TOOLS_AGENTS "${items[@]}"; then
-        die MSG-J3E6 "could not write AI_TOOLS_AGENTS (${*}) into ${AI_TOOLS_OPERATOR_CONF} -- set the line by hand, then re-run: sudo ai-tools-admin system bootstrap"
+        die MSG-J3E6 "could not write AI_TOOLS_AGENTS (${*}) into ${AI_TOOLS_OPERATOR_CONF} -- set the line by hand, then re-run: atr admin system bootstrap"
     fi
 }
 
@@ -317,7 +317,7 @@ choose_agents() {
     sel="$(ai_tools_msg__pick none "${installed_labels[@]}" \
             "None now"$'\t'"provision Node alone; set AI_TOOLS_AGENTS in ${AI_TOOLS_OPERATOR_CONF} later")" || sel=""
     if [[ -z "${sel}" || "${sel}" == "${none_index}" ]]; then
-        warn MSG-X3M9 "no agent chosen -- provisioning Node alone; set AI_TOOLS_AGENTS in ${AI_TOOLS_OPERATOR_CONF}, or pass --agents NAME, then re-run: sudo ai-tools-admin system bootstrap"
+        warn MSG-X3M9 "no agent chosen -- provisioning Node alone; set AI_TOOLS_AGENTS in ${AI_TOOLS_OPERATOR_CONF}, or pass --agents NAME, then re-run: atr admin system bootstrap"
         return 0
     fi
     name="${installed_names[$(( sel - 1 ))]}"
@@ -362,7 +362,7 @@ refuse_unresolved_agents() {
     done < <(ai_tools_providers__list_enabled_agents 2>/dev/null)
     IFS=$'\t' read -r verdict reason < <(ai_tools_providers__evaluate_empty_agents 2>/dev/null) || true
     [[ "${verdict}" == none ]] && return 0
-    die MSG-M9G5 "no agent resolved: ${reason:-the classification printed nothing} -- no package was installed or removed; correct it, then re-run: sudo ai-tools-admin system bootstrap"
+    die MSG-M9G5 "no agent resolved: ${reason:-the classification printed nothing} -- no package was installed or removed; correct it, then re-run: atr admin system bootstrap"
 }
 
 # restore_toolchain_links: in each Node version directory, put back the symlinks npm keeps in bin/ where a transfer
@@ -478,7 +478,7 @@ seed_managed_assets_step() {
     # (managed-assets.lib.sh) across it, the reconcile included, which adopts the lock this shell holds:
     # an `ai-tools-admin assets` verb run meanwhile does not interleave its writes with these.
     if ! ai_tools_managed_assets__lock; then
-        warn MSG-F3H4 "managed assets: not seeded, and the asset view not reconciled -- the assets lock could not be taken; run sudo ai-tools-admin system bootstrap again once the other assets command has ended"
+        warn MSG-F3H4 "managed assets: not seeded, and the asset view not reconciled -- the assets lock could not be taken; run atr admin system bootstrap again once the other assets command has ended"
         return 0
     fi
     # The SHARED kinds first, into their own roots: skills and subagent definitions are agent-agnostic, so they live
@@ -500,8 +500,8 @@ seed_managed_assets_step() {
     /usr/local/libexec/ai-tools/ai-tools-admin assets reconcile >/dev/null || reconcile_status=$?
     case "${reconcile_status}" in
         0) ;;
-        4) notice MSG-W9R9 "the asset reconcile reported a finding -- sudo ai-tools-admin status names each one and what ends it" ;;
-        *) warn MSG-T3R5 "the asset reconcile did not complete (exit ${reconcile_status}) -- run: sudo ai-tools-admin assets reconcile" ;;
+        4) notice MSG-W9R9 "the asset reconcile reported a finding -- atr admin status names each one and what ends it" ;;
+        *) warn MSG-T3R5 "the asset reconcile did not complete (exit ${reconcile_status}) -- run: atr admin assets reconcile" ;;
     esac
     [[ -n "$(ai_tools_control_plane__list_agent_asset_dirs skills_dir)$(ai_tools_control_plane__list_agent_asset_dirs subagents_dir)" ]] && seeded=1
     # The orientation text is a single file rather than a directory of assets, and each agent reads it under its own
@@ -551,7 +551,7 @@ offer_launch_requirements() {
         [[ -n "${agent}" && ! -f "$(ai_tools_entrypoint_verify__get_pin_path "${agent}")" ]] && unpinned+=("${agent}")
     done < <(ai_tools_providers__list_enabled_agents 2>/dev/null)
     if (( ${#unpinned[@]} > 0 )); then
-        log "launch requirements: ${key} is not offered while ${unpinned[*]} carries no pin -- run sudo ai-tools-admin system entrypoints relabel, then re-run this command"
+        log "launch requirements: ${key} is not offered while ${unpinned[*]} carries no pin -- run atr admin system entrypoints relabel, then re-run this command"
         return 0
     fi
 
@@ -589,7 +589,7 @@ report_shadowed_operators() {
     while IFS=$'\t' read -r user launcher winner; do
         [[ -n "${user}" ]] || continue
         err MSG-K2D4 "operator ${user} who types ${launcher} would run ${winner}, which is an agent outside the sandbox"
-        err "    rank the wrapper ahead of it:  sudo ai-tools-admin operators add ${user}"
+        err "    rank the wrapper ahead of it:  atr admin operators add ${user}"
         err "    or remove that install:        ${winner}"
     done < <(ai_tools_path_order__find_shadowed_operators \
         "${AI_TOOLS_OPERATOR__OPERATORS[@]+"${AI_TOOLS_OPERATOR__OPERATORS[@]}"}")
@@ -706,7 +706,7 @@ source "${_sandbox_exec_lib}" 2>/dev/null || true
 source "${_toolchain_lib}" 2>/dev/null || true
 if ! declare -F ai_tools_sandbox_exec__run_as_sandbox >/dev/null 2>&1 || ! declare -F ai_tools_toolchain__read_nvm_default_version >/dev/null 2>&1 \
         || ! declare -F ai_tools_log__sanitize >/dev/null 2>&1; then
-    die MSG-E2X2 "cannot run the sandbox toolchain: ${_sandbox_exec_lib}, ${_toolchain_lib} or the log library did not load, and they are what run that account's files without root's terminal and keep their bytes off it -- reinstall ai-tools-base, then re-run: sudo ai-tools-admin system bootstrap"
+    die MSG-E2X2 "cannot run the sandbox toolchain: ${_sandbox_exec_lib}, ${_toolchain_lib} or the log library did not load, and they are what run that account's files without root's terminal and keep their bytes off it -- reinstall ai-tools-base, then re-run: atr admin system bootstrap"
 fi
 
 # The control plane's constants and readers (control-plane.lib.sh): the shared asset roots this run seeds, each agent's
@@ -718,7 +718,7 @@ source "${_control_plane_lib}" 2>/dev/null || true
 if ! declare -F ai_tools_control_plane__list_agent_asset_dirs >/dev/null 2>&1 \
         || ! declare -F ai_tools_control_plane__list_agent_memory_targets >/dev/null 2>&1 \
         || [[ -z "${CP_TIMER_STAMP_DIR:-}" ]]; then
-    die MSG-Q3P4 "cannot read the control plane's layout: ${_control_plane_lib} did not load -- reinstall ai-tools-base, then re-run: sudo ai-tools-admin system bootstrap"
+    die MSG-Q3P4 "cannot read the control plane's layout: ${_control_plane_lib} did not load -- reinstall ai-tools-base, then re-run: atr admin system bootstrap"
 fi
 
 # Which agents this run provisions, decided and written before the first network step: a name given on the command line,
@@ -803,7 +803,7 @@ if (( ! _online )); then
     if [[ -s "${NVM_DIR}/nvm.sh" && -d "${NVM_DIR}/versions/node" ]]; then
         log "offline: the toolchain installed under ${NVM_DIR} is reused as it is -- nvm, Node and the agents' packages are not installed or updated this run"
     else
-        die MSG-R5Z3 "offline, and no toolchain is installed under ${NVM_DIR}: the nvm and Node download needs the network -- connect this host, then re-run: sudo ai-tools-admin system bootstrap"
+        die MSG-R5Z3 "offline, and no toolchain is installed under ${NVM_DIR}: the nvm and Node download needs the network -- connect this host, then re-run: atr admin system bootstrap"
     fi
 elif [[ ${#_agent_packages[@]} -gt 0 ]]; then
     log "installing nvm ${NVM_VERSION} + Node ${NODE_MAJOR} + ${_agent_packages[*]} as ${SANDBOX_USER} (network)"
@@ -922,7 +922,7 @@ if (( _online )) && [[ ${#_agent_packages[@]} -gt 0 ]]; then
                     (cd "${global_root}/${agent_package}" && npm run --if-present "${script}")
                 done
             done
-        ' || die MSG-T3P5 "an install script of the agents' packages did not complete (npm's output above names it) -- the package is installed without it, so an agent whose entrypoint such a script places is refused at launch until it runs; fix what npm names, then re-run: sudo ai-tools-admin system bootstrap"
+        ' || die MSG-T3P5 "an install script of the agents' packages did not complete (npm's output above names it) -- the package is installed without it, so an agent whose entrypoint such a script places is refused at launch until it runs; fix what npm names, then re-run: atr admin system bootstrap"
 fi
 
 # 2c. Point each enabled agent's versioned launcher at the executable its manifest declares
@@ -998,7 +998,7 @@ fi
 _relabel_helper=/usr/local/libexec/ai-tools/ai-tools-relabel-agent
 if [[ -x "${_relabel_helper}" ]]; then
     "${_relabel_helper}" \
-        || warn MSG-C7C8 "entrypoint relabel did not complete -- run 'sudo ai-tools-admin system entrypoints relabel' before launching claude"
+        || warn MSG-C7C8 "entrypoint relabel did not complete -- run 'atr admin system entrypoints relabel' before launching claude"
     # The same relabel once more through its unit, queued: the unit keeps the result of its last run, which is
     # what `ai-tools status` reports, so a FAILED a watcher run left stands until a run through the unit succeeds;
     # the unit answers from the pin this run just wrote, and its Wants brings the watcher up with it.
@@ -1106,9 +1106,9 @@ if [[ -x /usr/local/bin/ai-tools ]]; then
     enrolled_operators=()
     (( _providers_loaded )) && { ai_tools_conf__read_list enrolled_operators "${AI_TOOLS_OPERATOR_CONF}" OPERATORS 2>/dev/null || true; }
     if (( ${#enrolled_operators[@]} > 0 )); then
-        log "next: as an enrolled operator, claim a project and start an agent in it -- ai-tools projects claim <path>"
+        log "next: as an enrolled operator, claim a project and start an agent in it -- atr projects claim <path>"
     else
-        log "next: enrol an operator -- sudo ai-tools-admin operators add <user>"
+        log "next: enrol an operator -- atr admin operators add <user>"
     fi
 else
     log "next: deploy the control plane -- sudo ./install.sh install   (or install the RPM)"

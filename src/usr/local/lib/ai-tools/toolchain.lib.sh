@@ -523,7 +523,7 @@ ai_tools_toolchain__remove_agent_package() {
         else
             npm_error_summary="npm's error is not shown: log.lib.sh, which sanitizes it, did not load"
         fi
-        _ai_tools_toolchain__warn MSG-X8F9 "could not remove ${package_dir} (npm uninstall left it in place; ${npm_error_summary}) -- every launch stays refused until it is gone; remove it by hand as the sandbox account, then re-run: sudo ai-tools-admin system bootstrap"
+        _ai_tools_toolchain__warn MSG-X8F9 "could not remove ${package_dir} (npm uninstall left it in place; ${npm_error_summary}) -- every launch stays refused until it is gone; remove it by hand as the sandbox account, then re-run: atr admin system bootstrap"
         return 1
     fi
     printf 'removed'

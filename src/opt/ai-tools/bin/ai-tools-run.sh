@@ -156,7 +156,7 @@ if [[ -n "${unmigrated_items}" ]]; then
     printf '%s\n' MSG-V3Q5 >&2
     refuse "no session starts while operator.conf names a provider without its kind prefix: ${unmigrated_items}" \
            'an earlier release wrote these names bare; rewrite them with:' \
-           '  sudo ai-tools-admin system post-upgrade'
+           '  atr admin system post-upgrade'
 fi
 
 # ── Agent resolution and executable validation ───────────────────────────────────────────────
@@ -181,7 +181,7 @@ if (( ${#agent_name_by_launcher[@]} == 0 )); then
         refuse 'no agent is enabled on this host' \
                "${empty_reason}" \
                'enable one in /etc/ai-tools/operator.conf (AI_TOOLS_AGENTS), then provision it:' \
-               '  sudo ai-tools-admin system bootstrap'
+               '  atr admin system bootstrap'
     fi
     refuse 'the enabled agents could not be resolved' \
            "${empty_reason:-the classification of the empty set printed nothing}" \
@@ -204,7 +204,7 @@ if [[ -n "${residue_agents}" ]]; then
     printf '%s\n' MSG-H4E2 >&2
     refuse "no session starts while a disabled agent's package is still in the sandbox toolchain: ${residue_agents}" \
            'the provisioning run removes it before it installs anything:' \
-           '  sudo ai-tools-admin system bootstrap'
+           '  atr admin system bootstrap'
 fi
 
 agent_executable_path="${AI_TOOLS_AGENT_EXEC:-}"
@@ -270,7 +270,7 @@ session_exec_path="$(resolve_entrypoint)" \
     || refuse MSG-D7A7 "the launcher does not resolve to an executable inside ${entrypoint_version_root}" \
               "resolved from:  ${agent_executable_path}" \
               'reprovision the toolchain:' \
-              '  sudo ai-tools-admin system bootstrap'
+              '  atr admin system bootstrap'
 session_exec_identity="$(entrypoint_identity "${session_exec_path}")"
 
 # ── Session working directory ────────────────────────────────────────────────────────────────
@@ -392,7 +392,7 @@ if [[ -n "${selinux_mode}" || "${require_selinux}" == yes ]]; then
             audit warning "REFUSED: entrypoint mislabelled (${actual_label:-none}, want ai_tools_exec_t)"
             refuse "refusing to launch -- ${entrypoint_path} is mislabelled \"${actual_label:-none}\"" \
                    "(expected ai_tools_exec_t), so no domain transition fires and the session would run UNCONFINED (relabel is required after upgrade)." \
-                   "Fix:  sudo ai-tools-admin system entrypoints relabel" ;;
+                   "Fix:  atr admin system entrypoints relabel" ;;
         manager-domain)
             audit warning "REFUSED: manager domain ${manager_domain} has no domtrans to ai_tools_t"
             refuse "refusing to launch -- the systemd --user manager runs in domain \"${manager_domain}\", which no domtrans_pattern in the installed ai_tools policy covers, so the session would run UNCONFINED." \
@@ -403,7 +403,7 @@ if [[ -n "${selinux_mode}" || "${require_selinux}" == yes ]]; then
         unverifiable)
             audit warning "REFUSED: ai_tools module present but file-contexts inactive (expected=${expected_label:-none})"
             refuse "refusing to launch -- the ai_tools SELinux module is installed but no file-context maps ${entrypoint_path} to ai_tools_exec_t, so the transition cannot be verified and the session would run UNCONFINED (fail closed on a half-installed host)." \
-                   "The agent's entrypoint rule comes from its own manifest; register it:  sudo ai-tools-admin system entrypoints relabel" \
+                   "The agent's entrypoint rule comes from its own manifest; register it:  atr admin system entrypoints relabel" \
                    "Or reload the confinement policy package:  sudo dnf reinstall ai-tools-selinux" \
                    "On a source checkout instead:  sudo selinux/install-selinux.sh install" \
                    "Or make this a DAC-only host:  sudo semodule -r ai_tools   (or run SELinux permissive)" ;;
@@ -490,7 +490,7 @@ if [[ -n "${session_working_directory}" && ! -S "${HANDBACK_SOCKET}" ]]; then
     ai_tools_msg__notice \
         "ai-tools-run: the ownership handback socket is down (${HANDBACK_SOCKET}), so files this session writes stay ai-tools-owned until it is restored -- git may then report \"dubious ownership\".  Bring it up, then reclaim the tree:"
     printf '  sudo systemctl enable --now ai-tools-handback.socket\n' >&2
-    printf '  ai-tools projects handback %s\n' "${session_working_directory}" >&2
+    printf '  atr projects handback %s\n' "${session_working_directory}" >&2
 fi
 
 # ── Session environment ──────────────────────────────────────────────────────────────────────
@@ -599,7 +599,7 @@ sweep_project_ownership() {
     # A down socket fails every CHOWN, so skip the walk and record that once, rather than logging a reassuring count
     # of calls that changed no ownership (the failure mode this whole change fixes).
     if [[ ! -S "${HANDBACK_SOCKET}" ]]; then
-        audit warning "session-end sweep skipped: handback socket ${HANDBACK_SOCKET} is down -- files under ${session_working_directory} stay @SANDBOX_USER@-owned (reclaim with: ai-tools projects handback ${session_working_directory})"
+        audit warning "session-end sweep skipped: handback socket ${HANDBACK_SOCKET} is down -- files under ${session_working_directory} stay @SANDBOX_USER@-owned (reclaim with: atr projects handback ${session_working_directory})"
         return 0
     fi
     # The "reclaim" consumer omits the heavy dependency/build trees but WALKS .git -- the tree the per-turn hooks skip,
@@ -629,7 +629,7 @@ sweep_project_ownership() {
     local left_alone_note=""
     (( untouched > 0 )) && left_alone_note=", ${untouched} left as they were by the root helper"
     if (( failed > 0 )); then
-        audit warning "session-end sweep: handed back ${confirmed} path(s)${left_alone_note}, ${failed} not handed back under ${session_working_directory} (agent=${agent_name}); reclaim with: ai-tools projects handback ${session_working_directory}"
+        audit warning "session-end sweep: handed back ${confirmed} path(s)${left_alone_note}, ${failed} not handed back under ${session_working_directory} (agent=${agent_name}); reclaim with: atr projects handback ${session_working_directory}"
     elif (( confirmed > 0 || untouched > 0 )); then
         audit info "session-end sweep: handed back ${confirmed} path(s)${left_alone_note} under ${session_working_directory} (agent=${agent_name})"
     fi
@@ -762,10 +762,10 @@ case "${entrypoint_pin_verdict}" in
         declare -F ai_tools_entrypoint_verify__find_package_dir >/dev/null 2>&1 \
             && entrypoint_package_dir="$(ai_tools_entrypoint_verify__find_package_dir "${session_exec_path}" \
                    "$(ai_tools_providers__read_agent_manifest_field "${agent_name}" npm_package || true)" 2>/dev/null || true)"
-        declare -a entrypoint_remedy=( '  sudo ai-tools-admin system bootstrap' )
+        declare -a entrypoint_remedy=( '  atr admin system bootstrap' )
         [[ -n "${entrypoint_package_dir}" ]] \
             && entrypoint_remedy=( 'End every running session first -- let each finish, or stop them all:' \
-                   '  ai-tools stop' "  sudo rm -rf ${entrypoint_package_dir}" "${entrypoint_remedy[@]}" )
+                   '  atr stop' "  sudo rm -rf ${entrypoint_package_dir}" "${entrypoint_remedy[@]}" )
         refuse MSG-H7S2 'the agent entrypoint does not match its recorded checksum -- refusing to start the session' \
                "entrypoint:  ${session_exec_path}" \
                "The pin holds ${entrypoint_pin_claim}, and the binary has changed since it was recorded." \
@@ -789,7 +789,7 @@ case "${entrypoint_pin_verdict}" in
             fi
             refuse 'refusing to launch -- AI_TOOLS_REQUIRE_ENTRYPOINT_VERIFY is set in operator.conf, but this entrypoint carries no pin' \
                    "${entrypoint_pin_step}" \
-                   '  sudo ai-tools-admin system entrypoints relabel'
+                   '  atr admin system entrypoints relabel'
         fi ;;
 esac
 
@@ -801,7 +801,7 @@ if [[ "$(resolve_entrypoint || true)" != "${session_exec_path}" \
            'A toolchain update running at the same moment explains this: rerun the launch.' \
            'If it repeats with no update running, treat the toolchain as untrusted:' \
            'reprovision it:' \
-           '  sudo ai-tools-admin system bootstrap'
+           '  atr admin system bootstrap'
 fi
 
 # ExecStart is the RESOLVED entrypoint, not the launcher symlink: the manager's execve performs the domain transition
@@ -856,6 +856,6 @@ if (( session_exit_status != 0 && SECONDS - session_start_seconds < 5 )); then
         "ai-tools-run: the session exited with status ${session_exit_status} almost immediately." \
         "${early_exit_login_lines[@]}" \
         "If it ended with no output, the sandbox toolchain may be incompletely installed -- reprovision it as root, then relaunch:" \
-        '  sudo ai-tools-admin system bootstrap'
+        '  atr admin system bootstrap'
 fi
 exit "${session_exit_status}"

@@ -1003,7 +1003,7 @@ _ai_tools_layout__get_refusal_remedy() {
         return 0
     fi
     if [[ -n "$3" ]]; then
-        printf 'sudo ai-tools-admin operators add %s' "$3"
+        printf 'atr admin operators add %s' "$3"
     else
         printf 'sudo dnf reinstall %s, or sudo ./install.sh install on a source install' "${2%%,*}"
     fi
@@ -1481,7 +1481,7 @@ ai_tools_layout__write_check_records() {
 : "${AI_TOOLS_LAYOUT_LOCK:=/run/lock/ai-tools-layout.lock}"
 : "${AI_TOOLS_LAYOUT_LOCK_WAIT:=60}"
 readonly _AI_TOOLS_LAYOUT__LIBRARY_DIR="${BASH_SOURCE[0]%/*}"
-readonly _AI_TOOLS_LAYOUT__FULL_PASS_REMEDY="sudo ai-tools-admin system layout reconcile, or sudo ./install.sh install on a source install"
+readonly _AI_TOOLS_LAYOUT__FULL_PASS_REMEDY="atr admin system layout reconcile, or sudo ./install.sh install on a source install"
 
 # What one reconcile accumulates: the outcome counts its exit status folds, the paths of the rows in the set,
 # and the state each row reached after its own step, which the rows under it read. Both maps are keyed by the decoded

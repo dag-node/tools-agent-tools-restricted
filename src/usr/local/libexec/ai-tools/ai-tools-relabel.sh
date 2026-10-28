@@ -151,7 +151,7 @@ fi
 # metacharacter in its name would otherwise split. The tree is left as it was: the library gates before its first write.
 die_live_session() {
     DIE_STATUS=4
-    die MSG-H8V6 "left the SELinux label on ${dir} as it was: an agent session or the toolchain update runs as the sandbox account, or this host's sessions could not be read, and a walk while one runs could be redirected outside the tree; let each session end (/exit inside it) and the toolchain update finish, or end them all with 'ai-tools stop', then re-run: $1 $(printf '%q' "${dir}")"
+    die MSG-H8V6 "left the SELinux label on ${dir} as it was: an agent session or the toolchain update runs as the sandbox account, or this host's sessions could not be read, and a walk while one runs could be redirected outside the tree; let each session end (/exit inside it) and the toolchain update finish, or end them all with 'atr stop', then re-run: $1 $(printf '%q' "${dir}")"
 }
 
 if ${remove}; then
@@ -171,7 +171,7 @@ else
            ai_tools_log__structured info "labelled project ${dir} ai_tools_project_t" \
                "AI_TOOLS_RESULT=ok" ;;
         2) echo "ai-tools-relabel: SELinux inactive -- no labelling needed for ${dir}" ;;
-        3) die_live_session "ai-tools projects claim" ;;
+        3) die_live_session "atr projects claim" ;;
         *) die MSG-M2D2 "failed to label ${dir} (is the ai_tools policy module loaded? install ai-tools-selinux, or from a checkout run: sudo selinux/install-selinux.sh install)" ;;
     esac
 fi

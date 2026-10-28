@@ -144,7 +144,7 @@ caller="$(id -un "${caller_uid}" 2>/dev/null)" \
     || die MSG-N3S4 "the sandbox account may not manage an allowlist -- nothing changed"
 
 ai_tools_operator__load_operators 2>/dev/null \
-    || die MSG-Z7N7 "no operators configured -- run: sudo ai-tools-admin operators add <user>"
+    || die MSG-Z7N7 "no operators configured -- run: atr admin operators add <user>"
 
 _is_operator() {
     local want="$1" op
@@ -167,7 +167,7 @@ _is_operator "${caller}" \
     || die MSG-B2Y8 "root is not an operator -- nothing changed"
 _is_operator "${OPERATOR}" \
     || die MSG-M3R6 "target ${OPERATOR} is not a configured ai-tools operator -- enrol it first with:
-       sudo ai-tools-admin operators add ${OPERATOR}"
+       atr admin operators add ${OPERATOR}"
 
 target_home="$(getent passwd "${OPERATOR}" 2>/dev/null | cut -d: -f6)" \
     || die MSG-A2M5 "cannot resolve ${OPERATOR} -- nothing changed"
@@ -190,7 +190,7 @@ require_target_config() {
     [[ -f "${allowlist}" ]] && return 0
     die MSG-S7Y3 "no ai-tools config yet for ${OPERATOR} (no ${allowlist}) -- nothing changed.
        If the ${OPERATOR} account is meant to run sandboxed sessions, enrol it first with:
-       sudo ai-tools-admin operators add ${OPERATOR}"
+       atr admin operators add ${OPERATOR}"
 }
 
 # ── print ────────────────────────────────────────────────────────────────────────

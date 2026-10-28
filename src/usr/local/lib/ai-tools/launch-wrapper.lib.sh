@@ -21,6 +21,7 @@ readonly _AI_TOOLS_LAUNCH_WRAPPER__LOADED=1
 readonly AI_TOOLS_LAUNCH_WRAPPER__NVM_DIR="/opt/ai-tools/.nvm"
 readonly AI_TOOLS_LAUNCH_WRAPPER__RUN="/opt/ai-tools/bin/ai-tools-run"
 readonly AI_TOOLS_LAUNCH_WRAPPER__CLI="/usr/local/bin/ai-tools"
+readonly AI_TOOLS_LAUNCH_WRAPPER__TYPED_CLI="/usr/local/bin/atr"
 readonly OPERATORS_GROUP="ai-ops"
 readonly SANDBOX_USER="@SANDBOX_USER@"
 readonly SANDBOX_GROUP="@SANDBOX_GROUP@"
@@ -124,10 +125,10 @@ ai_tools_launch_wrapper__init() {
     # One fixed 80-column frame for every box the wrapper shows, so the guidance screens and refusals of a launch align
     # instead of each sizing to its own text.
     export AI_TOOLS_MSG_FULLWIDTH=1
-    # How the ai-tools CLI is named in the guidance screens: the bare command where PATH resolves it (both binaries are
-    # on an operator's PATH, so the absolute path reads as a second, unrelated tool), the absolute path on a host
-    # whose PATH does not.
-    CLI_CMD="$(ai_tools_msg__format_command "${AI_TOOLS_LAUNCH_WRAPPER__CLI}")"
+    # How the CLI is named in the guidance screens: as atr, the command an operator types, while the wrapper execs
+    # the CLI itself. The bare command where PATH resolves it (`atr` is on an operator's PATH, so the absolute path
+    # reads as a second, unrelated tool), the absolute path on a host whose PATH does not.
+    CLI_CMD="$(ai_tools_msg__format_command "${AI_TOOLS_LAUNCH_WRAPPER__TYPED_CLI}")"
     readonly CLI_CMD
     if [[ "${name}" != "${requested}" ]]; then
         ai_tools_launch_wrapper__die MSG-Z6F8 "invoked under a name that is not a launcher -- refusing to start" \
@@ -197,7 +198,7 @@ ai_tools_launch_wrapper__gate_operator() {
         else
             ai_tools_launch_wrapper__die MSG-C7C9 "not an ai-tools operator -- ${user} is not a member of the ${OPERATORS_GROUP} group" \
                 "       an administrator can grant access with:" \
-                "         sudo ai-tools-admin operators add ${user}"
+                "         atr admin operators add ${user}"
         fi
     fi
 }
@@ -254,7 +255,7 @@ ai_tools_launch_wrapper__gate_launcher() {
     (( ${#enabled[@]} )) && printf -v joined '%s, ' "${enabled[@]}" && joined="${joined%, }"
     ai_tools_launch_wrapper__die MSG-F8N3 "not the launcher of an agent enabled on this host (enabled: ${joined})" \
         "       an agent is enabled by AI_TOOLS_AGENTS in ${OPERATOR_CONF}; after changing it, run:" \
-        "         sudo ai-tools-admin system bootstrap"
+        "         atr admin system bootstrap"
 }
 
 # ai_tools_launch_wrapper__gate_lists -- refuse every launch while operator.conf holds a provider list item an earlier
@@ -271,7 +272,7 @@ ai_tools_launch_wrapper__gate_lists() {
     [[ -n "${joined}" ]] || return 0
     ai_tools_launch_wrapper__die MSG-V3Q5 "no session starts while operator.conf names a provider without its kind prefix: ${joined}" \
         "       an earlier release wrote these names bare; rewrite them with:" \
-        "         sudo ai-tools-admin system post-upgrade"
+        "         atr admin system post-upgrade"
 }
 
 # ai_tools_launch_wrapper__gate_residue -- refuse every launch while an agent the host installed but did not enable
@@ -328,7 +329,7 @@ ai_tools_launch_wrapper__gate_residue() {
     ai_tools_launch_wrapper__die MSG-H4E2 "no session starts while a disabled agent's package is still in the sandbox toolchain: ${joined%, }" \
         "       an agent installed on this host but not named in AI_TOOLS_AGENTS keeps its package" \
         "       until a provisioning run removes it, and no agent launches until then; remove it with:" \
-        "         sudo ai-tools-admin system bootstrap"
+        "         atr admin system bootstrap"
 }
 
 # ai_tools_launch_wrapper__resolve_executable -- resolve the stable launcher symlink one hop
@@ -350,7 +351,7 @@ ai_tools_launch_wrapper__resolve_executable() {
     if [[ ! -L "${launcher_link}" ]]; then
         ai_tools_launch_wrapper__die MSG-S4B3 "launcher symlink not found at ${launcher_link}" \
             "       the sandbox toolchain is not provisioned yet -- provision it with:" \
-            "         sudo ai-tools-admin system bootstrap"
+            "         atr admin system bootstrap"
     fi
     AI_TOOLS_LAUNCH_WRAPPER__EXEC="$(readlink -- "${launcher_link}")" \
         || ai_tools_launch_wrapper__die MSG-S5Y9 "cannot read the launcher symlink ${launcher_link} -- reinstall or run nvm-update.sh"

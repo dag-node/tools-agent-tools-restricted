@@ -481,7 +481,7 @@ ai_tools_managed_assets__remove_retired_assets_locked() {
         fi
     done
     for successor_set in "${successor_sets[@]}"; do
-        _ai_tools_managed_assets__say "their successors are in the asset set ${successor_set} (package ai-tools-assets-sets-${successor_set}): sudo ai-tools-admin assets enable --set ${successor_set}"
+        _ai_tools_managed_assets__say "their successors are in the asset set ${successor_set} (package ai-tools-assets-sets-${successor_set}): atr admin assets enable --set ${successor_set}"
     done
     return 0
 }

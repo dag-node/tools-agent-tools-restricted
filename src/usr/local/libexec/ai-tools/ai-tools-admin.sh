@@ -164,7 +164,7 @@ reject() {
     local code=""
     if [[ "${1-}" =~ ^MSG-[A-Z][0-9][A-Z][0-9]$ ]]; then code="$1"; shift; printf '%s\n' "${code}" >&2; fi
     printf 'ai-tools-admin: %s\n' "$*" >&2
-    printf "try 'ai-tools-admin --help'\n" >&2
+    printf "try 'atr admin --help'\n" >&2
     exit 2
 }
 
@@ -201,7 +201,7 @@ emit_coded() { "$1" "${2%%$'\n'*}" "${3-}${2#*$'\n'}"; }
 # by the package that does not ship it.
 usage() {
     cat <<EOF
-ai-tools-admin -- administer the ai-tools host: operators, SELinux groups, the toolchain, upgrades
+atr admin -- administer the ai-tools host: operators, SELinux groups, the toolchain, upgrades  (ai-tools-admin)
 
   Operators
     operators                        the enrolled operators
@@ -237,9 +237,9 @@ EOF
     --version                        the installed version
     --help                           this summary
 
-  Run every command through sudo: each one administers the host and refuses a
-  non-root caller. The project lifecycle is the unprivileged ai-tools CLI, which
-  you run as yourself.
+  Type each command as atr admin COMMAND, which runs it through sudo: each one
+  administers the host and refuses a non-root caller. The project lifecycle is
+  the unprivileged ai-tools CLI, which you run as yourself.
 
   Every command, exit code and example:  man ai-tools-admin
 EOT
@@ -657,7 +657,7 @@ seed_operator_config() {
     group="$(id -gn "${user}")"
     if [[ -z "${home}" || ! -d "${home}" ]]; then
         warn MSG-R7U6 "no home directory on this host for ${user}; skipping the config seed"
-        warn "    create the home, then re-run: sudo ai-tools-admin operators add ${user}"
+        warn "    create the home, then re-run: atr admin operators add ${user}"
         return 1
     fi
     ensure_config_home "${user}" "${group}" "${home}" || return 1
@@ -703,7 +703,7 @@ label_operator_config() {
         2) : ;;   # no SELinux layer on this host -- nothing to label, and not a fault
         *) warn MSG-N3T7 "could not label ${cfg} ${AI_TOOLS_RELABEL__OPERATOR_CONF_TYPE}${AI_TOOLS_RELABEL__FCONTEXT_ERROR:+ -- ${AI_TOOLS_RELABEL__FCONTEXT_ERROR}}"
            warn "    until it carries that type the ownership handback no-ops for ${user}'s projects"
-           warn "    repair: sudo ai-tools-admin operators add ${user}" ;;
+           warn "    repair: atr admin operators add ${user}" ;;
     esac
     return 0
 }
@@ -771,7 +771,7 @@ path_order_decline() {
     local user="$1" state="$2" launcher="$3" winner="$4" bashrc="$5" bashprof="$6"
     if [[ "${state}" == shadowed ]]; then
         warn MSG-W7J6 "typing ${launcher} in ${user}'s shell runs ${winner}, not ${AI_TOOLS_PATH_ORDER__WRAPPER_DIR}/${launcher} -- that agent runs unconfined, as ${user}"
-        warn "    add this line after the nvm init in ${bashrc} and ${bashprof}, or re-run: sudo ai-tools-admin operators add ${user}"
+        warn "    add this line after the nvm init in ${bashrc} and ${bashprof}, or re-run: atr admin operators add ${user}"
         warn "    ${AI_TOOLS_PATH_ORDER__GUARD}"
         return 0
     fi
@@ -892,7 +892,7 @@ report_operator_role() {
         return 0
     fi
     log "${user} holds no general sudo grant: it can launch agent sessions and read the reports, and cannot claim a project"
-    log "${user}: claim on its behalf from an operator that holds one -- ai-tools projects claim --for ${user} <path>"
+    log "${user}: claim on its behalf from an operator that holds one -- atr projects claim --for ${user} <path>"
 }
 
 op_add() {
@@ -963,7 +963,7 @@ op_add() {
     # the output.
     if (( seeded )); then
         warn MSG-P9K2 "config not seeded for ${user}, which stays enrolled -- without allowed-projects in ~/.config/ai-tools it cannot start a session or claim a project"
-        warn "    re-run once the reason above is cleared: sudo ai-tools-admin operators add ${user}"
+        warn "    re-run once the reason above is cleared: atr admin operators add ${user}"
         exit 1
     fi
 }
@@ -1120,7 +1120,7 @@ _restore_group_static_labels() {
         state="$(ai_tools_sessions__read_live_session_state)"
     fi
     if [[ "${state}" != none ]]; then
-        warn MSG-B9C4 "left the labels under ${clones} as they were: an agent session or the toolchain update runs as the sandbox account, or this host's sessions could not be read; let each session end (/exit inside it) and the toolchain update finish, or end them all with 'ai-tools stop', then run: sudo restorecon -FR ${clones}"
+        warn MSG-B9C4 "left the labels under ${clones} as they were: an agent session or the toolchain update runs as the sandbox account, or this host's sessions could not be read; let each session end (/exit inside it) and the toolchain update finish, or end them all with 'atr stop', then run: sudo restorecon -FR ${clones}"
         return 0
     fi
     restorecon -FR "${clones}" >/dev/null 2>&1 \
@@ -1149,7 +1149,7 @@ sel_list() {
         if ai_tools_selinux_groups__is_loaded "${name}"; then state='[LOADED]  '; else state='[disabled]'; fi
         printf '    %s %-9s %-15s %s\n' "${state}" "${name}" "(${stability})" "${desc}"
     done
-    printf '\n  toggle       : sudo ai-tools-admin selinux groups enable <name> | disable <name>\n'
+    printf '\n  toggle       : atr admin selinux groups enable <name> | disable <name>\n'
     printf '  experimental : not shipped prebuilt -- enable from a source checkout with\n'
     printf '                 sudo selinux/install-selinux.sh enable-group <name>\n'
 }
@@ -1833,7 +1833,7 @@ _pu_asset_report() {
         esac
     done
     if printf '%s\n' "${lines[@]}" | grep -qE '^(asset-missing|asset-unlinked)'; then
-        _pu_say info "sudo ai-tools-admin system bootstrap seeds and links them again"
+        _pu_say info "atr admin system bootstrap seeds and links them again"
     fi
 }
 
@@ -2348,7 +2348,7 @@ _pu_kind_migrate() {
     elif AI_TOOLS_ENTRYPOINT_PIN_REUSE=1 "${RELABEL_ENTRYPOINT_BIN}"; then
         _pu_say ok "the enabled agents' entrypoints are reconciled (verified and labelled)"
     else
-        _pu_say err "the entrypoint reconciliation reported a problem above -- re-run it: sudo ai-tools-admin system entrypoints relabel"
+        _pu_say err "the entrypoint reconciliation reported a problem above -- re-run it: atr admin system entrypoints relabel"
     fi
 }
 
@@ -2554,7 +2554,7 @@ status_operator_conf() {
     STATUS_PROBLEMS=$(( STATUS_PROBLEMS + 1 ))
     meta="$(stat -c '%F, owner=%U:%G, mode=%a' -- "${operator_conf}" 2>/dev/null)" || meta="could not be stat-ed"
     st "NOT READABLE" "${SANDBOX_USER} cannot read ${operator_conf} (${meta}) -- sessions and the updater read the default-enabled providers alone, and each updater run fails"
-    detail "sudo ai-tools-admin system layout reconcile"
+    detail "atr admin system layout reconcile"
     return 0
 }
 
@@ -2588,7 +2588,7 @@ status_provisioning() {
             st OK "${agent} provisioned (${launcher})"
         else
             st MISSING "${agent} has no launcher in ${LAUNCHER_LINK_DIR} -- it is not provisioned"
-            detail "sudo ai-tools-admin system bootstrap"
+            detail "atr admin system bootstrap"
         fi
     done
     return 0
@@ -2674,7 +2674,7 @@ status_entrypoints() {
         live="$(entrypoint_live_verdict "${agent}")"
         if [[ "${live}" == mismatch ]]; then
             st MISMATCH "${agent}  the installed entrypoint does not match its pin${version:+ (${version})} -- its sessions refuse to start"
-            detail "sudo ai-tools-admin system entrypoints relabel   (re-reads the entrypoint and prints how to replace it)"
+            detail "atr admin system entrypoints relabel   (re-reads the entrypoint and prints how to replace it)"
             STATUS_PROBLEMS=$(( STATUS_PROBLEMS + 1 ))
         elif entrypoint_stale_mark "${agent}"; then
             STATUS_PROBLEMS=$(( STATUS_PROBLEMS + 1 ))
@@ -2689,10 +2689,10 @@ status_entrypoints() {
             st VERIFIED "${agent}  ${version}${age:+, ${age}}"
         elif [[ -e "${pin}" ]]; then
             st unverified "${agent}  its pin is present and carries no version this reader accepts"
-            detail "sudo ai-tools-admin system entrypoints relabel   (rewrites the pin)"
+            detail "atr admin system entrypoints relabel   (rewrites the pin)"
         elif [[ "${strict}" == yes ]]; then
             st UNVERIFIED "${agent}  this host requires verification, so its sessions will not launch"
-            detail "sudo ai-tools-admin system entrypoints relabel   (fetches the vendor's signed manifest)"
+            detail "atr admin system entrypoints relabel   (fetches the vendor's signed manifest)"
             STATUS_PROBLEMS=$(( STATUS_PROBLEMS + 1 ))
         else
             st unverified "${agent}  no pin -- launches are not blocked"
@@ -2755,7 +2755,7 @@ entrypoint_stale_mark() {
     version="$(ai_tools_services__read_stamp_field "${record}" VERSION)"
     age="$(ai_tools_services__format_age "$(ai_tools_services__read_stamp_age "${record}" DETECTED)")"
     st "PIN STALE" "${agent}  a reconciliation refused to re-record this pin (${reason:-refused}${version:+, ${version}})${age:+, ${age}} -- its sessions refuse to start"
-    detail "sudo ai-tools-admin system entrypoints relabel   (re-reads the entrypoint and prints how to replace it)"
+    detail "atr admin system entrypoints relabel   (re-reads the entrypoint and prints how to replace it)"
     return 0
 }
 
@@ -2783,7 +2783,7 @@ status_labels() {
             ok)   st labelled "${agent}  its ${what} is ${actual} -- ${path}" ;;
             bad)  st "NOT LABELLED" "${agent}  its ${what} is '${actual}', NOT ${wanted} -- ${path}"
                   detail "its next session refuses to launch rather than run unconfined"
-                  detail "sudo ai-tools-admin system entrypoints relabel"
+                  detail "atr admin system entrypoints relabel"
                   STATUS_PROBLEMS=$(( STATUS_PROBLEMS + 1 )) ;;
             none) st "n/a" "${agent}  its ${what} is not installed -- nothing to label" ;;
         esac
@@ -2823,7 +2823,7 @@ status_unit_search_path() {
             done <<< "${drift_out}"
             if (( open )); then
                 detail "${SANDBOX_USER}'s --user manager runs unconfined, so a unit left on this path would run with none of the properties a session unit sets"
-                detail "sudo ai-tools-admin system layout reconcile"
+                detail "atr admin system layout reconcile"
             fi ;;
         1)  st OK "root owns every directory down to ${home}/${CP_UNIT_SEARCH_PATH_CHAIN[-1]}" ;;
         *)  st UNREADABLE "the unit search path under ${home} could not be read -- reinstall ai-tools-base"
@@ -3085,7 +3085,7 @@ status_assets_rows() {
     for entry in "${AI_TOOLS_ASSETS__ENTRIES[@]}"; do
         [[ "${AI_TOOLS_ASSETS__STATE[${entry}]}" == linked ]] && linked=$(( linked + 1 ))
     done
-    st OK "${#AI_TOOLS_ASSETS__ENTRIES[@]} asset(s) enabled in AI_TOOLS_ASSETS, ${linked} resolved to linked; sudo ai-tools-admin assets list names the link changes a reconcile would make"
+    st OK "${#AI_TOOLS_ASSETS__ENTRIES[@]} asset(s) enabled in AI_TOOLS_ASSETS, ${linked} resolved to linked; atr admin assets list names the link changes a reconcile would make"
     return 0
 }
 
@@ -3154,7 +3154,7 @@ status_assets_successors() {
         install=""
         ai_tools_assets__is_set_installed "${successor_set}" || install="sudo dnf install ai-tools-assets-sets-${successor_set} && "
         st ATTENTION "successor-unenabled  ${successor_set} -- ${names[${successor_set}]} withdrawn from ai-tools-base; their successors in the set ${successor_set} are not enabled and AI_TOOLS_ASSETS is not set; copies are under ${AI_TOOLS_ASSETS_HOME}/retired"
-        detail "run: ${install}sudo ai-tools-admin assets enable --set ${successor_set}, or set AI_TOOLS_ASSETS=[] in ${AI_TOOLS_OPERATOR_CONF} to keep them off"
+        detail "run: ${install}atr admin assets enable --set ${successor_set}, or set AI_TOOLS_ASSETS=[] in ${AI_TOOLS_OPERATOR_CONF} to keep them off"
         STATUS_PROBLEMS=$(( STATUS_PROBLEMS + 1 ))
     done
 }
@@ -3274,10 +3274,10 @@ status() {
     # by unit and uid, since `journalctl --user-unit` as root reads root's own units (cli.rule.md).
     heading "More"
     printf '    %s\n' \
-        "ai-tools status          the same host, read from an operator's vantage" \
-        "ai-tools providers       installed agents and integrations, and which are enabled" \
-        "sudo ai-tools-admin selinux groups   the core module and the optional groups" \
-        "sudo ai-tools-admin --help           every command this host has"
+        "atr status          the same host, read from an operator's vantage" \
+        "atr providers       installed agents and integrations, and which are enabled" \
+        "atr admin selinux groups   the core module and the optional groups" \
+        "atr admin --help           every command this host has"
     local sandbox_uid
     sandbox_uid="$(id -u "${SANDBOX_USER}" 2>/dev/null || printf '<uid of %s>' "${SANDBOX_USER}")"
     printf '\n    %s\n' "The relabel watcher and the toolchain updater, read and run as root:"
@@ -3375,11 +3375,11 @@ assets_write_list() {
     ai_tools_conf__set_list "${conf}" AI_TOOLS_ASSETS "$@" || rc=$?
     if (( rc != 0 )); then
         ai_tools_assets__write_recorded_rows
-        die MSG-Q8E5 "assets: the write of AI_TOOLS_ASSETS to ${conf} was not confirmed (writer status ${rc}), so the file holds the list it held or the one this call wrote${backup:+; the file as it was is ${backup}} -- read the line, then run sudo ai-tools-admin assets reconcile to bring the links in line with it"
+        die MSG-Q8E5 "assets: the write of AI_TOOLS_ASSETS to ${conf} was not confirmed (writer status ${rc}), so the file holds the list it held or the one this call wrote${backup:+; the file as it was is ${backup}} -- read the line, then run atr admin assets reconcile to bring the links in line with it"
     fi
     ai_tools_log__info "assets: AI_TOOLS_ASSETS in ${conf} lists ${#} entries${backup:+; backup ${backup}}"
     [[ "${AI_TOOLS_CONF__WRITE_PLACEMENT:-}" != appended ]] \
-        || notice MSG-T3X4 "assets: AI_TOOLS_ASSETS was added at the end of ${conf}, which predates the key -- sudo ai-tools-admin system post-upgrade carries it under its header from the shipped template"
+        || notice MSG-T3X4 "assets: AI_TOOLS_ASSETS was added at the end of ${conf}, which predates the key -- atr admin system post-upgrade carries it under its header from the shipped template"
 }
 
 # assets_sort_identifiers <array-name>: sort the identifiers in the named array in place, by kind, then set, then name
@@ -3764,7 +3764,7 @@ layout_write_table() {
     printf '\n%s entries: %s at their row, %s with a finding, %s unreadable, %s error line(s)\n' \
         "${entry_count}" "${clean_count}" "${drifted_count}" "${unreadable_count}" "${error_count}"
     (( drifted_count + error_count == 0 )) \
-        || printf 'restore each entry to its row:  sudo ai-tools-admin system layout reconcile\n'
+        || printf 'restore each entry to its row:  atr admin system layout reconcile\n'
     ai_tools_records_base__get_exit_status || return $?
     return 0
 }
@@ -3867,7 +3867,7 @@ layout_reconcile() {
     exec {collector_fd}<&-
     wait "${collector_pid}" || reconcile_status=$?
     if (( timed_out )); then
-        warn MSG-H8U2 "the reconcile did not finish within ${run_bound}s and was stopped; a row may be left short of its state -- see: sudo ai-tools-admin system layout"
+        warn MSG-H8U2 "the reconcile did not finish within ${run_bound}s and was stopped; a row may be left short of its state -- see: atr admin system layout"
         error_count=$(( error_count + 1 )); reconcile_status=1
     fi
     log "layout: ${changed_count} changed, ${refused_count} refused, ${error_count} error(s)"

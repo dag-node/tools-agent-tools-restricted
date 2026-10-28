@@ -52,8 +52,8 @@ MARKDOWN
     cat <<'MARKDOWN'
 # Option spellings and the commands they run
 
-`ai-tools` spells a command as a bare word: a collection and its verb (`ai-tools projects claim`), or one word for
-the host (`ai-tools status`), with `--` reserved for an option. That is the preferred form, and the option spelling
+`ai-tools` spells a command as a bare word: a collection and its verb (`atr projects claim`), or one word for
+the host (`atr status`), with `--` reserved for an option. That is the preferred form, and the option spelling
 each command had in earlier releases is kept for compatibility: it is rewritten to the command ahead of every check,
 prints one notice, [MSG-W3W8](../src/usr/local/bin/ai-tools.sh), naming the preferred form, and exits as that command
 does, so a script written against an earlier release runs unchanged.
@@ -81,10 +81,10 @@ MARKDOWN
         }'
     cat <<'MARKDOWN'
 
-`-g` is the short form `ai-tools projects unclaim` took for `--group`, and `-V` the short form of `--version`; each
+`-g` is the short form `atr projects unclaim` took for `--group`, and `-V` the short form of `--version`; each
 is rewritten wherever it stands.
 
-`ai-tools --relabel` is not in the table: the entrypoint reconcile is `sudo ai-tools-admin system entrypoints relabel`,
+`atr --relabel` is not in the table: the entrypoint reconcile is `atr admin system entrypoints relabel`,
 a root command this CLI refuses to run, so that spelling prints the command and exits 2 instead of running it.
 MARKDOWN
 }

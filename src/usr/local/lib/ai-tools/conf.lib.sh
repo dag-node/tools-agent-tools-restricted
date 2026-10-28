@@ -115,7 +115,7 @@ ai_tools_conf__read_unreadable_reason() {
     [[ -n "${path}" ]] || { printf 'no path given'; return 0; }
     account="$(id -un 2>/dev/null)" || account="uid ${EUID}"
     meta="$(stat -c '%F, owner=%U:%G, mode=%a' -- "${path}" 2>/dev/null)" || meta="could not be stat-ed"
-    printf '%s cannot read it (%s) -- restore the installed layout: sudo ai-tools-admin system layout reconcile' \
+    printf '%s cannot read it (%s) -- restore the installed layout: atr admin system layout reconcile' \
         "${account}" "${meta}"
     return 0
 }
@@ -440,7 +440,7 @@ ai_tools_conf__read_kind_list() {
         # Plain names for the message, declared once the nameref is not written again.
         local key="${_ai_tools_conf__kind_list_key}" file="${_ai_tools_conf__kind_list_file}" prefix="${_ai_tools_conf__kind_list_prefix}"
         local -a unprefixed=("${_ai_tools_conf__kind_list_unprefixed[@]}")
-        ai_tools_conf__warn MSG-X6F2 "invalid list, read as the empty list -- ${key} in ${file} holds ${unprefixed[*]}, not written as ${prefix}<name>; this rewrites a bare name and names any it cannot: sudo ai-tools-admin system post-upgrade"
+        ai_tools_conf__warn MSG-X6F2 "invalid list, read as the empty list -- ${key} in ${file} holds ${unprefixed[*]}, not written as ${prefix}<name>; this rewrites a bare name and names any it cannot: atr admin system post-upgrade"
         return 0
     fi
     _ai_tools_conf__kind_list_out=("${_ai_tools_conf__kind_list_bare[@]+"${_ai_tools_conf__kind_list_bare[@]}"}")

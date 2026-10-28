@@ -331,7 +331,7 @@ STUBS='eval "$(declare -f ai_tools_conf__read_list | sed "1s/^ai_tools_conf__rea
 admin assets enable "${SUB}"; STUBS=""
 refused MSG-Q8E5 1 "a write whose read-back fails"
 backups=( "${CONF}".*.bak )
-if [[ -e "${backups[0]}" && "${ERR}" == *"${backups[0]}"* && "${ERR}" == *"sudo ai-tools-admin assets reconcile"* \
+if [[ -e "${backups[0]}" && "${ERR}" == *"${backups[0]}"* && "${ERR}" == *"atr admin assets reconcile"* \
         && "${ERR}" != *unchanged* && "$(listed)" == "AI_TOOLS_ASSETS=[${SKILL}, ${SUB}]" ]]; then
     pass "a write whose read-back fails: the refusal names the backup and the reconcile, not an unchanged file"
 else
@@ -559,7 +559,7 @@ fi
 [[ "$(awk -F'\t' '$6 == "link-pending" { print $3 }' <<< "${OUT}")" == MSG-B8J9 ]] && pass "the link-pending row carries the list's link code" \
     || fail "the link-pending row's code: $(awk -F'\t' '$6 == "link-pending" { print $3 }' <<< "${OUT}")"
 [[ "$(awk -F'\t' '$6 == "link-pending" { print $11 }' <<< "${OUT}")" \
-        == "a reconcile would point it at ${HOME_DIR}/skills/acme-pdf; run sudo ai-tools-admin assets reconcile" ]] \
+        == "a reconcile would point it at ${HOME_DIR}/skills/acme-pdf; run atr admin assets reconcile" ]] \
     && pass "the link-pending row says what a reconcile would do" \
     || fail "the link-pending row's detail: $(awk -F'\t' '$6 == "link-pending" { print $11 }' <<< "${OUT}")"
 [[ "$(snapshot)" == "${before}" ]] && pass "list does not write: the view, the agent's directory and operator.conf are as they were" \
@@ -574,7 +574,7 @@ cp -a "${HOME_DIR}/skills/ai-tools-seeded" "${HOME_DIR}/.acme/skills/ai-tools-se
 admin assets list
 convert_row="$(awk -F'\t' -v s="${HOME_DIR}/.acme/skills/ai-tools-seeded" 'NR > 1 && $6 == "link-pending" && $10 == s { print $7 "|" $11 }' \
     <<< "${OUT}")"
-if [[ "${RC}" == 4 && "${convert_row}" == "directory|a reconcile would replace the managed copy with a link to ${HOME_DIR}/skills/ai-tools-seeded; run sudo ai-tools-admin assets reconcile" ]]; then
+if [[ "${RC}" == 4 && "${convert_row}" == "directory|a reconcile would replace the managed copy with a link to ${HOME_DIR}/skills/ai-tools-seeded; run atr admin assets reconcile" ]]; then
     pass "a convert's link-pending row is subject-type directory, naming the copy a reconcile would replace"
 else
     fail "a convert's link-pending row: rc ${RC}, '${convert_row}'"
@@ -589,7 +589,7 @@ admin assets list
     && pass "the unlink-pending row's item names the set, the kind and the name at that link" \
     || fail "the unlink-pending row's item: $(awk -F'\t' '$6 == "unlink-pending" { print $9 }' <<< "${OUT}")"
 [[ "$(awk -F'\t' '$6 == "unlink-pending" { print $11 }' <<< "${OUT}")" \
-        == "a reconcile would remove it: no enabled entry justifies it; run sudo ai-tools-admin assets reconcile" ]] \
+        == "a reconcile would remove it: no enabled entry justifies it; run atr admin assets reconcile" ]] \
     && pass "the unlink-pending row says what a reconcile would do, and why" \
     || fail "the unlink-pending row's detail: $(awk -F'\t' '$6 == "unlink-pending" { print $11 }' <<< "${OUT}")"
 ! grep -qxF MSG-M7J8 <<< "${ERR}" && pass "a set read whole does not warn that a sort key was lost" \
@@ -649,7 +649,7 @@ chmod 0664 "${CONF}"
 before="$(snapshot)"
 admin assets list
 untrusted_detail="$(awk -F'\t' 'NR > 1 && $6 == "enable-list-untrusted" { print $11 }' <<< "${OUT}")"
-if [[ "${RC}" == 4 && "${untrusted_detail}" == *"stays until sudo ai-tools-admin assets reconcile removes it"* \
+if [[ "${RC}" == 4 && "${untrusted_detail}" == *"stays until atr admin assets reconcile removes it"* \
         && "${untrusted_detail}" != *"is removed"* && "$(pending_rows)" == *"unlink-pending ${HOME_DIR}/skills/acme-pdf attention"* ]]; then
     pass "list over an untrusted operator.conf: the links stay until a reconcile, each named unlink-pending, exit 4"
 else
@@ -666,7 +666,7 @@ chmod 0644 "${CONF}"
 section "ai-tools-admin status: the Assets section"
 fresh
 admin status_assets
-if grep -qE '\[OK\] +0 asset\(s\) enabled in AI_TOOLS_ASSETS, 0 resolved to linked; sudo ai-tools-admin assets list names the link changes' \
+if grep -qE '\[OK\] +0 asset\(s\) enabled in AI_TOOLS_ASSETS, 0 resolved to linked; atr admin assets list names the link changes' \
         <<< "${OUT}" && [[ "${OUT}" == *problems=0* ]]; then
     pass "a host with no entry prints the OK line with a count of zero, naming the reading that lists pending link changes"
 else
@@ -764,7 +764,7 @@ fresh; rm -rf "${HOME_DIR}/retired"; write_conf_unset; retire ai-tools-technical
 admin status_assets
 row="$(notice_row)"
 if [[ "${row}" == *"ai-tools-technical-docs, ai-tools-reftags withdrawn"* && "${row}" == *"AI_TOOLS_ASSETS is not set"* \
-        && "${OUT}" == *"sudo dnf install ai-tools-assets-sets-core && sudo ai-tools-admin assets enable --set core"* \
+        && "${OUT}" == *"sudo dnf install ai-tools-assets-sets-core && atr admin assets enable --set core"* \
         && "${OUT}" == *"AI_TOOLS_ASSETS=[] in ${CONF}"* && "${OUT}" == *"problems=1 unreadable=0"* ]]; then
     pass "a retired copy with a successor and no AI_TOOLS_ASSETS line: one successor-unenabled row naming both, counted"
 else
@@ -776,7 +776,7 @@ else
     fail "the closing line: '$(summary_line)'"
 fi
 install -d -m 0755 "${PKG}/core"; : > "${PKG}/core/set.conf"; admin status_assets
-if [[ -n "$(notice_row)" && "${OUT}" != *"dnf install"* && "${OUT}" == *"sudo ai-tools-admin assets enable --set core"* ]]; then
+if [[ -n "$(notice_row)" && "${OUT}" != *"dnf install"* && "${OUT}" == *"atr admin assets enable --set core"* ]]; then
     pass "where the set is on the host the command drops the package install"
 else
     fail "the notice with core installed: ${OUT:0:500}"

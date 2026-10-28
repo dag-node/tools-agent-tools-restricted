@@ -931,19 +931,19 @@ fi
 if [ "${_at_toolchain}${_at_operator}${_at_merge}${_at_unmigrated}" != "0000" ] || [ -n "${_at_path}" ]; then
     echo "ai-tools-base: steps this host still needs:"
     if [ "${_at_toolchain}" = 1 ]; then
-        echo "  sudo ai-tools-admin system bootstrap          # install nvm + Node + the agent you choose (network)"
+        echo "  atr admin system bootstrap          # install nvm + Node + the agent you choose (network)"
     fi
     if [ "${_at_operator}" = 1 ]; then
-        echo "  sudo ai-tools-admin operators add <your-user> # bind an operator (ai-ops, OPERATORS, linger)"
+        echo "  atr admin operators add <your-user> # bind an operator (ai-ops, OPERATORS, linger)"
     fi
     if [ "${_at_unmigrated}" = 1 ]; then
-        echo "  sudo ai-tools-admin system post-upgrade       # rewrites operator.conf's provider names; no session starts until then"
+        echo "  atr admin system post-upgrade       # rewrites operator.conf's provider names; no session starts until then"
     elif [ "${_at_merge}" = 1 ]; then
-        echo "  sudo ai-tools-admin system post-upgrade       # operator.conf.rpmnew is waiting"
+        echo "  atr admin system post-upgrade       # operator.conf.rpmnew is waiting"
     fi
     if [ -n "${_at_path}" ]; then
         echo "${_at_path}" | while read -r _at_u; do
-            echo "  sudo ai-tools-admin operators add ${_at_u} # its PATH ordering line still names the previous fragment"
+            echo "  atr admin operators add ${_at_u} # its PATH ordering line still names the previous fragment"
         done
     fi
 fi
@@ -1113,7 +1113,7 @@ if [ "$(getenforce 2>/dev/null)" != "Disabled" ] && command -v semodule >/dev/nu
             _swap_args="${_swap_args} -i %{_datadir}/selinux/packages/ai-tools/ai_tools_${_g}.pp"
         done
         semodule -r "${_old_group_mod}" ${_swap_args} >/dev/null 2>&1 \
-            || echo "ai-tools-selinux: WARNING could not replace the ${_old_group_mod} module with the ${_new_groups} groups; it stays loaded. Re-run: sudo ai-tools-admin selinux groups enable ${_new_groups}" >&2
+            || echo "ai-tools-selinux: WARNING could not replace the ${_old_group_mod} module with the ${_new_groups} groups; it stays loaded. Re-run: atr admin selinux groups enable ${_new_groups}" >&2
     done
     # Each installed integration's LAYOUT module (selinux_layout_module in its manifest): it types
     # the integration's build-output directories and does not add any permission, so it loads with
@@ -1144,7 +1144,7 @@ if [ "$(getenforce 2>/dev/null)" != "Disabled" ] && command -v semodule >/dev/nu
         fi
     fi
     if [ "${_sandbox_trees_skipped}" = 1 ]; then
-        echo "ai-tools-selinux: WARNING left the labels under /opt/ai-tools and the sandbox clones as they were: an agent session or the toolchain update runs as the sandbox account, or this host's sessions could not be read. Let each session end (/exit inside it) and the toolchain update finish, or end them all with ai-tools stop, then restore the labels:" >&2
+        echo "ai-tools-selinux: WARNING left the labels under /opt/ai-tools and the sandbox clones as they were: an agent session or the toolchain update runs as the sandbox account, or this host's sessions could not be read. Let each session end (/exit inside it) and the toolchain update finish, or end them all with atr stop, then restore the labels:" >&2
         echo "ai-tools-selinux:   sudo restorecon -R /opt/ai-tools /var/opt/ai-tools/sandbox-projects" >&2
     fi
     exec 9>&-
@@ -1187,7 +1187,7 @@ if [ "$1" -eq 0 ] && command -v semodule >/dev/null 2>&1; then
     _sandbox_session_state=$(bash -c '. /usr/local/lib/ai-tools/sessions.lib.sh; declare -F ai_tools_sessions__read_live_session_state >/dev/null 2>&1 || { echo unreadable; exit 0; }; ai_tools_sessions__read_live_session_state' 2>/dev/null || :)
     if [ "${_sandbox_session_state}" != none ]; then
         loaded_modules=$(semodule -l 2>/dev/null | grep -E '^ai_tools(_|$)' | tr '\n' ' ' || :)
-        echo "ai-tools-selinux: WARNING left the policy loaded and every local file-context rule in place: an agent session or the toolchain update runs as the sandbox account, or this host's sessions could not be read. Let each session end (/exit inside it) and the toolchain update finish, or end them all with ai-tools stop, then re-run this step:" >&2
+        echo "ai-tools-selinux: WARNING left the policy loaded and every local file-context rule in place: an agent session or the toolchain update runs as the sandbox account, or this host's sessions could not be read. Let each session end (/exit inside it) and the toolchain update finish, or end them all with atr stop, then re-run this step:" >&2
         echo "ai-tools-selinux:   sudo dnf install ai-tools-selinux && sudo dnf remove ai-tools-selinux" >&2
         echo "ai-tools-selinux:   or by hand: drop each rule 'sudo semanage fcontext -l -C | grep ai_tools' lists (sudo semanage fcontext -d -f <letter> -- <pattern>), unload with: sudo semodule -r ${loaded_modules:-<module>...}, then restore the labels: sudo restorecon -R %{ai_libexecdir} %{ai_libdir} /var/log/ai-tools /opt/ai-tools /var/opt/ai-tools/sandbox-projects, and each project tree a dropped rule named" >&2
         exec 9>&-
@@ -1321,7 +1321,7 @@ systemctl --user -M ai-tools@.host daemon-reload 2>/dev/null || :
 if [ -x %{ai_libdir}/admin-commands.d/dotnet ]; then
     %{ai_libdir}/admin-commands.d/dotnet bootstrap >/dev/null || {
         echo "ai-tools-integration-dotnet: provisioning failed; see 'journalctl -t ai-tools-dotnet'" >&2
-        echo "ai-tools-integration-dotnet: fix the cause and re-run: sudo ai-tools-admin dotnet bootstrap" >&2
+        echo "ai-tools-integration-dotnet: fix the cause and re-run: atr admin dotnet bootstrap" >&2
         exit 1
     }
 fi
@@ -1383,7 +1383,7 @@ if [ -x %{ai_libexecdir}/ai-tools-relabel-agent ]; then
     AI_TOOLS_ENTRYPOINT_PIN_REUSE=1 %{ai_libexecdir}/ai-tools-relabel-agent >/dev/null || {
         relabel_rc=$?
         echo "ai-tools-agents-claude-code-restricted: entrypoint labelling failed; see 'journalctl -t ai-tools-relabel-agent'" >&2
-        echo "ai-tools-agents-claude-code-restricted: fix the cause and re-run: sudo ai-tools-admin system entrypoints relabel" >&2
+        echo "ai-tools-agents-claude-code-restricted: fix the cause and re-run: atr admin system entrypoints relabel" >&2
     }
 fi
 # Link the shared assets into the directories each enabled agent reads them from: skills into
@@ -1405,7 +1405,7 @@ fi
 if [ -f /opt/ai-tools/.claude/settings.json.rpmnew ]; then
     echo "ai-tools: settings.json.rpmnew is waiting -- this version's hook declarations are not in"
     echo "  your settings.json yet, so the hooks they declare never run. Merge them with:"
-    echo "    sudo ai-tools-admin system post-upgrade"
+    echo "    atr admin system post-upgrade"
 fi
 exit "${relabel_rc}"
 
@@ -1449,7 +1449,7 @@ if [ -r /usr/local/lib/ai-tools/settings-merge.lib.sh ] && command -v bash >/dev
         echo "ai-tools: ${settings} runs these commands without asking, and each one sends data off the host:"
         for entry in "${entries[@]}"; do echo "    ${entry}"; done
         ai_tools_settings_merge__format_ask_fix "${settings}" "${entries[@]}" | { IFS= read -r where && echo "  to have it ask, ${where}"; while IFS= read -r line; do echo "      ${line}"; done; }
-        echo "  then check it with: sudo ai-tools-admin system post-upgrade"' || :
+        echo "  then check it with: atr admin system post-upgrade"' || :
 fi
 
 %post -n ai-tools-agents-codex-restricted
@@ -1466,7 +1466,7 @@ if [ -x %{ai_libexecdir}/ai-tools-relabel-agent ]; then
     %{ai_libexecdir}/ai-tools-relabel-agent >/dev/null || {
         relabel_rc=$?
         echo "ai-tools-agents-codex-restricted: entrypoint labelling failed; see 'journalctl -t ai-tools-relabel-agent'" >&2
-        echo "ai-tools-agents-codex-restricted: fix the cause and re-run: sudo ai-tools-admin system entrypoints relabel" >&2
+        echo "ai-tools-agents-codex-restricted: fix the cause and re-run: atr admin system entrypoints relabel" >&2
     }
 fi
 # The base pins the 3770 setgid+sticky mode of an ENABLED agent's config directory only, and this

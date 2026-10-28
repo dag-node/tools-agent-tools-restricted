@@ -368,7 +368,7 @@ if runuser -u "${PROJECTS_USER}" -- bash -c \
         fail "a counted fault exited ${rc}, expected 4: $(tail -c 300 <<<"${out}" | tr '\n' '|')"
     fi
     rc=0; out="$(call_status 'unset -f ai_tools_services__list_records')" || rc=$?
-    if [[ "${rc}" -eq 5 ]] && grep -qx 'MSG-X5Z8' <<<"${out}" && grep -qF 'ai-tools providers' <<<"${out}"; then
+    if [[ "${rc}" -eq 5 ]] && grep -qx 'MSG-X5Z8' <<<"${out}" && grep -qF 'atr providers' <<<"${out}"; then
         pass "a service registry that did not load exits 5, is named under its code, and the later sections still print"
     else
         fail "a missing registry exited ${rc}, expected 5 with MSG-X5Z8 and the rest of the page: $(tail -c 400 <<<"${out}" | tr '\n' '|')"
@@ -520,7 +520,7 @@ else
         "$(stamp_days_ago 1)" > "${CACHE_STATE}"
     rc=0; out="$(call_caches)" || rc=$?
     (( rc == 1 )) && grep -qE '\.npm/_cacache +FAILED .*refused \(home-untrusted\)' <<<"${out}" \
-        && grep -qF '`sudo ai-tools-admin system bootstrap`' <<<"${out}" \
+        && grep -qF '`atr admin system bootstrap`' <<<"${out}" \
         && pass "a refused cleanup reads FAILED with the remedy for its reason, and is counted" \
         || fail "refused state: rc ${rc}: $(tr '\n' '|' <<<"${out}")"
     printf 'NPM_CACHE_RESULT=removed\nNPM_CACHE_CHECKED=%s\nNPM_CACHE_CLEANED=%s\nNPM_CACHE_BYTES=10\nNPM_CACHE_LINKS=2\n' \
@@ -533,7 +533,7 @@ else
         "$(stamp_days_ago 0)" "$(stamp_days_ago 15)" > "${CACHE_STATE}"
     rc=0; out="$(call_caches)" || rc=$?
     (( rc == 0 )) && grep -qE '\.npm/_npx +OVERDUE .*skipped \(sessions\).*last cleaned 15 days ago' <<<"${out}" \
-        && grep -qF '`ai-tools stop`' <<<"${out}" \
+        && grep -qF '`atr stop`' <<<"${out}" \
         && pass "a launch group not cleaned for 15 days reads OVERDUE, names ai-tools stop, and is not counted" \
         || fail "overdue state: rc ${rc}: $(tr '\n' '|' <<<"${out}")"
     printf 'NPX_RESULT=skipped\nNPX_CHECKED=%s\nNPX_FIRST_CHECKED=%s\nNPX_BYTES=0\nNPX_LINKS=0\nNPX_REASON=sessions\n' \

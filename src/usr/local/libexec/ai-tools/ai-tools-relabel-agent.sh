@@ -118,7 +118,7 @@ if [[ "${1:-}" == --remove ]]; then
         # The rules are dropped; the config directory keeps its type until a walk runs with no session live, since
         # a walk while one runs could be redirected outside the directory. A package erase completes either way.
         3) remove_config_dir="${CP_HOME:-/opt/ai-tools}/$(ai_tools_providers__read_agent_manifest_field "${agent}" config_dir 2>/dev/null || true)"
-           warn MSG-G9X3 "dropped the file-context rules for ${agent} and left the labels on its config directory as they were: an agent session or the toolchain update runs as the sandbox account, or this host's sessions could not be read; let each session end (/exit inside it) and the toolchain update finish, or end them all with 'ai-tools stop', then run: sudo restorecon -FR ${remove_config_dir}"
+           warn MSG-G9X3 "dropped the file-context rules for ${agent} and left the labels on its config directory as they were: an agent session or the toolchain update runs as the sandbox account, or this host's sessions could not be read; let each session end (/exit inside it) and the toolchain update finish, or end them all with 'atr stop', then run: sudo restorecon -FR ${remove_config_dir}"
            ai_tools_log__warn "dropped the file-context rules for ${agent}; its config directory was not relabelled while a session was live" ;;
         *) die MSG-S6C5 "no usable path rules declared by ${agent} -- nothing dropped" ;;
     esac
@@ -156,7 +156,7 @@ reinstall_remedy() {
     package="$(ai_tools_providers__read_agent_manifest_field "${agent}" npm_package || true)"
     package_dir="$(ai_tools_entrypoint_verify__find_package_dir "${entrypoint}" "${package}" 2>/dev/null || true)"
     [[ -n "${package_dir}" ]] || return 0
-    printf 'end every running session first -- let each finish, or stop them all:\n  ai-tools stop\n  sudo rm -rf %s\n  sudo ai-tools-admin system bootstrap' \
+    printf 'end every running session first -- let each finish, or stop them all:\n  atr stop\n  sudo rm -rf %s\n  atr admin system bootstrap' \
         "${package_dir}"
 }
 
@@ -168,7 +168,7 @@ reinstall_remedy() {
 report_entrypoint_refusal() {
     local agent="$1" version="$2" reason="$3" entrypoint="$4" remedy
     ai_tools_entrypoint_verify__write_stale "${agent}" "${version}" "${reason}" \
-        || warn MSG-K4D7 "could not record ${agent}'s stale pin for ai-tools status -- the reports will render its pin as current"
+        || warn MSG-K4D7 "could not record ${agent}'s stale pin for atr status -- the reports will render its pin as current"
     remedy="$(reinstall_remedy "${agent}" "${entrypoint}")"
     if [[ -n "${remedy}" ]]; then
         say "replace the binary and reprovision -- reprovisioning alone reinstalls nothing at an unchanged version:"
@@ -324,7 +324,7 @@ report="$(ai_tools_relabel__label_agent_paths)" || status=$?
 #   and never changes the outcome of the relabel it describes.
 record_label_outcome() {
     ai_tools_entrypoint_verify__write_label "$1" "$2" "${3:-}" && return 0
-    warn MSG-G5H9 "could not record ${1}'s labelling outcome for ai-tools status"
+    warn MSG-G5H9 "could not record ${1}'s labelling outcome for atr status"
     ai_tools_log__warn "could not write the label record for $1"
     return 0
 }
@@ -427,9 +427,9 @@ record_label_outcomes() {
 #   its state. What each files for ai-tools status, and what the oneshot unit then reports, is updater.rule.md's.
 report_live_sessions() {
     (( live_session_count == 0 )) \
-        || warn MSG-E4E8 "the config directory of ${live_session_count} agent(s) was not relabelled: an agent session or the toolchain update runs as the sandbox account, or this host's sessions could not be read; let each session end (/exit inside it) and the toolchain update finish, or end them all with 'ai-tools stop', then run: sudo systemctl start ai-tools-relabel.service"
+        || warn MSG-E4E8 "the config directory of ${live_session_count} agent(s) was not relabelled: an agent session or the toolchain update runs as the sandbox account, or this host's sessions could not be read; let each session end (/exit inside it) and the toolchain update finish, or end them all with 'atr stop', then run: sudo systemctl start ai-tools-relabel.service"
     (( live_mislabelled_count == 0 )) \
-        || die MSG-G6D2 "the config directory of ${live_mislabelled_count} agent(s) carries a type the agent cannot write (${live_mislabelled_types}), so no session of those agents can write its state; it was not relabelled because an agent session or the toolchain update runs as the sandbox account, or this host's sessions could not be read; let each session end (/exit inside it) and the toolchain update finish, or end them all with 'ai-tools stop', then run: sudo systemctl start ai-tools-relabel.service"
+        || die MSG-G6D2 "the config directory of ${live_mislabelled_count} agent(s) carries a type the agent cannot write (${live_mislabelled_types}), so no session of those agents can write its state; it was not relabelled because an agent session or the toolchain update runs as the sandbox account, or this host's sessions could not be read; let each session end (/exit inside it) and the toolchain update finish, or end them all with 'atr stop', then run: sudo systemctl start ai-tools-relabel.service"
 }
 
 render_label_report "${report}"
@@ -443,9 +443,9 @@ record_label_outcomes
 # the toolchain, a stale manifest by a newer agent package. Reporting either one under the other's remedy is a loop
 # of its own -- an RPM update does not install an npm package's missing dependency.
 (( copied == 0 )) \
-    || die MSG-J3A6 "a copied toolchain link stops this relabel: ${copied} agent(s) resolve their launcher to a copy of the entrypoint rather than to it, so the file a session execs cannot be labelled; the toolchain run restores the links: sudo ai-tools-admin system bootstrap, then rerun"
+    || die MSG-J3A6 "a copied toolchain link stops this relabel: ${copied} agent(s) resolve their launcher to a copy of the entrypoint rather than to it, so the file a session execs cannot be labelled; the toolchain run restores the links: atr admin system bootstrap, then rerun"
 (( incomplete == 0 )) \
-    || die MSG-D7H2 "an incomplete agent package stops this relabel: ${incomplete} agent(s) do not have the entrypoint their manifest declares installed at all, so it cannot be labelled; that executable comes from the sandbox toolchain rather than from the RPM, so reinstall it: sudo ai-tools-admin system bootstrap, then rerun; where that run reports the package incomplete again, its npm output names what was left out"
+    || die MSG-D7H2 "an incomplete agent package stops this relabel: ${incomplete} agent(s) do not have the entrypoint their manifest declares installed at all, so it cannot be labelled; that executable comes from the sandbox toolchain rather than from the RPM, so reinstall it: atr admin system bootstrap, then rerun; where that run reports the package incomplete again, its npm output names what was left out"
 (( stale == 0 )) \
     || die MSG-M2M5 "a stale declaration stops this relabel: ${stale} agent(s) install their entrypoint where their manifest no longer says, so it cannot be labelled; update the agent package (dnf update 'ai-tools-agents-*'), then rerun"
 # A mislabelled path is a broken session: a mislabelled entrypoint runs unconfined (ai-tools-run refuses the launch)

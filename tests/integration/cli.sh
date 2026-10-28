@@ -86,10 +86,10 @@ refused "CLI accepts root on ai-tools.stop (reached the option loop, no session 
 # print, and a pointer sitting behind the guard would answer them with the list of verbs root may run instead. Exit 2 is
 # the documented code for a rejected command line.
 out="$("${CLI}" --relabel 2>&1)" && rc=0 || rc=$?
-if [[ ${rc} -eq 2 ]] && grep -q 'ai-tools-admin system entrypoints relabel' <<<"${out}"; then
+if [[ ${rc} -eq 2 ]] && grep -q 'atr admin system entrypoints relabel' <<<"${out}"; then
     pass "CLI points root at the moved relabel command, ahead of the principal guard"
 else
-    fail "CLI did not point at 'ai-tools-admin system entrypoints relabel' (rc=${rc}): ${out}"
+    fail "CLI did not point at 'atr admin system entrypoints relabel' (rc=${rc}): ${out}"
 fi
 
 # (1c) --for stays refused for root in EITHER argument order: root is not in OPERATORS, so an entry written for it names

@@ -135,7 +135,7 @@ parse_command_line() {
 assert_root() {
     [[ "$(id -u)" == "0" ]] || {
         ai_tools_msg__error MSG-K9C5 "ai-tools-audit must run as root: the trail it reads is 700 root:root" \
-            "run it as: sudo ai-tools audit"
+            "run it as: sudo atr audit"
         exit "${AI_TOOLS_RECORDS_BASE__EXIT_UNREADABLE}"
     }
 }
@@ -776,8 +776,8 @@ main() {
 
     if (( FILE_FINDING_COUNT + LAUNCH_REFUSAL_COUNT + ENTRYPOINT_FINDING_COUNT > 0 )); then
         printf '\n  %s\n' "Current state is a different question, asked elsewhere:"
-        printf '    %-45s %s\n' "ai-tools status"                                 "service health and verification, live"
-        printf '    %-45s %s\n' "sudo ai-tools-admin system entrypoints relabel"  "re-verify and relabel the entrypoints"
+        printf '    %-45s %s\n' "atr status"                                 "service health and verification, live"
+        printf '    %-45s %s\n' "atr admin system entrypoints relabel"  "re-verify and relabel the entrypoints"
         printf '    %-45s %s\n' "journalctl -t ai-tools-chown _UID=0"             "the full ownership trail"
         printf '    %-45s %s\n' "journalctl -t ai-tools-layout _UID=0"            "each change the layout reconcile made"
     fi

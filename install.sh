@@ -302,7 +302,7 @@ INSTALLED_CLI="${AI_TOOLS_INSTALLED_CLI:-/usr/local/bin/ai-tools}"
 # a refusal: the operator is installing on purpose, and the review box still asks before the first write.
 report_packaged_host() {
     command -v rpm >/dev/null 2>&1 && rpm -q ai-tools-base >/dev/null 2>&1 || return 0
-    warn MSG-Q8T8 "installing over the ai-tools packages: each package file this install replaces reads as content drift in rpm -V and in ai-tools-admin system layout, whose reconcile does not repair it, and the next dnf upgrade writes over it -- return to the packages with sudo dnf reinstall 'ai-tools-*', build this checkout as packages and upgrade to them (docs/install/from-source.md), or make this a source-only host with sudo dnf remove 'ai-tools-*'"
+    warn MSG-Q8T8 "installing over the ai-tools packages: each package file this install replaces reads as content drift in rpm -V and in atr admin system layout, whose reconcile does not repair it, and the next dnf upgrade writes over it -- return to the packages with sudo dnf reinstall 'ai-tools-*', build this checkout as packages and upgrade to them (docs/install/from-source.md), or make this a source-only host with sudo dnf remove 'ai-tools-*'"
 }
 
 version_gate() {
@@ -568,7 +568,7 @@ report_settings_gaps() {
     (( differs )) && warn "  other settings differ as well"
     if [[ -n "${reference}" ]]; then
         warn "  this version's copy is kept as ${reference}; compare and merge with:"
-        warn "      sudo ai-tools-admin system post-upgrade"
+        warn "      atr admin system post-upgrade"
     fi
     return 0
 }
@@ -734,7 +734,7 @@ bootstrap_launcher_symlinks() {
 
     if [[ ! -s "${ai_nvm_dir}/nvm.sh" ]]; then
         warn MSG-Q4H5 "nvm not found at ${ai_nvm_dir}/nvm.sh -- launcher symlinks skipped"
-        warn "  provision the toolchain: sudo ai-tools-admin system bootstrap"
+        warn "  provision the toolchain: atr admin system bootstrap"
         return
     fi
 
@@ -749,7 +749,7 @@ bootstrap_launcher_symlinks() {
 
     if [[ -z "${node_version}" || "${node_version}" == "N/A" ]]; then
         warn MSG-E5S3 "nvm 'default' alias not set -- launcher symlinks skipped"
-        warn "  provision the toolchain: sudo ai-tools-admin system bootstrap"
+        warn "  provision the toolchain: atr admin system bootstrap"
         return
     fi
 
@@ -762,7 +762,7 @@ bootstrap_launcher_symlinks() {
     fi
     if [[ -n "${copied_bins}" ]]; then
         warn MSG-J2H9 "the ${node_version}/bin directory holds copies where npm keeps symlinks (${copied_bins}) -- a transfer of the tree replaced the links with their targets, so launcher symlinks are skipped"
-        warn "  restore them: sudo ai-tools-admin system bootstrap"
+        warn "  restore them: atr admin system bootstrap"
         return
     fi
 
@@ -779,7 +779,7 @@ bootstrap_launcher_symlinks() {
     fi
     if (( ${#launchers[@]} == 0 )); then
         warn MSG-Q9D3 "no enabled agent to link -- launcher symlinks skipped"
-        warn "  check the agents in /etc/ai-tools/operator.conf, then: sudo ai-tools-admin system bootstrap"
+        warn "  check the agents in /etc/ai-tools/operator.conf, then: atr admin system bootstrap"
         return
     fi
 
@@ -797,7 +797,7 @@ bootstrap_launcher_symlinks() {
         versioned_launcher="${ai_nvm_dir}/versions/node/${node_version}/bin/${launcher}"
         if [[ ! -x "${versioned_launcher}" ]]; then
             warn MSG-K6N8 "launcher ${launcher} not found at ${versioned_launcher} -- its symlink is skipped"
-            warn "  provision the toolchain: sudo ai-tools-admin system bootstrap"
+            warn "  provision the toolchain: atr admin system bootstrap"
             continue
         fi
         if /usr/local/libexec/ai-tools/ai-tools-launcher-symlink "${versioned_launcher}"; then
@@ -846,7 +846,7 @@ do_selinux_restore() {
             [[ -d "${_cfg}" ]] && restorecon -R "${_cfg}"
         done < <(ai_tools_control_plane__list_agent_config_dirs)
     else
-        warn MSG-D6A5 "left the labels on /opt/ai-tools/.config and the agents' config directories as they were: an agent session or the toolchain update runs as ${SANDBOX_USER}, or this host's sessions could not be read; let each session end (/exit inside it) and the toolchain update finish, or end them all with 'ai-tools stop', then run: sudo restorecon -R /opt/ai-tools/.config/ && sudo systemctl start ai-tools-relabel.service"
+        warn MSG-D6A5 "left the labels on /opt/ai-tools/.config and the agents' config directories as they were: an agent session or the toolchain update runs as ${SANDBOX_USER}, or this host's sessions could not be read; let each session end (/exit inside it) and the toolchain update finish, or end them all with 'atr stop', then run: sudo restorecon -R /opt/ai-tools/.config/ && sudo systemctl start ai-tools-relabel.service"
     fi
     restorecon \
         /usr/local/bin/ai-tools-launch \
@@ -975,7 +975,7 @@ offer_selinux() {
         # ai-tools-admin is the shipped entry point and is deployed by now, so name it rather than the checkout path
         # an installed host may not keep.
         if command -v ai-tools-admin >/dev/null 2>&1; then
-            say "    ${C_DIM}manage them with: sudo ai-tools-admin selinux groups${C_RST}"
+            say "    ${C_DIM}manage them with: atr admin selinux groups${C_RST}"
         else
             say "    ${C_DIM}manage them with: sudo ${selinux_script} {install|remove|list-groups}${C_RST}"
         fi
@@ -983,7 +983,7 @@ offer_selinux() {
         # entrypoint mislabelled (bin_t) -- which fail-closes the launch -- so the filesystem labels must be re-applied
         # to match it. This is the single relabel on the decline path; the accept path already relabels inside
         # install-selinux.sh install.
-        "${selinux_script}" relabel || warn MSG-E7D7 "relabel did not complete -- run: sudo ai-tools-admin system entrypoints relabel"
+        "${selinux_script}" relabel || warn MSG-E7D7 "relabel did not complete -- run: atr admin system entrypoints relabel"
     else
         log "skipped -- the sandbox runs without SELinux confinement until you run:"
         say "    ${C_BOLD}sudo ${selinux_script} install${C_RST}"
@@ -1195,7 +1195,7 @@ do_summary() {
         _gcname="$(git config --file "${_gc}" user.name 2>/dev/null || true)"
         _gcemail="$(git config --file "${_gc}" user.email 2>/dev/null || true)"
         printf '\n  sandbox git identity : %s <%s>\n' "${_gcname:-?}" "${_gcemail:-?}"
-        printf '  %sset it with sudo ai-tools-admin system bootstrap; verify %s afterwards%s\n' \
+        printf '  %sset it with atr admin system bootstrap; verify %s afterwards%s\n' \
             "${C_DIM}" "${_gc}" "${C_RST}"
     fi
     printf '\n'
@@ -1294,7 +1294,7 @@ probe_shadowing_agents() {
             # declaring a second message under it (see messaging.rule.md).
             shadow_line="operator ${user} who types ${launcher} would run ${winner}, which is an agent outside the sandbox"
             err MSG-K2D4 "${shadow_line}"
-            err "  rank the wrapper ahead of it:  sudo ai-tools-admin operators add ${user}"
+            err "  rank the wrapper ahead of it:  atr admin operators add ${user}"
             err "  or remove that install:        ${winner}"
         done
     elif (( ${#found[@]} && operators )); then
@@ -1308,7 +1308,7 @@ probe_shadowing_agents() {
         done
     elif (( ${#found[@]} )); then
         warn "  no operator is enrolled yet, and enrolment is what wires the \$PATH ordering:"
-        warn "  sudo ai-tools-admin operators add <user>"
+        warn "  atr admin operators add <user>"
     fi
 }
 
@@ -2766,8 +2766,8 @@ do_install() {
         /usr/local/libexec/ai-tools/ai-tools-admin assets reconcile >/dev/null || _reconcile_status=$?
         case "${_reconcile_status}" in
             0) ;;
-            4) warn MSG-G2U4 "the asset reconcile reported a finding -- sudo ai-tools-admin status names each one and what ends it" ;;
-            *) warn MSG-P2N9 "the asset reconcile did not complete (exit ${_reconcile_status}) -- run: sudo ai-tools-admin assets reconcile" ;;
+            4) warn MSG-G2U4 "the asset reconcile reported a finding -- atr admin status names each one and what ends it" ;;
+            *) warn MSG-P2N9 "the asset reconcile did not complete (exit ${_reconcile_status}) -- run: atr admin assets reconcile" ;;
         esac
         ai_tools_managed_assets__unlock
     else
@@ -2884,7 +2884,7 @@ do_install() {
     # the account may not read.
     reconcile_layout
     (cd / && sudo -u "${SANDBOX_USER}" touch "/opt/ai-tools/${CP_TIMER_STAMP_DIR}/${CP_UPDATE_TIMER_STAMP}") \
-        || warn MSG-G3P2 "could not write the timer stamp in /opt/ai-tools/${CP_TIMER_STAMP_DIR} as ${SANDBOX_USER}, so the first timer window runs an immediate update -- see: sudo ai-tools-admin system layout"
+        || warn MSG-G3P2 "could not write the timer stamp in /opt/ai-tools/${CP_TIMER_STAMP_DIR} as ${SANDBOX_USER}, so the first timer window runs an immediate update -- see: atr admin system layout"
     if (( manager_ready )); then
         log "enable nvm-update.timer in ${SANDBOX_USER}'s --user instance"
         user_systemctl "${SANDBOX_USER}" daemon-reload
@@ -2924,20 +2924,20 @@ do_install() {
         2>/dev/null || true)"
     if [[ -n "${unmigrated}" ]]; then
         say "  ${C_YEL}rewrite the provider names in /etc/ai-tools/operator.conf -- no session starts until then:${C_RST}"
-        say "    ${C_BOLD}sudo ai-tools-admin system post-upgrade${C_RST}"
+        say "    ${C_BOLD}atr admin system post-upgrade${C_RST}"
         say ""
     fi
     if [[ "${TOOLCHAIN_PROVISIONED:-1}" -eq 0 && -z "${unmigrated}" ]]; then
         say "  provision the sandbox toolchain (nvm + Node + claude) -- required before launch:"
-        say "    ${C_BOLD}sudo ai-tools-admin system bootstrap${C_RST}"
+        say "    ${C_BOLD}atr admin system bootstrap${C_RST}"
         say ""
     fi
     say "  check the install (run as ${PROJECTS_USER}, no sudo):"
-    say "    ${C_BOLD}ai-tools status${C_RST}                               ${C_DIM}# every managed unit, and what to run for a broken one${C_RST}"
+    say "    ${C_BOLD}atr status${C_RST}                               ${C_DIM}# every managed unit, and what to run for a broken one${C_RST}"
     say ""
     say "  register projects with the ai-tools CLI (run as ${PROJECTS_USER}, no sudo):"
-    say "    ${C_BOLD}ai-tools projects claim /path/to/project${C_RST}      ${C_DIM}# claim a project in place${C_RST}"
-    say "    ${C_BOLD}ai-tools --help${C_RST}                               ${C_DIM}# all commands${C_RST}"
+    say "    ${C_BOLD}atr projects claim /path/to/project${C_RST}      ${C_DIM}# claim a project in place${C_RST}"
+    say "    ${C_BOLD}atr --help${C_RST}                               ${C_DIM}# all commands${C_RST}"
     say "  configure and read up:"
     say "    ${C_BOLD}/etc/ai-tools/operator.conf${C_RST}                  ${C_DIM}# host options, each documented inline${C_RST}"
     say "    ${C_BOLD}man ai-tools${C_RST}                                 ${C_DIM}# the CLI${C_RST}"
@@ -2956,12 +2956,12 @@ do_install() {
         # as unprovisioned when it is not; MSG-N7S2 names the step that host owes instead.
         if [[ "${TOOLCHAIN_PROVISIONED:-1}" -eq 0 && -z "${unmigrated}" ]]; then
             warn MSG-A7X8 "toolchain not provisioned -- the wrapper/handback/SELinux checks skip or fail"
-            warn "until it is; for a full pass run sudo ai-tools-admin system bootstrap first, then re-test"
+            warn "until it is; for a full pass run atr admin system bootstrap first, then re-test"
             warn "with: sudo ${SCRIPT_DIR}/tests/run.sh all"
         fi
         if [[ -n "${unmigrated}" ]]; then
             warn MSG-N7S2 "operator.conf names providers without their kind prefix -- every launch refuses and the"
-            warn "wrapper, launch and symlink checks fail until it is rewritten; run sudo ai-tools-admin system"
+            warn "wrapper, launch and symlink checks fail until it is rewritten; run atr admin system"
             warn "post-upgrade first, then re-test with: sudo ${SCRIPT_DIR}/tests/run.sh all"
         fi
         # The section header prints only when the suite runs, so a skip avoids an empty "Verify" heading

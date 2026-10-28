@@ -196,7 +196,7 @@ else
 fi
 # Every session ends before root removes files in the sandbox account's tree: the refusal says so, leaving the operator
 # to let a session finish, and `ai-tools stop` is the first command.
-stop_line="$(grep -n -m1 '^ *ai-tools stop$' <<<"${out}" | cut -d: -f1)"
+stop_line="$(grep -n -m1 '^ *atr stop$' <<<"${out}" | cut -d: -f1)"
 remove_line="$(grep -n -m1 "rm -rf ${package_dir}$" <<<"${out}" | cut -d: -f1)"
 if [[ -n "${stop_line}" && -n "${remove_line}" ]] && (( stop_line < remove_line )) \
         && grep -qF 'let each finish, or stop them all' <<<"${out}"; then

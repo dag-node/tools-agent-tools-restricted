@@ -136,7 +136,7 @@ else
     chmod 0600 "${CONF}"
     rc=0; out="$(call_provisioning)" || rc=$?
     if grep -qE '^ +\[NOT READABLE\] +'"${SANDBOX_USER}"' cannot read .*mode=600' <<<"${out}" \
-            && grep -qF 'sudo ai-tools-admin system layout reconcile' <<<"${out}" && grep -qx 'problems=1' <<<"${out}"; then
+            && grep -qF 'atr admin system layout reconcile' <<<"${out}" && grep -qx 'problems=1' <<<"${out}"; then
         pass "a 0600 root:root operator.conf is reported as unreadable by the sandbox account, with the reconcile, and counted"
     else
         fail "a 0600 operator.conf (rc ${rc}): $(head -c 400 <<<"${out}" | tr '\n' '|')"
@@ -192,7 +192,7 @@ else
 fi
 rc=0; out="$(call_status 'unset -f ai_tools_services__list_records')" || rc=$?
 if [[ "${rc}" -eq 5 ]] && grep -qx 'MSG-V6N9' <<<"${out}" && grep -qF '[UNREADABLE]' <<<"${out}" \
-        && grep -qF 'ai-tools providers' <<<"${out}"; then
+        && grep -qF 'atr providers' <<<"${out}"; then
     pass "a service registry that did not load exits 5, is named under its code, and the later sections still print"
 else
     fail "a missing registry exited ${rc}, expected 5 with MSG-V6N9 and the rest of the page: $(tail -c 400 <<<"${out}" | tr '\n' '|')"
