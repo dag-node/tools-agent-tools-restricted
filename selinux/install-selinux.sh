@@ -650,14 +650,18 @@ _labels_drop() {
     done
 }
 
-# _read_pattern_tree <pattern>: print the directory a project-shaped rule `<literal>(/.*)?` was written for, unescaped,
-# where it exists and the protected-paths backstop allows it as a target; fail without output for any other pattern,
-# and for every pattern where the backstop did not load. The paths a raw rule's regex also matched are not its.
-_read_pattern_tree() {
+# _resolve_pattern_tree <pattern>: print the directory a project-shaped rule `<literal>(/.*)?` was written for, unescaped,
+# where it exists, is its own canonical path, and the protected-paths backstop allows it as a target; fail without
+# output for any other pattern, and for every pattern where the backstop did not load. The tree is walked as root
+# by `restorecon -FR`, so the literal must name it directly: one carrying a `..`, a symlinked component or a link leaf
+# resolves somewhere the rule did not name, and the backstop reads the string it is given, not what the kernel resolves.
+# The paths a raw rule's regex also matched are not its.
+_resolve_pattern_tree() {
     local literal="${1%(/.*)?}"
     [[ "${literal}" != "$1" && "${literal}" != *'(/.*)?'* ]] || return 1
     literal="$(sed -E 's/\\(.)/\1/g' <<<"${literal}")"
-    [[ "${literal}" == /?* && -d "${literal}" && ! -L "${literal}" ]] || return 1
+    [[ "${literal}" == /?* && -d "${literal}" ]] || return 1
+    [[ "$(realpath -e -- "${literal}" 2>/dev/null)" == "${literal}" ]] || return 1
     declare -F ai_tools_safe_paths__match_protected_path >/dev/null 2>&1 || return 1
     ai_tools_safe_paths__match_protected_path "${literal}" >/dev/null && return 1
     printf '%s\n' "${literal}"
@@ -672,7 +676,7 @@ _drop_remaining_policy_type_rules() {
         [[ -n "${pattern}" ]] || continue
         if semanage fcontext -d -f "${letter}" -- "${pattern}" >/dev/null 2>&1; then
             log "  dropped ${pattern} (${type}): a rule outside this host's registries"
-            if tree="$(_read_pattern_tree "${pattern}")"; then
+            if tree="$(_resolve_pattern_tree "${pattern}")"; then
                 _restore_account_tree_labels "${tree}"
             fi
         else

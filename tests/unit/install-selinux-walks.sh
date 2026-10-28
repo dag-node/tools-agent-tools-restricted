@@ -184,7 +184,7 @@ fi
 # rows.
 section "install-selinux.sh: remove drops every rule naming a policy type and reports an unload that left a module (unit)"
 remove_text=""
-for name in warn die _list _restore_account_tree_labels _warn_left_trees _read_pattern_tree _drop_remaining_policy_type_rules _read_loaded_policy_modules _unload_modules; do
+for name in warn die _list _restore_account_tree_labels _warn_left_trees _resolve_pattern_tree _drop_remaining_policy_type_rules _read_loaded_policy_modules _unload_modules; do
     body="$(extract_function "${INSTALLER}" "${name}")"
     if [[ -z "${body}" ]]; then
         fail "install-selinux.sh does not define ${name}() in the form this file reads"
@@ -192,7 +192,10 @@ for name in warn die _list _restore_account_tree_labels _warn_left_trees _read_p
     fi
     remove_text+="${body}"$'\n'
 done
-mkdir -p "${TESTDIR}/drop/gone" "${TESTDIR}/drop/app.v1"
+# Two trees a pattern can reach without naming them: `outside` through a `..` in the literal, `elsewhere/sub` through
+# a symlinked ancestor. Each exists and is a directory, so only the canonical-path test refuses it.
+mkdir -p "${TESTDIR}/drop/gone" "${TESTDIR}/drop/app.v1" "${TESTDIR}/drop/climb" "${TESTDIR}/outside" "${TESTDIR}/elsewhere/sub"
+ln -s "${TESTDIR}/elsewhere" "${TESTDIR}/drop/link"
 # run_drop <state> [nobackstop] : the sweep under that reading over the fixture rows; the recorder holds each semanage
 #   delete and each restorecon, one per line, and both streams of the run are printed. The backstop is a stub refusing
 #   `/` and a home root, or absent under `nobackstop`.
@@ -217,6 +220,8 @@ run_drop() {
                 "/opt/ai-tools/\\.nvm/versions/node/[^/]+/lib/node_modules/@acme/cli/bin/acme\\.exe" f ai_tools_exec_t \
                 "${stub_testdir}/drop/app\\.v1(/.*)?" a ai_tools_project_t \
                 "${stub_testdir}/drop/absent(/.*)?" a ai_tools_project_t \
+                "${stub_testdir}/drop/climb/\\.\\./\\.\\./outside(/.*)?" a ai_tools_project_t \
+                "${stub_testdir}/drop/link/sub(/.*)?" a ai_tools_project_t \
                 "/(/.*)?" a ai_tools_project_t \
                 "/stuck(/.*)?" a ai_tools_conf_t
         }
@@ -240,6 +245,13 @@ if [[ "$(grep -c '^restorecon ' <<<"${recorded}")" -eq 2 ]] \
 else
     fail "none: restorecon calls: $(grep '^restorecon ' <<<"${recorded}" | tr '\n' ';')"
 fi
+# A literal that exists and resolves elsewhere is dropped and not walked: the rule names a string, the walk a tree.
+for climbing in "${TESTDIR}/drop/climb/\\.\\./\\.\\./outside(/.*)?" "${TESTDIR}/drop/link/sub(/.*)?"; do
+    grep -qxF -- "semanage fcontext -d -f a -- ${climbing}" <<<"${recorded}" \
+        && ! grep -qE -- "^restorecon .*(outside|elsewhere|/drop/link|/drop/climb)" <<<"${recorded}" \
+        && pass "none: a pattern reaching a tree it does not name is dropped and its tree not walked: ${climbing##*/drop/}" \
+        || fail "none: pattern ${climbing}: recorded ${recorded//$'\n'/ | }"
+done
 # The backstop guards the walk, not the drop: a local rule mapping / to the policy's own type is what the unload refuses
 # on, and removing the mapping relabels nothing.
 grep -qxF -- "semanage fcontext -d -f a -- /(/.*)?" <<<"${recorded}" \
