@@ -182,7 +182,7 @@ if [[ "${rc}" -ne 0 ]] && grep -qF "cannot read ${CONF}" <<<"${out}" && grep -qF
 else
     fail "status over an unreadable operator.conf (rc ${rc}): $(head -c 400 <<<"${out}" | tr '\n' '|')"
 fi
-says "the unreadable line names the layout reconcile" 'sudo ai-tools-admin system layout reconcile' "${out}"
+says "the unreadable line names the layout reconcile" 'atr admin system layout reconcile' "${out}"
 chmod 0644 "${CONF}"
 
 # ── (5) A pin a reconciliation refused to re-record is never rendered as a good one ── The refusal leaves the pin
