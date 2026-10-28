@@ -1265,11 +1265,15 @@ fi
 # when the version, the declared verification inputs (this package ships the signing key, so a key
 # change invalidates them) and the entrypoint's bytes are all unchanged; anything else re-fetches
 # and re-verifies.
+# The helper's status is the scriptlet's, taken at the END: the steps after it (the asset links,
+# the orientation link, the .rpmnew notice) are this package's whatever the relabel did, and a
+# session open at upgrade time makes the helper exit non-zero for a config directory it left.
+relabel_rc=0
 if [ -x %{ai_libexecdir}/ai-tools-relabel-agent ]; then
     AI_TOOLS_ENTRYPOINT_PIN_REUSE=1 %{ai_libexecdir}/ai-tools-relabel-agent >/dev/null || {
+        relabel_rc=$?
         echo "ai-tools-agents-claude-code-restricted: entrypoint labelling failed; see 'journalctl -t ai-tools-relabel-agent'" >&2
         echo "ai-tools-agents-claude-code-restricted: fix the cause and re-run: sudo ai-tools-admin system entrypoints relabel" >&2
-        exit 1
     }
 fi
 # Link the shared assets into the directories each enabled agent reads them from: skills into
@@ -1293,6 +1297,7 @@ if [ -f /opt/ai-tools/.claude/settings.json.rpmnew ]; then
     echo "  your settings.json yet, so the hooks they declare never run. Merge them with:"
     echo "    sudo ai-tools-admin system post-upgrade"
 fi
+exit "${relabel_rc}"
 
 %preun -n ai-tools-agents-claude-code-restricted
 # On final erase, drop the entrypoint file-context rule this package registered and restore
@@ -1340,13 +1345,16 @@ fi
 # claude-code scriptlet does: the pattern comes from this package's manifest and names the vendor
 # binary the launcher is re-linked at. Offline and idempotent; no-ops while the toolchain is not
 # provisioned. Not swallowed: a mislabelled entrypoint refuses every launch, so the remedy is
-# reported and the scriptlet exits non-zero. No release-signing key ships for codex, so the pin
-# reuse the claude scriptlet asks for has no pin to reuse and is not requested.
+# reported and the scriptlet exits non-zero -- at its END, so the steps after it still run: a
+# session open at upgrade time makes the helper exit non-zero for a config directory it left. No
+# release-signing key ships for codex, so the pin reuse the claude scriptlet asks for has no pin
+# to reuse and is not requested.
+relabel_rc=0
 if [ -x %{ai_libexecdir}/ai-tools-relabel-agent ]; then
     %{ai_libexecdir}/ai-tools-relabel-agent >/dev/null || {
+        relabel_rc=$?
         echo "ai-tools-agents-codex-restricted: entrypoint labelling failed; see 'journalctl -t ai-tools-relabel-agent'" >&2
         echo "ai-tools-agents-codex-restricted: fix the cause and re-run: sudo ai-tools-admin system entrypoints relabel" >&2
-        exit 1
     }
 fi
 # The base pins the 3770 setgid+sticky mode of an ENABLED agent's config directory only, and this
@@ -1376,6 +1384,7 @@ for f in requirements.toml managed_config.toml; do
         echo "  ${f} yet; compare the two and carry the keys over (codex reads the live file alone)"
     fi
 done
+exit "${relabel_rc}"
 
 %posttrans -n ai-tools-agents-codex-restricted
 # The fail-safe for the 3770 mode of this agent's config directory (see %%post).
