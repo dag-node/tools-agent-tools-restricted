@@ -182,7 +182,7 @@ def system_overview():
     s.box(40, 168, 260, 86, "operator", "coding-agent wrapper",
           ["`/usr/local/bin/{coding-agent-name}`", "runs as you; checks ai-ops", "membership and other gates"])
     s.box(40, 282, 260, 72, "operator", "allowed-projects",
-          ["`~/.config/ai-tools` · maintained", "with the `ai-tools projects` CLI"])
+          ["`~/.config/ai-tools` · maintained", "with the `atr projects` CLI"])
     # the root helpers read it on your behalf; an edge to them would cross the sudo and handback routes
     s.box(40, 370, 260, 86, "operator", "secret-patterns",
           ["`~/.config/ai-tools` · edited by you", "the root helpers read it to lock", "secret-named files away"])
@@ -414,7 +414,7 @@ def ownership_lifecycle():
             "· a file you wrote is not re-owned by the handback: it acts only while the coding agent owns a file",
             "· an owner-only path, and one on a ! line of your allowlist, is skipped by every step",
             "· a session that ends early can leave files the coding agent owns: "
-            "ai-tools projects handback returns them",
+            "atr projects handback returns them",
             "· the files the coding agent writes inside .git come back at the start and end of each session"]):
         s.text(36, 436 + j * 21, line, 12, "muted")
     s.text(1260, 586, "who reaches a file, as getfacl -e reports it", 10.5, mono=True, anchor="end")

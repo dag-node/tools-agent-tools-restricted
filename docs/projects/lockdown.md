@@ -11,7 +11,7 @@ that finds one runs on its own, and what the pattern set can and cannot
 recognize.
 
 ```bash
-ai-tools projects lockdown ~/src/api   # scan for secret-named files and lock what it finds
+atr projects lockdown ~/src/api   # scan for secret-named files and lock what it finds
 ```
 
 Lists every file under the project whose name matches a secret pattern, asks
@@ -45,7 +45,7 @@ clone puts an operator-written file such as `hooks/deploy.pem`. The walk is
 [ref-section-g6s6](../../.claude/rules/secret-handling.rule.md#ref-section-g6s6).
 
 ```bash
-ai-tools projects lockdown --dry-run ~/src/api
+atr projects lockdown --dry-run ~/src/api
 ```
 
 `--dry-run` names every path the lockdown would lock, and what it would strip
@@ -57,7 +57,7 @@ since a dry run neither changes a path nor asks.
 
 ```bash
 chmod -R go-rwx path/to/dir
-ai-tools projects lockdown path/to/project   # apply the seal's cleanup now
+atr projects lockdown path/to/project   # apply the seal's cleanup now
 ```
 
 A path with no group and no other bits — a file or directory only you can open

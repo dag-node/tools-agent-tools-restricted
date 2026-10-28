@@ -143,7 +143,7 @@ refused "the sandbox account is refused with its own code" MSG-N8Q4
 if id -u nobody >/dev/null 2>&1 && ! id -nG nobody | tr ' ' '\n' | grep -qx ai-ops; then
     run "${LIB}" nobody "${approved}" ai_tools_launch_wrapper__gate_operator
     refused "a non-operator is refused, naming the enrolment" MSG-C7C9
-    says "and the refusal names the enrolment command" "ai-tools-admin operators add nobody"
+    says "and the refusal names the enrolment command" "atr admin operators add nobody"
 else
     skip "non-operator refusal" "no 'nobody' account outside ai-ops on this host"
 fi
@@ -170,7 +170,7 @@ FIXTURE_AGENTS_DIR="${fixture_agents}" FIXTURE_OPERATOR_CONF="${fixture_conf}" \
     run "${LIB}" "${PROJECTS_USER}" "${approved}" ai_tools_launch_wrapper__gate_residue
 refused "a disabled agent's launcher link refuses the launch" MSG-H4E2
 says "and the refusal names the agent" "beta"
-says "and the refusal names the provisioning run" "sudo ai-tools-admin system bootstrap"
+says "and the refusal names the provisioning run" "atr admin system bootstrap"
 silent "and the executable is not resolved first" 'MSG-S4B3|MSG-S3K2'
 rm -f "${links}/beta"
 FIXTURE_AGENTS_DIR="${fixture_agents}" FIXTURE_OPERATOR_CONF="${fixture_conf}" \
@@ -215,7 +215,7 @@ FIXTURE_AGENTS_DIR="${fixture_agents}" FIXTURE_OPERATOR_CONF="${fixture_conf}" \
     run "${LIB}" "${PROJECTS_USER}" "${approved}" ai_tools_launch_wrapper__gate_lists
 refused "a provider name written without its kind prefix refuses the launch" MSG-V3Q5
 says "and the refusal names each bare item" "AI_TOOLS_AGENTS acme, AI_TOOLS_FILTERS core"
-says "and the refusal names the command that rewrites them" "sudo ai-tools-admin system post-upgrade"
+says "and the refusal names the command that rewrites them" "atr admin system post-upgrade"
 printf 'AI_TOOLS_AGENTS=[agent-acme]\nAI_TOOLS_FILTERS=[filter-base, filter-dotnet]\n' > "${fixture_conf}"
 FIXTURE_AGENTS_DIR="${fixture_agents}" FIXTURE_OPERATOR_CONF="${fixture_conf}" \
     run "${LIB}" "${PROJECTS_USER}" "${approved}" ai_tools_launch_wrapper__gate_lists
@@ -275,7 +275,7 @@ refused "the launcher gate refuses when providers.lib.sh will not load (fail clo
 rm -f "${links}/claude"
 run "${LIB}" "${PROJECTS_USER}" "${approved}" ai_tools_launch_wrapper__resolve_executable
 refused "a missing launcher symlink is refused, naming the bootstrap" MSG-S4B3
-says "and the refusal names the provisioning command" "sudo ai-tools-admin system bootstrap"
+says "and the refusal names the provisioning command" "atr admin system bootstrap"
 link "/usr/bin/claude"
 run "${LIB}" "${PROJECTS_USER}" "${approved}" ai_tools_launch_wrapper__resolve_executable
 refused "a target outside the versioned toolchain shape is refused" MSG-S3K2

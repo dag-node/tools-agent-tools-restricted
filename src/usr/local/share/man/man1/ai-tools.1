@@ -4,8 +4,13 @@
 .\" substituted at deploy time (install.sh install_subst / the RPM %prep), like the CLI.
 .TH AI-TOOLS 1 "" "ai-tools @AI_TOOLS_VERSION@" "Agent Tools Restricted"
 .SH NAME
-ai-tools \- manage the projects a sandboxed coding agent may work in
+atr, ai-tools \- manage the projects a sandboxed coding agent may work in
 .SH SYNOPSIS
+.B atr
+.I COMMAND
+.RI [ OPTION ]...\&
+.RI [ DIRECTORY ]
+.br
 .B ai-tools
 .I COMMAND
 .\" The \& is load-bearing: roff reads the line-final . of ... as a sentence end and would set
@@ -22,6 +27,17 @@ sandbox account, which the CLI refuses for every command. Steps that need root
 (secret lockdown, ownership, SELinux labels) invoke
 .B sudo
 themselves and prompt for your password.
+.PP
+.B atr
+is the command this page spells:
+.B "atr COMMAND"
+runs
+.BR "ai-tools COMMAND" ,
+and
+.B "atr admin COMMAND"
+runs
+.BR ai-tools-admin (8)
+as root.
 .PP
 A command is a collection followed by its verb, or one bare word:
 .B "projects claim"
@@ -73,7 +89,7 @@ plain Enter \(em and any run without a terminal \(em takes the default, which
 always falls on the safe side of the question.
 .SS Operators and the sudo grant
 Being an operator is two facts, both written by
-.BR "ai\-tools\-admin operators add" :
+.BR "atr admin operators add" :
 membership of the
 .B ai\-ops
 group, and a name in
@@ -553,7 +569,7 @@ declares that are not loaded
 in its manifest, see
 .BR ai-tools-providers (5)),
 with the
-.B ai-tools-admin selinux groups enable
+.B atr admin selinux groups enable
 command that loads the stable ones.
 .B "providers list"
 is the same command.
@@ -595,7 +611,7 @@ Report ai-tools health: the installed version, which enabled agents are provisio
 whether an agent you took off
 .B AI_TOOLS_AGENTS
 still has its package in the sandbox toolchain (no session starts until
-.B "ai\-tools\-admin system bootstrap"
+.B "atr admin system bootstrap"
 removes it),
 where this shell finds each enabled agent's launcher, each managed systemd unit
 as OK, SKIPPED, DOWN, FAILED,
@@ -614,7 +630,7 @@ resolves each agent's name the way typing it would. A name that resolves outside
 reads
 .BR UNCONFINED ,
 because running it starts an agent as you with none of the sandbox, and names
-.B "ai\-tools\-admin operators add"
+.B "atr admin operators add"
 as the repair.
 .PP
 A permissive domain, or a Boolean away from the value a launch requires
@@ -768,7 +784,7 @@ human operator performs the claim on its behalf, once, and the account never
 meets a password prompt.
 .I OPERATOR
 must already be enrolled
-.RB ( "sudo ai\-tools\-admin operators add " \fIoperator\fR ),
+.RB ( "atr admin operators add " \fIoperator\fR ),
 since the ownership helpers resolve a project's owner from the
 .B OPERATORS
 list. Enrolment also adds the account to the
@@ -937,7 +953,7 @@ Claim the project in the current directory, answering each prompt:
 .PP
 .RS 4
 .EX
-ai\-tools projects claim
+atr projects claim
 .EE
 .RE
 .PP
@@ -947,7 +963,7 @@ still ask:
 .PP
 .RS 4
 .EX
-ai\-tools projects claim \-y ~/src/myproject
+atr projects claim \-y ~/src/myproject
 .EE
 .RE
 .PP
@@ -956,7 +972,7 @@ must already exist, and the directory must not:
 .PP
 .RS 4
 .EX
-ai\-tools projects create ~/src/newproject
+atr projects create ~/src/newproject
 .EE
 .RE
 .PP
@@ -965,7 +981,7 @@ project's name; the files are not recoverable afterwards:
 .PP
 .RS 4
 .EX
-ai\-tools projects remove ~/src/oldproject
+atr projects remove ~/src/oldproject
 .EE
 .RE
 .PP
@@ -973,8 +989,8 @@ List what is registered, and what the sandbox account resolves for a session:
 .PP
 .RS 4
 .EX
-ai\-tools projects
-ai\-tools providers
+atr projects
+atr providers
 .EE
 .RE
 .PP
@@ -982,7 +998,7 @@ End every running agent session on the host (no password; run it as yourself):
 .PP
 .RS 4
 .EX
-ai\-tools stop
+atr stop
 .EE
 .RE
 .PP
@@ -990,7 +1006,7 @@ Give a project back and leave the directory on disk:
 .PP
 .RS 4
 .EX
-ai\-tools projects unclaim ~/src/myproject
+atr projects unclaim ~/src/myproject
 .EE
 .RE
 .SH SEE ALSO

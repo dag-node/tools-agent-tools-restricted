@@ -55,7 +55,7 @@ helper's tag lands under the sandbox uid and is absent from the same tag at `_UI
 the trail depends on — the agent can append but cannot unmake: journal storage refuses it a new file, none of its files
 is agent-writable, and `journalctl`'s destructive verbs (`--vacuum-time`, `--rotate`) fail for that account.
 
-**The reader for these trails is `ai-tools audit`** (see [cli](cli.rule.md)). It reports the file sink as evidence
+**The reader for these trails is `atr audit`** (see [cli](cli.rule.md)). It reports the file sink as evidence
 and the sandbox-written launch refusals separately, which is this distinction made operational rather than left
 to whoever runs the query.
 

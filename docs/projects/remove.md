@@ -6,17 +6,17 @@
 [Lockdown](lockdown.md) · [Handback](handback.md) ·
 [Permissions](permissions.md) — [all docs](../index.md)
 
-How `ai-tools projects remove` unregisters a project and deletes its directory,
+How `atr projects remove` unregisters a project and deletes its directory,
 what authorizes it, what it checks first, and what a failure leaves behind.
 
 ```bash
-ai-tools projects remove ~/src/oldproject
+atr projects remove ~/src/oldproject
 ```
 
 Does what an unclaim does **and deletes the directory**. There is no undo
 and no trash location, so the command is deliberately hard to reach
 by accident. To release a project and keep the files, use
-`ai-tools projects unclaim` ([Unclaim](unclaim.md)).
+`atr projects unclaim` ([Unclaim](unclaim.md)).
 
 ## What authorizes it
 
@@ -36,7 +36,7 @@ The rules are
 ```text
 WARNING: this tree cannot be fully deleted
     take ownership of the tree first, then re-run the removal:
-      ai-tools projects handback --full ~/src/oldproject
+      atr projects handback --full ~/src/oldproject
 ```
 
 Before anything changes, a read-only pass checks that you can delete every
@@ -74,21 +74,21 @@ removed, the command stops and prints the line to delete by hand.
 While an agent session or the toolchain update runs, the label cannot be
 reverted, and the command stops at that step with the tree and both entries
 as they were. Let each session end (`/exit` inside it) and the update finish,
-or end them all with `ai-tools stop`, then run the removal again.
+or end them all with `atr stop`, then run the removal again.
 
 ## A sandbox clone
 
 Pointed at a clone under the sandbox area, the command asks one default-No
 confirm, then deletes the clone and unregisters it. A commit not yet pushed
-goes with it, and the command does not count them: run `ai-tools projects push`
+goes with it, and the command does not count them: run `atr projects push`
 first to keep your work ([Push](push.md)). The remote branch stays for others
 to merge. `-y` answers that one confirm, on the same terms ([Clone](clone.md)).
 
 ## For another operator
 
-`ai-tools projects remove --for svc-ci /srv/projects/api` deletes the tree
-**as** that account, since only its owner can delete it, so the run needs
-a `sudo` grant to act as that account; it is checked before anything is removed
+`atr projects remove --for svc-ci /srv/projects/api` deletes the tree **as**
+that account, since only its owner can delete it, so the run needs a `sudo`
+grant to act as that account; it is checked before anything is removed
 ([Service accounts](../operators/service-accounts.md)).
 
 ## Exit status

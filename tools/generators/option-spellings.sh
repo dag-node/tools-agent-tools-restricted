@@ -37,8 +37,9 @@ rows() {
     printf '%s\n' "${out}"
 }
 
-# render: the page. A token is shown as an operator types it -- `ai-tools` and the command for a command, the option
-# alone for the two short options and the long one `-g` stands for -- and the columns are padded to the widest cell,
+# render: the page. A token is shown as it is typed -- an option spelling as a script written against an earlier release
+# carries it, `ai-tools` and the option, and a preferred form as an operator types it now, `atr` and the command;
+# the two short options and the long one `-g` stands for alone -- and the columns are padded to the widest cell,
 # so the table reads aligned in the source as well as rendered.
 render() {
     cat <<'MARKDOWN'
@@ -52,22 +53,22 @@ MARKDOWN
     cat <<'MARKDOWN'
 # Option spellings and the commands they run
 
-`ai-tools` spells a command as a bare word: a collection and its verb (`ai-tools projects claim`), or one word for
-the host (`ai-tools status`), with `--` reserved for an option. That is the preferred form, and the option spelling
+`atr` spells a command as a bare word: a collection and its verb (`atr projects claim`), or one word for
+the host (`atr status`), with `--` reserved for an option. That is the preferred form, and the option spelling
 each command had in earlier releases is kept for compatibility: it is rewritten to the command ahead of every check,
 prints one notice, [MSG-W3W8](../src/usr/local/bin/ai-tools.sh), naming the preferred form, and exits as that command
 does, so a script written against an earlier release runs unchanged.
 
 MARKDOWN
     rows | awk -F'\t' '
-        function shown(token) {
+        function shown(token, program) {
             # A short option and the long option it stands for are typed alone; every other token is a command.
             if (token ~ /^-[A-Za-z]$/ || token == "--group") return "`" token "`"
-            return "`ai-tools " token "`"
+            return "`" program " " token "`"
         }
         function dashes(n,   s) { s = ""; while (n-- > 0) s = s "-"; return s }
         {
-            option[NR] = shown($1); preferred[NR] = shown($2)
+            option[NR] = shown($1, "ai-tools"); preferred[NR] = shown($2, "atr")
             if (length(option[NR]) > w1) w1 = length(option[NR])
             if (length(preferred[NR]) > w2) w2 = length(preferred[NR])
         }
@@ -81,10 +82,10 @@ MARKDOWN
         }'
     cat <<'MARKDOWN'
 
-`-g` is the short form `ai-tools projects unclaim` took for `--group`, and `-V` the short form of `--version`; each
+`-g` is the short form `atr projects unclaim` took for `--group`, and `-V` the short form of `--version`; each
 is rewritten wherever it stands.
 
-`ai-tools --relabel` is not in the table: the entrypoint reconcile is `sudo ai-tools-admin system entrypoints relabel`,
+`atr --relabel` is not in the table: the entrypoint reconcile is `atr admin system entrypoints relabel`,
 a root command this CLI refuses to run, so that spelling prints the command and exits 2 instead of running it.
 MARKDOWN
 }

@@ -99,7 +99,7 @@ pass "the library sources with its dependencies and defines its functions"
 (( ${#_AI_TOOLS_LAYOUT__STATIC_ENTRIES[@]} > 100 )) && pass "the table holds the static rows (${#_AI_TOOLS_LAYOUT__STATIC_ENTRIES[@]})" \
     || fail "the table holds ${#_AI_TOOLS_LAYOUT__STATIC_ENTRIES[@]} rows"
 for required in /etc/ai-tools/operator.conf /opt/ai-tools/bin/ai-tools-run /usr/local/lib/ai-tools/layout.lib.sh \
-        /usr/lib/sysusers.d/ai-tools.conf /usr/sbin/ai-tools; do
+        /usr/lib/sysusers.d/ai-tools.conf /usr/sbin/ai-tools /usr/sbin/atr; do
     found=0
     for entry in "${_AI_TOOLS_LAYOUT__STATIC_ENTRIES[@]}"; do [[ "${entry%%$'\t'*}" == "${required}" ]] && found=1; done
     (( found )) && pass "declared: ${required}" || fail "not declared: ${required}"

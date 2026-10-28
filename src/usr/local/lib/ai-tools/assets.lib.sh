@@ -2209,9 +2209,9 @@ ai_tools_assets__plan() {
 # _ai_tools_assets__place_link <path> <target> <group> : point <path> at <target> through one rename(2): the link is
 # made at `.<name>.ai-tools-assets.tmp` beside it, owned root:<group>, and renamed over the name, so a reader listing
 # the directory sees the old target or the new one and never a missing name. An entry already at the temporary name is
-# removed only when it is a link this library leaves (_ai_tools_assets__is_own_leftover); any other occupant -- a file,
+# removed only when it is a link this library leaves (_ai_tools_assets__is_own_leftover); any other entry -- a file,
 # a directory, a link elsewhere -- is kept and the placement refused, since the directory's own rule keeps an entry
-# the library did not place. `ln -s` does not follow or truncate an existing name, so an occupant that arrives
+# the library did not place. `ln -s` does not follow or truncate an existing name, so an entry that arrives
 # after the check fails the placement. Returns 1, with the reason in _AI_TOOLS_ASSETS__PLACE_ERROR and the temporary
 # name removed where it is the link this call made, when a step fails.
 _ai_tools_assets__place_link() {
@@ -2220,7 +2220,7 @@ _ai_tools_assets__place_link() {
     _AI_TOOLS_ASSETS__PLACE_ERROR=""
     if [[ -e "${temporary}" || -L "${temporary}" ]]; then
         if ! _ai_tools_assets__is_own_leftover "${temporary}"; then
-            _AI_TOOLS_ASSETS__PLACE_ERROR="${temporary} holds $(_ai_tools_assets__read_occupant "${temporary}"), which this command did not leave; left as it is"
+            _AI_TOOLS_ASSETS__PLACE_ERROR="${temporary} holds $(_ai_tools_assets__read_entry_description "${temporary}"), which this command did not leave; left as it is"
             return 1
         fi
         rm -f -- "${temporary}" 2>/dev/null
@@ -2248,9 +2248,9 @@ _ai_tools_assets__is_own_leftover() {
     return 1
 }
 
-# _ai_tools_assets__read_occupant <path> : what stands at <path>, for a detail: a link and its target, a directory,
-# a file with more than one link, or a file.
-_ai_tools_assets__read_occupant() {
+# _ai_tools_assets__read_entry_description <path> : what stands at <path>, for a detail: a link and its target,
+# a directory, a file with more than one link, or a file.
+_ai_tools_assets__read_entry_description() {
     local links
     links="$(stat -c %h -- "$1" 2>/dev/null)" || links=1
     if [[ -L "$1" ]]; then
@@ -2655,7 +2655,7 @@ _ai_tools_assets__write_enable_list_row() {
         untrusted)
             detail="${AI_TOOLS_ASSETS__LIST_DETAIL}"
             if (( ! applied )); then
-                detail+="; no asset is enabled while it stands, and each resolver link the plan reached stays until sudo ai-tools-admin assets reconcile removes it, each named in an unlink-pending row"
+                detail+="; no asset is enabled while it stands, and each resolver link the plan reached stays until atr admin assets reconcile removes it, each named in an unlink-pending row"
             elif (( ${#_AI_TOOLS_ASSETS__DIRS_LEFT[@]} == 0 && ${_AI_TOOLS_ASSETS__UNLINK_FAILED:-0} == 0 \
                     && ${_AI_TOOLS_ASSETS__AGENT_DIRS_UNREAD:-0} == 0 )); then
                 detail+="; every resolver link is removed"
@@ -2784,7 +2784,7 @@ _ai_tools_assets__record_pending_rows() {
         fi
         "${pending_recorder}" attention "${pending_finding}" link \
             "${_AI_TOOLS_ASSETS__ACTION_PATH[index]}" "${_AI_TOOLS_ASSETS__ACTION_ITEM[index]}" "${_AI_TOOLS_ASSETS__ACTION_AGENT[index]}" \
-            "${pending_detail}; run sudo ai-tools-admin assets reconcile" "${_AI_TOOLS_ASSETS__ACTION_SET[index]}"
+            "${pending_detail}; run atr admin assets reconcile" "${_AI_TOOLS_ASSETS__ACTION_SET[index]}"
     done
 }
 

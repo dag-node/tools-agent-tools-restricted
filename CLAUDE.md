@@ -72,10 +72,10 @@ the management CLI (`ai-tools`), and root-helper binary names (`ai-tools-chown`,
 | The dotnet integration (its manifest, session-env fragment, filter rules, and contributed `dotnet` command) and running .NET (CoreCLR) under confinement: the `tmpmap`/`memfdexec`/`localipc`/`buildexec` SELinux groups, the build-output type and the `ai_tools_dotnet` layout module, project-type→group map, denial breakdown, the configuration a build reads from a project's ancestors and the report that names what a session is denied, the manifest keys and `ai-tools-providers(5)` | `lib/ai-tools/integrations.d/dotnet.conf`, `lib/ai-tools/ancestor-config.lib.sh`, `lib/ai-tools/session-env.d/dotnet.env.sh`, `lib/ai-tools/filters.d/dotnet.rules`, `lib/ai-tools/admin-commands.d/dotnet.sh`, `selinux/policy/ai_tools_{tmpmap,memfdexec,localipc,buildexec,dotnet}.te`, `share/man/man5/ai-tools-providers.5` | [dotnet](.claude/rules/dotnet.rule.md) |
 | The typesafe integration: its manifest and session-env fragment, the credential file a session is handed the path of, the decide command a session pipes a listing to and the transport that holds an untrusted answer to the documented shape, the `ai-tools-typesafe-filter` skill the package ships, what a call discloses, and the signed release the command is vendored from | `lib/ai-tools/integrations.d/typesafe.conf`, `lib/ai-tools/session-env.d/typesafe.env.sh`, `etc/ai-tools/endpoints/typesafe.conf`, `lib/ai-tools/typesafe/**`, `tools/generators/typesafe-client.{sh,pin}`, `share/man/man5/ai-tools-typesafe.conf.5`, `usr/share/ai-tools/skills/ai-tools-typesafe-filter/**` | [typesafe](.claude/rules/typesafe.rule.md) |
 | Management CLI, project lifecycle, relabel and its live-session gate, acting for another operator (`--for`) | `bin/ai-tools.sh`, `ai-tools-{setfacl,unclaim,safedir,relabel,allowlist}.sh`, `relabel.lib.sh`, `sessions.lib.sh`, `project-permissions.lib.sh` | [cli](.claude/rules/cli.rule.md) |
-| Host health as one resource read from two vantages: what an operator can see and what root adds (live `--user units`, the entrypoint pin, the live SELinux label) | `services.lib.sh`, `relabel.lib.sh`, `bin/ai-tools.sh` (`status`), `ai-tools-admin.sh` (`status`) | [cli](.claude/rules/cli.rule.md) |
+| Host health, one host read from two vantages: what an operator can see and what root adds (live `--user units`, the entrypoint pin, the live SELinux label) | `services.lib.sh`, `relabel.lib.sh`, `bin/ai-tools.sh` (`status`), `ai-tools-admin.sh` (`status`) | [cli](.claude/rules/cli.rule.md) |
 | Record streams: the model and report state, the TSV wire format, the rules a report follows when it calls them (the saved collector PID, the internal framing, the cap that keeps a deliberate stop apart from a failure), and the page that is the consumer's whole contract | `records-base.lib.sh`, `records-tsv.lib.sh`, `share/man/man5/ai-tools-records.5` | [records](.claude/rules/records.rule.md) |
 | Terminating sessions that are already running (`stop`) — the incident ladder's stop rung; it sweeps every session in the account's cgroup and restores the user manager | `ai-tools-stop.sh` | [stop](.claude/rules/stop.rule.md) |
-| How every command is spelled: bare-word commands, plural collections, verb after noun, and the REST projection each maps onto | `bin/ai-tools.sh`, `ai-tools-admin.sh`, `lib/ai-tools/admin-commands.d/**`, `ai-tools.1`, `ai-tools-admin.8` | [cli-grammar](.claude/rules/cli-grammar.rule.md) |
+| How every command is spelled: bare-word commands, plural collections, verb after noun, and the REST projection each maps onto | `bin/ai-tools.sh`, `bin/atr.sh`, `ai-tools-admin.sh`, `lib/ai-tools/admin-commands.d/**`, `ai-tools.1`, `ai-tools-admin.8`, `atr.{1,8}` | [cli-grammar](.claude/rules/cli-grammar.rule.md) |
 | Protected-paths backstop (refuse system dirs as targets) | `safe-paths.lib.sh` + the wrapper/CLI/elevated helpers | [safe-paths](.claude/rules/safe-paths.rule.md) |
 | Shared logging library | `log.lib.sh` | [logging](.claude/rules/logging.rule.md) |
 | User-facing message formatting (box, wrap, ties) | `msg.lib.sh` + its consumers | [messaging](.claude/rules/messaging.rule.md) |
@@ -118,14 +118,14 @@ one, end them all:
 ```
 
 The first **drops** privilege to `SANDBOX_USER` (launch); the second runs **as root** at a fixed path pinned
-by the trailing `""` to the zero-argument form — `ai-tools stop`, which terminates every running agent session and is
-granted without a password so that unattended monitoring can reach the incident ladder's stop rung. What each rule is
-scoped to, and what the stop rule deliberately withholds, are in [launch](.claude/rules/launch.rule.md). Three
-privileged operations sit outside the drop-in and need no rule in it: the toolchain update runs as `SANDBOX_USER` in its
-own `systemd --user instance`, the automatic post-upgrade relabel runs through the root-side `ai-tools-relabel.path`
-watcher, and the on-demand entrypoint reconcile is `sudo ai-tools-admin system entrypoints relabel`, a root command
-reached through the host's own general sudo grant. The agent runs *as* `SANDBOX_USER`, which is not in `ai-ops` and has
-no rule of its own, so **no** rule grants it anything — including the root rule, which `SANDBOX_USER` cannot reach.
+by the trailing `""` to the zero-argument form — `atr stop`, which terminates every running agent session and is granted
+without a password so that unattended monitoring can reach the incident ladder's stop rung. What each rule is scoped
+to, and what the stop rule deliberately withholds, are in [launch](.claude/rules/launch.rule.md). Three privileged
+operations sit outside the drop-in and need no rule in it: the toolchain update runs as `SANDBOX_USER` in its own
+`systemd --user instance`, the automatic post-upgrade relabel runs through the root-side `ai-tools-relabel.path`
+watcher, and the on-demand entrypoint reconcile is `atr admin system entrypoints relabel`, a root command reached
+through the host's own general sudo grant. The agent runs *as* `SANDBOX_USER`, which is not in `ai-ops` and has no rule
+of its own, so **no** rule grants it anything — including the root rule, which `SANDBOX_USER` cannot reach.
 `ai-tools-run` additionally refuses to launch unless it runs as `SANDBOX_USER`, and refuses if `SANDBOX_USER` appears
 in `ai-ops`, so the sandbox account can never hold the operator grant.
 
@@ -134,7 +134,7 @@ in `ai-ops`, so the sandbox account can never hold the operator grant.
 `ai-tools-admin operators add` writes both facts that make an operator: membership of `ai-ops` (the two sudoers rules,
 and the launch wrapper's own gate) and a name in `OPERATORS` (`/etc/ai-tools/operator.conf`,
 from which `operator.lib.sh` resolves each path's owner). An account holding only those two runs agent sessions
-on the projects claimed for it, and is a first-class operator — the shape `ai-tools --for <operator>` exists to serve,
+on the projects claimed for it, and is a first-class operator — the shape `atr --for <operator>` exists to serve,
 and the one a passwordless service account takes.
 
 Claim, unclaim, lockdown, reclaim, and sandbox-create reach root helpers carrying **no** NOPASSWD rule, so each needs
@@ -160,10 +160,10 @@ of these inputs therefore narrows what the session gets, so the sandbox cannot i
 the requirement standing, the same direction the predicates take. Which exits it governs, and the two host states it
 lets launch with a warning rather than refuse, are in [confinement](.claude/rules/confinement.rule.md).
 
-`ai-tools projects remove` sits **outside** this table: it decides what is *destroyed*, not what a session may reach,
-so its safe direction is inaction. Its authorization is correspondingly different — an exact `allowed-projects` entry
-(allow or `!`-parked) plus a typed-name confirmation, not one of the predicates the table lists — and it holds the same
-shape of guarantee: it deletes only after that confirmation, and a failure leaves the tree in place, unregistered. See
+`atr projects remove` sits **outside** this table: it decides what is *destroyed*, not what a session may reach, so its
+safe direction is inaction. Its authorization is correspondingly different — an exact `allowed-projects` entry (allow
+or `!`-parked) plus a typed-name confirmation, not one of the predicates the table lists — and it holds the same shape
+of guarantee: it deletes only after that confirmation, and a failure leaves the tree in place, unregistered. See
 [cli](.claude/rules/cli.rule.md).
 
 | decision | its predicate | what a failure yields |
@@ -285,7 +285,7 @@ not gaps, so a reader tells bounded design from an oversight:
   and per-session `bubblewrap`/`--system` isolation are deferred (see [confinement](.claude/rules/confinement.rule.md)
   and memory).
 - **`ai-ops` operators are trusted.** The model defends the host and other users from the *agent*, not from an operator,
-  who already holds the launch grant. `ai-tools --for <operator>` rests on this: it lets one operator write an entry
+  who already holds the launch grant. `atr --for <operator>` rests on this: it lets one operator write an entry
   into another's allowlist — their launch gate — so a human can claim a project for a passwordless service account
   that runs an agent. The target must be enrolled, every mutation is logged with both caller and target, and this CLI
   surface is unreachable from a session (see [cli](.claude/rules/cli.rule.md)).
@@ -375,8 +375,9 @@ asset does not name any tool of this repository's, so the skill does not name th
   is named `ai-tools-<topic>`, whatever section it sits in and whatever file it documents (`ai-tools-typesafe.conf(5)`
   for `/etc/ai-tools/endpoints/typesafe.conf`), because `/usr/local/share/man` and `/usr/share/man` are both
   on the default `MANDATORY_MANPATH`: an unprefixed page would resolve ahead of, or behind, a page another package
-  installs under the same generic name. A page ships in the package that installs the file it documents, so an optional
-  integration carries a page of its own rather than contributing a section to a shared one.
+  installs under the same generic name. The two `.so` stubs named for the short command `atr` are the one exception,
+  each pointing at the page it stands for. A page ships in the package that installs the file it documents,
+  so an optional integration carries a page of its own rather than contributing a section to a shared one.
 - Error messages, notices, and log lines → runtime output: what happened, and what to do.
 
 <!-- Agent-facing prose wraps at 120, the column `prose-check.py` measures this file against and

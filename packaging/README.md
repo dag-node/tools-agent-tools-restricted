@@ -19,8 +19,8 @@ with `install_weak_deps` forced on), boots `systemd` as PID 1, and runs
 package the build produced resolved from the metapackage alone, derived
 from the built set rather than a list kept by hand, so a new subpackage is
 covered without editing either. The selftest walks the documented Quick-start
-end to end — `ai-tools-admin system bootstrap`, `ai-tools-admin operators add`,
-`ai-tools projects claim`, `tests/run.sh all`, and an auth-free confined
+end to end — `atr admin system bootstrap`, `atr admin operators add`,
+`atr projects claim`, `tests/run.sh all`, and an auth-free confined
 `claude --version` session — then calls `systemctl exit` with the aggregate
 status, so the command exits non-zero if any phase fails. Use `rpmtest-rocky10`
 for Rocky 10 and `rpmtest-fedora44` for Fedora 44; the RPMs each one builds
@@ -34,7 +34,7 @@ carry that distribution's dist tag (`.el9`, `.el10`, `.fc44`).
 ══════════════════════════════════════════════════════════════
 PASS        Metapackage pulled every built subpackage
 PASS        system bootstrap (nvm + Node + claude; linger + timer)
-PASS        ai-tools-admin operators add tester
+PASS        atr admin operators add tester
 PASS        operator claims the project (allowlist + ACL + safedir + label)
 PASS        tests/run.sh all
 PASS        confined session launches (claude --version through the wrapper)

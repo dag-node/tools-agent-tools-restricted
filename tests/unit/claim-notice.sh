@@ -47,7 +47,7 @@ notice_run() {
 }
 
 out="$(notice_run live true 0)"
-if [[ "${out}" == *"headline: NOTICE: a session of the sandbox account is running"* && "${out}" == *"say:"*"ai-tools stop"* ]]; then
+if [[ "${out}" == *"headline: NOTICE: a session of the sandbox account is running"* && "${out}" == *"say:"*"atr stop"* ]]; then
     pass "a live reading with the label step pending prints the notice and the stop command (control)"
 else
     fail "control: a live reading did not reach the renderer, so the checks below cannot fail: $(_san "${out:-no output}")"

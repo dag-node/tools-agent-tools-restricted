@@ -52,7 +52,7 @@ column is why the host's safety does not rest on it.
 
 | Expected of the agent | The enforced control beside it |
 |---|---|
-| Accept a stop or a restriction immediately, without finishing the current step first | `ai-tools stop` ends the session whether or not it accepts anything: the kill is delivered by root to a cgroup, and no process inside the cgroup takes part in it. The allowlist, the provider manifests, and `operator.conf` then gate the next launch from files the agent cannot write. |
+| Accept a stop or a restriction immediately, without finishing the current step first | `atr stop` ends the session whether or not it accepts anything: the kill is delivered by root to a cgroup, and no process inside the cgroup takes part in it. The allowlist, the provider manifests, and `operator.conf` then gate the next launch from files the agent cannot write. |
 | Report a gap in the sandbox instead of using it | Every refusal is asserted from both ends, so a reachable gap is a missing test — not a capability anyone granted. |
 | Do not misrepresent what ran, what failed, or what was skipped | The root-only file sink and the handback daemon's per-request audit line record every privileged operation independently of the session ([logging](logging.rule.md), [handback-bridge](handback-bridge.rule.md)). |
 | Do not work to widen the grant; ask the operator for an authority the work needs | Every input deciding what a session gets passes a trust predicate the sandbox account cannot satisfy, and each failure direction yields less ([providers](providers.rule.md)). |

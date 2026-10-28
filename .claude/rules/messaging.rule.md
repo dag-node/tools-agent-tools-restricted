@@ -140,10 +140,9 @@ each reach the catalog in the change that makes them ([tests](tests.rule.md)).
 
 ### One situation, two processes: a deliberate twin
 
-A situation two processes both report carries **one code**, emitted at each site. `ai-tools stop` and `ai-tools-stop`
-each refuse a path, and each refuse an unknown option, in texts that are deliberate twins —
-`refuse_positional_argument`'s header states why neither side can source the other — so an operator meets the same token
-whichever side answered.
+A situation two processes both report carries **one code**, emitted at each site. `atr stop` and `ai-tools-stop` each
+refuse a path, and each refuse an unknown option, in texts that are deliberate twins — `refuse_positional_argument`'s
+header states why neither side can source the other — so an operator meets the same token whichever side answered.
 
 The code is **defined once and cited at the other site**. A definition is the emit-call shape the reference index reads
 (the token as the command's first argument, then the quoted message it labels; a code in a later argument is a citation,
@@ -252,16 +251,16 @@ Pre-answering is two distinct mechanisms, by direction:
 - `AI_TOOLS_ASSUME_YES=1` (environment; unattended runs, tests) skips the prompt and answers yes **only when the default
   is already `y`** — it fast-tracks safe-direction questions and never flips a default-NO question.
 - A default-NO question is pre-answered only by an **explicit per-invocation flag** on the command that owns it —
-  `ai-tools projects claim -y/--yes` (the launch wrapper's delegated claim, covering just the proceed prompt),
+  `atr projects claim -y/--yes` (the launch wrapper's delegated claim, covering just the proceed prompt),
   `ai-tools-lockdown --yes`, `ai-tools-chown --yes` (the batch caller's per-path skip) — an auditable operator decision,
   never ambient state.
 
 ### The stop confirmation defaults YES, and that is the rule, not an exception to it
 
-`ai-tools stop` inverts that direction: its confirmation defaults **YES**, so a bare Enter, a pipe, a cron run
-and an absent `msg.lib.sh` all proceed, and only a deliberate `n` declines. The principle is unchanged — *give it
-the default that is the safe outcome* — and it is **which outcome is safe** that flips: for the one control whose job is
-to end a session already running, declining is the failure. `--dry-run` is how that command is looked at without acting,
+`atr stop` inverts that direction: its confirmation defaults **YES**, so a bare Enter, a pipe, a cron run and an absent
+`msg.lib.sh` all proceed, and only a deliberate `n` declines. The principle is unchanged — *give it the default that is
+the safe outcome* — and it is **which outcome is safe** that flips: for the one control whose job is to end a session
+already running, declining is the failure. `--dry-run` is how that command is looked at without acting,
 and `AI_TOOLS_ASSUME_YES=1` fast-tracks it like any other default-yes question.
 
 The inversion is bounded to the *confirmation*, not to argument handling. The same command **refuses** an unexpected
@@ -297,7 +296,7 @@ string reaching a log sink or a terminal gets ([logging](logging.rule.md)). With
 loaded best-effort here — the answer is **omitted** rather than recorded raw; the decision itself is recorded either
 way.
 
-Where a caller pre-answers it (`ai-tools projects remove -y`), that is the same explicit per-invocation flag rule
+Where a caller pre-answers it (`atr projects remove -y`), that is the same explicit per-invocation flag rule
 as a default-NO confirm, and the flag is the auditable decision.
 
 ## Decision audit trail

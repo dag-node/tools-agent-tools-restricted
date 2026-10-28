@@ -115,7 +115,7 @@ ai_tools_conf__read_unreadable_reason() {
     [[ -n "${path}" ]] || { printf 'no path given'; return 0; }
     account="$(id -un 2>/dev/null)" || account="uid ${EUID}"
     meta="$(stat -c '%F, owner=%U:%G, mode=%a' -- "${path}" 2>/dev/null)" || meta="could not be stat-ed"
-    printf '%s cannot read it (%s) -- restore the installed layout: sudo ai-tools-admin system layout reconcile' \
+    printf '%s cannot read it (%s) -- restore the installed layout: atr admin system layout reconcile' \
         "${account}" "${meta}"
     return 0
 }
@@ -305,7 +305,7 @@ ai_tools_conf__split_list_value() {
 # an integration and a filter set. The prefix lives in operator.conf alone -- a manifest, a fragment and a rules file
 # keep the bare name, since their directory already states the kind -- so the list reader strips it and every consumer
 # receives the bare name. An item without its key's prefix makes the whole list invalid (MSG-X6F2): an earlier release
-# wrote bare names, and `ai-tools-admin system post-upgrade` rewrites them (ai_tools_providers__migrate_kinds,
+# wrote bare names, and `atr admin system post-upgrade` rewrites them (ai_tools_providers__migrate_kinds,
 # providers.lib.sh). _ai_tools_conf__list_kind_table is the one place a key is tied to its prefix.
 
 # The longest name a pair list item takes; a name may become a path component, so it is an identifier and bounded.
@@ -440,7 +440,7 @@ ai_tools_conf__read_kind_list() {
         # Plain names for the message, declared once the nameref is not written again.
         local key="${_ai_tools_conf__kind_list_key}" file="${_ai_tools_conf__kind_list_file}" prefix="${_ai_tools_conf__kind_list_prefix}"
         local -a unprefixed=("${_ai_tools_conf__kind_list_unprefixed[@]}")
-        ai_tools_conf__warn MSG-X6F2 "invalid list, read as the empty list -- ${key} in ${file} holds ${unprefixed[*]}, not written as ${prefix}<name>; this rewrites a bare name and names any it cannot: sudo ai-tools-admin system post-upgrade"
+        ai_tools_conf__warn MSG-X6F2 "invalid list, read as the empty list -- ${key} in ${file} holds ${unprefixed[*]}, not written as ${prefix}<name>; this rewrites a bare name and names any it cannot: atr admin system post-upgrade"
         return 0
     fi
     _ai_tools_conf__kind_list_out=("${_ai_tools_conf__kind_list_bare[@]+"${_ai_tools_conf__kind_list_bare[@]}"}")
@@ -679,7 +679,7 @@ ai_tools_conf__find_new_keys() {
 
 # ── KEY=value files: set one key in place ────────────────────────────────────────────────────
 # The one rewrite this project makes to operator.conf is a single key's value -- the OPERATORS list
-# from `ai-tools-admin operators add|remove` and the AI_TOOLS_AGENTS list from the toolchain provisioning's agent choice
+# from `atr admin operators add|remove` and the AI_TOOLS_AGENTS list from the toolchain provisioning's agent choice
 # (ai_tools_conf__set_list), and the provisioning's switches (ai_tools_conf__set_key). Setting a key replaces one line
 # and does not splice a block in, which is what ai_tools_conf__find_new_keys leaves to the operator: the line replaced
 # is the key's own -- its last live assignment, the one a reader takes, or where the file has none, the first commented
@@ -1209,8 +1209,8 @@ ai_tools_conf__allowlist_enable() {
 # ── Seed text for an operator's own config files ──────────────────────────────────────────────
 # A file an operator keeps in ~/.config/ai-tools is created carrying its header and no entry, so the operator edits
 # a file that states what it is rather than a blank one. The text lives here because it is written from more than one
-# place -- `ai-tools-admin operators add` on any installed host, and install.sh for the account a from-source install
-# enrols -- and a header written twice is a header that disagrees with itself about what the file accepts. Each function
+# place -- `atr admin operators add` on any installed host, and install.sh for the account a from-source install enrols
+# -- and a header written twice is a header that disagrees with itself about what the file accepts. Each function
 # PRINTS; the caller places the file with the ownership and mode it needs (600, inside a 700
 # directory).
 #

@@ -117,7 +117,7 @@ anyway gets both, the hooks as cadence and the sweep as the guarantee behind the
 The sweep only chooses which paths to **offer**; each one still passes `ai-tools-chown`'s allowlist, exclusion, secret,
 and born-owner re-validation as root, so it cannot reach a path the hooks could not. It runs from an `EXIT` trap,
 so an interrupted shim (Ctrl-C, `SIGTERM`) still converges; a `SIGKILL` leaves the tree to the next session's sweep
-or `ai-tools projects handback`.
+or `atr projects handback`.
 
 ## `entrypoint_fcontext` and `config_dir` — the agent declares its own paths
 
@@ -154,8 +154,8 @@ Two constraints keep that from being a label-anything primitive, and neither liv
   `ai_tools_control_plane__is_agent_config_dir_valid` in `control-plane.lib.sh`.
 
 The rule's lifecycle follows the package: applied by the agent package's `%post` (and by `install.sh`,
-`ai-tools-bootstrap`, the relabel watcher, and `ai-tools-admin system entrypoints relabel`), dropped by its `%preun`
-on final erase via `ai-tools-relabel-agent --remove <agent>`.
+`ai-tools-bootstrap`, the relabel watcher, and `atr admin system entrypoints relabel`), dropped by its `%preun` on final
+erase via `ai-tools-relabel-agent --remove <agent>`.
 
 ## `launcher_target` — where the versioned launcher points
 
@@ -334,7 +334,7 @@ before the key and names the merge that carries the line under its header — an
 and renamed so a reader sees the old file or the new one. A missing file is created at `0644`. Each writer refuses a key
 outside the identifier charset, and each refuses what would read back as a different setting: `set_key` a value carrying
 a newline or a double quote, `set_list` an empty item or one carrying whitespace, a comma, a bracket, a quote or a `#`.
-Each verifies by reading the key back. `ai-tools-admin operators add|remove` write `OPERATORS` and `ai-tools-bootstrap`
+Each verifies by reading the key back. `atr admin operators add|remove` write `OPERATORS` and `ai-tools-bootstrap`
 writes `AI_TOOLS_AGENTS` through the list writer, and the bootstrap's launch switches go through the scalar one;
 `tests/unit/conf.sh` drives both over a template-shaped fixture and asserts every other line byte-identical.
 
@@ -397,12 +397,12 @@ shipped hook is installed but stays uninvoked until its declaration is merged
 ([claude-settings](claude-settings.rule.md)).
 
 The cost is that reconciling the `.rpmnew` is manual, so it is signposted: each package's `%post` prints the pointer
-whenever one is present, and `sudo ai-tools-admin system post-upgrade` — which reads the newest copy beside a file,
-the package's `.rpmnew` or the `.shipped` a from-source install leaves ([claude-settings](claude-settings.rule.md) holds
-the rule) — names the options the new version documents that the file does not mention, the keys the host sets
-for itself, and whether the comment prose differs, and gives the `sudoedit` merge that opens the two side by side,
-the package copy on the right with every value the file sets carried in: `<copy>-merge`, written `0600` root beside
-the `.rpmnew` or `.shipped` copy and removed by a run that does not find a merge pending for it, so the comparison shows
+whenever one is present, and `atr admin system post-upgrade` — which reads the newest copy beside a file, the package's
+`.rpmnew` or the `.shipped` a from-source install leaves ([claude-settings](claude-settings.rule.md) holds the rule) —
+names the options the new version documents that the file does not mention, the keys the host sets for itself,
+and whether the comment prose differs, and gives the `sudoedit` merge that opens the two side by side, the package copy
+on the right with every value the file sets carried in: `<copy>-merge`, written `0600` root beside the `.rpmnew`
+or `.shipped` copy and removed by a run that does not find a merge pending for it, so the comparison shows
 what the version changed rather than every value the host sets, `OPERATORS` among them. A copy that differs only
 in those values is offered for removal without a merge. It prints neither file: a kept `KEY=value` file may hold
 a credential. It leaves this file's prose and options as written and the copy in place as the baseline the operator
@@ -447,7 +447,7 @@ offered that asset.
 Every config file an operator holds keeps its reference in a section 5 page, for one of two reasons. The shipped
 templates, `operator.conf` and `custom-claude-endpoint.conf`, are `%config(noreplace)`, so a prose change to one reaches
 an upgraded host only as an `.rpmnew` the operator reconciles by hand. The per-operator files, `allowed-projects`
-and `secret-patterns`, are seeded once, by `ai-tools-admin operators add` (the two `*_seed` functions in `conf.lib.sh`),
+and `secret-patterns`, are seeded once, by `atr admin operators add` (the two `*_seed` functions in `conf.lib.sh`),
 and no upgrade rewrites them: the header an operator's file carries is the one that shipped on the day that account was
 enrolled, for as long as the account exists. A header written into any of the four therefore states what the file is,
 the one rule a reader needs before writing a line, example lines or one block per option, and the page that holds
@@ -496,9 +496,9 @@ grammar](#the-shared-config-grammar-conflibsh)) gates each kind:
 - **config present, trusted, and unreadable to the reader** → its own gate state, `unreadable`: the trust predicate
   reads the file with `stat` alone, so a `0600 root:root` file passes it while the sandbox account's read of the content
   fails. The enabled set is the baseline, as for an untrusted file, and the state is reported under `MSG-V2R5`
-  with the account, the mode read and `sudo ai-tools-admin system layout reconcile`. The set the file declares is
-  unknown rather than absent, so the empty-set verdict is a `fault` and the residue readers do not read any package
-  as residue ([updater](updater.rule.md)).
+  with the account, the mode read and `atr admin system layout reconcile`. The set the file declares is unknown rather
+  than absent, so the empty-set verdict is a `fault` and the residue readers do not read any package as residue
+  ([updater](updater.rule.md)).
 - **a listed name with no installed manifest** → reported and skipped, never guessed.
 
 For an **integration**, `default_enable=yes` is the shipping package's claim that its provider leaves host surface
@@ -660,9 +660,8 @@ the shim from inside such a namespace.
   from naming hook scripts the same uninstall removed. `tests/unit/providers.sh` drives the verdict, the reader
   and the write.
 - `ai_tools_providers__read_gate <conf-key>` — how a kind's enabled set is being decided (`allowlist` / `baseline` /
-  `untrusted` / `unreadable`), read-only and side-effect free. The resolvers read it, and so does `ai-tools providers`
-  (see [cli](cli.rule.md)), so an operator asking what is enabled and a session being launched consult one
-  implementation.
+  `untrusted` / `unreadable`), read-only and side-effect free. The resolvers read it, and so does `atr providers` (see
+  [cli](cli.rule.md)), so an operator asking what is enabled and a session being launched consult one implementation.
 
 Data-only stdout (safe in `$(...)`); enabled-but-uninstalled names and every trust refusal go to stderr, and to journald
 when `log.lib.sh` is loadable. `AI_TOOLS_{AGENTS,INTEGRATIONS}_DIR` and `AI_TOOLS_OPERATOR_CONF` are root-only test

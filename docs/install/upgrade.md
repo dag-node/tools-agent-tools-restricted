@@ -39,19 +39,19 @@ in [ref-section-f5q2](../rpm-packaging.md#ref-section-f5q2).
 ## Every installed path is restored to its owner, mode and ACL
 
 ```bash
-sudo ai-tools-admin system layout
+atr admin system layout
 ```
 
 The command lists every path the stack installs with the owner, mode, ACL
 and SELinux type it carries now and names each that drifted. An upgrade,
 a source install, the provisioning run and the entrypoint relabel each run
-`sudo ai-tools-admin system layout reconcile`, which restores a drifted entry
-and logs every change under the journal tag `ai-tools-layout`. A mode
-an upgrade or a hand edit changed is restored by the next of those runs,
-without a step of yours. A file whose content is not the package's,
-or that another account owns or can write, is reported and left as it is,
-with the command that restores it. `man ai-tools-admin` lists every state
-the reconcile leaves to you.
+`atr admin system layout reconcile`, which restores a drifted entry and logs
+every change under the journal tag `ai-tools-layout`. A mode an upgrade
+or a hand edit changed is restored by the next of those runs, without a step
+of yours. A file whose content is not the package's, or that another account
+owns or can write, is reported and left as it is, with the command
+that restores it. `man ai-tools-admin` lists every state the reconcile leaves
+to you.
 
 ## 0.24.0: the skills move to the asset set core <a id="ref-section-y5t4"></a>
 
@@ -63,18 +63,18 @@ with 0.24.0, so install the set first, upgrade, and enable it right after:
 ```bash
 sudo dnf install ai-tools-assets-sets-core
 sudo dnf upgrade --refresh 'ai-tools*'
-sudo ai-tools-admin assets enable --set core
+atr admin assets enable --set core
 ```
 
 On a 0.23 host the set's package only places its files, which 0.24.0 is
 the first release to read. A session that starts between the upgrade
 and the enable loads none of the set's skills; the upgrade's output
-and `sudo ai-tools-admin status` both name the enable until it runs.
+and `atr admin status` both name the enable until it runs.
 
 An `operator.conf` written before 0.24.0 has no `AI_TOOLS_ASSETS` line
 for the enable to take, so the enable appends one and says so. To have it land
-under its header instead, run `sudo ai-tools-admin system post-upgrade` first
-and adopt the merge it offers.
+under its header instead, run `atr admin system post-upgrade` first and adopt
+the merge it offers.
 
 What the move gives you:
 
@@ -90,14 +90,14 @@ What the move gives you:
   keeps every set asset off.
 - **An asset links only after its set verifies.** The set's file list is signed
   with the key the packages are; a copy that does not match it is not linked,
-  and `sudo ai-tools-admin status` says why.
+  and `atr admin status` says why.
 - **Your own copy wins.** A root-owned entry in an agent's own directory is
   loaded in place of the set's, and a set copy of your own is read ahead
   of the packaged one; `man 5 ai-tools-assets` names the directories.
 
 The upgrade moves the copies the base packages shipped
 to `/opt/ai-tools/retired/`; the enable links the set's in their place.
-What `sudo ai-tools-admin status` reports after the upgrade, and what ends it:
+What `atr admin status` reports after the upgrade, and what ends it:
 
 | On the host | `status` after the upgrade | What ends it |
 |---|---|---|
@@ -132,7 +132,7 @@ Two consequences reach an operator:
   defers it to the next cycle rather than removing a toolchain tree
   out from under a running session.
 
-`ai-tools status` reports when the update last ran and how it ended
+`atr status` reports when the update last ran and how it ended
 ([System](../system/index.md)).
 
 ## Labels under the sandbox's own trees wait for idle sessions
@@ -149,7 +149,7 @@ session of that account and no toolchain update is running
 ([ref-section-e6c6](../../.claude/rules/cli.rule.md#ref-section-e6c6)).
 An upgrade made while one runs completes and prints that warning once. Let each
 session end with `/exit` and the update finish, or end them all
-with `ai-tools stop`, then run the command it names. A label left as it was is
+with `atr stop`, then run the command it names. A label left as it was is
 the one the tree already carried, so a session started before you run it is
 confined as before.
 
@@ -162,7 +162,7 @@ relabels each new entrypoint after an update, and where it has not, one command
 does it:
 
 ```bash
-sudo ai-tools-admin system entrypoints relabel
+atr admin system entrypoints relabel
 ```
 
 That is the one SELinux case an operator meets in practice;

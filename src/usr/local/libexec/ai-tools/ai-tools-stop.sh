@@ -44,7 +44,7 @@
 # ── Why root, and what this command accepts ──────────────────────────────────────────────────
 # Signalling the sandbox account's cgroups and writing cgroup.kill is root's to do. The %ai-ops sudoers rule grants this
 # helper NOPASSWD in its zero-argument form alone (the drop-in's trailing ""), so `ai-tools stop` runs without a prompt,
-# and a flagged form (`ai-tools stop --dry-run`) meets sudo's ordinary password prompt, as a call
+# and a flagged form (`atr stop --dry-run`) meets sudo's ordinary password prompt, as a call
 # to `ai-tools-{lockdown,reclaim,audit}` does.
 #
 # IT TAKES NO TARGET AND NO AUTHORIZATION INPUT. What is stopped is decided by one fact a session cannot influence --
@@ -230,15 +230,15 @@ FORCE_KILL=false
 refuse_positional_argument() {
     printf 'MSG-A3M9\nai-tools-stop: stop takes no path: %s\n' "$1" >&2
     printf '%s' '
-  ai-tools stop TERMINATES every agent session on this host, and has no per-project
+  atr stop TERMINATES every agent session on this host, and has no per-project
   form. It is not the way to end a session you are finished with -- it kills the process
   tree, so the session cannot run its own session-end handback.
   A session is attributed to a project by asking the sandbox account'"'"'s own user manager
   -- the account being stopped -- so that attribution is reported, never trusted to
   decide what a stop reaches.
 
-  Terminate every session:    ai-tools stop
-  See what is running first:  ai-tools stop --dry-run
+  Terminate every session:    atr stop
+  See what is running first:  atr stop --dry-run
   End one session cleanly:    /exit inside it, which runs its session-end handback
   Terminate one by hand:      sudo systemctl --user -M @SANDBOX_USER@@.host stop <unit>
 ' >&2
@@ -248,8 +248,7 @@ refuse_positional_argument() {
 parse_command_line() {
     while (( $# )); do
         case "$1" in
-            # Accepted and inert (the header's usage note says why it exists at all). The documented form is
-            # `ai-tools stop`.
+            # Accepted and inert (the header's usage note says why it exists at all). The documented form is `atr stop`.
             --all)        shift ;;
             --dry-run) DRY_RUN=true; shift ;;
             -y|--yes)     ASSUME_YES=true; shift ;;
@@ -271,7 +270,7 @@ parse_command_line() {
 resolve_run_context() {
     if [[ "$(id -u)" != "0" ]]; then
         say_error MSG-Z5W3 "This command must run as root: stopping a session means signalling ${SANDBOX_USER}'s cgroups" \
-                  "run it as: ai-tools stop"
+                  "run it as: atr stop"
         exit 5
     fi
 
@@ -304,7 +303,7 @@ resolve_run_context() {
     if [[ -z "${SANDBOX_UID}" ]]; then
         say_error MSG-Q9Y2 "This host cannot resolve the uid of ${SANDBOX_USER}, so no cgroup can be located" \
                   "the sandbox account is missing -- reprovision with:" \
-                  "  sudo ai-tools-admin system bootstrap"
+                  "  atr admin system bootstrap"
         log_event error "REFUSED: ${SANDBOX_USER} has no uid; cannot locate any session cgroup"
         exit 5
     fi
@@ -720,8 +719,8 @@ unit_working_directory() {
     # Attribution does not decide any part of the sweep here, so this is not a gate -- it is what keeps a value this
     # helper cannot interpret from being printed as though it could be used. The concrete case is
     # print_reclaim_guidance, which turns each attributed directory into a command the operator is invited to run:
-    # an unstripped marker emitted `ai-tools projects handback !/opt/ai-tools`, which is not a runnable command
-    # and, pasted into an interactive bash, is not even an inert one.
+    # an unstripped marker emitted `atr projects handback !/opt/ai-tools`, which is not a runnable command and, pasted
+    # into an interactive bash, is not even an inert one.
     #
     # The shape is ALLOWLISTED rather than the markers enumerated, so a rendering systemd adds later degrades
     # to `unknown` instead of reaching the operator as a broken command. `~` (WorkingDirectory=~, the account's home)
@@ -848,9 +847,9 @@ print_session_table() {
 # the operator must translate mid-incident.
 #
 # CALLED WITH AGENT SESSIONS' DIRECTORIES ONLY. The account's plumbing has no project to hand back, and its
-# WorkingDirectory is routinely a path `ai-tools projects handback` would refuse outright: the account's dbus broker
-# reports `/opt/ai-tools`, the control plane, which the safe-paths backstop protects. Emitting it produced a remedy
-# that cannot run, offered to an operator mid-incident with no marker to distinguish it from the one that can.
+# WorkingDirectory is routinely a path `atr projects handback` would refuse outright: the account's dbus broker reports
+# `/opt/ai-tools`, the control plane, which the safe-paths backstop protects. Emitting it produced a remedy that cannot
+# run, offered to an operator mid-incident with no marker to distinguish it from the one that can.
 print_reclaim_guidance() {
     local directory
     local -A seen=()
@@ -865,7 +864,7 @@ print_reclaim_guidance() {
     printf '\n  %s\n' "A stopped session cannot run its own session-end handback, so the last turn's"
     printf '  %s\n'   "writes may still be ${SANDBOX_USER}-owned. Hand them back with:"
     for directory in "${targets[@]}"; do
-        printf '  %s\n' "    ai-tools projects handback $(sanitize "${directory}")"
+        printf '  %s\n' "    atr projects handback $(sanitize "${directory}")"
     done
 }
 

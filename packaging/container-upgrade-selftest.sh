@@ -69,7 +69,7 @@ view_id() {
     printf '%s/%s/%s' "${HOME_DIR}" "${kind}" "${name}"
 }
 
-# assets_section : the Assets section of `ai-tools-admin status`, its heading excluded.
+# assets_section : the Assets section of `atr admin status`, its heading excluded.
 assets_section() {
     "${ADMIN}" status 2>/dev/null | awk '/^  Assets$/ { inside = 1; next } inside && /^  [^ ]/ { exit } inside'
 }

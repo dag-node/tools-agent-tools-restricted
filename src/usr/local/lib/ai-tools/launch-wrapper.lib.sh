@@ -21,6 +21,7 @@ readonly _AI_TOOLS_LAUNCH_WRAPPER__LOADED=1
 readonly AI_TOOLS_LAUNCH_WRAPPER__NVM_DIR="/opt/ai-tools/.nvm"
 readonly AI_TOOLS_LAUNCH_WRAPPER__RUN="/opt/ai-tools/bin/ai-tools-run"
 readonly AI_TOOLS_LAUNCH_WRAPPER__CLI="/usr/local/bin/ai-tools"
+readonly AI_TOOLS_LAUNCH_WRAPPER__TYPED_CLI="/usr/local/bin/atr"
 readonly OPERATORS_GROUP="ai-ops"
 readonly SANDBOX_USER="@SANDBOX_USER@"
 readonly SANDBOX_GROUP="@SANDBOX_GROUP@"
@@ -124,10 +125,10 @@ ai_tools_launch_wrapper__init() {
     # One fixed 80-column frame for every box the wrapper shows, so the guidance screens and refusals of a launch align
     # instead of each sizing to its own text.
     export AI_TOOLS_MSG_FULLWIDTH=1
-    # How the ai-tools CLI is named in the guidance screens: the bare command where PATH resolves it (both binaries are
-    # on an operator's PATH, so the absolute path reads as a second, unrelated tool), the absolute path on a host
-    # whose PATH does not.
-    CLI_CMD="$(ai_tools_msg__format_command "${AI_TOOLS_LAUNCH_WRAPPER__CLI}")"
+    # How the CLI is named in the guidance screens: as atr, the command an operator types, while the wrapper execs
+    # the CLI itself. The bare command where PATH resolves it (`atr` is on an operator's PATH, so the absolute path
+    # reads as a second, unrelated tool), the absolute path on a host whose PATH does not.
+    CLI_CMD="$(ai_tools_msg__format_command "${AI_TOOLS_LAUNCH_WRAPPER__TYPED_CLI}")"
     readonly CLI_CMD
     if [[ "${name}" != "${requested}" ]]; then
         ai_tools_launch_wrapper__die MSG-Z6F8 "invoked under a name that is not a launcher -- refusing to start" \
@@ -197,7 +198,7 @@ ai_tools_launch_wrapper__gate_operator() {
         else
             ai_tools_launch_wrapper__die MSG-C7C9 "not an ai-tools operator -- ${user} is not a member of the ${OPERATORS_GROUP} group" \
                 "       an administrator can grant access with:" \
-                "         sudo ai-tools-admin operators add ${user}"
+                "         atr admin operators add ${user}"
         fi
     fi
 }
@@ -254,7 +255,7 @@ ai_tools_launch_wrapper__gate_launcher() {
     (( ${#enabled[@]} )) && printf -v joined '%s, ' "${enabled[@]}" && joined="${joined%, }"
     ai_tools_launch_wrapper__die MSG-F8N3 "not the launcher of an agent enabled on this host (enabled: ${joined})" \
         "       an agent is enabled by AI_TOOLS_AGENTS in ${OPERATOR_CONF}; after changing it, run:" \
-        "         sudo ai-tools-admin system bootstrap"
+        "         atr admin system bootstrap"
 }
 
 # ai_tools_launch_wrapper__gate_lists -- refuse every launch while operator.conf holds a provider list item an earlier
@@ -271,7 +272,7 @@ ai_tools_launch_wrapper__gate_lists() {
     [[ -n "${joined}" ]] || return 0
     ai_tools_launch_wrapper__die MSG-V3Q5 "no session starts while operator.conf names a provider without its kind prefix: ${joined}" \
         "       an earlier release wrote these names bare; rewrite them with:" \
-        "         sudo ai-tools-admin system post-upgrade"
+        "         atr admin system post-upgrade"
 }
 
 # ai_tools_launch_wrapper__gate_residue -- refuse every launch while an agent the host installed but did not enable
@@ -328,7 +329,7 @@ ai_tools_launch_wrapper__gate_residue() {
     ai_tools_launch_wrapper__die MSG-H4E2 "no session starts while a disabled agent's package is still in the sandbox toolchain: ${joined%, }" \
         "       an agent installed on this host but not named in AI_TOOLS_AGENTS keeps its package" \
         "       until a provisioning run removes it, and no agent launches until then; remove it with:" \
-        "         sudo ai-tools-admin system bootstrap"
+        "         atr admin system bootstrap"
 }
 
 # ai_tools_launch_wrapper__resolve_executable -- resolve the stable launcher symlink one hop
@@ -350,7 +351,7 @@ ai_tools_launch_wrapper__resolve_executable() {
     if [[ ! -L "${launcher_link}" ]]; then
         ai_tools_launch_wrapper__die MSG-S4B3 "launcher symlink not found at ${launcher_link}" \
             "       the sandbox toolchain is not provisioned yet -- provision it with:" \
-            "         sudo ai-tools-admin system bootstrap"
+            "         atr admin system bootstrap"
     fi
     AI_TOOLS_LAUNCH_WRAPPER__EXEC="$(readlink -- "${launcher_link}")" \
         || ai_tools_launch_wrapper__die MSG-S5Y9 "cannot read the launcher symlink ${launcher_link} -- reinstall or run nvm-update.sh"
@@ -419,10 +420,10 @@ ai_tools_launch_wrapper__gate_project() {
     # Exclusions are checked first and override allows (the match ai_tools_conf__is_path_excluded makes, spelled
     # out here because the refusal names which line matched and how). Two shapes reach this, and they are DIFFERENT
     # situations for the operator standing here, so they are reported apart: a line naming this very directory is
-    # a project someone PARKED -- `ai-tools projects disable`, or the same edit by hand -- and the way back is one
-    # command, while a line covering it from an ancestor (a parent, or a glob) is a subtree deliberately withheld
-    # from a project, where the remedy is to edit that line rather than to re-enable anything. Telling an operator their
-    # parked project is merely "excluded" leaves them to work out which of the two they are in.
+    # a project someone PARKED -- `atr projects disable`, or the same edit by hand -- and the way back is one command,
+    # while a line covering it from an ancestor (a parent, or a glob) is a subtree deliberately withheld from a project,
+    # where the remedy is to edit that line rather than to re-enable anything. Telling an operator their parked project
+    # is merely "excluded" leaves them to work out which of the two they are in.
     if [[ "${#exclusion_patterns[@]}" -gt 0 ]]; then
         for pat in "${exclusion_patterns[@]}"; do
             pat="${pat%/}"                         # normalise: strip trailing slash
@@ -518,8 +519,8 @@ ai_tools_launch_wrapper__gate_project() {
 }
 
 # _ai_tools_launch_wrapper__is_project_labelled <dir> -- 0 when SELinux is NOT enforcing (no label needed) or <dir>
-# already carries ai_tools_project_t. Read-only, no privilege; the authoritative relabel lives
-# in `ai-tools projects claim` (-> ai-tools-relabel), never duplicated here.
+# already carries ai_tools_project_t. Read-only, no privilege; the authoritative relabel lives in `atr projects claim`
+# (-> ai-tools-relabel), never duplicated here.
 _ai_tools_launch_wrapper__is_project_labelled() {
     command -v getenforce >/dev/null 2>&1 || return 0
     [[ "$(getenforce 2>/dev/null)" == "Enforcing" ]] || return 0
@@ -529,7 +530,7 @@ _ai_tools_launch_wrapper__is_project_labelled() {
 # ai_tools_launch_wrapper__guard_claim -- refuse an approved CWD whose claim is incomplete; offer the claim, never
 #   perform it.
 # The cwd passed the allowlist, but a registered path can still be incompletely "claimed". Three independent gaps, all
-# detected read-only here; the fix is always delegated to `ai-tools projects claim` (idempotent) -- this library never
+# detected read-only here; the fix is always delegated to `atr projects claim` (idempotent) -- this library never
 # performs a chgrp or a relabel itself, it only detects, offers, and (on consent) calls the CLI:
 #   ownership  -- group not the sandbox group, or no group-execute. The sandbox user runs with this dir as its cwd,
 #                 and Node's posix_spawn then fails EACCES on every child (hooks, the Bash tool): the session starts
@@ -667,7 +668,7 @@ ai_tools_launch_wrapper__run_gates() {
 # with an error naming that path (ancestor-config.lib.sh). The reading is taken per launch, since a project's ancestry
 # changes independently of the claim that registered it. It reports and does not repair any of them: no launch path
 # reaches outside the project. It sits here rather than in the claim guard because each of that guard's findings is
-# closed by `ai-tools projects claim`, which does not close this one.
+# closed by `atr projects claim`, which does not close this one.
 _ai_tools_launch_wrapper__print_notices() {
     local name="${AI_TOOLS_LAUNCH_WRAPPER__NAME}" svc drift config
     # shellcheck source=SCRIPTDIR/services.lib.sh

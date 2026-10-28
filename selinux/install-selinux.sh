@@ -156,15 +156,15 @@ _list() {
     printf '[%s]' "${joined}"
 }
 
-# _group_cmd <enable|disable> [name]: the command an operator on THIS host should run to manage a policy group.
-# ai-tools-admin is the shipped entry point and is on PATH once the package is installed, so prefer it; a source
-# checkout with no install yet falls back to this script's own path. The two front doors spell the action differently --
-# the shipped one follows the command grammar (.claude/rules/cli-grammar.rule.md) while this developer-only script keeps
-# its hyphenated verb -- so each branch renders its own spelling from the same action.
+# _group_cmd <enable|disable> [name]: the command an operator on THIS host should run to manage a policy group. atr
+# admin is the shipped entry point and is on PATH once the package is installed, so prefer it; a source checkout with no
+# install yet falls back to this script's own path. The two front doors spell the action differently -- the shipped one
+# follows the command grammar (.claude/rules/cli-grammar.rule.md) while this developer-only script keeps its hyphenated
+# verb -- so each branch renders its own spelling from the same action.
 _group_cmd() {
     local verb="$1" name="${2:-<name>}"
-    if command -v ai-tools-admin >/dev/null 2>&1; then
-        printf 'sudo ai-tools-admin selinux groups %s %s' "${verb}" "${name}"
+    if command -v atr >/dev/null 2>&1; then
+        printf 'atr admin selinux groups %s %s' "${verb}" "${name}"
     else
         printf 'sudo %s %s-group %s' "$0" "${verb}" "${name}"
     fi
@@ -597,7 +597,7 @@ _warn_left_trees() {
     local reason="an agent session, the toolchain update, or a step run as the sandbox account is live"
     [[ "${_sandbox_session_state}" == live ]] \
         || reason="this host's sessions could not be read (where ${SANDBOX_EXEC_LIB} is absent, sudo ./install.sh install deploys it)"
-    warn MSG-U8U4 "left the labels on these trees as they were: ${reason}; let each session end (/exit inside it) and the toolchain update finish, or end them all with 'ai-tools stop', then run:"
+    warn MSG-U8U4 "left the labels on these trees as they were: ${reason}; let each session end (/exit inside it) and the toolchain update finish, or end them all with 'atr stop', then run:"
     local tree
     for tree in "${_left_trees[@]}"; do
         warn "    sudo restorecon -FR $(printf '%q' "${tree}")"
@@ -773,14 +773,14 @@ verify_agent_labels() {
                       warn "    ${detail}"
                       warn "    -- a copy of the entrypoint its manifest declares, where the toolchain keeps a symlink,"
                       warn "    so no relabel can label it and every launch will fail closed"
-                      warn "    Restore the links: sudo ai-tools-admin system bootstrap" ;;
+                      warn "    Restore the links: atr admin system bootstrap" ;;
                 # The declared entrypoint is not installed at all: the package is incomplete, and the toolchain run
                 # reinstalls it.
                 incomplete) bad=1
                       warn MSG-G9M3 "incomplete package for ${subject}: its launcher resolves to"
                       warn "    ${detail}"
                       warn "    -- and no installed file matches the entrypoint its manifest declares"
-                      warn "    Reinstall it: sudo ai-tools-admin system bootstrap" ;;
+                      warn "    Reinstall it: atr admin system bootstrap" ;;
                 none) warn MSG-S4K9 "no path to label for ${subject}: ${detail} is not installed" ;;
                 # The config directory's walk was left because a process of the sandbox account is live. Not `bad`:
                 # the rule is registered, and the closing warning names the walk that completes it. The type
@@ -802,7 +802,7 @@ verify_agent_labels() {
                 # a labelling result into no output at all, which reads as "no change" for the one path whose label
                 # decides whether a session is confined -- and leaves the operator no detail to diagnose from.
                 *)    warn MSG-K2W4 "unrecognized labelling result: ${verdict} ${subject} ${detail} ${wanted}"
-                      warn "    the entrypoint label is unconfirmed; check: sudo ai-tools-admin system entrypoints relabel" ;;
+                      warn "    the entrypoint label is unconfirmed; check: atr admin system entrypoints relabel" ;;
             esac
         done <<< "${report}"
     fi
@@ -820,9 +820,9 @@ verify_agent_labels() {
         if [[ -z "${report}" ]]; then
             warn MSG-Q8W8 "no agent resolved from the manifests, so no entrypoint was labelled"
             warn "  Nothing here grants ai_tools_exec_t, so a session refuses to launch until it is"
-            warn "  Check which agents are enabled:  ai-tools providers"
+            warn "  Check which agents are enabled:  atr providers"
             warn "  and that a manifest is installed: ls -l /usr/local/lib/ai-tools/agents.d/"
-            warn "  Re-apply once one resolves:      sudo ai-tools-admin system entrypoints relabel"
+            warn "  Re-apply once one resolves:      atr admin system entrypoints relabel"
         else
             warn MSG-K3A8 "no agent path took a label this run -- see the per-path reason above"
         fi
@@ -874,7 +874,7 @@ _unlabel_project() { local rc=0; ai_tools_relabel__unlabel_project "$1" || rc=$?
                      *) warn MSG-W8J4 "could not unlabel $1" ;;
                  esac; }
 _warn_live_session() {
-    warn MSG-E9S6 "left the label on $1 as it was: an agent session or the toolchain update runs as the sandbox account, or this host's sessions could not be read; let each session end (/exit inside it) and the toolchain update finish, or end them all with 'ai-tools stop', then re-run this command"
+    warn MSG-E9S6 "left the label on $1 as it was: an agent session or the toolchain update runs as the sandbox account, or this host's sessions could not be read; let each session end (/exit inside it) and the toolchain update finish, or end them all with 'atr stop', then re-run this command"
 }
 # _label_sandbox_clones: apply the static ai_tools_project_t label (ai_tools.fc) to every existing sandbox clone, then
 # REPORT and VERIFY each one. The per-project loop skips sandbox paths (they carry no dynamic semanage rule --
@@ -910,7 +910,7 @@ _label_sandbox_clones() {
 # _operator_conf_dirs: print the ai-tools config directory of every account this host treats as an operator, one
 # per line, deduplicated in first-seen order. That set is the OPERATORS list in operator.conf plus the invoking user,
 # who is an operator by having run this and who on a first install is absent from the list, operator.conf being written
-# by `ai-tools-admin operators add`. So an unenrolled host still labels the config of the account installing the policy.
+# by `atr admin operators add`. So an unenrolled host still labels the config of the account installing the policy.
 _operator_conf_dirs() {
     local name home
     {
@@ -1083,7 +1083,7 @@ case "${ACTION}" in
         log "re-run the bring-up loop (avc-testsuite.sh + avc-analyze.sh) to cover"
         log "the expanded surface before removing 'permissive ai_tools_t;'"
     fi
-    log "verify:  semodule -l | grep ai_tools;  ai-tools providers"
+    log "verify:  semodule -l | grep ai_tools;  atr providers"
     log "after launching claude:  ps -eo label,cmd | grep -m1 claude  (expect ai_tools_t)"
     ;;
 
@@ -1151,7 +1151,7 @@ case "${ACTION}" in
     # in place under the gate, and the unload refuses on any local rule naming a type it removes. The sweep
     # after the registry walks drops the rules they do not derive, for the same reason.
     [[ "${_sandbox_session_state}" == none ]] \
-        || die MSG-H7Q2 "left the policy loaded: an agent session or the toolchain update runs as the sandbox account, or this host's sessions could not be read; let each session end (/exit inside it) and the toolchain update finish, or end them all with 'ai-tools stop', then re-run: sudo $0 remove"
+        || die MSG-H7Q2 "left the policy loaded: an agent session or the toolchain update runs as the sandbox account, or this host's sessions could not be read; let each session end (/exit inside it) and the toolchain update finish, or end them all with 'atr stop', then re-run: sudo $0 remove"
     log "dropping project fcontext rules"
     _locked _labels_drop
     log "dropping the file-context rules outside this host's registries"

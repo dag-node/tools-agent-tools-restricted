@@ -2,10 +2,9 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # /usr/local/libexec/ai-tools/ai-tools-audit
 # Answers one question: what was refused, rejected, stranded or flagged BETWEEN two points in time? It reports EVENTS,
-# never current state -- a condition recorded here may have been resolved since, and confirming that is
-# `ai-tools status`'s job, not this one's. Conflating the two invites acting on a finding that is already fixed.
-# The detections already exist and are already recorded -- what they lacked was a reader, and a detection nobody reads
-# is decoration.
+# never current state -- a condition recorded here may have been resolved since, and confirming that is `atr status`'s
+# job, not this one's. Conflating the two invites acting on a finding that is already fixed. The detections already
+# exist and are already recorded -- what they lacked was a reader, and a detection nobody reads is decoration.
 #
 # It does not invent a detection, nor parse per-case wording. The root-only file sink already encodes severity in its
 # line format (`<ts> <LEVEL> [<pid>] <msg>`, written by log.lib.sh and, in the same format, by the handback daemon),
@@ -34,7 +33,7 @@
 # findings rather than fewer.
 #
 # Root-only: the file sink is unreadable to anyone else, so there is no trail for a non-root caller to do here. Reached
-# through `sudo ai-tools audit` with no NOPASSWD grant, like ai-tools-lockdown and ai-tools-reclaim.
+# through `sudo atr audit` with no NOPASSWD grant, like ai-tools-lockdown and ai-tools-reclaim.
 #
 # A READING THAT COULD NOT BE MADE IS SAID, NEVER READ AS EMPTY. Each source is read with its exit status, its stdout
 # and its stderr apart (records.rule.md), and a source that ran and failed is told from one whose result is empty
@@ -135,7 +134,7 @@ parse_command_line() {
 assert_root() {
     [[ "$(id -u)" == "0" ]] || {
         ai_tools_msg__error MSG-K9C5 "ai-tools-audit must run as root: the trail it reads is 700 root:root" \
-            "run it as: sudo ai-tools audit"
+            "run it as: sudo atr audit"
         exit "${AI_TOOLS_RECORDS_BASE__EXIT_UNREADABLE}"
     }
 }
@@ -776,8 +775,8 @@ main() {
 
     if (( FILE_FINDING_COUNT + LAUNCH_REFUSAL_COUNT + ENTRYPOINT_FINDING_COUNT > 0 )); then
         printf '\n  %s\n' "Current state is a different question, asked elsewhere:"
-        printf '    %-45s %s\n' "ai-tools status"                                 "service health and verification, live"
-        printf '    %-45s %s\n' "sudo ai-tools-admin system entrypoints relabel"  "re-verify and relabel the entrypoints"
+        printf '    %-45s %s\n' "atr status"                                 "service health and verification, live"
+        printf '    %-45s %s\n' "atr admin system entrypoints relabel"  "re-verify and relabel the entrypoints"
         printf '    %-45s %s\n' "journalctl -t ai-tools-chown _UID=0"             "the full ownership trail"
         printf '    %-45s %s\n' "journalctl -t ai-tools-layout _UID=0"            "each change the layout reconcile made"
     fi

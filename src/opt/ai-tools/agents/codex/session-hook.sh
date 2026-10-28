@@ -39,7 +39,7 @@ warn() {
 readonly SWEEP_LIB="/usr/local/lib/ai-tools/session-sweep.lib.sh"
 # shellcheck source=SCRIPTDIR/../../../../usr/local/lib/ai-tools/session-sweep.lib.sh
 if ! source "${SWEEP_LIB}" 2>/dev/null || ! declare -F ai_tools_session_sweep__run >/dev/null; then
-    warn MSG-N6U2 "${SWEEP_LIB} did not load -- no handback ran this turn; reinstall ai-tools-base (sudo ai-tools-admin system layout names the row)"
+    warn MSG-N6U2 "${SWEEP_LIB} did not load -- no handback ran this turn; reinstall ai-tools-base (atr admin system layout names the row)"
     exit 0
 fi
 

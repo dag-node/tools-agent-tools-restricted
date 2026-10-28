@@ -283,14 +283,14 @@ else
             fail "control: ${label}: no interrupted-session notice: $(_san "${context}")"
             continue
         fi
-        command_line="$(grep -m1 '^  ai-tools projects handback ' <<<"${context}" || true)"
-        [[ "${command_line}" == "  ai-tools projects handback $(quote_c "${project}")" && "${context}" != *chown* ]] \
-            && pass "${label}: the notice names ai-tools projects handback with the %q path, and no chown" \
+        command_line="$(grep -m1 '^  atr projects handback ' <<<"${context}" || true)"
+        [[ "${command_line}" == "  atr projects handback $(quote_c "${project}")" && "${context}" != *chown* ]] \
+            && pass "${label}: the notice names atr projects handback with the %q path, and no chown" \
             || fail "${label}: the notice's command reads '$(_san "${command_line}")'"
         LC_ALL=C bash -c '[[ "$1" != *[![:print:]]* ]]' _ "${command_line}" \
             && pass "${label}: the notice's command holds printable ASCII alone" \
             || fail "${label}: the notice's command carries a byte outside printable ASCII"
-        recorded="$(bash -c "printf '%s.' ${command_line#  ai-tools projects handback }" 2>/dev/null || true)"
+        recorded="$(bash -c "printf '%s.' ${command_line#  atr projects handback }" 2>/dev/null || true)"
         [[ "${recorded%.}" == "${project}" ]] \
             && pass "${label}: the pasted command passes the project path as one argument, byte for byte" \
             || fail "${label}: the pasted command passes '$(_san "${recorded%.}")'"
@@ -304,7 +304,7 @@ else
     context="$(run_library session-start "${NOTICE_STATE}" "${TESTDIR}/no-socket" ':' <<<"${payload}" 2>/dev/null \
         | jq -r '.hookSpecificOutput.additionalContext // empty' 2>/dev/null || true)"
     if grep -qxF '  sudo systemctl enable --now ai-tools-handback.socket' <<<"${context}" \
-            && grep -qxF "  ai-tools projects handback $(quote_c "${project}")" <<<"${context}"; then
+            && grep -qxF "  atr projects handback $(quote_c "${project}")" <<<"${context}"; then
         pass "the socket-down notice names the socket's start and the handback command with the %q path"
     else
         fail "the socket-down notice reads '$(_san "${context}")'"
@@ -325,7 +325,7 @@ else
             && pass "control: the socket-down run logged the walk's warning and the stranded .git warning" \
             || fail "control: the socket-down run's warnings: $(_san "${warnings}")"
         for logged in "${walk_line}" "${git_line}"; do
-            command_word="${logged##*ai-tools projects handback }"; command_word="${command_word%)}"
+            command_word="${logged##*atr projects handback }"; command_word="${command_word%)}"
             [[ "${command_word}" == "$(quote_c "${project}")" ]] \
                 && pass "a socket-down warning names the handback command with the C-locale %q path" \
                 || fail "a socket-down warning's command reads '$(_san "${command_word}")'"

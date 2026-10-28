@@ -4,15 +4,15 @@
 docs](../index.md)
 
 The manual path — four root steps a checkout installs with, no RPM. The package
-install (see the README) automates all of it;
-`sudo ai-tools-admin system bootstrap` automates steps 2–3 once `install.sh`
-has deployed it, and `install.sh` automates everything from step 4 on.
+install (see the README) automates all of it; `atr admin system bootstrap`
+automates steps 2–3 once `install.sh` has deployed it, and `install.sh`
+automates everything from step 4 on.
 
 Use one route per host. On a host that has the `ai-tools-*` packages,
 `install.sh` warns before it writes: each package file it replaces then reads
-as content drift in `rpm -V` and in `sudo ai-tools-admin system layout`,
-and the next `dnf upgrade` writes over it. To run a checkout on such a host,
-build it as packages and upgrade to them, as your own user rather than root:
+as content drift in `rpm -V` and in `atr admin system layout`, and the next
+`dnf upgrade` writes over it. To run a checkout on such a host, build it
+as packages and upgrade to them, as your own user rather than root:
 
 ```bash
 make -C packaging clean && \
@@ -90,13 +90,13 @@ other account on the host keeps its stock PATH. Ordering your PATH another way
 does the same job — what the confinement needs is that `claude` resolves
 to the wrapper.
 
-`sudo ai-tools-admin operators add <user>` reads which `claude` a shell
-of that account runs today — the wrapper, or an agent elsewhere on its PATH,
-which starts unconfined — and offers to wire the source line into your
-`~/.bashrc` and `~/.bash_profile`. `ai-tools status` reports the same reading
-for the shell you run it from. To wire it by hand, add it to **both** files
-(non-login interactive shells read only `~/.bashrc`, login shells
-`~/.bash_profile`), after your nvm init:
+`atr admin operators add <user>` reads which `claude` a shell of that account
+runs today — the wrapper, or an agent elsewhere on its PATH, which starts
+unconfined — and offers to wire the source line into your `~/.bashrc`
+and `~/.bash_profile`. `atr status` reports the same reading for the shell you
+run it from. To wire it by hand, add it to **both** files (non-login
+interactive shells read only `~/.bashrc`, login shells `~/.bash_profile`),
+after your nvm init:
 
 ```bash
 export NVM_DIR="${HOME}/.nvm"
@@ -157,9 +157,9 @@ to `${SANDBOX_USER}` actually takes effect.
 
 ## 3. Install nvm + Node + claude as `SANDBOX_USER` (root, once)
 
-`sudo ai-tools-admin system bootstrap` does steps 2 and 3 in one idempotent
-command once the package is installed — it creates the account, installs
-the toolchain, seeds the symlink, and enables the `nvm-update.timer`.
+`atr admin system bootstrap` does steps 2 and 3 in one idempotent command once
+`install.sh` (step 4) or the package has deployed it — it creates the account,
+installs the toolchain, seeds the symlink, and enables the `nvm-update.timer`.
 The manual equivalent:
 
 ```bash
@@ -189,8 +189,8 @@ sudo -u "${SANDBOX_USER}" bash -c '
 
 Once `install.sh` (step 4) has run, `/opt/ai-tools/bin` is locked
 `0551 root:ai-tools` and only root maintains the symlink: instead of that `ln`,
-run `sudo ai-tools-admin system bootstrap` (idempotent -- it provisions
-whatever is missing and seeds the symlink through the root helper), or re-run
+run `atr admin system bootstrap` (idempotent -- it provisions whatever is
+missing and seeds the symlink through the root helper), or re-run
 `sudo ./install.sh install`.
 
 ## 4. Run the install script (root, once)
@@ -199,8 +199,9 @@ Everything from here on is fully automated by `install.sh`. **Complete steps 2
 and 3 first** — the account must exist (else the script stops
 with `ai-tools user not found`). The script creates `/opt/ai-tools/bin`
 where it is absent, so a host whose packages were removed does not need a step
-for it. `sudo ai-tools-admin system bootstrap` does steps 2 and 3 in one
-idempotent command. The host also needs the `acl` package, which the RPM
+for it. On a fresh host, steps 2 and 3 are done by hand:
+`atr admin system bootstrap`, which does both in one idempotent command, is
+deployed by this step. The host also needs the `acl` package, which the RPM
 requires: the script stops before it writes anything where `setfacl`
 or `getfacl` is missing (`sudo dnf install acl`). Then run
 `sudo ./install.sh install`.
@@ -246,10 +247,10 @@ Enrolment writes the two facts that make an operator — `ai-ops` membership
 and a name in `OPERATORS`. **Claiming a project needs a general sudo grant
 as well**, which this project does not writes; the host's own sudoers decides
 it. An operator without one launches agent sessions, and another operator
-claims for it with `ai-tools projects claim --for <operator>`. A host needs
-at least one operator holding the grant, so enrol one that does — a service
-account holding none is enrolled after the install with `ai-tools-admin`,
-rather than named at this prompt.
+claims for it with `atr projects claim --for <operator>`. A host needs at least
+one operator holding the grant, so enrol one that does — a service account
+holding none is enrolled after the install with `ai-tools-admin`, rather than
+named at this prompt.
 
 The script deploys the static `%ai-ops` sudoers drop-in, the helpers
 and the system units, creates the approved-projects allowlist with format
@@ -271,11 +272,10 @@ and the agents' state, moves an edited `settings.json` aside as a dated
 `.retired` copy (`dnf` keeps it as `.rpmsave`), and the older install lays
 down its own `settings.json`. `sudo ./install.sh install --allow-downgrade`
 downgrades in place instead; a kept `settings.json` then keeps the newer
-version's hook declarations, and the next
-`sudo ai-tools-admin system post-upgrade` compares each kept file
-with the older version's copy, listing what the newer one had added
-as the file's own. `sudo ./install.sh check-tree` prints both verdicts without
-installing.
+version's hook declarations, and the next `atr admin system post-upgrade`
+compares each kept file with the older version's copy, listing what the newer
+one had added as the file's own. `sudo ./install.sh check-tree` prints both
+verdicts without installing.
 
 Whether the checkout is registered as a project is the CLI's business,
 and the install leaves that entry as it finds it.
@@ -284,7 +284,7 @@ Enrol each further login user as an operator (ai-ops membership, allowlist
 seed):
 
 ```bash
-sudo ai-tools-admin operators add <user>     # defaults to $SUDO_USER
+atr admin operators add <user>     # defaults to $SUDO_USER
 ```
 
 It reports which shape the enrolment produced — whether the account can claim
@@ -294,10 +294,10 @@ about that account.
 Register projects with the `ai-tools` CLI, run as your own user (no sudo):
 
 ```bash
-ai-tools projects claim /path/to/project       # an existing directory, claimed in place
-ai-tools projects create /path/to/new          # a new project directory, created and claimed
-ai-tools projects clone /path/to/repo          # an isolated shallow clone
-ai-tools projects lockdown /path/to/project    # revoke agent access to secrets (sudo)
+atr projects claim /path/to/project       # an existing directory, claimed in place
+atr projects create /path/to/new          # a new project directory, created and claimed
+atr projects clone /path/to/repo          # an isolated shallow clone
+atr projects lockdown /path/to/project    # revoke agent access to secrets (sudo)
 ```
 
 [Project lifecycle](../projects/index.md) covers registering in depth — claim
@@ -307,8 +307,8 @@ parent grant a home-nested project needs), and every recovery/reversal path.
 To remove everything installed by this script: `sudo ./install.sh uninstall`.
 It keeps what you configured, and it keeps Node under `/opt/ai-tools/.nvm`;
 each agent's package leaves that toolchain with the manifest that names it,
-so after a reinstall `sudo ai-tools-admin system bootstrap` installs the agents
-you enable again. An agent's managed file you edited — codex's
+so after a reinstall `atr admin system bootstrap` installs the agents you
+enable again. An agent's managed file you edited — codex's
 `/etc/codex/requirements.toml`, for one — is moved aside
 as `<file>.<YYYYMMDD>-<N>.retired` rather than deleted, and the run names each
 sidecar it wrote; a file still matching the copy the package shipped is
@@ -320,10 +320,10 @@ would hand a codex you keep a configuration naming scripts that are gone.
 ## Files
 
 ```bash
-sudo ai-tools-admin system layout
+atr admin system layout
 ```
 
 The command lists every path the install places or creates, with its owner,
 mode, ACL and SELinux type, and names each one that drifted.
-`sudo ai-tools-admin system layout reconcile` restores a drifted entry.
+`atr admin system layout reconcile` restores a drifted entry.
 `man ai-tools-admin` documents the listing and the reconcile.

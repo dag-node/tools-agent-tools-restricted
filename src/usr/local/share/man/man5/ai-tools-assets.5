@@ -21,7 +21,7 @@ once the set's package is installed:
 .RS 4
 .EX
 sudo dnf install ai\-tools\-assets\-sets\-core
-sudo ai\-tools\-admin assets enable core/skills/ai\-tools\-reftags
+atr admin assets enable core/skills/ai\-tools\-reftags
 .EE
 .RE
 .PP
@@ -40,7 +40,7 @@ An asset is named
 the string
 .B AI_TOOLS_ASSETS
 holds and
-.B "ai\-tools\-admin assets"
+.B "atr admin assets"
 takes.
 .I SET
 and
@@ -125,9 +125,9 @@ states in
 or the asset links for no agent.
 .SH REASONS
 The token a record of
-.B "ai\-tools\-admin assets"
+.B "atr admin assets"
 or a line of
-.B "ai\-tools\-admin status"
+.B "atr admin status"
 carries for an entry of
 .B AI_TOOLS_ASSETS
 that is not
@@ -338,7 +338,7 @@ or
 for one
 .B "assets list"
 found a reconcile would place or remove, its detail naming
-.BR "sudo ai\-tools\-admin assets reconcile" ,
+.BR "atr admin assets reconcile" ,
 and
 .B kept
 for a file of yours left in an agent's directory where the view also holds an
@@ -429,7 +429,7 @@ sudo install \-o root \-g root \-m 0644 acme.gpg /etc/ai\-tools/assets\-bindings
 printf 'set=acme\\nsigners=[openpgp:%s]\\nkeyring=%s\\n' \e
     FINGERPRINT /etc/ai\-tools/assets\-bindings.d/acme.gpg \e
     | sudo tee /etc/ai\-tools/assets\-bindings.d/acme.conf
-sudo ai\-tools\-admin assets enable \-\-set acme
+atr admin assets enable \-\-set acme
 .EE
 .RE
 .PP
@@ -463,13 +463,13 @@ The view: one link per linked asset, beside the copies the package seeds there.
 .TP
 .I /run/lock/ai\-tools/assets.lock
 The lock every
-.B "ai\-tools\-admin assets"
+.B "atr admin assets"
 command takes, and every installer or package step that seeds the shared
 assets, in a directory only root can enter.
 .TP
 .I /var/log/ai\-tools/assets.log
 Each record that needs attention, written by
-.BR "ai\-tools\-admin assets" .
+.BR "atr admin assets" .
 .SH SEE ALSO
 .BR ai\-tools\-admin (8),
 .BR ai-tools-operator.conf (5),

@@ -117,7 +117,7 @@ done
 
 # ── (B) Both ways out are named, against the vendor package's own path ───────────────────────
 out="$(run_report "$(stub_operators op; stub_reading wired op "${SHADOW_PKG}")")"
-if grep -qF "sudo ai-tools-admin operators add op" <<<"${out}"; then
+if grep -qF "atr admin operators add op" <<<"${out}"; then
     pass "the first way out is the enrolment command that ranks the wrapper first"
 else
     fail "the report does not name the command that fixes the ordering (${out})"
@@ -259,7 +259,7 @@ else
         else
             fail "unanswered menu: $(grep '^rc=' <<<"${out}" || echo 'no rc'), key present=$(key_present && echo yes || echo no), drawn=$([[ -e "${PICK_MARKER}" ]] && echo yes || echo no)"
         fi
-        if grep -qF 'sudo ai-tools-admin system bootstrap' <<<"${out}"; then
+        if grep -qF 'atr admin system bootstrap' <<<"${out}"; then
             pass "the warning names the re-run"
         else
             fail "the warning does not name the re-run (${out})"

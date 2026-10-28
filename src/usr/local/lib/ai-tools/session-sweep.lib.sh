@@ -225,7 +225,7 @@ _ai_tools_session_sweep__sweep_project() {
     if [[ ! -S "${_AI_TOOLS_SESSION_SWEEP__HANDBACK_SOCKET}" ]]; then
         # Socket down: every CHOWN would fail, so skip the walk and record it once. Counting the failed calls would also
         # mis-fire the large-batch skip-list hint.
-        ai_tools_log__warn "${mode} sweep skipped: handback socket ${_AI_TOOLS_SESSION_SWEEP__HANDBACK_SOCKET} is down -- paths under ${dir} stay @SANDBOX_USER@-owned (reclaim with: ai-tools projects handback ${quoted})"
+        ai_tools_log__warn "${mode} sweep skipped: handback socket ${_AI_TOOLS_SESSION_SWEEP__HANDBACK_SOCKET} is down -- paths under ${dir} stay @SANDBOX_USER@-owned (reclaim with: atr projects handback ${quoted})"
         printf '%s\n' "${swept}"
         return 1
     fi
@@ -255,7 +255,7 @@ _ai_tools_session_sweep__sweep_project() {
 
     # A failed call is a helper refusal or a socket lost mid-walk, which the client's exit does not tell apart.
     if [[ "${failed}" -gt 0 ]]; then
-        ai_tools_log__warn "${mode} sweep: ${failed} path(s) under ${dir} not handed back -- the helper refused them or the socket stopped answering mid-walk; reclaim with: ai-tools projects handback ${quoted}"
+        ai_tools_log__warn "${mode} sweep: ${failed} path(s) under ${dir} not handed back -- the helper refused them or the socket stopped answering mid-walk; reclaim with: atr projects handback ${quoted}"
     fi
 
     # A large sweep is the skip-list signal: hundreds of agent-owned paths per pass usually means a build or dependency
@@ -412,7 +412,7 @@ ai_tools_session_sweep__run() {
                 # asking is working in, and a command naming a path from the marker would be a command typed
                 # against a tree nobody in this session chose. The handback command resolves each path's owner
                 # through ai-tools-chown, with its exclusion and secret rules, and walks .git by default.
-                reconcile="If git still complains, ask the user to run:"$'\n'"  ai-tools projects handback ${quoted_dir}"
+                reconcile="If git still complains, ask the user to run:"$'\n'"  atr projects handback ${quoted_dir}"
                 _ai_tools_session_sweep__emit_session_context "${prose}"$'\n'"${reconcile}"
             fi
         fi
@@ -425,10 +425,10 @@ ai_tools_session_sweep__run() {
             stranded=$(( stranded + $(_ai_tools_session_sweep__count_git_agent_owned "${prev_cwd}") ))
         fi
         if [[ "${stranded}" -gt 0 ]]; then
-            ai_tools_log__warn "handback socket ${_AI_TOOLS_SESSION_SWEEP__HANDBACK_SOCKET} is down -- ${stranded} agent-owned .git path(s) under ${dir} not reclaimed; run: ai-tools projects handback ${quoted_dir}"
+            ai_tools_log__warn "handback socket ${_AI_TOOLS_SESSION_SWEEP__HANDBACK_SOCKET} is down -- ${stranded} agent-owned .git path(s) under ${dir} not reclaimed; run: atr projects handback ${quoted_dir}"
             prose="$(AI_TOOLS_MSG_BOX=1 ai_tools_msg__alert NOTICE 1 \
                 "The ownership handback socket is down, so ${stranded} file(s) the agent wrote to git stay ai-tools-owned and git may report \"dubious ownership\". Bring the socket up, then reclaim the tree:")"
-            reconcile="  sudo systemctl enable --now ai-tools-handback.socket"$'\n'"  ai-tools projects handback ${quoted_dir}"
+            reconcile="  sudo systemctl enable --now ai-tools-handback.socket"$'\n'"  atr projects handback ${quoted_dir}"
             _ai_tools_session_sweep__emit_session_context "${prose}"$'\n'"${reconcile}"
         fi
     fi

@@ -71,13 +71,13 @@ by naming the grant rather than by inventing a role:
   account rather than a person.
 - an operator **without** one launches sessions and reads the reports. Projects
   are claimed for it by the first shape,
-  with `ai-tools projects claim --for <operator>`. A passwordless service
-  account that runs an agent is this shape, and "service account" describes its
-  intent — the host does not record any field that distinguishes it from any
-  other grant-less operator.
+  with `atr projects claim --for <operator>`. A passwordless service account
+  that runs an agent is this shape, and "service account" describes its intent
+  — the host does not record any field that distinguishes it from any other
+  grant-less operator.
 
 `operator.conf` is managed in place at runtime
-by `ai-tools-admin operators add|remove`. Its source template carries one
+by `atr admin operators add|remove`. Its source template carries one
 substitution token, `OPERATORS="@PROJECTS_USER@"`, and the two install paths
 treat it differently: the RPM rewrites the line to `OPERATORS=""` at build
 (`packaging/ai-tools.spec`), so a packaged host ships with nobody enrolled,
@@ -120,8 +120,8 @@ globals per path instead.
 
 ### The invoker and the acting operator — who ran a command, and for whom
 
-`ai-tools --for <operator>` separates two identities the other components never
-tell apart: a root helper resolves the owner from the path it is handed, while
+`atr --for <operator>` separates two identities the other components never tell
+apart: a root helper resolves the owner from the path it is handed, while
 the CLI decides before there is a path. Both names live in `ai-tools.sh` alone.
 
 | Facet | Shell variable | Prose term |
@@ -212,6 +212,20 @@ used for it. "The registries" is reserved for the allowlist entry together
 with the `safe.directory` entry, the pair `projects unclaim`
 and `projects remove` drop.
 
+## The command you type, and the programs behind it
+
+```bash
+atr status                      # runs ai-tools status
+atr admin operators add alice   # runs ai-tools-admin operators add alice, as root
+```
+
+`atr` is the command an operator types: `atr admin <command>` runs
+`ai-tools-admin`, and every other `atr <command>` runs `ai-tools`. `ai-tools`
+and `ai-tools-admin` are the programs, and their names are the ones the files,
+the man pages, the packages and the installed layout carry. A page spells
+a command as `atr`, and names a program as `ai-tools` or `ai-tools-admin`
+where the sentence is about the program itself.
+
 ## Agent vs subagent
 
 Two different things are called "agent" in this space, so this project fixes
@@ -220,7 +234,7 @@ the vocabulary:
 - **agent** — a packaged coding assistant that runs confined in the sandbox:
   Claude Code today. It is what `ai-tools-agents-*` packages ship,
   what `agents.d/<name>.conf` describes, what `operator.conf AI_TOOLS_AGENTS`
-  enables, and what `ai-tools providers` lists.
+  enables, and what `atr providers` lists.
 - **subagent** — a delegate role definition an agent reads and dispatches
   to (the `ai-tools-reference-docs-maintainer` markdown file of the asset set
   `core`). Shared across agents, so it lives in `/opt/ai-tools/subagents`

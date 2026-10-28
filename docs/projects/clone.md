@@ -6,12 +6,11 @@
 [Handback](handback.md) · [Permissions](permissions.md) — [all
 docs](../index.md)
 
-How `ai-tools projects clone` makes a shallow clone under the sandbox area,
-locks its secrets before the agent reaches it, and resumes a clone
-that stopped.
+How `atr projects clone` makes a shallow clone under the sandbox area, locks
+its secrets before the agent reaches it, and resumes a clone that stopped.
 
 ```bash
-ai-tools projects clone ~/src/repo
+atr projects clone ~/src/repo
 ```
 
 Shallow-clones the repository at that path into the sandbox area,
@@ -30,7 +29,7 @@ why the command does not take `--for`.
 ## Each input has a default and a flag
 
 ```bash
-ai-tools projects clone ~/src/repo --from main --branch hotfix/login --dir repo-hotfix
+atr projects clone ~/src/repo --from main --branch hotfix/login --dir repo-hotfix
 ```
 
 - `--from REF` — the branch or ref to fork from; default the current branch.
@@ -68,7 +67,7 @@ it as `CLAUDE.md.bak`. The gate and the order it imposes are
 ## Resume a clone that stopped
 
 ```bash
-ai-tools projects clone /var/opt/ai-tools/sandbox-projects/repo
+atr projects clone /var/opt/ai-tools/sandbox-projects/repo
 ```
 
 Pointing the command at the existing clone path resumes where it stopped:
@@ -79,11 +78,11 @@ inside it keeps its mode.
 
 ## Day to day
 
-A session runs in the clone like in any project. `ai-tools projects push` sends
+A session runs in the clone like in any project. `atr projects push` sends
 the agent's commits to the branch the clone tracks ([Push](push.md)),
 and whoever has access to the repository merges that branch back,
-with the agent's commits kept one by one. `ai-tools projects remove`
-on the clone path deletes the clone and its registration ([Remove](remove.md)).
+with the agent's commits kept one by one. `atr projects remove` on the clone
+path deletes the clone and its registration ([Remove](remove.md)).
 `/var/opt/ai-tools/README.md` on the host documents the cycle for an operator
 working at the console.
 

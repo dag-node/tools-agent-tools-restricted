@@ -111,7 +111,7 @@ An **asset set** is published apart from base, installed by a package under `/us
 and linked into the same shared roots the seeder writes: `/opt/ai-tools/<kind>` is the **view**, and every link in it
 that points into a set is the resolver's. `AI_TOOLS_ASSETS` in `operator.conf` is the one input that enables an asset,
 as `<set>/<kind>/<name>`, so installing a set does not change any session until an operator names its assets
-(`ai-tools-admin assets enable`). The roots, the identifier, the reason tokens and the binding file are
+(`atr admin assets enable`). The roots, the identifier, the reason tokens and the binding file are
 `ai-tools-assets(5)`'s; this section states what the code guarantees.
 
 **Every reader fails toward an unlinked asset, reported.** The library reads each set from the first root holding it,
@@ -175,7 +175,7 @@ after the seeder, two transaction file triggers on `/usr/share/ai-tools-assets` 
 base's own transaction included), each agent and the typesafe package's scriptlets, `install.sh`
 and `ai-tools-bootstrap`.
 
-The verbs are `ai-tools-admin assets list|enable|disable|reconcile`, each root-only. Each verb that writes ends
+The verbs are `atr admin assets list|enable|disable|reconcile`, each root-only. Each verb that writes ends
 with the reconcile; `list`, the default, does not write ([The record stream](#the-record-stream)).
 `ai_tools_assets__validate_set` runs the same subset over a tree as data, without the trust walk or the signature,
 for the conformance job that holds base's reading to the publisher's fixtures.

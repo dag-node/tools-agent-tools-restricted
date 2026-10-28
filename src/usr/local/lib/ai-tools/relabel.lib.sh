@@ -769,7 +769,7 @@ _ai_tools_relabel__label_agent_config_dir() {
 #                                      installed to label, or the config directory's walk was left
 #                                      to a run with no session, over a directory already at its
 #                                      type or at another one. This is what ai-tools-relabel-agent
-#                                      records per agent for `ai-tools status` to report, so the
+#                                      records per agent for `atr status` to report, so the
 #                                      operator can see the labelling half from outside the
 #                                      toolchain they cannot read.
 #   Returns 0 when every path it managed is correctly labelled, 1 when one is not, a rule could

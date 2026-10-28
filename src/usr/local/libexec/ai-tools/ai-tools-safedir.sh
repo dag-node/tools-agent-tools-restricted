@@ -6,9 +6,9 @@
 #
 # .gitconfig is root-owned 644: world-readable (the operator and launch wrapper read the list without joining
 # @SANDBOX_GROUP@) and root-write-only (the safe.directory list stays out of the confined agent's reach). The operator
-# reaches this write through sudo, under `ai-tools projects claim`/`projects unclaim` and the launch wrapper --
-# no-NOPASSWD, like `ai-tools-{setfacl,relabel,unclaim}`. The agent has no path here, so unlike the handback helpers
-# this one is operator-only and off the handback socket.
+# reaches this write through sudo, under `atr projects claim`/`projects unclaim` and the launch wrapper -- no-NOPASSWD,
+# like `ai-tools-{setfacl,relabel,unclaim}`. The agent has no path here, so unlike the handback helpers this one is
+# operator-only and off the handback socket.
 #
 # ADD requires the path to be an allowlisted project (resolve_owner); `--remove` is lenient, since the CLI de-lists
 # the project before removing. Both are idempotent; the path defaults to cwd.

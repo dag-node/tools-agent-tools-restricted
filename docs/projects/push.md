@@ -6,12 +6,12 @@
 [Lockdown](lockdown.md) · [Handback](handback.md) ·
 [Permissions](permissions.md) — [all docs](../index.md)
 
-How `ai-tools projects push` sends the commits an agent made in a sandbox clone
+How `atr projects push` sends the commits an agent made in a sandbox clone
 to the branch the clone tracks, and who merges them from there.
 
 ```bash
 cd /var/opt/ai-tools/sandbox-projects/repo
-ai-tools projects push
+atr projects push
 ```
 
 Counts the commits the clone holds that its remote branch does not, asks

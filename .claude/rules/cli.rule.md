@@ -37,7 +37,7 @@ capabilities directly (it can run the helper and signal any process on the host)
 by the guard, by the guard's own refusal, and by `ai-tools(1)`.
 
 The check runs **after** `--for` is separated from the command's arguments, because `$1` before that point is not
-reliably the verb (`ai-tools --for op projects list` leads with the flag). That placement also refuses `--for` for root
+reliably the verb (`atr --for op projects list` leads with the flag). That placement also refuses `--for` for root
 in either argument order: root is absent from `OPERATORS`, so an entry written for it would name an owner no ownership
 helper can resolve. `require_operator` does not cover this on its own — it gates the mutating verbs, and `projects list`
 is not one.
@@ -74,10 +74,10 @@ the toolchain. That last one matters because of what the gate reads: a host that
 sessions were live must still reach the incident ladder's last rung.
 
 `--help`, `--version` and the bare invocation are exempt because they describe **the CLI** rather than the toolchain:
-`usage()` and `AI_TOOLS_VERSION` read no installed state. The gate's own refusal names
-`sudo ai-tools-admin system bootstrap` as the command to run next, so gating the usage would leave that message
-as the only place an operator could find it. `tests/unit/cli-verbs.sh` pins the membership, since the gate is one line
-far from the table it reads and the failure appears only on an unprovisioned host.
+`usage()` and `AI_TOOLS_VERSION` read no installed state. The gate's own refusal names `atr admin system bootstrap`
+as the command to run next, so gating the usage would leave that message as the only place an operator could find it.
+`tests/unit/cli-verbs.sh` pins the membership, since the gate is one line far from the table it reads and the failure
+appears only on an unprovisioned host.
 
 The set stays narrower than `ROOT_ALLOWED_VERBS`: `projects list` and `providers` describe a toolchain that has to exist
 first, so they stay behind the gate.
@@ -99,9 +99,9 @@ in `operator.conf`. Those commands resolve the caller's identity from that list 
 helpers); without the gate an unenrolled user proceeds through the registry writes and confirm prompts only to be
 refused by the first helper that resolves owner (`ai-tools-lockdown`: "not in allowed projects for current operator"),
 after partial state was written and rolled back. The gate replaces that with one up-front message pointing
-at `sudo ai-tools-admin operators add <user>`. `operator.conf` is `644`, so the unprivileged CLI reads `OPERATORS`
-directly, and enrollment there takes effect on the next command — no re-login, unlike the `ai-ops` group the admin verb
-also grants (which the launch wrapper needs and which does require a fresh login). The **informational** commands
+at `atr admin operators add <user>`. `operator.conf` is `644`, so the unprivileged CLI reads `OPERATORS` directly,
+and enrollment there takes effect on the next command — no re-login, unlike the `ai-ops` group the admin verb also
+grants (which the launch wrapper needs and which does require a fresh login). The **informational** commands
 (`--help`/`--version`/`projects list`/`providers`) stay open, so an unenrolled user can still read usage and inspect
 the host.
 
@@ -211,13 +211,13 @@ an ordinary account read it — a partial view, the file sink being the authorit
   section: the core module's load state and every loaded optional group, read unprivileged via `semodule -l`, keyed
   off the shared `selinux-groups.lib.sh` registry. The whole section is **omitted** when that list is not readable
   unprivileged (common — the policy store is root-only on many hosts): every line it prints needs the module list,
-  so a section that could only say "cannot read" is not shown at all (inspect groups
-  with `sudo ai-tools-admin selinux groups`). Under **Enforcing** it then reads each enabled integration's manifest
-  for the policy groups its toolchain declares (`selinux_groups`, `ai-tools-providers(5)`) and names the ones not
-  loaded, each with the registry's description, followed by one `ai-tools-admin selinux groups enable` command carrying
-  every missing stable group and, on its own line, the source-checkout command for an experimental one. The block does
-  not name any toolchain: the manifest declares the set, the registry supplies the words, and the same read is
-  what `ai-tools-admin <integration> status` reports. The .NET set is in [dotnet](dotnet.rule.md).
+  so a section that could only say "cannot read" is not shown at all (inspect groups with `atr admin selinux groups`).
+  Under **Enforcing** it then reads each enabled integration's manifest for the policy groups its toolchain declares
+  (`selinux_groups`, `ai-tools-providers(5)`) and names the ones not loaded, each with the registry's description,
+  followed by one `atr admin selinux groups enable` command carrying every missing stable group and, on its own line,
+  the source-checkout command for an experimental one. The block does not name any toolchain: the manifest declares
+  the set, the registry supplies the words, and the same read is what `ai-tools-admin <integration> status` reports.
+  The .NET set is in [dotnet](dotnet.rule.md).
 - `audit [--since <when>]` — report what has refused, been rejected, been stranded, or been flagged since a given time,
   through the `ai-tools-audit` root helper (`sudo`, no NOPASSWD; the root carve-out in `ROOT_ALLOWED_VERBS` exists
   for it, and it runs ahead of the bootstrap gate — see [Bootstrap preflight](#bootstrap-preflight)). The detections it
@@ -249,7 +249,7 @@ an ordinary account read it — a partial view, the file sink being the authorit
 
   **It reports events, never current state.** Each line is something that *happened* between two points in time,
   and a condition recorded here may have been resolved since, so the report closes by naming `status` (and
-  `ai-tools-admin system entrypoints relabel`) as what answers *now* rather than re-verifying a finding itself: knowing
+  `atr admin system entrypoints relabel`) as what answers *now* rather than re-verifying a finding itself: knowing
   how to re-check each condition is the per-detection knowledge it refuses to carry. Exits **4 when anything is reported
   and 5 when a reading could not be made** — the codes `ai-tools-records(5)` states, folded
   through `records-base.lib.sh` and required at load, so a helper whose exit contract did not load refuses and does not
@@ -297,16 +297,16 @@ an ordinary account read it — a partial view, the file sink being the authorit
   as after an update. The version the updater's last run recorded is shown beside it only where the two differ — the one
   fact a link cannot carry, that the toolchain changed after that run — and links naming different versions are reported
   as such. The decision is `ai_tools_toolchain__evaluate_node_versions` in `toolchain.lib.sh`, so this report
-  and `ai-tools-admin status` render one answer.
+  and `atr admin status` render one answer.
 
   The PATH-ordering line is the one reading this report makes that needs **no** privilege and that no other vantage can
   make at all: the CLI runs in the operator's own login shell, so `command -v` there resolves exactly what typing
   the launcher's name would run. A launcher resolving to a file other than the wrapper is an agent that starts
-  **unconfined, as the operator**, so it reads `UNCONFINED`, names `ai-tools-admin operators add <operator>`
-  as the repair, and counts toward the non-zero exit. A launcher reaching the wrapper with no ordering line wired is
-  right today and says so dimly, since that shell is sandboxed until the next thing that prepends to PATH takes it away.
-  A launcher this host does not install a wrapper for, and a name `command -v` does not resolve in this shell, are
-  reported and are not faults — the same rule the unqueryable units follow. The states and the reading behind them are
+  **unconfined, as the operator**, so it reads `UNCONFINED`, names `atr admin operators add <operator>` as the repair,
+  and counts toward the non-zero exit. A launcher reaching the wrapper with no ordering line wired is right today
+  and says so dimly, since that shell is sandboxed until the next thing that prepends to PATH takes it away. A launcher
+  this host does not install a wrapper for, and a name `command -v` does not resolve in this shell, are reported and are
+  not faults — the same rule the unqueryable units follow. The states and the reading behind them are
   [ref-section-p3k8](launch.rule.md#ref-section-p3k8).
 
   <a id="ref-section-r8u5"></a>**Sandbox-user units and the `?` line**
@@ -316,21 +316,20 @@ an ordinary account read it — a partial view, the file sink being the authorit
   [ref-section-s7u6](updater.rule.md#ref-section-s7u6)) and stays `?` where it publishes none. **A root caller reads it
   live**, over the machine transport, and gets that reading through this same command: `services.lib.sh` gates the probe
   on the caller's own capability, so whichever command asks, `sudo ai-tools status` resolves a unit exactly
-  as `ai-tools-admin status` does (see [The root vantage:
-  `ai-tools-admin status`](#the-root-vantage-ai-tools-admin-status)). How a live reading and a stamp compose into one
-  verdict — which of the two decides a state, and which decides freshness — is `ai_tools_services__evaluate_stamp`'s
-  contract, stated there. One live fact about that manager *is* readable unprivileged — whether the unit **file** is
-  installed — and it is checked first, so a unit an optional package never shipped (the `nvm-update` pair without
-  the nodejs integration) reads as not-installed rather than as one this host cannot see, and a stamp an uninstall left
-  behind cannot make a gone unit look present. A run that **correctly declined to act** reads `SKIPPED` with its reason
-  (the updater against an unreachable registry, or under a clock behind a file it wrote,
-  [ref-section-r3m8](updater.rule.md#ref-section-r3m8)): it is dim rather than yellow and does not count as a fault,
-  so a disconnected laptop does not make `status` exit non-zero every night, and the stamp still ages into `STALE`.
-  The root vantage reads such a run the same way, through the tie on the run's exit code
-  that `ai_tools_services__evaluate_stamp` states in `services.lib.sh`. The account's own `~/.config/systemd/user` is
-  not searched: it sits inside a home the operator cannot traverse, and every unit the registry names ships
-  to the system-wide user-unit directory. A stamped unit's OK carries the time of that run, not a claim that it is
-  running now, and a `FAILED` carries the run's exit code.
+  as `ai-tools-admin status` does (see [The root vantage: `atr admin status`](#the-root-vantage-atr-admin-status)).
+  How a live reading and a stamp compose into one verdict — which of the two decides a state, and which decides
+  freshness — is `ai_tools_services__evaluate_stamp`'s contract, stated there. One live fact about that manager *is*
+  readable unprivileged — whether the unit **file** is installed — and it is checked first, so a unit an optional
+  package never shipped (the `nvm-update` pair without the nodejs integration) reads as not-installed rather than as one
+  this host cannot see, and a stamp an uninstall left behind cannot make a gone unit look present. A run
+  that **correctly declined to act** reads `SKIPPED` with its reason (the updater against an unreachable registry,
+  or under a clock behind a file it wrote, [ref-section-r3m8](updater.rule.md#ref-section-r3m8)): it is dim rather than
+  yellow and does not count as a fault, so a disconnected laptop does not make `status` exit non-zero every night,
+  and the stamp still ages into `STALE`. The root vantage reads such a run the same way, through the tie on the run's
+  exit code that `ai_tools_services__evaluate_stamp` states in `services.lib.sh`. The account's own
+  `~/.config/systemd/user` is not searched: it sits inside a home the operator cannot traverse, and every unit
+  the registry names ships to the system-wide user-unit directory. A stamped unit's OK carries the time of that run, not
+  a claim that it is running now, and a `FAILED` carries the run's exit code.
 
   The `?` line is not a problem report — it says only that this vantage point cannot tell — so it stays a single line
   naming the one command that can, the multi-command diagnostic block is reserved for a unit reported broken, and it
@@ -412,7 +411,7 @@ an ordinary account read it — a partial view, the file sink being the authorit
   the last run's **outcome**, not the live label: the operator can observe neither the label nor the run that applies
   it, which is why the record exists (stated with it), so it carries the same caveat as the rest of this report — it is
   an event. `ai-tools-admin status` reads the label itself (see [The root
-  vantage](#the-root-vantage-ai-tools-admin-status)), and `ai-tools-admin system entrypoints relabel` both confirms
+  vantage](#the-root-vantage-atr-admin-status)), and `atr admin system entrypoints relabel` both confirms
   and repairs it. A mislabel that arises after the recorded run still stops the next launch with the fault
   and the command that clears it.
 
@@ -422,7 +421,7 @@ an ordinary account read it — a partial view, the file sink being the authorit
   `ai_tools_cache_cleanup__get_status_remedy`), so the two reports cannot word one state two ways. `failed` and `links`
   count toward exit 4. `overdue` is shown with its line and not counted, since a cache no launch has cleaned is a valid
   state: every launch found another session or could not tell, and the line follows the reason the last launch recorded,
-  naming the end of the sessions, gracefully or with `ai-tools stop`, for `sessions`. An empty state file reads `?`,
+  naming the end of the sessions, gracefully or with `atr stop`, for `sessions`. An empty state file reads `?`,
   as the empty stamp does, and so does a file the caller cannot read; neither counts. `AI_TOOLS_CACHE_CLEANUP_STATE`
   moves the file the section reads, a hook [tests](tests.rule.md) lists.
 
@@ -458,11 +457,11 @@ an ordinary account read it — a partial view, the file sink being the authorit
 - `projects list` — report every allowlist entry (project / sandbox / exclude / unusable) with its git `safe.directory`
   status, then a **Suggested cleanup** section flagging inconsistent hand-edited entries, each with a copy-paste
   remediation carrying the full absolute path (an anchored `sed` line-deletion, plus `ai-tools-safedir --remove` /
-  `ai-tools-relabel --remove` where they apply, or `ai-tools projects claim` to finish a partial claim). It flags,
-  in both directions: a protected system path the tools refuse to touch; a stale allow entry or a stale non-glob `!`
-  exclusion whose path no longer exists; a **glob in an allow line** (unusable — the launch wrapper realpath's allow
-  entries, so a glob there resolves to no path and is inert; globs belong only on `!` lines); a project listed but not
-  fully claimed; and — the reverse direction — a git `safe.directory` with **no** allowlist entry (orphaned, e.g.
+  `ai-tools-relabel --remove` where they apply, or `atr projects claim` to finish a partial claim). It flags, in both
+  directions: a protected system path the tools refuse to touch; a stale allow entry or a stale non-glob `!` exclusion
+  whose path no longer exists; a **glob in an allow line** (unusable — the launch wrapper realpath's allow entries,
+  so a glob there resolves to no path and is inert; globs belong only on `!` lines); a project listed but not fully
+  claimed; and — the reverse direction — a git `safe.directory` with **no** allowlist entry (orphaned, e.g.
   a hand-deleted line), skipping the deliberately-registered control-plane paths the protected-paths backstop already
   covers. Entry membership is decided through the shared grammar matcher in `conf.lib.sh`
   (`ai_tools_conf__has_allowlist_entry`), realpath-normalized, so an entry carrying an end-of-line comment or quotes —
@@ -481,13 +480,12 @@ so a script tells a rejected command line from an operation that failed (exit 1)
 this ordering does not yet cover is a `--for` run, whose allowlist snapshot — the run's first `sudo` — precedes
 the verb's own parser ([Acting for another operator](#acting-for-another-operator---for)).
 
-**`--relabel` prints the new command and exits 2.** The entrypoint reconcile is
-`sudo ai-tools-admin system entrypoints relabel` ([updater](updater.rule.md) owns what it does,
-[cli-grammar](cli-grammar.rule.md) why it is spelled that way): it runs as root, which this CLI refuses, so it is not
-an alias. The pointer answers **ahead of every gate**, which is where its value is — the bootstrap gate would send
-an unprovisioned host to the provisioning command, and the root guard would answer `sudo ai-tools --relabel`,
-the spelling the older release notes print, with a list of the verbs root may run, none of which reconciles
-an entrypoint. It exits **2**, the documented code for a rejected command line.
+**`--relabel` prints the new command and exits 2.** The entrypoint reconcile is `atr admin system entrypoints relabel`
+([updater](updater.rule.md) owns what it does, [cli-grammar](cli-grammar.rule.md) why it is spelled that way): it runs
+as root, which this CLI refuses, so it is not an alias. The pointer answers **ahead of every gate**, which is where its
+value is — the bootstrap gate would send an unprovisioned host to the provisioning command, and the root guard would
+answer `sudo atr --relabel`, the spelling the older release notes print, with a list of the verbs root may run, none
+of which reconciles an entrypoint. It exits **2**, the documented code for a rejected command line.
 
 The CLI ships a man page, `ai-tools(1)` (`src/usr/local/share/man/man1/ai-tools.1` → `/usr/local/share/man/man1/`,
 deployed by `install.sh` and the RPM with the same `@AI_TOOLS_VERSION@` substitution as the CLI). It is hand-written
@@ -501,10 +499,11 @@ in the page, and every option the page documents is one a CLI **parser** accepts
 must name it too", which made moving an option out of the help fail as a stale man entry; what goes stale is an option
 outliving its parser.
 
-## The root vantage: `ai-tools-admin status`
+## The root vantage: `atr admin status`
 
-`status` and `ai-tools-admin status` are **one resource read from two vantages**, not two reports. The root command
-reports the same host and adds the readings the operator's prints as `?`:
+`status` and `atr admin status` read **one host from two vantages**: two resources, `GET /status`
+and `GET /admin/status` ([cli-grammar](cli-grammar.rule.md)), over one set of facts. The root command reports the same
+host and adds the readings the operator's prints as `?`:
 
 | reading | what blocks the operator | what root does |
 |---|---|---|
@@ -516,13 +515,13 @@ reports the same host and adds the readings the operator's prints as `?`:
 | an agent's installed version | the same toolchain | reads the `package.json` around the entrypoint (`ai_tools_entrypoint_verify__read_installed_version`), as data: running the agent's `--version` would execute a file the sandbox account can write ([ref-section-s9t9](updater.rule.md#ref-section-s9t9)) |
 | the sandbox account's systemd unit search path, and the `Persistent=` timer stamp on it | the chain is root-owned without world bits, so an operator outside the sandbox group cannot traverse it, and the stamp sits inside that account's home | reads both: the chain against its declared layout, the stamp's own mtime |
 
-**What keeps them one resource is where the privilege is tested.** `services.lib.sh` offers a live reading to whichever
-caller can make one, so the capability is checked at each read rather than at the dispatch: `sudo ai-tools status`
-resolves a unit exactly as `ai-tools-admin status` does, and an unprivileged run of either reports the same `?`. Two
-commands exist because the binary is the privilege boundary ([cli-grammar](cli-grammar.rule.md)), not because there are
-two sets of facts. The **rendering** does differ — this CLI's coloured report against the admin tool's plain
-bracket-token table — which is the registry's own contract: it emits records and leaves every consumer to format them,
-the same way the launch wrapper's pre-launch warning does.
+**What keeps them one set of facts is where the privilege is tested.** `services.lib.sh` offers a live reading
+to whichever caller can make one, so the capability is checked at each read rather than at the dispatch:
+`sudo ai-tools status` resolves a unit exactly as `ai-tools-admin status` does, and an unprivileged run of either
+reports the same `?`. Two commands exist because the binary is the privilege boundary
+([cli-grammar](cli-grammar.rule.md)), not because there are two sets of facts. The **rendering** does differ — this
+CLI's coloured report against the admin tool's plain bracket-token table — which is the registry's own contract: it
+emits records and leaves every consumer to format them, the same way the launch wrapper's pre-launch warning does.
 
 The pin comparison is the reading that answers *now* rather than *then*: `status` reports what the last reconciliation
 recorded, so a binary changed since — by an out-of-band `npm install`, or by anything else writing that tree — is named
@@ -537,14 +536,13 @@ the reconcile. It is **read-only**, which is what makes it safe to call from a r
 from `ai_tools_relabel__label_agent_paths`; that function's header states which calls each one makes.
 
 **The sandbox unit search path is a section of its own, because only root can read it.** A chain directory that exists
-at another owner or mode is `DRIFTED` and counts, with `sudo ai-tools-admin system layout reconcile` as the remedy line,
-since each directory of the chain is a row of the installed layout ([layout](layout.rule.md)); an absent one is `n/a`,
-a host provisioning has not reached; and an entry under `.local/share/systemd` other than the stamp directory is
-`UNEXPECTED` and counts. The drift reader's status keeps a failed reading apart from a clean chain. The `Persistent=`
-timer stamp is read by its mtime through `ai_tools_services__evaluate_timer_stamp`, with the tolerance taken
-from the timer's own accuracy and randomized delay; `FUTURE` counts, since a future-dated stamp suppresses the catch-up
-run a missed window gets. Whether the timer is overdue is the Services section's reading alone. The report does not
-write the stamp.
+at another owner or mode is `DRIFTED` and counts, with `atr admin system layout reconcile` as the remedy line, since
+each directory of the chain is a row of the installed layout ([layout](layout.rule.md)); an absent one is `n/a`, a host
+provisioning has not reached; and an entry under `.local/share/systemd` other than the stamp directory is `UNEXPECTED`
+and counts. The drift reader's status keeps a failed reading apart from a clean chain. The `Persistent=` timer stamp is
+read by its mtime through `ai_tools_services__evaluate_timer_stamp`, with the tolerance taken from the timer's own
+accuracy and randomized delay; `FUTURE` counts, since a future-dated stamp suppresses the catch-up run a missed window
+gets. Whether the timer is overdue is the Services section's reading alone. The report does not write the stamp.
 
 The report is otherwise the same contract as `status`: it exits 4 when something needs attention and 5 when a library
 base ships did not load, so a section could not make a reading it promises — the two counts `STATUS_PROBLEMS`
@@ -584,7 +582,7 @@ effect is decided by *which* operator's allowlist covers the path — the verbs 
 that silently cloned as the invoker would leave the tree owned by the wrong operator, with no output to show the flag
 was disregarded. The target must be **enrolled in `OPERATORS`**, since the ownership helpers resolve a path's owner
 over that list and an entry written for an unenrolled name would be a launch gate no helper can act on; the sandbox
-account and `root` are refused outright. It must also be **in `ai-ops`**, the second fact `ai-tools-admin operators add`
+account and `root` are refused outright. It must also be **in `ai-ops`**, the second fact `atr admin operators add`
 writes: the target's launch wrapper refuses a caller outside the group, and a create in the clone area writes
 through that area's `g:ai-ops` ACL. The membership is read without a password and before the snapshot, and an account
 whose groups cannot be read is refused like one outside the group. The snapshot then refuses a target with no allowlist
@@ -804,7 +802,7 @@ while the registries, the `safe.directory` entry and the label apply regardless,
 take every step that registers a project and none that grants access, and close with a ✓ over a tree the agent cannot
 enter. `require_claimable_owner` refuses before the first registry write and names the `chown`; transferring a tree
 recursively needs an authority this CLI does not hold, and is deliberately not built. The commonest route to the state
-is `mkdir ~/proj && ai-tools projects claim --for svc ~/proj`, where the owner resolves to `svc`.
+is `mkdir ~/proj && atr projects claim --for svc ~/proj`, where the owner resolves to `svc`.
 
 **A claim that could not apply its root steps does not report success.** `reg_safedir`, `reg_ownership`,
 `claim_setfacl`, `claim_relabel` and `grant_ancestor_traversal` each return non-zero when their step did not take,
@@ -1000,8 +998,8 @@ the nested check sees only the registry this run can read. The verb reads the ki
 under `SANDBOX_ROOT` is removed through `require_sandbox_clone` and every other entry as a project.
 
 A read-only deletability pre-flight runs as the acting owner and refuses when any directory in the tree is not writable
-and traversable by them, naming `ai-tools projects handback --full`: the failure a destructive verb must not have is
-a tree deleted down to the first directory it could not enter, with no entry left to find the remains by. The project's
+and traversable by them, naming `atr projects handback --full`: the failure a destructive verb must not have is a tree
+deleted down to the first directory it could not enter, with no entry left to find the remains by. The project's
 **parent** is checked first and separately, since `rm -rf <d>` finishes by unlinking `<d>` from it, and that directory
 is not part of the project; missing it leaves an empty, deregistered husk, so its refusal names `projects unclaim`
 instead. Teardown then runs registries first, deletion last — the label, the `safe.directory` entry, the allowlist
@@ -1174,8 +1172,8 @@ Where each walk takes the gate:
   walk does not cross a directory the account can rename, and the clone's own entry sits in an area whose type
   `ai_tools_t` may search and not write; that walk does not take the gate.
 
-Every message leads with letting the sessions end and the update finish, and offers `ai-tools stop` beside it, since
-a stop ends a session without its session-end handback and an update mid-run.
+Every message leads with letting the sessions end and the update finish, and offers `atr stop` beside it, since a stop
+ends a session without its session-end handback and an update mid-run.
 
 **The gate narrows the exposure and does not close it.** A session launched between the reading and the walk is inside
 the walk. What closes it is either a libselinux at or above 3.11, whose walker holds a descriptor, or the launch lock

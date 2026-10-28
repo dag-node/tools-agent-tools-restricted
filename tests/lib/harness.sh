@@ -46,6 +46,17 @@ skip()    { printf '  %sSKIP%s  %s  (%s)\n' "${_C_SKIP}" "${_C_OFF}" "$(_san "$1
 # no-coverage notice; a check that could not run emits skip instead.
 note()    { printf '  %sNOTE%s  %s  (%s)\n' "${_C_NOTE}" "${_C_OFF}" "$(_san "$1")" "$(_san "$2")"; }
 section() { printf '\n── %s\n' "$(_san "$*")"; }
+# skip_required <subject> <reason>: a check whose prerequisite every full install meets could not run. It is a skip
+# in a lenient run, where a partial or development install may lack the prerequisite, and a FAIL under
+# AI_TOOLS_TEST_STRICT=1, the full-install gate: run.sh's no-coverage notice counts a file's passes, so a skip in a file
+# whose other checks passed does not reach it.
+skip_required() {
+    if [[ "${AI_TOOLS_TEST_STRICT:-0}" == 1 ]]; then
+        fail "$1: $2 (AI_TOOLS_TEST_STRICT=1 requires it)"
+    else
+        skip "$1" "$2"
+    fi
+}
 
 # assert_msg <code> <output> [<what>]: PASS when <output> carries the message code <code> on a line of its own --
 # where every emitter and local die()/warn() puts a leading code in plain mode -- and FAIL otherwise, quoting

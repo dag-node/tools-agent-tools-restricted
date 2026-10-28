@@ -26,16 +26,16 @@ and the new entrypoint is relabelled for the SELinux transition.
 
 ## Toolchain provisioning (`system bootstrap`)
 
-`sudo ai-tools-admin system bootstrap` provisions the toolchain the updater then maintains. The command execs the root
-helper `ai-tools-bootstrap`, which keeps its name and its `/usr/local/libexec/ai-tools` path; what follows is
-that helper's work. It first rewrites a provider list an earlier release wrote with bare names, the rewrite
-`system post-upgrade` makes ([providers](providers.rule.md)), so what follows reads the line this release reads. **It
-decides which agents it provisions before its first network step** (`choose_agents`): no agent manifest ships enabled,
-so with `AI_TOOLS_AGENTS` absent and at least one trusted manifest installed it draws one `ai_tools_msg__pick none` menu
-— one option per installed agent (`display_name`) and one for none, single-select — and writes the chosen name
-into `operator.conf` through `ai_tools_conf__set_list`; an unanswered menu (no terminal, closed input, three misses)
-or none chosen provisions Node alone under a coded warning naming the line and the re-run, at exit 0.
-`--agents NAME[,NAME...]`, passed through by `ai-tools-admin`, is the unattended form: each name is checked
+`atr admin system bootstrap` provisions the toolchain the updater then maintains. The command execs the root helper
+`ai-tools-bootstrap`, which keeps its name and its `/usr/local/libexec/ai-tools` path; what follows is that helper's
+work. It first rewrites a provider list an earlier release wrote with bare names, the rewrite `system post-upgrade`
+makes ([providers](providers.rule.md)), so what follows reads the line this release reads. **It decides which agents it
+provisions before its first network step** (`choose_agents`): no agent manifest ships enabled, so with `AI_TOOLS_AGENTS`
+absent and at least one trusted manifest installed it draws one `ai_tools_msg__pick none` menu — one option
+per installed agent (`display_name`) and one for none, single-select — and writes the chosen name into `operator.conf`
+through `ai_tools_conf__set_list`; an unanswered menu (no terminal, closed input, three misses) or none chosen
+provisions Node alone under a coded warning naming the line and the re-run, at exit 0. `--agents NAME[,NAME...]`, passed
+through by `ai-tools-admin`, is the unattended form: each name is checked
 against `ai_tools_providers__list_installed_agents` and an unknown one refuses the run with the key unwritten. A present
 key is the operator's declaration and is not asked about; one naming more than one agent is answered with a notice,
 since every agent named runs as the one sandbox account, and an untrusted `operator.conf` is neither asked
@@ -65,8 +65,8 @@ via [providers](providers.rule.md)), re-links each versioned launcher at the tar
 versioned launcher and its declared target](#the-versioned-launcher-and-its-declared-target)), points
 `/opt/ai-tools/bin/<launcher>` at each versioned binary, relabels the freshly installed entrypoint
 (`ai-tools-relabel-agent`, gated on that helper being deployed, so the first launch after a fresh provision is confined
-without a manual `ai-tools-admin system entrypoints relabel`), and captures the initial control plane in a root-private
-git repo. It is the one network step, so it is an operator command rather than an RPM scriptlet (which must succeed
+without a manual `atr admin system entrypoints relabel`), and captures the initial control plane in a root-private git
+repo. It is the one network step, so it is an operator command rather than an RPM scriptlet (which must succeed
 offline). It is idempotent: an existing account, nvm install, or Node version is reused. It enables `SANDBOX_USER`
 linger and the `nvm-update.timer` in that instance (best-effort), so the maintenance schedule is live once the toolchain
 exists. Root starts the timer over the machine transport (`systemctl --user -M SANDBOX_USER@.host`), the route
@@ -146,9 +146,9 @@ routes to the toolchain, and no third:
   the run. The deadline holds through the draining of the child's output, so a descendant the child left holding its
   output open is ended the same way rather than waited for. The run is a transient systemd scope, the boundary
   a descendant cannot leave whatever session it opens, placed in the account's slice `user-<uid>.slice`,
-  where `ai-tools stop` ends it and the relabel gate reads it as live; where the system manager does not answer
-  the helper's probe in that slice, the run is refused under `MSG-Q2K6` rather than made inside the weaker boundary
-  a session is, since a descendant's own `setsid` leaves that one. Otherwise the command's own status is returned.
+  where `atr stop` ends it and the relabel gate reads it as live; where the system manager does not answer the helper's
+  probe in that slice, the run is refused under `MSG-Q2K6` rather than made inside the weaker boundary a session is,
+  since a descendant's own `setsid` leaves that one. Otherwise the command's own status is returned.
   `ai-tools-bootstrap` requires it and refuses the run under `MSG-E2X2` without it; its link repair, its residue
   removal, its nvm/Node/agent install and its signature check go through it, and so does `install.sh`'s package erase
   at uninstall. `ai_tools_sandbox_exec__is_sandbox_account`, beside it, is the check a function that sources `nvm.sh`
@@ -326,15 +326,15 @@ and the permissions around it bound **what it can touch**, never whether the con
   and only ever **rewritten in place** by the updater. The added surface is therefore exactly one inode's contents.
 
 That the contents are forgeable is accepted, on two grounds. **The contents decide a status report alone.**
-`services.lib.sh` reads the fields for the two status reports (`ai-tools status`, `ai-tools-admin status`) and no
-launch, access or handback path does, so a forged stamp can misreport the updater — a `skipped` that stands over a live
-`failed`, a `STALE` the report counts toward exit 4 — and does not change what a session may do. Every value is read
-defensively (`ai_tools_services__read_stamp_field`: a symlink is refused, only the first 4 KiB is examined, and a value
-must be a short `[A-Za-z0-9:+._-]` token or it reads as no value at all), so no control byte or escape sequence can
-reach the operator's terminal through it and a corrupt stamp degrades the unit to *unknown* rather than to a wrong
-verdict. And it is **never the weakest link**: an account able to write the stamp can already write the toolchain
-the stamp reports on, which is by far the more valuable target. On an enforcing host it can write neither. The toolchain
-is `usr_t`, which `ai_tools_t` may only read. The stamp is `usr_t` where the policy aliases `/var/opt` to `/opt` (EL10,
+`services.lib.sh` reads the fields for the two status reports (`atr status`, `atr admin status`) and no launch, access
+or handback path does, so a forged stamp can misreport the updater — a `skipped` that stands over a live `failed`,
+a `STALE` the report counts toward exit 4 — and does not change what a session may do. Every value is read defensively
+(`ai_tools_services__read_stamp_field`: a symlink is refused, only the first 4 KiB is examined, and a value must be
+a short `[A-Za-z0-9:+._-]` token or it reads as no value at all), so no control byte or escape sequence can reach
+the operator's terminal through it and a corrupt stamp degrades the unit to *unknown* rather than to a wrong verdict.
+And it is **never the weakest link**: an account able to write the stamp can already write the toolchain the stamp
+reports on, which is by far the more valuable target. On an enforcing host it can write neither. The toolchain is
+`usr_t`, which `ai_tools_t` may only read. The stamp is `usr_t` where the policy aliases `/var/opt` to `/opt` (EL10,
 Fedora) and `var_t` where it does not (EL9), on which the domain holds directory search and no file permission (the
 `sandbox-projects` note in `ai_tools.fc`). `nvm-update.service` runs outside that domain and writes normally.
 
@@ -396,18 +396,17 @@ from the manifests, with no agent name in its code:
   update run and is then invisible to the readers, which is accepted and stated: an erase under a running session
   of that agent is the operator's timing to avoid.
 - **The launcher link goes with the package.** The link is the operator's residue evidence, so a removal that left it
-  would keep the wrapper and `ai-tools status` refusing. The bootstrap removes it as root; the updater reaches root
+  would keep the wrapper and `atr status` refusing. The bootstrap removes it as root; the updater reaches root
   through the handback bridge's `SYMLINK_REMOVE` verb ([handback-bridge](handback-bridge.rule.md)), the `--remove` form
   of `ai-tools-launcher-symlink`; the erase paths remove it as root directly. Each caller removes it only once no
   version directory still holds the package, so a deferral keeps the link and the launch keeps refusing until
   the package is gone.
 - **Both launch tiers refuse while residue exists**, every agent's launch and not only the disabled one's, under one
   code (`MSG-H4E2`): the wrapper's residue gate on the link, before the executable resolves and before `sudo`,
-  and `ai-tools-run` on the tree, before it validates the executable ([launch](launch.rule.md)). `ai-tools status`
-  reports the same read per agent and counts it ([cli](cli.rule.md)). The remedy every one of them names is
-  `sudo ai-tools-admin system bootstrap`, whose removal step runs first; an `ai-ops` operator who does not hold
-  a general sudo grant waits for the nightly updater or an administrator, the same shape as the on-demand entrypoint
-  relabel.
+  and `ai-tools-run` on the tree, before it validates the executable ([launch](launch.rule.md)). `atr status` reports
+  the same read per agent and counts it ([cli](cli.rule.md)). The remedy every one of them names is
+  `atr admin system bootstrap`, whose removal step runs first; an `ai-ops` operator who does not hold a general sudo
+  grant waits for the nightly updater or an administrator, the same shape as the on-demand entrypoint relabel.
 
 `tests/unit/toolchain.sh` drives the readers over a synthetic manifest set and a fixture tree, and the writer with `npm`
 stubbed in the fixture version's own `bin`; `tests/unit/launch-wrapper.sh` and `tests/integration/ai-tools-run.sh` drive
@@ -655,8 +654,8 @@ an uncreatable lock file, or a wait that runs out proceeds unserialized and says
 and every refusal is reported, so an untaken lock costs a repeat run rather than a wrong label.
 
 `semanage`'s own stderr is what a refusal reports, carried on the status line the helper renders and logs
-(`relabel.log`, journald, and so `ai-tools audit`) — the store being held and a type the loaded policy does not define
-need different remedies, and the message is the only thing that tells them apart.
+(`relabel.log`, journald, and so `atr audit`) — the store being held and a type the loaded policy does not define need
+different remedies, and the message is the only thing that tells them apart.
 
 ### A refusal leaves a mark too <a id="ref-section-b3k5"></a>
 
@@ -687,7 +686,7 @@ on anything but `ok`). `ai-tools status` reports it under that agent's verificat
 
 It exists because **the operator can observe neither the label nor the run that applies it**. The entrypoint is
 in a toolchain they cannot traverse, `matchpathcon` computes only what a label should be, and two of the three callers —
-an rpm `%post` and `ai-tools-admin system entrypoints relabel` — are not units, so no systemd record covers them. A run
+an rpm `%post` and `atr admin system entrypoints relabel` — are not units, so no systemd record covers them. A run
 that fails leaves its account in a journal the operator does not read; the pin, written earlier in the same run, is left
 standing and green.
 
@@ -722,17 +721,16 @@ the launcher resolves to is a byte-identical copy of a match (`ai_tools_relabel_
 | verdict | what the pattern matched | the cause | the remedy the refusal names |
 |---|---|---|---|
 | `stale` | some other file | the manifest has stopped describing its own package | a newer agent package (`dnf update 'ai-tools-agents-*'`) |
-| `incomplete` | no installed file | the package did not install the entrypoint it declares | the toolchain reinstall (`sudo ai-tools-admin system bootstrap`) |
-| `copied` | some other file, byte-identical to the one the launcher resolves to | a copy of the tree replaced a symlink in the launcher's chain with its target | the toolchain run, which restores the links (`sudo ai-tools-admin system bootstrap`) |
+| `incomplete` | no installed file | the package did not install the entrypoint it declares | the toolchain reinstall (`atr admin system bootstrap`) |
+| `copied` | some other file, byte-identical to the one the launcher resolves to | a copy of the tree replaced a symlink in the launcher's chain with its target | the toolchain run, which restores the links (`atr admin system bootstrap`) |
 
 Each is reported per agent as a warning and fails the run under its own code, and the split is what keeps the operator
 out of a loop: the missing executable comes from the sandbox toolchain rather than from the RPM, so an agent package
-update leaves it exactly as it was and the next `ai-tools status` sends the operator back to the same relabel.
-That repair is the on-demand form of the updater's own (see [An enabled agent's package without its declared entrypoint
-is repaired, not reported](#an-enabled-agents-package-without-its-declared-entrypoint-is-repaired-not-reported)),
-so a nightly run repairs a host nobody looked at. A toolchain still holding an older Node version whose package is whole
-reads as `stale` on that copy's match — the declared entrypoint *is* installed, and it is the launcher that resolves
-elsewhere.
+update leaves it exactly as it was and the next `atr status` sends the operator back to the same relabel. That repair is
+the on-demand form of the updater's own (see [An enabled agent's package without its declared entrypoint is repaired,
+not reported](#an-enabled-agents-package-without-its-declared-entrypoint-is-repaired-not-reported)), so a nightly run
+repairs a host nobody looked at. A toolchain still holding an older Node version whose package is whole reads as `stale`
+on that copy's match — the declared entrypoint *is* installed, and it is the launcher that resolves elsewhere.
 
 `ai-tools-bootstrap` runs the helper directly at provision time (see [Toolchain
 provisioning](#toolchain-provisioning-system-bootstrap)). Two further paths run it after an upgrade, both as root, never
@@ -750,7 +748,7 @@ provisioning](#toolchain-provisioning-system-bootstrap)). Two further paths run 
   the entrypoint at `bin_t` — always fires, while a daily no-op run stops churning the link. The repoint is the sole
   trigger: the sandbox updater does not hold any relabel rights and reaches root only through the handback bridge,
   whose domain deliberately holds none either, so a repoint that does not land (handback down in a manual run) leaves
-  the relabel to `ai-tools-run`'s fail-closed preflight and the operator's `ai-tools-admin system entrypoints relabel`.
+  the relabel to `ai-tools-run`'s fail-closed preflight and the operator's `atr admin system entrypoints relabel`.
   The watcher is **enabled by default** on install through the shipped systemd preset —
   `%systemd_post ai-tools-relabel.path` applies `85-ai-tools.preset`, which lists it beside the handback socket; without
   that explicit line the distribution's `disable *` default would leave `%systemd_post` a no-op (the same enablement
@@ -766,9 +764,9 @@ provisioning](#toolchain-provisioning-system-bootstrap)). Two further paths run 
   by the `%posttrans`, by the bootstrap or by `install.sh`, each of which runs it once after its own relabel
   so the unit's recorded result is that run's — brings the watcher up with it. Should it be down anyway,
   `services.lib.sh` surfaces it before the next Node bump would fail-close a launch on a mislabelled entrypoint:
-  proactively at launch (`launch-wrapper.lib.sh` warns, warn-not-block, from the same registry) and in `ai-tools status`
-  (see [cli](cli.rule.md)).
-- **On demand**, through `sudo ai-tools-admin system entrypoints relabel`, which runs the same helper as root. It is
+  proactively at launch (`launch-wrapper.lib.sh` warns, warn-not-block, from the same registry) and in `atr status` (see
+  [cli](cli.rule.md)).
+- **On demand**, through `atr admin system entrypoints relabel`, which runs the same helper as root. It is
   an administrator command rather than an operator one: it carries no `%ai-ops` NOPASSWD rule and is reached
   through the host's own general sudo grant, the axis [CLAUDE.md](../../CLAUDE.md) names (see
   [cli-grammar](cli-grammar.rule.md) for the spelling and [launch](launch.rule.md) for what the drop-in does and does
@@ -779,7 +777,7 @@ relabel rights (`ai_tools.te`), so the privilege stays off the agent's reach. Th
 `ai-tools-run`'s fail-closed preflight (see [confinement](confinement.rule.md)) is the backstop — when SELinux is
 enforcing and the module is installed, it refuses to launch a session whose entrypoint is not `ai_tools_exec_t`,
 so a watcher relabel that does not land degrades to a refused launch the operator clears
-with `ai-tools-admin system entrypoints relabel`, never an unconfined session.
+with `atr admin system entrypoints relabel`, never an unconfined session.
 
 ## `loginctl enable-linger`
 
@@ -921,12 +919,12 @@ mark](#a-refusal-leaves-a-mark-too) and prints the remedy.
 **The remedy is a forced reinstall, not the provisioning command.** `system bootstrap` installs each enabled agent's npm
 package, and `npm install -g` is a no-op at a version already installed, so reprovisioning leaves a changed binary
 exactly where it is and the host goes on refusing without naming the cause. Both refusals — the relabel helper's
-and the launch shim's — therefore suggest ending every running session first, by letting each finish
-or with `ai-tools stop`, so root removes inside the account's tree while none of that account's processes runs, then
-print the package directory to remove and the provisioning command after it, composed
-by `ai_tools_entrypoint_verify__find_package_dir` from the entrypoint's own version directory and the manifest's
-`npm_package`, so the operator reads the paths this host has. Where the entrypoint does not sit inside a package
-directory, the refusal names the provisioning command alone rather than guessing a path.
+and the launch shim's — therefore suggest ending every running session first, by letting each finish or with `atr stop`,
+so root removes inside the account's tree while none of that account's processes runs, then print the package directory
+to remove and the provisioning command after it, composed by `ai_tools_entrypoint_verify__find_package_dir`
+from the entrypoint's own version directory and the manifest's `npm_package`, so the operator reads the paths this host
+has. Where the entrypoint does not sit inside a package directory, the refusal names the provisioning command alone
+rather than guessing a path.
 
 **What the weaker tier does not decide.** The version on both sides of that decision comes from `package.json`
 in the toolchain, which the sandbox account owns and the updater writes, and the version directory the stable launcher
@@ -965,8 +963,8 @@ something else changes. What it keeps is everything that makes the pin a tamper 
 checksum and a rotated key or repointed manifest changes the digest, and either takes the full path.
 
 `AI_TOOLS_ENTRYPOINT_PIN_REUSE=1` selects it, and the two unattended callers set it — the `ai-tools-relabel.service`
-unit and the agent package's `%post`. **`ai-tools-admin system entrypoints relabel` never does**, and by construction
-rather than by convention: the command clears the variable before it execs the helper, so the on-demand route re-checks
+unit and the agent package's `%post`. **`atr admin system entrypoints relabel` never does**, and by construction rather
+than by convention: the command clears the variable before it execs the helper, so the on-demand route re-checks
 the vendor's signature however it was invoked — the behaviour it documents and the one an administrator runs it for.
 (`sudo` scrubbing the environment says the same thing for the usual invocation; the unset is what carries the guarantee
 when root runs the command directly.) `ai-tools-bootstrap` leaves it unset too, so a fresh provision always verifies

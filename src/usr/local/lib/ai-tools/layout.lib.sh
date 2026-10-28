@@ -102,7 +102,7 @@ _ai_tools_layout__populate_static_entries() {
     local -a man_pages=(
         man1/ai-tools.1 man5/ai-tools-operator.conf.5 man5/ai-tools-providers.5 man5/ai-tools-allowed-projects.5
         man5/ai-tools-secret-patterns.5 man5/ai-tools-custom-claude-endpoint.conf.5 man5/ai-tools-records.5
-        man5/ai-tools-assets.5 man7/ai-tools-messages.7 man8/ai-tools-admin.8
+        man5/ai-tools-assets.5 man7/ai-tools-messages.7 man8/ai-tools-admin.8 man1/atr.1 man8/atr.8
     )
 
     # ── ai-tools-base ── The root helpers: 0750 root:root, so a non-root account cannot list the directory or run
@@ -114,8 +114,10 @@ _ai_tools_layout__populate_static_entries() {
     # The sudo-PATH links: sudoers secure_path on stock EL excludes /usr/local/sbin, so `sudo <name>` resolves here.
     _ai_tools_layout__append_static_entry /usr/sbin/ai-tools-admin     link root:root 0777 - "${base}" files
     _ai_tools_layout__append_static_entry /usr/sbin/ai-tools           link root:root 0777 - "${base}" files
+    _ai_tools_layout__append_static_entry /usr/sbin/atr                link root:root 0777 - "${base}" files
     # The CLI and the launch wrapper run as the invoking operator; root-owned so the agent cannot rewrite either.
     _ai_tools_layout__append_static_entry /usr/local/bin/ai-tools        file root:root 0755 - "${base}" files
+    _ai_tools_layout__append_static_entry /usr/local/bin/atr             file root:root 0755 - "${base}" files
     _ai_tools_layout__append_static_entry /usr/local/bin/ai-tools-launch file root:root 0755 - "${base}" files
     # Group-executable so the sandbox account runs it from the hooks; no world bit, so no other account reaches
     # the bridge.
@@ -976,16 +978,16 @@ _ai_tools_layout__is_content_verification_required() {
 }
 
 # _ai_tools_layout__get_refusal_remedy <flags> <package> <operator> [exposure <path> <owner> <mode> <acl-field>] :
-# the command that places a row the reconcile does not create -- `sudo ai-tools-admin operators add <name>`
-# for a missing operator file, and a reinstall for every other missing file or link and for a package file whose content
-# drifted, since the package's scriptlet or install.sh places a runtime-written file. With `exposure`, the remedy
-# for a regular file another account could have written, in one of two forms. A payload file (`files` without `config`
-# or `ghost`) is reinstalled, which replaces the inode with the package's bytes. Every other regular file is reviewed
-# and restored by hand: `setfacl -b` removes a foreign named entry, which `chmod` leaves in place masked, then `chown`,
-# `chmod` and, where <acl-field> is not `-`, `setfacl -m` with the row's named entries; each path goes
-# through `printf %q`, so the line pastes into a shell whole. A reinstall is named for payload bytes alone: it keeps
-# an edited %config(noreplace) file, re-chmods a stamp through its %post and leaves a log as it is, and removing
-# a runtime file would drop the claims' safe.directory entries `.gitconfig` holds or the evidence a log holds.
+# the command that places a row the reconcile does not create -- `atr admin operators add <name>` for a missing operator
+# file, and a reinstall for every other missing file or link and for a package file whose content drifted, since
+# the package's scriptlet or install.sh places a runtime-written file. With `exposure`, the remedy for a regular file
+# another account could have written, in one of two forms. A payload file (`files` without `config` or `ghost`) is
+# reinstalled, which replaces the inode with the package's bytes. Every other regular file is reviewed and restored
+# by hand: `setfacl -b` removes a foreign named entry, which `chmod` leaves in place masked, then `chown`, `chmod`
+# and, where <acl-field> is not `-`, `setfacl -m` with the row's named entries; each path goes through `printf %q`,
+# so the line pastes into a shell whole. A reinstall is named for payload bytes alone: it keeps an edited
+# %config(noreplace) file, re-chmods a stamp through its %post and leaves a log as it is, and removing a runtime file
+# would drop the claims' safe.directory entries `.gitconfig` holds or the evidence a log holds.
 _ai_tools_layout__get_refusal_remedy() {
     local quoted_path
     if [[ "${4:-}" == exposure ]]; then
@@ -1001,7 +1003,7 @@ _ai_tools_layout__get_refusal_remedy() {
         return 0
     fi
     if [[ -n "$3" ]]; then
-        printf 'sudo ai-tools-admin operators add %s' "$3"
+        printf 'atr admin operators add %s' "$3"
     else
         printf 'sudo dnf reinstall %s, or sudo ./install.sh install on a source install' "${2%%,*}"
     fi
@@ -1479,7 +1481,7 @@ ai_tools_layout__write_check_records() {
 : "${AI_TOOLS_LAYOUT_LOCK:=/run/lock/ai-tools-layout.lock}"
 : "${AI_TOOLS_LAYOUT_LOCK_WAIT:=60}"
 readonly _AI_TOOLS_LAYOUT__LIBRARY_DIR="${BASH_SOURCE[0]%/*}"
-readonly _AI_TOOLS_LAYOUT__FULL_PASS_REMEDY="sudo ai-tools-admin system layout reconcile, or sudo ./install.sh install on a source install"
+readonly _AI_TOOLS_LAYOUT__FULL_PASS_REMEDY="atr admin system layout reconcile, or sudo ./install.sh install on a source install"
 
 # What one reconcile accumulates: the outcome counts its exit status folds, the paths of the rows in the set,
 # and the state each row reached after its own step, which the rows under it read. Both maps are keyed by the decoded

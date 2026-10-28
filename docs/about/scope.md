@@ -58,8 +58,8 @@ from an oversight:
   another enabled agent's binary at its path inside the sandbox toolchain.
   Taking an agent off `AI_TOOLS_AGENTS` stops it from starting a session,
   and the next provisioning run — the nightly update,
-  or `sudo ai-tools-admin system bootstrap` — removes its package; until then
-  no session of any agent starts, and the launch says so. The child runs inside
+  or `atr admin system bootstrap` — removes its package; until then no session
+  of any agent starts, and the launch says so. The child runs inside
   the parent's session with the parent's confinement, and the files it writes
   come back to you. What the sandbox holds for one agent, its login
   and a custom endpoint token where one is configured, every session of every
@@ -70,7 +70,7 @@ from an oversight:
   altogether needs a broker outside it, which is proposed rather than built.
 - **Operators are trusted.** The model defends the host and its other users
   from the *agent*, not from an operator, who already holds the launch grant.
-  `ai-tools projects claim --for <operator>` rests on that: one operator writes
+  `atr projects claim --for <operator>` rests on that: one operator writes
   an entry into another's allowlist, so a human can claim a project
   for a passwordless service account ([Service
   accounts](../operators/service-accounts.md)).

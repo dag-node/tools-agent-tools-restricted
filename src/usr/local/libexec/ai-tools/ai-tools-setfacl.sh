@@ -19,8 +19,8 @@
 # @SANDBOX_GROUP@ (it arrived by rename, inheriting neither the setgid group nor the default ACL) -- so a re-claim's
 # drift scan (acl_drift_scan in the CLI) finds the tree settled.
 #
-# Runs as root via sudo under `ai-tools projects claim`; CAP_FOWNER lets it ACL files the operator does not own.
-# Installed 750 root:root. Its domain rule is cli.rule.md.
+# Runs as root via sudo under `atr projects claim`; CAP_FOWNER lets it ACL files the operator does not own. Installed
+# 750 root:root. Its domain rule is cli.rule.md.
 
 set -euo pipefail
 

@@ -18,7 +18,7 @@ From a source checkout:
 
 ```bash
 sudo ./install.sh install              # the wrapper, helpers, systemd units
-sudo ai-tools-admin system bootstrap   # the sandbox account's Node toolchain
+atr admin system bootstrap   # the sandbox account's Node toolchain
 ```
 
 `install.sh` is the last of four steps, and it stops until the first three have

@@ -27,7 +27,7 @@ The file is owned by the operator at mode
 inside a
 .B 0700
 directory, so no other account reads it.
-.B "ai-tools-admin operators add"
+.B "atr admin operators add"
 creates it with a header and no entry, so no session can start anywhere until an
 entry is added.
 The
@@ -74,7 +74,7 @@ account writes the project.
 .SS Allow entries
 An allow entry is a literal directory and covers its contents.
 A glob in an allow line does not match any path, so it does not start a session;
-.B "ai-tools projects list"
+.B "atr projects list"
 reports such a line as unusable.
 An entry naming a directory that no longer exists is skipped, and reported as stale.
 .SS Exclusions
@@ -95,14 +95,14 @@ An exclusion inside a listed project withholds that subtree from the agent.
 The launch refuses the subtree as a working directory, and no hand-back runs
 there.
 Lift it by editing the line;
-.B "ai-tools projects enable"
+.B "atr projects enable"
 refuses it, since removing a carve-out widens what the agent reaches.
 .TP
 .B a parked project
 An exclusion with no listed project enclosing it takes a claimed project out of
 service.
 The entry, the permissions and the label stay in place, so
-.B "ai-tools projects enable"
+.B "atr projects enable"
 restores it.
 .SH ENTRY STATES
 A path is in one of three states, and the
@@ -139,7 +139,7 @@ The operator's secret-name patterns, kept beside it with the same ownership.
 .TP
 .I /var/opt/ai-tools/sandbox-projects/
 The sandbox-clone area; a clone made by
-.B "ai-tools projects clone"
+.B "atr projects clone"
 is listed here like any other project.
 .SH EXAMPLES
 A project, a carve-out inside it, and a parked project:
@@ -148,7 +148,7 @@ A project, a carve-out inside it, and a parked project:
 .EX
 /home/op/webapp
 !/home/op/webapp/vendor        # third-party code the agent does not touch
-!/home/op/oldapp               # parked: ai-tools projects enable restores it
+!/home/op/oldapp               # parked: atr projects enable restores it
 .EE
 .RE
 .PP
@@ -167,9 +167,9 @@ Register a project, review the file, and park a project without editing:
 .PP
 .RS 4
 .EX
-ai\-tools projects claim ~/src/webapp
-ai\-tools projects list
-ai\-tools projects disable ~/src/oldapp
+atr projects claim ~/src/webapp
+atr projects list
+atr projects disable ~/src/oldapp
 .EE
 .RE
 .SH SEE ALSO

@@ -10,8 +10,8 @@ paths:
 on the host and everything each one spawned. It is the stop rung of the incident ladder
 ([governance](governance.rule.md)): the one control that acts on a session **already running**, where every other
 operator control — unclaiming a project, disabling a provider, revoking an operator, relabelling an entrypoint — changes
-what the *next* launch gets. `ai-tools stop`, the verb that reaches it, its option grammar, and its place
-among the verbs root may run are in [cli](cli.rule.md); what an operator runs and reads is
+what the *next* launch gets. `atr stop`, the verb that reaches it, its option grammar, and its place among the verbs
+root may run are in [cli](cli.rule.md); what an operator runs and reads is
 [docs/sessions/stop.md](../../docs/sessions/stop.md); the helper's own header states its exit contract
 and which externals sit on the kill path.
 

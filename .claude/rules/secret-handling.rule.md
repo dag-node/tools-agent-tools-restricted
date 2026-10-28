@@ -60,8 +60,8 @@ mode.
 **The file.** The patterns live in `~/.config/ai-tools/secret-patterns` (`<you>:<you> 600`, inside the `700`
 `~/.config/ai-tools`), beside `allowed-projects` and owned the same way: the operator edits it, `SANDBOX_USER` — neither
 its owner nor in its group, and unable to enter the directory — can neither read nor write it, and the root helpers read
-it on the operator's behalf, so the agent cannot weaken its own secret classification. `ai-tools-admin operators add`
-seeds it with the header alone — what the file is, the replace rule, an example line and `ai-tools-secret-patterns(5)`,
+it on the operator's behalf, so the agent cannot weaken its own secret classification. `atr admin operators add` seeds
+it with the header alone — what the file is, the replace rule, an example line and `ai-tools-secret-patterns(5)`,
 the page that holds the reference ([providers](providers.rule.md) states why a seeded header is a pointer) —
 so the baseline stays in force and each upgrade's additions reach that operator until they write a pattern of their own.
 
@@ -132,14 +132,14 @@ why rule files use a non-matching stem (`secret-handling.rule.md`, not `secrets.
 
 `ai-tools-chown` is reactive — it acts only on `SANDBOX_USER`-owned paths, so it never touches a pre-existing user-owned
 secret the agent could already read. `ai-tools-lockdown` (`/usr/local/libexec/ai-tools/ai-tools-lockdown`, run
-`ai-tools projects lockdown <project>` or `cd <project> && sudo ai-tools-lockdown`) is the proactive counterpart: it
-walks the current directory and, for every path matching the shared secret patterns, sets regular files `600`,
-directories `700`, and owner `<you>:<you>` — revoking `SANDBOX_USER`'s read regardless of who created the path.
-The owner's own private group is the target, the same one `ai-tools-chown` gives an agent-written secret, so a secret
-ends up identically owned whether it was locked down proactively or quarantined on write; leaving the group
+`atr projects lockdown <project>` or `cd <project> && sudo ai-tools-lockdown`) is the proactive counterpart: it walks
+the current directory and, for every path matching the shared secret patterns, sets regular files `600`, directories
+`700`, and owner `<you>:<you>` — revoking `SANDBOX_USER`'s read regardless of who created the path. The owner's own
+private group is the target, the same one `ai-tools-chown` gives an agent-written secret, so a secret ends
+up identically owned whether it was locked down proactively or quarantined on write; leaving the group
 as `SANDBOX_GROUP` would re-expose it the moment the mode was widened. Each locked path also has its sandbox residue
 stripped. The seal pass that follows covers the owner-only paths **under** the target and leaves the target directory
-itself as it is, still pruning the subtree of an owner-only root the way the claim walkers do. `ai-tools projects clone`
+itself as it is, still pruning the subtree of an owner-only root the way the claim walkers do. `atr projects clone`
 creates the clone root owner-only without an ACL and runs its `git clone` under `umask 077`, so a clone reaches the gate
 owner-only throughout, and a root on the seal list would lose the setgid bit and the sandbox group the clone area gave
 it before `normalize_clone` opens the tree, which restores the mode bits and not the group. It runs only when the CWD is
@@ -178,8 +178,8 @@ in the helper rather than read from `skip-dirs.lib.sh`, whose categories an oper
 so a category override cannot reopen it.
 
 It is a user tool: there is **no** sudoers grant letting `SANDBOX_USER` run it, and it refuses to run as `SANDBOX_USER`.
-The `ai-tools` CLI wraps it as `ai-tools projects lockdown [path]` (it `cd`s into the project and `sudo`s the helper,
-so sudo prompts for the projects user's password; `--dry-run` and `-y`/`--yes` pass through).
+The `ai-tools` CLI wraps it as `atr projects lockdown [path]` (it `cd`s into the project and `sudo`s the helper, so sudo
+prompts for the projects user's password; `--dry-run` and `-y`/`--yes` pass through).
 
 ### Lockdown on claim and clone
 

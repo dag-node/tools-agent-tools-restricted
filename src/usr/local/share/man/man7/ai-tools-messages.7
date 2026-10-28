@@ -348,7 +348,7 @@ this project directory is owned by ${owner}, and the claim grants it to ${OWNER_
 .TP
 .B MSG-U8N3
 ERROR.
-unknown projects clone option: $1 (see: ai\-tools \-\-help)
+unknown projects clone option: $1 (see: atr \-\-help)
 .TP
 .B MSG-V3N7
 ERROR.
@@ -459,7 +459,7 @@ declined: ${cfg_home} was not created, so ${user}'s ai\-tools config cannot be s
 .TP
 .B MSG-B9C4
 WARNING.
-left the labels under ${clones} as they were: an agent session or the toolchain update runs as the sandbox account, or this host's sessions could not be read; let each session end (/exit inside it) and the toolchain update finish, or end them all with 'ai\-tools stop', then run: sudo restorecon \-FR ${clones}
+left the labels under ${clones} as they were: an agent session or the toolchain update runs as the sandbox account, or this host's sessions could not be read; let each session end (/exit inside it) and the toolchain update finish, or end them all with 'atr stop', then run: sudo restorecon \-FR ${clones}
 .TP
 .B MSG-C4A8
 ERROR.
@@ -603,7 +603,7 @@ This file defines the sudo grant that lets an operator launch the sandbox. It is
 .TP
 .B MSG-H8U2
 WARNING.
-the reconcile did not finish within ${run_bound}s and was stopped; a row may be left short of its state \-\- see: sudo ai\-tools\-admin system layout
+the reconcile did not finish within ${run_bound}s and was stopped; a row may be left short of its state \-\- see: atr admin system layout
 .TP
 .B MSG-J2Y8
 WARNING.
@@ -747,7 +747,7 @@ semodule failed to remove ai_tools_${name}
 .TP
 .B MSG-Q8E5
 ERROR.
-assets: the write of AI_TOOLS_ASSETS to ${conf} was not confirmed (writer status ${rc}), so the file holds the list it held or the one this call wrote${backup:+; the file as it was is ${backup}} \-\- read the line, then run sudo ai\-tools\-admin assets reconcile to bring the links in line with it
+assets: the write of AI_TOOLS_ASSETS to ${conf} was not confirmed (writer status ${rc}), so the file holds the list it held or the one this call wrote${backup:+; the file as it was is ${backup}} \-\- read the line, then run atr admin assets reconcile to bring the links in line with it
 .TP
 .B MSG-R3M6
 ERROR.
@@ -799,7 +799,7 @@ system post\-upgrade: ${refusal}
 .TP
 .B MSG-T3X4
 NOTICE.
-assets: AI_TOOLS_ASSETS was added at the end of ${conf}, which predates the key \-\- sudo ai\-tools\-admin system post\-upgrade carries it under its header from the shipped template
+assets: AI_TOOLS_ASSETS was added at the end of ${conf}, which predates the key \-\- atr admin system post\-upgrade carries it under its header from the shipped template
 .TP
 .B MSG-T4X9
 ERROR.
@@ -968,7 +968,7 @@ dotnet not found on PATH \-\- install a host dotnet\-sdk package first
 .TP
 .B MSG-N6G6
 ERROR.
-the state tree is not at its layout rows after the reconcile: ${refusal}; see: sudo ai\-tools\-admin system layout
+the state tree is not at its layout rows after the reconcile: ${refusal}; see: atr admin system layout
 .TP
 .B MSG-P8N7
 ERROR.
@@ -1129,7 +1129,7 @@ a value is required after ${flag}
 .TP
 .B MSG-Z7N7
 ERROR.
-no operators configured \-\- run: sudo ai\-tools\-admin operators add <user>
+no operators configured \-\- run: atr admin operators add <user>
 .SS ai-tools-audit
 .TP
 .B MSG-C6E6
@@ -1187,7 +1187,7 @@ the toolchain is not the sandbox account's (the paths above), so the install ste
 .TP
 .B MSG-C7C8
 WARNING.
-entrypoint relabel did not complete \-\- run 'sudo ai\-tools\-admin system entrypoints relabel' before launching claude
+entrypoint relabel did not complete \-\- run 'atr admin system entrypoints relabel' before launching claude
 .TP
 .B MSG-C8M9
 WARNING.
@@ -1203,11 +1203,11 @@ control plane present but the managed\-asset libs are missing \-\- reinstall ai\
 .TP
 .B MSG-E2X2
 ERROR.
-cannot run the sandbox toolchain: ${_sandbox_exec_lib}, ${_toolchain_lib} or the log library did not load, and they are what run that account's files without root's terminal and keep their bytes off it \-\- reinstall ai\-tools\-base, then re\-run: sudo ai\-tools\-admin system bootstrap
+cannot run the sandbox toolchain: ${_sandbox_exec_lib}, ${_toolchain_lib} or the log library did not load, and they are what run that account's files without root's terminal and keep their bytes off it \-\- reinstall ai\-tools\-base, then re\-run: atr admin system bootstrap
 .TP
 .B MSG-F3H4
 WARNING.
-managed assets: not seeded, and the asset view not reconciled \-\- the assets lock could not be taken; run sudo ai\-tools\-admin system bootstrap again once the other assets command has ended
+managed assets: not seeded, and the asset view not reconciled \-\- the assets lock could not be taken; run atr admin system bootstrap again once the other assets command has ended
 .TP
 .B MSG-F3Y2
 ERROR.
@@ -1227,7 +1227,7 @@ control plane present but ${cplib} does not resolve the agents' config dirs
 .TP
 .B MSG-J3E6
 ERROR.
-could not write AI_TOOLS_AGENTS (${*}) into ${AI_TOOLS_OPERATOR_CONF} \-\- set the line by hand, then re\-run: sudo ai\-tools\-admin system bootstrap
+could not write AI_TOOLS_AGENTS (${*}) into ${AI_TOOLS_OPERATOR_CONF} \-\- set the line by hand, then re\-run: atr admin system bootstrap
 .TP
 .B MSG-K2D4
 ERROR.
@@ -1239,7 +1239,7 @@ ERROR.
 .TP
 .B MSG-M9G5
 ERROR.
-no agent resolved: ${reason:\-the classification printed nothing} \-\- no package was installed or removed; correct it, then re\-run: sudo ai\-tools\-admin system bootstrap
+no agent resolved: ${reason:\-the classification printed nothing} \-\- no package was installed or removed; correct it, then re\-run: atr admin system bootstrap
 .TP
 .B MSG-N8U6
 WARNING.
@@ -1251,11 +1251,11 @@ signature\-verification library not deployed yet \-\- skipping the check; the nv
 .TP
 .B MSG-Q3P4
 ERROR.
-cannot read the control plane's layout: ${_control_plane_lib} did not load \-\- reinstall ai\-tools\-base, then re\-run: sudo ai\-tools\-admin system bootstrap
+cannot read the control plane's layout: ${_control_plane_lib} did not load \-\- reinstall ai\-tools\-base, then re\-run: atr admin system bootstrap
 .TP
 .B MSG-R5Z3
 ERROR.
-offline, and no toolchain is installed under ${NVM_DIR}: the nvm and Node download needs the network \-\- connect this host, then re\-run: sudo ai\-tools\-admin system bootstrap
+offline, and no toolchain is installed under ${NVM_DIR}: the nvm and Node download needs the network \-\- connect this host, then re\-run: atr admin system bootstrap
 .TP
 .B MSG-S8B6
 WARNING.
@@ -1263,11 +1263,11 @@ network: no answer from ${unreachable[*]} \-\- this run applies what needs no do
 .TP
 .B MSG-T3P5
 ERROR.
-an install script of the agents' packages did not complete (npm's output above names it) \-\- the package is installed without it, so an agent whose entrypoint such a script places is refused at launch until it runs; fix what npm names, then re\-run: sudo ai\-tools\-admin system bootstrap
+an install script of the agents' packages did not complete (npm's output above names it) \-\- the package is installed without it, so an agent whose entrypoint such a script places is refused at launch until it runs; fix what npm names, then re\-run: atr admin system bootstrap
 .TP
 .B MSG-T3R5
 WARNING.
-the asset reconcile did not complete (exit ${reconcile_status}) \-\- run: sudo ai\-tools\-admin assets reconcile
+the asset reconcile did not complete (exit ${reconcile_status}) \-\- run: atr admin assets reconcile
 .TP
 .B MSG-T7H8
 ERROR.
@@ -1295,11 +1295,11 @@ invalid nvm version '${NVM_VERSION}' (expected vMAJOR.MINOR.PATCH)
 .TP
 .B MSG-W9R9
 NOTICE.
-the asset reconcile reported a finding \-\- sudo ai\-tools\-admin status names each one and what ends it
+the asset reconcile reported a finding \-\- atr admin status names each one and what ends it
 .TP
 .B MSG-X3M9
 WARNING.
-no agent chosen \-\- provisioning Node alone; set AI_TOOLS_AGENTS in ${AI_TOOLS_OPERATOR_CONF}, or pass \-\-agents NAME, then re\-run: sudo ai\-tools\-admin system bootstrap
+no agent chosen \-\- provisioning Node alone; set AI_TOOLS_AGENTS in ${AI_TOOLS_OPERATOR_CONF}, or pass \-\-agents NAME, then re\-run: atr admin system bootstrap
 .TP
 .B MSG-X7Z2
 ERROR.
@@ -1485,7 +1485,7 @@ takes a single path
 .TP
 .B MSG-H8V6
 ERROR.
-left the SELinux label on ${dir} as it was: an agent session or the toolchain update runs as the sandbox account, or this host's sessions could not be read, and a walk while one runs could be redirected outside the tree; let each session end (/exit inside it) and the toolchain update finish, or end them all with 'ai\-tools stop', then re\-run: $1 $(printf '%q' "${dir}")
+left the SELinux label on ${dir} as it was: an agent session or the toolchain update runs as the sandbox account, or this host's sessions could not be read, and a walk while one runs could be redirected outside the tree; let each session end (/exit inside it) and the toolchain update finish, or end them all with 'atr stop', then re\-run: $1 $(printf '%q' "${dir}")
 .TP
 .B MSG-M2D2
 ERROR.
@@ -1526,11 +1526,11 @@ could not verify the entrypoint for ${agent} against release ${version} (see abo
 .TP
 .B MSG-D7H2
 ERROR.
-an incomplete agent package stops this relabel: ${incomplete} agent(s) do not have the entrypoint their manifest declares installed at all, so it cannot be labelled; that executable comes from the sandbox toolchain rather than from the RPM, so reinstall it: sudo ai\-tools\-admin system bootstrap, then rerun; where that run reports the package incomplete again, its npm output names what was left out
+an incomplete agent package stops this relabel: ${incomplete} agent(s) do not have the entrypoint their manifest declares installed at all, so it cannot be labelled; that executable comes from the sandbox toolchain rather than from the RPM, so reinstall it: atr admin system bootstrap, then rerun; where that run reports the package incomplete again, its npm output names what was left out
 .TP
 .B MSG-E4E8
 WARNING.
-the config directory of ${live_session_count} agent(s) was not relabelled: an agent session or the toolchain update runs as the sandbox account, or this host's sessions could not be read; let each session end (/exit inside it) and the toolchain update finish, or end them all with 'ai\-tools stop', then run: sudo systemctl start ai\-tools\-relabel.service
+the config directory of ${live_session_count} agent(s) was not relabelled: an agent session or the toolchain update runs as the sandbox account, or this host's sessions could not be read; let each session end (/exit inside it) and the toolchain update finish, or end them all with 'atr stop', then run: sudo systemctl start ai\-tools\-relabel.service
 .TP
 .B MSG-E4U5
 WARNING.
@@ -1538,11 +1538,11 @@ relabels are not serialized on this host \-\- ${AI_TOOLS_RELABEL__LOCK_NOTE}
 .TP
 .B MSG-G5H9
 WARNING.
-could not record ${1}'s labelling outcome for ai\-tools status
+could not record ${1}'s labelling outcome for atr status
 .TP
 .B MSG-G6D2
 ERROR.
-the config directory of ${live_mislabelled_count} agent(s) carries a type the agent cannot write (${live_mislabelled_types}), so no session of those agents can write its state; it was not relabelled because an agent session or the toolchain update runs as the sandbox account, or this host's sessions could not be read; let each session end (/exit inside it) and the toolchain update finish, or end them all with 'ai\-tools stop', then run: sudo systemctl start ai\-tools\-relabel.service
+the config directory of ${live_mislabelled_count} agent(s) carries a type the agent cannot write (${live_mislabelled_types}), so no session of those agents can write its state; it was not relabelled because an agent session or the toolchain update runs as the sandbox account, or this host's sessions could not be read; let each session end (/exit inside it) and the toolchain update finish, or end them all with 'atr stop', then run: sudo systemctl start ai\-tools\-relabel.service
 .TP
 .B MSG-G7C7
 WARNING.
@@ -1550,7 +1550,7 @@ wrong type on ${subject}: it is '${detail}', NOT ${wanted}
 .TP
 .B MSG-G9X3
 WARNING.
-dropped the file\-context rules for ${agent} and left the labels on its config directory as they were: an agent session or the toolchain update runs as the sandbox account, or this host's sessions could not be read; let each session end (/exit inside it) and the toolchain update finish, or end them all with 'ai\-tools stop', then run: sudo restorecon \-FR ${remove_config_dir}
+dropped the file\-context rules for ${agent} and left the labels on its config directory as they were: an agent session or the toolchain update runs as the sandbox account, or this host's sessions could not be read; let each session end (/exit inside it) and the toolchain update finish, or end them all with 'atr stop', then run: sudo restorecon \-FR ${remove_config_dir}
 .TP
 .B MSG-H9M5
 WARNING.
@@ -1558,11 +1558,11 @@ entrypoint verifier unavailable (${ENTRYPOINT_VERIFY_LIB}) \-\- entrypoints will
 .TP
 .B MSG-J3A6
 ERROR.
-a copied toolchain link stops this relabel: ${copied} agent(s) resolve their launcher to a copy of the entrypoint rather than to it, so the file a session execs cannot be labelled; the toolchain run restores the links: sudo ai\-tools\-admin system bootstrap, then rerun
+a copied toolchain link stops this relabel: ${copied} agent(s) resolve their launcher to a copy of the entrypoint rather than to it, so the file a session execs cannot be labelled; the toolchain run restores the links: atr admin system bootstrap, then rerun
 .TP
 .B MSG-K4D7
 WARNING.
-could not record ${agent}'s stale pin for ai\-tools status \-\- the reports will render its pin as current
+could not record ${agent}'s stale pin for atr status \-\- the reports will render its pin as current
 .TP
 .B MSG-M2M5
 ERROR.
@@ -1840,7 +1840,7 @@ unknown option: ${_arg}
 .TP
 .B MSG-T6T2
 WARNING.
-left the SELinux label under ${canonical} as it was: an agent session or the toolchain update runs as the sandbox account, or this host's sessions could not be read; let each session end (/exit inside it) and the toolchain update finish, or end them all with 'ai\-tools stop', then run: sudo restorecon \-RF ${canonical}
+left the SELinux label under ${canonical} as it was: an agent session or the toolchain update runs as the sandbox account, or this host's sessions could not be read; let each session end (/exit inside it) and the toolchain update finish, or end them all with 'atr stop', then run: sudo restorecon \-RF ${canonical}
 .TP
 .B MSG-V9Q6
 ERROR.
@@ -1933,7 +1933,7 @@ the pair list ${key} in ${file} gives ${pair_name} more than once \-\- the first
 .TP
 .B MSG-X6F2
 WARNING.
-invalid list, read as the empty list \-\- ${key} in ${file} holds ${unprefixed[*]}, not written as ${prefix}<name>; this rewrites a bare name and names any it cannot: sudo ai\-tools\-admin system post\-upgrade
+invalid list, read as the empty list \-\- ${key} in ${file} holds ${unprefixed[*]}, not written as ${prefix}<name>; this rewrites a bare name and names any it cannot: atr admin system post\-upgrade
 .TP
 .B MSG-Y5N6
 WARNING.
@@ -1962,7 +1962,7 @@ labelling did not complete for ${subject} \-\- see its lines above
 .TP
 .B MSG-E9S6
 WARNING.
-left the label on $1 as it was: an agent session or the toolchain update runs as the sandbox account, or this host's sessions could not be read; let each session end (/exit inside it) and the toolchain update finish, or end them all with 'ai\-tools stop', then re\-run this command
+left the label on $1 as it was: an agent session or the toolchain update runs as the sandbox account, or this host's sessions could not be read; let each session end (/exit inside it) and the toolchain update finish, or end them all with 'atr stop', then re\-run this command
 .TP
 .B MSG-F2V5
 WARNING.
@@ -1982,7 +1982,7 @@ selinux: cannot source required library ${1}
 .TP
 .B MSG-H7Q2
 ERROR.
-left the policy loaded: an agent session or the toolchain update runs as the sandbox account, or this host's sessions could not be read; let each session end (/exit inside it) and the toolchain update finish, or end them all with 'ai\-tools stop', then re\-run: sudo $0 remove
+left the policy loaded: an agent session or the toolchain update runs as the sandbox account, or this host's sessions could not be read; let each session end (/exit inside it) and the toolchain update finish, or end them all with 'atr stop', then re\-run: sudo $0 remove
 .TP
 .B MSG-J7J5
 ERROR.
@@ -2062,7 +2062,7 @@ an agent path is not correctly labelled (see above) \-\- the session would be re
 .TP
 .B MSG-U8U4
 WARNING.
-left the labels on these trees as they were: ${reason}; let each session end (/exit inside it) and the toolchain update finish, or end them all with 'ai\-tools stop', then run:
+left the labels on these trees as they were: ${reason}; let each session end (/exit inside it) and the toolchain update finish, or end them all with 'atr stop', then run:
 .TP
 .B MSG-V8U7
 WARNING.
@@ -2115,7 +2115,7 @@ no account named
 .TP
 .B MSG-D6A5
 WARNING.
-left the labels on /opt/ai\-tools/.config and the agents' config directories as they were: an agent session or the toolchain update runs as ${SANDBOX_USER}, or this host's sessions could not be read; let each session end (/exit inside it) and the toolchain update finish, or end them all with 'ai\-tools stop', then run: sudo restorecon \-R /opt/ai\-tools/.config/ && sudo systemctl start ai\-tools\-relabel.service
+left the labels on /opt/ai\-tools/.config and the agents' config directories as they were: an agent session or the toolchain update runs as ${SANDBOX_USER}, or this host's sessions could not be read; let each session end (/exit inside it) and the toolchain update finish, or end them all with 'atr stop', then run: sudo restorecon \-R /opt/ai\-tools/.config/ && sudo systemctl start ai\-tools\-relabel.service
 .TP
 .B MSG-D7C6
 ERROR.
@@ -2133,9 +2133,13 @@ nvm 'default' alias not set \-\- launcher symlinks skipped
 WARNING.
 the shared assets were not seeded and the asset view was not reconciled: the assets lock could not be taken \-\- run: sudo ./install.sh install, once the other assets command has ended
 .TP
+.B MSG-E7B3
+ERROR.
+another program answers to atr at ${others[0]}${package:+ (package ${package})}, and installing this project's atr would leave PATH order to decide which one runs \-\- move it aside or remove its package, and re\-run: sudo ./install.sh install
+.TP
 .B MSG-E7D7
 WARNING.
-relabel did not complete \-\- run: sudo ai\-tools\-admin system entrypoints relabel
+relabel did not complete \-\- run: atr admin system entrypoints relabel
 .TP
 .B MSG-F6D2
 WARNING.
@@ -2143,11 +2147,11 @@ an agent outside the sandbox is installed at ${install_path}
 .TP
 .B MSG-G2U4
 WARNING.
-the asset reconcile reported a finding \-\- sudo ai\-tools\-admin status names each one and what ends it
+the asset reconcile reported a finding \-\- atr admin status names each one and what ends it
 .TP
 .B MSG-G3P2
 WARNING.
-could not write the timer stamp in /opt/ai\-tools/${CP_TIMER_STAMP_DIR} as ${SANDBOX_USER}, so the first timer window runs an immediate update \-\- see: sudo ai\-tools\-admin system layout
+could not write the timer stamp in /opt/ai\-tools/${CP_TIMER_STAMP_DIR} as ${SANDBOX_USER}, so the first timer window runs an immediate update \-\- see: atr admin system layout
 .TP
 .B MSG-G6H3
 WARNING.
@@ -2199,7 +2203,7 @@ restorecon not found \-\- skipping SELinux context restoration
 .TP
 .B MSG-P2N9
 WARNING.
-the asset reconcile did not complete (exit ${_reconcile_status}) \-\- run: sudo ai\-tools\-admin assets reconcile
+the asset reconcile did not complete (exit ${_reconcile_status}) \-\- run: atr admin assets reconcile
 .TP
 .B MSG-Q4H5
 WARNING.
@@ -2215,7 +2219,7 @@ the ACL tools are missing (${missing} not found) \-\- every grant the ownership 
 .TP
 .B MSG-Q8T8
 WARNING.
-installing over the ai\-tools packages: each package file this install replaces reads as content drift in rpm \-V and in ai\-tools\-admin system layout, whose reconcile does not repair it, and the next dnf upgrade writes over it \-\- return to the packages with sudo dnf reinstall 'ai\-tools\-*', build this checkout as packages and upgrade to them (docs/install/from\-source.md), or make this a source\-only host with sudo dnf remove 'ai\-tools\-*'
+installing over the ai\-tools packages: each package file this install replaces reads as content drift in rpm \-V and in atr admin system layout, whose reconcile does not repair it, and the next dnf upgrade writes over it \-\- return to the packages with sudo dnf reinstall 'ai\-tools\-*', build this checkout as packages and upgrade to them (docs/install/from\-source.md), or make this a source\-only host with sudo dnf remove 'ai\-tools\-*'
 .TP
 .B MSG-Q9D3
 WARNING.
@@ -2253,6 +2257,10 @@ error: \-\-operator needs an account name
 ERROR.
 the checkout ${SCRIPT_DIR} carries ${total} uncommitted path(s) \-\- review and commit them (git \-C ${SCRIPT_DIR} status; git \-C ${SCRIPT_DIR} diff), or install work in progress with: sudo ${SCRIPT_DIR}/install.sh install \-\-allow\-uncommitted
 .TP
+.B MSG-V2H5
+ERROR.
+the name ${entry% *} could not be read (${state#unreadable }), so the install does not decide it \-\- install the tool it names and re\-run: sudo ./install.sh install
+.TP
 .B MSG-V7M6
 WARNING.
 hook declarations not merged into ${deployed}: ${ai_tools_settings_merge__reason}
@@ -2264,6 +2272,10 @@ lockdown: failed to chown ${ai_nvm_dir}
 .B MSG-W4A2
 ERROR.
 the name ${dir} exists and is not a directory, so the install does not set an owner or a mode through it \-\- move the entry aside and re\-run: sudo ./install.sh install
+.TP
+.B MSG-W5Z8
+ERROR.
+the name ${entry% *} holds ${state#foreign } that is not this project's, so the install does not replace it \-\- move the entry aside, or remove the package that owns it, and re\-run: sudo ./install.sh install
 .TP
 .B MSG-W6B3
 ERROR.
@@ -2483,11 +2495,11 @@ cannot confirm this runs as the sandbox account: ${SANDBOX_EXEC_LIB} did not loa
 .TP
 .B MSG-U5C4
 ERROR.
-refusing to run as $(id \-un 2>/dev/null || printf 'uid %s' "${EUID}"): this script sources nvm.sh and runs npm from the sandbox toolchain, which only the sandbox account runs \-\- start it in that account's user instance (sudo systemctl \-\-user \-M ai\-tools@ start nvm\-update.service) or provision through sudo ai\-tools\-admin system bootstrap
+refusing to run as $(id \-un 2>/dev/null || printf 'uid %s' "${EUID}"): this script sources nvm.sh and runs npm from the sandbox toolchain, which only the sandbox account runs \-\- start it in that account's user instance (sudo systemctl \-\-user \-M ai\-tools@ start nvm\-update.service) or provision through atr admin system bootstrap
 .TP
 .B MSG-U5N2
 ERROR.
-the install left ${incomplete_after} enabled agent(s) without the entrypoint their manifest declares (above, with npm's reason) \-\- every launch of them is refused until that executable is installed; fix what npm names, then run: sudo ai\-tools\-admin system bootstrap
+the install left ${incomplete_after} enabled agent(s) without the entrypoint their manifest declares (above, with npm's reason) \-\- every launch of them is refused until that executable is installed; fix what npm names, then run: atr admin system bootstrap
 .SS providers.lib.sh
 .TP
 .B MSG-A3S3
@@ -2568,7 +2580,7 @@ the secret\-patterns file ${file} is present and cannot be read as a regular fil
 .TP
 .B MSG-N6U2
 WARNING.
-the session sweep library ${SWEEP_LIB} did not load \-\- no handback ran this turn; reinstall ai\-tools\-base (sudo ai\-tools\-admin system layout names the row)
+the session sweep library ${SWEEP_LIB} did not load \-\- no handback ran this turn; reinstall ai\-tools\-base (atr admin system layout names the row)
 .SS settings-merge.lib.sh
 .TP
 .B MSG-F9W4
@@ -2602,7 +2614,7 @@ refusing to remove ${npm_package} from ${version_dir##*/}: ${name} is enabled in
 .TP
 .B MSG-X8F9
 WARNING.
-could not remove ${package_dir} (npm uninstall left it in place; ${npm_error_summary}) \-\- every launch stays refused until it is gone; remove it by hand as the sandbox account, then re\-run: sudo ai\-tools\-admin system bootstrap
+could not remove ${package_dir} (npm uninstall left it in place; ${npm_error_summary}) \-\- every launch stays refused until it is gone; remove it by hand as the sandbox account, then re\-run: atr admin system bootstrap
 .SH SEE ALSO
 .BR ai-tools (1),
 .BR ai-tools-admin (8),

@@ -16,9 +16,9 @@
 # and the tree carries plain Unix permissions under the new group. `.git`, which the main walk skips with the other
 # heavy trees, is reverted by a dedicated pass, so git history is revoked with the rest.
 #
-# Invoked as root via sudo by `ai-tools projects unclaim`: root is what a chgrp to an arbitrary group, and a change
-# to a file the projects user does not own, need. The path and the target group the CLI passes are re-validated here,
-# and the path must resolve at or under a registered project (allowed-projects) or the helper is a no-op.
+# Invoked as root via sudo by `atr projects unclaim`: root is what a chgrp to an arbitrary group, and a change to a file
+# the projects user does not own, need. The path and the target group the CLI passes are re-validated here, and the path
+# must resolve at or under a registered project (allowed-projects) or the helper is a no-op.
 #
 # Two modes, differing ONLY in which paths they accept -- never in what they do to a path they accept, so one reversal
 # is described once and tested once:
@@ -451,7 +451,7 @@ if ${UNLISTED} && [[ "$(getenforce 2>/dev/null || echo Disabled)" != "Disabled" 
             sessions_state="$(ai_tools_sessions__read_live_session_state)"
         fi
         if [[ "${sessions_state}" != none ]]; then
-            warn MSG-T6T2 "left the SELinux label under ${canonical} as it was: an agent session or the toolchain update runs as the sandbox account, or this host's sessions could not be read; let each session end (/exit inside it) and the toolchain update finish, or end them all with 'ai-tools stop', then run: sudo restorecon -RF ${canonical}"
+            warn MSG-T6T2 "left the SELinux label under ${canonical} as it was: an agent session or the toolchain update runs as the sandbox account, or this host's sessions could not be read; let each session end (/exit inside it) and the toolchain update finish, or end them all with 'atr stop', then run: sudo restorecon -RF ${canonical}"
             ai_tools_log__coded warning "${_warn_code}" \
                 "left the SELinux label under ${canonical}: a session of the sandbox account was live" \
                 "AI_TOOLS_RESULT=skipped"

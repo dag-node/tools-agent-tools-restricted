@@ -27,7 +27,10 @@ limitation, not a broken prerequisite.
 The harness carries a fourth emitter for that reason. `skip` records a check that could not run, and reaching the notice
 is the point of it. `note` records a fact about the run that is not a verdict — `references.sh` names which tool it
 drove — and does not increment the counter, so it stays out of the notice. `AI_TOOLS_TEST_STRICT=1` then fails a run
-only where a check was left unrun.
+only where a check was left unrun. The notice counts a file's passes, so a skip in a file whose other checks passed does
+not reach it; `skip_required` is the skip for a prerequisite every full install meets, a skip in a lenient run
+and a failure under `AI_TOOLS_TEST_STRICT=1`, and `unit/atr.sh` and `integration/cli.sh` take it for the cases that
+drive `atr`'s dispatch.
 
 A skip records a state the host is in, not the vantage the suite runs from. One state is read by one predicate
 everywhere it decides a file: `provisioned_agent` (`lib/harness.sh`) succeeds when an enabled agent's stable launcher
@@ -84,14 +87,14 @@ tests/
 `manual/` is not dispatched by `run.sh`, because its contents cannot be run the way the suite is: `verify-live-flows.sh`
 drives the CLI **as the operator**, which prompts on `/dev/tty`, `sudo`s for each root step, and writes the operator's
 own registries — none of which a root-run hermetic suite reproduces. It exists for what only a live run shows (a claim,
-lockdown and unclaim completing end to end, `ai-tools status` read from the vantage point that has to read it,
-and the **live handback chain** — hook, socket, daemon, `ai-tools-chown` — driven as the sandbox account
-against a fixture inside the project that run claimed, since the daemon reads the operator's real allowlist and no
-automated file may write it), and it is bounded by two rules that keep a convenience script from becoming a hazard: it
-works only inside a workspace `mktemp -d` created for that run — never adopting an existing path, and refusing to remove
-one outside it — and it **leaves every installed file untouched**, so a check that would need to write shared runtime
-state (the updater's last-run stamp) reads it and asserts agreement instead. A state the host is not already in is
-skipped rather than manufactured; the unit suites drive those against fixtures they own.
+lockdown and unclaim completing end to end, `atr status` read from the vantage point that has to read it, and the **live
+handback chain** — hook, socket, daemon, `ai-tools-chown` — driven as the sandbox account against a fixture inside
+the project that run claimed, since the daemon reads the operator's real allowlist and no automated file may write it),
+and it is bounded by two rules that keep a convenience script from becoming a hazard: it works only inside a workspace
+`mktemp -d` created for that run — never adopting an existing path, and refusing to remove one outside it — and it
+**leaves every installed file untouched**, so a check that would need to write shared runtime state (the updater's
+last-run stamp) reads it and asserts agreement instead. A state the host is not already in is skipped rather than
+manufactured; the unit suites drive those against fixtures they own.
 
 The SELinux AVC bring-up tooling is **not** part of this suite: it lives with the policy it supports,
 under `selinux/avc/` (`run.sh` does not dispatch it). `unit/avc-denials.sh` is the exception for the readers
@@ -243,10 +246,10 @@ A helper the **live daemon** execs (`integration/handback.sh`) keeps the real di
 the override — the same limitation as `AI_TOOLS_ALLOWLIST`. The journald sink is unaffected, so every line is still
 queryable by its per-component tag.
 
-`AI_TOOLS_POSTUPGRADE_ROOT` (`ai-tools-admin`) is the widest of the family in reach:
-`ai-tools-admin system post-upgrade` reconciles a fixed registry of absolute control-plane paths and the files it finds
-under a fixed set of config directories, and this prefixes every one of them, so `unit/postupgrade.sh` drives the real
-command against a fixture tree in its testdir. It is unset in production, where the registry paths stand as written.
+`AI_TOOLS_POSTUPGRADE_ROOT` (`ai-tools-admin`) is the widest of the family in reach: `atr admin system post-upgrade`
+reconciles a fixed registry of absolute control-plane paths and the files it finds under a fixed set of config
+directories, and this prefixes every one of them, so `unit/postupgrade.sh` drives the real command against a fixture
+tree in its testdir. It is unset in production, where the registry paths stand as written.
 
 `AI_TOOLS_ADMIN_COMMANDS_DIR` (`ai-tools-admin`) redirects the directory the admin dispatch discovers its contributed
 command domains in, so `unit/admin-commands.sh` drives the real dispatch against fixture fragments in its testdir
@@ -536,6 +539,14 @@ file and an exported function, so their absence with `-p` is evidence rather tha
 wrapper's own test is `integration/wrapper.sh`, which proves the deployed wrapper reaches those gates in that order
 through its launcher symlinks.
 
+`atr.sh` drives the short command over a copy of the wrapper whose two fixed paths are rewritten to recorders,
+with a recording `sudo` first on `PATH`: each argument reaches the program it names as one field, the empty one
+included, the program's exit status is the wrapper's, `atr admin` asks `sudo` for the fixed admin path after one notice
+line and runs the program directly as root, and the fixed paths themselves are read from the wrapper as text, since
+a recorder does not see them. The recorders are exec'd, so the file takes `agent-installs.sh`'s fallback for a directory
+where a `0755` file is executable. `integration/cli.sh` holds the installed wrapper to the same argv through a recording
+shim of its own, and `boundary/access.sh` holds the account's `atr admin` to a refusal with no admin output.
+
 `man.sh` is a pure text-sync check over this project's man pages and what each documents. The two command pages are held
 to the `usage()` heredoc of their command — `ai-tools(1)` against the CLI, `ai-tools-admin(8)` against the admin helper
 — validated from the repo sources (or the installed pair outside a checkout) and executing neither command, since
@@ -581,7 +592,8 @@ and a man page as a `.BR` cross-reference, while a test and a source file are dr
 Every section so far pairs a page with what it documents. Two more hold each page to the way a page is **written**,
 against the font and placeholder rules whose home is `references/man-pages.md` in the `ai-tools-technical-writing`
 skill; the reference and the check are edited together, so the convention and what enforces it cannot disagree. They
-read the **authored** pages (`man1`, `man5`, `man8`) and leave `ai-tools-messages(7)`
+read the **authored** pages (`man1`, `man5`, `man8`, leaving out a `.so` stub, which does not carry text of its own
+and which a case holds to a page this project authors) and leave `ai-tools-messages(7)`
 to the `tools/generators/man-messages.sh` lockstep: each emitter's own string decides that page's markup. The rules are
 that no page carries a pointy-bracket placeholder, which roff renders literally and which marks prose never brought
 to the page's grammar; that every italic token on a SYNOPSIS line or a `.TP`/`.TQ` tag line is an uppercase placeholder,
@@ -725,8 +737,18 @@ otherwise. The same reading covers the rest of what a source install must get ri
 `restorecon -R` ahead of the live-session reading names a root-owned tree, `require_acl_tools` refuses a host without
 the ACL tools and is called first, `ensure_dir` refuses a name that is not a directory where `install -d` would follow
 a link, the sandbox home and then `bin` reach their rows ahead of the first file written under them, and `do_install`
-places the sysusers fragment at the path `layout.lib.sh` declares. Each case runs beside its control; the file's header
-lists them.
+places the sysusers fragment at the path `layout.lib.sh` declares. The names the short command `atr` takes are read
+the same way, over a fixture tree with `rpm` a shell function: each is replaced and removed only in one of this
+project's forms, a marked file `rpm` attributes to another package is refused, and an unmarked one is never removed.
+A page is the stub only while it holds the `.so` request and roff comments alone, so one that adds lines
+after the request is another's. The stub in each compression `man` reads (gzip, bzip2, xz, zstd) is this project's,
+and one read with its tool absent from `PATH` is refused as unreadable, naming the tool, rather than as another's.
+A compressed stub that fails its tool's `-t` (a CRC that does not match, a stream cut before its end), or whose text is
+past the stub's size, is refused as another's although its text opens with the stub's `.so` line. Another executable
+named `atr` in a directory of the default login `PATH` or `sudo`'s `secure_path` refuses the install under `MSG-E7B3`,
+naming its package, while the link to the wrapper and a merged directory reaching it, a file without an execute bit
+and a directory do not; those cases take an executable fixture root, `skip_required` where none is found. Each case runs
+beside its control; the file's header lists them.
 
 `install-selinux-walks.sh` runs `selinux/install-selinux.sh`'s account-writable walks, extracted as text, under each
 live-session reading with `restorecon` recorded: a `live` or `unreadable` reading does not walk any tree and names each
@@ -744,12 +766,25 @@ run through the stub, so a tree name carrying a space is held to reach `restorec
 it reads the spec as text for what source order shows: the `declare -F` guard on every library function a scriptlet
 calls, no agent `%preun` nulling the relabel helper's stderr, the `%postun`'s session read ahead of its first store
 write, and the escaping rule the spec's preamble states, held against the parsed text where `rpmspec` is on the host.
+`spec-atr-names.sh` runs the `ai-tools-base` `%pre` the same way over a fixture tree of the names `atr` takes: each
+of this project's forms passes, the stub in each compression `man` reads among them, each foreign entry exits 1 ahead
+of the account creation, a page that adds lines after the stub's request, the compressed stubs failing their tool's `-t`
+and a page past the stub's size, compressed or decompressed, among them, and the refusal does not call `systemctl`
+and names the check of the relabel watcher and the start of the watcher and the relabel run to run once the transaction
+ends, since a start inside it would let a run fire while rpm places the packages ordered after base. A stub is a shell
+function, which a command named by its path bypasses, so the body is read first for a command run from a system
+directory by its path, beside a control, and is not run where one is found. The command directories the shadowing loop
+reads are held to `install.sh`'s `ATR_COMMAND_DIRS` where the tree carries it, which an image's installed source tree
+does not, and are pointed at the fixture, where another executable named `atr` in each of them refuses under `MSG-E7B3`
+and this project's own entries pass. A compressed stub read without its tool on `PATH` is refused under `MSG-V2H5`,
+naming the tool, beside a plain stub that passes with none, and the file holds the package to the `Requires(pre)` lines
+that place the gzip reader's tools ahead of it.
 
 `claim-notice.sh` drives the live-session reader's one unprivileged caller, the claim's `note_live_session`, read
 out of the checkout's `ai-tools.sh` as text: the notice prints on `live` alone, with a label step or a drift relabel
 pending, and the `live` case reaching the renderer is the control that the extraction found the function.
 
-`postupgrade.sh` is that same reconciliation seen from the RPM side: `ai-tools-admin system post-upgrade` end to end,
+`postupgrade.sh` is that same reconciliation seen from the RPM side: `atr admin system post-upgrade` end to end,
 from dispatch through the registry to each treatment (see [providers](providers.rule.md)
 and [claude-settings](claude-settings.rule.md)). It asserts which treatment each file got — the settings JSON merged
 with its permission rules intact and a dated `.bak` written first, `operator.conf` reported and byte-identical
@@ -826,7 +861,7 @@ and a fault beside that exits 5. Its Caches case pins the count this report keep
 over a fixture home.
 
 `path-order.sh` pins where an operator's shell finds an agent launcher (`path-order.lib.sh`, see
-[launch](launch.rule.md)) — the reading `operators add` asks with, `ai-tools status` re-checks
+[launch](launch.rule.md)) — the reading `operators add` asks with, `atr status` re-checks
 with, and `ai-tools-admin system bootstrap` reports from. What gives it teeth is the direction each answer sends
 an operator: a launcher resolving to a file other than the wrapper means typing its name starts an **unconfined** agent,
 so a verdict reading that state as fine would turn the one question standing between an operator and an unsandboxed
@@ -1005,8 +1040,8 @@ other entry. The relabel is held to that same bound from its argument list, `res
 the links this run placed reach it, the directory holding them does not, since a recursive sweep there would relabel
 every entry the host put in it. Pure and unprivileged: the function never re-owns or re-modes what it finds.
 
-`bootstrap.sh` pins the report `ai-tools-admin system bootstrap` closes with: which enrolled operators a launcher would
-not reach the wrapper for. It is the last thing said before a host is treated as ready, so both directions are driven —
+`bootstrap.sh` pins the report `atr admin system bootstrap` closes with: which enrolled operators a launcher would not
+reach the wrapper for. It is the last thing said before a host is treated as ready, so both directions are driven —
 a shadowed account named with its launcher and the binary that wins, every other state named by no line —
 along with what the message tells the operator to do, that finding a fault does not become the command's exit status,
 and that no init file is written. The helper is **sourced**, stopping at the guard before its provisioning, so one
@@ -1015,10 +1050,10 @@ makes the helper's own `source` a no-op and the stubs stand. The reading beneath
 and the paths a case drives are the ones a host presents: an operator's own `npm i -g` under their nvm, and the agent's
 distribution package at `/usr/bin/claude` and `/bin/claude`.
 
-`services.sh` pins the service-health registry (`services.lib.sh`) that `ai-tools status` and the launch wrapper's
-pre-launch warning share. Two properties carry weight beyond the accessors. The **last-run stamp** is the one input here
-a non-root writer controls and it is rendered to the operator's terminal, so every way a hostile or corrupt value could
-reach that terminal — a symlinked stamp, a control byte or escape sequence, an over-long or unanchored line — is driven
+`services.sh` pins the service-health registry (`services.lib.sh`) that `atr status` and the launch wrapper's pre-launch
+warning share. Two properties carry weight beyond the accessors. The **last-run stamp** is the one input here a non-root
+writer controls and it is rendered to the operator's terminal, so every way a hostile or corrupt value could reach
+that terminal — a symlinked stamp, a control byte or escape sequence, an over-long or unanchored line — is driven
 and must read as *no value*, degrading the unit to `unknown` rather than to a wrong verdict; the one state separated
 from that is a zero-length stamp, the file as the package seeded it, which the reports render as a unit that has not run
 yet, while a symlink to one, an absent file and any content stay unseparated. And the age reader takes the key it reads
@@ -1035,7 +1070,7 @@ say DOWN, and a failed one reads FAILED and needs attention — plus that a unit
 by `is-active`, and that the launch wrapper's filter does not select `ai-tools-relabel.service` (the `.path` already
 carries that warning). `systemctl` is stubbed as a shell function, so no real unit is touched.
 
-Its last section covers the **live reading a root caller adds** — the machine transport `ai-tools-admin status` reaches
+Its last section covers the **live reading a root caller adds** — the machine transport `atr admin status` reaches
 a sandbox-user unit through ([cli](cli.rule.md)). The verdict that reading feeds is the pure
 `ai_tools_services__evaluate_stamp`, split out from the probing for exactly this reason (the same split
 `ai_tools_confinement__evaluate` makes for the launch decision), so the whole truth table is driven with no manager
@@ -1090,10 +1125,10 @@ made through that same capture. It also pins the stream split in the other direc
 reach the caller, which parses that stream as verdict lines. The second drives `ai_tools_relabel__lock` across real
 processes — a held lock is reported as held, the contended run proceeds anyway, the lock is released when its holder
 exits, and an uncreatable lock file is reported rather than fatal. A third pins the per-agent verdict each agent's
-report closes with, which is what `ai-tools-relabel-agent` files for `ai-tools status`: both halves stubbed,
-over the whole truth table. Two entries carry the weight — a path that is not installed yet must read as "nothing
-to label" rather than as labels applied, and must not fail the run, or every host would report green before provisioning
-and non-zero after it.
+report closes with, which is what `ai-tools-relabel-agent` files for `atr status`: both halves stubbed, over the whole
+truth table. Two entries carry the weight — a path that is not installed yet must read as "nothing to label" rather than
+as labels applied, and must not fail the run, or every host would report green before provisioning and non-zero
+after it.
 
 A fourth covers the **read-only** live-label report `ai-tools-admin status` renders, which answers a different question
 from the relabel beside it: what type each agent path carries now, rather than what the last run achieved. Two
@@ -1160,11 +1195,11 @@ refusal of its predicate table is asserted on the record stream as its reason to
 with a sibling or a control linking beside it, and the view transaction's guarantees are driven where they can fail --
 a repoint read by a loop that must not find the name missing, a seeded copy and a foreign link surviving, a link removed
 once its set stops verifying, a second run waiting on the lock, and the plan leaving every file as it was.
-`admin-assets.sh` drives the `assets` verbs and the Assets section of `ai-tools-admin status` through the sourced
-helper: each refusal leaves `operator.conf` byte-identical, a write leaves a `.bak`, `enable --set` writes the valid
-assets and reports the rest, and the exit fold is asserted for each of its outcomes. `managed-assets.sh` drives
-the seeder and the withdrawal pass (`managed-assets.lib.sh`) over the properties its own header numbers, the integration
-binding among them; each is one whose failure in a package scriptlet is silent.
+`admin-assets.sh` drives the `assets` verbs and the Assets section of `atr admin status` through the sourced helper:
+each refusal leaves `operator.conf` byte-identical, a write leaves a `.bak`, `enable --set` writes the valid assets
+and reports the rest, and the exit fold is asserted for each of its outcomes. `managed-assets.sh` drives the seeder
+and the withdrawal pass (`managed-assets.lib.sh`) over the properties its own header numbers, the integration binding
+among them; each is one whose failure in a package scriptlet is silent.
 
 `handback.sh` covers the handback daemon's own record, and what it asserts of the session unit is the fail direction:
 an unreadable cgroup leaves the field **absent**, and a newline in an agent-named path is replaced by the sanitizer,
@@ -1404,7 +1439,7 @@ sourced as the agent on every Bash call, the rule sets because they decide what 
 from it, the bindings directory and each binding in it are asserted non-agent-writable and at the modes they ship
 with, since a writable one would let the agent name its own key as a set's signer; and the resolver's inputs and outputs
 -- `assets.lib.sh`, `operator.conf`, the three roots and the sets under them, the view, the lock, and each enabled
-agent's kind directories -- are asserted out of the agent's reach, with `ai-tools-admin assets reconcile` refused
+agent's kind directories -- are asserted out of the agent's reach, with `atr admin assets reconcile` refused
 as that account. These probe **DAC and account state** from the sandbox account's vantage — they run as the sandbox
 *user*, not inside the `ai_tools_t` SELinux domain (a launched session), so they assert the filesystem/credential
 boundary; the SELinux enforcing posture is asserted separately in `integration/selinux.sh`. A property the **type layout
