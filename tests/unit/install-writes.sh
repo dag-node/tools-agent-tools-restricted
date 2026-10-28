@@ -22,8 +22,8 @@
 # it from packaging/ai-tools.sysusers and do_uninstall removes it. The names the short command atr takes are decided
 # by read_atr_name_state, driven over a fixture tree with rpm a shell function and under a PATH without gzip,
 # where a gzip page reads as unreadable and a plain one as this project's; a gzip stub whose CRC does not match, one cut
-# before its trailer, and a page past ATR_STUB_MAX_BYTES each read as another's, with the corrupt streams' decompressed
-# .so line read first as the control, and ensure_atr_names_free
+# before its trailer, a page past ATR_STUB_MAX_BYTES, and a gzip page under it whose text is past it each read
+# as another's, with the corrupt streams' decompressed .so line read first as the control, and ensure_atr_names_free
 # and remove_atr_names over the same tree; do_install's text is read for the check ahead of the first write,
 # and do_uninstall's for a removal through remove_atr_names alone.
 #
@@ -636,6 +636,13 @@ if [[ -n "${atr_text}" ]]; then
       printf '\n'; } > "${PAGE1}"
     state_is "foreign a page larger than the atr stub" "a page opening with the stub's .so line, past the bound" \
         unowned "${PAGE1}" page
+    # The same page gzip-compressed is a stub's size on disk; its text is past the bound.
+    { cat "${ROOT}/src/usr/local/share/man/man1/atr.1"; head -c 65536 /dev/zero | tr '\0' 'x'; printf '\n'; } \
+        | gzip -9 -c > "${PAGE1}.gz"
+    gz_size="$(stat -c '%s' "${PAGE1}.gz")"
+    (( gz_size <= stub_max_bytes )) || fail "control: the compressible page is ${gz_size} bytes gzip-compressed"
+    state_is "foreign a page larger than the atr stub" "a ${gz_size}-byte gzip page whose text is past the bound" \
+        unowned "${PAGE1}.gz" page
     cp "${ROOT}/src/usr/local/share/man/man1/atr.1" "${PAGE1}"
     rm -f "${PAGE8}.gz" "${PAGE8}" "${PAGE1}.gz"
     cp "${ROOT}/src/usr/local/share/man/man8/atr.8" "${PAGE8}"

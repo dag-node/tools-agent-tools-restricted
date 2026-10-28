@@ -3,9 +3,9 @@
 # tests/unit/spec-atr-names.sh
 # Hermetic check of the ai-tools-base %pre in packaging/ai-tools.spec: it reads each name the short command atr takes
 # and exits 1 at the first one in none of this project's forms, ahead of the account creation, a gzip stub that fails
-# `gzip -t` and a page past 4096 bytes among them. The refusal does not start the relabel watcher %pretrans stopped,
-# since rpm may still place the packages ordered after base, and names the check and the start to run once
-# the transaction ends.
+# `gzip -t`, a page past 4096 bytes and a gzip page whose text is past 4096 bytes among them. The refusal does not start
+# the relabel watcher %pretrans stopped, since rpm may still place the packages ordered after base, and names the check
+# and the start to run once the transaction ends.
 #
 # A scriptlet runs inside an rpm transaction as root, so its body is read out of the spec as RPM parses it, its host
 # paths rewritten to a fixture tree, and run under /bin/sh with getent, groupadd, useradd and systemctl defined as shell
@@ -149,6 +149,9 @@ place_foreign() {
         gz-cut) head -c "$(( WHOLE_SIZE - 8 ))" "${WHOLE_GZ}" > "${MAN1}/atr.1.gz"; printf '%s' "${MAN1}/atr.1.gz" ;;
         oversized) { cat "${PAGE1_SRC}"; head -c 4096 /dev/zero | tr '\0' 'x'; printf '\n'; } > "${MAN1}/atr.1"
                    printf '%s' "${MAN1}/atr.1" ;;
+        gz-expands) { cat "${PAGE1_SRC}"; head -c 65536 /dev/zero | tr '\0' 'x'; printf '\n'; } | gzip -9 -c \
+                        > "${MAN1}/atr.1.gz"
+                    printf '%s' "${MAN1}/atr.1.gz" ;;
     esac
 }
 # A gzip stub whose CRC does not match, and one cut before its trailer, each decompress to the stub's .so line, which is
@@ -171,8 +174,10 @@ declare -A FOREIGN_WHAT=(
     [gz-without-so]="a gzip page without the .so line" [wrong-section]="a man8 page pointing at the man1 page"
     [xz]="an xz page, read as bytes" [gz-crc]="a gzip stub whose CRC does not match"
     [gz-cut]="a gzip stub cut before its trailer" [oversized]="a page opening with the stub's .so line, past 4096 bytes"
+    [gz-expands]="a gzip page under 4096 bytes whose text opens with the .so line and is past 4096 bytes"
 )
-for kind in unmarked directory link-elsewhere file-at-link gz-without-so wrong-section xz gz-crc gz-cut oversized; do
+for kind in unmarked directory link-elsewhere file-at-link gz-without-so wrong-section xz gz-crc gz-cut oversized \
+        gz-expands; do
     what="${FOREIGN_WHAT[${kind}]}"
     path="$(place_foreign "${kind}")"
     run_pre

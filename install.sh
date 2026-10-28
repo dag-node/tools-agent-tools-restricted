@@ -1364,10 +1364,11 @@ is_atr_link() {
 
 # is_atr_stub_page <path> : 0 when the page's first line that is not a roff comment is the `.so` request naming the page
 # the stub stands for; 1 when it is not; 2 when the page is gzip and gzip is not on PATH; 3 when the page is gzip
-# and fails `gzip -t`; 4 when the page is larger than ATR_STUB_MAX_BYTES. The gzip magic bytes decide whether the page
-# is decompressed, so a plain page is read without a decompressor. A gzip page is tested whole before its text is read,
-# since a stream that fails its CRC or ends early still decompresses to the prefix it holds, and the size bound keeps
-# that read to a stub's size. A page in another compression reads as bytes and does not match.
+# and fails `gzip -t`; 4 when the page, or the text a gzip page decompresses to, is larger than ATR_STUB_MAX_BYTES.
+# The gzip magic bytes decide whether the page is decompressed, so a plain page is read without a decompressor. A gzip
+# page is tested whole before its text is read, since a stream that fails its CRC or ends early still decompresses
+# to the prefix it holds, and its text is counted one byte past the bound, since a stream a stub's size can expand
+# to many times it. A page in another compression reads as bytes and does not match.
 is_atr_stub_page() {
     local section="${1##*/atr.}" size magic text line
     section="${section%%.*}"
@@ -1378,6 +1379,8 @@ is_atr_stub_page() {
     if [[ "${magic}" == 1f8b ]]; then
         command -v gzip >/dev/null 2>&1 || return 2
         gzip -t -- "$1" 2>/dev/null || return 3
+        size="$(gzip -dc -- "$1" 2>/dev/null | head -c "$(( ATR_STUB_MAX_BYTES + 1 ))" | wc -c)" || true
+        (( size <= ATR_STUB_MAX_BYTES )) || return 4
         text="$(gzip -dc -- "$1" 2>/dev/null | head -c "${ATR_STUB_MAX_BYTES}" | tr -d '\000')" || true
     else
         text="$(tr -d '\000' < "$1" 2>/dev/null)" || true
