@@ -602,9 +602,8 @@ report_ask_gaps() {
 # A name that exists and is not a directory is refused: `install -d` accepts an existing entry and follows a symlink
 # to a directory, as the chown and the chmod do, so a link planted at the name would hand the owner and mode
 # to the inode its planter chose (layout.rule.md states the same for the reconcile's exclusive create). The read
-# decides, since every call names a directory under a parent root or the operator owns: the sandbox home is brought
-# to its root-owned mode ahead of the first name created under it, so the account cannot place or swap an entry there
-# between the read and the write.
+# decides, since every call names a directory under a parent root or the operator owns: do_install brings the sandbox
+# home to its row ahead of the first name created under it.
 ensure_dir() {
     local mode="$1" owner="$2" group="$3" dir="$4" before="absent" after
     if [[ -L "${dir}" || ( -e "${dir}" && ! -d "${dir}" ) ]]; then
