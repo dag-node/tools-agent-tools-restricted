@@ -1103,9 +1103,40 @@ fi
 # compiled module persists in the policy store until removed, and a module built from source was
 # never in the rpm database at all. Leaving one loaded would keep a domain alive for files the
 # package no longer owns.
+#
+# Every local file-context rule naming a type of this policy goes first: semodule refuses the
+# unload while one stands, and a claimed project's rule is one, so without this step the unload
+# failed on every erase. The rules are the types' and go with them; a claim writes them again.
+# A module left loaded is reported with semanage's reason; the erase completes either way.
 if [ "$1" -eq 0 ] && command -v semodule >/dev/null 2>&1; then
-    mods=$(semodule -l 2>/dev/null | grep -E '^ai_tools(_|$)' || :)
-    [ -n "${mods}" ] && semodule $(printf ' -r %s' ${mods}) >/dev/null 2>&1 || :
+    if command -v semanage >/dev/null 2>&1; then
+        semanage fcontext -l -C -n 2>/dev/null | awk '
+            {
+                split($NF, context, ":")
+                if (context[3] !~ /^ai_tools_/) next
+                if (!match($0, /[[:space:]]+(all files|regular file|directory|character device|block device|socket|symbolic link|named pipe)[[:space:]]+[^[:space:]]+[[:space:]]*$/)) next
+                pattern = substr($0, 1, RSTART - 1); words = substr($0, RSTART)
+                sub(/^[[:space:]]+/, "", words); sub(/[[:space:]]+[^[:space:]]+[[:space:]]*$/, "", words)
+                letter = "p"
+                if (words == "all files") letter = "a"; else if (words == "regular file") letter = "f"
+                else if (words == "directory") letter = "d"; else if (words == "character device") letter = "c"
+                else if (words == "block device") letter = "b"; else if (words == "socket") letter = "s"
+                else if (words == "symbolic link") letter = "l"
+                printf "%s\t%s\n", letter, pattern
+            }' | while IFS="$(printf '\t')" read -r letter pattern; do
+            [ -n "${pattern}" ] && semanage fcontext -d -f "${letter}" -- "${pattern}" >/dev/null 2>&1 || :
+        done
+    fi
+    mods=$(semodule -l 2>/dev/null | grep -E '^ai_tools(_|$)' | tr '\n' ' ' || :)
+    if [ -n "${mods}" ]; then
+        # libsemanage reports progress on stdout and a refusal on stderr; only the refusal is kept.
+        reason=$(semodule $(printf ' -r %s' ${mods}) 2>&1 >/dev/null) || :
+        left=$(semodule -l 2>/dev/null | grep -E '^ai_tools(_|$)' | tr '\n' ' ' || :)
+        if [ -n "${left}" ]; then
+            printf 'ai-tools-selinux: left loaded: %s-- %s -- list the local rules still naming an ai_tools type with: semanage fcontext -l -C | grep ai_tools, remove each with: semanage fcontext -d -- <pattern>, then run: semodule -r %s\n' \
+                "${left}" "$(printf '%s' "${reason}" | tr '\n' ' ')" "${left}" >&2
+        fi
+    fi
 fi
 
 %post -n ai-tools-integration-nodejs
