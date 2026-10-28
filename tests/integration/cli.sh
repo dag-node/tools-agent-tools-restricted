@@ -133,9 +133,9 @@ fi
 section "atr: the installed short command runs ai-tools, and atr admin runs ai-tools-admin"
 readonly ATR=/usr/local/bin/atr ADMIN=/usr/local/libexec/ai-tools/ai-tools-admin
 if [[ ! -x "${ATR}" ]]; then
-    skip "atr" "the deployed ${CLI} predates atr (install this version to cover it)"
+    skip_required "atr" "the deployed ${CLI} predates atr (install this version to cover it)"
 elif ! command -v runuser >/dev/null 2>&1; then
-    skip "atr" "runuser unavailable to run it as ${PROJECTS_USER}"
+    skip_required "atr" "runuser unavailable to run it as ${PROJECTS_USER}"
 else
     [[ "$(stat -c '%a %U:%G' "${ATR}")" == '755 root:root' && "$(sed -n '3p' "${ATR}")" == '# /usr/local/bin/atr --'* ]] \
         && pass "${ATR} is 0755 root:root and carries the marker line" \
@@ -169,7 +169,7 @@ else
     shim_dir=""
     mk_fixture_dir shim_dir "${PROJECTS_HOME}" atr-shim 2>/dev/null || shim_dir=""
     if [[ -z "${shim_dir}" ]]; then
-        skip "the installed atr's sudo argv" "no fixture directory beside ${PROJECTS_HOME}"
+        skip_required "the installed atr's sudo argv" "no fixture directory beside ${PROJECTS_HOME}"
     else
         chmod 0755 "${shim_dir}"
         # 99 is the shim's own "status file unreadable", which neither row expects.

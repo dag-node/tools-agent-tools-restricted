@@ -27,7 +27,10 @@ limitation, not a broken prerequisite.
 The harness carries a fourth emitter for that reason. `skip` records a check that could not run, and reaching the notice
 is the point of it. `note` records a fact about the run that is not a verdict — `references.sh` names which tool it
 drove — and does not increment the counter, so it stays out of the notice. `AI_TOOLS_TEST_STRICT=1` then fails a run
-only where a check was left unrun.
+only where a check was left unrun. The notice counts a file's passes, so a skip in a file whose other checks passed does
+not reach it; `skip_required` is the skip for a prerequisite every full install meets, a skip in a lenient run
+and a failure under `AI_TOOLS_TEST_STRICT=1`, and `unit/atr.sh` and `integration/cli.sh` take it for the cases that
+drive `atr`'s dispatch.
 
 A skip records a state the host is in, not the vantage the suite runs from. One state is read by one predicate
 everywhere it decides a file: `provisioned_agent` (`lib/harness.sh`) succeeds when an enabled agent's stable launcher

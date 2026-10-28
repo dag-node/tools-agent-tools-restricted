@@ -59,7 +59,7 @@ if ! x_bit_visible "${FIXTURE}"; then
     mk_fixture_dir FIXTURE "${PROJECTS_HOME}" atr 2>/dev/null || FIXTURE=""
 fi
 if [[ -z "${FIXTURE}" ]] || ! x_bit_visible "${FIXTURE}"; then
-    skip "atr dispatch" "no directory here reports a 0755 file as executable (a noexec mount)"
+    skip_required "atr dispatch" "no directory here reports a 0755 file as executable (a noexec mount)"
     finish; exit
 fi
 chmod 0755 "${FIXTURE}"
