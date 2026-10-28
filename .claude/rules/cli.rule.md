@@ -181,7 +181,7 @@ an ordinary account read it — a partial view, the file sink being the authorit
   `allowed-projects` line and taking it off again, **in place**. Detail under [Enabled, disabled,
   absent](#enabled-disabled-absent--the-three-states-of-an-entry).
 - `projects clone [path]` — shallow-clone a repository into the sandbox area privately, lock down tip-commit secrets,
-  and only past that gate open, label and register the clone; fail-closed otherwise, and resumable by re-running
+  and only past that gate label, open and register the clone; fail-closed otherwise, and resumable by re-running
   on the clone path ([Sandbox clone](#sandbox-clone)).
 - `projects push [path]` — push the clone's commits to its branch. It and the clone kind of `projects remove`,
   which removes the clone and unregisters it, gate the target through `require_sandbox_clone`: it must be a **real
