@@ -19,7 +19,10 @@
 # a directory is refused with the link's target untouched, beside `install -d` following the link as the control;
 # and do_install's text is read for the home, then bin, brought to their rows ahead of the first file written
 # under them. The sysusers fragment the layout declares a payload file of base is read the same way: do_install places
-# it from packaging/ai-tools.sysusers and do_uninstall removes it.
+# it from packaging/ai-tools.sysusers and do_uninstall removes it. The names the short command atr takes are decided
+# by read_atr_name_state, driven over a fixture tree with rpm a shell function, and ensure_atr_names_free
+# and remove_atr_names over the same tree; do_install's text is read for the check ahead of the first write,
+# and do_uninstall's for a removal through remove_atr_names alone.
 #
 # No install and no command of install.sh's but the extracted functions. Skips outside a checkout.
 
@@ -497,5 +500,167 @@ places_sysusers "${INSTALLER}" && pass "do_install places ${sysusers_path} from 
     || fail "do_install does not install packaging/ai-tools.sysusers at ${sysusers_path}"
 removes_sysusers "${INSTALLER}" && pass "do_uninstall removes ${sysusers_path}" \
     || fail "do_uninstall does not remove ${sysusers_path}"
+
+# ── the names atr takes are replaced and removed only while they are this project's ───────────────
+# `atr` is a short name another tool could already hold, so the install reads each of its names ahead of the first write
+# and refuses an entry in none of this project's forms, and the uninstall removes a name only in one of them.
+# The readers are driven out of install.sh as text over a fixture tree, with rpm a shell function answering
+# the attribution each case names, and under a PATH of links to the tools the readers call, without rpm, for the host
+# without the package database. ensure_atr_names_free and remove_atr_names read ATR_NAMES, which the inner shell sets
+# to the fixture's names; install.sh's own declaration is read as text for the four names.
+section "install.sh: the names atr takes are replaced and removed only while they are this project's (unit)"
+atr_text=""
+for name in die warn is_atr_wrapper_file is_atr_link is_atr_stub_page read_atr_name_state ensure_atr_names_free \
+        remove_atr_names; do
+    body="$(extract_function "${INSTALLER}" "${name}")"
+    if [[ -z "${body}" ]]; then
+        fail "install.sh does not define ${name}() in the form this file reads"
+        atr_text=""; break
+    fi
+    atr_text+="${body}"$'\n'
+done
+if [[ -n "${atr_text}" ]]; then
+    FX="${TESTDIR}/atr-root"
+    mkdir -p "${FX}/usr/local/bin" "${FX}/usr/sbin" "${FX}/man/man1" "${FX}/man/man8" "${TESTDIR}/norpm-bin"
+    for tool in bash stat sed head tr zcat gzip readlink sort rm; do ln -s "$(type -P "${tool}")" "${TESTDIR}/norpm-bin/${tool}"; done
+    # atr_run <rpm-answer> <command>... : the extracted functions in a fresh shell under install.sh's strict mode
+    #   and IFS, rpm answering per <rpm-answer> (`unowned`, `base`, `other`, `error`, or `none` for a PATH without it),
+    #   ATR_NAMES set to the fixture's names; prints the command's output and `status=<n>` last.
+    # shellcheck disable=SC2016  # the inner shell expands these, not this one
+    atr_run() {
+        local path_list=/usr/bin:/bin
+        [[ "$1" == none ]] && path_list="${TESTDIR}/norpm-bin"
+        env -i PATH="${path_list}" "${BASH}" -c '
+            set -euo pipefail
+            C_RED="" C_RST="" C_YEL=""
+            eval "$1"
+            stub_rpm="$2" fx="$3"; shift 3
+            if [[ "${stub_rpm}" != none ]]; then
+                rpm() {
+                    case "${stub_rpm}" in
+                        unowned) printf "file %s is not owned by any package\n" "${@: -1}"; return 1 ;;
+                        base) printf "ai-tools-base\n" ;;
+                        other) printf "other-tool\n" ;;
+                        *) printf "error: rpmdb open failed\n"; return 1 ;;
+                    esac
+                }
+            fi
+            IFS=$'"'"'\n\t'"'"'
+            ATR_NAMES=( "${fx}/usr/local/bin/atr wrapper" "${fx}/usr/sbin/atr link"
+                        "${fx}/man/man1/atr.1 page" "${fx}/man/man1/atr.1.gz page" "${fx}/man/man8/atr.8.xz page" )
+            rc=0; "$@" || rc=$?
+            printf "status=%s\n" "${rc}"
+        ' _ "${atr_text}" "$1" "${FX}" "${@:2}" 2>&1
+    }
+    # state_is <expected-prefix> <what> <rpm-answer> <path> <kind>
+    state_is() {
+        local out
+        out="$(atr_run "$3" read_atr_name_state "$4" "$5")"
+        if [[ "${out%%$'\n'*}" == "$1"* && "${out}" == *status=0 ]]; then
+            pass "${2}: ${out%%$'\n'*}"
+        else
+            fail "${2}: expected '${1}', read: ${out//$'\n'/ | }"
+        fi
+    }
+    WRAPPER_FX="${FX}/usr/local/bin/atr" LINK_FX="${FX}/usr/sbin/atr"
+    state_is absent "an absent wrapper name" unowned "${WRAPPER_FX}" wrapper
+    cp "${ROOT}/src/usr/local/bin/atr.sh" "${WRAPPER_FX}"
+    state_is ours "the shipped wrapper, rpm naming no package" unowned "${WRAPPER_FX}" wrapper
+    state_is ours "the shipped wrapper, rpm naming ai-tools-base" base "${WRAPPER_FX}" wrapper
+    state_is ours "the shipped wrapper on a host without rpm" none "${WRAPPER_FX}" wrapper
+    state_is "foreign a file of package other-tool" "the shipped wrapper, rpm naming another package" other \
+        "${WRAPPER_FX}" wrapper
+    state_is "foreign a file rpm could not attribute" "the shipped wrapper, rpm failing" error "${WRAPPER_FX}" wrapper
+    { sed -n '1,3p' "${ROOT}/src/usr/local/bin/atr.sh"; printf 'echo other content\n'; } > "${WRAPPER_FX}"
+    state_is ours "a marked wrapper with other content is this project's name" unowned "${WRAPPER_FX}" wrapper
+    printf '#!/bin/sh\necho another tool\n' > "${WRAPPER_FX}"
+    state_is "foreign a regular file without" "an unmarked regular file" unowned "${WRAPPER_FX}" wrapper
+    rm -f "${WRAPPER_FX}"; mkdir "${WRAPPER_FX}"
+    state_is "foreign a directory" "a directory at the wrapper name" unowned "${WRAPPER_FX}" wrapper
+    rmdir "${WRAPPER_FX}"; ln -s /usr/bin/true "${WRAPPER_FX}"
+    state_is "foreign a symbolic link" "a symlink at the wrapper name" unowned "${WRAPPER_FX}" wrapper
+    rm -f "${WRAPPER_FX}"
+    ln -s ../local/bin/atr "${LINK_FX}"
+    state_is ours "the link as ln -sr writes it" unowned "${LINK_FX}" link
+    rm -f "${LINK_FX}"; ln -s /usr/local/bin/atr "${LINK_FX}"
+    state_is ours "the link by its absolute target, dangling" unowned "${LINK_FX}" link
+    rm -f "${LINK_FX}"; ln -s /usr/bin/at "${LINK_FX}"
+    state_is "foreign a symlink to /usr/bin/at" "a symlink elsewhere" unowned "${LINK_FX}" link
+    rm -f "${LINK_FX}"; : > "${LINK_FX}"
+    state_is "foreign a regular empty file" "a file at the link name" unowned "${LINK_FX}" link
+    rm -f "${LINK_FX}"
+    PAGE1="${FX}/man/man1/atr.1" PAGE8="${FX}/man/man8/atr.8"
+    cp "${ROOT}/src/usr/local/share/man/man1/atr.1" "${PAGE1}"
+    state_is ours "the shipped man1 stub" unowned "${PAGE1}" page
+    gzip -c "${PAGE1}" > "${PAGE1}.gz"
+    state_is ours "the shipped man1 stub, gzip-compressed" unowned "${PAGE1}.gz" page
+    cp "${ROOT}/src/usr/local/share/man/man8/atr.8" "${PAGE8}"
+    state_is ours "the shipped man8 stub" unowned "${PAGE8}" page
+    cp "${ROOT}/src/usr/local/share/man/man1/atr.1" "${PAGE8}"
+    state_is "foreign a page without" "a man8 page pointing at the man1 page" unowned "${PAGE8}" page
+    printf '.TH ATR 1\n.SH NAME\natr \\- another tool\n' | gzip -c > "${PAGE1}.gz"
+    state_is "foreign a page without" "a gzip page without the .so line" unowned "${PAGE1}.gz" page
+    xz -c "${ROOT}/src/usr/local/share/man/man8/atr.8" > "${PAGE8}.xz"
+    state_is "foreign a page without" "an xz page, which the read does not decompress" unowned "${PAGE8}.xz" page
+    rm -f "${PAGE8}"
+
+    # The fixture now holds: the man1 stub (ours), a foreign atr.1.gz, a foreign atr.8.xz, no wrapper and no link.
+    out="$(atr_run unowned ensure_atr_names_free)" || true
+    assert_msg MSG-W5Z8 "${out}" "a foreign occupant refuses the install"
+    if [[ "${out}" == *"the name ${PAGE1}.gz holds a page without the atr .so line"* && "${out}" != *status=0 ]]; then
+        pass "the refusal names the first foreign entry and what was read, and exits non-zero"
+    else
+        fail "the refusal: ${out//$'\n'/ | }"
+    fi
+    gzip -c "${PAGE1}" > "${PAGE1}.gz"; rm -f "${PAGE8}.xz"
+    out="$(atr_run unowned ensure_atr_names_free)"
+    [[ "${out}" == status=0 ]] && pass "names absent or in this project's form pass the check (control)" \
+        || fail "names in this project's form: ${out//$'\n'/ | }"
+    printf '.TH ATR 8\n' | xz -c > "${PAGE8}.xz"
+    cp "${ROOT}/src/usr/local/bin/atr.sh" "${WRAPPER_FX}"; ln -s ../local/bin/atr "${LINK_FX}"
+    out="$(atr_run unowned remove_atr_names)"
+    if [[ ! -e "${WRAPPER_FX}" && ! -L "${LINK_FX}" && ! -e "${PAGE1}" && ! -e "${PAGE1}.gz" && -e "${PAGE8}.xz" \
+          && "${out}" == *"${PAGE8}.xz left in place"* && "${out}" == *status=0 ]]; then
+        pass "the uninstall removes the names in this project's form and leaves the foreign page, naming it"
+    else
+        fail "the uninstall: wrapper $([[ -e "${WRAPPER_FX}" ]] && echo kept || echo removed), foreign page $([[ -e "${PAGE8}.xz" ]] && echo kept || echo removed): ${out//$'\n'/ | }"
+    fi
+fi
+
+# atr_check_precedes_first_write <file> : succeed when do_install calls ensure_atr_names_free ahead of its first
+# `install -d` of /var/log/ai-tools, the first path the install creates. removes_atr_by_form <file> : succeed
+# when do_uninstall calls remove_atr_names and no `rm` line names an atr path.
+atr_check_precedes_first_write() {
+    local body call_line write_line
+    body="$(extract_function "$1" do_install)"
+    call_line="$(grep -n -m1 -E '^[[:space:]]+ensure_atr_names_free$' <<<"${body}" | cut -d: -f1 || true)"
+    write_line="$(grep -n -m1 -E '^[[:space:]]+install -d .*/var/log/ai-tools' <<<"${body}" | cut -d: -f1 || true)"
+    [[ -n "${call_line}" && -n "${write_line}" ]] && (( call_line < write_line ))
+}
+removes_atr_by_form() {
+    local body
+    body="$(extract_function "$1" do_uninstall)"
+    grep -qE '^[[:space:]]+remove_atr_names([[:space:]]|$)' <<<"${body}" \
+        && ! grep -qE '^[[:space:]]*rm .*/atr(\.[18][^[:space:]]*)?([[:space:]]|$)' <<<"${body}"
+}
+printf '%s\n' 'do_install() {' '    install -d -o root -g root -m 700 /var/log/ai-tools' '    ensure_atr_names_free' '}' \
+    'do_uninstall() {' '    remove_atr_names' '    rm -f /usr/local/bin/atr' '}' > "${TESTDIR}/atr-order-control.sh"
+if atr_check_precedes_first_write "${TESTDIR}/atr-order-control.sh" || removes_atr_by_form "${TESTDIR}/atr-order-control.sh"; then
+    fail "control: the readers accept a check after the first write and a by-path removal, so the checks below cannot fail"
+else
+    pass "the readers flag a check after the first write and a by-path removal (control)"
+fi
+atr_check_precedes_first_write "${INSTALLER}" && pass "do_install reads the names atr takes ahead of its first write" \
+    || fail "do_install does not call ensure_atr_names_free ahead of its install log's directory"
+removes_atr_by_form "${INSTALLER}" && pass "do_uninstall removes the names atr takes through remove_atr_names alone" \
+    || fail "do_uninstall does not remove the atr names through remove_atr_names alone"
+names_text="$(sed -n '/^ATR_NAMES=(/,/^readonly ATR_NAMES$/p' -- "${INSTALLER}")"
+if [[ "${names_text}" == *'"/usr/local/bin/atr wrapper"'* && "${names_text}" == *'"/usr/sbin/atr link"'* \
+      && "${names_text}" == *'/usr/local/share/man/man1/atr.1${_form} page'* \
+      && "${names_text}" == *'/usr/local/share/man/man8/atr.8${_form} page'* ]]; then
+    pass "ATR_NAMES lists the wrapper, its link and both stub pages"
+else
+    fail "ATR_NAMES does not list the four names: ${names_text//$'\n'/ | }"
+fi
 
 finish

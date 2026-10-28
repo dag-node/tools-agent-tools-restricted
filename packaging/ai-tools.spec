@@ -329,6 +329,8 @@ ln -sr %{buildroot}%{ai_libexecdir}/ai-tools-admin %{buildroot}%{_sbindir}/ai-to
 # ── base: CLI + handback client ──────────────────────────────────────────────
 install -d -m 0755 %{buildroot}%{ai_bindir}
 install -m 0755 src%{ai_bindir}/ai-tools.sh                 %{buildroot}%{ai_bindir}/ai-tools
+# atr: the short command, `atr <command>` running ai-tools and `atr admin <command>` ai-tools-admin.
+install -m 0755 src%{ai_bindir}/atr.sh                      %{buildroot}%{ai_bindir}/atr
 install -m 0750 src%{ai_bindir}/ai-tools-handback-client.py %{buildroot}%{ai_bindir}/ai-tools-handback-client
 # The one launch wrapper every agent's command runs: each agent package ships its launcher name as
 # a symlink to it, and the wrapper takes the agent from the name it was invoked as.
@@ -337,9 +339,12 @@ install -m 0755 src%{ai_bindir}/ai-tools-launch.sh          %{buildroot}%{ai_bin
 # ships. brp-compress may gzip it (hence the %%files glob).
 install -d -m 0755 %{buildroot}%{ai_mandir}/man1
 install -m 0644 src%{ai_mandir}/man1/ai-tools.1             %{buildroot}%{ai_mandir}/man1/ai-tools.1
+# atr(1) and atr(8) are `.so` stubs for the two command pages, so `man atr` resolves without an index refresh.
+install -m 0644 src%{ai_mandir}/man1/atr.1                  %{buildroot}%{ai_mandir}/man1/atr.1
 # ai-tools-admin(8): section 8 because every command it documents refuses a non-root caller.
 install -d -m 0755 %{buildroot}%{ai_mandir}/man8
 install -m 0644 src%{ai_mandir}/man8/ai-tools-admin.8       %{buildroot}%{ai_mandir}/man8/ai-tools-admin.8
+install -m 0644 src%{ai_mandir}/man8/atr.8                  %{buildroot}%{ai_mandir}/man8/atr.8
 # ai-tools-operator.conf(5): the host options and the shared KEY=value grammar they are written in.
 # ai-tools-providers(5): the provider manifests (agents.d, integrations.d) and their keys.
 # ai-tools-allowed-projects(5), ai-tools-secret-patterns(5): the two files an operator's enrolment seeds, whose
@@ -371,6 +376,8 @@ install -m 0644 src%{ai_mandir}/man7/ai-tools-messages.7        %{buildroot}%{ai
 # %%ai-ops drop-in is refused by sudo first, and meets sudo's message rather than the CLI's.
 # The symlink also carries the read-only reports, which the CLI now accepts as root.
 ln -sr %{buildroot}%{ai_bindir}/ai-tools %{buildroot}%{_sbindir}/ai-tools
+# atr takes a link so `sudo atr admin …` resolves through secure_path for a caller whose grant covers the wrapper.
+ln -sr %{buildroot}%{ai_bindir}/atr %{buildroot}%{_sbindir}/atr
 
 # ── base: shared libraries ───────────────────────────────────────────────────
 # 0751: group SANDBOX_GROUP r-x for the agent; world-execute so an operator (not a
@@ -698,6 +705,41 @@ if posix.access("/usr/bin/systemctl", "x") then
 end
 
 %pre -n ai-tools-base
+# The names the short command atr takes: rpm refuses a path another installed package owns as a transaction conflict
+# before any scriptlet runs, and overwrites an unowned file at a %%files path without a word. This reads each name
+# in the forms install.sh's ATR_NAMES states and exits 1 at the first entry that is in none of them, which stops rpm
+# unpacking this package's files and no more: %%pretrans has already stopped ai-tools-relabel.path for the transaction,
+# a package rpm ordered ahead of this one has placed its files, and %%posttrans, which starts the watcher again, does not
+# run after a failed %%pre. The refusal names the entry and the line that starts the watcher. A path another package
+# owns has conflicted before this runs, so there is no rpm query here.
+for _p in /usr/local/bin/atr /usr/sbin/atr \
+          /usr/local/share/man/man1/atr.1 /usr/local/share/man/man1/atr.1.gz \
+          /usr/local/share/man/man1/atr.1.bz2 /usr/local/share/man/man1/atr.1.xz /usr/local/share/man/man1/atr.1.zst \
+          /usr/local/share/man/man8/atr.8 /usr/local/share/man/man8/atr.8.gz \
+          /usr/local/share/man/man8/atr.8.bz2 /usr/local/share/man/man8/atr.8.xz /usr/local/share/man/man8/atr.8.zst; do
+    [ -e "${_p}" ] || [ -L "${_p}" ] || continue
+    _ours=no
+    case "${_p}" in
+        /usr/local/bin/atr)
+            if [ -f "${_p}" ] && [ ! -L "${_p}" ]; then
+                case "$(sed -n '3{p;q}' "${_p}" 2>/dev/null)" in '# /usr/local/bin/atr --'*) _ours=yes ;; esac
+            fi ;;
+        /usr/sbin/atr)
+            if [ -L "${_p}" ]; then
+                case "$(readlink "${_p}")" in ../local/bin/atr|/usr/local/bin/atr) _ours=yes ;; esac
+            fi ;;
+        */man1/atr.1*|*/man8/atr.8*)
+            case "${_p}" in */man1/*) _so='.so man1/ai-tools.1' ;; *) _so='.so man8/ai-tools-admin.8' ;; esac
+            if [ -f "${_p}" ] && [ ! -L "${_p}" ] \
+               && [ "$(zcat -f -- "${_p}" 2>/dev/null | sed -n '/^\.\\"/d;p;q')" = "${_so}" ]; then
+                _ours=yes
+            fi ;;
+    esac
+    if [ "${_ours}" = no ]; then
+        printf 'MSG-W5Z8\nai-tools-base: the name %s holds an entry that is not this project'"'"'s, so the install does not replace it -- move the entry aside and re-run the transaction; where the transaction is abandoned, start the relabel watcher again: systemctl start ai-tools-relabel.path\n' "${_p}" >&2
+        exit 1
+    fi
+done
 # Create the ai-tools system account before any file owned by it is unpacked.
 %sysusers_create_compat %{SOURCE1}
 
@@ -1500,7 +1542,10 @@ fi
 %attr(0755, root, root) %{ai_bindir}/ai-tools
 %attr(0755, root, root) %{ai_bindir}/ai-tools-launch
 %{_sbindir}/ai-tools
+%attr(0755, root, root) %{ai_bindir}/atr
+%{_sbindir}/atr
 %attr(0644, root, root) %{ai_mandir}/man1/ai-tools.1*
+%attr(0644, root, root) %{ai_mandir}/man1/atr.1*
 %attr(0644, root, root) %{ai_mandir}/man5/ai-tools-operator.conf.5*
 %attr(0644, root, root) %{ai_mandir}/man5/ai-tools-providers.5*
 %attr(0644, root, root) %{ai_mandir}/man5/ai-tools-allowed-projects.5*
@@ -1510,6 +1555,7 @@ fi
 %attr(0644, root, root) %{ai_mandir}/man5/ai-tools-assets.5*
 %attr(0644, root, root) %{ai_mandir}/man7/ai-tools-messages.7*
 %attr(0644, root, root) %{ai_mandir}/man8/ai-tools-admin.8*
+%attr(0644, root, root) %{ai_mandir}/man8/atr.8*
 %attr(0750, root, ai-tools) %{ai_bindir}/ai-tools-handback-client
 %dir %attr(0751, root, ai-tools) %{ai_libdir}
 %attr(0644, root, root) %{ai_libdir}/log.lib.sh

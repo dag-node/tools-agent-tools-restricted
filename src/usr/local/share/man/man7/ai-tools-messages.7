@@ -2265,6 +2265,10 @@ lockdown: failed to chown ${ai_nvm_dir}
 ERROR.
 the name ${dir} exists and is not a directory, so the install does not set an owner or a mode through it \-\- move the entry aside and re\-run: sudo ./install.sh install
 .TP
+.B MSG-W5Z8
+ERROR.
+the name ${entry% *} holds ${state#foreign } that is not this project's, so the install does not replace it \-\- move the entry aside, or remove the package that owns it, and re\-run: sudo ./install.sh install
+.TP
 .B MSG-W6B3
 ERROR.
 this checkout is ${AI_TOOLS_VERSION} and ${installed} is installed, so this install is a downgrade${dnf_clause}.

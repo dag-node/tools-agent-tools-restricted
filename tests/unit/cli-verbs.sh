@@ -133,6 +133,15 @@ else
     fail "verb(s) in OPERATOR_VERBS and ROOT_ALLOWED_VERBS at once: $(tr '\n' '/' <<<"${overlap}")"
 fi
 
+# ── (2b) `admin` is not a command of the CLI ────────────────────────────────────
+# The short command `atr` reads `admin` as its first word and runs ai-tools-admin for it, so an `admin` verb here would
+# be unreachable through `atr` (cli-grammar.rule.md, The `/admin` namespace).
+if grep -qE '^admin( |$)' <<<"${DISPATCH}"; then
+    fail "the CLI dispatches an admin command, which atr admin shadows: $(grep -E '^admin( |$)' <<<"${DISPATCH}" | tr '\n' '/')"
+else
+    pass "the CLI dispatches no admin command, the first word atr reserves"
+fi
+
 # ── (3) No table names a verb the dispatcher does not have ──────────────────────
 # A stale entry is dead configuration that reads as coverage -- worst for ROOT_ALLOWED_VERBS and BOOTSTRAP_EXEMPT_VERBS,
 # whose whole content is exceptions.

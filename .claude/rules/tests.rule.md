@@ -536,6 +536,14 @@ file and an exported function, so their absence with `-p` is evidence rather tha
 wrapper's own test is `integration/wrapper.sh`, which proves the deployed wrapper reaches those gates in that order
 through its launcher symlinks.
 
+`atr.sh` drives the short command over a copy of the wrapper whose two fixed paths are rewritten to recorders,
+with a recording `sudo` first on `PATH`: each argument reaches the program it names as one field, the empty one
+included, the program's exit status is the wrapper's, `atr admin` asks `sudo` for the fixed admin path after one notice
+line and runs the program directly as root, and the fixed paths themselves are read from the wrapper as text, since
+a recorder does not see them. The recorders are exec'd, so the file takes `agent-installs.sh`'s fallback for a directory
+where a `0755` file is executable. `integration/cli.sh` holds the installed wrapper to the same argv through a recording
+shim of its own, and `boundary/access.sh` holds the account's `atr admin` to a refusal with no admin output.
+
 `man.sh` is a pure text-sync check over this project's man pages and what each documents. The two command pages are held
 to the `usage()` heredoc of their command — `ai-tools(1)` against the CLI, `ai-tools-admin(8)` against the admin helper
 — validated from the repo sources (or the installed pair outside a checkout) and executing neither command, since
@@ -581,7 +589,8 @@ and a man page as a `.BR` cross-reference, while a test and a source file are dr
 Every section so far pairs a page with what it documents. Two more hold each page to the way a page is **written**,
 against the font and placeholder rules whose home is `references/man-pages.md` in the `ai-tools-technical-writing`
 skill; the reference and the check are edited together, so the convention and what enforces it cannot disagree. They
-read the **authored** pages (`man1`, `man5`, `man8`) and leave `ai-tools-messages(7)`
+read the **authored** pages (`man1`, `man5`, `man8`, leaving out a `.so` stub, which does not carry text of its own
+and which a case holds to a page this project authors) and leave `ai-tools-messages(7)`
 to the `tools/generators/man-messages.sh` lockstep: each emitter's own string decides that page's markup. The rules are
 that no page carries a pointy-bracket placeholder, which roff renders literally and which marks prose never brought
 to the page's grammar; that every italic token on a SYNOPSIS line or a `.TP`/`.TQ` tag line is an uppercase placeholder,
@@ -725,8 +734,10 @@ otherwise. The same reading covers the rest of what a source install must get ri
 `restorecon -R` ahead of the live-session reading names a root-owned tree, `require_acl_tools` refuses a host without
 the ACL tools and is called first, `ensure_dir` refuses a name that is not a directory where `install -d` would follow
 a link, the sandbox home and then `bin` reach their rows ahead of the first file written under them, and `do_install`
-places the sysusers fragment at the path `layout.lib.sh` declares. Each case runs beside its control; the file's header
-lists them.
+places the sysusers fragment at the path `layout.lib.sh` declares. The names the short command `atr` takes are read
+the same way, over a fixture tree with `rpm` a shell function: each is replaced and removed only in one of this
+project's forms, a marked file `rpm` attributes to another package is refused, and an unmarked one is never removed.
+Each case runs beside its control; the file's header lists them.
 
 `install-selinux-walks.sh` runs `selinux/install-selinux.sh`'s account-writable walks, extracted as text, under each
 live-session reading with `restorecon` recorded: a `live` or `unreadable` reading does not walk any tree and names each

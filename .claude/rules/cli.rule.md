@@ -503,8 +503,9 @@ outliving its parser.
 
 ## The root vantage: `ai-tools-admin status`
 
-`status` and `ai-tools-admin status` are **one resource read from two vantages**, not two reports. The root command
-reports the same host and adds the readings the operator's prints as `?`:
+`status` and `ai-tools-admin status` read **one host from two vantages**: two resources, `GET /status`
+and `GET /admin/status` ([cli-grammar](cli-grammar.rule.md)), over one set of facts. The root command reports the same
+host and adds the readings the operator's prints as `?`:
 
 | reading | what blocks the operator | what root does |
 |---|---|---|
@@ -516,13 +517,13 @@ reports the same host and adds the readings the operator's prints as `?`:
 | an agent's installed version | the same toolchain | reads the `package.json` around the entrypoint (`ai_tools_entrypoint_verify__read_installed_version`), as data: running the agent's `--version` would execute a file the sandbox account can write ([ref-section-s9t9](updater.rule.md#ref-section-s9t9)) |
 | the sandbox account's systemd unit search path, and the `Persistent=` timer stamp on it | the chain is root-owned without world bits, so an operator outside the sandbox group cannot traverse it, and the stamp sits inside that account's home | reads both: the chain against its declared layout, the stamp's own mtime |
 
-**What keeps them one resource is where the privilege is tested.** `services.lib.sh` offers a live reading to whichever
-caller can make one, so the capability is checked at each read rather than at the dispatch: `sudo ai-tools status`
-resolves a unit exactly as `ai-tools-admin status` does, and an unprivileged run of either reports the same `?`. Two
-commands exist because the binary is the privilege boundary ([cli-grammar](cli-grammar.rule.md)), not because there are
-two sets of facts. The **rendering** does differ — this CLI's coloured report against the admin tool's plain
-bracket-token table — which is the registry's own contract: it emits records and leaves every consumer to format them,
-the same way the launch wrapper's pre-launch warning does.
+**What keeps them one set of facts is where the privilege is tested.** `services.lib.sh` offers a live reading
+to whichever caller can make one, so the capability is checked at each read rather than at the dispatch:
+`sudo ai-tools status` resolves a unit exactly as `ai-tools-admin status` does, and an unprivileged run of either
+reports the same `?`. Two commands exist because the binary is the privilege boundary
+([cli-grammar](cli-grammar.rule.md)), not because there are two sets of facts. The **rendering** does differ — this
+CLI's coloured report against the admin tool's plain bracket-token table — which is the registry's own contract: it
+emits records and leaves every consumer to format them, the same way the launch wrapper's pre-launch warning does.
 
 The pin comparison is the reading that answers *now* rather than *then*: `status` reports what the last reconciliation
 recorded, so a binary changed since — by an out-of-band `npm install`, or by anything else writing that tree — is named

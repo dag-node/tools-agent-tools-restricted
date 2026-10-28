@@ -9,9 +9,11 @@
 # from the cross-reference index. It then holds every authored page to the way a page is WRITTEN -- the font
 # and placeholder rules whose home is references/man-pages.md in the ai-tools-technical-writing skill of the set core,
 # edited in lockstep with the check here -- and closes by holding every config header this project writes
-# to the fixed-width rule (72 columns). In the two command pairs the page and the help are not copies of each other --
-# usage() is orientation while the page is the reference -- so equality of their whole option sets is the wrong contract
-# and is what made slimming the help impossible.
+# to the fixed-width rule (72 columns). A `.so` stub (atr(1) and atr(8), named for the short command) does not carry
+# text of its own, so the convention lint leaves it out and a case holds each stub to an authored page. In the two
+# command pairs the page and the help are not copies of each other -- usage() is orientation while the page is
+# the reference -- so equality of their whole option sets is the wrong contract and is what made slimming the help
+# impossible.
 #
 # Both commands spell a command in bare words (.claude/rules/cli-grammar.rule.md), so what is compared is
 # the COMMAND PATH -- `projects claim`, `selinux groups enable` -- rather than a single flag. ai-tools(1), five checks:
@@ -687,10 +689,25 @@ font_scoped() {
            prev=$0 }' "$1"
 }
 
+# so_target <page>: print the target of a `.so` stub -- a page whose first request line, past its comment lines, is
+# `.so <target>` -- and fail for any other page. A stub carries no NAME or SYNOPSIS of its own, and man(1) resolves its
+# target from a man root rather than from the stub's directory, so the convention lint leaves a stub out.
+so_target() {
+    local line
+    while IFS= read -r line; do
+        [[ "${line}" == '.\"'* ]] && continue
+        [[ "${line}" == '.so '* ]] || return 1
+        printf '%s\n' "${line#.so }"
+        return 0
+    done < "$1"
+    return 1
+}
+
 check_page_convention() {
     local page name findings line token clean scoped
-    local -a pages=()
-    mapfile -t pages < <(ls "${MAN_ROOT}"/man1/* "${MAN_ROOT}"/man5/* "${MAN_ROOT}"/man8/* 2>/dev/null)
+    local -a pages=() all_pages=()
+    mapfile -t all_pages < <(ls "${MAN_ROOT}"/man1/* "${MAN_ROOT}"/man5/* "${MAN_ROOT}"/man8/* 2>/dev/null)
+    for page in "${all_pages[@]}"; do so_target "${page}" >/dev/null || pages+=("${page}"); done
     if (( ${#pages[@]} == 0 )); then
         skip "man page convention" "no authored page under ${MAN_ROOT}"; return
     fi
@@ -748,6 +765,30 @@ check_page_convention() {
     fi
 }
 check_page_convention
+
+# ── A stub names a page this project installs ─────────────────────────────────────────────────
+# The `.so` stubs named for the short command `atr` stand for the two command pages, so each must name an authored page
+# under the same man root, by section and file name; `man atr` through a stub naming a stub, or a page no install route
+# places, does not open a page.
+section "man pages: each .so stub names an authored page (unit)"
+stub_count=0
+for page in "${MAN_ROOT}"/man1/* "${MAN_ROOT}"/man5/* "${MAN_ROOT}"/man8/*; do
+    target="$(so_target "${page}")" || continue
+    stub_count=$(( stub_count + 1 ))
+    if [[ -r "${MAN_ROOT}/${target}" ]] && ! so_target "${MAN_ROOT}/${target}" >/dev/null; then
+        pass "${page##*/} is a stub for ${target}, an authored page"
+    else
+        fail "${page##*/} names ${target}, which is not an authored page under ${MAN_ROOT}"
+    fi
+done
+for stub in man1/atr.1:man1/ai-tools.1 man8/atr.8:man8/ai-tools-admin.8; do
+    if [[ "$(so_target "${MAN_ROOT}/${stub%%:*}" 2>/dev/null || true)" == "${stub#*:}" ]]; then
+        pass "${stub%%:*} stands for ${stub#*:}"
+    else
+        fail "${stub%%:*} is not the stub for ${stub#*:}"
+    fi
+done
+(( stub_count > 0 )) || fail "no .so stub was read under ${MAN_ROOT}, so the atr pages are not checked"
 
 # ── The trailing argument's shape, page against usage() ────────────────────────────────────────
 # arg_shape <argument text>: '', 'X', '[X]', 'X...' or '[X]...' -- the positional argument with its name normalized

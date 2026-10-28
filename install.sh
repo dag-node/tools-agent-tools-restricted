@@ -1066,6 +1066,7 @@ do_summary() {
     _chk /usr/local/libexec/ai-tools/ai-tools-admin
     _chk /usr/sbin/ai-tools-admin
     _chk /usr/sbin/ai-tools
+    _chk /usr/sbin/atr
     _chk /usr/local/libexec/ai-tools/ai-tools-handback
     _chk /usr/local/bin/ai-tools-launch
     _chk /usr/local/bin/claude
@@ -1080,7 +1081,9 @@ do_summary() {
     _chk /usr/lib/systemd/system/ai-tools-relabel.path
     _chk /usr/lib/systemd/system/ai-tools-relabel.service
     _chk /usr/local/bin/ai-tools
+    _chk /usr/local/bin/atr
     _chk /usr/local/share/man/man1/ai-tools.1
+    _chk /usr/local/share/man/man1/atr.1
     _chk /usr/local/share/man/man5/ai-tools-operator.conf.5
     _chk /usr/local/share/man/man5/ai-tools-providers.5
     _chk /usr/local/share/man/man5/ai-tools-allowed-projects.5
@@ -1090,6 +1093,7 @@ do_summary() {
     _chk /usr/local/share/man/man5/ai-tools-assets.5
     _chk /usr/local/share/man/man7/ai-tools-messages.7
     _chk /usr/local/share/man/man8/ai-tools-admin.8
+    _chk /usr/local/share/man/man8/atr.8
     _chk /var/opt/ai-tools
     _chk /var/opt/ai-tools/sandbox-projects
     _chk /var/opt/ai-tools/README.md
@@ -1328,10 +1332,112 @@ require_acl_tools() {
     die MSG-Q7E7 "the ACL tools are missing (${missing} not found) -- every grant the ownership model makes is a POSIX ACL, so install the acl package first: dnf install acl"
 }
 
+# The names the short command `atr` takes, each `<path> <kind>`: the wrapper, its sudo-PATH link, and the two `.so`
+# stubs in each form a page can take on a host. `atr` is a short name another tool could already hold, so the install
+# and the uninstall act on a name only while it is in this project's form. The form is a marker an earlier install
+# of this project wrote, a heuristic and not proof of ownership: where rpm is on the host, the package database outranks
+# it, and an unmarked file is never replaced or removed. packaging/ai-tools.spec's base %pre holds the same forms
+# for a package install.
+ATR_NAMES=( "/usr/local/bin/atr wrapper" "/usr/sbin/atr link" )
+for _form in "" .gz .bz2 .xz .zst; do
+    ATR_NAMES+=( "/usr/local/share/man/man1/atr.1${_form} page" "/usr/local/share/man/man8/atr.8${_form} page" )
+done
+unset _form
+readonly ATR_NAMES
+
+# is_atr_wrapper_file <path> : the file's third line begins with the wrapper's header line.
+is_atr_wrapper_file() {
+    local line
+    line="$(sed -n '3{p;q}' -- "$1" 2>/dev/null)" || return 1
+    [[ "${line}" == '# /usr/local/bin/atr --'* ]]
+}
+
+# is_atr_link <path> : the link's target is /usr/local/bin/atr, as `ln -sr` writes it from /usr/sbin or by its absolute
+# path; a dangling link included, since the wrapper may be the name the install is about to place.
+is_atr_link() {
+    local target
+    target="$(readlink -- "$1")" || return 1
+    [[ "${target}" == ../local/bin/atr || "${target}" == /usr/local/bin/atr ]]
+}
+
+# is_atr_stub_page <path> : the page's first line that is not a roff comment is the `.so` request naming the page
+# the stub stands for, read through `zcat -f` so a gzip page is read as text. A page in another compression reads
+# as bytes and does not match.
+is_atr_stub_page() {
+    local section="${1##*/atr.}" text line
+    section="${section%%.*}"
+    case "${section}" in 1) section='man1/ai-tools.1' ;; 8) section='man8/ai-tools-admin.8' ;; *) return 1 ;; esac
+    text="$(zcat -f -- "$1" 2>/dev/null | head -c 4096 | tr -d '\000')" || true
+    while IFS= read -r line; do
+        [[ "${line}" == '.\"'* ]] && continue
+        [[ "${line}" == ".so ${section}" ]]
+        return
+    done <<< "${text}"
+    return 1
+}
+
+# read_atr_name_state <path> <kind> : print `absent`, `ours`, or `foreign <what was read>` for one name. The kind comes
+# from one lstat; a kind the read cannot settle is foreign. A name in this project's form that rpm attributes
+# to a package other than ai-tools-base is foreign, as is one rpm cannot attribute for a reason other than the path
+# being unowned.
+read_atr_name_state() {
+    local path="$1" kind="$2" type owners
+    if ! type="$(LC_ALL=C stat -c '%F' -- "${path}" 2>&1)"; then
+        [[ "${type}" == *'No such file or directory' ]] && { printf 'absent\n'; return 0; }
+        printf 'foreign an entry whose kind could not be read\n'; return 0
+    fi
+    case "${kind}:${type}" in
+        wrapper:'regular file'|page:'regular file')
+            if [[ "${kind}" == wrapper ]]; then
+                is_atr_wrapper_file "${path}" || { printf 'foreign a regular file without the atr header line\n'; return 0; }
+            else
+                is_atr_stub_page "${path}" || { printf 'foreign a page without the atr .so line\n'; return 0; }
+            fi ;;
+        link:'symbolic link')
+            is_atr_link "${path}" \
+                || { printf 'foreign a symlink to %s\n' "$(readlink -- "${path}" 2>/dev/null || printf '?')"; return 0; } ;;
+        *) printf 'foreign a %s\n' "${type}"; return 0 ;;
+    esac
+    if command -v rpm >/dev/null 2>&1; then
+        if owners="$(LC_ALL=C rpm -qf --qf '%{NAME}\n' -- "${path}" 2>&1)"; then
+            [[ "$(sort -u <<< "${owners}")" == ai-tools-base ]] \
+                || { printf 'foreign a file of package %s\n' "${owners//$'\n'/, }"; return 0; }
+        elif [[ "${owners}" != *'is not owned by any package'* ]]; then
+            printf 'foreign a file rpm could not attribute\n'; return 0
+        fi
+    fi
+    printf 'ours\n'
+}
+
+# ensure_atr_names_free -- refuse the install ahead of its first write while any of the names `atr` takes holds an entry
+# that is not this project's.
+ensure_atr_names_free() {
+    local entry state
+    for entry in "${ATR_NAMES[@]}"; do
+        state="$(read_atr_name_state "${entry% *}" "${entry##* }")"
+        [[ "${state}" == foreign\ * ]] || continue
+        die MSG-W5Z8 "the name ${entry% *} holds ${state#foreign } that is not this project's, so the install does not replace it -- move the entry aside, or remove the package that owns it, and re-run: sudo ./install.sh install"
+    done
+}
+
+# remove_atr_names -- remove each name `atr` takes while it is in this project's form; log and leave every other one.
+remove_atr_names() {
+    local entry state
+    for entry in "${ATR_NAMES[@]}"; do
+        state="$(read_atr_name_state "${entry% *}" "${entry##* }")"
+        case "${state}" in
+            absent) ;;
+            ours) rm -f -- "${entry% *}" ;;
+            *) warn "${entry% *} left in place -- it holds ${state#foreign }, which is not this project's" ;;
+        esac
+    done
+}
+
 do_install() {
     id "${SANDBOX_USER}" &>/dev/null \
         || die MSG-R6Y6 "sandbox account ${SANDBOX_USER} not found -- create it first (README step 2)"
     require_acl_tools
+    ensure_atr_names_free
 
     print_banner
     say "  projects user : ${PROJECTS_USER} (${PROJECTS_HOME})"
@@ -1987,6 +2093,10 @@ do_install() {
     # in secure_path) before the CLI's own refusal -- "run as the projects user" -- can explain the right invocation.
     log "/usr/sbin/ai-tools -> /usr/local/bin/ai-tools"
     ln -sfnr /usr/local/bin/ai-tools /usr/sbin/ai-tools
+    # The short command takes the same link, so `sudo atr admin …` resolves through secure_path for a caller whose grant
+    # covers the wrapper. ensure_atr_names_free has read the name.
+    log "/usr/sbin/atr -> /usr/local/bin/atr"
+    ln -sfnr /usr/local/bin/atr /usr/sbin/atr
 
     # Handback privilege bridge daemon.  750 root:root -- root-owned and only root-executable: this is the privileged
     # endpoint; the SANDBOX_USER reaches it via the socket, never by exec'ing it directly.  install_subst substitutes
@@ -2064,6 +2174,9 @@ do_install() {
     install_subst 755 root root \
         "${SCRIPT_DIR}/src/usr/local/bin/ai-tools.sh" \
         /usr/local/bin/ai-tools
+    # The short command over the CLI and the admin command. 755 root:root, as the CLI is.
+    log "/usr/local/bin/atr"
+    install_subst 755 root root "${SCRIPT_DIR}/src/usr/local/bin/atr.sh" /usr/local/bin/atr
 
     # ai-tools(1) man page. /usr/local/share/man/man1 is owned by the EL filesystem package, so only the page itself is
     # deployed. Version-substituted like the CLI, and kept option-synced with the CLI's usage() text
@@ -2072,6 +2185,10 @@ do_install() {
     install_subst 644 root root \
         "${SCRIPT_DIR}/src/usr/local/share/man/man1/ai-tools.1" \
         /usr/local/share/man/man1/ai-tools.1
+    # The `.so` stubs named for the short command, so `man atr` and `man 8 atr` open the two command pages whether
+    # or not the man index has been rebuilt.
+    log "/usr/local/share/man/man1/atr.1"
+    install -o root -g root -m 644 "${SCRIPT_DIR}/src/usr/local/share/man/man1/atr.1" /usr/local/share/man/man1/atr.1
 
     # ai-tools-admin(8). Section 8 because every command it documents refuses a non-root caller. Version-substituted
     # and command-synced with the helper's usage() the same way.
@@ -2080,6 +2197,8 @@ do_install() {
     install_subst 644 root root \
         "${SCRIPT_DIR}/src/usr/local/share/man/man8/ai-tools-admin.8" \
         /usr/local/share/man/man8/ai-tools-admin.8
+    log "/usr/local/share/man/man8/atr.8"
+    install -o root -g root -m 644 "${SCRIPT_DIR}/src/usr/local/share/man/man8/atr.8" /usr/local/share/man/man8/atr.8
 
     # Every section-5 page carries the ai-tools- prefix, so it cannot shadow a page some other package installs
     # under the same generic name -- /usr/local/share/man and /usr/share/man are both on the default MANDATORY_MANPATH,
@@ -3004,6 +3123,7 @@ do_uninstall() {
     [ -d /usr/local/sbin/ai-tools ] && [ ! -L /usr/local/sbin/ai-tools ] && rm -rf /usr/local/sbin/ai-tools
     rm -f /usr/sbin/ai-tools-admin             # sudo-PATH symlinks -> /usr/local/libexec/ai-tools/...
     rm -f /usr/sbin/ai-tools                   # secure_path symlink -> /usr/local/bin/ai-tools
+    remove_atr_names                           # the short command's names, each only while it is this project's
     rm -rf /usr/local/lib/ai-tools
     rm -f /usr/local/bin/ai-tools-handback-client
     rm -f /usr/local/bin/ai-tools

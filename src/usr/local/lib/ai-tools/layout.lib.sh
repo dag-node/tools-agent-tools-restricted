@@ -102,7 +102,7 @@ _ai_tools_layout__populate_static_entries() {
     local -a man_pages=(
         man1/ai-tools.1 man5/ai-tools-operator.conf.5 man5/ai-tools-providers.5 man5/ai-tools-allowed-projects.5
         man5/ai-tools-secret-patterns.5 man5/ai-tools-custom-claude-endpoint.conf.5 man5/ai-tools-records.5
-        man5/ai-tools-assets.5 man7/ai-tools-messages.7 man8/ai-tools-admin.8
+        man5/ai-tools-assets.5 man7/ai-tools-messages.7 man8/ai-tools-admin.8 man1/atr.1 man8/atr.8
     )
 
     # ── ai-tools-base ── The root helpers: 0750 root:root, so a non-root account cannot list the directory or run
@@ -114,8 +114,10 @@ _ai_tools_layout__populate_static_entries() {
     # The sudo-PATH links: sudoers secure_path on stock EL excludes /usr/local/sbin, so `sudo <name>` resolves here.
     _ai_tools_layout__append_static_entry /usr/sbin/ai-tools-admin     link root:root 0777 - "${base}" files
     _ai_tools_layout__append_static_entry /usr/sbin/ai-tools           link root:root 0777 - "${base}" files
+    _ai_tools_layout__append_static_entry /usr/sbin/atr                link root:root 0777 - "${base}" files
     # The CLI and the launch wrapper run as the invoking operator; root-owned so the agent cannot rewrite either.
     _ai_tools_layout__append_static_entry /usr/local/bin/ai-tools        file root:root 0755 - "${base}" files
+    _ai_tools_layout__append_static_entry /usr/local/bin/atr             file root:root 0755 - "${base}" files
     _ai_tools_layout__append_static_entry /usr/local/bin/ai-tools-launch file root:root 0755 - "${base}" files
     # Group-executable so the sandbox account runs it from the hooks; no world bit, so no other account reaches
     # the bridge.

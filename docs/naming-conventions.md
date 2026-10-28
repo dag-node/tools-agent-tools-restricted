@@ -212,6 +212,20 @@ used for it. "The registries" is reserved for the allowlist entry together
 with the `safe.directory` entry, the pair `projects unclaim`
 and `projects remove` drop.
 
+## The command you type, and the programs behind it
+
+```bash
+atr status                      # runs ai-tools status
+atr admin operators add alice   # runs ai-tools-admin operators add alice, as root
+```
+
+`atr` is the command an operator types: `atr admin <command>` runs
+`ai-tools-admin`, and every other `atr <command>` runs `ai-tools`. `ai-tools`
+and `ai-tools-admin` are the programs, and their names are the ones the files,
+the man pages, the packages and the installed layout carry. A page spells
+a command as `atr`, and names a program as `ai-tools` or `ai-tools-admin`
+where the sentence is about the program itself.
+
 ## Agent vs subagent
 
 Two different things are called "agent" in this space, so this project fixes

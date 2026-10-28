@@ -1327,4 +1327,79 @@ else
     fi
 fi
 
+# ── atr: the installed short command ──────────────────────────────────────────────────────────
+# `atr` is a spelling of the two programs, so these rows spell it as typed: the spelling is what they are about.
+# The installed wrapper resolves sudo by name, so a recording shim first on its PATH is what it execs; the shim row
+# proves the argv the installed file hands sudo, not the host's sudo policy, which the operator rows drive.
+section "atr: the installed short command runs ai-tools, and atr admin runs ai-tools-admin"
+readonly ATR=/usr/local/bin/atr ADMIN=/usr/local/libexec/ai-tools/ai-tools-admin
+if [[ ! -x "${ATR}" ]]; then
+    skip "atr" "not installed at ${ATR}"
+elif ! command -v runuser >/dev/null 2>&1; then
+    skip "atr" "runuser unavailable to run it as ${PROJECTS_USER}"
+else
+    [[ "$(stat -c '%a %U:%G' "${ATR}")" == '755 root:root' && "$(sed -n '3p' "${ATR}")" == '# /usr/local/bin/atr --'* ]] \
+        && pass "${ATR} is 0755 root:root and carries the marker line" \
+        || fail "${ATR}: $(stat -c '%a %U:%G' "${ATR}"), third line: $(sed -n '3p' "${ATR}")"
+    [[ -L /usr/sbin/atr && "$(readlink -f /usr/sbin/atr)" == "${ATR}" ]] \
+        && pass "/usr/sbin/atr is a symlink resolving to ${ATR}" \
+        || fail "/usr/sbin/atr: $(ls -ld /usr/sbin/atr 2>&1)"
+    for stub in "man1/atr.1:.so man1/ai-tools.1" "man8/atr.8:.so man8/ai-tools-admin.8"; do
+        page="$(compgen -G "/usr/local/share/man/${stub%%:*}" || compgen -G "/usr/local/share/man/${stub%%:*}.gz" || true)"
+        so_line=""
+        [[ -n "${page}" ]] && so_line="$(zcat -f -- "${page}" | sed -n '/^\.\\"/d;p;q')"
+        [[ -n "${page}" && "${so_line}" == "${stub#*:}" ]] \
+            && pass "${page} is the stub '${stub#*:}'" \
+            || fail "the ${stub%%:*} stub: ${page:-absent}, first request: ${so_line:-none}"
+    done
+    want="$(runuser -u "${PROJECTS_USER}" -- env HOME="${PROJECTS_HOME}" "${CLI}" --version 2>&1)" || true
+    got="$(runuser -u "${PROJECTS_USER}" -- env HOME="${PROJECTS_HOME}" "${ATR}" --version 2>&1)" || true
+    [[ -n "${want}" && "${got}" == "${want}" ]] && pass "atr --version as ${PROJECTS_USER} prints what ai-tools --version prints" \
+        || fail "atr --version: '${got}', ai-tools --version: '${want}'"
+    want="$("${ADMIN}" --version 2>&1)" || true
+    got="$("${ATR}" admin --version 2>&1)" || true
+    [[ -n "${want}" && "${got}" == "${want}" ]] && pass "atr admin --version as root prints what ai-tools-admin --version prints, with no notice" \
+        || fail "atr admin --version: '${got}', ai-tools-admin --version: '${want}'"
+    want_rc=0; "${ADMIN}" status >/dev/null 2>&1 || want_rc=$?
+    got_rc=0; "${ATR}" admin status >/dev/null 2>&1 || got_rc=$?
+    (( got_rc == want_rc )) && pass "atr admin status as root exits as ai-tools-admin status does (${want_rc})" \
+        || fail "atr admin status exited ${got_rc}, ai-tools-admin status ${want_rc}"
+
+    # The shim needs a directory where a 0755 file is executable, which a noexec /tmp is not.
+    shim_dir=""
+    mk_fixture_dir shim_dir "${PROJECTS_HOME}" atr-shim 2>/dev/null || shim_dir=""
+    if [[ -z "${shim_dir}" ]]; then
+        skip "the installed atr's sudo argv" "no fixture directory beside ${PROJECTS_HOME}"
+    else
+        chmod 0755 "${shim_dir}"
+        cat > "${shim_dir}/sudo" <<EOF
+#!/bin/bash
+printf '%s\0' "\$@" > "${shim_dir}/argv"
+exit "\$(cat "${shim_dir}/status" 2>/dev/null || echo 0)"
+EOF
+        chmod 0755 "${shim_dir}/sudo"; printf '0\n' > "${shim_dir}/status"
+        chown "${PROJECTS_USER}" "${shim_dir}"
+        # shim_run : the installed atr as the projects user with the shim first on PATH; sets rc, out and err.
+        shim_run() {
+            rm -f "${shim_dir}/argv" "${shim_dir}/err"
+            rc=0
+            out="$(runuser -u "${PROJECTS_USER}" -- env -i HOME="${PROJECTS_HOME}" PATH="${shim_dir}:/usr/bin:/bin" \
+                "${ATR}" admin system bootstrap --agents 'a b' '' -- x 2> "${shim_dir}/err")" || rc=$?
+            err="$(cat "${shim_dir}/err"; printf x)"; err="${err%x}"
+        }
+        shim_run
+        mapfile -d '' -t argv < "${shim_dir}/argv" 2>/dev/null || argv=()
+        expected=( -- "${ADMIN}" system bootstrap --agents 'a b' '' -- x )
+        if [[ "${#argv[@]}" == "${#expected[@]}" && "$(printf '%s\x1f' "${argv[@]}")" == "$(printf '%s\x1f' "${expected[@]}")" \
+              && "${err}" == $'atr admin: runs as root through sudo\n' && -z "${out}" && "${rc}" == 0 ]]; then
+            pass "the installed atr hands sudo '-- ${ADMIN}' and each argument as one field, after the one notice line"
+        else
+            fail "the installed atr's sudo argv: [$(printf '%s|' "${argv[@]}")] rc=${rc} stderr=[${err}] stdout=[${out}]"
+        fi
+        printf '7\n' > "${shim_dir}/status"
+        shim_run
+        (( rc == 7 )) && pass "the installed atr exits 7 when sudo does" || fail "sudo exited 7, the installed atr exited ${rc}"
+    fi
+fi
+
 finish

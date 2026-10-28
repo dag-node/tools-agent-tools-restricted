@@ -738,6 +738,45 @@ else
     pass "the agent cannot act as the operator through sudo -u (no rule; NNP drops sudo's SUID)"
 fi
 
+# ── The short command, as the sandbox account ────────────────────────────────────────────────────
+# `atr` runs ai-tools, whose principal guard refuses the account, and `atr admin` runs ai-tools-admin through sudo,
+# which the account does not hold a rule for. This vantage is the account, not a session, so the row asserts
+# an account-level denial: run under setsid, so sudo cannot prompt, the admin program's report does not appear,
+# and the helper directory is unreadable to the account as the precondition that the program was not reached by another
+# route. A session's NoNewPrivileges is integration/ai-tools-run.sh's, and the account's sudo refusal
+# boundary/sudo.sh's.
+_atr=/usr/local/bin/atr
+if [[ ! -x "${_atr}" ]]; then
+    fail "${_atr} is not an executable file as root, so the account's refusals are not probed -- reinstall ai-tools-base"
+else
+    _out="$(runuser -u "${SANDBOX_USER}" -- "${_atr}" status 2>&1)" && _rc=0 || _rc=$?
+    if (( _rc == 0 )); then
+        fail "the agent was not refused atr status"
+    else
+        assert_msg MSG-Q6Q8 "${_out}" "the agent's atr status is refused by the CLI's principal guard"
+    fi
+    _rc=0
+    _out="$(runuser -u "${SANDBOX_USER}" -- setsid -w "${_atr}" admin status 2>&1 </dev/null)" || _rc=$?
+    if runuser -u "${SANDBOX_USER}" -- test -r /usr/local/libexec/ai-tools 2>/dev/null; then
+        fail "the helper directory is readable to the agent, so the atr admin row below proves less than it claims"
+    elif (( _rc != 0 )) && grep -qxF 'atr admin: runs as root through sudo' <<< "${_out}" \
+            && ! grep -qF 'ai-tools host status' <<< "${_out}"; then
+        pass "the agent's atr admin status is refused by sudo, with no admin report and the helper directory unreadable"
+    else
+        fail "atr admin status as ${SANDBOX_USER} exited ${_rc}: $(head -c 300 <<< "${_out}" | tr '\n' '|')"
+    fi
+fi
+for _atr_name in /usr/local/bin/atr /usr/sbin/atr; do
+    if [[ ! -e "${_atr_name}" && ! -L "${_atr_name}" ]]; then
+        fail "${_atr_name} is not installed, so its write boundary is not probed"
+    elif runuser -u "${SANDBOX_USER}" -- test -w "${_atr_name}" 2>/dev/null \
+            || runuser -u "${SANDBOX_USER}" -- test -w "$(dirname "${_atr_name}")" 2>/dev/null; then
+        fail "the agent can write ${_atr_name} or its directory -- it could redirect what an operator's atr runs"
+    else
+        pass "the agent cannot write ${_atr_name} or the directory holding it"
+    fi
+done
+
 # The launch attestation under AI_TOOLS_REQUIRE_SELINUX reads the per-domain mode and the Booleans from selinuxfs,
 # and unit/confinement.sh drives the refusals a permissive domain, an enabled Boolean and an unread input produce. This
 # is the other end: the account cannot reach the state that produces them. It cannot set a Boolean (the selinuxfs files
