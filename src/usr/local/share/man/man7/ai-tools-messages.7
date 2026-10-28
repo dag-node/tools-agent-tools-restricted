@@ -2026,7 +2026,7 @@ stale manifest for ${subject}: its installed entrypoint is
 .TP
 .B MSG-R6M2
 ERROR.
-left loaded: ${left[*]} \-\- ${reason//$'\en'/; }; review the local rules with 'sudo semanage fcontext \-l \-C | grep ai_tools', then re\-run: sudo $0 remove
+left loaded: $(_list "${left[@]}") \-\- ${reason//$'\en'/; }; review the local rules with 'sudo semanage fcontext \-l \-C | grep ai_tools', then re\-run: sudo $0 remove
 .TP
 .B MSG-R9B9
 WARNING.
