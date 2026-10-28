@@ -298,7 +298,7 @@ rewrite_option_spelling() {
     REWRITTEN_ARGS=()
     # An empty subscript is a bash error, so the leading argument is tested before it is looked up.
     if [[ -n "${1:-}" && "$1" != -g && -n "${OPTION_SPELLINGS[$1]+set}" ]]; then
-        OPTION_SPELLINGS_USED+=("$1"$'\t'"ai-tools ${OPTION_SPELLINGS[$1]}")
+        OPTION_SPELLINGS_USED+=("$1"$'\t'"atr ${OPTION_SPELLINGS[$1]}")
         # The value is a space-joined command path; this CLI's IFS has no space, so the split pins its own.
         local IFS=' '
         read -ra REWRITTEN_ARGS <<<"${OPTION_SPELLINGS[$1]}"
@@ -5807,11 +5807,11 @@ require_sudo_access() {
     # as anyone's: a message that guesses the arrangement is wrong in exactly the deployments this refusal exists for.
     local -a advice=("Ask an administrator or an ai-ops operator with sudo to run:" "")
     if [[ -n "${FOR_OPERATOR}" ]]; then
-        advice+=( "    ai-tools ${COMMAND} --for ${FOR_OPERATOR} $(handover_target "$@")" )
+        advice+=( "    atr ${COMMAND} --for ${FOR_OPERATOR} $(handover_target "$@")" )
     elif ${delegable}; then
         # --for is the whole answer here: the verb runs against ${INVOKING_USER}'s registry whoever performs it,
         # which is what the pre-configured no-sudo account needs.
-        advice+=( "    ai-tools ${COMMAND} --for ${INVOKING_USER} $(handover_target "$@")" )
+        advice+=( "    atr ${COMMAND} --for ${INVOKING_USER} $(handover_target "$@")" )
     elif [[ "${COMMAND}" == "projects clone" ]]; then
         # The one verb --for is refused on: a clone is made with the git credentials of whoever runs it. The REGISTRY
         # half is delegable all the same, and the clone area is deliberately outside the protected-paths set
@@ -5831,7 +5831,7 @@ require_sudo_access() {
                   "${INVOKING_USER}, and the claim registers it for ${INVOKING_USER}." )
     else
         local rest=""; (( $# )) && rest="$(printf ' %q' "$@")"
-        advice+=( "    ai-tools ${COMMAND}${rest}" )
+        advice+=( "    atr ${COMMAND}${rest}" )
     fi
     # The trail is written to journald as well, which many hosts let an ordinary account read -- a partial view (the
     # file sink is the authoritative one) but one the operator reads unaided.

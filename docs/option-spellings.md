@@ -4,32 +4,32 @@
 <!-- prose-check: ignore-file -->
 # Option spellings and the commands they run
 
-`ai-tools` spells a command as a bare word: a collection and its verb (`atr projects claim`), or one word for
+`atr` spells a command as a bare word: a collection and its verb (`atr projects claim`), or one word for
 the host (`atr status`), with `--` reserved for an option. That is the preferred form, and the option spelling
 each command had in earlier releases is kept for compatibility: it is rewritten to the command ahead of every check,
 prints one notice, [MSG-W3W8](../src/usr/local/bin/ai-tools.sh), naming the preferred form, and exits as that command
 does, so a script written against an earlier release runs unchanged.
 
-| Option spelling              | Preferred form               |
-|------------------------------|------------------------------|
-| `ai-tools --list`            | `ai-tools projects list`     |
-| `ai-tools --project-create`  | `ai-tools projects create`   |
-| `ai-tools --project-claim`   | `ai-tools projects claim`    |
-| `ai-tools --project-unclaim` | `ai-tools projects unclaim`  |
-| `ai-tools --project-remove`  | `ai-tools projects remove`   |
-| `ai-tools --project-enable`  | `ai-tools projects enable`   |
-| `ai-tools --project-disable` | `ai-tools projects disable`  |
-| `ai-tools --sandbox-create`  | `ai-tools projects clone`    |
-| `ai-tools --sandbox-push`    | `ai-tools projects push`     |
-| `ai-tools --sandbox-remove`  | `ai-tools projects remove`   |
-| `ai-tools --lockdown`        | `ai-tools projects lockdown` |
-| `ai-tools --reclaim`         | `ai-tools projects handback` |
-| `ai-tools --providers`       | `ai-tools providers list`    |
-| `ai-tools --status`          | `ai-tools status`            |
-| `ai-tools --audit`           | `ai-tools audit`             |
-| `ai-tools --stop`            | `ai-tools stop`              |
-| `-V`                         | `ai-tools --version`         |
-| `-g`                         | `--group`                    |
+| Option spelling              | Preferred form          |
+|------------------------------|-------------------------|
+| `ai-tools --list`            | `atr projects list`     |
+| `ai-tools --project-create`  | `atr projects create`   |
+| `ai-tools --project-claim`   | `atr projects claim`    |
+| `ai-tools --project-unclaim` | `atr projects unclaim`  |
+| `ai-tools --project-remove`  | `atr projects remove`   |
+| `ai-tools --project-enable`  | `atr projects enable`   |
+| `ai-tools --project-disable` | `atr projects disable`  |
+| `ai-tools --sandbox-create`  | `atr projects clone`    |
+| `ai-tools --sandbox-push`    | `atr projects push`     |
+| `ai-tools --sandbox-remove`  | `atr projects remove`   |
+| `ai-tools --lockdown`        | `atr projects lockdown` |
+| `ai-tools --reclaim`         | `atr projects handback` |
+| `ai-tools --providers`       | `atr providers list`    |
+| `ai-tools --status`          | `atr status`            |
+| `ai-tools --audit`           | `atr audit`             |
+| `ai-tools --stop`            | `atr stop`              |
+| `-V`                         | `atr --version`         |
+| `-g`                         | `--group`               |
 
 `-g` is the short form `atr projects unclaim` took for `--group`, and `-V` the short form of `--version`; each
 is rewritten wherever it stands.
