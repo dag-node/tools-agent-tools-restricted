@@ -47,6 +47,13 @@ BuildRequires:  make
 %global ai_mandir  /usr/local/share/man
 %global ai_libdir  /usr/local/lib/ai-tools
 
+# Every scriptlet body, comments included, passes through RPM's macro expansion before the shell
+# reads it: a doubled percent reaches the shell as one, and a percent directly ahead of an opening
+# parenthesis runs what the parentheses hold as a command while the spec is parsed. A shell
+# parameter expansion in a scriptlet therefore writes each of its percents twice: four for the
+# shell's longest-suffix removal, two for the shortest. tests/unit/spec-scriptlets.sh reads
+# the parsed spec.
+
 # Metapackage: pulls the whole stack. ai-tools-base is the mandatory foundation; the
 # ai-tools-agents and ai-tools-integration umbrellas are weak (Recommends), so a default
 # dnf install pulls them while `--setopt=install_weak_deps=0` yields base alone. The real
@@ -1168,7 +1175,7 @@ if [ "$1" -eq 0 ] && command -v semodule >/dev/null 2>&1; then
             if semanage fcontext -d -f "${letter}" -- "${pattern}" >/dev/null 2>&1; then
                 case "${pattern}" in
                     *'(/.*)?')
-                        literal="${pattern%(/.*)?}"
+                        literal="${pattern%%(/.*)?}"
                         tree=$(printf '%s' "${literal}" | sed -E 's/\\(.)/\1/g')
                         escaped=$(printf '%s' "${tree}" | sed 's/[][\\.(){}*+?^$|]/\\&/g')
                         if [ "${escaped}" != "${literal}" ]; then
