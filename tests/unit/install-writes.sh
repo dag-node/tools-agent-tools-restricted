@@ -20,7 +20,8 @@
 # and do_install's text is read for the home, then bin, brought to their rows ahead of the first file written
 # under them. The sysusers fragment the layout declares a payload file of base is read the same way: do_install places
 # it from packaging/ai-tools.sysusers and do_uninstall removes it. The names the short command atr takes are decided
-# by read_atr_name_state, driven over a fixture tree with rpm a shell function, and ensure_atr_names_free
+# by read_atr_name_state, driven over a fixture tree with rpm a shell function and under a PATH without gzip,
+# where a gzip page reads as unreadable and a plain one as this project's, and ensure_atr_names_free
 # and remove_atr_names over the same tree; do_install's text is read for the check ahead of the first write,
 # and do_uninstall's for a removal through remove_atr_names alone.
 #
@@ -521,21 +522,27 @@ for name in die warn is_atr_wrapper_file is_atr_link is_atr_stub_page read_atr_n
 done
 if [[ -n "${atr_text}" ]]; then
     FX="${TESTDIR}/atr-root"
-    mkdir -p "${FX}/usr/local/bin" "${FX}/usr/sbin" "${FX}/man/man1" "${FX}/man/man8" "${TESTDIR}/norpm-bin"
-    for tool in bash stat sed head tr zcat gzip readlink sort rm; do ln -s "$(type -P "${tool}")" "${TESTDIR}/norpm-bin/${tool}"; done
+    mkdir -p "${FX}/usr/local/bin" "${FX}/usr/sbin" "${FX}/man/man1" "${FX}/man/man8" "${TESTDIR}/norpm-bin" \
+        "${TESTDIR}/nogzip-bin"
+    for tool in bash stat sed head od tr zcat gzip readlink sort rm; do
+        ln -s "$(type -P "${tool}")" "${TESTDIR}/norpm-bin/${tool}"
+        [[ "${tool}" == zcat || "${tool}" == gzip ]] || ln -s "$(type -P "${tool}")" "${TESTDIR}/nogzip-bin/${tool}"
+    done
     # atr_run <rpm-answer> <command>... : the extracted functions in a fresh shell under install.sh's strict mode
-    #   and IFS, rpm answering per <rpm-answer> (`unowned`, `base`, `other`, `error`, or `none` for a PATH without it),
-    #   ATR_NAMES set to the fixture's names; prints the command's output and `status=<n>` last.
+    #   and IFS, rpm answering per <rpm-answer> (`unowned`, `base`, `other`, `error`, `none` for a PATH without it,
+    #   or `nogzip` for a PATH without rpm, gzip and zcat), ATR_NAMES set to the fixture's names; prints the command's
+    #   output and `status=<n>` last.
     # shellcheck disable=SC2016  # the inner shell expands these, not this one
     atr_run() {
         local path_list=/usr/bin:/bin
         [[ "$1" == none ]] && path_list="${TESTDIR}/norpm-bin"
+        [[ "$1" == nogzip ]] && path_list="${TESTDIR}/nogzip-bin"
         env -i PATH="${path_list}" "${BASH}" -c '
             set -euo pipefail
             C_RED="" C_RST="" C_YEL=""
             eval "$1"
             stub_rpm="$2" fx="$3"; shift 3
-            if [[ "${stub_rpm}" != none ]]; then
+            if [[ "${stub_rpm}" != none && "${stub_rpm}" != nogzip ]]; then
                 rpm() {
                     case "${stub_rpm}" in
                         unowned) printf "file %s is not owned by any package\n" "${@: -1}"; return 1 ;;
@@ -594,6 +601,13 @@ if [[ -n "${atr_text}" ]]; then
     state_is ours "the shipped man1 stub" unowned "${PAGE1}" page
     gzip -c "${PAGE1}" > "${PAGE1}.gz"
     state_is ours "the shipped man1 stub, gzip-compressed" unowned "${PAGE1}.gz" page
+    # With no gzip on PATH a plain stub is read without a decompressor, and a gzip one is unreadable, not another's.
+    state_is ours "the shipped man1 stub, read with no gzip on PATH" nogzip "${PAGE1}" page
+    state_is "unreadable a gzip page with no gzip" "the gzip man1 stub, read with no gzip on PATH" nogzip \
+        "${PAGE1}.gz" page
+    printf '\037\213junk' > "${PAGE8}.gz"
+    state_is "foreign a page without" "a truncated gzip page, read with gzip present" unowned "${PAGE8}.gz" page
+    rm -f "${PAGE8}.gz"
     cp "${ROOT}/src/usr/local/share/man/man8/atr.8" "${PAGE8}"
     state_is ours "the shipped man8 stub" unowned "${PAGE8}" page
     cp "${ROOT}/src/usr/local/share/man/man1/atr.1" "${PAGE8}"
@@ -624,6 +638,23 @@ if [[ -n "${atr_text}" ]]; then
         pass "the uninstall removes the names in this project's form and leaves the foreign page, naming it"
     else
         fail "the uninstall: wrapper $([[ -e "${WRAPPER_FX}" ]] && echo kept || echo removed), foreign page $([[ -e "${PAGE8}.xz" ]] && echo kept || echo removed): ${out//$'\n'/ | }"
+    fi
+
+    # A page the read cannot decide refuses the install under its own code, and the uninstall leaves it.
+    rm -f "${PAGE8}.xz"; gzip -c "${ROOT}/src/usr/local/share/man/man1/atr.1" > "${PAGE1}.gz"
+    out="$(atr_run nogzip ensure_atr_names_free)" || true
+    assert_msg MSG-V2H5 "${out}" "an unreadable page refuses the install"
+    if [[ "${out}" == *"the name ${PAGE1}.gz could not be read (a gzip page with no gzip on PATH)"* \
+          && "${out}" != *MSG-W5Z8* && "${out}" != *status=0 ]]; then
+        pass "the refusal names the page and why it could not be read, apart from a foreign occupant"
+    else
+        fail "the unreadable refusal: ${out//$'\n'/ | }"
+    fi
+    out="$(atr_run nogzip remove_atr_names)"
+    if [[ -e "${PAGE1}.gz" && "${out}" == *"${PAGE1}.gz left in place -- it could not be read"* && "${out}" == *status=0 ]]; then
+        pass "the uninstall leaves a page it could not read, naming it"
+    else
+        fail "the uninstall over an unreadable page: ${out//$'\n'/ | }"
     fi
 fi
 

@@ -119,7 +119,8 @@ cannot fix -- a message code's name is a runtime string, and rewording one is a 
 | e7d7 | [MSG-E7D7](../install.sh) | relabel did not complete -- run: sudo ai-tools-admin system entrypoints relabel | install.sh |  | warn |
 | f6d2 | [MSG-F6D2](../install.sh) | an agent outside the sandbox is installed at ${install_path} | install.sh |  | warn |
 | q7e7 | [MSG-Q7E7](../install.sh) | the ACL tools are missing (${missing} not found) -- every grant the ownership model makes is a POSIX ACL, so install the acl package first: dnf install acl | install.sh | tests/unit/install-writes.sh | die |
-| w5z8 | [MSG-W5Z8](../install.sh) | the name ${entry% *} holds ${state#foreign } that is not this project's, so the install does not replace it -- move the entry aside, or remove the package that owns it, and re-run: sudo ./install.sh install | install.sh | packaging/ai-tools.spec, tests/unit/install-writes.sh | die |
+| w5z8 | [MSG-W5Z8](../install.sh) | the name ${entry% *} holds ${state#foreign } that is not this project's, so the install does not replace it -- move the entry aside, or remove the package that owns it, and re-run: sudo ./install.sh install | install.sh | packaging/ai-tools.spec, tests/unit/install-writes.sh, tests/unit/spec-atr-names.sh | die |
+| v2h5 | [MSG-V2H5](../install.sh) | the name ${entry% *} could not be read (${state#unreadable }), so the install does not decide it -- install gzip and re-run: sudo ./install.sh install | install.sh | tests/unit/install-writes.sh | die |
 | r6y6 | [MSG-R6Y6](../install.sh) | sandbox account ${SANDBOX_USER} not found -- create it first (README step 2) | install.sh |  | die |
 | n2w3 | [MSG-N2W3](../install.sh) | sudoers syntax check failed | install.sh |  | die |
 | c2x3 | [MSG-C2X3](../install.sh) | could not add ${PROJECTS_USER} to ai-ops | install.sh |  | warn |

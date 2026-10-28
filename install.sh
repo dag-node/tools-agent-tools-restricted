@@ -1360,14 +1360,21 @@ is_atr_link() {
     [[ "${target}" == ../local/bin/atr || "${target}" == /usr/local/bin/atr ]]
 }
 
-# is_atr_stub_page <path> : the page's first line that is not a roff comment is the `.so` request naming the page
-# the stub stands for, read through `zcat -f` so a gzip page is read as text. A page in another compression reads
+# is_atr_stub_page <path> : 0 when the page's first line that is not a roff comment is the `.so` request naming the page
+# the stub stands for, 1 when it is not, 2 when the page is gzip and gzip is not on PATH. The gzip magic bytes decide
+# whether the page is decompressed, so a plain page is read without a decompressor. A page in another compression reads
 # as bytes and does not match.
 is_atr_stub_page() {
-    local section="${1##*/atr.}" text line
+    local section="${1##*/atr.}" magic text line
     section="${section%%.*}"
     case "${section}" in 1) section='man1/ai-tools.1' ;; 8) section='man8/ai-tools-admin.8' ;; *) return 1 ;; esac
-    text="$(zcat -f -- "$1" 2>/dev/null | head -c 4096 | tr -d '\000')" || true
+    magic="$(head -c 2 -- "$1" 2>/dev/null | od -An -tx1 | tr -d ' \n')" || magic=""
+    if [[ "${magic}" == 1f8b ]]; then
+        command -v gzip >/dev/null 2>&1 || return 2
+        text="$(gzip -dc -- "$1" 2>/dev/null | head -c 4096 | tr -d '\000')" || true
+    else
+        text="$(head -c 4096 -- "$1" 2>/dev/null | tr -d '\000')" || true
+    fi
     while IFS= read -r line; do
         [[ "${line}" == '.\"'* ]] && continue
         [[ "${line}" == ".so ${section}" ]]
@@ -1376,12 +1383,13 @@ is_atr_stub_page() {
     return 1
 }
 
-# read_atr_name_state <path> <kind> : print `absent`, `ours`, or `foreign <what was read>` for one name. The kind comes
-# from one lstat; a kind the read cannot settle is foreign. A name in this project's form that rpm attributes
-# to a package other than ai-tools-base is foreign, as is one rpm cannot attribute for a reason other than the path
-# being unowned.
+# read_atr_name_state <path> <kind> : print `absent`, `ours`, `foreign <what was read>`, or `unreadable <why>` for one
+# name. The kind comes from one lstat; a kind the read cannot settle is foreign. A page the read needs a missing tool
+# for is unreadable, so a host without the tool does not see its own page as another's. A name in this project's form
+# that rpm attributes to a package other than ai-tools-base is foreign, as is one rpm cannot attribute for a reason
+# other than the path being unowned.
 read_atr_name_state() {
-    local path="$1" kind="$2" type owners
+    local path="$1" kind="$2" type owners page_status
     if ! type="$(LC_ALL=C stat -c '%F' -- "${path}" 2>&1)"; then
         [[ "${type}" == *'No such file or directory' ]] && { printf 'absent\n'; return 0; }
         printf 'foreign an entry whose kind could not be read\n'; return 0
@@ -1391,7 +1399,13 @@ read_atr_name_state() {
             if [[ "${kind}" == wrapper ]]; then
                 is_atr_wrapper_file "${path}" || { printf 'foreign a regular file without the atr header line\n'; return 0; }
             else
-                is_atr_stub_page "${path}" || { printf 'foreign a page without the atr .so line\n'; return 0; }
+                page_status=0
+                is_atr_stub_page "${path}" || page_status=$?
+                case "${page_status}" in
+                    0) ;;
+                    2) printf 'unreadable a gzip page with no gzip on PATH\n'; return 0 ;;
+                    *) printf 'foreign a page without the atr .so line\n'; return 0 ;;
+                esac
             fi ;;
         link:'symbolic link')
             is_atr_link "${path}" \
@@ -1410,13 +1424,17 @@ read_atr_name_state() {
 }
 
 # ensure_atr_names_free -- refuse the install ahead of its first write while any of the names `atr` takes holds an entry
-# that is not this project's.
+# that is not this project's, or one the read could not decide.
 ensure_atr_names_free() {
     local entry state
     for entry in "${ATR_NAMES[@]}"; do
         state="$(read_atr_name_state "${entry% *}" "${entry##* }")"
-        [[ "${state}" == foreign\ * ]] || continue
-        die MSG-W5Z8 "the name ${entry% *} holds ${state#foreign } that is not this project's, so the install does not replace it -- move the entry aside, or remove the package that owns it, and re-run: sudo ./install.sh install"
+        case "${state}" in
+            foreign\ *)
+                die MSG-W5Z8 "the name ${entry% *} holds ${state#foreign } that is not this project's, so the install does not replace it -- move the entry aside, or remove the package that owns it, and re-run: sudo ./install.sh install" ;;
+            unreadable\ *)
+                die MSG-V2H5 "the name ${entry% *} could not be read (${state#unreadable }), so the install does not decide it -- install gzip and re-run: sudo ./install.sh install" ;;
+        esac
     done
 }
 
@@ -1428,6 +1446,7 @@ remove_atr_names() {
         case "${state}" in
             absent) ;;
             ours) rm -f -- "${entry% *}" ;;
+            unreadable\ *) warn "${entry% *} left in place -- it could not be read (${state#unreadable })" ;;
             *) warn "${entry% *} left in place -- it holds ${state#foreign }, which is not this project's" ;;
         esac
     done

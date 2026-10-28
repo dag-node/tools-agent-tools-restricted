@@ -736,8 +736,9 @@ the ACL tools and is called first, `ensure_dir` refuses a name that is not a dir
 a link, the sandbox home and then `bin` reach their rows ahead of the first file written under them, and `do_install`
 places the sysusers fragment at the path `layout.lib.sh` declares. The names the short command `atr` takes are read
 the same way, over a fixture tree with `rpm` a shell function: each is replaced and removed only in one of this
-project's forms, a marked file `rpm` attributes to another package is refused, and an unmarked one is never removed.
-Each case runs beside its control; the file's header lists them.
+project's forms, a marked file `rpm` attributes to another package is refused, an unmarked one is never removed,
+and a gzip page read with no `gzip` on `PATH` is refused as unreadable rather than as another's. Each case runs beside
+its control; the file's header lists them.
 
 `install-selinux-walks.sh` runs `selinux/install-selinux.sh`'s account-writable walks, extracted as text, under each
 live-session reading with `restorecon` recorded: a `live` or `unreadable` reading does not walk any tree and names each
@@ -757,7 +758,9 @@ calls, no agent `%preun` nulling the relabel helper's stderr, the `%postun`'s se
 write, and the escaping rule the spec's preamble states, held against the parsed text where `rpmspec` is on the host.
 `spec-atr-names.sh` runs the `ai-tools-base` `%pre` the same way over a fixture tree of the names `atr` takes: each
 of this project's forms passes, each foreign occupant exits 1 ahead of the account creation, and the refusal starts
-the relabel watcher `%pretrans` stopped, or names the line that starts it where `systemctl` is absent or fails.
+the relabel watcher `%pretrans` stopped, or names the line that starts it where `systemctl` is absent or fails. Without
+`zcat` the scriptlet refuses this project's own gzip stub, so the file also holds the package to the `Requires(pre)`
+lines that place the tools ahead of it.
 
 `claim-notice.sh` drives the live-session reader's one unprivileged caller, the claim's `note_live_session`, read
 out of the checkout's `ai-tools.sh` as text: the notice prints on `live` alone, with a label step or a drift relabel

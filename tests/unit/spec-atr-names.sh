@@ -99,8 +99,11 @@ printf '%s\n%s\n' "${stubs}" "${body}" > "${TESTDIR}/run.sh"
 printf '  rewritten %%pre under test: %s\n' "${TESTDIR}/run.sh"
 
 # The scriptlet's tools reach it through a PATH of links, so a case can leave one out.
-mkdir -p "${TESTDIR}/bin-full"
-for tool in sed readlink zcat gzip cat; do ln -s "$(type -P "${tool}")" "${TESTDIR}/bin-full/${tool}"; done
+mkdir -p "${TESTDIR}/bin-full" "${TESTDIR}/bin-nozcat"
+for tool in sed readlink zcat gzip cat; do
+    ln -s "$(type -P "${tool}")" "${TESTDIR}/bin-full/${tool}"
+    [[ "${tool}" == zcat || "${tool}" == gzip ]] || ln -s "$(type -P "${tool}")" "${TESTDIR}/bin-nozcat/${tool}"
+done
 
 # reset_names: remove every name the scriptlet reads, and the systemctl failure marker; place the systemctl file.
 reset_names() {
@@ -209,5 +212,25 @@ if (( status == 1 )) && [[ "$(watcher_starts)" == 0 ]] && grep -qxF "${BY_HAND}"
 else
     fail "no systemctl: exit ${status}, watcher starts $(watcher_starts), stderr [${err}]"
 fi
+
+# ── The tools the %pre reads with are ordered ahead of it ────────────────────────────────────────
+# The scriptlet reads a page through zcat and sed before base's files are placed, so without zcat this project's own
+# gzip stub is refused; the Requires(pre) lines are what keep that state off a package host.
+reset_names
+gzip -c "${PAGE1_SRC}" > "${MAN1}/atr.1.gz"
+run_pre "${TESTDIR}/bin-nozcat"
+if (( status == 1 )) && grep -qF "the name ${MAN1}/atr.1.gz holds an entry" <<< "${err}"; then
+    pass "with no zcat on PATH the scriptlet refuses this project's own gzip stub"
+else
+    fail "no zcat: exit ${status}, stderr [${err}]"
+fi
+preamble="$(awk '/^%package -n ai-tools-base$/{open=1; next} /^%(package|description)/{open=0} open' "${SPEC}")"
+missing=""
+for package in coreutils gzip sed; do
+    grep -qE "^Requires\(pre\):[[:space:]]+${package}$" <<< "${preamble}" || missing+=" ${package}"
+done
+[[ -n "${preamble}" && -z "${missing}" ]] \
+    && pass "ai-tools-base declares coreutils, gzip and sed under Requires(pre)" \
+    || fail "ai-tools-base lacks Requires(pre) for:${missing:- (the preamble was not read)}"
 
 finish

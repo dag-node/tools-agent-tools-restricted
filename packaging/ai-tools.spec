@@ -75,6 +75,11 @@ Code). Both umbrellas are weakly pulled, so an install can drop either.
 Summary:        Sandboxed-user umbrella for AI coding tools (account, CLI, ownership bridge)
 Requires(pre):  shadow-utils
 Requires(pre):  systemd
+# The %%pre reads the names atr takes through zcat, sed and readlink before this package's files are placed, and
+# Requires(pre) orders the packages carrying them ahead of it in one transaction.
+Requires(pre):  coreutils
+Requires(pre):  gzip
+Requires(pre):  sed
 Requires:       systemd
 Requires:       sudo
 Requires:       acl
