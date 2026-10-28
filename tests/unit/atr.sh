@@ -10,7 +10,8 @@
 # fields, the field count first, and exits with the status a file beside it names, so an argument boundary, an empty
 # argument and an option-looking one are each read back as they were passed. The wrapper execs its programs,
 # so the fixture directory must report a 0755 file as executable: the testdir where it does, a directory beside
-# the projects user's home otherwise, the fallback tests/unit/agent-installs.sh takes. The copy's path is printed first.
+# the projects user's home otherwise, the fallback tests/unit/agent-installs.sh takes. Every fixture the projects user
+# reads takes its mode explicitly, since a root run inherits the umask sudo hands it. The copy's path is printed first.
 # A recorder records its basename and none of the paths the wrapper names, so the fixed paths themselves are asserted
 # by reading the wrapper as text. As root the direct exec is driven, and the same copy through runuser as the projects
 # user takes the sudo route. No install, no real sudo.
@@ -63,6 +64,9 @@ if [[ -z "${FIXTURE}" ]] || ! x_bit_visible "${FIXTURE}"; then
 fi
 chmod 0755 "${FIXTURE}"
 mkdir -p "${FIXTURE}/bin" "${FIXTURE}/log" "${FIXTURE}/nosudo"
+# The projects user reads the recorders and the copy through runuser, and the host umask decides the mode of a directory
+# this run makes, so each directory that account reads takes its mode here; set_status sets each status file's.
+chmod 0755 "${FIXTURE}/bin" "${FIXTURE}/nosudo"
 chmod 0777 "${FIXTURE}/log"
 COPY="${FIXTURE}/atr.sh"
 sed -e "s#^readonly AI_TOOLS_ATR__ADMIN=.*#readonly AI_TOOLS_ATR__ADMIN=${FIXTURE}/bin/ai-tools-admin#" \
@@ -70,11 +74,13 @@ sed -e "s#^readonly AI_TOOLS_ATR__ADMIN=.*#readonly AI_TOOLS_ATR__ADMIN=${FIXTUR
 chmod 0644 "${COPY}"
 printf '  copy under test: %s\n' "${COPY}"
 for name in ai-tools ai-tools-admin sudo; do
-    # Builtins alone, so the recorders run under a PATH naming the fixture directory alone.
+    # Builtins alone, so the recorders run under a PATH naming the fixture directory alone. A status file present
+    # and unreadable makes the recorder exit 99, which every case asserting a status reads as a failure.
     cat > "${FIXTURE}/bin/${name}" <<EOF
 #!/bin/bash
 { printf '%s\0' "\$#" "\$@"; } >> "${FIXTURE}/log/${name}"
-status=0; [[ -r "${FIXTURE}/log/${name}.status" ]] && read -r status < "${FIXTURE}/log/${name}.status"
+status=0
+[[ -e "${FIXTURE}/log/${name}.status" ]] && { read -r status < "${FIXTURE}/log/${name}.status" || status=99; } 2>/dev/null
 exit "\${status}"
 EOF
     chmod 0755 "${FIXTURE}/bin/${name}"
@@ -101,7 +107,10 @@ records() {
     done
 }
 # set_status <name> <status|-> : the exit status <name>'s recorder takes; `-` for 0.
-set_status() { if [[ "$2" == - ]]; then rm -f "${FIXTURE}/log/$1.status"; else printf '%s\n' "$2" > "${FIXTURE}/log/$1.status"; fi; }
+set_status() {
+    if [[ "$2" == - ]]; then rm -f "${FIXTURE}/log/$1.status"
+    else printf '%s\n' "$2" > "${FIXTURE}/log/$1.status"; chmod 0644 "${FIXTURE}/log/$1.status"; fi
+}
 readonly NOTICE=$'atr admin: runs as root through sudo\n'
 WITH_SUDO="${FIXTURE}/bin"
 
@@ -187,7 +196,6 @@ else
     atr_run "${WITH_SUDO}" admin status
     (( RC == 4 )) && pass "as root, the admin program exiting 4 makes atr exit 4" || fail "as root, atr exited ${RC}"
     set_status ai-tools-admin -
-    chmod 0755 "${FIXTURE}/nosudo"
     admin_cases atr_run_as_operator
 fi
 

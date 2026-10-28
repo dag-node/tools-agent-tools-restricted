@@ -164,19 +164,22 @@ else
     (( got_rc == want_rc )) && pass "atr admin status as root exits as ai-tools-admin status does (${want_rc})" \
         || fail "atr admin status exited ${got_rc}, ai-tools-admin status ${want_rc}"
 
-    # The shim needs a directory where a 0755 file is executable, which a noexec /tmp is not.
+    # The shim needs a directory where a 0755 file is executable, which a noexec /tmp is not, and runs as the projects
+    # user, so the status file root writes for it takes 0644 whatever umask the run inherited.
     shim_dir=""
     mk_fixture_dir shim_dir "${PROJECTS_HOME}" atr-shim 2>/dev/null || shim_dir=""
     if [[ -z "${shim_dir}" ]]; then
         skip "the installed atr's sudo argv" "no fixture directory beside ${PROJECTS_HOME}"
     else
         chmod 0755 "${shim_dir}"
+        # 99 is the shim's own "status file unreadable", which neither row expects.
         cat > "${shim_dir}/sudo" <<EOF
 #!/bin/bash
 printf '%s\0' "\$@" > "${shim_dir}/argv"
-exit "\$(cat "${shim_dir}/status" 2>/dev/null || echo 0)"
+read -r status 2>/dev/null < "${shim_dir}/status" || status=99
+exit "\${status}"
 EOF
-        chmod 0755 "${shim_dir}/sudo"; printf '0\n' > "${shim_dir}/status"
+        chmod 0755 "${shim_dir}/sudo"; printf '0\n' > "${shim_dir}/status"; chmod 0644 "${shim_dir}/status"
         chown "${PROJECTS_USER}" "${shim_dir}"
         # shim_run : the installed atr as the projects user with the shim first on PATH; sets rc, out and err.
         shim_run() {
