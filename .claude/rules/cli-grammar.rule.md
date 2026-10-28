@@ -247,11 +247,11 @@ the `system` domain](#when-a-resource-takes-the-system-domain)). Method names st
 Every `ai-tools-admin` command projects under `/admin/`, and every `ai-tools` command at the root: the binary is
 the privilege boundary, and the URI carries it as its first segment, so the two surfaces stay separate on the HTTP side
 as they are on the CLI side. `atr admin <command>` is the typed form of the admin surface, and `/admin/<path>` its
-projection; the word and the segment are one token, and the projection rules of this file decide what follows it.
-`ai-tools status` and `ai-tools-admin status` are therefore two resources — `GET /status`, the operator's vantage,
-and `GET /admin/status`, root's — each printing `?` for a reading its caller cannot make ([cli](cli.rule.md)); they
-report one host and are two representations of it. A privileged caller does not get a wider `/status`; it gets
-`/admin/status`.
+projection: the word `admin` after `atr` projects as the first segment `/admin`, and the projection rules of this file
+decide the segments after it. `ai-tools status` and `ai-tools-admin status` are therefore two resources — `GET /status`,
+the operator's vantage, and `GET /admin/status`, root's — each printing `?` for a reading its caller cannot make
+([cli](cli.rule.md)); they report one host and are two representations of it. A privileged caller does not get a wider
+`/status`; it gets `/admin/status`.
 
 The `admin` group is a singular domain in this grammar's sense, containing `operators`, `selinux groups`, `system`,
 `status`, `assets` and each contributed domain; a bare `atr admin` elevates and meets the program's own no-command path,
