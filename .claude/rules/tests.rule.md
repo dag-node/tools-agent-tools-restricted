@@ -764,10 +764,12 @@ write, and the escaping rule the spec's preamble states, held against the parsed
 `spec-atr-names.sh` runs the `ai-tools-base` `%pre` the same way over a fixture tree of the names `atr` takes: each
 of this project's forms passes, each foreign entry exits 1 ahead of the account creation, the gzip stubs failing
 `gzip -t` and a page past the stub's size, compressed or decompressed, among them, and the refusal does not call
-`systemctl` and names the check and the start of the relabel watcher to run once the transaction ends, since a start
-inside it would let a run fire while rpm places the packages ordered after base. Without `zcat` the scriptlet refuses
-this project's own gzip stub, so the file also holds the package to the `Requires(pre)` lines that place the tools ahead
-of it.
+`systemctl` and names the check of the relabel watcher and the start of the watcher and the relabel run to run once
+the transaction ends, since a start inside it would let a run fire while rpm places the packages ordered after base.
+A stub is a shell function, which a command named by its path bypasses, so the body is read first for a command run
+from a system directory by its path, beside a control, and is not run where one is found. Without `zcat` the scriptlet
+refuses this project's own gzip stub, so the file also holds the package to the `Requires(pre)` lines that place
+the tools ahead of it.
 
 `claim-notice.sh` drives the live-session reader's one unprivileged caller, the claim's `note_live_session`, read
 out of the checkout's `ai-tools.sh` as text: the notice prints on `live` alone, with a label step or a drift relabel

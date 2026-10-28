@@ -4,13 +4,14 @@
 # Hermetic check of the ai-tools-base %pre in packaging/ai-tools.spec: it reads each name the short command atr takes
 # and exits 1 at the first one in none of this project's forms, ahead of the account creation, a gzip stub that fails
 # `gzip -t`, a page past 4096 bytes and a gzip page whose text is past 4096 bytes among them. The refusal does not start
-# the relabel watcher %pretrans stopped, since rpm may still place the packages ordered after base, and names the check
-# and the start to run once the transaction ends.
+# the relabel watcher or the relabel run %pretrans stopped, since rpm may still place the packages ordered after base,
+# and names the check of the watcher and the start of both to run once the transaction ends.
 #
 # A scriptlet runs inside an rpm transaction as root, so its body is read out of the spec as RPM parses it, its host
 # paths rewritten to a fixture tree, and run under /bin/sh with getent, groupadd, useradd and systemctl defined as shell
 # functions ahead of it, each recording its call. The wrapper's marker line names /usr/local/bin/atr as content, so it
-# is kept out of the rewrite, and the rewritten body is checked for that before any case runs.
+# is kept out of the rewrite, and the rewritten body is checked for that, and for a command run by its absolute path,
+# which no stub intercepts, before any case runs.
 #
 # Unprivileged, and reads the checkout alone; skips outside one.
 
@@ -68,6 +69,37 @@ else
     finish; exit
 fi
 
+# A stub is a shell function, which a command named by its absolute path bypasses, reaching the host's own tool as root.
+# find_absolute_commands <script> prints each code line that runs a command from a system directory by its path:
+# at the start of a command, after a separator or a keyword. A path passed as an argument or tested with `[ -x ]` is
+# not a command. The reader runs over a control first, then over the body, which does not run when it finds one.
+find_absolute_commands() {
+    local start='(^|[;&|(`]|\$\(|(then|do|else|elif|if|while|until|!|exec|command)[[:space:]])'
+    grep -nE "${start}[[:space:]]*/(usr/)?(s?bin|libexec)/[[:alnum:]]" <<< "$1" \
+        | grep -vE '^[0-9]+:[[:space:]]*#' || true
+}
+control=$'/usr/bin/systemctl start x\nif /usr/bin/systemctl is-active x; then :; fi\na && /bin/systemctl start x\n'
+control+=$'y="$(/usr/sbin/foo)"\nsystemctl start x\nuseradd -s \'/sbin/nologin\' x\n'
+control+=$'[ -x /usr/bin/systemctl ]\n# /usr/bin/x\n'
+found="$(find_absolute_commands "${control}" | cut -d: -f1 | tr '\n' ' ')"
+if [[ "${found}" == '1 2 3 4 ' ]]; then
+    pass "control: the reader finds a system command run by its path, and not an argument, a test or a comment"
+else
+    fail "control: the reader found lines [${found}] of the control, expected [1 2 3 4]"
+    finish; exit
+fi
+injected="$(find_absolute_commands "${body}"$'\n    /usr/bin/systemctl start ai-tools-relabel.path')"
+[[ "${injected}" == *'/usr/bin/systemctl start ai-tools-relabel.path'* ]] \
+    && pass "control: a call by path added to the body is found" \
+    || fail "control: a call by path added to the body is not found, so the check below cannot fail"
+absolute="$(find_absolute_commands "${body}")"
+if [[ -z "${absolute}" ]]; then
+    pass "the body runs no command from a system directory by its path, so every call reaches a stub"
+else
+    fail "the body runs a command by its path, which no stub intercepts, so it is not run: ${absolute//$'\n'/ | }"
+    finish; exit
+fi
+
 # shellcheck disable=SC2016  # the stubs expand these when the scriptlet runs, not this shell
 stubs='
 STUB="__STUB__"
@@ -98,9 +130,9 @@ run_pre() {
 }
 account_created() { grep -qE '^(groupadd|useradd) ' <<< "${recorder}"; }
 systemctl_calls() { grep -c '^systemctl ' <<< "${recorder}" || true; }
-RECOVERY='ai-tools-base: this refusal does not start the relabel watcher the transaction stopped -- once the transaction'
-RECOVERY+=' ends, check it with systemctl is-active ai-tools-relabel.path, and start it if it should run:'
-readonly RECOVERY+=' systemctl start ai-tools-relabel.path'
+RECOVERY='ai-tools-base: this refusal does not start the relabel watcher or the relabel run the transaction stopped --'
+RECOVERY+=' once the transaction ends, check the watcher with systemctl is-active ai-tools-relabel.path, and where it'
+readonly RECOVERY+=' should run, start both: systemctl start ai-tools-relabel.path ai-tools-relabel.service'
 
 # ── Names absent, or in this project's forms, pass ──────────────────────────────────────────────
 reset_names
