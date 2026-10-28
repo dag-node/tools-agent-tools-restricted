@@ -792,7 +792,7 @@ verify_agent_labels() {
                 # The per-agent verdict closing that agent's lines: `ok` and `none` restate the per-path arms,
                 # so `failed` prints, naming the agent those lines omit, and so does a config directory a live session
                 # left at a type the agent cannot write. That one is not `bad` either: the rule and the policy are
-                # in place, and the closing MSG-U8U4 names the restorecon that labels the directory.
+                # in place, and the closing left-trees warning names the restorecon that labels the directory.
                 agent)
                     if [[ "${detail}" == failed ]]; then
                         warn MSG-E6C4 "labelling did not complete for ${subject} -- see its lines above"

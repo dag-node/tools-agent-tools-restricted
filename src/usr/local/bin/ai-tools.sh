@@ -1617,7 +1617,7 @@ clone_is_private() {
 # a clone already opened, so the line names the policy install, which labels the clone area. A claim's label step
 # on such a host goes through ai-tools-relabel, which this reading does not change.
 relabel_clone() {
-    local d="$1" selinux_mode module_present policy_shipped dac_only_state=""
+    local clone_dir="$1" selinux_mode module_present policy_shipped dac_only_state=""
     command -v restorecon >/dev/null 2>&1 || return 0
     selinux_mode="$(getenforce 2>/dev/null || true)"
     [[ "${selinux_mode}" == "Disabled" ]] && return 0
@@ -1638,16 +1638,16 @@ relabel_clone() {
         return 0
     fi
     local context
-    if ! restorecon -FR "${d}" 2>/dev/null; then
-        warn "could not label ${d} ai_tools_project_t for SELinux -- restorecon -FR failed"
+    if ! restorecon -FR "${clone_dir}" 2>/dev/null; then
+        warn "could not label ${clone_dir} ai_tools_project_t for SELinux -- restorecon -FR failed"
         return 1
     fi
-    context="$(stat -c '%C' -- "${d}" 2>/dev/null)" || context=""
+    context="$(stat -c '%C' -- "${clone_dir}" 2>/dev/null)" || context=""
     if [[ "${context}" == *:ai_tools_project_t:* ]]; then
         ok "labelled clone ai_tools_project_t (SELinux)"
         return 0
     fi
-    warn "could not label ${d} ai_tools_project_t for SELinux -- the root reads ${context:-an unreadable context}"
+    warn "could not label ${clone_dir} ai_tools_project_t for SELinux -- the root reads ${context:-an unreadable context}"
     return 1
 }
 

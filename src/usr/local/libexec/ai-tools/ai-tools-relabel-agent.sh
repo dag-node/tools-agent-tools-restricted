@@ -462,7 +462,12 @@ record_label_outcomes
 report_live_sessions
 
 if (( labelled > 0 )); then
-    say "all ${labelled} path(s) labelled -- exit any running session and relaunch"
+    # `all` holds only where no config directory walk was left to a live session; the warning above names the walks.
+    if (( live_session_count == 0 )); then
+        say "all ${labelled} path(s) labelled -- exit any running session and relaunch"
+    else
+        say "${labelled} path(s) labelled; the config directory walk(s) named above were left -- exit any running session and relaunch"
+    fi
     ai_tools_log__info "relabelled ${labelled} agent path(s)"
 elif [[ -z "${report}" ]]; then
     say "no enabled agent declares a file-context rule -- nothing to label"
