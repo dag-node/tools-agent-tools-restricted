@@ -427,6 +427,36 @@ if home_then_bin_precede_first_file "${INSTALLER}"; then
 else
     fail "do_install does not bring /opt/ai-tools, then /opt/ai-tools/bin, to their rows ahead of its first install into bin"
 fi
+# The same rule for every other directory the install brings to a row under the home: each ensure_dir of a path
+# under /opt/ai-tools follows the home's, and no `install -d` names a path under the home at all -- the reconcile
+# and ensure_dir are the writers there, and `install -d` follows a link at the name.
+# home_precedes_every_home_row <file> : succeed when every ensure_dir of /opt/ai-tools/<...> in do_install comes after
+# the home's, and no install -d line names a path under /opt/ai-tools.
+home_precedes_every_home_row() {
+    local lines home_line row_line
+    lines="$(extract_function "$1" do_install | code_lines /dev/stdin)"
+    home_line="$(grep -E '^[0-9]+:[[:space:]]*ensure_dir .* /opt/ai-tools$' <<<"${lines}" | head -n 1 | cut -d: -f1)"
+    [[ -n "${home_line}" ]] || return 1
+    ! grep -qE '^[0-9]+:[[:space:]]*install -d .* /opt/ai-tools(/|$)' <<<"${lines}" || return 1
+    while IFS= read -r row_line; do
+        [[ -n "${row_line}" ]] || continue
+        (( row_line > home_line )) || return 1
+    done < <(grep -E '^[0-9]+:[[:space:]]*ensure_dir .* (/opt/ai-tools/[^[:space:]]+|"\$\{chain_dir\}")$' <<<"${lines}" | cut -d: -f1)
+}
+printf '%s\n' 'do_install() {' '    ensure_dir 2770 root ai-tools /opt/ai-tools/integrations' \
+    '    ensure_dir 2751 root ai-tools /opt/ai-tools' '}' > "${TESTDIR}/home-rows-control.sh"
+printf '%s\n' 'do_install() {' '    ensure_dir 2751 root ai-tools /opt/ai-tools' \
+    '    install -d -o root -g ai-tools -m 2750 /opt/ai-tools/.config' '}' > "${TESTDIR}/home-installd-control.sh"
+if home_precedes_every_home_row "${TESTDIR}/home-rows-control.sh" || home_precedes_every_home_row "${TESTDIR}/home-installd-control.sh"; then
+    fail "control: the reader accepts a row under the home brought to it before the home, or an install -d under the home, so the check below cannot fail"
+else
+    pass "the reader flags a row under the home ahead of the home's, and an install -d under the home (control)"
+fi
+if home_precedes_every_home_row "${INSTALLER}"; then
+    pass "do_install brings every directory under the home to its row after the home's, and writes none with install -d"
+else
+    fail "do_install brings a directory under /opt/ai-tools to its row ahead of the home's, or names one in an install -d"
+fi
 
 # ── the account declaration a source install places ──────────────────────────────────────────────
 # layout.lib.sh declares /usr/lib/sysusers.d/ai-tools.conf a payload file of base and the RPM installs it

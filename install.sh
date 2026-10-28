@@ -1814,9 +1814,8 @@ do_install() {
     install -o root -g root -m 644 \
         "${SCRIPT_DIR}/src/usr/local/lib/ai-tools/integrations.d/typesafe.conf" \
         /usr/local/lib/ai-tools/integrations.d/typesafe.conf
-    log "/opt/ai-tools/integrations/typesafe (state root: the usage log)"
-    ensure_dir "${CP_DIR_MODES[integrations]}" root "${SANDBOX_GROUP}" /opt/ai-tools/integrations
-    ensure_dir 2770 root "${SANDBOX_GROUP}" /opt/ai-tools/integrations/typesafe
+    # The typesafe state root under the sandbox home is created in the control-plane section, after the home is
+    # brought to its row: a directory under a home the account still owns is the account's to place or swap.
 
     # SELinux policy modules: compiled from this checkout and staged under the canonical package dir (see
     # stage_selinux_modules). Loading and labelling the core is offer_selinux's step, later; this lays the modules
@@ -2409,6 +2408,9 @@ do_install() {
     ensure_dir "${CP_HOME_MODE}" root "${SANDBOX_GROUP}" /opt/ai-tools
     log "/opt/ai-tools/bin/"
     ensure_dir "${CP_DIR_MODES[bin]}" root "${SANDBOX_GROUP}" /opt/ai-tools/bin
+    log "/opt/ai-tools/integrations/typesafe (state root: the usage log)"
+    ensure_dir "${CP_DIR_MODES[integrations]}" root "${SANDBOX_GROUP}" /opt/ai-tools/integrations
+    ensure_dir 2770 root "${SANDBOX_GROUP}" /opt/ai-tools/integrations/typesafe
 
     # Control-plane files are owned root, group ai-tools: the agent gets group read/exec but can never write them, so it
     # cannot rewrite its own updater, hook, or hook config.
@@ -2722,12 +2724,15 @@ do_install() {
     # the timers.target.wants symlink. Root provisions the XDG config tree and the enablement symlink instead --
     # root:${SANDBOX_GROUP} 2750 (setgid inherited from the control-plane home), so the account's manager reads its
     # units through the group but cannot add a `--user unit` (a confined session must not register a unit the account's
-    # unconfined manager would run). daemon-reload + start then activate it in the running instance.
-    install -d -o root -g "${SANDBOX_GROUP}" -m 2750 \
-        /opt/ai-tools/.config \
-        /opt/ai-tools/.config/systemd \
-        /opt/ai-tools/.config/systemd/user \
-        /opt/ai-tools/.config/systemd/user/timers.target.wants
+    # unconfined manager would run). daemon-reload + start then activate it in the running instance. The four
+    # directories are rows of the installed layout, which the reconcile above has brought to their rows; each is
+    # re-asserted through ensure_dir, which refuses a name that is not a directory, so a link planted before the home
+    # was locked is reported here rather than followed by a write.
+    local chain_dir
+    for chain_dir in /opt/ai-tools/.config /opt/ai-tools/.config/systemd /opt/ai-tools/.config/systemd/user \
+                     /opt/ai-tools/.config/systemd/user/timers.target.wants; do
+        ensure_dir 2750 root "${SANDBOX_GROUP}" "${chain_dir}"
+    done
     ln -sfn /usr/lib/systemd/user/nvm-update.timer \
         /opt/ai-tools/.config/systemd/user/timers.target.wants/nvm-update.timer
     # Pre-seed the timer's Persistent run-stamp BEFORE starting it, so it begins on its next scheduled window rather
