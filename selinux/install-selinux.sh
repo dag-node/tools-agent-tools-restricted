@@ -15,7 +15,8 @@
 #   sudo ./install-selinux.sh build                compile + stage the shipped set (what install.sh runs)
 #   sudo ./install-selinux.sh rebuild              recompile core from source (.te/.fc) + reload + relabel
 #   sudo ./install-selinux.sh relabel              re-apply labels (after Node upgrade)
-#   sudo ./install-selinux.sh remove               unload all ai_tools* modules + labels
+#   sudo ./install-selinux.sh remove               drop every local rule naming an ai_tools type, unload all
+#                                                  ai_tools* modules, revert labels; exit 1 while a module stays loaded
 #   sudo ./install-selinux.sh enable-group <name>  compile + load one optional policy group
 #   sudo ./install-selinux.sh disable-group <name> unload one policy group
 #   sudo ./install-selinux.sh list-groups          show group availability and state
@@ -560,6 +561,9 @@ source "${RELABEL_LIB}" || refuse_unsourced "${RELABEL_LIB}"
 SESSIONS_LIB="${RELABEL_LIB%/*}/sessions.lib.sh"
 # shellcheck source=/dev/null
 source "${SESSIONS_LIB}" || refuse_unsourced "${SESSIONS_LIB}"
+SAFE_PATHS_LIB="${RELABEL_LIB%/*}/safe-paths.lib.sh"
+# shellcheck source=/dev/null
+source "${SAFE_PATHS_LIB}" || refuse_unsourced "${SAFE_PATHS_LIB}"
 
 # The trees the sandbox account can write -- the toolchain, the home state, the clones, a claimed project -- are
 # restored only while no process of that account is live: a recursive restorecon resolves each path again before it
@@ -644,6 +648,54 @@ _labels_drop() {
             *) log "  ${agent}: no file-context rules to drop" ;;
         esac
     done
+}
+
+# _read_pattern_tree <pattern>: print the directory a project-shaped rule `<literal>(/.*)?` was written for, unescaped,
+# where it exists and the protected-paths backstop allows it as a target; fail without output for any other pattern,
+# and for every pattern where the backstop did not load. The paths a raw rule's regex also matched are not its.
+_read_pattern_tree() {
+    local literal="${1%(/.*)?}"
+    [[ "${literal}" != "$1" && "${literal}" != *'(/.*)?'* ]] || return 1
+    literal="$(sed -E 's/\\(.)/\1/g' <<<"${literal}")"
+    [[ "${literal}" == /?* && -d "${literal}" && ! -L "${literal}" ]] || return 1
+    declare -F ai_tools_safe_paths__match_protected_path >/dev/null 2>&1 || return 1
+    ai_tools_safe_paths__match_protected_path "${literal}" >/dev/null && return 1
+    printf '%s\n' "${literal}"
+}
+
+# _drop_remaining_policy_type_rules: delete the local rules the registry walks did not derive and the unload would still
+# refuse on (ai_tools_relabel__list_local_rules_naming_policy_types), naming each; a project tree one covers takes
+# the same gated restore as a registered project. Called under _locked.
+_drop_remaining_policy_type_rules() {
+    local pattern letter type tree
+    while IFS=$'\t' read -r pattern letter type; do
+        [[ -n "${pattern}" ]] || continue
+        if semanage fcontext -d -f "${letter}" -- "${pattern}" >/dev/null 2>&1; then
+            log "  dropped ${pattern} (${type}): a rule outside this host's registries"
+            if tree="$(_read_pattern_tree "${pattern}")"; then
+                _restore_account_tree_labels "${tree}"
+            fi
+        else
+            warn MSG-N5W8 "could not drop the local file-context rule ${pattern} (${type}) -- the module unload refuses while it stands; remove it with: sudo semanage fcontext -d -f ${letter} -- $(printf '%q' "${pattern}")"
+        fi
+    done < <(ai_tools_relabel__list_local_rules_naming_policy_types)
+}
+
+# _unload_modules: unload every loaded ai_tools* module in one transaction, then read the store back: libsemanage prints
+# progress on stdout and a refusal on stderr, and only the store says what is left. A module still loaded is a die.
+_unload_modules() {
+    local -a loaded=() left=()
+    local reason
+    mapfile -t loaded < <(semodule -l 2>/dev/null | awk '/^ai_tools/{print $1}')
+    if [[ ${#loaded[@]} -eq 0 ]]; then
+        log "no ai_tools module is loaded"
+        return 0
+    fi
+    log "unloading all ai_tools* modules: ${loaded[*]}"
+    reason="$(_locked semodule -r "${loaded[@]}" 2>&1 >/dev/null)" || true
+    mapfile -t left < <(semodule -l 2>/dev/null | awk '/^ai_tools/{print $1}')
+    [[ ${#left[@]} -eq 0 ]] \
+        || die MSG-R6M2 "left loaded: ${left[*]} -- ${reason//$'\n'/; }; review the local rules with 'sudo semanage fcontext -l -C | grep ai_tools', then re-run: sudo $0 remove"
 }
 
 # The OPERATORS list, parsed through the shared grammar so this sweep reads operator.conf exactly as every other
@@ -1078,19 +1130,16 @@ case "${ACTION}" in
 
   remove)
     section "Removing SELinux confinement"
-    # Refused before the first store write while the reading is not `none`. The project unlabel leaves a project's local
-    # fcontext rule in place under the gate, and `semodule -r` validates the local rules against the policy it leaves,
-    # so the unload would fail on that rule's type; the run would then report a removal over a loaded module.
+    # Refused before the first store write while the reading is not `none`: the project unlabel leaves a project's rule
+    # in place under the gate, and the unload refuses on any local rule naming a type it removes. The sweep
+    # after the registry walks drops the rules they do not derive, for the same reason.
     [[ "${_sandbox_session_state}" == none ]] \
         || die MSG-H7Q2 "left the policy loaded: an agent session or the toolchain update runs as the sandbox account, or this host's sessions could not be read; let each session end (/exit inside it) and the toolchain update finish, or end them all with 'ai-tools stop', then re-run: sudo $0 remove"
     log "dropping project fcontext rules"
     _locked _labels_drop
-    log "unloading all ai_tools* modules"
-    # Collect all loaded ai_tools modules then remove in one semodule call.
-    mapfile -t loaded < <(semodule -l 2>/dev/null | awk '/^ai_tools/{print $1}')
-    if [[ ${#loaded[@]} -gt 0 ]]; then
-        _locked semodule -r "${loaded[@]}" 2>/dev/null || true
-    fi
+    log "dropping the file-context rules outside this host's registries"
+    _locked _drop_remaining_policy_type_rules
+    _unload_modules
     log "reverting contexts to defaults"
     _restore_account_tree_labels "${NVM_DIR}"
     _restore_home_state_labels

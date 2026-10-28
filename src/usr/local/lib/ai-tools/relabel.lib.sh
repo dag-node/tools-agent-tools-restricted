@@ -251,6 +251,32 @@ _ai_tools_relabel__list_local_rules_under() {
     done < <(semanage fcontext -l -C -n 2>/dev/null || true)
 }
 
+# ai_tools_relabel__list_local_rules_naming_policy_types: print every LOCAL file-context rule whose type is this
+#   policy's (`ai_tools_*`), one per line as `<pattern>TAB<file-type letter>TAB<type>`, the letter being what
+#   `semanage fcontext -d -f` takes. `semodule -r` validates the local rules against the policy it leaves and refuses
+#   while any names a type it removes, so a remove drops this set by type rather than the rules a registry derives.
+#   Rows are parsed from the right, as _ai_tools_relabel__list_local_rules_under does. Root-only, since the store is.
+ai_tools_relabel__list_local_rules_naming_policy_types() {
+    semanage fcontext -l -C -n 2>/dev/null | awk '
+        {
+            split($NF, context, ":")
+            if (context[3] !~ /^ai_tools_/) next
+            if (!match($0, /[[:space:]]+(all files|regular file|directory|character device|block device|socket|symbolic link|named pipe)[[:space:]]+[^[:space:]]+[[:space:]]*$/)) next
+            pattern = substr($0, 1, RSTART - 1)
+            words = substr($0, RSTART)
+            sub(/^[[:space:]]+/, "", words); sub(/[[:space:]]+[^[:space:]]+[[:space:]]*$/, "", words)
+            letter = "p"
+            if (words == "all files") letter = "a"
+            else if (words == "regular file") letter = "f"
+            else if (words == "directory") letter = "d"
+            else if (words == "character device") letter = "c"
+            else if (words == "block device") letter = "b"
+            else if (words == "socket") letter = "s"
+            else if (words == "symbolic link") letter = "l"
+            printf "%s\t%s\t%s\n", pattern, letter, context[3]
+        }' || true
+}
+
 # _ai_tools_relabel__retire_raw_project_rules <dir>: delete the unescaped rules an earlier label wrote for <dir> -- its
 #   project rule `<dir>(/.*)?` and every rule under `<dir>(/.*)?/` -- when each carries the type this library writes
 #   for it (ai_tools_project_t, ai_tools_project_build_t). Those two facts are the rule's provenance: the pattern is
@@ -966,13 +992,18 @@ ai_tools_relabel__label_operator_conf() {
 # ai_tools_relabel__unlabel_operator_conf <dir> : drop the local rule for <dir> and restorecon the subtree back to its
 #   default type (config_home_t). Root-only. Returns 2 where SELinux is inactive, 1 on a restorecon failure, 0
 #   otherwise. The delete is best-effort: a store that does not hold the rule is the state this leaves behind anyway.
+#   The rule is dropped under the escaped encoding ai_tools_relabel__label_operator_conf writes and, where it differs,
+#   under the raw path, which is how a rule registered before paths were escaped is found
+#   (ai_tools_relabel__unlabel_project takes the same two encodings).
 ai_tools_relabel__unlabel_operator_conf() {
-    local dir="${1:-}"
+    local dir="${1:-}" pattern
     ai_tools_relabel__is_operator_conf_valid "${dir}" || return 1
     ai_tools_relabel__is_available            || return 2
     command -v semanage >/dev/null 2>&1   || return 2
-    _ai_tools_relabel__register_fcontext delete a "${AI_TOOLS_RELABEL__OPERATOR_CONF_TYPE}" \
-        "$(_ai_tools_relabel__get_operator_conf_pattern "${dir}")" || true
+    pattern="$(_ai_tools_relabel__get_operator_conf_pattern "${dir}")"
+    _ai_tools_relabel__register_fcontext delete a "${AI_TOOLS_RELABEL__OPERATOR_CONF_TYPE}" "${pattern}" || true
+    [[ "${pattern}" == "${dir}(/.*)?" ]] \
+        || _ai_tools_relabel__register_fcontext delete a "${AI_TOOLS_RELABEL__OPERATOR_CONF_TYPE}" "${dir}(/.*)?" || true
     [[ -d "${dir}" ]] || return 0
     restorecon -FR "${dir}" 2>/dev/null || return 1
 }

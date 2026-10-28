@@ -741,7 +741,10 @@ a config directory the relabel library reports left is named under its own code 
 at a type the agent cannot write is named under a further code with that type, beside the same directory at its own type
 as the control; and the script's text sources the installed `sandbox-exec.lib.sh` ahead of the relabel library, holds
 every other `restorecon` to a root-owned tree, and reads the live-session state in the `remove` action ahead of its
-first policy-store write.
+first policy-store write. Its remove section drives the sweep over the rules the registry walks do not derive
+and the unload over a stubbed `semodule`, each in its fail direction: a rule semanage will not delete is named, a tree
+is walked only under a `none` reading, and a module the store still lists after the transaction is a refusal whatever
+the exit status said, with the step order read from the arm's text.
 
 `claim-notice.sh` drives the live-session reader's one unprivileged caller, the claim's `note_live_session`, read
 out of the checkout's `ai-tools.sh` as text with the reader, the renderers and the pending-label state stubbed: a `live`
@@ -1078,7 +1081,9 @@ widens or breaks the set of paths the rule covers. A label retires those raw rul
 tree, in each direction that would widen or misreport: only a rule whose raw pattern and type this library writes is
 removed, a rule of another type is left and named for review, and the paths the removed rule matched beside the project
 are relabelled — one reached through a `.` read as `/` included — while a host without a raw rule, or an unlabel
-that removed none, leaves them alone.
+that removed none, leaves them alone. The listing a remove sweeps by is driven over a mixed store: every
+`ai_tools`-typed rule is listed with its file-type letter, whatever wrote it, and no rule of another type is; the config
+unlabel drops the raw rule beside the escaped one, as the project unlabel does.
 
 Two further sections cover what happens when a rule does **not** register, with `semanage` stubbed as a shell function
 so no policy store is touched. The first asserts the refusal carries `semanage`'s stderr, collapsed to one line,

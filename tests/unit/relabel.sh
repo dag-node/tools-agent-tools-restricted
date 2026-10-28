@@ -415,6 +415,51 @@ fi
 # So the reason is collected for the caller to log. The stream split is the load-bearing part: the caller parses this
 # library's STDOUT as verdict lines, so semanage's own stdout must never reach it while its stderr must survive.
 # semanage is stubbed as a shell function -- no policy store is touched.
+section "relabel: the local rules naming a type of the policy (unit)"
+if ! declare -F ai_tools_relabel__list_local_rules_naming_policy_types >/dev/null 2>&1; then
+    skip "policy-type rule listing" "${LIB} does not define ai_tools_relabel__list_local_rules_naming_policy_types"
+else
+    # A store mixing rules this library wrote, rules an earlier release wrote, and rules of other types: the unload
+    # refuses on every ai_tools-typed one whatever wrote it, so the listing is that set and nothing else.
+    semanage() {
+        [[ "$*" == "fcontext -l -C -n" ]] || return 1
+        printf '%-50s %-18s %s\n' '/home/op/gone(/.*)?' 'all files' 'system_u:object_r:ai_tools_project_t:s0'
+        printf '%-50s %-18s %s\n' '/home/op/.config/ai-tools(/.*)?' 'all files' 'system_u:object_r:ai_tools_conf_t:s0'
+        printf '%-50s %-18s %s\n' '/opt/ai-tools/\.nvm/versions/node/[^/]+/lib/node_modules/@acme/cli/bin/acme\.exe' 'regular file' 'system_u:object_r:ai_tools_exec_t:s0'
+        printf '%-50s %-18s %s\n' '/home/op/other space(/.*)?/(bin)(/.*)?' 'all files' 'system_u:object_r:ai_tools_project_build_t:s0'
+        printf '%-50s %-18s %s\n' '/home/op/gone(/.*)?/www(/.*)?' 'all files' 'system_u:object_r:httpd_sys_content_t:s0'
+        printf '%-50s %-18s %s\n' '/srv/www(/.*)?' 'directory' 'system_u:object_r:httpd_sys_content_t:s0'
+        printf '%-50s %-18s %s\n' '/var/lib/acme/sock' 'socket' 'system_u:object_r:ai_tools_run_t:s0'
+    }
+    got="$(ai_tools_relabel__list_local_rules_naming_policy_types)"
+    expected="/home/op/gone(/.*)?"$'\t'"a"$'\t'"ai_tools_project_t"$'\n'
+    expected+="/home/op/.config/ai-tools(/.*)?"$'\t'"a"$'\t'"ai_tools_conf_t"$'\n'
+    expected+='/opt/ai-tools/\.nvm/versions/node/[^/]+/lib/node_modules/@acme/cli/bin/acme\.exe'$'\t'"f"$'\t'"ai_tools_exec_t"$'\n'
+    expected+="/home/op/other space(/.*)?/(bin)(/.*)?"$'\t'"a"$'\t'"ai_tools_project_build_t"$'\n'
+    expected+="/var/lib/acme/sock"$'\t'"s"$'\t'"ai_tools_run_t"
+    if [[ "${got}" == "${expected}" ]]; then
+        pass "every local rule naming an ai_tools type is listed with its pattern, file-type letter and type, whatever wrote it, and no rule of another type is"
+    else
+        fail "policy-type rule listing: $(printf '%s' "${got}" | tr '\t\n' '|;')"
+    fi
+    semanage() { return 1; }
+    rc=0; got="$(ai_tools_relabel__list_local_rules_naming_policy_types)" || rc=$?
+    [[ -z "${got}" && ${rc} -eq 0 ]] && pass "a store that cannot be listed yields no rule and no failure" \
+        || fail "unlistable store: rc ${rc}, output '${got}'"
+
+    # The config unlabel drops the rule under both encodings, as the project unlabel does: a host labelled before paths
+    # were escaped holds the raw rule beside the escaped one, and a rule left names a type the module unload removes.
+    CALLS=""; semanage() { CALLS+="$*"$'\n'; return 0; }
+    ai_tools_relabel__is_available() { return 0; }
+    restorecon() { return 0; }
+    ai_tools_relabel__unlabel_operator_conf '/home/some.user/.config/ai-tools'
+    if [[ "${CALLS}" == 'fcontext -d -f a -- /home/some\.user/\.config/ai-tools(/.*)?'$'\n''fcontext -d -f a -- /home/some.user/.config/ai-tools(/.*)?'$'\n' ]]; then
+        pass "the config unlabel drops the escaped rule and the raw one an earlier label wrote"
+    else
+        fail "config unlabel calls: ${CALLS//$'\n'/ | }"
+    fi
+fi
+
 section "relabel: a refused file-context rule reports semanage's reason (unit)"
 if declare -F _ai_tools_relabel__register_fcontext >/dev/null 2>&1 \
         && declare -F _ai_tools_relabel__label_agent_entrypoint >/dev/null 2>&1; then

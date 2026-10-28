@@ -178,6 +178,146 @@ else
     pass "live-session: a directory at its own type is not named as one the agent cannot write (control)"
 fi
 
+# ── remove: the rules outside the registries, and an unload that reads the store back ────────
+# A local rule naming an ai_tools type that no registry walk dropped keeps every module loaded, and the unload's exit
+# status once reported `removed` over three. semanage, semodule and restorecon are recorders; the listing is fixture
+# rows.
+section "install-selinux.sh: remove drops every rule naming a policy type and reports an unload that left a module (unit)"
+remove_text=""
+for name in warn die _restore_account_tree_labels _warn_left_trees _read_pattern_tree _drop_remaining_policy_type_rules _unload_modules; do
+    body="$(extract_function "${INSTALLER}" "${name}")"
+    if [[ -z "${body}" ]]; then
+        fail "install-selinux.sh does not define ${name}() in the form this file reads"
+        finish; exit
+    fi
+    remove_text+="${body}"$'\n'
+done
+mkdir -p "${TESTDIR}/drop/gone" "${TESTDIR}/drop/app.v1"
+# run_drop <state> [nobackstop] : the sweep under that reading over the fixture rows; the recorder holds each semanage
+#   delete and each restorecon, one per line, and both streams of the run are printed. The backstop is a stub refusing
+#   `/` and a home root, or absent under `nobackstop`.
+# shellcheck disable=SC2016  # the inner shell expands these, not this one
+run_drop() {
+    : > "${TESTDIR}/recorder"
+    bash -c '
+        set -euo pipefail
+        eval "$1"
+        C_YEL="" C_RST="" C_GRN="" C_RED="" C_DIM=""
+        ok() { printf "ok %s\n" "$*"; }; log() { printf "+ %s\n" "$*"; }
+        stub_testdir="$2"; _sandbox_session_state="$3"; _left_trees=()
+        SANDBOX_EXEC_LIB=/usr/local/lib/ai-tools/sandbox-exec.lib.sh
+        restorecon() { printf "restorecon %s\n" "$*" >> "${stub_testdir}/recorder"; }
+        semanage() { [[ "$*" == *"/stuck("* ]] && return 1; printf "semanage %s\n" "$*" >> "${stub_testdir}/recorder"; }
+        _locked() { "$@"; }
+        [[ "$4" == nobackstop ]] || ai_tools_safe_paths__match_protected_path() { [[ "$1" == / || "$1" =~ ^/home/[^/]+$ ]]; }
+        ai_tools_relabel__list_local_rules_naming_policy_types() {
+            printf "%s\t%s\t%s\n" \
+                "${stub_testdir}/drop/gone(/.*)?" a ai_tools_project_t \
+                "${stub_testdir}/drop/gone(/.*)?/(bin|obj)(/.*)?" a ai_tools_project_build_t \
+                "/opt/ai-tools/\\.nvm/versions/node/[^/]+/lib/node_modules/@acme/cli/bin/acme\\.exe" f ai_tools_exec_t \
+                "${stub_testdir}/drop/app\\.v1(/.*)?" a ai_tools_project_t \
+                "${stub_testdir}/drop/absent(/.*)?" a ai_tools_project_t \
+                "/(/.*)?" a ai_tools_project_t \
+                "/stuck(/.*)?" a ai_tools_conf_t
+        }
+        trap _warn_left_trees EXIT
+        _drop_remaining_policy_type_rules
+    ' _ "${remove_text}" "${TESTDIR}" "$1" "${2:-}" 2>&1 || true
+}
+drop_out="$(run_drop none)"
+recorded="$(<"${TESTDIR}/recorder")"
+for want in "semanage fcontext -d -f a -- ${TESTDIR}/drop/gone(/.*)?" \
+            "semanage fcontext -d -f a -- ${TESTDIR}/drop/gone(/.*)?/(bin|obj)(/.*)?" \
+            'semanage fcontext -d -f f -- /opt/ai-tools/\.nvm/versions/node/[^/]+/lib/node_modules/@acme/cli/bin/acme\.exe' \
+            "semanage fcontext -d -f a -- ${TESTDIR}/drop/absent(/.*)?"; do
+    grep -qxF -- "${want}" <<<"${recorded}" && pass "none: dropped under its file-type letter: ${want#semanage fcontext -d -f }" \
+        || fail "none: not dropped: ${want} (recorded: ${recorded//$'\n'/ | })"
+done
+if [[ "$(grep -c '^restorecon ' <<<"${recorded}")" -eq 2 ]] \
+        && grep -qxF -- "restorecon -FR ${TESTDIR}/drop/gone" <<<"${recorded}" \
+        && grep -qxF -- "restorecon -FR ${TESTDIR}/drop/app.v1" <<<"${recorded}"; then
+    pass "none: the tree a project-shaped rule covers is restored, its escaping removed, and a build rule, an entrypoint rule, a tree that is gone and a protected path are not walked"
+else
+    fail "none: restorecon calls: $(grep '^restorecon ' <<<"${recorded}" | tr '\n' ';')"
+fi
+# The backstop guards the walk, not the drop: a local rule mapping / to the policy's own type is what the unload refuses
+# on, and removing the mapping relabels nothing.
+grep -qxF -- "semanage fcontext -d -f a -- /(/.*)?" <<<"${recorded}" \
+    && pass "none: a local rule mapping a protected path to the policy's type is dropped (the unload refuses on it) while its tree is not walked" \
+    || fail "none: the local ai_tools_project_t rule on / was not dropped"
+run_drop none nobackstop >/dev/null
+grep -q '^restorecon ' "${TESTDIR}/recorder" && fail "nobackstop: a tree was walked with the backstop absent: $(grep '^restorecon ' "${TESTDIR}/recorder" | tr '\n' ';')" \
+    || pass "none, backstop absent: no tree is walked (the backstop fails closed)"
+assert_msg MSG-N5W8 "${drop_out}" "none: a rule semanage will not delete is named"
+grep -qF -- "semanage fcontext -d -f a -- /stuck" <<<"${drop_out}" \
+    && pass "none: the warning gives the delete to run for the rule left" \
+    || fail "none: the warning does not give the delete: ${drop_out//$'\n'/ | }"
+grep -qF -- "${TESTDIR}/drop/absent" <<<"${drop_out}" && pass "none: each dropped rule is named in the transcript" \
+    || fail "none: the dropped rule is not named: ${drop_out//$'\n'/ | }"
+drop_out="$(run_drop live)"
+recorded="$(<"${TESTDIR}/recorder")"
+grep -q '^restorecon ' <<<"${recorded}" && fail "live: a dropped rule's tree was walked: ${recorded//$'\n'/ | }" \
+    || pass "live: no tree is walked under a live reading"
+assert_msg MSG-U8U4 "${drop_out}" "live: the trees left are named under the closing warning"
+grep -qF -- "sudo restorecon -FR ${TESTDIR}/drop/gone" <<<"${drop_out}" && pass "live: the closing warning names a dropped rule's tree" \
+    || fail "live: the closing warning does not name ${TESTDIR}/drop/gone: ${drop_out//$'\n'/ | }"
+
+# run_unload <loaded...> : _unload_modules over a store listing the given modules; the stub's `-r` prints libsemanage's
+#   progress on stdout, refuses with the content of the refuse file on stderr where one is set, and otherwise clears
+#   the store unless UNLOAD_KEEPS is set, which models an exit 0 that left the modules in place. Prints both streams
+#   and then `exit=<status>`.
+# shellcheck disable=SC2016  # the inner shell expands these, not this one
+run_unload() {
+    printf '%s\n' "$@" > "${TESTDIR}/loaded"; : > "${TESTDIR}/recorder"
+    bash -c '
+        set -euo pipefail
+        eval "$1"
+        C_YEL="" C_RST="" C_GRN="" C_RED="" C_DIM=""
+        ok() { printf "ok %s\n" "$*"; }; log() { printf "+ %s\n" "$*"; }
+        stub_testdir="$2"; _sandbox_session_state=none; _left_trees=()
+        _locked() { "$@"; }
+        semodule() {
+            case "$1" in
+                -l) cat "${stub_testdir}/loaded" ;;
+                -r) shift; printf "semodule -r %s\n" "$*" >> "${stub_testdir}/recorder"
+                    printf "libsemanage.semanage_direct_remove_key: Removing last %s module\n" "$@"
+                    if [[ -s "${stub_testdir}/refuse" ]]; then cat "${stub_testdir}/refuse" >&2; return 1; fi
+                    [[ -n "${UNLOAD_KEEPS:-}" ]] || : > "${stub_testdir}/loaded" ;;
+            esac
+        }
+        _unload_modules
+    ' _ "${remove_text}" "${TESTDIR}" 2>&1; printf 'exit=%s\n' "$?"
+}
+: > "${TESTDIR}/refuse"
+unload_out="$(run_unload ai_tools ai_tools_dotnet ai_tools_tmpmap zebra_t)"
+grep -qx 'exit=0' <<<"${unload_out}" && ! grep -qx 'MSG-R6M2' <<<"${unload_out}" \
+    && pass "an unload the store confirms exits 0 without the code (control)" \
+    || fail "clean unload: ${unload_out//$'\n'/ | }"
+grep -qxF 'semodule -r ai_tools ai_tools_dotnet ai_tools_tmpmap' "${TESTDIR}/recorder" \
+    && pass "every ai_tools* module and no other goes in one semodule transaction" \
+    || fail "unload call: $(tr '\n' ';' <"${TESTDIR}/recorder")"
+grep -q 'Removing last' <<<"${unload_out}" && fail "libsemanage's progress lines reach the transcript" \
+    || pass "libsemanage's progress on stdout is dropped"
+printf '%s\n' 'libsepol.context_from_record: type ai_tools_conf_t is not defined (No such file or directory).' \
+    'libsemanage.validate_handler: invalid context system_u:object_r:ai_tools_conf_t:s0 specified for /home/op/.config/ai-tools(/.*)? [all files] (Invalid argument).' \
+    'semodule:  Failed!' > "${TESTDIR}/refuse"
+unload_out="$(run_unload ai_tools ai_tools_dotnet ai_tools_tmpmap)"
+assert_msg MSG-R6M2 "${unload_out}" "a refused unload dies under its code"
+grep -qx 'exit=1' <<<"${unload_out}" && pass "a refused unload exits 1" || fail "refused unload exit: ${unload_out//$'\n'/ | }"
+grep -qF 'left loaded: ai_tools ai_tools_dotnet ai_tools_tmpmap' <<<"${unload_out}" && pass "the refusal names each module left loaded" \
+    || fail "the refusal does not name the modules: ${unload_out//$'\n'/ | }"
+grep -qF 'invalid context system_u:object_r:ai_tools_conf_t:s0 specified for /home/op/.config/ai-tools(/.*)?' <<<"${unload_out}" \
+    && pass "the refusal carries semanage's reason, the rule it validated against" \
+    || fail "the refusal does not carry the reason: ${unload_out//$'\n'/ | }"
+grep -q 'removed' <<<"${unload_out}" && fail "a refused unload prints removed" || pass "a refused unload does not print removed"
+: > "${TESTDIR}/refuse"
+unload_out="$(UNLOAD_KEEPS=1 run_unload ai_tools)"
+assert_msg MSG-R6M2 "${unload_out}" "an exit 0 that left a module loaded is read from the store, not the status"
+unload_out="$(run_unload zebra_t)"
+grep -qx 'exit=0' <<<"${unload_out}" && [[ ! -s "${TESTDIR}/recorder" ]] && grep -qF 'no ai_tools module is loaded' <<<"${unload_out}" \
+    && pass "a store with no ai_tools module makes no semodule -r call and says so" \
+    || fail "empty store: ${unload_out//$'\n'/ | } (calls: $(tr '\n' ';' <"${TESTDIR}/recorder"))"
+
 # ── the script's text ─────────────────────────────────────────────────────────────────────────
 section "the installed library is read first, and no other walk crosses an account-writable tree"
 
@@ -238,5 +378,29 @@ fi
 grep -qF 'die MSG-H7Q2' "${INSTALLER}" \
     && pass "the remove refusal carries its code" \
     || fail "the remove refusal does not carry MSG-H7Q2"
+
+# remove_step_order <file>: print the remove action's steps in the order its arm runs them -- the registry drop,
+# the sweep over the rules outside the registries, the unload, and the closing `removed` -- one token per line.
+remove_step_order() {
+    awk '
+        /^  remove\)/ { inside = 1; next }
+        inside && /^    ;;/ { exit }
+        inside && /_labels_drop/ { print "labels_drop" }
+        inside && /_drop_remaining_policy_type_rules/ { print "sweep" }
+        inside && /_unload_modules/ { print "unload" }
+        inside && /ok "removed"/ { print "removed" }
+    ' "$1" | tr '\n' ' '
+}
+printf '%s\n' '  remove)' '    _unload_modules' '    _locked _labels_drop' '    ok "removed"' '    ;;' > "${TESTDIR}/remove-order-control.sh"
+[[ "$(remove_step_order "${TESTDIR}/remove-order-control.sh")" == "unload labels_drop removed " ]] \
+    && pass "the reader prints the remove's steps in the order the arm runs them (control)" \
+    || fail "control: the step reader printed '$(remove_step_order "${TESTDIR}/remove-order-control.sh")'"
+[[ "$(remove_step_order "${INSTALLER}")" == "labels_drop sweep unload removed " ]] \
+    && pass "remove drops the registry rules, then every rule naming a policy type, unloads, and reports removed last" \
+    || fail "remove's step order: '$(remove_step_order "${INSTALLER}")'"
+# The shape that reported `removed` over a loaded module: semanage's stderr nulled and the status dropped on one line.
+grep -nE 'semodule -r .*2>/dev/null.*\|\| true' "${INSTALLER}" | grep -q . \
+    && fail "a semodule -r still nulls its stderr and drops its status: $(grep -nE 'semodule -r .*2>/dev/null.*\|\| true' "${INSTALLER}" | tr '\n' ';')" \
+    || pass "no semodule -r in the installer nulls its stderr and drops its status"
 
 finish

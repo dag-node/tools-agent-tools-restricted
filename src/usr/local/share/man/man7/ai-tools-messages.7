@@ -2000,6 +2000,10 @@ no agent path took a label this run \-\- see the per\-path reason above
 WARNING.
 ENFORCING MISMATCH \-\- domain(s) are permissive but .te expects enforcing:
 .TP
+.B MSG-N5W8
+WARNING.
+could not drop the local file\-context rule ${pattern} (${type}) \-\- the module unload refuses while it stands; remove it with: sudo semanage fcontext \-d \-f ${letter} \-\- $(printf '%q' "${pattern}")
+.TP
 .B MSG-N8Q3
 WARNING.
 integration ${integration} declares a layout module name that is not ai_tools_<name>: ${module}
@@ -2019,6 +2023,10 @@ no agent resolved from the manifests, so no entrypoint was labelled
 .B MSG-R2N4
 WARNING.
 stale manifest for ${subject}: its installed entrypoint is
+.TP
+.B MSG-R6M2
+ERROR.
+left loaded: ${left[*]} \-\- ${reason//$'\en'/; }; review the local rules with 'sudo semanage fcontext \-l \-C | grep ai_tools', then re\-run: sudo $0 remove
 .TP
 .B MSG-R9B9
 WARNING.
