@@ -31,7 +31,8 @@ jobs:
     # Each job's bound is about twice its slowest duration, rounded up to a multiple of 5 minutes, over the push run
     # of develop at b5d3c859 and the pull request run that moved CI to ubuntu-26.04 (2026-10-13): shellcheck 158 s,
     # typesafe-client 8 s, assets-conformance 15 s, dev-tools 27 s, selftest-matrix 6 s, and an rpm-selftest leg 801 s
-    # (el9; el10 730 s, fc44 696 s). The release job keeps its own bound.
+    # (el9; el10 730 s, fc44 696 s). An rpm-selftest leg outgrew its 30 minutes on 2026-10-28 and is bounded at 60.
+    # The release job keeps its own bound.
     timeout-minutes: 10
     steps:
       # A job that does not run a git command against the remote checks out without storing the token in .git/config.
@@ -237,7 +238,7 @@ jobs:
     # drop-in in the step below answers that.
     runs-on: ubuntu-26.04
     # Per leg.
-    timeout-minutes: 30
+    timeout-minutes: 60
     strategy:
       fail-fast: false
       matrix:
