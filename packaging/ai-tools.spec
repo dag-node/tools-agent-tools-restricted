@@ -721,13 +721,14 @@ end
 # starts on a transaction that completes; ai-tools-integration-nodejs's %%posttrans starts the watcher where that
 # package is in the transaction. A path another package owns has conflicted before this runs, so there is no rpm query
 # here.
+_atr_recovery='this refusal does not start the relabel watcher or the relabel run the transaction stopped -- once the transaction ends, check the watcher with systemctl is-active ai-tools-relabel.path, and where it should run, start both: systemctl start ai-tools-relabel.path ai-tools-relabel.service'
 for _atr_path in /usr/local/bin/atr /usr/sbin/atr \
           /usr/local/share/man/man1/atr.1 /usr/local/share/man/man1/atr.1.gz \
           /usr/local/share/man/man1/atr.1.bz2 /usr/local/share/man/man1/atr.1.xz /usr/local/share/man/man1/atr.1.zst \
           /usr/local/share/man/man8/atr.8 /usr/local/share/man/man8/atr.8.gz \
           /usr/local/share/man/man8/atr.8.bz2 /usr/local/share/man/man8/atr.8.xz /usr/local/share/man/man8/atr.8.zst; do
     [ -e "${_atr_path}" ] || [ -L "${_atr_path}" ] || continue
-    _atr_is_ours=no
+    _atr_is_ours=no _atr_tool="" _atr_text=""
     case "${_atr_path}" in
         /usr/local/bin/atr)
             if [ -f "${_atr_path}" ] && [ ! -L "${_atr_path}" ]; then
@@ -739,23 +740,32 @@ for _atr_path in /usr/local/bin/atr /usr/sbin/atr \
             fi ;;
         */man1/atr.1*|*/man8/atr.8*)
             case "${_atr_path}" in */man1/*) _atr_so_request='.so man1/ai-tools.1' ;; *) _atr_so_request='.so man8/ai-tools-admin.8' ;; esac
-            # A stub is one .so line: a page past install.sh's ATR_STUB_MAX_BYTES is not one, compressed or as the text
-            # it decompresses to, and a gzip page is tested whole first, since a stream that fails its CRC or ends early
-            # still decompresses to its prefix.
+            # A stub is its .so line and roff comments alone, in plain text or in one of the four compressions man
+            # reads, which the magic bytes name. A page past install.sh's ATR_STUB_MAX_BYTES is not one, on disk or
+            # as the text it decompresses to, and a compressed page is tested whole first, since a stream that fails
+            # its check or ends early still decompresses to its prefix. A page whose tool is not on PATH is not read.
             if [ -f "${_atr_path}" ] && [ ! -L "${_atr_path}" ] && [ "$(wc -c < "${_atr_path}")" -le 4096 ]; then
-                if [ "$(head -c 2 -- "${_atr_path}" | od -An -tx1 | tr -d ' \n')" = 1f8b ]; then
-                    if gzip -t -- "${_atr_path}" 2>/dev/null \
-                       && [ "$(zcat -- "${_atr_path}" 2>/dev/null | head -c 4097 | wc -c)" -le 4096 ] \
-                       && [ "$(zcat -- "${_atr_path}" 2>/dev/null | sed -n '/^\.\\"/d;p;q')" = "${_atr_so_request}" ]; then
-                        _atr_is_ours=yes
-                    fi
-                elif [ "$(sed -n '/^\.\\"/d;p;q' "${_atr_path}")" = "${_atr_so_request}" ]; then
-                    _atr_is_ours=yes
+                case "$(head -c 6 -- "${_atr_path}" | od -An -tx1 | tr -d ' \n')" in
+                    1f8b*) _atr_tool=gzip ;; 425a68*) _atr_tool=bzip2 ;; fd377a585a00) _atr_tool=xz ;;
+                    28b52ffd*) _atr_tool=zstd ;; *) _atr_tool="" ;;
+                esac
+                if [ -z "${_atr_tool}" ]; then
+                    _atr_text="$(sed '/^\.\\"/d' "${_atr_path}")"
+                elif ! command -v "${_atr_tool}" >/dev/null 2>&1; then
+                    _atr_is_ours=unreadable
+                elif "${_atr_tool}" -t -- "${_atr_path}" >/dev/null 2>&1 \
+                     && [ "$("${_atr_tool}" -dc -- "${_atr_path}" 2>/dev/null | head -c 4097 | wc -c)" -le 4096 ]; then
+                    _atr_text="$("${_atr_tool}" -dc -- "${_atr_path}" 2>/dev/null | sed '/^\.\\"/d')"
                 fi
+                [ "${_atr_text}" = "${_atr_so_request}" ] && _atr_is_ours=yes
             fi ;;
     esac
+    if [ "${_atr_is_ours}" = unreadable ]; then
+        printf 'MSG-V2H5\nai-tools-base: the name %s is a page in %s compression and %s is not on PATH, so the install does not decide it -- install %s, or move the page aside, and re-run the transaction\nai-tools-base: %s\n' "${_atr_path}" "${_atr_tool}" "${_atr_tool}" "${_atr_tool}" "${_atr_recovery}" >&2
+        exit 1
+    fi
     if [ "${_atr_is_ours}" = no ]; then
-        printf 'MSG-W5Z8\nai-tools-base: the name %s holds an entry that is not this project'"'"'s, so the install does not replace it -- move the entry aside and re-run the transaction\nai-tools-base: this refusal does not start the relabel watcher or the relabel run the transaction stopped -- once the transaction ends, check the watcher with systemctl is-active ai-tools-relabel.path, and where it should run, start both: systemctl start ai-tools-relabel.path ai-tools-relabel.service\n' "${_atr_path}" >&2
+        printf 'MSG-W5Z8\nai-tools-base: the name %s holds an entry that is not this project'"'"'s, so the install does not replace it -- move the entry aside and re-run the transaction\nai-tools-base: %s\n' "${_atr_path}" "${_atr_recovery}" >&2
         exit 1
     fi
 done

@@ -2,10 +2,12 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # tests/unit/spec-atr-names.sh
 # Hermetic check of the ai-tools-base %pre in packaging/ai-tools.spec: it reads each name the short command atr takes
-# and exits 1 at the first one in none of this project's forms, ahead of the account creation, a gzip stub that fails
-# `gzip -t`, a page past 4096 bytes and a gzip page whose text is past 4096 bytes among them. The refusal does not start
-# the relabel watcher or the relabel run %pretrans stopped, since rpm may still place the packages ordered after base,
-# and names the check of the watcher and the start of both to run once the transaction ends.
+# and exits 1 at the first one in none of this project's forms, ahead of the account creation, a page adding lines
+# after the stub's request, a compressed stub that fails its tool's `-t`, a page past 4096 bytes and a gzip page
+# whose text is past 4096 bytes among them. The stub in gzip, bzip2, xz and zstd passes, and one read with its tool
+# absent from PATH exits 1 under MSG-V2H5. The refusal does not start the relabel watcher or the relabel run %pretrans
+# stopped, since rpm may still place the packages ordered after base, and names the check of the watcher and the start
+# of both to run once the transaction ends.
 #
 # A scriptlet runs inside an rpm transaction as root, so its body is read out of the spec as RPM parses it, its host
 # paths rewritten to a fixture tree, and run under /bin/sh with getent, groupadd, useradd and systemctl defined as shell
@@ -113,10 +115,11 @@ printf '%s\n%s\n' "${stubs}" "${body}" > "${TESTDIR}/run.sh"
 printf '  rewritten %%pre under test: %s\n' "${TESTDIR}/run.sh"
 
 # The scriptlet's tools reach it through a PATH of links, so a case can leave one out.
-mkdir -p "${TESTDIR}/bin-full" "${TESTDIR}/bin-nozcat"
-for tool in sed readlink zcat gzip cat head od tr wc; do
-    ln -s "$(type -P "${tool}")" "${TESTDIR}/bin-full/${tool}"
-    [[ "${tool}" == zcat || "${tool}" == gzip ]] || ln -s "$(type -P "${tool}")" "${TESTDIR}/bin-nozcat/${tool}"
+mkdir -p "${TESTDIR}/bin-full" "${TESTDIR}/bin-nocompressors"
+for tool in sed readlink cat head od tr wc gzip bzip2 xz zstd; do
+    tool_path="$(type -P "${tool}")" || continue
+    ln -s "${tool_path}" "${TESTDIR}/bin-full/${tool}"
+    case "${tool}" in gzip|bzip2|xz|zstd) ;; *) ln -s "${tool_path}" "${TESTDIR}/bin-nocompressors/${tool}" ;; esac
 done
 
 # reset_names: remove every name the scriptlet reads.
@@ -175,7 +178,12 @@ create_foreign_entry() {
         file-at-link) : > "${LINK}"; printf '%s' "${LINK}" ;;
         gz-without-so) printf '.TH ATR 1\n.SH NAME\natr \\- another tool\n' | gzip -c > "${MAN1}/atr.1.gz"; printf '%s' "${MAN1}/atr.1.gz" ;;
         wrong-section) cp "${PAGE1_SRC}" "${MAN8}/atr.8"; printf '%s' "${MAN8}/atr.8" ;;
-        xz) xz -c "${PAGE8_SRC}" > "${MAN8}/atr.8.xz"; printf '%s' "${MAN8}/atr.8.xz" ;;
+        xz-without-so) printf '.TH ATR 8\n' | xz -c > "${MAN8}/atr.8.xz"; printf '%s' "${MAN8}/atr.8.xz" ;;
+        added-lines) { cat "${PAGE1_SRC}"; printf '.SH LOCAL NOTES\nadded on this host\n'; } > "${MAN1}/atr.1"
+                     printf '%s' "${MAN1}/atr.1" ;;
+        gz-added-lines) { cat "${PAGE1_SRC}"; printf '.SH LOCAL NOTES\nadded on this host\n'; } | gzip -c \
+                            > "${MAN1}/atr.1.gz"
+                        printf '%s' "${MAN1}/atr.1.gz" ;;
         gz-crc) { head -c "$(( WHOLE_SIZE - 8 ))" "${WHOLE_GZ}"; printf '\0\0\0\0'; tail -c 4 "${WHOLE_GZ}"; } \
                     > "${MAN1}/atr.1.gz"; printf '%s' "${MAN1}/atr.1.gz" ;;
         gz-cut) head -c "$(( WHOLE_SIZE - 8 ))" "${WHOLE_GZ}" > "${MAN1}/atr.1.gz"; printf '%s' "${MAN1}/atr.1.gz" ;;
@@ -204,11 +212,14 @@ declare -A FOREIGN_WHAT=(
     [unmarked]="an unmarked regular file at the wrapper name" [directory]="a directory at the wrapper name"
     [link-elsewhere]="a symlink elsewhere at the link name" [file-at-link]="a regular file at the link name"
     [gz-without-so]="a gzip page without the .so line" [wrong-section]="a man8 page pointing at the man1 page"
-    [xz]="an xz page, read as bytes" [gz-crc]="a gzip stub whose CRC does not match"
+    [xz-without-so]="an xz page without the .so line"
+    [added-lines]="the man1 stub with lines added after the .so request"
+    [gz-added-lines]="the same page, gzip-compressed" [gz-crc]="a gzip stub whose CRC does not match"
     [gz-cut]="a gzip stub cut before its trailer" [oversized]="a page opening with the stub's .so line, past 4096 bytes"
     [gz-expands]="a gzip page under 4096 bytes whose text opens with the .so line and is past 4096 bytes"
 )
-for kind in unmarked directory link-elsewhere file-at-link gz-without-so wrong-section xz gz-crc gz-cut oversized \
+for kind in unmarked directory link-elsewhere file-at-link gz-without-so wrong-section xz-without-so added-lines \
+        gz-added-lines gz-crc gz-cut oversized \
         gz-expands; do
     what="${FOREIGN_WHAT[${kind}]}"
     path="$(create_foreign_entry "${kind}")"
@@ -227,23 +238,42 @@ for kind in unmarked directory link-elsewhere file-at-link gz-without-so wrong-s
     fi
 done
 
-# ── The tools the %pre reads with are ordered ahead of it ────────────────────────────────────────
-# The scriptlet reads a page through zcat and sed before base's files are placed, so without zcat this project's own
-# gzip stub is refused; the Requires(pre) lines are what keep that state off a package host.
-reset_names
-gzip -c "${PAGE1_SRC}" > "${MAN1}/atr.1.gz"
-run_base_pre_scriptlet "${TESTDIR}/bin-nozcat"
-if (( status == 1 )) && grep -qF "the name ${MAN1}/atr.1.gz holds an entry" <<< "${err}"; then
-    pass "with no zcat on PATH the scriptlet refuses this project's own gzip stub"
-else
-    fail "no zcat: exit ${status}, stderr [${err}]"
-fi
+# ── Each compression man reads is read, and a page whose tool is absent is not decided ──────────
+# The stub recompressed in another format is this project's, and the same page read with no decompressor on PATH is
+# refused under the unreadable code, naming the tool, beside a plain stub as the control. The Requires(pre) lines keep
+# gzip on a package host; the other tools are named when a page needs one. A format whose tool this host lacks is
+# skipped.
+for tool in gzip:gz bzip2:bz2 xz:xz zstd:zst; do
+    if ! command -v "${tool%%:*}" >/dev/null 2>&1; then
+        skip "the ${tool%%:*} stub" "${tool%%:*} is not installed on this host"
+        continue
+    fi
+    reset_names
+    "${tool%%:*}" -c < "${PAGE8_SRC}" > "${MAN8}/atr.8.${tool#*:}"
+    run_base_pre_scriptlet
+    (( status == 0 )) && [[ -z "${err}" ]] \
+        && pass "the man8 stub, ${tool%%:*}-compressed, passes" \
+        || fail "the ${tool%%:*} stub: exit ${status}, stderr [${err}]"
+    run_base_pre_scriptlet "${TESTDIR}/bin-nocompressors"
+    assert_msg MSG-V2H5 "${err}" "the ${tool%%:*} stub with no ${tool%%:*} on PATH: refused as unreadable"
+    if (( status == 1 )) && grep -qF "the name ${MAN8}/atr.8.${tool#*:} is a page in ${tool%%:*} compression and ${tool%%:*} is not on PATH" <<< "${err}" \
+            && grep -qxF "${RECOVERY}" <<< "${err}" && ! account_created; then
+        pass "the ${tool%%:*} stub with no ${tool%%:*} on PATH: exit 1 naming the tool, ahead of the account creation"
+    else
+        fail "the ${tool%%:*} stub with no ${tool%%:*}: exit ${status}, stderr [${err}]"
+    fi
+    whole_size="$(stat -c '%s' "${MAN8}/atr.8.${tool#*:}")"
+    head -c "$(( whole_size - 4 ))" "${MAN8}/atr.8.${tool#*:}" > "${TESTDIR}/atr-cut"
+    mv "${TESTDIR}/atr-cut" "${MAN8}/atr.8.${tool#*:}"
+    run_base_pre_scriptlet
+    assert_msg MSG-W5Z8 "${err}" "the ${tool%%:*} stub cut before its end: refused as another's"
+done
 reset_names
 cp "${PAGE1_SRC}" "${MAN1}/atr.1"
-run_base_pre_scriptlet "${TESTDIR}/bin-nozcat"
+run_base_pre_scriptlet "${TESTDIR}/bin-nocompressors"
 (( status == 0 )) && [[ -z "${err}" ]] \
-    && pass "with no zcat on PATH a plain stub passes, read without a decompressor" \
-    || fail "a plain stub with no zcat: exit ${status}, stderr [${err}]"
+    && pass "with no decompressor on PATH a plain stub passes, read without one" \
+    || fail "a plain stub with no decompressor: exit ${status}, stderr [${err}]"
 preamble="$(awk '/^%package -n ai-tools-base$/{open=1; next} /^%(package|description)/{open=0} open' "${SPEC}")"
 missing=""
 for package in coreutils gzip sed; do

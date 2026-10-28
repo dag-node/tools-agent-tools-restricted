@@ -20,12 +20,14 @@
 # and do_install's text is read for the home, then bin, brought to their rows ahead of the first file written
 # under them. The sysusers fragment the layout declares a payload file of base is read the same way: do_install places
 # it from packaging/ai-tools.sysusers and do_uninstall removes it. The names the short command atr takes are decided
-# by read_atr_entry_state, driven over a fixture tree with rpm a shell function and under a PATH without gzip,
-# where a gzip page reads as unreadable and a plain one as this project's; a gzip stub whose CRC does not match, one cut
-# before its trailer, a page past ATR_STUB_MAX_BYTES, and a gzip page under it whose text is past it each read
-# as another's, with the corrupt streams' decompressed .so line read first as the control,
-# and require_atr_entries_replaceable and remove_recognized_atr_entries over the same tree; do_install's text is read
-# for the check ahead of the first write, and do_uninstall's for a removal through remove_recognized_atr_entries alone.
+# by read_atr_entry_state, driven over a fixture tree with rpm a shell function and under a PATH without a decompressor,
+# where a compressed page reads as unreadable, naming its tool, and a plain one as this project's; the stub in gzip,
+# bzip2, xz and zstd reads as this project's, and a page adding lines after the stub's request, a gzip stub whose CRC
+# does not match, a stub in each compression cut before its end, a page past ATR_STUB_MAX_BYTES, and a gzip page
+# under it whose text is past it each read as another's, with the corrupt gzip streams' decompressed .so line read first
+# as the control, and require_atr_entries_replaceable and remove_recognized_atr_entries over the same tree; do_install's
+# text is read for the check ahead of the first write, and do_uninstall's for a removal
+# through remove_recognized_atr_entries alone.
 #
 # No install and no command of install.sh's but the extracted functions. Skips outside a checkout.
 
@@ -513,7 +515,7 @@ removes_sysusers "${INSTALLER}" && pass "do_uninstall removes ${sysusers_path}" 
 # which the inner shell sets to the fixture's names; install.sh's own declaration is read as text for the four names.
 section "install.sh: the names atr takes are replaced and removed only while they are this project's (unit)"
 atr_text=""
-for name in die warn has_atr_wrapper_marker is_atr_wrapper_link read_atr_stub_page_status read_atr_entry_state require_atr_entries_replaceable \
+for name in die warn has_atr_wrapper_marker is_atr_wrapper_link read_atr_page_compressor read_atr_stub_page_status read_atr_entry_state require_atr_entries_replaceable \
         remove_recognized_atr_entries; do
     body="$(extract_function "${INSTALLER}" "${name}")"
     if [[ -z "${body}" ]]; then
@@ -525,27 +527,27 @@ done
 if [[ -n "${atr_text}" ]]; then
     FX="${TESTDIR}/atr-root"
     mkdir -p "${FX}/usr/local/bin" "${FX}/usr/sbin" "${FX}/man/man1" "${FX}/man/man8" "${TESTDIR}/norpm-bin" \
-        "${TESTDIR}/nogzip-bin"
-    for tool in bash stat sed head od tr zcat gzip readlink sort rm; do
-        ln -s "$(type -P "${tool}")" "${TESTDIR}/norpm-bin/${tool}"
-        [[ "${tool}" == zcat || "${tool}" == gzip ]] || ln -s "$(type -P "${tool}")" "${TESTDIR}/nogzip-bin/${tool}"
+        "${TESTDIR}/nocompressors-bin"
+    for tool in bash stat sed head od tr wc gzip bzip2 xz zstd readlink sort rm; do
+        tool_path="$(type -P "${tool}")" || continue
+        ln -s "${tool_path}" "${TESTDIR}/norpm-bin/${tool}"
+        case "${tool}" in gzip|bzip2|xz|zstd) ;; *) ln -s "${tool_path}" "${TESTDIR}/nocompressors-bin/${tool}" ;; esac
     done
     # atr_run <rpm-answer> <command>... : the extracted functions in a fresh shell under install.sh's strict mode
     #   and IFS, rpm answering per <rpm-answer> (`unowned`, `base`, `other`, `error`, `none` for a PATH without it,
-    #   or `nogzip` for a PATH without rpm, gzip and zcat), ATR_NAMES set to the fixture's names and ATR_STUB_MAX_BYTES
-    #   to install.sh's; prints the command's
-    #   output and `status=<n>` last.
+    #   or `nocompressors` for a PATH without rpm, gzip, bzip2, xz and zstd), ATR_NAMES set to the fixture's names
+    #   and ATR_STUB_MAX_BYTES to install.sh's; prints the command's output and `status=<n>` last.
     # shellcheck disable=SC2016  # the inner shell expands these, not this one
     atr_run() {
         local path_list=/usr/bin:/bin
         [[ "$1" == none ]] && path_list="${TESTDIR}/norpm-bin"
-        [[ "$1" == nogzip ]] && path_list="${TESTDIR}/nogzip-bin"
+        [[ "$1" == nocompressors ]] && path_list="${TESTDIR}/nocompressors-bin"
         env -i PATH="${path_list}" "${BASH}" -c '
             set -euo pipefail
             C_RED="" C_RST="" C_YEL=""
             eval "$1"
             stub_rpm="$2" fx="$3" ATR_STUB_MAX_BYTES="$4"; shift 4
-            if [[ "${stub_rpm}" != none && "${stub_rpm}" != nogzip ]]; then
+            if [[ "${stub_rpm}" != none && "${stub_rpm}" != nocompressors ]]; then
                 rpm() {
                     case "${stub_rpm}" in
                         unowned) printf "file %s is not owned by any package\n" "${@: -1}"; return 1 ;;
@@ -608,11 +610,12 @@ if [[ -n "${atr_text}" ]]; then
     gzip -c "${PAGE1}" > "${PAGE1}.gz"
     state_is ours "the shipped man1 stub, gzip-compressed" unowned "${PAGE1}.gz" page
     # With no gzip on PATH a plain stub is read without a decompressor, and a gzip one is unreadable, not another's.
-    state_is ours "the shipped man1 stub, read with no gzip on PATH" nogzip "${PAGE1}" page
-    state_is "unreadable a gzip page with no gzip" "the gzip man1 stub, read with no gzip on PATH" nogzip \
+    state_is ours "the shipped man1 stub, read with no gzip on PATH" nocompressors "${PAGE1}" page
+    state_is "unreadable a page in gzip compression with no gzip on PATH" "the gzip man1 stub, read with no gzip on PATH" \
+        nocompressors \
         "${PAGE1}.gz" page
     printf '\037\213junk' > "${PAGE8}.gz"
-    state_is "foreign a gzip page that fails gzip -t" "gzip magic and no stream, read with gzip present" unowned \
+    state_is "foreign a page in gzip compression that fails gzip -t" "gzip magic and no stream, read with gzip present" unowned \
         "${PAGE8}.gz" page
     # A stream that fails its CRC, and one cut after its last block, each still decompress to the stub's .so line, which
     # is read first as the control that the integrity test and not the text decides them.
@@ -628,10 +631,10 @@ if [[ -n "${atr_text}" ]]; then
         [[ "${prefix}" == '.so man1/ai-tools.1' ]] \
             || fail "control: ${corrupt#*:} decompresses to '${prefix}', not the stub's .so line"
     done
-    state_is "foreign a gzip page that fails gzip -t" "a gzip stub with a CRC that does not match" unowned \
+    state_is "foreign a page in gzip compression that fails gzip -t" "a gzip stub with a CRC that does not match" unowned \
         "${PAGE1}.gz" page
     cp "${PAGE8}.gz" "${PAGE1}.gz"
-    state_is "foreign a gzip page that fails gzip -t" "a gzip stub cut before its trailer" unowned "${PAGE1}.gz" page
+    state_is "foreign a page in gzip compression that fails gzip -t" "a gzip stub cut before its trailer" unowned "${PAGE1}.gz" page
     { cat "${ROOT}/src/usr/local/share/man/man1/atr.1"; head -c "${stub_max_bytes}" /dev/zero | tr '\0' 'x'
       printf '\n'; } > "${PAGE1}"
     state_is "foreign a page larger than the atr stub" "a page opening with the stub's .so line, past the bound" \
@@ -648,17 +651,41 @@ if [[ -n "${atr_text}" ]]; then
     cp "${ROOT}/src/usr/local/share/man/man8/atr.8" "${PAGE8}"
     state_is ours "the shipped man8 stub" unowned "${PAGE8}" page
     cp "${ROOT}/src/usr/local/share/man/man1/atr.1" "${PAGE8}"
-    state_is "foreign a page without" "a man8 page pointing at the man1 page" unowned "${PAGE8}" page
+    state_is "foreign a page other than the atr .so stub" "a man8 page pointing at the man1 page" unowned "${PAGE8}" page
     printf '.TH ATR 1\n.SH NAME\natr \\- another tool\n' | gzip -c > "${PAGE1}.gz"
-    state_is "foreign a page without" "a gzip page without the .so line" unowned "${PAGE1}.gz" page
-    xz -c "${ROOT}/src/usr/local/share/man/man8/atr.8" > "${PAGE8}.xz"
-    state_is "foreign a page without" "an xz page, which the read does not decompress" unowned "${PAGE8}.xz" page
+    state_is "foreign a page other than the atr .so stub" "a gzip page without the .so line" unowned "${PAGE1}.gz" page
+    # A page that opens with the stub's request and adds lines after it is another's page built on this one.
+    { cat "${ROOT}/src/usr/local/share/man/man1/atr.1"; printf '.SH LOCAL NOTES\nadded on this host\n'; } > "${TESTDIR}/atr-added"
+    cp "${TESTDIR}/atr-added" "${PAGE1}"
+    state_is "foreign a page other than the atr .so stub" "the man1 stub with lines added after the .so request" \
+        unowned "${PAGE1}" page
+    gzip -c "${TESTDIR}/atr-added" > "${PAGE1}.gz"
+    state_is "foreign a page other than the atr .so stub" "the same page, gzip-compressed" unowned "${PAGE1}.gz" page
+    cp "${ROOT}/src/usr/local/share/man/man1/atr.1" "${PAGE1}"
+    # Each compression man reads is read: the stub recompressed is this project's, and a page whose tool is absent is
+    # unreadable, naming the tool. A format whose tool this host lacks is skipped.
+    for tool in bzip2:bz2 xz:xz zstd:zst; do
+        if ! command -v "${tool%%:*}" >/dev/null 2>&1; then
+            skip "the ${tool%%:*} cases" "${tool%%:*} is not installed on this host"
+            continue
+        fi
+        "${tool%%:*}" -c < "${ROOT}/src/usr/local/share/man/man8/atr.8" > "${PAGE8}.${tool#*:}"
+        state_is ours "the shipped man8 stub, ${tool%%:*}-compressed" unowned "${PAGE8}.${tool#*:}" page
+        state_is "unreadable a page in ${tool%%:*} compression with no ${tool%%:*} on PATH" \
+            "the ${tool%%:*} man8 stub, read with no ${tool%%:*} on PATH" nocompressors "${PAGE8}.${tool#*:}" page
+        whole_size="$(stat -c '%s' "${PAGE8}.${tool#*:}")"
+        head -c "$(( whole_size - 4 ))" "${PAGE8}.${tool#*:}" > "${TESTDIR}/atr-cut" && mv "${TESTDIR}/atr-cut" "${PAGE8}.${tool#*:}"
+        state_is "foreign a page in ${tool%%:*} compression that fails ${tool%%:*} -t" \
+            "the ${tool%%:*} man8 stub cut before its end" unowned "${PAGE8}.${tool#*:}" page
+        rm -f "${PAGE8}.${tool#*:}"
+    done
+    printf '.TH ATR 8\n' | xz -c > "${PAGE8}.xz"
     rm -f "${PAGE8}"
 
     # The fixture now holds: the man1 stub (ours), a foreign atr.1.gz, a foreign atr.8.xz, no wrapper and no link.
     out="$(atr_run unowned require_atr_entries_replaceable)" || true
     assert_msg MSG-W5Z8 "${out}" "a foreign entry refuses the install"
-    if [[ "${out}" == *"the name ${PAGE1}.gz holds a page without the atr .so line"* && "${out}" != *status=0 ]]; then
+    if [[ "${out}" == *"the name ${PAGE1}.gz holds a page other than the atr .so stub"* && "${out}" != *status=0 ]]; then
         pass "the refusal names the first foreign entry and what was read, and exits non-zero"
     else
         fail "the refusal: ${out//$'\n'/ | }"
@@ -679,15 +706,15 @@ if [[ -n "${atr_text}" ]]; then
 
     # A page the read cannot decide refuses the install under its own code, and the uninstall leaves it.
     rm -f "${PAGE8}.xz"; gzip -c "${ROOT}/src/usr/local/share/man/man1/atr.1" > "${PAGE1}.gz"
-    out="$(atr_run nogzip require_atr_entries_replaceable)" || true
+    out="$(atr_run nocompressors require_atr_entries_replaceable)" || true
     assert_msg MSG-V2H5 "${out}" "an unreadable page refuses the install"
-    if [[ "${out}" == *"the name ${PAGE1}.gz could not be read (a gzip page with no gzip on PATH)"* \
+    if [[ "${out}" == *"the name ${PAGE1}.gz could not be read (a page in gzip compression with no gzip on PATH)"* \
           && "${out}" != *MSG-W5Z8* && "${out}" != *status=0 ]]; then
         pass "the refusal names the page and why it could not be read, apart from a foreign entry"
     else
         fail "the unreadable refusal: ${out//$'\n'/ | }"
     fi
-    out="$(atr_run nogzip remove_recognized_atr_entries)"
+    out="$(atr_run nocompressors remove_recognized_atr_entries)"
     if [[ -e "${PAGE1}.gz" && "${out}" == *"${PAGE1}.gz left in place -- it could not be read"* && "${out}" == *status=0 ]]; then
         pass "the uninstall leaves a page it could not read, naming it"
     else
@@ -701,11 +728,11 @@ if [[ -n "${atr_text}" ]]; then
     head -c "$(( whole_size - 8 ))" "${TESTDIR}/atr-whole.gz" > "${PAGE1}.gz"
     out="$(atr_run unowned require_atr_entries_replaceable)" || true
     assert_msg MSG-W5Z8 "${out}" "a gzip stub failing gzip -t refuses the install"
-    [[ "${out}" == *"the name ${PAGE1}.gz holds a gzip page that fails gzip -t"* && "${out}" != *status=0 ]] \
+    [[ "${out}" == *"the name ${PAGE1}.gz holds a page in gzip compression that fails gzip -t"* && "${out}" != *status=0 ]] \
         && pass "the refusal names the page and the failed integrity test" \
         || fail "the refusal over a corrupt gzip stub: ${out//$'\n'/ | }"
     out="$(atr_run unowned remove_recognized_atr_entries)"
-    if [[ -e "${PAGE1}.gz" && "${out}" == *"${PAGE1}.gz left in place -- it holds a gzip page that fails gzip -t"* \
+    if [[ -e "${PAGE1}.gz" && "${out}" == *"${PAGE1}.gz left in place -- it holds a page in gzip compression that fails gzip -t"* \
           && "${out}" == *status=0 ]]; then
         pass "the uninstall leaves a gzip stub that fails gzip -t, naming it"
     else

@@ -1362,35 +1362,49 @@ is_atr_wrapper_link() {
     [[ "${target}" == ../local/bin/atr || "${target}" == /usr/local/bin/atr ]]
 }
 
-# read_atr_stub_page_status <path> : 0 when the page's first line that is not a roff comment is the `.so` request naming
-# the page the stub stands for; 1 when it is not; 2 when the page is gzip and gzip is not on PATH; 3 when the page is
-# gzip and fails `gzip -t`; 4 when the page, or the text a gzip page decompresses to, is larger than ATR_STUB_MAX_BYTES.
-# The gzip magic bytes decide whether the page is decompressed, so a plain page is read without a decompressor. A gzip
-# page is tested whole before its text is read, since a stream that fails its CRC or ends early still decompresses
+# read_atr_page_compressor <path> : print the tool that decompresses the page -- gzip, bzip2, xz or zstd, each the name
+# of its own format -- read from the file's magic bytes; a page in none of them prints an empty result. The bytes decide
+# rather than the suffix, so a plain page is read without a decompressor whatever it is named.
+read_atr_page_compressor() {
+    local magic
+    magic="$(head -c 6 -- "$1" 2>/dev/null | od -An -tx1 | tr -d ' \n')" || magic=""
+    case "${magic}" in
+        1f8b*) printf 'gzip\n' ;;
+        425a68*) printf 'bzip2\n' ;;
+        fd377a585a00) printf 'xz\n' ;;
+        28b52ffd*) printf 'zstd\n' ;;
+    esac
+}
+
+# read_atr_stub_page_status <path> : 0 when the page holds the `.so` request naming the page the stub stands for and no
+# other line but roff comments; 1 when it holds anything else; 2 when the page is compressed and its tool is not
+# on PATH; 3 when the page is compressed and fails the tool's `-t`; 4 when the page, or the text a compressed page
+# decompresses to, is larger than ATR_STUB_MAX_BYTES. read_atr_page_compressor names the tool. A compressed page is
+# tested whole before its text is read, since a stream that fails its check or ends early still decompresses
 # to the prefix it holds, and its text is counted one byte past the bound, since a stream a stub's size can expand
-# to many times it. A page in another compression reads as bytes and does not match.
+# to many times it. A page that opens with the request and adds lines after it is another's page built on this one.
 read_atr_stub_page_status() {
-    local section="${1##*/atr.}" size magic text line
+    local section="${1##*/atr.}" size tool text line requests=0
     section="${section%%.*}"
     case "${section}" in 1) section='man1/ai-tools.1' ;; 8) section='man8/ai-tools-admin.8' ;; *) return 1 ;; esac
     size="$(stat -c '%s' -- "$1" 2>/dev/null)" || return 1
     (( size <= ATR_STUB_MAX_BYTES )) || return 4
-    magic="$(head -c 2 -- "$1" 2>/dev/null | od -An -tx1 | tr -d ' \n')" || magic=""
-    if [[ "${magic}" == 1f8b ]]; then
-        command -v gzip >/dev/null 2>&1 || return 2
-        gzip -t -- "$1" 2>/dev/null || return 3
-        size="$(gzip -dc -- "$1" 2>/dev/null | head -c "$(( ATR_STUB_MAX_BYTES + 1 ))" | wc -c)" || true
+    tool="$(read_atr_page_compressor "$1")"
+    if [[ -n "${tool}" ]]; then
+        command -v "${tool}" >/dev/null 2>&1 || return 2
+        "${tool}" -t -- "$1" >/dev/null 2>&1 || return 3
+        size="$("${tool}" -dc -- "$1" 2>/dev/null | head -c "$(( ATR_STUB_MAX_BYTES + 1 ))" | wc -c)" || true
         (( size <= ATR_STUB_MAX_BYTES )) || return 4
-        text="$(gzip -dc -- "$1" 2>/dev/null | head -c "${ATR_STUB_MAX_BYTES}" | tr -d '\000')" || true
+        text="$("${tool}" -dc -- "$1" 2>/dev/null | tr -d '\000')" || true
     else
         text="$(tr -d '\000' < "$1" 2>/dev/null)" || true
     fi
     while IFS= read -r line; do
         [[ "${line}" == '.\"'* ]] && continue
-        [[ "${line}" == ".so ${section}" ]]
-        return
+        [[ "${line}" == ".so ${section}" ]] && (( requests == 0 )) || return 1
+        requests=1
     done <<< "${text}"
-    return 1
+    (( requests == 1 ))
 }
 
 # read_atr_entry_state <path> <kind> : print `absent`, `ours`, `foreign <what was read>`, or `unreadable <why>` for one
@@ -1399,7 +1413,7 @@ read_atr_stub_page_status() {
 # that rpm attributes to a package other than ai-tools-base is foreign, as is one rpm cannot attribute for a reason
 # other than the path being unowned.
 read_atr_entry_state() {
-    local path="$1" kind="$2" type owners page_status
+    local path="$1" kind="$2" type owners page_status tool
     if ! type="$(LC_ALL=C stat -c '%F' -- "${path}" 2>&1)"; then
         [[ "${type}" == *'No such file or directory' ]] && { printf 'absent\n'; return 0; }
         printf 'foreign an entry whose kind could not be read\n'; return 0
@@ -1411,12 +1425,13 @@ read_atr_entry_state() {
             else
                 page_status=0
                 read_atr_stub_page_status "${path}" || page_status=$?
+                tool="$(read_atr_page_compressor "${path}")"
                 case "${page_status}" in
                     0) ;;
-                    2) printf 'unreadable a gzip page with no gzip on PATH\n'; return 0 ;;
-                    3) printf 'foreign a gzip page that fails gzip -t\n'; return 0 ;;
+                    2) printf 'unreadable a page in %s compression with no %s on PATH\n' "${tool}" "${tool}"; return 0 ;;
+                    3) printf 'foreign a page in %s compression that fails %s -t\n' "${tool}" "${tool}"; return 0 ;;
                     4) printf 'foreign a page larger than the atr stub\n'; return 0 ;;
-                    *) printf 'foreign a page without the atr .so line\n'; return 0 ;;
+                    *) printf 'foreign a page other than the atr .so stub\n'; return 0 ;;
                 esac
             fi ;;
         link:'symbolic link')
@@ -1445,7 +1460,7 @@ require_atr_entries_replaceable() {
             foreign\ *)
                 die MSG-W5Z8 "the name ${entry% *} holds ${state#foreign } that is not this project's, so the install does not replace it -- move the entry aside, or remove the package that owns it, and re-run: sudo ./install.sh install" ;;
             unreadable\ *)
-                die MSG-V2H5 "the name ${entry% *} could not be read (${state#unreadable }), so the install does not decide it -- install gzip and re-run: sudo ./install.sh install" ;;
+                die MSG-V2H5 "the name ${entry% *} could not be read (${state#unreadable }), so the install does not decide it -- install the tool it names and re-run: sudo ./install.sh install" ;;
         esac
     done
 }
