@@ -650,12 +650,12 @@ _labels_drop() {
     done
 }
 
-# _resolve_pattern_tree <pattern>: print the directory a project-shaped rule `<literal>(/.*)?` was written for, unescaped,
-# where it exists, is its own canonical path, and the protected-paths backstop allows it as a target; fail without
-# output for any other pattern, and for every pattern where the backstop did not load. The tree is walked as root
-# by `restorecon -FR`, so the literal must name it directly: one carrying a `..`, a symlinked component or a link leaf
-# resolves somewhere the rule did not name, and the backstop reads the string it is given, not what the kernel resolves.
-# The paths a raw rule's regex also matched are not its.
+# _resolve_pattern_tree <pattern>: print the directory a project-shaped rule `<literal>(/.*)?` was written for,
+# unescaped, where it exists, is its own canonical path, and the protected-paths backstop allows it as a target; fail
+# without output for any other pattern, and for every pattern where the backstop did not load. The tree is walked
+# as root by `restorecon -FR`, so the literal must name it directly: one carrying a `..`, a symlinked component
+# or a link leaf resolves somewhere the rule did not name, and the backstop reads the string it is given, not what
+# the kernel resolves. The paths a raw rule's regex also matched are not its.
 _resolve_pattern_tree() {
     local literal="${1%(/.*)?}"
     [[ "${literal}" != "$1" && "${literal}" != *'(/.*)?'* ]] || return 1
