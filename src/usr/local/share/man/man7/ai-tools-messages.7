@@ -1940,6 +1940,10 @@ WARNING.
 exclusion !${entry} in ${file} cannot be resolved \-\- ${_ai_tools_conf__resolve_refusal}; write the exclusion as the directory's real path, since a link the sandbox account can change cannot be followed; no entry in this file allows a path until the line is fixed
 .SS install-selinux.sh
 .TP
+.B MSG-A3V5
+ERROR.
+could not read the module store \-\- ${listing//$'\en'/; }; $1; re\-run once semodule answers: sudo $0 remove
+.TP
 .B MSG-A5N2
 WARNING.
 sandbox clone NOT labelled ai_tools_project_t: ${clone}
@@ -2026,7 +2030,7 @@ stale manifest for ${subject}: its installed entrypoint is
 .TP
 .B MSG-R6M2
 ERROR.
-left loaded: $(_list "${left[@]}") \-\- ${reason//$'\en'/; }; review the local rules with 'sudo semanage fcontext \-l \-C | grep ai_tools', then re\-run: sudo $0 remove
+left loaded: $(_list "${remaining_modules[@]}") \-\- ${reason//$'\en'/; }; review the local rules with 'sudo semanage fcontext \-l \-C | grep ai_tools', then re\-run: sudo $0 remove
 .TP
 .B MSG-R9B9
 WARNING.

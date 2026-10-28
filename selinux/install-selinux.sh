@@ -681,21 +681,35 @@ _drop_remaining_policy_type_rules() {
     done < <(ai_tools_relabel__list_local_rules_naming_policy_types)
 }
 
+# _read_loaded_policy_modules <consequence>: print the loaded ai_tools* module names, one per line. A listing semodule
+# refuses is a die carrying its reason and <consequence>, what the caller's step did not do: an empty store and a store
+# that cannot be read are told apart by semodule's status, since reading the second as the first would report `removed`
+# over whatever is loaded.
+_read_loaded_policy_modules() {
+    local listing
+    listing="$(semodule -l 2>&1)" \
+        || die MSG-A3V5 "could not read the module store -- ${listing//$'\n'/; }; $1; re-run once semodule answers: sudo $0 remove"
+    awk '/^ai_tools/{print $1}' <<<"${listing}"
+}
+
 # _unload_modules: unload every loaded ai_tools* module in one transaction, then read the store back: libsemanage prints
-# progress on stdout and a refusal on stderr, and only the store says what is left. A module still loaded is a die.
+# progress on stdout and a refusal on stderr, and only the store says what is left. A module still loaded is a die,
+# and so is a store that cannot be listed, before the unload and after it.
 _unload_modules() {
-    local -a loaded=() left=()
-    local reason
-    mapfile -t loaded < <(semodule -l 2>/dev/null | awk '/^ai_tools/{print $1}')
-    if [[ ${#loaded[@]} -eq 0 ]]; then
+    local -a loaded_modules=() remaining_modules=()
+    local names reason
+    names="$(_read_loaded_policy_modules "nothing was unloaded")" || exit 1
+    [[ -z "${names}" ]] || mapfile -t loaded_modules <<<"${names}"
+    if [[ ${#loaded_modules[@]} -eq 0 ]]; then
         log "no ai_tools module is loaded"
         return 0
     fi
-    log "unloading all ai_tools* modules: $(_list "${loaded[@]}")"
-    reason="$(_locked semodule -r "${loaded[@]}" 2>&1 >/dev/null)" || true
-    mapfile -t left < <(semodule -l 2>/dev/null | awk '/^ai_tools/{print $1}')
-    [[ ${#left[@]} -eq 0 ]] \
-        || die MSG-R6M2 "left loaded: $(_list "${left[@]}") -- ${reason//$'\n'/; }; review the local rules with 'sudo semanage fcontext -l -C | grep ai_tools', then re-run: sudo $0 remove"
+    log "unloading all ai_tools* modules: $(_list "${loaded_modules[@]}")"
+    reason="$(_locked semodule -r "${loaded_modules[@]}" 2>&1 >/dev/null)" || true
+    names="$(_read_loaded_policy_modules "the unload ran, and what is loaded is not known")" || exit 1
+    [[ -z "${names}" ]] || mapfile -t remaining_modules <<<"${names}"
+    [[ ${#remaining_modules[@]} -eq 0 ]] \
+        || die MSG-R6M2 "left loaded: $(_list "${remaining_modules[@]}") -- ${reason//$'\n'/; }; review the local rules with 'sudo semanage fcontext -l -C | grep ai_tools', then re-run: sudo $0 remove"
 }
 
 # The OPERATORS list, parsed through the shared grammar so this sweep reads operator.conf exactly as every other

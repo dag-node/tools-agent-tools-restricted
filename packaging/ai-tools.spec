@@ -1107,7 +1107,10 @@ fi
 # Every local file-context rule naming a type of this policy goes first: semodule refuses the
 # unload while one stands, and a claimed project's rule is one, so without this step the unload
 # failed on every erase. The rules are the types' and go with them; a claim writes them again.
-# A module left loaded is reported with semanage's reason; the erase completes either way.
+# A rule semanage will not delete is named with the delete to run (MSG-N5W8 is the installer's
+# code for it, printed here as the citation a twin carries). A module left loaded is reported
+# with semanage's reason, and a module store that cannot be listed is reported as that rather
+# than read as empty; the erase completes either way.
 if [ "$1" -eq 0 ] && command -v semodule >/dev/null 2>&1; then
     if command -v semanage >/dev/null 2>&1; then
         semanage fcontext -l -C -n 2>/dev/null | awk '
@@ -1122,20 +1125,33 @@ if [ "$1" -eq 0 ] && command -v semodule >/dev/null 2>&1; then
                 else if (words == "directory") letter = "d"; else if (words == "character device") letter = "c"
                 else if (words == "block device") letter = "b"; else if (words == "socket") letter = "s"
                 else if (words == "symbolic link") letter = "l"
-                printf "%s\t%s\n", letter, pattern
-            }' | while IFS="$(printf '\t')" read -r letter pattern; do
-            [ -n "${pattern}" ] && semanage fcontext -d -f "${letter}" -- "${pattern}" >/dev/null 2>&1 || :
+                printf "%s\t%s\t%s\n", letter, context[3], pattern
+            }' | while IFS="$(printf '\t')" read -r letter type pattern; do
+            [ -n "${pattern}" ] || continue
+            semanage fcontext -d -f "${letter}" -- "${pattern}" >/dev/null 2>&1 \
+                || printf 'MSG-N5W8\nai-tools-selinux: could not drop the local file-context rule %s (%s) -- the module unload refuses while it stands; remove it with: sudo semanage fcontext -d -f %s -- %s\n' \
+                    "${pattern}" "${type}" "${letter}" "${pattern}" >&2
         done
     fi
-    mods=$(semodule -l 2>/dev/null | grep -E '^ai_tools(_|$)' | tr '\n' ' ' || :)
-    if [ -n "${mods}" ]; then
-        # libsemanage reports progress on stdout and a refusal on stderr; only the refusal is kept.
-        reason=$(semodule $(printf ' -r %s' ${mods}) 2>&1 >/dev/null) || :
-        left=$(semodule -l 2>/dev/null | grep -E '^ai_tools(_|$)' | tr '\n' ' ' || :)
-        if [ -n "${left}" ]; then
-            printf 'ai-tools-selinux: left loaded: %s-- %s -- list the local rules still naming an ai_tools type with: semanage fcontext -l -C | grep ai_tools, remove each with: semanage fcontext -d -- <pattern>, then run: semodule -r %s\n' \
-                "${left}" "$(printf '%s' "${reason}" | tr '\n' ' ')" "${left}" >&2
+    if listing=$(semodule -l 2>&1); then
+        loaded_modules=$(printf '%s\n' "${listing}" | grep -E '^ai_tools(_|$)' | tr '\n' ' ' || :)
+        if [ -n "${loaded_modules}" ]; then
+            # libsemanage reports progress on stdout and a refusal on stderr; only the refusal is kept.
+            reason=$(semodule $(printf ' -r %s' ${loaded_modules}) 2>&1 >/dev/null) || :
+            if listing=$(semodule -l 2>&1); then
+                remaining_modules=$(printf '%s\n' "${listing}" | grep -E '^ai_tools(_|$)' | tr '\n' ' ' || :)
+                if [ -n "${remaining_modules}" ]; then
+                    printf 'ai-tools-selinux: left loaded: %s-- %s -- remove each rule named above, then run: sudo semodule -r %s\n' \
+                        "${remaining_modules}" "$(printf '%s' "${reason}" | tr '\n' ' ')" "${remaining_modules}" >&2
+                fi
+            else
+                printf 'ai-tools-selinux: could not read the module store back after the unload -- %s -- what is loaded is not known; run: sudo semodule -l\n' \
+                    "$(printf '%s' "${listing}" | tr '\n' ' ')" >&2
+            fi
         fi
+    else
+        printf 'ai-tools-selinux: could not read the module store -- %s -- the ai_tools modules were not unloaded; run: sudo semodule -l, then: sudo semodule -r <module>... for each ai_tools module it lists\n' \
+            "$(printf '%s' "${listing}" | tr '\n' ' ')" >&2
     fi
 fi
 

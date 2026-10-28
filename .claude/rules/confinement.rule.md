@@ -570,8 +570,10 @@ named: a group's `.pp` is erased with the package while the compiled module pers
 from a source checkout was never in the rpm database at all. Ahead of the unload it drops **every local file-context
 rule naming an `ai_tools` type**, by type rather than by registry: `semodule -r` refuses while one stands, and a claimed
 project's rule is one. A module left loaded is reported with semanage's reason, read back from the store rather than
-from the exit status. `install-selinux.sh remove` takes the same two steps from a checkout and exits 1 over a module
-left loaded.
+from the exit status, and a rule semanage will not delete is named with the delete to run. A store that cannot be
+listed is reported as that and never read as an empty one, since an empty store is what `removed` rests on:
+the erase prints the failed read and skips the unload, and `install-selinux.sh remove`, which takes the same two
+steps from a checkout, refuses at either read and exits 1 over a module left loaded.
 
 The `%selinux_*` rpm macros are not used. `%selinux_requires` records the build host's `selinux-policy` version
 as a `Requires`, which a `noarch` package cannot satisfy across both EL targets; `%selinux_modules_install`/`_uninstall`

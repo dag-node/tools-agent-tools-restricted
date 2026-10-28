@@ -184,7 +184,7 @@ fi
 # rows.
 section "install-selinux.sh: remove drops every rule naming a policy type and reports an unload that left a module (unit)"
 remove_text=""
-for name in warn die _list _restore_account_tree_labels _warn_left_trees _read_pattern_tree _drop_remaining_policy_type_rules _unload_modules; do
+for name in warn die _list _restore_account_tree_labels _warn_left_trees _read_pattern_tree _drop_remaining_policy_type_rules _read_loaded_policy_modules _unload_modules; do
     body="$(extract_function "${INSTALLER}" "${name}")"
     if [[ -z "${body}" ]]; then
         fail "install-selinux.sh does not define ${name}() in the form this file reads"
@@ -264,7 +264,8 @@ grep -qF -- "sudo restorecon -FR ${TESTDIR}/drop/gone" <<<"${drop_out}" && pass 
 
 # run_unload <loaded...> : _unload_modules over a store listing the given modules; the stub's `-r` prints libsemanage's
 #   progress on stdout, refuses with the content of the refuse file on stderr where one is set, and otherwise clears
-#   the store unless UNLOAD_KEEPS is set, which models an exit 0 that left the modules in place. Prints both streams
+#   the store unless UNLOAD_KEEPS is set, which models an exit 0 that left the modules in place. LIST_FAILS=<n> makes
+#   the n-th `-l` exit 1 with a line on stderr and nothing on stdout, a store that cannot be read. Prints both streams
 #   and then `exit=<status>`.
 # shellcheck disable=SC2016  # the inner shell expands these, not this one
 run_unload() {
@@ -276,9 +277,14 @@ run_unload() {
         ok() { printf "ok %s\n" "$*"; }; log() { printf "+ %s\n" "$*"; }
         stub_testdir="$2"; _sandbox_session_state=none; _left_trees=()
         _locked() { "$@"; }
+        : > "${stub_testdir}/list_calls"
         semodule() {
             case "$1" in
-                -l) cat "${stub_testdir}/loaded" ;;
+                -l) printf . >> "${stub_testdir}/list_calls"   # a file: the call runs inside a $(...) subshell
+                    if [[ "${LIST_FAILS:-0}" == "$(wc -c < "${stub_testdir}/list_calls")" ]]; then
+                        echo "semodule: SELinux policy is not managed or store cannot be accessed." >&2; return 1
+                    fi
+                    cat "${stub_testdir}/loaded" ;;
                 -r) shift; printf "semodule -r %s\n" "$*" >> "${stub_testdir}/recorder"
                     printf "libsemanage.semanage_direct_remove_key: Removing last %s module\n" "$@"
                     if [[ -s "${stub_testdir}/refuse" ]]; then cat "${stub_testdir}/refuse" >&2; return 1; fi
@@ -317,6 +323,20 @@ unload_out="$(run_unload zebra_t)"
 grep -qx 'exit=0' <<<"${unload_out}" && [[ ! -s "${TESTDIR}/recorder" ]] && grep -qF 'no ai_tools module is loaded' <<<"${unload_out}" \
     && pass "a store with no ai_tools module makes no semodule -r call and says so" \
     || fail "empty store: ${unload_out//$'\n'/ | } (calls: $(tr '\n' ';' <"${TESTDIR}/recorder"))"
+# A listing that fails is a store that could not be read, not an empty one: the first read refuses before any unload,
+# the second refuses rather than claiming the store empty after one.
+unload_out="$(LIST_FAILS=1 run_unload ai_tools ai_tools_dotnet)"
+assert_msg MSG-A3V5 "${unload_out}" "a store that cannot be listed before the unload dies under its code"
+grep -qx 'exit=1' <<<"${unload_out}" && [[ ! -s "${TESTDIR}/recorder" ]] && ! grep -q 'removed\|no ai_tools module is loaded' <<<"${unload_out}" \
+    && grep -qF 'store cannot be accessed' <<<"${unload_out}" \
+    && pass "a failed first listing makes no semodule -r call, carries semodule's reason, and is not read as an empty store" \
+    || fail "failed first listing: ${unload_out//$'\n'/ | } (calls: $(tr '\n' ';' <"${TESTDIR}/recorder"))"
+unload_out="$(LIST_FAILS=2 run_unload ai_tools ai_tools_dotnet)"
+assert_msg MSG-A3V5 "${unload_out}" "a store that cannot be listed after the unload dies under its code"
+grep -qx 'exit=1' <<<"${unload_out}" && grep -qxF 'semodule -r ai_tools ai_tools_dotnet' "${TESTDIR}/recorder" \
+    && ! grep -q 'removed' <<<"${unload_out}" && ! grep -qx 'MSG-R6M2' <<<"${unload_out}" \
+    && pass "a failed read-back after the unload is reported as unread, neither as removed nor as left loaded" \
+    || fail "failed read-back: ${unload_out//$'\n'/ | } (calls: $(tr '\n' ';' <"${TESTDIR}/recorder"))"
 
 # ── the script's text ─────────────────────────────────────────────────────────────────────────
 section "the installed library is read first, and no other walk crosses an account-writable tree"
