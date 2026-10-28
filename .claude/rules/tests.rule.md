@@ -757,7 +757,7 @@ it reads the spec as text for what source order shows: the `declare -F` guard on
 calls, no agent `%preun` nulling the relabel helper's stderr, the `%postun`'s session read ahead of its first store
 write, and the escaping rule the spec's preamble states, held against the parsed text where `rpmspec` is on the host.
 `spec-atr-names.sh` runs the `ai-tools-base` `%pre` the same way over a fixture tree of the names `atr` takes: each
-of this project's forms passes, each foreign occupant exits 1 ahead of the account creation, and the refusal starts
+of this project's forms passes, each foreign entry exits 1 ahead of the account creation, and the refusal starts
 the relabel watcher `%pretrans` stopped, or names the line that starts it where `systemctl` is absent or fails. Without
 `zcat` the scriptlet refuses this project's own gzip stub, so the file also holds the package to the `Requires(pre)`
 lines that place the tools ahead of it.

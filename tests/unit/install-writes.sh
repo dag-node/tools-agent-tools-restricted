@@ -620,7 +620,7 @@ if [[ -n "${atr_text}" ]]; then
 
     # The fixture now holds: the man1 stub (ours), a foreign atr.1.gz, a foreign atr.8.xz, no wrapper and no link.
     out="$(atr_run unowned ensure_atr_names_free)" || true
-    assert_msg MSG-W5Z8 "${out}" "a foreign occupant refuses the install"
+    assert_msg MSG-W5Z8 "${out}" "a foreign entry refuses the install"
     if [[ "${out}" == *"the name ${PAGE1}.gz holds a page without the atr .so line"* && "${out}" != *status=0 ]]; then
         pass "the refusal names the first foreign entry and what was read, and exits non-zero"
     else
@@ -646,7 +646,7 @@ if [[ -n "${atr_text}" ]]; then
     assert_msg MSG-V2H5 "${out}" "an unreadable page refuses the install"
     if [[ "${out}" == *"the name ${PAGE1}.gz could not be read (a gzip page with no gzip on PATH)"* \
           && "${out}" != *MSG-W5Z8* && "${out}" != *status=0 ]]; then
-        pass "the refusal names the page and why it could not be read, apart from a foreign occupant"
+        pass "the refusal names the page and why it could not be read, apart from a foreign entry"
     else
         fail "the unreadable refusal: ${out//$'\n'/ | }"
     fi

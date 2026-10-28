@@ -39,7 +39,7 @@ cli_line="$(grep -E '^readonly AI_TOOLS_ATR__CLI=' -- "${WRAPPER}" || true)"
     && pass "the wrapper names ai-tools at /usr/local/bin/ai-tools" \
     || fail "the CLI path line reads: ${cli_line:-absent}"
 [[ "$(sed -n '3p' -- "${WRAPPER}")" == '# /usr/local/bin/atr --'* ]] \
-    && pass "the third line carries the marker the install's occupant check reads" \
+    && pass "the third line carries the marker the install's collision check reads" \
     || fail "the third line is not the marker: $(sed -n '3p' -- "${WRAPPER}")"
 
 # ── the fixture: a copy of the wrapper and its recorders ─────────────────────────────────────────

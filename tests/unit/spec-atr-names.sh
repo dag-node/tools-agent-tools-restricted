@@ -152,8 +152,8 @@ run_pre
     && pass "a marked wrapper with other content passes, as this project's name" \
     || fail "the marked wrapper: exit ${status}, stderr [${err}]"
 
-# ── Each foreign occupant refuses ahead of the account, and the watcher is started again ─────────
-# place_foreign <what>: put one foreign occupant in a tree otherwise empty, and print its path.
+# ── Each foreign entry refuses ahead of the account, and the watcher is started again ─────────
+# place_foreign <what>: put one foreign entry in a tree otherwise empty, and print its path.
 place_foreign() {
     reset_names
     case "$1" in
