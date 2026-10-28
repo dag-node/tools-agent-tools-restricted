@@ -7,7 +7,7 @@
 # a dropped rule covered with the restorecon that resets it, and restores the control-plane and sandbox trees once
 # the store shows every ai_tools module gone (confinement.rule.md, "How the policy ships").
 #
-# A scriptlet runs inside an rpm transaction as root, so its body is read out of the spec as text, its macros and host
+# A scriptlet runs inside an rpm transaction as root, so its body is read out of the spec as RPM parses it, its host
 # paths rewritten to fixture trees, and run under /bin/sh with the session reader, semanage, semodule, restorecon
 # and flock defined as shell functions ahead of it: each records its call, and a file in the fixture makes one of them
 # fail. The printed restore command is run through the same stub and its argument read back, so a path carrying a space
@@ -30,7 +30,20 @@ if [[ ! -r "${SPEC}" || ! -r "${RELABEL_LIB}" ]]; then
 fi
 mktestdir
 
-body="$(awk '/^%postun -n ai-tools-selinux$/{open=1; next} /^%[a-z]/{open=0} open' "${SPEC}")"
+# The body the package ships is the one RPM's macro expansion leaves, so it is read out of `rpmspec -P` where the host
+# has it. Without it the expansion this scriptlet depends on is applied here: its two path macros, then each doubled
+# percent halved. A %( that RPM would run is spec-scriptlets.sh's to refuse in the source.
+if command -v rpmspec >/dev/null 2>&1 \
+        && parsed="$(rpmspec -P --define "_sourcedir ${ROOT}/packaging" "${SPEC}" 2>/dev/null)"; then
+    note "spec" "the %postun is read from rpmspec -P, as the package ships it"
+else
+    parsed="$(cat "${SPEC}")"
+    parsed="${parsed//%\{ai_libexecdir\}//usr/local/libexec/ai-tools}"
+    parsed="${parsed//%\{ai_libdir\}//usr/local/lib/ai-tools}"
+    parsed="${parsed//%%/%}"
+    note "spec" "rpmspec is absent; the %postun is read from the source with its path macros and doubled percents expanded"
+fi
+body="$(awk '/^%postun -n ai-tools-selinux$/{open=1; next} /^%[a-z]/{open=0} open' <<< "${parsed}")"
 if [[ -z "${body}" ]]; then
     fail "the spec has no %postun -n ai-tools-selinux section in the form this file reads"
     finish; exit
@@ -52,8 +65,8 @@ mkdir -p "${libexec}" "${lib}" "${home}/.nvm" "${clones}" "${project}" "${raw}" 
 body="${body//\/var\/opt\/ai-tools\/sandbox-projects/${clones}}"
 body="${body//\/opt\/ai-tools/${home}}"
 body="${body//\/var\/log\/ai-tools/${log}}"
-body="${body//%\{ai_libexecdir\}/${libexec}}"
-body="${body//%\{ai_libdir\}/${lib}}"
+body="${body//\/usr\/local\/libexec\/ai-tools/${libexec}}"
+body="${body//\/usr\/local\/lib\/ai-tools/${lib}}"
 body="${body//\/run\/lock\/ai-tools-relabel.lock/${TESTDIR}/relabel.lock}"
 
 # The store the stubs serve: a rule per shape the sweep meets. The raw rule holds a metacharacter no label writes,
