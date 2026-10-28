@@ -122,8 +122,8 @@ by hand.
 
 Removing the packages moves an edited `/etc/ai-tools/operator.conf`
 to `operator.conf.rpmsave` and a fresh install writes an empty one, dropping
-the operator list (re-add with `ai-tools-admin operators add`); an in-place
-upgrade keeps it via `%config(noreplace)`. What else survives an erase is
+the operator list (re-add with `atr admin operators add`); an in-place upgrade
+keeps it via `%config(noreplace)`. What else survives an erase is
 in [Preservation on erase](#preservation-on-erase). `dnf reinstall` requires
 the *same* version already installed and is not the way to move
 between versions.
@@ -132,7 +132,7 @@ between versions.
 
 | Subpackage | Owns |
 |---|---|
-| `ai-tools-base` | the `ai-tools` user and the `ai-ops` operators group; `/opt/ai-tools` home ROOT and `bin` (plus its default-deny `.gitignore` git guard and `.gitconfig` identity, both `%post`-seeded-if-missing and not rpm-owned, so an erase preserves them); the mode and label contract every agent's config directory carries, but no such directory itself; the shared skills root `/opt/ai-tools/skills` and the pristine skill copies (skills are agent-agnostic, so every agent symlinks into this one place) and `/var/opt/ai-tools` sandbox tree; the static `%ai-ops` sudoers drop-in; the `ai-tools` CLI (project lifecycle); `ai-tools-admin` (operator administration); `ai-tools-launch`, the launch wrapper every agent's command runs; ownership/secret helpers (`ai-tools-chown`, `-setgid`, `-setfacl`, `-unclaim`, `-lockdown`, `-relabel`); the handback socket, daemon, and client; `log.lib.sh`, `msg.lib.sh`, `relabel.lib.sh`, `skip-dirs.lib.sh`, `safe-paths.lib.sh`, `secret-patterns.lib.sh`, `operator.lib.sh`, `control-plane.lib.sh`, `conf.lib.sh`, `providers.lib.sh`, `ancestor-config.lib.sh`; the asset-set verifier (`assets-verify.lib.sh`, which needs `gpgv` from `gnupg2`) with the dag-node package-signing key and a root-owned signing binding per shipped set name under `assets-bindings.d`; the assets resolver (`assets.lib.sh`) behind `ai-tools-admin assets`, and the two transaction file triggers on `/usr/share/ai-tools-assets` that re-resolve the asset view when a set package is installed, upgraded or erased; the agent-agnostic confinement shim `/opt/ai-tools/bin/ai-tools-run` and the `%ai-ops` sudoers grant that reaches it; the `agents.d`, `integrations.d`, `session-env.d` and `launch.d` provider directories (base owns the dirs at `0755 root:root`; each member package drops only its own manifest or fragment into them) |
+| `ai-tools-base` | the `ai-tools` user and the `ai-ops` operators group; `/opt/ai-tools` home ROOT and `bin` (plus its default-deny `.gitignore` git guard and `.gitconfig` identity, both `%post`-seeded-if-missing and not rpm-owned, so an erase preserves them); the mode and label contract every agent's config directory carries, but no such directory itself; the shared skills root `/opt/ai-tools/skills` and the pristine skill copies (skills are agent-agnostic, so every agent symlinks into this one place) and `/var/opt/ai-tools` sandbox tree; the static `%ai-ops` sudoers drop-in; the `ai-tools` CLI (project lifecycle); `ai-tools-admin` (operator administration); `ai-tools-launch`, the launch wrapper every agent's command runs; ownership/secret helpers (`ai-tools-chown`, `-setgid`, `-setfacl`, `-unclaim`, `-lockdown`, `-relabel`); the handback socket, daemon, and client; `log.lib.sh`, `msg.lib.sh`, `relabel.lib.sh`, `skip-dirs.lib.sh`, `safe-paths.lib.sh`, `secret-patterns.lib.sh`, `operator.lib.sh`, `control-plane.lib.sh`, `conf.lib.sh`, `providers.lib.sh`, `ancestor-config.lib.sh`; the asset-set verifier (`assets-verify.lib.sh`, which needs `gpgv` from `gnupg2`) with the dag-node package-signing key and a root-owned signing binding per shipped set name under `assets-bindings.d`; the assets resolver (`assets.lib.sh`) behind `atr admin assets`, and the two transaction file triggers on `/usr/share/ai-tools-assets` that re-resolve the asset view when a set package is installed, upgraded or erased; the agent-agnostic confinement shim `/opt/ai-tools/bin/ai-tools-run` and the `%ai-ops` sudoers grant that reaches it; the `agents.d`, `integrations.d`, `session-env.d` and `launch.d` provider directories (base owns the dirs at `0755 root:root`; each member package drops only its own manifest or fragment into them) |
 | `ai-tools-selinux` | the compiled SELinux policy modules in `/usr/share/selinux/packages/ai-tools/` — the core `ai_tools.pp` (the `ai_tools_t` domain and the handback/helper types), each STABLE optional group, and each integration's layout module, every one compiled at package build against the building distribution's policy headers, and the `ai_tools.if` interface file under `/usr/share/selinux/devel/include/distributed/`; the `%post`/`%postun` scriptlets that load the core and unload every loaded `ai_tools*` module on erase; the GPL licence text |
 | `ai-tools-integration-nodejs` | nvm under `/opt/ai-tools/.nvm`; the per-sandbox-user Node-version auto-update service and timer; `ai-tools-bootstrap`; the symlink-repoint helper (`ai-tools-launcher-symlink`) and the post-upgrade entrypoint relabel (`ai-tools-relabel-agent`) |
 | `ai-tools-integration-dotnet` | the dotnet session-env fragment (`session-env.d/dotnet.env.sh`), manifest (`integrations.d/dotnet.conf`) and the `dotnet` domain of `ai-tools-admin` (`admin-commands.d/dotnet`), which provisions a writable NuGet cache + read-only shared tools under its own `/opt/ai-tools/integrations/dotnet` state root, covered by the base's single fcontext rule for that tree. No .NET runtime — the host's dotnet is used |
@@ -184,7 +184,7 @@ a helper as modified after an operator is added.
 
 ## Operator administration
 
-`ai-tools-admin operators add|remove|list`
+`atr admin operators add|remove|list`
 (`/usr/local/libexec/ai-tools/ai-tools-admin`, root, run via `sudo`) manages
 the operators -- the login users (a human or a rootless service account)
 that drive the sandbox through the shared `ai-tools` account. It is a root
@@ -218,13 +218,12 @@ a membership change, not a sudoers edit.
 
 The `%post` of `ai-tools-base` does **not** bind an operator: it is
 per-operator, which a non-interactive scriptlet cannot do. `%post` installs
-cleanly and unenrolled and prints the ordered
-`sudo ai-tools-admin system bootstrap` then
-`sudo ai-tools-admin operators add <user>` directives.
+cleanly and unenrolled and prints the ordered `atr admin system bootstrap` then
+`atr admin operators add <user>` directives.
 
 ## Bootstrap
 
-`sudo ai-tools-admin system bootstrap` (which execs
+`atr admin system bootstrap` (which execs
 `/usr/local/libexec/ai-tools/ai-tools-bootstrap`, shipped
 by `ai-tools-integration-nodejs`) creates the `ai-tools` system account and its
 `/opt/ai-tools` home when absent, then installs nvm, Node, and each **enabled**
@@ -257,8 +256,8 @@ to `vMAJOR.MINOR.PATCH` before it reaches the download URL.
 Bootstrap fetches from the network (`nvm` from GitHub, packages from npm),
 so it is a command run once after install, never an RPM scriptlet: scriptlets
 are non-interactive, must succeed offline and inside build chroots, and must be
-reproducible. `%post` prints the `sudo ai-tools-admin system bootstrap`
-directive; the nvm-update timer maintains the tree from then on.
+reproducible. `%post` prints the `atr admin system bootstrap` directive;
+the nvm-update timer maintains the tree from then on.
 
 ## Scriptlets
 
@@ -271,12 +270,11 @@ directive; the nvm-update timer maintains the tree from then on.
   `Requires(pre): shadow-utils`. The `ai-ops` group ships empty; operators are
   added to it per host.
 - `%post` runs `%systemd_post ai-tools-handback.socket`, applies
-  the shared-area ACLs, and prints the ordered
-  `ai-tools-admin system bootstrap` then `ai-tools-admin operators add`
-  directives. Loading the SELinux policy is NOT base's job — that scriptlet
-  lives with the payload in `ai-tools-selinux`. It does not bind an operator
-  or provision the toolchain and its update timer — those belong
-  to `ai-tools-admin operators add` and `ai-tools-admin system bootstrap`.
+  the shared-area ACLs, and prints the ordered `atr admin system bootstrap`
+  then `atr admin operators add` directives. Loading the SELinux policy is NOT
+  base's job — that scriptlet lives with the payload in `ai-tools-selinux`. It
+  does not bind an operator or provision the toolchain and its update timer —
+  those belong to `atr admin operators add` and `atr admin system bootstrap`.
 - `%preun` runs `%systemd_preun ai-tools-handback.socket`.
 - `%postun` runs `%systemd_postun_with_restart ai-tools-handback.socket`.
 
@@ -339,8 +337,8 @@ groups are shipped but stay **off**, toggled per host by an operator who hits
 a boundary:
 
 ```bash
-sudo ai-tools-admin selinux groups
-sudo ai-tools-admin selinux groups enable tmpmap localipc buildexec
+atr admin selinux groups
+atr admin selinux groups enable tmpmap localipc buildexec
 ```
 
 That helper `semodule`-loads the compiled `.pp` from the package directory.
@@ -352,8 +350,8 @@ The **experimental** groups are unaudited drafts and are **not** packaged:
 `ai-tools-admin` refuses them and directs the operator to compile and verify
 one from a source checkout first (`install-selinux.sh enable-group` +
 the `avc/` loop). Which groups are stable is read from the host,
-with `sudo ai-tools-admin selinux groups`; the packaged set follows
-the registry in `selinux-groups.lib.sh` and the integration manifests, derived
+with `atr admin selinux groups`; the packaged set follows the registry
+in `selinux-groups.lib.sh` and the integration manifests, derived
 by `selinux/policy/shipped-modules.sh` at build time. `%postun` on final erase
 unloads the core **and** any group a host left loaded (the `.pp` is erased
 with the package, but the compiled module persists in the store otherwise).
@@ -372,11 +370,11 @@ rather than packaged files:
 - `/opt/ai-tools/.nvm` (nvm and Node) and `/var/opt/ai-tools` (sandbox clones),
   which are unpackaged runtime data;
 - each operator's `~/.config/ai-tools/{allowed-projects,secret-patterns}`,
-  which the package never owns — `ai-tools-admin operators add` seeds
-  the operator's config files and they survive erase untouched.
+  which the package never owns — `atr admin operators add` seeds the operator's
+  config files and they survive erase untouched.
 
 `operator.conf` ships as `%config(noreplace)` with an empty `OPERATORS=""`
-baseline and is edited in place by `ai-tools-admin operators add|remove`.
+baseline and is edited in place by `atr admin operators add|remove`.
 `%config(noreplace)` keeps the edited copy across an **upgrade**
 (`dnf upgrade`, or `dnf install ./*.rpm` of a higher version), so the host's
 operators persist. An **erase** is different: rpm saves the modified config
@@ -384,7 +382,7 @@ as `operator.conf.rpmsave` and removes the tracked file,
 so a remove-then-install cycle drops the operator list — the fresh install lays
 down the empty baseline. Upgrade in place rather than `dnf remove` + install;
 if a `.rpmsave` was left behind, re-add operators
-with `ai-tools-admin operators add` (see the README "Upgrading" note).
+with `atr admin operators add` (see the README "Upgrading" note).
 
 ## Tests
 

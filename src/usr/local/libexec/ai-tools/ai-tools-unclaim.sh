@@ -16,9 +16,9 @@
 # and the tree carries plain Unix permissions under the new group. `.git`, which the main walk skips with the other
 # heavy trees, is reverted by a dedicated pass, so git history is revoked with the rest.
 #
-# Invoked as root via sudo by `ai-tools projects unclaim`: root is what a chgrp to an arbitrary group, and a change
-# to a file the projects user does not own, need. The path and the target group the CLI passes are re-validated here,
-# and the path must resolve at or under a registered project (allowed-projects) or the helper is a no-op.
+# Invoked as root via sudo by `atr projects unclaim`: root is what a chgrp to an arbitrary group, and a change to a file
+# the projects user does not own, need. The path and the target group the CLI passes are re-validated here, and the path
+# must resolve at or under a registered project (allowed-projects) or the helper is a no-op.
 #
 # Two modes, differing ONLY in which paths they accept -- never in what they do to a path they accept, so one reversal
 # is described once and tested once:

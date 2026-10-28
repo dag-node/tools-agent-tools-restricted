@@ -10,10 +10,10 @@ How a project enters the agent's reach, which command moves it from one state
 to the next, and where the page for each command takes over from this one.
 
 ```bash
-ai-tools projects create ~/src/newproject   # a new project, claimed
-ai-tools projects claim  ~/src/existing     # a tree you have, claimed in place
-ai-tools projects clone  ~/src/repo         # an isolated shallow clone instead
-ai-tools projects list                      # what is registered, and how
+atr projects create ~/src/newproject   # a new project, claimed
+atr projects claim  ~/src/existing     # a tree you have, claimed in place
+atr projects clone  ~/src/repo         # an isolated shallow clone instead
+atr projects list                      # what is registered, and how
 ```
 
 Run every command as your own user: the `ai-tools` CLI calls `sudo` itself

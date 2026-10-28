@@ -54,13 +54,13 @@ cache), so a session gets dotnet only when `integration-dotnet` is in `AI_TOOLS_
 - `filters.d/dotnet.rules` quiets `build`, `publish`, `restore`, `run` and `test` with `-v q`; the rule,
   and why verbosity is a command rule rather than a fragment variable, are in [filters](filters.rule.md).
 - `admin-commands.d/dotnet` is this package's contributed domain, so its administration is spelled
-  `sudo ai-tools-admin dotnet <verb>` ([cli-grammar](cli-grammar.rule.md) for the spelling). `dotnet bootstrap` brings
-  that state root and the directories under it to their rows by running the layout reconcile ([layout](layout.rule.md)),
-  then reads each of those directories through the layout's own reader, which decides whether the command goes
-  on, and the rows in `layout.lib.sh` hold the modes: the NuGet cache and the SDK's CLI home are agent-**writable**
-  (setgid), the shared tools are **read-only** to the agent (root-only writes). The command does not create a directory
-  itself, since the NuGet cache is sandbox-group-writable and a by-path `install -d` follows a link planted there;
-  the reconcile is the one writer under the state root. The rows apply while the package's sentinel files exist,
+  `atr admin dotnet <verb>` ([cli-grammar](cli-grammar.rule.md) for the spelling). `dotnet bootstrap` brings that state
+  root and the directories under it to their rows by running the layout reconcile ([layout](layout.rule.md)), then reads
+  each of those directories through the layout's own reader, which decides whether the command goes on, and the rows
+  in `layout.lib.sh` hold the modes: the NuGet cache and the SDK's CLI home are agent-**writable** (setgid), the shared
+  tools are **read-only** to the agent (root-only writes). The command does not create a directory itself, since
+  the NuGet cache is sandbox-group-writable and a by-path `install -d` follows a link planted there; the reconcile is
+  the one writer under the state root. The rows apply while the package's sentinel files exist,
   so `ai-tools-admin system layout` reports their drift and a host without the package does not carry them. It applies
   **no** SELinux policy of its own — the base's static rule on `integrations(/.*)?` already maps the whole tree
   to `ai_tools_home_t`, so the type grants `ai_tools_t` the access (write on the cache, exec on the tools) while the DAC
@@ -94,8 +94,8 @@ The groups are named for the **capability** each grants, not for .NET, because e
 toolchain needs too ([confinement](confinement.rule.md) covers the group machinery). They are disjoint — one never
 implies another — so a session takes on only the surface its workload needs. What is .NET's about them is declared
 in the integration's manifest (`ai-tools-providers(5)`): `selinux_groups` names the set, and the `providers` status
-block and `ai-tools-admin dotnet status` read that key to name the ones not loaded, with the command that enables them.
-No group is enabled automatically.
+block and `atr admin dotnet status` read that key to name the ones not loaded, with the command that enables them. No
+group is enabled automatically.
 
 | group | grants | needed for |
 |---|---|---|
@@ -125,7 +125,7 @@ relabel instead of when it is created.
 | multi-node MSBuild (drop the `-m:1` workaround) | ✓ | ✓ | ✓ | |
 
 The short version: **`tmpmap` to restore/build, `+memfdexec` to build an executable, `+localipc` to test, `+buildexec`
-to run what was built.** Enable all four for a full build-test-run .NET workflow; `ai-tools-admin selinux groups enable`
+to run what was built.** Enable all four for a full build-test-run .NET workflow; `atr admin selinux groups enable`
 takes them in one command, all four being on the shipped set.
 
 An IL-only assembly run through the host binary does not need execute on any project file: the process image is
@@ -208,8 +208,8 @@ What follows from that placement:
 - Without the layout module, a session's build creates `bin/` as `ai_tools_project_t`; the next relabel corrects it,
   and neither type is executable without `buildexec`, so the difference has no effect until then. Both group paths
   restore labels after a module change: `install-selinux.sh enable-group`/`disable-group` re-run the project and clone
-  sweeps, and `ai-tools-admin selinux groups enable`/`disable` restore the sandbox-clone area, the one tree a module's
-  own file contexts decide.
+  sweeps, and `atr admin selinux groups enable`/`disable` restore the sandbox-clone area, the one tree a module's own
+  file contexts decide.
 - `SKIP_ARTIFACT_DIRS` (`skip-dirs.lib.sh`) is a walk-cost setting with its own name set; the two mechanisms do not read
   each other.
 - `ai_tools_relabel__is_project_labelled` and the project verdict in `status` read the project root's type alone;

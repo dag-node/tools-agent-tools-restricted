@@ -2,7 +2,7 @@
 
 [Sessions](index.md) · **Stop** — [all docs](../index.md)
 
-`ai-tools stop` terminates agent sessions that are **already running**,
+`atr stop` terminates agent sessions that are **already running**,
 and everything they spawned. It is not how you finish a session you are done
 with — `/exit` inside the session is, and it lets the session run its own
 session-end handback. This kills the process tree instead. Every other operator
@@ -23,8 +23,8 @@ rule](../../.claude/rules/stop.rule.md).
 ## One form
 
 ```
-ai-tools stop              # terminate every agent session on this host
-ai-tools stop --dry-run    # list what would be terminated, change nothing
+atr stop              # terminate every agent session on this host
+atr stop --dry-run    # list what would be terminated, change nothing
 ```
 
 Run it as yourself, not under `sudo` — the CLI reaches the root helper on its
@@ -75,7 +75,7 @@ the stop a target.
 The slice holds more than sessions: the account's `systemd --user` and its
 `init.scope`, a dbus broker, a login session scope for every `sudo -u`
 that crossed `pam_systemd`, and a scope for each step a root command runs
-as the account, such as the npm install of `ai-tools-admin system bootstrap`,
+as the account, such as the npm install of `atr admin system bootstrap`,
 which a stop ends like the toolchain update and a re-run completes. All of them
 are terminated — no cgroup is exempt — but they are listed after the agent
 sessions and marked `(account plumbing)`, and the headline gives the two counts
@@ -145,7 +145,7 @@ in the trail afterwards:
 |---|---|---|
 | 0 | stopped and verified gone, or no session was running | reclaim the projects it names ([After a stop: reclaim](#after-a-stop-reclaim)) |
 | 1 | something survived `SIGKILL` | see [A process survived](#a-process-survived-exit-1) |
-| 2 | usage — an unknown option, or a path (this command does not take a target) | run `ai-tools stop` |
+| 2 | usage — an unknown option, or a path (this command does not take a target) | run `atr stop` |
 | 5 | the helper could not run (no cgroup v2, no sandbox account) | a broken host, not a failed stop |
 | 6 | you declined at the confirmation | no session was stopped |
 | 130 | the run was interrupted by a signal | some sessions may be partially stopped; run it again |
@@ -167,7 +167,7 @@ writes may still be owned by the sandbox account. The command names the command
 to run for each project it terminated:
 
 ```
-ai-tools projects handback /home/<you>/projects/api
+atr projects handback /home/<you>/projects/api
 ```
 
 The next session that starts in that project also notices the missing

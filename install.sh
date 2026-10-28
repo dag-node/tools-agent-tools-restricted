@@ -23,8 +23,8 @@
 # Project registration lives in the `ai-tools` CLI (/usr/local/bin/ai-tools), run as the projects user, not
 # in install.sh:
 #   ```bash
-#   ai-tools projects create <dir>         # register a real project
-#   ai-tools projects clone <dir>          # shallow-clone a repo into the sandbox area
+#   atr projects create <dir>         # register a real project
+#   atr projects clone <dir>          # shallow-clone a repo into the sandbox area
 #   ```
 #
 # Prerequisites (one-time manual steps before running install; `sudo ai-tools-admin system bootstrap` does both in one
@@ -220,7 +220,7 @@ source "${MSG_LIB}" || die_unsourced "${MSG_LIB}"
 # One fixed 80-column frame for every box in the install flow, so consecutive prompts align.
 export AI_TOOLS_MSG_FULLWIDTH=1
 
-# Version stamped into the deployed CLI (`ai-tools --version`); the RPM stamps %{version} from the same file at build.
+# Version stamped into the deployed CLI (`atr --version`); the RPM stamps %{version} from the same file at build.
 # A missing file falls back to "dev" rather than aborting, and silently: stderr is redirected before the input, since
 # the shell reports a failed input redirection through whatever stderr it holds at that point.
 AI_TOOLS_VERSION="$(tr -d '[:space:]' 2>/dev/null < "${SCRIPT_DIR}/packaging/VERSION" || true)"
@@ -617,8 +617,8 @@ ensure_dir() {
 }
 
 # reconcile_layout: bring every installed path to its row through the installed command, the same pass an upgrade's
-# transaction trigger runs; its lines go to the install log, and a finding it leaves is reported
-# by `ai-tools-admin status` and `ai-tools-admin system layout`, so the install continues.
+# transaction trigger runs; its lines go to the install log, and a finding it leaves is reported by `atr admin status`
+# and `atr admin system layout`, so the install continues.
 reconcile_layout() {
     log "installed layout: sudo ai-tools-admin system layout reconcile"
     /usr/local/libexec/ai-tools/ai-tools-admin system layout reconcile || true
@@ -1202,7 +1202,7 @@ do_summary() {
 }
 
 # Installer banner. Delegates to the shared umbrella renderer (msg.lib.sh) so the AI-TOOLS brand mark is single-sourced;
-# the installer only supplies its subtitle, the package version (AI_TOOLS_VERSION, the same value `ai-tools --version`
+# the installer only supplies its subtitle, the package version (AI_TOOLS_VERSION, the same value `atr --version`
 # reports -- not the noisy git-describe), and the "installer" mode word (this is the install phase, not the running
 # app). The renderer stays silent when stdout is not a terminal.
 print_banner() {
@@ -1686,7 +1686,7 @@ do_install() {
     install -o root -g root -m 644 \
         "${SCRIPT_DIR}/src/usr/local/lib/ai-tools/assets-verify.lib.sh" \
         /usr/local/lib/ai-tools/assets-verify.lib.sh
-    # The assets resolver behind `ai-tools-admin assets` and the Assets section of its status: 644 root:root, sourced
+    # The assets resolver behind `atr admin assets` and the Assets section of its status: 644 root:root, sourced
     # by that tool as root.
     log "/usr/local/lib/ai-tools/assets.lib.sh"
     install -o root -g root -m 644 \
@@ -1807,8 +1807,8 @@ do_install() {
         "${SCRIPT_DIR}/src/usr/local/lib/ai-tools/selinux-groups.lib.sh" \
         /usr/local/lib/ai-tools/selinux-groups.lib.sh
 
-    # Service-health registry: 644 root:root -- world-readable, the single source `ai-tools status` and the launch
-    # wrapper's pre-launch health warning share. Read-only data, no secrets.
+    # Service-health registry: 644 root:root -- world-readable, the single source `atr status` and the launch wrapper's
+    # pre-launch health warning share. Read-only data, no secrets.
     log "/usr/local/lib/ai-tools/services.lib.sh"
     install -o root -g root -m 644 \
         "${SCRIPT_DIR}/src/usr/local/lib/ai-tools/services.lib.sh" \
@@ -1824,7 +1824,7 @@ do_install() {
     install -o root -g root -m 644 \
         "${SCRIPT_DIR}/src/usr/local/lib/ai-tools/records-tsv.lib.sh" \
         /usr/local/lib/ai-tools/records-tsv.lib.sh
-    # The installed layout as one table: 644 root:root, read by ai-tools-admin system layout and perms.sh as root.
+    # The installed layout as one table: 644 root:root, read by atr admin system layout and perms.sh as root.
     log "/usr/local/lib/ai-tools/layout.lib.sh"
     install_subst 644 root root \
         "${SCRIPT_DIR}/src/usr/local/lib/ai-tools/layout.lib.sh" \
@@ -1913,8 +1913,7 @@ do_install() {
     # The `dotnet` domain of ai-tools-admin: the command that creates the sandbox NuGet cache and shared tools dir,
     # installs global tools, and reports the integration's state. 750 root:root, like every other root-executed helper
     # -- ai-tools-admin execs it after checking that both it and its directory are root-owned and not group-
-    # or other-writable. The basename is the domain token, so this file IS the `dotnet`
-    # in `sudo ai-tools-admin dotnet bootstrap`.
+    # or other-writable. The basename is the domain token, so this file IS the `dotnet` in `atr admin dotnet bootstrap`.
     log "/usr/local/lib/ai-tools/admin-commands.d/dotnet"
     install_subst 750 root root \
         "${SCRIPT_DIR}/src/usr/local/lib/ai-tools/admin-commands.d/dotnet.sh" \
@@ -2015,8 +2014,8 @@ do_install() {
         /usr/local/lib/ai-tools/agent-installs.lib.sh
 
     # PATH ordering reader: 644 root:root -- world-readable, like every shared library. Read by ai-tools-admin (which
-    # asks about the guard line and writes it), by `ai-tools status` as the operator, and by the base package's %post.
-    # No secrets, no tokens.
+    # asks about the guard line and writes it), by `atr status` as the operator, and by the base package's %post. No
+    # secrets, no tokens.
     log "/usr/local/lib/ai-tools/path-order.lib.sh"
     install -o root -g root -m 644 \
         "${SCRIPT_DIR}/src/usr/local/lib/ai-tools/path-order.lib.sh" \
@@ -2074,9 +2073,8 @@ do_install() {
         /usr/local/libexec/ai-tools/ai-tools-relabel
 
     # SELinux entrypoint-relabel helper. 750 root:root -- run AS root: automatically by the ai-tools-relabel.path
-    # watcher after a Node upgrade, and on demand by `sudo ai-tools-admin system entrypoints relabel`; never
-    # by ai-tools. No @-substitution needed (no placeholders), but install_subst keeps the deploy path uniform
-    # with the other helpers.
+    # watcher after a Node upgrade, and on demand by `atr admin system entrypoints relabel`; never by ai-tools. No
+    # @-substitution needed (no placeholders), but install_subst keeps the deploy path uniform with the other helpers.
     log "/usr/local/libexec/ai-tools/ai-tools-relabel-agent"
     install_subst 750 root root \
         "${SCRIPT_DIR}/src/usr/local/libexec/ai-tools/ai-tools-relabel-agent.sh" \
@@ -2089,8 +2087,8 @@ do_install() {
         "${SCRIPT_DIR}/src/usr/local/libexec/ai-tools/ai-tools-bootstrap.sh" \
         /usr/local/libexec/ai-tools/ai-tools-bootstrap
 
-    # Host administration: ai-tools-admin operators add|remove|list manages the OPERATORS list and ai-ops membership.
-    # This dev install binds the invoking user as the sole operator inline.
+    # Host administration: atr admin operators add|remove|list manages the OPERATORS list and ai-ops membership. This
+    # dev install binds the invoking user as the sole operator inline.
     log "/usr/local/libexec/ai-tools/ai-tools-admin"
     install_subst 750 root root \
         "${SCRIPT_DIR}/src/usr/local/libexec/ai-tools/ai-tools-admin.sh" \
@@ -2098,7 +2096,7 @@ do_install() {
 
     # Put the one human-facing admin command where `sudo <name>` resolves it. The sudo-helpers
     # under /usr/local/libexec/ai-tools/ are invoked by the daemon, by sudoers and by ai-tools-admin at fixed paths
-    # and stay hidden there -- provisioning among them, reached as `ai-tools-admin system bootstrap` -- and so do
+    # and stay hidden there -- provisioning among them, reached as `atr admin system bootstrap` -- and so do
     # the contributed command fragments, reached as `ai-tools-admin <provider> <verb>`. ai-tools-admin itself is typed
     # by an administrator and documented as a bare command. sudo resolves a bare command against the sudoers
     # secure_path, which on stock EL is /sbin:/bin:/usr/sbin:/usr/bin -- it does NOT include /usr/local/sbin --
@@ -2325,10 +2323,10 @@ do_install() {
     ensure_dir 2770 root "${SANDBOX_GROUP}" /var/opt/ai-tools/sandbox-projects
 
     # Operator-readable state written BY the sandbox account: the last-run stamps of the units in that account's own
-    # `systemd --user manager` (nvm-update), which `ai-tools status` cannot query from the operator's session,
-    # and the cache cleanup state the updater and ai-tools-run rewrite (cache-cleanup.lib.sh). The directory is
-    # root-owned and deliberately NOT group-writable -- the account gets traverse only -- so the surface the stamps add
-    # is the contents of the individual files created here, never the directory: the account cannot add, unlink, rename,
+    # `systemd --user manager` (nvm-update), which `atr status` cannot query from the operator's session, and the cache
+    # cleanup state the updater and ai-tools-run rewrite (cache-cleanup.lib.sh). The directory is root-owned
+    # and deliberately NOT group-writable -- the account gets traverse only -- so the surface the stamps add is
+    # the contents of the individual files created here, never the directory: the account cannot add, unlink, rename,
     # or symlink-swap anything in it. Each stamp is therefore created HERE, owned by the account (which rewrites it
     # in place) with group ai-ops so operators read it directly. The parent is setgid, and ensure_dir is what clears
     # the inherited bit here (see tests.rule.md).
@@ -2355,7 +2353,7 @@ do_install() {
         /var/opt/ai-tools/README.md
 
     # Operator access to the shared sandbox area via an ai-ops group ACL, so operators create and work in clones
-    # (`ai-tools projects clone`) WITHOUT joining SANDBOX_GROUP: ai-ops gets traverse on the outer dir, rwX
+    # (`atr projects clone`) WITHOUT joining SANDBOX_GROUP: ai-ops gets traverse on the outer dir, rwX
     # on sandbox-projects (default ACL so clones inherit operator access), and read on the doc. One grant covers every
     # operator, and an operator stays in ai-ops after leaving SANDBOX_GROUP. This is the shared-area counterpart
     # to ai-tools-setfacl's per-project user:<operator> grant. ai-ops is created later in this script; ensure it first
@@ -2743,8 +2741,8 @@ do_install() {
         /usr/share/ai-tools/audit/ai-tools-cmd.rules.example
 
     # The seeder, the retired-list pass and the reconcile write the shared roots, and run under the assets lock
-    # (managed-assets.lib.sh) as one step, so an `ai-tools-admin assets` verb run beside this install does not
-    # interleave its writes with theirs; the reconcile adopts the lock this shell holds.
+    # (managed-assets.lib.sh) as one step, so an `atr admin assets` verb run beside this install does not interleave its
+    # writes with theirs; the reconcile adopts the lock this shell holds.
     if ai_tools_managed_assets__lock; then
         for _kind in "${AI_TOOLS_MANAGED_ASSETS__KINDS[@]}"; do
             _shared="${CP_HOME}/${_kind}"
@@ -2802,10 +2800,10 @@ do_install() {
     #
     # An existing allowlist holds the user's approved projects. A re-install keeps it by default; overwriting removes
     # all approved projects (destructive), so keep_existing requires an explicit second confirmation before doing so.
-    # The install dir is not added: registering a project is the CLI's business (`ai-tools projects claim`),
-    # and an entry the operator already holds for this checkout is theirs and is left as it is. What keeps a session's
-    # edits to this checkout from being deployed unread is the source-tree gate at the start of do_install, which names
-    # the commit the install deploys and refuses an uncommitted tree without `--allow-uncommitted`.
+    # The install dir is not added: registering a project is the CLI's business (`atr projects claim`), and an entry
+    # the operator already holds for this checkout is theirs and is left as it is. What keeps a session's edits to this
+    # checkout from being deployed unread is the source-tree gate at the start of do_install, which names the commit
+    # the install deploys and refuses an uncommitted tree without `--allow-uncommitted`.
 
     ensure_config_home "${PROJECTS_USER}" "${PROJECTS_GROUP}" "${PROJECTS_HOME}"
     ensure_dir 700 "${PROJECTS_USER}" "${PROJECTS_GROUP}" "${PROJECTS_HOME}/.config/ai-tools"
@@ -2815,7 +2813,7 @@ do_install() {
             "Removes every approved project from the allowlist (the directories are untouched)."; then
         seed_result "${allowlist}" "${allowlist_existed}" 1
     else
-        # The header text is conf.lib.sh's, the same one `ai-tools-admin operators add` seeds on a packaged host,
+        # The header text is conf.lib.sh's, the same one `atr admin operators add` seeds on a packaged host,
         # so an operator meets one description of what the file accepts.
         ai_tools_conf__get_allowlist_seed > "${allowlist}"
         chown "${PROJECTS_USER}:${PROJECTS_GROUP}" "${allowlist}"
@@ -2826,10 +2824,10 @@ do_install() {
             seed_result "${allowlist}" 0 0
         fi
     fi
-    # Secret-name patterns: user-owned 600, from the same conf.lib.sh header `ai-tools-admin operators add` seeds.
-    # The seeded file carries the header alone, so classification keeps using the baseline in secret-patterns.lib.sh
-    # until this operator writes a pattern; an existing file holds their edits, so a re-install keeps it unless they
-    # consent to re-seed.
+    # Secret-name patterns: user-owned 600, from the same conf.lib.sh header `atr admin operators add` seeds. The seeded
+    # file carries the header alone, so classification keeps using the baseline in secret-patterns.lib.sh until this
+    # operator writes a pattern; an existing file holds their edits, so a re-install keeps it unless they consent
+    # to re-seed.
     local patternfile="${PROJECTS_HOME}/.config/ai-tools/secret-patterns"
     local secret_existed=0; [[ -f "${patternfile}" ]] && secret_existed=1
     if keep_existing "${patternfile}"; then
@@ -3061,10 +3059,10 @@ retire_settings_file() {
 # while the manifest that names the package is still deployed: once the manifests are gone no reader knows a package
 # name, and a package left in the tree keeps an entrypoint a session can exec (toolchain.lib.sh; the agent packages'
 # %preun runs the same routine). The removal runs AS the sandbox account, the tree's owner, offline, and the link's
-# as root, which owns the locked bin directory. Node stays: the next `ai-tools-admin system bootstrap` reinstalls
-# the agents it enables. Best-effort by the same rule as retire_managed_files: an install too broken to carry
-# the library or the manifests removes none of them, and a removal deferred under a live session is left for the next
-# provisioning run.
+# as root, which owns the locked bin directory. Node stays: the next `atr admin system bootstrap` reinstalls the agents
+# it enables. Best-effort by the same rule as retire_managed_files: an install too broken to carry the library
+# or the manifests removes none of them, and a removal deferred under a live session is left for the next provisioning
+# run.
 remove_agent_packages() {
     local tclib=/usr/local/lib/ai-tools/toolchain.lib.sh
     local agents_dir=/usr/local/lib/ai-tools/agents.d
@@ -3103,7 +3101,7 @@ remove_agent_packages() {
 # the ai-tools account, each agent's own state under its config directory, and an edited settings.json or managed file
 # as a dated .retired copy (retire_settings_file, retire_managed_files). Each installed agent's npm package leaves
 # the toolchain with the manifest that names it (remove_agent_packages), so a reinstall re-provisions the agents
-# with `ai-tools-admin system bootstrap`. Allowlist and git safe.directory pruning for this project are offered
+# with `atr admin system bootstrap`. Allowlist and git safe.directory pruning for this project are offered
 # interactively.
 do_uninstall() {
     printf '\n%sUninstalling the ai-tools Claude Code sandbox%s\n' "${C_BOLD}" "${C_RST}"

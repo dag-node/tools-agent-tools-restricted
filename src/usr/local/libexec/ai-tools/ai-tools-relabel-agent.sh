@@ -38,10 +38,10 @@
 #
 # Runs as root (a domain that holds relabel), never the sandbox account. Three callers drive the default form:
 # ai-tools-bootstrap at provision time, the ai-tools-relabel.path watcher after an upgrade,
-# and `ai-tools-admin system entrypoints relabel` on demand. Every one of them is already root, so this helper carries
-# no %ai-ops sudoers rule and its 750 root:root mode is the whole gate. The domain story -- the watcher,
-# the ai-tools-run fail-closed backstop, and why the relabel privilege stays off the agent-reachable handback domain --
-# is in .claude/rules/updater.rule.md.
+# and `atr admin system entrypoints relabel` on demand. Every one of them is already root, so this helper carries no
+# %ai-ops sudoers rule and its 750 root:root mode is the whole gate. The domain story -- the watcher, the ai-tools-run
+# fail-closed backstop, and why the relabel privilege stays off the agent-reachable handback domain -- is
+# in .claude/rules/updater.rule.md.
 #
 # No-ops when SELinux is off or the ai_tools module is not installed: there is no ai_tools_exec_t to assign, which is
 # a supported (DAC-only) deployment, not a failure.
@@ -97,9 +97,9 @@ declare -F ai_tools_relabel__label_agent_paths >/dev/null 2>&1 \
     || die MSG-S9Z3 "relabel.lib.sh is incomplete -- reinstall ai-tools-base"
 
 # Serialize against the other callers of this helper before touching the policy store: the agent package's %post,
-# the ai-tools-relabel.path watcher, and `ai-tools-admin system entrypoints relabel` all run it, and an upgrade drives
-# two of them at once. Taken here so it covers `--remove` as well, which writes the same store. Proceeding unserialized
-# is reported, not fatal (see relabel.lib.sh).
+# the ai-tools-relabel.path watcher, and `atr admin system entrypoints relabel` all run it, and an upgrade drives two
+# of them at once. Taken here so it covers `--remove` as well, which writes the same store. Proceeding unserialized is
+# reported, not fatal (see relabel.lib.sh).
 ai_tools_relabel__lock
 [[ -z "${AI_TOOLS_RELABEL__LOCK_NOTE}" ]] \
     || { warn MSG-E4U5 "relabels are not serialized on this host -- ${AI_TOOLS_RELABEL__LOCK_NOTE}"
@@ -228,7 +228,7 @@ observe_agent_entrypoint() {
 #   decides the verdict has changed, skipping two network fetches and a gpgv per agent. It is
 #   OPT-IN, and the two unattended callers are what it is for: the ai-tools-relabel.path watcher,
 #   which an upgrade can fire several times for one change, and the agent package's %post.
-#   `ai-tools-admin system entrypoints relabel` clears the variable before it execs this helper, so
+#   `atr admin system entrypoints relabel` clears the variable before it execs this helper, so
 #   the on-demand command re-checks the vendor's signature every time -- the behaviour it
 #   documents. What reuse gives up, and what it keeps, are in updater.rule.md.
 pin_agent_entrypoint() {
@@ -318,7 +318,7 @@ report=""; status=0
 report="$(ai_tools_relabel__label_agent_paths)" || status=$?
 
 # record_label_outcome <agent> <ok|failed|skipped> [reason-token] : file what this run could do about that agent's
-#   labels where `ai-tools status` can read it. The operator cannot inspect the labels themselves -- the entrypoint sits
+#   labels where `atr status` can read it. The operator cannot inspect the labels themselves -- the entrypoint sits
 #   in a toolchain they cannot traverse -- so this record is the only account of the labelling half they have,
 #   the counterpart to the pin the verification half writes. Best-effort: a record that cannot be written is reported
 #   and never changes the outcome of the relabel it describes.
@@ -411,7 +411,7 @@ record_label_outcomes() {
             none)   record_label_outcome "${label_agent}" skipped not-provisioned ;;
             live-session) live_session_count=$(( live_session_count + 1 ))
                     record_label_outcome "${label_agent}" skipped live-session ;;
-            # The walk was left over a directory at another type, which ai_tools_t cannot write: a fault ai-tools status
+            # The walk was left over a directory at another type, which ai_tools_t cannot write: a fault atr status
             # counts, completed by the run the live-session token names; report_live_sessions fails the run over it.
             live-session-mislabelled) live_mislabelled_count=$(( live_mislabelled_count + 1 ))
                     live_mislabelled_types+="${live_mislabelled_types:+, }${label_agent}: ${agent_live_type[${label_agent}]:-unreadable}"
@@ -424,7 +424,7 @@ record_label_outcomes() {
 
 # report_live_sessions : name the config-directory walks a live session left. One at the type the agent writes is
 #   a warning; one at another type fails the run, as a mislabelled path does, since no session of that agent can write
-#   its state. What each files for ai-tools status, and what the oneshot unit then reports, is updater.rule.md's.
+#   its state. What each files for atr status, and what the oneshot unit then reports, is updater.rule.md's.
 report_live_sessions() {
     (( live_session_count == 0 )) \
         || warn MSG-E4E8 "the config directory of ${live_session_count} agent(s) was not relabelled: an agent session or the toolchain update runs as the sandbox account, or this host's sessions could not be read; let each session end (/exit inside it) and the toolchain update finish, or end them all with 'atr stop', then run: sudo systemctl start ai-tools-relabel.service"

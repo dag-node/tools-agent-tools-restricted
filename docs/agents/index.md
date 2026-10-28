@@ -9,8 +9,8 @@ on, and where one agent's own settings and environment variables are listed.
 ## Enable an agent
 
 ```bash
-sudo ai-tools-admin system bootstrap                 # asks which agent, and writes the line
-sudo ai-tools-admin system bootstrap --agents agent-<name> # agent-claude-code | agent-codex
+atr admin system bootstrap                 # asks which agent, and writes the line
+atr admin system bootstrap --agents agent-<name> # agent-claude-code | agent-codex
 sudo sed -i 's/^#\?AI_TOOLS_REQUIRE_ENTRYPOINT_VERIFY=.*/AI_TOOLS_REQUIRE_ENTRYPOINT_VERIFY=yes/' /etc/ai-tools/operator.conf
 ```
 
@@ -24,7 +24,7 @@ Node alone and says which line to set; `--agents agent-<name>` makes the choice
 without asking, the unattended form. The file is root-owned, so which agents
 run is decided with `sudo` and from nowhere else: a session cannot add one,
 and an agent package that widens what the host exposes stays off until you name
-it. `ai-tools providers` lists what is installed and which of it is enabled.
+it. `atr providers` lists what is installed and which of it is enabled.
 
 A second agent is a deliberate step, taken by hand: add `agent-<name>`
 to the line and re-run the bootstrap. Every agent named there runs as the one
@@ -49,9 +49,9 @@ Enabling installs and maintains an agent; it does not run one. A session starts
 when an operator types the agent's command in a claimed project,
 and that command reaches the sandbox wrapper only where the operator's `PATH`
 ranks `/usr/local/bin` ahead of their own tools — the ordering
-`ai-tools-admin operators add` wires into their shell
-([ref-section-y2t3](../install/from-source.md#ref-section-y2t3)).
-`ai-tools status` reports a shell where another copy of the command would win.
+`atr admin operators add` wires into their shell
+([ref-section-y2t3](../install/from-source.md#ref-section-y2t3)). `atr status`
+reports a shell where another copy of the command would win.
 
 Every agent runs the same way once it is on. One shim confines every session,
 and an agent package adds only what differs: the command you type, a manifest

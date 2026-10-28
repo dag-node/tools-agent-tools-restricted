@@ -307,7 +307,7 @@ ai_tools_providers__evaluate_empty_agents() {
 
 # ── The kind-prefix migration: the one rewrite of an earlier release's list values ───────────
 # An earlier release wrote the items of AI_TOOLS_AGENTS, AI_TOOLS_INTEGRATIONS and AI_TOOLS_FILTERS as bare names,
-# which ai_tools_conf__read_kind_list refuses (conf.lib.sh). `ai-tools-admin system post-upgrade` and `system bootstrap`
+# which ai_tools_conf__read_kind_list refuses (conf.lib.sh). `atr admin system post-upgrade` and `system bootstrap`
 # rewrite them through ai_tools_providers__migrate_kinds, a key at a time and only when every item the key holds maps
 # onto a name this host installs, so a rewritten line always reads back whole, and a line holding a name no installed
 # manifest or rule set matches stays as written and is named for the operator. The base package's %post and install.sh

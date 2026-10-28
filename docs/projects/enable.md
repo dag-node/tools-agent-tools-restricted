@@ -6,11 +6,11 @@
 [Lockdown](lockdown.md) · [Handback](handback.md) ·
 [Permissions](permissions.md) — [all docs](../index.md)
 
-How `ai-tools projects enable` lifts the `!` a disable wrote, which `!` line it
+How `atr projects enable` lifts the `!` a disable wrote, which `!` line it
 refuses to lift, and how a claim offers the same step on a parked entry.
 
 ```bash
-ai-tools projects enable ~/src/api
+atr projects enable ~/src/api
 ```
 
 Deletes the `!` from the project's line in your allowlist, in place,
@@ -18,8 +18,8 @@ so sessions may start there again. The tree's permissions did not change while
 it was parked, so the command does not grant any access that was not already
 granted, does not run a secret scan, and does not prompt. A project already
 enabled succeeds and says so; a path the allowlist does not name is refused
-and pointed at `ai-tools projects claim`, since registering a project is
-a claim, and a claim scans for secrets first ([Claim](claim.md)).
+and pointed at `atr projects claim`, since registering a project is a claim,
+and a claim scans for secrets first ([Claim](claim.md)).
 
 ## A `!` line inside a claimed project is not lifted
 
@@ -40,16 +40,16 @@ can enter.
 
 ## From a claim, and after a release
 
-`ai-tools projects claim` on a parked project offers this same re-enable behind
+`atr projects claim` on a parked project offers this same re-enable behind
 a default-No confirm, and claims the project with its line where it was
 ([Claim](claim.md)). That is the second half of the release rhythm
-`ai-tools projects unclaim --keep-entry` starts: hand a tree back with clean
+`atr projects unclaim --keep-entry` starts: hand a tree back with clean
 permissions before a release, and claim it again for the next stage without
 the project losing its place in the file ([Unclaim](unclaim.md)).
 
 ## For another operator
 
-`ai-tools projects enable --for svc-ci /srv/projects/api` edits that operator's
+`atr projects enable --for svc-ci /srv/projects/api` edits that operator's
 allowlist ([Service accounts](../operators/service-accounts.md)). The plain
 form does not run `sudo`; the `--for` form does.
 

@@ -196,9 +196,9 @@ asset two ways.
 **Both tests are about actions, so a read takes neither.** `status` is host-wide and reads as infrastructure,
 which would put it under `system` — but it only reads, and it does not take a resource identifier, which makes it
 a **singleton resource**. The same AIP-121 preference that keeps a report out of `:status` keeps it out of a `system`
-prefix: `GET /status` is `ai-tools status` and `GET /admin/status` is `ai-tools-admin status`, and neither takes
-`system`. A prefix would deepen the path and group a read with the `system` commands, each of which provisions
-or rewrites the host.
+prefix: `GET /status` is `atr status` and `GET /admin/status` is `atr admin status`, and neither takes `system`.
+A prefix would deepen the path and group a read with the `system` commands, each of which provisions or rewrites
+the host.
 
 In one line: acts on instances of a named resource → `[domain] <resource> <verb>`; global, one-shot
 or infrastructure-level **action** → `system <verb>`; a host-wide **read** → a bare singular noun.
@@ -248,7 +248,7 @@ Every `ai-tools-admin` command projects under `/admin/`, and every `ai-tools` co
 the privilege boundary, and the URI carries it as its first segment, so the two surfaces stay separate on the HTTP side
 as they are on the CLI side. `atr admin <command>` is the typed form of the admin surface, and `/admin/<path>` its
 projection: the word `admin` after `atr` projects as the first segment `/admin`, and the projection rules of this file
-decide the segments after it. `ai-tools status` and `ai-tools-admin status` are therefore two resources — `GET /status`,
+decide the segments after it. `atr status` and `atr admin status` are therefore two resources — `GET /status`,
 the operator's vantage, and `GET /admin/status`, root's — each printing `?` for a reading its caller cannot make
 ([cli](cli.rule.md)); they report one host and are two representations of it. A privileged caller does not get a wider
 `/status`; it gets `/admin/status`.
@@ -313,7 +313,7 @@ from the table, so the mapping an operator reads comes from the one the CLI appl
   an unstable surface use an explicit namespace instead — `kubectl alpha`, `gh preview`, `cargo -Z` — which graduates
   by dropping the prefix.
 - **A role-free URI, with a privileged caller's wider reading as a view of the same resource.** The separation
-  between the two surfaces is intended, and `/admin` states it; a field-level view would fold `ai-tools-admin status`
+  between the two surfaces is intended, and `/admin` states it; a field-level view would fold `atr admin status`
   into `GET /status` and leave the URI silent about which surface a command is on.
 - **An `:postUpgrade` projection for `system post-upgrade`.** The name states a lifecycle *moment* rather than a verb
   acting on a noun, so it has no clean AIP-136 form. What it does is reconcile the `.rpmnew` config files, which states

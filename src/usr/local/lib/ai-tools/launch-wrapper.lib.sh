@@ -420,10 +420,10 @@ ai_tools_launch_wrapper__gate_project() {
     # Exclusions are checked first and override allows (the match ai_tools_conf__is_path_excluded makes, spelled
     # out here because the refusal names which line matched and how). Two shapes reach this, and they are DIFFERENT
     # situations for the operator standing here, so they are reported apart: a line naming this very directory is
-    # a project someone PARKED -- `ai-tools projects disable`, or the same edit by hand -- and the way back is one
-    # command, while a line covering it from an ancestor (a parent, or a glob) is a subtree deliberately withheld
-    # from a project, where the remedy is to edit that line rather than to re-enable anything. Telling an operator their
-    # parked project is merely "excluded" leaves them to work out which of the two they are in.
+    # a project someone PARKED -- `atr projects disable`, or the same edit by hand -- and the way back is one command,
+    # while a line covering it from an ancestor (a parent, or a glob) is a subtree deliberately withheld from a project,
+    # where the remedy is to edit that line rather than to re-enable anything. Telling an operator their parked project
+    # is merely "excluded" leaves them to work out which of the two they are in.
     if [[ "${#exclusion_patterns[@]}" -gt 0 ]]; then
         for pat in "${exclusion_patterns[@]}"; do
             pat="${pat%/}"                         # normalise: strip trailing slash
@@ -519,8 +519,8 @@ ai_tools_launch_wrapper__gate_project() {
 }
 
 # _ai_tools_launch_wrapper__is_project_labelled <dir> -- 0 when SELinux is NOT enforcing (no label needed) or <dir>
-# already carries ai_tools_project_t. Read-only, no privilege; the authoritative relabel lives
-# in `ai-tools projects claim` (-> ai-tools-relabel), never duplicated here.
+# already carries ai_tools_project_t. Read-only, no privilege; the authoritative relabel lives in `atr projects claim`
+# (-> ai-tools-relabel), never duplicated here.
 _ai_tools_launch_wrapper__is_project_labelled() {
     command -v getenforce >/dev/null 2>&1 || return 0
     [[ "$(getenforce 2>/dev/null)" == "Enforcing" ]] || return 0
@@ -530,7 +530,7 @@ _ai_tools_launch_wrapper__is_project_labelled() {
 # ai_tools_launch_wrapper__guard_claim -- refuse an approved CWD whose claim is incomplete; offer the claim, never
 #   perform it.
 # The cwd passed the allowlist, but a registered path can still be incompletely "claimed". Three independent gaps, all
-# detected read-only here; the fix is always delegated to `ai-tools projects claim` (idempotent) -- this library never
+# detected read-only here; the fix is always delegated to `atr projects claim` (idempotent) -- this library never
 # performs a chgrp or a relabel itself, it only detects, offers, and (on consent) calls the CLI:
 #   ownership  -- group not the sandbox group, or no group-execute. The sandbox user runs with this dir as its cwd,
 #                 and Node's posix_spawn then fails EACCES on every child (hooks, the Bash tool): the session starts
@@ -668,7 +668,7 @@ ai_tools_launch_wrapper__run_gates() {
 # with an error naming that path (ancestor-config.lib.sh). The reading is taken per launch, since a project's ancestry
 # changes independently of the claim that registered it. It reports and does not repair any of them: no launch path
 # reaches outside the project. It sits here rather than in the claim guard because each of that guard's findings is
-# closed by `ai-tools projects claim`, which does not close this one.
+# closed by `atr projects claim`, which does not close this one.
 _ai_tools_launch_wrapper__print_notices() {
     local name="${AI_TOOLS_LAUNCH_WRAPPER__NAME}" svc drift config
     # shellcheck source=SCRIPTDIR/services.lib.sh

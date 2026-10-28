@@ -19,14 +19,14 @@
 # the versioning scheme, the integration binding and withdrawal are in shipped-assets.rule.md.
 
 # Every writer of the shared roots -- this seeder and the retired-list pass, the assets reconcile (assets.lib.sh),
-# and the `ai-tools-admin assets` verbs -- runs under one lock, the pair ai_tools_managed_assets__lock /
+# and the `atr admin assets` verbs -- runs under one lock, the pair ai_tools_managed_assets__lock /
 # ai_tools_managed_assets__unlock defined here, where every provisioning path already sources it. A writer named
 # `_locked` does not take it: its caller holds it across the seed, the retire pass and the reconcile.
 #
 # Withdrawing an asset needs its own step: the seeder only adds and updates, and the live roots are not rpm-owned,
 # so a name this project stops shipping stays live on an upgraded host until it is named here.
-# `ai_tools_managed_assets__remove_retired_assets_locked` reads this list; the next `ai-tools-admin assets reconcile`
-# drops each agent's now-dangling symlink.
+# `ai_tools_managed_assets__remove_retired_assets_locked` reads this list; the next `atr admin assets reconcile` drops
+# each agent's now-dangling symlink.
 #
 # Sourced more than once in a single shell: return early so the second pass is a no-op (an if-statement, not
 # `[[ ]] && return`, which returns 1 for an unset guard and trips `set -e`).
@@ -73,14 +73,14 @@ _ai_tools_managed_assets__read_lock_reason() {
 # ai_tools_managed_assets__lock : hold the assets lock until the matching ai_tools_managed_assets__unlock or the end
 # of the calling process. Call it in the calling shell, never through `$(...)`: the lock is an open file descriptor.
 # Reentrant: a call while the lock is held counts a level and returns 0. The descriptor is exported
-# as AI_TOOLS_ASSETS_LOCK_FD, so a child this process runs -- `ai-tools-admin assets reconcile` under a provisioning
-# path -- adopts the descriptor it inherited instead of opening its own, which would wait on its parent: it adopts one
-# only after the descriptor names the lock file, and still takes flock(2) on it, which returns at once when the parent
-# holds the lock. Waits up to AI_TOOLS_ASSETS_LOCK_WAIT seconds (120 when it is not a whole number), then refuses rather
-# than hold a package transaction. Returns 1, after MSG-M8T9 naming why on stderr and in journald, for a directory
-# or a lock file that is a symlink, not root's, or open to group or other by any bit, a create or an open that fails,
-# and a wait that runs out. The refusal comes before the descriptor is opened, so a lock left at wider modes is not
-# adopted or taken.
+# as AI_TOOLS_ASSETS_LOCK_FD, so a child this process runs -- `atr admin assets reconcile` under a provisioning path --
+# adopts the descriptor it inherited instead of opening its own, which would wait on its parent: it adopts one only
+# after the descriptor names the lock file, and still takes flock(2) on it, which returns at once when the parent holds
+# the lock. Waits up to AI_TOOLS_ASSETS_LOCK_WAIT seconds (120 when it is not a whole number), then refuses rather than
+# hold a package transaction. Returns 1, after MSG-M8T9 naming why on stderr and in journald, for a directory or a lock
+# file that is a symlink, not root's, or open to group or other by any bit, a create or an open that fails, and a wait
+# that runs out. The refusal comes before the descriptor is opened, so a lock left at wider modes is not adopted
+# or taken.
 ai_tools_managed_assets__lock() {
     local lock="${AI_TOOLS_ASSETS_LOCK}" dir="${AI_TOOLS_ASSETS_LOCK%/*}" wait="${AI_TOOLS_ASSETS_LOCK_WAIT}" fd=""
     local inherited="${AI_TOOLS_ASSETS_LOCK_FD:-}" error="" adopted=0

@@ -6,11 +6,11 @@
 [Lockdown](lockdown.md) · **Handback** · [Permissions](permissions.md) — [all
 docs](../index.md)
 
-How `ai-tools projects handback` returns ownership of what the agent wrote
-to you without unclaiming, when to run it, and what `--full` adds.
+How `atr projects handback` returns ownership of what the agent wrote to you
+without unclaiming, when to run it, and what `--full` adds.
 
 ```bash
-ai-tools projects handback ~/src/api
+atr projects handback ~/src/api
 ```
 
 Walks the project and hands every file the agent still owns back to you,
@@ -28,9 +28,8 @@ It catches the rest: the files a session that was killed left behind,
 and the `.git` tree, which the per-session passes skip. `--full` adds the heavy
 trees those passes skip too (`node_modules`, `.venv`, caches). Run it
 before a backup that does not preserve ACLs, so plain ownership carries your
-access into the copy, and after `ai-tools stop`, which names it for each
-project it ended a session in ([Stopping a running
-session](../sessions/stop.md)).
+access into the copy, and after `atr stop`, which names it for each project it
+ended a session in ([Stopping a running session](../sessions/stop.md)).
 
 It is not the opposite of a claim: `projects unclaim` takes the agent's access
 off a tree ([Unclaim](unclaim.md)); this command changes who owns files inside
@@ -44,7 +43,7 @@ for the reason on [Disable](disable.md): enable it, then run the handback.
 
 ## For another operator
 
-`ai-tools projects handback --for svc-ci /srv/projects/api` returns the files
+`atr projects handback --for svc-ci /srv/projects/api` returns the files
 to that operator ([Service accounts](../operators/service-accounts.md)).
 
 ## Exit status

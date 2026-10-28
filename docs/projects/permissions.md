@@ -32,9 +32,9 @@ with the group ai-tools; a secret-named file is locked to you and your group,
 and the coding agent loses access. After projects unclaim a handed-back file is
 yours with your group, the coding agent has no access, and world access does
 not come back. No step re-owns a file you wrote, an owner-only path or a path
-on a ! line of your allowlist; ai-tools projects handback returns files
-a session that ended early left behind, and the files the coding agent writes
-inside .git come back at the start and end of each session."
+on a ! line of your allowlist; atr projects handback returns files a session
+that ended early left behind, and the files the coding agent writes inside .git
+come back at the start and end of each session."
 src="../static/diagrams/ownership-lifecycle-light.svg"> </picture>
 
 ## Files the agent writes come back to you
@@ -50,7 +50,7 @@ The return happens inside claimed paths only, and acts on a path only while
 the sandbox account still owns it — the state an agent write leaves behind —
 so a file you wrote yourself, which you already own, is not touched.
 A secret-named file is the one exception, and comes back yours alone
-([Lockdown](lockdown.md)). `ai-tools projects handback` runs the same pass
+([Lockdown](lockdown.md)). `atr projects handback` runs the same pass
 on demand, for what a killed session left behind ([Handback](handback.md)).
 The hooks that return each file, and the helper they call, are
 [ownership-and-hooks](../../.claude/rules/ownership-and-hooks.rule.md).
@@ -112,7 +112,7 @@ the trailing `+`. Use `getfacl -e` to see effective access.
 
 ```bash
 mv ~/Downloads/report.csv ~/src/api/data/
-ai-tools projects claim ~/src/api
+atr projects claim ~/src/api
 ```
 
 A file you move in keeps what it had where it came from: its group, its mode

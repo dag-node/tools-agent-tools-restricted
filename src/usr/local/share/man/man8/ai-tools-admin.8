@@ -4,14 +4,18 @@
 .\" deploy time (install.sh install_subst / the RPM %prep), like the helper.
 .TH AI-TOOLS-ADMIN 8 "" "ai-tools @AI_TOOLS_VERSION@" "Agent Tools Restricted"
 .SH NAME
-ai-tools-admin \- administer the host a sandboxed coding agent runs on
+atr, ai-tools-admin \- administer the host a sandboxed coding agent runs on
 .SH SYNOPSIS
-.B ai-tools-admin
+.B atr admin
 .I COMMAND
 .RI [ ARGUMENT ]
 .br
-.B ai-tools-admin
+.B atr admin
 .BR \-\-help | \-\-version
+.br
+.B ai-tools-admin
+.I COMMAND
+.RI [ ARGUMENT ]
 .SH DESCRIPTION
 .B ai-tools-admin
 administers the host state the sandbox rests on: who is enrolled as an
@@ -24,6 +28,23 @@ separates it from
 .BR ai-tools (1)
 \(em the project-lifecycle CLI, run as your own login user, which refuses root
 for every command that writes an operator's registries.
+.PP
+.B "atr admin COMMAND"
+runs
+.B ai-tools-admin
+at its fixed path, directly as root and otherwise through
+.B sudo
+after one line on standard error saying so, and every example on this page is
+spelled that way.
+Type it without a leading
+.BR sudo :
+sudo then authorizes
+.BR /usr/local/libexec/ai-tools/ai-tools-admin ,
+the command a grant for this program names, while
+.B "sudo atr admin"
+has sudo authorize
+.BR /usr/sbin/atr ,
+which a rule naming the program alone does not cover.
 .PP
 A command is a bare word and
 .B \-\-
@@ -63,7 +84,7 @@ grant, which the host's own sudoers decides.
 reports which of the two shapes the enrolment produced \(em an account that
 can claim projects as well as launch sessions, or one that launches sessions
 on projects another operator claimed for it with
-.BR "ai\-tools projects claim \-\-for" .
+.BR "atr projects claim \-\-for" .
 .PP
 Group membership applies to new login sessions, so an operator enrolled from
 an already-open shell starts a new one before launching an agent.
@@ -187,11 +208,11 @@ is the command an administrator runs when neither did \(em an out-of-band
 upgrade, or a watcher that was down \(em and when either
 .B status
 or
-.B "ai\-tools status"
+.B "atr status"
 reports an entrypoint unverified or not labelled.
 .B status
 answers from the labels themselves, where
-.B "ai\-tools status"
+.B "atr status"
 answers from the last reconciliation's record.
 .SS Layout
 Every path this stack installs or creates is one row of a table the base
@@ -870,7 +891,7 @@ the entries read with this call's change, refuse the call with the file
 unchanged.
 A write that could not be confirmed exits 1: the file holds the list it held or
 the one the call wrote, and the message names the backup and
-.BR "sudo ai\-tools\-admin assets reconcile" .
+.BR "atr admin assets reconcile" .
 Each writes one record per entry of
 .B AI_TOOLS_ASSETS
 \(em
@@ -912,7 +933,7 @@ not enforced where it is not.
 .RS
 .PP
 It is the same report
-.B "ai\-tools status"
+.B "atr status"
 gives an operator, completed with the readings that vantage point lacks
 the privilege for and prints as
 .BR ? :
@@ -957,7 +978,7 @@ section,
 and
 .B UNEXPECTED
 need attention: re-run
-.B "ai\-tools\-admin system bootstrap"
+.B "atr admin system bootstrap"
 for the first, and inspect and remove the named entry for the second.
 .B FUTURE
 means the update timer's stamp is dated ahead of the clock, so a missed update
@@ -979,7 +1000,7 @@ commands that end it:
 .PP
 .EX
 sudo dnf install ai-tools-assets-sets-core
-sudo ai-tools-admin assets enable --set core
+atr admin assets enable --set core
 .EE
 .RE
 .PP
@@ -1011,11 +1032,11 @@ The section's OK line counts the assets
 .B AI_TOOLS_ASSETS
 enables and those that resolved to linked.
 An asset resolves while its link is still missing, and
-.B "ai\-tools\-admin assets list"
+.B "atr admin assets list"
 names the links a reconcile would place.
 .PP
 The label reading is the one this command alone can give.
-.B "ai\-tools status"
+.B "atr status"
 reports what the last reconciliation
 .IR achieved ,
 an event that may be hours old; this reports the type the file carries now, so
@@ -1197,8 +1218,8 @@ yourself.
 .PP
 .RS 4
 .EX
-sudo ai\-tools\-admin system bootstrap
-sudo ai\-tools\-admin operators add "$(id \-un)"
+atr admin system bootstrap
+atr admin operators add "$(id \-un)"
 .EE
 .RE
 .PP
@@ -1206,7 +1227,7 @@ Provision a host unattended, enabling one agent without the menu:
 .PP
 .RS 4
 .EX
-sudo ai\-tools\-admin system bootstrap \-\-agents agent\-codex
+atr admin system bootstrap \-\-agents agent\-codex
 .EE
 .RE
 .PP
@@ -1220,7 +1241,7 @@ then re-run the same command:
 .PP
 .RS 4
 .EX
-sudo ai\-tools\-admin system bootstrap
+atr admin system bootstrap
 .EE
 .RE
 .PP
@@ -1229,8 +1250,8 @@ what the .NET one has:
 .PP
 .RS 4
 .EX
-sudo ai\-tools\-admin system bootstrap \-\-scope full
-sudo ai\-tools\-admin dotnet status
+atr admin system bootstrap \-\-scope full
+atr admin dotnet status
 .EE
 .RE
 .PP
@@ -1238,8 +1259,8 @@ Claim a project for a passwordless service account you enrolled earlier:
 .PP
 .RS 4
 .EX
-sudo ai\-tools\-admin operators add svc\-agent
-ai\-tools projects claim \-\-for svc\-agent ~/src/myproject
+atr admin operators add svc\-agent
+atr projects claim \-\-for svc\-agent ~/src/myproject
 .EE
 .RE
 .PP
@@ -1247,8 +1268,8 @@ See which policy groups are loaded, then widen the domain for a .NET build:
 .PP
 .RS 4
 .EX
-sudo ai\-tools\-admin selinux groups
-sudo ai\-tools\-admin selinux groups enable tmpmap
+atr admin selinux groups
+atr admin selinux groups enable tmpmap
 .EE
 .RE
 .PP
@@ -1256,7 +1277,7 @@ Reconcile the configuration files an upgrade left behind:
 .PP
 .RS 4
 .EX
-sudo ai\-tools\-admin system post\-upgrade
+atr admin system post\-upgrade
 .EE
 .RE
 .PP
@@ -1272,7 +1293,7 @@ something or could not complete:
 .PP
 .RS 4
 .EX
-ai\-tools\-admin system post\-upgrade \-\-check > /var/tmp/post\-upgrade.tsv
+atr admin system post\-upgrade \-\-check > /var/tmp/post\-upgrade.tsv
 case $? in
     0) rm \-f /var/tmp/post\-upgrade.tsv ;;
     4) logger \-t post\-upgrade "findings left; see the stream" ;;
@@ -1287,7 +1308,7 @@ refuses over the label:
 .PP
 .RS 4
 .EX
-sudo ai\-tools\-admin system entrypoints relabel
+atr admin system entrypoints relabel
 .EE
 .RE
 .SH SEE ALSO

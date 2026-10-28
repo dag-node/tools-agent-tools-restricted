@@ -5,21 +5,21 @@
 # config (the OPERATORS list, the ai-ops group, the sandbox account's linger; the loaded optional SELinux policy groups)
 # while the ai-tools CLI is unprivileged and refuses to run as root.
 #
-#   sudo ai-tools-admin operators                          # list (the zero-argument default)
-#   sudo ai-tools-admin operators add [user]               # default: $SUDO_USER
-#   sudo ai-tools-admin operators remove <user>
+#   atr admin operators                          # list (the zero-argument default)
+#   atr admin operators add [user]               # default: $SUDO_USER
+#   atr admin operators remove <user>
 #   ```bash
-#   sudo ai-tools-admin selinux groups                     # show core + optional group state
-#   sudo ai-tools-admin selinux groups enable <name>...    # load prebuilt (stable) groups
-#   sudo ai-tools-admin selinux groups disable <name>      # unload one
-#   sudo ai-tools-admin system bootstrap                   # provision the sandbox account's toolchain
-#   sudo ai-tools-admin system bootstrap --scope full      # ... and every enabled integration
-#   sudo ai-tools-admin system bootstrap --agents agent-codex # ... enabling the named agent, unattended
-#   sudo ai-tools-admin system entrypoints relabel         # verify + relabel the agent entrypoints
-#   sudo ai-tools-admin system post-upgrade                # reconcile the .rpmnew files upgrades leave
-#   sudo ai-tools-admin system post-upgrade --check        # findings as a record stream; silent, exit 0 when clean
-#   sudo ai-tools-admin status                             # the host's health, read as root
-#   sudo ai-tools-admin dotnet bootstrap                   # a domain a provider package contributes
+#   atr admin selinux groups                     # show core + optional group state
+#   atr admin selinux groups enable <name>...    # load prebuilt (stable) groups
+#   atr admin selinux groups disable <name>      # unload one
+#   atr admin system bootstrap                   # provision the sandbox account's toolchain
+#   atr admin system bootstrap --scope full      # ... and every enabled integration
+#   atr admin system bootstrap --agents agent-codex # ... enabling the named agent, unattended
+#   atr admin system entrypoints relabel         # verify + relabel the agent entrypoints
+#   atr admin system post-upgrade                # reconcile the .rpmnew files upgrades leave
+#   atr admin system post-upgrade --check        # findings as a record stream; silent, exit 0 when clean
+#   atr admin status                             # the host's health, read as root
+#   atr admin dotnet bootstrap                   # a domain a provider package contributes
 #   ```
 #
 # The spelling is the project's command grammar (cli-grammar.rule.md): a bare-word command, a plural collection,
@@ -2441,8 +2441,8 @@ _pu_report() {
 }
 
 # ── status ───────────────────────────────────────────────────────────────────────────────────
-# `ai-tools status` read from root's vantage -- one resource reported twice, not a second report. Which readings root
-# adds and why the two agree is .claude/rules/cli.rule.md; what this file contributes is the rendering, in the plain
+# `atr status` read from root's vantage -- one resource reported twice, not a second report. Which readings root adds
+# and why the two agree is .claude/rules/cli.rule.md; what this file contributes is the rendering, in the plain
 # bracket-token idiom the rest of this tool uses. The verdicts come from services.lib.sh and relabel.lib.sh, which emit
 # data and leave every consumer to format it.
 readonly SERVICES_LIB="/usr/local/lib/ai-tools/services.lib.sh"
@@ -2595,7 +2595,7 @@ status_provisioning() {
 }
 
 # status_managed_files: per enabled agent, each managed file its manifest names (managed_files, ai-tools-providers(5))
-# whose live copy is not the shipped one -- the same reading `ai-tools status` makes, rendered in this tool's table.
+# whose live copy is not the shipped one -- the same reading `atr status` makes, rendered in this tool's table.
 # The package never overwrites such a file, so this line is where an operator learns it differs. An edited file is
 # a supported state and is not counted; a missing one is, since the package is then broken. Prints no line for a file
 # matching the shipped copy. Without the resolver status_provisioning has already said so; a resolver that loaded
@@ -2839,11 +2839,11 @@ status_unit_search_path() {
 }
 
 # status_caches [home] [state-file]: per cache group, what its last cleanup did and when, read from the state file
-# through cache-cleanup.lib.sh, whose verdicts and remedies ai-tools status renders too, and beside it the size
-# the cache holds now, which only root reads in the 0750 tree (`du -sxP`, as data, bounded to ten seconds). A group
-# that failed, or that holds links its producer does not write, is counted in STATUS_PROBLEMS; an overdue one is shown
-# and not counted, and an empty file reads `?` and is not counted. <home> and <state-file> are parameters so a unit test
-# drives the section over fixtures; the report passes AI_TOOLS_CACHE_CLEANUP_STATE, a root-only override.
+# through cache-cleanup.lib.sh, whose verdicts and remedies atr status renders too, and beside it the size the cache
+# holds now, which only root reads in the 0750 tree (`du -sxP`, as data, bounded to ten seconds). A group that failed,
+# or that holds links its producer does not write, is counted in STATUS_PROBLEMS; an overdue one is shown and not
+# counted, and an empty file reads `?` and is not counted. <home> and <state-file> are parameters so a unit test drives
+# the section over fixtures; the report passes AI_TOOLS_CACHE_CLEANUP_STATE, a root-only override.
 status_caches() {
     local home="${1:-${CP_HOME:-/opt/ai-tools}}"
     local state="${2:-${AI_TOOLS_CACHE_CLEANUP_STATE:-/var/opt/ai-tools/state/cache-cleanup.status}}"
@@ -2944,10 +2944,10 @@ status_update_timer_stamp() {
 
 # status_selinux_attestation: render the rows ai_tools_confinement__list_attestation_report prints (confinement.lib.sh):
 # the per-domain mode of ai_tools_t and the Booleans that widen it, read and classified by the launch shim's own
-# functions, so this report, ai-tools status and the launch cannot disagree. A finding counts only where the report's
-# verdict row says AI_TOOLS_REQUIRE_SELINUX is set, since that is when it refuses a launch, and on a host without
-# SELinux confinement by its own configuration (ai_tools_confinement__evaluate_dac_only_state) only where that key makes
-# every launch warn; elsewhere it is reported as the posture it is. <operator-conf> is a parameter so a unit test drives
+# functions, so this report, atr status and the launch cannot disagree. A finding counts only where the report's verdict
+# row says AI_TOOLS_REQUIRE_SELINUX is set, since that is when it refuses a launch, and on a host without SELinux
+# confinement by its own configuration (ai_tools_confinement__evaluate_dac_only_state) only where that key makes every
+# launch warn; elsewhere it is reported as the posture it is. <operator-conf> is a parameter so a unit test drives
 # the counting rule over a fixture.
 status_selinux_attestation() {
     local operator_conf="${1:-${OPERATOR_CONF}}"
@@ -3214,8 +3214,8 @@ status_node_version() {
 
 # status: the host report. The exit is the report state's (ai-tools-records(5)): 4 when a section read a fault, 5
 # when a section could not make a reading it promises, so it is usable from a monitor or a cron check without parsing
-# this output -- the same contract `ai-tools status` offers, and the reason `?` and `n/a` are never counted: a reading
-# this vantage point cannot make must not make a healthy host alarm every night.
+# this output -- the same contract `atr status` offers, and the reason `?` and `n/a` are never counted: a reading this
+# vantage point cannot make must not make a healthy host alarm every night.
 status() {
     [[ $# -eq 0 ]] || reject MSG-T6S6 "status: takes no arguments"
     STATUS_PROBLEMS=0

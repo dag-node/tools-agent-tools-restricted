@@ -910,7 +910,7 @@ _label_sandbox_clones() {
 # _operator_conf_dirs: print the ai-tools config directory of every account this host treats as an operator, one
 # per line, deduplicated in first-seen order. That set is the OPERATORS list in operator.conf plus the invoking user,
 # who is an operator by having run this and who on a first install is absent from the list, operator.conf being written
-# by `ai-tools-admin operators add`. So an unenrolled host still labels the config of the account installing the policy.
+# by `atr admin operators add`. So an unenrolled host still labels the config of the account installing the policy.
 _operator_conf_dirs() {
     local name home
     {

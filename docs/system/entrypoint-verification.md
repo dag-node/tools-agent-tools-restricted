@@ -99,14 +99,14 @@ where neither works.
 | `could not verify … pin unchanged` | the host could not reach the vendor, or no manifest exists for that release | no action; it re-verifies on the next update. If it persists, check egress to `downloads.claude.ai` |
 | `signed by a key the pinned keyring does not hold` | the vendor rotated its signing key | `sudo dnf update 'ai-tools-agents-*'` |
 | a launch refused: `does not match its recorded checksum` | **the binary changed after it was recorded** | treat the toolchain as tampered and replace the binary — see [Replacing a changed binary](#replacing-a-changed-binary) |
-| a launch refused: `carries no pin` | you set `AI_TOOLS_REQUIRE_ENTRYPOINT_VERIFY=yes` and no reconcile has pinned this entrypoint | `sudo ai-tools-admin system entrypoints relabel` (needs the host online for an agent whose vendor publishes a manifest) |
-| `PIN STALE` in `ai-tools status` | a reconciliation refused to re-record that pin, so it describes a binary that is no longer installed | the same: [Replacing a changed binary](#replacing-a-changed-binary) |
+| a launch refused: `carries no pin` | you set `AI_TOOLS_REQUIRE_ENTRYPOINT_VERIFY=yes` and no reconcile has pinned this entrypoint | `atr admin system entrypoints relabel` (needs the host online for an agent whose vendor publishes a manifest) |
+| `PIN STALE` in `atr status` | a reconciliation refused to re-record that pin, so it describes a binary that is no longer installed | the same: [Replacing a changed binary](#replacing-a-changed-binary) |
 | `UNCHANGED` in place of `VERIFIED` | that agent is pinned as installed | no action; [An agent whose vendor does not publish a signed manifest](#an-agent-whose-vendor-does-not-publish-a-signed-manifest) says what it claims |
 
-`sudo ai-tools-admin system entrypoints relabel` reconciles the entrypoint: it
-verifies and pins it, then fixes its SELinux label. Both are answers to "the
-toolchain changed"; it is the same command you already run when a Node upgrade
-leaves the entrypoint mislabelled.
+`atr admin system entrypoints relabel` reconciles the entrypoint: it verifies
+and pins it, then fixes its SELinux label. Both are answers to "the toolchain
+changed"; it is the same command you already run when a Node upgrade leaves
+the entrypoint mislabelled.
 
 ### Replacing a changed binary
 
@@ -117,26 +117,26 @@ goes on refusing. End every running session first — let each one finish,
 or stop them all — then remove the installed package:
 
 ```bash
-ai-tools stop
+atr stop
 sudo rm -rf /opt/ai-tools/.nvm/versions/node/v22.20.0/lib/node_modules/@openai/codex
-sudo ai-tools-admin system bootstrap
+atr admin system bootstrap
 ```
 
 No process of the sandbox account is then running while root removes its files.
 A session started before the binary changed keeps running until it ends,
-so a session you need can finish first; `ai-tools stop` ends them all at once.
-Both the refused launch and `sudo ai-tools-admin system entrypoints relabel`
-print these commands with the paths this host has, so the version directory
-and the package name do not have to be looked up. Investigate before launching
-a session if it recurs: a binary that changes under an unchanged version is
-the one thing no update explains.
+so a session you need can finish first; `atr stop` ends them all at once. Both
+the refused launch and `atr admin system entrypoints relabel` print these
+commands with the paths this host has, so the version directory and the package
+name do not have to be looked up. Investigate before launching a session if it
+recurs: a binary that changes under an unchanged version is the one thing no
+update explains.
 
 ## An agent whose vendor does not publish a signed manifest
 
 Not every vendor publishes one. Codex does not: its npm channel does not ship
 a signed per-release checksum, so `gpgv` has no signature to check. Such
 an agent is still pinned. Root records the checksum of the binary as installed,
-and `ai-tools status` reports that pin as `UNCHANGED`:
+and `atr status` reports that pin as `UNCHANGED`:
 
 ```text
 Entrypoint verification
@@ -187,8 +187,8 @@ cosign verify-blob --bundle codex-x86_64-unknown-linux-musl.sigstore --certifica
 Each Codex release `rust-v<version>` on GitHub publishes
 `codex-x86_64-unknown-linux-musl.sigstore`, a Sigstore bundle signed
 by OpenAI's release workflow over the same binary the npm package installs. Run
-against the entrypoint `sudo ai-tools-admin status` names under `labelled`,
-with `<version>` the number `ai-tools status` reports for Codex, the command
+against the entrypoint `atr admin status` names under `labelled`,
+with `<version>` the number `atr status` reports for Codex, the command
 confirms that binary was produced by that workflow. It is a check you run
 by hand, once per release: this project does not record its result,
 and `UNCHANGED` stays what the pin claims. It also costs maintenance

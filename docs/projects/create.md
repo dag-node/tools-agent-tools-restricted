@@ -6,20 +6,18 @@
 [Handback](handback.md) · [Permissions](permissions.md) — [all
 docs](../index.md)
 
-How `ai-tools projects create` makes a directory, initializes git in it
-and claims it in one step, what it refuses, and the one question it can still
-ask you.
+How `atr projects create` makes a directory, initializes git in it and claims
+it in one step, what it refuses, and the one question it can still ask you.
 
 ```bash
-ai-tools projects create ~/src/newproject
+atr projects create ~/src/newproject
 ```
 
 Creates the directory, initializes an empty git repository in it, writes
-a `README.md` naming it, then runs the same claim
-that `ai-tools projects claim` runs on a tree you already have
-([Claim](claim.md)). The `DIRECTORY` is required: the current directory exists,
-so it cannot be the default of a command whose subject is a directory that does
-not exist yet.
+a `README.md` naming it, then runs the same claim that `atr projects claim`
+runs on a tree you already have ([Claim](claim.md)). The `DIRECTORY` is
+required: the current directory exists, so it cannot be the default
+of a command whose subject is a directory that does not exist yet.
 
 ## The one question it can ask
 
@@ -73,9 +71,9 @@ so the refusal names both causes.
 ai-tools: this path already exists: /home/you/src/newproject
 ```
 
-A path that already exists is refused, naming `ai-tools projects claim`
-instead: claiming grants an agent access to whatever a tree already holds,
-which is not an operation to arrive at by a typo.
+A path that already exists is refused, naming `atr projects claim` instead:
+claiming grants an agent access to whatever a tree already holds, which is not
+an operation to arrive at by a typo.
 
 ```text
 ai-tools: cannot create at a symbolic link: /home/you/src/link -- projects create makes a new directory and does not follow a link there
@@ -91,11 +89,11 @@ refused before anything exists, and names the clone as the way in.
 
 Every refusal fires before the directory is made. A step that fails after it —
 a root step whose password round did not complete — leaves the directory
-in place, and `ai-tools projects claim` on it finishes the claim.
+in place, and `atr projects claim` on it finishes the claim.
 
 ## For another operator
 
-`ai-tools projects create --for svc-ci /srv/projects/api` makes the tree owned
+`atr projects create --for svc-ci /srv/projects/api` makes the tree owned
 by `svc-ci` and registers it in that account's allowlist. Because the directory
 is made **as** that account, the run needs a `sudo` grant to act as it,
 and a parent that account can write; [Service

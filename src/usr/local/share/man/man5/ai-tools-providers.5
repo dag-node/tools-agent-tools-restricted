@@ -89,7 +89,7 @@ Every agent manifest sets
 so with
 .B AI_TOOLS_AGENTS
 absent no agent is enabled:
-.B "ai-tools-admin system bootstrap"
+.B "atr admin system bootstrap"
 asks which one installed agent to enable and writes that key
 .RB ( ai-tools-admin (8)).
 A name listed but not installed is reported and skipped.
@@ -120,7 +120,7 @@ Default:
 .TP
 .B admin_summary
 The one-line description
-.B ai-tools-admin --help
+.B atr admin --help
 prints beside the command domain this package contributes.
 A domain exists because its command is installed, not because this key is
 set; a domain without the key is listed without a description.
@@ -250,9 +250,9 @@ The agent's package links that path to
 .B /opt/ai-tools/skills
 when it is installed, and keeps what a host already holds there.
 Reported, not written:
-.B ai-tools-admin assets reconcile
+.B atr admin assets reconcile
 and
-.B ai-tools-admin status
+.B atr admin status
 report a real directory, a file or a link elsewhere at the path as
 .BR agent-root-foreign ,
 and the reconcile reports an absent path as
@@ -282,9 +282,9 @@ Each is kept across an upgrade, and the package ships a pristine copy of it
 under the same name in
 .BI /usr/share/ai-tools/ agent /
 so that
-.B ai-tools status
+.B atr status
 and
-.B ai-tools-admin status
+.B atr admin status
 report a live file that differs from the shipped one.
 Reported, not enforced: the agent reads the live file alone, and a file
 there does not carry a guarantee.
@@ -295,7 +295,7 @@ Unset for an agent whose configuration lives inside
 A file-context pattern for the binary that starts a session, which the
 SELinux confinement keys on.
 It is applied as a local rule by
-.B ai-tools-admin system entrypoints relabel
+.B atr admin system entrypoints relabel
 and by the automatic relabel after a toolchain update.
 The pattern must lie under
 .B /opt/ai-tools/.nvm/versions/node/
@@ -323,7 +323,7 @@ The three
 .B release_*
 keys are read together.
 An agent declaring none of them is reported as unverified by
-.BR "ai-tools status" ,
+.BR "atr status" ,
 which is not a fault unless the operator required verification.
 .SS Integrations
 .TP
@@ -372,8 +372,8 @@ The module must be shipped by the policy package under
 The optional SELinux policy groups this toolchain needs on an enforcing
 host.
 None is enabled automatically; each is an explicit
-.BR "ai-tools-admin selinux groups enable" .
-.B "ai-tools providers"
+.BR "atr admin selinux groups enable" .
+.B "atr providers"
 and
 .BI "ai-tools-admin " name " status"
 name the ones not loaded, with the command that enables them.

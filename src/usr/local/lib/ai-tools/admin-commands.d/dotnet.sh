@@ -22,9 +22,9 @@
 # an operator wants available to every project. The tools directory is root-owned and read-only to the agent, so only
 # this command changes its content.
 #
-#   sudo ai-tools-admin dotnet bootstrap             # create and label the state tree (offline, idempotent)
-#   sudo ai-tools-admin dotnet tools install <pkg...> # install global tools into the shared dir (network)
-#   sudo ai-tools-admin dotnet status                # show host SDKs/runtimes + sandbox state
+#   atr admin dotnet bootstrap             # create and label the state tree (offline, idempotent)
+#   atr admin dotnet tools install <pkg...> # install global tools into the shared dir (network)
+#   atr admin dotnet status                # show host SDKs/runtimes + sandbox state
 #
 # Every step fails loudly with the cause logged to journald and /var/log/ai-tools/dotnet.log under the ai-tools-dotnet
 # tag, and the genuine no-ops (SELinux disabled, no policycoreutils, the ai_tools module not loaded) are recognized

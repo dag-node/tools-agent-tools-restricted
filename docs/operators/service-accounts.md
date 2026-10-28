@@ -6,8 +6,8 @@ How a service account without a password becomes an operator, how a human
 claims projects for it with `--for`, and which commands need more than that.
 
 ```bash
-sudo ai-tools-admin operators add svc-ci                  # enrol the service account
-ai-tools projects claim --for svc-ci /srv/projects/api    # claim a project on its behalf
+atr admin operators add svc-ci                  # enrol the service account
+atr projects claim --for svc-ci /srv/projects/api    # claim a project on its behalf
 sudo -u svc-ci -H bash -lc 'cd /srv/projects/api && claude'   # the account runs its own session
 ```
 
@@ -36,11 +36,11 @@ to the operator who made it and pushes with that operator's git credentials.
 
 - **Run sessions** in every project claimed for it. Group membership applies
   to a new login session, so enrol the account before its first job starts.
-- **See its projects and the host**: `ai-tools projects` lists its allowlist,
-  and `ai-tools status` reports the sandbox's health.
-- **Park and unpark its own projects** with `ai-tools projects disable`
+- **See its projects and the host**: `atr projects` lists its allowlist,
+  and `atr status` reports the sandbox's health.
+- **Park and unpark its own projects** with `atr projects disable`
   and `projects enable`.
-- **Stop every session on the host** with `ai-tools stop`, which does not ask
+- **Stop every session on the host** with `atr stop`, which does not ask
   for a password. It is the shutdown rung of the escalation ladder
   in the governance framework of the asset set `core`
   (`/opt/ai-tools/skills/ai-tools-agent-governance/references/framework.md`
@@ -61,8 +61,8 @@ once the reason it printed is cleared.
 ## Creating and deleting as the service account
 
 ```bash
-ai-tools projects create --for svc-ci /srv/projects/api
-ai-tools projects remove --for svc-ci /srv/projects/api
+atr projects create --for svc-ci /srv/projects/api
+atr projects remove --for svc-ci /srv/projects/api
 ```
 
 Most `--for` commands redirect a registry: the entry lands in the target's
@@ -80,9 +80,9 @@ runs mkdir as svc-ci, and you hold no sudo grant to do that.
 
   Run it as svc-ci, or create the project without --for and hand it over:
 
-    ai-tools projects create /srv/projects/api
+    atr projects create /srv/projects/api
     sudo chown -R svc-ci /srv/projects/api
-    ai-tools projects claim --for svc-ci /srv/projects/api
+    atr projects claim --for svc-ci /srv/projects/api
 ```
 
 The last line of that workaround is the general rule: a claim for an operator
@@ -139,18 +139,18 @@ for a directory the account itself owns.
   directory for the host, as does session scratch under `/tmp`.
 - **One session per project at a time.** Two sessions in one working tree share
   its files and its git index. A second agent on the same repository works
-  in its own clone (`ai-tools projects clone`).
+  in its own clone (`atr projects clone`).
 - **The toolchain.** A daily timer in the sandbox account's own
   `systemd --user instance` updates Node and the agent packages once
   for the host; it runs as `ai-tools`, and the relabel that follows an update
-  runs as root. `ai-tools status` reports the result to any operator.
+  runs as root. `atr status` reports the result to any operator.
 - **The commit identity.** The agent commits with the name and email set
   at bootstrap, whichever operator's project the commit lands in.
 - **The clone area.** Any operator creates clones
   under `/var/opt/ai-tools/sandbox-projects`. A clone belongs to the operator
   who created it and uses that operator's git credentials, so `projects clone`
   does not take `--for`.
-- **The stop.** `ai-tools stop` ends every operator's sessions, not only
+- **The stop.** `atr stop` ends every operator's sessions, not only
   the caller's ([Stopping a running session](../sessions/stop.md)).
 
 ## What stays private to each operator

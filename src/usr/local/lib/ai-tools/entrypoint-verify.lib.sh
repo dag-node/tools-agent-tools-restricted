@@ -463,7 +463,7 @@ ai_tools_entrypoint_verify__read_installed_version() {
 #   It exists because the remedy for a changed binary is not the provisioning command: `npm install -g`
 #   is a no-op at an already-installed version, so reprovisioning leaves the modified file exactly where it is
 #   and the host goes on refusing with no explanation. Removing this directory is what makes the next
-#   `ai-tools-admin system bootstrap` fetch the package again. One reader, so the launch refusal and the relabel
+#   `atr admin system bootstrap` fetch the package again. One reader, so the launch refusal and the relabel
 #   helper name the same path.
 #
 #   The entrypoint path and the package name reach a terminal inside a command carrying `rm -rf`, so each is

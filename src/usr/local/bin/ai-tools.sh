@@ -274,7 +274,7 @@ unset _forless_args
 # an alias: the command reconciles a root-owned pin and a file context, so it runs as root, which this CLI refuses.
 #
 # It answers ahead of every gate on purpose. The bootstrap gate would otherwise send an unprovisioned host
-# to the provisioning command, and the root guard would answer `sudo ai-tools --relabel` -- the spelling the older docs
+# to the provisioning command, and the root guard would answer `sudo atr --relabel` -- the spelling the older docs
 # printed -- with a list of the verbs root may run, none of which reconciles an entrypoint. Exit 2 is the documented
 # code for a rejected command line (ai-tools(1)).
 if [[ "${1:-}" == "--relabel" ]]; then
@@ -333,10 +333,10 @@ set -- "${@:COMMAND_TOKENS+1}"
 # cannot read them.
 #
 # The check runs HERE, after --for is separated out, for two reasons. Before that point the command is not reliably
-# the first argument (`ai-tools --for op projects` leads with the flag). And running it here refuses --for for root
-# in EITHER argument order: root is not in OPERATORS, so a --for run performed by root would write an entry that names
-# an owner no ownership helper can resolve. require_operator does not cover that on its own -- it gates the mutating
-# verbs, and `projects list` is not one of them.
+# the first argument (`atr --for op projects` leads with the flag). And running it here refuses --for for root in EITHER
+# argument order: root is not in OPERATORS, so a --for run performed by root would write an entry that names an owner no
+# ownership helper can resolve. require_operator does not cover that on its own -- it gates the mutating verbs,
+# and `projects list` is not one of them.
 #
 # refuse_early, not die(): this runs before msg.lib.sh is sourced, like the sandbox refusal.
 root_may_run() {
@@ -528,8 +528,8 @@ readonly SESSIONS_LIB="/usr/local/lib/ai-tools/sessions.lib.sh"
 # shellcheck source=SCRIPTDIR/../lib/ai-tools/sessions.lib.sh
 source "${SESSIONS_LIB}" 2>/dev/null || true
 
-# Service-health registry (services.lib.sh): the single source `ai-tools status`, the launch wrapper's pre-launch health
-# warning and `ai-tools-admin status` share, so no two of them disagree on which units matter, what one is doing,
+# Service-health registry (services.lib.sh): the single source `atr status`, the launch wrapper's pre-launch health
+# warning and `atr admin status` share, so no two of them disagree on which units matter, what one is doing,
 # or how to fix it. Best-effort -- only `status` reads it, and it degrades to a "registry unavailable" notice rather
 # than failing any command.
 readonly SERVICES_LIB="/usr/local/lib/ai-tools/services.lib.sh"
@@ -559,8 +559,8 @@ readonly CACHE_CLEANUP_LIB="/usr/local/lib/ai-tools/cache-cleanup.lib.sh"
 readonly CONFINEMENT_LIB="/usr/local/lib/ai-tools/confinement.lib.sh"
 # The account whose `systemd --user` units the registry may read live. Naming it does not by itself enable the probe:
 # _ai_tools_services__run_systemctl still requires root and a working machine transport, and refuses this CLI run
-# as an operator. So an operator's report is unchanged, while `sudo ai-tools status` completes the reads that need root
-# -- one resource, degrading by privilege, which is what keeps this report and `ai-tools-admin status` from being two
+# as an operator. So an operator's report is unchanged, while `sudo atr status` completes the reads that need root --
+# one resource, degrading by privilege, which is what keeps this report and `atr admin status` from being two
 # answers.
 if declare -F ai_tools_services__set_sandbox_account >/dev/null 2>&1; then
     ai_tools_services__set_sandbox_account "${SANDBOX_USER}"
@@ -2272,9 +2272,9 @@ is_project_tree_pristine() {
 # require_claimable_owner <dir>  -- die unless <dir> is held by the operator this run acts FOR or by the sandbox
 # account: ai-tools-setgid and ai-tools-setfacl, the two helpers that grant the agent its access, act only on those two
 # owners, so a root held by anyone else would take every registry step and none of the access-granting ones. The case it
-# exists for is a `--for` claim over a tree the invoker made
-# (`mkdir ~/proj && ai-tools projects claim --for svc ~/proj`), and the refusal names the chown that fixes it, since
-# transferring a tree recursively needs an authority this CLI does not hold. The consequence and the remedy are
+# exists for is a `--for` claim over a tree the invoker made (`mkdir ~/proj && atr projects claim --for svc ~/proj`),
+# and the refusal names the chown that fixes it, since transferring a tree recursively needs an authority this CLI does
+# not hold. The consequence and the remedy are
 # cli.rule.md's.
 require_claimable_owner() {
     local d="$1" owner
@@ -3320,7 +3320,7 @@ unclaim_one() {
     # The registry drops run REGARDLESS of the hand-back decision, and that is the difference from a claim: dropping
     # them is what moves to LESS access -- the agent can no longer launch here -- so stopping short of them would be
     # the unsafe direction. Only the safe.directory removal, which is cleanup and needs its own authentication, is
-    # skipped once the operator has said to stop; ai-tools projects reports the entry it leaves behind.
+    # skipped once the operator has said to stop; atr projects reports the entry it leaves behind.
     ${stopped} || unreg_safedir "${d}" || note_root_failure || true
     # <registry> decides what happens to the allowlist line, never WHETHER it stops mattering: both dispositions end
     # with no session able to start here. `drop` deletes it; `park` prefixes it with '!' in place, keeping its position
@@ -4261,8 +4261,8 @@ remove_clone() {
     run_as_owner rm -rf -- "${d}"
     unreg_allow "${d}"
     # `|| true`: the clone is already gone, so a safe.directory entry that could not be removed is a stale line pointing
-    # at a path that is gone -- reported by ai-tools projects, and not a reason to abort a removal that has already
-    # happened. unreg_safedir signals failure now, and a bare call under set -e would do exactly that.
+    # at a path that is gone -- reported by atr projects, and not a reason to abort a removal that has already happened.
+    # unreg_safedir signals failure now, and a bare call under set -e would do exactly that.
     unreg_safedir "${d}" || true
     ok "removed ${d} and unregistered it"
     ai_tools_log__structured info "removed sandbox ${d} and unregistered it" \
@@ -4679,8 +4679,8 @@ list_maintenance_note() {
 }
 
 # status_fmt_age <seconds>  -- render an age the way an operator reads it ("3 days ago"). The wording is single-sourced
-# in services.lib.sh beside the age it formats, so this report and `ai-tools-admin status` cannot describe the same
-# stamp two ways; this stays a local name because the report calls it on nearly every line. Fail-soft, like the rest
+# in services.lib.sh beside the age it formats, so this report and `atr admin status` cannot describe the same stamp two
+# ways; this stays a local name because the report calls it on nearly every line. Fail-soft, like the rest
 # of that library's use here: a missing lib drops the relative clause rather than the line.
 status_fmt_age() {
     declare -F ai_tools_services__format_age >/dev/null 2>&1 || return 0
@@ -4867,7 +4867,7 @@ status_entrypoint_pins() {
 
 # status_selinux_attestation [operator-conf] -- render the rows ai_tools_confinement__list_attestation_report prints
 # (confinement.lib.sh): the per-domain mode of ai_tools_t and the Booleans that widen it, read and classified
-# by the launch shim's own functions, so this report, ai-tools-admin status and the launch cannot disagree. Returns 1
+# by the launch shim's own functions, so this report, atr admin status and the launch cannot disagree. Returns 1
 # for a finding only where AI_TOOLS_REQUIRE_SELINUX makes it refuse every launch (the report's verdict row) or makes
 # every launch warn -- a host without SELinux confinement by its own configuration
 # (ai_tools_confinement__evaluate_dac_only_state), where the shim launches DAC-only and names the key to set --
@@ -4995,7 +4995,7 @@ status_entrypoint_stale() {
 # and matchpathcon computes only what a label SHOULD be -- so this reports the root-written record instead,
 # through the same stamp accessors as the pin. It reports an EVENT: what the last run could do, and when -- not
 # the label the entrypoint carries now, which the record does not hold: a refused rule ends the run before its verify
-# pass, and the launch reads the live type rather than this record. So the failure line names `ai-tools-admin status`,
+# pass, and the launch reads the live type rather than this record. So the failure line names `atr admin status`,
 # which reads the labels as root, and the service start that re-runs the work and clears the unit's own recorded failure
 # with it.
 #
@@ -5090,7 +5090,7 @@ status_provisioning() {
 # (ai_tools_providers__read_gate's `unreadable`): the enabled agents and integrations then fall back to the default-
 # enabled ones and the set the file declares is unknown. Returns 1 for that line, so it counts toward the exit status;
 # does not print a line otherwise. The account read is the operator's own: whether the sandbox account reads the file is
-# a reading root makes, in ai-tools-admin status.
+# a reading root makes, in atr admin status.
 status_operator_conf() {
     [[ "$(ai_tools_providers__read_gate AI_TOOLS_AGENTS)" == unreadable ]] || return 0
     say "  ${C_RED}cannot read ${AI_TOOLS_OPERATOR_CONF}${C_RST} -- only the default-enabled providers apply: $(ai_tools_conf__read_unreadable_reason "${AI_TOOLS_OPERATOR_CONF}")"
@@ -5193,10 +5193,10 @@ status_managed_files() {
 }
 
 # status_caches -- the Caches section: per cache group, what its last cleanup did and when, from the state file its
-# writers rewrite. Each verdict and each remedy is cache-cleanup.lib.sh's, so this report and ai-tools-admin status
-# cannot disagree. A failed group, and one holding links its producer does not write, is counted; an overdue one is
-# shown with its line and not counted; an empty file reads `?`, as does a file this account cannot read (a
-# non-operator), and neither is counted. Returns 1 for a counted line, STATUS_UNREADABLE for a library that did not
+# writers rewrite. Each verdict and each remedy is cache-cleanup.lib.sh's, so this report and atr admin status cannot
+# disagree. A failed group, and one holding links its producer does not write, is counted; an overdue one is shown
+# with its line and not counted; an empty file reads `?`, as does a file this account cannot read (a non-operator),
+# and neither is counted. Returns 1 for a counted line, STATUS_UNREADABLE for a library that did not
 # load.
 status_caches() {
     local state="${AI_TOOLS_CACHE_CLEANUP_STATE:-/var/opt/ai-tools/state/cache-cleanup.status}" rc=0
@@ -5551,8 +5551,8 @@ cmd_project_list() {
     # Reverse reconciliation: a git safe.directory entry with no matching allowlist line is an ORPHAN -- git still
     # trusts the tree though no allowlist line names it (the line was hand-deleted, or an unclaim was interrupted
     # before the safedir drop). Removing the stale safedir (and its label) is the cleanup; the entry is not a claimed
-    # project, so it is not offered `ai-tools projects unclaim`, which would refuse an unlisted target. Control-plane
-    # entries (/opt/ai-tools) are registered deliberately and are protected paths, so they are skipped.
+    # project, so it is not offered `atr projects unclaim`, which would refuse an unlisted target. Control-plane entries
+    # (/opt/ai-tools) are registered deliberately and are protected paths, so they are skipped.
     local sdir
     while IFS= read -r sdir; do
         [[ -n "${sdir}" ]] || continue

@@ -44,7 +44,7 @@
 # ── Why root, and what this command accepts ──────────────────────────────────────────────────
 # Signalling the sandbox account's cgroups and writing cgroup.kill is root's to do. The %ai-ops sudoers rule grants this
 # helper NOPASSWD in its zero-argument form alone (the drop-in's trailing ""), so `ai-tools stop` runs without a prompt,
-# and a flagged form (`ai-tools stop --dry-run`) meets sudo's ordinary password prompt, as a call
+# and a flagged form (`atr stop --dry-run`) meets sudo's ordinary password prompt, as a call
 # to `ai-tools-{lockdown,reclaim,audit}` does.
 #
 # IT TAKES NO TARGET AND NO AUTHORIZATION INPUT. What is stopped is decided by one fact a session cannot influence --
@@ -248,8 +248,7 @@ refuse_positional_argument() {
 parse_command_line() {
     while (( $# )); do
         case "$1" in
-            # Accepted and inert (the header's usage note says why it exists at all). The documented form is
-            # `ai-tools stop`.
+            # Accepted and inert (the header's usage note says why it exists at all). The documented form is `atr stop`.
             --all)        shift ;;
             --dry-run) DRY_RUN=true; shift ;;
             -y|--yes)     ASSUME_YES=true; shift ;;
@@ -720,8 +719,8 @@ unit_working_directory() {
     # Attribution does not decide any part of the sweep here, so this is not a gate -- it is what keeps a value this
     # helper cannot interpret from being printed as though it could be used. The concrete case is
     # print_reclaim_guidance, which turns each attributed directory into a command the operator is invited to run:
-    # an unstripped marker emitted `ai-tools projects handback !/opt/ai-tools`, which is not a runnable command
-    # and, pasted into an interactive bash, is not even an inert one.
+    # an unstripped marker emitted `atr projects handback !/opt/ai-tools`, which is not a runnable command and, pasted
+    # into an interactive bash, is not even an inert one.
     #
     # The shape is ALLOWLISTED rather than the markers enumerated, so a rendering systemd adds later degrades
     # to `unknown` instead of reaching the operator as a broken command. `~` (WorkingDirectory=~, the account's home)
@@ -848,9 +847,9 @@ print_session_table() {
 # the operator must translate mid-incident.
 #
 # CALLED WITH AGENT SESSIONS' DIRECTORIES ONLY. The account's plumbing has no project to hand back, and its
-# WorkingDirectory is routinely a path `ai-tools projects handback` would refuse outright: the account's dbus broker
-# reports `/opt/ai-tools`, the control plane, which the safe-paths backstop protects. Emitting it produced a remedy
-# that cannot run, offered to an operator mid-incident with no marker to distinguish it from the one that can.
+# WorkingDirectory is routinely a path `atr projects handback` would refuse outright: the account's dbus broker reports
+# `/opt/ai-tools`, the control plane, which the safe-paths backstop protects. Emitting it produced a remedy that cannot
+# run, offered to an operator mid-incident with no marker to distinguish it from the one that can.
 print_reclaim_guidance() {
     local directory
     local -A seen=()

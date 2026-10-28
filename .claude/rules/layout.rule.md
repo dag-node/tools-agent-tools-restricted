@@ -10,8 +10,8 @@ paths:
 Every path this project installs or creates on a host is one row of a table `layout.lib.sh` declares, with the owner,
 the mode and the ACL the row carries; the SELinux type is derived at read time from the policy. The library reads
 what each row carries now and repairs a drifted row under the preconditions this rule states. Three consumers read it:
-`ai-tools-admin system layout` (the human table and the `--check` record stream, [cli-grammar](cli-grammar.rule.md)
-for the spelling, `ai-tools-admin(8)` for the contract), `ai-tools-admin system layout reconcile`,
+`atr admin system layout` (the human table and the `--check` record stream, [cli-grammar](cli-grammar.rule.md)
+for the spelling, `ai-tools-admin(8)` for the contract), `atr admin system layout reconcile`,
 and `tests/integration/perms.sh`, whose first section is the table's loop. [Where it runs](#where-it-runs) names
 the callers of the reconcile.
 

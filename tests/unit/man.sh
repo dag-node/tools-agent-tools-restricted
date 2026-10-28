@@ -413,7 +413,7 @@ check_secret_patterns_page() {
     # written to a file, read through the library's own loader, and must come back one for one, each a basename glob
     # with no '/'.
     local -a examples=() loaded=(); local pattern bad=0 file
-    mapfile -t examples < <(man_examples "${SECRET_MAN}" | grep -vE '^(ai-tools|#|$)' || true)
+    mapfile -t examples < <(man_examples "${SECRET_MAN}" | grep -vE '^(atr|ai-tools|#|$)' || true)
     if (( ${#examples[@]} == 0 )); then
         fail "ai-tools-secret-patterns(5) EXAMPLES carry no pattern line to check"; return
     fi

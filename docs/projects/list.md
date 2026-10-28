@@ -6,12 +6,12 @@
 [Lockdown](lockdown.md) · [Handback](handback.md) ·
 [Permissions](permissions.md) — [all docs](../index.md)
 
-What `ai-tools projects list` reports about each entry in your allowlist,
+What `atr projects list` reports about each entry in your allowlist,
 the cleanup it suggests, and what it shows when run as root or for another
 operator.
 
 ```bash
-ai-tools projects        # the same command as: ai-tools projects list
+atr projects        # the same command as: atr projects list
 ```
 
 Lists every registered project — claimed in place, sandbox clone, `!`-parked —
@@ -31,7 +31,7 @@ the command to read a host from.
 
 Run as root it reads root's own registry, which no bootstrap creates, so it
 reports an empty list and says whose registry it read, naming the enrolled
-operators to run it as instead. `ai-tools projects list --for svc-ci` lists
+operators to run it as instead. `atr projects list --for svc-ci` lists
 that operator's projects: their allowlist is readable by its owner alone,
 so this is the one `--for` read that asks for your `sudo` password ([Service
 accounts](../operators/service-accounts.md)).

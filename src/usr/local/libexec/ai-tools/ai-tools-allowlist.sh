@@ -39,8 +39,8 @@
 #   ai-tools-allowlist --operator <name> --disable <absolute-project-path>
 #
 # `--enable` and `--disable` neither add nor drop a line: they take the leading '!' off an entry, or put it
-# on, IN PLACE. They are the privileged half of `ai-tools projects enable`/`projects disable` (and of the claim's
-# re-enable prompt), and they are deliberately not an add/remove pair: the line keeps its position and its comment,
+# on, IN PLACE. They are the privileged half of `atr projects enable`/`projects disable` (and of the claim's re-enable
+# prompt), and they are deliberately not an add/remove pair: the line keeps its position and its comment,
 # so a park-and-restore round trip leaves an ordered, commented allowed-projects exactly as its operator wrote it.
 #
 # Installed 750 root:root, so only root runs it. Its domain rule is cli.rule.md.

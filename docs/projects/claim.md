@@ -6,12 +6,12 @@
 [Handback](handback.md) · [Permissions](permissions.md) — [all
 docs](../index.md)
 
-How `ai-tools projects claim` registers a tree you already have, what it asks
+How `atr projects claim` registers a tree you already have, what it asks
 in the order it asks, what each answer grants, and what a re-claim repairs.
 
 ```bash
 cd ~/src/existing
-ai-tools projects claim
+atr projects claim
 ```
 
 Registers the tree in your allowlist and in git's `safe.directory` list, gives
@@ -99,8 +99,8 @@ Declining leaves every parent as it was, and the claim goes on: the closing
 line says the agent may be unable to enter the project. A run without
 a terminal declines, and prints the `setfacl` line for each parent so you can
 apply it by hand. A parent you do not own, or a system directory, is not
-offered at all: the claim says why and names `ai-tools projects clone`
-as the way in. The grant is
+offered at all: the claim says why and names `atr projects clone` as the way
+in. The grant is
 [ref-section-d7d5](../../.claude/rules/cli.rule.md#ref-section-d7d5).
 
 ## Secret lockdown before any access
@@ -154,7 +154,7 @@ Two more notices name what the claim saw and left alone:
   those trees. Where one of them is really source, name it in `operator.conf`
   (the notice names the key, `SKIP_ARTIFACT_DIRS_EXCLUDED_PATHS_RELATIVE`)
   and claim again; for ownership alone inside them, run
-  `ai-tools projects handback --full`.
+  `atr projects handback --full`.
 
 Where your account can read the sandbox account's sessions, a claim whose label
 step is pending while a session or the toolchain update runs says
@@ -166,14 +166,14 @@ NOTICE: a session of the sandbox account is running
   ... The SELinux label step walks the tree as root, and the helper refuses
   that step while one runs, where the claim runs it: the other steps apply,
   the label is reported pending ...
-      ai-tools stop
+      atr stop
 ```
 
 The label step walks the tree as root, and is refused while a session
 of the sandbox account or the toolchain update runs
 ([ref-section-e6c6](../../.claude/rules/cli.rule.md#ref-section-e6c6)). Let
 each session end with `/exit` and the toolchain update finish, or end them all
-with `ai-tools stop`, then claim again: the re-run applies the label alone.
+with `atr stop`, then claim again: the re-run applies the label alone.
 
 An owner-only path, and one named on a `!` line of your allowlist, is skipped
 by every step and reported as a count. Either mark is also how you stop a path
@@ -182,7 +182,7 @@ being reported again.
 ## Re-claiming
 
 ```bash
-ai-tools projects claim    # from inside the project
+atr projects claim    # from inside the project
 ```
 
 Running the claim again is the repair. It reads the tree, performs only
@@ -190,14 +190,14 @@ the steps that are missing, and is a no-op when none are. Run it after you move
 files in from elsewhere, after you change permissions by hand, or when a claim
 stopped part-way. A re-claim repairs group, permissions and the label; it does
 not hand files back, so a file the agent wrote stays owned by the sandbox
-account until you run `ai-tools projects handback` ([Handback](handback.md)).
+account until you run `atr projects handback` ([Handback](handback.md)).
 
 Files you moved in are the usual reason to need one: `mv` keeps a file's old
 group and type, so the agent cannot write that one file while everything
 around it works. The re-claim lists such files, asks about each kind under its
 list, and after the Apply block prints one line per file saying whether
 the repair took. The questions, when to say no, and what each outcome means are
-on [Permissions](permissions.md). `ai-tools projects claim --format tsv` writes
+on [Permissions](permissions.md). `atr projects claim --format tsv` writes
 those outcome lines to standard output as a record stream
 (`man 5 ai-tools-records`), with every other line on standard error
 and the questions still asked on the terminal, so a script reads the rows
@@ -213,7 +213,7 @@ with its line, and its comment, where they were ([Enable](enable.md)).
 ## For another operator
 
 ```bash
-ai-tools projects claim --for svc-ci /srv/projects/api
+atr projects claim --for svc-ci /srv/projects/api
 ```
 
 The entry lands in `svc-ci`'s allowlist, so files the agent writes there come

@@ -8,8 +8,8 @@ Whether this host is healthy and what to read when it is not: the status
 commands, the audit over both log trails, confinement, and the entrypoint pin.
 
 ```bash
-ai-tools status              # as yourself
-sudo ai-tools-admin status   # as root, the same host with the readings you cannot make
+atr status              # as yourself
+atr admin status   # as root, the same host with the readings you cannot make
 ```
 
 Both report the installed version, whether the toolchain is provisioned, every
@@ -60,17 +60,16 @@ producer does not write. `OVERDUE` is for your information: a cache no launch
 has cleaned for two weeks, because another session was always running
 or a launch could not tell whether one was. It does not change the exit status.
 Where an `OVERDUE` line reads `SKIPPED (sessions)`, end every session — let
-each finish, or `ai-tools stop` ends them all — and the next session start
-cleans it. `sudo ai-tools-admin status` also shows how much each cache holds
-now.
+each finish, or `atr stop` ends them all — and the next session start cleans
+it. `atr admin status` also shows how much each cache holds now.
 
-`sudo ai-tools audit` is the other starting point — it reads the trails
-and reports what refused, was rejected, was stranded, or was flagged
-over a window you give it. There are three trails, and the audit keeps them
-apart on purpose: journald carries what a session itself logs, the root-only
-files under `/var/log/ai-tools` carry what the privileged helpers wrote,
-which is the trail the sandbox account cannot write to, and the kernel's audit
-log records an agent started from inside a session. [Logs](logs.md) covers each
+`sudo atr audit` is the other starting point — it reads the trails and reports
+what refused, was rejected, was stranded, or was flagged over a window you give
+it. There are three trails, and the audit keeps them apart on purpose: journald
+carries what a session itself logs, the root-only files
+under `/var/log/ai-tools` carry what the privileged helpers wrote, which is
+the trail the sandbox account cannot write to, and the kernel's audit log
+records an agent started from inside a session. [Logs](logs.md) covers each
 of them, and the per-tool-call record of what a session ran.
 
 Confinement is optional to install and fail-closed once a host expects it.

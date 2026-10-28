@@ -140,7 +140,7 @@ a killed prior session's leftovers) and the `session-end` pass (graceful-exit co
 sweep, so it never flips ownership mid-turn under a live `git` command. The other skipped trees (`node_modules`,
 `.venv`, …) stay agent-owned, which is safe as an ownership outcome — the files are world-readable, so the owner field
 does not decide access to them, and the tree is regenerable. That is a claim about ownership alone: no sweep inspects
-what a tree holds. The operator's on-demand counterpart is `ai-tools projects handback [--full]` (the `ai-tools-reclaim`
+what a tree holds. The operator's on-demand counterpart is `atr projects handback [--full]` (the `ai-tools-reclaim`
 helper, which walks a project and delegates to the same `ai-tools-chown`; see [cli](cli.rule.md)) — e.g.
 before a backup, with `--full` to include the skipped heavy trees.
 
@@ -165,12 +165,12 @@ context or onto the terminal. A gracefully-exited session clears its marker and 
 the cross-project pointer is needed only for a kill. Every reclaim is logged to journald (the audit trail), but only
 the **interrupted** case is also surfaced as a `SessionStart` `additionalContext` NOTICE — the only actionable one,
 since a killed prior session can leave cross-project mixed ownership the agent should relay,
-with `ai-tools projects handback <project>` as the manual reconcile ([cli](cli.rule.md)), which resolves the owner
-per path. The command sits on its own line, outside the frame, with the path in bash's `%q` encoding, so it pastes
-as the same path. The encoding runs under the C locale, so the line is printable ASCII whatever locale the session
-inherited, and a Unicode control in the name reaches the model as its escape. The routine post-git-activity reclaim runs
-on nearly every `session-start` and has already repaired ownership, so it stays journald-only: injecting it would force
-a TUI re-render that clobbers claude's startup banner with a line the user cannot act on. The surfaced NOTICE is framed
+with `atr projects handback <project>` as the manual reconcile ([cli](cli.rule.md)), which resolves the owner per path.
+The command sits on its own line, outside the frame, with the path in bash's `%q` encoding, so it pastes as the same
+path. The encoding runs under the C locale, so the line is printable ASCII whatever locale the session inherited,
+and a Unicode control in the name reaches the model as its escape. The routine post-git-activity reclaim runs on nearly
+every `session-start` and has already repaired ownership, so it stays journald-only: injecting it would force a TUI
+re-render that clobbers claude's startup banner with a line the user cannot act on. The surfaced NOTICE is framed
 through `msg.lib.sh` (see [messaging](messaging.rule.md)).
 
 Every pass checks the handback socket before acting, since a socket that is down fails every `CHOWN` and a count
@@ -183,10 +183,9 @@ the handbacks rather than folded into them. A down socket makes each pass skip i
 and leave the sweep marker where it was. A call that fails on a walk that ran is logged and does not hold the marker,
 since a path the helper refuses for good would pin it; the path stays `SANDBOX_USER`-owned for the next `session-start`
 pass. The `session-start` pass — the one the operator reads — surfaces a distinct `SessionStart` NOTICE naming the fix
-(`systemctl enable --now ai-tools-handback.socket`, then `ai-tools projects handback <project>`) whenever agent-owned
-`.git` paths are stranded, instead of the "reclaimed N" wording. `ai-tools-run`'s launch-time preflight is
-the front-line detector for the same condition (see [launch](launch.rule.md),
-[handback-bridge](handback-bridge.rule.md)).
+(`systemctl enable --now ai-tools-handback.socket`, then `atr projects handback <project>`) whenever agent-owned `.git`
+paths are stranded, instead of the "reclaimed N" wording. `ai-tools-run`'s launch-time preflight is the front-line
+detector for the same condition (see [launch](launch.rule.md), [handback-bridge](handback-bridge.rule.md)).
 
 ## Setgid normalization <a id="ref-section-y9z4"></a>
 

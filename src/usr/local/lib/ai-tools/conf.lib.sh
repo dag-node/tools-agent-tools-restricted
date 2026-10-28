@@ -305,7 +305,7 @@ ai_tools_conf__split_list_value() {
 # an integration and a filter set. The prefix lives in operator.conf alone -- a manifest, a fragment and a rules file
 # keep the bare name, since their directory already states the kind -- so the list reader strips it and every consumer
 # receives the bare name. An item without its key's prefix makes the whole list invalid (MSG-X6F2): an earlier release
-# wrote bare names, and `ai-tools-admin system post-upgrade` rewrites them (ai_tools_providers__migrate_kinds,
+# wrote bare names, and `atr admin system post-upgrade` rewrites them (ai_tools_providers__migrate_kinds,
 # providers.lib.sh). _ai_tools_conf__list_kind_table is the one place a key is tied to its prefix.
 
 # The longest name a pair list item takes; a name may become a path component, so it is an identifier and bounded.
@@ -679,7 +679,7 @@ ai_tools_conf__find_new_keys() {
 
 # ── KEY=value files: set one key in place ────────────────────────────────────────────────────
 # The one rewrite this project makes to operator.conf is a single key's value -- the OPERATORS list
-# from `ai-tools-admin operators add|remove` and the AI_TOOLS_AGENTS list from the toolchain provisioning's agent choice
+# from `atr admin operators add|remove` and the AI_TOOLS_AGENTS list from the toolchain provisioning's agent choice
 # (ai_tools_conf__set_list), and the provisioning's switches (ai_tools_conf__set_key). Setting a key replaces one line
 # and does not splice a block in, which is what ai_tools_conf__find_new_keys leaves to the operator: the line replaced
 # is the key's own -- its last live assignment, the one a reader takes, or where the file has none, the first commented
@@ -1209,8 +1209,8 @@ ai_tools_conf__allowlist_enable() {
 # ── Seed text for an operator's own config files ──────────────────────────────────────────────
 # A file an operator keeps in ~/.config/ai-tools is created carrying its header and no entry, so the operator edits
 # a file that states what it is rather than a blank one. The text lives here because it is written from more than one
-# place -- `ai-tools-admin operators add` on any installed host, and install.sh for the account a from-source install
-# enrols -- and a header written twice is a header that disagrees with itself about what the file accepts. Each function
+# place -- `atr admin operators add` on any installed host, and install.sh for the account a from-source install enrols
+# -- and a header written twice is a header that disagrees with itself about what the file accepts. Each function
 # PRINTS; the caller places the file with the ownership and mode it needs (600, inside a 700
 # directory).
 #

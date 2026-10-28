@@ -6,11 +6,11 @@
 [Lockdown](lockdown.md) · [Handback](handback.md) ·
 [Permissions](permissions.md) — [all docs](../index.md)
 
-How `ai-tools projects disable` parks a claimed project so no session starts
-there, what stays in place while it is parked, and what stops with it.
+How `atr projects disable` parks a claimed project so no session starts there,
+what stays in place while it is parked, and what stops with it.
 
 ```bash
-ai-tools projects disable ~/src/api
+atr projects disable ~/src/api
 ```
 
 Prefixes the project's line in your allowlist with `!`, in place: the entry
@@ -51,7 +51,7 @@ files written under it are **not** restored to you, and `projects lockdown`,
 `projects handback` and `projects unclaim` decline to act on it. A project
 a session is still writing to therefore keeps that session's files owned
 by the sandbox account until you re-enable it. Stop the session first,
-or re-enable the project afterwards and run `ai-tools projects handback`
+or re-enable the project afterwards and run `atr projects handback`
 ([Handback](handback.md)). Why every one of those stops together is
 [ref-section-v2n3](../../.claude/rules/cli.rule.md#ref-section-v2n3).
 
@@ -73,14 +73,14 @@ the one enclosing it. Editing the line by hand is unaffected.
 
 ```text
 claude: this project is disabled in your approved projects list: /home/you/src/api
-claude: re-enable it with:  ai-tools projects enable
+claude: re-enable it with:  atr projects enable
 ```
 
 The launch refuses and names the way back.
 
 ## For another operator
 
-`ai-tools projects disable --for svc-ci /srv/projects/api` parks the entry
+`atr projects disable --for svc-ci /srv/projects/api` parks the entry
 in that operator's allowlist ([Service
 accounts](../operators/service-accounts.md)). The plain form does not run
 `sudo`; the `--for` form does, to read the other allowlist.

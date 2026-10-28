@@ -18,7 +18,7 @@
 # provisioner does about it, and why the absence is the condition rather than any cause are in updater.rule.md.
 #
 # Two residue readers, one per principal, since the tree is 0750 and only the sandbox account traverses it:
-# the operator's wrapper and `ai-tools status` read the stable launcher link as the proxy for a provisioned package
+# the operator's wrapper and `atr status` read the stable launcher link as the proxy for a provisioned package
 # (ai_tools_toolchain__find_agent_residue_links), and the shim, the provisioners and the updater read the tree itself
 # (ai_tools_toolchain__find_agent_residue). The same link names the Node version directory it points into, so it is also
 # the operator's read of which Node the toolchain is on (ai_tools_toolchain__list_agent_link_node_versions),

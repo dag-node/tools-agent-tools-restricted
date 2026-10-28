@@ -6,11 +6,11 @@
 [Lockdown](lockdown.md) · [Handback](handback.md) ·
 [Permissions](permissions.md) — [all docs](../index.md)
 
-How `ai-tools projects unclaim` takes the agent's access off a tree and drops
-its registration while the files stay, and what its flags change.
+How `atr projects unclaim` takes the agent's access off a tree and drops its
+registration while the files stay, and what its flags change.
 
 ```bash
-ai-tools projects unclaim ~/src/api
+atr projects unclaim ~/src/api
 ```
 
 Drops the project from your allowlist and from git's `safe.directory` list,
@@ -57,9 +57,9 @@ and `projects handback --full` pair that completes it, and a non-zero exit.
 ## Keeping your place across a release
 
 ```bash
-ai-tools projects unclaim --keep-entry ~/src/api   # files handed back; the line stays, parked
+atr projects unclaim --keep-entry ~/src/api   # files handed back; the line stays, parked
 # ... release ...
-ai-tools projects claim ~/src/api                  # offers to re-enable it, in place
+atr projects claim ~/src/api                  # offers to re-enable it, in place
 ```
 
 A common rhythm is to unclaim before a production release, so the tree carries
@@ -74,8 +74,8 @@ to keep, and for a project nested inside another claimed one, for the reason
 ## A copy that was not unclaimed
 
 ```bash
-ai-tools projects unclaim --force --dry-run /backup/staging/proj   # list, change nothing
-ai-tools projects unclaim --force /backup/staging/proj             # apply
+atr projects unclaim --force --dry-run /backup/staging/proj   # list, change nothing
+atr projects unclaim --force /backup/staging/proj             # apply
 ```
 
 Copy or move a claimed project (`cp -a`, `rsync -a`, `mv`, `tar -p`)
@@ -133,7 +133,7 @@ on directories), and on the default ACL that replaces the umask.
 ## Scripting an unclaim
 
 ```bash
-ai-tools projects unclaim --force -y --group builders /backup/staging/proj
+atr projects unclaim --force -y --group builders /backup/staging/proj
 ```
 
 Normalizing a copy before a backup or a deployment is the case that runs
@@ -161,11 +161,10 @@ after a root step fails is
 
 ## For another operator
 
-`ai-tools projects unclaim --for svc-ci /srv/projects/api` reverses a claim
-made for that operator ([Service accounts](../operators/service-accounts.md)).
-It cannot be combined with `--force`: that mode reaches a tree no allowlist
-names, so the command has no entry to read an owner from and binds the walk
-to you.
+`atr projects unclaim --for svc-ci /srv/projects/api` reverses a claim made
+for that operator ([Service accounts](../operators/service-accounts.md)). It
+cannot be combined with `--force`: that mode reaches a tree no allowlist names,
+so the command has no entry to read an owner from and binds the walk to you.
 
 ## Exit status
 

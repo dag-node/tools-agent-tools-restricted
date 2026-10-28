@@ -5,13 +5,13 @@ copy serves all of them. The skills come from asset sets, signed packages you in
 
 ```bash
 sudo dnf install ai-tools-assets-sets-core
-sudo ai-tools-admin assets enable --set core
+atr admin assets enable --set core
 ```
 
 `core` carries the writing standard (`ai-tools-technical-writing`), the cross-reference grammar (`ai-tools-reftags`),
 and the engineering and governance skills; `ls /usr/share/ai-tools-assets/core/skills` lists them. `AI_TOOLS_ASSETS`
-in `/etc/ai-tools/operator.conf` names each asset a session loads, and `sudo ai-tools-admin status` reports one
-that does not link, with the reason.
+in `/etc/ai-tools/operator.conf` names each asset a session loads, and `atr admin status` reports one that does not
+link, with the reason.
 
 The base package seeds one skill here itself, `ai-tools-typesafe-filter`, on behalf
 of the `ai-tools-integration-typesafe` package, and only while that integration is installed.

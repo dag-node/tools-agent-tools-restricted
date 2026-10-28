@@ -2,9 +2,9 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # /usr/local/lib/ai-tools/services.lib.sh
 # Single source of the systemd units the stack relies on, their purpose, and how to bring each back. Shared
-# by `ai-tools status` (the full report) and the launch wrapper's pre-launch health warning (critical system units
-# only), so the detection and the canonical purpose/remedy text live here ONCE and each consumer only formats -- no
-# duplicated service knowledge.
+# by `atr status` (the full report) and the launch wrapper's pre-launch health warning (critical system units only),
+# so the detection and the canonical purpose/remedy text live here ONCE and each consumer only formats -- no duplicated
+# service knowledge.
 #
 # Pure data + detection: this library does not render output (no msg.lib dependency). A consumer sources it, scans,
 # and formats the result however it likes (a framed warn at launch, a plain table in `status`).
@@ -21,8 +21,8 @@
 # A ROOT caller reads that manager too, through these same functions. The machine transport
 # (`systemctl --user -M <account>@.host`) reaches it over the system bus, where root is authorized, so the live reading
 # a system unit gets is offered for a sandbox-user unit as well. The gate is _ai_tools_services__run_systemctl,
-# which tests the CALLER's capability and not which command is asking: `ai-tools-admin status`, `sudo ai-tools status`
-# and any later consumer therefore resolve one unit to one verdict, and an unprivileged vantage reports it as unknown.
+# which tests the CALLER's capability and not which command is asking: `atr admin status`, `sudo atr status` and any
+# later consumer therefore resolve one unit to one verdict, and an unprivileged vantage reports it as unknown.
 # How a live reading and a stamp compose into that verdict is ai_tools_services__evaluate_stamp.
 #
 # A STAMP IS NOT TRUSTED INPUT. Its writer is the sandbox account, so that account can state any outcome it likes;
@@ -53,7 +53,7 @@ readonly _AI_TOOLS_SERVICES__LOADED=1
 #               shim         -- ai-tools-run already runs its own dedicated preflight for this
 #                              (the handback-socket NOTICE), so the wrapper does NOT also warn --
 #                              this field is what keeps the socket from being reported twice.
-#               none         -- surfaced only in `ai-tools status`, never at launch.
+#               none         -- surfaced only in `atr status`, never at launch.
 #   stamp     = absolute path to a last-run stamp, or empty when this unit has none to read. Only
 #               a sandbox-user unit needs one: a system unit's live state is already readable.
 #   stamp_mode = what that stamp says ABOUT THIS UNIT -- two units can share one stamp and read
@@ -266,9 +266,9 @@ ai_tools_services__read_stamp_age() {
 # happened and not at all for one from last week. Empty or unparseable input prints an empty string, so a caller drops
 # the clause entirely when the age is unknown rather than printing a placeholder.
 #
-# It lives beside the age it formats because more than one report renders these ages -- the operator's `ai-tools status`
-# and root's `ai-tools-admin status` -- and two hosts' worth of wording for the same stamp is a difference a reader
-# would take for a difference in the facts.
+# It lives beside the age it formats because more than one report renders these ages -- the operator's `atr status`
+# and root's `atr admin status` -- and two hosts' worth of wording for the same stamp is a difference a reader would
+# take for a difference in the facts.
 ai_tools_services__format_age() {
     local s="${1:-}"
     [[ "${s}" =~ ^[0-9]+$ ]] || return 0

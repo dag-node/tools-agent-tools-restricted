@@ -118,14 +118,14 @@ one, end them all:
 ```
 
 The first **drops** privilege to `SANDBOX_USER` (launch); the second runs **as root** at a fixed path pinned
-by the trailing `""` to the zero-argument form — `ai-tools stop`, which terminates every running agent session and is
-granted without a password so that unattended monitoring can reach the incident ladder's stop rung. What each rule is
-scoped to, and what the stop rule deliberately withholds, are in [launch](.claude/rules/launch.rule.md). Three
-privileged operations sit outside the drop-in and need no rule in it: the toolchain update runs as `SANDBOX_USER` in its
-own `systemd --user instance`, the automatic post-upgrade relabel runs through the root-side `ai-tools-relabel.path`
-watcher, and the on-demand entrypoint reconcile is `sudo ai-tools-admin system entrypoints relabel`, a root command
-reached through the host's own general sudo grant. The agent runs *as* `SANDBOX_USER`, which is not in `ai-ops` and has
-no rule of its own, so **no** rule grants it anything — including the root rule, which `SANDBOX_USER` cannot reach.
+by the trailing `""` to the zero-argument form — `atr stop`, which terminates every running agent session and is granted
+without a password so that unattended monitoring can reach the incident ladder's stop rung. What each rule is scoped
+to, and what the stop rule deliberately withholds, are in [launch](.claude/rules/launch.rule.md). Three privileged
+operations sit outside the drop-in and need no rule in it: the toolchain update runs as `SANDBOX_USER` in its own
+`systemd --user instance`, the automatic post-upgrade relabel runs through the root-side `ai-tools-relabel.path`
+watcher, and the on-demand entrypoint reconcile is `atr admin system entrypoints relabel`, a root command reached
+through the host's own general sudo grant. The agent runs *as* `SANDBOX_USER`, which is not in `ai-ops` and has no rule
+of its own, so **no** rule grants it anything — including the root rule, which `SANDBOX_USER` cannot reach.
 `ai-tools-run` additionally refuses to launch unless it runs as `SANDBOX_USER`, and refuses if `SANDBOX_USER` appears
 in `ai-ops`, so the sandbox account can never hold the operator grant.
 
@@ -134,7 +134,7 @@ in `ai-ops`, so the sandbox account can never hold the operator grant.
 `ai-tools-admin operators add` writes both facts that make an operator: membership of `ai-ops` (the two sudoers rules,
 and the launch wrapper's own gate) and a name in `OPERATORS` (`/etc/ai-tools/operator.conf`,
 from which `operator.lib.sh` resolves each path's owner). An account holding only those two runs agent sessions
-on the projects claimed for it, and is a first-class operator — the shape `ai-tools --for <operator>` exists to serve,
+on the projects claimed for it, and is a first-class operator — the shape `atr --for <operator>` exists to serve,
 and the one a passwordless service account takes.
 
 Claim, unclaim, lockdown, reclaim, and sandbox-create reach root helpers carrying **no** NOPASSWD rule, so each needs
@@ -160,10 +160,10 @@ of these inputs therefore narrows what the session gets, so the sandbox cannot i
 the requirement standing, the same direction the predicates take. Which exits it governs, and the two host states it
 lets launch with a warning rather than refuse, are in [confinement](.claude/rules/confinement.rule.md).
 
-`ai-tools projects remove` sits **outside** this table: it decides what is *destroyed*, not what a session may reach,
-so its safe direction is inaction. Its authorization is correspondingly different — an exact `allowed-projects` entry
-(allow or `!`-parked) plus a typed-name confirmation, not one of the predicates the table lists — and it holds the same
-shape of guarantee: it deletes only after that confirmation, and a failure leaves the tree in place, unregistered. See
+`atr projects remove` sits **outside** this table: it decides what is *destroyed*, not what a session may reach, so its
+safe direction is inaction. Its authorization is correspondingly different — an exact `allowed-projects` entry (allow
+or `!`-parked) plus a typed-name confirmation, not one of the predicates the table lists — and it holds the same shape
+of guarantee: it deletes only after that confirmation, and a failure leaves the tree in place, unregistered. See
 [cli](.claude/rules/cli.rule.md).
 
 | decision | its predicate | what a failure yields |
@@ -285,7 +285,7 @@ not gaps, so a reader tells bounded design from an oversight:
   and per-session `bubblewrap`/`--system` isolation are deferred (see [confinement](.claude/rules/confinement.rule.md)
   and memory).
 - **`ai-ops` operators are trusted.** The model defends the host and other users from the *agent*, not from an operator,
-  who already holds the launch grant. `ai-tools --for <operator>` rests on this: it lets one operator write an entry
+  who already holds the launch grant. `atr --for <operator>` rests on this: it lets one operator write an entry
   into another's allowlist — their launch gate — so a human can claim a project for a passwordless service account
   that runs an agent. The target must be enrolled, every mutation is logged with both caller and target, and this CLI
   surface is unreachable from a session (see [cli](.claude/rules/cli.rule.md)).

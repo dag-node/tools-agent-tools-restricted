@@ -978,16 +978,16 @@ _ai_tools_layout__is_content_verification_required() {
 }
 
 # _ai_tools_layout__get_refusal_remedy <flags> <package> <operator> [exposure <path> <owner> <mode> <acl-field>] :
-# the command that places a row the reconcile does not create -- `sudo ai-tools-admin operators add <name>`
-# for a missing operator file, and a reinstall for every other missing file or link and for a package file whose content
-# drifted, since the package's scriptlet or install.sh places a runtime-written file. With `exposure`, the remedy
-# for a regular file another account could have written, in one of two forms. A payload file (`files` without `config`
-# or `ghost`) is reinstalled, which replaces the inode with the package's bytes. Every other regular file is reviewed
-# and restored by hand: `setfacl -b` removes a foreign named entry, which `chmod` leaves in place masked, then `chown`,
-# `chmod` and, where <acl-field> is not `-`, `setfacl -m` with the row's named entries; each path goes
-# through `printf %q`, so the line pastes into a shell whole. A reinstall is named for payload bytes alone: it keeps
-# an edited %config(noreplace) file, re-chmods a stamp through its %post and leaves a log as it is, and removing
-# a runtime file would drop the claims' safe.directory entries `.gitconfig` holds or the evidence a log holds.
+# the command that places a row the reconcile does not create -- `atr admin operators add <name>` for a missing operator
+# file, and a reinstall for every other missing file or link and for a package file whose content drifted, since
+# the package's scriptlet or install.sh places a runtime-written file. With `exposure`, the remedy for a regular file
+# another account could have written, in one of two forms. A payload file (`files` without `config` or `ghost`) is
+# reinstalled, which replaces the inode with the package's bytes. Every other regular file is reviewed and restored
+# by hand: `setfacl -b` removes a foreign named entry, which `chmod` leaves in place masked, then `chown`, `chmod`
+# and, where <acl-field> is not `-`, `setfacl -m` with the row's named entries; each path goes through `printf %q`,
+# so the line pastes into a shell whole. A reinstall is named for payload bytes alone: it keeps an edited
+# %config(noreplace) file, re-chmods a stamp through its %post and leaves a log as it is, and removing a runtime file
+# would drop the claims' safe.directory entries `.gitconfig` holds or the evidence a log holds.
 _ai_tools_layout__get_refusal_remedy() {
     local quoted_path
     if [[ "${4:-}" == exposure ]]; then

@@ -34,7 +34,7 @@
 #       sudo journalctl -t ai-tools-run _UID=<sandbox uid> -n 50 --no-pager
 #       ```
 #   * A refusal names the fix. The common ones are a stale SELinux label after a Node upgrade
-#     (`ai-tools-admin system entrypoints relabel`) and a stopped user manager (`loginctl enable-linger`).
+#     (`atr admin system entrypoints relabel`) and a stopped user manager (`loginctl enable-linger`).
 #   * The ownership handback socket is checked before launch: if it is down the session still
 #     starts (it is a data-ownership convenience, not a confinement boundary) but a NOTICE names
 #     the fix, and the session-end sweep skips its walk rather than tallying failed hand-backs.
@@ -710,7 +710,7 @@ if [[ -t 1 ]]; then
 fi
 
 # An EXIT trap rather than a call after the run, so an interrupted shim (Ctrl-C, SIGTERM) still converges the tree;
-# a SIGKILL leaves it to the next session's sweep or `ai-tools projects handback`.
+# a SIGKILL leaves it to the next session's sweep or `atr projects handback`.
 if ai_tools_providers__is_exit_sweep_required "${agent_handback}"; then
     trap 'sweep_project_ownership || true' EXIT
 fi

@@ -35,7 +35,7 @@ mode. A file root does not own, that group or other can write, or that one of
 those accounts cannot read is ignored by that reader and reported, and only the
 default-enabled providers apply. Every agent package ships disabled by default,
 so every launch is then refused and each updater run fails, until
-.B sudo ai\-tools\-admin system layout reconcile
+.B atr admin system layout reconcile
 restores the owner and mode.
 An upgrade never overwrites its content; see
 .B Upgrades
@@ -105,7 +105,7 @@ One word then names one thing: the dotnet integration is
 and its filter set is
 .BR filter\-dotnet .
 An item without its key's prefix makes the list invalid, and
-.B "ai\-tools\-admin system post\-upgrade"
+.B "atr admin system post\-upgrade"
 rewrites one an earlier release wrote bare; see
 .BR Upgrades .
 .TP
@@ -155,7 +155,7 @@ commands that act on a project require the caller to be listed.
 Launching a session is gated by membership of the
 .B ai-ops
 group, which
-.B "ai-tools-admin operators add"
+.B "atr admin operators add"
 grants together with the entry here; edit by hand only to review or remove.
 .B Default:
 no account.
@@ -171,7 +171,7 @@ enables none.
 .B Default:
 no agent.
 Every agent package ships disabled, and
-.B "ai-tools-admin system bootstrap"
+.B "atr admin system bootstrap"
 asks which one installed agent to enable and writes this line for it, or writes
 the names given to its
 .B \-\-agents
@@ -187,7 +187,7 @@ A second agent is therefore a line you write by hand, followed by a further
 bootstrap; the bootstrap says the same once when it reads a line naming more
 than one.
 Names are reported at launch, so
-.B "ai-tools providers"
+.B "atr providers"
 shows the resolved set.
 .TP
 .BI AI_TOOLS_INTEGRATIONS= "NAME\fR[,\fP NAME\fR...]\fP"
@@ -231,12 +231,12 @@ of the set
 .BR core .
 An asset is linked once its set is installed, verified against the binding
 shipped for its set name, and valid; until then
-.B "ai-tools-admin status"
+.B "atr admin status"
 names it with the reason.
 .B Default:
 no asset.
 Installing a set package does not enable any asset: write the line with
-.B "ai-tools-admin assets enable"
+.B "atr admin assets enable"
 rather than by hand, which checks each identifier first and keeps a backup;
 .BR ai-tools-assets (5)
 states the identifier and each reason.
@@ -290,7 +290,7 @@ intentional DAC-only host; the launch log records
 Other Booleans that reach the session, such as
 .BR kerberos_enabled ,
 are reported by
-.B ai\-tools status
+.B atr status
 and do not refuse.
 The check runs at launch: a Boolean or a domain mode changed afterwards
 reaches a running session without a refusal.
@@ -332,7 +332,7 @@ included, so it is a deliberate hardening step rather than a default.
 A host that runs NIS writes
 .B nis_enabled=on
 in that list instead.
-.B ai\-tools status
+.B atr status
 lists each value a launch requires and whether it is built in or
 declared in this file.
 .IP
@@ -371,16 +371,16 @@ the installed release, and any air\-gapped host.
 only a pinned entrypoint may start a session. A pin records either the checksum
 the vendor signed for the installed release or, for an agent whose vendor
 publishes no such manifest, the binary as installed \(em
-.B ai\-tools status
+.B atr status
 names which of the two each agent holds, as
 .B VERIFIED
 or
 .BR UNCHANGED .
 Pin one with
-.BR "sudo ai\-tools\-admin system entrypoints relabel" ,
+.BR "atr admin system entrypoints relabel" ,
 which fetches the vendor's signed manifest where there is one and so needs the
 host online.
-.B sudo ai\-tools\-admin system bootstrap
+.B atr admin system bootstrap
 offers this key on an enforcing host with the policy loaded, while the key is
 absent and every enabled agent carries a pin; the offer defaults to yes, a run
 with no terminal takes it, and a declined offer writes
@@ -552,7 +552,7 @@ and see the full difference:
 .PP
 .RS 4
 .EX
-sudo ai\-tools\-admin system post\-upgrade
+atr admin system post\-upgrade
 .EE
 .RE
 .PP
@@ -607,4 +607,4 @@ AI_TOOLS_FILTERS=[]
 .PP
 Report what a session actually resolves \(em the enabled agents and
 integrations, and why \(em with
-.BR "ai-tools providers" .
+.BR "atr providers" .

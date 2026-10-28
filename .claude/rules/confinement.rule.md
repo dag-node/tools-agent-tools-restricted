@@ -87,8 +87,8 @@ the `domtrans_pattern` and `nnp_transition` grants stay on `unconfined_t` and `i
 a domain enter `ai_tools_t` by executing the entrypoint. The pre-transition launch path (the sudo drop,
 `systemd-run --user`, the `/proc` read of the manager, the selinuxfs reads) is measured under `unconfined_t` only,
 so a launch from a confined login is unvalidated: a read denied there refuses the launch rather than running the session
-unconfined. **Deferred:** `ai-tools-admin selinux operator-domains`, which loads the CIL statement for a declared
-domain, and the measurement of that path for a confined member.
+unconfined. **Deferred:** `atr admin selinux operator-domains`, which loads the CIL statement for a declared domain,
+and the measurement of that path for a confined member.
 
 ### The operator config subtree is mode-gated, not policy-gated
 
@@ -103,7 +103,7 @@ session domain `ai_tools_t` holds it as well, which sounds like a widening and i
 both allow, and at the shipped `700` directory with `600` files DAC refuses the session before the type is reached.
 
 **The rule is per operator, so it is registered where an operator is made.** A home path belongs to one account, so each
-operator has a rule of its own and a pattern in `ai_tools.fc` cannot stand in for it. `ai-tools-admin operators add`
+operator has a rule of its own and a pattern in `ai_tools.fc` cannot stand in for it. `atr admin operators add`
 registers it for the account it enrols — the same command that writes the two facts making an operator —
 and `selinux/install-selinux.sh` sweeps the enrolled set, both through `ai_tools_relabel__label_operator_conf`
 in `relabel.lib.sh`. That function refuses a path outside one account's `~/.config/ai-tools`, so a home carrying a regex
@@ -159,7 +159,7 @@ and `matchpathcon` resolves the entrypoint to `ai_tools_exec_t`, a live label th
 the shipped module does not carry, so the refusal asks for a report and names the source-checkout edit; an unreadable
 domain does not block without `AI_TOOLS_REQUIRE_SELINUX`). Where the label does **not** resolve, the verdict splits
 on module presence: **present** means confinement is installed yet the transition is unverifiable, so it refuses
-(`unverifiable`, → `ai-tools-admin system entrypoints relabel`, or the policy package reinstalled) rather than launch
+(`unverifiable`, → `atr admin system entrypoints relabel`, or the policy package reinstalled) rather than launch
 DAC-only and silently drop confinement; **absent** means the SELinux layer was never installed here, so it launches —
 an intentional DAC-only deployment, cleared for a staged host with `semodule -r ai_tools` or permissive mode. The check
 is a no-op where SELinux is not enforcing, so DAC-only and permissive boxes are unaffected.
@@ -282,7 +282,7 @@ to write (`tests/boundary/access.sh`).
 
 **The check is a launch-time observation.** A Boolean switched on, a domain made permissive, or a module reloaded
 after a session started reaches that session without any refusal; the next launch reads the new state. Revalidating
-a running session is `ai-tools stop` and a relaunch.
+a running session is `atr stop` and a relaunch.
 
 Every failed read of `require` resolves toward *less* access, as the other launch predicates do: an untrusted or absent
 `operator.conf`, a `conf.lib.sh` that did not load, and an absent key each read as the requirement
@@ -346,11 +346,11 @@ rule sets:
 - **Stable** groups (`tmpmap`, `memfdexec`, `localipc`, `buildexec`: a rule set exercised against its workload
   on an enforcing host) are on the **shipped set**: compiled as `ai_tools_<group>.pp` beside the core
   in `/usr/share/selinux/packages/ai-tools/` (how, and by what, is in [How the policy ships](#how-the-policy-ships)),
-  where `sudo ai-tools-admin selinux groups enable <name>` `semodule`-loads one on an installed host without a source
-  tree or `selinux-policy-devel`, then restores the labels the group's own file contexts decide (the sandbox-clone
-  area). A bare `selinux groups` lists them and `selinux groups disable <name>` rounds it out, working for any loaded
-  group. The spelling these commands take is set by [cli-grammar](cli-grammar.rule.md).
-- **Experimental** groups are unaudited drafts and are **off the shipped set**; `ai-tools-admin selinux groups enable`
+  where `atr admin selinux groups enable <name>` `semodule`-loads one on an installed host without a source tree
+  or `selinux-policy-devel`, then restores the labels the group's own file contexts decide (the sandbox-clone area).
+  A bare `selinux groups` lists them and `selinux groups disable <name>` rounds it out, working for any loaded group.
+  The spelling these commands take is set by [cli-grammar](cli-grammar.rule.md).
+- **Experimental** groups are unaudited drafts and are **off the shipped set**; `atr admin selinux groups enable`
   refuses one and points at the source workflow rather than loading an unaudited module. They are compiled and verified
   from a source checkout — `sudo selinux/install-selinux.sh enable-group <name>` (which compiles from `.te`/`.fc`, then
   loads, then re-runs the project and clone label sweeps, since a group may ship file contexts of its own;

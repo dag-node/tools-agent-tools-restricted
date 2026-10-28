@@ -93,7 +93,7 @@ function on the swapped state ([tests](tests.rule.md)).
 Two layers, both fail-closed:
 
 - **Front line** — the launch gates every agent's wrapper runs (`launch-wrapper.lib.sh`) refuse to *launch* a session
-  in a protected CWD, and `ai-tools projects claim` (`cmd_project_claim`), `projects create` (`cmd_project_create`),
+  in a protected CWD, and `atr projects claim` (`cmd_project_claim`), `projects create` (`cmd_project_create`),
   `projects remove` (`cmd_project_remove`) and `projects unclaim` (`cmd_project_unclaim`) each refuse a protected
   directory as their target, so a mis-entered allowlist neither starts a session nor claims/unclaims a system tree
   where the handback would act. Unclaim guards each *modification target* (in ancestor mode the search root may be

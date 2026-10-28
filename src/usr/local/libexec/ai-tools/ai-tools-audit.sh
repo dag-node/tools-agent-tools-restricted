@@ -2,10 +2,9 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # /usr/local/libexec/ai-tools/ai-tools-audit
 # Answers one question: what was refused, rejected, stranded or flagged BETWEEN two points in time? It reports EVENTS,
-# never current state -- a condition recorded here may have been resolved since, and confirming that is
-# `ai-tools status`'s job, not this one's. Conflating the two invites acting on a finding that is already fixed.
-# The detections already exist and are already recorded -- what they lacked was a reader, and a detection nobody reads
-# is decoration.
+# never current state -- a condition recorded here may have been resolved since, and confirming that is `atr status`'s
+# job, not this one's. Conflating the two invites acting on a finding that is already fixed. The detections already
+# exist and are already recorded -- what they lacked was a reader, and a detection nobody reads is decoration.
 #
 # It does not invent a detection, nor parse per-case wording. The root-only file sink already encodes severity in its
 # line format (`<ts> <LEVEL> [<pid>] <msg>`, written by log.lib.sh and, in the same format, by the handback daemon),
@@ -34,7 +33,7 @@
 # findings rather than fewer.
 #
 # Root-only: the file sink is unreadable to anyone else, so there is no trail for a non-root caller to do here. Reached
-# through `sudo ai-tools audit` with no NOPASSWD grant, like ai-tools-lockdown and ai-tools-reclaim.
+# through `sudo atr audit` with no NOPASSWD grant, like ai-tools-lockdown and ai-tools-reclaim.
 #
 # A READING THAT COULD NOT BE MADE IS SAID, NEVER READ AS EMPTY. Each source is read with its exit status, its stdout
 # and its stderr apart (records.rule.md), and a source that ran and failed is told from one whose result is empty

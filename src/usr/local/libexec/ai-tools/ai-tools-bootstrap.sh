@@ -35,7 +35,7 @@
 #
 # Run as root (it creates a user and execs npm as @SANDBOX_USER@) through the command that reaches
 # it, which is what an administrator types:
-#       `sudo ai-tools-admin system bootstrap [--agents NAME[,NAME...]]`
+#       `atr admin system bootstrap [--agents NAME[,NAME...]]`
 # ai-tools-admin execs it at its installed path; it does not have a name on PATH of its own.
 # nvm defaults to its latest GitHub release (resolved at run time, so it does not rot); set
 # AI_TOOLS_NVM_VERSION=vX.Y.Z to pin it, or AI_TOOLS_NODE_MAJOR to choose the Node line.
@@ -476,7 +476,7 @@ seed_managed_assets_step() {
         || die MSG-H9S6 "control plane present but ${cplib} does not resolve the agents' config dirs"
     # Every write of this step up to the orientation seed lands in a shared root, so the step holds the assets lock
     # (managed-assets.lib.sh) across it, the reconcile included, which adopts the lock this shell holds:
-    # an `ai-tools-admin assets` verb run meanwhile does not interleave its writes with these.
+    # an `atr admin assets` verb run meanwhile does not interleave its writes with these.
     if ! ai_tools_managed_assets__lock; then
         warn MSG-F3H4 "managed assets: not seeded, and the asset view not reconciled -- the assets lock could not be taken; run atr admin system bootstrap again once the other assets command has ended"
         return 0
@@ -571,8 +571,8 @@ offer_launch_requirements() {
 # (path-order.lib.sh).
 #
 # It belongs to this command because the reading is taken from a login shell of that account, which needs the root this
-# command already holds; `ai-tools status` re-reads it afterwards from the operator's own shell. It reads those init
-# files and does not rewrite any of them: `ai-tools-admin operators add` is this project's one writer of that line.
+# command already holds; `atr status` re-reads it afterwards from the operator's own shell. It reads those init files
+# and does not rewrite any of them: `ai-tools-admin operators add` is this project's one writer of that line.
 report_shadowed_operators() {
     local polib=/usr/local/lib/ai-tools/path-order.lib.sh
     local oplib=/usr/local/lib/ai-tools/operator.lib.sh
@@ -635,7 +635,7 @@ preflight_network() {
 
 # reconcile_layout -- bring every installed path to its row through the admin command, the unit search path chain
 # the stamp step writes into among them; its lines go to this run's output, and a finding it leaves is reported
-# by `ai-tools-admin status`, so the run continues.
+# by `atr admin status`, so the run continues.
 reconcile_layout() {
     /usr/local/libexec/ai-tools/ai-tools-admin system layout reconcile || true
     return 0
@@ -990,7 +990,7 @@ fi
 #     ai-tools-run refuses to launch (it would run UNCONFINED) until the entrypoint carries
 #     ai_tools_exec_t. Bootstrap runs as root (a domain that holds relabel) and has just minted
 #     the entrypoint, so it relabels here rather than leaving the first launch to fail with a
-#     manual `ai-tools-admin system entrypoints relabel`. Gated on the helper being deployed: a bootstrap that precedes
+#     manual `atr admin system entrypoints relabel`. Gated on the helper being deployed: a bootstrap that precedes
 #     the control plane has no helper yet (install.sh / the RPM relabel then). The helper is
 #     idempotent and no-ops when SELinux or the ai_tools module is inactive, so this is safe on a
 #     DAC-only host; best-effort -- a relabel gap degrades to ai-tools-run's refusal, not a failed
