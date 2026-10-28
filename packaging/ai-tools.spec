@@ -1055,7 +1055,7 @@ if [ "$(getenforce 2>/dev/null)" != "Disabled" ] && command -v semodule >/dev/nu
     # a scriptlet runs under /bin/sh. Each row is "<former module> <current group>...", and a row's groups must be on
     # the shipped set for the .pp to exist here -- an experimental group has none, so its row waits until it graduates.
     for _row in "ai_tools_netcore localipc buildexec" "ai_tools_apphost memfdexec"; do
-        _old_group_mod=${_row%% *}; _new_groups=${_row#* }
+        _old_group_mod=${_row%%%% *}; _new_groups=${_row#* }
         semodule -l 2>/dev/null | grep -qx "${_old_group_mod}" || continue
         _swap_args=""
         for _g in ${_new_groups}; do
