@@ -769,6 +769,21 @@ for _atr_path in /usr/local/bin/atr /usr/sbin/atr \
         exit 1
     fi
 done
+# Another program named atr in a directory of the default login PATH or sudo's secure_path answers to the same command
+# name as the wrapper, with PATH order deciding which one runs, so the install refuses while one is there; install.sh's
+# ATR_COMMAND_DIRS holds the same directories. One that resolves to /usr/local/bin/atr is this project's: the link
+# at /usr/sbin/atr, or the wrapper reached through a merged directory.
+_atr_command_dirs='/usr/local/sbin /usr/bin /usr/sbin /bin /sbin'
+for _atr_dir in ${_atr_command_dirs}; do
+    _atr_other="${_atr_dir}/atr"
+    [ -x "${_atr_other}" ] && [ ! -d "${_atr_other}" ] || continue
+    if [ -e /usr/local/bin/atr ] \
+       && [ "$(readlink -f -- "${_atr_other}")" = "$(readlink -f -- /usr/local/bin/atr)" ]; then
+        continue
+    fi
+    printf 'MSG-E7B3\nai-tools-base: another program answers to atr at %s, and installing this project'"'"'s atr would leave PATH order to decide which one runs -- move it aside or remove the package that owns it, and re-run the transaction\nai-tools-base: %s\n' "${_atr_other}" "${_atr_recovery}" >&2
+    exit 1
+done
 # Create the ai-tools system account before any file owned by it is unpacked.
 %sysusers_create_compat %{SOURCE1}
 

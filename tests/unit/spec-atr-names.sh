@@ -5,9 +5,10 @@
 # and exits 1 at the first one in none of this project's forms, ahead of the account creation, a page adding lines
 # after the stub's request, a compressed stub that fails its tool's `-t`, a page past 4096 bytes and a gzip page
 # whose text is past 4096 bytes among them. The stub in gzip, bzip2, xz and zstd passes, and one read with its tool
-# absent from PATH exits 1 under MSG-V2H5. The refusal does not start the relabel watcher or the relabel run %pretrans
-# stopped, since rpm may still place the packages ordered after base, and names the check of the watcher and the start
-# of both to run once the transaction ends.
+# absent from PATH exits 1 under MSG-V2H5. Another executable named atr in a command directory of the default PATHs
+# exits 1 under MSG-E7B3, and this project's own entries there pass. The refusal does not start the relabel watcher
+# or the relabel run %pretrans stopped, since rpm may still place the packages ordered after base, and names the check
+# of the watcher and the start of both to run once the transaction ends.
 #
 # A scriptlet runs inside an rpm transaction as root, so its body is read out of the spec as RPM parses it, its host
 # paths rewritten to a fixture tree, and run under /bin/sh with getent, groupadd, useradd and systemctl defined as shell
@@ -50,10 +51,41 @@ if [[ -z "${body}" ]]; then
     finish; exit
 fi
 
-FX="${TESTDIR}/root"
+# The shadowing check asks `[ -x ]` of each command directory's atr, so the fixture root takes a directory where a 0755
+# file reads as executable: the testdir where it does, a directory beside the projects user's home otherwise,
+# the fallback tests/unit/agent-installs.sh takes. With none, the shadowing cases are skip_required. x_bit_visible
+# <dir>: succeed when a 0755 file created there reads as executable.
+x_bit_visible() {
+    local probe="$1/.x-probe.$$" ok=1
+    printf '' > "${probe}" 2>/dev/null || return 1
+    chmod 0755 "${probe}" 2>/dev/null || { rm -f "${probe}"; return 1; }
+    [[ -x "${probe}" ]] && ok=0
+    rm -f "${probe}"
+    return "${ok}"
+}
+BASE="${TESTDIR}" XBIT=1
+if ! x_bit_visible "${BASE}"; then
+    alt=""
+    mk_fixture_dir alt "${PROJECTS_HOME}" spec-atr 2>/dev/null || alt=""
+    if [[ -n "${alt}" ]] && x_bit_visible "${alt}"; then BASE="${alt}"; else XBIT=0; fi
+fi
+FX="${BASE}/root"
 WRAPPER="${FX}/usr/local/bin/atr" LINK="${FX}/usr/sbin/atr"
 MAN1="${FX}/usr/local/share/man/man1" MAN8="${FX}/usr/local/share/man/man8"
-mkdir -p "${FX}/usr/local/bin" "${FX}/usr/sbin" "${MAN1}" "${MAN8}"
+mkdir -p "${FX}/usr/local/bin" "${FX}/usr/sbin" "${FX}/usr/bin" "${FX}/usr/local/sbin" "${FX}/bin" "${FX}/sbin" \
+    "${MAN1}" "${MAN8}"
+chmod 0755 "${BASE}" "${FX}"
+
+# The command directories the shadowing check reads are install.sh's ATR_COMMAND_DIRS, and become the fixture's.
+command_dirs_line="_atr_command_dirs='/usr/local/sbin /usr/bin /usr/sbin /bin /sbin'"
+installer_dirs="$(sed -n 's/^ATR_COMMAND_DIRS=(\(.*\))$/\1/p' "${ROOT}/install.sh")"
+if grep -qxF "${command_dirs_line}" <<< "${body}" && [[ "${command_dirs_line}" == *"'${installer_dirs}'" ]]; then
+    pass "the %pre reads the command directories install.sh's ATR_COMMAND_DIRS names"
+else
+    fail "the %pre's command directories and install.sh's (${installer_dirs:-not read}) differ, or the line moved"
+    finish; exit
+fi
+body="${body//"${command_dirs_line}"/"_atr_command_dirs='${FX}/usr/local/sbin ${FX}/usr/bin ${FX}/usr/sbin ${FX}/bin ${FX}/sbin'"}"
 
 # The host paths become the fixture's; the marker is content, so it is set aside first and put back after.
 marker='# /usr/local/bin/atr --'
@@ -122,8 +154,11 @@ for tool in sed readlink cat head od tr wc gzip bzip2 xz zstd; do
     case "${tool}" in gzip|bzip2|xz|zstd) ;; *) ln -s "${tool_path}" "${TESTDIR}/bin-nocompressors/${tool}" ;; esac
 done
 
-# reset_names: remove every name the scriptlet reads.
-reset_names() { rm -rf "${WRAPPER}" "${LINK}" "${MAN1}"/atr.1* "${MAN8}"/atr.8*; }
+# reset_names: remove every name the scriptlet reads, the other commands' included.
+reset_names() {
+    rm -rf "${WRAPPER}" "${LINK}" "${MAN1}"/atr.1* "${MAN8}"/atr.8* "${FX}/usr/bin/atr" "${FX}/usr/local/sbin/atr" \
+        "${FX}/bin/atr" "${FX}/sbin/atr"
+}
 # run_base_pre_scriptlet [path-dir]: run the scriptlet; sets status, recorder and err.
 run_base_pre_scriptlet() {
     : > "${TESTDIR}/recorder"
@@ -237,6 +272,40 @@ for kind in unmarked directory link-elsewhere file-at-link gz-without-so wrong-s
         fail "${what}: systemctl calls [$(grep '^systemctl ' <<< "${recorder}" | tr '\n' ';')], stderr [${err}]"
     fi
 done
+
+# ── Another program named atr on the default PATHs refuses, and this project's own entries do not ───
+if (( XBIT == 0 )); then
+    skip_required "the shadowing cases" "no directory here reports a 0755 file as executable (a noexec mount)"
+else
+    reset_names
+    cp "${WRAPPER_SRC}" "${WRAPPER}"; chmod 0755 "${WRAPPER}"
+    ln -s ../local/bin/atr "${LINK}"; ln -s ../bin/atr "${FX}/usr/local/sbin/atr"
+    run_base_pre_scriptlet
+    (( status == 0 )) && [[ -z "${err}" ]] \
+        && pass "the link at /usr/sbin and a merged /usr/local/sbin, each the wrapper, are this project's and pass" \
+        || fail "this project's own command entries: exit ${status}, stderr [${err}]"
+    for dir in usr/bin bin sbin usr/local/sbin; do
+        reset_names
+        cp "${WRAPPER_SRC}" "${WRAPPER}"; chmod 0755 "${WRAPPER}"
+        printf '#!/bin/sh\necho another atr\n' > "${FX}/${dir}/atr"; chmod 0755 "${FX}/${dir}/atr"
+        run_base_pre_scriptlet
+        assert_msg MSG-E7B3 "${err}" "another atr at /${dir}: refused under its code"
+        if (( status == 1 )) && grep -qF "another program answers to atr at ${FX}/${dir}/atr" <<< "${err}" \
+                && grep -qxF "${RECOVERY}" <<< "${err}" && ! account_created && [[ "$(systemctl_calls)" == 0 ]]; then
+            pass "another atr at /${dir}: exit 1 naming it, ahead of the account creation, with the recovery line"
+        else
+            fail "another atr at /${dir}: exit ${status}, stderr [${err}]"
+        fi
+    done
+    reset_names
+    printf 'not a program\n' > "${FX}/usr/bin/atr"; chmod 0644 "${FX}/usr/bin/atr"
+    mkdir "${FX}/bin/atr"
+    run_base_pre_scriptlet
+    (( status == 0 )) && [[ -z "${err}" ]] \
+        && pass "a file without an execute bit and a directory named atr are not commands, and pass" \
+        || fail "a non-command named atr: exit ${status}, stderr [${err}]"
+    rmdir "${FX}/bin/atr"
+fi
 
 # ── Each compression man reads is read, and a page whose tool is absent is not decided ──────────
 # The stub recompressed in another format is this project's, and the same page read with no decompressor on PATH is

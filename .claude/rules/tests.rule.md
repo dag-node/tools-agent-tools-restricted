@@ -744,8 +744,11 @@ A page is the stub only while it holds the `.so` request and roff comments alone
 after the request is another's. The stub in each compression `man` reads (gzip, bzip2, xz, zstd) is this project's,
 and one read with its tool absent from `PATH` is refused as unreadable, naming the tool, rather than as another's.
 A compressed stub that fails its tool's `-t` (a CRC that does not match, a stream cut before its end), or whose text is
-past the stub's size, is refused as another's although its text opens with the stub's `.so` line. Each case runs beside
-its control; the file's header lists them.
+past the stub's size, is refused as another's although its text opens with the stub's `.so` line. Another executable
+named `atr` in a directory of the default login `PATH` or `sudo`'s `secure_path` refuses the install under `MSG-E7B3`,
+naming its package, while the link to the wrapper and a merged directory reaching it, a file without an execute bit
+and a directory do not; those cases take an executable fixture root, `skip_required` where none is found. Each case runs
+beside its control; the file's header lists them.
 
 `install-selinux-walks.sh` runs `selinux/install-selinux.sh`'s account-writable walks, extracted as text, under each
 live-session reading with `restorecon` recorded: a `live` or `unreadable` reading does not walk any tree and names each
@@ -770,7 +773,9 @@ and a page past the stub's size, compressed or decompressed, among them, and the
 and names the check of the relabel watcher and the start of the watcher and the relabel run to run once the transaction
 ends, since a start inside it would let a run fire while rpm places the packages ordered after base. A stub is a shell
 function, which a command named by its path bypasses, so the body is read first for a command run from a system
-directory by its path, beside a control, and is not run where one is found. A compressed stub read without its tool
+directory by its path, beside a control, and is not run where one is found. The command directories the shadowing loop
+reads are held to `install.sh`'s `ATR_COMMAND_DIRS` and pointed at the fixture, where another executable named `atr`
+in each of them refuses under `MSG-E7B3` and this project's own entries pass. A compressed stub read without its tool
 on `PATH` is refused under `MSG-V2H5`, naming the tool, beside a plain stub that passes with none, and the file holds
 the package to the `Requires(pre)` lines that place the gzip reader's tools ahead of it.
 

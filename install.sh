@@ -1346,6 +1346,11 @@ unset _form
 readonly ATR_NAMES
 # The largest page the stub check reads; a page past it is not this project's stub, which is one `.so` line.
 readonly ATR_STUB_MAX_BYTES=4096
+# The directories on the default login PATH and sudo's secure_path other than the wrapper's own. Another program named
+# atr in one of them would answer to the same command name as the wrapper, with PATH order deciding which one runs,
+# so the install refuses while one is there. packaging/ai-tools.spec's base %pre reads the same directories.
+ATR_COMMAND_DIRS=(/usr/local/sbin /usr/bin /usr/sbin /bin /sbin)
+readonly ATR_COMMAND_DIRS
 
 # has_atr_wrapper_marker <path> : the file's third line begins with the wrapper's header line.
 has_atr_wrapper_marker() {
@@ -1465,6 +1470,40 @@ require_atr_entries_replaceable() {
     done
 }
 
+# list_other_atr_commands -- print each executable named atr in ATR_COMMAND_DIRS that is not the wrapper (the first
+# entry ATR_NAMES lists), once per file: a usr-merged host's /bin/atr and /usr/bin/atr print once, and /usr/sbin/atr
+# as the link to the wrapper does not print.
+list_other_atr_commands() {
+    local wrapper="${ATR_NAMES[0]% *}" dir candidate listed is_listed
+    local -a listed_paths=()
+    for dir in "${ATR_COMMAND_DIRS[@]}"; do
+        candidate="${dir}/atr"
+        [[ -x "${candidate}" && ! -d "${candidate}" ]] || continue
+        [[ -e "${wrapper}" && "${candidate}" -ef "${wrapper}" ]] && continue
+        is_listed=""
+        for listed in "${listed_paths[@]}"; do
+            [[ "${candidate}" -ef "${listed}" ]] && is_listed=1
+        done
+        [[ -n "${is_listed}" ]] && continue
+        listed_paths+=( "${candidate}" )
+        printf '%s\n' "${candidate}"
+    done
+}
+
+# require_no_other_atr_command -- refuse the install ahead of its first write while another program answers to atr
+# on the default PATHs, naming its package where rpm owns it.
+require_no_other_atr_command() {
+    local -a others=()
+    local package=""
+    mapfile -t others < <(list_other_atr_commands)
+    (( ${#others[@]} )) || return 0
+    if command -v rpm >/dev/null 2>&1; then
+        package="$(rpm -qf --qf '%{NAME}' -- "${others[0]}" 2>/dev/null)" || package=""
+        [[ "${package}" =~ ^[A-Za-z0-9._+-]+$ ]] || package=""
+    fi
+    die MSG-E7B3 "another program answers to atr at ${others[0]}${package:+ (package ${package})}, and installing this project's atr would leave PATH order to decide which one runs -- move it aside or remove its package, and re-run: sudo ./install.sh install"
+}
+
 # remove_recognized_atr_entries -- remove each name `atr` takes while it is in this project's form; log and leave every
 # other one.
 remove_recognized_atr_entries() {
@@ -1485,6 +1524,7 @@ do_install() {
         || die MSG-R6Y6 "sandbox account ${SANDBOX_USER} not found -- create it first (README step 2)"
     require_acl_tools
     require_atr_entries_replaceable
+    require_no_other_atr_command
 
     print_banner
     say "  projects user : ${PROJECTS_USER} (${PROJECTS_HOME})"

@@ -25,9 +25,11 @@
 # bzip2, xz and zstd reads as this project's, and a page adding lines after the stub's request, a gzip stub whose CRC
 # does not match, a stub in each compression cut before its end, a page past ATR_STUB_MAX_BYTES, and a gzip page
 # under it whose text is past it each read as another's, with the corrupt gzip streams' decompressed .so line read first
-# as the control, and require_atr_entries_replaceable and remove_recognized_atr_entries over the same tree; do_install's
-# text is read for the check ahead of the first write, and do_uninstall's for a removal
-# through remove_recognized_atr_entries alone.
+# as the control, and require_atr_entries_replaceable and remove_recognized_atr_entries over the same tree;
+# list_other_atr_commands and require_no_other_atr_command run over a fixture root of the command directories,
+# where another executable named atr is listed once and refuses the install, and this project's own entries
+# and a non-command do not; do_install's text is read for the check ahead of the first write, and do_uninstall's
+# for a removal through remove_recognized_atr_entries alone.
 #
 # No install and no command of install.sh's but the extracted functions. Skips outside a checkout.
 
@@ -515,8 +517,9 @@ removes_sysusers "${INSTALLER}" && pass "do_uninstall removes ${sysusers_path}" 
 # which the inner shell sets to the fixture's names; install.sh's own declaration is read as text for the four names.
 section "install.sh: the names atr takes are replaced and removed only while they are this project's (unit)"
 atr_text=""
-for name in die warn has_atr_wrapper_marker is_atr_wrapper_link read_atr_page_compressor read_atr_stub_page_status read_atr_entry_state require_atr_entries_replaceable \
-        remove_recognized_atr_entries; do
+for name in die warn has_atr_wrapper_marker is_atr_wrapper_link read_atr_page_compressor read_atr_stub_page_status \
+        read_atr_entry_state require_atr_entries_replaceable remove_recognized_atr_entries list_other_atr_commands \
+        require_no_other_atr_command; do
     body="$(extract_function "${INSTALLER}" "${name}")"
     if [[ -z "${body}" ]]; then
         fail "install.sh does not define ${name}() in the form this file reads"
@@ -558,6 +561,7 @@ if [[ -n "${atr_text}" ]]; then
                 }
             fi
             IFS=$'"'"'\n\t'"'"'
+            ATR_COMMAND_DIRS=( "${fx}/usr/local/sbin" "${fx}/usr/bin" "${fx}/usr/sbin" "${fx}/bin" "${fx}/sbin" )
             ATR_NAMES=( "${fx}/usr/local/bin/atr wrapper" "${fx}/usr/sbin/atr link"
                         "${fx}/man/man1/atr.1 page" "${fx}/man/man1/atr.1.gz page" "${fx}/man/man8/atr.8.xz page" )
             rc=0; "$@" || rc=$?
@@ -738,17 +742,67 @@ if [[ -n "${atr_text}" ]]; then
     else
         fail "the uninstall over a corrupt gzip stub: ${out//$'\n'/ | }"
     fi
+
+    # Another program named atr in a command directory refuses the install; this project's own entries there do not.
+    # The check asks `[ -x ]`, so these cases take a fixture root where a 0755 file reads as executable: the testdir
+    # where it does, a directory beside the projects user's home otherwise.
+    shadow_fx="${TESTDIR}/atr-cmd-root"
+    mkdir -p "${shadow_fx}"
+    printf '' > "${shadow_fx}/.x-probe"; chmod 0755 "${shadow_fx}/.x-probe"
+    if [[ ! -x "${shadow_fx}/.x-probe" ]]; then
+        shadow_fx=""
+        mk_fixture_dir shadow_fx "${PROJECTS_HOME}" atr-cmd 2>/dev/null || shadow_fx=""
+        if [[ -n "${shadow_fx}" ]]; then
+            printf '' > "${shadow_fx}/.x-probe"; chmod 0755 "${shadow_fx}/.x-probe"
+            [[ -x "${shadow_fx}/.x-probe" ]] || shadow_fx=""
+        fi
+    fi
+    if [[ -z "${shadow_fx}" ]]; then
+        skip_required "the other atr commands" "no directory here reports a 0755 file as executable (a noexec mount)"
+    else
+        rm -f "${shadow_fx}/.x-probe"
+        mkdir -p "${shadow_fx}/usr/local/bin" "${shadow_fx}/usr/sbin" "${shadow_fx}/usr/bin" "${shadow_fx}/sbin" \
+            "${shadow_fx}/usr/local/sbin"
+        cp "${ROOT}/src/usr/local/bin/atr.sh" "${shadow_fx}/usr/local/bin/atr"; chmod 0755 "${shadow_fx}/usr/local/bin/atr"
+        ln -s ../local/bin/atr "${shadow_fx}/usr/sbin/atr"
+        ln -s ../bin/atr "${shadow_fx}/usr/local/sbin/atr"
+        ln -s usr/bin "${shadow_fx}/bin"
+        out="$(FX="${shadow_fx}" atr_run unowned list_other_atr_commands)"
+        [[ "${out}" == status=0 ]] \
+            && pass "the link at /usr/sbin and a merged /usr/local/sbin, each the wrapper, are not other commands" \
+            || fail "this project's own command entries listed: ${out//$'\n'/ | }"
+        printf '#!/bin/sh\necho another atr\n' > "${shadow_fx}/usr/bin/atr"; chmod 0755 "${shadow_fx}/usr/bin/atr"
+        out="$(FX="${shadow_fx}" atr_run unowned list_other_atr_commands)"
+        [[ "${out}" == "${shadow_fx}/usr/bin/atr"$'\n'status=0 ]] \
+            && pass "another atr reached as /usr/bin/atr and through a merged /bin is listed once" \
+            || fail "the other atr commands: ${out//$'\n'/ | }"
+        out="$(FX="${shadow_fx}" atr_run other require_no_other_atr_command)" || true
+        assert_msg MSG-E7B3 "${out}" "another atr refuses the install"
+        [[ "${out}" == *"another program answers to atr at ${shadow_fx}/usr/bin/atr (package other-tool)"* \
+              && "${out}" != *status=0 ]] \
+            && pass "the refusal names the other atr and its package, and exits non-zero" \
+            || fail "the refusal over another atr: ${out//$'\n'/ | }"
+        chmod 0644 "${shadow_fx}/usr/bin/atr"; mkdir "${shadow_fx}/sbin/atr"
+        out="$(FX="${shadow_fx}" atr_run unowned require_no_other_atr_command)"
+        [[ "${out}" == status=0 ]] \
+            && pass "a file without an execute bit and a directory named atr are not commands, and the check passes" \
+            || fail "a non-command named atr: ${out//$'\n'/ | }"
+    fi
 fi
 
-# atr_check_precedes_first_write <file> : succeed when do_install calls require_atr_entries_replaceable ahead of its
-# first `install -d` of /var/log/ai-tools, the first path the install creates. removes_atr_by_form <file> : succeed
-# when do_uninstall calls remove_recognized_atr_entries and no `rm` line names an atr path.
+# atr_check_precedes_first_write <file> : succeed when do_install calls require_atr_entries_replaceable
+# and require_no_other_atr_command ahead of its first `install -d` of /var/log/ai-tools, the first path the install
+# creates. removes_atr_by_form <file> : succeed when do_uninstall calls remove_recognized_atr_entries and no `rm` line
+# names an atr path.
 atr_check_precedes_first_write() {
-    local body call_line write_line
+    local body call call_line write_line
     body="$(extract_function "$1" do_install)"
-    call_line="$(grep -n -m1 -E '^[[:space:]]+require_atr_entries_replaceable$' <<<"${body}" | cut -d: -f1 || true)"
     write_line="$(grep -n -m1 -E '^[[:space:]]+install -d .*/var/log/ai-tools' <<<"${body}" | cut -d: -f1 || true)"
-    [[ -n "${call_line}" && -n "${write_line}" ]] && (( call_line < write_line ))
+    [[ -n "${write_line}" ]] || return 1
+    for call in require_atr_entries_replaceable require_no_other_atr_command; do
+        call_line="$(grep -n -m1 -E "^[[:space:]]+${call}\$" <<<"${body}" | cut -d: -f1 || true)"
+        [[ -n "${call_line}" ]] && (( call_line < write_line )) || return 1
+    done
 }
 removes_atr_by_form() {
     local body
@@ -763,8 +817,9 @@ if atr_check_precedes_first_write "${TESTDIR}/atr-order-control.sh" || removes_a
 else
     pass "the readers flag a check after the first write and a by-path removal (control)"
 fi
-atr_check_precedes_first_write "${INSTALLER}" && pass "do_install reads the names atr takes ahead of its first write" \
-    || fail "do_install does not call require_atr_entries_replaceable ahead of its install log's directory"
+atr_check_precedes_first_write "${INSTALLER}" \
+    && pass "do_install reads the names atr takes and the other atr commands ahead of its first write" \
+    || fail "do_install does not call require_atr_entries_replaceable and require_no_other_atr_command ahead of its install log's directory"
 removes_atr_by_form "${INSTALLER}" && pass "do_uninstall removes the names atr takes through remove_recognized_atr_entries alone" \
     || fail "do_uninstall does not remove the atr names through remove_recognized_atr_entries alone"
 names_text="$(sed -n '/^ATR_NAMES=(/,/^readonly ATR_NAMES$/p' -- "${INSTALLER}")"
