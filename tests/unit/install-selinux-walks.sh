@@ -184,7 +184,7 @@ fi
 # rows.
 section "install-selinux.sh: remove drops every rule naming a policy type and reports an unload that left a module (unit)"
 remove_text=""
-for name in warn die _restore_account_tree_labels _warn_left_trees _read_pattern_tree _drop_remaining_policy_type_rules _unload_modules; do
+for name in warn die _list _restore_account_tree_labels _warn_left_trees _read_pattern_tree _drop_remaining_policy_type_rules _unload_modules; do
     body="$(extract_function "${INSTALLER}" "${name}")"
     if [[ -z "${body}" ]]; then
         fail "install-selinux.sh does not define ${name}() in the form this file reads"
@@ -304,7 +304,7 @@ printf '%s\n' 'libsepol.context_from_record: type ai_tools_conf_t is not defined
 unload_out="$(run_unload ai_tools ai_tools_dotnet ai_tools_tmpmap)"
 assert_msg MSG-R6M2 "${unload_out}" "a refused unload dies under its code"
 grep -qx 'exit=1' <<<"${unload_out}" && pass "a refused unload exits 1" || fail "refused unload exit: ${unload_out//$'\n'/ | }"
-grep -qF 'left loaded: ai_tools ai_tools_dotnet ai_tools_tmpmap' <<<"${unload_out}" && pass "the refusal names each module left loaded" \
+grep -qF 'left loaded: [ai_tools, ai_tools_dotnet, ai_tools_tmpmap]' <<<"${unload_out}" && pass "the refusal names each module left loaded as one list" \
     || fail "the refusal does not name the modules: ${unload_out//$'\n'/ | }"
 grep -qF 'invalid context system_u:object_r:ai_tools_conf_t:s0 specified for /home/op/.config/ai-tools(/.*)?' <<<"${unload_out}" \
     && pass "the refusal carries semanage's reason, the rule it validated against" \

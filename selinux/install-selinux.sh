@@ -691,11 +691,11 @@ _unload_modules() {
         log "no ai_tools module is loaded"
         return 0
     fi
-    log "unloading all ai_tools* modules: ${loaded[*]}"
+    log "unloading all ai_tools* modules: $(_list "${loaded[@]}")"
     reason="$(_locked semodule -r "${loaded[@]}" 2>&1 >/dev/null)" || true
     mapfile -t left < <(semodule -l 2>/dev/null | awk '/^ai_tools/{print $1}')
     [[ ${#left[@]} -eq 0 ]] \
-        || die MSG-R6M2 "left loaded: ${left[*]} -- ${reason//$'\n'/; }; review the local rules with 'sudo semanage fcontext -l -C | grep ai_tools', then re-run: sudo $0 remove"
+        || die MSG-R6M2 "left loaded: $(_list "${left[@]}") -- ${reason//$'\n'/; }; review the local rules with 'sudo semanage fcontext -l -C | grep ai_tools', then re-run: sudo $0 remove"
 }
 
 # The OPERATORS list, parsed through the shared grammar so this sweep reads operator.conf exactly as every other
