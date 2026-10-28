@@ -201,9 +201,9 @@ with `ai-tools user not found`). The script creates `/opt/ai-tools/bin`
 where it is absent, so a host whose packages were removed does not need a step
 for it. `sudo ai-tools-admin system bootstrap` does steps 2 and 3 in one
 idempotent command. The host also needs the `acl` package, which the RPM
-requires: every grant a claim and a clone make is a POSIX ACL, so the script
-stops before it writes anything where `setfacl` or `getfacl` is missing
-(`sudo dnf install acl`). Then run `sudo ./install.sh install`.
+requires: the script stops before it writes anything where `setfacl`
+or `getfacl` is missing (`sudo dnf install acl`). Then run
+`sudo ./install.sh install`.
 
 The script asks which account to enrol as the operator, offering the invoking
 `SUDO_USER` as the default — answer No to name another. A non-interactive run

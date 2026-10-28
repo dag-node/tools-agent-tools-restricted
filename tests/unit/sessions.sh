@@ -3,10 +3,9 @@
 # tests/unit/sessions.sh
 # Unit test for sessions.lib.sh, the reader the recursive relabels gate on. Two properties carry it.
 #
-# THE TWIN. The library's enumeration is a copy of ai-tools-stop's, which does not load a project library and so cannot
-# source this one (stop.rule.md, ref-section-e8k5). Each copied function is held equal to the helper's
-# through `declare -f` after the substitution this file spells out, so a fix to either copy fails here until it reaches
-# the other.
+# THE TWIN. The library's enumeration is a copy of ai-tools-stop's (stop.rule.md, ref-section-e8k5). Each copied
+# function is held equal to the helper's through `declare -f` after the substitution this file spells out, so a fix
+# to either copy fails here until it reaches the other.
 #
 # THE FAIL DIRECTION. The gate refuses a walk on `live` and on `unreadable`, so a reading that cannot be made must never
 # come back `none`: no cgroup v2 mount, no uid, a user.slice the caller cannot enter, and a directory

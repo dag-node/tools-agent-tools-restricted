@@ -1601,21 +1601,17 @@ clone_is_private() {
 # read back from the inode as ai_tools_relabel__label_project reads it, since restorecon exits 0 over a type no rule
 # maps (the module not loaded); 0 as well where SELinux is disabled or restorecon is absent, with no walk; 1 otherwise.
 #
-# sandbox_finalize runs it while the clone root is still 0700 and the operator's, ahead of normalize_clone: restorecon
-# walks by path, and once the tree is open the sandbox account can rename a directory in it and plant a symlink in its
-# place mid-walk, sending the label onto an inode it chose. While the root is private no directory inside the clone is
-# that account's to rename, and the clone's own entry sits in the clone area, a directory whose type ai_tools_t may
-# search and not write (ai_tools.fc), so this walk does not take the live-session gate. A resume over a clone already
-# opened does not run a relabel: the first finalize labelled it, before it opened.
+# sandbox_finalize runs it while the clone root is still 0700 and the operator's, ahead of normalize_clone, so no
+# directory inside the clone is the sandbox account's to rename mid-walk and the walk does not take the live-session
+# gate (cli.rule.md, ref-section-e6c6). A resume over a clone already opened does not run a relabel: the first finalize
+# labelled it, before it opened.
 #
-# Where SELinux runs and no ai_tools policy is on the host -- neither its file contexts live nor its compiled module
-# staged -- ai_tools_project_t does not exist to read the clone with, so it returns 0 and says the clone is unlabelled.
-# That reading is ai_tools_confinement__evaluate_dac_only_state's `module-absent`, the launch's own predicate:
-# ai-tools-run proceeds through that state with MSG-K6W6, so it is a host sessions run on. Every other reading keeps
-# the restorecon and the stop -- a module shipped and not loaded, where the label is achievable once the policy is
-# installed, a matchpathcon that could not be read, and a confinement library that did not load. A resume does not label
-# a clone already opened, so the line names the policy install, which labels the clone area. A claim's label step
-# on such a host goes through ai-tools-relabel, which this reading does not change.
+# Where SELinux runs and no ai_tools policy is on the host, ai_tools_project_t does not exist to read the clone
+# with, so it returns 0 and says the clone is unlabelled: that reading is
+# ai_tools_confinement__evaluate_dac_only_state's `module-absent`, the state ai-tools-run launches through. Every other
+# reading keeps the restorecon and the stop -- a module shipped and not loaded, a matchpathcon that could not be read,
+# a confinement library that did not load. The line names the policy install, which labels the clone area, since
+# a resume does not label a clone already opened.
 relabel_clone() {
     local clone_dir="$1" selinux_mode module_present policy_shipped dac_only_state=""
     command -v restorecon >/dev/null 2>&1 || return 0
@@ -2476,12 +2472,10 @@ cmd_project_claim() {
         say "      ${C_DIM}which one above it is not${C_RST}"
     }
 
-    # The SELinux label walks the tree as root, and ai-tools-relabel refuses that walk while a process of the sandbox
-    # account is live, or where it cannot read whether one is (cli.rule.md). The same reading, made here
-    # as the operator, names a live session ahead of the verb's first sudo; it does not ask anything, and the helper's
-    # refusal is what decides. It shows for a drift relabel too, which the operator may then decline. It shows on `live`
-    # alone: the operator account reads `unreadable` wherever the sandbox account's user manager creates its slices
-    # owner-only, so a notice on that reading would open every labelling claim with a cause this account cannot confirm.
+    # The reading ai-tools-relabel refuses its walk on, made here as the operator so the Review block names a live
+    # session ahead of the verb's first sudo; it does not ask anything, and the helper's refusal is what decides. It
+    # shows for a drift relabel too, which the operator may then decline, and on `live` alone: why `unreadable` is left
+    # to the helper's refusal is cli.rule.md's (ref-section-e6c6).
     note_live_session() {
         ${need_label} || (( ${#label_drift[@]} )) || return 0
         declare -F ai_tools_sessions__read_live_session_state >/dev/null 2>&1 || return 0
@@ -3281,7 +3275,7 @@ not_covered_die() {
 # with its manual command and the pass goes on, while a drop that did not apply refuses (unreg_allow) and a park
 # that did not apply returns 1 without the ✓, since either leaves a session able to start here. A label reversal
 # that did not apply, or that the live-session gate refused, returns 1 without the ✓ as well, after the registry
-# reversal: the project type and its rule stay on a tree no entry names until the printed command runs.
+# reversal (cli.rule.md, ref-section-m5n5).
 unclaim_one() {
     local d="$1" group="$2" hint="$3" registry="$4"; shift 4
     local flags=""; (( $# )) && flags=" $*"
@@ -3895,8 +3889,8 @@ cmd_project_remove() {
     headline "Removing the project" "${d}"
     # A failed cleanup step asks once (note_root_failure) and does not stop the removal: the registries drop regardless,
     # and `ai-tools projects` reports what is left behind. The live-session gate's refusal stops it instead,
-    # before either registry changes: that state is known and passes once the sessions end, while a label reversal left
-    # for later cannot be applied to a path this run deletes, since the helper refuses a path that does not exist.
+    # before either registry changes: a label reversal left for later cannot be applied to a path this run deletes
+    # (cli.rule.md, ref-section-k3v7).
     local cleanup_stopped=false
     if command -v sudo >/dev/null 2>&1 \
             && command -v getenforce >/dev/null 2>&1 \

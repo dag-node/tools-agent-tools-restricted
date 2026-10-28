@@ -439,7 +439,8 @@ fi
 # the label, so a tree that never had it is not relabelled as a side effect of unclaiming. Best-effort: a label left
 # behind is a defence-in-depth gap, not an access grant -- the DAC reversal has already removed the agent's reach.
 # The tree was a claimed project, so the walk runs only while no process of the sandbox account is live, read
-# through sessions.lib.sh, and a reading that cannot be made skips it as a live one does (cli.rule.md states the gate).
+# through sessions.lib.sh, and a reading that cannot be made skips it as a live one does (cli.rule.md,
+# ref-section-e6c6).
 if ${UNLISTED} && [[ "$(getenforce 2>/dev/null || echo Disabled)" != "Disabled" ]] \
         && command -v restorecon >/dev/null 2>&1; then
     if [[ "$(stat -c '%C' "${canonical}" 2>/dev/null)" == *:ai_tools_project_t:* ]]; then

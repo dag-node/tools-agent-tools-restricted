@@ -568,24 +568,22 @@ On a fresh install the socket is not up yet — `ai-tools-base` `%posttrans` sta
 so the refresh no-ops there. `%postun` on final erase unloads every loaded `ai_tools*` module, enumerated rather than
 named: a group's `.pp` is erased with the package while the compiled module persists in the store, and a group compiled
 from a source checkout was never in the rpm database at all. Ahead of the unload it drops **every local file-context
-rule naming an `ai_tools` type**, by type rather than by registry: `semodule -r` refuses while one stands, and a claimed
-project's rule is one. Both store writes wait on the reading the `%post` makes of the sandbox account's sessions
-([ref-section-e6c6](cli.rule.md#ref-section-e6c6)): while a process of the account is live, or the reading cannot be
-made, the erase leaves the policy loaded and every rule in place and prints the stop and the re-run, the direction
-`install-selinux.sh remove` refuses in. A dropped rule shaped like a project's names its tree with the `restorecon -R`
-that returns it to its default type, printed single-quoted and only where the decoded tree re-escapes to the literal
-the rule carried, and not walked, since a scriptlet holds neither the protected-paths backstop nor the literal check
-the installer's `remove` walks a tree under; a project-shaped rule an earlier release wrote raw is named for review
-with the `restorecon` to run over each tree it covered. The listing, the deletes, the unload and the read-back run
-under the lock every writer of the policy store takes ([updater](updater.rule.md)), the sessions read once the lock is
-held, since a session can start during the wait, and a lock not taken is reported ahead of the erase proceeding; once
-the read-back shows every `ai_tools` module gone the trees the `%post` restores take one `restorecon` each,
-the account's under the same `none` reading, a tree the walk could not restore named with its retry. A module left
-loaded is reported with semanage's reason, read back from the store rather than from the exit status, and a rule
-semanage will not delete is named with the delete to run. A store that cannot be listed is reported as that and never
-read as an empty one, since an empty store is what `removed` rests on: the erase prints the failed read and skips
-the unload, and `install-selinux.sh remove`, which takes the same two steps from a checkout, refuses at either read
-and exits 1 over a module left loaded.
+rule naming an `ai_tools` type**, by type rather than by registry, since `semodule -r` refuses while one stands
+and a claimed project's rule is one; a later claim writes the rule again. Both store writes wait on the reading
+the `%post` makes of the sandbox account's sessions ([ref-section-e6c6](cli.rule.md#ref-section-e6c6)), taken
+under the policy-store lock ([updater](updater.rule.md)) so a session started during the wait is read: a process
+of the account live at the unload would run on in a domain the policy no longer defines, so while the reading is
+anything but `none` the erase leaves the policy loaded and every rule in place and prints the stop and the re-run,
+the direction `install-selinux.sh remove` refuses in. A dropped rule shaped like a project's is named
+with the `restorecon -R` that returns its tree to the default type and not walked, since a scriptlet holds neither
+the protected-paths backstop nor the literal check the installer's `remove` walks a tree under; one an earlier release
+wrote raw is named for review instead. The unload is read back from the store rather than from `semodule`'s exit status,
+and a store that cannot be listed is reported as that and never read as an empty one, since an empty store is
+what `removed` rests on; once the read-back shows every `ai_tools` module gone, the trees the `%post` restores take one
+`restorecon` each, the account's under the same reading. A module left loaded, a rule semanage will not delete
+and a tree the walk could not restore are each named with the command that completes the step.
+`install-selinux.sh remove` takes the same steps from a checkout, refuses at either read, and exits 1 over a module left
+loaded.
 
 The `%selinux_*` rpm macros are not used. `%selinux_requires` records the build host's `selinux-policy` version
 as a `Requires`, which a `noarch` package cannot satisfy across both EL targets; `%selinux_modules_install`/`_uninstall`

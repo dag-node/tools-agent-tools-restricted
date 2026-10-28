@@ -422,12 +422,9 @@ record_label_outcomes() {
     done
 }
 
-# report_live_sessions : name the config-directory walks a live session left. The usable class is a warning:
-#   the directory already carries the type a previous run gave it, and what was left is the forced re-walk that repairs
-#   drift. The other class fails the run, as a mislabelled path does: a config directory at a type ai_tools_t cannot
-#   write leaves every session of that agent unable to write its state. ai-tools-relabel.service is a oneshot,
-#   so the non-zero exit leaves the unit failed, which ai-tools status reports with the start that re-runs it, beside
-#   the record already filed.
+# report_live_sessions : name the config-directory walks a live session left. One at the type the agent writes is
+#   a warning; one at another type fails the run, as a mislabelled path does, since no session of that agent can write
+#   its state. What each files for ai-tools status, and what the oneshot unit then reports, is updater.rule.md's.
 report_live_sessions() {
     (( live_session_count == 0 )) \
         || warn MSG-E4E8 "the config directory of ${live_session_count} agent(s) was not relabelled: an agent session or the toolchain update runs as the sandbox account, or this host's sessions could not be read; let each session end (/exit inside it) and the toolchain update finish, or end them all with 'ai-tools stop', then run: sudo systemctl start ai-tools-relabel.service"

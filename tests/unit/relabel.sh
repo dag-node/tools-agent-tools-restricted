@@ -668,11 +668,11 @@ else
 fi
 
 # ── The live-session gate ────────────────────────────────────────────────────────────────────
-# A recursive relabel of a tree the sandbox account can write walks only while no process of that account is live:
-# restorecon resolves each path again before it writes, so a live process could send the label onto an inode it chose.
-# Each gated function is driven with the state reader stubbed to `live` and to `unreadable` and must return 3 with no
-# semanage or restorecon call, and with `none` must run as before. The writers record into a file, so a call made
-# from a command substitution is still seen. The per-path entrypoint label is not a walk and keeps running.
+# A recursive relabel of a tree the sandbox account can write walks only while no process of that account is live
+# (cli.rule.md, ref-section-e6c6). Each gated function is driven with the state reader stubbed to `live`
+# and to `unreadable` and must return 3 with no semanage or restorecon call, and with `none` must run as before.
+# The writers record into a file, so a call made from a command substitution is still seen. The per-path entrypoint
+# label is not a walk and keeps running.
 section "relabel: a recursive relabel walks only while no session is live (unit)"
 if declare -F _ai_tools_relabel__require_no_live_session >/dev/null 2>&1; then
     GATE_CALLS="${TESTDIR}/gate-calls"

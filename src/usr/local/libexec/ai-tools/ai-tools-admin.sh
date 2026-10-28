@@ -1109,9 +1109,8 @@ sel_disable() {
 # written at claim time and is not the group's.
 #
 # A clone is a tree the sandbox account can write, so the walk runs only while no process of that account is live, read
-# through sessions.lib.sh, and a reading that cannot be made skips it as a live one does: restorecon resolves each path
-# again before it writes, so a live process could send the label onto an inode it chose (cli.rule.md states the gate).
-# The group change stands either way; the skip names the walk to run once the sessions end.
+# through sessions.lib.sh, and a reading that cannot be made skips it as a live one does (cli.rule.md,
+# ref-section-e6c6). The group change stands either way; the skip names the walk to run once the sessions end.
 _restore_group_static_labels() {
     local clones=/var/opt/ai-tools/sandbox-projects state=unreadable
     [[ -d "${clones}" ]] && command -v restorecon >/dev/null 2>&1 || return 0

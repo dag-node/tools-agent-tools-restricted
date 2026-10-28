@@ -602,9 +602,8 @@ report_ask_gaps() {
 # A name that exists and is not a directory is refused: `install -d` accepts an existing entry and follows a symlink
 # to a directory, as the chown and the chmod do, so a link planted at the name would hand the owner and mode
 # to the inode its planter chose (layout.rule.md states the same for the reconcile's exclusive create). The read
-# decides, since every call names a directory under a parent root or the operator owns: the sandbox home is brought
-# to its root-owned mode ahead of the first name created under it, so the account cannot place or swap an entry there
-# between the read and the write.
+# decides, since every call names a directory under a parent root or the operator owns: do_install brings the sandbox
+# home to its row ahead of the first name created under it.
 ensure_dir() {
     local mode="$1" owner="$2" group="$3" dir="$4" before="absent" after
     if [[ -L "${dir}" || ( -e "${dir}" && ! -d "${dir}" ) ]]; then
@@ -832,10 +831,10 @@ do_selinux_restore() {
         /var/log/ai-tools/
     # Each agent's config directory is labelled from the rule its own manifest declares, applied
     # by ai-tools-relabel-agent after this; restore what is already mapped. The sandbox account writes inside each one,
-    # and restorecon walks by path, so the walk runs only while no process of that account is live (cli.rule.md);
-    # the state is read in a child shell, so the checkout's libraries do not load into this one. /opt/ai-tools/.config
-    # takes the same gate: it is root-owned and its systemd/user chain is a layout row at that owner, but a descendant
-    # an older install left sandbox-owned is a tree the account can write.
+    # so the walk runs only while no process of that account is live (cli.rule.md, ref-section-e6c6); the state is read
+    # in a child shell, so the checkout's libraries do not load into this one. /opt/ai-tools/.config takes the same
+    # gate: it is root-owned and its systemd/user chain is a layout row at that owner, but a descendant an older install
+    # left sandbox-owned is a tree the account can write.
     local _cfg _sandbox_session_state
     # shellcheck disable=SC2016  # $1 and $2 are the inner shell's positionals
     _sandbox_session_state="$(bash -c '. "$1" && ai_tools_sessions__read_live_session_state_for_uid "$2"' _ \

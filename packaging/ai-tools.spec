@@ -1032,11 +1032,9 @@ if [ "$(getenforce 2>/dev/null)" != "Disabled" ] && command -v semodule >/dev/nu
         echo "ai-tools-selinux: sessions run unconfined until it loads; re-run: sudo semodule -i %{_datadir}/selinux/packages/ai-tools/ai_tools.pp" >&2
     }
     # The root-owned trees are restored unconditionally. /opt/ai-tools and the clone area hold trees the sandbox account
-    # writes -- the toolchain, the caches, each agent's config directory, every clone -- and restorecon walks by path,
-    # so a live process of that account could redirect the walk's label writes. Those two are restored only while no
-    # process of the account is live, read through sessions.lib.sh (a library or reader this host lacks reads as live),
-    # and a skip prints one WARNING naming the stop and the restorecon to run after it. A scriptlet must succeed, so
-    # the skip is not an error. cli.rule.md states the gate.
+    # writes, so they are restored only while no process of that account is live (cli.rule.md, ref-section-e6c6), read
+    # through sessions.lib.sh -- a library or reader this host lacks reads as live -- and a skip prints one WARNING
+    # naming the stop and the restorecon to run after it. A scriptlet must succeed, so the skip is not an error.
     _sandbox_session_state=$(bash -c '. /usr/local/lib/ai-tools/sessions.lib.sh; declare -F ai_tools_sessions__read_live_session_state >/dev/null 2>&1 || { echo unreadable; exit 0; }; ai_tools_sessions__read_live_session_state' 2>/dev/null || :)
     _sandbox_trees_skipped=0
     if command -v restorecon >/dev/null 2>&1; then
@@ -1113,36 +1111,21 @@ fi
 # never in the rpm database at all. Leaving one loaded would keep a domain alive for files the
 # package no longer owns.
 #
-# Both store writes wait on the reading %%post makes of the sandbox account's sessions (its comment
-# states the gate): a process of that account live at the unload runs on in a domain the loaded
-# policy no longer defines, which the kernel maps to the unlabeled context, so while the reading is
-# anything but `none` the erase leaves the policy loaded and every rule in place and names the stop
-# and the re-run -- the direction install-selinux.sh's `remove` refuses in. A scriptlet must
-# succeed, so the skip is not an error.
-#
-# Every local file-context rule naming a type of this policy goes first: semodule refuses the
-# unload while one stands, and a claimed project's rule is one, so without this step the unload
-# failed on every erase. The rules are the types' and go with them; a claim writes them again.
-# A rule semanage will not delete is named with the delete to run (MSG-N5W8 is the installer's
-# code for it, printed here as the citation a twin carries). A dropped rule shaped like a project's
-# leaves its tree carrying a type the policy no longer defines, which a confined domain is denied
-# on, so the tree is named with the restorecon that returns it to its default type -- printed
-# single-quoted, only where the decoded tree re-escapes to the literal the rule carried (the
-# encoding ai_tools_relabel__get_fcontext_literal writes), and not walked, since this scriptlet
-# holds neither the protected-paths backstop nor the literal check the installer's `remove` walks
-# a tree under. A dropped project-shaped rule whose literal is not in that encoding -- one an
-# earlier release wrote raw -- matched paths the decoding does not derive, so it is named for
-# review with the restorecon to run over each tree it covered. The listing, the deletes, the
-# unload and the read-back run under the lock every writer of the policy store takes (%%post
-# states it), and the sessions are read once the lock is held: a session can start during the
-# wait, and a reading made before it would let the sweep run beside that session. A lock not
-# taken is reported and the erase proceeds, as %%post does. A module left loaded is reported with
-# semanage's reason, and a module store that cannot be listed is reported as that rather than read
-# as empty; the erase completes either way. Once the read-back shows every ai_tools module gone,
-# the trees %%post restores take one restorecon each, the account's under the same `none`
-# reading, so the control plane and the sandbox home leave the erase at their default types; a
-# tree the walk could not restore is named with the restorecon to re-run. Before that read-back
-# the policy's own file contexts still apply, so the walk waits for it.
+# The erase -- the local rules naming a type of this policy dropped ahead of the unload, the unload
+# read back from the store, the trees restored once that read-back shows every module gone, and
+# each step's fail direction -- is stated in confinement.rule.md ("How the policy ships"). Local to
+# this scriptlet: both store writes wait on the reading %%post makes of the sandbox account's
+# sessions, taken once the relabel lock is held (%%post states the lock), since a session can start
+# during the wait; a scriptlet must succeed, so a reading that is not `none` and a lock not taken
+# are each reported and are not errors. A dropped project-shaped rule is named with its restorecon
+# and not walked, since this scriptlet holds neither the protected-paths backstop nor the literal
+# check install-selinux.sh's `remove` walks a tree under: the command is printed single-quoted,
+# and only where the decoded tree re-escapes to the literal the rule carried (the encoding
+# ai_tools_relabel__get_fcontext_literal writes); a rule an earlier release wrote raw matched paths
+# the decoding does not derive, so it is named for review instead. A rule semanage will not delete
+# is named with the delete to run; MSG-N5W8 is the installer's code for it, printed here as the
+# citation a twin carries. Before the read-back the policy's own file contexts still apply, so the
+# restore waits for it.
 if [ "$1" -eq 0 ] && command -v semodule >/dev/null 2>&1; then
     _store_lock=/run/lock/ai-tools-relabel.lock
     _lock_note=""

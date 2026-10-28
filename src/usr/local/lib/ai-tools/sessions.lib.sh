@@ -1,33 +1,20 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: AGPL-3.0-only
 # /usr/local/lib/ai-tools/sessions.lib.sh
-# Whether any process of the sandbox account is live, read from the kernel's cgroup tree. The reader the recursive
-# relabels gate on: a `restorecon -R` over a tree the account can write resolves each path again before it writes
-# the label, so a live process of the account can swap a directory for a symlink inside the walk and send the label
-# elsewhere. The gate, its predicate and the residual are in cli.rule.md; relabel.lib.sh calls it.
+# Whether any process of the sandbox account is live, read from the kernel's cgroup tree: the reader the recursive
+# relabels gate on (cli.rule.md, ref-section-e6c6), called from relabel.lib.sh.
 #
-# THE ENUMERATION IS A TWIN OF ai-tools-stop's, not a call into it. The stop helper is the original: it does not load
-# a project library, so a stop does not depend on one (stop.rule.md, ref-section-e8k5), and this file cannot be the copy
-# it sources. Four functions here are its cgroup2_mount, has_own_tasks, find_session_cgroups and cgroup_is_live
-# under this module's names, with the slice and the manager directory taken as arguments where the helper reads its
-# globals SANDBOX_SLICE and MANAGER_SERVICE. Each body is otherwise the helper's, and tests/unit/sessions.sh holds each
-# pair equal through `declare -f`, so a fix to either copy fails the suite until it reaches the other. The comments
-# explaining each body stay in the helper.
+# THE ENUMERATION IS A TWIN OF ai-tools-stop's, not a call into it (stop.rule.md, ref-section-e8k5). Four functions here
+# are its cgroup2_mount, has_own_tasks, find_session_cgroups and cgroup_is_live under this module's names,
+# with the slice and the manager directory taken as arguments where the helper reads its globals SANDBOX_SLICE
+# and MANAGER_SERVICE. Each body is otherwise the helper's, and tests/unit/sessions.sh holds each pair equal
+# through `declare -f`. The comments explaining each body stay in the helper.
 #
-# What this file adds is the one thing the stop helper refuses to have: an exemption by name. The stop helper does not
-# spare a cgroup, because on a DAC-only host a session can move its tasks into any cgroup it names. This reader exempts
-# the user manager's own plumbing, and that is sound only where a relabel runs, which is where it is called: a relabel
-# does not walk where SELinux is Disabled, and where the policy is loaded ai_tools_t can neither write a cgroup file
-# nor reach its user manager to ask for a unit, so the names under the slice are the ones ai-tools-run and the manager
-# gave them. The plumbing is what an idle account's slice holds: the manager's init.scope and the dbus broker it starts
-# on first use (the units `ai-tools stop` lists as account plumbing). A login session scope (session-N.scope) is not
-# plumbing: it holds a process of the account that a `sudo -u` started.
-#
-# The exemption is sound against ai_tools_t and not against a process of the account outside that domain: the updater's
-# unit and the install scripts it runs. Such a process can name a cgroup. The gate reads its unit as live by that unit's
-# own cgroup until the process moves, and a process that moves itself into an exempt name is a compromised install
-# script already holding the account's whole DAC reach. The close is the pinned-descriptor walk of libselinux 3.11
-# or the launch lock, the deferred close cli.rule.md names.
+# What this file adds is an exemption by name, which the stop helper does not have: the user manager's own plumbing, its
+# init.scope and the dbus broker it starts on first use (the units `ai-tools stop` lists as account plumbing). A login
+# session scope (session-N.scope) is not plumbing: it holds a process of the account that a `sudo -u` started.
+# Why the name is sound where a relabel runs, which process it is not sound against, and what closes the residual are
+# cli.rule.md's.
 #
 # Sourced, not executed. Deployed 644 root:root: shipped logic alone, sourced by root (the relabel helpers,
 # the installers) and by the operator's CLI, which reads the world-readable cgroup files unprivileged.

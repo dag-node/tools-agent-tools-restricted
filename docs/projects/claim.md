@@ -169,9 +169,8 @@ NOTICE: a session of the sandbox account is running
       ai-tools stop
 ```
 
-The label is applied by walking the tree, and a walk while the agent's account
-has a process running could be redirected to a file outside the project,
-so the label step is refused until none runs
+The label step walks the tree as root, and is refused while a session
+of the sandbox account or the toolchain update runs
 ([ref-section-e6c6](../../.claude/rules/cli.rule.md#ref-section-e6c6)). Let
 each session end with `/exit` and the toolchain update finish, or end them all
 with `ai-tools stop`, then claim again: the re-run applies the label alone.

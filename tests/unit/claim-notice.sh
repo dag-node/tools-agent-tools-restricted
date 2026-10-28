@@ -1,10 +1,9 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: AGPL-3.0-only
 # tests/unit/claim-notice.sh
-# Hermetic check of the claim's live-session notice, the live-session reader's one unprivileged caller (cli.rule.md,
-# ref-section-e6c6). `projects claim` reads the state as the operator ahead of its first sudo, and the operator account
-# reads `unreadable` wherever the sandbox account's user manager creates its slices owner-only, so the notice shows
-# on `live` alone and `unreadable` is left to the helper's refusal at the label step.
+# Hermetic check of the claim's live-session notice, the live-session reader's one unprivileged caller: `projects claim`
+# reads the state as the operator ahead of its first sudo, and the notice shows on `live` alone, `unreadable` being left
+# to the helper's refusal at the label step (cli.rule.md, ref-section-e6c6).
 #
 # note_live_session is a function nested in cmd_project_claim, so it is read out of the checkout's ai-tools.sh as text
 # by its indentation and run in a fresh shell with the reader, the renderers and the pending-label state stubbed. A stub
