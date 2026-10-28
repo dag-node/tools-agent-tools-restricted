@@ -156,6 +156,26 @@ Two more notices name what the claim saw and left alone:
   and claim again; for ownership alone inside them, run
   `ai-tools projects handback --full`.
 
+Where your account can read the sandbox account's sessions, a claim whose label
+step is pending while a session or the toolchain update runs says
+so in the same block, before it asks for a password. On a host where it cannot,
+the refusal of the label step is the first report, after the password:
+
+```text
+NOTICE: a session of the sandbox account is running
+  ... The SELinux label step walks the tree as root, and the helper refuses
+  that step while one runs, where the claim runs it: the other steps apply,
+  the label is reported pending ...
+      ai-tools stop
+```
+
+The label is applied by walking the tree, and a walk while the agent's account
+has a process running could be redirected to a file outside the project,
+so the label step is refused until none runs
+([ref-section-e6c6](../../.claude/rules/cli.rule.md#ref-section-e6c6)). Let
+each session end with `/exit` and the toolchain update finish, or end them all
+with `ai-tools stop`, then claim again: the re-run applies the label alone.
+
 An owner-only path, and one named on a `!` line of your allowlist, is skipped
 by every step and reported as a count. Either mark is also how you stop a path
 being reported again.
@@ -214,8 +234,9 @@ that lets you enter it.
 ## Exit status
 
 0 when the tree is claimed or there was no work; 1 when a root step failed,
-with the pending steps named — a re-run applies exactly those; 2 for a rejected
-command line (an unknown option, a `--format` other than `tsv`); 3
-when the path is a protected system directory or a home root; 4 when a drifted
-file was left as it was or a scan stopped early; 5 when a file's state or part
-of the tree could not be read. `man ai-tools` has the full list.
+or the label step was refused while a session ran, with the pending steps named
+— a re-run applies exactly those; 2 for a rejected command line (an unknown
+option, a `--format` other than `tsv`); 3 when the path is a protected system
+directory or a home root; 4 when a drifted file was left as it was or a scan
+stopped early; 5 when a file's state or part of the tree could not be read.
+`man ai-tools` has the full list.

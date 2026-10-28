@@ -140,12 +140,12 @@ ends up identically owned whether it was locked down proactively or quarantined 
 as `SANDBOX_GROUP` would re-expose it the moment the mode was widened. Each locked path also has its sandbox residue
 stripped. The seal pass that follows covers the owner-only paths **under** the target and leaves the target directory
 itself as it is, still pruning the subtree of an owner-only root the way the claim walkers do. `ai-tools projects clone`
-runs its `git clone` under a pinned `umask 077`, so a clone reaches the gate owner-only throughout, and a root
-on the seal list would lose the setgid bit and the sandbox group the clone area gave it before `normalize_clone` opens
-the tree, which restores the mode bits and not the group. It runs only when the CWD is an allowed project and skips
-`!`-excluded paths, and applies each change through a pinned fd (re-verifying inode and type) so a `SANDBOX_USER` path
-swap cannot redirect root's chmod/chown. `--yes` skips the TTY confirmation, and is refused with exit 2 beside
-`--dry-run`, which does not ask.
+creates the clone root owner-only without an ACL and runs its `git clone` under `umask 077`, so a clone reaches the gate
+owner-only throughout, and a root on the seal list would lose the setgid bit and the sandbox group the clone area gave
+it before `normalize_clone` opens the tree, which restores the mode bits and not the group. It runs only when the CWD is
+an allowed project and skips `!`-excluded paths, and applies each change through a pinned fd (re-verifying inode
+and type) so a `SANDBOX_USER` path swap cannot redirect root's chmod/chown. `--yes` skips the TTY confirmation, and is
+refused with exit 2 beside `--dry-run`, which does not ask.
 
 `--dry-run` previews **both** passes — the secret lock and the seal — naming each path and, for a seal, what would come
 off it. The seal half is the one that acts on paths the operator did not name, so a preview that showed only the secret

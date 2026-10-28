@@ -19,8 +19,10 @@ a file that blocks — on a terminal read, a wedged daemon, or a fixture process
 and reported as a failure with its transcript, rather than hanging the run. That matters beyond convenience because
 `install.sh` runs this suite as its verification phase, so an unbounded file stalls an install. `AI_TOOLS_TEST_STRICT=1`
 turns the notice into a failure, and strict is the enforcing-host full-install gate
-(`sudo AI_TOOLS_TEST_STRICT=1 tests/run.sh all`); the container selftest stays lenient because SELinux is legitimately
-absent there, so `selinux.sh`'s all-skip is a documented limitation, not a broken prerequisite.
+(`sudo AI_TOOLS_TEST_STRICT=1 tests/run.sh all`), run with no process of the sandbox account live, since
+`integration/selinux.sh` skips its clone label cases while the live-session gate refuses the walk; the container
+selftest stays lenient because SELinux is legitimately absent there, so `selinux.sh`'s all-skip is a documented
+limitation, not a broken prerequisite.
 
 The harness carries a fourth emitter for that reason. `skip` records a check that could not run, and reaching the notice
 is the point of it. `note` records a fact about the run that is not a verdict — `references.sh` names which tool it
@@ -605,7 +607,9 @@ must ask for a forced, non-recursive dry run over a NUL list, since it runs unpr
 keep a type difference while dropping a difference in the SELinux user alone, an owner-only file and a carved-out path,
 and must read a stray line among the records as an incomplete scan that still reports the drift it read. Its last
 section drives the two verifiers the claim runs after its Apply block over a stubbed `restorecon`, and pins that a batch
-which fails is never read as `fixed`.
+which fails is never read as `fixed`. `relabel_clone` is driven over the host readings with `restorecon` stubbed:
+SELinux running with no `ai_tools` policy creates the clone unlabelled with no `restorecon` call, while a module shipped
+and not loaded and a module reading that cannot be made each keep the stop.
 
 `project-permissions.sh` pins the checks that scan and the claim's verification rest on, unprivileged
 and against the checkout: every way `restorecon`'s output can be incomplete is asserted to read unknown, not `match`,
@@ -718,7 +722,56 @@ carrying the form it must find first. The keep decision, `read_settings_keep_ref
 and run over a fixture tree through the checkout's layout library under `AI_TOOLS_LAYOUT_ROOT`: a file at another owner,
 a symlink, and a file the layout does not list are refused, unprivileged; a `root:SANDBOX_GROUP 0640` file is kept,
 and the same file group-writable, with a named ACL entry, or hardlinked is refused, as root, the half that skips
-otherwise.
+otherwise. It reads `do_selinux_restore` the same way: every `restorecon -R` ahead of the live-session reading names
+a root-owned tree, beside a control that walks `/opt/ai-tools/.config` there. Then the ACL tools a source install
+requires: `require_acl_tools`, extracted, refuses under its code with either tool absent from `PATH` and passes
+with both present, the control, and `do_install` calls it ahead of its first write, beside a control placing the call
+after it. Then the directories the install writes into: `ensure_dir`, extracted, refuses a symlink and a regular file
+at the name and leaves the link's target at its mode, beside `install -d` over the same link changing that mode
+as the control, and brings an existing directory to the mode and creates a missing one; and `do_install`'s text brings
+the sandbox home, then `bin`, to their rows ahead of the first file written under them, beside a control with the three
+inverted. It closes on the account declaration a source install places: `do_install` installs
+`packaging/ai-tools.sysusers` at the path `layout.lib.sh` declares a payload file of base, read out of the table first,
+and `do_uninstall` removes it, each beside a control lacking the line.
+
+`install-selinux-walks.sh` runs `selinux/install-selinux.sh`'s account-writable walks, extracted as text, under each
+live-session reading with `restorecon` recorded, `none` first as the recorder's control: `live` and `unreadable` walk no
+tree and name each one left under the warning's code, and the clone verify loop does not run over a walk it left;
+a config directory the relabel library reports left is named under its own code and joins the trees left, and one left
+at a type the agent cannot write is named under a further code with that type, beside the same directory at its own type
+as the control; and the script's text sources the installed `sandbox-exec.lib.sh` ahead of the relabel library, holds
+every other `restorecon` to a root-owned tree, and reads the live-session state in the `remove` action ahead of its
+first policy-store write. Its remove section drives the sweep over the rules the registry walks do not derive
+and the unload over a stubbed `semodule`, each in its fail direction: a rule semanage will not delete is named, a tree
+is walked only under a `none` reading, and a module the store still lists after the transaction is a refusal whatever
+the exit status said, with the step order read from the arm's text.
+
+`spec-selinux-erase.sh` runs the `ai-tools-selinux` `%postun` the same way: its body read out of `rpmspec -P`, the text
+the package ships, or where that is absent out of the source with RPM's expansion of its macros and doubled percents
+applied, its host paths rewritten to fixture trees, and run under `/bin/sh` with the session reader, `semanage`,
+`semodule`, `restorecon` and `flock` defined as recording functions ahead of it. A `live` and an `unreadable` reading
+make no store write and no restore and name the package re-run and the by-hand steps through the label restore,
+and a reading the `flock` stub flips to `live` while it waits is the one the run acts on; `none` deletes every rule
+with its file-type letter under the relabel lock, read before the sessions and the sessions before the first write,
+unloads the modules in one transaction, and restores the present trees one call each; the printed restore line
+for a project tree carrying a space is run through the stub and held to reach `restorecon` as two arguments, the same
+line with its quotes removed as the control that splits, while a rule holding a raw metacharacter over an existing
+directory and one an earlier release wrote without escaping its dot are each named for review with their pattern; a lock
+wait that runs out is reported with the erase proceeding; a refused listing, a refused unload and a refused restore are
+each driven, the first two leaving every tree unwalked; and the gate's test rewritten is the control, under which a live
+reading deletes rules. `spec-scriptlets.sh` beside it reads the spec as text: the `declare -F` guard on every library
+function a scriptlet calls, no agent `%preun` nulling the relabel helper's stderr, and the `%postun`'s session read
+ahead of its first store write in source order. Its last section is about the text RPM ships, since every scriptlet body
+passes through macro expansion first: no scriptlet carries an odd run of percents ahead of `(`, which RPM runs
+as a command at parse time, beside a control line the reader must flag; and where `rpmspec` is on the host, the spec
+parses with an empty stderr and the parameter expansions the group swap and the project restore line turn on are
+evaluated from the parsed text.
+
+`claim-notice.sh` drives the live-session reader's one unprivileged caller, the claim's `note_live_session`, read
+out of the checkout's `ai-tools.sh` as text with the reader, the renderers and the pending-label state stubbed: a `live`
+reading with the label step or a drift relabel pending prints the notice and the stop command, `none` and `unreadable`
+print no line, and no reading prints one while no label step is pending. The `live` case reaching the renderer is
+the control that the extraction found the function.
 
 `postupgrade.sh` is that same reconciliation seen from the RPM side: `ai-tools-admin system post-upgrade` end to end,
 from dispatch through the registry to each treatment (see [providers](providers.rule.md)
@@ -1049,7 +1102,9 @@ widens or breaks the set of paths the rule covers. A label retires those raw rul
 tree, in each direction that would widen or misreport: only a rule whose raw pattern and type this library writes is
 removed, a rule of another type is left and named for review, and the paths the removed rule matched beside the project
 are relabelled — one reached through a `.` read as `/` included — while a host without a raw rule, or an unlabel
-that removed none, leaves them alone.
+that removed none, leaves them alone. The listing a remove sweeps by is driven over a mixed store: every
+`ai_tools`-typed rule is listed with its file-type letter, whatever wrote it, and no rule of another type is; the config
+unlabel drops the raw rule beside the escaped one, as the project unlabel does.
 
 Two further sections cover what happens when a rule does **not** register, with `semanage` stubbed as a shell function
 so no policy store is touched. The first asserts the refusal carries `semanage`'s stderr, collapsed to one line,
@@ -1075,6 +1130,22 @@ later field left, rendering a type where a path belongs in a report whose whole 
 a readonly constant, so the config directory cannot be moved into the testdir; the fixture agent's name is one no
 package ships, which makes that half report deterministically as not installed and leaves the entrypoint half to carry
 the type comparisons.
+
+A fifth covers the live-session gate ([ref-section-e6c6](cli.rule.md#ref-section-e6c6)): each gated walk is driven
+with the session reader stubbed to `live` and to `unreadable`, and must return its status with no `semanage`
+or `restorecon` call recorded, while `none` runs it and the per-path entrypoint label runs under `live`; a copy
+of the library with no `sessions.lib.sh` beside it reads as live. Every other section stubs the reader to `none`, since
+a session may be running on the host the suite runs on. `sessions.sh` pins the reader itself: its walk functions are
+held to `ai-tools-stop`'s through `declare -f`, beside a control that a one-character change breaks the equality,
+and a fixture cgroup tree drives the truth table, each reading that cannot be made asserted to read `unreadable`
+and a mode root reads through asked as the projects user, and the mount read and a unit's `cgroup.events` read are each
+driven under the strict-mode `IFS` its in-process callers set, beside the default and a control that the strict `IFS`
+breaks the bare read. Its boundary half is a type rule, so it is `integration/selinux.sh`'s policy read
+and `selinux/avc/avc-denials.sh` section Y, made from inside a session. `relabel-agent.sh` drives
+how `ai-tools-relabel-agent` closes a run over the library's status lines, its closing functions read out of the helper
+as text with the record writer stubbed: a config directory the gate left at the type the agent writes is filed `skipped`
+and warns at exit 0, the control, one left at another type is filed `failed` and exits 1 under its code, and with both
+the warning precedes the refusal.
 
 `entrypoint-verify.sh` pins the pure half of the entrypoint verifier (`entrypoint-verify.lib.sh`, see
 [updater](updater.rule.md)). Every assertion targets a way the gate could fail **open**: an absent pin must read

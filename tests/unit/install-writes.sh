@@ -14,7 +14,14 @@
 # under AI_TOOLS_LAYOUT_ROOT. A file at its row needs a root-owned fixture, so that half runs as root and skips
 # otherwise.
 #
-# No install and no command of install.sh's but the extracted function. Skips outside a checkout.
+# The ACL tools check, require_acl_tools, is driven the same way under a PATH without the tools, and do_install's text
+# is read for the call's place ahead of the first write. ensure_dir is driven over fixtures: a name that is not
+# a directory is refused with the link's target untouched, beside `install -d` following the link as the control;
+# and do_install's text is read for the home, then bin, brought to their rows ahead of the first file written
+# under them. The sysusers fragment the layout declares a payload file of base is read the same way: do_install places
+# it from packaging/ai-tools.sysusers and do_uninstall removes it.
+#
+# No install and no command of install.sh's but the extracted functions. Skips outside a checkout.
 
 set -euo pipefail
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")/../lib" && pwd)/harness.sh"
@@ -205,5 +212,290 @@ else
         refused_with "a hardlinked settings.json is not kept" 'it has 2 hard links' "$(keep_refusal)"
     fi
 fi
+
+
+# ── do_selinux_restore walks only root-owned trees ahead of the live-session reading ──────────────
+# A recursive restorecon resolves each path again before it writes, so a walk of a tree the sandbox account can write
+# runs behind the reading (cli.rule.md, ref-section-e6c6). Every `restorecon -R` the function makes before the reading
+# must name a root-owned tree from the set find_early_account_walks lists; a control fixture walking
+# /opt/ai-tools/.config there must be flagged. find_early_account_walks <file>: print each `restorecon -R` code line
+# ahead of the reading that names a path outside the root-owned set.
+find_early_account_walks() {
+    local line path
+    while IFS= read -r line; do
+        [[ "${line}" == *_sandbox_session_state=* ]] && break
+        [[ "${line}" =~ restorecon[[:space:]]+-R ]] || continue
+        for path in ${line#*restorecon}; do
+            case "${path}" in
+                -R|\\) ;;
+                /usr/local/libexec/ai-tools/|/usr/local/lib/ai-tools/|/opt/ai-tools/bin/|/var/log/ai-tools/) ;;
+                *) printf '%s\n' "${line}"; break ;;
+            esac
+        done
+    done < <(code_lines "$1")
+}
+restore_text="$(extract_function "${INSTALLER}" do_selinux_restore)"
+if [[ -z "${restore_text}" ]]; then
+    fail "install.sh does not define do_selinux_restore() in the form this file reads"
+else
+    printf '%s\n' 'do_selinux_restore() {' '    restorecon -R \\' '        /opt/ai-tools/bin/ \\' \
+        '        /opt/ai-tools/.config/' '    _sandbox_session_state="$(read)"' '}' > "${TESTDIR}/restore-control.sh"
+    if [[ -n "$(find_early_account_walks "${TESTDIR}/restore-control.sh")" ]]; then
+        pass "the reader flags a walk of an account-writable tree ahead of the reading (control)"
+    else
+        fail "control: the reader does not flag an early walk, so the check below cannot fail"
+    fi
+    printf '%s\n' "${restore_text}" > "${TESTDIR}/restore.sh"
+    if ! grep -q '_sandbox_session_state=' "${TESTDIR}/restore.sh"; then
+        fail "do_selinux_restore does not take the live-session reading this check splits on"
+    else
+        found="$(find_early_account_walks "${TESTDIR}/restore.sh")"
+        [[ -z "${found}" ]] && pass "do_selinux_restore walks only root-owned trees ahead of the live-session reading" \
+            || fail "do_selinux_restore walks a tree the account can write ahead of the reading: $(_san "${found}")"
+    fi
+fi
+
+# ── a source install requires the ACL tools ──────────────────────────────────────────────────
+# Every grant the ownership model makes is a POSIX ACL, so the install refuses a host without setfacl and getfacl,
+# and does so ahead of its first write. require_acl_tools is driven out of install.sh as text with the real die,
+# under a PATH holding neither tool; a shell function named for a tool answers `command -v` as a binary would,
+# which stands for an installed tool without needing an executable fixture. Then do_install's text is read
+# for the call's place: beside the account check, ahead of the install log's directory, the first path the install
+# creates.
+section "install.sh: a source install refuses a host without the ACL tools (unit)"
+acl_text=""
+for name in die require_acl_tools; do
+    body="$(extract_function "${INSTALLER}" "${name}")"
+    if [[ -z "${body}" ]]; then
+        fail "install.sh does not define ${name}() in the form this file reads"
+        acl_text=""; break
+    fi
+    acl_text+="${body}"$'\n'
+done
+if [[ -n "${acl_text}" ]]; then
+    # acl_run <tool-functions> : require_acl_tools under an empty PATH with the named tools defined as functions, run
+    #   under the IFS install.sh sets.
+    # shellcheck disable=SC2016  # the inner shell expands these, not this one
+    acl_run() {
+        env -i PATH="${TESTDIR}/no-bin" "${BASH}" -c '
+            set -euo pipefail
+            C_RED="" C_RST=""
+            eval "$1"
+            for tool in $2; do eval "${tool}() { :; }"; done
+            IFS=$'"'"'\n\t'"'"'
+            require_acl_tools
+            printf "returned\n"
+        ' _ "${acl_text}" "$1" 2>&1
+    }
+    mkdir -p "${TESTDIR}/no-bin"
+    rc=0; out="$(acl_run "setfacl getfacl")" || rc=$?
+    if (( rc == 0 )) && [[ "${out}" == returned ]]; then
+        pass "with both tools present the check passes (control)"
+    else
+        fail "with both tools present the check exited ${rc}: ${out//$'\n'/ | }"
+    fi
+    rc=0; out="$(acl_run "")" || rc=$?
+    assert_msg MSG-Q7E7 "${out}" "with neither tool the install is refused"
+    if (( rc != 0 )) && [[ "${out}" == *"(setfacl and getfacl not found)"* && "${out}" == *"dnf install acl"* ]]; then
+        pass "the refusal exits non-zero, names both tools and the acl package"
+    else
+        fail "the refusal with neither tool (exit ${rc}): ${out//$'\n'/ | }"
+    fi
+    rc=0; out="$(acl_run "setfacl")" || rc=$?
+    if (( rc != 0 )) && [[ "${out}" == *"(getfacl not found)"* ]]; then
+        pass "with getfacl alone missing the refusal names it alone"
+    else
+        fail "the refusal with getfacl missing (exit ${rc}): ${out//$'\n'/ | }"
+    fi
+fi
+
+# call_precedes_first_write <file> : succeed when do_install's require_acl_tools call comes before its first
+# `install -d` of /var/log/ai-tools, the first path the install creates.
+call_precedes_first_write() {
+    local body call_line write_line
+    body="$(extract_function "$1" do_install)"
+    call_line="$(grep -n -m1 -E '^[[:space:]]+require_acl_tools$' <<<"${body}" | cut -d: -f1 || true)"
+    write_line="$(grep -n -m1 -E '^[[:space:]]+install -d .*/var/log/ai-tools' <<<"${body}" | cut -d: -f1 || true)"
+    [[ -n "${call_line}" && -n "${write_line}" ]] && (( call_line < write_line ))
+}
+printf '%s\n' 'do_install() {' '    install -d -o root -g root -m 700 /var/log/ai-tools' '    require_acl_tools' '}' \
+    > "${TESTDIR}/acl-order-control.sh"
+if call_precedes_first_write "${TESTDIR}/acl-order-control.sh"; then
+    fail "control: the reader accepts a check placed after the first write, so the check below cannot fail"
+else
+    pass "the reader flags a check placed after the first write (control)"
+fi
+if call_precedes_first_write "${INSTALLER}"; then
+    pass "do_install refuses a host without the ACL tools ahead of its first write"
+else
+    fail "do_install does not call require_acl_tools ahead of its install log's directory"
+fi
+
+# ── ensure_dir sets an owner and a mode on a directory alone ─────────────────────────────────────
+# `install -d`, chown and chmod each follow a symlink at the name, so ensure_dir reads the name first and refuses one
+# that exists and is not a directory. It is driven extracted with the real die, over fixtures the test owns
+# at the test's own owner and group; the control is `install -d` itself over a symlink, which changes the mode
+# of the link's target.
+section "install.sh: ensure_dir refuses a name that is not a directory (unit)"
+ensure_text=""
+for name in die ensure_dir; do
+    body="$(extract_function "${INSTALLER}" "${name}")"
+    if [[ -z "${body}" ]]; then
+        fail "install.sh does not define ${name}() in the form this file reads"
+        ensure_text=""; break
+    fi
+    ensure_text+="${body}"$'\n'
+done
+if [[ -n "${ensure_text}" ]]; then
+    fixture_owner="$(stat -c '%U' "${TESTDIR}")"; fixture_group="$(stat -c '%G' "${TESTDIR}")"
+    # ensure_run <mode> <dir> : ensure_dir out of install.sh, under the IFS install.sh sets, with log a no-op.
+    # shellcheck disable=SC2016  # the inner shell expands these, not this one
+    ensure_run() {
+        env -i PATH=/usr/bin:/bin "${BASH}" -c '
+            set -euo pipefail
+            C_RED="" C_RST=""
+            log() { :; }
+            eval "$1"
+            IFS=$'"'"'\n\t'"'"'
+            ensure_dir "$2" "$3" "$4" "$5"
+            printf "returned\n"
+        ' _ "${ensure_text}" "$1" "${fixture_owner}" "${fixture_group}" "$2" 2>&1
+    }
+    mkdir -m 0755 "${TESTDIR}/target" "${TESTDIR}/home"
+    ln -s "${TESTDIR}/target" "${TESTDIR}/home/link"
+    install -d -m 0551 "${TESTDIR}/home/link"
+    if [[ "$(stat -c '%a' "${TESTDIR}/target")" == 551 ]]; then
+        pass "install -d over a symlink changes the mode of the link's target (control)"
+    else
+        fail "control: install -d over a symlink left the target at $(stat -c '%a' "${TESTDIR}/target"), so the refusal below guards against a write this host does not make"
+    fi
+    chmod 0755 "${TESTDIR}/target"
+    rc=0; out="$(ensure_run 0551 "${TESTDIR}/home/link")" || rc=$?
+    assert_msg MSG-W4A2 "${out}" "a symlink at the name is refused"
+    if (( rc != 0 )) && [[ "$(stat -c '%a' "${TESTDIR}/target")" == 755 ]]; then
+        pass "the refusal exits non-zero and the link's target keeps its mode"
+    else
+        fail "a symlink at the name (exit ${rc}, target now $(stat -c '%a' "${TESTDIR}/target")): ${out//$'\n'/ | }"
+    fi
+    : > "${TESTDIR}/home/file"
+    rc=0; out="$(ensure_run 0551 "${TESTDIR}/home/file")" || rc=$?
+    assert_msg MSG-W4A2 "${out}" "a regular file at the name is refused"
+    chmod 0700 "${TESTDIR}/target"
+    rc=0; out="$(ensure_run 0551 "${TESTDIR}/target")" || rc=$?
+    if (( rc == 0 )) && [[ "${out}" == returned && "$(stat -c '%a' "${TESTDIR}/target")" == 551 ]]; then
+        pass "an existing directory is brought to the mode"
+    else
+        fail "an existing directory (exit ${rc}, mode $(stat -c '%a' "${TESTDIR}/target")): ${out//$'\n'/ | }"
+    fi
+    rc=0; out="$(ensure_run 0551 "${TESTDIR}/home/new")" || rc=$?
+    if (( rc == 0 )) && [[ -d "${TESTDIR}/home/new" && "$(stat -c '%a' "${TESTDIR}/home/new")" == 551 ]]; then
+        pass "a missing directory is created at the mode"
+    else
+        fail "a missing directory (exit ${rc}): ${out//$'\n'/ | }"
+    fi
+    chmod -R u+rwx "${TESTDIR}/target" "${TESTDIR}/home"
+fi
+
+# ── the sandbox home, then bin, ahead of the first file written into bin ─────────────────────────
+# useradd leaves the home the account's, so a name under it is the account's to place until the home is root-owned
+# without group write; and the RPM owns /opt/ai-tools/bin and an erase removes it once empty, so a source install
+# over a host that left the packages does not find the directory, and `install` of a file into an absent one fails.
+# do_install's text is read for the order: the home's ensure_dir, then bin's, then the first `install` into bin, beside
+# a control with the three inverted.
+section "install.sh: the home, then bin, are brought to their rows ahead of the first file under them (unit)"
+# home_then_bin_precede_first_file <file> : succeed when do_install's ensure_dir of /opt/ai-tools comes before its
+# ensure_dir of /opt/ai-tools/bin, which comes before its first `install` or install_subst of a file under bin.
+home_then_bin_precede_first_file() {
+    local lines home_line dir_line file_line
+    lines="$(extract_function "$1" do_install | code_lines /dev/stdin)"
+    home_line="$(grep -E '^[0-9]+:[[:space:]]*ensure_dir .* /opt/ai-tools$' <<<"${lines}" | head -n 1 | cut -d: -f1)"
+    dir_line="$(grep -E '^[0-9]+:[[:space:]]*ensure_dir .* /opt/ai-tools/bin$' <<<"${lines}" | head -n 1 | cut -d: -f1)"
+    file_line="$(grep -E '^[0-9]+:[[:space:]]*install(_subst)? .* /opt/ai-tools/bin/' <<<"${lines}" | head -n 1 | cut -d: -f1)"
+    [[ -n "${home_line}" && -n "${dir_line}" && -n "${file_line}" ]] \
+        && (( home_line < dir_line )) && (( dir_line < file_line ))
+}
+printf '%s\n' 'do_install() {' '    install -o root -g ai-tools -m 550 \' '        src/nvm-update.sh /opt/ai-tools/bin/nvm-update.sh' \
+    '    ensure_dir 0551 root ai-tools /opt/ai-tools/bin' '    ensure_dir 2751 root ai-tools /opt/ai-tools' '}' \
+    > "${TESTDIR}/bin-order-control.sh"
+if home_then_bin_precede_first_file "${TESTDIR}/bin-order-control.sh"; then
+    fail "control: the reader accepts the home and bin brought to their rows after the first file, so the check below cannot fail"
+else
+    pass "the reader flags the home and bin brought to their rows after the first file (control)"
+fi
+if home_then_bin_precede_first_file "${INSTALLER}"; then
+    pass "do_install brings the home, then bin, to their rows ahead of the first file it writes under them"
+else
+    fail "do_install does not bring /opt/ai-tools, then /opt/ai-tools/bin, to their rows ahead of its first install into bin"
+fi
+# The same rule for every other directory the install brings to a row under the home: each ensure_dir of a path
+# under /opt/ai-tools follows the home's, and no `install -d` names a path under the home at all -- the reconcile
+# and ensure_dir are the writers there, and `install -d` follows a link at the name.
+# home_precedes_every_home_row <file> : succeed when every ensure_dir of /opt/ai-tools/<...> in do_install comes after
+# the home's, and no install -d line names a path under /opt/ai-tools.
+home_precedes_every_home_row() {
+    local lines home_line row_line
+    lines="$(extract_function "$1" do_install | code_lines /dev/stdin)"
+    home_line="$(grep -E '^[0-9]+:[[:space:]]*ensure_dir .* /opt/ai-tools$' <<<"${lines}" | head -n 1 | cut -d: -f1)"
+    [[ -n "${home_line}" ]] || return 1
+    ! grep -qE '^[0-9]+:[[:space:]]*install -d .* /opt/ai-tools(/|$)' <<<"${lines}" || return 1
+    while IFS= read -r row_line; do
+        [[ -n "${row_line}" ]] || continue
+        (( row_line > home_line )) || return 1
+    done < <(grep -E '^[0-9]+:[[:space:]]*ensure_dir .* (/opt/ai-tools/[^[:space:]]+|"\$\{chain_dir\}")$' <<<"${lines}" | cut -d: -f1)
+}
+printf '%s\n' 'do_install() {' '    ensure_dir 2770 root ai-tools /opt/ai-tools/integrations' \
+    '    ensure_dir 2751 root ai-tools /opt/ai-tools' '}' > "${TESTDIR}/home-rows-control.sh"
+printf '%s\n' 'do_install() {' '    ensure_dir 2751 root ai-tools /opt/ai-tools' \
+    '    install -d -o root -g ai-tools -m 2750 /opt/ai-tools/.config' '}' > "${TESTDIR}/home-installd-control.sh"
+if home_precedes_every_home_row "${TESTDIR}/home-rows-control.sh" || home_precedes_every_home_row "${TESTDIR}/home-installd-control.sh"; then
+    fail "control: the reader accepts a row under the home brought to it before the home, or an install -d under the home, so the check below cannot fail"
+else
+    pass "the reader flags a row under the home ahead of the home's, and an install -d under the home (control)"
+fi
+if home_precedes_every_home_row "${INSTALLER}"; then
+    pass "do_install brings every directory under the home to its row after the home's, and writes none with install -d"
+else
+    fail "do_install brings a directory under /opt/ai-tools to its row ahead of the home's, or names one in an install -d"
+fi
+
+# ── the account declaration a source install places ──────────────────────────────────────────────
+# layout.lib.sh declares /usr/lib/sysusers.d/ai-tools.conf a payload file of base and the RPM installs it
+# from packaging/ai-tools.sysusers, so a source install places the same file, or every layout reconcile reports the row
+# missing with a remedy a source install cannot meet. do_install's text is read for the install of that source
+# at that path and do_uninstall's for its removal, each beside a control lacking the line; the row's declaration is read
+# out of layout.lib.sh first, so a row that moves takes this check with it.
+section "install.sh: a source install places the sysusers fragment the layout declares (unit)"
+sysusers_path=/usr/lib/sysusers.d/ai-tools.conf
+if grep -qE "append_static_entry[[:space:]]+${sysusers_path}[[:space:]]+file[[:space:]]+root:root" \
+        "${ROOT}/src/usr/local/lib/ai-tools/layout.lib.sh"; then
+    pass "layout.lib.sh declares ${sysusers_path} a root-owned payload file (control)"
+else
+    fail "control: layout.lib.sh does not declare ${sysusers_path} in the form this file reads, so the checks below guard a row that does not exist"
+fi
+# places_sysusers <file> : succeed when do_install installs packaging/ai-tools.sysusers at the fragment's path.
+# The lines are captured before the match, so a match does not end the producer early under pipefail.
+places_sysusers() {
+    local lines
+    lines="$(extract_function "$1" do_install | code_lines /dev/stdin)"
+    grep -qE "install .*packaging/ai-tools\.sysusers\"? ${sysusers_path}$" <<<"${lines}"
+}
+# removes_sysusers <file> : succeed when do_uninstall removes the fragment.
+removes_sysusers() {
+    local lines
+    lines="$(extract_function "$1" do_uninstall | code_lines /dev/stdin)"
+    grep -qE "rm -f ${sysusers_path}$" <<<"${lines}"
+}
+# shellcheck disable=SC2016  # the fixture is code text: its expansion stays literal
+printf '%s\n' 'do_install() {' '    install -o root -g root -m 644 "${SCRIPT_DIR}/src/x" /usr/lib/x' '}' \
+    'do_uninstall() {' '    rm -f /usr/lib/x' '}' > "${TESTDIR}/sysusers-control.sh"
+if places_sysusers "${TESTDIR}/sysusers-control.sh" || removes_sysusers "${TESTDIR}/sysusers-control.sh"; then
+    fail "control: the readers accept an installer without the fragment, so the checks below cannot fail"
+else
+    pass "the readers flag an installer without the fragment's install and removal (control)"
+fi
+places_sysusers "${INSTALLER}" && pass "do_install places ${sysusers_path} from packaging/ai-tools.sysusers" \
+    || fail "do_install does not install packaging/ai-tools.sysusers at ${sysusers_path}"
+removes_sysusers "${INSTALLER}" && pass "do_uninstall removes ${sysusers_path}" \
+    || fail "do_uninstall does not remove ${sysusers_path}"
 
 finish

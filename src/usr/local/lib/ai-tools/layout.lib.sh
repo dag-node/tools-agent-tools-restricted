@@ -130,8 +130,8 @@ _ai_tools_layout__populate_static_entries() {
         "${base}" files
     for library in log msg skip-dirs session-sweep owner-only project-permissions relabel secret-patterns operator \
             control-plane managed-assets safe-paths launch-wrapper confinement npm-verify openpgp entrypoint-verify \
-            assets-verify assets conf settings-merge providers ancestor-config sandbox-exec toolchain cache-cleanup \
-            selinux-groups filters services path-order agent-installs records-base records-tsv layout; do
+            assets-verify assets conf settings-merge providers ancestor-config sandbox-exec sessions toolchain \
+            cache-cleanup selinux-groups filters services path-order agent-installs records-base records-tsv layout; do
         _ai_tools_layout__append_static_entry "${lib}/${library}.lib.sh" file root:root 0644 - "${base}" files
     done
     _ai_tools_layout__append_static_entry "${lib}/path-order.sh"       file root:root 0644 - "${base}" files
@@ -546,11 +546,13 @@ ai_tools_layout__parse_stream_line() {
 }
 
 # _ai_tools_layout__is_package_present <package> : 0 when one of the package's sentinels exists under the root (lstat).
+#   The sentinels are space-separated, and the split pins its own IFS: install.sh sources this library under
+#   IFS=$'\n\t', where a bare read keeps both paths in one field that exists nowhere, so every package reads absent.
 _ai_tools_layout__is_package_present() {
     local sentinel root
     local -a sentinels=()
     root="$(_ai_tools_layout__get_path_prefix)"
-    read -ra sentinels <<< "${_AI_TOOLS_LAYOUT__PACKAGE_SENTINELS[$1]:-}"
+    IFS=$' \t\n' read -ra sentinels <<< "${_AI_TOOLS_LAYOUT__PACKAGE_SENTINELS[$1]:-}"
     for sentinel in "${sentinels[@]}"; do
         [[ -e "${root}${sentinel}" || -L "${root}${sentinel}" ]] && return 0
     done

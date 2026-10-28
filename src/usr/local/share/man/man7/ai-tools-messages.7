@@ -286,6 +286,10 @@ unknown projects lockdown option: ${a} (allowed: \-\-dry\-run, \-\-yes)
 ERROR.
 this run needs root: ${what} goes through ${bin##*/}, and ${INVOKING_USER} holds no sudo grant for it.
 .TP
+.B MSG-S3B9
+ERROR.
+project remove stopped before any change \-\- the helper left the SELinux label of ${d} while an agent session or the toolchain update may be running
+.TP
 .B MSG-S6Q5
 ERROR.
 projects remove has no \-\-force: a registry entry is what authorizes a deletion here.
@@ -325,6 +329,10 @@ group\-not\-fixed
 .B MSG-T8F5
 NOTICE.
 label\-fixed
+.TP
+.B MSG-U3Q6
+ERROR.
+could not strip the inherited ACL from ${dst} \-\- the clone was not created
 .TP
 .B MSG-U3R3
 ERROR.
@@ -407,6 +415,10 @@ projects create takes a single path
 .B MSG-Z6Q6
 ERROR.
 a \-\-for run acts on the filesystem AS the target: ${COMMAND} \-\-for ${FOR_OPERATOR} runs ${blocked##*/} as ${FOR_OPERATOR}, and ${INVOKING_USER} holds no sudo grant to do that.
+.TP
+.B MSG-Z7B9
+ERROR.
+sandbox create stopped \-\- the clone could not be labelled ai_tools_project_t
 .SS ai-tools-admin
 .TP
 .B MSG-A3P2
@@ -444,6 +456,10 @@ a malformed interface floor: ${fragment} declares $(printf '%q' "${declared_floo
 .B MSG-B6P3
 WARNING.
 declined: ${cfg_home} was not created, so ${user}'s ai\-tools config cannot be seeded
+.TP
+.B MSG-B9C4
+WARNING.
+left the labels under ${clones} as they were: an agent session or the toolchain update runs as the sandbox account, or this host's sessions could not be read; let each session end (/exit inside it) and the toolchain update finish, or end them all with 'ai\-tools stop', then run: sudo restorecon \-FR ${clones}
 .TP
 .B MSG-C4A8
 ERROR.
@@ -1467,6 +1483,10 @@ must run as root (via sudo)
 ERROR.
 takes a single path
 .TP
+.B MSG-H8V6
+ERROR.
+left the SELinux label on ${dir} as it was: an agent session or the toolchain update runs as the sandbox account, or this host's sessions could not be read, and a walk while one runs could be redirected outside the tree; let each session end (/exit inside it) and the toolchain update finish, or end them all with 'ai\-tools stop', then re\-run: $1 $(printf '%q' "${dir}")
+.TP
 .B MSG-M2D2
 ERROR.
 failed to label ${dir} (is the ai_tools policy module loaded? install ai\-tools\-selinux, or from a checkout run: sudo selinux/install\-selinux.sh install)
@@ -1508,6 +1528,10 @@ could not verify the entrypoint for ${agent} against release ${version} (see abo
 ERROR.
 an incomplete agent package stops this relabel: ${incomplete} agent(s) do not have the entrypoint their manifest declares installed at all, so it cannot be labelled; that executable comes from the sandbox toolchain rather than from the RPM, so reinstall it: sudo ai\-tools\-admin system bootstrap, then rerun; where that run reports the package incomplete again, its npm output names what was left out
 .TP
+.B MSG-E4E8
+WARNING.
+the config directory of ${live_session_count} agent(s) was not relabelled: an agent session or the toolchain update runs as the sandbox account, or this host's sessions could not be read; let each session end (/exit inside it) and the toolchain update finish, or end them all with 'ai\-tools stop', then run: sudo systemctl start ai\-tools\-relabel.service
+.TP
 .B MSG-E4U5
 WARNING.
 relabels are not serialized on this host \-\- ${AI_TOOLS_RELABEL__LOCK_NOTE}
@@ -1516,9 +1540,17 @@ relabels are not serialized on this host \-\- ${AI_TOOLS_RELABEL__LOCK_NOTE}
 WARNING.
 could not record ${1}'s labelling outcome for ai\-tools status
 .TP
+.B MSG-G6D2
+ERROR.
+the config directory of ${live_mislabelled_count} agent(s) carries a type the agent cannot write (${live_mislabelled_types}), so no session of those agents can write its state; it was not relabelled because an agent session or the toolchain update runs as the sandbox account, or this host's sessions could not be read; let each session end (/exit inside it) and the toolchain update finish, or end them all with 'ai\-tools stop', then run: sudo systemctl start ai\-tools\-relabel.service
+.TP
 .B MSG-G7C7
 WARNING.
 wrong type on ${subject}: it is '${detail}', NOT ${wanted}
+.TP
+.B MSG-G9X3
+WARNING.
+dropped the file\-context rules for ${agent} and left the labels on its config directory as they were: an agent session or the toolchain update runs as the sandbox account, or this host's sessions could not be read; let each session end (/exit inside it) and the toolchain update finish, or end them all with 'ai\-tools stop', then run: sudo restorecon \-FR ${remove_config_dir}
 .TP
 .B MSG-H9M5
 WARNING.
@@ -1806,6 +1838,10 @@ could not reset the SELinux label \-\- run: sudo restorecon \-RF ${canonical}
 WARNING.
 unknown option: ${_arg}
 .TP
+.B MSG-T6T2
+WARNING.
+left the SELinux label under ${canonical} as it was: an agent session or the toolchain update runs as the sandbox account, or this host's sessions could not be read; let each session end (/exit inside it) and the toolchain update finish, or end them all with 'ai\-tools stop', then run: sudo restorecon \-RF ${canonical}
+.TP
 .B MSG-V9Q6
 ERROR.
 \-\-unlisted: unknown invoking uid ${caller_uid} \-\- nothing changed
@@ -1904,6 +1940,10 @@ WARNING.
 exclusion !${entry} in ${file} cannot be resolved \-\- ${_ai_tools_conf__resolve_refusal}; write the exclusion as the directory's real path, since a link the sandbox account can change cannot be followed; no entry in this file allows a path until the line is fixed
 .SS install-selinux.sh
 .TP
+.B MSG-A3V5
+ERROR.
+could not read the module store \-\- ${listing//$'\en'/; }; $1; re\-run once semodule answers: sudo $0 remove
+.TP
 .B MSG-A5N2
 WARNING.
 sandbox clone NOT labelled ai_tools_project_t: ${clone}
@@ -1920,6 +1960,10 @@ could not derive the shipped module set (policy/shipped\-modules.sh)
 WARNING.
 labelling did not complete for ${subject} \-\- see its lines above
 .TP
+.B MSG-E9S6
+WARNING.
+left the label on $1 as it was: an agent session or the toolchain update runs as the sandbox account, or this host's sessions could not be read; let each session end (/exit inside it) and the toolchain update finish, or end them all with 'ai\-tools stop', then re\-run this command
+.TP
 .B MSG-F2V5
 WARNING.
 compiled module ${pp} was built for policy module version ${reading%% *}, and this host reads ${reading#* }: recompiling it from source
@@ -1935,6 +1979,10 @@ incomplete package for ${subject}: its launcher resolves to
 .B MSG-H5V4
 ERROR.
 selinux: cannot source required library ${1}
+.TP
+.B MSG-H7Q2
+ERROR.
+left the policy loaded: an agent session or the toolchain update runs as the sandbox account, or this host's sessions could not be read; let each session end (/exit inside it) and the toolchain update finish, or end them all with 'ai\-tools stop', then re\-run: sudo $0 remove
 .TP
 .B MSG-J7J5
 ERROR.
@@ -1956,6 +2004,10 @@ no agent path took a label this run \-\- see the per\-path reason above
 WARNING.
 ENFORCING MISMATCH \-\- domain(s) are permissive but .te expects enforcing:
 .TP
+.B MSG-N5W8
+WARNING.
+could not drop the local file\-context rule ${pattern} (${type}) \-\- the module unload refuses while it stands; remove it with: sudo semanage fcontext \-d \-f ${letter} \-\- $(printf '%q' "${pattern}")
+.TP
 .B MSG-N8Q3
 WARNING.
 integration ${integration} declares a layout module name that is not ai_tools_<name>: ${module}
@@ -1976,6 +2028,10 @@ no agent resolved from the manifests, so no entrypoint was labelled
 WARNING.
 stale manifest for ${subject}: its installed entrypoint is
 .TP
+.B MSG-R6M2
+ERROR.
+left loaded: $(_list "${remaining_modules[@]}") \-\- ${reason//$'\en'/; }; review the local rules with 'sudo semanage fcontext \-l \-C | grep ai_tools', then re\-run: sudo $0 remove
+.TP
 .B MSG-R9B9
 WARNING.
 could not replace '${former}' \-\- it stays loaded with its former rule set;
@@ -1988,13 +2044,25 @@ no path to label for ${subject}: ${detail} is not installed
 WARNING.
 could not label $1 \-\- is the ai_tools module loaded?
 .TP
+.B MSG-S7C2
+WARNING.
+left the label on ${1}'s config directory as it was \-\- the closing warning names the walk to run
+.TP
 .B MSG-S9J3
 WARNING.
 labelling skipped for ${subject} \-\- ${detail} ${wanted}
 .TP
+.B MSG-T7X3
+WARNING.
+the config directory of ${subject} carries ${live_types[${subject}]:\-an unreadable type}, a type the agent cannot write, so no session of ${subject} can write its state until the walk the closing warning names runs
+.TP
 .B MSG-U3S8
 ERROR.
 an agent path is not correctly labelled (see above) \-\- the session would be refused, or run UNCONFINED
+.TP
+.B MSG-U8U4
+WARNING.
+left the labels on these trees as they were: ${reason}; let each session end (/exit inside it) and the toolchain update finish, or end them all with 'ai\-tools stop', then run:
 .TP
 .B MSG-V8U7
 WARNING.
@@ -2044,6 +2112,10 @@ no home directory on this host for ${name} (${home:\-none})
 .B MSG-C7T6
 ERROR.
 no account named
+.TP
+.B MSG-D6A5
+WARNING.
+left the labels on /opt/ai\-tools/.config and the agents' config directories as they were: an agent session or the toolchain update runs as ${SANDBOX_USER}, or this host's sessions could not be read; let each session end (/exit inside it) and the toolchain update finish, or end them all with 'ai\-tools stop', then run: sudo restorecon \-R /opt/ai\-tools/.config/ && sudo systemctl start ai\-tools\-relabel.service
 .TP
 .B MSG-D7C6
 ERROR.
@@ -2138,8 +2210,8 @@ WARNING.
 SELinux is inactive \-\- the agent runs DAC\-only (no ai_tools_t domain). DAC\-only
 .TP
 .B MSG-Q7E7
-WARNING.
-setfacl unavailable \-\- operators need ${SANDBOX_GROUP} membership for sandbox\-create
+ERROR.
+the ACL tools are missing (${missing} not found) \-\- every grant the ownership model makes is a POSIX ACL, so install the acl package first: dnf install acl
 .TP
 .B MSG-Q8T8
 WARNING.
@@ -2188,6 +2260,10 @@ hook declarations not merged into ${deployed}: ${ai_tools_settings_merge__reason
 .B MSG-V9C7
 WARNING.
 lockdown: failed to chown ${ai_nvm_dir}
+.TP
+.B MSG-W4A2
+ERROR.
+the name ${dir} exists and is not a directory, so the install does not set an owner or a mode through it \-\- move the entry aside and re\-run: sudo ./install.sh install
 .TP
 .B MSG-W6B3
 ERROR.
@@ -2478,7 +2554,7 @@ Refusing the ${operation}: the target is a protected system directory.
 .TP
 .B MSG-Q2K6
 WARNING.
-cannot open a transient scope for a run as ${account} (systemd\-run \-\-scope did not start a probe: no system manager answers here) \-\- a run outside one could leave a process behind, so $(printf '%q' "$1") was not run
+cannot open a transient scope for a run as ${account} (systemd\-run \-\-scope \-\-slice=${sandbox_slice} did not start a probe) \-\- a run outside one could leave a process behind, so $(printf '%q' "$1") was not run
 .TP
 .B MSG-W8B7
 WARNING.

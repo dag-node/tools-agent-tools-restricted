@@ -135,6 +135,25 @@ Two consequences reach an operator:
 `ai-tools status` reports when the update last ran and how it ended
 ([System](../system/index.md)).
 
+## Labels under the sandbox's own trees wait for idle sessions
+
+```text
+ai-tools-selinux: WARNING left the labels under /opt/ai-tools and the sandbox clones as they were: ...
+ai-tools-selinux:   sudo restorecon -R /opt/ai-tools /var/opt/ai-tools/sandbox-projects
+```
+
+An upgrade of `ai-tools-selinux` restores the SELinux labels of the trees it
+covers. The ones the agent's account writes into — the toolchain, its caches,
+each agent's config directory, the sandbox clones — are restored only while no
+session of that account and no toolchain update is running, since a running one
+could redirect the walk
+([ref-section-e6c6](../../.claude/rules/cli.rule.md#ref-section-e6c6)).
+An upgrade made while one runs completes and prints that warning once. Let each
+session end with `/exit` and the update finish, or end them all
+with `ai-tools stop`, then run the command it names. A label left as it was is
+the one the tree already carried, so a session started before you run it is
+confined as before.
+
 ## A new entrypoint is relabelled before it is launched
 
 A freshly installed agent binary is born with the filesystem's default SELinux

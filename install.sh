@@ -31,6 +31,7 @@
 # idempotent command):
 #   - ai-tools OS user created at /opt/ai-tools  (README step 2)
 #   - nvm + Node v22 + claude installed as ai-tools  (README step 3)
+#   - the acl package (setfacl, getfacl), which the RPM requires; the install refuses without it
 
 set -euo pipefail
 IFS=$'\n\t'
@@ -597,8 +598,18 @@ report_ask_gaps() {
 # tests/integration/perms.sh asserts, whatever the tree came with. The mode is applied again as a five-digit octal
 # (00755), the one numeric form chmod clears a directory's setuid, setgid and sticky bits with: a directory
 # under a setgid parent inherits the bit at creation, and `install -d -m` and a four-digit chmod both leave it set.
+#
+# A name that exists and is not a directory is refused: `install -d` accepts an existing entry and follows a symlink
+# to a directory, as the chown and the chmod do, so a link planted at the name would hand the owner and mode
+# to the inode its planter chose (layout.rule.md states the same for the reconcile's exclusive create). The read
+# decides, since every call names a directory under a parent root or the operator owns: the sandbox home is brought
+# to its root-owned mode ahead of the first name created under it, so the account cannot place or swap an entry there
+# between the read and the write.
 ensure_dir() {
     local mode="$1" owner="$2" group="$3" dir="$4" before="absent" after
+    if [[ -L "${dir}" || ( -e "${dir}" && ! -d "${dir}" ) ]]; then
+        die MSG-W4A2 "the name ${dir} exists and is not a directory, so the install does not set an owner or a mode through it -- move the entry aside and re-run: sudo ./install.sh install"
+    fi
     [[ -d "${dir}" ]] && before="$(stat -c '%a %U:%G' "${dir}")"
     install -d -o "${owner}" -g "${group}" -m "${mode}" "${dir}"
     chmod "$(printf '%05o' "$(( 8#${mode} ))")" "${dir}"
@@ -818,14 +829,26 @@ do_selinux_restore() {
         /usr/local/libexec/ai-tools/ \
         /usr/local/lib/ai-tools/ \
         /opt/ai-tools/bin/ \
-        /opt/ai-tools/.config/ \
         /var/log/ai-tools/
     # Each agent's config directory is labelled from the rule its own manifest declares, applied
-    # by ai-tools-relabel-agent after this; restore what is already mapped.
-    local _cfg
-    while IFS=$'\t' read -r _ _cfg; do
-        [[ -d "${_cfg}" ]] && restorecon -R "${_cfg}"
-    done < <(ai_tools_control_plane__list_agent_config_dirs)
+    # by ai-tools-relabel-agent after this; restore what is already mapped. The sandbox account writes inside each one,
+    # and restorecon walks by path, so the walk runs only while no process of that account is live (cli.rule.md);
+    # the state is read in a child shell, so the checkout's libraries do not load into this one. /opt/ai-tools/.config
+    # takes the same gate: it is root-owned and its systemd/user chain is a layout row at that owner, but a descendant
+    # an older install left sandbox-owned is a tree the account can write.
+    local _cfg _sandbox_session_state
+    # shellcheck disable=SC2016  # $1 and $2 are the inner shell's positionals
+    _sandbox_session_state="$(bash -c '. "$1" && ai_tools_sessions__read_live_session_state_for_uid "$2"' _ \
+        "${SCRIPT_DIR}/src/usr/local/lib/ai-tools/sessions.lib.sh" "$(id -u "${SANDBOX_USER}" 2>/dev/null)" \
+        2>/dev/null || true)"
+    if [[ "${_sandbox_session_state}" == none ]]; then
+        [[ -d /opt/ai-tools/.config ]] && restorecon -R /opt/ai-tools/.config/
+        while IFS=$'\t' read -r _ _cfg; do
+            [[ -d "${_cfg}" ]] && restorecon -R "${_cfg}"
+        done < <(ai_tools_control_plane__list_agent_config_dirs)
+    else
+        warn MSG-D6A5 "left the labels on /opt/ai-tools/.config and the agents' config directories as they were: an agent session or the toolchain update runs as ${SANDBOX_USER}, or this host's sessions could not be read; let each session end (/exit inside it) and the toolchain update finish, or end them all with 'ai-tools stop', then run: sudo restorecon -R /opt/ai-tools/.config/ && sudo systemctl start ai-tools-relabel.service"
+    fi
     restorecon \
         /usr/local/bin/ai-tools-launch \
         /usr/local/bin/claude \
@@ -1052,6 +1075,7 @@ do_summary() {
     _chk /usr/lib/systemd/system/ai-tools-handback.socket
     _chk /usr/lib/systemd/system/ai-tools-handback@.service
     _chk /usr/lib/systemd/system-preset/85-ai-tools.preset
+    _chk /usr/lib/sysusers.d/ai-tools.conf
     _chk /usr/lib/systemd/user/nvm-update.service
     _chk /usr/lib/systemd/user/nvm-update.timer
     _chk /usr/lib/systemd/system/ai-tools-relabel.path
@@ -1096,6 +1120,7 @@ do_summary() {
     _chk /usr/local/lib/ai-tools/providers.lib.sh
     _chk /usr/local/lib/ai-tools/ancestor-config.lib.sh
     _chk /usr/local/lib/ai-tools/sandbox-exec.lib.sh
+    _chk /usr/local/lib/ai-tools/sessions.lib.sh
     _chk /usr/local/lib/ai-tools/toolchain.lib.sh
     _chk /usr/local/lib/ai-tools/cache-cleanup.lib.sh
     _chk /usr/local/lib/ai-tools/filters.lib.sh
@@ -1291,9 +1316,23 @@ probe_shadowing_agents() {
 # restore SELinux contexts, offer the optional SELinux bring-up, and -- if confirmed at the end -- run
 # the installed-files summary and the test suite (which includes the permissions check). Aborts if the sandbox user is
 # absent.
+# require_acl_tools -- refuse a host without setfacl and getfacl, ahead of the install's first write. Every grant
+# the ownership model makes is a POSIX ACL -- a claim's two entries, the clone area's g:ai-ops entries, a clone's
+# private create -- so a host without the tools does not hold the model. The RPM states the same requirement
+# as Requires: acl.
+require_acl_tools() {
+    local tool missing=""
+    for tool in setfacl getfacl; do
+        command -v "${tool}" >/dev/null 2>&1 || missing+="${missing:+ and }${tool}"
+    done
+    [[ -z "${missing}" ]] && return 0
+    die MSG-Q7E7 "the ACL tools are missing (${missing} not found) -- every grant the ownership model makes is a POSIX ACL, so install the acl package first: dnf install acl"
+}
+
 do_install() {
     id "${SANDBOX_USER}" &>/dev/null \
         || die MSG-R6Y6 "sandbox account ${SANDBOX_USER} not found -- create it first (README step 2)"
+    require_acl_tools
 
     print_banner
     say "  projects user : ${PROJECTS_USER} (${PROJECTS_HOME})"
@@ -1593,6 +1632,13 @@ do_install() {
         "${SCRIPT_DIR}/src/usr/local/lib/ai-tools/sandbox-exec.lib.sh" \
         /usr/local/lib/ai-tools/sandbox-exec.lib.sh
 
+    # The live-session reader the recursive relabels gate on (sessions.lib.sh): 644 root:root, shipped logic alone,
+    # sourced by the relabel helpers and this installer as root and by the CLI as the operator.
+    log "/usr/local/lib/ai-tools/sessions.lib.sh"
+    install -o root -g root -m 644 \
+        "${SCRIPT_DIR}/src/usr/local/lib/ai-tools/sessions.lib.sh" \
+        /usr/local/lib/ai-tools/sessions.lib.sh
+
     # The residue readers and the one package removal (toolchain.lib.sh): 644 root:root like the resolver it requires,
     # sourced by the launch wrapper (as the operator), ai-tools-run, nvm-update and the bootstrap's sandbox-account
     # step. No secrets: it reads the manifests and edits the tree its caller already owns.
@@ -1768,9 +1814,8 @@ do_install() {
     install -o root -g root -m 644 \
         "${SCRIPT_DIR}/src/usr/local/lib/ai-tools/integrations.d/typesafe.conf" \
         /usr/local/lib/ai-tools/integrations.d/typesafe.conf
-    log "/opt/ai-tools/integrations/typesafe (state root: the usage log)"
-    ensure_dir "${CP_DIR_MODES[integrations]}" root "${SANDBOX_GROUP}" /opt/ai-tools/integrations
-    ensure_dir 2770 root "${SANDBOX_GROUP}" /opt/ai-tools/integrations/typesafe
+    # The typesafe state root under the sandbox home is created in the control-plane section, after the home is
+    # brought to its row: a directory under a home the account still owns is the account's to place or swap.
 
     # SELinux policy modules: compiled from this checkout and staged under the canonical package dir (see
     # stage_selinux_modules). Loading and labelling the core is offer_selinux's step, later; this lays the modules
@@ -1979,6 +2024,15 @@ do_install() {
         "${SCRIPT_DIR}/src/usr/lib/systemd/system-preset/85-ai-tools.preset" \
         /usr/lib/systemd/system-preset/85-ai-tools.preset
 
+    # The sandbox account and the ai-ops group as sysusers.d declares them, the fragment the RPM creates the account
+    # from. layout.lib.sh declares the path a payload file of base, so a source install places it too and the layout
+    # reconcile converges the row on either channel; systemd-sysusers re-creates a deleted account or group from it
+    # at boot. The install does not run it: do_install requires the account at its top, and the from-source page creates
+    # the account ahead of the install.
+    log "/usr/lib/sysusers.d/ai-tools.conf"
+    install -d -o root -g root -m 755 /usr/lib/sysusers.d
+    install -o root -g root -m 644 "${SCRIPT_DIR}/packaging/ai-tools.sysusers" /usr/lib/sysusers.d/ai-tools.conf
+
     # Toolchain update units. The service+timer live in %{_userunitdir} and are enabled in the sandbox account's own
     # `systemd --user instance` (it owns and writes the shared .nvm tree). 644 root:root -- systemd reads them as root;
     # no world write.
@@ -2171,18 +2225,15 @@ do_install() {
     # (idempotent).
     log "ai-ops ACL on the sandbox area"
     getent group ai-ops >/dev/null 2>&1 || groupadd -r ai-ops
-    if command -v setfacl >/dev/null 2>&1; then
-        setfacl -m g:ai-ops:r-x /var/opt/ai-tools
-        setfacl -m g:ai-ops:rwx /var/opt/ai-tools/sandbox-projects
-        setfacl -d -m g:ai-ops:rwX /var/opt/ai-tools/sandbox-projects
-        setfacl -m g:ai-ops:r-- /var/opt/ai-tools/README.md
-        # Traverse only on the state dir: operators read the stamps inside (whose own group is ai-ops), never write
-        # there. What the mode buys is scope, not integrity -- a stamp's CONTENT is written by the sandbox account
-        # and trusted accordingly (services.lib.sh).
-        setfacl -m g:ai-ops:r-x /var/opt/ai-tools/state
-    else
-        warn MSG-Q7E7 "setfacl unavailable -- operators need ${SANDBOX_GROUP} membership for sandbox-create"
-    fi
+    # setfacl is present: require_acl_tools refused the install without it.
+    setfacl -m g:ai-ops:r-x /var/opt/ai-tools
+    setfacl -m g:ai-ops:rwx /var/opt/ai-tools/sandbox-projects
+    setfacl -d -m g:ai-ops:rwX /var/opt/ai-tools/sandbox-projects
+    setfacl -m g:ai-ops:r-- /var/opt/ai-tools/README.md
+    # Traverse only on the state dir: operators read the stamps inside (whose own group is ai-ops), never write there.
+    # What the mode buys is scope, not integrity -- a stamp's CONTENT is written by the sandbox account and trusted
+    # accordingly (services.lib.sh).
+    setfacl -m g:ai-ops:r-x /var/opt/ai-tools/state
 
     # Operation-log directory for the root helpers. Dir 700 root:root, each file 600 root:root -- the helpers append
     # as root; ai-tools cannot read or tamper with the trail (secret filenames recorded by ai-tools-chown are not
@@ -2345,9 +2396,21 @@ do_install() {
 
     # The control plane is owned root:ai-tools: root owns the locked control files while the agent (which runs
     # AS ai-tools) reaches them through group ai-tools. The home and bin dirs' owner and boundary modes (home 2751, bin
-    # 0551, .claude 3770) are asserted at the END of this section from the constants in control-plane.lib.sh, so the dev
-    # install and the spec %files declare the same boundary. Files land with their explicit owner/group and content
-    # modes, and .claude is created up front so the hooks can land in it.
+    # 0551, .claude 3770) come from the constants in control-plane.lib.sh, so the dev install and the spec %files
+    # declare the same boundary. The home root goes FIRST: useradd leaves it the account's, and a name under a directory
+    # the account can write is one it can place or swap, so the home is brought to root:ai-tools without group write
+    # before any entry is created or written under it (the layout reconcile holds the same rule for its rows,
+    # layout.rule.md). Every directory is then created ahead of the first file placed in it, bin here and each agent's
+    # config directory in the agent layer of this section; the RPM owns bin as a directory of its own and an erase
+    # removes it once empty, so a host that leaves the packages has none. The modes are re-asserted at the END of this
+    # section.
+    log "/opt/ai-tools/"
+    ensure_dir "${CP_HOME_MODE}" root "${SANDBOX_GROUP}" /opt/ai-tools
+    log "/opt/ai-tools/bin/"
+    ensure_dir "${CP_DIR_MODES[bin]}" root "${SANDBOX_GROUP}" /opt/ai-tools/bin
+    log "/opt/ai-tools/integrations/typesafe (state root: the usage log)"
+    ensure_dir "${CP_DIR_MODES[integrations]}" root "${SANDBOX_GROUP}" /opt/ai-tools/integrations
+    ensure_dir 2770 root "${SANDBOX_GROUP}" /opt/ai-tools/integrations/typesafe
 
     # Control-plane files are owned root, group ai-tools: the agent gets group read/exec but can never write them, so it
     # cannot rewrite its own updater, hook, or hook config.
@@ -2493,10 +2556,10 @@ do_install() {
         seed_result "${_gitignore}" "${_gitignore_existed}" 0
     fi
 
-    # Assert the control-plane home and dir boundary modes from the shared constants: the home is owned root:ai-tools
-    # with the o+x search bit and setgid (CP_HOME_MODE), bin is locked, and every agent's config directory is
-    # setgid+sticky. The agent reaches the tree through group ai-tools; root owns the locked control files so the agent
-    # cannot replace them.
+    # Re-assert the control-plane home and dir boundary modes from the shared constants after every write of this
+    # section: the home is owned root:ai-tools with the o+x search bit and setgid (CP_HOME_MODE), bin is locked,
+    # and every agent's config directory is setgid+sticky. The agent reaches the tree through group ai-tools; root owns
+    # the locked control files so the agent cannot replace them.
     section "Control-plane assertions"
     log "ownership and boundary modes (root:${SANDBOX_GROUP})"
     chown "root:${SANDBOX_GROUP}" /opt/ai-tools /opt/ai-tools/bin
@@ -2661,12 +2724,15 @@ do_install() {
     # the timers.target.wants symlink. Root provisions the XDG config tree and the enablement symlink instead --
     # root:${SANDBOX_GROUP} 2750 (setgid inherited from the control-plane home), so the account's manager reads its
     # units through the group but cannot add a `--user unit` (a confined session must not register a unit the account's
-    # unconfined manager would run). daemon-reload + start then activate it in the running instance.
-    install -d -o root -g "${SANDBOX_GROUP}" -m 2750 \
-        /opt/ai-tools/.config \
-        /opt/ai-tools/.config/systemd \
-        /opt/ai-tools/.config/systemd/user \
-        /opt/ai-tools/.config/systemd/user/timers.target.wants
+    # unconfined manager would run). daemon-reload + start then activate it in the running instance. The four
+    # directories are rows of the installed layout, which the reconcile above has brought to their rows; each is
+    # re-asserted through ensure_dir, which refuses a name that is not a directory, so a link planted before the home
+    # was locked is reported here rather than followed by a write.
+    local chain_dir
+    for chain_dir in /opt/ai-tools/.config /opt/ai-tools/.config/systemd /opt/ai-tools/.config/systemd/user \
+                     /opt/ai-tools/.config/systemd/user/timers.target.wants; do
+        ensure_dir 2750 root "${SANDBOX_GROUP}" "${chain_dir}"
+    done
     ln -sfn /usr/lib/systemd/user/nvm-update.timer \
         /opt/ai-tools/.config/systemd/user/timers.target.wants/nvm-update.timer
     # Pre-seed the timer's Persistent run-stamp BEFORE starting it, so it begins on its next scheduled window rather
@@ -2916,6 +2982,7 @@ do_uninstall() {
     systemctl disable --now ai-tools-handback.socket 2>/dev/null || true
     systemctl disable --now ai-tools-relabel.path 2>/dev/null || true
     rm -f /usr/lib/systemd/system-preset/85-ai-tools.preset
+    rm -f /usr/lib/sysusers.d/ai-tools.conf
     systemctl daemon-reload 2>/dev/null || true
 
     section "Removing files"

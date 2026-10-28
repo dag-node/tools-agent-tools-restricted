@@ -716,6 +716,26 @@ drive_rows() {
     cli_stub_reset; drive cli ai-tools.projects.unclaim "$(f yes)" "$(f full)" "${R}/pd"
     expect "unclaim --full asks the helper for the skipped trees"     cli_called ai-tools-unclaim "^${R}/pd${T}[^${T}]+${T}$(f full)$"
 
+    # A label reversal the live-session gate refused: the hand-back and the registry reversal still apply,
+    # and the unclaim ends non-zero without its ✓. The rows run with a getenforce that reports SELinux enforcing,
+    # so the CLI reaches the relabel step, and the stubbed helper exits with the gate's status; the same unclaim
+    # with the helper succeeding is the control.
+    local selinux_on="${R}/selinux-on-bin"
+    mkdir -p "${selinux_on}" "${R}/pe"
+    printf '#!/bin/sh\necho Enforcing\n' > "${selinux_on}/getenforce"
+    chmod 0755 "${selinux_on}" "${selinux_on}/getenforce"
+    chown "${PROJECTS_USER}:${PROJECTS_USER}" "${R}/pe"
+    RUN_EXTRA_ENV=(PATH="${selinux_on}:${CLI_STUB_PATH}:/usr/local/bin:/usr/bin:/bin")
+    seed "${R}/pe"; drive cli ai-tools.projects.unclaim "$(f yes)" "${R}/pe"
+    expect "control: with SELinux on, unclaim reverts the label and exits 0" rc_is 0
+    expect "the label reversal reaches the relabel helper"            cli_called ai-tools-relabel "^--remove${T}${R}/pe$"
+    seed "${R}/pe"; cli_stub_fail_status ai-tools-relabel 4
+    drive cli ai-tools.projects.unclaim "$(f yes)" "${R}/pe"
+    expect "an unclaim whose label reversal the gate refused exits non-zero" rc_not0
+    expect "that unclaim still hands the tree back"                   cli_called ai-tools-unclaim "^${R}/pe${T}"
+    expect "that unclaim still drops the entry"                       st_is "${R}/pe" absent
+    RUN_EXTRA_ENV=()
+
     seed "${R}/pa"; drive cli ai-tools.projects.unclaim "$(f yes)" "$(f keep-entry)" "${R}/pa"
     expect "unclaim --keep-entry parks the entry instead of dropping it" st_is "${R}/pa" disabled
     expect "unclaim --keep-entry still hands the tree back"           cli_called ai-tools-unclaim "^${R}/pa${T}"
@@ -766,8 +786,9 @@ drive_rows() {
 
     # ── E. Remove ─────────────────────────────────────────────────────────────────────
     section "ai-tools.projects.remove.inplace"
-    mkdir -p "${R}/rm1" "${R}/rm2" "${R}/rm3" "${R}/rmp/nested"; chown -R "${PROJECTS_USER}:${PROJECTS_USER}" "${R}/rm1" "${R}/rm2" "${R}/rm3" "${R}/rmp"
-    seed "${R}/rm1" "!${R}/rm2" "${R}/rm3" "${R}/rmp" "${R}/rmp/nested"
+    mkdir -p "${R}/rm1" "${R}/rm2" "${R}/rm3" "${R}/rm4" "${R}/rmp/nested"
+    chown -R "${PROJECTS_USER}:${PROJECTS_USER}" "${R}/rm1" "${R}/rm2" "${R}/rm3" "${R}/rm4" "${R}/rmp"
+    seed "${R}/rm1" "!${R}/rm2" "${R}/rm3" "${R}/rm4" "${R}/rmp" "${R}/rmp/nested"
     seed_gc "${R}/rm1" "${R}/rm2"
     drive cli ai-tools.projects.remove.inplace "${R}/rm1"
     expect "remove without --yes declines at the confirm"             rc_not0
@@ -795,6 +816,16 @@ drive_rows() {
     expect "remove refuses an entry containing another claimed project" rc_not0
     expect "the containing tree stands"                               test -d "${R}/rmp/nested"
     expect "that refusal reaches no helper"                           cli_log_empty
+    # The live-session gate's refusal of the label reversal stops the removal before either registry changes, since
+    # the helper cannot revert a path the removal deleted. SELinux reported enforcing, as in the unclaim rows.
+    RUN_EXTRA_ENV=(PATH="${R}/selinux-on-bin:${CLI_STUB_PATH}:/usr/local/bin:/usr/bin:/bin")
+    cli_stub_reset; cli_stub_fail_status ai-tools-relabel 4
+    drive cli ai-tools.projects.remove.inplace "$(f yes)" "${R}/rm4"
+    expect "a removal whose label reversal the gate refused exits non-zero" rc_not0
+    expect "that removal leaves the tree"                             test -d "${R}/rm4"
+    expect "that removal leaves the entry"                            st_is "${R}/rm4" listed
+    expect "that removal leaves safe.directory alone"                 not_called ai-tools-safedir
+    RUN_EXTRA_ENV=()
 
     # ── F. Enable and disable ─────────────────────────────────────────────────────────
     section "ai-tools.projects.disable / ai-tools.projects.enable"
@@ -926,6 +957,15 @@ drive_rows() {
         skip "clone, push and clone-removal rows" "the installed ${CLI} predates the AI_TOOLS_SANDBOX_ROOT override; deploy the checkout first"
     else
     section "ai-tools.projects.clone"
+    # The fixture clone area lies outside the static rule that labels the real one ai_tools_project_t, so a relabel
+    # there leaves the clone root another type and the clone stops before it opens. The clone rows therefore run
+    # with a getenforce that reports SELinux disabled, the state in which the clone does not take a label; the label
+    # step is tests/unit/sandbox.sh's.
+    local selinux_off="${R}/selinux-off-bin"
+    mkdir -p "${selinux_off}"
+    printf '#!/bin/sh\necho Disabled\n' > "${selinux_off}/getenforce"
+    chmod 0755 "${selinux_off}" "${selinux_off}/getenforce"
+    RUN_EXTRA_ENV=(PATH="${selinux_off}:${CLI_STUB_PATH}:/usr/local/bin:/usr/bin:/bin")
     seed
     cli_stub_reset; drive cli ai-tools.projects.clone "${SRC}"
     expect "clone exits 0"                                            rc_is 0
@@ -969,6 +1009,7 @@ drive_rows() {
     cli_stub_reset; drive cli ai-tools.projects.clone "$(f from)" "no-such-ref" "$(f dir)" "${N_C5}" "${SRC}"
     expect "clone refuses an unknown base"                            rc_not0
     expect "the refused clone makes no directory"                     test ! -e "${SBROOT}/${N_C5}"
+    RUN_EXTRA_ENV=()
 
     # ── I. Push, and the clone kind's removal ─────────────────────────────────────────
     section "ai-tools.projects.push / ai-tools.projects.remove.clone"
@@ -1058,7 +1099,7 @@ drive_rows() {
     expect "reclaim refuses an unknown option with exit 2, no helper"  quiet_rc 2
 
     # ── L. The operator's umask does not decide what the agent can read ──────────────
-    # A create sets its modes outright and a clone is born private and then opened, so neither depends on the umask
+    # A create sets its modes outright and a clone is created private and then opened, so neither depends on the umask
     # the operator's shell carries. Both are re-driven under the values a hardened host sets and held to the modes
     # ai-tools(1) states. Restored afterwards, so the coverage check and the teardown run under the pinned 022.
     section "umask independence"
@@ -1071,7 +1112,9 @@ drive_rows() {
         expect "create under umask ${u}: the README is 640"             test "$(perm "${R}/new-${u}/README.md")" = 640
         expect "create under umask ${u}: .git is group r-x"             has_bits "${R}/new-${u}/.git" 050
         if ${HAVE_SBROOT}; then
+            RUN_EXTRA_ENV=(PATH="${R}/selinux-off-bin:${CLI_STUB_PATH}:/usr/local/bin:/usr/bin:/bin")
             seed; drive cli ai-tools.projects.clone "$(f dir)" "${N_CL[${u}]}" "${SRC}"
+            RUN_EXTRA_ENV=()
             expect "clone under umask ${u} exits 0"                     rc_is 0
             expect "clone under umask ${u}: the clone root is 770"      test "$(perm "${SBROOT}/${N_CL[${u}]}")" = 770
             expect "clone under umask ${u}: the clone root is setgid"   has_bits "${SBROOT}/${N_CL[${u}]}" 2000

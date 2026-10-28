@@ -32,6 +32,10 @@ if ! source "${LIB}" || ! declare -F ai_tools_providers__is_entrypoint_fcontext_
     fail "could not source ${LIB}, or ai_tools_providers__is_entrypoint_fcontext_valid is not in scope once it is sourced"
     finish; exit
 fi
+# The live-session gate reads the host's cgroup tree, where a session may be running while the suite does. Every section
+# but the gate's own drives the walks as on a host with no session live; defined ahead of the gate's first use, the stub
+# also keeps the library from loading the real reader.
+ai_tools_sessions__read_live_session_state() { printf 'none\n'; }
 
 # The ROOT is the library's: every declared pattern is held to it, so a manifest chooses which file under the toolchain
 # is its entrypoint and never a tree of its own. Pinned by value and by being readonly -- a root a caller could move
@@ -411,6 +415,51 @@ fi
 # So the reason is collected for the caller to log. The stream split is the load-bearing part: the caller parses this
 # library's STDOUT as verdict lines, so semanage's own stdout must never reach it while its stderr must survive.
 # semanage is stubbed as a shell function -- no policy store is touched.
+section "relabel: the local rules naming a type of the policy (unit)"
+if ! declare -F ai_tools_relabel__list_local_rules_naming_policy_types >/dev/null 2>&1; then
+    skip "policy-type rule listing" "${LIB} does not define ai_tools_relabel__list_local_rules_naming_policy_types"
+else
+    # A store mixing rules this library wrote, rules an earlier release wrote, and rules of other types: the unload
+    # refuses on every ai_tools-typed one whatever wrote it, so the listing is that set and nothing else.
+    semanage() {
+        [[ "$*" == "fcontext -l -C -n" ]] || return 1
+        printf '%-50s %-18s %s\n' '/home/op/gone(/.*)?' 'all files' 'system_u:object_r:ai_tools_project_t:s0'
+        printf '%-50s %-18s %s\n' '/home/op/.config/ai-tools(/.*)?' 'all files' 'system_u:object_r:ai_tools_conf_t:s0'
+        printf '%-50s %-18s %s\n' '/opt/ai-tools/\.nvm/versions/node/[^/]+/lib/node_modules/@acme/cli/bin/acme\.exe' 'regular file' 'system_u:object_r:ai_tools_exec_t:s0'
+        printf '%-50s %-18s %s\n' '/home/op/other space(/.*)?/(bin)(/.*)?' 'all files' 'system_u:object_r:ai_tools_project_build_t:s0'
+        printf '%-50s %-18s %s\n' '/home/op/gone(/.*)?/www(/.*)?' 'all files' 'system_u:object_r:httpd_sys_content_t:s0'
+        printf '%-50s %-18s %s\n' '/srv/www(/.*)?' 'directory' 'system_u:object_r:httpd_sys_content_t:s0'
+        printf '%-50s %-18s %s\n' '/var/lib/acme/sock' 'socket' 'system_u:object_r:ai_tools_run_t:s0'
+    }
+    got="$(ai_tools_relabel__list_local_rules_naming_policy_types)"
+    expected="/home/op/gone(/.*)?"$'\t'"a"$'\t'"ai_tools_project_t"$'\n'
+    expected+="/home/op/.config/ai-tools(/.*)?"$'\t'"a"$'\t'"ai_tools_conf_t"$'\n'
+    expected+='/opt/ai-tools/\.nvm/versions/node/[^/]+/lib/node_modules/@acme/cli/bin/acme\.exe'$'\t'"f"$'\t'"ai_tools_exec_t"$'\n'
+    expected+="/home/op/other space(/.*)?/(bin)(/.*)?"$'\t'"a"$'\t'"ai_tools_project_build_t"$'\n'
+    expected+="/var/lib/acme/sock"$'\t'"s"$'\t'"ai_tools_run_t"
+    if [[ "${got}" == "${expected}" ]]; then
+        pass "every local rule naming an ai_tools type is listed with its pattern, file-type letter and type, whatever wrote it, and no rule of another type is"
+    else
+        fail "policy-type rule listing: $(printf '%s' "${got}" | tr '\t\n' '|;')"
+    fi
+    semanage() { return 1; }
+    rc=0; got="$(ai_tools_relabel__list_local_rules_naming_policy_types)" || rc=$?
+    [[ -z "${got}" && ${rc} -eq 0 ]] && pass "a store that cannot be listed yields no rule and no failure" \
+        || fail "unlistable store: rc ${rc}, output '${got}'"
+
+    # The config unlabel drops the rule under both encodings, as the project unlabel does: a host labelled before paths
+    # were escaped holds the raw rule beside the escaped one, and a rule left names a type the module unload removes.
+    CALLS=""; semanage() { CALLS+="$*"$'\n'; return 0; }
+    ai_tools_relabel__is_available() { return 0; }
+    restorecon() { return 0; }
+    ai_tools_relabel__unlabel_operator_conf '/home/some.user/.config/ai-tools'
+    if [[ "${CALLS}" == 'fcontext -d -f a -- /home/some\.user/\.config/ai-tools(/.*)?'$'\n''fcontext -d -f a -- /home/some.user/.config/ai-tools(/.*)?'$'\n' ]]; then
+        pass "the config unlabel drops the escaped rule and the raw one an earlier label wrote"
+    else
+        fail "config unlabel calls: ${CALLS//$'\n'/ | }"
+    fi
+fi
+
 section "relabel: a refused file-context rule reports semanage's reason (unit)"
 if declare -F _ai_tools_relabel__register_fcontext >/dev/null 2>&1 \
         && declare -F _ai_tools_relabel__label_agent_entrypoint >/dev/null 2>&1; then
@@ -606,11 +655,143 @@ if declare -F ai_tools_relabel__label_agent_paths >/dev/null 2>&1; then
     outcome_is ok     0 3 0 "the entrypoint is not installed but the config directory took its type"
     outcome_is ok     0 0 3 "the config directory is absent but the entrypoint took its type"
     outcome_is failed 1 1 3 "a real failure outranks a path that is not installed"
+    outcome_is live-session 0 0 4 "the config directory's walk was left while a session ran"
+    outcome_is live-session 0 3 4 "the entrypoint is not installed and the config directory's walk was left"
+    outcome_is failed 1 1 4 "a real failure outranks a walk left while a session ran"
+    outcome_is live-session-mislabelled 0 0 5 "the walk was left over a config directory at another type"
+    outcome_is failed 1 1 5 "a real failure outranks a walk left over a directory at another type"
 
     unset -f _ai_tools_relabel__is_entrypoint_policy_active ai_tools_providers__list_enabled_agents \
              _ai_tools_relabel__label_agent_entrypoint _ai_tools_relabel__label_agent_config_dir
 else
     skip "per-agent labelling outcome" "ai_tools_relabel__label_agent_paths not defined by ${LIB}"
+fi
+
+# ── The live-session gate ────────────────────────────────────────────────────────────────────
+# A recursive relabel of a tree the sandbox account can write walks only while no process of that account is live:
+# restorecon resolves each path again before it writes, so a live process could send the label onto an inode it chose.
+# Each gated function is driven with the state reader stubbed to `live` and to `unreadable` and must return 3 with no
+# semanage or restorecon call, and with `none` must run as before. The writers record into a file, so a call made
+# from a command substitution is still seen. The per-path entrypoint label is not a walk and keeps running.
+section "relabel: a recursive relabel walks only while no session is live (unit)"
+if declare -F _ai_tools_relabel__require_no_live_session >/dev/null 2>&1; then
+    GATE_CALLS="${TESTDIR}/gate-calls"
+    restorecon() { printf 'restorecon %s\n' "$*" >> "${GATE_CALLS}"; }
+    semanage()   { printf 'semanage %s\n'   "$*" >> "${GATE_CALLS}"; }
+    ai_tools_relabel__is_available()        { return 0; }
+    ai_tools_relabel__is_project_labelled() { return 0; }
+    ai_tools_providers__list_integrations_declaring() { :; }
+    ai_tools_sessions__read_live_session_state() { printf '%s\n' "${stub_session_state}"; }
+
+    # gated_is <state> <expected-status> <what> <command...> -- run the command under the stubbed state and assert its
+    # status, and that a refusal reached no writer.
+    gated_is() {
+        local state="$1" expected="$2" what="$3" status=0; shift 3
+        : > "${GATE_CALLS}"
+        stub_session_state="${state}"
+        "$@" >/dev/null 2>&1 || status=$?
+        if (( expected == 3 )); then
+            if [[ "${status}" -eq 3 && ! -s "${GATE_CALLS}" ]]; then
+                pass "${what} with the reader at ${state}: status 3, no semanage or restorecon call"
+            else
+                fail "${what} with the reader at ${state}: status ${status}, calls: $(tr '\n' '|' < "${GATE_CALLS}")"
+            fi
+        elif [[ "${status}" -eq "${expected}" && -s "${GATE_CALLS}" ]]; then
+            pass "${what} with the reader at ${state}: runs (status ${status})"
+        else
+            fail "${what} with the reader at ${state}: status ${status}, calls: $(tr '\n' '|' < "${GATE_CALLS}")"
+        fi
+    }
+
+    for state in live unreadable; do
+        gated_is "${state}" 3 "ai_tools_relabel__label_project"   ai_tools_relabel__label_project /home/op/proj
+        gated_is "${state}" 3 "ai_tools_relabel__unlabel_project" ai_tools_relabel__unlabel_project /home/op/proj
+    done
+    gated_is none 0 "ai_tools_relabel__label_project"   ai_tools_relabel__label_project /home/op/proj
+    gated_is none 0 "ai_tools_relabel__unlabel_project" ai_tools_relabel__unlabel_project /home/op/proj
+
+    # The config directory: a name under the control-plane home that exists on every installed host stands in for one,
+    # with the manifest reader, the validator, the rule writer and the verify stubbed. The per-agent outcome section
+    # stubbed and then unset the config half, so its definition is read back out of the library.
+    eval "$(extract_function "${LIB}" _ai_tools_relabel__label_agent_config_dir)"
+    ai_tools_providers__read_agent_manifest_field() {
+        case "$2" in config_dir) printf 'bin' ;; *) : ;; esac
+    }
+    ai_tools_control_plane__is_agent_config_dir_valid() { return 0; }
+    _ai_tools_relabel__register_fcontext() { return 0; }
+    # The real verify, kept under a second name before the stub replaces it, since redefining a function discards
+    # the original.
+    eval "gate_real_verify_label() $(declare -f _ai_tools_relabel__verify_label | tail -n +2)"
+    _ai_tools_relabel__verify_label() { restorecon -F "$1"; printf 'ok %s\n' "$1"; }
+    if [[ -d "${CP_HOME:-/opt/ai-tools}/bin" ]]; then
+        # The directory's own type decides the status the left walk returns, read through a stubbed type reader: 4
+        # where it already carries the config type, 5 where it carries another, which ai-tools-relabel-agent files
+        # as a fault.
+        eval "gate_real_read_live_type() $(declare -f _ai_tools_relabel__read_live_type | tail -n +2)"
+        for state in live unreadable; do
+            for stub_live_type in "${AI_TOOLS_RELABEL__AGENT_CONFIG_TYPE}" usr_t; do
+                _ai_tools_relabel__read_live_type() { printf '%s\n' "${stub_live_type}"; }
+                want_status=4; [[ "${stub_live_type}" == usr_t ]] && want_status=5
+                : > "${GATE_CALLS}"; stub_session_state="${state}"; status=0
+                line="$(_ai_tools_relabel__label_agent_config_dir acme)" || status=$?
+                if [[ "${status}" -eq "${want_status}" && "${line}" == "live acme ${stub_live_type} its config directory" \
+                        && ! -s "${GATE_CALLS}" ]]; then
+                    pass "the config-directory walk with the reader at ${state} over ${stub_live_type}: status ${want_status}, a live line naming the type, no restorecon call"
+                else
+                    fail "the config-directory walk with the reader at ${state} over ${stub_live_type}: status ${status}, '${line}', calls: $(tr '\n' '|' < "${GATE_CALLS}")"
+                fi
+            done
+        done
+        eval "_ai_tools_relabel__read_live_type() $(declare -f gate_real_read_live_type | tail -n +2)"
+        : > "${GATE_CALLS}"; stub_session_state=none; status=0
+        line="$(_ai_tools_relabel__label_agent_config_dir acme)" || status=$?
+        if [[ "${status}" -eq 0 ]] && grep -q -- '^restorecon -FR ' "${GATE_CALLS}"; then
+            pass "the config-directory walk with the reader at none: runs restorecon -FR"
+        else
+            fail "the config-directory walk with the reader at none: status ${status}, calls: $(tr '\n' '|' < "${GATE_CALLS}")"
+        fi
+
+        _ai_tools_relabel__is_entrypoint_policy_active() { return 0; }
+        for state in live unreadable; do
+            gated_is "${state}" 3 "the config half of ai_tools_relabel__unlabel_agent_paths" \
+                ai_tools_relabel__unlabel_agent_paths acme
+        done
+        gated_is none 0 "the config half of ai_tools_relabel__unlabel_agent_paths" \
+            ai_tools_relabel__unlabel_agent_paths acme
+        unset -f _ai_tools_relabel__is_entrypoint_policy_active
+    else
+        skip "the config-directory gate" "no ${CP_HOME:-/opt/ai-tools}/bin to stand in for a config directory"
+    fi
+    eval "_ai_tools_relabel__verify_label() $(declare -f gate_real_verify_label | tail -n +2)"
+
+    # The per-path entrypoint label is not a walk: it runs whatever the reader says.
+    : > "${GATE_CALLS}"; stub_session_state=live
+    _ai_tools_relabel__verify_label /opt/ai-tools/fixture-entrypoint ai_tools_exec_t >/dev/null || true
+    if grep -qx 'restorecon -F /opt/ai-tools/fixture-entrypoint' "${GATE_CALLS}"; then
+        pass "the per-path entrypoint label runs with the reader at live"
+    else
+        fail "the per-path entrypoint label did not run with the reader at live: $(tr '\n' '|' < "${GATE_CALLS}")"
+    fi
+
+    # A reader that does not load reads as a live session: a copy of the library with no sessions.lib.sh beside it.
+    mkdir -p "${TESTDIR}/no-sessions"
+    cp "${LIB}" "${TESTDIR}/no-sessions/relabel.lib.sh"
+    # shellcheck disable=SC2016  # $1 is the inner shell's positional
+    status=0; bash -c 'source "$1" 2>/dev/null; _ai_tools_relabel__require_no_live_session' _ \
+        "${TESTDIR}/no-sessions/relabel.lib.sh" || status=$?
+    if [[ "${status}" -eq 3 ]]; then
+        pass "a sessions.lib.sh that does not load reads as a live session (status 3)"
+    else
+        fail "a sessions.lib.sh that does not load returned ${status}, not 3"
+    fi
+
+    unset -f restorecon semanage ai_tools_relabel__is_available ai_tools_relabel__is_project_labelled \
+             ai_tools_providers__list_integrations_declaring \
+             ai_tools_providers__read_agent_manifest_field ai_tools_control_plane__is_agent_config_dir_valid \
+             _ai_tools_relabel__register_fcontext gate_real_verify_label
+    ai_tools_sessions__read_live_session_state() { printf 'none\n'; }
+else
+    skip "the live-session gate" "_ai_tools_relabel__require_no_live_session not defined by ${LIB}"
 fi
 
 # ── The read-only live-label report ──────────────────────────────────────────────────────────

@@ -241,6 +241,59 @@ else
     fail "a non-stale mark changed the rendering (rc ${rc}): $(head -c 300 <<<"${out}" | tr '\n' '|')"
 fi
 
+# ── (5b) A config directory the live-session gate left at another type is a counted fault ── The labelling record
+# ai-tools-relabel-agent files for that state is `failed` with the `live-session` reason, and the label line must count
+# it and name the service start that completes it; the same reason under `skipped`, a directory already at its type, is
+# the control that is shown and not counted. status_entrypoint_label takes the agent, so it is driven through a call
+# of its own.
+#
+# The call sources entrypoint-verify.lib.sh after the CLI, as status_entrypoint_pins does before it calls the label
+# line: the CLI loads that library inside status_entrypoint_pins alone, and status_entrypoint_label returns 0 and prints
+# nothing where the library's record-path reader is not defined. The control ahead of the cases asserts the reader is
+# defined in the same inner shell, so a library that does not load fails once, naming that, rather than as three empty
+# readings.
+label_record() {
+    printf '# fixture label record\nAGENT=%s\nRESULT=%s\nLABELLED=%s\nREASON=%s\n' \
+        "$1" "$2" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$3" > "${LABELS}/$1"
+    chmod 0644 "${LABELS}/$1"
+}
+readonly VERIFY_LIB="/usr/local/lib/ai-tools/entrypoint-verify.lib.sh"
+# call_label <agent> | --control : the label line for <agent>, or with --control the status of `declare -F`
+#   on the library's record-path reader.
+# shellcheck disable=SC2016  # the $1/$2/$3 are for the inner `bash -c`, not this shell -- do not expand here
+call_label() {
+    runuser -u "${PROJECTS_USER}" -- env AI_TOOLS_ENTRYPOINT_LABEL_DIR="${LABELS}" AI_TOOLS_MSG_PLAIN=1 \
+        bash -c 'cli="$1"; verify_lib="$2"; agent="$3"; set --; source "${cli}" >/dev/null 2>&1 || exit 99
+                 source "${verify_lib}" >/dev/null 2>&1 || exit 98
+                 if [[ "${agent}" == --control ]]; then
+                     declare -F ai_tools_entrypoint_verify__get_label_path >/dev/null 2>&1; exit
+                 fi
+                 status_entrypoint_label "${agent}"' _ "${CLI}" "${VERIFY_LIB}" "$1" 2>&1
+}
+rm -f "${LABELS}"/*
+rc=0; out="$(call_label --control)" || rc=$?
+if [[ "${rc}" -ne 0 ]]; then
+    fail "the verify library did not load beside the CLI (rc ${rc}), so the label line cannot be read: $(head -c 300 <<<"${out}" | tr '\n' '|')"
+else
+    pass "the verify library's record-path reader is defined in the label call (control)"
+    label_record alpha skipped live-session
+    rc=0; out="$(call_label alpha)" || rc=$?
+    if [[ "${rc}" -eq 0 ]] && grep -q 'not labelled (live-session)' <<<"${out}"; then
+        pass "a walk left over a directory at its type is shown and not counted (the control for the case below)"
+    else
+        fail "a skipped live-session record (rc ${rc}): $(head -c 300 <<<"${out}" | tr '\n' '|')"
+    fi
+    label_record alpha failed live-session
+    rc=0; out="$(call_label alpha)" || rc=$?
+    if [[ "${rc}" -ne 0 ]] && grep -q 'NOT LABELLED' <<<"${out}"; then
+        pass "a walk left over a directory at another type is a counted fault"
+    else
+        fail "a failed live-session record was not counted (rc ${rc}): $(head -c 300 <<<"${out}" | tr '\n' '|')"
+    fi
+    says "that fault names the service start that completes it" 'systemctl start ai-tools-relabel\.service' "${out}"
+fi
+rm -f "${LABELS}"/*
+
 # ── (6) The Version section's Node line reads the launcher link, not the updater's record ── The link is repointed
 # by every path that changes Node, so the line is right after a bootstrap as after an update, and it is the read
 # the launch banner makes; the updater's stamp is the host's real one here and is read alongside, so what is asserted is

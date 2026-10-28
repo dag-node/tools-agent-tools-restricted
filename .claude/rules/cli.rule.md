@@ -9,6 +9,7 @@ paths:
   - "src/usr/local/libexec/ai-tools/ai-tools-stop.sh"
   - "src/usr/local/libexec/ai-tools/ai-tools-admin.sh"
   - "src/usr/local/lib/ai-tools/relabel.lib.sh"
+  - "src/usr/local/lib/ai-tools/sessions.lib.sh"
   - "src/usr/local/lib/ai-tools/project-permissions.lib.sh"
   - "src/usr/local/lib/ai-tools/services.lib.sh"
 ---
@@ -180,7 +181,7 @@ an ordinary account read it — a partial view, the file sink being the authorit
   `allowed-projects` line and taking it off again, **in place**. Detail under [Enabled, disabled,
   absent](#enabled-disabled-absent--the-three-states-of-an-entry).
 - `projects clone [path]` — shallow-clone a repository into the sandbox area privately, lock down tip-commit secrets,
-  and only past that gate open, label and register the clone; fail-closed otherwise, and resumable by re-running
+  and only past that gate label, open and register the clone; fail-closed otherwise, and resumable by re-running
   on the clone path ([Sandbox clone](#sandbox-clone)).
 - `projects push [path]` — push the clone's commits to its branch. It and the clone kind of `projects remove`,
   which removes the clone and unregisters it, gate the target through `require_sandbox_clone`: it must be a **real
@@ -1004,7 +1005,10 @@ a tree deleted down to the first directory it could not enter, with no entry lef
 **parent** is checked first and separately, since `rm -rf <d>` finishes by unlinking `<d>` from it, and that directory
 is not part of the project; missing it leaves an empty, deregistered husk, so its refusal names `projects unclaim`
 instead. Teardown then runs registries first, deletion last — the label, the `safe.directory` entry, the allowlist
-entry, then the tree — so a failed deletion leaves an *unregistered* tree, less access rather than more. The allowlist
+entry, then the tree — so a failed deletion leaves an *unregistered* tree, less access rather than more. A label
+reversal the live-session gate refuses stops the removal at that step, with the tree and both registries as they were
+and exit 1: the refusal is a state a re-run passes once the sessions end, and a label left for later could not be
+reverted over a path the removal deleted, since `ai-tools-relabel` refuses a path that does not exist. The allowlist
 step is fatal if it cannot complete, since that entry is the launch gate: `unreg_allow` verifies the entry is gone
 by re-reading the file rather than trusting `sed`, and names the line to delete by hand (`sed -i` writes its temporary
 file into the allowlist's own directory, which the operator may not be able to write). The filesystem hand-back
@@ -1068,8 +1072,10 @@ still applies, and only the hand-back is given up, reported with the `projects e
 that completes it. An allowlist line the unclaim could not change ends it non-zero as well, in a `--for` run
 as in a plain one, since the line is the launch gate: a drop that did not apply refuses (`unreg_allow`), naming the line
 or the helper command that removes it, and a park that did not apply closes with the entry reported still enabled and no
-✓. A failed root step follows the per-verb table under [Claim in place](#claim-in-place). The filesystem effect per mode
-is [ref-table-b5v7](ownership-and-hooks.rule.md#ref-table-b5v7).
+✓. A label reversal that failed, or that the live-session gate refused, closes the same way, without the ✓ and non-zero,
+after the hand-back and the registry reversal have run: the project type and its rule stay on a tree no entry names
+until the printed command runs. A failed root step follows the per-verb table under [Claim in place](#claim-in-place).
+The filesystem effect per mode is [ref-table-b5v7](ownership-and-hooks.rule.md#ref-table-b5v7).
 
 ## Sandbox clone <a id="ref-section-u9a9"></a>
 
@@ -1082,23 +1088,107 @@ by `ai-tools-relabel`. `projects push` and the clone kind of `projects remove` g
 through `require_sandbox_clone`: a direct child of `SANDBOX_ROOT` that is a git worktree and passes the protected-paths
 backstop, which scopes the `rm -rf` to one recognized clone.
 
-The create is **lock-before-grant**. The clone is born owner-only (`umask 077` around the `git clone`), so a checked-in
-credential is unreadable to the sandbox account from the first instant; `sandbox_finalize` then registers the allowlist
-entry (the lockdown acts only on an allowlisted path; rolled back on a failed gate), runs the same secret gate
-as a claim, and only past it opens the clone: `normalize_clone` adds group `rwX` and setgid directories while pruning
-every path the gate locked, then the clone is labelled and registered. A declined or failed gate **fails closed**:
-the clone stays on disk, private, unlabelled and unregistered, with a guard `CLAUDE.md` (sentinel
-`ai-tools-lockdown-guard`) telling the agent to wait until the lockdown runs, a real `CLAUDE.md` preserved by `git mv`
-to `CLAUDE.md.bak`, and the resume command printed. Re-running `projects clone` on the clone path resumes
-`sandbox_finalize`, which removes the guard and restores the original on success. A resume is idempotent:
-`normalize_clone` runs while the root is still owner-only (`clone_is_private`), the state the pinned umask
-and a declined gate each leave, so a resume over an opened clone re-runs the gate and leaves the tree's modes alone,
-and a directory the operator sealed inside it keeps its mode.
+The create is **lock-before-grant**, by construction. `clone_privately` creates the clone root `0700` with its inherited
+ACL stripped before git writes into it, and git creates every path inside under `umask 077`. A umask alone does not make
+the clone private: the clone area carries a default ACL, which a path created under it takes in place of the umask.
+A checked-in credential is therefore unreadable to the sandbox account until the gate has run. `sandbox_finalize` then
+registers the allowlist entry (the lockdown acts only on an allowlisted path; rolled back on a failed gate), runs
+the same secret gate as a claim, and only past it labels and opens the clone: the label is applied while the root is
+still owner-only, then `normalize_clone` adds group `rwX`, setgid directories and the ACL the area would have given each
+path, pruning every path the gate locked, and the clone is registered. A declined or failed gate, and a label the clone
+root does not take, **fail closed**: the clone stays on disk, private and unregistered, and the resume command is
+printed. A host where SELinux runs with no `ai_tools` policy, the DAC-only state the launch proceeds
+through (`ai_tools_confinement__evaluate_dac_only_state`), creates the clone unlabelled and says so, since the type does
+not exist there; a module shipped and not loaded, and a reading that cannot be made, keep the stop. A declined or failed
+gate also leaves a guard `CLAUDE.md` (sentinel `ai-tools-lockdown-guard`) telling the agent to wait until the lockdown
+runs, with a real `CLAUDE.md` preserved by `git mv` to `CLAUDE.md.bak`. Re-running `projects clone` on the clone path
+resumes `sandbox_finalize`, which removes the guard and restores the original on success. A resume is idempotent:
+the label and `normalize_clone` run while the root is still owner-only (`clone_is_private`), the state the private
+create and a stopped finalize each leave, so a resume over an opened clone re-runs the gate and leaves the tree's modes
+alone, and a directory the operator sealed inside it keeps its mode.
 
 The shared area carries a `g:ai-ops:rwX` ACL (traverse on `/var/opt/ai-tools`, `rwX` plus default on `sandbox-projects`,
 applied by `install.sh`), so an operator creates and works in clones without `SANDBOX_GROUP` membership —
 the shared-area counterpart to the per-project `user:<operator>` grant. The agent is not in `ai-ops` (`ai-tools-run`
 refuses to launch otherwise), so the grant adds it no access.
+
+## The recursive relabels and the live-session gate <a id="ref-section-e6c6"></a>
+
+A `restorecon -R` over a tree the sandbox account can write — a claimed project, a clone, an agent's config directory,
+the toolchain under `/opt/ai-tools` — walks by path, and on libselinux before 3.11 it resolves each path again before it
+writes the label. A process of that account that renames a directory aside and plants a symlink of its name inside
+the walk sends the tree's type onto an inode it chose. The account's only writers are its live processes, agent
+sessions, the toolchain update with the install scripts it runs, and the steps a bootstrap and a package erase run
+as the account, so every such walk runs **only while no process of the account is live**.
+
+The reading is `sessions.lib.sh`'s: a cgroup under the account's slice `user-<uid>.slice` that holds a task, read
+from `cgroup.procs` and `cgroup.events` as `ai-tools-stop` reads them, makes the account live. Its walk functions are
+a copy of the stop helper's, which does not load a project library, and `tests/unit/sessions.sh` holds each pair equal.
+Every reading the reader cannot make — no cgroup v2 mount, no uid, a `user.slice` the caller cannot enter, a directory
+under the account's slice it cannot list and enter — reads `unreadable`, which each gate treats as live.
+A `cgroup.procs` or `cgroup.events` it cannot read makes its unit live, the stop helper's fail-closed answer,
+which the copy shares. The toolchain update is live by the same reading: it writes the toolchain the `%post` walk
+crosses. A step this project's root code runs as the account outside the slice — the shim's cache cleanup ahead of its
+unit, the bootstrap's link repair under a plain `sudo -u` on a host whose sudo stack does not place it in a session
+scope — runs root-owned code, and is not a writer the gate defends against.
+
+**The user manager's own plumbing is exempt by name**: its `init.scope` and the dbus broker it starts. The stop helper
+does not exempt any cgroup, because on a DAC-only host a session can move its tasks into any cgroup it names. Here
+the name is sound because of where the gate runs. `ai_tools_relabel__is_available` returns 2 and no walk happens
+where SELinux is `Disabled`; where the policy is loaded, `ai_tools_t` does not hold a write on `cgroup_t` and cannot
+reach its user manager's socket or its session bus, so the names under the slice are the ones `ai-tools-run`
+and the manager gave them; `Permissive` refuses every launch under the default `AI_TOOLS_REQUIRE_SELINUX`. The residual
+is a permissive host whose operator wrote `AI_TOOLS_REQUIRE_SELINUX=no`. A name is exempt only at the depth the manager
+gives it, so a unit of that name under a further slice is read like any other. The name is not sound against a process
+of the account outside `ai_tools_t`, the updater's unit and the install scripts it runs: the gate reads such a process
+live by its own unit until it moves, and one that moves itself into an exempt name is a compromised install script
+that already holds the account's whole DAC reach. `tests/integration/selinux.sh` reads the cgroup half from the loaded
+policy, and `selinux/avc/avc-denials.sh` makes all four accesses from inside a session.
+
+Where each walk takes the gate:
+
+- `relabel.lib.sh` gates its own walks — the project label and unlabel, an agent config directory's label and the config
+  half of its unlabel — and returns 3 before any write, so a re-run applies the whole step. `ai-tools-relabel` refuses
+  under a code with an exit status of its own, the claim then reports its label step pending and exits 1, an unclaim
+  reports the revert as not applied and exits 1 once its other steps have run, and a removal stops before either
+  registry changes, since the helper cannot revert a path the removal has deleted. `ai-tools-relabel-agent` files
+  the config directory as `skipped live-session` where it already carries its type, and as `failed live-session`,
+  which `ai-tools status` counts, where it carries another, and exits non-zero, so the relabel unit reads failed until
+  a run with no session labels it: the layout creates the directory without a type under a `usr_t` base, so one created
+  while a session runs is one the agent cannot write. `ai-tools status` renders either
+  with the `ai-tools-relabel.service` start that completes it. The helper labels the entrypoint as it otherwise would:
+  that write is per path, not a walk.
+- The selinux `%post` restores the root-owned trees unconditionally and `/opt/ai-tools` and the clone area behind
+  the reading, with one WARNING naming the `restorecon` to run when it skips; the selinux `%postun` makes both its
+  policy-store writes behind the same reading, leaving the policy loaded with one WARNING naming the re-run
+  ([confinement](confinement.rule.md)); `install.sh` does the same for `/opt/ai-tools/.config` and the agent config
+  directories, and `selinux/install-selinux.sh` for every tree the account can write that its actions walk,
+  the toolchain, the home state, the clones and the projects its removal restores, reading the account
+  through the installed `sandbox-exec.lib.sh`; its `remove` refuses before its first policy-store write while
+  the reading is not idle, since the module unload fails on a project rule the gate left in place. `ai-tools-admin`'s
+  clone restore after a group change, and `ai-tools-unclaim --unlisted`'s label reset, warn the same way.
+- `projects claim` reads the state unprivileged when its label step is pending and names a live session in the Review
+  block, ahead of the verb's first `sudo`; a `--for` run's allowlist snapshot precedes it ([Acting for another
+  operator](#acting-for-another-operator---for)). The notice does not ask anything; the helper's refusal decides,
+  where the claim runs the label step, and a drift relabel the operator declines does not run it. The notice shows
+  on a `live` reading alone: the operator account reads `unreadable` where the sandbox account's user manager creates
+  its slices owner-only, the state EL10's manager leaves (`app.slice`, `session.slice` and `background.slice`
+  under `user@<uid>.service` at `0700`, the account's), so on such a host the helper's refusal at the label step is
+  the first report, and a notice on `unreadable` would open every labelling claim with it.
+- A clone is labelled while it is still private, ahead of `normalize_clone`, so its walk does not cross a directory
+  the account can rename, and the clone's own entry sits in an area whose type `ai_tools_t` may search and not write;
+  that walk does not take the gate. The clone is private by construction, its root created without the area's inherited
+  ACL ([Sandbox clone](#sandbox-clone)), and a label the root does not take stops the create before anything opens.
+
+Every message leads with letting the sessions end and the update finish, and offers `ai-tools stop` beside it, since
+a stop ends a session without its session-end handback and an update mid-run.
+
+**The gate narrows the exposure and does not close it.** A session launched between the reading and the walk is inside
+the walk. What closes it is either a libselinux at or above 3.11, whose walker holds a descriptor, or the launch lock
+[stop](stop.rule.md) defers, which would serialize `ai-tools-run` against the stop and the relabel alike. No libselinux
+version is read: the gate holds on every version, and a version read is a label rather than a check. The per-path
+`restorecon -F` of an agent entrypoint through the account-owned toolchain is outside this gate: it is a root label
+write by a path, the class the write-side invariant in [CLAUDE.md](../../CLAUDE.md) states, and it does not walk.
 
 ## Privilege model
 

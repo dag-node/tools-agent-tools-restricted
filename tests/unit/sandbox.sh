@@ -792,6 +792,91 @@ fi
 # take its target's mode with it -- and re-open a path the gate locked, which `-path` would miss if the locked name
 # carried a pattern character (the bracket here) and were not escaped, or ended in a newline a `$(...)` capture
 # of the escaped pattern would strip.
+# ── sandbox_finalize: the order of the opening steps ──────────────────────────────────────────
+# relabel_clone walks the clone by path, and once normalize_clone has opened the tree the sandbox account can rename
+# a directory in it mid-walk. So the relabel runs while the root is still owner-only, ahead of the guard's removal
+# and the normalize, and a resume over a clone already opened runs neither. A relabel that fails stops the create
+# with the clone private, the guard in place and the allowlist entry rolled back. Every step around them is stubbed
+# and the order recorded on a descriptor of its own, since the stopping arm leaves through `die`, which exits.
+section "sandbox_finalize: the clone is labelled while it is still private (unit)"
+# shellcheck disable=SC2016  # the script runs inside the sourced CLI's shell; its expansions are that shell's
+finalize_order='
+    exec 3>&1
+    reg_allow()            { printf "reg_allow " >&3; }
+    unreg_allow()          { printf "unreg_allow " >&3; }
+    secret_gate()          { return 0; }
+    drop_lockdown_guard()  { printf "drop_lockdown_guard " >&3; }
+    clear_lockdown_guard() { printf "clear_lockdown_guard " >&3; }
+    clone_is_private()     { [[ "${stub_private}" == yes ]]; }
+    relabel_clone()        { printf "relabel_clone " >&3; [[ "${stub_label}" == ok ]]; }
+    normalize_clone()      { printf "normalize_clone " >&3; }
+    reg_safedir()          { printf "reg_safedir " >&3; return 0; }
+    stub_private="${args[1]}"; stub_label="${args[2]}"
+    sandbox_finalize "${args[0]}" >/dev/null 2>&1 || true
+    printf "returned" >&3
+'
+order="$(call_script "${finalize_order}" "${TESTDIR}/clone" yes ok 2>/dev/null || true)"
+if [[ "${order}" == "reg_allow relabel_clone clear_lockdown_guard normalize_clone reg_safedir returned" ]]; then
+    pass "a private clone is relabelled before its guard comes off and normalize_clone opens it"
+else
+    fail "the finalize order on a private clone was: ${order:-<none>}"
+fi
+order="$(call_script "${finalize_order}" "${TESTDIR}/clone" no ok 2>/dev/null || true)"
+if [[ "${order}" == "reg_allow clear_lockdown_guard reg_safedir returned" ]]; then
+    pass "a resume over a clone already opened runs neither the relabel nor the normalize"
+else
+    fail "the finalize order on an opened clone was: ${order:-<none>}"
+fi
+order_status=0
+order="$(call_script "${finalize_order}" "${TESTDIR}/clone" yes failed 2>/dev/null)" || order_status=$?
+if [[ "${order}" == "reg_allow relabel_clone unreg_allow " ]] && (( order_status != 0 )); then
+    pass "a failed clone label stops the create with the guard in place, the entry rolled back and nothing opened"
+else
+    fail "the finalize after a failed clone label ran: ${order:-<none>} (exit ${order_status})"
+fi
+
+# ── relabel_clone: a host with no ai_tools policy ─────────────────────────────────────────────
+# Where SELinux runs and no ai_tools policy is on the host, ai_tools_project_t does not exist to label the clone
+# with, and the launch proceeds through that state, so the create proceeds unlabelled rather than stopping on a type
+# the host cannot hold. getenforce answers Enforcing and matchpathcon a usr_t context, so the confinement library's real
+# reader reads the module's file contexts as absent; the compiled module's presence is a fixed path, so its reader is
+# stubbed. The library is sourced ahead of the stubs, and its include guard keeps relabel_clone's own source
+# from replacing them. restorecon prints a marker where it is called, and a module shipped and not loaded and a reader
+# that cannot be made each keep the stop.
+section "relabel_clone: a host with no ai_tools policy creates the clone unlabelled (unit)"
+# shellcheck disable=SC2016  # the script runs inside the sourced CLI's shell; its expansions are that shell's
+relabel_clone_case='
+    source "${CONFINEMENT_LIB}" 2>/dev/null || exit 98
+    getenforce()  { printf "Enforcing\n"; }
+    restorecon()  { printf "RESTORECON-CALLED\n"; return 0; }
+    matchpathcon() { printf "system_u:object_r:usr_t:s0\n"; }
+    case "${args[1]}" in
+        module-absent)  ai_tools_confinement__read_policy_shipped() { printf no; } ;;
+        module-shipped) ai_tools_confinement__read_policy_shipped() { printf yes; } ;;
+        reader-failed)  ai_tools_confinement__read_policy_shipped() { printf no; }
+                        ai_tools_confinement__read_module_present() { return 1; } ;;
+    esac
+    rc=0; relabel_clone "${args[0]}" 2>&1 || rc=$?
+    printf "rc=%s\n" "${rc}"
+'
+for reading in module-absent module-shipped reader-failed; do
+    out="$(call_script "${relabel_clone_case}" "${TESTDIR}" "${reading}" 2>&1 || true)"
+    case "${reading}" in
+        module-absent)
+            if [[ "${out}" == *"rc=0"* && "${out}" != *RESTORECON-CALLED* && "${out}" == *"not labelled"* ]]; then
+                pass "no ai_tools policy on the host: the clone is created unlabelled, says so, and no restorecon runs"
+            else
+                fail "no ai_tools policy on the host: ${out//$'\n'/ | }"
+            fi ;;
+        *)
+            if [[ "${out}" == *"rc=1"* && "${out}" == *RESTORECON-CALLED* ]]; then
+                pass "${reading}: the restorecon runs and the unlabelled root stops the create (control)"
+            else
+                fail "${reading}: expected the restorecon and rc=1: ${out//$'\n'/ | }"
+            fi ;;
+    esac
+done
+
 section "normalize_clone: opens files and directories alone, and keeps a locked path locked (unit)"
 nc_work="${TESTDIR}/nc"; nc_out="${TESTDIR}/nc-outside"; nc_newline="${nc_work}/"$'.env.production\n'
 mkdir -p "${nc_work}/config[prod]" "${nc_work}/sub"
@@ -822,6 +907,73 @@ if call normalize_clone "${nc_work}" "${nc_work}/config[prod]/.env" "${nc_newlin
     fi
 else
     fail "normalize_clone could not be driven (exit $?)"
+fi
+
+# ── clone_privately and normalize_clone under the clone area's default ACL ──────────────────────
+# A path created under a parent carrying a default ACL takes that ACL in place of the umask, so a `git clone`
+# under umask 077 into an area carrying install.sh's `g:ai-ops` lines comes out group-accessible -- the control,
+# which the case asserts first. clone_privately must produce an owner-only root and owner-only files with no ACL entry,
+# and normalize_clone must then leave the tree with the ACL the area would have given it: the same normalize
+# over the control is the reference, compared path by path, effective-rights comments included.
+section "clone_privately: a clone is private under the area's default ACL, and opens to the area's ACL (unit)"
+if ! getent group ai-ops >/dev/null 2>&1 || ! command -v setfacl >/dev/null 2>&1; then
+    skip "clone privacy under the area ACL" "the ai-ops group or setfacl is absent on this host"
+else
+    cp_work="${TESTDIR}/clone-acl"
+    mkdir -p "${cp_work}"
+    chown "${PROJECTS_USER}:${PROJECTS_GROUP}" "${cp_work}"
+    # shellcheck disable=SC2016  # the script runs inside the sourced CLI's shell; its expansions are that shell's
+    clone_privacy='
+        work="${args[0]}"; area="${work}/area"; origin="file://${work}/origin.git"
+        git init -q --bare "${work}/origin.git"
+        git init -q -b main "${work}/seed"
+        printf "plain\n" > "${work}/seed/plain.txt"
+        printf "#!/bin/sh\n" > "${work}/seed/run.sh"; chmod 0755 "${work}/seed/run.sh"
+        git -C "${work}/seed" add -A
+        git -C "${work}/seed" -c user.name=fixture -c user.email=fixture@example.invalid -c commit.gpgsign=false \
+            commit -qm fixture
+        git -C "${work}/seed" push -q "${work}/origin.git" main
+        mkdir -m 2770 "${area}"
+        setfacl -m g:ai-ops:rwx "${area}"
+        setfacl -d -m g:ai-ops:rwX "${area}"
+        ( umask 077 && git clone -q --depth=1 -b main "${origin}" "${area}/control" )
+        printf "control_root=%s\n" "$(stat -c %a "${area}/control")"
+        clone_privately "${origin}" main "${area}/created" >/dev/null 2>&1
+        printf "created_root=%s\n" "$(stat -c %a "${area}/created")"
+        printf "created_file=%s\n" "$(stat -c %a "${area}/created/plain.txt")"
+        printf "created_entries=%s\n" "$(getfacl -p -c -- "${area}/created" | grep -cE "^(user|group):[^:]+:|^default:")"
+        normalize_clone "${area}/control" >/dev/null 2>&1
+        normalize_clone "${area}/created" >/dev/null 2>&1
+        acl_tree() { ( cd "$1" && find . -print0 | sort -z | xargs -0 getfacl -p -- ); }
+        control_tree="$(acl_tree "${area}/control")"; created_tree="$(acl_tree "${area}/created")"
+        printf "control_named=%s\n" "$(grep -c "^group:ai-ops:" <<< "${control_tree}")"
+        if [[ "${control_tree}" == "${created_tree}" ]]; then echo "trees=equal"; else
+            echo "trees=differ"; diff <(echo "${control_tree}") <(echo "${created_tree}") | head -n 8 | sed "s/^/diff=/" || true
+        fi
+    '
+    cp_out="$(call_script "${clone_privacy}" "${cp_work}" 2>&1)" || true
+    cp_value() {
+        local line
+        while IFS= read -r line; do
+            [[ "${line}" == "$1="* ]] && { printf '%s' "${line#*=}"; return 0; }
+        done <<< "${cp_out}"
+    }
+    if [[ "$(cp_value control_root)" == *770 ]]; then
+        pass "control: a umask-077 clone under the area's default ACL is group-accessible ($(cp_value control_root))"
+    else
+        fail "control: the umask-077 clone root is $(cp_value control_root), want 770 -- the fixture does not carry the area ACL"
+    fi
+    if [[ "$(cp_value created_root)" == *700 && "$(cp_value created_file)" == 600 \
+            && "$(cp_value created_entries)" == 0 ]]; then
+        pass "clone_privately makes an owner-only root and files with no named or default ACL entry"
+    else
+        fail "clone_privately: root $(cp_value created_root), file $(cp_value created_file), $(cp_value created_entries) ACL entries"
+    fi
+    if [[ "$(cp_value trees)" == equal && "$(cp_value control_named)" -gt 0 ]]; then
+        pass "normalize_clone opens a private clone to the ACL the area gives a clone created under it"
+    else
+        fail "normalize_clone: the opened trees $(cp_value trees) ($(sed -n 's/^diff=//p' <<< "${cp_out}" | tr '\n' '|' || true))"
+    fi
 fi
 
 finish

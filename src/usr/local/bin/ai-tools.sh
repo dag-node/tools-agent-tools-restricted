@@ -520,6 +520,14 @@ readonly ANCESTOR_CONFIG_LIB="/usr/local/lib/ai-tools/ancestor-config.lib.sh"
 # shellcheck source=SCRIPTDIR/../lib/ai-tools/ancestor-config.lib.sh
 source "${ANCESTOR_CONFIG_LIB}" 2>/dev/null || true
 
+# Live sessions of the sandbox account (sessions.lib.sh): ai-tools-relabel refuses its walk while one runs,
+# and the claim reads the same state unprivileged from the world-readable cgroup files so its Review block names
+# the refusal before the first sudo. Best-effort: the helper's refusal is the decision, so a missing lib costs
+# the notice alone.
+readonly SESSIONS_LIB="/usr/local/lib/ai-tools/sessions.lib.sh"
+# shellcheck source=SCRIPTDIR/../lib/ai-tools/sessions.lib.sh
+source "${SESSIONS_LIB}" 2>/dev/null || true
+
 # Service-health registry (services.lib.sh): the single source `ai-tools status`, the launch wrapper's pre-launch health
 # warning and `ai-tools-admin status` share, so no two of them disagree on which units matter, what one is doing,
 # or how to fix it. Best-effort -- only `status` reads it, and it degrades to a "registry unavailable" notice rather
@@ -1528,6 +1536,14 @@ grant_ancestor_traversal() {
 # (`-xdev`): chmod follows a symlink named on its command line, so a tracked symlink handed to it would change a target
 # outside the clone. A locked path is pruned by its literal name: `-path` reads its argument as a pattern, so `[`, `*`,
 # `?` and `\` are escaped first (find_pattern_literal), or the walk would re-open the secret.
+#
+# The clone is created with its ACL stripped (clone_privately), so the walk then gives every opened path the access ACL
+# the clone area's default ACL would have given it at creation, and every directory that default ACL itself: the named
+# and `group::` entries as the default holds them, and the mask the kernel derives from the create mode -- `rwx`
+# on a directory and on a file with an execute bit, `rw-` on any other file, which is what `chmod g+rwX` leaves
+# after the inherited mask. A plain `setfacl -m` recalculates the mask from the entries and would open every file
+# to execute, so each class takes its mask explicitly under `-n`. `user::` and `other::` keep the bits the create's
+# umask 077 left.
 normalize_clone() {
     local d="$1"; shift
     local -a prune=() p pattern
@@ -1537,6 +1553,24 @@ normalize_clone() {
     done
     find "${d}" -xdev "${prune[@]}" '(' -type f -o -type d ')' -exec chmod g+rwX {} +
     find "${d}" -xdev "${prune[@]}" -type d -exec chmod g+s {} +
+
+    local area_acl entry access="" defaults=""
+    if ! area_acl="$(getfacl -p -c -E -d -- "${d%/*}" 2>/dev/null)"; then
+        warn "could not read the default ACL of ${d%/*}; the clone is open to group ${SANDBOX_GROUP} alone"
+        return 0
+    fi
+    while IFS= read -r entry; do
+        [[ -n "${entry}" ]] || continue
+        defaults+="${defaults:+,}d:${entry}"
+        case "${entry}" in
+            user::*|mask::*|other::*) ;;
+            *) access+="${access:+,}${entry}" ;;
+        esac
+    done <<< "${area_acl}"
+    [[ -n "${defaults}" ]] || return 0
+    find "${d}" -xdev "${prune[@]}" -type d -exec setfacl -n -m "${access}${access:+,}m::rwx,${defaults}" {} +
+    find "${d}" -xdev "${prune[@]}" -type f -perm /111 -exec setfacl -n -m "${access}${access:+,}m::rwx" {} +
+    find "${d}" -xdev "${prune[@]}" -type f ! -perm /111 -exec setfacl -n -m "${access}${access:+,}m::rw-" {} +
 }
 
 # find_pattern_literal <output-variable> <path>  -- set <output-variable> to <path> escaped for find's `-path`/`-name`
@@ -1550,7 +1584,7 @@ find_pattern_literal() {
     _pattern_out="${s}"
 }
 
-# clone_is_private <dir>  -- 0 while the clone root is owner-only: the state cmd_project_clone's pinned umask leaves
+# clone_is_private <dir>  -- 0 while the clone root is owner-only: the state cmd_project_clone's private create leaves
 # a clone in, and a declined gate leaves it in (owner-only.lib.sh states the predicate the root helpers apply). A mode
 # that cannot be read counts as opened, so a resume does not widen a tree it could not read.
 clone_is_private() {
@@ -1563,18 +1597,58 @@ clone_is_private() {
 # relabel_clone <dir>  -- apply the SELinux project label so the agent (ai_tools_t) can read/write the clone. A static
 # fcontext rule in selinux/policy/ai_tools.fc maps every directory under sandbox-projects/ to ai_tools_project_t,
 # so a plain restorecon labels it -- no per-project semanage and no root: the projects user runs as unconfined_t,
-# which the policy grants relabel to ai_tools_project_t. No-op when SELinux is disabled (or the module is not loaded,
-# in which case the label stays the default until the operator installs ai-tools-selinux, or from a checkout runs
-# selinux/install-selinux.sh install).
+# which the policy grants relabel to ai_tools_project_t. Returns 0 when the root carries ai_tools_project_t afterwards,
+# read back from the inode as ai_tools_relabel__label_project reads it, since restorecon exits 0 over a type no rule
+# maps (the module not loaded); 0 as well where SELinux is disabled or restorecon is absent, with no walk; 1 otherwise.
+#
+# sandbox_finalize runs it while the clone root is still 0700 and the operator's, ahead of normalize_clone: restorecon
+# walks by path, and once the tree is open the sandbox account can rename a directory in it and plant a symlink in its
+# place mid-walk, sending the label onto an inode it chose. While the root is private no directory inside the clone is
+# that account's to rename, and the clone's own entry sits in the clone area, a directory whose type ai_tools_t may
+# search and not write (ai_tools.fc), so this walk does not take the live-session gate. A resume over a clone already
+# opened does not run a relabel: the first finalize labelled it, before it opened.
+#
+# Where SELinux runs and no ai_tools policy is on the host -- neither its file contexts live nor its compiled module
+# staged -- ai_tools_project_t does not exist to read the clone with, so it returns 0 and says the clone is unlabelled.
+# That reading is ai_tools_confinement__evaluate_dac_only_state's `module-absent`, the launch's own predicate:
+# ai-tools-run proceeds through that state with MSG-K6W6, so it is a host sessions run on. Every other reading keeps
+# the restorecon and the stop -- a module shipped and not loaded, where the label is achievable once the policy is
+# installed, a matchpathcon that could not be read, and a confinement library that did not load. A resume does not label
+# a clone already opened, so the line names the policy install, which labels the clone area. A claim's label step
+# on such a host goes through ai-tools-relabel, which this reading does not change.
 relabel_clone() {
-    local d="$1"
+    local clone_dir="$1" selinux_mode module_present policy_shipped dac_only_state=""
     command -v restorecon >/dev/null 2>&1 || return 0
-    [[ "$(getenforce 2>/dev/null)" == "Disabled" ]] && return 0
-    if restorecon -FR "${d}" 2>/dev/null; then
-        ok "labelled clone ai_tools_project_t (SELinux)"
-    else
-        warn "could not relabel ${d} for SELinux; if enforcing, run: sudo restorecon -FR ${d}"
+    selinux_mode="$(getenforce 2>/dev/null || true)"
+    [[ "${selinux_mode}" == "Disabled" ]] && return 0
+    # shellcheck source=SCRIPTDIR/../lib/ai-tools/confinement.lib.sh
+    source "${CONFINEMENT_LIB}" 2>/dev/null || true
+    if declare -F ai_tools_confinement__evaluate_dac_only_state >/dev/null 2>&1 \
+            && declare -F ai_tools_confinement__read_module_present >/dev/null 2>&1 \
+            && declare -F ai_tools_confinement__read_policy_shipped >/dev/null 2>&1 \
+            && module_present="$(ai_tools_confinement__read_module_present \
+                                     "${AI_TOOLS_CONFINEMENT__MODULE_PROBE_PATH}" 2>/dev/null)"; then
+        policy_shipped="$(ai_tools_confinement__read_policy_shipped "${AI_TOOLS_CONFINEMENT__CORE_MODULE_FILE}")"
+        dac_only_state="$(ai_tools_confinement__evaluate_dac_only_state \
+                              "${selinux_mode}" "${module_present}" "${policy_shipped}")" || dac_only_state=""
     fi
+    if [[ "${dac_only_state}" == module-absent ]]; then
+        say "  - the clone is not labelled: no ai_tools policy is on this host, so ai_tools_t does not exist to read it;"
+        say "    installing ai-tools-selinux labels the sandbox clones (from a checkout: sudo selinux/install-selinux.sh install)"
+        return 0
+    fi
+    local context
+    if ! restorecon -FR "${clone_dir}" 2>/dev/null; then
+        warn "could not label ${clone_dir} ai_tools_project_t for SELinux -- restorecon -FR failed"
+        return 1
+    fi
+    context="$(stat -c '%C' -- "${clone_dir}" 2>/dev/null)" || context=""
+    if [[ "${context}" == *:ai_tools_project_t:* ]]; then
+        ok "labelled clone ai_tools_project_t (SELinux)"
+        return 0
+    fi
+    warn "could not label ${clone_dir} ai_tools_project_t for SELinux -- the root reads ${context:-an unreadable context}"
+    return 1
 }
 
 # ── Lockdown helpers ───────────────────────────────────────────────────────────
@@ -1588,7 +1662,9 @@ run_lockdown() {
 }
 
 # run_relabel <dir> [--remove]  -- apply (or revert) the SELinux project label on <dir> via the root helper (sudo,
-# password); returns its status. The helper parses the path and the optional flag in any order.
+# password); returns its status, RELABEL_LIVE_SESSION_STATUS where the live-session gate left the tree as it was.
+# The helper parses the path and the optional flag in any order.
+readonly RELABEL_LIVE_SESSION_STATUS=4
 run_relabel() {
     local d="$1"; shift
     # stdout suppressed: the helper narrates its own success ("labelled <path> ai_tools_project_t"), which lands
@@ -2400,6 +2476,21 @@ cmd_project_claim() {
         say "      ${C_DIM}which one above it is not${C_RST}"
     }
 
+    # The SELinux label walks the tree as root, and ai-tools-relabel refuses that walk while a process of the sandbox
+    # account is live, or where it cannot read whether one is (cli.rule.md). The same reading, made here
+    # as the operator, names a live session ahead of the verb's first sudo; it does not ask anything, and the helper's
+    # refusal is what decides. It shows for a drift relabel too, which the operator may then decline. It shows on `live`
+    # alone: the operator account reads `unreadable` wherever the sandbox account's user manager creates its slices
+    # owner-only, so a notice on that reading would open every labelling claim with a cause this account cannot confirm.
+    note_live_session() {
+        ${need_label} || (( ${#label_drift[@]} )) || return 0
+        declare -F ai_tools_sessions__read_live_session_state >/dev/null 2>&1 || return 0
+        [[ "$(ai_tools_sessions__read_live_session_state)" == live ]] || return 0
+        headline_warn "NOTICE: a session of the sandbox account is running" \
+            "An agent session or the toolchain update runs as ${SANDBOX_USER}. The SELinux label step walks the tree as root, and the helper refuses that step while one runs, where the claim runs it: the other steps apply, the label is reported pending and the claim ends non-zero. A drift relabel you decline does not run the step. Let each session end (/exit inside it) and the toolchain update finish, or end them all with the command below, then re-run this claim:"
+        say "      ${C_BOLD}ai-tools stop${C_RST}"
+    }
+
     skip_listed_note() {
         (( ${#drift_skipped[@]} )) || return 0
         headline_warn "NOTICE: drift under skip-listed directories" \
@@ -2616,6 +2707,7 @@ cmd_project_claim() {
     skip_listed_note
     sealed_setgid_note
     ancestor_config_note
+    note_live_session
 
     # Heavy steps close the Review block behind the proceed confirm, the one prompt `--yes` pre-answers; a pristine tree
     # skips it with the warnings it authorizes.
@@ -3187,19 +3279,25 @@ not_covered_die() {
 # hand-back command (used when the hand-back was wanted but could not run); the fourth argument is what becomes
 # of the allowlist line (the <registry> disposition). Best-effort except for the allowlist line: every other step warns
 # with its manual command and the pass goes on, while a drop that did not apply refuses (unreg_allow) and a park
-# that did not apply returns 1 without the ✓, since either leaves a session able to start here.
+# that did not apply returns 1 without the ✓, since either leaves a session able to start here. A label reversal
+# that did not apply, or that the live-session gate refused, returns 1 without the ✓ as well, after the registry
+# reversal: the project type and its rule stay on a tree no entry names until the printed command runs.
 unclaim_one() {
     local d="$1" group="$2" hint="$3" registry="$4"; shift 4
     local flags=""; (( $# )) && flags=" $*"
-    local stopped=false handback_missing=false
+    local stopped=false handback_missing=false label_left=false
 
     if command -v sudo >/dev/null 2>&1 \
             && command -v getenforce >/dev/null 2>&1 \
             && [[ "$(getenforce 2>/dev/null)" != "Disabled" ]]; then
-        if ! run_relabel "${d}" --remove; then
+        local relabel_status=0
+        run_relabel "${d}" --remove || relabel_status=$?
+        if (( relabel_status != 0 )); then
+            label_left=true
             warn "could not revert the SELinux label -- run it by hand:"
             say  "      ${C_BOLD}sudo ${RELABEL_BIN} --remove ${d}${C_RST}"
-            note_root_failure || stopped=true
+            # The gate's refusal came after sudo authenticated, so the steps after it are attempted without asking.
+            (( relabel_status == RELABEL_LIVE_SESSION_STATUS )) || note_root_failure || stopped=true
         fi
     fi
 
@@ -3260,6 +3358,14 @@ unclaim_one() {
             "${d} is out of allowed-projects, so no session can launch there. Its files still carry group ${SANDBOX_GROUP}, so an agent session that can reach the path keeps its access to them. The command above completes the reversal."
         ai_tools_log__structured warning \
             "unclaimed ${d} (registries dropped; filesystem hand-back did NOT run)" \
+            "AI_TOOLS_PROJECT=${d}" "AI_TOOLS_RESULT=failed"
+        return 1
+    fi
+    if ${label_left}; then
+        headline_warn "WARNING: deregistered, but the SELinux label was not reverted" \
+            "${d} is out of allowed-projects, so no session can launch there. It still carries the type the agent reads and writes. The command above reverts it."
+        ai_tools_log__structured warning \
+            "unclaimed ${d} (registries dropped; SELinux label NOT reverted)" \
             "AI_TOOLS_PROJECT=${d}" "AI_TOOLS_RESULT=failed"
         return 1
     fi
@@ -3788,12 +3894,20 @@ cmd_project_remove() {
     # ── Apply: registries first, deletion last. ──
     headline "Removing the project" "${d}"
     # A failed cleanup step asks once (note_root_failure) and does not stop the removal: the registries drop regardless,
-    # and `ai-tools projects` reports what is left behind.
+    # and `ai-tools projects` reports what is left behind. The live-session gate's refusal stops it instead,
+    # before either registry changes: that state is known and passes once the sessions end, while a label reversal left
+    # for later cannot be applied to a path this run deletes, since the helper refuses a path that does not exist.
     local cleanup_stopped=false
     if command -v sudo >/dev/null 2>&1 \
             && command -v getenforce >/dev/null 2>&1 \
             && [[ "$(getenforce 2>/dev/null)" != "Disabled" ]]; then
-        if ! run_relabel "${d}" --remove; then
+        local relabel_status=0
+        run_relabel "${d}" --remove || relabel_status=$?
+        if (( relabel_status == RELABEL_LIVE_SESSION_STATUS )); then
+            say  "    let each session end (/exit inside it) and the toolchain update finish, or end them all"
+            say  "    with ${C_BOLD}ai-tools stop${C_RST}, then re-run the removal; the project is left as it was"
+            die MSG-S3B9 "project remove stopped before any change -- the helper left the SELinux label of ${d} while an agent session or the toolchain update may be running"
+        elif (( relabel_status != 0 )); then
             warn "could not revert the SELinux label -- run it by hand:"
             say  "      ${C_BOLD}sudo ${RELABEL_BIN} --remove ${d}${C_RST}"
             note_root_failure || cleanup_stopped=true
@@ -3839,9 +3953,12 @@ cmd_project_remove() {
 
 # sandbox_finalize <dst>  -- the access-granting tail of every sandbox create, run once the clone exists: allowlist
 # entry (the lockdown scan acts only on an allowlisted path; rolled back on a failed gate), the secret gate, then --
-# past the gate alone -- normalize (pruning the locked paths), relabel, and register. A declined or failed gate leaves
+# past the gate alone -- relabel, normalize (pruning the locked paths), and register. A declined or failed gate leaves
 # the clone on disk, private and unregistered, with a guard CLAUDE.md and the resume command printed (fail closed:
-# cli.rule.md, Sandbox clone). The normalize runs once, while the root is still owner-only (clone_is_private).
+# cli.rule.md, Sandbox clone). The relabel and the normalize run once, while the root is still owner-only
+# (clone_is_private), in that order (relabel_clone states why), and the relabel before the guard comes off: a clone
+# that could not be labelled stops the create the same way, since the agent cannot enter a clone opened unlabelled
+# and a resume over an opened clone does not label it.
 sandbox_finalize() {
     local dst="$1"
     reg_allow "${dst}"
@@ -3854,15 +3971,24 @@ sandbox_finalize() {
         say  "      ${C_BOLD}ai-tools projects clone ${dst}${C_RST}"
         die "sandbox create stopped -- secrets not locked down"
     fi
-    clear_lockdown_guard "${dst}"
     # A resume over a clone already opened leaves the tree as it is (normalize_clone's header states why).
-    if clone_is_private "${dst}"; then
+    local opening=false
+    clone_is_private "${dst}" && opening=true
+    if ${opening} && ! relabel_clone "${dst}"; then
+        unreg_allow "${dst}"
+        warn "sandbox not labelled -- the clone stays private to you:" \
+             "not group-accessible, not registered; the agent has no access to it"
+        say  "    with the ai-tools-selinux policy loaded, finish the create:"
+        say  "      ${C_BOLD}ai-tools projects clone ${dst}${C_RST}"
+        die MSG-Z7B9 "sandbox create stopped -- the clone could not be labelled ai_tools_project_t"
+    fi
+    clear_lockdown_guard "${dst}"
+    if ${opening}; then
         normalize_clone "${dst}" "${SECRET_MATCH_PATHS[@]}"
         say "    access: group ${SANDBOX_GROUP} rwX + setgid dirs (locked secrets stay private)"
     else
         say "    access: already granted; the tree is left as it is"
     fi
-    relabel_clone "${dst}"
     # A clone exists to run git in, and without safe.directory the agent's git refuses the tree ("dubious ownership"),
     # so the failure is reported at the close rather than left under the ✓; reg_safedir returns non-zero, so a bare call
     # under `set -e` would abort the create.
@@ -3918,13 +4044,33 @@ sandbox_resolve_base() {
     return 1
 }
 
+# clone_privately <url> <branch> <dst>  -- shallow-clone <branch> of <url> into <dst>, a directory this creates,
+# owner-only throughout: the tip commit's files -- possibly checked-in credentials -- stay unreadable to the sandbox
+# account until the gate has run and normalize_clone opens the non-secret paths. A umask alone does not do it: the clone
+# area carries a default ACL, and a path created under one takes that ACL in place of the umask (acl(5)), so git's own
+# mkdir would make the root group-accessible at creation. The root is therefore made here, 0700, with its inherited ACL
+# stripped before git writes into it, and git creates every path inside under umask 077; git accepts an existing empty
+# directory as a clone destination. A failure removes the directory while it is empty, and dies.
+clone_privately() {
+    local url="$1" branch="$2" dst="$3"
+    mkdir -m 0700 -- "${dst}" || die "could not create ${dst}"
+    if ! setfacl -b -- "${dst}"; then
+        rmdir -- "${dst}" 2>/dev/null || true
+        die MSG-U3Q6 "could not strip the inherited ACL from ${dst} -- the clone was not created"
+    fi
+    if ! ( umask 077 && git clone --depth=1 -b "${branch}" "${url}" "${dst}" ); then
+        rmdir -- "${dst}" 2>/dev/null || true
+        die "git clone into ${dst} failed"
+    fi
+}
+
 # cmd_project_clone [path] [--from <ref>] [--branch <name>] [--dir <name>] [-y|--yes]  -- create or reuse a sandbox
-# branch, shallow-clone it PRIVATELY (umask 077) into SANDBOX_ROOT, then hand off to sandbox_finalize, which gates
-# and opens it. Pointed at an EXISTING clone under SANDBOX_ROOT, it resumes sandbox_finalize on it (the flags are then
-# not read). Every input has a default and an optional flag, so the command is scriptable and the prompts are
-# the interactive fallback: a flag skips its prompt, and no flag with no tty takes the default. The branch is a FULL git
-# ref of any shape -- the "sandbox/<leaf>" default is a convention (sandbox_default_branch) -- validated with git
-# check-ref-format and refused rather than rewritten.
+# branch, shallow-clone it PRIVATELY (an owner-only root without an ACL, umask 077 inside) into SANDBOX_ROOT, then hand
+# off to sandbox_finalize, which gates and opens it. Pointed at an EXISTING clone under SANDBOX_ROOT, it resumes
+# sandbox_finalize on it (the flags are then not read). Every input has a default and an optional flag, so the command
+# is scriptable and the prompts are the interactive fallback: a flag skips its prompt, and no flag with no tty takes
+# the default. The branch is a FULL git ref of any shape -- the "sandbox/<leaf>" default is a convention
+# (sandbox_default_branch) -- validated with git check-ref-format and refused rather than rewritten.
 cmd_project_clone() {
     local o_path="" o_from="" o_branch="" o_dir="" o_yes=false
     local have_from=false have_branch=false have_dir=false
@@ -4060,9 +4206,7 @@ cmd_project_clone() {
         ok "pushed ${br} to ${remote}"
     fi
 
-    # umask 077: the clone is born OWNER-ONLY, so the tip commit's files -- possibly checked-in credentials -- are
-    # unreadable to the sandbox account until the gate has run and normalize_clone opens the non-secret paths.
-    ( umask 077 && git clone --depth=1 -b "${br}" "${clone_url}" "${dst}" )
+    clone_privately "${clone_url}" "${br}" "${dst}"
     ok "shallow-cloned into ${dst} (private until secured)"
     ai_tools_log__structured info \
         "created sandbox clone ${dst} (branch ${br}, base ${base_ref}, remote ${remote})" \
@@ -4875,23 +5019,32 @@ status_entrypoint_label() {
         # One reason is read rather than only printed: `incomplete-package` (written by ai-tools-relabel-agent) says
         # the executable the manifest declares is not installed, which no relabel can supply -- so naming the relabel
         # as the retry would send the operator around the loop this report exists to end. The package is what has to be
-        # reinstalled, and the provisioning command is what does it.
+        # reinstalled, and the provisioning command is what does it. `live-session` on a failure is a config directory
+        # the walk left at a type the agent cannot write, which the next run with no session labels.
         failed)  printf '  %-28s %sNOT LABELLED%s %s(%s%s)%s\n' "" "${C_RED}" "${C_RST}" \
                      "${C_DIM}" "${age:-at an unknown time}" "${reason:+, ${reason}}" "${C_RST}"
                  if [[ "${reason}" == incomplete-package ]]; then
                      say "      this agent's package does not hold the executable its manifest declares, so there is"
                      say "      nothing to label and no session of it starts; reinstall the package:"
                      say "      ${C_BOLD}sudo ai-tools-admin system bootstrap${C_RST} ${C_DIM}(its output names an install that did not complete)${C_RST}"
+                 elif [[ "${reason}" == live-session ]]; then
+                     say "      its config directory was not labelled while a session ran and carries a type the"
+                     say "      agent cannot write; once none runs: ${C_BOLD}sudo systemctl start ai-tools-relabel.service${C_RST}"
                  else
                      say "      the last reconciliation could not apply this agent's labels; the label its"
                      say "      entrypoint carries now is read by: ${C_BOLD}sudo ai-tools-admin status${C_RST}"
                      say "      retry: ${C_BOLD}sudo systemctl start ai-tools-relabel.service${C_RST} ${C_DIM}(then: journalctl -t ai-tools-relabel-agent)${C_RST}"
                  fi
                  return 1 ;;
-        # Nothing to label -- a DAC-only host, or an agent the toolchain has not provisioned yet. Neither is a fault,
-        # so neither is coloured or counted.
+        # Nothing to label -- a DAC-only host, or an agent the toolchain has not provisioned yet -- or the config
+        # directory's walk left while a session ran, over a directory an earlier run labelled. None is a fault, so none
+        # is coloured or counted; the last names the run that completes it.
         skipped) printf '  %-28s %snot labelled (%s)%s\n' "" "${C_DIM}" \
-                     "${reason:-nothing to label}" "${C_RST}" ;;
+                     "${reason:-nothing to label}" "${C_RST}"
+                 if [[ "${reason}" == live-session ]]; then
+                     say "      ${C_DIM}the config directory was not relabelled while a session ran; once none runs:${C_RST}"
+                     say "      ${C_BOLD}sudo systemctl start ai-tools-relabel.service${C_RST}"
+                 fi ;;
         # No record at all: this host has not run a reconciliation since the record was introduced, or the state
         # directory is unreadable from this account. It says only that, and never counts against the exit status --
         # the same rule the unqueryable units follow.

@@ -1107,9 +1107,23 @@ sel_disable() {
 # The one tree a group's .fc names is the sandbox-clone area (the dotnet group maps a clone's build output
 # to ai_tools_project_build_t), so that is what is restored; a claimed project's build rule is a per-project local rule
 # written at claim time and is not the group's.
+#
+# A clone is a tree the sandbox account can write, so the walk runs only while no process of that account is live, read
+# through sessions.lib.sh, and a reading that cannot be made skips it as a live one does: restorecon resolves each path
+# again before it writes, so a live process could send the label onto an inode it chose (cli.rule.md states the gate).
+# The group change stands either way; the skip names the walk to run once the sessions end.
 _restore_group_static_labels() {
-    local clones=/var/opt/ai-tools/sandbox-projects
+    local clones=/var/opt/ai-tools/sandbox-projects state=unreadable
     [[ -d "${clones}" ]] && command -v restorecon >/dev/null 2>&1 || return 0
+    # shellcheck source=SCRIPTDIR/../../lib/ai-tools/sessions.lib.sh
+    if source /usr/local/lib/ai-tools/sessions.lib.sh 2>/dev/null \
+            && declare -F ai_tools_sessions__read_live_session_state >/dev/null 2>&1; then
+        state="$(ai_tools_sessions__read_live_session_state)"
+    fi
+    if [[ "${state}" != none ]]; then
+        warn MSG-B9C4 "left the labels under ${clones} as they were: an agent session or the toolchain update runs as the sandbox account, or this host's sessions could not be read; let each session end (/exit inside it) and the toolchain update finish, or end them all with 'ai-tools stop', then run: sudo restorecon -FR ${clones}"
+        return 0
+    fi
     restorecon -FR "${clones}" >/dev/null 2>&1 \
         || warn MSG-C9W9 "could not restore labels under ${clones}; run: sudo restorecon -FR ${clones}"
     return 0

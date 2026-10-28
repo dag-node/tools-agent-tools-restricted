@@ -95,6 +95,11 @@ not_writable /usr/local/lib/ai-tools/launch-wrapper.lib.sh \
 not_writable /usr/local/lib/ai-tools/relabel.lib.sh \
     "label a file of its choosing as an entrypoint of the confined domain"
 
+# The live-session reader every recursive relabel of a tree the agent can write gates on, sourced by root. Writable,
+# the agent rewrites it to read its own live session as none, and a relabel walks the tree while it swaps a directory.
+not_writable /usr/local/lib/ai-tools/sessions.lib.sh \
+    "read its own live session as none, so a relabel walks a tree while it swaps a directory in it"
+
 # The root helper that writes the launcher symlinks. It is reachable from a session through the handback SYMLINK verb,
 # so its argument validation and manifest allowlist are the only things bounding what it will link; writable, the agent
 # would rewrite both.

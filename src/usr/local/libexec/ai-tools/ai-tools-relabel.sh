@@ -21,6 +21,9 @@
 #       sudo ai-tools-relabel --remove <dir>   # revert <dir> to its default type
 #       ```
 #
+# Exits 0 on success and where SELinux is inactive, 4 when the live-session gate left the tree as it was (a re-run
+# applies the step), 3 on a protected target, and 1 on every other refusal or failure.
+#
 # Installed 750 root:root, so only root runs it. Its domain rule is cli.rule.md.
 
 set -euo pipefail
@@ -54,13 +57,14 @@ fi
 
 # A leading message code (msg.lib.sh states the form) is printed on its own line ahead of the message, the shape
 # tests/lib/harness.sh's assert_msg reads, and carried into the log line. Matched inline: this helper does not load
-# the library.
+# the library. It exits DIE_STATUS, which die_live_session sets for the one refusal a caller re-runs.
+DIE_STATUS=1
 die() {
     local code=""
     if [[ "${1-}" =~ ^MSG-[A-Z][0-9][A-Z][0-9]$ ]]; then code="$1"; shift; fi
     ai_tools_log__coded error "${code}" "$*" "AI_TOOLS_RESULT=failed"
     [[ -z "${code}" ]] || printf '%s\n' "${code}" >&2
-    printf 'ai-tools-relabel: error: %s\n' "$*" >&2; exit 1
+    printf 'ai-tools-relabel: error: %s\n' "$*" >&2; exit "${DIE_STATUS}"
 }
 
 # Protected-paths backstop (safe-paths.lib.sh): refuse to relabel a system directory even when the allowlist includes
@@ -139,13 +143,25 @@ if ai_tools_relabel__is_available; then :; else
     exit 0
 fi
 
+# die_live_session <command> -- refuse a walk the library declined (status 3) because a process of the sandbox account
+# is live, or because the reading could not be made, naming the stop and the command that re-runs this step, and exit 4.
+# A removal names this helper's own re-run at its fixed path, the line the CLI's unclaim and removal print beside their
+# own, since the helper's directory is not on sudo's PATH; a label names the claim, which re-runs it, since this helper
+# refuses a path no allowlist names. The path is shell-quoted, so the printed command names the tree a space or a shell
+# metacharacter in its name would otherwise split. The tree is left as it was: the library gates before its first write.
+die_live_session() {
+    DIE_STATUS=4
+    die MSG-H8V6 "left the SELinux label on ${dir} as it was: an agent session or the toolchain update runs as the sandbox account, or this host's sessions could not be read, and a walk while one runs could be redirected outside the tree; let each session end (/exit inside it) and the toolchain update finish, or end them all with 'ai-tools stop', then re-run: $1 $(printf '%q' "${dir}")"
+}
+
 if ${remove}; then
-    if ai_tools_relabel__unlabel_project "${dir}"; then
-        echo "ai-tools-relabel: reverted ${dir} to its default SELinux type"
-        ai_tools_log__structured info "unlabelled project ${dir}" "AI_TOOLS_RESULT=ok"
-    else
-        die MSG-Q4X9 "failed to revert SELinux label on ${dir}"
-    fi
+    rc=0; ai_tools_relabel__unlabel_project "${dir}" || rc=$?
+    case "${rc}" in
+        0) echo "ai-tools-relabel: reverted ${dir} to its default SELinux type"
+           ai_tools_log__structured info "unlabelled project ${dir}" "AI_TOOLS_RESULT=ok" ;;
+        3) die_live_session "sudo /usr/local/libexec/ai-tools/ai-tools-relabel --remove" ;;
+        *) die MSG-Q4X9 "failed to revert SELinux label on ${dir}" ;;
+    esac
 else
     allowlisted "${dir}" \
         || die MSG-P8J7 "refusing to label ${dir}: not in the allowed-projects allowlist"
@@ -155,6 +171,7 @@ else
            ai_tools_log__structured info "labelled project ${dir} ai_tools_project_t" \
                "AI_TOOLS_RESULT=ok" ;;
         2) echo "ai-tools-relabel: SELinux inactive -- no labelling needed for ${dir}" ;;
+        3) die_live_session "ai-tools projects claim" ;;
         *) die MSG-M2D2 "failed to label ${dir} (is the ai_tools policy module loaded? install ai-tools-selinux, or from a checkout run: sudo selinux/install-selinux.sh install)" ;;
     esac
 fi

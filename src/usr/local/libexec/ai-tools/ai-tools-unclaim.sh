@@ -438,10 +438,23 @@ fi
 # a forced restorecon resets the tree to the default its location resolves to. Gated on the root actually carrying
 # the label, so a tree that never had it is not relabelled as a side effect of unclaiming. Best-effort: a label left
 # behind is a defence-in-depth gap, not an access grant -- the DAC reversal has already removed the agent's reach.
+# The tree was a claimed project, so the walk runs only while no process of the sandbox account is live, read
+# through sessions.lib.sh, and a reading that cannot be made skips it as a live one does (cli.rule.md states the gate).
 if ${UNLISTED} && [[ "$(getenforce 2>/dev/null || echo Disabled)" != "Disabled" ]] \
         && command -v restorecon >/dev/null 2>&1; then
     if [[ "$(stat -c '%C' "${canonical}" 2>/dev/null)" == *:ai_tools_project_t:* ]]; then
-        if restorecon -RF -- "${canonical}" 2>/dev/null; then
+        sessions_state=unreadable
+        # shellcheck source=SCRIPTDIR/../../lib/ai-tools/sessions.lib.sh
+        if source /usr/local/lib/ai-tools/sessions.lib.sh 2>/dev/null \
+                && declare -F ai_tools_sessions__read_live_session_state >/dev/null 2>&1; then
+            sessions_state="$(ai_tools_sessions__read_live_session_state)"
+        fi
+        if [[ "${sessions_state}" != none ]]; then
+            warn MSG-T6T2 "left the SELinux label under ${canonical} as it was: an agent session or the toolchain update runs as the sandbox account, or this host's sessions could not be read; let each session end (/exit inside it) and the toolchain update finish, or end them all with 'ai-tools stop', then run: sudo restorecon -RF ${canonical}"
+            ai_tools_log__coded warning "${_warn_code}" \
+                "left the SELinux label under ${canonical}: a session of the sandbox account was live" \
+                "AI_TOOLS_RESULT=skipped"
+        elif restorecon -RF -- "${canonical}" 2>/dev/null; then
             ai_tools_log__structured info \
                 "reset SELinux label under ${canonical} (was ai_tools_project_t)" "AI_TOOLS_RESULT=ok"
         else

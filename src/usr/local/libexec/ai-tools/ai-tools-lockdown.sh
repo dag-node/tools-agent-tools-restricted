@@ -264,14 +264,14 @@ done < "${SCAN_DIR}/hits"
 #
 # The target itself is left out of the list. The seal exists for a private path inside a shared tree, and the walk's
 # root is the registered project directory, whose reachability is the claim's own question. `ai-tools projects clone`
-# runs its `git clone` under a pinned `umask 077`, so a clone reaches the secret gate owner-only throughout and grouped
-# to the sandbox account by the setgid clone area; with the root on the list, a first run on a tip commit holding
-# a secret would seal the root alone -- clearing its setgid bit and moving its group to the operator's own --
-# and normalize_clone, which restores the mode bits and not the group, would leave the agent refused at the root
-# of a clone reported ready. An owner-only root is still pruned, so the paths under it are sealed on a later run once
-# the root is open. `-mindepth 1` is not this: it would stop the prune at the root and descend into such a clone,
-# where every depth-one entry is owner-only for the same reason and in the sandbox group by setgid inheritance,
-# and the pass would move all of them to the operator's group.
+# creates the clone root owner-only without an ACL and runs its `git clone` under `umask 077`, so a clone reaches
+# the secret gate owner-only throughout and grouped to the sandbox account by the setgid clone area; with the root
+# on the list, a first run on a tip commit holding a secret would seal the root alone -- clearing its setgid bit
+# and moving its group to the operator's own -- and normalize_clone, which restores the mode bits and not the group,
+# would leave the agent refused at the root of a clone reported ready. An owner-only root is still pruned, so the paths
+# under it are sealed on a later run once the root is open. `-mindepth 1` is not this: it would stop the prune
+# at the root and descend into such a clone, where every depth-one entry is owner-only for the same reason
+# and in the sandbox group by setgid inheritance, and the pass would move all of them to the operator's group.
 declare -a sealed=()
 _scan "${SCAN_DIR}/sealed" "${target}" -xdev "${git_prune[@]}" \
     '(' -type d ! -perm /077 -print0 -prune ')' -o '(' -type f ! -perm /077 -print0 ')'

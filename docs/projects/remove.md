@@ -71,6 +71,11 @@ the reverse order would leave a half-deleted tree the agent still reaches.
 The allowlist step is the one that has to complete: where the entry cannot be
 removed, the command stops and prints the line to delete by hand.
 
+While an agent session or the toolchain update runs, the label cannot be
+reverted, and the command stops at that step with the tree and both entries
+as they were. Let each session end (`/exit` inside it) and the update finish,
+or end them all with `ai-tools stop`, then run the removal again.
+
 ## A sandbox clone
 
 Pointed at a clone under the sandbox area, the command asks one default-No
@@ -89,6 +94,8 @@ a `sudo` grant to act as that account; it is checked before anything is removed
 ## Exit status
 
 0 when the project is deleted; 1 when a step failed — a deletion that left
-paths behind included, the project being already unregistered by then; 2
-for a rejected command line (`-y` without a `DIRECTORY`); 3 when the path is
-a protected system directory or a home root. `man ai-tools` has the full list.
+paths behind included, the project being already unregistered by then,
+and a label step refused while a session runs, with the tree and its entries
+left in place; 2 for a rejected command line (`-y` without a `DIRECTORY`); 3
+when the path is a protected system directory or a home root. `man ai-tools`
+has the full list.

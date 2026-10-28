@@ -145,8 +145,11 @@ sudo passwd -l "${SANDBOX_USER}"
 ```
 
 The `install -d` creates `/opt/ai-tools` owned by the account with `+x`
-for all, so `${PROJECTS_USER}` can traverse into `bin/`. The RPM ships this
-account via `sysusers.d`, so this step applies only to the from-source path.
+for all, so `${PROJECTS_USER}` can traverse into `bin/`. The RPM creates this
+account from its `sysusers.d` fragment. `install.sh` places the same fragment
+at `/usr/lib/sysusers.d/ai-tools.conf`, which keeps the account
+and the `ai-ops` group declared to `systemd-sysusers` across a reboot, and it
+does not create the account itself, so this step runs ahead of the install.
 
 `/home` is mounted `nosuid`, which would prevent the `sudo` UID-switch
 from taking effect. `/opt/ai-tools` has no `nosuid` restriction, so the switch
@@ -194,10 +197,13 @@ whatever is missing and seeds the symlink through the root helper), or re-run
 
 Everything from here on is fully automated by `install.sh`. **Complete steps 2
 and 3 first** — the account must exist (else the script stops
-with `ai-tools user not found`) and `/opt/ai-tools/bin` must exist (step 3
-creates it; the script writes `nvm-update.sh` into it).
-`sudo ai-tools-admin system bootstrap` does both in one idempotent command.
-Then run `sudo ./install.sh install`.
+with `ai-tools user not found`). The script creates `/opt/ai-tools/bin`
+where it is absent, so a host whose packages were removed does not need a step
+for it. `sudo ai-tools-admin system bootstrap` does steps 2 and 3 in one
+idempotent command. The host also needs the `acl` package, which the RPM
+requires: every grant a claim and a clone make is a POSIX ACL, so the script
+stops before it writes anything where `setfacl` or `getfacl` is missing
+(`sudo dnf install acl`). Then run `sudo ./install.sh install`.
 
 The script asks which account to enrol as the operator, offering the invoking
 `SUDO_USER` as the default — answer No to name another. A non-interactive run

@@ -284,10 +284,12 @@ directive; the nvm-update timer maintains the tree from then on.
 with plain `semodule -i` and relabels the install paths. `%postun`, on final
 erase (`$1 == 0`), unloads every loaded `ai_tools*` module — enumerated, not
 named, so a stable group enabled with `ai-tools-admin` and an experimental
-group compiled from a source checkout are both caught. Neither scriptlet passes
-`--noreload`: the store and the running kernel policy must not diverge,
-or an install leaves the entrypoint unlabelled and an erase leaves the domain
-live.
+group compiled from a source checkout are both caught. An erase with a session
+of the sandbox account open leaves the policy loaded and prints the stop
+and the re-run, as the `%post` leaves the sandbox trees unwalked. Neither
+scriptlet passes `--noreload`: the store and the running kernel policy must not
+diverge, or an install leaves the entrypoint unlabelled and an erase leaves
+the domain live.
 
 `ai-tools-integration-nodejs`: `%post`/`%preun`/`%postun` manage the system
 `ai-tools-relabel.path` watcher with the systemd macros. `ai-tools-base`'s
@@ -356,8 +358,9 @@ by `selinux/policy/shipped-modules.sh` at build time. `%postun` on final erase
 unloads the core **and** any group a host left loaded (the `.pp` is erased
 with the package, but the compiled module persists in the store otherwise).
 Per-project `semanage fcontext` rules are created by project registration, not
-by the package, so an erase that keeps registered projects leaves their labels
-in place.
+by the package; the erase drops them with the types they name, since the unload
+refuses while one stands, and prints for each project tree the `restorecon -R`
+that returns it to its default type. A later claim writes the rule again.
 
 ## Preservation on erase
 

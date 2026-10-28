@@ -153,7 +153,10 @@ the `projects enable` and `projects handback --full` pair, and exits non-zero;
 it does not print a clean `unclaimed`. An allowlist line the command could not
 remove, or could not park under `--keep-entry`, is reported the same way,
 with the command that finishes the edit, because a session can still start
-there while the line stands. What each verb does after a root step fails is
+there while the line stands. A label the command could not revert, one left
+while an agent session or the toolchain update runs included, is reported
+the same way, with the command that reverts it. What each verb does
+after a root step fails is
 [ref-table-b9q6](../../.claude/rules/cli.rule.md#ref-table-b9q6).
 
 ## For another operator
@@ -166,8 +169,8 @@ to you.
 
 ## Exit status
 
-0 when the project is unclaimed; 1 when a step failed, the hand-back did not
-run, or the allowlist line could not be removed or parked; 2 for a rejected
-command line (`--keep-entry` with `--force`, `--yes` with `--dry-run`); 3
-when the path is a protected system directory or a home root. `man ai-tools`
-has the full list.
+0 when the project is unclaimed; 1 when a step failed, the label was not
+reverted, the hand-back did not run, or the allowlist line could not be removed
+or parked; 2 for a rejected command line (`--keep-entry` with `--force`,
+`--yes` with `--dry-run`); 3 when the path is a protected system directory
+or a home root. `man ai-tools` has the full list.

@@ -15,7 +15,8 @@
 #   sudo ./install-selinux.sh build                compile + stage the shipped set (what install.sh runs)
 #   sudo ./install-selinux.sh rebuild              recompile core from source (.te/.fc) + reload + relabel
 #   sudo ./install-selinux.sh relabel              re-apply labels (after Node upgrade)
-#   sudo ./install-selinux.sh remove               unload all ai_tools* modules + labels
+#   sudo ./install-selinux.sh remove               drop every local rule naming an ai_tools type, unload all
+#                                                  ai_tools* modules, revert labels; exit 1 while a module stays loaded
 #   sudo ./install-selinux.sh enable-group <name>  compile + load one optional policy group
 #   sudo ./install-selinux.sh disable-group <name> unload one policy group
 #   sudo ./install-selinux.sh list-groups          show group availability and state
@@ -542,10 +543,68 @@ prompt_groups() {
 # The per-project label primitive (semanage fcontext + restorecon) lives in the shared relabel.lib.sh -- the SAME body
 # the ai-tools-relabel root helper runs, so `projects create`/`projects claim` and this sweep cannot drift. Prefer
 # the repo copy alongside this script; fall back to the deployed lib.
+#
+# The installed sandbox-exec.lib.sh is sourced first where it is readable: it carries the account name the installer
+# substituted, where the checkout's copy holds the token no account resolves, and its include guard makes the checkout
+# copy sessions.lib.sh sources a no-op, so the live-session reading (_sandbox_session_state) resolves the sandbox
+# account. A host with no base install has no installed copy, and its reading is `unreadable`: every account-writable
+# walk is left, and the warning names `sudo ./install.sh install` as what deploys the library.
+SANDBOX_EXEC_LIB="/usr/local/lib/ai-tools/sandbox-exec.lib.sh"
+if [[ -r "${SANDBOX_EXEC_LIB}" ]]; then
+    # shellcheck source=/dev/null
+    source "${SANDBOX_EXEC_LIB}" || refuse_unsourced "${SANDBOX_EXEC_LIB}"
+fi
 RELABEL_LIB="${DIR}/../src/usr/local/lib/ai-tools/relabel.lib.sh"
 [[ -r "${RELABEL_LIB}" ]] || RELABEL_LIB="/usr/local/lib/ai-tools/relabel.lib.sh"
 # shellcheck source=/dev/null
 source "${RELABEL_LIB}" || refuse_unsourced "${RELABEL_LIB}"
+SESSIONS_LIB="${RELABEL_LIB%/*}/sessions.lib.sh"
+# shellcheck source=/dev/null
+source "${SESSIONS_LIB}" || refuse_unsourced "${SESSIONS_LIB}"
+SAFE_PATHS_LIB="${RELABEL_LIB%/*}/safe-paths.lib.sh"
+# shellcheck source=/dev/null
+source "${SAFE_PATHS_LIB}" || refuse_unsourced "${SAFE_PATHS_LIB}"
+
+# The trees the sandbox account can write -- the toolchain, the home state, the clones, a claimed project -- are
+# restored only while no process of that account is live: a recursive restorecon resolves each path again before it
+# writes, so a live process can redirect the label (cli.rule.md, ref-section-e6c6). One reading per run, taken here;
+# a session launched after it is the residual that rule states. The root-owned trees (the log and runtime directories,
+# the helpers) and the operators' config directories are restored whatever it reads.
+_sandbox_session_state="$(ai_tools_sessions__read_live_session_state)"
+_left_trees=()
+# _restore_account_tree_labels <path>: restorecon -FR <path> where the reading is `none`; otherwise record <path>
+# for the one warning the run closes with. A path that does not exist is neither.
+_restore_account_tree_labels() {
+    [[ -e "$1" || -L "$1" ]] || return 0
+    if [[ "${_sandbox_session_state}" == none ]]; then
+        restorecon -FR "$1" 2>/dev/null || true
+    else
+        _left_trees+=("$1")
+    fi
+}
+# _record_left_agent_config <agent>: record <agent>'s config directory for the closing warning, after the library left
+# its walk (a `live` line, or status 3 from the unlabel). The path is the manifest's config_dir under CP_HOME, the one
+# the library walks; an agent whose manifest does not name one is warned about by name alone.
+_record_left_agent_config() {
+    local config_dir
+    warn MSG-S7C2 "left the label on ${1}'s config directory as it was -- the closing warning names the walk to run"
+    config_dir="$(ai_tools_providers__read_agent_manifest_field "$1" config_dir 2>/dev/null || true)"
+    [[ -n "${config_dir}" ]] && _left_trees+=("${CP_HOME}/${config_dir}")
+    return 0
+}
+# _warn_left_trees: the run's EXIT trap, so a run that ends in a die still names what it left.
+_warn_left_trees() {
+    (( ${#_left_trees[@]} )) || return 0
+    local reason="an agent session, the toolchain update, or a step run as the sandbox account is live"
+    [[ "${_sandbox_session_state}" == live ]] \
+        || reason="this host's sessions could not be read (where ${SANDBOX_EXEC_LIB} is absent, sudo ./install.sh install deploys it)"
+    warn MSG-U8U4 "left the labels on these trees as they were: ${reason}; let each session end (/exit inside it) and the toolchain update finish, or end them all with 'ai-tools stop', then run:"
+    local tree
+    for tree in "${_left_trees[@]}"; do
+        warn "    sudo restorecon -FR $(printf '%q' "${tree}")"
+    done
+}
+trap _warn_left_trees EXIT
 
 # _locked <command...>: run one store-writing command under ai_tools_relabel__lock, released when it returns. semanage
 # and semodule report an error to whichever process finds the policy store held, and ai-tools-relabel.path fires
@@ -571,10 +630,10 @@ _locked() {
 # agent's rules, the enrolled operators' config rules, and each registered project's rule; drop removes them
 # in the reverse order, while the module still declares their
 # types.
-_labels_apply() { verify_agent_labels; _label_conf; for_each_project _label_one; }
+_labels_apply() { verify_agent_labels; _label_conf; for_each_project _label_project; }
 _labels_drop() {
-    local manifest agent
-    for_each_project _unlabel_one
+    local manifest agent rc
+    for_each_project _unlabel_project
     _unlabel_conf
     # The agents' path rules are local fcontexts naming types the module unload removes. Dropped for EVERY installed
     # agent manifest, not just the enabled ones: a disabled agent may still hold a rule from when it was on.
@@ -582,9 +641,79 @@ _labels_drop() {
     for manifest in /usr/local/lib/ai-tools/agents.d/*.conf; do
         [[ -e "${manifest}" ]] || continue
         agent="${manifest##*/}"; agent="${agent%.conf}"
-        ai_tools_relabel__unlabel_agent_paths "${agent}" \
-            || log "  ${agent}: no file-context rules to drop"
+        rc=0; ai_tools_relabel__unlabel_agent_paths "${agent}" || rc=$?
+        case "${rc}" in
+            0) ;;
+            3) _record_left_agent_config "${agent}" ;;
+            *) log "  ${agent}: no file-context rules to drop" ;;
+        esac
     done
+}
+
+# _resolve_pattern_tree <pattern>: print the directory a project-shaped rule `<literal>(/.*)?` was written for,
+# unescaped, where it exists, is its own canonical path, and the protected-paths backstop allows it as a target; fail
+# without output for any other pattern, and for every pattern where the backstop did not load. The tree is walked
+# as root by `restorecon -FR`, so the literal must name it directly: one carrying a `..`, a symlinked component
+# or a link leaf resolves somewhere the rule did not name, and the backstop reads the string it is given, not what
+# the kernel resolves. The paths a raw rule's regex also matched are not its.
+_resolve_pattern_tree() {
+    local literal="${1%(/.*)?}"
+    [[ "${literal}" != "$1" && "${literal}" != *'(/.*)?'* ]] || return 1
+    literal="$(sed -E 's/\\(.)/\1/g' <<<"${literal}")"
+    [[ "${literal}" == /?* && -d "${literal}" ]] || return 1
+    [[ "$(realpath -e -- "${literal}" 2>/dev/null)" == "${literal}" ]] || return 1
+    declare -F ai_tools_safe_paths__match_protected_path >/dev/null 2>&1 || return 1
+    ai_tools_safe_paths__match_protected_path "${literal}" >/dev/null && return 1
+    printf '%s\n' "${literal}"
+}
+
+# _drop_remaining_policy_type_rules: delete the local rules the registry walks did not derive and the unload would still
+# refuse on (ai_tools_relabel__list_local_rules_naming_policy_types), naming each; a project tree one covers takes
+# the same gated restore as a registered project. Called under _locked.
+_drop_remaining_policy_type_rules() {
+    local pattern letter type tree
+    while IFS=$'\t' read -r pattern letter type; do
+        [[ -n "${pattern}" ]] || continue
+        if semanage fcontext -d -f "${letter}" -- "${pattern}" >/dev/null 2>&1; then
+            log "  dropped ${pattern} (${type}): a rule outside this host's registries"
+            if tree="$(_resolve_pattern_tree "${pattern}")"; then
+                _restore_account_tree_labels "${tree}"
+            fi
+        else
+            warn MSG-N5W8 "could not drop the local file-context rule ${pattern} (${type}) -- the module unload refuses while it stands; remove it with: sudo semanage fcontext -d -f ${letter} -- $(printf '%q' "${pattern}")"
+        fi
+    done < <(ai_tools_relabel__list_local_rules_naming_policy_types)
+}
+
+# _read_loaded_policy_modules <consequence>: print the loaded ai_tools* module names, one per line. A listing semodule
+# refuses is a die carrying its reason and <consequence>, what the caller's step did not do: an empty store and a store
+# that cannot be read are told apart by semodule's status, since reading the second as the first would report `removed`
+# over whatever is loaded.
+_read_loaded_policy_modules() {
+    local listing
+    listing="$(semodule -l 2>&1)" \
+        || die MSG-A3V5 "could not read the module store -- ${listing//$'\n'/; }; $1; re-run once semodule answers: sudo $0 remove"
+    awk '/^ai_tools/{print $1}' <<<"${listing}"
+}
+
+# _unload_modules: unload every loaded ai_tools* module in one transaction, then read the store back: libsemanage prints
+# progress on stdout and a refusal on stderr, and only the store says what is left. A module still loaded is a die,
+# and so is a store that cannot be listed, before the unload and after it.
+_unload_modules() {
+    local -a loaded_modules=() remaining_modules=()
+    local names reason
+    names="$(_read_loaded_policy_modules "nothing was unloaded")" || exit 1
+    [[ -z "${names}" ]] || mapfile -t loaded_modules <<<"${names}"
+    if [[ ${#loaded_modules[@]} -eq 0 ]]; then
+        log "no ai_tools module is loaded"
+        return 0
+    fi
+    log "unloading all ai_tools* modules: $(_list "${loaded_modules[@]}")"
+    reason="$(_locked semodule -r "${loaded_modules[@]}" 2>&1 >/dev/null)" || true
+    names="$(_read_loaded_policy_modules "the unload ran, and what is loaded is not known")" || exit 1
+    [[ -z "${names}" ]] || mapfile -t remaining_modules <<<"${names}"
+    [[ ${#remaining_modules[@]} -eq 0 ]] \
+        || die MSG-R6M2 "left loaded: $(_list "${remaining_modules[@]}") -- ${reason//$'\n'/; }; review the local rules with 'sudo semanage fcontext -l -C | grep ai_tools', then re-run: sudo $0 remove"
 }
 
 # The OPERATORS list, parsed through the shared grammar so this sweep reads operator.conf exactly as every other
@@ -607,6 +736,7 @@ source "${OPERATOR_LIB}" 2>/dev/null \
 # under /usr/local/lib/ai-tools/agents.d.
 verify_agent_labels() {
     local report="" status=0 verdict subject detail wanted bad=0 labelled=0
+    local -A live_types=()
     report="$(ai_tools_relabel__label_agent_paths)" || status=$?
     if [[ "${status}" -eq 2 ]]; then
         warn MSG-Y9V3 "SELinux or the ai_tools module is not active -- no agent paths to label"
@@ -653,12 +783,21 @@ verify_agent_labels() {
                       warn "    -- and no installed file matches the entrypoint its manifest declares"
                       warn "    Reinstall it: sudo ai-tools-admin system bootstrap" ;;
                 none) warn MSG-S4K9 "no path to label for ${subject}: ${detail} is not installed" ;;
+                # The config directory's walk was left because a process of the sandbox account is live. Not `bad`:
+                # the rule is registered, and the closing warning names the walk that completes it. The type
+                # the directory carries is kept for the agent's closing line.
+                live) live_types["${subject}"]="${detail}"
+                      _record_left_agent_config "${subject}" ;;
                 skip) warn MSG-S9J3 "labelling skipped for ${subject} -- ${detail} ${wanted}" ;;
-                # The per-agent verdict closing that agent's lines: `ok` and `none` restate the per-path arms, so only
-                # `failed` prints, naming the agent those lines omit.
+                # The per-agent verdict closing that agent's lines: `ok` and `none` restate the per-path arms,
+                # so `failed` prints, naming the agent those lines omit, and so does a config directory a live session
+                # left at a type the agent cannot write. That one is not `bad` either: the rule and the policy are
+                # in place, and the closing left-trees warning names the restorecon that labels the directory.
                 agent)
                     if [[ "${detail}" == failed ]]; then
                         warn MSG-E6C4 "labelling did not complete for ${subject} -- see its lines above"
+                    elif [[ "${detail}" == live-session-mislabelled ]]; then
+                        warn MSG-T7X3 "the config directory of ${subject} carries ${live_types[${subject}]:-an unreadable type}, a type the agent cannot write, so no session of ${subject} can write its state until the walk the closing warning names runs"
                     fi ;;
                 # A verdict this renderer does not know is REPORTED, not dropped. Silently ignoring one turns
                 # a labelling result into no output at all, which reads as "no change" for the one path whose label
@@ -709,20 +848,35 @@ for_each_project() {
     done < "${ALLOWLIST}"
 }
 
-_home_state()  { local p; for p in "${HOME_STATE[@]}"; do
-                   restorecon -FR "/opt/ai-tools/${p}" 2>/dev/null || true
-                 done; }
-# _label_one/_unlabel_one: thin wrappers over the shared lib so this sweep and the ai-tools-relabel helper share one
-# implementation. Non-zero is swallowed (warn, don't die) so one bad project never aborts a whole relabel. _unlabel_one
-# already restorecons via the lib; the remove action's later _restore_one pass is a harmless belt-and-suspenders.
-# Re-asserts the label on every registered project each run. The relabel is idempotent (restorecon writes only a file
-# whose context differs), so a clean tree costs a walk and no writes; a file that drifted in with a foreign context --
-# a customizable type a plain restorecon would preserve -- is forced back to ai_tools_project_t by the lib's `-F`,
-# which is the whole point of the sweep.
-_label_one()   { if ai_tools_relabel__label_project "$1"; then ok "labelled project ai_tools_project_t: $1"
-                 else warn MSG-S5E4 "could not label $1 -- is the ai_tools module loaded?"; fi; }
-_unlabel_one() { ai_tools_relabel__unlabel_project "$1" || warn MSG-W8J4 "could not unlabel $1"; }
-_restore_one() { restorecon -FR "$1" 2>/dev/null || true; }
+_restore_home_state_labels() {
+    local p
+    for p in "${HOME_STATE[@]}"; do
+        _restore_account_tree_labels "/opt/ai-tools/${p}"
+    done
+}
+# _label_project/_unlabel_project: thin wrappers over the shared lib so this sweep and the ai-tools-relabel helper share
+# one implementation. Non-zero is swallowed (warn, don't die) so one bad project never aborts a whole relabel.
+# _unlabel_project already restorecons via the lib; the remove action's later project pass is a harmless
+# belt-and-suspenders. Re-asserts the label on every registered project each run. The relabel is idempotent (restorecon
+# writes only a file whose context differs), so a clean tree costs a walk and no writes; a file that drifted
+# in with a foreign context -- a customizable type a plain restorecon would preserve -- is forced back
+# to ai_tools_project_t by the lib's `-F`, which is the whole point of the sweep. A status of 3 is the library's
+# live-session gate (relabel.lib.sh): the project was left as it was.
+_label_project()   { local rc=0; ai_tools_relabel__label_project "$1" || rc=$?
+                 case "${rc}" in
+                     0) ok "labelled project ai_tools_project_t: $1" ;;
+                     3) _warn_live_session "$1" ;;
+                     *) warn MSG-S5E4 "could not label $1 -- is the ai_tools module loaded?" ;;
+                 esac; }
+_unlabel_project() { local rc=0; ai_tools_relabel__unlabel_project "$1" || rc=$?
+                 case "${rc}" in
+                     0) ;;
+                     3) _warn_live_session "$1" ;;
+                     *) warn MSG-W8J4 "could not unlabel $1" ;;
+                 esac; }
+_warn_live_session() {
+    warn MSG-E9S6 "left the label on $1 as it was: an agent session or the toolchain update runs as the sandbox account, or this host's sessions could not be read; let each session end (/exit inside it) and the toolchain update finish, or end them all with 'ai-tools stop', then re-run this command"
+}
 # _label_sandbox_clones: apply the static ai_tools_project_t label (ai_tools.fc) to every existing sandbox clone, then
 # REPORT and VERIFY each one. The per-project loop skips sandbox paths (they carry no dynamic semanage rule --
 # the static rule covers them), so without this an operator is shown no evidence the clones were relabelled even though
@@ -730,11 +884,17 @@ _restore_one() { restorecon -FR "$1" 2>/dev/null || true; }
 # the WRONG type -- e.g. a module loaded before the clone rule was carried under both /opt and /var/opt, on a host
 # whose file_contexts.subs_dist does not alias one to the other -- so each clone's achieved label is checked
 # and a mismatch warns rather than passing silently. Best-effort and SELinux-gated like the rest of the sweep: on a host
-# without SELinux the restorecon no-ops and the verify/report is skipped.
+# without SELinux the restorecon no-ops and the verify/report is skipped, and so it is where the live-session reading
+# left the walk.
 _label_sandbox_clones() {
     [[ -d "${SANDBOX_PROJECTS}" ]] || return 0
-    restorecon -FR "${SANDBOX_PROJECTS}" 2>/dev/null || true
+    _restore_account_tree_labels "${SANDBOX_PROJECTS}"
     ai_tools_relabel__is_available || return 0
+    # A walk the reading left is not verified: a clone's type then says what an earlier walk gave it.
+    if [[ "${_sandbox_session_state}" != none ]]; then
+        log "sandbox clone labels were not re-applied this run -- the clone area is in the closing warning"
+        return 0
+    fi
     local clone
     for clone in "${SANDBOX_PROJECTS}"/*/; do
         [[ -d "${clone}" ]] || continue           # no clones: the glob stays literal, -d fails
@@ -849,7 +1009,7 @@ case "${ACTION}" in
     stage_shipped_modules
 
     section "Labelling"
-    restorecon -FR "${NVM_DIR}"  2>/dev/null || true
+    _restore_account_tree_labels "${NVM_DIR}"
     # Apply and verify the static sandbox-clone label (ai_tools.fc) on any existing clones.
     _label_sandbox_clones
     # Apply ai_tools_log_t to the root-helper operation logs (ai_tools.fc).
@@ -859,7 +1019,7 @@ case "${ACTION}" in
     _relabel_helpers
     # Fix ai_tools_run_t on the tmpfs handback socket dir (see _relabel_runtime).
     _relabel_runtime
-    _home_state
+    _restore_home_state_labels
     _locked _labels_apply
 
     # Core is loaded and labelled -- a clear checkpoint before the optional groups. Reaching here means the preceding
@@ -930,7 +1090,7 @@ case "${ACTION}" in
 
   relabel)
     section "Re-applying labels"
-    restorecon -FR "${NVM_DIR}"  2>/dev/null || true
+    _restore_account_tree_labels "${NVM_DIR}"
     # Apply and verify the static sandbox-clone label (ai_tools.fc) on any existing clones.
     _label_sandbox_clones
     # Apply ai_tools_log_t to the root-helper operation logs (ai_tools.fc).
@@ -940,7 +1100,7 @@ case "${ACTION}" in
     _relabel_helpers
     # Fix ai_tools_run_t on the tmpfs handback socket dir (see _relabel_runtime).
     _relabel_runtime
-    _home_state
+    _restore_home_state_labels
     _locked _labels_apply
     ok "relabel done"
     ;;
@@ -972,7 +1132,7 @@ case "${ACTION}" in
     stage_shipped_modules force
 
     section "Re-applying labels"
-    restorecon -FR "${NVM_DIR}"  2>/dev/null || true
+    _restore_account_tree_labels "${NVM_DIR}"
     # Apply and verify the static sandbox-clone label (ai_tools.fc) on any existing clones.
     _label_sandbox_clones
     [[ -d "${LOG_DIR}" ]] && restorecon -FR "${LOG_DIR}" 2>/dev/null || true
@@ -981,25 +1141,27 @@ case "${ACTION}" in
     _relabel_helpers
     # Fix ai_tools_run_t on the tmpfs handback socket dir (see _relabel_runtime).
     _relabel_runtime
-    _home_state
+    _restore_home_state_labels
     _locked _labels_apply
     ok "rebuild done"
     ;;
 
   remove)
     section "Removing SELinux confinement"
+    # Refused before the first store write while the reading is not `none`: the project unlabel leaves a project's rule
+    # in place under the gate, and the unload refuses on any local rule naming a type it removes. The sweep
+    # after the registry walks drops the rules they do not derive, for the same reason.
+    [[ "${_sandbox_session_state}" == none ]] \
+        || die MSG-H7Q2 "left the policy loaded: an agent session or the toolchain update runs as the sandbox account, or this host's sessions could not be read; let each session end (/exit inside it) and the toolchain update finish, or end them all with 'ai-tools stop', then re-run: sudo $0 remove"
     log "dropping project fcontext rules"
     _locked _labels_drop
-    log "unloading all ai_tools* modules"
-    # Collect all loaded ai_tools modules then remove in one semodule call.
-    mapfile -t loaded < <(semodule -l 2>/dev/null | awk '/^ai_tools/{print $1}')
-    if [[ ${#loaded[@]} -gt 0 ]]; then
-        _locked semodule -r "${loaded[@]}" 2>/dev/null || true
-    fi
+    log "dropping the file-context rules outside this host's registries"
+    _locked _drop_remaining_policy_type_rules
+    _unload_modules
     log "reverting contexts to defaults"
-    _restore_one "${NVM_DIR}"
-    _home_state
-    for_each_project _restore_one
+    _restore_account_tree_labels "${NVM_DIR}"
+    _restore_home_state_labels
+    for_each_project _restore_account_tree_labels
     ok "removed"
     ;;
 
@@ -1022,7 +1184,7 @@ case "${ACTION}" in
     # after the load: the project sweep re-asserts each project's rules, and the clone restorecon picks up any static
     # rule the group added.
     log "re-applying labels for the expanded rule set"
-    _locked for_each_project _label_one
+    _locked for_each_project _label_project
     _label_sandbox_clones
     log "re-run the bring-up loop (avc-testsuite.sh + avc-analyze.sh) to catch any"
     log "new denials from the expanded surface before going enforcing"
@@ -1038,7 +1200,7 @@ case "${ACTION}" in
         # for it. Every type the groups name is declared in the base, so a per-project rule outlives the group
         # unchanged.
         log "re-applying labels for the reduced rule set"
-        _locked for_each_project _label_one
+        _locked for_each_project _label_project
         _label_sandbox_clones
     else
         log "group 'ai_tools_${name}' is not currently loaded -- nothing to do"

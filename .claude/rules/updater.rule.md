@@ -145,13 +145,14 @@ routes to the toolchain, and no third:
   receives `SIGTERM` then `SIGKILL`, and the call returns 124 under `MSG-W8B7`, so a hung child ends its step and not
   the run. The deadline holds through the draining of the child's output, so a descendant the child left holding its
   output open is ended the same way rather than waited for. The run is a transient systemd scope, the boundary
-  a descendant cannot leave whatever session it opens; where the system manager does not answer the helper's probe,
-  the run is refused under `MSG-Q2K6` rather than made inside the weaker boundary a session is, since a descendant's own
-  `setsid` leaves that one. Otherwise the command's own status is returned. `ai-tools-bootstrap` requires it and refuses
-  the run under `MSG-E2X2` without it; its link repair, its residue removal, its nvm/Node/agent install and its
-  signature check go through it, and so does `install.sh`'s package erase at uninstall.
-  `ai_tools_sandbox_exec__is_sandbox_account`, beside it, is the check a function that sources `nvm.sh` or runs `npm`
-  makes of its own process.
+  a descendant cannot leave whatever session it opens, placed in the account's slice `user-<uid>.slice`,
+  where `ai-tools stop` ends it and the relabel gate reads it as live; where the system manager does not answer
+  the helper's probe in that slice, the run is refused under `MSG-Q2K6` rather than made inside the weaker boundary
+  a session is, since a descendant's own `setsid` leaves that one. Otherwise the command's own status is returned.
+  `ai-tools-bootstrap` requires it and refuses the run under `MSG-E2X2` without it; its link repair, its residue
+  removal, its nvm/Node/agent install and its signature check go through it, and so does `install.sh`'s package erase
+  at uninstall. `ai_tools_sandbox_exec__is_sandbox_account`, beside it, is the check a function that sources `nvm.sh`
+  or runs `npm` makes of its own process.
 
 A step that runs as the account and executes only root-owned code — the launcher re-link through `providers.lib.sh`,
 the stamp's `mkdir` and `touch` — does not run a file the account can write, and keeps its plain `sudo -u`. `nvm-update`
@@ -648,10 +649,10 @@ neither caused. `ai_tools_relabel__lock` (`relabel.lib.sh`) makes the later one 
 (`ai-tools-relabel-agent`, `ai-tools-relabel`, `ai-tools-admin`'s operator labelling) hold it for the run;
 `install-selinux.sh` takes it per store-writing command through `ai_tools_relabel__unlock`, since its install action
 prompts between loads and a lock held across a prompt would make the watcher's run wait out `AI_TOOLS_RELABEL_LOCK_WAIT`
-and proceed unserialized; the selinux `%post` open-codes `flock` on the same path, which `tests/unit/relabel.sh` pins
-to the library's default. The lock is best-effort in one direction only: no `flock`, an uncreatable lock file, or a wait
-that runs out proceeds unserialized and says so, since labelling is idempotent and every refusal is reported,
-so an untaken lock costs a repeat run rather than a wrong label.
+and proceed unserialized; the selinux `%post` and `%postun` open-code `flock` on the same path,
+which `tests/unit/relabel.sh` pins to the library's default. The lock is best-effort in one direction only: no `flock`,
+an uncreatable lock file, or a wait that runs out proceeds unserialized and says so, since labelling is idempotent
+and every refusal is reported, so an untaken lock costs a repeat run rather than a wrong label.
 
 `semanage`'s own stderr is what a refusal reports, carried on the status line the helper renders and logs
 (`relabel.log`, journald, and so `ai-tools audit`) — the store being held and a type the loaded policy does not define
@@ -691,12 +692,18 @@ that fails leaves its account in a journal the operator does not read; the pin, 
 standing and green.
 
 The record is written by `ai-tools-relabel-agent` from a per-agent verdict the labelling library closes each agent's
-report with (`agent <name> <ok|failed|none>`, see `relabel.lib.sh`), so one place decides an agent's outcome and one
-place files it. `none` — no entrypoint installed to label — is filed as `skipped`, not `ok`: before `ai-tools-bootstrap`
-provisions the toolchain there is no entrypoint to label, and reporting that as labels applied would show green for work
-that did not happen. It is written on the DAC-only path too, where the run exits early because there is no
-`ai_tools_exec_t` to assign, so that host reports "nothing to label" rather than "cannot tell". Writing it is
-best-effort and never changes the outcome of the relabel it describes.
+report with (`agent <name> <verdict>`, the verdicts in `relabel.lib.sh`), so one place decides an agent's outcome
+and one place files it. `none` — no entrypoint installed to label — is filed as `skipped`, not `ok`:
+before `ai-tools-bootstrap` provisions the toolchain there is no entrypoint to label, and reporting that as labels
+applied would show green for work that did not happen. It is written on the DAC-only path too, where the run exits early
+because there is no `ai_tools_exec_t` to assign, so that host reports "nothing to label" rather than "cannot tell".
+Writing it is best-effort and never changes the outcome of the relabel it describes.
+
+A config directory the live-session gate left ([ref-section-e6c6](cli.rule.md#ref-section-e6c6)) is filed by the type it
+carries. At the type the agent writes it is `skipped`, and the run warns and exits 0. At another type it is `failed`,
+and the run exits non-zero as it does for a path that did not take its type, since no session of that agent can write
+its state: `ai-tools-relabel.service` is a oneshot, so the unit then reads failed until a run with no session labels
+the directory.
 
 The helper then **reconciles** what it applied against what is installed: it resolves `/opt/ai-tools/bin/<launcher>`
 the way the launch preflight does and fails — non-zero — when an entrypoint is installed at a path the declared pattern
