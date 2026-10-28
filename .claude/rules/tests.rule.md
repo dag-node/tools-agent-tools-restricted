@@ -774,10 +774,11 @@ and names the check of the relabel watcher and the start of the watcher and the 
 ends, since a start inside it would let a run fire while rpm places the packages ordered after base. A stub is a shell
 function, which a command named by its path bypasses, so the body is read first for a command run from a system
 directory by its path, beside a control, and is not run where one is found. The command directories the shadowing loop
-reads are held to `install.sh`'s `ATR_COMMAND_DIRS` and pointed at the fixture, where another executable named `atr`
-in each of them refuses under `MSG-E7B3` and this project's own entries pass. A compressed stub read without its tool
-on `PATH` is refused under `MSG-V2H5`, naming the tool, beside a plain stub that passes with none, and the file holds
-the package to the `Requires(pre)` lines that place the gzip reader's tools ahead of it.
+reads are held to `install.sh`'s `ATR_COMMAND_DIRS` where the tree carries it, which an image's installed source tree
+does not, and are pointed at the fixture, where another executable named `atr` in each of them refuses under `MSG-E7B3`
+and this project's own entries pass. A compressed stub read without its tool on `PATH` is refused under `MSG-V2H5`,
+naming the tool, beside a plain stub that passes with none, and the file holds the package to the `Requires(pre)` lines
+that place the gzip reader's tools ahead of it.
 
 `claim-notice.sh` drives the live-session reader's one unprivileged caller, the claim's `note_live_session`, read
 out of the checkout's `ai-tools.sh` as text: the notice prints on `live` alone, with a label step or a drift relabel

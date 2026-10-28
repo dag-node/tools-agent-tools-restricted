@@ -77,13 +77,19 @@ mkdir -p "${FX}/usr/local/bin" "${FX}/usr/sbin" "${FX}/usr/bin" "${FX}/usr/local
 chmod 0755 "${BASE}" "${FX}"
 
 # The command directories the shadowing check reads are install.sh's ATR_COMMAND_DIRS, and become the fixture's.
+# A source tree an image installs carries the spec without install.sh, so the comparison with it is skipped there.
 command_dirs_line="_atr_command_dirs='/usr/local/sbin /usr/bin /usr/sbin /bin /sbin'"
-installer_dirs="$(sed -n 's/^ATR_COMMAND_DIRS=(\(.*\))$/\1/p' "${ROOT}/install.sh")"
-if grep -qxF "${command_dirs_line}" <<< "${body}" && [[ "${command_dirs_line}" == *"'${installer_dirs}'" ]]; then
-    pass "the %pre reads the command directories install.sh's ATR_COMMAND_DIRS names"
-else
-    fail "the %pre's command directories and install.sh's (${installer_dirs:-not read}) differ, or the line moved"
+if ! grep -qxF "${command_dirs_line}" <<< "${body}"; then
+    fail "the %pre does not carry its command directories in the line this file rewrites: ${command_dirs_line}"
     finish; exit
+fi
+if [[ -r "${ROOT}/install.sh" ]]; then
+    installer_dirs="$(sed -n 's/^ATR_COMMAND_DIRS=(\(.*\))$/\1/p' "${ROOT}/install.sh")"
+    [[ "${command_dirs_line}" == *"'${installer_dirs}'" ]] \
+        && pass "the %pre reads the command directories install.sh's ATR_COMMAND_DIRS names" \
+        || fail "the %pre's command directories differ from install.sh's (${installer_dirs:-not read})"
+else
+    skip "the %pre's command directories against install.sh's" "no install.sh beside the spec in ${ROOT}"
 fi
 body="${body//"${command_dirs_line}"/"_atr_command_dirs='${FX}/usr/local/sbin ${FX}/usr/bin ${FX}/usr/sbin ${FX}/bin ${FX}/sbin'"}"
 
