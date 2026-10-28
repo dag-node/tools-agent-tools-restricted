@@ -158,8 +158,9 @@ to `${SANDBOX_USER}` actually takes effect.
 ## 3. Install nvm + Node + claude as `SANDBOX_USER` (root, once)
 
 `atr admin system bootstrap` does steps 2 and 3 in one idempotent command once
-the package is installed — it creates the account, installs the toolchain,
-seeds the symlink, and enables the `nvm-update.timer`. The manual equivalent:
+`install.sh` (step 4) or the package has deployed it — it creates the account,
+installs the toolchain, seeds the symlink, and enables the `nvm-update.timer`.
+The manual equivalent:
 
 ```bash
 # cd first: the block runs as ${SANDBOX_USER}, which cannot occupy your home as cwd
@@ -198,10 +199,12 @@ Everything from here on is fully automated by `install.sh`. **Complete steps 2
 and 3 first** — the account must exist (else the script stops
 with `ai-tools user not found`). The script creates `/opt/ai-tools/bin`
 where it is absent, so a host whose packages were removed does not need a step
-for it. `atr admin system bootstrap` does steps 2 and 3 in one idempotent
-command. The host also needs the `acl` package, which the RPM requires:
-the script stops before it writes anything where `setfacl` or `getfacl` is
-missing (`sudo dnf install acl`). Then run `sudo ./install.sh install`.
+for it. On a fresh host, steps 2 and 3 are done by hand:
+`atr admin system bootstrap`, which does both in one idempotent command, is
+deployed by this step. The host also needs the `acl` package, which the RPM
+requires: the script stops before it writes anything where `setfacl`
+or `getfacl` is missing (`sudo dnf install acl`). Then run
+`sudo ./install.sh install`.
 
 The script asks which account to enrol as the operator, offering the invoking
 `SUDO_USER` as the default — answer No to name another. A non-interactive run
