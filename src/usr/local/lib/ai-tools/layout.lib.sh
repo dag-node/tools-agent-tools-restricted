@@ -98,7 +98,8 @@ _ai_tools_layout__populate_static_entries() {
     local sandbox_user="${_AI_TOOLS_LAYOUT__SANDBOX_USER}" sandbox_group="${_AI_TOOLS_LAYOUT__SANDBOX_GROUP}"
     local operators_group="${_AI_TOOLS_LAYOUT__OPERATORS_GROUP}" lib=/usr/local/lib/ai-tools \
         libexec=/usr/local/libexec/ai-tools
-    local man=/usr/local/share/man base=ai-tools-base helper library page log relative
+    local man=/usr/local/share/man bash_completions=/usr/local/share/bash-completion/completions base=ai-tools-base \
+        helper library page log relative
     local -a man_pages=(
         man1/ai-tools.1 man5/ai-tools-operator.conf.5 man5/ai-tools-providers.5 man5/ai-tools-allowed-projects.5
         man5/ai-tools-secret-patterns.5 man5/ai-tools-custom-claude-endpoint.conf.5 man5/ai-tools-records.5
@@ -126,6 +127,12 @@ _ai_tools_layout__populate_static_entries() {
     for page in "${man_pages[@]}"; do
         _ai_tools_layout__append_static_entry "${man}/${page}" file root:root 0644 - "${base}" files,compressed
     done
+    # The bash completion, sourced into an operator's shell; the other two names are links to it.
+    _ai_tools_layout__append_static_entry /usr/local/share/bash-completion directory root:root 0755 - "${base}" files
+    _ai_tools_layout__append_static_entry "${bash_completions}" directory root:root 0755 - "${base}" files
+    _ai_tools_layout__append_static_entry "${bash_completions}/atr" file root:root 0644 - "${base}" files
+    _ai_tools_layout__append_static_entry "${bash_completions}/ai-tools" link root:root 0777 - "${base}" files
+    _ai_tools_layout__append_static_entry "${bash_completions}/ai-tools-admin" link root:root 0777 - "${base}" files
     # The library directory: world-execute lets an operator outside the sandbox group source a library by path without
     # listing the directory. Every library is 0644: shipped logic, so read is open and root-only write is the boundary.
     _ai_tools_layout__append_static_entry "${lib}"                     directory root:"${sandbox_group}" 0751 - \

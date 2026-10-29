@@ -8,6 +8,7 @@ paths:
   - "src/usr/local/share/man/man8/ai-tools-admin.8"
   - "src/usr/local/share/man/man1/atr.1"
   - "src/usr/local/share/man/man8/atr.8"
+  - "src/usr/local/share/bash-completion/completions/atr.sh"
 ---
 
 # Command grammar
@@ -306,6 +307,27 @@ the table ahead of every gate, so no key reaches a dispatch arm or `usage()` and
 spelling the tables and the man page carry. A run that used one gets the preferred form named back to it
 (`note_option_spellings`), and `tools/generators/option-spellings.sh` generates `docs/option-spellings.md`
 from the table, so the mapping an operator reads comes from the one the CLI applies.
+
+## The completion mirrors the surface
+
+`/usr/local/share/bash-completion/completions/atr` completes `atr`, `ai-tools` and `ai-tools-admin`, and the files named
+`ai-tools` and `ai-tools-admin` beside it are links to it, since bash-completion loads a completion by the name
+of the command being completed. It reads `admin` as the first word alone, as the wrapper does, and `--for` wherever it
+stands, as `ai-tools` does, so a line completes as the program that will run it reads it.
+
+**The command words and the options are the completion's own data**, and `tests/unit/completion.sh` holds them to each
+program in both directions: the command paths to its `usage()`, and the options after each command to the tag line
+of its man page entry, with every option it offers one the page documents. A command added to a dispatch without
+a completion word fails that file beside `man.sh`.
+
+**A Tab does not run a program of this project.** The names an option takes from the host — the enrolled operators,
+the installed agent manifests, the domains provider packages contribute, the SELinux groups — are read as text
+from the root-owned file or directory that holds them, and each name is held to a lower-case charset before it reaches
+`compgen -W`, which expands the words it is given. Running `ai-tools-admin --help` for the domains would need root,
+and running either program on each Tab would put its gates in an operator's prompt.
+
+The completion's `atr` name is one of the names the short command takes, so `install.sh`'s `ATR_NAMES` and the base
+`%pre` replace and remove it only in this project's form, the header line its second line opens with.
 
 ## Why not
 

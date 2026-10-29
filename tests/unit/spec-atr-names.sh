@@ -28,6 +28,7 @@ SPEC="${ROOT}/packaging/ai-tools.spec"
 WRAPPER_SRC="${ROOT}/src/usr/local/bin/atr.sh"
 PAGE1_SRC="${ROOT}/src/usr/local/share/man/man1/atr.1"
 PAGE8_SRC="${ROOT}/src/usr/local/share/man/man8/atr.8"
+COMPLETION_SRC="${ROOT}/src/usr/local/share/bash-completion/completions/atr.sh"
 section "ai-tools-base %pre: a name atr takes is refused unless it is this project's, and the refusal leaves the relabel watcher alone (unit)"
 
 if [[ ! -r "${SPEC}" || ! -r "${WRAPPER_SRC}" ]]; then
@@ -81,8 +82,9 @@ fi
 FX="${BASE}/root"
 WRAPPER="${FX}/usr/local/bin/atr" LINK="${FX}/usr/sbin/atr"
 MAN1="${FX}/usr/local/share/man/man1" MAN8="${FX}/usr/local/share/man/man8"
+COMPLETION="${FX}/usr/local/share/bash-completion/completions/atr"
 mkdir -p "${FX}/usr/local/bin" "${FX}/usr/sbin" "${FX}/usr/bin" "${FX}/usr/local/sbin" "${FX}/bin" "${FX}/sbin" \
-    "${MAN1}" "${MAN8}"
+    "${MAN1}" "${MAN8}" "${COMPLETION%/*}"
 chmod 0755 "${BASE}" "${FX}"
 
 # The command directories the shadowing check reads are install.sh's ATR_COMMAND_DIRS, and become the fixture's.
@@ -102,17 +104,21 @@ else
 fi
 body="${body//"${command_dirs_line}"/"_atr_command_dirs='${FX}/usr/local/sbin ${FX}/usr/bin ${FX}/usr/sbin ${FX}/bin ${FX}/sbin'"}"
 
-# The host paths become the fixture's; the marker is content, so it is set aside first and put back after.
-marker='# /usr/local/bin/atr --'
+# The host paths become the fixture's; the two markers are content, so they are set aside first and put back after.
+marker='# /usr/local/bin/atr --' completion_marker='# /usr/local/share/bash-completion/completions/atr --'
 body="${body//"${marker}"/"# @ATR-MARKER@ --"}"
+body="${body//"${completion_marker}"/"# @ATR-COMPLETION-MARKER@ --"}"
 body="${body//"/usr/local/bin/atr"/"${FX}/usr/local/bin/atr"}"
 body="${body//"/usr/sbin/atr"/"${FX}/usr/sbin/atr"}"
 body="${body//"/usr/local/share/man/"/"${FX}/usr/local/share/man/"}"
+body="${body//"/usr/local/share/bash-completion/"/"${FX}/usr/local/share/bash-completion/"}"
 body="${body//"# @ATR-MARKER@ --"/"${marker}"}"
-leftover="$(grep -nE '(^|[^[:alnum:]_/.-])/usr/(local/bin/atr|sbin/atr|local/share/man/)' <<< "${body}" \
-    | grep -vF "${marker}" || true)"
-if [[ -z "${leftover}" && "$(grep -cF "'${marker}'" <<< "${body}")" == 1 ]]; then
-    pass "the body's host paths point at the fixture and the wrapper's marker is kept as content"
+body="${body//"# @ATR-COMPLETION-MARKER@ --"/"${completion_marker}"}"
+leftover="$(grep -nE '(^|[^[:alnum:]_/.-])/usr/(local/bin/atr|sbin/atr|local/share/man/|local/share/bash-completion/)' \
+    <<< "${body}" | grep -vF -e "${marker}" -e "${completion_marker}" || true)"
+if [[ -z "${leftover}" && "$(grep -cF "'${marker}'" <<< "${body}")" == 1 \
+        && "$(grep -cF "'${completion_marker}'" <<< "${body}")" == 1 ]]; then
+    pass "the body's host paths point at the fixture and the wrapper's and the completion's markers are kept as content"
 else
     fail "the rewrite left a host path or lost the marker: ${leftover//$'\n'/ | }"
     finish; exit
@@ -171,8 +177,8 @@ done
 
 # reset_names: remove every name the scriptlet reads, the other commands' included.
 reset_names() {
-    rm -rf "${WRAPPER}" "${LINK}" "${MAN1}"/atr.1* "${MAN8}"/atr.8* "${FX}/usr/bin/atr" "${FX}/usr/local/sbin/atr" \
-        "${FX}/bin/atr" "${FX}/sbin/atr"
+    rm -rf "${WRAPPER}" "${LINK}" "${COMPLETION}" "${MAN1}"/atr.1* "${MAN8}"/atr.8* "${FX}/usr/bin/atr" \
+        "${FX}/usr/local/sbin/atr" "${FX}/bin/atr" "${FX}/sbin/atr"
 }
 # run_base_pre_scriptlet [path-dir]: run the scriptlet; sets status, recorder and err.
 run_base_pre_scriptlet() {
@@ -204,9 +210,10 @@ cp "${WRAPPER_SRC}" "${WRAPPER}"
 ln -s ../local/bin/atr "${LINK}"
 cp "${PAGE1_SRC}" "${MAN1}/atr.1"; gzip -c "${PAGE1_SRC}" > "${MAN1}/atr.1.gz"
 cp "${PAGE8_SRC}" "${MAN8}/atr.8"; gzip -c "${PAGE8_SRC}" > "${MAN8}/atr.8.gz"
+cp "${COMPLETION_SRC}" "${COMPLETION}"
 run_base_pre_scriptlet
 (( status == 0 )) && account_step_ran && [[ -z "${err}" ]] \
-    && pass "the shipped wrapper, the ln -sr link and both stubs plain and gzip-compressed pass" \
+    && pass "the shipped wrapper, the ln -sr link, the completion and both stubs plain and gzip-compressed pass" \
     || fail "this project's forms: exit ${status}, stderr [${err}]"
 
 rm -f "${WRAPPER}" "${LINK}"; ln -s "${WRAPPER}" "${LINK}"
@@ -228,6 +235,8 @@ create_foreign_entry() {
     case "$1" in
         unmarked) printf '#!/bin/sh\necho another tool\n' > "${WRAPPER}"; printf '%s' "${WRAPPER}" ;;
         directory) mkdir "${WRAPPER}"; printf '%s' "${WRAPPER}" ;;
+        completion-unmarked) printf '# bash completion for another atr\ncomplete -F _atr atr\n' > "${COMPLETION}"
+                             printf '%s' "${COMPLETION}" ;;
         link-elsewhere) ln -s /usr/bin/at "${LINK}"; printf '%s' "${LINK}" ;;
         file-at-link) : > "${LINK}"; printf '%s' "${LINK}" ;;
         gz-without-so) printf '.TH ATR 1\n.SH NAME\natr \\- another tool\n' | gzip -c > "${MAN1}/atr.1.gz"; printf '%s' "${MAN1}/atr.1.gz" ;;
@@ -264,6 +273,7 @@ for kind in gz-crc gz-cut; do
 done
 declare -A FOREIGN_WHAT=(
     [unmarked]="an unmarked regular file at the wrapper name" [directory]="a directory at the wrapper name"
+    [completion-unmarked]="an unmarked completion file at the completion name"
     [link-elsewhere]="a symlink elsewhere at the link name" [file-at-link]="a regular file at the link name"
     [gz-without-so]="a gzip page without the .so line" [wrong-section]="a man8 page pointing at the man1 page"
     [xz-without-so]="an xz page without the .so line"
@@ -272,7 +282,7 @@ declare -A FOREIGN_WHAT=(
     [gz-cut]="a gzip stub cut before its trailer" [oversized]="a page opening with the stub's .so line, past 4096 bytes"
     [gz-expands]="a gzip page under 4096 bytes whose text opens with the .so line and is past 4096 bytes"
 )
-for kind in unmarked directory link-elsewhere file-at-link gz-without-so wrong-section xz-without-so added-lines \
+for kind in unmarked directory completion-unmarked link-elsewhere file-at-link gz-without-so wrong-section xz-without-so added-lines \
         gz-added-lines gz-crc gz-cut oversized \
         gz-expands; do
     what="${FOREIGN_WHAT[${kind}]}"

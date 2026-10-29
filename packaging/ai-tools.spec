@@ -46,6 +46,7 @@ BuildRequires:  make
 %global ai_bindir  /usr/local/bin
 %global ai_mandir  /usr/local/share/man
 %global ai_libdir  /usr/local/lib/ai-tools
+%global ai_bashcompdir /usr/local/share/bash-completion/completions
 
 # Every scriptlet body, comments included, passes through RPM's macro expansion before the shell
 # reads it: a doubled percent reaches the shell as one, and a percent directly ahead of an opening
@@ -383,6 +384,12 @@ install -m 0644 src%{ai_mandir}/man7/ai-tools-messages.7        %{buildroot}%{ai
 ln -sr %{buildroot}%{ai_bindir}/ai-tools %{buildroot}%{_sbindir}/ai-tools
 # atr takes a link so `sudo atr admin …` resolves through secure_path for a caller whose grant covers the wrapper.
 ln -sr %{buildroot}%{ai_bindir}/atr %{buildroot}%{_sbindir}/atr
+# The bash completion for atr, ai-tools and ai-tools-admin: bash-completion loads a file by the name of the command
+# completed, so the two other names are links to the one file, which registers all three.
+install -d -m 0755 %{buildroot}%{ai_bashcompdir}
+install -m 0644 src%{ai_bashcompdir}/atr.sh %{buildroot}%{ai_bashcompdir}/atr
+ln -s atr %{buildroot}%{ai_bashcompdir}/ai-tools
+ln -s atr %{buildroot}%{ai_bashcompdir}/ai-tools-admin
 
 # ── base: shared libraries ───────────────────────────────────────────────────
 # 0751: group SANDBOX_GROUP r-x for the agent; world-execute so an operator (not a
@@ -722,7 +729,7 @@ end
 # package is in the transaction. A path another package owns has conflicted before this runs, so there is no rpm query
 # here.
 _atr_recovery='this refusal does not start the relabel watcher or the relabel run the transaction stopped -- once the transaction ends, check the watcher with systemctl is-active ai-tools-relabel.path, and where it should run, start both: systemctl start ai-tools-relabel.path ai-tools-relabel.service'
-for _atr_path in /usr/local/bin/atr /usr/sbin/atr \
+for _atr_path in /usr/local/bin/atr /usr/sbin/atr /usr/local/share/bash-completion/completions/atr \
           /usr/local/share/man/man1/atr.1 /usr/local/share/man/man1/atr.1.gz \
           /usr/local/share/man/man1/atr.1.bz2 /usr/local/share/man/man1/atr.1.xz /usr/local/share/man/man1/atr.1.zst \
           /usr/local/share/man/man8/atr.8 /usr/local/share/man/man8/atr.8.gz \
@@ -733,6 +740,10 @@ for _atr_path in /usr/local/bin/atr /usr/sbin/atr \
         /usr/local/bin/atr)
             if [ -f "${_atr_path}" ] && [ ! -L "${_atr_path}" ]; then
                 case "$(sed -n '3{p;q}' "${_atr_path}" 2>/dev/null)" in '# /usr/local/bin/atr --'*) _atr_is_ours=yes ;; esac
+            fi ;;
+        /usr/local/share/bash-completion/completions/atr)
+            if [ -f "${_atr_path}" ] && [ ! -L "${_atr_path}" ]; then
+                case "$(sed -n '2{p;q}' "${_atr_path}" 2>/dev/null)" in '# /usr/local/share/bash-completion/completions/atr --'*) _atr_is_ours=yes ;; esac
             fi ;;
         /usr/sbin/atr)
             if [ -L "${_atr_path}" ]; then
@@ -1588,6 +1599,11 @@ fi
 %{_sbindir}/ai-tools
 %attr(0755, root, root) %{ai_bindir}/atr
 %{_sbindir}/atr
+%dir %attr(0755, root, root) /usr/local/share/bash-completion
+%dir %attr(0755, root, root) %{ai_bashcompdir}
+%attr(0644, root, root) %{ai_bashcompdir}/atr
+%{ai_bashcompdir}/ai-tools
+%{ai_bashcompdir}/ai-tools-admin
 %attr(0644, root, root) %{ai_mandir}/man1/ai-tools.1*
 %attr(0644, root, root) %{ai_mandir}/man1/atr.1*
 %attr(0644, root, root) %{ai_mandir}/man5/ai-tools-operator.conf.5*

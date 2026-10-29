@@ -517,7 +517,7 @@ removes_sysusers "${INSTALLER}" && pass "do_uninstall removes ${sysusers_path}" 
 # which the inner shell sets to the fixture's names; install.sh's own declaration is read as text for the four names.
 section "install.sh: the names atr takes are replaced and removed only while they are this project's (unit)"
 atr_text=""
-for name in die warn has_atr_wrapper_marker is_atr_wrapper_link read_atr_page_compressor read_atr_stub_page_status \
+for name in die warn has_atr_wrapper_marker has_atr_completion_marker is_atr_wrapper_link read_atr_page_compressor read_atr_stub_page_status \
         read_atr_entry_state require_atr_entries_replaceable remove_recognized_atr_entries list_other_atr_commands \
         require_no_other_atr_command; do
     body="$(extract_function "${INSTALLER}" "${name}")"
@@ -529,7 +529,7 @@ for name in die warn has_atr_wrapper_marker is_atr_wrapper_link read_atr_page_co
 done
 if [[ -n "${atr_text}" ]]; then
     FX="${TESTDIR}/atr-root"
-    mkdir -p "${FX}/usr/local/bin" "${FX}/usr/sbin" "${FX}/man/man1" "${FX}/man/man8" "${TESTDIR}/norpm-bin" \
+    mkdir -p "${FX}/usr/local/bin" "${FX}/usr/sbin" "${FX}/man/man1" "${FX}/man/man8" "${FX}/completions" "${TESTDIR}/norpm-bin" \
         "${TESTDIR}/nocompressors-bin"
     for tool in bash stat sed head od tr wc gzip bzip2 xz zstd readlink sort rm; do
         tool_path="$(type -P "${tool}")" || continue
@@ -562,7 +562,7 @@ if [[ -n "${atr_text}" ]]; then
             fi
             IFS=$'"'"'\n\t'"'"'
             ATR_COMMAND_DIRS=( "${fx}/usr/local/sbin" "${fx}/usr/bin" "${fx}/usr/sbin" "${fx}/bin" "${fx}/sbin" )
-            ATR_NAMES=( "${fx}/usr/local/bin/atr wrapper" "${fx}/usr/sbin/atr link"
+            ATR_NAMES=( "${fx}/usr/local/bin/atr wrapper" "${fx}/usr/sbin/atr link" "${fx}/completions/atr completion"
                         "${fx}/man/man1/atr.1 page" "${fx}/man/man1/atr.1.gz page" "${fx}/man/man8/atr.8.xz page" )
             rc=0; "$@" || rc=$?
             printf "status=%s\n" "${rc}"
@@ -608,6 +608,15 @@ if [[ -n "${atr_text}" ]]; then
     rm -f "${LINK_FX}"; : > "${LINK_FX}"
     state_is "foreign a regular empty file" "a file at the link name" unowned "${LINK_FX}" link
     rm -f "${LINK_FX}"
+    COMPLETION_FX="${FX}/completions/atr"
+    cp "${ROOT}/src/usr/local/share/bash-completion/completions/atr.sh" "${COMPLETION_FX}"
+    state_is ours "the shipped completion" unowned "${COMPLETION_FX}" completion
+    printf '# bash completion for another atr\ncomplete -F _atr atr\n' > "${COMPLETION_FX}"
+    state_is "foreign a regular file without the atr completion header line" "an unmarked completion file" unowned \
+        "${COMPLETION_FX}" completion
+    rm -f "${COMPLETION_FX}"; ln -s /usr/share/bash-completion/completions/at "${COMPLETION_FX}"
+    state_is "foreign a symbolic link" "a symlink at the completion name" unowned "${COMPLETION_FX}" completion
+    rm -f "${COMPLETION_FX}"
     PAGE1="${FX}/man/man1/atr.1" PAGE8="${FX}/man/man8/atr.8"
     cp "${ROOT}/src/usr/local/share/man/man1/atr.1" "${PAGE1}"
     state_is ours "the shipped man1 stub" unowned "${PAGE1}" page
@@ -700,8 +709,10 @@ if [[ -n "${atr_text}" ]]; then
         || fail "names in this project's form: ${out//$'\n'/ | }"
     printf '.TH ATR 8\n' | xz -c > "${PAGE8}.xz"
     cp "${ROOT}/src/usr/local/bin/atr.sh" "${WRAPPER_FX}"; ln -s ../local/bin/atr "${LINK_FX}"
+    cp "${ROOT}/src/usr/local/share/bash-completion/completions/atr.sh" "${COMPLETION_FX}"
     out="$(atr_run unowned remove_recognized_atr_entries)"
-    if [[ ! -e "${WRAPPER_FX}" && ! -L "${LINK_FX}" && ! -e "${PAGE1}" && ! -e "${PAGE1}.gz" && -e "${PAGE8}.xz" \
+    if [[ ! -e "${WRAPPER_FX}" && ! -L "${LINK_FX}" && ! -e "${COMPLETION_FX}" && ! -e "${PAGE1}" && ! -e "${PAGE1}.gz" \
+          && -e "${PAGE8}.xz" \
           && "${out}" == *"${PAGE8}.xz left in place"* && "${out}" == *status=0 ]]; then
         pass "the uninstall removes the names in this project's form and leaves the foreign page, naming it"
     else
@@ -824,11 +835,12 @@ removes_atr_by_form "${INSTALLER}" && pass "do_uninstall removes the names atr t
     || fail "do_uninstall does not remove the atr names through remove_recognized_atr_entries alone"
 names_text="$(sed -n '/^ATR_NAMES=(/,/^readonly ATR_NAMES$/p' -- "${INSTALLER}")"
 if [[ "${names_text}" == *'"/usr/local/bin/atr wrapper"'* && "${names_text}" == *'"/usr/sbin/atr link"'* \
+      && "${names_text}" == *'"/usr/local/share/bash-completion/completions/atr completion"'* \
       && "${names_text}" == *'/usr/local/share/man/man1/atr.1${_form} page'* \
       && "${names_text}" == *'/usr/local/share/man/man8/atr.8${_form} page'* ]]; then
-    pass "ATR_NAMES lists the wrapper, its link and both stub pages"
+    pass "ATR_NAMES lists the wrapper, its link, the completion and both stub pages"
 else
-    fail "ATR_NAMES does not list the four names: ${names_text//$'\n'/ | }"
+    fail "ATR_NAMES does not list the five names: ${names_text//$'\n'/ | }"
 fi
 
 finish
