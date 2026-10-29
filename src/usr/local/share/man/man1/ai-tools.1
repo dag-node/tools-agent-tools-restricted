@@ -280,10 +280,15 @@ project nested inside another claimed project, for the reason
 gives.
 .RE
 .TP
-.B projects remove \fR[\fB\-y\fR] [\fIDIRECTORY\fR]
+.B projects remove \fR[\fB\-y\fR] \fIDIRECTORY\fR
 Release a project
 .I and
-delete its directory (default: the current directory). Use
+delete its directory. The
+.I DIRECTORY
+is required, since the command deletes it: to remove the project you are in,
+name it as
+.BR . .
+Use
 .B "projects unclaim"
 to release one and keep the files.
 .IP
@@ -303,9 +308,7 @@ than a half-deleted one.
 It confirms twice \(em a default-NO prompt, then a typed-name challenge \(em and
 neither is answered by a run with no terminal, so a delete needs an operator at the prompt
 without
-.BR \-y ,
-which additionally requires an explicit
-.IR DIRECTORY .
+.BR \-y .
 .IP
 A sandbox clone \(em a direct child of the sandbox area that is a git worktree \(em
 is deleted and unregistered behind one default-NO confirm, after a warning about
@@ -674,7 +677,9 @@ not change the exit.
 .TP
 .BR \-h ", " \-\-help
 Print the command summary. Answered ahead of every gate, so it prints on a host
-whose toolchain is not provisioned yet.
+whose toolchain is not provisioned yet. The bare word
+.B help
+in the command position prints the same summary.
 .TP
 .B \-\-version
 Print the installed version. Answered ahead of every gate, like
@@ -948,6 +953,28 @@ strictness switches, and the skip lists. See
 The sandbox-clone area;
 .I /var/opt/ai-tools/README.md
 documents the push-only clone workflow.
+.TP
+.I /usr/local/share/bash-completion/completions/atr
+The bash completion for
+.BR atr ,
+.B ai-tools
+and
+.BR ai-tools-admin ,
+loaded by bash-completion on the first
+.B Tab
+after one of them; the files named
+.I ai-tools
+and
+.I ai-tools-admin
+beside it are links to it. It completes the commands and the options each one
+takes, a directory after a
+.B projects
+verb, and the names an option reads from the host: the enrolled operators after
+.BR \-\-for ,
+and, after
+.BR "atr admin" ,
+the agents, the SELinux groups and the domains installed provider packages
+contribute.
 .SH EXAMPLES
 Claim the project in the current directory, answering each prompt:
 .PP

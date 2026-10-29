@@ -131,8 +131,9 @@ atr projects create ~/src/demo              # a new project, claimed, no prompts
 cd ~/src/demo && claude
 ```
 
-`atr --help` lists every command, and `man ai-tools-admin` every host one.
-To use a tree you already have, `atr projects claim <path>` claims it in place,
+`atr --help` lists every command, and `man ai-tools-admin` every host one;
+where bash-completion is installed, Tab after `atr` completes them. To use
+a tree you already have, `atr projects claim <path>` claims it in place,
 reviewing what it is about to open before it grants anything, and every step
 reverses — see [docs/projects/index.md](docs/projects/index.md). Upgrading
 an installed host is `sudo dnf upgrade --refresh 'ai-tools*'` — see

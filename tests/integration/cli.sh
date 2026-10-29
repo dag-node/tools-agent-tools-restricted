@@ -243,6 +243,15 @@ if command -v runuser >/dev/null 2>&1; then
     else
         fail "--help was blocked for a non-operator: ${out}"
     fi
+    # The bare word is the same command, so it prints the same summary; the spelling is what this case is about.
+    help_option_out="${out}"
+    out="$(runuser -u "${PROJECTS_USER}" -- env HOME="${PROJECTS_HOME}" \
+            AI_TOOLS_OPERATOR_CONF="${tconf}" "${CLI}" help 2>&1)" && rc=0 || rc=$?
+    if (( rc == 0 )) && [[ "${out}" == "${help_option_out}" ]]; then
+        pass "the bare word help prints what --help prints"
+    else
+        fail "help (exit ${rc}) differs from --help: ${out}"
+    fi
 
     # (6) ai-tools.projects.unclaim classifies its target against allowed-projects: a directory that no entry covers
     # AND that has no ai-tools ownership or group is REFUSED, before any registry/filesystem change. The testdir path is
@@ -687,14 +696,18 @@ if command -v runuser >/dev/null 2>&1; then
         fail "ai-tools.projects.remove.inplace accepted or mishandled --force (rc=${rc}): $(brief "${out}")"
     fi
 
-    # -y requires an explicit path, so an unattended run can never delete whatever directory it started in.
-    out="$(cd "${rmproj}" && remove_cli -y)" && rc=0 || rc=$?
-    assert_msg MSG-K7D9 "${out}" "ai-tools.projects.remove.inplace -y refuses to inherit the current directory"
-    if [[ ${rc} -ne 0 ]] && [[ -d "${rmproj}" ]]; then
-        pass "ai-tools.projects.remove.inplace -y refuses to inherit the current directory"
-    else
-        fail "ai-tools.projects.remove.inplace -y did not require an explicit path (rc=${rc}): $(brief "${out}")"
-    fi
+    # The path is required with or without -y, so no run deletes whatever directory it started in. The refusal is
+    # a rejected command line, exit 2.
+    for remove_args in "" "-y"; do
+        # shellcheck disable=SC2086  # the empty case does not pass an argument
+        out="$(cd "${rmproj}" && remove_cli ${remove_args})" && rc=0 || rc=$?
+        assert_msg MSG-K7D9 "${out}" "ai-tools.projects.remove.inplace ${remove_args:-without -y} refuses to inherit the current directory"
+        if [[ ${rc} -eq 2 ]] && [[ -d "${rmproj}" ]]; then
+            pass "ai-tools.projects.remove.inplace ${remove_args:-without -y} needs a path: exit 2, the project left in place"
+        else
+            fail "ai-tools.projects.remove.inplace ${remove_args:-without -y} did not require a path (rc=${rc}): $(brief "${out}")"
+        fi
+    done
 
     # And the property the whole gate exists for: a registered project, correctly targeted, is still NOT deleted without
     # a terminal -- the confirm takes its No default and the challenge has no default to take. The allowlist entry must

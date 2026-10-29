@@ -355,6 +355,20 @@ else
     fail "a fragment reached the dispatch for 'status' (exit ${STATUS}): ${out}"
 fi
 
+# `help` is answered ahead of the root check, so a fragment of that name could only be listed and never reached:
+# the bare word prints what `--help` prints, and the fragment is refused as a base name.
+reset_fixtures
+write_fragment help
+run_admin --help
+help_option_out="${out}"
+assert_msg MSG-U6P9 "${out}" "a fragment named 'help' is refused as a base name"
+run_admin help
+if [[ ! -f "${MARKER}" && "${STATUS}" -eq 0 && "${out}" == "${help_option_out}" ]]; then
+    pass "'help' prints what --help prints, and no fragment named 'help' is exec'd"
+else
+    fail "'help' (exit ${STATUS}) did not print the --help summary, or reached a fragment: ${out}"
+fi
+
 # The base command does not take an argument, and refuses one rather than ignoring it: a report that dropped what it was
 # asked about would read as an answer to the question.
 run_admin status --everything

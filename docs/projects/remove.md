@@ -18,6 +18,13 @@ and no trash location, so the command is deliberately hard to reach
 by accident. To release a project and keep the files, use
 `atr projects unclaim` ([Unclaim](unclaim.md)).
 
+The directory is always named, never taken from where you typed the command.
+To delete the project you are in, name it:
+
+```bash
+atr projects remove .
+```
+
 ## What authorizes it
 
 An **exact** entry for the path in your allowlist, and only that: there is no
@@ -58,9 +65,7 @@ Then the project's name, typed out. A run with no terminal answers neither,
 so a delete needs an operator at the prompt — unless you pass `-y`,
 which answers the confirmation and the typed name and is the only thing
 that does: `AI_TOOLS_ASSUME_YES` does not answer a default-No question,
-and the typed name has no default. With `-y` a `DIRECTORY` argument is
-required, so an unattended removal cannot inherit the directory it happened
-to start in.
+and the typed name has no default.
 
 ## Registries first, the tree last
 
@@ -96,6 +101,6 @@ grant to act as that account; it is checked before anything is removed
 0 when the project is deleted; 1 when a step failed — a deletion that left
 paths behind included, the project being already unregistered by then,
 and a label step refused while a session runs, with the tree and its entries
-left in place; 2 for a rejected command line (`-y` without a `DIRECTORY`); 3
-when the path is a protected system directory or a home root. `man ai-tools`
-has the full list.
+left in place; 2 for a rejected command line (a missing `DIRECTORY`
+among them); 3 when the path is a protected system directory or a home root.
+`man ai-tools` has the full list.

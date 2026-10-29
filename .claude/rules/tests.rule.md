@@ -605,6 +605,14 @@ while the help keeps its own spelling, and the difference is deliberate. What it
 its parser does not take, or dropping it where the parser does. A wrong font renders as cleanly as a right one, so none
 of the four is visible without a check.
 
+`completion.sh` holds the bash completion to the surface it completes ([cli-grammar](cli-grammar.rule.md)): it sources
+the checkout's file into its own shell, walks the command words from the root and compares the paths with each program's
+`usage()` in both directions, a path ending in `list` read as its collection, and holds the options offered after each
+command to the tag line of that command's man page entry, with every option offered one the page documents. Each reader
+of host data is driven over a fixture holding names a looser reader would pass to `compgen -W` — a command substitution,
+a glob, a space, an upper-case letter — and a marker file proves none was expanded; the SELinux reader is compared
+with the registry `selinux-groups.lib.sh` holds. A table of typed lines, with the readers stubbed, closes it.
+
 `sandbox.sh` also carries `is_project_tree_pristine`, which is not a sandbox helper but belongs to the same class:
 a pure decision with a security consequence. `projects create` skips the secret scan, the git-history prompt
 and the proceed confirm when it returns 0, so every way it could wrongly say yes is a way to grant an agent access

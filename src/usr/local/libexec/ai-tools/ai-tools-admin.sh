@@ -112,8 +112,9 @@ readonly LAYOUT_LIB="/usr/local/lib/ai-tools/layout.lib.sh"
 # so the reach does not add a command. Unset in production.
 readonly ADMIN_COMMANDS_DIR="${AI_TOOLS_ADMIN_COMMANDS_DIR:-/usr/local/lib/ai-tools/admin-commands.d}"
 # The names base owns. A contributed fragment claiming one is refused, so no installed package can shadow a command
-# an administrator relies on.
-readonly -a BASE_COMMANDS=(operators selinux system status assets)
+# an administrator relies on. `help` is answered ahead of the root check, so a fragment of that name would be listed
+# and never reached.
+readonly -a BASE_COMMANDS=(operators selinux system status assets help)
 # What an administrator does about a contributed command that is not root's alone. Stated once and shared by every
 # message that reports one, so the dispatch, the full-scope bootstrap and the help give one answer. It is deliberately
 # NOT "chmod it": a packaged command installs root-owned and unwritable by anyone else, so a file in that state is
@@ -545,9 +546,9 @@ source "${PROVIDERS_LIB}" 2>/dev/null || true
 if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
     # `--help` and `--version` read no host state and leave the host as it is, so they answer any caller and are handled
     # here, ahead of the root check: an operator meeting the tool gets the command surface rather than a refusal naming
-    # sudo without saying what to run under it. Both ignore any further argument.
+    # sudo without saying what to run under it. Both ignore any further argument, and the bare word `help` is `--help`.
     case "${1:-}" in
-        --help|-h) usage; exit 0 ;;
+        --help|-h|help) usage; exit 0 ;;
         --version) printf 'ai-tools-admin %s\n' "${AI_TOOLS_VERSION}"; exit 0 ;;
     esac
     [[ "${EUID}" -eq 0 ]] || die MSG-D7D4 "run as root (sudo)"

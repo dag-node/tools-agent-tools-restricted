@@ -1082,6 +1082,7 @@ do_summary() {
     _chk /usr/lib/systemd/system/ai-tools-relabel.service
     _chk /usr/local/bin/ai-tools
     _chk /usr/local/bin/atr
+    _chk /usr/local/share/bash-completion/completions/atr
     _chk /usr/local/share/man/man1/ai-tools.1
     _chk /usr/local/share/man/man1/atr.1
     _chk /usr/local/share/man/man5/ai-tools-operator.conf.5
@@ -1332,13 +1333,13 @@ require_acl_tools() {
     die MSG-Q7E7 "the ACL tools are missing (${missing} not found) -- every grant the ownership model makes is a POSIX ACL, so install the acl package first: dnf install acl"
 }
 
-# The names the short command `atr` takes, each `<path> <kind>`: the wrapper, its sudo-PATH link, and the two `.so`
-# stubs in each form a page can take on a host. `atr` is a short name another tool could already hold, so the install
-# and the uninstall act on a name only while it is in this project's form. The form is a marker an earlier install
-# of this project wrote, a heuristic and not proof of ownership: where rpm is on the host, the package database outranks
-# it, and an unmarked file is never replaced or removed. packaging/ai-tools.spec's base %pre holds the same forms
-# for a package install.
-ATR_NAMES=( "/usr/local/bin/atr wrapper" "/usr/sbin/atr link" )
+# The names the short command `atr` takes, each `<path> <kind>`: the wrapper, its sudo-PATH link, its bash completion,
+# and the two `.so` stubs in each form a page can take on a host. `atr` is a short name another tool could already hold,
+# so the install and the uninstall act on a name only while it is in this project's form. The form is a marker
+# an earlier install of this project wrote, a heuristic and not proof of ownership: where rpm is on the host,
+# the package database outranks it, and an unmarked file is never replaced or removed. packaging/ai-tools.spec's base
+# %pre holds the same forms for a package install.
+ATR_NAMES=( "/usr/local/bin/atr wrapper" "/usr/sbin/atr link" "/usr/local/share/bash-completion/completions/atr completion" )
 for _form in "" .gz .bz2 .xz .zst; do
     ATR_NAMES+=( "/usr/local/share/man/man1/atr.1${_form} page" "/usr/local/share/man/man8/atr.8${_form} page" )
 done
@@ -1357,6 +1358,13 @@ has_atr_wrapper_marker() {
     local line
     line="$(sed -n '3{p;q}' -- "$1" 2>/dev/null)" || return 1
     [[ "${line}" == '# /usr/local/bin/atr --'* ]]
+}
+
+# has_atr_completion_marker <path> : the file's second line begins with the completion's header line.
+has_atr_completion_marker() {
+    local line
+    line="$(sed -n '2{p;q}' -- "$1" 2>/dev/null)" || return 1
+    [[ "${line}" == '# /usr/local/share/bash-completion/completions/atr --'* ]]
 }
 
 # is_atr_wrapper_link <path> : the link's target is /usr/local/bin/atr, as `ln -sr` writes it from /usr/sbin or by its
@@ -1424,9 +1432,12 @@ read_atr_entry_state() {
         printf 'foreign an entry whose kind could not be read\n'; return 0
     fi
     case "${kind}:${type}" in
-        wrapper:'regular file'|page:'regular file')
+        wrapper:'regular file'|completion:'regular file'|page:'regular file')
             if [[ "${kind}" == wrapper ]]; then
                 has_atr_wrapper_marker "${path}" || { printf 'foreign a regular file without the atr header line\n'; return 0; }
+            elif [[ "${kind}" == completion ]]; then
+                has_atr_completion_marker "${path}" \
+                    || { printf 'foreign a regular file without the atr completion header line\n'; return 0; }
             else
                 page_status=0
                 read_atr_stub_page_status "${path}" || page_status=$?
@@ -2262,6 +2273,14 @@ do_install() {
     # The short command over the CLI and the admin command. 755 root:root, as the CLI is.
     log "/usr/local/bin/atr"
     install_subst 755 root root "${SCRIPT_DIR}/src/usr/local/bin/atr.sh" /usr/local/bin/atr
+    # The bash completion for the three commands: bash-completion loads a file by the name of the command completed,
+    # so ai-tools and ai-tools-admin are links to the one file. It runs in an operator's shell, so 644 root:root.
+    log "/usr/local/share/bash-completion/completions/atr"
+    install -d -o root -g root -m 755 /usr/local/share/bash-completion /usr/local/share/bash-completion/completions
+    install -o root -g root -m 644 "${SCRIPT_DIR}/src/usr/local/share/bash-completion/completions/atr.sh" \
+        /usr/local/share/bash-completion/completions/atr
+    ln -sfn atr /usr/local/share/bash-completion/completions/ai-tools
+    ln -sfn atr /usr/local/share/bash-completion/completions/ai-tools-admin
 
     # ai-tools(1) man page. /usr/local/share/man/man1 is owned by the EL filesystem package, so only the page itself is
     # deployed. Version-substituted like the CLI, and kept option-synced with the CLI's usage() text
@@ -3212,6 +3231,8 @@ do_uninstall() {
     rm -rf /usr/local/lib/ai-tools
     rm -f /usr/local/bin/ai-tools-handback-client
     rm -f /usr/local/bin/ai-tools
+    rm -f /usr/local/share/bash-completion/completions/ai-tools /usr/local/share/bash-completion/completions/ai-tools-admin
+    rmdir /usr/local/share/bash-completion/completions /usr/local/share/bash-completion 2>/dev/null || true
     rm -f /usr/local/share/man/man1/ai-tools.1
     rm -f /usr/local/share/man/man5/ai-tools-operator.conf.5
     rm -f /usr/local/share/man/man5/ai-tools-providers.5
