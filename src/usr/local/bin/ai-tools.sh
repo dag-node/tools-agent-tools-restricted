@@ -3752,13 +3752,13 @@ cmd_project_unclaim() {
     (( incomplete == 0 ))
 }
 
-# cmd_project_remove [path] [-y|--yes]  -- unclaim a project AND delete its directory (default: cwd); `projects unclaim`
-# is the non-destructive reversal these refusals point at. One verb, two kinds: a path under SANDBOX_ROOT is a sandbox
-# clone and takes remove_clone, every other path is a project claimed in place. Authorization is an EXACT registry
-# entry, allow or parked, and the verb does not take `--force`; teardown is registries first, deletion last, so a failed
-# deletion leaves an unregistered tree, and the filesystem hand-back is not run over files about to be deleted
-# (cli.rule.md, Remove). `-y` pre-answers the default-NO confirm and the typed-name challenge of either kind, and needs
-# a DIRECTORY for either.
+# cmd_project_remove <path> [-y|--yes]  -- unclaim a project AND delete its directory, which the path must name;
+# `projects unclaim` is the non-destructive reversal these refusals point at. One verb, two kinds: a path
+# under SANDBOX_ROOT is a sandbox clone and takes remove_clone, every other path is a project claimed in place.
+# Authorization is an EXACT registry entry, allow or parked, and the verb does not take `--force`; teardown is
+# registries first, deletion last, so a failed deletion leaves an unregistered tree, and the filesystem hand-back is not
+# run over files about to be deleted (cli.rule.md, Remove). `-y` pre-answers the default-NO confirm and the typed-name
+# challenge of either kind.
 cmd_project_remove() {
     local a path="" assume_yes=false
     for a in "$@"; do
@@ -3776,14 +3776,15 @@ cmd_project_remove() {
                 else die_usage MSG-M2U9 "projects remove takes a single path"; fi ;;
         esac
     done
-    # An unattended run must never delete whatever directory it happened to start in, so the one mode that can proceed
-    # without a terminal has to name its target explicitly.
-    if ${assume_yes} && [[ -z "${path}" ]]; then
-        die MSG-K7D9 "projects remove -y needs a path." \
-            "-y pre-answers the confirmation and the typed-name challenge, so an unattended run must say which project it means rather than inheriting the current directory."
+    # The verb deletes the directory it acts on, so that directory is always named rather than taken from wherever
+    # the command was typed, with or without `-y`.
+    if [[ -z "${path}" ]]; then
+        die_usage MSG-K7D9 "projects remove needs the path of the project to delete; it does not take the current directory." \
+            "To delete the project you are in, name it:" \
+            "       atr projects remove ."
     fi
 
-    local d; d="$(resolve_existing_path "${path:-$PWD}")"
+    local d; d="$(resolve_existing_path "${path}")"
     [[ -d "${d}" ]] || die "not a directory: ${d}"
     if [[ "${d}" == "${SANDBOX_ROOT}/"* ]]; then
         remove_clone "${d}" "${assume_yes}"
@@ -5593,7 +5594,7 @@ atr -- manage the projects a sandboxed coding agent may work in  (ai-tools)
     projects create DIRECTORY      create a new project directory, init git, and claim it
     projects claim [DIRECTORY]     claim an existing project in place
     projects unclaim [DIRECTORY]   release a project; the directory stays on disk
-    projects remove [DIRECTORY]    release a project AND delete its directory
+    projects remove DIRECTORY      release a project AND delete its directory
     projects disable [DIRECTORY]   park a project: no session may start in it
     projects enable [DIRECTORY]    un-park a project disabled earlier
     projects clone [DIRECTORY]     shallow-clone a repository into the sandbox area

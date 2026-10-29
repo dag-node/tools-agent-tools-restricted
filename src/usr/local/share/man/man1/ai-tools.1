@@ -280,10 +280,15 @@ project nested inside another claimed project, for the reason
 gives.
 .RE
 .TP
-.B projects remove \fR[\fB\-y\fR] [\fIDIRECTORY\fR]
+.B projects remove \fR[\fB\-y\fR] \fIDIRECTORY\fR
 Release a project
 .I and
-delete its directory (default: the current directory). Use
+delete its directory. The
+.I DIRECTORY
+is required, since the command deletes it: to remove the project you are in,
+name it as
+.BR . .
+Use
 .B "projects unclaim"
 to release one and keep the files.
 .IP
@@ -303,9 +308,7 @@ than a half-deleted one.
 It confirms twice \(em a default-NO prompt, then a typed-name challenge \(em and
 neither is answered by a run with no terminal, so a delete needs an operator at the prompt
 without
-.BR \-y ,
-which additionally requires an explicit
-.IR DIRECTORY .
+.BR \-y .
 .IP
 A sandbox clone \(em a direct child of the sandbox area that is a git worktree \(em
 is deleted and unregistered behind one default-NO confirm, after a warning about

@@ -172,7 +172,7 @@ an ordinary account read it — a partial view, the file sink being the authorit
   `--format tsv` and the exit codes are there and in `ai-tools(1)`. A usage error exits 2.
 - `projects create <path>` — create a **new** project directory and claim it, asking about the traverse grant alone
   ([Create](#create)).
-- `projects remove [path]` — unclaim a project **and delete its directory**; `projects unclaim` stays
+- `projects remove <path>` — unclaim a project **and delete its directory**; `projects unclaim` stays
   the non-destructive reversal its refusals point at ([Remove](#remove)).
 - `projects unclaim [path]` — unclaim a real project, directory left on disk: revert the label, drop both registries,
   and (default-yes confirm) hand the tree back with the agent's write revoked ([Unclaim](#unclaim)). Options are
@@ -1021,11 +1021,12 @@ to check. `tests/integration/cli.sh` drives the verb over a partial clone whose 
 through a `core.sshCommand` that writes a marker, with a direct `git rev-list` as the control that the fixture arms it.
 
 It confirms twice — a default-no prompt, then `ai_tools_msg__challenge` for the project's name — and neither is answered
-by a run with no terminal or by `AI_TOOLS_ASSUME_YES`; with `-y` a `path` argument is required, so an unattended removal
-cannot inherit the directory it started in. The unknown-option refusal does not enumerate `-y`: a caller who mistyped
-a flag is not who a both-prompts bypass is for, and `ai-tools(1)` documents it where reaching it is deliberate. The only
-inline `projects clone` cross-reference in the claim flows is the Reachability blocked case, where an in-place claim
-cannot work.
+by a run with no terminal or by `AI_TOOLS_ASSUME_YES`. The path is required, with or without `-y` (`MSG-K7D9`, exit 2):
+the verb deletes the directory it acts on, so that directory is named rather than inherited from where the command ran,
+and `atr projects remove .` is the spelling for the one the caller is in. The unknown-option refusal does not enumerate
+`-y`: a caller who mistyped a flag is not who a both-prompts bypass is for, and `ai-tools(1)` documents it
+where reaching it is deliberate. The only inline `projects clone` cross-reference in the claim flows is the Reachability
+blocked case, where an in-place claim cannot work.
 
 ## Unclaim <a id="ref-section-m5n5"></a>
 

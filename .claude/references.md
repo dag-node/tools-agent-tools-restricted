@@ -240,7 +240,7 @@ cannot fix -- a message code's name is a runtime string, and rewording one is a 
 | s6q5 | [MSG-S6Q5](../src/usr/local/bin/ai-tools.sh) | projects remove has no --force: a registry entry is what authorizes a deletion here. | src/usr/local/bin/ai-tools.sh | tests/integration/cli.sh | die |
 | m3y5 | [MSG-M3Y5](../src/usr/local/bin/ai-tools.sh) | unknown projects remove option: ${a} | src/usr/local/bin/ai-tools.sh | tests/integration/cli.sh | die_usage |
 | m2u9 | [MSG-M2U9](../src/usr/local/bin/ai-tools.sh) | projects remove takes a single path | src/usr/local/bin/ai-tools.sh |  | die_usage |
-| k7d9 | [MSG-K7D9](../src/usr/local/bin/ai-tools.sh) | projects remove -y needs a path. | src/usr/local/bin/ai-tools.sh | tests/integration/cli.sh | die |
+| k7d9 | [MSG-K7D9](../src/usr/local/bin/ai-tools.sh) | projects remove needs the path of the project to delete; it does not take the current directory. | src/usr/local/bin/ai-tools.sh | tests/integration/cli.sh | die_usage |
 | f4d8 | [MSG-F4D8](../src/usr/local/bin/ai-tools.sh) | this is not a claimed project, but ${#nested[@]} claimed project(s) are nested under it: ${d} | src/usr/local/bin/ai-tools.sh | tests/integration/cli.sh | die |
 | k5y4 | [MSG-K5Y4](../src/usr/local/bin/ai-tools.sh) | this path is inside a claimed project, not a project itself: ${d} | src/usr/local/bin/ai-tools.sh | tests/integration/cli.sh | die |
 | p8y8 | [MSG-P8Y8](../src/usr/local/bin/ai-tools.sh) | not a claimed project: ${d} | src/usr/local/bin/ai-tools.sh | tests/integration/cli.sh | die |

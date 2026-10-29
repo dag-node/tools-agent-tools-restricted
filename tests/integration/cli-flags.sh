@@ -794,8 +794,12 @@ drive_rows() {
     expect "remove without --yes declines at the confirm"             rc_not0
     expect "the declined remove leaves the tree"                      test -d "${R}/rm1"
     expect "the declined remove reaches no helper"                    cli_log_empty
+    cli_stub_reset; drive cli_in "${R}/rm1" ai-tools.projects.remove.inplace
+    expect "remove without a path is a rejected command line"         rc_is 2
+    expect "the pathless remove leaves the tree"                      test -d "${R}/rm1"
+    expect "the pathless remove reaches no helper"                    cli_log_empty
     cli_stub_reset; drive cli_in "${R}/rm1" ai-tools.projects.remove.inplace "$(f yes)"
-    expect "remove --yes without a path is refused"                   rc_not0
+    expect "remove --yes without a path is refused"                   rc_is 2
     expect "the refused remove leaves the tree"                       test -d "${R}/rm1"
     cli_stub_reset; drive cli ai-tools.projects.remove.inplace "$(f yes)" "${R}/rm1"
     expect "remove --yes <path> deletes the tree"                     test ! -e "${R}/rm1"
@@ -1039,7 +1043,7 @@ drive_rows() {
     expect "the declined removal leaves the clone"                    test -d "${SBROOT}/${N_C2}"
     expect "the declined removal leaves the entry"                    st_is "${SBROOT}/${N_C2}" listed
     cli_stub_reset; drive cli_in "${SBROOT}/${N_C2}" ai-tools.projects.remove.clone "$(f yes)"
-    expect "the clone removal --yes without a path is refused"        rc_not0
+    expect "the clone removal --yes without a path is refused"        rc_is 2
     expect "the refused removal leaves the clone"                     test -d "${SBROOT}/${N_C2}"
     cli_stub_reset; drive cli ai-tools.projects.remove.clone "$(f yes)" "${SBROOT}/${N_C2}"
     expect "the clone removal --yes <path> deletes the clone"         test ! -e "${SBROOT}/${N_C2}"
