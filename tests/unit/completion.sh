@@ -183,12 +183,16 @@ _ai_tools_atr__list_selinux_groups() { if [[ "$1" == stable ]]; then printf 'tmp
 mkdir -p "${TESTDIR}/tree/proj-a" "${TESTDIR}/tree/proj-b" "${TESTDIR}/tree/other"
 : > "${TESTDIR}/tree/proj-file"
 
-# completes <expected> <word>...: completing the last word of the line yields exactly <expected>, space-joined.
+# completes <expected> <word>...: completing the last word of the line yields exactly the words of <expected>,
+# compared sorted. Readline sorts a reply before it shows one, and `compgen -d` lists in the order the filesystem
+# returns, which an overlay mount reverses.
 completes() {
-    local expected="$1" got; shift
+    local expected="$1" got words=(); shift
     COMP_WORDS=("$@"); COMP_CWORD=$(( $# - 1 )); COMPREPLY=()
-    ( cd "${TESTDIR}/tree" && _ai_tools_atr__complete && printf '%s' "${COMPREPLY[*]}" ) > "${TESTDIR}/reply"
-    got="$(cat "${TESTDIR}/reply")"
+    ( cd "${TESTDIR}/tree" && _ai_tools_atr__complete && printf '%s\n' "${COMPREPLY[@]}" ) > "${TESTDIR}/reply"
+    got="$(LC_ALL=C sort "${TESTDIR}/reply" | paste -sd ' ')"
+    IFS=' ' read -ra words <<< "${expected}"
+    expected="$(printf '%s\n' "${words[@]}" | LC_ALL=C sort | paste -sd ' ')"
     if [[ "${got}" == "${expected}" ]]; then
         pass "'$*' completes to [${expected}]"
     else
