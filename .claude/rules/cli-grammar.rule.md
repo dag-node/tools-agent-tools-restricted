@@ -34,6 +34,7 @@ URI on the other side.
 | A global, one-shot or infrastructure-level action goes top-level or under `system` | `system post-upgrade`, `system bootstrap` |
 | Switches are **descriptive and long** | `--dry-run`, not `-n`; new surface does not add short flags |
 | `--help` and `--version` stay options | both `-h` and `--help` print the full help and ignore other arguments |
+| `help` is the bare-word spelling of `--help` | `atr help` and `atr admin help` print what `--help` prints |
 
 Verb-noun ordering is a **convention rather than a rule with one correct answer**: clig.dev declines to prescribe either
 order, PatternFly recommends the opposite, and the .NET CLI mixes both. Every guide does agree on internal consistency,
@@ -128,10 +129,11 @@ list, and a place in the packaging `%files` — for a command that is already a 
 
 `ai-tools-admin` ships in `ai-tools-base`, which is installed without knowing which `ai-tools-agents-*`
 or `ai-tools-integration-*` packages a host will add, so it **MUST discover the domains it dispatches rather than
-enumerate them**. Base owns five names — `operators`, `selinux`, `system`, `status`, `assets` — and a provider package
-contributes one domain named for the provider, the same token it takes in `agents.d`/`integrations.d`
-and in `operator.conf`. The dotnet integration owns `dotnet`, so `dotnet bootstrap` and `dotnet tools install <pkg>` are
-`ai-tools-admin` commands on a host that installed it and absent on one that did not.
+enumerate them**. Base owns five names — `operators`, `selinux`, `system`, `status`, `assets` — and reserves `help`,
+which it answers ahead of the root check. A provider package contributes one domain named for the provider, the same
+token it takes in `agents.d`/`integrations.d` and in `operator.conf`. The dotnet integration owns `dotnet`,
+so `dotnet bootstrap` and `dotnet tools install <pkg>` are `ai-tools-admin` commands on a host that installed it
+and absent on one that did not.
 
 A contributed command is **root-only** like every other command on this binary, which is why it lives here rather than
 in a binary of its own. A domain is an executable at `/usr/local/lib/ai-tools/admin-commands.d/<name>`, whose basename
@@ -262,12 +264,13 @@ which does not run a mutating verb, as the rules ask of a bare domain.
 
 `ai-tools-admin` conforms: `operators [list|add|remove]`, `selinux groups [list|enable|disable]`,
 `system bootstrap [--scope minimal|full] [--agents NAME[,NAME...]]`, `system entrypoints relabel`,
-`system post-upgrade`, `status`, `assets [list|enable|disable|reconcile]`, `--help`/`-h`, `--version`, plus one domain
-per installed provider — `dotnet bootstrap`, `dotnet tools install <pkg...>`, `dotnet status`. `ai-tools-admin(8)`
-documents the base surface and `tests/unit/man.sh` holds the page, the helper's `usage()` and its dispatch arms
-in agreement, so a command renamed in one of the three fails the suite rather than going stale in the others.
-A contributed domain is outside that pairing by construction — its commands exist only where the package is installed —
-so the page documents the **seam**, `--help` lists the domains this host has, and each domain answers its own `--help`.
+`system post-upgrade`, `status`, `assets [list|enable|disable|reconcile]`, `--help`/`-h`/`help`, `--version`, plus one
+domain per installed provider — `dotnet bootstrap`, `dotnet tools install <pkg...>`, `dotnet status`.
+`ai-tools-admin(8)` documents the base surface and `tests/unit/man.sh` holds the page, the helper's `usage()` and its
+dispatch arms in agreement, so a command renamed in one of the three fails the suite rather than going stale
+in the others. A contributed domain is outside that pairing by construction — its commands exist only where the package
+is installed — so the page documents the **seam**, `--help` lists the domains this host has, and each domain answers its
+own `--help`.
 
 Three names carry a `%{_sbindir}` symlink so `sudo <name>` resolves through `secure_path`: `ai-tools`, `ai-tools-admin`,
 and `atr`, the one that is a spelling over the other two rather than a program of its own. Every other command in this
@@ -286,9 +289,9 @@ the same shape `system entrypoints relabel` takes.
 to find one through, and it iterates the **enabled** set where the dispatch reads the installed one.
 
 `ai-tools` conforms too: `projects [list|create|claim|unclaim|remove|enable|disable|clone|push|lockdown|handback]`,
-`providers [list]`, `status`, `audit`, `stop`, `--help`/`-h`, `--version`. `COLLECTIONS` names the plural nouns a verb
-follows, and a bare one runs its `list`. Every gating table keys on the **command path** rather than on one token,
-and `tests/unit/cli-verbs.sh` holds each dispatched path to a classification in them.
+`providers [list]`, `status`, `audit`, `stop`, `--help`/`-h`/`help`, `--version`. `COLLECTIONS` names the plural nouns
+a verb follows, and a bare one runs its `list`. Every gating table keys on the **command path** rather than on one
+token, and `tests/unit/cli-verbs.sh` holds each dispatched path to a classification in them.
 
 **One registry carries those nouns.** `allowed-projects` has one entry format and every claimed directory is a line
 in it, so a clone is a **kind** of project derived from the path prefix rather than a collection of its own:

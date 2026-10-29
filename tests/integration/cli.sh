@@ -243,6 +243,15 @@ if command -v runuser >/dev/null 2>&1; then
     else
         fail "--help was blocked for a non-operator: ${out}"
     fi
+    # The bare word is the same command, so it prints the same summary; the spelling is what this case is about.
+    help_option_out="${out}"
+    out="$(runuser -u "${PROJECTS_USER}" -- env HOME="${PROJECTS_HOME}" \
+            AI_TOOLS_OPERATOR_CONF="${tconf}" "${CLI}" help 2>&1)" && rc=0 || rc=$?
+    if (( rc == 0 )) && [[ "${out}" == "${help_option_out}" ]]; then
+        pass "the bare word help prints what --help prints"
+    else
+        fail "help (exit ${rc}) differs from --help: ${out}"
+    fi
 
     # (6) ai-tools.projects.unclaim classifies its target against allowed-projects: a directory that no entry covers
     # AND that has no ai-tools ownership or group is REFUSED, before any registry/filesystem change. The testdir path is

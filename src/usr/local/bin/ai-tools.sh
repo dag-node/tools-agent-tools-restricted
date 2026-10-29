@@ -177,9 +177,9 @@ declare -rA OPTION_SPELLINGS=(
 # A command path is the leading argument tokens that spell a command, as one space-joined string: a token matching
 # ^[a-z][a-z-]*$ is a command word; the first one is the path, and where it names a COLLECTION the next command word is
 # its verb, so the path is at most two tokens and ends at the first option or path argument. A bare collection is its
-# `list`, no tokens at all is `--help`, and `-h` is `--help`. The options answered as commands, `--help`
-# and `--version`, are paths of their own. read_command applies the rule once, to COMMAND, and every verb table is keyed
-# on it, the shape tests/unit/man.sh reads for ai-tools-admin(8).
+# `list`, no tokens at all is `--help`, and `-h` and the bare word `help` are `--help`. The options answered
+# as commands, `--help` and `--version`, are paths of their own. read_command applies the rule once, to COMMAND,
+# and every verb table is keyed on it, the shape tests/unit/man.sh reads for ai-tools-admin(8).
 verb_in() {
     local verb="$1"; shift
     local name; for name in "$@"; do [[ "${verb}" == "${name}" ]] && return 0; done
@@ -199,9 +199,9 @@ join_paths() { local IFS=','; printf '%s' "${*// /_}" | sed 's/,/, /g; s/_/ /g';
 COMMAND=""; COMMAND_TOKENS=0
 read_command() {
     case "${1:-}" in
-        "")        COMMAND="--help" ;;
-        --help|-h) COMMAND="--help";    COMMAND_TOKENS=1 ;;
-        --version) COMMAND="--version"; COMMAND_TOKENS=1 ;;
+        "")             COMMAND="--help" ;;
+        --help|-h|help) COMMAND="--help";    COMMAND_TOKENS=1 ;;
+        --version)      COMMAND="--version"; COMMAND_TOKENS=1 ;;
         *)
             COMMAND="$1"; COMMAND_TOKENS=1
             if [[ "$1" =~ ^[a-z][a-z-]*$ ]] && verb_in "$1" "${COLLECTIONS[@]}"; then
