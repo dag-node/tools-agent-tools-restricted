@@ -771,8 +771,10 @@ of this project's forms passes, the stub in each compression `man` reads among t
 of the account creation, a page that adds lines after the stub's request, the compressed stubs failing their tool's `-t`
 and a page past the stub's size, compressed or decompressed, among them, and the refusal does not call `systemctl`
 and names the check of the relabel watcher and the start of the watcher and the relabel run to run once the transaction
-ends, since a start inside it would let a run fire while rpm places the packages ordered after base. A stub is a shell
-function, which a command named by its path bypasses, so the body is read first for a command run from a system
+ends, since a start inside it would let a run fire while rpm places the packages ordered after base. On a host whose rpm
+creates the account from the `sysusers.d` file itself (Fedora 42 and later), the sysusers macro expands to an empty
+line, so the file notes that the body has no account step and does not read the order against one there. A stub is
+a shell function, which a command named by its path bypasses, so the body is read first for a command run from a system
 directory by its path, beside a control, and is not run where one is found. The command directories the shadowing loop
 reads are held to `install.sh`'s `ATR_COMMAND_DIRS` where the tree carries it, which an image's installed source tree
 does not, and are pointed at the fixture, where another executable named `atr` in each of them refuses under `MSG-E7B3`

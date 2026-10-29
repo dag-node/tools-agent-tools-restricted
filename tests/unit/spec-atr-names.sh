@@ -8,7 +8,9 @@
 # absent from PATH exits 1 under MSG-V2H5. Another executable named atr in a command directory of the default PATHs
 # exits 1 under MSG-E7B3, and this project's own entries there pass. The refusal does not start the relabel watcher
 # or the relabel run %pretrans stopped, since rpm may still place the packages ordered after base, and names the check
-# of the watcher and the start of both to run once the transaction ends.
+# of the watcher and the start of both to run once the transaction ends. Where rpm creates the account
+# from the sysusers.d file itself, the sysusers macro leaves the body without an account step, and the order against one
+# is not read there.
 #
 # A scriptlet runs inside an rpm transaction as root, so its body is read out of the spec as RPM parses it, its host
 # paths rewritten to a fixture tree, and run under /bin/sh with getent, groupadd, useradd and systemctl defined as shell
@@ -49,6 +51,13 @@ body="$(awk '/^%pre -n ai-tools-base$/{open=1; next} /^%[a-z]/{open=0} open' <<<
 if [[ -z "${body}" ]]; then
     fail "the spec has no %pre -n ai-tools-base section in the form this file reads"
     finish; exit
+fi
+# Where rpm creates the account from the packaged sysusers.d file itself (Fedora 42 and later), the sysusers macro
+# expands to an empty line, so the body has no account step to order the refusals against.
+ACCOUNT_STEP=1
+if ! grep -qE '(^|[^[:alnum:]_-])(useradd|groupadd)[[:space:]]' <<< "${body}"; then
+    ACCOUNT_STEP=0
+    note "account" "the sysusers macro expands to no account step here, so no case reads the order against one"
 fi
 
 # The shadowing check asks `[ -x ]` of each command directory's atr, so the fixture root takes a directory where a 0755
@@ -173,6 +182,8 @@ run_base_pre_scriptlet() {
     recorder="$(cat "${TESTDIR}/recorder")"; err="$(cat "${TESTDIR}/err")"
 }
 account_created() { grep -qE '^(groupadd|useradd) ' <<< "${recorder}"; }
+# account_step_ran: the body's account step ran, where it has one.
+account_step_ran() { (( ACCOUNT_STEP == 0 )) || account_created; }
 systemctl_calls() { grep -c '^systemctl ' <<< "${recorder}" || true; }
 RECOVERY='ai-tools-base: this refusal does not start the relabel watcher or the relabel run the transaction stopped --'
 RECOVERY+=' once the transaction ends, check the watcher with systemctl is-active ai-tools-relabel.path, and where it'
@@ -181,8 +192,10 @@ readonly RECOVERY+=' should run, start both: systemctl start ai-tools-relabel.pa
 # ── Names absent, or in this project's forms, pass ──────────────────────────────────────────────
 reset_names
 run_base_pre_scriptlet
-if (( status == 0 )) && account_created && [[ "$(systemctl_calls)" == 0 && -z "${err}" ]]; then
-    pass "every name absent: exit 0, the account is created, the watcher is left to %posttrans"
+if (( status == 0 )) && account_step_ran && [[ "$(systemctl_calls)" == 0 && -z "${err}" ]]; then
+    account_outcome="the account is created"
+    (( ACCOUNT_STEP == 1 )) || account_outcome="no account step to run"
+    pass "every name absent: exit 0, ${account_outcome}, the watcher is left to %posttrans"
 else
     fail "every name absent: exit ${status}, stderr [${err}], calls [${recorder//$'\n'/; }]"
 fi
@@ -192,7 +205,7 @@ ln -s ../local/bin/atr "${LINK}"
 cp "${PAGE1_SRC}" "${MAN1}/atr.1"; gzip -c "${PAGE1_SRC}" > "${MAN1}/atr.1.gz"
 cp "${PAGE8_SRC}" "${MAN8}/atr.8"; gzip -c "${PAGE8_SRC}" > "${MAN8}/atr.8.gz"
 run_base_pre_scriptlet
-(( status == 0 )) && account_created && [[ -z "${err}" ]] \
+(( status == 0 )) && account_step_ran && [[ -z "${err}" ]] \
     && pass "the shipped wrapper, the ln -sr link and both stubs plain and gzip-compressed pass" \
     || fail "this project's forms: exit ${status}, stderr [${err}]"
 
