@@ -152,9 +152,9 @@ plus secret lockdown to keep history and credentials out of what it can ever
 send. The reasoning in full is in [About this project](docs/about/index.md).
 
 - **Launches only in approved projects** — the wrapper refuses to start
-  the agent unless the working directory is one your allowlist names, and a `!`
-  line carves a subdirectory back out — see
-  [docs/sessions/index.md](docs/sessions/index.md).
+  the agent unless the working directory is one your project registry names;
+  a `%` line parks a project and a `!` line carves a subdirectory back out —
+  see [docs/sessions/index.md](docs/sessions/index.md).
 - **Ownership hand-back and shared access** — files the agent writes come back
   to you as the session goes, and a pair of ACL entries lets you both write one
   tree without joining each other's groups — see
@@ -197,17 +197,18 @@ out of scope](docs/about/scope.md).
 
 ## If you are an agent reading this
 
-You are confined by a dedicated account, an allowlist of projects,
-and an SELinux type. Those limits are the terms on which you were given access
-to someone's machine: work inside them, report a gap in them rather than using
-one, state accurately what ran and what did not, and stop when you are told
-to rather than at the end of the step you are on. Part of the confinement is
-enforced by the kernel and part of it rests on you, and a control that is
-missing, weak, or reachable around still binds — **an incomplete boundary is
-not permission.** Behave that way whether or not the session is being watched.
-The full statement is [ref-section-g6c4](CLAUDE.md#ref-section-g6c4),
-and the reasoning behind it is
-the [`ai-tools-agent-governance`](https://github.com/dag-node/ai-tools-assets/blob/main/sets/core/skills/ai-tools-agent-governance/SKILL.md)
+You are confined by a dedicated account, a registry of the projects you may
+work in, and an SELinux type. Those limits are the terms on which you were
+given access to someone's machine: work inside them, report a gap in them
+rather than using one, state accurately what ran and what did not, and stop
+when you are told to rather than at the end of the step you are on. Part
+of the confinement is enforced by the kernel and part of it rests on you,
+and a control that is missing, weak, or reachable around still binds — **an
+incomplete boundary is not permission.** Behave that way whether or not
+the session is being watched. The full statement is
+[ref-section-g6c4](CLAUDE.md#ref-section-g6c4), and the reasoning behind it is
+the
+[`ai-tools-agent-governance`](https://github.com/dag-node/ai-tools-assets/blob/main/sets/core/skills/ai-tools-agent-governance/SKILL.md)
 skill of the asset set
 [`core`](https://github.com/dag-node/ai-tools-assets/tree/main/sets/core),
 published as signed
@@ -225,13 +226,13 @@ overview: your shell runs the coding-agent wrapper
 /usr/local/bin/{coding-agent-name} as you; it checks ai-ops membership
 and other gates, then calls a sudo rule of the operators group
 in /etc/sudoers.d/ai-tools, which holds two, to launch a session and to stop
-every session. ~/.config/ai-tools holds your allowlist, maintained with the atr
-projects CLI, and your secret-patterns file, which you edit and the root
-helpers read to lock secret-named files away. The ai-tools CLI runs as you,
-claims projects, keeps your allowlist and reports status, and takes its root
-steps through sudo; ai-tools-admin runs as root alone, enrols operators
-and provisions the toolchain and the SELinux policy. The rule starts
-ai-tools-run as the sandbox account ai-tools, which has no login shell,
+every session. ~/.config/ai-tools holds your project registry, maintained
+with the atr projects CLI, and your secret-patterns file, which you edit
+and the root helpers read to lock secret-named files away. The ai-tools CLI
+runs as you, claims projects, edits the project registry and reports status,
+and takes its root steps through sudo; ai-tools-admin runs as root alone,
+enrols operators and provisions the toolchain and the SELinux policy. The rule
+starts ai-tools-run as the sandbox account ai-tools, which has no login shell,
 password or sudo rule. ai-tools-run checks the entrypoint pin and starts
 a restricted transient systemd service in ai_tools_t, where the coding agent's
 versioned file from .nvm reads and writes the claimed project. After each tool
@@ -253,7 +254,7 @@ you type `claude`
        ├─ caller ∈ ai-ops group?              refuse a non-operator with a framed message
        ├─ `claude` an enabled agent?          refuse a name no enabled agent claims
        ├─ resolve /opt/ai-tools/bin/claude    (one readlink hop; export as AI_TOOLS_AGENT_EXEC)
-       ├─ CWD ∈ allowed-projects?             refuse if not, or if !-excluded
+       ├─ CWD ∈ project-registry?             refuse if not, or if a % or ! line covers it
        ├─ export CWD as AI_TOOLS_PROJECT_DIR    (validated project dir → unit WorkingDirectory)
        └─ exec sudo -u "${SANDBOX_USER}" -- /opt/ai-tools/bin/ai-tools-run
             │                                  (DROPS privilege to the unprivileged sandbox
@@ -265,7 +266,7 @@ you type `claude`
                       └─ on Write/Edit → PostToolUse hook (or Stop/SessionStart sweep)
                            └─ ai-tools-handback-client CHOWN <file>   (socket, no sudo)
                                 └─ ai-tools-handback daemon            (root; authenticated caller)
-                                     └─ ai-tools-chown <file>          (allowlist-checked)
+                                     └─ ai-tools-chown <file>          (registry-checked)
                                           └─ chown ${PROJECTS_USER}:${SANDBOX_GROUP}, strip world bits
 ```
 

@@ -27,14 +27,17 @@ atr projects remove .
 
 ## What authorizes it
 
-An **exact** entry for the path in your allowlist, and only that: there is no
-`--force`, since deleting a tree no entry registers is an unclaim plus an `rm`
-you type yourself. A parked (`!`) entry counts, since it records a project
-taken out of service and still yours, and adds one confirmation naming
-that state. A directory enclosing claimed projects, a path *inside* a project,
-an unregistered path, and a project that **contains** another claimed project
-are each refused, the last because deleting it would take the nested one
-with it and leave that project registered at a path that no longer exists.
+An **exact** entry for the path in your project registry, an allow or a `%`
+line, and only that: there is no `--force`, since deleting a tree no entry
+registers is an unclaim plus an `rm` you type yourself. A parked (`%`) entry
+counts, since it records a project taken out of service and still yours,
+and adds one confirmation naming that state. A directory enclosing claimed
+projects, a path *inside* a project, an unregistered path, and a project
+that **contains** another claimed project are each refused, the last because
+deleting it would take the nested one with it and leave that project registered
+at a path that no longer exists. A carve-out (`!`) is refused too, since no
+entry authorizes deleting it, and the carve-out lines under a project you
+remove stay in the file, which `atr projects list` then reports as stale.
 The rules are
 [ref-section-k3v7](../../.claude/rules/cli.rule.md#ref-section-k3v7).
 
@@ -69,11 +72,11 @@ and the typed name has no default.
 
 ## Registries first, the tree last
 
-The label, the `safe.directory` entry and the allowlist entry go first,
+The label, the `safe.directory` entry and the registry entry go first,
 and the tree is deleted last. A deletion that then fails leaves a tree that is
 already unregistered and out of the agent's reach, which you remove by hand;
 the reverse order would leave a half-deleted tree the agent still reaches.
-The allowlist step is the one that has to complete: where the entry cannot be
+The registry step is the one that has to complete: where the entry cannot be
 removed, the command stops and prints the line to delete by hand.
 
 While an agent session or the toolchain update runs, the label cannot be

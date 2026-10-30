@@ -100,7 +100,7 @@ canonical="$(realpath -e -- "${TARGET}" 2>/dev/null)" || exit 0
 [[ -d "${canonical}" ]] || exit 0
 # Refuse the whole walk if the project root is a protected system directory, before find.
 ai_tools_safe_paths__assert_safe_target "${canonical}" "reclaim" || exit 3
-# Not under any operator's allowed-projects -> no path legitimately to reclaim. Say so rather than exiting silently,
+# Not under any operator's project registry -> no path legitimately to reclaim. Say so rather than exiting silently,
 # so a direct `sudo ai-tools-reclaim` (past the CLI's own front-line check) still reports why it reclaimed no path.
 # The path is operator-supplied, so it prints without log_sanitize.
 ai_tools_operator__resolve_owner "${canonical}" || {

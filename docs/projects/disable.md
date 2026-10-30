@@ -13,31 +13,33 @@ what stays in place while it is parked, and what stops with it.
 atr projects disable ~/src/api
 ```
 
-Prefixes the project's line in your allowlist with `!`, in place: the entry
-keeps its position and its end-of-line comment, so an allowlist you maintain
-as an ordered, documented file comes back exactly as it was when you enable
-the project again. It is the same edit you would make by hand.
+Writes a `%` in front of the project's line in your project registry, in place:
+the entry keeps its position and its end-of-line comment, so a registry you
+maintain as an ordered, documented file comes back exactly as it was when you
+enable the project again. It is the same edit you would make by hand.
 
 ```text
-# projects
-  /home/you/src/api   # payments, dev stage   ->   !/home/you/src/api   # payments, dev stage
+# ~/.config/ai-tools/project-registry
+  /home/you/src/api   # payments, dev stage   ->   %/home/you/src/api   # payments, dev stage
   /home/you/src/web                                /home/you/src/web
 ```
 
-## The three states of an entry
+## The kinds of line
 
-| State | Your allowlist says | What it means |
-|---|---|---|
-| listed | an allow line names the path | sessions may start there |
-| disabled | a `!` line names it | no session starts there; the permissions and the label stay |
-| absent | neither | not a project |
+| Line | What it means |
+|---|---|
+| `/home/you/src/api` | a project: sessions may start there |
+| `%/home/you/src/api` | a parked project: no session starts there; the permissions and the label stay |
+| `!/home/you/src/api/vendor` | a carve-out: the agent is withheld from the subtree, wherever the line sits |
 
-A `!` line outranks an allow line for the same path, so a project is `disabled`
-while one names it, whatever else the file says. Each verb reads the state
-before it acts, which is how `projects claim` on a parked project offers
-to re-enable it instead of adding a duplicate line ([Enable](enable.md)).
-The states are
-[ref-table-d7q3](../../.claude/rules/cli.rule.md#ref-table-d7q3).
+Each command reads the path's state before it acts, which is
+how `projects claim` on a parked project offers to re-enable it instead
+of adding a duplicate line ([Enable](enable.md)). Every state a path can be
+in is in `man 5 ai-tools-project-registry`.
+
+A project nested inside another one is parked on its own line, and the project
+enclosing it stays enabled. A project inside a parked one is not reachable
+while the park stands, whatever its own line says.
 
 ## What stays, and what stops
 
@@ -57,23 +59,17 @@ or re-enable the project afterwards and run `atr projects handback`
 
 ## What it refuses
 
-A path your allowlist does not name is refused rather than parked: there is no
-entry to disable, and inventing one would register a project without claiming
-it. A project already disabled succeeds and says so.
-
-A project nested inside another claimed project is refused too. The `!` line it
-would write reads the same as a carve-out — a subtree you withheld
-from the enclosing project — and the file has no field that tells a carve-out
-from a parked project afterwards, so a later `projects enable` would be
-guessing on an edit that widens what the agent reaches. The refusal names
-the two ways to the intended effect: unclaim the nested project, or park
-the one enclosing it. Editing the line by hand is unaffected.
+A path your project registry does not name is refused rather than parked: there
+is no entry to disable, and inventing one would register a project without
+claiming it. A path inside a claimed project is refused, naming that project,
+and so is a carve-out. A project already disabled succeeds and says so.
 
 ## Launching in a parked project
 
 ```text
-claude: this project is disabled in your approved projects list: /home/you/src/api
-claude: re-enable it with:  atr projects enable
+claude: this project is disabled in your project registry: /home/you/src/api
+claude: no session starts here until it is re-enabled -- its files, group and label are untouched
+claude: re-enable it with:  atr projects enable /home/you/src/api
 ```
 
 The launch refuses and names the way back.
@@ -81,12 +77,12 @@ The launch refuses and names the way back.
 ## For another operator
 
 `atr projects disable --for svc-ci /srv/projects/api` parks the entry
-in that operator's allowlist ([Service
+in that operator's project registry ([Service
 accounts](../operators/service-accounts.md)). The plain form does not run
-`sudo`; the `--for` form does, to read the other allowlist.
+`sudo`; the `--for` form does, to read the other operator's registry.
 
 ## Exit status
 
-0 when the project is parked, or was already; 1 when the path is not named, is
-nested inside another claimed project, or the line could not be written; 2
-for a rejected command line. `man ai-tools` has the full list.
+0 when the project is parked, or was already; 1 when the path is refused
+or the line could not be written; 2 for a rejected command line, a missing
+directory among them. `man ai-tools` has the full list.

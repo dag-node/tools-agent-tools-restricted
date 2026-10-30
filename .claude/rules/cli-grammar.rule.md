@@ -294,10 +294,10 @@ to find one through, and it iterates the **enabled** set where the dispatch read
 a verb follows, and a bare one runs its `list`. Every gating table keys on the **command path** rather than on one
 token, and `tests/unit/cli-verbs.sh` holds each dispatched path to a classification in them.
 
-**One registry carries those nouns.** `allowed-projects` has one entry format and every claimed directory is a line
-in it, so a clone is a **kind** of project derived from the path prefix rather than a collection of its own:
-`projects clone` makes one, and `projects remove` reads the kind from the path (`ai-tools.sh` computes `kind="sandbox"`
-for a path under `SANDBOX_ROOT`, and `require_sandbox_clone` agrees). On the REST side that projects
+**One registry carries those nouns.** `~/.config/ai-tools/project-registry` has one entry format and every claimed
+directory is a line in it, so a clone is a **kind** of project derived from the path prefix rather than a collection
+of its own: `projects clone` makes one, and `projects remove` reads the kind from the path (`ai-tools.sh` computes
+`kind="sandbox"` for a path under `SANDBOX_ROOT`, and `require_sandbox_clone` agrees). On the REST side that projects
 as `GET /projects?kind=sandbox`. The listing stays one command for the same reason, so the cross-cutting *Suggested
 cleanup* findings `projects list` reports have one home.
 

@@ -58,12 +58,13 @@ mode.
 ## Shared secret-pattern set (one source, one matcher) <a id="ref-section-h4j6"></a>
 
 **The file.** The patterns live in `~/.config/ai-tools/secret-patterns` (`<you>:<you> 600`, inside the `700`
-`~/.config/ai-tools`), beside `allowed-projects` and owned the same way: the operator edits it, `SANDBOX_USER` — neither
-its owner nor in its group, and unable to enter the directory — can neither read nor write it, and the root helpers read
-it on the operator's behalf, so the agent cannot weaken its own secret classification. `atr admin operators add` seeds
-it with the header alone — what the file is, the replace rule, an example line and `ai-tools-secret-patterns(5)`,
-the page that holds the reference ([providers](providers.rule.md) states why a seeded header is a pointer) —
-so the baseline stays in force and each upgrade's additions reach that operator until they write a pattern of their own.
+`~/.config/ai-tools`), beside `~/.config/ai-tools/project-registry` and owned the same way: the operator edits it,
+`SANDBOX_USER` — neither its owner nor in its group, and unable to enter the directory — can neither read nor write it,
+and the root helpers read it on the operator's behalf, so the agent cannot weaken its own secret classification.
+`atr admin operators add` seeds it with the header alone — what the file is, the replace rule, an example line
+and `ai-tools-secret-patterns(5)`, the page that holds the reference ([providers](providers.rule.md) states why a seeded
+header is a pointer) — so the baseline stays in force and each upgrade's additions reach that operator until they write
+a pattern of their own.
 
 **The library.** Every component that classifies a basename sources `/usr/local/lib/ai-tools/secret-patterns.lib.sh`
 (`644 root:root`, in a directory `SANDBOX_USER` cannot write) for one loader and one matcher over that file, so no two

@@ -188,7 +188,7 @@ a value is required after ${flag}
 .TP
 .B MSG-J6S8
 ERROR.
-your project registry is ${REGISTRY_SHOWN}, the allowed\-projects an earlier release wrote, and it is not migrated \-\- nothing changed
+your project registry is ${REGISTRY_DISPLAY_PATH}, the allowed\-projects an earlier release wrote, and it is not migrated \-\- nothing changed
 .TP
 .B MSG-J7X4
 NOTICE.
@@ -414,7 +414,7 @@ projects lockdown takes a single path
 .TP
 .B MSG-Y7K5
 ERROR.
-the project registry ${REGISTRY_SHOWN} holds a line named above that no reader accepts \-\- nothing changed
+the project registry ${REGISTRY_DISPLAY_PATH} holds a line named above that no reader accepts \-\- nothing changed
 .TP
 .B MSG-Z5V5
 ERROR.
@@ -1529,7 +1529,7 @@ path not found: ${target}
 .TP
 .B MSG-P8J7
 ERROR.
-refusing to label ${dir}: not in the allowed\-projects allowlist
+refusing to label ${dir}: not an enabled project in the operator's project registry
 .TP
 .B MSG-Q4X9
 ERROR.
@@ -1946,6 +1946,8 @@ a custom system prompt is configured but its resolver library is unavailable
 .B MSG-B8U2
 WARNING.
 registry line refused \-\- ${file} line ${number}: ${fault}${shown} \-\- $(_ai_tools_conf__format_registry_fault_remedy "${fault}"); no entry in this file allows a path until the line is fixed
+Documented in
+.BR ai-tools-project-registry (5).
 .TP
 .B MSG-C6P5
 WARNING.
@@ -1978,6 +1980,8 @@ invalid list, read as the empty list \-\- ${key} in ${file} holds ${unprefixed[*
 .B MSG-Y5N6
 WARNING.
 exclusion ${written} in ${file} cannot be resolved \-\- ${_ai_tools_conf__resolve_refusal}; write the exclusion as the directory's real path, since a link the sandbox account can change cannot be followed; no entry in this file allows a path until the line is fixed
+Documented in
+.BR ai-tools-project-registry (5).
 .SS install-selinux.sh
 .TP
 .B MSG-A3V5

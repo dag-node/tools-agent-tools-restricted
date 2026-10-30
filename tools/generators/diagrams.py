@@ -181,13 +181,13 @@ def system_overview():
     s.box(40, 68, 260, 72, "operator", "Your shell", ["run {coding-agent-name}", "in a claimed project"])
     s.box(40, 168, 260, 86, "operator", "coding-agent wrapper",
           ["`/usr/local/bin/{coding-agent-name}`", "runs as you; checks ai-ops", "membership and other gates"])
-    s.box(40, 282, 260, 72, "operator", "allowed-projects",
+    s.box(40, 282, 260, 72, "operator", "project-registry",
           ["`~/.config/ai-tools` · maintained", "with the `atr projects` CLI"])
     # the root helpers read it on your behalf; an edge to them would cross the sudo and handback routes
     s.box(40, 370, 260, 86, "operator", "secret-patterns",
           ["`~/.config/ai-tools` · edited by you", "the root helpers read it to lock", "secret-named files away"])
     s.box(40, 472, 260, 86, "operator", "$ ai-tools",
-          ["runs as you: claims projects, keeps", "your allowlist, reports status;", "root steps go through sudo"],
+          ["runs as you: claims projects, edits", "the project registry, reports status;", "root steps go through sudo"],
           mono_title=True)
     s.gear(287, 485, 6, "operator")
 
@@ -274,7 +274,7 @@ def system_overview():
 # --------------------------------------------------------------------------
 def identities():
     s = Svg(1280, 550, "ai-tools identities: the operators, the sandbox account, root, and their groups",
-            "Operators op and svc-ci each hold ai-ops membership, a name in OPERATORS and their own allowlist; "
+            "Operators op and svc-ci each hold ai-ops membership, a name in OPERATORS and their own project registry; "
             "op also holds a general sudo grant. The ai-tools sandbox account runs every session and is not "
             "in ai-ops; root is not an operator. The operators group carries the two sudo rules; the sandbox group "
             "is how the coding agent reaches the files you write; your own group takes your secret-named files.")
@@ -282,12 +282,12 @@ def identities():
            "OPERATORS=[op, svc-ci] in /etc/ai-tools/operator.conf")
     s.box(40, 70, 275, 176, "operator", "op", [
         [("operator: user in ", None, False), ("ai-ops", "fg", True), (" group,", None, False)],
-        "named in OPERATORS, own allowlist",
+        "in OPERATORS; own project registry",
         "+ a general sudo grant", "  (the host's sudoers, not ours)",
         "→ claims, unclaims, locks down", "   and claims for others"], mono_title=True, tag="WITH SUDO GRANT")
     s.box(330, 70, 270, 176, "operator_soft", "svc-ci", [
         [("operator: user in ", None, False), ("ai-ops", "fg", True), (" group,", None, False)],
-        "named in OPERATORS, own allowlist",
+        "in OPERATORS; own project registry",
         "no sudo grant", "",
         "→ launches sessions; its projects", "   are claimed for it with --for"], mono_title=True, tag="NO SUDO GRANT")
     s.box(40, 270, 560, 118, "sandbox", "ai-tools", [
@@ -412,7 +412,7 @@ def ownership_lifecycle():
     s.text(36, 410, "What no step touches", 12.5, "fg", "600")
     for j, line in enumerate([
             "· a file you wrote is not re-owned by the handback: it acts only while the coding agent owns a file",
-            "· an owner-only path, and one on a ! line of your allowlist, is skipped by every step",
+            "· an owner-only path, and one on a ! line of your project registry, is skipped by every step",
             "· a session that ends early can leave files the coding agent owns: "
             "atr projects handback returns them",
             "· the files the coding agent writes inside .git come back at the start and end of each session"]):
@@ -460,7 +460,7 @@ def two_grants():
     s.text(532, 328, "Grant 1 · the coding agent's group grant", 12, "sandbox", "600")
     facts = [("Others", "no access: a claim closes world access on every path it touches"),
              ("New files", "a project directory gives every new file the sandbox group and both grants"),
-             ("Not granted", "owner-only paths, ! lines of your allowlist and secret-named files get neither grant"),
+             ("Not granted", "owner-only paths, ! lines of your project registry and secret-named files get neither grant"),
              ("Check it", "getfacl -e <path> shows effective access; ls -l marks a file carrying an ACL with +")]
     for j, (k, v) in enumerate(facts):
         s.text(34, 384 + j * 21, k, 12, "fg", "600")

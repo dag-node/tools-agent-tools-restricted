@@ -573,7 +573,7 @@ if command -v runuser >/dev/null 2>&1; then
         fail "ai-tools.projects.create left an incomplete tree: $(ls -A "${newproj}" 2>&1)"
     fi
     if grep -qxF "${newproj}" "${emptyal}"; then
-        pass "ai-tools.projects.create registers the new project in allowed-projects"
+        pass "ai-tools.projects.create registers the new project in the project registry"
     else
         fail "ai-tools.projects.create did not register the project: $(cat "${emptyal}")"
     fi

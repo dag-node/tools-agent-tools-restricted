@@ -14,10 +14,11 @@ paths:
 # Protected-paths backstop
 
 `safe-paths.lib.sh` is the single source of truth for the system directories the elevated ai-tools operations refuse
-to act on, plus the guard that enforces it. The allowlist authorizes wherever it points, so a system directory added
-to `allowed-projects` by mistake (or passed straight to a helper) would let a recursive chown/setgid/setfacl/relabel
-rewrite it. This list is the independent backstop: every elevated operation refuses a protected target regardless
-of the allowlist, before acting, so a misconfigured allowlist cannot turn a system tree into a claim target.
+to act on, plus the guard that enforces it. The project registry authorizes wherever it points, so a system directory
+added to `~/.config/ai-tools/project-registry` by mistake (or passed straight to a helper) would let a recursive
+chown/setgid/setfacl/relabel rewrite it. This list is the independent backstop: every elevated operation refuses
+a protected target regardless of the registry, before acting, so a misconfigured registry cannot turn a system tree
+into a claim target.
 
 ## Matching: exact or ancestor
 

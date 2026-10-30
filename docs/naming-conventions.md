@@ -25,8 +25,8 @@ srcset="static/diagrams/identities-dark.svg"> <source
 media="(prefers-color-scheme: light)"
 srcset="static/diagrams/identities-light.svg"> <img alt="Identities: operators
 op and svc-ci each hold ai-ops membership, a name in OPERATORS=[op, svc-ci]
-in /etc/ai-tools/operator.conf and their own allowlist. op also holds a general
-sudo grant from the host's sudoers, so op claims, unclaims, locks
+in /etc/ai-tools/operator.conf and their own project registry. op also holds
+a general sudo grant from the host's sudoers, so op claims, unclaims, locks
 down and claims for others; svc-ci holds none, launches sessions, and has its
 projects claimed for it with --for. The sandbox account ai-tools runs every
 session of every operator, has no login shell, password or sudo rule, owns none
@@ -48,10 +48,10 @@ The login accounts that own projects and drive the sandbox through the one
 shared sandbox account. A host has one or more; typically a human plus rootless
 service accounts (e.g. a CI runner). They are the **operators**: listed
 in `/etc/ai-tools/operator.conf` (`OPERATORS="alice bob svc-ci"`) and members
-of the `ai-ops` group. Each owns the project trees its own allowlist names.
-Deliberately **not** "human user": an operator may be an automation. They share
-the sandbox account's agent state and reach — a trusting team, no kernel
-isolation between their sessions.
+of the `ai-ops` group. Each owns the project trees its own project registry
+names. Deliberately **not** "human user": an operator may be an automation.
+They share the sandbox account's agent state and reach — a trusting team, no
+kernel isolation between their sessions.
 
 | Facet | Shell variable | Prose term |
 |-------|----------------|------------|
@@ -90,9 +90,9 @@ without touching any other file.
 ### The owner — the operator a path resolves to
 
 The sandbox restores an agent-written file to the operator that **owns** it:
-the operator whose allowlist covers the path (when several do, the nearest
-ancestor directory's on-disk owner wins). `operator.lib.sh` resolves
-an operator into the `PROJECTS_*` globals:
+the operator whose project registry covers the path (when several do,
+the nearest ancestor directory's on-disk owner wins). `operator.lib.sh`
+resolves an operator into the `PROJECTS_*` globals:
 
 | Facet | Shell variable | Prose term |
 |-------|----------------|------------|
@@ -140,7 +140,7 @@ the informational verbs stay open to a user absent from `OPERATORS`, and root
 reaches the read-only reports.
 
 Both are distinct from `PROJECTS_USER`, the owner a root helper resolves
-per path from the allowlist covering it. The CLI sets neither
+per path from the project registry covering it. The CLI sets neither
 of the `PROJECTS_*` globals, and a `--for` run leaves that resolution alone —
 a helper's walk still resolves each path's own owner.
 
@@ -194,23 +194,26 @@ blanket read of the sandbox group's files (e.g. `.claude` session state).
 The sandbox user is also **not** in `ai-ops`, so it cannot hold the operators'
 sudoers grant; `ai-tools-run` refuses to launch if that is ever violated.
 
-## The allowlist, and the registries a claim writes
+## The project registry, and the registries a claim writes
 
 One file decides where an operator's sessions may start, and prose names it one
 way:
 
 | Facet | Where | Prose term |
 |-------|-------|------------|
-| an operator's project list | `~/.config/ai-tools/project-registry`, per operator (`ai-tools-project-registry(5)`) | "the allowlist" / "`<operator>`'s allowlist" |
-| a line in it | a path, or a `!`-prefixed carve-out | "an allowlist entry" / "a carve-out" |
-| the pair a claim writes and an unclaim drops | the allowlist entry and the `safe.directory` entry in the sandbox account's `.gitconfig` | "the registries" / "both registries" |
+| an operator's project list | `~/.config/ai-tools/project-registry`, per operator (`ai-tools-project-registry(5)`) | "the project registry" / "`<operator>`'s project registry", or the path |
+| the file an earlier release wrote | `~/.config/ai-tools/allowed-projects`, until `atr admin system post-upgrade` migrates it | the path |
+| a line in it | a path, a `%`-prefixed park, or a `!`-prefixed carve-out | "an entry" / "a parked project" / "a carve-out" |
+| the pair a claim writes and an unclaim drops | the registry entry and the `safe.directory` entry in the sandbox account's `.gitconfig` | "the registries" / "both registries" |
 
-**Allowlist** is the term: it is the code's word (`ALLOWLIST`,
-`ai_tools_operator__is_covered_by_allowlist`, `ai-tools-allowlist`) and the man
-page's. "Registry" on its own, "approved projects", and "project list" are not
-used for it. "The registries" is reserved for the allowlist entry together
-with the `safe.directory` entry, the pair `projects unclaim`
-and `projects remove` drop.
+**Project registry** is the term, and the file is named by its path,
+`~/.config/ai-tools/project-registry`. The bare word "projects" names the CLI
+noun alone (`atr projects claim`), since the file is not named for it.
+"Allowlist" stays the code's word (`ALLOWLIST`,
+`ai_tools_operator__is_covered_by_allowlist`, `ai-tools-allowlist`),
+and "approved projects" is not used. "The registries" is reserved
+for the registry entry together with the `safe.directory` entry, the pair
+`projects unclaim` and `projects remove` drop.
 
 ## The command you type, and the programs behind it
 

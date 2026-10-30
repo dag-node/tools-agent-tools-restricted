@@ -11,15 +11,17 @@ in the order it asks, what each answer grants, and what a re-claim repairs.
 
 ```bash
 cd ~/src/existing
-atr projects claim
+atr projects claim .
 ```
 
-Registers the tree in your allowlist and in git's `safe.directory` list, gives
-the agent access to it through the shared group and the grants a claim writes,
-and marks the tree as one the confined session may read. It runs only the steps
-that are missing, so a re-claim over a fully claimed tree is a quiet no-op.
-Which files the agent can then open, and which you keep, is
-on [Permissions](permissions.md); the grants themselves are
+The directory is required, and `.` names the one you are in; a claim without
+one is refused with exit 2. Registers the tree in your project registry
+and in git's `safe.directory` list, gives the agent access to it
+through the shared group and the grants a claim writes, and marks the tree
+as one the confined session may read. It runs only the steps that are missing,
+so a re-claim over a fully claimed tree is a quiet no-op. Which files the agent
+can then open, and which you keep, is on [Permissions](permissions.md);
+the grants themselves are
 [ref-section-h7d3](../../.claude/rules/cli.rule.md#ref-section-h7d3).
 
 ## The blocks, in the order they run
@@ -175,14 +177,14 @@ of the sandbox account or the toolchain update runs
 each session end with `/exit` and the toolchain update finish, or end them all
 with `atr stop`, then claim again: the re-run applies the label alone.
 
-An owner-only path, and one named on a `!` line of your allowlist, is skipped
-by every step and reported as a count. Either mark is also how you stop a path
-being reported again.
+An owner-only path, and one a carve-out line (`!`) of your project registry
+withholds, is skipped by every step and reported as a count. Either mark is
+also how you stop a path being reported again.
 
 ## Re-claiming
 
 ```bash
-atr projects claim    # from inside the project
+atr projects claim .    # from inside the project
 ```
 
 Running the claim again is the repair. It reads the tree, performs only
@@ -203,12 +205,26 @@ those outcome lines to standard output as a record stream
 and the questions still asked on the terminal, so a script reads the rows
 alone.
 
-## A parked entry
+## A parked entry, and the paths a claim refuses
 
 `projects claim` on a project you disabled does not claim over it and does not
-add a second line: it reports the exclusion, shows the line, and offers
+add a second line: it reports the park, shows the `%` line, and offers
 to re-enable it behind a default-No confirm. Yes claims the project again
-with its line, and its comment, where they were ([Enable](enable.md)).
+with its line, and its comment, where they were ([Enable](enable.md)). A parked
+project that another line also covers, such as a `%` on a directory enclosing
+it, is refused instead, naming that line, and the re-enable is not offered.
+
+A claim refuses, before it writes anything:
+
+- a path a carve-out line (`!`) names, since a carve-out is not a project;
+- a path a carve-out line and an allow or `%` line both name, until you keep
+  the one you mean;
+- a path inside a parked project, or under a carve-out or glob line, since
+  the steps that grant the agent access do not act there. The refusal shows
+  the line; for a park it names the `atr projects enable` that lifts it.
+
+A directory with registered projects under it is claimed as one project,
+and the Review block names the projects it holds.
 
 ## For another operator
 
@@ -216,10 +232,10 @@ with its line, and its comment, where they were ([Enable](enable.md)).
 atr projects claim --for svc-ci /srv/projects/api
 ```
 
-The entry lands in `svc-ci`'s allowlist, so files the agent writes there come
-back to that account and its own agent launches there without further setup.
-The tree has to be owned by that operator or by the sandbox account: a claim
-for an operator over a tree they do not own would register the project
+The entry lands in `svc-ci`'s project registry, so files the agent writes there
+come back to that account and its own agent launches there without further
+setup. The tree has to be owned by that operator or by the sandbox account:
+a claim for an operator over a tree they do not own would register the project
 and leave the agent without access to it, so the claim refuses it up front
 and names the `chown` that fixes it. The worked flow for a service account is
 on [Service accounts](../operators/service-accounts.md).
@@ -228,14 +244,17 @@ The claim reads the project as you, with or without `--for`, so a project
 under a directory you cannot enter is refused, naming that directory.
 Under `--for` the refusal also names a location both accounts reach
 and, where the directory belongs to the target, the traverse-only `setfacl`
-that lets you enter it.
+that lets you enter it. A refusal names `svc-ci`'s registry
+as `~svc-ci/.config/ai-tools/project-registry`, and each command it prints
+carries `--for svc-ci`.
 
 ## Exit status
 
-0 when the tree is claimed or there was no work; 1 when a root step failed,
-or the label step was refused while a session ran, with the pending steps named
-— a re-run applies exactly those; 2 for a rejected command line (an unknown
-option, a `--format` other than `tsv`); 3 when the path is a protected system
-directory or a home root; 4 when a drifted file was left as it was or a scan
-stopped early; 5 when a file's state or part of the tree could not be read.
-`man ai-tools` has the full list.
+0 when the tree is claimed or there was no work; 1 when the path was refused,
+the parked project was not re-enabled, a root step failed, or the label step
+was refused while a session ran, the last two with the pending steps named —
+a re-run applies exactly those; 2 for a rejected command line (a missing
+directory, an unknown option, a `--format` other than `tsv`); 3 when the path
+is a protected system directory or a home root; 4 when a drifted file was left
+as it was or a scan stopped early; 5 when a file's state or part of the tree
+could not be read. `man ai-tools` has the full list.

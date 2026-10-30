@@ -18,7 +18,8 @@ Lists every file under the project whose name matches a secret pattern, asks
 `Lock down these secrets now?` (default Yes), and makes each one yours alone,
 which takes the agent's read away. It runs through `sudo` and asks before it
 changes a file. Run it after adding a credential file to a claimed tree,
-or before re-running a claim that stopped.
+or before re-running a claim that stopped. Without a directory it acts
+on the project the current directory is in, named on its first line.
 
 ## A secret-named file is locked, not shared
 
@@ -76,17 +77,17 @@ Two things to know:
 - A setgid bit set to some third group is taken as deliberate and kept.
   The claim reports it rather than clearing it; clear it with `chmod g-s` if it
   was not intended.
-- For a seal that does not depend on a mode at all, add a `!` line for the path
-  to `~/.config/ai-tools/allowed-projects`. An excluded subtree is skipped
-  by every walk whatever its mode.
+- For a seal that does not depend on a mode at all, add a carve-out line, `!`
+  and the path, to `~/.config/ai-tools/project-registry`. A carved-out subtree
+  is skipped by every walk whatever its mode.
 
 ## What the patterns do not cover
 
 Matching is on **names**, not contents, and the shipped list is a baseline
 of the credential names software writes in general. A secret under a name
 the list does not know is yours to handle first: make it owner-only,
-which a claim then leaves alone, or `!`-exclude it from your allowlist,
-which every walk skips whatever its mode.
+which a claim then leaves alone, or carve it out with a `!` line in your
+project registry, which every walk skips whatever its mode.
 
 Your own list lives at `~/.config/ai-tools/secret-patterns` and **replaces**
 the baseline rather than adding to it, so a file written once holds this host

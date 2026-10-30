@@ -23,7 +23,7 @@ to keep an operator's registries out of root's ownership. That operator
 provisions, and the others run sessions on what it claimed for them.
 
 Operators are trusted with respect to each other. One operator can write
-an entry into another's allowlist with `atr --for <operator>`, which is
+an entry into another's project registry with `atr --for <operator>`, which is
 what makes a passwordless account usable: a human claims the project,
 and the account runs the session. Every such mutation is logged with both
 the caller and the target.

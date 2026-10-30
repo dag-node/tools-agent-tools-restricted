@@ -32,9 +32,9 @@ with the group ai-tools; a secret-named file is locked to you and your group,
 and the coding agent loses access. After projects unclaim a handed-back file is
 yours with your group, the coding agent has no access, and world access does
 not come back. No step re-owns a file you wrote, an owner-only path or a path
-on a ! line of your allowlist; atr projects handback returns files a session
-that ended early left behind, and the files the coding agent writes inside .git
-come back at the start and end of each session."
+on a ! line of your project registry; atr projects handback returns files
+a session that ended early left behind, and the files the coding agent writes
+inside .git come back at the start and end of each session."
 src="../static/diagrams/ownership-lifecycle-light.svg"> </picture>
 
 ## Files the agent writes come back to you
@@ -83,9 +83,9 @@ grant, lets it read and write a file you write under any umask. Grant 2, your
 named grant, lets you open a file the coding agent writes before the handback
 makes you its owner. Others have no access, since a claim closes world access
 on every path it touches; a project directory gives every new file the sandbox
-group and both grants; owner-only paths, lines of your allowlist starting
-with ! and secret-named files get neither grant. getfacl -e shows a path's
-effective access, and ls -l marks a file carrying an ACL with +."
+group and both grants; owner-only paths, lines of your project registry
+starting with ! and secret-named files get neither grant. getfacl -e shows
+a path's effective access, and ls -l marks a file carrying an ACL with +."
 src="../static/diagrams/two-grants-light.svg"> </picture>
 
 ## What a claim leaves alone, and what does not come back
@@ -163,7 +163,7 @@ Say no to the group and ACL, and keep the file as it is, when:
 | is read by a service's group | `you:wheel`, a daemon's group | a `!` line |
 | is private but not sealed | an export with your own group, `640` | `chmod 600` |
 
-A `!` line for the file in `allowed-projects` keeps a re-claim from asking
+A `!` line for the file in your project registry keeps a re-claim from asking
 about it again (`man 5 ai-tools-project-registry`). It does not stop a later
 relabel from resetting the file's SELinux type.
 

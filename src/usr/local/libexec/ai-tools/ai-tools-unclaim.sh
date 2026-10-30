@@ -87,7 +87,7 @@ TARGET="${1:?${USAGE}}"
 TARGET_GROUP="${2:?${USAGE}}"
 shift 2
 
-# `--unlisted`: act on a tree that is NOT in any allowed-projects (a claimed project copied or moved elsewhere and never
+# `--unlisted`: act on a tree that is NOT in any project registry (a claimed project copied or moved elsewhere and never
 # unclaimed). It swaps one gate for another rather than removing one: the allowlist-membership check is skipped,
 # and every path must instead carry the ai-tools residue fingerprint (_is_residue) to be touched at all.
 # The protected-paths backstop, the owner guard, the hardlink guard, and the secret/'!' skips all still apply,
@@ -243,7 +243,7 @@ _is_allowed() {
 }
 
 # Refuse a '!'-excluded target outright, and in the default mode a target outside every registered project: unclaim must
-# never modify permissions outside allowed-projects. Same gate as `ai-tools-{setgid,setfacl}` (a silent no-op
+# never modify permissions outside the project registry. Same gate as `ai-tools-{setgid,setfacl}` (a silent no-op
 # on a foreign target). The management CLI runs the hand-back BEFORE it drops the allowlist entry, so a legitimate
 # unclaim still resolves its owner and stays listed here. `--unlisted` swaps this whole-tree gate for the per-path
 # residue gate in _safe_unclaim; it never runs with neither.

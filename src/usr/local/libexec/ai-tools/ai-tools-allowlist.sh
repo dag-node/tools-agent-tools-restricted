@@ -6,14 +6,14 @@
 # `ai-tools ... --for <operator>`: it lets a human operator claim a project for a service account that has no password
 # and therefore cannot authenticate the claim's own root helpers.
 #
-# Root is needed for READS as well as writes: an allowlist is 0600 inside a 0700 .config/ai-tools (ai-tools-admin seeds
+# Root is needed for READS as well as writes: a registry is 0600 inside a 0700 .config/ai-tools (ai-tools-admin seeds
 # an operator's config), so one operator cannot see another's list at all. `--print` exists for exactly
 # that, and the CLI snapshots it for the decisions a claim makes (is the path listed, disabled, or absent)
 # before routing the mutation back through the four editing actions. It reads an existing registry and refuses a missing
 # one with the code the add refuses it with, so the snapshot -- a --for run's first sudo -- carries the refusal ahead
 # of any write the run makes.
 #
-# The allowlist is the LAUNCH GATE: an entry here is what lets that operator's agent start in the directory,
+# The registry is the LAUNCH GATE: an entry here is what lets that operator's agent start in the directory,
 # and what makes the ownership handback restore files to them. Editing another operator's gate stays inside the trust
 # model's "%ai-ops operators are trusted" boundary, but it is not something the sandbox account may ever reach,
 # so the helper is 750 root:root, and holds NO NOPASSWD grant (the invoking human authenticates, like
@@ -24,7 +24,7 @@
 #   - the CALLER is not in OPERATORS                              -> refuse, write no entry
 #   - the TARGET is not in OPERATORS                              -> refuse, write no entry
 #   - the target is the sandbox account or root                   -> refuse, write no entry
-#   - the target has no allowlist file yet                        -> refuse, print nothing, write no entry
+#   - the target has no registry file yet                         -> refuse, print nothing, write no entry
 #   - the target's registry is a legacy allowed-projects, or the  -> refuse, print nothing, write no entry
 #     grammar refuses a line of it
 #   - the path is not a real directory, or is a protected system  -> refuse, write no entry

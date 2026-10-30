@@ -364,6 +364,8 @@ check_seed_header() {
     fi
 }
 
+# EXAMPLE_BLOCK_END: the line the example reader prints at each .EE, which no page line is.
+readonly EXAMPLE_BLOCK_END=$'\x1e'
 ALLOWLIST_MAN="$(man5_path ai-tools-project-registry)"
 section "man page: ai-tools-project-registry(5) and the seeded registry header (unit)"
 check_allowlist_page() {
@@ -376,19 +378,47 @@ check_allowlist_page() {
     fi
     check_seed_header ai_tools_conf__get_allowlist_seed ai-tools-project-registry
 
-    # Every entry-shaped example -- a path, an exclusion, or a quoted path -- parses as an entry; the CLI invocations
-    # in the same blocks are not entries and are not read.
-    local -a examples=(); local line bad=0
-    mapfile -t examples < <(man_examples "${ALLOWLIST_MAN}" | grep -E '^[/!%"]' || true)
-    if (( ${#examples[@]} == 0 )); then
-        fail "ai-tools-project-registry(5) EXAMPLES carry no entry-shaped line to check"
-    else
-        for line in "${examples[@]}"; do
-            # shellcheck disable=SC2154  # ai_tools_conf__value is set by ai_tools_conf__parse_path_entry in the sourced library
-            if ai_tools_conf__parse_path_entry "${line}" && [[ "${ai_tools_conf__value}" == /* || "${ai_tools_conf__value}" == '!/'* ]]; then :
-            else fail "ai-tools-project-registry(5) example does not parse as an entry: ${line}"; bad=1; fi
-        done
-        (( bad )) || pass "every entry-shaped EXAMPLES line in ai-tools-project-registry(5) parses through the shared grammar (${#examples[@]} lines)"
+    # The examples are held to what the page says they mean, not to the parser alone, since a parked project written
+    # with a '!' parses as an entry and reads as a carve-out. Each .EX block holding an entry is written to a file
+    # and must validate as a current registry, and each line whose comment opens with a state word must classify
+    # as that state through the classifier every `projects` verb reads; a block of commands is not read.
+    local -a block=(); local line blocks=0 claimed=0 bad=0 example_file state comment word path
+    local -A states_claimed=()
+    mktestdir; example_file="${TESTDIR}/registry-example"
+    while IFS= read -r line; do
+        if [[ "${line}" != "${EXAMPLE_BLOCK_END}" ]]; then block+=("${line}"); continue; fi
+        if printf '%s\n' "${block[@]+"${block[@]}"}" | grep -qE '^[/!%"]'; then
+            blocks=$(( blocks + 1 ))
+            printf '%s\n' "${block[@]}" > "${example_file}"
+            if ! ai_tools_conf__validate_registry "${example_file}" current 2>"${TESTDIR}/example.err"; then
+                fail "ai-tools-project-registry(5) EXAMPLES block ${blocks} is not a valid registry: $(head -c 300 "${TESTDIR}/example.err" | tr '\n' '|')"
+                bad=1
+            fi
+            for line in "${block[@]}"; do
+                [[ "${line}" == *' # '* ]] || continue
+                ai_tools_conf__parse_path_entry "${line}" || continue
+                # shellcheck disable=SC2154  # ai_tools_conf__value is set by ai_tools_conf__parse_path_entry in the sourced library
+                path="${ai_tools_conf__value}"
+                case "${path}" in '!'*|'%'*) path="${path:1}" ;; esac
+                comment="${line##* # }"; word="${comment%%[ :,]*}"
+                case "${word}" in listed|parked|carve-out|conflict) ;; *) continue ;; esac
+                claimed=$(( claimed + 1 )); states_claimed["${word}"]=1
+                state="$(ai_tools_conf__read_registry_path_class "${example_file}" "${path}" 2>/dev/null | cut -f1)"
+                if [[ "${state}" != "${word}" ]]; then
+                    fail "ai-tools-project-registry(5) example says ${word} and classifies ${state:-as nothing}: ${line}"
+                    bad=1
+                fi
+            done
+        fi
+        block=()
+    done < <(read_man "${ALLOWLIST_MAN}" \
+        | awk -v end="${EXAMPLE_BLOCK_END}" '/^\.EX/{on=1;next} /^\.EE/{on=0; print end; next} on' | sed 's/^\\&//')
+    if (( blocks == 0 )); then
+        fail "ai-tools-project-registry(5) EXAMPLES carry no registry to check"
+    elif [[ -z "${states_claimed[listed]:-}" || -z "${states_claimed[parked]:-}" || -z "${states_claimed[carve-out]:-}" ]]; then
+        fail "ai-tools-project-registry(5) EXAMPLES do not state a listed, a parked and a carve-out line (${!states_claimed[*]})"
+    elif (( ! bad )); then
+        pass "every ai-tools-project-registry(5) EXAMPLES registry validates (${blocks} blocks) and each of ${claimed} lines classifies as its comment says"
     fi
     th_version "${ALLOWLIST_MAN}" AI-TOOLS-PROJECT-REGISTRY
 }

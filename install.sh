@@ -2263,9 +2263,9 @@ do_install() {
         /usr/lib/systemd/system/ai-tools-relabel.service
 
     # Project-lifecycle CLI. Runs AS the projects user (never root, never ai-tools) and does not need privilege: it only
-    # edits allowed-projects and the git safe.directory list, both writable by the projects user. 755 root:root --
-    # world-executable (the in-script guard refuses to run as root or ai-tools), root-owned so the agent cannot tamper
-    # with it.
+    # edits the operator's project registry and the git safe.directory list, both writable by the projects user. 755
+    # root:root -- world-executable (the in-script guard refuses to run as root or ai-tools), root-owned so the agent
+    # cannot tamper with it.
     log "/usr/local/bin/ai-tools"
     install_subst 755 root root \
         "${SCRIPT_DIR}/src/usr/local/bin/ai-tools.sh" \

@@ -2,18 +2,18 @@
 
 [About](index.md) · **Scope** — [all docs](../index.md)
 
-Where the enforced boundary sits, why the allowlist is not that boundary,
-what the confinement stops covering, and the three cases this project leaves
-out.
+Where the enforced boundary sits, why the project registry is not
+that boundary, what the confinement stops covering, and the three cases this
+project leaves out.
 
 The enforced isolation boundary is ordinary file permissions plus
 the `ai_tools_t` SELinux type. Once a session runs as `ai-tools`, those decide
 which files it can open — the same boundary the kernel draws between any two
 accounts on the host.
 
-## The allowlist gates a launch, not a read
+## The project registry gates a launch, not a read
 
-`~/.config/ai-tools/allowed-projects` decides where a session may start
+`~/.config/ai-tools/project-registry` decides where a session may start
 and which written files get ownership handed back. It does not decide
 what a running session may read. The directory you launch in is canonicalized
 before it is matched, so a symlink or a `..` resolves to its real target
@@ -22,9 +22,9 @@ and cannot slip a path past the gate; past the gate, file permissions govern.
 That is why every flow granting the agent access locks secret-named files
 down first, and why declining a lockdown stops the claim
 ([Lockdown](../projects/lockdown.md)). A per-session `bubblewrap` mount
-namespace, which would make the allowlist a read boundary too, is proposed
-rather than built: a session is launched under a filter that blocks namespace
-creation for its whole process tree — the lighter control that closes
+namespace, which would make the project registry a read boundary too, is
+proposed rather than built: a session is launched under a filter that blocks
+namespace creation for its whole process tree — the lighter control that closes
 the escape route an agent-reachable user namespace opens — and an unprivileged
 `bubblewrap` works by creating exactly those namespaces. Relaxing the filter
 would reopen that route, so the mount boundary waits on resolving the conflict
@@ -71,7 +71,7 @@ from an oversight:
 - **Operators are trusted.** The model defends the host and its other users
   from the *agent*, not from an operator, who already holds the launch grant.
   `atr projects claim --for <operator>` rests on that: one operator writes
-  an entry into another's allowlist, so a human can claim a project
+  an entry into another's project registry, so a human can claim a project
   for a passwordless service account ([Service
   accounts](../operators/service-accounts.md)).
 - **The npm registry's signing key is not pinned.** Each toolchain update

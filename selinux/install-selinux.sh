@@ -101,9 +101,9 @@ readonly ALLOWLIST
 # semanage loop skips them (a duplicate local rule would be redundant). A plain restorecon of this tree applies
 # the static label.
 readonly SANDBOX_PROJECTS="/var/opt/ai-tools/sandbox-projects"
-# The user-owned ai-tools config dir (allowed-projects, secret-patterns). Labelled ai_tools_conf_t so the root helpers
-# -- which run IN ai_tools_handback_t, inherited from the handback daemon -- can read the allowlist; without it their
-# getattr is denied (config_home_t:file is dontaudit'd) and ownership handback silently no-ops. The narrow type is
+# The user-owned ai-tools config dir (the project registry, secret-patterns). Labelled ai_tools_conf_t so the root
+# helpers -- which run IN ai_tools_handback_t, inherited from the handback daemon -- can read the registry; without it
+# their getattr is denied (config_home_t:file is dontaudit'd) and ownership handback silently no-ops. The narrow type is
 # what keeps that grant off the rest of ~/.config. The confined session is granted the same type, which the 700/600
 # modes then gate -- see the ai_tools_conf_t block in ai_tools.te. Applied via semanage (dynamic home path), not
 # ai_tools.fc (fixed paths).

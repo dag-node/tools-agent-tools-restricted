@@ -197,8 +197,11 @@ the CLI is unprivileged and refuses to run as root.
 - appends the name to `OPERATORS` in `/etc/ai-tools/operator.conf`;
 - adds the user to the `ai-ops` group, which the static `sudoers.d/ai-tools`
   drop-in and the launch wrapper gate on;
-- seeds the user's `~/.config/ai-tools/allowed-projects` (empty, with a header)
-  when absent, leaving an existing allowlist untouched;
+- seeds the user's `~/.config/ai-tools/project-registry` (the format marker
+  and a header, no entry) when absent, leaving an existing registry untouched;
+  an `~/.config/ai-tools/allowed-projects` an earlier release wrote stays
+  the registry, and the command names `atr admin system post-upgrade`,
+  which migrates it;
 - ensures the `ai-tools` account's linger (its `--user instance` runs
   the toolchain timer and each `ai-tools-run` session); an operator runs
   `claude` from its own login and needs none;
@@ -207,7 +210,7 @@ the CLI is unprivileged and refuses to run as root.
   a non-interactive run prints the line to add.
 
 `remove <user>` drops the name from `OPERATORS` and the `ai-ops` group, leaving
-the user's own allowlist and config in place. `list` prints the current
+the user's own project registry and config in place. `list` prints the current
 operators. `add` refuses to make the sandbox account or root an operator,
 and `ai-tools-run` refuses to launch if the sandbox account is ever
 in `ai-ops`.
@@ -369,7 +372,7 @@ rather than packaged files:
   `ai-tools`-owned files;
 - `/opt/ai-tools/.nvm` (nvm and Node) and `/var/opt/ai-tools` (sandbox clones),
   which are unpackaged runtime data;
-- each operator's `~/.config/ai-tools/{allowed-projects,secret-patterns}`,
+- each operator's `~/.config/ai-tools/{project-registry,secret-patterns}`,
   which the package never owns — `atr admin operators add` seeds the operator's
   config files and they survive erase untouched.
 

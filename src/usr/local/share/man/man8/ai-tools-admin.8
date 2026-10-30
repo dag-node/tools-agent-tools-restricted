@@ -254,11 +254,11 @@ Enrol
 .IR USER ,
 defaulting to
 .BR $SUDO_USER .
-Seeds that account's own config first \(em an allowlist at
-.I ~/.config/ai\-tools/allowed\-projects
+Seeds that account's own config first \(em a project registry at
+.I ~/.config/ai\-tools/project\-registry
 and secret\-name patterns at
 .IR ~/.config/ai\-tools/secret\-patterns ,
-each carrying its format header alone \(em then appends the name to
+each carrying its header alone, the registry its format marker first \(em then appends the name to
 .BR OPERATORS ,
 adds the account to
 .BR ai\-ops ,
@@ -300,9 +300,15 @@ ai\-tools directory inside it is
 .B 700
 and its files
 .BR 600 .
-A first enrolment that cannot write the allowlist is refused with the host
-unchanged, since an operator without one can neither start a session nor claim
-a project.
+A first enrolment that cannot write the project registry is refused with the
+host unchanged, since an operator without one can neither start a session nor
+claim a project.
+An account that still holds the
+.I ~/.config/ai\-tools/allowed\-projects
+an earlier release wrote keeps it as its registry: the new file is not seeded
+beside it, and a warning names
+.BR "system post\-upgrade" ,
+which migrates it.
 Idempotent: a re-run reconciles each of those and reports what was already in
 place, and exits non\-zero when the config is still missing.
 Refuses root and the sandbox account.
@@ -314,7 +320,7 @@ enrolment: drops the name from
 .B OPERATORS
 and the account from
 .BR ai\-ops .
-Leaves the account's own allowlist and configuration on disk, so re-enrolling
+Leaves the account's own project registry and configuration on disk, so re-enrolling
 restores the projects it had.
 .TP
 .B selinux groups
@@ -527,6 +533,34 @@ it reconciles the entrypoints of the agents that line now enables, as
 does.
 This is the one change it makes to that file, and the unattended run makes it
 too.
+.IP
+Each enrolled operator's
+.I ~/.config/ai\-tools/allowed\-projects
+an earlier release wrote is migrated too, unattended included, since every
+.B "atr projects"
+command but the listing refuses until it is.
+The block for each account prints every line, then writes
+.I ~/.config/ai\-tools/project\-registry
+as the format marker followed by those lines unchanged, at the old file's
+owner and mode, and renames the old file to a dated
+.I .bak
+beside it.
+It names each
+.B !\&
+line no project encloses with the
+.B %
+line that keeps it as a parked project, since in the new format such a line is
+a carve-out.
+A file the operator does not own at mode
+.BR 600 ,
+or one holding a line its grammar refuses, is named and left as written.
+A registry the launch gate refuses is named with the line to fix, since no
+session starts under it.
+One refused only for an exclusion spelled through a symbolic link the sandbox
+account can change still migrates, the new file carrying the same line.
+See
+.BR ai\-tools\-project\-registry (5).
+.IP
 Whether or not a copy is waiting, the command also names each
 .B permissions.ask
 entry the agent's
@@ -612,7 +646,17 @@ entry the file lacks),
 .IR DETAIL ),
 .B list\-unmigratable
 (a name in a provider list that does not match any installed manifest or rule
-set, to edit by hand).
+set, to edit by hand),
+.B registry\-unmigrated
+(an operator's
+.I ~/.config/ai\-tools/allowed\-projects
+the command would migrate),
+.B registry\-invalid
+(an operator's registry the migration or the launch gate refuses: a source
+the operator does not own at mode 600, a line the grammar refuses, or an
+exclusion through a symbolic link the sandbox account can change, with the
+reason as
+.IR DETAIL ).
 An
 .B error
 row (a check that could not run, or a collector that failed, with the check
@@ -918,7 +962,8 @@ provisioned, each managed
 unit, each asset
 .B AI_TOOLS_ASSETS
 enables that is not linked with its reason, each cache the sandbox account
-cleans with its last cleanup and the size it holds now, the sandbox
+cleans with its last cleanup and the size it holds now, each enrolled
+operator's project registry read as the launch gate reads it, the sandbox
 account's own unit search path, and \(em per enabled agent
 \(em both halves of the entrypoint reconciliation: whether the binary matches
 the checksum pinned for it, and what SELinux type its paths carry.
@@ -1169,9 +1214,16 @@ edits the
 .B OPERATORS
 line in place and leaves every other setting as written.
 .TP
+.I ~/.config/ai-tools/project-registry
+The enrolled account's own project registry, seeded by
+.BR "operators add" ;
+see
+.BR ai\-tools\-project\-registry (5).
+.TP
 .I ~/.config/ai-tools/allowed-projects
-The enrolled account's own allowlist of project paths, seeded by
-.BR "operators add" .
+The registry an earlier release wrote, which
+.B "system post\-upgrade"
+migrates.
 .TP
 .I ~/.config/ai-tools/secret-patterns
 The same account's secret\-name patterns, seeded by
@@ -1327,10 +1379,10 @@ atr admin system entrypoints relabel
 .SH SEE ALSO
 .BR ai\-tools (1),
 .BR ai-tools-assets (5),
-.BR allowed\-projects (5),
 .BR ai-tools-operator.conf (5),
+.BR ai\-tools\-project\-registry (5),
 .BR ai-tools-records (5),
-.BR secret\-patterns (5),
+.BR ai\-tools\-secret\-patterns (5),
 .BR semodule (8),
 .BR sudoers (5).
 .PP

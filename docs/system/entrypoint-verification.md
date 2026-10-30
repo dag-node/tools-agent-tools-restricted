@@ -250,7 +250,7 @@ across sessions and across operators indefinitely.
 - It proves the binary is a **genuine** vendor release, not the **newest** one.
   Rolling back to an older signed release still verifies.
 - It does not make any claim about what the agent *does* once running. That is
-  the sandbox's job: the confined account, the project allowlist,
+  the sandbox's job: the confined account, the project registry,
   and the ownership handback.
 
 ## See also
