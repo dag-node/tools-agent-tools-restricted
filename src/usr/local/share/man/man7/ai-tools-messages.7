@@ -1105,7 +1105,7 @@ run me through sudo as an operator (no SUDO_UID) \-\- nothing changed
 .TP
 .B MSG-T7B6
 ERROR.
-that project is DISABLED for ${OPERATOR}: ${canonical} \-\- a '!' line
+that path is DISABLED or carved out for ${OPERATOR}: ${canonical} \-\- a '%' line parks it
 .TP
 .B MSG-V9K7
 NOTICE.
@@ -2340,7 +2340,11 @@ not an ai\-tools operator \-\- ${user} is not a member of the ${OPERATORS_GROUP}
 .TP
 .B MSG-C9S6
 ERROR.
-approved\-projects allowlist not found
+project registry not found: ${allowlist}
+.TP
+.B MSG-D9R4
+ERROR.
+refusing to launch \-\- a line in the project registry is refused: ${allowlist}
 .TP
 .B MSG-F8N3
 ERROR.
@@ -2364,7 +2368,7 @@ no session starts while a disabled agent's package is still in the sandbox toolc
 .TP
 .B MSG-K8K2
 ERROR.
-excluded by '!' rule in approved projects list: $(pwd)
+excluded by a '!' line in your project registry: ${cwd}
 .TP
 .B MSG-N2Z7
 ERROR.
@@ -2380,7 +2384,7 @@ this is the sandbox account ${SANDBOX_USER}, which is not an ai\-tools operator
 .TP
 .B MSG-R2V6
 ERROR.
-this project is disabled in your approved projects list: $(pwd)
+this project is disabled in your project registry: ${cwd}
 .TP
 .B MSG-R7Z3
 ERROR.
@@ -2424,7 +2428,7 @@ the enabled agents could not be resolved \-\- refusing to start
 .TP
 .B MSG-W2P3
 ERROR.
-excluded by '!' rule in approved projects list: $(pwd)
+excluded by a line in your project registry: ${cwd}
 .TP
 .B MSG-W4X4
 ERROR.
@@ -2432,11 +2436,11 @@ refusing to launch \-\- ${cwd} is not fully claimed for the sandbox
 .TP
 .B MSG-X4N6
 ERROR.
-approved\-projects allowlist cannot be read: ${allowlist}
+project registry cannot be read: ${allowlist}
 .TP
 .B MSG-Z3Q6
 ERROR.
-refusing to launch \-\- an exclusion in the approved\-projects allowlist cannot be resolved: ${allowlist}
+refusing to launch \-\- an exclusion in the project registry cannot be resolved: ${allowlist}
 .TP
 .B MSG-Z6F8
 ERROR.

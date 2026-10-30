@@ -18,7 +18,8 @@
 #
 # Invoked as root via sudo by `atr projects unclaim`: root is what a chgrp to an arbitrary group, and a change to a file
 # the projects user does not own, need. The path and the target group the CLI passes are re-validated here, and the path
-# must resolve at or under a registered project (allowed-projects) or the helper is a no-op.
+# must resolve at or under a registered project (the operator's project registry) or the helper is a no-op. A registry
+# the loader refuses, a line the grammar refuses among the reasons, does not list any project.
 #
 # Two modes, differing ONLY in which paths they accept -- never in what they do to a path they accept, so one reversal
 # is described once and tested once:
@@ -222,12 +223,13 @@ source /usr/local/lib/ai-tools/conf.lib.sh
 declare -a allowed_directories=()
 # shellcheck disable=SC2034  # filled and read through its name by the conf.lib.sh loader and matcher
 declare -a exclusion_patterns=()
-# The one read every reader of the allowlist makes (ai_tools_conf__load_allowlist, conf.lib.sh). A file that cannot be
-# read, or whose exclusion the loader refuses, leaves both arrays empty, so the target is not listed.
+# The one read every reader of the registry makes (ai_tools_conf__load_allowlist, conf.lib.sh). A file that cannot be
+# read, one whose exclusion the loader refuses (status 2), and one holding a line the grammar refuses (status 3) each
+# leave both arrays empty, so the target is not listed.
 ai_tools_conf__load_allowlist "${ALLOWLIST}" allowed_directories exclusion_patterns || true
 
-# _is_excluded <abs-path>: 0 if covered by a '!' rule (ai_tools_conf__is_path_excluded, conf.lib.sh -- the match every
-# reader of the allowlist makes).
+# _is_excluded <abs-path>: 0 if covered by a '!' or '%' line (ai_tools_conf__is_path_excluded, conf.lib.sh -- the match
+# every reader of the registry makes).
 _is_excluded() { ai_tools_conf__is_path_excluded "$1" exclusion_patterns; }
 
 # _is_allowed <abs-path>: 0 if at or under an allowed directory.

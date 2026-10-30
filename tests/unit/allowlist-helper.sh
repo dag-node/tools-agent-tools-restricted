@@ -2,10 +2,11 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # tests/unit/allowlist-helper.sh
 # Hermetic unit tests for the deployed ai-tools-allowlist helper: the privileged seam behind
-# `ai-tools ... --for <operator>`, which reads and edits ANOTHER enrolled operator's allowed-projects. Because that file
+# `ai-tools ... --for <operator>`, which reads and edits ANOTHER enrolled operator's project registry. Because that file
 # is a LAUNCH GATE, every gate on the way to it is asserted to fire and to leave the registry byte-identical: an absent
-# sudo context, an unenrolled caller, an unenrolled or non-operator target, a target with no allowlist file (refused
-# for --print as for an edit), and a protected system directory as the path.
+# sudo context, an unenrolled caller, an unenrolled or non-operator target, a target with no registry file (refused
+# for --print as for an edit), a target whose registry is a legacy allowed-projects or holds a refused line,
+# and a protected system directory as the path.
 #
 # This is the runtime half of the pair -- that each refusal actually fires. The boundary half, that the sandbox account
 # cannot reach the helper at all, is in tests/boundary/access.sh.
@@ -32,7 +33,7 @@ chmod 0755 "${TESTDIR}" "${proj}"
 
 mk_allowlist "# fixture allowlist"
 mk_operator
-readonly ALLOWFILE="${TESTDIR}/allowed-projects"
+readonly ALLOWFILE="${TESTDIR}/project-registry"
 # The harness writes the fixture as root; a real allowlist is the operator's own file, 0600 in a 0700 config dir. Model
 # that, because "the helper leaves the registry as its operator's data rather than taking it over as root" is one
 # of the properties this suite asserts -- against a root-owned fixture it would pass trivially.
@@ -123,7 +124,7 @@ refuses "refuses a missing --operator" MSG-X4Z3 "${OPERATOR_UID}" --print
 # hook at a path that does not exist, which is the state a hand-enrolled account is in.
 before_missing="$(md5sum < "${ALLOWFILE}")"
 out="$(env SUDO_UID="${OPERATOR_UID}" \
-    AI_TOOLS_ALLOWLIST="${TESTDIR}/no-config/allowed-projects" \
+    AI_TOOLS_ALLOWLIST="${TESTDIR}/no-config/project-registry" \
     AI_TOOLS_OPERATOR_CONF="${TESTDIR}/operator.conf" \
     "${HELPER}" --operator "${PROJECTS_USER}" --add "${proj}" 2>&1)" && rc=0 || rc=$?
 if (( rc == 0 )); then
@@ -132,7 +133,7 @@ elif ! grep -qxF -- MSG-S7Y3 <<<"${out}"; then
     fail "a target with no allowlist: refused without the code naming that situation: ${out}"
 elif ! grep -q 'operators add' <<<"${out}"; then
     fail "a target with no allowlist: refused without naming the enrolment command: ${out}"
-elif [[ -e "${TESTDIR}/no-config/allowed-projects" ]]; then
+elif [[ -e "${TESTDIR}/no-config/project-registry" ]]; then
     fail "a target with no allowlist: the helper created the file"
 elif [[ "${before_missing}" != "$(md5sum < "${ALLOWFILE}")" ]]; then
     fail "a target with no allowlist: another operator's registry changed"
@@ -141,18 +142,63 @@ else
 fi
 # --print refuses the same state, so the CLI's snapshot -- a --for run's first sudo -- stops the run before any write.
 out="$(env SUDO_UID="${OPERATOR_UID}" \
-    AI_TOOLS_ALLOWLIST="${TESTDIR}/no-config/allowed-projects" \
+    AI_TOOLS_ALLOWLIST="${TESTDIR}/no-config/project-registry" \
     AI_TOOLS_OPERATOR_CONF="${TESTDIR}/operator.conf" \
     "${HELPER}" --operator "${PROJECTS_USER}" --print 2>&1)" && rc=0 || rc=$?
 if (( rc == 0 )); then
     fail "a target with no allowlist: --print succeeded where it must refuse: ${out}"
 elif ! grep -qxF -- MSG-S7Y3 <<<"${out}"; then
     fail "a target with no allowlist: --print refused without the code naming that situation: ${out}"
-elif [[ -e "${TESTDIR}/no-config/allowed-projects" ]]; then
+elif [[ -e "${TESTDIR}/no-config/project-registry" ]]; then
     fail "a target with no allowlist: --print created the file"
 else
     pass "--print refuses a target with no config, with the code the add refuses it with"
 fi
+
+# (10) A legacy target and a refused line. The helper edits the current format alone, and a `--print` of a legacy
+# allowed-projects would hand the CLI's snapshot a file read under another grammar, so every action refuses, `--print`
+# first among them, citing the migration's code; a refused line is named by the library. Each refusal leaves the file
+# byte-identical.
+mkdir -p "${TESTDIR}/legacy"
+printf '%s\n' "${proj}" > "${TESTDIR}/legacy/allowed-projects"
+printf '%s\n' "# ai-tools-project-registry-format: 1.0" "${proj}" "relative/entry" > "${TESTDIR}/legacy/projects-invalid"
+mkdir -p "${TESTDIR}/invalid"; mv "${TESTDIR}/legacy/projects-invalid" "${TESTDIR}/invalid/project-registry"
+# refused_registry <label> <code> <registry> <args...>
+refused_registry() {
+    local label="$1" code="$2" registry="$3" before out rc; shift 3
+    before="$(md5sum < "${registry}")"
+    out="$(env SUDO_UID="${OPERATOR_UID}" AI_TOOLS_ALLOWLIST="${registry}" \
+        AI_TOOLS_OPERATOR_CONF="${TESTDIR}/operator.conf" "${HELPER}" "$@" 2>&1)" && rc=0 || rc=$?
+    if (( rc == 0 )); then
+        fail "${label}: helper succeeded where it must refuse: ${out}"
+    elif ! grep -qxF -- "${code}" <<<"${out}"; then
+        fail "${label}: refused (rc=${rc}) without ${code} on a line of its own, got: ${out}"
+    elif grep -qF -- "${proj}" <<<"${out//${registry}/}"; then
+        fail "${label}: the refusal printed the registry's content: ${out}"
+    elif [[ "${before}" != "$(md5sum < "${registry}")" ]]; then
+        fail "${label}: refused but the registry changed"
+    else
+        pass "${label}"
+    fi
+}
+refused_registry "--print refuses a legacy allowed-projects, citing the migration" MSG-J6S8 \
+    "${TESTDIR}/legacy/allowed-projects" --operator "${PROJECTS_USER}" --print
+for action in --add --remove --enable --disable; do
+    refused_registry "${action} refuses a legacy allowed-projects, citing the migration" MSG-J6S8 \
+        "${TESTDIR}/legacy/allowed-projects" --operator "${PROJECTS_USER}" "${action}" "${proj}"
+done
+# The legacy refusal names where the migration writes, the path the registry is named by in a message.
+legacy_out="$(env SUDO_UID="${OPERATOR_UID}" AI_TOOLS_ALLOWLIST="${TESTDIR}/legacy/allowed-projects" \
+    AI_TOOLS_OPERATOR_CONF="${TESTDIR}/operator.conf" "${HELPER}" --operator "${PROJECTS_USER}" --print 2>&1)" || true
+if grep -qF -- "migrates it to ~/.config/ai-tools/project-registry" <<<"${legacy_out}"; then
+    pass "the legacy refusal names ~/.config/ai-tools/project-registry as the migration's destination"
+else
+    fail "the legacy refusal does not name the migration's destination, got: ${legacy_out}"
+fi
+refused_registry "--print refuses a registry holding a refused line, naming it" MSG-B8U2 \
+    "${TESTDIR}/invalid/project-registry" --operator "${PROJECTS_USER}" --print
+refused_registry "--add refuses a registry holding a refused line, naming it" MSG-B8U2 \
+    "${TESTDIR}/invalid/project-registry" --operator "${PROJECTS_USER}" --add "${proj}"
 
 # ── Mechanics: add / print / remove against the primary operator's fixture registry ──────────
 out="$(run_helper "${OPERATOR_UID}" --operator "${PROJECTS_USER}" --add "${proj}")" && rc=0 || rc=$?
@@ -204,12 +250,12 @@ fi
 # What separates them from an add/remove pair is that they edit the operator's OWN line in place. A `--for` target's
 # allowlist is as much a curated document as the invoker's, so the position and the comment must survive a park/restore
 # performed by root on someone else's file.
-printf '%s\n' "# fixture allowlist" "${proj}   # payments, dev stage" > "${ALLOWFILE}"
+printf '%s\n' "# ai-tools-project-registry-format: 1.0" "# fixture allowlist" "${proj}   # payments, dev stage" > "${ALLOWFILE}"
 chown "${PROJECTS_USER}:${PROJECTS_GROUP}" "${ALLOWFILE}"; chmod 600 "${ALLOWFILE}"
 before="$(cat "${ALLOWFILE}")"
 
 out="$(run_helper "${OPERATOR_UID}" --operator "${PROJECTS_USER}" --disable "${proj}")" && rc=0 || rc=$?
-if (( rc == 0 )) && [[ "$(sed -n '2p' "${ALLOWFILE}")" == "!${proj}   # payments, dev stage" ]]; then
+if (( rc == 0 )) && [[ "$(sed -n '3p' "${ALLOWFILE}")" == "%${proj}   # payments, dev stage" ]]; then
     pass "--disable parks the entry in place, keeping its position and comment"
 else
     fail "--disable did not park the entry (rc=${rc}): ${out}"$'\n'"$(cat "${ALLOWFILE}")"
@@ -222,7 +268,7 @@ else
     fail "--disable left the allowlist as ${owner} ${mode}, expected ${PROJECTS_USER} 600"
 fi
 
-# A parked project is NOT an unlisted one: adding over it would leave the '!' winning at the launch gate while
+# A parked project is NOT an unlisted one: adding over it would leave the '%' winning at the launch gate while
 # the caller was told the project was registered.
 refuses "--add refuses a disabled project" MSG-T7B6 \
     "${OPERATOR_UID}" --operator "${PROJECTS_USER}" --add "${proj}"

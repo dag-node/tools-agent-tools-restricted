@@ -287,15 +287,17 @@ ai_tools_launch_wrapper__gate_lists() {
 # wrote (ai_tools_conf__find_paths_ahead_of_clock, conf.lib.sh): every record a session leaves -- the audit lines,
 # the handback stamps, the journal -- would carry a wrong time, and a host with no battery-backed clock boots
 # into an earlier time until it reaches a time source. The files read are the ones every host writes at a known moment
-# and the operator can stat: this library and the wrapper (written at install), the operator's allowlist (at the last
-# claim), the updater's last-run stamp (daily on a healthy host), and the entrypoint pins (at the last reconcile).
-# The refusal names the file and the command that sets the clock; there is no override, since the fix is the clock
-# itself. ai-tools-run makes the same read as the sandbox account, against the files it can reach, so the boundary does
-# not rest on this diagnostician. A clock that is ahead is not visible this way, and this gate does not claim to see it.
+# and the operator can stat: this library and the wrapper (written at install), the operator's project registry (at
+# the last claim), the updater's last-run stamp (daily on a healthy host), and the entrypoint pins (at the last
+# reconcile). The refusal names the file and the command that sets the clock; there is no override, since the fix is
+# the clock itself. ai-tools-run makes the same read as the sandbox account, against the files it can reach,
+# so the boundary does not rest on this diagnostician. A clock that is ahead is not visible this way, and this gate does
+# not claim to see it.
 ai_tools_launch_wrapper__gate_clock() {
-    local pin_dir="${AI_TOOLS_ENTRYPOINT_PIN_DIR:-/var/opt/ai-tools/state/entrypoint-pin.d}" behind when path
+    local pin_dir="${AI_TOOLS_ENTRYPOINT_PIN_DIR:-/var/opt/ai-tools/state/entrypoint-pin.d}" behind when path registry
     local -a lines=()
-    behind="$(ai_tools_conf__find_paths_ahead_of_clock "${BASH_SOURCE[0]}" "$0" "${HOME}/.config/ai-tools/allowed-projects" \
+    IFS=$'\t' read -r _ registry < <(ai_tools_conf__resolve_registry "${HOME}/.config/ai-tools")
+    behind="$(ai_tools_conf__find_paths_ahead_of_clock "${BASH_SOURCE[0]}" "$0" "${registry}" \
         /var/opt/ai-tools/state/nvm-update.status "${pin_dir}"/* 2>/dev/null)" && return 0
     while IFS=$'\t' read -r when path; do
         [[ -n "${path}" ]] && lines+=("         ${when}  ${path}")
@@ -381,20 +383,19 @@ ai_tools_launch_wrapper__print_and_exit() {
 }
 
 # ai_tools_launch_wrapper__gate_project -- canonicalize the CWD into AI_TOOLS_LAUNCH_WRAPPER__PROJECT_DIR and refuse it
-# unless approved. The protected-paths backstop runs before the allowlist is consulted, so a mis-entered allowlist
-# cannot start a session where the ownership handback would then act. The allowlist is
-# ~/.config/ai-tools/allowed-projects (one path per line, through the shared grammar); lines beginning with ! are
-# exclusions and override allows -- exactly as in ai-tools-chown, so ! means the same thing in the launch gate as it
-# does in the ownership hand-back: a subdirectory under an approved parent can be carved back out, and the agent refuses
-# to start there. A CWD that is not approved draws the setup menu (create a sandbox clone, claim here, cancel)
-# on a terminal, and is refused without
-# one.
+# unless approved. The protected-paths backstop runs before the registry is consulted, so a mis-entered registry cannot
+# start a session where the ownership handback would then act. The registry is the file ai_tools_conf__resolve_registry
+# picks in ~/.config/ai-tools -- `projects`, or `allowed-projects` until it is migrated -- read through the shared
+# grammar; a carve-out (`!`) or park (`%`) line overrides an allow, exactly as in ai-tools-chown, so a line means
+# the same thing in the launch gate as it does in the ownership hand-back. A CWD that is not approved draws the setup
+# menu (create a sandbox clone, claim here, cancel) on a terminal, and is refused without one. AI_TOOLS_ALLOWLIST is not
+# read here: the launch gate is the operator's own file.
 ai_tools_launch_wrapper__gate_project() {
-    local name="${AI_TOOLS_LAUNCH_WRAPPER__NAME}" cwd allowlist dir pat sel
-    allowlist="${HOME}/.config/ai-tools/allowed-projects"
-    if [[ ! -f "${allowlist}" ]]; then
-        ai_tools_launch_wrapper__die MSG-C9S6 "approved-projects allowlist not found" \
-            "${name}: create ${allowlist} and add project directories"
+    local name="${AI_TOOLS_LAUNCH_WRAPPER__NAME}" registry_state allowlist cwd dir pat sel index kind remedy
+    IFS=$'\t' read -r registry_state allowlist < <(ai_tools_conf__resolve_registry "${HOME}/.config/ai-tools")
+    if [[ "${registry_state}" == none ]]; then
+        ai_tools_launch_wrapper__die MSG-C9S6 "project registry not found: ${allowlist}" \
+            "${name}: an operator's enrolment seeds it -- atr admin operators add <user> -- and a claim then adds each project"
     fi
     cwd="$(realpath -e "${PWD}" 2>/dev/null)" \
         || ai_tools_launch_wrapper__die MSG-S8D9 "cannot resolve working directory"
@@ -402,56 +403,60 @@ ai_tools_launch_wrapper__gate_project() {
     ai_tools_safe_paths__assert_safe_target "${cwd}" "launch" || exit 1
 
     local -a allowed_directories=()
-    local -a exclusion_patterns=()
-    # The one read every reader of the allowlist makes (ai_tools_conf__load_allowlist, conf.lib.sh). A read the library
-    # refuses has already named the entry, the link and the reason on stderr under its own code; the refusal here adds
+    local -a exclusion_patterns=() exclusion_kinds=()
+    # The one read every reader of the registry makes (ai_tools_conf__load_allowlist, conf.lib.sh). A read the library
+    # refuses has already named the line or the link and the reason on stderr under its own code; the refusal here adds
     # the remedy.
     local load_status=0
-    ai_tools_conf__load_allowlist "${allowlist}" allowed_directories exclusion_patterns || load_status=$?
+    ai_tools_conf__load_allowlist "${allowlist}" allowed_directories exclusion_patterns exclusion_kinds || load_status=$?
     case "${load_status}" in
         0) ;;
-        2) ai_tools_launch_wrapper__die MSG-Z3Q6 "refusing to launch -- an exclusion in the approved-projects allowlist cannot be resolved: ${allowlist}" \
+        2) ai_tools_launch_wrapper__die MSG-Z3Q6 "refusing to launch -- an exclusion in the project registry cannot be resolved: ${allowlist}" \
                "${name}: the line above names the entry and the symbolic link; a link the sandbox account can remove or replace does not decide what an exclusion covers, so no entry in the file allows a launch" \
                "${name}: write the entry as the directory's real path, then start again" ;;
-        *) ai_tools_launch_wrapper__die MSG-X4N6 "approved-projects allowlist cannot be read: ${allowlist}" \
+        3) ai_tools_launch_wrapper__die MSG-D9R4 "refusing to launch -- a line in the project registry is refused: ${allowlist}" \
+               "${name}: the line above names the line, its number and the reason; no entry in the file allows a launch until the line is fixed" \
+               "${name}: correct or delete that line, then start again" ;;
+        *) ai_tools_launch_wrapper__die MSG-X4N6 "project registry cannot be read: ${allowlist}" \
                "${name}: it must be a regular file this account can read" ;;
     esac
 
     # Exclusions are checked first and override allows (the match ai_tools_conf__is_path_excluded makes, spelled
-    # out here because the refusal names which line matched and how). Two shapes reach this, and they are DIFFERENT
-    # situations for the operator standing here, so they are reported apart: a line naming this very directory is
-    # a project someone PARKED -- `atr projects disable`, or the same edit by hand -- and the way back is one command,
-    # while a line covering it from an ancestor (a parent, or a glob) is a subtree deliberately withheld from a project,
-    # where the remedy is to edit that line rather than to re-enable anything. Telling an operator their parked project
-    # is merely "excluded" leaves them to work out which of the two they are in.
-    if [[ "${#exclusion_patterns[@]}" -gt 0 ]]; then
-        for pat in "${exclusion_patterns[@]}"; do
-            pat="${pat%/}"                         # normalise: strip trailing slash
-            if [[ "${cwd}" == ${pat} ]]; then
-                # A line naming this very directory is one of two things, and the same test the CLI applies separates
-                # them: an approved project STRICTLY ENCLOSING makes this a subtree withheld from it, while none makes
-                # it a project that was parked. Exact-match alone cannot tell them apart -- a carve-out names its own
-                # path too. Guarded on the count, not written as "${allowed_directories[@]:-}": an EMPTY array expands
-                # that way to one empty element, and "${dir}/"* is then the pattern /* -- which matches every absolute
-                # path, so a parked project with no approved entries at all would report as carved out of an empty set.
-                if [[ "${#allowed_directories[@]}" -gt 0 ]]; then
-                    for dir in "${allowed_directories[@]}"; do
-                        [[ "${cwd}" == "${dir}/"* ]] || continue
-                        ai_tools_launch_wrapper__die MSG-K8K2 "excluded by '!' rule in approved projects list: $(pwd)" \
-                            "${name}: it is carved out of the approved project ${dir}; edit ${allowlist} to change that"
-                    done
-                fi
-                ai_tools_launch_wrapper__die MSG-R2V6 "this project is disabled in your approved projects list: $(pwd)" \
+    # out here because the refusal names which line matched and how). The kind of the line that matched decides
+    # the wording, since the way back differs: a park naming this very directory is a project someone PARKED --
+    # `atr projects disable`, or the same edit by hand -- and the way back is one command; a carve-out is a subtree
+    # deliberately withheld, where the remedy is to edit that line; and a line covering the directory from an ancestor
+    # names the line, with the remedy its kind takes. The first line in file order decides.
+    for index in "${!exclusion_patterns[@]}"; do
+        pat="${exclusion_patterns[index]%/}"                    # normalise: strip trailing slash
+        kind="${exclusion_kinds[index]}"
+        if [[ "${cwd}" == ${pat} ]]; then
+            if [[ "${kind}" == park ]]; then
+                ai_tools_launch_wrapper__die MSG-R2V6 "this project is disabled in your project registry: ${cwd}" \
                     "${name}: no session starts here until it is re-enabled -- its files, group and label are untouched" \
-                    "${name}: re-enable it with:  ${CLI_CMD} projects enable"
+                    "${name}: re-enable it with:  ${CLI_CMD} projects enable ${cwd}"
             fi
-            # For plain paths (no glob), also exclude directory contents
-            if [[ "${pat}" != *'*'* && "${cwd}" == "${pat}/"* ]]; then
-                ai_tools_launch_wrapper__die MSG-W2P3 "excluded by '!' rule in approved projects list: $(pwd)" \
-                    "${name}: an entry above this directory carves it out; edit ${allowlist} to change that"
+            # A legacy allowed-projects wrote a parked project as a '!' line, which the grammar this release reads takes
+            # as a carve-out; the migration's hint names how a parked one is written now.
+            if [[ "${registry_state}" == legacy ]]; then
+                printf 'MSG-J6S8\n%s\n' "${name}: ${allowlist} is the registry an earlier release wrote and is not migrated -- run atr admin system post-upgrade; a project parked before the upgrade is written %<path> in ~/.config/ai-tools/project-registry" >&2
             fi
-        done
-    fi
+            ai_tools_launch_wrapper__die MSG-K8K2 "excluded by a '!' line in your project registry: ${cwd}" \
+                "${name}: that line withholds this directory from the agent; edit ${allowlist} to change that"
+        fi
+        # For plain paths (no glob), also exclude directory contents
+        if [[ "${pat}" != *'*'* && "${cwd}" == "${pat}/"* ]]; then
+            if [[ "${kind}" == park ]]; then
+                remedy="it is inside ${pat}, a parked project; re-enable that project with:  ${CLI_CMD} projects enable ${pat}"
+            else
+                remedy="the carve-out !${pat} above this directory withholds it; edit ${allowlist} to change that"
+                if [[ "${registry_state}" == legacy ]]; then
+                    printf 'MSG-J6S8\n%s\n' "${name}: ${allowlist} is the registry an earlier release wrote and is not migrated -- run atr admin system post-upgrade; a project parked before the upgrade is written %<path> in ~/.config/ai-tools/project-registry" >&2
+                fi
+            fi
+            ai_tools_launch_wrapper__die MSG-W2P3 "excluded by a line in your project registry: ${cwd}" "${name}: ${remedy}"
+        fi
+    done
 
     local approved=false
     if [[ "${#allowed_directories[@]}" -gt 0 ]]; then
@@ -507,8 +512,8 @@ ai_tools_launch_wrapper__gate_project() {
                 _ai_tools_launch_wrapper__error MSG-N2Z7 "no session started -- ${cwd} is not set up for the agent."
                 printf '\n' >&2
                 printf '  %-30s %s\n' \
-                    "${CLI_CMD} projects clone" "isolated copy under the sandbox area" \
-                    "${CLI_CMD} projects claim"  "claim this directory in place" >&2
+                    "${CLI_CMD} projects clone ." "isolated copy under the sandbox area" \
+                    "${CLI_CMD} projects claim ."  "claim this directory in place" >&2
                 printf '\nRun one of these, then start your agent again.\n' >&2
                 ai_tools_launch_wrapper__pause_if_tty
                 exit 1
@@ -569,17 +574,17 @@ ai_tools_launch_wrapper__guard_claim() {
         if ${own_gap}; then
             blk2+=(
                 "Recommended -- an isolated shallow branch copy in sandbox-projects:"
-                "       ${CLI_CMD} projects clone"
+                "       ${CLI_CMD} projects clone ."
                 "Allow access -- claim this directory in place (give access to ${SANDBOX_USER}; needs sudo):"
-                "       ${CLI_CMD} projects claim"
+                "       ${CLI_CMD} projects claim ."
             )
         else
             blk2+=(
                 "Claim it -- applies the SELinux label; needs sudo for the relabel:"
-                "       ${CLI_CMD} projects claim"
+                "       ${CLI_CMD} projects claim ."
             )
         fi
-        blk2+=( "" "Both default to the current directory. See '${CLI_CMD} --help' for what each does." )
+        blk2+=( "" "The '.' names the current directory. See '${CLI_CMD} --help' for what each does." )
         ai_tools_msg__block "Finish setting up this project for the agent" "${blk2[@]}"
         claim_ok=false
         ai_tools_msg__confirm "Claim it in place now?" "${claim_default}" && claim_ok=true

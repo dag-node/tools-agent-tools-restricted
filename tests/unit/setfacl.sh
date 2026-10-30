@@ -282,4 +282,25 @@ else
     fail "symlinked ancestor: rc=${rc}, the directory outside is $(stat -c '%G' "${pin_outside}/inside") with '$(getfacl -p "${pin_outside}/inside" 2>/dev/null | tr '\n' ' ')' (want a refusal, ${PROJECTS_GROUP}, no entry)"
 fi
 
+# ── A registry the grammar refuses: the target is left as it was ─────────────────────────
+# The loader refuses a registry holding a line its grammar does not recognise, so the owner resolver does not cover any
+# path and this helper acts on none; the same tree under the valid registry is the control that the case can act at all.
+# The control runs second, so the refused run is read on the untouched tree.
+ir="${TESTDIR}/invalid-registry"; mkdir -p "${ir}/sub"; chown -R "${PROJECTS_USER}:${PROJECTS_GROUP}" "${ir}"
+chmod 0770 "${ir}" "${ir}/sub"
+mk_allowlist "${ir}" "relative/entry"
+setsid "${HELPER}" "${ir}" < /dev/null > /dev/null 2>&1 || true
+if ! has_group_acl "${ir}/sub"; then
+    pass "a registry holding a refused line: no ACL entry is written"
+else
+    fail "a registry holding a refused line: ${ir}/sub carries the group entry"
+fi
+mk_allowlist "${ir}"
+setsid "${HELPER}" "${ir}" < /dev/null > /dev/null 2>&1 || true
+if has_group_acl "${ir}/sub"; then
+    pass "control: the same tree under the valid registry takes the group entry"
+else
+    fail "control: ${ir}/sub carries no group entry -- the refusal above is not evidence"
+fi
+
 finish

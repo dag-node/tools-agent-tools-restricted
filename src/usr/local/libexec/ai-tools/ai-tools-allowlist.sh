@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: AGPL-3.0-only
 # /usr/local/libexec/ai-tools/ai-tools-allowlist
-# Reads and edits ANOTHER enrolled operator's project allowlist (<their-home>/.config/ai-tools/allowed-projects)
-# on behalf of the operator invoking sudo. This is the one privileged seam behind `ai-tools ... --for <operator>`: it
-# lets a human operator claim a project for a service account that has no password and therefore cannot authenticate
-# the claim's own root helpers.
+# Reads and edits ANOTHER enrolled operator's project registry (<their-home>/.config/ai-tools/project-registry, the file
+# ai_tools_conf__resolve_registry picks) on behalf of the operator invoking sudo. This is the one privileged seam behind
+# `ai-tools ... --for <operator>`: it lets a human operator claim a project for a service account that has no password
+# and therefore cannot authenticate the claim's own root helpers.
 #
 # Root is needed for READS as well as writes: an allowlist is 0600 inside a 0700 .config/ai-tools (ai-tools-admin seeds
 # an operator's config), so one operator cannot see another's list at all. `--print` exists for exactly
@@ -25,6 +25,8 @@
 #   - the TARGET is not in OPERATORS                              -> refuse, write no entry
 #   - the target is the sandbox account or root                   -> refuse, write no entry
 #   - the target has no allowlist file yet                        -> refuse, print nothing, write no entry
+#   - the target's registry is a legacy allowed-projects, or the  -> refuse, print nothing, write no entry
+#     grammar refuses a line of it
 #   - the path is not a real directory, or is a protected system  -> refuse, write no entry
 #     directory (safe-paths backstop)
 #   - a required library will not load                            -> refuse, write no entry
@@ -38,10 +40,10 @@
 #   ai-tools-allowlist --operator <name> --enable  <absolute-project-path>
 #   ai-tools-allowlist --operator <name> --disable <absolute-project-path>
 #
-# `--enable` and `--disable` neither add nor drop a line: they take the leading '!' off an entry, or put it
+# `--enable` and `--disable` neither add nor drop a line: they take the leading '%' off an entry, or put it
 # on, IN PLACE. They are the privileged half of `atr projects enable`/`projects disable` (and of the claim's re-enable
 # prompt), and they are deliberately not an add/remove pair: the line keeps its position and its comment,
-# so a park-and-restore round trip leaves an ordered, commented allowed-projects exactly as its operator wrote it.
+# so a park-and-restore round trip leaves an ordered, commented registry exactly as its operator wrote it.
 #
 # Installed 750 root:root, so only root runs it. Its domain rule is cli.rule.md.
 
@@ -179,6 +181,8 @@ is_primary=secondary
 [[ "${OPERATOR}" == "${AI_TOOLS_OPERATOR__OPERATORS[0]}" ]] && is_primary=primary
 allowlist="$(ai_tools_operator__get_allowlist_path "${OPERATOR}" "${is_primary}")"
 readonly caller allowlist target_home
+registry_state="$(ai_tools_conf__read_registry_state "${allowlist}")"
+readonly registry_state
 
 # require_target_config: the target's allowlist must already exist. This helper reads or changes an existing file
 # and does not create one: `ai-tools-admin operators add` is where an operator's config comes from -- the config files,
@@ -187,10 +191,27 @@ readonly caller allowlist target_home
 # would write the allowlist and leave the account without the secret-patterns file beside it, so the refusal names
 # the command that writes the whole config.
 require_target_config() {
-    [[ -f "${allowlist}" ]] && return 0
+    if [[ -f "${allowlist}" ]]; then
+        require_migrated_registry
+        return 0
+    fi
     die MSG-S7Y3 "no ai-tools config yet for ${OPERATOR} (no ${allowlist}) -- nothing changed.
        If the ${OPERATOR} account is meant to run sandboxed sessions, enrol it first with:
        atr admin operators add ${OPERATOR}"
+}
+
+# require_migrated_registry: refuse a target whose registry is the allowed-projects an earlier release wrote, and one
+# the grammar refuses. The editors write the current format alone, and a snapshot of a legacy file would hand the CLI
+# a file it reads under another grammar, so every action refuses, `--print` included, naming the migration; a refused
+# line is named by the library on stderr. The migration-pending refusal is the CLI's own situation, so its code is
+# printed here and defined there.
+require_migrated_registry() {
+    if [[ "${registry_state}" == legacy ]]; then
+        printf 'MSG-J6S8\nai-tools-allowlist: %s\n' "the registry ${allowlist} is the allowed-projects an earlier release wrote and is not migrated -- nothing changed; run atr admin system post-upgrade, which migrates it to ~/.config/ai-tools/project-registry" >&2
+        exit 1
+    fi
+    ai_tools_conf__validate_registry "${allowlist}" current \
+        || die "the registry ${allowlist} holds a line the grammar refuses, named above -- nothing changed"
 }
 
 # ── print ────────────────────────────────────────────────────────────────────────
@@ -221,9 +242,11 @@ AI_TOOLS_LOG_PROJECT="${canonical}"
 
 # Every edit here is one call into conf.lib.sh's allowlist-editing functions -- the same implementation the CLI runs
 # against the operator's own file and install.sh against its checkout. What is left here is this helper's own job:
-# deciding WHO may edit WHOSE registry, and recording it. The library reports three outcomes -- 0 applied (or already
-# so), 1 the write failed, 2 the request does not apply from the current state -- and each is reported to the caller
-# distinctly, since a "not listed" and a "could not write" send an operator to different places.
+# deciding WHO may edit WHOSE registry, and recording it. The library reports four outcomes -- 0 applied (or already
+# so), 1 the write failed, 2 the request does not apply from the current state, 3 the file is legacy or holds a refused
+# line -- and each is reported to the caller distinctly, since a "not listed" and a "could not write" send an operator
+# to different places. require_target_config has refused a legacy or refused file before any edit, so a 3 is a file
+# that changed between the check and the edit, reported with the library's own line.
 
 case "${ACTION}" in
     add)
@@ -231,10 +254,11 @@ case "${ACTION}" in
         rc=0; ai_tools_conf__allowlist_add "${allowlist}" "${canonical}" || rc=$?
         case "${rc}" in
             0) ;;
-            2) die MSG-T7B6 "that project is DISABLED for ${OPERATOR}: ${canonical} -- a '!' line
-       parks it, and adding a second line would leave that '!' winning at the launch gate.
-       Re-enable it instead:
+            2) die MSG-T7B6 "that path is DISABLED or carved out for ${OPERATOR}: ${canonical} -- a '%' line parks it
+       or a '!' line withholds it, and adding a second line would leave that line winning at the launch gate.
+       A parked project is re-enabled instead:
        ai-tools-allowlist --operator ${OPERATOR} --enable ${canonical}" ;;
+            3) die "${canonical} was not added for ${OPERATOR} -- the line above names the reason" ;;
             *) die MSG-D3T3 "could not add ${canonical} to ${OPERATOR}'s allowlist -- nothing changed" ;;
         esac
         ai_tools_log__structured info \
@@ -244,16 +268,19 @@ case "${ACTION}" in
         ;;
     remove)
         # A missing allowlist has no entry to remove -- report it and succeed, so an unclaim that runs twice is not
-        # an error. The library drops the exclusion line too, so de-registering a project the operator had parked leaves
-        # no '!' behind to park whatever is claimed at that path next.
+        # an error. The library drops the park line too, so de-registering a project the operator had parked leaves no
+        # '%' behind to park whatever is claimed at that path next; a carve-out line is the operator's own edit
+        # and stays.
         if [[ ! -f "${allowlist}" ]]; then
             note MSG-V9K7 "no allowlist for ${OPERATOR} -- nothing to remove"
             exit 0
         fi
-        if [[ "$(ai_tools_conf__read_allowlist_state "${allowlist}" "${canonical}")" == absent ]]; then
-            note MSG-H7J9 "nothing to remove: ${canonical} is not listed for ${OPERATOR}"
-            exit 0
-        fi
+        require_migrated_registry
+        case "$(ai_tools_conf__read_allowlist_state "${allowlist}" "${canonical}")" in
+            absent|excluded)
+                note MSG-H7J9 "nothing to remove: ${canonical} is not listed for ${OPERATOR}"
+                exit 0 ;;
+        esac
         ai_tools_conf__allowlist_remove "${allowlist}" "${canonical}" \
             || die MSG-K2G9 "could not remove ${canonical} from ${OPERATOR}'s allowlist -- a line naming it survived, so that project is still registered"
         ai_tools_log__structured info \
@@ -262,14 +289,16 @@ case "${ACTION}" in
         note "removed ${canonical} for ${OPERATOR}"
         ;;
     enable)
-        # The one action that WIDENS the target's launch gate. It does not append a line: the '!' comes off the line
+        # The one action that WIDENS the target's launch gate. It does not append a line: the '%' comes off the line
         # the operator wrote, in place, and a path the file does not name is refused rather than registered --
-        # registering one is a claim, which scans for secrets first.
+        # registering one is a claim, which scans for secrets first. A '!' line is a carve-out and is not lifted.
+        require_target_config
         rc=0; ai_tools_conf__allowlist_enable "${allowlist}" "${canonical}" || rc=$?
         case "${rc}" in
             0) ;;
             2) note MSG-E2G7 "not disabled for ${OPERATOR}: ${canonical} -- nothing to enable"
                exit 0 ;;
+            3) die "${canonical} was not enabled for ${OPERATOR} -- the line above names the reason" ;;
             *) die MSG-H9V5 "the entry is STILL disabled for ${OPERATOR}: ${canonical} -- the line was not rewritten" ;;
         esac
         ai_tools_log__structured info \
@@ -278,13 +307,15 @@ case "${ACTION}" in
         note "enabled ${canonical} for ${OPERATOR}"
         ;;
     disable)
-        # Park the target's project: the '!' goes on, in place. It moves to LESS access -- no session starts there
+        # Park the target's project: the '%' goes on, in place. It moves to LESS access -- no session starts there
         # and the ownership helpers stop resolving an owner for it -- so a path the file does not name is refused rather
         # than parked (there would be no entry to park, and inventing one would register a project without claiming it).
+        require_target_config
         rc=0; ai_tools_conf__allowlist_disable "${allowlist}" "${canonical}" || rc=$?
         case "${rc}" in
             0) ;;
             2) die MSG-H6K3 "not listed for ${OPERATOR}: ${canonical} -- there is no entry to disable" ;;
+            3) die "${canonical} was not disabled for ${OPERATOR} -- the line above names the reason" ;;
             *) die MSG-C7Q4 "could not disable ${canonical} for ${OPERATOR} -- nothing changed" ;;
         esac
         ai_tools_log__structured info \

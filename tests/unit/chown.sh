@@ -394,4 +394,25 @@ else
     fail "the pin's open line does not exit 4: '${open_line}'"
 fi
 
+# ── A registry the grammar refuses: the target is left as it was ─────────────────────────
+# The loader refuses a registry holding a line its grammar does not recognise, so the owner resolver does not cover any
+# path and this helper acts on none; the same tree under the valid registry is the control that the case can act at all.
+# The control runs second, so the refused run is read on the untouched tree.
+ir="${TESTDIR}/invalid-registry"; mkdir -p "${ir}"; chown "${PROJECTS_USER}:${PROJECTS_GROUP}" "${ir}"; chmod 0755 "${ir}"
+: > "${ir}/note.txt"; chown "${SANDBOX_USER}:${SANDBOX_GROUP}" "${ir}/note.txt"; chmod 0644 "${ir}/note.txt"
+mk_allowlist "${ir}" "relative/entry"
+run "${ir}/note.txt"
+if [[ "$(stat -c '%U' "${ir}/note.txt")" == "${SANDBOX_USER}" ]]; then
+    pass "a registry holding a refused line hands no path back"
+else
+    fail "a registry holding a refused line: the file was handed back to $(stat -c '%U' "${ir}/note.txt")"
+fi
+mk_allowlist "${ir}"
+run "${ir}/note.txt"
+if [[ "$(stat -c '%U' "${ir}/note.txt")" == "${PROJECTS_USER}" ]]; then
+    pass "control: the same file under the valid registry is handed back"
+else
+    fail "control: the file stayed $(stat -c '%U' "${ir}/note.txt") -- the refusal above is not evidence"
+fi
+
 finish
