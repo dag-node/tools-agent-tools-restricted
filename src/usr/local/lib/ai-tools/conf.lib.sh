@@ -767,7 +767,7 @@ _ai_tools_conf__write_line() {
     rm -f -- "${tmp}"
 }
 
-# ── The project registry: projects, and the legacy allowed-projects ──────────────────────────
+# ── The project registry: ~/.config/ai-tools/project-registry, and the legacy allowed-projects ───────
 # The registry is one path per line rather than KEY=value, read with the same rules as every other file here:
 # a whole-line or end-of-line `#` comment, and one matched quote layer for a path that carries a space or a literal `#`.
 # Every reader of the file (the launch wrapper, the CLI, the owner resolver, and each root helper that walks or labels
@@ -783,8 +783,9 @@ _ai_tools_conf__write_line() {
 #
 # The registry is ~/.config/ai-tools/project-registry. A host upgraded from a release that wrote
 # ~/.config/ai-tools/allowed-projects keeps reading that file while it is present under that name, under the legacy
-# grammar -- allow and `!` lines, no marker -- until `atr admin system post-upgrade` writes `projects` from it
-# and renames it to a dated `.bak`. ai_tools_conf__resolve_registry decides which file a reader opens.
+# grammar -- allow and `!` lines, no marker -- until `atr admin system post-upgrade` writes
+# `~/.config/ai-tools/project-registry` from it and renames it to a dated `.bak`. ai_tools_conf__resolve_registry
+# decides which file a reader opens.
 #
 # A line the grammar does not recognise refuses the WHOLE file for every reader (ai_tools_conf__validate_registry):
 # a reader that skipped it would read the rest of the file as the operator's intent, and a mistyped carve-out would then
@@ -798,7 +799,7 @@ _ai_tools_conf__write_line() {
 readonly AI_TOOLS_CONF__REGISTRY_FORMAT=1.0
 
 # ai_tools_conf__get_registry_marker : print the format marker line (no newline) that the seed and the migration write
-#   as line 1 of `projects`.
+#   as line 1 of `~/.config/ai-tools/project-registry`.
 ai_tools_conf__get_registry_marker() { printf '# ai-tools-project-registry-format: %s' "${AI_TOOLS_CONF__REGISTRY_FORMAT}"; }
 
 # _ai_tools_conf__parse_registry_marker <line> : return 0 with ai_tools_conf__value set to `<major>.<minor>` when <line>
@@ -825,10 +826,10 @@ ai_tools_conf__read_registry_format() {
 }
 
 # ai_tools_conf__read_registry_grammar <file> [<read-path>] : print the grammar <file> is read under, `legacy`
-#   or `current`. The name decides for the two registry names, so a `projects` without a marker is refused as one
-#   and an `allowed-projects` carrying a marker is refused as a marker in a legacy file. The file AI_TOOLS_ALLOWLIST
-#   names, and a file of any other name, take the grammar their content states, read from <read-path> (default
-#   <file>): a marker makes it `current`.
+#   or `current`. The name decides for the two registry names, so a `~/.config/ai-tools/project-registry` without
+#   a marker is refused as one and an `allowed-projects` carrying a marker is refused as a marker in a legacy file.
+#   The file AI_TOOLS_ALLOWLIST names, and a file of any other name, take the grammar their content states, read from
+#   <read-path> (default <file>): a marker makes it `current`.
 ai_tools_conf__read_registry_grammar() {
     local file="$1" read_path="${2:-$1}" format
     if [[ "${file}" != "${AI_TOOLS_ALLOWLIST:-}" ]]; then
@@ -850,10 +851,11 @@ ai_tools_conf__read_registry_state() {
 
 # ai_tools_conf__resolve_registry <config-dir> : print `<state>\t<path>\n` for the registry an operator's config
 #   directory holds: `legacy` and the path of `allowed-projects` while an entry of that name exists, whether or not
-#   `projects` is beside it, since the migration renames the old file only once `projects` is verified; else `current`
-#   and the path of `projects` where it exists; else `none` and the path `projects` would take. A `.bak` copy is not
-#   an active name. It does not read AI_TOOLS_ALLOWLIST: the hook moves the primary operator's file alone, so a caller
-#   that honours it reads that file through ai_tools_conf__read_registry_state.
+#   `~/.config/ai-tools/project-registry` is beside it, since the migration renames the old file only once that file is
+#   verified; else `current` and the path of `~/.config/ai-tools/project-registry` where it exists; else `none`
+#   and the path it would take. A `.bak` copy is not an active name. It does not read AI_TOOLS_ALLOWLIST: the hook moves
+#   the primary operator's file alone, so a caller that honours it reads that file
+#   through ai_tools_conf__read_registry_state.
 ai_tools_conf__resolve_registry() {
     local dir="${1%/}"
     if [[ -e "${dir}/allowed-projects" || -L "${dir}/allowed-projects" ]]; then
@@ -959,7 +961,7 @@ _ai_tools_conf__format_registry_fault_remedy() {
         glob-on-allow)      printf "a glob is a carve-out alone (!/path/*); list each project by its path" ;;
         glob-on-park)       printf "a park names one project by its path; a glob is a carve-out alone (!/path/*)" ;;
         park-in-legacy)     printf "allowed-projects is read under the grammar it was written in, which has no '%%' line; write it as '!' again, then run atr admin system post-upgrade to migrate the file" ;;
-        marker-in-legacy)   printf 'the format marker belongs in projects; delete the line, then run atr admin system post-upgrade to migrate the file' ;;
+        marker-in-legacy)   printf 'the format marker belongs in ~/.config/ai-tools/project-registry; delete the line, then run atr admin system post-upgrade to migrate the file' ;;
         marker-repeated)    printf 'delete the second marker' ;;
         marker-unsupported) printf 'this release reads format 1 alone; the file was written by a later release' ;;
         marker-missing)     printf 'write %s as the first line' "$(ai_tools_conf__get_registry_marker)" ;;
@@ -1331,9 +1333,9 @@ ai_tools_conf__read_allowlist_park_lines() {
 # matcher decides what a line names for every writer and every reader. The file is the agent's LAUNCH GATE: a writer
 # that matched lines differently from the reader would leave a project reachable after a "removal", or park it twice.
 #
-# Each writer edits a `projects` file alone. A legacy `allowed-projects` is the input of the migration and stays
-# as written until `atr admin system post-upgrade` replaces it, so a writer does not mix the two grammars in one file.
-# A carve-out line is the operator's own edit and no writer deletes or rewrites one.
+# Each writer edits a `~/.config/ai-tools/project-registry` file alone. A legacy `allowed-projects` is the input
+# of the migration and stays as written until `atr admin system post-upgrade` replaces it, so a writer does not mix
+# the two grammars in one file. A carve-out line is the operator's own edit and no writer deletes or rewrites one.
 #
 # Every one of them is idempotent, verifies by RE-READING the file rather than trusting a write, and reports these
 # outcomes apart:
@@ -1385,9 +1387,9 @@ ai_tools_conf__read_allowlist_state() {
     fi
 }
 
-# _ai_tools_conf__check_editable <registry-file> : return 0 when <registry-file> is a `projects`-grammar file
-#   the grammar accepts, 1 when it is not a regular file, and 3 when it is legacy or a line is refused (MSG-B8U2
-#   on stderr).
+# _ai_tools_conf__check_editable <registry-file> : return 0 when <registry-file> is a file in the grammar
+#   of `~/.config/ai-tools/project-registry` the grammar accepts, 1 when it is not a regular file, and 3 when it is
+#   legacy or a line is refused (MSG-B8U2 on stderr).
 _ai_tools_conf__check_editable() {
     [[ -f "$1" ]] || return 1
     [[ "$(ai_tools_conf__read_registry_grammar "$1")" == current ]] || return 3
@@ -1728,14 +1730,14 @@ ai_tools_conf__list_registry_entries_under() {
 }
 
 # ── The migration from allowed-projects ────────────────────────────────────────────────────────
-# `atr admin system post-upgrade` alone migrates, unattended: it writes `projects` beside the legacy file as the marker
-# followed by every line unchanged, verifies the new file, and renames the old one to a dated `.bak`, which is
-# the backup. Copying the lines unchanged is what makes the migration safe to run without the operator: every allow
-# and `!` line means in format 1.0 what the launch gate already made of it, a `!` being an exclusion either way.
-# What changes meaning is the CLI's reading of a `!` that parked a project, which format 1.0 reads as a carve-out;
-# the plan names each such line with the `%` spelling, and the operator changes it by hand. Until the rename the legacy
-# file is the truth: a run that stops part-way leaves `allowed-projects` under its active name, the resolver keeps
-# reading it, and the next run replaces whatever `projects` it finds.
+# `atr admin system post-upgrade` alone migrates, unattended: it writes `~/.config/ai-tools/project-registry` beside
+# the legacy file as the marker followed by every line unchanged, verifies the new file, and renames the old one
+# to a dated `.bak`, which is the backup. Copying the lines unchanged is what makes the migration safe to run without
+# the operator: every allow and `!` line means in format 1.0 what the launch gate already made of it, a `!` being
+# an exclusion either way. What changes meaning is the CLI's reading of a `!` that parked a project, which format 1.0
+# reads as a carve-out; the plan names each such line with the `%` spelling, and the operator changes it by hand. Until
+# the rename the legacy file is the truth: a run that stops part-way leaves `allowed-projects` under its active name,
+# the resolver keeps reading it, and the next run replaces whatever `~/.config/ai-tools/project-registry` it finds.
 
 # ai_tools_conf__plan_registry_migration <legacy-file> : print one TSV row per line the migration writes: `marker`
 #   with the marker line, then `keep\t<n>\t<raw>` for each line of <legacy-file> by its line number,
@@ -1857,9 +1859,9 @@ ai_tools_conf__migrate_registry() {
 # enrolled. tests/unit/man.sh caps the registry header and reads the page's examples
 # through ai_tools_conf__parse_path_entry.
 
-# ai_tools_conf__get_allowlist_seed : print the text a fresh `projects` carries: the format marker as line 1, then
-#   the header. It does not name any project, so a session cannot start anywhere until the CLI or the operator adds
-#   an entry. The reference is ai-tools-project-registry(5).
+# ai_tools_conf__get_allowlist_seed : print the text a fresh `~/.config/ai-tools/project-registry` carries: the format
+#   marker as line 1, then the header. It does not name any project, so a session cannot start anywhere until the CLI
+#   or the operator adds an entry. The reference is ai-tools-project-registry(5).
 ai_tools_conf__get_allowlist_seed() {
     printf '%s\n' \
         "$(ai_tools_conf__get_registry_marker)" \

@@ -9,9 +9,10 @@
 # (ai-tools-reclaim) that already confirmed its whole set.
 #
 # Reads the operator's project registry for allow, carve-out and park lines (its path is derived from the operator
-# identity in /etc/ai-tools/operator.conf: `projects`, or `allowed-projects` until it is migrated). That file is owned
-# by the operator 600 -- root reads it here on ai-tools' behalf. A registry the loader refuses, a line the grammar
-# refuses among the reasons, does not cover any path, so the path is left sandbox-owned.
+# identity in /etc/ai-tools/operator.conf: `~/.config/ai-tools/project-registry`,
+# or `~/.config/ai-tools/allowed-projects` until it is migrated). That file is owned by the operator 600 -- root reads
+# it here on ai-tools' behalf. A registry the loader refuses, a line the grammar refuses among the reasons, does not
+# cover any path, so the path is left sandbox-owned.
 #
 # Invocation: the handback socket's CHOWN verb (ai-tools-handback daemon, root).
 #   Not a sudo target -- ai-tools has no sudo rights (the session runs under NNP,

@@ -2054,8 +2054,9 @@ Until lockdown is performed:
 
       atr projects clone ${d}
 
-Only paths approved in the operator's \`projects\` registry are ever in
-scope, and only after lockdown has revoked the agent's read access to secrets.
+Only paths approved in the operator's project registry
+(\`~/.config/ai-tools/project-registry\`) are ever in scope, and only after lockdown
+has revoked the agent's read access to secrets.
 
 This file is a temporary guard. It is removed automatically once lockdown runs,
 and any original CLAUDE.md is restored from CLAUDE.md.bak.

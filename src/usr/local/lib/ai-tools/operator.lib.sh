@@ -85,11 +85,11 @@ ai_tools_operator__load_operator() {
 }
 
 # ai_tools_operator__get_allowlist_path <operator> <is-primary>: echo the registry path for an operator, the file
-# ai_tools_conf__resolve_registry picks in that operator's ~/.config/ai-tools -- `allowed-projects` until it is
-# migrated, `projects` after. AI_TOOLS_ALLOWLIST overrides the PRIMARY operator's path -- the single-registry test hook
-# (a multi-operator host has one registry per operator home, which a single override cannot model), carrying the same
-# root-only-injection rationale as the other AI_TOOLS_* hooks. Without the library the path is the `projects` name,
-# which the loader then cannot read either.
+# ai_tools_conf__resolve_registry picks in that operator's ~/.config/ai-tools -- `~/.config/ai-tools/allowed-projects`
+# until it is migrated, `~/.config/ai-tools/project-registry` after. AI_TOOLS_ALLOWLIST overrides the PRIMARY operator's
+# path -- the single-registry test hook (a multi-operator host has one registry per operator home, which a single
+# override cannot model), carrying the same root-only-injection rationale as the other AI_TOOLS_* hooks. Without
+# the library the path is `~/.config/ai-tools/project-registry`, which the loader then cannot read either.
 ai_tools_operator__get_allowlist_path() {
     local config_dir path
     if [[ -n "${AI_TOOLS_ALLOWLIST:-}" && "$2" == primary ]]; then

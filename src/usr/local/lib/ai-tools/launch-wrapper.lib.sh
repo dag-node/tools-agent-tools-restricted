@@ -385,11 +385,11 @@ ai_tools_launch_wrapper__print_and_exit() {
 # ai_tools_launch_wrapper__gate_project -- canonicalize the CWD into AI_TOOLS_LAUNCH_WRAPPER__PROJECT_DIR and refuse it
 # unless approved. The protected-paths backstop runs before the registry is consulted, so a mis-entered registry cannot
 # start a session where the ownership handback would then act. The registry is the file ai_tools_conf__resolve_registry
-# picks in ~/.config/ai-tools -- `projects`, or `allowed-projects` until it is migrated -- read through the shared
-# grammar; a carve-out (`!`) or park (`%`) line overrides an allow, exactly as in ai-tools-chown, so a line means
-# the same thing in the launch gate as it does in the ownership hand-back. A CWD that is not approved draws the setup
-# menu (create a sandbox clone, claim here, cancel) on a terminal, and is refused without one. AI_TOOLS_ALLOWLIST is not
-# read here: the launch gate is the operator's own file.
+# picks in ~/.config/ai-tools -- `~/.config/ai-tools/project-registry`, or `~/.config/ai-tools/allowed-projects` until
+# it is migrated -- read through the shared grammar; a carve-out (`!`) or park (`%`) line overrides an allow, exactly
+# as in ai-tools-chown, so a line means the same thing in the launch gate as it does in the ownership hand-back. A CWD
+# that is not approved draws the setup menu (create a sandbox clone, claim here, cancel) on a terminal, and is refused
+# without one. AI_TOOLS_ALLOWLIST is not read here: the launch gate is the operator's own file.
 ai_tools_launch_wrapper__gate_project() {
     local name="${AI_TOOLS_LAUNCH_WRAPPER__NAME}" registry_state allowlist cwd dir pat sel index kind remedy
     IFS=$'\t' read -r registry_state allowlist < <(ai_tools_conf__resolve_registry "${HOME}/.config/ai-tools")
