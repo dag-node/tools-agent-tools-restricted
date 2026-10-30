@@ -439,9 +439,9 @@ grep -qx /usr/local/share/man/man5/ai-tools-typesafe.conf.5.gz <<< "${set2}" && 
 grep -qx /usr/local/share/man/man1/ai-tools.1 <<< "${set2}" && pass "a compressed row stays plain where no .gz exists" || fail "plain page absent"
 sorted_ok=0; cut -f1 <<< "$(AI_TOOLS_LAYOUT_ROOT="${R2}" ai_tools_layout__list_entries | grep -v '^error')" | LC_ALL=C sort -c 2>/dev/null && sorted_ok=1
 (( sorted_ok )) && pass "the entry set is sorted by path, so a parent precedes every path under it" || fail "entry set not sorted"
-# install.sh sources the library under IFS=$'\n\t': the sentinel split pins its own IFS, so the set read under
-# the installer's IFS is the set read under the default, package rows included. Each read runs in a subshell, so the IFS
-# reaches no case after it; the control shows the strict IFS splits a bare read differently.
+# install.sh sources the library under IFS=$'\n\t': the sentinel split pins its own IFS, so the set read
+# under the installer's IFS is the set read under the default, package rows included. Each read runs in a subshell,
+# so the IFS reaches no case after it; the control shows the strict IFS splits a bare read differently.
 default_count="$(entries "${R2}" | grep -c . || true)"
 strict_count="$(IFS=$'\n\t'; entries "${R2}" | grep -c . || true)"
 if [[ "${strict_count}" == "${default_count}" && "${default_count}" -gt 0 ]]; then
@@ -460,8 +460,24 @@ if (( EUID == 0 )); then
     (( rc == 0 )) && pass "root-owned inputs: discovery complete (status 0)" || fail "root run: status ${rc}, errors: ${errs}"
     grep -qx /opt/ai-tools/.acme <<< "${set2}" && pass "an installed manifest's config_dir is a dynamic row" || fail ".acme row absent"
     grep -q '/opt/ai-tools/.nodir' <<< "${set2}" && fail "a manifest without config_dir yielded a row" || pass "a manifest without config_dir yields no row"
-    grep -qx "${PROJECTS_HOME}/.config/ai-tools/allowed-projects" <<< "${set2}" && pass "an enrolled operator's rows are dynamic rows" \
-        || fail "operator rows absent"
+    grep -qx "${PROJECTS_HOME}/.config/ai-tools/project-registry" <<< "${set2}" \
+        && grep -qx "${PROJECTS_HOME}/.config/ai-tools/allowed-projects" <<< "${set2}" \
+        && grep -qx "${PROJECTS_HOME}/.config/ai-tools/secret-patterns" <<< "${set2}" \
+        && pass "an enrolled operator's rows are dynamic rows: ~/.config/ai-tools/project-registry, allowed-projects and secret-patterns" \
+        || fail "operator rows absent: $(grep -F "${PROJECTS_HOME}/.config" <<< "${set2}" | tr '\n' ' ')"
+    # The ~/.config/ai-tools/project-registry row is required, and optional for an operator whose registry is still
+    # the allowed-projects an earlier release wrote, which the migration reports instead.
+    registry_row() { AI_TOOLS_LAYOUT_ROOT="${R2}" ai_tools_layout__list_entries \
+        | grep -F "${R2}${PROJECTS_HOME}/.config/ai-tools/project-registry"$'\t' || true; }
+    row_current="$(registry_row)"
+    mkdir -p "${R2}${PROJECTS_HOME}/.config/ai-tools"; : > "${R2}${PROJECTS_HOME}/.config/ai-tools/allowed-projects"
+    row_legacy="$(registry_row)"
+    rm -rf "${R2}${PROJECTS_HOME:?}"
+    if [[ -n "${row_current}" && "${row_current}" != *optional* && "${row_legacy}" == *optional,boundary* ]]; then
+        pass "the ~/.config/ai-tools/project-registry row is required, and optional beside an unmigrated allowed-projects"
+    else
+        fail "the registry row: without a legacy file '${row_current}', beside one '${row_legacy}'"
+    fi
 else
     (( rc == 1 )) && pass "an input the invoker owns is untrusted: status 1" || fail "untrusted inputs: status ${rc}"
     grep -q "^error	directory	${AGENTS_DIR}	agents	" <<< "${errs}" && pass "the untrusted agents directory is an error line naming it" \
@@ -1637,7 +1653,8 @@ declare -A boundary_map=(
     [/usr/local/lib/ai-tools/session-env.d/typesafe.env.sh]="predicate|source_session_env_fragment|unit/typesafe.sh:typesafe.env.sh|boundary/providers.sh:typesafe.env.sh"
     [/usr/local/lib/ai-tools/integrations.d/typesafe.conf]="predicate|ai_tools_conf__is_trusted in the resolver|unit/typesafe.sh:typesafe.conf|boundary/providers.sh:typesafe.conf"
     [HOME/.config/ai-tools]="mode|0700 operator|unit/launch-wrapper.sh:.config/ai-tools|boundary/access.sh:.config/ai-tools"
-    [HOME/.config/ai-tools/allowed-projects]="mode|0600 operator; the gate refuses a missing or unreadable file|unit/launch-wrapper.sh:allowed-projects|boundary/access.sh:allowed-projects"
+    [HOME/.config/ai-tools/project-registry]="mode|0600 operator; the gate refuses a missing or unreadable file|unit/launch-wrapper.sh:/.config/ai-tools/project-registry|boundary/access.sh:/.config/ai-tools/project-registry"
+    [HOME/.config/ai-tools/allowed-projects]="mode|0600 operator; the gate reads it until it is migrated|unit/launch-wrapper.sh:allowed-projects|boundary/access.sh:allowed-projects"
     [HOME/.config/ai-tools/secret-patterns]="mode|0600 operator; the loader refuses an unreadable file (MSG-S4T9)|unit/secret-patterns.sh:secret-patterns|boundary/access.sh:.config/ai-tools"
 )
 # cites <file:literal> : the named test file holds the literal; `-` is a recorded gap.
@@ -1662,7 +1679,8 @@ for entry in "${_AI_TOOLS_LAYOUT__STATIC_ENTRIES[@]}"; do
     [[ "${runtime}" != - ]] || note "boundary pair: ${entry_path} has no runtime file driving its gate (${gate})" "a gap the planner's table holds"
 done
 # The dynamic operator rows, keyed by their path under the operator's home.
-for entry_path in HOME/.config/ai-tools HOME/.config/ai-tools/allowed-projects HOME/.config/ai-tools/secret-patterns; do
+for entry_path in HOME/.config/ai-tools HOME/.config/ai-tools/project-registry HOME/.config/ai-tools/allowed-projects \
+        HOME/.config/ai-tools/secret-patterns; do
     boundary_seen["${entry_path}"]=1
     IFS='|' read -r kind gate runtime boundary <<< "${boundary_map[${entry_path}]}"
     cites "${runtime}" && cites "${boundary}" || { fail "boundary pair: ${entry_path}: a cited file does not hold its literal"; map_problems=$(( map_problems + 1 )); }

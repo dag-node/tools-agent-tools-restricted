@@ -436,16 +436,22 @@ else
     pass "the agent cannot execute or write ai-tools-allowlist (the cross-operator launch gate)"
 fi
 
-# The gate itself: an operator's allowed-projects. The agent must not be able to add a project to any operator's
-# registry -- with or without the helper. The primary operator's is the one this host is guaranteed to have.
-opallow="${PROJECTS_HOME}/.config/ai-tools/allowed-projects"
-if [[ ! -e "${opallow}" ]]; then
-    skip "operator allowlist not agent-writable" "not present at ${opallow}"
-elif runuser -u "${SANDBOX_USER}" -- test -w "${opallow}" 2>/dev/null; then
-    fail "the agent can write ${opallow} -- it could approve its own projects"
-else
-    pass "the agent cannot write the operator's allowed-projects (its own launch gate)"
-fi
+# The gate itself: an operator's project registry. The agent must not be able to add a project to any operator's
+# registry -- with or without the helper. The primary operator's is the one this host is guaranteed to have:
+# `~/.config/ai-tools/project-registry`, or the `~/.config/ai-tools/allowed-projects` an earlier release wrote,
+# which every reader takes until it is migrated; each one present is
+# probed.
+opallow_seen=0
+for opallow in "${PROJECTS_HOME}/.config/ai-tools/project-registry" "${PROJECTS_HOME}/.config/ai-tools/allowed-projects"; do
+    [[ -e "${opallow}" ]] || continue
+    opallow_seen=1
+    if runuser -u "${SANDBOX_USER}" -- test -w "${opallow}" 2>/dev/null; then
+        fail "the agent can write ${opallow} -- it could approve its own projects"
+    else
+        pass "the agent cannot write the operator's ${opallow##*/} (its own launch gate)"
+    fi
+done
+(( opallow_seen )) || skip "operator registry not agent-writable" "neither ${PROJECTS_HOME}/.config/ai-tools/project-registry nor ${PROJECTS_HOME}/.config/ai-tools/allowed-projects"
 
 # ── Entrypoint verification: the agent must not be able to bless its own binary ───────────────
 # The pin is only worth comparing against while the account it constrains cannot write it -- nor the key that decided

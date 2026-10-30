@@ -31,7 +31,7 @@
 # before it creates a missing `.config`), appends the name to OPERATORS in /etc/ai-tools/operator.conf, adds the user
 # to the ai-ops group (the sudoers grant and the launch wrapper gate on membership), ensures the sandbox account's
 # linger, and offers to wire the PATH ordering line. The seed comes first so that an account enrolled here holds
-# the `allowed-projects` every later command resolves it through; a first enrolment that cannot write one is refused
+# the project registry every later command resolves it through; a first enrolment that cannot write one is refused
 # with the host unchanged. `remove` reverses the host-side membership (drops the name from OPERATORS and ai-ops),
 # leaving the user's own allowlist and config. `list` prints the current operators.
 #
@@ -645,14 +645,18 @@ ensure_config_home() {
     log "created ${cfg_home} $(stat -c '%a %U:%G' "${cfg_home}" 2>/dev/null)"
 }
 
-# seed_operator_config <user>: create the config an operator keeps in ~/.config/ai-tools -- allowed-projects (the launch
-# gate) and secret-patterns (which basenames are credentials) -- at 600 inside a 700 directory, so the sandbox account,
-# neither owner nor group member and unable to enter the directory, reads neither while the root helpers read both
-# on the operator's behalf. This is the one place either file is created for an operator, and both headers come
-# from conf.lib.sh, so an account enrolled on a packaged host gets what a from-source install writes.
+# seed_operator_config <user>: create the config an operator keeps in ~/.config/ai-tools --
+# `~/.config/ai-tools/project-registry` (the launch gate) and `~/.config/ai-tools/secret-patterns` (which basenames are
+# credentials) -- at 600 inside a 700 directory, so the sandbox account, neither owner nor group member and unable
+# to enter the directory, reads neither while the root helpers read both on the operator's behalf. This is the one place
+# either file is created for an operator, and both headers come from conf.lib.sh, so an account enrolled on a packaged
+# host gets what a from-source install writes.
 #
 # Each way it can come up short is reported where it happens and returns non-zero, so `op_add` decides what an enrolment
-# missing its `allowed-projects` becomes.
+# missing its `~/.config/ai-tools/project-registry` becomes. The registry is the file ai_tools_conf__resolve_registry
+# picks: a `~/.config/ai-tools/allowed-projects` an earlier release wrote stays the account's registry until
+# `system post-upgrade` migrates it, so `~/.config/ai-tools/project-registry` is not seeded beside it, and the line
+# names the command.
 seed_operator_config() {
     local user="$1" home group cfg status=0
     home="$(getent passwd "${user}" | cut -d: -f6)"
@@ -668,7 +672,13 @@ seed_operator_config() {
         warn MSG-N2J8 "could not create ${cfg} at 700 ${user}:${group}"
         return 1
     fi
-    seed_config_file "${user}" "${group}" "${cfg}/allowed-projects"  ai_tools_conf__get_allowlist_seed       || status=1
+    local registry_state registry
+    IFS=$'\t' read -r registry_state registry < <(ai_tools_conf__resolve_registry "${cfg}")
+    if [[ "${registry_state}" == legacy ]]; then
+        warn MSG-A2P2 "the registry ${registry} is the allowed-projects an earlier release wrote, so ~/.config/ai-tools/project-registry is not seeded beside it -- migrate it with: atr admin system post-upgrade"
+    else
+        seed_config_file "${user}" "${group}" "${registry}" ai_tools_conf__get_allowlist_seed || status=1
+    fi
     seed_config_file "${user}" "${group}" "${cfg}/secret-patterns"   ai_tools_conf__get_secret_patterns_seed || status=1
     return "${status}"
 }
@@ -912,9 +922,10 @@ op_add() {
     fi
 
     # The config is seeded BEFORE either fact that makes an operator, so an enrolment either completes or leaves
-    # the host as it found it. An account in `OPERATORS` and in `ai-ops` whose `allowed-projects` does not exist is
-    # refused at every launch, and does not resolve an owner in any root helper, while the enrolment reports success --
-    # so the refusal belongs here, ahead of the first write, where a re-run then enrols the account in full.
+    # the host as it found it. An account in `OPERATORS` and in `ai-ops` whose `~/.config/ai-tools/project-registry`
+    # does not exist is refused at every launch, and does not resolve an owner in any root helper, while the enrolment
+    # reports success -- so the refusal belongs here, ahead of the first write, where a re-run then enrols the account
+    # in full.
     #
     # A RECONCILING re-run carries on instead: the record already stands, this run did not write it, and withdrawing
     # an operator is `operators remove`'s decision. It repairs what it can, reports what it could not, and exits
@@ -922,7 +933,7 @@ op_add() {
     local seeded=0
     seed_operator_config "${user}" || seeded=1
     if (( seeded && ! enrolled )); then
-        die MSG-T4X9 "not enrolled: ${user}'s config in ~/.config/ai-tools could not be seeded, and without allowed-projects it cannot start a session or claim a project -- clear the reason above and re-run"
+        die MSG-T4X9 "not enrolled: ${user}'s config in ~/.config/ai-tools could not be seeded, and without ~/.config/ai-tools/project-registry it cannot start a session or claim a project -- clear the reason above and re-run"
     fi
 
     if (( ! enrolled )); then
@@ -964,7 +975,7 @@ op_add() {
     # reported several steps and one prompt back, and non-zero so an unattended caller reads it without parsing
     # the output.
     if (( seeded )); then
-        warn MSG-P9K2 "config not seeded for ${user}, which stays enrolled -- without allowed-projects in ~/.config/ai-tools it cannot start a session or claim a project"
+        warn MSG-P9K2 "config not seeded for ${user}, which stays enrolled -- without ~/.config/ai-tools/project-registry it cannot start a session or claim a project"
         warn "    re-run once the reason above is cleared: atr admin operators add ${user}"
         exit 1
     fi
@@ -1967,6 +1978,8 @@ _pu_write_finding() {
         asset-unlinked)     _pu_attention MSG-N9S4 "asset-unlinked" ;;
         list-unmigrated)    _pu_attention MSG-P5K4 "list-unmigrated" ;;
         list-unmigratable)  _pu_attention MSG-S3D8 "list-unmigratable" ;;
+        registry-unmigrated) _pu_attention MSG-C2H5 "registry-unmigrated" ;;
+        registry-invalid)   _pu_attention MSG-G6H4 "registry-invalid" ;;
         error)              _pu_unreadable MSG-Y3J5 "error" ;;
         rpmnew-residual)    _pu_info MSG-J3X7 "rpmnew-residual" ;;
         copy-kept)          _pu_info MSG-W8F8 "copy-kept" ;;
@@ -2010,6 +2023,7 @@ _pu_run_check() {
     local -a new_keys=() entries=() files_with_baseline=()
     ai_tools_records_base__begin_report
     _pu_kind_findings "${root}"
+    _pu_registry_findings "${root}"
     exec {fd}< <(_pu_entries "${root}"); pid=$!
     mapfile -t -u "${fd}" files_with_baseline
     exec {fd}<&-
@@ -2159,6 +2173,84 @@ _pu_kind_findings() {
     done
     exec {fd}<&-
     _pu_wait_collector "${pid}" file "${file}" kind-plan
+}
+
+# _pu_registry_list <root>: `<operator>\t<uid>\t<state>\t<path>` per enrolled operator with a home on this host,
+# the registry ai_tools_conf__resolve_registry picks in that operator's ~/.config/ai-tools under <root> -- OPERATORS
+# read from <root>'s operator.conf (the AI_TOOLS_OPERATOR_CONF hook's file with no root), and each home from the account
+# database, so the suite prefixes both.
+_pu_registry_list() {
+    local root="$1" user home uid state path conf="$1/etc/ai-tools/operator.conf"
+    local -a operators=()
+    [[ -n "${root}" ]] || conf="${AI_TOOLS_OPERATOR_CONF:-${OPERATOR_CONF}}"
+    ai_tools_conf__read_list operators "${conf}" OPERATORS 2>/dev/null || return 0
+    for user in "${operators[@]}"; do
+        home="$(getent passwd "${user}" 2>/dev/null | cut -d: -f6)"
+        uid="$(id -u "${user}" 2>/dev/null)" || continue
+        [[ -n "${home}" ]] || continue
+        IFS=$'\t' read -r state path < <(ai_tools_conf__resolve_registry "${root}${home}/.config/ai-tools")
+        printf '%s\t%s\t%s\t%s\n' "${user}" "${uid}" "${state}" "${path}"
+    done
+}
+
+# _pu_read_registry_refusal <registry-file>: print, on one line, why the launch gate refuses <registry-file> -- the
+# library's refusal and its code, read through ai_tools_conf__check_registry as root, which takes the link rule from the
+# file's own owner -- and return the check's status. Prints nothing and returns 0 for a file the gate reads.
+_pu_read_registry_refusal() {
+    local out line rc=0 code="" text=""
+    out="$(ai_tools_conf__check_registry "$1" 2>&1 >/dev/null)" || rc=$?
+    (( rc )) || return 0
+    while IFS= read -r line; do
+        if [[ "${line}" =~ ^MSG-[A-Z][0-9][A-Z][0-9]$ ]]; then code="${line}"; elif [[ -n "${line}" ]]; then text="${line#conf: }"; fi
+    done <<< "${out}"
+    printf '%s%s' "${text:-$1 cannot be read}" "${code:+ (${code})}"
+    return "${rc}"
+}
+
+# _pu_registry_findings <root>: registry-unmigrated for each enrolled operator whose registry is
+# the `~/.config/ai-tools/allowed-projects` an earlier release wrote and the legacy grammar reads, and registry-invalid
+# for one no reader accepts, legacy or current, with the reason. The source check is the migration's own (one lstat,
+# the operator's file at 600), made here without the write. Each file is then read as the launch gate reads it, so
+# an exclusion through a link the sandbox account can change is registry-invalid with the library's line; a legacy file
+# in that state is registry-unmigrated as well, since the migration copies the line and the remedy is the same edit
+# in either file.
+_pu_registry_findings() {
+    local root="$1" user uid state path kind owner mode reason refusal rc fd pid
+    exec {fd}< <(_pu_registry_list "${root}"); pid=$!
+    while IFS=$'\t' read -r -u "${fd}" user uid state path; do
+        case "${state}" in
+            legacy)
+                reason=""
+                IFS=: read -r kind owner mode < <(stat -c '%F:%u:%a' -- "${path}" 2>/dev/null) || kind=""
+                case "${kind}" in
+                    'regular file'|'regular empty file') ;;
+                    '') reason="${path} cannot be read" ;;
+                    *)  reason="${path} is a ${kind}, not a regular file" ;;
+                esac
+                [[ -n "${reason}" || "${owner}" == "${uid}" ]] || reason="${path} is held by uid ${owner}, not by ${user}"
+                [[ -n "${reason}" || "${mode}" == 600 ]] || reason="${path} is mode ${mode}, not 600"
+                [[ -n "${reason}" ]] || ai_tools_conf__validate_registry "${path}" legacy 2>/dev/null \
+                    || reason="${path} has a line the legacy grammar refuses"
+                rc=0; [[ -n "${reason}" ]] || refusal="$(_pu_read_registry_refusal "${path}")" || rc=$?
+                (( rc == 0 || rc == 2 )) || reason="${refusal}"
+                if [[ -n "${reason}" ]]; then
+                    _pu_write_finding registry-invalid file "${path}" "${reason}" "${user}"
+                else
+                    (( rc == 0 )) || _pu_write_finding registry-invalid file "${path}" "${refusal}" "${user}"
+                    _pu_write_finding registry-unmigrated file "${path}" "${user}: migrates to ${path%/*}/project-registry" "${user}"
+                fi ;;
+            current)
+                rc=0; refusal="$(_pu_read_registry_refusal "${path}")" || rc=$?
+                case "${rc}" in
+                    0) ;;
+                    2) _pu_write_finding registry-invalid file "${path}" "${refusal}" "${user}" ;;
+                    3) _pu_write_finding registry-invalid file "${path}" "${path} has a line the grammar refuses" "${user}" ;;
+                    *) _pu_write_finding registry-invalid file "${path}" "${path} cannot be read" "${user}" ;;
+                esac ;;
+        esac
+    done
+    exec {fd}<&-
+    _pu_wait_collector "${pid}" file "${root}/etc/ai-tools/operator.conf" registries
 }
 
 # _pu_orphans <root>: each package copy whose file is gone, one path per line. rpm parks a copy only beside a file it
@@ -2354,6 +2446,65 @@ _pu_kind_migrate() {
     fi
 }
 
+# _pu_registry_migrate <root>: migrate every enrolled operator's `~/.config/ai-tools/allowed-projects`
+# to `~/.config/ai-tools/project-registry` (the plan and the write are ai_tools_conf__plan_registry_migration
+# and ai_tools_conf__migrate_registry, conf.lib.sh), one block per operator, on every run, the unattended one included:
+# each line is copied unchanged, so the migration does not change what a session reaches, and until it lands every
+# `projects` verb refuses. The plan is printed row by row first, a plain `!` line no project encloses with the `%` line
+# that parks it in format 1.0, since that reading is the one the copy changes and only the operator knows which was
+# meant. A registry no reader accepts, legacy or current, is named and left as written; a legacy file the gate refuses
+# only for an exclusion through a link still migrates, and the block names the line after its rows. Root writes
+# through the operator's own 0700 directory, and the new file takes the source's owner and mode.
+_pu_registry_migrate() {
+    local root="$1" user uid state path verdict number raw hint sidecar rc scratch notes registry
+    while IFS=$'\t' read -r user uid state path; do
+        case "${state}" in
+            current)
+                ai_tools_conf__check_registry "${path}" 2>/dev/null && continue
+                _PU_NAME="registry"
+                ai_tools_msg__headline "project registry -- ${user}" 1 "${path}"
+                { ai_tools_conf__check_registry "${path}" 2>&1 || true; } | sed 's/^/    /'
+                _pu_say err "no reader accepts this registry, so no session starts under it -- fix the line named above"
+                continue ;;
+            legacy) ;;
+            *) continue ;;
+        esac
+        _PU_NAME="registry"
+        ai_tools_msg__headline "project registry -- ${user}" 1 "${path}" \
+            "becomes ${path%/*}/project-registry, format 1.0: the marker, then every line as it was"
+        notes=0
+        while IFS=$'\t' read -r verdict number raw hint; do
+            case "${verdict}" in
+                marker) _pu_say info "new first line: ${raw}" ;;
+                keep)   _pu_say info "line ${number}: ${raw}" ;;
+                note)   _pu_say act "line ${number}: ${raw} -- ${hint}"; notes=$(( notes + 1 )) ;;
+            esac
+        done < <(ai_tools_conf__plan_registry_migration "${path}" 2>/dev/null)
+        # The lines are written as they were: a `!` no project encloses withholds its path in either format, and only
+        # the operator knows whether it was a parked project, so the block closes by counting them once.
+        if (( notes > 0 )); then
+            _pu_say act "${notes} '!' line(s) above read as carve-outs in format 1.0, so no session starts there, as before -- to keep one as a parked project that atr projects enable restores, change its '!' to '%'"
+        fi
+        # Called in this shell, not a capture, so the refusal it leaves in AI_TOOLS_CONF__MIGRATION_REFUSAL is read
+        # here.
+        rc=0; scratch="$(mktemp)" || { _pu_say err "not migrated: a scratch file cannot be created"; continue; }
+        ai_tools_conf__migrate_registry "${path}" "${path%/*}/project-registry" "${uid}" > "${scratch}" 2>/dev/null || rc=$?
+        sidecar="$(cat "${scratch}")"; rm -f "${scratch}"
+        case "${rc}" in
+            0) _pu_say ok "written ${path%/*}/project-registry; the file as it was is saved as ${sidecar}" ;;
+            2|3) _pu_say err "not migrated: ${AI_TOOLS_CONF__MIGRATION_REFUSAL} -- fix it, then re-run atr admin system post-upgrade" ;;
+            *) _pu_say err "not migrated: ${AI_TOOLS_CONF__MIGRATION_REFUSAL} -- ${path} stays the registry; re-run atr admin system post-upgrade" ;;
+        esac
+        # The copy keeps every line, so an exclusion through a link the gate refuses refuses the new file as it did
+        # the old one, and the same edit clears it in either.
+        registry="${path}"; (( rc == 0 )) && registry="${path%/*}/project-registry"
+        if ! ai_tools_conf__check_registry "${registry}" 2>/dev/null; then
+            { ai_tools_conf__check_registry "${registry}" 2>&1 || true; } | sed 's/^/    /'
+            _pu_say err "no reader accepts ${registry}, so no session starts under it -- fix the line named above"
+        fi
+    done < <(_pu_registry_list "${root}")
+}
+
 # _pu_report: the reconciliation itself, one block per file with a copy waiting, then the closing lines.
 _pu_report() {
     local file kind label title found=0 attention_before copy
@@ -2363,6 +2514,7 @@ _pu_report() {
     local -a to_compare=() identical=()
 
     _pu_kind_migrate "${root}"
+    _pu_registry_migrate "${root}"
     local -a references=() entries=() clock_lines=()
     local entry line
     mapfile -t entries < <(_pu_entries "${root}")
@@ -2557,6 +2709,41 @@ status_operator_conf() {
     meta="$(stat -c '%F, owner=%U:%G, mode=%a' -- "${operator_conf}" 2>/dev/null)" || meta="could not be stat-ed"
     st "NOT READABLE" "${SANDBOX_USER} cannot read ${operator_conf} (${meta}) -- sessions and the updater read the default-enabled providers alone, and each updater run fails"
     detail "atr admin system layout reconcile"
+    return 0
+}
+
+# status_registries: every enrolled operator's project registry, read as root through each 0700 config directory and
+# as the launch gate reads it (ai_tools_conf__check_registry): one no reader accepts or that cannot be read,
+# and a `~/.config/ai-tools/allowed-projects` an earlier release wrote, each count, with what clears it,
+# since the projects verbs refuse over both and a refused file stops every launch under it. An operator with no registry
+# is named and not counted, since enrolment seeds one.
+status_registries() {
+    local user uid state path rc
+    heading "Project registries"
+    while IFS=$'\t' read -r user uid state path; do
+        if [[ "${state}" == none ]]; then
+            st "n/a" "${user}: no registry at ${path}"
+            detail "atr admin operators add ${user}"
+            continue
+        fi
+        rc=0; ai_tools_conf__check_registry "${path}" 2>/dev/null || rc=$?
+        if (( rc != 0 )); then
+            STATUS_PROBLEMS=$(( STATUS_PROBLEMS + 1 ))
+            if (( rc == 1 )); then
+                st "REFUSED" "${user}: ${path} cannot be read, so no session starts under it"
+            else
+                st "REFUSED" "${user}: ${path} holds a line no reader accepts, so no session starts under it"
+            fi
+            { ai_tools_conf__check_registry "${path}" 2>&1 || true; } \
+                | while IFS= read -r line; do detail "${line}"; done
+        elif [[ "${state}" == legacy ]]; then
+            STATUS_PROBLEMS=$(( STATUS_PROBLEMS + 1 ))
+            st "NOT MIGRATED" "${user}: ${path} is the allowed-projects an earlier release wrote; the projects verbs refuse until it is migrated"
+            detail "atr admin system post-upgrade"
+        else
+            st OK "${user}: ${path} (format $(ai_tools_conf__read_registry_format "${path}"))"
+        fi
+    done < <(_pu_registry_list "")
     return 0
 }
 
@@ -3255,6 +3442,7 @@ status() {
     status_agent_versions
 
     status_provisioning
+    status_registries
     status_managed_files
     status_assets
 

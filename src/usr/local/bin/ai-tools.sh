@@ -929,7 +929,7 @@ registry_gate() {
         legacy)
             if [[ "${verb}" != list ]]; then
                 die MSG-J6S8 "your project registry is ${REGISTRY_DISPLAY_PATH}, the allowed-projects an earlier release wrote, and it is not migrated -- nothing changed" \
-                    "projects ${verb} writes the format this release reads. Migrate the file to projects, which keeps every line and renames this one to a dated backup:" \
+                    "projects ${verb} writes the format this release reads. Migrate the file to ~/.config/ai-tools/project-registry, which keeps every line and renames this one to a dated backup:" \
                     "       atr admin system post-upgrade"
             fi ;;
     esac
@@ -5393,6 +5393,36 @@ status_operator_conf() {
     return 1
 }
 
+# status_registry -- the invoker's project registry and the state every `projects` verb reads it in, read as the launch
+# gate reads it (ai_tools_conf__check_registry, the read registry_gate makes), so the report and the gate cannot
+# disagree about a file. A file no reader accepts, one that cannot be read, and an allowed-projects an earlier release
+# wrote each return 1 with what clears it, since the projects verbs refuse over each (a refused file stops every launch
+# too); no registry is reported and not counted, since enrolment seeds one.
+status_registry() {
+    local rc=0
+    section "Project registry"
+    if [[ "${REGISTRY_STATE}" == none ]]; then
+        say "  ${C_DIM}no registry at ${ALLOWLIST} -- atr admin operators add seeds one for an operator${C_RST}"
+        return 0
+    fi
+    ai_tools_conf__check_registry "${ALLOWLIST}" 2>/dev/null || rc=$?
+    if (( rc != 0 )); then
+        if (( rc == 1 )); then
+            say "  ${C_RED}unreadable${C_RST} ${ALLOWLIST} -- the file cannot be read, so no session starts under it:"
+        else
+            say "  ${C_RED}refused${C_RST} ${ALLOWLIST} -- it holds a line no reader accepts, so no session starts under it:"
+        fi
+        { ai_tools_conf__check_registry "${ALLOWLIST}" 2>&1 || true; } | sed 's/^/      /'
+        return 1
+    fi
+    if [[ "${REGISTRY_STATE}" == legacy ]]; then
+        say "  ${C_YEL}not migrated${C_RST} ${ALLOWLIST} -- the allowed-projects an earlier release wrote; sessions start as before, and the projects verbs refuse until it is migrated:"
+        say "      ${C_BOLD}atr admin system post-upgrade${C_RST}"
+        return 1
+    fi
+    ok "${ALLOWLIST} (format $(ai_tools_conf__read_registry_format "${ALLOWLIST}"))"
+}
+
 # status_residue -- one line per agent this host installed, did not enable, and still holds the stable launcher link
 # of: the operator-side read of a package left in the sandbox toolchain (ai_tools_toolchain__find_agent_residue_links,
 # toolchain.lib.sh), which the launch wrapper refuses every launch on from the same link and the shim from the tree.
@@ -5590,6 +5620,7 @@ cmd_status() {
     fi
 
     status_provisioning || status_fold $?
+    status_registry || status_fold $?
 
     section "Services"
     # A missing registry is a broken install, not an unknowable state: a reading this report could not make, which exits

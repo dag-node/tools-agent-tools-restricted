@@ -48,7 +48,7 @@ source "${_ai_tools_layout__library_dir}/project-permissions.lib.sh" || return 1
 # shellcheck source=SCRIPTDIR/log.lib.sh
 source "${_ai_tools_layout__library_dir}/log.lib.sh" || return 1
 unset _ai_tools_layout__library_dir
-for _ai_tools_layout__required in ai_tools_conf__is_trusted ai_tools_conf__read_list \
+for _ai_tools_layout__required in ai_tools_conf__is_trusted ai_tools_conf__read_list ai_tools_conf__resolve_registry \
         ai_tools_conf__read_untrusted_reason ai_tools_conf__read_unreadable_reason \
         ai_tools_providers__read_agent_manifest_field ai_tools_control_plane__is_agent_config_dir_valid \
         ai_tools_records_base__read_subject_type ai_tools_records_tsv__encode_field ai_tools_records_tsv__decode_field \
@@ -601,7 +601,7 @@ _ai_tools_layout__append_static_entries() {
 }
 
 # _ai_tools_layout__append_dynamic_entries <entries-var> <errors-var> : append one row per installed agent config
-# directory and three per enrolled operator to the caller's entries array, and an `error` line to the errors array
+# directory and four per enrolled operator to the caller's entries array, and an `error` line to the errors array
 # for each input that could not be read. Each input is read through ai_tools_records_base__read_subject_type
 # and ai_tools_conf__is_trusted before anything in it: an absent input does not contribute a row (the static row for it
 # reports the absence), and an input that is present but unreadable, untrusted, of another type, or not parsed whole is
@@ -612,11 +612,16 @@ _ai_tools_layout__append_dynamic_entries() {
     local _layout_dynamic_agent
     local _layout_dynamic_config_dir _layout_dynamic_path _layout_dynamic_operator _layout_dynamic_home
     local _layout_dynamic_group _layout_dynamic_entry _layout_dynamic_line _layout_dynamic_index
+    local _layout_dynamic_registry_state _layout_dynamic_flag
     local -a _layout_dynamic_operators=()
-    local -a _layout_dynamic_relative=( "" /allowed-projects /secret-patterns )
-    local -a _layout_dynamic_types=( directory file file )
-    local -a _layout_dynamic_modes=( 0700 0600 0600 )
-    local -a _layout_dynamic_flags=( boundary boundary 'optional,boundary' )
+    # The registry is `~/.config/ai-tools/project-registry`; a `~/.config/ai-tools/allowed-projects` an earlier release
+    # wrote is the registry every reader takes until `system post-upgrade` migrates it, so it holds the same row,
+    # optional, while it exists, and for that operator the `~/.config/ai-tools/project-registry` row is optional until
+    # then: the migration creates it, and `system post-upgrade --check` reports the operator as unmigrated.
+    local -a _layout_dynamic_relative=( "" /project-registry /allowed-projects /secret-patterns )
+    local -a _layout_dynamic_types=( directory file file file )
+    local -a _layout_dynamic_modes=( 0700 0600 0600 0600 )
+    local -a _layout_dynamic_flags=( boundary boundary 'optional,boundary' 'optional,boundary' )
     local -A _layout_dynamic_homes=() _layout_dynamic_declared=()
     _layout_dynamic_root="$(_ai_tools_layout__get_path_prefix)"
     for _layout_dynamic_entry in "${_AI_TOOLS_LAYOUT__STATIC_ENTRIES[@]}"; do
@@ -676,7 +681,7 @@ _ai_tools_layout__append_dynamic_entries() {
         _layout_dynamic_errors+=( "${_layout_dynamic_line}" )
     fi
 
-    # Three rows per enrolled operator. The list reader's status 1 is the complete empty set (no OPERATORS key); 2
+    # Four rows per enrolled operator. The list reader's status 1 is the complete empty set (no OPERATORS key); 2
     # and an untrusted file are an `error` line, as is a value the reader does not parse as a list, which it reports
     # as an empty array with ai_tools_conf__list_invalid set.
     _layout_dynamic_status=0
@@ -720,9 +725,16 @@ _ai_tools_layout__append_dynamic_entries() {
                 # An operator whose home another operator shares yields its rows once, under the first name.
                 [[ -z "${_layout_dynamic_homes[${_layout_dynamic_home}]+x}" ]] || continue
                 _layout_dynamic_homes["${_layout_dynamic_home}"]="${_layout_dynamic_operator}"
-                for _layout_dynamic_index in 0 1 2; do
+                _layout_dynamic_registry_state="$(ai_tools_conf__resolve_registry \
+                    "${_layout_dynamic_root}${_layout_dynamic_home}/.config/ai-tools")"
+                for _layout_dynamic_index in "${!_layout_dynamic_relative[@]}"; do
                     _layout_dynamic_path="${_layout_dynamic_root}${_layout_dynamic_home}/.config/ai-tools"
                     _layout_dynamic_path+="${_layout_dynamic_relative[${_layout_dynamic_index}]}"
+                    _layout_dynamic_flag="${_layout_dynamic_flags[${_layout_dynamic_index}]}"
+                    if [[ "${_layout_dynamic_relative[${_layout_dynamic_index}]}" == /project-registry \
+                            && "${_layout_dynamic_registry_state%%$'\t'*}" == legacy ]]; then
+                        _layout_dynamic_flag="optional,${_layout_dynamic_flag}"
+                    fi
                     if [[ -n "${_layout_dynamic_declared[${_layout_dynamic_path}]+x}" ]]; then
                         _ai_tools_layout__encode_line _layout_dynamic_line error \
                             "${_layout_dynamic_types[${_layout_dynamic_index}]}" "${_layout_dynamic_path}" operators \
@@ -735,7 +747,7 @@ _ai_tools_layout__append_dynamic_entries() {
                         "${_layout_dynamic_types[${_layout_dynamic_index}]}" \
                         "${_layout_dynamic_operator}:${_layout_dynamic_group}" \
                         "${_layout_dynamic_modes[${_layout_dynamic_index}]}" - - \
-                        "${_layout_dynamic_flags[${_layout_dynamic_index}]}" "${_layout_dynamic_operator}"
+                        "${_layout_dynamic_flag}" "${_layout_dynamic_operator}"
                     _layout_dynamic_out+=( "${_layout_dynamic_line}" )
                 done
             done

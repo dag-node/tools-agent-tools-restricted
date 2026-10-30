@@ -333,9 +333,10 @@ fi
 
 # ── (7) The exit status of `status` follows ai-tools-records(5): 4 for a fault a section read, 5 for a reading
 # a section could not make ── cmd_status is driven whole, with the sections that read this host stubbed to a known
-# answer (no unit in the registry, a clean PATH ordering, no pins), so each case changes one reading. The registry's
-# readers are removed after the CLI loaded them, which is the shape a half-upgraded install takes; the later sections
-# still print, so the page carries every reading it could make beside the one it could not.
+# answer (no unit in the registry, a clean PATH ordering, no pins, a project registry that reads clean), so each case
+# changes one reading. The registry's readers are removed after the CLI loaded them, which is the shape a half-upgraded
+# install takes; the later sections still print, so the page carries every reading it could make beside the one it could
+# not.
 # shellcheck disable=SC2016  # the $1 is for the inner `bash -c`, not this shell -- do not expand here
 if runuser -u "${PROJECTS_USER}" -- bash -c \
         'cli="$1"; set --; source "${cli}" >/dev/null 2>&1; declare -F status_fold >/dev/null 2>&1' _ "${CLI}"; then
@@ -351,7 +352,7 @@ if runuser -u "${PROJECTS_USER}" -- bash -c \
             bash -c 'cli="$1"; pre="$2"; set --; source "${cli}" >/dev/null 2>&1 || exit 99
                      ai_tools_services__list_records() { :; }; status_path_order() { return 0; }
                      status_entrypoint_pins() { return 0; }; status_selinux_attestation() { return 0; }
-                     status_caches() { return 0; }
+                     status_caches() { return 0; }; status_registry() { return 0; }
                      eval "${pre}"; cmd_status' _ "${CLI}" "$1" 2>&1
     }
     reset_fixtures; rm -f "${PINS}"/* "${STALES}"/* "${LABELS}"/*; manifest alpha la yes; link la
@@ -384,6 +385,39 @@ if runuser -u "${PROJECTS_USER}" -- bash -c \
         pass "a fault read beside a reading that could not be made exits 5: unreadable wins the fold"
     else
         fail "fault plus unreadable exited ${rc}, expected 5"
+    fi
+    # The registry section reads the file as the launch gate does: an exclusion through a link in a directory
+    # the sandbox group can write passes the grammar and is refused by the loader (MSG-Y5N6), so status exits 4 naming
+    # it; the same exclusion written as the real path reads ok.
+    # call_status_registry <registry> : cmd_status with every section but the registry's stubbed clean, over <registry>.
+    # shellcheck disable=SC2016  # the $1/$2 are for the inner `bash -c`, not this shell -- do not expand here
+    call_status_registry() {
+        runuser -u "${PROJECTS_USER}" -- env \
+            AI_TOOLS_AGENTS_DIR="${AGENTS_DIR}" AI_TOOLS_OPERATOR_CONF="${CONF}" AI_TOOLS_LAUNCHER_DIR="${LINKS}" \
+            AI_TOOLS_ALLOWLIST="$1" AI_TOOLS_MSG_PLAIN=1 \
+            bash -c 'cli="$1"; set --; source "${cli}" >/dev/null 2>&1 || exit 99
+                     ai_tools_services__list_records() { :; }; status_path_order() { return 0; }
+                     status_entrypoint_pins() { return 0; }; status_selinux_attestation() { return 0; }
+                     status_caches() { return 0; }; cmd_status' _ "${CLI}" 2>&1
+    }
+    REGLINK="${TESTDIR}/reglink"; mkdir -p "${REGLINK}/real/hidden" "${REGLINK}/gw"
+    ln -s "${REGLINK}/real" "${REGLINK}/gw/link"; chmod 2775 "${REGLINK}/gw"
+    printf '%s\n' "# ai-tools-project-registry-format: 1.0" "!${REGLINK}/gw/link/hidden" > "${REGLINK}/project-registry"
+    chown -R "${PROJECTS_USER}" "${REGLINK}"; chmod 600 "${REGLINK}/project-registry"
+    reset_fixtures; manifest alpha la yes; link la
+    rc=0; out="$(call_status_registry "${REGLINK}/project-registry")" || rc=$?
+    # The section prints the library's lines indented under its own, so the code is matched with the indent.
+    if [[ "${rc}" -eq 4 ]] && grep -qE '^[[:space:]]*MSG-Y5N6$' <<<"${out}" && grep -qF 'refused' <<<"${out}"; then
+        pass "status reads a registry the gate refuses for a linked exclusion as refused, naming MSG-Y5N6, and exits 4"
+    else
+        fail "status over a linked exclusion exited ${rc}: $(tail -c 400 <<<"${out}" | tr '\n' '|')"
+    fi
+    printf '%s\n' "# ai-tools-project-registry-format: 1.0" "!${REGLINK}/real/hidden" > "${REGLINK}/project-registry"
+    rc=0; out="$(call_status_registry "${REGLINK}/project-registry")" || rc=$?
+    if [[ "${rc}" -eq 0 ]] && grep -qF "${REGLINK}/project-registry (format 1.0)" <<<"${out}"; then
+        pass "control: the exclusion written as the real path reads ok and status exits 0"
+    else
+        fail "the real-path control exited ${rc}: $(tail -c 400 <<<"${out}" | tr '\n' '|')"
     fi
 else
     skip "status exit" "status_fold absent from ${CLI} (older CLI)"

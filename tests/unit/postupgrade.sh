@@ -937,6 +937,145 @@ else
     fi
 fi
 
+# ── (F2) The project registry migration ──────────────────────────────────────────────────────
+# Every enrolled operator's `~/.config/ai-tools/allowed-projects` becomes `~/.config/ai-tools/project-registry`,
+# unattended: the marker, then every line as it was, the old file renamed to the dated .bak, owner and mode kept.
+# The operator is the projects user, whose home is read from the account database and prefixed with the fixture root,
+# so the operator's real files are not touched.
+section "ai-tools-admin system post-upgrade: the project registry migration (unit)"
+REG_DIR="${ROOT}${PROJECTS_HOME}/.config/ai-tools"
+reg_reset() {   # reg_reset <line>... : a fresh root, the projects user enrolled, its allowed-projects holding <line>s
+    reset_root
+    printf 'OPERATORS="%s"\n' "${PROJECTS_USER}" > "${CONF}"
+    mkdir -p "${REG_DIR}"; chown "${PROJECTS_USER}:${PROJECTS_GROUP}" "${REG_DIR}"; chmod 700 "${REG_DIR}"
+    printf '%s\n' "$@" > "${REG_DIR}/allowed-projects"
+    chown "${PROJECTS_USER}:${PROJECTS_GROUP}" "${REG_DIR}/allowed-projects"; chmod 600 "${REG_DIR}/allowed-projects"
+}
+reg_reset "# my projects" "/srv/p   # the main one" "!/srv/p/vendor" "!/srv/parked"
+reg_before="$(cat "${REG_DIR}/allowed-projects")"
+run_check
+if [[ "${check_rc}" == 4 ]] && has_finding MSG-C2H5 "${REG_DIR}/allowed-projects" registry-unmigrated \
+        "${PROJECTS_USER}: migrates to ${REG_DIR}/project-registry" "${PROJECTS_USER}" \
+        && [[ ! -e "${REG_DIR}/project-registry" && "$(cat "${REG_DIR}/allowed-projects")" == "${reg_before}" ]]; then
+    pass "--check writes registry-unmigrated for a legacy registry, exits 4 and writes no file"
+else
+    fail "--check over a legacy registry (exit ${check_rc}): ${out}"
+fi
+out="$(run_pu)"
+reg_bak=("${REG_DIR}"/allowed-projects.*.bak)
+if [[ -f "${REG_DIR}/project-registry" && ! -e "${REG_DIR}/allowed-projects" && -f "${reg_bak[0]}" \
+        && "$(cat "${REG_DIR}/project-registry")" == "# ai-tools-project-registry-format: 1.0"$'\n'"${reg_before}" \
+        && "$(cat "${reg_bak[0]}")" == "${reg_before}" \
+        && "$(stat -c '%U %a' "${REG_DIR}/project-registry")" == "${PROJECTS_USER} 600" ]]; then
+    pass "the run writes ~/.config/ai-tools/project-registry as the marker and every line, at the source's owner and mode, and keeps the .bak"
+else
+    fail "the migration: $(ls -la "${REG_DIR}" 2>&1 | tail -n +2 | tr '\n' '~'): ${out}"
+fi
+if grep -qF -- "!/srv/parked" <<<"${out}" && grep -qF -- "%/srv/parked" <<<"${out}"; then
+    pass "a '!' line no project encloses is named with the '%' line that parks it"
+else
+    fail "the plan's note for !/srv/parked: ${out}"
+fi
+# One '!' line here is unenclosed (/srv/p/vendor is a carve-out of /srv/p), and the block counts it once.
+if grep -qF -- "1 '!' line(s) above read as carve-outs in format 1.0" <<<"${out}"; then
+    pass "the block closes by counting the '!' lines no project encloses, with the edit that parks one"
+else
+    fail "the closing count of unenclosed '!' lines: ${out}"
+fi
+run_check
+if [[ "${check_rc}" == 0 ]] && ! grep -qF registry- <<<"${out}"; then
+    pass "a migrated registry is not a finding, and a rerun has nothing to migrate"
+else
+    fail "--check after the migration (exit ${check_rc}): ${out}"
+fi
+# A line the legacy grammar refuses: a finding with the reason, and the plain run leaves the file and does not write
+# `~/.config/ai-tools/project-registry`.
+reg_reset "/srv/p" "vendor"
+run_check
+if has_finding MSG-G6H4 "${REG_DIR}/allowed-projects" registry-invalid \
+        "${REG_DIR}/allowed-projects has a line the legacy grammar refuses" "${PROJECTS_USER}"; then
+    pass "--check writes registry-invalid for a legacy registry the grammar refuses"
+else
+    fail "--check over a refused legacy registry: ${out}"
+fi
+out="$(run_pu)"
+if [[ -f "${REG_DIR}/allowed-projects" && ! -e "${REG_DIR}/project-registry" ]] && grep -qF "not migrated" <<<"${out}"; then
+    pass "the run leaves a refused source under its name, writes no ~/.config/ai-tools/project-registry, and says so"
+else
+    fail "the run over a refused source: ${out}"
+fi
+# A source at another mode is the migration's refusal too, read by `--check` before any write.
+reg_reset "/srv/p"; chmod 644 "${REG_DIR}/allowed-projects"
+run_check
+if has_finding MSG-G6H4 "${REG_DIR}/allowed-projects" registry-invalid "${REG_DIR}/allowed-projects is mode 644, not 600" \
+        "${PROJECTS_USER}"; then
+    pass "--check names a source at a mode other than 600 as registry-invalid"
+else
+    fail "--check over a 644 source: ${out}"
+fi
+# An exclusion through a link in a directory the sandbox group can write: the grammar accepts the line, and the launch
+# gate refuses the file (MSG-Y5N6). Both readings here are the gate's, as root over the operator's own file.
+REG_LINK="${TESTDIR}/reglink"
+rm -rf "${REG_LINK}"; mkdir -p "${REG_LINK}/real/hidden" "${REG_LINK}/gw"; ln -s "${REG_LINK}/real" "${REG_LINK}/gw/link"
+chown -R "${PROJECTS_USER}:${PROJECTS_GROUP}" "${REG_LINK}"; chmod 2775 "${REG_LINK}/gw"
+reg_link_reset() {   # reg_link_reset <legacy|current> <exclusion-path>
+    reg_reset "/srv/p" "!$2"
+    [[ "$1" == current ]] || return 0
+    printf '%s\n' "# ai-tools-project-registry-format: 1.0" "/srv/p" "!$2" > "${REG_DIR}/project-registry"
+    chown "${PROJECTS_USER}:${PROJECTS_GROUP}" "${REG_DIR}/project-registry"; chmod 600 "${REG_DIR}/project-registry"
+    rm -f "${REG_DIR}/allowed-projects"
+}
+# link_finding <file> : the --check stream holds a registry-invalid row for <file> whose detail carries MSG-Y5N6.
+link_finding() {
+    awk -F '\t' -v f="$1" 'NR == 1 { for (i = 1; i <= NF; i++) col[$i] = i; next }
+        $col["code"] == "MSG-G6H4" && $col["finding"] == "registry-invalid" && $col["subject"] == f \
+            && index($col["detail"], "MSG-Y5N6") { found = 1 } END { exit !found }' <<< "${out}"
+}
+reg_link_reset current "${REG_LINK}/gw/link/hidden"
+run_check
+if [[ "${check_rc}" == 4 ]] && link_finding "${REG_DIR}/project-registry"; then
+    pass "--check writes registry-invalid naming MSG-Y5N6 for an exclusion through a link the gate refuses"
+else
+    fail "--check over a current registry with a linked exclusion (exit ${check_rc}): ${out}"
+fi
+out="$(run_pu)"
+if grep -qF "MSG-Y5N6" <<<"${out}" && grep -qF "no session starts under it" <<<"${out}"; then
+    pass "the run prints the library's MSG-Y5N6 line and that no session starts under the file"
+else
+    fail "the run over a linked exclusion: ${out}"
+fi
+reg_link_reset legacy "${REG_LINK}/gw/link/hidden"
+run_check
+if link_finding "${REG_DIR}/allowed-projects" && has_finding MSG-C2H5 "${REG_DIR}/allowed-projects" registry-unmigrated \
+        "${PROJECTS_USER}: migrates to ${REG_DIR}/project-registry" "${PROJECTS_USER}"; then
+    pass "a legacy registry with a linked exclusion is registry-invalid and registry-unmigrated"
+else
+    fail "--check over a legacy registry with a linked exclusion: ${out}"
+fi
+out="$(run_pu)"
+if [[ -f "${REG_DIR}/project-registry" && ! -e "${REG_DIR}/allowed-projects" ]] && grep -qF "MSG-Y5N6" <<<"${out}"; then
+    pass "the legacy file migrates, and the block names the linked exclusion after its rows"
+else
+    fail "the migration of a legacy registry with a linked exclusion: ${out}"
+fi
+# The control: the same exclusion written as the real path.
+reg_link_reset current "${REG_LINK}/real/hidden"
+run_check
+if [[ "${check_rc}" == 0 ]] && ! grep -qF registry- <<<"${out}"; then
+    pass "control: the exclusion written as the real path is not a finding"
+else
+    fail "the real-path control (exit ${check_rc}): ${out}"
+fi
+reg_link_reset legacy "${REG_LINK}/real/hidden"
+run_check
+if ! grep -qF registry-invalid <<<"${out}" && grep -qF registry-unmigrated <<<"${out}"; then
+    pass "control: a legacy file with the real path is registry-unmigrated alone"
+else
+    fail "the legacy real-path control: ${out}"
+fi
+rm -rf "${REG_LINK}"
+reset_root
+
 # ── (G) Dispatch ─────────────────────────────────────────────────────────────────────────────
 reset_root
 if out="$(setsid env AI_TOOLS_POSTUPGRADE_ROOT="${ROOT}" "${HELPER}" system post-upgrade extra \

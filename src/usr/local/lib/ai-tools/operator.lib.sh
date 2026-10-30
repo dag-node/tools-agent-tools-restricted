@@ -105,6 +105,24 @@ ai_tools_operator__get_allowlist_path() {
     printf '%s' "${path:-${config_dir}/project-registry}"
 }
 
+# ai_tools_operator__list_unmigrated_registries: print `<operator>\t<path>` for each enrolled operator whose registry is
+# still the `~/.config/ai-tools/allowed-projects` an earlier release wrote -- the file ai_tools_conf__resolve_registry
+# picks while it exists -- so the base %post and install.sh name `atr admin system post-upgrade` from one predicate.
+# A host with no operator, or without the library, prints nothing. Read as root: each config directory is the operator's
+# 0700.
+ai_tools_operator__list_unmigrated_registries() {
+    local user home state path
+    ai_tools_operator__load_operators || return 0
+    declare -F ai_tools_conf__resolve_registry >/dev/null 2>&1 || return 0
+    for user in "${AI_TOOLS_OPERATOR__OPERATORS[@]}"; do
+        home="$(getent passwd "${user}" 2>/dev/null | cut -d: -f6)"
+        [[ -n "${home}" ]] || continue
+        IFS=$'\t' read -r state path < <(ai_tools_conf__resolve_registry "${home}/.config/ai-tools")
+        [[ "${state}" == legacy ]] && printf '%s\t%s\n' "${user}" "${path}"
+    done
+    return 0
+}
+
 # ai_tools_operator__is_covered_by_allowlist <allowlist-file> <canonical-path>: succeed when the allowlist allows
 # the path and no '!' exclusion overrides it. The file is read and the exclusions matched by the one loader and matcher
 # every reader shares (ai_tools_conf__load_allowlist / ai_tools_conf__is_path_excluded, conf.lib.sh), so a line denotes

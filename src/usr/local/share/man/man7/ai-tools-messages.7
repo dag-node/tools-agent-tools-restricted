@@ -437,6 +437,10 @@ ERROR.
 this directory's name cannot be written as a registry line: $1
 .SS ai-tools-admin
 .TP
+.B MSG-A2P2
+WARNING.
+the registry ${registry} is the allowed\-projects an earlier release wrote, so ~/.config/ai\-tools/project\-registry is not seeded beside it \-\- migrate it with: atr admin system post\-upgrade
+.TP
 .B MSG-A3P2
 ERROR.
 refusing every contributed command while ${ADMIN_COMMANDS_DIR} holds a file that is not root's alone (named above) \-\- ${ADMIN_COMMANDS_TAMPER_REMEDY}
@@ -476,6 +480,10 @@ declined: ${cfg_home} was not created, so ${user}'s ai\-tools config cannot be s
 .B MSG-B9C4
 WARNING.
 left the labels under ${clones} as they were: an agent session or the toolchain update runs as the sandbox account, or this host's sessions could not be read; let each session end (/exit inside it) and the toolchain update finish, or end them all with 'atr stop', then run: sudo restorecon \-FR ${clones}
+.TP
+.B MSG-C2H5
+WARNING.
+registry\-unmigrated
 .TP
 .B MSG-C4A8
 ERROR.
@@ -572,6 +580,10 @@ the entrypoint relabel helper is not installed: ${RELABEL_ENTRYPOINT_BIN} \-\- i
 .B MSG-G2C6
 WARNING.
 proceeding without the relabel lock: ${AI_TOOLS_RELABEL__LOCK_NOTE}
+.TP
+.B MSG-G6H4
+WARNING.
+registry\-invalid
 .TP
 .B MSG-H2P9
 ERROR.
@@ -723,7 +735,7 @@ the assets library (${ASSETS_LIB}) did not load, so no asset was read or changed
 .TP
 .B MSG-P9K2
 WARNING.
-config not seeded for ${user}, which stays enrolled \-\- without allowed\-projects in ~/.config/ai\-tools it cannot start a session or claim a project
+config not seeded for ${user}, which stays enrolled \-\- without ~/.config/ai\-tools/project\-registry it cannot start a session or claim a project
 .TP
 .B MSG-P9Z3
 ERROR.
@@ -819,7 +831,7 @@ assets: AI_TOOLS_ASSETS was added at the end of ${conf}, which predates the key 
 .TP
 .B MSG-T4X9
 ERROR.
-not enrolled: ${user}'s config in ~/.config/ai\-tools could not be seeded, and without allowed\-projects it cannot start a session or claim a project \-\- clear the reason above and re\-run
+not enrolled: ${user}'s config in ~/.config/ai\-tools could not be seeded, and without ~/.config/ai\-tools/project\-registry it cannot start a session or claim a project \-\- clear the reason above and re\-run
 .TP
 .B MSG-T6S6
 ERROR.
