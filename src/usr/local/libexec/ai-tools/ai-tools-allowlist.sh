@@ -200,18 +200,36 @@ require_target_config() {
        atr admin operators add ${OPERATOR}"
 }
 
-# require_migrated_registry: refuse a target whose registry is the allowed-projects an earlier release wrote, and one
-# the grammar refuses. The editors write the current format alone, and a snapshot of a legacy file would hand the CLI
-# a file it reads under another grammar, so every action refuses, `--print` included, naming the migration; a refused
-# line is named by the library on stderr. The migration-pending refusal is the CLI's own situation, so its code is
-# printed here and defined there.
+# require_migrated_registry: refuse a target whose registry is the allowed-projects an earlier release wrote, and one no
+# reader accepts. The editors write the current format alone, and a snapshot of a legacy file would hand the CLI a file
+# it reads under another grammar, so every action refuses, `--print` included, naming the migration. The rest is
+# the gate-side loader's read of the real file, so a line the grammar refuses and an exclusion spelled through a link
+# the sandbox account can change both refuse here as they refuse the target's launch gate and every root helper;
+# the CLI's snapshot is not owned by the account whose links it names, so the link check is made here alone. The library
+# names the line or the link on stderr. The migration-pending refusal is the CLI's own situation, so its code is printed
+# here and defined there.
 require_migrated_registry() {
+    local rc=0
+    # shellcheck disable=SC2034  # filled through their names by the loader
+    local -a gate_allowed=() gate_excluded=()
     if [[ "${registry_state}" == legacy ]]; then
         printf 'MSG-J6S8\nai-tools-allowlist: %s\n' "the registry ${allowlist} is the allowed-projects an earlier release wrote and is not migrated -- nothing changed; run atr admin system post-upgrade, which migrates it to ~/.config/ai-tools/project-registry" >&2
         exit 1
     fi
-    ai_tools_conf__validate_registry "${allowlist}" current \
-        || die "the registry ${allowlist} holds a line the grammar refuses, named above -- nothing changed"
+    ai_tools_conf__load_allowlist "${allowlist}" gate_allowed gate_excluded || rc=$?
+    case "${rc}" in
+        0)   ;;
+        2|3) printf 'MSG-Y7K5\nai-tools-allowlist: %s\n' "the project registry ${allowlist} holds a line named above that no reader accepts -- nothing changed" >&2
+             exit 1 ;;
+        *)   die "cannot read the project registry ${allowlist} -- nothing changed" ;;
+    esac
+}
+
+# die_registry_changed <action>: the refusal for an editor's status 3 after require_target_config passed -- the file
+# became legacy or took a refused line between the check and the edit. The library's MSG-B8U2 line, first on stderr,
+# names the line.
+die_registry_changed() {
+    die MSG-G8Q7 "the registry changed during the edit -- ${canonical} was not ${1} for ${OPERATOR}, and the line above names the reason"
 }
 
 # ── print ────────────────────────────────────────────────────────────────────────
@@ -242,11 +260,12 @@ AI_TOOLS_LOG_PROJECT="${canonical}"
 
 # Every edit here is one call into conf.lib.sh's allowlist-editing functions -- the same implementation the CLI runs
 # against the operator's own file and install.sh against its checkout. What is left here is this helper's own job:
-# deciding WHO may edit WHOSE registry, and recording it. The library reports four outcomes -- 0 applied (or already
-# so), 1 the write failed, 2 the request does not apply from the current state, 3 the file is legacy or holds a refused
-# line -- and each is reported to the caller distinctly, since a "not listed" and a "could not write" send an operator
-# to different places. require_target_config has refused a legacy or refused file before any edit, so a 3 is a file
-# that changed between the check and the edit, reported with the library's own line.
+# deciding WHO may edit WHOSE registry, and recording it. The library reports its outcomes apart -- 0 applied (or
+# already so), 1 the write failed, 2 the request does not apply from the current state, 3 the file is legacy or holds
+# a refused line, 4 (add) the path cannot be written as a registry line -- and each is reported to the caller
+# distinctly, since a "not listed" and a "could not write" send an operator to different places. require_target_config
+# has refused a legacy or refused file before any edit, so a 3 is a file that changed between the check and the edit,
+# reported with the library's own line.
 
 case "${ACTION}" in
     add)
@@ -258,7 +277,11 @@ case "${ACTION}" in
        or a '!' line withholds it, and adding a second line would leave that line winning at the launch gate.
        A parked project is re-enabled instead:
        ai-tools-allowlist --operator ${OPERATOR} --enable ${canonical}" ;;
-            3) die "${canonical} was not added for ${OPERATOR} -- the line above names the reason" ;;
+            3) die_registry_changed added ;;
+            # The CLI's refusal for a name the grammar cannot carry, printed as its twin: a `--for` claim reaches it
+            # here.
+            4) printf 'MSG-Z9R2\nai-tools-allowlist: %s\n' "this directory's name cannot be written as a registry line: ${canonical} -- nothing changed; rename the directory, then claim it" >&2
+               exit 1 ;;
             *) die MSG-D3T3 "could not add ${canonical} to ${OPERATOR}'s allowlist -- nothing changed" ;;
         esac
         ai_tools_log__structured info \
@@ -298,7 +321,7 @@ case "${ACTION}" in
             0) ;;
             2) note MSG-E2G7 "not disabled for ${OPERATOR}: ${canonical} -- nothing to enable"
                exit 0 ;;
-            3) die "${canonical} was not enabled for ${OPERATOR} -- the line above names the reason" ;;
+            3) die_registry_changed enabled ;;
             *) die MSG-H9V5 "the entry is STILL disabled for ${OPERATOR}: ${canonical} -- the line was not rewritten" ;;
         esac
         ai_tools_log__structured info \
@@ -315,7 +338,7 @@ case "${ACTION}" in
         case "${rc}" in
             0) ;;
             2) die MSG-H6K3 "not listed for ${OPERATOR}: ${canonical} -- there is no entry to disable" ;;
-            3) die "${canonical} was not disabled for ${OPERATOR} -- the line above names the reason" ;;
+            3) die_registry_changed disabled ;;
             *) die MSG-C7Q4 "could not disable ${canonical} for ${OPERATOR} -- nothing changed" ;;
         esac
         ai_tools_log__structured info \

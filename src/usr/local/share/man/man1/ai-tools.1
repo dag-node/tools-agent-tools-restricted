@@ -170,7 +170,7 @@ brand-new directory for, and no git history to expose in a repository with no co
 The one question that can still appear is the traverse grant on a parent directory,
 which widens access on the project's ancestors and is answered only by a person at a terminal.
 .TP
-.B projects claim \fR[\fB\-y\fR] [\fB\-\-format tsv\fR] [\fIDIRECTORY\fR]
+.B projects claim \fR[\fB\-y\fR] [\fB\-\-format tsv\fR] \fIDIRECTORY\fR
 Claim a real project in place so the agent works your actual tree: register it
 (allowlist, git safe.directory and repo-local core.filemode=true), scan for and lock down secret-named files
 .I before
@@ -230,7 +230,7 @@ states, one row per file, and no other line on standard output: every other
 line the claim prints goes to standard error, and its questions still ask on the terminal.
 .RE
 .TP
-.B projects unclaim \fR[\fB\-\-force\fR] [\fB\-\-full\fR] [\fB\-\-keep\-entry\fR] [\fB\-\-dry\-run\fR] [\fB\-y\fR] [\fB\-\-group\fI GROUP\fR] [\fIDIRECTORY\fR]
+.B projects unclaim \fR[\fB\-\-force\fR] [\fB\-\-full\fR] [\fB\-\-keep\-entry\fR] [\fB\-\-dry\-run\fR] [\fB\-y\fR] [\fB\-\-group\fI GROUP\fR] \fIDIRECTORY\fR
 Reverse a claim: revert the SELinux label, drop both registries, and \(em behind
 its own confirm \(em revoke the agent's access, handing the tree back to your own
 group (or a named group) with the agent's write removed. The directory
@@ -316,7 +316,7 @@ any commit not yet pushed. The remote branch stays for others to merge, and
 .B \-y
 answers that confirm on the same terms.
 .TP
-.B projects disable \fR[\fIDIRECTORY\fR]
+.B projects disable \fIDIRECTORY\fR
 Park a claimed project (default: the current directory): its
 .B allowed\-projects
 line is prefixed with
@@ -355,7 +355,7 @@ could only be a guess, on an edit that widens what the agent reaches. The refusa
 ways to get the intended effect: unclaim the nested project, or park the one enclosing it. Editing the
 line by hand is unaffected; the tool simply will not write that one for you.
 .TP
-.B projects enable \fR[\fIDIRECTORY\fR]
+.B projects enable \fIDIRECTORY\fR
 Restore a project disabled earlier (default: the current directory): the
 .B !
 is deleted from its line, in place. Sessions may start there again.
@@ -386,7 +386,7 @@ on a disabled project neither claims over it nor duplicates its entry: it report
 the exclusion, shows the line, and offers this same re-enable behind a default-NO
 confirm.
 .TP
-.B projects clone \fR[\fIDIRECTORY\fR] [\fB\-\-from\fR \fIREF\fR] [\fB\-\-branch\fR \fINAME\fR] [\fB\-\-dir\fR \fINAME\fR] [\fB\-y\fR|\fB\-\-yes\fR]
+.B projects clone \fIDIRECTORY\fR [\fB\-\-from\fR \fIREF\fR] [\fB\-\-branch\fR \fINAME\fR] [\fB\-\-dir\fR \fINAME\fR] [\fB\-y\fR|\fB\-\-yes\fR]
 Shallow-clone the repository at
 .I DIRECTORY
 into the sandbox area so the agent never reads the origin's full git history.

@@ -60,7 +60,7 @@ projects create needs a path: it creates a NEW project directory.
 .TP
 .B MSG-A8Z6
 ERROR.
-could not add ${dir} to ${FOR_OPERATOR}'s allowed\-projects \-\- it is not registered
+could not add ${dir} to ${FOR_OPERATOR}'s project registry \-\- it is not registered
 .TP
 .B MSG-B4G2
 ERROR.
@@ -114,10 +114,6 @@ group\-unverified
 ERROR.
 cannot enter ${blocked_ancestor} as ${INVOKING_USER}, so ${path} cannot be reached from this account
 .TP
-.B MSG-D8C8
-ERROR.
-this project is nested inside another claimed project: ${d}
-.TP
 .B MSG-D9C7
 ERROR.
 projects handback takes a single path
@@ -136,7 +132,7 @@ label\-gone
 .TP
 .B MSG-E8W4
 ERROR.
-could not read ${FOR_OPERATOR}'s allowed\-projects \-\- nothing changed
+could not read ${FOR_OPERATOR}'s project registry \-\- nothing changed
 .TP
 .B MSG-F4D8
 ERROR.
@@ -190,6 +186,10 @@ cannot resolve the parent directory: $(ai_tools_log__sanitize "${parent}") \-\- 
 ERROR.
 a value is required after ${flag}
 .TP
+.B MSG-J6S8
+ERROR.
+your project registry is ${REGISTRY_SHOWN}, the allowed\-projects an earlier release wrote, and it is not migrated \-\- nothing changed
+.TP
 .B MSG-J7X4
 NOTICE.
 group\-fixed
@@ -202,21 +202,21 @@ projects push takes a single path
 ERROR.
 unknown projects disable option: ${a} (it takes a path only)
 .TP
-.B MSG-K5Y4
-ERROR.
-this path is inside a claimed project, not a project itself: ${d}
-.TP
 .B MSG-K7A6
 ERROR.
 no agent is enabled or resolved, so there is no agent to provision a project for \-\- ${reason}
 .TP
 .B MSG-K7D9
 ERROR.
-projects remove needs the path of the project to delete; it does not take the current directory.
+projects $1 needs the directory it acts on; it does not take the current directory
+.TP
+.B MSG-K8R8
+ERROR.
+projects ${verb} without a directory acts on the project the current directory is in, and $(pwd \-P) is in none
 .TP
 .B MSG-K8S2
 ERROR.
-allowed\-projects not updated \-\- ${dir} is still registered
+the registry was not updated \-\- ${dir} is still registered
 .TP
 .B MSG-M2U9
 ERROR.
@@ -286,13 +286,17 @@ unknown projects lockdown option: ${a} (allowed: \-\-dry\-run, \-\-yes)
 ERROR.
 this run needs root: ${what} goes through ${bin##*/}, and ${INVOKING_USER} holds no sudo grant for it.
 .TP
+.B MSG-R8C7
+ERROR.
+a $(format_blocking_line_kind) line covers this path, so projects $2 cannot act on it: $1
+.TP
 .B MSG-S3B9
 ERROR.
 project remove stopped before any change \-\- the helper left the SELinux label of ${d} while an agent session or the toolchain update may be running
 .TP
 .B MSG-S6Q5
 ERROR.
-projects remove has no \-\-force: a registry entry is what authorizes a deletion here.
+projects remove has no \-\-force: a project is deleted on its registry entry and a clone on being a recognized clone, and no flag stands in for either.
 .TP
 .B MSG-S6V2
 WARNING.
@@ -301,6 +305,10 @@ removed ${d}, but ${ROOT_STEP_FAILURES} cleanup step(s) did not run
 .B MSG-S9A3
 ERROR.
 projects claim \-\-format takes one value, tsv
+.TP
+.B MSG-T2Q7
+ERROR.
+two kinds of line name this path, shown above, so it is neither a project nor a carve\-out: $1
 .TP
 .B MSG-T4A8
 ERROR.
@@ -378,7 +386,7 @@ Documented in
 .TP
 .B MSG-W4S7
 ERROR.
-this is an excluded path inside a claimed project, not a disabled project: ${d}
+this path is a carve\-out, not a project: $1
 .TP
 .B MSG-X3G7
 ERROR.
@@ -404,6 +412,10 @@ status takes no arguments
 ERROR.
 projects lockdown takes a single path
 .TP
+.B MSG-Y7K5
+ERROR.
+the project registry ${REGISTRY_SHOWN} holds a line named above that no reader accepts \-\- nothing changed
+.TP
 .B MSG-Z5V5
 ERROR.
 a value is required after ${flag}, not another option: $1
@@ -419,6 +431,10 @@ a \-\-for run acts on the filesystem AS the target: ${COMMAND} \-\-for ${FOR_OPE
 .B MSG-Z7B9
 ERROR.
 sandbox create stopped \-\- the clone could not be labelled ai_tools_project_t
+.TP
+.B MSG-Z9R2
+ERROR.
+this directory's name cannot be written as a registry line: $1
 .SS ai-tools-admin
 .TP
 .B MSG-A3P2
@@ -1042,6 +1058,10 @@ safe\-paths library defines no protected\-path guard \-\- refusing (fail closed)
 .B MSG-F5N3
 ERROR.
 operator library defines no operator list \-\- refusing (fail closed)
+.TP
+.B MSG-G8Q7
+ERROR.
+the registry changed during the edit \-\- ${canonical} was not ${1} for ${OPERATOR}, and the line above names the reason
 .TP
 .B MSG-H6K3
 ERROR.
@@ -1913,7 +1933,11 @@ a custom system prompt is configured but its resolver library is unavailable
 .TP
 .B MSG-B8U2
 WARNING.
-registry line refused \-\- ${file} line ${number}: ${fault}${shown} \-\- $(_ai_tools_conf__get_registry_fault_remedy "${fault}"); no entry in this file allows a path until the line is fixed
+registry line refused \-\- ${file} line ${number}: ${fault}${shown} \-\- $(_ai_tools_conf__format_registry_fault_remedy "${fault}"); no entry in this file allows a path until the line is fixed
+.TP
+.B MSG-C6P5
+WARNING.
+registry scan incomplete \-\- ${file}: the control\-byte scan exited with statuses ${nul_status:\-unknown} (tr, grep); no entry in this file allows a path until it can be read
 .TP
 .B MSG-D2F9
 WARNING.

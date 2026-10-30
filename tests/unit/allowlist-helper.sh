@@ -200,6 +200,35 @@ refused_registry "--print refuses a registry holding a refused line, naming it" 
 refused_registry "--add refuses a registry holding a refused line, naming it" MSG-B8U2 \
     "${TESTDIR}/invalid/project-registry" --operator "${PROJECTS_USER}" --add "${proj}"
 
+# (11) A carve-out spelled through a link the sandbox account holds. The target's launch gate and every root helper read
+# that registry as refused (MSG-Y5N6), so the helper's own read is the loader's, and `--print` refuses it rather than
+# handing the CLI a snapshot it would classify and act over; the same line written as the real path is the control.
+mkdir -p "${TESTDIR}/linked/real/private"
+chmod 0755 "${TESTDIR}/linked" "${TESTDIR}/linked/real" "${TESTDIR}/linked/real/private"
+ln -s "${TESTDIR}/linked/real" "${TESTDIR}/linked/link"
+chown -h "${SANDBOX_USER}" "${TESTDIR}/linked/link"
+printf '%s\n' "# ai-tools-project-registry-format: 1.0" "${proj}" "!${TESTDIR}/linked/link/private" > "${TESTDIR}/linked/project-registry"
+chown "${PROJECTS_USER}:${PROJECTS_GROUP}" "${TESTDIR}/linked/project-registry"; chmod 600 "${TESTDIR}/linked/project-registry"
+refused_registry "--print refuses a carve-out through a link the sandbox account holds, naming the link" MSG-Y5N6 \
+    "${TESTDIR}/linked/project-registry" --operator "${PROJECTS_USER}" --print
+refused_registry "--print refuses a carve-out through a link the sandbox account holds, as a registry no reader accepts" \
+    MSG-Y7K5 "${TESTDIR}/linked/project-registry" --operator "${PROJECTS_USER}" --print
+linked_stdout="$(env SUDO_UID="${OPERATOR_UID}" AI_TOOLS_ALLOWLIST="${TESTDIR}/linked/project-registry" \
+    AI_TOOLS_OPERATOR_CONF="${TESTDIR}/operator.conf" "${HELPER}" --operator "${PROJECTS_USER}" --print 2>/dev/null)" || true
+if [[ -z "${linked_stdout}" ]]; then
+    pass "--print over a carve-out through the sandbox account's link writes nothing on stdout"
+else
+    fail "--print over a carve-out through the sandbox account's link wrote a snapshot: ${linked_stdout}"
+fi
+printf '%s\n' "# ai-tools-project-registry-format: 1.0" "${proj}" "!${TESTDIR}/linked/real/private" > "${TESTDIR}/linked/project-registry"
+out="$(env SUDO_UID="${OPERATOR_UID}" AI_TOOLS_ALLOWLIST="${TESTDIR}/linked/project-registry" \
+    AI_TOOLS_OPERATOR_CONF="${TESTDIR}/operator.conf" "${HELPER}" --operator "${PROJECTS_USER}" --print 2>&1)" && rc=0 || rc=$?
+if (( rc == 0 )) && grep -qxF -- "!${TESTDIR}/linked/real/private" <<<"${out}"; then
+    pass "--print prints the same carve-out written as the real path (the control)"
+else
+    fail "--print over the real-path carve-out: rc=${rc}: ${out}"
+fi
+
 # ── Mechanics: add / print / remove against the primary operator's fixture registry ──────────
 out="$(run_helper "${OPERATOR_UID}" --operator "${PROJECTS_USER}" --add "${proj}")" && rc=0 || rc=$?
 if (( rc == 0 )) && grep -q "^${proj}$" "${ALLOWFILE}"; then
@@ -272,6 +301,12 @@ fi
 # the caller was told the project was registered.
 refuses "--add refuses a disabled project" MSG-T7B6 \
     "${OPERATOR_UID}" --operator "${PROJECTS_USER}" --add "${proj}"
+
+# A directory whose name carries a glob character would be written as a line the grammar refuses, and that line would
+# refuse the target's whole registry at its launch gate; the helper refuses it under the CLI's code and writes nothing.
+mkdir -p "${TESTDIR}/odd*name"
+refuses "--add refuses a directory whose name the registry cannot carry" MSG-Z9R2 \
+    "${OPERATOR_UID}" --operator "${PROJECTS_USER}" --add "${TESTDIR}/odd*name"
 
 out="$(run_helper "${OPERATOR_UID}" --operator "${PROJECTS_USER}" --enable "${proj}")" && rc=0 || rc=$?
 if (( rc == 0 )) && [[ "$(cat "${ALLOWFILE}")" == "${before}" ]]; then
