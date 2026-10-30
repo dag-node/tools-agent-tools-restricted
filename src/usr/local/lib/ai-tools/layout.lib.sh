@@ -101,7 +101,7 @@ _ai_tools_layout__populate_static_entries() {
     local man=/usr/local/share/man bash_completions=/usr/local/share/bash-completion/completions base=ai-tools-base \
         helper library page log relative
     local -a man_pages=(
-        man1/ai-tools.1 man5/ai-tools-operator.conf.5 man5/ai-tools-providers.5 man5/ai-tools-allowed-projects.5
+        man1/ai-tools.1 man5/ai-tools-operator.conf.5 man5/ai-tools-providers.5 man5/ai-tools-project-registry.5
         man5/ai-tools-secret-patterns.5 man5/ai-tools-custom-claude-endpoint.conf.5 man5/ai-tools-records.5
         man5/ai-tools-assets.5 man7/ai-tools-messages.7 man8/ai-tools-admin.8 man1/atr.1 man8/atr.8
     )

@@ -843,7 +843,7 @@ allow_state() { ai_tools_conf__read_allowlist_state "${ALLOWLIST}" "$1"; }
 # disabled. What the operator needs next is the line itself, verbatim.
 disabled_note() {
     local -a lines=(); local raw
-    ai_tools_conf__read_allowlist_exclusion_lines lines "${ALLOWLIST}" "$1" || return 0
+    ai_tools_conf__read_allowlist_park_lines lines "${ALLOWLIST}" "$1" || return 0
     for raw in "${lines[@]}"; do say "      ${C_BOLD}${raw}${C_RST}"; done
 }
 
@@ -967,7 +967,7 @@ unreg_allow() {
         local -a lines=() excl=(); local raw before
         before="$(allow_state "${dir}")"
         ai_tools_conf__read_allowlist_matching_lines  lines "${ALLOWLIST}" "${dir}" || true
-        ai_tools_conf__read_allowlist_exclusion_lines excl  "${ALLOWLIST}" "${dir}" || true
+        ai_tools_conf__read_allowlist_park_lines      excl  "${ALLOWLIST}" "${dir}" || true
         lines+=("${excl[@]}")
         # The library verifies the removal by re-reading the file rather than trusting `sed`, which writes its temporary
         # file into the allowlist's own DIRECTORY and so fails on a config dir this operator cannot write even

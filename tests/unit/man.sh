@@ -3,7 +3,7 @@
 # tests/unit/man.sh
 # Hermetic sync test between this project's man pages and what each documents: ai-tools(1) against the CLI's usage(),
 # ai-tools-admin(8) against the admin helper's, ai-tools-providers(5) against the shipped manifests,
-# ai-tools-allowed-projects(5) and ai-tools-secret-patterns(5) against the header each file is seeded
+# ai-tools-project-registry(5) and ai-tools-secret-patterns(5) against the header each file is seeded
 # with and the parser its examples must load in, ai-tools-operator.conf(5) and ai-tools-custom-claude-endpoint.conf(5)
 # against the keys their shipped templates mention, and ai-tools-messages(7) against the generator that derives it
 # from the cross-reference index. It then holds every authored page to the way a page is WRITTEN -- the font
@@ -317,7 +317,7 @@ check_providers_page() {
 }
 check_providers_page
 
-# ── The seeded operator files: ai-tools-allowed-projects(5), ai-tools-secret-patterns(5) ──────────
+# ── The seeded operator files: ai-tools-project-registry(5), ai-tools-secret-patterns(5) ──────────────────
 # The header each *_seed function in conf.lib.sh prints is written into an operator's file once, at enrolment, and no
 # upgrade rewrites it -- so the reference lives in the page, which the package replaces on every upgrade, and the header
 # stays a pointer. check_seed_header holds that shape for both files: the header is short (the cap is what stops it
@@ -364,33 +364,33 @@ check_seed_header() {
     fi
 }
 
-ALLOWLIST_MAN="$(man5_path ai-tools-allowed-projects)"
-section "man page: ai-tools-allowed-projects(5) and the seeded allowlist header (unit)"
+ALLOWLIST_MAN="$(man5_path ai-tools-project-registry)"
+section "man page: ai-tools-project-registry(5) and the seeded registry header (unit)"
 check_allowlist_page() {
     if [[ ! -r "${ALLOWLIST_MAN}" ]]; then
-        skip "ai-tools-allowed-projects page" "ai-tools-allowed-projects.5 not found in the repo or installed"; return
+        skip "ai-tools-project-registry page" "ai-tools-project-registry.5 not found in the repo or installed"; return
     fi
     # shellcheck source=/dev/null
     if ! source "${CONF_LIB}" 2>/dev/null || ! declare -F ai_tools_conf__parse_path_entry >/dev/null 2>&1; then
-        skip "ai-tools-allowed-projects seed header" "conf.lib.sh not loadable from ${CONF_LIB}"; return
+        skip "ai-tools-project-registry seed header" "conf.lib.sh not loadable from ${CONF_LIB}"; return
     fi
-    check_seed_header ai_tools_conf__get_allowlist_seed ai-tools-allowed-projects
+    check_seed_header ai_tools_conf__get_allowlist_seed ai-tools-project-registry
 
     # Every entry-shaped example -- a path, an exclusion, or a quoted path -- parses as an entry; the CLI invocations
     # in the same blocks are not entries and are not read.
     local -a examples=(); local line bad=0
-    mapfile -t examples < <(man_examples "${ALLOWLIST_MAN}" | grep -E '^[/!"]' || true)
+    mapfile -t examples < <(man_examples "${ALLOWLIST_MAN}" | grep -E '^[/!%"]' || true)
     if (( ${#examples[@]} == 0 )); then
-        fail "ai-tools-allowed-projects(5) EXAMPLES carry no entry-shaped line to check"
+        fail "ai-tools-project-registry(5) EXAMPLES carry no entry-shaped line to check"
     else
         for line in "${examples[@]}"; do
             # shellcheck disable=SC2154  # ai_tools_conf__value is set by ai_tools_conf__parse_path_entry in the sourced library
             if ai_tools_conf__parse_path_entry "${line}" && [[ "${ai_tools_conf__value}" == /* || "${ai_tools_conf__value}" == '!/'* ]]; then :
-            else fail "ai-tools-allowed-projects(5) example does not parse as an entry: ${line}"; bad=1; fi
+            else fail "ai-tools-project-registry(5) example does not parse as an entry: ${line}"; bad=1; fi
         done
-        (( bad )) || pass "every entry-shaped EXAMPLES line in ai-tools-allowed-projects(5) parses through the shared grammar (${#examples[@]} lines)"
+        (( bad )) || pass "every entry-shaped EXAMPLES line in ai-tools-project-registry(5) parses through the shared grammar (${#examples[@]} lines)"
     fi
-    th_version "${ALLOWLIST_MAN}" AI-TOOLS-ALLOWED-PROJECTS
+    th_version "${ALLOWLIST_MAN}" AI-TOOLS-PROJECT-REGISTRY
 }
 check_allowlist_page
 
@@ -602,9 +602,9 @@ check_config_headers() {
     fi
     local dir out rc=0
     dir="$(mktemp -d)"
-    ai_tools_conf__get_allowlist_seed > "${dir}/allowed-projects"
+    ai_tools_conf__get_allowlist_seed > "${dir}/project-registry"
     ai_tools_conf__get_secret_patterns_seed > "${dir}/secret-patterns"
-    out="$(python3 "${PROSE_CHECK}" --config-header "${dir}/allowed-projects" "${dir}/secret-patterns" \
+    out="$(python3 "${PROSE_CHECK}" --config-header "${dir}/project-registry" "${dir}/secret-patterns" \
         "${CONFIG_TEMPLATES}/operator.conf" "${CONFIG_TEMPLATES}/endpoints/custom-claude-endpoint.conf" 2>&1)" || rc=$?
     rm -rf "${dir}"
     if (( rc == 0 )); then

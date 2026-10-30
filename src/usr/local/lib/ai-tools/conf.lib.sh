@@ -6,7 +6,7 @@
 # (ai_tools_conf__read_kind_list, which filters.lib.sh reads as well as providers.lib.sh), the dated config sidecars
 # (`<name>.<YYYYMMDD>-<N>.{bak,shipped}`, whose stamp ai_tools_conf__find_sidecar_path is the single home of), the one
 # in-place write of a KEY=value file (ai_tools_conf__set_key for a scalar, ai_tools_conf__set_list for a list),
-# and every read AND write of allowed-projects. The settings.json hook-declaration merge, which writes
+# and every read AND write of the project registry. The settings.json hook-declaration merge, which writes
 # through the sidecars, is settings-merge.lib.sh. Sourced (never executed) by operator.lib.sh, skip-dirs.lib.sh,
 # providers.lib.sh, the launch wrapper, the CLI and the root helpers, so a key and an allowlist line read the same
 # whichever component reads them. The grammar, the present/absent distinction the provider gating turns
@@ -767,49 +767,305 @@ _ai_tools_conf__write_line() {
     rm -f -- "${tmp}"
 }
 
-# ── Path-list files (allowed-projects) ───────────────────────────────────────────────────────
-# The launch allowlist is one path per line rather than KEY=value, but it is read with the SAME rules as everything
-# else: a whole-line or end-of-line `#` comment, and one matched quote layer for a path that must contain a space
-# or a literal `#`. Sharing the grammar is the point -- every reader of this file (the launch wrapper, the CLI,
-# the owner resolver, and each root helper that walks or labels a project; providers.rule.md names them) parses it here,
-# and a rule that lives in each of them separately is a rule that drifts.
+# ── The project registry: projects, and the legacy allowed-projects ──────────────────────────
+# The registry is one path per line rather than KEY=value, read with the same rules as every other file here:
+# a whole-line or end-of-line `#` comment, and one matched quote layer for a path that carries a space or a literal `#`.
+# Every reader of the file (the launch wrapper, the CLI, the owner resolver, and each root helper that walks or labels
+# a project; providers.rule.md names them) parses it here, so a line denotes one thing to all of them. A line's kind is
+# its first character, written before any quote:
 #
-#   /home/op/project              a path
-#   /home/op/project   # why      an end-of-line comment: `#` after whitespace ends the entry
-#   "/home/op/ai works"           quotes carry a space, and make `#` inside them literal
-#   !/home/op/project/vendor      an exclusion; the `!` precedes the quotes: !"/a b"
+#   # ai-tools-project-registry-format: 1.0   the format marker, written as line 1
+#   /home/op/project                  a project: it and its contents
+#   /home/op/project   # why          an end-of-line comment: `#` after whitespace ends the entry
+#   "/home/op/ai works"               quotes carry a space, and make `#` inside them literal
+#   !/home/op/project/vendor          a carve-out, which may be a glob: !/home/op/*/node_modules
+#   %/home/op/parked                  a parked project
 #
-# An entry is NOT resolved or validated by the line parser, which only decides what text the line denotes;
-# ai_tools_conf__load_allowlist is the one read that resolves entries and ai_tools_conf__is_path_excluded the one match.
+# The registry is ~/.config/ai-tools/project-registry. A host upgraded from a release that wrote
+# ~/.config/ai-tools/allowed-projects keeps reading that file while it is present under that name, under the legacy
+# grammar -- allow and `!` lines, no marker -- until `atr admin system post-upgrade` writes `projects` from it
+# and renames it to a dated `.bak`. ai_tools_conf__resolve_registry decides which file a reader opens.
+#
+# A line the grammar does not recognise refuses the WHOLE file for every reader (ai_tools_conf__validate_registry):
+# a reader that skipped it would read the rest of the file as the operator's intent, and a mistyped carve-out would then
+# allow the subtree it was written to withhold. A refused file does not allow or cover any path, which is the direction
+# every reader of this file fails in. A relative path is one such line: resolved against the reader's working directory,
+# it named a different directory for each reader. Text after a closing quote, other than a comment, is another:
+# the parser drops it, so `!"/home/op/p/private"x` would read as a carve-out of a path the operator did not write.
+# A control byte in a path is a third: the classifier's record is tab-separated, so a tab in a path would shift
+# the fields a verb decides from.
+
+readonly AI_TOOLS_CONF__REGISTRY_FORMAT=1.0
+
+# ai_tools_conf__get_registry_marker : print the format marker line (no newline) that the seed and the migration write
+#   as line 1 of `projects`.
+ai_tools_conf__get_registry_marker() { printf '# ai-tools-project-registry-format: %s' "${AI_TOOLS_CONF__REGISTRY_FORMAT}"; }
+
+# _ai_tools_conf__parse_registry_marker <line> : return 0 with ai_tools_conf__value set to `<major>.<minor>` when <line>
+#   is a format marker -- a whole-line comment from column 0, the key fixed, one space after the colon, two decimal
+#   integers -- and return 1 for any other line.
+_ai_tools_conf__parse_registry_marker() {
+    [[ "${1-}" =~ ^'# ai-tools-project-registry-format: '([0-9]+)'.'([0-9]+)$ ]] || return 1
+    ai_tools_conf__value="${BASH_REMATCH[1]}.${BASH_REMATCH[2]}"
+}
+
+# ai_tools_conf__read_registry_format <file> : print the version the first format marker in <file> names (`1.0`),
+#   or `legacy` when <file> does not carry one. Returns 1 without printing for a file that is not a readable regular
+#   file.
+ai_tools_conf__read_registry_format() {
+    local file="$1" line
+    [[ -f "${file}" && -r "${file}" ]] || return 1
+    while IFS= read -r line || [[ -n "${line}" ]]; do
+        if _ai_tools_conf__parse_registry_marker "${line}"; then
+            printf '%s' "${ai_tools_conf__value}"
+            return 0
+        fi
+    done < "${file}"
+    printf 'legacy'
+}
+
+# ai_tools_conf__read_registry_grammar <file> [<read-path>] : print the grammar <file> is read under, `legacy`
+#   or `current`. The name decides for the two registry names, so a `projects` without a marker is refused as one
+#   and an `allowed-projects` carrying a marker is refused as a marker in a legacy file. The file AI_TOOLS_ALLOWLIST
+#   names, and a file of any other name, take the grammar their content states, read from <read-path> (default
+#   <file>): a marker makes it `current`.
+ai_tools_conf__read_registry_grammar() {
+    local file="$1" read_path="${2:-$1}" format
+    if [[ "${file}" != "${AI_TOOLS_ALLOWLIST:-}" ]]; then
+        case "${file##*/}" in
+            allowed-projects) printf 'legacy'; return 0 ;;
+            project-registry) printf 'current'; return 0 ;;
+        esac
+    fi
+    format="$(ai_tools_conf__read_registry_format "${read_path}" 2>/dev/null)" || format=legacy
+    if [[ "${format}" == legacy ]]; then printf 'legacy'; else printf 'current'; fi
+}
+
+# ai_tools_conf__read_registry_state <file> : print `none` when no entry of that name exists, and otherwise the grammar
+#   ai_tools_conf__read_registry_grammar reads it under. The state of a file named directly, the AI_TOOLS_ALLOWLIST test
+#   hook and a `--for` snapshot among them.
+ai_tools_conf__read_registry_state() {
+    if [[ -e "$1" || -L "$1" ]]; then ai_tools_conf__read_registry_grammar "$1"; else printf 'none'; fi
+}
+
+# ai_tools_conf__resolve_registry <config-dir> : print `<state>\t<path>\n` for the registry an operator's config
+#   directory holds: `legacy` and the path of `allowed-projects` while an entry of that name exists, whether or not
+#   `projects` is beside it, since the migration renames the old file only once `projects` is verified; else `current`
+#   and the path of `projects` where it exists; else `none` and the path `projects` would take. A `.bak` copy is not
+#   an active name. It does not read AI_TOOLS_ALLOWLIST: the hook moves the primary operator's file alone, so a caller
+#   that honours it reads that file through ai_tools_conf__read_registry_state.
+ai_tools_conf__resolve_registry() {
+    local dir="${1%/}"
+    if [[ -e "${dir}/allowed-projects" || -L "${dir}/allowed-projects" ]]; then
+        printf 'legacy\t%s\n' "${dir}/allowed-projects"
+    elif [[ -e "${dir}/project-registry" || -L "${dir}/project-registry" ]]; then
+        printf 'current\t%s\n' "${dir}/project-registry"
+    else
+        printf 'none\t%s\n' "${dir}/project-registry"
+    fi
+}
 
 # ai_tools_conf__parse_path_entry <line> : set ai_tools_conf__value to the entry <line> denotes and return 0; return 1
 #   for a line that does not carry an entry (blank, or a whole-line comment), which is the caller's signal to skip it.
-#   A leading `!` is preserved on the result, so an exclusion stays distinguishable after the quotes are stripped.
+#   A leading `!` or `%` is preserved on the result, so a carve-out and a park stay distinguishable after the quotes are
+#   stripped. It decides what text a line denotes and does not validate it; ai_tools_conf__validate_registry does.
 ai_tools_conf__parse_path_entry() {
-    local line="${1-}" negate=""
+    local line="${1-}" kind=""
     line="${line#"${line%%[![:space:]]*}"}"
     [[ -z "${line}" || "${line}" == '#'* ]] && { ai_tools_conf__value=""; return 1; }
-    if [[ "${line}" == '!'* ]]; then
-        negate='!'
-        line="${line#\!}"
+    if [[ "${line}" == '!'* || "${line}" == '%'* ]]; then
+        kind="${line:0:1}"
+        line="${line:1}"
         line="${line#"${line%%[![:space:]]*}"}"
     fi
     _ai_tools_conf__parse_value "${line}"
     [[ -n "${ai_tools_conf__value}" ]] || return 1
-    ai_tools_conf__value="${negate}${ai_tools_conf__value}"
+    ai_tools_conf__value="${kind}${ai_tools_conf__value}"
     return 0
 }
 
-# ── Allowlist loading and exclusion matching (the gate's own read) ───────────────────────────
+# _ai_tools_conf__classify_registry_line <line> <legacy|current> : set _ai_tools_conf__line_kind to the kind <line>
+#   carries -- `none` (blank or a comment), `marker`, `allow`, `carve` or `park` -- and _ai_tools_conf__line_fault
+#   to the reason token the grammar refuses it with, or empty. A marker's version is in ai_tools_conf__value. Results
+#   travel in globals, so the validator reads them without a subshell per line.
+_ai_tools_conf__classify_registry_line() {
+    local line="${1-}" grammar="$2" rest quote tail
+    _ai_tools_conf__line_kind=none; _ai_tools_conf__line_fault=""; ai_tools_conf__value=""
+    if _ai_tools_conf__parse_registry_marker "${line}"; then
+        _ai_tools_conf__line_kind=marker
+        if [[ "${grammar}" == legacy ]]; then
+            _ai_tools_conf__line_fault=marker-in-legacy
+        elif [[ ! "${ai_tools_conf__value%%.*}" =~ ^0*1$ ]]; then
+            _ai_tools_conf__line_fault=marker-unsupported
+        fi
+        return 0
+    fi
+    line="${line#"${line%%[![:space:]]*}"}"
+    [[ -z "${line}" || "${line}" == '#'* ]] && return 0
+    rest="${line}"
+    case "${line:0:1}" in
+        '!')            _ai_tools_conf__line_kind=carve ;;
+        '%')            _ai_tools_conf__line_kind=park ;;
+        /|'"'|"'")      _ai_tools_conf__line_kind=allow ;;
+        *)              _ai_tools_conf__line_fault=unknown-form; return 0 ;;
+    esac
+    if [[ "${_ai_tools_conf__line_kind}" == park && "${grammar}" == legacy ]]; then
+        _ai_tools_conf__line_fault=park-in-legacy; return 0
+    fi
+    if [[ "${_ai_tools_conf__line_kind}" != allow ]]; then
+        rest="${rest:1}"
+        rest="${rest#"${rest%%[![:space:]]*}"}"
+    fi
+    case "${rest:0:1}" in
+        '"'|"'") quote="${rest:0:1}" ;;
+        *)       quote="" ;;
+    esac
+    if [[ -n "${quote}" && "${rest:1}" != *"${quote}"* ]]; then
+        _ai_tools_conf__line_fault=unmatched-quote; return 0
+    fi
+    if [[ -n "${quote}" ]]; then
+        tail="${rest:1}"; tail="${tail#*"${quote}"}"
+        tail="${tail#"${tail%%[![:space:]]*}"}"
+        if [[ -n "${tail}" && "${tail}" != '#'* ]]; then
+            _ai_tools_conf__line_fault=text-after-quote; return 0
+        fi
+    fi
+    _ai_tools_conf__parse_value "${rest}"
+    if [[ -z "${ai_tools_conf__value}" ]]; then
+        _ai_tools_conf__line_fault=empty-entry
+    elif [[ "${ai_tools_conf__value}" == *[[:cntrl:]]* ]]; then
+        _ai_tools_conf__line_fault=control-character
+    elif [[ "${ai_tools_conf__value}" != /* ]]; then
+        _ai_tools_conf__line_fault=relative-path
+    elif ai_tools_conf__has_glob_characters "${ai_tools_conf__value}"; then
+        case "${_ai_tools_conf__line_kind}" in
+            allow) _ai_tools_conf__line_fault=glob-on-allow ;;
+            park)  _ai_tools_conf__line_fault=glob-on-park ;;
+        esac
+    fi
+    return 0
+}
+
+# _ai_tools_conf__format_registry_fault_remedy <reason> : print what the operator writes instead of a line refused for
+#   <reason>.
+_ai_tools_conf__format_registry_fault_remedy() {
+    case "$1" in
+        unknown-form)       printf "a line is a project (/path), a carve-out (!/path), a park (%%/path) or a # comment" ;;
+        relative-path)      printf 'write the absolute path' ;;
+        empty-entry)        printf "write the path after the '!' or the '%%', or delete the line" ;;
+        unmatched-quote)    printf 'close the quote' ;;
+        text-after-quote)   printf 'end the line at the closing quote, or start a # comment after it' ;;
+        control-character)  printf 'write the path without the control character, renaming the directory if its name carries one' ;;
+        glob-on-allow)      printf "a glob is a carve-out alone (!/path/*); list each project by its path" ;;
+        glob-on-park)       printf "a park names one project by its path; a glob is a carve-out alone (!/path/*)" ;;
+        park-in-legacy)     printf "allowed-projects is read under the grammar it was written in, which has no '%%' line; write it as '!' again, then run atr admin system post-upgrade to migrate the file" ;;
+        marker-in-legacy)   printf 'the format marker belongs in projects; delete the line, then run atr admin system post-upgrade to migrate the file' ;;
+        marker-repeated)    printf 'delete the second marker' ;;
+        marker-unsupported) printf 'this release reads format 1 alone; the file was written by a later release' ;;
+        marker-missing)     printf 'write %s as the first line' "$(ai_tools_conf__get_registry_marker)" ;;
+    esac
+}
+
+# ai_tools_conf__validate_registry <file> <legacy|current> [<read-path>] : read the whole of <file> under the grammar
+#   named, and return 0 when every line is one it recognises. Both passes read <read-path> (default <file>), a reader's
+#   pinned descriptor, while every message names <file>. Return 3 at the first line it refuses -- MSG-B8U2 on stderr
+#   naming the file, the line number, the reason token, the line (control bytes shown as `?`) and the remedy --
+#   or, for a `current` file carrying no marker, with the reason `marker-missing`. Return 1 for a file that is not
+#   a readable regular file. The reasons are the line forms of the section comment turned around: unknown-form,
+#   relative-path, empty-entry, unmatched-quote, text-after-quote, control-character, glob-on-allow, glob-on-park,
+#   park-in-legacy, marker-in-legacy, marker-repeated and marker-unsupported. A minor version this release does not know
+#   is read, since each line is validated on its own. A NUL byte refuses the file as `control-character` on any line,
+#   a comment included: `read` drops the byte, so the loop would read `/a<NUL>b` as `/ab`, and a pre-pass that turns
+#   each NUL into \x01 (and each \x01 into \x02, so the match names an original NUL alone) finds it first. The pre-pass
+#   reads the whole file, `cat` draining what `grep -m1` leaves, because a writer closed early takes SIGPIPE and turns
+#   a found byte into a failed pipeline under `pipefail`; it reads the status of `tr` and of the matcher apart, and
+#   a scan that did not complete returns 1 with MSG-C6P5 on stderr, the status of a file that cannot be read.
+ai_tools_conf__validate_registry() {
+    local file="$1" grammar="$2" read_path="${3:-$1}" line number=0 markers=0 fault="" shown="" nul_line nul_scan
+    local nul_status
+    [[ -f "${read_path}" && -r "${read_path}" ]] || return 1
+    nul_scan="$(set +e
+        LC_ALL=C tr '\000\001' '\001\002' < "${read_path}" \
+            | { LC_ALL=C grep -a -n -m1 $'\x01'; match_status=$?; cat >/dev/null || match_status=2
+                exit "${match_status}"; }
+        printf '%s %s' "${PIPESTATUS[0]}" "${PIPESTATUS[1]}")"
+    nul_status="${nul_scan##*$'\n'}"
+    case "${nul_status}" in
+        '0 0')
+            nul_line="${nul_scan%$'\n'*}"
+            fault=control-character; number="${nul_line%%:*}"
+            nul_line="${nul_line#*:}"; shown=": ${nul_line//[[:cntrl:]]/?}" ;;
+        '0 1') ;;
+        *)
+            ai_tools_conf__warn MSG-C6P5 "registry scan incomplete -- ${file}: the control-byte scan exited with statuses ${nul_status:-unknown} (tr, grep); no entry in this file allows a path until it can be read"
+            return 1 ;;
+    esac
+    while [[ -z "${fault}" ]] && { IFS= read -r line || [[ -n "${line}" ]]; }; do
+        number=$(( number + 1 ))
+        _ai_tools_conf__classify_registry_line "${line}" "${grammar}"
+        fault="${_ai_tools_conf__line_fault}"
+        if [[ -z "${fault}" && "${_ai_tools_conf__line_kind}" == marker ]]; then
+            markers=$(( markers + 1 ))
+            (( markers == 1 )) || fault=marker-repeated
+        fi
+        if [[ -n "${fault}" ]]; then
+            shown=": ${line//[[:cntrl:]]/?}"
+        fi
+    done < "${read_path}"
+    if [[ -z "${fault}" && "${grammar}" == current ]] && (( markers == 0 )); then
+        fault=marker-missing; number=1
+    fi
+    [[ -n "${fault}" ]] || return 0
+    ai_tools_conf__warn MSG-B8U2 "registry line refused -- ${file} line ${number}: ${fault}${shown} -- $(_ai_tools_conf__format_registry_fault_remedy "${fault}"); no entry in this file allows a path until the line is fixed"
+    return 3
+}
+
+# _ai_tools_conf__is_registry_valid <file> [<read-path>] : return 0 when <file> is a readable regular file that passes
+#   ai_tools_conf__validate_registry under the grammar its name or content selects, the content read from <read-path>
+#   (default <file>); a refusal is on stderr.
+_ai_tools_conf__is_registry_valid() {
+    local read_path="${2:-$1}"
+    [[ -f "${read_path}" ]] || return 1
+    ai_tools_conf__validate_registry "$1" "$(ai_tools_conf__read_registry_grammar "$1" "${read_path}")" "${read_path}"
+}
+
+# _ai_tools_conf__open_registry <file> : open <file> once and return 0 with _ai_tools_conf__registry_fd set
+#   to the descriptor and _ai_tools_conf__registry_owner_uid to the owner of the inode it holds. The caller reads
+#   /proc/self/fd/<fd> for every pass, so the validation and the entries are read from one inode however the name is
+#   replaced in between, and closes the descriptor on each return. Return 1, with no descriptor left open, for a path
+#   that is not a readable regular file or an owner `stat` does not return. The name is tested before the open,
+#   since an open of a FIFO blocks until a writer appears.
+_ai_tools_conf__open_registry() {
+    local file="$1" registry_fd
+    _ai_tools_conf__registry_fd=""; _ai_tools_conf__registry_owner_uid=""
+    [[ -f "${file}" && -r "${file}" ]] || return 1
+    { exec {registry_fd}< "${file}"; } 2>/dev/null || return 1
+    # `stat -L` reads the inode the descriptor holds; without `-L` it reads the /proc link, which the reading process
+    # owns.
+    if [[ ! -f "/proc/self/fd/${registry_fd}" ]] \
+            || ! _ai_tools_conf__registry_owner_uid="$(stat -L -c '%u' -- "/proc/self/fd/${registry_fd}" 2>/dev/null)"; then
+        exec {registry_fd}<&-
+        _ai_tools_conf__registry_owner_uid=""
+        return 1
+    fi
+    _ai_tools_conf__registry_fd="${registry_fd}"
+}
+
+# ── Registry loading and exclusion matching (the gate's own read) ────────────────────────────
 # The launch gate and each root helper that walks a project read the whole file into an allow array and an exclusion
 # array and match a path against them; this is the one implementation of that read and that match, so the gate
 # that refuses a launch and the walk that hands a path back cover one set of paths (providers.rule.md, ref-section-d2n3,
-# states which readers and what each does with a refused read). An allow entry is kept resolved (`realpath -e`)
-# and dropped when it does not resolve, so a symlinked spelling or a trailing slash names the directory. An exclusion is
-# kept AS WRITTEN and, for a line without a glob character, its resolved form beside it, so the match is the UNION
-# of the written and the resolved form: a reader matching the resolved form alone stops covering the written path
-# the moment a component of it becomes a symlink, and one matching the written form alone misses an exclusion
-# the operator spelled through one.
+# states which readers and what each does with a refused read). The read validates the file first, so a refused file
+# yields both arrays empty. It opens the file once (_ai_tools_conf__open_registry), as the membership readers
+# and the classifier do, and validates and loads from that one inode, so a file renamed over the name in between is not
+# read; what the pin does not close is a write into the same inode, which only the operator or root can make, since
+# the file is the operator's at 0600 in a 0700 directory (layout.rule.md's boundary rows), and which no writer of this
+# project makes, since each writes beside the file and renames. An allow entry is kept resolved
+# (`realpath -e`) and dropped when it does not resolve, so a symlinked spelling or a trailing slash names the directory.
+# An exclusion -- a carve-out or a park, which the gate treats alike -- is kept AS WRITTEN and, for a line without
+# a glob character, its resolved form beside it, so the match is the UNION of the written and the resolved form:
+# a reader matching the resolved form alone stops covering the written path the moment a component of it becomes
+# a symlink, and one matching the written form alone misses an exclusion the operator spelled through one.
 #
 # The resolution follows a symlink only where the sandbox account can neither remove, replace nor move it: the link
 # and every directory on the way to it are held by root or the file's owner, and no directory on the way has a group
@@ -821,11 +1077,10 @@ ai_tools_conf__parse_path_entry() {
 # of its name in its place -- `alias -> private` gone, `private` is allowed again under the enclosing entry. Neither
 # reading is safe, so no entry in the file allows a path until the entry is written as the real path. A link `readlink`
 # does not return, and a chain past 40 links, refuse the same way. A glob stays as written, since realpath would read
-# its metacharacters as a name, and a relative entry stays as written, since it does not name a real path. Every outcome
-# of the read keeps or adds an exclusion, or withdraws every allow -- the direction every allowlist read fails in.
-# What no spelling closes is a rename of the real directory itself inside a tree the account co-writes: an exclusion
-# names a path, and the owner-only mode on the directory is what keeps its contents from the account
-# (secret-handling.rule.md).
+# its metacharacters as a name. Every outcome of the read keeps or adds an exclusion, or withdraws every allow --
+# the direction every registry read fails in. What no spelling closes is a rename of the real directory itself inside
+# a tree the account co-writes: an exclusion names a path, and the owner-only mode on the directory is what keeps its
+# contents from the account (secret-handling.rule.md).
 
 # ai_tools_conf__has_glob_characters <path> : return 0 when <path> carries a glob character (`*`, `?` or `[`); such
 #   an exclusion is matched as a pattern on the whole path and is never resolved.
@@ -837,9 +1092,11 @@ ai_tools_conf__has_glob_characters() { [[ "${1-}" == *[*?[]* ]]; }
 #   unless the sticky bit is set (the reads that make the link one the sandbox account cannot remove, replace or move
 #   aside). Return 1 for a relative path, and -- with _ai_tools_conf__resolve_refusal set to the reason, naming the link
 #   -- for a symlink or a directory on the way to it held by any other account, such a directory with a group or other
-#   write bit and no sticky bit, a link `stat` or `readlink` does not return, or more than 40 links (a loop).
-#   A component that does not exist is kept as written. Results travel in globals rather than on stdout, so the caller
-#   reads them without a subshell.
+#   write bit and no sticky bit, a link `stat` or `readlink` does not return, more than 40 links (a loop), or
+#   a directory on the way that the calling process cannot search. A component that does not exist is kept as written.
+#   Root searches every directory, so for a path crossing a directory its operator cannot enter, root's report reads
+#   the file as standing where that operator's gate refuses it: the report under-reports a refusal. Results travel
+#   in globals rather than on stdout, so the caller reads them without a subshell.
 _ai_tools_conf__resolve_exclusion_path() {
     local remaining_path="${1-}" allowlist_owner_uid="${2-}" resolved_path="" component link symlink_target
     local symlink_owner_uid symlink_count=0 ancestor_directory ancestor_owner_uid ancestor_mode checked_directories=""
@@ -854,6 +1111,12 @@ _ai_tools_conf__resolve_exclusion_path() {
             ..)   resolved_path="${resolved_path%/*}"; continue ;;
         esac
         link="${resolved_path}/${component}"
+        # Under a directory the reader cannot search, `[[ -L ]]` is false for a link and for an absent name alike,
+        # so the read refuses rather than keep the component as written. A directory that does not exist does not hide
+        # a link from any reader, and its components stay as written.
+        if [[ -d "${resolved_path:-/}" && ! -x "${resolved_path:-/}" ]]; then
+            _ai_tools_conf__resolve_refusal="${resolved_path:-/} is a directory uid ${EUID} cannot search, so whether ${link} is a symbolic link cannot be read"; return 1
+        fi
         if [[ -L "${link}" ]]; then
             symlink_count=$(( symlink_count + 1 ))
             if (( symlink_count > 40 )); then
@@ -902,38 +1165,65 @@ _ai_tools_conf__resolve_exclusion_path() {
     ai_tools_conf__value="${resolved_path:-/}"
 }
 
-# ai_tools_conf__load_allowlist <allowlist-file> <allowed-array> <excluded-array> : fill the two named arrays
-#   from <allowlist-file> as the section comment states -- allow entries resolved; exclusions as written, plus
-#   the resolved form of a glob-free absolute one whose symlinks the sandbox account can neither remove nor replace --
-#   and return 0. Return 1, both arrays empty, when <allowlist-file> is missing, is a directory or another non-regular
-#   file, cannot be read, or has no readable owner. Return 2, both arrays empty and MSG-Y5N6 on stderr naming the entry
-#   and the link, when a glob-free absolute exclusion meets a symlink _ai_tools_conf__resolve_exclusion_path refuses.
+# ai_tools_conf__load_allowlist <registry-file> <allowed-array> <excluded-array> [<kinds-array>] : fill the named arrays
+#   from <registry-file> as the section comment states -- allow entries resolved; exclusions as written, plus
+#   the resolved form of a glob-free one whose symlinks the sandbox account can neither remove nor replace -- and return
+#   0. <kinds-array>, when named, is filled parallel to <excluded-array> with `carve` or `park` per element, so a caller
+#   words a refusal from the line that matched. Every array is empty on a non-zero return: 1 when <registry-file> is
+#   missing, is a directory or another non-regular file, cannot be read, or has no readable owner; 3
+#   when ai_tools_conf__validate_registry refuses a line (MSG-B8U2 on stderr); 2, with MSG-Y5N6 on stderr naming
+#   the entry and the link, when a glob-free exclusion meets a symlink _ai_tools_conf__resolve_exclusion_path refuses.
 ai_tools_conf__load_allowlist() {
+    local -a _ai_tools_conf__load_no_kinds=()
     local -n _ai_tools_conf__load_allowed="$2" _ai_tools_conf__load_excluded="$3"
-    local file="${1-}" allowlist_owner_uid line entry resolved
-    _ai_tools_conf__load_allowed=(); _ai_tools_conf__load_excluded=()
-    [[ -f "${file}" && -r "${file}" ]] || return 1
-    allowlist_owner_uid="$(stat -c '%u' -- "${file}" 2>/dev/null)" || return 1
-    while IFS= read -r line || [[ -n "${line}" ]]; do
+    local -n _ai_tools_conf__load_kinds="${4:-_ai_tools_conf__load_no_kinds}"
+    local file="${1-}" load_fd read_path allowlist_owner_uid line entry resolved kind written status=0
+    _ai_tools_conf__load_allowed=(); _ai_tools_conf__load_excluded=(); _ai_tools_conf__load_kinds=()
+    _ai_tools_conf__open_registry "${file}" || return 1
+    load_fd="${_ai_tools_conf__registry_fd}"; allowlist_owner_uid="${_ai_tools_conf__registry_owner_uid}"
+    read_path="/proc/self/fd/${load_fd}"
+    _ai_tools_conf__is_registry_valid "${file}" "${read_path}" || status=$?
+    while (( status == 0 )) && { IFS= read -r line || [[ -n "${line}" ]]; }; do
         ai_tools_conf__parse_path_entry "${line}" || continue
         entry="${ai_tools_conf__value}"
-        if [[ "${entry}" == '!'* ]]; then
-            entry="${entry:1}"
-            _ai_tools_conf__load_excluded+=("${entry}")
-            ai_tools_conf__has_glob_characters "${entry}" && continue
-            [[ "${entry}" == /* ]] || continue
-            if ! _ai_tools_conf__resolve_exclusion_path "${entry}" "${allowlist_owner_uid}"; then
-                _ai_tools_conf__load_allowed=(); _ai_tools_conf__load_excluded=()
-                ai_tools_conf__warn MSG-Y5N6 "exclusion !${entry} in ${file} cannot be resolved -- ${_ai_tools_conf__resolve_refusal}; write the exclusion as the directory's real path, since a link the sandbox account can change cannot be followed; no entry in this file allows a path until the line is fixed"
-                return 2
-            fi
-            resolved="${ai_tools_conf__value}"
-            [[ "${resolved}" == "${entry%/}" ]] || _ai_tools_conf__load_excluded+=("${resolved}")
-        else
-            resolved="$(realpath -e -- "${entry}" 2>/dev/null)" || continue
-            _ai_tools_conf__load_allowed+=("${resolved}")
+        case "${entry}" in
+            '!'*) kind=carve ;;
+            '%'*) kind=park ;;
+            *)
+                resolved="$(realpath -e -- "${entry}" 2>/dev/null)" || continue
+                _ai_tools_conf__load_allowed+=("${resolved}")
+                continue ;;
+        esac
+        entry="${entry:1}"
+        _ai_tools_conf__load_excluded+=("${entry}"); _ai_tools_conf__load_kinds+=("${kind}")
+        ai_tools_conf__has_glob_characters "${entry}" && continue
+        if ! _ai_tools_conf__resolve_exclusion_path "${entry}" "${allowlist_owner_uid}"; then
+            written="${line#"${line%%[![:space:]]*}"}"
+            ai_tools_conf__warn MSG-Y5N6 "exclusion ${written} in ${file} cannot be resolved -- ${_ai_tools_conf__resolve_refusal}; write the exclusion as the directory's real path, since a link the sandbox account can change cannot be followed; no entry in this file allows a path until the line is fixed"
+            status=2
+            continue
         fi
-    done < "${file}"
+        resolved="${ai_tools_conf__value}"
+        if [[ "${resolved}" != "${entry%/}" ]]; then
+            _ai_tools_conf__load_excluded+=("${resolved}"); _ai_tools_conf__load_kinds+=("${kind}")
+        fi
+    done < "${read_path}"
+    exec {load_fd}<&-
+    if (( status != 0 )); then
+        _ai_tools_conf__load_allowed=(); _ai_tools_conf__load_excluded=(); _ai_tools_conf__load_kinds=()
+    fi
+    return "${status}"
+}
+
+# ai_tools_conf__check_registry <registry-file> : read <registry-file> as the launch gate does, through
+#   ai_tools_conf__load_allowlist, and return its status (0, 1, 2 or 3), the refusal on stderr. For a report that states
+#   whether a registry would stand at the gate and does not keep the entries: a grammar check alone passes a file whose
+#   exclusion crosses a link the gate refuses. The read runs as the caller, so a root caller passes a file whose
+#   exclusion crosses a directory the registry's operator cannot search, which that operator's gate refuses.
+ai_tools_conf__check_registry() {
+    # shellcheck disable=SC2034  # filled through their names by the loader, and not read
+    local -a _ai_tools_conf__check_allowed=() _ai_tools_conf__check_excluded=()
+    ai_tools_conf__load_allowlist "${1-}" _ai_tools_conf__check_allowed _ai_tools_conf__check_excluded
 }
 
 # ai_tools_conf__is_path_excluded <abs-path> <excluded-array> : return 0 when an entry of the named array covers
@@ -951,111 +1241,116 @@ ai_tools_conf__is_path_excluded() {
     return 1
 }
 
-# ── Allowlist membership (exact-entry matching) ──────────────────────────────────────────────
-# One predicate for "is this path an entry of allowed-projects", shared by every component that asks: the launch
-# wrapper's post-claim confirm, the claim/unclaim CLI (reg/unreg, read_project_state), and the relabel helper. They read
-# the file through that grammar, so an entry written in
-# that grammar -- an end-of-line comment (`/p   # why`), a quoted path (`"/p with space"`), or a
-# spelling reached by a symlink or trailing slash -- is a MATCH here, where a raw `grep -qxF` against the stored line
-# would miss it and report the project unlisted. Comparison is on realpath-normalized values, the same canonicalization
-# the launch gate applies, so the confirm and the gate agree. A stored entry that no longer resolves cannot equal
-# an existing target and is skipped (the launch wrapper drops unresolvable entries the same way). Callers pass
-# an existing path (a realpath'd project dir); membership of a non-existent path is never asserted.
+# ── Registry membership (exact-entry matching) ───────────────────────────────────────────────
+# One predicate for "which lines of the registry name this path", shared by every component that asks: the launch
+# wrapper's post-claim confirm, the CLI, the `--for` helper and the relabel helper. Each line is read
+# through the grammar,
+# so an entry written with an end-of-line comment (`/p   # why`), quotes (`"/p with space"`), or a spelling reached
+# by a symlink or a trailing slash is a MATCH, where a raw `grep -qxF` against the stored line would miss it. Comparison
+# is on realpath-normalized values, the same canonicalization the launch gate applies, so the confirm and the gate
+# agree. A stored entry that no longer resolves cannot equal an existing target. Callers pass an existing path (a
+# realpath'd project dir); membership of a path that does not exist is not asserted. A file the grammar refuses does not
+# name any path.
 
 # _ai_tools_conf__normalize_allowlist_path <path> : print <path> realpath-normalized, or <path> itself when it does not
-#   resolve, so the two membership predicates canonicalize target and entry identically.
+#   resolve, so the membership readers canonicalize target and entry identically.
 _ai_tools_conf__normalize_allowlist_path() { realpath -e "$1" 2>/dev/null || printf '%s' "$1"; }
 
-# ai_tools_conf__has_allowlist_entry <allowlist-file> <path> : return 0 when <path> matches an ALLOW entry (a non-`!`
-#   line) of <allowlist-file>. Exclusion lines never count as membership.
+# _ai_tools_conf__read_lines_naming <file> <path> <allow-array> <carve-array> <park-array> : set the three named arrays
+#   to the RAW lines of <file> whose entry names <path>, one array per line kind, in one read. Every array is empty,
+#   and the status 1, when <file> is missing or the grammar refuses it (the refusal on stderr).
+_ai_tools_conf__read_lines_naming() {
+    local -n _ai_tools_conf__naming_allow="$3" _ai_tools_conf__naming_carve="$4" _ai_tools_conf__naming_park="$5"
+    local file="$1" want line entry naming_fd read_path
+    _ai_tools_conf__naming_allow=(); _ai_tools_conf__naming_carve=(); _ai_tools_conf__naming_park=()
+    _ai_tools_conf__open_registry "${file}" || return 1
+    naming_fd="${_ai_tools_conf__registry_fd}"; read_path="/proc/self/fd/${naming_fd}"
+    if ! _ai_tools_conf__is_registry_valid "${file}" "${read_path}"; then
+        exec {naming_fd}<&-
+        return 1
+    fi
+    want="$(_ai_tools_conf__normalize_allowlist_path "$2")"
+    while IFS= read -r line || [[ -n "${line}" ]]; do
+        ai_tools_conf__parse_path_entry "${line}" || continue
+        entry="${ai_tools_conf__value}"
+        case "${entry}" in
+            '!'*) [[ "$(_ai_tools_conf__normalize_allowlist_path "${entry:1}")" == "${want}" ]] \
+                      && _ai_tools_conf__naming_carve+=("${line}") ;;
+            '%'*) [[ "$(_ai_tools_conf__normalize_allowlist_path "${entry:1}")" == "${want}" ]] \
+                      && _ai_tools_conf__naming_park+=("${line}") ;;
+            *)    [[ "$(_ai_tools_conf__normalize_allowlist_path "${entry}")" == "${want}" ]] \
+                      && _ai_tools_conf__naming_allow+=("${line}") ;;
+        esac
+    done < "${read_path}"
+    exec {naming_fd}<&-
+    return 0
+}
+
+# ai_tools_conf__has_allowlist_entry <registry-file> <path> : return 0 when an ALLOW line of <registry-file> names
+#   <path>. A carve-out or a park line is not membership.
 ai_tools_conf__has_allowlist_entry() {
-    local file="$1" want line entry
-    want="$(_ai_tools_conf__normalize_allowlist_path "$2")"
-    while IFS= read -r line || [[ -n "${line}" ]]; do
-        ai_tools_conf__parse_path_entry "${line}" || continue
-        entry="${ai_tools_conf__value}"
-        [[ "${entry}" == '!'* ]] && continue
-        [[ "$(_ai_tools_conf__normalize_allowlist_path "${entry}")" == "${want}" ]] && return 0
-    done < "${file}"
-    return 1
+    local -a member_allow=() member_carve=() member_park=()
+    _ai_tools_conf__read_lines_naming "$1" "$2" member_allow member_carve member_park || return 1
+    (( ${#member_allow[@]} > 0 ))
 }
 
-# ai_tools_conf__has_allowlist_exclusion <allowlist-file> <path> : return 0 when <path> matches a `!` EXCLUSION entry
-#   exactly (compared without the `!`). This is exact-path, not glob: it is the relabel helper's "is this dir explicitly
-#   excluded" check, which never expanded globs.
+# ai_tools_conf__has_allowlist_exclusion <registry-file> <path> : return 0 when a carve-out (`!`) or a park (`%`) line
+#   names <path> exactly. Exact-path, never glob-expanding: it is the relabel helper's question, whether a line
+#   withholds this very directory.
 ai_tools_conf__has_allowlist_exclusion() {
-    local file="$1" want line entry
-    want="$(_ai_tools_conf__normalize_allowlist_path "$2")"
-    while IFS= read -r line || [[ -n "${line}" ]]; do
-        ai_tools_conf__parse_path_entry "${line}" || continue
-        entry="${ai_tools_conf__value}"
-        [[ "${entry}" == '!'* ]] || continue
-        [[ "$(_ai_tools_conf__normalize_allowlist_path "${entry#\!}")" == "${want}" ]] && return 0
-    done < "${file}"
-    return 1
+    local -a member_allow=() member_carve=() member_park=()
+    _ai_tools_conf__read_lines_naming "$1" "$2" member_allow member_carve member_park || return 1
+    (( ${#member_carve[@]} + ${#member_park[@]} > 0 ))
 }
 
-# ai_tools_conf__read_allowlist_matching_lines <array-name> <allowlist-file> <path> : set the named array to every RAW
-#   line of <allowlist-file> whose ALLOW entry matches <path>, and return 0 when at least one did. For a caller
-#   that must DELETE the line (unclaim, the `projects list` remediation): the raw text is what a line-anchored `sed`
-#   removes, and it can differ from <path> -- a comment, quotes, or a symlinked spelling -- so reconstructing the line
-#   from <path> would fail to match.
+# ai_tools_conf__read_allowlist_matching_lines <array-name> <registry-file> <path> : set the named array to every RAW
+#   allow line of <registry-file> naming <path>, and return 0 when at least one did. For a caller that must DELETE
+#   the line: the raw text can differ from <path> -- a comment, quotes, or a symlinked spelling -- so reconstructing
+#   the line from <path> would fail to match.
 ai_tools_conf__read_allowlist_matching_lines() {
     local -n _ai_tools_conf__matched="$1"
-    local file="$2" want line entry
-    want="$(_ai_tools_conf__normalize_allowlist_path "$3")"
-    _ai_tools_conf__matched=()
-    while IFS= read -r line || [[ -n "${line}" ]]; do
-        ai_tools_conf__parse_path_entry "${line}" || continue
-        entry="${ai_tools_conf__value}"
-        [[ "${entry}" == '!'* ]] && continue
-        [[ "$(_ai_tools_conf__normalize_allowlist_path "${entry}")" == "${want}" ]] && _ai_tools_conf__matched+=("${line}")
-    done < "${file}"
+    # shellcheck disable=SC2034  # filled through its name by _ai_tools_conf__read_lines_naming; this reader does not need it
+    local -a matching_carve=() matching_park=()
+    _ai_tools_conf__read_lines_naming "$2" "$3" _ai_tools_conf__matched matching_carve matching_park || return 1
     (( ${#_ai_tools_conf__matched[@]} > 0 ))
 }
 
-# ai_tools_conf__read_allowlist_exclusion_lines <array-name> <allowlist-file> <path> : the exclusion counterpart
-#   of the allow matcher -- set the named array to every RAW line whose `!` entry names <path> exactly (compared without
-#   the `!`), and return 0 when at least one did. Exact-path like ai_tools_conf__has_allowlist_exclusion, never
-#   glob-expanding: it serves the callers that must EDIT the line an operator wrote to park a project (the CLI's
-#   re-enable, its de-registration, and the `--for` root helper), and a glob line does not name a single project to act
-#   on.
-ai_tools_conf__read_allowlist_exclusion_lines() {
-    local -n _ai_tools_conf__excluded="$1"
-    local file="$2" want line entry
-    want="$(_ai_tools_conf__normalize_allowlist_path "$3")"
-    _ai_tools_conf__excluded=()
-    while IFS= read -r line || [[ -n "${line}" ]]; do
-        ai_tools_conf__parse_path_entry "${line}" || continue
-        entry="${ai_tools_conf__value}"
-        [[ "${entry}" == '!'* ]] || continue
-        [[ "$(_ai_tools_conf__normalize_allowlist_path "${entry#\!}")" == "${want}" ]] && _ai_tools_conf__excluded+=("${line}")
-    done < "${file}"
-    (( ${#_ai_tools_conf__excluded[@]} > 0 ))
+# ai_tools_conf__read_allowlist_park_lines <array-name> <registry-file> <path> : the park counterpart of the allow
+#   matcher -- set the named array to every RAW `%` line naming <path> exactly, and return 0 when at least one did.
+ai_tools_conf__read_allowlist_park_lines() {
+    local -n _ai_tools_conf__parked="$1"
+    # shellcheck disable=SC2034  # filled through its name by _ai_tools_conf__read_lines_naming; this reader does not need it
+    local -a parking_allow=() parking_carve=()
+    _ai_tools_conf__read_lines_naming "$2" "$3" parking_allow parking_carve _ai_tools_conf__parked || return 1
+    (( ${#_ai_tools_conf__parked[@]} > 0 ))
 }
 
-# ── Allowlist editing (the one implementation of a registry change) ──────────────────────────
-# An allowed-projects line has four states to move between -- absent, listed, disabled (a `!` exclusion parks it),
-# and gone -- and three components change one: the CLI on the operator's own file, ai-tools-allowlist on another
-# operator's (a `--for` run), and install.sh de-registering its own checkout. All three write through these functions,
-# so one matcher decides what a line names for every writer and every reader. The file is the agent's LAUNCH GATE:
-# a writer that matched lines differently from the reader would leave a project reachable after a "removal", or park it
-# twice over.
+# ── Registry editing (the one implementation of a registry change) ───────────────────────────
+# Three components change the registry -- the CLI on the operator's own file, ai-tools-allowlist on another operator's
+# (a `--for` run), and install.sh de-registering its own checkout -- and all three write through these functions, so one
+# matcher decides what a line names for every writer and every reader. The file is the agent's LAUNCH GATE: a writer
+# that matched lines differently from the reader would leave a project reachable after a "removal", or park it twice.
 #
-# Every one of them is idempotent, verifies by RE-READING the file rather than trusting a write, and reports three
+# Each writer edits a `projects` file alone. A legacy `allowed-projects` is the input of the migration and stays
+# as written until `atr admin system post-upgrade` replaces it, so a writer does not mix the two grammars in one file.
+# A carve-out line is the operator's own edit and no writer deletes or rewrites one.
+#
+# Every one of them is idempotent, verifies by RE-READING the file rather than trusting a write, and reports these
 # outcomes apart:
 #   0  the file now holds the intended state (including "it already did")
 #   1  the edit could not be applied -- the file is missing or could not be written
 #   2  the request does not apply from the CURRENT state, and no write happened
-# The 2 cases are what keep the four states honest: adding over an exclusion would leave both lines present with the `!`
-# still winning at the launch gate (a claim reporting success over a project no session can start in), and enabling
-# or disabling a path the file does not name would invent an entry rather than edit one.
+#   3  the file is a legacy `allowed-projects`, or the grammar refuses a line of it (MSG-B8U2 on stderr); no write
+#   4  the path cannot be written as a registry line (add alone); no write
+# The 2 cases keep the states apart: adding over a park would leave an allow line the park beats at the launch gate (a
+# claim reporting success over a project no session can start in), adding over a carve-out would put two kinds on one
+# path, and enabling or disabling a path the file does not name would invent an entry rather than edit one.
 
 # _ai_tools_conf__replace_file <file> <src> : replace <file> with <src>'s contents, preserving its owner and mode.
 #   Written beside it and renamed, so a concurrent reader (a launch wrapper gating a session) sees the whole old file
 #   or the whole new one, never a half-written gate. The temp file is created in the file's OWN directory, which is
 #   what a rename across it requires -- so this fails on a config directory the caller cannot write even when the file
-#   itself is writable, and the callers report that rather than aborting on it. Shared by the allowlist editors
+#   itself is writable, and the callers report that rather than aborting on it. Shared by the registry editors
 #   and by ai_tools_conf__set_key, the one rewrite of a KEY=value file.
 _ai_tools_conf__replace_file() {
     local file="$1" src="$2" tmp owner mode
@@ -1071,51 +1366,93 @@ _ai_tools_conf__replace_file() {
     mv -f -- "${tmp}" "${file}" 2>/dev/null || { rm -f -- "${tmp}"; return 1; }
 }
 
-# ai_tools_conf__read_allowlist_state <allowlist-file> <path> : print how the file answers for <path> -- `disabled`,
-#   `listed`, or `absent`. An exclusion WINS over an allow entry, exactly as it does at the launch gate, so a path
-#   carrying both lines reads `disabled`: no session can start there, which makes it the only honest answer. This is
-#   the state a has_entry/absent reading cannot express, and every verb that reports on a parked project reads it.
+# ai_tools_conf__read_allowlist_state <registry-file> <path> : print how the file answers for <path> from the lines
+#   naming it: `conflict` (a carve-out and an allow or park line), `disabled` (a park line), `excluded` (a carve-out
+#   line alone), `listed` (an allow line alone), or `absent` (no line, or no file). A park outranks an allow line, as it
+#   does at the launch gate, so the duplicate pair reads `disabled`. A file the grammar refuses reads `invalid`, its
+#   refusal on stderr, so a caller does not read a file it cannot trust as naming no line.
 ai_tools_conf__read_allowlist_state() {
     local file="$1" path="$2"
+    local -a state_allow=() state_carve=() state_park=()
     [[ -f "${file}" ]] || { printf 'absent'; return 0; }
-    if   ai_tools_conf__has_allowlist_exclusion "${file}" "${path}"; then printf 'disabled'
-    elif ai_tools_conf__has_allowlist_entry     "${file}" "${path}"; then printf 'listed'
+    _ai_tools_conf__read_lines_naming "${file}" "${path}" state_allow state_carve state_park \
+        || { printf 'invalid'; return 0; }
+    if (( ${#state_carve[@]} && ${#state_allow[@]} + ${#state_park[@]} )); then printf 'conflict'
+    elif (( ${#state_park[@]} ));  then printf 'disabled'
+    elif (( ${#state_carve[@]} )); then printf 'excluded'
+    elif (( ${#state_allow[@]} )); then printf 'listed'
     else printf 'absent'
     fi
 }
 
-# ai_tools_conf__allowlist_add <allowlist-file> <path> : append <path> as an allow entry, on a line of its own. A path
-#   already listed is left alone (a re-claim must not duplicate a line); a DISABLED path is refused with 2 rather than
-#   appended, because the appended line would not take
-#   effect.
+# _ai_tools_conf__check_editable <registry-file> : return 0 when <registry-file> is a `projects`-grammar file
+#   the grammar accepts, 1 when it is not a regular file, and 3 when it is legacy or a line is refused (MSG-B8U2
+#   on stderr).
+_ai_tools_conf__check_editable() {
+    [[ -f "$1" ]] || return 1
+    [[ "$(ai_tools_conf__read_registry_grammar "$1")" == current ]] || return 3
+    ai_tools_conf__validate_registry "$1" current || return 3
+}
+
+# _ai_tools_conf__format_registry_entry <path> : print (no newline) the allow line that reads back as <path> -- <path>
+#   as written, or in double quotes where it carries whitespace, `#` or `'` -- and return 0. Return 1, printing nothing,
+#   for a path the grammar cannot carry: not absolute, or carrying a glob character, a control byte or `"`. The composed
+#   line is put through the validator's own line check before it is printed, so a line the writer appends is one every
+#   reader accepts as naming <path>; a line it refused afterwards would refuse the whole file.
+_ai_tools_conf__format_registry_entry() {
+    local path="${1-}" line
+    [[ "${path}" == /* && "${path}" != *[[:cntrl:]\"]* ]] || return 1
+    ai_tools_conf__has_glob_characters "${path}" && return 1
+    line="${path}"
+    [[ "${path}" == *[[:space:]\#\']* ]] && line="\"${path}\""
+    _ai_tools_conf__classify_registry_line "${line}" current
+    [[ "${_ai_tools_conf__line_kind}" == allow && -z "${_ai_tools_conf__line_fault}" \
+        && "${ai_tools_conf__value}" == "${path}" ]] || return 1
+    printf '%s' "${line}"
+}
+
+# ai_tools_conf__is_registry_path_representable <path> : return 0 when _ai_tools_conf__format_registry_entry writes
+#   a line for <path>, so a caller about to create a directory refuses a name the registry cannot carry before its first
+#   write.
+ai_tools_conf__is_registry_path_representable() {
+    _ai_tools_conf__format_registry_entry "${1-}" >/dev/null
+}
+
+# ai_tools_conf__allowlist_add <registry-file> <path> : append <path> as an allow entry, on a line of its own. A path
+#   already listed is left alone (a re-claim must not duplicate a line); a parked path, and a path a carve-out line
+#   names, are refused with 2, since the appended line would not take effect or would put two kinds on one path; a path
+#   _ai_tools_conf__format_registry_entry cannot write is refused with 4.
 ai_tools_conf__allowlist_add() {
-    local file="$1" path="$2" line_break=''
-    [[ -f "${file}" ]] || return 1
+    local file="$1" path="$2" line_break='' line rc=0
+    _ai_tools_conf__check_editable "${file}" || { rc=$?; return "${rc}"; }
     case "$(ai_tools_conf__read_allowlist_state "${file}" "${path}")" in
-        listed)   return 0 ;;
-        disabled) return 2 ;;
+        listed) return 0 ;;
+        absent) ;;
+        *)      return 2 ;;
     esac
+    line="$(_ai_tools_conf__format_registry_entry "${path}")" || return 4
     # A hand-edited registry can run to EOF part-way through its last line, and every reader here keeps that entry (the
     # read loops take a final unbroken line). So the append opens a new line first: written straight, it would join
     # the two paths into a third that no project matches, dropping the claimed one from the launch gate while
     # the preceding entry changed meaning.
     [[ -n "$(tail -c 1 -- "${file}" 2>/dev/null)" ]] && line_break=$'\n'
-    printf '%s%s\n' "${line_break}" "${path}" >> "${file}" 2>/dev/null || return 1
+    printf '%s%s\n' "${line_break}" "${line}" >> "${file}" 2>/dev/null || return 1
     ai_tools_conf__has_allowlist_entry "${file}" "${path}" || return 1
 }
 
-# ai_tools_conf__allowlist_remove <allowlist-file> <path> : delete every line naming <path>, allow and exclusion alike,
-#   because a de-registration that left the `!` behind would park a directory that no longer exists -- and silently
-#   disable the next project claimed at that path. Removing what is not there succeeds: an unclaim run twice is not
-#   an error.
+# ai_tools_conf__allowlist_remove <registry-file> <path> : delete every allow and park line naming <path>, so no park is
+#   left to disable the next project claimed at that path. A carve-out line naming it stays: it is the operator's own
+#   edit, and a caller names it as still in force. Removing what is not there succeeds, so an unclaim run twice is not
+#   an error, and a missing file does not name the path; a registry path holding anything but a regular file returns 1.
 ai_tools_conf__allowlist_remove() {
-    local file="$1" path="$2" tmp line keep m
+    local file="$1" path="$2" tmp line keep m rc=0
     # Names distinct from any scalar a sibling library uses: every consumer sources this file, and an array here sharing
     # a name with a local there reads as a type conflict at lint time.
-    local -a doomed_lines=() parked_lines=()
-    [[ -f "${file}" ]] || return 0
-    ai_tools_conf__read_allowlist_matching_lines  doomed_lines "${file}" "${path}" || true
-    ai_tools_conf__read_allowlist_exclusion_lines parked_lines "${file}" "${path}" || true
+    # shellcheck disable=SC2034  # filled through its name by _ai_tools_conf__read_lines_naming; this reader does not need it
+    local -a doomed_lines=() kept_carve_lines=() parked_lines=()
+    [[ -e "${file}" || -L "${file}" ]] || return 0
+    _ai_tools_conf__check_editable "${file}" || { rc=$?; return "${rc}"; }
+    _ai_tools_conf__read_lines_naming "${file}" "${path}" doomed_lines kept_carve_lines parked_lines || return 3
     doomed_lines+=("${parked_lines[@]}")
     (( ${#doomed_lines[@]} )) || return 0
     tmp="$(mktemp 2>/dev/null)" || return 1
@@ -1128,48 +1465,50 @@ ai_tools_conf__allowlist_remove() {
     done < "${file}" > "${tmp}"
     if ! _ai_tools_conf__replace_file "${file}" "${tmp}"; then rm -f -- "${tmp}"; return 1; fi
     rm -f -- "${tmp}"
-    [[ "$(ai_tools_conf__read_allowlist_state "${file}" "${path}")" == absent ]] || return 1
+    case "$(ai_tools_conf__read_allowlist_state "${file}" "${path}")" in
+        absent|excluded) return 0 ;;
+        *)               return 1 ;;
+    esac
 }
 
-# _ai_tools_conf__retag_allowlist_entry <allowlist-file> <path> <disable|enable> : the shared line rewrite behind
-#   the two verbs. It edits the line the operator wrote IN PLACE -- the `!` goes on or comes off, and the line keeps its
+# _ai_tools_conf__retag_allowlist_entry <registry-file> <path> <disable|enable> : the shared line rewrite behind the two
+#   verbs. It edits the line the operator wrote IN PLACE -- the `%` goes on or comes off, and the line keeps its
 #   position, its indentation and its comment -- so parking a project and restoring it leaves the file as it was, rather
-#   than moving the entry to the end.
+#   than moving the entry to the end. A `!` line is a carve-out and is not among the lines either direction reads.
 _ai_tools_conf__retag_allowlist_entry() {
     local file="$1" path="$2" op="$3" tmp line m head
+    # shellcheck disable=SC2034  # filled through its name by _ai_tools_conf__read_lines_naming; this reader does not need it
+    local -a retag_lines=() live_lines=() retag_carve=()
     [[ -f "${file}" ]] || return 1
-    local -a retag_lines=()
     if [[ "${op}" == disable ]]; then
-        ai_tools_conf__read_allowlist_matching_lines  retag_lines "${file}" "${path}" || return 2
+        _ai_tools_conf__read_lines_naming "${file}" "${path}" retag_lines retag_carve live_lines || return 3
+        (( ${#retag_lines[@]} )) || return 2
+        live_lines=()
     else
-        ai_tools_conf__read_allowlist_exclusion_lines retag_lines "${file}" "${path}" || return 2
+        _ai_tools_conf__read_lines_naming "${file}" "${path}" live_lines retag_carve retag_lines || return 3
+        (( ${#retag_lines[@]} )) || return 2
     fi
-    # ENABLE additionally collapses duplicates. Un-parking `!/p` while an allow line for `/p` already exists -- the pair
-    # the old "append over an exclusion" bug created -- would leave two live entries for one path. So the FIRST line
-    # naming the path survives, un-parked, in its own position, and every later line naming it is dropped: one live
-    # entry per path, which is the invariant every reader of this file assumes. DISABLE does not need that rule, since
-    # parking each of several allow lines leaves them all excluded, which is one state and not two.
-    local -a live_lines=()
-    if [[ "${op}" == enable ]]; then
-        ai_tools_conf__read_allowlist_matching_lines live_lines "${file}" "${path}" || true
-        retag_lines+=("${live_lines[@]}")
-    fi
+    # ENABLE additionally collapses duplicates. Lifting `%/p` while an allow line for `/p` already exists would leave
+    # two live entries for one path. So the FIRST line naming the path survives, un-parked, in its own position,
+    # and every later line naming it is dropped: one live entry per path, which is the invariant every reader of this
+    # file assumes. DISABLE does not need that rule, since parking each of several allow lines leaves them all parked,
+    # which is one state and not two.
+    retag_lines+=("${live_lines[@]}")
     local emitted=false
     tmp="$(mktemp 2>/dev/null)" || return 1
     while IFS= read -r line || [[ -n "${line}" ]]; do
         for m in "${retag_lines[@]}"; do
             [[ "${line}" == "${m}" ]] || continue
+            # The kind character opens the entry, after any indentation, so the edit is made there and an indented entry
+            # keeps its indentation.
+            head="${line%%[![:space:]]*}"
             if [[ "${op}" == disable ]]; then
-                # Insert the '!' before the first non-blank character, so an indented entry keeps its indentation
-                # and the '!' still opens the entry the grammar reads.
-                head="${line%%[![:space:]]*}"
-                line="${head}!${line#"${head}"}"
+                line="${head}%${line#"${head}"}"
             elif ${emitted}; then
                 continue 2                      # a later duplicate of a path already restored
             else
-                # Delete the FIRST '!' -- the one that opens the entry. One in a trailing comment is left alone. A line
-                # that carries none is already the allow entry and is kept as it is.
-                line="${line/'!'/}"
+                line="${line#"${head}"}"
+                line="${head}${line#%}"
                 emitted=true
             fi
             break
@@ -1180,27 +1519,33 @@ _ai_tools_conf__retag_allowlist_entry() {
     rm -f -- "${tmp}"
 }
 
-# ai_tools_conf__allowlist_disable <allowlist-file> <path> : park a listed project -- prefix its line with `!`.
+# ai_tools_conf__allowlist_disable <registry-file> <path> : park a listed project -- prefix its line with `%`.
 #   The launch gate then refuses a session there while the entry, the project's permissions and its label all stay
-#   as they are. Already disabled succeeds; a path the file does not name returns 2, since there is no entry to park.
+#   as they are, nested or not. Already disabled succeeds; a path the file does not name, one a carve-out names,
+#   and a conflict return 2, since there is no single entry to park.
 ai_tools_conf__allowlist_disable() {
-    local file="$1" path="$2" rc
+    local file="$1" path="$2" rc=0
+    _ai_tools_conf__check_editable "${file}" || { rc=$?; return "${rc}"; }
     case "$(ai_tools_conf__read_allowlist_state "${file}" "${path}")" in
         disabled) return 0 ;;
-        absent)   return 2 ;;
+        listed)   ;;
+        *)        return 2 ;;
     esac
     _ai_tools_conf__retag_allowlist_entry "${file}" "${path}" disable || { rc=$?; return "${rc}"; }
     [[ "$(ai_tools_conf__read_allowlist_state "${file}" "${path}")" == disabled ]] || return 1
 }
 
-# ai_tools_conf__allowlist_enable <allowlist-file> <path> : restore a parked project -- delete the `!` from its line.
+# ai_tools_conf__allowlist_enable <registry-file> <path> : restore a parked project -- delete the `%` from its line.
 #   Already listed succeeds; a path the file does not name returns 2, because enabling one would be claiming it,
-#   which is a different operation with a secret scan in it.
+#   which is a different operation with a secret scan in it, and so do a carve-out and a conflict, since a `!` line is
+#   the operator's own edit.
 ai_tools_conf__allowlist_enable() {
-    local file="$1" path="$2" rc
+    local file="$1" path="$2" rc=0
+    _ai_tools_conf__check_editable "${file}" || { rc=$?; return "${rc}"; }
     case "$(ai_tools_conf__read_allowlist_state "${file}" "${path}")" in
-        listed) return 0 ;;
-        absent) return 2 ;;
+        listed)   return 0 ;;
+        disabled) ;;
+        *)        return 2 ;;
     esac
     _ai_tools_conf__retag_allowlist_entry "${file}" "${path}" enable || { rc=$?; return "${rc}"; }
     [[ "$(ai_tools_conf__read_allowlist_state "${file}" "${path}")" == listed ]] || return 1
@@ -1217,28 +1562,29 @@ ai_tools_conf__allowlist_enable() {
 # A seeded header is written once and no upgrade rewrites it, so it carries what the file is, the one rule a reader
 # needs before writing a line, example lines, and the man page that holds the reference -- the page ships
 # with the package and reaches every host on every upgrade, where a header stays as it was on the day the account was
-# enrolled. tests/unit/man.sh caps the allowlist header and reads the page's examples
+# enrolled. tests/unit/man.sh caps the registry header and reads the page's examples
 # through ai_tools_conf__parse_path_entry.
 
-# ai_tools_conf__get_allowlist_seed : print the header a fresh allowed-projects carries. It does not name any project,
-#   so a session cannot start anywhere until the CLI or the operator adds an entry. The reference is
-#   ai-tools-allowed-projects(5).
+# ai_tools_conf__get_allowlist_seed : print the text a fresh `projects` carries: the format marker as line 1, then
+#   the header. It does not name any project, so a session cannot start anywhere until the CLI or the operator adds
+#   an entry. The reference is ai-tools-project-registry(5).
 ai_tools_conf__get_allowlist_seed() {
     printf '%s\n' \
+        "$(ai_tools_conf__get_registry_marker)" \
         "# Project directories the ai-tools sandbox may work in, one per line." \
         "# A session launched by this account starts only inside a listed" \
-        "# directory; a '!'-prefixed line excludes a subtree, and an exclusion" \
-        "# wins. This file is a launch gate, not a read boundary." \
+        "# directory no '!' or '%' line covers. This file is a launch gate," \
+        "# not a read boundary, and a line it cannot read refuses it whole." \
         "#" \
-        "#   /home/op/project              allow it and everything under it" \
-        "#   !/home/op/project/vendor      carve this subtree out of it" \
-        "#   \"/home/op/ai works\"  # note   quote a path containing a space;" \
-        "#                                 '#' starts a comment" \
+        "#   /home/op/project              a project and everything under it" \
+        "#   !/home/op/project/vendor      a carve-out: withhold this subtree" \
+        "#   %/home/op/parked              a parked project: no session starts" \
+        "#   \"/home/op/ai works\"  # note   quote a path with a space or a '#'" \
         "#" \
-        "# Managed by the ai-tools CLI: projects claim, projects create and" \
-        "# projects clone register a project; projects disable and projects" \
-        "# enable park and restore one; projects list reviews the file." \
-        "# Full reference: man 5 ai-tools-allowed-projects" \
+        "# \`atr projects claim|create|clone\` register a project;" \
+        "# \`atr projects disable|enable\` park and restore one;" \
+        "# \`atr projects list\` reviews the file." \
+        "# Full reference: \`man 5 ai-tools-project-registry\`" \
         ""
 }
 

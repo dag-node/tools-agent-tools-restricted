@@ -551,7 +551,7 @@ shim of its own, and `boundary/access.sh` holds the account's `atr admin` to a r
 to the `usage()` heredoc of their command — `ai-tools(1)` against the CLI, `ai-tools-admin(8)` against the admin helper
 — validated from the repo sources (or the installed pair outside a checkout) and executing neither command, since
 the CLI's bootstrap gate fail-closes on an unprovisioned host and the helper refuses a non-root caller. The config pages
-are held to their files: `ai-tools-allowed-projects(5)` and `ai-tools-secret-patterns(5)` to the header each file is
+are held to their files: `ai-tools-project-registry(5)` and `ai-tools-secret-patterns(5)` to the header each file is
 seeded with (capped, naming the page, comment-only so it does not register an entry) and to the parser each file is read
 with, through which the page's own examples are loaded; `ai-tools-operator.conf(5)`
 and `ai-tools-custom-claude-endpoint.conf(5)` to the keys their shipped templates mention, in both directions, read

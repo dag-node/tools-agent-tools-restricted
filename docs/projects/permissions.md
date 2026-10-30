@@ -164,7 +164,7 @@ Say no to the group and ACL, and keep the file as it is, when:
 | is private but not sealed | an export with your own group, `640` | `chmod 600` |
 
 A `!` line for the file in `allowed-projects` keeps a re-claim from asking
-about it again (`man 5 ai-tools-allowed-projects`). It does not stop a later
+about it again (`man 5 ai-tools-project-registry`). It does not stop a later
 relabel from resetting the file's SELinux type.
 
 Each question covers every file in its list. To act on only some of them,

@@ -1911,6 +1911,10 @@ ERROR.
 a custom system prompt is configured but its resolver library is unavailable
 .SS conf.lib.sh
 .TP
+.B MSG-B8U2
+WARNING.
+registry line refused \-\- ${file} line ${number}: ${fault}${shown} \-\- $(_ai_tools_conf__get_registry_fault_remedy "${fault}"); no entry in this file allows a path until the line is fixed
+.TP
 .B MSG-D2F9
 WARNING.
 switch ${key} in ${file} is neither a yes value (yes, true, 1, on) nor a no value (no, false, 0, off) \-\- read as no
@@ -1937,7 +1941,7 @@ invalid list, read as the empty list \-\- ${key} in ${file} holds ${unprefixed[*
 .TP
 .B MSG-Y5N6
 WARNING.
-exclusion !${entry} in ${file} cannot be resolved \-\- ${_ai_tools_conf__resolve_refusal}; write the exclusion as the directory's real path, since a link the sandbox account can change cannot be followed; no entry in this file allows a path until the line is fixed
+exclusion ${written} in ${file} cannot be resolved \-\- ${_ai_tools_conf__resolve_refusal}; write the exclusion as the directory's real path, since a link the sandbox account can change cannot be followed; no entry in this file allows a path until the line is fixed
 .SS install-selinux.sh
 .TP
 .B MSG-A3V5

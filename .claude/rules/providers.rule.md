@@ -451,7 +451,7 @@ and `secret-patterns`, are seeded once, by `atr admin operators add` (the two `*
 and no upgrade rewrites them: the header an operator's file carries is the one that shipped on the day that account was
 enrolled, for as long as the account exists. A header written into any of the four therefore states what the file is,
 the one rule a reader needs before writing a line, example lines or one block per option, and the page that holds
-the reference — `ai-tools-operator.conf(5)`, `ai-tools-custom-claude-endpoint.conf(5)`, `ai-tools-allowed-projects(5)`,
+the reference — `ai-tools-operator.conf(5)`, `ai-tools-custom-claude-endpoint.conf(5)`, `ai-tools-project-registry(5)`,
 `ai-tools-secret-patterns(5)` — and the grammar, the semantics and the worked examples live in the page,
 which the package replaces on every upgrade. An option's block in a template is a brief description, then a `Values:`
 line and a `Default:` line of their own, then the option's line: a `Values:` or `Default:` line states one value, so it

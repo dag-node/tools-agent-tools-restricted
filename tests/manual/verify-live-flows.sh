@@ -46,7 +46,7 @@
 # exercises everything that is reversible (the dry run, the refusals, the trail). Run it when no session holds work you
 # want.
 #
-# A SECOND OPT-IN COVERS --for. projects create/projects remove are the two verbs that touch the filesystem
+# A SECOND OPT-IN COVERS --for. projects create/project-registry remove are the two verbs that touch the filesystem
 # AS the operator they act for (`sudo -u <target>`), so proving them needs a second enrolled operator and a Runas grant
 # -- neither of which this script may manufacture. With --for-drill it uses one that ALREADY exists on the host,
 # and skips with the reason otherwise.

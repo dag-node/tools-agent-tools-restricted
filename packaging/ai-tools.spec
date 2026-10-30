@@ -353,7 +353,7 @@ install -m 0644 src%{ai_mandir}/man8/ai-tools-admin.8       %{buildroot}%{ai_man
 install -m 0644 src%{ai_mandir}/man8/atr.8                  %{buildroot}%{ai_mandir}/man8/atr.8
 # ai-tools-operator.conf(5): the host options and the shared KEY=value grammar they are written in.
 # ai-tools-providers(5): the provider manifests (agents.d, integrations.d) and their keys.
-# ai-tools-allowed-projects(5), ai-tools-secret-patterns(5): the two files an operator's enrolment seeds, whose
+# ai-tools-project-registry(5), ai-tools-secret-patterns(5): the two files an operator's enrolment seeds, whose
 # headers are written once and point here for the reference.
 # ai-tools-custom-claude-endpoint.conf(5): the endpoint file's options, so its %%config(noreplace)
 # template stays a pointer.
@@ -364,7 +364,7 @@ install -m 0644 src%{ai_mandir}/man8/atr.8                  %{buildroot}%{ai_man
 install -d -m 0755 %{buildroot}%{ai_mandir}/man5
 install -m 0644 src%{ai_mandir}/man5/ai-tools-operator.conf.5               %{buildroot}%{ai_mandir}/man5/ai-tools-operator.conf.5
 install -m 0644 src%{ai_mandir}/man5/ai-tools-providers.5                   %{buildroot}%{ai_mandir}/man5/ai-tools-providers.5
-install -m 0644 src%{ai_mandir}/man5/ai-tools-allowed-projects.5            %{buildroot}%{ai_mandir}/man5/ai-tools-allowed-projects.5
+install -m 0644 src%{ai_mandir}/man5/ai-tools-project-registry.5            %{buildroot}%{ai_mandir}/man5/ai-tools-project-registry.5
 install -m 0644 src%{ai_mandir}/man5/ai-tools-secret-patterns.5             %{buildroot}%{ai_mandir}/man5/ai-tools-secret-patterns.5
 install -m 0644 src%{ai_mandir}/man5/ai-tools-custom-claude-endpoint.conf.5 %{buildroot}%{ai_mandir}/man5/ai-tools-custom-claude-endpoint.conf.5
 install -m 0644 src%{ai_mandir}/man5/ai-tools-records.5                     %{buildroot}%{ai_mandir}/man5/ai-tools-records.5
@@ -1608,7 +1608,7 @@ fi
 %attr(0644, root, root) %{ai_mandir}/man1/atr.1*
 %attr(0644, root, root) %{ai_mandir}/man5/ai-tools-operator.conf.5*
 %attr(0644, root, root) %{ai_mandir}/man5/ai-tools-providers.5*
-%attr(0644, root, root) %{ai_mandir}/man5/ai-tools-allowed-projects.5*
+%attr(0644, root, root) %{ai_mandir}/man5/ai-tools-project-registry.5*
 %attr(0644, root, root) %{ai_mandir}/man5/ai-tools-secret-patterns.5*
 %attr(0644, root, root) %{ai_mandir}/man5/ai-tools-custom-claude-endpoint.conf.5*
 %attr(0644, root, root) %{ai_mandir}/man5/ai-tools-records.5*

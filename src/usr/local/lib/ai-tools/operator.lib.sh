@@ -84,16 +84,25 @@ ai_tools_operator__load_operator() {
     [[ -n "${PROJECTS_USER}" ]]
 }
 
-# ai_tools_operator__get_allowlist_path <operator> <is-primary>: echo the allowlist path for an operator.
-# AI_TOOLS_ALLOWLIST overrides the PRIMARY operator's path -- the single-allowlist test hook (a multi-operator host has
-# one allowlist per operator home, which a single override cannot model), carrying the same root-only-injection
-# rationale as the other AI_TOOLS_* hooks.
+# ai_tools_operator__get_allowlist_path <operator> <is-primary>: echo the registry path for an operator, the file
+# ai_tools_conf__resolve_registry picks in that operator's ~/.config/ai-tools -- `allowed-projects` until it is
+# migrated, `projects` after. AI_TOOLS_ALLOWLIST overrides the PRIMARY operator's path -- the single-registry test hook
+# (a multi-operator host has one registry per operator home, which a single override cannot model), carrying the same
+# root-only-injection rationale as the other AI_TOOLS_* hooks. Without the library the path is the `projects` name,
+# which the loader then cannot read either.
 ai_tools_operator__get_allowlist_path() {
+    local config_dir path
     if [[ -n "${AI_TOOLS_ALLOWLIST:-}" && "$2" == primary ]]; then
         printf '%s' "${AI_TOOLS_ALLOWLIST}"
-    else
-        printf '%s/.config/ai-tools/allowed-projects' "$(getent passwd "$1" 2>/dev/null | cut -d: -f6)"
+        return 0
     fi
+    config_dir="$(getent passwd "$1" 2>/dev/null | cut -d: -f6)/.config/ai-tools"
+    if ! declare -F ai_tools_conf__resolve_registry >/dev/null 2>&1; then
+        printf '%s/project-registry' "${config_dir}"
+        return 0
+    fi
+    IFS=$'\t' read -r _ path < <(ai_tools_conf__resolve_registry "${config_dir}")
+    printf '%s' "${path:-${config_dir}/project-registry}"
 }
 
 # ai_tools_operator__is_covered_by_allowlist <allowlist-file> <canonical-path>: succeed when the allowlist allows

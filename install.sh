@@ -1087,7 +1087,7 @@ do_summary() {
     _chk /usr/local/share/man/man1/atr.1
     _chk /usr/local/share/man/man5/ai-tools-operator.conf.5
     _chk /usr/local/share/man/man5/ai-tools-providers.5
-    _chk /usr/local/share/man/man5/ai-tools-allowed-projects.5
+    _chk /usr/local/share/man/man5/ai-tools-project-registry.5
     _chk /usr/local/share/man/man5/ai-tools-secret-patterns.5
     _chk /usr/local/share/man/man5/ai-tools-custom-claude-endpoint.conf.5
     _chk /usr/local/share/man/man5/ai-tools-records.5
@@ -2307,11 +2307,13 @@ do_install() {
     # Every section-5 page carries the ai-tools- prefix, so it cannot shadow a page some other package installs
     # under the same generic name -- /usr/local/share/man and /usr/share/man are both on the default MANDATORY_MANPATH,
     # and `man typesafe.conf` on a host that installs a vendor page would otherwise resolve to whichever the search
-    # order reaches first. Migration: remove the unprefixed names a from-source install placed, which the new run does
-    # not overwrite because it writes different paths. (The RPM drops them on upgrade from its own %files.)
+    # order reaches first. Migration: remove the names a from-source install placed that this release does not ship --
+    # the unprefixed names, and ai-tools-allowed-projects, which ai-tools-project-registry replaces -- since the new run
+    # writes different paths and does not overwrite them. (The RPM drops them on upgrade from its own %files.)
     install -d -o root -g root -m 755 /usr/local/share/man/man5
     local stale_page
-    for stale_page in operator.conf allowed-projects secret-patterns custom-claude-endpoint.conf typesafe.conf; do
+    for stale_page in operator.conf allowed-projects ai-tools-allowed-projects secret-patterns custom-claude-endpoint.conf \
+            typesafe.conf; do
         if [[ -f "/usr/local/share/man/man5/${stale_page}.5" ]]; then
             log "removing superseded /usr/local/share/man/man5/${stale_page}.5"
             rm -f "/usr/local/share/man/man5/${stale_page}.5" "/usr/local/share/man/man5/${stale_page}.5.gz"
@@ -2332,13 +2334,13 @@ do_install() {
         "${SCRIPT_DIR}/src/usr/local/share/man/man5/ai-tools-providers.5" \
         /usr/local/share/man/man5/ai-tools-providers.5
 
-    # ai-tools-allowed-projects(5). The operator's project allowlist: its grammar, what an entry and an exclusion mean,
+    # ai-tools-project-registry(5). The operator's project registry: its grammar, what each line kind means,
     # and the entry states. The seeded file's header is written once and never rewritten, so it points here rather than
     # carrying the reference.
-    log "/usr/local/share/man/man5/ai-tools-allowed-projects.5"
+    log "/usr/local/share/man/man5/ai-tools-project-registry.5"
     install_subst 644 root root \
-        "${SCRIPT_DIR}/src/usr/local/share/man/man5/ai-tools-allowed-projects.5" \
-        /usr/local/share/man/man5/ai-tools-allowed-projects.5
+        "${SCRIPT_DIR}/src/usr/local/share/man/man5/ai-tools-project-registry.5" \
+        /usr/local/share/man/man5/ai-tools-project-registry.5
 
     # ai-tools-secret-patterns(5). The operator's secret-name patterns: the glob grammar, what a match does,
     # and the replace-the-baseline rule. Seeded once like the allowlist, so its header points here too.
@@ -3236,7 +3238,7 @@ do_uninstall() {
     rm -f /usr/local/share/man/man1/ai-tools.1
     rm -f /usr/local/share/man/man5/ai-tools-operator.conf.5
     rm -f /usr/local/share/man/man5/ai-tools-providers.5
-    rm -f /usr/local/share/man/man5/ai-tools-allowed-projects.5
+    rm -f /usr/local/share/man/man5/ai-tools-project-registry.5 /usr/local/share/man/man5/ai-tools-allowed-projects.5
     rm -f /usr/local/share/man/man5/ai-tools-secret-patterns.5
     rm -f /usr/local/share/man/man5/ai-tools-custom-claude-endpoint.conf.5
     rm -f /usr/local/share/man/man5/ai-tools-records.5
