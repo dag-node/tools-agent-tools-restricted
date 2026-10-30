@@ -1309,7 +1309,7 @@ ai_tools_conf__has_allowlist_exclusion() {
 #   the line from <path> would fail to match.
 ai_tools_conf__read_allowlist_matching_lines() {
     local -n _ai_tools_conf__matched="$1"
-    # shellcheck disable=SC2034  # filled through its name by _ai_tools_conf__read_lines_naming; this reader does not need it
+    # shellcheck disable=SC2034  # filled through its name by _ai_tools_conf__read_lines_naming
     local -a matching_carve=() matching_park=()
     _ai_tools_conf__read_lines_naming "$2" "$3" _ai_tools_conf__matched matching_carve matching_park || return 1
     (( ${#_ai_tools_conf__matched[@]} > 0 ))
@@ -1319,7 +1319,7 @@ ai_tools_conf__read_allowlist_matching_lines() {
 #   matcher -- set the named array to every RAW `%` line naming <path> exactly, and return 0 when at least one did.
 ai_tools_conf__read_allowlist_park_lines() {
     local -n _ai_tools_conf__parked="$1"
-    # shellcheck disable=SC2034  # filled through its name by _ai_tools_conf__read_lines_naming; this reader does not need it
+    # shellcheck disable=SC2034  # filled through its name by _ai_tools_conf__read_lines_naming
     local -a parking_allow=() parking_carve=()
     _ai_tools_conf__read_lines_naming "$2" "$3" parking_allow parking_carve _ai_tools_conf__parked || return 1
     (( ${#_ai_tools_conf__parked[@]} > 0 ))
@@ -1448,7 +1448,7 @@ ai_tools_conf__allowlist_remove() {
     local file="$1" path="$2" tmp line keep m rc=0
     # Names distinct from any scalar a sibling library uses: every consumer sources this file, and an array here sharing
     # a name with a local there reads as a type conflict at lint time.
-    # shellcheck disable=SC2034  # filled through its name by _ai_tools_conf__read_lines_naming; this reader does not need it
+    # shellcheck disable=SC2034  # filled through its name by _ai_tools_conf__read_lines_naming
     local -a doomed_lines=() kept_carve_lines=() parked_lines=()
     [[ -e "${file}" || -L "${file}" ]] || return 0
     _ai_tools_conf__check_editable "${file}" || { rc=$?; return "${rc}"; }
@@ -1477,7 +1477,7 @@ ai_tools_conf__allowlist_remove() {
 #   than moving the entry to the end. A `!` line is a carve-out and is not among the lines either direction reads.
 _ai_tools_conf__retag_allowlist_entry() {
     local file="$1" path="$2" op="$3" tmp line m head
-    # shellcheck disable=SC2034  # filled through its name by _ai_tools_conf__read_lines_naming; this reader does not need it
+    # shellcheck disable=SC2034  # filled through its name by _ai_tools_conf__read_lines_naming
     local -a retag_lines=() live_lines=() retag_carve=()
     [[ -f "${file}" ]] || return 1
     if [[ "${op}" == disable ]]; then
@@ -1549,6 +1549,298 @@ ai_tools_conf__allowlist_enable() {
     esac
     _ai_tools_conf__retag_allowlist_entry "${file}" "${path}" enable || { rc=$?; return "${rc}"; }
     [[ "$(ai_tools_conf__read_allowlist_state "${file}" "${path}")" == listed ]] || return 1
+}
+
+# ── Registry classification (one state per path) ───────────────────────────────────────────────
+# Every verb that acts on a project decides from one record per path rather than from its own reading of the lines,
+# so two verbs cannot disagree about what a path is. An ENTRY is an allow or park line; a carve-out line is not one,
+# so a carve-out is never a project a verb can claim, remove or park. A line's path is its `realpath -e`
+# where that resolves and the written path without a trailing slash otherwise, so a stale line still names its path;
+# a glob carve-out does not name a single path and only blocks. The state names what the path's own lines make it,
+# and `blocked` says separately whether a session can reach it: a listed project under a parked parent is listed
+# and blocked.
+#
+#   state         the path's own lines
+#   conflict      a carve-out beside an allow or park line
+#   parked        a park line (an allow line beside it is the duplicate pair, which enable collapses)
+#   listed        an allow line alone
+#   carve-out     a carve-out line alone
+#   inside        none, and an entry encloses it
+#   ancestor      none, no entry encloses it, and an entry sits under it
+#   unregistered  none of these
+#
+# The launch DECISION stays the loader and ai_tools_conf__is_path_excluded; the classifier serves the CLI's verbs,
+# `projects list` and the wording of a launch refusal.
+
+# _ai_tools_conf__read_registry_lines <file> <kinds-array> <paths-array> <raws-array> : fill three parallel arrays
+#   with one element per entry-carrying line of <file>, in file order: the kind (`allow`, `park`, `carve`, or `glob`
+#   for a carve-out with a glob character), the path the section comment defines (the pattern as written for a glob),
+#   and the raw line. Reads the file as it is; the caller validates it first.
+_ai_tools_conf__read_registry_lines() {
+    local -n _ai_tools_conf__lines_kinds="$2" _ai_tools_conf__lines_paths="$3" _ai_tools_conf__lines_raws="$4"
+    local file="$1" line entry kind resolved
+    _ai_tools_conf__lines_kinds=(); _ai_tools_conf__lines_paths=(); _ai_tools_conf__lines_raws=()
+    while IFS= read -r line || [[ -n "${line}" ]]; do
+        ai_tools_conf__parse_path_entry "${line}" || continue
+        entry="${ai_tools_conf__value}"
+        case "${entry}" in
+            '!'*) kind=carve; entry="${entry:1}" ;;
+            '%'*) kind=park;  entry="${entry:1}" ;;
+            *)    kind=allow ;;
+        esac
+        if [[ "${kind}" == carve ]] && ai_tools_conf__has_glob_characters "${entry}"; then
+            kind=glob
+        else
+            # A real path carrying a control byte (a link to such a name) keeps the written path: the record is
+            # tab-separated, and the CLI refuses such a path before it classifies one.
+            resolved="$(realpath -e -- "${entry}" 2>/dev/null || printf '%s' "${entry%/}")"
+            [[ "${resolved}" == *[[:cntrl:]]* ]] && resolved="${entry%/}"
+            entry="${resolved:-/}"
+        fi
+        _ai_tools_conf__lines_kinds+=("${kind}"); _ai_tools_conf__lines_paths+=("${entry}")
+        _ai_tools_conf__lines_raws+=("${line}")
+    done < "${file}"
+}
+
+# _ai_tools_conf__is_path_under <path> <parent> : return 0 when <path> is strictly inside <parent>.
+_ai_tools_conf__is_path_under() { [[ "$1" != "$2" && "$1" == "${2%/}/"* ]]; }
+
+# _ai_tools_conf__does_glob_cover <path> <pattern> : return 0 when a glob carve-out <pattern> covers <path>, matched
+#   as ai_tools_conf__is_path_excluded matches it: the whole path against the pattern, or, for a pattern without `*`,
+#   an ancestor.
+_ai_tools_conf__does_glob_cover() {
+    local path="$1" pat="${2%/}"
+    # shellcheck disable=SC2053  # the unquoted side is the operator's glob, matched as a pattern
+    [[ "${path}" == ${pat} ]] && return 0
+    [[ "${pat}" != *'*'* && "${path}" == "${pat}/"* ]]
+}
+
+# _ai_tools_conf__get_entry_state <kind-words> : print the state the kinds naming one path give it -- `conflict`,
+#   `parked`, `listed`, `carve-out` -- or `none` for no kind. <kind-words> is one argument, the kinds separated
+#   by spaces, so the caller's IFS does not decide how they join.
+_ai_tools_conf__get_entry_state() {
+    local kinds=" ${1-} "
+    if [[ "${kinds}" == *' carve '* && ( "${kinds}" == *' allow '* || "${kinds}" == *' park '* ) ]]; then printf 'conflict'
+    elif [[ "${kinds}" == *' park '* ]];  then printf 'parked'
+    elif [[ "${kinds}" == *' allow '* ]]; then printf 'listed'
+    elif [[ "${kinds}" == *' carve '* ]]; then printf 'carve-out'
+    else printf 'none'
+    fi
+}
+
+# ai_tools_conf__read_registry_path_class <registry-file> <canonical-path> : print one TSV record for <path>,
+#   `state own enclosing enclosing_state blocked blocked_kind nested blocked_path`, and return 0:
+#     state            one of the states the section comment lists
+#     own              the kinds of the lines naming the path, `allow`, `park` and `carve` joined with commas, or `none`
+#     enclosing        the nearest entry strictly enclosing the path, or `-`
+#     enclosing_state  that entry's own state (`listed`, `parked`, `conflict`), or `-`
+#     blocked          the first line in file order, park or carve-out, whose coverage includes the path and whose own
+#                      path is not the path -- the raw line, a control byte in its comment shown as `?` -- or `-`
+#     blocked_kind     `park`, `carve`, `glob`, or `-`
+#     nested           the number of entries strictly under the path
+#     blocked_path     the path of the `blocked` line as the section comment defines it, without its kind
+#                      character (the pattern as written for a glob), or `-`; a command a caller prints names this
+#                      field, since `blocked` is the display form
+#   A path is reachable when it is `listed` with `blocked` `-`, or `inside` a `listed` enclosing entry with `blocked`
+#   `-`. Returns 1 for a file that is not a readable regular file and 3 for one the grammar refuses (MSG-B8U2
+#   on stderr), printing nothing. A caller reads the record with IFS pinned to a tab.
+ai_tools_conf__read_registry_path_class() {
+    local file="$1" path="${2%/}" i kind line_path enclosing='-' enclosing_state='-' blocked='-' blocked_kind='-'
+    local blocked_path='-' nested=0 own="" state validity=0
+    local own_kinds="" class_fd read_path
+    local -a class_kinds=() class_paths=() class_raws=()
+    local -A kinds_of=()
+    path="${path:-/}"
+    _ai_tools_conf__open_registry "${file}" || return 1
+    class_fd="${_ai_tools_conf__registry_fd}"; read_path="/proc/self/fd/${class_fd}"
+    _ai_tools_conf__is_registry_valid "${file}" "${read_path}" || validity=$?
+    (( validity == 0 )) && _ai_tools_conf__read_registry_lines "${read_path}" class_kinds class_paths class_raws
+    exec {class_fd}<&-
+    (( validity == 0 )) || return "${validity}"
+    for i in "${!class_kinds[@]}"; do
+        kind="${class_kinds[i]}"; line_path="${class_paths[i]}"
+        if [[ "${kind}" == glob ]]; then
+            if [[ "${blocked}" == - ]] && _ai_tools_conf__does_glob_cover "${path}" "${line_path}"; then
+                blocked="${class_raws[i]}"; blocked_kind=glob; blocked_path="${line_path}"
+            fi
+            continue
+        fi
+        kinds_of["${line_path}"]+=" ${kind}"
+        if [[ "${line_path}" == "${path}" ]]; then
+            own_kinds+=" ${kind}"
+        elif [[ "${kind}" != allow && "${blocked}" == - ]] && _ai_tools_conf__is_path_under "${path}" "${line_path}"; then
+            blocked="${class_raws[i]}"; blocked_kind="${kind}"; blocked_path="${line_path}"
+        fi
+    done
+    for line_path in "${!kinds_of[@]}"; do
+        [[ " ${kinds_of[${line_path}]} " == *' allow '* || " ${kinds_of[${line_path}]} " == *' park '* ]] || continue
+        if _ai_tools_conf__is_path_under "${line_path}" "${path}"; then
+            nested=$(( nested + 1 ))
+        elif _ai_tools_conf__is_path_under "${path}" "${line_path}" \
+                && { [[ "${enclosing}" == - ]] || (( ${#line_path} > ${#enclosing} )); }; then
+            enclosing="${line_path}"
+        fi
+    done
+    [[ "${enclosing}" == - ]] || enclosing_state="$(_ai_tools_conf__get_entry_state "${kinds_of[${enclosing}]}")"
+    for kind in allow park carve; do
+        [[ "${own_kinds} " == *" ${kind} "* ]] && own+="${own:+,}${kind}"
+    done
+    state="$(_ai_tools_conf__get_entry_state "${own_kinds}")"
+    if [[ "${state}" == none ]]; then
+        if [[ "${enclosing}" != - ]]; then state=inside
+        elif (( nested > 0 )); then state=ancestor
+        else state=unregistered
+        fi
+    fi
+    printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "${state}" "${own:-none}" "${enclosing}" "${enclosing_state}" \
+        "${blocked//[[:cntrl:]]/?}" "${blocked_kind}" "${nested}" "${blocked_path}"
+}
+
+# ai_tools_conf__list_registry_entries_under <registry-file> <canonical-path> : print `<entry-path>\t<state>` for each
+#   entry strictly under <path>, once per path, in the order its first line takes in the file, and return 0. The state
+#   is the entry's own (`listed`, `parked`, `conflict`). Returns 1 for a file that is not a readable regular file and 3
+#   for one the grammar refuses (MSG-B8U2 on stderr), printing nothing.
+ai_tools_conf__list_registry_entries_under() {
+    local file="$1" path="${2%/}" i line_path validity=0
+    # shellcheck disable=SC2034  # filled through its name by _ai_tools_conf__read_registry_lines
+    local -a under_kinds=() under_paths=() under_raws=() under_order=()
+    local -A under_kinds_of=()
+    local under_fd read_path
+    path="${path:-/}"
+    _ai_tools_conf__open_registry "${file}" || return 1
+    under_fd="${_ai_tools_conf__registry_fd}"; read_path="/proc/self/fd/${under_fd}"
+    _ai_tools_conf__is_registry_valid "${file}" "${read_path}" || validity=$?
+    (( validity == 0 )) && _ai_tools_conf__read_registry_lines "${read_path}" under_kinds under_paths under_raws
+    exec {under_fd}<&-
+    (( validity == 0 )) || return "${validity}"
+    for i in "${!under_kinds[@]}"; do
+        line_path="${under_paths[i]}"
+        [[ "${under_kinds[i]}" == glob ]] && continue
+        _ai_tools_conf__is_path_under "${line_path}" "${path}" || continue
+        [[ -n "${under_kinds_of[${line_path}]+set}" ]] || under_order+=("${line_path}")
+        under_kinds_of["${line_path}"]+=" ${under_kinds[i]}"
+    done
+    for line_path in "${under_order[@]}"; do
+        [[ " ${under_kinds_of[${line_path}]} " == *' allow '* || " ${under_kinds_of[${line_path}]} " == *' park '* ]] \
+            || continue
+        printf '%s\t%s\n' "${line_path}" "$(_ai_tools_conf__get_entry_state "${under_kinds_of[${line_path}]}")"
+    done
+}
+
+# ── The migration from allowed-projects ────────────────────────────────────────────────────────
+# `atr admin system post-upgrade` alone migrates, unattended: it writes `projects` beside the legacy file as the marker
+# followed by every line unchanged, verifies the new file, and renames the old one to a dated `.bak`, which is
+# the backup. Copying the lines unchanged is what makes the migration safe to run without the operator: every allow
+# and `!` line means in format 1.0 what the launch gate already made of it, a `!` being an exclusion either way.
+# What changes meaning is the CLI's reading of a `!` that parked a project, which format 1.0 reads as a carve-out;
+# the plan names each such line with the `%` spelling, and the operator changes it by hand. Until the rename the legacy
+# file is the truth: a run that stops part-way leaves `allowed-projects` under its active name, the resolver keeps
+# reading it, and the next run replaces whatever `projects` it finds.
+
+# ai_tools_conf__plan_registry_migration <legacy-file> : print one TSV row per line the migration writes: `marker`
+#   with the marker line, then `keep\t<n>\t<raw>` for each line of <legacy-file> by its line number,
+#   or `note\t<n>\t<raw>\t<hint>` for a plain `!` line no allow line strictly encloses -- a project parked
+#   before the upgrade, or a carve-out with no project around it -- with the hint naming the `%` line that parks it
+#   in format 1.0. Returns 1 for a file that is not a readable regular file and 3 for one the legacy grammar refuses
+#   (MSG-B8U2 on stderr), printing nothing.
+ai_tools_conf__plan_registry_migration() {
+    local file="$1" line number=0 entry enclosed allow_path validity=0
+    # shellcheck disable=SC2034  # filled through its name by _ai_tools_conf__read_registry_lines
+    local -a plan_kinds=() plan_paths=() plan_raws=() plan_allows=()
+    [[ -f "${file}" && -r "${file}" ]] || return 1
+    ai_tools_conf__validate_registry "${file}" legacy || validity=$?
+    (( validity == 0 )) || return "${validity}"
+    _ai_tools_conf__read_registry_lines "${file}" plan_kinds plan_paths plan_raws
+    for number in "${!plan_kinds[@]}"; do
+        [[ "${plan_kinds[number]}" == allow ]] && plan_allows+=("${plan_paths[number]}")
+    done
+    printf 'marker\t0\t%s\n' "$(ai_tools_conf__get_registry_marker)"
+    number=0
+    while IFS= read -r line || [[ -n "${line}" ]]; do
+        number=$(( number + 1 ))
+        if ai_tools_conf__parse_path_entry "${line}" && [[ "${ai_tools_conf__value}" == '!'* ]] \
+                && ! ai_tools_conf__has_glob_characters "${ai_tools_conf__value:1}"; then
+            entry="${ai_tools_conf__value:1}"
+            entry="$(realpath -e -- "${entry}" 2>/dev/null || printf '%s' "${entry%/}")"
+            enclosed=false
+            for allow_path in "${plan_allows[@]}"; do
+                _ai_tools_conf__is_path_under "${entry}" "${allow_path}" && { enclosed=true; break; }
+            done
+            if ! ${enclosed}; then
+                printf 'note\t%s\t%s\ta parked project is written %%%s in format 1.0\n' "${number}" "${line}" "${entry}"
+                continue
+            fi
+        fi
+        printf 'keep\t%s\t%s\n' "${number}" "${line}"
+    done < "${file}"
+}
+
+# _ai_tools_conf__list_registry_entry_lines <file> : print `<kind>\t<path>` for each entry-carrying line of <file>,
+#   in file order; the migration compares the two files' readings with it.
+_ai_tools_conf__list_registry_entry_lines() {
+    local i
+    # shellcheck disable=SC2034  # filled through its name by _ai_tools_conf__read_registry_lines
+    local -a listed_kinds=() listed_paths=() listed_raws=()
+    _ai_tools_conf__read_registry_lines "$1" listed_kinds listed_paths listed_raws
+    for i in "${!listed_kinds[@]}"; do printf '%s\t%s\n' "${listed_kinds[i]}" "${listed_paths[i]}"; done
+}
+
+# ai_tools_conf__migrate_registry <legacy-file> <destination> [<owner-uid>] : write <destination> as the format marker
+#   followed by every line of <legacy-file> unchanged, then rename <legacy-file> to its dated sidecar,
+#   `<legacy-file>.<YYYYMMDD>-<N>.bak` (ai_tools_conf__find_sidecar_path), print that path, and return 0. <destination>
+#   is written through a temporary file in its own directory and a rename, at <legacy-file>'s owner and mode, replacing
+#   a <destination> an interrupted run left; it is re-read as a valid `current` file reading the same entries
+#   as <legacy-file> before the rename of the source. Refusals leave <legacy-file> as it is, with the reason
+#   in AI_TOOLS_CONF__MIGRATION_REFUSAL: 2 when one `lstat` of <legacy-file> does not show a regular file (a symbolic
+#   link is not followed) or, with <owner-uid> given, shows another owner or a mode other than 600; 3 when the legacy
+#   grammar refuses a line (MSG-B8U2 on stderr); 1 when <legacy-file> cannot be read through (MSG-C6P5 on stderr),
+#   or when a write, the verification or the rename fails, with a <destination> this run wrote removed unless
+#   the rename of the source was all that failed.
+# shellcheck disable=SC2034  # AI_TOOLS_CONF__MIGRATION_REFUSAL is read by the caller, ai-tools-admin's post-upgrade
+ai_tools_conf__migrate_registry() {
+    local source="$1" destination="$2" owner_uid="${3-}" kind uid gid mode tmp line sidecar validity=0
+    AI_TOOLS_CONF__MIGRATION_REFUSAL=""
+    if ! IFS=: read -r kind uid gid mode < <(stat -c '%F:%u:%g:%a' -- "${source}" 2>/dev/null); then
+        AI_TOOLS_CONF__MIGRATION_REFUSAL="${source} cannot be read"; return 2
+    fi
+    case "${kind}" in
+        'regular file'|'regular empty file') ;;
+        *) AI_TOOLS_CONF__MIGRATION_REFUSAL="${source} is a ${kind}, not a regular file"; return 2 ;;
+    esac
+    if [[ -n "${owner_uid}" && "${uid}" != "${owner_uid}" ]]; then
+        AI_TOOLS_CONF__MIGRATION_REFUSAL="${source} is held by uid ${uid}, not by the operator (uid ${owner_uid})"; return 2
+    fi
+    if [[ -n "${owner_uid}" && "${mode}" != 600 ]]; then
+        AI_TOOLS_CONF__MIGRATION_REFUSAL="${source} is mode ${mode}, not 600"; return 2
+    fi
+    ai_tools_conf__validate_registry "${source}" legacy || validity=$?
+    if (( validity == 1 )); then
+        AI_TOOLS_CONF__MIGRATION_REFUSAL="${source} cannot be read"; return 1
+    elif (( validity != 0 )); then
+        AI_TOOLS_CONF__MIGRATION_REFUSAL="${source} has a line the grammar refuses"; return 3
+    fi
+    tmp="$(mktemp "${destination}.XXXXXX" 2>/dev/null)" || {
+        AI_TOOLS_CONF__MIGRATION_REFUSAL="a file cannot be created beside ${destination}"; return 1; }
+    # Root writes the operator's file, so the copy takes the source's owner; an operator running it holds it already.
+    if ! { printf '%s\n' "$(ai_tools_conf__get_registry_marker)"
+           while IFS= read -r line || [[ -n "${line}" ]]; do printf '%s\n' "${line}"; done < "${source}"; } \
+               > "${tmp}" 2>/dev/null \
+            || ! { chown "${uid}:${gid}" -- "${tmp}" 2>/dev/null || (( EUID != 0 )); } \
+            || ! chmod "${mode}" -- "${tmp}" 2>/dev/null || ! mv -f -- "${tmp}" "${destination}" 2>/dev/null; then
+        rm -f -- "${tmp}"
+        AI_TOOLS_CONF__MIGRATION_REFUSAL="${destination} cannot be written"; return 1
+    fi
+    if ! ai_tools_conf__validate_registry "${destination}" current 2>/dev/null \
+            || [[ "$(_ai_tools_conf__list_registry_entry_lines "${destination}")" \
+                  != "$(_ai_tools_conf__list_registry_entry_lines "${source}")" ]]; then
+        rm -f -- "${destination}"
+        AI_TOOLS_CONF__MIGRATION_REFUSAL="${destination} does not read back as the entries of ${source}"; return 1
+    fi
+    if ! sidecar="$(ai_tools_conf__find_sidecar_path "${source}" bak)" || ! mv -- "${source}" "${sidecar}" 2>/dev/null; then
+        AI_TOOLS_CONF__MIGRATION_REFUSAL="${source} cannot be renamed aside, so it stays the registry readers take"
+        return 1
+    fi
+    printf '%s' "${sidecar}"
 }
 
 # ── Seed text for an operator's own config files ──────────────────────────────────────────────

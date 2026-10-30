@@ -1710,6 +1710,113 @@ else
     fi
 fi
 
+# --- The migration from allowed-projects ------------------------------------------------------
+# `system post-upgrade` runs it unattended, so every assertion is about a way it could lose or change a line, or leave
+# the host with no registry a reader trusts: the new file is the marker followed by every line byte for byte, the old
+# file becomes the dated backup only after the new one reads back, an interrupted run's `projects` is replaced
+# from the source, and a source the grammar or the lstat refuses is left alone with no `projects` written.
+section "conf: the migration from allowed-projects (unit)"
+
+if ! declare -F ai_tools_conf__migrate_registry >/dev/null 2>&1 \
+        || ! declare -F ai_tools_conf__plan_registry_migration >/dev/null 2>&1; then
+    fail "${LIB} defines no migration functions"
+    finish; exit
+fi
+mig="${TESTDIR}/mig"; mkdir -p "${mig}/proj/vendor" "${mig}/parked"
+# Every line shape a legacy file holds: a comment, a blank, a plain, a commented, an indented and a quoted entry,
+# a carve-out inside a project, a top-level '!' (a project parked before the upgrade), a glob carve-out, and a last line
+# without its newline.
+mig_lines=( "# my projects" "" "${mig}/proj" "${mig}/other   # why" "   ${mig}/indented" "\"${mig}/a b\"" \
+            "!${mig}/proj/vendor" "!${mig}/parked" "!${mig}/*/cache" )
+mig_seed() { printf '%s\n' "${mig_lines[@]:0:${#mig_lines[@]}-1}" > "${mig}/allowed-projects"
+             printf '%s' "${mig_lines[-1]}" >> "${mig}/allowed-projects"; chmod 600 "${mig}/allowed-projects"; }
+mig_seed
+mig_plan="$(ai_tools_conf__plan_registry_migration "${mig}/allowed-projects")"
+if [[ "$(head -1 <<<"${mig_plan}")" == "marker"$'\t'"0"$'\t'"${MARKER}" \
+        && "$(grep -c '^keep' <<<"${mig_plan}")" -eq $(( ${#mig_lines[@]} - 1 )) \
+        && "$(grep '^note' <<<"${mig_plan}")" == "note"$'\t'"8"$'\t'"!${mig}/parked"$'\t'"a parked project is written %${mig}/parked in format 1.0" ]]; then
+    pass "the plan keeps every line and notes the top-level '!' line with its '%' spelling"
+else
+    fail "the plan:"$'\n'"${mig_plan}"
+fi
+mig_out="$(ai_tools_conf__migrate_registry "${mig}/allowed-projects" "${mig}/project-registry" "$(id -u)")" || true
+mig_want="${MARKER}"$'\n'"$(printf '%s\n' "${mig_lines[@]}")"
+if [[ "$(cat "${mig}/project-registry")" == "${mig_want}" ]]; then
+    pass "projects is the marker followed by every line unchanged"
+else
+    fail "project-registry reads:"$'\n'"$(cat "${mig}/project-registry")"
+fi
+mig_bak="${mig}/allowed-projects.$(date +%Y%m%d)-1.bak"
+if [[ "${mig_out}" == "${mig_bak}" && -f "${mig_bak}" && ! -e "${mig}/allowed-projects" ]]; then
+    pass "the source is renamed to its dated .bak, which the call prints"
+else
+    fail "the rename: printed '${mig_out}', $(ls "${mig}")"
+fi
+if [[ "$(stat -c '%a' "${mig}/project-registry")" == 600 ]] && ai_tools_conf__validate_registry "${mig}/project-registry" current; then
+    pass "projects keeps the source's mode and validates as format 1.0"
+else
+    fail "project-registry: mode $(stat -c '%a' "${mig}/project-registry") or a refused line"
+fi
+mig_before="$(cat "${mig}/project-registry")"; rc=0
+ai_tools_conf__migrate_registry "${mig}/allowed-projects" "${mig}/project-registry" >/dev/null || rc=$?
+if [[ "${rc}" -eq 2 && "$(cat "${mig}/project-registry")" == "${mig_before}" \
+        && "$(ai_tools_conf__resolve_registry "${mig}")" == "current"$'\t'"${mig}/project-registry" ]]; then
+    pass "a rerun finds no source, writes nothing, and the registry reads current"
+else
+    fail "a rerun: rc ${rc}"
+fi
+# An interrupted run leaves a project-registry beside the source; the source is the truth, and the next run replaces it.
+rm -f "${mig}"/allowed-projects.*.bak; mig_seed
+printf '%s\n' "${MARKER}" "${mig}/half-writ" > "${mig}/project-registry"
+ai_tools_conf__migrate_registry "${mig}/allowed-projects" "${mig}/project-registry" >/dev/null || true
+if [[ "$(cat "${mig}/project-registry")" == "${mig_want}" ]]; then
+    pass "an interrupted run's projects is replaced from the source"
+else
+    fail "the interrupted run's project-registry survived:"$'\n'"$(cat "${mig}/project-registry")"
+fi
+# Refusals: the source stays, no project-registry is written.
+mig_refused() {   # mig_refused <expected-rc> <desc> [<owner-uid>]
+    local rc=0
+    rm -f "${mig}/project-registry"
+    ai_tools_conf__migrate_registry "${mig}/allowed-projects" "${mig}/project-registry" "${3-}" >/dev/null 2>&1 || rc=$?
+    if [[ "${rc}" -eq "$1" && ! -e "${mig}/project-registry" && -n "${AI_TOOLS_CONF__MIGRATION_REFUSAL}" ]]; then
+        pass "$2 (${rc}, ${AI_TOOLS_CONF__MIGRATION_REFUSAL})"
+    else
+        fail "$2: rc ${rc}, project-registry $( [[ -e "${mig}/project-registry" ]] && echo written || echo absent)"
+    fi
+}
+rm -f "${mig}"/allowed-projects*
+printf '%s\n' "${mig}/proj" "%${mig}/parked" > "${mig}/allowed-projects"
+mig_refused 3 "a source carrying a '%' line is refused"
+printf '%s\n' "${mig}/proj" "!vendor" > "${mig}/allowed-projects"
+mig_refused 3 "a source carrying a relative line is refused"
+printf '%s\n!%s/proj/pri\0vate\n' "${mig}/proj" "${mig}" > "${mig}/allowed-projects"
+mig_refused 3 "a source carrying a NUL byte is refused"
+{ printf '%s\n!%s/proj/pri\0vate\n' "${mig}/proj" "${mig}"
+  head -c 1048576 /dev/zero | tr '\0' '#' | fold -w 79; echo; } > "${mig}/allowed-projects"
+mig_refused 3 "a source carrying a NUL byte ahead of 1 MiB of comments is refused"
+printf '%s\n' "${mig}/proj" > "${mig}/allowed-projects"
+rc=0; rm -f "${mig}/project-registry"
+( tr() { return 3; }
+  ai_tools_conf__migrate_registry "${mig}/allowed-projects" "${mig}/project-registry" >/dev/null 2>&1 ) || rc=$?
+if [[ "${rc}" -eq 1 && ! -e "${mig}/project-registry" && -f "${mig}/allowed-projects" ]]; then
+    pass "a source the control-byte scan cannot read is refused (1), the source left and no project-registry written"
+else
+    fail "a source the scan cannot read: rc ${rc}, project-registry $( [[ -e "${mig}/project-registry" ]] && echo written || echo absent)"
+fi
+printf '%s\n' "${mig}/proj" > "${mig}/real-source"; rm -f "${mig}/allowed-projects"
+ln -s "${mig}/real-source" "${mig}/allowed-projects"
+mig_refused 2 "a source that is a symbolic link is refused"
+rm -f "${mig}/allowed-projects"; printf '%s\n' "${mig}/proj" > "${mig}/allowed-projects"; chmod 644 "${mig}/allowed-projects"
+mig_refused 2 "a source at a mode other than 600 is refused" "$(id -u)"
+chmod 600 "${mig}/allowed-projects"
+mig_refused 2 "a source held by another uid is refused" "$(( $(id -u) + 1 ))"
+if [[ -f "${mig}/allowed-projects" && ! -L "${mig}/allowed-projects" ]]; then
+    pass "every refusal left the source under its active name"
+else
+    fail "a refusal moved the source"
+fi
+
 # --- the text predicate: a file whose bytes go to a program as prose -------------------------
 # ai_tools_conf__is_text_file is the shared check behind an agent's system prompt: the trust predicate says who wrote
 # the file, this says the bytes are text. Empty counts as text (the shipped inert default), a directory

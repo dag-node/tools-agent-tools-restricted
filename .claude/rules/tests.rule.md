@@ -635,6 +635,12 @@ and against the checkout: every way `restorecon`'s output can be incomplete is a
 absence is ENOENT or ENOTDIR alone, and the ACL reader applies the mask to the named entries and `group::` alone,
 with a real `setfacl` of the claim's specification as the live control.
 
+`registry-class.sh` drives the project registry classifier (`ai_tools_conf__read_registry_path_class`), which every
+`projects` verb decides from, as a table: one fixture registry per shape a host meets, one row per path asserting every
+field of the record, under the launch wrapper's IFS. The states the rows reach are asserted equal to the set
+the library's own state table names, so a state added there without rows fails the file, and a pair of fixtures holding
+the same lines in both orders pins which line `blocked` names. It reads the checkout's library and runs without root.
+
 `conf.sh` and `providers.sh` are the library pair behind the provider seam (see [providers](providers.rule.md)).
 `conf.sh` pins the shared `KEY=value` grammar every `operator.conf` key and every manifest is read with — quotes
 optional, commas and whitespace both separating, inline comments ending a value, a present-but-empty key distinguishable
