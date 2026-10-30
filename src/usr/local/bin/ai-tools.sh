@@ -3577,7 +3577,7 @@ unclaim_one() {
     # The registry drops run REGARDLESS of the hand-back decision, and that is the difference from a claim: dropping
     # them is what moves to LESS access -- the agent can no longer launch here -- so stopping short of them would be
     # the unsafe direction. Only the safe.directory removal, which is cleanup and needs its own authentication, is
-    # skipped once the operator has said to stop; atr projects reports the entry it leaves behind.
+    # skipped once the operator has said to stop; `atr projects` reports the entry it leaves behind.
     ${stopped} || unreg_safedir "${d}" || note_root_failure || true
     # <registry> decides what happens to the allowlist line, never WHETHER it stops mattering: both dispositions end
     # with no session able to start here. `drop` deletes it; `park` prefixes it with '%' in place, keeping its position
@@ -4535,8 +4535,8 @@ remove_clone() {
     run_as_owner rm -rf -- "${d}"
     unreg_allow "${d}"
     # `|| true`: the clone is already gone, so a safe.directory entry that could not be removed is a stale line pointing
-    # at a path that is gone -- reported by atr projects, and not a reason to abort a removal that has already happened.
-    # unreg_safedir signals failure now, and a bare call under set -e would do exactly that.
+    # at a path that is gone -- reported by `atr projects`, and not a reason to abort a removal that has already
+    # happened. unreg_safedir signals failure now, and a bare call under set -e would do exactly that.
     unreg_safedir "${d}" || true
     ok "removed ${d} and unregistered it"
     ai_tools_log__structured info "removed sandbox ${d} and unregistered it" \

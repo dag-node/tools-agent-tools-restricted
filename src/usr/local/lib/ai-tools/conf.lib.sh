@@ -1902,6 +1902,6 @@ ai_tools_conf__get_secret_patterns_seed() {
         "#" \
         "#   .env              *.pem             appsettings.*.json" \
         "#" \
-        "# Full reference: man 5 ai-tools-secret-patterns" \
+        "# Full reference: \`man 5 ai-tools-secret-patterns\`" \
         ""
 }
