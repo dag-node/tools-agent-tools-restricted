@@ -195,7 +195,8 @@ _print_folded_child_messages() {
 }
 
 # _stop_on_signal <status> : a run interrupted part-way still reports what it did: the messages folded so far, and
-#   the number of paths handed back before the signal, then exits <status>.
+#   the number of paths handed back before the signal, then exits <status>. Called from the loop, never from a trap:
+#   bash runs a trap once the command in flight completes, which for a child is between its assignment and its count.
 _stop_on_signal() {
     trap - INT TERM
     _print_folded_child_messages
@@ -209,11 +210,12 @@ _stop_on_signal() {
 # Count CONFIRMED handbacks (ai-tools-chown exit 0), not attempts: a path that stopped being @SANDBOX_USER@-owned
 # between the collect and apply phases is a legitimate skip, and reporting it as handed back would overstate
 # what changed. A non-zero tally is surfaced, not hidden. Each child's stderr is captured on its own, its stdout left
-# on the terminal, and folded (_fold_child_messages) into what is printed ahead of the tally. The signal traps read
-# the tally, so it is a script global (shellcheck.rule.md, ref-section-c3u9).
-declare -i confirmed=0 failed=0
-trap '_stop_on_signal 130' INT
-trap '_stop_on_signal 143' TERM
+# on the terminal, and folded (_fold_child_messages) into what is printed ahead of the tally. A signal traps into
+# stop_status alone, and the loop stops once the child in flight is counted and its stderr folded, so the tally
+# the stop prints includes it; the child is one ai-tools-chown of one path, so the wait is bounded.
+declare -i confirmed=0 failed=0 stop_status=0
+trap 'stop_status=130' INT
+trap 'stop_status=143' TERM
 for path in "${paths[@]}"; do
     child_messages=""
     if { child_messages="$("${CHOWN_BIN}" --yes "${path}" </dev/null 2>&1 1>&3)"; } 3>&1; then
@@ -222,7 +224,9 @@ for path in "${paths[@]}"; do
         failed+=1
     fi
     _fold_child_messages "${child_messages}"
+    (( stop_status )) && _stop_on_signal "${stop_status}"
 done
+(( stop_status )) && _stop_on_signal "${stop_status}"
 trap - INT TERM
 _print_folded_child_messages
 if (( failed > 0 )); then
