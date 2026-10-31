@@ -113,7 +113,7 @@ make_fixtures() {
     declare -gA N_CL=([077]="$(ai_test_name clone-077)" [027]="$(ai_test_name clone-027)")
     SRC="${R}/${N_SRC}"
     mk_operator_conf "${CONF}" "${PROJECTS_USER}" "${FOR_USER}"
-    : > "${AL}"; : > "${FOR_AL}"; : > "${GC}"
+    printf '%s\n' "${REG_MARKER}" > "${AL}"; printf '%s\n' "${REG_MARKER}" > "${FOR_AL}"; : > "${GC}"
     mkdir -p "${SBROOT}"
     for d in pa pb pc pd pe pf pg psd plain unreg parent/p1 parent/p2 hold/inner for1 for2; do
         mkdir -p "${R}/${d}"; printf '# %s\n' "${d}" > "${R}/${d}/README.md"
@@ -195,8 +195,10 @@ cli_tty() { local answers="$1" key="$2"; shift 2; cli_cmd "${key}" || return 2; 
 cli_flag_first() { local key="$1"; shift; cli_cmd "${key}" || return 2; run_in "${R}" "$@" "${CLI_ARGV[@]}"; }
 f() { cli_flag "$1"; }
 
-seed()     { : > "${AL}"; (( $# )) && printf '%s\n' "$@" > "${AL}"; chown "${PROJECTS_USER}:${PROJECTS_USER}" "${AL}"; cli_stub_reset; }
-seed_for() { printf '%s\n' "$@" > "${FOR_AL}"; chown "${PROJECTS_USER}:${PROJECTS_USER}" "${FOR_AL}"; }
+# seed and seed_for write a registry in the format this release reads: the marker, then one line per argument.
+readonly REG_MARKER="# ai-tools-project-registry-format: 1.0"
+seed()     { printf '%s\n' "${REG_MARKER}" "$@" > "${AL}"; chown "${PROJECTS_USER}:${PROJECTS_USER}" "${AL}"; cli_stub_reset; }
+seed_for() { printf '%s\n' "${REG_MARKER}" "$@" > "${FOR_AL}"; chown "${PROJECTS_USER}:${PROJECTS_USER}" "${FOR_AL}"; }
 seed_gc()  { : > "${GC}"; local p; for p in "$@"; do git config --file "${GC}" --add safe.directory "${p}"; done; chown "${PROJECTS_USER}:${PROJECTS_USER}" "${GC}"; }
 st()       { ai_tools_conf__read_allowlist_state "${AL}" "$1"; }
 st_for()   { ai_tools_conf__read_allowlist_state "${FOR_AL}" "$1"; }
@@ -470,8 +472,11 @@ drive_rows() {
     expect "claim -y is the short form of --yes"                      st_is "${R}/pc" listed
 
     cli_stub_reset; drive cli_in "${R}/pd" ai-tools.projects.claim "$(f yes)"
-    expect "claim defaults to the current directory"                  st_is "${R}/pd" listed
-    expect "the default-directory claim names that directory"         cli_called ai-tools-safedir "^${R}/pd$"
+    expect "claim without a path is a rejected command line"          rc_is 2
+    expect "the pathless claim registers nothing"                     st_is "${R}/pd" absent
+    cli_stub_reset; drive cli_in "${R}/pd" ai-tools.projects.claim "$(f yes)" .
+    expect "claim . names the current directory"                      st_is "${R}/pd" listed
+    expect "the claim of . names that directory"                      cli_called ai-tools-safedir "^${R}/pd$"
 
     cli_stub_reset; cli_stub_secrets "${R}/pe/.env"; drive cli ai-tools.projects.claim "$(f yes)" "${R}/pe"
     expect "a found secret is locked down before access is granted"  before ai-tools-lockdown "^--gate$" ai-tools-setgid "."
@@ -788,7 +793,7 @@ drive_rows() {
     section "ai-tools.projects.remove.inplace"
     mkdir -p "${R}/rm1" "${R}/rm2" "${R}/rm3" "${R}/rm4" "${R}/rmp/nested"
     chown -R "${PROJECTS_USER}:${PROJECTS_USER}" "${R}/rm1" "${R}/rm2" "${R}/rm3" "${R}/rm4" "${R}/rmp"
-    seed "${R}/rm1" "!${R}/rm2" "${R}/rm3" "${R}/rm4" "${R}/rmp" "${R}/rmp/nested"
+    seed "${R}/rm1" "%${R}/rm2" "${R}/rm3" "${R}/rm4" "${R}/rmp" "${R}/rmp/nested"
     seed_gc "${R}/rm1" "${R}/rm2"
     drive cli ai-tools.projects.remove.inplace "${R}/rm1"
     expect "remove without --yes declines at the confirm"             rc_not0
@@ -841,8 +846,11 @@ drive_rows() {
     expect "enable restores the entry"                                st_is "${R}/pa" listed
     expect "enable is a registry edit alone"                          cli_log_empty
     drive cli ai-tools.projects.disable "${R}/hold/inner"
-    expect "disable refuses a project nested in a listed one"         rc_not0
-    expect "the nested entry is unchanged"                            st_is "${R}/hold/inner" listed
+    expect "disable parks a project nested in a listed one"           rc_is 0
+    expect "the nested entry reads as parked"                         st_is "${R}/hold/inner" disabled
+    expect "the enclosing entry stays listed"                         st_is "${R}/hold" listed
+    drive cli ai-tools.projects.enable "${R}/hold/inner"
+    expect "enable lifts the nested park"                             st_is "${R}/hold/inner" listed
     drive cli ai-tools.projects.enable "${R}/plain"
     expect "enable refuses a path with no entry"                      rc_not0
     expect "enable invents no entry"                                  st_is "${R}/plain" absent
@@ -892,15 +900,18 @@ drive_rows() {
     # The removal's tree belongs to the projects user, since the shim runs the owner's steps as the invoker.
     mkdir -p "${R}/for3"; chown "${PROJECTS_USER}:${PROJECTS_USER}" "${R}/for3"
     printf '%s\n' "${R}/for3" >> "${FOR_AL}"
+    seed_gc "${R}/for3"
     cli_stub_reset; cli_stub_fail ai-tools-allowlist:--remove
     drive cli ai-tools.projects.remove.inplace "$(f for)" "${FOR_USER}" "$(f yes)" "${R}/for3"
     expect "remove --for exits non-zero when the target's entry cannot be removed" rc_not0
     expect "that refusal carries its code"                            out_has_text MSG-K8S2
     expect "the tree is not deleted past the refused registry step"  test -d "${R}/for3"
     expect "the target's entry is still listed"                       st_for_is "${R}/for3" listed
+    expect "the safe.directory entry is not removed ahead of the refused registry step" not_called ai-tools-safedir
     cli_stub_reset; drive cli ai-tools.projects.remove.inplace "$(f for)" "${FOR_USER}" "$(f yes)" "${R}/for3"
     expect "control: the same remove --for deletes the tree"         test ! -e "${R}/for3"
     expect "control: and drops the target's entry"                    st_for_is "${R}/for3" absent
+    expect "control: and its safe.directory entry"                    cli_called ai-tools-safedir "^--remove${T}${R}/for3$"
     # A park the helper refuses ends the unclaim non-zero with the entry still enabled, after the hand-back ran.
     mkdir -p "${R}/for4"; chown "${PROJECTS_USER}:${PROJECTS_USER}" "${R}/for4"
     printf '%s\n' "${R}/for4" >> "${FOR_AL}"
@@ -1036,7 +1047,7 @@ drive_rows() {
     drive cli ai-tools.projects.push "${R}/pa"
     expect "push refuses a path that is not a clone"                  rc_not0
     drive cli_in "${SBROOT}/${N_SRC}" ai-tools.projects.push
-    expect "push defaults to the current directory"                   rc_is 0
+    expect "push without a path acts on the clone the current directory is in" rc_is 0
 
     cli_stub_reset; drive cli ai-tools.projects.remove.clone "${SBROOT}/${N_C2}"
     expect "the clone removal declines with no terminal"              rc_not0
@@ -1095,7 +1106,7 @@ drive_rows() {
     cli_stub_reset; drive cli ai-tools.projects.handback "$(f full)" "${R}/pa"
     expect "reclaim --full asks the helper for the skipped trees"     cli_called ai-tools-reclaim "^$(f full)${T}${R}/pa$"
     cli_stub_reset; drive cli_in "${R}/pa" ai-tools.projects.handback
-    expect "reclaim defaults to the current directory"                cli_called ai-tools-reclaim "^${R}/pa$"
+    expect "reclaim without a path acts on the project the current directory is in" cli_called ai-tools-reclaim "^${R}/pa$"
     cli_stub_reset; drive cli ai-tools.projects.handback "${R}/plain"
     expect "reclaim refuses a path outside every project"             rc_not0
     expect "that refusal reaches no helper"                           cli_log_empty

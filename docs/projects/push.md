@@ -14,14 +14,15 @@ cd /var/opt/ai-tools/sandbox-projects/repo
 atr projects push
 ```
 
-Counts the commits the clone holds that its remote branch does not, asks
-`Push N commit(s) to <remote>/<branch>?` with a default of Yes, and pushes them
-to the branch the clone tracks — `sandbox/LEAF` by default, or the name given
-to `--branch` when the clone was made ([Clone](clone.md)). Enter, and a run
-without a terminal, push. From there, whoever has access to the repository
-merges the branch back, with the agent's commits kept one by one; the remote
-branch stays after a merge, and after a `projects remove` of the clone,
-for others to merge.
+Without a directory it pushes the clone the current directory is in, named
+on its first line. It counts the commits the clone holds that its remote branch
+does not, asks `Push N commit(s) to <remote>/<branch>?` with a default of Yes,
+and pushes them to the branch the clone tracks — `sandbox/LEAF` by default,
+or the name given to `--branch` when the clone was made ([Clone](clone.md)).
+Enter, and a run without a terminal, push. From there, whoever has access
+to the repository merges the branch back, with the agent's commits kept one
+by one; the remote branch stays after a merge, and after a `projects remove`
+of the clone, for others to merge.
 
 Only you push. The sandbox account does not hold any git credentials,
 so a session in the clone commits and does not reach the remote; the push is
@@ -44,5 +45,6 @@ to the operator who made it.
 
 ## Exit status
 
-0 when the commits are pushed or there were none; 1 when the push failed or you
-declined; 2 for a rejected command line. `man ai-tools` has the full list.
+0 when the commits are pushed or there were none; 1 when the push failed,
+the path is not a clone, or you declined; 2 for a rejected command line, or no
+project at the current directory. `man ai-tools` has the full list.

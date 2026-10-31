@@ -27,15 +27,19 @@ atr projects remove .
 
 ## What authorizes it
 
-An **exact** entry for the path in your allowlist, and only that: there is no
-`--force`, since deleting a tree no entry registers is an unclaim plus an `rm`
-you type yourself. A parked (`!`) entry counts, since it records a project
-taken out of service and still yours, and adds one confirmation naming
-that state. A directory enclosing claimed projects, a path *inside* a project,
-an unregistered path, and a project that **contains** another claimed project
-are each refused, the last because deleting it would take the nested one
-with it and leave that project registered at a path that no longer exists.
-The rules are
+An **exact** entry for the path in your project registry, an allow or a `%`
+line, and only that: there is no `--force`, since deleting a tree no entry
+registers is an unclaim plus an `rm` you type yourself. A parked (`%`) entry
+counts, since it records a project taken out of service and still yours,
+and adds one confirmation naming that state. A directory enclosing claimed
+projects, a path *inside* a project, an unregistered path, and a project
+that **contains** another claimed project are each refused, the last because
+deleting it would take the nested one with it and leave that project registered
+at a path that no longer exists. A carve-out (`!`) is refused too, since no
+entry authorizes deleting it, and the carve-out lines under a project you
+remove stay in the file, which `atr projects list` then reports as stale.
+A sandbox clone is authorized by being one ([A sandbox
+clone](#a-sandbox-clone)). The rules are
 [ref-section-k3v7](../../.claude/rules/cli.rule.md#ref-section-k3v7).
 
 ## What it checks first
@@ -69,11 +73,15 @@ and the typed name has no default.
 
 ## Registries first, the tree last
 
-The label, the `safe.directory` entry and the allowlist entry go first,
-and the tree is deleted last. A deletion that then fails leaves a tree that is
-already unregistered and out of the agent's reach, which you remove by hand;
-the reverse order would leave a half-deleted tree the agent still reaches.
-The allowlist step is the one that has to complete: where the entry cannot be
+The label and the registry entry go first, then the `safe.directory`
+entry, and the tree is deleted last. A deletion that then fails leaves a tree
+whose registry entry is gone, so no new session starts there from it.
+A session already running keeps its access until it ends, and the files left
+keep the agent's group access, since the command does not hand them back before
+deleting them. Remove what is left by hand: the command prints the `rm -rf`
+to run, and under `--for` the account to run it as. The reverse order would
+leave a half-deleted tree the agent still reaches.
+The registry step is the one that has to complete: where the entry cannot be
 removed, the command stops and prints the line to delete by hand.
 
 While an agent session or the toolchain update runs, the label cannot be
@@ -83,11 +91,14 @@ or end them all with `atr stop`, then run the removal again.
 
 ## A sandbox clone
 
-Pointed at a clone under the sandbox area, the command asks one default-No
-confirm, then deletes the clone and unregisters it. A commit not yet pushed
-goes with it, and the command does not count them: run `atr projects push`
-first to keep your work ([Push](push.md)). The remote branch stays for others
-to merge. `-y` answers that one confirm, on the same terms ([Clone](clone.md)).
+Pointed at a clone under the sandbox area, the command removes it when it is
+a git clone directly inside that area, and asks one default-No confirm. It then
+takes the order [Registries first, the tree
+last](#registries-first-the-tree-last) states, the clone's own lines going
+with it. A commit not yet pushed goes with it, and the command does not count
+them: run `atr projects push` first to keep your work ([Push](push.md)).
+The remote branch stays for others to merge. `-y` answers that one confirm,
+on the same terms ([Clone](clone.md)).
 
 ## For another operator
 

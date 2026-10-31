@@ -13,6 +13,10 @@ without unclaiming, when to run it, and what `--full` adds.
 atr projects handback ~/src/api
 ```
 
+Run from inside a project, the directory may be left
+out: `atr projects handback` names the project the current directory is
+in on its first line and acts on it.
+
 Walks the project and hands every file the agent still owns back to you,
 with the same checks the handback that runs by itself applies
 ([Permissions](permissions.md)): a file you wrote is not touched,
@@ -38,8 +42,12 @@ a tree the agent keeps working in ([Project lifecycle](index.md)).
 ## What it refuses
 
 A path outside every claimed project is refused before the `sudo` prompt,
-so the command does not run as a silent no-op. A disabled project is declined
-for the reason on [Disable](disable.md): enable it, then run the handback.
+so the command does not run as a silent no-op; without a directory, a current
+directory in no project exits 2. A disabled project is declined for the reason
+on [Disable](disable.md): enable it, then run the handback. So is a path a `%`,
+`!` or glob line covers, since the handback does not act under one: the refusal
+shows the line, and the walk from the current directory stops at the first
+directory such a line covers.
 
 ## For another operator
 
@@ -49,5 +57,6 @@ to that operator ([Service accounts](../operators/service-accounts.md)).
 ## Exit status
 
 0 when the pass ran, whether or not it found a file to hand back; 1 when it
-failed; 2 for a rejected command line; 3 when the path is a protected system
-directory or a home root. `man ai-tools` has the full list.
+failed or the path was refused; 2 for a rejected command line, or no project
+at the current directory; 3 when the path is a protected system directory
+or a home root. `man ai-tools` has the full list.

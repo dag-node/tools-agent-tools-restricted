@@ -15,7 +15,7 @@ atr projects clone ~/src/repo
 
 Shallow-clones the repository at that path into the sandbox area,
 `/var/opt/ai-tools/sandbox-projects/<name>`, creates the branch the agent's
-commits will go to, and registers the clone in your allowlist. The exact
+commits will go to, and registers the clone in your project registry. The exact
 `git branch`, `git push` and `git clone` commands are shown for confirmation
 before any of them runs. The agent does not read the origin's history, no
 directory enclosing the clone needs a grant, and your real checkout is

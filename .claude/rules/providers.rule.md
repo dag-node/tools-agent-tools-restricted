@@ -114,7 +114,7 @@ walk is the recoverable error, an operator tree left sandbox-owned is not. An ag
 anyway gets both, the hooks as cadence and the sweep as the guarantee behind them; that is the declaration codex ships
 ([agent-codex](agent-codex.rule.md)).
 
-The sweep only chooses which paths to **offer**; each one still passes `ai-tools-chown`'s allowlist, exclusion, secret,
+The sweep only chooses which paths to **offer**; each one still passes `ai-tools-chown`'s registry, exclusion, secret,
 and born-owner re-validation as root, so it cannot reach a path the hooks could not. It runs from an `EXIT` trap,
 so an interrupted shim (Ctrl-C, `SIGTERM`) still converges; a `SIGKILL` leaves the tree to the next session's sweep
 or `atr projects handback`.
@@ -304,20 +304,26 @@ the `MSG-D5N5` direction — empty, under its own code `MSG-X6F2`, which names t
 and `ai_tools_conf__find_unmigrated_items` is the one detection predicate every report of an unmigrated list reads.
 
 The **path-list** files share that grammar rather than defining their own. `ai_tools_conf__parse_path_entry` reads one
-`allowed-projects` line — whole-line and end-of-line comments, and one quote layer for a path carrying a space
-or a literal `#`, with a leading `!` preserved so an exclusion stays distinguishable after the quotes come off. Every
-reader of that file — the launch wrapper, the CLI, the owner resolver in `operator.lib.sh`, and each root helper
-that walks or labels a project (`ai-tools-chown`, `-setgid`, `-setfacl`, `-unclaim`, `-lockdown`, `-relabel`) — takes it
-from here, which is exactly why the rule lives in one place: a parser copied into each is a parser that drifts,
-and a line the wrapper resolves but a helper does not is a project the agent can launch in whose files stay
-sandbox-owned, or a carve-out the wrapper refuses that a walk grants. Each reader requires the library rather than
-falling back to a private parser; the resolver's load is fail-closed by consequence, since without the parser no line
-denotes an entry and no path is covered. The CLI, the relabel helper, and the launch wrapper's post-claim confirm
-additionally decide **membership** through `ai_tools_conf__has_allowlist_entry`/`_has_exclusion` (and `_matching_lines`
-/ `_exclusion_lines` for the raw lines), which parse each line with the same grammar and compare realpath-normalized
-values, so a commented or quoted entry is never mistaken for unlisted. The gate-side readers — the launch wrapper
-and each walking helper — take their two arrays from one loader and one matcher ([The gate-side read
-of `allowed-projects`](#the-gate-side-read-of-allowed-projects)).
+line of the project registry, `~/.config/ai-tools/project-registry` — whole-line and end-of-line comments, and one quote
+layer for a path carrying a space or a literal `#`, with a leading `!` or `%` preserved so a carve-out and a park stay
+distinguishable after the quotes come off. `ai_tools_conf__resolve_registry` decides which file an operator's config
+directory holds — `~/.config/ai-tools/allowed-projects`, the file an earlier release wrote, under the grammar it was
+written in until it is migrated, and `~/.config/ai-tools/project-registry` after —
+and `ai_tools_conf__validate_registry` reads the whole file under that grammar before any reader exposes an entry,
+refusing the file at a line it does not recognise, so a reader that skipped the line does not read the rest
+as the operator's intent. Every reader of that file — the launch wrapper, the CLI, the owner resolver
+in `operator.lib.sh`, and each root helper that walks or labels a project (`ai-tools-chown`, `-setgid`, `-setfacl`,
+`-unclaim`, `-lockdown`, `-relabel`) — takes it from here, which is exactly why the rule lives in one place: a parser
+copied into each is a parser that drifts, and a line the wrapper resolves but a helper does not is a project the agent
+can launch in whose files stay sandbox-owned, or a carve-out the wrapper refuses that a walk grants. Each reader
+requires the library rather than falling back to a private parser; the resolver's load is fail-closed by consequence,
+since without the parser no line denotes an entry and no path is covered. The CLI, the relabel helper, and the launch
+wrapper's post-claim confirm additionally decide **membership**
+through `ai_tools_conf__has_allowlist_entry`/`_has_exclusion` (and `_matching_lines` / `_exclusion_lines` for the raw
+lines), which parse each line with the same grammar and compare realpath-normalized values, so a commented or quoted
+entry is never mistaken for unlisted. The gate-side readers — the launch wrapper and each walking helper — take their
+two arrays from one loader and one matcher ([The gate-side read of the project
+registry](#the-gate-side-read-of-the-project-registry)).
 
 The same library owns the **editing** of that file — `_state`, `_add`, `_remove`, `_enable`, `_disable` — because all
 three of its writers (the CLI, the `ai-tools-allowlist` root helper, and `install.sh`) must agree with its readers
@@ -354,14 +360,21 @@ in [ownership-and-hooks](ownership-and-hooks.rule.md) keep their built-in defaul
 that reads as "no such provider", a wrong verdict that disables a configured agent with only a warning.
 `tests/unit/conf.sh` drives the splitter under that IFS.
 
-### The gate-side read of `allowed-projects` <a id="ref-section-d2n3"></a>
+### The gate-side read of the project registry <a id="ref-section-d2n3"></a>
 
 The launch wrapper and each root helper that walks a project take their allow array and their exclusion array
-from `ai_tools_conf__load_allowlist` and match a path through `ai_tools_conf__is_path_excluded`, so the gate
-that refuses a launch and the walk that hands a path back cover one set of paths. An allow entry is kept resolved.
-An exclusion is kept as written and, for a glob-free absolute one, as its real path beside it, so the match is the union
-of the two forms: the resolved form alone stops covering the written path once a component of it becomes a symlink,
-and the written form alone misses an exclusion the operator spelled through one.
+from `ai_tools_conf__load_allowlist`, which validates the whole file first and returns both arrays empty over a line
+the grammar refuses (status 3, `MSG-B8U2` from the validator; the wrapper refuses the launch under `MSG-D9R4`),
+and match a path through `ai_tools_conf__is_path_excluded`, so the gate that refuses a launch and the walk that hands
+a path back cover one set of paths. The loader opens the file once and validates and loads through that one descriptor,
+as the membership readers and the classifier do, so a file renamed over the name between the validation and the entries
+is not read. A write into the same inode is what the pin does not close. The file is the operator's, at `0600`
+in the operator's `0700` `~/.config/ai-tools`, the layout's boundary rows ([layout](layout.rule.md)), so that write is
+the operator's or root's, `tests/boundary/access.sh` probes the registry unwritable by the sandbox account, and no
+writer of this project makes one. An allow entry is kept resolved. An exclusion is kept as written
+and, for a glob-free absolute one, as its real path beside it, so the match is the union of the two forms: the resolved
+form alone stops covering the written path once a component of it becomes a symlink, and the written form alone misses
+an exclusion the operator spelled through one.
 
 The resolution follows a symlink only where the sandbox account can neither remove, replace nor move it,
 which `_ai_tools_conf__resolve_exclusion_path` reads as the link and every directory on the way to it each held
@@ -370,11 +383,18 @@ since write on one lets the account rename the link's own directory aside. A lin
 therefore does not decide what an exclusion covers, whoever made it: the loader refuses the whole read (`MSG-Y5N6`,
 naming the entry, the link, the reason and the real path to write), both arrays come back empty, the wrapper refuses
 the launch (`MSG-Z3Q6`) and no helper resolves an owner or acts on a path under that file, until the entry is rewritten
-as the real path. Every outcome of the read keeps or adds an exclusion, or withdraws every allow. What no spelling
-closes is a rename of the real directory itself inside a tree the account co-writes; the owner-only seal is what keeps
-its contents from the account ([ref-definition-e3h3](secret-handling.rule.md#ref-definition-e3h3)). The library's
-section comment carries the reasoning behind the refusal, `tests/unit/conf.sh` drives each outcome of the read,
-and `tests/unit/launch-wrapper.sh` drives the gate through it.
+as the real path. A directory on the way that the reading process cannot search refuses the read the same way, since
+under it a link and an absent name read alike. Root searches every directory, so for an exclusion crossing a directory
+its operator cannot enter, root's report reads the file as standing where that operator's gate refuses it: the report
+under-reports a refusal. Every outcome of the read keeps or adds an exclusion, or withdraws every allow. What no
+spelling closes is a rename of the real directory itself inside a tree the account co-writes; the owner-only seal is
+what keeps its contents from the account ([ref-definition-e3h3](secret-handling.rule.md#ref-definition-e3h3)).
+The library's section comment carries the reasoning behind the refusal, `tests/unit/conf.sh` drives each outcome
+of the read, and `tests/unit/launch-wrapper.sh` drives the gate through it. A report that says whether a file would
+stand at the gate reads it through `ai_tools_conf__check_registry`, the same loader with the arrays discarded.
+`status` and the CLI's registry gate run as the operator, as the launch does, so neither passes a file the launch
+refuses; `atr admin status` and `system post-upgrade` run as root, and pass a file whose exclusion crosses
+a directory its operator cannot search, since root searches the directory that refuses the operator's read.
 
 ### `operator.conf` across an upgrade
 
@@ -414,18 +434,31 @@ an option block the file lacks, but it could never correct the prose of one alre
 so `ai-tools-operator.conf(5)` is the single current statement of what an option means and the file points at the man
 page rather than restating it.
 
-**The one rewrite it makes is the kind prefix.** A provider list an earlier release wrote with bare names is invalid
-under [the kind prefix](#the-shared-config-grammar-conflibsh), so every session start refuses until it changes;
-and the change is spelling, not a setting. `ai_tools_providers__migrate_kinds` (`providers.lib.sh`) makes it on every
-run, with or without an `.rpmnew` and unattended too, through `ai_tools_conf__set_list` after one dated `.bak`: a key is
-rewritten only when every item maps onto a name this host installs (`core` in `AI_TOOLS_FILTERS` onto `filter-base`),
-so a rewritten line always reads back whole, and a key holding any other name stays as written and is named, since only
-the operator knows what it meant. A rewritten `AI_TOOLS_AGENTS` is followed by the entrypoint reconciliation
-`system entrypoints relabel` runs (answering from an unchanged pin, as the unattended callers do): no relabel covered
-those agents while the line enabled none, so an install in that window leaves an entrypoint hardlinked to its platform
-package on that package's type. `system bootstrap` runs the same function ahead of its agent choice. `%post`
-and `install.sh` do not edit the file: each reads `ai_tools_conf__find_unmigrated_items` and names this command, `%post`
-among the steps a host still needs and `install.sh` first in its closing steps.
+**It makes two rewrites, and both are spelling.** The first is the kind prefix. A provider list an earlier release wrote
+with bare names is invalid under [the kind prefix](#the-shared-config-grammar-conflibsh), so every session start refuses
+until it changes; and the change is spelling, not a setting. `ai_tools_providers__migrate_kinds` (`providers.lib.sh`)
+makes it on every run, with or without an `.rpmnew` and unattended too, through `ai_tools_conf__set_list` after one
+dated `.bak`: a key is rewritten only when every item maps onto a name this host installs (`core` in `AI_TOOLS_FILTERS`
+onto `filter-base`), so a rewritten line always reads back whole, and a key holding any other name stays as written
+and is named, since only the operator knows what it meant. A rewritten `AI_TOOLS_AGENTS` is followed by the entrypoint
+reconciliation `system entrypoints relabel` runs (answering from an unchanged pin, as the unattended callers do): no
+relabel covered those agents while the line enabled none, so an install in that window leaves an entrypoint hardlinked
+to its platform package on that package's type. `system bootstrap` runs the same function ahead of its agent choice.
+`%post` and `install.sh` do not edit the file: each reads `ai_tools_conf__find_unmigrated_items` and names this command,
+`%post` among the steps a host still needs and `install.sh` first in its closing steps.
+
+The second is each enrolled operator's registry. A `~/.config/ai-tools/allowed-projects` an earlier release wrote stays
+every reader's registry, under the grammar it was written in, and every `projects` verb but the listing refuses over it
+([cli](cli.rule.md)). `_pu_registry_migrate` writes `~/.config/ai-tools/project-registry` from it on every run,
+unattended too, through `ai_tools_conf__migrate_registry`: the format marker followed by every line unchanged,
+at the source's owner and mode, verified as a valid current file reading the same entries, and then the source renamed
+to its dated `.bak`, so a run that stops part-way leaves the source as the registry. Every line is copied as written,
+so the migration does not change what a session reaches; it names each `!` line no project encloses with the `%` line
+that parks it in format 1.0, since an earlier release spelled a parked project that way and only the operator knows
+which one a line meant. A source the operator does not own at mode `0600`, or one the legacy grammar refuses, is named
+(`registry-invalid`) and left as written; a source whose exclusion crosses a link the gate refuses migrates and is named
+too. `--check` writes `registry-unmigrated` per legacy file. Enrolment does not seed the new file beside a legacy one
+(`MSG-A2P2`), and the base `%post` and `install.sh` name this command while one remains.
 
 The same command answers unattended. It exits 4 while anything it reports needs the operator, 1 when a merge it was
 asked to make did not happen, and 0 otherwise, and `--check` writes the findings as the record stream
@@ -446,12 +479,13 @@ offered that asset.
 
 Every config file an operator holds keeps its reference in a section 5 page, for one of two reasons. The shipped
 templates, `operator.conf` and `custom-claude-endpoint.conf`, are `%config(noreplace)`, so a prose change to one reaches
-an upgraded host only as an `.rpmnew` the operator reconciles by hand. The per-operator files, `allowed-projects`
-and `secret-patterns`, are seeded once, by `atr admin operators add` (the two `*_seed` functions in `conf.lib.sh`),
-and no upgrade rewrites them: the header an operator's file carries is the one that shipped on the day that account was
-enrolled, for as long as the account exists. A header written into any of the four therefore states what the file is,
-the one rule a reader needs before writing a line, example lines or one block per option, and the page that holds
-the reference — `ai-tools-operator.conf(5)`, `ai-tools-custom-claude-endpoint.conf(5)`, `ai-tools-allowed-projects(5)`,
+an upgraded host only as an `.rpmnew` the operator reconciles by hand. The per-operator files,
+`~/.config/ai-tools/project-registry` and `secret-patterns`, are seeded once, by `atr admin operators add` (the two
+`*_seed` functions in `conf.lib.sh`), and no upgrade rewrites a header — the registry migration copies every line
+as written: the header an operator's file carries is the one that shipped on the day that account was enrolled,
+for as long as the account exists. A header written into any of the four therefore states what the file is, the one rule
+a reader needs before writing a line, example lines or one block per option, and the page that holds the reference —
+`ai-tools-operator.conf(5)`, `ai-tools-custom-claude-endpoint.conf(5)`, `ai-tools-project-registry(5)`,
 `ai-tools-secret-patterns(5)` — and the grammar, the semantics and the worked examples live in the page,
 which the package replaces on every upgrade. An option's block in a template is a brief description, then a `Values:`
 line and a `Default:` line of their own, then the option's line: a `Values:` or `Default:` line states one value, so it
@@ -467,10 +501,12 @@ comment line ending on an article, a conjunction, a preposition, or a wh-word �
 to the next line when it wraps a runtime message, and the rule the checker's opt-in `--wrap` mode holds a source comment
 to. The checker's `--config-header` mode reports both for a header, and `tests/unit/man.sh` runs it over the four
 headers. `tests/unit/man.sh` caps each seeded header, asserts it names its page and does not register an entry,
-and reads each page's own examples through the parser that file is read with (`ai_tools_conf__parse_path_entry`,
-`ai_tools_secret_patterns__load`), so an example the manual shows is one the file accepts. The one claim that stays
-in a header whatever its page says is the fail direction a reader must know before writing a line —
-for `secret-patterns`, that a pattern listed there **replaces** the built-in baseline
+and reads each page's own examples through the reader that file is read with, so an example the manual shows is one
+the file accepts: `ai-tools-secret-patterns(5)`'s through `ai_tools_secret_patterns__load`, and each registry example
+in `ai-tools-project-registry(5)` validated as a current file, with every example line whose comment opens with a state
+word classified through `ai_tools_conf__read_registry_path_class` and held to that state, so an example cannot parse
+and mean something else. The one claim that stays in a header whatever its page says is the fail direction a reader must
+know before writing a line — for `secret-patterns`, that a pattern listed there **replaces** the built-in baseline
 ([secret-handling](secret-handling.rule.md)), which `tests/unit/secret-patterns.sh` asserts on the seeded text.
 
 ### Deferred: `operator.conf.d/`

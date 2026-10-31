@@ -167,7 +167,7 @@ phase "operator claims the project (allowlist + ACL + safedir + label)" \
     as_operator "AI_TOOLS_ASSUME_YES=1 ai-tools projects claim --yes '${PROJECT}'"
 
 phase "project is in the operator's allowlist" \
-    bash -c "grep -q '${PROJECT}' /home/${OPERATOR}/.config/ai-tools/allowed-projects"
+    bash -c "grep -q '${PROJECT}' /home/${OPERATOR}/.config/ai-tools/project-registry"
 
 # OCI image layers do not carry POSIX ACLs, and they preserve directory setgid inconsistently across the build-time
 # scriptlet writes (per distro): so both the base %post ai-ops ACL and the sandbox-tree setgid bit can be lost

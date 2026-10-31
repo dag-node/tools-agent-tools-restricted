@@ -1,0 +1,355 @@
+.\" ai-tools-project-registry(5) -- an operator's project registry for Agent Tools Restricted.
+.\" @AI_TOOLS_VERSION@ is substituted at deploy time (install.sh install_subst
+.\" and the RPM %prep), like ai-tools(1). The grammar described here is the one
+.\" conf.lib.sh implements for the registry, shared by every reader.
+.\" tests/unit/man.sh validates each EXAMPLES block holding entries as a file
+.\" and classifies each example line whose comment opens with a state word.
+.TH AI-TOOLS-PROJECT-REGISTRY 5 "" "ai-tools @AI_TOOLS_VERSION@" "Agent Tools Restricted"
+.SH NAME
+ai-tools-project-registry \- the project directories an operator's agent sessions may start in
+.SH SYNOPSIS
+.B ~/.config/ai-tools/project-registry
+.SH DESCRIPTION
+Each operator keeps one project registry, and it decides two things for that
+operator:
+where a session launched by that account may start, and which agent-written
+paths the ownership hand-back returns to that account.
+A session starts only inside a project the file lists, and only where no park
+or carve-out line covers the directory.
+.PP
+The file is a launch gate and an ownership registry, not a read boundary.
+Once a session is running, ordinary file permissions and the SELinux policy
+decide what it reads and writes, as
+.BR ai-tools (1)
+states.
+.PP
+The file is owned by the operator at mode
+.BR 0600 ,
+inside a
+.B 0700
+directory, so no other account reads it.
+.B "atr admin operators add"
+creates it with the format marker, a header and no entry, so no session can
+start anywhere until a project is claimed.
+The
+.B "atr projects"
+commands of
+.BR ai-tools (1)
+add, park, restore and remove entries in place.
+Edit the file by hand to review it, to comment it, or to carve a subtree out
+of a project.
+.SH FORMAT
+The format marker is the first line
+.B "atr admin operators add"
+and
+.B "atr admin system post-upgrade"
+write:
+.PP
+.RS 4
+.EX
+# ai-tools-project-registry-format: 1.0
+.EE
+.RE
+.PP
+The marker is a comment spelled exactly so, with one space after the colon
+and the version as two decimal numbers.
+A reader takes the first marker in the file.
+This release reads format 1.
+A minor version it does not know is read, since every line is checked on its
+own;
+a major version other than 1 refuses the file.
+.SS The file an earlier release wrote
+A release before format 1.0 kept the registry in
+.IR ~/.config/ai-tools/allowed-projects ,
+with allow and
+.B !\&
+lines and no marker.
+While that file is present it stays the registry:
+sessions start as before, and every
+.B "atr projects"
+command but
+.B "atr projects list"
+refuses until the file is migrated.
+.PP
+.B "atr admin system post-upgrade"
+migrates it, unattended included.
+It writes
+.I ~/.config/ai-tools/project-registry
+as the marker followed by every line unchanged, at the old file's owner and
+mode, and then renames the old file to
+.IR ~/.config/ai-tools/allowed-projects.YYYYMMDD-N.bak .
+The run prints each line first.
+It names every
+.B !\&
+line no project encloses: in that file such a line may have parked a
+project, and in format 1.0 it is a carve-out.
+Change its
+.B !\&
+to
+.B %
+to keep it as a parked project that
+.B "atr projects enable"
+restores.
+.SH GRAMMAR
+One entry per line.
+The first character of a line is its kind, written before any quote.
+.TP
+.I /home/op/project
+An allow line: a project.
+Sessions may start in the directory and in every directory under it.
+.TP
+.I !/home/op/project/vendor
+A carve-out: the agent is withheld from the directory and everything under
+it.
+The line means that wherever it sits: inside a project, around one, or alone.
+A carve-out may be a glob: a line carrying
+.BR * ,
+.B ?
+or
+.B [
+matches the whole path as written,
+.RB \(oq !/home/op/*/node_modules \(cq.
+A carve-out is not a project:
+no
+.B "atr projects"
+command claims, parks, restores or deletes it, and none deletes the line.
+.TP
+.I %/home/op/parked
+A park: a project taken out of service.
+No session starts there, and the entry, the permissions and the SELinux label
+stay in place.
+.B "atr projects disable"
+writes it and
+.B "atr projects enable"
+lifts it.
+A park may name a project nested inside another one.
+.TP
+.I "/home/op/project   # why"
+A comment.
+A
+.B #
+at the start of a line, or after whitespace, begins one.
+.TP
+.I "\(dq/home/op/ai works\(dq"
+One layer of matched double or single quotes carries a path containing a
+space or a literal
+.BR # .
+The kind character precedes the quote,
+.RB \(oq "%\(dq/home/op/ai works\(dq" \(cq,
+and only a comment may follow the closing quote.
+.PP
+Blank lines are ignored.
+An allow line is resolved to its real path before it is compared, so an entry
+reached through a symbolic link or a trailing slash names the directory.
+A line naming a directory that no longer exists does not start a session, and
+.B "atr projects list"
+reports it as stale.
+.PP
+A park or carve-out covers the path as written and, where every symbolic link
+on the way is one the sandbox account can neither remove, replace nor move,
+its real path as well:
+the link and every directory on the way to it are yours or root's, and none of
+those directories is writable by group or other, a sticky directory such as
+.I /tmp
+aside.
+A link inside a claimed project fails that test, since the sandbox account
+writes the project.
+.SH VALIDITY
+A line the grammar refuses refuses the whole file, for every reader:
+no session starts under any entry in it, the hand-back does not act on any
+path it names, and every
+.B "atr projects"
+command refuses.
+The refusal,
+.BR MSG-B8U2 ,
+names the file, the line number, the reason, the line with any control
+character shown as
+.BR ? ,
+and the edit that fixes it.
+The reasons are:
+.TP
+.B unknown-form
+The line starts with a character other than
+.BR / ,
+.BR \(dq ,
+.BR \(aq ,
+.BR ! ,
+.B %
+or
+.BR # .
+.TP
+.B relative-path
+The path is not absolute.
+.TP
+.B empty-entry
+A
+.B !\&
+or
+.B %
+with no path, or empty quotes.
+.TP
+.B unmatched-quote
+A quote is not closed.
+.TP
+.B text-after-quote
+Text other than a comment follows the closing quote.
+.TP
+.B control-character
+The path carries a control character, or the file carries a NUL byte on any
+line, a comment included.
+.TP
+.B glob-on-allow
+An allow line carries a glob character.
+List each project by its path.
+.TP
+.B glob-on-park
+A park carries a glob character.
+A park names one project.
+.TP
+.B park-in-legacy
+A
+.B %
+line in an
+.I allowed-projects
+file, whose grammar does not have one.
+.TP
+.B marker-in-legacy
+A format marker in an
+.I allowed-projects
+file.
+.TP
+.B marker-missing
+A
+.I project-registry
+file without a marker.
+.TP
+.B marker-repeated
+A second marker.
+.TP
+.B marker-unsupported
+A marker naming a major version other than 1.
+.PP
+A park or carve-out spelled through any other symbolic link refuses the file
+the same way, under
+.BR MSG-Y5N6 ,
+which names the entry, the link and the real path to write in its place.
+.PP
+.B "atr status"
+and
+.B "atr admin status"
+report the file as refused, and
+.B "atr admin system post-upgrade --check"
+writes a
+.B registry-invalid
+finding for it.
+.SH ENTRY STATES
+Every
+.B "atr projects"
+command reads one state per path from the lines of the file:
+.TP
+.B listed
+An allow line names the path.
+.TP
+.B parked
+A park names the path.
+An allow line beside it is a duplicate, which
+.B "atr projects enable"
+folds into one line.
+.TP
+.B carve-out
+A carve-out names the path, and no other line does.
+.TP
+.B conflict
+A carve-out and an allow or park line name the same path.
+The path is neither a project nor a carve-out, and every command that acts on
+it refuses until one of the lines is deleted.
+.TP
+.B inside
+No line names the path, and a project encloses it.
+.TP
+.B ancestor
+No line names the path or encloses it, and projects sit under it.
+.TP
+.B unregistered
+None of these.
+.PP
+A path is reachable, so a session may start there and the hand-back acts
+there, when it is
+.BR listed ,
+or
+.B inside
+a listed project, and no park, carve-out or glob line covers it.
+A listed project inside a parked one is listed and not reachable.
+A command refused over a path names the line that blocks it, and a command
+that changes an entry names any other line that still blocks the path.
+.PP
+While a project is parked, the hand-back does not return files written under
+it, so park a project once its sessions have ended.
+.SH FILES
+.TP
+.I ~/.config/ai-tools/project-registry
+This file, one per operator.
+.TP
+.I ~/.config/ai-tools/allowed-projects
+The registry an earlier release wrote, read in its place until
+.B "atr admin system post-upgrade"
+migrates it.
+.TP
+.I ~/.config/ai-tools/allowed-projects.YYYYMMDD-N.bak
+That file as the migration read it.
+.TP
+.I ~/.config/ai-tools/secret-patterns
+The operator's secret-name patterns, kept beside it with the same ownership.
+.TP
+.I /var/opt/ai-tools/sandbox-projects/
+The sandbox-clone area; a clone made by
+.B "atr projects clone"
+is listed here like any other project.
+.SH EXAMPLES
+A project, a carve-out inside it, a project nested in it, and two parked
+projects, one of them nested:
+.PP
+.RS 4
+.EX
+# ai-tools-project-registry-format: 1.0
+/home/op/webapp             # listed: sessions start here
+!/home/op/webapp/vendor     # carve-out: third-party code
+/home/op/webapp/tools       # listed, inside webapp
+%/home/op/webapp/legacy     # parked, inside webapp
+%/home/op/oldapp            # parked: projects enable restores it
+.EE
+.RE
+.PP
+A path containing a space, a quoted carve-out inside it, and a glob carve-out
+of every dependency directory one level under another project:
+.PP
+.RS 4
+.EX
+# ai-tools-project-registry-format: 1.0
+"/home/op/ai works"         # listed
+!"/home/op/ai works/build"  # carve-out
+/home/op/webapp
+!/home/op/webapp/*/node_modules
+.EE
+.RE
+.PP
+Register a project, review the file, and park and restore a project without
+editing it:
+.PP
+.RS 4
+.EX
+atr projects claim ~/src/webapp
+atr projects list
+atr projects disable ~/src/oldapp
+atr projects enable ~/src/oldapp
+.EE
+.RE
+.SH SEE ALSO
+.BR ai\-tools (1),
+.BR ai\-tools\-admin (8),
+.BR ai\-tools\-operator.conf (5),
+.BR ai\-tools\-secret\-patterns (5)
+.PP
+The lifecycle guide covers claiming a tree in place against working in a
+sandbox clone, and what each prompt grants:
+.IR /usr/share/doc/ai\-tools/docs/projects/index.md .

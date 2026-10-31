@@ -128,7 +128,9 @@ that raised it, and each is stated once.
 
 `tools/generators/man-messages.sh` generates `ai-tools-messages(7)` from `.claude/references.md`. An entry carries
 the code, its severity, the message as the emitting call writes it, and the component that emits it, each read
-off a column of the index, so the message text keeps its single home in the source that emits it.
+off a column of the index, so the message text keeps its single home in the source that emits it. The index reads
+the text up to the first `#` on the line, so a message that interpolates an expansion carrying one (`${line#…}`) takes
+that value into a variable ahead of the call, and the catalog carries the whole text.
 
 Severity comes from the emitting function through a map in the generator, which exits non-zero when the index names
 an emitter that map does not, so a new emitter is classified where the map is written.
@@ -406,8 +408,11 @@ one box per option.
 
 - **Commands and the wrapping emitters do not mix.** A wrapping emitter (`ai_tools_msg__*`) would break a multi-word
   command across lines, so a command handed to one stays on a separate plain line outside the frame (the session
-  NOTICE's reconcile command). A multi-line screen whose commands belong *inside* the frame uses `ai_tools_msg__block`
-  instead, which keeps indented command lines verbatim and overflows the long ones.
+  NOTICE's reconcile command). `ai-tools.sh`'s `die`, `die_usage` and `warn` apply this rule themselves (`emit_alert`):
+  a line that opens with whitespace is printed under the frame, verbatim, so the CLI's indented command line reads
+  the same way to the alert and to `ai_tools_msg__block`, which keeps it verbatim inside its frame. A multi-line screen
+  whose commands belong *inside* the frame uses `ai_tools_msg__block` instead, which keeps indented command lines
+  verbatim and overflows the long ones.
 - **Short prompts stay inline.** Yes/no prompts keep the inline hint form with the cursor on the same line; framing
   a one-line question with the cursor under the box reads worse than it helps. The hint is the standard bracketed
   notation with the Enter outcome spelled out — `[Y/n] (default: Yes):` for a yes default, `[y/N] (default: No):`

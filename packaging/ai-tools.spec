@@ -353,7 +353,7 @@ install -m 0644 src%{ai_mandir}/man8/ai-tools-admin.8       %{buildroot}%{ai_man
 install -m 0644 src%{ai_mandir}/man8/atr.8                  %{buildroot}%{ai_mandir}/man8/atr.8
 # ai-tools-operator.conf(5): the host options and the shared KEY=value grammar they are written in.
 # ai-tools-providers(5): the provider manifests (agents.d, integrations.d) and their keys.
-# ai-tools-allowed-projects(5), ai-tools-secret-patterns(5): the two files an operator's enrolment seeds, whose
+# ai-tools-project-registry(5), ai-tools-secret-patterns(5): the two files an operator's enrolment seeds, whose
 # headers are written once and point here for the reference.
 # ai-tools-custom-claude-endpoint.conf(5): the endpoint file's options, so its %%config(noreplace)
 # template stays a pointer.
@@ -364,7 +364,7 @@ install -m 0644 src%{ai_mandir}/man8/atr.8                  %{buildroot}%{ai_man
 install -d -m 0755 %{buildroot}%{ai_mandir}/man5
 install -m 0644 src%{ai_mandir}/man5/ai-tools-operator.conf.5               %{buildroot}%{ai_mandir}/man5/ai-tools-operator.conf.5
 install -m 0644 src%{ai_mandir}/man5/ai-tools-providers.5                   %{buildroot}%{ai_mandir}/man5/ai-tools-providers.5
-install -m 0644 src%{ai_mandir}/man5/ai-tools-allowed-projects.5            %{buildroot}%{ai_mandir}/man5/ai-tools-allowed-projects.5
+install -m 0644 src%{ai_mandir}/man5/ai-tools-project-registry.5            %{buildroot}%{ai_mandir}/man5/ai-tools-project-registry.5
 install -m 0644 src%{ai_mandir}/man5/ai-tools-secret-patterns.5             %{buildroot}%{ai_mandir}/man5/ai-tools-secret-patterns.5
 install -m 0644 src%{ai_mandir}/man5/ai-tools-custom-claude-endpoint.conf.5 %{buildroot}%{ai_mandir}/man5/ai-tools-custom-claude-endpoint.conf.5
 install -m 0644 src%{ai_mandir}/man5/ai-tools-records.5                     %{buildroot}%{ai_mandir}/man5/ai-tools-records.5
@@ -930,6 +930,13 @@ fi
 # `system post-upgrade` rewrites it. A scriptlet does not edit a config file, so this names the
 # command; the predicate is the one the reader refuses by (conf.lib.sh).
 _at_unmigrated=0
+# An enrolled operator's ~/.config/ai-tools/allowed-projects from an earlier release stays the
+# registry every reader takes until `system post-upgrade` migrates it to ~/.config/ai-tools/project-registry,
+# and every `projects` verb refuses until then; the predicate is the one the migration reads its set from (operator.lib.sh).
+_at_registries=""
+if command -v bash >/dev/null 2>&1; then
+    _at_registries="$(bash -c '. /usr/local/lib/ai-tools/conf.lib.sh; . /usr/local/lib/ai-tools/operator.lib.sh; declare -F ai_tools_operator__list_unmigrated_registries >/dev/null 2>&1 || { echo "ai-tools: skipped: the installed ai-tools-base library does not define a function this package version calls, so the installed version runs the step from its own scriptlet" >&2; exit 0; }; ai_tools_operator__list_unmigrated_registries' 2>/dev/null || :)"
+fi
 if command -v bash >/dev/null 2>&1 \
    && [ -n "$(bash -c '. /usr/local/lib/ai-tools/conf.lib.sh; declare -F ai_tools_conf__find_unmigrated_items >/dev/null 2>&1 || { echo "ai-tools: skipped: the installed ai-tools-base library does not define a function this package version calls, so the installed version runs the step from its own scriptlet" >&2; exit 0; }; ai_tools_conf__find_unmigrated_items /etc/ai-tools/operator.conf' 2>/dev/null || :)" ]; then
     _at_unmigrated=1
@@ -972,7 +979,8 @@ while IFS= read -r launcher; do
     done < <(ai_tools_agent_installs__find_executables "${launcher}")
 done < <(ai_tools_path_order__list_launchers)' 2>/dev/null || :)"
 fi
-if [ "${_at_toolchain}${_at_operator}${_at_merge}${_at_unmigrated}" != "0000" ] || [ -n "${_at_path}" ]; then
+if [ "${_at_toolchain}${_at_operator}${_at_merge}${_at_unmigrated}" != "0000" ] || [ -n "${_at_path}" ] \
+        || [ -n "${_at_registries}" ]; then
     echo "ai-tools-base: steps this host still needs:"
     if [ "${_at_toolchain}" = 1 ]; then
         echo "  atr admin system bootstrap          # install nvm + Node + the agent you choose (network)"
@@ -982,6 +990,8 @@ if [ "${_at_toolchain}${_at_operator}${_at_merge}${_at_unmigrated}" != "0000" ] 
     fi
     if [ "${_at_unmigrated}" = 1 ]; then
         echo "  atr admin system post-upgrade       # rewrites operator.conf's provider names; no session starts until then"
+    elif [ -n "${_at_registries}" ]; then
+        echo "  atr admin system post-upgrade       # migrates ~/.config/ai-tools/allowed-projects to ~/.config/ai-tools/project-registry; the projects verbs refuse until then"
     elif [ "${_at_merge}" = 1 ]; then
         echo "  atr admin system post-upgrade       # operator.conf.rpmnew is waiting"
     fi
@@ -1608,7 +1618,7 @@ fi
 %attr(0644, root, root) %{ai_mandir}/man1/atr.1*
 %attr(0644, root, root) %{ai_mandir}/man5/ai-tools-operator.conf.5*
 %attr(0644, root, root) %{ai_mandir}/man5/ai-tools-providers.5*
-%attr(0644, root, root) %{ai_mandir}/man5/ai-tools-allowed-projects.5*
+%attr(0644, root, root) %{ai_mandir}/man5/ai-tools-project-registry.5*
 %attr(0644, root, root) %{ai_mandir}/man5/ai-tools-secret-patterns.5*
 %attr(0644, root, root) %{ai_mandir}/man5/ai-tools-custom-claude-endpoint.conf.5*
 %attr(0644, root, root) %{ai_mandir}/man5/ai-tools-records.5*

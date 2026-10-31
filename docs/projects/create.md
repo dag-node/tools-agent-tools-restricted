@@ -94,9 +94,9 @@ in place, and `atr projects claim` on it finishes the claim.
 ## For another operator
 
 `atr projects create --for svc-ci /srv/projects/api` makes the tree owned
-by `svc-ci` and registers it in that account's allowlist. Because the directory
-is made **as** that account, the run needs a `sudo` grant to act as it,
-and a parent that account can write; [Service
+by `svc-ci` and registers it in that account's project registry. Because
+the directory is made **as** that account, the run needs a `sudo` grant to act
+as it, and a parent that account can write; [Service
 accounts](../operators/service-accounts.md) covers what to do when either is
 missing.
 

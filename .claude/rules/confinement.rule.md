@@ -97,10 +97,11 @@ home path is dynamic. The narrow type is what lets a grant name that one subtree
 of `config_home_t`; every other file in `~/.config` stays refused, and a `dontaudit` keeps the git and Node probes
 that follow quiet.
 
-Two domains hold the grant. `ai_tools_handback_t` is the load-bearing one — the root helpers read `allowed-projects`
-and `secret-patterns` there on the operator's behalf, and without it ownership handback silently no-ops. The confined
-session domain `ai_tools_t` holds it as well, which sounds like a widening and is not: DAC and type enforcement must
-both allow, and at the shipped `700` directory with `600` files DAC refuses the session before the type is reached.
+Two domains hold the grant. `ai_tools_handback_t` is the load-bearing one — the root helpers read
+`~/.config/ai-tools/project-registry` and `secret-patterns` there on the operator's behalf, and without it ownership
+handback silently no-ops. The confined session domain `ai_tools_t` holds it as well, which sounds like a widening and is
+not: DAC and type enforcement must both allow, and at the shipped `700` directory with `600` files DAC refuses
+the session before the type is reached.
 
 **The rule is per operator, so it is registered where an operator is made.** A home path belongs to one account, so each
 operator has a rule of its own and a pattern in `ai_tools.fc` cannot stand in for it. `atr admin operators add`
@@ -111,10 +112,10 @@ metacharacter yields a refusal rather than a rule matching homes nobody enrolled
 than `restorecon`'s exit status.
 
 A subtree the rule does not cover keeps `config_home_t`, and the cost falls on the operator who owns it: the handback
-helpers are denied `getattr` on that account's `allowed-projects`, resolve no owner, and leave every path under its
-projects sandbox-owned. The confined session is refused the same read, which is the posture the mode gate already
-describes — so a missing rule takes access away and grants none. `dontaudit ai_tools_t config_home_t:file` suppresses
-the session's denial, which leaves an `ai_tools_handback_t` AVC as what an enforcing host reports.
+helpers are denied `getattr` on that account's `~/.config/ai-tools/project-registry`, resolve no owner, and leave every
+path under its projects sandbox-owned. The confined session is refused the same read, which is the posture the mode gate
+already describes — so a missing rule takes access away and grants none. `dontaudit ai_tools_t config_home_t:file`
+suppresses the session's denial, which leaves an `ai_tools_handback_t` AVC as what an enforcing host reports.
 
 Both file grants are refpolicy's `read_file_perms` (`getattr open read lock ioctl`). Bash probes a descriptor it reads
 with a terminal `ioctl`, and these files are read once per operator per path resolved, so a narrower set leaves each
@@ -123,10 +124,11 @@ information out of a file the domain may already read.
 
 What the session grant buys is that the **file mode stays the operator's knob**. An operator who decides to open either
 file gets the read they intended rather than an AVC denial they could clear only by editing policy. Opening
-`allowed-projects` lets a session read where it may work instead of being told or probing for refusals; opening
-`secret-patterns` tells it which basenames are quarantined, which it can already infer from the NOTICE each quarantine
-emits (see [secret-handling](secret-handling.rule.md)). Removing the session grant was considered and rejected, because
-it moves that decision from a mode the operator manages into policy they would have to rebuild.
+`~/.config/ai-tools/project-registry` lets a session read where it may work instead of being told or probing
+for refusals; opening `secret-patterns` tells it which basenames are quarantined, which it can already infer
+from the NOTICE each quarantine emits (see [secret-handling](secret-handling.rule.md)). Removing the session grant was
+considered and rejected, because it moves that decision from a mode the operator manages into policy they would have
+to rebuild.
 
 ### Fail-closed confinement preflight
 

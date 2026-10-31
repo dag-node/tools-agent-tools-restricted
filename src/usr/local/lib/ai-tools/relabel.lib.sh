@@ -917,10 +917,10 @@ ai_tools_relabel__is_project_labelled() {
 }
 
 # ── The operator config subtree ──────────────────────────────────────────────────────────────
-# One operator's ~/.config/ai-tools carries ai_tools_conf_t, the type the root helpers read that account's
-# allowed-projects and secret-patterns through. A home path is dynamic, so the rule is a local `semanage fcontext` entry
-# rather than a line in ai_tools.fc, and there is one per operator. What the type buys, and what an unlabelled subtree
-# costs that operator, are in
+# One operator's ~/.config/ai-tools carries ai_tools_conf_t, the type the root helpers read that account's project
+# registry and secret-patterns through. A home path is dynamic, so the rule is a local `semanage fcontext` entry rather
+# than a line in ai_tools.fc, and there is one per operator. What the type buys, and what an unlabelled subtree costs
+# that operator, are in
 # confinement.rule.md.
 
 # The type an operator's config subtree carries.

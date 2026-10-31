@@ -84,16 +84,46 @@ ai_tools_operator__load_operator() {
     [[ -n "${PROJECTS_USER}" ]]
 }
 
-# ai_tools_operator__get_allowlist_path <operator> <is-primary>: echo the allowlist path for an operator.
-# AI_TOOLS_ALLOWLIST overrides the PRIMARY operator's path -- the single-allowlist test hook (a multi-operator host has
-# one allowlist per operator home, which a single override cannot model), carrying the same root-only-injection
-# rationale as the other AI_TOOLS_* hooks.
+# ai_tools_operator__get_allowlist_path <operator> <is-primary>: echo the registry path for an operator, the file
+# ai_tools_conf__resolve_registry picks in that operator's ~/.config/ai-tools -- `~/.config/ai-tools/allowed-projects`
+# until it is migrated, `~/.config/ai-tools/project-registry` after. AI_TOOLS_ALLOWLIST overrides the PRIMARY operator's
+# path -- the single-registry test hook (a multi-operator host has one registry per operator home, which a single
+# override cannot model), carrying the same root-only-injection rationale as the other AI_TOOLS_* hooks. Without
+# the library the path is `~/.config/ai-tools/project-registry`, which the loader then cannot read either.
 ai_tools_operator__get_allowlist_path() {
+    local config_dir home path
     if [[ -n "${AI_TOOLS_ALLOWLIST:-}" && "$2" == primary ]]; then
         printf '%s' "${AI_TOOLS_ALLOWLIST}"
-    else
-        printf '%s/.config/ai-tools/allowed-projects' "$(getent passwd "$1" 2>/dev/null | cut -d: -f6)"
+        return 0
     fi
+    # An enrolled name with no account resolves to a path under `/` that no loader reads; the pipeline's status
+    # would otherwise end a strict caller here (see shellcheck.rule.md, ref-section-c3u9).
+    home="$(getent passwd "$1" 2>/dev/null | cut -d: -f6)" || home=""
+    config_dir="${home}/.config/ai-tools"
+    if ! declare -F ai_tools_conf__resolve_registry >/dev/null 2>&1; then
+        printf '%s/project-registry' "${config_dir}"
+        return 0
+    fi
+    IFS=$'\t' read -r _ path < <(ai_tools_conf__resolve_registry "${config_dir}")
+    printf '%s' "${path:-${config_dir}/project-registry}"
+}
+
+# ai_tools_operator__list_unmigrated_registries: print `<operator>\t<path>` for each enrolled operator whose registry is
+# still the `~/.config/ai-tools/allowed-projects` an earlier release wrote -- the file ai_tools_conf__resolve_registry
+# picks while it exists -- so the base %post and install.sh name `atr admin system post-upgrade` from one predicate.
+# A host with no operator, or without the library, prints nothing. Read as root: each config directory is the operator's
+# 0700.
+ai_tools_operator__list_unmigrated_registries() {
+    local user home state path
+    ai_tools_operator__load_operators || return 0
+    declare -F ai_tools_conf__resolve_registry >/dev/null 2>&1 || return 0
+    for user in "${AI_TOOLS_OPERATOR__OPERATORS[@]}"; do
+        home="$(getent passwd "${user}" 2>/dev/null | cut -d: -f6)" || home=""
+        [[ -n "${home}" ]] || continue
+        IFS=$'\t' read -r state path < <(ai_tools_conf__resolve_registry "${home}/.config/ai-tools")
+        [[ "${state}" == legacy ]] && printf '%s\t%s\n' "${user}" "${path}"
+    done
+    return 0
 }
 
 # ai_tools_operator__is_covered_by_allowlist <allowlist-file> <canonical-path>: succeed when the allowlist allows
@@ -134,7 +164,7 @@ ai_tools_operator__resolve_owner() {
         [[ "${op}" == "${AI_TOOLS_OPERATOR__OPERATORS[0]}" ]] && tag=primary || tag=secondary
         local allowfile; allowfile="$(ai_tools_operator__get_allowlist_path "${op}" "${tag}")"
         if ai_tools_operator__is_covered_by_allowlist "${allowfile}" "${path}"; then
-            home="$(getent passwd "${op}" 2>/dev/null | cut -d: -f6)"
+            home="$(getent passwd "${op}" 2>/dev/null | cut -d: -f6)" || home=""
             cand+=("${op}"); cand_home+=("${home}"); cand_allow+=("${allowfile}")
         fi
     done

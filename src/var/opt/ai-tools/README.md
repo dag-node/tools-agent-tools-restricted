@@ -77,8 +77,8 @@ file, a `kubeconfig`. The sandbox clone is an ordinary registered project,
 so the same protections apply and the operator should still use them as defense
 in depth:
 
-- `!`-exclude live secret paths for this clone
-  in `~/.config/ai-tools/allowed-projects`, so their ownership is never handed
+- carve live secret paths of this clone out with a `!` line
+  in `~/.config/ai-tools/project-registry`, so their ownership is never handed
   back to the agent group; and
 - run `atr projects lockdown <clone>` (or
   `cd <clone> && sudo ai-tools-lockdown`) to lock existing secret-named files

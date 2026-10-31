@@ -159,7 +159,7 @@ the exit status, the call log, the state digest — is unaffected, and a baselin
 
 Every test works **only inside its own dedicated `/tmp` testdir** (`mktestdir` sets `TESTDIR`), builds its fixtures
 there with **known content defined in the test**, never reads or writes the operator's real files (notably the real
-`~/.config/ai-tools/allowed-projects`), and removes everything it created on exit (the harness `EXIT` trap). A test
+`~/.config/ai-tools/project-registry`), and removes everything it created on exit (the harness `EXIT` trap). A test
 never relies on arbitrary pre-existing state, and never touches a path outside its testdir boundary.
 
 **The invoker's process state is not a fixture either.** `run.sh` and the harness do not pin a umask, so a file runs
@@ -551,17 +551,20 @@ shim of its own, and `boundary/access.sh` holds the account's `atr admin` to a r
 to the `usage()` heredoc of their command — `ai-tools(1)` against the CLI, `ai-tools-admin(8)` against the admin helper
 — validated from the repo sources (or the installed pair outside a checkout) and executing neither command, since
 the CLI's bootstrap gate fail-closes on an unprovisioned host and the helper refuses a non-root caller. The config pages
-are held to their files: `ai-tools-allowed-projects(5)` and `ai-tools-secret-patterns(5)` to the header each file is
-seeded with (capped, naming the page, comment-only so it does not register an entry) and to the parser each file is read
-with, through which the page's own examples are loaded; `ai-tools-operator.conf(5)`
-and `ai-tools-custom-claude-endpoint.conf(5)` to the keys their shipped templates mention, in both directions, read
-with `ai_tools_conf__read_keys` so the test and `system post-upgrade` agree on what *mentioned* means. It closes
-by running the checker's `--config-header` mode over every config header this project writes, so each holds to 72
-columns ([providers](providers.rule.md) states the placement rule). In each pair the help is orientation and the page is
-the reference (see [cli](cli.rule.md)), so it asserts relations rather than set equality. For `ai-tools(1)`:
-the **verb** sets match in both directions, every option the help names is documented, and every option the page
-documents is one a CLI **parser** accepts. The last is the direction with teeth: what goes stale is an option outliving
-its parser, whereas requiring the help to name every documented option is what makes slimming the help impossible.
+are held to their files: `ai-tools-project-registry(5)` and `ai-tools-secret-patterns(5)` to the header each file is
+seeded with (capped, naming the page, comment-only so it does not register an entry) and to the reader each file is read
+with, through which the page's own examples are loaded. A registry example is held to what the page says it means
+as well as to the parser: each example block holding an entry validates as a current registry, and each line
+whose comment opens with a state word classifies as that state, since a parked project written with a `!` parses
+and reads as a carve-out. `ai-tools-operator.conf(5)` and `ai-tools-custom-claude-endpoint.conf(5)` to the keys their
+shipped templates mention, in both directions, read with `ai_tools_conf__read_keys` so the test
+and `system post-upgrade` agree on what *mentioned* means. It closes by running the checker's `--config-header` mode
+over every config header this project writes, so each holds to 72 columns ([providers](providers.rule.md) states
+the placement rule). In each pair the help is orientation and the page is the reference (see [cli](cli.rule.md)), so it
+asserts relations rather than set equality. For `ai-tools(1)`: the **verb** sets match in both directions, every option
+the help names is documented, and every option the page documents is one a CLI **parser** accepts. The last is
+the direction with teeth: what goes stale is an option outliving its parser, whereas requiring the help to name every
+documented option is what makes slimming the help impossible.
 
 `ai-tools-admin(8)` gets the same relations over a surface spelled in bare words rather than long options
 ([cli-grammar](cli-grammar.rule.md)), so what is compared is the whole **command path** — `selinux groups enable`, three
@@ -634,6 +637,12 @@ the one state the launch proceeds through creates the clone unlabelled, and ever
 and against the checkout: every way `restorecon`'s output can be incomplete is asserted to read unknown, not `match`,
 absence is ENOENT or ENOTDIR alone, and the ACL reader applies the mask to the named entries and `group::` alone,
 with a real `setfacl` of the claim's specification as the live control.
+
+`registry-class.sh` drives the project registry classifier (`ai_tools_conf__read_registry_path_class`), which every
+`projects` verb decides from, as a table: one fixture registry per shape a host meets, one row per path asserting every
+field of the record, under the launch wrapper's IFS. The states the rows reach are asserted equal to the set
+the library's own state table names, so a state added there without rows fails the file, and a pair of fixtures holding
+the same lines in both orders pins which line `blocked` names. It reads the checkout's library and runs without root.
 
 `conf.sh` and `providers.sh` are the library pair behind the provider seam (see [providers](providers.rule.md)).
 `conf.sh` pins the shared `KEY=value` grammar every `operator.conf` key and every manifest is read with — quotes

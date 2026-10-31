@@ -174,7 +174,7 @@ ai_tools_ancestor_config__can_session_read() {
 #   An ancestor that is itself a claimed project does not need a case of its own, and the walk does not stop
 #   at one. Its files carry the group, the ACL and the project label that claim applied, so
 #   ai_tools_ancestor_config__can_session_read passes them and they are not reported -- while a file further up, which
-#   a toolchain reaches by walking past that project, still is. Reading allowed-projects here would
+#   a toolchain reaches by walking past that project, still is. Reading the project registry here would
 #   answer a different question and get both wrong: an entry gates where a session LAUNCHES, not what
 #   it may read, so a PARKED claimed ancestor -- a registry edit that leaves group and label in place
 #   -- would be reported over files the session reads.

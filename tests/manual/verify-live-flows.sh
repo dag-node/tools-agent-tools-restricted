@@ -46,7 +46,7 @@
 # exercises everything that is reversible (the dry run, the refusals, the trail). Run it when no session holds work you
 # want.
 #
-# A SECOND OPT-IN COVERS --for. projects create/projects remove are the two verbs that touch the filesystem
+# A SECOND OPT-IN COVERS --for. projects create/project-registry remove are the two verbs that touch the filesystem
 # AS the operator they act for (`sudo -u <target>`), so proving them needs a second enrolled operator and a Runas grant
 # -- neither of which this script may manufacture. With --for-drill it uses one that ALREADY exists on the host,
 # and skips with the reason otherwise.
@@ -109,6 +109,13 @@ sudo_why() { printf '  %ssudo%s  %s\n' "${C_Y}" "${C_0}" "$*"; }
 check() { local d="$1"; shift; if "$@"; then pass "${d}"; else fail "${d}"; fi; }
 # has_acl <entry-prefix> <path> : 0 when the path carries an ACL entry starting <entry-prefix>.
 has_acl() { getfacl -c -- "$2" 2>/dev/null | grep -q "^$1"; }
+# registry_path: the operator's project registry, as ai_tools_conf__resolve_registry picks it --
+# `~/.config/ai-tools/allowed-projects` while an earlier release's file stands, `~/.config/ai-tools/project-registry`
+# otherwise.
+registry_path() {
+    if [[ -e "${HOME}/.config/ai-tools/allowed-projects" ]]; then printf '%s' "${HOME}/.config/ai-tools/allowed-projects"
+    else printf '%s' "${HOME}/.config/ai-tools/project-registry"; fi
+}
 mode_of()  { stat -c '%a' "$1" 2>/dev/null; }
 group_of() { stat -c '%G' "$1" 2>/dev/null; }
 owner_of() { stat -c '%U:%G' "$1" 2>/dev/null; }
@@ -194,9 +201,10 @@ cleanup() {
     # fcontext rule -- is outside the workspace, where no later step removes it, and the copy is never registered
     # (section 4 runs `ai-tools projects unclaim --force` on it), so a silent attempt on it would hide the one
     # on the project.
-    local allowlist="${HOME}/.config/ai-tools/allowed-projects" path out line
+    local allowlist path out line
+    allowlist="$(registry_path)"
     for path in "${PROJ}" "${COPY}"; do
-        grep -qsxF -e "${path}" -e "!${path}" "${allowlist}" || continue
+        grep -qsxF -e "${path}" -e "%${path}" "${allowlist}" || continue
         if ! out="$("${CLI}" projects unclaim -y --group "${MY_GROUP}" "${path}" 2>&1)"; then
             note "cleanup: the unclaim of ${path} failed, so its allowlist entry and its SELinux file-context rule stay registered"
             while IFS= read -r line; do note "  ${line}"; done <<<"${out}"
@@ -392,7 +400,7 @@ fi
 # that the edit lands in the FILE the launch gate reads, at the position the operator left it, and comes back
 # byte-identical.
 section "2b. ai-tools projects disable / projects enable"
-AL="${HOME}/.config/ai-tools/allowed-projects"
+AL="$(registry_path)"
 if [[ ! -r "${AL}" ]]; then
     skip "the park/restore round trip (no readable allowlist at ${AL})"
 elif ! ${TREE_CLAIMED}; then
@@ -402,12 +410,12 @@ else
     AL_LINE_BEFORE="$(grep -nxF "${PROJ}" "${AL}" | cut -d: -f1 | head -n1)"
     DIS_OUT="$("${CLI}" projects disable "${PROJ}" 2>&1)"; DIS_RC=$?
     check "the disable completes (rc=${DIS_RC})" test "${DIS_RC}" -eq 0
-    if grep -qxF "!${PROJ}" "${AL}"; then
+    if grep -qxF "%${PROJ}" "${AL}"; then
         pass "the entry is parked in the operator's real allowlist"
     else
         fail "the entry was not parked: $(printf '%s' "${DIS_OUT}" | tail -2 | tr '\n' ' ')"
     fi
-    AL_LINE_AFTER="$(grep -nxF "!${PROJ}" "${AL}" | cut -d: -f1 | head -n1)"
+    AL_LINE_AFTER="$(grep -nxF "%${PROJ}" "${AL}" | cut -d: -f1 | head -n1)"
     check "it kept its line number (${AL_LINE_BEFORE:-?} -> ${AL_LINE_AFTER:-?})" \
           test "${AL_LINE_BEFORE:-x}" = "${AL_LINE_AFTER:-y}"
     # The consequence an operator has to be told about, since it is the one that costs data: while parked, the handback
@@ -458,7 +466,7 @@ fi
 # call sudo, and none may put sudo under `timeout`: timeout runs its command in a background process group,
 # where a password read on the tty stops the job.
 section "2c. the ownership-handback hooks, end to end"
-if ! grep -qx "${PROJ}" "${HOME}/.config/ai-tools/allowed-projects" 2>/dev/null; then
+if ! grep -qxF "${PROJ}" "$(registry_path)" 2>/dev/null; then
     skip "handback hooks (the claim in section 1 did not register ${PROJ}, so the daemon would refuse it)"
 else
     # The fixture directory, named by the suite's fixture rule so a leftover reads as the suite's. 2770: the hook stats
@@ -726,7 +734,7 @@ if grep -qi 'unbound variable' <<<"${UNCLAIM_OUT}"; then
 else
     pass "the unclaim ran through its hand-back without an unbound-variable abort"
 fi
-if grep -q "^${PROJ}\$" "${HOME}/.config/ai-tools/allowed-projects" 2>/dev/null; then
+if grep -qxF "${PROJ}" "$(registry_path)" 2>/dev/null; then
     fail "the allowlist entry survived the unclaim"
 else
     pass "the allowlist entry is gone"

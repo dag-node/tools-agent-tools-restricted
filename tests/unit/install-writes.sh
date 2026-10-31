@@ -630,8 +630,8 @@ if [[ -n "${atr_text}" ]]; then
     printf '\037\213junk' > "${PAGE8}.gz"
     state_is "foreign a page in gzip compression that fails gzip -t" "gzip magic and no stream, read with gzip present" unowned \
         "${PAGE8}.gz" page
-    # A stream that fails its CRC, and one cut after its last block, each still decompress to the stub's .so line, which
-    # is read first as the control that the integrity test and not the text decides them.
+    # A stream that fails its CRC, and one cut after its last block, each still decompress to the stub's .so line,
+    # which is read first as the control that the integrity test and not the text decides them.
     gzip -c "${PAGE1}" > "${TESTDIR}/atr-whole.gz"
     whole_size="$(stat -c '%s' "${TESTDIR}/atr-whole.gz")"
     { head -c "$(( whole_size - 8 ))" "${TESTDIR}/atr-whole.gz"; printf '\0\0\0\0'
@@ -842,5 +842,40 @@ if [[ "${names_text}" == *'"/usr/local/bin/atr wrapper"'* && "${names_text}" == 
 else
     fail "ATR_NAMES does not list the five names: ${names_text//$'\n'/ | }"
 fi
+
+# ── The registry a source install seeds and de-registers ─────────────────────────────────────────
+# do_install seeds the registry and do_uninstall de-registers the checkout from it; each takes the path
+# from ai_tools_conf__resolve_registry, so an operator whose `~/.config/ai-tools/allowed-projects` an earlier release
+# wrote keeps it as the file both read, and a migrated one's `~/.config/ai-tools/project-registry` is the file both
+# edit. A path composed by hand names one of the two names whatever the host holds, which is how the uninstall skipped
+# a migrated registry.
+section "install.sh: the registry a source install seeds and de-registers is the resolver's (unit)"
+# registry_from_resolver <file> <function> : succeed when <function> does not compose a registry path by hand and its
+# first resolver call comes before its first use of the registry (the seed's write, or the state read).
+registry_from_resolver() {
+    local body resolve_line use_line
+    body="$(extract_function "$1" "$2")"
+    [[ -n "${body}" ]] || return 1
+    grep -qE '\.config/ai-tools/(allowed-)?projects"' <<<"${body}" && return 1
+    resolve_line="$(grep -n -m1 'ai_tools_conf__resolve_registry' <<<"${body}" | cut -d: -f1 || true)"
+    use_line="$(grep -n -m1 -E 'ai_tools_conf__get_allowlist_seed >|ai_tools_conf__read_allowlist_state' <<<"${body}" \
+        | cut -d: -f1 || true)"
+    [[ -n "${resolve_line}" && -n "${use_line}" ]] && (( resolve_line < use_line ))
+}
+# shellcheck disable=SC2016  # the control is install.sh text, written and not expanded
+printf '%s\n' 'do_uninstall() {' '    local allowlist="${PROJECTS_HOME}/.config/ai-tools/allowed-projects"' \
+    '    ai_tools_conf__read_allowlist_state "${allowlist}" "${SCRIPT_DIR}"' '}' > "${TESTDIR}/registry-control.sh"
+if registry_from_resolver "${TESTDIR}/registry-control.sh" do_uninstall; then
+    fail "control: the reader accepts a registry path composed by hand, so the checks below cannot fail"
+else
+    pass "the reader flags a registry path composed by hand (control)"
+fi
+for registry_function in do_install do_uninstall; do
+    if registry_from_resolver "${INSTALLER}" "${registry_function}"; then
+        pass "${registry_function} takes the registry from the resolver ahead of its first use"
+    else
+        fail "${registry_function} composes the registry path, or uses it ahead of the resolver"
+    fi
+done
 
 finish

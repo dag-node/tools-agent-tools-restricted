@@ -172,7 +172,7 @@ call_status() {
                  source "${lib}" 2>/dev/null || true
                  status_entrypoints() { :; }; ai_tools_services__list_records() { :; }
                  status_selinux_attestation() { :; }; status_assets() { :; }; status_managed_files() { :; }
-                 status_unit_search_path() { :; }; status_caches() { :; }
+                 status_unit_search_path() { :; }; status_caches() { :; }; status_registries() { :; }
                  eval "${pre}"; status' _ "${HELPER}" "${SERVICES_LIB}" "$1" 2>&1
 }
 reset_fixtures; manifest alpha la; vlink la v9.9.9
@@ -392,6 +392,34 @@ elif grep -qE '^ +\[\?\] +ai-tools-relabel\.service  systemctl is unavailable he
     pass "a system unit on a host without systemctl reads ? naming that, and is not counted"
 else
     fail "no systemctl (rc ${rc}): $(tr '\n' '|' <<<"${out}")"
+fi
+
+# The Project registries section reads every enrolled operator's registry through _pu_registry_list, stubbed here
+# to name fixture files: a current file the grammar accepts reads OK, and a file no reader accepts, an allowed-projects
+# an earlier release wrote, and each counts, since the projects verbs refuse over both; an operator with no registry is
+# named with the enrolment command and not counted.
+section "ai-tools-admin status: the Project registries section (unit)"
+REGS="${TESTDIR}/registries"; mkdir -p "${REGS}/ok" "${REGS}/bad" "${REGS}/old" "${REGS}/none"
+printf '%s\n' "# ai-tools-project-registry-format: 1.0" "/srv/p" > "${REGS}/ok/project-registry"
+printf '%s\n' "# ai-tools-project-registry-format: 1.0" "relative" > "${REGS}/bad/project-registry"
+printf '%s\n' "/srv/p" "!/srv/p/vendor" > "${REGS}/old/allowed-projects"
+# shellcheck disable=SC2016  # the $1 and $2 are for the inner `bash -c`
+out="$(bash -c 'helper="$1" regs="$2"; set --; source "${helper}" >/dev/null 2>&1 || exit 99
+    declare -F status_registries >/dev/null || exit 98
+    _pu_registry_list() {
+        printf "%s\t1\tcurrent\t%s\n" ok "${regs}/ok/project-registry" bad "${regs}/bad/project-registry"
+        printf "old\t1\tlegacy\t%s\n" "${regs}/old/allowed-projects"
+        printf "none\t1\tnone\t%s\n" "${regs}/none/project-registry"
+    }
+    status_registries; printf "problems=%s\n" "${STATUS_PROBLEMS}"' _ "${HELPER}" "${REGS}" 2>&1)" && rc=0 || rc=$?
+if [[ "${rc}" -eq 98 ]]; then
+    skip "admin status registries" "status_registries absent (older helper?)"
+elif grep -qE '^ +\[OK\] +ok: ' <<<"${out}" && grep -qE '^ +\[REFUSED\] +bad: ' <<<"${out}" \
+        && grep -qE '^ +\[NOT MIGRATED\] +old: ' <<<"${out}" && grep -qE '^ +\[n/a\] +none: ' <<<"${out}" \
+        && grep -qF 'atr admin system post-upgrade' <<<"${out}" && grep -qx 'problems=2' <<<"${out}"; then
+    pass "each registry reads its state, and the refused and the unmigrated ones count"
+else
+    fail "the Project registries section (rc ${rc}): $(head -c 600 <<<"${out}" | tr '\n' '|')"
 fi
 
 finish

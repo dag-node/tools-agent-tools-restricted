@@ -297,8 +297,8 @@ TREE_LINE=""
 INSTALLED_CLI="${AI_TOOLS_INSTALLED_CLI:-/usr/local/bin/ai-tools}"
 
 # report_packaged_host -- warn where rpm reports ai-tools-base installed. Each package file this install replaces keeps
-# its rpm database entry with other bytes under it, so `rpm -V` and the layout table read it as content drift, which
-# the reconcile refuses to repair (layout.rule.md), and the next `dnf upgrade` writes over it. A warning and not
+# its rpm database entry with other bytes under it, so `rpm -V` and the layout table read it as content drift,
+# which the reconcile refuses to repair (layout.rule.md), and the next `dnf upgrade` writes over it. A warning and not
 # a refusal: the operator is installing on purpose, and the review box still asks before the first write.
 report_packaged_host() {
     command -v rpm >/dev/null 2>&1 && rpm -q ai-tools-base >/dev/null 2>&1 || return 0
@@ -1087,7 +1087,7 @@ do_summary() {
     _chk /usr/local/share/man/man1/atr.1
     _chk /usr/local/share/man/man5/ai-tools-operator.conf.5
     _chk /usr/local/share/man/man5/ai-tools-providers.5
-    _chk /usr/local/share/man/man5/ai-tools-allowed-projects.5
+    _chk /usr/local/share/man/man5/ai-tools-project-registry.5
     _chk /usr/local/share/man/man5/ai-tools-secret-patterns.5
     _chk /usr/local/share/man/man5/ai-tools-custom-claude-endpoint.conf.5
     _chk /usr/local/share/man/man5/ai-tools-records.5
@@ -2016,8 +2016,8 @@ do_install() {
     install -o root -g root -m 644 \
         "${SCRIPT_DIR}/src/usr/local/lib/ai-tools/integrations.d/typesafe.conf" \
         /usr/local/lib/ai-tools/integrations.d/typesafe.conf
-    # The typesafe state root under the sandbox home is created in the control-plane section, after the home is
-    # brought to its row: a directory under a home the account still owns is the account's to place or swap.
+    # The typesafe state root under the sandbox home is created in the control-plane section, after the home is brought
+    # to its row: a directory under a home the account still owns is the account's to place or swap.
 
     # SELinux policy modules: compiled from this checkout and staged under the canonical package dir (see
     # stage_selinux_modules). Loading and labelling the core is offer_selinux's step, later; this lays the modules
@@ -2263,9 +2263,9 @@ do_install() {
         /usr/lib/systemd/system/ai-tools-relabel.service
 
     # Project-lifecycle CLI. Runs AS the projects user (never root, never ai-tools) and does not need privilege: it only
-    # edits allowed-projects and the git safe.directory list, both writable by the projects user. 755 root:root --
-    # world-executable (the in-script guard refuses to run as root or ai-tools), root-owned so the agent cannot tamper
-    # with it.
+    # edits the operator's project registry and the git safe.directory list, both writable by the projects user. 755
+    # root:root -- world-executable (the in-script guard refuses to run as root or ai-tools), root-owned so the agent
+    # cannot tamper with it.
     log "/usr/local/bin/ai-tools"
     install_subst 755 root root \
         "${SCRIPT_DIR}/src/usr/local/bin/ai-tools.sh" \
@@ -2307,11 +2307,13 @@ do_install() {
     # Every section-5 page carries the ai-tools- prefix, so it cannot shadow a page some other package installs
     # under the same generic name -- /usr/local/share/man and /usr/share/man are both on the default MANDATORY_MANPATH,
     # and `man typesafe.conf` on a host that installs a vendor page would otherwise resolve to whichever the search
-    # order reaches first. Migration: remove the unprefixed names a from-source install placed, which the new run does
-    # not overwrite because it writes different paths. (The RPM drops them on upgrade from its own %files.)
+    # order reaches first. Migration: remove the names a from-source install placed that this release does not ship --
+    # the unprefixed names, and ai-tools-allowed-projects, which ai-tools-project-registry replaces -- since the new run
+    # writes different paths and does not overwrite them. (The RPM drops them on upgrade from its own %files.)
     install -d -o root -g root -m 755 /usr/local/share/man/man5
     local stale_page
-    for stale_page in operator.conf allowed-projects secret-patterns custom-claude-endpoint.conf typesafe.conf; do
+    for stale_page in operator.conf allowed-projects ai-tools-allowed-projects secret-patterns custom-claude-endpoint.conf \
+            typesafe.conf; do
         if [[ -f "/usr/local/share/man/man5/${stale_page}.5" ]]; then
             log "removing superseded /usr/local/share/man/man5/${stale_page}.5"
             rm -f "/usr/local/share/man/man5/${stale_page}.5" "/usr/local/share/man/man5/${stale_page}.5.gz"
@@ -2332,13 +2334,13 @@ do_install() {
         "${SCRIPT_DIR}/src/usr/local/share/man/man5/ai-tools-providers.5" \
         /usr/local/share/man/man5/ai-tools-providers.5
 
-    # ai-tools-allowed-projects(5). The operator's project allowlist: its grammar, what an entry and an exclusion mean,
+    # ai-tools-project-registry(5). The operator's project registry: its grammar, what each line kind means,
     # and the entry states. The seeded file's header is written once and never rewritten, so it points here rather than
     # carrying the reference.
-    log "/usr/local/share/man/man5/ai-tools-allowed-projects.5"
+    log "/usr/local/share/man/man5/ai-tools-project-registry.5"
     install_subst 644 root root \
-        "${SCRIPT_DIR}/src/usr/local/share/man/man5/ai-tools-allowed-projects.5" \
-        /usr/local/share/man/man5/ai-tools-allowed-projects.5
+        "${SCRIPT_DIR}/src/usr/local/share/man/man5/ai-tools-project-registry.5" \
+        /usr/local/share/man/man5/ai-tools-project-registry.5
 
     # ai-tools-secret-patterns(5). The operator's secret-name patterns: the glob grammar, what a match does,
     # and the replace-the-baseline rule. Seeded once like the allowlist, so its header points here too.
@@ -2894,9 +2896,16 @@ do_install() {
 
     ensure_config_home "${PROJECTS_USER}" "${PROJECTS_GROUP}" "${PROJECTS_HOME}"
     ensure_dir 700 "${PROJECTS_USER}" "${PROJECTS_GROUP}" "${PROJECTS_HOME}/.config/ai-tools"
-    local allowlist="${PROJECTS_HOME}/.config/ai-tools/allowed-projects"
+    # The registry is the file the resolver picks: an earlier release's `~/.config/ai-tools/allowed-projects` is kept
+    # as it is and stays the registry until `system post-upgrade` migrates it (the closing steps name the command),
+    # so `~/.config/ai-tools/project-registry` is not seeded beside it; otherwise `~/.config/ai-tools/project-registry`
+    # is seeded, with the marker as line 1.
+    local allowlist registry_state
+    IFS=$'\t' read -r registry_state allowlist < <(ai_tools_conf__resolve_registry "${PROJECTS_HOME}/.config/ai-tools")
     local allowlist_existed=0; [[ -f "${allowlist}" ]] && allowlist_existed=1
-    if keep_existing "${allowlist}" \
+    if [[ "${registry_state}" == legacy ]]; then
+        seed_result "${allowlist}" "${allowlist_existed}" 1 "an earlier release's registry; atr admin system post-upgrade migrates it"
+    elif keep_existing "${allowlist}" \
             "Removes every approved project from the allowlist (the directories are untouched)."; then
         seed_result "${allowlist}" "${allowlist_existed}" 1
     else
@@ -3001,6 +3010,18 @@ do_install() {
     offer_selinux
 
     section "Install complete -- next steps"
+    # An enrolled operator's `~/.config/ai-tools/allowed-projects` from an earlier release stays every reader's
+    # registry, and every `projects` verb refuses, until `system post-upgrade` migrates it
+    # to `~/.config/ai-tools/project-registry` (operator.lib.sh's predicate).
+    local registries registry_path
+    registries="$(bash -c '. /usr/local/lib/ai-tools/conf.lib.sh && . /usr/local/lib/ai-tools/operator.lib.sh && ai_tools_operator__list_unmigrated_registries' \
+        2>/dev/null || true)"
+    if [[ -n "${registries}" ]]; then
+        say "  ${C_YEL}migrate ~/.config/ai-tools/allowed-projects to ~/.config/ai-tools/project-registry -- the projects verbs refuse until then:${C_RST}"
+        while IFS=$'\t' read -r _ registry_path; do say "    ${registry_path}"; done <<< "${registries}"
+        say "    ${C_BOLD}atr admin system post-upgrade${C_RST}"
+        say ""
+    fi
     # A provider list an earlier release wrote with bare names refuses every session start until `system post-upgrade`
     # rewrites it. This installer keeps operator.conf as the operator left it, so it names the command first,
     # in the colour of a step the host still owes; the predicate is the one the reader refuses by (conf.lib.sh).
@@ -3236,7 +3257,7 @@ do_uninstall() {
     rm -f /usr/local/share/man/man1/ai-tools.1
     rm -f /usr/local/share/man/man5/ai-tools-operator.conf.5
     rm -f /usr/local/share/man/man5/ai-tools-providers.5
-    rm -f /usr/local/share/man/man5/ai-tools-allowed-projects.5
+    rm -f /usr/local/share/man/man5/ai-tools-project-registry.5 /usr/local/share/man/man5/ai-tools-allowed-projects.5
     rm -f /usr/local/share/man/man5/ai-tools-secret-patterns.5
     rm -f /usr/local/share/man/man5/ai-tools-custom-claude-endpoint.conf.5
     rm -f /usr/local/share/man/man5/ai-tools-records.5
@@ -3281,21 +3302,31 @@ do_uninstall() {
     rm -f /opt/ai-tools/.codex/session-hook.sh
 
     section "Registration"
-    # Optionally remove this project from the allowlist (default: keep)
-    local allowlist="${PROJECTS_HOME}/.config/ai-tools/allowed-projects"
+    # Optionally remove this project from the registry (default: keep). The registry is the file the resolver picks,
+    # `~/.config/ai-tools/allowed-projects` until it is migrated and `~/.config/ai-tools/project-registry` after.
     # Membership and the removal both go through conf.lib.sh -- the same editing functions the CLI
-    # and the ai-tools-allowlist helper use. A raw `grep -qxF` plus a hand-escaped `sed` was the third implementation
-    # of this edit in the tree, and the narrowest: it saw only a line spelled exactly as ${SCRIPT_DIR}, so an entry
-    # carrying a comment or quotes read as absent and the question was never asked.
+    # and the ai-tools-allowlist helper use, so an entry carrying a comment or quotes is the entry it is. The editor
+    # writes the current format alone: a legacy file is left as it is, naming the migration, and a file the grammar
+    # refuses is left with the library's line naming it.
+    local allowlist registry_state remove_rc
+    IFS=$'\t' read -r registry_state allowlist < <(ai_tools_conf__resolve_registry "${PROJECTS_HOME}/.config/ai-tools")
     if [[ -f "${allowlist}" ]] \
             && [[ "$(ai_tools_conf__read_allowlist_state "${allowlist}" "${SCRIPT_DIR}")" != absent ]]; then
         if confirm_boxed "Keep registration" y \
-                "Keep this project in allowed-projects?" "  ${SCRIPT_DIR}"; then
-            log "allowed-projects: kept"
-        elif ai_tools_conf__allowlist_remove "${allowlist}" "${SCRIPT_DIR}"; then
-            log "allowed-projects: removed"
+                "Keep this project in ${allowlist##*/}?" "  ${SCRIPT_DIR}"; then
+            log "${allowlist##*/}: kept"
         else
-            warn MSG-Z3H8 "could not remove ${SCRIPT_DIR} from ${allowlist} -- it is still registered"
+            remove_rc=0; ai_tools_conf__allowlist_remove "${allowlist}" "${SCRIPT_DIR}" || remove_rc=$?
+            if (( remove_rc == 0 )); then
+                log "${allowlist##*/}: removed"
+            elif [[ "${registry_state}" == legacy ]]; then
+                printf 'MSG-J6S8\n' >&2
+                warn "${allowlist} is the allowed-projects an earlier release wrote and is not migrated -- not changed; run atr admin system post-upgrade, then remove ${SCRIPT_DIR} with: atr projects unclaim ${SCRIPT_DIR}"
+            elif (( remove_rc == 3 )); then
+                warn "${allowlist} holds the line named above that no reader accepts -- not changed"
+            else
+                warn MSG-Z3H8 "could not remove ${SCRIPT_DIR} from ${allowlist} -- it is still registered"
+            fi
         fi
     fi
 

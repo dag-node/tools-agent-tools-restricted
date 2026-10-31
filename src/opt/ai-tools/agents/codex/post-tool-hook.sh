@@ -10,7 +10,7 @@
 # a Bash-created file does not name a path here and is swept at turn end (the Stop hook) or at session end (the shim's
 # sweep).
 #
-# Runs as ai-tools. It deliberately does NOT pre-check the approved-projects allowlist: that file lives
+# Runs as ai-tools. It deliberately does NOT pre-check the operator's project registry: that file lives
 # under the operator's home .config (mode 700, owned by the operator), which ai-tools cannot traverse --
 # so a `[[ -f ALLOWLIST ]]` test here is always false and would make the hook a permanent no-op. The allowlist is
 # enforced authoritatively by ai-tools-chown, which runs as root and CAN read it (and is the real security boundary

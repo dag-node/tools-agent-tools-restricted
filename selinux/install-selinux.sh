@@ -74,7 +74,13 @@ export AI_TOOLS_MSG_FULLWIDTH=1
 # Optional policy-group registry (names/descriptions/reasons + predicates), single-sourced so this authoring tool
 # and the installed ai-tools-admin never disagree on the group set. REQUIRED -- the enable/disable/list actions
 # and the install prompt all read it; a missing lib fails the run. Same source-tree-first, installed-second resolution
-# as MSG_LIB.
+# as MSG_LIB. The project registry's grammar and resolver (conf.lib.sh), so the project loop reads the file
+# and the lines every other reader does. REQUIRED, as the loop labels what it reads; the same resolution as MSG_LIB.
+CONF_LIB="${DIR}/../src/usr/local/lib/ai-tools/conf.lib.sh"
+[[ -r "${CONF_LIB}" ]] || CONF_LIB="/usr/local/lib/ai-tools/conf.lib.sh"
+# shellcheck source=/dev/null
+source "${CONF_LIB}" || refuse_unsourced "${CONF_LIB}"
+
 GROUPS_LIB="${DIR}/../src/usr/local/lib/ai-tools/selinux-groups.lib.sh"
 [[ -r "${GROUPS_LIB}" ]] || GROUPS_LIB="/usr/local/lib/ai-tools/selinux-groups.lib.sh"
 # shellcheck source=/dev/null
@@ -87,14 +93,17 @@ HOME_STATE=(.npm .cache .local .config .gitconfig)
 [[ "${EUID}" -eq 0 ]] || { printf 'MSG-K4W7\n%s\n' "selinux: run with sudo" >&2; exit 1; }
 PROJECTS_USER="${SUDO_USER:?selinux: invoke via sudo, not as root directly}"
 PROJECTS_HOME="$(getent passwd "${PROJECTS_USER}" | cut -d: -f6)"
-readonly ALLOWLIST="${PROJECTS_HOME}/.config/ai-tools/allowed-projects"
+# The registry ai_tools_conf__resolve_registry picks: `~/.config/ai-tools/allowed-projects` until `system post-upgrade`
+# migrates it, `~/.config/ai-tools/project-registry` after.
+IFS=$'\t' read -r _ ALLOWLIST < <(ai_tools_conf__resolve_registry "${PROJECTS_HOME}/.config/ai-tools")
+readonly ALLOWLIST
 # Sandbox clones live here and are labelled ai_tools_project_t by the STATIC rule in ai_tools.fc, so the per-project
 # semanage loop skips them (a duplicate local rule would be redundant). A plain restorecon of this tree applies
 # the static label.
 readonly SANDBOX_PROJECTS="/var/opt/ai-tools/sandbox-projects"
-# The user-owned ai-tools config dir (allowed-projects, secret-patterns). Labelled ai_tools_conf_t so the root helpers
-# -- which run IN ai_tools_handback_t, inherited from the handback daemon -- can read the allowlist; without it their
-# getattr is denied (config_home_t:file is dontaudit'd) and ownership handback silently no-ops. The narrow type is
+# The user-owned ai-tools config dir (the project registry, secret-patterns). Labelled ai_tools_conf_t so the root
+# helpers -- which run IN ai_tools_handback_t, inherited from the handback daemon -- can read the registry; without it
+# their getattr is denied (config_home_t:file is dontaudit'd) and ownership handback silently no-ops. The narrow type is
 # what keeps that grant off the rest of ~/.config. The confined session is granted the same type, which the 700/600
 # modes then gate -- see the ai_tools_conf_t block in ai_tools.te. Applied via semanage (dynamic home path), not
 # ai_tools.fc (fixed paths).
@@ -833,14 +842,23 @@ verify_agent_labels() {
     log "  and relaunch it, then confirm with:  ps -eo label,cmd | grep '[c]laude'  (expect ai_tools_t)"
 }
 
-# for_each_project <fn>: call <fn> once with each allowlisted project directory, skipping blank/comment/'!'-exclusion
-# lines and sandbox clones (labelled statically by ai_tools.fc). No-op when the allowlist is absent.
+# for_each_project <fn>: call <fn> once with each registered project directory -- an allow line or a `%` park, read
+# through the shared grammar (ai_tools_conf__parse_path_entry), since a parked project keeps its label -- skipping
+# carve-out lines and sandbox clones (labelled statically by ai_tools.fc). No-op when the registry is absent,
+# and when no reader accepts it (the library's line on stderr): a label is what a session works under, so a file read
+# as something other than the operator's intent does not decide one.
 for_each_project() {
     local fn="$1" entry dir
     [[ -f "${ALLOWLIST}" ]] || return 0
+    if ! ai_tools_conf__validate_registry "${ALLOWLIST}" "$(ai_tools_conf__read_registry_grammar "${ALLOWLIST}")"; then
+        warn "${ALLOWLIST} holds the line named above that no reader accepts -- its projects were not walked"
+        return 0
+    fi
     while IFS= read -r entry || [[ -n "${entry}" ]]; do
-        [[ -z "${entry}" || "${entry}" == '#'* || "${entry}" == '!'* ]] && continue
-        dir="$(realpath -e "${entry}" 2>/dev/null)" || continue
+        ai_tools_conf__parse_path_entry "${entry}" || continue
+        # shellcheck disable=SC2154  # set by ai_tools_conf__parse_path_entry (conf.lib.sh)
+        [[ "${ai_tools_conf__value}" == '!'* ]] && continue
+        dir="$(realpath -e -- "${ai_tools_conf__value#%}" 2>/dev/null)" || continue
         # Sandbox clones are labelled statically (ai_tools.fc); skip the dynamic loop.
         [[ "${dir}/" == "${SANDBOX_PROJECTS}/"* ]] && continue
         "${fn}" "${dir}"

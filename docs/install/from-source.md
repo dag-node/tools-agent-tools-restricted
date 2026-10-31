@@ -253,8 +253,8 @@ holding none is enrolled after the install with `ai-tools-admin`, rather than
 named at this prompt.
 
 The script deploys the static `%ai-ops` sudoers drop-in, the helpers
-and the system units, creates the approved-projects allowlist with format
-documentation, installs the `ai-tools` project CLI and the `/var/opt/ai-tools`
+and the system units, seeds your project registry with its format marker
+and a header, installs the `ai-tools` project CLI and the `/var/opt/ai-tools`
 sandbox area, enables the `nvm-update.timer` in `${SANDBOX_USER}`'s
 `--user instance`, and enables the `ai-tools-relabel.path` watcher. It is
 idempotent — safe to re-run after updates. It deploys the commit the checkout
@@ -280,8 +280,8 @@ verdicts without installing.
 Whether the checkout is registered as a project is the CLI's business,
 and the install leaves that entry as it finds it.
 
-Enrol each further login user as an operator (ai-ops membership, allowlist
-seed):
+Enrol each further login user as an operator (ai-ops membership, project
+registry seed):
 
 ```bash
 atr admin operators add <user>     # defaults to $SUDO_USER

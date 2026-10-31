@@ -32,15 +32,18 @@ read-side gate refuses the path's reader when the path is not at this row), and 
 is the `.gz` where one exists). A row with none of `files`, `config` or `ghost` is runtime-created and its content is
 not read.
 
-The table is validated whole at load, in two provenances. A static row is held to printable ASCII without whitespace,
-a backslash or a glob character; a dynamic row to any absolute normalized path, since an operator's home is the account
-database's to spell. Every row is held to the field grammar, to one named user and one named group per ACL block
-(`getfacl` orders named entries by id, so one of each keeps the text comparable without a sort), to a named entry within
-the mode's group bits (the mask then equals the group bits), to a default entry on a directory alone, to a package list
-on a directory alone, and to a path declared once. One refused declaration leaves `AI_TOOLS_LAYOUT__DECLARATION_ERROR`
-set: the source succeeds, so the command names the row, and every public reader returns 2 without output, except
-the stream writer, which writes the one `error` row the command's refusal is. `/opt/ai-tools` rows take their modes
-from `control-plane.lib.sh`'s constants, which stay declared there.
+The static rows are validated whole at load, and each dynamic row as the discovery builds it, each under its own
+provenance. A static row is held to printable ASCII without whitespace, a backslash or a glob character, and its owner
+to `[a-z_][a-z0-9_-]*` names; a dynamic row to any absolute normalized path, since an operator's home is the account
+database's to spell, and its owner to the portable names enrolment accepts (`ai_tools_conf__is_portable_name_valid`), so
+an operator `null.pointer` has rows. Every row is held to the field grammar, to one named user and one named group per
+ACL block (`getfacl` orders named entries by id, so one of each keeps the text comparable without a sort), to a named
+entry within the mode's group bits (the mask then equals the group bits), to a default entry on a directory alone, to a
+package list on a directory alone, and to a path declared once. A dynamic row the validator refuses is an `error` line
+naming the path and the reason, so the discovery reads as incomplete. One refused static declaration leaves
+`AI_TOOLS_LAYOUT__DECLARATION_ERROR` set: the source succeeds, so the command names the row, and every public reader
+returns 2 without output, except the stream writer, which writes the one `error` row the command's refusal is.
+`/opt/ai-tools` rows take their modes from `control-plane.lib.sh`'s constants, which stay declared there.
 
 ## The entry set
 
@@ -62,11 +65,14 @@ and `ai-tools-admin(8)` states it.
 
 **The dynamic rows come from inputs the reconcile has brought to their rows first.** One `directory` row per installed
 agent manifest with a valid `config_dir`, at `CP_AGENT_CONFIG_MODE`, and per enrolled operator a row
-for `~/.config/ai-tools` and for each file `operators add` seeds in it (`allowed-projects`, `secret-patterns`). Each
-input is read through `ai_tools_records_base__read_subject_type` and `ai_tools_conf__is_trusted` before anything in it:
-an absent input does not contribute a row, since its static row reports the absence, and an input that is present
-but unreadable, untrusted, of another type or not parsed whole is an `error` line and never an empty set. A dynamic path
-the table declares is an `error` line too.
+for `~/.config/ai-tools` and for each file `operators add` seeds in it (`~/.config/ai-tools/project-registry`,
+`~/.config/ai-tools/secret-patterns`), with an optional row for the `~/.config/ai-tools/allowed-projects` an earlier
+release wrote, which stays the registry until `system post-upgrade` migrates it. While that file exists, the operator's
+`~/.config/ai-tools/project-registry` row is optional too: the migration creates it, and `--check` reports the operator
+as unmigrated. Each input is read through `ai_tools_records_base__read_subject_type` and `ai_tools_conf__is_trusted`
+before anything in it: an absent input does not contribute a row, since its static row reports the absence, and an input
+that is present but unreadable, untrusted, of another type or not parsed whole is an `error` line and never an empty
+set. A dynamic path the table declares is an `error` line too.
 
 **Not rows:** the sandbox account's own trees and the toolchain under them, every project tree and clone, the asset
 contents under the shared roots ([shipped-assets](shipped-assets.rule.md)), the entrypoint and its label

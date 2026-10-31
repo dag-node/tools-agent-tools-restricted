@@ -29,8 +29,8 @@ that already runs.
   - [Clone](projects/clone.md) — a shallow clone under the sandbox area,
     with the history out of reach.
   - [Push](projects/push.md) — send a clone's commits to the branch it tracks.
-  - [List](projects/list.md) — what each allowlist entry is, and the cleanup it
-    suggests.
+  - [List](projects/list.md) — what each line of the project registry is,
+    and the cleanup it suggests.
   - [Disable](projects/disable.md) — park a project so no session starts there.
   - [Enable](projects/enable.md) — lift a disable.
   - [Unclaim](projects/unclaim.md) — take the agent's access away and keep
@@ -77,7 +77,7 @@ that already runs.
 
 Three pages sit at this level, because more than one category reaches each:
 [Naming conventions](naming-conventions.md) fixes which name denotes
-an operator, the sandbox account, and an allowlist; [Option
+an operator, the sandbox account, and the project registry; [Option
 spellings](option-spellings.md) maps every option onto the command it belongs
 to; and [RPM packaging](rpm-packaging.md) covers the package set itself.
 

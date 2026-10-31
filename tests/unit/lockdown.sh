@@ -398,4 +398,25 @@ else
     fail "symlinked ancestor: rc=${rc}, the directory outside is $(perm "${pin_outside}/inside") (want a refusal, 750)"
 fi
 
+# ── A registry the grammar refuses: the target is left as it was ─────────────────────────
+# The loader refuses a registry holding a line its grammar does not recognise, so the owner resolver does not cover any
+# path and this helper acts on none; the same tree under the valid registry is the control that the case can act at all.
+# The control runs second, so the refused run is read on the untouched tree.
+ir="${TESTDIR}/invalid-registry"; mkdir -p "${ir}"; chown "${PROJECTS_USER}:${PROJECTS_GROUP}" "${ir}"; chmod 0755 "${ir}"
+mk_secret "${ir}/.env"
+mk_allowlist "${ir}" "relative/entry"
+run_ld "${ir}" "${TESTDIR}/invalid-registry.out" --yes
+if (( LD_RC != 0 )) && [[ "$(perm "${ir}/.env")" == 644 ]]; then
+    pass "a registry holding a refused line: the lockdown refuses and locks no path"
+else
+    fail "a registry holding a refused line: rc=${LD_RC}, .env is $(perm "${ir}/.env") (want a refusal, 644)"
+fi
+mk_allowlist "${ir}"
+run_ld "${ir}" "${TESTDIR}/invalid-registry.out" --yes
+if (( LD_RC == 0 )) && [[ "$(perm "${ir}/.env")" == 600 ]]; then
+    pass "control: the same tree under the valid registry is locked"
+else
+    fail "control: rc=${LD_RC}, .env is $(perm "${ir}/.env") -- the refusal above is not evidence"
+fi
+
 finish

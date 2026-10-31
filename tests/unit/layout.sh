@@ -150,7 +150,17 @@ valid "a link row at 0777 with no ACL"      static /x link root:root 0777 - ai-t
 valid "a directory with access and default entries" static /x directory root:ai-tools 2770 \
     "group:ai-ops:rwx,default:group:ai-ops:rwx" ai-tools-base files
 valid "a package list on a directory"       static /x directory root:root 0755 - "ai-tools-base,ai-tools-selinux" files
-valid "a dynamic row with a space in its path" dynamic "/home/a b/.config/ai-tools" directory xd:xd 0700 - - boundary
+valid "a dynamic row with a space in its path" dynamic "/home/a b/.config/ai-tools" directory op:op 0700 - - boundary
+# A dynamic row's owner takes the names enrolment accepts, a dot and upper case among them; a static row's does not.
+dh=/home/n/.config/ai-tools
+valid "a dynamic owner with a dot"            dynamic "${dh}" directory null.pointer:null.pointer 0700 - - boundary
+valid "a dynamic owner in upper case"         dynamic "${dh}" directory Op:Staff 0700 - - boundary
+refused "a dynamic group with a space"  dynamic "portable name" "${dh}" directory "op:domain users" 0700 - - boundary
+refused "a dynamic owner opening with -"      dynamic "portable name" "${dh}" directory -op:op 0700 - - boundary
+refused "a dynamic owner without a group"     dynamic "portable name" "${dh}" directory op 0700 - - boundary
+refused "a dynamic owner with an empty group" dynamic "portable name" "${dh}" directory op: 0700 - - boundary
+refused "a dynamic owner with a second colon" dynamic "portable name" "${dh}" directory op:a:b 0700 - - boundary
+refused "a static owner with a dot"  static "user:group" /x file null.pointer:null.pointer 0644 - ai-tools-base files
 refused "six fields"                static "expected 7 fields" /x file root:root 0644 - ai-tools-base
 refused "a relative path"           static "absolute normalized" x file root:root 0644 - ai-tools-base files
 refused "a trailing slash"          static "absolute normalized" /x/ directory root:root 0755 - ai-tools-base files
@@ -245,8 +255,8 @@ remedy_of() {
 }
 [[ "$(remedy_of files ai-tools-base "")" == *"dnf reinstall ai-tools-base"* ]] && pass "a missing package file names dnf reinstall" \
     || fail "package remedy: $(remedy_of files ai-tools-base "")"
-[[ "$(remedy_of boundary - xd)" == *"operators add xd"* ]] && pass "a missing operator file names operators add" \
-    || fail "operator remedy: $(remedy_of boundary - xd)"
+[[ "$(remedy_of boundary - "${PROJECTS_USER}")" == *"operators add ${PROJECTS_USER}"* ]] \
+    && pass "a missing operator file names operators add" || fail "operator remedy: $(remedy_of boundary - "${PROJECTS_USER}")"
 out="$(remedy_of - ai-tools-base "")"
 [[ "${out}" == *"dnf reinstall ai-tools-base, or sudo ./install.sh install on a source install"* \
    && "${out}" != *"system bootstrap"* ]] && pass "a missing runtime file names the reinstall that places it again" \
@@ -439,9 +449,9 @@ grep -qx /usr/local/share/man/man5/ai-tools-typesafe.conf.5.gz <<< "${set2}" && 
 grep -qx /usr/local/share/man/man1/ai-tools.1 <<< "${set2}" && pass "a compressed row stays plain where no .gz exists" || fail "plain page absent"
 sorted_ok=0; cut -f1 <<< "$(AI_TOOLS_LAYOUT_ROOT="${R2}" ai_tools_layout__list_entries | grep -v '^error')" | LC_ALL=C sort -c 2>/dev/null && sorted_ok=1
 (( sorted_ok )) && pass "the entry set is sorted by path, so a parent precedes every path under it" || fail "entry set not sorted"
-# install.sh sources the library under IFS=$'\n\t': the sentinel split pins its own IFS, so the set read under
-# the installer's IFS is the set read under the default, package rows included. Each read runs in a subshell, so the IFS
-# reaches no case after it; the control shows the strict IFS splits a bare read differently.
+# install.sh sources the library under IFS=$'\n\t': the sentinel split pins its own IFS, so the set read
+# under the installer's IFS is the set read under the default, package rows included. Each read runs in a subshell,
+# so the IFS reaches no case after it; the control shows the strict IFS splits a bare read differently.
 default_count="$(entries "${R2}" | grep -c . || true)"
 strict_count="$(IFS=$'\n\t'; entries "${R2}" | grep -c . || true)"
 if [[ "${strict_count}" == "${default_count}" && "${default_count}" -gt 0 ]]; then
@@ -460,8 +470,68 @@ if (( EUID == 0 )); then
     (( rc == 0 )) && pass "root-owned inputs: discovery complete (status 0)" || fail "root run: status ${rc}, errors: ${errs}"
     grep -qx /opt/ai-tools/.acme <<< "${set2}" && pass "an installed manifest's config_dir is a dynamic row" || fail ".acme row absent"
     grep -q '/opt/ai-tools/.nodir' <<< "${set2}" && fail "a manifest without config_dir yielded a row" || pass "a manifest without config_dir yields no row"
-    grep -qx "${PROJECTS_HOME}/.config/ai-tools/allowed-projects" <<< "${set2}" && pass "an enrolled operator's rows are dynamic rows" \
-        || fail "operator rows absent"
+    grep -qx "${PROJECTS_HOME}/.config/ai-tools/project-registry" <<< "${set2}" \
+        && grep -qx "${PROJECTS_HOME}/.config/ai-tools/allowed-projects" <<< "${set2}" \
+        && grep -qx "${PROJECTS_HOME}/.config/ai-tools/secret-patterns" <<< "${set2}" \
+        && pass "an enrolled operator's rows are dynamic rows: ~/.config/ai-tools/project-registry, allowed-projects and secret-patterns" \
+        || fail "operator rows absent: $(grep -F "${PROJECTS_HOME}/.config" <<< "${set2}" | tr '\n' ' ')"
+    # The ~/.config/ai-tools/project-registry row is required, and optional for an operator whose registry is still
+    # the allowed-projects an earlier release wrote, which the migration reports instead.
+    registry_row() { AI_TOOLS_LAYOUT_ROOT="${R2}" ai_tools_layout__list_entries \
+        | grep -F "${R2}${PROJECTS_HOME}/.config/ai-tools/project-registry"$'\t' || true; }
+    row_current="$(registry_row)"
+    mkdir -p "${R2}${PROJECTS_HOME}/.config/ai-tools"; : > "${R2}${PROJECTS_HOME}/.config/ai-tools/allowed-projects"
+    row_legacy="$(registry_row)"
+    rm -rf "${R2}${PROJECTS_HOME:?}"
+    if [[ -n "${row_current}" && "${row_current}" != *optional* && "${row_legacy}" == *optional,boundary* ]]; then
+        pass "the ~/.config/ai-tools/project-registry row is required, and optional beside an unmigrated allowed-projects"
+    else
+        fail "the registry row: without a legacy file '${row_current}', beside one '${row_legacy}'"
+    fi
+    # Each dynamic row passes the validator before it is listed. An operator whose name carries a dot has its rows;
+    # one whose primary group carries a space has none, and each of its rows is an `error` line naming the path and
+    # the owner (getent and id stubbed for those names alone, the homes real directories under the testdir).
+    dyn_dot_home="${TESTDIR}/home/null.pointer" dyn_space_home="${TESTDIR}/home/spaced"
+    mkdir -p "${dyn_dot_home}" "${dyn_space_home}"
+    printf 'OPERATORS="%s,null.pointer,spaced"\n' "${PROJECTS_USER}" > "${OPERATOR_CONF}"
+    # The shims are functions of their own, installed in the subshell the listing runs in: a function holding a `case`
+    # inside a command substitution is more than bash 5.1's substitution parser reads, and el9 runs 5.1.
+    dyn_getent() {
+        case "$1 $2" in
+            "passwd null.pointer") printf 'null.pointer:x:59998:59998::%s:/sbin/nologin\n' "${dyn_dot_home}" ;;
+            "passwd spaced")       printf 'spaced:x:59997:59997::%s:/sbin/nologin\n' "${dyn_space_home}" ;;
+            *) command getent "$@" ;;
+        esac
+    }
+    dyn_id() {
+        case "$1 $2" in
+            "-gn null.pointer") printf 'null.pointer\n' ;;
+            "-gn spaced")       printf 'domain users\n' ;;
+            *) command id "$@" ;;
+        esac
+    }
+    dyn_list() {
+        getent() { dyn_getent "$@"; }; id() { dyn_id "$@"; }
+        AI_TOOLS_LAYOUT_ROOT="${R2}" ai_tools_layout__list_entries
+    }
+    dyn_out="$(dyn_list)" && dyn_rc=0 || dyn_rc=$?
+    unset -f dyn_list dyn_getent dyn_id
+    printf 'OPERATORS="%s"\n' "${PROJECTS_USER}" > "${OPERATOR_CONF}"
+    dyn_dot_rows="$(grep -v '^error' <<< "${dyn_out}" | grep -c -F "${R2}${dyn_dot_home}/.config/ai-tools" || true)"
+    dyn_space_rows="$(grep -v '^error' <<< "${dyn_out}" | grep -c -F "${R2}${dyn_space_home}/" || true)"
+    dyn_space_errors="$(grep '^error' <<< "${dyn_out}" | grep -F "${R2}${dyn_space_home}/.config/ai-tools" \
+        | grep -c -F 'owner spaced:domain users is not user:group, each a portable name' || true)"
+    if [[ "${dyn_dot_rows}" == 4 ]]; then
+        pass "an operator named null.pointer has its four rows"
+    else
+        fail "the null.pointer rows: ${dyn_dot_rows} of 4: $(grep -F null.pointer <<< "${dyn_out}" | tr '\n' '|')"
+    fi
+    if (( dyn_rc == 1 )) && [[ "${dyn_space_rows}" == 0 && "${dyn_space_errors}" == 4 ]]; then
+        pass "an operator whose group holds a space has no row, each one an error line naming the owner (status 1)"
+    else
+        dyn_seen="$(grep -F spaced <<< "${dyn_out}" | tr '\n' '|')"
+        fail "spaced operator: status ${dyn_rc}, ${dyn_space_rows} rows, ${dyn_space_errors} errors: ${dyn_seen}"
+    fi
 else
     (( rc == 1 )) && pass "an input the invoker owns is untrusted: status 1" || fail "untrusted inputs: status ${rc}"
     grep -q "^error	directory	${AGENTS_DIR}	agents	" <<< "${errs}" && pass "the untrusted agents directory is an error line naming it" \
@@ -659,8 +729,10 @@ out="$(get_exposure_remedy files,ghost ai-tools-base "")"
 out="$(get_exposure_remedy - ai-tools-base "")"
 [[ "${out}" == "${restore_p}" && "${out}" != *remove* ]] \
     && pass "an exposed runtime file names the restore by hand and not its removal" || fail "exposure runtime: ${out}"
-out="$(get_exposure_remedy boundary - xd /home/xd/.config/ai-tools/allowed-projects xd:xd 0600)"
-[[ "${out}" == "review its content, then restore it by hand: sudo setfacl -b -- /home/xd/.config/ai-tools/allowed-projects; sudo chown xd:xd -- /home/xd/.config/ai-tools/allowed-projects; sudo chmod 0600 -- /home/xd/.config/ai-tools/allowed-projects" ]] \
+registry_q="$(printf '%q' "${PROJECTS_HOME}/.config/ai-tools/project-registry")"
+out="$(get_exposure_remedy boundary - "${PROJECTS_USER}" "${PROJECTS_HOME}/.config/ai-tools/project-registry" \
+    "${PROJECTS_USER}:${PROJECTS_GROUP}" 0600)"
+[[ "${out}" == "review its content, then restore it by hand: sudo setfacl -b -- ${registry_q}; sudo chown ${PROJECTS_USER}:${PROJECTS_GROUP} -- ${registry_q}; sudo chmod 0600 -- ${registry_q}" ]] \
     && pass "an exposed operator file names the restore at the operator's owner and mode" || fail "exposure operator: ${out}"
 out="$(get_exposure_remedy - ai-tools-base "" /p root:ai-tools 0640 group:ai-ops:r--)"
 [[ "${out}" == *"; sudo chmod 0640 -- /p; sudo setfacl -m group:ai-ops:r-- -- /p" ]] \
@@ -1482,11 +1554,18 @@ else
     mkdir -p "${FAKE_VICTIM}" "${FAKE_DIR%/*}"; install -o root -g root -m 0644 /dev/null "${FAKE_VICTIM}/allowed-projects"
     ln -sfn "${FAKE_VICTIM}" "${FAKE_DIR}"
     printf 'OPERATORS="%s,fixop"\n' "${PROJECTS_USER}" > "${operator_conf}"
-    out="$(getent() {
-            if [[ "$1" == passwd && "$2" == fixop ]]; then printf 'fixop:x:59999:59999::%s:/sbin/nologin\n' "${stub_fake_home}"
-            else command getent "$@"; fi; }
-        id() { if [[ "$1" == -gn && "$2" == fixop ]]; then printf 'fixop\n'; else command id "$@"; fi; }
-        reconcile_run)"
+    # The shims are functions of their own, installed in the subshell the run takes, as the entry-set rows do.
+    stub_getent() {
+        if [[ "$1" == passwd && "$2" == fixop ]]; then
+            printf 'fixop:x:59999:59999::%s:/sbin/nologin\n' "${stub_fake_home}"
+        else
+            command getent "$@"
+        fi
+    }
+    stub_id() { if [[ "$1" == -gn && "$2" == fixop ]]; then printf 'fixop\n'; else command id "$@"; fi; }
+    stub_run() { getent() { stub_getent "$@"; }; id() { stub_id "$@"; }; reconcile_run; }
+    out="$(stub_run)"
+    unset -f stub_run stub_getent stub_id
     _ai_tools_layout__encode_line wanted refused "${FAKE_DIR}/allowed-projects" ancestor "not read: ${FAKE_DIR} is not at its row"
     grep -qxF -- "${wanted}" <<< "${out}" && [[ "$(stat -c '%U:%G %a' "${FAKE_VICTIM}/allowed-projects")" == "root:root 644" ]] \
         && pass "an operator home carrying a backslash keeps the ancestor rule: the rows under its link are refused, the file behind it left" \
@@ -1637,7 +1716,8 @@ declare -A boundary_map=(
     [/usr/local/lib/ai-tools/session-env.d/typesafe.env.sh]="predicate|source_session_env_fragment|unit/typesafe.sh:typesafe.env.sh|boundary/providers.sh:typesafe.env.sh"
     [/usr/local/lib/ai-tools/integrations.d/typesafe.conf]="predicate|ai_tools_conf__is_trusted in the resolver|unit/typesafe.sh:typesafe.conf|boundary/providers.sh:typesafe.conf"
     [HOME/.config/ai-tools]="mode|0700 operator|unit/launch-wrapper.sh:.config/ai-tools|boundary/access.sh:.config/ai-tools"
-    [HOME/.config/ai-tools/allowed-projects]="mode|0600 operator; the gate refuses a missing or unreadable file|unit/launch-wrapper.sh:allowed-projects|boundary/access.sh:allowed-projects"
+    [HOME/.config/ai-tools/project-registry]="mode|0600 operator; the gate refuses a missing or unreadable file|unit/launch-wrapper.sh:/.config/ai-tools/project-registry|boundary/access.sh:/.config/ai-tools/project-registry"
+    [HOME/.config/ai-tools/allowed-projects]="mode|0600 operator; the gate reads it until it is migrated|unit/launch-wrapper.sh:allowed-projects|boundary/access.sh:allowed-projects"
     [HOME/.config/ai-tools/secret-patterns]="mode|0600 operator; the loader refuses an unreadable file (MSG-S4T9)|unit/secret-patterns.sh:secret-patterns|boundary/access.sh:.config/ai-tools"
 )
 # cites <file:literal> : the named test file holds the literal; `-` is a recorded gap.
@@ -1662,7 +1742,8 @@ for entry in "${_AI_TOOLS_LAYOUT__STATIC_ENTRIES[@]}"; do
     [[ "${runtime}" != - ]] || note "boundary pair: ${entry_path} has no runtime file driving its gate (${gate})" "a gap the planner's table holds"
 done
 # The dynamic operator rows, keyed by their path under the operator's home.
-for entry_path in HOME/.config/ai-tools HOME/.config/ai-tools/allowed-projects HOME/.config/ai-tools/secret-patterns; do
+for entry_path in HOME/.config/ai-tools HOME/.config/ai-tools/project-registry HOME/.config/ai-tools/allowed-projects \
+        HOME/.config/ai-tools/secret-patterns; do
     boundary_seen["${entry_path}"]=1
     IFS='|' read -r kind gate runtime boundary <<< "${boundary_map[${entry_path}]}"
     cites "${runtime}" && cites "${boundary}" || { fail "boundary pair: ${entry_path}: a cited file does not hold its literal"; map_problems=$(( map_problems + 1 )); }

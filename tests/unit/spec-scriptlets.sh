@@ -169,6 +169,21 @@ else
     else
         fail "the shipped %postun does not take a project rule's literal: '${literal_line}'"
     fi
+    # The base %post names `system post-upgrade` while an enrolled operator's allowed-projects is unmigrated. Its
+    # closing block runs as RPM ships it, under /bin/sh with the readings set: a registry reading prints the migration
+    # line, and the same block with every reading clear prints nothing (the control).
+    steps="$(awk '/^%post -n ai-tools-base/ { open = 1; next } open && /^%[a-z]/ { exit }
+                  open && /^if \[ "\$\{_at_toolchain\}/ { block = 1 } block { print } block && /^fi$/ { exit }' <<< "${parsed}")"
+    with_registry="$(_at_toolchain=0 _at_operator=0 _at_merge=0 _at_unmigrated=0 _at_path="" \
+        _at_registries="$(printf 'op\t/home/op/.config/ai-tools/allowed-projects')" sh -c "${steps}" 2>&1 || true)"
+    without="$(_at_toolchain=0 _at_operator=0 _at_merge=0 _at_unmigrated=0 _at_path="" _at_registries="" \
+        sh -c "${steps}" 2>&1 || true)"
+    if [[ -n "${steps}" && "${with_registry}" == *"atr admin system post-upgrade"*"migrates ~/.config/ai-tools/allowed-projects to ~/.config/ai-tools/project-registry"* \
+            && -z "${without}" ]] && grep -q 'ai_tools_operator__list_unmigrated_registries' <<< "${parsed}"; then
+        pass "the base %post names system post-upgrade for an unmigrated registry, and is silent without one"
+    else
+        fail "the base %post's registry line: with '${with_registry//$'\n'/ | }', without '${without//$'\n'/ | }'"
+    fi
 fi
 
 finish

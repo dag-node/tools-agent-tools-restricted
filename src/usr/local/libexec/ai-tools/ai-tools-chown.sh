@@ -8,9 +8,11 @@
 # in a dir it created. An interactive invocation confirms per path; `--yes` skips that for a batch caller
 # (ai-tools-reclaim) that already confirmed its whole set.
 #
-# Reads the operator's allowed-projects allowlist for allow and exclude rules (its path is derived from the operator
-# identity in /etc/ai-tools/operator.conf). That file is owned by the operator 600 -- root reads it here on ai-tools'
-# behalf.
+# Reads the operator's project registry for allow, carve-out and park lines (its path is derived from the operator
+# identity in /etc/ai-tools/operator.conf: `~/.config/ai-tools/project-registry`,
+# or `~/.config/ai-tools/allowed-projects` until it is migrated). That file is owned by the operator 600 -- root reads
+# it here on ai-tools' behalf. A registry the loader refuses, a line the grammar refuses among the reasons, does not
+# cover any path, so the path is left sandbox-owned.
 #
 # Invocation: the handback socket's CHOWN verb (ai-tools-handback daemon, root).
 #   Not a sudo target -- ai-tools has no sudo rights (the session runs under NNP,
@@ -175,8 +177,9 @@ fi
 declare -a allowed_directories=()
 # shellcheck disable=SC2034  # filled and read through its name by the conf.lib.sh loader and matcher
 declare -a exclusion_patterns=()
-# The one read every reader of the allowlist makes (ai_tools_conf__load_allowlist, conf.lib.sh). A file that cannot be
-# read, or whose exclusion the loader refuses, leaves both arrays empty, so the path is not in-project and is left as it
+# The one read every reader of the registry makes (ai_tools_conf__load_allowlist, conf.lib.sh). A file that cannot be
+# read, one whose exclusion the loader refuses (status 2), and one holding a line the grammar refuses (status 3) each
+# leave both arrays empty, so the path is not in-project and is left as it
 # is.
 ai_tools_conf__load_allowlist "${ALLOWLIST}" allowed_directories exclusion_patterns || true
 

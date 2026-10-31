@@ -11,9 +11,10 @@
 # The labelling body lives in the shared relabel.lib.sh (single source of truth, also used by the policy installer
 # install-selinux.sh's allowlist sweep). This helper only validates the target and dispatches.
 #
-# Labelling a path requires it to be in the operator's allowed-projects allowlist: only approved projects may carry
-# the agent-accessible type. Reverting (`--remove`) is lenient -- it cleans up a path that may already have been
-# unregistered, and restorecon only ever restores the system default context.
+# Labelling a path requires an allow line for it in the operator's project registry and no park or carve-out line naming
+# it: only a project a session may start in carries the agent-accessible type. Reverting (`--remove`) is lenient -- it
+# cleans up a path that may already have been unregistered, and restorecon only ever restores the system default
+# context.
 #
 # Runs as root via sudo, invoked by YOU (the projects user) -- not ai-tools:
 #       ```bash
@@ -164,7 +165,7 @@ if ${remove}; then
     esac
 else
     allowlisted "${dir}" \
-        || die MSG-P8J7 "refusing to label ${dir}: not in the allowed-projects allowlist"
+        || die MSG-P8J7 "refusing to label ${dir}: not an enabled project in the operator's project registry"
     rc=0; ai_tools_relabel__label_project "${dir}" || rc=$?
     case "${rc}" in
         0) echo "ai-tools-relabel: labelled ${dir} ai_tools_project_t"

@@ -106,11 +106,11 @@ type ai_tools_tmp_t;
 files_tmp_file(ai_tools_tmp_t)
 
 # The user-owned ai-tools config the ROOT helpers must read on the agent's behalf:
-# ~/.config/ai-tools/{allowed-projects,secret-patterns}. Those paths are normally config_home_t, which the THE BOUNDARY
+# ~/.config/ai-tools/{project-registry,secret-patterns}. Those paths are normally config_home_t, which the THE BOUNDARY
 # dontaudit block REFUSES to ai_tools_t. But ai-tools-chown runs IN ai_tools_t (sudo, no transition) and its first real
-# step is reading allowed-projects (ai-tools-chown.sh line 59); with no read grant the getattr is denied and the helper
-# fail-closes to a silent exit 0 -- so NO file is ever handed back. A dedicated type labels just this subtree
-# so the helper can read it WITHOUT opening all of ~/.config to the agent. The DAC 700 on the dir still blocks
+# step is reading the project registry (ai-tools-chown.sh line 59); with no read grant the getattr is denied
+# and the helper fail-closes to a silent exit 0 -- so NO file is ever handed back. A dedicated type labels just this
+# subtree so the helper can read it WITHOUT opening all of ~/.config to the agent. The DAC 700 on the dir still blocks
 # the non-root agent; only the root helper (DAC-exempt, SELinux-gated) benefits. <you> (unconfined) reads it regardless
 # of label. Mirrors the libs_read_lib_files grant for the secret-pattern library -- same "the root helper in ai_tools_t
 # must read a user/lib file or handback breaks" reasoning.
@@ -263,14 +263,14 @@ files_search_var(ai_tools_t)
 # to traverse INTO it -- never list or read its siblings, which the config_home_t:file dontaudit still refuses. Two
 # domains hold this, for different reasons, and the narrow type is what keeps either grant off the rest of ~/.config.
 #
-# ai_tools_handback_t (granted further down) is the load-bearing one: the root helpers read allowed-projects
+# ai_tools_handback_t (granted further down) is the load-bearing one: the root helpers read the project registry
 # and secret-patterns on the operator's behalf, and without it their getattr is denied and ownership handback silently
 # no-ops.
 #
 # ai_tools_t holds it so the FILE MODE stays the operator's knob. The grant alone gives the session no access: DAC
 # and type enforcement must BOTH allow, and at the shipped 700 dir with 600 files DAC refuses. What it buys is
 # that an operator who deliberately widens the mode gets the read they intended, rather than an AVC denial they could
-# clear only by editing policy. Opening allowed-projects lets a session read where it may work instead of being told
+# clear only by editing policy. Opening the project registry lets a session read where it may work instead of being told
 # or probing for refusals; opening secret-patterns tells it which basenames are quarantined, which it can already infer
 # from the NOTICE every quarantine emits. Removing this grant was considered and rejected: it would make policy, not
 # the mode, the binding constraint on a decision that belongs to the operator. The default stays closed.
@@ -635,7 +635,7 @@ corecmd_exec_bin(ai_tools_handback_t)
 #   CAP_DAC_OVERRIDE -- read allowlist (config_home_t) and access project files as root
 allow ai_tools_handback_t self:capability { chown fowner fsetid dac_override };
 
-# Read the allowlist and secret-pattern files (ai_tools_conf_t, ~/.config/ai-tools/{allowed-projects,secret-patterns}).
+# Read the registry and secret-pattern files (ai_tools_conf_t, ~/.config/ai-tools/{project-registry,secret-patterns}).
 # This domain is the ONLY one granted them: the helpers here re-validate every path against the allowlist as root,
 # and the narrow type keeps the grant off the rest of ~/.config. SEARCH on config_home_t traverses into the subtree
 # without listing it. The file permissions are read_file_perms, for the reason the ai_tools_t grant on the same type

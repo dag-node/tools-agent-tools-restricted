@@ -9,7 +9,7 @@ boundary**:
 |---|---|---|
 | `ai_tools_t` | the agent process (`claude.exe` as the `SANDBOX_USER` UID) | — |
 | `ai_tools_exec_t` | each enabled agent's entrypoint binary (Claude Code: the versioned `claude.exe`), labelled from the rule that agent's own manifest declares — not from this module | entrypoint (drives the transition) |
-| `ai_tools_project_t` | approved project dirs (per allowlist) | read/write (incl. all git ops) |
+| `ai_tools_project_t` | claimed project dirs (per project registry) | read/write (incl. all git ops) |
 | `ai_tools_project_build_t` | the build-output directories inside one, the set an integration's manifest names (`build_output_dirs`, see `ai-tools-providers(5)`) | read/write; execute only with the `buildexec` group |
 | `ai_tools_home_t` | each agent's config directory (`.claude` for Claude Code) and the sandbox home state, labelled from the rule that agent's manifest declares | read/write its own state |
 | everything else (e.g. other `/home` files = `user_home_t`) | — | **no access** once enforcing |
@@ -175,8 +175,10 @@ and recompiles it outright when the earlier build was made on a host
 whose policy module version this one does not read (a checkout copied
 from another distribution) — stages the shipped set for `ai-tools-admin`,
 labels each agent's config directory (`ai_tools_home_t`) and the `claude.exe`
-entrypoint, and labels every project in `~/.config/ai-tools/allowed-projects`
-as `ai_tools_project_t`.
+entrypoint, and labels every project each operator's registry lists
+(`~/.config/ai-tools/project-registry`,
+or `~/.config/ai-tools/allowed-projects` until it is migrated), parked ones
+included, as `ai_tools_project_t`.
 
 Verify:
 
