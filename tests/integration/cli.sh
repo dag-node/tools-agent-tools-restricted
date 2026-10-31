@@ -225,7 +225,10 @@ if command -v runuser >/dev/null 2>&1; then
     # An empty FIXTURE allowlist (AI_TOOLS_ALLOWLIST test hook) so the mutating-verb refusals classify against it, never
     # the operator's real registry -- and a regression that wrote past a refusal would touch this throwaway file,
     # which the next assertion inspects.
-    emptyal="${TESTDIR}/empty-allowlist"; printf '%s\n' "${REG_MARKER}" > "${emptyal}"; chown "${PROJECTS_USER}:${PROJECTS_USER}" "${emptyal}"
+    # Every registry write renames a whole file into the registry's own directory, so the fixture's directory is
+    # the operator's, as ~/.config/ai-tools is.
+    emptyal_dir="${TESTDIR}/empty-registry"; mkdir -p "${emptyal_dir}"; chown "${PROJECTS_USER}:${PROJECTS_USER}" "${emptyal_dir}"
+    emptyal="${emptyal_dir}/project-registry"; printf '%s\n' "${REG_MARKER}" > "${emptyal}"; chown "${PROJECTS_USER}:${PROJECTS_USER}" "${emptyal}"
 
     spell ai-tools.projects.claim
     out="$(runuser -u "${PROJECTS_USER}" -- env HOME="${PROJECTS_HOME}" \
@@ -1041,7 +1044,7 @@ EOF
             fail "the removal command '${q_command}' deleted ${#q_gone[@]} line(s) from ${q_words[3]:-?}"
         fi
     done
-    q_want="${lst}/O'Reilly"$'\n'"${lst}/gone   # it's old"$'\n'"${lst}/plain-gone"
+    q_want="@ ${lst}/O'Reilly"$'\n'"@ ${lst}/gone   # it's old"$'\n'"@ ${lst}/plain-gone"
     if [[ "$(printf '%s\n' "${q_deleted[@]}" | sort)" == "$(sort <<<"${q_want}")" ]]; then
         pass "each stale line's removal command parses and deletes that line alone, a quote or a comment in it included"
     else
@@ -1057,7 +1060,7 @@ EOF
     gout="$(runuser -u "${PROJECTS_USER}" -- env HOME="${PROJECTS_HOME}" \
             AI_TOOLS_OPERATOR_CONF="${oconf}" AI_TOOLS_ALLOWLIST="${lal_glob}" \
             AI_TOOLS_GITCONFIG="${lgc}" "${CLI}" "${CLI_ARGV[@]}" 2>&1)" || rc=$?
-    if [[ "${rc}" -eq 1 ]] && grep -qF "glob-on-allow" <<<"${gout}"; then
+    if [[ "${rc}" -eq 1 ]] && grep -qF "glob-on-project" <<<"${gout}"; then
         pass "ai-tools.projects.list refuses a registry with a glob on an allow line, naming the reason"
     else
         fail "ai-tools.projects.list over a glob allow line: rc ${rc}: $(brief "${gout}")"

@@ -67,7 +67,7 @@ FIXTURE_DIRS=(P/sub L/sub B/x B/pb W/k/deep W/n A/one A/two U G/m/cache/deep)
 reset() {
     local d
     rm -rf "${R}/tree-marker" "${R}/P" "${R}/L" "${R}/B" "${R}/W" "${R}/A" "${R}/U" "${R}/G" \
-        "${R}/pnew" "${R}/lnew" "${R}/anew" "${R}/unew" "${R}/bad*name" "${R}/q\"q" "${SBROOT}"
+        "${R}/pnew" "${R}/lnew" "${R}/anew" "${R}/unew" "${R}/bad*name" "${R}/q\"q'q" "${SBROOT}"
     for d in "${FIXTURE_DIRS[@]}"; do mkdir -p "${R}/${d}"; done
     mkdir -p "${SBROOT}"
     printf '%s\n' "${REG_MARKER}" "${REG_LINES[@]}" > "${AL}"
@@ -399,7 +399,8 @@ fi
 
 # ── Names the registry cannot carry: create and clone refuse before their first write ────────────────────────────
 section "ai-tools: a directory name the registry cannot carry"
-for name in 'bad*name' 'q"q'; do
+# A double quote alone is written single-quoted; a name carrying both quote characters has no quoting.
+for name in 'bad*name' "q\"q'q"; do
     reset; before="$(digest)"; cli_cmd ai-tools.projects.create
     rc=0; out="$(run_in "${R}" "${CLI_ARGV[@]}" "${R}/${name}")" || rc=$?
     check "create ${name}" MSG-Z9R2 1 same -
@@ -615,7 +616,8 @@ DIGEST_FILE=""
 
 # ── The remedy names the disabled path, not the line as displayed ─────────────────────────────────
 # A tab before a '%' line's comment is shown as '?' in the classifier's blocked field; the enable remedy reads
-# the parsed path beside it, so it names the project. A disabled path with a space and a '#' prints %q-encoded, one word to paste.
+# the parsed path beside it, so it names the project. A disabled path with a space and a '#' prints %q-encoded, one word
+# to paste.
 section "ai-tools: the re-enable remedy names the disabled path"
 FC_REG="${R}/registry-fc"
 reset; rm -rf "${R}/N" "${R}/P dir#1"; mkdir -p "${R}/N/o" "${R}/P dir#1/q"

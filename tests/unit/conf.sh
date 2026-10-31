@@ -1091,22 +1091,24 @@ fi
 # The launch allowlist shares this grammar, and three components parse that file -- the wrapper, the CLI, and the chown
 # helper. The first block is BACKWARD COMPATIBILITY: every shape an existing allowlist already contains must parse
 # exactly as before, because a line that stops resolving silently removes a project from the gate.
+# check_entry <desc> <want-path> <line> [<want-kind>] : the parser reads <line> as <want-path> with the kind
+#   <want-kind> (default project), or, for <want-path> SKIP, as no entry. The sign is the kind, not part of the path.
 check_entry() {
-    local desc="$1" want="$2" line="$3" rc=0
+    local desc="$1" want="$2" line="$3" want_kind="${4:-project}" rc=0
     ai_tools_conf__parse_path_entry "${line}" || rc=$?
     if [[ "${want}" == SKIP ]]; then
         if [[ "${rc}" -ne 0 ]]; then pass "${desc}"; else fail "${desc}: yielded '${ai_tools_conf__value}'"; fi
-    elif [[ "${rc}" -eq 0 && "${ai_tools_conf__value}" == "${want}" ]]; then
+    elif [[ "${rc}" -eq 0 && "${ai_tools_conf__value}" == "${want}" && "${ai_tools_conf__kind}" == "${want_kind}" ]]; then
         pass "${desc}"
     else
-        fail "${desc}: rc ${rc}, got '${ai_tools_conf__value}', expected '${want}'"
+        fail "${desc}: rc ${rc}, got ${ai_tools_conf__kind:-?} '${ai_tools_conf__value}', expected ${want_kind} '${want}'"
     fi
 }
 check_entry "a plain path is unchanged"            /home/me/project         '/home/me/project'
-check_entry "an exclusion keeps its !"             '!/home/me/vendor'       '!/home/me/vendor'
-check_entry "a glob exclusion stays raw"           '!/home/me/*/node_mod'   '!/home/me/*/node_mod'
-check_entry "a disabled project keeps its %"       '%/home/me/disabled'     '%/home/me/disabled'
-check_entry "a disabled project may be quoted"     '%/home/me/my project'   '%"/home/me/my project"'
+check_entry "an exclusion reads as excluded"       '/home/me/vendor'        '!/home/me/vendor'       excluded
+check_entry "a glob exclusion stays raw"           '/home/me/*/node_mod'    '!/home/me/*/node_mod'   excluded
+check_entry "a disabled project reads as disabled" '/home/me/disabled'      '%/home/me/disabled'     disabled
+check_entry "a disabled project may be quoted"     '/home/me/my project'    '%"/home/me/my project"' disabled
 check_entry "surrounding whitespace is trimmed"    /home/me/project         '   /home/me/project   '
 check_entry "a blank line yields no entry"         SKIP                     ''
 check_entry "a whole-line comment yields no entry" SKIP                     '# a note'
@@ -1117,7 +1119,7 @@ check_entry "an end-of-line comment is removed"    /home/me/project         '/ho
 check_entry "quotes carry a space"                 '/home/me/my project'    '"/home/me/my project"'
 check_entry "quotes make # literal"                '/home/me/proj #2'       '"/home/me/proj #2"'
 check_entry "single quotes work too"               '/home/me/my project'    "'/home/me/my project'"
-check_entry "an exclusion may be quoted"           '!/home/me/my project'   '!"/home/me/my project"'
+check_entry "an exclusion may be quoted"           '/home/me/my project'    '!"/home/me/my project"' excluded
 check_entry "a quoted path may be commented"       '/home/me/a b'           '"/home/me/a b"   # note'
 # An interior # with no preceding whitespace is part of the path, matching the KEY=value rule -- a directory literally
 # named proj#2 keeps working unquoted.
@@ -1569,8 +1571,8 @@ fi
 # Three components write the registry (the CLI on the operator's own file, ai-tools-allowlist on another operator's,
 # install.sh on its own checkout), and this is what all three call. The file is the LAUNCH GATE, so each assertion is
 # about a way an edit could leave the gate saying something other than what the caller was told:
-#   * the state read, so a disabled project reads as disabled, an excluded path as excluded, and two signs on one directory
-#     -- one written path, or two spellings through a link -- as a file no editor writes;
+#   * the state read, so a disabled project reads as disabled, an excluded path as excluded, and two signs on one
+#     directory -- one written path, or two spellings through a link -- as a file no editor writes;
 #   * add refusing a path a '%' or a '!' line names, which would put two signs on one path;
 #   * add refusing a name it cannot write back (4), and a file holding a line it cannot write back, with no write;
 #   * remove taking the enabled and disabled lines, so no '%' is left to disable the next claim at that path, and
