@@ -120,7 +120,9 @@ case "${command}" in
     messages) message_links "$@" ;;
     relink)   files | xargs python3 "${TOOL}" relink ;;
     stale)
-        if ! files | xargs python3 "${TOOL}" generate --at "${INDEX}" | diff -q - "${INDEX}" >/dev/null; then
+        # diff without -q reads the whole generation; -q stops at the first difference and the generator then dies
+        # on a closed pipe, printing a traceback over the verdict.
+        if ! files | xargs python3 "${TOOL}" generate --at "${INDEX}" | diff - "${INDEX}" >/dev/null; then
             echo "${INDEX} is stale; run: bash tools/generators/ref-index.sh generate" >&2
             exit 1
         fi ;;
