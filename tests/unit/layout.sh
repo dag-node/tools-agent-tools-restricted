@@ -494,15 +494,28 @@ if (( EUID == 0 )); then
     dyn_dot_home="${TESTDIR}/home/null.pointer" dyn_space_home="${TESTDIR}/home/spaced"
     mkdir -p "${dyn_dot_home}" "${dyn_space_home}"
     printf 'OPERATORS="%s,null.pointer,spaced"\n' "${PROJECTS_USER}" > "${OPERATOR_CONF}"
-    dyn_out="$(getent() {
-            case "$1 $2" in
-                "passwd null.pointer") printf 'null.pointer:x:59998:59998::%s:/sbin/nologin\n' "${dyn_dot_home}" ;;
-                "passwd spaced")       printf 'spaced:x:59997:59997::%s:/sbin/nologin\n' "${dyn_space_home}" ;;
-                *) command getent "$@" ;;
-            esac; }
-        id() { case "$1 $2" in "-gn null.pointer") printf 'null.pointer\n' ;; "-gn spaced") printf 'domain users\n' ;;
-                   *) command id "$@" ;; esac; }
-        AI_TOOLS_LAYOUT_ROOT="${R2}" ai_tools_layout__list_entries)" && dyn_rc=0 || dyn_rc=$?
+    # The shims are functions of their own, installed in the subshell the listing runs in: a function holding a `case`
+    # inside a command substitution is more than bash 5.1's substitution parser reads, and el9 runs 5.1.
+    dyn_getent() {
+        case "$1 $2" in
+            "passwd null.pointer") printf 'null.pointer:x:59998:59998::%s:/sbin/nologin\n' "${dyn_dot_home}" ;;
+            "passwd spaced")       printf 'spaced:x:59997:59997::%s:/sbin/nologin\n' "${dyn_space_home}" ;;
+            *) command getent "$@" ;;
+        esac
+    }
+    dyn_id() {
+        case "$1 $2" in
+            "-gn null.pointer") printf 'null.pointer\n' ;;
+            "-gn spaced")       printf 'domain users\n' ;;
+            *) command id "$@" ;;
+        esac
+    }
+    dyn_list() {
+        getent() { dyn_getent "$@"; }; id() { dyn_id "$@"; }
+        AI_TOOLS_LAYOUT_ROOT="${R2}" ai_tools_layout__list_entries
+    }
+    dyn_out="$(dyn_list)" && dyn_rc=0 || dyn_rc=$?
+    unset -f dyn_list dyn_getent dyn_id
     printf 'OPERATORS="%s"\n' "${PROJECTS_USER}" > "${OPERATOR_CONF}"
     dyn_dot_rows="$(grep -v '^error' <<< "${dyn_out}" | grep -c -F "${R2}${dyn_dot_home}/.config/ai-tools" || true)"
     dyn_space_rows="$(grep -v '^error' <<< "${dyn_out}" | grep -c -F "${R2}${dyn_space_home}/" || true)"
@@ -1541,11 +1554,18 @@ else
     mkdir -p "${FAKE_VICTIM}" "${FAKE_DIR%/*}"; install -o root -g root -m 0644 /dev/null "${FAKE_VICTIM}/allowed-projects"
     ln -sfn "${FAKE_VICTIM}" "${FAKE_DIR}"
     printf 'OPERATORS="%s,fixop"\n' "${PROJECTS_USER}" > "${operator_conf}"
-    out="$(getent() {
-            if [[ "$1" == passwd && "$2" == fixop ]]; then printf 'fixop:x:59999:59999::%s:/sbin/nologin\n' "${stub_fake_home}"
-            else command getent "$@"; fi; }
-        id() { if [[ "$1" == -gn && "$2" == fixop ]]; then printf 'fixop\n'; else command id "$@"; fi; }
-        reconcile_run)"
+    # The shims are functions of their own, installed in the subshell the run takes, as the entry-set rows do.
+    stub_getent() {
+        if [[ "$1" == passwd && "$2" == fixop ]]; then
+            printf 'fixop:x:59999:59999::%s:/sbin/nologin\n' "${stub_fake_home}"
+        else
+            command getent "$@"
+        fi
+    }
+    stub_id() { if [[ "$1" == -gn && "$2" == fixop ]]; then printf 'fixop\n'; else command id "$@"; fi; }
+    stub_run() { getent() { stub_getent "$@"; }; id() { stub_id "$@"; }; reconcile_run; }
+    out="$(stub_run)"
+    unset -f stub_run stub_getent stub_id
     _ai_tools_layout__encode_line wanted refused "${FAKE_DIR}/allowed-projects" ancestor "not read: ${FAKE_DIR} is not at its row"
     grep -qxF -- "${wanted}" <<< "${out}" && [[ "$(stat -c '%U:%G %a' "${FAKE_VICTIM}/allowed-projects")" == "root:root 644" ]] \
         && pass "an operator home carrying a backslash keeps the ancestor rule: the rows under its link are refused, the file behind it left" \
