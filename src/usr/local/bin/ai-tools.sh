@@ -961,6 +961,13 @@ read_path_class() {
         CLASS_BLOCKED_KIND CLASS_NESTED CLASS_BLOCKED_PATH <<< "${record}"
 }
 
+# resolve_entry_path <path>  -- print the spelling read_path_class compares for a path a file stores: its canonical form
+# (realpath -e), or, for a path that no longer exists, the written path without its trailing slash. A stored entry may
+# be spelled through a symlink or a `..`, and the classifier matches canonical paths.
+resolve_entry_path() {
+    realpath -e -- "$1" 2>/dev/null || printf '%s' "${1%/}"
+}
+
 # is_class_reachable  -- 0 when the path read_path_class last read is one a session can reach: listed, or inside
 # a listed project, with no park, carve-out or glob line covering it.
 is_class_reachable() {
@@ -5842,7 +5849,7 @@ cmd_project_list() {
             # A '!' line is a carve-out wherever it sits: a subtree withheld from the agent, working as written, so it
             # has no remedy to offer -- unless it names a path an allow or park line names too.
             excl="${entry:1}"
-            if ! _has_glob "${excl}" && read_path_class "$(realpath -e -- "${excl}" 2>/dev/null || printf '%s' "${excl%/}")" \
+            if ! _has_glob "${excl}" && read_path_class "$(resolve_entry_path "${excl}")" \
                     && [[ "${CLASS_STATE}" == conflict ]]; then
                 printf '  %-8s %-50s %s\n' "conflict" "${excl}" "${C_YEL}a '!' line and an entry name it${C_RST}"
             else
@@ -5860,7 +5867,7 @@ cmd_project_list() {
         if [[ "${entry}" == '%'* ]]; then
             # A parked project: registered, with no session starting there until it is re-enabled in place.
             excl="${entry:1}"
-            read_path_class "$(realpath -e -- "${excl}" 2>/dev/null || printf '%s' "${excl%/}")"
+            read_path_class "$(resolve_entry_path "${excl}")"
             if [[ "${CLASS_STATE}" == conflict ]]; then
                 printf '  %-8s %-50s %s\n' "conflict" "${excl}" "${C_YEL}a '!' line and an entry name it${C_RST}"
             else
@@ -5884,7 +5891,7 @@ cmd_project_list() {
         else
             safe="safe.dir:${C_YEL}NO${C_RST}"; sd=false
         fi
-        read_path_class "$(realpath -e -- "${entry}" 2>/dev/null || printf '%s' "${entry%/}")"
+        read_path_class "$(resolve_entry_path "${entry}")"
         if [[ "${CLASS_STATE}" == conflict ]]; then
             printf '  %-8s %-50s %s\n' "conflict" "${entry}" "${C_YEL}a '!' line and an entry name it${C_RST}"
             continue
@@ -5898,16 +5905,20 @@ cmd_project_list() {
     done < "${ALLOWLIST}"
     (( shown )) || say "  (none)"
 
-    # Reverse reconciliation: a git safe.directory entry with no matching allowlist line is an ORPHAN -- git still
-    # trusts the tree though no allowlist line names it (the line was hand-deleted, or an unclaim was interrupted
-    # before the safedir drop). Removing the stale safedir (and its label) is the cleanup; the entry is not a claimed
-    # project, so it is not offered `atr projects unclaim`, which would refuse an unlisted target. Control-plane entries
-    # (/opt/ai-tools) are registered deliberately and are protected paths, so they are skipped.
+    # Reverse reconciliation: a git safe.directory entry no registry entry names is an ORPHAN -- git still trusts
+    # the tree though no line names it (the line was hand-deleted, or an unclaim was interrupted before the safedir
+    # drop). An entry is an allow or a park line, read through the classifier: a parked project is still registered,
+    # and a conflict is a registered path the listing's registry section already reports. A git entry is classified by
+    # its real path, as the registry section reads its own lines, and the cleanup names it as git stores it. Removing
+    # the stale safedir (and its label) is the cleanup; the path is not a claimed project, so it is not offered
+    # `atr projects unclaim`, which would refuse an unlisted target. Control-plane entries (/opt/ai-tools) are
+    # registered deliberately and are protected paths, so they are skipped.
     local sdir
     while IFS= read -r sdir; do
         [[ -n "${sdir}" ]] || continue
         ai_tools_safe_paths__match_protected_path "${sdir}" >/dev/null 2>&1 && continue
-        ai_tools_conf__has_allowlist_entry "${ALLOWLIST}" "${sdir}" && continue
+        read_path_class "$(resolve_entry_path "${sdir}")"
+        case "${CLASS_STATE}" in listed|parked|conflict) continue ;; esac
         cleanup+=( "  ${sdir}" \
             "      ${C_YEL}git safe.directory with no allowlist entry${C_RST} (orphaned); remove it:" \
             "          sudo ${SAFEDIR_BIN} --remove ${sdir}" )

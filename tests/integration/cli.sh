@@ -898,7 +898,9 @@ if command -v runuser >/dev/null 2>&1; then
     # conditional returns 1.
     lst="${TESTDIR}/list"; mkdir -p \
         "${lst}/partial" "${lst}/eol-comment" "${lst}/quoted dir" \
-        "${lst}/glob-parent" "${lst}/excluded-live" "${lst}/orphan" "${lst}/parked/child"
+        "${lst}/glob-parent" "${lst}/excluded-live" "${lst}/orphan" "${lst}/parked/child" "${lst}/conflicted"
+    # A git entry may name a listed project through a symlink or a `..`, so it is classified by its real path.
+    ln -s "${lst}/partial" "${lst}/alias"
     chown -R "${PROJECTS_USER}:${PROJECTS_USER}" "${lst}"
     lal="${TESTDIR}/list-allowlist"
     cat > "${lal}" <<EOF
@@ -913,6 +915,8 @@ ${lst}/eol-comment    # main repo
 !${lst}/excluded-stale-gone
 %${lst}/parked
 ${lst}/parked/child
+${lst}/conflicted
+!${lst}/conflicted
 EOF
     chown "${PROJECTS_USER}:${PROJECTS_USER}" "${lal}"
     lgc="${TESTDIR}/list-gitconfig"
@@ -920,6 +924,10 @@ EOF
 [safe]
 	directory = ${lst}/partial
 	directory = ${lst}/orphan
+	directory = ${lst}/parked
+	directory = ${lst}/conflicted
+	directory = ${lst}/alias
+	directory = ${lst}/orphan/../partial
 	directory = /opt/ai-tools
 EOF
     chown "${PROJECTS_USER}:${PROJECTS_USER}" "${lgc}"
@@ -1001,8 +1009,9 @@ EOF
     assert_msg MSG-B8U2 "${gout}" "the library's line names the refused line"
     assert_msg MSG-Y7K5 "${gout}" "and the CLI's refusal follows it"
 
-    # Reverse reconciliation: exactly one orphaned safe.directory -- the listed entry (partial) and the control-plane
-    # entry (/opt/ai-tools, a protected path) must NOT be flagged.
+    # Reverse reconciliation: exactly one orphaned safe.directory -- the listed entry (partial), the same entry spelled
+    # through a symlink (alias) and through a `..`, the parked one (parked), the conflict (conflicted) and
+    # the control-plane entry (/opt/ai-tools, a protected path) must NOT be flagged.
     list_has "git safe.directory with no allowlist entry" "ai-tools.projects.list flags an orphaned safe.directory"
     list_has "${lst}/orphan"          "ai-tools.projects.list names the orphaned safedir path"
     list_lacks "/opt/ai-tools"        "ai-tools.projects.list skips the control-plane safe.directory (protected, registered deliberately)"
@@ -1012,6 +1021,21 @@ EOF
     else
         fail "orphaned-safedir count is ${n_orphan}, expected 1"
     fi
+    lcleanup="$(sed -n '/Suggested cleanup/,$p' <<<"${lout}")"
+    for lreg in parked conflicted; do
+        if grep -qxF "  ${lst}/${lreg}" <<<"${lcleanup}" || grep -qE -- "--remove ${lst}/${lreg}\$" <<<"${lcleanup}"; then
+            fail "ai-tools.projects.list offers the safe.directory of ${lst}/${lreg}, a registered path, for removal"
+        else
+            pass "ai-tools.projects.list counts the safe.directory of the ${lreg} path as registered"
+        fi
+    done
+    for lalias in "${lst}/alias" "${lst}/orphan/../partial"; do
+        if grep -qF -- "${lalias}" <<<"${lcleanup}"; then
+            fail "ai-tools.projects.list offers the safe.directory ${lalias}, a listed project's other spelling, for removal"
+        else
+            pass "ai-tools.projects.list classifies the safe.directory ${lalias} by its real path, a listed project"
+        fi
+    done
 
     # (8) ai-tools.projects.handback and ai-tools.projects.lockdown refuse a path outside every claimed project,
     # up front (before the sudo prompt / any change) -- covered_by_project. ${lone} is not in the fixture allowlist.
