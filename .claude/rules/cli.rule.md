@@ -789,14 +789,17 @@ with the file as it was. The readers do not read the order, so the operator's ha
 place on the next write. Two signs on one path never reach a writer: the grammar refuses the pair as `sign-conflict`,
 and two spellings of one directory through a link are refused by every reader that resolves them (`MSG-E3W3`).
 
-**A line the writer cannot write back is named, and refuses an unclaim or a remove before its first step.**
-The grammar reads a bare path carrying both quote characters, and the formatter does not render one, so a file holding
-such a line returns 4 from every editor whatever path the edit names. `ai_tools_conf__find_unrenderable_registry_line`
-prints that line, and `report_unrenderable_registry_line` names it under `MSG-A5Y2` with the remedy, after any editor
-that failed (`reg_allow`, `retag_allow`, `unreg_allow`; under `--for` over the snapshot, after the helper's `MSG-W6P5`).
-`projects unclaim` and `projects remove` ask it before their first change, since each ends with a registry write that
-would otherwise fail after the hand-back or the label reversal had run; `unclaim --force` does not write an entry
-and does not ask. The removal deletes the target's own line before it renders the rest, so a verb with one target
+**A line the writer cannot write back is named, and refuses a verb whose registry write comes after a change before its
+first step.** The grammar reads a bare path carrying both quote characters, and the formatter does not render one, so a
+file holding such a line returns 4 from every editor whatever path the edit names.
+`ai_tools_conf__find_unrenderable_registry_line` prints that line, and `report_unrenderable_registry_line` names it
+under `MSG-A5Y2` with the remedy, after any editor that failed (`reg_allow`, `retag_allow`, `unreg_allow`; under `--for`
+over the snapshot, after the helper's `MSG-W6P5`). `projects unclaim` and `projects remove` ask it before their first
+change, since each ends with a registry write that would otherwise fail after the hand-back or the label reversal had
+run, and `projects create` and `projects clone` ask it before the `mkdir` and before the branch push, since each
+registers after it has made the tree; `unclaim --force` does not write an entry and does not ask. `projects claim` does
+not ask: its registry write comes ahead of the secret gate and the Apply block, so a claim over such a file stops there
+with the tree as it was. The removal deletes the target's own line before it renders the rest, so a verb with one target
 passes that path and its own line does not count: `remove`, and `unclaim` of one project. An ancestor unclaim counts
 every line, since each of its removals renders the other targets' lines. Where a later write keeps the target's line,
 the editor's status 4 names it: the re-enable offer, and the disable a failed hand-back leaves.
@@ -1182,8 +1185,10 @@ A checked-in credential is therefore unreadable to the sandbox account until the
 writes the registry entry (the lockdown acts only on a registered path; rolled back on a failed gate), runs the same
 secret gate as a claim, and only past it labels and opens the clone: the label is applied while the root is still
 owner-only, then `normalize_clone` adds group `rwX`, setgid directories and the ACL the area would have given each path,
-pruning every path the gate locked, and the clone is registered. A declined or failed gate, and a label the clone root
-does not take, **fail closed**: the clone stays on disk, private and unregistered, and the resume command is printed.
+pruning every path the gate locked, and the clone is registered. A registry line the writer cannot write back refuses
+the clone ahead of the branch push (`MSG-A5Y2`), since the registry write follows the push and the clone. A declined
+or failed gate, and a label the clone root does not take, **fail closed**: the clone stays on disk, private and
+unregistered, and the resume command is printed.
 A host where SELinux runs with no `ai_tools` policy, the DAC-only state the launch proceeds
 through (`ai_tools_confinement__evaluate_dac_only_state`), creates the clone unlabelled and says so, since the type does
 not exist there; a module shipped and not loaded, and a reading that cannot be made, keep the stop. A declined or failed

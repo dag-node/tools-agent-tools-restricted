@@ -3331,6 +3331,11 @@ cmd_project_create() {
     # exist, so the name is checked ahead of the mkdir.
     ai_tools_conf__is_registry_path_representable "${d}" \
         || die_unregistrable_name "${d}" "Choose a name without them; the directory was not created."
+    # The claim's registry write rewrites the whole file, so a line of it the writer cannot write back would fail that
+    # write after the directory, its repository and its README exist.
+    if report_unrenderable_registry_line; then
+        die "projects create stopped before any change -- change the registry line named above first"
+    fi
 
     # Reachability pre-flight. The parent exists by now, so this scans the project's real ancestry: a blocker no grant
     # may cover means the sandbox account could never enter this project, so the create is refused BEFORE anything
@@ -4450,6 +4455,11 @@ cmd_project_clone() {
         say "    to finish securing/registering an earlier clone of this name:"
         say "      ${C_BOLD}atr projects clone ${dst}${C_RST}"
         die MSG-H2D4 "destination already exists: ${dst}"
+    fi
+    # The registration rewrites the whole registry, so a line of it the writer cannot write back would fail that write
+    # after the branch is pushed and the tree is cloned.
+    if report_unrenderable_registry_line; then
+        die "projects clone stopped before any change -- change the registry line named above first"
     fi
     [[ -d "${SANDBOX_ROOT}" ]] || die "sandbox area missing: ${SANDBOX_ROOT} -- run install first"
 

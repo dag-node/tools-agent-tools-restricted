@@ -694,6 +694,15 @@ drive_rows() {
     cli_stub_reset; drive cli ai-tools.projects.create "$(f yes)" "${R}/new2"
     expect "create takes no options"                                  rc_not0
     expect "the refused create makes nothing"                         test ! -e "${R}/new2"
+    # A registry line the writer cannot write back would fail the claim's registry write after the directory, its
+    # repository and its README exist, so the create refuses before the mkdir.
+    seed "@ ${R}/pa" "@ ${R}/cq\"q'q"
+    expect "the registry holding the unrenderable line validates"     ai_tools_conf__validate_registry "${AL}" current
+    drive cli ai-tools.projects.create "${R}/new3"
+    expect "create over an unrenderable line exits non-zero"          rc_not0
+    expect "that refusal names the line under its code"               out_has_text MSG-A5Y2
+    expect "the refused create makes no directory"                    test ! -e "${R}/new3"
+    expect "the refused create reaches no helper"                     cli_log_empty
 
     # ── D. Unclaim ────────────────────────────────────────────────────────────────────
     section "ai-tools.projects.unclaim"
@@ -1046,6 +1055,15 @@ drive_rows() {
     cli_stub_reset; drive cli ai-tools.projects.create "$(f for)" "${FOR_USER}" "${R}/for-none/new"
     expect "control: a target in ai-ops reaches the snapshot"         cli_called ai-tools-allowlist "^--operator${T}${FOR_USER}${T}--print$"
     expect "control: the create then refuses the missing parent"      out_has_text MSG-J3R8
+    # The same refusal over the target's snapshot: the run's one helper call is the snapshot, and no directory is made.
+    local for_create_saved; for_create_saved="$(cat "${FOR_AL}")"
+    seed_for "@ ${R}/fcq\"q'q"
+    cli_stub_reset; drive cli ai-tools.projects.create "$(f for)" "${FOR_USER}" "${R}/for-new"
+    expect "create --for over an unrenderable line exits non-zero"    rc_not0
+    expect "that refusal names the target's line under its code"      out_has_text MSG-A5Y2
+    expect "that run called the helper once, for the snapshot"        test "$(cli_call_count ai-tools-allowlist)" = 1
+    expect "that refusal creates no directory"                        test ! -e "${R}/for-new"
+    printf '%s\n' "${for_create_saved}" > "${FOR_AL}"; chown "${PROJECTS_USER}:${PROJECTS_USER}" "${FOR_AL}"
     for who in root "${SANDBOX_USER}"; do
         cli_stub_reset; drive cli ai-tools.projects.claim "$(f for)" "${who}" "$(f yes)" "${R}/for1"
         expect "--for refuses ${who}"                                 rc_not0
@@ -1091,6 +1109,17 @@ drive_rows() {
     expect "clone --from forks the branch from that base"             test "$(remote_tip sb3)" = "$(gitr -C "${SRC}" rev-parse base2)"
     cli_stub_reset; drive cli ai-tools.projects.clone "$(f yes)" "$(f dir)" "${N_C4}" "${SRC}"
     expect "clone accepts --yes"                                      test "${rc}" -eq 0 -a -d "${SBROOT}/${N_C4}/.git"
+    # The registration follows the push and the clone, so a registry line the writer cannot write back refuses the
+    # clone before either.
+    local clone_al_saved; clone_al_saved="$(cat "${AL}")"
+    printf '%s\n' "@ ${R}/cq\"q'q" >> "${AL}"
+    expect "the registry holding the unrenderable line validates"     ai_tools_conf__validate_registry "${AL}" current
+    cli_stub_reset; drive cli ai-tools.projects.clone "$(f yes)" "$(f branch)" "sb-unrenderable" "$(f dir)" "unrenderable" "${SRC}"
+    expect "clone over an unrenderable line exits non-zero"           rc_not0
+    expect "that refusal names the line under its code"               out_has_text MSG-A5Y2
+    expect "the refused clone pushes no branch"                       test -z "$(remote_tip sb-unrenderable)"
+    expect "the refused clone makes no clone directory"               test ! -e "${SBROOT}/unrenderable"
+    printf '%s\n' "${clone_al_saved}" > "${AL}"; chown "${PROJECTS_USER}:${PROJECTS_USER}" "${AL}"
 
     cli_stub_reset; drive cli ai-tools.projects.clone "${SBROOT}/${N_C4}"
     expect "clone on an existing clone path resumes its finalization" cli_called ai-tools-lockdown "^--gate$"
