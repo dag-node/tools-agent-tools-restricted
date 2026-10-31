@@ -855,7 +855,7 @@ fi
 reset_root
 mkdir -p "${TESTDIR}/kinds/agents.d" "${TESTDIR}/kinds/integrations.d" "${TESTDIR}/kinds/filters.d"
 touch "${TESTDIR}/kinds/agents.d/acme.conf" "${TESTDIR}/kinds/filters.d/base.rules"
-printf '%s\n' '# host options' 'OPERATORS=[op]' 'AI_TOOLS_AGENTS=[acme]' 'AI_TOOLS_INTEGRATIONS=[nosuch]' \
+printf '%s\n' '# host options' 'OPERATORS=[]' 'AI_TOOLS_AGENTS=[acme]' 'AI_TOOLS_INTEGRATIONS=[nosuch]' \
     'AI_TOOLS_FILTERS=[core]' > "${CONF}"
 chmod 0644 "${CONF}"; cp "${CONF}" "${TESTDIR}/pre.operator.conf"
 kinds_env=(AI_TOOLS_AGENTS_DIR="${TESTDIR}/kinds/agents.d" AI_TOOLS_INTEGRATIONS_DIR="${TESTDIR}/kinds/integrations.d"
@@ -878,7 +878,7 @@ else
 fi
 out="$(setsid env "${kinds_env[@]}" AI_TOOLS_POSTUPGRADE_ROOT="${ROOT}" "${HELPER}" system post-upgrade \
     < /dev/null 2>&1 || true)"
-if [[ "$(tr '\n' '|' < "${CONF}")" == '# host options|OPERATORS=[op]|AI_TOOLS_AGENTS=[agent-acme]|AI_TOOLS_INTEGRATIONS=[nosuch]|AI_TOOLS_FILTERS=[filter-base]|' ]]; then
+if [[ "$(tr '\n' '|' < "${CONF}")" == '# host options|OPERATORS=[]|AI_TOOLS_AGENTS=[agent-acme]|AI_TOOLS_INTEGRATIONS=[nosuch]|AI_TOOLS_FILTERS=[filter-base]|' ]]; then
     pass "the run rewrites each mappable list and leaves the unmappable one as written, with no .rpmnew waiting"
 else
     fail "the run left operator.conf as '$(tr '\n' '|' < "${CONF}")'"
@@ -987,6 +987,27 @@ if [[ "${check_rc}" == 0 ]] && ! grep -qF registry- <<<"${out}"; then
     pass "a migrated registry is not a finding, and a rerun has nothing to migrate"
 else
     fail "--check after the migration (exit ${check_rc}): ${out}"
+fi
+# An enrolled name with no account on this host: the registries collector skips it and reads the other operators,
+# so the check and the run end as they do with the projects user alone, with no `registries` error row. The name
+# exists on no host; a row that enrols a real example account reads differently on a host that has it and in
+# a container that does not, which is how this one was found.
+reg_reset "/srv/p"
+printf 'OPERATORS=[%s, absent.op]\n' "${PROJECTS_USER}" > "${CONF}"
+run_check
+if [[ "${check_rc}" == 4 ]] && has_finding MSG-C2H5 "${REG_DIR}/allowed-projects" registry-unmigrated \
+        "${PROJECTS_USER}: migrates to ${REG_DIR}/project-registry" "${PROJECTS_USER}" \
+        && ! grep -q $'\tregistries\t' <<<"${out}"; then
+    pass "--check skips an enrolled name with no account and reads the other operators"
+else
+    fail "--check with an enrolled name that has no account (exit ${check_rc}): ${out}"
+fi
+out="$(run_pu)"
+if [[ -f "${REG_DIR}/project-registry" && ! -e "${REG_DIR}/allowed-projects" ]] \
+        && ! grep -qF absent.op <<<"${out}"; then
+    pass "the run migrates the other operators' registries and does not name the absent account"
+else
+    fail "the run with an enrolled name that has no account: $(ls "${REG_DIR}" 2>&1 | tr '\n' ' '): ${out}"
 fi
 # A line the legacy grammar refuses: a finding with the reason, and the plain run leaves the file and does not write
 # `~/.config/ai-tools/project-registry`.

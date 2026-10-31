@@ -2185,7 +2185,7 @@ _pu_registry_list() {
     [[ -n "${root}" ]] || conf="${AI_TOOLS_OPERATOR_CONF:-${OPERATOR_CONF}}"
     ai_tools_conf__read_list operators "${conf}" OPERATORS 2>/dev/null || return 0
     for user in "${operators[@]}"; do
-        home="$(getent passwd "${user}" 2>/dev/null | cut -d: -f6)"
+        home="$(getent passwd "${user}" 2>/dev/null | cut -d: -f6)" || home=""
         uid="$(id -u "${user}" 2>/dev/null)" || continue
         [[ -n "${home}" ]] || continue
         IFS=$'\t' read -r state path < <(ai_tools_conf__resolve_registry "${root}${home}/.config/ai-tools")
