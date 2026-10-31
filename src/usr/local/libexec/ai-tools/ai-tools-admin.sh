@@ -2209,11 +2209,11 @@ _pu_read_registry_refusal() {
 
 # _pu_registry_findings <root>: registry-unmigrated for each enrolled operator whose registry is
 # the `~/.config/ai-tools/allowed-projects` an earlier release wrote and the legacy grammar reads, and registry-invalid
-# for one no reader accepts, legacy or current, with the reason. The source check is the migration's own (one lstat,
-# the operator's file at 600), made here without the write. Each file is then read as the launch gate reads it, so
-# an exclusion through a link the sandbox account can change is registry-invalid with the library's line; a legacy file
-# in that state is registry-unmigrated as well, since the migration copies the line and the remedy is the same edit
-# in either file.
+# for one no reader accepts, legacy or current, with the library's line. The source check is the migration's own (one
+# lstat, the operator's file at 600), made here without the write. Each file is then read as the launch gate reads it,
+# under the grammar the loader detects, so a line that grammar refuses, and an exclusion through a link the sandbox
+# account can change, are registry-invalid with the library's line. A legacy file whose exclusion crosses such a link is
+# registry-unmigrated as well, since the migration copies the line and the remedy is the same edit in either file.
 _pu_registry_findings() {
     local root="$1" user uid state path kind owner mode reason refusal rc fd pid
     exec {fd}< <(_pu_registry_list "${root}"); pid=$!
@@ -2229,8 +2229,6 @@ _pu_registry_findings() {
                 esac
                 [[ -n "${reason}" || "${owner}" == "${uid}" ]] || reason="${path} is held by uid ${owner}, not by ${user}"
                 [[ -n "${reason}" || "${mode}" == 600 ]] || reason="${path} is mode ${mode}, not 600"
-                [[ -n "${reason}" ]] || ai_tools_conf__validate_registry "${path}" legacy 2>/dev/null \
-                    || reason="${path} has a line the legacy grammar refuses"
                 rc=0; [[ -n "${reason}" ]] || refusal="$(_pu_read_registry_refusal "${path}")" || rc=$?
                 (( rc == 0 || rc == 2 )) || reason="${refusal}"
                 if [[ -n "${reason}" ]]; then

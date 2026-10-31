@@ -1009,13 +1009,15 @@ if [[ -f "${REG_DIR}/project-registry" && ! -e "${REG_DIR}/allowed-projects" ]] 
 else
     fail "the run with an enrolled name that has no account: $(ls "${REG_DIR}" 2>&1 | tr '\n' ' '): ${out}"
 fi
-# A line the legacy grammar refuses: a finding with the reason, and the plain run leaves the file and does not write
-# `~/.config/ai-tools/project-registry`.
+# A line the legacy grammar refuses: a finding carrying the library's line -- its number, its fault and its code --
+# and the plain run leaves the file and does not write `~/.config/ai-tools/project-registry`.
 reg_reset "/srv/p" "vendor"
 run_check
-if has_finding MSG-G6H4 "${REG_DIR}/allowed-projects" registry-invalid \
-        "${REG_DIR}/allowed-projects has a line the legacy grammar refuses" "${PROJECTS_USER}"; then
-    pass "--check writes registry-invalid for a legacy registry the grammar refuses"
+if [[ "${check_rc}" == 4 ]] && awk -F '\t' -v f="${REG_DIR}/allowed-projects" 'NR == 1 { for (i = 1; i <= NF; i++) col[$i] = i; next }
+        $col["code"] == "MSG-G6H4" && $col["finding"] == "registry-invalid" && $col["subject"] == f \
+            && index($col["detail"], "line 2: unknown-form") && index($col["detail"], "MSG-B8U2") { found = 1 }
+        END { exit !found }' <<< "${out}"; then
+    pass "--check writes registry-invalid for a legacy registry the grammar refuses, naming the line and its fault"
 else
     fail "--check over a refused legacy registry: ${out}"
 fi
