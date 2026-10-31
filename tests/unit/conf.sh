@@ -1681,6 +1681,48 @@ else
     fail "the refused rewrite wrote the file:"$'\n'"$(cat "${AL}")"
 fi
 
+# The reader every editor's caller asks which line that is: the line is printed and the status is 0, a file every line
+# of which renders returns 1, and so does a legacy file, which no format 1.0 writer rewrites. Each fixture validates
+# first, so the reader's answer is about a file the readers accept.
+seed_al "@ ${P1}" "@ ${TESTDIR}/names/q\"q'q"
+if ai_tools_conf__validate_registry "${AL}" current 2>/dev/null; then
+    pass "the fixture holding the unrenderable line validates as a current registry"
+else
+    fail "the fixture holding the unrenderable line does not validate:"$'\n'"$(cat "${AL}")"
+fi
+unrenderable_rc=0
+unrenderable_line="$(ai_tools_conf__find_unrenderable_registry_line "${AL}")" || unrenderable_rc=$?
+if [[ "${unrenderable_rc}" -eq 0 && "${unrenderable_line}" == "@ ${TESTDIR}/names/q\"q'q" ]]; then
+    pass "the reader names the line the writer cannot write back"
+else
+    fail "the reader: rc ${unrenderable_rc}, line '${unrenderable_line}'"
+fi
+seed_al "@ ${P1}" "! ${SUB}" "% ${P2}"
+rc_is 1 "the reader returns 1 for a file every line of which renders" \
+    ai_tools_conf__find_unrenderable_registry_line "${AL}"
+mkdir -p "${TESTDIR}/legacy"
+printf '%s\n' "${TESTDIR}/names/q\"q'q" > "${TESTDIR}/legacy/allowed-projects"
+if ai_tools_conf__validate_registry "${TESTDIR}/legacy/allowed-projects" legacy 2>/dev/null; then
+    rc_is 1 "the reader returns 1 for a legacy file, which no format 1.0 writer rewrites" \
+        ai_tools_conf__find_unrenderable_registry_line "${TESTDIR}/legacy/allowed-projects"
+else
+    fail "the legacy fixture does not validate:"$'\n'"$(cat "${TESTDIR}/legacy/allowed-projects")"
+fi
+
+# A valid file written by hand in a form the writer does not produce -- a sign glued to its path, a trailing slash,
+# an excluded path ahead of the project that encloses it -- takes the canonical form at the first write: a disable
+# and an enable leave the canonical file, not the input.
+seed_al "! ${SUB}" "@${P2}/" "@ ${P1}"
+roundtrip_input="$(cat "${AL}")"
+rc_is 0 "the hand-written file validates and takes a disable" ai_tools_conf__allowlist_disable "${AL}" "${P1}"
+rc_is 0 "and the enable after it"                             ai_tools_conf__allowlist_enable "${AL}" "${P1}"
+roundtrip_want="$(printf '%s\n' "${MARKER}" "@ ${P1}" "  ! ${SUB}" "@ ${P2}")"
+if [[ "$(cat "${AL}")" == "${roundtrip_want}" && "${roundtrip_want}" != "${roundtrip_input}" ]]; then
+    pass "the round trip over a hand-written file leaves its canonical form"
+else
+    fail "the round trip over a hand-written file left:"$'\n'"$(cat "${AL}")"
+fi
+
 # --- remove: the enabled and disabled lines, never a '!' line ---
 seed_al "@ ${P1}" "!${SUB}" "@ ${P2}"
 rc_is 0 "remove drops a path"                   ai_tools_conf__allowlist_remove "${AL}" "${P1}"

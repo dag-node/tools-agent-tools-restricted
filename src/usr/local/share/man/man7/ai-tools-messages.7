@@ -54,6 +54,10 @@ manual for the component that emits it.
 ERROR.
 stop takes no path: ${argument}. It TERMINATES every agent session on this host \-\- killing the process tree, so no session\-end handback runs \-\- and has no per\-project form, because a session is attributed to a project by the sandbox account's own user manager \-\- the account being stopped \-\- so that attribution is reported, never trusted to decide what a stop reaches.
 .TP
+.B MSG-A5Y2
+WARNING.
+a line of ${REGISTRY_DISPLAY_PATH} names a path the registry cannot write back \-\- the line is shown above
+.TP
 .B MSG-A7D3
 ERROR.
 projects create needs a path: it creates a NEW project directory.
@@ -1137,7 +1141,7 @@ no allowlist for ${OPERATOR} \-\- nothing to remove
 .TP
 .B MSG-W6P5
 ERROR.
-could not add ${canonical} to ${OPERATOR}'s allowlist \-\- nothing changed; a line of the registry names a path carrying both quote characters, which the registry cannot write back
+could not ${1} ${canonical} for ${OPERATOR} \-\- nothing changed; a line of the registry names a path carrying both quote characters, which the registry cannot write back
 .TP
 .B MSG-W6P9
 ERROR.

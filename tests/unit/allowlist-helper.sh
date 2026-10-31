@@ -336,4 +336,24 @@ fi
 refuses "--disable refuses an unlisted path" MSG-H6K3 \
     "${OPERATOR_UID}" --operator "${PROJECTS_USER}" --disable "${TESTDIR}"
 
+# ── A line of the target's file that the writer cannot write back: a path carrying both quote characters, which
+# the grammar reads and the formatter does not render. Every edit rewrites the whole file, so each action refuses
+# under one code with the file byte-identical, whatever path it names. The fixture validates first, as the helper's own
+# gate does, so a refusal here is the edit's and not the gate's.
+proj2="${TESTDIR}/proj2"; mkdir -p "${proj2}"
+printf '%s\n' "# ai-tools-project-registry-format: 1.0" "@ ${proj}" "% ${proj2}" "@ ${TESTDIR}/q\"q'q" > "${ALLOWFILE}"
+chown "${PROJECTS_USER}:${PROJECTS_GROUP}" "${ALLOWFILE}"; chmod 600 "${ALLOWFILE}"
+out="$(run_helper "${OPERATOR_UID}" --operator "${PROJECTS_USER}" --print)" && rc=0 || rc=$?
+if (( rc == 0 )); then
+    pass "the registry holding the unrenderable line passes the helper's own gate"
+else
+    fail "the unrenderable-line fixture is refused by the gate (rc=${rc}): ${out}"
+fi
+refuses "--remove over a line the writer cannot write back" MSG-W6P5 \
+    "${OPERATOR_UID}" --operator "${PROJECTS_USER}" --remove "${proj}"
+refuses "--disable over a line the writer cannot write back" MSG-W6P5 \
+    "${OPERATOR_UID}" --operator "${PROJECTS_USER}" --disable "${proj}"
+refuses "--enable over a line the writer cannot write back" MSG-W6P5 \
+    "${OPERATOR_UID}" --operator "${PROJECTS_USER}" --enable "${proj2}"
+
 finish

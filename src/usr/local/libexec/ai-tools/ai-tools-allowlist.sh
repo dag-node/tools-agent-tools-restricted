@@ -232,6 +232,13 @@ die_registry_changed() {
     die MSG-G8Q7 "the registry changed during the edit -- ${canonical} was not ${1} for ${OPERATOR}, and the line above names the reason"
 }
 
+# die_unrenderable_line <verb> : refuse an action whose edit returned 4 over a path the registry can write: every edit
+# rewrites the whole file, so a line the file already holds that the writer cannot render stops it, whatever path
+# the action names. The CLI names that line from its snapshot after this one.
+die_unrenderable_line() {
+    die MSG-W6P5 "could not ${1} ${canonical} for ${OPERATOR} -- nothing changed; a line of the registry names a path carrying both quote characters, which the registry cannot write back"
+}
+
 # ── print ────────────────────────────────────────────────────────────────────────
 # Read-only, and the only action that does not require a path. A missing allowlist is refused as the add refuses it.
 # An existing file is printed as it stands; one holding only comments is an empty list to the caller (the CLI's
@@ -280,9 +287,7 @@ case "${ACTION}" in
             3) die_registry_changed added ;;
             # The CLI's refusal for a name the grammar cannot carry, printed as its twin: a `--for` claim reaches it
             # here.
-            4) if ai_tools_conf__is_registry_path_representable "${canonical}"; then
-                   die MSG-W6P5 "could not add ${canonical} to ${OPERATOR}'s allowlist -- nothing changed; a line of the registry names a path carrying both quote characters, which the registry cannot write back"
-               fi
+            4) ai_tools_conf__is_registry_path_representable "${canonical}" && die_unrenderable_line add
                printf 'MSG-Z9R2\nai-tools-allowlist: %s\n' "this directory's name cannot be written as a registry line: ${canonical} -- nothing changed; rename the directory, then claim it" >&2
                exit 1 ;;
             *) die MSG-D3T3 "could not add ${canonical} to ${OPERATOR}'s allowlist -- nothing changed" ;;
@@ -307,7 +312,9 @@ case "${ACTION}" in
                 note MSG-H7J9 "nothing to remove: ${canonical} is not listed for ${OPERATOR}"
                 exit 0 ;;
         esac
-        ai_tools_conf__allowlist_remove "${allowlist}" "${canonical}" \
+        rc=0; ai_tools_conf__allowlist_remove "${allowlist}" "${canonical}" || rc=$?
+        (( rc == 4 )) && die_unrenderable_line remove
+        (( rc == 0 )) \
             || die MSG-K2G9 "could not remove ${canonical} from ${OPERATOR}'s allowlist -- a line naming it survived, so that project is still registered"
         ai_tools_log__structured info \
             "operator ${caller} removed ${canonical} from ${OPERATOR}'s allowlist" \
@@ -325,6 +332,7 @@ case "${ACTION}" in
             2) note MSG-E2G7 "not disabled for ${OPERATOR}: ${canonical} -- nothing to enable"
                exit 0 ;;
             3) die_registry_changed enabled ;;
+            4) die_unrenderable_line enable ;;
             *) die MSG-H9V5 "the entry is STILL disabled for ${OPERATOR}: ${canonical} -- the line was not rewritten" ;;
         esac
         ai_tools_log__structured info \
@@ -343,6 +351,7 @@ case "${ACTION}" in
             0) ;;
             2) die MSG-H6K3 "not listed for ${OPERATOR}: ${canonical} -- there is no entry to disable" ;;
             3) die_registry_changed disabled ;;
+            4) die_unrenderable_line disable ;;
             *) die MSG-C7Q4 "could not disable ${canonical} for ${OPERATOR} -- nothing changed" ;;
         esac
         ai_tools_log__structured info \

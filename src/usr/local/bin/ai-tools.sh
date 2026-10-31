@@ -895,11 +895,16 @@ retag_allow() {
             say "    registry: ${done_word} for ${FOR_OPERATOR}"
             return 0
         fi
-        warn "could not ${op} ${dir} in ${FOR_OPERATOR}'s project registry -- run:"
-        say  "      ${C_BOLD}sudo ${ALLOWLIST_BIN} --operator ${FOR_OPERATOR} --${op} ${dir}${C_RST}"
+        if ! report_unrenderable_registry_line; then
+            warn "could not ${op} ${dir} in ${FOR_OPERATOR}'s project registry -- run:"
+            say  "      ${C_BOLD}sudo ${ALLOWLIST_BIN} --operator ${FOR_OPERATOR} --${op} ${dir}${C_RST}"
+        fi
         return 1
     fi
     "ai_tools_conf__allowlist_${op}" "${ALLOWLIST}" "${dir}" || rc=$?
+    if (( rc == 4 )) && report_unrenderable_registry_line; then
+        return 1
+    fi
     if (( rc )); then
         warn "could not ${op} ${dir} in ${REGISTRY_DISPLAY_PATH} -- the file was not changed. Edit the line by hand:"
         [[ "${op}" == enable ]] && disabled_note "${dir}"
@@ -914,6 +919,19 @@ retag_allow() {
 die_registry_refused() {
     die MSG-Y7K5 "the project registry ${REGISTRY_DISPLAY_PATH} holds a line named above that no reader accepts -- nothing changed" \
         "Fix that line, then re-run. Until it is fixed no session starts under any entry of this file.$(format_registry_edit_clause)"
+}
+
+# report_unrenderable_registry_line  -- warn about the line of the registry this run reads (the invoker's, or a `--for`
+# target's snapshot) that the canonical writer cannot write back, printing the line, and return 0; return 1, printing
+# nothing, when every line renders. Every write rewrites the whole file, so one such line makes every edit of the file
+# fail (the editors' status 4) whatever path the edit names: an editor calls this once it has failed, and a verb whose
+# later step edits the file calls it before its first change.
+report_unrenderable_registry_line() {
+    local line
+    line="$(ai_tools_conf__find_unrenderable_registry_line "${ALLOWLIST}")" || return 1
+    printf '\n      %s\n\n' "${line}" >&2
+    warn MSG-A5Y2 "a line of ${REGISTRY_DISPLAY_PATH} names a path the registry cannot write back -- the line is shown above" \
+        "Every change to the file rewrites it whole, and a path carrying both a single and a double quote has no quoting a registry line can carry. Rename the directory the line names and edit the line to match, or delete the line; then run the command again.$(format_registry_edit_clause)"
 }
 
 # registry_gate <verb>  -- the gate every `projects` verb passes before it classifies a path. A registry not yet
@@ -1164,6 +1182,7 @@ reg_allow() {
                 || die "the registry was not updated -- ${dir} is still disabled"
             return 0
         fi
+        report_unrenderable_registry_line || true
         die MSG-A8Z6 "could not add ${dir} to ${FOR_OPERATOR}'s project registry -- it is not registered"
     fi
     [[ -f "${ALLOWLIST}" ]] || die "no project registry at ${ALLOWLIST} -- nothing changed.
@@ -1186,7 +1205,8 @@ reg_allow() {
            offer_reenable "${dir}" "the claim" \
                || die "the registry was not updated -- ${dir} is still disabled" ;;
         4) ai_tools_conf__is_registry_path_representable "${dir}" || die_unregistrable_name "${dir}"
-           die "could not add ${dir} to the registry -- a line of ${REGISTRY_DISPLAY_PATH} names a path carrying both quote characters, which the registry cannot write back; rename that directory or delete its line, then re-run" ;;
+           report_unrenderable_registry_line || true
+           die "could not add ${dir} to the registry -- it is not registered" ;;
         *) die "could not add ${dir} to the registry -- it is not registered" ;;
     esac
 }
@@ -1235,14 +1255,16 @@ unreg_allow() {
             say "    registry: removed for ${FOR_OPERATOR}"
             return 0
         fi
-        warn "could not remove ${dir} from ${FOR_OPERATOR}'s project registry -- while its line stands a session can still launch there. Remove it with:"
-        say  "      ${C_BOLD}sudo ${ALLOWLIST_BIN} --operator ${FOR_OPERATOR} --remove $(_quote_path "${dir}")${C_RST}"
+        if ! report_unrenderable_registry_line; then
+            warn "could not remove ${dir} from ${FOR_OPERATOR}'s project registry -- while its line stands a session can still launch there. Remove it with:"
+            say  "      ${C_BOLD}sudo ${ALLOWLIST_BIN} --operator ${FOR_OPERATOR} --remove $(_quote_path "${dir}")${C_RST}"
+        fi
     else
         [[ -f "${ALLOWLIST}" ]] || return 0
         # The library deletes every RAW `@` and `%` line naming ${dir}, matched through the shared grammar rather
         # than rebuilt from the path, so an entry carrying a comment or quotes is not missed, and a project the operator
         # had disabled leaves no '%' behind to disable whatever is claimed at that path next. A `!` line stays.
-        local -a lines=() excl=(); local raw before
+        local -a lines=() excl=(); local raw before rc=0
         before="$(allow_state "${dir}")"
         ai_tools_conf__read_allowlist_matching_lines  lines "${ALLOWLIST}" "${dir}" || true
         ai_tools_conf__read_allowlist_disabled_lines      excl  "${ALLOWLIST}" "${dir}" || true
@@ -1250,7 +1272,8 @@ unreg_allow() {
         # The library verifies the removal by re-reading the file rather than trusting `sed`, which writes its temporary
         # file into the registry's own DIRECTORY and so fails on a config dir this operator cannot write even
         # when the registry itself is writable.
-        if ai_tools_conf__allowlist_remove "${ALLOWLIST}" "${dir}"; then
+        ai_tools_conf__allowlist_remove "${ALLOWLIST}" "${dir}" || rc=$?
+        if (( rc == 0 )); then
             if [[ "${before}" == absent ]]; then
                 say "    registry: not listed"
             else
@@ -1258,10 +1281,12 @@ unreg_allow() {
             fi
             return 0
         fi
-        warn "could not remove ${dir} from ${REGISTRY_DISPLAY_PATH} -- a line naming it survived. While an '@' line stands a session can still start there, and a '%' line left behind disables the next project claimed at that path. Remove it by hand:"
-        for raw in "${lines[@]}"; do
-            printf '      %s%s%s\n' "${C_BOLD}" "$(format_registry_line_removal "${raw}")" "${C_RST}"
-        done
+        if ! { (( rc == 4 )) && report_unrenderable_registry_line; }; then
+            warn "could not remove ${dir} from ${REGISTRY_DISPLAY_PATH} -- a line naming it survived. While an '@' line stands a session can still start there, and a '%' line left behind disables the next project claimed at that path. Remove it by hand:"
+            for raw in "${lines[@]}"; do
+                printf '      %s%s%s\n' "${C_BOLD}" "$(format_registry_line_removal "${raw}")" "${C_RST}"
+            done
+        fi
     fi
     die MSG-K8S2 "the registry was not updated -- ${dir} is still registered"
 }
@@ -3892,6 +3917,13 @@ cmd_project_unclaim() {
             "       $(format_projects_command unclaim "${targets[0]}")"
     fi
 
+    # Every registry write rewrites the whole file, and the re-enable offer and the reversal at the end each write it:
+    # a line the writer cannot write back would fail the reversal after the hand-back had run, so the unclaim refuses
+    # before its first change.
+    if report_unrenderable_registry_line; then
+        die "projects unclaim stopped before any change -- change the registry line named above first"
+    fi
+
     # A disabled target is answered up front (offer_reenable), since under its `%` the hand-back would exit 0 without
     # handing back a path; a target a `%`, `!` or glob line covers without naming it cannot be handed back
     # either. The covering line is read first, so the re-enable is not offered where that line decides the outcome
@@ -4076,6 +4108,12 @@ cmd_project_remove() {
         printf '\n' >&2
         die MSG-Q3R9 "this project contains ${#nested[@]} other claimed project(s), listed above: ${d}" \
             "Deleting it would delete them too, leaving each one registered, git-trusted and SELinux-labelled at a path that no longer exists. Remove or unclaim those first, then re-run this."
+    fi
+
+    # The removal's registry step rewrites the whole file and runs after the label is reverted: a line the writer cannot
+    # write back would stop the removal there, so it is refused before any change.
+    if report_unrenderable_registry_line; then
+        die "projects remove stopped before any change -- change the registry line named above first"
     fi
 
     # ── Deletability pre-flight: read-only, run as the acting owner. ── The parent first: `rm -rf <d>` ends

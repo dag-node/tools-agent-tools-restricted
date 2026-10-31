@@ -368,7 +368,7 @@ rc_not0() { [[ "${rc}" -ne 0 ]]; }
 # quiet_rc <n> / quiet_refusal: the exit status AND an empty call log -- a refusal that did not reach a helper, which is
 # the ordering rule that a refused command does not prompt for sudo first.
 quiet_rc()      { [[ "${rc}" -eq "$1" ]] && cli_log_empty; }
-cli_log_lacks() { ! cli_called "$1"; }
+cli_log_lacks() { ! cli_called "$@"; }
 quiet_refusal() { [[ "${rc}" -ne 0 ]] && cli_log_empty; }
 # quiet_report <rc>...: a report that RAN and reached no helper. A report closes at one of the statuses
 # ai-tools-records(5) gives every report -- 0, 4 with findings, 5 with a reading it could not make -- and which of them
@@ -931,6 +931,50 @@ drive_rows() {
     drive cli ai-tools.projects.unclaim "$(f for)" "${FOR_USER}" "$(f yes)" "${R}/for4"
     expect "control: the same unclaim disables the target's entry"    st_for_is "${R}/for4" disabled
     expect "control: and exits non-zero, the hand-back not run"       rc_not0
+
+    # A line of the registry the writer cannot write back -- a path carrying both quote characters, which the grammar
+    # reads and the formatter does not render -- stops every edit of the file, whatever path the edit names. remove
+    # and unclaim refuse before their first change, disable reports the line once its edit fails, and each names it
+    # under one code with the registry byte-identical. Each fixture validates first, so the refusal is the edit's.
+    local al_saved for_saved ur_sha
+    al_saved="$(cat "${AL}")"; for_saved="$(cat "${FOR_AL}")"
+    mkdir -p "${R}/ur1" "${R}/ur2" "${R}/fur1"
+    chown "${PROJECTS_USER}:${PROJECTS_USER}" "${R}/ur1" "${R}/ur2" "${R}/fur1"
+    seed "@ ${R}/ur1" "@ ${R}/ur2" "@ ${R}/q\"q'q"
+    expect "the registry holding the unrenderable line validates"     ai_tools_conf__validate_registry "${AL}" current
+    ur_sha="$(sha "${AL}")"
+    drive cli ai-tools.projects.remove.inplace "$(f yes)" "${R}/ur1"
+    expect "remove over an unrenderable line exits non-zero"          rc_not0
+    expect "that refusal names the line under its code"               out_has_text MSG-A5Y2
+    expect "the tree stands"                                          test -d "${R}/ur1"
+    expect "the registry is byte-identical"                           test "$(sha "${AL}")" = "${ur_sha}"
+    expect "the refused remove reaches no helper"                     cli_log_empty
+    cli_stub_reset; drive cli ai-tools.projects.disable "${R}/ur1"
+    expect "disable over an unrenderable line exits non-zero"         rc_not0
+    expect "that refusal names the line under its code"               out_has_text MSG-A5Y2
+    expect "the entry is still enabled"                               st_is "${R}/ur1" enabled
+    expect "the registry is byte-identical"                           test "$(sha "${AL}")" = "${ur_sha}"
+    cli_stub_reset; drive cli ai-tools.projects.unclaim "$(f yes)" "${R}/ur2"
+    expect "unclaim over an unrenderable line exits non-zero"         rc_not0
+    expect "that refusal names the line under its code"               out_has_text MSG-A5Y2
+    expect "the hand-back does not run"                               not_called ai-tools-unclaim
+    expect "the label is not reverted"                                not_called ai-tools-relabel
+    expect "the registry is byte-identical"                           test "$(sha "${AL}")" = "${ur_sha}"
+    seed_for "@ ${R}/fur1" "@ ${R}/q\"q'q"
+    ur_sha="$(sha "${FOR_AL}")"
+    cli_stub_reset; drive cli ai-tools.projects.disable "$(f for)" "${FOR_USER}" "${R}/fur1"
+    expect "disable --for over an unrenderable line exits non-zero"   rc_not0
+    expect "the helper was asked to disable the entry"                cli_called ai-tools-allowlist "^--operator${T}${FOR_USER}${T}--disable${T}${R}/fur1$"
+    expect "the CLI names the target's line under its code"           out_has_text MSG-A5Y2
+    expect "the target's registry is byte-identical"                  test "$(sha "${FOR_AL}")" = "${ur_sha}"
+    cli_stub_reset; drive cli ai-tools.projects.unclaim "$(f for)" "${FOR_USER}" "$(f yes)" "${R}/fur1"
+    expect "unclaim --for over an unrenderable line exits non-zero"   rc_not0
+    expect "that refusal names the target's line under its code"      out_has_text MSG-A5Y2
+    expect "the hand-back does not run"                               not_called ai-tools-unclaim
+    expect "the helper is not asked to edit the target's registry"    cli_log_lacks ai-tools-allowlist "^--operator${T}${FOR_USER}${T}--(remove|disable)"
+    expect "the target's registry is byte-identical"                  test "$(sha "${FOR_AL}")" = "${ur_sha}"
+    printf '%s\n' "${al_saved}" > "${AL}"; printf '%s\n' "${for_saved}" > "${FOR_AL}"
+    chown "${PROJECTS_USER}:${PROJECTS_USER}" "${AL}" "${FOR_AL}"
 
     for key in ai-tools.projects.clone ai-tools.projects.push ai-tools.status ai-tools.stop; do
         cli_stub_reset; drive cli "${key}" "$(f for)" "${FOR_USER}" "${SRC}"
