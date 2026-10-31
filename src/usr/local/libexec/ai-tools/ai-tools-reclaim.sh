@@ -195,8 +195,9 @@ _print_folded_child_messages() {
 }
 
 # _stop_on_signal <status> : a run interrupted part-way still reports what it did: the messages folded so far, and
-#   the number of paths handed back before the signal, then exits <status>. Called from the loop, never from a trap:
-#   bash runs a trap once the command in flight completes, which for a child is between its assignment and its count.
+#   the number of paths handed back before the signal, then exits <status>. Called where the loop reads stop_status,
+#   never from a trap: bash runs a trap once the command in flight completes, which for a child is between its
+#   assignment and its count.
 _stop_on_signal() {
     trap - INT TERM
     _print_folded_child_messages
@@ -211,23 +212,26 @@ _stop_on_signal() {
 # between the collect and apply phases is a legitimate skip, and reporting it as handed back would overstate
 # what changed. A non-zero tally is surfaced, not hidden. Each child's stderr is captured on its own, its stdout left
 # on the terminal, and folded (_fold_child_messages) into what is printed ahead of the tally. A signal traps into
-# stop_status alone, and the loop stops once the child in flight is counted and its stderr folded, so the tally
-# the stop prints includes it; the child is one ai-tools-chown of one path, so the wait is bounded.
+# stop_status alone, and the loop reads it ahead of each child: one recorded before a child starts stops the run
+# there, and one recorded while a child runs stops it once that child is counted and its stderr folded, so the tally
+# the stop prints includes every child that ran. The run waits for the child in flight, one ai-tools-chown of one path.
+# The traps come off ahead of the last read, since bash runs a trap pending at `trap -` before removing it: a signal
+# recorded up to that point is read, and one after it ends the run by its default disposition.
 declare -i confirmed=0 failed=0 stop_status=0
 trap 'stop_status=130' INT
 trap 'stop_status=143' TERM
 for path in "${paths[@]}"; do
     child_messages=""
+    (( stop_status )) && _stop_on_signal "${stop_status}"
     if { child_messages="$("${CHOWN_BIN}" --yes "${path}" </dev/null 2>&1 1>&3)"; } 3>&1; then
         confirmed+=1
     else
         failed+=1
     fi
     _fold_child_messages "${child_messages}"
-    (( stop_status )) && _stop_on_signal "${stop_status}"
 done
-(( stop_status )) && _stop_on_signal "${stop_status}"
 trap - INT TERM
+(( stop_status )) && _stop_on_signal "${stop_status}"
 _print_folded_child_messages
 if (( failed > 0 )); then
     warn MSG-J4W5 "handed back ${confirmed} path(s), ${failed} skipped/failed under ${canonical}"

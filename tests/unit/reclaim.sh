@@ -111,18 +111,23 @@ fi
 # (E) A signal stops the handback after the child in flight is counted: bash runs the trap once the child's command
 # substitution completes, so the stop reports that child's notice and counts its path, and the next child does not
 # start. Driven on the loop extracted from the same source as (D), with ai-tools-chown a shell function that marks
-# its path, waits a second, and writes a coded notice; the same run without the signal is the control.
+# its path, waits a second, and writes a coded notice; the same run without the signal is the control. Two more
+# signals land at a command boundary, sent from a DEBUG trap on the command named in SIGNAL_AT: one ahead of the first
+# child, which must start no child, and one at the trap removal, which must still report the stop.
 loop_code="$(printf '%s\n' "${fold_code}"
              awk '/^_stop_on_signal\(\) \{/,/^}/' "${reclaim_source}"
-             awk '/^declare -i confirmed=0/,/^trap - INT TERM$/' "${reclaim_source}")"
-# shellcheck disable=SC2016  # the loop header is matched as the helper's own text
+             awk '/^declare -i confirmed=0/ { on = 1 } on { print } on && /^trap - INT TERM$/ { getline; print; exit }' \
+                 "${reclaim_source}")"
+# shellcheck disable=SC2016  # the loop header and the last stop read are matched as the helper's own text
 if [[ "${loop_code}" != *'_stop_on_signal() {'* || "${loop_code}" != *'for path in "${paths[@]}"; do'* \
-        || "${loop_code}" != *'trap - INT TERM'* ]]; then
+        || "${loop_code}" != *$'trap - INT TERM\n(( stop_status )) && _stop_on_signal "${stop_status}"' ]]; then
     fail "${reclaim_source} does not define the handback loop and its signal stop"
 else
     mkdir -p "${TESTDIR}/marks"
     # shellcheck disable=SC2016  # expanded by the inner bash, not here
     loop_run='set -euo pipefail
+        trap '"'"'[[ -n "${SIGNAL_AT-}" && -z "${signal_sent-}" && "${BASH_COMMAND}" == "${SIGNAL_AT}" ]] \
+            && { signal_sent=1; kill -TERM $$; }'"'"' DEBUG
         warn() { printf "%s\n" "$*" >&2; }
         ai_tools_log__structured() { :; }
         chown_stub() { : > "${MARKS}/${2##*/}"; sleep 1; printf "MSG-T9M5\na secret-named file: %s\n" "$2" >&2; }
@@ -143,6 +148,25 @@ else
         pass "a signal during a child stops after it: its notice printed once, its path counted, exit 143"
     else
         fail "a signal during a child: exit ${stop_rc}, ${stop_marks} child(ren) started, output '${stop_out//$'\n'/~}'"
+    fi
+    rm -f "${TESTDIR}/marks/"*
+    stop_rc=0
+    stop_out="$(MARKS="${TESTDIR}/marks" SIGNAL_AT='child_messages=""' bash -c "${loop_run}" 2>&1)" || stop_rc=$?
+    stop_marks="$(find "${TESTDIR}/marks" -type f | wc -l)"
+    if (( stop_rc == 143 && stop_marks == 0 )) \
+            && grep -q 'stopped by a signal -- 0 path(s) handed back under /p' <<<"${stop_out}"; then
+        pass "a signal ahead of the first child starts no child and reports the stop with 0 paths"
+    else
+        fail "a signal ahead of the first child: exit ${stop_rc}, ${stop_marks} child(ren) started, output '${stop_out//$'\n'/~}'"
+    fi
+    rm -f "${TESTDIR}/marks/"*
+    stop_rc=0
+    stop_out="$(MARKS="${TESTDIR}/marks" SIGNAL_AT='trap - INT TERM' bash -c "${loop_run}" 2>&1)" || stop_rc=$?
+    if (( stop_rc == 143 )) && grep -q 'stopped by a signal -- 2 path(s) handed back under /p' <<<"${stop_out}" \
+            && ! grep -qx 'confirmed=2' <<<"${stop_out}"; then
+        pass "a signal at the trap removal is read: the stop is reported with both paths, not a success"
+    else
+        fail "a signal at the trap removal: exit ${stop_rc}, output '${stop_out//$'\n'/~}'"
     fi
     rm -f "${TESTDIR}/marks/"*
     stop_rc=0
