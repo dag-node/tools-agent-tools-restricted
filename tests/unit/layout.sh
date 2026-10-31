@@ -150,9 +150,17 @@ valid "a link row at 0777 with no ACL"      static /x link root:root 0777 - ai-t
 valid "a directory with access and default entries" static /x directory root:ai-tools 2770 \
     "group:ai-ops:rwx,default:group:ai-ops:rwx" ai-tools-base files
 valid "a package list on a directory"       static /x directory root:root 0755 - "ai-tools-base,ai-tools-selinux" files
-# A fixed owner rather than the harness operator: the row grammar holds a name to [a-z_][a-z0-9_-]*, which an enrolled
-# account's name need not satisfy.
 valid "a dynamic row with a space in its path" dynamic "/home/a b/.config/ai-tools" directory op:op 0700 - - boundary
+# A dynamic row's owner takes the names enrolment accepts, a dot and upper case among them; a static row's does not.
+dh=/home/n/.config/ai-tools
+valid "a dynamic owner with a dot"            dynamic "${dh}" directory null.pointer:null.pointer 0700 - - boundary
+valid "a dynamic owner in upper case"         dynamic "${dh}" directory Op:Staff 0700 - - boundary
+refused "a dynamic group with a space"  dynamic "portable name" "${dh}" directory "op:domain users" 0700 - - boundary
+refused "a dynamic owner opening with -"      dynamic "portable name" "${dh}" directory -op:op 0700 - - boundary
+refused "a dynamic owner without a group"     dynamic "portable name" "${dh}" directory op 0700 - - boundary
+refused "a dynamic owner with an empty group" dynamic "portable name" "${dh}" directory op: 0700 - - boundary
+refused "a dynamic owner with a second colon" dynamic "portable name" "${dh}" directory op:a:b 0700 - - boundary
+refused "a static owner with a dot"  static "user:group" /x file null.pointer:null.pointer 0644 - ai-tools-base files
 refused "six fields"                static "expected 7 fields" /x file root:root 0644 - ai-tools-base
 refused "a relative path"           static "absolute normalized" x file root:root 0644 - ai-tools-base files
 refused "a trailing slash"          static "absolute normalized" /x/ directory root:root 0755 - ai-tools-base files
@@ -479,6 +487,37 @@ if (( EUID == 0 )); then
         pass "the ~/.config/ai-tools/project-registry row is required, and optional beside an unmigrated allowed-projects"
     else
         fail "the registry row: without a legacy file '${row_current}', beside one '${row_legacy}'"
+    fi
+    # Each dynamic row passes the validator before it is listed. An operator whose name carries a dot has its rows;
+    # one whose primary group carries a space has none, and each of its rows is an `error` line naming the path and
+    # the owner (getent and id stubbed for those names alone, the homes real directories under the testdir).
+    dyn_dot_home="${TESTDIR}/home/null.pointer" dyn_space_home="${TESTDIR}/home/spaced"
+    mkdir -p "${dyn_dot_home}" "${dyn_space_home}"
+    printf 'OPERATORS="%s,null.pointer,spaced"\n' "${PROJECTS_USER}" > "${OPERATOR_CONF}"
+    dyn_out="$(getent() {
+            case "$1 $2" in
+                "passwd null.pointer") printf 'null.pointer:x:59998:59998::%s:/sbin/nologin\n' "${dyn_dot_home}" ;;
+                "passwd spaced")       printf 'spaced:x:59997:59997::%s:/sbin/nologin\n' "${dyn_space_home}" ;;
+                *) command getent "$@" ;;
+            esac; }
+        id() { case "$1 $2" in "-gn null.pointer") printf 'null.pointer\n' ;; "-gn spaced") printf 'domain users\n' ;;
+                   *) command id "$@" ;; esac; }
+        AI_TOOLS_LAYOUT_ROOT="${R2}" ai_tools_layout__list_entries)" && dyn_rc=0 || dyn_rc=$?
+    printf 'OPERATORS="%s"\n' "${PROJECTS_USER}" > "${OPERATOR_CONF}"
+    dyn_dot_rows="$(grep -v '^error' <<< "${dyn_out}" | grep -c -F "${R2}${dyn_dot_home}/.config/ai-tools" || true)"
+    dyn_space_rows="$(grep -v '^error' <<< "${dyn_out}" | grep -c -F "${R2}${dyn_space_home}/" || true)"
+    dyn_space_errors="$(grep '^error' <<< "${dyn_out}" | grep -F "${R2}${dyn_space_home}/.config/ai-tools" \
+        | grep -c -F 'owner spaced:domain users is not user:group, each a portable name' || true)"
+    if [[ "${dyn_dot_rows}" == 4 ]]; then
+        pass "an operator named null.pointer has its four rows"
+    else
+        fail "the null.pointer rows: ${dyn_dot_rows} of 4: $(grep -F null.pointer <<< "${dyn_out}" | tr '\n' '|')"
+    fi
+    if (( dyn_rc == 1 )) && [[ "${dyn_space_rows}" == 0 && "${dyn_space_errors}" == 4 ]]; then
+        pass "an operator whose group holds a space has no row, each one an error line naming the owner (status 1)"
+    else
+        dyn_seen="$(grep -F spaced <<< "${dyn_out}" | tr '\n' '|')"
+        fail "spaced operator: status ${dyn_rc}, ${dyn_space_rows} rows, ${dyn_space_errors} errors: ${dyn_seen}"
     fi
 else
     (( rc == 1 )) && pass "an input the invoker owns is untrusted: status 1" || fail "untrusted inputs: status ${rc}"
