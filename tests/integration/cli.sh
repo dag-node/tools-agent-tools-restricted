@@ -572,7 +572,7 @@ if command -v runuser >/dev/null 2>&1; then
     else
         fail "ai-tools.projects.create left an incomplete tree: $(ls -A "${newproj}" 2>&1)"
     fi
-    if grep -qxF "${newproj}" "${emptyal}"; then
+    if grep -qxF "@ ${newproj}" "${emptyal}"; then
         pass "ai-tools.projects.create registers the new project in the project registry"
     else
         fail "ai-tools.projects.create did not register the project: $(cat "${emptyal}")"
@@ -925,7 +925,7 @@ EOF
         # left_reported <key> <path> <registry> : the assertions a failed deletion owes, for either kind.
         left_reported() {
             local key="$1" p="$2" reg="$3"
-            if [[ ${rc} -eq 1 && -d "${p}" ]] && ! grep -qxF -- "${p}" "${reg}"; then
+            if [[ ${rc} -eq 1 && -d "${p}" ]] && ! grep -qF -- "${p}" "${reg}"; then
                 pass "${key} whose deletion fails exits 1 with the tree on disk and the entry removed"
             else
                 fail "${key} over a failed deletion: rc=${rc}, on disk $([[ -d "${p}" ]] && echo yes || echo no): $(brief "${out}")"
@@ -1066,7 +1066,8 @@ EOF
     assert_msg MSG-Y7K5 "${gout}" "and the CLI's refusal follows it"
 
     # Reverse reconciliation: exactly one orphaned safe.directory -- the listed entry (partial), the same entry spelled
-    # through a symlink (alias) and through a `..`, the parked one (parked) and the control-plane entry (/opt/ai-tools, a protected path) must NOT be flagged.
+    # through a symlink (alias) and through a `..`, the parked one (parked) and the control-plane entry (/opt/ai-tools,
+    # a protected path) must NOT be flagged.
     list_has "git safe.directory with no allowlist entry" "ai-tools.projects.list flags an orphaned safe.directory"
     list_has "${lst}/orphan"          "ai-tools.projects.list names the orphaned safedir path"
     list_lacks "/opt/ai-tools"        "ai-tools.projects.list skips the control-plane safe.directory (protected, registered deliberately)"
@@ -1159,7 +1160,7 @@ EOF
         fi
         chown "${PROJECTS_USER}:${PROJECTS_USER}" "${creg_dir}"
         out="$(remove_clone_run)" && rc=0 || rc=$?
-        if [[ ${rc} -eq 0 && ! -e "${rclone}" ]] && ! grep -qxF "${rclone}" "${creg}"; then
+        if [[ ${rc} -eq 0 && ! -e "${rclone}" ]] && ! grep -qF "${rclone}" "${creg}"; then
             pass "control: the same removal over a writable registry directory drops the line and deletes the clone"
         else
             fail "the control clone removal (rc=${rc}, on disk $([[ -e "${rclone}" ]] && echo yes || echo no)): $(brief "${out}")"
@@ -1264,7 +1265,7 @@ if command -v runuser >/dev/null 2>&1; then
     # (4) --force binds an unlisted tree to the INVOKING uid inside ai-tools-unclaim, so honouring --for there would
     # have the CLI name one operator while the helper acted as another.
     out="$(run_for ai-tools.projects.unclaim --force --for "${PROJECTS_USER}" "${fproj}")" && rc=0 || rc=$?
-    # By code: --for's own --force refusal (MSG-B5K3), not --keep-entry's (MSG-R3G9).
+    # By code: --for's own --force refusal (MSG-B5K3), raised by the gate ahead of the verb's own parser.
     refused "--for refuses to combine with ai-tools.projects.unclaim --force" MSG-B5K3
 
     # (5) A bare --for with no name is a parse error, not an empty operator silently meaning "me".
@@ -1272,12 +1273,12 @@ if command -v runuser >/dev/null 2>&1; then
     refused "--for with no operator name is refused, ahead of every gate" MSG-B4G2
 fi
 
-# ── ai-tools.projects.disable / ai-tools.projects.enable: parking a project in place ─────────
-# The pair edits ONE line of the operator's own allowlist and does not reach a root helper, so the whole lifecycle is
-# drivable here as the projects user over the fixture registry. What is asserted is what the flat-file model rests
-# on (the entry states, in cli.rule.md): the line is edited IN PLACE, a parked project is not an unlisted one,
-# and neither verb ever invents an entry or lifts a '!' carve-out -- since lifting one hands the agent a subtree its
-# operator withheld.
+# ── ai-tools.projects.disable / ai-tools.projects.enable: parking a project ─────────────────
+# The pair changes the sign of ONE line of the operator's own registry and does not reach a root helper, so the whole
+# lifecycle is drivable here as the projects user over the fixture registry. What is asserted is what the flat-file
+# model rests on (the entry states, in cli.rule.md): the write is the whole file in canonical form with that line's sign
+# changed and its comment kept, a parked project is not an unlisted one, and neither verb ever invents an entry or lifts
+# a '!' carve-out -- since lifting one hands the agent a subtree its operator withheld.
 section "ai-tools.projects.disable / ai-tools.projects.enable"
 
 if ! command -v runuser >/dev/null 2>&1; then
@@ -1306,17 +1307,20 @@ else
     }
     pd_seed() { printf '%s\n' "${REG_MARKER}" "$@" > "${pd_al}"; chown "${PROJECTS_USER}:${PROJECTS_USER}" "${pd_al}"; }
 
-    # (1) Park a listed project: the line keeps its position, indentation and comment. That is the whole reason these
-    # verbs exist rather than being an unclaim/claim pair -- an operator whose registry is an ordered, commented
-    # document gets it back unchanged.
+    # (1) Park a listed project: the write is the whole file in canonical form, so a hand-indented line takes its place
+    # in the forest and its comment is kept after the entry. That comment surviving is the whole reason these verbs exist
+    # rather than being an unclaim/claim pair -- an operator's commented registry keeps its notes.
     pd_seed "  @ ${pd_proj}   # payments, dev stage" "@ ${pd_other}"
-    pd_before="$(cat "${pd_al}")"
     out="$(pd_cli ai-tools.projects.disable "${pd_proj}")" && rc=0 || rc=$?
-    if [[ ${rc} -eq 0 ]] && [[ "$(sed -n '3p' "${pd_al}")" == "  %${pd_proj}   # payments, dev stage" ]]; then
-        pass "ai-tools.projects.disable parks the entry in place, keeping position and comment"
+    pd_parked_line="$(sed -n '2p' "${pd_al}")"
+    if [[ ${rc} -eq 0 && "$(wc -l < "${pd_al}")" -eq 3 && "${pd_parked_line}" == "% ${pd_proj} "*"# payments, dev stage" \
+            && "$(sed -n '3p' "${pd_al}")" == "@ ${pd_other}" ]]; then
+        pass "ai-tools.projects.disable parks the entry in canonical form, keeping its comment"
     else
-        fail "ai-tools.projects.disable did not park the entry (rc=${rc}): $(brief "${out}")"
+        fail "ai-tools.projects.disable did not park the entry (rc=${rc}): $(brief "${out}")"$'\n'"$(cat "${pd_al}")"
     fi
+    # A file in canonical form differs between the two states by the sign alone, so the enable has one file to restore.
+    pd_before="$(sed '2s/^% /@ /' "${pd_al}")"
     if grep -qi 'handback' <<<"${out}"; then
         pass "the disable states the consequence an operator has to know (the handback stops)"
     else
@@ -1346,10 +1350,10 @@ else
         fail "ai-tools.projects.list did not report the parked project: $(brief "${out}" 'parked|exclude')"
     fi
 
-    # (4) Restore it: the file comes back byte-identical to before the park.
+    # (4) Restore it: over a file in canonical form, the enable changes the sign back and leaves every other byte.
     out="$(pd_cli ai-tools.projects.enable "${pd_proj}")" && rc=0 || rc=$?
     if [[ ${rc} -eq 0 ]] && [[ "$(cat "${pd_al}")" == "${pd_before}" ]]; then
-        pass "ai-tools.projects.enable restores the file byte-identically (a lossless round trip)"
+        pass "ai-tools.projects.enable restores the canonical file byte-identically, the sign alone changed"
     else
         fail "ai-tools.projects.enable did not restore the file (rc=${rc}): $(brief "${out}")"$'\n'"$(cat "${pd_al}")"
     fi
@@ -1385,10 +1389,11 @@ else
         fail "the refused enable deleted the carve-out:"$'\n'"$(cat "${pd_al}")"
     fi
 
-    # (7) A NESTED project parks like any other: the kind is in the line, so its '%' cannot be read as a carve-out.
+    # (7) A NESTED project parks like any other: the kind is in the line, so its '%' cannot be read as a carve-out, and
+    # the canonical write indents it under the project enclosing it.
     pd_seed "@ ${pd_proj}" "@ ${pd_nested}"
     out="$(pd_cli ai-tools.projects.disable "${pd_nested}")" && rc=0 || rc=$?
-    if [[ ${rc} -eq 0 ]] && grep -qxF "%${pd_nested}" "${pd_al}" && grep -qxF "${pd_proj}" "${pd_al}"; then
+    if [[ ${rc} -eq 0 ]] && grep -qxF "  % ${pd_nested}" "${pd_al}" && grep -qxF "@ ${pd_proj}" "${pd_al}"; then
         pass "ai-tools.projects.disable parks a project nested inside another, the enclosing one listed"
     else
         fail "ai-tools.projects.disable did not park the nested project (rc=${rc}): $(brief "${out}")"$'\n'"$(cat "${pd_al}")"
@@ -1431,30 +1436,26 @@ else
         fail "ai-tools.projects.remove.inplace deleted a project with no terminal to confirm at"
     fi
 
-    # (10) --keep-entry is about what becomes of an ENTRY, so it is refused where there is none to keep: --force is
-    # the mode that reaches a tree the allowlist does not name. Refused rather than ignored, since a flag that silently
-    # skips its work is how an operator learns the wrong model.
-    out="$(pd_cli ai-tools.projects.unclaim "$(cli_flag keep-entry)" "$(cli_flag force)" "${pd_proj}")" && rc=0 || rc=$?
+    # (10) What becomes of an entry when an unclaim's hand-back does not run is the unclaim's own decision (it parks the
+    # line), so no option chooses it, and the removal deletes the entry with the tree: `--keep-entry` is an unknown
+    # option to both, refused rather than ignored, since a flag that silently skips its work is how an operator learns
+    # the wrong model. Written as typed, since neither command has the option to spell.
+    pd_before="$(cat "${pd_al}")"
+    out="$(pd_cli ai-tools.projects.unclaim --keep-entry "${pd_proj}")" && rc=0 || rc=$?
     if grep -qxE 'MSG-R4J2|MSG-Z6Q6' <<<"${out}"; then
         # Either no-sudo-grant refusal: an environment fact, reached before the parse check.
-        skip "--keep-entry with --force" "no sudo grant for the unclaim helper here"
-    elif (( rc != 0 )); then
-        # By code: --keep-entry's own --force refusal (MSG-R3G9), not --for's (MSG-B5K3).
-        assert_msg MSG-R3G9 "${out}" "--keep-entry with --force is refused (there is no entry to keep)"
+        skip "ai-tools.projects.unclaim --keep-entry" "no sudo grant for the unclaim helper here"
     else
-        fail "--keep-entry --force was not refused (rc=${rc}): $(brief "${out}")"
+        # By code: the unclaim's unknown-option refusal (MSG-F7J9), at the usage status.
+        refused "ai-tools.projects.unclaim refuses --keep-entry as an unknown option" MSG-F7J9 2
     fi
-
-    # (10b) --keep-entry belongs to the unclaim ALONE. A removal deletes the tree, so an entry kept for it would park
-    # a path that no longer exists -- and the flag reads as though it might spare something, which is the worst thing
-    # a flag can suggest on a destructive verb. Refused as an unknown option rather than silently ignored.
-    out="$(pd_cli ai-tools.projects.remove.inplace "$(cli_flag keep-entry)" "${pd_proj}")" && rc=0 || rc=$?
-    # By code: the unknown-option refusal (MSG-M3Y5), not a --keep-entry special case.
-    refused "ai-tools.projects.remove.inplace refuses --keep-entry (it belongs to the unclaim)" MSG-M3Y5
-    if [[ -d "${pd_proj}" ]]; then
-        pass "the refused option deleted nothing"
+    out="$(pd_cli ai-tools.projects.remove.inplace --keep-entry "${pd_proj}")" && rc=0 || rc=$?
+    # By code: the removal's unknown-option refusal (MSG-M3Y5), at the usage status.
+    refused "ai-tools.projects.remove.inplace refuses --keep-entry as an unknown option" MSG-M3Y5 2
+    if [[ -d "${pd_proj}" && "$(cat "${pd_al}")" == "${pd_before}" ]]; then
+        pass "the refused options deleted nothing and left the registry as it was"
     else
-        fail "ai-tools.projects.remove.inplace deleted the project while refusing an option"
+        fail "a refused option changed the project or the registry:"$'\n'"$(cat "${pd_al}")"
     fi
 
     # (11) An entry can be clean and the project still unreachable, because a carve-out, a park or a glob covers it

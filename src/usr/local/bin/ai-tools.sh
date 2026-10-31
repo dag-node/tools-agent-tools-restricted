@@ -869,8 +869,8 @@ run_as_owner() {
 # What stays here is the CLI's half: which principal performs the write, and what the operator is told about it.
 
 # allow_state <dir>  -- the state the lines naming <dir> give it in the registry THIS run reads (the invoker's, or
-# a --for target's snapshot): `listed`, `disabled`, `excluded`, `conflict`, `absent` or `invalid`. See
-# ai_tools_conf__read_allowlist_state for what each means and why a park outranks an allow line.
+# a --for target's snapshot): `enabled`, `disabled`, `excluded`, `absent` or `invalid`. See
+# ai_tools_conf__read_allowlist_state for what each means.
 allow_state() { ai_tools_conf__read_allowlist_state "${ALLOWLIST}" "$1"; }
 
 # disabled_note <dir>  -- print the raw '%' line(s) parking <dir>, indented, for a message that has just called it
@@ -972,7 +972,7 @@ resolve_entry_path() {
 # a listed project, with no park, carve-out or glob line covering it.
 is_class_reachable() {
     [[ "${CLASS_BLOCKED}" == - ]] || return 1
-    [[ "${CLASS_STATE}" == listed || ( "${CLASS_STATE}" == inside && "${CLASS_ENCLOSING_STATE}" == listed ) ]]
+    [[ "${CLASS_STATE}" == enabled || ( "${CLASS_STATE}" == inside && "${CLASS_ENCLOSING_STATE}" == enabled ) ]]
 }
 
 # list_entries_under <dir>  -- print each registry entry strictly under <dir>, one path per line, in file order.
@@ -1091,16 +1091,6 @@ die_blocked() {
         "The line is shown above. $(format_blocking_line_remedy)" "${whole[@]}"
 }
 
-# die_conflict <dir>  -- refuse every verb on a path two kinds of line name: a carve-out beside an allow or park line
-# is neither a project nor a carve-out, and only the operator knows which one was meant.
-die_conflict() {
-    printf '\n' >&2
-    list_lines_naming "$1" | sed 's/^/      /' >&2
-    printf '\n' >&2
-    die MSG-T2Q7 "two kinds of line name this path, shown above, so it is neither a project nor a carve-out: $1" \
-        "Keep the one you mean in ${REGISTRY_DISPLAY_PATH}: an allow or '%' line makes it a project, a '!' line withholds it.$(format_registry_edit_clause)"
-}
-
 # die_carveout <dir> <verb>  -- refuse <verb> on a path a `!` line names: a carve-out, wherever it sits, withholds
 # a path from the agent and is not a project, so no verb claims, parks, restores or deletes it.
 die_carveout() {
@@ -1118,9 +1108,9 @@ die_inside() {
     case "${verb}:${CLASS_ENCLOSING_STATE}" in
         remove:*)       hint="removing that project deletes all of it, this path included: $(format_projects_command remove "${x}")" ;;
         unclaim:*)      hint="unclaim that instead: $(format_projects_command unclaim "${x}")" ;;
-        enable:parked)  hint="that project is disabled; enable it instead: $(format_projects_command enable "${x}")" ;;
+        enable:disabled) hint="that project is disabled; enable it instead: $(format_projects_command enable "${x}")" ;;
         enable:*)       hint="that project is enabled, and this path is part of it" ;;
-        disable:parked) hint="that project is already disabled, and this path with it" ;;
+        disable:disabled) hint="that project is already disabled, and this path with it" ;;
         disable:*)      hint="disable that instead: $(format_projects_command disable "${x}")" ;;
         *)              hint="act on that project instead: $(format_projects_command "${verb}" "${x}")" ;;
     esac
@@ -1181,7 +1171,7 @@ reg_allow() {
     local before; before="$(allow_state "${dir}")"
     ai_tools_conf__allowlist_add "${ALLOWLIST}" "${dir}" || rc=$?
     case "${rc}" in
-        0) if [[ "${before}" == listed ]]; then
+        0) if [[ "${before}" == enabled ]]; then
                say "    registry: already listed"
            else
                say "    registry: added"
@@ -2636,9 +2626,8 @@ cmd_project_claim() {
     # answers first; declining aborts the claim before any write, and accepting re-reads the path.
     read_path_class "${d}"
     case "${CLASS_STATE}" in
-        conflict)  die_conflict "${d}" ;;
-        carve-out) die_carveout "${d}" claim ;;
-        parked)
+        excluded)  die_carveout "${d}" claim ;;
+        disabled)
             [[ "${CLASS_BLOCKED}" == - ]] || die_blocked "${d}" claim
             offer_reenable "${d}" "the claim" \
                 || die "the registry was not updated -- ${d} is still disabled"
@@ -3299,14 +3288,13 @@ cmd_project_create() {
     # project under a home would work.
     ai_tools_safe_paths__assert_safe_target "${d}" "project create" || exit 3
 
-    # A line may already name the path, or cover it, though the directory does not exist. A carve-out or two kinds
-    # on the path would be claimed over, and a covered path would be created and then claimed where the helpers resolve
+    # A line may already name the path, or cover it, though the directory does not exist. A carve-out on the path
+    # would be claimed over, and a covered path would be created and then claimed where the helpers resolve
     # no owner, so each is refused before the mkdir. A stale allow or park line naming the path meets the claim's
     # idempotent add or its re-enable offer.
     read_path_class "${d}"
     case "${CLASS_STATE}" in
-        conflict)  die_conflict "${d}" ;;
-        carve-out) die_carveout "${d}" create ;;
+        excluded)  die_carveout "${d}" create ;;
     esac
     [[ "${CLASS_BLOCKED}" == - ]] || die_blocked "${d}" create
     # The claim's add refuses a name the registry cannot carry, and by then the directory, its repository and its README
@@ -3461,7 +3449,7 @@ discover_project() {
             printf '%s' "${d}"
             return 0
         fi
-        if [[ "${CLASS_STATE}" == carve-out && "${CLASS_BLOCKED}" == - ]]; then
+        if [[ "${CLASS_STATE}" == excluded && "${CLASS_BLOCKED}" == - ]]; then
             CLASS_BLOCKED="$(list_lines_naming "${d}" | head -n 1)"; CLASS_BLOCKED_KIND=carve CLASS_BLOCKED_PATH="${d}"
         fi
         if [[ "${CLASS_BLOCKED}" != - ]]; then
@@ -3487,23 +3475,18 @@ require_reachable_target() {
     local d="$1" verb="$2"
     read_path_class "${d}"
     case "${CLASS_STATE}" in
-        conflict)  die_conflict "${d}" ;;
-        parked)
+        disabled)
             printf '\n' >&2; disabled_note "${d}" >&2; printf '\n' >&2
             die MSG-W3S4 "this project is disabled: ${d}" \
                 "a '%' line parks it, so no session runs there and the root helpers act on nothing." \
                 "Re-enable it first:" \
                 "       $(format_projects_command enable "${d}")" ;;
-        carve-out)
+        excluded)
             CLASS_BLOCKED="$(list_lines_naming "${d}" | head -n 1)"; CLASS_BLOCKED_KIND=carve CLASS_BLOCKED_PATH="${d}"
             die_blocked "${d}" "${verb}" ;;
-        listed|inside)
-            # An enclosing conflict's '!' line covers the path too, and the situation is the two lines naming
-            # that project, so it is named before the covering line is.
-            [[ "${CLASS_ENCLOSING_STATE}" == conflict ]] && die_conflict "${CLASS_ENCLOSING}"
+        enabled|inside)
             is_class_reachable && return 0
-            [[ "${CLASS_BLOCKED}" != - ]] && die_blocked "${d}" "${verb}"
-            die_conflict "${CLASS_ENCLOSING}" ;;
+            [[ "${CLASS_BLOCKED}" != - ]] && die_blocked "${d}" "${verb}" ;;
     esac
     die MSG-J3K5 "not a claimed project: ${d}" \
         "it is not at or under any project in your project registry" \
@@ -3524,14 +3507,13 @@ resolve_verb_target() {
     say "projects ${verb}: ${d} (the project the current directory is in)" >&2
     printf '%s' "${d}"
 }
-# unclaim_one <dir> <group|""> <hint> <drop|park> <retry-command> [helper-flag...]  -- revert one claimed project.
+# unclaim_one <dir> <group|""> <hint> <retry-command> [helper-flag...]  -- revert one claimed project.
 # Order matters: revert the SELinux label first (keeps the invariant "labelled => allowlisted"), then run the filesystem
 # hand-back WHILE THE ALLOWLIST ENTRY IS STILL PRESENT (ai-tools-unclaim refuses a target the registry does not name),
 # and only then drop the two registries. <group> empty means "unregister only, leave permissions"; <hint> `1` marks
 # a hand-back that was wanted and cannot run, whose reason is already on the screen, and other text is that reason (a
-# park or a covering line the hand-back cannot run under); the fourth argument is what becomes of the allowlist line
-# (the <registry> disposition). A hand-back that was wanted and did not run, whatever the reason, leaves the line parked
-# whichever disposition was asked for, and <retry-command> -- the unclaim that completes the reversal once the reason is
+# park or a covering line the hand-back cannot run under). The allowlist line is dropped, except where a hand-back
+# that was wanted did not run, whatever the reason: that leaves the line parked, and <retry-command> -- the unclaim that completes the reversal once the reason is
 # cleared -- is printed: a park ends with no session able to start here, as a drop does, and keeps the line that run
 # hands back under, where a dropped line would leave `projects enable`, `projects handback` and ai-tools-unclaim each
 # refusing a path the registry no longer names. Best-effort except for the allowlist line: every other step warns
@@ -3540,7 +3522,7 @@ resolve_verb_target() {
 # or that the live-session gate refused, returns 1 without the ✓ as well, after the registry reversal (cli.rule.md,
 # ref-section-m5n5).
 unclaim_one() {
-    local d="$1" group="$2" hint="$3" registry="$4" retry="$5"; shift 5
+    local d="$1" group="$2" hint="$3" retry="$4"; shift 4
     local stopped=false handback_missing=false label_left=false
 
     if command -v sudo >/dev/null 2>&1 \
@@ -3588,13 +3570,11 @@ unclaim_one() {
     # the unsafe direction. Only the safe.directory removal, which is cleanup and needs its own authentication, is
     # skipped once the operator has said to stop; `atr projects` reports the entry it leaves behind.
     ${stopped} || unreg_safedir "${d}" || note_root_failure || true
-    # <registry> decides what happens to the allowlist line, never WHETHER it stops mattering: both dispositions end
-    # with no session able to start here. `drop` deletes it; `park` prefixes it with '%' in place, keeping its position
-    # and comment for an operator whose registry is an ordered, commented document and who unclaims between development
-    # stages. Parking runs AFTER the hand-back for the same reason dropping does -- the helpers resolve this path's
-    # owner through the allowlist, and an exclusion stops them as surely as a missing entry. A hand-back that did not
-    # run parks the line whatever was asked, and a line already parked (a declined re-enable) is left as it is.
-    local disposition="${registry}" entry_active=false entry_word="out of the project registry"
+    # The allowlist line is dropped, and either disposition ends with no session able to start here. A hand-back that
+    # did not run parks the line instead, so the unclaim that completes the reversal resolves its owner through it,
+    # and a line already parked (a declined re-enable) is left as it is. Both run AFTER the hand-back: the helpers
+    # resolve this path's owner through the allowlist, and an exclusion stops them as surely as a missing entry.
+    local disposition=drop entry_active=false entry_word="out of the project registry"
     ${handback_missing} && disposition=park
     if [[ "${disposition}" == park ]]; then
         entry_word="disabled in ${REGISTRY_DISPLAY_PATH}"
@@ -3834,9 +3814,8 @@ cmd_unclaim_unlisted() {
     fi
 }
 
-# cmd_project_unclaim <path> [--force] [--full] [--keep-entry] [--dry-run] [-y|--yes] [--group <group>]  -- undo
-# an in-place claim: revert the SELinux label, drop both registries (or park the allowlist line under `--keep-entry`),
-# and behind a default-yes confirm hand the tree back to a target group through ai-tools-unclaim, with the agent's write
+# cmd_project_unclaim <path> [--force] [--full] [--dry-run] [-y|--yes] [--group <group>]  -- undo an in-place claim:
+# revert the SELinux label, drop both registries, and behind a default-yes confirm hand the tree back to a target group through ai-tools-unclaim, with the agent's write
 # access revoked; the directory itself is left on disk. The target is classified against the project registry first
 # (cli.rule.md, Unclaim), and a protected system path is refused up front, whatever the mode: the backstop reads
 # the path alone, so `--force` does not relax it. A parked target is answered up front (offer_reenable). `-y`/`--yes`
@@ -3847,7 +3826,6 @@ cmd_project_unclaim() {
     # `--force` swaps the allowlist gate for the helper's per-path residue gate (ai-tools-unclaim's header) and does not
     # relax any other gate.
     local a path="" force=false full=false dry=false assume_yes=false group_opt="" want_group=false
-    local registry=drop
     for a in "$@"; do
         if ${want_group}; then group_opt="${a}"; want_group=false; continue; fi
         case "${a}" in
@@ -3857,9 +3835,8 @@ cmd_project_unclaim() {
             -y|--yes)     assume_yes=true ;;
             --group)      want_group=true ;;
             --group=*)    group_opt="${a#--group=}" ;;
-            --keep-entry) registry=park ;;
             -*) die_usage MSG-F7J9 "unknown projects unclaim option: ${a}" \
-                    "       allowed: --force, --full, --keep-entry, --dry-run, -y/--yes, --group <group>" ;;
+                    "       allowed: --force, --full, --dry-run, -y/--yes, --group <group>" ;;
             *)  if [[ -z "${path}" ]]; then path="${a}"
                 else die_usage MSG-C8P8 "projects unclaim takes a single path"; fi ;;
         esac
@@ -3875,12 +3852,6 @@ cmd_project_unclaim() {
         die "--dry-run applies to --force only" \
             "       a registered project's unclaim previews itself: it lists what it will do and asks before acting"
     fi
-    # --force reaches a tree the allowlist does not name, so there is no line to park. Refused rather than ignored:
-    # the flag's whole purpose is what happens to an entry.
-    if [[ "${registry}" == park ]] && ${force}; then
-        die MSG-R3G9 "--keep-entry cannot be combined with --force" \
-            "       --force unclaims a tree that has no registry entry, so there is nothing to keep"
-    fi
 
     [[ -n "${path}" ]] || die_path_required unclaim
     local d; d="$(resolve_existing_path "${path}")"
@@ -3890,27 +3861,17 @@ cmd_project_unclaim() {
     # of them, outermost first), or a tree no entry names, which takes the residue predicate. A carve-out is not
     # a project, and a path inside one is unclaimed by unclaiming the project.
     local -a targets=()
-    local mode
+    local mode t
     read_path_class "${d}"
     case "${CLASS_STATE}" in
-        conflict)      die_conflict "${d}" ;;
-        carve-out)     die_carveout "${d}" unclaim ;;
+        excluded)      die_carveout "${d}" unclaim ;;
         inside)        die_inside "${d}" unclaim ;;
-        listed|parked) mode=exact; targets=("${d}") ;;
+        enabled|disabled) mode=exact; targets=("${d}") ;;
         ancestor)      mode=ancestor; mapfile -t targets < <(list_entries_under "${d}" | sort) ;;
         *)
             cmd_unclaim_unlisted "${d}" "${force}" "${full}" "${dry}" "${assume_yes}" "${group_opt}"
             return ;;
     esac
-
-    # Every member of the batch is classified before the first question and the first write. A member two kinds of line
-    # name refuses the whole batch, as it refuses given alone: only the operator knows which of its lines was meant,
-    # and under its '!' line ai-tools-unclaim does not resolve an owner and exits 0 without handing a path back.
-    local t
-    for t in "${targets[@]}"; do
-        read_path_class "${t}"
-        [[ "${CLASS_STATE}" == conflict ]] && die_conflict "${t}"
-    done
 
     # Protected-path front line: never modify permissions on a protected system path. Guard each MODIFICATION target (in
     # ancestor mode the search root may be protected, e.g. /home, while the projects nested under it are not).
@@ -3939,7 +3900,7 @@ cmd_project_unclaim() {
         read_path_class "${t}"
         if [[ "${CLASS_BLOCKED}" != - ]]; then
             handback_hint["${t}"]="a $(format_blocking_line_kind) line covers it: ${CLASS_BLOCKED} -- $(format_blocking_line_remedy)"
-        elif [[ "${CLASS_STATE}" == parked ]]; then
+        elif [[ "${CLASS_STATE}" == disabled ]]; then
             if offer_reenable "${t}" "the unclaim" decline-returns; then
                 read_path_class "${t}"
             else
@@ -3972,9 +3933,8 @@ cmd_project_unclaim() {
     ${full} && helper_flags=(--full)
 
     # The unclaim that completes a reversal whose hand-back did not run: this run's own options, so the second run
-    # applies the disposition and the walk the operator asked for.
+    # applies the walk the operator asked for.
     local -a retry_options=()
-    [[ "${registry}" == park ]] && retry_options+=(--keep-entry)
     ${full} && retry_options+=(--full)
     [[ -n "${group_opt}" ]] && retry_options+=(--group "$(printf '%q' "${group_opt}")")
 
@@ -3984,7 +3944,7 @@ cmd_project_unclaim() {
         # the hand-back, and the hint is what it prints in its place.
         local t_group="${hb_group}" t_hint="${hb_hint}"
         if [[ -n "${handback_hint[${t}]:-}" ]]; then t_group=""; t_hint="${handback_hint[${t}]}"; fi
-        unclaim_one "${t}" "${t_group}" "${t_hint}" "${registry}" \
+        unclaim_one "${t}" "${t_group}" "${t_hint}" \
             "$(format_projects_command unclaim "${t}" "${retry_options[@]}")" "${helper_flags[@]}" \
             || incomplete=$(( incomplete + 1 ))
         report_carveouts_kept "${t}"
@@ -4085,8 +4045,7 @@ cmd_project_remove() {
     read_path_class "${d}"
     local -a nested=()
     case "${CLASS_STATE}" in
-        conflict)  die_conflict "${d}" ;;
-        carve-out) die_carveout "${d}" remove ;;
+        excluded)  die_carveout "${d}" remove ;;
         inside)    die_inside "${d}" remove ;;
         ancestor)
             mapfile -t nested < <(list_entries_under "${d}")
@@ -4147,7 +4106,7 @@ cmd_project_remove() {
     # parked this tree deliberately, so "you disabled this on purpose" is a different question from "this deletes
     # everything", and answering the second does not answer the first. No entry is re-enabled -- the removal does not
     # need a launch gate open, and the allowlist line goes with the tree.
-    if [[ "${removing_state}" == parked ]]; then
+    if [[ "${removing_state}" == disabled ]]; then
         headline_warn "This project is disabled" \
             "A '%' line in ${REGISTRY_DISPLAY_PATH} parks ${d}, so it was taken out of service rather than released. Removing it deletes the directory and the lines naming it."
         disabled_note "${d}"
@@ -4644,16 +4603,15 @@ cmd_project_disable() {
 
     read_path_class "${d}"
     case "${CLASS_STATE}" in
-        conflict)  die_conflict "${d}" ;;
-        carve-out) die_carveout "${d}" disable ;;
+        excluded)  die_carveout "${d}" disable ;;
         inside)    die_inside "${d}" disable ;;
-        parked)
+        disabled)
             section "Disable project"
             say "  ${d}"
             say "    registry: already disabled"
             disabled_note "${d}"
             return 0 ;;
-        listed)    ;;
+        enabled)   ;;
         *)         no_entry_die "${d}" disable ;;
     esac
 
@@ -4684,16 +4642,15 @@ cmd_project_enable() {
 
     read_path_class "${d}"
     case "${CLASS_STATE}" in
-        conflict)  die_conflict "${d}" ;;
-        carve-out) die_carveout "${d}" enable ;;
+        excluded)  die_carveout "${d}" enable ;;
         inside)    die_inside "${d}" enable ;;
-        listed)
+        enabled)
             section "Enable project"
             say "  ${d}"
             say "    registry: already enabled"
             report_still_blocked
             return 0 ;;
-        parked)    ;;
+        disabled)  ;;
         # Deliberately not an implicit claim: claiming runs a secret scan and grants the agent access to the tree,
         # which is a different decision from lifting a '%' the operator put there.
         *)         no_entry_die "${d}" enable ;;
@@ -5894,7 +5851,7 @@ cmd_project_list() {
         printf '  %-8s %-50s %s\n' "${kind}" "${entry}" "${safe}"
         # A listed project under a park, a carve-out or a glob is still this operator's entry, and no session reaches it
         # while that line stands.
-        [[ "${CLASS_STATE}" != listed || "${CLASS_BLOCKED}" == - ]] \
+        [[ "${CLASS_STATE}" != enabled || "${CLASS_BLOCKED}" == - ]] \
             || say "           ${C_YEL}blocked${C_RST} ${C_DIM}by: ${CLASS_BLOCKED}${C_RST}"
         _reconcile "${entry}" "${kind}" "${sd}" "${raw}"
     done < "${ALLOWLIST}"
@@ -5902,8 +5859,8 @@ cmd_project_list() {
 
     # Reverse reconciliation: a git safe.directory entry no registry entry names is an ORPHAN -- git still trusts
     # the tree though no line names it (the line was hand-deleted, or an unclaim was interrupted before the safedir
-    # drop). An entry is an allow or a park line, read through the classifier: a parked project is still registered,
-    # and a conflict is a registered path the listing's registry section already reports. A git entry is classified by
+    # drop). An entry is an allow or a park line, read through the classifier: a parked project is still registered.
+    # A git entry is classified by
     # its real path, as the registry section reads its own lines, and the cleanup names it as git stores it. Removing
     # the stale safedir (and its label) is the cleanup; the path is not a claimed project, so it is not offered
     # `atr projects unclaim`, which would refuse an unlisted target. Control-plane entries (/opt/ai-tools) are
@@ -5913,7 +5870,7 @@ cmd_project_list() {
         [[ -n "${sdir}" ]] || continue
         ai_tools_safe_paths__match_protected_path "${sdir}" >/dev/null 2>&1 && continue
         read_path_class "$(resolve_entry_path "${sdir}")"
-        case "${CLASS_STATE}" in listed|parked|conflict) continue ;; esac
+        case "${CLASS_STATE}" in enabled|disabled) continue ;; esac
         cleanup+=( "  ${sdir}" \
             "      ${C_YEL}git safe.directory with no allowlist entry${C_RST} (orphaned); remove it:" \
             "          sudo ${SAFEDIR_BIN} --remove ${sdir}" )

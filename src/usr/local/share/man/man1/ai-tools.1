@@ -323,7 +323,7 @@ states, one row per file, and no other line on standard output: every other
 line the claim prints goes to standard error, and its questions still ask on the terminal.
 .RE
 .TP
-.B projects unclaim \fR[\fB\-\-force\fR] [\fB\-\-full\fR] [\fB\-\-keep\-entry\fR] [\fB\-\-dry\-run\fR] [\fB\-y\fR] [\fB\-\-group\fI GROUP\fR] \fIDIRECTORY\fR
+.B projects unclaim \fR[\fB\-\-force\fR] [\fB\-\-full\fR] [\fB\-\-dry\-run\fR] [\fB\-y\fR] [\fB\-\-group\fI GROUP\fR] \fIDIRECTORY\fR
 Reverse a claim: revert the SELinux label, drop both registries, and \(em behind
 its own confirm \(em revoke the agent's access, handing the tree back to your own
 group (or a named group) with the agent's write removed. The directory
@@ -331,8 +331,7 @@ stays on disk.
 .IP
 The path is classified against the project registry. A claimed project is
 unclaimed; a directory with claimed projects nested under it lists them and,
-behind one confirm, unclaims each outermost-first, refusing the whole batch
-before its first step when one of them is a conflict; a path
+behind one confirm, unclaims each outermost-first; a path
 .I inside
 a claimed project is refused, naming the nearest claimed parent; a path the
 registry does not cover at all needs
@@ -359,25 +358,6 @@ with. What a claim leaves alone, and what an unclaim does not restore, is in
 The previous permissions are recorded nowhere, so the operation is
 .BR "not reversible" .
 Back up first.
-.RS
-.TP
-.B \-\-keep\-entry
-Park the project's line instead of deleting it: the files are handed back exactly as they otherwise would be, and
-the entry is left in place with a
-.B %
-in front of it, as
-.B "projects disable"
-writes it. For an operator whose project registry is an ordered, commented document and who
-unclaims between development stages \(em to hand a tree back with clean permissions before a
-release, then claim it again for the next one \(em this keeps the project's line where it was,
-comment and all, so the later
-.B "projects claim"
-restores it in place rather than appending a new line at the end.
-.IP
-Refused with
-.BR \-\-force ,
-which unclaims a tree the registry does not name, so there is no line to keep.
-.RE
 .TP
 .B projects remove \fR[\fB\-y\fR] \fIDIRECTORY\fR
 Release a project

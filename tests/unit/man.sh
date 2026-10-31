@@ -407,7 +407,7 @@ check_allowlist_page() {
                 # shellcheck disable=SC2154  # ai_tools_conf__value is set by ai_tools_conf__parse_path_entry in the sourced library
                 path="${ai_tools_conf__value}"
                 comment="${line##* # }"; word="${comment%%[ :,]*}"
-                case "${word}" in listed|parked|carve-out) ;; *) continue ;; esac
+                case "${word}" in enabled|disabled|excluded) ;; *) continue ;; esac
                 claimed=$(( claimed + 1 )); states_claimed["${word}"]=1
                 state="$(ai_tools_conf__read_registry_path_class "${example_file}" "${path}" 2>/dev/null | cut -f1)"
                 if [[ "${state}" != "${word}" ]]; then
@@ -421,8 +421,8 @@ check_allowlist_page() {
         | awk -v end="${EXAMPLE_BLOCK_END}" '/^\.EX/{on=1;next} /^\.EE/{on=0; print end; next} on' | sed 's/^\\&//')
     if (( blocks == 0 )); then
         fail "ai-tools-project-registry(5) EXAMPLES carry no registry to check"
-    elif [[ -z "${states_claimed[listed]:-}" || -z "${states_claimed[parked]:-}" || -z "${states_claimed[carve-out]:-}" ]]; then
-        fail "ai-tools-project-registry(5) EXAMPLES do not state a listed, a parked and a carve-out line (${!states_claimed[*]})"
+    elif [[ -z "${states_claimed[enabled]:-}" || -z "${states_claimed[disabled]:-}" || -z "${states_claimed[excluded]:-}" ]]; then
+        fail "ai-tools-project-registry(5) EXAMPLES do not state an enabled, a disabled and an excluded line (${!states_claimed[*]})"
     elif (( ! bad )); then
         pass "every ai-tools-project-registry(5) EXAMPLES registry validates (${blocks} blocks) and each of ${claimed} lines classifies as its comment says"
     fi

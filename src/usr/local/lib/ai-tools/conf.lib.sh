@@ -1463,7 +1463,7 @@ _ai_tools_conf__replace_file() {
 }
 
 # ai_tools_conf__read_allowlist_state <registry-file> <path> : print how the file answers for <path> from the lines
-#   naming it: `disabled` (a `%` line), `excluded` (a `!` line), `listed` (an `@` line), or `absent` (no line, or no
+#   naming it: `disabled` (a `%` line), `excluded` (a `!` line), `enabled` (an `@` line), or `absent` (no line, or no
 #   file). A file the grammar refuses reads `invalid`, its refusal on stderr, so a caller does not read a file it cannot
 #   trust as naming no line; so do lines of two signs naming <path> through different spellings (MSG-E3W3), which
 #   the grammar cannot see, since it compares written paths.
@@ -1478,7 +1478,7 @@ ai_tools_conf__read_allowlist_state() {
         printf 'invalid'
     elif (( ${#state_park[@]} ));  then printf 'disabled'
     elif (( ${#state_carve[@]} )); then printf 'excluded'
-    elif (( ${#state_allow[@]} )); then printf 'listed'
+    elif (( ${#state_allow[@]} )); then printf 'enabled'
     else printf 'absent'
     fi
 }
@@ -1647,7 +1647,7 @@ ai_tools_conf__allowlist_add() {
     local -a add_kinds=() add_paths=() add_raws=() add_written=() add_comments=()
     _ai_tools_conf__check_editable "${file}" || { rc=$?; return "${rc}"; }
     case "$(ai_tools_conf__read_allowlist_state "${file}" "${path}")" in
-        listed)  return 0 ;;
+        enabled) return 0 ;;
         absent)  ;;
         invalid) return 3 ;;
         *)       return 2 ;;
@@ -1717,7 +1717,7 @@ ai_tools_conf__allowlist_disable() {
     _ai_tools_conf__check_editable "${file}" || { rc=$?; return "${rc}"; }
     case "$(ai_tools_conf__read_allowlist_state "${file}" "${path}")" in
         disabled) return 0 ;;
-        listed)   ;;
+        enabled)  ;;
         invalid)  return 3 ;;
         *)        return 2 ;;
     esac
@@ -1733,13 +1733,13 @@ ai_tools_conf__allowlist_enable() {
     local file="$1" path="$2" rc=0
     _ai_tools_conf__check_editable "${file}" || { rc=$?; return "${rc}"; }
     case "$(ai_tools_conf__read_allowlist_state "${file}" "${path}")" in
-        listed)   return 0 ;;
+        enabled)  return 0 ;;
         disabled) ;;
         invalid)  return 3 ;;
         *)        return 2 ;;
     esac
     _ai_tools_conf__retag_allowlist_entry "${file}" "${path}" enable || { rc=$?; return "${rc}"; }
-    [[ "$(ai_tools_conf__read_allowlist_state "${file}" "${path}")" == listed ]] || return 1
+    [[ "$(ai_tools_conf__read_allowlist_state "${file}" "${path}")" == enabled ]] || return 1
 }
 
 # ── Registry classification (one state per path) ───────────────────────────────────────────────
@@ -1748,14 +1748,14 @@ ai_tools_conf__allowlist_enable() {
 # so a carve-out is never a project a verb can claim, remove or park. A line's path is its `realpath -e`
 # where that resolves and the written path without a trailing slash otherwise, so a stale line still names its path;
 # a glob carve-out does not name a single path and only blocks. The state names what the path's own lines make it,
-# and `blocked` says separately whether a session can reach it: a listed project under a parked parent is listed
+# and `blocked` says separately whether a session can reach it: an enabled project under a disabled parent is enabled
 # and blocked. Lines of two kinds naming one path through different spellings, which the validator reads as two paths,
 # refuse the read (MSG-E3W3), as two signs on one written path refuse it at the validator.
 #
 #   state         the path's own lines
-#   parked        a park line
-#   listed        an allow line
-#   carve-out     a carve-out line alone
+#   disabled      a `%` line
+#   enabled       an `@` line
+#   excluded      a `!` line
 #   inside        none, and an entry encloses it
 #   ancestor      none, no entry encloses it, and an entry sits under it
 #   unregistered  none of these
@@ -1842,14 +1842,14 @@ _ai_tools_conf__does_glob_cover() {
     [[ "${pat}" != *'*'* && "${path}" == "${pat}/"* ]]
 }
 
-# _ai_tools_conf__get_entry_state <kind-words> : print the state the kind naming one path gives it -- `parked`,
-#   `listed`, `carve-out` -- or `none` for no kind. <kind-words> is one argument, the kinds separated by spaces,
+# _ai_tools_conf__get_entry_state <kind-words> : print the state the kind naming one path gives it -- `disabled`,
+#   `enabled`, `excluded` -- or `none` for no kind. <kind-words> is one argument, the kinds separated by spaces,
 #   so the caller's IFS does not decide how they join; the readers refuse a file where they differ.
 _ai_tools_conf__get_entry_state() {
     local kinds=" ${1-} "
-    if [[ "${kinds}" == *' park '* ]];  then printf 'parked'
-    elif [[ "${kinds}" == *' allow '* ]]; then printf 'listed'
-    elif [[ "${kinds}" == *' carve '* ]]; then printf 'carve-out'
+    if [[ "${kinds}" == *' park '* ]];  then printf 'disabled'
+    elif [[ "${kinds}" == *' allow '* ]]; then printf 'enabled'
+    elif [[ "${kinds}" == *' carve '* ]]; then printf 'excluded'
     else printf 'none'
     fi
 }
@@ -1859,7 +1859,7 @@ _ai_tools_conf__get_entry_state() {
 #     state            one of the states the section comment lists
 #     own              the kind of the lines naming the path, `allow`, `park` or `carve`, or `none`
 #     enclosing        the nearest entry strictly enclosing the path, or `-`
-#     enclosing_state  that entry's own state (`listed`, `parked`), or `-`
+#     enclosing_state  that entry's own state (`enabled`, `disabled`), or `-`
 #     blocked          the first line in file order, park or carve-out, whose coverage includes the path and whose own
 #                      path is not the path -- the raw line, a control byte in its comment shown as `?` -- or `-`
 #     blocked_kind     `park`, `carve`, `glob`, or `-`
@@ -1867,7 +1867,7 @@ _ai_tools_conf__get_entry_state() {
 #     blocked_path     the path of the `blocked` line as the section comment defines it, without its kind
 #                      character (the pattern as written for a glob), or `-`; a command a caller prints names this
 #                      field, since `blocked` is the display form
-#   A path is reachable when it is `listed` with `blocked` `-`, or `inside` a `listed` enclosing entry with `blocked`
+#   A path is reachable when it is `enabled` with `blocked` `-`, or `inside` an `enabled` enclosing entry with `blocked`
 #   `-`. Returns 1 for a file that is not a readable regular file and 3, printing nothing, for one the grammar refuses
 #   (MSG-B8U2 on stderr) or whose lines name one directory with different signs (MSG-E3W3 on stderr). A caller reads
 #   the record with IFS pinned to a tab.
@@ -1929,7 +1929,7 @@ ai_tools_conf__read_registry_path_class() {
 
 # ai_tools_conf__list_registry_entries_under <registry-file> <canonical-path> : print `<entry-path>\t<state>` for each
 #   entry strictly under <path>, once per path, in the order its first line takes in the file, and return 0. The state
-#   is the entry's own (`listed`, `parked`). Returns 1 for a file that is not a readable regular file and 3, printing
+#   is the entry's own (`enabled`, `disabled`). Returns 1 for a file that is not a readable regular file and 3, printing
 #   nothing, for one the readers refuse (MSG-B8U2 or MSG-E3W3 on stderr).
 ai_tools_conf__list_registry_entries_under() {
     local file="$1" path="${2%/}" i line_path validity=0

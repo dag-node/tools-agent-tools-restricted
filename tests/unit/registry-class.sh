@@ -57,38 +57,38 @@ fixture space-hash     "%\"${T}/P dir#1\""
 # The table: fixture | path | state | own | enclosing | enclosing_state | blocked | blocked_kind | nested
 # | blocked_path, with @ for the fixture tree.
 TABLE="$(cat <<'ROWS'
-nested-carve   | @/A          | listed       | allow       | -         | -        | -             | -     | 1 | -
-nested-carve   | @/A/vendor   | carve-out    | carve       | @/A       | listed   | -             | -     | 0 | -
-nested-carve   | @/A/vendor/x | inside       | none        | @/A       | listed   | !@/A/vendor   | carve | 0 | @/A/vendor
-nested-carve   | @/A/sub      | listed       | allow       | @/A       | listed   | -             | -     | 0 | -
-nested-carve   | @/A/src      | inside       | none        | @/A       | listed   | -             | -     | 0 | -
+nested-carve   | @/A          | enabled      | allow       | -         | -        | -             | -     | 1 | -
+nested-carve   | @/A/vendor   | excluded     | carve       | @/A       | enabled  | -             | -     | 0 | -
+nested-carve   | @/A/vendor/x | inside       | none        | @/A       | enabled  | !@/A/vendor   | carve | 0 | @/A/vendor
+nested-carve   | @/A/sub      | enabled      | allow       | @/A       | enabled  | -             | -     | 0 | -
+nested-carve   | @/A/src      | inside       | none        | @/A       | enabled  | -             | -     | 0 | -
 nested-carve   | @            | ancestor     | none        | -         | -        | -             | -     | 2 | -
 nested-carve   | @/zzz        | unregistered | none        | -         | -        | -             | -     | 0 | -
-parked-parent  | @/B          | parked       | park        | -         | -        | -             | -     | 1 | -
-parked-parent  | @/B/child    | listed       | allow       | @/B       | parked   | %@/B          | park  | 0 | @/B
-parked-parent  | @/B/x        | carve-out    | carve       | @/B       | parked   | %@/B          | park  | 0 | @/B
-parked-parent  | @/B/child/y  | inside       | none        | @/B/child | listed   | %@/B          | park  | 0 | @/B
-nested-park    | @/C          | listed       | allow       | -         | -        | -             | -     | 1 | -
-nested-park    | @/C/n        | parked       | park        | @/C       | listed   | -             | -     | 0 | -
-nested-park    | @/C/n/z      | inside       | none        | @/C/n     | parked   | %@/C/n        | park  | 0 | @/C/n
-stale-allow    | @/E-gone     | listed       | allow       | -         | -        | -             | -     | 0 | -
-stale-park     | @/F-gone     | parked       | park        | -         | -        | -             | -     | 0 | -
-glob           | @/G/m        | inside       | none        | @/G       | listed   | -             | -     | 0 | -
-glob           | @/G/m/cache  | inside       | none        | @/G       | listed   | !@/G/*/cache  | glob  | 0 | @/G/*/cache
-quoted         | @/H dir      | listed       | allow       | -         | -        | -             | -     | 0 | -
-commented      | @/I          | listed       | allow       | -         | -        | -             | -     | 0 | -
+parked-parent  | @/B          | disabled     | park        | -         | -        | -             | -     | 1 | -
+parked-parent  | @/B/child    | enabled      | allow       | @/B       | disabled | %@/B          | park  | 0 | @/B
+parked-parent  | @/B/x        | excluded     | carve       | @/B       | disabled | %@/B          | park  | 0 | @/B
+parked-parent  | @/B/child/y  | inside       | none        | @/B/child | enabled  | %@/B          | park  | 0 | @/B
+nested-park    | @/C          | enabled      | allow       | -         | -        | -             | -     | 1 | -
+nested-park    | @/C/n        | disabled     | park        | @/C       | enabled  | -             | -     | 0 | -
+nested-park    | @/C/n/z      | inside       | none        | @/C/n     | disabled | %@/C/n        | park  | 0 | @/C/n
+stale-allow    | @/E-gone     | enabled      | allow       | -         | -        | -             | -     | 0 | -
+stale-park     | @/F-gone     | disabled     | park        | -         | -        | -             | -     | 0 | -
+glob           | @/G/m        | inside       | none        | @/G       | enabled  | -             | -     | 0 | -
+glob           | @/G/m/cache  | inside       | none        | @/G       | enabled  | !@/G/*/cache  | glob  | 0 | @/G/*/cache
+quoted         | @/H dir      | enabled      | allow       | -         | -        | -             | -     | 0 | -
+commented      | @/I          | enabled      | allow       | -         | -        | -             | -     | 0 | -
 commented      | @/zzz        | unregistered | none        | -         | -        | -             | -     | 0 | -
-lone-carve     | @/J          | carve-out    | carve       | -         | -        | -             | -     | 0 | -
+lone-carve     | @/J          | excluded     | carve       | -         | -        | -             | -     | 0 | -
 lone-carve     | @/J/k        | unregistered | none        | -         | -        | !@/J          | carve | 0 | @/J
-symlink        | @/K          | listed       | allow       | -         | -        | -             | -     | 0 | -
-carve-first    | @/L/m/n      | inside       | none        | @/L/m     | parked   | !@/L          | carve | 0 | @/L
-park-first     | @/L/m/n      | inside       | none        | @/L/m     | parked   | %@/L/m        | park  | 0 | @/L/m
-identical      | @/M          | listed       | allow       | -         | -        | -             | -     | 0 | -
-tab-comment    | @/N/o        | listed       | allow       | @/N       | parked   | %@/N?# parked | park  | 0 | @/N
-space-hash     | @/P dir#1/q  | inside       | none        | @/P dir#1 | parked   | %"@/P dir#1"  | park  | 0 | @/P dir#1
+symlink        | @/K          | enabled      | allow       | -         | -        | -             | -     | 0 | -
+carve-first    | @/L/m/n      | inside       | none        | @/L/m     | disabled | !@/L          | carve | 0 | @/L
+park-first     | @/L/m/n      | inside       | none        | @/L/m     | disabled | %@/L/m        | park  | 0 | @/L/m
+identical      | @/M          | enabled      | allow       | -         | -        | -             | -     | 0 | -
+tab-comment    | @/N/o        | enabled      | allow       | @/N       | disabled | %@/N?# parked | park  | 0 | @/N
+space-hash     | @/P dir#1/q  | inside       | none        | @/P dir#1 | disabled | %"@/P dir#1"  | park  | 0 | @/P dir#1
 ROWS
 )"
-readonly DECLARED_STATES="ancestor carve-out inside listed parked unregistered"
+readonly DECLARED_STATES="ancestor disabled enabled excluded inside unregistered"
 
 # trim <text> : print <text> without leading or trailing spaces.
 trim() { local t="$1"; t="${t#"${t%%[! ]*}"}"; printf '%s' "${t%"${t##*[! ]}"}"; }
@@ -166,7 +166,7 @@ else
     fail "one open per read: /private reads '${got}' from the replacement"
 fi
 got="$(pinned_state "${T}/A")"
-if [[ "${got}" == listed ]]; then pass "one open per read: the control, the stub renaming nothing, reads the original"; else fail "one open per read: the control reads '${got}'"; fi
+if [[ "${got}" == enabled ]]; then pass "one open per read: the control, the stub renaming nothing, reads the original"; else fail "one open per read: the control reads '${got}'"; fi
 
 # ── ai_tools_conf__list_registry_entries_under ───────────────────────────────────────────────
 under_is() {   # under_is <fixture> <path> <expected, one `path<TAB>state` per line> <desc>
@@ -174,10 +174,10 @@ under_is() {   # under_is <fixture> <path> <expected, one `path<TAB>state` per l
     got="$(ai_tools_conf__list_registry_entries_under "${TESTDIR}/$1" "$2" 2>&1)" || rc=$?
     if [[ "${rc}" -eq 0 && "${got}" == "$3" ]]; then pass "$4"; else fail "$4: rc ${rc}, got '${got//$'\n'/; }'"; fi
 }
-under_is nested-carve "${T}" "${T}/A"$'\t'"listed"$'\n'"${T}/A/sub"$'\t'"listed" \
+under_is nested-carve "${T}" "${T}/A"$'\t'"enabled"$'\n'"${T}/A/sub"$'\t'"enabled" \
     "entries under an ancestor, in file order, the carve-out left out"
-under_is parked-parent "${T}/B" "${T}/B/child"$'\t'"listed" "a parked project's nested entry is listed under it"
-under_is identical "${T}" "${T}/M"$'\t'"listed" "a path named by two identical lines is one entry"
+under_is parked-parent "${T}/B" "${T}/B/child"$'\t'"enabled" "a disabled project's nested entry is listed under it"
+under_is identical "${T}" "${T}/M"$'\t'"enabled" "a path named by two identical lines is one entry"
 under_is lone-carve "${T}" "" "a carve-out alone is not an entry"
 
 finish

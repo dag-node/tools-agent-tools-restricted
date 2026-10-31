@@ -109,9 +109,14 @@ A project.
 Sessions may start in the directory and in every directory under it.
 .TP
 .I "! /home/op/project/vendor"
-A carve-out: the agent is withheld from the directory and everything under
-it.
+A carve-out: no session starts in the directory or under it, and the
+ownership hand-back and every claim walk skip it.
 The line means that wherever it sits: inside a project, around one, or alone.
+It does not take back access a claim already granted there:
+a session started in the enclosing project reaches whatever the subtree's
+permissions allow, and no session start checks that.
+A subtree the agent is to stay out of is made owner-only, which every claim
+walk leaves alone.
 A carve-out may be a glob: a line carrying
 .BR * ,
 .B ?
@@ -285,13 +290,13 @@ Every
 .B "atr projects"
 command reads one state per path from the lines of the file:
 .TP
-.B listed
+.B enabled
 A project line names the path.
 .TP
-.B parked
+.B disabled
 A park names the path.
 .TP
-.B carve-out
+.B excluded
 A carve-out names the path.
 .TP
 .B inside
@@ -305,11 +310,11 @@ None of these.
 .PP
 A path is reachable, so a session may start there and the hand-back acts
 there, when it is
-.BR listed ,
+.BR enabled ,
 or
 .B inside
-a listed project, and no park, carve-out or glob line covers it.
-A listed project inside a parked one is listed and not reachable.
+an enabled project, and no park, carve-out or glob line covers it.
+An enabled project inside a disabled one is enabled and not reachable.
 A command refused over a path names the line that blocks it, and a command
 that changes an entry names any other line that still blocks the path.
 .PP
@@ -342,11 +347,11 @@ projects, one of them nested, in canonical form:
 .RS 4
 .EX
 # ai-tools-project-registry-format: 1.0
-% /home/op/oldapp                       # parked: projects enable restores it
-@ /home/op/webapp                       # listed: sessions start here
-  @ /home/op/webapp/tools               # listed, inside webapp
-  % /home/op/webapp/legacy              # parked, inside webapp
-  ! /home/op/webapp/vendor              # carve-out: third-party code
+% /home/op/oldapp                       # disabled: projects enable restores it
+@ /home/op/webapp                       # enabled: sessions start here
+  @ /home/op/webapp/tools               # enabled, inside webapp
+  % /home/op/webapp/legacy              # disabled, inside webapp
+  ! /home/op/webapp/vendor              # excluded: third-party code
 .EE
 .RE
 .PP
@@ -356,8 +361,8 @@ of every dependency directory one level under another project:
 .RS 4
 .EX
 # ai-tools-project-registry-format: 1.0
-@ "/home/op/ai works"                   # listed
-  ! "/home/op/ai works/build"           # carve-out
+@ "/home/op/ai works"                   # enabled
+  ! "/home/op/ai works/build"           # excluded
 @ /home/op/webapp
   ! /home/op/webapp/*/node_modules
 .EE

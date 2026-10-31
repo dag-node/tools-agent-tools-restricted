@@ -52,29 +52,29 @@ chown -R "${PROJECTS_USER}:${PROJECTS_USER}" "${R}"
 chown root:root "${CONF}"
 
 # The fixture: one registry holding a path in every state, and the directories it names.
-#   C conflict, P parked, L listed (L/sub inside it), B/x listed and B/pb parked under the park %B, W/k a carve-out
-#   inside W
-#   (W/k/deep inside W and under the carve-out), A an ancestor of A/one and A/two, U unregistered, W/n a project
-#   nested in W, G/m/cache/deep under a glob carve-out of G, X an ancestor of X/ok and of the conflict X/c. The *new
-#   paths name directories create makes.
-REG_LINES=("${R}/C" "!${R}/C" "%${R}/P" "${R}/L" "%${R}/B" "${R}/B/x" "${R}/W" "!${R}/W/k" "${R}/W/n"
-    "${R}/A/one" "${R}/A/two" "${R}/G" "!${R}/G/*/cache" "${R}/X/ok" "${R}/X/c" "!${R}/X/c"
-    "${R}/cnew" "!${R}/cnew" "%${R}/pnew" "${R}/lnew" "${R}/B/lbnew" "!${R}/W/knew" "${R}/anew/x"
-    "%${R}/B/pb" "%${R}/B/pbnew")
-FIXTURE_DIRS=(C P/sub L/sub B/x B/pb W/k/deep W/n A/one A/two U G/m/cache/deep X/ok X/c)
+#   P disabled, L enabled (L/sub inside it), B/x enabled and B/pb disabled under the disabled B, W/k excluded inside W
+#   (W/k/deep inside W and under the exclusion), A an ancestor of A/one and A/two, U unregistered, W/n a project
+#   nested in W, G/m/cache/deep under a glob exclusion of G. The *new paths name directories create makes. Each line
+#   is a sign, one space and the path, at no indentation, so a line a verb leaves as it was reads as it was written
+#   and one the canonical writer rewrote reads at its depth in the forest.
+REG_LINES=("% ${R}/P" "@ ${R}/L" "% ${R}/B" "@ ${R}/B/x" "@ ${R}/W" "! ${R}/W/k" "@ ${R}/W/n"
+    "@ ${R}/A/one" "@ ${R}/A/two" "@ ${R}/G" "! ${R}/G/*/cache"
+    "% ${R}/pnew" "@ ${R}/lnew" "@ ${R}/B/lbnew" "! ${R}/W/knew" "@ ${R}/anew/x"
+    "% ${R}/B/pb" "% ${R}/B/pbnew")
+FIXTURE_DIRS=(P/sub L/sub B/x B/pb W/k/deep W/n A/one A/two U G/m/cache/deep)
 
 # reset: rebuild the tree, the registry and the `--for` target's registry, and clear the stub log.
 reset() {
     local d
-    rm -rf "${R}/tree-marker" "${R}/C" "${R}/P" "${R}/L" "${R}/B" "${R}/W" "${R}/A" "${R}/U" "${R}/G" "${R}/X" \
-        "${R}/cnew" "${R}/pnew" "${R}/lnew" "${R}/anew" "${R}/unew" "${R}/bad*name" "${R}/q\"q" "${SBROOT}"
+    rm -rf "${R}/tree-marker" "${R}/P" "${R}/L" "${R}/B" "${R}/W" "${R}/A" "${R}/U" "${R}/G" \
+        "${R}/pnew" "${R}/lnew" "${R}/anew" "${R}/unew" "${R}/bad*name" "${R}/q\"q" "${SBROOT}"
     for d in "${FIXTURE_DIRS[@]}"; do mkdir -p "${R}/${d}"; done
     mkdir -p "${SBROOT}"
     printf '%s\n' "${REG_MARKER}" "${REG_LINES[@]}" > "${AL}"
     printf '%s\n' "${REG_MARKER}" "${REG_LINES[@]}" > "${FOR_AL}"
     : > "${GC}"
-    chown -R "${PROJECTS_USER}:${PROJECTS_USER}" "${R}/C" "${R}/P" "${R}/L" "${R}/B" "${R}/W" "${R}/A" "${R}/U" \
-        "${R}/G" "${R}/X" "${SBROOT}" "${AL}" "${FOR_AL}" "${GC}"
+    chown -R "${PROJECTS_USER}:${PROJECTS_USER}" "${R}/P" "${R}/L" "${R}/B" "${R}/W" "${R}/A" "${R}/U" \
+        "${R}/G" "${SBROOT}" "${AL}" "${FOR_AL}" "${GC}"
     chown root:root "${CONF}"
     cli_stub_reset
 }
@@ -125,100 +125,91 @@ check() {
 
 # ── The table ─────────────────────────────────────────────────────────────────────────────
 readonly VERBS=(claim create remove unclaim enable disable handback lockdown push)
-readonly STATES=(conflict parked parked-blocked listed listed-blocked carve-out inside inside-blocked ancestor unregistered)
+readonly STATES=(disabled disabled-blocked enabled enabled-blocked excluded inside inside-blocked ancestor unregistered)
 # verb | state | path under R | extra argument (or -) | code (or -) | exit | registry | helper: a helper the run calls,
 # `!<helper>` for one it does not call, `-` for a run that calls none (every refusal), `?` where the call is not read
 TABLE="$(cat <<'ROWS'
-claim    | conflict       | C          | -y | MSG-T2Q7 | 1 | same    | -
-claim    | parked         | P          | -y | -        | 1 | same    | -
-claim    | parked-blocked | B/pb       | -y | MSG-R8C7 | 1 | same    | -
-claim    | listed         | L          | -y | -        | 0 | same    | ai-tools-safedir
-claim    | listed-blocked | B/x        | -y | MSG-R8C7 | 1 | same    | -
-claim    | carve-out      | W/k        | -y | MSG-W4S7 | 1 | same    | -
-claim    | inside         | L/sub      | -y | -        | 0 | changed | ai-tools-safedir
-claim    | inside-blocked | W/k/deep   | -y | MSG-R8C7 | 1 | same    | -
-claim    | ancestor       | A          | -y | -        | 0 | changed | ai-tools-safedir
-claim    | unregistered   | U          | -y | -        | 0 | changed | ai-tools-safedir
-create   | conflict       | cnew       | -  | MSG-T2Q7 | 1 | same    | -
-create   | parked         | pnew       | -  | -        | 1 | same    | -
-create   | parked-blocked | B/pbnew    | -  | MSG-R8C7 | 1 | same    | -
-create   | listed         | lnew       | -  | -        | 0 | same    | ai-tools-safedir
-create   | listed-blocked | B/lbnew    | -  | MSG-R8C7 | 1 | same    | -
-create   | carve-out      | W/knew     | -  | MSG-W4S7 | 1 | same    | -
-create   | inside         | L/inew     | -  | -        | 0 | changed | ai-tools-safedir
-create   | inside-blocked | W/k/ibnew  | -  | MSG-R8C7 | 1 | same    | -
-create   | ancestor       | anew       | -  | -        | 0 | changed | ai-tools-safedir
-create   | unregistered   | unew       | -  | -        | 0 | changed | ai-tools-safedir
-remove   | conflict       | C          | -y | MSG-T2Q7 | 1 | same    | -
-remove   | parked         | P          | -y | -        | 0 | changed | ?
-remove   | parked-blocked | B/pb       | -y | -        | 0 | changed | ?
-remove   | listed         | L          | -y | -        | 0 | changed | ?
-remove   | listed-blocked | B/x        | -y | -        | 0 | changed | ?
-remove   | carve-out      | W/k        | -y | MSG-W4S7 | 1 | same    | -
-remove   | inside         | L/sub      | -y | MSG-T5A3 | 1 | same    | -
-remove   | inside-blocked | W/k/deep   | -y | MSG-T5A3 | 1 | same    | -
-remove   | ancestor       | A          | -y | MSG-F4D8 | 1 | same    | -
-remove   | unregistered   | U          | -y | MSG-P8Y8 | 1 | same    | -
-unclaim  | conflict       | C          | -y | MSG-T2Q7 | 1 | same    | -
-unclaim  | parked         | P          | -y | -        | 1 | same    | !ai-tools-unclaim
-unclaim  | parked-blocked | B/pb       | -y | -        | 1 | same    | !ai-tools-unclaim
-unclaim  | listed         | L          | -y | -        | 0 | changed | ai-tools-unclaim
-unclaim  | listed-blocked | B/x        | -y | -        | 1 | changed | !ai-tools-unclaim
-unclaim  | carve-out      | W/k        | -y | MSG-W4S7 | 1 | same    | -
-unclaim  | inside         | L/sub      | -y | MSG-T5A3 | 1 | same    | -
-unclaim  | inside-blocked | W/k/deep   | -y | MSG-T5A3 | 1 | same    | -
-unclaim  | ancestor       | A          | -y | -        | 0 | changed | ai-tools-unclaim
-unclaim  | unregistered   | U          | -y | MSG-P8W2 | 1 | same    | -
-enable   | conflict       | C          | -  | MSG-T2Q7 | 1 | same    | -
-enable   | parked         | P          | -  | -        | 0 | changed | -
-enable   | parked-blocked | B/pb       | -  | -        | 0 | changed | -
-enable   | listed         | L          | -  | -        | 0 | same    | -
-enable   | listed-blocked | B/x        | -  | -        | 0 | same    | -
-enable   | carve-out      | W/k        | -  | MSG-W4S7 | 1 | same    | -
-enable   | inside         | L/sub      | -  | MSG-T5A3 | 1 | same    | -
-enable   | inside-blocked | W/k/deep   | -  | MSG-T5A3 | 1 | same    | -
-enable   | ancestor       | A          | -  | MSG-T4A8 | 1 | same    | -
-enable   | unregistered   | U          | -  | MSG-T4A8 | 1 | same    | -
-disable  | conflict       | C          | -  | MSG-T2Q7 | 1 | same    | -
-disable  | parked         | P          | -  | -        | 0 | same    | -
-disable  | parked-blocked | B/pb       | -  | -        | 0 | same    | -
-disable  | listed         | L          | -  | -        | 0 | changed | -
-disable  | listed-blocked | B/x        | -  | -        | 0 | changed | -
-disable  | carve-out      | W/k        | -  | MSG-W4S7 | 1 | same    | -
-disable  | inside         | L/sub      | -  | MSG-T5A3 | 1 | same    | -
-disable  | inside-blocked | W/k/deep   | -  | MSG-T5A3 | 1 | same    | -
-disable  | ancestor       | A          | -  | MSG-T4A8 | 1 | same    | -
-disable  | unregistered   | U          | -  | MSG-T4A8 | 1 | same    | -
-handback | conflict       | C          | -  | MSG-T2Q7 | 1 | same    | -
-handback | parked         | P          | -  | MSG-W3S4 | 1 | same    | -
-handback | parked-blocked | B/pb       | -  | MSG-W3S4 | 1 | same    | -
-handback | listed         | L          | -  | -        | 0 | same    | ai-tools-reclaim
-handback | listed-blocked | B/x        | -  | MSG-R8C7 | 1 | same    | -
-handback | carve-out      | W/k        | -  | MSG-R8C7 | 1 | same    | -
-handback | inside         | L/sub      | -  | -        | 0 | same    | ai-tools-reclaim
-handback | inside-blocked | W/k/deep   | -  | MSG-R8C7 | 1 | same    | -
-handback | ancestor       | A          | -  | MSG-J3K5 | 1 | same    | -
-handback | unregistered   | U          | -  | MSG-J3K5 | 1 | same    | -
-lockdown | conflict       | C          | -  | MSG-T2Q7 | 1 | same    | -
-lockdown | parked         | P          | -  | MSG-W3S4 | 1 | same    | -
-lockdown | parked-blocked | B/pb       | -  | MSG-W3S4 | 1 | same    | -
-lockdown | listed         | L          | -  | -        | 0 | same    | ai-tools-lockdown
-lockdown | listed-blocked | B/x        | -  | MSG-R8C7 | 1 | same    | -
-lockdown | carve-out      | W/k        | -  | MSG-R8C7 | 1 | same    | -
-lockdown | inside         | L/sub      | -  | -        | 0 | same    | ai-tools-lockdown
-lockdown | inside-blocked | W/k/deep   | -  | MSG-R8C7 | 1 | same    | -
-lockdown | ancestor       | A          | -  | MSG-J3K5 | 1 | same    | -
-lockdown | unregistered   | U          | -  | MSG-J3K5 | 1 | same    | -
-push     | conflict       | C          | -  | MSG-T4Z6 | 1 | same    | -
-push     | parked         | P          | -  | MSG-T4Z6 | 1 | same    | -
-push     | parked-blocked | B/pb       | -  | MSG-T4Z6 | 1 | same    | -
-push     | listed         | L          | -  | MSG-T4Z6 | 1 | same    | -
-push     | listed-blocked | B/x        | -  | MSG-T4Z6 | 1 | same    | -
-push     | carve-out      | W/k        | -  | MSG-T4Z6 | 1 | same    | -
-push     | inside         | L/sub      | -  | MSG-T4Z6 | 1 | same    | -
-push     | inside-blocked | W/k/deep   | -  | MSG-T4Z6 | 1 | same    | -
-push     | ancestor       | A          | -  | MSG-T4Z6 | 1 | same    | -
-push     | unregistered   | U          | -  | MSG-T4Z6 | 1 | same    | -
+claim    | disabled         | P         | -y | -        | 1 | same    | -
+claim    | disabled-blocked | B/pb      | -y | MSG-R8C7 | 1 | same    | -
+claim    | enabled          | L         | -y | -        | 0 | same    | ai-tools-safedir
+claim    | enabled-blocked  | B/x       | -y | MSG-R8C7 | 1 | same    | -
+claim    | excluded         | W/k       | -y | MSG-W4S7 | 1 | same    | -
+claim    | inside           | L/sub     | -y | -        | 0 | changed | ai-tools-safedir
+claim    | inside-blocked   | W/k/deep  | -y | MSG-R8C7 | 1 | same    | -
+claim    | ancestor         | A         | -y | -        | 0 | changed | ai-tools-safedir
+claim    | unregistered     | U         | -y | -        | 0 | changed | ai-tools-safedir
+create   | disabled         | pnew      | -  | -        | 1 | same    | -
+create   | disabled-blocked | B/pbnew   | -  | MSG-R8C7 | 1 | same    | -
+create   | enabled          | lnew      | -  | -        | 0 | same    | ai-tools-safedir
+create   | enabled-blocked  | B/lbnew   | -  | MSG-R8C7 | 1 | same    | -
+create   | excluded         | W/knew    | -  | MSG-W4S7 | 1 | same    | -
+create   | inside           | L/inew    | -  | -        | 0 | changed | ai-tools-safedir
+create   | inside-blocked   | W/k/ibnew | -  | MSG-R8C7 | 1 | same    | -
+create   | ancestor         | anew      | -  | -        | 0 | changed | ai-tools-safedir
+create   | unregistered     | unew      | -  | -        | 0 | changed | ai-tools-safedir
+remove   | disabled         | P         | -y | -        | 0 | changed | ?
+remove   | disabled-blocked | B/pb      | -y | -        | 0 | changed | ?
+remove   | enabled          | L         | -y | -        | 0 | changed | ?
+remove   | enabled-blocked  | B/x       | -y | -        | 0 | changed | ?
+remove   | excluded         | W/k       | -y | MSG-W4S7 | 1 | same    | -
+remove   | inside           | L/sub     | -y | MSG-T5A3 | 1 | same    | -
+remove   | inside-blocked   | W/k/deep  | -y | MSG-T5A3 | 1 | same    | -
+remove   | ancestor         | A         | -y | MSG-F4D8 | 1 | same    | -
+remove   | unregistered     | U         | -y | MSG-P8Y8 | 1 | same    | -
+unclaim  | disabled         | P         | -y | -        | 1 | same    | !ai-tools-unclaim
+unclaim  | disabled-blocked | B/pb      | -y | -        | 1 | same    | !ai-tools-unclaim
+unclaim  | enabled          | L         | -y | -        | 0 | changed | ai-tools-unclaim
+unclaim  | enabled-blocked  | B/x       | -y | -        | 1 | changed | !ai-tools-unclaim
+unclaim  | excluded         | W/k       | -y | MSG-W4S7 | 1 | same    | -
+unclaim  | inside           | L/sub     | -y | MSG-T5A3 | 1 | same    | -
+unclaim  | inside-blocked   | W/k/deep  | -y | MSG-T5A3 | 1 | same    | -
+unclaim  | ancestor         | A         | -y | -        | 0 | changed | ai-tools-unclaim
+unclaim  | unregistered     | U         | -y | MSG-P8W2 | 1 | same    | -
+enable   | disabled         | P         | -  | -        | 0 | changed | -
+enable   | disabled-blocked | B/pb      | -  | -        | 0 | changed | -
+enable   | enabled          | L         | -  | -        | 0 | same    | -
+enable   | enabled-blocked  | B/x       | -  | -        | 0 | same    | -
+enable   | excluded         | W/k       | -  | MSG-W4S7 | 1 | same    | -
+enable   | inside           | L/sub     | -  | MSG-T5A3 | 1 | same    | -
+enable   | inside-blocked   | W/k/deep  | -  | MSG-T5A3 | 1 | same    | -
+enable   | ancestor         | A         | -  | MSG-T4A8 | 1 | same    | -
+enable   | unregistered     | U         | -  | MSG-T4A8 | 1 | same    | -
+disable  | disabled         | P         | -  | -        | 0 | same    | -
+disable  | disabled-blocked | B/pb      | -  | -        | 0 | same    | -
+disable  | enabled          | L         | -  | -        | 0 | changed | -
+disable  | enabled-blocked  | B/x       | -  | -        | 0 | changed | -
+disable  | excluded         | W/k       | -  | MSG-W4S7 | 1 | same    | -
+disable  | inside           | L/sub     | -  | MSG-T5A3 | 1 | same    | -
+disable  | inside-blocked   | W/k/deep  | -  | MSG-T5A3 | 1 | same    | -
+disable  | ancestor         | A         | -  | MSG-T4A8 | 1 | same    | -
+disable  | unregistered     | U         | -  | MSG-T4A8 | 1 | same    | -
+handback | disabled         | P         | -  | MSG-W3S4 | 1 | same    | -
+handback | disabled-blocked | B/pb      | -  | MSG-W3S4 | 1 | same    | -
+handback | enabled          | L         | -  | -        | 0 | same    | ai-tools-reclaim
+handback | enabled-blocked  | B/x       | -  | MSG-R8C7 | 1 | same    | -
+handback | excluded         | W/k       | -  | MSG-R8C7 | 1 | same    | -
+handback | inside           | L/sub     | -  | -        | 0 | same    | ai-tools-reclaim
+handback | inside-blocked   | W/k/deep  | -  | MSG-R8C7 | 1 | same    | -
+handback | ancestor         | A         | -  | MSG-J3K5 | 1 | same    | -
+handback | unregistered     | U         | -  | MSG-J3K5 | 1 | same    | -
+lockdown | disabled         | P         | -  | MSG-W3S4 | 1 | same    | -
+lockdown | disabled-blocked | B/pb      | -  | MSG-W3S4 | 1 | same    | -
+lockdown | enabled          | L         | -  | -        | 0 | same    | ai-tools-lockdown
+lockdown | enabled-blocked  | B/x       | -  | MSG-R8C7 | 1 | same    | -
+lockdown | excluded         | W/k       | -  | MSG-R8C7 | 1 | same    | -
+lockdown | inside           | L/sub     | -  | -        | 0 | same    | ai-tools-lockdown
+lockdown | inside-blocked   | W/k/deep  | -  | MSG-R8C7 | 1 | same    | -
+lockdown | ancestor         | A         | -  | MSG-J3K5 | 1 | same    | -
+lockdown | unregistered     | U         | -  | MSG-J3K5 | 1 | same    | -
+push     | disabled         | P         | -  | MSG-T4Z6 | 1 | same    | -
+push     | disabled-blocked | B/pb      | -  | MSG-T4Z6 | 1 | same    | -
+push     | enabled          | L         | -  | MSG-T4Z6 | 1 | same    | -
+push     | enabled-blocked  | B/x       | -  | MSG-T4Z6 | 1 | same    | -
+push     | excluded         | W/k       | -  | MSG-T4Z6 | 1 | same    | -
+push     | inside           | L/sub     | -  | MSG-T4Z6 | 1 | same    | -
+push     | inside-blocked   | W/k/deep  | -  | MSG-T4Z6 | 1 | same    | -
+push     | ancestor         | A         | -  | MSG-T4Z6 | 1 | same    | -
+push     | unregistered     | U         | -  | MSG-T4Z6 | 1 | same    | -
 ROWS
 )"
 
@@ -248,8 +239,8 @@ else
 fi
 
 # Each path is in the state its column names before any cell reads it, so a fixture that drifts fails here rather than
-# letting a cell pass for another reason: `listed-blocked` and `inside-blocked` read as listed or inside with a line
-# in `blocked`, and `listed` and `inside` with none.
+# letting a cell pass for another reason: `enabled-blocked` and `inside-blocked` read as enabled or inside with a line
+# in `blocked`, and `enabled` and `inside` with none.
 reset
 declare -A proven=()
 drifted=()
@@ -258,9 +249,9 @@ while IFS='|' read -r _ state path _; do
     [[ -z "${proven[${path}]:-}" ]] || continue; proven["${path}"]=1
     IFS=$'\t' read -r got _ _ _ blocked _ _ <<< "$(ai_tools_conf__read_registry_path_class "${AL}" "${path}")"
     case "${state}" in
-        *-blocked)     [[ "${got}" == "${state%-blocked}" && "${blocked}" != - ]] || drifted+=("${path}=${got}/${blocked}") ;;
-        listed|inside) [[ "${got}" == "${state}" && "${blocked}" == - ]]          || drifted+=("${path}=${got}/${blocked}") ;;
-        *)             [[ "${got}" == "${state}" ]]                               || drifted+=("${path}=${got}") ;;
+        *-blocked)      [[ "${got}" == "${state%-blocked}" && "${blocked}" != - ]] || drifted+=("${path}=${got}/${blocked}") ;;
+        enabled|inside) [[ "${got}" == "${state}" && "${blocked}" == - ]]          || drifted+=("${path}=${got}/${blocked}") ;;
+        *)              [[ "${got}" == "${state}" ]]                               || drifted+=("${path}=${got}") ;;
     esac
 done <<< "${TABLE}"
 if (( ${#drifted[@]} == 0 )); then
@@ -291,7 +282,7 @@ rc=0; out="$(RUN_TTY_ANSWERS='y\ny\n' run_in "${R}" "${CLI_ARGV[@]}" -y "${R}/B/
 check "claim of a parked project under a park, the re-enable answered" - 1 same -
 if grep -qE '^#-+ ERROR MSG-R8C7 ' <<<"$(tr -d '\r' <<<"${out}")"; then pass "the refusal is MSG-R8C7, in the box title"
 else fail "the refusal's code: $(grep -m1 -o 'MSG-[A-Z0-9]*' <<<"${out}" || echo none)"; fi
-if grep -qxF "%${R}/B/pb" "${AL}" && ! grep -qF "Re-enable this project" <<<"${out}"; then
+if grep -qxF "% ${R}/B/pb" "${AL}" && ! grep -qF "Re-enable this project" <<<"${out}"; then
     pass "the own '%' stands and the re-enable is not offered"
 else
     fail "the claim under a park: $(grep -F "${R}/B/pb" "${AL}" || echo gone): $(awk 'NF' <<<"${out}" | head -n 4 | tr '\n' '~')"
@@ -307,13 +298,15 @@ fi
 
 # An enable reports the entry and the gate apart: under a covering line the entry is enabled, the warning names
 # the line, and the close neither says sessions may start nor points at a claim, which would refuse. The listed project
-# under the same park, already enabled, takes the same close; P, with no line over it, is the control.
+# under the same park, already enabled, takes the same close; P, with no line over it, is the control. The line is
+# named as the file holds it, and the line on B is `% <path>` at no indentation in the fixture and in the canonical
+# form the enable writes.
 enable_close() {   # enable_close <label> <path> <blocked|reachable>
     local label="$1" path="$2" want="$3"
     reset; before="$(digest)"; cli_cmd ai-tools.projects.enable
     rc=0; out="$(run_in "${R}" "${CLI_ARGV[@]}" "${path}")" || rc=$?
     if [[ "${want}" == blocked ]]; then
-        if grep -qF "%${R}/B" <<<"${out}" && ! grep -qF "sessions may start" <<<"${out}" \
+        if grep -qF "% ${R}/B" <<<"${out}" && ! grep -qF "sessions may start" <<<"${out}" \
                 && ! grep -qF "projects claim" <<<"${out}"; then
             pass "${label}: the covering line is named, and no sessions line or claim is printed"
         else
@@ -391,7 +384,7 @@ make_source() {
 }
 reset; make_source
 git_fx clone -q "${R}/origin.git" "${SBROOT}/clonefx"
-printf '%s\n' "${SBROOT}/clonefx" >> "${AL}"
+printf '%s\n' "@ ${SBROOT}/clonefx" >> "${AL}"
 if [[ -d "${SBROOT}/clonefx/.git" ]]; then
     before="$(digest)"
     discover "${SBROOT}/clonefx" ai-tools.projects.push; check "push from inside a registered clone" - 0 same
@@ -439,23 +432,16 @@ for name in 'bad*name' plain; do
 done
 rm -rf "${R}/origin.git" "${R}/src"
 
-# ── Unclaim: a conflict in a batch, and a hand-back given up ──────────────────────────────────────────────
-section "ai-tools: an unclaim batch, and a hand-back that did not run"
-reset; before="$(digest)"; cli_cmd ai-tools.projects.unclaim
-rc=0; out="$(run_in "${R}" "${CLI_ARGV[@]}" -y "${R}/X")" || rc=$?
-check "unclaim of an ancestor holding a conflict" MSG-T2Q7 1 same -
-if grep -qF "${R}/X/c" <<<"${out}"; then pass "the refusal names the conflict member"
-else fail "the refusal did not name ${R}/X/c: $(awk 'NF' <<<"${out}" | tail -n 3 | tr '\n' '~')"; fi
-reset; before="$(digest)"
-rc=0; out="$(run_in "${R}" "${CLI_ARGV[@]}" -y "${R}/X/ok")" || rc=$?
-check "unclaim of the member beside it (the control)" - 0 changed ai-tools-unclaim
+# ── Unclaim: a hand-back given up ──────────────────────────────────────────────────────────────────
+section "ai-tools: an unclaim whose hand-back did not run"
+cli_cmd ai-tools.projects.unclaim
 
 # A parked target whose re-enable is declined (no terminal answers it) keeps its '%' line under either disposition,
 # and the close names this unclaim again as what completes it.
 reset; before="$(digest)"
 rc=0; out="$(run_in "${R}" "${CLI_ARGV[@]}" -y "${R}/P")" || rc=$?
 check "unclaim of a parked project, re-enable declined" - 1 same '!ai-tools-unclaim'
-if grep -qxF "%${R}/P" "${AL}"; then pass "the line stays parked"; else fail "the parked line: $(grep -F "${R}/P" "${AL}" || echo gone)"; fi
+if grep -qxF "% ${R}/P" "${AL}"; then pass "the line stays parked"; else fail "the parked line: $(grep -F "${R}/P" "${AL}" || echo gone)"; fi
 if grep -qF "atr projects unclaim ${R}/P" <<<"${out}"; then pass "the remedy is the unclaim again"
 else fail "the remedy: $(awk 'NF' <<<"${out}" | tail -n 4 | tr '\n' '~')"; fi
 # The remedy over the registry that run left, the re-enable answered on a terminal: the hand-back runs and the line
@@ -464,29 +450,15 @@ before="$(digest)"; cli_stub_reset
 rc=0; out="$(RUN_TTY_ANSWERS='y\ny\n\n' run_in "${R}" "${CLI_ARGV[@]}" -y "${R}/P")" || rc=$?
 check "the remedy unclaim, the re-enable answered" - 0 changed ai-tools-unclaim
 if ! grep -qF "${R}/P" "${AL}"; then pass "the remedy drops the line"; else fail "the line after the remedy: $(grep -F "${R}/P" "${AL}")"; fi
-# A project a line elsewhere covers takes the '%' itself, so the remedy has a line to act on.
+# A project a line elsewhere covers takes the '%' itself, so the remedy has a line to act on. The write is canonical,
+# so the line sits under B, the entry enclosing it.
 reset; before="$(digest)"
 rc=0; out="$(run_in "${R}" "${CLI_ARGV[@]}" -y "${R}/B/x")" || rc=$?
 check "unclaim of a project under a park" - 1 changed '!ai-tools-unclaim'
-if grep -qxF "%${R}/B/x" "${AL}"; then pass "the covered project's line is parked"
+if grep -qxF "  % ${R}/B/x" "${AL}"; then pass "the covered project's line is parked"
 else fail "the covered line: $(grep -F "${R}/B/x" "${AL}" || echo gone)"; fi
 if grep -qF "atr projects unclaim ${R}/B/x" <<<"${out}"; then pass "its remedy is the unclaim again"
 else fail "the covered remedy: $(awk 'NF' <<<"${out}" | tail -n 4 | tr '\n' '~')"; fi
-# `--keep-entry` over a parked target: the line stays '%', and the close does not report the entry still enabled.
-reset; before="$(digest)"
-rc=0; out="$(run_in "${R}" "${CLI_ARGV[@]}" "$(cli_flag keep-entry)" -y "${R}/P")" || rc=$?
-check "unclaim --keep-entry of a parked project" - 1 same '!ai-tools-unclaim'
-if grep -qxF "%${R}/P" "${AL}" && ! grep -qF "still enabled" <<<"${out}"; then
-    pass "--keep-entry leaves the line parked and does not report it enabled"
-else
-    fail "--keep-entry over a park: $(grep -F "${R}/P" "${AL}" || echo gone): $(awk 'NF' <<<"${out}" | tail -n 3 | tr '\n' '~')"
-fi
-
-# ── A path inside a conflict project ──────────────────────────────────────────────────────────────────
-reset; mkdir -p "${R}/C/sub"; chown "${PROJECTS_USER}:${PROJECTS_USER}" "${R}/C/sub"; before="$(digest)"
-cli_cmd ai-tools.projects.handback
-rc=0; out="$(run_in "${R}" "${CLI_ARGV[@]}" "${R}/C/sub")" || rc=$?
-check "handback inside a conflict project" MSG-T2Q7 1 same -
 
 # ── The claim of an ancestor names the entries under it ────────────────────────────────────────────────
 reset; before="$(digest)"; cli_cmd ai-tools.projects.claim
@@ -530,13 +502,38 @@ else
 fi
 REG_FILE=""
 
+# ── The registry gate: two signs on one path ───────────────────────────────────────────────────
+# Two lines naming one written path with different signs state two things about one directory, so the grammar refuses
+# the whole file and every verb refuses over it, the listing included: the library's line, then the CLI's, with the file
+# as it was. A trailing slash does not make a second path.
+section "ai-tools: a registry holding two signs on one path"
+CONFLICT_REG="${R}/registry-conflict"
+for verb in list claim create remove unclaim enable disable clone push handback lockdown; do
+    key="ai-tools.projects.${verb}"; [[ "${verb}" == remove ]] && key=ai-tools.projects.remove.inplace
+    reset; printf '%s\n' "${REG_MARKER}" "@ ${R}/L" "! ${R}/L" > "${CONFLICT_REG}"
+    chown "${PROJECTS_USER}:${PROJECTS_USER}" "${CONFLICT_REG}"
+    REG_FILE="${CONFLICT_REG}"; before="$(digest)"; cli_cmd "${key}"
+    args=("${CLI_ARGV[@]}"); [[ "${verb}" == list ]] || args+=("${R}/L")
+    rc=0; out="$(run_in "${R}" "${args[@]}")" || rc=$?
+    check "${verb} over '@' and '!' on one path" MSG-B8U2 1 same -
+    assert_msg MSG-Y7K5 "${out}" "${verb} over '@' and '!' on one path: the CLI's refusal follows"
+    REG_FILE=""
+done
+reset; printf '%s\n' "${REG_MARKER}" "@ ${R}/L" "% ${R}/L/" > "${CONFLICT_REG}"
+chown "${PROJECTS_USER}:${PROJECTS_USER}" "${CONFLICT_REG}"
+REG_FILE="${CONFLICT_REG}"; before="$(digest)"; cli_cmd ai-tools.projects.disable
+rc=0; out="$(run_in "${R}" "${CLI_ARGV[@]}" "${R}/L")" || rc=$?
+check "disable over '@' and '%' on one path" MSG-B8U2 1 same -
+assert_msg MSG-Y7K5 "${out}" "disable over '@' and '%' on one path: the CLI's refusal follows"
+REG_FILE=""; rm -f "${CONFLICT_REG}"
+
 # ── Nested parks, the listing over a park, and the same edits under `--for` ──────────────────────────
 section "ai-tools: nested parks, the listing, --for"
 reset; before="$(digest)"; cli_cmd ai-tools.projects.disable
 rc=0; out="$(run_in "${R}" "${CLI_ARGV[@]}" "${R}/W/n")" || rc=$?
 check "disable parks a project nested in a listed one" - 0 changed
-if grep -qxF "%${R}/W/n" "${AL}" && grep -qxF "${R}/W" "${AL}"; then
-    pass "the nested line takes the '%', in place"
+if grep -qxF "  % ${R}/W/n" "${AL}" && grep -qxF "@ ${R}/W" "${AL}"; then
+    pass "the nested line takes the '%', indented under the project enclosing it"
 else
     fail "the nested park: $(cat "${AL}")"
 fi
@@ -552,18 +549,13 @@ if grep -qE "parked[[:space:]]+${R}/P([[:space:]]|$)" <<<"${out}" \
 else
     fail "the listing over a park: $(awk 'NF' <<<"${out}" | head -n 8 | tr '\n' '~')"
 fi
-if grep -qE "conflict[[:space:]]+${R}/C" <<<"${out}"; then
-    pass "two kinds on one path list as a conflict"
-else
-    fail "the listing did not name the conflict"
-fi
 
 # `--for`: the same edits on the target's registry, through the helper (its stub edits the target's file).
 DIGEST_FILE="${FOR_AL}"
 for_run() { cli_cmd "$1"; shift; rc=0; out="$(run_in "${R}" --for "${FOR_USER}" "${CLI_ARGV[@]}" "$@")" || rc=$?; }
 reset; before="$(digest)"; for_run ai-tools.projects.disable "${R}/W/n"
 check "disable --for parks a nested project" - 0 changed
-if grep -qxF "%${R}/W/n" "${FOR_AL}"; then pass "the target's nested line takes the '%'"; else fail "the --for nested park"; fi
+if grep -qxF "  % ${R}/W/n" "${FOR_AL}"; then pass "the target's nested line takes the '%'"; else fail "the --for nested park"; fi
 before="$(digest)"; for_run ai-tools.projects.enable "${R}/W/n"
 check "enable --for lifts the nested park" - 0 changed
 reset; before="$(digest)"; for_run ai-tools.projects.enable "${R}/W/k"
@@ -594,11 +586,9 @@ for_refusal() {   # for_refusal <label> <code> <key> <path> [<arg>...]
         pass "${label}: no line names the snapshot"
     fi
 }
-for_refusal "claim --for on a conflict"             MSG-T2Q7 ai-tools.projects.claim    "${R}/C" -y
 for_refusal "claim --for on a carve-out"            MSG-W4S7 ai-tools.projects.claim    "${R}/W/k" -y
 for_refusal "claim --for under a carve-out"         MSG-R8C7 ai-tools.projects.claim    "${R}/W/k/deep" -y
 for_refusal "claim --for under a park"              MSG-R8C7 ai-tools.projects.claim    "${R}/B/x" -y
-for_refusal "handback --for on a conflict"          MSG-T2Q7 ai-tools.projects.handback "${R}/C"
 for_refusal "handback --for on a carve-out"         MSG-R8C7 ai-tools.projects.handback "${R}/W/k"
 for_refusal "handback --for under a carve-out"      MSG-R8C7 ai-tools.projects.handback "${R}/W/k/deep"
 if grep -qF "${for_shown}" <<<"${out}"; then
@@ -616,7 +606,7 @@ fi
 # Following the remedy lifts the target's park and leaves the invoker's registry as it was.
 al_before="$(sha256sum "${AL}")"; before="$(digest)"; for_run ai-tools.projects.enable "${R}/B"
 check "the park remedy, run" - 0 changed
-if [[ "$(sha256sum "${AL}")" == "${al_before}" ]] && grep -qxF "${R}/B" "${FOR_AL}"; then
+if [[ "$(sha256sum "${AL}")" == "${al_before}" ]] && grep -qxF "@ ${R}/B" "${FOR_AL}"; then
     pass "the remedy changed the target's registry and not the invoker's"
 else
     fail "the remedy's registries: invoker $( [[ "$(sha256sum "${AL}")" == "${al_before}" ]] && echo same || echo changed)"

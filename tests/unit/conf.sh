@@ -1590,7 +1590,7 @@ rc_is() {
 
 # --- the state read ---
 seed_al "" "@ ${P1}   # a comment" "!${SUB}" "%${P2}"
-state_is listed   "${P1}"  "an enabled line reads as listed"
+state_is enabled  "${P1}"  "an enabled line reads as enabled"
 state_is excluded "${SUB}" "a carve-out reads as excluded"
 state_is disabled "${P2}"  "a disabled line reads as disabled"
 state_is absent   "${TESTDIR}" "a path with no line reads as absent"
@@ -1609,8 +1609,8 @@ state_is invalid "${P1}" "a file with a refused line reads as invalid" 2>/dev/nu
 # --- add ---
 seed_al
 rc_is 0 "add writes an absent path"             ai_tools_conf__allowlist_add "${AL}" "${P1}"
-state_is listed "${P1}" "the added path reads as listed"
-rc_is 0 "add is idempotent for a listed path"   ai_tools_conf__allowlist_add "${AL}" "${P1}"
+state_is enabled "${P1}" "the added path reads as enabled"
+rc_is 0 "add is idempotent for an enabled path"   ai_tools_conf__allowlist_add "${AL}" "${P1}"
 if [[ "$(grep -cxF "@ ${P1}" "${AL}")" == 1 ]]; then
     pass "add did not duplicate the line"
 else
@@ -1620,8 +1620,8 @@ fi
 # writes it on a line of its own.
 printf '%s\n%s' "${MARKER}" "@ ${P2}" > "${AL}"
 rc_is 0 "add over an entry that runs to EOF"     ai_tools_conf__allowlist_add "${AL}" "${P1}"
-state_is listed "${P1}" "the added path reads as listed"
-state_is listed "${P2}" "the entry that ran to EOF is still listed"
+state_is enabled "${P1}" "the added path reads as enabled"
+state_is enabled "${P2}" "the entry that ran to EOF is still enabled"
 
 for kind in '%' '!'; do
     seed_al "${kind}${P1}"
@@ -1652,7 +1652,7 @@ for add_name in 'a b' 'x # not a comment' "it's" 'q"q' 'plain'; do
     add_dir="${TESTDIR}/names/${add_name}"; mkdir -p "${add_dir}"
     rc_is 0 "the name predicate accepts '${add_name}'" ai_tools_conf__is_registry_path_representable "${add_dir}"
     rc_is 0 "add writes a directory named '${add_name}'" ai_tools_conf__allowlist_add "${AL}" "${add_dir}"
-    state_is listed "${add_dir}" "the line written for '${add_name}' reads back as the path"
+    state_is enabled "${add_dir}" "the line written for '${add_name}' reads back as the path"
 done
 if grep -qxF "@ \"${TESTDIR}/names/x # not a comment\"" "${AL}" && grep -qxF "@ ${TESTDIR}/names/plain" "${AL}" \
         && grep -qxF "@ '${TESTDIR}/names/q\"q'" "${AL}" && ai_tools_conf__validate_registry "${AL}" current 2>/dev/null; then
@@ -1695,7 +1695,7 @@ if grep -qxF "! ${SUB}" "${AL}"; then
 else
     fail "remove deleted the carve-out under the project:"$'\n'"$(cat "${AL}")"
 fi
-state_is listed "${P2}" "remove left the other project alone"
+state_is enabled "${P2}" "remove left the other project alone"
 rc_is 0 "removing an absent path succeeds"      ai_tools_conf__allowlist_remove "${AL}" "${P1}"
 seed_al "%${P1}" "@ ${P2}"
 rc_is 0 "remove drops a disabled path"          ai_tools_conf__allowlist_remove "${AL}" "${P1}"
@@ -1764,7 +1764,7 @@ fi
 before="$(cat "${AL}")"
 rc_is 0 "disable is idempotent"                 ai_tools_conf__allowlist_disable "${AL}" "${P1}"
 rc_is 0 "enable restores a disabled project"    ai_tools_conf__allowlist_enable  "${AL}" "${P1}"
-state_is listed "${P1}" "the restored project reads as listed"
+state_is enabled "${P1}" "the restored project reads as enabled"
 rc_is 0 "disable again"                         ai_tools_conf__allowlist_disable "${AL}" "${P1}"
 if [[ "$(cat "${AL}")" == "${before}" ]]; then
     pass "a disable/enable round trip leaves the file byte-identical"
@@ -1777,7 +1777,7 @@ rc_is 0 "enable is idempotent (again)"          ai_tools_conf__allowlist_enable 
 seed_al "@ ${P1}" "@ ${SUB}"
 rc_is 0 "disable disables a project nested in a listed one" ai_tools_conf__allowlist_disable "${AL}" "${SUB}"
 state_is disabled "${SUB}" "the nested project reads as disabled"
-state_is listed   "${P1}"  "the enclosing project stays listed"
+state_is enabled   "${P1}"  "the enclosing project stays enabled"
 
 # Neither verb invents an entry: enabling or disabling a path the file does not name would register a project without
 # claiming it (no secret scan, no ACL, no label). A '!' line is a carve-out, never a disabled project, so enable does
@@ -1939,7 +1939,7 @@ mkdir -p "${mig}/a \"quoted\" name"
 printf '%s\n' "'${mig}/a \"quoted\" name'" > "${mig}/allowed-projects"; chmod 600 "${mig}/allowed-projects"
 ai_tools_conf__migrate_registry "${mig}/allowed-projects" "${mig}/project-registry" >/dev/null || true
 if [[ "$(cat "${mig}/project-registry" 2>/dev/null)" == "${MARKER}"$'\n'"@ '${mig}/a \"quoted\" name'" ]] \
-        && [[ "$(ai_tools_conf__read_allowlist_state "${mig}/project-registry" "${mig}/a \"quoted\" name")" == listed ]]; then
+        && [[ "$(ai_tools_conf__read_allowlist_state "${mig}/project-registry" "${mig}/a \"quoted\" name")" == enabled ]]; then
     pass "a single-quoted legacy line migrates in single quotes and reads back as the same path"
 else
     fail "the single-quoted legacy line migrated as:"$'\n'"$(cat "${mig}/project-registry" 2>/dev/null)"
