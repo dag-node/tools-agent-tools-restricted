@@ -33,11 +33,13 @@ anything.
 
 **Claim in place** when the agent should work your real checkout: shared files,
 shared git history (opt-in), and results that land in your tree. The trade is
-exposure. Once claimed, the whole tree is in the agent's reach except for two
-kinds of path: one that is owner-only, and one an excluded line (`!`) of your
-project registry covers. Every other path loses world access and gains
-the agent, and the world access does not come back at an unclaim
-([Permissions](permissions.md)).
+exposure. Once claimed, the whole tree is in the agent's reach except
+for a path that is owner-only. Every path the claim walks loses world access
+and gains the agent, and the world access does not come back at an unclaim
+([Permissions](permissions.md)). An excluded line (`!`) of your project
+registry keeps sessions from starting under it and the claim's walks out of it;
+it does not take back access a claim already granted there, which making
+the path owner-only does.
 
 **Create a sandbox clone** when the tree, its history, or its surroundings
 should stay out of reach. The clone is shallow, so the agent does not read

@@ -435,12 +435,15 @@ for re-validation; `AI_TOOLS_PROJECT_DIR` carries the validated project director
 The registry is `~/.config/ai-tools/project-registry`, and `allowed-projects` in its place while a host upgraded
 from a release that wrote it has not run `atr admin system post-upgrade`; `ai_tools_conf__resolve_registry` picks
 the file for both consumers, and the wrapper reads the operator's own file under `${HOME}` alone, not
-the `AI_TOOLS_ALLOWLIST` test hook. An excluded (`!`) and a disabled (`%`) line are exclusions and override allows.
-The wrapper refuses to launch with an excluded CWD, and `ai-tools-chown` skips ownership restoration on excluded paths.
-One loader and one matcher in `conf.lib.sh` keep the two in sync: a plain excluded path also covers its contents,
-an excluded glob matches as-is, a glob-free exclusion covers its real path as well where the loader follows the link,
-and a read the loader refuses — a link the sandbox account can change (`MSG-Z3Q6`), or a line the grammar does not
-recognise (`MSG-D9R4`, after the library's line) — leaves neither consumer allowing a path under that file
+the `AI_TOOLS_ALLOWLIST` test hook. An excluded (`!`) and a disabled (`%`) line are exclusions and override the allow
+of an enclosing project. A line naming the same directory as an entry of another sign is read by the file's grammar:
+a format 1.0 file refuses the pair, and a legacy `allowed-projects` keeps the exclusion winning
+([ref-section-d2n3](providers.rule.md#ref-section-d2n3)). The wrapper refuses to launch with an excluded CWD,
+and `ai-tools-chown` skips ownership restoration on excluded paths. One loader and one matcher in `conf.lib.sh` keep
+the two in sync: a plain excluded path also covers its contents, an excluded glob matches as-is, a glob-free exclusion
+covers its real path as well where the loader follows the link, and a read the loader refuses — a link the sandbox
+account can change (`MSG-Z3Q6`), or a line the grammar does not recognise or two signs on one directory (`MSG-D9R4`,
+after the library's line) — leaves neither consumer allowing a path under that file
 ([ref-section-d2n3](providers.rule.md#ref-section-d2n3)).
 
 **The refusal is worded from the kind of the line that matched**, which the loader returns beside each exclusion, since

@@ -366,15 +366,19 @@ The launch wrapper and each root helper that walks a project take their allow ar
 from `ai_tools_conf__load_allowlist`, which validates the whole file first and returns both arrays empty over a line
 the grammar refuses (status 3, `MSG-B8U2` from the validator; the wrapper refuses the launch under `MSG-D9R4`),
 and match a path through `ai_tools_conf__is_path_excluded`, so the gate that refuses a launch and the walk that hands
-a path back cover one set of paths. The loader opens the file once and validates and loads through that one descriptor,
-as the membership readers and the classifier do, so a file renamed over the name between the validation and the entries
-is not read. A write into the same inode is what the pin does not close. The file is the operator's, at `0600`
-in the operator's `0700` `~/.config/ai-tools`, the layout's boundary rows ([layout](layout.rule.md)), so that write is
-the operator's or root's, `tests/boundary/access.sh` probes the registry unwritable by the sandbox account, and no
-writer of this project makes one. An allow entry is kept resolved. An exclusion is kept as written
-and, for a glob-free absolute one, as its real path beside it, so the match is the union of the two forms: the resolved
-form alone stops covering the written path once a component of it becomes a symlink, and the written form alone misses
-an exclusion the operator spelled through one.
+a path back cover one set of paths. In a format 1.0 file two signs on one directory refuse the read the same way:
+the validator refuses two lines naming one written path (`sign-conflict`, under `MSG-B8U2`), and the loader, comparing
+the resolved arrays, refuses two lines naming one directory through different spellings (status 3, `MSG-E3W3`). A legacy
+`allowed-projects` keeps the reading it had before format 1.0: an exclusion wins over an allow line naming its path
+and the other entries stand, and the migration refuses such a pair. The loader opens the file once and validates
+and loads through that one descriptor, as the membership readers and the classifier do, so a file renamed over the name
+between the validation and the entries is not read. A write into the same inode is what the pin does not close. The file
+is the operator's, at `0600` in the operator's `0700` `~/.config/ai-tools`, the layout's boundary rows
+([layout](layout.rule.md)), so that write is the operator's or root's, `tests/boundary/access.sh` probes the registry
+unwritable by the sandbox account, and no writer of this project makes one. An allow entry is kept resolved.
+An exclusion is kept as written and, for a glob-free absolute one, as its real path beside it, so the match is the union
+of the two forms: the resolved form alone stops covering the written path once a component of it becomes a symlink,
+and the written form alone misses an exclusion the operator spelled through one.
 
 The resolution follows a symlink only where the sandbox account can neither remove, replace nor move it,
 which `_ai_tools_conf__resolve_exclusion_path` reads as the link and every directory on the way to it each held

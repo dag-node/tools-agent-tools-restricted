@@ -27,7 +27,7 @@ atr projects remove .
 
 ## What authorizes it
 
-An **exact** entry for the path in your project registry, an allow or a `%`
+An **exact** entry for the path in your project registry, an `@` or a `%`
 line, and only that: there is no `--force`, since deleting a tree no entry
 registers is an unclaim plus an `rm` you type yourself. A disabled (`%`) entry
 counts, since it records a project taken out of service and still yours,

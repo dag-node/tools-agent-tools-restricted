@@ -177,9 +177,11 @@ of the sandbox account or the toolchain update runs
 each session end with `/exit` and the toolchain update finish, or end them all
 with `atr stop`, then claim again: the re-run applies the label alone.
 
-An owner-only path, and one an excluded line (`!`) of your project registry
-covers, is skipped by every step and reported as a count. Either mark is also
-how you stop a path being reported again.
+The claim's walks skip an owner-only path, and one an excluded line (`!`)
+of your project registry covers, and report each as a count. Either mark is
+also how you stop a path being reported again. A `!` line written after a claim
+does not take back the access that claim granted under it; making the path
+owner-only does ([Permissions](permissions.md)).
 
 ## Re-claiming
 
@@ -218,8 +220,6 @@ offered.
 A claim refuses, before it writes anything:
 
 - a path an excluded line (`!`) names, since an excluded path is not a project;
-- a path an excluded line and an allow or `%` line both name, until you keep
-  the one you mean;
 - a path inside a disabled project, or under an excluded or glob line, since
   the steps that grant the agent access do not act there. The refusal shows
   the line; for a `%` line it names the `atr projects enable` that lifts it.

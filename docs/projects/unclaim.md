@@ -40,9 +40,9 @@ that has to close, is
 | What you pointed at | What happens |
 |---|---|
 | a claimed project | unclaimed |
-| a directory with claimed projects nested under it | they are listed, one confirm covers all, each is unclaimed outermost-first; a batch holding a conflict is refused before its first step |
+| a directory with claimed projects nested under it | they are listed, one confirm covers all, each is unclaimed outermost-first |
 | a path *inside* a claimed project | refused, naming the nearest claimed parent and the command that works |
-| an excluded path (`!`), or a path a `!` line and an entry both name | refused: neither is a project |
+| an excluded path (`!`) | refused: it is not a project |
 | a path the registry does not cover, without any agent permissions on it | refused: no part of this tree was claimed |
 | a path the registry does not cover, still carrying agent permissions | reported, and `--force` offered |
 
@@ -59,22 +59,6 @@ so](#an-unclaim-that-could-not-hand-the-files-back-says-so)).
 
 The excluded lines (`!`) under the project stay in your registry and stay
 in force over whatever is registered there next; the command names each one.
-
-## Keeping your place across a release
-
-```bash
-atr projects unclaim --keep-entry ~/src/api   # files handed back; the line stays, disabled
-# ... release ...
-atr projects claim ~/src/api                  # offers to re-enable it, in place
-```
-
-A common rhythm is to unclaim before a production release, so the tree carries
-ordinary permissions, then claim again for the next development stage. A plain
-unclaim deletes the line, so the later claim appends a new one at the end
-of the file; `--keep-entry` disables it instead, as `projects disable` would,
-and the claim then offers to re-enable it where it was ([Enable](enable.md)).
-`--keep-entry` is refused with `--force`, which reaches a tree with no line
-to keep.
 
 ## A copy that was not unclaimed
 
@@ -160,7 +144,8 @@ non-zero; it does not print a clean `unclaimed`. It prints this unclaim again,
 with the options you gave it, as the command that completes it:
 
 ```text
-      atr projects unclaim --keep-entry --full /home/you/src/api
+      the entry stays disabled; once that is cleared, complete the unclaim with:
+      atr projects unclaim --full /home/op/src/api
 ```
 
 Run it once the cause is cleared, a disabled project re-enabled at its prompt
@@ -185,6 +170,5 @@ so the command has no entry to read an owner from and binds the walk to you.
 0 when the project is unclaimed; 1 when a step failed, the label was not
 reverted, the hand-back did not run, the path was refused, or the registry line
 could not be removed or disabled; 2 for a rejected command line (a missing
-directory, `--keep-entry` with `--force`, `--yes` with `--dry-run`); 3
-when the path is a protected system directory or a home root. `man ai-tools`
-has the full list.
+directory, `--yes` with `--dry-run`); 3 when the path is a protected system
+directory or a home root. `man ai-tools` has the full list.
