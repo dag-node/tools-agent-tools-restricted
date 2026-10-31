@@ -866,6 +866,12 @@ if command -v runuser >/dev/null 2>&1; then
     else
         fail "ai-tools.projects.remove.inplace acted past a failed de-registration (rc=${rc}): $(brief "${out}")"
     fi
+    # The registry step precedes the safe.directory step, so the refused run does not report a safe.directory line.
+    if grep -qF "safe.directory" <<<"${out}"; then
+        fail "ai-tools.projects.remove.inplace reached the safe.directory step ahead of the refused registry step: $(brief "${out}" 'safe.directory')"
+    else
+        pass "ai-tools.projects.remove.inplace refuses at the registry step before the safe.directory step"
+    fi
 
     # Teardown order: registries before the tree. Driven with -y, which is the one path that reaches the deletion
     # without a terminal, over a project that IS fully deletable. Both halves are asserted -- the tree is gone
@@ -1130,14 +1136,17 @@ EOF
 
         # The clone kind de-lists before it deletes, so a de-list that does not apply leaves the clone on disk
         # and registered, refused under MSG-K8S2: the registry sits in a directory the projects user cannot write,
-        # where the editor cannot make its temporary file. The same removal over a writable directory is the control.
+        # where the editor cannot make its temporary file. The de-list is the first step, so the clone keeps its
+        # safe.directory entry too: the fixture gitconfig names it, and the refused run does not reach the safedir step.
+        # The same removal over a writable directory is the control.
         rclone="${sroot}/clone-kept"; mkdir -p "${rclone}"; git init -q "${rclone}"
         chown -R "${PROJECTS_USER}:${PROJECTS_USER}" "${rclone}"
         creg_dir="${TESTDIR}/clone-registry"; mkdir -p "${creg_dir}"; chown root:root "${creg_dir}"; chmod 0755 "${creg_dir}"
         creg="${creg_dir}/project-registry"; printf '%s\n' "${REG_MARKER}" "${rclone}" > "${creg}"
         chown "${PROJECTS_USER}:${PROJECTS_USER}" "${creg}"; chmod 0644 "${creg}"
-        cgc="${TESTDIR}/clone-gitconfig"; : > "${cgc}"; chown "${PROJECTS_USER}:${PROJECTS_USER}" "${cgc}"
-        creg_before="$(sha256sum < "${creg}")"
+        cgc="${TESTDIR}/clone-gitconfig"; : > "${cgc}"; git config --file "${cgc}" --add safe.directory "${rclone}"
+        chown "${PROJECTS_USER}:${PROJECTS_USER}" "${cgc}"
+        creg_before="$(sha256sum < "${creg}")"; cgc_before="$(sha256sum < "${cgc}")"
         remove_clone_run() {
             runuser -u "${PROJECTS_USER}" -- env HOME="${PROJECTS_HOME}" \
                 AI_TOOLS_OPERATOR_CONF="${oconf}" AI_TOOLS_ALLOWLIST="${creg}" AI_TOOLS_SANDBOX_ROOT="${sroot}" \
@@ -1149,6 +1158,11 @@ EOF
             pass "the clone whose de-list did not apply is still on disk and still registered"
         else
             fail "the refused clone removal: on disk $([[ -d "${rclone}" ]] && echo yes || echo no), registry $([[ "$(sha256sum < "${creg}")" == "${creg_before}" ]] && echo same || echo changed)"
+        fi
+        if [[ "$(sha256sum < "${cgc}")" == "${cgc_before}" ]] && ! grep -qF "safe.directory" <<<"${out}"; then
+            pass "the refused clone removal reaches no safe.directory step and leaves the gitconfig as it was"
+        else
+            fail "the refused clone removal touched the trust entry: $(brief "${out}" 'safe.directory')"
         fi
         chown "${PROJECTS_USER}:${PROJECTS_USER}" "${creg_dir}"
         out="$(remove_clone_run)" && rc=0 || rc=$?

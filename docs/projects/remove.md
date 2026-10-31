@@ -73,14 +73,14 @@ and the typed name has no default.
 
 ## Registries first, the tree last
 
-The label, the `safe.directory` entry and the registry entry go first,
-and the tree is deleted last. A deletion that then fails leaves a tree whose
-registry entry is gone, so no new session starts there from it. A session
-already running keeps its access until it ends, and the files left keep the
-agent's group access, since the command does not hand them back before deleting
-them. Remove what is left by hand: the command prints the `rm -rf` to run, and
-under `--for` the account to run it as. The reverse order would leave
-a half-deleted tree the agent still reaches.
+The label and the registry entry go first, then the `safe.directory`
+entry, and the tree is deleted last. A deletion that then fails leaves a tree
+whose registry entry is gone, so no new session starts there from it.
+A session already running keeps its access until it ends, and the files left
+keep the agent's group access, since the command does not hand them back before
+deleting them. Remove what is left by hand: the command prints the `rm -rf`
+to run, and under `--for` the account to run it as. The reverse order would
+leave a half-deleted tree the agent still reaches.
 The registry step is the one that has to complete: where the entry cannot be
 removed, the command stops and prints the line to delete by hand.
 

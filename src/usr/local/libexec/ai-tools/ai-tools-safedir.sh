@@ -10,8 +10,9 @@
 # like `ai-tools-{setfacl,relabel,unclaim}`. The agent has no path here, so unlike the handback helpers this one is
 # operator-only and off the handback socket.
 #
-# ADD requires the path to be an allowlisted project (resolve_owner); `--remove` is lenient, since the CLI de-lists
-# the project before removing. Both are idempotent; the path defaults to cwd.
+# ADD requires the path to be an allowlisted project (resolve_owner); `--remove` does not take a registry gate,
+# so an entry is removable whatever the registry holds for the path, before or after its de-list. Both are idempotent;
+# the path defaults to cwd.
 #
 # Usage:  ai-tools-safedir [--remove] [<absolute-project-path>]
 #
@@ -122,7 +123,7 @@ _confirm_cwd() {
 
 if ${REMOVE}; then
     # Tolerate a since-deleted directory: `realpath -m` canonicalises lexically without requiring the path to exist,
-    # so a stale entry for a removed tree is still cleanable. No allowlist gate (the CLI de-lists before removing here).
+    # so a stale entry for a removed tree is still cleanable. No registry gate (see the header).
     canonical="$(realpath -m -- "${TARGET}" 2>/dev/null || printf '%s' "${TARGET}")"
     # The project is the subject of every record this run writes, so it rides as per-run log context (logging.rule.md)
     # instead of being named at each site.

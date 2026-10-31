@@ -1053,17 +1053,20 @@ and traversable by them, naming `atr projects handback --full`: the failure a de
 deleted down to the first directory it could not enter, with no entry left to find the remains by. The project's
 **parent** is checked first and separately, since `rm -rf <d>` finishes by unlinking `<d>` from it, and that directory
 is not part of the project; missing it leaves an empty, deregistered husk, so its refusal names `projects unclaim`
-instead. Teardown then runs registries first, deletion last — the label, the `safe.directory` entry, the registry entry,
-then the tree — so a failed deletion leaves an *unregistered* tree, less access rather than more. A clone takes the same
-order without the label step, since its type comes from the policy's file contexts ([Sandbox clone](#sandbox-clone)),
-and its registry step is fatal as the project's is, so a de-list that does not apply leaves the clone on disk
-and registered. A label reversal the live-session gate refuses stops the removal at that step, with the tree and both
-registries as they were and exit 1: the refusal is a state a re-run passes once the sessions end, and a label left
-for later could not be reverted over a path the removal deleted, since `ai-tools-relabel` refuses a path that does not
-exist. The registry step is fatal if it cannot complete, since that entry is the launch gate: `unreg_allow` verifies
-the entry is gone by re-reading the file rather than trusting `sed`, and names the line to delete by hand (`sed -i`
-writes its temporary file into the registry's own directory, which the operator may not be able to write).
-The filesystem hand-back an unclaim performs is not run over files about to be deleted.
+instead. Teardown then runs registries first, deletion last — the label, the registry entry, the `safe.directory` entry,
+then the tree — so a failed deletion leaves an *unregistered* tree, less access rather than more. The registry step is
+the first that cannot be undone and the one that refuses, so a de-list that does not apply leaves the trust entry
+in place; the label step stays ahead of it, since `ai-tools-relabel` resolves membership from the entry. A clone takes
+the same order without the label step, since its type comes from the policy's file contexts ([Sandbox
+clone](#sandbox-clone)), and its registry step comes first and is fatal as the project's is, so a de-list that does not
+apply leaves the clone as it was: on disk, registered and trusted. A label reversal the live-session gate refuses stops
+the removal at that step, with the tree and both registries as they were and exit 1: the refusal is a state a re-run
+passes once the sessions end, and a label left for later could not be reverted over a path the removal deleted, since
+`ai-tools-relabel` refuses a path that does not exist. The registry step is fatal if it cannot complete, since
+that entry is the launch gate: `unreg_allow` verifies the entry is gone by re-reading the file rather than trusting
+`sed`, and names the line to delete by hand (`sed -i` writes its temporary file into the registry's own directory,
+which the operator may not be able to write). The filesystem hand-back an unclaim performs is not run over files
+about to be deleted.
 
 The verb does not run git over the tree, in either kind. The agent co-writes `.git`, so `.git/config` is the agent's
 to write, and git run as the operator executes the commands that file names: the invariant

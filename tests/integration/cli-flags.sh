@@ -900,15 +900,18 @@ drive_rows() {
     # The removal's tree belongs to the projects user, since the shim runs the owner's steps as the invoker.
     mkdir -p "${R}/for3"; chown "${PROJECTS_USER}:${PROJECTS_USER}" "${R}/for3"
     printf '%s\n' "${R}/for3" >> "${FOR_AL}"
+    seed_gc "${R}/for3"
     cli_stub_reset; cli_stub_fail ai-tools-allowlist:--remove
     drive cli ai-tools.projects.remove.inplace "$(f for)" "${FOR_USER}" "$(f yes)" "${R}/for3"
     expect "remove --for exits non-zero when the target's entry cannot be removed" rc_not0
     expect "that refusal carries its code"                            out_has_text MSG-K8S2
     expect "the tree is not deleted past the refused registry step"  test -d "${R}/for3"
     expect "the target's entry is still listed"                       st_for_is "${R}/for3" listed
+    expect "the safe.directory entry is not removed ahead of the refused registry step" not_called ai-tools-safedir
     cli_stub_reset; drive cli ai-tools.projects.remove.inplace "$(f for)" "${FOR_USER}" "$(f yes)" "${R}/for3"
     expect "control: the same remove --for deletes the tree"         test ! -e "${R}/for3"
     expect "control: and drops the target's entry"                    st_for_is "${R}/for3" absent
+    expect "control: and its safe.directory entry"                    cli_called ai-tools-safedir "^--remove${T}${R}/for3$"
     # A park the helper refuses ends the unclaim non-zero with the entry still enabled, after the hand-back ran.
     mkdir -p "${R}/for4"; chown "${PROJECTS_USER}:${PROJECTS_USER}" "${R}/for4"
     printf '%s\n' "${R}/for4" >> "${FOR_AL}"

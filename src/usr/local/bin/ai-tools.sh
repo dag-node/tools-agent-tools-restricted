@@ -1299,9 +1299,10 @@ reg_safedir() {
     fi
 }
 
-# unreg_safedir <dir>  -- the unclaim counterpart to reg_safedir: drop <dir> via SAFEDIR_BIN --remove. Called
-# after unreg_allow, so the helper's --remove is lenient about allowlist membership. Best-effort like reg_safedir: warns
-# with the manual command and lets the unclaim carry on.
+# unreg_safedir <dir>  -- the unclaim counterpart to reg_safedir: drop <dir> via SAFEDIR_BIN --remove. The helper's
+# --remove does not take a registry gate, so the call sits after the registry step in both kinds of `projects remove`,
+# and before the registry disposition in an unclaim, whose hand-back precedes both. Best-effort like reg_safedir: warns
+# with the manual command and lets the verb carry on.
 unreg_safedir() {
     local dir="$1"
     if ! git config --file "${GITCONFIG}" --get-all safe.directory 2>/dev/null \
@@ -4170,7 +4171,10 @@ cmd_project_remove() {
     # A failed cleanup step asks once (note_root_failure) and does not stop the removal: the registries drop regardless,
     # and `ai-tools projects` reports what is left behind. The live-session gate's refusal stops it instead,
     # before either registry changes: a label reversal left for later cannot be applied to a path this run deletes
-    # (cli.rule.md, ref-section-k3v7).
+    # (cli.rule.md, ref-section-k3v7). The label step stays ahead of the registry step, since ai-tools-relabel resolves
+    # membership from the entry, so a de-list that does not apply (MSG-K8S2) leaves a registered project whose label is
+    # reverted, which the listing reports and `projects claim` restores. The registry step precedes
+    # the safe.directory step, so that refusal leaves the trust entry in place.
     local cleanup_stopped=false
     if command -v sudo >/dev/null 2>&1 \
             && command -v getenforce >/dev/null 2>&1 \
@@ -4187,8 +4191,8 @@ cmd_project_remove() {
             note_root_failure || cleanup_stopped=true
         fi
     fi
-    ${cleanup_stopped} || unreg_safedir "${d}" || note_root_failure || true
     unreg_allow "${d}"
+    ${cleanup_stopped} || unreg_safedir "${d}" || note_root_failure || true
 
     if ! run_as_owner rm -rf -- "${d}" || [[ -e "${d}" ]]; then
         die_remove_incomplete "${d}" project
@@ -4532,8 +4536,9 @@ cmd_project_push() {
 
 # remove_clone <dir> <assume-yes>  -- the clone kind of `projects remove`: unregister a sandbox clone, then delete it.
 # A clone is authorized by being a recognized one (require_sandbox_clone), and its own lines go with it. Teardown takes
-# the in-place kind's order, registries first and the tree last, so a de-list that does not apply (MSG-K8S2) leaves
-# the clone on disk and registered, and a deletion that does not complete leaves an unregistered tree.
+# the in-place kind's order: the registry entry, the safe.directory entry, then the tree. The registry step is first and
+# fatal, so a de-list that does not apply (MSG-K8S2) leaves the clone as it was: on disk, registered and trusted, and
+# a deletion that does not complete leaves an unregistered tree.
 # <assume-yes> true pre-answers the one default-NO confirm. The remote branch is left intact. No git read is made
 # over the clone (cmd_project_remove states why), so a line ahead of the confirm states what an unpushed commit meets
 # instead of counting them.
@@ -4545,11 +4550,11 @@ remove_clone() {
     say "  a commit not yet pushed is deleted with the clone; already-pushed work stays on the remote"
     ${assume_yes} || confirm "Unregister ${d} and remove it?" n || die "aborted"
 
+    unreg_allow "${d}"
     # `|| true`: a safe.directory entry that could not be removed is a stale line the listing reports, and not
     # a reason to keep a clone the operator asked to delete. unreg_safedir signals failure, and a bare call under set -e
     # would end the removal there.
     unreg_safedir "${d}" || true
-    unreg_allow "${d}"
     # As the owner: a clone claimed for another operator belongs to that operator, and the run's `--for` is what names
     # them.
     if ! run_as_owner rm -rf -- "${d}"; then
