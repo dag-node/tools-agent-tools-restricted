@@ -1718,6 +1718,28 @@ if [[ "${unrenderable_rc}" -eq 0 && "${unrenderable_line}" == "@ ${TESTDIR}/name
 else
     fail "the reader: rc ${unrenderable_rc}, line '${unrenderable_line}'"
 fi
+# Given the path whose entry the caller removes, the reader does not count that entry's own line, since the removal
+# deletes it before it renders the rest; another line the writer cannot write back is still named, and the removal of
+# the line's own entry succeeds and leaves the rest canonical.
+rc_is 1 "given the path of the one unrenderable line, the reader returns 1" \
+    ai_tools_conf__find_unrenderable_registry_line "${AL}" "${TESTDIR}/names/q\"q'q"
+seed_al "@ ${P1}" "@ ${TESTDIR}/names/q\"q'q" "% ${TESTDIR}/names/r\"r'r"
+unrenderable_rc=0
+unrenderable_line="$(ai_tools_conf__find_unrenderable_registry_line "${AL}" "${TESTDIR}/names/q\"q'q")" \
+    || unrenderable_rc=$?
+if [[ "${unrenderable_rc}" -eq 0 && "${unrenderable_line}" == "% ${TESTDIR}/names/r\"r'r" ]]; then
+    pass "given one entry's path, the reader names another line the writer cannot write back"
+else
+    fail "the reader given a path: rc ${unrenderable_rc}, line '${unrenderable_line}'"
+fi
+seed_al "@ ${P1}" "@ ${TESTDIR}/names/q\"q'q"
+rc_is 0 "the removal of the unrenderable line's own entry succeeds" \
+    ai_tools_conf__allowlist_remove "${AL}" "${TESTDIR}/names/q\"q'q"
+if [[ "$(cat "${AL}")" == "$(printf '%s\n' "${MARKER}" "@ ${P1}")" ]]; then
+    pass "and leaves the other entry in canonical form"
+else
+    fail "the removal left:"$'\n'"$(cat "${AL}")"
+fi
 seed_al "@ ${P1}" "! ${SUB}" "% ${P2}"
 rc_is 1 "the reader returns 1 for a file every line of which renders" \
     ai_tools_conf__find_unrenderable_registry_line "${AL}"

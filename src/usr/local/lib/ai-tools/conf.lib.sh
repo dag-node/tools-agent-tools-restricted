@@ -1580,23 +1580,31 @@ ai_tools_conf__is_registry_path_representable() {
     _ai_tools_conf__format_registry_entry project "${1-}" >/dev/null
 }
 
-# ai_tools_conf__find_unrenderable_registry_line <registry-file> : print the first raw line of <registry-file> that
-#   _ai_tools_conf__format_registry_entry refuses for its kind and written path, and return 0; return 1 when every line
-#   renders, and for a file that is not a format 1.0 registry, which no writer rewrites. The grammar reads a bare path
-#   carrying both quote characters, and the formatter does not write one, so every editor returns 4 over a file holding
-#   such a line whatever path it was given; this reader names the line, and lets a verb whose later step edits the file
-#   refuse before its first change. Reads the file as it is; the caller validates it first.
+# ai_tools_conf__find_unrenderable_registry_line <registry-file> [<path>] : print the first raw line of <registry-file>
+#   that _ai_tools_conf__format_registry_entry refuses for its kind and written path, and return 0; return 1 when every
+#   line renders, and for a file that is not a format 1.0 registry, which no writer rewrites. The grammar reads a bare
+#   path carrying both quote characters, and the formatter does not write one, so every editor returns 4 over a file
+#   holding such a line whatever path it was given; this reader names the line, and lets a verb whose later step edits
+#   the file refuse before its first change. With <path>, a project or disabled line whose resolved path is <path>'s is skipped: the removal
+#   of <path>'s entry (ai_tools_conf__allowlist_remove) deletes that line before it renders the rest. Reads the file
+#   as it is; the caller validates it first.
 ai_tools_conf__find_unrenderable_registry_line() {
-    local file="${1-}" i kind path
+    local file="${1-}" i kind path resolved_path=""
     # shellcheck disable=SC2034  # filled through their names by _ai_tools_conf__read_registry_lines
-    local -a render_kinds=() render_paths=() render_raws=() render_written=() render_comments=()
+    local -a entry_kinds=() entry_resolved_paths=() entry_raw_lines=() entry_written_paths=() entry_comments=()
     [[ -f "${file}" && "$(ai_tools_conf__read_registry_grammar "${file}")" == current ]] || return 1
-    _ai_tools_conf__read_registry_lines "${file}" render_kinds render_paths render_raws render_written render_comments
-    for i in "${!render_kinds[@]}"; do
-        kind="${render_kinds[i]/glob/excluded}"
-        path="${render_written[i]}"; [[ "${path}" == / ]] || path="${path%/}"
+    [[ -z "${2-}" ]] || resolved_path="$(_ai_tools_conf__resolve_line_path "$2")"
+    _ai_tools_conf__read_registry_lines "${file}" entry_kinds entry_resolved_paths entry_raw_lines entry_written_paths \
+        entry_comments
+    for i in "${!entry_kinds[@]}"; do
+        if [[ -n "${resolved_path}" && "${entry_resolved_paths[i]}" == "${resolved_path}" \
+                && ( "${entry_kinds[i]}" == project || "${entry_kinds[i]}" == disabled ) ]]; then
+            continue
+        fi
+        kind="${entry_kinds[i]/glob/excluded}"
+        path="${entry_written_paths[i]}"; [[ "${path}" == / ]] || path="${path%/}"
         _ai_tools_conf__format_registry_entry "${kind}" "${path}" >/dev/null && continue
-        printf '%s' "${render_raws[i]}"
+        printf '%s' "${entry_raw_lines[i]}"
         return 0
     done
     return 1

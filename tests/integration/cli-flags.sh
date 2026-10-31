@@ -973,6 +973,37 @@ drive_rows() {
     expect "the hand-back does not run"                               not_called ai-tools-unclaim
     expect "the helper is not asked to edit the target's registry"    cli_log_lacks ai-tools-allowlist "^--operator${T}${FOR_USER}${T}--(remove|disable)"
     expect "the target's registry is byte-identical"                  test "$(sha "${FOR_AL}")" = "${ur_sha}"
+    # The verb's own target is the line the writer cannot write back: the removal deletes that line before it renders
+    # the rest, so an unclaim or a remove of it runs, and the disable a failed hand-back leaves, which keeps the line,
+    # names it.
+    local own_q="${R}/q\"q'q" own_r="${R}/r\"r'r"
+    mkdir -p "${own_q}" "${own_r}"; chown "${PROJECTS_USER}:${PROJECTS_USER}" "${own_q}" "${own_r}"
+    seed "@ ${R}/ur1" "@ ${own_q}"
+    drive cli ai-tools.projects.unclaim "$(f yes)" "${own_q}"
+    expect "unclaim of the unrenderable line's own project exits 0"   rc_is 0
+    expect "its hand-back runs"                                       cli_called ai-tools-unclaim
+    expect "its entry is gone"                                        st_is "${own_q}" absent
+    expect "the other entry stays, the file canonical"                test "$(cat "${AL}")" = "$(printf '%s\n' "${REG_MARKER}" "@ ${R}/ur1")"
+    seed "@ ${R}/ur1" "@ ${own_q}"
+    cli_stub_fail ai-tools-unclaim; drive cli ai-tools.projects.unclaim "$(f yes)" "${own_q}"
+    expect "a failed hand-back of that project exits non-zero"        rc_not0
+    expect "the disable it leaves names the line under its code"      out_has_text MSG-A5Y2
+    expect "the entry is still enabled"                               st_is "${own_q}" enabled
+    seed "@ ${R}/ur1" "@ ${own_q}" "@ ${own_r}"
+    drive cli ai-tools.projects.unclaim "$(f yes)" "${own_q}"
+    expect "another unrenderable line still refuses the unclaim"      rc_not0
+    expect "that refusal names the other line"                        out_has_text "@ ${own_r}"
+    expect "and the hand-back does not run"                           not_called ai-tools-unclaim
+    seed "@ ${R}/ur1" "@ ${own_q}"
+    drive cli ai-tools.projects.remove.inplace "$(f yes)" "${own_q}"
+    expect "remove of the unrenderable line's own project deletes it" test ! -e "${own_q}"
+    expect "and drops its entry"                                      st_is "${own_q}" absent
+    mkdir -p "${R}/fq\"q'q"; chown "${PROJECTS_USER}:${PROJECTS_USER}" "${R}/fq\"q'q"
+    seed_for "@ ${R}/fur1" "@ ${R}/fq\"q'q"
+    cli_stub_reset; drive cli ai-tools.projects.unclaim "$(f for)" "${FOR_USER}" "$(f yes)" "${R}/fq\"q'q"
+    expect "unclaim --for of the unrenderable line's own project runs the hand-back" cli_called ai-tools-unclaim
+    expect "and asks the helper to remove the entry"                  cli_called ai-tools-allowlist "^--operator${T}${FOR_USER}${T}--remove${T}${R}/fq\"q'q$"
+    rm -rf "${own_r}" "${R}/fq\"q'q"
     printf '%s\n' "${al_saved}" > "${AL}"; printf '%s\n' "${for_saved}" > "${FOR_AL}"
     chown "${PROJECTS_USER}:${PROJECTS_USER}" "${AL}" "${FOR_AL}"
 

@@ -796,7 +796,10 @@ prints that line, and `report_unrenderable_registry_line` names it under `MSG-A5
 that failed (`reg_allow`, `retag_allow`, `unreg_allow`; under `--for` over the snapshot, after the helper's `MSG-W6P5`).
 `projects unclaim` and `projects remove` ask it before their first change, since each ends with a registry write that
 would otherwise fail after the hand-back or the label reversal had run; `unclaim --force` does not write an entry
-and does not ask.
+and does not ask. The removal deletes the target's own line before it renders the rest, so a verb with one target
+passes that path and its own line does not count: `remove`, and `unclaim` of one project. An ancestor unclaim counts
+every line, since each of its removals renders the other targets' lines. Where a later write keeps the target's line,
+the editor's status 4 names it: the re-enable offer, and the disable a failed hand-back leaves.
 
 For a file that is the launch gate, a writer matching lines differently from the reader would leave a project reachable
 after a removal; one shared implementation of the match is what rules that out.
@@ -1069,8 +1072,8 @@ the nested check sees only the registry this run can read. The verb reads the ki
 under `SANDBOX_ROOT` is removed through `require_sandbox_clone`, which authorizes it as a recognized clone with its own
 lines going with it, and every other entry as a project.
 
-A registry line the writer cannot write back refuses the removal before any change (`MSG-A5Y2`), since the registry
-step follows the label reversal. A read-only deletability pre-flight runs as the acting owner and refuses when any directory in the tree is not writable
+A registry line the writer cannot write back, other than the project's own, refuses the removal before any change
+(`MSG-A5Y2`), since the registry step follows the label reversal. A read-only deletability pre-flight runs as the acting owner and refuses when any directory in the tree is not writable
 and traversable by them, naming `atr projects handback --full`: the failure a destructive verb must not have is a tree
 deleted down to the first directory it could not enter, with no entry left to find the remains by. The project's
 **parent** is checked first and separately, since `rm -rf <d>` finishes by unlinking `<d>` from it, and that directory
@@ -1119,7 +1122,7 @@ and acts only where something authorizes it:
 | an ancestor of listed projects | all of them, enabled or disabled, outermost-first, behind one default-no confirm |
 | inside a listed project | refused, naming the nearest claimed parent |
 | an excluded path | refused (`MSG-W4S7`) |
-| any target, while a line of the registry cannot be written back | refused before the first step (`MSG-A5Y2`) |
+| any target, while a line of the registry cannot be written back (a listed project's own line excepted) | refused before the first step (`MSG-A5Y2`) |
 | unlisted, carrying the ai-tools fingerprint | reported; acting needs `--force` |
 | unlisted, no fingerprint | refused |
 

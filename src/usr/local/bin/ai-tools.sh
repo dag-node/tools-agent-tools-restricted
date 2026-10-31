@@ -921,14 +921,16 @@ die_registry_refused() {
         "Fix that line, then re-run. Until it is fixed no session starts under any entry of this file.$(format_registry_edit_clause)"
 }
 
-# report_unrenderable_registry_line  -- warn about the line of the registry this run reads (the invoker's, or a `--for`
-# target's snapshot) that the canonical writer cannot write back, printing the line, and return 0; return 1, printing
-# nothing, when every line renders. Every write rewrites the whole file, so one such line makes every edit of the file
-# fail (the editors' status 4) whatever path the edit names: an editor calls this once it has failed, and a verb whose
-# later step edits the file calls it before its first change.
+# report_unrenderable_registry_line [<path>]  -- warn about the line of the registry this run reads (the invoker's, or
+# a `--for` target's snapshot) that the canonical writer cannot write back, printing the line, and return 0; return 1,
+# printing nothing, when every line renders. Every write rewrites the whole file, so one such line makes every edit
+# of the file fail (the editors' status 4) whatever path the edit names: an editor calls this once it has failed, and
+# a verb whose later step edits the file calls it before its first change. A verb whose registry step removes <path>'s
+# entry passes <path>, since that removal deletes the entry's own line before it renders the rest
+# (ai_tools_conf__find_unrenderable_registry_line).
 report_unrenderable_registry_line() {
     local line
-    line="$(ai_tools_conf__find_unrenderable_registry_line "${ALLOWLIST}")" || return 1
+    line="$(ai_tools_conf__find_unrenderable_registry_line "${ALLOWLIST}" "${1-}")" || return 1
     printf '\n      %s\n\n' "${line}" >&2
     warn MSG-A5Y2 "a line of ${REGISTRY_DISPLAY_PATH} names a path the registry cannot write back -- the line is shown above" \
         "Every change to the file rewrites it whole, and a path carrying both a single and a double quote has no quoting a registry line can carry. Rename the directory the line names and edit the line to match, or delete the line; then run the command again.$(format_registry_edit_clause)"
@@ -3919,8 +3921,13 @@ cmd_project_unclaim() {
 
     # Every registry write rewrites the whole file, and the re-enable offer and the reversal at the end each write it:
     # a line the writer cannot write back would fail the reversal after the hand-back had run, so the unclaim refuses
-    # before its first change.
-    if report_unrenderable_registry_line; then
+    # before its first change. The reversal of one target deletes that target's own line before it renders the rest,
+    # so the exact mode does not count it; in ancestor mode each removal renders the other targets' lines, and a target
+    # whose own line cannot be written back is unclaimed on its own first. Where a later write keeps the target's line
+    # -- the re-enable offer, the disable a failed hand-back leaves -- that editor's status 4 names it.
+    local unrenderable_exempt=""
+    [[ "${mode}" == exact ]] && unrenderable_exempt="${targets[0]}"
+    if report_unrenderable_registry_line "${unrenderable_exempt}"; then
         die "projects unclaim stopped before any change -- change the registry line named above first"
     fi
 
@@ -4111,8 +4118,9 @@ cmd_project_remove() {
     fi
 
     # The removal's registry step rewrites the whole file and runs after the label is reverted: a line the writer cannot
-    # write back would stop the removal there, so it is refused before any change.
-    if report_unrenderable_registry_line; then
+    # write back would stop the removal there, so it is refused before any change. The project's own line is the one
+    # the step deletes, so it is not counted.
+    if report_unrenderable_registry_line "${d}"; then
         die "projects remove stopped before any change -- change the registry line named above first"
     fi
 
