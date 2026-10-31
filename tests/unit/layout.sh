@@ -150,7 +150,9 @@ valid "a link row at 0777 with no ACL"      static /x link root:root 0777 - ai-t
 valid "a directory with access and default entries" static /x directory root:ai-tools 2770 \
     "group:ai-ops:rwx,default:group:ai-ops:rwx" ai-tools-base files
 valid "a package list on a directory"       static /x directory root:root 0755 - "ai-tools-base,ai-tools-selinux" files
-valid "a dynamic row with a space in its path" dynamic "/home/a b/.config/ai-tools" directory xd:xd 0700 - - boundary
+# A fixed owner rather than the harness operator: the row grammar holds a name to [a-z_][a-z0-9_-]*, which an enrolled
+# account's name need not satisfy.
+valid "a dynamic row with a space in its path" dynamic "/home/a b/.config/ai-tools" directory op:op 0700 - - boundary
 refused "six fields"                static "expected 7 fields" /x file root:root 0644 - ai-tools-base
 refused "a relative path"           static "absolute normalized" x file root:root 0644 - ai-tools-base files
 refused "a trailing slash"          static "absolute normalized" /x/ directory root:root 0755 - ai-tools-base files
@@ -245,8 +247,8 @@ remedy_of() {
 }
 [[ "$(remedy_of files ai-tools-base "")" == *"dnf reinstall ai-tools-base"* ]] && pass "a missing package file names dnf reinstall" \
     || fail "package remedy: $(remedy_of files ai-tools-base "")"
-[[ "$(remedy_of boundary - xd)" == *"operators add xd"* ]] && pass "a missing operator file names operators add" \
-    || fail "operator remedy: $(remedy_of boundary - xd)"
+[[ "$(remedy_of boundary - "${PROJECTS_USER}")" == *"operators add ${PROJECTS_USER}"* ]] \
+    && pass "a missing operator file names operators add" || fail "operator remedy: $(remedy_of boundary - "${PROJECTS_USER}")"
 out="$(remedy_of - ai-tools-base "")"
 [[ "${out}" == *"dnf reinstall ai-tools-base, or sudo ./install.sh install on a source install"* \
    && "${out}" != *"system bootstrap"* ]] && pass "a missing runtime file names the reinstall that places it again" \
@@ -675,8 +677,10 @@ out="$(get_exposure_remedy files,ghost ai-tools-base "")"
 out="$(get_exposure_remedy - ai-tools-base "")"
 [[ "${out}" == "${restore_p}" && "${out}" != *remove* ]] \
     && pass "an exposed runtime file names the restore by hand and not its removal" || fail "exposure runtime: ${out}"
-out="$(get_exposure_remedy boundary - xd /home/xd/.config/ai-tools/allowed-projects xd:xd 0600)"
-[[ "${out}" == "review its content, then restore it by hand: sudo setfacl -b -- /home/xd/.config/ai-tools/allowed-projects; sudo chown xd:xd -- /home/xd/.config/ai-tools/allowed-projects; sudo chmod 0600 -- /home/xd/.config/ai-tools/allowed-projects" ]] \
+registry_q="$(printf '%q' "${PROJECTS_HOME}/.config/ai-tools/project-registry")"
+out="$(get_exposure_remedy boundary - "${PROJECTS_USER}" "${PROJECTS_HOME}/.config/ai-tools/project-registry" \
+    "${PROJECTS_USER}:${PROJECTS_GROUP}" 0600)"
+[[ "${out}" == "review its content, then restore it by hand: sudo setfacl -b -- ${registry_q}; sudo chown ${PROJECTS_USER}:${PROJECTS_GROUP} -- ${registry_q}; sudo chmod 0600 -- ${registry_q}" ]] \
     && pass "an exposed operator file names the restore at the operator's owner and mode" || fail "exposure operator: ${out}"
 out="$(get_exposure_remedy - ai-tools-base "" /p root:ai-tools 0640 group:ai-ops:r--)"
 [[ "${out}" == *"; sudo chmod 0640 -- /p; sudo setfacl -m group:ai-ops:r-- -- /p" ]] \
