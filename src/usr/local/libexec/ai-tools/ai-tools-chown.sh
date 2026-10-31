@@ -183,8 +183,13 @@ declare -a exclusion_patterns=()
 # is.
 ai_tools_conf__load_allowlist "${ALLOWLIST}" allowed_directories exclusion_patterns || true
 
-# Exclusions are checked first and override allows (ai_tools_conf__is_path_excluded, conf.lib.sh).
-ai_tools_conf__is_path_excluded "${canonical}" exclusion_patterns && exit 0   # excluded -- leave ownership intact
+# Exclusions are checked first and override allows (ai_tools_conf__is_path_excluded, conf.lib.sh). A match the library
+# could not make (a status other than 0 or 1, MSG-V9S2 on stderr) refuses the path: read as "not excluded" it would
+# hand back a path an exclusion covers.
+excluded_rc=0
+ai_tools_conf__is_path_excluded "${canonical}" exclusion_patterns || excluded_rc=$?
+(( excluded_rc != 0 )) || exit 0   # excluded -- leave ownership intact
+(( excluded_rc == 1 )) || die "exclusion match failed -- ${canonical} stays as it is until the config library is reinstalled"
 
 # Check if target falls under any allowed directory
 if [[ "${#allowed_directories[@]}" -gt 0 ]]; then

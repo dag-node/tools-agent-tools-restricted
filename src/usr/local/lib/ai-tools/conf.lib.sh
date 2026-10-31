@@ -1331,15 +1331,19 @@ ai_tools_conf__check_registry() {
 
 # ai_tools_conf__find_covering_path <abs-path> <entry> : print the path through which an excluded or disabled <entry>
 #   covers <abs-path> -- <abs-path> itself, or the ancestor of it the entry matches -- and return 0; return 1, printing
-#   nothing, when it covers neither. An entry covers the path it matches and every directory under that path: a plain
+#   nothing, when it covers neither; return 2, printing nothing, when the glob predicate answers neither 0 nor 1 --
+#   a library without it -- since reading that as "not a glob" would match a glob entry as a literal path and cover
+#   none of the directories it names. An entry covers the path it matches and every directory under that path: a plain
 #   entry matches its own path, and a glob (ai_tools_conf__has_glob_characters) matches each path the pattern matches
 #   whole, so `! /home/op/*/node_modules` covers /home/op/app/node_modules and every directory under it. A trailing
 #   slash on <entry> is ignored. The one match for every reader: the launch wrapper, the classifier, and each helper
-#   through ai_tools_conf__is_path_excluded.
+#   through ai_tools_conf__is_path_excluded; a caller reads 1 as "does not cover" and any other non-zero status as
+#   a match it did not get, which the gates refuse on.
 ai_tools_conf__find_covering_path() {
-    local path="${1-}" entry="${2-}" candidate
+    local path="${1-}" entry="${2-}" candidate is_glob
     [[ "${entry}" == / ]] || entry="${entry%/}"
-    if ! ai_tools_conf__has_glob_characters "${entry}"; then
+    if ai_tools_conf__has_glob_characters "${entry}"; then is_glob=yes; elif (( $? == 1 )); then is_glob=no; else return 2; fi
+    if [[ "${is_glob}" == no ]]; then
         [[ "${path}" == "${entry}" || "${path}" == "${entry%/}/"* ]] || return 1
         printf '%s' "${entry}"; return 0
     fi
@@ -1354,15 +1358,24 @@ ai_tools_conf__find_covering_path() {
 }
 
 # ai_tools_conf__is_path_excluded <abs-path> <excluded-array> : return 0 when an entry of the named array covers
-#   <abs-path> (ai_tools_conf__find_covering_path), 1 otherwise and for an empty array.
+#   <abs-path> (ai_tools_conf__find_covering_path), 1 otherwise and for an empty array, and the finder's own status
+#   when it returns neither, with MSG-V9S2 on stderr: a match the library could not make is not "not excluded", and
+#   every caller that gates on this function refuses the path or the run on that status.
 ai_tools_conf__is_path_excluded() {
     local -n _ai_tools_conf__match_excluded="$2"
     local _ai_tools_conf__match_path="${1-}" _ai_tools_conf__match_entry
+    local -i _ai_tools_conf__match_rc
     (( ${#_ai_tools_conf__match_excluded[@]} )) || return 1
     for _ai_tools_conf__match_entry in "${_ai_tools_conf__match_excluded[@]}"; do
-        ai_tools_conf__find_covering_path "${_ai_tools_conf__match_path}" "${_ai_tools_conf__match_entry}" >/dev/null && return 0
+        _ai_tools_conf__match_rc=0
+        ai_tools_conf__find_covering_path "${_ai_tools_conf__match_path}" "${_ai_tools_conf__match_entry}" >/dev/null \
+            || _ai_tools_conf__match_rc=$?
+        (( _ai_tools_conf__match_rc != 0 )) || return 0
+        (( _ai_tools_conf__match_rc == 1 )) || break
     done
-    return 1
+    (( _ai_tools_conf__match_rc == 1 )) && return 1
+    ai_tools_conf__warn MSG-V9S2 "exclusion match failed -- entry ${_ai_tools_conf__match_entry} against ${_ai_tools_conf__match_path}, status ${_ai_tools_conf__match_rc}; the config library is incomplete, and no path is read as allowed or excluded until ai-tools-base is reinstalled"
+    return "${_ai_tools_conf__match_rc}"
 }
 
 # ── Registry membership (exact-entry matching) ───────────────────────────────────────────────

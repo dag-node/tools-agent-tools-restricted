@@ -365,7 +365,9 @@ that reads as "no such provider", a wrong verdict that disables a configured age
 The launch wrapper and each root helper that walks a project take their allow array and their exclusion array
 from `ai_tools_conf__load_allowlist`, which validates the whole file first and returns both arrays empty over a line
 the grammar refuses (status 3, `MSG-B8U2` from the validator; the wrapper refuses the launch under `MSG-D9R4`),
-and match a path through `ai_tools_conf__is_path_excluded`, so the gate that refuses a launch and the walk that hands
+and match a path through `ai_tools_conf__is_path_excluded`, whose status 1 alone reads as "not excluded" -- a match the
+library cannot make returns the finder's status with `MSG-V9S2`, and every consumer refuses the path or the run on it --
+so the gate that refuses a launch and the walk that hands
 a path back cover one set of paths. In a format 1.0 file two signs on one directory refuse the read the same way:
 the validator refuses two lines naming one written path (`sign-conflict`, under `MSG-B8U2`), and the loader, comparing
 the resolved arrays, refuses two lines naming one directory through different spellings (status 3, `MSG-E3W3`). A legacy

@@ -1979,6 +1979,10 @@ switch ${key} in ${file} is neither a yes value (yes, true, 1, on) nor a no valu
 WARNING.
 the pair list ${key} in ${file} gives ${pair_name} more than once \-\- the first value stands
 .TP
+.B MSG-V9S2
+WARNING.
+exclusion match failed \-\- entry ${_ai_tools_conf__match_entry} against ${_ai_tools_conf__match_path}, status ${_ai_tools_conf__match_rc}; the config library is incomplete, and no path is read as allowed or excluded until ai\-tools\-base is reinstalled
+.TP
 .B MSG-X6F2
 WARNING.
 invalid list, read as the empty list \-\- ${key} in ${file} holds ${unprefixed[*]}, not written as ${prefix}<name>; this rewrites a bare name and names any it cannot: atr admin system post\-upgrade
@@ -2451,6 +2455,10 @@ cannot read the launcher symlink ${launcher_link} \-\- reinstall or run nvm\-upd
 .B MSG-S8D9
 ERROR.
 cannot resolve working directory
+.TP
+.B MSG-T6U6
+ERROR.
+refusing to launch \-\- the exclusion match failed for a line of the project registry: ${allowlist}
 .TP
 .B MSG-U6A9
 ERROR.

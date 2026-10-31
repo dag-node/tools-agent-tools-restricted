@@ -142,6 +142,26 @@ run "${broken_conf}" "${PROJECTS_USER}" "${approved}" true
 refused "init refuses when conf.lib.sh will not load (fail closed)" MSG-C2M7
 run "${broken_matcher}" "${PROJECTS_USER}" "${approved}" true
 refused "init refuses when conf.lib.sh lacks a function a gate calls (fail closed)" MSG-C2M7
+# A conf.lib.sh with every function the init requires and without the glob predicate the matcher calls, and one whose
+# matcher returns a status that is neither "covers" nor "does not cover": the CWD gate refuses rather than reading
+# either as no match, with the deployed library's approved launch as the control.
+noglob_conf="${TESTDIR}/conf-noglob.lib.sh"
+grep -v '^ai_tools_conf__has_glob_characters()' /usr/local/lib/ai-tools/conf.lib.sh > "${noglob_conf}"
+failing_conf="${TESTDIR}/conf-failing-matcher.lib.sh"
+{ cat /usr/local/lib/ai-tools/conf.lib.sh; printf 'ai_tools_conf__find_covering_path() { return 2; }\n'; } > "${failing_conf}"
+broken_noglob="${TESTDIR}/launch-noglob.lib.sh"
+sed "s#^readonly CONF_LIB=.*#readonly CONF_LIB=\"${noglob_conf}\"#" "${LIB}" > "${broken_noglob}"
+broken_failing="${TESTDIR}/launch-failing-matcher.lib.sh"
+sed "s#^readonly CONF_LIB=.*#readonly CONF_LIB=\"${failing_conf}\"#" "${LIB}" > "${broken_failing}"
+chmod 644 "${noglob_conf}" "${failing_conf}" "${broken_noglob}" "${broken_failing}"
+if grep -q '^ai_tools_conf__has_glob_characters()' "${noglob_conf}" \
+        || ! grep -q '^ai_tools_conf__find_covering_path()' "${noglob_conf}"; then
+    fail "the conf.lib.sh copy does not lack the glob predicate alone"
+fi
+run "${broken_noglob}" "${PROJECTS_USER}" "${approved}" ai_tools_launch_wrapper__run_gates
+refused "the CWD gate refuses when the matcher's glob predicate is missing (fail closed)" MSG-T6U6
+run "${broken_failing}" "${PROJECTS_USER}" "${approved}" ai_tools_launch_wrapper__run_gates
+refused "the CWD gate refuses a matcher status that is neither a match nor a non-match (fail closed)" MSG-T6U6
 run "${LIB}" "${PROJECTS_USER}" "${approved}" true
 passed "init loads the three required libraries on the deployed library"
 

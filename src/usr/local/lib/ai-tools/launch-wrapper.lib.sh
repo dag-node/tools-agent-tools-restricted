@@ -438,11 +438,20 @@ ai_tools_launch_wrapper__gate_project() {
     # matched decides it, since the way back differs: a `%` line naming this very directory is a project someone
     # DISABLED -- `atr projects disable`, or the same edit by hand -- and the way back is one command; a `!` line
     # excludes a subtree deliberately, where the remedy is to edit that line; and a line covering the directory from
-    # an ancestor names the line, with the remedy its kind takes. The first line in file order decides.
+    # an ancestor names the line, with the remedy its kind takes. The first line in file order decides. The matcher's
+    # status 1 alone is "does not cover": any other non-zero status is a match the library did not make, and reading
+    # it as no match would let an enclosing project approve an excluded directory.
     for index in "${!exclusion_patterns[@]}"; do
         pat="${exclusion_patterns[index]%/}"                    # normalise: strip trailing slash
         kind="${exclusion_kinds[index]}"
-        covering="$(ai_tools_conf__find_covering_path "${cwd}" "${exclusion_patterns[index]}")" || continue
+        covering_rc=0
+        covering="$(ai_tools_conf__find_covering_path "${cwd}" "${exclusion_patterns[index]}")" || covering_rc=$?
+        (( covering_rc != 1 )) || continue
+        if (( covering_rc != 0 )); then
+            ai_tools_launch_wrapper__die MSG-T6U6 "refusing to launch -- the exclusion match failed for a line of the project registry: ${allowlist}" \
+                "${name}: ai_tools_conf__find_covering_path returned ${covering_rc} for ${pat}; the config library ${CONF_LIB} is incomplete or not the one this wrapper was installed with" \
+                "${name}: reinstall ai-tools-base, then start again"
+        fi
         if [[ "${covering}" == "${cwd}" ]]; then
             if [[ "${kind}" == disabled ]]; then
                 ai_tools_launch_wrapper__die MSG-R2V6 "this project is disabled in your project registry: ${cwd}" \

@@ -1039,6 +1039,23 @@ for ld_array_name in entry path; do
     unset "${ld_array_name}"
 done
 ${ld_ok} && pass "an exclusion array named 'entry' or 'path' covers its path and no other"
+# A match the library cannot make is not "not excluded": without the glob predicate the finder returns 2 and the
+# matcher returns the finder's status with its code, where reading the entry as a literal path would cover none of
+# the directories a glob names; a finder returning any status but 0 or 1 propagates the same way. The matcher's 1
+# for a path no entry covers is the control.
+ld_rc="$( ( unset -f ai_tools_conf__has_glob_characters
+            ai_tools_conf__find_covering_path "${ld_root}/proj/private/k" "${ld_root}/proj/private" >/dev/null 2>&1; echo $? ) )"
+ld_rc_matcher="$( ( unset -f ai_tools_conf__has_glob_characters
+            ai_tools_conf__is_path_excluded "${ld_root}/proj/private/k" ld_excluded 2>"${TESTDIR}/ld_v9s2.err"; echo $? ) )"
+ld_rc_stub="$( ( ai_tools_conf__find_covering_path() { return 7; }
+            ai_tools_conf__is_path_excluded "${ld_root}/proj/private/k" ld_excluded 2>/dev/null; echo $? ) )"
+ld_rc_control="$( ai_tools_conf__is_path_excluded "${ld_root}/proj/other" ld_excluded; echo $? )"
+if [[ "${ld_rc}" == 2 && "${ld_rc_matcher}" == 2 && "${ld_rc_stub}" == 7 && "${ld_rc_control}" == 1 ]] \
+        && grep -qx 'MSG-V9S2' "${TESTDIR}/ld_v9s2.err"; then
+    pass "without the glob predicate the finder returns 2 and the matcher propagates it under MSG-V9S2; no match is 1"
+else
+    fail "the finder without its predicate: ${ld_rc}, the matcher: ${ld_rc_matcher} (stub ${ld_rc_stub}), control ${ld_rc_control}"
+fi
 declare -a ld_a2=(x) ld_e2=(y)
 if ! ai_tools_conf__load_allowlist "${ld_root}" ld_a2 ld_e2 && [[ "${#ld_a2[@]}" -eq 0 && "${#ld_e2[@]}" -eq 0 ]] \
         && ! ai_tools_conf__load_allowlist "${TESTDIR}/absent-allowlist" ld_a2 ld_e2; then

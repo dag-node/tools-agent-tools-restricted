@@ -89,8 +89,9 @@ what the security model rests on, and every one of them refuses toward *less* ac
    canonicalized before matching and the match is exact-or-`/`-prefixed, so a symlink or `..` component cannot smuggle
    a CWD past the gate and a sibling sharing a name prefix does not match; an exclusion is matched as written
    and as the real path the loader resolved for it, so an excluded path spelled through a symlink refuses the directory
-   it names, and a read the loader refuses refuses the launch outright (`MSG-Z3Q6`, `MSG-D9R4`), wherever the CWD is
-   under that file. The read and the match are [ref-section-d2n3](providers.rule.md#ref-section-d2n3),
+   it names, a read the loader refuses refuses the launch outright (`MSG-Z3Q6`, `MSG-D9R4`), wherever the CWD is
+   under that file, and a match the library does not make -- the matcher returning a status other than its 0 and 1 --
+   refuses it too (`MSG-T6U6`). The read and the match are [ref-section-d2n3](providers.rule.md#ref-section-d2n3),
    and `ai-tools-chown` makes the same ones, so the launch gate and the ownership handback agree on what is in-project.
 8. **Claim guard** — the project's ownership, label and `safe.directory` gaps, detected read-only.
 
