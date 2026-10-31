@@ -644,8 +644,8 @@ cannot fix -- a message code's name is a runtime string, and rewording one is a 
 | w2b2 | [MSG-W2B2](../src/usr/local/libexec/ai-tools/ai-tools-reclaim.sh) | too many arguments | src/usr/local/libexec/ai-tools/ai-tools-reclaim.sh |  | warn |
 | k9h2 | [MSG-K9H2](../src/usr/local/libexec/ai-tools/ai-tools-reclaim.sh) | nothing to reclaim -- ${canonical} is not under any claimed project | src/usr/local/libexec/ai-tools/ai-tools-reclaim.sh | src/usr/local/libexec/ai-tools/ai-tools-unclaim.sh | warn |
 | j6b2 | [MSG-J6B2](../src/usr/local/libexec/ai-tools/ai-tools-reclaim.sh) | nothing to reclaim under ${canonical} | src/usr/local/libexec/ai-tools/ai-tools-reclaim.sh | tests/unit/reclaim.sh | warn |
-| t9m5 | [MSG-T9M5](../src/usr/local/libexec/ai-tools/ai-tools-reclaim.sh) | declined; ownership left as it stands | src/usr/local/libexec/ai-tools/ai-tools-reclaim.sh |  | warn |
-| j4w5 | [MSG-J4W5](../src/usr/local/libexec/ai-tools/ai-tools-reclaim.sh) | handed back ${confirmed} path(s), ${failed} skipped/failed under ${canonical} | src/usr/local/libexec/ai-tools/ai-tools-reclaim.sh |  | warn |
+| t9m5 | [MSG-T9M5](../src/usr/local/libexec/ai-tools/ai-tools-reclaim.sh) | declined; ownership left as it stands | src/usr/local/libexec/ai-tools/ai-tools-reclaim.sh | tests/unit/reclaim.sh | warn |
+| j4w5 | [MSG-J4W5](../src/usr/local/libexec/ai-tools/ai-tools-reclaim.sh) | handed back ${confirmed} path(s), ${failed} skipped/failed under ${canonical} | src/usr/local/libexec/ai-tools/ai-tools-reclaim.sh | tests/unit/reclaim.sh | warn |
 | m3e7 | [MSG-M3E7](../src/usr/local/libexec/ai-tools/ai-tools-relabel-agent.sh) | must run as root (via sudo) | src/usr/local/libexec/ai-tools/ai-tools-relabel-agent.sh |  | die |
 | s9z3 | [MSG-S9Z3](../src/usr/local/libexec/ai-tools/ai-tools-relabel-agent.sh) | relabel.lib.sh is incomplete -- reinstall ai-tools-base | src/usr/local/libexec/ai-tools/ai-tools-relabel-agent.sh |  | die |
 | e4u5 | [MSG-E4U5](../src/usr/local/libexec/ai-tools/ai-tools-relabel-agent.sh) | relabels are not serialized on this host -- ${AI_TOOLS_RELABEL__LOCK_NOTE} | src/usr/local/libexec/ai-tools/ai-tools-relabel-agent.sh |  | warn |

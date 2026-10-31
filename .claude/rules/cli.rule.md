@@ -199,7 +199,7 @@ an ordinary account read it — a partial view, the file sink being the authorit
   reports "nothing to reclaim" for a direct `sudo` call past the CLI. Each `ai-tools-chown` child resolves its path's
   owner again, loading every enrolled operator's registry, so a refused registry is reported by every child; the helper
   collects the children's stderr and prints each distinct message once, with the number of paths it was printed for,
-  ahead of its tally. Reclaims the `.git` tree the per-session sweeps
+  ahead of its tally, and a run a signal stops prints them with the count handed back so far. Reclaims the `.git` tree the per-session sweeps
   skip; the ownership companion to the `user:<operator>` ACL, run on demand before an ACL-unaware backup so ownership
   (not the ACL) carries the operator's access into the copy. `--full` includes the skipped heavy trees (`node_modules`,
   `.venv`, …). See [ownership-and-hooks](ownership-and-hooks.rule.md).

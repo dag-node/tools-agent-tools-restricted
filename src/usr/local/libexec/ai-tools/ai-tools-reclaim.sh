@@ -152,47 +152,79 @@ if ! ai_tools_msg__confirm "Hand back all ${#paths[@]} path(s)?" y; then
     exit 0
 fi
 
-# _report_child_messages <file> : print to stderr each distinct message the ai-tools-chown children wrote to <file>,
-#   once, in the order first written, with ` (N paths)` after one that N children wrote. A message is a line, or a code
-#   line and the line after it (the form warn writes); a \036 line ends one child's output, so a child that repeats
-#   a message counts once. Each child re-resolves the path's owner and loads every enrolled operator's registry, so
-#   a refused registry is reported by every child, and without the fold a large tree prints the refusal once per path.
-_report_child_messages() {
-    awk '
-        function add(message) {
-            if (message in seen_in_child) return
-            seen_in_child[message] = 1
-            if (!(message in count)) order[++messages] = message
-            count[message]++
-        }
-        /^MSG-[A-Z][0-9][A-Z][0-9]$/ && pending == "" { pending = $0; next }
-        $0 == "\036" { if (pending != "") add(pending); pending = ""; split("", seen_in_child); next }
-        { add(pending == "" ? $0 : pending "\n" $0); pending = "" }
-        END {
-            if (pending != "") add(pending)
-            for (i = 1; i <= messages; i++)
-                printf "%s%s\n", order[i], (count[order[i]] > 1 ? " (" count[order[i]] " paths)" : "")
-        }
-    ' "$1" >&2
+# The children's messages, folded across the run: the number of children that wrote each one, and the order each
+# was first written in. Storage grows with the number of distinct messages, not with the number of paths.
+declare -A CHILD_MESSAGE_COUNT=()
+declare -a CHILD_MESSAGES_IN_ORDER=()
+
+# _fold_child_messages <text> : add one ai-tools-chown child's stderr to the fold. A message is a line, or a code line
+#   and the line after it (the form warn writes); an empty line is not one. A child that writes a message twice counts
+#   once for it. Each child re-resolves the path's owner and loads every enrolled operator's registry, so a refused
+#   registry is reported by every child, and without the fold a large tree prints the refusal once per path.
+_fold_child_messages() {
+    local line pending="" message
+    local -a messages=()
+    local -A seen=()
+    [[ -n "${1-}" ]] || return 0
+    while IFS= read -r line || [[ -n "${line}" ]]; do
+        [[ -n "${line}" ]] || continue
+        if [[ -z "${pending}" && "${line}" =~ ^MSG-[A-Z][0-9][A-Z][0-9]$ ]]; then
+            pending="${line}"; continue
+        fi
+        if [[ -n "${pending}" ]]; then messages+=("${pending}"$'\n'"${line}"); else messages+=("${line}"); fi
+        pending=""
+    done <<< "$1"
+    [[ -z "${pending}" ]] || messages+=("${pending}")
+    for message in "${messages[@]}"; do
+        [[ -z "${seen[${message}]+set}" ]] || continue
+        seen["${message}"]=1
+        [[ -n "${CHILD_MESSAGE_COUNT[${message}]+set}" ]] || CHILD_MESSAGES_IN_ORDER+=("${message}")
+        CHILD_MESSAGE_COUNT["${message}"]=$(( ${CHILD_MESSAGE_COUNT[${message}]-0} + 1 ))
+    done
+}
+
+# _print_folded_child_messages : print to stderr each folded message once, in the order first written, with
+#   ` (N paths)` after one that N children wrote, N > 1.
+_print_folded_child_messages() {
+    local message count
+    for message in "${CHILD_MESSAGES_IN_ORDER[@]}"; do
+        count="${CHILD_MESSAGE_COUNT[${message}]}"
+        if (( count > 1 )); then printf '%s (%d paths)\n' "${message}" "${count}" >&2
+        else printf '%s\n' "${message}" >&2; fi
+    done
+}
+
+# _stop_on_signal <status> : a run interrupted part-way still reports what it did: the messages folded so far, and
+#   the number of paths handed back before the signal, then exits <status>.
+_stop_on_signal() {
+    trap - INT TERM
+    _print_folded_child_messages
+    warn "handback stopped by a signal -- ${confirmed} path(s) handed back under ${canonical} before it"
+    ai_tools_log__structured warning \
+        "reclaim: stopped by a signal after handing back ${confirmed} path(s) under ${canonical}" \
+        "AI_TOOLS_RESULT=failed"
+    exit "$1"
 }
 
 # Count CONFIRMED handbacks (ai-tools-chown exit 0), not attempts: a path that stopped being @SANDBOX_USER@-owned
 # between the collect and apply phases is a legitimate skip, and reporting it as handed back would overstate
-# what changed. A non-zero tally is surfaced, not hidden. The children's stderr is collected and folded
-# (_report_child_messages) ahead of the tally; where no temporary file can be created, it reaches the terminal as each
-# child writes it. The EXIT trap removes the file, so it is a script global (shellcheck.rule.md, ref-section-c3u9).
-CHILD_MESSAGES="$(mktemp 2>/dev/null)" || CHILD_MESSAGES=""
-trap '[[ -z "${CHILD_MESSAGES}" ]] || rm -f -- "${CHILD_MESSAGES}"' EXIT
+# what changed. A non-zero tally is surfaced, not hidden. Each child's stderr is captured on its own, its stdout left
+# on the terminal, and folded (_fold_child_messages) into what is printed ahead of the tally. The signal traps read
+# the tally, so it is a script global (shellcheck.rule.md, ref-section-c3u9).
 declare -i confirmed=0 failed=0
+trap '_stop_on_signal 130' INT
+trap '_stop_on_signal 143' TERM
 for path in "${paths[@]}"; do
-    if "${CHOWN_BIN}" --yes "${path}" </dev/null 2>>"${CHILD_MESSAGES:-/dev/stderr}"; then
+    child_messages=""
+    if { child_messages="$("${CHOWN_BIN}" --yes "${path}" </dev/null 2>&1 1>&3)"; } 3>&1; then
         confirmed+=1
     else
         failed+=1
     fi
-    [[ -z "${CHILD_MESSAGES}" ]] || printf '\036\n' >> "${CHILD_MESSAGES}"
+    _fold_child_messages "${child_messages}"
 done
-[[ -z "${CHILD_MESSAGES}" ]] || _report_child_messages "${CHILD_MESSAGES}"
+trap - INT TERM
+_print_folded_child_messages
 if (( failed > 0 )); then
     warn MSG-J4W5 "handed back ${confirmed} path(s), ${failed} skipped/failed under ${canonical}"
     ai_tools_log__coded warning "${_warn_code}" \

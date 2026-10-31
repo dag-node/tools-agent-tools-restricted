@@ -80,20 +80,29 @@ fi
 # (D) The children's stderr is folded: a message every ai-tools-chown child writes -- a refused registry of another
 # operator, which each child loads again -- prints once with the number of paths, ahead of the tally. Driven on the fold
 # itself, from the checkout's helper where the suite runs from one, since a second operator's refused registry is not
-# a fixture this suite can place.
+# a fixture this suite can place. The fold's two globals and two functions are extracted and run in a shell of their
+# own; each child's text is one call.
 reclaim_source="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)/src/usr/local/libexec/ai-tools/ai-tools-reclaim.sh"
 [[ -r "${reclaim_source}" ]] || reclaim_source="${HELPER}"
-fold_function="$(awk '/^_report_child_messages\(\) \{/,/^}/' "${reclaim_source}")"
-if [[ -z "${fold_function}" ]]; then
-    fail "${reclaim_source} does not define _report_child_messages"
+fold_code="$(grep -E '^declare -(A|a) CHILD_MESSAGE' "${reclaim_source}"
+             awk '/^_fold_child_messages\(\) \{/,/^}/' "${reclaim_source}"
+             awk '/^_print_folded_child_messages\(\) \{/,/^}/' "${reclaim_source}")"
+if [[ "${fold_code}" != *'_fold_child_messages() {'* || "${fold_code}" != *'_print_folded_child_messages() {'* \
+        || "${fold_code}" != *'declare -A CHILD_MESSAGE_COUNT'* ]]; then
+    fail "${reclaim_source} does not define the fold's globals and functions"
 else
-    printf '%s\n' MSG-B8U2 "registry line refused -- /home/op/r line 2" "a secret-named file: /p/a" $'\036' \
-        MSG-B8U2 "registry line refused -- /home/op/r line 2" MSG-B8U2 "registry line refused -- /home/op/r line 2" \
-        $'\036' MSG-B8U2 "registry line refused -- /home/op/r line 2" $'\036' > "${TESTDIR}/children.err"
-    fold_out="$(bash -c "${fold_function}"$'\n''_report_child_messages "$1"' _ "${TESTDIR}/children.err" 2>&1)"
-    fold_want="MSG-B8U2"$'\n'"registry line refused -- /home/op/r line 2 (3 paths)"$'\n'"a secret-named file: /p/a"
+    refused=$'MSG-B8U2\nregistry line refused -- /home/op/r line 2'
+    # Six children: one writes the refusal and a secret notice, one writes the refusal twice, one the refusal alone,
+    # one nothing, one a plain line beside a coded one, and one ends on a code line alone.
+    fold_out="$(bash -c "${fold_code}"'
+        _fold_child_messages "$1"; _fold_child_messages "$2"; _fold_child_messages "$3"; _fold_child_messages ""
+        _fold_child_messages "$4"; _fold_child_messages "$5"; _print_folded_child_messages' _ \
+        "${refused}"$'\na secret-named file: /p/a' "${refused}"$'\n'"${refused}" "${refused}" \
+        $'chown: a plain line\nMSG-T9M5\ndeclined' $'MSG-J4W5' 2>&1)"
+    fold_want="${refused} (3 paths)"$'\n''a secret-named file: /p/a'$'\n''chown: a plain line'$'\n'
+    fold_want+=$'MSG-T9M5\ndeclined\nMSG-J4W5'
     if [[ "${fold_out}" == "${fold_want}" ]]; then
-        pass "a message three children wrote prints once with (3 paths); a child repeating it counts once"
+        pass "a message three children wrote prints once with (3 paths); a repeat in one child counts once"
     else
         fail "the children's messages fold: got '${fold_out//$'\n'/~}', expected '${fold_want//$'\n'/~}'"
     fi
