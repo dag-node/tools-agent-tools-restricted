@@ -2243,8 +2243,7 @@ _pu_registry_findings() {
                 rc=0; refusal="$(_pu_read_registry_refusal "${path}")" || rc=$?
                 case "${rc}" in
                     0) ;;
-                    2) _pu_write_finding registry-invalid file "${path}" "${refusal}" "${user}" ;;
-                    3) _pu_write_finding registry-invalid file "${path}" "${path} has a line the grammar refuses" "${user}" ;;
+                    2|3) _pu_write_finding registry-invalid file "${path}" "${refusal}" "${user}" ;;
                     *) _pu_write_finding registry-invalid file "${path}" "${path} cannot be read" "${user}" ;;
                 esac ;;
         esac
