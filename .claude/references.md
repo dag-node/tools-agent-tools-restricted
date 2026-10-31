@@ -211,7 +211,7 @@ cannot fix -- a message code's name is a runtime string, and rewording one is a 
 | t5a3 | [MSG-T5A3](../src/usr/local/bin/ai-tools.sh) | this path is inside a claimed project, not a project itself: ${d} | src/usr/local/bin/ai-tools.sh | tests/integration/cli-state-machine.sh, tests/integration/cli.sh | die |
 | a8z6 | [MSG-A8Z6](../src/usr/local/bin/ai-tools.sh) | could not add ${dir} to ${FOR_OPERATOR}'s project registry -- it is not registered | src/usr/local/bin/ai-tools.sh |  | die |
 | z9r2 | [MSG-Z9R2](../src/usr/local/bin/ai-tools.sh) | this directory's name cannot be written as a registry line: $1 | src/usr/local/bin/ai-tools.sh | src/usr/local/libexec/ai-tools/ai-tools-allowlist.sh, tests/integration/cli-state-machine.sh, tests/unit/allowlist-helper.sh | die |
-| k8s2 | [MSG-K8S2](../src/usr/local/bin/ai-tools.sh) | the registry was not updated -- ${dir} is still registered | src/usr/local/bin/ai-tools.sh | tests/integration/cli-flags.sh, tests/integration/cli.sh | die |
+| k8s2 | [MSG-K8S2](../src/usr/local/bin/ai-tools.sh) | the registry was not updated -- ${dir} is still registered | src/usr/local/bin/ai-tools.sh | src/usr/local/bin/ai-tools.sh, tests/integration/cli-flags.sh, tests/integration/cli.sh | die |
 | x3g7 | [MSG-X3G7](../src/usr/local/bin/ai-tools.sh) | cannot load the libraries the claim checks its drift and states its exit codes with -- reinstall the ai-tools package | src/usr/local/bin/ai-tools.sh |  | die |
 | t8f5 | [MSG-T8F5](../src/usr/local/bin/ai-tools.sh) | label-fixed | src/usr/local/bin/ai-tools.sh |  | _claim_info |
 | q4g7 | [MSG-Q4G7](../src/usr/local/bin/ai-tools.sh) | label-not-fixed | src/usr/local/bin/ai-tools.sh |  | _claim_attention |

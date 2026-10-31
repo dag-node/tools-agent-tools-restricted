@@ -38,7 +38,8 @@ deleting it would take the nested one with it and leave that project registered
 at a path that no longer exists. A carve-out (`!`) is refused too, since no
 entry authorizes deleting it, and the carve-out lines under a project you
 remove stay in the file, which `atr projects list` then reports as stale.
-The rules are
+A sandbox clone is authorized by being one ([A sandbox
+clone](#a-sandbox-clone)). The rules are
 [ref-section-k3v7](../../.claude/rules/cli.rule.md#ref-section-k3v7).
 
 ## What it checks first
@@ -86,11 +87,14 @@ or end them all with `atr stop`, then run the removal again.
 
 ## A sandbox clone
 
-Pointed at a clone under the sandbox area, the command asks one default-No
-confirm, then deletes the clone and unregisters it. A commit not yet pushed
-goes with it, and the command does not count them: run `atr projects push`
-first to keep your work ([Push](push.md)). The remote branch stays for others
-to merge. `-y` answers that one confirm, on the same terms ([Clone](clone.md)).
+Pointed at a clone under the sandbox area, the command removes it when it is
+a git clone directly inside that area, and asks one default-No confirm. It then
+takes the order [Registries first, the tree
+last](#registries-first-the-tree-last) states, the clone's own lines going
+with it. A commit not yet pushed goes with it, and the command does not count
+them: run `atr projects push` first to keep your work ([Push](push.md)).
+The remote branch stays for others to merge. `-y` answers that one confirm,
+on the same terms ([Clone](clone.md)).
 
 ## For another operator
 

@@ -1049,6 +1049,37 @@ EOF
                 AI_TOOLS_OPERATOR_CONF="${oconf}" AI_TOOLS_ALLOWLIST="${emptyal}" AI_TOOLS_SANDBOX_ROOT="${sroot}" \
                 setsid "${CLI}" "${CLI_ARGV[@]}" "${lone}" 2>&1)" && rc=0 || rc=$?
         refused "a path outside the clone area is not a registered project, so its removal is refused" MSG-P8Y8
+
+        # The clone kind de-lists before it deletes, so a de-list that does not apply leaves the clone on disk
+        # and registered, refused under MSG-K8S2: the registry sits in a directory the projects user cannot write,
+        # where the editor cannot make its temporary file. The same removal over a writable directory is the control.
+        rclone="${sroot}/clone-kept"; mkdir -p "${rclone}"; git init -q "${rclone}"
+        chown -R "${PROJECTS_USER}:${PROJECTS_USER}" "${rclone}"
+        creg_dir="${TESTDIR}/clone-registry"; mkdir -p "${creg_dir}"; chown root:root "${creg_dir}"; chmod 0755 "${creg_dir}"
+        creg="${creg_dir}/project-registry"; printf '%s\n' "${REG_MARKER}" "${rclone}" > "${creg}"
+        chown "${PROJECTS_USER}:${PROJECTS_USER}" "${creg}"; chmod 0644 "${creg}"
+        cgc="${TESTDIR}/clone-gitconfig"; : > "${cgc}"; chown "${PROJECTS_USER}:${PROJECTS_USER}" "${cgc}"
+        creg_before="$(sha256sum < "${creg}")"
+        remove_clone_run() {
+            runuser -u "${PROJECTS_USER}" -- env HOME="${PROJECTS_HOME}" \
+                AI_TOOLS_OPERATOR_CONF="${oconf}" AI_TOOLS_ALLOWLIST="${creg}" AI_TOOLS_SANDBOX_ROOT="${sroot}" \
+                AI_TOOLS_GITCONFIG="${cgc}" setsid "${CLI}" "${CLI_ARGV[@]}" -y "${rclone}" 2>&1
+        }
+        out="$(remove_clone_run)" && rc=0 || rc=$?
+        refused "ai-tools.projects.remove.clone whose de-list does not apply is refused" MSG-K8S2 1
+        if [[ -d "${rclone}/.git" && "$(sha256sum < "${creg}")" == "${creg_before}" ]]; then
+            pass "the clone whose de-list did not apply is still on disk and still registered"
+        else
+            fail "the refused clone removal: on disk $([[ -d "${rclone}" ]] && echo yes || echo no), registry $([[ "$(sha256sum < "${creg}")" == "${creg_before}" ]] && echo same || echo changed)"
+        fi
+        chown "${PROJECTS_USER}:${PROJECTS_USER}" "${creg_dir}"
+        out="$(remove_clone_run)" && rc=0 || rc=$?
+        if [[ ${rc} -eq 0 && ! -e "${rclone}" ]] && ! grep -qxF "${rclone}" "${creg}"; then
+            pass "control: the same removal over a writable registry directory drops the line and deletes the clone"
+        else
+            fail "the control clone removal (rc=${rc}, on disk $([[ -e "${rclone}" ]] && echo yes || echo no)): $(brief "${out}")"
+        fi
+        rm -rf "${rclone}" "${creg_dir}" "${cgc}"
     fi
 fi
 

@@ -4023,10 +4023,10 @@ list_unregistered_unclaim_remedy() {
 # cmd_project_remove <path> [-y|--yes]  -- unclaim a project AND delete its directory, which the path must name;
 # `projects unclaim` is the non-destructive reversal these refusals point at. One verb, two kinds: a path
 # under SANDBOX_ROOT is a sandbox clone and takes remove_clone, every other path is a project claimed in place.
-# Authorization is an EXACT registry entry, allow or parked, and the verb does not take `--force`; teardown is
-# registries first, deletion last, so a failed deletion leaves an unregistered tree, and the filesystem hand-back is not
-# run over files about to be deleted (cli.rule.md, Remove). `-y` pre-answers the default-NO confirm and the typed-name
-# challenge of either kind.
+# A project's authorization is an EXACT registry entry, allow or parked; a clone's is being a recognized clone
+# (remove_clone). The verb does not take `--force`. Teardown in either kind is registries first, deletion last, so
+# a failed deletion leaves an unregistered tree, and the filesystem hand-back is not run over files about to be deleted
+# (cli.rule.md, Remove). `-y` pre-answers the default-NO confirm and the typed-name challenge of either kind.
 cmd_project_remove() {
     local a path="" assume_yes=false
     local -a remedy=()
@@ -4518,7 +4518,10 @@ cmd_project_push() {
         "AI_TOOLS_PROJECT=${d}" "AI_TOOLS_RESULT=ok"
 }
 
-# remove_clone <dir> <assume-yes>  -- the clone kind of `projects remove`: delete a sandbox clone and unregister it.
+# remove_clone <dir> <assume-yes>  -- the clone kind of `projects remove`: unregister a sandbox clone, then delete it.
+# A clone is authorized by being a recognized one (require_sandbox_clone), and its own lines go with it. Teardown takes
+# the in-place kind's order, registries first and the tree last, so a de-list that does not apply (MSG-K8S2) leaves
+# the clone on disk and registered, and a deletion that does not complete leaves an unregistered tree.
 # <assume-yes> true pre-answers the one default-NO confirm. The remote branch is left intact. No git read is made
 # over the clone (cmd_project_remove states why), so a line ahead of the confirm states what an unpushed commit meets
 # instead of counting them.
@@ -4528,16 +4531,20 @@ remove_clone() {
     section "Remove sandbox project"
     say "  ${d}"
     say "  a commit not yet pushed is deleted with the clone; already-pushed work stays on the remote"
-    ${assume_yes} || confirm "Remove ${d} and unregister it?" n || die "aborted"
+    ${assume_yes} || confirm "Unregister ${d} and remove it?" n || die "aborted"
 
+    # `|| true`: a safe.directory entry that could not be removed is a stale line the listing reports, and not
+    # a reason to keep a clone the operator asked to delete. unreg_safedir signals failure, and a bare call under set -e
+    # would end the removal there.
+    unreg_safedir "${d}" || true
+    unreg_allow "${d}"
     # As the owner: a clone claimed for another operator belongs to that operator, and the run's `--for` is what names
     # them.
-    run_as_owner rm -rf -- "${d}"
-    unreg_allow "${d}"
-    # `|| true`: the clone is already gone, so a safe.directory entry that could not be removed is a stale line pointing
-    # at a path that is gone -- reported by `atr projects`, and not a reason to abort a removal that has already
-    # happened. unreg_safedir signals failure now, and a bare call under set -e would do exactly that.
-    unreg_safedir "${d}" || true
+    if ! run_as_owner rm -rf -- "${d}"; then
+        warn "the deletion did not complete -- the clone is already unregistered, so it is out of the agent's reach; remove what is left by hand:"
+        say  "      ${C_BOLD}rm -rf $(_quote_path "${d}")${C_RST}"
+        die "project remove incomplete -- paths were left behind"
+    fi
     ok "removed ${d} and unregistered it"
     ai_tools_log__structured info "removed sandbox ${d} and unregistered it" \
         "AI_TOOLS_PROJECT=${d}" "AI_TOOLS_RESULT=ok"

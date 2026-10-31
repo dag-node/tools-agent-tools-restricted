@@ -183,8 +183,8 @@ an ordinary account read it — a partial view, the file sink being the authorit
   and only past that gate label, open and register the clone; fail-closed otherwise, and resumable by re-running
   on the clone path ([Sandbox clone](#sandbox-clone)).
 - `projects push [path]` — push the clone's commits to its branch; without a path it discovers the clone the current
-  directory is in ([Discovery](#discovery)). It and the clone kind of `projects remove`, which removes the clone
-  and unregisters it, gate the target through `require_sandbox_clone`: it must be a **real clone** — a direct child
+  directory is in ([Discovery](#discovery)). It and the clone kind of `projects remove`, which unregisters the clone
+  and then removes it, gate the target through `require_sandbox_clone`: it must be a **real clone** — a direct child
   of `SANDBOX_ROOT` (exactly one level deep, so never the shared area root and never a nested or system path) that is
   a git worktree, and it passes the protected-paths backstop. This scopes `projects remove`'s `rm -rf` to one recognized
   clone; a stray non-git directory is refused ("remove it by hand"). `projects clone` scopes its own destination
@@ -1035,17 +1035,18 @@ so in a line.
 
 ## Remove <a id="ref-section-k3v7"></a>
 
-`projects remove` deletes the directory as well as unclaiming it. Its authorization is an **exact** registry entry —
-an allow or a `%` line, since a park records a project that is still the operator's, and requiring a re-enable first
-would make a tree about to be deleted launchable on the way out; a parked one gets its own default-no confirm naming
-that state, and both its lines go with the tree. A carve-out does not authorize a deletion and is refused (`MSG-W4S7`),
-and the carve-out lines under a removed project stay in the file, named at the close as lines `projects list` then
-reports stale. There is no `--force`: that flag exists on unclaim to reach a tree no entry names, and deleting such
-a tree is an unclaim plus an `rm` the operator types. An ancestor, a path inside a project, an unregistered path,
-and an entry that **contains another claimed project** (which `rm -rf` would take with it and leave registered at a path
-that no longer exists) are each refused with the command that applies; the nested check sees only the registry this run
-can read. The verb reads the kind from the path, so a clone under `SANDBOX_ROOT` is removed
-through `require_sandbox_clone` and every other entry as a project.
+`projects remove` deletes the directory as well as unclaiming it. A project's authorization is an **exact** registry
+entry — an allow or a `%` line, since a park records a project that is still the operator's, and requiring a re-enable
+first would make a tree about to be deleted launchable on the way out; a parked one gets its own default-no confirm
+naming that state, and both its lines go with the tree. A carve-out does not authorize a deletion and is refused
+(`MSG-W4S7`), and the carve-out lines under a removed project stay in the file, named at the close as lines
+`projects list` then reports stale. There is no `--force`: that flag exists on unclaim to reach a tree no entry names,
+and deleting such a tree is an unclaim plus an `rm` the operator types. An ancestor, a path inside a project,
+an unregistered path, and an entry that **contains another claimed project** (which `rm -rf` would take with it
+and leave registered at a path that no longer exists) are each refused with the command that applies; the nested check
+sees only the registry this run can read. The verb reads the kind from the path, so a clone under `SANDBOX_ROOT` is
+removed through `require_sandbox_clone`, which authorizes it as a recognized clone with its own lines going with it,
+and every other entry as a project.
 
 A read-only deletability pre-flight runs as the acting owner and refuses when any directory in the tree is not writable
 and traversable by them, naming `atr projects handback --full`: the failure a destructive verb must not have is a tree
@@ -1053,14 +1054,16 @@ deleted down to the first directory it could not enter, with no entry left to fi
 **parent** is checked first and separately, since `rm -rf <d>` finishes by unlinking `<d>` from it, and that directory
 is not part of the project; missing it leaves an empty, deregistered husk, so its refusal names `projects unclaim`
 instead. Teardown then runs registries first, deletion last — the label, the `safe.directory` entry, the registry entry,
-then the tree — so a failed deletion leaves an *unregistered* tree, less access rather than more. A label reversal
-the live-session gate refuses stops the removal at that step, with the tree and both registries as they were and exit 1:
-the refusal is a state a re-run passes once the sessions end, and a label left for later could not be reverted
-over a path the removal deleted, since `ai-tools-relabel` refuses a path that does not exist. The registry step is fatal
-if it cannot complete, since that entry is the launch gate: `unreg_allow` verifies the entry is gone by re-reading
-the file rather than trusting `sed`, and names the line to delete by hand (`sed -i` writes its temporary file
-into the registry's own directory, which the operator may not be able to write). The filesystem hand-back an unclaim
-performs is not run over files about to be deleted.
+then the tree — so a failed deletion leaves an *unregistered* tree, less access rather than more. A clone takes the same
+order without the label step, since its type comes from the policy's file contexts ([Sandbox clone](#sandbox-clone)),
+and its registry step is fatal as the project's is, so a de-list that does not apply leaves the clone on disk
+and registered. A label reversal the live-session gate refuses stops the removal at that step, with the tree and both
+registries as they were and exit 1: the refusal is a state a re-run passes once the sessions end, and a label left
+for later could not be reverted over a path the removal deleted, since `ai-tools-relabel` refuses a path that does not
+exist. The registry step is fatal if it cannot complete, since that entry is the launch gate: `unreg_allow` verifies
+the entry is gone by re-reading the file rather than trusting `sed`, and names the line to delete by hand (`sed -i`
+writes its temporary file into the registry's own directory, which the operator may not be able to write).
+The filesystem hand-back an unclaim performs is not run over files about to be deleted.
 
 The verb does not run git over the tree, in either kind. The agent co-writes `.git`, so `.git/config` is the agent's
 to write, and git run as the operator executes the commands that file names: the invariant
