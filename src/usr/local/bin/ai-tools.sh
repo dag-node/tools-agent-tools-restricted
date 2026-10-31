@@ -3853,13 +3853,13 @@ cmd_unclaim_unlisted() {
 }
 
 # cmd_project_unclaim <path> [--force] [--full] [--dry-run] [-y|--yes] [--group <group>]  -- undo an in-place claim:
-# revert the SELinux label, drop both registries, and behind a default-yes confirm hand the tree back to a target group through ai-tools-unclaim, with the agent's write
-# access revoked; the directory itself is left on disk. The target is classified against the project registry first
-# (cli.rule.md, Unclaim), and a protected system path is refused up front, whatever the mode: the backstop reads
-# the path alone, so `--force` does not relax it. A disabled target is answered up front (offer_reenable). `-y`/`--yes`
-# pre-answers the default-NO confirm in every mode and is not read by the hand-back or skip-listed questions, which ask
-# on their own terms; `--group` names the hand-back group outright, so a script never depends on the prompt's no-tty
-# fallback.
+# revert the SELinux label, drop both registries, and behind a default-yes confirm hand the tree back to a target group
+# through ai-tools-unclaim, with the agent's write access revoked; the directory itself is left on disk. The target is
+# classified against the project registry first (cli.rule.md, Unclaim), and a protected system path is refused up front,
+# whatever the mode: the backstop reads the path alone, so `--force` does not relax it. A disabled target is answered up
+# front (offer_reenable). `-y`/`--yes` pre-answers the default-NO confirm in every mode and is not read by the hand-back
+# or skip-listed questions, which ask on their own terms; `--group` names the hand-back group outright, so a script
+# never depends on the prompt's no-tty fallback.
 cmd_project_unclaim() {
     # `--force` swaps the allowlist gate for the helper's per-path residue gate (ai-tools-unclaim's header) and does not
     # relax any other gate.

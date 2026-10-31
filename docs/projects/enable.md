@@ -31,11 +31,11 @@ access to the tree stays as the claim left it.
 
 A `!` line is an excluded path wherever it sits, and not a disabled project,
 and `projects enable` refuses it for that reason: lifting it would let
-sessions start in that subtree and the walks act on it. No command writes or lifts such a line, so one in your file
-was written by hand and is deleted by hand if that is what you mean. A `!` line
-written before the upgrade to format 1.0 may be a project disabled then: change
-it to `%` if it is one, and keep the `!` if the subtree is to stay excluded.
-The reasoning is
+sessions start in that subtree and the walks act on it. No command writes or
+lifts such a line, so one in your file was written by hand and is deleted by
+hand if that is what you mean. A `!` line written before the upgrade to format
+1.0 may be a project disabled then: change it to `%` if it is one, and keep the
+`!` if the subtree is to stay excluded. The reasoning is
 [ref-section-v2n3](../../.claude/rules/cli.rule.md#ref-section-v2n3).
 
 An excluded path stops sessions from starting in the subtree and the hand-back

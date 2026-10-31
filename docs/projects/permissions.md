@@ -94,8 +94,8 @@ src="../static/diagrams/two-grants-light.svg"> </picture>
 runs skips it: a file or directory with no group and no other bits is your
 standing "keep this private" signal, a sealed directory takes its whole subtree
 with it, and the claim reports how many paths it left alone
-([Lockdown](lockdown.md) has the seal). The label step types the whole tree, that path included; its
-mode keeps the agent out whatever its label.
+([Lockdown](lockdown.md) has the seal). The label step types the whole tree,
+that path included; its mode keeps the agent out whatever its label.
 
 **World access is removed at claim time and does not come back.** A claim
 closes other-access on every path it touches, and an unclaim then drops

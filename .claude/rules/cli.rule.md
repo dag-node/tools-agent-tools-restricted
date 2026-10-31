@@ -199,10 +199,10 @@ an ordinary account read it — a partial view, the file sink being the authorit
   reports "nothing to reclaim" for a direct `sudo` call past the CLI. Each `ai-tools-chown` child resolves its path's
   owner again, loading every enrolled operator's registry, so a refused registry is reported by every child; the helper
   collects the children's stderr and prints each distinct message once, with the number of paths it was printed for,
-  ahead of its tally, and a run a signal stops prints them with the count handed back so far. Reclaims the `.git` tree the per-session sweeps
-  skip; the ownership companion to the `user:<operator>` ACL, run on demand before an ACL-unaware backup so ownership
-  (not the ACL) carries the operator's access into the copy. `--full` includes the skipped heavy trees (`node_modules`,
-  `.venv`, …). See [ownership-and-hooks](ownership-and-hooks.rule.md).
+  ahead of its tally, and a run a signal stops prints them with the count handed back so far. Reclaims the `.git` tree
+  the per-session sweeps skip; the ownership companion to the `user:<operator>` ACL, run on demand before an ACL-unaware
+  backup so ownership (not the ACL) carries the operator's access into the copy. `--full` includes the skipped heavy
+  trees (`node_modules`, `.venv`, …). See [ownership-and-hooks](ownership-and-hooks.rule.md).
 - `providers` — read-only report of the installed agents and integrations, which of them a session gets, and why. It
   resolves through `providers.lib.sh` (see [providers](providers.rule.md)) rather than re-reading `operator.conf`,
   so the report and the launch agree by construction: the per-kind gating line comes
@@ -1078,25 +1078,25 @@ under `SANDBOX_ROOT` is removed through `require_sandbox_clone`, which authorize
 lines going with it, and every other entry as a project.
 
 A registry line the writer cannot write back, other than the project's own, refuses the removal before any change
-(`MSG-A5Y2`), since the registry step follows the label reversal. A read-only deletability pre-flight runs as the acting owner and refuses when any directory in the tree is not writable
-and traversable by them, naming `atr projects handback --full`: the failure a destructive verb must not have is a tree
-deleted down to the first directory it could not enter, with no entry left to find the remains by. The project's
-**parent** is checked first and separately, since `rm -rf <d>` finishes by unlinking `<d>` from it, and that directory
-is not part of the project; missing it leaves an empty, deregistered husk, so its refusal names `projects unclaim`
-instead. Teardown then runs registries first, deletion last — the label, the registry entry, the `safe.directory` entry,
-then the tree — so a failed deletion leaves an *unregistered* tree, less access rather than more. The registry step is
-the first that cannot be undone and the one that refuses, so a de-list that does not apply leaves the trust entry
-in place; the label step stays ahead of it, since `ai-tools-relabel` resolves membership from the entry. A clone takes
-the same order without the label step, since its type comes from the policy's file contexts ([Sandbox
-clone](#sandbox-clone)), and its registry step comes first and is fatal as the project's is, so a de-list that does not
-apply leaves the clone as it was: on disk, registered and trusted. A label reversal the live-session gate refuses stops
-the removal at that step, with the tree and both registries as they were and exit 1: the refusal is a state a re-run
-passes once the sessions end, and a label left for later could not be reverted over a path the removal deleted, since
-`ai-tools-relabel` refuses a path that does not exist. The registry step is fatal if it cannot complete, since
-that entry is the launch gate: `unreg_allow` verifies the entry is gone by re-reading the file rather than trusting
-`sed`, and names the line to delete by hand (`sed -i` writes its temporary file into the registry's own directory,
-which the operator may not be able to write). The filesystem hand-back an unclaim performs is not run over files
-about to be deleted.
+(`MSG-A5Y2`), since the registry step follows the label reversal. A read-only deletability pre-flight runs as the acting
+owner and refuses when any directory in the tree is not writable and traversable by them, naming
+`atr projects handback --full`: the failure a destructive verb must not have is a tree deleted down to the first
+directory it could not enter, with no entry left to find the remains by. The project's **parent** is checked first and
+separately, since `rm -rf <d>` finishes by unlinking `<d>` from it, and that directory is not part of the project;
+missing it leaves an empty, deregistered husk, so its refusal names `projects unclaim` instead. Teardown then runs
+registries first, deletion last — the label, the registry entry, the `safe.directory` entry, then the tree — so a failed
+deletion leaves an *unregistered* tree, less access rather than more. The registry step is the first that cannot be
+undone and the one that refuses, so a de-list that does not apply leaves the trust entry in place; the label step stays
+ahead of it, since `ai-tools-relabel` resolves membership from the entry. A clone takes the same order without the label
+step, since its type comes from the policy's file contexts ([Sandbox clone](#sandbox-clone)), and its registry step
+comes first and is fatal as the project's is, so a de-list that does not apply leaves the clone as it was: on disk,
+registered and trusted. A label reversal the live-session gate refuses stops the removal at that step, with the tree and
+both registries as they were and exit 1: the refusal is a state a re-run passes once the sessions end, and a label left
+for later could not be reverted over a path the removal deleted, since `ai-tools-relabel` refuses a path that does not
+exist. The registry step is fatal if it cannot complete, since that entry is the launch gate: `unreg_allow` verifies the
+entry is gone by re-reading the file rather than trusting `sed`, and names the line to delete by hand (`sed -i` writes
+its temporary file into the registry's own directory, which the operator may not be able to write). The filesystem
+hand-back an unclaim performs is not run over files about to be deleted.
 
 The verb does not run git over the tree, in either kind. The agent co-writes `.git`, so `.git/config` is the agent's
 to write, and git run as the operator executes the commands that file names: the invariant
@@ -1134,13 +1134,13 @@ and acts only where something authorizes it:
 For each selected project it reverts the label, runs `ai-tools-unclaim` behind a default-yes confirm to hand
 the filesystem back **before** the registry entry is dropped, so the helper still sees the target listed, and then
 removes both registries. The excluded lines under the project stay in force and are named at the close
-(`report_excluded_paths_kept`), since no verb deletes one. The helper clears the claim's ACL entries and the default ACL,
-regroups the tree to the target group (`--group`, or the prompt's user's primary group), and removes group write
+(`report_excluded_paths_kept`), since no verb deletes one. The helper clears the claim's ACL entries and the default
+ACL, regroups the tree to the target group (`--group`, or the prompt's user's primary group), and removes group write
 and the setgid bit on directories; the per-path reversal, the `.git` pass that revokes history access the way the claim
-granted it, and the hardlink refusal are its header's. Hardlinked files are refused in both modes and counted
-with the `find` line that lists them: `chgrp` and `chmod` act on the inode, which a second name reaches from outside
-the tree, so acting would change a path the pass never authorized. It is the one refusal that leaves *more* access than
-acting would, paid for in disclosure.
+granted it, and the hardlink refusal are its header's. Hardlinked files are refused in both modes and counted with the
+`find` line that lists them: `chgrp` and `chmod` act on the inode, which a second name reaches from outside the tree, so
+acting would change a path the pass never authorized. It is the one refusal that leaves *more* access than acting would,
+paid for in disclosure.
 
 `--force` **swaps one gate for another and removes neither**: the registry-membership check is replaced by a per-path
 residue predicate, so on a tree that was never claimed it leaves every path as it found it, and what it does to a path

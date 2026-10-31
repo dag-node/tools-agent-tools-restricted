@@ -445,7 +445,8 @@ ai_tools_launch_wrapper__gate_project() {
             ai_tools_launch_wrapper__die MSG-K8K2 "excluded by a '!' line in your project registry: ${cwd}" \
                 "${name}: no session starts under a '!' line; edit ${allowlist} to change that"
         fi
-        # The line covers an ancestor of the directory: a plain path's contents, or a directory under one a glob matches.
+        # The line covers an ancestor of the directory: a plain path's contents, or a directory under one a glob
+        # matches.
         if [[ "${covering}" != "${cwd}" ]]; then
             if [[ "${kind}" == disabled ]]; then
                 remedy="it is inside ${pat}, a disabled project; re-enable that project with:  ${CLI_CMD} projects enable ${pat}"

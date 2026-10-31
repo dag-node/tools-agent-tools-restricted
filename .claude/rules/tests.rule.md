@@ -524,7 +524,7 @@ with its own code; a missing launcher symlink, a target outside the versioned sh
 and one carrying a parent-directory component are each refused, while the versioned shape resolves one hop
 with the target left unresolved; the provider-list gate refuses a name written without its kind prefix, naming it
 and `system post-upgrade`, with a migrated file as the control; the CWD gate refuses a missing allowlist, an unapproved
-directory, a sibling sharing a name prefix, a carved-out subdirectory and a path under it, a parked project,
+directory, a sibling sharing a name prefix, an excluded subdirectory and a path under it, a disabled project,
 and an allowlisted protected directory, and passes an approved directory reached directly or through a symlink
 with the canonical path published; the claim guard refuses an approved directory the sandbox group does not own when no
 terminal can answer its confirm; the session exec refuses without the gates' results; and the gate runner answers
@@ -553,18 +553,18 @@ to the `usage()` heredoc of their command — `ai-tools(1)` against the CLI, `ai
 the CLI's bootstrap gate fail-closes on an unprovisioned host and the helper refuses a non-root caller. The config pages
 are held to their files: `ai-tools-secret-patterns(5)` to the header its file is seeded with (capped, naming the page,
 comment-only so it does not register an entry), `ai-tools-project-registry(5)` to a seed that is the format marker
-alone, and each page to the reader its file is read with, through which the page's own examples are loaded. A registry example is held to what the page says it means
-as well as to the parser: each example block holding an entry validates as a current registry, and each line
-whose comment opens with a state word classifies as that state, since a parked project written with a `!` parses
-and reads as a carve-out. `ai-tools-operator.conf(5)` and `ai-tools-custom-claude-endpoint.conf(5)` to the keys their
-shipped templates mention, in both directions, read with `ai_tools_conf__read_keys` so the test
-and `system post-upgrade` agree on what *mentioned* means. It closes by running the checker's `--config-header` mode
-over every config header this project writes, so each holds to 72 columns ([providers](providers.rule.md) states
-the placement rule). In each pair the help is orientation and the page is the reference (see [cli](cli.rule.md)), so it
-asserts relations rather than set equality. For `ai-tools(1)`: the **verb** sets match in both directions, every option
-the help names is documented, and every option the page documents is one a CLI **parser** accepts. The last is
-the direction with teeth: what goes stale is an option outliving its parser, whereas requiring the help to name every
-documented option is what makes slimming the help impossible.
+alone, and each page to the reader its file is read with, through which the page's own examples are loaded. A registry
+example is held to what the page says it means as well as to the parser: each example block holding an entry validates
+as a current registry, and each line whose comment opens with a state word classifies as that state, since a disabled
+project written with a `!` parses and reads as an excluded path. `ai-tools-operator.conf(5)` and
+`ai-tools-custom-claude-endpoint.conf(5)` to the keys their shipped templates mention, in both directions, read with
+`ai_tools_conf__read_keys` so the test and `system post-upgrade` agree on what *mentioned* means. It closes by running
+the checker's `--config-header` mode over every config header this project writes, so each holds to 72 columns
+([providers](providers.rule.md) states the placement rule). In each pair the help is orientation and the page is the
+reference (see [cli](cli.rule.md)), so it asserts relations rather than set equality. For `ai-tools(1)`: the **verb**
+sets match in both directions, every option the help names is documented, and every option the page documents is one a
+CLI **parser** accepts. The last is the direction with teeth: what goes stale is an option outliving its parser, whereas
+requiring the help to name every documented option is what makes slimming the help impossible.
 
 `ai-tools-admin(8)` gets the same relations over a surface spelled in bare words rather than long options
 ([cli-grammar](cli-grammar.rule.md)), so what is compared is the whole **command path** — `selinux groups enable`, three

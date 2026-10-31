@@ -926,10 +926,10 @@ _ai_tools_conf__parse_entry_comment() {
 
 # _ai_tools_conf__classify_registry_line <line> <legacy|current> : set _ai_tools_conf__line_kind to the kind <line>
 #   carries -- `none` (blank or a comment), `marker`, `project`, `excluded` or `disabled` -- and
-#   _ai_tools_conf__line_fault to the reason token the grammar refuses it with, or empty. A marker's version, and an entry's path with the quotes
-#   off, are in ai_tools_conf__value. Results travel in globals, so the validator reads them without a subshell per
-#   line. The current grammar takes a sign on every entry (`@`, `%`, `!`) and no comment line but the marker; the legacy
-#   grammar takes a bare path, `!` and whole-line comments.
+#   _ai_tools_conf__line_fault to the reason token the grammar refuses it with, or empty. A marker's version, and an
+#   entry's path with the quotes off, are in ai_tools_conf__value. Results travel in globals, so the validator reads
+#   them without a subshell per line. The current grammar takes a sign on every entry (`@`, `%`, `!`) and no comment
+#   line but the marker; the legacy grammar takes a bare path, `!` and whole-line comments.
 _ai_tools_conf__classify_registry_line() {
     local line="${1-}" grammar="$2" rest quote tail
     _ai_tools_conf__line_kind=none; _ai_tools_conf__line_fault=""; ai_tools_conf__value=""
@@ -1230,12 +1230,11 @@ _ai_tools_conf__resolve_exclusion_path() {
 #   from <registry-file> as the section comment states -- allow entries resolved; exclusions as written, plus
 #   the resolved form of a glob-free one whose symlinks the sandbox account can neither remove nor replace -- and return
 #   0. <kinds-array>, when named, is filled parallel to <excluded-array> with `excluded` or `disabled` per element,
-#   so a caller words a refusal from the line that matched. Every array is empty on a non-zero return: 1 when <registry-file> is
-#   missing, is a directory or another non-regular file, cannot be read, or has no readable owner; 3
-#   when ai_tools_conf__validate_registry refuses a line (MSG-B8U2 on stderr), or, in a format 1.0 file, when lines
-#   of different kinds name one directory through different spellings, which the validator reads as two paths
-#   (MSG-E3W3 on stderr); 2, with
-#   MSG-Y5N6 on stderr naming the entry and the link, when a glob-free exclusion meets a symlink
+#   so a caller words a refusal from the line that matched. Every array is empty on a non-zero return: 1 when
+#   <registry-file> is missing, is a directory or another non-regular file, cannot be read, or has no readable owner; 3
+#   when ai_tools_conf__validate_registry refuses a line (MSG-B8U2 on stderr), or, in a format 1.0 file, when lines of
+#   different kinds name one directory through different spellings, which the validator reads as two paths (MSG-E3W3 on
+#   stderr); 2, with MSG-Y5N6 on stderr naming the entry and the link, when a glob-free exclusion meets a symlink
 #   _ai_tools_conf__resolve_exclusion_path refuses.
 ai_tools_conf__load_allowlist() {
     local -a _ai_tools_conf__load_no_kinds=()
@@ -1382,8 +1381,8 @@ ai_tools_conf__is_path_excluded() {
 _ai_tools_conf__normalize_allowlist_path() { realpath -e "$1" 2>/dev/null || printf '%s' "$1"; }
 
 # _ai_tools_conf__read_lines_naming <file> <path> <project-array> <excluded-array> <disabled-array> : set the three
-#   named arrays to the RAW lines of <file> whose entry names <path>, one array per line kind, in one read. Every array is empty,
-#   and the status 1, when <file> is missing or the grammar refuses it (the refusal on stderr).
+#   named arrays to the RAW lines of <file> whose entry names <path>, one array per line kind, in one read. Every array
+#   is empty, and the status 1, when <file> is missing or the grammar refuses it (the refusal on stderr).
 _ai_tools_conf__read_lines_naming() {
     local -n _ai_tools_conf__naming_project="$3" _ai_tools_conf__naming_excluded="$4" _ai_tools_conf__naming_disabled="$5"
     local file="$1" want line entry naming_fd read_path
@@ -1585,9 +1584,9 @@ ai_tools_conf__is_registry_path_representable() {
 #   line renders, and for a file that is not a format 1.0 registry, which no writer rewrites. The grammar reads a bare
 #   path carrying both quote characters, and the formatter does not write one, so every editor returns 4 over a file
 #   holding such a line whatever path it was given; this reader names the line, and lets a verb whose later step edits
-#   the file refuse before its first change. With <path>, a project or disabled line whose resolved path is <path>'s is skipped: the removal
-#   of <path>'s entry (ai_tools_conf__allowlist_remove) deletes that line before it renders the rest. Reads the file
-#   as it is; the caller validates it first.
+#   the file refuse before its first change. With <path>, a project or disabled line whose resolved path is <path>'s is
+#   skipped: the removal of <path>'s entry (ai_tools_conf__allowlist_remove) deletes that line before it renders the
+#   rest. Reads the file as it is; the caller validates it first.
 ai_tools_conf__find_unrenderable_registry_line() {
     local file="${1-}" i kind path resolved_path=""
     # shellcheck disable=SC2034  # filled through their names by _ai_tools_conf__read_registry_lines
@@ -2104,9 +2103,9 @@ _ai_tools_conf__list_registry_entry_lines() {
 #   does not show a regular file (a symbolic link is not followed) or, with <owner-uid> given, shows another owner
 #   or a mode other than 600; 3 when the legacy grammar refuses a line (MSG-B8U2 on stderr), when an allow and a `!`
 #   line name one written path, which format 1.0 refuses as `sign-conflict`, or one directory through two spellings,
-#   which its loader refuses (MSG-E3W3), or when an entry cannot be written in format 1.0; 1 when <legacy-file> cannot be read through (MSG-C6P5 on stderr), or when a write, the verification
-#   or the rename fails, with a <destination> this run wrote removed unless the rename of the source was all that
-#   failed.
+#   which its loader refuses (MSG-E3W3), or when an entry cannot be written in format 1.0; 1 when <legacy-file> cannot
+#   be read through (MSG-C6P5 on stderr), or when a write, the verification or the rename fails, with a <destination>
+#   this run wrote removed unless the rename of the source was all that failed.
 # shellcheck disable=SC2034  # AI_TOOLS_CONF__MIGRATION_REFUSAL is read by the caller, ai-tools-admin's post-upgrade
 ai_tools_conf__migrate_registry() {
     local source="$1" destination="$2" owner_uid="${3-}" kind uid gid mode tmp sidecar written i validity=0 rc=0

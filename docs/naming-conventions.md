@@ -203,7 +203,7 @@ way:
 |-------|-------|------------|
 | an operator's project list | `~/.config/ai-tools/project-registry`, per operator (`ai-tools-project-registry(5)`) | "the project registry" / "`<operator>`'s project registry", or the path |
 | the file an earlier release wrote | `~/.config/ai-tools/allowed-projects`, until `atr admin system post-upgrade` migrates it | the path |
-| a line in it | a path, a `%`-prefixed park, or a `!`-prefixed carve-out | "an entry" / "a parked project" / "a carve-out" |
+| a line in it | an `@`-prefixed project, a `%`-prefixed disabled project, or a `!`-prefixed excluded path | "an entry" / "a disabled project" / "an excluded path" |
 | the pair a claim writes and an unclaim drops | the registry entry and the `safe.directory` entry in the sandbox account's `.gitconfig` | "the registries" / "both registries" |
 
 **Project registry** is the term, and the file is named by its path,

@@ -269,10 +269,10 @@ AI_TOOLS_LOG_PROJECT="${canonical}"
 # against the operator's own file and install.sh against its checkout. What is left here is this helper's own job:
 # deciding WHO may edit WHOSE registry, and recording it. The library reports its outcomes apart -- 0 applied (or
 # already so), 1 the write failed, 2 the request does not apply from the current state, 3 the file is legacy or holds
-# a refused line, 4 the path, or a line the file holds, cannot be written as a registry line -- and each is reported to the caller
-# distinctly, since a "not listed" and a "could not write" send an operator to different places. require_target_config
-# has refused a legacy or refused file before any edit, so a 3 is a file that changed between the check and the edit,
-# reported with the library's own line.
+# a refused line, 4 the path, or a line the file holds, cannot be written as a registry line -- and each is reported to
+# the caller distinctly, since a "not listed" and a "could not write" send an operator to different places.
+# require_target_config has refused a legacy or refused file before any edit, so a 3 is a file that changed between the
+# check and the edit, reported with the library's own line.
 
 case "${ACTION}" in
     add)
