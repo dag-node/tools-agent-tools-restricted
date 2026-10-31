@@ -950,7 +950,7 @@ _ai_tools_conf__classify_registry_line() {
         current:'@')                      _ai_tools_conf__line_kind=allow ;;
         *:'!')                            _ai_tools_conf__line_kind=carve ;;
         current:'%')                      _ai_tools_conf__line_kind=park ;;
-        legacy:'%')                       _ai_tools_conf__line_fault=disabled-in-legacy; return 0 ;;
+        legacy:'%')                       _ai_tools_conf__line_fault='disabled-in-legacy'; return 0 ;;
         legacy:/|legacy:'"'|legacy:"'")   _ai_tools_conf__line_kind=allow ;;
         *)                                _ai_tools_conf__line_fault=unknown-form; return 0 ;;
     esac
@@ -1228,20 +1228,22 @@ _ai_tools_conf__resolve_exclusion_path() {
 #   0. <kinds-array>, when named, is filled parallel to <excluded-array> with `carve` or `park` per element, so a caller
 #   words a refusal from the line that matched. Every array is empty on a non-zero return: 1 when <registry-file> is
 #   missing, is a directory or another non-regular file, cannot be read, or has no readable owner; 3
-#   when ai_tools_conf__validate_registry refuses a line (MSG-B8U2 on stderr), or when lines of different kinds name
-#   one directory through different spellings, which the validator reads as two paths (MSG-E3W3 on stderr); 2, with
+#   when ai_tools_conf__validate_registry refuses a line (MSG-B8U2 on stderr), or, in a format 1.0 file, when lines
+#   of different kinds name one directory through different spellings, which the validator reads as two paths
+#   (MSG-E3W3 on stderr); 2, with
 #   MSG-Y5N6 on stderr naming the entry and the link, when a glob-free exclusion meets a symlink
 #   _ai_tools_conf__resolve_exclusion_path refuses.
 ai_tools_conf__load_allowlist() {
     local -a _ai_tools_conf__load_no_kinds=()
     local -n _ai_tools_conf__load_allowed="$2" _ai_tools_conf__load_excluded="$3"
     local -n _ai_tools_conf__load_kinds="${4:-_ai_tools_conf__load_no_kinds}"
-    local file="${1-}" load_fd read_path allowlist_owner_uid line entry resolved kind written status=0
+    local file="${1-}" load_fd read_path allowlist_owner_uid grammar line entry resolved kind written status=0
     _ai_tools_conf__load_allowed=(); _ai_tools_conf__load_excluded=(); _ai_tools_conf__load_kinds=()
     _ai_tools_conf__open_registry "${file}" || return 1
     load_fd="${_ai_tools_conf__registry_fd}"; allowlist_owner_uid="${_ai_tools_conf__registry_owner_uid}"
     read_path="/proc/self/fd/${load_fd}"
-    _ai_tools_conf__is_registry_valid "${file}" "${read_path}" || status=$?
+    grammar="$(ai_tools_conf__read_registry_grammar "${file}" "${read_path}")"
+    ai_tools_conf__validate_registry "${file}" "${grammar}" "${read_path}" || status=$?
     while (( status == 0 )) && { IFS= read -r line || [[ -n "${line}" ]]; }; do
         ai_tools_conf__parse_path_entry "${line}" || continue
         entry="${ai_tools_conf__value}"
@@ -1267,7 +1269,10 @@ ai_tools_conf__load_allowlist() {
         fi
     done < "${read_path}"
     exec {load_fd}<&-
-    if (( status == 0 )) && entry="$(_ai_tools_conf__find_loaded_sign_conflict "$2" "$3" "${4:-_ai_tools_conf__load_no_kinds}")"; then
+    # A legacy file keeps the reading it had before format 1.0, where an exclusion wins over an allow line naming its
+    # path and the other entries stand; the migration refuses such a pair.
+    if (( status == 0 )) && [[ "${grammar}" == current ]] \
+            && entry="$(_ai_tools_conf__find_loaded_sign_conflict "$2" "$3" "${4:-_ai_tools_conf__load_no_kinds}")"; then
         _ai_tools_conf__warn_resolved_sign_conflict "${file}" "${entry}"
         status=3
     fi
@@ -1282,19 +1287,23 @@ ai_tools_conf__load_allowlist() {
 #   and park naming one path, a trailing slash aside -- and return 0; return 1 when none does.
 _ai_tools_conf__find_loaded_sign_conflict() {
     local -n _ai_tools_conf__loaded_allowed="$1" _ai_tools_conf__loaded_excluded="$2" _ai_tools_conf__loaded_kinds="$3"
-    local i path
-    local -A loaded_kind_of=()
-    for i in "${!_ai_tools_conf__loaded_excluded[@]}"; do
-        path="${_ai_tools_conf__loaded_excluded[i]}"
-        ai_tools_conf__has_glob_characters "${path}" && continue
-        [[ "${path}" == / ]] || path="${path%/}"
-        if [[ -n "${loaded_kind_of[${path}]+set}" && "${loaded_kind_of[${path}]}" != "${_ai_tools_conf__loaded_kinds[i]-}" ]]; then
-            printf '%s' "${path}"; return 0
+    local _ai_tools_conf__loaded_index _ai_tools_conf__loaded_path
+    local -A _ai_tools_conf__loaded_kind_by_path=()
+    for _ai_tools_conf__loaded_index in "${!_ai_tools_conf__loaded_excluded[@]}"; do
+        _ai_tools_conf__loaded_path="${_ai_tools_conf__loaded_excluded[_ai_tools_conf__loaded_index]}"
+        ai_tools_conf__has_glob_characters "${_ai_tools_conf__loaded_path}" && continue
+        [[ "${_ai_tools_conf__loaded_path}" == / ]] || _ai_tools_conf__loaded_path="${_ai_tools_conf__loaded_path%/}"
+        if [[ -n "${_ai_tools_conf__loaded_kind_by_path[${_ai_tools_conf__loaded_path}]+set}" \
+                && "${_ai_tools_conf__loaded_kind_by_path[${_ai_tools_conf__loaded_path}]}" \
+                   != "${_ai_tools_conf__loaded_kinds[_ai_tools_conf__loaded_index]-}" ]]; then
+            printf '%s' "${_ai_tools_conf__loaded_path}"; return 0
         fi
-        loaded_kind_of["${path}"]="${_ai_tools_conf__loaded_kinds[i]-}"
+        _ai_tools_conf__loaded_kind_by_path["${_ai_tools_conf__loaded_path}"]="${_ai_tools_conf__loaded_kinds[_ai_tools_conf__loaded_index]-}"
     done
-    for path in "${_ai_tools_conf__loaded_allowed[@]}"; do
-        [[ -n "${loaded_kind_of[${path}]+set}" ]] && { printf '%s' "${path}"; return 0; }
+    for _ai_tools_conf__loaded_path in "${_ai_tools_conf__loaded_allowed[@]}"; do
+        if [[ -n "${_ai_tools_conf__loaded_kind_by_path[${_ai_tools_conf__loaded_path}]+set}" ]]; then
+            printf '%s' "${_ai_tools_conf__loaded_path}"; return 0
+        fi
     done
     return 1
 }
@@ -1803,16 +1812,19 @@ _ai_tools_conf__resolve_line_path() {
 #   fills, and return 0; return 1 when no path does. Glob lines name no single path and are not compared.
 _ai_tools_conf__find_resolved_sign_conflict() {
     local -n _ai_tools_conf__conflict_kinds="$1" _ai_tools_conf__conflict_paths="$2"
-    local i path
-    local -A conflict_kind_of=()
-    for i in "${!_ai_tools_conf__conflict_kinds[@]}"; do
-        [[ "${_ai_tools_conf__conflict_kinds[i]}" == glob ]] && continue
-        path="${_ai_tools_conf__conflict_paths[i]}"
-        if [[ -n "${conflict_kind_of[${path}]+set}" && "${conflict_kind_of[${path}]}" != "${_ai_tools_conf__conflict_kinds[i]}" ]]; then
-            printf '%s' "${path}"
+    local _ai_tools_conf__conflict_index _ai_tools_conf__conflict_path _ai_tools_conf__conflict_kind
+    local -A _ai_tools_conf__conflict_kind_by_path=()
+    for _ai_tools_conf__conflict_index in "${!_ai_tools_conf__conflict_kinds[@]}"; do
+        _ai_tools_conf__conflict_kind="${_ai_tools_conf__conflict_kinds[_ai_tools_conf__conflict_index]}"
+        [[ "${_ai_tools_conf__conflict_kind}" == glob ]] && continue
+        _ai_tools_conf__conflict_path="${_ai_tools_conf__conflict_paths[_ai_tools_conf__conflict_index]}"
+        if [[ -n "${_ai_tools_conf__conflict_kind_by_path[${_ai_tools_conf__conflict_path}]+set}" \
+                && "${_ai_tools_conf__conflict_kind_by_path[${_ai_tools_conf__conflict_path}]}" \
+                   != "${_ai_tools_conf__conflict_kind}" ]]; then
+            printf '%s' "${_ai_tools_conf__conflict_path}"
             return 0
         fi
-        conflict_kind_of["${path}"]="${_ai_tools_conf__conflict_kinds[i]}"
+        _ai_tools_conf__conflict_kind_by_path["${_ai_tools_conf__conflict_path}"]="${_ai_tools_conf__conflict_kind}"
     done
     return 1
 }
@@ -1971,7 +1983,7 @@ ai_tools_conf__list_registry_entries_under() {
 #   take no row. Returns 1 for a file that is not a readable regular file and 3 for one the legacy grammar refuses
 #   (MSG-B8U2 on stderr), printing nothing.
 ai_tools_conf__plan_registry_migration() {
-    local file="$1" line number=0 entry kind rendered enclosed allow_path validity=0
+    local file="$1" line number=0 entry kind rendered resolved disabled enclosed allow_path validity=0
     # shellcheck disable=SC2034  # filled through its name by _ai_tools_conf__read_registry_lines
     local -a plan_kinds=() plan_paths=() plan_raws=() plan_allows=()
     [[ -f "${file}" && -r "${file}" ]] || return 1
@@ -1998,13 +2010,15 @@ ai_tools_conf__plan_registry_migration() {
         fi
         [[ -n "${_ai_tools_conf__entry_comment}" ]] && rendered+="  ${_ai_tools_conf__entry_comment}"
         if [[ "${kind}" == excluded ]] && ! ai_tools_conf__has_glob_characters "${entry}"; then
-            entry="$(_ai_tools_conf__resolve_line_path "${entry}")"
+            resolved="$(_ai_tools_conf__resolve_line_path "${entry}")"
             enclosed=false
             for allow_path in "${plan_allows[@]}"; do
-                _ai_tools_conf__is_path_under "${entry}" "${allow_path}" && { enclosed=true; break; }
+                _ai_tools_conf__is_path_under "${resolved}" "${allow_path}" && { enclosed=true; break; }
             done
             if ! ${enclosed}; then
-                printf 'note\t%s\t%s\ta disabled project is written %% %s in format 1.0\n' "${number}" "${rendered}" "${entry}"
+                # The hint is the line the operator types, so it keeps the written spelling and its quoting.
+                disabled="$(_ai_tools_conf__format_registry_entry disabled "${entry}")"
+                printf 'note\t%s\t%s\ta disabled project is written %s in format 1.0\n' "${number}" "${rendered}" "${disabled}"
                 continue
             fi
         fi
@@ -2036,8 +2050,8 @@ _ai_tools_conf__list_registry_entry_lines() {
 #   <legacy-file> as it is, with the reason in AI_TOOLS_CONF__MIGRATION_REFUSAL: 2 when one `lstat` of <legacy-file>
 #   does not show a regular file (a symbolic link is not followed) or, with <owner-uid> given, shows another owner
 #   or a mode other than 600; 3 when the legacy grammar refuses a line (MSG-B8U2 on stderr), when an allow and a `!`
-#   line name one written path, which format 1.0 refuses as `sign-conflict`, or when an entry cannot be written
-#   in format 1.0; 1 when <legacy-file> cannot be read through (MSG-C6P5 on stderr), or when a write, the verification
+#   line name one written path, which format 1.0 refuses as `sign-conflict`, or one directory through two spellings,
+#   which its loader refuses (MSG-E3W3), or when an entry cannot be written in format 1.0; 1 when <legacy-file> cannot be read through (MSG-C6P5 on stderr), or when a write, the verification
 #   or the rename fails, with a <destination> this run wrote removed unless the rename of the source was all that
 #   failed.
 # shellcheck disable=SC2034  # AI_TOOLS_CONF__MIGRATION_REFUSAL is read by the caller, ai-tools-admin's post-upgrade
@@ -2077,6 +2091,12 @@ ai_tools_conf__migrate_registry() {
         fi
         migrate_sign_of["${written}"]="${kind}"
     done
+    # Two spellings of one directory pass the written-path check above and refuse the loader once the file is format
+    # 1.0, so the pair is refused here while the legacy file is still the registry.
+    if written="$(_ai_tools_conf__find_resolved_sign_conflict migrate_kinds migrate_paths)"; then
+        AI_TOOLS_CONF__MIGRATION_REFUSAL="${source} names ${written//[[:cntrl:]]/?} through two spellings, on an allow line and a '!' line, which format 1.0 refuses as two signs on one directory; keep one line"
+        return 3
+    fi
     tmp="$(mktemp "${destination}.XXXXXX" 2>/dev/null)" || {
         AI_TOOLS_CONF__MIGRATION_REFUSAL="a file cannot be created beside ${destination}"; return 1; }
     _ai_tools_conf__render_registry_canonical migrate_kinds migrate_written migrate_comments > "${tmp}" 2>/dev/null \

@@ -1511,6 +1511,35 @@ if ai_tools_conf__check_registry "${reg_dir}/project-registry" 2>"${TESTDIR}/reg
 else
     fail "two spellings with one sign were refused: $(cat "${TESTDIR}/reg.err")"
 fi
+# A legacy allowed-projects keeps the reading it had before format 1.0: an exclusion naming an allow line's path wins
+# for that path, and the other entries still load. The migration refuses the pair instead.
+mkdir -p "${ldk_root}/other"
+printf '%s\n' "${ldk_root}/proj" "!${ldk_root}/proj" "${ldk_root}/other" > "${ldk_root}/allowed-projects"
+ldk_allowed=(); ldk_excluded=(); ldk_rc=0
+ai_tools_conf__load_allowlist "${ldk_root}/allowed-projects" ldk_allowed ldk_excluded 2>"${TESTDIR}/reg.err" || ldk_rc=$?
+if [[ "${ldk_rc}" -eq 0 && " ${ldk_allowed[*]} " == *" ${ldk_root}/other "* ]] \
+        && ai_tools_conf__is_path_excluded "${ldk_root}/proj" ldk_excluded \
+        && ! ai_tools_conf__is_path_excluded "${ldk_root}/other" ldk_excluded; then
+    pass "a legacy file naming one path on an allow and a '!' line loads, the exclusion winning and the other project kept"
+else
+    fail "the legacy pair: rc ${ldk_rc}, allowed '${ldk_allowed[*]}': $(cat "${TESTDIR}/reg.err")"
+fi
+# The loader hands the caller's array names to its conflict check, which must not resolve them to its own locals.
+ldk_names() {   # ldk_names <file> : load <file> into arrays named `path` and `i`; print the status and both counts
+    local -a path=() i=()
+    local rc=0
+    ai_tools_conf__load_allowlist "$1" path i 2>/dev/null || rc=$?
+    printf '%s %s %s' "${rc}" "${#path[@]}" "${#i[@]}"
+}
+printf '%s\n' "${REG_MARKER}" "@ ${ldk_root}/proj" "! ${ldk_root}/proj-link" > "${reg_dir}/project-registry"
+ldk_conflict="$(ldk_names "${reg_dir}/project-registry")"
+printf '%s\n' "${REG_MARKER}" "@ ${ldk_root}/proj" "! ${ldk_root}/proj/vendor" > "${reg_dir}/project-registry"
+ldk_clean="$(ldk_names "${reg_dir}/project-registry")"
+if [[ "${ldk_conflict}" == "3 0 0" && "${ldk_clean}" == "0 1 1" ]]; then
+    pass "a caller's arrays named path and i reach the loader's conflict check, with a conflict and without"
+else
+    fail "arrays named path and i: '${ldk_conflict}' over the conflict, '${ldk_clean}' over the control"
+fi
 
 # --- Registry editing: the one implementation of a registry change ----------------------------
 # Three components write the registry (the CLI on the operator's own file, ai-tools-allowlist on another operator's,
@@ -1916,6 +1945,24 @@ else
     fail "the single-quoted legacy line migrated as:"$'\n'"$(cat "${mig}/project-registry" 2>/dev/null)"
 fi
 rm -f "${mig}"/allowed-projects.*.bak "${mig}/project-registry"
+# A top-level '!' line's note names the '%' line the operator types: the written spelling, a link kept as a link,
+# quoted as the formatter quotes it, so the hint parses back as a disabled project naming the source's path.
+mkdir -p "${mig}/a # b" "${mig}/q\"x"; ln -sfn "${mig}/parked" "${mig}/parked-link"
+printf '%s\n' "!\"${mig}/a # b\"" "!'${mig}/q\"x'" "!${mig}/parked-link" > "${mig}/allowed-projects"
+chmod 600 "${mig}/allowed-projects"
+mig_hints="$(ai_tools_conf__plan_registry_migration "${mig}/allowed-projects" \
+    | awk -F'\t' '$1 == "note" { print $4 }' | sed -n 's/^a disabled project is written \(.*\) in format 1\.0$/\1/p')"
+mig_hints_read=""
+while IFS= read -r mig_hint; do
+    ai_tools_conf__parse_path_entry "${mig_hint}" && [[ "${ai_tools_conf__kind}" == disabled ]] \
+        && mig_hints_read+="${ai_tools_conf__value}"$'\n'
+done <<<"${mig_hints}"
+if [[ "${mig_hints_read}" == "${mig}/a # b"$'\n'"${mig}/q\"x"$'\n'"${mig}/parked-link"$'\n' ]]; then
+    pass "each note's '%' hint parses back as a disabled project at the written path, quoted and linked spellings included"
+else
+    fail "the notes' hints:"$'\n'"${mig_hints}"
+fi
+rm -f "${mig}"/allowed-projects.*.bak "${mig}/project-registry" "${mig}/parked-link"
 # Refusals: the source stays, no project-registry is written.
 mig_refused() {   # mig_refused <expected-rc> <desc> [<owner-uid>]
     local rc=0
@@ -1934,6 +1981,17 @@ printf '%s\n' "${mig}/proj" "!vendor" > "${mig}/allowed-projects"
 mig_refused 3 "a source carrying a relative line is refused"
 printf '%s\n' "${mig}/proj" "!${mig}/proj/" > "${mig}/allowed-projects"
 mig_refused 3 "a source naming one path on a project and a '!' line is refused, as format 1.0 refuses the pair"
+ln -sfn "${mig}/proj" "${mig}/proj-link"
+printf '%s\n' "${mig}/proj" "!${mig}/proj-link" > "${mig}/allowed-projects"
+mig_refused 3 "a source naming one directory on a project and a '!' line through a link is refused, as the loader refuses the pair"
+printf '%s\n' "${mig}/proj" "${mig}/proj-link" > "${mig}/allowed-projects"; rc=0
+ai_tools_conf__migrate_registry "${mig}/allowed-projects" "${mig}/project-registry" >/dev/null 2>&1 || rc=$?
+if [[ "${rc}" -eq 0 ]] && ai_tools_conf__check_registry "${mig}/project-registry" 2>/dev/null; then
+    pass "the control: two spellings of one directory on allow lines migrate, and the gate loads the result"
+else
+    fail "two allow spellings of one directory: rc ${rc}"
+fi
+rm -f "${mig}"/allowed-projects.*.bak "${mig}/project-registry" "${mig}/proj-link"
 printf '%s\n' "${mig}/a'b\"c" > "${mig}/allowed-projects"
 mig_refused 3 "a source carrying an entry format 1.0 cannot write is refused"
 printf '%s\n!%s/proj/pri\0vate\n' "${mig}/proj" "${mig}" > "${mig}/allowed-projects"
