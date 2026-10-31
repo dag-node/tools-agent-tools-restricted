@@ -28,7 +28,7 @@ fi
 mktestdir
 T="${TESTDIR}/tree"
 mkdir -p "${T}"/A/vendor/x "${T}"/A/sub "${T}"/A/src "${T}"/B/child/y "${T}"/B/x "${T}"/C/n/z "${T}"/D/q \
-         "${T}"/G/m/cache "${T}/H dir" "${T}"/I "${T}"/J/k "${T}"/K "${T}"/L/m/n "${T}"/M "${T}"/N/o "${T}/P dir#1/q" "${T}"/zzz
+         "${T}"/G/m/cache/x "${T}/H dir" "${T}"/I "${T}"/J/k "${T}"/K "${T}"/L/m/n "${T}"/M "${T}"/N/o "${T}/P dir#1/q" "${T}"/zzz
 ln -s "${T}/K" "${T}/K-link"
 
 # fixture <name> <line>... : write the registry <name>, the marker first.
@@ -76,6 +76,7 @@ stale-allow     | @/E-gone     | enabled      | project  | -         | -        
 stale-disabled  | @/F-gone     | disabled     | disabled | -         | -        | -                | -        | 0 | -
 glob            | @/G/m        | inside       | none     | @/G       | enabled  | -                | -        | 0 | -
 glob            | @/G/m/cache  | inside       | none     | @/G       | enabled  | ! @/G/*/cache    | glob     | 0 | @/G/*/cache
+glob            | @/G/m/cache/x | inside      | none     | @/G       | enabled  | ! @/G/*/cache    | glob     | 0 | @/G/*/cache
 quoted          | @/H dir      | enabled      | project  | -         | -        | -                | -        | 0 | -
 commented       | @/I          | enabled      | project  | -         | -        | -                | -        | 0 | -
 commented       | @/zzz        | unregistered | none     | -         | -        | -                | -        | 0 | -

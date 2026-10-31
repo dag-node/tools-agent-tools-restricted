@@ -48,7 +48,8 @@ excluded="${approved}/secret"
 sibling="${TESTDIR}/approved2"
 disabled_dir="${TESTDIR}/disabled"
 unapproved="${TESTDIR}/unapproved"
-mkdir -p "${home}/.config/ai-tools" "${links}" "${excluded}/deeper" "${sibling}" "${disabled_dir}/sub" "${unapproved}"
+mkdir -p "${home}/.config/ai-tools" "${links}" "${excluded}/deeper" "${sibling}" "${disabled_dir}/sub" "${unapproved}" \
+         "${approved}/web/node_modules/pkg"
 ln -s "${approved}" "${TESTDIR}/via-symlink"
 chmod -R 0755 "${home}" "${approved}" "${sibling}" "${disabled_dir}" "${unapproved}"
 chown -R "${PROJECTS_USER}:${PROJECTS_GROUP}" "${home}" "${approved}" "${sibling}" "${disabled_dir}" "${unapproved}"
@@ -335,6 +336,15 @@ says "and the refusal names the re-enable with the path" "$(cli_cmd_text ai-tool
 run "${LIB}" "${PROJECTS_USER}" "${disabled_dir}/sub" ai_tools_launch_wrapper__gate_project
 refused "a path inside a disabled project is refused by the '%' line above it" MSG-W2P3
 says "and the refusal names the re-enable of the disabled project" "$(cli_cmd_text ai-tools.projects.enable) ${disabled_dir}"
+# A glob excluded path covers each directory it matches and every directory under one.
+allowlist "@ ${approved}" "! ${approved}/*/node_modules"
+run "${LIB}" "${PROJECTS_USER}" "${approved}/web/node_modules" ai_tools_launch_wrapper__gate_project
+refused "a directory a glob '!' line matches is refused as excluded" MSG-K8K2
+run "${LIB}" "${PROJECTS_USER}" "${approved}/web/node_modules/pkg" ai_tools_launch_wrapper__gate_project
+refused "a directory under one a glob '!' line matches is refused by that line" MSG-W2P3
+says "and the refusal names the glob line" "! ${approved}/*/node_modules"
+run "${LIB}" "${PROJECTS_USER}" "${approved}/web" ai_tools_launch_wrapper__gate_project
+passed "the directory above the glob's match passes the gate"
 # A '!' line excludes its path wherever it sits: naming a directory no allow line encloses, it is still not a '%'.
 allowlist "@ ${approved}" "!${unapproved}"
 run "${LIB}" "${PROJECTS_USER}" "${unapproved}" ai_tools_launch_wrapper__gate_project

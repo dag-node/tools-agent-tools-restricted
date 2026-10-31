@@ -782,6 +782,9 @@ _ai_tools_conf__write_line() {
 #     ! /home/op/project/vendor       an excluded path, which may be a glob: ! /home/op/*/node_modules
 #   % /home/op/oldapp                 a disabled project
 #
+# An excluded or disabled line covers the path it matches and every directory under that path, a glob included
+# (ai_tools_conf__find_covering_path).
+#
 # Every CLI write rewrites the whole file as a forest (_ai_tools_conf__write_registry_canonical): a line sits under
 # the nearest entry enclosing its path, indented two spaces per level, projects ahead of excluded paths and each set
 # in byte order. The readers strip the indentation and do not read the order, so a hand edit out of place reads as
@@ -1140,7 +1143,8 @@ _ai_tools_conf__open_registry() {
 # contents from the account (secret-handling.rule.md).
 
 # ai_tools_conf__has_glob_characters <path> : return 0 when <path> carries a glob character (`*`, `?` or `[`); such
-#   an exclusion is matched as a pattern on the whole path and is never resolved.
+#   an exclusion is matched as a pattern against a path and each of its ancestors (ai_tools_conf__find_covering_path)
+#   and is never resolved.
 ai_tools_conf__has_glob_characters() { [[ "${1-}" == *[*?[]* ]]; }
 
 # _ai_tools_conf__resolve_exclusion_path <abs-path> <uid> : set ai_tools_conf__value to <abs-path> with every symlink
@@ -1326,17 +1330,38 @@ ai_tools_conf__check_registry() {
     ai_tools_conf__load_allowlist "${1-}" _ai_tools_conf__check_allowed _ai_tools_conf__check_excluded
 }
 
+# ai_tools_conf__find_covering_path <abs-path> <entry> : print the path through which an excluded or disabled <entry>
+#   covers <abs-path> -- <abs-path> itself, or the ancestor of it the entry matches -- and return 0; return 1, printing
+#   nothing, when it covers neither. An entry covers the path it matches and every directory under that path: a plain
+#   entry matches its own path, and a glob (ai_tools_conf__has_glob_characters) matches each path the pattern matches
+#   whole, so `! /home/op/*/node_modules` covers /home/op/app/node_modules and every directory under it. A trailing
+#   slash on <entry> is ignored. The one match for every reader: the launch wrapper, the classifier, and each helper
+#   through ai_tools_conf__is_path_excluded.
+ai_tools_conf__find_covering_path() {
+    local path="${1-}" entry="${2-}" candidate
+    [[ "${entry}" == / ]] || entry="${entry%/}"
+    if ! ai_tools_conf__has_glob_characters "${entry}"; then
+        [[ "${path}" == "${entry}" || "${path}" == "${entry%/}/"* ]] || return 1
+        printf '%s' "${entry}"; return 0
+    fi
+    candidate="${path}"
+    while [[ -n "${candidate}" ]]; do
+        # shellcheck disable=SC2053  # the unquoted side is the operator's glob, matched as a pattern
+        if [[ "${candidate}" == ${entry} ]]; then printf '%s' "${candidate}"; return 0; fi
+        [[ "${candidate}" == / ]] && break
+        candidate="${candidate%/*}"; candidate="${candidate:-/}"
+    done
+    return 1
+}
+
 # ai_tools_conf__is_path_excluded <abs-path> <excluded-array> : return 0 when an entry of the named array covers
-#   <abs-path>: equal to it, with a glob matched as a pattern against the whole path, or, for an entry without `*`,
-#   an ancestor of it; a trailing slash on an entry is ignored. Return 1 otherwise, and for an empty array.
+#   <abs-path> (ai_tools_conf__find_covering_path), 1 otherwise and for an empty array.
 ai_tools_conf__is_path_excluded() {
     local -n _ai_tools_conf__match_excluded="$2"
-    local path="${1-}" pat
+    local path="${1-}" entry
     (( ${#_ai_tools_conf__match_excluded[@]} )) || return 1
-    for pat in "${_ai_tools_conf__match_excluded[@]}"; do
-        pat="${pat%/}"
-        [[ "${path}" == ${pat} ]] && return 0
-        if [[ "${pat}" != *'*'* && "${path}" == "${pat}/"* ]]; then return 0; fi
+    for entry in "${_ai_tools_conf__match_excluded[@]}"; do
+        ai_tools_conf__find_covering_path "${path}" "${entry}" >/dev/null && return 0
     done
     return 1
 }
@@ -1862,16 +1887,6 @@ _ai_tools_conf__find_resolved_sign_conflict() {
 # _ai_tools_conf__is_path_under <path> <parent> : return 0 when <path> is strictly inside <parent>.
 _ai_tools_conf__is_path_under() { [[ "$1" != "$2" && "$1" == "${2%/}/"* ]]; }
 
-# _ai_tools_conf__does_glob_cover <path> <pattern> : return 0 when a glob excluded path <pattern> covers <path>, matched
-#   as ai_tools_conf__is_path_excluded matches it: the whole path against the pattern, or, for a pattern without `*`,
-#   an ancestor.
-_ai_tools_conf__does_glob_cover() {
-    local path="$1" pat="${2%/}"
-    # shellcheck disable=SC2053  # the unquoted side is the operator's glob, matched as a pattern
-    [[ "${path}" == ${pat} ]] && return 0
-    [[ "${pat}" != *'*'* && "${path}" == "${pat}/"* ]]
-}
-
 # _ai_tools_conf__get_registry_entry_state <kind-words> : print the state the kind naming one path gives it --
 #   `disabled`, `enabled`, `excluded` -- or `none` for no kind. <kind-words> is one argument, the kinds separated
 #   by spaces, so the caller's IFS does not decide how they join; the readers refuse a file where they differ.
@@ -1921,7 +1936,7 @@ ai_tools_conf__read_registry_path_class() {
     for i in "${!class_kinds[@]}"; do
         kind="${class_kinds[i]}"; line_path="${class_paths[i]}"
         if [[ "${kind}" == glob ]]; then
-            if [[ "${blocked}" == - ]] && _ai_tools_conf__does_glob_cover "${path}" "${line_path}"; then
+            if [[ "${blocked}" == - ]] && ai_tools_conf__find_covering_path "${path}" "${line_path}" >/dev/null; then
                 blocked="${class_raws[i]}"; blocked_kind=glob; blocked_path="${line_path}"
             fi
             continue

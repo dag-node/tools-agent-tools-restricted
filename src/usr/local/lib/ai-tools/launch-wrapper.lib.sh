@@ -391,7 +391,7 @@ ai_tools_launch_wrapper__print_and_exit() {
 # hand-back. A CWD that is not approved draws the setup menu (create a sandbox clone, claim here, cancel) on a terminal,
 # and is refused without one. AI_TOOLS_ALLOWLIST is not read here: the launch gate is the operator's own file.
 ai_tools_launch_wrapper__gate_project() {
-    local name="${AI_TOOLS_LAUNCH_WRAPPER__NAME}" registry_state allowlist cwd dir pat sel index kind remedy
+    local name="${AI_TOOLS_LAUNCH_WRAPPER__NAME}" registry_state allowlist cwd dir pat sel index kind remedy covering
     IFS=$'\t' read -r registry_state allowlist < <(ai_tools_conf__resolve_registry "${HOME}/.config/ai-tools")
     if [[ "${registry_state}" == none ]]; then
         ai_tools_launch_wrapper__die MSG-C9S6 "project registry not found: ${allowlist}" \
@@ -421,16 +421,17 @@ ai_tools_launch_wrapper__gate_project() {
                "${name}: it must be a regular file this account can read" ;;
     esac
 
-    # Exclusions are checked first and override allows (the match ai_tools_conf__is_path_excluded makes, spelled
-    # out here because the refusal names which line matched and how). The kind of the line that matched decides
-    # the wording, since the way back differs: a `%` line naming this very directory is a project someone DISABLED --
-    # `atr projects disable`, or the same edit by hand -- and the way back is one command; a `!` line excludes
-    # a subtree deliberately, where the remedy is to edit that line; and a line covering the directory from an ancestor
-    # names the line, with the remedy its kind takes. The first line in file order decides.
+    # Exclusions are checked first and override allows. The match is the shared one (ai_tools_conf__find_covering_path,
+    # which prints the path the line matched); the wording of the refusal is the wrapper's. The kind of the line that
+    # matched decides it, since the way back differs: a `%` line naming this very directory is a project someone
+    # DISABLED -- `atr projects disable`, or the same edit by hand -- and the way back is one command; a `!` line
+    # excludes a subtree deliberately, where the remedy is to edit that line; and a line covering the directory from
+    # an ancestor names the line, with the remedy its kind takes. The first line in file order decides.
     for index in "${!exclusion_patterns[@]}"; do
         pat="${exclusion_patterns[index]%/}"                    # normalise: strip trailing slash
         kind="${exclusion_kinds[index]}"
-        if [[ "${cwd}" == ${pat} ]]; then
+        covering="$(ai_tools_conf__find_covering_path "${cwd}" "${exclusion_patterns[index]}")" || continue
+        if [[ "${covering}" == "${cwd}" ]]; then
             if [[ "${kind}" == disabled ]]; then
                 ai_tools_launch_wrapper__die MSG-R2V6 "this project is disabled in your project registry: ${cwd}" \
                     "${name}: no session starts here until it is re-enabled -- its files, group and label are untouched" \
@@ -444,8 +445,8 @@ ai_tools_launch_wrapper__gate_project() {
             ai_tools_launch_wrapper__die MSG-K8K2 "excluded by a '!' line in your project registry: ${cwd}" \
                 "${name}: no session starts under a '!' line; edit ${allowlist} to change that"
         fi
-        # For plain paths (no glob), also exclude directory contents
-        if [[ "${pat}" != *'*'* && "${cwd}" == "${pat}/"* ]]; then
+        # The line covers an ancestor of the directory: a plain path's contents, or a directory under one a glob matches.
+        if [[ "${covering}" != "${cwd}" ]]; then
             if [[ "${kind}" == disabled ]]; then
                 remedy="it is inside ${pat}, a disabled project; re-enable that project with:  ${CLI_CMD} projects enable ${pat}"
             else

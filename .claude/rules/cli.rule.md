@@ -724,9 +724,9 @@ walks from the canonical current directory upward: the first directory an enable
 named on stderr before the verb runs, and the verb's own table then reads it as if it had been typed. A disabled,
 excluded or glob line covering a directory on the way without naming it refuses under `MSG-R8C7`, naming the line
 and, for an excluded line or a glob with a project enclosing it, that project to name instead; reaching `/` with no
-entry refuses under `MSG-K8R8` with exit 2. The walk checks every directory between the current one and the project,
-where the launch gate reads the current directory alone, so a glob matching an intermediate directory and not
-the current one stops discovery and does not stop a launch there. `push` refuses a discovered candidate that is not
+entry refuses under `MSG-K8R8` with exit 2. A line covers the path it matches and every directory under it, a glob
+included, so a glob matching a directory between the current one and the project stops discovery as it stops a launch
+there. `push` refuses a discovered candidate that is not
 a sandbox clone, `MSG-W3H3` for one nested deeper under `SANDBOX_ROOT` and `MSG-T4Z6` outside it.
 
 ### The two verbs

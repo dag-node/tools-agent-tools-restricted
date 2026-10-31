@@ -122,8 +122,11 @@ An excluded path may be a glob: a line carrying
 .B ?
 or
 .B [
-matches the whole path as written,
-.RB \(oq "! /home/op/*/node_modules" \(cq.
+covers each path the pattern matches whole and every directory under one, so
+.RB \(oq "! /home/op/*/node_modules" \(cq
+keeps sessions out of
+.I /home/op/webapp/node_modules
+and every directory under it.
 An excluded path is not a project:
 no
 .B "atr projects"

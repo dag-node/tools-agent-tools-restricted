@@ -440,7 +440,7 @@ of an enclosing project. A line naming the same directory as an entry of another
 a format 1.0 file refuses the pair, and a legacy `allowed-projects` keeps the exclusion winning
 ([ref-section-d2n3](providers.rule.md#ref-section-d2n3)). The wrapper refuses to launch with an excluded CWD,
 and `ai-tools-chown` skips ownership restoration on excluded paths. One loader and one matcher in `conf.lib.sh` keep
-the two in sync: a plain excluded path also covers its contents, an excluded glob matches as-is, a glob-free exclusion
+the two in sync: an excluded path covers the path it matches and its contents, a glob included (`ai_tools_conf__find_covering_path`), a glob-free exclusion
 covers its real path as well where the loader follows the link, and a read the loader refuses — a link the sandbox
 account can change (`MSG-Z3Q6`), or a line the grammar does not recognise or two signs on one directory (`MSG-D9R4`,
 after the library's line) — leaves neither consumer allowing a path under that file

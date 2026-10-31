@@ -991,13 +991,34 @@ ${ld_canonical_ok} && pass "a real-path '!' line covers its directory with the a
 rm -rf "${ld_root}/proj/alias" "${ld_root}/proj/links"; chmod 755 "${ld_root}/proj"
 ld_ok=true
 for p in "${ld_root}/proj/private" "${ld_root}/proj/private/k" "${ld_root}/proj/sub" "${ld_root}/proj/sub/deep" \
-         "${ld_root}/proj/x.log" "${ld_root}/proj/stale/y"; do
+         "${ld_root}/proj/x.log" "${ld_root}/proj/x.log/y" "${ld_root}/proj/stale/y"; do
     ai_tools_conf__is_path_excluded "${p}" ld_excluded || { fail "should be excluded: ${p}"; ld_ok=false; }
 done
-for p in "${ld_root}/proj/other" "${ld_root}/proj/x.log/y" "${ld_root}/proj/privateer"; do
+for p in "${ld_root}/proj/other" "${ld_root}/proj/x.logs" "${ld_root}/proj/privateer"; do
     ai_tools_conf__is_path_excluded "${p}" ld_excluded && { fail "should not be excluded: ${p}"; ld_ok=false; }
 done
-${ld_ok} && pass "the matcher covers a written path, its contents, a resolved path and a glob, and no sibling"
+${ld_ok} && pass "the matcher covers a written path, its contents, a resolved path, a glob and its contents, and no sibling"
+# A glob covers each path it matches and every directory under one, whatever the glob character: the direct match,
+# a child, a nested path, and a '?' entry's descendant; a sibling whose name only starts like a match is not covered.
+# shellcheck disable=SC2034  # read through its name by the matcher
+declare -a ld_globs=("${ld_root}/*/node_modules" "${ld_root}/proj/cach?/")
+ld_ok=true
+for p in "${ld_root}/proj/node_modules" "${ld_root}/proj/node_modules/pkg" "${ld_root}/proj/node_modules/pkg/lib" \
+         "${ld_root}/proj/cache" "${ld_root}/proj/cache/x/y"; do
+    ai_tools_conf__is_path_excluded "${p}" ld_globs || { fail "a glob should cover: ${p}"; ld_ok=false; }
+done
+for p in "${ld_root}/proj/node_modules_old" "${ld_root}/node_modules" "${ld_root}/proj/src" "${ld_root}/proj/caches"; do
+    ai_tools_conf__is_path_excluded "${p}" ld_globs && { fail "a glob should not cover: ${p}"; ld_ok=false; }
+done
+ld_covering="$(ai_tools_conf__find_covering_path "${ld_root}/proj/node_modules/pkg" "${ld_root}/*/node_modules")" \
+    || ld_covering="(none)"
+[[ "${ld_covering}" == "${ld_root}/proj/node_modules" ]] \
+    || { fail "the covering path of a glob's descendant: got ${ld_covering}"; ld_ok=false; }
+ld_covering="$(ai_tools_conf__find_covering_path "${ld_root}/proj/private/k" "${ld_root}/proj/private/")" \
+    || ld_covering="(none)"
+[[ "${ld_covering}" == "${ld_root}/proj/private" ]] \
+    || { fail "the covering path of a plain entry's descendant: got ${ld_covering}"; ld_ok=false; }
+${ld_ok} && pass "a glob covers the paths it matches and every directory under one, and names the path it matched"
 # shellcheck disable=SC2034  # read through its name by the matcher
 declare -a ld_none=()
 if ! ai_tools_conf__is_path_excluded "${ld_root}/proj" ld_none; then
