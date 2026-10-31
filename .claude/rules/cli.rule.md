@@ -662,10 +662,11 @@ a `750 root:root` directory and the account does not hold a sudo rule.
 ## The project registry and the state machine <a id="ref-section-v2n3"></a>
 
 `~/.config/ai-tools/project-registry` is a document the operator edits, and its grammar is
-`ai-tools-project-registry(5)` and the registry section comment in `conf.lib.sh`. A line's first character is its kind:
-an allow line is a project, a `%` line a parked project, and a `!` line a carve-out, a subtree withheld from the agent
-wherever the line sits. A line the grammar refuses refuses the whole file for every reader
-([providers](providers.rule.md)).
+`ai-tools-project-registry(5)` and the registry section comment in `conf.lib.sh`. A line's sign is its kind: an `@` line
+is a project, a `%` line a parked project, and a `!` line a carve-out, a subtree withheld from the agent wherever
+the line sits. A line the grammar refuses refuses the whole file for every reader, two signs on one path among them
+([providers](providers.rule.md)), and every CLI write rewrites the file in its canonical form, which [One implementation
+of a registry change](#one-implementation-of-a-registry-change) states.
 
 **Every verb decides from one record per path.** `ai_tools_conf__read_registry_path_class` reads the file once
 and prints the path's state, the kinds of its own lines, the nearest enclosing entry and its state, the first line
@@ -687,10 +688,10 @@ a link the sandbox account can change, refuses every verb under `MSG-Y7K5` after
 through `ai_tools_conf__check_registry`, the loader the launch gate reads with. A legacy `allowed-projects` refuses
 every verb but `projects list` under `MSG-J6S8`, naming `atr admin system post-upgrade`: an edit would mix two grammars
 in one file, and a `!` there may be a project an earlier release parked, which this grammar reads as a carve-out.
-The migration is `system post-upgrade`'s, unattended, with every line copied unchanged ([providers](providers.rule.md)).
-A run with no registry passes the gate, and each verb meets its own refusal. `status` reads the file through the same
-check, so the report and the gate cannot disagree about it; a `--for` run's gate reads the snapshot's grammar alone
-([Acting for another operator](#acting-for-another-operator---for)).
+The migration is `system post-upgrade`'s, unattended, each entry keeping its kind and its written path
+([providers](providers.rule.md)). A run with no registry passes the gate, and each verb meets its own refusal. `status`
+reads the file through the same check, so the report and the gate cannot disagree about it; a `--for` run's gate reads
+the snapshot's grammar alone ([Acting for another operator](#acting-for-another-operator---for)).
 
 ### What each verb does with a state
 
@@ -725,13 +726,13 @@ a sandbox clone, `MSG-W3H3` for one nested deeper under `SANDBOX_ROOT` and `MSG-
 
 ### The two verbs
 
-`projects disable` writes the `%`; `projects enable` lifts it. Both edit **the operator's own line, in place** —
-position, indentation and end-of-line comment survive — which is their reason to exist rather than being an add/remove
-pair: an ordered, commented registry comes back exactly as it was. A project nested inside another is parked on its own
-line. Both are **registry-only**: group, ACLs, setgid and the SELinux label are untouched, so re-enabling does not grant
-any access that was not already granted, and neither verb runs the secret gate. Neither invents an entry — a path
-the file does not name is refused, naming `projects claim`, because registering a project is a claim and a claim scans
-for secrets first.
+`projects disable` turns the project's `@` into `%`; `projects enable` turns it back. Both change **the sign
+of the operator's own line**, and its end-of-line comment survives, which is their reason to exist rather than being
+an add/remove pair: a disable and an enable leave the registry byte-identical. A project nested inside another is parked
+on its own line. Both are **registry-only**: group, ACLs, setgid and the SELinux label are untouched, so re-enabling
+does not grant any access that was not already granted, and neither verb runs the secret gate. Neither invents an entry
+— a path the file does not name is refused, naming `projects claim`, because registering a project is a claim
+and a claim scans for secrets first.
 
 What disabling costs is everything downstream of the registry, and the verb says so: the root helpers resolve a path's
 owner through the same allow/exclude matcher, so while a project is parked `ai-tools-unclaim`, `-chown`, `-setfacl`
@@ -753,8 +754,8 @@ verb writes one, so the editor it was written in is the one to delete it. A list
 prefixes with `!` by hand reads as a carve-out — the launch refuses there and `enable` refuses it — and the editor
 restores it.
 
-A registry an earlier release wrote spelled a parked project with `!`, the same text as a carve-out. The migration
-copies every line unchanged, so a `!` stays a carve-out in format 1.0 and withholds what it withheld
+A registry an earlier release wrote spelled a parked project with `!`, the same text as a carve-out. The migration keeps
+each line's kind, so a `!` stays a carve-out in format 1.0 and withholds what it withheld
 before; `ai_tools_conf__plan_registry_migration` names each `!` line no allow line encloses with its `%` spelling, since
 only the operator knows which one an earlier edit meant. Reading the kind from position — a `!` inside a listed project
 a carve-out, one outside a parked project — was rejected: nested projects make it unsound, and the verbs that relied
@@ -772,10 +773,17 @@ and a carve-out (appending under a winning `%` is the duplicate-pair bug), and `
 lines naming the path, so de-registering a parked project does not leave a `%` behind to park whatever is claimed
 at that path next, and leaves every carve-out line, which is the operator's own edit. `projects create`
 and `projects clone` ask the same formatter, `ai_tools_conf__is_registry_path_representable`, before their first write,
-so a name the registry cannot carry is refused before a directory exists. `_add` also opens a line of its own
-for the entry it writes: the readers keep a hand-edited last line that runs to EOF, so an entry appended straight
-on would join two paths into a third naming no project, taking the preceding entry off the gate. `_enable` additionally
-collapses an existing duplicate pair to one live entry, in the earliest position it held.
+so a name the registry cannot carry is refused before a directory exists.
+
+**Every write rewrites the whole file in its canonical form**, `_ai_tools_conf__write_registry_canonical`: a forest
+in which a line sits under the nearest entry enclosing its path, indented two spaces per level, projects ahead
+of carve-outs and each set in byte order, rendered from each line's **written** path and carrying its comment. A writer
+rendering the resolved path would turn a carve-out written through a link into the link's target, which stops covering
+the written path once the link changes. A line repeating an earlier one is written once, and every line is rendered
+before the first byte is written, so one the formatter cannot write back refuses the whole write (4) with the file as it
+was. The readers do not read the order, so the operator's hand edit reads as written and takes its place on the next
+write. Two signs on one path never reach a writer: the grammar refuses the pair as `sign-conflict`, and two spellings
+of one directory through a link are refused by every reader that resolves them (`MSG-E3W3`).
 
 For a file that is the launch gate, a writer matching lines differently from the reader would leave a project reachable
 after a removal; one shared implementation of the match is what rules that out.

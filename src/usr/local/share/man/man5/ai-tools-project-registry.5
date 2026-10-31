@@ -29,15 +29,16 @@ inside a
 .B 0700
 directory, so no other account reads it.
 .B "atr admin operators add"
-creates it with the format marker, a header and no entry, so no session can
-start anywhere until a project is claimed.
+creates it holding the format marker alone, so no session can start anywhere
+until a project is claimed.
 The
 .B "atr projects"
 commands of
 .BR ai-tools (1)
-add, park, restore and remove entries in place.
-Edit the file by hand to review it, to comment it, or to carve a subtree out
-of a project.
+add, park, restore and remove entries, and each one rewrites the whole file in
+its canonical form.
+Edit the file by hand to review it, to comment an entry, or to carve a subtree
+out of a project.
 .SH FORMAT
 The format marker is the first line
 .B "atr admin operators add"
@@ -75,10 +76,17 @@ refuses until the file is migrated.
 migrates it, unattended included.
 It writes
 .I ~/.config/ai-tools/project-registry
-as the marker followed by every line unchanged, at the old file's owner and
-mode, and then renames the old file to
+in canonical form, each entry with its sign
+.RB ( @
+for a bare path,
+.B !\&
+for a
+.B !\&
+line) and its end-of-line comment, at the old file's owner and mode, and then
+renames the old file to
 .IR ~/.config/ai-tools/allowed-projects.YYYYMMDD-N.bak .
-The run prints each line first.
+A whole-line comment is not carried over.
+The run prints the line each entry becomes first.
 It names every
 .B !\&
 line no project encloses: in that file such a line may have parked a
@@ -92,13 +100,15 @@ to keep it as a parked project that
 restores.
 .SH GRAMMAR
 One entry per line.
-The first character of a line is its kind, written before any quote.
+The first character of a line, after any indentation, is its sign, written
+before any quote.
+The commands write one space after it; a hand edit may leave none, or more.
 .TP
-.I /home/op/project
-An allow line: a project.
+.I "@ /home/op/project"
+A project.
 Sessions may start in the directory and in every directory under it.
 .TP
-.I !/home/op/project/vendor
+.I "! /home/op/project/vendor"
 A carve-out: the agent is withheld from the directory and everything under
 it.
 The line means that wherever it sits: inside a project, around one, or alone.
@@ -108,13 +118,13 @@ A carve-out may be a glob: a line carrying
 or
 .B [
 matches the whole path as written,
-.RB \(oq !/home/op/*/node_modules \(cq.
+.RB \(oq "! /home/op/*/node_modules" \(cq.
 A carve-out is not a project:
 no
 .B "atr projects"
 command claims, parks, restores or deletes it, and none deletes the line.
 .TP
-.I %/home/op/parked
+.I "% /home/op/parked"
 A park: a project taken out of service.
 No session starts there, and the entry, the permissions and the SELinux label
 stay in place.
@@ -124,19 +134,40 @@ writes it and
 lifts it.
 A park may name a project nested inside another one.
 .TP
-.I "/home/op/project   # why"
-A comment.
+.I "@ /home/op/project   # why"
+A comment, at the end of an entry.
 A
 .B #
-at the start of a line, or after whitespace, begins one.
+after whitespace begins one.
+The format marker is the one line that is a comment alone.
 .TP
-.I "\(dq/home/op/ai works\(dq"
+.I "@ \(dq/home/op/ai works\(dq"
 One layer of matched double or single quotes carries a path containing a
 space or a literal
 .BR # .
-The kind character precedes the quote,
-.RB \(oq "%\(dq/home/op/ai works\(dq" \(cq,
+The sign precedes the quote,
+.RB \(oq "% \(dq/home/op/ai works\(dq" \(cq,
 and only a comment may follow the closing quote.
+.SS The canonical form
+Each command that changes the file rewrites it whole, in one order:
+a line sits under the nearest entry whose path encloses its own, indented two
+spaces deeper, and under each entry the projects come first and the carve-outs
+after them, each in byte order of the path.
+A glob sits under the nearest entry its text before the first glob character
+opens with, or at the top.
+A comment stays on its entry, a line repeating an earlier one is written once,
+and a trailing slash is dropped.
+A path carrying a space,
+.B #
+or
+.B \(aq
+is written in double quotes, and one carrying
+.B \(dq
+in single quotes.
+The readers do not read the order or the indentation, so a hand edit out of
+place reads as written and takes its place on the next write.
+A command that would have to rewrite a line it cannot write back, a path
+carrying both quote characters, refuses and leaves the file as it was.
 .PP
 Blank lines are ignored.
 An allow line is resolved to its real path before it is compared, so an entry
@@ -170,23 +201,21 @@ The reasons are:
 .TP
 .B unknown-form
 The line starts with a character other than
-.BR / ,
-.BR \(dq ,
-.BR \(aq ,
-.BR ! ,
-.B %
+.BR @ ,
+.B !\&
 or
-.BR # .
+.BR % ;
+a bare path is one such line, since only the operator knows which sign it was
+meant to carry.
+.TP
+.B comment-line
+A line that is a comment alone, other than the format marker.
 .TP
 .B relative-path
 The path is not absolute.
 .TP
 .B empty-entry
-A
-.B !\&
-or
-.B %
-with no path, or empty quotes.
+A sign with no path, or empty quotes.
 .TP
 .B unmatched-quote
 A quote is not closed.
@@ -198,15 +227,21 @@ Text other than a comment follows the closing quote.
 The path carries a control character, or the file carries a NUL byte on any
 line, a comment included.
 .TP
-.B glob-on-allow
-An allow line carries a glob character.
-List each project by its path.
+.B glob-on-project
+A project line carries a glob character.
+Write each project by its path.
 .TP
-.B glob-on-park
+.B glob-on-disabled
 A park carries a glob character.
 A park names one project.
 .TP
-.B park-in-legacy
+.B sign-conflict
+Two lines name one path with different signs, the quotes and a trailing slash
+set aside.
+Keep the one you mean.
+Lines repeating one sign and one path are not refused.
+.TP
+.B disabled-in-legacy
 A
 .B %
 line in an
@@ -233,6 +268,9 @@ A park or carve-out spelled through any other symbolic link refuses the file
 the same way, under
 .BR MSG-Y5N6 ,
 which names the entry, the link and the real path to write in its place.
+Two lines of different signs that name one directory through different
+spellings, a symbolic link among them, refuse it under
+.BR MSG-E3W3 .
 .PP
 .B "atr status"
 and
@@ -248,21 +286,13 @@ Every
 command reads one state per path from the lines of the file:
 .TP
 .B listed
-An allow line names the path.
+A project line names the path.
 .TP
 .B parked
 A park names the path.
-An allow line beside it is a duplicate, which
-.B "atr projects enable"
-folds into one line.
 .TP
 .B carve-out
-A carve-out names the path, and no other line does.
-.TP
-.B conflict
-A carve-out and an allow or park line name the same path.
-The path is neither a project nor a carve-out, and every command that acts on
-it refuses until one of the lines is deleted.
+A carve-out names the path.
 .TP
 .B inside
 No line names the path, and a project encloses it.
@@ -307,16 +337,16 @@ The sandbox-clone area; a clone made by
 is listed here like any other project.
 .SH EXAMPLES
 A project, a carve-out inside it, a project nested in it, and two parked
-projects, one of them nested:
+projects, one of them nested, in canonical form:
 .PP
 .RS 4
 .EX
 # ai-tools-project-registry-format: 1.0
-/home/op/webapp             # listed: sessions start here
-!/home/op/webapp/vendor     # carve-out: third-party code
-/home/op/webapp/tools       # listed, inside webapp
-%/home/op/webapp/legacy     # parked, inside webapp
-%/home/op/oldapp            # parked: projects enable restores it
+% /home/op/oldapp                       # parked: projects enable restores it
+@ /home/op/webapp                       # listed: sessions start here
+  @ /home/op/webapp/tools               # listed, inside webapp
+  % /home/op/webapp/legacy              # parked, inside webapp
+  ! /home/op/webapp/vendor              # carve-out: third-party code
 .EE
 .RE
 .PP
@@ -326,10 +356,10 @@ of every dependency directory one level under another project:
 .RS 4
 .EX
 # ai-tools-project-registry-format: 1.0
-"/home/op/ai works"         # listed
-!"/home/op/ai works/build"  # carve-out
-/home/op/webapp
-!/home/op/webapp/*/node_modules
+@ "/home/op/ai works"                   # listed
+  ! "/home/op/ai works/build"           # carve-out
+@ /home/op/webapp
+  ! /home/op/webapp/*/node_modules
 .EE
 .RE
 .PP

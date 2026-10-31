@@ -551,9 +551,9 @@ shim of its own, and `boundary/access.sh` holds the account's `atr admin` to a r
 to the `usage()` heredoc of their command — `ai-tools(1)` against the CLI, `ai-tools-admin(8)` against the admin helper
 — validated from the repo sources (or the installed pair outside a checkout) and executing neither command, since
 the CLI's bootstrap gate fail-closes on an unprovisioned host and the helper refuses a non-root caller. The config pages
-are held to their files: `ai-tools-project-registry(5)` and `ai-tools-secret-patterns(5)` to the header each file is
-seeded with (capped, naming the page, comment-only so it does not register an entry) and to the reader each file is read
-with, through which the page's own examples are loaded. A registry example is held to what the page says it means
+are held to their files: `ai-tools-secret-patterns(5)` to the header its file is seeded with (capped, naming the page,
+comment-only so it does not register an entry), `ai-tools-project-registry(5)` to a seed that is the format marker
+alone, and each page to the reader its file is read with, through which the page's own examples are loaded. A registry example is held to what the page says it means
 as well as to the parser: each example block holding an entry validates as a current registry, and each line
 whose comment opens with a state word classifies as that state, since a parked project written with a `!` parses
 and reads as a carve-out. `ai-tools-operator.conf(5)` and `ai-tools-custom-claude-endpoint.conf(5)` to the keys their

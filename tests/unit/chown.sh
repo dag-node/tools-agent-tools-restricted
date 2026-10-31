@@ -25,7 +25,7 @@ proj="${TESTDIR}/proj"; excl="${proj}/vendor"
 mkdir -p "${proj}" "${excl}"
 chown "${PROJECTS_USER}:${PROJECTS_GROUP}" "${proj}" "${excl}"   # pre-existing project dirs
 chmod 0755 "${TESTDIR}" "${proj}" "${excl}"                       # traversable for the EACCES check
-mk_allowlist "${proj}" "!${excl}"
+mk_allowlist "@ ${proj}" "!${excl}"
 
 # Run the validator the way the hook does: detached from any tty, stdin from /dev/null, so it takes its non-interactive
 # apply branch. Captures stderr for the NOTICE assertions.
@@ -400,14 +400,14 @@ fi
 # The control runs second, so the refused run is read on the untouched tree.
 ir="${TESTDIR}/invalid-registry"; mkdir -p "${ir}"; chown "${PROJECTS_USER}:${PROJECTS_GROUP}" "${ir}"; chmod 0755 "${ir}"
 : > "${ir}/note.txt"; chown "${SANDBOX_USER}:${SANDBOX_GROUP}" "${ir}/note.txt"; chmod 0644 "${ir}/note.txt"
-mk_allowlist "${ir}" "relative/entry"
+mk_allowlist "@ ${ir}" "@ relative/entry"
 run "${ir}/note.txt"
 if [[ "$(stat -c '%U' "${ir}/note.txt")" == "${SANDBOX_USER}" ]]; then
     pass "a registry holding a refused line hands no path back"
 else
     fail "a registry holding a refused line: the file was handed back to $(stat -c '%U' "${ir}/note.txt")"
 fi
-mk_allowlist "${ir}"
+mk_allowlist "@ ${ir}"
 run "${ir}/note.txt"
 if [[ "$(stat -c '%U' "${ir}/note.txt")" == "${PROJECTS_USER}" ]]; then
     pass "control: the same file under the valid registry is handed back"

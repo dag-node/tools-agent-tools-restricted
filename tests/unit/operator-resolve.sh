@@ -30,12 +30,12 @@ mktestdir
 mkdir -p "${TESTDIR}"/proj/sub "${TESTDIR}"/proj/secret "${TESTDIR}"/proj/vendor "${TESTDIR}"/other \
          "${TESTDIR}"/noted "${TESTDIR}/quoted dir" "${TESTDIR}"/parked
 allow="${TESTDIR}/project-registry"
-# The format marker, plain lines, and one of each shape the shared grammar accepts: an allow entry with an end-of-line
+# The format marker, and one of each shape the shared grammar accepts: an allow entry with an end-of-line
 # comment, a quoted allow entry, an exclusion carrying a comment, and a parked project.
-printf '%s\n' "# ai-tools-project-registry-format: 1.0" "${TESTDIR}/proj" "!${TESTDIR}/proj/secret" \
+printf '%s\n' "# ai-tools-project-registry-format: 1.0" "@ ${TESTDIR}/proj" "!${TESTDIR}/proj/secret" \
               "!${TESTDIR}/proj/vendor   # carve-out" \
-              "${TESTDIR}/noted   # why" \
-              "\"${TESTDIR}/quoted dir\"" "%${TESTDIR}/parked" > "${allow}"
+              "@ ${TESTDIR}/noted   # why" \
+              "@ \"${TESTDIR}/quoted dir\"" "%${TESTDIR}/parked" > "${allow}"
 conf="${TESTDIR}/operator.conf"
 printf 'OPERATORS="%s"\n' "${PROJECTS_USER}" > "${conf}"
 export AI_TOOLS_OPERATOR_CONF="${conf}" AI_TOOLS_ALLOWLIST="${allow}"
@@ -59,7 +59,7 @@ covers "${TESTDIR}/parked/x"      && fail "covers: a path under a parked project
                                   || pass "covers: a '%' line parks its project"
 # A registry the grammar refuses does not cover any path, the control being the same file before the bad line is
 # appended.
-cp "${allow}" "${TESTDIR}/invalid"; printf '%s\n' "relative/entry" >> "${TESTDIR}/invalid"
+cp "${allow}" "${TESTDIR}/invalid"; printf '%s\n' "@ relative/entry" >> "${TESTDIR}/invalid"
 mkdir -p "${TESTDIR}/refused"; mv "${TESTDIR}/invalid" "${TESTDIR}/refused/project-registry"
 ai_tools_operator__is_covered_by_allowlist "${TESTDIR}/refused/project-registry" "${TESTDIR}/proj/sub" 2>/dev/null \
     && fail "covers: a registry with a refused line covered a path" \

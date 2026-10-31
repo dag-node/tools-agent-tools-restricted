@@ -77,7 +77,7 @@ mkdir -p "${clone}/src"
 chown -R "${PROJECTS_USER}:${SANDBOX_GROUP}" "${clone}"
 chmod 2700 "${clone}" "${clone}/src"
 chmod 0600 "${clone}/.env"
-mk_allowlist "${proj}" "!${proj}/vendor" "${clone}"
+mk_allowlist "@ ${proj}" "!${proj}/vendor" "@ ${clone}"
 
 # Run the deployed helper in <cwd> (it acts on pwd), non-interactive (`--yes`), never aborting the suite. Captures
 # combined output to <outfile>; sets the global LD_RC to its exit code.
@@ -345,7 +345,7 @@ fi
 # root meets on any host; the secret is read back at the mode it had.
 unread="${TESTDIR}/unread"
 mkdir -p "${unread}"; chmod 0755 "${unread}"
-mk_allowlist "${proj}" "${full}" "${unread}"
+mk_allowlist "@ ${proj}" "@ ${full}" "@ ${unread}"
 mk_secret "${unread}/.env"
 mkdir -p "${TESTDIR}/patterns-dir"
 export AI_TOOLS_SECRET_PATTERNS_FILE="${TESTDIR}/patterns-dir"
@@ -404,14 +404,14 @@ fi
 # The control runs second, so the refused run is read on the untouched tree.
 ir="${TESTDIR}/invalid-registry"; mkdir -p "${ir}"; chown "${PROJECTS_USER}:${PROJECTS_GROUP}" "${ir}"; chmod 0755 "${ir}"
 mk_secret "${ir}/.env"
-mk_allowlist "${ir}" "relative/entry"
+mk_allowlist "@ ${ir}" "@ relative/entry"
 run_ld "${ir}" "${TESTDIR}/invalid-registry.out" --yes
 if (( LD_RC != 0 )) && [[ "$(perm "${ir}/.env")" == 644 ]]; then
     pass "a registry holding a refused line: the lockdown refuses and locks no path"
 else
     fail "a registry holding a refused line: rc=${LD_RC}, .env is $(perm "${ir}/.env") (want a refusal, 644)"
 fi
-mk_allowlist "${ir}"
+mk_allowlist "@ ${ir}"
 run_ld "${ir}" "${TESTDIR}/invalid-registry.out" --yes
 if (( LD_RC == 0 )) && [[ "$(perm "${ir}/.env")" == 600 ]]; then
     pass "control: the same tree under the valid registry is locked"

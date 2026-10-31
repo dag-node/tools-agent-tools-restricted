@@ -629,7 +629,7 @@ DIGEST_FILE=""
 section "ai-tools: the park remedy names the parked path"
 FC_REG="${R}/registry-fc"
 reset; rm -rf "${R}/N" "${R}/P dir#1"; mkdir -p "${R}/N/o" "${R}/P dir#1/q"
-printf '%s\n' "${REG_MARKER}" "%${R}/N"$'\t'"# parked" "${R}/N/o" "%\"${R}/P dir#1\"" > "${FC_REG}"
+printf '%s\n' "${REG_MARKER}" "%${R}/N"$'\t'"# parked" "@ ${R}/N/o" "%\"${R}/P dir#1\"" > "${FC_REG}"
 chown -R "${PROJECTS_USER}:${PROJECTS_USER}" "${R}/N" "${R}/P dir#1" "${FC_REG}"
 REG_FILE="${FC_REG}"; cli_cmd ai-tools.projects.handback
 before="$(digest)"; rc=0; out="$(run_in "${R}" "${CLI_ARGV[@]}" "${R}/N/o")" || rc=$?

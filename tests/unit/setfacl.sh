@@ -28,7 +28,7 @@ mkdir -p "${proj}/sub" "${proj}/noted" "${proj}/.git/objects" "${proj}/.env/insi
 find "${proj}" -type d -exec chmod 0755 {} +
 # sub is '!'-excluded by a plain line; noted by a line carrying an end-of-line comment, which the shared allowlist
 # grammar accepts. A walk that read the second line raw would match no path against it and grant the carve-out.
-mk_allowlist "${proj}" "!${proj}/sub" "!${proj}/noted   # carve-out"
+mk_allowlist "@ ${proj}" "!${proj}/sub" "!${proj}/noted   # carve-out"
 
 if ! setfacl -m g:"${SANDBOX_GROUP}":rwX "${proj}" 2>/dev/null; then
     skip "ai-tools-setfacl" "filesystem does not support ACLs"; finish; exit
@@ -198,7 +198,7 @@ p2="${TESTDIR}/proj2"
 mkdir -p "${p2}/sub"
 chown -R "${PROJECTS_USER}:${PROJECTS_GROUP}" "${p2}"
 chmod -R 0770 "${p2}"
-mk_allowlist "${p2}"
+mk_allowlist "@ ${p2}"
 if id nobody >/dev/null 2>&1; then
     chown nobody:nobody "${p2}"
     root_err="$(setsid "${HELPER}" "${p2}" < /dev/null 2>&1 >/dev/null || true)"
@@ -226,7 +226,7 @@ fi
 # at a directory, the one unreadable state root meets on any host; the tree is read back with no ACL.
 proj2="${TESTDIR}/proj2"
 mkdir -p "${proj2}"; : > "${proj2}/plain.txt"
-mk_allowlist "${proj}" "${proj2}"
+mk_allowlist "@ ${proj}" "@ ${proj2}"
 chown -R "${PROJECTS_USER}:${PROJECTS_GROUP}" "${proj2}"
 chmod 0750 "${proj2}"; chmod 0640 "${proj2}/plain.txt"
 mkdir -p "${TESTDIR}/patterns-dir"
@@ -288,14 +288,14 @@ fi
 # The control runs second, so the refused run is read on the untouched tree.
 ir="${TESTDIR}/invalid-registry"; mkdir -p "${ir}/sub"; chown -R "${PROJECTS_USER}:${PROJECTS_GROUP}" "${ir}"
 chmod 0770 "${ir}" "${ir}/sub"
-mk_allowlist "${ir}" "relative/entry"
+mk_allowlist "@ ${ir}" "@ relative/entry"
 setsid "${HELPER}" "${ir}" < /dev/null > /dev/null 2>&1 || true
 if ! has_group_acl "${ir}/sub"; then
     pass "a registry holding a refused line: no ACL entry is written"
 else
     fail "a registry holding a refused line: ${ir}/sub carries the group entry"
 fi
-mk_allowlist "${ir}"
+mk_allowlist "@ ${ir}"
 setsid "${HELPER}" "${ir}" < /dev/null > /dev/null 2>&1 || true
 if has_group_acl "${ir}/sub"; then
     pass "control: the same tree under the valid registry takes the group entry"

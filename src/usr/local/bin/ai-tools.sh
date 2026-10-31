@@ -984,13 +984,13 @@ list_entries_under() {
     return 0
 }
 
-# list_lines_naming <dir>  -- print every raw registry line whose path, its kind character set aside, names <dir>.
+# list_lines_naming <dir>  -- print every raw registry line whose path, its sign set aside, names <dir>.
 list_lines_naming() {
     local raw entry
     [[ -f "${ALLOWLIST}" ]] || return 0
     while IFS= read -r raw || [[ -n "${raw}" ]]; do
         ai_tools_conf__parse_path_entry "${raw}" || continue
-        entry="${ai_tools_conf__value#[%!]}"
+        entry="${ai_tools_conf__value}"
         [[ "$(realpath -e -- "${entry}" 2>/dev/null || printf '%s' "${entry%/}")" == "$1" ]] && printf '%s\n' "${raw}"
     done < "${ALLOWLIST}"
     return 0
@@ -1004,8 +1004,8 @@ list_carveout_lines_under() {
     [[ -f "${ALLOWLIST}" ]] || return 0
     while IFS= read -r raw || [[ -n "${raw}" ]]; do
         ai_tools_conf__parse_path_entry "${raw}" || continue
-        [[ "${ai_tools_conf__value}" == '!'* ]] || continue
-        entry="${ai_tools_conf__value:1}"
+        [[ "${ai_tools_conf__kind}" == excluded ]] || continue
+        entry="${ai_tools_conf__value}"
         ai_tools_conf__has_glob_characters "${entry}" \
             || entry="$(realpath -e -- "${entry}" 2>/dev/null || printf '%s' "${entry%/}")"
         [[ "${entry}" == "$1" || "${entry}" == "$1/"* ]] && printf '%s\n' "${raw}"
@@ -1194,18 +1194,19 @@ reg_allow() {
                || die "could not add ${dir} to the registry -- a line of another kind names it"
            offer_reenable "${dir}" "the claim" \
                || die "the registry was not updated -- ${dir} is still disabled" ;;
-        4) die_unregistrable_name "${dir}" ;;
+        4) ai_tools_conf__is_registry_path_representable "${dir}" || die_unregistrable_name "${dir}"
+           die "could not add ${dir} to the registry -- a line of ${REGISTRY_DISPLAY_PATH} names a path carrying both quote characters, which the registry cannot write back; rename that directory or delete its line, then re-run" ;;
         *) die "could not add ${dir} to the registry -- it is not registered" ;;
     esac
 }
 
 # die_unregistrable_name <dir> [<remedy>]  -- refuse a project whose path the registry grammar cannot carry: a glob
-# character would make its allow line one the grammar refuses, and that line would refuse the whole file for every
+# character would make its project line one the grammar refuses, and that line would refuse the whole file for every
 # reader, the launch gate included. <remedy> replaces the rename-then-claim one, for a verb whose directory does not
 # exist yet. ai-tools-allowlist prints this code for a `--for` run.
 die_unregistrable_name() {
     die MSG-Z9R2 "this directory's name cannot be written as a registry line: $1" \
-        "A registry path does not carry '*', '?', '[', a double quote or a control character, and this one does. ${2:-Rename the directory, then claim it.}"
+        "A project's registry path does not carry '*', '?', '[', a control character, or both a single and a double quote, and this one does. ${2:-Rename the directory, then claim it.}"
 }
 # allow_escape <text>  -- escape <text> so it matches literally inside a sed `\|^...$|` address: the '|' delimiter,
 # backslash, and the BRE metacharacters (`.[]*^$`). Shared by unreg_allow, which runs the anchored-exact line deletion,
@@ -3419,7 +3420,7 @@ report_still_blocked() {
     say  "  ${C_DIM}$(format_blocking_line_remedy)${C_RST}"
 }
 
-# allowlist_exclusions  -- print this registry's carve-out and park paths, one per line without the kind character,
+# allowlist_exclusions  -- print this registry's carve-out and park paths, one per line without the sign,
 # each read through the shared grammar (ai_tools_conf__parse_path_entry), so a commented or quoted line denotes the same
 # path here as in every other reader of the file. Feeds the read-only claim-time scans (acl_drift_scan,
 # find_sealed_setgid_directories), which prune each such subtree from their walk, as the launch gate withholds it.
@@ -3429,8 +3430,8 @@ allowlist_exclusions() {
     [[ -f "${ALLOWLIST}" ]] || return 0
     while IFS= read -r line || [[ -n "${line}" ]]; do
         ai_tools_conf__parse_path_entry "${line}" || continue
-        case "${ai_tools_conf__value}" in
-            '!'*|'%'*) printf '%s\n' "${ai_tools_conf__value:1}" ;;
+        case "${ai_tools_conf__kind}" in
+            excluded|disabled) printf '%s\n' "${ai_tools_conf__value}" ;;
         esac
     done < "${ALLOWLIST}"
 }
@@ -5853,37 +5854,27 @@ cmd_project_list() {
         ai_tools_conf__parse_path_entry "${raw}" || continue
         entry="${ai_tools_conf__value}"
         shown=1
-        if [[ "${entry}" == '!'* ]]; then
+        if [[ "${ai_tools_conf__kind}" == excluded ]]; then
             # A '!' line is a carve-out wherever it sits: a subtree withheld from the agent, working as written, so it
-            # has no remedy to offer -- unless it names a path an allow or park line names too.
-            excl="${entry:1}"
-            if ! _has_glob "${excl}" && read_path_class "$(resolve_entry_path "${excl}")" \
-                    && [[ "${CLASS_STATE}" == conflict ]]; then
-                printf '  %-8s %-50s %s\n' "conflict" "${excl}" "${C_YEL}a '!' line and an entry name it${C_RST}"
-            else
-                printf '  %-8s %s\n' "exclude" "${excl}"
-            fi
+            # has no remedy to offer.
+            excl="${entry}"
+            printf '  %-8s %s\n' "exclude" "${excl}"
             # A stale exclusion does not match a path on disk. Flag a non-glob '!' path that no longer exists; a glob
             # exclusion is valid as written (it need not resolve today), so leave it.
             if ! _has_glob "${excl}" && ! realpath -e "${excl}" >/dev/null 2>&1; then
-                cleanup+=( "  ${entry}" \
+                cleanup+=( "  ! ${entry}" \
                     "      ${C_YEL}no longer exists${C_RST} (stale carve-out); remove it:" \
                     "          $(format_registry_line_removal "${raw}")" )
             fi
             continue
         fi
-        if [[ "${entry}" == '%'* ]]; then
+        if [[ "${ai_tools_conf__kind}" == disabled ]]; then
             # A parked project: registered, with no session starting there until it is re-enabled in place.
-            excl="${entry:1}"
-            read_path_class "$(resolve_entry_path "${excl}")"
-            if [[ "${CLASS_STATE}" == conflict ]]; then
-                printf '  %-8s %-50s %s\n' "conflict" "${excl}" "${C_YEL}a '!' line and an entry name it${C_RST}"
-            else
-                printf '  %-8s %-50s %s\n' "parked" "${excl}" "${C_DIM}no session may start here${C_RST}"
-                say "           ${C_DIM}re-enable: $(format_projects_command enable "${excl}")${C_RST}"
-            fi
+            excl="${entry}"
+            printf '  %-8s %-50s %s\n' "parked" "${excl}" "${C_DIM}no session may start here${C_RST}"
+            say "           ${C_DIM}re-enable: $(format_projects_command enable "${excl}")${C_RST}"
             if ! realpath -e "${excl}" >/dev/null 2>&1; then
-                cleanup+=( "  ${entry}" \
+                cleanup+=( "  % ${entry}" \
                     "      ${C_YEL}no longer exists${C_RST} (stale park); remove it:" \
                     "          $(format_registry_line_removal "${raw}")" )
             fi
@@ -5900,10 +5891,6 @@ cmd_project_list() {
             safe="safe.dir:${C_YEL}NO${C_RST}"; sd=false
         fi
         read_path_class "$(resolve_entry_path "${entry}")"
-        if [[ "${CLASS_STATE}" == conflict ]]; then
-            printf '  %-8s %-50s %s\n' "conflict" "${entry}" "${C_YEL}a '!' line and an entry name it${C_RST}"
-            continue
-        fi
         printf '  %-8s %-50s %s\n' "${kind}" "${entry}" "${safe}"
         # A listed project under a park, a carve-out or a glob is still this operator's entry, and no session reaches it
         # while that line stands.

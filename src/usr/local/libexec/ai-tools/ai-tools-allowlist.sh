@@ -262,7 +262,7 @@ AI_TOOLS_LOG_PROJECT="${canonical}"
 # against the operator's own file and install.sh against its checkout. What is left here is this helper's own job:
 # deciding WHO may edit WHOSE registry, and recording it. The library reports its outcomes apart -- 0 applied (or
 # already so), 1 the write failed, 2 the request does not apply from the current state, 3 the file is legacy or holds
-# a refused line, 4 (add) the path cannot be written as a registry line -- and each is reported to the caller
+# a refused line, 4 the path, or a line the file holds, cannot be written as a registry line -- and each is reported to the caller
 # distinctly, since a "not listed" and a "could not write" send an operator to different places. require_target_config
 # has refused a legacy or refused file before any edit, so a 3 is a file that changed between the check and the edit,
 # reported with the library's own line.
@@ -280,7 +280,10 @@ case "${ACTION}" in
             3) die_registry_changed added ;;
             # The CLI's refusal for a name the grammar cannot carry, printed as its twin: a `--for` claim reaches it
             # here.
-            4) printf 'MSG-Z9R2\nai-tools-allowlist: %s\n' "this directory's name cannot be written as a registry line: ${canonical} -- nothing changed; rename the directory, then claim it" >&2
+            4) if ai_tools_conf__is_registry_path_representable "${canonical}"; then
+                   die MSG-W6P5 "could not add ${canonical} to ${OPERATOR}'s allowlist -- nothing changed; a line of the registry names a path carrying both quote characters, which the registry cannot write back"
+               fi
+               printf 'MSG-Z9R2\nai-tools-allowlist: %s\n' "this directory's name cannot be written as a registry line: ${canonical} -- nothing changed; rename the directory, then claim it" >&2
                exit 1 ;;
             *) die MSG-D3T3 "could not add ${canonical} to ${OPERATOR}'s allowlist -- nothing changed" ;;
         esac

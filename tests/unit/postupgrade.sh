@@ -939,7 +939,7 @@ fi
 
 # ── (F2) The project registry migration ──────────────────────────────────────────────────────
 # Every enrolled operator's `~/.config/ai-tools/allowed-projects` becomes `~/.config/ai-tools/project-registry`,
-# unattended: the marker, then every line as it was, the old file renamed to the dated .bak, owner and mode kept.
+# unattended: the canonical form of every entry, the old file renamed to the dated .bak, owner and mode kept.
 # The operator is the projects user, whose home is read from the account database and prefixed with the fixture root,
 # so the operator's real files are not touched.
 section "ai-tools-admin system post-upgrade: the project registry migration (unit)"
@@ -964,14 +964,14 @@ fi
 out="$(run_pu)"
 reg_bak=("${REG_DIR}"/allowed-projects.*.bak)
 if [[ -f "${REG_DIR}/project-registry" && ! -e "${REG_DIR}/allowed-projects" && -f "${reg_bak[0]}" \
-        && "$(cat "${REG_DIR}/project-registry")" == "# ai-tools-project-registry-format: 1.0"$'\n'"${reg_before}" \
+        && "$(cat "${REG_DIR}/project-registry")" == "# ai-tools-project-registry-format: 1.0"$'\n'"$(printf '%-38s  %s' "@ /srv/p" "# the main one")"$'\n'"  ! /srv/p/vendor"$'\n'"! /srv/parked" \
         && "$(cat "${reg_bak[0]}")" == "${reg_before}" \
         && "$(stat -c '%U %a' "${REG_DIR}/project-registry")" == "${PROJECTS_USER} 600" ]]; then
-    pass "the run writes ~/.config/ai-tools/project-registry as the marker and every line, at the source's owner and mode, and keeps the .bak"
+    pass "the run writes ~/.config/ai-tools/project-registry in canonical form, at the source's owner and mode, and keeps the .bak"
 else
     fail "the migration: $(ls -la "${REG_DIR}" 2>&1 | tail -n +2 | tr '\n' '~'): ${out}"
 fi
-if grep -qF -- "!/srv/parked" <<<"${out}" && grep -qF -- "%/srv/parked" <<<"${out}"; then
+if grep -qF -- "! /srv/parked" <<<"${out}" && grep -qF -- "% /srv/parked" <<<"${out}"; then
     pass "a '!' line no project encloses is named with the '%' line that parks it"
 else
     fail "the plan's note for !/srv/parked: ${out}"
@@ -1042,7 +1042,7 @@ chown -R "${PROJECTS_USER}:${PROJECTS_GROUP}" "${REG_LINK}"; chmod 2775 "${REG_L
 reg_link_reset() {   # reg_link_reset <legacy|current> <exclusion-path>
     reg_reset "/srv/p" "!$2"
     [[ "$1" == current ]] || return 0
-    printf '%s\n' "# ai-tools-project-registry-format: 1.0" "/srv/p" "!$2" > "${REG_DIR}/project-registry"
+    printf '%s\n' "# ai-tools-project-registry-format: 1.0" "@ /srv/p" "!$2" > "${REG_DIR}/project-registry"
     chown "${PROJECTS_USER}:${PROJECTS_GROUP}" "${REG_DIR}/project-registry"; chmod 600 "${REG_DIR}/project-registry"
     rm -f "${REG_DIR}/allowed-projects"
 }
@@ -1095,6 +1095,27 @@ else
     fail "the legacy real-path control: ${out}"
 fi
 rm -rf "${REG_LINK}"
+# A format 1.0 file an earlier development build wrote, bare paths and comment lines, is not rewritten: every reader
+# refuses it, and the run names the line and its remedy and leaves the file for the operator's one edit.
+reg_reset "/srv/p"; rm -f "${REG_DIR}/allowed-projects"
+printf '%s\n' "# ai-tools-project-registry-format: 1.0" "# my projects" "/srv/p" > "${REG_DIR}/project-registry"
+chown "${PROJECTS_USER}:${PROJECTS_GROUP}" "${REG_DIR}/project-registry"; chmod 600 "${REG_DIR}/project-registry"
+reg_before="$(cat "${REG_DIR}/project-registry")"
+run_check
+if [[ "${check_rc}" == 4 ]] && awk -F '\t' -v f="${REG_DIR}/project-registry" 'NR == 1 { for (i = 1; i <= NF; i++) col[$i] = i; next }
+        $col["code"] == "MSG-G6H4" && $col["finding"] == "registry-invalid" && $col["subject"] == f \
+            && index($col["detail"], "comment-line") { found = 1 } END { exit !found }' <<< "${out}"; then
+    pass "--check writes registry-invalid for a 1.0 file not in canonical form, naming the line's fault"
+else
+    fail "--check over a 1.0 file not in canonical form (exit ${check_rc}): ${out}"
+fi
+out="$(run_pu)"
+if [[ "$(cat "${REG_DIR}/project-registry")" == "${reg_before}" ]] && grep -qF "comment-line" <<<"${out}" \
+        && grep -qF "no session starts under it" <<<"${out}"; then
+    pass "the run reports the 1.0 file not in canonical form with its remedy and leaves it as written"
+else
+    fail "the run over a 1.0 file not in canonical form: ${out}"
+fi
 reset_root
 
 # ── (G) Dispatch ─────────────────────────────────────────────────────────────────────────────

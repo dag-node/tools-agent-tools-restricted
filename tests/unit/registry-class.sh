@@ -3,7 +3,7 @@
 # tests/unit/registry-class.sh
 # The registry classifier in conf.lib.sh (ai_tools_conf__read_registry_path_class), which every `projects` verb decides
 # from, driven as a table: one fixture registry per shape a host meets, one row per (fixture, path) asserting every
-# field of the record and the state. The set of states the rows reach is asserted equal to the seven the classifier
+# field of the record and the state. The set of states the rows reach is asserted equal to the ones the classifier
 # names, so a state added to the library without rows fails this file, and so does a row naming a state the library does
 # not derive. `blocked` names the first line in file order, which a pair of fixtures holding the same lines in both
 # orders pins. The table runs under the launch wrapper's IFS, the shell the CLI and the wrapper read the record in.
@@ -36,22 +36,21 @@ fixture() {
     local name="$1"; shift
     printf '%s\n' "# ai-tools-project-registry-format: 1.0" "$@" > "${TESTDIR}/${name}"
 }
-fixture nested-carve   "${T}/A" "!${T}/A/vendor" "${T}/A/sub"
-fixture parked-parent  "%${T}/B" "${T}/B/child" "!${T}/B/x"
-fixture nested-park    "${T}/C" "%${T}/C/n"
-fixture conflict       "${T}/D" "!${T}/D"
-fixture stale-allow    "${T}/E-gone"
+fixture nested-carve   "@ ${T}/A" "!${T}/A/vendor" "@ ${T}/A/sub"
+fixture parked-parent  "%${T}/B" "@ ${T}/B/child" "!${T}/B/x"
+fixture nested-park    "@ ${T}/C" "%${T}/C/n"
+fixture stale-allow    "@ ${T}/E-gone"
 fixture stale-park     "%${T}/F-gone"
-fixture glob           "${T}/G" "!${T}/G/*/cache"
-fixture quoted         "\"${T}/H dir\""
-fixture commented      "${T}/I   # a note" "# ${T}/zzz"
+fixture glob           "@ ${T}/G" "!${T}/G/*/cache"
+fixture quoted         "@ \"${T}/H dir\""
+fixture commented      "@ ${T}/I   # a note"
 fixture lone-carve     "!${T}/J"
-fixture symlink        "${T}/K-link"
+fixture symlink        "@ ${T}/K-link"
 fixture carve-first    "!${T}/L" "%${T}/L/m"
 fixture park-first     "%${T}/L/m" "!${T}/L"
-fixture duplicate-pair "${T}/M" "%${T}/M"
+fixture identical      "@ ${T}/M   # first" "@${T}/M/"
 # A tab before a comment is whitespace to the grammar; in the record it would split a field, so `blocked` shows it `?`.
-fixture tab-comment    "%${T}/N"$'\t'"# parked" "${T}/N/o"
+fixture tab-comment    "%${T}/N"$'\t'"# parked" "@ ${T}/N/o"
 # A park whose path carries a space and a '#' is quoted; blocked_path is the path the quotes hold.
 fixture space-hash     "%\"${T}/P dir#1\""
 
@@ -72,8 +71,6 @@ parked-parent  | @/B/child/y  | inside       | none        | @/B/child | listed 
 nested-park    | @/C          | listed       | allow       | -         | -        | -             | -     | 1 | -
 nested-park    | @/C/n        | parked       | park        | @/C       | listed   | -             | -     | 0 | -
 nested-park    | @/C/n/z      | inside       | none        | @/C/n     | parked   | %@/C/n        | park  | 0 | @/C/n
-conflict       | @/D          | conflict     | allow,carve | -         | -        | -             | -     | 0 | -
-conflict       | @/D/q        | inside       | none        | @/D       | conflict | !@/D          | carve | 0 | @/D
 stale-allow    | @/E-gone     | listed       | allow       | -         | -        | -             | -     | 0 | -
 stale-park     | @/F-gone     | parked       | park        | -         | -        | -             | -     | 0 | -
 glob           | @/G/m        | inside       | none        | @/G       | listed   | -             | -     | 0 | -
@@ -86,12 +83,12 @@ lone-carve     | @/J/k        | unregistered | none        | -         | -      
 symlink        | @/K          | listed       | allow       | -         | -        | -             | -     | 0 | -
 carve-first    | @/L/m/n      | inside       | none        | @/L/m     | parked   | !@/L          | carve | 0 | @/L
 park-first     | @/L/m/n      | inside       | none        | @/L/m     | parked   | %@/L/m        | park  | 0 | @/L/m
-duplicate-pair | @/M          | parked       | allow,park  | -         | -        | -             | -     | 0 | -
+identical      | @/M          | listed       | allow       | -         | -        | -             | -     | 0 | -
 tab-comment    | @/N/o        | listed       | allow       | @/N       | parked   | %@/N?# parked | park  | 0 | @/N
 space-hash     | @/P dir#1/q  | inside       | none        | @/P dir#1 | parked   | %"@/P dir#1"  | park  | 0 | @/P dir#1
 ROWS
 )"
-readonly DECLARED_STATES="ancestor carve-out conflict inside listed parked unregistered"
+readonly DECLARED_STATES="ancestor carve-out inside listed parked unregistered"
 
 # trim <text> : print <text> without leading or trailing spaces.
 trim() { local t="$1"; t="${t#"${t%%[! ]*}"}"; printf '%s' "${t%"${t##*[! ]}"}"; }
@@ -124,15 +121,27 @@ fi
 lib_states="$(sed -n '/^# ── Registry classification/,/^# The launch DECISION/p' "${LIB}" \
     | sed -n 's/^#   \([a-z-]*\) .*/\1/p' | grep -v '^state$' | sort | tr '\n' ' ')"
 if [[ "${lib_states% }" == "${DECLARED_STATES}" ]]; then
-    pass "the library's state table names the seven states this file covers"
+    pass "the library's state table names the states this file covers"
 else
     fail "the library's state table names '${lib_states% }'"
 fi
 
-# A refused file and a missing one print nothing: 3 and 1.
-fixture refused "${T}/A" "relative/line"
+# A refused file and a missing one print nothing: 3 and 1. Two signs on one path are a refused file, written as one
+# path (MSG-B8U2) or as two spellings of one directory through a link (MSG-E3W3).
+fixture refused "@ ${T}/A" "@ relative/line"
 rc=0; out="$(ai_tools_conf__read_registry_path_class "${TESTDIR}/refused" "${T}/A" 2>/dev/null)" || rc=$?
 if [[ "${rc}" -eq 3 && -z "${out}" ]]; then pass "a refused registry classifies no path (3)"; else fail "a refused registry: rc ${rc}, '${out}'"; fi
+fixture two-signs  "@ ${T}/D" "!${T}/D"
+fixture two-spells "@ ${T}/K" "%${T}/K-link"
+for refused_fixture in two-signs:MSG-B8U2:D two-spells:MSG-E3W3:K; do
+    IFS=: read -r refused_name refused_code refused_dir <<<"${refused_fixture}"
+    rc=0; out="$(ai_tools_conf__read_registry_path_class "${TESTDIR}/${refused_name}" "${T}/${refused_dir}" 2>"${TESTDIR}/err")" || rc=$?
+    if [[ "${rc}" -eq 3 && -z "${out}" ]]; then
+        assert_msg "${refused_code}" "$(cat "${TESTDIR}/err")" "${refused_name}: two signs on one directory classify no path (3)"
+    else
+        fail "${refused_name}: rc ${rc}, '${out}'"
+    fi
+done
 rc=0; out="$(ai_tools_conf__read_registry_path_class "${TESTDIR}/absent" "${T}/A" 2>/dev/null)" || rc=$?
 if [[ "${rc}" -eq 1 && -z "${out}" ]]; then pass "a missing registry classifies no path (1)"; else fail "a missing registry: rc ${rc}, '${out}'"; fi
 
@@ -140,10 +149,10 @@ if [[ "${rc}" -eq 1 && -z "${out}" ]]; then pass "a missing registry classifies 
 # has opened the file. The classifier reads the inode it opened, so a replacement holding /pri<NUL>vate, which `read`
 # takes as /private, is not read; the same stub with no replacement waiting is the control.
 mkdir -p "${T}/private"
-printf '%s\n%s\0%s\n' "# ai-tools-project-registry-format: 1.0" "${T}/pri" "vate" > "${TESTDIR}/pinned.next"
+printf '%s\n%s\0%s\n' "# ai-tools-project-registry-format: 1.0" "@ ${T}/pri" "vate" > "${TESTDIR}/pinned.next"
 # pinned_state <path> : the state the classifier reads for <path> over the fixture `pinned`, under the renaming stub.
 pinned_state() {
-    fixture pinned "${T}/A"
+    fixture pinned "@ ${T}/A"
     ( tr() { if [[ -e "${TESTDIR}/pinned.next" ]]; then mv -f -- "${TESTDIR}/pinned.next" "${TESTDIR}/pinned"; fi
              command tr "$@"; }
       ai_tools_conf__read_registry_path_class "${TESTDIR}/pinned" "$1" ) 2>/dev/null | cut -f1
@@ -168,8 +177,7 @@ under_is() {   # under_is <fixture> <path> <expected, one `path<TAB>state` per l
 under_is nested-carve "${T}" "${T}/A"$'\t'"listed"$'\n'"${T}/A/sub"$'\t'"listed" \
     "entries under an ancestor, in file order, the carve-out left out"
 under_is parked-parent "${T}/B" "${T}/B/child"$'\t'"listed" "a parked project's nested entry is listed under it"
-under_is conflict "${T}" "${T}/D"$'\t'"conflict" "a conflict entry is listed with its state"
-under_is duplicate-pair "${T}" "${T}/M"$'\t'"parked" "a path named by two lines is one entry"
+under_is identical "${T}" "${T}/M"$'\t'"listed" "a path named by two identical lines is one entry"
 under_is lone-carve "${T}" "" "a carve-out alone is not an entry"
 
 finish

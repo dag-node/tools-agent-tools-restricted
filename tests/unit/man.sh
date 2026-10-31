@@ -320,8 +320,9 @@ check_providers_page
 # ── The seeded operator files: ai-tools-project-registry(5), ai-tools-secret-patterns(5) ──────────────────
 # The header each *_seed function in conf.lib.sh prints is written into an operator's file once, at enrolment, and no
 # upgrade rewrites it -- so the reference lives in the page, which the package replaces on every upgrade, and the header
-# stays a pointer. check_seed_header holds that shape for both files: the header is short (the cap is what stops it
-# regrowing into a second reference), it names its page, and it is comment-only, so a seeded file registers no entry.
+# stays a pointer. check_seed_header holds that shape for the secret-patterns header: the header is short (the cap is
+# what stops it regrowing into a second reference), it names its page, and it is comment-only, so a seeded file
+# registers no entry. The registry's seed is the format marker alone, and its page is its header.
 # Each page then has its EXAMPLES read through the parser its file is read with, so an example the manual shows is one
 # the file accepts, and its .TH version field checked.
 readonly SEED_HEADER_MAX_LINES=15
@@ -376,7 +377,13 @@ check_allowlist_page() {
     if ! source "${CONF_LIB}" 2>/dev/null || ! declare -F ai_tools_conf__parse_path_entry >/dev/null 2>&1; then
         skip "ai-tools-project-registry seed header" "conf.lib.sh not loadable from ${CONF_LIB}"; return
     fi
-    check_seed_header ai_tools_conf__get_allowlist_seed ai-tools-project-registry
+    # The registry's seed is the format marker alone: its grammar has no comment line but the marker, so the page is
+    # its header.
+    if [[ "$(ai_tools_conf__get_allowlist_seed)" == "$(ai_tools_conf__get_registry_marker)" ]]; then
+        pass "the seeded ai-tools-project-registry file is the format marker alone"
+    else
+        fail "the seeded ai-tools-project-registry file is not the marker alone: $(ai_tools_conf__get_allowlist_seed | head -3 | tr '\n' '|')"
+    fi
 
     # The examples are held to what the page says they mean, not to the parser alone, since a parked project written
     # with a '!' parses as an entry and reads as a carve-out. Each .EX block holding an entry is written to a file
@@ -387,7 +394,7 @@ check_allowlist_page() {
     mktestdir; example_file="${TESTDIR}/registry-example"
     while IFS= read -r line; do
         if [[ "${line}" != "${EXAMPLE_BLOCK_END}" ]]; then block+=("${line}"); continue; fi
-        if printf '%s\n' "${block[@]+"${block[@]}"}" | grep -qE '^[/!%"]'; then
+        if printf '%s\n' "${block[@]+"${block[@]}"}" | grep -qE '^[[:space:]]*[@!%]'; then
             blocks=$(( blocks + 1 ))
             printf '%s\n' "${block[@]}" > "${example_file}"
             if ! ai_tools_conf__validate_registry "${example_file}" current 2>"${TESTDIR}/example.err"; then
@@ -399,9 +406,8 @@ check_allowlist_page() {
                 ai_tools_conf__parse_path_entry "${line}" || continue
                 # shellcheck disable=SC2154  # ai_tools_conf__value is set by ai_tools_conf__parse_path_entry in the sourced library
                 path="${ai_tools_conf__value}"
-                case "${path}" in '!'*|'%'*) path="${path:1}" ;; esac
                 comment="${line##* # }"; word="${comment%%[ :,]*}"
-                case "${word}" in listed|parked|carve-out|conflict) ;; *) continue ;; esac
+                case "${word}" in listed|parked|carve-out) ;; *) continue ;; esac
                 claimed=$(( claimed + 1 )); states_claimed["${word}"]=1
                 state="$(ai_tools_conf__read_registry_path_class "${example_file}" "${path}" 2>/dev/null | cut -f1)"
                 if [[ "${state}" != "${word}" ]]; then

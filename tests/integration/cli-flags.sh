@@ -400,7 +400,7 @@ drive_rows() {
 
     # ── A. Reads, help, and the incident rung ─────────────────────────────────────────
     section "reports, ai-tools.help, ai-tools.version, ai-tools.stop, ai-tools.audit"
-    seed "${R}/pa"
+    seed "@ ${R}/pa"
     drive cli ai-tools.help;               expect "help exits 0 with no helper call"            rc_is 0
     expect "help reaches no helper" cli_log_empty
     drive run_in "${R}";          expect "the bare invocation exits 0"                  rc_is 0
@@ -452,7 +452,7 @@ drive_rows() {
 
     # ── B. Claim ─────────────────────────────────────────────────────────────────────
     section "ai-tools.projects.claim"
-    seed "${R}/pb"
+    seed "@ ${R}/pb"
     drive cli ai-tools.projects.claim "${R}/pa"
     expect "claim without --yes declines at the proceed prompt"       rc_not0
     expect "the declined claim registers nothing"                     st_is "${R}/pa" absent
@@ -522,7 +522,7 @@ drive_rows() {
         : > "$1/moved-in.txt"; chown "${PROJECTS_USER}:${PROJECTS_USER}" "$1/moved-in.txt"; chmod 0640 "$1/moved-in.txt"
     }
     claimed_fixture "${R}/ph"
-    seed "${R}/ph"; seed_gc "${R}/ph"
+    seed "@ ${R}/ph"; seed_gc "${R}/ph"
     cli_stub_reset; drive cli_stdout ai-tools.projects.claim "$(f format)" tsv "$(f yes)" "${R}/ph"
     expect "a declined group repair exits 4"                          rc_is 4
     expect "the stream is the header and whole rows"                  out_is_records
@@ -554,7 +554,7 @@ drive_rows() {
     # than as a complete scan of a smaller tree.
     claimed_fixture "${R}/pk"
     mkdir -p "${R}/pk/locked"; chown root:root "${R}/pk/locked"; chmod 0700 "${R}/pk/locked"
-    seed "${R}/pk"; seed_gc "${R}/pk"
+    seed "@ ${R}/pk"; seed_gc "${R}/pk"
     cli_stub_reset; drive cli_stdout ai-tools.projects.claim "$(f format)" tsv "$(f yes)" "${R}/pk"
     expect "an unreadable directory in the tree exits 5"              rc_is 5
     expect "the unread walk is an error row"                          out_has_row error
@@ -565,7 +565,7 @@ drive_rows() {
     # the step and exits 5 rather than reading the step as not applicable.
     claimed_fixture "${R}/pm"; rm -f "${R}/pm/moved-in.txt"
     git init -q "${R}/pm"
-    seed "${R}/pm"; seed_gc "${R}/pm"
+    seed "@ ${R}/pm"; seed_gc "${R}/pm"
     cli_stub_reset; drive cli_stdout ai-tools.projects.claim "$(f format)" tsv "$(f yes)" "${R}/pm"
     expect "a repository the operator's git refuses exits 5"          rc_is 5
     expect "the unread core.filemode step is an error row"            out_has_finding_item error filemode
@@ -575,7 +575,7 @@ drive_rows() {
     # whole. The entry is quoted, the form the allowlist grammar reads a path with a space in.
     claimed_fixture "${R}/pm space"; rm -f "${R}/pm space/moved-in.txt"
     git init -q "${R}/pm space"
-    seed "\"${R}/pm space\""; seed_gc "${R}/pm space"
+    seed "@ \"${R}/pm space\""; seed_gc "${R}/pm space"
     cli_stub_reset; drive cli ai-tools.projects.claim "$(f yes)" "${R}/pm space"
     expect "control: the claim of the spaced path reads core.filemode as unread" rc_is 5
     expect "the printed command quotes a path with a space"           out_has_text "git -C $(LC_ALL=C printf '%q' "${R}/pm space") config core.filemode true"
@@ -584,7 +584,7 @@ drive_rows() {
     # the one the policy gives its path, so it is drift. Without a terminal only `--yes` relabels,
     # and AI_TOOLS_ASSUME_YES does not, with or without it.
     claimed_fixture "${R}/pl"; rm -f "${R}/pl/moved-in.txt"
-    seed "${R}/pl"; seed_gc "${R}/pl"
+    seed "@ ${R}/pl"; seed_gc "${R}/pl"
     # The fixture's path needs a default label for the dry run to compare against: under /tmp the policy gives none.
     # getenforce and restorecon live in /usr/sbin, which run_in's PATH leaves out, so these rows add it: without it
     # the CLI reads the host as having no SELinux and never runs the label scan.
@@ -652,7 +652,7 @@ drive_rows() {
     else
         granted()     { getfacl -p "${reach_fx}" 2>/dev/null | grep -qE "^user:${SANDBOX_USER}:..x"; }
         not_granted() { ! granted; }
-        seed "${reach_proj}"; seed_gc "${reach_proj}"
+        seed "@ ${reach_proj}"; seed_gc "${reach_proj}"
         cli_stub_reset; drive cli ai-tools.projects.claim "${reach_proj}"
         expect "a claimed project with the grant pending exits 0 with no terminal" rc_is 0
         expect "the declined grant runs no secret scan"                   not_called ai-tools-lockdown
@@ -671,7 +671,7 @@ drive_rows() {
 
     # ── C. Create ─────────────────────────────────────────────────────────────────────
     section "ai-tools.projects.create"
-    seed "${R}/pa"
+    seed "@ ${R}/pa"
     drive cli ai-tools.projects.create
     expect "create without a path is refused"                         rc_not0
     expect "the refused create reaches no helper"                     cli_log_empty
@@ -697,7 +697,7 @@ drive_rows() {
 
     # ── D. Unclaim ────────────────────────────────────────────────────────────────────
     section "ai-tools.projects.unclaim"
-    seed "${R}/pa" "${R}/pb" "${R}/pc" "${R}/pd" "${R}/pg" "${R}/parent/p1" "${R}/parent/p2"
+    seed "@ ${R}/pa" "@ ${R}/pb" "@ ${R}/pc" "@ ${R}/pd" "@ ${R}/pg" "@ ${R}/parent/p1" "@ ${R}/parent/p2"
     seed_gc "${R}/pa" "${R}/pb" "${R}/pc" "${R}/pd" "${R}/pg"
     drive cli ai-tools.projects.unclaim "${R}/pa"
     expect "unclaim without --yes declines at the confirm"            rc_not0
@@ -731,21 +731,21 @@ drive_rows() {
     chmod 0755 "${selinux_on}" "${selinux_on}/getenforce"
     chown "${PROJECTS_USER}:${PROJECTS_USER}" "${R}/pe"
     RUN_EXTRA_ENV=(PATH="${selinux_on}:${CLI_STUB_PATH}:/usr/local/bin:/usr/bin:/bin")
-    seed "${R}/pe"; drive cli ai-tools.projects.unclaim "$(f yes)" "${R}/pe"
+    seed "@ ${R}/pe"; drive cli ai-tools.projects.unclaim "$(f yes)" "${R}/pe"
     expect "control: with SELinux on, unclaim reverts the label and exits 0" rc_is 0
     expect "the label reversal reaches the relabel helper"            cli_called ai-tools-relabel "^--remove${T}${R}/pe$"
-    seed "${R}/pe"; cli_stub_fail_status ai-tools-relabel 4
+    seed "@ ${R}/pe"; cli_stub_fail_status ai-tools-relabel 4
     drive cli ai-tools.projects.unclaim "$(f yes)" "${R}/pe"
     expect "an unclaim whose label reversal the gate refused exits non-zero" rc_not0
     expect "that unclaim still hands the tree back"                   cli_called ai-tools-unclaim "^${R}/pe${T}"
     expect "that unclaim still drops the entry"                       st_is "${R}/pe" absent
     RUN_EXTRA_ENV=()
 
-    seed "${R}/pa"; drive cli ai-tools.projects.unclaim "$(f yes)" "$(f keep-entry)" "${R}/pa"
+    seed "@ ${R}/pa"; drive cli ai-tools.projects.unclaim "$(f yes)" "$(f keep-entry)" "${R}/pa"
     expect "unclaim --keep-entry parks the entry instead of dropping it" st_is "${R}/pa" disabled
     expect "unclaim --keep-entry still hands the tree back"           cli_called ai-tools-unclaim "^${R}/pa${T}"
 
-    seed "${R}/pa"; drive cli ai-tools.projects.unclaim "$(f keep-entry)" "$(f force)" "${R}/pa"
+    seed "@ ${R}/pa"; drive cli ai-tools.projects.unclaim "$(f keep-entry)" "$(f force)" "${R}/pa"
     expect "--keep-entry with --force is refused"                     rc_not0
     expect "the refused unclaim reaches no helper"                    cli_log_empty
     cli_stub_reset; drive cli ai-tools.projects.unclaim "$(f dry-run)" "${R}/pa"
@@ -777,14 +777,14 @@ drive_rows() {
     expect "--force on a tree with no residue is refused"             rc_not0
     expect "that refusal reaches no helper"                           cli_log_empty
 
-    seed "${R}/parent/p1" "${R}/parent/p2"
+    seed "@ ${R}/parent/p1" "@ ${R}/parent/p2"
     drive cli ai-tools.projects.unclaim "${R}/parent"
     expect "an ancestor unclaim without --yes declines"               rc_not0
     expect "the declined ancestor unclaim reaches no helper"          cli_log_empty
     cli_stub_reset; drive cli ai-tools.projects.unclaim "$(f yes)" "${R}/parent"
     expect "an ancestor unclaim --yes unclaims every project under it" test "$(cli_call_count ai-tools-unclaim)" -eq 2
     expect "both nested entries are dropped"                          test "$(st "${R}/parent/p1")" = absent -a "$(st "${R}/parent/p2")" = absent
-    seed "${R}/hold"; drive cli ai-tools.projects.unclaim "$(f yes)" "${R}/hold/inner"
+    seed "@ ${R}/hold"; drive cli ai-tools.projects.unclaim "$(f yes)" "${R}/hold/inner"
     expect "a path inside a project is refused"                       rc_not0
     expect "that refusal reaches no helper"                           cli_log_empty
     expect "the enclosing entry is untouched"                         st_is "${R}/hold" listed
@@ -793,7 +793,7 @@ drive_rows() {
     section "ai-tools.projects.remove.inplace"
     mkdir -p "${R}/rm1" "${R}/rm2" "${R}/rm3" "${R}/rm4" "${R}/rmp/nested"
     chown -R "${PROJECTS_USER}:${PROJECTS_USER}" "${R}/rm1" "${R}/rm2" "${R}/rm3" "${R}/rm4" "${R}/rmp"
-    seed "${R}/rm1" "%${R}/rm2" "${R}/rm3" "${R}/rm4" "${R}/rmp" "${R}/rmp/nested"
+    seed "@ ${R}/rm1" "%${R}/rm2" "@ ${R}/rm3" "@ ${R}/rm4" "@ ${R}/rmp" "@ ${R}/rmp/nested"
     seed_gc "${R}/rm1" "${R}/rm2"
     drive cli ai-tools.projects.remove.inplace "${R}/rm1"
     expect "remove without --yes declines at the confirm"             rc_not0
@@ -838,7 +838,7 @@ drive_rows() {
 
     # ── F. Enable and disable ─────────────────────────────────────────────────────────
     section "ai-tools.projects.disable / ai-tools.projects.enable"
-    seed "${R}/pa" "${R}/hold" "${R}/hold/inner"
+    seed "@ ${R}/pa" "@ ${R}/hold" "@ ${R}/hold/inner"
     drive cli ai-tools.projects.disable "${R}/pa"
     expect "disable parks the entry"                                  st_is "${R}/pa" disabled
     expect "disable is a registry edit alone"                         cli_log_empty
@@ -859,7 +859,7 @@ drive_rows() {
 
     # ── G. Acting for another operator ────────────────────────────────────────────────
     section "--for"
-    seed "${R}/pa"; seed_for "${R}/for1"
+    seed "@ ${R}/pa"; seed_for "@ ${R}/for1"
     inv_before="$(sha "${AL}")"
     for order in "lead" "trail"; do
         cli_stub_reset
@@ -1068,7 +1068,7 @@ drive_rows() {
 
     # ── J. Lockdown and reclaim ───────────────────────────────────────────────────────
     section "ai-tools.projects.lockdown / ai-tools.projects.handback"
-    seed "${R}/pa"
+    seed "@ ${R}/pa"
     cli_stub_reset; drive cli ai-tools.projects.lockdown "${R}/pa"
     expect "lockdown runs the helper inside the project"              test "$(cwd_of ai-tools-lockdown)" = "${R}/pa"
     expect "lockdown passes no flag by default"                       test -z "$(cli_calls ai-tools-lockdown)"

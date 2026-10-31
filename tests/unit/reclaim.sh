@@ -20,7 +20,7 @@ fi
 mktestdir
 proj="${TESTDIR}/proj"
 mkdir -p "${proj}/.git/objects/ab" "${proj}/node_modules/pkg" "${proj}/src"
-mk_allowlist "${proj}"
+mk_allowlist "@ ${proj}"
 
 # Agent-owned fixtures: a work-tree file, a .git object, a node_modules file.
 wt="${proj}/src/app.js";            : > "${wt}"

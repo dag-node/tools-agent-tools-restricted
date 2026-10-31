@@ -2449,12 +2449,13 @@ _pu_kind_migrate() {
 # _pu_registry_migrate <root>: migrate every enrolled operator's `~/.config/ai-tools/allowed-projects`
 # to `~/.config/ai-tools/project-registry` (the plan and the write are ai_tools_conf__plan_registry_migration
 # and ai_tools_conf__migrate_registry, conf.lib.sh), one block per operator, on every run, the unattended one included:
-# each line is copied unchanged, so the migration does not change what a session reaches, and until it lands every
-# `projects` verb refuses. The plan is printed row by row first, a plain `!` line no project encloses with the `%` line
-# that parks it in format 1.0, since that reading is the one the copy changes and only the operator knows which was
-# meant. A registry no reader accepts, legacy or current, is named and left as written; a legacy file the gate refuses
-# only for an exclusion through a link still migrates, and the block names the line after its rows. Root writes
-# through the operator's own 0700 directory, and the new file takes the source's owner and mode.
+# each entry keeps its kind and its written path, so the migration does not change what a session reaches, and until it
+# lands every `projects` verb refuses. The plan is printed row by row first -- the line each entry becomes, a whole-line
+# comment the canonical form drops, an entry it cannot carry -- and a plain `!` line no project encloses with the `%`
+# line that disables it in format 1.0, since that reading is the one the migration changes and only the operator knows
+# which was meant. A registry no reader accepts, legacy or current, is named and left as written; a legacy file the gate
+# refuses only for an exclusion through a link still migrates, and the block names the line after its rows. Root
+# writes through the operator's own 0700 directory, and the new file takes the source's owner and mode.
 _pu_registry_migrate() {
     local root="$1" user uid state path verdict number raw hint sidecar rc scratch notes registry
     while IFS=$'\t' read -r user uid state path; do
@@ -2471,17 +2472,19 @@ _pu_registry_migrate() {
         esac
         _PU_NAME="registry"
         ai_tools_msg__headline "project registry -- ${user}" 1 "${path}" \
-            "becomes ${path%/*}/project-registry, format 1.0: the marker, then every line as it was"
+            "becomes ${path%/*}/project-registry, format 1.0: the marker, then each entry with its sign, in canonical order"
         notes=0
         while IFS=$'\t' read -r verdict number raw hint; do
             case "${verdict}" in
                 marker) _pu_say info "new first line: ${raw}" ;;
                 keep)   _pu_say info "line ${number}: ${raw}" ;;
+                drop)   _pu_say info "line ${number}: ${raw} -- a comment line, dropped; format 1.0 carries a note at the end of an entry" ;;
+                refuse) _pu_say err "line ${number}: ${raw} -- ${hint}" ;;
                 note)   _pu_say act "line ${number}: ${raw} -- ${hint}"; notes=$(( notes + 1 )) ;;
             esac
         done < <(ai_tools_conf__plan_registry_migration "${path}" 2>/dev/null)
-        # The lines are written as they were: a `!` no project encloses withholds its path in either format, and only
-        # the operator knows whether it was a parked project, so the block closes by counting them once.
+        # Each `!` keeps its sign: one no project encloses withholds its path in either format, and only the operator
+        # knows whether it was a parked project, so the block closes by counting them once.
         if (( notes > 0 )); then
             _pu_say act "${notes} '!' line(s) above read as carve-outs in format 1.0, so no session starts there, as before -- to keep one as a parked project that atr projects enable restores, change its '!' to '%'"
         fi
@@ -2495,8 +2498,8 @@ _pu_registry_migrate() {
             2|3) _pu_say err "not migrated: ${AI_TOOLS_CONF__MIGRATION_REFUSAL} -- fix it, then re-run atr admin system post-upgrade" ;;
             *) _pu_say err "not migrated: ${AI_TOOLS_CONF__MIGRATION_REFUSAL} -- ${path} stays the registry; re-run atr admin system post-upgrade" ;;
         esac
-        # The copy keeps every line, so an exclusion through a link the gate refuses refuses the new file as it did
-        # the old one, and the same edit clears it in either.
+        # The new file keeps every entry, so an exclusion through a link the gate refuses refuses it as it did the old
+        # one, and the same edit clears it in either.
         registry="${path}"; (( rc == 0 )) && registry="${path%/*}/project-registry"
         if ! ai_tools_conf__check_registry "${registry}" 2>/dev/null; then
             { ai_tools_conf__check_registry "${registry}" 2>&1 || true; } | sed 's/^/    /'

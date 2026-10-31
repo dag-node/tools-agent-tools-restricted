@@ -2909,8 +2909,8 @@ do_install() {
             "Removes every approved project from the allowlist (the directories are untouched)."; then
         seed_result "${allowlist}" "${allowlist_existed}" 1
     else
-        # The header text is conf.lib.sh's, the same one `atr admin operators add` seeds on a packaged host,
-        # so an operator meets one description of what the file accepts.
+        # The seed is conf.lib.sh's, the same one `atr admin operators add` writes on a packaged host: the format
+        # marker alone, since ai-tools-project-registry(5) is the file's header.
         ai_tools_conf__get_allowlist_seed > "${allowlist}"
         chown "${PROJECTS_USER}:${PROJECTS_GROUP}" "${allowlist}"
         chmod 600 "${allowlist}"

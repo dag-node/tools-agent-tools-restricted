@@ -31,7 +31,7 @@ proj="${TESTDIR}/proj"
 mkdir -p "${proj}"
 chmod 0755 "${TESTDIR}" "${proj}"
 
-mk_allowlist "# fixture allowlist"
+mk_allowlist
 mk_operator
 readonly ALLOWFILE="${TESTDIR}/project-registry"
 # The harness writes the fixture as root; a real allowlist is the operator's own file, 0600 in a 0700 config dir. Model
@@ -161,7 +161,7 @@ fi
 # byte-identical.
 mkdir -p "${TESTDIR}/legacy"
 printf '%s\n' "${proj}" > "${TESTDIR}/legacy/allowed-projects"
-printf '%s\n' "# ai-tools-project-registry-format: 1.0" "${proj}" "relative/entry" > "${TESTDIR}/legacy/projects-invalid"
+printf '%s\n' "# ai-tools-project-registry-format: 1.0" "@ ${proj}" "@ relative/entry" > "${TESTDIR}/legacy/projects-invalid"
 mkdir -p "${TESTDIR}/invalid"; mv "${TESTDIR}/legacy/projects-invalid" "${TESTDIR}/invalid/project-registry"
 # refused_registry <label> <code> <registry> <args...>
 refused_registry() {
@@ -207,7 +207,7 @@ mkdir -p "${TESTDIR}/linked/real/private"
 chmod 0755 "${TESTDIR}/linked" "${TESTDIR}/linked/real" "${TESTDIR}/linked/real/private"
 ln -s "${TESTDIR}/linked/real" "${TESTDIR}/linked/link"
 chown -h "${SANDBOX_USER}" "${TESTDIR}/linked/link"
-printf '%s\n' "# ai-tools-project-registry-format: 1.0" "${proj}" "!${TESTDIR}/linked/link/private" > "${TESTDIR}/linked/project-registry"
+printf '%s\n' "# ai-tools-project-registry-format: 1.0" "@ ${proj}" "!${TESTDIR}/linked/link/private" > "${TESTDIR}/linked/project-registry"
 chown "${PROJECTS_USER}:${PROJECTS_GROUP}" "${TESTDIR}/linked/project-registry"; chmod 600 "${TESTDIR}/linked/project-registry"
 refused_registry "--print refuses a carve-out through a link the sandbox account holds, naming the link" MSG-Y5N6 \
     "${TESTDIR}/linked/project-registry" --operator "${PROJECTS_USER}" --print
@@ -220,7 +220,7 @@ if [[ -z "${linked_stdout}" ]]; then
 else
     fail "--print over a carve-out through the sandbox account's link wrote a snapshot: ${linked_stdout}"
 fi
-printf '%s\n' "# ai-tools-project-registry-format: 1.0" "${proj}" "!${TESTDIR}/linked/real/private" > "${TESTDIR}/linked/project-registry"
+printf '%s\n' "# ai-tools-project-registry-format: 1.0" "@ ${proj}" "!${TESTDIR}/linked/real/private" > "${TESTDIR}/linked/project-registry"
 out="$(env SUDO_UID="${OPERATOR_UID}" AI_TOOLS_ALLOWLIST="${TESTDIR}/linked/project-registry" \
     AI_TOOLS_OPERATOR_CONF="${TESTDIR}/operator.conf" "${HELPER}" --operator "${PROJECTS_USER}" --print 2>&1)" && rc=0 || rc=$?
 if (( rc == 0 )) && grep -qxF -- "!${TESTDIR}/linked/real/private" <<<"${out}"; then
@@ -231,7 +231,7 @@ fi
 
 # ── Mechanics: add / print / remove against the primary operator's fixture registry ──────────
 out="$(run_helper "${OPERATOR_UID}" --operator "${PROJECTS_USER}" --add "${proj}")" && rc=0 || rc=$?
-if (( rc == 0 )) && grep -q "^${proj}$" "${ALLOWFILE}"; then
+if (( rc == 0 )) && grep -qxF "@ ${proj}" "${ALLOWFILE}"; then
     pass "--add writes the project into the target's allowlist"
 else
     fail "--add did not register ${proj} (rc=${rc}): ${out}"
@@ -255,14 +255,14 @@ else
 fi
 
 out="$(run_helper "${OPERATOR_UID}" --operator "${PROJECTS_USER}" --print)" && rc=0 || rc=$?
-if (( rc == 0 )) && grep -q "^${proj}$" <<<"${out}"; then
+if (( rc == 0 )) && grep -qxF "@ ${proj}" <<<"${out}"; then
     pass "--print reads back the target's allowlist"
 else
     fail "--print did not report ${proj} (rc=${rc}): ${out}"
 fi
 
 out="$(run_helper "${OPERATOR_UID}" --operator "${PROJECTS_USER}" --remove "${proj}")" && rc=0 || rc=$?
-if (( rc == 0 )) && ! grep -q "^${proj}$" "${ALLOWFILE}"; then
+if (( rc == 0 )) && ! grep -qF "${proj}" "${ALLOWFILE}"; then
     pass "--remove drops the entry from the target's allowlist"
 else
     fail "--remove left ${proj} listed (rc=${rc}): ${out}"
@@ -276,16 +276,16 @@ else
 fi
 
 # ── `--disable` / `--enable`: the privileged half of ai-tools.projects.disable/ai-tools.projects.enable ──
-# What separates them from an add/remove pair is that they edit the operator's OWN line in place. A `--for` target's
-# allowlist is as much a curated document as the invoker's, so the position and the comment must survive a park/restore
-# performed by root on someone else's file.
-printf '%s\n' "# ai-tools-project-registry-format: 1.0" "# fixture allowlist" "${proj}   # payments, dev stage" > "${ALLOWFILE}"
+# What separates them from an add/remove pair is that they change the sign of the operator's OWN line. A `--for`
+# target's registry is as much a curated document as the invoker's, so the comment must survive a disable/enable
+# performed by root on someone else's file. The fixture is in canonical form, so a round trip is byte-identical.
+printf '%s\n' "# ai-tools-project-registry-format: 1.0" "$(printf '%-38s  %s' "@ ${proj}" "# payments, dev stage")" > "${ALLOWFILE}"
 chown "${PROJECTS_USER}:${PROJECTS_GROUP}" "${ALLOWFILE}"; chmod 600 "${ALLOWFILE}"
 before="$(cat "${ALLOWFILE}")"
 
 out="$(run_helper "${OPERATOR_UID}" --operator "${PROJECTS_USER}" --disable "${proj}")" && rc=0 || rc=$?
-if (( rc == 0 )) && [[ "$(sed -n '3p' "${ALLOWFILE}")" == "%${proj}   # payments, dev stage" ]]; then
-    pass "--disable parks the entry in place, keeping its position and comment"
+if (( rc == 0 )) && [[ "$(sed -n '2p' "${ALLOWFILE}")" == "$(printf '%-38s  %s' "% ${proj}" "# payments, dev stage")" ]]; then
+    pass "--disable writes '%' on the entry, keeping its comment"
 else
     fail "--disable did not park the entry (rc=${rc}): ${out}"$'\n'"$(cat "${ALLOWFILE}")"
 fi

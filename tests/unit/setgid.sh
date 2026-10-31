@@ -19,7 +19,7 @@ fi
 mktestdir
 proj="${TESTDIR}/proj"
 mkdir -p "${proj}/sub" "${proj}/.env/inside"
-mk_allowlist "${proj}"
+mk_allowlist "@ ${proj}"
 chown -R "${PROJECTS_USER}:${PROJECTS_GROUP}" "${proj}"   # legitimate owner (else guard skips)
 chmod -R 0770 "${proj}"                                    # start non-setgid, projects group
 foreign=false
@@ -99,7 +99,7 @@ if command -v setfacl >/dev/null 2>&1 \
     have_acl=true
 fi
 chmod 2700 "${p2}/inherited"
-mk_allowlist "${p2}"
+mk_allowlist "@ ${p2}"
 setsid "${HELPER}" "${p2}" < /dev/null > /dev/null 2>&1 || true
 
 # (C) a sealed dir is not normalized into the agent's group, and keeps its mode.
@@ -165,7 +165,7 @@ p3="${TESTDIR}/proj3"
 mkdir -p "${p3}/sub"
 chown -R "${PROJECTS_USER}:${PROJECTS_GROUP}" "${p3}"
 chmod -R 0770 "${p3}"
-mk_allowlist "${p3}"
+mk_allowlist "@ ${p3}"
 if id nobody >/dev/null 2>&1; then
     chown nobody:nobody "${p3}"
     root_err="$(setsid "${HELPER}" "${p3}" < /dev/null 2>&1 >/dev/null || true)"
@@ -193,7 +193,7 @@ fi
 # at a directory, the one unreadable state root meets on any host; the tree is read back untouched.
 proj2="${TESTDIR}/proj2"
 mkdir -p "${proj2}/sub"
-mk_allowlist "${proj}" "${proj2}"
+mk_allowlist "@ ${proj}" "@ ${proj2}"
 chown -R "${PROJECTS_USER}:${PROJECTS_GROUP}" "${proj2}"
 chmod -R 0770 "${proj2}"
 mkdir -p "${TESTDIR}/patterns-dir"
@@ -252,14 +252,14 @@ fi
 # The control runs second, so the refused run is read on the untouched tree.
 ir="${TESTDIR}/invalid-registry"; mkdir -p "${ir}/sub"; chown -R "${PROJECTS_USER}:${PROJECTS_GROUP}" "${ir}"
 chmod 0770 "${ir}" "${ir}/sub"
-mk_allowlist "${ir}" "relative/entry"
+mk_allowlist "@ ${ir}" "@ relative/entry"
 setsid "${HELPER}" "${ir}" < /dev/null > /dev/null 2>&1 || true
 if [[ "$(stat -c '%G' "${ir}/sub")" == "${PROJECTS_GROUP}" ]] && (( (8#$(stat -c '%a' "${ir}/sub") & 8#2000) == 0 )); then
     pass "a registry holding a refused line: no directory is regrouped"
 else
     fail "a registry holding a refused line: ${ir}/sub is $(stat -c '%G %a' "${ir}/sub")"
 fi
-mk_allowlist "${ir}"
+mk_allowlist "@ ${ir}"
 setsid "${HELPER}" "${ir}" < /dev/null > /dev/null 2>&1 || true
 if [[ "$(stat -c '%G' "${ir}/sub")" == "${SANDBOX_GROUP}" ]]; then
     pass "control: the same tree under the valid registry is regrouped"

@@ -30,7 +30,7 @@ proj="${TESTDIR}/proj"
 mkdir -p "${proj}/d" "${proj}/.env" "${proj}/.git/objects" "${proj}/vendor"
 # vendor is carved out by an exclusion line carrying an end-of-line comment, which the shared allowlist grammar accepts:
 # the walk must skip it exactly as it skips a plain '!' line.
-mk_allowlist "${proj}" "!${proj}/vendor   # carve-out"
+mk_allowlist "@ ${proj}" "!${proj}/vendor   # carve-out"
 
 if ! setfacl -m g:"${SANDBOX_GROUP}":rwX "${proj}" 2>/dev/null; then
     skip "ai-tools-unclaim" "filesystem does not support ACLs"; finish; exit
@@ -258,7 +258,7 @@ chown "${PROJECTS_USER}:${SANDBOX_GROUP}" "${outside}"
 if ln "${outside}" "${hl_proj}/linked" 2>/dev/null; then
     : > "${hl_proj}/plain"; chmod 0660 "${hl_proj}/plain"
     chown -R "${PROJECTS_USER}:${SANDBOX_GROUP}" "${hl_proj}"
-    mk_allowlist "${hl_proj}"
+    mk_allowlist "@ ${hl_proj}"
     setsid "${HELPER}" "${hl_proj}" "${PROJECTS_GROUP}" < /dev/null > /dev/null 2>&1 || true
     if [[ "$(stat -c '%G' "${outside}")" == "${SANDBOX_GROUP}" && "$(perm "${outside}")" == 660 ]]; then
         pass "a hardlinked file is refused, so the outside name is unchanged"
@@ -350,7 +350,7 @@ fi
 section "ai-tools-unclaim: an unreadable secret-patterns file refuses"
 proj2="${TESTDIR}/proj2"
 mkdir -p "${proj2}/sub"
-mk_allowlist "${proj2}"
+mk_allowlist "@ ${proj2}"
 chown -R "${PROJECTS_USER}:${SANDBOX_GROUP}" "${proj2}"
 chmod 2770 "${proj2}" "${proj2}/sub"
 mkdir -p "${TESTDIR}/patterns-dir"
@@ -407,14 +407,14 @@ fi
 ir="${TESTDIR}/invalid-registry"; mkdir -p "${ir}/sub"; chown -R "${PROJECTS_USER}:${PROJECTS_GROUP}" "${ir}"
 chmod 2770 "${ir}" "${ir}/sub"
 setfacl -R -m "g:${SANDBOX_GROUP}:rwX,o::-" "${ir}"
-mk_allowlist "${ir}" "relative/entry"
+mk_allowlist "@ ${ir}" "@ relative/entry"
 setsid "${HELPER}" "${ir}" "${PROJECTS_GROUP}" < /dev/null > /dev/null 2>&1 || true
 if agentacl "${ir}/sub"; then
     pass "a registry holding a refused line: the claim's entries are left as they were"
 else
     fail "a registry holding a refused line: the group entry on ${ir}/sub was removed"
 fi
-mk_allowlist "${ir}"
+mk_allowlist "@ ${ir}"
 setsid "${HELPER}" "${ir}" "${PROJECTS_GROUP}" < /dev/null > /dev/null 2>&1 || true
 if ! agentacl "${ir}/sub"; then
     pass "control: the same tree under the valid registry is unclaimed"
