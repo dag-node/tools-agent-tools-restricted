@@ -666,9 +666,11 @@ a `750 root:root` directory and the account does not hold a sudo rule.
 `~/.config/ai-tools/project-registry` is a document the operator edits, and its grammar is
 `ai-tools-project-registry(5)` and the registry section comment in `conf.lib.sh`. A line's sign is its kind: an `@` line
 is a project, a `%` line a disabled project, and a `!` line an excluded path wherever the line sits: no session starts
-in the subtree, and the hand-back and the claim walks skip it. An excluded path is not an access boundary: it does not
-take back a grant a claim already made there, which an owner-only mode does, since every claim walk leaves one alone
-([ref-definition-e3h3](secret-handling.rule.md#ref-definition-e3h3)). A line the grammar refuses refuses the whole file
+in the subtree, and the hand-back and the claim's permission walks (`ai-tools-setgid`, `ai-tools-setfacl`, the lockdown
+scan) skip it; the claim's label step (`ai-tools-relabel`, `restorecon -FR` over the project root) types the whole tree,
+the excluded path included. An excluded path is not an access boundary: it does not take back a grant a claim already
+made there, which an owner-only mode does, since the permission walks leave one alone and its mode decides whatever its
+label ([ref-definition-e3h3](secret-handling.rule.md#ref-definition-e3h3)). A line the grammar refuses refuses the whole file
 for every reader, two signs on one path among them ([providers](providers.rule.md)), and every CLI write rewrites
 the file in its canonical form, which [One implementation of a registry
 change](#one-implementation-of-a-registry-change) states.

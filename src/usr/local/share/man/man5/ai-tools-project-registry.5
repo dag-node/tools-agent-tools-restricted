@@ -110,13 +110,15 @@ Sessions may start in the directory and in every directory under it.
 .TP
 .I "! /home/op/project/vendor"
 An excluded path: no session starts in the directory or under it, and the
-ownership hand-back and every claim walk skip it.
+ownership hand-back and the claim's permission walks \(em the group, the ACL
+and the secret scan \(em skip it.
+The claim's label step types the whole tree, the excluded path included.
 The line means that wherever it sits: inside a project, around one, or alone.
 It does not take back access a claim already granted there:
 a session started in the enclosing project reaches whatever the subtree's
 permissions allow, and no session start checks that.
-A subtree the agent is to stay out of is made owner-only, which every claim
-walk leaves alone.
+A subtree the agent is to stay out of is made owner-only: the permission walks
+leave it alone, and its mode keeps the agent out whatever its label.
 An excluded path may be a glob: a line carrying
 .BR * ,
 .B ?

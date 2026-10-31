@@ -2940,7 +2940,8 @@ cmd_project_claim() {
         head+=("It MODIFIES group, permissions and ACLs throughout this tree, sets setgid on its directories, and removes world access. Files and directories that are owner-only (0600/0700) are left alone, out of the agent's reach. The previous permissions are NOT recorded anywhere, so this is NOT reversible -- unclaiming later normalizes the tree rather than restoring it. Back up first. See: man ai-tools")
     fi
     headline "Claim project (in place)" "${head[@]}"
-    # The `!` lines inside the project name the paths where a session does not start and that the claim walks skip.
+    # The `!` lines inside the project name the paths where a session does not start and that the claim's permission
+    # walks skip.
     local -a claim_excluded=()
     mapfile -t claim_excluded < <(list_excluded_lines_under "${d}")
     if (( ${#claim_excluded[@]} )); then
@@ -5874,7 +5875,7 @@ cmd_project_list() {
         shown=1
         if [[ "${ai_tools_conf__kind}" == excluded ]]; then
             # A '!' line excludes its path wherever it sits: no session starts in the subtree, and the hand-back and
-            # the claim walks skip it. It works as written, so it has no remedy to offer.
+            # the claim's permission walks skip it. It works as written, so it has no remedy to offer.
             excl="${entry}"
             printf '  %-8s %s\n' "exclude" "${excl}"
             # A stale exclusion does not match a path on disk. Flag a non-glob '!' path that no longer exists; a glob

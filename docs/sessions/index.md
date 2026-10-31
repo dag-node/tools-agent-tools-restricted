@@ -25,8 +25,8 @@ and a system directory or a whole home root is refused whatever the file says
 **The registry decides where a session starts, not what it reaches.** A session
 started in any of your claimed projects reaches every other project you
 claimed, through the permissions those claims granted. A `!` line keeps
-sessions from starting under it and the hand-back and the claim walks
-out of it; it does not take back access a claim already granted there.
+sessions from starting under it and the hand-back and the claim's
+permission walks out of it; it does not take back access a claim already granted there.
 `atr projects unclaim` takes the access off a tree once its hand-back has run
 ([Unclaim](../projects/unclaim.md)).
 

@@ -42,8 +42,9 @@ An excluded path stops sessions from starting in the subtree and the hand-back
 from walking it; it does not take back access a claim already granted there,
 and a session started in the enclosing project reads whatever the subtree's
 permissions allow. No session start checks that. To keep the agent
-out of the files themselves, make the subtree owner-only, which every claim
-walk leaves alone ([Permissions](permissions.md)).
+out of the files themselves, make the subtree owner-only: the claim's
+permission walks leave it alone, and its mode keeps the agent out whatever its
+label ([Permissions](permissions.md)).
 
 ## Still blocked by another line
 

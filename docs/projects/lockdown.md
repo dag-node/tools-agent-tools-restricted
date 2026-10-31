@@ -87,7 +87,8 @@ Matching is on **names**, not contents, and the shipped list is a baseline
 of the credential names software writes in general. A secret under a name
 the list does not know is yours to handle first: make it owner-only,
 which a claim then leaves alone, or exclude it with a `!` line in your project
-registry, which every walk skips whatever its mode.
+registry, which the hand-back and the claim's permission walks skip whatever
+its mode.
 
 Your own list lives at `~/.config/ai-tools/secret-patterns` and **replaces**
 the baseline rather than adding to it, so a file written once holds this host

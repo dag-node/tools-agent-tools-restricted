@@ -177,11 +177,13 @@ of the sandbox account or the toolchain update runs
 each session end with `/exit` and the toolchain update finish, or end them all
 with `atr stop`, then claim again: the re-run applies the label alone.
 
-The claim's walks skip an owner-only path, and one an excluded line (`!`)
-of your project registry covers, and report each as a count. Either mark is
-also how you stop a path being reported again. A `!` line written after a claim
-does not take back the access that claim granted under it; making the path
-owner-only does ([Permissions](permissions.md)).
+The claim's permission walks, which set the group, the ACL and the secret
+scan, skip an owner-only path, and one an excluded line (`!`) of your project
+registry covers, and report each as a count. Either mark is also how you stop
+a path being reported again. The label step types the whole tree, those paths
+included. A `!` line written after a claim does not take back the access that
+claim granted under it; making the path owner-only does
+([Permissions](permissions.md)).
 
 ## Re-claiming
 
