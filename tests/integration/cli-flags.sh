@@ -1003,6 +1003,15 @@ drive_rows() {
     cli_stub_reset; drive cli ai-tools.projects.unclaim "$(f for)" "${FOR_USER}" "$(f yes)" "${R}/fq\"q'q"
     expect "unclaim --for of the unrenderable line's own project runs the hand-back" cli_called ai-tools-unclaim
     expect "and asks the helper to remove the entry"                  cli_called ai-tools-allowlist "^--operator${T}${FOR_USER}${T}--remove${T}${R}/fq\"q'q$"
+    # A comment's control byte reaches the report as `?`: the grammar accepts one there, and the line may be another
+    # operator's.
+    seed "@ ${R}/ur1" "@ ${own_r} # note "$'\e'"[2J"
+    expect "the registry whose comment carries an escape validates"   ai_tools_conf__validate_registry "${AL}" current
+    drive cli ai-tools.projects.remove.inplace "$(f yes)" "${R}/ur1"
+    expect "remove over a line whose comment carries an escape is refused" rc_not0
+    expect "that refusal is the unrenderable line's"                  out_has_text MSG-A5Y2
+    expect "the report shows the comment's escape as ?"               out_has_text "# note ?[2J"
+    expect "and prints no escape byte"                                out_lacks_text $'\e'
     rm -rf "${own_r}" "${R}/fq\"q'q"
     printf '%s\n' "${al_saved}" > "${AL}"; printf '%s\n' "${for_saved}" > "${FOR_AL}"
     chown "${PROJECTS_USER}:${PROJECTS_USER}" "${AL}" "${FOR_AL}"

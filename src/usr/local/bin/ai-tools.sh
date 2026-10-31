@@ -931,7 +931,9 @@ die_registry_refused() {
 report_unrenderable_registry_line() {
     local line
     line="$(ai_tools_conf__find_unrenderable_registry_line "${ALLOWLIST}" "${1-}")" || return 1
-    printf '\n      %s\n\n' "${line}" >&2
+    # The grammar refuses a control byte in a path and accepts one in an end-of-line comment, and under `--for` the line
+    # is another operator's: it is shown with each control byte as `?`, the display the validator's refusals use.
+    printf '\n      %s\n\n' "${line//[[:cntrl:]]/?}" >&2
     warn MSG-A5Y2 "a line of ${REGISTRY_DISPLAY_PATH} names a path the registry cannot write back -- the line is shown above" \
         "Every change to the file rewrites it whole, and a path carrying both a single and a double quote has no quoting a registry line can carry. Rename the directory the line names and edit the line to match, or delete the line; then run the command again.$(format_registry_edit_clause)"
 }

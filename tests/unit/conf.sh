@@ -1732,6 +1732,15 @@ if [[ "${unrenderable_rc}" -eq 0 && "${unrenderable_line}" == "% ${TESTDIR}/name
 else
     fail "the reader given a path: rc ${unrenderable_rc}, line '${unrenderable_line}'"
 fi
+# The reader prints the line raw, an end-of-line comment and its control bytes included; the CLI's report is what
+# replaces them for display.
+seed_al "@ ${P1}" "@ ${TESTDIR}/names/q\"q'q # note "$'\e'"[2J"
+unrenderable_line="$(ai_tools_conf__find_unrenderable_registry_line "${AL}")" || true
+if [[ "${unrenderable_line}" == "@ ${TESTDIR}/names/q\"q'q # note "$'\e'"[2J" ]]; then
+    pass "the reader prints the raw line, the comment's control byte included"
+else
+    fail "the reader printed '${unrenderable_line//[[:cntrl:]]/?}'"
+fi
 seed_al "@ ${P1}" "@ ${TESTDIR}/names/q\"q'q"
 rc_is 0 "the removal of the unrenderable line's own entry succeeds" \
     ai_tools_conf__allowlist_remove "${AL}" "${TESTDIR}/names/q\"q'q"
