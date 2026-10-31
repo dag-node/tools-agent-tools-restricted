@@ -891,6 +891,60 @@ if command -v runuser >/dev/null 2>&1; then
         pass "the removal reserves its success mark for a run with no failures"
     fi
 
+    # A deletion that does not complete reports what the run verified and no more: the entry is removed, a session
+    # already running keeps its access, and the files left keep the agent's group access, which the removal did not
+    # hand back. `rm` is a stub first on the CLI's PATH, in a directory where a 0755 file is executable, that fails
+    # the deletion of the one path its target file names and runs the real `rm` for every other call. The path carries
+    # a space, so the printed remedy is the quoted one.
+    rmstub=""
+    mk_fixture_dir rmstub "${PROJECTS_HOME}" rm-stub 2>/dev/null || rmstub=""
+    if [[ -z "${rmstub}" ]]; then
+        skip_required "ai-tools.projects.remove over a deletion that fails" "no fixture directory beside ${PROJECTS_HOME}"
+    else
+        cat > "${rmstub}/rm" <<EOF
+#!/bin/bash
+[[ "\$1" == -rf && "\$2" == -- && "\$3" == "\$(< "${rmstub}/target")" ]] && exit 1
+exec $(type -P rm) "\$@"
+EOF
+        chmod 0755 "${rmstub}" "${rmstub}/rm"
+        # remove_left <path> <registry> [<env>...] : the removal of <path> with the failing `rm`; sets out and rc.
+        remove_left() {
+            local p="$1" reg="$2"; shift 2
+            printf '%s' "${p}" > "${rmstub}/target"; chmod 0644 "${rmstub}/target"
+            out="$(runuser -u "${PROJECTS_USER}" -- env HOME="${PROJECTS_HOME}" \
+                    PATH="${rmstub}:/usr/local/bin:/usr/bin:/bin" \
+                    AI_TOOLS_OPERATOR_CONF="${oconf}" AI_TOOLS_ALLOWLIST="${reg}" "$@" \
+                    setsid "${CLI}" "${CLI_ARGV[@]}" -y "${p}" 2>&1)" && rc=0 || rc=$?
+        }
+        # left_reported <key> <path> <registry> : the assertions a failed deletion owes, for either kind.
+        left_reported() {
+            local key="$1" p="$2" reg="$3"
+            if [[ ${rc} -eq 1 && -d "${p}" ]] && ! grep -qxF -- "${p}" "${reg}"; then
+                pass "${key} whose deletion fails exits 1 with the tree on disk and the entry removed"
+            else
+                fail "${key} over a failed deletion: rc=${rc}, on disk $([[ -d "${p}" ]] && echo yes || echo no): $(brief "${out}")"
+            fi
+            if grep -qF "registry entry is removed" <<<"${out}" && grep -qF "keep the agent's group access" <<<"${out}" \
+                    && ! grep -qF "out of the agent's reach" <<<"${out}"; then
+                pass "${key} reports the entry removed and the access left, and does not claim the tree is out of reach"
+            else
+                fail "${key}'s failed-deletion report: $(brief "${out}" 'deletion|reach')"
+            fi
+            if grep -qF -- "rm -rf $(printf '%q' "${p}")" <<<"${out}"; then
+                pass "${key} prints the deletion to finish with the path quoted"
+            else
+                fail "${key} does not print the quoted deletion: $(brief "${out}" 'rm -rf')"
+            fi
+        }
+        rmleft="${rmwork}/rm left"; mkdir -p "${rmleft}/sub"
+        chown -R "${PROJECTS_USER}:${PROJECTS_USER}" "${rmleft}"
+        printf '%s\n' "${REG_MARKER}" "${rmleft}" > "${rmal}"; chown "${PROJECTS_USER}" "${rmal}"
+        spell ai-tools.projects.remove.inplace
+        remove_left "${rmleft}" "${rmal}"
+        left_reported ai-tools.projects.remove.inplace "${rmleft}" "${rmal}"
+        rm -rf "${rmleft}"
+    fi
+
     # (7) ai-tools.projects.list renders the reconciliation view deterministically over a FIXTURE allowlist + gitconfig
     # (AI_TOOLS_ALLOWLIST / AI_TOOLS_GITCONFIG), so it never reads the operator's real registry. Every entry class
     # and every Suggested-cleanup class is asserted. The stale and protected entries sit EARLY, so a passing
@@ -1102,6 +1156,15 @@ EOF
             pass "control: the same removal over a writable registry directory drops the line and deletes the clone"
         else
             fail "the control clone removal (rc=${rc}, on disk $([[ -e "${rclone}" ]] && echo yes || echo no)): $(brief "${out}")"
+        fi
+        if [[ -n "${rmstub}" ]]; then
+            rleft="${sroot}/clone left"; mkdir -p "${rleft}"; git init -q "${rleft}"
+            chown -R "${PROJECTS_USER}:${PROJECTS_USER}" "${rleft}"
+            printf '%s\n' "${REG_MARKER}" "${rleft}" > "${creg}"
+            spell ai-tools.projects.remove.clone
+            remove_left "${rleft}" "${creg}" AI_TOOLS_SANDBOX_ROOT="${sroot}" AI_TOOLS_GITCONFIG="${cgc}"
+            left_reported ai-tools.projects.remove.clone "${rleft}" "${creg}"
+            rm -rf "${rleft}"
         fi
         rm -rf "${rclone}" "${creg_dir}" "${cgc}"
     fi

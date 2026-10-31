@@ -4027,6 +4027,18 @@ list_unregistered_unclaim_remedy() {
     printf '       %s\n' "atr projects unclaim --force ${p}"
 }
 
+# die_remove_incomplete <dir> <kind>  -- report a removal whose deletion left paths under <dir>, and die. The warning
+# states what the run verified: <kind>'s own registry entry is removed, a session already running keeps what it holds
+# until it ends, and the files left keep the agent's group access, since a removal does not hand them back.
+# The remedy is the deletion run_as_owner ran, the path in bash's `%q` encoding, named as the target's under `--for`.
+die_remove_incomplete() {
+    local d="$1" kind="$2"
+    warn "the deletion did not complete -- the ${kind}'s registry entry is removed and no new session starts from it -- a session already running keeps its access until it ends, and the files left keep the agent's group access, which a removal does not hand back -- remove what is left by hand:"
+    [[ -z "${FOR_OPERATOR}" ]] || say "    As ${FOR_OPERATOR}, run:"
+    say  "      ${C_BOLD}rm -rf $(_quote_path "${d}")${C_RST}"
+    die "project remove incomplete -- paths were left behind"
+}
+
 # cmd_project_remove <path> [-y|--yes]  -- unclaim a project AND delete its directory, which the path must name;
 # `projects unclaim` is the non-destructive reversal these refusals point at. One verb, two kinds: a path
 # under SANDBOX_ROOT is a sandbox clone and takes remove_clone, every other path is a project claimed in place.
@@ -4178,15 +4190,8 @@ cmd_project_remove() {
     ${cleanup_stopped} || unreg_safedir "${d}" || note_root_failure || true
     unreg_allow "${d}"
 
-    if ! run_as_owner rm -rf -- "${d}"; then
-        warn "the deletion did not complete -- the project is already unregistered, so it is out of the agent's reach; remove what is left by hand:"
-        say  "      ${C_BOLD}rm -rf ${d}${C_RST}"
-        die "project remove incomplete -- paths were left behind"
-    fi
-    if [[ -e "${d}" ]]; then
-        warn "paths were left behind under ${d} -- the project is already unregistered; remove them by hand:"
-        say  "      ${C_BOLD}rm -rf ${d}${C_RST}"
-        die "project remove incomplete -- paths were left behind"
+    if ! run_as_owner rm -rf -- "${d}" || [[ -e "${d}" ]]; then
+        die_remove_incomplete "${d}" project
     fi
 
     say ""
@@ -4548,9 +4553,7 @@ remove_clone() {
     # As the owner: a clone claimed for another operator belongs to that operator, and the run's `--for` is what names
     # them.
     if ! run_as_owner rm -rf -- "${d}"; then
-        warn "the deletion did not complete -- the clone is already unregistered, so it is out of the agent's reach; remove what is left by hand:"
-        say  "      ${C_BOLD}rm -rf $(_quote_path "${d}")${C_RST}"
-        die "project remove incomplete -- paths were left behind"
+        die_remove_incomplete "${d}" clone
     fi
     ok "removed ${d} and unregistered it"
     ai_tools_log__structured info "removed sandbox ${d} and unregistered it" \
