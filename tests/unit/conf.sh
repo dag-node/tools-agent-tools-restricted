@@ -1026,6 +1026,19 @@ if ! ai_tools_conf__is_path_excluded "${ld_root}/proj" ld_none; then
 else
     fail "an empty exclusion array excluded a path"
 fi
+# The matcher takes the exclusion array by name, so a caller's array named like one of the matcher's own locals would
+# resolve to that local and read as no pattern. The names a caller is likeliest to use, with the ld_excluded rows as
+# the control; each array holds one plain exclusion.
+ld_ok=true
+for ld_array_name in entry path; do
+    declare -a "${ld_array_name}=(\"\${ld_root}/proj/private\")"
+    ai_tools_conf__is_path_excluded "${ld_root}/proj/private/k" "${ld_array_name}" \
+        || { fail "an exclusion array named '${ld_array_name}' does not cover its path"; ld_ok=false; }
+    ai_tools_conf__is_path_excluded "${ld_root}/proj/other" "${ld_array_name}" \
+        && { fail "an exclusion array named '${ld_array_name}' covers a path it does not name"; ld_ok=false; }
+    unset "${ld_array_name}"
+done
+${ld_ok} && pass "an exclusion array named 'entry' or 'path' covers its path and no other"
 declare -a ld_a2=(x) ld_e2=(y)
 if ! ai_tools_conf__load_allowlist "${ld_root}" ld_a2 ld_e2 && [[ "${#ld_a2[@]}" -eq 0 && "${#ld_e2[@]}" -eq 0 ]] \
         && ! ai_tools_conf__load_allowlist "${TESTDIR}/absent-allowlist" ld_a2 ld_e2; then

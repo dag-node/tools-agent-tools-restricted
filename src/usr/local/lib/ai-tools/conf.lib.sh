@@ -628,26 +628,26 @@ ai_tools_conf__find_paths_ahead_of_clock() {
 #   an option.
 ai_tools_conf__read_keys() {
     local -n _ai_tools_conf__keys_out="$1"
-    local file="$2" line key
+    local _ai_tools_conf__keys_file="$2" _ai_tools_conf__keys_line _ai_tools_conf__keys_key
     _ai_tools_conf__keys_out=()
-    [[ -r "${file}" ]] || return 1
-    while IFS= read -r line || [[ -n "${line}" ]]; do
-        line="${line#"${line%%[![:space:]]*}"}"       # strip leading whitespace
-        if [[ "${line}" == \#* ]]; then
-            line="${line#\#}"                         # a commented default is still a mention
+    [[ -r "${_ai_tools_conf__keys_file}" ]] || return 1
+    while IFS= read -r _ai_tools_conf__keys_line || [[ -n "${_ai_tools_conf__keys_line}" ]]; do
+        _ai_tools_conf__keys_line="${_ai_tools_conf__keys_line#"${_ai_tools_conf__keys_line%%[![:space:]]*}"}"  # strip leading whitespace
+        if [[ "${_ai_tools_conf__keys_line}" == \#* ]]; then
+            _ai_tools_conf__keys_line="${_ai_tools_conf__keys_line#\#}"  # a commented default is still a mention
             # ...but only when written hard against the `#` or one space in. A comment indented further is illustrative
             # prose: operator.conf's header documents the grammar with
             # lines like `#   KEY=value`, so counting those would make the minimally seeded file
             # `ai-tools-admin operators add` writes report every documented key as new.
-            [[ "${line}" != "  "* ]] || continue
-            line="${line#"${line%%[![:space:]]*}"}"
+            [[ "${_ai_tools_conf__keys_line}" != "  "* ]] || continue
+            _ai_tools_conf__keys_line="${_ai_tools_conf__keys_line#"${_ai_tools_conf__keys_line%%[![:space:]]*}"}"
         fi
-        [[ "${line}" == *=* ]] || continue
-        key="${line%%=*}"
-        key="${key%"${key##*[![:space:]]}"}"          # strip trailing whitespace
-        [[ "${key}" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]] || continue
-        _ai_tools_conf__keys_out+=("${key}")
-    done < "${file}"
+        [[ "${_ai_tools_conf__keys_line}" == *=* ]] || continue
+        _ai_tools_conf__keys_key="${_ai_tools_conf__keys_line%%=*}"
+        _ai_tools_conf__keys_key="${_ai_tools_conf__keys_key%"${_ai_tools_conf__keys_key##*[![:space:]]}"}"  # strip trailing whitespace
+        [[ "${_ai_tools_conf__keys_key}" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]] || continue
+        _ai_tools_conf__keys_out+=("${_ai_tools_conf__keys_key}")
+    done < "${_ai_tools_conf__keys_file}"
     return 0
 }
 
@@ -656,23 +656,23 @@ ai_tools_conf__read_keys() {
 #   in the common case.
 ai_tools_conf__find_new_keys() {
     local -n _ai_tools_conf__new_out="$1"
-    local deployed="$2" shipped="$3"
-    local -a deployed_keys=() shipped_keys=()
-    local key seen seen_key
+    local _ai_tools_conf__new_deployed="$2" _ai_tools_conf__new_shipped="$3"
+    local -a _ai_tools_conf__new_deployed_keys=() _ai_tools_conf__new_shipped_keys=()
+    local _ai_tools_conf__new_key _ai_tools_conf__new_seen _ai_tools_conf__new_seen_key
     _ai_tools_conf__new_out=()
-    ai_tools_conf__read_keys shipped_keys "${shipped}" || return 1
-    ai_tools_conf__read_keys deployed_keys "${deployed}" || return 1
-    for key in "${shipped_keys[@]}"; do
-        seen=""
-        for seen_key in "${deployed_keys[@]}"; do
-            [[ "${seen_key}" == "${key}" ]] && { seen=1; break; }
+    ai_tools_conf__read_keys _ai_tools_conf__new_shipped_keys "${_ai_tools_conf__new_shipped}" || return 1
+    ai_tools_conf__read_keys _ai_tools_conf__new_deployed_keys "${_ai_tools_conf__new_deployed}" || return 1
+    for _ai_tools_conf__new_key in "${_ai_tools_conf__new_shipped_keys[@]}"; do
+        _ai_tools_conf__new_seen=""
+        for _ai_tools_conf__new_seen_key in "${_ai_tools_conf__new_deployed_keys[@]}"; do
+            [[ "${_ai_tools_conf__new_seen_key}" == "${_ai_tools_conf__new_key}" ]] && { _ai_tools_conf__new_seen=1; break; }
         done
-        [[ -n "${seen}" ]] && continue
+        [[ -n "${_ai_tools_conf__new_seen}" ]] && continue
         # A shipped file may document a key more than once; announce it once.
-        for seen_key in "${_ai_tools_conf__new_out[@]}"; do
-            [[ "${seen_key}" == "${key}" ]] && { seen=1; break; }
+        for _ai_tools_conf__new_seen_key in "${_ai_tools_conf__new_out[@]}"; do
+            [[ "${_ai_tools_conf__new_seen_key}" == "${_ai_tools_conf__new_key}" ]] && { _ai_tools_conf__new_seen=1; break; }
         done
-        [[ -n "${seen}" ]] || _ai_tools_conf__new_out+=("${key}")
+        [[ -n "${_ai_tools_conf__new_seen}" ]] || _ai_tools_conf__new_out+=("${_ai_tools_conf__new_key}")
     done
     (( ${#_ai_tools_conf__new_out[@]} > 0 ))
 }
@@ -1357,10 +1357,10 @@ ai_tools_conf__find_covering_path() {
 #   <abs-path> (ai_tools_conf__find_covering_path), 1 otherwise and for an empty array.
 ai_tools_conf__is_path_excluded() {
     local -n _ai_tools_conf__match_excluded="$2"
-    local path="${1-}" entry
+    local _ai_tools_conf__match_path="${1-}" _ai_tools_conf__match_entry
     (( ${#_ai_tools_conf__match_excluded[@]} )) || return 1
-    for entry in "${_ai_tools_conf__match_excluded[@]}"; do
-        ai_tools_conf__find_covering_path "${path}" "${entry}" >/dev/null && return 0
+    for _ai_tools_conf__match_entry in "${_ai_tools_conf__match_excluded[@]}"; do
+        ai_tools_conf__find_covering_path "${_ai_tools_conf__match_path}" "${_ai_tools_conf__match_entry}" >/dev/null && return 0
     done
     return 1
 }
@@ -1385,26 +1385,27 @@ _ai_tools_conf__normalize_allowlist_path() { realpath -e "$1" 2>/dev/null || pri
 #   is empty, and the status 1, when <file> is missing or the grammar refuses it (the refusal on stderr).
 _ai_tools_conf__read_lines_naming() {
     local -n _ai_tools_conf__naming_project="$3" _ai_tools_conf__naming_excluded="$4" _ai_tools_conf__naming_disabled="$5"
-    local file="$1" want line entry naming_fd read_path
+    local _ai_tools_conf__naming_file="$1" _ai_tools_conf__naming_want _ai_tools_conf__naming_line
+    local _ai_tools_conf__naming_entry _ai_tools_conf__naming_fd _ai_tools_conf__naming_read_path
     _ai_tools_conf__naming_project=(); _ai_tools_conf__naming_excluded=(); _ai_tools_conf__naming_disabled=()
-    _ai_tools_conf__open_registry "${file}" || return 1
-    naming_fd="${_ai_tools_conf__registry_fd}"; read_path="/proc/self/fd/${naming_fd}"
-    if ! _ai_tools_conf__is_registry_valid "${file}" "${read_path}"; then
-        exec {naming_fd}<&-
+    _ai_tools_conf__open_registry "${_ai_tools_conf__naming_file}" || return 1
+    _ai_tools_conf__naming_fd="${_ai_tools_conf__registry_fd}"; _ai_tools_conf__naming_read_path="/proc/self/fd/${_ai_tools_conf__naming_fd}"
+    if ! _ai_tools_conf__is_registry_valid "${_ai_tools_conf__naming_file}" "${_ai_tools_conf__naming_read_path}"; then
+        exec {_ai_tools_conf__naming_fd}<&-
         return 1
     fi
-    want="$(_ai_tools_conf__normalize_allowlist_path "$2")"
-    while IFS= read -r line || [[ -n "${line}" ]]; do
-        ai_tools_conf__parse_path_entry "${line}" || continue
-        entry="${ai_tools_conf__value}"
-        [[ "$(_ai_tools_conf__normalize_allowlist_path "${entry}")" == "${want}" ]] || continue
+    _ai_tools_conf__naming_want="$(_ai_tools_conf__normalize_allowlist_path "$2")"
+    while IFS= read -r _ai_tools_conf__naming_line || [[ -n "${_ai_tools_conf__naming_line}" ]]; do
+        ai_tools_conf__parse_path_entry "${_ai_tools_conf__naming_line}" || continue
+        _ai_tools_conf__naming_entry="${ai_tools_conf__value}"
+        [[ "$(_ai_tools_conf__normalize_allowlist_path "${_ai_tools_conf__naming_entry}")" == "${_ai_tools_conf__naming_want}" ]] || continue
         case "${ai_tools_conf__kind}" in
-            excluded) _ai_tools_conf__naming_excluded+=("${line}") ;;
-            disabled) _ai_tools_conf__naming_disabled+=("${line}") ;;
-            *)        _ai_tools_conf__naming_project+=("${line}") ;;
+            excluded) _ai_tools_conf__naming_excluded+=("${_ai_tools_conf__naming_line}") ;;
+            disabled) _ai_tools_conf__naming_disabled+=("${_ai_tools_conf__naming_line}") ;;
+            *)        _ai_tools_conf__naming_project+=("${_ai_tools_conf__naming_line}") ;;
         esac
-    done < "${read_path}"
-    exec {naming_fd}<&-
+    done < "${_ai_tools_conf__naming_read_path}"
+    exec {_ai_tools_conf__naming_fd}<&-
     return 0
 }
 
@@ -1432,8 +1433,8 @@ ai_tools_conf__has_allowlist_exclusion() {
 ai_tools_conf__read_allowlist_matching_lines() {
     local -n _ai_tools_conf__matched="$1"
     # shellcheck disable=SC2034  # filled through its name by _ai_tools_conf__read_lines_naming
-    local -a matching_excluded=() matching_disabled=()
-    _ai_tools_conf__read_lines_naming "$2" "$3" _ai_tools_conf__matched matching_excluded matching_disabled || return 1
+    local -a _ai_tools_conf__matching_excluded=() _ai_tools_conf__matching_disabled=()
+    _ai_tools_conf__read_lines_naming "$2" "$3" _ai_tools_conf__matched _ai_tools_conf__matching_excluded _ai_tools_conf__matching_disabled || return 1
     (( ${#_ai_tools_conf__matched[@]} > 0 ))
 }
 
@@ -1443,8 +1444,8 @@ ai_tools_conf__read_allowlist_matching_lines() {
 ai_tools_conf__read_allowlist_disabled_lines() {
     local -n _ai_tools_conf__disabled_matched="$1"
     # shellcheck disable=SC2034  # filled through its name by _ai_tools_conf__read_lines_naming
-    local -a disabled_project=() disabled_excluded=()
-    _ai_tools_conf__read_lines_naming "$2" "$3" disabled_project disabled_excluded _ai_tools_conf__disabled_matched \
+    local -a _ai_tools_conf__disabled_project=() _ai_tools_conf__disabled_excluded=()
+    _ai_tools_conf__read_lines_naming "$2" "$3" _ai_tools_conf__disabled_project _ai_tools_conf__disabled_excluded _ai_tools_conf__disabled_matched \
         || return 1
     (( ${#_ai_tools_conf__disabled_matched[@]} > 0 ))
 }
@@ -1627,62 +1628,86 @@ ai_tools_conf__find_unrenderable_registry_line() {
 _ai_tools_conf__render_registry_canonical() {
     local -n _ai_tools_conf__canonical_kinds="$1" _ai_tools_conf__canonical_paths="$2"
     local -n _ai_tools_conf__canonical_comments="$3"
-    local i j kind path head parent key entry depth comment candidate
-    local -a canonical_lines=() canonical_written_paths=() canonical_heads=() canonical_groups=()
-    local -a canonical_comments=() canonical_parents=() canonical_globs=()
-    local -A canonical_seen=()
-    for i in "${!_ai_tools_conf__canonical_kinds[@]}"; do
-        path="${_ai_tools_conf__canonical_paths[i]}"
-        [[ "${path}" == / ]] || path="${path%/}"
-        case "${_ai_tools_conf__canonical_kinds[i]}" in
-            project|disabled|excluded) kind="${_ai_tools_conf__canonical_kinds[i]}" ;;
-            glob)                      kind=excluded ;;
+    local _ai_tools_conf__render_i _ai_tools_conf__render_j _ai_tools_conf__render_kind _ai_tools_conf__render_path
+    local _ai_tools_conf__render_head _ai_tools_conf__render_parent _ai_tools_conf__render_key
+    local _ai_tools_conf__render_entry _ai_tools_conf__render_depth _ai_tools_conf__render_comment
+    local _ai_tools_conf__render_candidate
+    local -a _ai_tools_conf__render_lines=() _ai_tools_conf__render_written_paths=()
+    local -a _ai_tools_conf__render_heads=() _ai_tools_conf__render_groups=()
+    local -a _ai_tools_conf__render_comments=() _ai_tools_conf__render_parents=() _ai_tools_conf__render_globs=()
+    local -A _ai_tools_conf__render_seen=()
+    for _ai_tools_conf__render_i in "${!_ai_tools_conf__canonical_kinds[@]}"; do
+        _ai_tools_conf__render_path="${_ai_tools_conf__canonical_paths[_ai_tools_conf__render_i]}"
+        [[ "${_ai_tools_conf__render_path}" == / ]] || _ai_tools_conf__render_path="${_ai_tools_conf__render_path%/}"
+        case "${_ai_tools_conf__canonical_kinds[_ai_tools_conf__render_i]}" in
+            project|disabled|excluded) _ai_tools_conf__render_kind="${_ai_tools_conf__canonical_kinds[_ai_tools_conf__render_i]}" ;;
+            glob)                      _ai_tools_conf__render_kind=excluded ;;
             *)                         return 4 ;;
         esac
-        [[ -n "${canonical_seen[${kind}:${path}]+set}" ]] && continue
-        canonical_seen["${kind}:${path}"]=1
-        entry="$(_ai_tools_conf__format_registry_entry "${kind}" "${path}")" || return 4
-        canonical_lines+=("${entry}"); canonical_written_paths+=("${path}"); canonical_comments+=("${_ai_tools_conf__canonical_comments[i]-}")
-        if ai_tools_conf__has_glob_characters "${path}"; then
-            canonical_globs+=(1); head="${path%%[*?[]*}"
+        [[ -n "${_ai_tools_conf__render_seen[${_ai_tools_conf__render_kind}:${_ai_tools_conf__render_path}]+set}" ]] && continue
+        _ai_tools_conf__render_seen["${_ai_tools_conf__render_kind}:${_ai_tools_conf__render_path}"]=1
+        _ai_tools_conf__render_entry="$(_ai_tools_conf__format_registry_entry "${_ai_tools_conf__render_kind}" "${_ai_tools_conf__render_path}")" \
+            || return 4
+        _ai_tools_conf__render_lines+=("${_ai_tools_conf__render_entry}")
+        _ai_tools_conf__render_written_paths+=("${_ai_tools_conf__render_path}")
+        _ai_tools_conf__render_comments+=("${_ai_tools_conf__canonical_comments[_ai_tools_conf__render_i]-}")
+        if ai_tools_conf__has_glob_characters "${_ai_tools_conf__render_path}"; then
+            _ai_tools_conf__render_globs+=(1)
+            _ai_tools_conf__render_head="${_ai_tools_conf__render_path%%[*?[]*}"
         else
-            canonical_globs+=(0); head="${path}"
+            _ai_tools_conf__render_globs+=(0)
+            _ai_tools_conf__render_head="${_ai_tools_conf__render_path}"
         fi
-        canonical_heads+=("${head}")
-        if [[ "${kind}" == excluded ]]; then canonical_groups+=(1); else canonical_groups+=(0); fi
+        _ai_tools_conf__render_heads+=("${_ai_tools_conf__render_head}")
+        if [[ "${_ai_tools_conf__render_kind}" == excluded ]]; then
+            _ai_tools_conf__render_groups+=(1)
+        else
+            _ai_tools_conf__render_groups+=(0)
+        fi
     done
-    for i in "${!canonical_lines[@]}"; do
-        parent=-1
-        for j in "${!canonical_lines[@]}"; do
-            (( i != j && canonical_globs[j] == 0 )) || continue
-            candidate="${canonical_written_paths[j]}"
-            if (( canonical_globs[i] )); then
-                [[ "${canonical_heads[i]}" == "${candidate%/}/"* ]] || continue
+    for _ai_tools_conf__render_i in "${!_ai_tools_conf__render_lines[@]}"; do
+        _ai_tools_conf__render_parent=-1
+        for _ai_tools_conf__render_j in "${!_ai_tools_conf__render_lines[@]}"; do
+            (( _ai_tools_conf__render_i != _ai_tools_conf__render_j )) || continue
+            (( _ai_tools_conf__render_globs[_ai_tools_conf__render_j] == 0 )) || continue
+            _ai_tools_conf__render_candidate="${_ai_tools_conf__render_written_paths[_ai_tools_conf__render_j]}"
+            if (( _ai_tools_conf__render_globs[_ai_tools_conf__render_i] )); then
+                [[ "${_ai_tools_conf__render_heads[_ai_tools_conf__render_i]}" == "${_ai_tools_conf__render_candidate%/}/"* ]] || continue
             else
-                _ai_tools_conf__is_path_under "${canonical_written_paths[i]}" "${candidate}" || continue
+                _ai_tools_conf__is_path_under "${_ai_tools_conf__render_written_paths[_ai_tools_conf__render_i]}" "${_ai_tools_conf__render_candidate}" \
+                    || continue
             fi
-            (( parent < 0 || ${#candidate} > ${#canonical_written_paths[parent]} )) && parent="${j}"
+            if (( _ai_tools_conf__render_parent < 0 )) \
+                    || (( ${#_ai_tools_conf__render_candidate} > ${#_ai_tools_conf__render_written_paths[_ai_tools_conf__render_parent]} )); then
+                _ai_tools_conf__render_parent="${_ai_tools_conf__render_j}"
+            fi
         done
-        canonical_parents+=("${parent}")
+        _ai_tools_conf__render_parents+=("${_ai_tools_conf__render_parent}")
     done
     # Each line's sort key is its ancestors' keys and its own, each the group digit and the path, joined by \x01:
     # a byte that sorts ahead of every byte a rendered path carries, so a line sorts ahead of its children and they
     # ahead of its next sibling. Bytewise comparison of the keys is then the depth-first order.
     {
         printf '%s\n' "$(ai_tools_conf__get_registry_marker)"
-        for i in "${!canonical_lines[@]}"; do
-            key="${canonical_groups[i]}${canonical_written_paths[i]}"; depth=0; j="${canonical_parents[i]}"
-            while (( j >= 0 )); do
-                key="${canonical_groups[j]}${canonical_written_paths[j]}"$'\x01'"${key}"; depth=$(( depth + 1 )); j="${canonical_parents[j]}"
+        for _ai_tools_conf__render_i in "${!_ai_tools_conf__render_lines[@]}"; do
+            _ai_tools_conf__render_key="${_ai_tools_conf__render_groups[_ai_tools_conf__render_i]}${_ai_tools_conf__render_written_paths[_ai_tools_conf__render_i]}"
+            _ai_tools_conf__render_depth=0
+            _ai_tools_conf__render_j="${_ai_tools_conf__render_parents[_ai_tools_conf__render_i]}"
+            while (( _ai_tools_conf__render_j >= 0 )); do
+                _ai_tools_conf__render_key="${_ai_tools_conf__render_groups[_ai_tools_conf__render_j]}${_ai_tools_conf__render_written_paths[_ai_tools_conf__render_j]}"$'\x01'"${_ai_tools_conf__render_key}"
+                _ai_tools_conf__render_depth=$(( _ai_tools_conf__render_depth + 1 ))
+                _ai_tools_conf__render_j="${_ai_tools_conf__render_parents[_ai_tools_conf__render_j]}"
             done
-            printf '%s\t%s\t%s\n' "${key}" "${depth}" "${i}"
-        done | LC_ALL=C sort -s -t $'\t' -k1,1 | while IFS=$'\t' read -r key depth i; do
-            printf -v entry '%*s%s' $(( depth * 2 )) '' "${canonical_lines[i]}"
-            comment="${canonical_comments[i]}"
-            if [[ -n "${comment}" ]]; then
-                printf '%-38s  %s\n' "${entry}" "${comment}"
+            printf '%s\t%s\t%s\n' "${_ai_tools_conf__render_key}" "${_ai_tools_conf__render_depth}" "${_ai_tools_conf__render_i}"
+        done | LC_ALL=C sort -s -t $'\t' -k1,1 \
+            | while IFS=$'\t' read -r _ai_tools_conf__render_key _ai_tools_conf__render_depth _ai_tools_conf__render_i; do
+            printf -v _ai_tools_conf__render_entry '%*s%s' $(( _ai_tools_conf__render_depth * 2 )) '' \
+                "${_ai_tools_conf__render_lines[_ai_tools_conf__render_i]}"
+            _ai_tools_conf__render_comment="${_ai_tools_conf__render_comments[_ai_tools_conf__render_i]}"
+            if [[ -n "${_ai_tools_conf__render_comment}" ]]; then
+                printf '%-38s  %s\n' "${_ai_tools_conf__render_entry}" "${_ai_tools_conf__render_comment}"
             else
-                printf '%s\n' "${entry}"
+                printf '%s\n' "${_ai_tools_conf__render_entry}"
             fi
         done
     }
@@ -1839,22 +1864,22 @@ _ai_tools_conf__read_registry_lines() {
     local -n _ai_tools_conf__lines_kinds="$2" _ai_tools_conf__lines_paths="$3" _ai_tools_conf__lines_raws="$4"
     local -n _ai_tools_conf__lines_written="${5:-_ai_tools_conf__lines_no_written}"
     local -n _ai_tools_conf__lines_comments="${6:-_ai_tools_conf__lines_no_comments}"
-    local file="$1" line entry kind
+    local _ai_tools_conf__lines_file="$1" _ai_tools_conf__lines_line _ai_tools_conf__lines_entry _ai_tools_conf__lines_kind
     _ai_tools_conf__lines_kinds=(); _ai_tools_conf__lines_paths=(); _ai_tools_conf__lines_raws=()
     _ai_tools_conf__lines_written=(); _ai_tools_conf__lines_comments=()
-    while IFS= read -r line || [[ -n "${line}" ]]; do
-        ai_tools_conf__parse_path_entry "${line}" || continue
-        entry="${ai_tools_conf__value}"
-        _ai_tools_conf__lines_written+=("${entry}"); _ai_tools_conf__lines_comments+=("${_ai_tools_conf__entry_comment}")
-        kind="${ai_tools_conf__kind}"
-        if [[ "${kind}" == excluded ]] && ai_tools_conf__has_glob_characters "${entry}"; then
-            kind=glob
+    while IFS= read -r _ai_tools_conf__lines_line || [[ -n "${_ai_tools_conf__lines_line}" ]]; do
+        ai_tools_conf__parse_path_entry "${_ai_tools_conf__lines_line}" || continue
+        _ai_tools_conf__lines_entry="${ai_tools_conf__value}"
+        _ai_tools_conf__lines_written+=("${_ai_tools_conf__lines_entry}"); _ai_tools_conf__lines_comments+=("${_ai_tools_conf__entry_comment}")
+        _ai_tools_conf__lines_kind="${ai_tools_conf__kind}"
+        if [[ "${_ai_tools_conf__lines_kind}" == excluded ]] && ai_tools_conf__has_glob_characters "${_ai_tools_conf__lines_entry}"; then
+            _ai_tools_conf__lines_kind=glob
         else
-            entry="$(_ai_tools_conf__resolve_line_path "${entry}")"
+            _ai_tools_conf__lines_entry="$(_ai_tools_conf__resolve_line_path "${_ai_tools_conf__lines_entry}")"
         fi
-        _ai_tools_conf__lines_kinds+=("${kind}"); _ai_tools_conf__lines_paths+=("${entry}")
-        _ai_tools_conf__lines_raws+=("${line}")
-    done < "${file}"
+        _ai_tools_conf__lines_kinds+=("${_ai_tools_conf__lines_kind}"); _ai_tools_conf__lines_paths+=("${_ai_tools_conf__lines_entry}")
+        _ai_tools_conf__lines_raws+=("${_ai_tools_conf__lines_line}")
+    done < "${_ai_tools_conf__lines_file}"
 }
 
 # _ai_tools_conf__resolve_line_path <path> : print the path a line naming <path> names for the classifier: its
