@@ -817,8 +817,8 @@ drive_rows() {
     expect "remove --yes drops safe.directory"                        cli_called ai-tools-safedir "^--remove${T}${R}/rm1$"
     expect "remove does not run the filesystem hand-back"             not_called ai-tools-unclaim
     cli_stub_reset; drive cli ai-tools.projects.remove.inplace "$(f yes)" "${R}/rm2"
-    expect "a parked entry authorizes its removal"                    test ! -e "${R}/rm2"
-    expect "the parked line goes with the tree"                       st_is "${R}/rm2" absent
+    expect "a disabled entry authorizes its removal"                  test ! -e "${R}/rm2"
+    expect "the disabled line goes with the tree"                     st_is "${R}/rm2" absent
     cli_stub_reset; drive cli ai-tools.projects.remove.inplace "$(f force)" "${R}/rm3"
     expect "remove has no --force"                                    rc_not0
     expect "the refused remove leaves the tree"                       test -d "${R}/rm3"
@@ -845,17 +845,17 @@ drive_rows() {
     section "ai-tools.projects.disable / ai-tools.projects.enable"
     seed "@ ${R}/pa" "@ ${R}/hold" "@ ${R}/hold/inner"
     drive cli ai-tools.projects.disable "${R}/pa"
-    expect "disable parks the entry"                                  st_is "${R}/pa" disabled
+    expect "disable writes '%' on the entry"                          st_is "${R}/pa" disabled
     expect "disable is a registry edit alone"                         cli_log_empty
     drive cli ai-tools.projects.enable "${R}/pa"
     expect "enable restores the entry"                                st_is "${R}/pa" enabled
     expect "enable is a registry edit alone"                          cli_log_empty
     drive cli ai-tools.projects.disable "${R}/hold/inner"
-    expect "disable parks a project nested in a listed one"           rc_is 0
-    expect "the nested entry reads as parked"                         st_is "${R}/hold/inner" disabled
+    expect "disable writes '%' on a project nested in a listed one"   rc_is 0
+    expect "the nested entry reads as disabled"                       st_is "${R}/hold/inner" disabled
     expect "the enclosing entry stays listed"                         st_is "${R}/hold" enabled
     drive cli ai-tools.projects.enable "${R}/hold/inner"
-    expect "enable lifts the nested park"                             st_is "${R}/hold/inner" enabled
+    expect "enable lifts the nested '%'"                              st_is "${R}/hold/inner" enabled
     drive cli ai-tools.projects.enable "${R}/plain"
     expect "enable refuses a path with no entry"                      rc_not0
     expect "enable invents no entry"                                  st_is "${R}/plain" absent
@@ -876,7 +876,7 @@ drive_rows() {
 
     cli_stub_reset; drive cli ai-tools.projects.disable "$(f for)" "${FOR_USER}" "${R}/for1"
     expect "disable --for edits the target's registry through the helper" cli_called ai-tools-allowlist "^--operator${T}${FOR_USER}${T}--disable${T}${R}/for1$"
-    expect "the target's entry is parked"                             st_for_is "${R}/for1" disabled
+    expect "the target's entry is disabled"                           st_for_is "${R}/for1" disabled
     cli_stub_reset; drive cli ai-tools.projects.enable "$(f for)" "${FOR_USER}" "${R}/for1"
     expect "enable --for restores the target's entry"                 st_for_is "${R}/for1" enabled
     expect "--for leaves the invoker's registry byte-identical"       test "$(sha "${AL}")" = "${inv_before}"
@@ -917,19 +917,19 @@ drive_rows() {
     expect "control: the same remove --for deletes the tree"         test ! -e "${R}/for3"
     expect "control: and drops the target's entry"                    st_for_is "${R}/for3" absent
     expect "control: and its safe.directory entry"                    cli_called ai-tools-safedir "^--remove${T}${R}/for3$"
-    # A hand-back that did not run parks the target's entry through the helper; a park the helper refuses then ends
-    # the unclaim non-zero with the entry still enabled, after the hand-back was attempted. The control fails
+    # A hand-back that did not run disables the target's entry through the helper; a disable the helper refuses then
+    # ends the unclaim non-zero with the entry still enabled, after the hand-back was attempted. The control fails
     # the hand-back alone: the entry is disabled, and the unclaim still ends non-zero, its reversal incomplete.
     mkdir -p "${R}/for4"; chown "${PROJECTS_USER}:${PROJECTS_USER}" "${R}/for4"
     printf '%s\n' "@ ${R}/for4" >> "${FOR_AL}"
     cli_stub_reset; cli_stub_fail ai-tools-unclaim ai-tools-allowlist:--disable
     drive cli ai-tools.projects.unclaim "$(f for)" "${FOR_USER}" "$(f yes)" "${R}/for4"
-    expect "unclaim --for exits non-zero when the park is refused"    rc_not0
+    expect "unclaim --for exits non-zero when the disable is refused" rc_not0
     expect "the target's entry is still enabled"                      st_for_is "${R}/for4" enabled
-    expect "the hand-back was attempted ahead of the park"            before ai-tools-unclaim "^${R}/for4${T}" ai-tools-allowlist "^--operator${T}${FOR_USER}${T}--disable${T}${R}/for4$"
+    expect "the hand-back was attempted ahead of the disable"         before ai-tools-unclaim "^${R}/for4${T}" ai-tools-allowlist "^--operator${T}${FOR_USER}${T}--disable${T}${R}/for4$"
     cli_stub_reset; cli_stub_fail ai-tools-unclaim
     drive cli ai-tools.projects.unclaim "$(f for)" "${FOR_USER}" "$(f yes)" "${R}/for4"
-    expect "control: the same unclaim parks the target's entry"       st_for_is "${R}/for4" disabled
+    expect "control: the same unclaim disables the target's entry"    st_for_is "${R}/for4" disabled
     expect "control: and exits non-zero, the hand-back not run"       rc_not0
 
     for key in ai-tools.projects.clone ai-tools.projects.push ai-tools.status ai-tools.stop; do

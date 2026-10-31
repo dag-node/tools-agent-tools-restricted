@@ -795,7 +795,7 @@ _ai_tools_conf__write_line() {
 #
 # A line the grammar does not recognise refuses the WHOLE file for every reader (ai_tools_conf__validate_registry):
 # a reader that skipped it would read the rest of the file as the operator's intent, and a mistyped exclusion would then
-# allow the subtree it was written to withhold. A refused file does not allow or cover any path, which is the direction
+# allow the subtree it was written to exclude. A refused file does not allow or cover any path, which is the direction
 # every reader of this file fails in. A relative path is one such line: resolved against the reader's working directory,
 # it named a different directory for each reader. Text after a closing quote, other than a comment, is another:
 # the parser drops it, so `! "/home/op/p/private"x` would read as an exclusion of a path the operator did not write.
@@ -1119,7 +1119,7 @@ _ai_tools_conf__open_registry() {
 # the file is the operator's at 0600 in a 0700 directory (layout.rule.md's boundary rows), and which no writer of this
 # project makes, since each writes beside the file and renames. An allow entry is kept resolved
 # (`realpath -e`) and dropped when it does not resolve, so a symlinked spelling or a trailing slash names the directory.
-# An exclusion -- a carve-out or a park, which the gate treats alike -- is kept AS WRITTEN and, for a line without
+# An exclusion -- a `!` or a `%` line, which the gate treats alike -- is kept AS WRITTEN and, for a line without
 # a glob character, its resolved form beside it, so the match is the UNION of the written and the resolved form:
 # a reader matching the resolved form alone stops covering the written path the moment a component of it becomes
 # a symlink, and one matching the written form alone misses an exclusion the operator spelled through one.
@@ -1385,16 +1385,16 @@ _ai_tools_conf__read_lines_naming() {
 }
 
 # ai_tools_conf__has_allowlist_entry <registry-file> <path> : return 0 when an ALLOW line of <registry-file> names
-#   <path>. A carve-out or a park line is not membership.
+#   <path>. A `!` or a `%` line is not membership.
 ai_tools_conf__has_allowlist_entry() {
     local -a member_project=() member_excluded=() member_disabled=()
     _ai_tools_conf__read_lines_naming "$1" "$2" member_project member_excluded member_disabled || return 1
     (( ${#member_project[@]} > 0 ))
 }
 
-# ai_tools_conf__has_allowlist_exclusion <registry-file> <path> : return 0 when a carve-out (`!`) or a park (`%`) line
-#   names <path> exactly. Exact-path, never glob-expanding: it is the relabel helper's question, whether a line
-#   withholds this very directory.
+# ai_tools_conf__has_allowlist_exclusion <registry-file> <path> : return 0 when an excluded-path (`!`) or
+#   a disabled-project (`%`) line names <path> exactly. Exact-path, never glob-expanding: it is the relabel helper's
+#   question, whether a line covers this very directory.
 ai_tools_conf__has_allowlist_exclusion() {
     local -a member_project=() member_excluded=() member_disabled=()
     _ai_tools_conf__read_lines_naming "$1" "$2" member_project member_excluded member_disabled || return 1
@@ -1977,10 +1977,10 @@ ai_tools_conf__list_registry_entries_under() {
 # is the backup. Each entry keeps its kind and its written path, which is what makes the migration safe to run without
 # the operator: every allow and `!` line means in format 1.0 what the launch gate already made of it, a `!` being
 # an exclusion either way. Whole-line comments are dropped, since format 1.0 carries a note at the end of an entry.
-# What changes meaning is the CLI's reading of a `!` that parked a project, which format 1.0 reads as an excluded path;
-# the plan names each such line with the `%` spelling, and the operator changes it by hand. Until the rename the legacy
-# file is the truth: a run that stops part-way leaves `allowed-projects` under its active name, the resolver keeps
-# reading it, and the next run replaces whatever `~/.config/ai-tools/project-registry` it finds.
+# What changes meaning is the CLI's reading of a `!` that disabled a project, which format 1.0 reads as an excluded
+# path; the plan names each such line with the `%` spelling, and the operator changes it by hand. Until the rename
+# the legacy file is the truth: a run that stops part-way leaves `allowed-projects` under its active name, the resolver
+# keeps reading it, and the next run replaces whatever `~/.config/ai-tools/project-registry` it finds.
 
 # ai_tools_conf__plan_registry_migration <legacy-file> : print one TSV row per line of <legacy-file> by its line
 #   number, after a `marker` row carrying the marker line: `keep\t<n>\t<line>` for an entry, with the line it becomes
@@ -2094,7 +2094,7 @@ ai_tools_conf__migrate_registry() {
         written="${migrate_written[i]}"; [[ "${written}" == / ]] || written="${written%/}"
         kind="${migrate_kinds[i]/glob/excluded}"
         if [[ -n "${migrate_sign_of[${written}]+set}" && "${migrate_sign_of[${written}]}" != "${kind}" ]]; then
-            AI_TOOLS_CONF__MIGRATION_REFUSAL="${source} names ${written} on an allow line and a '!' line, which format 1.0 refuses as two signs on one path; keep one line"
+            AI_TOOLS_CONF__MIGRATION_REFUSAL="${source} names ${written} on a project line and a '!' line, which format 1.0 refuses as two signs on one path; keep one line"
             return 3
         fi
         migrate_sign_of["${written}"]="${kind}"
@@ -2102,7 +2102,7 @@ ai_tools_conf__migrate_registry() {
     # Two spellings of one directory pass the written-path check above and refuse the loader once the file is format
     # 1.0, so the pair is refused here while the legacy file is still the registry.
     if written="$(_ai_tools_conf__find_resolved_sign_conflict migrate_kinds migrate_paths)"; then
-        AI_TOOLS_CONF__MIGRATION_REFUSAL="${source} names ${written//[[:cntrl:]]/?} through two spellings, on an allow line and a '!' line, which format 1.0 refuses as two signs on one directory; keep one line"
+        AI_TOOLS_CONF__MIGRATION_REFUSAL="${source} names ${written//[[:cntrl:]]/?} through two spellings, on a project line and a '!' line, which format 1.0 refuses as two signs on one directory; keep one line"
         return 3
     fi
     tmp="$(mktemp "${destination}.XXXXXX" 2>/dev/null)" || {

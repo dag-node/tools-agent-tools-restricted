@@ -2483,10 +2483,10 @@ _pu_registry_migrate() {
                 note)   _pu_say act "line ${number}: ${raw} -- ${hint}"; notes=$(( notes + 1 )) ;;
             esac
         done < <(ai_tools_conf__plan_registry_migration "${path}" 2>/dev/null)
-        # Each `!` keeps its sign: one no project encloses withholds its path in either format, and only the operator
-        # knows whether it was a parked project, so the block closes by counting them once.
+        # Each `!` keeps its sign: one no project encloses excludes its path in either format, and only the operator
+        # knows whether it was a disabled project, so the block closes by counting them once.
         if (( notes > 0 )); then
-            _pu_say act "${notes} '!' line(s) above read as carve-outs in format 1.0, so no session starts there, as before -- to keep one as a parked project that atr projects enable restores, change its '!' to '%'"
+            _pu_say act "${notes} '!' line(s) above read as excluded paths in format 1.0, so no session starts there, as before -- to keep one as a disabled project that atr projects enable restores, change its '!' to '%'"
         fi
         # Called in this shell, not a capture, so the refusal it leaves in AI_TOOLS_CONF__MIGRATION_REFUSAL is read
         # here.

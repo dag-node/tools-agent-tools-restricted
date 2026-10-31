@@ -386,10 +386,10 @@ ai_tools_launch_wrapper__print_and_exit() {
 # unless approved. The protected-paths backstop runs before the registry is consulted, so a mis-entered registry cannot
 # start a session where the ownership handback would then act. The registry is the file ai_tools_conf__resolve_registry
 # picks in ~/.config/ai-tools -- `~/.config/ai-tools/project-registry`, or `~/.config/ai-tools/allowed-projects` until
-# it is migrated -- read through the shared grammar; a carve-out (`!`) or park (`%`) line overrides an allow, exactly
-# as in ai-tools-chown, so a line means the same thing in the launch gate as it does in the ownership hand-back. A CWD
-# that is not approved draws the setup menu (create a sandbox clone, claim here, cancel) on a terminal, and is refused
-# without one. AI_TOOLS_ALLOWLIST is not read here: the launch gate is the operator's own file.
+# it is migrated -- read through the shared grammar; an excluded-path (`!`) or disabled-project (`%`) line overrides
+# an allow, exactly as in ai-tools-chown, so a line means the same thing in the launch gate as it does in the ownership
+# hand-back. A CWD that is not approved draws the setup menu (create a sandbox clone, claim here, cancel) on a terminal,
+# and is refused without one. AI_TOOLS_ALLOWLIST is not read here: the launch gate is the operator's own file.
 ai_tools_launch_wrapper__gate_project() {
     local name="${AI_TOOLS_LAUNCH_WRAPPER__NAME}" registry_state allowlist cwd dir pat sel index kind remedy
     IFS=$'\t' read -r registry_state allowlist < <(ai_tools_conf__resolve_registry "${HOME}/.config/ai-tools")
@@ -423,9 +423,9 @@ ai_tools_launch_wrapper__gate_project() {
 
     # Exclusions are checked first and override allows (the match ai_tools_conf__is_path_excluded makes, spelled
     # out here because the refusal names which line matched and how). The kind of the line that matched decides
-    # the wording, since the way back differs: a park naming this very directory is a project someone PARKED --
-    # `atr projects disable`, or the same edit by hand -- and the way back is one command; a carve-out is a subtree
-    # deliberately withheld, where the remedy is to edit that line; and a line covering the directory from an ancestor
+    # the wording, since the way back differs: a `%` line naming this very directory is a project someone DISABLED --
+    # `atr projects disable`, or the same edit by hand -- and the way back is one command; a `!` line excludes
+    # a subtree deliberately, where the remedy is to edit that line; and a line covering the directory from an ancestor
     # names the line, with the remedy its kind takes. The first line in file order decides.
     for index in "${!exclusion_patterns[@]}"; do
         pat="${exclusion_patterns[index]%/}"                    # normalise: strip trailing slash
@@ -436,22 +436,22 @@ ai_tools_launch_wrapper__gate_project() {
                     "${name}: no session starts here until it is re-enabled -- its files, group and label are untouched" \
                     "${name}: re-enable it with:  ${CLI_CMD} projects enable ${cwd}"
             fi
-            # A legacy allowed-projects wrote a parked project as a '!' line, which the grammar this release reads takes
-            # as a carve-out; the migration's hint names how a parked one is written now.
+            # A legacy allowed-projects wrote a disabled project as a '!' line, which the grammar this release reads
+            # takes as an excluded path; the migration's hint names how a disabled one is written now.
             if [[ "${registry_state}" == legacy ]]; then
-                printf 'MSG-J6S8\n%s\n' "${name}: ${allowlist} is the registry an earlier release wrote and is not migrated -- run atr admin system post-upgrade; a project parked before the upgrade is written %<path> in ~/.config/ai-tools/project-registry" >&2
+                printf 'MSG-J6S8\n%s\n' "${name}: ${allowlist} is the registry an earlier release wrote and is not migrated -- run atr admin system post-upgrade; a project disabled before the upgrade is written % <path> in ~/.config/ai-tools/project-registry" >&2
             fi
             ai_tools_launch_wrapper__die MSG-K8K2 "excluded by a '!' line in your project registry: ${cwd}" \
-                "${name}: that line withholds this directory from the agent; edit ${allowlist} to change that"
+                "${name}: no session starts under a '!' line; edit ${allowlist} to change that"
         fi
         # For plain paths (no glob), also exclude directory contents
         if [[ "${pat}" != *'*'* && "${cwd}" == "${pat}/"* ]]; then
             if [[ "${kind}" == disabled ]]; then
-                remedy="it is inside ${pat}, a parked project; re-enable that project with:  ${CLI_CMD} projects enable ${pat}"
+                remedy="it is inside ${pat}, a disabled project; re-enable that project with:  ${CLI_CMD} projects enable ${pat}"
             else
-                remedy="the carve-out !${pat} above this directory withholds it; edit ${allowlist} to change that"
+                remedy="the line ! ${pat} above this directory excludes it, and no session starts under it; edit ${allowlist} to change that"
                 if [[ "${registry_state}" == legacy ]]; then
-                    printf 'MSG-J6S8\n%s\n' "${name}: ${allowlist} is the registry an earlier release wrote and is not migrated -- run atr admin system post-upgrade; a project parked before the upgrade is written %<path> in ~/.config/ai-tools/project-registry" >&2
+                    printf 'MSG-J6S8\n%s\n' "${name}: ${allowlist} is the registry an earlier release wrote and is not migrated -- run atr admin system post-upgrade; a project disabled before the upgrade is written % <path> in ~/.config/ai-tools/project-registry" >&2
                 fi
             fi
             ai_tools_launch_wrapper__die MSG-W2P3 "excluded by a line in your project registry: ${cwd}" "${name}: ${remedy}"

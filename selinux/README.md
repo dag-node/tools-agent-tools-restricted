@@ -177,7 +177,7 @@ from another distribution) — stages the shipped set for `ai-tools-admin`,
 labels each agent's config directory (`ai_tools_home_t`) and the `claude.exe`
 entrypoint, and labels every project each operator's registry lists
 (`~/.config/ai-tools/project-registry`,
-or `~/.config/ai-tools/allowed-projects` until it is migrated), parked ones
+or `~/.config/ai-tools/allowed-projects` until it is migrated), disabled ones
 included, as `ai_tools_project_t`.
 
 Verify:

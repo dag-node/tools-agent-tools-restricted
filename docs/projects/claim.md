@@ -177,9 +177,9 @@ of the sandbox account or the toolchain update runs
 each session end with `/exit` and the toolchain update finish, or end them all
 with `atr stop`, then claim again: the re-run applies the label alone.
 
-An owner-only path, and one a carve-out line (`!`) of your project registry
-withholds, is skipped by every step and reported as a count. Either mark is
-also how you stop a path being reported again.
+An owner-only path, and one an excluded line (`!`) of your project registry
+covers, is skipped by every step and reported as a count. Either mark is also
+how you stop a path being reported again.
 
 ## Re-claiming
 
@@ -205,23 +205,24 @@ those outcome lines to standard output as a record stream
 and the questions still asked on the terminal, so a script reads the rows
 alone.
 
-## A parked entry, and the paths a claim refuses
+## A disabled entry, and the paths a claim refuses
 
 `projects claim` on a project you disabled does not claim over it and does not
-add a second line: it reports the park, shows the `%` line, and offers
-to re-enable it behind a default-No confirm. Yes claims the project again
-with its line, and its comment, where they were ([Enable](enable.md)). A parked
-project that another line also covers, such as a `%` on a directory enclosing
-it, is refused instead, naming that line, and the re-enable is not offered.
+add a second line: it reports that the project is disabled, shows the `%` line,
+and offers to re-enable it behind a default-No confirm. Yes claims the project
+again with its line, and its comment, where they were ([Enable](enable.md)).
+A disabled project that another line also covers, such as a `%` on a directory
+enclosing it, is refused instead, naming that line, and the re-enable is not
+offered.
 
 A claim refuses, before it writes anything:
 
-- a path a carve-out line (`!`) names, since a carve-out is not a project;
-- a path a carve-out line and an allow or `%` line both name, until you keep
+- a path an excluded line (`!`) names, since an excluded path is not a project;
+- a path an excluded line and an allow or `%` line both name, until you keep
   the one you mean;
-- a path inside a parked project, or under a carve-out or glob line, since
+- a path inside a disabled project, or under an excluded or glob line, since
   the steps that grant the agent access do not act there. The refusal shows
-  the line; for a park it names the `atr projects enable` that lifts it.
+  the line; for a `%` line it names the `atr projects enable` that lifts it.
 
 A directory with registered projects under it is claimed as one project,
 and the Review block names the projects it holds.
@@ -251,7 +252,7 @@ carries `--for svc-ci`.
 ## Exit status
 
 0 when the tree is claimed or there was no work; 1 when the path was refused,
-the parked project was not re-enabled, a root step failed, or the label step
+the disabled project was not re-enabled, a root step failed, or the label step
 was refused while a session ran, the last two with the pending steps named —
 a re-run applies exactly those; 2 for a rejected command line (a missing
 directory, an unknown option, a `--format` other than `tsv`); 3 when the path

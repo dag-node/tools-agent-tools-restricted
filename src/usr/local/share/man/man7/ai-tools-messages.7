@@ -378,7 +378,7 @@ Documented in
 .TP
 .B MSG-W4S7
 ERROR.
-this path is a carve\-out, not a project: $1
+this path is excluded, not a project: $1
 .TP
 .B MSG-X3G7
 ERROR.
@@ -1129,7 +1129,7 @@ run me through sudo as an operator (no SUDO_UID) \-\- nothing changed
 .TP
 .B MSG-T7B6
 ERROR.
-that path is DISABLED or carved out for ${OPERATOR}: ${canonical} \-\- a '%' line parks it
+that path is DISABLED or excluded for ${OPERATOR}: ${canonical} \-\- a '%' line disables it
 .TP
 .B MSG-V9K7
 NOTICE.
@@ -1981,7 +1981,7 @@ invalid list, read as the empty list \-\- ${key} in ${file} holds ${unprefixed[*
 .TP
 .B MSG-Y5N6
 WARNING.
-exclusion ${written} in ${file} cannot be resolved \-\- ${_ai_tools_conf__resolve_refusal}; write the exclusion as the directory's real path, since a link the sandbox account can change cannot be followed; no entry in this file allows a path until the line is fixed
+exclusion ${_ai_tools_conf__load_written} in ${_ai_tools_conf__load_file} cannot be resolved \-\- ${_ai_tools_conf__resolve_refusal}; write the exclusion as the directory's real path, since a link the sandbox account can change cannot be followed; no entry in this file allows a path until the line is fixed
 Documented in
 .BR ai-tools-project-registry (5).
 .SS install-selinux.sh

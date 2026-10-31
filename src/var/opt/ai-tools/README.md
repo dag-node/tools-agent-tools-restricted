@@ -77,7 +77,7 @@ file, a `kubeconfig`. The sandbox clone is an ordinary registered project,
 so the same protections apply and the operator should still use them as defense
 in depth:
 
-- carve live secret paths of this clone out with a `!` line
+- exclude live secret paths of this clone with a `!` line
   in `~/.config/ai-tools/project-registry`, so their ownership is never handed
   back to the agent group; and
 - run `atr projects lockdown <clone>` (or

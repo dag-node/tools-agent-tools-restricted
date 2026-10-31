@@ -177,8 +177,8 @@ an ordinary account read it — a partial view, the file sink being the authorit
 - `projects unclaim <path>` — unclaim a real project, directory left on disk: revert the label, drop both registries,
   and (default-yes confirm) hand the tree back with the agent's write revoked ([Unclaim](#unclaim)). Options are
   in `ai-tools(1)`.
-- `projects disable <path>` / `projects enable <path>` — park a claimed project and restore it, by putting a `%` on its
-  line and taking it off again, **in place**. Detail under [The two verbs](#the-two-verbs).
+- `projects disable <path>` / `projects enable <path>` — disable a claimed project and re-enable it, by putting a `%`
+  on its line and taking it off again, **in place**. Detail under [The two verbs](#the-two-verbs).
 - `projects clone <path>` — shallow-clone a repository into the sandbox area privately, lock down tip-commit secrets,
   and only past that gate label, open and register the clone; fail-closed otherwise, and resumable by re-running
   on the clone path ([Sandbox clone](#sandbox-clone)).
@@ -453,19 +453,19 @@ an ordinary account read it — a partial view, the file sink being the authorit
   either: `journalctl --user-unit` as root reads **root's** user units, so the unit is selected by the journal fields
   instead (`sudo journalctl _SYSTEMD_USER_UNIT=<unit> _UID=<sandbox uid>`), which ANDs across the two field names
   and catches both the unit's own output and the `systemd-cat` lines its script emits.
-- `projects list` — report every line of the registry by its kind (`project` / `sandbox` / `parked`, with the enable
-  command that restores it / `exclude` for a carve-out) with each project's git `safe.directory` status, then
+- `projects list` — report every line of the registry by its kind (`project` / `sandbox` / `disabled`, with the enable
+  command that restores it / `exclude` for an excluded path) with each project's git `safe.directory` status, then
   a **Suggested cleanup** section flagging inconsistent hand-edited lines, each with a copy-paste remediation carrying
   the full absolute path (an anchored `sed` line-deletion, plus `ai-tools-safedir --remove` /
   `ai-tools-relabel --remove` where they apply, or `atr projects claim` to finish a partial claim). It flags, in both
-  directions: a protected system path the tools refuse to touch; a stale allow or park line, or a stale non-glob
-  carve-out, whose path no longer exists; a project listed but not fully claimed; and — the reverse direction — a git
-  `safe.directory` with **no** registry entry (orphaned, e.g. a hand-deleted line), skipping the deliberately-registered
-  control-plane paths the protected-paths backstop already covers. The `sed` line deletes the verbatim line, comment
-  and all, from the file a message names (`REGISTRY_DISPLAY_PATH`); on a `--for` run that is the target's file, edited
-  as that account (`sudo -u <target>`). It reads the registry through the registry gate ([The registry
-  gate](#the-registry-gate)), so a file no reader accepts — a glob on an allow line among the lines that make one — is
-  refused under `MSG-Y7K5` after the library's line, and a legacy file is listed under a banner naming
+  directions: a protected system path the tools refuse to touch; a stale enabled or disabled line, or a stale non-glob
+  excluded line, whose path no longer exists; a project listed but not fully claimed; and — the reverse direction —
+  a git `safe.directory` with **no** registry entry (orphaned, e.g. a hand-deleted line), skipping
+  the deliberately-registered control-plane paths the protected-paths backstop already covers. The `sed` line deletes
+  the verbatim line, comment and all, from the file a message names (`REGISTRY_DISPLAY_PATH`); on a `--for` run that is
+  the target's file, edited as that account (`sudo -u <target>`). It reads the registry through the registry gate ([The
+  registry gate](#the-registry-gate)), so a file no reader accepts — a glob on an allow line among the lines that make
+  one — is refused under `MSG-Y7K5` after the library's line, and a legacy file is listed under a banner naming
   `atr admin system post-upgrade`, every `!` line read as an exclusion. It reuses existing predicates and verbs only (no
   recovery machinery), stays **read-only** (every fix is an emitted command, never an in-place rewrite), and closes
   with a compact **Maintenance** pointer to the per-project verbs. Informational, so it stays open to a non-operator.
@@ -569,7 +569,7 @@ registry coverage (`operator.lib.sh`), not from either global.
 
 **The target's registry is unreadable to the invoker.** A registry is `0600` inside a `0700` `.config/ai-tools` (seeded
 that way by `ai-tools-admin`), so one operator cannot read another's at all — and every decision the CLI makes from it
-(the path's state, which park and carve-out lines apply, what `projects list` reports) would read an unreadable file
+(the path's state, which disabled and excluded lines apply, what `projects list` reports) would read an unreadable file
 as an empty one. A `--for` run therefore takes a root-side **snapshot** through `ai-tools-allowlist --print`
 into a `0600` temp file removed on exit, and points `ALLOWLIST` at it for reads. The helper prints only a migrated
 registry the loader accepts over the target's own file, the link rule taken from that file's owner
@@ -662,9 +662,9 @@ a `750 root:root` directory and the account does not hold a sudo rule.
 
 `~/.config/ai-tools/project-registry` is a document the operator edits, and its grammar is
 `ai-tools-project-registry(5)` and the registry section comment in `conf.lib.sh`. A line's sign is its kind: an `@` line
-is a project, a `%` line a parked project, and a `!` line a carve-out wherever the line sits: no session starts
-in the subtree, and the hand-back and the claim walks skip it. A carve-out is not an access boundary: it does not take
-back a grant a claim already made there, which an owner-only mode does, since every claim walk leaves one alone
+is a project, a `%` line a disabled project, and a `!` line an excluded path wherever the line sits: no session starts
+in the subtree, and the hand-back and the claim walks skip it. An excluded path is not an access boundary: it does not
+take back a grant a claim already made there, which an owner-only mode does, since every claim walk leaves one alone
 ([ref-definition-e3h3](secret-handling.rule.md#ref-definition-e3h3)). A line the grammar refuses refuses the whole file
 for every reader, two signs on one path among them ([providers](providers.rule.md)), and every CLI write rewrites
 the file in its canonical form, which [One implementation of a registry
@@ -677,10 +677,10 @@ the function's header states each field, and the classification section comment 
 of states. `read_path_class` reads the record into the `CLASS_*` globals, and each verb's case on `CLASS_STATE` is its
 row of the state machine, so two verbs cannot read one path two ways.
 
-**Entry state is not reachability.** A path can hold a clean allow line and still be unreachable, because a park
-on an ancestor or a carve-out or glob covers it — none of which names the path. That is the record's `blocked` field,
-and `is_class_reachable` reads a path as reachable when it is `enabled`, or inside an enabled project, with no line
-blocking it. A verb that changes an entry says what the entry now is, and names the line that still blocks the path
+**Entry state is not reachability.** A path can hold a clean allow line and still be unreachable, because a disabled
+line on an ancestor or an excluded line or glob covers it — none of which names the path. That is the record's `blocked`
+field, and `is_class_reachable` reads a path as reachable when it is `enabled`, or inside an enabled project, with no
+line blocking it. A verb that changes an entry says what the entry now is, and names the line that still blocks the path
 when one does. Reporting a project "enabled" that no session can enter is the misreport this split exists to prevent.
 
 ### The registry gate
@@ -689,7 +689,7 @@ when one does. Reporting a project "enabled" that no session can enter is the mi
 a link the sandbox account can change, refuses every verb under `MSG-Y7K5` after the library's line, read
 through `ai_tools_conf__check_registry`, the loader the launch gate reads with. A legacy `allowed-projects` refuses
 every verb but `projects list` under `MSG-J6S8`, naming `atr admin system post-upgrade`: an edit would mix two grammars
-in one file, and a `!` there may be a project an earlier release parked, which this grammar reads as a carve-out.
+in one file, and a `!` there may be a project an earlier release disabled, which this grammar reads as an excluded path.
 The migration is `system post-upgrade`'s, unattended, each entry keeping its kind and its written path
 ([providers](providers.rule.md)). A run with no registry passes the gate, and each verb meets its own refusal. `status`
 reads the file through the same check, so the report and the gate cannot disagree about it; a `--for` run's gate reads
@@ -701,7 +701,7 @@ The required verbs — `create`, `clone`, `claim`, `remove`, `unclaim`, `enable`
 under `MSG-K7D9` (`create` under `MSG-A7D3`) with exit 2, naming `.` as the spelling for the current directory. Every
 verb refuses an `excluded` path (`MSG-W4S7`, or `MSG-R8C7` naming the line for the file verbs), and every verb
 that would act under a covering line refuses the path it blocks (`MSG-R8C7`, its remedy by kind
-through `format_blocking_line_remedy`: the enable of the parked project, or the edit of the line). The clone kind
+through `format_blocking_line_remedy`: the enable of the disabled project, or the edit of the line). The clone kind
 of `remove` reads none of these states: it authorizes a recognized clone by its place in `SANDBOX_ROOT`
 ([Remove](#remove)). A path `inside` a project is refused naming that project (`MSG-T5A3`) by every verb but `claim`,
 which claims a nested project, and the file verbs, which act on the subtree. The rows a verb takes for each state are
@@ -717,11 +717,11 @@ first, and every one precedes the verb's first write and its first `sudo`.
 ### Discovery
 
 `projects handback`, `projects lockdown` and `projects push` take an optional path. Without one, `discover_project`
-walks from the canonical current directory upward: the first directory an allow or park line names is the project, named
-on stderr before the verb runs, and the verb's own table then reads it as if it had been typed. A park, carve-out
-or glob line covering a directory on the way without naming it refuses under `MSG-R8C7`, naming the line
-and, for a carve-out or a glob with a project enclosing it, that project to name instead; reaching `/` with no entry
-refuses under `MSG-K8R8` with exit 2. The walk checks every directory between the current one and the project,
+walks from the canonical current directory upward: the first directory an enabled or disabled line names is the project,
+named on stderr before the verb runs, and the verb's own table then reads it as if it had been typed. A disabled,
+excluded or glob line covering a directory on the way without naming it refuses under `MSG-R8C7`, naming the line
+and, for an excluded line or a glob with a project enclosing it, that project to name instead; reaching `/` with no
+entry refuses under `MSG-K8R8` with exit 2. The walk checks every directory between the current one and the project,
 where the launch gate reads the current directory alone, so a glob matching an intermediate directory and not
 the current one stops discovery and does not stop a launch there. `push` refuses a discovered candidate that is not
 a sandbox clone, `MSG-W3H3` for one nested deeper under `SANDBOX_ROOT` and `MSG-T4Z6` outside it.
@@ -732,35 +732,35 @@ a sandbox clone, `MSG-W3H3` for one nested deeper under `SANDBOX_ROOT` and `MSG-
 of the operator's own line**, and its end-of-line comment survives, which is their reason to exist rather than being
 an add/remove pair: on a file in canonical form, a disable and an enable leave the registry byte-identical,
 and on a hand-edited one the first write puts the whole file in canonical form. A project nested inside another is
-parked on its own line. Both are **registry-only**: group, ACLs, setgid and the SELinux label are untouched,
+disabled on its own line. Both are **registry-only**: group, ACLs, setgid and the SELinux label are untouched,
 so re-enabling does not grant any access that was not already granted, and neither verb runs the secret gate. Neither
 invents an entry — a path the file does not name is refused, naming `projects claim`, because registering a project is
 a claim and a claim scans for secrets first.
 
 What disabling costs is everything downstream of the registry, and the verb says so: the root helpers resolve a path's
-owner through the same allow/exclude matcher, so while a project is parked `ai-tools-unclaim`, `-chown`, `-setfacl`
+owner through the same allow/exclude matcher, so while a project is disabled `ai-tools-unclaim`, `-chown`, `-setfacl`
 and `-setgid` fail to resolve an owner and **exit 0 without touching the tree**, and `ai-tools-lockdown` refuses.
-The ownership handback therefore stops restoring files written under it — the consequence to know before parking
+The ownership handback therefore stops restoring files written under it — the consequence to know before disabling
 a project a session is still writing to.
 
-An unclaim whose hand-back did not run makes the same edit at its end: the line is parked instead of deleted
+An unclaim whose hand-back did not run makes the same edit at its end: the line is disabled instead of deleted
 ([Unclaim](#unclaim)).
 
 ### The kind is in the line
 
-A park and a carve-out are written with different characters, so the file states which one a line is and no verb reads
-it from the line's position. `projects disable` writes `%` on a project's own line, nested or not, and `projects enable`
-lifts `%` alone: it refuses a `!` line wherever it sits, since lifting a carve-out widens what the agent reaches and no
-verb writes one, so the editor it was written in is the one to delete it. A listed project whose own line an operator
-prefixes with `!` by hand reads as a carve-out — the launch refuses there and `enable` refuses it — and the editor
-restores it.
+A disabled project and an excluded path are written with different characters, so the file states which one a line is
+and no verb reads it from the line's position. `projects disable` writes `%` on a project's own line, nested or not,
+and `projects enable` lifts `%` alone: it refuses a `!` line wherever it sits, since lifting an excluded line widens
+what the agent reaches and no verb writes one, so the editor it was written in is the one to delete it. A listed project
+whose own line an operator prefixes with `!` by hand reads as an excluded path — the launch refuses there and `enable`
+refuses it — and the editor restores it.
 
-A registry an earlier release wrote spelled a parked project with `!`, the same text as a carve-out. The migration keeps
-each line's kind, so a `!` stays a carve-out in format 1.0 and covers what it covered
+A registry an earlier release wrote spelled a disabled project with `!`, the same text as an excluded path.
+The migration keeps each line's kind, so a `!` stays an excluded path in format 1.0 and covers what it covered
 before; `ai_tools_conf__plan_registry_migration` names each `!` line no allow line encloses with its `%` spelling, since
 only the operator knows which one an earlier edit meant. Reading the kind from position — a `!` inside a listed project
-a carve-out, one outside a parked project — was rejected: nested projects make it unsound, and the verbs that relied
-on it had to refuse to park a nested project at all.
+an excluded path, one outside a disabled project — was rejected: nested projects make it unsound, and the verbs
+that relied on it had to refuse to disable a nested project at all.
 
 ### One implementation of a registry change
 
@@ -769,22 +769,22 @@ for `--for`), `install.sh` (de-registering its own checkout) — calls the same 
 `_add`, `_remove`, `_enable`, `_disable`. Each verifies by re-reading the file and separates *applied* (0) from *could
 not write* (1) from *does not apply from this state* (2) from *a legacy or refused file* (3), and `_add` returns 4
 for a path `_ai_tools_conf__format_registry_entry` does not write as a line; their header in `conf.lib.sh` states
-the set. The rules live there rather than in any caller, so no writer can skip them: `_add` **refuses** a parked path
-and a carve-out (appending under a winning `%` is the duplicate-pair bug), and `_remove` deletes the allow and park
-lines naming the path, so de-registering a parked project does not leave a `%` behind to park whatever is claimed
-at that path next, and leaves every carve-out line, which is the operator's own edit. `projects create`
+the set. The rules live there rather than in any caller, so no writer can skip them: `_add` **refuses** a disabled path
+and an excluded path (appending under a winning `%` is the duplicate-pair bug), and `_remove` deletes the enabled
+and disabled lines naming the path, so de-registering a disabled project does not leave a `%` behind to disable whatever
+is claimed at that path next, and leaves every excluded line, which is the operator's own edit. `projects create`
 and `projects clone` ask the same formatter, `ai_tools_conf__is_registry_path_representable`, before their first write,
 so a name the registry cannot carry is refused before a directory exists.
 
 **Every write rewrites the whole file in its canonical form**, `_ai_tools_conf__write_registry_canonical`: a forest
 in which a line sits under the nearest entry enclosing its path, indented two spaces per level, projects ahead
-of carve-outs and each set in byte order, rendered from each line's **written** path and carrying its comment. A writer
-rendering the resolved path would turn a carve-out written through a link into the link's target, which stops covering
-the written path once the link changes. A line repeating an earlier one is written once, and every line is rendered
-before the first byte is written, so one the formatter cannot write back refuses the whole write (4) with the file as it
-was. The readers do not read the order, so the operator's hand edit reads as written and takes its place on the next
-write. Two signs on one path never reach a writer: the grammar refuses the pair as `sign-conflict`, and two spellings
-of one directory through a link are refused by every reader that resolves them (`MSG-E3W3`).
+of excluded paths and each set in byte order, rendered from each line's **written** path and carrying its comment.
+A writer rendering the resolved path would turn an excluded path written through a link into the link's target,
+which stops covering the written path once the link changes. A line repeating an earlier one is written once, and every
+line is rendered before the first byte is written, so one the formatter cannot write back refuses the whole write (4)
+with the file as it was. The readers do not read the order, so the operator's hand edit reads as written and takes its
+place on the next write. Two signs on one path never reach a writer: the grammar refuses the pair as `sign-conflict`,
+and two spellings of one directory through a link are refused by every reader that resolves them (`MSG-E3W3`).
 
 For a file that is the launch gate, a writer matching lines differently from the reader would leave a project reachable
 after a removal; one shared implementation of the match is what rules that out.
@@ -846,7 +846,7 @@ defaults to no and takes an explicit per-invocation flag alone — is [messaging
 | grant traverse on ancestors | no | does not answer | does not answer | declines, prints the `setfacl` lines |
 | lock secret-named paths (the gate) | yes | does not answer | does not answer | locks |
 | normalize `.git` | yes | does not answer | answers yes | normalizes |
-| re-enable a parked entry | no | does not answer | does not answer | declines |
+| re-enable a disabled entry | no | does not answer | does not answer | declines |
 
 The launch wrapper passes `-y` for a delegated claim after taking its own confirmation, so the same decision is not
 asked twice. `--format tsv` makes stdout carry the outcome rows as `ai-tools-records(5)` states and no other line: once
@@ -890,7 +890,7 @@ does:
 | verb | on a failed root step | why |
 |---|---|---|
 | `projects claim` | stops, reports what is pending, exits 1 | fewer steps applied is *less* access, and a re-run is idempotent |
-| `projects unclaim` | applies the registry reversal **anyway**, then reports — dropping the entry, or parking it where the hand-back did not run | either disposition ends with no session able to start there; stopping short would leave the project launchable |
+| `projects unclaim` | applies the registry reversal **anyway**, then reports — dropping the entry, or disabling it where the hand-back did not run | either disposition ends with no session able to start there; stopping short would leave the project launchable |
 | `projects remove` | deletes **anyway**, notes the cleanup that did not run | the leftovers point at a path that no longer exists; refusing to delete would leave the tree |
 | `projects clone` | reports the clone is not git-ready, exits 1 | a clone exists to run git in, and without `safe.directory` the agent's git refuses the tree |
 
@@ -1045,17 +1045,17 @@ so in a line.
 ## Remove <a id="ref-section-k3v7"></a>
 
 `projects remove` deletes the directory as well as unclaiming it. A project's authorization is an **exact** registry
-entry — an allow or a `%` line, since a park records a project that is still the operator's, and requiring a re-enable
-first would make a tree about to be deleted launchable on the way out; a parked one gets its own default-no confirm
-naming that state, and both its lines go with the tree. A carve-out does not authorize a deletion and is refused
-(`MSG-W4S7`), and the carve-out lines under a removed project stay in the file, named at the close as lines
-`projects list` then reports stale. There is no `--force`: that flag exists on unclaim to reach a tree no entry names,
-and deleting such a tree is an unclaim plus an `rm` the operator types. An ancestor, a path inside a project,
-an unregistered path, and an entry that **contains another claimed project** (which `rm -rf` would take with it
-and leave registered at a path that no longer exists) are each refused with the command that applies; the nested check
-sees only the registry this run can read. The verb reads the kind from the path, so a clone under `SANDBOX_ROOT` is
-removed through `require_sandbox_clone`, which authorizes it as a recognized clone with its own lines going with it,
-and every other entry as a project.
+entry — an allow or a `%` line, since a `%` line records a project that is still the operator's, and requiring
+a re-enable first would make a tree about to be deleted launchable on the way out; a disabled one gets its own
+default-no confirm naming that state, and both its lines go with the tree. An excluded path does not authorize
+a deletion and is refused (`MSG-W4S7`), and the excluded lines under a removed project stay in the file, named
+at the close as lines `projects list` then reports stale. There is no `--force`: that flag exists on unclaim to reach
+a tree no entry names, and deleting such a tree is an unclaim plus an `rm` the operator types. An ancestor, a path
+inside a project, an unregistered path, and an entry that **contains another claimed project** (which `rm -rf` would
+take with it and leave registered at a path that no longer exists) are each refused with the command that applies;
+the nested check sees only the registry this run can read. The verb reads the kind from the path, so a clone
+under `SANDBOX_ROOT` is removed through `require_sandbox_clone`, which authorizes it as a recognized clone with its own
+lines going with it, and every other entry as a project.
 
 A read-only deletability pre-flight runs as the acting owner and refuses when any directory in the tree is not writable
 and traversable by them, naming `atr projects handback --full`: the failure a destructive verb must not have is a tree
@@ -1105,14 +1105,14 @@ and acts only where something authorizes it:
 | a listed project | unclaimed |
 | an ancestor of listed projects | all of them, enabled or disabled, outermost-first, behind one default-no confirm |
 | inside a listed project | refused, naming the nearest claimed parent |
-| a carve-out | refused (`MSG-W4S7`) |
+| an excluded path | refused (`MSG-W4S7`) |
 | unlisted, carrying the ai-tools fingerprint | reported; acting needs `--force` |
 | unlisted, no fingerprint | refused |
 
 For each selected project it reverts the label, runs `ai-tools-unclaim` behind a default-yes confirm to hand
 the filesystem back **before** the registry entry is dropped, so the helper still sees the target listed, and then
-removes both registries. The carve-out lines under the project stay in force and are named at the close
-(`report_carveouts_kept`), since no verb deletes one. The helper clears the claim's ACL entries and the default ACL,
+removes both registries. The excluded lines under the project stay in force and are named at the close
+(`report_excluded_paths_kept`), since no verb deletes one. The helper clears the claim's ACL entries and the default ACL,
 regroups the tree to the target group (`--group`, or the prompt's user's primary group), and removes group write
 and the setgid bit on directories; the per-path reversal, the `.git` pass that revokes history access the way the claim
 granted it, and the hardlink refusal are its header's. Hardlinked files are refused in both modes and counted
@@ -1131,21 +1131,21 @@ tree resolves its owner.
 
 **An unclaim whose hand-back did not run says so, and exits non-zero.** That step is what revokes the agent's access
 to the files; the registry work stops a session launching there but leaves the tree group-owned by the sandbox account,
-so a bare ✓ over it would tell the operator access was removed when it was not. On a parked target the unclaim asks
-to lift the park first, since the helpers do not act under one; declining does not abort. **Wherever a wanted hand-back
-did not run** — the re-enable declined, a line covering the project, `sudo` or the group missing, a helper that failed,
-root steps stopped — the registry reversal parks the line (`%`, in place; a line already `%` stays) rather than dropping
-it, and `unclaim_one` prints the reason and this unclaim again with its own options (`--for`, `--full`, `--group`),
-composed by `format_projects_command`, as the command that completes it once the cause is cleared: a dropped line would
-leave the remedy without the entry the hand-back resolves its owner from. A hand-back declined at the group prompt is
-a choice rather than a failure, and drops the line as usual. A registry line the unclaim could not change ends it
-non-zero as well, in a `--for` run as in a plain one, since the line is the launch gate: a drop that did not apply
-refuses (`unreg_allow`), naming the line or the helper command that removes it, and a park that did not apply closes
-with the entry reported still enabled and no ✓. A label reversal that failed, or that the live-session gate refused,
-closes the same way, without the ✓ and non-zero, after the hand-back and the registry reversal have run: the project
-type and its rule stay on a tree no entry names until the printed command runs. A failed root step follows the per-verb
-table under [Claim in place](#claim-in-place). The filesystem effect per mode is
-[ref-table-b5v7](ownership-and-hooks.rule.md#ref-table-b5v7).
+so a bare ✓ over it would tell the operator access was removed when it was not. On a disabled target the unclaim asks
+to re-enable it first, since the helpers do not act under a `%` line; declining does not abort. **Wherever a wanted
+hand-back did not run** — the re-enable declined, a line covering the project, `sudo` or the group missing, a helper
+that failed, root steps stopped — the registry reversal disables the line (`%`, in place; a line already `%` stays)
+rather than dropping it, and `unclaim_one` prints the reason and this unclaim again with its own options (`--for`,
+`--full`, `--group`), composed by `format_projects_command`, as the command that completes it once the cause is cleared:
+a dropped line would leave the remedy without the entry the hand-back resolves its owner from. A hand-back declined
+at the group prompt is a choice rather than a failure, and drops the line as usual. A registry line the unclaim could
+not change ends it non-zero as well, in a `--for` run as in a plain one, since the line is the launch gate: a drop
+that did not apply refuses (`unreg_allow`), naming the line or the helper command that removes it, and a disable
+that did not apply closes with the entry reported still enabled and no ✓. A label reversal that failed,
+or that the live-session gate refused, closes the same way, without the ✓ and non-zero, after the hand-back
+and the registry reversal have run: the project type and its rule stay on a tree no entry names until the printed
+command runs. A failed root step follows the per-verb table under [Claim in place](#claim-in-place). The filesystem
+effect per mode is [ref-table-b5v7](ownership-and-hooks.rule.md#ref-table-b5v7).
 
 ## Sandbox clone <a id="ref-section-u9a9"></a>
 

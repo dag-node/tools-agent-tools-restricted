@@ -10,8 +10,8 @@
 # and the provisioning run; no link, or that agent enabled, passes; a copy repointed at a missing toolchain library
 # refuses), the launcher resolution (a missing link, a target outside the versioned shape, and one carrying
 # a parent-directory component are refused; the versioned shape resolves), the CWD gate (no registry, an unapproved
-# directory, a sibling sharing a name prefix, a '!'-carved subdirectory and a path under it, a '!' line with no approved
-# parent, a parked project and a path inside it, a registry holding a refused line, a legacy '!' naming the directory
+# directory, a sibling sharing a name prefix, an excluded subdirectory and a path under it, a '!' line with no approved
+# parent, a disabled project and a path inside it, a registry holding a refused line, a legacy '!' naming the directory
 # with the migration named beside it, and an allowlisted protected directory are refused, each with its own code;
 # a legacy allowed-projects is read while it exists beside project-registry; an approved directory passes, reached
 # through a symlink too, since the CWD is canonicalized first), the claim guard (an approved directory the sandbox group
@@ -46,12 +46,12 @@ links="${TESTDIR}/bin"
 approved="${TESTDIR}/approved"
 excluded="${approved}/secret"
 sibling="${TESTDIR}/approved2"
-parked="${TESTDIR}/parked"
+disabled_dir="${TESTDIR}/disabled"
 unapproved="${TESTDIR}/unapproved"
-mkdir -p "${home}/.config/ai-tools" "${links}" "${excluded}/deeper" "${sibling}" "${parked}/sub" "${unapproved}"
+mkdir -p "${home}/.config/ai-tools" "${links}" "${excluded}/deeper" "${sibling}" "${disabled_dir}/sub" "${unapproved}"
 ln -s "${approved}" "${TESTDIR}/via-symlink"
-chmod -R 0755 "${home}" "${approved}" "${sibling}" "${parked}" "${unapproved}"
-chown -R "${PROJECTS_USER}:${PROJECTS_GROUP}" "${home}" "${approved}" "${sibling}" "${parked}" "${unapproved}"
+chmod -R 0755 "${home}" "${approved}" "${sibling}" "${disabled_dir}" "${unapproved}"
+chown -R "${PROJECTS_USER}:${PROJECTS_GROUP}" "${home}" "${approved}" "${sibling}" "${disabled_dir}" "${unapproved}"
 
 # allowlist <line>... : the fixture registry, the format marker then one entry per argument; no argument removes it.
 allowlist() {
@@ -113,7 +113,7 @@ silent() {
 }
 
 link "/opt/ai-tools/.nvm/versions/node/v1.2.3/bin/claude"
-allowlist "@ ${approved}" "!${excluded}" "%${parked}"
+allowlist "@ ${approved}" "!${excluded}" "%${disabled_dir}"
 
 # ── (0) Required libraries: init refuses when one will not load ────────────────
 # A copy of the library with one load path repointed at a missing file; the copy is what breaks, the deployed libraries
@@ -307,7 +307,7 @@ run "${LIB}" "${PROJECTS_USER}" "${approved}" ai_tools_launch_wrapper__gate_proj
 refused "no registry file: refused, naming the file enrolment seeds" MSG-C9S6
 says "and the refusal names the registry path" "${allowlist}"
 says "and the enrolment command" "operators add"
-allowlist "@ ${approved}" "!${excluded}" "%${parked}"
+allowlist "@ ${approved}" "!${excluded}" "%${disabled_dir}"
 
 run "${LIB}" "${PROJECTS_USER}" "${unapproved}" ai_tools_launch_wrapper__gate_project
 refused "an unapproved directory is refused without a terminal (Cancel, decided by the have_tty branch)" MSG-N2Z7
@@ -325,21 +325,21 @@ passed "an approved directory reached through a symlink passes (the CWD is canon
 says "and the project directory published is the real path, not the symlink" "PROJECT=${approved}"
 
 run "${LIB}" "${PROJECTS_USER}" "${excluded}" ai_tools_launch_wrapper__gate_project
-refused "a '!'-carved subdirectory of an approved project is refused as carved out" MSG-K8K2
+refused "a '!'-excluded subdirectory of an approved project is refused as excluded" MSG-K8K2
 run "${LIB}" "${PROJECTS_USER}" "${excluded}/deeper" ai_tools_launch_wrapper__gate_project
-refused "a path under a '!'-carved subdirectory is refused by the ancestor entry" MSG-W2P3
-says "and the refusal names the carve-out line" "!${excluded}"
-run "${LIB}" "${PROJECTS_USER}" "${parked}" ai_tools_launch_wrapper__gate_project
-refused "a parked project ('%' on its own path) is refused as disabled" MSG-R2V6
-says "and the refusal names the re-enable with the path" "$(cli_cmd_text ai-tools.projects.enable) ${parked}"
-run "${LIB}" "${PROJECTS_USER}" "${parked}/sub" ai_tools_launch_wrapper__gate_project
-refused "a path inside a parked project is refused by the park above it" MSG-W2P3
-says "and the refusal names the re-enable of the parked project" "$(cli_cmd_text ai-tools.projects.enable) ${parked}"
-# A '!' line is a carve-out wherever it sits: naming a directory no allow line encloses, it is still not a park.
+refused "a path under a '!'-excluded subdirectory is refused by the ancestor entry" MSG-W2P3
+says "and the refusal names the '!' line" "! ${excluded}"
+run "${LIB}" "${PROJECTS_USER}" "${disabled_dir}" ai_tools_launch_wrapper__gate_project
+refused "a disabled project ('%' on its own path) is refused as disabled" MSG-R2V6
+says "and the refusal names the re-enable with the path" "$(cli_cmd_text ai-tools.projects.enable) ${disabled_dir}"
+run "${LIB}" "${PROJECTS_USER}" "${disabled_dir}/sub" ai_tools_launch_wrapper__gate_project
+refused "a path inside a disabled project is refused by the '%' line above it" MSG-W2P3
+says "and the refusal names the re-enable of the disabled project" "$(cli_cmd_text ai-tools.projects.enable) ${disabled_dir}"
+# A '!' line excludes its path wherever it sits: naming a directory no allow line encloses, it is still not a '%'.
 allowlist "@ ${approved}" "!${unapproved}"
 run "${LIB}" "${PROJECTS_USER}" "${unapproved}" ai_tools_launch_wrapper__gate_project
-refused "a '!' line naming a directory with no approved parent is refused as carved out" MSG-K8K2
-silent "and not as a parked project" 'MSG-R2V6'
+refused "a '!' line naming a directory with no approved parent is refused as excluded" MSG-K8K2
+silent "and not as a disabled project" 'MSG-R2V6'
 # A registry line the grammar refuses refuses the launch from anywhere under the file, after the library names it.
 allowlist "@ ${approved}" "@ relative/entry"
 run "${LIB}" "${PROJECTS_USER}" "${approved}" ai_tools_launch_wrapper__gate_project
@@ -347,26 +347,26 @@ refused "a registry holding a refused line refuses the launch, the approved root
 assert_msg MSG-B8U2 "${OUT}" "and the library's line names the refused line"
 says "and names the line itself" "relative/entry"
 # A legacy allowed-projects is read while it exists, whether or not a project-registry file is beside it, and a '!'
-# naming the directory is refused with the migration named beside it, since an earlier release wrote a parked project
+# naming the directory is refused with the migration named beside it, since an earlier release wrote a disabled project
 # that way.
 allowlist "@ ${approved}" "@ ${unapproved}"
 legacy "${approved}" "!${excluded}"
 run "${LIB}" "${PROJECTS_USER}" "${unapproved}" ai_tools_launch_wrapper__gate_project
 refused "allowed-projects beside project-registry is the file read: a path only project-registry lists is not approved" MSG-N2Z7
 run "${LIB}" "${PROJECTS_USER}" "${excluded}" ai_tools_launch_wrapper__gate_project
-refused "a legacy '!' naming the directory is refused as carved out" MSG-K8K2
+refused "a legacy '!' naming the directory is refused as excluded" MSG-K8K2
 assert_msg MSG-J6S8 "${OUT}" "and the migration is named on a line of its own"
-says "and the hint names how a parked project is written" "%<path>"
+says "and the hint names how a disabled project is written" "% <path>"
 run "${LIB}" "${PROJECTS_USER}" "${excluded}/deeper" ai_tools_launch_wrapper__gate_project
 refused "a path under a legacy '!' is refused by the line above it" MSG-W2P3
-assert_msg MSG-J6S8 "${OUT}" "and the migration is named there too, since that line may be a park"
+assert_msg MSG-J6S8 "${OUT}" "and the migration is named there too, since that line may be a disabled project"
 legacy
 run "${LIB}" "${PROJECTS_USER}" "${unapproved}" ai_tools_launch_wrapper__gate_project
 passed "control: with allowed-projects gone, project-registry is the file read and its entry passes"
-allowlist "@ ${approved}" "!${excluded}" "%${parked}"
+allowlist "@ ${approved}" "!${excluded}" "%${disabled_dir}"
 
 # A '!' spelled through a symlink is matched as written and, through a link the sandbox account can neither remove
-# nor replace (root's, in root's 755 testdir), as the real path too, so the carve-out it names is refused.
+# nor replace (root's, in root's 755 testdir), as the real path too, so the excluded path it names is refused.
 # Through a link that account could change -- one it holds, or one in a group-writable directory whoever holds it --
 # the read is refused outright, from the approved root as from anywhere under this allowlist (the section comment
 # in conf.lib.sh states why). The library runs here under the wrapper's IFS, so a field read inside it that leaves
@@ -374,7 +374,7 @@ allowlist "@ ${approved}" "!${excluded}" "%${parked}"
 ln -s "${excluded}" "${TESTDIR}/secret-link"
 allowlist "@ ${approved}" "!${TESTDIR}/secret-link"
 run "${LIB}" "${PROJECTS_USER}" "${excluded}" ai_tools_launch_wrapper__gate_project
-refused "a carve-out spelled through a root-owned symlink in a root-owned directory refuses the directory it names" MSG-K8K2
+refused "a '!' line spelled through a root-owned symlink in a root-owned directory refuses the directory it names" MSG-K8K2
 ln -s "${excluded}" "${approved}/agent-link"; chown -h "${SANDBOX_USER}" "${approved}/agent-link"
 allowlist "@ ${approved}" "!${approved}/agent-link"
 run "${LIB}" "${PROJECTS_USER}" "${approved}" ai_tools_launch_wrapper__gate_project
@@ -393,7 +393,7 @@ allowlist "@ ${approved}" "!${approved}/shared/links/alias"
 run "${LIB}" "${PROJECTS_USER}" "${approved}" ai_tools_launch_wrapper__gate_project
 refused "a '!' through a symlink in a closed directory under a group-writable one refuses the launch" MSG-Z3Q6
 says "and the refusal names the ancestor's write bit" "under ${approved}/shared, a directory with a group or other write bit"
-# A carve-out written as the real path keeps refusing its directory whatever happens to an alias beside it.
+# A '!' line written as the real path keeps refusing its directory whatever happens to an alias beside it.
 allowlist "@ ${approved}" "!${excluded}"
 for alias_state in link removed directory; do
     case "${alias_state}" in
@@ -401,20 +401,20 @@ for alias_state in link removed directory; do
         directory) mkdir "${approved}/shared/alias" ;;
     esac
     run "${LIB}" "${PROJECTS_USER}" "${excluded}" ai_tools_launch_wrapper__gate_project
-    refused "a real-path carve-out is refused with the alias ${alias_state}" MSG-K8K2
+    refused "a real-path '!' line is refused with the alias ${alias_state}" MSG-K8K2
 done
 rm -rf "${approved}/shared" "${approved}/agent-link" "${TESTDIR}/secret-link"
-allowlist "@ ${approved}" "!${excluded}" "%${parked}"
+allowlist "@ ${approved}" "!${excluded}" "%${disabled_dir}"
 chmod 000 "${allowlist}"
 run "${LIB}" "${PROJECTS_USER}" "${approved}" ai_tools_launch_wrapper__gate_project
 refused "a registry the operator cannot read is refused, naming the file" MSG-X4N6
 says "and the refusal names the registry path" "${allowlist}"
-allowlist "@ ${approved}" "!${excluded}" "%${parked}"
+allowlist "@ ${approved}" "!${excluded}" "%${disabled_dir}"
 
 allowlist "@ /etc"
 run "${LIB}" "${PROJECTS_USER}" /etc ai_tools_launch_wrapper__gate_project
 refused "an allowlisted protected directory is refused by the backstop before the allowlist" MSG-Q6H3
-allowlist "@ ${approved}" "!${excluded}" "%${parked}"
+allowlist "@ ${approved}" "!${excluded}" "%${disabled_dir}"
 
 # ── (4) The claim guard: detects, offers, and without a terminal refuses ────────
 # The approved directory is owned by the projects user and its group, not the sandbox group, so the ownership gap is

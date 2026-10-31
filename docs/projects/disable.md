@@ -33,7 +33,7 @@ and an enable leave it as it was.
 |---|---|
 | `@ /home/you/src/api` | an enabled project: sessions may start there |
 | `% /home/you/src/api` | a disabled project: no session starts there; the permissions and the label stay |
-| `! /home/you/src/api/vendor` | a carve-out: no session starts in the subtree and the hand-back skips it, wherever the line sits; it does not take back access a claim already granted ([Enable](enable.md)) |
+| `! /home/you/src/api/vendor` | an excluded path: no session starts in the subtree and the hand-back skips it, wherever the line sits; it does not take back access a claim already granted ([Enable](enable.md)) |
 
 Each command reads the path's state before it acts, which is
 how `projects claim` on a disabled project offers to enable it instead
@@ -71,7 +71,7 @@ or enable the project afterwards and run `atr projects handback`
 A path your project registry does not name is refused rather than disabled:
 there is no entry to disable, and inventing one would register a project
 without claiming it. A path inside a claimed project is refused, naming
-that project, and so is a carve-out. A project already disabled succeeds
+that project, and so is an excluded path. A project already disabled succeeds
 and says so.
 
 ## Launching in a disabled project

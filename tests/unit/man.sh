@@ -385,8 +385,8 @@ check_allowlist_page() {
         fail "the seeded ai-tools-project-registry file is not the marker alone: $(ai_tools_conf__get_allowlist_seed | head -3 | tr '\n' '|')"
     fi
 
-    # The examples are held to what the page says they mean, not to the parser alone, since a parked project written
-    # with a '!' parses as an entry and reads as a carve-out. Each .EX block holding an entry is written to a file
+    # The examples are held to what the page says they mean, not to the parser alone, since a disabled project written
+    # with a '!' parses as an entry and reads as an excluded path. Each .EX block holding an entry is written to a file
     # and must validate as a current registry, and each line whose comment opens with a state word must classify
     # as that state through the classifier every `projects` verb reads; a block of commands is not read.
     local -a block=(); local line blocks=0 claimed=0 bad=0 example_file state comment word path

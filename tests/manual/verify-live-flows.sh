@@ -394,7 +394,7 @@ check "  and leaves that dir's group alone (it was never the agent's)" \
       test "$(group_of "${SEALED_OWN}")" = "${MY_GROUP}"
 fi
 
-# ── 2b. disable / enable: the park-and-restore round trip, on the REAL registry ───────────────
+# ── 2b. disable / enable: the disable-and-enable round trip, on the REAL registry ─────────────
 # Runs while the project is still claimed, and does not need sudo at all: the pair edits one line of this operator's own
 # allowlist. That is exactly why it belongs in a live run rather than only in the hermetic suites -- what it proves is
 # that the edit lands in the FILE the launch gate reads, at the position the operator left it, and comes back
@@ -402,32 +402,32 @@ fi
 section "2b. ai-tools projects disable / projects enable"
 AL="$(registry_path)"
 if [[ ! -r "${AL}" ]]; then
-    skip "the park/restore round trip (no readable allowlist at ${AL})"
+    skip "the disable/enable round trip (no readable allowlist at ${AL})"
 elif ! ${TREE_CLAIMED}; then
-    skip "the park/restore round trip (the claim did not complete, so there is no entry to park)"
+    skip "the disable/enable round trip (the claim did not complete, so there is no entry to disable)"
 else
     AL_BEFORE="$(cat "${AL}")"
-    AL_LINE_BEFORE="$(grep -nxF "${PROJ}" "${AL}" | cut -d: -f1 | head -n1)"
+    AL_LINE_BEFORE="$(grep -nxF "@ ${PROJ}" "${AL}" | cut -d: -f1 | head -n1)"
     DIS_OUT="$("${CLI}" projects disable "${PROJ}" 2>&1)"; DIS_RC=$?
     check "the disable completes (rc=${DIS_RC})" test "${DIS_RC}" -eq 0
-    if grep -qxF "%${PROJ}" "${AL}"; then
-        pass "the entry is parked in the operator's real allowlist"
+    if grep -qxF "% ${PROJ}" "${AL}"; then
+        pass "the entry is disabled in the operator's real allowlist"
     else
-        fail "the entry was not parked: $(printf '%s' "${DIS_OUT}" | tail -2 | tr '\n' ' ')"
+        fail "the entry was not disabled: $(printf '%s' "${DIS_OUT}" | tail -2 | tr '\n' ' ')"
     fi
-    AL_LINE_AFTER="$(grep -nxF "%${PROJ}" "${AL}" | cut -d: -f1 | head -n1)"
+    AL_LINE_AFTER="$(grep -nxF "% ${PROJ}" "${AL}" | cut -d: -f1 | head -n1)"
     check "it kept its line number (${AL_LINE_BEFORE:-?} -> ${AL_LINE_AFTER:-?})" \
           test "${AL_LINE_BEFORE:-x}" = "${AL_LINE_AFTER:-y}"
-    # The consequence an operator has to be told about, since it is the one that costs data: while parked, the handback
-    # no longer restores files written under this path.
+    # The consequence an operator has to be told about, since it is the one that costs data: while disabled,
+    # the handback no longer restores files written under this path.
     check "the disable says the ownership handback stops" grep -qi 'handback' <<<"${DIS_OUT}"
 
-    # A parked project is not an unclaimed one, and the verbs that would silently no-op say so.
+    # A disabled project is not an unclaimed one, and the verbs that would silently no-op say so.
     REC_OUT="$("${CLI}" projects handback "${PROJ}" 2>&1)"; REC_RC=$?
     if [[ "${REC_RC}" -ne 0 ]] && ! grep -qi 'not a claimed project' <<<"${REC_OUT}"; then
-        pass "projects handback over the parked project does not report it as unclaimed"
+        pass "projects handback over the disabled project does not report it as unclaimed"
     else
-        fail "projects handback called the parked project unclaimed: $(printf '%s' "${REC_OUT}" | tail -2 | tr '\n' ' ')"
+        fail "projects handback called the disabled project unclaimed: $(printf '%s' "${REC_OUT}" | tail -2 | tr '\n' ' ')"
     fi
 
     ENA_OUT="$("${CLI}" projects enable "${PROJ}" 2>&1)"; ENA_RC=$?

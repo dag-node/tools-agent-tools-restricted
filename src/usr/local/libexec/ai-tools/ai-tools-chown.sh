@@ -8,7 +8,7 @@
 # in a dir it created. An interactive invocation confirms per path; `--yes` skips that for a batch caller
 # (ai-tools-reclaim) that already confirmed its whole set.
 #
-# Reads the operator's project registry for allow, carve-out and park lines (its path is derived from the operator
+# Reads the operator's project registry for its `@`, `!` and `%` lines (its path is derived from the operator
 # identity in /etc/ai-tools/operator.conf: `~/.config/ai-tools/project-registry`,
 # or `~/.config/ai-tools/allowed-projects` until it is migrated). That file is owned by the operator 600 -- root reads
 # it here on ai-tools' behalf. A registry the loader refuses, a line the grammar refuses among the reasons, does not

@@ -43,7 +43,7 @@
 # `--enable` and `--disable` neither add nor drop a line: they take the leading '%' off an entry, or put it
 # on, IN PLACE. They are the privileged half of `atr projects enable`/`projects disable` (and of the claim's re-enable
 # prompt), and they are deliberately not an add/remove pair: the line keeps its position and its comment,
-# so a park-and-restore round trip leaves an ordered, commented registry exactly as its operator wrote it.
+# so a disable-and-enable round trip leaves an ordered, commented registry exactly as its operator wrote it.
 #
 # Installed 750 root:root, so only root runs it. Its domain rule is cli.rule.md.
 
@@ -273,9 +273,9 @@ case "${ACTION}" in
         rc=0; ai_tools_conf__allowlist_add "${allowlist}" "${canonical}" || rc=$?
         case "${rc}" in
             0) ;;
-            2) die MSG-T7B6 "that path is DISABLED or carved out for ${OPERATOR}: ${canonical} -- a '%' line parks it
-       or a '!' line withholds it, and adding a second line would leave that line winning at the launch gate.
-       A parked project is re-enabled instead:
+            2) die MSG-T7B6 "that path is DISABLED or excluded for ${OPERATOR}: ${canonical} -- a '%' line disables it
+       or a '!' line excludes it, and adding a second line would leave that line winning at the launch gate.
+       A disabled project is re-enabled instead:
        ai-tools-allowlist --operator ${OPERATOR} --enable ${canonical}" ;;
             3) die_registry_changed added ;;
             # The CLI's refusal for a name the grammar cannot carry, printed as its twin: a `--for` claim reaches it
@@ -294,8 +294,8 @@ case "${ACTION}" in
         ;;
     remove)
         # A missing allowlist has no entry to remove -- report it and succeed, so an unclaim that runs twice is not
-        # an error. The library drops the park line too, so de-registering a project the operator had parked leaves no
-        # '%' behind to park whatever is claimed at that path next; a carve-out line is the operator's own edit
+        # an error. The library drops the `%` line too, so de-registering a project the operator had disabled leaves
+        # no '%' behind to disable whatever is claimed at that path next; a `!` line is the operator's own edit
         # and stays.
         if [[ ! -f "${allowlist}" ]]; then
             note MSG-V9K7 "no allowlist for ${OPERATOR} -- nothing to remove"
@@ -317,7 +317,7 @@ case "${ACTION}" in
     enable)
         # The one action that WIDENS the target's launch gate. It does not append a line: the '%' comes off the line
         # the operator wrote, in place, and a path the file does not name is refused rather than registered --
-        # registering one is a claim, which scans for secrets first. A '!' line is a carve-out and is not lifted.
+        # registering one is a claim, which scans for secrets first. A '!' line excludes its path and is not lifted.
         require_target_config
         rc=0; ai_tools_conf__allowlist_enable "${allowlist}" "${canonical}" || rc=$?
         case "${rc}" in
@@ -333,9 +333,10 @@ case "${ACTION}" in
         note "enabled ${canonical} for ${OPERATOR}"
         ;;
     disable)
-        # Park the target's project: the '%' goes on, in place. It moves to LESS access -- no session starts there
+        # Disable the target's project: the '%' goes on, in place. It moves to LESS access -- no session starts there
         # and the ownership helpers stop resolving an owner for it -- so a path the file does not name is refused rather
-        # than parked (there would be no entry to park, and inventing one would register a project without claiming it).
+        # than disabled (there would be no entry to disable, and inventing one would register a project without
+        # claiming it).
         require_target_config
         rc=0; ai_tools_conf__allowlist_disable "${allowlist}" "${canonical}" || rc=$?
         case "${rc}" in

@@ -7,7 +7,8 @@
 [Permissions](permissions.md) — [all docs](../index.md)
 
 How `atr projects enable` turns back the `%` a disable wrote, why it refuses
-a `!` carve-out, and how a claim offers the same step on a disabled entry.
+an excluded path (`!`), and how a claim offers the same step on a disabled
+entry.
 
 ```bash
 atr projects enable ~/src/api
@@ -28,21 +29,21 @@ access to the tree stays as the claim left it.
 
 ## A `!` line is not lifted
 
-A `!` line is a carve-out wherever it sits — a subtree you withheld
-from the agent — and not a disabled project, and `projects enable` refuses it
-for that reason: lifting it would hand that subtree over. No command writes
-or lifts such a line, so one in your file was written by hand and is deleted
-by hand if that is what you mean. A `!` line written before the upgrade
-to format 1.0 may be a project disabled then: change it to `%` if it is one,
-and keep the `!` if the subtree is to stay a carve-out. The reasoning is
+A `!` line is an excluded path wherever it sits, and not a disabled project,
+and `projects enable` refuses it for that reason: lifting it would let
+sessions start in that subtree and the walks act on it. No command writes or lifts such a line, so one in your file
+was written by hand and is deleted by hand if that is what you mean. A `!` line
+written before the upgrade to format 1.0 may be a project disabled then: change
+it to `%` if it is one, and keep the `!` if the subtree is to stay excluded.
+The reasoning is
 [ref-section-v2n3](../../.claude/rules/cli.rule.md#ref-section-v2n3).
 
-A carve-out stops sessions from starting in the subtree and the hand-back from
-walking it; it does not take back access a claim already granted there, and
-a session started in the enclosing project reads whatever the subtree's
-permissions allow. No session start checks that. To keep the agent out of the
-files themselves, make the subtree owner-only, which every claim walk leaves
-alone ([Permissions](permissions.md)).
+An excluded path stops sessions from starting in the subtree and the hand-back
+from walking it; it does not take back access a claim already granted there,
+and a session started in the enclosing project reads whatever the subtree's
+permissions allow. No session start checks that. To keep the agent
+out of the files themselves, make the subtree owner-only, which every claim
+walk leaves alone ([Permissions](permissions.md)).
 
 ## Still blocked by another line
 
@@ -66,5 +67,5 @@ The plain form does not run `sudo`; the `--for` form does.
 ## Exit status
 
 0 when the project is enabled, or was already; 1 when the path is refused,
-the line is a carve-out, or the line could not be written; 2 for a rejected
+the path is excluded, or the line could not be written; 2 for a rejected
 command line, a missing directory among them. `man ai-tools` has the full list.

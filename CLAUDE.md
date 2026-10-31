@@ -92,8 +92,8 @@ Each step's mechanism is in the rule files the [Component map](#component-map) n
    through the `/usr/local/bin/claude` symlink the agent's package ships), running as the non-root operator who invoked
    it; it refuses a caller not in the `ai-ops` operators group before doing anything else, and a command name no enabled
    agent manifest claims.
-2. The wrapper launches only inside a project the operator's registry lists, and refuses a CWD a park or carve-out line
-   covers.
+2. The wrapper launches only inside a project the operator's registry lists, and refuses a CWD a disabled or excluded
+   line covers.
 3. It resolves the versioned binary via a single `readlink` hop, validates it, and execs the shared confinement shim
    `ai-tools-run` as `SANDBOX_USER` with the path in `AI_TOOLS_AGENT_EXEC`.
 4. `ai-tools-run` is agent-agnostic: it accepts the executable only at a semver version directory inside the sandbox
@@ -163,9 +163,9 @@ lets launch with a warning rather than refuse, are in [confinement](.claude/rule
 
 `atr projects remove` sits **outside** this table: it decides what is *destroyed*, not what a session may reach, so its
 safe direction is inaction. Its authorization is correspondingly different — an exact entry in the operator's project
-registry (an allow or a park line) plus a typed-name confirmation, not one of the predicates the table lists — and it
-holds the same shape of guarantee: it deletes only after that confirmation, and a failure leaves the tree in place,
-unregistered. See [cli](.claude/rules/cli.rule.md).
+registry (an enabled or a disabled line) plus a typed-name confirmation, not one of the predicates the table lists —
+and it holds the same shape of guarantee: it deletes only after that confirmation, and a failure leaves the tree
+in place, unregistered. See [cli](.claude/rules/cli.rule.md).
 
 | decision | its predicate | what a failure yields |
 |---|---|---|

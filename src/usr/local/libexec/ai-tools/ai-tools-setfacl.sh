@@ -175,7 +175,7 @@ readonly ACL_SPEC
 # Shared config grammar (ai_tools_conf__parse_path_entry; see conf.lib.sh), the ONE parser the allowlist is read with --
 # end-of-line comments, and quotes for a path carrying a space or a literal '#'. REQUIRED like safe-paths.lib.sh:
 # the bare source under `set -e` aborts when it is missing. A bare filter in its place reads a commented exclusion
-# as a pattern no path matches, and would grant the agent an ACL on a subtree the operator carved out and the launch
+# as a pattern no path matches, and would grant the agent an ACL on a subtree the operator excluded and the launch
 # wrapper refuses. Include-guarded.
 # shellcheck source=SCRIPTDIR/../../lib/ai-tools/conf.lib.sh
 source /usr/local/lib/ai-tools/conf.lib.sh

@@ -951,7 +951,7 @@ reg_reset() {   # reg_reset <line>... : a fresh root, the projects user enrolled
     printf '%s\n' "$@" > "${REG_DIR}/allowed-projects"
     chown "${PROJECTS_USER}:${PROJECTS_GROUP}" "${REG_DIR}/allowed-projects"; chmod 600 "${REG_DIR}/allowed-projects"
 }
-reg_reset "# my projects" "/srv/p   # the main one" "!/srv/p/vendor" "!/srv/parked"
+reg_reset "# my projects" "/srv/p   # the main one" "!/srv/p/vendor" "!/srv/disabled"
 reg_before="$(cat "${REG_DIR}/allowed-projects")"
 run_check
 if [[ "${check_rc}" == 4 ]] && has_finding MSG-C2H5 "${REG_DIR}/allowed-projects" registry-unmigrated \
@@ -964,21 +964,21 @@ fi
 out="$(run_pu)"
 reg_bak=("${REG_DIR}"/allowed-projects.*.bak)
 if [[ -f "${REG_DIR}/project-registry" && ! -e "${REG_DIR}/allowed-projects" && -f "${reg_bak[0]}" \
-        && "$(cat "${REG_DIR}/project-registry")" == "# ai-tools-project-registry-format: 1.0"$'\n'"$(printf '%-38s  %s' "@ /srv/p" "# the main one")"$'\n'"  ! /srv/p/vendor"$'\n'"! /srv/parked" \
+        && "$(cat "${REG_DIR}/project-registry")" == "# ai-tools-project-registry-format: 1.0"$'\n'"$(printf '%-38s  %s' "@ /srv/p" "# the main one")"$'\n'"  ! /srv/p/vendor"$'\n'"! /srv/disabled" \
         && "$(cat "${reg_bak[0]}")" == "${reg_before}" \
         && "$(stat -c '%U %a' "${REG_DIR}/project-registry")" == "${PROJECTS_USER} 600" ]]; then
     pass "the run writes ~/.config/ai-tools/project-registry in canonical form, at the source's owner and mode, and keeps the .bak"
 else
     fail "the migration: $(ls -la "${REG_DIR}" 2>&1 | tail -n +2 | tr '\n' '~'): ${out}"
 fi
-if grep -qF -- "! /srv/parked" <<<"${out}" && grep -qF -- "% /srv/parked" <<<"${out}"; then
-    pass "a '!' line no project encloses is named with the '%' line that parks it"
+if grep -qF -- "! /srv/disabled" <<<"${out}" && grep -qF -- "% /srv/disabled" <<<"${out}"; then
+    pass "a '!' line no project encloses is named with the '%' line that disables it"
 else
-    fail "the plan's note for !/srv/parked: ${out}"
+    fail "the plan's note for !/srv/disabled: ${out}"
 fi
-# One '!' line here is unenclosed (/srv/p/vendor is a carve-out of /srv/p), and the block counts it once.
-if grep -qF -- "1 '!' line(s) above read as carve-outs in format 1.0" <<<"${out}"; then
-    pass "the block closes by counting the '!' lines no project encloses, with the edit that parks one"
+# One '!' line here is unenclosed (/srv/p/vendor is an excluded path inside /srv/p), and the block counts it once.
+if grep -qF -- "1 '!' line(s) above read as excluded paths in format 1.0" <<<"${out}"; then
+    pass "the block closes by counting the '!' lines no project encloses, with the edit that disables one"
 else
     fail "the closing count of unenclosed '!' lines: ${out}"
 fi

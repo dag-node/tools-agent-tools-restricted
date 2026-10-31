@@ -200,7 +200,7 @@ refused_registry "--print refuses a registry holding a refused line, naming it" 
 refused_registry "--add refuses a registry holding a refused line, naming it" MSG-B8U2 \
     "${TESTDIR}/invalid/project-registry" --operator "${PROJECTS_USER}" --add "${proj}"
 
-# (11) A carve-out spelled through a link the sandbox account holds. The target's launch gate and every root helper read
+# (11) A '!' line spelled through a link the sandbox account holds. The target's launch gate and every root helper read
 # that registry as refused (MSG-Y5N6), so the helper's own read is the loader's, and `--print` refuses it rather than
 # handing the CLI a snapshot it would classify and act over; the same line written as the real path is the control.
 mkdir -p "${TESTDIR}/linked/real/private"
@@ -209,24 +209,24 @@ ln -s "${TESTDIR}/linked/real" "${TESTDIR}/linked/link"
 chown -h "${SANDBOX_USER}" "${TESTDIR}/linked/link"
 printf '%s\n' "# ai-tools-project-registry-format: 1.0" "@ ${proj}" "!${TESTDIR}/linked/link/private" > "${TESTDIR}/linked/project-registry"
 chown "${PROJECTS_USER}:${PROJECTS_GROUP}" "${TESTDIR}/linked/project-registry"; chmod 600 "${TESTDIR}/linked/project-registry"
-refused_registry "--print refuses a carve-out through a link the sandbox account holds, naming the link" MSG-Y5N6 \
+refused_registry "--print refuses a '!' line through a link the sandbox account holds, naming the link" MSG-Y5N6 \
     "${TESTDIR}/linked/project-registry" --operator "${PROJECTS_USER}" --print
-refused_registry "--print refuses a carve-out through a link the sandbox account holds, as a registry no reader accepts" \
+refused_registry "--print refuses a '!' line through a link the sandbox account holds, as a registry no reader accepts" \
     MSG-Y7K5 "${TESTDIR}/linked/project-registry" --operator "${PROJECTS_USER}" --print
 linked_stdout="$(env SUDO_UID="${OPERATOR_UID}" AI_TOOLS_ALLOWLIST="${TESTDIR}/linked/project-registry" \
     AI_TOOLS_OPERATOR_CONF="${TESTDIR}/operator.conf" "${HELPER}" --operator "${PROJECTS_USER}" --print 2>/dev/null)" || true
 if [[ -z "${linked_stdout}" ]]; then
-    pass "--print over a carve-out through the sandbox account's link writes nothing on stdout"
+    pass "--print over a '!' line through the sandbox account's link writes nothing on stdout"
 else
-    fail "--print over a carve-out through the sandbox account's link wrote a snapshot: ${linked_stdout}"
+    fail "--print over a '!' line through the sandbox account's link wrote a snapshot: ${linked_stdout}"
 fi
 printf '%s\n' "# ai-tools-project-registry-format: 1.0" "@ ${proj}" "!${TESTDIR}/linked/real/private" > "${TESTDIR}/linked/project-registry"
 out="$(env SUDO_UID="${OPERATOR_UID}" AI_TOOLS_ALLOWLIST="${TESTDIR}/linked/project-registry" \
     AI_TOOLS_OPERATOR_CONF="${TESTDIR}/operator.conf" "${HELPER}" --operator "${PROJECTS_USER}" --print 2>&1)" && rc=0 || rc=$?
 if (( rc == 0 )) && grep -qxF -- "!${TESTDIR}/linked/real/private" <<<"${out}"; then
-    pass "--print prints the same carve-out written as the real path (the control)"
+    pass "--print prints the same '!' line written as the real path (the control)"
 else
-    fail "--print over the real-path carve-out: rc=${rc}: ${out}"
+    fail "--print over the real-path '!' line: rc=${rc}: ${out}"
 fi
 
 # ── Mechanics: add / print / remove against the primary operator's fixture registry ──────────
@@ -287,7 +287,7 @@ out="$(run_helper "${OPERATOR_UID}" --operator "${PROJECTS_USER}" --disable "${p
 if (( rc == 0 )) && [[ "$(sed -n '2p' "${ALLOWFILE}")" == "$(printf '%-38s  %s' "% ${proj}" "# payments, dev stage")" ]]; then
     pass "--disable writes '%' on the entry, keeping its comment"
 else
-    fail "--disable did not park the entry (rc=${rc}): ${out}"$'\n'"$(cat "${ALLOWFILE}")"
+    fail "--disable did not disable the entry (rc=${rc}): ${out}"$'\n'"$(cat "${ALLOWFILE}")"
 fi
 
 owner="$(stat -c '%U' "${ALLOWFILE}")"; mode="$(stat -c '%a' "${ALLOWFILE}")"
@@ -297,7 +297,7 @@ else
     fail "--disable left the allowlist as ${owner} ${mode}, expected ${PROJECTS_USER} 600"
 fi
 
-# A parked project is NOT an unlisted one: adding over it would leave the '%' winning at the launch gate while
+# A disabled project is NOT an unlisted one: adding over it would leave the '%' winning at the launch gate while
 # the caller was told the project was registered.
 refuses "--add refuses a disabled project" MSG-T7B6 \
     "${OPERATOR_UID}" --operator "${PROJECTS_USER}" --add "${proj}"
@@ -310,7 +310,7 @@ refuses "--add refuses a directory whose name the registry cannot carry" MSG-Z9R
 
 out="$(run_helper "${OPERATOR_UID}" --operator "${PROJECTS_USER}" --enable "${proj}")" && rc=0 || rc=$?
 if (( rc == 0 )) && [[ "$(cat "${ALLOWFILE}")" == "${before}" ]]; then
-    pass "--enable restores the entry, leaving the file byte-identical to before the park"
+    pass "--enable restores the entry, leaving the file byte-identical to before the disable"
 else
     fail "--enable did not restore the file (rc=${rc}): ${out}"$'\n'"$(cat "${ALLOWFILE}")"
 fi
@@ -323,7 +323,7 @@ else
 fi
 
 # Neither verb may INVENT an entry: registering a project is a claim, which scans for secrets before granting access.
-# `--enable` reports and succeeds (no exclusion to lift); `--disable` refuses, since a caller asking to park
+# `--enable` reports and succeeds (no exclusion to lift); `--disable` refuses, since a caller asking to disable
 # an unregistered path has the wrong path or the wrong verb. Compared whole-file, not by substring: every fixture entry
 # lives UNDER ${TESTDIR}, so a substring test matches the line that is legitimately there and inverts the assertion.
 before="$(cat "${ALLOWFILE}")"

@@ -306,19 +306,19 @@ and `ai_tools_conf__find_unmigrated_items` is the one detection predicate every 
 The **path-list** files share that grammar rather than defining their own. `ai_tools_conf__parse_path_entry` reads one
 line of the project registry, `~/.config/ai-tools/project-registry` — the sign that opens it, an end-of-line comment,
 and one quote layer for a path carrying a space or a literal `#` — and returns the kind apart from the path,
-so a carve-out and a park stay distinguishable after the quotes come off. `ai_tools_conf__resolve_registry` decides
-which file an operator's config directory holds — `~/.config/ai-tools/allowed-projects`, the file an earlier release
-wrote, under the grammar it was written in until it is migrated, and `~/.config/ai-tools/project-registry` after —
-and `ai_tools_conf__validate_registry` reads the whole file under that grammar before any reader exposes an entry,
-refusing the file at a line it does not recognise, so a reader that skipped the line does not read the rest
-as the operator's intent. Every reader of that file — the launch wrapper, the CLI, the owner resolver
-in `operator.lib.sh`, and each root helper that walks or labels a project (`ai-tools-chown`, `-setgid`, `-setfacl`,
-`-unclaim`, `-lockdown`, `-relabel`) — takes it from here, which is exactly why the rule lives in one place: a parser
-copied into each is a parser that drifts, and a line the wrapper resolves but a helper does not is a project the agent
-can launch in whose files stay sandbox-owned, or a carve-out the wrapper refuses that a walk grants. Each reader
-requires the library rather than falling back to a private parser; the resolver's load is fail-closed by consequence,
-since without the parser no line denotes an entry and no path is covered. The CLI, the relabel helper, and the launch
-wrapper's post-claim confirm additionally decide **membership**
+so an excluded path and a disabled project stay distinguishable after the quotes come off.
+`ai_tools_conf__resolve_registry` decides which file an operator's config directory holds —
+`~/.config/ai-tools/allowed-projects`, the file an earlier release wrote, under the grammar it was written in until it
+is migrated, and `~/.config/ai-tools/project-registry` after — and `ai_tools_conf__validate_registry` reads the whole
+file under that grammar before any reader exposes an entry, refusing the file at a line it does not recognise,
+so a reader that skipped the line does not read the rest as the operator's intent. Every reader of that file —
+the launch wrapper, the CLI, the owner resolver in `operator.lib.sh`, and each root helper that walks or labels
+a project (`ai-tools-chown`, `-setgid`, `-setfacl`, `-unclaim`, `-lockdown`, `-relabel`) — takes it from here, which is
+exactly why the rule lives in one place: a parser copied into each is a parser that drifts, and a line the wrapper
+resolves but a helper does not is a project the agent can launch in whose files stay sandbox-owned, or an excluded path
+the wrapper refuses that a walk grants. Each reader requires the library rather than falling back to a private parser;
+the resolver's load is fail-closed by consequence, since without the parser no line denotes an entry and no path is
+covered. The CLI, the relabel helper, and the launch wrapper's post-claim confirm additionally decide **membership**
 through `ai_tools_conf__has_allowlist_entry`/`_has_exclusion` (and `_matching_lines` / `_exclusion_lines` for the raw
 lines), which parse each line with the same grammar and compare realpath-normalized values, so a commented or quoted
 entry is never mistaken for unlisted. The gate-side readers — the launch wrapper and each walking helper — take their
@@ -455,7 +455,7 @@ at the source's owner and mode, verified as a valid current file reading the sam
 path, and then the source renamed to its dated `.bak`, so a run that stops part-way leaves the source as the registry.
 Each entry keeps its kind and its written path, so the migration does not change what a session reaches; a whole-line
 comment is dropped, since format 1.0 carries a note at the end of an entry. It names each `!` line no project encloses
-with the `%` line that parks it in format 1.0, since an earlier release spelled a parked project that way and only
+with the `%` line that disables it in format 1.0, since an earlier release spelled a disabled project that way and only
 the operator knows which one a line meant. A source the operator does not own at mode `0600`, one the legacy grammar
 refuses, and one format 1.0 cannot carry — a path on an allow line and a `!` line, an entry carrying both quote
 characters — is named (`registry-invalid`) and left as written; a source whose exclusion crosses a link the gate refuses
