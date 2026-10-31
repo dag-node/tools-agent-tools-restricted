@@ -970,9 +970,9 @@ ${REG_MARKER}
 @ ${lst}/partial
 @ ${lst}/eol-comment    # main repo
 @ "${lst}/quoted dir"
-!${lst}/excluded-live
-!${lst}/excluded-stale-gone
-%${lst}/disabled-proj
+! ${lst}/excluded-live
+! ${lst}/excluded-stale-gone
+% ${lst}/disabled-proj
 @ ${lst}/disabled-proj/child
 EOF
     chown "${PROJECTS_USER}:${PROJECTS_USER}" "${lal}"
@@ -1008,7 +1008,7 @@ EOF
     list_has "${lst}/quoted dir"      "ai-tools.projects.list renders a quoted entry"
     # Only the gone exclusion is reconciled as stale; the live one is left alone.
     n_stale_excl="$(grep -cF 'stale excluded path' <<<"${lout}" || true)"
-    if [[ "${n_stale_excl}" -eq 1 ]] && grep -qF "!${lst}/excluded-stale-gone" <<<"${lout}"; then
+    if [[ "${n_stale_excl}" -eq 1 ]] && grep -qF "! ${lst}/excluded-stale-gone" <<<"${lout}"; then
         pass "ai-tools.projects.list reconciles only the stale ! exclusion, leaving the live one alone"
     else
         fail "stale-exclusion count is ${n_stale_excl}, expected exactly 1 (the gone path)"
@@ -1380,11 +1380,11 @@ else
     # (6) An EXCLUDED path is not a disabled project, and lifting its '!' would WIDEN where a session starts and what
     # the hand-back and claim walks reach -- a subtree its operator excluded from a claimed project. It is refused, and
     # the refusal names the line.
-    pd_seed "@ ${pd_proj}" "!${pd_excluded}"
+    pd_seed "@ ${pd_proj}" "! ${pd_excluded}"
     out="$(pd_cli ai-tools.projects.enable "${pd_excluded}")" && rc=0 || rc=$?
     # By code: the excluded-path refusal (MSG-W4S7), not the no-entry one (MSG-T4A8).
     refused "ai-tools.projects.enable refuses an excluded path rather than lifting its '!'" MSG-W4S7
-    if grep -qF "!${pd_excluded}" "${pd_al}"; then
+    if grep -qF "! ${pd_excluded}" "${pd_al}"; then
         pass "the '!' line survived the refusal"
     else
         fail "the refused enable deleted the '!' line:"$'\n'"$(cat "${pd_al}")"
@@ -1404,7 +1404,7 @@ else
     # no owner and act on NO PATH, so a run that got that far would report steps it never applied. (A host may also
     # refuse earlier for a missing sudo grant -- that is a different, correct refusal; what must not appear is "not
     # a claimed project".)
-    pd_seed "%${pd_proj}"
+    pd_seed "% ${pd_proj}"
     for key in ai-tools.projects.handback ai-tools.projects.lockdown ai-tools.projects.unclaim; do
         out="$(pd_cli "${key}" "${pd_proj}")" && rc=0 || rc=$?
         if [[ ${rc} -ne 0 ]] && ! grep -qi 'not a claimed project' <<<"${out}"; then
@@ -1463,10 +1463,10 @@ else
     # (11) An entry can be clean and the project still unreachable, because a '!', a '%' or a glob line covers it
     # from an ancestor. Entry state and reachability are different questions, and reporting the first as though it
     # answered the second sends an operator hunting through their own file for a refusal the CLI already knew about.
-    pd_seed "@ ${pd_proj}" "!${TESTDIR}"
+    pd_seed "@ ${pd_proj}" "! ${TESTDIR}"
     out="$(pd_cli ai-tools.projects.enable "${pd_proj}")" && rc=0 || rc=$?
     if [[ ${rc} -eq 0 ]] && grep -qi 'already enabled' <<<"${out}" \
-            && grep -qF "!${TESTDIR}" <<<"${out}"; then
+            && grep -qF "! ${TESTDIR}" <<<"${out}"; then
         pass "ai-tools.projects.enable reports the OTHER line that still covers a listed project"
     else
         fail "ai-tools.projects.enable did not name the blocking ancestor exclusion (rc=${rc}): $(brief "${out}" 'enabled|exclusion')"

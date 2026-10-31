@@ -30,7 +30,7 @@ proj="${TESTDIR}/proj"
 mkdir -p "${proj}/d" "${proj}/.env" "${proj}/.git/objects" "${proj}/vendor"
 # vendor is excluded by a '!' line carrying an end-of-line comment, which the shared allowlist grammar accepts:
 # the walk must skip it exactly as it skips a plain '!' line.
-mk_allowlist "@ ${proj}" "!${proj}/vendor   # excluded"
+mk_allowlist "@ ${proj}" "! ${proj}/vendor   # excluded"
 
 if ! setfacl -m g:"${SANDBOX_GROUP}":rwX "${proj}" 2>/dev/null; then
     skip "ai-tools-unclaim" "filesystem does not support ACLs"; finish; exit

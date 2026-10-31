@@ -1200,6 +1200,8 @@ refused_line() {
     fi
     assert_msg MSG-B8U2 "${err}" "${reason}: the refusal carries its code"
 }
+# A current-grammar row may glue its sign to the path, a spelling the reader accepts and the writer does not produce,
+# so the refusal is shown to be the reason's and not the spelling's.
 refused_line unknown-form       current 'home/op/project'
 # shellcheck disable=SC2088  # the tilde is the line under test, written as an operator might type it
 refused_line unknown-form       current '~/project'
@@ -1245,6 +1247,7 @@ sign_conflict() {
 }
 sign_conflict "an enabled and a disabled line"       '@ /home/op/p' '% /home/op/p'
 sign_conflict "a project and an excluded line"       '@ /home/op/p' '! /home/op/p'
+# The second line is glued and carries a trailing slash, two spellings of one written path the reader accepts.
 sign_conflict "a trailing slash on the second"       '% /home/op/p' '!/home/op/p/'
 sign_conflict "a quoted spelling of the second"      '@ /home/op/a b' '! "/home/op/a b"'
 printf '%s\n' "${REG_MARKER}" '@ /home/op/p   # first' '@/home/op/p/' "@ '/home/op/p'" > "${reg_dir}/project-registry"
@@ -1405,7 +1408,7 @@ else
     ln -s "${TESTDIR}/hid-target" "${hid}/inner"
     chown root:root "${hid}" "${TESTDIR}/hid-target"; chown -h root:root "${hid}/inner"
     hid_reg_dir="${TESTDIR}/hidreg"; mkdir -p "${hid_reg_dir}"
-    printf '%s\n' "${REG_MARKER}" "!${hid}/inner" > "${hid_reg_dir}/project-registry"
+    printf '%s\n' "${REG_MARKER}" "! ${hid}/inner" > "${hid_reg_dir}/project-registry"
     chown -R "${PROJECTS_USER}:${PROJECTS_GROUP}" "${hid_reg_dir}"
     # hid_load_as <account> : print `<status>` and the loader's stderr for the registry read as <account>.
     # shellcheck disable=SC2016  # $1 and $2 are the inner shell's positionals, passed after `_`
@@ -1471,8 +1474,8 @@ fi
 ldk_root="${TESTDIR}/ldk"; mkdir -p "${ldk_root}/proj/vendor" "${ldk_root}/disabled"
 chmod 755 "${ldk_root}" "${ldk_root}/proj"
 ln -s "${ldk_root}/disabled" "${ldk_root}/disabled-link"
-printf '%s\n' "${REG_MARKER}" "@ ${ldk_root}/proj" "!${ldk_root}/proj/vendor" "%${ldk_root}/disabled-link" \
-    "!${ldk_root}/proj/*.log" > "${reg_dir}/project-registry"
+printf '%s\n' "${REG_MARKER}" "@ ${ldk_root}/proj" "! ${ldk_root}/proj/vendor" "% ${ldk_root}/disabled-link" \
+    "! ${ldk_root}/proj/*.log" > "${reg_dir}/project-registry"
 declare -a ldk_allowed=() ldk_excluded=() ldk_kinds=()
 ldk_rc=0; ldk_saved_ifs="${IFS}"; IFS=$'\n\t'
 ai_tools_conf__load_allowlist "${reg_dir}/project-registry" ldk_allowed ldk_excluded ldk_kinds 2>"${TESTDIR}/reg.err" || ldk_rc=$?
@@ -1491,7 +1494,7 @@ if ai_tools_conf__is_path_excluded "${ldk_root}/disabled/sub" ldk_kept && ! ai_t
 else
     fail "the gate's match over a '%' line"
 fi
-printf '%s\n' "${REG_MARKER}" "@ ${ldk_root}/proj" "%${ldk_root}/proj/*" > "${reg_dir}/project-registry"
+printf '%s\n' "${REG_MARKER}" "@ ${ldk_root}/proj" "% ${ldk_root}/proj/*" > "${reg_dir}/project-registry"
 ldk_allowed=(x); ldk_excluded=(y); ldk_kinds=(z); ldk_rc=0
 ai_tools_conf__load_allowlist "${reg_dir}/project-registry" ldk_allowed ldk_excluded ldk_kinds 2>"${TESTDIR}/reg.err" || ldk_rc=$?
 if [[ "${ldk_rc}" -eq 3 && ${#ldk_allowed[@]} -eq 0 && ${#ldk_excluded[@]} -eq 0 && ${#ldk_kinds[@]} -eq 0 ]]; then
@@ -1610,14 +1613,14 @@ rc_is() {
 }
 
 # --- the state read ---
-seed_al "" "@ ${P1}   # a comment" "!${SUB}" "%${P2}"
+seed_al "" "@ ${P1}   # a comment" "! ${SUB}" "% ${P2}"
 state_is enabled  "${P1}"  "an enabled line reads as enabled"
 state_is excluded "${SUB}" "a '!' line reads as excluded"
 state_is disabled "${P2}"  "a disabled line reads as disabled"
 state_is absent   "${TESTDIR}" "a path with no line reads as absent"
 # Two signs on one path refuse the file: written as one path the grammar refuses it, and spelled through a link
 # the readers that resolve it do (MSG-E3W3).
-seed_al "@ ${P1}" "%${P1}"
+seed_al "@ ${P1}" "% ${P1}"
 state_is invalid "${P1}" "an enabled and a disabled line on one path read as invalid" 2>/dev/null
 ln -s "${P1}" "${TESTDIR}/p1-link"
 seed_al "@ ${P1}" "! ${TESTDIR}/p1-link"
@@ -1776,7 +1779,7 @@ else
 fi
 
 # --- remove: the enabled and disabled lines, never a '!' line ---
-seed_al "@ ${P1}" "!${SUB}" "@ ${P2}"
+seed_al "@ ${P1}" "! ${SUB}" "@ ${P2}"
 rc_is 0 "remove drops a path"                   ai_tools_conf__allowlist_remove "${AL}" "${P1}"
 state_is absent "${P1}" "the removed path reads as absent"
 if grep -qxF "@ ${P1}" "${AL}"; then
@@ -1791,10 +1794,10 @@ else
 fi
 state_is enabled "${P2}" "remove left the other project alone"
 rc_is 0 "removing an absent path succeeds"      ai_tools_conf__allowlist_remove "${AL}" "${P1}"
-seed_al "%${P1}" "@ ${P2}"
+seed_al "% ${P1}" "@ ${P2}"
 rc_is 0 "remove drops a disabled path"          ai_tools_conf__allowlist_remove "${AL}" "${P1}"
 state_is absent "${P1}" "the removed disabled path reads as absent, so no '%' is left for a later claim"
-seed_al "!${SUB}"
+seed_al "! ${SUB}"
 remove_before="$(cat "${AL}")"
 rc_is 0 "remove on an excluded path's own path succeeds" ai_tools_conf__allowlist_remove "${AL}" "${SUB}"
 state_is excluded "${SUB}" "the '!' line remove was asked about is still in force"
@@ -1876,12 +1879,12 @@ state_is enabled   "${P1}"  "the enclosing project stays enabled"
 # Neither verb invents an entry: enabling or disabling a path the file does not name would register a project without
 # claiming it (no secret scan, no ACL, no label). A '!' line excludes its path, never a disabled project, so enable does
 # not lift it and disable does not disable it.
-seed_al "@ ${P2}" "!${SUB}"
+seed_al "@ ${P2}" "! ${SUB}"
 rc_is 2 "enable refuses an absent path"         ai_tools_conf__allowlist_enable  "${AL}" "${P1}"
 rc_is 2 "disable refuses an absent path"        ai_tools_conf__allowlist_disable "${AL}" "${P1}"
 rc_is 2 "enable refuses an excluded path"       ai_tools_conf__allowlist_enable  "${AL}" "${SUB}"
 rc_is 2 "disable refuses an excluded path"      ai_tools_conf__allowlist_disable "${AL}" "${SUB}"
-if [[ "$(cat "${AL}")" == "${MARKER}"$'\n'"@ ${P2}"$'\n'"!${SUB}" ]]; then
+if [[ "$(cat "${AL}")" == "${MARKER}"$'\n'"@ ${P2}"$'\n'"! ${SUB}" ]]; then
     pass "every refusal left the file untouched"
 else
     fail "a refusal wrote to the file:"$'\n'"$(cat "${AL}")"

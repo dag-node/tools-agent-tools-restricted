@@ -25,7 +25,7 @@ proj="${TESTDIR}/proj"; excl="${proj}/vendor"
 mkdir -p "${proj}" "${excl}"
 chown "${PROJECTS_USER}:${PROJECTS_GROUP}" "${proj}" "${excl}"   # pre-existing project dirs
 chmod 0755 "${TESTDIR}" "${proj}" "${excl}"                       # traversable for the EACCES check
-mk_allowlist "@ ${proj}" "!${excl}"
+mk_allowlist "@ ${proj}" "! ${excl}"
 
 # Run the validator the way the hook does: detached from any tty, stdin from /dev/null, so it takes its non-interactive
 # apply branch. Captures stderr for the NOTICE assertions.

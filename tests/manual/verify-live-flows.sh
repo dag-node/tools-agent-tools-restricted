@@ -204,7 +204,8 @@ cleanup() {
     local allowlist path out line
     allowlist="$(registry_path)"
     for path in "${PROJ}" "${COPY}"; do
-        grep -qsxF -e "${path}" -e "%${path}" "${allowlist}" || continue
+        { sed 's/^[[:space:]]*//' "${allowlist}" 2>/dev/null || true; } | grep -qxF -e "@ ${path}" -e "% ${path}" \
+            || continue
         if ! out="$("${CLI}" projects unclaim -y --group "${MY_GROUP}" "${path}" 2>&1)"; then
             note "cleanup: the unclaim of ${path} failed, so its allowlist entry and its SELinux file-context rule stay registered"
             while IFS= read -r line; do note "  ${line}"; done <<<"${out}"

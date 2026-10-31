@@ -402,7 +402,7 @@ if runuser -u "${PROJECTS_USER}" -- bash -c \
     }
     REGLINK="${TESTDIR}/reglink"; mkdir -p "${REGLINK}/real/hidden" "${REGLINK}/gw"
     ln -s "${REGLINK}/real" "${REGLINK}/gw/link"; chmod 2775 "${REGLINK}/gw"
-    printf '%s\n' "# ai-tools-project-registry-format: 1.0" "!${REGLINK}/gw/link/hidden" > "${REGLINK}/project-registry"
+    printf '%s\n' "# ai-tools-project-registry-format: 1.0" "! ${REGLINK}/gw/link/hidden" > "${REGLINK}/project-registry"
     chown -R "${PROJECTS_USER}" "${REGLINK}"; chmod 600 "${REGLINK}/project-registry"
     reset_fixtures; manifest alpha la yes; link la
     rc=0; out="$(call_status_registry "${REGLINK}/project-registry")" || rc=$?
@@ -412,7 +412,7 @@ if runuser -u "${PROJECTS_USER}" -- bash -c \
     else
         fail "status over a linked exclusion exited ${rc}: $(tail -c 400 <<<"${out}" | tr '\n' '|')"
     fi
-    printf '%s\n' "# ai-tools-project-registry-format: 1.0" "!${REGLINK}/real/hidden" > "${REGLINK}/project-registry"
+    printf '%s\n' "# ai-tools-project-registry-format: 1.0" "! ${REGLINK}/real/hidden" > "${REGLINK}/project-registry"
     rc=0; out="$(call_status_registry "${REGLINK}/project-registry")" || rc=$?
     if [[ "${rc}" -eq 0 ]] && grep -qF "${REGLINK}/project-registry (format 1.0)" <<<"${out}"; then
         pass "control: the exclusion written as the real path reads ok and status exits 0"

@@ -207,7 +207,7 @@ mkdir -p "${TESTDIR}/linked/real/private"
 chmod 0755 "${TESTDIR}/linked" "${TESTDIR}/linked/real" "${TESTDIR}/linked/real/private"
 ln -s "${TESTDIR}/linked/real" "${TESTDIR}/linked/link"
 chown -h "${SANDBOX_USER}" "${TESTDIR}/linked/link"
-printf '%s\n' "# ai-tools-project-registry-format: 1.0" "@ ${proj}" "!${TESTDIR}/linked/link/private" > "${TESTDIR}/linked/project-registry"
+printf '%s\n' "# ai-tools-project-registry-format: 1.0" "@ ${proj}" "! ${TESTDIR}/linked/link/private" > "${TESTDIR}/linked/project-registry"
 chown "${PROJECTS_USER}:${PROJECTS_GROUP}" "${TESTDIR}/linked/project-registry"; chmod 600 "${TESTDIR}/linked/project-registry"
 refused_registry "--print refuses a '!' line through a link the sandbox account holds, naming the link" MSG-Y5N6 \
     "${TESTDIR}/linked/project-registry" --operator "${PROJECTS_USER}" --print
@@ -220,10 +220,10 @@ if [[ -z "${linked_stdout}" ]]; then
 else
     fail "--print over a '!' line through the sandbox account's link wrote a snapshot: ${linked_stdout}"
 fi
-printf '%s\n' "# ai-tools-project-registry-format: 1.0" "@ ${proj}" "!${TESTDIR}/linked/real/private" > "${TESTDIR}/linked/project-registry"
+printf '%s\n' "# ai-tools-project-registry-format: 1.0" "@ ${proj}" "! ${TESTDIR}/linked/real/private" > "${TESTDIR}/linked/project-registry"
 out="$(env SUDO_UID="${OPERATOR_UID}" AI_TOOLS_ALLOWLIST="${TESTDIR}/linked/project-registry" \
     AI_TOOLS_OPERATOR_CONF="${TESTDIR}/operator.conf" "${HELPER}" --operator "${PROJECTS_USER}" --print 2>&1)" && rc=0 || rc=$?
-if (( rc == 0 )) && grep -qxF -- "!${TESTDIR}/linked/real/private" <<<"${out}"; then
+if (( rc == 0 )) && grep -qxF -- "! ${TESTDIR}/linked/real/private" <<<"${out}"; then
     pass "--print prints the same '!' line written as the real path (the control)"
 else
     fail "--print over the real-path '!' line: rc=${rc}: ${out}"

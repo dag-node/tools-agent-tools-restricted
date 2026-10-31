@@ -28,7 +28,7 @@ mkdir -p "${proj}/sub" "${proj}/noted" "${proj}/.git/objects" "${proj}/.env/insi
 find "${proj}" -type d -exec chmod 0755 {} +
 # sub is '!'-excluded by a plain line; noted by a line carrying an end-of-line comment, which the shared allowlist
 # grammar accepts. A walk that read the second line raw would match no path against it and grant the excluded path.
-mk_allowlist "@ ${proj}" "!${proj}/sub" "!${proj}/noted   # excluded"
+mk_allowlist "@ ${proj}" "! ${proj}/sub" "! ${proj}/noted   # excluded"
 
 if ! setfacl -m g:"${SANDBOX_GROUP}":rwX "${proj}" 2>/dev/null; then
     skip "ai-tools-setfacl" "filesystem does not support ACLs"; finish; exit

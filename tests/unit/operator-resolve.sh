@@ -32,10 +32,10 @@ mkdir -p "${TESTDIR}"/proj/sub "${TESTDIR}"/proj/secret "${TESTDIR}"/proj/vendor
 allow="${TESTDIR}/project-registry"
 # The format marker, and one of each shape the shared grammar accepts: an allow entry with an end-of-line
 # comment, a quoted allow entry, an exclusion carrying a comment, and a disabled project.
-printf '%s\n' "# ai-tools-project-registry-format: 1.0" "@ ${TESTDIR}/proj" "!${TESTDIR}/proj/secret" \
-              "!${TESTDIR}/proj/vendor   # excluded" \
+printf '%s\n' "# ai-tools-project-registry-format: 1.0" "@ ${TESTDIR}/proj" "! ${TESTDIR}/proj/secret" \
+              "! ${TESTDIR}/proj/vendor   # excluded" \
               "@ ${TESTDIR}/noted   # why" \
-              "@ \"${TESTDIR}/quoted dir\"" "%${TESTDIR}/disabled" > "${allow}"
+              "@ \"${TESTDIR}/quoted dir\"" "% ${TESTDIR}/disabled" > "${allow}"
 conf="${TESTDIR}/operator.conf"
 printf 'OPERATORS="%s"\n' "${PROJECTS_USER}" > "${conf}"
 export AI_TOOLS_OPERATOR_CONF="${conf}" AI_TOOLS_ALLOWLIST="${allow}"

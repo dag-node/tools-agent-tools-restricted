@@ -807,7 +807,7 @@ drive_rows() {
     section "ai-tools.projects.remove.inplace"
     mkdir -p "${R}/rm1" "${R}/rm2" "${R}/rm3" "${R}/rm4" "${R}/rmp/nested"
     chown -R "${PROJECTS_USER}:${PROJECTS_USER}" "${R}/rm1" "${R}/rm2" "${R}/rm3" "${R}/rm4" "${R}/rmp"
-    seed "@ ${R}/rm1" "%${R}/rm2" "@ ${R}/rm3" "@ ${R}/rm4" "@ ${R}/rmp" "@ ${R}/rmp/nested"
+    seed "@ ${R}/rm1" "% ${R}/rm2" "@ ${R}/rm3" "@ ${R}/rm4" "@ ${R}/rmp" "@ ${R}/rmp/nested"
     seed_gc "${R}/rm1" "${R}/rm2"
     drive cli ai-tools.projects.remove.inplace "${R}/rm1"
     expect "remove without --yes declines at the confirm"             rc_not0

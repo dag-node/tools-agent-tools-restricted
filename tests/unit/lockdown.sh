@@ -77,7 +77,7 @@ mkdir -p "${clone}/src"
 chown -R "${PROJECTS_USER}:${SANDBOX_GROUP}" "${clone}"
 chmod 2700 "${clone}" "${clone}/src"
 chmod 0600 "${clone}/.env"
-mk_allowlist "@ ${proj}" "!${proj}/vendor" "@ ${clone}"
+mk_allowlist "@ ${proj}" "! ${proj}/vendor" "@ ${clone}"
 
 # Run the deployed helper in <cwd> (it acts on pwd), non-interactive (`--yes`), never aborting the suite. Captures
 # combined output to <outfile>; sets the global LD_RC to its exit code.
