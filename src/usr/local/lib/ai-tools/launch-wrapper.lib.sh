@@ -431,7 +431,7 @@ ai_tools_launch_wrapper__gate_project() {
         pat="${exclusion_patterns[index]%/}"                    # normalise: strip trailing slash
         kind="${exclusion_kinds[index]}"
         if [[ "${cwd}" == ${pat} ]]; then
-            if [[ "${kind}" == park ]]; then
+            if [[ "${kind}" == disabled ]]; then
                 ai_tools_launch_wrapper__die MSG-R2V6 "this project is disabled in your project registry: ${cwd}" \
                     "${name}: no session starts here until it is re-enabled -- its files, group and label are untouched" \
                     "${name}: re-enable it with:  ${CLI_CMD} projects enable ${cwd}"
@@ -446,7 +446,7 @@ ai_tools_launch_wrapper__gate_project() {
         fi
         # For plain paths (no glob), also exclude directory contents
         if [[ "${pat}" != *'*'* && "${cwd}" == "${pat}/"* ]]; then
-            if [[ "${kind}" == park ]]; then
+            if [[ "${kind}" == disabled ]]; then
                 remedy="it is inside ${pat}, a parked project; re-enable that project with:  ${CLI_CMD} projects enable ${pat}"
             else
                 remedy="the carve-out !${pat} above this directory withholds it; edit ${allowlist} to change that"

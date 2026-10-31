@@ -877,7 +877,7 @@ allow_state() { ai_tools_conf__read_allowlist_state "${ALLOWLIST}" "$1"; }
 # disabled. What the operator needs next is the line itself, verbatim.
 disabled_note() {
     local -a lines=(); local raw
-    ai_tools_conf__read_allowlist_park_lines lines "${ALLOWLIST}" "$1" || return 0
+    ai_tools_conf__read_allowlist_disabled_lines lines "${ALLOWLIST}" "$1" || return 0
     for raw in "${lines[@]}"; do say "      ${C_BOLD}${raw}${C_RST}"; done
 }
 
@@ -1057,7 +1057,7 @@ format_registry_edit_clause() {
 # format_blocking_line_kind  -- the line kind of CLASS_BLOCKED, as a message names it.
 format_blocking_line_kind() {
     case "${CLASS_BLOCKED_KIND}" in
-        park) printf "'%%' park" ;;
+        disabled) printf "'%%' park" ;;
         glob) printf "'!' glob carve-out" ;;
         *)    printf "'!' carve-out" ;;
     esac
@@ -1069,7 +1069,7 @@ format_blocking_line_kind() {
 # own line, edited in the registry.
 format_blocking_line_remedy() {
     local parked
-    if [[ "${CLASS_BLOCKED_KIND}" == park && "${CLASS_BLOCKED_PATH}" != - ]]; then
+    if [[ "${CLASS_BLOCKED_KIND}" == disabled && "${CLASS_BLOCKED_PATH}" != - ]]; then
         parked="$(realpath -e -- "${CLASS_BLOCKED_PATH}" 2>/dev/null || printf '%s' "${CLASS_BLOCKED_PATH}")"
         printf 'Re-enable the project it parks first:\n       %s' "$(format_projects_command enable "${parked}")"
     else
@@ -1084,7 +1084,7 @@ format_blocking_line_remedy() {
 # met on the way to it, is named as the target that the verb can take instead when the line is a carve-out or a glob.
 die_blocked() {
     local -a whole=()
-    [[ -n "${3:-}" && "${CLASS_BLOCKED_KIND}" != park ]] \
+    [[ -n "${3:-}" && "${CLASS_BLOCKED_KIND}" != disabled ]] \
         && whole=("To act on the whole project, name it:" "       $(format_projects_command "$2" "$3")")
     printf '\n      %s\n\n' "${CLASS_BLOCKED}" >&2
     die MSG-R8C7 "a $(format_blocking_line_kind) line covers this path, so projects $2 cannot act on it: $1" \
@@ -1115,7 +1115,7 @@ die_inside() {
         *)              hint="act on that project instead: $(format_projects_command "${verb}" "${x}")" ;;
     esac
     local -a blocked_line=()
-    [[ "${CLASS_BLOCKED}" == - || "${CLASS_BLOCKED_KIND}" == park ]] \
+    [[ "${CLASS_BLOCKED}" == - || "${CLASS_BLOCKED_KIND}" == disabled ]] \
         || blocked_line=("       and a $(format_blocking_line_kind) line covers this path: ${CLASS_BLOCKED}")
     die MSG-T5A3 "this path is inside a claimed project, not a project itself: ${d}" \
         "       the claimed project is: ${x} (${CLASS_ENCLOSING_STATE})" \
@@ -1244,7 +1244,7 @@ unreg_allow() {
         local -a lines=() excl=(); local raw before
         before="$(allow_state "${dir}")"
         ai_tools_conf__read_allowlist_matching_lines  lines "${ALLOWLIST}" "${dir}" || true
-        ai_tools_conf__read_allowlist_park_lines      excl  "${ALLOWLIST}" "${dir}" || true
+        ai_tools_conf__read_allowlist_disabled_lines      excl  "${ALLOWLIST}" "${dir}" || true
         lines+=("${excl[@]}")
         # The library verifies the removal by re-reading the file rather than trusting `sed`, which writes its temporary
         # file into the registry's own DIRECTORY and so fails on a config dir this operator cannot write even
@@ -3445,12 +3445,12 @@ discover_project() {
     d="$(pwd -P)"
     while :; do
         read_path_class "${d}"
-        if [[ ",${CLASS_OWN}," == *,allow,* || ",${CLASS_OWN}," == *,park,* ]]; then
+        if [[ ",${CLASS_OWN}," == *,project,* || ",${CLASS_OWN}," == *,disabled,* ]]; then
             printf '%s' "${d}"
             return 0
         fi
         if [[ "${CLASS_STATE}" == excluded && "${CLASS_BLOCKED}" == - ]]; then
-            CLASS_BLOCKED="$(list_lines_naming "${d}" | head -n 1)"; CLASS_BLOCKED_KIND=carve CLASS_BLOCKED_PATH="${d}"
+            CLASS_BLOCKED="$(list_lines_naming "${d}" | head -n 1)"; CLASS_BLOCKED_KIND=excluded CLASS_BLOCKED_PATH="${d}"
         fi
         if [[ "${CLASS_BLOCKED}" != - ]]; then
             root=""
@@ -3482,7 +3482,7 @@ require_reachable_target() {
                 "Re-enable it first:" \
                 "       $(format_projects_command enable "${d}")" ;;
         excluded)
-            CLASS_BLOCKED="$(list_lines_naming "${d}" | head -n 1)"; CLASS_BLOCKED_KIND=carve CLASS_BLOCKED_PATH="${d}"
+            CLASS_BLOCKED="$(list_lines_naming "${d}" | head -n 1)"; CLASS_BLOCKED_KIND=excluded CLASS_BLOCKED_PATH="${d}"
             die_blocked "${d}" "${verb}" ;;
         enabled|inside)
             is_class_reachable && return 0
@@ -3575,8 +3575,8 @@ unclaim_one() {
     # and a line already parked (a declined re-enable) is left as it is. Both run AFTER the hand-back: the helpers
     # resolve this path's owner through the allowlist, and an exclusion stops them as surely as a missing entry.
     local disposition=drop entry_active=false entry_word="out of the project registry"
-    ${handback_missing} && disposition=park
-    if [[ "${disposition}" == park ]]; then
+    ${handback_missing} && disposition=disable
+    if [[ "${disposition}" == disable ]]; then
         entry_word="disabled in ${REGISTRY_DISPLAY_PATH}"
         if [[ "$(allow_state "${d}")" == disabled ]]; then
             say "    registry: left disabled"
@@ -3861,7 +3861,7 @@ cmd_project_unclaim() {
     # of them, outermost first), or a tree no entry names, which takes the residue predicate. A carve-out is not
     # a project, and a path inside one is unclaimed by unclaiming the project.
     local -a targets=()
-    local mode t
+    local mode target
     read_path_class "${d}"
     case "${CLASS_STATE}" in
         excluded)      die_carveout "${d}" unclaim ;;
@@ -3875,8 +3875,8 @@ cmd_project_unclaim() {
 
     # Protected-path front line: never modify permissions on a protected system path. Guard each MODIFICATION target (in
     # ancestor mode the search root may be protected, e.g. /home, while the projects nested under it are not).
-    for t in "${targets[@]}"; do
-        ai_tools_safe_paths__assert_safe_target "${t}" "project unclaim" || exit 3
+    for target in "${targets[@]}"; do
+        ai_tools_safe_paths__assert_safe_target "${target}" "project unclaim" || exit 3
     done
 
     # --force is about reaching a tree the allowlist does not cover; here one does. Refused, like every other flag
@@ -3896,15 +3896,15 @@ cmd_project_unclaim() {
     # left parked, and the close names the reason and this unclaim run again as what completes the reversal, with
     # a non-zero exit (unclaim_one, cli.rule.md).
     local -A handback_hint=()
-    for t in "${targets[@]}"; do
-        read_path_class "${t}"
+    for target in "${targets[@]}"; do
+        read_path_class "${target}"
         if [[ "${CLASS_BLOCKED}" != - ]]; then
-            handback_hint["${t}"]="a $(format_blocking_line_kind) line covers it: ${CLASS_BLOCKED} -- $(format_blocking_line_remedy)"
+            handback_hint["${target}"]="a $(format_blocking_line_kind) line covers it: ${CLASS_BLOCKED} -- $(format_blocking_line_remedy)"
         elif [[ "${CLASS_STATE}" == disabled ]]; then
-            if offer_reenable "${t}" "the unclaim" decline-returns; then
-                read_path_class "${t}"
+            if offer_reenable "${target}" "the unclaim" decline-returns; then
+                read_path_class "${target}"
             else
-                handback_hint["${t}"]="it stays disabled, and the hand-back does not run under its '%' line; a second unclaim offers the re-enable again"
+                handback_hint["${target}"]="it stays disabled, and the hand-back does not run under its '%' line; a second unclaim offers the re-enable again"
             fi
         fi
     done
@@ -3919,7 +3919,7 @@ cmd_project_unclaim() {
             "${d} is not itself a claimed project, but ${#targets[@]} claimed project(s) are nested under it." \
             "Unclaiming MODIFIES FILE PERMISSIONS AND OWNERSHIP in ALL of the projects listed below." \
             "The directories themselves are left on disk."
-        for t in "${targets[@]}"; do printf '    %s\n' "${t}"; done
+        for target in "${targets[@]}"; do printf '    %s\n' "${target}"; done
         say ""
         ${assume_yes} || confirm "Unclaim ALL ${#targets[@]} projects listed above?" n || die "aborted"
     fi
@@ -3939,15 +3939,15 @@ cmd_project_unclaim() {
     [[ -n "${group_opt}" ]] && retry_options+=(--group "$(printf '%q' "${group_opt}")")
 
     local incomplete=0
-    for t in "${targets[@]}"; do
+    for target in "${targets[@]}"; do
         # A target whose exclusion was left standing takes the registry-only path: no group means unclaim_one skips
         # the hand-back, and the hint is what it prints in its place.
-        local t_group="${hb_group}" t_hint="${hb_hint}"
-        if [[ -n "${handback_hint[${t}]:-}" ]]; then t_group=""; t_hint="${handback_hint[${t}]}"; fi
-        unclaim_one "${t}" "${t_group}" "${t_hint}" \
-            "$(format_projects_command unclaim "${t}" "${retry_options[@]}")" "${helper_flags[@]}" \
+        local target_group="${hb_group}" target_hint="${hb_hint}"
+        if [[ -n "${handback_hint[${target}]:-}" ]]; then target_group=""; target_hint="${handback_hint[${target}]}"; fi
+        unclaim_one "${target}" "${target_group}" "${target_hint}" \
+            "$(format_projects_command unclaim "${target}" "${retry_options[@]}")" "${helper_flags[@]}" \
             || incomplete=$(( incomplete + 1 ))
-        report_carveouts_kept "${t}"
+        report_carveouts_kept "${target}"
     done
 
     # An incomplete reversal reaches the exit status, so a script sees it; the registries drop regardless, which is

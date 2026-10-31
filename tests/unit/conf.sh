@@ -1457,7 +1457,7 @@ ldk_rc=0; ldk_saved_ifs="${IFS}"; IFS=$'\n\t'
 ai_tools_conf__load_allowlist "${reg_dir}/project-registry" ldk_allowed ldk_excluded ldk_kinds 2>"${TESTDIR}/reg.err" || ldk_rc=$?
 IFS="${ldk_saved_ifs}"
 ldk_pairs="$(paste -d= <(printf '%s\n' "${ldk_excluded[@]}") <(printf '%s\n' "${ldk_kinds[@]}"))"
-ldk_want="${ldk_root}/proj/vendor=carve"$'\n'"${ldk_root}/parked-link=park"$'\n'"${ldk_root}/parked=park"$'\n'"${ldk_root}/proj/*.log=carve"
+ldk_want="${ldk_root}/proj/vendor=excluded"$'\n'"${ldk_root}/parked-link=disabled"$'\n'"${ldk_root}/parked=disabled"$'\n'"${ldk_root}/proj/*.log=excluded"
 if [[ "${ldk_rc}" -eq 0 && "${ldk_pairs}" == "${ldk_want}" && "${ldk_allowed[*]}" == "${ldk_root}/proj" ]]; then
     pass "the kinds array names each exclusion's kind, parallel to the exclusion array"
 else
