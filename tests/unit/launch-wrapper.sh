@@ -124,11 +124,24 @@ sed 's#^readonly SAFE_PATHS_LIB=.*#readonly SAFE_PATHS_LIB="/nonexistent/ai-tool
     "${LIB}" > "${broken_safe}"
 broken_conf="${TESTDIR}/launch-noconf.lib.sh"
 sed 's#^readonly CONF_LIB=.*#readonly CONF_LIB="/nonexistent/ai-tools/conf.lib.sh"#' "${LIB}" > "${broken_conf}"
-chmod 644 "${broken_safe}" "${broken_conf}"
+# A conf.lib.sh that loads and lacks the exclusion matcher, the one function a gate calls whose absence would read as
+# "no match" -- the shape of a library older than the wrapper.
+partial_conf="${TESTDIR}/conf-nomatcher.lib.sh"
+awk '/^ai_tools_conf__find_covering_path\(\) \{/,/^}/ {next} {print}' /usr/local/lib/ai-tools/conf.lib.sh \
+    > "${partial_conf}"
+broken_matcher="${TESTDIR}/launch-nomatcher.lib.sh"
+sed "s#^readonly CONF_LIB=.*#readonly CONF_LIB=\"${partial_conf}\"#" "${LIB}" > "${broken_matcher}"
+chmod 644 "${broken_safe}" "${broken_conf}" "${partial_conf}" "${broken_matcher}"
+if grep -q '^ai_tools_conf__find_covering_path()' "${partial_conf}" \
+        || ! grep -q '^ai_tools_conf__load_allowlist()' "${partial_conf}"; then
+    fail "the partial conf.lib.sh copy does not lack the matcher alone"
+fi
 run "${broken_safe}" "${PROJECTS_USER}" "${approved}" true
 refused "init refuses when safe-paths.lib.sh will not load (fail closed)" MSG-U6A9
 run "${broken_conf}" "${PROJECTS_USER}" "${approved}" true
 refused "init refuses when conf.lib.sh will not load (fail closed)" MSG-C2M7
+run "${broken_matcher}" "${PROJECTS_USER}" "${approved}" true
+refused "init refuses when conf.lib.sh lacks a function a gate calls (fail closed)" MSG-C2M7
 run "${LIB}" "${PROJECTS_USER}" "${approved}" true
 passed "init loads the three required libraries on the deployed library"
 

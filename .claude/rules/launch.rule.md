@@ -28,7 +28,8 @@ the interpreter by absolute path in privileged mode, PATH pinned — is stated i
 
 The gates are one implementation, `/usr/local/lib/ai-tools/launch-wrapper.lib.sh` (`644 root:root`,
 `ai-tools-base`-owned), and the wrapper is four calls into it: `ai_tools_launch_wrapper__init <name>`, which loads
-`msg.lib.sh`, `safe-paths.lib.sh` and `conf.lib.sh` fail-closed and accepts the name only in a launcher's charset,
+`msg.lib.sh`, `safe-paths.lib.sh` and `conf.lib.sh` fail-closed, requiring of `conf.lib.sh` each function the gates
+call (`MSG-C2M7`), and accepts the name only in a launcher's charset,
 matched in the C locale (`MSG-Z6F8`); `ai_tools_launch_wrapper__run_gates "$@"`, which runs the numbered gates in their
 order — the operator gate first, then the clock gate (`ai_tools_launch_wrapper__gate_clock`, `MSG-U8K6`: a file this
 host wrote dated after the system clock, read by `ai_tools_conf__find_paths_ahead_of_clock` over the library,

@@ -154,10 +154,22 @@ ai_tools_launch_wrapper__init() {
             "       libraries are present, then reinstall the package if needed."
     fi
 
+    # Every function of conf.lib.sh the gates call, and a call a gate gains is added here: the exclusion loop calls
+    # its matcher under `|| continue`, so a library lacking it would read status 127 as "no match" and pass the CWD.
+    local -a conf_functions=(
+        ai_tools_conf__parse_path_entry ai_tools_conf__find_unmigrated_items ai_tools_conf__find_paths_ahead_of_clock
+        ai_tools_conf__resolve_registry ai_tools_conf__load_allowlist ai_tools_conf__find_covering_path
+        ai_tools_conf__has_allowlist_entry ai_tools_conf__is_trusted
+    )
+    local conf_function conf_loaded=no
     # shellcheck source=SCRIPTDIR/conf.lib.sh
-    if ! source "${CONF_LIB}" 2>/dev/null \
-            || ! declare -F ai_tools_conf__parse_path_entry >/dev/null 2>&1 \
-            || ! declare -F ai_tools_conf__find_unmigrated_items >/dev/null 2>&1; then
+    if source "${CONF_LIB}" 2>/dev/null; then
+        conf_loaded=yes
+        for conf_function in "${conf_functions[@]}"; do
+            declare -F "${conf_function}" >/dev/null 2>&1 || conf_loaded=no
+        done
+    fi
+    if [[ "${conf_loaded}" != yes ]]; then
         command -v logger >/dev/null 2>&1 \
             && logger -t "${name}" -p user.err \
                 "required config library ${CONF_LIB} unavailable for $(id -un 2>/dev/null) -- launch refused (fail closed)"
