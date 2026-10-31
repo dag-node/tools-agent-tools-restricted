@@ -196,7 +196,10 @@ an ordinary account read it — a partial view, the file sink being the authorit
   via `ai-tools-reclaim` (which walks the tree and delegates per-path to `ai-tools-chown`, the same boundary
   the handback uses). Refuses every path a session cannot reach up front (`require_reachable_target`), so it never runs
   a silent no-op, and discovers the project without a path ([Discovery](#discovery)); `ai-tools-reclaim` additionally
-  reports "nothing to reclaim" for a direct `sudo` call past the CLI. Reclaims the `.git` tree the per-session sweeps
+  reports "nothing to reclaim" for a direct `sudo` call past the CLI. Each `ai-tools-chown` child resolves its path's
+  owner again, loading every enrolled operator's registry, so a refused registry is reported by every child; the helper
+  collects the children's stderr and prints each distinct message once, with the number of paths it was printed for,
+  ahead of its tally. Reclaims the `.git` tree the per-session sweeps
   skip; the ownership companion to the `user:<operator>` ACL, run on demand before an ACL-unaware backup so ownership
   (not the ACL) carries the operator's access into the copy. `--full` includes the skipped heavy trees (`node_modules`,
   `.venv`, …). See [ownership-and-hooks](ownership-and-hooks.rule.md).

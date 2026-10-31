@@ -77,4 +77,26 @@ else
     fail "non-allowlisted path was reclaimed: $(own "${of}")"
 fi
 
+# (D) The children's stderr is folded: a message every ai-tools-chown child writes -- a refused registry of another
+# operator, which each child loads again -- prints once with the number of paths, ahead of the tally. Driven on the fold
+# itself, from the checkout's helper where the suite runs from one, since a second operator's refused registry is not
+# a fixture this suite can place.
+reclaim_source="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)/src/usr/local/libexec/ai-tools/ai-tools-reclaim.sh"
+[[ -r "${reclaim_source}" ]] || reclaim_source="${HELPER}"
+fold_function="$(awk '/^_report_child_messages\(\) \{/,/^}/' "${reclaim_source}")"
+if [[ -z "${fold_function}" ]]; then
+    fail "${reclaim_source} does not define _report_child_messages"
+else
+    printf '%s\n' MSG-B8U2 "registry line refused -- /home/op/r line 2" "a secret-named file: /p/a" $'\036' \
+        MSG-B8U2 "registry line refused -- /home/op/r line 2" MSG-B8U2 "registry line refused -- /home/op/r line 2" \
+        $'\036' MSG-B8U2 "registry line refused -- /home/op/r line 2" $'\036' > "${TESTDIR}/children.err"
+    fold_out="$(bash -c "${fold_function}"$'\n''_report_child_messages "$1"' _ "${TESTDIR}/children.err" 2>&1)"
+    fold_want="MSG-B8U2"$'\n'"registry line refused -- /home/op/r line 2 (3 paths)"$'\n'"a secret-named file: /p/a"
+    if [[ "${fold_out}" == "${fold_want}" ]]; then
+        pass "a message three children wrote prints once with (3 paths); a child repeating it counts once"
+    else
+        fail "the children's messages fold: got '${fold_out//$'\n'/~}', expected '${fold_want//$'\n'/~}'"
+    fi
+fi
+
 finish
