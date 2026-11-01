@@ -5793,7 +5793,9 @@ status_services() {
 # then flag inconsistent hand-edited entries under "Suggested cleanup" with copy-paste remediation commands (the
 # allowlist is operator-owned and hand-editable, so a line can name a protected system path the tools refuse to touch,
 # a stale path that no longer exists, or a project listed but never fully claimed). All read-only, reusing existing
-# predicates and verbs -- no recovery machinery of its own.
+# predicates and verbs -- no recovery machinery of its own. A removal is offered only for an entry this run can
+# attribute to the registry it reads; a reading the invoker cannot make withholds the removal and is counted or named
+# instead.
 cmd_project_list() {
     [[ "$#" -eq 0 ]] || die_usage MSG-E2A5 "projects list takes no arguments"
     [[ -e "${ALLOWLIST}" || -L "${ALLOWLIST}" ]] || { say "no registry at ${ALLOWLIST}"; return 0; }
@@ -5835,6 +5837,15 @@ cmd_project_list() {
     # _has_glob <str>  -- 0 when <str> carries a shell glob metacharacter (* ? [). A glob is a `!` line alone, matched
     # as a pattern and never resolved to one path; the grammar refuses one on an `@` or `%` line.
     _has_glob() { [[ "$1" == *[*?[]* ]]; }
+    # _read_safedir_column <entry>  -- set `safe` to the safe.dir column for <entry> and `sd` to whether git
+    # safe.directory names it, the reading every registered row prints.
+    _read_safedir_column() {
+        if git config --file "${GITCONFIG}" --get-all safe.directory 2>/dev/null | grep -qxF -- "$1"; then
+            safe="safe.dir:yes"; sd=true
+        else
+            safe="safe.dir:${C_YEL}NO${C_RST}"; sd=false
+        fi
+    }
     # _reconcile <entry> <kind> <safedir-yes> <raw-line>  -- append a remediation block for an inconsistent entry (stale
     # / protected / listed-but-not-fully-claimed). Nested so it shares `cleanup`; <raw-line> is the verbatim source line
     # the removal command deletes.
@@ -5890,7 +5901,8 @@ cmd_project_list() {
         if [[ "${ai_tools_conf__kind}" == disabled ]]; then
             # A disabled project: registered, with no session starting there until it is re-enabled in place.
             excl="${entry}"
-            printf '  %-8s %-50s %s\n' "disabled" "${excl}" "${C_DIM}no session may start here${C_RST}"
+            _read_safedir_column "${excl}"
+            printf '  %-8s %-50s %s  %s\n' "disabled" "${excl}" "${safe}" "${C_DIM}no session may start here${C_RST}"
             say "           ${C_DIM}re-enable: $(format_projects_command enable "${excl}")${C_RST}"
             if ! realpath -e "${excl}" >/dev/null 2>&1; then
                 cleanup+=( "  % ${entry}" \
@@ -5903,12 +5915,7 @@ cmd_project_list() {
             "${SANDBOX_ROOT}"/*) kind="sandbox" ;;
             *)                   kind="project" ;;
         esac
-        if git config --file "${GITCONFIG}" --get-all safe.directory 2>/dev/null \
-                | grep -qxF "${entry}"; then
-            safe="safe.dir:yes"; sd=true
-        else
-            safe="safe.dir:${C_YEL}NO${C_RST}"; sd=false
-        fi
+        _read_safedir_column "${entry}"
         read_path_class "$(resolve_entry_path "${entry}")"
         printf '  %-8s %-50s %s\n' "${kind}" "${entry}" "${safe}"
         # A listed project under a `%`, a `!` or a glob line is still this operator's entry, and no session reaches it
@@ -5922,27 +5929,53 @@ cmd_project_list() {
     # Reverse reconciliation: a git safe.directory entry no registry entry names is an ORPHAN -- git still trusts
     # the tree though no line names it (the line was hand-deleted, or an unclaim was interrupted before the safedir
     # drop). An entry is an `@` or a `%` line, read through the classifier: a disabled project is still registered.
-    # A git entry is classified by
-    # its real path, as the registry section reads its own lines, and the cleanup names it as git stores it. Removing
-    # the stale safedir (and its label) is the cleanup; the path is not a claimed project, so it is not offered
-    # `atr projects unclaim`, which would refuse an unlisted target. Control-plane entries (/opt/ai-tools) are
-    # registered deliberately and are protected paths, so they are skipped.
-    local sdir
+    # A git entry is classified by its real path, as the registry section reads its own lines, and the cleanup names it
+    # as git stores it. Control-plane entries (/opt/ai-tools) are registered deliberately and are protected paths,
+    # so they are skipped.
+    #
+    # safe.directory is one host-wide list every operator's claims write into, while this run reads one registry, so
+    # an uncovered entry is attributed before a remedy is offered: a path whose root OWNER_USER holds is this
+    # registry's orphan; a path that no longer exists is stale; a path under a directory the invoker cannot enter, one
+    # another account holds, and one whose owner cannot be read are counted and not listed. The claim's owner rule
+    # (require_claimable_owner) is what makes the owner the attribution key. A reading the invoker cannot make
+    # withholds the removal, since `ai-tools-safedir --remove` does not consult any registry, and the count says
+    # the entries exist.
+    # shellcheck disable=SC2034  # sdir_blocker is filled through its name by find_invoker_traversal_blocker
+    local sdir sdir_blocker sdir_real sdir_owner unattributed=0
     while IFS= read -r sdir; do
         [[ -n "${sdir}" ]] || continue
         ai_tools_safe_paths__match_protected_path "${sdir}" >/dev/null 2>&1 && continue
         read_path_class "$(resolve_entry_path "${sdir}")"
         case "${CLASS_STATE}" in enabled|disabled) continue ;; esac
+        if [[ "${sdir}" == /* ]] && find_invoker_traversal_blocker "${sdir}/" sdir_blocker; then
+            unattributed=$(( unattributed + 1 )); continue
+        fi
+        if ! sdir_real="$(realpath -e -- "${sdir}" 2>/dev/null)"; then
+            cleanup+=( "  ${sdir}" \
+                "      ${C_YEL}no longer exists${C_RST} (stale git safe.directory); remove it:" \
+                "          sudo ${SAFEDIR_BIN} --remove ${sdir}" )
+            continue
+        fi
+        sdir_owner="$(stat -c '%U' -- "${sdir_real}" 2>/dev/null)" || sdir_owner=""
+        if [[ "${sdir_owner}" != "${OWNER_USER}" ]]; then
+            unattributed=$(( unattributed + 1 )); continue
+        fi
         cleanup+=( "  ${sdir}" \
             "      ${C_YEL}git safe.directory with no allowlist entry${C_RST} (orphaned); remove it:" \
             "          sudo ${SAFEDIR_BIN} --remove ${sdir}" )
         _is_labelled "${sdir}" && cleanup+=( "          sudo ${RELABEL_BIN} --remove ${sdir}" )
+        continue
     done < <(git config --file "${GITCONFIG}" --get-all safe.directory 2>/dev/null || true)
 
     if (( ${#cleanup[@]} )); then
         section "Suggested cleanup"
         printf '%s\n' "${cleanup[@]}"
         say "  ${C_DIM}review each path before running the command; the allowlist is yours to edit${C_RST}"
+    fi
+    if (( unattributed )); then
+        local entries_word="entries are"
+        (( unattributed == 1 )) && entries_word="entry is"
+        say "  ${C_DIM}${unattributed} git safe.directory ${entries_word} in trees ${OWNER_USER} does not hold or ${INVOKING_USER} cannot read, and not listed; each operator's own atr projects reports theirs. The whole list: git config --file ${GITCONFIG} --get-all safe.directory${C_RST}"
     fi
     list_maintenance_note
 }
