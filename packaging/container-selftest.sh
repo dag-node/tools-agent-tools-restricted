@@ -13,10 +13,12 @@
 # exercised -- that still needs the enforcing host. Phases note this where relevant.
 #
 # Env (set by the Containerfile, override at `podman run -e`):
-#   OPERATOR   the non-root login user enrolled as the operator (default: tester)
-#   PROJECT    the project directory the operator claims and launches in
-#   RUN_TESTS  "1" to run tests/run.sh all (default 1)
-#   SRC_DIR    the source checkout that holds tests/ (default /opt/ai-tools-src)
+#   OPERATOR      the non-root login user enrolled as the operator (default: tester)
+#   PROJECT       the project directory the operator claims and launches in
+#   RUN_TESTS     "1" to run tests/run.sh all (default 1)
+#   SRC_DIR       the source checkout that holds tests/ (default /opt/ai-tools-src)
+#   RESULTS_ROOT  where the test results are kept when that directory exists, as the mount `make rpmtest-<distro>
+#                 TEST_RESULTS=<dir>` makes (default /var/tmp/ai-tools-test-results)
 
 set -uo pipefail
 
@@ -24,6 +26,7 @@ OPERATOR="${OPERATOR:-tester}"
 PROJECT="${PROJECT:-/home/${OPERATOR}/proj}"
 RUN_TESTS="${RUN_TESTS:-1}"
 SRC_DIR="${SRC_DIR:-/opt/ai-tools-src}"
+RESULTS_ROOT="${RESULTS_ROOT:-/var/tmp/ai-tools-test-results}"
 
 # ── reporting ────────────────────────────────────────────────────────────────
 declare -a RESULTS=()
@@ -191,8 +194,16 @@ if [[ "${RUN_TESTS}" == "1" && -f "${SRC_DIR}/tests/run.sh" ]]; then
     # run.sh insists on sudo (EUID 0 + SUDO_USER). Go through the operator's NOPASSWD sudo, which sets
     # SUDO_USER=<operator> itself, exercising the real invocation path. `-j $(nproc)` runs as many files at once
     # as the CPUs this container may run on, which are the host's unless the container runtime limits them.
+    # Where the run starts with the results directory mounted (make rpmtest-<distro> TEST_RESULTS=<dir>), it keeps every
+    # transcript, results.tsv and run-info.txt in a directory named for the UTC time it started and the system it ran
+    # on, so runs saved side by side sort by time and name their distribution.
+    results_env=""
+    if [[ -d "${RESULTS_ROOT}" ]]; then
+        results_os="$( (. /etc/os-release && printf '%s%s' "${ID:-unknown}" "${VERSION_ID:-}") || printf unknown)"
+        results_env="AI_TOOLS_TEST_TRANSCRIPTS=${RESULTS_ROOT}/$(date -u +%Y%m%dT%H%M%SZ)-${results_os}"
+    fi
     phase "tests/run.sh all" \
-        as_operator "sudo bash '${SRC_DIR}/tests/run.sh' -j $(nproc) all"
+        as_operator "sudo ${results_env} bash '${SRC_DIR}/tests/run.sh' -j $(nproc) all"
 else
     note "tests/run.sh skipped (RUN_TESTS=${RUN_TESTS} or sources absent)"
 fi

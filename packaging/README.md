@@ -48,6 +48,19 @@ additionally reprints any failing test file's `FAIL` lines. The container's
 exit code is the aggregate, so `echo $?` after the run (or CI) sees pass/fail
 without scraping the log.
 
+To keep the suite's full results, give the run a directory:
+
+```bash
+make -C packaging rpmtest-rocky10 TEST_RESULTS="$PWD/test-results"
+```
+
+The selftest writes each test file's transcript, `results.tsv`
+and `run-info.txt` under `test-results/`, in a directory named for the UTC time
+the suite started and the distribution. CI does the same on every leg
+and uploads the directory
+as the `test-results-<dist>-<release>-run<id>.<attempt>` artifact,
+with an `origin.txt` naming the commit, the ref and the run.
+
 ## Run it by hand
 
 ```bash

@@ -299,9 +299,14 @@ jobs:
         id: relver
         run: echo "release=0.${{ github.run_number }}.git$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
 
+      # TEST_RESULTS mounts test-results/ into the selftest container, where the suite keeps every transcript,
+      # results.tsv and run-info.txt under a directory named for the run's UTC start and distribution.
       - name: make -C packaging rpmtest-${{ matrix.distro }}
         if: steps.scope.outputs.run == 'true'
-        run: make -C packaging rpmtest-${{ matrix.distro }} RPM_RELEASE=${{ steps.relver.outputs.release }} OCI="sudo podman"
+        run: |
+          mkdir -p test-results
+          make -C packaging rpmtest-${{ matrix.distro }} RPM_RELEASE=${{ steps.relver.outputs.release }} OCI="sudo podman" \
+              TEST_RESULTS="${PWD}/test-results"
 
       - name: Record that el10 passed this tree
         id: marker
@@ -319,6 +324,39 @@ jobs:
           name: ${{ steps.marker.outputs.name }}
           path: selftest-marker/el10
           overwrite: true
+          retention-days: 14
+
+      # `if: always()`, so a failed or timed-out leg keeps whatever the suite wrote. origin.txt names the run
+      # the results came from; run-info.txt beside each transcript set names when and on what the suite ran.
+      - name: Record the test results' origin
+        id: results
+        if: always() && steps.scope.outputs.run == 'true'
+        env:
+          DIST: ${{ matrix.dist }}
+          RELEASE: ${{ steps.relver.outputs.release }}
+        run: |
+          mkdir -p test-results
+          sudo chown -R "$(id -u):$(id -g)" test-results
+          {
+            printf 'repository=%s\n' "${GITHUB_REPOSITORY}"
+            printf 'commit=%s\n' "${GITHUB_SHA}"
+            printf 'ref=%s\n' "${GITHUB_REF}"
+            printf 'event=%s\n' "${GITHUB_EVENT_NAME}"
+            printf 'run=%s/%s/actions/runs/%s/attempts/%s\n' "${GITHUB_SERVER_URL}" "${GITHUB_REPOSITORY}" \
+                "${GITHUB_RUN_ID}" "${GITHUB_RUN_ATTEMPT}"
+            printf 'dist=%s\n' "${DIST}"
+            printf 'release=%s\n' "${RELEASE}"
+            printf 'recorded=%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          } > test-results/origin.txt
+          echo "name=test-results-${DIST}-${RELEASE}-run${GITHUB_RUN_ID}.${GITHUB_RUN_ATTEMPT}" >> "$GITHUB_OUTPUT"
+
+      - name: Upload the test results
+        if: always() && steps.results.outputs.name != ''
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: ${{ steps.results.outputs.name }}
+          path: test-results/
+          if-no-files-found: ignore
           retention-days: 14
 
       # `if: always()` so a failed selftest still surfaces the RPMs that caused it --
