@@ -6165,6 +6165,13 @@ handover_target() {
 # going to be refused must not prompt first.
 require_sudo_access() {
     local bin="" what="" delegable=false
+    # A `--for` run's first helper is the registry READER (`ai-tools-allowlist --print`), ahead of the verb's own and
+    # whatever the verb, so every `--for` run is probed on it: the case names what the run does, and no arm returns
+    # ahead of the probe under `--for`. A verb FOR_ALLOWED_VERBS does not name is left to require_for_target's
+    # refusal, which does not reach sudo.
+    if [[ -n "${FOR_OPERATOR}" ]]; then
+        verb_in "${COMMAND}" "${FOR_ALLOWED_VERBS[@]}" || return 0
+    fi
     case "${COMMAND}" in
         audit)                bin="${AUDIT_BIN}"    what="reading the refusal trail" ;;
         "projects lockdown")  bin="${LOCKDOWN_BIN}" what="locking down secret files"; delegable=true ;;
@@ -6177,9 +6184,10 @@ require_sudo_access() {
         # `projects remove` does not run ai-tools-unclaim: it deletes the tree instead of handing it back, so the first
         # helper it reaches is the safe.directory de-registration. The clone kind does not reach a helper that can
         # refuse the command -- its one sudo is unreg_safedir's removal, which warns and carries on rather than failing
-        # the verb -- so a target under the clone area is not probed.
+        # the verb -- so a target under the clone area is not probed on a plain run.
         "projects remove")
-            [[ "$(realpath -m -- "$(handover_target "$@")" 2>/dev/null)" == "${SANDBOX_ROOT}/"* ]] && return 0
+            [[ -z "${FOR_OPERATOR}" \
+                && "$(realpath -m -- "$(handover_target "$@")" 2>/dev/null)" == "${SANDBOX_ROOT}/"* ]] && return 0
             bin="${SAFEDIR_BIN}"  what="removing a project"; delegable=true ;;
         "projects clone")     bin="${LOCKDOWN_BIN}" what="creating a sandbox clone" ;;
         # The enable/disable pair edits ONE line of the caller's own registry and does not reach a root helper at all,
@@ -6189,7 +6197,12 @@ require_sudo_access() {
         "projects enable"|"projects disable")
             [[ -n "${FOR_OPERATOR}" ]] || return 0
             bin="${ALLOWLIST_BIN}" what="enabling or disabling a project for ${FOR_OPERATOR}" ;;
-        # `projects push` and the informational verbs reach no helper that can refuse the command.
+        # A plain `projects list` reads the caller's own registry and does not reach a helper; under `--for` it reads
+        # the target's through the registry reader.
+        "projects list")
+            [[ -n "${FOR_OPERATOR}" ]] || return 0
+            what="reading ${FOR_OPERATOR}'s projects" ;;
+        # `projects push` and the informational verbs reach no helper that can refuse the command on a plain run.
         #
         # `stop` is deliberately absent from this table: it is the privileged verb that WORKS for an account without
         # a general grant, since %ai-ops carries a dedicated NOPASSWD rule for its helper. Probing it is harmless --
@@ -6200,10 +6213,9 @@ require_sudo_access() {
         # prompt (deliberate; stop.rule.md). This probe could not report that either: it asks about the helper, while
         # what a flag changes is whether the rule matches the command
         # line.
-        *) return 0 ;;
+        *) [[ -n "${FOR_OPERATOR}" ]] || return 0
+           what="${COMMAND} for ${FOR_OPERATOR}" ;;
     esac
-    # A --for run's first helper is the allowlist READER, before the verb's own -- so that is what decides whether
-    # the run can start at all.
     [[ -z "${FOR_OPERATOR}" ]] || bin="${ALLOWLIST_BIN}"
     sudo_grant_missing "${bin}" || return 0
 
@@ -6214,7 +6226,10 @@ require_sudo_access() {
     # or what they are to each other. So there is no advice to obtain a grant, and the account is not described
     # as anyone's: a message that guesses the arrangement is wrong in exactly the deployments this refusal exists for.
     local -a advice=("Ask an administrator or an ai-ops operator with sudo to run:" "")
-    if [[ -n "${FOR_OPERATOR}" ]]; then
+    if [[ "${COMMAND}" == "projects list" ]]; then
+        # The listing does not take a path, so handover_target's current-directory default is not appended.
+        advice+=( "    atr ${COMMAND} --for ${FOR_OPERATOR}" )
+    elif [[ -n "${FOR_OPERATOR}" ]]; then
         advice+=( "    atr ${COMMAND} --for ${FOR_OPERATOR} $(handover_target "$@")" )
     elif ${delegable}; then
         # --for is the whole answer here: the verb runs against ${INVOKING_USER}'s registry whoever performs it,
