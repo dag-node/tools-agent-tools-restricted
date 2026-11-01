@@ -195,12 +195,14 @@ if [[ "${RUN_TESTS}" == "1" && -f "${SRC_DIR}/tests/run.sh" ]]; then
     # SUDO_USER=<operator> itself, exercising the real invocation path. `-j $(nproc)` runs as many files at once
     # as the CPUs this container may run on, which are the host's unless the container runtime limits them.
     # Where the run starts with the results directory mounted (make rpmtest-<distro> TEST_RESULTS=<dir>), it keeps every
-    # transcript, results.tsv and run-info.txt in a directory named for the UTC time it started and the system it ran
-    # on, so runs saved side by side sort by time and name their distribution.
+    # transcript, results.tsv and run-info.txt in a directory named for the system it ran on, the host (the build host's
+    # short name, which the Makefile hands the container with the mount) and then the UTC time it started, so runs saved
+    # side by side sort by distribution and host and then by time.
     results_env=""
     if [[ -d "${RESULTS_ROOT}" ]]; then
         results_os="$( (. /etc/os-release && printf '%s%s' "${ID:-unknown}" "${VERSION_ID:-}") || printf unknown)"
-        results_env="AI_TOOLS_TEST_TRANSCRIPTS=${RESULTS_ROOT}/$(date -u +%Y%m%dT%H%M%SZ)-${results_os}"
+        results_host="$(uname -n | cut -d. -f1 | tr -cd 'A-Za-z0-9-')"
+        results_env="AI_TOOLS_TEST_TRANSCRIPTS=${RESULTS_ROOT}/${results_os}-${results_host:-unknown}-$(date -u +%Y%m%dT%H%M%SZ)"
     fi
     phase "tests/run.sh all" \
         as_operator "sudo ${results_env} bash '${SRC_DIR}/tests/run.sh' -j $(nproc) all"

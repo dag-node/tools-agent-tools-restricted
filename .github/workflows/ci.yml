@@ -305,8 +305,8 @@ jobs:
         if: steps.scope.outputs.run == 'true'
         run: |
           mkdir -p test-results
-          make -C packaging rpmtest-${{ matrix.distro }} RPM_RELEASE=${{ steps.relver.outputs.release }} OCI="sudo podman" \
-              TEST_RESULTS="${PWD}/test-results"
+          make -C packaging rpmtest-${{ matrix.distro }} RPM_RELEASE=${{ steps.relver.outputs.release }} \
+              OCI="sudo podman" TEST_RESULTS="${PWD}/test-results"
 
       - name: Record that el10 passed this tree
         id: marker
@@ -328,8 +328,11 @@ jobs:
 
       # `if: always()`, so a failed or timed-out leg keeps whatever the suite wrote. origin.txt names the run
       # the results came from; run-info.txt beside each transcript set names when and on what the suite ran.
-      # upload-artifact packs the directory into one zip, named for the suite's UTC start first, so saved results
-      # sort by time; the record time stands in where the suite wrote no directory.
+      # upload-artifact packs the directory into one zip, named test-results-<dist>-<runner image>-<UTC start>:
+      # a stable prefix, then the suite's start, so saved results sort by distribution and runner image and then
+      # by time. The image (ImageOS, set on GitHub-hosted runners, else RUNNER_OS) stays the same from run to run
+      # where the runner's own name does not; the runner's name, the release and the run are in origin.txt. The record
+      # time stands in where the suite wrote no directory.
       - name: Record the test results' origin
         id: results
         if: always() && steps.scope.outputs.run == 'true'
@@ -348,12 +351,15 @@ jobs:
                 "${GITHUB_RUN_ID}" "${GITHUB_RUN_ATTEMPT}"
             printf 'dist=%s\n' "${DIST}"
             printf 'release=%s\n' "${RELEASE}"
+            printf 'runner=%s %s %s\n' "${RUNNER_NAME:-}" "${ImageOS:-${RUNNER_OS:-}}" "${ImageVersion:-}"
             printf 'recorded=%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
           } > test-results/origin.txt
           stamp="$(find test-results -mindepth 1 -maxdepth 1 -type d -printf '%f\n' \
-              | sed -n 's/^\([0-9]\{8\}T[0-9]\{6\}Z\)-.*/\1/p' | sort | head -n1)"
+              | sed -n 's/^.*-\([0-9]\{8\}T[0-9]\{6\}Z\)$/\1/p' | sort | head -n1)"
           [[ -n "${stamp}" ]] || stamp="$(date -u +%Y%m%dT%H%M%SZ)"
-          echo "name=test-results-${stamp}-${DIST}-${RELEASE}-run${GITHUB_RUN_ID}.${GITHUB_RUN_ATTEMPT}" >> "$GITHUB_OUTPUT"
+          runner="$(printf '%s-%s' "${ImageOS:-${RUNNER_OS:-runner}}" "${RUNNER_ARCH:-}" | tr '[:upper:]' '[:lower:]' \
+              | tr -cd 'a-z0-9.-')"
+          echo "name=test-results-${DIST}-${runner}-${stamp}" >> "$GITHUB_OUTPUT"
 
       - name: Upload the test results
         if: always() && steps.results.outputs.name != ''

@@ -11,7 +11,7 @@
 #   make rpmupgrade-rocky10  the same on Rocky 10
 #
 # TEST_RESULTS=<dir> mounts <dir> into an rpmtest container, and the selftest keeps the suite's transcripts,
-# results.tsv and run-info.txt there under a directory named for the run's UTC start and distribution:
+# results.tsv and run-info.txt there under a directory named for the distribution, the host and the run's UTC start:
 #   make rpmtest-rocky10 TEST_RESULTS=$PWD/test-results
 #
 # The tarball is built from the WORKING TREE (not `git archive`), so it includes
@@ -29,7 +29,10 @@ TOPDIR  = $(CURDIR)/rpmbuild
 RPM_RELEASE ?=
 RELEASE_DEFINE = $(if $(RPM_RELEASE),--define "rpm_release $(RPM_RELEASE)",)
 TEST_RESULTS ?=
-RESULTS_MOUNT = $(if $(TEST_RESULTS),-v $(abspath $(TEST_RESULTS)):/var/tmp/ai-tools-test-results:Z,)
+# The container takes this host's short name with the mount, so the results name the machine they ran on.
+RESULTS_HOST ?= $(shell uname -n 2>/dev/null | cut -d. -f1 | tr -cd 'A-Za-z0-9-')
+RESULTS_MOUNT = $(if $(TEST_RESULTS),-v $(abspath $(TEST_RESULTS)):/var/tmp/ai-tools-test-results:Z \
+	$(if $(RESULTS_HOST),--hostname $(RESULTS_HOST)),)
 
 # Tracked + working-tree sources the spec consumes, relative to the repo root.
 #
