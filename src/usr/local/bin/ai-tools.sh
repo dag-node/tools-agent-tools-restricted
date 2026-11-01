@@ -1241,13 +1241,16 @@ allow_escape() { printf '%s' "$1" | sed 's/[]\.*^$|[]/\\&/g'; }
 # is removed through `ai-tools-allowlist --operator <target> --remove <path>` instead, which edits the target's file
 # without the invoker holding a sudo rule as that account. An excluded line keeps the `sed` form, since
 # ai_tools_conf__allowlist_remove leaves an excluded line standing, and so does a protected path, which the helper's
-# protected-paths backstop refuses.
+# protected-paths backstop refuses. The path is read as that backstop reads it, `realpath -m` with the written path
+# as the fallback, so a stale `/etc/gone/..` or a link to a protected directory keeps the `sed` form.
 format_registry_line_removal() {
-    local expression
-    if [[ -n "${FOR_OPERATOR}" && ( "${2:-}" == project || "${2:-}" == disabled ) && -n "${3:-}" ]] \
-            && ! ai_tools_safe_paths__match_protected_path "$3" >/dev/null 2>&1; then
-        printf 'sudo %s --operator %s --remove %s' "${ALLOWLIST_BIN}" "${FOR_OPERATOR}" "$(_quote_path "$3")"
-        return 0
+    local expression backstop_path
+    if [[ -n "${FOR_OPERATOR}" && ( "${2:-}" == project || "${2:-}" == disabled ) && -n "${3:-}" ]]; then
+        backstop_path="$(realpath -m -- "$3" 2>/dev/null)" || backstop_path="$3"
+        if ! ai_tools_safe_paths__match_protected_path "${backstop_path}" >/dev/null 2>&1; then
+            printf 'sudo %s --operator %s --remove %s' "${ALLOWLIST_BIN}" "${FOR_OPERATOR}" "$(_quote_path "$3")"
+            return 0
+        fi
     fi
     expression="$(printf '%q' "\\|^$(allow_escape "$1")\$|d")"
     if [[ -n "${FOR_OPERATOR}" ]]; then
@@ -5873,16 +5876,18 @@ cmd_project_list() {
         return 0
     }
     _reconcile() {
-        local e="$1" k="$2" sdy="$3" raw="$4"
+        local e="$1" k="$2" sdy="$3" raw="$4" e_real
         _record_unreadable_entry "${e}" "${e}" && return 0
-        if ! realpath -e "${e}" >/dev/null 2>&1; then
+        if ! e_real="$(realpath -e -- "${e}" 2>/dev/null)"; then
             cleanup+=( "  ${e}" \
                 "      ${C_YEL}no longer exists${C_RST} (stale entry); remove it:" \
                 "          $(format_registry_line_removal "${raw}" project "${e}")" )
             ${sdy} && cleanup+=( "          sudo ${SAFEDIR_BIN} --remove $(_quote_path "${e}")" )
             return 0                                    # ${sdy}=false returns 1; don't kill cmd_project_list's set -e loop
         fi
-        if ai_tools_safe_paths__match_protected_path "${e}" >/dev/null 2>&1; then
+        # The real path, as the helpers' backstop reads it, so a listed link to a protected directory is reported here
+        # and not as a partial claim.
+        if ai_tools_safe_paths__match_protected_path "${e_real}" >/dev/null 2>&1; then
             cleanup+=( "  ${e}" \
                 "      ${C_YEL}protected system path${C_RST} -- the tools refuse to operate on it; remove it:" \
                 "          $(format_registry_line_removal "${raw}" project "${e}")" )

@@ -364,6 +364,8 @@ err_has() { grep -qF -- "$1" "${R}/.stderr"; }
 # out_has_text <text>: the row's captured output holds <text>.
 out_has_text() { grep -qF -- "$1" <<< "${out}"; }
 out_lacks_text() { ! out_has_text "$1"; }
+# out_line_has_text <a> <b>: one line of the output carries both texts.
+out_line_has_text() { grep -F -- "$1" <<< "${out}" | grep -qF -- "$2"; }
 rc_not0() { [[ "${rc}" -ne 0 ]]; }
 # quiet_rc <n> / quiet_refusal: the exit status AND an empty call log -- a refusal that did not reach a helper, which is
 # the ordering rule that a refused command does not prompt for sudo first.
@@ -891,15 +893,18 @@ drive_rows() {
     cli_stub_reset; drive cli ai-tools.projects.list "$(f for)" "${FOR_USER}"
     expect "control: with the grant, the listing --for reaches the snapshot" cli_called ai-tools-allowlist "^--operator${T}${FOR_USER}${T}--print$"
     # The removal a `--for` listing names for a stale entry edits the target's registry through the helper; an excluded
-    # line keeps the sed form, since the helper's removal leaves an excluded line standing.
+    # line keeps the sed form, since the helper's removal leaves an excluded line standing, and so does an entry whose
+    # `realpath -m` the helper's backstop refuses, though its written path is not protected.
     # An excluded line under a directory the invoker cannot enter is unreadable rather than stale. Only a `--for` run
     # reaches it: the invoker's own gate refuses a file whose exclusion crosses a directory it cannot search, and the
     # `--for` gate reads the snapshot's grammar alone.
     mkdir -p "${R}/for-sealed"; chown root:root "${R}/for-sealed"; chmod 0700 "${R}/for-sealed"
-    seed_for "@ ${R}/for1" "@ ${R}/for-gone" "! ${R}/for-excluded-gone" "! ${R}/for-sealed/inner"
+    seed_for "@ ${R}/for1" "@ ${R}/for-gone" "! ${R}/for-excluded-gone" "! ${R}/for-sealed/inner" "@ /etc/for-missing/.."
     cli_stub_reset; drive cli ai-tools.projects.list "$(f for)" "${FOR_USER}"
     expect "a stale entry's removal under --for goes through the helper" out_has_text "ai-tools-allowlist --operator ${FOR_USER} --remove ${R}/for-gone"
     expect "a stale excluded line's removal under --for keeps the sed form" out_has_text "sudo -u ${FOR_USER} sed -i"
+    expect "a stale entry the helper's backstop refuses is not given the helper's removal" out_lacks_text "--operator ${FOR_USER} --remove /etc/for-missing/.."
+    expect "and keeps the sed form run as the target" out_line_has_text "sudo -u ${FOR_USER} sed -i" "for-missing"
     expect "an excluded line under a directory the invoker cannot enter is reported unreadable" out_has_text "cannot be read as ${PROJECTS_USER}"
     expect "and the target's own listing is named as the one that reads it" out_has_text "${FOR_USER}'s own atr projects reads it"
     seed_for "@ ${R}/for1"

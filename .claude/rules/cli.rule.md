@@ -483,13 +483,14 @@ an ordinary account read it — a partial view, the file sink being the authorit
   the target's own listing as the one that reads it. The `sed` line deletes the verbatim line, comment and all,
   from the file a message names (`REGISTRY_DISPLAY_PATH`); on a `--for` run an `@` or a `%` line is removed through
   `ai-tools-allowlist --operator <target> --remove` instead, while an excluded line, which that removal leaves
-  standing, and a protected path, which the helper's backstop refuses, keep the `sed` form, run as the target
-  (`sudo -u <target>`). It reads the registry through the registry gate ([The
-  registry gate](#the-registry-gate)), so a file no reader accepts — a glob on an allow line among the lines that make
-  one — is refused under `MSG-Y7K5` after the library's line, and a legacy file is listed under a banner naming
-  `atr admin system post-upgrade`, every `!` line read as an exclusion. It reuses existing predicates and verbs only (no
-  recovery machinery), stays **read-only** (every fix is an emitted command, never an in-place rewrite), and closes
-  with a compact **Maintenance** pointer to the per-project verbs. Informational, so it stays open to a non-operator.
+  standing, and a protected path, which the helper's backstop refuses, read in the form that backstop reads,
+  `realpath -m`, keep the `sed` form, run as the target (`sudo -u <target>`). It reads the registry through
+  the registry gate ([The registry gate](#the-registry-gate)), so a file no reader accepts — a glob on an allow line
+  among the lines that make one — is refused under `MSG-Y7K5` after the library's line, and a legacy file is listed
+  under a banner naming `atr admin system post-upgrade`, every `!` line read as an exclusion. It reuses existing
+  predicates and verbs only (no recovery machinery), stays **read-only** (every fix is an emitted command, never
+  an in-place rewrite), and closes with a compact **Maintenance** pointer to the per-project verbs. Informational,
+  so it stays open to a non-operator.
 - `--version` (the deploy-stamped package version; `dev` from a raw source tree), `--help`.
 - `--for <operator>` — a **modifier**, not a command: run the verb on behalf of another enrolled operator (see [Acting
   for another operator](#acting-for-another-operator---for)).
