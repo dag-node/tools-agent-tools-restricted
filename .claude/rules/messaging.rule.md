@@ -411,7 +411,9 @@ one box per option.
   command across lines, so a command handed to one stays on a separate plain line outside the frame (the session
   NOTICE's reconcile command). `ai-tools.sh`'s `die`, `die_usage` and `warn` apply this rule themselves (`emit_alert`):
   a line that opens with whitespace is printed under the frame, verbatim, so the CLI's indented command line reads
-  the same way to the alert and to `ai_tools_msg__block`, which keeps it verbatim inside its frame. A multi-line screen
+  the same way to the alert and to `ai_tools_msg__block`, which keeps it verbatim inside its frame. Such a line holds
+  one command or one path, and prose stays flush, one argument per paragraph, so the frame wraps it; plain output
+  prints the flush lines first, so a call puts each indented line after them. A multi-line screen
   whose commands belong *inside* the frame uses `ai_tools_msg__block` instead, which keeps indented command lines
   verbatim and overflows the long ones.
 - **Short prompts stay inline.** Yes/no prompts keep the inline hint form with the cursor on the same line; framing

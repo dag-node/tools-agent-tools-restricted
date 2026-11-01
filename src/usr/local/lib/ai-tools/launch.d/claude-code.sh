@@ -26,14 +26,13 @@ ai_tools_launch_hook__append_args() {
         if ai_tools_conf__read "${OPERATOR_CONF}" CLAUDE_SYSTEM_PROMPT_FILE 2>/dev/null \
                 && [[ -n "${ai_tools_conf__value}" ]]; then
             ai_tools_launch_wrapper__die MSG-U9G5 "a custom system prompt is configured but its resolver library is unavailable" \
-                "       ${CLAUDE_PROMPT_LIB}" \
-                "       refusing to launch rather than ignore the configured prompt -- reinstall ai-tools"
+                "${AI_TOOLS_LAUNCH_WRAPPER__NAME}: refusing to launch rather than ignore the configured prompt -- reinstall ai-tools. The library is:" \
+                "       ${CLAUDE_PROMPT_LIB}"
         fi
         return 0
     fi
     if ! ai_tools_claude_prompt__resolve_args "${array_name}" "${OPERATOR_CONF}" "$@"; then
         ai_tools_launch_wrapper__die MSG-A3U4 "a custom system prompt is configured but cannot be applied -- refusing to launch" \
-            "       see the warning above; fix CLAUDE_SYSTEM_PROMPT_FILE / CLAUDE_SYSTEM_PROMPT_MODE" \
-            "       in ${OPERATOR_CONF}, or comment the keys out to use Claude Code's default prompt"
+            "${AI_TOOLS_LAUNCH_WRAPPER__NAME}: see the warning above; fix CLAUDE_SYSTEM_PROMPT_FILE / CLAUDE_SYSTEM_PROMPT_MODE in ${OPERATOR_CONF}, or comment the keys out to use Claude Code's default prompt"
     fi
 }

@@ -148,8 +148,7 @@ ai_tools_launch_wrapper__init() {
     readonly CLI_CMD
     if [[ "${name}" != "${requested}" ]]; then
         ai_tools_launch_wrapper__die MSG-Z6F8 "invoked under a name that is not a launcher -- refusing to start" \
-            "       a launcher name holds letters, digits, dot, underscore and dash; start the agent" \
-            "       by its launcher name"
+            "${name}: a launcher name holds letters, digits, dot, underscore and dash; start the agent by its launcher name"
     fi
 
     # A silent no-op stub would start the wrapper with the protected-path guard OFF -- the quiet degradation that lets
@@ -164,10 +163,8 @@ ai_tools_launch_wrapper__init() {
             && logger -t "${name}" -p user.err \
                 "required safety library ${SAFE_PATHS_LIB} unavailable for $(id -un 2>/dev/null) -- launch refused (fail closed)"
         ai_tools_launch_wrapper__die MSG-U6A9 "cannot load the launch safety library -- refusing to start" \
-            "       ${SAFE_PATHS_LIB}" \
-            "       A critical ai-tools component is missing or unreadable, so the protected-path" \
-            "       guard cannot run. Check that /usr/local/lib/ai-tools is traversable and its" \
-            "       libraries are present, then reinstall the package if needed."
+            "${name}: a critical ai-tools component is missing or unreadable, so the protected-path guard cannot run. Check that /usr/local/lib/ai-tools is traversable and its libraries are present, then reinstall the package if needed. The library is:" \
+            "       ${SAFE_PATHS_LIB}"
     fi
 
     # Every function of conf.lib.sh the gates call, and a call a gate gains is added here: the exclusion loop calls
@@ -190,10 +187,8 @@ ai_tools_launch_wrapper__init() {
             && logger -t "${name}" -p user.err \
                 "required config library ${CONF_LIB} unavailable for $(id -un 2>/dev/null) -- launch refused (fail closed)"
         ai_tools_launch_wrapper__die MSG-C2M7 "cannot load the config library -- refusing to start" \
-            "       ${CONF_LIB}" \
-            "       Without it the approved-projects list cannot be read, so no project would" \
-            "       resolve as allowed. Check that /usr/local/lib/ai-tools is traversable and its" \
-            "       libraries are present, then reinstall the package if needed."
+            "${name}: without it the approved-projects list cannot be read, so no project would resolve as allowed. Check that /usr/local/lib/ai-tools is traversable and its libraries are present, then reinstall the package if needed. The library is:" \
+            "       ${CONF_LIB}"
     fi
 }
 
@@ -213,19 +208,17 @@ ai_tools_launch_wrapper__gate_operator() {
             # a member could drive a session as an operator -- so "add it to the group" is the wrong advice. An operator
             # launches the wrapper from their own login and the wrapper drops to the sandbox account on its own.
             ai_tools_launch_wrapper__die MSG-N8Q4 "this is the sandbox account ${SANDBOX_USER}, which is not an ai-tools operator" \
-                "       the sandbox account must never be one -- launch ${name} from your operator login;" \
-                "       the wrapper drops to ${SANDBOX_USER} for you"
+                "${name}: the sandbox account must never be one -- launch ${name} from your operator login; the wrapper drops to ${SANDBOX_USER} for you"
         elif id -nG "${user}" 2>/dev/null | tr ' ' '\n' | grep -qx "${OPERATORS_GROUP}"; then
             # In ai-ops per the group database (`id -nG <user>` reads it) but absent from this shell's live credentials
             # -- a session started before the grant took effect. A fresh login rebuilds the credential set; newgrp
             # adopts the group in the current shell.
             ai_tools_launch_wrapper__die MSG-R7Z3 "this shell started before the grant -- ${user} is an ai-tools operator per the group database" \
-                "       start a fresh login session to pick up the ${OPERATORS_GROUP} group --" \
-                "       log out and back in, or adopt it in this shell with:" \
+                "${name}: start a fresh login session to pick up the ${OPERATORS_GROUP} group -- log out and back in, or adopt it in this shell with:" \
                 "         newgrp ${OPERATORS_GROUP}"
         else
             ai_tools_launch_wrapper__die MSG-C7C9 "not an ai-tools operator -- ${user} is not a member of the ${OPERATORS_GROUP} group" \
-                "       an administrator can grant access with:" \
+                "${name}: an administrator can grant access with:" \
                 "         atr admin operators add ${user}"
         fi
     fi
@@ -252,10 +245,8 @@ ai_tools_launch_wrapper__gate_launcher() {
             && logger -t "${name}" -p user.err \
                 "required provider library ${PROVIDERS_LIB} unavailable for $(id -un 2>/dev/null) -- launch refused (fail closed)"
         ai_tools_launch_wrapper__die MSG-C2C9 "cannot load the provider library -- refusing to start" \
-            "       ${PROVIDERS_LIB}" \
-            "       Without it the enabled agents cannot be read, so no launcher can be matched to one." \
-            "       Check that /usr/local/lib/ai-tools is traversable and its libraries are present," \
-            "       then reinstall the package if needed."
+            "${name}: without it the enabled agents cannot be read, so no launcher can be matched to one. Check that /usr/local/lib/ai-tools is traversable and its libraries are present, then reinstall the package if needed. The library is:" \
+            "       ${PROVIDERS_LIB}"
     fi
     while IFS=$'\t' read -r agent _ launcher; do
         [[ -n "${agent}" ]] || continue
@@ -275,14 +266,13 @@ ai_tools_launch_wrapper__gate_launcher() {
             < <(ai_tools_providers__evaluate_empty_agents 2>/dev/null) || true
         if [[ "${empty_verdict}" != none ]]; then
             ai_tools_launch_wrapper__die MSG-V4U4 "the enabled agents could not be resolved -- refusing to start" \
-                "       ${empty_reason:-the empty set of enabled agents could not be classified}" \
-                "       repair the input named there, then run ${name} again"
+                "${name}: ${empty_reason:-the empty set of enabled agents could not be classified} -- repair the input named there, then run ${name} again"
         fi
     fi
     local joined="none"
     (( ${#enabled[@]} )) && printf -v joined '%s, ' "${enabled[@]}" && joined="${joined%, }"
     ai_tools_launch_wrapper__die MSG-F8N3 "not the launcher of an agent enabled on this host (enabled: ${joined})" \
-        "       an agent is enabled by AI_TOOLS_AGENTS in ${OPERATOR_CONF}; after changing it, run:" \
+        "${name}: an agent is enabled by AI_TOOLS_AGENTS in ${OPERATOR_CONF}; after changing it, run:" \
         "         atr admin system bootstrap"
 }
 
@@ -299,7 +289,7 @@ ai_tools_launch_wrapper__gate_lists() {
     done < <(ai_tools_conf__find_unmigrated_items "${conf}")
     [[ -n "${joined}" ]] || return 0
     ai_tools_launch_wrapper__die MSG-V3Q5 "no session starts while operator.conf names a provider without its kind prefix: ${joined}" \
-        "       an earlier release wrote these names bare; rewrite them with:" \
+        "${AI_TOOLS_LAUNCH_WRAPPER__NAME}: an earlier release wrote these names bare; rewrite them with:" \
         "         atr admin system post-upgrade"
 }
 
@@ -331,9 +321,9 @@ ai_tools_launch_wrapper__gate_clock() {
         [[ -n "${path}" ]] && lines+=("         ${when}  ${path}")
     done <<< "${behind}"
     ai_tools_launch_wrapper__die MSG-U8K6 "the system clock reads $(date '+%Y-%m-%d %H:%M:%S'), earlier than a file this host wrote -- refusing to start" \
+        "${AI_TOOLS_LAUNCH_WRAPPER__NAME}: the files listed are dated later than the clock, and every record of a session would carry a wrong time. Set the clock first, with the timedatectl command after the list, or with chronyc makestep once a time source is reachable." \
         "${lines[@]}" \
-        "       every record of a session would carry a wrong time; set the clock first:" \
-        "         sudo timedatectl set-time 'YYYY-MM-DD HH:MM:SS'   (or chronyc makestep, once a time source is reachable)"
+        "         sudo timedatectl set-time 'YYYY-MM-DD HH:MM:SS'"
 }
 
 ai_tools_launch_wrapper__gate_residue() {
@@ -346,10 +336,8 @@ ai_tools_launch_wrapper__gate_residue() {
             && logger -t "${name}" -p user.err \
                 "required toolchain library ${TOOLCHAIN_LIB} unavailable for $(id -un 2>/dev/null) -- launch refused (fail closed)"
         ai_tools_launch_wrapper__die MSG-U9K8 "cannot load the toolchain library -- refusing to start" \
-            "       ${TOOLCHAIN_LIB}" \
-            "       Without it a disabled agent's package left in the sandbox toolchain cannot be told" \
-            "       from a clean one. Check that /usr/local/lib/ai-tools is traversable and its" \
-            "       libraries are present, then reinstall the package if needed."
+            "${name}: without it a disabled agent's package left in the sandbox toolchain cannot be told from a clean one. Check that /usr/local/lib/ai-tools is traversable and its libraries are present, then reinstall the package if needed. The library is:" \
+            "       ${TOOLCHAIN_LIB}"
     fi
     while IFS=$'\t' read -r agent launcher; do
         [[ -n "${agent}" ]] && residue+=("${agent} (${link_dir}/${launcher})")
@@ -357,8 +345,7 @@ ai_tools_launch_wrapper__gate_residue() {
     (( ${#residue[@]} > 0 )) || return 0
     printf -v joined '%s, ' "${residue[@]}"
     ai_tools_launch_wrapper__die MSG-H4E2 "no session starts while a disabled agent's package is still in the sandbox toolchain: ${joined%, }" \
-        "       an agent installed on this host but not named in AI_TOOLS_AGENTS keeps its package" \
-        "       until a provisioning run removes it, and no agent launches until then; remove it with:" \
+        "${name}: an agent installed on this host but not named in AI_TOOLS_AGENTS keeps its package until a provisioning run removes it, and no agent launches until then; remove it with:" \
         "         atr admin system bootstrap"
 }
 
@@ -380,7 +367,7 @@ ai_tools_launch_wrapper__resolve_executable() {
     local launcher_link="${AI_TOOLS_LAUNCHER_DIR:-/opt/ai-tools/bin}/${name}"
     if [[ ! -L "${launcher_link}" ]]; then
         ai_tools_launch_wrapper__die MSG-S4B3 "launcher symlink not found at ${launcher_link}" \
-            "       the sandbox toolchain is not provisioned yet -- provision it with:" \
+            "${name}: the sandbox toolchain is not provisioned yet -- provision it with:" \
             "         atr admin system bootstrap"
     fi
     AI_TOOLS_LAUNCH_WRAPPER__EXEC="$(readlink -- "${launcher_link}")" \
@@ -647,12 +634,12 @@ ai_tools_launch_wrapper__guard_claim() {
                 # and prompts for your password. Re-running the claim (NOT `sudo ai-tools` -- the CLI refuses to run
                 # as root) re-attempts it.
                 ai_tools_launch_wrapper__die "${cwd}: SELinux label still missing -- the claim did not complete" \
-                    "re-run the claim, and enter your password when it prompts for the SELinux relabel:" \
+                    "${name}: re-run the claim, and enter your password when it prompts for the SELinux relabel:" \
                     "         ${CLI_CMD} projects claim $(_ai_tools_launch_wrapper__format_shell_word "${cwd}")"
             fi
         else
             ai_tools_launch_wrapper__die MSG-W4X4 "refusing to launch -- ${cwd} is not fully claimed for the sandbox" \
-                "       run one of the commands above, then start your agent again"
+                "${name}: run one of the commands above, then start your agent again"
         fi
     elif ${safe_gap}; then
         # Ownership and label hold; the git safe.directory entry is the one piece missing. Offer to register it
@@ -795,8 +782,8 @@ ai_tools_launch_wrapper__append_agent_args() {
     fi
     if [[ -n "${reason}" ]]; then
         ai_tools_launch_wrapper__die MSG-G9H2 "the ${agent} launch hook cannot be loaded -- refusing to start" \
-            "       ${hook}" \
-            "       ${reason}; reinstall the agent package"
+            "${AI_TOOLS_LAUNCH_WRAPPER__NAME}: ${reason}; reinstall the agent package. The hook is:" \
+            "       ${hook}"
     fi
     ai_tools_launch_hook__append_args "${array_name}" "$@" \
         || ai_tools_launch_wrapper__die MSG-G5V4 "the ${agent} launch hook did not complete -- refusing to start" \
@@ -817,8 +804,7 @@ ai_tools_launch_wrapper__launch_session() {
     local name="${AI_TOOLS_LAUNCH_WRAPPER__NAME}"
     if [[ -z "${AI_TOOLS_LAUNCH_WRAPPER__EXEC}" || -z "${AI_TOOLS_LAUNCH_WRAPPER__PROJECT_DIR}" ]]; then
         ai_tools_launch_wrapper__die MSG-B6G2 "the launch gates did not run -- refusing to start" \
-            "       the wrapper reached the launch without a resolved executable and project directory;" \
-            "       reinstall ai-tools, then retry"
+            "${name}: the wrapper reached the launch without a resolved executable and project directory; reinstall ai-tools, then retry"
     fi
     _ai_tools_launch_wrapper__print_notices
     export AI_TOOLS_AGENT_EXEC="${AI_TOOLS_LAUNCH_WRAPPER__EXEC}"

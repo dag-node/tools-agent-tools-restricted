@@ -110,6 +110,18 @@ passed() {
 says() {
     if grep -qF -- "$2" <<<"${OUT}"; then pass "$1"; else fail "$1: '$2' absent: $(head -c 300 <<<"${OUT}" | tr '\n' '|')"; fi
 }
+# framed_within <what> <width> <text> : the last run, boxed, keeps every framed line within <width> columns and prints
+# one line outside the frame, the one carrying <text>.
+framed_within() {
+    local wide bare
+    wide="$(grep -E '^#' <<<"${OUT}" | awk -v width="$2" 'length > width')" || true
+    bare="$(grep -vE '^#|^$' <<<"${OUT}")" || true
+    if [[ -z "${wide}" && -n "${bare}" && "${bare}" != *$'\n'* ]] && grep -qF -- "$3" <<<"${bare}"; then
+        pass "$1"
+    else
+        fail "$1: $(head -c 400 <<<"${OUT}" | tr '\n' '|')"
+    fi
+}
 # silent <what> <code-regex> : none of the codes fired -- the negative half of an ordering assertion.
 silent() {
     if grep -qxE "$2" <<<"${OUT}"; then fail "$1: $(grep -xE "$2" <<<"${OUT}" | head -1) fired"; else pass "$1"; fi
@@ -190,6 +202,10 @@ if id -u nobody >/dev/null 2>&1 && ! id -nG nobody | tr ' ' '\n' | grep -qx ai-o
     run "${LIB}" nobody "${approved}" ai_tools_launch_wrapper__gate_operator
     refused "a non-operator is refused, naming the enrolment" MSG-C7C9
     says "and the refusal names the enrolment command" "atr admin operators add nobody"
+    # On a terminal the prose wraps inside the alert's 50 columns and the command prints alone under the frame.
+    FIXTURE_MSG_BOX=1 run "${LIB}" nobody "${approved}" ai_tools_launch_wrapper__gate_operator
+    framed_within "and on a terminal its prose stays inside the frame, the command alone under it" 50 \
+        "atr admin operators add nobody"
 else
     skip "non-operator refusal" "no 'nobody' account outside ai-ops on this host"
 fi
@@ -376,15 +392,29 @@ says "and the refusal names the re-enable of the disabled project" "$(cli_cmd_te
 # and a `#`; the grammar refuses both quote characters in one path, so the line is written with `"`.
 odd="${TESTDIR}/odd dir's #1"
 mkdir -p "${odd}/sub"; chmod -R 0755 "${odd}"; chown -R "${PROJECTS_USER}:${PROJECTS_GROUP}" "${odd}"
-# enable_command_reads <what> <path> : the last run printed the enable command on an indented line, which bash parses
-# as one command whose last word is <path>.
-enable_command_reads() {
-    local line; local -a words=()
-    line="$(grep -E '^[[:space:]]+[^[:space:]]' <<<"${OUT}" | grep -F -- 'projects enable' | head -n 1)" || true
-    if [[ -z "${line}" ]]; then fail "$1: no indented line names the enable: $(head -c 300 <<<"${OUT}" | tr '\n' '|')"; return; fi
+# enable_command_is <what> <path> : the last run printed the enable command on one indented line, which bash parses
+# as the CLI, by name or by its absolute path, followed by the enable's own words and <path>, and no other word.
+enable_command_is() {
+    local line count index; local -a command_words=() expected=()
+    IFS=' ' read -ra expected <<<"$(cli_cmd_text ai-tools.projects.enable)"
+    expected+=("$2")
+    count="$(grep -E '^[[:space:]]+[^[:space:]]' <<<"${OUT}" | grep -cF -- 'projects enable')" || true
+    if [[ "${count}" != 1 ]]; then fail "$1: ${count} indented lines name the enable: $(head -c 300 <<<"${OUT}" | tr '\n' '|')"; return; fi
+    line="$(grep -E '^[[:space:]]+[^[:space:]]' <<<"${OUT}" | grep -F -- 'projects enable')"
     if ! bash -n <<<"${line}" 2>/dev/null; then fail "$1: bash does not parse the line: ${line}"; return; fi
-    eval "words=( ${line} )"
-    if [[ "${words[-1]}" == "$2" ]]; then pass "$1"; else fail "$1: the last word is '${words[-1]}', not '$2'"; fi
+    eval "command_words=( ${line} )"
+    if [[ "${command_words[0]}" != atr && "${command_words[0]}" != /usr/local/bin/atr ]]; then
+        fail "$1: the command opens with '${command_words[0]}', not the CLI"; return
+    fi
+    if (( ${#command_words[@]} - 1 != ${#expected[@]} )); then
+        fail "$1: the command carries ${#command_words[@]} words, not the CLI and ${#expected[@]}: ${line}"; return
+    fi
+    for index in "${!expected[@]}"; do
+        if [[ "${command_words[index + 1]}" != "${expected[index]}" ]]; then
+            fail "$1: word $(( index + 1 )) is '${command_words[index + 1]}', not '${expected[index]}'"; return
+        fi
+    done
+    pass "$1"
 }
 # command_under_frame <what> <token> : the last run, boxed, carries <token> on a framed line and the enable command
 # on a line outside the frame alone. A token is one word, since the box wraps the prose between words.
@@ -402,12 +432,12 @@ command_under_frame() {
 allowlist "% \"${odd}\""
 run "${LIB}" "${PROJECTS_USER}" "${odd}" ai_tools_launch_wrapper__gate_project
 refused "a disabled project whose path carries a space, a quote and a '#' is refused as disabled" MSG-R2V6
-enable_command_reads "and the re-enable is one command whose last word is that path" "${odd}"
+enable_command_is "and the re-enable is one command naming that path as its one argument" "${odd}"
 FIXTURE_MSG_BOX=1 run "${LIB}" "${PROJECTS_USER}" "${odd}" ai_tools_launch_wrapper__gate_project
 command_under_frame "and on a terminal the command prints under the frame, the prose inside it" "with:"
 run "${LIB}" "${PROJECTS_USER}" "${odd}/sub" ai_tools_launch_wrapper__gate_project
 refused "a path inside that disabled project is refused by its '%' line" MSG-W2P3
-enable_command_reads "and the re-enable names the disabled project as one word" "${odd}"
+enable_command_is "and the re-enable names the disabled project as its one argument" "${odd}"
 FIXTURE_MSG_BOX=1 run "${LIB}" "${PROJECTS_USER}" "${odd}/sub" ai_tools_launch_wrapper__gate_project
 command_under_frame "and on a terminal that command prints under the frame, the prose inside it" "with:"
 # A glob excluded path covers each directory it matches and every directory under one.
