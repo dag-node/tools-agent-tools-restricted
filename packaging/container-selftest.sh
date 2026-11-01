@@ -189,9 +189,10 @@ fi
 # ── the project test suite (DAC + systemd parts; SELinux parts no-op/skip) ────
 if [[ "${RUN_TESTS}" == "1" && -f "${SRC_DIR}/tests/run.sh" ]]; then
     # run.sh insists on sudo (EUID 0 + SUDO_USER). Go through the operator's NOPASSWD sudo, which sets
-    # SUDO_USER=<operator> itself, exercising the real invocation path.
+    # SUDO_USER=<operator> itself, exercising the real invocation path. `-j` runs one file per CPU at once, the files
+    # that touch shared host state after them, as tests/run.sh's header states.
     phase "tests/run.sh all" \
-        as_operator "sudo bash '${SRC_DIR}/tests/run.sh' all"
+        as_operator "sudo bash '${SRC_DIR}/tests/run.sh' -j $(nproc) all"
 else
     note "tests/run.sh skipped (RUN_TESTS=${RUN_TESTS} or sources absent)"
 fi

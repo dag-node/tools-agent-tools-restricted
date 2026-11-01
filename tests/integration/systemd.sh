@@ -5,6 +5,10 @@
 # catches a directive typo that would otherwise ship silently; the enablement checks confirm the install wired each unit
 # where it runs -- the toolchain timer in the sandbox account's own `--user instance`, the relabel watcher and handback
 # socket in the system instance. Run as root.
+#
+# run.sh: serial
+#
+# Serial under `run.sh -j`: it reads the live unit state, which handback.sh's negative cases change.
 
 set -euo pipefail
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")/../lib" && pwd)/harness.sh"

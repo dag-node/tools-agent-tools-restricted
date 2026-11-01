@@ -27,5 +27,13 @@ asserting that the state is unreachable to begin with. A host someone has
 already broken is caught by the first; an agent trying to break it is caught
 by the second.
 
+To run several files at once, give `-j` a count. The files that touch shared
+host state then run one at a time after the rest, and the transcript of each
+file that failed is printed at the end:
+
+```bash
+sudo tests/run.sh -j "$(nproc)" all
+```
+
 The deployment under test may come from `dnf` — a from-source install is not
 required, and the suite is run on demand rather than by any package scriptlet.

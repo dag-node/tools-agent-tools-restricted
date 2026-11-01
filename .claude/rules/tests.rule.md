@@ -24,6 +24,18 @@ turns the notice into a failure, and strict is the enforcing-host full-install g
 selftest stays lenient because SELinux is legitimately absent there, so `selinux.sh`'s all-skip is a documented
 limitation, not a broken prerequisite.
 
+`tests/run.sh -j N` runs up to N files at once, the form the container selftest takes with one file per CPU;
+the default, 1, is the streamed run, and its output does not change with the option. The pool takes every file that does
+not carry the line `# run.sh: serial` in its header, largest first, each writing to a transcript of its own, and reports
+each file on one line as it finishes. The serial pass then runs the marked files one at a time,
+with `integration/selinux.sh` (`# run.sh: serial last`) after the rest, because its clone label cases skip while a pool
+file holds a process of the sandbox account live. A file carries the marker when it touches host state another file
+reads — a fixed path in the live toolchain or launcher directory, the live daemon, the live units, the installed layout,
+the cgroup root — and names that state in the paragraph after it. Every other file works inside its testdir
+and the fixture names [Fixture names and the residue sweep](#fixture-names-and-the-residue-sweep) gives it, which is
+what lets it run beside any other. The run prints each failed file's transcript at the end and keeps the directory
+`tests/run.sh`'s header names.
+
 The harness carries a fourth emitter for that reason. `skip` records a check that could not run, and reaching the notice
 is the point of it. `note` records a fact about the run that is not a verdict — `references.sh` names which tool it
 drove — and does not increment the counter, so it stays out of the notice. `AI_TOOLS_TEST_STRICT=1` then fails a run
@@ -195,10 +207,10 @@ non-path cleanups, run in order after the path sweep.
 `run.sh` runs the **residue sweep** (`lib/residue.sh`) before any category, so a run starts from a host that carries
 none of the suite's fixtures: it lists each directory fixtures are born in (`ai_test_residue_sites` declares them) one
 level deep for that pattern, removes each match, and prints one line per removal; a match it cannot remove refuses
-the run. `sudo tests/run.sh residue` runs the sweep alone. The suite runs one at a time: a second run started while one
-is live sweeps the first run's fixtures. The manual script names its `--for` drill tree in the clone area under the same
-rule (group `manual`), so a tree its removal did not complete is cleared by the sweep, which holds the root that script
-never takes.
+the run. `sudo tests/run.sh residue` runs the sweep alone. One run of the suite is live at a time: a second run started
+while one is live sweeps the first run's fixtures. The manual script names its `--for` drill tree in the clone area
+under the same rule (group `manual`), so a tree its removal did not complete is cleared by the sweep, which holds
+the root that script never takes.
 
 Two fixtures cannot carry the rule and are listed by their fixed paths instead: `integration/ai-tools-run.sh` probes
 entrypoint containment, and then a disabled agent's package, in `/opt/ai-tools/.nvm/versions/node/v0.0.1`

@@ -238,12 +238,12 @@ readonly SANDBOX_GROUP="ai-tools"
 #     .ai-tools-test-<group>-<thing>-XXXXXX
 #
 # <group> is the category directory the file runs from (unit, integration, boundary; the operator-run script
-# under manual/ names itself), <thing> names what the path is for (the file's stem for its testdir; homelock, victim, c3
-# for a single fixture), and XXXXXX is six random alphanumerics, mktemp's own. The leading dot keeps a leftover
-# out of a plain listing and gives the residue sweep (tests/lib/residue.sh, run by run.sh before every run) one pattern
-# to match. The mk_fixture_* helpers create AND register in one call, so a fixture cannot be born outside the teardown
-# list; a test that must name a path before it exists (a probe the agent is asked to create) takes the name
-# from ai_test_name and registers it itself.
+# under manual/ names itself, and run.sh takes `run` for the transcript directory of a `-j` run), <thing> names
+# what the path is for (the file's stem for its testdir; homelock, victim, c3 for a single fixture), and XXXXXX is six
+# random alphanumerics, mktemp's own. The leading dot keeps a leftover out of a plain listing and gives the residue
+# sweep (tests/lib/residue.sh, run by run.sh before every run) one pattern to match. The mk_fixture_* helpers create
+# AND register in one call, so a fixture cannot be born outside the teardown list; a test that must name a path
+# before it exists (a probe the agent is asked to create) takes the name from ai_test_name and registers it itself.
 readonly AI_TOOLS_TEST_PREFIX=".ai-tools-test"
 TEST_GROUP="$(basename "$(cd "$(dirname "$0")" && pwd)")"
 TEST_STEM="$(basename "$0" .sh)"
@@ -279,9 +279,9 @@ mk_fixture_file() {
 # on_teardown registers one non-path cleanup command -- state that is not a file to unlink -- run directly (no eval;
 # best-effort, output discarded) after the path sweep, in registration order. Each call is kept in its own array (a
 # nameref, so no eval), so a file may register several. The live cases: the bridge integration test clearing
-# the transient `ai-tools-handback@*` instances its negative cases leave FAILED, the stop test killing its fixture
-# cgroup, and the hooks test restoring the live sweep marker it moved. Quote a glob you want passed to the command
-# literally (systemd does its own unit-name matching): on_teardown systemctl reset-failed 'ai-tools-handback@*'.
+# the transient `ai-tools-handback@*` instances its negative cases leave FAILED, and the stop test killing its fixture
+# cgroup. Quote a glob you want passed to the command literally (systemd does its own unit-name matching):
+# `on_teardown systemctl reset-failed 'ai-tools-handback@*'`.
 declare -a _cleanup=()
 declare -i _teardown_n=0
 on_teardown() {

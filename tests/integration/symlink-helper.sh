@@ -11,6 +11,11 @@
 # Refusal cases touch no path; the happy path targets the symlink's CURRENT target, so it is idempotent -- and when no
 # relabel is pending it skips the repoint entirely (reporting "already current") rather than churning the link. Run
 # as root via sudo.
+#
+# run.sh: serial
+#
+# Serial under `run.sh -j`: it gives a fixture launcher a link in the live launcher directory, which wrapper.sh
+# and handback.sh read, and probes the fixed v0.0.2 version directory.
 
 set -euo pipefail
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")/../lib" && pwd)/harness.sh"
