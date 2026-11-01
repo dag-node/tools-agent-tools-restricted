@@ -971,8 +971,10 @@ EOF
     # the reader's, since a claim accepts that owner for any operator; a path that is gone (stale-safedir, and one
     # carrying a space) is stale; a value that is not a path (*) is named with no removal. A listed entry under
     # the sealed directory is reported as unreadable rather than stale.
+    # The two held trees are made enterable by the projects user: the suite runs under the invoker's umask, and a 0700
+    # directory would be read as one the walk cannot enter, and counted, before its owner is read.
     mkdir -p "${lst}/foreign" "${lst}/other-op" "${lst}/sealed/inner" "${lst}/sealed/listed"
-    chown "${SANDBOX_USER}:${SANDBOX_USER}" "${lst}/foreign"
+    chown "${SANDBOX_USER}:${SANDBOX_USER}" "${lst}/foreign"; chmod 0755 "${lst}/foreign"
     chown root:root "${lst}/other-op"; chmod 0755 "${lst}/other-op"
     chown root:root "${lst}/sealed"; chmod 0700 "${lst}/sealed"
     lal="${TESTDIR}/list-allowlist"

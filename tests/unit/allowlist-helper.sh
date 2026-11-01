@@ -313,10 +313,11 @@ if (( rc == 0 )) && grep -qxF "% ${linked_gone}-disable" "${ALLOWFILE}"; then
 else
     fail "--disable of a gone entry written through a link (rc=${rc}): ${out}"$'\n'"$(cat "${ALLOWFILE}")"
 fi
-# The backstop reads the lexical canonical form, so a protected directory that does not exist is refused as one
-# that does.
-refuses "--remove of a protected path that does not exist still meets the backstop" MSG-Q6H3 \
-    "${OPERATOR_UID}" --operator "${PROJECTS_USER}" --remove /etc/no-such-dir
+# The backstop reads the lexical canonical form, so a `..` through a component that does not exist still lands on
+# the protected directory it names. (A path under a protected directory passes the matcher by design, as a project under
+# an operator's home does.)
+refuses "--remove through a component that does not exist still meets the backstop" MSG-Q6H3 \
+    "${OPERATOR_UID}" --operator "${PROJECTS_USER}" --remove /etc/no-such-dir/..
 printf '%s\n' "${saved_registry}" > "${ALLOWFILE}"
 
 # ── `--disable` / `--enable`: the privileged half of ai-tools.projects.disable/ai-tools.projects.enable ──
