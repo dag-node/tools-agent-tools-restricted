@@ -5,7 +5,7 @@
 # (src/usr/local/share/bash-completion/completions/atr.sh). The completion carries the command surface as data of its
 # own, so what goes stale is a command or an option the programs gained or renamed while the completion kept the old
 # word. Four groups of checks:
-#   (1) the command paths the completion offers, walked from the root, are the ones each program's usage() lists, in
+#   (1) the command paths the completion offers, walked from the root, are the ones each program's help rows hold, in
 #       both directions, with a path ending in `list` read as the bare collection, as each program reads it;
 #   (2) every option a command's man page entry names on its tag line is offered after that command, `-y` by its long
 #       form, and every option offered anywhere is one the page documents;
@@ -47,14 +47,15 @@ else
 fi
 
 # ── (1) The command paths ──────────────────────────────────────────────────────────────────────
-# usage_commands <script>: the command paths the script's usage() lists, man.sh's help_commands reading.
+# usage_commands <program>: the command paths the help rows in help.lib.sh hold for <program>, man.sh's help_commands
+# reading: a `[list]` row is its bare collection. The library is read in a shell of its own.
+HELP_LIB="${ROOT}/src/usr/local/lib/ai-tools/help.lib.sh"
+[[ -r "${HELP_LIB}" ]] || HELP_LIB="/usr/local/lib/ai-tools/help.lib.sh"
 usage_commands() {
-    sed -n '/^usage() {/,/^EOF$/p' "$1" \
-        | sed -n 's/^    \([a-z][^ ].*\)  \+[^ ].*/\1/p' \
-        | sed -E -e 's/[[:space:]]*[[<].*$//' -e 's/[[:space:]]*$//' -e 's/ [A-Z][A-Z_]*(\.\.\.)?$//' | sort -u
+    bash -c 'source "$1" && ai_tools_help__list_commands "$2"' _ "${HELP_LIB}" "$1" | cut -f1 | sort -u
 }
 # completion_commands <program> [path]: every command path the completion offers under <path>, a leaf path ending
-# in `list` printed as its collection. `help` is the bare-word spelling of `--help`, which usage() lists as the option.
+# in `list` printed as its collection. `help` is the bare-word spelling of `--help`, which the help lists as the option.
 completion_commands() {
     local program="$1" path="${2:-}" child children
     children="$(_ai_tools_atr__list_words "${program}" commands "${path}")"
@@ -67,20 +68,19 @@ completion_commands() {
         completion_commands "${program}" "${path:+${path} }${child}"
     done <<< "${children}"
 }
-for pair in "ai-tools:${CLI}" "ai-tools-admin:${ADMIN}"; do
-    program="${pair%%:*}" script="${pair#*:}"
+for program in ai-tools ai-tools-admin; do
     offered="$(completion_commands "${program}" | sort -u)"
-    listed="$(usage_commands "${script}")"
+    listed="$(usage_commands "${program}")"
     if [[ -z "${offered}" || -z "${listed}" ]]; then
         fail "${program}: a command set read empty (completion '${offered//$'\n'/, }', usage '${listed//$'\n'/, }')"
         continue
     fi
     missing="$(comm -13 <(printf '%s\n' "${offered}") <(printf '%s\n' "${listed}"))"
     extra="$(comm -23 <(printf '%s\n' "${offered}") <(printf '%s\n' "${listed}"))"
-    [[ -z "${missing}" ]] && pass "${program}: every command its usage() lists is offered" \
+    [[ -z "${missing}" ]] && pass "${program}: every command its help rows hold is offered" \
         || fail "${program}: command(s) the completion does not offer: ${missing//$'\n'/, }"
-    [[ -z "${extra}" ]] && pass "${program}: the completion offers no command its usage() omits" \
-        || fail "${program}: command(s) the completion offers that usage() does not list: ${extra//$'\n'/, }"
+    [[ -z "${extra}" ]] && pass "${program}: the completion offers no command its help rows omit" \
+        || fail "${program}: command(s) the completion offers that its help rows do not hold: ${extra//$'\n'/, }"
 done
 
 # ── (2) The options ────────────────────────────────────────────────────────────────────────────
@@ -145,7 +145,7 @@ read_operators="$(_ai_tools_atr__list_operators "${conf}" | tr '\n' ' ')"
 
 domains="${TESTDIR}/admin-commands.d"
 mkdir -p "${domains}"
-for name in demo dotnet system help Bad.Name 'x$(id)' 'two words'; do : > "${domains}/${name}"; done
+for name in demo dotnet system stop help Bad.Name 'x$(id)' 'two words'; do : > "${domains}/${name}"; done
 read_domains="$(_ai_tools_atr__list_admin_domains "${domains}" | sort | tr '\n' ' ')"
 [[ "${read_domains}" == 'demo dotnet ' ]] \
     && pass "the domain reader lists the contributed names, less the reserved ones and any outside the charset" \
@@ -211,8 +211,8 @@ completes "alice svc-ci" atr --for ""
 completes "alice svc-ci" atr --for = ""
 completes "list create claim unclaim remove disable enable clone push lockdown handback" atr --for alice projects ""
 completes "" atr --for alice admin ""
-completes "operators selinux system status assets help dotnet" atr admin ""
-completes "operators selinux system status assets help dotnet" ai-tools-admin ""
+completes "operators selinux system status assets stop help dotnet" atr admin ""
+completes "operators selinux system status assets stop help dotnet" ai-tools-admin ""
 completes "bootstrap entrypoints post-upgrade layout" atr admin system ""
 completes "minimal full" ai-tools-admin system bootstrap --scope ""
 completes "acme,claude-code" atr admin system bootstrap --agents acme,cl

@@ -1,6 +1,7 @@
 .\" ai-tools-admin(8) -- host administration for Agent Tools Restricted.
-.\" Kept in sync with the helper's own usage() text by tests/unit/man.sh, which
-.\" compares the command sets of both; @AI_TOOLS_VERSION@ is substituted at
+.\" Kept in sync with the command rows help.lib.sh holds for the helper by
+.\" tests/unit/man.sh, which compares the command sets of both;
+.\" @AI_TOOLS_VERSION@ is substituted at
 .\" deploy time (install.sh install_subst / the RPM %prep), like the helper.
 .TH AI-TOOLS-ADMIN 8 "" "ai-tools @AI_TOOLS_VERSION@" "Agent Tools Restricted"
 .SH NAME
@@ -12,6 +13,10 @@ atr, ai-tools-admin \- administer the host a sandboxed coding agent runs on
 .br
 .B atr admin
 .BR \-\-help | \-\-version
+.br
+.B atr admin
+.I COMMAND
+.BR \-\-help | help
 .br
 .B ai-tools-admin
 .I COMMAND
@@ -164,11 +169,13 @@ They exist on a host that installed
 .BR ai\-tools\-integration\-dotnet ,
 and not on one that did not.
 .PP
-.B \-\-help
+.B "atr admin help"
 lists the domains this host has, with a line describing each, so what it prints
-and what dispatches are one list.
+and what dispatches are one list; it prints without a password.
 .IB DOMAIN " \-\-help"
-prints that domain's own commands.
+prints that domain's own commands, through
+.B sudo
+like the domain's other commands.
 .PP
 Installing a provider is what makes its commands exist; enabling it in
 .BR ai-tools-operator.conf (5)
@@ -241,7 +248,7 @@ with both gone its rows leave the table, which
 still reports.
 .SH COMMANDS
 .TP
-.B operators
+.B operators \fR[\fBlist\fR]
 List the enrolled operators, one per line.
 This is what a bare
 .B operators
@@ -323,7 +330,7 @@ and the account from
 Leaves the account's own project registry and configuration on disk, so re-enrolling
 restores the projects it had.
 .TP
-.B selinux groups
+.B selinux groups \fR[\fBlist\fR]
 Report the core module and every optional group with its state
 .RB ( [LOADED] / [disabled] ),
 its stability, and what it covers.
@@ -816,7 +823,7 @@ The transaction trigger passes it, since the rpm database is held while a
 transaction runs; the relabel the transaction starts runs the full pass.
 .RE
 .TP
-.B assets
+.B assets \fR[\fBlist\fR]
 Print the state of every entry of
 .B AI_TOOLS_ASSETS
 and each link a reconcile would place, repoint or remove, without changing
@@ -1104,18 +1111,64 @@ job without parsing its output. A
 line does not change the exit, as in
 .BR ai-tools (1).
 .RE
+.TP
+.B stop \fR[\fB\-\-all\fR] [\fB\-\-dry\-run\fR] [\fB\-\-yes\fR] [\fB\-\-force\fR]
+Stop every agent session on this host, through the same helper as
+.BR "atr stop" ,
+which
+.BR ai-tools (1)
+documents under
+.BR stop
+with its options and exit codes.
+.B "atr admin stop"
+runs
+.B "ai-tools stop"
+for any caller, so its bare form does not ask a password, as
+.B "atr stop"
+does not.
+.B "sudo ai-tools-admin stop"
+runs the helper directly.
 .SH OPTIONS
-Both options read no host state and leave the host as it is, so both answer any caller
-rather than only root, and each ignores any further argument.
+A help request and
+.B \-\-version
+read no host state and leave the host as it is, so both answer any caller
+rather than only root, and
+.B atr admin
+answers both for an operator without
+.BR sudo .
+A bare
+.B ai-tools-admin
+prints the help and exits 0.
 .TP
 .BR \-\-help ", " \-h
-Print the command summary and exit. The bare word
+Print help and exit 0, without running the command.
+With no command word, the help is the whole summary, with the domains this host
+has; after a domain or a collection such as
+.BR "selinux groups" ,
+the commands under it; after a command, its usage line, what it does, and the
+entry on this page that documents its options.
+The option counts anywhere ahead of a
+.BR \-\- ,
+and names the command its leading command words spell, so
+.B "atr admin operators add \-\-help"
+prints the help of
+.B "operators add"
+and enrols nobody.
+The bare word
 .B help
-in the command position prints the same summary, and no provider package can
-contribute a domain of that name.
+asks the same where a command word goes: first, followed by the command
+.RB ( "atr admin help selinux groups" ),
+or after a domain or a collection
+.RB ( "atr admin system layout help" ).
+After a command it is that command's argument, and no provider package can
+contribute a domain named
+.BR help .
+A help request on a contributed domain is that domain's to answer, and
+a help request on a command this program does not have is refused as the unknown
+command, under the code of the domain it names.
 .TP
 .B \-\-version
-Print the installed version and exit.
+Print the installed version and exit, when it is the first argument.
 .SH EXIT STATUS
 .TP
 .B 0

@@ -290,6 +290,10 @@ this run needs root: ${what} goes through ${bin##*/}, and ${INVOKING_USER} holds
 ERROR.
 a $(format_blocking_line_kind) line covers this path, so projects $2 cannot act on it: $1
 .TP
+.B MSG-S2H5
+ERROR.
+unknown command: ${path} \-\- run '${help_command}'
+.TP
 .B MSG-S3B9
 ERROR.
 project remove stopped before any change \-\- the helper left the SELinux label of ${d} while an agent session or the toolchain update may be running
@@ -509,13 +513,9 @@ an operator must not be the sandbox account ${SANDBOX_USER}
 WARNING.
 could not restore labels under ${clones}; run: sudo restorecon \-FR ${clones}
 .TP
-.B MSG-D3P6
-WARNING.
-refusing ${fragment}: it is a symlink, is not root\-owned, or is writable by group/other, so what it runs is not root's decision alone
-.TP
 .B MSG-D4S7
 ERROR.
-unknown command 'assets ${verb}' (list|enable|disable|reconcile)
+unknown command: assets ${verb} \-\- run '${help_command}'
 .TP
 .B MSG-D6K9
 ERROR.
@@ -587,7 +587,7 @@ operators add: name a user, or run it through sudo so SUDO_USER is set
 .TP
 .B MSG-H3F8
 ERROR.
-unknown command 'selinux groups ${verb}' (list|enable|disable)
+unknown command: selinux groups ${verb} \-\- run '${help_command}'
 .TP
 .B MSG-H3M6
 ERROR.
@@ -607,11 +607,7 @@ system bootstrap: unknown argument '$1' (\-\-scope minimal|full, \-\-agents NAME
 .TP
 .B MSG-H6J5
 ERROR.
-unknown command 'operators ${verb}' (list|add|remove)
-.TP
-.B MSG-H6J9
-WARNING.
-skipping $(printf '%q' "${fragment}"): a contributed command is named for its provider, in bare lower\-case
+unknown command: operators ${verb} \-\- run '${help_command}'
 .TP
 .B MSG-H7A8
 ERROR.
@@ -679,7 +675,7 @@ semodule failed to replace ${former}
 .TP
 .B MSG-N2A5
 ERROR.
-unknown command: ${domain}
+unknown command: ${domain} \-\- run '${help_command}'
 .TP
 .B MSG-N2J8
 WARNING.
@@ -704,6 +700,10 @@ could not write OPERATORS into ${OPERATOR_CONF} \-\- the enrolment is incomplete
 .B MSG-N5U6
 ERROR.
 assets enable takes one or more <set>/<kind>/<name>, or \-\-set <set>
+.TP
+.B MSG-N8R8
+ERROR.
+unknown command: system layout ${verb} \-\- run '${help_command}'
 .TP
 .B MSG-N9S4
 WARNING.
@@ -743,7 +743,7 @@ assets disable: an identifier removed from AI_TOOLS_ASSETS
 .TP
 .B MSG-Q2X5
 ERROR.
-unknown command 'system ${name}' (bootstrap|entrypoints|layout|post\-upgrade)
+unknown command: system ${name} \-\- run '${help_command}'
 .TP
 .B MSG-Q3Z5
 ERROR.
@@ -835,11 +835,7 @@ status: takes no arguments
 .TP
 .B MSG-T7N9
 ERROR.
-unknown command 'system entrypoints ${verb}' (relabel)
-.TP
-.B MSG-U6P9
-WARNING.
-refusing ${fragment}: '${domain}' is a command ai\-tools\-admin owns and no package may replace it
+unknown command: system entrypoints ${verb} \-\- run '${help_command}'
 .TP
 .B MSG-U6U6
 ERROR.
@@ -869,10 +865,6 @@ system bootstrap: \-\-scope takes a value (minimal|full)
 ERROR.
 no verb list: ${fragment} declares no '# ai\-tools\-admin\-verbs: <verb> ...' \-\- a command that answers nothing is not one
 .TP
-.B MSG-V5S5
-WARNING.
-ignoring every contributed command: ${ADMIN_COMMANDS_DIR} is a symlink, is not root\-owned, or is writable by group/other
-.TP
 .B MSG-V6F4
 ERROR.
 cannot source ${1}
@@ -887,7 +879,7 @@ one or more integrations did not provision
 .TP
 .B MSG-V9Z4
 ERROR.
-unknown command 'selinux ${resource}' (groups)
+unknown command: selinux ${resource} \-\- run '${help_command}'
 .TP
 .B MSG-W3M8
 NOTICE.
@@ -2001,6 +1993,23 @@ could not chmod ${path} to ${mode}
 .B MSG-Y5R2
 WARNING.
 could not chown ${path} to ${owner}
+.SS help.lib.sh
+.TP
+.B MSG-D3P6
+WARNING.
+refusing ${fragment}: it is a symlink, is not root\-owned, or is writable by group/other, so what it runs is not root's decision alone
+.TP
+.B MSG-H6J9
+WARNING.
+skipping $(printf '%q' "${fragment}"): a contributed command is named for its provider, in bare lower\-case
+.TP
+.B MSG-U6P9
+WARNING.
+refusing ${fragment}: '${domain}' is a command ai\-tools\-admin owns and no package may replace it
+.TP
+.B MSG-V5S5
+WARNING.
+ignoring every contributed command: ${dir} is a symlink, is not root\-owned, or is writable by group/other
 .SS install-selinux.sh
 .TP
 .B MSG-A3V5

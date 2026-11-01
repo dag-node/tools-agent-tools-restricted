@@ -559,32 +559,45 @@ file and an exported function, so their absence with `-p` is evidence rather tha
 wrapper's own test is `integration/wrapper.sh`, which proves the deployed wrapper reaches those gates in that order
 through its launcher symlinks.
 
-`atr.sh` drives the short command over a copy of the wrapper whose two fixed paths are rewritten to recorders,
-with a recording `sudo` first on `PATH`: each argument reaches the program it names as one field, the empty one
-included, the program's exit status is the wrapper's, `atr admin` asks `sudo` for the fixed admin path after one notice
-line and runs the program directly as root, and the fixed paths themselves are read from the wrapper as text, since
-a recorder does not see them. The recorders are exec'd, so the file takes `agent-installs.sh`'s fallback for a directory
-where a `0755` file is executable. `integration/cli.sh` holds the installed wrapper to the same argv through a recording
-shim of its own, and `boundary/access.sh` holds the account's `atr admin` to a refusal with no admin output.
+`atr.sh` drives the short command over a copy of the wrapper whose two program paths are rewritten to recorders, its
+help library path to the checkout's and its domain and manifest directories to fixtures, with a recording `sudo` first
+on `PATH`: each argument reaches the program it names as one field, the empty one included, the program's exit status is
+the wrapper's, `atr admin` asks `sudo` for the fixed admin path after one notice line and runs the program directly
+as root, an operator's help request, bare `atr admin` and `--version` print with no `sudo` call, `atr admin stop` runs
+`ai-tools stop` for every caller, and a library that does not load or a caller named as the sandbox account takes
+the `sudo` route; the fixed paths themselves are read from the wrapper as text, since a recorder does not see them.
+The recorders are exec'd, so the file takes `agent-installs.sh`'s fallback for a directory where a `0755` file is
+executable. `integration/cli.sh` holds the installed wrapper to the same argv through a recording shim of its own,
+and `boundary/access.sh` holds the account's `atr admin` to a refusal with no admin output.
+
+`help.sh` pins the help library (`help.lib.sh`) over the checkout: the rows' form, every rendered help and hint within
+80 columns, the admin's domain block over a root-owned fixture directory and its refusal line beside a group-writable
+fragment, the resolver as a table of command lines per program, the help command an unknown-command line names,
+the reserved base names, and a copy whose `conf.lib.sh` is unreachable returning non-zero at source. `admin-help.sh` is
+its admin-side counterpart over the checkout's programs: as the projects user, with recorders first on `PATH`
+for the host tools the base commands and the dotnet fragment reach first, a help request on each base path prints
+and leaves the recorder log empty; an unknown path's help request meets its arm's code; `operators add --version` is
+refused under its code before `id`, beside the control that reaches the `id` recorder.
 
 `man.sh` is a pure text-sync check over this project's man pages and what each documents. The two command pages are held
-to the `usage()` heredoc of their command — `ai-tools(1)` against the CLI, `ai-tools-admin(8)` against the admin helper
-— validated from the repo sources (or the installed pair outside a checkout) and executing neither command, since
-the CLI's bootstrap gate fail-closes on an unprovisioned host and the helper refuses a non-root caller. The config pages
-are held to their files: `ai-tools-secret-patterns(5)` to the header its file is seeded with (capped, naming the page,
-comment-only so it does not register an entry), `ai-tools-project-registry(5)` to a seed that is the format marker
-alone, and each page to the reader its file is read with, through which the page's own examples are loaded. A registry
-example is held to what the page says it means as well as to the parser: each example block holding an entry validates
-as a current registry, and each line whose comment opens with a state word classifies as that state, since a disabled
-project written with a `!` parses and reads as an excluded path. `ai-tools-operator.conf(5)` and
-`ai-tools-custom-claude-endpoint.conf(5)` to the keys their shipped templates mention, in both directions, read with
-`ai_tools_conf__read_keys` so the test and `system post-upgrade` agree on what *mentioned* means. It closes by running
-the checker's `--config-header` mode over every config header this project writes, so each holds to 72 columns
-([providers](providers.rule.md) states the placement rule). In each pair the help is orientation and the page is the
-reference (see [cli](cli.rule.md)), so it asserts relations rather than set equality. For `ai-tools(1)`: the **verb**
-sets match in both directions, every option the help names is documented, and every option the page documents is one a
-CLI **parser** accepts. The last is the direction with teeth: what goes stale is an option outliving its parser, whereas
-requiring the help to name every documented option is what makes slimming the help impossible.
+to the command rows `help.lib.sh` holds for their program, read through its list readers in a shell of their own,
+and to the program's dispatch — `ai-tools(1)` against the CLI, `ai-tools-admin(8)` against the admin helper — validated
+from the repo sources (or the installed files outside a checkout) and executing neither command. Its providers section
+holds every shipped `admin_summary` to the form `ai-tools-providers(5)` states. The config pages are held to their
+files: `ai-tools-secret-patterns(5)` to the header its file is seeded with (capped, naming the page, comment-only so it
+does not register an entry), `ai-tools-project-registry(5)` to a seed that is the format marker alone, and each page
+to the reader its file is read with, through which the page's own examples are loaded. A registry example is held
+to what the page says it means as well as to the parser: each example block holding an entry validates as a current
+registry, and each line whose comment opens with a state word classifies as that state, since a disabled project written
+with a `!` parses and reads as an excluded path. `ai-tools-operator.conf(5)`
+and `ai-tools-custom-claude-endpoint.conf(5)` to the keys their shipped templates mention, in both directions, read
+with `ai_tools_conf__read_keys` so the test and `system post-upgrade` agree on what *mentioned* means. It closes
+by running the checker's `--config-header` mode over every config header this project writes, so each holds to 72
+columns ([providers](providers.rule.md) states the placement rule). In each pair the help is orientation and the page is
+the reference (see [cli](cli.rule.md)), so it asserts relations rather than set equality. For `ai-tools(1)`:
+the **verb** sets match in both directions, every option the help names is documented, and every option the page
+documents is one a CLI **parser** accepts. The last is the direction with teeth: what goes stale is an option outliving
+its parser, whereas requiring the help to name every documented option is what makes slimming the help impossible.
 
 `ai-tools-admin(8)` gets the same relations over a surface spelled in bare words rather than long options
 ([cli-grammar](cli-grammar.rule.md)), so what is compared is the whole **command path** — `selinux groups enable`, three
@@ -622,7 +635,7 @@ that no page carries a pointy-bracket placeholder, which roff renders literally 
 to the page's grammar; that every italic token on a SYNOPSIS line or a `.TP`/`.TQ` tag line is an uppercase placeholder,
 italic being what a reader substitutes, while running-text italic keeps the filenames and emphasis `man-pages(7)` puts
 there; that `man --warnings` does not report a macro or formatting warning; and that the trailing positional argument's
-**shape** — optional, repeating, or neither — agrees with the command's own `usage()`. That last one compares
+**shape** — optional, repeating, or neither — agrees with the command's own help row. That last one compares
 the brackets and the ellipsis and not the placeholder's name: the page names an argument in the man-page vocabulary
 while the help keeps its own spelling, and the difference is deliberate. What it catches is a page promising repetition
 its parser does not take, or dropping it where the parser does. A wrong font renders as cleanly as a right one, so none
@@ -630,11 +643,11 @@ of the four is visible without a check.
 
 `completion.sh` holds the bash completion to the surface it completes ([cli-grammar](cli-grammar.rule.md)): it sources
 the checkout's file into its own shell, walks the command words from the root and compares the paths with each program's
-`usage()` in both directions, a path ending in `list` read as its collection, and holds the options offered after each
-command to the tag line of that command's man page entry, with every option offered one the page documents. Each reader
-of host data is driven over a fixture holding names a looser reader would pass to `compgen -W` — a command substitution,
-a glob, a space, an upper-case letter — and a marker file proves none was expanded; the SELinux reader is compared
-with the registry `selinux-groups.lib.sh` holds. A table of typed lines, with the readers stubbed, closes it.
+rows in `help.lib.sh` in both directions, a path ending in `list` read as its collection, and holds the options offered
+after each command to the tag line of that command's man page entry, with every option offered one the page documents.
+Each reader of host data is driven over a fixture holding names a looser reader would pass to `compgen -W` — a command
+substitution, a glob, a space, an upper-case letter — and a marker file proves none was expanded; the SELinux reader is
+compared with the registry `selinux-groups.lib.sh` holds. A table of typed lines, with the readers stubbed, closes it.
 
 `sandbox.sh` also carries `is_project_tree_pristine`, which is not a sandbox helper but belongs to the same class:
 a pure decision with a security consequence. `projects create` skips the secret scan, the git-history prompt

@@ -1134,6 +1134,7 @@ do_summary() {
     _chk /usr/local/lib/ai-tools/records-base.lib.sh
     _chk /usr/local/lib/ai-tools/records-tsv.lib.sh
     _chk /usr/local/lib/ai-tools/layout.lib.sh
+    _chk /usr/local/lib/ai-tools/help.lib.sh
     _chk /usr/local/lib/ai-tools/agents.d/claude-code.conf
     _chk /usr/local/lib/ai-tools/session-env.d/claude-code.pins.env.sh
     _chk /usr/local/lib/ai-tools/session-env.d/claude-code.env.sh
@@ -1908,6 +1909,11 @@ do_install() {
     install_subst 644 root root \
         "${SCRIPT_DIR}/src/usr/local/lib/ai-tools/layout.lib.sh" \
         /usr/local/lib/ai-tools/layout.lib.sh
+    # The command surface and its help: 644 root:root, sourced by ai-tools, ai-tools-admin and atr.
+    log "/usr/local/lib/ai-tools/help.lib.sh"
+    install -o root -g root -m 644 \
+        "${SCRIPT_DIR}/src/usr/local/lib/ai-tools/help.lib.sh" \
+        /usr/local/lib/ai-tools/help.lib.sh
 
     # Agent manifests: the agents.d directory (0755 root:root) plus each agent's <name>.conf (644, parsed data naming
     # its npm package + launcher). This from-source installer deploys the full stack, so it lays down the claude-code

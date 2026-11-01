@@ -76,10 +76,11 @@ the toolchain. That last one matters because of what the gate reads: a host that
 sessions were live must still reach the incident ladder's last rung.
 
 `--help`, `--version` and the bare invocation are exempt because they describe **the CLI** rather than the toolchain:
-`usage()` and `AI_TOOLS_VERSION` read no installed state. The gate's own refusal names `atr admin system bootstrap`
-as the command to run next, so gating the usage would leave that message as the only place an operator could find it.
-`tests/unit/cli-verbs.sh` pins the membership, since the gate is one line far from the table it reads and the failure
-appears only on an unprovisioned host.
+the help and `AI_TOOLS_VERSION` read no installed state. A help request is answered ahead of the gate in any case,
+and the table still states the contract. The gate's own refusal names `atr admin system bootstrap` as the command to run
+next, so gating the help would leave that message as the only place an operator could find it. `tests/unit/cli-verbs.sh`
+pins the membership, since the gate is one line far from the table it reads and the failure appears only
+on an unprovisioned host.
 
 The set stays narrower than `ROOT_ALLOWED_VERBS`: `projects list` and `providers` describe a toolchain that has to exist
 first, so they stay behind the gate.
@@ -491,16 +492,25 @@ an ordinary account read it — a partial view, the file sink being the authorit
   predicates and verbs only (no recovery machinery), stays **read-only** (every fix is an emitted command, never
   an in-place rewrite), and closes with a compact **Maintenance** pointer to the per-project verbs. Informational,
   so it stays open to a non-operator.
-- `--version` (the deploy-stamped package version; `dev` from a raw source tree), `--help`.
+- `--version` (the deploy-stamped package version; `dev` from a raw source tree).
+- `--help`, `-h` and the bare word `help` — a **help request**, answered after the principal guards and ahead of every
+  gate from the bootstrap gate on, so it does not run the command, call `sudo` or take a `--for` snapshot: the top help,
+  the block of a collection, or one command's usage line, its description and the page entry for its options, each
+  rendered from the rows in `help.lib.sh`. What a help request is, a help flag in `--for`'s value slot included, is
+  `ai_tools_help__resolve_request`'s contract. The library is loaded at that point and not with the libraries every
+  command requires: a `stop` with no help flag ahead of `--` runs without it, and every other command line refuses
+  without it at exit 3.
 - `--for <operator>` — a **modifier**, not a command: run the verb on behalf of another enrolled operator (see [Acting
   for another operator](#acting-for-another-operator---for)).
 
 **A command line a verb does not parse is refused with exit 2, the usage status `ai-tools(1)` states, before any helper
 or `sudo` runs** — an unknown option, a second path for a verb taking one, an argument to a report taking none, a path
-for `stop`, and an option that has no effect beside another. Each refusal carries its own message code (`die_usage`),
+for `stop`, an option that has no effect beside another, and an unknown command, which prints one line naming the help
+command for the deepest part of the path the help holds (`MSG-S2H5`). Each refusal carries its own message code,
 so a script tells a rejected command line from an operation that failed (exit 1) by the status alone. The one refusal
 this ordering does not yet cover is a `--for` run, whose registry snapshot — the run's first `sudo` — precedes
-the verb's own parser ([Acting for another operator](#acting-for-another-operator---for)).
+the verb's own parser ([Acting for another operator](#acting-for-another-operator---for)); a help request exits ahead
+of the snapshot.
 
 **`--relabel` prints the new command and exits 2.** The entrypoint reconcile is `atr admin system entrypoints relabel`
 ([updater](updater.rule.md) owns what it does, [cli-grammar](cli-grammar.rule.md) why it is spelled that way): it runs
@@ -512,11 +522,12 @@ of which reconciles an entrypoint. It exits **2**, the documented code for a rej
 The CLI ships a man page, `ai-tools(1)` (`src/usr/local/share/man/man1/ai-tools.1` → `/usr/local/share/man/man1/`,
 deployed by `install.sh` and the RPM with the same `@AI_TOOLS_VERSION@` substitution as the CLI). It is hand-written
 troff, since the CLI cannot be executed at package-build time for `help2man` (the bootstrap gate fail-closes
-on an unprovisioned host). The page and `usage()` are **not** copies of each other: `usage()` is orientation —
-the verbs, one line each, and the three cross-verb flags — while the page is the reference for every per-verb option,
-which is why a per-verb option lives under its verb there rather than in a flat list that would separate `--branch`
-or `--dir` from the only command they mean anything for. `tests/unit/man.sh` keeps them honest with three checks
-in place of the old set-equality: the **verb** sets match in both directions, every option `usage()` names is documented
+on an unprovisioned host). The page and the help are **not** copies of each other: the help is orientation — the command
+rows `help.lib.sh` holds, one line each, and the cross-command options — while the page is the reference for every
+per-command option, which is why a per-command option lives under its command there rather than in a flat list
+that would separate `--branch` or `--dir` from the only command they mean anything for, and why a command's hint names
+its page entry. `tests/unit/man.sh` reads the rows through `ai_tools_help__list_commands` and keeps the two honest
+with three checks: the **command** sets match in both directions, every option the help's option rows name is documented
 in the page, and every option the page documents is one a CLI **parser** accepts. That last direction replaces "the help
 must name it too", which made moving an option out of the help fail as a stale man entry; what goes stale is an option
 outliving its parser.
