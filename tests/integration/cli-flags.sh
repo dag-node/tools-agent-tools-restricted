@@ -368,7 +368,7 @@ rc_not0() { [[ "${rc}" -ne 0 ]]; }
 # quiet_rc <n> / quiet_refusal: the exit status AND an empty call log -- a refusal that did not reach a helper, which is
 # the ordering rule that a refused command does not prompt for sudo first.
 quiet_rc()      { [[ "${rc}" -eq "$1" ]] && cli_log_empty; }
-cli_log_lacks() { ! cli_called "$1"; }
+cli_log_lacks() { ! cli_called "$@"; }
 quiet_refusal() { [[ "${rc}" -ne 0 ]] && cli_log_empty; }
 # quiet_report <rc>...: a report that RAN and reached no helper. A report closes at one of the statuses
 # ai-tools-records(5) gives every report -- 0, 4 with findings, 5 with a reading it could not make -- and which of them
@@ -400,7 +400,7 @@ drive_rows() {
 
     # ── A. Reads, help, and the incident rung ─────────────────────────────────────────
     section "reports, ai-tools.help, ai-tools.version, ai-tools.stop, ai-tools.audit"
-    seed "${R}/pa"
+    seed "@ ${R}/pa"
     drive cli ai-tools.help;               expect "help exits 0 with no helper call"            rc_is 0
     expect "help reaches no helper" cli_log_empty
     drive run_in "${R}";          expect "the bare invocation exits 0"                  rc_is 0
@@ -452,7 +452,7 @@ drive_rows() {
 
     # ── B. Claim ─────────────────────────────────────────────────────────────────────
     section "ai-tools.projects.claim"
-    seed "${R}/pb"
+    seed "@ ${R}/pb"
     drive cli ai-tools.projects.claim "${R}/pa"
     expect "claim without --yes declines at the proceed prompt"       rc_not0
     expect "the declined claim registers nothing"                     st_is "${R}/pa" absent
@@ -460,7 +460,7 @@ drive_rows() {
 
     cli_stub_reset; drive cli ai-tools.projects.claim "$(f yes)" "${R}/pa"
     expect "claim --yes exits 0"                                      rc_is 0
-    expect "claim --yes registers the project"                        st_is "${R}/pa" listed
+    expect "claim --yes registers the project"                        st_is "${R}/pa" enabled
     expect "claim --yes scans for secrets in the project"             cli_called ai-tools-lockdown "^--gate$"
     expect "claim --yes registers safe.directory"                     cli_called ai-tools-safedir "^${R}/pa$"
     expect "claim --yes sets the group and setgid"                    cli_called ai-tools-setgid "^${R}/pa$"
@@ -469,19 +469,19 @@ drive_rows() {
     expect "the secret scan precedes every access-granting step"     before ai-tools-lockdown "^--gate$" ai-tools-setgid "."
 
     cli_stub_reset; drive cli ai-tools.projects.claim "$(f yes.short)" "${R}/pc"
-    expect "claim -y is the short form of --yes"                      st_is "${R}/pc" listed
+    expect "claim -y is the short form of --yes"                      st_is "${R}/pc" enabled
 
     cli_stub_reset; drive cli_in "${R}/pd" ai-tools.projects.claim "$(f yes)"
     expect "claim without a path is a rejected command line"          rc_is 2
     expect "the pathless claim registers nothing"                     st_is "${R}/pd" absent
     cli_stub_reset; drive cli_in "${R}/pd" ai-tools.projects.claim "$(f yes)" .
-    expect "claim . names the current directory"                      st_is "${R}/pd" listed
+    expect "claim . names the current directory"                      st_is "${R}/pd" enabled
     expect "the claim of . names that directory"                      cli_called ai-tools-safedir "^${R}/pd$"
 
     cli_stub_reset; cli_stub_secrets "${R}/pe/.env"; drive cli ai-tools.projects.claim "$(f yes)" "${R}/pe"
     expect "a found secret is locked down before access is granted"  before ai-tools-lockdown "^--gate$" ai-tools-setgid "."
     expect "the secret gate is one helper call"                       test "$(cli_calls ai-tools-lockdown | wc -l)" = 1
-    expect "the claim with a secret still registers the project"     st_is "${R}/pe" listed
+    expect "the claim with a secret still registers the project"     st_is "${R}/pe" enabled
     # A declined lockdown (the helper's exit 6) fails the claim closed: no access granted, the new entry rolled back.
     cli_stub_reset; cli_stub_secrets "${R}/psd/.env"; cli_stub_decline_lockdown
     drive cli ai-tools.projects.claim "$(f yes)" "${R}/psd"
@@ -499,7 +499,7 @@ drive_rows() {
     # is empty and the page went to stderr.
     cli_stub_reset; drive cli_stdout ai-tools.projects.claim "$(f format)" tsv "$(f yes)" "${R}/pf"
     expect "claim --format tsv exits 0 on a first claim"              rc_is 0
-    expect "claim --format tsv registers the project"                 st_is "${R}/pf" listed
+    expect "claim --format tsv registers the project"                 st_is "${R}/pf" enabled
     expect "claim --format tsv writes nothing to stdout on a first claim" out_is_empty
     expect "claim --format tsv writes its page to stderr"             err_has "Claim project"
     cli_stub_reset; drive cli ai-tools.projects.claim "$(f format)" json "${R}/pa"
@@ -522,7 +522,7 @@ drive_rows() {
         : > "$1/moved-in.txt"; chown "${PROJECTS_USER}:${PROJECTS_USER}" "$1/moved-in.txt"; chmod 0640 "$1/moved-in.txt"
     }
     claimed_fixture "${R}/ph"
-    seed "${R}/ph"; seed_gc "${R}/ph"
+    seed "@ ${R}/ph"; seed_gc "${R}/ph"
     cli_stub_reset; drive cli_stdout ai-tools.projects.claim "$(f format)" tsv "$(f yes)" "${R}/ph"
     expect "a declined group repair exits 4"                          rc_is 4
     expect "the stream is the header and whole rows"                  out_is_records
@@ -554,7 +554,7 @@ drive_rows() {
     # than as a complete scan of a smaller tree.
     claimed_fixture "${R}/pk"
     mkdir -p "${R}/pk/locked"; chown root:root "${R}/pk/locked"; chmod 0700 "${R}/pk/locked"
-    seed "${R}/pk"; seed_gc "${R}/pk"
+    seed "@ ${R}/pk"; seed_gc "${R}/pk"
     cli_stub_reset; drive cli_stdout ai-tools.projects.claim "$(f format)" tsv "$(f yes)" "${R}/pk"
     expect "an unreadable directory in the tree exits 5"              rc_is 5
     expect "the unread walk is an error row"                          out_has_row error
@@ -565,7 +565,7 @@ drive_rows() {
     # the step and exits 5 rather than reading the step as not applicable.
     claimed_fixture "${R}/pm"; rm -f "${R}/pm/moved-in.txt"
     git init -q "${R}/pm"
-    seed "${R}/pm"; seed_gc "${R}/pm"
+    seed "@ ${R}/pm"; seed_gc "${R}/pm"
     cli_stub_reset; drive cli_stdout ai-tools.projects.claim "$(f format)" tsv "$(f yes)" "${R}/pm"
     expect "a repository the operator's git refuses exits 5"          rc_is 5
     expect "the unread core.filemode step is an error row"            out_has_finding_item error filemode
@@ -575,7 +575,7 @@ drive_rows() {
     # whole. The entry is quoted, the form the allowlist grammar reads a path with a space in.
     claimed_fixture "${R}/pm space"; rm -f "${R}/pm space/moved-in.txt"
     git init -q "${R}/pm space"
-    seed "\"${R}/pm space\""; seed_gc "${R}/pm space"
+    seed "@ \"${R}/pm space\""; seed_gc "${R}/pm space"
     cli_stub_reset; drive cli ai-tools.projects.claim "$(f yes)" "${R}/pm space"
     expect "control: the claim of the spaced path reads core.filemode as unread" rc_is 5
     expect "the printed command quotes a path with a space"           out_has_text "git -C $(LC_ALL=C printf '%q' "${R}/pm space") config core.filemode true"
@@ -584,7 +584,7 @@ drive_rows() {
     # the one the policy gives its path, so it is drift. Without a terminal only `--yes` relabels,
     # and AI_TOOLS_ASSUME_YES does not, with or without it.
     claimed_fixture "${R}/pl"; rm -f "${R}/pl/moved-in.txt"
-    seed "${R}/pl"; seed_gc "${R}/pl"
+    seed "@ ${R}/pl"; seed_gc "${R}/pl"
     # The fixture's path needs a default label for the dry run to compare against: under /tmp the policy gives none.
     # getenforce and restorecon live in /usr/sbin, which run_in's PATH leaves out, so these rows add it: without it
     # the CLI reads the host as having no SELinux and never runs the label scan.
@@ -652,7 +652,7 @@ drive_rows() {
     else
         granted()     { getfacl -p "${reach_fx}" 2>/dev/null | grep -qE "^user:${SANDBOX_USER}:..x"; }
         not_granted() { ! granted; }
-        seed "${reach_proj}"; seed_gc "${reach_proj}"
+        seed "@ ${reach_proj}"; seed_gc "${reach_proj}"
         cli_stub_reset; drive cli ai-tools.projects.claim "${reach_proj}"
         expect "a claimed project with the grant pending exits 0 with no terminal" rc_is 0
         expect "the declined grant runs no secret scan"                   not_called ai-tools-lockdown
@@ -671,7 +671,7 @@ drive_rows() {
 
     # ── C. Create ─────────────────────────────────────────────────────────────────────
     section "ai-tools.projects.create"
-    seed "${R}/pa"
+    seed "@ ${R}/pa"
     drive cli ai-tools.projects.create
     expect "create without a path is refused"                         rc_not0
     expect "the refused create reaches no helper"                     cli_log_empty
@@ -680,7 +680,7 @@ drive_rows() {
     expect "create makes the directory"                               test -d "${R}/new"
     expect "create initialises git"                                   test -d "${R}/new/.git"
     expect "create seeds a README"                                    test -f "${R}/new/README.md"
-    expect "create registers the project"                             st_is "${R}/new" listed
+    expect "create registers the project"                             st_is "${R}/new" enabled
     expect "create registers safe.directory"                          cli_called ai-tools-safedir "^${R}/new$"
     expect "create sets the group and setgid"                         cli_called ai-tools-setgid "^${R}/new$"
     expect "create applies the ACL"                                   cli_called ai-tools-setfacl "${R}/new$"
@@ -694,14 +694,23 @@ drive_rows() {
     cli_stub_reset; drive cli ai-tools.projects.create "$(f yes)" "${R}/new2"
     expect "create takes no options"                                  rc_not0
     expect "the refused create makes nothing"                         test ! -e "${R}/new2"
+    # A registry line the writer cannot write back would fail the claim's registry write after the directory, its
+    # repository and its README exist, so the create refuses before the mkdir.
+    seed "@ ${R}/pa" "@ ${R}/cq\"q'q"
+    expect "the registry holding the unrenderable line validates"     ai_tools_conf__validate_registry "${AL}" current
+    drive cli ai-tools.projects.create "${R}/new3"
+    expect "create over an unrenderable line exits non-zero"          rc_not0
+    expect "that refusal names the line under its code"               out_has_text MSG-A5Y2
+    expect "the refused create makes no directory"                    test ! -e "${R}/new3"
+    expect "the refused create reaches no helper"                     cli_log_empty
 
     # ── D. Unclaim ────────────────────────────────────────────────────────────────────
     section "ai-tools.projects.unclaim"
-    seed "${R}/pa" "${R}/pb" "${R}/pc" "${R}/pd" "${R}/pg" "${R}/parent/p1" "${R}/parent/p2"
+    seed "@ ${R}/pa" "@ ${R}/pb" "@ ${R}/pc" "@ ${R}/pd" "@ ${R}/pg" "@ ${R}/parent/p1" "@ ${R}/parent/p2"
     seed_gc "${R}/pa" "${R}/pb" "${R}/pc" "${R}/pd" "${R}/pg"
     drive cli ai-tools.projects.unclaim "${R}/pa"
     expect "unclaim without --yes declines at the confirm"            rc_not0
-    expect "the declined unclaim leaves the entry"                    st_is "${R}/pa" listed
+    expect "the declined unclaim leaves the entry"                    st_is "${R}/pa" enabled
     expect "the declined unclaim reaches no helper"                   cli_log_empty
 
     cli_stub_reset; drive cli ai-tools.projects.unclaim "$(f yes)" "${R}/pa"
@@ -731,30 +740,35 @@ drive_rows() {
     chmod 0755 "${selinux_on}" "${selinux_on}/getenforce"
     chown "${PROJECTS_USER}:${PROJECTS_USER}" "${R}/pe"
     RUN_EXTRA_ENV=(PATH="${selinux_on}:${CLI_STUB_PATH}:/usr/local/bin:/usr/bin:/bin")
-    seed "${R}/pe"; drive cli ai-tools.projects.unclaim "$(f yes)" "${R}/pe"
+    seed "@ ${R}/pe"; drive cli ai-tools.projects.unclaim "$(f yes)" "${R}/pe"
     expect "control: with SELinux on, unclaim reverts the label and exits 0" rc_is 0
     expect "the label reversal reaches the relabel helper"            cli_called ai-tools-relabel "^--remove${T}${R}/pe$"
-    seed "${R}/pe"; cli_stub_fail_status ai-tools-relabel 4
+    seed "@ ${R}/pe"; cli_stub_fail_status ai-tools-relabel 4
     drive cli ai-tools.projects.unclaim "$(f yes)" "${R}/pe"
     expect "an unclaim whose label reversal the gate refused exits non-zero" rc_not0
     expect "that unclaim still hands the tree back"                   cli_called ai-tools-unclaim "^${R}/pe${T}"
     expect "that unclaim still drops the entry"                       st_is "${R}/pe" absent
     RUN_EXTRA_ENV=()
 
-    seed "${R}/pa"; drive cli ai-tools.projects.unclaim "$(f yes)" "$(f keep-entry)" "${R}/pa"
-    expect "unclaim --keep-entry parks the entry instead of dropping it" st_is "${R}/pa" disabled
-    expect "unclaim --keep-entry still hands the tree back"           cli_called ai-tools-unclaim "^${R}/pa${T}"
+    # A hand-back that did not run leaves the entry disabled rather than dropped, so the unclaim that completes
+    # the reversal has a line to resolve the owner through.
+    seed "@ ${R}/pa"; cli_stub_fail ai-tools-unclaim
+    drive cli ai-tools.projects.unclaim "$(f yes)" "${R}/pa"
+    expect "an unclaim whose hand-back failed exits non-zero"         rc_not0
+    expect "the hand-back was attempted"                              cli_called ai-tools-unclaim "^${R}/pa${T}"
+    expect "that unclaim disables the entry instead of dropping it"   st_is "${R}/pa" disabled
 
-    seed "${R}/pa"; drive cli ai-tools.projects.unclaim "$(f keep-entry)" "$(f force)" "${R}/pa"
-    expect "--keep-entry with --force is refused"                     rc_not0
-    expect "the refused unclaim reaches no helper"                    cli_log_empty
+    # No option chooses what becomes of the entry; `--keep-entry` is written as typed, since no key spells it.
+    seed "@ ${R}/pa"; drive cli ai-tools.projects.unclaim --keep-entry "${R}/pa"
+    expect "unclaim refuses --keep-entry as an unknown option, exit 2, no helper" quiet_rc 2
+    expect "the refused unclaim leaves the entry"                     st_is "${R}/pa" enabled
     cli_stub_reset; drive cli ai-tools.projects.unclaim "$(f dry-run)" "${R}/pa"
     expect "--dry-run without --force is refused"                     rc_not0
     expect "that refusal reaches no helper"                           cli_log_empty
     cli_stub_reset; drive cli ai-tools.projects.unclaim "$(f force)" "$(f yes)" "${R}/pa"
     expect "--force on a registered project is refused"               rc_not0
     expect "the refused --force reaches no helper"                    cli_log_empty
-    expect "the refused --force leaves the entry"                     st_is "${R}/pa" listed
+    expect "the refused --force leaves the entry"                     st_is "${R}/pa" enabled
 
     cli_stub_reset; drive cli ai-tools.projects.unclaim "${R}/unreg"
     expect "an unregistered tree with residue is reported, not acted on" quiet_rc 0
@@ -777,23 +791,23 @@ drive_rows() {
     expect "--force on a tree with no residue is refused"             rc_not0
     expect "that refusal reaches no helper"                           cli_log_empty
 
-    seed "${R}/parent/p1" "${R}/parent/p2"
+    seed "@ ${R}/parent/p1" "@ ${R}/parent/p2"
     drive cli ai-tools.projects.unclaim "${R}/parent"
     expect "an ancestor unclaim without --yes declines"               rc_not0
     expect "the declined ancestor unclaim reaches no helper"          cli_log_empty
     cli_stub_reset; drive cli ai-tools.projects.unclaim "$(f yes)" "${R}/parent"
     expect "an ancestor unclaim --yes unclaims every project under it" test "$(cli_call_count ai-tools-unclaim)" -eq 2
     expect "both nested entries are dropped"                          test "$(st "${R}/parent/p1")" = absent -a "$(st "${R}/parent/p2")" = absent
-    seed "${R}/hold"; drive cli ai-tools.projects.unclaim "$(f yes)" "${R}/hold/inner"
+    seed "@ ${R}/hold"; drive cli ai-tools.projects.unclaim "$(f yes)" "${R}/hold/inner"
     expect "a path inside a project is refused"                       rc_not0
     expect "that refusal reaches no helper"                           cli_log_empty
-    expect "the enclosing entry is untouched"                         st_is "${R}/hold" listed
+    expect "the enclosing entry is untouched"                         st_is "${R}/hold" enabled
 
     # ── E. Remove ─────────────────────────────────────────────────────────────────────
     section "ai-tools.projects.remove.inplace"
     mkdir -p "${R}/rm1" "${R}/rm2" "${R}/rm3" "${R}/rm4" "${R}/rmp/nested"
     chown -R "${PROJECTS_USER}:${PROJECTS_USER}" "${R}/rm1" "${R}/rm2" "${R}/rm3" "${R}/rm4" "${R}/rmp"
-    seed "${R}/rm1" "%${R}/rm2" "${R}/rm3" "${R}/rm4" "${R}/rmp" "${R}/rmp/nested"
+    seed "@ ${R}/rm1" "% ${R}/rm2" "@ ${R}/rm3" "@ ${R}/rm4" "@ ${R}/rmp" "@ ${R}/rmp/nested"
     seed_gc "${R}/rm1" "${R}/rm2"
     drive cli ai-tools.projects.remove.inplace "${R}/rm1"
     expect "remove without --yes declines at the confirm"             rc_not0
@@ -812,8 +826,8 @@ drive_rows() {
     expect "remove --yes drops safe.directory"                        cli_called ai-tools-safedir "^--remove${T}${R}/rm1$"
     expect "remove does not run the filesystem hand-back"             not_called ai-tools-unclaim
     cli_stub_reset; drive cli ai-tools.projects.remove.inplace "$(f yes)" "${R}/rm2"
-    expect "a parked entry authorizes its removal"                    test ! -e "${R}/rm2"
-    expect "the parked line goes with the tree"                       st_is "${R}/rm2" absent
+    expect "a disabled entry authorizes its removal"                  test ! -e "${R}/rm2"
+    expect "the disabled line goes with the tree"                     st_is "${R}/rm2" absent
     cli_stub_reset; drive cli ai-tools.projects.remove.inplace "$(f force)" "${R}/rm3"
     expect "remove has no --force"                                    rc_not0
     expect "the refused remove leaves the tree"                       test -d "${R}/rm3"
@@ -832,25 +846,25 @@ drive_rows() {
     drive cli ai-tools.projects.remove.inplace "$(f yes)" "${R}/rm4"
     expect "a removal whose label reversal the gate refused exits non-zero" rc_not0
     expect "that removal leaves the tree"                             test -d "${R}/rm4"
-    expect "that removal leaves the entry"                            st_is "${R}/rm4" listed
+    expect "that removal leaves the entry"                            st_is "${R}/rm4" enabled
     expect "that removal leaves safe.directory alone"                 not_called ai-tools-safedir
     RUN_EXTRA_ENV=()
 
     # ── F. Enable and disable ─────────────────────────────────────────────────────────
     section "ai-tools.projects.disable / ai-tools.projects.enable"
-    seed "${R}/pa" "${R}/hold" "${R}/hold/inner"
+    seed "@ ${R}/pa" "@ ${R}/hold" "@ ${R}/hold/inner"
     drive cli ai-tools.projects.disable "${R}/pa"
-    expect "disable parks the entry"                                  st_is "${R}/pa" disabled
+    expect "disable writes '%' on the entry"                          st_is "${R}/pa" disabled
     expect "disable is a registry edit alone"                         cli_log_empty
     drive cli ai-tools.projects.enable "${R}/pa"
-    expect "enable restores the entry"                                st_is "${R}/pa" listed
+    expect "enable restores the entry"                                st_is "${R}/pa" enabled
     expect "enable is a registry edit alone"                          cli_log_empty
     drive cli ai-tools.projects.disable "${R}/hold/inner"
-    expect "disable parks a project nested in a listed one"           rc_is 0
-    expect "the nested entry reads as parked"                         st_is "${R}/hold/inner" disabled
-    expect "the enclosing entry stays listed"                         st_is "${R}/hold" listed
+    expect "disable writes '%' on a project nested in a listed one"   rc_is 0
+    expect "the nested entry reads as disabled"                       st_is "${R}/hold/inner" disabled
+    expect "the enclosing entry stays listed"                         st_is "${R}/hold" enabled
     drive cli ai-tools.projects.enable "${R}/hold/inner"
-    expect "enable lifts the nested park"                             st_is "${R}/hold/inner" listed
+    expect "enable lifts the nested '%'"                              st_is "${R}/hold/inner" enabled
     drive cli ai-tools.projects.enable "${R}/plain"
     expect "enable refuses a path with no entry"                      rc_not0
     expect "enable invents no entry"                                  st_is "${R}/plain" absent
@@ -859,7 +873,7 @@ drive_rows() {
 
     # ── G. Acting for another operator ────────────────────────────────────────────────
     section "--for"
-    seed "${R}/pa"; seed_for "${R}/for1"
+    seed "@ ${R}/pa"; seed_for "@ ${R}/for1"
     inv_before="$(sha "${AL}")"
     for order in "lead" "trail"; do
         cli_stub_reset
@@ -871,14 +885,14 @@ drive_rows() {
 
     cli_stub_reset; drive cli ai-tools.projects.disable "$(f for)" "${FOR_USER}" "${R}/for1"
     expect "disable --for edits the target's registry through the helper" cli_called ai-tools-allowlist "^--operator${T}${FOR_USER}${T}--disable${T}${R}/for1$"
-    expect "the target's entry is parked"                             st_for_is "${R}/for1" disabled
+    expect "the target's entry is disabled"                           st_for_is "${R}/for1" disabled
     cli_stub_reset; drive cli ai-tools.projects.enable "$(f for)" "${FOR_USER}" "${R}/for1"
-    expect "enable --for restores the target's entry"                 st_for_is "${R}/for1" listed
+    expect "enable --for restores the target's entry"                 st_for_is "${R}/for1" enabled
     expect "--for leaves the invoker's registry byte-identical"       test "$(sha "${AL}")" = "${inv_before}"
 
     cli_stub_reset; drive cli ai-tools.projects.claim "$(f for)" "${FOR_USER}" "$(f yes)" "${R}/for2"
     expect "claim --for writes the target's registry"                 cli_called ai-tools-allowlist "^--operator${T}${FOR_USER}${T}--add${T}${R}/for2$"
-    expect "the target's registry lists the project"                  st_for_is "${R}/for2" listed
+    expect "the target's registry lists the project"                  st_for_is "${R}/for2" enabled
     expect "claim --for grants access through the helpers"            cli_called ai-tools-setgid "^${R}/for2$"
     expect "--for leaves the invoker's registry byte-identical"       test "$(sha "${AL}")" = "${inv_before}"
     cli_stub_reset; drive cli ai-tools.projects.unclaim "$(f for)" "${FOR_USER}" "$(f yes)" "${R}/for2"
@@ -892,37 +906,124 @@ drive_rows() {
     drive cli ai-tools.projects.unclaim "$(f for)" "${FOR_USER}" "$(f yes)" "${R}/for2"
     expect "unclaim --for exits non-zero when the target's entry cannot be removed" rc_not0
     expect "that refusal carries its code"                            out_has_text MSG-K8S2
-    expect "the target's entry is still listed"                       st_for_is "${R}/for2" listed
+    expect "the target's entry is still listed"                       st_for_is "${R}/for2" enabled
     expect "the hand-back ran ahead of the registry step"             cli_called ai-tools-unclaim "^${R}/for2${T}"
     expect "the helper was asked to remove the entry"                 cli_called ai-tools-allowlist "^--operator${T}${FOR_USER}${T}--remove${T}${R}/for2$"
     cli_stub_reset; drive cli ai-tools.projects.unclaim "$(f for)" "${FOR_USER}" "$(f yes)" "${R}/for2"
     expect "control: the same unclaim --for drops the entry"          st_for_is "${R}/for2" absent
     # The removal's tree belongs to the projects user, since the shim runs the owner's steps as the invoker.
     mkdir -p "${R}/for3"; chown "${PROJECTS_USER}:${PROJECTS_USER}" "${R}/for3"
-    printf '%s\n' "${R}/for3" >> "${FOR_AL}"
+    printf '%s\n' "@ ${R}/for3" >> "${FOR_AL}"
     seed_gc "${R}/for3"
     cli_stub_reset; cli_stub_fail ai-tools-allowlist:--remove
     drive cli ai-tools.projects.remove.inplace "$(f for)" "${FOR_USER}" "$(f yes)" "${R}/for3"
     expect "remove --for exits non-zero when the target's entry cannot be removed" rc_not0
     expect "that refusal carries its code"                            out_has_text MSG-K8S2
     expect "the tree is not deleted past the refused registry step"  test -d "${R}/for3"
-    expect "the target's entry is still listed"                       st_for_is "${R}/for3" listed
+    expect "the target's entry is still listed"                       st_for_is "${R}/for3" enabled
     expect "the safe.directory entry is not removed ahead of the refused registry step" not_called ai-tools-safedir
     cli_stub_reset; drive cli ai-tools.projects.remove.inplace "$(f for)" "${FOR_USER}" "$(f yes)" "${R}/for3"
     expect "control: the same remove --for deletes the tree"         test ! -e "${R}/for3"
     expect "control: and drops the target's entry"                    st_for_is "${R}/for3" absent
     expect "control: and its safe.directory entry"                    cli_called ai-tools-safedir "^--remove${T}${R}/for3$"
-    # A park the helper refuses ends the unclaim non-zero with the entry still enabled, after the hand-back ran.
+    # A hand-back that did not run disables the target's entry through the helper; a disable the helper refuses then
+    # ends the unclaim non-zero with the entry still enabled, after the hand-back was attempted. The control fails
+    # the hand-back alone: the entry is disabled, and the unclaim still ends non-zero, its reversal incomplete.
     mkdir -p "${R}/for4"; chown "${PROJECTS_USER}:${PROJECTS_USER}" "${R}/for4"
-    printf '%s\n' "${R}/for4" >> "${FOR_AL}"
-    cli_stub_reset; cli_stub_fail ai-tools-allowlist:--disable
-    drive cli ai-tools.projects.unclaim "$(f for)" "${FOR_USER}" "$(f yes)" "$(f keep-entry)" "${R}/for4"
-    expect "unclaim --for --keep-entry exits non-zero when the park is refused" rc_not0
-    expect "the target's entry is still enabled"                      st_for_is "${R}/for4" listed
-    expect "the hand-back ran ahead of the park"                      cli_called ai-tools-unclaim "^${R}/for4${T}"
-    cli_stub_reset; drive cli ai-tools.projects.unclaim "$(f for)" "${FOR_USER}" "$(f yes)" "$(f keep-entry)" "${R}/for4"
-    expect "control: the same unclaim parks the target's entry"       st_for_is "${R}/for4" disabled
-    expect "control: and exits 0"                                     rc_is 0
+    printf '%s\n' "@ ${R}/for4" >> "${FOR_AL}"
+    cli_stub_reset; cli_stub_fail ai-tools-unclaim ai-tools-allowlist:--disable
+    drive cli ai-tools.projects.unclaim "$(f for)" "${FOR_USER}" "$(f yes)" "${R}/for4"
+    expect "unclaim --for exits non-zero when the disable is refused" rc_not0
+    expect "the target's entry is still enabled"                      st_for_is "${R}/for4" enabled
+    expect "the hand-back was attempted ahead of the disable"         before ai-tools-unclaim "^${R}/for4${T}" ai-tools-allowlist "^--operator${T}${FOR_USER}${T}--disable${T}${R}/for4$"
+    cli_stub_reset; cli_stub_fail ai-tools-unclaim
+    drive cli ai-tools.projects.unclaim "$(f for)" "${FOR_USER}" "$(f yes)" "${R}/for4"
+    expect "control: the same unclaim disables the target's entry"    st_for_is "${R}/for4" disabled
+    expect "control: and exits non-zero, the hand-back not run"       rc_not0
+
+    # A line of the registry the writer cannot write back -- a path carrying both quote characters, which the grammar
+    # reads and the formatter does not render -- stops every edit of the file, whatever path the edit names. remove
+    # and unclaim refuse before their first change, disable reports the line once its edit fails, and each names it
+    # under one code with the registry byte-identical. Each fixture validates first, so the refusal is the edit's.
+    local al_saved for_saved ur_sha
+    al_saved="$(cat "${AL}")"; for_saved="$(cat "${FOR_AL}")"
+    mkdir -p "${R}/ur1" "${R}/ur2" "${R}/fur1"
+    chown "${PROJECTS_USER}:${PROJECTS_USER}" "${R}/ur1" "${R}/ur2" "${R}/fur1"
+    seed "@ ${R}/ur1" "@ ${R}/ur2" "@ ${R}/q\"q'q"
+    expect "the registry holding the unrenderable line validates"     ai_tools_conf__validate_registry "${AL}" current
+    ur_sha="$(sha "${AL}")"
+    drive cli ai-tools.projects.remove.inplace "$(f yes)" "${R}/ur1"
+    expect "remove over an unrenderable line exits non-zero"          rc_not0
+    expect "that refusal names the line under its code"               out_has_text MSG-A5Y2
+    expect "the tree stands"                                          test -d "${R}/ur1"
+    expect "the registry is byte-identical"                           test "$(sha "${AL}")" = "${ur_sha}"
+    expect "the refused remove reaches no helper"                     cli_log_empty
+    cli_stub_reset; drive cli ai-tools.projects.disable "${R}/ur1"
+    expect "disable over an unrenderable line exits non-zero"         rc_not0
+    expect "that refusal names the line under its code"               out_has_text MSG-A5Y2
+    expect "the entry is still enabled"                               st_is "${R}/ur1" enabled
+    expect "the registry is byte-identical"                           test "$(sha "${AL}")" = "${ur_sha}"
+    cli_stub_reset; drive cli ai-tools.projects.unclaim "$(f yes)" "${R}/ur2"
+    expect "unclaim over an unrenderable line exits non-zero"         rc_not0
+    expect "that refusal names the line under its code"               out_has_text MSG-A5Y2
+    expect "the hand-back does not run"                               not_called ai-tools-unclaim
+    expect "the label is not reverted"                                not_called ai-tools-relabel
+    expect "the registry is byte-identical"                           test "$(sha "${AL}")" = "${ur_sha}"
+    seed_for "@ ${R}/fur1" "@ ${R}/q\"q'q"
+    ur_sha="$(sha "${FOR_AL}")"
+    cli_stub_reset; drive cli ai-tools.projects.disable "$(f for)" "${FOR_USER}" "${R}/fur1"
+    expect "disable --for over an unrenderable line exits non-zero"   rc_not0
+    expect "the helper was asked to disable the entry"                cli_called ai-tools-allowlist "^--operator${T}${FOR_USER}${T}--disable${T}${R}/fur1$"
+    expect "the CLI names the target's line under its code"           out_has_text MSG-A5Y2
+    expect "the target's registry is byte-identical"                  test "$(sha "${FOR_AL}")" = "${ur_sha}"
+    cli_stub_reset; drive cli ai-tools.projects.unclaim "$(f for)" "${FOR_USER}" "$(f yes)" "${R}/fur1"
+    expect "unclaim --for over an unrenderable line exits non-zero"   rc_not0
+    expect "that refusal names the target's line under its code"      out_has_text MSG-A5Y2
+    expect "the hand-back does not run"                               not_called ai-tools-unclaim
+    expect "the helper is not asked to edit the target's registry"    cli_log_lacks ai-tools-allowlist "^--operator${T}${FOR_USER}${T}--(remove|disable)"
+    expect "the target's registry is byte-identical"                  test "$(sha "${FOR_AL}")" = "${ur_sha}"
+    # The verb's own target is the line the writer cannot write back: the removal deletes that line before it renders
+    # the rest, so an unclaim or a remove of it runs, and the disable a failed hand-back leaves, which keeps the line,
+    # names it.
+    local own_q="${R}/q\"q'q" own_r="${R}/r\"r'r"
+    mkdir -p "${own_q}" "${own_r}"; chown "${PROJECTS_USER}:${PROJECTS_USER}" "${own_q}" "${own_r}"
+    seed "@ ${R}/ur1" "@ ${own_q}"
+    drive cli ai-tools.projects.unclaim "$(f yes)" "${own_q}"
+    expect "unclaim of the unrenderable line's own project exits 0"   rc_is 0
+    expect "its hand-back runs"                                       cli_called ai-tools-unclaim
+    expect "its entry is gone"                                        st_is "${own_q}" absent
+    expect "the other entry stays, the file canonical"                test "$(cat "${AL}")" = "$(printf '%s\n' "${REG_MARKER}" "@ ${R}/ur1")"
+    seed "@ ${R}/ur1" "@ ${own_q}"
+    cli_stub_fail ai-tools-unclaim; drive cli ai-tools.projects.unclaim "$(f yes)" "${own_q}"
+    expect "a failed hand-back of that project exits non-zero"        rc_not0
+    expect "the disable it leaves names the line under its code"      out_has_text MSG-A5Y2
+    expect "the entry is still enabled"                               st_is "${own_q}" enabled
+    seed "@ ${R}/ur1" "@ ${own_q}" "@ ${own_r}"
+    drive cli ai-tools.projects.unclaim "$(f yes)" "${own_q}"
+    expect "another unrenderable line still refuses the unclaim"      rc_not0
+    expect "that refusal names the other line"                        out_has_text "@ ${own_r}"
+    expect "and the hand-back does not run"                           not_called ai-tools-unclaim
+    seed "@ ${R}/ur1" "@ ${own_q}"
+    drive cli ai-tools.projects.remove.inplace "$(f yes)" "${own_q}"
+    expect "remove of the unrenderable line's own project deletes it" test ! -e "${own_q}"
+    expect "and drops its entry"                                      st_is "${own_q}" absent
+    mkdir -p "${R}/fq\"q'q"; chown "${PROJECTS_USER}:${PROJECTS_USER}" "${R}/fq\"q'q"
+    seed_for "@ ${R}/fur1" "@ ${R}/fq\"q'q"
+    cli_stub_reset; drive cli ai-tools.projects.unclaim "$(f for)" "${FOR_USER}" "$(f yes)" "${R}/fq\"q'q"
+    expect "unclaim --for of the unrenderable line's own project runs the hand-back" cli_called ai-tools-unclaim
+    expect "and asks the helper to remove the entry"                  cli_called ai-tools-allowlist "^--operator${T}${FOR_USER}${T}--remove${T}${R}/fq\"q'q$"
+    # A comment's control byte reaches the report as `?`: the grammar accepts one there, and the line may be another
+    # operator's.
+    seed "@ ${R}/ur1" "@ ${own_r} # note "$'\e'"[2J"
+    expect "the registry whose comment carries an escape validates"   ai_tools_conf__validate_registry "${AL}" current
+    drive cli ai-tools.projects.remove.inplace "$(f yes)" "${R}/ur1"
+    expect "remove over a line whose comment carries an escape is refused" rc_not0
+    expect "that refusal is the unrenderable line's"                  out_has_text MSG-A5Y2
+    expect "the report shows the comment's escape as ?"               out_has_text "# note ?[2J"
+    expect "and prints no escape byte"                                out_lacks_text $'\e'
+    rm -rf "${own_r}" "${R}/fq\"q'q"
+    printf '%s\n' "${al_saved}" > "${AL}"; printf '%s\n' "${for_saved}" > "${FOR_AL}"
+    chown "${PROJECTS_USER}:${PROJECTS_USER}" "${AL}" "${FOR_AL}"
 
     for key in ai-tools.projects.clone ai-tools.projects.push ai-tools.status ai-tools.stop; do
         cli_stub_reset; drive cli "${key}" "$(f for)" "${FOR_USER}" "${SRC}"
@@ -954,6 +1055,15 @@ drive_rows() {
     cli_stub_reset; drive cli ai-tools.projects.create "$(f for)" "${FOR_USER}" "${R}/for-none/new"
     expect "control: a target in ai-ops reaches the snapshot"         cli_called ai-tools-allowlist "^--operator${T}${FOR_USER}${T}--print$"
     expect "control: the create then refuses the missing parent"      out_has_text MSG-J3R8
+    # The same refusal over the target's snapshot: the run's one helper call is the snapshot, and no directory is made.
+    local for_create_saved; for_create_saved="$(cat "${FOR_AL}")"
+    seed_for "@ ${R}/fcq\"q'q"
+    cli_stub_reset; drive cli ai-tools.projects.create "$(f for)" "${FOR_USER}" "${R}/for-new"
+    expect "create --for over an unrenderable line exits non-zero"    rc_not0
+    expect "that refusal names the target's line under its code"      out_has_text MSG-A5Y2
+    expect "that run called the helper once, for the snapshot"        test "$(cli_call_count ai-tools-allowlist)" = 1
+    expect "that refusal creates no directory"                        test ! -e "${R}/for-new"
+    printf '%s\n' "${for_create_saved}" > "${FOR_AL}"; chown "${PROJECTS_USER}:${PROJECTS_USER}" "${FOR_AL}"
     for who in root "${SANDBOX_USER}"; do
         cli_stub_reset; drive cli ai-tools.projects.claim "$(f for)" "${who}" "$(f yes)" "${R}/for1"
         expect "--for refuses ${who}"                                 rc_not0
@@ -986,7 +1096,7 @@ drive_rows() {
     expect "clone exits 0"                                            rc_is 0
     expect "clone lands under the sandbox area, named after the source" test -d "${SBROOT}/${N_SRC}/.git"
     expect "clone pushes the default branch, sandbox/<base>"          test -n "$(remote_tip sandbox/main)"
-    expect "clone registers the clone"                                st_is "${SBROOT}/${N_SRC}" listed
+    expect "clone registers the clone"                                st_is "${SBROOT}/${N_SRC}" enabled
     expect "clone scans the clone for secrets before opening it"      cli_called ai-tools-lockdown "^--gate$"
     expect "the scan runs inside the clone"                           test "$(cwd_of ai-tools-lockdown)" = "${SBROOT}/${N_SRC}"
     expect "clone registers safe.directory for the clone"             cli_called ai-tools-safedir "^${SBROOT}/${N_SRC}$"
@@ -999,12 +1109,23 @@ drive_rows() {
     expect "clone --from forks the branch from that base"             test "$(remote_tip sb3)" = "$(gitr -C "${SRC}" rev-parse base2)"
     cli_stub_reset; drive cli ai-tools.projects.clone "$(f yes)" "$(f dir)" "${N_C4}" "${SRC}"
     expect "clone accepts --yes"                                      test "${rc}" -eq 0 -a -d "${SBROOT}/${N_C4}/.git"
+    # The registration follows the push and the clone, so a registry line the writer cannot write back refuses the
+    # clone before either.
+    local clone_al_saved; clone_al_saved="$(cat "${AL}")"
+    printf '%s\n' "@ ${R}/cq\"q'q" >> "${AL}"
+    expect "the registry holding the unrenderable line validates"     ai_tools_conf__validate_registry "${AL}" current
+    cli_stub_reset; drive cli ai-tools.projects.clone "$(f yes)" "$(f branch)" "sb-unrenderable" "$(f dir)" "unrenderable" "${SRC}"
+    expect "clone over an unrenderable line exits non-zero"           rc_not0
+    expect "that refusal names the line under its code"               out_has_text MSG-A5Y2
+    expect "the refused clone pushes no branch"                       test -z "$(remote_tip sb-unrenderable)"
+    expect "the refused clone makes no clone directory"               test ! -e "${SBROOT}/unrenderable"
+    printf '%s\n' "${clone_al_saved}" > "${AL}"; chown "${PROJECTS_USER}:${PROJECTS_USER}" "${AL}"
 
     cli_stub_reset; drive cli ai-tools.projects.clone "${SBROOT}/${N_C4}"
     expect "clone on an existing clone path resumes its finalization" cli_called ai-tools-lockdown "^--gate$"
     expect "the resume runs inside that clone"                        test "$(cwd_of ai-tools-lockdown)" = "${SBROOT}/${N_C4}"
     expect "the resume makes no second clone"                         test "$(find "${SBROOT}" -mindepth 1 -maxdepth 1 -type d | wc -l)" -eq 4
-    expect "the resumed clone stays registered"                       st_is "${SBROOT}/${N_C4}" listed
+    expect "the resumed clone stays registered"                       st_is "${SBROOT}/${N_C4}" enabled
     # A resume on a clone already opened leaves the tree as it is: a directory the operator sealed inside it since keeps
     # its mode, where a normalize re-run over the tree would open it to the group.
     sealed="${SBROOT}/${N_C4}/private"
@@ -1052,7 +1173,7 @@ drive_rows() {
     cli_stub_reset; drive cli ai-tools.projects.remove.clone "${SBROOT}/${N_C2}"
     expect "the clone removal declines with no terminal"              rc_not0
     expect "the declined removal leaves the clone"                    test -d "${SBROOT}/${N_C2}"
-    expect "the declined removal leaves the entry"                    st_is "${SBROOT}/${N_C2}" listed
+    expect "the declined removal leaves the entry"                    st_is "${SBROOT}/${N_C2}" enabled
     cli_stub_reset; drive cli_in "${SBROOT}/${N_C2}" ai-tools.projects.remove.clone "$(f yes)"
     expect "the clone removal --yes without a path is refused"        rc_is 2
     expect "the refused removal leaves the clone"                     test -d "${SBROOT}/${N_C2}"
@@ -1068,7 +1189,7 @@ drive_rows() {
 
     # ── J. Lockdown and reclaim ───────────────────────────────────────────────────────
     section "ai-tools.projects.lockdown / ai-tools.projects.handback"
-    seed "${R}/pa"
+    seed "@ ${R}/pa"
     cli_stub_reset; drive cli ai-tools.projects.lockdown "${R}/pa"
     expect "lockdown runs the helper inside the project"              test "$(cwd_of ai-tools-lockdown)" = "${R}/pa"
     expect "lockdown passes no flag by default"                       test -z "$(cli_calls ai-tools-lockdown)"

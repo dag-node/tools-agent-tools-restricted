@@ -14,21 +14,21 @@ operator.
 atr projects        # the same command as: atr projects list
 ```
 
-Lists every line of the registry by its kind: a project, claimed in place
-or a sandbox clone, with the git `safe.directory` status of each; a parked
-project (`%`), with the `atr projects enable` that restores it; a carve-out
-(`!`); and a conflict, a path a `!` line and an entry both name. A **Suggested
-cleanup** section follows, naming each inconsistent line with the command
-that reconciles it: a path that no longer exists, a project listed but not
-fully claimed, or a `safe.directory` entry no line in the registry covers. It
-is read-only: every fix is a command it prints for you to run, carrying
-the full path.
+Lists every line of the registry by its kind, the word in the first column:
+a project (`@`), `project` when claimed in place and `sandbox` for a sandbox
+clone, with the git `safe.directory` status of each; a `disabled` project
+(`%`), with the `atr projects enable` that restores it; and an excluded path
+(`!`), `exclude`. A **Suggested cleanup** section follows, naming each
+inconsistent line with the command that reconciles it: a path that no longer
+exists, a project listed but not fully claimed, or a `safe.directory` entry no
+line in the registry covers. It is read-only: every fix is a command it prints
+for you to run, carrying the full path.
 
 A registry the grammar refuses is not listed: the command prints the line
 the grammar refuses and exits 1, as every other `projects` command does
 over that file. The `~/.config/ai-tools/allowed-projects` an earlier release
 wrote is listed under a line naming `atr admin system post-upgrade`, with every
-`!` line read as a carve-out.
+`!` line read as an excluded path.
 
 The command does not take an argument; one given exits 2. It does not need
 `sudo`, and it stays open to an account that is not an operator, so it is

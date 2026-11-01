@@ -21,7 +21,7 @@ mktestdir
 proj="$(realpath "${TESTDIR}")/proj"
 outside="$(realpath "${TESTDIR}")/outside"
 mkdir -p "${proj}" "${outside}"
-mk_allowlist "${proj}"                            # proj is allowed; outside is not
+mk_allowlist "@ ${proj}"                            # proj is allowed; outside is not
 gc="${TESTDIR}/gitconfig"; : > "${gc}"            # fixture the helper writes into
 
 run() { AI_TOOLS_GITCONFIG="${gc}" setsid "${HELPER}" "$@" < /dev/null > /dev/null 2>&1; }

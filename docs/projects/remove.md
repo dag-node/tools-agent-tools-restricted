@@ -27,16 +27,16 @@ atr projects remove .
 
 ## What authorizes it
 
-An **exact** entry for the path in your project registry, an allow or a `%`
+An **exact** entry for the path in your project registry, an `@` or a `%`
 line, and only that: there is no `--force`, since deleting a tree no entry
-registers is an unclaim plus an `rm` you type yourself. A parked (`%`) entry
+registers is an unclaim plus an `rm` you type yourself. A disabled (`%`) entry
 counts, since it records a project taken out of service and still yours,
 and adds one confirmation naming that state. A directory enclosing claimed
 projects, a path *inside* a project, an unregistered path, and a project
 that **contains** another claimed project are each refused, the last because
 deleting it would take the nested one with it and leave that project registered
-at a path that no longer exists. A carve-out (`!`) is refused too, since no
-entry authorizes deleting it, and the carve-out lines under a project you
+at a path that no longer exists. An excluded path (`!`) is refused too, since
+no entry authorizes deleting it, and the excluded lines under a project you
 remove stay in the file, which `atr projects list` then reports as stale.
 A sandbox clone is authorized by being one ([A sandbox
 clone](#a-sandbox-clone)). The rules are

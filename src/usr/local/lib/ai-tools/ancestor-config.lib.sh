@@ -176,7 +176,7 @@ ai_tools_ancestor_config__can_session_read() {
 #   ai_tools_ancestor_config__can_session_read passes them and they are not reported -- while a file further up, which
 #   a toolchain reaches by walking past that project, still is. Reading the project registry here would
 #   answer a different question and get both wrong: an entry gates where a session LAUNCHES, not what
-#   it may read, so a PARKED claimed ancestor -- a registry edit that leaves group and label in place
+#   it may read, so a DISABLED claimed ancestor -- a registry edit that leaves group and label in place
 #   -- would be reported over files the session reads.
 ai_tools_ancestor_config__find_unreadable_configs() {
     local dir="${1:-}" ancestor name candidate

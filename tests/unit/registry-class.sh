@@ -3,7 +3,7 @@
 # tests/unit/registry-class.sh
 # The registry classifier in conf.lib.sh (ai_tools_conf__read_registry_path_class), which every `projects` verb decides
 # from, driven as a table: one fixture registry per shape a host meets, one row per (fixture, path) asserting every
-# field of the record and the state. The set of states the rows reach is asserted equal to the seven the classifier
+# field of the record and the state. The set of states the rows reach is asserted equal to the ones the classifier
 # names, so a state added to the library without rows fails this file, and so does a row naming a state the library does
 # not derive. `blocked` names the first line in file order, which a pair of fixtures holding the same lines in both
 # orders pins. The table runs under the launch wrapper's IFS, the shell the CLI and the wrapper read the record in.
@@ -28,7 +28,7 @@ fi
 mktestdir
 T="${TESTDIR}/tree"
 mkdir -p "${T}"/A/vendor/x "${T}"/A/sub "${T}"/A/src "${T}"/B/child/y "${T}"/B/x "${T}"/C/n/z "${T}"/D/q \
-         "${T}"/G/m/cache "${T}/H dir" "${T}"/I "${T}"/J/k "${T}"/K "${T}"/L/m/n "${T}"/M "${T}"/N/o "${T}/P dir#1/q" "${T}"/zzz
+         "${T}"/G/m/cache/x "${T}/H dir" "${T}"/I "${T}"/J/k "${T}"/K "${T}"/L/m/n "${T}"/M "${T}"/N/o "${T}/P dir#1/q" "${T}"/zzz
 ln -s "${T}/K" "${T}/K-link"
 
 # fixture <name> <line>... : write the registry <name>, the marker first.
@@ -36,62 +36,61 @@ fixture() {
     local name="$1"; shift
     printf '%s\n' "# ai-tools-project-registry-format: 1.0" "$@" > "${TESTDIR}/${name}"
 }
-fixture nested-carve   "${T}/A" "!${T}/A/vendor" "${T}/A/sub"
-fixture parked-parent  "%${T}/B" "${T}/B/child" "!${T}/B/x"
-fixture nested-park    "${T}/C" "%${T}/C/n"
-fixture conflict       "${T}/D" "!${T}/D"
-fixture stale-allow    "${T}/E-gone"
-fixture stale-park     "%${T}/F-gone"
-fixture glob           "${T}/G" "!${T}/G/*/cache"
-fixture quoted         "\"${T}/H dir\""
-fixture commented      "${T}/I   # a note" "# ${T}/zzz"
-fixture lone-carve     "!${T}/J"
-fixture symlink        "${T}/K-link"
-fixture carve-first    "!${T}/L" "%${T}/L/m"
-fixture park-first     "%${T}/L/m" "!${T}/L"
-fixture duplicate-pair "${T}/M" "%${T}/M"
+fixture nested-excluded "@ ${T}/A" "! ${T}/A/vendor" "@ ${T}/A/sub"
+fixture disabled-parent "% ${T}/B" "@ ${T}/B/child" "! ${T}/B/x"
+fixture nested-disabled "@ ${T}/C" "% ${T}/C/n"
+fixture stale-allow     "@ ${T}/E-gone"
+fixture stale-disabled  "% ${T}/F-gone"
+fixture glob            "@ ${T}/G" "! ${T}/G/*/cache"
+fixture quoted          "@ \"${T}/H dir\""
+fixture commented       "@ ${T}/I   # a note"
+fixture lone-excluded   "! ${T}/J"
+fixture symlink         "@ ${T}/K-link"
+fixture excluded-first  "! ${T}/L" "% ${T}/L/m"
+fixture disabled-first  "% ${T}/L/m" "! ${T}/L"
+# The second line is the glued, trailing-slash spelling the reader accepts and the writer does not produce.
+fixture identical       "@ ${T}/M   # first" "@${T}/M/"
 # A tab before a comment is whitespace to the grammar; in the record it would split a field, so `blocked` shows it `?`.
-fixture tab-comment    "%${T}/N"$'\t'"# parked" "${T}/N/o"
-# A park whose path carries a space and a '#' is quoted; blocked_path is the path the quotes hold.
-fixture space-hash     "%\"${T}/P dir#1\""
+fixture tab-comment     "% ${T}/N"$'\t'"# disabled" "@ ${T}/N/o"
+# A '%' line whose path carries a space and a '#' is quoted; blocked_path is the path the quotes hold.
+fixture space-hash      "% \"${T}/P dir#1\""
 
 # The table: fixture | path | state | own | enclosing | enclosing_state | blocked | blocked_kind | nested
 # | blocked_path, with @ for the fixture tree.
 TABLE="$(cat <<'ROWS'
-nested-carve   | @/A          | listed       | allow       | -         | -        | -             | -     | 1 | -
-nested-carve   | @/A/vendor   | carve-out    | carve       | @/A       | listed   | -             | -     | 0 | -
-nested-carve   | @/A/vendor/x | inside       | none        | @/A       | listed   | !@/A/vendor   | carve | 0 | @/A/vendor
-nested-carve   | @/A/sub      | listed       | allow       | @/A       | listed   | -             | -     | 0 | -
-nested-carve   | @/A/src      | inside       | none        | @/A       | listed   | -             | -     | 0 | -
-nested-carve   | @            | ancestor     | none        | -         | -        | -             | -     | 2 | -
-nested-carve   | @/zzz        | unregistered | none        | -         | -        | -             | -     | 0 | -
-parked-parent  | @/B          | parked       | park        | -         | -        | -             | -     | 1 | -
-parked-parent  | @/B/child    | listed       | allow       | @/B       | parked   | %@/B          | park  | 0 | @/B
-parked-parent  | @/B/x        | carve-out    | carve       | @/B       | parked   | %@/B          | park  | 0 | @/B
-parked-parent  | @/B/child/y  | inside       | none        | @/B/child | listed   | %@/B          | park  | 0 | @/B
-nested-park    | @/C          | listed       | allow       | -         | -        | -             | -     | 1 | -
-nested-park    | @/C/n        | parked       | park        | @/C       | listed   | -             | -     | 0 | -
-nested-park    | @/C/n/z      | inside       | none        | @/C/n     | parked   | %@/C/n        | park  | 0 | @/C/n
-conflict       | @/D          | conflict     | allow,carve | -         | -        | -             | -     | 0 | -
-conflict       | @/D/q        | inside       | none        | @/D       | conflict | !@/D          | carve | 0 | @/D
-stale-allow    | @/E-gone     | listed       | allow       | -         | -        | -             | -     | 0 | -
-stale-park     | @/F-gone     | parked       | park        | -         | -        | -             | -     | 0 | -
-glob           | @/G/m        | inside       | none        | @/G       | listed   | -             | -     | 0 | -
-glob           | @/G/m/cache  | inside       | none        | @/G       | listed   | !@/G/*/cache  | glob  | 0 | @/G/*/cache
-quoted         | @/H dir      | listed       | allow       | -         | -        | -             | -     | 0 | -
-commented      | @/I          | listed       | allow       | -         | -        | -             | -     | 0 | -
-commented      | @/zzz        | unregistered | none        | -         | -        | -             | -     | 0 | -
-lone-carve     | @/J          | carve-out    | carve       | -         | -        | -             | -     | 0 | -
-lone-carve     | @/J/k        | unregistered | none        | -         | -        | !@/J          | carve | 0 | @/J
-symlink        | @/K          | listed       | allow       | -         | -        | -             | -     | 0 | -
-carve-first    | @/L/m/n      | inside       | none        | @/L/m     | parked   | !@/L          | carve | 0 | @/L
-park-first     | @/L/m/n      | inside       | none        | @/L/m     | parked   | %@/L/m        | park  | 0 | @/L/m
-duplicate-pair | @/M          | parked       | allow,park  | -         | -        | -             | -     | 0 | -
-tab-comment    | @/N/o        | listed       | allow       | @/N       | parked   | %@/N?# parked | park  | 0 | @/N
-space-hash     | @/P dir#1/q  | inside       | none        | @/P dir#1 | parked   | %"@/P dir#1"  | park  | 0 | @/P dir#1
+nested-excluded | @/A          | enabled      | project  | -         | -        | -                | -        | 1 | -
+nested-excluded | @/A/vendor   | excluded     | excluded | @/A       | enabled  | -                | -        | 0 | -
+nested-excluded | @/A/vendor/x | inside       | none     | @/A       | enabled  | ! @/A/vendor     | excluded | 0 | @/A/vendor
+nested-excluded | @/A/sub      | enabled      | project  | @/A       | enabled  | -                | -        | 0 | -
+nested-excluded | @/A/src      | inside       | none     | @/A       | enabled  | -                | -        | 0 | -
+nested-excluded | @            | ancestor     | none     | -         | -        | -                | -        | 2 | -
+nested-excluded | @/zzz        | unregistered | none     | -         | -        | -                | -        | 0 | -
+disabled-parent | @/B          | disabled     | disabled | -         | -        | -                | -        | 1 | -
+disabled-parent | @/B/child    | enabled      | project  | @/B       | disabled | % @/B            | disabled | 0 | @/B
+disabled-parent | @/B/x        | excluded     | excluded | @/B       | disabled | % @/B            | disabled | 0 | @/B
+disabled-parent | @/B/child/y  | inside       | none     | @/B/child | enabled  | % @/B            | disabled | 0 | @/B
+nested-disabled | @/C          | enabled      | project  | -         | -        | -                | -        | 1 | -
+nested-disabled | @/C/n        | disabled     | disabled | @/C       | enabled  | -                | -        | 0 | -
+nested-disabled | @/C/n/z      | inside       | none     | @/C/n     | disabled | % @/C/n          | disabled | 0 | @/C/n
+stale-allow     | @/E-gone     | enabled      | project  | -         | -        | -                | -        | 0 | -
+stale-disabled  | @/F-gone     | disabled     | disabled | -         | -        | -                | -        | 0 | -
+glob            | @/G/m        | inside       | none     | @/G       | enabled  | -                | -        | 0 | -
+glob            | @/G/m/cache  | inside       | none     | @/G       | enabled  | ! @/G/*/cache    | glob     | 0 | @/G/*/cache
+glob            | @/G/m/cache/x | inside      | none     | @/G       | enabled  | ! @/G/*/cache    | glob     | 0 | @/G/*/cache
+quoted          | @/H dir      | enabled      | project  | -         | -        | -                | -        | 0 | -
+commented       | @/I          | enabled      | project  | -         | -        | -                | -        | 0 | -
+commented       | @/zzz        | unregistered | none     | -         | -        | -                | -        | 0 | -
+lone-excluded   | @/J          | excluded     | excluded | -         | -        | -                | -        | 0 | -
+lone-excluded   | @/J/k        | unregistered | none     | -         | -        | ! @/J            | excluded | 0 | @/J
+symlink         | @/K          | enabled      | project  | -         | -        | -                | -        | 0 | -
+excluded-first  | @/L/m/n      | inside       | none     | @/L/m     | disabled | ! @/L            | excluded | 0 | @/L
+disabled-first  | @/L/m/n      | inside       | none     | @/L/m     | disabled | % @/L/m          | disabled | 0 | @/L/m
+identical       | @/M          | enabled      | project  | -         | -        | -                | -        | 0 | -
+tab-comment     | @/N/o        | enabled      | project  | @/N       | disabled | % @/N?# disabled | disabled | 0 | @/N
+space-hash      | @/P dir#1/q  | inside       | none     | @/P dir#1 | disabled | % "@/P dir#1"    | disabled | 0 | @/P dir#1
 ROWS
 )"
-readonly DECLARED_STATES="ancestor carve-out conflict inside listed parked unregistered"
+readonly DECLARED_STATES="ancestor disabled enabled excluded inside unregistered"
 
 # trim <text> : print <text> without leading or trailing spaces.
 trim() { local t="$1"; t="${t#"${t%%[! ]*}"}"; printf '%s' "${t%"${t##*[! ]}"}"; }
@@ -124,15 +123,27 @@ fi
 lib_states="$(sed -n '/^# ── Registry classification/,/^# The launch DECISION/p' "${LIB}" \
     | sed -n 's/^#   \([a-z-]*\) .*/\1/p' | grep -v '^state$' | sort | tr '\n' ' ')"
 if [[ "${lib_states% }" == "${DECLARED_STATES}" ]]; then
-    pass "the library's state table names the seven states this file covers"
+    pass "the library's state table names the states this file covers"
 else
     fail "the library's state table names '${lib_states% }'"
 fi
 
-# A refused file and a missing one print nothing: 3 and 1.
-fixture refused "${T}/A" "relative/line"
+# A refused file and a missing one print nothing: 3 and 1. Two signs on one path are a refused file, written as one
+# path (MSG-B8U2) or as two spellings of one directory through a link (MSG-E3W3).
+fixture refused "@ ${T}/A" "@ relative/line"
 rc=0; out="$(ai_tools_conf__read_registry_path_class "${TESTDIR}/refused" "${T}/A" 2>/dev/null)" || rc=$?
 if [[ "${rc}" -eq 3 && -z "${out}" ]]; then pass "a refused registry classifies no path (3)"; else fail "a refused registry: rc ${rc}, '${out}'"; fi
+fixture two-signs  "@ ${T}/D" "! ${T}/D"
+fixture two-spells "@ ${T}/K" "% ${T}/K-link"
+for refused_fixture in two-signs:MSG-B8U2:D two-spells:MSG-E3W3:K; do
+    IFS=: read -r refused_name refused_code refused_dir <<<"${refused_fixture}"
+    rc=0; out="$(ai_tools_conf__read_registry_path_class "${TESTDIR}/${refused_name}" "${T}/${refused_dir}" 2>"${TESTDIR}/err")" || rc=$?
+    if [[ "${rc}" -eq 3 && -z "${out}" ]]; then
+        assert_msg "${refused_code}" "$(cat "${TESTDIR}/err")" "${refused_name}: two signs on one directory classify no path (3)"
+    else
+        fail "${refused_name}: rc ${rc}, '${out}'"
+    fi
+done
 rc=0; out="$(ai_tools_conf__read_registry_path_class "${TESTDIR}/absent" "${T}/A" 2>/dev/null)" || rc=$?
 if [[ "${rc}" -eq 1 && -z "${out}" ]]; then pass "a missing registry classifies no path (1)"; else fail "a missing registry: rc ${rc}, '${out}'"; fi
 
@@ -140,10 +151,10 @@ if [[ "${rc}" -eq 1 && -z "${out}" ]]; then pass "a missing registry classifies 
 # has opened the file. The classifier reads the inode it opened, so a replacement holding /pri<NUL>vate, which `read`
 # takes as /private, is not read; the same stub with no replacement waiting is the control.
 mkdir -p "${T}/private"
-printf '%s\n%s\0%s\n' "# ai-tools-project-registry-format: 1.0" "${T}/pri" "vate" > "${TESTDIR}/pinned.next"
+printf '%s\n%s\0%s\n' "# ai-tools-project-registry-format: 1.0" "@ ${T}/pri" "vate" > "${TESTDIR}/pinned.next"
 # pinned_state <path> : the state the classifier reads for <path> over the fixture `pinned`, under the renaming stub.
 pinned_state() {
-    fixture pinned "${T}/A"
+    fixture pinned "@ ${T}/A"
     ( tr() { if [[ -e "${TESTDIR}/pinned.next" ]]; then mv -f -- "${TESTDIR}/pinned.next" "${TESTDIR}/pinned"; fi
              command tr "$@"; }
       ai_tools_conf__read_registry_path_class "${TESTDIR}/pinned" "$1" ) 2>/dev/null | cut -f1
@@ -157,7 +168,7 @@ else
     fail "one open per read: /private reads '${got}' from the replacement"
 fi
 got="$(pinned_state "${T}/A")"
-if [[ "${got}" == listed ]]; then pass "one open per read: the control, the stub renaming nothing, reads the original"; else fail "one open per read: the control reads '${got}'"; fi
+if [[ "${got}" == enabled ]]; then pass "one open per read: the control, the stub renaming nothing, reads the original"; else fail "one open per read: the control reads '${got}'"; fi
 
 # ── ai_tools_conf__list_registry_entries_under ───────────────────────────────────────────────
 under_is() {   # under_is <fixture> <path> <expected, one `path<TAB>state` per line> <desc>
@@ -165,11 +176,10 @@ under_is() {   # under_is <fixture> <path> <expected, one `path<TAB>state` per l
     got="$(ai_tools_conf__list_registry_entries_under "${TESTDIR}/$1" "$2" 2>&1)" || rc=$?
     if [[ "${rc}" -eq 0 && "${got}" == "$3" ]]; then pass "$4"; else fail "$4: rc ${rc}, got '${got//$'\n'/; }'"; fi
 }
-under_is nested-carve "${T}" "${T}/A"$'\t'"listed"$'\n'"${T}/A/sub"$'\t'"listed" \
-    "entries under an ancestor, in file order, the carve-out left out"
-under_is parked-parent "${T}/B" "${T}/B/child"$'\t'"listed" "a parked project's nested entry is listed under it"
-under_is conflict "${T}" "${T}/D"$'\t'"conflict" "a conflict entry is listed with its state"
-under_is duplicate-pair "${T}" "${T}/M"$'\t'"parked" "a path named by two lines is one entry"
-under_is lone-carve "${T}" "" "a carve-out alone is not an entry"
+under_is nested-excluded "${T}" "${T}/A"$'\t'"enabled"$'\n'"${T}/A/sub"$'\t'"enabled" \
+    "entries under an ancestor, in file order, the excluded path left out"
+under_is disabled-parent "${T}/B" "${T}/B/child"$'\t'"enabled" "a disabled project's nested entry is listed under it"
+under_is identical "${T}" "${T}/M"$'\t'"enabled" "a path named by two identical lines is one entry"
+under_is lone-excluded "${T}" "" "an excluded path alone is not an entry"
 
 finish

@@ -225,7 +225,10 @@ if command -v runuser >/dev/null 2>&1; then
     # An empty FIXTURE allowlist (AI_TOOLS_ALLOWLIST test hook) so the mutating-verb refusals classify against it, never
     # the operator's real registry -- and a regression that wrote past a refusal would touch this throwaway file,
     # which the next assertion inspects.
-    emptyal="${TESTDIR}/empty-allowlist"; printf '%s\n' "${REG_MARKER}" > "${emptyal}"; chown "${PROJECTS_USER}:${PROJECTS_USER}" "${emptyal}"
+    # Every registry write renames a whole file into the registry's own directory, so the fixture's directory is
+    # the operator's, as ~/.config/ai-tools is.
+    emptyal_dir="${TESTDIR}/empty-registry"; mkdir -p "${emptyal_dir}"; chown "${PROJECTS_USER}:${PROJECTS_USER}" "${emptyal_dir}"
+    emptyal="${emptyal_dir}/project-registry"; printf '%s\n' "${REG_MARKER}" > "${emptyal}"; chown "${PROJECTS_USER}:${PROJECTS_USER}" "${emptyal}"
 
     spell ai-tools.projects.claim
     out="$(runuser -u "${PROJECTS_USER}" -- env HOME="${PROJECTS_HOME}" \
@@ -572,7 +575,7 @@ if command -v runuser >/dev/null 2>&1; then
     else
         fail "ai-tools.projects.create left an incomplete tree: $(ls -A "${newproj}" 2>&1)"
     fi
-    if grep -qxF "${newproj}" "${emptyal}"; then
+    if grep -qxF "@ ${newproj}" "${emptyal}"; then
         pass "ai-tools.projects.create registers the new project in the project registry"
     else
         fail "ai-tools.projects.create did not register the project: $(cat "${emptyal}")"
@@ -650,7 +653,7 @@ if command -v runuser >/dev/null 2>&1; then
 
     # An unregistered path is refused: the registry entry is the authorization, so a tree no registry names claimed is
     # not this verb's to delete.
-    printf '%s\n' "${REG_MARKER}" "${rmproj}" > "${rmal}"; chown "${PROJECTS_USER}" "${rmal}"
+    printf '%s\n' "${REG_MARKER}" "@ ${rmproj}" > "${rmal}"; chown "${PROJECTS_USER}" "${rmal}"
     out="$(remove_cli "${rmother}")" && rc=0 || rc=$?
     assert_msg MSG-P8Y8 "${out}" "ai-tools.projects.remove.inplace refuses an unregistered path"
     if [[ ${rc} -ne 0 ]] && [[ -d "${rmother}" ]]; then
@@ -680,7 +683,7 @@ if command -v runuser >/dev/null 2>&1; then
 
     # An exact entry that CONTAINS another claimed project is refused. Deleting it would take the nested one with it
     # and leave that project registered, git-trusted and labelled at a path that no longer exists.
-    printf '%s\n' "${REG_MARKER}" "${rmproj}" "${rmnested}" > "${rmal}"; chown "${PROJECTS_USER}" "${rmal}"
+    printf '%s\n' "${REG_MARKER}" "@ ${rmproj}" "@ ${rmnested}" > "${rmal}"; chown "${PROJECTS_USER}" "${rmal}"
     out="$(remove_cli "${rmproj}")" && rc=0 || rc=$?
     if [[ ${rc} -ne 0 ]] && [[ -d "${rmnested}" ]] && grep -qF "${rmnested}" <<<"${out}"; then
         pass "ai-tools.projects.remove.inplace refuses a project containing another claimed project, naming it"
@@ -691,7 +694,7 @@ if command -v runuser >/dev/null 2>&1; then
 
     # There is no --force: the flag that reaches an unregistered tree on unclaim must not become a way to delete one
     # here.
-    printf '%s\n' "${REG_MARKER}" "${rmproj}" > "${rmal}"; chown "${PROJECTS_USER}" "${rmal}"
+    printf '%s\n' "${REG_MARKER}" "@ ${rmproj}" > "${rmal}"; chown "${PROJECTS_USER}" "${rmal}"
     out="$(remove_cli --force "${rmother}")" && rc=0 || rc=$?
     assert_msg MSG-S6Q5 "${out}" "ai-tools.projects.remove.inplace has no --force, refused ahead of classification"
     if [[ ${rc} -ne 0 ]] && [[ -d "${rmother}" ]]; then
@@ -748,7 +751,7 @@ if command -v runuser >/dev/null 2>&1; then
         if [[ -e "${rmmarker}" ]]; then
             pass "control: a rev-list over the armed clone runs the configured transport"
             rm -f "${rmmarker}"
-            printf '%s\n' "${REG_MARKER}" "${rmrepo}" > "${rmal}"; chown "${PROJECTS_USER}" "${rmal}"
+            printf '%s\n' "${REG_MARKER}" "@ ${rmrepo}" > "${rmal}"; chown "${PROJECTS_USER}" "${rmal}"
             out="$(remove_cli "${rmrepo}")" && rc=0 || rc=$?
             if [[ ! -e "${rmmarker}" ]] && [[ -d "${rmrepo}" ]]; then
                 pass "ai-tools.projects.remove.inplace runs no git over the tree (the configured transport did not run)"
@@ -769,7 +772,7 @@ if command -v runuser >/dev/null 2>&1; then
         rmblocked="${rmwork}/rm-blocked"; mkdir -p "${rmblocked}/locked"
         chown "${PROJECTS_USER}:${PROJECTS_USER}" "${rmblocked}"
         chown nobody:nobody "${rmblocked}/locked"; chmod 0700 "${rmblocked}/locked"
-        printf '%s\n' "${REG_MARKER}" "${rmblocked}" > "${rmal}"; chown "${PROJECTS_USER}" "${rmal}"
+        printf '%s\n' "${REG_MARKER}" "@ ${rmblocked}" > "${rmal}"; chown "${PROJECTS_USER}" "${rmal}"
         out="$(remove_cli -y "${rmblocked}")" && rc=0 || rc=$?
         if [[ ${rc} -ne 0 ]] && [[ -d "${rmblocked}/locked" ]] \
                 && grep -qF -- "$(cli_cmd_text ai-tools.projects.handback) $(cli_flag full)" <<<"${out}" \
@@ -788,7 +791,7 @@ if command -v runuser >/dev/null 2>&1; then
     # projects on a host where nobody typed -y. It cannot: the confirm's default is NO (the lib only fast-tracks
     # default-YES questions) and the challenge has no default at all. Asserted with the variable set AND a terminal
     # absent, which is exactly how an unattended run arrives.
-    printf '%s\n' "${REG_MARKER}" "${rmproj}" > "${rmal}"; chown "${PROJECTS_USER}" "${rmal}"
+    printf '%s\n' "${REG_MARKER}" "@ ${rmproj}" > "${rmal}"; chown "${PROJECTS_USER}" "${rmal}"
     spell ai-tools.projects.remove.inplace
     out="$(runuser -u "${PROJECTS_USER}" -- env HOME="${PROJECTS_HOME}" \
             AI_TOOLS_OPERATOR_CONF="${oconf}" AI_TOOLS_ALLOWLIST="${rmal}" \
@@ -810,7 +813,7 @@ if command -v runuser >/dev/null 2>&1; then
     _protected_targets=(/etc)
     [[ "${PROJECTS_HOME}" =~ ^/home/[^/]+$ ]] && _protected_targets+=("${PROJECTS_HOME}")
     for _bad in "${_protected_targets[@]}"; do
-        printf '%s\n' "${REG_MARKER}" "${_bad}" > "${rmal}"; chown "${PROJECTS_USER}" "${rmal}"
+        printf '%s\n' "${REG_MARKER}" "@ ${_bad}" > "${rmal}"; chown "${PROJECTS_USER}" "${rmal}"
         out="$(remove_cli -y "${_bad}")" && rc=0 || rc=$?
         if [[ ${rc} -eq 3 ]] && [[ -d "${_bad}" ]]; then
             pass "ai-tools.projects.remove.inplace refuses the protected path ${_bad} (exit 3) even when listed"
@@ -821,7 +824,7 @@ if command -v runuser >/dev/null 2>&1; then
 
     # -y must not bypass the classification. The scripted-removal mistake is a -y run pointed at a path that is not
     # a claimed project; the flag pre-answers the two prompts alone.
-    printf '%s\n' "${REG_MARKER}" "${rmproj}" > "${rmal}"; chown "${PROJECTS_USER}" "${rmal}"
+    printf '%s\n' "${REG_MARKER}" "@ ${rmproj}" > "${rmal}"; chown "${PROJECTS_USER}" "${rmal}"
     out="$(remove_cli -y "${rmother}")" && rc=0 || rc=$?
     if [[ ${rc} -ne 0 ]] && [[ -d "${rmother}" ]]; then
         pass "-y does not bypass the registry check (an unlisted path is still refused)"
@@ -836,7 +839,7 @@ if command -v runuser >/dev/null 2>&1; then
     # which is exactly that shape. Both the tree AND its contents must survive.
     rmpar="${TESTDIR}/rm-parent"; mkdir -p "${rmpar}/sub"
     chown -R "${PROJECTS_USER}:${PROJECTS_USER}" "${rmpar}"
-    printf '%s\n' "${REG_MARKER}" "${rmpar}" > "${rmal}"; chown "${PROJECTS_USER}" "${rmal}"
+    printf '%s\n' "${REG_MARKER}" "@ ${rmpar}" > "${rmal}"; chown "${PROJECTS_USER}" "${rmal}"
     out="$(remove_cli -y "${rmpar}")" && rc=0 || rc=$?
     # By code: the unwritable-parent refusal (MSG-H3F6), raised before the walk begins.
     assert_msg MSG-H3F6 "${out}" "ai-tools.projects.remove.inplace refuses an unwritable parent"
@@ -855,7 +858,7 @@ if command -v runuser >/dev/null 2>&1; then
     rmstuck="${rmwork}/rm-stuck"; mkdir -p "${rmstuck}"
     chown -R "${PROJECTS_USER}:${PROJECTS_USER}" "${rmstuck}"
     stuckal="${TESTDIR}/stuck-allowlist"
-    printf '%s\n' "${REG_MARKER}" "${rmstuck}" > "${stuckal}"; chown "${PROJECTS_USER}" "${stuckal}"
+    printf '%s\n' "${REG_MARKER}" "@ ${rmstuck}" > "${stuckal}"; chown "${PROJECTS_USER}" "${stuckal}"
     spell ai-tools.projects.remove.inplace
     out="$(runuser -u "${PROJECTS_USER}" -- env HOME="${PROJECTS_HOME}" \
             AI_TOOLS_OPERATOR_CONF="${oconf}" AI_TOOLS_ALLOWLIST="${stuckal}" \
@@ -878,7 +881,7 @@ if command -v runuser >/dev/null 2>&1; then
     # AND the allowlist entry with it -- because the ordering guarantee is only meaningful if the deletion actually ran.
     rmgo="${rmwork}/rm-go"; mkdir -p "${rmgo}/sub"
     chown -R "${PROJECTS_USER}:${PROJECTS_USER}" "${rmgo}"
-    printf '%s\n' "${REG_MARKER}" "${rmgo}" > "${rmal}"; chown "${PROJECTS_USER}" "${rmal}"
+    printf '%s\n' "${REG_MARKER}" "@ ${rmgo}" > "${rmal}"; chown "${PROJECTS_USER}" "${rmal}"
     # The tree must be gone and deregistered. The exit status depends on the environment: on an enforcing host
     # the SELinux label removal needs a password this run cannot supply, so a cleanup step fails and the verb exits 1
     # while still having removed the project. Both are correct; what is asserted is that a run with failures does NOT
@@ -925,7 +928,7 @@ EOF
         # left_reported <key> <path> <registry> : the assertions a failed deletion owes, for either kind.
         left_reported() {
             local key="$1" p="$2" reg="$3"
-            if [[ ${rc} -eq 1 && -d "${p}" ]] && ! grep -qxF -- "${p}" "${reg}"; then
+            if [[ ${rc} -eq 1 && -d "${p}" ]] && ! grep -qF -- "${p}" "${reg}"; then
                 pass "${key} whose deletion fails exits 1 with the tree on disk and the entry removed"
             else
                 fail "${key} over a failed deletion: rc=${rc}, on disk $([[ -d "${p}" ]] && echo yes || echo no): $(brief "${out}")"
@@ -944,7 +947,7 @@ EOF
         }
         rmleft="${rmwork}/rm left"; mkdir -p "${rmleft}/sub"
         chown -R "${PROJECTS_USER}:${PROJECTS_USER}" "${rmleft}"
-        printf '%s\n' "${REG_MARKER}" "${rmleft}" > "${rmal}"; chown "${PROJECTS_USER}" "${rmal}"
+        printf '%s\n' "${REG_MARKER}" "@ ${rmleft}" > "${rmal}"; chown "${PROJECTS_USER}" "${rmal}"
         spell ai-tools.projects.remove.inplace
         remove_left "${rmleft}" "${rmal}"
         left_reported ai-tools.projects.remove.inplace "${rmleft}" "${rmal}"
@@ -958,25 +961,22 @@ EOF
     # conditional returns 1.
     lst="${TESTDIR}/list"; mkdir -p \
         "${lst}/partial" "${lst}/eol-comment" "${lst}/quoted dir" \
-        "${lst}/glob-parent" "${lst}/excluded-live" "${lst}/orphan" "${lst}/parked/child" "${lst}/conflicted"
+        "${lst}/glob-parent" "${lst}/excluded-live" "${lst}/orphan" "${lst}/disabled-proj/child"
     # A git entry may name a listed project through a symlink or a `..`, so it is classified by its real path.
     ln -s "${lst}/partial" "${lst}/alias"
     chown -R "${PROJECTS_USER}:${PROJECTS_USER}" "${lst}"
     lal="${TESTDIR}/list-allowlist"
     cat > "${lal}" <<EOF
 ${REG_MARKER}
-# a header comment, ignored
-${lst}/stale-gone
-/etc
-${lst}/partial
-${lst}/eol-comment    # main repo
-"${lst}/quoted dir"
-!${lst}/excluded-live
-!${lst}/excluded-stale-gone
-%${lst}/parked
-${lst}/parked/child
-${lst}/conflicted
-!${lst}/conflicted
+@ ${lst}/stale-gone
+@ /etc
+@ ${lst}/partial
+@ ${lst}/eol-comment    # main repo
+@ "${lst}/quoted dir"
+! ${lst}/excluded-live
+! ${lst}/excluded-stale-gone
+% ${lst}/disabled-proj
+@ ${lst}/disabled-proj/child
 EOF
     chown "${PROJECTS_USER}:${PROJECTS_USER}" "${lal}"
     lgc="${TESTDIR}/list-gitconfig"
@@ -984,8 +984,7 @@ EOF
 [safe]
 	directory = ${lst}/partial
 	directory = ${lst}/orphan
-	directory = ${lst}/parked
-	directory = ${lst}/conflicted
+	directory = ${lst}/disabled-proj
 	directory = ${lst}/alias
 	directory = ${lst}/orphan/../partial
 	directory = /opt/ai-tools
@@ -1004,15 +1003,15 @@ EOF
     list_has "stale entry"            "ai-tools.projects.list flags a stale allow entry"
     list_has "protected system path"  "ai-tools.projects.list flags a protected system path (/etc)"
     list_has "listed but not fully claimed" "ai-tools.projects.list flags a listed-but-unclaimed project"
-    list_has "parked"                 "ai-tools.projects.list renders a '%' line as a parked project"
-    list_has "re-enable: atr projects enable ${lst}/parked" "ai-tools.projects.list names the re-enable of a parked project"
-    list_has "blocked"                "ai-tools.projects.list notes a listed project under a park as blocked"
+    list_has "disabled ${lst}/disabled-proj" "ai-tools.projects.list renders a '%' line as a disabled project"
+    list_has "re-enable: atr projects enable ${lst}/disabled-proj" "ai-tools.projects.list names the re-enable of a disabled project"
+    list_has "blocked"                "ai-tools.projects.list notes a listed project under a '%' line as blocked"
     list_has "safe.dir:yes"           "ai-tools.projects.list shows safe.dir:yes for an entry present in git safe.directory"
     list_has "${lst}/eol-comment"     "ai-tools.projects.list renders an entry carrying an end-of-line comment"
     list_has "${lst}/quoted dir"      "ai-tools.projects.list renders a quoted entry"
     # Only the gone exclusion is reconciled as stale; the live one is left alone.
-    n_stale_excl="$(grep -cF 'stale carve-out' <<<"${lout}" || true)"
-    if [[ "${n_stale_excl}" -eq 1 ]] && grep -qF "!${lst}/excluded-stale-gone" <<<"${lout}"; then
+    n_stale_excl="$(grep -cF 'stale excluded path' <<<"${lout}" || true)"
+    if [[ "${n_stale_excl}" -eq 1 ]] && grep -qF "! ${lst}/excluded-stale-gone" <<<"${lout}"; then
         pass "ai-tools.projects.list reconciles only the stale ! exclusion, leaving the live one alone"
     else
         fail "stale-exclusion count is ${n_stale_excl}, expected exactly 1 (the gone path)"
@@ -1022,7 +1021,7 @@ EOF
     # comment carries one, each print a `sed` that `bash -n` accepts and that, run over a copy of the registry, deletes
     # that line alone; a plain stale path is the control.
     lal_q="${TESTDIR}/list-allowlist-quotes"
-    printf '%s\n' "${REG_MARKER}" "${lst}/partial" "${lst}/O'Reilly" "${lst}/gone   # it's old" "${lst}/plain-gone" \
+    printf '%s\n' "${REG_MARKER}" "@ ${lst}/partial" "@ ${lst}/O'Reilly" "@ ${lst}/gone   # it's old" "@ ${lst}/plain-gone" \
         > "${lal_q}"
     chown "${PROJECTS_USER}:${PROJECTS_USER}" "${lal_q}"
     qout="$(runuser -u "${PROJECTS_USER}" -- env HOME="${PROJECTS_HOME}" \
@@ -1045,7 +1044,7 @@ EOF
             fail "the removal command '${q_command}' deleted ${#q_gone[@]} line(s) from ${q_words[3]:-?}"
         fi
     done
-    q_want="${lst}/O'Reilly"$'\n'"${lst}/gone   # it's old"$'\n'"${lst}/plain-gone"
+    q_want="@ ${lst}/O'Reilly"$'\n'"@ ${lst}/gone   # it's old"$'\n'"@ ${lst}/plain-gone"
     if [[ "$(printf '%s\n' "${q_deleted[@]}" | sort)" == "$(sort <<<"${q_want}")" ]]; then
         pass "each stale line's removal command parses and deletes that line alone, a quote or a comment in it included"
     else
@@ -1055,13 +1054,13 @@ EOF
     # A glob on an allow line is a line the grammar refuses, so the listing refuses the whole file and names the line,
     # where it once listed the line as unusable.
     lal_glob="${TESTDIR}/list-allowlist-glob"
-    printf '%s\n' "${REG_MARKER}" "${lst}/partial" "${lst}/glob-parent/*" > "${lal_glob}"
+    printf '%s\n' "${REG_MARKER}" "@ ${lst}/partial" "@ ${lst}/glob-parent/*" > "${lal_glob}"
     chown "${PROJECTS_USER}:${PROJECTS_USER}" "${lal_glob}"
     rc=0
     gout="$(runuser -u "${PROJECTS_USER}" -- env HOME="${PROJECTS_HOME}" \
             AI_TOOLS_OPERATOR_CONF="${oconf}" AI_TOOLS_ALLOWLIST="${lal_glob}" \
             AI_TOOLS_GITCONFIG="${lgc}" "${CLI}" "${CLI_ARGV[@]}" 2>&1)" || rc=$?
-    if [[ "${rc}" -eq 1 ]] && grep -qF "glob-on-allow" <<<"${gout}"; then
+    if [[ "${rc}" -eq 1 ]] && grep -qF "glob-on-project" <<<"${gout}"; then
         pass "ai-tools.projects.list refuses a registry with a glob on an allow line, naming the reason"
     else
         fail "ai-tools.projects.list over a glob allow line: rc ${rc}: $(brief "${gout}")"
@@ -1070,8 +1069,8 @@ EOF
     assert_msg MSG-Y7K5 "${gout}" "and the CLI's refusal follows it"
 
     # Reverse reconciliation: exactly one orphaned safe.directory -- the listed entry (partial), the same entry spelled
-    # through a symlink (alias) and through a `..`, the parked one (parked), the conflict (conflicted) and
-    # the control-plane entry (/opt/ai-tools, a protected path) must NOT be flagged.
+    # through a symlink (alias) and through a `..`, the disabled one (disabled-proj) and the control-plane entry
+    # (/opt/ai-tools, a protected path) must NOT be flagged.
     list_has "git safe.directory with no allowlist entry" "ai-tools.projects.list flags an orphaned safe.directory"
     list_has "${lst}/orphan"          "ai-tools.projects.list names the orphaned safedir path"
     list_lacks "/opt/ai-tools"        "ai-tools.projects.list skips the control-plane safe.directory (protected, registered deliberately)"
@@ -1082,13 +1081,11 @@ EOF
         fail "orphaned-safedir count is ${n_orphan}, expected 1"
     fi
     lcleanup="$(sed -n '/Suggested cleanup/,$p' <<<"${lout}")"
-    for lreg in parked conflicted; do
-        if grep -qxF "  ${lst}/${lreg}" <<<"${lcleanup}" || grep -qE -- "--remove ${lst}/${lreg}\$" <<<"${lcleanup}"; then
-            fail "ai-tools.projects.list offers the safe.directory of ${lst}/${lreg}, a registered path, for removal"
-        else
-            pass "ai-tools.projects.list counts the safe.directory of the ${lreg} path as registered"
-        fi
-    done
+    if grep -qxF "  ${lst}/disabled-proj" <<<"${lcleanup}" || grep -qE -- "--remove ${lst}/disabled-proj\$" <<<"${lcleanup}"; then
+        fail "ai-tools.projects.list offers the safe.directory of ${lst}/disabled-proj, a registered path, for removal"
+    else
+        pass "ai-tools.projects.list counts the safe.directory of the disabled path as registered"
+    fi
     for lalias in "${lst}/alias" "${lst}/orphan/../partial"; do
         if grep -qF -- "${lalias}" <<<"${lcleanup}"; then
             fail "ai-tools.projects.list offers the safe.directory ${lalias}, a listed project's other spelling, for removal"
@@ -1142,7 +1139,7 @@ EOF
         rclone="${sroot}/clone-kept"; mkdir -p "${rclone}"; git init -q "${rclone}"
         chown -R "${PROJECTS_USER}:${PROJECTS_USER}" "${rclone}"
         creg_dir="${TESTDIR}/clone-registry"; mkdir -p "${creg_dir}"; chown root:root "${creg_dir}"; chmod 0755 "${creg_dir}"
-        creg="${creg_dir}/project-registry"; printf '%s\n' "${REG_MARKER}" "${rclone}" > "${creg}"
+        creg="${creg_dir}/project-registry"; printf '%s\n' "${REG_MARKER}" "@ ${rclone}" > "${creg}"
         chown "${PROJECTS_USER}:${PROJECTS_USER}" "${creg}"; chmod 0644 "${creg}"
         cgc="${TESTDIR}/clone-gitconfig"; : > "${cgc}"; git config --file "${cgc}" --add safe.directory "${rclone}"
         chown "${PROJECTS_USER}:${PROJECTS_USER}" "${cgc}"
@@ -1166,7 +1163,7 @@ EOF
         fi
         chown "${PROJECTS_USER}:${PROJECTS_USER}" "${creg_dir}"
         out="$(remove_clone_run)" && rc=0 || rc=$?
-        if [[ ${rc} -eq 0 && ! -e "${rclone}" ]] && ! grep -qxF "${rclone}" "${creg}"; then
+        if [[ ${rc} -eq 0 && ! -e "${rclone}" ]] && ! grep -qF "${rclone}" "${creg}"; then
             pass "control: the same removal over a writable registry directory drops the line and deletes the clone"
         else
             fail "the control clone removal (rc=${rc}, on disk $([[ -e "${rclone}" ]] && echo yes || echo no)): $(brief "${out}")"
@@ -1174,7 +1171,7 @@ EOF
         if [[ -n "${rmstub}" ]]; then
             rleft="${sroot}/clone left"; mkdir -p "${rleft}"; git init -q "${rleft}"
             chown -R "${PROJECTS_USER}:${PROJECTS_USER}" "${rleft}"
-            printf '%s\n' "${REG_MARKER}" "${rleft}" > "${creg}"
+            printf '%s\n' "${REG_MARKER}" "@ ${rleft}" > "${creg}"
             spell ai-tools.projects.remove.clone
             remove_left "${rleft}" "${creg}" AI_TOOLS_SANDBOX_ROOT="${sroot}" AI_TOOLS_GITCONFIG="${cgc}"
             left_reported ai-tools.projects.remove.clone "${rleft}" "${creg}"
@@ -1271,7 +1268,7 @@ if command -v runuser >/dev/null 2>&1; then
     # (4) --force binds an unlisted tree to the INVOKING uid inside ai-tools-unclaim, so honouring --for there would
     # have the CLI name one operator while the helper acted as another.
     out="$(run_for ai-tools.projects.unclaim --force --for "${PROJECTS_USER}" "${fproj}")" && rc=0 || rc=$?
-    # By code: --for's own --force refusal (MSG-B5K3), not --keep-entry's (MSG-R3G9).
+    # By code: --for's own --force refusal (MSG-B5K3), raised by the gate ahead of the verb's own parser.
     refused "--for refuses to combine with ai-tools.projects.unclaim --force" MSG-B5K3
 
     # (5) A bare --for with no name is a parse error, not an empty operator silently meaning "me".
@@ -1279,12 +1276,12 @@ if command -v runuser >/dev/null 2>&1; then
     refused "--for with no operator name is refused, ahead of every gate" MSG-B4G2
 fi
 
-# ── ai-tools.projects.disable / ai-tools.projects.enable: parking a project in place ─────────
-# The pair edits ONE line of the operator's own allowlist and does not reach a root helper, so the whole lifecycle is
-# drivable here as the projects user over the fixture registry. What is asserted is what the flat-file model rests
-# on (the entry states, in cli.rule.md): the line is edited IN PLACE, a parked project is not an unlisted one,
-# and neither verb ever invents an entry or lifts a '!' carve-out -- since lifting one hands the agent a subtree its
-# operator withheld.
+# ── ai-tools.projects.disable / ai-tools.projects.enable: disabling a project ───────────────
+# The pair changes the sign of ONE line of the operator's own registry and does not reach a root helper, so the whole
+# lifecycle is drivable here as the projects user over the fixture registry. What is asserted is what the flat-file
+# model rests on (the entry states, in cli.rule.md): the write is the whole file in canonical form with that line's sign
+# changed and its comment kept, a disabled project is not an unlisted one, and neither verb ever invents an entry or
+# lifts a '!' line -- since lifting one lets a session start in a subtree its operator excluded.
 section "ai-tools.projects.disable / ai-tools.projects.enable"
 
 if ! command -v runuser >/dev/null 2>&1; then
@@ -1295,8 +1292,8 @@ else
     pd_conf="${TESTDIR}/op.conf"
     pd_al="${TESTDIR}/project-registry"
     pd_proj="${TESTDIR}/api"; pd_other="${TESTDIR}/web"
-    pd_nested="${pd_proj}/service-a"; pd_carve="${pd_proj}/secrets"
-    mkdir -p "${pd_proj}" "${pd_other}" "${pd_nested}" "${pd_carve}"
+    pd_nested="${pd_proj}/service-a"; pd_excluded="${pd_proj}/secrets"
+    mkdir -p "${pd_proj}" "${pd_other}" "${pd_nested}" "${pd_excluded}"
     chown -R "${PROJECTS_USER}:${PROJECTS_USER}" "${TESTDIR}"
     # Written after the chown, so the fixture stays root's and the gate honours its AI_TOOLS_AGENTS line.
     mk_operator_conf "${pd_conf}" "${PROJECTS_USER}"
@@ -1313,30 +1310,33 @@ else
     }
     pd_seed() { printf '%s\n' "${REG_MARKER}" "$@" > "${pd_al}"; chown "${PROJECTS_USER}:${PROJECTS_USER}" "${pd_al}"; }
 
-    # (1) Park a listed project: the line keeps its position, indentation and comment. That is the whole reason these
-    # verbs exist rather than being an unclaim/claim pair -- an operator whose registry is an ordered, commented
-    # document gets it back unchanged.
-    pd_seed "# projects" "  ${pd_proj}   # payments, dev stage" "${pd_other}"
-    pd_before="$(cat "${pd_al}")"
+    # (1) Disable a listed project: the write is the whole file in canonical form, so a hand-indented line takes its
+    # place in the forest and its comment is kept after the entry. That comment surviving is the whole reason these
+    # verbs exist rather than being an unclaim/claim pair -- an operator's commented registry keeps its notes.
+    pd_seed "  @ ${pd_proj}   # payments, dev stage" "@ ${pd_other}"
     out="$(pd_cli ai-tools.projects.disable "${pd_proj}")" && rc=0 || rc=$?
-    if [[ ${rc} -eq 0 ]] && [[ "$(sed -n '3p' "${pd_al}")" == "  %${pd_proj}   # payments, dev stage" ]]; then
-        pass "ai-tools.projects.disable parks the entry in place, keeping position and comment"
+    pd_disabled_line="$(sed -n '2p' "${pd_al}")"
+    if [[ ${rc} -eq 0 && "$(wc -l < "${pd_al}")" -eq 3 && "${pd_disabled_line}" == "% ${pd_proj} "*"# payments, dev stage" \
+            && "$(sed -n '3p' "${pd_al}")" == "@ ${pd_other}" ]]; then
+        pass "ai-tools.projects.disable writes '%' on the entry in canonical form, keeping its comment"
     else
-        fail "ai-tools.projects.disable did not park the entry (rc=${rc}): $(brief "${out}")"
+        fail "ai-tools.projects.disable did not disable the entry (rc=${rc}): $(brief "${out}")"$'\n'"$(cat "${pd_al}")"
     fi
+    # A file in canonical form differs between the two states by the sign alone, so the enable has one file to restore.
+    pd_before="$(sed '2s/^% /@ /' "${pd_al}")"
     if grep -qi 'handback' <<<"${out}"; then
         pass "the disable states the consequence an operator has to know (the handback stops)"
     else
         fail "the disable did not mention the ownership handback: $(brief "${out}")"
     fi
 
-    # (2) A parked project is NOT an unlisted one. The claim must not append a second, positive line that the '%' would
-    # go on winning over -- it offers the re-enable, which with no terminal takes its default NO, and refuses.
+    # (2) A disabled project is NOT an unlisted one. The claim must not append a second, positive line that the '%'
+    # would go on winning over -- it offers the re-enable, which with no terminal takes its default NO, and refuses.
     out="$(pd_cli ai-tools.projects.claim "${pd_proj}")" && rc=0 || rc=$?
     if [[ ${rc} -ne 0 ]] && grep -qi 'disabled' <<<"${out}"; then
-        pass "ai-tools.projects.claim over a parked project refuses instead of claiming"
+        pass "ai-tools.projects.claim over a disabled project refuses instead of claiming"
     else
-        fail "ai-tools.projects.claim did not refuse over a parked project (rc=${rc}): $(brief "${out}")"
+        fail "ai-tools.projects.claim did not refuse over a disabled project (rc=${rc}): $(brief "${out}")"
     fi
     if [[ "$(grep -cF "${pd_proj}" "${pd_al}")" == 1 ]]; then
         pass "the refused claim appended no duplicate line"
@@ -1346,17 +1346,17 @@ else
 
     # (3) ai-tools.projects.list calls it what it is, and names the verb that restores it.
     out="$(pd_cli ai-tools.projects.list)" || true
-    if grep -qE "parked[[:space:]]+${pd_proj}" <<<"${out}" \
+    if grep -qE "disabled[[:space:]]+${pd_proj}" <<<"${out}" \
             && grep -qF -- "$(cli_cmd_text ai-tools.projects.enable) ${pd_proj}" <<<"${out}"; then
-        pass "ai-tools.projects.list reports a parked project as parked, with the re-enable command"
+        pass "ai-tools.projects.list reports a disabled project as disabled, with the re-enable command"
     else
-        fail "ai-tools.projects.list did not report the parked project: $(brief "${out}" 'parked|exclude')"
+        fail "ai-tools.projects.list did not report the disabled project: $(brief "${out}" 'disabled|exclude')"
     fi
 
-    # (4) Restore it: the file comes back byte-identical to before the park.
+    # (4) Restore it: over a file in canonical form, the enable changes the sign back and leaves every other byte.
     out="$(pd_cli ai-tools.projects.enable "${pd_proj}")" && rc=0 || rc=$?
     if [[ ${rc} -eq 0 ]] && [[ "$(cat "${pd_al}")" == "${pd_before}" ]]; then
-        pass "ai-tools.projects.enable restores the file byte-identically (a lossless round trip)"
+        pass "ai-tools.projects.enable restores the canonical file byte-identically, the sign alone changed"
     else
         fail "ai-tools.projects.enable did not restore the file (rc=${rc}): $(brief "${out}")"$'\n'"$(cat "${pd_al}")"
     fi
@@ -1380,57 +1380,60 @@ else
         fail "a refusal wrote to the registry:"$'\n'"$(cat "${pd_al}")"
     fi
 
-    # (6) A CARVE-OUT is not a parked project, and lifting one would WIDEN what the agent reaches -- a subtree its
-    # operator withheld from a claimed project. It is refused, and the refusal names the line.
-    pd_seed "# projects" "${pd_proj}" "!${pd_carve}"
-    out="$(pd_cli ai-tools.projects.enable "${pd_carve}")" && rc=0 || rc=$?
-    # By code: the carve-out refusal (MSG-W4S7), not the no-entry one (MSG-T4A8).
-    refused "ai-tools.projects.enable refuses a carve-out rather than handing over the subtree" MSG-W4S7
-    if grep -qF "!${pd_carve}" "${pd_al}"; then
-        pass "the carve-out line survived the refusal"
+    # (6) An EXCLUDED path is not a disabled project, and lifting its '!' would WIDEN where a session starts and what
+    # the hand-back and claim walks reach -- a subtree its operator excluded from a claimed project. It is refused, and
+    # the refusal names the line.
+    pd_seed "@ ${pd_proj}" "! ${pd_excluded}"
+    out="$(pd_cli ai-tools.projects.enable "${pd_excluded}")" && rc=0 || rc=$?
+    # By code: the excluded-path refusal (MSG-W4S7), not the no-entry one (MSG-T4A8).
+    refused "ai-tools.projects.enable refuses an excluded path rather than lifting its '!'" MSG-W4S7
+    if grep -qF "! ${pd_excluded}" "${pd_al}"; then
+        pass "the '!' line survived the refusal"
     else
-        fail "the refused enable deleted the carve-out:"$'\n'"$(cat "${pd_al}")"
+        fail "the refused enable deleted the '!' line:"$'\n'"$(cat "${pd_al}")"
     fi
 
-    # (7) A NESTED project parks like any other: the kind is in the line, so its '%' cannot be read as a carve-out.
-    pd_seed "# projects" "${pd_proj}" "${pd_nested}"
+    # (7) A NESTED project is disabled like any other: the kind is in the line, so its '%' cannot be read as a '!', and
+    # the canonical write indents it under the project enclosing it.
+    pd_seed "@ ${pd_proj}" "@ ${pd_nested}"
     out="$(pd_cli ai-tools.projects.disable "${pd_nested}")" && rc=0 || rc=$?
-    if [[ ${rc} -eq 0 ]] && grep -qxF "%${pd_nested}" "${pd_al}" && grep -qxF "${pd_proj}" "${pd_al}"; then
-        pass "ai-tools.projects.disable parks a project nested inside another, the enclosing one listed"
+    if [[ ${rc} -eq 0 ]] && grep -qxF "  % ${pd_nested}" "${pd_al}" && grep -qxF "@ ${pd_proj}" "${pd_al}"; then
+        pass "ai-tools.projects.disable writes '%' on a project nested inside another, the enclosing one listed"
     else
-        fail "ai-tools.projects.disable did not park the nested project (rc=${rc}): $(brief "${out}")"$'\n'"$(cat "${pd_al}")"
+        fail "ai-tools.projects.disable did not disable the nested project (rc=${rc}): $(brief "${out}")"$'\n'"$(cat "${pd_al}")"
     fi
 
-    # (8) The per-project verbs must not call a parked project unclaimed: on an excluded path the root helpers resolve
+    # (8) The per-project verbs must not call a disabled project unclaimed: on an excluded path the root helpers resolve
     # no owner and act on NO PATH, so a run that got that far would report steps it never applied. (A host may also
     # refuse earlier for a missing sudo grant -- that is a different, correct refusal; what must not appear is "not
     # a claimed project".)
-    pd_seed "# projects" "%${pd_proj}"
+    pd_seed "% ${pd_proj}"
     for key in ai-tools.projects.handback ai-tools.projects.lockdown ai-tools.projects.unclaim; do
         out="$(pd_cli "${key}" "${pd_proj}")" && rc=0 || rc=$?
         if [[ ${rc} -ne 0 ]] && ! grep -qi 'not a claimed project' <<<"${out}"; then
-            pass "${key} over a parked project does not report it as unclaimed"
+            pass "${key} over a disabled project does not report it as unclaimed"
         else
-            fail "${key} called a parked project unclaimed (rc=${rc}): $(brief "${out}")"
+            fail "${key} called a disabled project unclaimed (rc=${rc}): $(brief "${out}")"
         fi
     done
 
-    # (9) ai-tools.projects.remove.inplace's AUTHORIZATION is the exact entry, and a parked one counts: the '%' records
-    # "not right now", not "not mine", and making the operator re-enable a tree they mean to delete would make it
-    # launchable on the way out. So the verb must get past classification -- reaching its own disabled confirm -- rather
-    # than refusing as unregistered. It must also delete NO PATH here: with no terminal the confirm and the typed-name
-    # challenge both decline, which is the property that keeps a destructive verb out of an unattended run.
+    # (9) ai-tools.projects.remove.inplace's AUTHORIZATION is the exact entry, and a disabled one counts: the '%'
+    # records "not right now", not "not mine", and making the operator re-enable a tree they mean to delete would make
+    # it launchable on the way out. So the verb must get past classification -- reaching its own disabled confirm --
+    # rather than refusing as unregistered. It must also delete NO PATH here: with no terminal the confirm and
+    # the typed-name challenge both decline, which is the property that keeps a destructive verb out of an unattended
+    # run.
     out="$(pd_cli ai-tools.projects.remove.inplace "${pd_proj}")" && rc=0 || rc=$?
     if grep -qi 'not a claimed project' <<<"${out}"; then
-        fail "ai-tools.projects.remove.inplace refused a parked project as unregistered: $(brief "${out}")"
+        fail "ai-tools.projects.remove.inplace refused a disabled project as unregistered: $(brief "${out}")"
     elif grep -qxE 'MSG-R4J2|MSG-Z6Q6' <<<"${out}"; then
         # A host whose operator does not hold a general sudo grant refuses ahead of classification. That is a different,
         # correct refusal, and it is not what this case is about.
-        skip "ai-tools.projects.remove.inplace over a parked project" "no sudo grant for the removal helper here"
+        skip "ai-tools.projects.remove.inplace over a disabled project" "no sudo grant for the removal helper here"
     elif [[ ${rc} -ne 0 ]] && grep -qi 'disabled' <<<"${out}"; then
-        pass "ai-tools.projects.remove.inplace accepts a parked entry as authorization and names the parked state"
+        pass "ai-tools.projects.remove.inplace accepts a disabled entry as authorization and names the disabled state"
     else
-        fail "ai-tools.projects.remove.inplace did not recognise the parked entry (rc=${rc}): $(brief "${out}")"
+        fail "ai-tools.projects.remove.inplace did not recognise the disabled entry (rc=${rc}): $(brief "${out}")"
     fi
     if [[ -d "${pd_proj}" ]]; then
         pass "the declined removal deleted nothing (no terminal answers both prompts NO)"
@@ -1438,39 +1441,35 @@ else
         fail "ai-tools.projects.remove.inplace deleted a project with no terminal to confirm at"
     fi
 
-    # (10) --keep-entry is about what becomes of an ENTRY, so it is refused where there is none to keep: --force is
-    # the mode that reaches a tree the allowlist does not name. Refused rather than ignored, since a flag that silently
-    # skips its work is how an operator learns the wrong model.
-    out="$(pd_cli ai-tools.projects.unclaim "$(cli_flag keep-entry)" "$(cli_flag force)" "${pd_proj}")" && rc=0 || rc=$?
+    # (10) What becomes of an entry when an unclaim's hand-back does not run is the unclaim's own decision (it disables
+    # the line), so no option chooses it, and the removal deletes the entry with the tree: `--keep-entry` is an unknown
+    # option to both, refused rather than ignored, since a flag that silently skips its work is how an operator learns
+    # the wrong model. Written as typed, since neither command has the option to spell.
+    pd_before="$(cat "${pd_al}")"
+    out="$(pd_cli ai-tools.projects.unclaim --keep-entry "${pd_proj}")" && rc=0 || rc=$?
     if grep -qxE 'MSG-R4J2|MSG-Z6Q6' <<<"${out}"; then
         # Either no-sudo-grant refusal: an environment fact, reached before the parse check.
-        skip "--keep-entry with --force" "no sudo grant for the unclaim helper here"
-    elif (( rc != 0 )); then
-        # By code: --keep-entry's own --force refusal (MSG-R3G9), not --for's (MSG-B5K3).
-        assert_msg MSG-R3G9 "${out}" "--keep-entry with --force is refused (there is no entry to keep)"
+        skip "ai-tools.projects.unclaim --keep-entry" "no sudo grant for the unclaim helper here"
     else
-        fail "--keep-entry --force was not refused (rc=${rc}): $(brief "${out}")"
+        # By code: the unclaim's unknown-option refusal (MSG-F7J9), at the usage status.
+        refused "ai-tools.projects.unclaim refuses --keep-entry as an unknown option" MSG-F7J9 2
+    fi
+    out="$(pd_cli ai-tools.projects.remove.inplace --keep-entry "${pd_proj}")" && rc=0 || rc=$?
+    # By code: the removal's unknown-option refusal (MSG-M3Y5), at the usage status.
+    refused "ai-tools.projects.remove.inplace refuses --keep-entry as an unknown option" MSG-M3Y5 2
+    if [[ -d "${pd_proj}" && "$(cat "${pd_al}")" == "${pd_before}" ]]; then
+        pass "the refused options deleted nothing and left the registry as it was"
+    else
+        fail "a refused option changed the project or the registry:"$'\n'"$(cat "${pd_al}")"
     fi
 
-    # (10b) --keep-entry belongs to the unclaim ALONE. A removal deletes the tree, so an entry kept for it would park
-    # a path that no longer exists -- and the flag reads as though it might spare something, which is the worst thing
-    # a flag can suggest on a destructive verb. Refused as an unknown option rather than silently ignored.
-    out="$(pd_cli ai-tools.projects.remove.inplace "$(cli_flag keep-entry)" "${pd_proj}")" && rc=0 || rc=$?
-    # By code: the unknown-option refusal (MSG-M3Y5), not a --keep-entry special case.
-    refused "ai-tools.projects.remove.inplace refuses --keep-entry (it belongs to the unclaim)" MSG-M3Y5
-    if [[ -d "${pd_proj}" ]]; then
-        pass "the refused option deleted nothing"
-    else
-        fail "ai-tools.projects.remove.inplace deleted the project while refusing an option"
-    fi
-
-    # (11) An entry can be clean and the project still unreachable, because a carve-out, a park or a glob covers it
+    # (11) An entry can be clean and the project still unreachable, because a '!', a '%' or a glob line covers it
     # from an ancestor. Entry state and reachability are different questions, and reporting the first as though it
     # answered the second sends an operator hunting through their own file for a refusal the CLI already knew about.
-    pd_seed "# projects" "${pd_proj}" "!${TESTDIR}"
+    pd_seed "@ ${pd_proj}" "! ${TESTDIR}"
     out="$(pd_cli ai-tools.projects.enable "${pd_proj}")" && rc=0 || rc=$?
     if [[ ${rc} -eq 0 ]] && grep -qi 'already enabled' <<<"${out}" \
-            && grep -qF "!${TESTDIR}" <<<"${out}"; then
+            && grep -qF "! ${TESTDIR}" <<<"${out}"; then
         pass "ai-tools.projects.enable reports the OTHER line that still covers a listed project"
     else
         fail "ai-tools.projects.enable did not name the blocking ancestor exclusion (rc=${rc}): $(brief "${out}" 'enabled|exclusion')"

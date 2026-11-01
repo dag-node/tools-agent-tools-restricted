@@ -106,7 +106,6 @@ cli_flag() {
         full)           printf -- '--full' ;;
         group)          printf -- '--group' ;;
         group.short)    printf -- '-g' ;;
-        keep-entry)     printf -- '--keep-entry' ;;
         since)          printf -- '--since' ;;
         from)           printf -- '--from' ;;
         branch)         printf -- '--branch' ;;

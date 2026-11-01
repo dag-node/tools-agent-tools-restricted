@@ -457,14 +457,14 @@ project_state_expect "${project_state_work}/worktree" filemode true "a worktree 
 # ── allowlist_exclusions ──────────────────────────────────────────────────────────────────────
 # The read-only scans a claim runs (acl_drift_scan, find_sealed_setgid_directories) prune every '!' exclusion from their
 # walk, and read the registry through the shared allowlist grammar: an exclusion line carrying an end-of-line comment
-# or quotes names the same path here as in the launch wrapper, so a carve-out is neither reported as drift nor offered
-# to the repair walk. Only the exclusions are printed, without their '!', and a commented-out line is not one.
-section "allowlist_exclusions: the carve-outs the claim-time scans prune (unit)"
+# or quotes names the same path here as in the launch wrapper, so an excluded path is neither reported as drift nor
+# offered to the repair walk. Only the exclusions are printed, without their '!', and a commented-out line is not one.
+section "allowlist_exclusions: the excluded paths the claim-time scans prune (unit)"
 
 excl_work="${TESTDIR}/exclusions"
 excl_list="${excl_work}/allowed-projects"
 mkdir -p "${excl_work}"
-printf '%s\n' "/p" "!/p/plain" "!/p/vendor   # carve-out" '!"/p/with space"' "# !/p/commented-out" \
+printf '%s\n' "/p" "!/p/plain" "!/p/vendor   # excluded" '!"/p/with space"' "# !/p/commented-out" \
     > "${excl_list}"
 chown -R "${PROJECTS_USER}:${PROJECTS_GROUP}" "${excl_work}"
 # The CLI reads AI_TOOLS_ALLOWLIST when sourced; runuser resets the environment, so it is set inside.
@@ -485,7 +485,7 @@ fi
 # the scan runs unprivileged and reports, so a stub that saw no `-n` would mean a claim that relabels while it is still
 # asking, and one that saw `-R` would mean a batch whose records no longer belong to the listed paths alone. Kept:
 # a type difference, and a path holding " from " and " to " with an MLS range in its context. Dropped: a difference
-# in the SELinux user alone, an owner-only file, and a path under a '!' carve-out. A line other than a relabel record
+# in the SELinux user alone, an owner-only file, and a path under a '!' line. A line other than a relabel record
 # makes the scan incomplete (return 1, with a detail), and the drift it did read is still reported.
 section "label_drift_scan: the paths a re-claim asks to relabel (unit)"
 
@@ -540,7 +540,7 @@ else
         fail "label_drift_scan called restorecon with '${ld_args}'"
     fi
     if [[ "${ld_got}" == "${ld_want}" ]]; then
-        pass "label_drift_scan keeps type differences and drops user-only, owner-only and carved-out paths"
+        pass "label_drift_scan keeps type differences and drops user-only, owner-only and excluded paths"
     else
         fail "label_drift_scan printed '$(tr '\t\n' '>|' <<<"${ld_got}")' (want '$(tr '\t\n' '>|' <<<"${ld_want}")')"
     fi

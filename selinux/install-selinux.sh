@@ -842,9 +842,9 @@ verify_agent_labels() {
     log "  and relaunch it, then confirm with:  ps -eo label,cmd | grep '[c]laude'  (expect ai_tools_t)"
 }
 
-# for_each_project <fn>: call <fn> once with each registered project directory -- an allow line or a `%` park, read
-# through the shared grammar (ai_tools_conf__parse_path_entry), since a parked project keeps its label -- skipping
-# carve-out lines and sandbox clones (labelled statically by ai_tools.fc). No-op when the registry is absent,
+# for_each_project <fn>: call <fn> once with each registered project directory -- an `@` or a `%` line, read
+# through the shared grammar (ai_tools_conf__parse_path_entry), since a disabled project keeps its label -- skipping
+# `!` lines and sandbox clones (labelled statically by ai_tools.fc). No-op when the registry is absent,
 # and when no reader accepts it (the library's line on stderr): a label is what a session works under, so a file read
 # as something other than the operator's intent does not decide one.
 for_each_project() {

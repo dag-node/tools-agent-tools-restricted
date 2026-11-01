@@ -43,7 +43,7 @@
 # `--enable` and `--disable` neither add nor drop a line: they take the leading '%' off an entry, or put it
 # on, IN PLACE. They are the privileged half of `atr projects enable`/`projects disable` (and of the claim's re-enable
 # prompt), and they are deliberately not an add/remove pair: the line keeps its position and its comment,
-# so a park-and-restore round trip leaves an ordered, commented registry exactly as its operator wrote it.
+# so a disable-and-enable round trip leaves an ordered, commented registry exactly as its operator wrote it.
 #
 # Installed 750 root:root, so only root runs it. Its domain rule is cli.rule.md.
 
@@ -232,6 +232,13 @@ die_registry_changed() {
     die MSG-G8Q7 "the registry changed during the edit -- ${canonical} was not ${1} for ${OPERATOR}, and the line above names the reason"
 }
 
+# die_unrenderable_line <verb> : refuse an action whose edit returned 4 over a path the registry can write: every edit
+# rewrites the whole file, so a line the file already holds that the writer cannot render stops it, whatever path
+# the action names. The CLI names that line from its snapshot after this one.
+die_unrenderable_line() {
+    die MSG-W6P5 "could not ${1} ${canonical} for ${OPERATOR} -- nothing changed; a line of the registry names a path carrying both quote characters, which the registry cannot write back"
+}
+
 # ── print ────────────────────────────────────────────────────────────────────────
 # Read-only, and the only action that does not require a path. A missing allowlist is refused as the add refuses it.
 # An existing file is printed as it stands; one holding only comments is an empty list to the caller (the CLI's
@@ -262,10 +269,10 @@ AI_TOOLS_LOG_PROJECT="${canonical}"
 # against the operator's own file and install.sh against its checkout. What is left here is this helper's own job:
 # deciding WHO may edit WHOSE registry, and recording it. The library reports its outcomes apart -- 0 applied (or
 # already so), 1 the write failed, 2 the request does not apply from the current state, 3 the file is legacy or holds
-# a refused line, 4 (add) the path cannot be written as a registry line -- and each is reported to the caller
-# distinctly, since a "not listed" and a "could not write" send an operator to different places. require_target_config
-# has refused a legacy or refused file before any edit, so a 3 is a file that changed between the check and the edit,
-# reported with the library's own line.
+# a refused line, 4 the path, or a line the file holds, cannot be written as a registry line -- and each is reported to
+# the caller distinctly, since a "not listed" and a "could not write" send an operator to different places.
+# require_target_config has refused a legacy or refused file before any edit, so a 3 is a file that changed between the
+# check and the edit, reported with the library's own line.
 
 case "${ACTION}" in
     add)
@@ -273,14 +280,15 @@ case "${ACTION}" in
         rc=0; ai_tools_conf__allowlist_add "${allowlist}" "${canonical}" || rc=$?
         case "${rc}" in
             0) ;;
-            2) die MSG-T7B6 "that path is DISABLED or carved out for ${OPERATOR}: ${canonical} -- a '%' line parks it
-       or a '!' line withholds it, and adding a second line would leave that line winning at the launch gate.
-       A parked project is re-enabled instead:
+            2) die MSG-T7B6 "that path is DISABLED or excluded for ${OPERATOR}: ${canonical} -- a '%' line disables it
+       or a '!' line excludes it, and adding a second line would leave that line winning at the launch gate.
+       A disabled project is re-enabled instead:
        ai-tools-allowlist --operator ${OPERATOR} --enable ${canonical}" ;;
             3) die_registry_changed added ;;
             # The CLI's refusal for a name the grammar cannot carry, printed as its twin: a `--for` claim reaches it
             # here.
-            4) printf 'MSG-Z9R2\nai-tools-allowlist: %s\n' "this directory's name cannot be written as a registry line: ${canonical} -- nothing changed; rename the directory, then claim it" >&2
+            4) ai_tools_conf__is_registry_path_representable "${canonical}" && die_unrenderable_line add
+               printf 'MSG-Z9R2\nai-tools-allowlist: %s\n' "this directory's name cannot be written as a registry line: ${canonical} -- nothing changed; rename the directory, then claim it" >&2
                exit 1 ;;
             *) die MSG-D3T3 "could not add ${canonical} to ${OPERATOR}'s allowlist -- nothing changed" ;;
         esac
@@ -291,8 +299,8 @@ case "${ACTION}" in
         ;;
     remove)
         # A missing allowlist has no entry to remove -- report it and succeed, so an unclaim that runs twice is not
-        # an error. The library drops the park line too, so de-registering a project the operator had parked leaves no
-        # '%' behind to park whatever is claimed at that path next; a carve-out line is the operator's own edit
+        # an error. The library drops the `%` line too, so de-registering a project the operator had disabled leaves
+        # no '%' behind to disable whatever is claimed at that path next; a `!` line is the operator's own edit
         # and stays.
         if [[ ! -f "${allowlist}" ]]; then
             note MSG-V9K7 "no allowlist for ${OPERATOR} -- nothing to remove"
@@ -304,7 +312,9 @@ case "${ACTION}" in
                 note MSG-H7J9 "nothing to remove: ${canonical} is not listed for ${OPERATOR}"
                 exit 0 ;;
         esac
-        ai_tools_conf__allowlist_remove "${allowlist}" "${canonical}" \
+        rc=0; ai_tools_conf__allowlist_remove "${allowlist}" "${canonical}" || rc=$?
+        (( rc == 4 )) && die_unrenderable_line remove
+        (( rc == 0 )) \
             || die MSG-K2G9 "could not remove ${canonical} from ${OPERATOR}'s allowlist -- a line naming it survived, so that project is still registered"
         ai_tools_log__structured info \
             "operator ${caller} removed ${canonical} from ${OPERATOR}'s allowlist" \
@@ -314,7 +324,7 @@ case "${ACTION}" in
     enable)
         # The one action that WIDENS the target's launch gate. It does not append a line: the '%' comes off the line
         # the operator wrote, in place, and a path the file does not name is refused rather than registered --
-        # registering one is a claim, which scans for secrets first. A '!' line is a carve-out and is not lifted.
+        # registering one is a claim, which scans for secrets first. A '!' line excludes its path and is not lifted.
         require_target_config
         rc=0; ai_tools_conf__allowlist_enable "${allowlist}" "${canonical}" || rc=$?
         case "${rc}" in
@@ -322,6 +332,7 @@ case "${ACTION}" in
             2) note MSG-E2G7 "not disabled for ${OPERATOR}: ${canonical} -- nothing to enable"
                exit 0 ;;
             3) die_registry_changed enabled ;;
+            4) die_unrenderable_line enable ;;
             *) die MSG-H9V5 "the entry is STILL disabled for ${OPERATOR}: ${canonical} -- the line was not rewritten" ;;
         esac
         ai_tools_log__structured info \
@@ -330,15 +341,17 @@ case "${ACTION}" in
         note "enabled ${canonical} for ${OPERATOR}"
         ;;
     disable)
-        # Park the target's project: the '%' goes on, in place. It moves to LESS access -- no session starts there
+        # Disable the target's project: the '%' goes on, in place. It moves to LESS access -- no session starts there
         # and the ownership helpers stop resolving an owner for it -- so a path the file does not name is refused rather
-        # than parked (there would be no entry to park, and inventing one would register a project without claiming it).
+        # than disabled (there would be no entry to disable, and inventing one would register a project without
+        # claiming it).
         require_target_config
         rc=0; ai_tools_conf__allowlist_disable "${allowlist}" "${canonical}" || rc=$?
         case "${rc}" in
             0) ;;
             2) die MSG-H6K3 "not listed for ${OPERATOR}: ${canonical} -- there is no entry to disable" ;;
             3) die_registry_changed disabled ;;
+            4) die_unrenderable_line disable ;;
             *) die MSG-C7Q4 "could not disable ${canonical} for ${OPERATOR} -- nothing changed" ;;
         esac
         ai_tools_log__structured info \

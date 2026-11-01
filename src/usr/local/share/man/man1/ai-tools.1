@@ -151,20 +151,20 @@ until
 migrates it.
 .PP
 A command then reads one state for its path and decides from it alone.
-A conflict, where a carve-out and an entry name one path, and a carve-out are
-refused by every command that reads a path's state, since neither is a project.
+An excluded path is refused by every command that reads a path's state,
+since it is not a project.
 The removal of a sandbox clone reads the clone's place in the sandbox area
 instead, as
 .B "projects remove"
 states.
-A path a park, carve-out or glob line covers without naming it is refused by
+A path a disabled, excluded or glob line covers without naming it is refused by
 .BR "projects claim" ,
 .BR "projects create" ,
 .B "projects handback"
 and
 .BR "projects lockdown" ,
 since the root helpers do not act under such a line:
-the refusal shows the line, and for a park names the
+the refusal shows the line, and for a disabled line names the
 .B "projects enable"
 that lifts it.
 The commands that edit a path's own entry act on it:
@@ -175,7 +175,7 @@ edit the entry, and
 .B "projects enable"
 names the line that still covers the path;
 .B "projects unclaim"
-parks the entry in place of deleting it and exits 1 with the claim still in
+disables the entry in place of deleting it and exits 1 with the claim still in
 force, since the hand-back does not run under the line: the agent keeps its
 access to the files until the line is cleared and the unclaim it prints is run;
 .B "projects remove"
@@ -194,7 +194,8 @@ and
 .B "projects push"
 walk up from the current directory to the first directory an entry names, and
 act on that project.
-A park, carve-out or glob line covering a directory on the way stops the walk
+A disabled, excluded or glob line covering a directory on the way stops the
+walk
 and is named, where a launch reads the current directory alone.
 A walk that reaches
 .B /
@@ -203,8 +204,8 @@ without an entry exits 2.
 .TP
 .B projects
 List the project registry line by line, by kind: a project, in place or a
-sandbox clone, with the git safe.directory status of each, a parked project
-with the command that re-enables it, a carve-out, and a conflict.
+sandbox clone, with the git safe.directory status of each, a disabled project
+with the command that re-enables it, and an excluded path.
 A
 .I Suggested cleanup
 section follows, naming each stale or inconsistent line with the command that
@@ -309,8 +310,8 @@ pin are not checked: each is printed as an
 .B error
 line with the command that finishes it, and the claim exits 5.
 .IP
-On a parked project the claim offers the re-enable first, defaulting to no.
-It refuses a conflict, a carve-out, and a path a park, carve-out or glob line
+On a disabled project the claim offers the re-enable first, defaulting to no.
+It refuses an excluded path, and a path a disabled, excluded or glob line
 covers.
 A directory with projects under it is claimed as one, and the review names
 the projects it holds.
@@ -323,7 +324,7 @@ states, one row per file, and no other line on standard output: every other
 line the claim prints goes to standard error, and its questions still ask on the terminal.
 .RE
 .TP
-.B projects unclaim \fR[\fB\-\-force\fR] [\fB\-\-full\fR] [\fB\-\-keep\-entry\fR] [\fB\-\-dry\-run\fR] [\fB\-y\fR] [\fB\-\-group\fI GROUP\fR] \fIDIRECTORY\fR
+.B projects unclaim \fR[\fB\-\-force\fR] [\fB\-\-full\fR] [\fB\-\-dry\-run\fR] [\fB\-y\fR] [\fB\-\-group\fI GROUP\fR] \fIDIRECTORY\fR
 Reverse a claim: revert the SELinux label, drop both registries, and \(em behind
 its own confirm \(em revoke the agent's access, handing the tree back to your own
 group (or a named group) with the agent's write removed. The directory
@@ -331,18 +332,18 @@ stays on disk.
 .IP
 The path is classified against the project registry. A claimed project is
 unclaimed; a directory with claimed projects nested under it lists them and,
-behind one confirm, unclaims each outermost-first, refusing the whole batch
-before its first step when one of them is a conflict; a path
+behind one confirm, unclaims each outermost-first; a path
 .I inside
 a claimed project is refused, naming the nearest claimed parent; a path the
 registry does not cover at all needs
 .BR \-\-force .
-The carve-out lines under a project stay in the file, still in force, and the
+The excluded lines under a project stay in the file, still in force, and the
 unclaim names each.
 .IP
-When the hand-back does not run \(em a park the re-enable offer left standing,
+When the hand-back does not run \(em a disabled line the re-enable offer left
+standing,
 a line covering the project, a missing grant, a helper that failed \(em the
-unclaim parks the project's line instead of deleting it, so the entry the
+unclaim disables the project's line instead of deleting it, so the entry the
 hand-back needs stays.
 It exits 1 and prints this unclaim, with its options, as the command that
 completes it once the cause is cleared.
@@ -359,25 +360,6 @@ with. What a claim leaves alone, and what an unclaim does not restore, is in
 The previous permissions are recorded nowhere, so the operation is
 .BR "not reversible" .
 Back up first.
-.RS
-.TP
-.B \-\-keep\-entry
-Park the project's line instead of deleting it: the files are handed back exactly as they otherwise would be, and
-the entry is left in place with a
-.B %
-in front of it, as
-.B "projects disable"
-writes it. For an operator whose project registry is an ordered, commented document and who
-unclaims between development stages \(em to hand a tree back with clean permissions before a
-release, then claim it again for the next one \(em this keeps the project's line where it was,
-comment and all, so the later
-.B "projects claim"
-restores it in place rather than appending a new line at the end.
-.IP
-Refused with
-.BR \-\-force ,
-which unclaims a tree the registry does not name, so there is no line to keep.
-.RE
 .TP
 .B projects remove \fR[\fB\-y\fR] \fIDIRECTORY\fR
 Release a project
@@ -393,7 +375,7 @@ to release one and keep the files.
 .IP
 The path decides the kind. A project claimed in place is authorized by an
 .I exact
-allow or park line alone: there is no
+enabled or disabled line alone: there is no
 .BR \-\-force ,
 an ancestor or a path inside a project is refused, and so is a project that
 contains another claimed project \(em deleting it would take that one with it and
@@ -402,7 +384,7 @@ up front if any directory is not deletable by the acting owner, so a removal nev
 stops partway through a tree. Teardown removes the SELinux label and both
 registries before deleting, so a failed deletion leaves an unregistered tree rather
 than a half-deleted one.
-The carve-out lines under the project stay in the file, and
+The excluded lines under the project stay in the file, and
 .B "atr projects"
 then reports each as stale.
 .IP
@@ -418,13 +400,17 @@ any commit not yet pushed. The remote branch stays for others to merge, and
 answers that confirm on the same terms.
 .TP
 .B projects disable \fIDIRECTORY\fR
-Park a claimed project: its allow line becomes a
+Disable a claimed project: its
+.B @
+line becomes a
 .B %
 line, so no session starts there until it is re-enabled.
-This is the same edit an operator makes by hand, and it edits the same
-line \(em in place, keeping its position and any comment \(em so the two workflows
-agree and a park-and-restore round trip leaves the file as it was.
-A project nested inside another one is parked on its own line, and the
+It is the same edit an operator makes by hand, and the line keeps its comment.
+The command rewrites the whole file in the canonical order
+.BR ai\-tools\-project\-registry (5)
+states, so a disable-and-enable round trip leaves a file in that order
+as it was.
+A project nested inside another one is disabled on its own line, and the
 project enclosing it stays enabled.
 .IP
 It is a registry change and
@@ -438,22 +424,26 @@ restore files written under it,
 .BR "projects lockdown" " and " "projects handback"
 refuse it, and
 .B "projects unclaim"
-asks to re-enable it first: declined, the line stays parked and the unclaim
+asks to re-enable it first: declined, the line stays disabled and the unclaim
 runs its other steps without the hand-back. Disabling a project a session is still writing to therefore
 leaves that session's files owned by the sandbox account; stop the session first, or
 re-enable and
 .B "projects handback"
 afterwards.
 .IP
-A path the registry does not name is refused rather than parked: there is no entry
+A path the registry does not name is refused rather than disabled: there is no entry
 to disable, and inventing one would register a project without claiming it. A
 path inside a claimed project is refused, naming that project. A
 project already disabled succeeds and says so.
 .TP
 .B projects enable \fIDIRECTORY\fR
-Restore a project disabled earlier: the
+Restore a project disabled earlier: its
 .B %
-is deleted from its line, in place. Sessions may start there again.
+line becomes an
+.B @
+line again, keeping its comment, and the whole file is rewritten in canonical
+order.
+Sessions may start there again.
 .IP
 It does not grant any access that was not already granted \(em the tree's permissions never
 changed \(em so it does not run a secret scan and does not prompt. A path the registry does
@@ -466,17 +456,22 @@ the operator put there. A project already enabled succeeds and says so.
 .IP
 A
 .B !\&
-line is a carve-out wherever it sits \(em a subtree its operator withheld from the
-agent \(em not a disabled project, and is refused for that reason: lifting it would
-hand that subtree over. No command writes or lifts such a line; it is edited by hand.
+line is an excluded path wherever it sits \(em no session starts in the
+directory or under it, and the ownership hand-back and the claim's permission
+walks skip it \(em not a disabled project, and is refused for that reason: lifting it would
+let sessions start in that subtree and the walks act on it.
+It does not take back access a claim already granted there, as
+.BR ai\-tools\-project\-registry (5)
+states.
+No command writes or lifts such a line; it is edited by hand.
 .IP
-Where the project's own entry is clean but another line still blocks it \(em a park on an
-ancestor, or a carve-out or glob that covers it \(em the command says so and shows the line
+Where the project's own entry is clean but another line still blocks it \(em a disabled line on an
+ancestor, or an excluded line or glob that covers it \(em the command says so and shows the line
 responsible, rather than reporting a project enabled that no session can enter.
 .IP
 .B "projects claim"
 on a disabled project neither claims over it nor duplicates its entry: it reports
-the park, shows the line, and offers this same re-enable behind a default-NO
+that the project is disabled, shows the line, and offers this same re-enable behind a default-NO
 confirm.
 .TP
 .B projects clone \fIDIRECTORY\fR [\fB\-\-from\fR \fIREF\fR] [\fB\-\-branch\fR \fINAME\fR] [\fB\-\-dir\fR \fINAME\fR] [\fB\-y\fR|\fB\-\-yes\fR]
@@ -948,8 +943,8 @@ here.
 .B 1
 The operation failed, or a
 .B projects
-command refused its path: a conflict, a carve-out, a path a line blocks, or a
-path without an entry of its own in the state it asks for.
+command refused its path: an excluded path, a path a line blocks, or a path
+without an entry of its own in the state it asks for.
 For
 .B stop
 this is the specific case that a process was still running after the kill:
@@ -1058,9 +1053,9 @@ which is root-owned so that a session cannot widen what it is given.
 .I ~/.config/ai-tools/project-registry
 The operator's project registry: a project per line, a
 .RB \(oq % \(cq
-line parks one, and a
+line disables one, and a
 .RB \(oq ! \(cq
-line carves a subtree out. Gates where sessions launch \(em not a read boundary.
+line excludes a subtree. Gates where sessions launch \(em not a read boundary.
 The grammar and the entry states are in
 .BR ai\-tools\-project\-registry (5).
 .TP

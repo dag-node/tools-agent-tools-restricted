@@ -28,7 +28,8 @@ the interpreter by absolute path in privileged mode, PATH pinned — is stated i
 
 The gates are one implementation, `/usr/local/lib/ai-tools/launch-wrapper.lib.sh` (`644 root:root`,
 `ai-tools-base`-owned), and the wrapper is four calls into it: `ai_tools_launch_wrapper__init <name>`, which loads
-`msg.lib.sh`, `safe-paths.lib.sh` and `conf.lib.sh` fail-closed and accepts the name only in a launcher's charset,
+`msg.lib.sh`, `safe-paths.lib.sh` and `conf.lib.sh` fail-closed, requiring of `conf.lib.sh` each function the gates
+call (`MSG-C2M7`), and accepts the name only in a launcher's charset,
 matched in the C locale (`MSG-Z6F8`); `ai_tools_launch_wrapper__run_gates "$@"`, which runs the numbered gates in their
 order — the operator gate first, then the clock gate (`ai_tools_launch_wrapper__gate_clock`, `MSG-U8K6`: a file this
 host wrote dated after the system clock, read by `ai_tools_conf__find_paths_ahead_of_clock` over the library,
@@ -84,13 +85,14 @@ what the security model rests on, and every one of them refuses toward *less* ac
    (backstop, allowlist, claim): such a run stays out of the working tree, so no project grant is implied. It still
    launches the same validated binary confined as `SANDBOX_USER`, with the sandbox home as `WorkingDirectory`.
 7. **Protected-paths backstop, then the allowlist**, both on the `realpath -e`-canonicalized CWD. A session starts only
-   inside an allowed project and never in a CWD a `!` carve-out or a `%` park covers. Every allow entry is canonicalized
-   before matching and the match is exact-or-`/`-prefixed, so a symlink or `..` component cannot smuggle a CWD past
-   the gate and a sibling sharing a name prefix does not match; an exclusion is matched as written and as the real path
-   the loader resolved for it, so a carve-out spelled through a symlink refuses the directory it names, and a read
-   the loader refuses refuses the launch outright (`MSG-Z3Q6`, `MSG-D9R4`), wherever the CWD is under that file.
-   The read and the match are [ref-section-d2n3](providers.rule.md#ref-section-d2n3), and `ai-tools-chown` makes
-   the same ones, so the launch gate and the ownership handback agree on what is in-project.
+   inside an allowed project and never in a CWD a `!` excluded line or a `%` disabled line covers. Every allow entry is
+   canonicalized before matching and the match is exact-or-`/`-prefixed, so a symlink or `..` component cannot smuggle
+   a CWD past the gate and a sibling sharing a name prefix does not match; an exclusion is matched as written
+   and as the real path the loader resolved for it, so an excluded path spelled through a symlink refuses the directory
+   it names, a read the loader refuses refuses the launch outright (`MSG-Z3Q6`, `MSG-D9R4`), wherever the CWD is
+   under that file, and a match the library does not make -- the matcher returning a status other than its 0 and 1 --
+   refuses it too (`MSG-T6U6`). The read and the match are [ref-section-d2n3](providers.rule.md#ref-section-d2n3),
+   and `ai-tools-chown` makes the same ones, so the launch gate and the ownership handback agree on what is in-project.
 8. **Claim guard** — the project's ownership, label and `safe.directory` gaps, detected read-only.
 
 The agent's launch hook then appends its arguments, and the launch ends
@@ -435,21 +437,24 @@ for re-validation; `AI_TOOLS_PROJECT_DIR` carries the validated project director
 The registry is `~/.config/ai-tools/project-registry`, and `allowed-projects` in its place while a host upgraded
 from a release that wrote it has not run `atr admin system post-upgrade`; `ai_tools_conf__resolve_registry` picks
 the file for both consumers, and the wrapper reads the operator's own file under `${HOME}` alone, not
-the `AI_TOOLS_ALLOWLIST` test hook. A carve-out (`!`) and a park (`%`) line are exclusions and override allows.
-The wrapper refuses to launch with an excluded CWD, and `ai-tools-chown` skips ownership restoration on excluded paths.
-One loader and one matcher in `conf.lib.sh` keep the two in sync: a plain excluded path also covers its contents, a glob
-carve-out matches as-is, a glob-free exclusion covers its real path as well where the loader follows the link,
-and a read the loader refuses — a link the sandbox account can change (`MSG-Z3Q6`), or a line the grammar does not
-recognise (`MSG-D9R4`, after the library's line) — leaves neither consumer allowing a path under that file
-([ref-section-d2n3](providers.rule.md#ref-section-d2n3)).
+the `AI_TOOLS_ALLOWLIST` test hook. An excluded (`!`) and a disabled (`%`) line are exclusions and override the allow
+of an enclosing project. A line naming the same directory as an entry of another sign is read by the file's grammar:
+a format 1.0 file refuses the pair, and a legacy `allowed-projects` keeps the exclusion winning
+([ref-section-d2n3](providers.rule.md#ref-section-d2n3)). The wrapper refuses to launch with an excluded CWD,
+and `ai-tools-chown` skips ownership restoration on excluded paths. One loader and one matcher in `conf.lib.sh` keep
+the two in sync: an excluded path covers the path it matches and its contents, a glob included
+(`ai_tools_conf__find_covering_path`), a glob-free exclusion covers its real path as well where the loader follows the
+link, and a read the loader refuses — a link the sandbox account can change (`MSG-Z3Q6`), or a line the grammar does not
+recognise or two signs on one directory (`MSG-D9R4`, after the library's line) — leaves neither consumer allowing a path
+under that file ([ref-section-d2n3](providers.rule.md#ref-section-d2n3)).
 
 **The refusal is worded from the kind of the line that matched**, which the loader returns beside each exclusion, since
-the way back differs: a `%` line naming the CWD is a parked project, and the refusal names `atr projects enable <path>`;
-a `!` line naming it is a carve-out wherever it sits, and the remedy is to edit that line; a line covering the CWD
-from an ancestor names the line, with the re-enable of the parked project or the edit of the carve-out as its remedy.
-All of them refuse identically. On a legacy `allowed-projects` a `!` line naming the CWD is refused as a carve-out
-with the migration named beside it, since an earlier release wrote a parked project that way and the migration copies
-the line unchanged.
+the way back differs: a `%` line naming the CWD is a disabled project, and the refusal names
+`atr projects enable <path>`; a `!` line naming it is an excluded path wherever it sits, and the remedy is to edit
+that line; a line covering the CWD from an ancestor names the line, with the re-enable of the disabled project
+or the edit of the excluded line as its remedy. All of them refuse identically. On a legacy `allowed-projects` a `!`
+line naming the CWD is refused as an excluded path with the migration named beside it, since an earlier release wrote
+a disabled project that way and the migration copies the line unchanged.
 
 ## PATH ordering
 

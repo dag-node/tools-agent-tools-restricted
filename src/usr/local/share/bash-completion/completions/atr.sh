@@ -83,7 +83,7 @@ _ai_tools_atr__list_words() {
         ai-tools:options:projects|ai-tools:options:projects\ list) words="--for" ;;
         ai-tools:options:projects\ create)    words="--for" ;;
         ai-tools:options:projects\ claim)     words="--yes --format --for" ;;
-        ai-tools:options:projects\ unclaim)   words="--force --full --keep-entry --dry-run --yes --group --for" ;;
+        ai-tools:options:projects\ unclaim)   words="--force --full --dry-run --yes --group --for" ;;
         ai-tools:options:projects\ remove)    words="--yes --for" ;;
         ai-tools:options:projects\ disable)   words="--for" ;;
         ai-tools:options:projects\ enable)    words="--for" ;;

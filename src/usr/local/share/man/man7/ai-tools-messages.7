@@ -54,6 +54,10 @@ manual for the component that emits it.
 ERROR.
 stop takes no path: ${argument}. It TERMINATES every agent session on this host \-\- killing the process tree, so no session\-end handback runs \-\- and has no per\-project form, because a session is attributed to a project by the sandbox account's own user manager \-\- the account being stopped \-\- so that attribution is reported, never trusted to decide what a stop reaches.
 .TP
+.B MSG-A5Y2
+WARNING.
+a line of ${REGISTRY_DISPLAY_PATH} names a path the registry cannot write back \-\- the line is shown above
+.TP
 .B MSG-A7D3
 ERROR.
 projects create needs a path: it creates a NEW project directory.
@@ -274,10 +278,6 @@ ai\-tools: refusing to run as the sandbox account ${SANDBOX_USER}
 ERROR.
 error
 .TP
-.B MSG-R3G9
-ERROR.
-\-\-keep\-entry cannot be combined with \-\-force
-.TP
 .B MSG-R3H8
 ERROR.
 unknown projects lockdown option: ${a} (allowed: \-\-dry\-run, \-\-yes)
@@ -305,10 +305,6 @@ removed ${d}, but ${ROOT_STEP_FAILURES} cleanup step(s) did not run
 .B MSG-S9A3
 ERROR.
 projects claim \-\-format takes one value, tsv
-.TP
-.B MSG-T2Q7
-ERROR.
-two kinds of line name this path, shown above, so it is neither a project nor a carve\-out: $1
 .TP
 .B MSG-T4A8
 ERROR.
@@ -386,7 +382,7 @@ Documented in
 .TP
 .B MSG-W4S7
 ERROR.
-this path is a carve\-out, not a project: $1
+this path is excluded, not a project: $1
 .TP
 .B MSG-X3G7
 ERROR.
@@ -1137,11 +1133,15 @@ run me through sudo as an operator (no SUDO_UID) \-\- nothing changed
 .TP
 .B MSG-T7B6
 ERROR.
-that path is DISABLED or carved out for ${OPERATOR}: ${canonical} \-\- a '%' line parks it
+that path is DISABLED or excluded for ${OPERATOR}: ${canonical} \-\- a '%' line disables it
 .TP
 .B MSG-V9K7
 NOTICE.
 no allowlist for ${OPERATOR} \-\- nothing to remove
+.TP
+.B MSG-W6P5
+ERROR.
+could not ${1} ${canonical} for ${OPERATOR} \-\- nothing changed; a line of the registry names a path carrying both quote characters, which the registry cannot write back
 .TP
 .B MSG-W6P9
 ERROR.
@@ -1945,7 +1945,7 @@ a custom system prompt is configured but its resolver library is unavailable
 .TP
 .B MSG-B8U2
 WARNING.
-registry line refused \-\- ${file} line ${number}: ${fault}${shown} \-\- $(_ai_tools_conf__format_registry_fault_remedy "${fault}"); no entry in this file allows a path until the line is fixed
+registry line refused \-\- ${file} line ${number}: ${fault}${shown} \-\- $(_ai_tools_conf__format_registry_fault_remedy "${fault}" "${grammar}"); no entry in this file allows a path until the line is fixed
 Documented in
 .BR ai-tools-project-registry (5).
 .TP
@@ -1961,6 +1961,12 @@ switch ${key} in ${file} is neither a yes value (yes, true, 1, on) nor a no valu
 WARNING.
 invalid list, read as the empty list \-\- ${label} (${reason}): ${value}; write it as [a, b]
 .TP
+.B MSG-E3W3
+WARNING.
+registry lines name one directory with different signs \-\- ${1}: ${2//[[:cntrl:]]/?} is named through different spellings \-\- $(_ai_tools_conf__format_registry_fault_remedy sign\-conflict); no entry in this file allows a path until one line is kept
+Documented in
+.BR ai-tools-project-registry (5).
+.TP
 .B MSG-F6D7
 WARNING.
 the pair list ${key} in ${file} has the item ${item}, which is not <name>=<value> with a value of ${allowed_values_text} \-\- ignored
@@ -1973,13 +1979,17 @@ switch ${key} in ${file} is neither a yes value (yes, true, 1, on) nor a no valu
 WARNING.
 the pair list ${key} in ${file} gives ${pair_name} more than once \-\- the first value stands
 .TP
+.B MSG-V9S2
+WARNING.
+exclusion match failed \-\- entry ${_ai_tools_conf__match_entry} against ${_ai_tools_conf__match_path}, status ${_ai_tools_conf__match_rc}; the config library is incomplete, and no path is read as allowed or excluded until ai\-tools\-base is reinstalled
+.TP
 .B MSG-X6F2
 WARNING.
 invalid list, read as the empty list \-\- ${key} in ${file} holds ${unprefixed[*]}, not written as ${prefix}<name>; this rewrites a bare name and names any it cannot: atr admin system post\-upgrade
 .TP
 .B MSG-Y5N6
 WARNING.
-exclusion ${written} in ${file} cannot be resolved \-\- ${_ai_tools_conf__resolve_refusal}; write the exclusion as the directory's real path, since a link the sandbox account can change cannot be followed; no entry in this file allows a path until the line is fixed
+exclusion ${_ai_tools_conf__load_written} in ${_ai_tools_conf__load_file} cannot be resolved \-\- ${_ai_tools_conf__resolve_refusal}; write the exclusion as the directory's real path, since a link the sandbox account can change cannot be followed; no entry in this file allows a path until the line is fixed
 Documented in
 .BR ai-tools-project-registry (5).
 .SS install-selinux.sh
@@ -2445,6 +2455,10 @@ cannot read the launcher symlink ${launcher_link} \-\- reinstall or run nvm\-upd
 .B MSG-S8D9
 ERROR.
 cannot resolve working directory
+.TP
+.B MSG-T6U6
+ERROR.
+refusing to launch \-\- the exclusion match failed for a line of the project registry: ${allowlist}
 .TP
 .B MSG-U6A9
 ERROR.

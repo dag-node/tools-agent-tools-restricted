@@ -325,11 +325,11 @@ mktestdir() {
 }
 
 # mk_allowlist <line>...: write a dummy project registry, TESTDIR/project-registry, with the format marker as its first
-# line and the given KNOWN content after it (one entry per line; '!' and '%' lines are a carve-out and a park, exactly
-# as in production), and point the deployed helpers at it via the AI_TOOLS_ALLOWLIST test hook. A registry without
-# the marker is refused whole, so a test of a legacy file writes that file by name. Also seeds a matching operator.conf
-# fixture (mk_operator) so the helpers resolve the same identity the fixtures are owned by. Exported so a helper run
-# as a child process inherits both.
+# line and the given KNOWN content after it (one entry per line; '!' and '%' lines are an excluded path and a disabled
+# project, exactly as in production), and point the deployed helpers at it via the AI_TOOLS_ALLOWLIST test hook.
+# A registry without the marker is refused whole, so a test of a legacy file writes that file by name. Also seeds
+# a matching operator.conf fixture (mk_operator) so the helpers resolve the same identity the fixtures are owned by.
+# Exported so a helper run as a child process inherits both.
 mk_allowlist() {
     printf '%s\n' "# ai-tools-project-registry-format: 1.0" "$@" > "${TESTDIR}/project-registry"
     export AI_TOOLS_ALLOWLIST="${TESTDIR}/project-registry"

@@ -175,7 +175,7 @@ readonly ACL_SPEC
 # Shared config grammar (ai_tools_conf__parse_path_entry; see conf.lib.sh), the ONE parser the allowlist is read with --
 # end-of-line comments, and quotes for a path carrying a space or a literal '#'. REQUIRED like safe-paths.lib.sh:
 # the bare source under `set -e` aborts when it is missing. A bare filter in its place reads a commented exclusion
-# as a pattern no path matches, and would grant the agent an ACL on a subtree the operator carved out and the launch
+# as a pattern no path matches, and would grant the agent an ACL on a subtree the operator excluded and the launch
 # wrapper refuses. Include-guarded.
 # shellcheck source=SCRIPTDIR/../../lib/ai-tools/conf.lib.sh
 source /usr/local/lib/ai-tools/conf.lib.sh
@@ -190,7 +190,14 @@ ai_tools_conf__load_allowlist "${ALLOWLIST}" allowed_directories exclusion_patte
 
 # _is_excluded <abs-path>: 0 if covered by a '!' or '%' line (ai_tools_conf__is_path_excluded, conf.lib.sh -- the match
 # every reader of the registry makes).
-_is_excluded() { ai_tools_conf__is_path_excluded "$1" exclusion_patterns; }
+#   A match the library could not make (a status other than 0 or 1, MSG-V9S2 on stderr) ends the run with exit 1
+#   before the path is granted: read as "not excluded" it would act on a path an exclusion covers.
+_is_excluded() {
+    local -i excluded_rc=0
+    ai_tools_conf__is_path_excluded "$1" exclusion_patterns || excluded_rc=$?
+    (( excluded_rc <= 1 )) || exit 1
+    return "${excluded_rc}"
+}
 
 # _is_allowed <abs-path>: 0 if at or under an allowed directory.
 _is_allowed() {

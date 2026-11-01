@@ -6,7 +6,7 @@
 # via the AI_TOOLS_OPERATOR_CONF + AI_TOOLS_ALLOWLIST root-only test hooks: ai_tools_operator__is_covered_by_allowlist
 # (allow/exclude/nested matching, and the shared allowlist grammar -- an allow entry carrying an end-of-line comment
 # or quotes covers its path, and an exclusion carrying a comment still excludes, since a resolver that read those lines
-# differently from the launch wrapper would restore ownership on a carve-out the wrapper refuses)
+# differently from the launch wrapper would restore ownership on an excluded path the wrapper refuses)
 # and ai_tools_operator__resolve_owner (a covered path resolves to the operator and exposes the owner's allowlist;
 # an excluded or out-of-list path resolves to no owner, so the helpers leave it untouched). Multi-operator tie-break
 # resolution (which of several covering operators wins) needs several real operator accounts and is not exercised
@@ -28,14 +28,14 @@ fi
 
 mktestdir
 mkdir -p "${TESTDIR}"/proj/sub "${TESTDIR}"/proj/secret "${TESTDIR}"/proj/vendor "${TESTDIR}"/other \
-         "${TESTDIR}"/noted "${TESTDIR}/quoted dir" "${TESTDIR}"/parked
+         "${TESTDIR}"/noted "${TESTDIR}/quoted dir" "${TESTDIR}"/disabled
 allow="${TESTDIR}/project-registry"
-# The format marker, plain lines, and one of each shape the shared grammar accepts: an allow entry with an end-of-line
-# comment, a quoted allow entry, an exclusion carrying a comment, and a parked project.
-printf '%s\n' "# ai-tools-project-registry-format: 1.0" "${TESTDIR}/proj" "!${TESTDIR}/proj/secret" \
-              "!${TESTDIR}/proj/vendor   # carve-out" \
-              "${TESTDIR}/noted   # why" \
-              "\"${TESTDIR}/quoted dir\"" "%${TESTDIR}/parked" > "${allow}"
+# The format marker, and one of each shape the shared grammar accepts: an allow entry with an end-of-line
+# comment, a quoted allow entry, an exclusion carrying a comment, and a disabled project.
+printf '%s\n' "# ai-tools-project-registry-format: 1.0" "@ ${TESTDIR}/proj" "! ${TESTDIR}/proj/secret" \
+              "! ${TESTDIR}/proj/vendor   # excluded" \
+              "@ ${TESTDIR}/noted   # why" \
+              "@ \"${TESTDIR}/quoted dir\"" "% ${TESTDIR}/disabled" > "${allow}"
 conf="${TESTDIR}/operator.conf"
 printf 'OPERATORS="%s"\n' "${PROJECTS_USER}" > "${conf}"
 export AI_TOOLS_OPERATOR_CONF="${conf}" AI_TOOLS_ALLOWLIST="${allow}"
@@ -55,11 +55,11 @@ covers "${TESTDIR}/quoted dir/x"  && pass "covers: quoted allow entry covers its
                                   || fail "covers: quoted allow entry was dropped"
 covers "${TESTDIR}/proj/vendor/x" && fail "covers: exclusion with a comment was ignored (subtree read as covered)" \
                                   || pass "covers: exclusion with an end-of-line comment still excludes"
-covers "${TESTDIR}/parked/x"      && fail "covers: a path under a parked project was covered" \
-                                  || pass "covers: a '%' line parks its project"
+covers "${TESTDIR}/disabled/x"    && fail "covers: a path under a disabled project was covered" \
+                                  || pass "covers: a '%' line disables its project"
 # A registry the grammar refuses does not cover any path, the control being the same file before the bad line is
 # appended.
-cp "${allow}" "${TESTDIR}/invalid"; printf '%s\n' "relative/entry" >> "${TESTDIR}/invalid"
+cp "${allow}" "${TESTDIR}/invalid"; printf '%s\n' "@ relative/entry" >> "${TESTDIR}/invalid"
 mkdir -p "${TESTDIR}/refused"; mv "${TESTDIR}/invalid" "${TESTDIR}/refused/project-registry"
 ai_tools_operator__is_covered_by_allowlist "${TESTDIR}/refused/project-registry" "${TESTDIR}/proj/sub" 2>/dev/null \
     && fail "covers: a registry with a refused line covered a path" \
@@ -92,7 +92,7 @@ read -r rc _ _ <<< "$(resolve_out "${TESTDIR}/other")"
                    || fail "resolve_owner: unlisted path resolved (rc=${rc})"
 
 # The consequence of the grammar, seen from the handback's side: a project registered with a comment resolves to its
-# operator, and a commented carve-out resolves to no owner.
+# operator, and a commented '!' line resolves to no owner.
 read -r rc user _ <<< "$(resolve_out "${TESTDIR}/noted/file")"
 [[ "${rc}" == 0 && "${user}" == "${PROJECTS_USER}" ]] \
     && pass "resolve_owner: a path under a commented allow entry resolves to the operator" \

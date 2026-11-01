@@ -77,17 +77,18 @@ Two things to know:
 - A setgid bit set to some third group is taken as deliberate and kept.
   The claim reports it rather than clearing it; clear it with `chmod g-s` if it
   was not intended.
-- For a seal that does not depend on a mode at all, add a carve-out line, `!`
-  and the path, to `~/.config/ai-tools/project-registry`. A carved-out subtree
-  is skipped by every walk whatever its mode.
+- To keep every walk out of a subtree whatever its mode, add an excluded line,
+  `!` and the path, to `~/.config/ai-tools/project-registry`. The line does not
+  take back the access a claim already granted there; the owner-only mode does.
 
 ## What the patterns do not cover
 
 Matching is on **names**, not contents, and the shipped list is a baseline
 of the credential names software writes in general. A secret under a name
 the list does not know is yours to handle first: make it owner-only,
-which a claim then leaves alone, or carve it out with a `!` line in your
-project registry, which every walk skips whatever its mode.
+which a claim then leaves alone, or exclude it with a `!` line in your project
+registry, which the hand-back and the claim's permission walks skip whatever
+its mode.
 
 Your own list lives at `~/.config/ai-tools/secret-patterns` and **replaces**
 the baseline rather than adding to it, so a file written once holds this host

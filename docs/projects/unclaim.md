@@ -40,41 +40,25 @@ that has to close, is
 | What you pointed at | What happens |
 |---|---|
 | a claimed project | unclaimed |
-| a directory with claimed projects nested under it | they are listed, one confirm covers all, each is unclaimed outermost-first; a batch holding a conflict is refused before its first step |
+| a directory with claimed projects nested under it | they are listed, one confirm covers all, each is unclaimed outermost-first |
 | a path *inside* a claimed project | refused, naming the nearest claimed parent and the command that works |
-| a carve-out (`!`), or a path a `!` line and an entry both name | refused: neither is a project |
+| an excluded path (`!`) | refused: it is not a project |
 | a path the registry does not cover, without any agent permissions on it | refused: no part of this tree was claimed |
 | a path the registry does not cover, still carrying agent permissions | reported, and `--force` offered |
 
 The outcomes are
 [ref-table-d9g9](../../.claude/rules/cli.rule.md#ref-table-d9g9).
 
-A **parked** project is asked about first: the hand-back cannot run while
+A **disabled** project is asked about first: the hand-back cannot run while
 the `%` line stands, so the command offers to lift it. Declining does not
-abort: the line stays parked, the hand-back is reported as not run,
+abort: the line stays disabled, the hand-back is reported as not run,
 and the command exits non-zero, printing this unclaim again as the command
 that completes it once you re-enable the project ([An unclaim that could not
 hand the files back says
 so](#an-unclaim-that-could-not-hand-the-files-back-says-so)).
 
-The carve-out lines (`!`) under the project stay in your registry and stay
+The excluded lines (`!`) under the project stay in your registry and stay
 in force over whatever is registered there next; the command names each one.
-
-## Keeping your place across a release
-
-```bash
-atr projects unclaim --keep-entry ~/src/api   # files handed back; the line stays, parked
-# ... release ...
-atr projects claim ~/src/api                  # offers to re-enable it, in place
-```
-
-A common rhythm is to unclaim before a production release, so the tree carries
-ordinary permissions, then claim again for the next development stage. A plain
-unclaim deletes the line, so the later claim appends a new one at the end
-of the file; `--keep-entry` parks it instead, as `projects disable` would,
-and the claim then offers to re-enable it where it was ([Enable](enable.md)).
-`--keep-entry` is refused with `--force`, which reaches a tree with no line
-to keep.
 
 ## A copy that was not unclaimed
 
@@ -153,20 +137,21 @@ and a run with no terminal takes the invoking user's group.
 The hand-back is the step that takes the agent's access off the *files*;
 the registry steps stop a session from launching there and leave the tree as it
 was. When the hand-back did not run — a declined password round, a helper
-that failed, a parked project whose `%` you kept, or a line covering
-the project — the command parks the project's line instead of deleting it,
+that failed, a disabled project whose `%` you kept, or a line covering
+the project — the command disables the project's line instead of deleting it,
 so the entry the hand-back needs is still there, reports why, and exits
 non-zero; it does not print a clean `unclaimed`. It prints this unclaim again,
 with the options you gave it, as the command that completes it:
 
 ```text
-      atr projects unclaim --keep-entry --full /home/you/src/api
+      the entry stays disabled; once that is cleared, complete the unclaim with:
+      atr projects unclaim --full /home/op/src/api
 ```
 
-Run it once the cause is cleared, a parked project re-enabled at its prompt
+Run it once the cause is cleared, a disabled project re-enabled at its prompt
 included. A hand-back you declined at the group question is a choice, not
 a failure: the line is dropped as usual. A registry line the command could not
-remove, or could not park, is reported the same way, with the command
+remove, or could not disable, is reported the same way, with the command
 that finishes the edit, because a session can still start there while the line
 stands. A label the command could not revert, one left while an agent session
 or the toolchain update runs included, is reported the same way,
@@ -184,7 +169,6 @@ so the command has no entry to read an owner from and binds the walk to you.
 
 0 when the project is unclaimed; 1 when a step failed, the label was not
 reverted, the hand-back did not run, the path was refused, or the registry line
-could not be removed or parked; 2 for a rejected command line (a missing
-directory, `--keep-entry` with `--force`, `--yes` with `--dry-run`); 3
-when the path is a protected system directory or a home root. `man ai-tools`
-has the full list.
+could not be removed or disabled; 2 for a rejected command line (a missing
+directory, `--yes` with `--dry-run`); 3 when the path is a protected system
+directory or a home root. `man ai-tools` has the full list.

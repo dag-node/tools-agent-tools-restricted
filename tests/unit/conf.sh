@@ -875,7 +875,7 @@ ld_root="${TESTDIR}/ld"
 mkdir -p "${ld_root}/proj/sub/deep" "${ld_root}/proj/private" "${ld_root}/proj/stale"
 # The owner's sub-link sits in directories only the owner writes, under a sticky /tmp, which the walk accepts.
 chmod 755 "${ld_root}" "${ld_root}/proj"
-ln -s "${ld_root}/proj/sub" "${ld_root}/sub-link"          # the operator's spelling of a carve-out
+ln -s "${ld_root}/proj/sub" "${ld_root}/sub-link"          # the operator's spelling of an excluded path
 ld_al="${TESTDIR}/ld-allowed-projects"
 cat > "${ld_al}" <<EOF
 ${ld_root}/proj
@@ -927,7 +927,7 @@ if [[ "${ld_ifs_rc}" -eq 0 && "${ld_ifs_allowed[*]}" == "${ld_allowed[*]}" \
 else
     fail "under the launch wrapper's IFS: rc ${ld_ifs_rc}, excluded=(${ld_ifs_excluded[*]:-}): $(cat "${TESTDIR}/ld-ifs.err")"
 fi
-# A link the sandbox account can change, aimed at the directory a carve-out covers: the owner's own link
+# A link the sandbox account can change, aimed at the directory a '!' line covers: the owner's own link
 # in a group-writable directory (a claimed project's shape, whoever made the link), and -- as root, where the fixture
 # link can be re-owned -- a link another account holds in a directory it cannot write. Each must refuse the read whole:
 # rc 2, both arrays empty, the code, the link, the reason and the remedy on stderr; the control is the same file minus
@@ -969,7 +969,7 @@ if [[ "${EUID}" -eq 0 ]] && id nobody >/dev/null 2>&1; then
 else
     skip "an exclusion through a link another account holds refuses the read" "needs root to re-own the fixture link"
 fi
-# A carve-out written as the real path keeps covering it whatever happens to an alias beside it -- the link present,
+# A '!' line written as the real path keeps covering it whatever happens to an alias beside it -- the link present,
 # unlinked, or a directory of its name put in its place -- since no entry depends on the link.
 cp "${ld_al}" "${ld_al}.canonical"
 ld_canonical_ok=true
@@ -983,27 +983,78 @@ for ld_alias_state in link removed directory; do
     if ! ai_tools_conf__load_allowlist "${ld_al}.canonical" ld_ca ld_ce \
             || ! ai_tools_conf__is_path_excluded "${ld_root}/proj/private" ld_ce \
             || ! ai_tools_conf__is_path_excluded "${ld_root}/proj/private/k" ld_ce; then
-        fail "with the alias ${ld_alias_state}, the real-path carve-out stopped covering ${ld_root}/proj/private"
+        fail "with the alias ${ld_alias_state}, the real-path '!' line stopped covering ${ld_root}/proj/private"
         ld_canonical_ok=false
     fi
 done
-${ld_canonical_ok} && pass "a real-path carve-out covers its directory with the alias present, removed, and replaced by a directory"
+${ld_canonical_ok} && pass "a real-path '!' line covers its directory with the alias present, removed, and replaced by a directory"
 rm -rf "${ld_root}/proj/alias" "${ld_root}/proj/links"; chmod 755 "${ld_root}/proj"
 ld_ok=true
 for p in "${ld_root}/proj/private" "${ld_root}/proj/private/k" "${ld_root}/proj/sub" "${ld_root}/proj/sub/deep" \
-         "${ld_root}/proj/x.log" "${ld_root}/proj/stale/y"; do
+         "${ld_root}/proj/x.log" "${ld_root}/proj/x.log/y" "${ld_root}/proj/stale/y"; do
     ai_tools_conf__is_path_excluded "${p}" ld_excluded || { fail "should be excluded: ${p}"; ld_ok=false; }
 done
-for p in "${ld_root}/proj/other" "${ld_root}/proj/x.log/y" "${ld_root}/proj/privateer"; do
+for p in "${ld_root}/proj/other" "${ld_root}/proj/x.logs" "${ld_root}/proj/privateer"; do
     ai_tools_conf__is_path_excluded "${p}" ld_excluded && { fail "should not be excluded: ${p}"; ld_ok=false; }
 done
-${ld_ok} && pass "the matcher covers a written path, its contents, a resolved path and a glob, and no sibling"
+${ld_ok} && pass "the matcher covers a written path, its contents, a resolved path, a glob and its contents, and no sibling"
+# A glob covers each path it matches and every directory under one, whatever the glob character: the direct match,
+# a child, a nested path, and a '?' entry's descendant; a sibling whose name only starts like a match is not covered.
+# shellcheck disable=SC2034  # read through its name by the matcher
+declare -a ld_globs=("${ld_root}/*/node_modules" "${ld_root}/proj/cach?/")
+ld_ok=true
+for p in "${ld_root}/proj/node_modules" "${ld_root}/proj/node_modules/pkg" "${ld_root}/proj/node_modules/pkg/lib" \
+         "${ld_root}/proj/cache" "${ld_root}/proj/cache/x/y"; do
+    ai_tools_conf__is_path_excluded "${p}" ld_globs || { fail "a glob should cover: ${p}"; ld_ok=false; }
+done
+for p in "${ld_root}/proj/node_modules_old" "${ld_root}/node_modules" "${ld_root}/proj/src" "${ld_root}/proj/caches"; do
+    ai_tools_conf__is_path_excluded "${p}" ld_globs && { fail "a glob should not cover: ${p}"; ld_ok=false; }
+done
+ld_covering="$(ai_tools_conf__find_covering_path "${ld_root}/proj/node_modules/pkg" "${ld_root}/*/node_modules")" \
+    || ld_covering="(none)"
+[[ "${ld_covering}" == "${ld_root}/proj/node_modules" ]] \
+    || { fail "the covering path of a glob's descendant: got ${ld_covering}"; ld_ok=false; }
+ld_covering="$(ai_tools_conf__find_covering_path "${ld_root}/proj/private/k" "${ld_root}/proj/private/")" \
+    || ld_covering="(none)"
+[[ "${ld_covering}" == "${ld_root}/proj/private" ]] \
+    || { fail "the covering path of a plain entry's descendant: got ${ld_covering}"; ld_ok=false; }
+${ld_ok} && pass "a glob covers the paths it matches and every directory under one, and names the path it matched"
 # shellcheck disable=SC2034  # read through its name by the matcher
 declare -a ld_none=()
 if ! ai_tools_conf__is_path_excluded "${ld_root}/proj" ld_none; then
     pass "an empty exclusion array excludes no path"
 else
     fail "an empty exclusion array excluded a path"
+fi
+# The matcher takes the exclusion array by name, so a caller's array named like one of the matcher's own locals would
+# resolve to that local and read as no pattern. The names a caller is likeliest to use, with the ld_excluded rows as
+# the control; each array holds one plain exclusion.
+ld_ok=true
+for ld_array_name in entry path; do
+    declare -a "${ld_array_name}=(\"\${ld_root}/proj/private\")"
+    ai_tools_conf__is_path_excluded "${ld_root}/proj/private/k" "${ld_array_name}" \
+        || { fail "an exclusion array named '${ld_array_name}' does not cover its path"; ld_ok=false; }
+    ai_tools_conf__is_path_excluded "${ld_root}/proj/other" "${ld_array_name}" \
+        && { fail "an exclusion array named '${ld_array_name}' covers a path it does not name"; ld_ok=false; }
+    unset "${ld_array_name}"
+done
+${ld_ok} && pass "an exclusion array named 'entry' or 'path' covers its path and no other"
+# A match the library cannot make is not "not excluded": without the glob predicate the finder returns 2 and the
+# matcher returns the finder's status with its code, where reading the entry as a literal path would cover none of
+# the directories a glob names; a finder returning any status but 0 or 1 propagates the same way. The matcher's 1
+# for a path no entry covers is the control.
+ld_rc="$( ( unset -f ai_tools_conf__has_glob_characters
+            ai_tools_conf__find_covering_path "${ld_root}/proj/private/k" "${ld_root}/proj/private" >/dev/null 2>&1; echo $? ) )"
+ld_rc_matcher="$( ( unset -f ai_tools_conf__has_glob_characters
+            ai_tools_conf__is_path_excluded "${ld_root}/proj/private/k" ld_excluded 2>"${TESTDIR}/ld_v9s2.err"; echo $? ) )"
+ld_rc_stub="$( ( ai_tools_conf__find_covering_path() { return 7; }
+            ai_tools_conf__is_path_excluded "${ld_root}/proj/private/k" ld_excluded 2>/dev/null; echo $? ) )"
+ld_rc_control="$( ai_tools_conf__is_path_excluded "${ld_root}/proj/other" ld_excluded; echo $? )"
+if [[ "${ld_rc}" == 2 && "${ld_rc_matcher}" == 2 && "${ld_rc_stub}" == 7 && "${ld_rc_control}" == 1 ]] \
+        && grep -qx 'MSG-V9S2' "${TESTDIR}/ld_v9s2.err"; then
+    pass "without the glob predicate the finder returns 2 and the matcher propagates it under MSG-V9S2; no match is 1"
+else
+    fail "the finder without its predicate: ${ld_rc}, the matcher: ${ld_rc_matcher} (stub ${ld_rc_stub}), control ${ld_rc_control}"
 fi
 declare -a ld_a2=(x) ld_e2=(y)
 if ! ai_tools_conf__load_allowlist "${ld_root}" ld_a2 ld_e2 && [[ "${#ld_a2[@]}" -eq 0 && "${#ld_e2[@]}" -eq 0 ]] \
@@ -1070,22 +1121,24 @@ fi
 # The launch allowlist shares this grammar, and three components parse that file -- the wrapper, the CLI, and the chown
 # helper. The first block is BACKWARD COMPATIBILITY: every shape an existing allowlist already contains must parse
 # exactly as before, because a line that stops resolving silently removes a project from the gate.
+# check_entry <desc> <want-path> <line> [<want-kind>] : the parser reads <line> as <want-path> with the kind
+#   <want-kind> (default project), or, for <want-path> SKIP, as no entry. The sign is the kind, not part of the path.
 check_entry() {
-    local desc="$1" want="$2" line="$3" rc=0
+    local desc="$1" want="$2" line="$3" want_kind="${4:-project}" rc=0
     ai_tools_conf__parse_path_entry "${line}" || rc=$?
     if [[ "${want}" == SKIP ]]; then
         if [[ "${rc}" -ne 0 ]]; then pass "${desc}"; else fail "${desc}: yielded '${ai_tools_conf__value}'"; fi
-    elif [[ "${rc}" -eq 0 && "${ai_tools_conf__value}" == "${want}" ]]; then
+    elif [[ "${rc}" -eq 0 && "${ai_tools_conf__value}" == "${want}" && "${ai_tools_conf__kind}" == "${want_kind}" ]]; then
         pass "${desc}"
     else
-        fail "${desc}: rc ${rc}, got '${ai_tools_conf__value}', expected '${want}'"
+        fail "${desc}: rc ${rc}, got ${ai_tools_conf__kind:-?} '${ai_tools_conf__value}', expected ${want_kind} '${want}'"
     fi
 }
 check_entry "a plain path is unchanged"            /home/me/project         '/home/me/project'
-check_entry "an exclusion keeps its !"             '!/home/me/vendor'       '!/home/me/vendor'
-check_entry "a glob exclusion stays raw"           '!/home/me/*/node_mod'   '!/home/me/*/node_mod'
-check_entry "a park keeps its %"                   '%/home/me/parked'       '%/home/me/parked'
-check_entry "a park may be quoted"                 '%/home/me/my project'   '%"/home/me/my project"'
+check_entry "an exclusion reads as excluded"       '/home/me/vendor'        '!/home/me/vendor'       excluded
+check_entry "a glob exclusion stays raw"           '/home/me/*/node_mod'    '!/home/me/*/node_mod'   excluded
+check_entry "a disabled project reads as disabled" '/home/me/disabled'      '%/home/me/disabled'     disabled
+check_entry "a disabled project may be quoted"     '/home/me/my project'    '%"/home/me/my project"' disabled
 check_entry "surrounding whitespace is trimmed"    /home/me/project         '   /home/me/project   '
 check_entry "a blank line yields no entry"         SKIP                     ''
 check_entry "a whole-line comment yields no entry" SKIP                     '# a note'
@@ -1096,7 +1149,7 @@ check_entry "an end-of-line comment is removed"    /home/me/project         '/ho
 check_entry "quotes carry a space"                 '/home/me/my project'    '"/home/me/my project"'
 check_entry "quotes make # literal"                '/home/me/proj #2'       '"/home/me/proj #2"'
 check_entry "single quotes work too"               '/home/me/my project'    "'/home/me/my project'"
-check_entry "an exclusion may be quoted"           '!/home/me/my project'   '!"/home/me/my project"'
+check_entry "an exclusion may be quoted"           '/home/me/my project'    '!"/home/me/my project"' excluded
 check_entry "a quoted path may be commented"       '/home/me/a b'           '"/home/me/a b"   # note'
 # An interior # with no preceding whitespace is part of the path, matching the KEY=value rule -- a directory literally
 # named proj#2 keeps working unquoted.
@@ -1179,33 +1232,76 @@ refused_line() {
     fi
     assert_msg MSG-B8U2 "${err}" "${reason}: the refusal carries its code"
 }
+# A current-grammar row may glue its sign to the path, a spelling the reader accepts and the writer does not produce,
+# so the refusal is shown to be the reason's and not the spelling's.
 refused_line unknown-form       current 'home/op/project'
 # shellcheck disable=SC2088  # the tilde is the line under test, written as an operator might type it
 refused_line unknown-form       current '~/project'
+# A bare path carries no sign, and only the operator knows which of the three it meant.
+refused_line unknown-form       current '/home/op/project'
+refused_line unknown-form       current '"/home/op/a b"'
+refused_line unknown-form       legacy  '@ /home/op/project'
+refused_line comment-line       current '# a note'
+refused_line comment-line       current '  # ai-tools-project-registry-format: 1.0'
 refused_line relative-path      current '!vendor'
-refused_line relative-path      current '%"parked"'
+refused_line relative-path      current '@ vendor'
+refused_line relative-path      current '%"disabled"'
 refused_line empty-entry        current '!'
+refused_line empty-entry        current '@'
 refused_line empty-entry        current '%   # why'
-refused_line empty-entry        current '""'
-refused_line unmatched-quote    current '"/home/op/a b'
+refused_line empty-entry        current '@ ""'
+refused_line unmatched-quote    current '@ "/home/op/a b'
 refused_line text-after-quote   current '!"/home/op/p/private"suffix'
-refused_line text-after-quote   current "'/home/op/c d'tail"
-refused_line text-after-quote   current '%"/home/op/parked" x'
+refused_line text-after-quote   current "@ '/home/op/c d'tail"
+refused_line text-after-quote   current '%"/home/op/disabled" x'
 refused_line text-after-quote   legacy  '"/home/op/p" !/home/op/p/private'
-refused_line control-character  current $'/home/op/a\tb'
+refused_line control-character  current $'@ /home/op/a\tb'
 refused_line control-character  current $'!"/home/op/c\x01d"'
 refused_line control-character  legacy  $'/home/op/a\tb'
-refused_line glob-on-allow      current '/home/op/*'
-refused_line glob-on-park       current '%/home/op/p?'
+refused_line glob-on-project    current '@ /home/op/*'
+refused_line glob-on-disabled   current '%/home/op/p?'
 refused_line marker-repeated    current "${REG_MARKER}"
 refused_line marker-unsupported current '# ai-tools-project-registry-format: 2.0'
-refused_line park-in-legacy     legacy  '%/home/op/parked'
+refused_line disabled-in-legacy legacy  '%/home/op/disabled'
 refused_line marker-in-legacy   legacy  "${REG_MARKER}"
 refused_line unknown-form       current $'\x1b[31m/home/op'
+# sign_conflict <desc> <first-line> <second-line> : two lines naming one written path with different signs refuse
+# the file (3) as sign-conflict at the second.
+sign_conflict() {
+    local rc=0
+    printf '%s\n' "${REG_MARKER}" "$2" "$3" > "${reg_dir}/project-registry"
+    ai_tools_conf__validate_registry "${reg_dir}/project-registry" current 2>"${TESTDIR}/reg.err" || rc=$?
+    if [[ "${rc}" -eq 3 ]] && grep -qF -- "project-registry line 3: sign-conflict: $3" "${TESTDIR}/reg.err"; then
+        pass "sign-conflict: $1 is refused (3) at the second line"
+    else
+        fail "sign-conflict: $1 gave rc ${rc}: $(cat "${TESTDIR}/reg.err")"
+    fi
+}
+sign_conflict "an enabled and a disabled line"       '@ /home/op/p' '% /home/op/p'
+sign_conflict "a project and an excluded line"       '@ /home/op/p' '! /home/op/p'
+# The second line is glued and carries a trailing slash, two spellings of one written path the reader accepts.
+sign_conflict "a trailing slash on the second"       '% /home/op/p' '!/home/op/p/'
+sign_conflict "a quoted spelling of the second"      '@ /home/op/a b' '! "/home/op/a b"'
+printf '%s\n' "${REG_MARKER}" '@ /home/op/p   # first' '@/home/op/p/' "@ '/home/op/p'" > "${reg_dir}/project-registry"
+if ai_tools_conf__validate_registry "${reg_dir}/project-registry" current 2>"${TESTDIR}/reg.err"; then
+    pass "identical lines -- one sign, one written path in three spellings -- are not a fault"
+else
+    fail "identical lines were refused: $(cat "${TESTDIR}/reg.err")"
+fi
+# The glued form and any whitespace after the sign read the same kind and path.
+for glued_line in '@/home/op/p' '@ /home/op/p' $'@\t/home/op/p' '   @   /home/op/p   # why'; do
+    # shellcheck disable=SC2154  # ai_tools_conf__kind is set by ai_tools_conf__parse_path_entry in the sourced library
+    if ai_tools_conf__parse_path_entry "${glued_line}" && [[ "${ai_tools_conf__kind}" == project \
+            && "${ai_tools_conf__value}" == /home/op/p ]]; then
+        pass "the parser reads $(printf '%q' "${glued_line}") as the project /home/op/p"
+    else
+        fail "the parser read $(printf '%q' "${glued_line}") as '${ai_tools_conf__kind}' '${ai_tools_conf__value}'"
+    fi
+done
 # The major is compared as text, so one past 2^64 does not wrap to 1 and a zero-padded 1 is still 1.
 refused_line marker-unsupported current '# ai-tools-project-registry-format: 18446744073709551617.0'
 refused_line marker-unsupported current '# ai-tools-project-registry-format: 1000000000000000000000000000000000000001.0'
-printf '%s\n' "# ai-tools-project-registry-format: 01.0" "/home/op/p" > "${reg_dir}/project-registry"
+printf '%s\n' "# ai-tools-project-registry-format: 01.0" "@ /home/op/p" > "${reg_dir}/project-registry"
 if ai_tools_conf__validate_registry "${reg_dir}/project-registry" current 2>"${TESTDIR}/reg.err"; then
     pass "a zero-padded major 01 reads as format 1"
 else
@@ -1227,29 +1323,30 @@ nul_refused() {
         fail "control-character: $2 gave rc ${rc}: ${err}"
     fi
 }
-nul_refused 2 "a NUL in an allow line"   '%s\n/home/op/pri\0vate\n'
-nul_refused 3 "a NUL in a carve-out"     '%s\n/home/op/p\n!/home/op/p/pri\0vate\n'
-nul_refused 2 "a NUL in a park"          '%s\n%%/home/op/par\0ked\n'
-nul_refused 2 "a NUL in a comment"       '%s\n# a no\0te\n/home/op/p\n'
-nul_refused 1 "a NUL in the marker line" '# ai-tools-project-registry-\0format: 1.0\n/home/op/p\n'
+nul_refused 2 "a NUL in a project line"  '%s\n@ /home/op/pri\0vate\n'
+nul_refused 3 "a NUL in a '!' line"     '%s\n@ /home/op/p\n!/home/op/p/pri\0vate\n'
+nul_refused 2 "a NUL in a '%' line"      '%s\n%%/home/op/dis\0abled\n'
+nul_refused 2 "a NUL in an end-of-line comment" '%s\n@ /home/op/p   # a no\0te\n'
+nul_refused 1 "a NUL in the marker line" '# ai-tools-project-registry-\0format: 1.0\n@ /home/op/p\n'
 if grep -qF -- "line 1: control-character: # ai-tools-project-registry-?format: 1.0" "${TESTDIR}/reg.err"; then
     pass "the refused line shows the NUL as '?'"
 else
     fail "the refused line as shown: $(cat "${TESTDIR}/reg.err")"
 fi
-# write_padded_registry <file> <printf-format> : <printf-format> (the marker as its %s), then 1 MiB of comment lines,
-# more than a pipe buffer, so a scan that stops reading at its first match leaves the writer blocked on a full pipe.
+# write_padded_registry <file> <printf-format> : <printf-format> (the marker as its %s), then 1 MiB of one identical
+# project line, more than a pipe buffer, so a scan that stops reading at its first match leaves the writer blocked
+# on a full pipe.
 write_padded_registry() {
     # shellcheck disable=SC2059  # the format is the fixture: it carries the \0 escape
-    { printf "$2" "${REG_MARKER}"; head -c 1048576 /dev/zero | tr '\0' '#' | fold -w 79; echo; } > "$1"
+    { printf "$2" "${REG_MARKER}"; head -c 1048576 /dev/zero | tr '\0' 'p' | fold -w 76 | sed 's|^|@ /|'; } > "$1"
 }
 # The file runs under `set -o pipefail`, as the callers do, which is where a scan closed early read a NUL as absent.
-write_padded_registry "${reg_dir}/project-registry" '%s\n/home/op/pri\0vate\n'
+write_padded_registry "${reg_dir}/project-registry" '%s\n@ /home/op/pri\0vate\n'
 rc=0; ai_tools_conf__validate_registry "${reg_dir}/project-registry" current 2>"${TESTDIR}/reg.err" || rc=$?
 if [[ "${rc}" -eq 3 ]] && grep -qF "project-registry line 2: control-character" "${TESTDIR}/reg.err"; then
-    pass "control-character: a NUL ahead of 1 MiB of comments is refused (3) at line 2 under pipefail"
+    pass "control-character: a NUL ahead of 1 MiB of entries is refused (3) at line 2 under pipefail"
 else
-    fail "control-character: a NUL ahead of 1 MiB of comments gave rc ${rc}: $(cat "${TESTDIR}/reg.err")"
+    fail "control-character: a NUL ahead of 1 MiB of entries gave rc ${rc}: $(cat "${TESTDIR}/reg.err")"
 fi
 pad_allowed=(stale); pad_excluded=(stale); rc=0
 ai_tools_conf__load_allowlist "${reg_dir}/project-registry" pad_allowed pad_excluded 2>/dev/null || rc=$?
@@ -1258,7 +1355,7 @@ if [[ "${rc}" -eq 3 && ${#pad_allowed[@]} -eq 0 && ${#pad_excluded[@]} -eq 0 ]];
 else
     fail "the loader over the padded NUL file: rc ${rc}, ${#pad_allowed[@]} allowed, ${#pad_excluded[@]} excluded"
 fi
-write_padded_registry "${reg_dir}/project-registry" '%s\n/home/op/private\n'
+write_padded_registry "${reg_dir}/project-registry" '%s\n@ /home/op/private\n'
 if ai_tools_conf__validate_registry "${reg_dir}/project-registry" current 2>"${TESTDIR}/reg.err"; then
     pass "the control: the same padded file without the NUL validates under pipefail"
 else
@@ -1287,13 +1384,13 @@ fi
 pin_dir="${TESTDIR}/pin"; mkdir -p "${pin_dir}/proj" "${pin_dir}/private" "${pin_dir}/cwd/rel"
 pin_reg="${pin_dir}/project-registry"
 pin_proj="$(realpath -e "${pin_dir}/proj")"
-printf '%s\n%s\0%s\n' "${REG_MARKER}" "${pin_dir}/pri" "vate" > "${pin_dir}/next-nul"
-printf '%s\n%s\n' "${REG_MARKER}" '"rel"' > "${pin_dir}/next-relative"
+printf '%s\n%s\0%s\n' "${REG_MARKER}" "@ ${pin_dir}/pri" "vate" > "${pin_dir}/next-nul"
+printf '%s\n%s\n' "${REG_MARKER}" '@ "rel"' > "${pin_dir}/next-relative"
 # pin_run <replacement> <command>... : write the original registry, then run <command> from ${pin_dir}/cwd
 # with the renaming `tr` defined; a <replacement> that does not exist leaves the stub without a file to rename.
 pin_run() {
     local next="$1"; shift
-    printf '%s\n' "${REG_MARKER}" "${pin_dir}/proj" > "${pin_reg}"
+    printf '%s\n' "${REG_MARKER}" "@ ${pin_dir}/proj" > "${pin_reg}"
     ( cd "${pin_dir}/cwd"
       tr() { if [[ -e "${next}" ]]; then mv -f -- "${next}" "${pin_reg}"; fi; command tr "$@"; }
       "$@" )
@@ -1343,7 +1440,7 @@ else
     ln -s "${TESTDIR}/hid-target" "${hid}/inner"
     chown root:root "${hid}" "${TESTDIR}/hid-target"; chown -h root:root "${hid}/inner"
     hid_reg_dir="${TESTDIR}/hidreg"; mkdir -p "${hid_reg_dir}"
-    printf '%s\n' "${REG_MARKER}" "!${hid}/inner" > "${hid_reg_dir}/project-registry"
+    printf '%s\n' "${REG_MARKER}" "! ${hid}/inner" > "${hid_reg_dir}/project-registry"
     chown -R "${PROJECTS_USER}:${PROJECTS_GROUP}" "${hid_reg_dir}"
     # hid_load_as <account> : print `<status>` and the loader's stderr for the registry read as <account>.
     # shellcheck disable=SC2016  # $1 and $2 are the inner shell's positionals, passed after `_`
@@ -1375,7 +1472,7 @@ else
         fi
     done
 fi
-printf '%s\n' "/home/op/project" > "${reg_dir}/project-registry"
+printf '%s\n' "@ /home/op/project" > "${reg_dir}/project-registry"
 rc=0; ai_tools_conf__validate_registry "${reg_dir}/project-registry" current 2>"${TESTDIR}/reg.err" || rc=$?
 if [[ "${rc}" -eq 3 ]] && grep -qF "line 1: marker-missing" "${TESTDIR}/reg.err"; then
     pass "marker-missing: a project-registry file without the marker is refused (3)"
@@ -1383,40 +1480,40 @@ else
     fail "marker-missing: rc ${rc}: $(cat "${TESTDIR}/reg.err")"
 fi
 # The controls: every line form the grammar accepts, under each grammar.
-printf '%s\n' "${REG_MARKER}" "" "# note" "  /home/op/p   # why" "\"/home/op/a b\"" "'/home/op/c d'" \
-    "!/home/op/p/vendor" "!/home/op/*/node_modules" "%/home/op/parked" "% \"/home/op/x y\"" \
-    "!\"/home/op/p/a b\"   # why" "'/home/op/e f'# note" "# ai-tools-project-registry-format: 1" > "${reg_dir}/project-registry"
+printf '%s\n' "${REG_MARKER}" "" "  @ /home/op/p   # why" "@ \"/home/op/a b\"" "@'/home/op/c d'" \
+    "    ! /home/op/p/vendor" $'!\t/home/op/*/node_modules' "%/home/op/disabled" "% \"/home/op/x y\"" \
+    "!\"/home/op/p/a b\"   # why" "@ '/home/op/e f'# note" "@ '/home/op/q\"q'" "@ /home/op/p" > "${reg_dir}/project-registry"
 if ai_tools_conf__validate_registry "${reg_dir}/project-registry" current 2>"${TESTDIR}/reg.err"; then
     pass "every accepted line form validates under the current grammar"
 else
     fail "an accepted line form was refused: $(cat "${TESTDIR}/reg.err")"
 fi
-printf '%s\n' "# ai-tools-project-registry-format: 1.7" "/home/op/p" > "${reg_dir}/project-registry"
+printf '%s\n' "# ai-tools-project-registry-format: 1.7" "@ /home/op/p" > "${reg_dir}/project-registry"
 if ai_tools_conf__validate_registry "${reg_dir}/project-registry" current 2>/dev/null; then
     pass "a 1.x minor this release does not know is read"
 else
     fail "a 1.x minor was refused"
 fi
-printf '%s\n' "/home/op/p" "!/home/op/p/vendor" "!/home/op/*/x" > "${reg_dir}/allowed-projects"
+printf '%s\n' "# a note" "/home/op/p" "!/home/op/p/vendor" "!/home/op/*/x" "\"/home/op/a b\"" > "${reg_dir}/allowed-projects"
 if ai_tools_conf__validate_registry "${reg_dir}/allowed-projects" legacy 2>"${TESTDIR}/reg.err"; then
-    pass "a legacy file of allow and '!' lines validates under the legacy grammar"
+    pass "a legacy file of comment, bare-path and '!' lines validates under the legacy grammar"
 else
     fail "a legacy file was refused: $(cat "${TESTDIR}/reg.err")"
 fi
 
 # The loader validates first: a refused file yields every array empty and status 3, and the kinds array names each
-# exclusion's line kind, parallel to the exclusion array, the resolved form of a park included.
-ldk_root="${TESTDIR}/ldk"; mkdir -p "${ldk_root}/proj/vendor" "${ldk_root}/parked"
+# exclusion's line kind, parallel to the exclusion array, the resolved form of a '%' line included.
+ldk_root="${TESTDIR}/ldk"; mkdir -p "${ldk_root}/proj/vendor" "${ldk_root}/disabled"
 chmod 755 "${ldk_root}" "${ldk_root}/proj"
-ln -s "${ldk_root}/parked" "${ldk_root}/parked-link"
-printf '%s\n' "${REG_MARKER}" "${ldk_root}/proj" "!${ldk_root}/proj/vendor" "%${ldk_root}/parked-link" \
-    "!${ldk_root}/proj/*.log" > "${reg_dir}/project-registry"
+ln -s "${ldk_root}/disabled" "${ldk_root}/disabled-link"
+printf '%s\n' "${REG_MARKER}" "@ ${ldk_root}/proj" "! ${ldk_root}/proj/vendor" "% ${ldk_root}/disabled-link" \
+    "! ${ldk_root}/proj/*.log" > "${reg_dir}/project-registry"
 declare -a ldk_allowed=() ldk_excluded=() ldk_kinds=()
 ldk_rc=0; ldk_saved_ifs="${IFS}"; IFS=$'\n\t'
 ai_tools_conf__load_allowlist "${reg_dir}/project-registry" ldk_allowed ldk_excluded ldk_kinds 2>"${TESTDIR}/reg.err" || ldk_rc=$?
 IFS="${ldk_saved_ifs}"
 ldk_pairs="$(paste -d= <(printf '%s\n' "${ldk_excluded[@]}") <(printf '%s\n' "${ldk_kinds[@]}"))"
-ldk_want="${ldk_root}/proj/vendor=carve"$'\n'"${ldk_root}/parked-link=park"$'\n'"${ldk_root}/parked=park"$'\n'"${ldk_root}/proj/*.log=carve"
+ldk_want="${ldk_root}/proj/vendor=excluded"$'\n'"${ldk_root}/disabled-link=disabled"$'\n'"${ldk_root}/disabled=disabled"$'\n'"${ldk_root}/proj/*.log=excluded"
 if [[ "${ldk_rc}" -eq 0 && "${ldk_pairs}" == "${ldk_want}" && "${ldk_allowed[*]}" == "${ldk_root}/proj" ]]; then
     pass "the kinds array names each exclusion's kind, parallel to the exclusion array"
 else
@@ -1424,12 +1521,12 @@ else
 fi
 # shellcheck disable=SC2034  # read through its name by the matcher
 declare -a ldk_kept=("${ldk_excluded[@]}")
-if ai_tools_conf__is_path_excluded "${ldk_root}/parked/sub" ldk_kept && ! ai_tools_conf__is_path_excluded "${ldk_root}/proj/src" ldk_kept; then
-    pass "a park excludes its project and its contents at the gate, and a sibling stays allowed"
+if ai_tools_conf__is_path_excluded "${ldk_root}/disabled/sub" ldk_kept && ! ai_tools_conf__is_path_excluded "${ldk_root}/proj/src" ldk_kept; then
+    pass "a '%' line excludes its project and its contents at the gate, and a sibling stays allowed"
 else
-    fail "the gate's match over a park"
+    fail "the gate's match over a '%' line"
 fi
-printf '%s\n' "${REG_MARKER}" "${ldk_root}/proj" "%${ldk_root}/proj/*" > "${reg_dir}/project-registry"
+printf '%s\n' "${REG_MARKER}" "@ ${ldk_root}/proj" "% ${ldk_root}/proj/*" > "${reg_dir}/project-registry"
 ldk_allowed=(x); ldk_excluded=(y); ldk_kinds=(z); ldk_rc=0
 ai_tools_conf__load_allowlist "${reg_dir}/project-registry" ldk_allowed ldk_excluded ldk_kinds 2>"${TESTDIR}/reg.err" || ldk_rc=$?
 if [[ "${ldk_rc}" -eq 3 && ${#ldk_allowed[@]} -eq 0 && ${#ldk_excluded[@]} -eq 0 && ${#ldk_kinds[@]} -eq 0 ]]; then
@@ -1445,22 +1542,74 @@ for ldk_member in has_allowlist_entry has_allowlist_exclusion; do
         fail "${ldk_member} read a refused file as naming the path"
     fi
 done
+# Two spellings of one directory through a link, with different signs: the validator compares written paths and reads
+# two, so the readers that resolve them refuse the file under their own code -- the loader with every array empty,
+# and the classifier -- as the validator refuses a sign-conflict.
+ln -s "${ldk_root}/proj" "${ldk_root}/proj-link"
+printf '%s\n' "${REG_MARKER}" "@ ${ldk_root}/proj" "! ${ldk_root}/proj-link" > "${reg_dir}/project-registry"
+ldk_allowed=(x); ldk_excluded=(y); ldk_rc=0
+ai_tools_conf__load_allowlist "${reg_dir}/project-registry" ldk_allowed ldk_excluded 2>"${TESTDIR}/reg.err" || ldk_rc=$?
+if [[ "${ldk_rc}" -eq 3 && ${#ldk_allowed[@]} -eq 0 && ${#ldk_excluded[@]} -eq 0 ]]; then
+    assert_msg MSG-E3W3 "$(cat "${TESTDIR}/reg.err")" "the loader refuses a project and an exclusion of one directory through a link (3)"
+else
+    fail "the loader over two spellings with two signs: rc ${ldk_rc}: $(cat "${TESTDIR}/reg.err")"
+fi
+ldk_rc=0; ai_tools_conf__read_registry_path_class "${reg_dir}/project-registry" "${ldk_root}/proj" >/dev/null \
+    2>"${TESTDIR}/reg.err" || ldk_rc=$?
+if [[ "${ldk_rc}" -eq 3 ]]; then
+    assert_msg MSG-E3W3 "$(cat "${TESTDIR}/reg.err")" "the classifier refuses the same file (3)"
+else
+    fail "the classifier over two spellings with two signs: rc ${ldk_rc}"
+fi
+printf '%s\n' "${REG_MARKER}" "@ ${ldk_root}/proj" "@ ${ldk_root}/proj-link" > "${reg_dir}/project-registry"
+if ai_tools_conf__check_registry "${reg_dir}/project-registry" 2>"${TESTDIR}/reg.err"; then
+    pass "the control: two spellings of one directory with one sign load"
+else
+    fail "two spellings with one sign were refused: $(cat "${TESTDIR}/reg.err")"
+fi
+# A legacy allowed-projects keeps the reading it had before format 1.0: an exclusion naming an allow line's path wins
+# for that path, and the other entries still load. The migration refuses the pair instead.
+mkdir -p "${ldk_root}/other"
+printf '%s\n' "${ldk_root}/proj" "!${ldk_root}/proj" "${ldk_root}/other" > "${ldk_root}/allowed-projects"
+ldk_allowed=(); ldk_excluded=(); ldk_rc=0
+ai_tools_conf__load_allowlist "${ldk_root}/allowed-projects" ldk_allowed ldk_excluded 2>"${TESTDIR}/reg.err" || ldk_rc=$?
+if [[ "${ldk_rc}" -eq 0 && " ${ldk_allowed[*]} " == *" ${ldk_root}/other "* ]] \
+        && ai_tools_conf__is_path_excluded "${ldk_root}/proj" ldk_excluded \
+        && ! ai_tools_conf__is_path_excluded "${ldk_root}/other" ldk_excluded; then
+    pass "a legacy file naming one path on an allow and a '!' line loads, the exclusion winning and the other project kept"
+else
+    fail "the legacy pair: rc ${ldk_rc}, allowed '${ldk_allowed[*]}': $(cat "${TESTDIR}/reg.err")"
+fi
+# The loader hands the caller's array names to its conflict check, which must not resolve them to its own locals.
+ldk_names() {   # ldk_names <file> : load <file> into arrays named `path` and `i`; print the status and both counts
+    local -a path=() i=()
+    local rc=0
+    ai_tools_conf__load_allowlist "$1" path i 2>/dev/null || rc=$?
+    printf '%s %s %s' "${rc}" "${#path[@]}" "${#i[@]}"
+}
+printf '%s\n' "${REG_MARKER}" "@ ${ldk_root}/proj" "! ${ldk_root}/proj-link" > "${reg_dir}/project-registry"
+ldk_conflict="$(ldk_names "${reg_dir}/project-registry")"
+printf '%s\n' "${REG_MARKER}" "@ ${ldk_root}/proj" "! ${ldk_root}/proj/vendor" > "${reg_dir}/project-registry"
+ldk_clean="$(ldk_names "${reg_dir}/project-registry")"
+if [[ "${ldk_conflict}" == "3 0 0" && "${ldk_clean}" == "0 1 1" ]]; then
+    pass "a caller's arrays named path and i reach the loader's conflict check, with a conflict and without"
+else
+    fail "arrays named path and i: '${ldk_conflict}' over the conflict, '${ldk_clean}' over the control"
+fi
 
 # --- Registry editing: the one implementation of a registry change ----------------------------
 # Three components write the registry (the CLI on the operator's own file, ai-tools-allowlist on another operator's,
 # install.sh on its own checkout), and this is what all three call. The file is the LAUNCH GATE, so each assertion is
 # about a way an edit could leave the gate saying something other than what the caller was told:
-#   * the state read, so a parked project reads as disabled, a carve-out as excluded, and two kinds on one path as
-#     a conflict;
-#   * add refusing to append under a winning '%' or beside a '!', which would leave an allow line the park beats
-#     or put two kinds on one path;
-#   * add opening a line of its own, so a file that runs to EOF mid-line keeps that entry;
-#   * remove taking the allow and park lines, so no '%' is left to park the next claim at that path, and leaving
-#     the carve-out lines, which are the operator's own edit;
-#   * enable/disable preserving position, indentation and comment -- their reason to exist rather than being an
-#     add+remove pair, for an operator whose registry is an ordered, commented document -- and enable never lifting
-#     a '!';
-#   * enable collapsing a duplicate pair to ONE live entry;
+#   * the state read, so a disabled project reads as disabled, an excluded path as excluded, and two signs on one
+#     directory -- one written path, or two spellings through a link -- as a file no editor writes;
+#   * add refusing a path a '%' or a '!' line names, which would put two signs on one path;
+#   * add refusing a name it cannot write back (4), and a file holding a line it cannot write back, with no write;
+#   * remove taking the enabled and disabled lines, so no '%' is left to disable the next claim at that path, and
+#     leaving the '!' lines, which are the operator's own edit;
+#   * every write rewriting the file in its canonical form -- the forest of nested lines, projects first, byte order,
+#     comments and written paths kept, a repeated line written once -- and a second write byte-identical;
+#   * enable/disable changing the sign alone, enable never lifting a '!';
 #   * every editor refusing a legacy allowed-projects and a file with a refused line (3) without writing;
 #   * an unwritable directory REPORTED (rc 1) rather than aborting the caller under `set -e`.
 section "conf: registry editing (unit)"
@@ -1496,54 +1645,56 @@ rc_is() {
 }
 
 # --- the state read ---
-seed_al "# header" "" "${P1}   # a comment" "!${SUB}" "%${P2}"
-state_is listed   "${P1}"  "an allow line reads as listed"
-state_is excluded "${SUB}" "a carve-out reads as excluded"
-state_is disabled "${P2}"  "a park reads as disabled"
+seed_al "" "@ ${P1}   # a comment" "! ${SUB}" "% ${P2}"
+state_is enabled  "${P1}"  "an enabled line reads as enabled"
+state_is excluded "${SUB}" "a '!' line reads as excluded"
+state_is disabled "${P2}"  "a disabled line reads as disabled"
 state_is absent   "${TESTDIR}" "a path with no line reads as absent"
-# A park OUTRANKS an allow line, exactly as it does at the launch gate: with both present no session starts there,
-# so 'disabled' is the only honest answer. A carve-out beside either is two kinds on one path.
-seed_al "${P1}" "%${P1}"
-state_is disabled "${P1}" "a park outranks an allow line for the same path"
-seed_al "${P1}" "!${P1}"
-state_is conflict "${P1}" "an allow line and a carve-out on one path read as a conflict"
-seed_al "${P1}" "relative/entry"
+# Two signs on one path refuse the file: written as one path the grammar refuses it, and spelled through a link
+# the readers that resolve it do (MSG-E3W3).
+seed_al "@ ${P1}" "% ${P1}"
+state_is invalid "${P1}" "an enabled and a disabled line on one path read as invalid" 2>/dev/null
+ln -s "${P1}" "${TESTDIR}/p1-link"
+seed_al "@ ${P1}" "! ${TESTDIR}/p1-link"
+state_err="$(ai_tools_conf__read_allowlist_state "${AL}" "${P1}" 2>&1 >/dev/null)"
+state_is invalid "${P1}" "a project and an exclusion of one directory through a link read as invalid" 2>/dev/null
+assert_msg MSG-E3W3 "${state_err}" "the state read names the directory with two signs"
+seed_al "@ ${P1}" "@ relative/entry"
 state_is invalid "${P1}" "a file with a refused line reads as invalid" 2>/dev/null
 
 # --- add ---
-seed_al "# header"
-rc_is 0 "add appends an absent path"            ai_tools_conf__allowlist_add "${AL}" "${P1}"
-state_is listed "${P1}" "the added path reads as listed"
-rc_is 0 "add is idempotent for a listed path"   ai_tools_conf__allowlist_add "${AL}" "${P1}"
-if [[ "$(grep -cxF "${P1}" "${AL}")" == 1 ]]; then
+seed_al
+rc_is 0 "add writes an absent path"             ai_tools_conf__allowlist_add "${AL}" "${P1}"
+state_is enabled "${P1}" "the added path reads as enabled"
+rc_is 0 "add is idempotent for an enabled path"   ai_tools_conf__allowlist_add "${AL}" "${P1}"
+if [[ "$(grep -cxF "@ ${P1}" "${AL}")" == 1 ]]; then
     pass "add did not duplicate the line"
 else
-    fail "add duplicated the line ($(grep -cxF "${P1}" "${AL}") copies)"
+    fail "add duplicated the line ($(grep -cxF "@ ${P1}" "${AL}") copies)"
 fi
-# A hand-edited registry can run to EOF part-way through its last line, and the readers keep that entry, so the append
-# opens a line of its own for the new one. Written straight it would join the two paths into one that is not a project,
-# taking the preceding entry off the launch gate.
-printf '%s\n%s' "${MARKER}" "${P2}" > "${AL}"
-rc_is 0 "add opens a line for an entry that runs to EOF" ai_tools_conf__allowlist_add "${AL}" "${P1}"
-state_is listed "${P1}" "the added path reads as listed"
-state_is listed "${P2}" "the entry that ran to EOF is still listed"
+# A hand-edited registry can run to EOF part-way through its last line, and the readers keep that entry; the rewrite
+# writes it on a line of its own.
+printf '%s\n%s' "${MARKER}" "@ ${P2}" > "${AL}"
+rc_is 0 "add over an entry that runs to EOF"     ai_tools_conf__allowlist_add "${AL}" "${P1}"
+state_is enabled "${P1}" "the added path reads as enabled"
+state_is enabled "${P2}" "the entry that ran to EOF is still enabled"
 
 for kind in '%' '!'; do
-    seed_al "# header" "${kind}${P1}"
+    seed_al "${kind}${P1}"
     rc_is 2 "add REFUSES a path a '${kind}' line names" ai_tools_conf__allowlist_add "${AL}" "${P1}"
     if [[ "$(grep -cF "${P1}" "${AL}")" == 1 ]]; then
         pass "the refused add over a '${kind}' line wrote no second line"
     else
-        fail "the refused add appended beside the '${kind}' line: $(grep -c . "${AL}") lines"
+        fail "the refused add wrote beside the '${kind}' line: $(grep -c . "${AL}") lines"
     fi
 done
 
-# add writes a line the grammar reads back as the path, or does not write: a glob character, a control byte or a `"`
-# in a directory name would put a line in the file that refuses the whole registry for every reader (4, no write),
-# and a space, a ` #` or a `'` is quoted, so the line reads back as the path rather than as the part before a comment.
-seed_al "# header" "${P2}"
+# add writes a line the grammar reads back as the path, or does not write: a glob character, a control byte or both
+# quote characters in a directory name would put a line in the file that refuses the whole registry for every reader
+# (4, no write); a space, a ` #` or a `'` is double-quoted and a `"` single-quoted, so the line reads back as the path.
+seed_al "@ ${P2}"
 add_before="$(cat "${AL}")"
-for add_name in 'odd*name' 'a?b' '[x]' 'q"q' $'c\x01d'; do
+for add_name in 'odd*name' 'a?b' '[x]' "q\"q'q" $'c\x01d'; do
     add_dir="${TESTDIR}/names/${add_name}"; mkdir -p "${add_dir}"
     rc_is 1 "the name predicate refuses $(printf '%q' "${add_name}")" ai_tools_conf__is_registry_path_representable "${add_dir}"
     rc_is 4 "add refuses a directory named $(printf '%q' "${add_name}")" ai_tools_conf__allowlist_add "${AL}" "${add_dir}"
@@ -1553,15 +1704,15 @@ if [[ "$(cat "${AL}")" == "${add_before}" ]]; then
 else
     fail "a refused name wrote the registry:"$'\n'"$(cat "${AL}")"
 fi
-for add_name in 'a b' 'x # not a comment' "it's" 'plain'; do
+for add_name in 'a b' 'x # not a comment' "it's" 'q"q' 'plain'; do
     add_dir="${TESTDIR}/names/${add_name}"; mkdir -p "${add_dir}"
     rc_is 0 "the name predicate accepts '${add_name}'" ai_tools_conf__is_registry_path_representable "${add_dir}"
     rc_is 0 "add writes a directory named '${add_name}'" ai_tools_conf__allowlist_add "${AL}" "${add_dir}"
-    state_is listed "${add_dir}" "the line written for '${add_name}' reads back as the path"
+    state_is enabled "${add_dir}" "the line written for '${add_name}' reads back as the path"
 done
-if grep -qxF "\"${TESTDIR}/names/x # not a comment\"" "${AL}" && grep -qxF "${TESTDIR}/names/plain" "${AL}" \
-        && ai_tools_conf__validate_registry "${AL}" current 2>/dev/null; then
-    pass "a name carrying ' #' is quoted, a plain one is not, and the file validates"
+if grep -qxF "@ \"${TESTDIR}/names/x # not a comment\"" "${AL}" && grep -qxF "@ ${TESTDIR}/names/plain" "${AL}" \
+        && grep -qxF "@ '${TESTDIR}/names/q\"q'" "${AL}" && ai_tools_conf__validate_registry "${AL}" current 2>/dev/null; then
+    pass "a name carrying ' #' is double-quoted, one carrying '\"' single-quoted, a plain one bare, and the file validates"
 else
     fail "the written lines:"$'\n'"$(cat "${AL}")"
 fi
@@ -1575,81 +1726,209 @@ if printf '%s\n' "${add_allowed[@]}" | grep -qxF "${TESTDIR}/names/a b"; then
 else
     fail "the loader did not resolve the quoted line: (${add_allowed[*]:-})"
 fi
+# A line the file already holds that the writer cannot render -- a path carrying both quote characters, which reads
+# unquoted -- refuses the whole write (4) with the file as it was.
+seed_al "@ ${TESTDIR}/names/q\"q'q"
+add_before="$(cat "${AL}")"
+rc_is 4 "add refuses to rewrite a file holding a line it cannot render" ai_tools_conf__allowlist_add "${AL}" "${P1}"
+if [[ "$(cat "${AL}")" == "${add_before}" ]]; then
+    pass "the refused rewrite left the file byte-identical"
+else
+    fail "the refused rewrite wrote the file:"$'\n'"$(cat "${AL}")"
+fi
 
-# --- remove: the allow and park lines, never a carve-out ---
-seed_al "# header" "${P1}" "%${P1}" "!${SUB}" "${P2}"
+# The reader every editor's caller asks which line that is: the line is printed and the status is 0, a file every line
+# of which renders returns 1, and so does a legacy file, which no format 1.0 writer rewrites. Each fixture validates
+# first, so the reader's answer is about a file the readers accept.
+seed_al "@ ${P1}" "@ ${TESTDIR}/names/q\"q'q"
+if ai_tools_conf__validate_registry "${AL}" current 2>/dev/null; then
+    pass "the fixture holding the unrenderable line validates as a current registry"
+else
+    fail "the fixture holding the unrenderable line does not validate:"$'\n'"$(cat "${AL}")"
+fi
+unrenderable_rc=0
+unrenderable_line="$(ai_tools_conf__find_unrenderable_registry_line "${AL}")" || unrenderable_rc=$?
+if [[ "${unrenderable_rc}" -eq 0 && "${unrenderable_line}" == "@ ${TESTDIR}/names/q\"q'q" ]]; then
+    pass "the reader names the line the writer cannot write back"
+else
+    fail "the reader: rc ${unrenderable_rc}, line '${unrenderable_line}'"
+fi
+# Given the path whose entry the caller removes, the reader does not count that entry's own line, since the removal
+# deletes it before it renders the rest; another line the writer cannot write back is still named, and the removal of
+# the line's own entry succeeds and leaves the rest canonical.
+rc_is 1 "given the path of the one unrenderable line, the reader returns 1" \
+    ai_tools_conf__find_unrenderable_registry_line "${AL}" "${TESTDIR}/names/q\"q'q"
+seed_al "@ ${P1}" "@ ${TESTDIR}/names/q\"q'q" "% ${TESTDIR}/names/r\"r'r"
+unrenderable_rc=0
+unrenderable_line="$(ai_tools_conf__find_unrenderable_registry_line "${AL}" "${TESTDIR}/names/q\"q'q")" \
+    || unrenderable_rc=$?
+if [[ "${unrenderable_rc}" -eq 0 && "${unrenderable_line}" == "% ${TESTDIR}/names/r\"r'r" ]]; then
+    pass "given one entry's path, the reader names another line the writer cannot write back"
+else
+    fail "the reader given a path: rc ${unrenderable_rc}, line '${unrenderable_line}'"
+fi
+# The reader prints the line raw, an end-of-line comment and its control bytes included; the CLI's report is what
+# replaces them for display.
+seed_al "@ ${P1}" "@ ${TESTDIR}/names/q\"q'q # note "$'\e'"[2J"
+unrenderable_line="$(ai_tools_conf__find_unrenderable_registry_line "${AL}")" || true
+if [[ "${unrenderable_line}" == "@ ${TESTDIR}/names/q\"q'q # note "$'\e'"[2J" ]]; then
+    pass "the reader prints the raw line, the comment's control byte included"
+else
+    fail "the reader printed '${unrenderable_line//[[:cntrl:]]/?}'"
+fi
+seed_al "@ ${P1}" "@ ${TESTDIR}/names/q\"q'q"
+rc_is 0 "the removal of the unrenderable line's own entry succeeds" \
+    ai_tools_conf__allowlist_remove "${AL}" "${TESTDIR}/names/q\"q'q"
+if [[ "$(cat "${AL}")" == "$(printf '%s\n' "${MARKER}" "@ ${P1}")" ]]; then
+    pass "and leaves the other entry in canonical form"
+else
+    fail "the removal left:"$'\n'"$(cat "${AL}")"
+fi
+seed_al "@ ${P1}" "! ${SUB}" "% ${P2}"
+rc_is 1 "the reader returns 1 for a file every line of which renders" \
+    ai_tools_conf__find_unrenderable_registry_line "${AL}"
+mkdir -p "${TESTDIR}/legacy"
+printf '%s\n' "${TESTDIR}/names/q\"q'q" > "${TESTDIR}/legacy/allowed-projects"
+if ai_tools_conf__validate_registry "${TESTDIR}/legacy/allowed-projects" legacy 2>/dev/null; then
+    rc_is 1 "the reader returns 1 for a legacy file, which no format 1.0 writer rewrites" \
+        ai_tools_conf__find_unrenderable_registry_line "${TESTDIR}/legacy/allowed-projects"
+else
+    fail "the legacy fixture does not validate:"$'\n'"$(cat "${TESTDIR}/legacy/allowed-projects")"
+fi
+
+# A valid file written by hand in a form the writer does not produce -- a sign glued to its path, a trailing slash,
+# an excluded path ahead of the project that encloses it -- takes the canonical form at the first write: a disable
+# and an enable leave the canonical file, not the input.
+seed_al "! ${SUB}" "@${P2}/" "@ ${P1}"
+roundtrip_input="$(cat "${AL}")"
+rc_is 0 "the hand-written file validates and takes a disable" ai_tools_conf__allowlist_disable "${AL}" "${P1}"
+rc_is 0 "and the enable after it"                             ai_tools_conf__allowlist_enable "${AL}" "${P1}"
+roundtrip_want="$(printf '%s\n' "${MARKER}" "@ ${P1}" "  ! ${SUB}" "@ ${P2}")"
+if [[ "$(cat "${AL}")" == "${roundtrip_want}" && "${roundtrip_want}" != "${roundtrip_input}" ]]; then
+    pass "the round trip over a hand-written file leaves its canonical form"
+else
+    fail "the round trip over a hand-written file left:"$'\n'"$(cat "${AL}")"
+fi
+
+# --- remove: the enabled and disabled lines, never a '!' line ---
+seed_al "@ ${P1}" "! ${SUB}" "@ ${P2}"
 rc_is 0 "remove drops a path"                   ai_tools_conf__allowlist_remove "${AL}" "${P1}"
 state_is absent "${P1}" "the removed path reads as absent"
-if grep -qxF -e "${P1}" -e "%${P1}" "${AL}"; then
-    fail "remove left a line naming the path: $(grep -xF -e "${P1}" -e "%${P1}" "${AL}")"
+if grep -qxF "@ ${P1}" "${AL}"; then
+    fail "remove left the line naming the path:"$'\n'"$(cat "${AL}")"
 else
-    pass "remove took the allow line AND the park"
+    pass "remove took the enabled line"
 fi
-if grep -qxF "!${SUB}" "${AL}"; then
-    pass "remove left the carve-out under the project"
+if grep -qxF "! ${SUB}" "${AL}"; then
+    pass "remove left the '!' line under the project, written at the top level once its project is gone"
 else
-    fail "remove deleted the carve-out under the project:"$'\n'"$(cat "${AL}")"
+    fail "remove deleted the '!' line under the project:"$'\n'"$(cat "${AL}")"
 fi
-state_is listed "${P2}" "remove left the other project alone"
+state_is enabled "${P2}" "remove left the other project alone"
 rc_is 0 "removing an absent path succeeds"      ai_tools_conf__allowlist_remove "${AL}" "${P1}"
-seed_al "!${SUB}"
-rc_is 0 "remove on a carve-out's own path succeeds and writes nothing" ai_tools_conf__allowlist_remove "${AL}" "${SUB}"
-state_is excluded "${SUB}" "the carve-out remove was asked about is still in force"
+seed_al "% ${P1}" "@ ${P2}"
+rc_is 0 "remove drops a disabled path"          ai_tools_conf__allowlist_remove "${AL}" "${P1}"
+state_is absent "${P1}" "the removed disabled path reads as absent, so no '%' is left for a later claim"
+seed_al "! ${SUB}"
+remove_before="$(cat "${AL}")"
+rc_is 0 "remove on an excluded path's own path succeeds" ai_tools_conf__allowlist_remove "${AL}" "${SUB}"
+state_is excluded "${SUB}" "the '!' line remove was asked about is still in force"
+if [[ "$(cat "${AL}")" == "${remove_before}" ]]; then
+    pass "remove with no line to drop writes nothing"
+else
+    fail "remove with no line to drop rewrote the file:"$'\n'"$(cat "${AL}")"
+fi
 # A missing registry does not name the path; a directory at the registry path is not a registry, so remove reports
 # that it could not edit one, as every other editor does.
 rm_dir="${TESTDIR}/rm-dir"; mkdir -p "${rm_dir}/project-registry"
 rc_is 0 "remove over a missing registry succeeds" ai_tools_conf__allowlist_remove "${rm_dir}/absent" "${P1}"
 rc_is 1 "remove over a directory at the registry path returns 1" ai_tools_conf__allowlist_remove "${rm_dir}/project-registry" "${P1}"
 
-# --- disable / enable: in place, keeping position and comment ---
-seed_al "# header" "  ${P1}   # payments, dev stage" "${P2}"
-before="$(cat "${AL}")"
-rc_is 0 "disable parks a listed project"        ai_tools_conf__allowlist_disable "${AL}" "${P1}"
-state_is disabled "${P1}" "the parked project reads as disabled"
-if [[ "$(sed -n '3p' "${AL}")" == "  %${P1}   # payments, dev stage" ]]; then
-    pass "disable wrote '%' and kept the line's position, indentation and comment"
+# --- the canonical form: every write rewrites the file as a forest ---
+# A hand edit out of order, unindented, with a duplicate, a trailing slash, a glob, a single-quoted path and a symlinked
+# exclusion: the next write puts each line under the nearest entry enclosing its path, projects ahead of exclusions,
+# each set in byte order, and keeps every written path, the comments and the first of two identical lines.
+CF="${TESTDIR}/cf"; mkdir -p "${CF}/web/api/vendor" "${CF}/web/vendor" "${CF}/legacy/app" "${CF}/old" "${CF}/zz"
+ln -s "${CF}/web/vendor" "${CF}/web/vendor-link"
+seed_al "! ${CF}/*/node_modules" "@ ${CF}/web/   # the site" "!${CF}/web/vendor-link" "@	${CF}/web/api" \
+    "  ! ${CF}/web/api/vendor   # its own" "! ${CF}/legacy" "@ ${CF}/legacy/app" "% ${CF}/old  # retired" \
+    "@ '${CF}/zz'" "@ ${CF}/web   # a duplicate" "! ${CF}/web/*.log"
+rc_is 0 "add rewrites a hand-edited file"       ai_tools_conf__allowlist_add "${AL}" "${CF}/zz/new"
+cf_want="$(printf '%s\n' "${MARKER}" \
+    "$(printf '%-38s  %s' "% ${CF}/old" "# retired")" \
+    "$(printf '%-38s  %s' "@ ${CF}/web" "# the site")" \
+    "  @ ${CF}/web/api" \
+    "$(printf '%-38s  %s' "    ! ${CF}/web/api/vendor" "# its own")" \
+    "  ! ${CF}/web/*.log" \
+    "  ! ${CF}/web/vendor-link" \
+    "@ ${CF}/zz" \
+    "  @ ${CF}/zz/new" \
+    "! ${CF}/*/node_modules" \
+    "! ${CF}/legacy" \
+    "  @ ${CF}/legacy/app")"
+mkdir -p "${CF}/zz/new"
+if [[ "$(cat "${AL}")" == "${cf_want}" ]]; then
+    pass "the rewrite is the forest: nesting by indentation, projects first, byte order, comments and written paths kept"
 else
-    fail "disable rewrote the line: '$(sed -n '3p' "${AL}")'"
+    fail "the rewrite:"$'\n'"$(cat "${AL}")"$'\n'"expected:"$'\n'"${cf_want}"
 fi
+cf_once="$(cat "${AL}")"
+rc_is 0 "a disable and an enable rewrite the file" ai_tools_conf__allowlist_disable "${AL}" "${CF}/web/api"
+rc_is 0 "the enable after it"                   ai_tools_conf__allowlist_enable "${AL}" "${CF}/web/api"
+if [[ "$(cat "${AL}")" == "${cf_once}" ]]; then
+    pass "a second write of the canonical form is byte-identical"
+else
+    fail "the second write changed the file:"$'\n'"$(cat "${AL}")"
+fi
+
+# --- disable / enable: the sign changes, the line keeps its comment ---
+seed_al "  @ ${P1}   # payments, dev stage" "@ ${P2}"
+rc_is 0 "disable disables a listed project"     ai_tools_conf__allowlist_disable "${AL}" "${P1}"
+state_is disabled "${P1}" "the disabled project reads as disabled"
+if grep -qxF -- "$(printf '%-38s  %s' "% ${P1}" "# payments, dev stage")" "${AL}"; then
+    pass "disable wrote '%' and kept the line's comment"
+else
+    fail "disable rewrote the line:"$'\n'"$(cat "${AL}")"
+fi
+before="$(cat "${AL}")"
 rc_is 0 "disable is idempotent"                 ai_tools_conf__allowlist_disable "${AL}" "${P1}"
-rc_is 0 "enable restores a parked project"      ai_tools_conf__allowlist_enable  "${AL}" "${P1}"
-state_is listed "${P1}" "the restored project reads as listed"
+rc_is 0 "enable restores a disabled project"    ai_tools_conf__allowlist_enable  "${AL}" "${P1}"
+state_is enabled "${P1}" "the restored project reads as enabled"
+rc_is 0 "disable again"                         ai_tools_conf__allowlist_disable "${AL}" "${P1}"
 if [[ "$(cat "${AL}")" == "${before}" ]]; then
-    pass "a park/restore round trip leaves the file byte-identical"
+    pass "a disable/enable round trip leaves the file byte-identical"
 else
     fail "the round trip changed the file:"$'\n'"$(cat "${AL}")"
 fi
 rc_is 0 "enable is idempotent"                  ai_tools_conf__allowlist_enable "${AL}" "${P1}"
-# A nested project parks like any other.
-seed_al "${P1}" "${SUB}"
-rc_is 0 "disable parks a project nested in a listed one" ai_tools_conf__allowlist_disable "${AL}" "${SUB}"
+rc_is 0 "enable is idempotent (again)"          ai_tools_conf__allowlist_enable "${AL}" "${P1}"
+# A nested project is disabled like any other.
+seed_al "@ ${P1}" "@ ${SUB}"
+rc_is 0 "disable disables a project nested in a listed one" ai_tools_conf__allowlist_disable "${AL}" "${SUB}"
 state_is disabled "${SUB}" "the nested project reads as disabled"
-state_is listed   "${P1}"  "the enclosing project stays listed"
+state_is enabled   "${P1}"  "the enclosing project stays enabled"
 
 # Neither verb invents an entry: enabling or disabling a path the file does not name would register a project without
-# claiming it (no secret scan, no ACL, no label). A '!' line is a carve-out, never a parked project, so enable does not
-# lift it and disable does not park it.
-seed_al "# header" "${P2}" "!${SUB}"
+# claiming it (no secret scan, no ACL, no label). A '!' line excludes its path, never a disabled project, so enable does
+# not lift it and disable does not disable it.
+seed_al "@ ${P2}" "! ${SUB}"
 rc_is 2 "enable refuses an absent path"         ai_tools_conf__allowlist_enable  "${AL}" "${P1}"
 rc_is 2 "disable refuses an absent path"        ai_tools_conf__allowlist_disable "${AL}" "${P1}"
-rc_is 2 "enable refuses a carve-out"            ai_tools_conf__allowlist_enable  "${AL}" "${SUB}"
-rc_is 2 "disable refuses a carve-out"           ai_tools_conf__allowlist_disable "${AL}" "${SUB}"
-if [[ "$(cat "${AL}")" == "${MARKER}"$'\n'"# header"$'\n'"${P2}"$'\n'"!${SUB}" ]]; then
+rc_is 2 "enable refuses an excluded path"       ai_tools_conf__allowlist_enable  "${AL}" "${SUB}"
+rc_is 2 "disable refuses an excluded path"      ai_tools_conf__allowlist_disable "${AL}" "${SUB}"
+if [[ "$(cat "${AL}")" == "${MARKER}"$'\n'"@ ${P2}"$'\n'"! ${SUB}" ]]; then
     pass "every refusal left the file untouched"
 else
     fail "a refusal wrote to the file:"$'\n'"$(cat "${AL}")"
 fi
 
-# --- enable collapses the duplicate pair to ONE live entry ---
-# A '%' line and an allow line for one path. Lifting the '%' while an allow line already exists would leave two live
-# entries for one path; the earliest position survives.
-seed_al "# header" "%${P1}   # parked" "${P2}" "${P1}"
-rc_is 0 "enable collapses a duplicate pair"     ai_tools_conf__allowlist_enable "${AL}" "${P1}"
-state_is listed "${P1}" "the collapsed path reads as listed"
-if [[ "$(grep -cF "${P1}" "${AL}")" == 1 && "$(sed -n '3p' "${AL}")" == "${P1}   # parked" ]]; then
-    pass "one entry survives, in the earliest position, with its comment"
+# --- identical lines are written once, the first kept with its comment ---
+seed_al "@ ${P1}   # first" "@ ${P2}" "@ ${P1}/   # second"
+rc_is 0 "disable over a file holding a repeated line" ai_tools_conf__allowlist_disable "${AL}" "${P2}"
+if [[ "$(grep -cF "${P1}" "${AL}")" == 1 ]] && grep -qxF -- "$(printf '%-38s  %s' "@ ${P1}" "# first")" "${AL}"; then
+    pass "the repeated line is written once, the first with its comment"
 else
-    fail "collapse left $(grep -cF "${P1}" "${AL}") line(s):"$'\n'"$(cat "${AL}")"
+    fail "the repeated line:"$'\n'"$(cat "${AL}")"
 fi
 
 # --- a legacy file and a refused line: status 3, no write ---
@@ -1661,13 +1940,17 @@ legacy_before="$(cat "${legacy_dir}/allowed-projects")"
 for verb in add remove enable disable; do
     rc_is 3 "${verb} refuses a legacy allowed-projects" "ai_tools_conf__allowlist_${verb}" "${legacy_dir}/allowed-projects" "${P1}"
 done
-seed_al "${P1}" "${P2}" "%relative/entry"
-invalid_before="$(cat "${AL}")"
+seed_al "@ ${P1}" "@ ${P2}" "%relative/entry"
 for verb in add remove enable disable; do
     rc_is 3 "${verb} refuses a file with a refused line" "ai_tools_conf__allowlist_${verb}" "${AL}" "${P1}" 2>/dev/null
 done
-if [[ "$(cat "${legacy_dir}/allowed-projects")" == "${legacy_before}" && "$(cat "${AL}")" == "${invalid_before}" ]]; then
-    pass "neither refused file was written"
+seed_al "@ ${P1}" "! ${TESTDIR}/p1-link" "@ ${P2}"
+conflict_before="$(cat "${AL}")"
+for verb in add remove enable disable; do
+    rc_is 3 "${verb} refuses two signs on one directory through a link" "ai_tools_conf__allowlist_${verb}" "${AL}" "${P2}" 2>/dev/null
+done
+if [[ "$(cat "${legacy_dir}/allowed-projects")" == "${legacy_before}" && "$(cat "${AL}")" == "${conflict_before}" ]]; then
+    pass "no refused file was written"
 else
     fail "a status-3 refusal wrote a file"
 fi
@@ -1684,7 +1967,7 @@ if (( EUID != 0 )) || ! command -v runuser >/dev/null 2>&1; then
     skip "unwritable config directory" "needs root and runuser"
 else
     ro="${TESTDIR}/ro"; mkdir -p "${ro}"
-    printf '%s\n' "${MARKER}" "${P1}" > "${ro}/project-registry"
+    printf '%s\n' "${MARKER}" "@ ${P1}" > "${ro}/project-registry"
     chown -R "${PROJECTS_USER}:${PROJECTS_GROUP}" "${ro}"
     chmod 0500 "${ro}"
     rc=0
@@ -1703,7 +1986,7 @@ else
     else
         fail "an unwritable config directory returned rc ${rc}, expected 1"
     fi
-    if [[ "$(cat "${ro}/project-registry")" == "${MARKER}"$'\n'"${P1}" ]]; then
+    if [[ "$(cat "${ro}/project-registry")" == "${MARKER}"$'\n'"@ ${P1}" ]]; then
         pass "the failed edit left the registry unchanged"
     else
         fail "the failed edit modified the registry: $(cat "${ro}/project-registry")"
@@ -1711,8 +1994,9 @@ else
 fi
 
 # --- The migration from allowed-projects ------------------------------------------------------
-# `system post-upgrade` runs it unattended, so every assertion is about a way it could lose or change a line, or leave
-# the host with no registry a reader trusts: the new file is the marker followed by every line byte for byte, the old
+# `system post-upgrade` runs it unattended, so every assertion is about a way it could lose or change an entry, or leave
+# the host with no registry a reader trusts: the new file is the canonical form of every entry, kind and written path
+# kept, the old
 # file becomes the dated backup only after the new one reads back, an interrupted run's `projects` is replaced
 # from the source, and a source the grammar or the lstat refuses is left alone with no `projects` written.
 section "conf: the migration from allowed-projects (unit)"
@@ -1722,29 +2006,33 @@ if ! declare -F ai_tools_conf__migrate_registry >/dev/null 2>&1 \
     fail "${LIB} defines no migration functions"
     finish; exit
 fi
-mig="${TESTDIR}/mig"; mkdir -p "${mig}/proj/vendor" "${mig}/parked"
+mig="${TESTDIR}/mig"; mkdir -p "${mig}/proj/vendor" "${mig}/disabled"
 # Every line shape a legacy file holds: a comment, a blank, a plain, a commented, an indented and a quoted entry,
-# a carve-out inside a project, a top-level '!' (a project parked before the upgrade), a glob carve-out, and a last line
+# a '!' line inside a project, a top-level '!' (a project disabled before the upgrade), a glob '!' line, and a last line
 # without its newline.
 mig_lines=( "# my projects" "" "${mig}/proj" "${mig}/other   # why" "   ${mig}/indented" "\"${mig}/a b\"" \
-            "!${mig}/proj/vendor" "!${mig}/parked" "!${mig}/*/cache" )
+            "!${mig}/proj/vendor" "!${mig}/disabled" "!${mig}/*/cache" )
 mig_seed() { printf '%s\n' "${mig_lines[@]:0:${#mig_lines[@]}-1}" > "${mig}/allowed-projects"
              printf '%s' "${mig_lines[-1]}" >> "${mig}/allowed-projects"; chmod 600 "${mig}/allowed-projects"; }
 mig_seed
 mig_plan="$(ai_tools_conf__plan_registry_migration "${mig}/allowed-projects")"
 if [[ "$(head -1 <<<"${mig_plan}")" == "marker"$'\t'"0"$'\t'"${MARKER}" \
-        && "$(grep -c '^keep' <<<"${mig_plan}")" -eq $(( ${#mig_lines[@]} - 1 )) \
-        && "$(grep '^note' <<<"${mig_plan}")" == "note"$'\t'"8"$'\t'"!${mig}/parked"$'\t'"a parked project is written %${mig}/parked in format 1.0" ]]; then
-    pass "the plan keeps every line and notes the top-level '!' line with its '%' spelling"
+        && "$(grep -c '^keep' <<<"${mig_plan}")" -eq 6 \
+        && "$(grep '^drop' <<<"${mig_plan}")" == "drop"$'\t'"1"$'\t'"# my projects" \
+        && "$(grep '^keep'$'\t''4' <<<"${mig_plan}")" == "keep"$'\t'"4"$'\t'"@ ${mig}/other  # why" \
+        && "$(grep '^note' <<<"${mig_plan}")" == "note"$'\t'"8"$'\t'"! ${mig}/disabled"$'\t'"a disabled project is written % ${mig}/disabled in format 1.0" ]]; then
+    pass "the plan writes each entry with its sign, drops the comment line and notes the top-level '!' with its '%' spelling"
 else
     fail "the plan:"$'\n'"${mig_plan}"
 fi
 mig_out="$(ai_tools_conf__migrate_registry "${mig}/allowed-projects" "${mig}/project-registry" "$(id -u)")" || true
-mig_want="${MARKER}"$'\n'"$(printf '%s\n' "${mig_lines[@]}")"
+mig_want="$(printf '%s\n' "${MARKER}" "@ \"${mig}/a b\"" "@ ${mig}/indented" \
+    "$(printf '%-38s  %s' "@ ${mig}/other" "# why")" "@ ${mig}/proj" "  ! ${mig}/proj/vendor" \
+    "! ${mig}/*/cache" "! ${mig}/disabled")"
 if [[ "$(cat "${mig}/project-registry")" == "${mig_want}" ]]; then
-    pass "projects is the marker followed by every line unchanged"
+    pass "project-registry is the canonical form of every entry, each with its sign and its comment"
 else
-    fail "project-registry reads:"$'\n'"$(cat "${mig}/project-registry")"
+    fail "project-registry reads:"$'\n'"$(cat "${mig}/project-registry")"$'\n'"expected:"$'\n'"${mig_want}"
 fi
 mig_bak="${mig}/allowed-projects.$(date +%Y%m%d)-1.bak"
 if [[ "${mig_out}" == "${mig_bak}" && -f "${mig_bak}" && ! -e "${mig}/allowed-projects" ]]; then
@@ -1767,13 +2055,43 @@ else
 fi
 # An interrupted run leaves a project-registry beside the source; the source is the truth, and the next run replaces it.
 rm -f "${mig}"/allowed-projects.*.bak; mig_seed
-printf '%s\n' "${MARKER}" "${mig}/half-writ" > "${mig}/project-registry"
+printf '%s\n' "${MARKER}" "@ ${mig}/half-writ" > "${mig}/project-registry"
 ai_tools_conf__migrate_registry "${mig}/allowed-projects" "${mig}/project-registry" >/dev/null || true
 if [[ "$(cat "${mig}/project-registry")" == "${mig_want}" ]]; then
     pass "an interrupted run's projects is replaced from the source"
 else
     fail "the interrupted run's project-registry survived:"$'\n'"$(cat "${mig}/project-registry")"
 fi
+# A single-quoted legacy line carrying a double quote is written through the formatter and reads back as the same path.
+rm -f "${mig}"/allowed-projects.*.bak "${mig}/project-registry"
+mkdir -p "${mig}/a \"quoted\" name"
+printf '%s\n' "'${mig}/a \"quoted\" name'" > "${mig}/allowed-projects"; chmod 600 "${mig}/allowed-projects"
+ai_tools_conf__migrate_registry "${mig}/allowed-projects" "${mig}/project-registry" >/dev/null || true
+if [[ "$(cat "${mig}/project-registry" 2>/dev/null)" == "${MARKER}"$'\n'"@ '${mig}/a \"quoted\" name'" ]] \
+        && [[ "$(ai_tools_conf__read_allowlist_state "${mig}/project-registry" "${mig}/a \"quoted\" name")" == enabled ]]; then
+    pass "a single-quoted legacy line migrates in single quotes and reads back as the same path"
+else
+    fail "the single-quoted legacy line migrated as:"$'\n'"$(cat "${mig}/project-registry" 2>/dev/null)"
+fi
+rm -f "${mig}"/allowed-projects.*.bak "${mig}/project-registry"
+# A top-level '!' line's note names the '%' line the operator types: the written spelling, a link kept as a link,
+# quoted as the formatter quotes it, so the hint parses back as a disabled project naming the source's path.
+mkdir -p "${mig}/a # b" "${mig}/q\"x"; ln -sfn "${mig}/disabled" "${mig}/disabled-link"
+printf '%s\n' "!\"${mig}/a # b\"" "!'${mig}/q\"x'" "!${mig}/disabled-link" > "${mig}/allowed-projects"
+chmod 600 "${mig}/allowed-projects"
+mig_hints="$(ai_tools_conf__plan_registry_migration "${mig}/allowed-projects" \
+    | awk -F'\t' '$1 == "note" { print $4 }' | sed -n 's/^a disabled project is written \(.*\) in format 1\.0$/\1/p')"
+mig_hints_read=""
+while IFS= read -r mig_hint; do
+    ai_tools_conf__parse_path_entry "${mig_hint}" && [[ "${ai_tools_conf__kind}" == disabled ]] \
+        && mig_hints_read+="${ai_tools_conf__value}"$'\n'
+done <<<"${mig_hints}"
+if [[ "${mig_hints_read}" == "${mig}/a # b"$'\n'"${mig}/q\"x"$'\n'"${mig}/disabled-link"$'\n' ]]; then
+    pass "each note's '%' hint parses back as a disabled project at the written path, quoted and linked spellings included"
+else
+    fail "the notes' hints:"$'\n'"${mig_hints}"
+fi
+rm -f "${mig}"/allowed-projects.*.bak "${mig}/project-registry" "${mig}/disabled-link"
 # Refusals: the source stays, no project-registry is written.
 mig_refused() {   # mig_refused <expected-rc> <desc> [<owner-uid>]
     local rc=0
@@ -1786,10 +2104,25 @@ mig_refused() {   # mig_refused <expected-rc> <desc> [<owner-uid>]
     fi
 }
 rm -f "${mig}"/allowed-projects*
-printf '%s\n' "${mig}/proj" "%${mig}/parked" > "${mig}/allowed-projects"
+printf '%s\n' "${mig}/proj" "%${mig}/disabled" > "${mig}/allowed-projects"
 mig_refused 3 "a source carrying a '%' line is refused"
 printf '%s\n' "${mig}/proj" "!vendor" > "${mig}/allowed-projects"
 mig_refused 3 "a source carrying a relative line is refused"
+printf '%s\n' "${mig}/proj" "!${mig}/proj/" > "${mig}/allowed-projects"
+mig_refused 3 "a source naming one path on a project and a '!' line is refused, as format 1.0 refuses the pair"
+ln -sfn "${mig}/proj" "${mig}/proj-link"
+printf '%s\n' "${mig}/proj" "!${mig}/proj-link" > "${mig}/allowed-projects"
+mig_refused 3 "a source naming one directory on a project and a '!' line through a link is refused, as the loader refuses the pair"
+printf '%s\n' "${mig}/proj" "${mig}/proj-link" > "${mig}/allowed-projects"; rc=0
+ai_tools_conf__migrate_registry "${mig}/allowed-projects" "${mig}/project-registry" >/dev/null 2>&1 || rc=$?
+if [[ "${rc}" -eq 0 ]] && ai_tools_conf__check_registry "${mig}/project-registry" 2>/dev/null; then
+    pass "the control: two spellings of one directory on allow lines migrate, and the gate loads the result"
+else
+    fail "two allow spellings of one directory: rc ${rc}"
+fi
+rm -f "${mig}"/allowed-projects.*.bak "${mig}/project-registry" "${mig}/proj-link"
+printf '%s\n' "${mig}/a'b\"c" > "${mig}/allowed-projects"
+mig_refused 3 "a source carrying an entry format 1.0 cannot write is refused"
 printf '%s\n!%s/proj/pri\0vate\n' "${mig}/proj" "${mig}" > "${mig}/allowed-projects"
 mig_refused 3 "a source carrying a NUL byte is refused"
 { printf '%s\n!%s/proj/pri\0vate\n' "${mig}/proj" "${mig}"

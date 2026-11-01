@@ -400,8 +400,8 @@ fi
 # named with the enrolment command and not counted.
 section "ai-tools-admin status: the Project registries section (unit)"
 REGS="${TESTDIR}/registries"; mkdir -p "${REGS}/ok" "${REGS}/bad" "${REGS}/old" "${REGS}/none"
-printf '%s\n' "# ai-tools-project-registry-format: 1.0" "/srv/p" > "${REGS}/ok/project-registry"
-printf '%s\n' "# ai-tools-project-registry-format: 1.0" "relative" > "${REGS}/bad/project-registry"
+printf '%s\n' "# ai-tools-project-registry-format: 1.0" "@ /srv/p" > "${REGS}/ok/project-registry"
+printf '%s\n' "# ai-tools-project-registry-format: 1.0" "@ relative" > "${REGS}/bad/project-registry"
 printf '%s\n' "/srv/p" "!/srv/p/vendor" > "${REGS}/old/allowed-projects"
 # shellcheck disable=SC2016  # the $1 and $2 are for the inner `bash -c`
 out="$(bash -c 'helper="$1" regs="$2"; set --; source "${helper}" >/dev/null 2>&1 || exit 99

@@ -8,7 +8,7 @@
 # in a dir it created. An interactive invocation confirms per path; `--yes` skips that for a batch caller
 # (ai-tools-reclaim) that already confirmed its whole set.
 #
-# Reads the operator's project registry for allow, carve-out and park lines (its path is derived from the operator
+# Reads the operator's project registry for its `@`, `!` and `%` lines (its path is derived from the operator
 # identity in /etc/ai-tools/operator.conf: `~/.config/ai-tools/project-registry`,
 # or `~/.config/ai-tools/allowed-projects` until it is migrated). That file is owned by the operator 600 -- root reads
 # it here on ai-tools' behalf. A registry the loader refuses, a line the grammar refuses among the reasons, does not
@@ -183,8 +183,13 @@ declare -a exclusion_patterns=()
 # is.
 ai_tools_conf__load_allowlist "${ALLOWLIST}" allowed_directories exclusion_patterns || true
 
-# Exclusions are checked first and override allows (ai_tools_conf__is_path_excluded, conf.lib.sh).
-ai_tools_conf__is_path_excluded "${canonical}" exclusion_patterns && exit 0   # excluded -- leave ownership intact
+# Exclusions are checked first and override allows (ai_tools_conf__is_path_excluded, conf.lib.sh). A match the library
+# could not make (a status other than 0 or 1, MSG-V9S2 on stderr) refuses the path: read as "not excluded" it would
+# hand back a path an exclusion covers.
+excluded_rc=0
+ai_tools_conf__is_path_excluded "${canonical}" exclusion_patterns || excluded_rc=$?
+(( excluded_rc != 0 )) || exit 0   # excluded -- leave ownership intact
+(( excluded_rc == 1 )) || die "exclusion match failed -- ${canonical} stays as it is until the config library is reinstalled"
 
 # Check if target falls under any allowed directory
 if [[ "${#allowed_directories[@]}" -gt 0 ]]; then

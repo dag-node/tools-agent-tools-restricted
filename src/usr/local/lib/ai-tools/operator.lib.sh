@@ -139,7 +139,11 @@ ai_tools_operator__is_covered_by_allowlist() {
     # shellcheck disable=SC2034  # exclusion_patterns is filled and read through its name by the conf.lib.sh loader and matcher
     local -a allowed_directories=() exclusion_patterns=()
     ai_tools_conf__load_allowlist "${file}" allowed_directories exclusion_patterns || return 1
-    ai_tools_conf__is_path_excluded "${path}" exclusion_patterns && return 1
+    # Covered only when the matcher answered "not excluded" (1): an excluded path (0) and a match the library could
+    # not make (any other status, MSG-V9S2) each leave the path uncovered.
+    local -i excluded_rc=0
+    ai_tools_conf__is_path_excluded "${path}" exclusion_patterns || excluded_rc=$?
+    (( excluded_rc == 1 )) || return 1
     for dir in "${allowed_directories[@]}"; do
         [[ "${path}" == "${dir}" || "${path}" == "${dir}/"* ]] && return 0
     done
