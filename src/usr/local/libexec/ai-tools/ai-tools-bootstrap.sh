@@ -176,9 +176,11 @@ configure_git_identity() {
     fi
 
     case "${sel}" in
+        # Each `git config --file` renames a new inode over the file, so its owner, mode and SELinux label are restored
+        # after the writes; the library warns for a step that did not take, and the identity stands either way.
         1)  git config --file "${gc}" user.name  "${op_name:-${op}}"
             git config --file "${gc}" user.email "${op_email}"
-            chown "root:${SANDBOX_GROUP}" "${gc}"; chmod 0644 "${gc}"
+            ai_tools_control_plane__restore_file_attributes "root:${SANDBOX_GROUP}" 0644 "${gc}" || true
             log "sandbox git identity set to ${op_name:-${op}} <${op_email}>" ;;
         3)  log "left ${gc} unchanged -- edit it to set the agent's commit identity" ;;
         *)  log "kept the current sandbox git identity: ${cur_name:-?} <${cur_email:-?}>" ;;
@@ -710,13 +712,14 @@ if ! declare -F ai_tools_sandbox_exec__run_as_sandbox >/dev/null 2>&1 || ! decla
 fi
 
 # The control plane's constants and readers (control-plane.lib.sh): the shared asset roots this run seeds, each agent's
-# config directory, and the timer-stamp directory the stamp step writes into. Required: a run without them would seed
-# into paths it guessed.
+# config directory, the timer-stamp directory the stamp step writes into, and the applier the git identity write
+# restores the gitconfig's attributes with. Required: a run without them would seed into paths it guessed.
 _control_plane_lib=/usr/local/lib/ai-tools/control-plane.lib.sh
 # shellcheck source=SCRIPTDIR/../../lib/ai-tools/control-plane.lib.sh
 source "${_control_plane_lib}" 2>/dev/null || true
 if ! declare -F ai_tools_control_plane__list_agent_asset_dirs >/dev/null 2>&1 \
         || ! declare -F ai_tools_control_plane__list_agent_memory_targets >/dev/null 2>&1 \
+        || ! declare -F ai_tools_control_plane__restore_file_attributes >/dev/null 2>&1 \
         || [[ -z "${CP_TIMER_STAMP_DIR:-}" ]]; then
     die MSG-Q3P4 "cannot read the control plane's layout: ${_control_plane_lib} did not load -- reinstall ai-tools-base, then re-run: atr admin system bootstrap"
 fi

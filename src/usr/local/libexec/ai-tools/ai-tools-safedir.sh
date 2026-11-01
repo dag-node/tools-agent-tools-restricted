@@ -10,6 +10,10 @@
 # like `ai-tools-{setfacl,relabel,unclaim}`. The agent has no path here, so unlike the handback helpers this one is
 # operator-only and off the handback socket.
 #
+# Each edit is a `git config --file` write, which renames a new inode over the file; the helper then restores the file's
+# owner, mode and SELinux type through control-plane.lib.sh, a by-path label write that is sound because /opt/ai-tools
+# does not carry group write (CP_HOME_MODE), so the sandbox account cannot place a name there.
+#
 # ADD requires the path to be an allowlisted project (resolve_owner); `--remove` does not take a registry gate,
 # so an entry is removable whatever the registry holds for the path, before or after its de-list. Both are idempotent;
 # the path defaults to cwd.
@@ -90,17 +94,29 @@ source /usr/local/lib/ai-tools/msg.lib.sh
 # Fixed 80-column frame for any box this helper renders, aligned with the CLI's.
 export AI_TOOLS_MSG_FULLWIDTH=1
 
-# Re-assert the control-plane ownership/mode after a write. git config edits via a lock file renamed over the target,
-# which can pick up a different group/mode from the parent dir's setgid bit and root's umask; pin it back to root:GROUP
-# 644 (world-readable for the operator and the wrapper, writable only by root). Best-effort: a logged warning in place
-# of a hard stop.
+# The control plane's applier for a file a root writer replaced by rename (control-plane.lib.sh), the one this helper's
+# write takes. Required: without it the file would keep the group, mode and SELinux type the rename gave the new inode,
+# which the installed layout reports as drift.
+readonly CONTROL_PLANE_LIB="/usr/local/lib/ai-tools/control-plane.lib.sh"
+# shellcheck source=SCRIPTDIR/../../lib/ai-tools/control-plane.lib.sh
+source "${CONTROL_PLANE_LIB}" 2>/dev/null || true
+if ! declare -F ai_tools_control_plane__restore_file_attributes >/dev/null 2>&1; then
+    warn MSG-T6R4 "cannot load ${CONTROL_PLANE_LIB} -- not editing safe.directory; reinstall ai-tools-base"
+    ai_tools_log__coded error "${_warn_code}" "${_warn_text}" "AI_TOOLS_RESULT=failed"
+    exit 1
+fi
+
+# Bring the gitconfig back to root:GROUP 644 and the type its file context gives it after a write. git config edits
+# through a lock file renamed over the target, so the new inode takes root's group and umask and the type
+# of /opt/ai-tools; world-readable for the operator and the wrapper, writable only by root. The parent is root-owned
+# and not group-writable, which is what makes the library's by-path label write sound here. Best-effort: each step
+# that did not take is reported by the library and recorded here, in place of a hard stop.
 _reassert_mode() {
-    chown "root:${GROUP}" "${GITCONFIG}" 2>/dev/null \
-        || { warn MSG-Y5R2 "could not chown ${GITCONFIG} to root:${GROUP}"
-             ai_tools_log__coded warning "${_warn_code}" "${_warn_text}" "AI_TOOLS_RESULT=failed"; }
-    chmod 644 "${GITCONFIG}" 2>/dev/null \
-        || { warn MSG-V8E9 "could not chmod ${GITCONFIG} to 644"
-             ai_tools_log__coded warning "${_warn_code}" "${_warn_text}" "AI_TOOLS_RESULT=failed"; }
+    local warning
+    ai_tools_control_plane__restore_file_attributes "root:${GROUP}" 644 "${GITCONFIG}" && return 0
+    for warning in "${AI_TOOLS_CONTROL_PLANE__RESTORE_WARNINGS[@]}"; do
+        ai_tools_log__coded warning "${warning%%$'\t'*}" "${warning#*$'\t'}" "AI_TOOLS_RESULT=failed"
+    done
 }
 
 # _listed <path>: 0 when <path> is already a safe.directory entry. The read works for any principal (644), so the CLI's

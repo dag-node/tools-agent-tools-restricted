@@ -4,7 +4,10 @@
 # Unit test for the unit search path readers in control-plane.lib.sh, the two `ai-tools-admin status` reports
 # from: the drift reader, whose three statuses keep a failed reading apart from a closed chain, and the unexpected-entry
 # reader, which names every entry under the chain's last directory other than the timer-stamp directory. The chain is
-# brought to its modes by the layout reconcile, which tests/unit/layout.sh drives (tests.rule.md).
+# brought to its modes by the layout reconcile, which tests/unit/layout.sh drives (tests.rule.md). Then the applier
+# ai-tools-safedir and ai-tools-bootstrap call after a `git config --file` write: each step that does not take is
+# reported under its code, the label step is skipped where SELinux is not in use, and on a host with SELinux in use
+# a file at a foreign type takes the one its file context gives it.
 #
 # Run as root via sudo: the fixture chains are root- and account-owned. Every fixture is in the testdir.
 
@@ -103,6 +106,85 @@ if grep -q 'odd?name' <<<"$(ai_tools_control_plane__find_unexpected_unit_search_
     pass "a name carrying an escape byte is printed with the byte replaced"
 else
     fail "the entries reader printed: $(ai_tools_control_plane__find_unexpected_unit_search_path_entries "${HOME_A}" | od -c | head -3)"
+fi
+
+# ── The applier a root writer calls after a rename-over write: owner, mode and label, each reported ───────────────
+# Every case runs in its own bash with the library sourced there, so the stubs -- `selinuxenabled` and `restorecon`
+# as shell functions, and an empty PATH for a host without restorecon, with chown and chmod as functions over their
+# system paths -- stand for that case alone. A case prints the status, then every warning the call left, one per line.
+section "control-plane: the applier after a rename-over write (unit)"
+if ! declare -F ai_tools_control_plane__restore_file_attributes >/dev/null 2>&1; then
+    skip "the rename-over applier" "the library at ${LIB} predates ai_tools_control_plane__restore_file_attributes"
+    finish; exit
+fi
+# restore_case <stubs> <path> : run the applier over <path> as root:SANDBOX_GROUP 0644 with <stubs> defined first.
+restore_case() {
+    bash -c 'source "$1"; eval "$2"; rc=0
+             ai_tools_control_plane__restore_file_attributes "root:$3" 0644 "$4" 2>"$5" || rc=$?
+             printf "%s\n" "${rc}" "${AI_TOOLS_CONTROL_PLANE__RESTORE_WARNINGS[@]}"' \
+        _ "${LIB}" "$1" "${SANDBOX_GROUP}" "$2" "${TESTDIR}/restore.err"
+}
+gc_fixture="${TESTDIR}/gitconfig"
+reset_fixture() { : > "${gc_fixture}"; chown nobody "${gc_fixture}"; chmod 0600 "${gc_fixture}"; }
+no_selinux='selinuxenabled() { return 1; }'
+
+reset_fixture
+out="$(restore_case "${no_selinux}" "${gc_fixture}")"
+if [[ "${out}" == 0 && ! -s "${TESTDIR}/restore.err" \
+        && "$(stat -c '%U:%G %a' "${gc_fixture}")" == "root:${SANDBOX_GROUP} 644" ]]; then
+    pass "without SELinux the file takes its owner and mode, with status 0 and no line"
+else
+    fail "the applier without SELinux: status/warnings '${out}', stderr '$(cat "${TESTDIR}/restore.err")', $(stat -c '%U:%G %a' "${gc_fixture}")"
+fi
+
+reset_fixture
+out="$(restore_case "selinuxenabled() { return 0; }; chown() { /usr/bin/chown \"\$@\"; }; chmod() { /usr/bin/chmod \"\$@\"; }; PATH=/nonexistent" "${gc_fixture}")"
+if [[ "$(head -n1 <<<"${out}")" == 1 && "$(sed -n 2p <<<"${out}")" == MSG-K6D7$'\t'*"restorecon is not installed"* \
+        && "$(stat -c '%U:%G %a' "${gc_fixture}")" == "root:${SANDBOX_GROUP} 644" ]]; then
+    pass "SELinux in use and restorecon absent: the label warning, status 1, the owner and mode still applied"
+else
+    fail "the applier with restorecon absent: '${out}', $(stat -c '%U:%G %a' "${gc_fixture}")"
+fi
+assert_msg MSG-K6D7 "$(cat "${TESTDIR}/restore.err")" "the absent restorecon is reported on stderr, under its code"
+
+reset_fixture
+out="$(restore_case 'selinuxenabled() { return 0; }; restorecon() { return 3; }' "${gc_fixture}")"
+if [[ "$(head -n1 <<<"${out}")" == 1 && "$(sed -n 2p <<<"${out}")" == MSG-K6D7$'\t'*"restorecon exited 3"* ]]; then
+    pass "a restorecon that fails is reported with its exit status, status 1"
+else
+    fail "the applier over a failing restorecon: '${out}'"
+fi
+
+out="$(restore_case "${no_selinux}" "${TESTDIR}/absent-gitconfig")"
+if [[ "$(head -n1 <<<"${out}")" == 1 && "$(sed -n 2p <<<"${out}")" == MSG-Y5R2$'\t'* \
+        && "$(sed -n 3p <<<"${out}")" == MSG-V8E9$'\t'* ]]; then
+    pass "an owner and a mode that do not take are each reported under their code, status 1"
+else
+    fail "the applier over an absent file: '${out}'"
+fi
+
+# The live half: a file whose type is not the one its file context gives it is relabelled. A path under /tmp has no
+# default label on some hosts, so the fixture sits in the projects user's home, where the policy gives every path one,
+# and the file is relabelled to etc_t first, a type restorecon then changes.
+if ! command -v selinuxenabled >/dev/null 2>&1 || ! selinuxenabled || ! command -v matchpathcon >/dev/null 2>&1; then
+    skip "the applier restores a file's SELinux type" "SELinux is not in use on this host, or matchpathcon is not installed"
+else
+    label_dir=""   # assigned by mk_fixture_dir through its nameref
+    mk_fixture_dir label_dir "${PROJECTS_HOME}" label
+    label_fixture="${label_dir}/gitconfig"; : > "${label_fixture}"
+    want="$(matchpathcon -n "${label_fixture}" 2>/dev/null | cut -d: -f3)" || want=""
+    if [[ -z "${want}" || "${want}" == *'<<none>>'* || "${want}" == etc_t ]] \
+            || ! chcon -t etc_t "${label_fixture}" 2>/dev/null; then
+        skip "the applier restores a file's SELinux type" "the policy gives ${label_fixture} no default type other than etc_t"
+    else
+        out="$(restore_case "" "${label_fixture}")"
+        got="$(stat -c '%C' "${label_fixture}" | cut -d: -f3)"
+        if [[ "${out}" == 0 && "${got}" == "${want}" ]]; then
+            pass "a file at etc_t takes the type its file context gives it (${want})"
+        else
+            fail "after the applier the file is ${got}, expected ${want} (status/warnings '${out}')"
+        fi
+    fi
 fi
 
 finish
