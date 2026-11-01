@@ -57,10 +57,14 @@ write_conf() {
     printf '# fixture\nAI_TOOLS_AGENTS=[agent-acme]\nAI_TOOLS_ASSETS=[%s]\n' "${entries}" > "${CONF}"
     chown root:root "${CONF}"; chmod 0644 "${CONF}"
 }
+# The set every case starts from, sealed once; fresh copies it into the packaged root.
+TEMPLATE="${TESTDIR}/template"
+mkdir -m 0755 "${TEMPLATE}"
+asset_signing_build_set "${TEMPLATE}" acme
 # fresh : the set acme in the packaged root, the list empty, no view.
 fresh() {
     rm -rf "${PKG:?}"/* "${HOME_DIR}/skills" "${HOME_DIR}/subagents" "${HOME_DIR}"/.acme/*
-    asset_signing_build_set "${PKG}" acme
+    asset_signing_copy_set "${TEMPLATE}" "${PKG}" acme
     write_conf
 }
 
