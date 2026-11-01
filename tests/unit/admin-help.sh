@@ -107,11 +107,11 @@ else
         helps "atr admin status [OPTION...]"                   status "${flag}"
         helps "atr admin stop [OPTION...]"                     stop "${flag}"
     done
-    helps "atr admin operators COMMAND"      operators help
-    helps "atr admin selinux groups COMMAND" selinux groups help
+    helps "atr admin operators [COMMAND]"    operators help
+    helps "atr admin selinux groups [COMMAND]" selinux groups help
     helps "atr admin system COMMAND"         system help
-    helps "atr admin system layout COMMAND"  system layout help
-    helps "atr admin assets COMMAND"         help assets
+    helps "atr admin system layout [COMMAND]" system layout help
+    helps "atr admin assets [COMMAND]"       help assets
     helps "Agent Tools Restricted -- host administration (ai-tools-admin)"
     helps "Agent Tools Restricted -- host administration (ai-tools-admin)" help
 

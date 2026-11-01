@@ -41,7 +41,7 @@ readonly _AI_TOOLS_HELP__LOADED=1
 readonly -a _AI_TOOLS_HELP__ROWS_AI_TOOLS=(
     $'Projects\tprojects\t[list]\tList the registered projects and sandbox clones\tfor'
     $'Projects\tprojects create\tDIRECTORY\tCreate a directory, initialise git, claim it\tfor'
-    $'Projects\tprojects claim\tDIRECTORY\tClaim an existing directory in place\tfor'
+    $'Projects\tprojects claim\tDIRECTORY\tGive the agent access to an existing directory\tfor'
     $'Projects\tprojects unclaim\tDIRECTORY\tRelease a project and keep its directory\tfor'
     $'Projects\tprojects remove\tDIRECTORY\tRelease a project and delete its directory\tfor'
     $'Projects\tprojects disable\tDIRECTORY\tDisable a project, so no session starts in it\tfor'
@@ -67,7 +67,7 @@ readonly -a _AI_TOOLS_HELP__ROWS_AI_TOOLS_ADMIN=(
     $'SELinux\tselinux groups disable\tGROUP\tUnload a loaded group\t'
     $'System\tsystem bootstrap\t\tProvision the sandbox account and toolchain\t'
     $'System\tsystem entrypoints relabel\t\tVerify and relabel the agent entrypoints\t'
-    $'System\tsystem post-upgrade\t\tReconcile the .rpmnew files an upgrade leaves\t'
+    $'System\tsystem post-upgrade\t\tReview and merge configuration updates\t'
     $'System\tsystem layout\t[list]\tList each installed path and what drifted\t'
     $'System\tsystem layout reconcile\t\tRestore each installed path\'s declared state\t'
     $'Assets\tassets\t[list]\tList enabled assets and pending link changes\t'
@@ -92,11 +92,20 @@ Run as yourself, not with sudo: each command calls sudo for the steps that
 need it. Host administration is atr admin, which runs as root.
 
 More: man ai-tools · atr admin help · /var/opt/ai-tools/README.md"
-readonly _AI_TOOLS_HELP__CLOSING_AI_TOOLS_ADMIN="Each command runs as root, through sudo when you are not root. Help,
---version and a bare stop ask no password. The project lifecycle is atr
-without admin, run as yourself.
+readonly _AI_TOOLS_HELP__CLOSING_AI_TOOLS_ADMIN="Each command runs as root, through sudo when you are not root. Base command
+help and --version need no password. A bare stop also runs without a
+password for an enrolled operator. The project lifecycle is atr without
+admin, run as yourself.
 
 More: man ai-tools-admin · atr help"
+# The lines a command hint prints under its description, for a command whose consequence the description does not
+# carry: one `program<TAB>path<TAB>line` row per line.
+readonly -a _AI_TOOLS_HELP__HINT_NOTES=(
+    $'ai-tools\tstop\tA stopped session\'s session-end handback does not run.'
+    $'ai-tools\tstop\tTo preview: atr stop --dry-run'
+    $'ai-tools-admin\tstop\tA stopped session\'s session-end handback does not run.'
+    $'ai-tools-admin\tstop\tTo preview: atr admin stop --dry-run'
+)
 readonly _AI_TOOLS_HELP__REFUSED_LINE="  (refused: a file there is not root's alone -- see the warning above)"
 
 # _ai_tools_help__warn [code] <message...>: a finding about the admin command directory, on stderr with the
@@ -362,8 +371,9 @@ ai_tools_help__render() {
 }
 
 # ai_tools_help__render_hint <program> <path>: print the help for <path>: the block form (the title, a `Usage:` line
-# for the path, the rows under it under their headings, the `More:` line) for a path other rows extend, the command form
-# (its usage line, its description as a sentence, the page entry holding its options) for a row. A path ending in `list`
+# for the path, its command optional where the path's own row lists, the rows under it under their headings, the `More:`
+# line) for a path other rows extend, the command form (its usage line, its description as a sentence, the lines
+# _AI_TOOLS_HELP__HINT_NOTES holds for it, the page entry holding its options) for a row. A path ending in `list`
 # under a `[list]` row is that row's command form. Returns 1 and prints nothing for a path the rows do not
 # hold.
 ai_tools_help__render_hint() {
@@ -383,7 +393,14 @@ ai_tools_help__render_hint() {
             ai-tools)       title="${_AI_TOOLS_HELP__TITLE_AI_TOOLS}" ;;
             ai-tools-admin) title="${_AI_TOOLS_HELP__TITLE_AI_TOOLS_ADMIN}" ;;
         esac
-        printf '%s\n\nUsage:\n  %s%s %s COMMAND [ARGUMENT...] [OPTION...]\n' "${title}" "${prefix}" "${for_usage}" "${path}"
+        # A collection whose bare form lists (its own `[list]` row) takes the command as optional; a namespace with no
+        # listing of its own requires one.
+        local command_word=COMMAND
+        if _ai_tools_help__find_row "${program}" "${path}" && [[ "${_AI_TOOLS_HELP__ARGUMENT}" == "[list]" ]]; then
+            command_word="[COMMAND]"
+        fi
+        printf '%s\n\nUsage:\n  %s%s %s %s [ARGUMENT...] [OPTION...]\n' \
+            "${title}" "${prefix}" "${for_usage}" "${path}" "${command_word}"
         for row in "${rows[@]}"; do
             _ai_tools_help__split_row "${row}"
             [[ "${_AI_TOOLS_HELP__PATH}" == "${path}" || "${_AI_TOOLS_HELP__PATH}" == "${path} "* ]] || continue
@@ -402,9 +419,16 @@ ai_tools_help__render_hint() {
         [[ "${_AI_TOOLS_HELP__ARGUMENT}" == "[list]" ]] || return 1
     fi
     _ai_tools_help__has_flag "${_AI_TOOLS_HELP__FLAGS}" for && for_usage=" [--for OPERATOR]"
-    printf 'Usage:\n  %s%s %s [OPTION...]\n\n%s.\n\nOptions: man %s, under %s\n' \
-        "${prefix}" "${for_usage}" "$(_ai_tools_help__command_label)" "${_AI_TOOLS_HELP__DESCRIPTION}" \
-        "${page}" "${_AI_TOOLS_HELP__PATH}"
+    printf 'Usage:\n  %s%s %s [OPTION...]\n\n%s.\n' \
+        "${prefix}" "${for_usage}" "$(_ai_tools_help__command_label)" "${_AI_TOOLS_HELP__DESCRIPTION}"
+    local note
+    for note in "${_AI_TOOLS_HELP__HINT_NOTES[@]}"; do
+        [[ "${note%%$'\t'*}" == "${program}" ]] || continue
+        note="${note#*$'\t'}"
+        [[ "${note%%$'\t'*}" == "${_AI_TOOLS_HELP__PATH}" ]] || continue
+        printf '%s\n' "${note#*$'\t'}"
+    done
+    printf '\nOptions: man %s, under %s\n' "${page}" "${_AI_TOOLS_HELP__PATH}"
 }
 
 # ai_tools_help__format_help_command <program> <path>: the help command for the deepest prefix of <path> the rows hold

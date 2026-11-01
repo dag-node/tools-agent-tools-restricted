@@ -88,6 +88,28 @@ if lib "ai_tools_help__render_hint ai-tools bogus" >/dev/null; then
 elif [[ -z "$(lib "ai_tools_help__render_hint ai-tools bogus" || true)" ]]; then
     pass "a hint for a path the rows do not hold returns non-zero and prints nothing"
 fi
+# A collection whose bare form lists takes its command as optional; a namespace with no listing requires one.
+for pair in "ai-tools|projects|atr [--for OPERATOR] projects [COMMAND]" "ai-tools-admin|system layout|atr admin system layout [COMMAND]" \
+        "ai-tools-admin|system entrypoints|atr admin system entrypoints COMMAND" "ai-tools-admin|system|atr admin system COMMAND"; do
+    IFS='|' read -r program path want <<< "${pair}"
+    out="$(lib "ai_tools_help__render_hint ${program} '${path}'")"
+    if grep -qxF "  ${want} [ARGUMENT...] [OPTION...]" <<< "${out}"; then pass "${program} ${path}: the usage line is '${want} ...'"
+    else fail "${program} ${path}: the usage line is not '${want} ...': ${out}"; fi
+done
+# The stop hint carries its consequence and the preview command under the description.
+for pair in "ai-tools|atr stop --dry-run" "ai-tools-admin|atr admin stop --dry-run"; do
+    out="$(lib "ai_tools_help__render_hint ${pair%%|*} stop")"
+    if grep -qxF "A stopped session's session-end handback does not run." <<< "${out}" \
+            && grep -qxF "To preview: ${pair#*|}" <<< "${out}"; then
+        pass "${pair%%|*} stop: the hint names the skipped handback and '${pair#*|}'"
+    else
+        fail "${pair%%|*} stop: the hint lacks the handback line or the preview: ${out}"
+    fi
+done
+out="$(lib "ai_tools_help__render_hint ai-tools status")"
+if ! grep -q 'To preview' <<< "${out}"; then pass "a hint without notes carries none (status)"
+else fail "the status hint carries a note: ${out}"; fi
+
 top="$(lib 'ai_tools_help__render ai-tools')"
 if [[ "${top}" == *"Agent Tools Restricted -- operator commands (ai-tools)"* \
         && "${top}" == *"  projects [list]                List the registered projects and sandbox clones"* \

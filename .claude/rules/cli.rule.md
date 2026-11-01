@@ -496,10 +496,11 @@ an ordinary account read it — a partial view, the file sink being the authorit
 - `--help`, `-h` and the bare word `help` — a **help request**, answered after the principal guards and ahead of every
   gate from the bootstrap gate on, so it does not run the command, call `sudo` or take a `--for` snapshot: the top help,
   the block of a collection, or one command's usage line, its description and the page entry for its options, each
-  rendered from the rows in `help.lib.sh`. What a help request is, a help flag in `--for`'s value slot included, is
-  `ai_tools_help__resolve_request`'s contract. The library is loaded at that point and not with the libraries every
-  command requires: a `stop` with no help flag ahead of `--` runs without it, and every other command line refuses
-  without it at exit 3.
+  rendered from the rows in `help.lib.sh`. `stop`'s hint adds that its session-end handback does not run and names
+  the `--dry-run` that previews it, since the description alone does not carry the consequence. What a help request is,
+  a help flag in `--for`'s value slot included, is `ai_tools_help__resolve_request`'s contract. The library is loaded
+  at that point and not with the libraries every command requires: a `stop` with no help flag ahead of `--` runs without
+  it, and every other command line refuses without it at exit 3.
 - `--for <operator>` — a **modifier**, not a command: run the verb on behalf of another enrolled operator (see [Acting
   for another operator](#acting-for-another-operator---for)).
 
