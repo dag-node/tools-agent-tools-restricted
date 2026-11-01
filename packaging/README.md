@@ -58,13 +58,13 @@ The selftest writes each test file's transcript, `results.tsv`
 and `run-info.txt` under `test-results/`, in a directory named
 for the distribution, the host and then the UTC time the suite started. CI does
 the same on every leg and uploads the directory as one zip,
-the `test-results-<dist>-<runner image>-<UTC start>` artifact, which sorts
+the `atr-test-results-<dist>-<runner image>-<UTC start>` artifact, which sorts
 by distribution and runner image and then by time, with an `origin.txt` naming
 the commit, the ref, the release, the runner and the run. To fetch every leg's
 results of a run at once:
 
 ```bash
-gh run download <run-id> --pattern 'test-results-*'
+gh run download <run-id> --pattern 'atr-test-results-*'
 ```
 
 ## Run it by hand

@@ -328,7 +328,7 @@ jobs:
 
       # `if: always()`, so a failed or timed-out leg keeps whatever the suite wrote. origin.txt names the run
       # the results came from; run-info.txt beside each transcript set names when and on what the suite ran.
-      # upload-artifact packs the directory into one zip, named test-results-<dist>-<runner image>-<UTC start>:
+      # upload-artifact packs the directory into one zip, named atr-test-results-<dist>-<runner image>-<UTC start>:
       # a stable prefix, then the suite's start, so saved results sort by distribution and runner image and then
       # by time. The image (ImageOS, set on GitHub-hosted runners, else RUNNER_OS) stays the same from run to run
       # where the runner's own name does not; the runner's name, the release and the run are in origin.txt. The record
@@ -359,7 +359,7 @@ jobs:
           [[ -n "${stamp}" ]] || stamp="$(date -u +%Y%m%dT%H%M%SZ)"
           runner="$(printf '%s-%s' "${ImageOS:-${RUNNER_OS:-runner}}" "${RUNNER_ARCH:-}" | tr '[:upper:]' '[:lower:]' \
               | tr -cd 'a-z0-9.-')"
-          echo "name=test-results-${DIST}-${runner}-${stamp}" >> "$GITHUB_OUTPUT"
+          echo "name=atr-test-results-${DIST}-${runner}-${stamp}" >> "$GITHUB_OUTPUT"
 
       - name: Upload the test results
         if: always() && steps.results.outputs.name != ''
