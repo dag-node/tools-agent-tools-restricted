@@ -313,7 +313,7 @@ jobs:
 
       - name: Upload the el10 marker
         if: steps.marker.outputs.name != ''
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: ${{ steps.marker.outputs.name }}
           path: selftest-marker/el10
@@ -336,7 +336,7 @@ jobs:
 
       - name: Upload dev RPM artifacts
         if: always() && steps.scope.outputs.run == 'true'
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: ai-tools-rpms-${{ matrix.dist }}-${{ steps.relver.outputs.release }}
           path: dist-rpms/*.rpm
@@ -621,7 +621,7 @@ jobs:
       # Uploaded before the publish steps, so a failed publish still leaves the verified RPMs
       # downloadable.
       - name: Upload signed RPMs as a workflow artifact
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: ai-tools-signed-rpms
           path: dist-rpms/
