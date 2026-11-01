@@ -474,13 +474,14 @@ an ordinary account read it — a partial view, the file sink being the authorit
   tree the sandbox account holds is named with its removal, to run only if the tree is the reader's, since
   `require_claimable_owner` accepts that owner for any operator and no registry attributes it; one whose path is gone
   is stale; one under a directory the invoker cannot enter, in a tree another account holds, or whose owner cannot be
-  read is counted in one closing line and not listed; and a value that is not an absolute path, which git reads
-  as a pattern and `ai-tools-safedir` does not write, is named with the command that lists the file and does not take
-  a removal. Each printed path is one bash word, and `ai-tools-safedir --remove` removes a value as git holds it,
-  so a stored spelling is removed as stored. A registry line under a directory the invoker
-  cannot enter is reported as one it cannot read, without a removal, and on a `--for` run names the target's own
-  listing as the one that reads it. The `sed` line deletes the verbatim line, comment and all, from the file a message
-  names (`REGISTRY_DISPLAY_PATH`); on a `--for` run an `@` or a `%` line is removed through
+  read is counted in one closing line and not listed; and a value `ai-tools-safedir` does not write — git's `*`
+  and `<dir>/*` trust rules, a path git expands from a leading `~` or `%(prefix)/`, any other value that is not
+  absolute — is named by its form with the command that lists the file, and does not take a removal or count, since
+  the exact-value removal deletes a live rule. Each printed path is one bash word, and `ai-tools-safedir --remove`
+  removes a value as git holds it, so a stored spelling is removed as stored. A registry line under a directory
+  the invoker cannot enter is reported as one it cannot read, without a removal, and on a `--for` run names
+  the target's own listing as the one that reads it. The `sed` line deletes the verbatim line, comment and all,
+  from the file a message names (`REGISTRY_DISPLAY_PATH`); on a `--for` run an `@` or a `%` line is removed through
   `ai-tools-allowlist --operator <target> --remove` instead, while an excluded line, which that removal leaves
   standing, and a protected path, which the helper's backstop refuses, keep the `sed` form, run as the target
   (`sudo -u <target>`). It reads the registry through the registry gate ([The

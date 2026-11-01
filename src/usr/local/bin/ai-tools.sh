@@ -5959,24 +5959,45 @@ cmd_project_list() {
     # so they are skipped.
     #
     # safe.directory is one host-wide list every operator's claims write into, while this run reads one registry, so
-    # an uncovered entry is attributed before a remedy is offered: a value that is not an absolute path is a hand edit
-    # git reads as a pattern, named with the command that lists the file; a path whose root OWNER_USER holds is this
-    # registry's orphan; one the sandbox account holds is named with its removal under the condition that the tree is
-    # the reader's, since require_claimable_owner accepts that owner for any operator and no registry attributes it;
-    # a path that no longer exists is stale; a path under a directory the invoker cannot enter, one another account
+    # an uncovered entry is attributed before a remedy is offered. A value ai-tools-safedir does not write -- git's `*`
+    # and `<dir>/*` trust rules, a path git expands from a leading `~` or `%(prefix)/`, any other value that is not
+    # absolute -- is named by its form with the command that lists the file, does not take a removal, and is not
+    # counted: git does not read it as one directory this listing can attribute, and the exact-value removal would
+    # delete a live rule. Of the absolute paths left, one whose root OWNER_USER holds is this registry's orphan; one
+    # the sandbox account holds is named with its removal under the condition that the tree is the reader's, since
+    # require_claimable_owner accepts that owner for any operator and no registry attributes it; a path that no
+    # longer exists is stale; a path under a directory the invoker cannot enter, one another account
     # holds, and one whose owner cannot be read are counted and not listed. The claim's owner rule
     # (require_claimable_owner) is what makes the owner the attribution key. A reading the invoker cannot make
     # withholds the removal, since `ai-tools-safedir --remove` does not consult any registry, and the count says
     # the entries exist. Each printed path is one bash word (_quote_path), and `ai-tools-safedir --remove` removes
     # a value as git holds it, so a stored spelling is named as stored.
     # shellcheck disable=SC2034  # sdir_blocker is filled through its name by find_invoker_traversal_blocker
-    local sdir sdir_blocker sdir_real sdir_owner unattributed=0
+    local sdir sdir_blocker sdir_real sdir_owner sdir_form sdir_trusted unattributed=0
     while IFS= read -r sdir; do
         [[ -n "${sdir}" ]] || continue
-        if [[ "${sdir}" != /* ]]; then
+        # The forms git reads by its own rules (git-config(1), safe.directory), matched in git's order: `*` before any
+        # expansion, then a leading `~` or `%(prefix)/`, then a value ending in `/*` (git 2.46 and later).
+        sdir_form=""
+        # shellcheck disable=SC2088  # the quoted ~ matches git's literal leading ~, which a bare one would expand
+        case "${sdir}" in
+            '*')
+                sdir_form="${C_YEL}trust rule${C_RST} -- git trusts every repository on this host" ;;
+            '~'|'~/'*)
+                sdir_form="${C_YEL}expanded path${C_RST} -- git expands the leading ~ to the home directory of the account that runs git, the sandbox account's in a session" ;;
+            '~'*|'%(prefix)/'*)
+                sdir_form="${C_YEL}expanded path${C_RST} -- git expands the leading ${sdir%%/*} when it reads the value" ;;
+            '/*'|/*'/*')
+                sdir_trusted="${sdir%/\*}"
+                sdir_form="${C_YEL}trust rule${C_RST} -- git trusts every repository under ${sdir_trusted:-/}" ;;
+            /*) ;;
+            *)
+                sdir_form="${C_YEL}not an absolute path${C_RST}" ;;
+        esac
+        if [[ -n "${sdir_form}" ]]; then
             cleanup+=( "  ${sdir}" \
-                "      ${C_YEL}not a path${C_RST} -- git reads it as a pattern, and * trusts every repository; ai-tools-safedir writes an absolute path alone, so review the list by hand:" \
-                "          git config --file ${GITCONFIG} --get-all safe.directory" )
+                "      ${sdir_form}; ai-tools-safedir writes one absolute path per claim, and this value is a hand edit to review:" \
+                "          git config --file $(_quote_path "${GITCONFIG}") --get-all safe.directory" )
             continue
         fi
         ai_tools_safe_paths__match_protected_path "${sdir}" >/dev/null 2>&1 && continue
@@ -6022,7 +6043,7 @@ cmd_project_list() {
         local entries_word="entries are" reader_word="${INVOKING_USER} "
         (( unattributed == 1 )) && entries_word="entry is"
         [[ "${INVOKING_USER}" != "${OWNER_USER}" ]] || reader_word=""
-        say "  ${C_DIM}${unattributed} git safe.directory ${entries_word} in trees ${OWNER_USER} does not hold or ${reader_word}cannot read, and not listed; each operator's own atr projects reports theirs. The whole list: git config --file ${GITCONFIG} --get-all safe.directory${C_RST}"
+        say "  ${C_DIM}${unattributed} git safe.directory ${entries_word} in trees ${OWNER_USER} does not hold or ${reader_word}cannot read, and not listed; each operator's own atr projects reports theirs. The whole list: git config --file $(_quote_path "${GITCONFIG}") --get-all safe.directory${C_RST}"
     fi
     list_maintenance_note
 }

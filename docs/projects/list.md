@@ -30,8 +30,11 @@ an entry for a tree you do not own, or under a directory you cannot enter,
 is counted in one closing line rather than listed: the owner's own
 `atr projects` reports it. An entry for a tree the sandbox account holds is
 named with its removal, to run only if the tree is yours: a claim accepts
-that owner for any operator, so no listing can attribute it. A value that is
-not a path, such as `*`, is named with no removal. A registry line under
+that owner for any operator, so no listing can attribute it. A trust rule,
+`*` or a directory followed by `/*`, is named with no removal, since removing
+it stops git trusting every repository under it. A path git expands from
+a leading `~` or `%(prefix)/`, and any other value that is not an absolute
+path, is named the same way. A registry line under
 a directory you cannot enter is named as one the command cannot read, without
 a removal.
 
