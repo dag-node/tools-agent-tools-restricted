@@ -124,8 +124,10 @@ is a supported shape — it is what `--for` exists for — and it is distinct fr
 before the run's first `sudo` — the same ordering `require_for_target` follows — so a caller holding a password is never
 asked for it on a verb no rule lets them run. Each verb is probed on the **first** helper it reaches (a `--for` run
 on `ai-tools-allowlist`, whose snapshot precedes the verb's own helper), so a host granting some helpers and not others
-is answered accurately rather than through one representative. `projects push`, `projects remove`, and the informational
-verbs reach no helper that can refuse the command, and are not probed. Neither is `stop`, the privileged verb
+is answered accurately rather than through one representative. On a plain run, `projects push`, `projects remove`
+of a clone, and the informational verbs reach no helper that can refuse the command, and are not probed; a `--for` run
+of a verb `FOR_ALLOWED_VERBS` names is probed on `ai-tools-allowlist` whatever the verb, the listing among them,
+since its registry snapshot is the run's first `sudo`. Neither is `stop`, the privileged verb
 an operator without a general grant can already run through the `%ai-ops` rule for its helper: probing it answers "grant
 present" every time, so the entry would carry no information. (That rule covers the bare form only, so `stop`'s flagged
 forms do meet sudo's ordinary prompt — [ref-section-r5r9](stop.rule.md#ref-section-r5r9). The probe could not have
@@ -465,10 +467,18 @@ an ordinary account read it — a partial view, the file sink being the authorit
   `ai-tools-relabel --remove` where they apply, or `atr projects claim` to finish a partial claim). It flags, in both
   directions: a protected system path the tools refuse to touch; a stale enabled or disabled line, or a stale non-glob
   excluded line, whose path no longer exists; a project listed but not fully claimed; and — the reverse direction —
-  a git `safe.directory` with **no** registry entry (orphaned, e.g. a hand-deleted line), skipping
-  the deliberately-registered control-plane paths the protected-paths backstop already covers. The `sed` line deletes
-  the verbatim line, comment and all, from the file a message names (`REGISTRY_DISPLAY_PATH`); on a `--for` run that is
-  the target's file, edited as that account (`sudo -u <target>`). It reads the registry through the registry gate ([The
+  a git `safe.directory` with **no** registry entry, skipping the deliberately-registered control-plane paths
+  the protected-paths backstop already covers. `safe.directory` is one list every operator's claims write into
+  and `ai-tools-safedir --remove` does not consult any registry, so an uncovered entry is attributed before a removal
+  is offered: one whose tree `OWNER_USER` holds is orphaned (a hand-deleted line, an interrupted unclaim), one whose
+  path is gone is stale, and one under a directory the invoker cannot enter, in a tree another account holds, or whose
+  owner cannot be read is counted in one closing line and not listed. A registry line under a directory the invoker
+  cannot enter is reported as one it cannot read, without a removal, and on a `--for` run names the target's own
+  listing as the one that reads it. The `sed` line deletes the verbatim line, comment and all, from the file a message
+  names (`REGISTRY_DISPLAY_PATH`); on a `--for` run an `@` or a `%` line is removed through
+  `ai-tools-allowlist --operator <target> --remove` instead, while an excluded line, which that removal leaves
+  standing, and a protected path, which the helper's backstop refuses, keep the `sed` form, run as the target
+  (`sudo -u <target>`). It reads the registry through the registry gate ([The
   registry gate](#the-registry-gate)), so a file no reader accepts — a glob on an allow line among the lines that make
   one — is refused under `MSG-Y7K5` after the library's line, and a legacy file is listed under a banner naming
   `atr admin system post-upgrade`, every `!` line read as an exclusion. It reuses existing predicates and verbs only (no
