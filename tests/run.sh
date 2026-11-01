@@ -21,12 +21,12 @@
 # named by the harness's fixture rule in the places fixtures are born, and the one fixed-name probe -- and reports each
 # removal; a leftover it cannot remove refuses the run. `run.sh residue` runs the sweep alone.
 #
-# `-j N` runs up to N files at once, 4 by default, the CPU count of a GitHub-hosted runner. `-j 1` runs them one
-# after another and streams each file's output live. Above 1 the files run in two passes. The pool takes every file
-# that does not carry the serial marker, largest first by byte count, since the slowest files are the largest; each
-# writes its output to a transcript of its own, and one line reports each file as it finishes (the result word,
-# the file, the seconds it took). The serial pass then runs one file at a time, in category and name order, every file
-# carrying the line
+# `-j N` runs up to N files at once, 4 by default, the CPU count of a GitHub-hosted runner; the container selftest
+# passes the CPU count it reads with `nproc`. `-j 1` runs them one after another and streams each file's output live.
+# Above 1 the files run in two passes. The pool takes every file that does not carry the serial marker, largest first
+# by byte count, since the slowest files are the largest; each writes its output to a transcript of its own, and one
+# line reports each file as it finishes (the result word, the file, the seconds it took). The serial pass then runs one
+# file at a time, in category and name order, every file carrying the line
 #
 #   # run.sh: serial
 #

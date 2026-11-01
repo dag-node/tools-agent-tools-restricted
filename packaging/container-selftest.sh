@@ -189,9 +189,10 @@ fi
 # ── the project test suite (DAC + systemd parts; SELinux parts no-op/skip) ────
 if [[ "${RUN_TESTS}" == "1" && -f "${SRC_DIR}/tests/run.sh" ]]; then
     # run.sh insists on sudo (EUID 0 + SUDO_USER). Go through the operator's NOPASSWD sudo, which sets
-    # SUDO_USER=<operator> itself, exercising the real invocation path.
+    # SUDO_USER=<operator> itself, exercising the real invocation path. `-j $(nproc)` runs as many files at once
+    # as the CPUs this container may run on, which are the host's unless the container runtime limits them.
     phase "tests/run.sh all" \
-        as_operator "sudo bash '${SRC_DIR}/tests/run.sh' all"
+        as_operator "sudo bash '${SRC_DIR}/tests/run.sh' -j $(nproc) all"
 else
     note "tests/run.sh skipped (RUN_TESTS=${RUN_TESTS} or sources absent)"
 fi

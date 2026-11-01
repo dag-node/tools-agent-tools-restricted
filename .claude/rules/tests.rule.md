@@ -23,16 +23,17 @@ of the sandbox account live, since `integration/selinux.sh` skips its clone labe
 refuses the walk; the container selftest stays lenient because SELinux is legitimately absent there, so `selinux.sh`'s
 all-skip is a documented limitation, not a broken prerequisite.
 
-`tests/run.sh -j N` runs up to N files at once, 4 by default, the CPU count of a GitHub-hosted runner, and `-j 1` runs
-them one after another with each file's output streamed live. The pool takes every file that does not carry the line
-`# run.sh: serial` in its header, largest first, each writing to a transcript of its own, and reports each file on one
-line as it finishes. The serial pass then runs the marked files one at a time, with `integration/selinux.sh`
-(`# run.sh: serial last`) after the rest, because its clone label cases skip while a pool file holds a process
-of the sandbox account live. A file carries the marker when it touches host state another file reads — a fixed path
-in the live toolchain or launcher directory, the live daemon, the live units, the installed layout, the cgroup root —
-and names that state in the paragraph after it. Every other file works inside its testdir and the fixture names [Fixture
-names and the residue sweep](#fixture-names-and-the-residue-sweep) gives it, which is what lets it run beside any other.
-The run prints each failed file's transcript at the end and keeps the directory `tests/run.sh`'s header names.
+`tests/run.sh -j N` runs up to N files at once, 4 by default, the CPU count of a GitHub-hosted runner, while
+the container selftest passes the count `nproc` reads inside the container; `-j 1` runs them one after another with each
+file's output streamed live. The pool takes every file that does not carry the line `# run.sh: serial` in its header,
+largest first, each writing to a transcript of its own, and reports each file on one line as it finishes. The serial
+pass then runs the marked files one at a time, with `integration/selinux.sh` (`# run.sh: serial last`) after the rest,
+because its clone label cases skip while a pool file holds a process of the sandbox account live. A file carries
+the marker when it touches host state another file reads — a fixed path in the live toolchain or launcher directory,
+the live daemon, the live units, the installed layout, the cgroup root — and names that state in the paragraph after it.
+Every other file works inside its testdir and the fixture names [Fixture names and the residue
+sweep](#fixture-names-and-the-residue-sweep) gives it, which is what lets it run beside any other. The run prints each
+failed file's transcript at the end and keeps the directory `tests/run.sh`'s header names.
 
 The harness carries a fourth emitter for that reason. `skip` records a check that could not run, and reaching the notice
 is the point of it. `note` records a fact about the run that is not a verdict — `references.sh` names which tool it
