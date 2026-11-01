@@ -1230,14 +1230,25 @@ die_unregistrable_name() {
 # or none.
 allow_escape() { printf '%s' "$1" | sed 's/[]\.*^$|[]/\\&/g'; }
 
-# format_registry_line_removal <raw-line>  -- print the command that deletes <raw-line> from the registry this run
-# reads, verbatim, comment and all: `sed -i <expression> <file>`, prefixed `sudo -u <target>` on a --for run, whose
-# file is the target's. The expression is the anchored address allow_escape makes literal, in bash's %q encoding,
-# so a line carrying a quote or a space pastes as one word. The file is REGISTRY_DISPLAY_PATH, %q-encoded
-# on the invoker's run and left bare under --for, since %q escapes the leading `~` of the tilde-user form and the shell
-# would then not expand it; a user name does not hold a character the shell splits.
+# format_registry_line_removal <raw-line> [<kind> <path>]  -- print the command that deletes <raw-line> from
+# the registry this run reads, verbatim, comment and all: `sed -i <expression> <file>`, prefixed `sudo -u <target>`
+# on a --for run, whose file is the target's. The expression is the anchored address allow_escape makes literal,
+# in bash's %q encoding, so a line carrying a quote or a space pastes as one word. The file is REGISTRY_DISPLAY_PATH,
+# %q-encoded on the invoker's run and left bare under --for, since %q escapes the leading `~` of the tilde-user form
+# and the shell would then not expand it; a user name does not hold a character the shell splits.
+#
+# On a --for run, an entry line -- <kind> `project` or `disabled`, as ai_tools_conf__parse_path_entry names it --
+# is removed through `ai-tools-allowlist --operator <target> --remove <path>` instead, which edits the target's file
+# without the invoker holding a sudo rule as that account. An excluded line keeps the `sed` form, since
+# ai_tools_conf__allowlist_remove leaves an excluded line standing, and so does a protected path, which the helper's
+# protected-paths backstop refuses.
 format_registry_line_removal() {
     local expression
+    if [[ -n "${FOR_OPERATOR}" && ( "${2:-}" == project || "${2:-}" == disabled ) && -n "${3:-}" ]] \
+            && ! ai_tools_safe_paths__match_protected_path "$3" >/dev/null 2>&1; then
+        printf 'sudo %s --operator %s --remove %s' "${ALLOWLIST_BIN}" "${FOR_OPERATOR}" "$(_quote_path "$3")"
+        return 0
+    fi
     expression="$(printf '%q' "\\|^$(allow_escape "$1")\$|d")"
     if [[ -n "${FOR_OPERATOR}" ]]; then
         printf 'sudo -u %s sed -i %s %s' "${FOR_OPERATOR}" "${expression}" "${REGISTRY_DISPLAY_PATH}"
@@ -5849,19 +5860,32 @@ cmd_project_list() {
     # _reconcile <entry> <kind> <safedir-yes> <raw-line>  -- append a remediation block for an inconsistent entry (stale
     # / protected / listed-but-not-fully-claimed). Nested so it shares `cleanup`; <raw-line> is the verbatim source line
     # the removal command deletes.
+    # _record_unreadable_entry <label> <entry>  -- when an ancestor of <entry> is a directory the invoker cannot enter,
+    # append a block naming it and return 0; return 1 otherwise. realpath fails alike for such a path and for one that
+    # is gone, so this is read first: an entry the invoker cannot read is not reported stale, and is not given
+    # the removal a stale one gets.
+    _record_unreadable_entry() {
+        local unreadable_blocker
+        find_invoker_traversal_blocker "$2/" unreadable_blocker || return 1
+        cleanup+=( "  $1" \
+            "      ${C_YEL}cannot be read as ${INVOKING_USER}${C_RST}: ${INVOKING_USER} cannot enter ${unreadable_blocker}" )
+        [[ -z "${FOR_OPERATOR}" ]] || cleanup+=( "      ${FOR_OPERATOR}'s own atr projects reads it" )
+        return 0
+    }
     _reconcile() {
         local e="$1" k="$2" sdy="$3" raw="$4"
+        _record_unreadable_entry "${e}" "${e}" && return 0
         if ! realpath -e "${e}" >/dev/null 2>&1; then
             cleanup+=( "  ${e}" \
                 "      ${C_YEL}no longer exists${C_RST} (stale entry); remove it:" \
-                "          $(format_registry_line_removal "${raw}")" )
+                "          $(format_registry_line_removal "${raw}" project "${e}")" )
             ${sdy} && cleanup+=( "          sudo ${SAFEDIR_BIN} --remove ${e}" )
             return 0                                    # ${sdy}=false returns 1; don't kill cmd_project_list's set -e loop
         fi
         if ai_tools_safe_paths__match_protected_path "${e}" >/dev/null 2>&1; then
             cleanup+=( "  ${e}" \
                 "      ${C_YEL}protected system path${C_RST} -- the tools refuse to operate on it; remove it:" \
-                "          $(format_registry_line_removal "${raw}")" )
+                "          $(format_registry_line_removal "${raw}" project "${e}")" )
             ${sdy} && cleanup+=( "          sudo ${SAFEDIR_BIN} --remove ${e}" )
             _is_labelled "${e}" && cleanup+=( "          sudo ${RELABEL_BIN} --remove ${e}" )
             return 0                                    # trailing conditionals above return 1; don't kill the loop
@@ -5891,10 +5915,11 @@ cmd_project_list() {
             printf '  %-8s %s\n' "exclude" "${excl}"
             # A stale exclusion does not match a path on disk. Flag a non-glob '!' path that no longer exists; a glob
             # exclusion is valid as written (it need not resolve today), so leave it.
-            if ! _has_glob "${excl}" && ! realpath -e "${excl}" >/dev/null 2>&1; then
+            if ! _has_glob "${excl}" && ! _record_unreadable_entry "! ${entry}" "${excl}" \
+                    && ! realpath -e "${excl}" >/dev/null 2>&1; then
                 cleanup+=( "  ! ${entry}" \
                     "      ${C_YEL}no longer exists${C_RST} (stale excluded path); remove it:" \
-                    "          $(format_registry_line_removal "${raw}")" )
+                    "          $(format_registry_line_removal "${raw}" excluded "${excl}")" )
             fi
             continue
         fi
@@ -5904,10 +5929,10 @@ cmd_project_list() {
             _read_safedir_column "${excl}"
             printf '  %-8s %-50s %s  %s\n' "disabled" "${excl}" "${safe}" "${C_DIM}no session may start here${C_RST}"
             say "           ${C_DIM}re-enable: $(format_projects_command enable "${excl}")${C_RST}"
-            if ! realpath -e "${excl}" >/dev/null 2>&1; then
+            if ! _record_unreadable_entry "% ${entry}" "${excl}" && ! realpath -e "${excl}" >/dev/null 2>&1; then
                 cleanup+=( "  % ${entry}" \
                     "      ${C_YEL}no longer exists${C_RST} (stale disabled project); remove it:" \
-                    "          $(format_registry_line_removal "${raw}")" )
+                    "          $(format_registry_line_removal "${raw}" disabled "${excl}")" )
             fi
             continue
         fi
@@ -5970,7 +5995,11 @@ cmd_project_list() {
     if (( ${#cleanup[@]} )); then
         section "Suggested cleanup"
         printf '%s\n' "${cleanup[@]}"
-        say "  ${C_DIM}review each path before running the command; the allowlist is yours to edit${C_RST}"
+        if [[ -n "${FOR_OPERATOR}" ]]; then
+            say "  ${C_DIM}review each path before running the command; the registry is ${FOR_OPERATOR}'s to edit${C_RST}"
+        else
+            say "  ${C_DIM}review each path before running the command; the registry is yours to edit${C_RST}"
+        fi
     fi
     if (( unattributed )); then
         local entries_word="entries are"
