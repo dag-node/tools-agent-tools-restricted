@@ -25,9 +25,8 @@
 # passes the CPU count it reads with `nproc`. `-j 1` runs them one after another and streams each file's output live.
 # Above 1 the files run in two passes. The pool takes every file that does not carry the serial marker, largest first
 # by byte count, since the slowest files are the largest; each writes its output to a transcript of its own, and one
-# line reports each file as it finishes (the result word, the file, its passed checks over all it ran,
-# and the milliseconds it took). The serial pass then runs one file at a time, in category and name order, every file
-# carrying the line
+# line reports each file as it finishes (the result word, the file, its passed checks over all it ran, and the time it
+# took). The serial pass then runs one file at a time, in category and name order, every file carrying the line
 #
 #   # run.sh: serial
 #
@@ -41,6 +40,10 @@
 # by the harness's fixture rule (group `run`), which is kept when a file failed or the notice fired and removed
 # on an all-green run; the next run's residue sweep removes a kept one.
 
+# The body is one brace group, so bash parses the whole file before it runs a line of it. A script is otherwise read
+# as it runs, and a checkout rewritten under a live run -- a formatter, a commit, a branch switch -- has the running
+# bash read the new file from the old offset and fail mid-run on a syntax error the file does not contain.
+{
 set -uo pipefail
 
 readonly HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -149,6 +152,20 @@ file_outcome() {
     fi
 }
 
+# format_elapsed <ms>: the time a file took, as `N ms` under a second, and from a second up as two decimals
+# in the largest unit it reaches -- `s`, `min`, `h` -- truncated, with the exact milliseconds after it:
+# `1.22 min (73200 ms)`.
+format_elapsed() {
+    local ms="$1" unit_ms unit hundredths
+    if (( ms < 1000 )); then printf '%d ms' "${ms}"; return 0; fi
+    if (( ms < 60000 )); then unit_ms=1000 unit=s
+    elif (( ms < 3600000 )); then unit_ms=60000 unit=min
+    else unit_ms=3600000 unit=h
+    fi
+    hundredths=$(( ms * 100 / unit_ms ))
+    printf '%d.%02d %s (%d ms)' "$(( hundredths / 100 ))" "$(( hundredths % 100 ))" "${unit}" "${ms}"
+}
+
 # read_counts <transcript>: print `<passed>/<total>` from the harness finish() line, the total counting the passed,
 # failed and skipped checks; `?/?` for a file that did not print the line, one killed at its budget among them.
 read_counts() {
@@ -241,8 +258,9 @@ reap_file() {
         passed)      word=PASS colour="${_C_PASS}" ;;
         *)           word=SKIP colour="${_C_SKIP}" ;;
     esac
-    printf '  %s%s%s  %s  %s in %s ms%s\n' "${colour}" "${word}" "${_C_OFF}" "${_file_names[i]}" \
-        "$(read_counts "$(transcript_of "${i}")")" "$(( (ended - _file_started[i]) / 1000 ))" "${detail}"
+    printf '  %s%s%s  %s  %s in %s%s\n' "${colour}" "${word}" "${_C_OFF}" "${_file_names[i]}" \
+        "$(read_counts "$(transcript_of "${i}")")" "$(format_elapsed "$(( (ended - _file_started[i]) / 1000 ))")" \
+        "${detail}"
 }
 
 # stop_files: on an interrupt, end every running file through its timeout, which passes the signal to the file's group.
@@ -353,3 +371,4 @@ else
     printf '\n══════ overall: %sFAIL%s ══════\n' "${_C_FAIL}" "${_C_OFF}"
 fi
 exit "${rc}"
+}
