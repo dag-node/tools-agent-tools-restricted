@@ -25,8 +25,9 @@
 # passes the CPU count it reads with `nproc`. `-j 1` runs them one after another and streams each file's output live.
 # Above 1 the files run in two passes. The pool takes every file that does not carry the serial marker, largest first
 # by byte count, since the slowest files are the largest; each writes its output to a transcript of its own, and one
-# line reports each file as it finishes (the result word, the file, the seconds it took). The serial pass then runs one
-# file at a time, in category and name order, every file carrying the line
+# line reports each file as it finishes (the result word, the file, its passed checks over all it ran,
+# and the milliseconds it took). The serial pass then runs one file at a time, in category and name order, every file
+# carrying the line
 #
 #   # run.sh: serial
 #
@@ -133,16 +134,30 @@ trap 'rm -f "${_summary}"' EXIT
 # file_outcome <status> <transcript>: print `failed`, `passed`, or `nocoverage <reason>` for one finished file. A green
 # exit proves coverage only when something PASSed: classify from the harness finish() line (the only line matching this
 # shape).
+_FINISH_RE='^[[:space:]]*([0-9]+) passed, ([0-9]+) failed, ([0-9]+) skipped$'
+readonly _FINISH_RE
 file_outcome() {
-    local re='^[[:space:]]*([0-9]+) passed, [0-9]+ failed, ([0-9]+) skipped$' line
+    local line
     if [[ "$1" -ne 0 ]]; then printf 'failed'; return 0; fi
-    line="$(grep -E "${re}" "$2" | tail -1)"
-    if [[ ! "${line}" =~ ${re} ]]; then
+    line="$(grep -E "${_FINISH_RE}" "$2" | tail -1)"
+    if [[ ! "${line}" =~ ${_FINISH_RE} ]]; then
         printf 'nocoverage no result summary'
     elif [[ "${BASH_REMATCH[1]}" -gt 0 ]]; then
         printf 'passed'
     else
-        printf 'nocoverage 0 passed, %s skipped' "${BASH_REMATCH[2]}"
+        printf 'nocoverage 0 passed, %s skipped' "${BASH_REMATCH[3]}"
+    fi
+}
+
+# read_counts <transcript>: print `<passed>/<total>` from the harness finish() line, the total counting the passed,
+# failed and skipped checks; `?/?` for a file that did not print the line, one killed at its budget among them.
+read_counts() {
+    local line
+    line="$(grep -E "${_FINISH_RE}" "$1" | tail -1)"
+    if [[ "${line}" =~ ${_FINISH_RE} ]]; then
+        printf '%s/%s' "${BASH_REMATCH[1]}" "$(( BASH_REMATCH[1] + BASH_REMATCH[2] + BASH_REMATCH[3] ))"
+    else
+        printf '?/?'
     fi
 }
 
@@ -202,13 +217,15 @@ transcript_of() { printf '%s/%s.log' "${_transcripts}" "${_file_names[$1]//\//-}
 start_file() {
     timeout "${FILE_TIMEOUT}" bash "${_file_paths[$1]}" < /dev/null > "$(transcript_of "$1")" 2>&1 &
     _running[$!]="$1"
-    _file_started[$1]="${SECONDS}"
+    # Microseconds: EPOCHREALTIME with the locale's decimal separator removed.
+    _file_started[$1]="${EPOCHREALTIME//[!0-9]/}"
 }
 
 # reap_file: wait for the next running file to end and print its line.
 reap_file() {
-    local pid="" st=0 i outcome word colour detail=""
+    local pid="" st=0 i outcome word colour detail="" ended
     wait -n -p pid || st=$?
+    ended="${EPOCHREALTIME//[!0-9]/}"
     [[ -n "${pid}" && -n "${_running[${pid}]+x}" ]] || return 0
     i="${_running[${pid}]}"
     unset "_running[${pid}]"
@@ -222,10 +239,10 @@ reap_file() {
     case "${outcome}" in
         failed)      word=FAIL colour="${_C_FAIL}" ;;
         passed)      word=PASS colour="${_C_PASS}" ;;
-        *)           word=SKIP colour="${_C_SKIP}"; detail="  (${outcome#nocoverage })" ;;
+        *)           word=SKIP colour="${_C_SKIP}" ;;
     esac
-    printf '  %s%s%s  %s  %ss%s\n' "${colour}" "${word}" "${_C_OFF}" "${_file_names[i]}" \
-        "$(( SECONDS - _file_started[i] ))" "${detail}"
+    printf '  %s%s%s  %s  %s in %s ms%s\n' "${colour}" "${word}" "${_C_OFF}" "${_file_names[i]}" \
+        "$(read_counts "$(transcript_of "${i}")")" "$(( (ended - _file_started[i]) / 1000 ))" "${detail}"
 }
 
 # stop_files: on an interrupt, end every running file through its timeout, which passes the signal to the file's group.
