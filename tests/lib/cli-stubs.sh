@@ -10,7 +10,8 @@
 # header is its whole description.
 #
 # The shim also answers the two other shapes the CLI sends through sudo: the grant probe
-# `sudo -n -l [-u <user>] <helper>` (answered as "grant present": exit 0, the helper echoed), and the run-as-owner form
+# `sudo -n -l [-u <user>] <helper>` (answered as "grant present": exit 0, the helper echoed, unless cli_stub_no_grant
+# named the helper), and the run-as-owner form
 # `sudo -u <user> -H -- <cmd>` (run directly, as the invoker).
 #
 # An `id` shim beside it answers the one group read a `--for` run gates on, `id -nG <user>`: the account's real groups
@@ -31,7 +32,8 @@
 # cli_stubs_install <root>   writes the shim and stubs under <root>; sets CLI_STUB_PATH (prepend
 #                            to PATH), CLI_STUB_LOG, CLI_STUB_SECRETS. <root> must be exec-capable
 #                            and the caller chowns it to the user the CLI runs as.
-# cli_stub_reset             truncates the log and the secrets list, and clears every cli_stub_fail.
+# cli_stub_reset             truncates the log and the secrets list, and clears every cli_stub_fail
+#                            and cli_stub_no_grant.
 # cli_stub_fail <helper>...  makes each named helper's call exit 1 after it is logged, for a failed root step;
 #                            <helper>:<option> fails only a call carrying that option (`ai-tools-allowlist:--remove`).
 # cli_stub_fail_status <helper> <status>  makes <helper>'s call exit <status> after it is logged, for a helper whose
@@ -83,6 +85,8 @@ LOG="${CLI_STUB_LOG}"
 if [[ "\${1:-}" == -n && "\${2:-}" == -l ]]; then
     shift 2
     [[ "\${1:-}" == -u ]] && shift 2
+    # sudo's own answer for a command no rule matches: a non-zero exit with empty output.
+    [[ -n "\${1:-}" && -e "\${STUBS}/nogrant.\${1##*/}" ]] && exit 1
     printf '%s\n' "\${1:-}"
     exit 0
 fi
@@ -171,7 +175,10 @@ EOF
 
 cli_stub_ai_ops() { : > "${CLI_STUB_AI_OPS}"; (( $# )) && printf '%s\n' "$@" > "${CLI_STUB_AI_OPS}"; return 0; }
 
-cli_stub_reset() { : > "${CLI_STUB_LOG}"; : > "${CLI_STUB_SECRETS}"; rm -f "${CLI_STUB_DIR}"/fail.* "${CLI_STUB_DIR}"/decline.*; }
+cli_stub_reset() { : > "${CLI_STUB_LOG}"; : > "${CLI_STUB_SECRETS}"; rm -f "${CLI_STUB_DIR}"/fail.* "${CLI_STUB_DIR}"/decline.* "${CLI_STUB_DIR}"/nogrant.*; }
+# cli_stub_no_grant <helper>...  makes the grant probe for each named helper answer as sudo does for a command no rule
+# matches, while the caller's rule set still lists, so the CLI reads a missing grant.
+cli_stub_no_grant() { local helper; for helper in "$@"; do : > "${CLI_STUB_DIR}/nogrant.${helper}"; done; }
 
 cli_stub_fail() { local helper; for helper in "$@"; do : > "${CLI_STUB_DIR}/fail.${helper}"; done; }
 cli_stub_fail_status() { printf '%s\n' "$2" > "${CLI_STUB_DIR}/fail.$1"; }

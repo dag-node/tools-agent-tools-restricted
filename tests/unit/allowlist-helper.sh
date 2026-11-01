@@ -275,6 +275,28 @@ else
     fail "--remove failed on an already-removed project (rc=${rc}): ${out}"
 fi
 
+# A removal and a disable each narrow where a session may start, so neither requires the path to exist: an entry whose
+# directory is gone is the case a removal exists for, and the `--for` listing's removal remedy names this helper.
+# `--add` keeps its existence gate, the non-existent-path case.
+gone="${TESTDIR}/gone-project"
+saved_registry="$(cat "${ALLOWFILE}")"
+printf '%s\n' "# ai-tools-project-registry-format: 1.0" "@ ${gone}" "@ ${gone}-disable" > "${ALLOWFILE}"
+out="$(run_helper "${OPERATOR_UID}" --operator "${PROJECTS_USER}" --remove "${gone}")" && rc=0 || rc=$?
+if (( rc == 0 )) && ! grep -qxF "@ ${gone}" "${ALLOWFILE}" && grep -qxF "@ ${gone}-disable" "${ALLOWFILE}"; then
+    pass "--remove deletes the line of a project whose directory no longer exists, and that line alone"
+else
+    fail "--remove of an absent path (rc=${rc}): ${out}"$'\n'"$(cat "${ALLOWFILE}")"
+fi
+out="$(run_helper "${OPERATOR_UID}" --operator "${PROJECTS_USER}" --disable "${gone}-disable")" && rc=0 || rc=$?
+if (( rc == 0 )) && grep -qxF "% ${gone}-disable" "${ALLOWFILE}"; then
+    pass "--disable disables the line of a project whose directory no longer exists"
+else
+    fail "--disable of an absent path (rc=${rc}): ${out}"$'\n'"$(cat "${ALLOWFILE}")"
+fi
+refuses "--enable of an absent path still refuses" MSG-Q5X7 \
+    "${OPERATOR_UID}" --operator "${PROJECTS_USER}" --enable "${gone}-disable"
+printf '%s\n' "${saved_registry}" > "${ALLOWFILE}"
+
 # ── `--disable` / `--enable`: the privileged half of ai-tools.projects.disable/ai-tools.projects.enable ──
 # What separates them from an add/remove pair is that they change the sign of the operator's OWN line. A `--for`
 # target's registry is as much a curated document as the invoker's, so the comment must survive a disable/enable
