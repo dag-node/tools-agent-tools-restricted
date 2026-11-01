@@ -243,11 +243,14 @@ and leave the agent without access to it, so the claim refuses it up front
 and names the `chown` that fixes it. The worked flow for a service account is
 on [Service accounts](../operators/service-accounts.md).
 
-The claim reads the project as you, with or without `--for`, so a project
+The claim resolves the path as you, with or without `--for`, so a project
 under a directory you cannot enter is refused, naming that directory.
 Under `--for` the refusal also names a location both accounts reach
 and, where the directory belongs to the target, the traverse-only `setfacl`
-that lets you enter it. A refusal names `svc-ci`'s registry
+that lets you enter it. The tree itself is read as `svc-ci`, through
+`sudo -u svc-ci`, so a claim over a tree only that account can read completes;
+one more password prompt can precede the review on a host whose `sudo` does
+not cache the password. A refusal names `svc-ci`'s registry
 as `~svc-ci/.config/ai-tools/project-registry`, and each command it prints
 carries `--for svc-ci`.
 
@@ -260,4 +263,6 @@ a re-run applies exactly those; 2 for a rejected command line (a missing
 directory, an unknown option, a `--format` other than `tsv`); 3 when the path
 is a protected system directory or a home root; 4 when a drifted file was left
 as it was or a scan stopped early; 5 when a file's state or part of the tree
-could not be read. `man ai-tools` has the full list.
+could not be read, and when the tree could not be read as its owner at all,
+in which case the claim leaves the tree and the registries as they were. `man
+ai-tools` has the full list.

@@ -223,11 +223,14 @@ cannot fix -- a message code's name is a runtime string, and rewording one is a 
 | d3k4 | [MSG-D3K4](../src/usr/local/bin/ai-tools.sh) | group-unverified | src/usr/local/bin/ai-tools.sh |  | _claim_unreadable |
 | b6s7 | [MSG-B6S7](../src/usr/local/bin/ai-tools.sh) | group-gone | src/usr/local/bin/ai-tools.sh |  | _claim_info |
 | b7p8 | [MSG-B7P8](../src/usr/local/bin/ai-tools.sh) | scan-capped | src/usr/local/bin/ai-tools.sh |  | _claim_attention |
-| q6x2 | [MSG-Q6X2](../src/usr/local/bin/ai-tools.sh) | error | src/usr/local/bin/ai-tools.sh |  | _claim_unreadable |
+| q6x2 | [MSG-Q6X2](../src/usr/local/bin/ai-tools.sh) | error | src/usr/local/bin/ai-tools.sh | tests/integration/cli-flags.sh | _claim_unreadable |
 | u8g4 | [MSG-U8G4](../src/usr/local/bin/ai-tools.sh) | this project directory is owned by ${owner}, and the claim grants it to ${OWNER_USER}. | src/usr/local/bin/ai-tools.sh | tests/integration/cli.sh | die |
+| k7k4 | [MSG-K7K4](../src/usr/local/bin/ai-tools.sh) | unknown projects inspect option: $(ai_tools_log__sanitize "${a}") | src/usr/local/bin/ai-tools.sh |  | die_usage |
+| d6t2 | [MSG-D6T2](../src/usr/local/bin/ai-tools.sh) | projects inspect takes one directory, the project root the claim resolved | src/usr/local/bin/ai-tools.sh |  | die_usage |
 | j2a7 | [MSG-J2A7](../src/usr/local/bin/ai-tools.sh) | unknown projects claim option: ${a} (allowed: -y/--yes, --format tsv) | src/usr/local/bin/ai-tools.sh |  | die_usage |
 | f8g9 | [MSG-F8G9](../src/usr/local/bin/ai-tools.sh) | projects claim takes a single path | src/usr/local/bin/ai-tools.sh |  | die_usage |
 | s9a3 | [MSG-S9A3](../src/usr/local/bin/ai-tools.sh) | projects claim --format takes one value, tsv | src/usr/local/bin/ai-tools.sh |  | die_usage |
+| x7n2 | [MSG-X7N2](../src/usr/local/bin/ai-tools.sh) | the project's tree was not read as ${OWNER_USER}, so the claim applied no step -- ${INSPECT_FAILURE} | src/usr/local/bin/ai-tools.sh | tests/integration/cli-flags.sh | warn |
 | j3r8 | [MSG-J3R8](../src/usr/local/bin/ai-tools.sh) | cannot resolve the parent directory: $(ai_tools_log__sanitize "${parent}") -- it does not exist, or a symbolic link on its path leads through a directory ${INVOKING_USER} cannot enter | src/usr/local/bin/ai-tools.sh | tests/integration/cli-flags.sh, tests/integration/cli.sh | die |
 | c5t8 | [MSG-C5T8](../src/usr/local/bin/ai-tools.sh) | unknown projects create option: ${a} | src/usr/local/bin/ai-tools.sh |  | die_usage |
 | z5y7 | [MSG-Z5Y7](../src/usr/local/bin/ai-tools.sh) | projects create takes a single path | src/usr/local/bin/ai-tools.sh |  | die_usage |

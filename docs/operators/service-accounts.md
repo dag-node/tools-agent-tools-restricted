@@ -108,7 +108,7 @@ for.
 
 The account's own home is the other usual target, and the opposite case: there
 the account can write, and **you** cannot enter. The create and every later
-claim read the project as you, so the run is refused before anything exists,
+claim resolve the path as you, so the run is refused before anything exists,
 naming the directory and both ways past it:
 
 ```text
@@ -126,7 +126,8 @@ reached from this account
 
 The `setfacl` line grants traverse alone: you can then reach a path inside
 the home by name, and still cannot list the home. It is printed only
-for a directory the account itself owns.
+for a directory the account itself owns. With it in place the create
+completes, since the tree itself is read as the account it belongs to.
 
 ## What every operator shares
 

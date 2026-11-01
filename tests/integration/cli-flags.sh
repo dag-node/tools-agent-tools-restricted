@@ -918,11 +918,84 @@ drive_rows() {
     expect "enable --for restores the target's entry"                 st_for_is "${R}/for1" enabled
     expect "--for leaves the invoker's registry byte-identical"       test "$(sha "${AL}")" = "${inv_before}"
 
+    # The claim reads the tree as the target, through `sudo -u` (the shim logs it as `runas`). An owner-side read that
+    # does not complete ends the claim 5 before any write: an `error` row naming the read, the registry byte-identical,
+    # and no helper past the snapshot. The control is the same claim with the read answering.
+    local for_sha; for_sha="$(sha "${FOR_AL}")"
+    cli_stub_reset; cli_stub_fail runas:ai-tools
+    drive cli_stdout ai-tools.projects.claim "$(f for)" "${FOR_USER}" "$(f format)" tsv "$(f yes)" "${R}/for2"
+    expect "a --for claim whose owner-side read fails exits 5"        rc_is 5
+    expect "its error row names the read as its item"                 out_has_finding_item error inspect
+    expect "that row carries the error code"                          out_has_text MSG-Q6X2
+    expect "the failed read is noticed under its code"                err_has MSG-X7N2
+    expect "the target's registry is byte-identical"                  test "$(sha "${FOR_AL}")" = "${for_sha}"
+    expect "no helper is called past the snapshot" test -z "$(awk -F'\t' '$1 != "runas" && !($1 == "ai-tools-allowlist" && $NF == "--print")' "${CLI_STUB_LOG}")"
     cli_stub_reset; drive cli ai-tools.projects.claim "$(f for)" "${FOR_USER}" "$(f yes)" "${R}/for2"
+    expect "claim --for asks for the owner-side read as the target"   cli_called runas "^${FOR_USER}${T}${CLI}${T}projects${T}inspect${T}(.*${T})?--${T}${R}/for2$"
+    expect "the owner-side read precedes the first helper the claim calls" before runas "${T}projects${T}inspect${T}" ai-tools-allowlist "--add"
     expect "claim --for writes the target's registry"                 cli_called ai-tools-allowlist "^--operator${T}${FOR_USER}${T}--add${T}${R}/for2$"
     expect "the target's registry lists the project"                  st_for_is "${R}/for2" enabled
     expect "claim --for grants access through the helpers"            cli_called ai-tools-setgid "^${R}/for2$"
     expect "--for leaves the invoker's registry byte-identical"       test "$(sha "${AL}")" = "${inv_before}"
+    # A project that is a subdirectory of an enclosing repository, with no .git of its own: the claim does not pin
+    # core.filemode in that repository, plain or with `--for`. A project with a repository of its own is the control
+    # that the pin is written. Each repository starts at core.filemode false, so a pin changes its config; the git calls
+    # run as root over root-owned trees before the chown, and the read back is `--file`, as data.
+    local encl="${R}/enclosing" encl_sha
+    git init -q "${encl}"; git -C "${encl}" config core.filemode false
+    git init -q "${encl}/sub-own"; git -C "${encl}/sub-own" config core.filemode false
+    mkdir -p "${encl}/sub-plain" "${encl}/sub-for"
+    chown -R "${PROJECTS_USER}:${PROJECTS_GROUP}" "${encl}"; chown "${FOR_USER}:${FOR_GROUP}" "${encl}/sub-for"
+    encl_sha="$(sha "${encl}/.git/config")"
+    cli_stub_reset; drive cli ai-tools.projects.claim "$(f yes)" "${encl}/sub-plain"
+    expect "a claim of a subdirectory of an enclosing repository exits 0" rc_is 0
+    expect "and leaves the enclosing .git/config byte-identical"     test "$(sha "${encl}/.git/config")" = "${encl_sha}"
+    cli_stub_reset; drive cli ai-tools.projects.claim "$(f for)" "${FOR_USER}" "$(f yes)" "${encl}/sub-for"
+    expect "claim --for of such a subdirectory exits 0"              rc_is 0
+    expect "and leaves the enclosing .git/config byte-identical"     test "$(sha "${encl}/.git/config")" = "${encl_sha}"
+    cli_stub_reset; drive cli ai-tools.projects.claim "$(f yes)" "${encl}/sub-own"
+    expect "control: a project with its own repository takes the core.filemode pin" \
+        test "$(git config --file "${encl}/sub-own/.git/config" --get core.filemode)" = true
+    expect "and the enclosing .git/config stays byte-identical"      test "$(sha "${encl}/.git/config")" = "${encl_sha}"
+    # The reading a 0700 root refuses one account and allows its owner, made by the owner-side read itself: run as the
+    # target over its own tree, and as the projects user over the same tree. Each run does not read a registry or reach
+    # a helper, so it is the installed command alone, with a copy of the fixture operator.conf naming both accounts.
+    # Both sit in the /tmp testdir, which both accounts traverse: on a host whose /tmp is noexec the other fixtures live
+    # beside the projects user's home, which the target cannot enter. Neither needs an exec mount.
+    local two="${TESTDIR}/two-account"
+    not_as_projects_user() { ! runuser -u "${PROJECTS_USER}" -- "$@"; }
+    chmod 0755 "${TESTDIR}"; mkdir -p "${two}"; chmod 0755 "${two}"
+    install -m 0644 -o root -g root "${CONF}" "${two}/operator.conf"
+    mkdir -p "${two}/closed"; git init -q "${two}/closed"; git -C "${two}/closed" config core.filemode false
+    chown -R "${FOR_USER}:${FOR_GROUP}" "${two}/closed"; chmod 0700 "${two}/closed"
+    inspect_as() {  # inspect_as <account> <dir> [option...]: the record stream ai-tools.projects.inspect prints as <account>
+        local account="$1" dir="$2"; shift 2
+        AI_TOOLS_CLI_SPELLING=collection cli_cmd ai-tools.projects.inspect || return 2
+        runuser -u "${account}" -- env -i HOME=/ PATH=/usr/local/bin:/usr/bin:/bin \
+            AI_TOOLS_OPERATOR_CONF="${two}/operator.conf" "${CLI}" "${CLI_ARGV[@]}" "$@" -- "${dir}" \
+            < /dev/null 2> "${two}/stderr.${account}"
+    }
+    out="$(inspect_as "${FOR_USER}" "${two}/closed")" && rc=0 || rc=$?
+    # A failed run names its refusal in the result line, so the reason is on the page.
+    [[ "${rc}" -eq 0 ]] || out+=$'\n'"$(tail -n 3 "${two}/stderr.${FOR_USER}" 2>/dev/null)"
+    expect "projects inspect as the target reads its 0700 tree's filemode" out_has_text "state${T}filemode${T}false"
+    expect "and its .git, which is not normalized"                    out_has_text "state${T}git${T}true"
+    expect "and completes the sealed-setgid scan, exit 0" test "${rc}" -eq 0 -a -n "$(grep -xF "scan${T}sealed-setgid${T}complete${T}" <<< "${out}")"
+    out="$(inspect_as "${PROJECTS_USER}" "${two}/closed")" && rc=0 || rc=$?
+    expect "as the projects user the same tree's filemode reads unknown" out_has_text "state${T}filemode${T}unknown"
+    expect "and its .git reads unknown"                               out_has_text "state${T}git${T}unknown"
+    expect "and the sealed-setgid scan is not made, exit 0" test "${rc}" -eq 0 -a -n "$(grep -xF "scan${T}sealed-setgid${T}not-made${T}" <<< "${out}")"
+    # A drifted file in a tree whose root the sandbox group traverses and the projects user cannot: the drift record
+    # carries the owner and mode as the target reads them, the reading the claim's listing prints.
+    mkdir -p "${two}/drifted"; : > "${two}/drifted/shared"
+    chown -R "${FOR_USER}:${FOR_GROUP}" "${two}/drifted"; chmod 0664 "${two}/drifted/shared"
+    chgrp "${SANDBOX_GROUP}" "${two}/drifted"; chmod 2710 "${two}/drifted"
+    out="$(inspect_as "${FOR_USER}" "${two}/drifted" --scan-group)" && rc=0 || rc=$?
+    [[ "${rc}" -eq 0 ]] || out+=$'\n'"$(tail -n 3 "${two}/stderr.${FOR_USER}" 2>/dev/null)"
+    expect "control: the projects user cannot enter that tree"       not_as_projects_user test -x "${two}/drifted"
+    expect "projects inspect --scan-group as the target records the drift with the target's reading" \
+        out_has_text "group-drift${T}${two}/drifted/shared${T}${FOR_USER}:${FOR_GROUP} 664${T}"
+    rm -rf "${two}"
     cli_stub_reset; drive cli ai-tools.projects.unclaim "$(f for)" "${FOR_USER}" "$(f yes)" "${R}/for2"
     expect "unclaim --for drops the target's entry through the helper" cli_called ai-tools-allowlist "^--operator${T}${FOR_USER}${T}--remove${T}${R}/for2$"
     expect "the target's entry is gone"                               st_for_is "${R}/for2" absent

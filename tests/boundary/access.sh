@@ -735,6 +735,23 @@ for _key in ai-tools.projects.create ai-tools.projects.remove.inplace; do
     fi
 done
 
+# The claim's owner-side read, ai-tools.projects.inspect, reads a project's tree as the account the CLI runs as. Driven
+# with a directory the agent can read, the account's own home, it is refused by the same guard and does not print
+# a record, so the agent cannot make the CLI describe a tree on its behalf.
+cli_cmd ai-tools.projects.inspect || exit 2
+_out="$(runuser -u "${SANDBOX_USER}" -- "${AI_TOOLS_LAUNCH_WRAPPER__CLI:-/usr/local/bin/ai-tools}" "${CLI_ARGV[@]}" \
+            -- /opt/ai-tools 2>&1)" && _rc=0 || _rc=$?
+if (( _rc == 0 )); then
+    fail "the agent was not refused ai-tools.projects.inspect at all"
+else
+    assert_msg MSG-Q6Q8 "${_out}" "the agent cannot reach ai-tools.projects.inspect (principal guard)"
+    if grep -qE $'^state\t' <<< "${_out}"; then
+        fail "the refused ai-tools.projects.inspect still printed a record"
+    else
+        pass "the refused ai-tools.projects.inspect printed no record"
+    fi
+fi
+
 # And it cannot reach the runas seam those verbs use under `--for`. `sudo -u <operator>` is how a `--for` run acts
 # as the target; the agent does not hold a sudo rule at all, and the session runs under PR_SET_NO_NEW_PRIVS, which drops
 # sudo's SUID bit. Either alone is sufficient here.

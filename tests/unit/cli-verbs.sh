@@ -41,6 +41,10 @@ fi
 # that requires root anyway and does not take operator-owned state. This list is the test's half of the contract,
 # so a verb added to neither this nor OPERATOR_VERBS fails with the choice spelled out.
 readonly INFORMATIONAL=(--help --version "projects list" "providers list" status audit stop)
+# INTERNAL -- the dispatched verbs that are the CLI's own calling contract: another verb runs each one and parses
+# what it prints, so the help, the man page and the completion leave it out. A verb qualifies when no person is meant
+# to type it; the gating tables still classify it like every other.
+readonly INTERNAL=("projects inspect")
 
 # array_items <NAME> : the elements of a `readonly NAME=(...)` declaration, one per line. An element is a quoted command
 # path or a bare word; the declarations span lines, so the extraction runs from the name to the closing paren.
@@ -181,13 +185,25 @@ done
 # man.sh pins the help rows against ai-tools(1); this pins them against the CODE, so the three surfaces agree
 # transitively. A verb that works but is documented nowhere is as much a defect as the reverse -- an operator cannot run
 # what they cannot find.
-missing_help="$(comm -23 <(printf '%s\n' "${DISPATCH}") <(printf '%s\n' "$(usage_paths)"))"
-extra_help="$(comm -13 <(printf '%s\n' "${DISPATCH}") <(printf '%s\n' "$(usage_paths)"))"
+# An INTERNAL verb is the one dispatched path the help leaves out, so it is held to that from both sides: it is
+# dispatched, and the help does not list it.
+PUBLIC_DISPATCH="$(comm -23 <(printf '%s\n' "${DISPATCH}") <(printf '%s\n' "${INTERNAL[@]}" | sort -u))"
+missing_help="$(comm -23 <(printf '%s\n' "${PUBLIC_DISPATCH}") <(printf '%s\n' "$(usage_paths)"))"
+extra_help="$(comm -13 <(printf '%s\n' "${PUBLIC_DISPATCH}") <(printf '%s\n' "$(usage_paths)"))"
 if [[ -z "${missing_help}" ]]; then
-    pass "every dispatched verb appears in the CLI help"
+    pass "every dispatched verb but the internal ones appears in the CLI help"
 else
     fail "verb(s) the CLI dispatches but the help omits: $(tr '\n' '/' <<<"${missing_help}")"
 fi
+for internal in "${INTERNAL[@]}"; do
+    if ! grep -qxF -- "${internal}" <<<"${DISPATCH}"; then
+        fail "INTERNAL names '${internal}', which the CLI does not dispatch"
+    elif grep -qxF -- "${internal}" <<<"$(usage_paths)"; then
+        fail "the internal verb '${internal}' is listed in the CLI help"
+    else
+        pass "the internal verb '${internal}' is dispatched and left out of the help"
+    fi
+done
 if [[ -z "${extra_help}" ]]; then
     pass "the CLI help lists no verb the dispatcher rejects"
 else

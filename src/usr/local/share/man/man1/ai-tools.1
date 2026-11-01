@@ -238,7 +238,7 @@ refused by the name given, since the create does not follow a link to place the
 directory where it points. Every filesystem step runs as the operator the run acts for, so
 a create under
 .B \-\-for
-produces a tree that operator owns. The tree is still read as you, so a location
+produces a tree that operator owns. The path is resolved as you, so a location
 under a directory you cannot enter is refused, naming that directory; under
 .B \-\-for
 the refusal names a location both accounts reach, the clone area as the
@@ -300,11 +300,20 @@ Access to the
 repository's git history
 .RB ( .git )
 is a separate opt-in prompt.
-The claim reads the project as you. Where you cannot read its
-.B .git
-\(em another operator's repository under
+The claim resolves the path as you and reads the tree as the operator it acts
+for \(em under
 .BR \-\-for ,
-which git's ownership check refuses \(em the history share and the
+through
+.BR "sudo \-u" ,
+the probe for which runs before the first prompt. A tree that read could not
+describe is not claimed over: the claim prints an
+.B error
+line naming the read and exits 5 before it changes anything. Where that operator
+cannot read the project's
+.B .git
+\(em a repository git's ownership check refuses, or a
+.B .git
+closed to that account \(em the history share and the
 .B core.filemode
 pin are not checked: each is printed as an
 .B error
@@ -1041,7 +1050,8 @@ states for every report in this project.
 A report could not make a reading it promises, so its findings are incomplete
 .RB ( status ": a library the package ships did not load; " audit ": a log file,
 the journal or the audit log could not be read, or the caller is not root;
-.BR "projects claim" ": a drifted file's state, or a scan of the tree, could not be read).
+.BR "projects claim" ": the tree could not be read as its owner, or a drifted file's state, or a scan of the tree,
+could not be read).
 The page names the reading it could not make.
 .B stop
 returns the same code for its own case: it could not run at all, because it was

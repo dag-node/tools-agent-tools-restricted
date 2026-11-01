@@ -118,6 +118,10 @@ group\-unverified
 ERROR.
 cannot enter ${blocked_ancestor} as ${INVOKING_USER}, so ${path} cannot be reached from this account
 .TP
+.B MSG-D6T2
+ERROR.
+projects inspect takes one directory, the project root the claim resolved
+.TP
 .B MSG-D9C7
 ERROR.
 projects handback takes a single path
@@ -213,6 +217,10 @@ no agent is enabled or resolved, so there is no agent to provision a project for
 .B MSG-K7D9
 ERROR.
 projects $1 needs the directory it acts on; it does not take the current directory
+.TP
+.B MSG-K7K4
+ERROR.
+unknown projects inspect option: $(ai_tools_log__sanitize "${a}")
 .TP
 .B MSG-K8R8
 ERROR.
@@ -399,6 +407,10 @@ service registry unavailable (${SERVICES_LIB}) \-\- cannot report service health
 .B MSG-X6U2
 ERROR.
 you (${INVOKING_USER}) are not a configured ai\-tools operator \-\- add your name to OPERATORS in ${conf} with:
+.TP
+.B MSG-X7N2
+WARNING.
+the project's tree was not read as ${OWNER_USER}, so the claim applied no step \-\- ${INSPECT_FAILURE}
 .TP
 .B MSG-X9H7
 ERROR.

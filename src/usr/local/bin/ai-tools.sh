@@ -41,6 +41,11 @@ IFS=$'\n\t'
 
 readonly SANDBOX_USER="@SANDBOX_USER@"
 readonly SANDBOX_GROUP="@SANDBOX_GROUP@"
+# The file this run executes, resolved once: the claim re-executes it as the project's owner for the owner-side read
+# (`projects inspect`), so the owner runs the file the invoker is running. Empty where it does not resolve, and the read
+# then fails as one the claim could not make.
+SELF_PATH="$(realpath -e -- "${BASH_SOURCE[0]}" 2>/dev/null)" || SELF_PATH=""
+readonly SELF_PATH
 # Substituted at deploy time (install.sh from packaging/VERSION; the RPM from %{version}); a raw source-tree run reports
 # "dev".
 AI_TOOLS_VERSION="@AI_TOOLS_VERSION@"
@@ -131,10 +136,11 @@ readonly BOOTSTRAP_EXEMPT_VERBS=("status" "audit" "stop" "--help" "--version")
 # so an unenrolled caller would otherwise get through the registry writes and the confirm prompts only to be refused
 # by the first helper that resolves an owner. Its complement is the informational set -- `--help`, `--version`,
 # `projects list`, `providers list`, `status`, `audit` and `stop` -- which stays open so an unenrolled user can still
-# read usage and inspect the host.
+# read usage and inspect the host. `projects inspect` is the claim's owner-side read of a tree, run as the account whose
+# tree it is.
 readonly OPERATOR_VERBS=("projects create" "projects claim" "projects unclaim" "projects remove"
                          "projects enable" "projects disable" "projects clone" "projects push"
-                         "projects lockdown" "projects handback")
+                         "projects lockdown" "projects handback" "projects inspect")
 # FOR_ALLOWED_VERBS -- what --for accepts: the verbs whose whole effect is decided by WHICH operator's allowlist covers
 # the path. Elsewhere the flag is REFUSED rather than ignored (see
 # require_for_target).
@@ -794,8 +800,8 @@ _quote_path() {
 }
 
 # refuse_unreachable_path <path> <ancestor>  -- die naming <ancestor>, an ancestor of <path> the invoking user cannot
-# enter. Every unprivileged read the CLI makes of a project runs as the invoker, a `--for` run included, so a project
-# under such a directory cannot be read at all. On a `--for` run the remedies print ahead of the refusal: a location
+# enter. The CLI resolves a project's path as the invoker, a `--for` run included, so a project under such a directory
+# cannot be named from this account at all. On a `--for` run the remedies print ahead of the refusal: a location
 # both accounts reach first, the clone area as the example, then the traverse-only grant that opens the directory
 # where grantable_ancestor permits a grant on it -- the predicate the claim's own traverse grant passes, so a protected
 # system directory and any home root but the target's own are never offered.
@@ -803,9 +809,9 @@ refuse_unreachable_path() {
     local path blocked_ancestor
     path="$(ai_tools_log__sanitize "$1")"
     blocked_ancestor="$(ai_tools_log__sanitize "$2")"
-    local -a why=("ai-tools reads a project as the account that runs it, ${INVOKING_USER}, so every directory on the path to the project has to be one ${INVOKING_USER} can enter.")
+    local -a why=("ai-tools resolves a project's path as the account that runs it, ${INVOKING_USER}, so every directory on the path to the project has to be one ${INVOKING_USER} can enter.")
     if [[ -n "${FOR_OPERATOR}" ]]; then
-        why+=("A --for run writes the tree as ${FOR_OPERATOR} and still reads it as ${INVOKING_USER}.")
+        why+=("A --for run resolves the path as ${INVOKING_USER} and then reads and writes the tree as ${FOR_OPERATOR}.")
         # Remedies print plain ahead of die(), whose emitter would wrap a command across lines (messaging.rule.md).
         local -a remedy=("Put the project in a directory both ${INVOKING_USER} and ${FOR_OPERATOR} reach, such as one under ${SANDBOX_ROOT}.")
         if grantable_ancestor "$2"; then
@@ -868,8 +874,9 @@ require_sandbox_clone() {
 }
 
 # run_as_owner <cmd> [args...]  -- run <cmd> as the operator this run acts FOR: directly without --for,
-# and under `sudo -u <target> -H` with it. The seam every step that touches the filesystem AS AN OWNER goes
-# through; the general sudo grant `sudo -u` rides, and why that adds the caller no authority, are cli.rule.md's.
+# and under `sudo -u <target> -H` with it. The seam every step that reads or writes a project's tree AS ITS OWNER goes
+# through, the claim's owner-side read (`projects inspect`) among them; the general sudo grant `sudo -u` rides, and why
+# that adds the caller no authority, are cli.rule.md's.
 #
 # `-H` is load-bearing: without it (and without sudoers' always_set_home) sudo leaves HOME pointing at the INVOKER's
 # home, so a command that reads a dotfile -- git most of all -- would configure the target's tree from the invoker's.
@@ -1380,22 +1387,15 @@ unreg_safedir() {
 
 # reg_filemode <dir>  -- pin core.filemode=true in the project's own .git/config, so git tracks the executable bit
 # the same way for BOTH co-writers whatever either user's global git config: repo-LOCAL, since /opt/ai-tools/.gitconfig
-# is the agent's global alone. Every git call runs through run_as_owner, since under `--for` the .git/config it writes
-# belongs to the target operator. Idempotent and quiet when already set; a no-op (with a note) outside a git work tree.
+# is the agent's global alone. The claim calls it where the owner-side read recorded `filemode false`, a work tree whose
+# own repository does not set the key, so the write is the one git call, made through run_as_owner, since under `--for`
+# the .git/config it writes belongs to the target operator.
 reg_filemode() {
     local dir="$1"
-    if ! run_as_owner git -C "${dir}" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
-        say "    git core.filemode: not a git work tree -- skipped"
-        return 0
-    fi
-    if [[ "$(run_as_owner git -C "${dir}" config --local --get core.filemode 2>/dev/null)" == "true" ]]; then
-        say "    git core.filemode: already true"
+    if run_as_owner git -C "${dir}" config --local core.filemode true; then
+        say "    git core.filemode: set true"
     else
-        if run_as_owner git -C "${dir}" config --local core.filemode true; then
-            say "    git core.filemode: set true"
-        else
-            warn "git core.filemode: could not set (continuing)"
-        fi
+        warn "git core.filemode: could not set (continuing)"
     fi
 }
 
@@ -1466,24 +1466,24 @@ drift_walk_failure() {
 }
 
 # acl_drift_scan <dir> <work-dir> <paths-array> <detail-var>  -- fill <paths-array> with the paths inside a claimed tree
-# that look shared but carry the wrong group: owned by the operator or the sandbox account, group not SANDBOX_GROUP,
-# yet with group/other permission bits set. Creation under a claimed tree inherits the group (setgid) and the ACLs
-# (default entries); a path lacking both arrived by rename(2) -- mv from outside the tree preserves the old group
-# and inherits neither setgid nor the ACL -- and the agent gets EACCES on it deep inside an allowlisted project.
-# The walk is the repair's (ai-tools-setfacl): `-xdev`, `.git` pruned, and this project's '!'-excluded subtrees pruned,
-# since an intentional exclusion stays unreported; owner-only paths (600/700: locked-down secrets, deliberately private
-# files) are left out by the `-perm /077` predicate. The paths come NUL-separated, so a name holding a tab or a line
-# feed arrives whole. Returns 1, with <detail-var> naming why, when the walk exits non-zero or writes to stderr, or its
-# capture cannot be read: a failed walk is not a complete scan of a smaller tree. Read-only and unprivileged, detection
-# only.
+# that look shared but carry the wrong group: owned by the operator or the sandbox account, group not SANDBOX_GROUP, yet
+# with group/other permission bits set. Creation under a claimed tree inherits the group (setgid) and the ACLs (default
+# entries); a path lacking both arrived by rename(2) -- mv from outside the tree preserves the old group and inherits
+# neither setgid nor the ACL -- and the agent gets EACCES on it deep inside an allowlisted project. The walk
+# is the repair's (ai-tools-setfacl): `-xdev`, `.git` pruned, and this project's '!'-excluded subtrees (SCAN_EXCLUSIONS)
+# pruned, since an intentional exclusion stays unreported; owner-only paths (600/700: locked-down secrets, deliberately
+# private files) are left out by the `-perm /077` predicate. The paths come NUL-separated, so a name holding a tab
+# or a line feed arrives whole. Returns 1, with <detail-var> naming why, when the walk exits non-zero or writes
+# to stderr, or its capture cannot be read: a failed walk is not a complete scan of a smaller tree. Read-only
+# and unprivileged, detection only.
 acl_drift_scan() {
-    local dir="$1" work="$2" excl status=0
+    local dir="$1" work="$2" exclusion status=0
     local -n _acl_scan_paths="$3" _acl_scan_detail="$4"
     local -a skip=( -name .git -prune )
     _acl_scan_paths=() _acl_scan_detail=""
-    while IFS= read -r excl; do
-        [[ "${excl}" == "${dir}"/* ]] && skip+=( -o -path "${excl}" -prune )
-    done < <(allowlist_exclusions)
+    for exclusion in "${SCAN_EXCLUSIONS[@]+"${SCAN_EXCLUSIONS[@]}"}"; do
+        [[ "${exclusion}" == "${dir}"/* ]] && skip+=( -o -path "${exclusion}" -prune )
+    done
     { LC_ALL=C find "${dir}" -xdev \( "${skip[@]}" \) -o \
         \( -user "${OWNER_USER}" -o -user "${SANDBOX_USER}" \) \
         ! -group "${SANDBOX_GROUP}" -perm /077 -print0 \
@@ -1561,7 +1561,7 @@ label_drift_scan() {
                 incomplete=1 ;;
         esac
     done
-    mapfile -t exclusions < <(allowlist_exclusions)
+    exclusions=("${SCAN_EXCLUSIONS[@]+"${SCAN_EXCLUSIONS[@]}"}")
     for path in "${walked[@]}"; do
         [[ -n "${batch_drift[${path}]+set}" ]] || continue
         skip=false
@@ -1604,27 +1604,28 @@ label_drift_scan() {
 # and not the invoking user's: on a multi-operator host the group the claim walks treat as legitimate is the resolved
 # project owner's, since they act only on paths that owner or the sandbox account holds, so reporting
 # against the invoker's would flag a bit the claim goes on to strip, or stay silent about one it keeps. Returns 0
-# when the walk covered the tree. Returns 1 without printing a path when the invoker cannot list and enter <dir>, since
-# a walk that cannot start reads like a tree with no such directory. Returns 2 when `find` exits non-zero,
-# a subdirectory the walk cannot read among the causes, with every path it did reach printed, so a list that may be
-# short is not read as complete.
+# when the walk covered the tree. Returns 1 without printing a path when the account running it, the project's owner
+# in the claim's owner-side read, cannot list and enter <dir>, since a walk that cannot start reads like a tree with no
+# such directory. Returns 2 when `find` exits non-zero, a subdirectory the walk cannot read among the causes, with every
+# path it did reach printed, so a list that may be short is not read as complete. Each path is printed NUL-terminated,
+# so a name holding a line feed arrives whole.
 find_sealed_setgid_directories() {
     local dir="$1" exclusion find_status=0
     [[ -r "${dir}" && -x "${dir}" ]] || return 1
     local -a skip=( -name .git -prune )
-    while IFS= read -r exclusion; do
+    for exclusion in "${SCAN_EXCLUSIONS[@]+"${SCAN_EXCLUSIONS[@]}"}"; do
         [[ "${exclusion}" == "${dir}"/* ]] && skip+=( -o -path "${exclusion}" -prune )
-    done < <(allowlist_exclusions)
+    done
     # find cannot compare a path's group to its own owner's, so it narrows to the candidates (owner-only, setgid, not
     # the sandbox group) and the owner comparison is made per path here. An owner with no passwd entry resolves to no
     # group and is therefore reported, which is the right way round: a setgid whose group cannot be tied to the owner is
     # one to look at.
     find "${dir}" -xdev \( "${skip[@]}" \) -o \
         -type d ! -perm /077 -perm -2000 ! -group "${SANDBOX_GROUP}" \
-        -printf '%U\t%G\t%p\n' 2>/dev/null \
-    | while IFS=$'\t' read -r _uid _group _path; do
+        -printf '%U\t%G\t%p\0' 2>/dev/null \
+    | while IFS=$'\t' read -r -d '' _uid _group _path; do
           [[ "${_group}" == "$(id -gn "${_uid}" 2>/dev/null || true)" ]] && continue
-          printf '%s\n' "${_path}"
+          printf '%s\0' "${_path}"
       done || find_status="${PIPESTATUS[0]}"
     (( find_status == 0 )) || return 2
 }
@@ -2144,24 +2145,37 @@ clear_lockdown_guard() {
 # ── Commands ─────────────────────────────────────────────────────────────────────
 
 # read_project_state <dir>  -- print the claim state of <dir> as seven space-separated tokens: "<listed> <safedir>
-# <filemode> <owngap> <acl> <labelled> <git>". listed/safedir reflect the two registries; filemode is true
-# when repo-local core.filemode is already true ("na" when <dir> is not a git work tree); owngap is true when the agent
-# still lacks group access (see dir_owngap); acl is true when the group-permission ACL still needs applying (see
-# acl_gap); labelled is the live SELinux type check -- true/false when SELinux is active, "na" when it is disabled (no
-# label needed); git is true when a .git tree is present but not yet normalized for agent history sharing (see git_gap),
-# false otherwise -- it gates the opt-in .git prompt, not a mandatory claim step. filemode and git read "unknown"
-# when the invoking user cannot make the reading: both when <dir> cannot be entered; filemode when a .git is present
-# and the repository its git opens is not the project's own (another account's repository, which git's ownership check
-# refuses, or an enclosing one git walked to past a .git it cannot read); git when a .git is present that is neither
-# a readable gitfile nor a directory the invoker can list and enter, a symlink into a closed directory among them.
-# A reading that could not be made is not reported as a gap or as its absence. Read-only, no privilege.
-# The ai_tools_project_t string is the single fact mirrored from the root labelling lib; the authoritative
-# semanage/restorecon logic is NOT duplicated here.
+# <filemode> <owngap> <acl> <labelled> <git>". listed/safedir reflect the two registries, read here; the five tree
+# tokens are read_project_tree_state's. `projects list` reads all seven as the invoker; the claim reads listed
+# and safedir itself and takes the tree tokens from the owner-side read (`projects inspect`). Read-only, no privilege.
 read_project_state() {
-    local dir="$1" listed=false safedir=false filemode=na owngap=true acl=false labelled=na git=false
+    local dir="$1" listed=false safedir=false
     ai_tools_conf__has_allowlist_entry "${ALLOWLIST}" "${dir}" 2>/dev/null && listed=true
-    git config --file "${GITCONFIG}" --get-all safe.directory 2>/dev/null \
-        | grep -qxF "${dir}" && safedir=true
+    is_safedir_listed "${dir}" && safedir=true
+    printf '%s %s %s\n' "${listed}" "${safedir}" "$(read_project_tree_state "${dir}")"
+}
+
+# is_safedir_listed <dir>  -- 0 when the git safe.directory list in GITCONFIG holds <dir> exactly.
+is_safedir_listed() {
+    git config --file "${GITCONFIG}" --get-all safe.directory 2>/dev/null | grep -qxF -- "$1"
+}
+
+# read_project_tree_state <dir>  -- print the five readings of <dir>'s tree as space-separated tokens: "<filemode>
+# <owngap> <acl> <labelled> <git>". filemode is true when repo-local core.filemode is already true ("na" when <dir> is
+# not the toplevel of a git work tree, a subdirectory of an enclosing repository among them); owngap is true when
+# the agent still lacks group access (see dir_owngap); acl is true when the group-permission ACL still needs applying
+# (see acl_gap); labelled is the live SELinux type check -- true/false
+# when SELinux is active, "na" when it is disabled (no label needed); git is true when a .git tree is present but not
+# yet normalized for agent history sharing (see git_gap), false otherwise -- it gates the opt-in .git prompt, not
+# a mandatory claim step. filemode and git read "unknown" when the account running it cannot make the reading: both when
+# <dir> cannot be entered; filemode when a .git is present and the repository its git opens is not the project's own
+# (another account's repository, which git's ownership check refuses, or an enclosing one git walked to past a .git it
+# cannot read); git when a .git is present that is neither a readable gitfile nor a directory the account can list
+# and enter, a symlink into a closed directory among them. A reading that could not be made is not reported as a gap or
+# as its absence. Read-only, no privilege, and it does not read a registry. The ai_tools_project_t string is the single
+# fact mirrored from the root labelling lib; the authoritative semanage/restorecon logic is NOT duplicated here.
+read_project_tree_state() {
+    local dir="$1" filemode=na owngap=true acl=false labelled=na git=false
     local toplevel
     if [[ ! -x "${dir}" ]]; then
         filemode=unknown
@@ -2176,7 +2190,10 @@ read_project_state() {
         else
             filemode=unknown
         fi
-    elif git -C "${dir}" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+    elif toplevel="$(git -C "${dir}" rev-parse --show-toplevel 2>/dev/null)" \
+            && [[ "$(realpath -e -- "${toplevel}" 2>/dev/null)" == "$(realpath -e -- "${dir}" 2>/dev/null)" ]]; then
+        # Without a .git of its own <dir> reads a repository only where git opens one whose toplevel is <dir>; a
+        # subdirectory of an enclosing repository reads na, so the claim does not pin core.filemode in that repository.
         [[ "$(git -C "${dir}" config --local --get core.filemode 2>/dev/null)" == "true" ]] \
             && filemode=true || filemode=false
     fi
@@ -2189,7 +2206,7 @@ read_project_state() {
             labelled=false
         fi
     fi
-    # A readable gitfile is git_gap's documented no-tree case; git_gap reads a .git directory only where the invoker can
+    # A readable gitfile is git_gap's documented no-tree case; git_gap reads a .git directory only where the account can
     # list and enter it.
     if [[ ! -x "${dir}" ]]; then
         git=unknown
@@ -2200,8 +2217,7 @@ read_project_state() {
     elif [[ -e "${dir}/.git" || -L "${dir}/.git" ]]; then
         git=unknown
     fi
-    printf '%s %s %s %s %s %s %s\n' \
-        "${listed}" "${safedir}" "${filemode}" "${owngap}" "${acl}" "${labelled}" "${git}"
+    printf '%s %s %s %s %s' "${filemode}" "${owngap}" "${acl}" "${labelled}" "${git}"
 }
 
 # claim_relabel <dir>  -- apply the SELinux project label via the root helper so the confined agent can access the tree.
@@ -2247,32 +2263,47 @@ claim_setfacl() {
 # at a glance why a path is flagged (the foreign or agent group) and whether its mode is what the operator expects.
 # Shared by the claim's drift report and the unclaim's residue report: both answer the same question about a path,
 # so both show the same columns. A caller listing drift sets PATH_DETAIL_MARK=1 for the call, which appends
-# drift_secret_mark to each line.
+# drift_secret_mark to each line. A path the claim's owner-side read measured (PATH_DETAIL_BEFORE) is shown with that
+# reading, `?` where the owner could not read it, since under `--for` the invoker may not reach the path at all; every
+# other path is read here.
+declare -A PATH_DETAIL_BEFORE=()
 path_detail_lines() {
     local _p _og _m _mark=""
     for _p in "$@"; do
-        IFS=' ' read -r _og _m < <(stat -c '%U:%G %a' "${_p}" 2>/dev/null) \
-            || { _og='?'; _m='?'; }
+        if [[ -n "${_p}" && -n "${PATH_DETAIL_BEFORE[${_p}]+set}" ]]; then
+            IFS=' ' read -r _og _m <<< "${PATH_DETAIL_BEFORE[${_p}]}"
+            [[ -n "${_m}" ]] || _m='?'
+        else
+            IFS=' ' read -r _og _m < <(stat -c '%U:%G %a' "${_p}" 2>/dev/null) \
+                || { _og='?'; _m='?'; }
+        fi
         [[ -z "${PATH_DETAIL_MARK:-}" ]] || _mark="$(drift_secret_mark "${_p}")"
         printf '        %s%-18s %-4s %s%s%s\n' "${C_DIM}" "${_og}" "${_m}" "$(ai_tools_log__sanitize "${_p}")" "${C_RST}" \
             "${_mark}"
     done
 }
 
-# drift_secret_mark <path>  -- print ` [secret]` when a component of <path> under the project root <d> (the claim's
-# local, in scope wherever the claim lists its drift) matches a loaded secret pattern, the match ai-tools-lockdown makes
-# before any repair runs. Prints nothing when no pattern set is loaded.
-drift_secret_mark() {
-    declare -F ai_tools_secret_patterns__is_secret_basename >/dev/null 2>&1 && [[ -n "${_AI_TOOLS_SECRET_PATTERNS__PATTERNS_LOADED:-}" ]] || return 0
+# is_secret_drift_path <root> <path>  -- 0 when a component of <path> under the project root <root> matches a secret
+# pattern, the match ai-tools-lockdown makes before any repair runs; 1 when none does or the patterns library is not
+# loaded. The owner-side read calls it only once its load of the owner's own patterns file succeeded, the file
+# ai-tools-lockdown reads for that owner's project.
+is_secret_drift_path() {
+    declare -F ai_tools_secret_patterns__is_secret_basename >/dev/null 2>&1 || return 1
     local _part
     local -a _parts=()
-    IFS=/ read -r -a _parts <<< "${1#"${d}"/}"
+    IFS=/ read -r -a _parts <<< "${2#"$1"/}"
     for _part in "${_parts[@]}"; do
-        if [[ -n "${_part}" ]] && ai_tools_secret_patterns__is_secret_basename "${_part}"; then
-            printf ' %s[secret]%s' "${C_YEL}" "${C_RST}"
-            return 0
-        fi
+        [[ -n "${_part}" ]] && ai_tools_secret_patterns__is_secret_basename "${_part}" && return 0
     done
+    return 1
+}
+
+# drift_secret_mark <path>  -- print ` [secret]` when the owner-side read marked <path> secret-named
+# (DRIFT_SECRET_PATHS, filled from its records). Prints nothing for any other path.
+declare -A DRIFT_SECRET_PATHS=()
+drift_secret_mark() {
+    [[ -n "$1" && -n "${DRIFT_SECRET_PATHS[$1]+set}" ]] || return 0
+    printf ' %s[secret]%s' "${C_YEL}" "${C_RST}"
 }
 
 # drift_secret_legend <path...>  -- under a drift list holding a secret-named path, say what the secret gate does
@@ -2352,14 +2383,6 @@ claim_load_libraries() {
     done
     if ! ${loaded}; then
         die MSG-X3G7 "cannot load the libraries the claim checks its drift and states its exit codes with -- reinstall the ai-tools package"
-    fi
-    # The invoker's own patterns file, the one ai-tools-lockdown reads for a project the invoker owns. Under `--for`
-    # the target's file is unreadable from here, so no pattern set is loaded and drift_secret_mark does not mark any
-    # path.
-    if [[ -z "${FOR_OPERATOR}" ]]; then
-        # shellcheck source=SCRIPTDIR/../lib/ai-tools/secret-patterns.lib.sh
-        { source "${SECRET_PATTERNS_LIB}" && PROJECTS_HOME="${HOME_DIR}" ai_tools_secret_patterns__load; } 2>/dev/null \
-            || true
     fi
 }
 
@@ -2589,13 +2612,14 @@ under_skip_listed_name() {
 # It is re-derived here rather than trusted from the caller, because what it gates is the secret scan: a stale
 # or planted CLAIM_FRESH_TREE must not be able to skip that on a tree with content in it. Both halves are the actual
 # preconditions -- no files means no secret-named files, and an empty object store means no history -- so the answer is
-# a property of the tree, not a claim about it. Every reading the invoker cannot make returns 1: a root it cannot list
-# and enter, a walk `find` reports an error for, and a .git its git does not open as this tree's own repository (git
-# refuses another account's repository, and walks past a .git it cannot read to whatever repository encloses the tree),
-# since an unread tree and an empty one look the same to `find`. The history half reads the store, not the references:
-# no loose object, no pack and no `info/alternates` entry under `objects`, from a walk `find` completes. A count
-# of the commits the references reach reads 0 over a commit whose branch was deleted, one under a reference directory
-# the invoker cannot list, and one a template or an alternate brought in; `git init` does not write a file in the store.
+# a property of the tree, not a claim about it. The claim's owner-side read makes it as the tree's owner, and every
+# reading the account running it cannot make returns 1: a root it cannot list and enter, a walk `find` reports an error
+# for, and a .git its git does not open as this tree's own repository (git refuses another account's repository,
+# and walks past a .git it cannot read to whatever repository encloses the tree), since an unread tree and an empty one
+# look the same to `find`. The history half reads the store, not the references: no loose object, no pack and no
+# `info/alternates` entry under `objects`, from a walk `find` completes. A count of the commits the references reach
+# reads 0 over a commit whose branch was deleted, one under a reference directory the account cannot list, and one
+# a template or an alternate brought in; `git init` does not write a file in the store.
 is_project_tree_pristine() {
     local d="$1" hit discovered_git_dir expected_git_dir
     [[ -r "${d}" && -x "${d}" ]] || return 1
@@ -2640,13 +2664,460 @@ require_claimable_owner() {
         "${why[@]}"
 }
 
+# ── The owner-side read: `projects inspect` ────────────────────────────────────────
+# The claim reads a project's tree as the account whose tree it is: it runs this file again as the owner, through
+# run_as_owner (`sudo -u <target> -H` under `--for`, directly otherwise), as `projects inspect`, and reads the record
+# stream that child prints. The child takes the project path the parent resolved and, on stdin, records the parent
+# composes from its own reads: the registry's exclusions for the read before the Review block, the drifted paths for
+# the verification after the Apply block. It does not read a registry or the safe.directory list, and runs git's
+# read-only commands as the account whose tree it is. The stream is the internal framing records.rule.md states (each
+# field ENC-encoded, one tab between fields, one record per line feed, no header), read by the claim alone, so the verb
+# is left out of the help, the man page and the completion; its record kinds are the ones claim_apply_inspect_record
+# accepts. Both ends are cli.rule.md's (Claim in place).
+
+# inspect_write_record <field>...  -- write one record of the inspect stream to fd 3. Exits 1 when a field does not
+# encode or the write fails, since a stream missing a record reads as a smaller tree.
+inspect_write_record() {
+    local _field _encoded _line="" _first=true
+    for _field in "$@"; do
+        ai_tools_records_tsv__encode_field _encoded "${_field}" || exit 1
+        if ${_first}; then _line="${_encoded}"; _first=false; else _line+=$'\t'"${_encoded}"; fi
+    done
+    printf '%s\n' "${_line}" >&3 || exit 1
+}
+
+# inspect_parse_record <line> <fields-array>  -- split one record of the inspect stream on its tabs and decode each
+# field into <fields-array>. Returns 1, with the array empty, when a field does not decode. The split is made by hand,
+# since `IFS=$'\t' read` collapses adjacent empty fields (records.rule.md).
+inspect_parse_record() {
+    local -n _inspect_fields="$2"
+    local _rest="$1" _raw _decoded
+    _inspect_fields=()
+    while :; do
+        _raw="${_rest%%$'\t'*}"
+        ai_tools_records_tsv__decode_field _decoded "${_raw}" || { _inspect_fields=(); return 1; }
+        _inspect_fields+=("${_decoded}")
+        [[ "${_rest}" == *$'\t'* ]] || break
+        _rest="${_rest#*$'\t'}"
+    done
+}
+
+# cmd_project_inspect [--verify] [--scan-group] [--scan-label] -- <dir>  -- the owner-side read of <dir>, run as
+# the account whose tree it is: print the inspect stream on stdout and every line for a person on stderr. Without
+# `--verify` it writes a `state` record per tree token (read_project_tree_state's five, `pristine` and `root-mode`),
+# the drift and sealed-setgid paths with a `scan` record per scan it ran, and the unreadable ancestor configuration;
+# `--scan-group` and `--scan-label` say the project is registered, and each drift scan then runs where this read's own
+# `owngap false` or `labelled true` allows it, the conditions a re-claim scans under. Stdin carries `exclude <path>`
+# records, which the scans prune as SCAN_EXCLUSIONS. With `--verify` it reads `label <path>` and `group <path>` records
+# and writes one `verify` record per path. A reading that could not be made is a record (`unknown`, `incomplete`,
+# `not-made`) and exits 0; a gate refusal, a library that did not load, an input record that did not decode, a path
+# that is not a directory and a command line it does not parse exit non-zero, so the claim reads the tree as not read.
+cmd_project_inspect() {
+    local a verify=false scan_group=false scan_label=false options_ended=false
+    local -a paths=()
+    for a in "$@"; do
+        if ! ${options_ended}; then
+            case "${a}" in
+                --)           options_ended=true; continue ;;
+                --verify)     verify=true; continue ;;
+                --scan-group) scan_group=true; continue ;;
+                --scan-label) scan_label=true; continue ;;
+                -*) die_usage MSG-K7K4 "unknown projects inspect option: $(ai_tools_log__sanitize "${a}")" ;;
+            esac
+        fi
+        paths+=("${a}")
+    done
+    (( ${#paths[@]} == 1 )) || die_usage MSG-D6T2 "projects inspect takes one directory, the project root the claim resolved"
+    local d="${paths[0]}"
+    refuse_control_character_path "${d}"
+    [[ "${d}" == /* && -d "${d}" ]] || die "not a directory: $(ai_tools_log__sanitize "${d}")"
+    ai_tools_safe_paths__assert_safe_target "${d}" "project inspect" || exit 3
+    # `sudo -u` keeps the invoker's working directory, which the owner may not be able to enter, and GNU find exits 1
+    # when it cannot return to the directory it started in, after a complete walk. Every path here is absolute.
+    cd / || die "cannot change to /"
+    claim_load_libraries
+    exec 3>&1 1>&2
+    ensure_claim_work_directory
+
+    local line
+    local -a fields=() verify_kinds=() verify_paths=()
+    SCAN_EXCLUSIONS=()
+    # A terminal on stdin is a person running the command by hand, who has no records to give it.
+    if [[ ! -t 0 ]]; then
+        while IFS= read -r line || [[ -n "${line}" ]]; do
+            if ! inspect_parse_record "${line}" fields || (( ${#fields[@]} != 2 )); then
+                die "projects inspect: an input record did not decode"
+            fi
+            case "${fields[0]}:${verify}" in
+                exclude:false)            SCAN_EXCLUSIONS+=("${fields[1]}") ;;
+                label:true|group:true)    verify_kinds+=("${fields[0]}"); verify_paths+=("${fields[1]}") ;;
+                *) die "projects inspect: an input record is not one this mode reads" ;;
+            esac
+        done
+    fi
+
+    if ${verify}; then inspect_write_verify_records; else inspect_write_tree_records; fi
+    return 0
+}
+
+# inspect_write_verify_records  -- the `--verify` half of cmd_project_inspect: check each path its caller read from
+# stdin (verify_kinds, verify_paths, by dynamic scope) with claim_verify_label or claim_verify_group, and write one
+# `verify <kind> <path> <outcome> <detail> <present>` record per path, <present> the group path's owner:group and mode
+# as this account reads them after the check (`?` where it cannot, empty for a label path), which the claim compares
+# with the reading before the repair.
+inspect_write_verify_records() {
+    local index
+    local -a label_paths=() group_paths=() label_outcomes=() group_outcomes=() group_details=()
+    for index in "${!verify_paths[@]}"; do
+        if [[ "${verify_kinds[index]}" == label ]]; then label_paths+=("${verify_paths[index]}")
+        else group_paths+=("${verify_paths[index]}"); fi
+    done
+    if (( ${#label_paths[@]} )); then
+        claim_verify_label label_paths label_outcomes
+        for index in "${!label_paths[@]}"; do
+            inspect_write_record verify label "${label_paths[index]}" "${label_outcomes[index]:-unverified}" "" ""
+        done
+    fi
+    if (( ${#group_paths[@]} )); then
+        claim_verify_group group_paths group_outcomes group_details
+        local present
+        for index in "${!group_paths[@]}"; do
+            present="$(stat -c '%U:%G %a' -- "${group_paths[index]}" 2>/dev/null)" || present='?'
+            inspect_write_record verify group "${group_paths[index]}" "${group_outcomes[index]:-unverified}" \
+                "${group_details[index]:-}" "${present}"
+        done
+    fi
+}
+
+# inspect_write_tree_records  -- the read half of cmd_project_inspect over its caller's <d>, scan_group and scan_label
+# (dynamic scope). The drift records are capped at CLAIM_SCAN_CAP + 1 per kind and reach, so the claim tells exactly
+# the cap from more than the cap (records.rule.md, Caps); what a path is before a repair, its subject type and its
+# secret mark are read here, at collection.
+inspect_write_tree_records() {
+    local filemode owngap acl labelled git pristine=false root_mode
+    # IFS pinned (see join_words).
+    IFS=' ' read -r filemode owngap acl labelled git <<< "$(read_project_tree_state "${d}")"
+    is_project_tree_pristine "${d}" && pristine=true
+    root_mode="$(stat -c '%a' -- "${d}" 2>/dev/null)" || root_mode=unknown
+    inspect_write_record state filemode "${filemode}"
+    inspect_write_record state git "${git}"
+    inspect_write_record state owngap "${owngap}"
+    inspect_write_record state acl "${acl}"
+    inspect_write_record state labelled "${labelled}"
+    inspect_write_record state pristine "${pristine}"
+    inspect_write_record state root-mode "${root_mode}"
+
+    # The owner's own patterns file, the one ai-tools-lockdown reads for this owner's project; advisory, so a library
+    # that does not load leaves every path unmarked.
+    local secret_patterns_loaded=false
+    # shellcheck source=SCRIPTDIR/../lib/ai-tools/secret-patterns.lib.sh
+    if { source "${SECRET_PATTERNS_LIB}" && PROJECTS_HOME="${HOME_DIR}" ai_tools_secret_patterns__load; } 2>/dev/null
+    then
+        secret_patterns_loaded=true
+    fi
+
+    local scanned_path owner_group_mode_before repair_reach secret status detail types_text
+    if ${scan_group} && [[ "${owngap}" == false ]]; then
+        local -a drift=()
+        local skip_list_loaded=false reachable_count=0 skipped_count=0
+        status=complete detail=""
+        acl_drift_scan "${d}" "${CLAIM_WORK}" drift detail || status=incomplete
+        if ai_tools_skip_dirs__build_find_expression sweep 2>/dev/null && (( ${#AI_TOOLS_SKIP_DIRS__NAMES[@]} )); then
+            skip_list_loaded=true
+        fi
+        for scanned_path in "${drift[@]}"; do
+            repair_reach=reachable
+            if ${skip_list_loaded} && under_skip_listed_name "${d}" "${scanned_path}"; then repair_reach="skip-listed"; fi
+            if [[ "${repair_reach}" == reachable ]]; then
+                (( reachable_count <= CLAIM_SCAN_CAP )) || continue
+                reachable_count=$(( reachable_count + 1 ))
+            else
+                (( skipped_count <= CLAIM_SCAN_CAP )) || continue
+                skipped_count=$(( skipped_count + 1 ))
+            fi
+            owner_group_mode_before="$(stat -c '%U:%G %a' -- "${scanned_path}" 2>/dev/null)" || owner_group_mode_before='?'
+            secret=-; ${secret_patterns_loaded} && is_secret_drift_path "${d}" "${scanned_path}" && secret=secret
+            inspect_write_record group-drift "${scanned_path}" "${owner_group_mode_before}" \
+                "$(claim_subject_type "${scanned_path}")" "${repair_reach}" "${secret}"
+        done
+        inspect_write_record scan group "${status}" "${detail}"
+    fi
+
+    if ${scan_label} && [[ "${labelled}" == true ]]; then
+        local -a label_drift=()
+        local -A label_drift_types=()
+        local written=0
+        status=complete detail=""
+        label_drift_scan "${d}" "${CLAIM_WORK}" label_drift label_drift_types detail || status=incomplete
+        for scanned_path in "${label_drift[@]}"; do
+            (( written <= CLAIM_SCAN_CAP )) || break
+            written=$(( written + 1 ))
+            types_text="${label_drift_types[${scanned_path}]:-? -> ?}"
+            secret=-; ${secret_patterns_loaded} && is_secret_drift_path "${d}" "${scanned_path}" && secret=secret
+            inspect_write_record label-drift "${scanned_path}" "${types_text%% -> *}" "${types_text#* -> }" \
+                "$(claim_subject_type "${scanned_path}")" "${secret}"
+        done
+        inspect_write_record scan label "${status}" "${detail}"
+    fi
+
+    # The sealed-setgid scan's status says whether it was made, so its output goes through the work directory rather
+    # than a pipe; the list stops at 200 paths, a notice's length. Each path, and each ancestor configuration file,
+    # carries its owner:group and mode as this account reads them, for the claim's listing.
+    local sealed_status=0 sealed_count=0
+    status=complete
+    find_sealed_setgid_directories "${d}" > "${CLAIM_WORK}/sealed-setgid" || sealed_status=$?
+    case "${sealed_status}" in
+        0) ;;
+        2) status=incomplete ;;
+        *) status=not-made ;;
+    esac
+    while (( sealed_count < 200 )) && IFS= read -r -d '' scanned_path; do
+        owner_group_mode_before="$(stat -c '%U:%G %a' -- "${scanned_path}" 2>/dev/null)" || owner_group_mode_before='?'
+        inspect_write_record sealed-setgid "${scanned_path}" "${owner_group_mode_before}"
+        sealed_count=$(( sealed_count + 1 ))
+    done < "${CLAIM_WORK}/sealed-setgid"
+    inspect_write_record scan sealed-setgid "${status}" ""
+
+    if declare -F ai_tools_ancestor_config__find_unreadable_configs >/dev/null 2>&1; then
+        local -a ancestor_configs=()
+        mapfile -t ancestor_configs < <(ai_tools_ancestor_config__find_unreadable_configs "${d}")
+        for scanned_path in "${ancestor_configs[@]}"; do
+            owner_group_mode_before="$(stat -c '%U:%G %a' -- "${scanned_path}" 2>/dev/null)" || owner_group_mode_before='?'
+            inspect_write_record ancestor-config "${scanned_path}" "${owner_group_mode_before}"
+        done
+        inspect_write_record scan ancestor-config complete ""
+    else
+        inspect_write_record scan ancestor-config not-made "the ancestor-config library did not load"
+    fi
+}
+
+# claim_run_inspect <stdin-file> [<option>...]  -- run the owner-side read of the claim's <d> (dynamic scope) as its
+# owner, with <stdin-file> as its input, printing its stream. The path follows `--`, so a path spelled `-h` reaches
+# the child as a path and the help resolution does not read it as a flag.
+claim_run_inspect() {
+    local input="$1"; shift
+    run_as_owner "${SELF_PATH}" projects inspect "$@" -- "${d}" < "${input}"
+}
+
+# claim_read_owner_inspection <listed>  -- run the owner-side read of the claim's <d> before the Review block and fill
+# cmd_project_claim's locals from its records (dynamic scope): the tree tokens, the drift lists with what each path was,
+# the scan details and caps, the sealed-setgid and ancestor-configuration paths, and DRIFT_SECRET_PATHS. <listed>
+# is `true` where the project is registered, or is a disabled entry the claim offers to re-enable, and asks
+# for the drift scans. The registry's exclusions go to the child on stdin, so the run's registry, a `--for` target's
+# snapshot included, stays the one read of it. Returns 1 with INSPECT_FAILURE naming why where the child exited
+# non-zero, a record did not decode or is not one the stream carries, a state token is missing, repeated or outside its
+# set, or a scan the child's contract runs is missing or repeated; the claim then stops before any write.
+INSPECT_FAILURE=""
+claim_read_owner_inspection() {
+    local listed="$1" fd pid status=0 line exclusion encoded failure=""
+    local -a options=() fields=()
+    local -A state_seen=() scan_seen=()
+    INSPECT_FAILURE=""
+    if [[ -z "${SELF_PATH}" ]]; then
+        INSPECT_FAILURE="the path of the ai-tools command did not resolve, so projects inspect was not run"
+        return 1
+    fi
+    ${listed} && options+=(--scan-group --scan-label)
+    # A subshell, so a field that does not encode ends the write and not the claim.
+    if ! ( while IFS= read -r exclusion; do
+               ai_tools_records_tsv__encode_field encoded "${exclusion}" || exit 1
+               printf 'exclude\t%s\n' "${encoded}"
+           done < <(allowlist_exclusions) ) > "${CLAIM_WORK}/inspect.in" 2>/dev/null; then
+        INSPECT_FAILURE="the registry's exclusions could not be written for projects inspect"
+        return 1
+    fi
+    exec {fd}< <(claim_run_inspect "${CLAIM_WORK}/inspect.in" "${options[@]+"${options[@]}"}"); pid=$!
+    while IFS= read -r line <&"${fd}" || [[ -n "${line}" ]]; do
+        [[ -z "${failure}" ]] || continue
+        if ! inspect_parse_record "${line}" fields; then
+            failure="a record of projects inspect did not decode"
+            continue
+        fi
+        claim_apply_inspect_record || failure="projects inspect printed a record the claim does not read"
+    done
+    exec {fd}<&-
+    wait "${pid}" || status=$?
+    if (( status )); then
+        INSPECT_FAILURE="projects inspect exited ${status}"
+        return 1
+    fi
+    if [[ -n "${failure}" ]]; then INSPECT_FAILURE="${failure}"; return 1; fi
+    local token
+    for token in filemode git owngap acl labelled pristine root-mode; do
+        [[ -n "${state_seen[${token}]+set}" ]] && continue
+        INSPECT_FAILURE="projects inspect did not report ${token}"
+        return 1
+    done
+    # The scans the child's contract runs (cmd_project_inspect): the sealed-setgid and ancestor-configuration scans
+    # on every run, and each drift scan where this claim asked for it and the child's own state allows it. A missing
+    # one would read as a complete scan that found no path.
+    local -a required_scans=(sealed-setgid ancestor-config)
+    ${listed} && [[ "${owngap}" == false ]] && required_scans+=(group)
+    ${listed} && [[ "${labelled}" == true ]] && required_scans+=(label)
+    for token in "${required_scans[@]}"; do
+        [[ -n "${scan_seen[${token}]+set}" ]] && continue
+        INSPECT_FAILURE="projects inspect did not report its ${token} scan"
+        return 1
+    done
+}
+
+# claim_apply_inspect_record  -- fold the record in its caller's <fields> into cmd_project_claim's locals (dynamic
+# scope); returns 1 for a record kind, a field count or a state value the stream does not carry, and for a second
+# record of one state token or one scan kind. Each state token is held to the values read_project_tree_state and
+# the child write, so an answer outside the set reads as no answer.
+claim_apply_inspect_record() {
+    local kind="${fields[0]}"
+    case "${kind}:${#fields[@]}" in
+        state:3)
+            [[ -z "${state_seen[${fields[1]}]+set}" ]] || return 1
+            case "${fields[1]}:${fields[2]}" in
+                filemode:true|filemode:false|filemode:na|filemode:unknown) filemode="${fields[2]}" ;;
+                git:true|git:false|git:unknown)                           git="${fields[2]}" ;;
+                owngap:true|owngap:false)                                 owngap="${fields[2]}" ;;
+                acl:true|acl:false)                                       acl="${fields[2]}" ;;
+                labelled:true|labelled:false|labelled:na)                 labelled="${fields[2]}" ;;
+                pristine:true|pristine:false)                             inspect_pristine="${fields[2]}" ;;
+                root-mode:unknown)                                        root_mode="" ;;
+                root-mode:*)
+                    # `stat -c %a` does not write a leading zero, so a mode 0007 root reads `7`.
+                    [[ "${fields[2]}" =~ ^[0-7]{1,4}$ ]] || return 1
+                    root_mode="${fields[2]}" ;;
+                *) return 1 ;;
+            esac
+            state_seen["${fields[1]}"]=1 ;;
+        group-drift:6)
+            [[ "${fields[5]}" == secret ]] && DRIFT_SECRET_PATHS["${fields[1]}"]=1
+            PATH_DETAIL_BEFORE["${fields[1]}"]="${fields[2]}"
+            case "${fields[4]}" in
+                reachable)
+                    if (( ${#drift[@]} < CLAIM_SCAN_CAP )); then
+                        drift+=("${fields[1]}"); drift_before+=("${fields[2]}"); drift_types+=("${fields[3]}")
+                    else
+                        group_capped=true
+                    fi ;;
+                skip-listed)
+                    if (( ${#drift_skipped[@]} < CLAIM_SCAN_CAP )); then drift_skipped+=("${fields[1]}")
+                    else skipped_capped=true; fi ;;
+                *) return 1 ;;
+            esac ;;
+        label-drift:6)
+            [[ "${fields[5]}" == secret ]] && DRIFT_SECRET_PATHS["${fields[1]}"]=1
+            if (( ${#label_drift[@]} < CLAIM_SCAN_CAP )); then
+                label_drift+=("${fields[1]}")
+                label_drift_types["${fields[1]}"]="${fields[2]} -> ${fields[3]}"
+                label_subject_types+=("${fields[4]}")
+            else
+                label_capped=true
+            fi ;;
+        scan:4)
+            [[ -z "${scan_seen[${fields[1]}]+set}" ]] || return 1
+            case "${fields[2]}" in complete|incomplete|not-made) ;; *) return 1 ;; esac
+            case "${fields[1]}" in
+                group)
+                    [[ "${fields[2]}" == complete ]] \
+                        || group_scan_detail="${fields[3]:-the group scan as ${OWNER_USER} did not complete}" ;;
+                label)
+                    [[ "${fields[2]}" == complete ]] \
+                        || label_scan_detail="${fields[3]:-the label scan as ${OWNER_USER} did not complete}" ;;
+                sealed-setgid)   sealed_setgid_scan_result="${fields[2]}" ;;
+                ancestor-config) ancestor_config_scan_result="${fields[2]}" ;;
+                *) return 1 ;;
+            esac
+            scan_seen["${fields[1]}"]=1 ;;
+        sealed-setgid:3)   sealed_setgid+=("${fields[1]}"); PATH_DETAIL_BEFORE["${fields[1]}"]="${fields[2]}" ;;
+        ancestor-config:3) ancestor_configs+=("${fields[1]}"); PATH_DETAIL_BEFORE["${fields[1]}"]="${fields[2]}" ;;
+        *) return 1 ;;
+    esac
+}
+
+# claim_read_owner_verification <label-outcomes> <group-outcomes> <group-details> <group-present>  -- after the Apply
+# block, check each path in the claim's label_drift and drift lists (dynamic scope) through the owner-side read's
+# --verify mode, and fill the arrays index for index with the outcome tokens claim_write_row records, the check's
+# reason, and each group path's owner:group and mode as the owner read them after the check (`?` where it was not read).
+# An outcome missing for a path, a record that does not decode, an outcome outside the set and a child that exits
+# non-zero each leave every path without one `unverified`, and write one `error` row naming the pass, so the report
+# state reads 5 and never `fixed`.
+claim_read_owner_verification() {
+    local -n _owner_label_outcomes="$1" _owner_group_outcomes="$2" _owner_group_details="$3" _owner_group_present="$4"
+    local fd pid status=0 line path encoded failure="" index
+    local -a fields=()
+    local -A label_outcome_by_path=() group_outcome_by_path=() group_detail_by_path=() group_present_by_path=()
+    _owner_label_outcomes=() _owner_group_outcomes=() _owner_group_details=() _owner_group_present=()
+    if [[ -z "${SELF_PATH}" ]]; then
+        failure="the path of the ai-tools command did not resolve"
+    elif ! ( for path in "${label_drift[@]}"; do
+                 ai_tools_records_tsv__encode_field encoded "${path}" || exit 1
+                 printf 'label\t%s\n' "${encoded}"
+             done
+             for path in "${drift[@]}"; do
+                 ai_tools_records_tsv__encode_field encoded "${path}" || exit 1
+                 printf 'group\t%s\n' "${encoded}"
+             done ) > "${CLAIM_WORK}/verify.in" 2>/dev/null; then
+        failure="the drifted paths could not be written for projects inspect --verify"
+    else
+        exec {fd}< <(claim_run_inspect "${CLAIM_WORK}/verify.in" --verify); pid=$!
+        while IFS= read -r line <&"${fd}" || [[ -n "${line}" ]]; do
+            [[ -z "${failure}" ]] || continue
+            if ! inspect_parse_record "${line}" fields || (( ${#fields[@]} != 6 )) || [[ "${fields[0]}" != verify ]]; then
+                failure="a record of projects inspect --verify did not decode"
+                continue
+            fi
+            case "${fields[3]}" in
+                fixed|not-fixed|unverified|gone) ;;
+                *) failure="projects inspect --verify printed an outcome the claim does not read"; continue ;;
+            esac
+            case "${fields[1]}" in
+                label) label_outcome_by_path["${fields[2]}"]="${fields[3]}" ;;
+                group) group_outcome_by_path["${fields[2]}"]="${fields[3]}"
+                       group_detail_by_path["${fields[2]}"]="${fields[4]}"
+                       group_present_by_path["${fields[2]}"]="${fields[5]}" ;;
+                *) failure="projects inspect --verify printed a kind the claim does not read" ;;
+            esac
+        done
+        exec {fd}<&-
+        wait "${pid}" || status=$?
+        (( status == 0 )) || failure="projects inspect --verify exited ${status}"
+    fi
+    # A failed pass trusts none of its outcomes, since a stream cut short or corrupted cannot say which of them are
+    # whole.
+    if [[ -n "${failure}" ]]; then
+        label_outcome_by_path=() group_outcome_by_path=() group_detail_by_path=() group_present_by_path=()
+    fi
+    for index in "${!label_drift[@]}"; do
+        path="${label_drift[index]}"
+        if [[ -n "${label_outcome_by_path[${path}]+set}" ]]; then
+            _owner_label_outcomes[index]="${label_outcome_by_path[${path}]}"
+        else
+            _owner_label_outcomes[index]=unverified
+            [[ -n "${failure}" ]] || failure="projects inspect --verify did not report every path"
+        fi
+    done
+    for index in "${!drift[@]}"; do
+        path="${drift[index]}"
+        if [[ -n "${group_outcome_by_path[${path}]+set}" ]]; then
+            _owner_group_outcomes[index]="${group_outcome_by_path[${path}]}"
+            _owner_group_details[index]="${group_detail_by_path[${path}]}"
+            _owner_group_present[index]="${group_present_by_path[${path}]}"
+        else
+            _owner_group_outcomes[index]=unverified
+            _owner_group_details[index]="the check was not made as ${OWNER_USER}"
+            _owner_group_present[index]='?'
+            [[ -n "${failure}" ]] || failure="projects inspect --verify did not report every path"
+        fi
+    done
+    [[ -z "${failure}" ]] || claim_write_row error directory verify "${d}" \
+        "the repairs were not checked as ${OWNER_USER} (${failure})"
+}
+
 # cmd_project_claim <path> [-y|--yes] [--format tsv]  -- bring a real, IN-PLACE project at <path> to a fully
 # claimed state, idempotently: it reads the current state and performs the missing steps alone, so a fully claimed
 # project is a quiet no-op. Six blocks in run order -- Review, Interior drift, Reachability, Secret lockdown, `.git`
 # history, Apply -- each opened by a headline box and closed by its own confirm or result lines; a first claim skips
 # the drift scans, since its normal walks repair the whole tree. `-y`/`--yes` pre-answers the proceed confirm
 # and the interior relabel question alone; `--format tsv` puts the outcome rows on stdout as a record stream and every
-# other line on stderr. The blocks' order and their defaults are cli.rule.md's.
+# other line on stderr. The path is resolved as the invoker and the tree read as its owner, in the owner-side read
+# before the Review block and its `--verify` pass after the Apply block. The blocks' order and their defaults are
+# cli.rule.md's.
 cmd_project_claim() {
     # `-y`/`--yes` is an explicit per-invocation flag, passed by a caller that already confirmed the same decision (the
     # launch wrapper's delegated claim); the scoped opt-ins (secret lockdown, .git history, ancestor traversal)
@@ -2685,108 +3156,70 @@ cmd_project_claim() {
     # The path's state decides whether a claim applies at all, before any write (cli.rule.md). A path a `%`, `!`
     # or glob line covers without naming it is refused: the helpers resolve no owner under the line, so the claim would
     # close over steps that did not apply. A disabled project is answered after that line, since a covering line refuses
-    # it whatever its own entry says, and up front (offer_reenable), ahead of the proceed confirm a run with no terminal
-    # answers first; declining aborts the claim before any write, and accepting re-reads the path.
+    # it whatever its own entry says, and up front (offer_reenable), after the owner-side read and ahead of the proceed
+    # confirm a run with no terminal answers first; declining aborts the claim before any write, and accepting re-reads
+    # the path.
     read_path_class "${d}"
-    case "${CLASS_STATE}" in
-        excluded)  die_excluded "${d}" claim ;;
-        disabled)
-            [[ "${CLASS_BLOCKED}" == - ]] || die_blocked "${d}" claim
-            offer_reenable "${d}" "the claim" \
-                || die "the registry was not updated -- ${d} is still disabled"
-            read_path_class "${d}" ;;
-    esac
+    [[ "${CLASS_STATE}" != excluded ]] || die_excluded "${d}" claim
     [[ "${CLASS_BLOCKED}" == - ]] || die_blocked "${d}" claim
+    local reenable=false listed=false safedir=false
+    [[ "${CLASS_STATE}" == disabled ]] && reenable=true
+    ai_tools_conf__has_allowlist_entry "${ALLOWLIST}" "${d}" 2>/dev/null && listed=true
 
-    # A tree `projects create` just made (is_project_tree_pristine re-derives it from the tree); each question it
-    # answers is marked where it is asked.
+    # The tree is read by its owner, in one owner-side invocation (claim_read_owner_inspection), before the Review block
+    # and before any write; a tree that read did not describe is not claimed over. Interior drift is detected there
+    # on a re-claim whose ownership is in place, and repaired in Apply behind the same confirm and gate as the other
+    # in-place steps, since a first claim repairs the whole tree (cli.rule.md). Past CLAIM_SCAN_CAP the claim keeps
+    # that many paths and writes a `scan-capped` row, the group cap applied after the skip-list split so hits the claim
+    # cannot repair do not take the places of ones it can.
+    ensure_claim_work_directory
+    ai_tools_records_base__begin_report
+    local filemode="" owngap="" acl="" labelled="" git="" inspect_pristine="" root_mode=""
+    local -a drift=() drift_before=() drift_types=() drift_skipped=()
+    local group_scan_detail="" group_capped=false skipped_capped=false
+    local -a label_drift=() label_subject_types=()
+    local -A label_drift_types=()
+    local label_scan_detail="" label_capped=false
+    local -a sealed_setgid=() ancestor_configs=()
+    local sealed_setgid_scan_result=complete ancestor_config_scan_result=complete
+    local scan_wanted=false
+    { ${listed} || ${reenable}; } && scan_wanted=true
+    if ! claim_read_owner_inspection "${scan_wanted}"; then
+        warn MSG-X7N2 "the project's tree was not read as ${OWNER_USER}, so the claim applied no step -- ${INSPECT_FAILURE}" \
+            "The claim reads the tree as the account it belongs to and does not claim a tree that read did not describe."
+        claim_write_row error directory inspect "${d}" "the tree was not read as ${OWNER_USER} (${INSPECT_FAILURE})"
+        claim_end
+    fi
+
+    if ${reenable}; then
+        offer_reenable "${d}" "the claim" \
+            || die "the registry was not updated -- ${d} is still disabled"
+        read_path_class "${d}"
+        [[ "${CLASS_BLOCKED}" == - ]] || die_blocked "${d}" claim
+        ai_tools_conf__has_allowlist_entry "${ALLOWLIST}" "${d}" 2>/dev/null && listed=true
+    fi
+    is_safedir_listed "${d}" && safedir=true
+
+    # A tree `projects create` just made, by the owner's pristine reading; each question it answers is marked where it
+    # is asked.
     local fresh=false
-    if [[ "${CLAIM_FRESH_TREE:-}" == "${d}" ]] && is_project_tree_pristine "${d}"; then fresh=true; fi
+    if [[ "${CLAIM_FRESH_TREE:-}" == "${d}" && "${inspect_pristine}" == true ]]; then fresh=true; fi
 
-    local listed safedir filemode owngap acl labelled git
-    # IFS pinned (see join_words).
-    IFS=' ' read -r listed safedir filemode owngap acl labelled git < <(read_project_state "${d}")
     local need_label=false; [[ "${labelled}" == false ]] && need_label=true
     local need_filemode=false; [[ "${filemode}" == false ]] && need_filemode=true
     local need_acl=false; [[ "${acl}" == true ]] && need_acl=true
     local need_git=false; [[ "${git}" == true ]] && need_git=true
-    # A step read_project_state reads as `unknown` is not applied (cli.rule.md, Claim in place).
+    # A step the owner-side read records as `unknown` is not applied (cli.rule.md, Claim in place).
     local git_unreadable=false filemode_unreadable=false
     [[ "${git}" == unknown ]] && git_unreadable=true
     [[ "${filemode}" == unknown ]] && filemode_unreadable=true
 
-    # Interior drift is detected here and repaired in Apply, behind the same confirm and gate as the other in-place
-    # steps; scanned on a re-claim whose ownership is in place, since a first claim repairs the whole tree
-    # (cli.rule.md). Each walk reads the whole tree; past CLAIM_SCAN_CAP the claim keeps that many paths and writes
-    # a `scan-capped` row, the group cap applied after the skip-list split so hits the claim cannot repair do not take
-    # the places of ones it can.
-    ensure_claim_work_directory
-    ai_tools_records_base__begin_report
-    local -a drift=()
-    local group_scan_detail="" group_capped=false
-    if [[ "${listed}" == true && "${owngap}" == false ]]; then
-        acl_drift_scan "${d}" "${CLAIM_WORK}" drift group_scan_detail || true
-    fi
-
-    local -a drift_skipped=()
-    if ai_tools_skip_dirs__build_find_expression sweep 2>/dev/null && (( ${#AI_TOOLS_SKIP_DIRS__NAMES[@]} )); then
-        local -a _keep=()
-        local _hit
-        for _hit in "${drift[@]}"; do
-            if under_skip_listed_name "${d}" "${_hit}"; then
-                drift_skipped+=("${_hit}")
-            else
-                _keep+=("${_hit}")
-            fi
-        done
-        drift=("${_keep[@]}")
-    fi
-    if (( ${#drift[@]} > CLAIM_SCAN_CAP )); then
-        drift=("${drift[@]:0:CLAIM_SCAN_CAP}")
-        group_capped=true
-    fi
-    # What each drifted path is before a repair, for the outcome records: a repair rewrites exactly those columns.
-    # The subject-type each row records is read now too, so a `gone` row keeps what the path was.
-    local -a drift_before=() drift_types=()
-    local _hit _hit_detail
-    for _hit in "${drift[@]}"; do
-        _hit_detail="$(stat -c '%U:%G %a' -- "${_hit}" 2>/dev/null)" || _hit_detail='?'
-        drift_before+=("${_hit_detail}")
-        drift_types+=("$(claim_subject_type "${_hit}")")
-    done
-
-    # Interior label drift (label_drift_scan), scanned where the root is labelled: otherwise the whole-tree relabel is
-    # pending anyway.
-    local -a label_drift=()
-    local -A label_drift_types=()
-    local label_scan_detail="" label_capped=false
-    if [[ "${listed}" == true && "${labelled}" == true ]]; then
-        label_drift_scan "${d}" "${CLAIM_WORK}" label_drift label_drift_types label_scan_detail || true
-        if (( ${#label_drift[@]} > CLAIM_SCAN_CAP )); then
-            label_drift=("${label_drift[@]:0:CLAIM_SCAN_CAP}")
-            label_capped=true
-        fi
-    fi
-    local -a label_subject_types=()
-    for _hit in "${label_drift[@]}"; do label_subject_types+=("$(claim_subject_type "${_hit}")"); done
-
     # A setgid bit on a sealed dir that belongs to some third group is the one piece of residue the claim walks decline
     # to remove, so it is surfaced here rather than left to the helper's stderr, where it scrolls past under the Apply
     # step.
-    # The scan's status says whether it was made, so its output goes through the work directory rather than a pipe.
-    local -a sealed_setgid=()
-    local sealed_setgid_scan_result=complete sealed_setgid_status=0
-    find_sealed_setgid_directories "${d}" > "${CLAIM_WORK}/sealed-setgid" || sealed_setgid_status=$?
-    case "${sealed_setgid_status}" in
-        0) ;;
-        2) sealed_setgid_scan_result=incomplete ;;
-        *) sealed_setgid_scan_result=not-made ;;
-    esac
-    mapfile -t sealed_setgid < <(head -n 200 "${CLAIM_WORK}/sealed-setgid")
-
     sealed_setgid_note() {
         if [[ "${sealed_setgid_scan_result}" == not-made ]]; then
-            say "      ${C_DIM}the sealed-setgid scan was not made as ${INVOKING_USER}${C_RST}"
+            say "      ${C_DIM}the sealed-setgid scan was not made as ${OWNER_USER}${C_RST}"
             return 0
         fi
         if (( ${#sealed_setgid[@]} )); then
@@ -2796,7 +3229,7 @@ cmd_project_claim() {
             say "      ${C_DIM}if it was not intended, clear it yourself:  chmod g-s <dir>${C_RST}"
         fi
         if [[ "${sealed_setgid_scan_result}" == incomplete ]]; then
-            say "      ${C_DIM}the sealed-setgid scan did not cover every directory as ${INVOKING_USER},${C_RST}"
+            say "      ${C_DIM}the sealed-setgid scan did not cover every directory as ${OWNER_USER},${C_RST}"
             if (( ${#sealed_setgid[@]} )); then
                 say "      ${C_DIM}so the list may be short${C_RST}"
             else
@@ -2805,16 +3238,16 @@ cmd_project_claim() {
         fi
     }
 
-    # Configuration a build reads from the project's ancestor directories. The toolchain walks the ancestry and opens
-    # each file it recognises, so one the sandbox account is denied is a hard error naming that path, and the message
-    # does not mention the sandbox boundary (ancestor-config.lib.sh). Read-only, and reported rather than repaired:
-    # every step of a claim acts inside the project, so none of them closes this.
-    local -a ancestor_configs=()
-    if declare -F ai_tools_ancestor_config__find_unreadable_configs >/dev/null 2>&1; then
-        mapfile -t ancestor_configs < <(ai_tools_ancestor_config__find_unreadable_configs "${d}")
-    fi
+    # Configuration a build reads from the project's ancestor directories, listed by the owner-side read. The toolchain
+    # walks the ancestry and opens each file it recognises, so one the sandbox account is denied is a hard error naming
+    # that path, and the message does not mention the sandbox boundary (ancestor-config.lib.sh). Read-only, and reported
+    # rather than repaired: every step of a claim acts inside the project, so none of them closes this.
 
     ancestor_config_note() {
+        if [[ "${ancestor_config_scan_result}" == not-made ]]; then
+            say "      ${C_DIM}the ancestor-configuration check was not made as ${OWNER_USER}${C_RST}"
+            return 0
+        fi
         (( ${#ancestor_configs[@]} )) || return 0
         headline_warn "NOTICE: configuration above this project the agent cannot read" \
             "${#ancestor_configs[@]} file(s) above ${d} are configuration an installed toolchain reads for a build here, and the sandbox account cannot open them -- a build that reads one fails on it, naming a path outside the project. The claim acts inside the project, so it leaves them as they are."
@@ -2841,6 +3274,7 @@ cmd_project_claim() {
         headline_warn "NOTICE: drift under skip-listed directories" \
             "${#drift_skipped[@]} path(s) with a foreign group sit under skip-listed directory names (build output, dependencies, caches); claim leaves those trees untouched."
         path_listing "path(s)" "${drift_skipped[@]}"
+        ! ${skipped_capped} || say "        ${C_DIM}(list capped at ${CLAIM_SCAN_CAP} paths)${C_RST}"
         say "      ${C_DIM}if one is source in this project, exempt it in /etc/ai-tools/operator.conf --${C_RST}"
         say "      ${C_DIM}narrow the category (SKIP_ARTIFACT_DIRS=...) or list the path relative to the${C_RST}"
         say "      ${C_DIM}project root in SKIP_ARTIFACT_DIRS_EXCLUDED_PATHS_RELATIVE -- then re-claim;${C_RST}"
@@ -2858,9 +3292,9 @@ cmd_project_claim() {
         ! ${group_capped} || claim_write_row scan-capped directory group "${d}" \
             "the group scan stopped at ${CLAIM_SCAN_CAP} paths; re-claim once these are settled"
         ! ${git_unreadable} || claim_write_row error directory git "${d}/.git" \
-            "not read as ${INVOKING_USER}; .git sharing was not checked"
+            "not read as ${OWNER_USER}; .git sharing was not checked"
         ! ${filemode_unreadable} || claim_write_row error directory filemode "${d}/.git" \
-            "not read as ${INVOKING_USER}; core.filemode was not checked"
+            "not read as ${OWNER_USER}; core.filemode was not checked"
         return 0
     }
 
@@ -2873,27 +3307,28 @@ cmd_project_claim() {
         local _owner_command_prefix="" _quoted_project_path
         [[ -n "${FOR_OPERATOR}" ]] && _owner_command_prefix="sudo -u ${OWNER_USER} -H "
         _quoted_project_path="$(_quote_path "${d}")"
-        say "      ${C_DIM}not checked, since ${INVOKING_USER} cannot read them; to finish them by hand:${C_RST}"
+        say "      ${C_DIM}not checked, since ${OWNER_USER} cannot read them; to finish them by hand:${C_RST}"
         ! ${git_unreadable} \
             || say "      ${C_BOLD}sudo ${SETFACL_BIN} --with-git ${_quoted_project_path}${C_RST}   ${C_DIM}(shares .git history)${C_RST}"
         ! ${filemode_unreadable} \
             || say "      ${C_BOLD}${_owner_command_prefix}git -C ${_quoted_project_path} config core.filemode true${C_RST}"
     }
 
-    # claim_drift_records: after the Apply block, check each drifted path on its own and write one row per path --
-    # `fixed` where its postcondition now holds, `not-fixed` where it does not (declined, not authorized, or a repair
-    # that did not take), `unverified` where the check could not be read, and `gone` where the path is confirmed absent.
+    # claim_drift_records: after the Apply block, check each drifted path on its own, as its owner
+    # (claim_read_owner_verification), and write one row per path -- `fixed` where its postcondition now holds,
+    # `not-fixed` where it does not (declined, not authorized, or a repair that did not take), `unverified` where
+    # the check could not be read, and `gone` where the path is confirmed absent.
     # A re-scan of the tree is not what decides `fixed`: a path can be missing from one because it was capped, failed,
     # or excluded (cli.rule.md). The ways to settle a not-fixed path follow the rows.
     claim_drift_records() {
         (( ${#label_drift[@]} || ${#drift[@]} )) || { claim_scan_rows; return 0; }
         local _i _outcome _detail _left_label=false _left_group=false _mixed=0 _group_fixed _label_fixed
-        local -a _label_outcomes=() _group_outcomes=() _group_details=()
+        local -a _label_outcomes=() _group_outcomes=() _group_details=() _group_present=()
         local -A _label_by_path=()
         [[ "${CLAIM_FORMAT}" == tsv ]] || say "  interior drift:"
         claim_scan_rows
+        claim_read_owner_verification _label_outcomes _group_outcomes _group_details _group_present
         if (( ${#label_drift[@]} )); then
-            claim_verify_label label_drift _label_outcomes
             for _i in "${!label_drift[@]}"; do
                 _outcome="${_label_outcomes[_i]:-unverified}"
                 case "${_outcome}" in
@@ -2907,16 +3342,15 @@ cmd_project_claim() {
             done
         fi
         if (( ${#drift[@]} )); then
-            claim_verify_group drift _group_outcomes _group_details
             for _i in "${!drift[@]}"; do
                 _outcome="${_group_outcomes[_i]:-unverified}"
                 _detail="${_group_details[_i]:-}"
                 [[ "${_outcome}" == fixed ]] && _detail="was ${drift_before[_i]}"
-                # A repair that did not run, over a path still as the scan read it, is said in the fixed row's terms.
-                # A path something else changed since -- the secret gate sealing it owner-only -- keeps the check's own
-                # reason, which names what it now is.
+                # A repair that did not run, over a path still as the scan read it, is said in the fixed row's terms;
+                # both readings are the owner's. A path something else changed since -- the secret gate sealing it
+                # owner-only -- keeps the check's own reason, which names what it now is.
                 if [[ "${_outcome}" == not-fixed ]] && ! ${do_drift} \
-                        && [[ "$(stat -c '%U:%G %a' -- "${drift[_i]}" 2>/dev/null)" == "${drift_before[_i]}" ]]; then
+                        && [[ "${_group_present[_i]:-?}" != '?' && "${_group_present[_i]}" == "${drift_before[_i]}" ]]; then
                     _detail="still ${drift_before[_i]}"
                 fi
                 [[ "${_outcome}" == not-fixed ]] && _left_group=true
@@ -2994,11 +3428,9 @@ cmd_project_claim() {
     # The project root being owner-only is find_blocking_ancestors's problem one level down: ai-tools-setfacl honours
     # a 0600/0700 mode and skips the path, so every later step still succeeds and the claim closes with its ✓ while
     # the sandbox account cannot enter the tree at all. Stated here, before the confirm, rather than left
-    # to the helper's skip count
-    # afterwards.
-    local root_mode
-    root_mode="$(stat -c '%a' "${d}" 2>/dev/null || echo 755)"
-    if (( ( 8#${root_mode} & 077 ) == 0 )); then
+    # to the helper's skip count afterwards; the mode is the owner-side read's, and a mode it could not read does
+    # not raise the notice.
+    if [[ -n "${root_mode}" ]] && (( ( 8#${root_mode} & 077 ) == 0 )); then
         headline_warn "NOTICE: this project directory is owner-only" \
             "${d} is mode ${root_mode}, which keeps it out of the sandbox account's reach: the claim honours that mode and grants nothing on it."
         say ""
@@ -3060,8 +3492,8 @@ cmd_project_claim() {
     ${filemode_unreadable} && say "    - git core.filemode -- not checked, named at the end"
 
     if ${git_unreadable} || ${filemode_unreadable}; then
-        headline_warn "NOTICE: part of this project cannot be read as ${INVOKING_USER}" \
-            "The claim reads the project's state as ${INVOKING_USER}, and could not read the repository at ${d}/.git as that account -- the directory is closed to it, git refuses another account's repository, or the repository git opens there is not this project's own. The steps marked not checked are left as they are; each is named at the end with the command that finishes it, and the claim ends non-zero."
+        headline_warn "NOTICE: part of this project cannot be read as ${OWNER_USER}" \
+            "The claim reads the project's state as ${OWNER_USER}, and could not read the repository at ${d}/.git as that account -- the directory is closed to it, git refuses another account's repository, or the repository git opens there is not this project's own. The steps marked not checked are left as they are; each is named at the end with the command that finishes it, and the claim ends non-zero."
     fi
 
     skip_listed_note
@@ -3307,8 +3739,8 @@ cmd_project_create() {
     leaf="${typed##*/}"
     parent_typed="${typed%/*}"; [[ -n "${parent_typed}" ]] || parent_typed=/
     # Ahead of the existence checks, which read a path under a directory the invoker cannot enter as absent, and ahead
-    # of the mkdir: the claim that follows reads the tree as the invoker, and could not resolve it. The trailing slash
-    # makes the walk read every component of the parent.
+    # of the mkdir: the claim that follows resolves the path as the invoker, and could not resolve it. The trailing
+    # slash makes the walk read every component of the parent.
     if find_invoker_traversal_blocker "${parent_typed}/" blocked_ancestor; then
         refuse_unreachable_path "${typed}" "${blocked_ancestor}"
     fi
@@ -3479,10 +3911,11 @@ report_still_blocked() {
 
 # allowlist_exclusions  -- print this registry's excluded and disabled paths, one per line without the sign,
 # each read through the shared grammar (ai_tools_conf__parse_path_entry), so a commented or quoted line denotes the same
-# path here as in every other reader of the file. Feeds the read-only claim-time scans (acl_drift_scan,
-# find_sealed_setgid_directories), which prune each such subtree from their walk, as the launch gate refuses a launch
-# there.
-# A missing registry yields an empty list.
+# path here as in every other reader of the file. The claim hands the list to its owner-side read, whose scans
+# (acl_drift_scan, label_drift_scan, find_sealed_setgid_directories) read it as SCAN_EXCLUSIONS and prune each such
+# subtree from their walk, as the launch gate refuses a launch there: this run's registry, a `--for` target's snapshot
+# included, stays the one read of it. A missing registry yields an empty list.
+SCAN_EXCLUSIONS=()
 allowlist_exclusions() {
     local line
     [[ -f "${ALLOWLIST}" ]] || return 0
@@ -6418,10 +6851,10 @@ require_sudo_access() {
 # after making the directory and before claiming it, the remove after unregistering the project and before deleting it.
 # Probing first is what keeps "refused before anything changes" true on such a host.
 #
-# `projects claim` runs steps as the acting operator too -- its traverse ACL, its drift probe, its core.filemode pin --
-# and is not probed here. Each of those warns and continues on its own, so a claim on a Runas-restricted host loses
-# those steps individually and leaves the tree whole. Probing would refuse the whole claim over one step the rest does
-# not need.
+# `projects claim` reads the tree as its owner by running this file as `projects inspect` through run_as_owner, and
+# a create runs the claim, so each is probed on that file too: without the read the claim ends 5 with no step applied,
+# and the probe answers that before the first prompt. The claim's other owner-run steps, the traverse ACL and the
+# core.filemode pin, each warn and continue on their own.
 #
 # Each command the run executes is probed rather than one representative, for the reason require_sudo_access gives:
 # a sudoers permitting some and not others is then answered accurately. `sudo -n -l -u <target> <cmd>` cannot prompt,
@@ -6431,12 +6864,14 @@ require_runas_target() {
     [[ -n "${FOR_OPERATOR}" ]] || return 0
     local -a needed=()
     case "${COMMAND}" in
-        "projects create") needed=(mkdir git tee chmod setfacl) ;;
+        "projects create") needed=(mkdir git tee chmod setfacl "${SELF_PATH}") ;;
+        "projects claim")  needed=("${SELF_PATH}") ;;
         "projects remove") needed=(find rm) ;;
         *) return 0 ;;
     esac
     local name resolved blocked=""
     for name in "${needed[@]}"; do
+        [[ -n "${name}" ]] || continue
         resolved="$(command -v -- "${name}" 2>/dev/null)" || continue   # absent: its own call site reports it
         if sudo_grant_missing "${resolved}" "${FOR_OPERATOR}"; then blocked="${resolved}"; break; fi
     done
@@ -6589,6 +7024,10 @@ projects_dispatch() {
         push)     cmd_project_push     "$@" ;;
         lockdown) cmd_project_lockdown "$@" ;;
         handback) cmd_project_handback "$@" ;;
+        # The claim's owner-side read, run as the project's owner (cmd_project_inspect): its calling contract is
+        # the claim's and it prints a record stream the claim parses, so the help, the man page and the completion leave
+        # it out.
+        inspect)  cmd_project_inspect  "$@" ;;
         *)        unknown_command "projects ${verb}" ;;
     esac
 }
