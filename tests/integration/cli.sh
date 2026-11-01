@@ -1110,7 +1110,7 @@ EOF
     list_lacks "${lst}/sealed/inner"  "ai-tools.projects.list does not name a safe.directory under a directory it cannot enter"
     list_has "2 git safe.directory entries are in trees" "ai-tools.projects.list counts the two entries it cannot attribute"
     list_has "stale git safe.directory" "ai-tools.projects.list reports a safe.directory whose path is gone as stale"
-    list_has "--remove ${lst}/stale-safedir" "and names its safe.directory removal"
+    list_has "ai-tools-safedir --remove ${lst}/stale-safedir" "and names its safe.directory removal"
     list_lacks "ai-tools-relabel --remove ${lst}/stale-safedir" "and no label removal, there being no tree to read a label from"
     # The disabled row carries the safe.dir column the project rows carry, and stays out of the cleanup.
     if grep -qE "disabled +${lst}/disabled-proj +safe\.dir:yes" <<<"${lout}"; then
