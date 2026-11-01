@@ -27,8 +27,9 @@
 #   - the target has no registry file yet                         -> refuse, print nothing, write no entry
 #   - the target's registry is a legacy allowed-projects, or the  -> refuse, print nothing, write no entry
 #     grammar refuses a line of it
-#   - the path is not a real directory, or is a protected system  -> refuse, write no entry
-#     directory (safe-paths backstop)
+#   - for `--add` and `--enable`, the path is not a directory;    -> refuse, write no entry
+#     for every action, it is a protected system directory
+#     (safe-paths backstop)
 #   - a required library will not load                            -> refuse, write no entry
 # A refused run leaves the target's allowlist byte-identical, so a failure can only ever leave the agent with fewer
 # places to launch than the operator intended, never more.
@@ -251,11 +252,19 @@ fi
 
 # ── Path gate (add/remove/enable/disable) ────────────────────────────────────────
 # Canonicalise before every check and before the write, so a symlink or '..' cannot smuggle a path past
-# the protected-paths backstop and land a different directory in the launch gate.
-canonical="$(realpath -e "${TARGET_PATH}" 2>/dev/null)" \
-    || die MSG-Q5X7 "not an existing path: ${TARGET_PATH} -- nothing changed"
-[[ -d "${canonical}" ]] \
-    || die MSG-R6C5 "not a directory: ${canonical} -- nothing changed"
+# the protected-paths backstop and land a different directory in the launch gate. The existence and directory checks
+# cover the actions that widen the gate, `--add` and `--enable`. `--remove` and `--disable` each narrow where a session
+# may start, and an entry whose directory is gone is the case a removal exists for, so their path is canonicalised
+# with `realpath -m`, which does not require it to exist; the library matches such a line by its written path.
+case "${ACTION}" in
+    add|enable)
+        canonical="$(realpath -e "${TARGET_PATH}" 2>/dev/null)" \
+            || die MSG-Q5X7 "not an existing path: ${TARGET_PATH} -- nothing changed"
+        [[ -d "${canonical}" ]] \
+            || die MSG-R6C5 "not a directory: ${canonical} -- nothing changed" ;;
+    *)
+        canonical="$(realpath -m -- "${TARGET_PATH}" 2>/dev/null)" || canonical="${TARGET_PATH}" ;;
+esac
 ai_tools_safe_paths__assert_safe_target "${canonical}" "allowlist ${ACTION}" || exit 3
 readonly canonical
 

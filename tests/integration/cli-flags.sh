@@ -882,6 +882,27 @@ drive_rows() {
         expect "the listing --for reads the target's registry (${order}ing flag)" cli_called ai-tools-allowlist "^--operator${T}${FOR_USER}${T}--print$"
     done
     expect "--for leaves the invoker's registry byte-identical"       test "$(sha "${AL}")" = "${inv_before}"
+    # A `--for` listing's first sudo is the registry reader, so a caller without a grant for it is refused before any
+    # sudo prompt; the control is the same listing with the grant, which reaches the snapshot.
+    cli_stub_reset; cli_stub_no_grant ai-tools-allowlist
+    drive cli ai-tools.projects.list "$(f for)" "${FOR_USER}"
+    expect "the listing --for without a grant for the registry reader exits 1 before any helper" quiet_rc 1
+    cli_stub_reset; drive cli ai-tools.projects.list "$(f for)" "${FOR_USER}"
+    expect "control: with the grant, the listing --for reaches the snapshot" cli_called ai-tools-allowlist "^--operator${T}${FOR_USER}${T}--print$"
+    # The removal a `--for` listing names for a stale entry edits the target's registry through the helper; an excluded
+    # line keeps the sed form, since the helper's removal leaves an excluded line standing.
+    # An excluded line under a directory the invoker cannot enter is unreadable rather than stale. Only a `--for` run
+    # reaches it: the invoker's own gate refuses a file whose exclusion crosses a directory it cannot search, and the
+    # `--for` gate reads the snapshot's grammar alone.
+    mkdir -p "${R}/for-sealed"; chown root:root "${R}/for-sealed"; chmod 0700 "${R}/for-sealed"
+    seed_for "@ ${R}/for1" "@ ${R}/for-gone" "! ${R}/for-excluded-gone" "! ${R}/for-sealed/inner"
+    cli_stub_reset; drive cli ai-tools.projects.list "$(f for)" "${FOR_USER}"
+    expect "a stale entry's removal under --for goes through the helper" out_has_text "ai-tools-allowlist --operator ${FOR_USER} --remove ${R}/for-gone"
+    expect "a stale excluded line's removal under --for keeps the sed form" out_has_text "sudo -u ${FOR_USER} sed -i"
+    expect "an excluded line under a directory the invoker cannot enter is reported unreadable" out_has_text "cannot be read as ${PROJECTS_USER}"
+    expect "and the target's own listing is named as the one that reads it" out_has_text "${FOR_USER}'s own atr projects reads it"
+    seed_for "@ ${R}/for1"
+    rmdir "${R}/for-sealed"
 
     cli_stub_reset; drive cli ai-tools.projects.disable "$(f for)" "${FOR_USER}" "${R}/for1"
     expect "disable --for edits the target's registry through the helper" cli_called ai-tools-allowlist "^--operator${T}${FOR_USER}${T}--disable${T}${R}/for1$"

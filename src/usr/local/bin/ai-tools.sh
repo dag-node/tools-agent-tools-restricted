@@ -1230,14 +1230,25 @@ die_unregistrable_name() {
 # or none.
 allow_escape() { printf '%s' "$1" | sed 's/[]\.*^$|[]/\\&/g'; }
 
-# format_registry_line_removal <raw-line>  -- print the command that deletes <raw-line> from the registry this run
-# reads, verbatim, comment and all: `sed -i <expression> <file>`, prefixed `sudo -u <target>` on a --for run, whose
-# file is the target's. The expression is the anchored address allow_escape makes literal, in bash's %q encoding,
-# so a line carrying a quote or a space pastes as one word. The file is REGISTRY_DISPLAY_PATH, %q-encoded
-# on the invoker's run and left bare under --for, since %q escapes the leading `~` of the tilde-user form and the shell
-# would then not expand it; a user name does not hold a character the shell splits.
+# format_registry_line_removal <raw-line> [<kind> <path>]  -- print the command that deletes <raw-line> from
+# the registry this run reads, verbatim, comment and all: `sed -i <expression> <file>`, prefixed `sudo -u <target>`
+# on a --for run, whose file is the target's. The expression is the anchored address allow_escape makes literal,
+# in bash's %q encoding, so a line carrying a quote or a space pastes as one word. The file is REGISTRY_DISPLAY_PATH,
+# %q-encoded on the invoker's run and left bare under --for, since %q escapes the leading `~` of the tilde-user form
+# and the shell would then not expand it; a user name does not hold a character the shell splits.
+#
+# On a --for run, an entry line -- <kind> `project` or `disabled`, as ai_tools_conf__parse_path_entry names it --
+# is removed through `ai-tools-allowlist --operator <target> --remove <path>` instead, which edits the target's file
+# without the invoker holding a sudo rule as that account. An excluded line keeps the `sed` form, since
+# ai_tools_conf__allowlist_remove leaves an excluded line standing, and so does a protected path, which the helper's
+# protected-paths backstop refuses.
 format_registry_line_removal() {
     local expression
+    if [[ -n "${FOR_OPERATOR}" && ( "${2:-}" == project || "${2:-}" == disabled ) && -n "${3:-}" ]] \
+            && ! ai_tools_safe_paths__match_protected_path "$3" >/dev/null 2>&1; then
+        printf 'sudo %s --operator %s --remove %s' "${ALLOWLIST_BIN}" "${FOR_OPERATOR}" "$(_quote_path "$3")"
+        return 0
+    fi
     expression="$(printf '%q' "\\|^$(allow_escape "$1")\$|d")"
     if [[ -n "${FOR_OPERATOR}" ]]; then
         printf 'sudo -u %s sed -i %s %s' "${FOR_OPERATOR}" "${expression}" "${REGISTRY_DISPLAY_PATH}"
@@ -5793,7 +5804,9 @@ status_services() {
 # then flag inconsistent hand-edited entries under "Suggested cleanup" with copy-paste remediation commands (the
 # allowlist is operator-owned and hand-editable, so a line can name a protected system path the tools refuse to touch,
 # a stale path that no longer exists, or a project listed but never fully claimed). All read-only, reusing existing
-# predicates and verbs -- no recovery machinery of its own.
+# predicates and verbs -- no recovery machinery of its own. A removal is offered only for an entry this run can
+# attribute to the registry it reads; a reading the invoker cannot make withholds the removal and is counted or named
+# instead.
 cmd_project_list() {
     [[ "$#" -eq 0 ]] || die_usage MSG-E2A5 "projects list takes no arguments"
     [[ -e "${ALLOWLIST}" || -L "${ALLOWLIST}" ]] || { say "no registry at ${ALLOWLIST}"; return 0; }
@@ -5835,22 +5848,44 @@ cmd_project_list() {
     # _has_glob <str>  -- 0 when <str> carries a shell glob metacharacter (* ? [). A glob is a `!` line alone, matched
     # as a pattern and never resolved to one path; the grammar refuses one on an `@` or `%` line.
     _has_glob() { [[ "$1" == *[*?[]* ]]; }
+    # _read_safedir_column <entry>  -- set `safe` to the safe.dir column for <entry> and `sd` to whether git
+    # safe.directory names it, the reading every registered row prints.
+    _read_safedir_column() {
+        if git config --file "${GITCONFIG}" --get-all safe.directory 2>/dev/null | grep -qxF -- "$1"; then
+            safe="safe.dir:yes"; sd=true
+        else
+            safe="safe.dir:${C_YEL}NO${C_RST}"; sd=false
+        fi
+    }
     # _reconcile <entry> <kind> <safedir-yes> <raw-line>  -- append a remediation block for an inconsistent entry (stale
     # / protected / listed-but-not-fully-claimed). Nested so it shares `cleanup`; <raw-line> is the verbatim source line
     # the removal command deletes.
+    # _record_unreadable_entry <label> <entry>  -- when an ancestor of <entry> is a directory the invoker cannot enter,
+    # append a block naming it and return 0; return 1 otherwise. realpath fails alike for such a path and for one that
+    # is gone, so this is read first: an entry the invoker cannot read is not reported stale, and is not given
+    # the removal a stale one gets.
+    _record_unreadable_entry() {
+        local unreadable_blocker
+        find_invoker_traversal_blocker "$2/" unreadable_blocker || return 1
+        cleanup+=( "  $1" \
+            "      ${C_YEL}cannot be read as ${INVOKING_USER}${C_RST}: ${INVOKING_USER} cannot enter ${unreadable_blocker}" )
+        [[ -z "${FOR_OPERATOR}" ]] || cleanup+=( "      ${FOR_OPERATOR}'s own atr projects reads it" )
+        return 0
+    }
     _reconcile() {
         local e="$1" k="$2" sdy="$3" raw="$4"
+        _record_unreadable_entry "${e}" "${e}" && return 0
         if ! realpath -e "${e}" >/dev/null 2>&1; then
             cleanup+=( "  ${e}" \
                 "      ${C_YEL}no longer exists${C_RST} (stale entry); remove it:" \
-                "          $(format_registry_line_removal "${raw}")" )
+                "          $(format_registry_line_removal "${raw}" project "${e}")" )
             ${sdy} && cleanup+=( "          sudo ${SAFEDIR_BIN} --remove ${e}" )
             return 0                                    # ${sdy}=false returns 1; don't kill cmd_project_list's set -e loop
         fi
         if ai_tools_safe_paths__match_protected_path "${e}" >/dev/null 2>&1; then
             cleanup+=( "  ${e}" \
                 "      ${C_YEL}protected system path${C_RST} -- the tools refuse to operate on it; remove it:" \
-                "          $(format_registry_line_removal "${raw}")" )
+                "          $(format_registry_line_removal "${raw}" project "${e}")" )
             ${sdy} && cleanup+=( "          sudo ${SAFEDIR_BIN} --remove ${e}" )
             _is_labelled "${e}" && cleanup+=( "          sudo ${RELABEL_BIN} --remove ${e}" )
             return 0                                    # trailing conditionals above return 1; don't kill the loop
@@ -5880,22 +5915,24 @@ cmd_project_list() {
             printf '  %-8s %s\n' "exclude" "${excl}"
             # A stale exclusion does not match a path on disk. Flag a non-glob '!' path that no longer exists; a glob
             # exclusion is valid as written (it need not resolve today), so leave it.
-            if ! _has_glob "${excl}" && ! realpath -e "${excl}" >/dev/null 2>&1; then
+            if ! _has_glob "${excl}" && ! _record_unreadable_entry "! ${entry}" "${excl}" \
+                    && ! realpath -e "${excl}" >/dev/null 2>&1; then
                 cleanup+=( "  ! ${entry}" \
                     "      ${C_YEL}no longer exists${C_RST} (stale excluded path); remove it:" \
-                    "          $(format_registry_line_removal "${raw}")" )
+                    "          $(format_registry_line_removal "${raw}" excluded "${excl}")" )
             fi
             continue
         fi
         if [[ "${ai_tools_conf__kind}" == disabled ]]; then
             # A disabled project: registered, with no session starting there until it is re-enabled in place.
             excl="${entry}"
-            printf '  %-8s %-50s %s\n' "disabled" "${excl}" "${C_DIM}no session may start here${C_RST}"
+            _read_safedir_column "${excl}"
+            printf '  %-8s %-50s %s  %s\n' "disabled" "${excl}" "${safe}" "${C_DIM}no session may start here${C_RST}"
             say "           ${C_DIM}re-enable: $(format_projects_command enable "${excl}")${C_RST}"
-            if ! realpath -e "${excl}" >/dev/null 2>&1; then
+            if ! _record_unreadable_entry "% ${entry}" "${excl}" && ! realpath -e "${excl}" >/dev/null 2>&1; then
                 cleanup+=( "  % ${entry}" \
                     "      ${C_YEL}no longer exists${C_RST} (stale disabled project); remove it:" \
-                    "          $(format_registry_line_removal "${raw}")" )
+                    "          $(format_registry_line_removal "${raw}" disabled "${excl}")" )
             fi
             continue
         fi
@@ -5903,12 +5940,7 @@ cmd_project_list() {
             "${SANDBOX_ROOT}"/*) kind="sandbox" ;;
             *)                   kind="project" ;;
         esac
-        if git config --file "${GITCONFIG}" --get-all safe.directory 2>/dev/null \
-                | grep -qxF "${entry}"; then
-            safe="safe.dir:yes"; sd=true
-        else
-            safe="safe.dir:${C_YEL}NO${C_RST}"; sd=false
-        fi
+        _read_safedir_column "${entry}"
         read_path_class "$(resolve_entry_path "${entry}")"
         printf '  %-8s %-50s %s\n' "${kind}" "${entry}" "${safe}"
         # A listed project under a `%`, a `!` or a glob line is still this operator's entry, and no session reaches it
@@ -5922,27 +5954,58 @@ cmd_project_list() {
     # Reverse reconciliation: a git safe.directory entry no registry entry names is an ORPHAN -- git still trusts
     # the tree though no line names it (the line was hand-deleted, or an unclaim was interrupted before the safedir
     # drop). An entry is an `@` or a `%` line, read through the classifier: a disabled project is still registered.
-    # A git entry is classified by
-    # its real path, as the registry section reads its own lines, and the cleanup names it as git stores it. Removing
-    # the stale safedir (and its label) is the cleanup; the path is not a claimed project, so it is not offered
-    # `atr projects unclaim`, which would refuse an unlisted target. Control-plane entries (/opt/ai-tools) are
-    # registered deliberately and are protected paths, so they are skipped.
-    local sdir
+    # A git entry is classified by its real path, as the registry section reads its own lines, and the cleanup names it
+    # as git stores it. Control-plane entries (/opt/ai-tools) are registered deliberately and are protected paths,
+    # so they are skipped.
+    #
+    # safe.directory is one host-wide list every operator's claims write into, while this run reads one registry, so
+    # an uncovered entry is attributed before a remedy is offered: a path whose root OWNER_USER holds is this
+    # registry's orphan; a path that no longer exists is stale; a path under a directory the invoker cannot enter, one
+    # another account holds, and one whose owner cannot be read are counted and not listed. The claim's owner rule
+    # (require_claimable_owner) is what makes the owner the attribution key. A reading the invoker cannot make
+    # withholds the removal, since `ai-tools-safedir --remove` does not consult any registry, and the count says
+    # the entries exist.
+    # shellcheck disable=SC2034  # sdir_blocker is filled through its name by find_invoker_traversal_blocker
+    local sdir sdir_blocker sdir_real sdir_owner unattributed=0
     while IFS= read -r sdir; do
         [[ -n "${sdir}" ]] || continue
         ai_tools_safe_paths__match_protected_path "${sdir}" >/dev/null 2>&1 && continue
         read_path_class "$(resolve_entry_path "${sdir}")"
         case "${CLASS_STATE}" in enabled|disabled) continue ;; esac
+        if [[ "${sdir}" == /* ]] && find_invoker_traversal_blocker "${sdir}/" sdir_blocker; then
+            unattributed=$(( unattributed + 1 )); continue
+        fi
+        if ! sdir_real="$(realpath -e -- "${sdir}" 2>/dev/null)"; then
+            cleanup+=( "  ${sdir}" \
+                "      ${C_YEL}no longer exists${C_RST} (stale git safe.directory); remove it:" \
+                "          sudo ${SAFEDIR_BIN} --remove ${sdir}" )
+            continue
+        fi
+        sdir_owner="$(stat -c '%U' -- "${sdir_real}" 2>/dev/null)" || sdir_owner=""
+        if [[ "${sdir_owner}" != "${OWNER_USER}" ]]; then
+            unattributed=$(( unattributed + 1 )); continue
+        fi
         cleanup+=( "  ${sdir}" \
             "      ${C_YEL}git safe.directory with no allowlist entry${C_RST} (orphaned); remove it:" \
             "          sudo ${SAFEDIR_BIN} --remove ${sdir}" )
         _is_labelled "${sdir}" && cleanup+=( "          sudo ${RELABEL_BIN} --remove ${sdir}" )
+        continue
     done < <(git config --file "${GITCONFIG}" --get-all safe.directory 2>/dev/null || true)
 
     if (( ${#cleanup[@]} )); then
         section "Suggested cleanup"
         printf '%s\n' "${cleanup[@]}"
-        say "  ${C_DIM}review each path before running the command; the allowlist is yours to edit${C_RST}"
+        if [[ -n "${FOR_OPERATOR}" ]]; then
+            say "  ${C_DIM}review each path before running the command; the registry is ${FOR_OPERATOR}'s to edit${C_RST}"
+        else
+            say "  ${C_DIM}review each path before running the command; the registry is yours to edit${C_RST}"
+        fi
+    fi
+    if (( unattributed )); then
+        local entries_word="entries are" reader_word="${INVOKING_USER} "
+        (( unattributed == 1 )) && entries_word="entry is"
+        [[ "${INVOKING_USER}" != "${OWNER_USER}" ]] || reader_word=""
+        say "  ${C_DIM}${unattributed} git safe.directory ${entries_word} in trees ${OWNER_USER} does not hold or ${reader_word}cannot read, and not listed; each operator's own atr projects reports theirs. The whole list: git config --file ${GITCONFIG} --get-all safe.directory${C_RST}"
     fi
     list_maintenance_note
 }
@@ -6132,6 +6195,13 @@ handover_target() {
 # going to be refused must not prompt first.
 require_sudo_access() {
     local bin="" what="" delegable=false
+    # A `--for` run's first helper is the registry READER (`ai-tools-allowlist --print`), ahead of the verb's own and
+    # whatever the verb, so every `--for` run is probed on it: the case names what the run does, and no arm returns
+    # ahead of the probe under `--for`. A verb FOR_ALLOWED_VERBS does not name is left to require_for_target's
+    # refusal, which does not reach sudo.
+    if [[ -n "${FOR_OPERATOR}" ]]; then
+        verb_in "${COMMAND}" "${FOR_ALLOWED_VERBS[@]}" || return 0
+    fi
     case "${COMMAND}" in
         audit)                bin="${AUDIT_BIN}"    what="reading the refusal trail" ;;
         "projects lockdown")  bin="${LOCKDOWN_BIN}" what="locking down secret files"; delegable=true ;;
@@ -6144,9 +6214,10 @@ require_sudo_access() {
         # `projects remove` does not run ai-tools-unclaim: it deletes the tree instead of handing it back, so the first
         # helper it reaches is the safe.directory de-registration. The clone kind does not reach a helper that can
         # refuse the command -- its one sudo is unreg_safedir's removal, which warns and carries on rather than failing
-        # the verb -- so a target under the clone area is not probed.
+        # the verb -- so a target under the clone area is not probed on a plain run.
         "projects remove")
-            [[ "$(realpath -m -- "$(handover_target "$@")" 2>/dev/null)" == "${SANDBOX_ROOT}/"* ]] && return 0
+            [[ -z "${FOR_OPERATOR}" \
+                && "$(realpath -m -- "$(handover_target "$@")" 2>/dev/null)" == "${SANDBOX_ROOT}/"* ]] && return 0
             bin="${SAFEDIR_BIN}"  what="removing a project"; delegable=true ;;
         "projects clone")     bin="${LOCKDOWN_BIN}" what="creating a sandbox clone" ;;
         # The enable/disable pair edits ONE line of the caller's own registry and does not reach a root helper at all,
@@ -6156,7 +6227,12 @@ require_sudo_access() {
         "projects enable"|"projects disable")
             [[ -n "${FOR_OPERATOR}" ]] || return 0
             bin="${ALLOWLIST_BIN}" what="enabling or disabling a project for ${FOR_OPERATOR}" ;;
-        # `projects push` and the informational verbs reach no helper that can refuse the command.
+        # A plain `projects list` reads the caller's own registry and does not reach a helper; under `--for` it reads
+        # the target's through the registry reader.
+        "projects list")
+            [[ -n "${FOR_OPERATOR}" ]] || return 0
+            what="reading ${FOR_OPERATOR}'s projects" ;;
+        # `projects push` and the informational verbs reach no helper that can refuse the command on a plain run.
         #
         # `stop` is deliberately absent from this table: it is the privileged verb that WORKS for an account without
         # a general grant, since %ai-ops carries a dedicated NOPASSWD rule for its helper. Probing it is harmless --
@@ -6167,10 +6243,9 @@ require_sudo_access() {
         # prompt (deliberate; stop.rule.md). This probe could not report that either: it asks about the helper, while
         # what a flag changes is whether the rule matches the command
         # line.
-        *) return 0 ;;
+        *) [[ -n "${FOR_OPERATOR}" ]] || return 0
+           what="${COMMAND} for ${FOR_OPERATOR}" ;;
     esac
-    # A --for run's first helper is the allowlist READER, before the verb's own -- so that is what decides whether
-    # the run can start at all.
     [[ -z "${FOR_OPERATOR}" ]] || bin="${ALLOWLIST_BIN}"
     sudo_grant_missing "${bin}" || return 0
 
@@ -6181,7 +6256,10 @@ require_sudo_access() {
     # or what they are to each other. So there is no advice to obtain a grant, and the account is not described
     # as anyone's: a message that guesses the arrangement is wrong in exactly the deployments this refusal exists for.
     local -a advice=("Ask an administrator or an ai-ops operator with sudo to run:" "")
-    if [[ -n "${FOR_OPERATOR}" ]]; then
+    if [[ "${COMMAND}" == "projects list" ]]; then
+        # The listing does not take a path, so handover_target's current-directory default is not appended.
+        advice+=( "    atr ${COMMAND} --for ${FOR_OPERATOR}" )
+    elif [[ -n "${FOR_OPERATOR}" ]]; then
         advice+=( "    atr ${COMMAND} --for ${FOR_OPERATOR} $(handover_target "$@")" )
     elif ${delegable}; then
         # --for is the whole answer here: the verb runs against ${INVOKING_USER}'s registry whoever performs it,
