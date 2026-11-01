@@ -111,9 +111,11 @@ fi
 # (E) A signal stops the handback after the child in flight is counted: bash runs the trap once the child's command
 # substitution completes, so the stop reports that child's notice and counts its path, and the next child does not
 # start. Driven on the loop extracted from the same source as (D), with ai-tools-chown a shell function that marks
-# its path, waits a second, and writes a coded notice; the same run without the signal is the control. Two more
-# signals land at a command boundary, sent from a DEBUG trap on the command named in SIGNAL_AT: one ahead of the first
-# child, which must start no child, and one at the trap removal, which must still report the stop.
+# its path, waits a second, and writes a coded notice; the same run without the signal is the control. Three more
+# signals land at a command boundary, sent from a DEBUG trap on the command SIGNAL_AT opens: one ahead of the first
+# child, which must start no child; one between the stop read and the first child's start, where the trap runs after
+# that child, which must be counted and the stop reported after it; and one at the trap removal, which must still report
+# the stop.
 loop_code="$(printf '%s\n' "${fold_code}"
              awk '/^_stop_on_signal\(\) \{/,/^}/' "${reclaim_source}"
              awk '/^declare -i confirmed=0/ { on = 1 } on { print } on && /^trap - INT TERM$/ { getline; print; exit }' \
@@ -126,7 +128,7 @@ else
     mkdir -p "${TESTDIR}/marks"
     # shellcheck disable=SC2016  # expanded by the inner bash, not here
     loop_run='set -euo pipefail
-        trap '"'"'[[ -n "${SIGNAL_AT-}" && -z "${signal_sent-}" && "${BASH_COMMAND}" == "${SIGNAL_AT}" ]] \
+        trap '"'"'[[ -n "${SIGNAL_AT-}" && -z "${signal_sent-}" && "${BASH_COMMAND}" == "${SIGNAL_AT}"* ]] \
             && { signal_sent=1; kill -TERM $$; }'"'"' DEBUG
         warn() { printf "%s\n" "$*" >&2; }
         ai_tools_log__structured() { :; }
@@ -158,6 +160,17 @@ else
         pass "a signal ahead of the first child starts no child and reports the stop with 0 paths"
     else
         fail "a signal ahead of the first child: exit ${stop_rc}, ${stop_marks} child(ren) started, output '${stop_out//$'\n'/~}'"
+    fi
+    rm -f "${TESTDIR}/marks/"*
+    stop_rc=0
+    # The read has passed and the child's command is next: bash runs the trap after that command, so the child starts.
+    stop_out="$(MARKS="${TESTDIR}/marks" SIGNAL_AT='child_messages="$(' bash -c "${loop_run}" 2>&1)" || stop_rc=$?
+    stop_marks="$(find "${TESTDIR}/marks" -type f | wc -l)"
+    if (( stop_rc == 143 && stop_marks == 1 )) \
+            && grep -q 'stopped by a signal -- 1 path(s) handed back under /p' <<<"${stop_out}"; then
+        pass "a signal between the stop read and the child's start is read after that child: counted, stop reported, exit 143"
+    else
+        fail "a signal between the read and the child: exit ${stop_rc}, ${stop_marks} child(ren) started, output '${stop_out//$'\n'/~}'"
     fi
     rm -f "${TESTDIR}/marks/"*
     stop_rc=0

@@ -212,9 +212,12 @@ _stop_on_signal() {
 # between the collect and apply phases is a legitimate skip, and reporting it as handed back would overstate
 # what changed. A non-zero tally is surfaced, not hidden. Each child's stderr is captured on its own, its stdout left
 # on the terminal, and folded (_fold_child_messages) into what is printed ahead of the tally. A signal traps into
-# stop_status alone, and the loop reads it ahead of each child: one recorded before a child starts stops the run
-# there, and one recorded while a child runs stops it once that child is counted and its stderr folded, so the tally
-# the stop prints includes every child that ran. The run waits for the child in flight, one ai-tools-chown of one path.
+# stop_status alone, and the loop reads it ahead of each child. Bash runs a trap between two commands, so a signal
+# recorded ahead of the read stops the run before the next child, and one recorded after the read -- in the command
+# that starts the child, or while the child runs -- stops the run once that child is counted and its stderr folded.
+# The read and the start are two commands, so a signal can land between them and the stop then follows one more child
+# than the signal preceded; the tally the stop prints includes every child that ran. The run waits for the child
+# in flight, one ai-tools-chown of one path.
 # The traps come off ahead of the last read, since bash runs a trap pending at `trap -` before removing it: a signal
 # recorded up to that point is read, and one after it ends the run by its default disposition.
 declare -i confirmed=0 failed=0 stop_status=0
