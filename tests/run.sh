@@ -34,11 +34,15 @@
 # directory, the live daemon, the cgroup root, the installed layout -- and after them the one file carrying
 # `# run.sh: serial last`, integration/selinux.sh, whose clone label cases skip while any process of the sandbox account
 # is live, as the pool's files leave one while they run. A second `serial last` file is a usage error before any file
-# runs. At the end the run prints the transcript of each failed file in category and name order, then the failure
-# summary and the no-coverage notice, read from the transcripts as a run of one at a time reads them. The transcripts
-# are written under AI_TOOLS_TEST_TRANSCRIPTS when it is set, which is kept, and otherwise under a /tmp directory named
-# by the harness's fixture rule (group `run`), which is kept when a file failed or the notice fired and removed
-# on an all-green run; the next run's residue sweep removes a kept one.
+# runs. At the end the run prints the transcript of each failed file in category and name order.
+#
+# Every run then closes with the failure summary, the SKIP rows and the NOTE rows, each grouped by file,
+# and the no-coverage notice. AI_TOOLS_TEST_TRANSCRIPTS names a directory the run creates, under either `-j`, and keeps:
+# each file's transcript, results.tsv (one row per file: its result, its passed, failed and skipped counts, its
+# milliseconds) and run-info.txt (when the run started and finished, its result and command, the host, the OS,
+# the kernel, the checkout's commit and the installed release). A pooled run without it writes under a /tmp directory
+# named by the harness's fixture rule (group `run`), kept with the same two files when a file failed or the notice fired
+# and removed on an all-green run; the next run's residue sweep removes a kept one.
 
 # The body is one brace group, so bash parses the whole file before it runs a line of it. A script is otherwise read
 # as it runs, and a checkout rewritten under a live run -- a formatter, a commit, a branch switch -- has the running
@@ -47,6 +51,8 @@
 set -uo pipefail
 
 readonly HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+_run_command="run.sh $*"
+_run_started="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 usage() { echo "usage: run.sh [-j N] [unit|integration|boundary|all|residue]" >&2; exit 2; }
 JOBS=4
 while (( $# > 0 )); do
@@ -66,6 +72,16 @@ readonly FILE_TIMEOUT="${AI_TOOLS_TEST_FILE_TIMEOUT:-600}"
 
 [[ "${EUID}" -eq 0 ]] || { echo "error: run with sudo (tests need root)" >&2; exit 1; }
 [[ -n "${SUDO_USER:-}" ]] || { echo "error: invoke via sudo, not as root directly" >&2; exit 1; }
+
+# AI_TOOLS_TEST_TRANSCRIPTS names a directory this run creates and keeps: an absolute path that does not exist
+# yet, under a directory that does. The create is exclusive, so a name another account placed there first, a symlink
+# included, fails it rather than taking root's writes.
+_results_dir="${AI_TOOLS_TEST_TRANSCRIPTS:-}"
+if [[ -n "${_results_dir}" ]] && [[ "${_results_dir}" != /* || -e "${_results_dir}" || -L "${_results_dir}" \
+        || ! -d "${_results_dir%/*}/" ]]; then
+    echo "error: AI_TOOLS_TEST_TRANSCRIPTS must name a directory that does not exist yet, under one that does: ${_results_dir}" >&2
+    usage
+fi
 
 # The pool's file list: every file of the chosen categories in category and name order, each with the pass it runs
 # in (`pool`, `serial`, `last`, from its marker line). Collected before the residue sweep, so a usage error leaves
@@ -125,14 +141,28 @@ fi
 # The harness prefixes the result word with a colour escape, so the summary's grep allows one before FAIL. Anchored
 # without it, the summary would silently come back empty on a coloured run.
 _FAIL_RE="^[[:space:]]*($(printf '\033')\[[0-9;]*m)?FAIL"
-readonly _FAIL_RE
+_SKIP_RE="^[[:space:]]*($(printf '\033')\[[0-9;]*m)?SKIP"
+_NOTE_RE="^[[:space:]]*($(printf '\033')\[[0-9;]*m)?NOTE"
+readonly _FAIL_RE _SKIP_RE _NOTE_RE
 
 rc=0
 declare -a _failed=()                 # "category/file" of each test file that failed
 declare -a _nocoverage=()             # green files with zero PASSes; categories with no files
 _summary="$(mktemp)"                  # accumulates the FAIL lines, grouped by file
-_transcripts=""                       # the -j transcript directory
-trap 'rm -f "${_summary}"' EXIT
+_skipped="$(mktemp)"                  # the SKIP lines, grouped by file
+_notes="$(mktemp)"                    # the NOTE lines, grouped by file
+declare -i _skip_rows=0 _skip_files=0 _note_rows=0 _note_files=0
+declare -a _result_rows=()            # one results.tsv row per file, in category and name order
+trap 'rm -f "${_summary}" "${_skipped}" "${_notes}"' EXIT
+_transcripts=""                       # the directory each file's transcript is kept in
+if [[ -n "${_results_dir}" ]]; then
+    mkdir -m 0755 -- "${_results_dir}" || { echo "error: cannot create ${_results_dir}" >&2; exit 1; }
+    _transcripts="${_results_dir}"
+elif (( JOBS > 1 )); then
+    _transcripts="$(mktemp -d "/tmp/.ai-tools-test-run-transcripts-XXXXXX")" \
+        || { echo "error: cannot create a transcript directory under /tmp" >&2; exit 1; }
+fi
+transcript_path() { printf '%s/%s.log' "${_transcripts}" "${1//\//-}"; }
 
 # file_outcome <status> <transcript>: print `failed`, `passed`, or `nocoverage <reason>` for one finished file. A green
 # exit proves coverage only when something PASSed: classify from the harness finish() line (the only line matching this
@@ -178,10 +208,31 @@ read_counts() {
     fi
 }
 
-# record_result <name> <status> <transcript>: fold one finished file into the run's status, the failure summary
-# and the no-coverage notice.
+# result_word <outcome>: the word a file's line and its results.tsv row carry for a file_outcome.
+result_word() {
+    case "$1" in
+        failed) printf 'FAIL' ;;
+        passed) printf 'PASS' ;;
+        *)      printf 'SKIP' ;;
+    esac
+}
+
+# collect_rows <name> <transcript> <regex> <file> <rows-var> <files-var>: append the transcript's lines matching <regex>
+# to <file> under the file's name, and count them.
+collect_rows() {
+    local -n _collect_rows_count="$5" _collect_files_count="$6"
+    local rows
+    rows="$(grep -E "$3" "$2" || true)"
+    [[ -n "${rows}" ]] || return 0
+    printf '\n%s\n%s\n' "$1" "${rows}" >> "$4"
+    (( _collect_rows_count += $(grep -c '' <<< "${rows}") ))
+    (( _collect_files_count += 1 ))
+}
+
+# record_result <name> <status> <transcript> <ms>: fold one finished file into the run's status, the failure summary,
+# the skipped and notes blocks, the no-coverage notice and its results.tsv row.
 record_result() {
-    local outcome
+    local outcome line passed="" failed="" skipped="" detail=""
     outcome="$(file_outcome "$2" "$3")"
     case "${outcome}" in
         failed)
@@ -189,12 +240,20 @@ record_result() {
             _failed+=("$1")
             { printf '\n%s\n' "$1"; grep -E "${_FAIL_RE}" "$3" || true; } >> "${_summary}" ;;
         nocoverage*)
-            _nocoverage+=("$1 (${outcome#nocoverage })") ;;
+            _nocoverage+=("$1 (${outcome#nocoverage })")
+            detail="${outcome#nocoverage }" ;;
     esac
+    [[ "$2" -ne 124 ]] || detail="did not finish within ${FILE_TIMEOUT}s -- killed"
+    line="$(grep -E "${_FINISH_RE}" "$3" | tail -1)"
+    [[ ! "${line}" =~ ${_FINISH_RE} ]] \
+        || { passed="${BASH_REMATCH[1]}"; failed="${BASH_REMATCH[2]}"; skipped="${BASH_REMATCH[3]}"; }
+    collect_rows "$1" "$3" "${_SKIP_RE}" "${_skipped}" _skip_rows _skip_files
+    collect_rows "$1" "$3" "${_NOTE_RE}" "${_notes}" _note_rows _note_files
+    _result_rows+=("$1"$'\t'"$(result_word "${outcome}")"$'\t'"${passed}"$'\t'"${failed}"$'\t'"${skipped}"$'\t'"$4"$'\t'"${detail}")
 }
 
 run_dir() {
-    local dir="${HERE}/$1" f name out st ran=0
+    local dir="${HERE}/$1" f name out st ran=0 started
     if [[ ! -d "${dir}" ]]; then _nocoverage+=("$1/ (no test files)"); return 0; fi
     for f in "${dir}"/*.sh; do
         [[ -e "${f}" ]] || continue
@@ -209,6 +268,7 @@ run_dir() {
         # by `install.sh` as its verification phase, so a hung file stalls an install. `timeout` makes that a FAILED
         # file with a diagnosable transcript instead. The budget is per file and generous: the slowest legitimate file
         # drives a ten-second graceful stop and waits on real processes.
+        started="${EPOCHREALTIME//[!0-9]/}"
         timeout --foreground "${FILE_TIMEOUT}" bash "${f}" 2>&1 | tee "${out}"
         st="${PIPESTATUS[0]}"
         if [[ "${st}" -eq 124 ]]; then
@@ -216,17 +276,17 @@ run_dir() {
             printf '  FAIL  %s did not finish within %ss -- killed\n' "${name}" "${FILE_TIMEOUT}" \
                 >> "${out}"
         fi
-        record_result "${name}" "${st}" "${out}"
-        rm -f "${out}"
+        record_result "${name}" "${st}" "${out}" "$(( (${EPOCHREALTIME//[!0-9]/} - started) / 1000 ))"
+        if [[ -n "${_transcripts}" ]]; then mv -- "${out}" "$(transcript_path "${name}")"; else rm -f "${out}"; fi
     done
     [[ "${ran}" -gt 0 ]] || _nocoverage+=("$1/ (no test files)")
 }
 
 # ── The `-j` passes ──────────────────────────────────────────────────────────────────────────────────────────────────
 declare -A _running=()                # pid of a running file's timeout -> its index
-declare -a _file_status=() _file_started=()
+declare -a _file_status=() _file_started=() _file_ms=()
 
-transcript_of() { printf '%s/%s.log' "${_transcripts}" "${_file_names[$1]//\//-}"; }
+transcript_of() { transcript_path "${_file_names[$1]}"; }
 
 # start_file <index>: run one file in the background, its output to its transcript. Without `--foreground`, `timeout`
 # runs the file in a process group of its own and signals the whole group at the budget, so a fixture process the file
@@ -240,13 +300,14 @@ start_file() {
 
 # reap_file: wait for the next running file to end and print its line.
 reap_file() {
-    local pid="" st=0 i outcome word colour detail="" ended
+    local pid="" st=0 i outcome colour detail="" ended
     wait -n -p pid || st=$?
     ended="${EPOCHREALTIME//[!0-9]/}"
     [[ -n "${pid}" && -n "${_running[${pid}]+x}" ]] || return 0
     i="${_running[${pid}]}"
     unset "_running[${pid}]"
     _file_status[i]="${st}"
+    _file_ms[i]=$(( (ended - _file_started[i]) / 1000 ))
     if [[ "${st}" -eq 124 ]]; then
         detail="  (did not finish within ${FILE_TIMEOUT}s -- killed)"
         printf '  FAIL  %s did not finish within %ss -- killed\n' "${_file_names[i]}" "${FILE_TIMEOUT}" \
@@ -254,13 +315,12 @@ reap_file() {
     fi
     outcome="$(file_outcome "${st}" "$(transcript_of "${i}")")"
     case "${outcome}" in
-        failed)      word=FAIL colour="${_C_FAIL}" ;;
-        passed)      word=PASS colour="${_C_PASS}" ;;
-        *)           word=SKIP colour="${_C_SKIP}" ;;
+        failed)      colour="${_C_FAIL}" ;;
+        passed)      colour="${_C_PASS}" ;;
+        *)           colour="${_C_SKIP}" ;;
     esac
-    printf '  %s%s%s  %s  %s in %s%s\n' "${colour}" "${word}" "${_C_OFF}" "${_file_names[i]}" \
-        "$(read_counts "$(transcript_of "${i}")")" "$(format_elapsed "$(( (ended - _file_started[i]) / 1000 ))")" \
-        "${detail}"
+    printf '  %s%s%s  %s  %s in %s%s\n' "${colour}" "$(result_word "${outcome}")" "${_C_OFF}" "${_file_names[i]}" \
+        "$(read_counts "$(transcript_of "${i}")")" "$(format_elapsed "${_file_ms[i]}")" "${detail}"
 }
 
 # stop_files: on an interrupt, end every running file through its timeout, which passes the signal to the file's group.
@@ -274,13 +334,6 @@ stop_files() {
 run_passes() {
     local i category ran
     local -a pool_order=() serial_order=() last_order=()
-    if [[ -n "${AI_TOOLS_TEST_TRANSCRIPTS:-}" ]]; then
-        _transcripts="${AI_TOOLS_TEST_TRANSCRIPTS}"
-        mkdir -p -- "${_transcripts}" || { echo "error: cannot create ${_transcripts}" >&2; exit 1; }
-    else
-        _transcripts="$(mktemp -d "/tmp/.ai-tools-test-run-transcripts-XXXXXX")" \
-            || { echo "error: cannot create a transcript directory under /tmp" >&2; exit 1; }
-    fi
     for i in "${!_file_names[@]}"; do
         case "${_file_kinds[i]}" in
             serial) serial_order+=("${i}") ;;
@@ -318,7 +371,7 @@ run_passes() {
         for i in "${!_file_names[@]}"; do
             [[ "${_file_categories[i]}" == "${category}" ]] || continue
             ran=$(( ran + 1 ))
-            record_result "${_file_names[i]}" "${_file_status[i]}" "$(transcript_of "${i}")"
+            record_result "${_file_names[i]}" "${_file_status[i]}" "$(transcript_of "${i}")" "${_file_ms[i]}"
         done
         if [[ -n "${_category_missing[${category}]:-}" || "${ran}" -eq 0 ]]; then
             _nocoverage+=("${category}/ (no test files)")
@@ -346,6 +399,19 @@ if [[ "${rc}" -ne 0 ]]; then
     cat "${_summary}"
 fi
 
+# plural <count> <word>: `<count> <word>`, with an `s` past one.
+plural() { printf '%d %s%s' "$1" "$2" "$([[ "$1" -eq 1 ]] || echo s)"; }
+
+# The SKIP and the NOTE rows, grouped by file: what the run did not check, and what it recorded beside a verdict.
+if (( _skip_rows > 0 )); then
+    printf '\n══════ skipped (%s in %s) ══════\n' "$(plural "${_skip_rows}" row)" "$(plural "${_skip_files}" file)"
+    cat "${_skipped}"
+fi
+if (( _note_rows > 0 )); then
+    printf '\n══════ notes (%s in %s) ══════\n' "$(plural "${_note_rows}" row)" "$(plural "${_note_files}" file)"
+    cat "${_notes}"
+fi
+
 # No-coverage notice: green-by-status files with no assertion behind them, and empty categories. Lenient by default;
 # AI_TOOLS_TEST_STRICT=1 (the full-install CI gate) fails the run, so a broken prerequisite cannot hide behind skips.
 if [[ ${#_nocoverage[@]} -gt 0 ]]; then
@@ -357,8 +423,69 @@ if [[ ${#_nocoverage[@]} -gt 0 ]]; then
     fi
 fi
 
+# read_checkout_commit: print `<commit> <ref>` for the checkout holding this runner, read from its .git as data,
+# or `unknown`. The runner is root and the checkout is a tree the sandbox account co-writes, so git itself is not run
+# over it: its config may name a command. A tree with uncommitted changes reads as the commit it is on.
+read_checkout_commit() {
+    local root="${HERE%/tests}" git_dir common head ref line f
+    git_dir="${root}/.git"
+    if [[ -f "${git_dir}" ]]; then
+        line="$(head -n1 -- "${git_dir}")"; git_dir="${line#gitdir: }"
+        [[ "${git_dir}" == /* ]] || git_dir="${root}/${git_dir}"
+    fi
+    [[ -r "${git_dir}/HEAD" ]] || { printf 'unknown'; return 0; }
+    head="$(head -n1 -- "${git_dir}/HEAD")"
+    if [[ "${head}" =~ ^[0-9a-f]{40,64}$ ]]; then printf '%s detached' "${head}"; return 0; fi
+    ref="${head#ref: }"
+    [[ "${ref}" =~ ^refs/[A-Za-z0-9._/-]+$ ]] || { printf 'unknown'; return 0; }
+    common="${git_dir}"
+    if [[ -r "${git_dir}/commondir" ]]; then
+        line="$(head -n1 -- "${git_dir}/commondir")"
+        if [[ "${line}" == /* ]]; then common="${line}"; else common="${git_dir}/${line}"; fi
+    fi
+    for f in "${git_dir}/${ref}" "${common}/${ref}"; do
+        [[ -r "${f}" ]] || continue
+        line="$(head -n1 -- "${f}")"
+        [[ "${line}" =~ ^[0-9a-f]{40,64}$ ]] && { printf '%s %s' "${line}" "${ref}"; return 0; }
+    done
+    line="$(awk -v r="${ref}" '$2 == r { print $1; exit }' "${common}/packed-refs" 2>/dev/null || true)"
+    if [[ "${line}" =~ ^[0-9a-f]{40,64}$ ]]; then printf '%s %s' "${line}" "${ref}"; else printf 'unknown'; fi
+}
+
+# write_run_info <file>: the run's KEY=value record, each value reduced to printable characters: when it ran,
+# where, how it was invoked, and what it tested -- the checkout's commit and the installed release.
+write_run_info() {
+    local key value
+    while IFS=$'\t' read -r key value; do
+        printf '%s=%s\n' "${key}" "$(printf '%s' "${value}" | tr -cd '[:print:]')"
+    done > "$1" < <(
+        printf 'started\t%s\n' "${_run_started}"
+        printf 'finished\t%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+        printf 'result\t%s\n' "$([[ "${rc}" -eq 0 ]] && echo PASS || echo FAIL)"
+        printf 'command\t%s\n' "${_run_command}"
+        printf 'jobs\t%s\n' "${JOBS}"
+        printf 'strict\t%s\n' "${AI_TOOLS_TEST_STRICT:-0}"
+        printf 'file_timeout\t%s\n' "${FILE_TIMEOUT}"
+        printf 'host\t%s\n' "$(uname -n)"
+        printf 'os\t%s\n' "$( (. /etc/os-release 2>/dev/null && printf '%s' "${PRETTY_NAME:-unknown}") || printf unknown)"
+        printf 'kernel\t%s\n' "$(uname -r)"
+        printf 'checkout\t%s\n' "$(read_checkout_commit)"
+        printf 'installed_cli\t%s\n' \
+            "$(sed -n 's/^AI_TOOLS_VERSION="\([^"]*\)"$/\1/p' /usr/local/bin/ai-tools 2>/dev/null | head -n1)"
+        printf 'installed_package\t%s\n' \
+            "$(rpm -q --qf '%{VERSION}-%{RELEASE}' ai-tools-base 2>/dev/null || printf 'not installed by rpm')"
+        printf 'files\t%s\n' "${#_result_rows[@]}"
+        printf 'failed_files\t%s\n' "${#_failed[@]}"
+    )
+}
+
+# The transcript directory: kept where AI_TOOLS_TEST_TRANSCRIPTS named it, or where a file failed or the notice fired,
+# with results.tsv (one row per file) and run-info.txt beside the transcripts; otherwise removed.
 if [[ -n "${_transcripts}" ]]; then
-    if [[ "${rc}" -ne 0 || ${#_nocoverage[@]} -gt 0 || -n "${AI_TOOLS_TEST_TRANSCRIPTS:-}" ]]; then
+    if [[ -n "${_results_dir}" || "${rc}" -ne 0 || ${#_nocoverage[@]} -gt 0 ]]; then
+        { printf 'file\tresult\tpassed\tfailed\tskipped\tms\tdetail\n'; printf '%s\n' "${_result_rows[@]}"; } \
+            > "${_transcripts}/results.tsv"
+        write_run_info "${_transcripts}/run-info.txt"
         printf '\n  transcripts: %s\n' "${_transcripts}"
     else
         rm -rf -- "${_transcripts}"
