@@ -1007,7 +1007,7 @@ EOF
     drive cli ai-tools.projects.remove.inplace "$(f yes)" "${label_dir}"
     expect "control: the relabel succeeding, the removal still exits non-zero" rc_not0
     expect "control: the report says the label step completed"        out_has_text "SELinux label step completed"
-    expect "control: and does not say it did not complete"            out_lacks_text "did not complete"
+    expect "control: and does not say it did not complete"            out_lacks_text "label step did not complete"
     # A project nested in an enabled project: the tree its failed deletion leaves stays launchable under the parent's
     # entry, and the report names that entry. With a disabled or excluded line covering the nested project from
     # an ancestor, the launch gate refuses there whatever entry encloses it, so the report names none.
