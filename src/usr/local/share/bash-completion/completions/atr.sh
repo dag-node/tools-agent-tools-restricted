@@ -5,11 +5,11 @@
 # as ai-tools-admin, read as the first word alone, as the wrapper reads it.
 #
 # The command words, the options each takes and the values an option or argument takes are this file's data, held
-# to each program's usage() and man page by tests/unit/completion.sh. Host data -- the enrolled operators, the agent
-# manifests, the contributed admin domains, the SELinux groups -- is read from the root-owned file that holds it,
-# as text and through a charset, so a TAB never runs a program of this project and never sources a library
-# into the shell completing it. Each name read that way is held to a lower-case charset before it reaches `compgen -W`,
-# which expands the words it is given. cli-grammar.rule.md states the command surface this completes.
+# to each program's command rows in help.lib.sh and its man page by tests/unit/completion.sh. Host data -- the enrolled
+# operators, the agent manifests, the contributed admin domains, the SELinux groups -- is read from the root-owned file
+# that holds it, as text and through a charset, so a TAB never runs a program of this project and never sources
+# a library into the shell completing it. Each name read that way is held to a lower-case charset before it reaches
+# `compgen -W`, which expands the words it is given. cli-grammar.rule.md states the command surface this completes.
 #
 # Sourced into an interactive shell, so every name carries the module prefix, no name is readonly (a re-source must
 # succeed), each function pins IFS locally, and no expansion globs.
@@ -50,7 +50,7 @@ _ai_tools_atr__list_names() {
 _ai_tools_atr__list_admin_domains() {
     local name
     while IFS= read -r name; do
-        case "${name}" in operators|selinux|system|status|assets|help) continue ;; esac
+        case "${name}" in operators|selinux|system|status|assets|stop|help) continue ;; esac
         printf '%s\n' "${name}"
     done < <(_ai_tools_atr__list_names "$1" "")
 }
@@ -93,7 +93,7 @@ _ai_tools_atr__list_words() {
         ai-tools:options:audit)               words="--since" ;;
         ai-tools:options:stop)                words="--all --dry-run --yes --force" ;;
         ai-tools:values:*)                    words="--for --format --group --since --from --branch --dir" ;;
-        ai-tools-admin:commands:)             words="operators selinux system status assets help" ;;
+        ai-tools-admin:commands:)             words="operators selinux system status assets stop help" ;;
         ai-tools-admin:commands:operators)    words="list add remove" ;;
         ai-tools-admin:commands:selinux)      words="groups" ;;
         ai-tools-admin:commands:selinux\ groups) words="list enable disable" ;;
@@ -102,6 +102,7 @@ _ai_tools_atr__list_words() {
         ai-tools-admin:commands:system\ layout) words="list reconcile" ;;
         ai-tools-admin:commands:assets)       words="list enable disable reconcile" ;;
         ai-tools-admin:options:)              words="--help --version" ;;
+        ai-tools-admin:options:stop)          words="--all --dry-run --yes --force" ;;
         ai-tools-admin:options:system\ bootstrap) words="--scope --agents" ;;
         ai-tools-admin:options:system\ post-upgrade) words="--check --all --format" ;;
         ai-tools-admin:options:system\ layout|ai-tools-admin:options:system\ layout\ list) words="--check --all --format" ;;

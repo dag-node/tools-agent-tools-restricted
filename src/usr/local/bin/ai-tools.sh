@@ -21,8 +21,9 @@
 # in operator.conf, since the root helpers resolve the caller's identity from that list; require_sudo_access,
 # which refuses a verb whose root helper this caller does not hold a sudo grant for, before sudo prompts for a password
 # it will then reject; require_runas_target, which refuses a --for run whose filesystem steps sudo will not run
-# as the target; and require_for_target, which validates a --for run and re-points the registry at its target. `--help`,
-# `--version`, `projects list` and `providers list` stay open to any user.
+# as the target; and require_for_target, which validates a --for run and re-points the registry at its target. A help
+# request is answered ahead of all of them, after the sourced-guard, from help.lib.sh; `--version`, `projects list`
+# and `providers list` stay open to any user.
 #
 # The principal guard refuses the sandbox account outright and allows root only the verbs that write no operator state
 # (ROOT_ALLOWED_VERBS): the reports -- `audit` needs root by construction, since the trail it reads is 700 root:root --
@@ -31,9 +32,9 @@
 # `--for <operator>` runs a command on behalf of another enrolled operator, whose registry the entry then lands
 # in (require_for_target validates the run). `projects clone` and `projects push` are the sandbox model, a shallow clone
 # under SANDBOX_ROOT pushed to a per-repo branch. The account `--for` serves, the snapshot it reads and the sandbox
-# model are cli.rule.md's. usage() is the orientation (one line per verb) and ai-tools(1) the reference for every
-# per-verb option; tests/unit/cli-verbs.sh and tests/unit/man.sh hold each to the dispatcher. Its domain rules are
-# cli.rule.md (what each command does) and cli-grammar.rule.md (how it is spelled).
+# model are cli.rule.md's. The help help.lib.sh renders is the orientation (one line per command) and ai-tools(1)
+# the reference for every per-command option; tests/unit/cli-verbs.sh and tests/unit/man.sh hold each to the dispatcher.
+# Its domain rules are cli.rule.md (what each command does) and cli-grammar.rule.md (how it is spelled).
 
 set -euo pipefail
 IFS=$'\n\t'
@@ -120,10 +121,10 @@ readonly ROOT_ALLOWED_VERBS=("audit" "status" "projects list" "providers list" "
 # trail, which an install that never finished does not invalidate; `stop` ends sessions already running, and does not
 # read toolchain state to do it -- the gate keys on the enabled agents' launcher symlinks, so leaving `stop` behind it
 # would put the incident ladder's last rung out of reach on a host that lost them while sessions were running).
-# `--help`, `--version` and the bare invocation describe the CLI rather than the toolchain -- usage()
-# and AI_TOOLS_VERSION read no installed state -- and gating them leaves a caller who cannot print the usage with only
-# the gate's own message to find the provisioning command by. `projects list` and `providers list` describe a toolchain
-# that has to exist first and stay behind the gate.
+# `--help`, `--version` and the bare invocation describe the CLI rather than the toolchain -- the help
+# and AI_TOOLS_VERSION read no installed state -- and gating them leaves a caller who cannot print the help with only
+# the gate's own message to find the provisioning command by. A help request is answered ahead of the gate in any case.
+# `projects list` and `providers list` describe a toolchain that has to exist first and stay behind the gate.
 readonly BOOTSTRAP_EXEMPT_VERBS=("status" "audit" "stop" "--help" "--version")
 # OPERATOR_VERBS -- what only an enrolled operator may run. The criterion is ACTS AS AN OPERATOR: the verb resolves
 # the caller's identity out of OPERATORS somewhere in its call chain (the root helpers do, via operator.lib.sh),
@@ -147,7 +148,7 @@ readonly COLLECTIONS=(projects providers)
 # for. Every key is kept for compatibility, since the typed command surface is the one interface an operator's own
 # scripts bind to, and the collection form is the preferred one: rewrite_option_spelling applies the table ahead
 # of every gate, so every verb table and the dispatch see the command path alone and no key sits in a dispatch arm
-# or in usage(), and note_option_spellings names the preferred form. One row per line:
+# or in the help, and note_option_spellings names the preferred form. One row per line:
 # tools/generators/option-spellings.sh reads the rows by text to generate docs/option-spellings.md,
 # and tests/unit/cli-verbs.sh holds every value to a dispatched
 # path.
@@ -255,23 +256,38 @@ FOR_OPERATOR=""
 _forless_args=()
 while (( $# )); do
     case "$1" in
-        --for)   FOR_OPERATOR="${2-}"; shift $(( $# > 1 ? 2 : 1 )) ;;
+        # `--` is the delimiter and never a value, so it stays among the arguments, where the help scan stops at it.
+        --for)   if [[ "${2-}" == -- ]]; then FOR_OPERATOR=""; shift
+                 else FOR_OPERATOR="${2-}"; shift $(( $# > 1 ? 2 : 1 )); fi ;;
         --for=*) FOR_OPERATOR="${1#--for=}"; shift ;;
         *)       _forless_args+=("$1"); shift; continue ;;
     esac
+    # A help flag in the value slot is a help request (the help contract counts every position), so it stays
+    # among the arguments for the help resolution and the run acts for no one.
+    if [[ "${FOR_OPERATOR}" == -h || "${FOR_OPERATOR}" == --help ]]; then
+        _forless_args+=("${FOR_OPERATOR}"); FOR_OPERATOR=""; continue
+    fi
     # Both spellings are the same situation -- the flag names the operator the run acts for, and neither an empty value
-    # nor another option in its place is a name -- so they share one refusal, checked once after the branch that read
-    # the value.
-    [[ -n "${FOR_OPERATOR}" && "${FOR_OPERATOR}" != -* ]] \
-        || refuse_early MSG-B4G2 "ai-tools: --for needs an operator name"
+    # nor another option in its place is a name -- so they share one refusal, recorded here and made once the split
+    # ends.
+    [[ -n "${FOR_OPERATOR}" && "${FOR_OPERATOR}" != -* ]] || { _for_value_refused=1; FOR_OPERATOR=""; }
 done
+# The refusal steps aside for a help request, a help flag ahead of the first `--`, which the help resolution answers
+# and which acts for no one.
+if [[ -n "${_for_value_refused:-}" ]]; then
+    for _forless_arg in "${_forless_args[@]+"${_forless_args[@]}"}"; do
+        [[ "${_forless_arg}" != -- ]] || break
+        [[ "${_forless_arg}" != -h && "${_forless_arg}" != --help ]] || _for_value_refused=""
+    done
+    [[ -z "${_for_value_refused}" ]] || refuse_early MSG-B4G2 "ai-tools: --for needs an operator name"
+fi
 set -- "${_forless_args[@]}"
-unset _forless_args
+unset _forless_args _forless_arg _for_value_refused
 
 # ── A verb that moved to ai-tools-admin ──────────────────────────────────────────
 # --relabel is spelled correctly, worked in an earlier release, and is printed as the remedy in release notes that stay
-# published, so the usage()-plus-"unknown command" a stranger gets would read as a typo. It is a pointer and not
-# an alias: the command reconciles a root-owned pin and a file context, so it runs as root, which this CLI refuses.
+# published, so the unknown-command line a stranger gets would read as a typo. It is a pointer and not an alias:
+# the command reconciles a root-owned pin and a file context, so it runs as root, which this CLI refuses.
 #
 # It answers ahead of every gate on purpose. The bootstrap gate would otherwise send an unprovisioned host
 # to the provisioning command, and the root guard would answer `sudo ai-tools --relabel` -- the spelling the older docs
@@ -321,6 +337,9 @@ unset REWRITTEN_ARGS
 # and the dispatch key on one string. The arguments left are the command's own.
 read_command "$@"
 readonly COMMAND COMMAND_TOKENS
+# The command line as read, command tokens included, for the help resolution after the sourced-guard: a help request
+# names its target by the command words the shift that follows drops.
+readonly -a COMMAND_LINE=("$@")
 set -- "${@:COMMAND_TOKENS+1}"
 
 # ── Root and the verbs that write no operator state ──────────────────────────────
@@ -6096,56 +6115,6 @@ cmd_project_list() {
     list_maintenance_note
 }
 
-# usage() is ORIENTATION, not reference: the verbs, one line each, and the three flags that cross verbs. Every per-verb
-# option lives in ai-tools(1), so there is one reference surface for options and one operational surface for finding
-# a verb -- rather than two copies of the same list, which is what this text had become (it was longer than the command
-# summary it introduced).
-#
-# The two are paired by tests/unit/man.sh, which asserts: the VERB sets match in both directions, every long option
-# named here is documented in the page, and every option the page's OPTIONS section documents is one a CLI parser
-# accepts. So a verb added, renamed, or removed here changes the page in the same commit, and an option that outlives
-# its parser fails the suite.
-#
-# The layout is load-bearing for that test: a verb line is indented FOUR spaces and starts with its long option, while
-# the cross-verb flag lines are indented two. Keep descriptions free of long options, or they read as verbs.
-usage() {
-    cat <<EOF
-atr -- manage the projects a sandboxed coding agent may work in  (ai-tools)
-
-  Projects
-    projects                       the registered projects, in place and sandbox clones
-    projects create DIRECTORY      create a new project directory, init git, and claim it
-    projects claim DIRECTORY       claim an existing project in place
-    projects unclaim DIRECTORY     release a project; the directory stays on disk
-    projects remove DIRECTORY      release a project AND delete its directory
-    projects disable DIRECTORY     disable a project: no session may start in it
-    projects enable DIRECTORY      re-enable a project disabled earlier
-    projects clone DIRECTORY       shallow-clone a repository into the sandbox area
-    projects push [DIRECTORY]      push a sandbox clone's commits to its branch
-    projects lockdown [DIRECTORY]  lock down secret-named files
-    projects handback [DIRECTORY]  take back ownership of agent-written files
-  Reports
-    status                         service health, and whether anything needs attention
-    providers                      installed agents and integrations, and which are enabled
-    audit                          what has refused, been rejected, or been stranded
-  Incident
-    stop                           terminate every agent session on this host
-
-    --version                      the installed version
-    --help                         this summary
-
-  -y/--yes        pre-answer a command's own confirmation (never its scoped opt-ins)
-  --dry-run       show what would change, change nothing
-  --for OPERATOR  act on another enrolled operator's projects instead of your own
-
-  Run as an operator, without sudo -- the CLI invokes sudo itself for the steps that
-  need it. Root may run only the verbs that write no operator state.
-
-  Every option, exit code and example:  man ai-tools
-  Sandbox workflow:                     /var/opt/ai-tools/README.md
-EOF
-}
-
 # ── The enabled agents: what the provisioning gate, `status` and the clone hint resolve from ──────────────────────
 # resolve_enabled_agents -- fill ENABLED_AGENTS with one "name<TAB>npm_package<TAB>launcher" line per enabled installed
 # agent, from providers.lib.sh: the resolver ai-tools-run and the toolchain layer provision from, so this CLI does not
@@ -6213,10 +6182,64 @@ require_bootstrap() {
         "${remedy}"
 }
 
+# die_unknown_command <code> <message> -- the refusal for a command path no arm accepts, exit 2: the code on its own
+# line and the one message line, printed plain rather than through die_usage, since the message carries the help command
+# and the alert frame would wrap it between its words (messaging.rule.md). Logged as die_usage logs.
+die_unknown_command() {
+    ai_tools_log__coded error "$1" "$2"
+    printf '%s\nai-tools: %s\n' "$1" "$2" >&2
+    exit 2
+}
+# unknown_command <path> -- refuse <path>, naming the help command for the deepest part of it the help holds.
+unknown_command() {
+    local path="$1" help_command
+    help_command="$(ai_tools_help__format_help_command ai-tools "${path}")"
+    die_unknown_command MSG-S2H5 "unknown command: ${path} -- run '${help_command}'"
+}
+
 # When this file is SOURCED rather than executed (tests/unit/sandbox.sh loads it to exercise the pure sandbox_*
 # helpers), stop here: expose the functions, run neither the gates nor the dispatch. On execution BASH_SOURCE[0] equals
 # $0, so this is a no-op and the CLI proceeds.
 [[ "${BASH_SOURCE[0]}" == "${0}" ]] || return 0
+
+# ── The help ─────────────────────────────────────────────────────────────────────
+# A help request is answered here, after the principal guards and ahead of every gate from the bootstrap gate on: it
+# does not read installed state, does not run the command, and does not call sudo. ai_tools_help__resolve_request states
+# what a help request is; one on an unknown path is the unknown-command refusal.
+#
+# help.lib.sh is loaded here rather than with msg.lib.sh, safe-paths.lib.sh and conf.lib.sh, which every command
+# requires: `stop` is the incident rung, so a stop without a help flag ahead of `--` runs without this library, read
+# by the same scan atr makes. Every other command line refuses without it, since the CLI's unknown-command refusal reads
+# it too.
+readonly HELP_LIB="/usr/local/lib/ai-tools/help.lib.sh"
+# shellcheck source=SCRIPTDIR/../lib/ai-tools/help.lib.sh
+if source "${HELP_LIB}" 2>/dev/null && declare -F ai_tools_help__resolve_request >/dev/null 2>&1; then
+    help_status=0
+    help_target="$(ai_tools_help__resolve_request ai-tools -- "${COMMAND_LINE[@]+"${COMMAND_LINE[@]}"}")" || help_status=$?
+    case "${help_status}" in
+        0)  if [[ "${help_target}" == - ]]; then ai_tools_help__render ai-tools
+            else ai_tools_help__render_hint ai-tools "${help_target}"; fi
+            exit 0 ;;
+        2)  unknown_command "${help_target}" ;;
+    esac
+    unset help_status help_target
+else
+    help_flag=0
+    for help_argument in "${COMMAND_LINE[@]+"${COMMAND_LINE[@]}"}"; do
+        [[ "${help_argument}" != -- ]] || break
+        [[ "${help_argument}" != -h && "${help_argument}" != --help ]] || help_flag=1
+    done
+    if [[ "${COMMAND}" != stop || "${help_flag}" -ne 0 ]]; then
+        command -v logger >/dev/null 2>&1 \
+            && logger -t ai-tools -p user.err \
+                "required library ${HELP_LIB} unavailable -- ai-tools refused (fail closed)"
+        ai_tools_msg__error "ai-tools: cannot load required library ${HELP_LIB}" \
+            "the install is incomplete or /usr/local/lib/ai-tools is not traversable (expected 0751);" \
+            "refusing (fail closed) -- reinstall the ai-tools package, then retry."
+        exit 3
+    fi
+    unset help_flag help_argument
+fi
 
 # The verbs meant to run WHEN things may be broken bypass the provisioning gate. Which ones, and what each of them reads
 # on a host whose install never finished, is at BOOTSTRAP_EXEMPT_VERBS. Every other command stays gated.
@@ -6547,14 +6570,6 @@ require_runas_target "$@"
 # an operator action, so the invoker must be enrolled before the target is even looked up.
 require_for_target "$@"
 
-# unknown_command <command> -- the refusal for a command path no arm accepts: the usage follows it, since the mistake is
-# most often a verb typed for the wrong collection.
-unknown_command() {
-    printf 'ai-tools: unknown command: %s\n\n' "$1" >&2
-    usage >&2
-    exit 1
-}
-
 # One dispatch per collection, nested under the top-level one on the first token of COMMAND -- the shape ai-tools-admin
 # takes, and the one tests/unit/man.sh and tests/integration/cli-flags.sh read the arms from.
 projects_dispatch() {
@@ -6593,6 +6608,5 @@ case "${COMMAND%% *}" in
     audit)     cmd_audit "$@" ;;
     stop)      cmd_stop  "$@" ;;
     --version) printf 'ai-tools %s\n' "${AI_TOOLS_VERSION}" ;;
-    --help)    usage ;;
     *)         unknown_command "${COMMAND}" ;;
 esac

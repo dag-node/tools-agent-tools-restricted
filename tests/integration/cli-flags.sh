@@ -155,11 +155,12 @@ make_fixtures() {
 # ── Drivers and readers ───────────────────────────────────────────────────────────
 # run_in <cwd> <args...>: the deployed CLI as the projects user, shim first on PATH, every registry pointed
 # at a fixture, under setsid so no prompt can block. Output captured with stderr, or with stderr written to the file
-# RUN_STDERR names when it is set; RUN_EXTRA_ENV adds NAME=value pairs to the environment.  The inner shell expands $1
-# and $@ itself, which is why they sit in single quotes. With RUN_TTY_ANSWERS set the CLI runs under script(1) instead,
-# on a pseudo-terminal fed that text, for the one question no flag pre-answers: confirm reads /dev/tty, which script
-# makes the controlling terminal and holds the answers on until they are read (the shape unit/msg.sh drives its menus
-# through). Bounded, since a question the answers do not reach would wait on the terminal.
+# RUN_STDERR names when it is set; RUN_EXTRA_ENV adds NAME=value pairs to the environment; RUN_CLI runs another copy
+# of the CLI in its place.  The inner shell expands $1 and $@ itself, which is why they sit in single quotes.
+# With RUN_TTY_ANSWERS set the CLI runs under script(1) instead, on a pseudo-terminal fed that text, for the one
+# question no flag pre-answers: confirm reads /dev/tty, which script makes the controlling terminal and holds
+# the answers on until they are read (the shape unit/msg.sh drives its menus through). Bounded, since a question
+# the answers do not reach would wait on the terminal.
 # shellcheck disable=SC2016
 RUN_EXTRA_ENV=()
 run_in() {
@@ -169,11 +170,11 @@ run_in() {
         AI_TOOLS_OPERATOR_CONF="${CONF}" AI_TOOLS_ALLOWLIST="${AL}" AI_TOOLS_GITCONFIG="${GC}"
         AI_TOOLS_SANDBOX_ROOT="${SBROOT}" "${RUN_EXTRA_ENV[@]}")
     if [[ -n "${RUN_TTY_ANSWERS:-}" ]]; then
-        command+=(bash -c 'cd "$1" && exec script -qec "$2" /dev/null' _ "${cwd}" "$(printf '%q ' "${CLI}" "$@")")
+        command+=(bash -c 'cd "$1" && exec script -qec "$2" /dev/null' _ "${cwd}" "$(printf '%q ' "${RUN_CLI:-${CLI}}" "$@")")
         printf '%b' "${RUN_TTY_ANSWERS}" | timeout 120 "${command[@]}" 2>&1
         return
     fi
-    command+=(bash -c 'cd "$1" && shift && exec setsid -w "$@"' _ "${cwd}" "${CLI}" "$@")
+    command+=(bash -c 'cd "$1" && shift && exec setsid -w "$@"' _ "${cwd}" "${RUN_CLI:-${CLI}}" "$@")
     if [[ -n "${RUN_STDERR:-}" ]]; then
         "${command[@]}" 2>"${RUN_STDERR}"
     else
@@ -1376,6 +1377,79 @@ EOF
     # A create sets its modes outright and a clone is created private and then opened, so neither depends on the umask
     # the operator's shell carries. Both are re-driven under the values a hardened host sets and held to the modes
     # ai-tools(1) states. Restored afterwards, so the coverage check and the teardown run under the pinned 022.
+    section "help requests"
+    # help_printed: the row exited 0 with one `Usage:` line on stdout and called no helper.
+    help_printed() { [[ "${rc}" -eq 0 && "$(grep -c '^Usage:$' <<<"${out}")" -eq 1 ]] && cli_log_empty; }
+    # A help request prints the help on stdout, exits 0 and does not call a helper, wherever its flag stands; the rows
+    # of each command's own section are the control that the same command without the flag reaches the recorder.
+    for key in ai-tools.projects.list ai-tools.projects.create ai-tools.projects.claim ai-tools.projects.unclaim \
+            ai-tools.projects.remove.inplace ai-tools.projects.disable ai-tools.projects.enable \
+            ai-tools.projects.clone ai-tools.projects.push ai-tools.projects.lockdown ai-tools.projects.handback \
+            ai-tools.providers ai-tools.status ai-tools.audit ai-tools.stop; do
+        argument=("${R}/pa")
+        case "${key}" in ai-tools.projects.list|ai-tools.providers|ai-tools.status|ai-tools.audit|ai-tools.stop) argument=() ;; esac
+        for flag in --help -h; do
+            cli_stub_reset; drive cli_stdout "${key}" "${argument[@]}" "${flag}"
+            expect "${key} ${flag} prints its help and calls no helper" help_printed
+        done
+    done
+    for key in ai-tools.projects.help ai-tools.providers.help; do
+        cli_stub_reset; drive cli_stdout "${key}"
+        expect "${key} prints the help and calls no helper" help_printed
+    done
+    # A `--for` run's help request exits ahead of the snapshot, the run's first sudo, and a help flag in `--for`'s value
+    # slot is the help request itself; another option there stays the refusal.
+    cli_stub_reset; drive cli_stdout ai-tools.projects.claim . --help "$(f for)" "${FOR_USER}"
+    expect "a --for run's help request prints and reaches no helper" help_printed
+    cli_stub_reset; drive cli_stdout ai-tools.projects.claim "$(f for)" --help
+    expect "a help flag as --for's value is the help request" help_printed
+    cli_stub_reset; drive cli_flag_first ai-tools.projects.claim "$(f for)" -h
+    expect "-h as --for's value ahead of the command is the help request" quiet_rc 0
+    cli_stub_reset; drive cli ai-tools.projects.claim "$(f for)" -x
+    expect "another option as --for's value stays refused, with no helper" quiet_rc 1
+    assert_msg MSG-B4G2 "${out}" "another option as --for's value is the --for refusal"
+    # A help flag ahead of an invalid or a missing `--for` value is the help request; behind `--` it is an argument,
+    # and the refusal stands.
+    cli_stub_reset; drive cli ai-tools.projects.claim --help "$(f for)" -x
+    expect "a help flag ahead of an invalid --for value is the help request" help_printed
+    cli_stub_reset; drive cli ai-tools.projects.claim --help "$(f for)"
+    expect "a help flag ahead of a missing --for value is the help request" help_printed
+    cli_stub_reset; drive cli ai-tools.projects.claim "$(f for)" -- --help
+    expect "-- as --for's value is not a value, and a help flag behind it leaves the refusal" quiet_rc 1
+    assert_msg MSG-B4G2 "${out}" "-- as --for's value is the --for refusal"
+    cli_stub_reset; drive cli ai-tools.projects.claim --help "$(f for)" --
+    expect "a help flag ahead of --for and a -- after it is the help request" help_printed
+    # `--version` in the first slot is the version whatever help flag follows; a `--for` beside it is checked
+    # as anywhere.
+    cli_stub_reset; drive cli ai-tools.version --help
+    expect "--version --help prints the version line" \
+        test "${rc}" -eq 0 -a "$(grep -cE '^ai-tools [^-[:space:]][^[:space:]]*$' <<<"${out}")" -eq 1
+    cli_stub_reset; drive cli ai-tools.version "$(f for)" -x
+    expect "--version beside an invalid --for value is the --for refusal, with no helper" quiet_rc 1
+    assert_msg MSG-B4G2 "${out}" "--version beside an invalid --for value is the --for refusal"
+    cli_stub_reset; drive cli ai-tools.projects.claim -- --help "$(f for)" -x
+    expect "a help flag behind -- leaves an invalid --for value refused, with no helper" quiet_rc 1
+    assert_msg MSG-B4G2 "${out}" "a help flag behind -- leaves the --for refusal"
+    # The incident rung runs without help.lib.sh: a copy of the deployed CLI whose library path names an absent file
+    # still reaches the stop helper for a stop with no help flag, and refuses every other line at exit 3 with no helper.
+    nohelp_cli="${CLI_STUB_PATH}/ai-tools-nohelp"
+    sed "s#^readonly HELP_LIB=.*#readonly HELP_LIB=${CLI_STUB_PATH}/absent-help.lib.sh#" "${CLI}" > "${nohelp_cli}"
+    chmod 0755 "${nohelp_cli}"
+    if ! grep -qF "readonly HELP_LIB=${CLI_STUB_PATH}/absent-help.lib.sh" "${nohelp_cli}"; then
+        fail "the copy of the CLI does not carry the rewritten help library path, so its rows prove nothing"
+    else
+        cli_stub_reset; RUN_CLI="${nohelp_cli}" drive cli ai-tools.stop "$(f dry-run)"
+        expect "without help.lib.sh, stop --dry-run reaches the stop helper" cli_called ai-tools-stop "^$(f dry-run)$"
+        cli_stub_reset; RUN_CLI="${nohelp_cli}" drive cli ai-tools.projects.list
+        expect "without help.lib.sh, the listing refuses at exit 3 with no helper" quiet_rc 3
+        cli_stub_reset; RUN_CLI="${nohelp_cli}" drive cli ai-tools.stop --help
+        expect "without help.lib.sh, stop --help refuses at exit 3 with no helper" quiet_rc 3
+    fi
+    # A help request on an unknown path is the unknown-command refusal, exit 2, with no helper.
+    cli_stub_reset; drive run_in "${R}" projects bogus --help
+    expect "a help request on an unknown path is refused with exit 2 and no helper" quiet_rc 2
+    assert_msg MSG-S2H5 "${out}" "a help request on an unknown path is the unknown-command refusal"
+
     section "umask independence"
     has_bits() { (( ( 8#$(stat -c '%a' "$1") & 8#$2 ) == 8#$2 )); }
     for u in 077 027; do

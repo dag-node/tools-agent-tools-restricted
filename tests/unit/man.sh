@@ -1,18 +1,19 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: AGPL-3.0-only
 # tests/unit/man.sh
-# Hermetic sync test between this project's man pages and what each documents: ai-tools(1) against the CLI's usage(),
-# ai-tools-admin(8) against the admin helper's, ai-tools-providers(5) against the shipped manifests,
-# ai-tools-project-registry(5) and ai-tools-secret-patterns(5) against the header each file is seeded
-# with and the parser its examples must load in, ai-tools-operator.conf(5) and ai-tools-custom-claude-endpoint.conf(5)
-# against the keys their shipped templates mention, and ai-tools-messages(7) against the generator that derives it
-# from the cross-reference index. It then holds every authored page to the way a page is WRITTEN -- the font
-# and placeholder rules whose home is references/man-pages.md in the ai-tools-technical-writing skill of the set core,
-# edited in lockstep with the check here -- and closes by holding every config header this project writes
-# to the fixed-width rule (72 columns). A `.so` stub (atr(1) and atr(8), named for the short command) does not carry
-# text of its own, so the convention lint leaves it out and a case holds each stub to an authored page. In the two
-# command pairs the page and the help are not copies of each other -- usage() is orientation while the page is
-# the reference -- so equality of their whole option sets is the wrong contract and is what made slimming the help
+# Hermetic sync test between this project's man pages and what each documents: ai-tools(1) and ai-tools-admin(8)
+# against the command rows help.lib.sh holds for each program and the program's dispatch, ai-tools-providers(5)
+# against the shipped manifests, ai-tools-project-registry(5) and ai-tools-secret-patterns(5) against the header each
+# file is seeded with and the parser its examples must load in, ai-tools-operator.conf(5)
+# and ai-tools-custom-claude-endpoint.conf(5) against the keys their shipped templates mention, and ai-tools-messages(7)
+# against the generator that derives it from the cross-reference index. It then holds every authored page to the way
+# a page is WRITTEN -- the font and placeholder rules whose home is references/man-pages.md
+# in the ai-tools-technical-writing skill of the set core, edited in lockstep with the check here -- and closes
+# by holding every config header this project writes to the fixed-width rule (72 columns). A `.so` stub (atr(1)
+# and atr(8), named for the short command) does not carry text of its own, so the convention lint leaves it
+# out and a case holds each stub to an authored page. In the two command pairs the page and the help are not copies
+# of each other -- the help is orientation while the page is the reference -- so equality of their whole option sets is
+# the wrong contract and is what made slimming the help
 # impossible.
 #
 # Both commands spell a command in bare words (.claude/rules/cli-grammar.rule.md), so what is compared is
@@ -22,7 +23,7 @@
 #       what catches a page still naming a command after the dispatch renamed it. Both commands
 #       dispatch through nested `case` statements rather than one flat parser, so the arms are
 #       collected across all of them and matched per token;
-#   (3) every long option usage() names anywhere is documented in the page;
+#   (3) every long option the help's option rows name is documented in the page;
 #   (4) every long option the page documents is one a CLI parser accepts -- the direction that
 #       catches an option outliving its parser;
 #   (5) the .TH version field is present -- @AI_TOOLS_VERSION@ in the repo source, a version
@@ -30,11 +31,9 @@
 #
 # ai-tools-admin(8) takes checks (1), (2) and (5).
 #
-# Pure text comparison of the source files -- no root, no install dependency, and neither command is executed (the CLI's
-# bootstrap gate fail-closes on an unprovisioned host and the admin helper refuses a non-root caller, so neither can be
-# run for its help output here). Validates the repo sources directly, falling back to the installed pair outside
-# a checkout (a page may be gzipped
-# there).
+# Pure text comparison of the source files and the help library's rows, read in a shell of their own -- no root, no
+# install dependency, and neither command is executed. Validates the repo sources directly, falling back
+# to the installed files outside a checkout (a page may be gzipped there).
 set -euo pipefail
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")/../lib" && pwd)/harness.sh"
 
@@ -49,9 +48,12 @@ read_man() {
     esac | sed 's/\\-/-/g'
 }
 
-# usage_text <script>: the command's user-facing help, bounded to its heredoc (usage() { cat <<EOF ... EOF }). Both
-# commands render their help from one.
-usage_text() { sed -n '/^usage() {/,/^EOF$/p' "$1" 2>/dev/null; }
+# HELP_LIB: the library holding both programs' command rows, the checkout's (the installed one outside a checkout).
+HELP_LIB="${ROOT}/src/usr/local/lib/ai-tools/help.lib.sh"
+[[ -r "${HELP_LIB}" ]] || HELP_LIB="/usr/local/lib/ai-tools/help.lib.sh"
+# help_list <function> <program>: run one of the library's list readers in a shell of its own, so its readonly rows
+# and the libraries it sources stay out of this one.
+help_list() { bash -c 'source "$1" && "$2" "$3"' _ "${HELP_LIB}" "$1" "$2"; }
 # is_listed <word> <item>... : succeed when <word> is one of the items. Compared in the shell rather than by piping
 # the items into `grep -q`: grep exits on its first match, a writer still writing then dies of SIGPIPE, and pipefail
 # reads that as no match, which a loaded host turned into a false failure about one check in three hundred.
@@ -60,16 +62,9 @@ is_listed() { local word="$1" item; shift; for item in "$@"; do [[ "${item}" == 
 # man_section <page> <NAME>: the body of one .SH section, bounded by the next .SH.
 man_section() { read_man "$1" | awk -v s=".SH $2" '$0==s{f=1;next} /^\.SH /{f=0} f'; }
 
-# help_commands <script>: the command paths the script's usage() lists, one per line. usage() lists one command
-# per line, indented four spaces, as `<path><padding><description>`: the path is everything before the first run of two
-# or more spaces, minus its argument placeholder -- `operators add [user]` and `projects create DIRECTORY` are
-# the commands `operators add` and `projects create`. The option lines (`--help`, `--version`) share that indent and are
-# excluded by the leading letter, since a command in this grammar is a bare word.
-help_commands() {
-    usage_text "$1" \
-        | sed -n 's/^    \([a-z][^ ].*\)  \+[^ ].*/\1/p' \
-        | sed -E -e 's/[[:space:]]*[[<].*$//' -e 's/[[:space:]]*$//' -e 's/ [A-Z][A-Z_]*(\.\.\.)?$//' | sort -u
-}
+# help_commands <program>: the command paths the program's help rows hold, one per line. A collection's `[list]` row is
+# its bare path, the tag the page gives it.
+help_commands() { help_list ai_tools_help__list_commands "$1" | cut -f1 | sort -u; }
 
 # man_commands <page>: the command paths the page's COMMANDS section documents, one per line. A command is the .B line
 # opening each TOP-LEVEL .TP entry, up to its first argument placeholder (`\fR[\fIuser\fR]`), which the same .B line
@@ -92,13 +87,13 @@ man_commands() {
 # and each token of a documented path is matched against this set.
 dispatch_arms() { grep -oE '^[[:space:]]+[a-z][a-z0-9-]*\)' "$1" | tr -d ' )' | sort -u; }
 
-# check_command_sets <what> <script> <page>: checks (1) and (2) for one command page -- the command sets match in both
-# directions, and every token of every documented command is a dispatch arm.
+# check_command_sets <program> <script> <page>: checks (1) and (2) for one command page -- the command sets match
+# in both directions, and every token of every documented command is a dispatch arm.
 check_command_sets() {
     local what="$1" src="$2" page="$3"
     local help_cmds man_cmds undocumented unlisted arms cmd token
     local -a unknown=()
-    help_cmds="$(help_commands "${src}")"
+    help_cmds="$(help_commands "${what}")"
     man_cmds="$(man_commands "${page}")"
     if [[ -z "${help_cmds}" || -z "${man_cmds}" ]]; then
         fail "could not extract a command set (help='${help_cmds//$'\n'/, }' man='${man_cmds//$'\n'/, }')"
@@ -175,8 +170,8 @@ check_cli_page() {
         skip "ai-tools man sync" "CLI or man page not found in src/ or install paths"
         return 0
     fi
-    if [[ -z "$(usage_text "${CLI}")" ]]; then
-        fail "could not extract the usage() heredoc from ${CLI}"
+    if [[ -z "$(help_commands ai-tools)" ]]; then
+        fail "could not read the command rows from ${HELP_LIB}"
         return 0
     fi
 
@@ -187,7 +182,7 @@ check_cli_page() {
     # This is what keeps the cross-verb flag lines (`-y`/`--yes`, `--dry-run`, `--for`) honest: the help may name fewer
     # options than the page, and this check fails on one the page lacks.
     local help_opts man_opts missing parsed_opts stale
-    help_opts="$(usage_text "${CLI}" | grep -oE -- '--[a-z][a-z-]+' | sort -u)"
+    help_opts="$(help_list ai_tools_help__list_options ai-tools | cut -f1 | sort -u)"
     man_opts="$(read_man "${MAN}" | grep -oE -- '--[a-z][a-z-]+' | sort -u)"
     missing="$(comm -23 <(printf '%s\n' "${help_opts}") <(printf '%s\n' "${man_opts}"))"
     if [[ -z "${missing}" ]]; then
@@ -235,8 +230,8 @@ check_admin_page() {
         skip "ai-tools-admin man sync" "helper or man page not found in src/ or install paths"
         return 0
     fi
-    if [[ -z "$(usage_text "${ADMIN}")" ]]; then
-        fail "could not extract the usage() heredoc from ${ADMIN}"
+    if [[ -z "$(help_commands ai-tools-admin)" ]]; then
+        fail "could not read the command rows from ${HELP_LIB}"
         return 0
     fi
 
@@ -316,6 +311,28 @@ check_providers_page() {
         else fail "KEYS documents '${key}', which no shipped manifest sets and no shipped reader reads"; stale=1; fi
     done
     (( stale )) || pass "every key documented under KEYS is set by a shipped manifest or read by shipped code"
+
+    # admin_summary's form, as the page states it: a description opening with a capitalised verb, within 46 characters,
+    # so the admin help's line ends within 80 columns at its description column. The renderer prints the value
+    # as the manifest gives it, so this check is where a value outside the form shows.
+    local summary summaries=0 malformed=0
+    for dir in "${MANIFEST_DIRS[@]}"; do
+        for manifest in "${dir}"/*.conf; do
+            [[ -e "${manifest}" ]] || continue
+            summary="$(ai_tools_conf__print_value "${manifest}" admin_summary || true)"
+            [[ -n "${summary}" ]] || continue
+            summaries=$(( summaries + 1 ))
+            if [[ ! "${summary}" =~ ^[A-Z][a-z]+\  ]] || (( ${#summary} > 46 )); then
+                fail "${manifest##*/}: admin_summary '${summary}' does not open with a capitalised verb or exceeds 46 characters"
+                malformed=1
+            fi
+        done
+    done
+    if (( summaries == 0 )); then
+        fail "no shipped manifest sets admin_summary, so its form is not checked"
+    elif (( ! malformed )); then
+        pass "every shipped admin_summary opens with a capitalised verb within 46 characters (${summaries})"
+    fi
 
     th_version "${PROVIDERS_MAN}" AI-TOOLS-PROVIDERS
 }
@@ -677,7 +694,7 @@ check_config_headers
 #       running text, which stays legal; a path-shaped token is a filename wherever it appears and
 #       is skipped for the same reason.
 #   (3) the trailing positional argument's shape -- optional, repeating, or neither -- agrees
-#       between the page and the command's own usage(). It compares the brackets and the ellipsis
+#       between the page and the command's own help rows. It compares the brackets and the ellipsis
 #       and NOT the placeholder's name: the page names arguments in the man-page vocabulary while
 #       the help keeps its own spelling, and that difference is deliberate. What it catches is a
 #       page promising repetition its parser does not take, or dropping it where the parser does.
@@ -830,7 +847,7 @@ for stub in man1/atr.1:man1/ai-tools.1 man8/atr.8:man8/ai-tools-admin.8; do
 done
 (( stub_count > 0 )) || fail "no .so stub was read under ${MAN_ROOT}, so the atr pages are not checked"
 
-# ── The trailing argument's shape, page against usage() ────────────────────────────────────────
+# ── The trailing argument's shape, page against the help rows ──────────────────────────────────
 # arg_shape <argument text>: '', 'X', '[X]', 'X...' or '[X]...' -- the positional argument with its name normalized
 # away, since the page and the help spell a placeholder differently by design. Option groups are dropped first,
 # innermost first so a nested group (`[--check [--all]]`) goes whole: the option checks earlier in this file hold those,
@@ -845,20 +862,17 @@ arg_shape() {
         -e 's/^<?[A-Za-z][A-Za-z0-9_-]*>?(\.\.\.)?$/X\1/'
 }
 
-# check_arg_shapes <help-source> <page> <SECTION> <help-line-regex>: every command the page and the help both document
-# must agree on whether its positional argument is optional and whether it
-# repeats.
+# check_arg_shapes <program> <page> <SECTION>: every command the page and the help both document must agree on whether
+# its positional argument is optional and whether it repeats. A tag line answers for a command only where the text
+# after the path is not another command word, so `projects` is not paired with the `projects create` tag.
 check_arg_shapes() {
-    local src="$1" page="$2" what="$3" pattern="$4" cmd args help_shape man_shape mismatch="" pairs=0
-    if [[ ! -r "${src}" || ! -r "${page}" ]]; then
-        skip "${what} argument shapes" "source or page not found"; return
+    local program="$1" page="$2" what="$3" cmd args help_shape man_shape mismatch="" pairs=0
+    if [[ ! -r "${HELP_LIB}" || ! -r "${page}" ]]; then
+        skip "${what} argument shapes" "help library or page not found"; return
     fi
-    while IFS= read -r line; do
-        cmd="$(sed -E 's/^ {4}//; s/ {2,}.*$//' <<<"${line}")"
+    while IFS=$'\t' read -r cmd args _; do
         [[ -n "${cmd}" ]] || continue
-        # the command path is its leading bare words (or its long option); the rest is arguments
-        args="$(sed -E 's/^(--[a-z][a-z-]*|[a-z][a-z-]*( [a-z][a-z-]*)*)//' <<<"${cmd}")"
-        cmd="${cmd%"${args}"}"; args="${args# }"
+        [[ "${args}" != - ]] || args=""
         help_shape="$(arg_shape "${args}")"
         # the page's tag line for the same command, with its own argument text
         man_shape="$(man_section "${page}" "${what}" \
@@ -866,14 +880,15 @@ check_arg_shapes() {
                    /^\.TP/{if (d==0) want=1; next}
                    want && /^\.(B|BR|BI) /{ want=0
                      s=$0; sub(/^\.(B|BR|BI) /, "", s); gsub(/"/, "", s); gsub(/\\f./, "", s)
-                     if (index(s, c) == 1) print substr(s, length(c) + 1) }' \
+                     r = substr(s, length(c) + 1)
+                     if (index(s, c) == 1 && r !~ /^ [a-z]/ && r !~ /^[a-z-]/) print r }' \
             | head -1)"
         [[ -n "${man_shape}" ]] || continue
         man_shape="$(arg_shape "${man_shape}")"
         pairs=$(( pairs + 1 ))
         [[ "${help_shape}" == "${man_shape}" ]] \
             || mismatch+="${cmd}: help '${help_shape:-none}' vs page '${man_shape:-none}'"$'\n'
-    done < <(usage_text "${src}" | grep -E "${pattern}")
+    done < <(help_list ai_tools_help__list_commands "${program}")
     if (( pairs == 0 )); then
         fail "${what}: no command paired between the help and the page"
     elif [[ -z "${mismatch}" ]]; then
@@ -883,7 +898,7 @@ check_arg_shapes() {
     fi
 }
 section "man pages: the positional argument's shape matches the command's help (unit)"
-check_arg_shapes "${CLI}"   "${MAN}"       COMMANDS '^    [a-z]'
-check_arg_shapes "${ADMIN}" "${ADMIN_MAN}" COMMANDS '^    [a-z]'
+check_arg_shapes ai-tools       "${MAN}"       COMMANDS
+check_arg_shapes ai-tools-admin "${ADMIN_MAN}" COMMANDS
 
 finish

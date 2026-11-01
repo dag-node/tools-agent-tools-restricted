@@ -205,6 +205,18 @@ EOF
         printf '7\n' > "${shim_dir}/status"
         shim_run
         (( rc == 7 )) && pass "the installed atr exits 7 when sudo does" || fail "sudo exited 7, the installed atr exited ${rc}"
+        # An operator's help request is rendered by atr from the installed help library, with no sudo call.
+        printf '0\n' > "${shim_dir}/status"
+        rm -f "${shim_dir}/argv"
+        rc=0
+        out="$(runuser -u "${PROJECTS_USER}" -- env -i HOME="${PROJECTS_HOME}" PATH="${shim_dir}:/usr/bin:/bin" \
+            "${ATR}" admin --help 2>/dev/null)" || rc=$?
+        if [[ "${rc}" == 0 && "${out}" == *"Agent Tools Restricted -- host administration (ai-tools-admin)"* \
+              && ! -e "${shim_dir}/argv" ]]; then
+            pass "the installed atr admin --help prints the admin help as ${PROJECTS_USER} with no sudo call"
+        else
+            fail "the installed atr admin --help: rc=${rc} sudo called=$([[ -e "${shim_dir}/argv" ]] && echo yes || echo no) stdout=[${out}]"
+        fi
     fi
 fi
 
@@ -245,7 +257,7 @@ if command -v runuser >/dev/null 2>&1; then
     spell ai-tools.help
     out="$(runuser -u "${PROJECTS_USER}" -- env HOME="${PROJECTS_HOME}" \
             AI_TOOLS_OPERATOR_CONF="${tconf}" "${CLI}" "${CLI_ARGV[@]}" 2>&1)" || true
-    if grep -qi 'manage the projects a sandboxed coding agent may work in' <<<"${out}"; then
+    if grep -qF 'Agent Tools Restricted -- operator commands (ai-tools)' <<<"${out}"; then
         pass "--help stays open to a non-operator user"
     else
         fail "--help was blocked for a non-operator: ${out}"

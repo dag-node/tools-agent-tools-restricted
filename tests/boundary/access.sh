@@ -771,6 +771,19 @@ else
     else
         fail "atr admin status as ${SANDBOX_USER} exited ${_rc}: $(head -c 300 <<< "${_out}" | tr '\n' '|')"
     fi
+    # atr renders the admin help for an operator without sudo; the account takes the sudo route and is not shown
+    # the help.
+    for _args in "--help" "" "operators help"; do
+        read -r -a _argv <<< "${_args}"
+        _rc=0
+        _out="$(runuser -u "${SANDBOX_USER}" -- setsid -w "${_atr}" admin "${_argv[@]}" 2>&1 </dev/null)" || _rc=$?
+        if (( _rc != 0 )) && grep -qxF 'atr admin: runs as root through sudo' <<< "${_out}" \
+                && ! grep -qE '^Usage:$|^[A-Z][A-Za-z ]*:$' <<< "${_out}"; then
+            pass "the agent's atr admin ${_args:-(bare)} takes the sudo route and prints no help"
+        else
+            fail "atr admin ${_args:-(bare)} as ${SANDBOX_USER} exited ${_rc}: $(head -c 300 <<< "${_out}" | tr '\n' '|')"
+        fi
+    done
 fi
 for _atr_name in /usr/local/bin/atr /usr/sbin/atr; do
     if [[ ! -e "${_atr_name}" && ! -L "${_atr_name}" ]]; then

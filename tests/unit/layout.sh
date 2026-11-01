@@ -1158,7 +1158,13 @@ refused_option "a format other than tsv is refused"        --check --format json
 refused_option "--format without a value is refused"       --check --format
 refused_option "--check on reconcile is refused"           reconcile --check
 refused_option "--without-rpm on list is refused"          list --without-rpm
-refused_option "an unknown verb is refused"                bogus
+# An unknown verb is the unknown-command line under the domain's refusal code, naming the domain's help.
+out="$(admin_layout bogus)"
+if grep -qx 'MSG-R7Y4' <<< "${out}" && grep -qx 'rc=2' <<< "${out}" && grep -q "run 'atr admin system layout help'" <<< "${out}"; then
+    pass "an unknown verb is refused as an unknown command"
+else
+    fail "an unknown verb is refused as an unknown command: $(tr '\n' '|' <<< "${out}")"
+fi
 refused_option "an unknown option is refused"              --bogus
 # The list is the zero-argument default: a bare `system layout` and an option-only one reach it with their arguments,
 # under the helper's own `set -e` (a `shift` with no word to shift ends the command without a line).

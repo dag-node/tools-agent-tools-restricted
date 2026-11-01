@@ -85,19 +85,36 @@ dispatch_paths() {
 # collections : the plural nouns whose bare form is a `list`, from the CLI's own COLLECTIONS table.
 collections() { array_items COLLECTIONS; }
 
-# usage_paths : the command paths the help lists, one per line indented four spaces -- a bare-word path up to its
-# placeholder, or one of the two options answered as commands. A bare collection is normalized to its `list`.
+# HELP_LIB: the library holding the CLI's command rows, the checkout's beside the CLI (the installed one outside
+# a checkout), read in a shell of its own so its readonly rows stay out of this one.
+HELP_LIB="${ROOT}/src/usr/local/lib/ai-tools/help.lib.sh"
+[[ -r "${HELP_LIB}" ]] || HELP_LIB="/usr/local/lib/ai-tools/help.lib.sh"
+help_list() { bash -c 'source "$1" && "$2" ai-tools' _ "${HELP_LIB}" "$1"; }
+
+# usage_paths : the command paths the help rows hold, a `[list]` row as its `list` path, and the two options answered
+# as commands, the option rows that take no argument.
 usage_paths() {
-    local line path
-    while IFS= read -r line; do
-        path="$(sed -E 's/^    //; s/  +.*$//; s/ (\[)?[A-Z][A-Z_]*(\])?(\.\.\.)?$//' <<<"${line}")"
-        [[ -n "${path}" ]] || continue
-        if [[ "${path}" != *' '* ]] && grep -qx -- "${path}" <<<"$(collections)"; then path="${path} list"; fi
+    local path argument
+    {
+        while IFS=$'\t' read -r path argument _; do
+            if [[ "${argument}" == "[list]" ]]; then path="${path} list"; fi
+            printf '%s\n' "${path}"
+        done < <(help_list ai_tools_help__list_commands)
+        help_list ai_tools_help__list_options | awk -F '\t' '$2 == "-" {print $1}'
+    } | sort -u
+}
+# for_paths : the command paths whose help row carries the `for` flag, a `[list]` row as its `list` path.
+for_paths() {
+    local path argument flags
+    while IFS=$'\t' read -r path argument _ flags; do
+        [[ " ${flags} " == *" for "* ]] || continue
+        if [[ "${argument}" == "[list]" ]]; then path="${path} list"; fi
         printf '%s\n' "${path}"
-    done < <(sed -n '/^usage() {/,/^EOF$/p' "${CLI}" | grep -E '^    ([a-z]|--help|--version).*  ') | sort -u
+    done < <(help_list ai_tools_help__list_commands) | sort -u
 }
 
-DISPATCH="$(dispatch_paths)"
+# `--help` is answered by the help resolution ahead of the dispatch, which therefore has no arm for it.
+DISPATCH="$( { dispatch_paths; printf -- '--help\n'; } | sort -u)"
 OPERATOR="$(array_items OPERATOR_VERBS)"
 ROOTOK="$(array_items ROOT_ALLOWED_VERBS)"
 BOOTEXEMPT="$(array_items BOOTSTRAP_EXEMPT_VERBS)"
@@ -161,9 +178,9 @@ for table in OPERATOR_VERBS ROOT_ALLOWED_VERBS BOOTSTRAP_EXEMPT_VERBS FOR_ALLOWE
 done
 
 # ── (4) The help lists exactly the verbs the CLI dispatches ─────────────────────
-# man.sh pins usage() against ai-tools(1); this pins it against the CODE, so the three surfaces agree transitively.
-# A verb that works but is documented nowhere is as much a defect as the reverse -- an operator cannot run what they
-# cannot find.
+# man.sh pins the help rows against ai-tools(1); this pins them against the CODE, so the three surfaces agree
+# transitively. A verb that works but is documented nowhere is as much a defect as the reverse -- an operator cannot run
+# what they cannot find.
 missing_help="$(comm -23 <(printf '%s\n' "${DISPATCH}") <(printf '%s\n' "$(usage_paths)"))"
 extra_help="$(comm -13 <(printf '%s\n' "${DISPATCH}") <(printf '%s\n' "$(usage_paths)"))"
 if [[ -z "${missing_help}" ]]; then
@@ -175,6 +192,16 @@ if [[ -z "${extra_help}" ]]; then
     pass "the CLI help lists no verb the dispatcher rejects"
 else
     fail "verb(s) in the help that the dispatcher does not accept: $(tr '\n' '/' <<<"${extra_help}")"
+fi
+
+# ── (4b) The help's `for` flag names the verbs FOR_ALLOWED_VERBS names ──────────
+# The flag decides which hints carry `[--for OPERATOR]`, and FOR_ALLOWED_VERBS decides what the flag does; the two are
+# one set, held equal here so the flag does not become a second home for that table.
+for_mismatch="$(comm -3 <(for_paths) <(printf '%s\n' "${FORALLOWED}"))"
+if [[ -n "$(for_paths)" && -z "${for_mismatch}" ]]; then
+    pass "the help rows carrying the for flag are FOR_ALLOWED_VERBS"
+else
+    fail "the help's for flag and FOR_ALLOWED_VERBS differ: $(tr '\n\t' '/ ' <<<"${for_mismatch:-no for-flagged row read}")"
 fi
 
 # ── (5) The CLI describes itself on a host that is not provisioned yet ──────────
@@ -227,8 +254,9 @@ check_option_spellings() {
         fail "OPTION_SPELLINGS key(s) the dispatcher also accepts, so the rewrite answers first: $(tr '\n' '/' <<<"${collide}")"
     fi
     listed=""
+    help_text="$(bash -c 'source "$1" && ai_tools_help__render ai-tools' _ "${HELP_LIB}")"
     while read -r key; do
-        grep -qE -- "(^|[^[:alnum:]-])${key}([^[:alnum:]-]|$)" <<<"$(sed -n '/^usage() {/,/^EOF$/p' "${CLI}")" \
+        grep -qE -- "(^|[^[:alnum:]-])${key}([^[:alnum:]-]|$)" <<<"${help_text}" \
             && listed="${listed}${key} "
     done <<<"${keys}"
     if [[ -z "${listed}" ]]; then

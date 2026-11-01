@@ -120,8 +120,11 @@ Default:
 .TP
 .B admin_summary
 The one-line description
-.B atr admin --help
-prints beside the command domain this package contributes.
+.B atr admin help
+prints beside the command domain this package contributes: a description that
+opens with a capitalised verb, within 46 characters, so the line ends within 80
+columns.
+The help prints the value as the manifest gives it.
 A domain exists because its command is installed, not because this key is
 set; a domain without the key is listed without a description.
 .SS Agents

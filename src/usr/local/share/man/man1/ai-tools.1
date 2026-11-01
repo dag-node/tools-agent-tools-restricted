@@ -202,7 +202,7 @@ A walk that reaches
 without an entry exits 2.
 .SH COMMANDS
 .TP
-.B projects
+.B projects \fR[\fBlist\fR]
 List the project registry line by line, by kind: a project, in place or a
 sandbox clone, with the git safe.directory status of each, a disabled project
 with the command that re-enables it, and an excluded path.
@@ -655,7 +655,7 @@ Skip the grace period and kill immediately. The current turn's unsaved work is l
 the trail records that no process was given the chance to flush anything.
 .RE
 .TP
-.B providers
+.B providers \fR[\fBlist\fR]
 List the installed agents and toolchain integrations, which of them a session
 gets, and why: an exact allowlist named in
 .IR /etc/ai-tools/operator.conf ,
@@ -773,13 +773,35 @@ not change the exit.
 .SH OPTIONS
 .TP
 .BR \-h ", " \-\-help
-Print the command summary. Answered ahead of every gate, so it prints on a host
-whose toolchain is not provisioned yet. The bare word
+Print help and exit 0, without running the command or calling
+.BR sudo .
+With no command word, the help is the whole summary; after a collection such as
+.BR projects ,
+the commands under it; after a command, its usage line, what it does, and the
+entry on this page that documents its options.
+The option counts anywhere ahead of a
+.BR \-\- ,
+in the value of another option too, and names the command its leading command
+words spell, so
+.B "atr projects claim . \-\-help"
+prints the help of
+.BR "projects claim" .
+It is answered after the refusals of root and of the sandbox account and ahead
+of every other gate, so it prints on a host whose toolchain is not provisioned
+yet.
+The bare word
 .B help
-in the command position prints the same summary.
+asks the same where a command word goes: first, followed by the command
+.RB ( "atr help projects claim" ),
+or after a collection
+.RB ( "atr projects help" ).
+After a command it is that command's argument.
 .TP
 .B \-\-version
-Print the installed version. Answered ahead of every gate, like
+Print the installed version, when it is the first argument; a help option
+after it does not change that, and a
+.B \-\-for
+beside it is checked as on any command. Answered ahead of every gate, like
 .BR \-\-help .
 .TP
 .BR \-y ", " \-\-yes
@@ -930,6 +952,13 @@ refused elsewhere rather than ignored. It cannot be combined with
 .BR "projects unclaim \-\-force" ,
 whose tree has no registry entry naming an owner and is therefore bound to
 the invoking operator.
+.IP
+A value of
+.B \-h
+or
+.B \-\-help
+is the help option itself: the command prints its help and the run acts
+for no one.
 .SH EXIT STATUS
 .TP
 .B 0
@@ -950,9 +979,11 @@ For
 this is the specific case that a process was still running after the kill:
 re-run it. For
 .B "projects remove"
-it also covers a removal that left paths behind: the project is already
-unregistered by then, so what remains is out of the agent's reach and can be
-deleted by hand. For
+it also covers a removal that left paths behind: the project's own entry is
+already removed by then, and the warning names what the files left keep and
+the
+.B "rm \-rf"
+that removes them. For
 .B "projects claim"
 it covers a SELinux label step refused while an agent session or the toolchain
 update runs as the sandbox account: the other steps applied, and a re-run once
@@ -967,7 +998,7 @@ before it changes anything, so the tree and its entries stay as they were.
 .B 2
 The command line was rejected, before any helper or
 .B sudo
-ran: an unknown option; a required
+ran: an unknown command; an unknown option; a required
 .I DIRECTORY
 left out; an optional one left out where the current directory is in no
 project; a second directory for a verb that takes one; an

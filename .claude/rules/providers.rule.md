@@ -801,7 +801,8 @@ the mechanism is here.
 A domain is an executable at `/usr/local/lib/ai-tools/admin-commands.d/<name>`, `0750 root:root`, in a `0755 root:root`
 directory base owns. The basename is the domain token, the same `<name>` the provider takes
 in `agents.d`/`integrations.d` and in `operator.conf`, so a host has one name for a provider everywhere.
-`ai-tools-admin` discovers the set, and both its dispatch and its `--help` read that one list:
+`ai_tools_help__read_admin_domains` (`help.lib.sh`) discovers the set, and `ai-tools-admin`'s dispatch, its help
+and `atr`'s rendering of the admin help for an operator read that one list:
 
 - **Dispatch is an `exec`, not a `source`.** The fragment runs as its own process with the remaining arguments, keeping
   its own `set -euo pipefail`, root guard and logging, and cannot collide with the dispatcher's function names. It is
@@ -820,7 +821,7 @@ in `agents.d`/`integrations.d` and in `operator.conf`, so a host has one name fo
   by hand or a change to the host — `rpm -qf` names the package to reinstall, and how the file came to be writable is
   worth knowing. Re-permissioning it in place is **not** the remedy: it would re-bless content whoever could write
   the file may already have rewritten.
-- **The summary is manifest data.** `--help` prints each domain with the `admin_summary` from that provider's manifest,
+- **The summary is manifest data.** The help prints each domain with the `admin_summary` from that provider's manifest,
   read through `ai_tools_providers__read_provider_manifest_field` (which applies the trust predicate and the same name
   allowlist as `ai_tools_providers__read_agent_manifest_field`). No fragment is executed to ask it what it is,
   so building the help reads manifests alone and does not run contributed code.
@@ -829,8 +830,8 @@ in `agents.d`/`integrations.d` and in `operator.conf`, so a host has one name fo
   installation decides the command exists, enablement decides it is run.
 
 The 0750 fragment mode and the world-readable directory answer two different questions: the agent must not read or run
-a root command, while `--help` — answered ahead of the root check — must list the same domains for any caller
-that the dispatch would accept.
+a root command, while the help — answered ahead of the root check, and by `atr` without `sudo` — must list the same
+domains for any caller that the dispatch would accept.
 
 ### The interface a contributed command declares
 
