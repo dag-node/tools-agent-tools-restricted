@@ -392,8 +392,6 @@ before() {
     local a b; a="$(cli_call_index "$1" "$2")"; b="$(cli_call_index "$3" "$4")"
     [[ -n "${a}" && -n "${b}" && "${a}" -lt "${b}" ]]
 }
-# cwd_of <helper>: the directory the first call to <helper> was made from.
-cwd_of() { awk -F'\t' -v h="$1" '$1==h {print $2; exit}' "${CLI_STUB_LOG}"; }
 T=$'\t'
 
 # drive_rows <spelling>: every row, against the fixtures make_fixtures built, in the spelling cli_cmd is set to.
@@ -464,12 +462,12 @@ drive_rows() {
     cli_stub_reset; drive cli ai-tools.projects.claim "$(f yes)" "${R}/pa"
     expect "claim --yes exits 0"                                      rc_is 0
     expect "claim --yes registers the project"                        st_is "${R}/pa" enabled
-    expect "claim --yes scans for secrets in the project"             cli_called ai-tools-lockdown "^--gate$"
+    expect "claim --yes scans for secrets in the project"             cli_called ai-tools-lockdown "^--gate${T}--${T}"
     expect "claim --yes registers safe.directory"                     cli_called ai-tools-safedir "^${R}/pa$"
     expect "claim --yes sets the group and setgid"                    cli_called ai-tools-setgid "^${R}/pa$"
     expect "claim --yes applies the ACL"                              cli_called ai-tools-setfacl "${R}/pa$"
     expect "the safe.directory entry is on record"                    gc_has "${R}/pa"
-    expect "the secret scan precedes every access-granting step"     before ai-tools-lockdown "^--gate$" ai-tools-setgid "."
+    expect "the secret scan precedes every access-granting step"     before ai-tools-lockdown "^--gate${T}--${T}" ai-tools-setgid "."
 
     cli_stub_reset; drive cli ai-tools.projects.claim "$(f yes.short)" "${R}/pc"
     expect "claim -y is the short form of --yes"                      st_is "${R}/pc" enabled
@@ -482,7 +480,7 @@ drive_rows() {
     expect "the claim of . names that directory"                      cli_called ai-tools-safedir "^${R}/pd$"
 
     cli_stub_reset; cli_stub_secrets "${R}/pe/.env"; drive cli ai-tools.projects.claim "$(f yes)" "${R}/pe"
-    expect "a found secret is locked down before access is granted"  before ai-tools-lockdown "^--gate$" ai-tools-setgid "."
+    expect "a found secret is locked down before access is granted"  before ai-tools-lockdown "^--gate${T}--${T}" ai-tools-setgid "."
     expect "the secret gate is one helper call"                       test "$(cli_calls ai-tools-lockdown | wc -l)" = 1
     expect "the claim with a secret still registers the project"     st_is "${R}/pe" enabled
     # A declined lockdown (the helper's exit 6) fails the claim closed: no access granted, the new entry rolled back.
@@ -662,7 +660,7 @@ drive_rows() {
         expect "the declined grant leaves the parent as it was"           not_granted
         cli_stub_reset; drive cli_tty 'y\n' ai-tools.projects.claim "${reach_proj}"
         expect "the accepted grant exits 0"                               rc_is 0
-        expect "the accepted grant runs the secret scan"                  cli_called ai-tools-lockdown "^--gate$"
+        expect "the accepted grant runs the secret scan"                  cli_called ai-tools-lockdown "^--gate${T}--${T}"
         expect "the accepted grant is applied once the scan passed"       granted
         setfacl -x "u:${SANDBOX_USER}" "${reach_fx}"
         cli_stub_reset; cli_stub_secrets "${reach_proj}/.env"; cli_stub_decline_lockdown
@@ -1364,8 +1362,8 @@ EOF
     expect "clone lands under the sandbox area, named after the source" test -d "${SBROOT}/${N_SRC}/.git"
     expect "clone pushes the default branch, sandbox/<base>"          test -n "$(remote_tip sandbox/main)"
     expect "clone registers the clone"                                st_is "${SBROOT}/${N_SRC}" enabled
-    expect "clone scans the clone for secrets before opening it"      cli_called ai-tools-lockdown "^--gate$"
-    expect "the scan runs inside the clone"                           test "$(cwd_of ai-tools-lockdown)" = "${SBROOT}/${N_SRC}"
+    expect "clone scans the clone for secrets before opening it"      cli_called ai-tools-lockdown "^--gate${T}--${T}"
+    expect "the scan is given the clone's path"                       cli_called ai-tools-lockdown "${T}--${T}${SBROOT}/${N_SRC}$"
     expect "clone registers safe.directory for the clone"             cli_called ai-tools-safedir "^${SBROOT}/${N_SRC}$"
     expect "the clone is shallow"                                     test "$(gitr -C "${SBROOT}/${N_SRC}" rev-list --count HEAD)" -eq 1
 
@@ -1389,8 +1387,8 @@ EOF
     printf '%s\n' "${clone_al_saved}" > "${AL}"; chown "${PROJECTS_USER}:${PROJECTS_USER}" "${AL}"
 
     cli_stub_reset; drive cli ai-tools.projects.clone "${SBROOT}/${N_C4}"
-    expect "clone on an existing clone path resumes its finalization" cli_called ai-tools-lockdown "^--gate$"
-    expect "the resume runs inside that clone"                        test "$(cwd_of ai-tools-lockdown)" = "${SBROOT}/${N_C4}"
+    expect "clone on an existing clone path resumes its finalization" cli_called ai-tools-lockdown "^--gate${T}--${T}"
+    expect "the resume is given that clone's path"                    cli_called ai-tools-lockdown "${T}--${T}${SBROOT}/${N_C4}$"
     expect "the resume makes no second clone"                         test "$(find "${SBROOT}" -mindepth 1 -maxdepth 1 -type d | wc -l)" -eq 4
     expect "the resumed clone stays registered"                       st_is "${SBROOT}/${N_C4}" enabled
     # A resume on a clone already opened leaves the tree as it is: a directory the operator sealed inside it since keeps
@@ -1481,15 +1479,15 @@ EOF
     section "ai-tools.projects.lockdown / ai-tools.projects.handback"
     seed "@ ${R}/pa"
     cli_stub_reset; drive cli ai-tools.projects.lockdown "${R}/pa"
-    expect "lockdown runs the helper inside the project"              test "$(cwd_of ai-tools-lockdown)" = "${R}/pa"
-    expect "lockdown passes no flag by default"                       test -z "$(cli_calls ai-tools-lockdown)"
+    expect "lockdown gives the helper the project's path"             cli_called ai-tools-lockdown "^--${T}${R}/pa$"
+    expect "lockdown passes no flag by default"                       test "$(cli_calls ai-tools-lockdown)" = "--${T}${R}/pa"
     cli_stub_reset; cli_stub_secrets "${R}/pa/.env"; cli_stub_decline_lockdown
     drive cli ai-tools.projects.lockdown "${R}/pa"
     expect "a declined lockdown exits 6, the decline code"            rc_is 6
     cli_stub_reset
     for k in dry-run yes yes.short; do
         cli_stub_reset; drive cli ai-tools.projects.lockdown "$(f "${k}")" "${R}/pa"
-        expect "lockdown passes $(f "${k}") through to the helper"     cli_called ai-tools-lockdown "^$(f "${k}")$"
+        expect "lockdown passes $(f "${k}") through to the helper"     cli_called ai-tools-lockdown "^$(f "${k}")${T}--${T}${R}/pa$"
     done
     cli_stub_reset; drive cli ai-tools.projects.lockdown -n "${R}/pa"
     expect "lockdown has no -n short form, no helper"                 quiet_refusal

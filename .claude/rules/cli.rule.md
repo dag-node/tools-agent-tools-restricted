@@ -194,7 +194,8 @@ an ordinary account read it — a partial view, the file sink being the authorit
   a git worktree, and it passes the protected-paths backstop. This scopes `projects remove`'s `rm -rf` to one recognized
   clone; a stray non-git directory is refused ("remove it by hand"). `projects clone` scopes its own destination
   (`<name>` with no `/`, under `SANDBOX_ROOT`), so it does not need that guard.
-- `projects lockdown [path]` — wrapper over `ai-tools-lockdown` (see [secret-handling](secret-handling.rule.md)).
+- `projects lockdown [path]` — wrapper over `ai-tools-lockdown`, which takes the project as its argument
+  (see [secret-handling](secret-handling.rule.md)).
   Refuses, before the sudo prompt, every path a session cannot reach (`require_reachable_target`), the same front-line
   the helper's own `_is_allowed` enforces; without a path it discovers the project ([Discovery](#discovery)).
 - `projects handback [--full] [path]` — hand agent-written files under the project back to the operator

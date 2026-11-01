@@ -20,7 +20,8 @@
 # the test's to set whatever the host's group database says. Every other form runs the real `id`.
 #
 # The stubs answer only what the CLI PARSES from a helper:
-#   ai-tools-lockdown   prints the secret-scan count line and one `[file]` line per path listed
+#   ai-tools-lockdown   prints the secret-scan count line, naming the directory given after `--` or
+#                       the working directory without one, and one `[file]` line per path listed
 #                       in <root>/stubs/lockdown.secrets (empty or absent: a clean tree), the form
 #                       secret_gate reads; it leaves the tree as it is.
 #   ai-tools-allowlist  the `--for` registry: `--print` cats <root>/for-allowlist, and `--add`/`--remove`/
@@ -127,11 +128,15 @@ EOF
 #!/usr/bin/env bash
 set -u
 secrets="${CLI_STUB_SECRETS}"
-gate=false
-for a in "\$@"; do [[ "\${a}" == --gate ]] && gate=true; done
+gate=false dir="\${PWD}" after=false
+for a in "\$@"; do
+    if \${after}; then dir="\${a}"; continue; fi
+    [[ "\${a}" == --gate ]] && gate=true
+    [[ "\${a}" == -- ]] && after=true
+done
 if [[ -s "\${secrets}" ]]; then
     n="\$(wc -l < "\${secrets}")"
-    printf 'ai-tools-lockdown: %d secret-matching path(s) under %s:\n' "\${n}" "\${PWD}" >&2
+    printf 'ai-tools-lockdown: %d secret-matching path(s) under %s:\n' "\${n}" "\${dir}" >&2
     while IFS= read -r p; do
         printf '  [file] %s\n' "\${p}" >&2
         if \${gate}; then printf '%s\0' "\${p}"; fi

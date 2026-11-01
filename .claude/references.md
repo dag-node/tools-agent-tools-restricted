@@ -636,11 +636,13 @@ cannot fix -- a message code's name is a runtime string, and rewording one is a 
 | q9m3 | [MSG-Q9M3](../src/usr/local/libexec/ai-tools/ai-tools-launcher-symlink.sh) | the launcher directory is missing: ${BIN_DIR} | src/usr/local/libexec/ai-tools/ai-tools-launcher-symlink.sh |  | err |
 | f6d9 | [MSG-F6D9](../src/usr/local/libexec/ai-tools/ai-tools-lockdown.sh) | cannot source ${LOG_LIB} | src/usr/local/libexec/ai-tools/ai-tools-lockdown.sh |  | die |
 | g2t3 | [MSG-G2T3](../src/usr/local/libexec/ai-tools/ai-tools-lockdown.sh) | unknown argument: $1 | src/usr/local/libexec/ai-tools/ai-tools-lockdown.sh |  | die |
+| g3m8 | [MSG-G3M8](../src/usr/local/libexec/ai-tools/ai-tools-lockdown.sh) | takes one project directory -- a second was given: $(ai_tools_log__sanitize "$1") | src/usr/local/libexec/ai-tools/ai-tools-lockdown.sh | tests/unit/lockdown.sh | die_usage |
 | g8s6 | [MSG-G8S6](../src/usr/local/libexec/ai-tools/ai-tools-lockdown.sh) | --gate and --dry-run do not combine -- --gate locks what it lists | src/usr/local/libexec/ai-tools/ai-tools-lockdown.sh | tests/unit/lockdown.sh | die_usage |
 | e9a3 | [MSG-E9A3](../src/usr/local/libexec/ai-tools/ai-tools-lockdown.sh) | run with sudo | src/usr/local/libexec/ai-tools/ai-tools-lockdown.sh |  | die |
 | m8a8 | [MSG-M8A8](../src/usr/local/libexec/ai-tools/ai-tools-lockdown.sh) | must be run by you, not ai-tools | src/usr/local/libexec/ai-tools/ai-tools-lockdown.sh | tests/unit/lockdown.sh | die |
 | v7y3 | [MSG-V7Y3](../src/usr/local/libexec/ai-tools/ai-tools-lockdown.sh) | cannot determine current directory | src/usr/local/libexec/ai-tools/ai-tools-lockdown.sh |  | die |
-| d5f4 | [MSG-D5F4](../src/usr/local/libexec/ai-tools/ai-tools-lockdown.sh) | cannot resolve ${target} | src/usr/local/libexec/ai-tools/ai-tools-lockdown.sh |  | die |
+| d5f4 | [MSG-D5F4](../src/usr/local/libexec/ai-tools/ai-tools-lockdown.sh) | cannot resolve $(ai_tools_log__sanitize "${target}") | src/usr/local/libexec/ai-tools/ai-tools-lockdown.sh |  | die |
+| h3x3 | [MSG-H3X3](../src/usr/local/libexec/ai-tools/ai-tools-lockdown.sh) | not a directory: $(ai_tools_log__sanitize "${target}") | src/usr/local/libexec/ai-tools/ai-tools-lockdown.sh | tests/unit/lockdown.sh | die |
 | k8z6 | [MSG-K8Z6](../src/usr/local/libexec/ai-tools/ai-tools-lockdown.sh) | this directory is not in allowed projects for current operator: ${target} | src/usr/local/libexec/ai-tools/ai-tools-lockdown.sh | tests/unit/lockdown.sh | die |
 | v7y7 | [MSG-V7Y7](../src/usr/local/libexec/ai-tools/ai-tools-lockdown.sh) | not an allowed project: ${target} (see ${ALLOWLIST}) | src/usr/local/libexec/ai-tools/ai-tools-lockdown.sh |  | die |
 | j3f9 | [MSG-J3F9](../src/usr/local/libexec/ai-tools/ai-tools-lockdown.sh) | excluded in the allowlist: ${target}; nothing to do | src/usr/local/libexec/ai-tools/ai-tools-lockdown.sh |  | die |

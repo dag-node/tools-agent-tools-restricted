@@ -1989,13 +1989,14 @@ relabel_clone() {
 }
 
 # ── Lockdown helpers ───────────────────────────────────────────────────────────
-# ai-tools-lockdown revokes ai-tools' read access to secret-named files under a project. It is root-only and reads its
-# target from the working directory, so run_lockdown cds there and sudos it.
+# ai-tools-lockdown revokes ai-tools' read access to secret-named files under a project. It is root-only and takes
+# the project directory as its argument, so the invoker need not be able to enter the tree.
 
-# run_lockdown <dir> [extra-args...]  -- run the helper on <dir>; returns its status.
+# run_lockdown <dir> [extra-args...]  -- run the helper on <dir>, its options ahead of `--` and the path after it, so
+# a path spelled like an option stays a path; returns its status.
 run_lockdown() {
     local d="$1"; shift
-    ( cd "${d}" && sudo "${LOCKDOWN_BIN}" "$@" )
+    sudo "${LOCKDOWN_BIN}" "$@" -- "${d}"
 }
 
 # run_relabel <dir> [--remove]  -- apply (or revert) the SELinux project label on <dir> via the root helper (sudo,

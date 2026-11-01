@@ -1,18 +1,21 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: AGPL-3.0-only
 # /usr/local/libexec/ai-tools/ai-tools-lockdown
-# Revokes ai-tools' read access to credential files under the CURRENT project ahead of a session. Walks the working
-# directory and, for every path whose basename matches a secret pattern -- the set ai-tools-chown uses, from the shared
-# library and the operator's config file -- applies:
+# Revokes ai-tools' read access to credential files under a project ahead of a session. Walks the project directory --
+# the DIRECTORY argument, or the working directory without one -- and, for every path whose basename matches a secret
+# pattern -- the set ai-tools-chown uses, from the shared library and the operator's config file -- applies:
 #       regular file -> 600        directory -> 700        owner -> <you>:<you>
 # and strips the path's sandbox residue (owner-only.lib.sh). A second pass strips the same residue from every path
 # already owner-only under the target, whatever its name, without a confirmation, since it removes the sandbox's reach
 # alone; the target itself is left out (the enumeration states why). Why the owner's private group is the target,
 # and how this sweep relates to ai-tools-chown's per-write quarantine, are secret-handling.rule.md's.
 #
-# Run by YOU, as root via sudo, from inside an allowed project (usage() states the options); a '!'-excluded CWD is
-# refused. A declined confirmation exits 6, so a caller tells a decline from a lockdown that ran. `--gate` is
-# the claim's and the clone's secret gate in one call -- the CLI's calling contract, so not in usage(): one sudo,
+# Run by YOU, as root via sudo, on an allowed project named by its argument or, without one, by the working directory
+# (usage() states the options); a '!'-excluded target is refused. The argument adds a way to name the target and does
+# not widen a predicate: root resolves it, the registry decides whose project it is, and the backstop still refuses
+# a system directory, as for the working directory. A caller that cannot enter the project passes the path, which is why
+# the claim's gate does. A declined confirmation exits 6, so a caller tells a decline from a lockdown that ran. `--gate`
+# is the claim's and the clone's secret gate in one call -- the CLI's calling contract, so not in usage(): one sudo,
 # so a host whose sudo asks for the password on every invocation asks once. It lists each path relative to the project,
 # asks with a default of yes (the answer without a terminal), summarizes the lock in one line, and writes every
 # secret-matching path NUL-terminated to stdout, which does not carry any other byte.
@@ -58,7 +61,7 @@ die_usage() {
     printf 'ai-tools-lockdown: error: %s\n' "$*" >&2; exit 2
 }
 
-# Operator-identity resolver (operator.lib.sh): secrets are locked to the operator that owns the current directory.
+# Operator-identity resolver (operator.lib.sh): secrets are locked to the operator that owns the target directory.
 # A missing lib leaves ai_tools_operator__resolve_owner a fail-closed stub, so the resolve resolution dies rather than
 # lock secrets to the wrong identity.
 readonly OPERATOR_LIB="/usr/local/lib/ai-tools/operator.lib.sh"
@@ -107,15 +110,15 @@ export AI_TOOLS_MSG_FULLWIDTH=1
 
 usage() {
     cat >&2 <<'EOF'
-usage: cd <project> && sudo ai-tools-lockdown [options]
+usage: sudo ai-tools-lockdown [options] [DIRECTORY]
 
   --dry-run       list paths that would be locked down; make no changes
   -y, --yes       apply without the interactive confirmation prompt
   -h, --help      show this help
 
-Locks down secret-matching paths under the current directory:
-  files -> 600, directories -> 700, owner <you>:<you>.
-Runs only when the current directory is an allowed project.
+Locks down secret-matching paths under DIRECTORY, the current directory
+when it is left out: files -> 600, directories -> 700, owner <you>:<you>.
+Runs only when that directory is an allowed project.
 Exits 6 when you decline the confirmation; no path is changed.
 EOF
 }
@@ -124,14 +127,26 @@ EOF
 DRY_RUN=false
 ASSUME_YES=false
 GATE=false
+TARGET_ARGUMENT=""
+TARGET_GIVEN=false
+OPTIONS_ENDED=false
 while [[ $# -gt 0 ]]; do
-    case "$1" in
-        --dry-run)    DRY_RUN=true ;;
-        -y|--yes)     ASSUME_YES=true ;;
-        --gate)       GATE=true ;;
-        -h|--help)    usage; exit 0 ;;
-        *)            usage; die MSG-G2T3 "unknown argument: $1" ;;
-    esac
+    if ! ${OPTIONS_ENDED}; then
+        case "$1" in
+            --dry-run)    DRY_RUN=true; shift; continue ;;
+            -y|--yes)     ASSUME_YES=true; shift; continue ;;
+            --gate)       GATE=true; shift; continue ;;
+            -h|--help)    usage; exit 0 ;;
+            --)           OPTIONS_ENDED=true; shift; continue ;;
+            -*)           usage; die MSG-G2T3 "unknown argument: $1" ;;
+        esac
+    fi
+    # The first word that is not an option is the project directory; a second is refused before any scan, with
+    # the usage status.
+    if ${TARGET_GIVEN}; then
+        usage; die_usage MSG-G3M8 "takes one project directory -- a second was given: $(ai_tools_log__sanitize "$1")"
+    fi
+    TARGET_ARGUMENT="$1"; TARGET_GIVEN=true
     shift
 done
 # A combination the run cannot honour is refused with the usage status before any scan, whether or not the option is one
@@ -159,10 +174,16 @@ if ${GATE}; then exec 3>&1 1>&2; fi
 readonly INVOKER="${SUDO_USER:?run via sudo (SUDO_USER unset)}"
 [[ "${INVOKER}" != "@SANDBOX_USER@" ]] || die MSG-M8A8 "must be run by you, not ai-tools"
 
-# Resolve the invoking shell's working directory (sudo preserves it).
-target="$(pwd -P)" || die MSG-V7Y3 "cannot determine current directory"
-target="$(realpath -e "${target}" 2>/dev/null)" || die MSG-D5F4 "cannot resolve ${target}"
-# Refuse the whole pass if the working directory is a protected system directory.
+# The project is the argument, or the invoking shell's working directory without one (sudo preserves it). A relative
+# argument resolves from that working directory.
+if ${TARGET_GIVEN}; then
+    target="${TARGET_ARGUMENT}"
+else
+    target="$(pwd -P)" || die MSG-V7Y3 "cannot determine current directory"
+fi
+target="$(realpath -e -- "${target}" 2>/dev/null)" || die MSG-D5F4 "cannot resolve $(ai_tools_log__sanitize "${target}")"
+[[ -d "${target}" ]] || die MSG-H3X3 "not a directory: $(ai_tools_log__sanitize "${target}")"
+# Refuse the whole pass if the target is a protected system directory.
 ai_tools_safe_paths__assert_safe_target "${target}" "lockdown" || exit 3
 
 # Resolve the operator that owns this directory; secrets are locked to it. lockdown runs only inside an allowed project,

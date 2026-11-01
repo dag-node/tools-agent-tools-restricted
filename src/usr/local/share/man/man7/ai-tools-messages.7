@@ -1415,7 +1415,7 @@ target is not a versioned launcher path: ${TARGET}
 .TP
 .B MSG-D5F4
 ERROR.
-cannot resolve ${target}
+cannot resolve $(ai_tools_log__sanitize "${target}")
 .TP
 .B MSG-E9A3
 ERROR.
@@ -1429,6 +1429,10 @@ cannot source ${LOG_LIB}
 ERROR.
 unknown argument: $1
 .TP
+.B MSG-G3M8
+ERROR.
+takes one project directory \-\- a second was given: $(ai_tools_log__sanitize "$1")
+.TP
 .B MSG-G3R5
 ERROR.
 no TTY for confirmation; re\-run with \-\-yes to apply non\-interactively
@@ -1436,6 +1440,10 @@ no TTY for confirmation; re\-run with \-\-yes to apply non\-interactively
 .B MSG-G8S6
 ERROR.
 \-\-gate and \-\-dry\-run do not combine \-\- \-\-gate locks what it lists
+.TP
+.B MSG-H3X3
+ERROR.
+not a directory: $(ai_tools_log__sanitize "${target}")
 .TP
 .B MSG-J3F9
 ERROR.
