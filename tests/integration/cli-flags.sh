@@ -953,6 +953,31 @@ drive_rows() {
     expect "control: the same remove --for deletes the tree"         test ! -e "${R}/for3"
     expect "control: and drops the target's entry"                    st_for_is "${R}/for3" absent
     expect "control: and its safe.directory entry"                    cli_called ai-tools-safedir "^--remove${T}${R}/for3$"
+    # A deletion that leaves paths behind names the target as the account to finish it, with one deletion command,
+    # the path in `%q`. A tree the owner cannot write is refused by the pre-flight before the registry step, so
+    # the deletion is failed by an `rm` first on the CLI's PATH, matching its arguments as whole words, that refuses
+    # the one path and runs the real `rm` for every other call. The path carries a space and its line is written quoted.
+    local rm_fail="${R}/rm-fail-bin"
+    mkdir -p "${rm_fail}" "${R}/for 5/keep"; : > "${R}/for 5/keep/held"
+    cat > "${rm_fail}/rm" <<EOF
+#!/bin/bash
+[[ "\$1" == -rf && "\$2" == -- && "\$3" == $(LC_ALL=C printf '%q' "${R}/for 5") ]] && exit 1
+exec $(type -P rm) "\$@"
+EOF
+    chmod 0755 "${rm_fail}" "${rm_fail}/rm"
+    chown -R "${PROJECTS_USER}:${PROJECTS_USER}" "${R}/for 5"
+    printf '@ "%s"\n' "${R}/for 5" >> "${FOR_AL}"
+    seed_gc "${R}/for 5"
+    RUN_EXTRA_ENV=(PATH="${rm_fail}:${CLI_STUB_PATH}:/usr/local/bin:/usr/bin:/bin")
+    cli_stub_reset; drive cli ai-tools.projects.remove.inplace "$(f for)" "${FOR_USER}" "$(f yes)" "${R}/for 5"
+    RUN_EXTRA_ENV=()
+    expect "remove --for whose deletion leaves paths behind exits non-zero" rc_not0
+    expect "the target's entry was dropped ahead of the deletion"     st_for_is "${R}/for 5" absent
+    expect "and its safe.directory entry"                             cli_called ai-tools-safedir "^--remove${T}${R}/for 5$"
+    expect "the paths the deletion left are still there"              test -e "${R}/for 5/keep/held"
+    expect "the remedy names the target as the account to run it"     out_has_text "As ${FOR_USER}, run:"
+    expect "the remedy is one deletion, the path in %q"               out_has_text "rm -rf $(LC_ALL=C printf '%q' "${R}/for 5")"
+    expect "the report does not call the tree out of the agent's reach" out_lacks_text "out of the agent's reach"
     # A hand-back that did not run disables the target's entry through the helper; a disable the helper refuses then
     # ends the unclaim non-zero with the entry still enabled, after the hand-back was attempted. The control fails
     # the hand-back alone: the entry is disabled, and the unclaim still ends non-zero, its reversal incomplete.
