@@ -13,6 +13,11 @@
 #
 # The layer is OPTIONAL -- the policy is its own subpackage, and a host may run DAC-only -- so with the module absent
 # the whole file SKIPS instead of demanding SELinux on a host that does not ship it. Run as root.
+#
+# run.sh: serial last
+#
+# Serial under `run.sh -j`, after every other file: its clone label cases skip while any process of the sandbox account
+# is live, which every file running a command as that account leaves while it runs.
 
 set -euo pipefail
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")/../lib" && pwd)/harness.sh"

@@ -8,6 +8,10 @@
 # the library's and adding or repermissioning an installed file edits that one table. What is not a row follows:
 # the staged policy module set, the codex skills link, and each agent's links into the shared asset roots. Needs
 # a completed install; run as root via sudo, or via `sudo ./install.sh check-perms`.
+#
+# run.sh: serial
+#
+# Serial under `run.sh -j`: it reads every installed path, including directories other files place fixtures in.
 
 set -euo pipefail
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")/../lib" && pwd)/harness.sh"

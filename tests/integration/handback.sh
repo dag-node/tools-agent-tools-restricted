@@ -6,6 +6,11 @@
 # and /run/ai-tools traversability, the socket-unit directives (systemd-252 traps), and a live SYMLINK verb end-to-end
 # as the agent. Unit validity and enablement live in systemd.sh; the session's own confinement properties and env pins
 # live in ai-tools-run.sh, beside the shim that sets them. Run as root.
+#
+# run.sh: serial
+#
+# Serial under `run.sh -j`: it drives the live daemon, whose helpers log to the real log directory, and resets
+# the handback instances its negative cases leave failed.
 
 set -euo pipefail
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")/../lib" && pwd)/harness.sh"

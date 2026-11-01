@@ -2,6 +2,8 @@
 paths:
   - "src/usr/local/lib/ai-tools/layout.lib.sh"
   - "tests/unit/layout.sh"
+  - "tests/unit/layout-reconcile-*.sh"
+  - "tests/lib/layout-fixture.sh"
   - "tests/integration/perms.sh"
 ---
 
@@ -217,15 +219,18 @@ as `install.sh` substitutes them, and prints the path first. Unprivileged it dri
 the entry set, the `--check` stream and the reconcile's decisions, and the per-entry repair over owned fixtures,
 where a leaf or a parent swapped after the identity read is refused with the file outside the fixture left as it was. It
 holds the table in lockstep with `packaging/ai-tools.spec` — every `%attr` line resolves to a row with the same owner,
-mode, package and `config`/`ghost` flag, and every `files` row is a `%files` line of each package it names. As root it
-builds a tree from the table itself over `AI_TOOLS_LAYOUT_ROOT` and drives the reconcile over the whole tree: each
-planted drift it repairs converges in one run, each state it refuses is left as it was, and the exit order holds.
-`tests/unit/layout-bound.sh` sources the checkout's `ai-tools-admin.sh` with the library stubbed and holds the command's
-deadline: a reconcile sleeping past a two-second bound returns within a few seconds at exit 1 under its code, its
-collector gone, beside a control that finishes inside it. `tests/integration/perms.sh` is the loop over the installed
-library, and `tests/boundary/access.sh` probes the library, every boundary row, and the reconcile through the installed
-`/usr/sbin/ai-tools-admin` link, established as root first, as the sandbox account, holding the status to the two
-a refusal produces.
+mode, package and `config`/`ghost` flag, and every `files` row is a `%files` line of each package it names.
+The reconcile as root is three files, which the runner's pool runs at once, each building its own tree from the table
+itself over `AI_TOOLS_LAYOUT_ROOT` (`tests/lib/layout-fixture.sh`) and driving the reconcile over the whole tree:
+`layout-reconcile-fields.sh` the field repairs and the refusals of an exposed file, `layout-reconcile-entries.sh`
+the missing and replaced entries and the ancestor rule, `layout-reconcile-inputs.sh` the discovery inputs and the exit
+order. Each planted drift it repairs converges in one run, each state it refuses is left as it was, and the exit order
+holds. `tests/unit/layout-bound.sh` sources the checkout's `ai-tools-admin.sh` with the library stubbed and holds
+the command's deadline: a reconcile sleeping past a two-second bound returns within a few seconds at exit 1 under its
+code, its collector gone, beside a control that finishes inside it. `tests/integration/perms.sh` is the loop
+over the installed library, and `tests/boundary/access.sh` probes the library, every boundary row, and the reconcile
+through the installed `/usr/sbin/ai-tools-admin` link, established as root first, as the sandbox account, holding
+the status to the two a refusal produces.
 
 ## Design notes
 
@@ -269,7 +274,7 @@ a refusal produces.
 
 - A declared per-row override (`/etc/ai-tools/layout.d/`), so a value an operator keeps at another mode stops reading
   as drift, and the same directory as the seam a third-party package adds rows through.
-- The label field is driven on a packaged host: every fixture of `tests/unit/layout.sh` is under `/tmp`,
-  where the policy does not declare a label expectation, so the `label-drift` repair has no unit case.
+- The label field is driven on a packaged host: every fixture of the layout tests is under `/tmp`, where the policy does
+  not declare a label expectation, so the `label-drift` repair has no unit case.
 - Two runtime gates without a test driving them, which the boundary-pair map records as notes: `ai-tools-run`'s skip
   of an untrusted session-env fragment, and the `claude-prompt`/`claude-endpoint` loader refusal.

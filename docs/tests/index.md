@@ -27,5 +27,29 @@ asserting that the state is unreachable to begin with. A host someone has
 already broken is caught by the first; an agent trying to break it is caught
 by the second.
 
+The runner takes four files at a time. The files that touch shared host state
+run one at a time after the rest, and the transcript of each file that failed
+is printed at the end. Give `-j` another count, or `-j 1` to run the files one
+after another with each file's output streamed as it runs:
+
+```bash
+sudo tests/run.sh -j 1 all
+```
+
+Every run ends with its notes, its skipped checks and then its failures, each
+listed under the file that printed them, so the failures are the last block
+before the result. To keep a run's full results, name a new directory for them:
+
+```bash
+sudo AI_TOOLS_TEST_TRANSCRIPTS="/var/tmp/ai-tools-tests-$(date -u +%Y%m%dT%H%M%SZ)" tests/run.sh all
+```
+
+The directory holds each file's transcript, `results.tsv` with one row
+per file, and `run-info.txt`, which records when and on what host the run ran,
+the commit it ran from and the release installed. The runner refuses a name
+that already exists. Each CI selftest leg uploads the same files as one zip
+named for its distribution, the runner image and then the time the suite
+started, with an `origin.txt` naming the commit and the run.
+
 The deployment under test may come from `dnf` — a from-source install is not
 required, and the suite is run on demand rather than by any package scriptlet.

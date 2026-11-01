@@ -140,13 +140,18 @@ asset_signing_gen_key OTHER other
 asset_signing_write_binding acme "${KEYS}/signer.gpg" "openpgp:${SIGNER}"
 asset_signing_write_binding acme-two "${KEYS}/signer.gpg" "openpgp:${SIGNER}"
 
-# fresh : the control state every case starts from: acme built in the packaged root alone, both its assets enabled
-# for the agent acme, linked by one reconcile.
+# The set every case starts from, sealed once; fresh copies it into the packaged root.
+readonly SEALED_SET_ROOT="${TESTDIR}/template"
+mkdir -m 0755 "${SEALED_SET_ROOT}"
+asset_signing_build_set "${SEALED_SET_ROOT}" acme
+
+# fresh : the control state every case starts from: acme copied from the template into the packaged root alone, both its
+# assets enabled for the agent acme, linked by one reconcile.
 fresh() {
     rm -rf "${LOCAL:?}"/* "${PKG:?}"/* "${HOME_DIR}/skills" "${HOME_DIR}/subagents" "${HOME_DIR}"/.acme/* \
         "${HOME_DIR}"/.beta/* "${HOME_DIR}"/.gamma/*
     AGENTS_LINE="agent-acme"; INTEG_LINE=""
-    asset_signing_build_set "${PKG}" acme
+    asset_signing_copy_set "${SEALED_SET_ROOT}" "${PKG}" acme
     write_conf "${SKILL}" "${SUB}"
     reconcile
 }

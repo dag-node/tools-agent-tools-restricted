@@ -3,13 +3,12 @@
 # tests/lib/asset-signing.sh
 # The signing recipe the asset tests share, so no signed fixture is committed: a throwaway key made in the run, a set's
 # inventory written in build-set's shape, a detached armored signature over it as release-steps.sh makes one, a binding
-# naming the key, and a set built to pass every rule base enforces and sealed that way. gpg makes the keys
-# and the signatures; gpgv alone verifies, as on a host. Sourced after harness.sh and the set verifier (whose
-# openpgp.lib.sh supplies ai_tools_openpgp__write_binary_keyring for each keyring) by tests/unit/assets-verify.sh,
-# tests/unit/assets.sh and tests/unit/admin-assets.sh. The caller sets ASSET_KEYS_DIR (each key's armored export
-# and keyring, and its GNUPGHOME beside them) and ASSET_BINDINGS_DIR, both root-owned 0755, before the first call; every
-# file written here is
-# 0644.
+# naming the key, a set built to pass every rule base enforces and sealed that way, and the copy of a sealed set
+# into the root a case reads. gpg makes the keys and the signatures; gpgv alone verifies, as on a host. Sourced
+# after harness.sh and the set verifier (whose openpgp.lib.sh supplies ai_tools_openpgp__write_binary_keyring for each
+# keyring) by tests/unit/assets-verify.sh, tests/unit/assets.sh and tests/unit/admin-assets.sh. The caller sets
+# ASSET_KEYS_DIR (each key's armored export and keyring, and its GNUPGHOME beside them) and ASSET_BINDINGS_DIR, both
+# root-owned 0755, before the first call; every file written here is 0644.
 
 # asset_signing_gen_key <var> <name> [expiry] [faked-time] : make a throwaway key <name> in its own GNUPGHOME, write its
 # armored public key and the binary keyring gpgv reads as <name>.asc and <name>.gpg, and assign its primary fingerprint
@@ -108,4 +107,13 @@ asset_signing_build_set() {
     printf -- '---\nname: %s-reviewer\ndescription: A fixture subagent.\ntools: [Read, Grep]\n---\n\nThe body.\n' "$2" \
         > "${dir}/agents/$2-reviewer.md"
     asset_signing_seal "${dir}"
+}
+
+# asset_signing_copy_set <from-root> <to-root> <set> : replace <to-root>/<set> with a copy of the sealed set
+# at <from-root>/<set>. `cp -a` keeps the owner, the modes and the times; the inventory names relative paths
+# and the signature covers the inventory, so the copy verifies wherever it sits. A file seals a set once and copies it
+# into each case that starts from it unchanged, rather than signing the same bytes again per case.
+asset_signing_copy_set() {
+    rm -rf -- "${2:?}/${3:?}"
+    cp -a -- "$1/$3" "$2/$3"
 }

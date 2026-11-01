@@ -52,6 +52,10 @@ read_man() {
 # usage_text <script>: the command's user-facing help, bounded to its heredoc (usage() { cat <<EOF ... EOF }). Both
 # commands render their help from one.
 usage_text() { sed -n '/^usage() {/,/^EOF$/p' "$1" 2>/dev/null; }
+# is_listed <word> <item>... : succeed when <word> is one of the items. Compared in the shell rather than by piping
+# the items into `grep -q`: grep exits on its first match, a writer still writing then dies of SIGPIPE, and pipefail
+# reads that as no match, which a loaded host turned into a false failure about one check in three hundred.
+is_listed() { local word="$1" item; shift; for item in "$@"; do [[ "${item}" == "${word}" ]] && return 0; done; return 1; }
 
 # man_section <page> <NAME>: the body of one .SH section, bounded by the next .SH.
 man_section() { read_man "$1" | awk -v s=".SH $2" '$0==s{f=1;next} /^\.SH /{f=0} f'; }
@@ -302,13 +306,13 @@ check_providers_page() {
 
     local missing=0
     for key in "${used[@]}"; do
-        if printf '%s\n' "${documented[@]}" | grep -qx "${key}"; then :
+        if is_listed "${key}" "${documented[@]}"; then :
         else fail "manifest key '${key}' is set by a shipped manifest but not documented under KEYS"; missing=1; fi
     done
     (( missing )) || pass "every key a shipped manifest sets is documented under KEYS (${#used[@]} keys)"
     local stale=0
     for key in "${documented[@]}"; do
-        if printf '%s\n' "${used[@]}" "${read_keys[@]}" | grep -qx "${key}"; then :
+        if is_listed "${key}" "${used[@]}" "${read_keys[@]}"; then :
         else fail "KEYS documents '${key}', which no shipped manifest sets and no shipped reader reads"; stale=1; fi
     done
     (( stale )) || pass "every key documented under KEYS is set by a shipped manifest or read by shipped code"
@@ -394,7 +398,7 @@ check_allowlist_page() {
     mktestdir; example_file="${TESTDIR}/registry-example"
     while IFS= read -r line; do
         if [[ "${line}" != "${EXAMPLE_BLOCK_END}" ]]; then block+=("${line}"); continue; fi
-        if printf '%s\n' "${block[@]+"${block[@]}"}" | grep -qE '^[[:space:]]*[@!%]'; then
+        if [[ -n "$(printf '%s\n' "${block[@]+"${block[@]}"}" | grep -E '^[[:space:]]*[@!%]' || true)" ]]; then
             blocks=$(( blocks + 1 ))
             printf '%s\n' "${block[@]}" > "${example_file}"
             if ! ai_tools_conf__validate_registry "${example_file}" current 2>"${TESTDIR}/example.err"; then
@@ -502,12 +506,12 @@ check_config_page() {
     (( ${#used[@]} > 0 )) || { fail "${name}: the template mentions no key"; return; }
     local missing=0 stale=0
     for key in "${used[@]}"; do
-        printf '%s\n' "${documented[@]}" | grep -qx "${key}" \
+        is_listed "${key}" "${documented[@]}" \
             || { fail "${name}(5): the template mentions '${key}', which OPTIONS does not document"; missing=1; }
     done
     (( missing )) || pass "${name}(5) documents every key the template mentions (${#used[@]} keys)"
     for key in "${documented[@]}"; do
-        printf '%s\n' "${used[@]}" | grep -qx "${key}" \
+        is_listed "${key}" "${used[@]}" \
             || { fail "${name}(5) documents '${key}', which the template does not mention"; stale=1; }
     done
     (( stale )) || pass "every option ${name}(5) documents is one the template mentions"

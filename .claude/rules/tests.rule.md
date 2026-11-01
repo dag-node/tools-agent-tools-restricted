@@ -11,18 +11,38 @@ user from `SUDO_USER`). A file that needs root says so itself with `require_root
 the ones that stub what they drive and build fixtures they own — deliberately do not, so they can also be run **directly
 as an unprivileged user** during development; the harness then takes the invoker as the project user. Run as root
 with **no** sudo context it refuses: there is no unprivileged identity to derive, and fixtures built root-owned would be
-skipped by every owner guard under test — a suite that passes with no assertion behind it. It streams each file's output
-live and closes with the failure summary and the `no coverage` notice `tests/run.sh`'s header describes, the notice
-parsed from `finish()`'s result line, so a green exit status cannot hide a failing file in a long run or a run with no
-assertions behind it. Each file runs under a per-file wall-clock budget (`AI_TOOLS_TEST_FILE_TIMEOUT`, default 600s):
-a file that blocks — on a terminal read, a wedged daemon, or a fixture process holding a pipe open — is killed
-and reported as a failure with its transcript, rather than hanging the run. That matters beyond convenience because
-`install.sh` runs this suite as its verification phase, so an unbounded file stalls an install. `AI_TOOLS_TEST_STRICT=1`
-turns the notice into a failure, and strict is the enforcing-host full-install gate
-(`sudo AI_TOOLS_TEST_STRICT=1 tests/run.sh all`), run with no process of the sandbox account live, since
-`integration/selinux.sh` skips its clone label cases while the live-session gate refuses the walk; the container
-selftest stays lenient because SELinux is legitimately absent there, so `selinux.sh`'s all-skip is a documented
-limitation, not a broken prerequisite.
+skipped by every owner guard under test — a suite that passes with no assertion behind it. It closes with the failure
+summary and the `no coverage` notice `tests/run.sh`'s header describes, the notice parsed from `finish()`'s result line,
+so a green exit status cannot hide a failing file in a long run or a run with no assertions behind it. Each file runs
+under a per-file wall-clock budget (`AI_TOOLS_TEST_FILE_TIMEOUT`, default 600s): a file that blocks — on a terminal
+read, a wedged daemon, or a fixture process holding a pipe open — is killed and reported as a failure with its
+transcript, rather than hanging the run. That matters beyond convenience because `install.sh` runs this suite as its
+verification phase, so an unbounded file stalls an install. `AI_TOOLS_TEST_STRICT=1` turns the notice into a failure,
+and strict is the enforcing-host full-install gate (`sudo AI_TOOLS_TEST_STRICT=1 tests/run.sh all`), run with no process
+of the sandbox account live, since `integration/selinux.sh` skips its clone label cases while the live-session gate
+refuses the walk; the container selftest stays lenient because SELinux is legitimately absent there, so `selinux.sh`'s
+all-skip is a documented limitation, not a broken prerequisite.
+
+`tests/run.sh -j N` runs up to N files at once, 4 by default, the CPU count of a GitHub-hosted runner, while
+the container selftest passes the count `nproc` reads inside the container; `-j 1` runs them one after another with each
+file's output streamed live. The pool takes every file that does not carry the line `# run.sh: serial` in its header,
+largest first, each writing to a transcript of its own, and reports each file on one line as it finishes. The serial
+pass then runs the marked files one at a time, with `integration/selinux.sh` (`# run.sh: serial last`) after the rest,
+because its clone label cases skip while a pool file holds a process of the sandbox account live. A file carries
+the marker when it touches host state another file reads — a fixed path in the live toolchain or launcher directory,
+the live daemon, the live units, the installed layout, the cgroup root — and names that state in the paragraph after it.
+Every other file works inside its testdir and the fixture names [Fixture names and the residue
+sweep](#fixture-names-and-the-residue-sweep) gives it, which is what lets it run beside any other. The run prints each
+failed file's transcript at the end and keeps the directory `tests/run.sh`'s header names.
+
+Every run closes with its NOTE, SKIP and FAIL rows grouped by file, in that order, so the failures sit beside
+the overall line. `AI_TOOLS_TEST_TRANSCRIPTS` names a directory the run creates and keeps, holding each file's
+transcript, `results.tsv` and `run-info.txt`; the header states their columns and keys. The run refuses a name
+that already exists, a symlink among them, because root writes every file into it. `run-info.txt` reads the checkout's
+commit from `.git` as data rather than through git, since git run as root over a tree the sandbox account co-writes
+executes what its config names. The container selftest writes the directory into a mount
+`make rpmtest-<distro> TEST_RESULTS=<dir>` makes, named for the run's UTC start and distribution, and CI uploads it
+with an `origin.txt` naming the commit, the ref and the run.
 
 The harness carries a fourth emitter for that reason. `skip` records a check that could not run, and reaching the notice
 is the point of it. `note` records a fact about the run that is not a verdict — `references.sh` names which tool it
@@ -195,10 +215,10 @@ non-path cleanups, run in order after the path sweep.
 `run.sh` runs the **residue sweep** (`lib/residue.sh`) before any category, so a run starts from a host that carries
 none of the suite's fixtures: it lists each directory fixtures are born in (`ai_test_residue_sites` declares them) one
 level deep for that pattern, removes each match, and prints one line per removal; a match it cannot remove refuses
-the run. `sudo tests/run.sh residue` runs the sweep alone. The suite runs one at a time: a second run started while one
-is live sweeps the first run's fixtures. The manual script names its `--for` drill tree in the clone area under the same
-rule (group `manual`), so a tree its removal did not complete is cleared by the sweep, which holds the root that script
-never takes.
+the run. `sudo tests/run.sh residue` runs the sweep alone. One run of the suite is live at a time: a second run started
+while one is live sweeps the first run's fixtures. The manual script names its `--for` drill tree in the clone area
+under the same rule (group `manual`), so a tree its removal did not complete is cleared by the sweep, which holds
+the root that script never takes.
 
 Two fixtures cannot carry the rule and are listed by their fixed paths instead: `integration/ai-tools-run.sh` probes
 entrypoint containment, and then a disabled agent's package, in `/opt/ai-tools/.nvm/versions/node/v0.0.1`
@@ -319,7 +339,7 @@ binds a throwaway socket in its testdir instead of writing the host's journal; w
 field** lands, which does not feed any authorization decision (see [handback-bridge](handback-bridge.rule.md)).
 
 `AI_TOOLS_LAYOUT_ROOT` (`layout.lib.sh`) prefixes every row path and every package sentinel of the installed layout,
-so `unit/layout.sh` builds a tree from the table itself in its testdir and drives the real reconcile over it,
+so `unit/layout-reconcile-*.sh` build a tree from the table itself in the testdir and drive the real reconcile over it,
 with `AI_TOOLS_AGENTS_DIR` and `AI_TOOLS_OPERATOR_CONF` pointed at the rows under that root. It is the widest
 of the family in what it moves — the reconcile rewrites owners, modes and ACLs as root — and reaches the consumer
 the same way `AI_TOOLS_POSTUPGRADE_ROOT` does, through `ai-tools-admin` run as root with the name set.
