@@ -96,26 +96,48 @@ reject() {
     exit 2
 }
 
-# usage: this domain's commands. Orientation, like ai-tools-admin's own: the mechanism each one applies is
-# in .claude/rules/dotnet.rule.md and providers.rule.md.
+# usage: this domain's commands, in the layout ai-tools-admin's help takes. Orientation, like that tool's own: what each
+# command does is in .claude/rules/dotnet.rule.md and providers.rule.md.
 usage() {
     cat <<EOF
-atr admin dotnet -- the .NET toolchain: its sandbox state and shared tools  (ai-tools-admin dotnet)
+Agent Tools Restricted -- .NET integration (ai-tools-admin dotnet)
 
-    dotnet bootstrap                    create and label the sandbox-side .NET state
-    dotnet tools install <pkg>...       install shared global tools (reaches the network)
-    dotnet status                       host SDKs and runtimes, and the sandbox state
+Usage:
+  atr admin dotnet COMMAND [ARGUMENT...]
 
-  The .NET SDK is the host's own; this integration ships no runtime. A session gets
-  it once 'integration-dotnet' is named in AI_TOOLS_INTEGRATIONS in ${OPERATOR_CONF}.
+Commands:
+  dotnet bootstrap                 Create and label the sandbox-side .NET state
+  dotnet tools install PACKAGE...  Install shared global tools from the network
+  dotnet status                    Show host SDKs/runtimes and the sandbox state
+
+Options:
+  -h, --help                       Show this help
+
+The .NET SDK is the host's own; this integration ships no runtime. A session
+gets it once integration-dotnet is in AI_TOOLS_INTEGRATIONS, which
+${OPERATOR_CONF} sets.
+
+More: man ai-tools-admin · atr admin help
 EOF
 }
 
-# `--help` leaves the host as it is and does not read its state, so it answers any caller and is handled ahead
-# of the root check -- ai-tools-admin's own rule, applied one level down.
-case "${1:-}" in
-    --help|-h) usage; exit 0 ;;
-esac
+# is_help_request <arg>...: succeed when the command line asks for this help, by ai-tools-admin's rule applied to this
+# domain's words: -h or --help anywhere ahead of the first `--`, or the bare word `help` where a command word goes
+# (first, or after `tools`). After `tools install` it is a package name.
+is_help_request() {
+    local argument
+    for argument in "$@"; do
+        [[ "${argument}" != -- ]] || break
+        [[ "${argument}" != -h && "${argument}" != --help ]] || return 0
+    done
+    [[ "${1:-}" == help ]] && return 0
+    [[ "${1:-}" == tools && "${2:-}" == help ]] && return 0
+    return 1
+}
+
+# A help request leaves the host as it is and does not read its state, so it answers any caller ahead of the root check,
+# and no command it names runs: `tools install --help` does not reach the reconcile or the install.
+if is_help_request "$@"; then usage; exit 0; fi
 
 [[ "${EUID}" -eq 0 ]] || die MSG-C4T6 "run as root (sudo)"
 

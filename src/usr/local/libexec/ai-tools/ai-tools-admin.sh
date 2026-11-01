@@ -798,6 +798,9 @@ op_add() {
     [[ -n "${user}" ]] || reject MSG-H2P9 "operators add: name a user, or run it through sudo so SUDO_USER is set"
     [[ "${user}" != "${SANDBOX_USER}" ]] || die MSG-C9C4 "an operator must not be the sandbox account ${SANDBOX_USER}"
     [[ "${user}" != "root" ]]            || die MSG-H3M6 "an operator must be a normal login user, not root"
+    # The name is held to the portable set before `id` reads it, so a word `id` would take as an option (`--version`) is
+    # refused here and not run.
+    ai_tools_conf__is_portable_name_valid "${user}" || reject MSG-J2S8 "operators add: not an account name: ${user}"
     id "${user}" &>/dev/null || die MSG-U8T8 "no such user: ${user}"
 
     ai_tools_operator__load_operators || true   # tolerate an unenrolled host (empty list)

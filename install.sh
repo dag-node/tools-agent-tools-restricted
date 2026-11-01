@@ -129,6 +129,9 @@ operator_refusal() {
         coded_refusal MSG-D7C6 "the operator must be a normal login user, not root"
     elif [[ "${name}" == "${SANDBOX_USER}" ]]; then
         coded_refusal MSG-S9C4 "the operator must not be the sandbox account ${SANDBOX_USER}"
+    elif ! ai_tools_conf__is_portable_name_valid "${name}"; then
+        # Ahead of `id`, which would read a word such as `--help` as its own option.
+        coded_refusal MSG-F8C8 "not an account name: ${name}"
     elif ! id "${name}" &>/dev/null; then
         coded_refusal MSG-X4X2 "no such user: ${name}"
     else
@@ -154,6 +157,16 @@ operator_create_hint() {
     printf '    the wheel half is this host'"'"'s general sudo grant, which this script does not write\n' >&2
 }
 
+# The shared config grammar, sourced from the SOURCE TREE like the other libraries this script sources, and ahead
+# of them: operator_refusal holds a name to its portable-name predicate in the entry-point validation, before the styled
+# emitters exist, so a checkout missing it is refused in the plain form, printing the token die_unsourced defines.
+readonly CONF_LIB="${SCRIPT_DIR}/src/usr/local/lib/ai-tools/conf.lib.sh"
+# shellcheck source=SCRIPTDIR/src/usr/local/lib/ai-tools/conf.lib.sh
+if ! source "${CONF_LIB}"; then
+    printf 'MSG-R9A8\nerror: cannot source %s -- the checkout is incomplete; re-clone or re-download it\n' "${CONF_LIB}" >&2
+    exit 1
+fi
+
 # The install runs its verification suite as SUDO_USER, so that variable is required whichever account is enrolled:
 # `--operator` decides WHO is enrolled, never how this script was invoked.
 : "${SUDO_USER:?error: SUDO_USER not set -- invoke via sudo, not as root directly}"
@@ -163,7 +176,7 @@ OPERATOR_REFUSAL="$(operator_refusal "${PROJECTS_USER}")"
 [[ -z "${OPERATOR_REFUSAL}" ]] \
     || { printf '%s\n' "${OPERATOR_REFUSAL%%$'\n'*}" "error: ${OPERATOR_REFUSAL#*$'\n'}" \
              "       name a normal login account: sudo ./install.sh --operator <account>" >&2
-         if [[ -n "${PROJECTS_USER}" ]] && ! id "${PROJECTS_USER}" &>/dev/null; then
+         if [[ "${OPERATOR_REFUSAL%%$'\n'*}" == MSG-X4X2 ]]; then
              operator_create_hint "${PROJECTS_USER}"
          fi
          exit 1; }
@@ -233,12 +246,9 @@ readonly CONTROL_PLANE_LIB="${SCRIPT_DIR}/src/usr/local/lib/ai-tools/control-pla
 # shellcheck source=/dev/null
 source "${CONTROL_PLANE_LIB}" || die_unsourced "${CONTROL_PLANE_LIB}"
 
-# The shared config grammar and the hook-declaration merge this script applies to a KEPT settings.json, sourced
-# from the SOURCE TREE like the other libs. A missing merge would mean an upgrade silently leaving a newly shipped hook
-# undeclared -- fatal here, like the others.
-readonly CONF_LIB="${SCRIPT_DIR}/src/usr/local/lib/ai-tools/conf.lib.sh"
-# shellcheck source=SCRIPTDIR/src/usr/local/lib/ai-tools/conf.lib.sh
-source "${CONF_LIB}" || die_unsourced "${CONF_LIB}"
+# The hook-declaration merge this script applies to a KEPT settings.json, sourced from the SOURCE TREE like the other
+# libs (the config grammar it reads is loaded ahead of the operator validation). A missing merge would mean an upgrade
+# silently leaving a newly shipped hook undeclared -- fatal here, like the others.
 readonly SETTINGS_MERGE_LIB="${SCRIPT_DIR}/src/usr/local/lib/ai-tools/settings-merge.lib.sh"
 # shellcheck source=SCRIPTDIR/src/usr/local/lib/ai-tools/settings-merge.lib.sh
 source "${SETTINGS_MERGE_LIB}" || die_unsourced "${SETTINGS_MERGE_LIB}"
@@ -3439,7 +3449,7 @@ choose_operator() {
         refusal="$(operator_refusal "${candidate}")"
         if [[ -n "${refusal}" ]]; then
             emit_coded warn "${refusal}"
-            if [[ -n "${candidate}" ]] && ! id "${candidate}" &>/dev/null; then
+            if [[ "${refusal%%$'\n'*}" == MSG-X4X2 ]]; then
                 operator_create_hint "${candidate}"
             fi
         else

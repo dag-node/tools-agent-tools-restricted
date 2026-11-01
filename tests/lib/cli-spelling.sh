@@ -40,6 +40,8 @@ cli_cmd() {
     case "$1" in
         ai-tools.help)                    CLI_ARGV=(--help) ;;
         ai-tools.version)                 CLI_ARGV=(--version) ;;
+        ai-tools.projects.help)           CLI_ARGV=(projects help) ;;
+        ai-tools.providers.help)          CLI_ARGV=(providers help) ;;
         ai-tools.projects.list)           CLI_ARGV=(projects list) ;;
         ai-tools.projects.create)         CLI_ARGV=(projects create) ;;
         ai-tools.projects.claim)          CLI_ARGV=(projects claim) ;;
@@ -62,10 +64,13 @@ cli_cmd() {
 }
 
 # cli_cmd_option <key>: the same keys in the option spelling, one token each. `ai-tools.help` has no option spelling
-# of its own: `--help` and `-h` are the command in either form.
+# of its own: `--help` and `-h` are the command in either form. The `help` word after a collection has no option
+# spelling either, so its two keys take the collection form in both.
 cli_cmd_option() {
     case "$1" in
         ai-tools.help)                    CLI_ARGV=(--help) ;;
+        ai-tools.projects.help)           CLI_ARGV=(projects help) ;;
+        ai-tools.providers.help)          CLI_ARGV=(providers help) ;;
         ai-tools.version)                 CLI_ARGV=(-V) ;;
         ai-tools.projects.list)           CLI_ARGV=(--list) ;;
         ai-tools.projects.create)         CLI_ARGV=(--project-create) ;;

@@ -1376,6 +1376,42 @@ EOF
     # A create sets its modes outright and a clone is created private and then opened, so neither depends on the umask
     # the operator's shell carries. Both are re-driven under the values a hardened host sets and held to the modes
     # ai-tools(1) states. Restored afterwards, so the coverage check and the teardown run under the pinned 022.
+    section "help requests"
+    # help_printed: the row exited 0 with one `Usage:` line on stdout and called no helper.
+    help_printed() { [[ "${rc}" -eq 0 && "$(grep -c '^Usage:$' <<<"${out}")" -eq 1 ]] && cli_log_empty; }
+    # A help request prints the help on stdout, exits 0 and does not call a helper, wherever its flag stands; the rows
+    # of each command's own section are the control that the same command without the flag reaches the recorder.
+    for key in ai-tools.projects.list ai-tools.projects.create ai-tools.projects.claim ai-tools.projects.unclaim \
+            ai-tools.projects.remove.inplace ai-tools.projects.disable ai-tools.projects.enable \
+            ai-tools.projects.clone ai-tools.projects.push ai-tools.projects.lockdown ai-tools.projects.handback \
+            ai-tools.providers ai-tools.status ai-tools.audit ai-tools.stop; do
+        argument=("${R}/pa")
+        case "${key}" in ai-tools.projects.list|ai-tools.providers|ai-tools.status|ai-tools.audit|ai-tools.stop) argument=() ;; esac
+        for flag in --help -h; do
+            cli_stub_reset; drive cli_stdout "${key}" "${argument[@]}" "${flag}"
+            expect "${key} ${flag} prints its help and calls no helper" help_printed
+        done
+    done
+    for key in ai-tools.projects.help ai-tools.providers.help; do
+        cli_stub_reset; drive cli_stdout "${key}"
+        expect "${key} prints the help and calls no helper" help_printed
+    done
+    # A `--for` run's help request exits ahead of the snapshot, the run's first sudo, and a help flag in `--for`'s value
+    # slot is the help request itself; another option there stays the refusal.
+    cli_stub_reset; drive cli_stdout ai-tools.projects.claim . --help "$(f for)" "${FOR_USER}"
+    expect "a --for run's help request prints and reaches no helper" help_printed
+    cli_stub_reset; drive cli_stdout ai-tools.projects.claim "$(f for)" --help
+    expect "a help flag as --for's value is the help request" help_printed
+    cli_stub_reset; drive cli_flag_first ai-tools.projects.claim "$(f for)" -h
+    expect "-h as --for's value ahead of the command is the help request" quiet_rc 0
+    cli_stub_reset; drive cli ai-tools.projects.claim "$(f for)" -x
+    expect "another option as --for's value stays refused, with no helper" quiet_rc 1
+    assert_msg MSG-B4G2 "${out}" "another option as --for's value is the --for refusal"
+    # A help request on an unknown path is the unknown-command refusal, exit 2, with no helper.
+    cli_stub_reset; drive run_in "${R}" projects bogus --help
+    expect "a help request on an unknown path is refused with exit 2 and no helper" quiet_rc 2
+    assert_msg MSG-S2H5 "${out}" "a help request on an unknown path is the unknown-command refusal"
+
     section "umask independence"
     has_bits() { (( ( 8#$(stat -c '%a' "$1") & 8#$2 ) == 8#$2 )); }
     for u in 077 027; do

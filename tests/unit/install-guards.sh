@@ -95,6 +95,21 @@ assert_msg MSG-S9C4 "${out}" "--operator ${SANDBOX_USER} is refused"
 out="$(run_installer "${PROJECTS_USER}" --operator "no-such-account-${RANDOM}${RANDOM}")"
 assert_msg MSG-X4X2 "${out}" "--operator with an unknown account is refused"
 
+# (7b) A word that is not an account name, an option `id` would read as its own (`--help`), is refused before `id` runs,
+# under its own code, and is not followed by a command to create an account of that name.
+out="$(run_installer "${PROJECTS_USER}" --operator --help)"
+assert_msg MSG-F8C8 "${out}" "--operator --help is refused as not an account name"
+if ! grep -q 'useradd' <<<"${out}"; then
+    pass "the not-an-account-name refusal offers no create command"
+else
+    fail "the not-an-account-name refusal offered to create the account: ${out}"
+fi
+if grep -q 'useradd' <<<"$(run_installer "${PROJECTS_USER}" --operator "no-such-account-${RANDOM}${RANDOM}")"; then
+    pass "the unknown-account refusal offers the create command (the control)"
+else
+    fail "the unknown-account refusal did not offer the create command"
+fi
+
 # (8) The flag's own arithmetic: a trailing `--operator` has no name to enrol, and must say so rather than reading
 # the next thing as one or enrolling an empty name.
 out="$(SUDO_USER="${PROJECTS_USER}" bash "${INSTALLER}" __no_such_action__ --operator 2>&1 || true)"
