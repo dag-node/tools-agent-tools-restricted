@@ -256,7 +256,9 @@ FOR_OPERATOR=""
 _forless_args=()
 while (( $# )); do
     case "$1" in
-        --for)   FOR_OPERATOR="${2-}"; shift $(( $# > 1 ? 2 : 1 )) ;;
+        # `--` is the delimiter and never a value, so it stays among the arguments, where the help scan stops at it.
+        --for)   if [[ "${2-}" == -- ]]; then FOR_OPERATOR=""; shift
+                 else FOR_OPERATOR="${2-}"; shift $(( $# > 1 ? 2 : 1 )); fi ;;
         --for=*) FOR_OPERATOR="${1#--for=}"; shift ;;
         *)       _forless_args+=("$1"); shift; continue ;;
     esac

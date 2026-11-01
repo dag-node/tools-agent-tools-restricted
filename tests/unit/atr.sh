@@ -113,9 +113,9 @@ EOF
     chmod 0755 "${FIXTURE}/bin/${name}"
 done
 readonly ADMIN_PATH="${FIXTURE}/bin/ai-tools-admin"
-# The operator branch reads the caller with `id` and the trust predicate reads owner and mode with `stat`; both come
-# from the host, into each PATH a case runs under.
-for tool in id stat; do
+# The operator branch reads the caller with `id`, the trust predicate reads owner and mode with `stat`, and the manifest
+# reader reads a manifest with `cat`; each comes from the host, into each PATH a case runs under.
+for tool in id stat cat; do
     host_tool="$(command -v "${tool}")"
     ln -s "${host_tool}" "${FIXTURE}/bin/${tool}"
     ln -s "${host_tool}" "${FIXTURE}/nosudo/${tool}"
@@ -241,7 +241,7 @@ check_admin_dispatch_cases() {
     write_copy "${COPY}" "s#^readonly AI_TOOLS_ATR__HELP_LIB=.*#readonly AI_TOOLS_ATR__HELP_LIB=${FIXTURE}/absent.lib.sh#"
     "${runner}" "${WITH_SUDO}" admin --help
     if [[ "$(list_calls sudo)" == "--|${ADMIN_PATH}|--help" && "${ERR}" == *"cannot load ${FIXTURE}/absent.lib.sh"*"${NOTICE}" \
-          && "$(grep -c '' <<< "${ERR}")" -eq 2 && -z "${OUT}" ]]; then
+          && "$(printf '%s' "${ERR}" | grep -c '')" -eq 2 && -z "${OUT}" ]]; then
         pass "with the help library absent, atr admin --help takes the sudo route after one line naming it"
     else
         fail "absent help library: sudo=[$(list_calls sudo)] stderr=[${ERR}] stdout=[${OUT}]"

@@ -193,6 +193,13 @@ _ai_tools_help__is_extended_path() {
     return 1
 }
 
+# _ai_tools_help__is_collection_path <program> <path>: succeed when <path> is extended by another row or is a `[list]`
+# row, the paths after which the grammar expects a command word: `help`, `list`, or an unknown one.
+_ai_tools_help__is_collection_path() {
+    _ai_tools_help__is_extended_path "$1" "$2" && return 0
+    _ai_tools_help__find_row "$1" "$2" && [[ "${_AI_TOOLS_HELP__ARGUMENT}" == "[list]" ]]
+}
+
 # _ai_tools_help__find_row <program> <path>: split the command row whose path is <path>, or return 1.
 _ai_tools_help__find_row() {
     local row
@@ -427,10 +434,10 @@ ai_tools_help__format_help_command() {
 #
 # `--version` in the first slot is the version and not a help request, whatever follows it. A help request is `-h`
 # or `--help` in any position, or the bare word `help` where the grammar expects a command word: first (the prefix form,
-# whose target is the words after it) or after a path other rows extend. The target is the leading run of command words,
-# the help flags left out, consumed while each extends a path the rows hold. After a complete row a further word is
-# that command's argument; after a path other rows extend it is an unknown path, except `list` under a `[list]` row,
-# which names that row. An empty command line is the top help.
+# whose target is the words after it) or after a collection, a path other rows extend or a `[list]` row. The target is
+# the leading run of command words, the help flags left out, consumed while each extends a path the rows hold.
+# After a complete row a further word is that command's argument; after a path other rows extend it is an unknown path,
+# except `list` under a `[list]` row, which names that row. An empty command line is the top help.
 ai_tools_help__resolve_request() {
     local program="$1" commands_dir="" argument path="" word candidate
     local has_flag=0 has_word=0 prefix_form=0 at_first=1
@@ -462,7 +469,7 @@ ai_tools_help__resolve_request() {
         else
             [[ "${word}" =~ ^[a-z][a-z-]*$ ]] || break
         fi
-        if [[ -n "${path}" ]] && _ai_tools_help__is_extended_path "${program}" "${path}"; then
+        if [[ -n "${path}" ]] && _ai_tools_help__is_collection_path "${program}" "${path}"; then
             if [[ "${word}" == help ]]; then has_word=1; break; fi
         fi
         candidate="${path:+${path} }${word}"
@@ -480,7 +487,7 @@ ai_tools_help__resolve_request() {
             fi
             printf '%s\n' "${word}"; return 2
         fi
-        if _ai_tools_help__is_extended_path "${program}" "${path}"; then
+        if _ai_tools_help__is_collection_path "${program}" "${path}"; then
             if [[ "${word}" == list ]] && _ai_tools_help__find_row "${program}" "${path}" \
                     && [[ "${_AI_TOOLS_HELP__ARGUMENT}" == "[list]" ]]; then
                 path="${path} list"; break

@@ -160,7 +160,9 @@ else
     fail "--help did not list the domain and its summary: ${out}"
 fi
 
-# A bare run prints the help on stdout and exits 0, for root and, ahead of the root check, for the projects user.
+# A bare run prints the help on stdout and exits 0, for root and, ahead of the root check, for the projects user,
+# who runs the checkout's copy: the installed helper sits in a root-only directory, which is why an operator reaches it
+# through atr.
 run_admin
 if [[ "${STATUS}" -eq 0 && "${out}" == *"Agent Tools Restricted -- host administration"* ]]; then
     pass "a bare run prints the help and exits 0"
@@ -168,7 +170,8 @@ else
     fail "a bare run did not print the help at exit 0 (exit ${STATUS}): ${out}"
 fi
 bare_status=0
-bare_out="$(runuser -u "${PROJECTS_USER}" -- env AI_TOOLS_ADMIN_COMMANDS_DIR="${CMD_DIR}" "${HELPER}" 2>/dev/null)" \
+bare_out="$(runuser -u "${PROJECTS_USER}" -- env AI_TOOLS_ADMIN_COMMANDS_DIR="${CMD_DIR}" \
+    bash "${ROOT}/src/usr/local/libexec/ai-tools/ai-tools-admin.sh" 2>/dev/null)" \
     || bare_status=$?
 if [[ "${bare_status}" -eq 0 && "${bare_out}" == *"Usage:"* ]]; then
     pass "a bare run by the projects user prints the help on stdout and exits 0"

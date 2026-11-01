@@ -1414,6 +1414,19 @@ EOF
     expect "a help flag ahead of an invalid --for value is the help request" help_printed
     cli_stub_reset; drive cli ai-tools.projects.claim --help "$(f for)"
     expect "a help flag ahead of a missing --for value is the help request" help_printed
+    cli_stub_reset; drive cli ai-tools.projects.claim "$(f for)" -- --help
+    expect "-- as --for's value is not a value, and a help flag behind it leaves the refusal" quiet_rc 1
+    assert_msg MSG-B4G2 "${out}" "-- as --for's value is the --for refusal"
+    cli_stub_reset; drive cli ai-tools.projects.claim --help "$(f for)" --
+    expect "a help flag ahead of --for and a -- after it is the help request" help_printed
+    # `--version` in the first slot is the version whatever help flag follows; a `--for` beside it is checked
+    # as anywhere.
+    cli_stub_reset; drive cli ai-tools.version --help
+    expect "--version --help prints the version line" \
+        test "${rc}" -eq 0 -a "$(grep -cE '^ai-tools [^-[:space:]][^[:space:]]*$' <<<"${out}")" -eq 1
+    cli_stub_reset; drive cli ai-tools.version "$(f for)" -x
+    expect "--version beside an invalid --for value is the --for refusal, with no helper" quiet_rc 1
+    assert_msg MSG-B4G2 "${out}" "--version beside an invalid --for value is the --for refusal"
     cli_stub_reset; drive cli ai-tools.projects.claim -- --help "$(f for)" -x
     expect "a help flag behind -- leaves an invalid --for value refused, with no helper" quiet_rc 1
     assert_msg MSG-B4G2 "${out}" "a help flag behind -- leaves the --for refusal"

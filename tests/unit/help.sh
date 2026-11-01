@@ -146,10 +146,11 @@ if [[ "${EUID}" -eq 0 ]]; then
     fi
     rm -f "${fixture}/agent2" "${fixture}/stop"
     printf '#!/bin/sh\nexit 0\n' > "${fixture}/weak"; chown root:root "${fixture}/weak"; chmod 770 "${fixture}/weak"
-    admin="$(lib "ai_tools_help__render ai-tools-admin '${fixture}'" 2>&1)"
+    # The help is stdout; the discovery's warning is stderr, read apart, so the width is the help's alone.
+    admin="$(lib "ai_tools_help__render ai-tools-admin '${fixture}'" 2> "${TESTDIR}/warning")"
     within80 "the ai-tools-admin help with the refusal line" "${admin}"
     if [[ "${admin}" == *"  demo COMMAND"* && "${admin}" == *"  (refused: a file there is not root's alone -- see the warning above)"* \
-            && "${admin}" == *MSG-D3P6* ]]; then
+            && "$(cat "${TESTDIR}/warning")" == *MSG-D3P6* ]]; then
         pass "a group-writable fragment beside a trusted one adds the refusal line and its warning"
     else
         fail "the refusal line or its warning is missing: ${admin}"
@@ -196,6 +197,10 @@ resolves ai-tools 1 "" --version --help
 resolves ai-tools 1 "" --version -h
 resolves ai-tools 0 - --help --version
 resolves ai-tools 2 bogus1 bogus1 --help
+resolves ai-tools 0 providers providers help
+resolves ai-tools 0 "providers list" providers list -h
+resolves ai-tools 2 "providers bogus" providers bogus --help
+resolves ai-tools 0 status status foo --help
 resolves ai-tools 1 "" projects bogus
 resolves ai-tools 2 "projects bogus" projects bogus --help
 resolves ai-tools 2 "projects bogus" help projects bogus
