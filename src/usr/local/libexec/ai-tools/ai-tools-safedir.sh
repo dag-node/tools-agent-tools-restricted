@@ -15,8 +15,9 @@
 # does not carry group write (CP_HOME_MODE), so the sandbox account cannot place a name there.
 #
 # ADD requires the path to be an allowlisted project (resolve_owner); `--remove` does not take a registry gate,
-# so an entry is removable whatever the registry holds for the path, before or after its de-list. Both are idempotent;
-# the path defaults to cwd.
+# so an entry is removable whatever the registry holds for the path, before or after its de-list, and it removes
+# the value as git holds it where the argument is that spelling, the canonical path of the directory otherwise. Both
+# are idempotent; the path defaults to cwd.
 #
 # Usage:  ai-tools-safedir [--remove] [<absolute-project-path>]
 #
@@ -139,25 +140,30 @@ _confirm_cwd() {
 
 if ${REMOVE}; then
     # Tolerate a since-deleted directory: `realpath -m` canonicalises lexically without requiring the path to exist,
-    # so a stale entry for a removed tree is still cleanable. No registry gate (see the header).
+    # so a stale entry for a removed tree is still cleanable. No registry gate (see the header). The value is removed
+    # as typed where git holds that spelling: `atr projects list` prints a value as git stores it, and a hand-written
+    # spelling through a link or a `..` canonicalises to another string, which would leave the stored value in place
+    # and remove a sibling spelling where one exists. The canonical form, the spelling ADD writes, is removed otherwise.
     canonical="$(realpath -m -- "${TARGET}" 2>/dev/null || printf '%s' "${TARGET}")"
+    stored_value="${canonical}"
+    _listed "${TARGET}" && stored_value="${TARGET}"
     # The project is the subject of every record this run writes, so it rides as per-run log context (logging.rule.md)
     # instead of being named at each site.
-    AI_TOOLS_LOG_PROJECT="${canonical}"
-    _confirm_cwd "Remove ${canonical} from git safe.directory?" \
-        || { ai_tools_log__structured info "declined removing safe.directory ${canonical}" \
+    AI_TOOLS_LOG_PROJECT="${stored_value}"
+    _confirm_cwd "Remove ${stored_value} from git safe.directory?" \
+        || { ai_tools_log__structured info "declined removing safe.directory ${stored_value}" \
                  "AI_TOOLS_RESULT=refused"; exit 0; }
-    if _listed "${canonical}"; then
+    if _listed "${stored_value}"; then
         # `--unset-all` takes a value REGEX; escape the path so regex metacharacters in it are literal and anchors match
         # the whole line. The sed program is a single-quoted regex: its $ and () are literal metacharacters, not shell
         # expansions, so SC2016 is expected.
         # shellcheck disable=SC2016
-        esc="$(printf '%s' "${canonical}" | sed 's/[.[\*^$()+?{|\\]/\\&/g')"
+        esc="$(printf '%s' "${stored_value}" | sed 's/[.[\*^$()+?{|\\]/\\&/g')"
         git config --file "${GITCONFIG}" --unset-all safe.directory "^${esc}$" 2>/dev/null || true
         _reassert_mode
-        ai_tools_log__structured info "removed safe.directory ${canonical}" "AI_TOOLS_RESULT=ok"
+        ai_tools_log__structured info "removed safe.directory ${stored_value}" "AI_TOOLS_RESULT=ok"
     else
-        ai_tools_log__debug "safe.directory ${canonical} not listed -- nothing to remove"
+        ai_tools_log__debug "safe.directory ${stored_value} not listed -- nothing to remove"
     fi
     exit 0
 fi

@@ -470,20 +470,27 @@ an ordinary account read it — a partial view, the file sink being the authorit
   a git `safe.directory` with **no** registry entry, skipping the deliberately-registered control-plane paths
   the protected-paths backstop already covers. `safe.directory` is one list every operator's claims write into
   and `ai-tools-safedir --remove` does not consult any registry, so an uncovered entry is attributed before a removal
-  is offered: one whose tree `OWNER_USER` holds is orphaned (a hand-deleted line, an interrupted unclaim), one whose
-  path is gone is stale, and one under a directory the invoker cannot enter, in a tree another account holds, or whose
-  owner cannot be read is counted in one closing line and not listed. A registry line under a directory the invoker
-  cannot enter is reported as one it cannot read, without a removal, and on a `--for` run names the target's own
-  listing as the one that reads it. The `sed` line deletes the verbatim line, comment and all, from the file a message
-  names (`REGISTRY_DISPLAY_PATH`); on a `--for` run an `@` or a `%` line is removed through
+  is offered: one whose tree `OWNER_USER` holds is orphaned (a hand-deleted line, an interrupted unclaim); one whose
+  tree the sandbox account holds is named with its removal, to run only if the tree is the reader's, since
+  `require_claimable_owner` accepts that owner for any operator and no registry attributes it; one whose path is gone
+  is stale; one under a directory the invoker cannot enter, in a tree another account holds, or whose owner cannot be
+  read is counted in one closing line and not listed; and a value `ai-tools-safedir` does not write — git's `*`
+  and `<dir>/*` trust rules, a path git expands from a leading `~` or `%(prefix)/`, any other value that is not
+  absolute — is named by its form with the command that lists the file, and does not take a removal or count, since
+  the exact-value removal deletes a live rule. Each printed path is one bash word, and `ai-tools-safedir --remove`
+  removes a value as git holds it, so a stored spelling is removed as stored. A registry line under a directory
+  the invoker cannot enter is reported as one it cannot read, without a removal, and on a `--for` run names
+  the target's own listing as the one that reads it. The `sed` line deletes the verbatim line, comment and all,
+  from the file a message names (`REGISTRY_DISPLAY_PATH`); on a `--for` run an `@` or a `%` line is removed through
   `ai-tools-allowlist --operator <target> --remove` instead, while an excluded line, which that removal leaves
-  standing, and a protected path, which the helper's backstop refuses, keep the `sed` form, run as the target
-  (`sudo -u <target>`). It reads the registry through the registry gate ([The
-  registry gate](#the-registry-gate)), so a file no reader accepts — a glob on an allow line among the lines that make
-  one — is refused under `MSG-Y7K5` after the library's line, and a legacy file is listed under a banner naming
-  `atr admin system post-upgrade`, every `!` line read as an exclusion. It reuses existing predicates and verbs only (no
-  recovery machinery), stays **read-only** (every fix is an emitted command, never an in-place rewrite), and closes
-  with a compact **Maintenance** pointer to the per-project verbs. Informational, so it stays open to a non-operator.
+  standing, and a protected path, which the helper's backstop refuses, read in the form that backstop reads,
+  `realpath -m`, keep the `sed` form, run as the target (`sudo -u <target>`). It reads the registry through
+  the registry gate ([The registry gate](#the-registry-gate)), so a file no reader accepts — a glob on an allow line
+  among the lines that make one — is refused under `MSG-Y7K5` after the library's line, and a legacy file is listed
+  under a banner naming `atr admin system post-upgrade`, every `!` line read as an exclusion. It reuses existing
+  predicates and verbs only (no recovery machinery), stays **read-only** (every fix is an emitted command, never
+  an in-place rewrite), and closes with a compact **Maintenance** pointer to the per-project verbs. Informational,
+  so it stays open to a non-operator.
 - `--version` (the deploy-stamped package version; `dev` from a raw source tree), `--help`.
 - `--for <operator>` — a **modifier**, not a command: run the verb on behalf of another enrolled operator (see [Acting
   for another operator](#acting-for-another-operator---for)).

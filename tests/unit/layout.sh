@@ -912,11 +912,21 @@ else
     unset -f rpm
     # A leaf swapped for a symlink between the identity read and the open: the descriptor names another inode,
     # so the write is refused and the file the link points at is left as it was. The swap is made by a stat stub
-    # on the identity read alone; every other stat is the real one.
+    # on the identity read alone; every other stat is the real one. The identity read is told from the pinned read
+    # by `-L` as an option word: the testdir's random suffix may open with `L`, so a substring test on "$*" reads
+    # the path as the option.
     mkdir -p "${repair_root}/swap"; : > "${repair_root}/swap/target"; : > "${repair_root}/swap/victim"; chmod 0600 "${repair_root}/swap/target" "${repair_root}/swap/victim"
     stub_swap_kind="" stub_swap_entry="" stub_swap_victim=""
+    stub_stat_follows_links() {
+        local stub_arg
+        for stub_arg in "$@"; do
+            [[ "${stub_arg}" == -- ]] && return 1
+            [[ "${stub_arg}" == -L ]] && return 0
+        done
+        return 1
+    }
     stat() {
-        if [[ -n "${stub_swap_kind}" && "$*" == *'%d:%i'* && "$*" != *-L* ]]; then
+        if [[ -n "${stub_swap_kind}" && "$*" == *'%d:%i'* ]] && ! stub_stat_follows_links "$@"; then
             case "${stub_swap_kind}" in
                 leaf)   command stat "$@"; local r=$?
                         mv -- "${stub_swap_entry}" "${stub_swap_entry}.aside"; ln -s "${stub_swap_victim}" "${stub_swap_entry}"
@@ -951,7 +961,7 @@ else
     else
         fail "parent swap: ${out} / victim $(read_mode "${repair_root}/pswap/victim/target")"
     fi
-    unset -f stat
+    unset -f stat stub_stat_follows_links
     rm -f "${repair_root}/pswap/dir"; mv -- "${repair_root}/pswap/dir.aside" "${repair_root}/pswap/dir"
     # The ancestor rule: a row under an ancestor not at its row is refused without a read.
     mkdir -p "${repair_root}/anc"; : > "${repair_root}/anc/child"; chmod 0600 "${repair_root}/anc/child"

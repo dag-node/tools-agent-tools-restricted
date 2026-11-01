@@ -87,4 +87,21 @@ else fail "--remove left ${proj} registered"; fi
 if run --remove "${proj}"; then pass "--remove of an absent entry succeeds quietly"
 else fail "--remove of an absent entry returned non-zero"; fi
 
+# (G) `--remove` drops a value as git holds it. A hand-written spelling through a link whose target is gone
+# canonicalises to another string, so the stored value is the one removed where the argument is that spelling, with
+# its canonical sibling left standing; the canonical spelling is removed by its own name.
+real_dir="$(realpath "${TESTDIR}")/real"; mkdir -p "${real_dir}"; ln -s "${real_dir}" "${TESTDIR}/link"
+stored="$(realpath "${TESTDIR}")/link/gone"
+git config --file "${gc}" --add safe.directory "${stored}"
+git config --file "${gc}" --add safe.directory "${real_dir}/gone"
+run --remove "${stored}" || true
+if ! listed "${stored}" && listed "${real_dir}/gone"; then
+    pass "--remove drops a value as git holds it and leaves its canonical sibling"
+else
+    fail "--remove of ${stored} left: $(git config --file "${gc}" --get-all safe.directory | tr '\n' ' ')"
+fi
+run --remove "${real_dir}/gone" || true
+if ! listed "${real_dir}/gone"; then pass "--remove drops a value by its canonical spelling"
+else fail "--remove left ${real_dir}/gone registered"; fi
+
 finish

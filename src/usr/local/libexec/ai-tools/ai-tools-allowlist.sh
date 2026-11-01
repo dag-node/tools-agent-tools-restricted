@@ -254,25 +254,31 @@ fi
 # Canonicalise before every check and before the write, so a symlink or '..' cannot smuggle a path past
 # the protected-paths backstop and land a different directory in the launch gate. The existence and directory checks
 # cover the actions that widen the gate, `--add` and `--enable`. `--remove` and `--disable` each narrow where a session
-# may start, and an entry whose directory is gone is the case a removal exists for, so their path is canonicalised
-# with `realpath -m`, which does not require it to exist; the library matches such a line by its written path.
+# may start, and an entry whose directory is gone is the case a removal exists for, so the backstop reads their path
+# canonicalised with `realpath -m`, which does not require it to exist, and the library is handed the path as typed,
+# made absolute (entry_path): it resolves a registry line and a target alike with `realpath -e` and keeps the written
+# text where that fails, so a gone entry written through a link or a `..` matches by that text, where the lexical
+# canonical form does not match any line.
 case "${ACTION}" in
     add|enable)
         canonical="$(realpath -e "${TARGET_PATH}" 2>/dev/null)" \
             || die MSG-Q5X7 "not an existing path: ${TARGET_PATH} -- nothing changed"
         [[ -d "${canonical}" ]] \
-            || die MSG-R6C5 "not a directory: ${canonical} -- nothing changed" ;;
+            || die MSG-R6C5 "not a directory: ${canonical} -- nothing changed"
+        entry_path="${canonical}" ;;
     *)
-        canonical="$(realpath -m -- "${TARGET_PATH}" 2>/dev/null)" || canonical="${TARGET_PATH}" ;;
+        entry_path="${TARGET_PATH}"
+        [[ "${entry_path}" == /* ]] || entry_path="${PWD}/${entry_path}"
+        canonical="$(realpath -m -- "${entry_path}" 2>/dev/null)" || canonical="${entry_path}" ;;
 esac
 ai_tools_safe_paths__assert_safe_target "${canonical}" "allowlist ${ACTION}" || exit 3
-readonly canonical
+readonly canonical entry_path
 
 # This run edits one operator's allowlist for one project, so the operator and the project ride as per-run log context
 # (logging.rule.md). AI_TOOLS_OPERATOR names the operator whose launch gate the entry decides; the caller who ran
 # the command is recorded as AI_TOOLS_CALLER, so an edit made through `--for` keeps the two apart in the trail.
 AI_TOOLS_LOG_OPERATOR="${OPERATOR}"
-AI_TOOLS_LOG_PROJECT="${canonical}"
+AI_TOOLS_LOG_PROJECT="${entry_path}"
 
 # Every edit here is one call into conf.lib.sh's allowlist-editing functions -- the same implementation the CLI runs
 # against the operator's own file and install.sh against its checkout. What is left here is this helper's own job:
@@ -316,19 +322,19 @@ case "${ACTION}" in
             exit 0
         fi
         require_migrated_registry
-        case "$(ai_tools_conf__read_allowlist_state "${allowlist}" "${canonical}")" in
+        case "$(ai_tools_conf__read_allowlist_state "${allowlist}" "${entry_path}")" in
             absent|excluded)
-                note MSG-H7J9 "nothing to remove: ${canonical} is not listed for ${OPERATOR}"
+                note MSG-H7J9 "nothing to remove: ${entry_path} is not listed for ${OPERATOR}"
                 exit 0 ;;
         esac
-        rc=0; ai_tools_conf__allowlist_remove "${allowlist}" "${canonical}" || rc=$?
+        rc=0; ai_tools_conf__allowlist_remove "${allowlist}" "${entry_path}" || rc=$?
         (( rc == 4 )) && die_unrenderable_line remove
         (( rc == 0 )) \
-            || die MSG-K2G9 "could not remove ${canonical} from ${OPERATOR}'s allowlist -- a line naming it survived, so that project is still registered"
+            || die MSG-K2G9 "could not remove ${entry_path} from ${OPERATOR}'s allowlist -- a line naming it survived, so that project is still registered"
         ai_tools_log__structured info \
-            "operator ${caller} removed ${canonical} from ${OPERATOR}'s allowlist" \
+            "operator ${caller} removed ${entry_path} from ${OPERATOR}'s allowlist" \
             "AI_TOOLS_CALLER=${caller}" "AI_TOOLS_RESULT=ok"
-        note "removed ${canonical} for ${OPERATOR}"
+        note "removed ${entry_path} for ${OPERATOR}"
         ;;
     enable)
         # The one action that WIDENS the target's launch gate. It does not append a line: the '%' comes off the line
@@ -355,18 +361,18 @@ case "${ACTION}" in
         # than disabled (there would be no entry to disable, and inventing one would register a project without
         # claiming it).
         require_target_config
-        rc=0; ai_tools_conf__allowlist_disable "${allowlist}" "${canonical}" || rc=$?
+        rc=0; ai_tools_conf__allowlist_disable "${allowlist}" "${entry_path}" || rc=$?
         case "${rc}" in
             0) ;;
-            2) die MSG-H6K3 "not listed for ${OPERATOR}: ${canonical} -- there is no entry to disable" ;;
+            2) die MSG-H6K3 "not listed for ${OPERATOR}: ${entry_path} -- there is no entry to disable" ;;
             3) die_registry_changed disabled ;;
             4) die_unrenderable_line disable ;;
-            *) die MSG-C7Q4 "could not disable ${canonical} for ${OPERATOR} -- nothing changed" ;;
+            *) die MSG-C7Q4 "could not disable ${entry_path} for ${OPERATOR} -- nothing changed" ;;
         esac
         ai_tools_log__structured info \
-            "operator ${caller} disabled ${canonical} in ${OPERATOR}'s allowlist" \
+            "operator ${caller} disabled ${entry_path} in ${OPERATOR}'s allowlist" \
             "AI_TOOLS_CALLER=${caller}" "AI_TOOLS_RESULT=ok"
-        note "disabled ${canonical} for ${OPERATOR}"
+        note "disabled ${entry_path} for ${OPERATOR}"
         ;;
 esac
 

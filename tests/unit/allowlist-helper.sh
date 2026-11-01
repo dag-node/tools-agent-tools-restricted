@@ -295,6 +295,29 @@ else
 fi
 refuses "--enable of an absent path still refuses" MSG-Q5X7 \
     "${OPERATOR_UID}" --operator "${PROJECTS_USER}" --enable "${gone}-disable"
+# A gone entry written through a link is matched by its written text: the library resolves a line and a target alike
+# and keeps the text where the directory is gone, so the helper hands it the path as typed and not its lexical canonical
+# form, which names a line the file does not hold.
+real_parent="${TESTDIR}/real-parent"; mkdir -p "${real_parent}"; ln -s "${real_parent}" "${TESTDIR}/link-parent"
+linked_gone="${TESTDIR}/link-parent/gone"
+printf '%s\n' "# ai-tools-project-registry-format: 1.0" "@ ${linked_gone}" "@ ${linked_gone}-disable" > "${ALLOWFILE}"
+out="$(run_helper "${OPERATOR_UID}" --operator "${PROJECTS_USER}" --remove "${linked_gone}")" && rc=0 || rc=$?
+if (( rc == 0 )) && ! grep -qxF "@ ${linked_gone}" "${ALLOWFILE}" && grep -qxF "@ ${linked_gone}-disable" "${ALLOWFILE}"; then
+    pass "--remove deletes a gone entry written through a link, by its written path"
+else
+    fail "--remove of a gone entry written through a link (rc=${rc}): ${out}"$'\n'"$(cat "${ALLOWFILE}")"
+fi
+out="$(run_helper "${OPERATOR_UID}" --operator "${PROJECTS_USER}" --disable "${linked_gone}-disable")" && rc=0 || rc=$?
+if (( rc == 0 )) && grep -qxF "% ${linked_gone}-disable" "${ALLOWFILE}"; then
+    pass "--disable disables a gone entry written through a link, by its written path"
+else
+    fail "--disable of a gone entry written through a link (rc=${rc}): ${out}"$'\n'"$(cat "${ALLOWFILE}")"
+fi
+# The backstop reads the lexical canonical form, so a `..` through a component that does not exist still lands on
+# the protected directory it names. (A path under a protected directory passes the matcher by design, as a project under
+# an operator's home does.)
+refuses "--remove through a component that does not exist still meets the backstop" MSG-Q6H3 \
+    "${OPERATOR_UID}" --operator "${PROJECTS_USER}" --remove /etc/no-such-dir/..
 printf '%s\n' "${saved_registry}" > "${ALLOWFILE}"
 
 # ── `--disable` / `--enable`: the privileged half of ai-tools.projects.disable/ai-tools.projects.enable ──
