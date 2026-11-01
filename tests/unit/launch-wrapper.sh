@@ -78,6 +78,7 @@ link() { rm -f "${links}/claude"; ln -s "$1" "${links}/claude"; }
 # downstream of the CWD gate seeds the project directory that gate would have published through FIXTURE_PROJECT_DIR;
 # the residue cases point the resolver's two hooks at fixture manifests through FIXTURE_AGENTS_DIR
 # and FIXTURE_OPERATOR_CONF (empty, each hook takes its deployed default); a locale case sets FIXTURE_LC_ALL,
+# a case reading where a line lands against the frame sets FIXTURE_MSG_BOX=1, which draws the box with no terminal,
 # and the launch-hook cases drive a copy of the library whose hook directory is repointed at a fixture.
 run() {
     local lib="$1" user="$2" cwd="$3"; shift 3
@@ -87,6 +88,7 @@ run() {
         FIXTURE_PROJECT_DIR="${FIXTURE_PROJECT_DIR:-}" FIXTURE_LAUNCHER="${FIXTURE_LAUNCHER:-claude}" \
         AI_TOOLS_AGENTS_DIR="${FIXTURE_AGENTS_DIR:-}" AI_TOOLS_OPERATOR_CONF="${FIXTURE_OPERATOR_CONF:-}" \
         AI_TOOLS_ENTRYPOINT_PIN_DIR="${FIXTURE_PIN_DIR:-}" LC_ALL="${FIXTURE_LC_ALL:-}" \
+        AI_TOOLS_MSG_BOX="${FIXTURE_MSG_BOX:-}" \
         bash -c 'set -euo pipefail; IFS=$'"'"'\n\t'"'"'; cd "$1" || exit 98; source "$2" || exit 99
                  ai_tools_launch_wrapper__init "${FIXTURE_LAUNCHER}"; AI_TOOLS_LAUNCH_WRAPPER__PROJECT_DIR="${FIXTURE_PROJECT_DIR}"
                  shift 2; "$@"
@@ -369,6 +371,45 @@ says "and the refusal names the re-enable with the path" "$(cli_cmd_text ai-tool
 run "${LIB}" "${PROJECTS_USER}" "${disabled_dir}/sub" ai_tools_launch_wrapper__gate_project
 refused "a path inside a disabled project is refused by the '%' line above it" MSG-W2P3
 says "and the refusal names the re-enable of the disabled project" "$(cli_cmd_text ai-tools.projects.enable) ${disabled_dir}"
+# The re-enable each disabled-project refusal names is one command on an indented line of its own, the path in `%q`,
+# printed under the frame where a wrap cannot split it while the prose stays inside. The path carries a space, a `'`
+# and a `#`; the grammar refuses both quote characters in one path, so the line is written with `"`.
+odd="${TESTDIR}/odd dir's #1"
+mkdir -p "${odd}/sub"; chmod -R 0755 "${odd}"; chown -R "${PROJECTS_USER}:${PROJECTS_GROUP}" "${odd}"
+# enable_command_reads <what> <path> : the last run printed the enable command on an indented line, which bash parses
+# as one command whose last word is <path>.
+enable_command_reads() {
+    local line; local -a words=()
+    line="$(grep -E '^[[:space:]]+[^[:space:]]' <<<"${OUT}" | grep -F -- 'projects enable' | head -n 1)" || true
+    if [[ -z "${line}" ]]; then fail "$1: no indented line names the enable: $(head -c 300 <<<"${OUT}" | tr '\n' '|')"; return; fi
+    if ! bash -n <<<"${line}" 2>/dev/null; then fail "$1: bash does not parse the line: ${line}"; return; fi
+    eval "words=( ${line} )"
+    if [[ "${words[-1]}" == "$2" ]]; then pass "$1"; else fail "$1: the last word is '${words[-1]}', not '$2'"; fi
+}
+# command_under_frame <what> <token> : the last run, boxed, carries <token> on a framed line and the enable command
+# on a line outside the frame alone. A token is one word, since the box wraps the prose between words.
+command_under_frame() {
+    local framed bare
+    framed="$(grep -E '^#' <<<"${OUT}")" || true
+    bare="$(grep -vE '^#' <<<"${OUT}")" || true
+    if grep -qF -- "$2" <<<"${framed}" && grep -qE -- '^[[:space:]]+.* projects enable ' <<<"${bare}" \
+            && ! grep -qF -- 'projects enable' <<<"${framed}"; then
+        pass "$1"
+    else
+        fail "$1: $(head -c 400 <<<"${OUT}" | tr '\n' '|')"
+    fi
+}
+allowlist "% \"${odd}\""
+run "${LIB}" "${PROJECTS_USER}" "${odd}" ai_tools_launch_wrapper__gate_project
+refused "a disabled project whose path carries a space, a quote and a '#' is refused as disabled" MSG-R2V6
+enable_command_reads "and the re-enable is one command whose last word is that path" "${odd}"
+FIXTURE_MSG_BOX=1 run "${LIB}" "${PROJECTS_USER}" "${odd}" ai_tools_launch_wrapper__gate_project
+command_under_frame "and on a terminal the command prints under the frame, the prose inside it" "with:"
+run "${LIB}" "${PROJECTS_USER}" "${odd}/sub" ai_tools_launch_wrapper__gate_project
+refused "a path inside that disabled project is refused by its '%' line" MSG-W2P3
+enable_command_reads "and the re-enable names the disabled project as one word" "${odd}"
+FIXTURE_MSG_BOX=1 run "${LIB}" "${PROJECTS_USER}" "${odd}/sub" ai_tools_launch_wrapper__gate_project
+command_under_frame "and on a terminal that command prints under the frame, the prose inside it" "with:"
 # A glob excluded path covers each directory it matches and every directory under one.
 allowlist "@ ${approved}" "! ${approved}/*/node_modules"
 run "${LIB}" "${PROJECTS_USER}" "${approved}/web/node_modules" ai_tools_launch_wrapper__gate_project

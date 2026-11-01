@@ -64,26 +64,42 @@ ai_tools_launch_wrapper__pause_if_tty() {
     fi
 }
 
-# _ai_tools_launch_wrapper__error [<code>] <line>... -- frame the lines on stderr through ai_tools_msg__error, the first
-# one prefixed with the launcher name. The prefix belongs to the emitter, so a message text does not carry one of its
-# own: the code identifies the situation and the prefix names the wrapper that raised it (a line after the first names
-# it where it reads as a second sentence of the same voice).
-_ai_tools_launch_wrapper__error() {
-    local code=""
+# _ai_tools_launch_wrapper__emit <emitter> [<code>] <line>... -- frame the lines on stderr through the msg.lib emitter
+# named, the first one prefixed with the launcher name, except that a line opening with whitespace is printed plain
+# on stderr after the frame, verbatim and in order. The emitter wraps every line on whitespace, and a command carries
+# a %q-escaped space a wrap would split, so a message puts each command on such a line of its own, after its flush-left
+# lines. It is the rule ai-tools.sh's emit_alert applies, so a refusal reads one way from the wrapper and from the CLI;
+# in plain mode the output is every line in the order given, a message whose indented lines come last unchanged.
+_ai_tools_launch_wrapper__emit() {
+    local emitter="$1" code="" line
+    shift
     if ai_tools_msg__is_code "${1-}"; then code="$1"; shift; fi
-    local first="${AI_TOOLS_LAUNCH_WRAPPER__NAME}: $1"; shift
-    ai_tools_msg__error ${code:+"${code}"} "${first}" "$@"
+    local -a framed=("${AI_TOOLS_LAUNCH_WRAPPER__NAME}: $1") unframed=()
+    shift
+    for line in "$@"; do
+        if [[ "${line}" == [[:space:]]* ]]; then unframed+=("${line}"); else framed+=("${line}"); fi
+    done
+    "${emitter}" ${code:+"${code}"} "${framed[@]}"
+    (( ${#unframed[@]} == 0 )) || printf '%s\n' "${unframed[@]}" >&2 || true
 }
+
+# _ai_tools_launch_wrapper__error [<code>] <line>... -- _ai_tools_launch_wrapper__emit through ai_tools_msg__error.
+# The prefix belongs to the emitter, so a message text does not carry one of its own: the code identifies the situation
+# and the prefix names the wrapper that raised it (a line after the first names it where it reads as a second sentence
+# of the same voice).
+_ai_tools_launch_wrapper__error() { _ai_tools_launch_wrapper__emit ai_tools_msg__error "$@"; }
 
 # _ai_tools_launch_wrapper__warn [<code>] <line>... -- the same shape one severity down, for a condition the operator
 # acts on while the launch continues. The prefix belongs here for the reason the error emitter's does, and a coded
 # warning needs it: a message text opening with the launcher name would open with an expansion, which the reference
 # index reads as a citation rather than as the definition of the code (messaging.rule.md).
-_ai_tools_launch_wrapper__warn() {
-    local code=""
-    if ai_tools_msg__is_code "${1-}"; then code="$1"; shift; fi
-    local first="${AI_TOOLS_LAUNCH_WRAPPER__NAME}: $1"; shift
-    ai_tools_msg__warn ${code:+"${code}"} "${first}" "$@"
+_ai_tools_launch_wrapper__warn() { _ai_tools_launch_wrapper__emit ai_tools_msg__warn "$@"; }
+
+# _ai_tools_launch_wrapper__format_shell_word <text> -- print <text> as one bash word in `printf %q`'s encoding, read
+# in the C locale, so a path carrying a space, a quote or a `#` pastes as the one argument it names.
+_ai_tools_launch_wrapper__format_shell_word() {
+    local LC_ALL=C
+    printf '%q' "$1"
 }
 
 # ai_tools_launch_wrapper__die [<code>] <line>... -- _ai_tools_launch_wrapper__error, pause on a tty, and exit 1.
@@ -403,11 +419,12 @@ ai_tools_launch_wrapper__print_and_exit() {
 # hand-back. A CWD that is not approved draws the setup menu (create a sandbox clone, claim here, cancel) on a terminal,
 # and is refused without one. AI_TOOLS_ALLOWLIST is not read here: the launch gate is the operator's own file.
 ai_tools_launch_wrapper__gate_project() {
-    local name="${AI_TOOLS_LAUNCH_WRAPPER__NAME}" registry_state allowlist cwd dir pat sel index kind remedy covering
+    local name="${AI_TOOLS_LAUNCH_WRAPPER__NAME}" registry_state allowlist cwd dir pat sel index kind covering
     IFS=$'\t' read -r registry_state allowlist < <(ai_tools_conf__resolve_registry "${HOME}/.config/ai-tools")
     if [[ "${registry_state}" == none ]]; then
         ai_tools_launch_wrapper__die MSG-C9S6 "project registry not found: ${allowlist}" \
-            "${name}: an operator's enrolment seeds it -- atr admin operators add <user> -- and a claim then adds each project"
+            "${name}: an operator's enrolment seeds it, and a claim then adds each project; an administrator enrols an operator with:" \
+            "         atr admin operators add <user>"
     fi
     cwd="$(realpath -e "${PWD}" 2>/dev/null)" \
         || ai_tools_launch_wrapper__die MSG-S8D9 "cannot resolve working directory"
@@ -456,7 +473,8 @@ ai_tools_launch_wrapper__gate_project() {
             if [[ "${kind}" == disabled ]]; then
                 ai_tools_launch_wrapper__die MSG-R2V6 "this project is disabled in your project registry: ${cwd}" \
                     "${name}: no session starts here until it is re-enabled -- its files, group and label are untouched" \
-                    "${name}: re-enable it with:  ${CLI_CMD} projects enable ${cwd}"
+                    "${name}: re-enable it with:" \
+                    "         ${CLI_CMD} projects enable $(_ai_tools_launch_wrapper__format_shell_word "${cwd}")"
             fi
             # A legacy allowed-projects wrote a disabled project as a '!' line, which the grammar this release reads
             # takes as an excluded path; the migration's hint names how a disabled one is written now.
@@ -469,15 +487,17 @@ ai_tools_launch_wrapper__gate_project() {
         # The line covers an ancestor of the directory: a plain path's contents, or a directory under one a glob
         # matches.
         if [[ "${covering}" != "${cwd}" ]]; then
+            local -a remedy_lines=()
             if [[ "${kind}" == disabled ]]; then
-                remedy="it is inside ${pat}, a disabled project; re-enable that project with:  ${CLI_CMD} projects enable ${pat}"
+                remedy_lines=("${name}: it is inside ${pat}, a disabled project; re-enable that project with:"
+                    "         ${CLI_CMD} projects enable $(_ai_tools_launch_wrapper__format_shell_word "${pat}")")
             else
-                remedy="the line ! ${pat} above this directory excludes it, and no session starts under it; edit ${allowlist} to change that"
+                remedy_lines=("${name}: the line ! ${pat} above this directory excludes it, and no session starts under it; edit ${allowlist} to change that")
                 if [[ "${registry_state}" == legacy ]]; then
                     printf 'MSG-J6S8\n%s\n' "${name}: ${allowlist} is the registry an earlier release wrote and is not migrated -- run atr admin system post-upgrade; a project disabled before the upgrade is written % <path> in ~/.config/ai-tools/project-registry" >&2
                 fi
             fi
-            ai_tools_launch_wrapper__die MSG-W2P3 "excluded by a line in your project registry: ${cwd}" "${name}: ${remedy}"
+            ai_tools_launch_wrapper__die MSG-W2P3 "excluded by a line in your project registry: ${cwd}" "${remedy_lines[@]}"
         fi
     done
 
@@ -627,8 +647,8 @@ ai_tools_launch_wrapper__guard_claim() {
                 # and prompts for your password. Re-running the claim (NOT `sudo ai-tools` -- the CLI refuses to run
                 # as root) re-attempts it.
                 ai_tools_launch_wrapper__die "${cwd}: SELinux label still missing -- the claim did not complete" \
-                    "       re-run: ${CLI_CMD} projects claim ${cwd}" \
-                    "       (enter your password when it prompts for the SELinux relabel)"
+                    "re-run the claim, and enter your password when it prompts for the SELinux relabel:" \
+                    "         ${CLI_CMD} projects claim $(_ai_tools_launch_wrapper__format_shell_word "${cwd}")"
             fi
         else
             ai_tools_launch_wrapper__die MSG-W4X4 "refusing to launch -- ${cwd} is not fully claimed for the sandbox" \

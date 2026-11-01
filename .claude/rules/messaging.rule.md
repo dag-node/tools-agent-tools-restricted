@@ -357,11 +357,12 @@ status of the operation whose outcome they report.
 - **`launch-wrapper.lib.sh`**, the gates every agent's wrapper runs, routes `ai_tools_launch_wrapper__die`
   through `ai_tools_msg__error`, so every fatal refusal of a launch is framed at one chokepoint (an agent's launch hook
   refuses through that function, and the one refusal ahead of the load, `ai-tools-launch`'s `refuse_early`, prints its
-  one fixed code in the plain form); it frames its `safe.directory` NOTICE and **both** guidance screens
-  with `ai_tools_msg__block`. Titles name the action, not the refusal ("Set up this project for the sandboxed agent",
-  "Finish setting up this project for the agent"), and commands print as bare names
-  through `ai_tools_msg__format_command`. Neither screen repeats paths: the claim/clone commands default to the current
-  directory.
+  one fixed code in the plain form). That chokepoint and the wrapper's warning apply the CLI's indented-line rule
+  ([Quirks](#quirks)), printing a command line, its path in `%q`, under the frame. It frames its `safe.directory`
+  NOTICE and **both** guidance screens with `ai_tools_msg__block`. Titles name the action, not the refusal ("Set up
+  this project for the sandboxed agent", "Finish setting up this project for the agent"), and commands print as bare
+  names through `ai_tools_msg__format_command`. Neither screen repeats paths: the claim/clone commands default
+  to the current directory.
 
   The **setup** screen carries one line of prose and **no commands**; its options live in the `ai_tools_msg__pick none`
   menu under it, each with the consequence that distinguishes it — **1)** Create sandbox (*the session runs in the copy,

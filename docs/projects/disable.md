@@ -79,10 +79,13 @@ and says so.
 ```text
 claude: this project is disabled in your project registry: /home/you/src/api
 claude: no session starts here until it is re-enabled -- its files, group and label are untouched
-claude: re-enable it with:  atr projects enable /home/you/src/api
+claude: re-enable it with:
+         atr projects enable /home/you/src/api
 ```
 
-The launch refuses and names the way back.
+The launch refuses and names the way back. The command prints on a line of
+its own, under the message box on a terminal, with the path quoted as one
+shell word, so it pastes whole.
 
 ## For another operator
 
