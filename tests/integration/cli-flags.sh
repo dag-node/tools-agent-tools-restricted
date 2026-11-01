@@ -887,6 +887,7 @@ drive_rows() {
     cli_stub_reset; cli_stub_no_grant ai-tools-allowlist
     drive cli ai-tools.projects.list "$(f for)" "${FOR_USER}"
     expect "the listing --for without a grant for the registry reader exits 1 before any helper" quiet_rc 1
+    expect "and the refusal is read by its code" err_has MSG-R4J2
     cli_stub_reset; drive cli ai-tools.projects.list "$(f for)" "${FOR_USER}"
     expect "control: with the grant, the listing --for reaches the snapshot" cli_called ai-tools-allowlist "^--operator${T}${FOR_USER}${T}--print$"
     # The removal a `--for` listing names for a stale entry edits the target's registry through the helper; an excluded

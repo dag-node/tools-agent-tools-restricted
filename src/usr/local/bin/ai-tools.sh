@@ -5879,15 +5879,15 @@ cmd_project_list() {
             cleanup+=( "  ${e}" \
                 "      ${C_YEL}no longer exists${C_RST} (stale entry); remove it:" \
                 "          $(format_registry_line_removal "${raw}" project "${e}")" )
-            ${sdy} && cleanup+=( "          sudo ${SAFEDIR_BIN} --remove ${e}" )
+            ${sdy} && cleanup+=( "          sudo ${SAFEDIR_BIN} --remove $(_quote_path "${e}")" )
             return 0                                    # ${sdy}=false returns 1; don't kill cmd_project_list's set -e loop
         fi
         if ai_tools_safe_paths__match_protected_path "${e}" >/dev/null 2>&1; then
             cleanup+=( "  ${e}" \
                 "      ${C_YEL}protected system path${C_RST} -- the tools refuse to operate on it; remove it:" \
                 "          $(format_registry_line_removal "${raw}" project "${e}")" )
-            ${sdy} && cleanup+=( "          sudo ${SAFEDIR_BIN} --remove ${e}" )
-            _is_labelled "${e}" && cleanup+=( "          sudo ${RELABEL_BIN} --remove ${e}" )
+            ${sdy} && cleanup+=( "          sudo ${SAFEDIR_BIN} --remove $(_quote_path "${e}")" )
+            _is_labelled "${e}" && cleanup+=( "          sudo ${RELABEL_BIN} --remove $(_quote_path "${e}")" )
             return 0                                    # trailing conditionals above return 1; don't kill the loop
         fi
         [[ "${k}" == project ]] || return 0            # a sandbox clone takes the clone kind of `projects remove`
@@ -5959,36 +5959,53 @@ cmd_project_list() {
     # so they are skipped.
     #
     # safe.directory is one host-wide list every operator's claims write into, while this run reads one registry, so
-    # an uncovered entry is attributed before a remedy is offered: a path whose root OWNER_USER holds is this
-    # registry's orphan; a path that no longer exists is stale; a path under a directory the invoker cannot enter, one
-    # another account holds, and one whose owner cannot be read are counted and not listed. The claim's owner rule
+    # an uncovered entry is attributed before a remedy is offered: a value that is not an absolute path is a hand edit
+    # git reads as a pattern, named with the command that lists the file; a path whose root OWNER_USER holds is this
+    # registry's orphan; one the sandbox account holds is named with its removal under the condition that the tree is
+    # the reader's, since require_claimable_owner accepts that owner for any operator and no registry attributes it;
+    # a path that no longer exists is stale; a path under a directory the invoker cannot enter, one another account
+    # holds, and one whose owner cannot be read are counted and not listed. The claim's owner rule
     # (require_claimable_owner) is what makes the owner the attribution key. A reading the invoker cannot make
     # withholds the removal, since `ai-tools-safedir --remove` does not consult any registry, and the count says
-    # the entries exist.
+    # the entries exist. Each printed path is one bash word (_quote_path), and `ai-tools-safedir --remove` removes
+    # a value as git holds it, so a stored spelling is named as stored.
     # shellcheck disable=SC2034  # sdir_blocker is filled through its name by find_invoker_traversal_blocker
     local sdir sdir_blocker sdir_real sdir_owner unattributed=0
     while IFS= read -r sdir; do
         [[ -n "${sdir}" ]] || continue
+        if [[ "${sdir}" != /* ]]; then
+            cleanup+=( "  ${sdir}" \
+                "      ${C_YEL}not a path${C_RST} -- git reads it as a pattern, and * trusts every repository; ai-tools-safedir writes an absolute path alone, so review the list by hand:" \
+                "          git config --file ${GITCONFIG} --get-all safe.directory" )
+            continue
+        fi
         ai_tools_safe_paths__match_protected_path "${sdir}" >/dev/null 2>&1 && continue
         read_path_class "$(resolve_entry_path "${sdir}")"
         case "${CLASS_STATE}" in enabled|disabled) continue ;; esac
-        if [[ "${sdir}" == /* ]] && find_invoker_traversal_blocker "${sdir}/" sdir_blocker; then
+        if find_invoker_traversal_blocker "${sdir}/" sdir_blocker; then
             unattributed=$(( unattributed + 1 )); continue
         fi
         if ! sdir_real="$(realpath -e -- "${sdir}" 2>/dev/null)"; then
             cleanup+=( "  ${sdir}" \
                 "      ${C_YEL}no longer exists${C_RST} (stale git safe.directory); remove it:" \
-                "          sudo ${SAFEDIR_BIN} --remove ${sdir}" )
+                "          sudo ${SAFEDIR_BIN} --remove $(_quote_path "${sdir}")" )
             continue
         fi
         sdir_owner="$(stat -c '%U' -- "${sdir_real}" 2>/dev/null)" || sdir_owner=""
+        if [[ "${sdir_owner}" == "${SANDBOX_USER}" ]]; then
+            cleanup+=( "  ${sdir}" \
+                "      ${C_YEL}held by the sandbox account${C_RST}; no line of this registry names it, and a claim accepts that owner for any operator, so remove it only if the tree is yours:" \
+                "          sudo ${SAFEDIR_BIN} --remove $(_quote_path "${sdir}")" )
+            _is_labelled "${sdir}" && cleanup+=( "          sudo ${RELABEL_BIN} --remove $(_quote_path "${sdir}")" )
+            continue
+        fi
         if [[ "${sdir_owner}" != "${OWNER_USER}" ]]; then
             unattributed=$(( unattributed + 1 )); continue
         fi
         cleanup+=( "  ${sdir}" \
             "      ${C_YEL}git safe.directory with no allowlist entry${C_RST} (orphaned); remove it:" \
-            "          sudo ${SAFEDIR_BIN} --remove ${sdir}" )
-        _is_labelled "${sdir}" && cleanup+=( "          sudo ${RELABEL_BIN} --remove ${sdir}" )
+            "          sudo ${SAFEDIR_BIN} --remove $(_quote_path "${sdir}")" )
+        _is_labelled "${sdir}" && cleanup+=( "          sudo ${RELABEL_BIN} --remove $(_quote_path "${sdir}")" )
         continue
     done < <(git config --file "${GITCONFIG}" --get-all safe.directory 2>/dev/null || true)
 

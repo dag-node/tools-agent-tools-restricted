@@ -966,11 +966,14 @@ EOF
     ln -s "${lst}/partial" "${lst}/alias"
     chown -R "${PROJECTS_USER}:${PROJECTS_USER}" "${lst}"
     # The reverse scan attributes an uncovered safe.directory before it offers a removal: a tree another account holds
-    # (foreign, the sandbox account's, which every host has) and one under a directory the projects user cannot enter
-    # (sealed, 0700 root) are counted and not listed; a path that is gone (stale-safedir) is stale. A listed entry under
+    # (other-op, root's) and one under a directory the projects user cannot enter (sealed, 0700 root) are counted
+    # and not listed; a tree the sandbox account holds (foreign) is named with a removal to run only if the tree is
+    # the reader's, since a claim accepts that owner for any operator; a path that is gone (stale-safedir, and one
+    # carrying a space) is stale; a value that is not a path (*) is named with no removal. A listed entry under
     # the sealed directory is reported as unreadable rather than stale.
-    mkdir -p "${lst}/foreign" "${lst}/sealed/inner" "${lst}/sealed/listed"
+    mkdir -p "${lst}/foreign" "${lst}/other-op" "${lst}/sealed/inner" "${lst}/sealed/listed"
     chown "${SANDBOX_USER}:${SANDBOX_USER}" "${lst}/foreign"
+    chown root:root "${lst}/other-op"; chmod 0755 "${lst}/other-op"
     chown root:root "${lst}/sealed"; chmod 0700 "${lst}/sealed"
     lal="${TESTDIR}/list-allowlist"
     cat > "${lal}" <<EOF
@@ -997,8 +1000,11 @@ EOF
 	directory = ${lst}/orphan/../partial
 	directory = /opt/ai-tools
 	directory = ${lst}/foreign
+	directory = ${lst}/other-op
 	directory = ${lst}/sealed/inner
 	directory = ${lst}/stale-safedir
+	directory = ${lst}/stale with space
+	directory = *
 EOF
     chown "${PROJECTS_USER}:${PROJECTS_USER}" "${lgc}"
 
@@ -1105,13 +1111,21 @@ EOF
         fi
     done
     # Attribution: the orphan count stays at the one tree the projects user holds. A tree another account holds
-    # and one under a directory the projects user cannot enter are named nowhere and counted in one closing line.
-    list_lacks "${lst}/foreign"       "ai-tools.projects.list does not name a safe.directory in another account's tree"
+    # and one under a directory the projects user cannot enter are named nowhere and counted in one closing line;
+    # a tree the sandbox account holds is named with a removal to run only if the tree is the reader's.
+    list_lacks "${lst}/other-op"      "ai-tools.projects.list does not name a safe.directory in another account's tree"
     list_lacks "${lst}/sealed/inner"  "ai-tools.projects.list does not name a safe.directory under a directory it cannot enter"
     list_has "2 git safe.directory entries are in trees" "ai-tools.projects.list counts the two entries it cannot attribute"
+    list_has "held by the sandbox account" "ai-tools.projects.list names a safe.directory in a tree the sandbox account holds as such"
+    list_has "ai-tools-safedir --remove ${lst}/foreign" "and offers its removal under the condition the line states"
     list_has "stale git safe.directory" "ai-tools.projects.list reports a safe.directory whose path is gone as stale"
     list_has "ai-tools-safedir --remove ${lst}/stale-safedir" "and names its safe.directory removal"
+    list_has "ai-tools-safedir --remove ${lst}/stale"'\ with\ space' "and prints a stale path carrying a space as one word"
     list_lacks "ai-tools-relabel --remove ${lst}/stale-safedir" "and no label removal, there being no tree to read a label from"
+    # A value that is not a path is named with the command that lists the file, and does not take a removal: the shell
+    # would expand an unquoted `*` over the operator's directory before the helper read it.
+    list_has "not a path" "ai-tools.projects.list names a safe.directory value that is not a path as such"
+    list_lacks "--remove *" "and offers no removal for it"
     # The disabled row carries the safe.dir column the project rows carry, and stays out of the cleanup.
     if grep -qE "disabled +${lst}/disabled-proj +safe\.dir:yes" <<<"${lout}"; then
         pass "ai-tools.projects.list shows safe.dir:yes on a disabled row whose path is in git safe.directory"
