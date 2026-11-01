@@ -726,10 +726,11 @@ under `MSG-K7D9` (`create` under `MSG-A7D3`) with exit 2, naming `.` as the spel
 verb refuses an `excluded` path (`MSG-W4S7`, or `MSG-R8C7` naming the line for the file verbs), and every verb
 that would act under a covering line refuses the path it blocks (`MSG-R8C7`, its remedy by kind
 through `format_blocking_line_remedy`: the enable of the disabled project, or the edit of the line). The clone kind
-of `remove` reads none of these states: it authorizes a recognized clone by its place in `SANDBOX_ROOT`
-([Remove](#remove)). A path `inside` a project is refused naming that project (`MSG-T5A3`) by every verb but `claim`,
-which claims a nested project, and the file verbs, which act on the subtree. The rows a verb takes for each state are
-its case statement, and the reasons a refusal fires before a write are the root helpers': each resolves a path's owner
+of `remove` decides from none of these states, authorizing a recognized clone by its place in `SANDBOX_ROOT`
+([Remove](#remove)), and reads the record for what its failed-deletion warning names alone. A path `inside` a project
+is refused naming that project (`MSG-T5A3`) by every verb but `claim`, which claims a nested project, and the file
+verbs, which act on the subtree. The rows a verb takes for each state are its case statement, and the reasons
+a refusal fires before a write are the root helpers': each resolves a path's owner
 through the same allow/exclude matcher, so under a covering line it acts on no path and a verb proceeding over one would
 report steps that did not run.
 

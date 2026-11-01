@@ -1300,6 +1300,29 @@ EOF
     cli_stub_reset; drive cli ai-tools.projects.remove.clone "$(f yes)" "${R}/pa"
     expect "the clone kind is decided by the path: a project in place takes the registry gate" rc_not0
     expect "that refusal leaves the tree"                             test -d "${R}/pa"
+    # A clone removal whose deletion fails reports the entry the clone had and the one that still covers it, read
+    # from the registry record ahead of the registry step. The `rm` stub of the `--for` group fails the clone's path;
+    # an enabled entry over the clone area is the covering one, and a clone no line names had no entry of its own,
+    # since a recognized clone is removed on being one.
+    local clone_al_saved; clone_al_saved="$(cat "${AL}")"
+    printf '%s' "${SBROOT}/${N_SRC}" > "${rm_stub}/target"
+    RUN_EXTRA_ENV=(PATH="${rm_stub}:${CLI_STUB_PATH}:/usr/local/bin:/usr/bin:/bin")
+    seed "@ ${SBROOT}" "@ ${SBROOT}/${N_SRC}"; seed_gc "${SBROOT}/${N_SRC}"
+    drive cli ai-tools.projects.remove.clone "$(f yes)" "${SBROOT}/${N_SRC}"
+    expect "a clone removal whose deletion fails exits non-zero"      rc_not0
+    expect "the clone is left on disk"                                test -d "${SBROOT}/${N_SRC}"
+    expect "its entry was dropped ahead of the deletion"              st_is "${SBROOT}/${N_SRC}" absent
+    expect "the report says the clone's own entry is removed"         out_has_text "clone's own registry entry is removed"
+    expect "and names the entry over the clone area that still covers it" out_has_text "the entry for ${SBROOT} still authorizes a launch there"
+    seed "@ ${R}/pa"; seed_gc "${SBROOT}/${N_SRC}"
+    drive cli ai-tools.projects.remove.clone "$(f yes)" "${SBROOT}/${N_SRC}"
+    expect "a removal of a clone no line names, its deletion failing, exits non-zero" rc_not0
+    expect "the report says the clone had no entry of its own"        out_has_text "clone had no registry entry of its own"
+    expect "and does not say an entry of its own was removed"         out_lacks_text "own registry entry is removed"
+    expect "and names no entry that covers it, there being none"      out_lacks_text "still authorizes"
+    RUN_EXTRA_ENV=()
+    printf '%s\n' "${clone_al_saved}" > "${AL}"; chown "${PROJECTS_USER}:${PROJECTS_USER}" "${AL}"; cli_stub_reset
+    rm -rf "${SBROOT:?}/${N_SRC}"
     fi
 
     # ── J. Lockdown and reclaim ───────────────────────────────────────────────────────

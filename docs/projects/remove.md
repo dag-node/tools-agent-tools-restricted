@@ -101,8 +101,9 @@ Pointed at a clone under the sandbox area, the command removes it when it is
 a git clone directly inside that area, and asks one default-No confirm. It then
 takes the order [Registries first, the tree
 last](#registries-first-the-tree-last) states, the clone's own lines going
-with it. A commit not yet pushed goes with it, and the command does not count
-them: run `atr projects push` first to keep your work ([Push](push.md)).
+with it; a clone no line names is reported as having had no entry when its
+deletion fails. A commit not yet pushed goes with it, and the command does not
+count them: run `atr projects push` first to keep your work ([Push](push.md)).
 The remote branch stays for others to merge. `-y` answers that one confirm,
 on the same terms ([Clone](clone.md)).
 
