@@ -328,6 +328,8 @@ jobs:
 
       # `if: always()`, so a failed or timed-out leg keeps whatever the suite wrote. origin.txt names the run
       # the results came from; run-info.txt beside each transcript set names when and on what the suite ran.
+      # upload-artifact packs the directory into one zip, named for the suite's UTC start first, so saved results
+      # sort by time; the record time stands in where the suite wrote no directory.
       - name: Record the test results' origin
         id: results
         if: always() && steps.scope.outputs.run == 'true'
@@ -348,7 +350,10 @@ jobs:
             printf 'release=%s\n' "${RELEASE}"
             printf 'recorded=%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
           } > test-results/origin.txt
-          echo "name=test-results-${DIST}-${RELEASE}-run${GITHUB_RUN_ID}.${GITHUB_RUN_ATTEMPT}" >> "$GITHUB_OUTPUT"
+          stamp="$(find test-results -mindepth 1 -maxdepth 1 -type d -printf '%f\n' \
+              | sed -n 's/^\([0-9]\{8\}T[0-9]\{6\}Z\)-.*/\1/p' | sort | head -n1)"
+          [[ -n "${stamp}" ]] || stamp="$(date -u +%Y%m%dT%H%M%SZ)"
+          echo "name=test-results-${stamp}-${DIST}-${RELEASE}-run${GITHUB_RUN_ID}.${GITHUB_RUN_ATTEMPT}" >> "$GITHUB_OUTPUT"
 
       - name: Upload the test results
         if: always() && steps.results.outputs.name != ''

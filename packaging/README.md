@@ -57,9 +57,14 @@ make -C packaging rpmtest-rocky10 TEST_RESULTS="$PWD/test-results"
 The selftest writes each test file's transcript, `results.tsv`
 and `run-info.txt` under `test-results/`, in a directory named for the UTC time
 the suite started and the distribution. CI does the same on every leg
-and uploads the directory
-as the `test-results-<dist>-<release>-run<id>.<attempt>` artifact,
-with an `origin.txt` naming the commit, the ref and the run.
+and uploads the directory as one zip,
+the `test-results-<UTC start>-<dist>-<release>-run<id>.<attempt>` artifact,
+with an `origin.txt` naming the commit, the ref and the run. To fetch every
+leg's results of a run at once:
+
+```bash
+gh run download <run-id> --pattern 'test-results-*'
+```
 
 ## Run it by hand
 
