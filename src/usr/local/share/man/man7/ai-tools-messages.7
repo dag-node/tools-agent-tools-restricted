@@ -1726,17 +1726,13 @@ no such directory ${TARGET} \-\- not registering safe.directory
 WARNING.
 no operator covers ${canonical} \-\- not registering safe.directory
 .TP
+.B MSG-T6R4
+WARNING.
+cannot load ${CONTROL_PLANE_LIB} \-\- not editing safe.directory; reinstall ai\-tools\-base
+.TP
 .B MSG-V7J8
 WARNING.
 unknown option: ${arg}
-.TP
-.B MSG-V8E9
-WARNING.
-could not chmod ${GITCONFIG} to 644
-.TP
-.B MSG-Y5R2
-WARNING.
-could not chown ${GITCONFIG} to root:${GROUP}
 .SS ai-tools-setfacl
 .TP
 .B MSG-C3V2
@@ -1992,6 +1988,19 @@ WARNING.
 exclusion ${_ai_tools_conf__load_written} in ${_ai_tools_conf__load_file} cannot be resolved \-\- ${_ai_tools_conf__resolve_refusal}; write the exclusion as the directory's real path, since a link the sandbox account can change cannot be followed; no entry in this file allows a path until the line is fixed
 Documented in
 .BR ai-tools-project-registry (5).
+.SS control-plane.lib.sh
+.TP
+.B MSG-K6D7
+WARNING.
+could not restore the SELinux label of ${path} \-\- ${label_reason}; atr admin system layout reconcile restores it
+.TP
+.B MSG-V8E9
+WARNING.
+could not chmod ${path} to ${mode}
+.TP
+.B MSG-Y5R2
+WARNING.
+could not chown ${path} to ${owner}
 .SS install-selinux.sh
 .TP
 .B MSG-A3V5

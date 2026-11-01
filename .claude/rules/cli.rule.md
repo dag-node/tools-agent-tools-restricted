@@ -19,8 +19,10 @@ paths:
 `ai-tools` (`/usr/local/bin/ai-tools`) is the project-lifecycle CLI. It runs **as the projects user** — not root, not
 the sandbox account. It writes the operator-owned project registry (`~/.config/ai-tools/project-registry`) directly,
 and reaches the root-owned git `safe.directory` list in `/opt/ai-tools/.gitconfig` (`root:ai-tools 644`: world-readable,
-root-write-only) through the `ai-tools-safedir` root helper (`sudo`), alongside its other root operations. It refuses
-to run as the sandbox account (the agent must not manage its own registry).
+root-write-only) through the `ai-tools-safedir` root helper (`sudo`), alongside its other root operations. Each
+`git config --file` write renames a new inode over that file, so the helper restores its owner, mode and SELinux type
+after it (`ai_tools_control_plane__restore_file_attributes`), and a claim or an unclaim does not leave layout drift
+on the row. It refuses to run as the sandbox account (the agent must not manage its own registry).
 
 How its commands are **spelled** — and why this one binary keeps option-spelled verbs while the rest of the project uses
 bare words — is in [cli-grammar](cli-grammar.rule.md). This rule covers what each verb does.
