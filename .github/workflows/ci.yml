@@ -31,7 +31,8 @@ jobs:
     # Each job's bound is about twice its slowest duration, rounded up to a multiple of 5 minutes, over the push run
     # of develop at b5d3c859 and the pull request run that moved CI to ubuntu-26.04 (2026-10-13): shellcheck 158 s,
     # typesafe-client 8 s, assets-conformance 15 s, dev-tools 27 s, selftest-matrix 6 s, and an rpm-selftest leg 801 s
-    # (el9; el10 730 s, fc44 696 s). An rpm-selftest leg outgrew its 30 minutes on 2026-10-28 and is bounded at 60.
+    # (el9; el10 730 s, fc44 696 s). An el10 leg took 1149 s on 2026-11-01 with the suite running one file at a time
+# (1028 s of it); tests/run.sh runs four at a time, and a leg is bounded at 15.
     # The release job keeps its own bound.
     timeout-minutes: 10
     steps:
@@ -238,7 +239,7 @@ jobs:
     # drop-in in the step below answers that.
     runs-on: ubuntu-26.04
     # Per leg.
-    timeout-minutes: 60
+    timeout-minutes: 15
     strategy:
       fail-fast: false
       matrix:
