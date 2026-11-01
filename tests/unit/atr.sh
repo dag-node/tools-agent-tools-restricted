@@ -5,16 +5,21 @@
 # directly as root and otherwise through sudo after one notice line on stderr, and every other invocation runs ai-tools,
 # each with its arguments as given and the program's exit status as its own.
 #
-# A copy of the checkout's atr.sh runs with its two readonly paths rewritten to recorders in a fixture directory,
-# and a recorder named `sudo` first on PATH. Each recorder appends its argv to a log of its own as NUL-terminated
-# fields, the field count first, and exits with the status a file beside it names, so an argument boundary, an empty
-# argument and an option-looking one are each read back as they were passed. The wrapper execs its programs,
-# so the fixture directory must report a 0755 file as executable: the testdir where it does, a directory beside
-# the projects user's home otherwise, the fallback tests/unit/agent-installs.sh takes. Every fixture the projects user
-# reads takes its mode explicitly, since a root run inherits the umask sudo hands it. The copy's path is printed first.
-# A recorder records its basename and none of the paths the wrapper names, so the fixed paths themselves are asserted
-# by reading the wrapper as text. As root the direct exec is driven, and the same copy through runuser as the projects
-# user takes the sudo route. No install, no real sudo.
+# A copy of the checkout's atr.sh runs with its two program paths rewritten to recorders in a fixture directory, its
+# help library path at the checkout's help.lib.sh (whose siblings are the checkout's libraries), its domain and manifest
+# directories at fixtures, and a recorder named `sudo` first on PATH. Each recorder appends its argv to a log of its own
+# as NUL-terminated fields, the field count first, and exits with the status a file beside it names, so an argument
+# boundary, an empty argument and an option-looking one are each read back as they were passed. The wrapper execs its
+# programs, so the fixture directory must report a 0755 file as executable: the testdir where it does, a directory
+# beside the projects user's home otherwise, the fallback tests/unit/agent-installs.sh takes. Every fixture the projects
+# user reads takes its mode explicitly, since a root run inherits the umask sudo hands it. The copy's path is printed
+# first. A recorder records its basename and none of the paths the wrapper names, so the fixed paths themselves are
+# asserted by reading the wrapper as text. As root the direct exec is driven, and the same copy through runuser
+# as the projects user renders the help requests, takes the sudo route for every other command line, and lists a trusted
+# fixture domain with its summary. The operator branch runs `id` and `stat`, which the recorder PATH links
+# in from the host; a case forced onto the sudo route is the control that the no-sudo assertions read the operator
+# branch. No install, no real
+# sudo.
 
 set -euo pipefail
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")/../lib" && pwd)/harness.sh"
@@ -69,11 +74,32 @@ mkdir -p "${FIXTURE}/bin" "${FIXTURE}/log" "${FIXTURE}/nosudo"
 # file's.
 chmod 0755 "${FIXTURE}/bin" "${FIXTURE}/nosudo"
 chmod 0777 "${FIXTURE}/log"
+HELP_LIB="${ROOT}/src/usr/local/lib/ai-tools/help.lib.sh"
+[[ -r "${HELP_LIB}" ]] || HELP_LIB=/usr/local/lib/ai-tools/help.lib.sh
+DOMAINS="${FIXTURE}/admin-commands.d"
+MANIFESTS="${FIXTURE}/integrations.d"
+# write_copy <dest> [<sed-expression>...] : the wrapper with its fixed paths rewritten to the fixture, and any further
+# expression applied after them.
+write_copy() {
+    local dest="$1"; shift
+    local -a extra=()
+    local expression
+    for expression in "$@"; do extra+=(-e "${expression}"); done
+    sed -e "s#^readonly AI_TOOLS_ATR__ADMIN=.*#readonly AI_TOOLS_ATR__ADMIN=${FIXTURE}/bin/ai-tools-admin#" \
+        -e "s#^readonly AI_TOOLS_ATR__CLI=.*#readonly AI_TOOLS_ATR__CLI=${FIXTURE}/bin/ai-tools#" \
+        -e "s#^readonly AI_TOOLS_ATR__HELP_LIB=.*#readonly AI_TOOLS_ATR__HELP_LIB=${HELP_LIB}#" \
+        -e "s#^readonly AI_TOOLS_ATR__ADMIN_COMMANDS_DIR=.*#readonly AI_TOOLS_ATR__ADMIN_COMMANDS_DIR=${DOMAINS}#" \
+        -e "s#^readonly AI_TOOLS_ATR__INTEGRATIONS_DIR=.*#readonly AI_TOOLS_ATR__INTEGRATIONS_DIR=${MANIFESTS}#" \
+        -e "s#^readonly AI_TOOLS_ATR__AGENTS_DIR=.*#readonly AI_TOOLS_ATR__AGENTS_DIR=${FIXTURE}/agents.d#" \
+        "${extra[@]}" -- "${WRAPPER}" > "${dest}"
+    chmod 0644 "${dest}"
+}
 COPY="${FIXTURE}/atr.sh"
-sed -e "s#^readonly AI_TOOLS_ATR__ADMIN=.*#readonly AI_TOOLS_ATR__ADMIN=${FIXTURE}/bin/ai-tools-admin#" \
-    -e "s#^readonly AI_TOOLS_ATR__CLI=.*#readonly AI_TOOLS_ATR__CLI=${FIXTURE}/bin/ai-tools#" -- "${WRAPPER}" > "${COPY}"
-chmod 0644 "${COPY}"
+write_copy "${COPY}"
 printf '  copy under test: %s\n' "${COPY}"
+for line in "${HELP_LIB}" "${DOMAINS}" "${MANIFESTS}"; do
+    grep -qF -- "${line}" "${COPY}" || fail "the copy does not carry the rewritten path ${line}"
+done
 for name in ai-tools ai-tools-admin sudo; do
     # Builtins alone, so the recorders run under a PATH naming the fixture directory alone. A status file present
     # and unreadable makes the recorder exit 99, which every case asserting a status reads as a failure.
@@ -87,6 +113,13 @@ EOF
     chmod 0755 "${FIXTURE}/bin/${name}"
 done
 readonly ADMIN_PATH="${FIXTURE}/bin/ai-tools-admin"
+# The operator branch reads the caller with `id` and the trust predicate reads owner and mode with `stat`; both come
+# from the host, into each PATH a case runs under.
+for tool in id stat; do
+    host_tool="$(command -v "${tool}")"
+    ln -s "${host_tool}" "${FIXTURE}/bin/${tool}"
+    ln -s "${host_tool}" "${FIXTURE}/nosudo/${tool}"
+done
 
 # atr_run <path-list> <arg>... : clear the logs, run the copy under PATH=<path-list>; sets RC, OUT and ERR.
 atr_run() {
@@ -138,22 +171,50 @@ atr_run "${WITH_SUDO}" status
 (( RC == 3 )) && pass "ai-tools exiting 3 makes atr exit 3" || fail "ai-tools exited 3, atr exited ${RC}"
 write_recorder_exit_status ai-tools -
 
-# ── admin through sudo, for a caller that is not root ──────────────────────────────────────────
-# check_admin_dispatch_cases <runner> : the sudo-route cases, each run through <runner> (atr_run, or atr_run_as_operator
-# as root).
+# ── admin for a caller that is not root ──────────────────────────────────────────────────────────
+# check_admin_dispatch_cases <runner> <caller> : the operator cases, each run through <runner> (atr_run,
+# or atr_run_as_operator as root) as the account <caller> names.
 check_admin_dispatch_cases() {
-    local runner="$1" args expected
-    for args in "status" "--help" "-h" "--version" ""; do
-        local -a argv=()
+    local runner="$1" caller="$2" args expected keep
+    local -a argv=()
+    # A help request, a bare `atr admin` and `--version` render here, without sudo.
+    for args in "--help" "-h" "help" "" "operators|help" "operators|add|--help" "stop|--help"; do
+        argv=()
         [[ -n "${args}" ]] && IFS='|' read -r -a argv <<< "${args}"
         "${runner}" "${WITH_SUDO}" admin "${argv[@]}"
-        expected="--|${ADMIN_PATH}${args:+|${args}}"
+        if [[ "${OUT}" == *"Usage:"* && "${RC}" == 0 && -z "${ERR}" \
+              && -z "$(list_calls sudo)$(list_calls ai-tools-admin)$(list_calls ai-tools)" ]]; then
+            pass "atr admin ${args:-(bare)} prints the help on stdout with no sudo call"
+        else
+            fail "atr admin ${args:-(bare)}: sudo=[$(list_calls sudo)] rc=${RC} stderr=[${ERR}] stdout=[${OUT}]"
+        fi
+    done
+    "${runner}" "${WITH_SUDO}" admin --version
+    [[ "${OUT}" == "ai-tools-admin dev" && "${RC}" == 0 && -z "$(list_calls sudo)" ]] \
+        && pass "atr admin --version prints the version with no sudo call" \
+        || fail "atr admin --version: rc=${RC} stdout=[${OUT}] sudo=[$(list_calls sudo)]"
+    "${runner}" "${WITH_SUDO}" admin stop --help
+    [[ "${OUT}" == *"atr admin stop [OPTION...]"* ]] \
+        && pass "atr admin stop --help prints the stop hint" || fail "atr admin stop --help: stdout=[${OUT}]"
+    # stop without a help flag runs ai-tools stop, for every caller, with no sudo call.
+    for args in "stop" "stop|--dry-run"; do
+        IFS='|' read -r -a argv <<< "${args}"
+        "${runner}" "${WITH_SUDO}" admin "${argv[@]}"
+        [[ "$(list_calls ai-tools)" == "${args}" && -z "$(list_calls sudo)$(list_calls ai-tools-admin)" ]] \
+            && pass "atr admin ${args//|/ } runs ai-tools ${args//|/ } with no sudo call" \
+            || fail "atr admin ${args//|/ }: ai-tools=[$(list_calls ai-tools)] sudo=[$(list_calls sudo)]"
+    done
+    # Every other command line takes the sudo route whole: a command, a domain's help, an unknown path's help.
+    for args in "status" "dotnet|--help" "bogus|--help" "operators|bogus|--help"; do
+        IFS='|' read -r -a argv <<< "${args}"
+        "${runner}" "${WITH_SUDO}" admin "${argv[@]}"
+        expected="--|${ADMIN_PATH}|${args}"
         if [[ "$(list_calls sudo)" == "${expected}" && -z "$(list_calls ai-tools-admin)" \
               && -z "$(list_calls ai-tools)" \
               && "${ERR}" == "${NOTICE}" && -z "${OUT}" && "${RC}" == 0 ]]; then
-            pass "atr admin ${args:-(bare)} asks sudo for the fixed admin path, after the one notice line"
+            pass "atr admin ${args//|/ } asks sudo for the fixed admin path, after the one notice line"
         else
-            fail "atr admin ${args:-(bare)}: sudo=[$(list_calls sudo)] admin=[$(list_calls ai-tools-admin)] rc=${RC} stderr=[${ERR}] stdout=[${OUT}]"
+            fail "atr admin ${args//|/ }: sudo=[$(list_calls sudo)] admin=[$(list_calls ai-tools-admin)] rc=${RC} stderr=[${ERR}] stdout=[${OUT}]"
         fi
     done
     "${runner}" "${WITH_SUDO}" admin system bootstrap --agents 'a b' '' --dry-run -- x
@@ -174,6 +235,29 @@ check_admin_dispatch_cases() {
         fail "no sudo: rc=${RC} stderr=[${ERR}]" \
              "records=[$(list_calls sudo)$(list_calls ai-tools-admin)$(list_calls ai-tools)]"
     fi
+    keep="${COPY}"
+    # A help library that does not load sends the help request to sudo after one line naming it.
+    COPY="${FIXTURE}/atr-nolib.sh"
+    write_copy "${COPY}" "s#^readonly AI_TOOLS_ATR__HELP_LIB=.*#readonly AI_TOOLS_ATR__HELP_LIB=${FIXTURE}/absent.lib.sh#"
+    "${runner}" "${WITH_SUDO}" admin --help
+    if [[ "$(list_calls sudo)" == "--|${ADMIN_PATH}|--help" && "${ERR}" == *"cannot load ${FIXTURE}/absent.lib.sh"*"${NOTICE}" \
+          && "$(grep -c '' <<< "${ERR}")" -eq 2 && -z "${OUT}" ]]; then
+        pass "with the help library absent, atr admin --help takes the sudo route after one line naming it"
+    else
+        fail "absent help library: sudo=[$(list_calls sudo)] stderr=[${ERR}] stdout=[${OUT}]"
+    fi
+    # The sandbox account is not shown the help: with the account name rewritten to the caller's, `--help` takes sudo.
+    # This is also the control that the rendered cases read the operator branch: the same line, forced onto the sudo
+    # route, calls sudo.
+    COPY="${FIXTURE}/atr-sandbox.sh"
+    write_copy "${COPY}" "s#^readonly AI_TOOLS_ATR__SANDBOX_USER=.*#readonly AI_TOOLS_ATR__SANDBOX_USER=\"${caller}\"#"
+    "${runner}" "${WITH_SUDO}" admin --help
+    if [[ "$(list_calls sudo)" == "--|${ADMIN_PATH}|--help" && "${OUT}" != *"Usage:"* ]]; then
+        pass "as the sandbox account, atr admin --help takes the sudo route and prints no Usage: line"
+    else
+        fail "as the sandbox account: sudo=[$(list_calls sudo)] stdout=[${OUT}]"
+    fi
+    COPY="${keep}"
 }
 # atr_run_as_operator <path-list> <arg>... : atr_run as the projects user through runuser.
 atr_run_as_operator() {
@@ -186,7 +270,7 @@ atr_run_as_operator() {
 }
 
 if (( EUID != 0 )); then
-    check_admin_dispatch_cases atr_run
+    check_admin_dispatch_cases atr_run "$(id -un)"
     skip "atr admin as root" "the direct exec needs a root run"
 else
     # ── as root: the program directly ─────────────────────────────────────────────────────────────
@@ -200,7 +284,34 @@ else
     atr_run "${WITH_SUDO}" admin status
     (( RC == 4 )) && pass "as root, the admin program exiting 4 makes atr exit 4" || fail "as root, atr exited ${RC}"
     write_recorder_exit_status ai-tools-admin -
-    check_admin_dispatch_cases atr_run_as_operator
+    for args in "stop" "stop|--dry-run"; do
+        IFS='|' read -r -a argv <<< "${args}"
+        atr_run "${WITH_SUDO}" admin "${argv[@]}"
+        [[ "$(list_calls ai-tools)" == "${args}" && -z "$(list_calls sudo)$(list_calls ai-tools-admin)" ]] \
+            && pass "as root, atr admin ${args//|/ } runs ai-tools ${args//|/ }" \
+            || fail "as root, atr admin ${args//|/ }: ai-tools=[$(list_calls ai-tools)] admin=[$(list_calls ai-tools-admin)]"
+    done
+    check_admin_dispatch_cases atr_run_as_operator "${PROJECTS_USER}"
+
+    # ── the domain listing over the fixed directory, as the operator ─────────────────────────────────
+    install -d -o root -g root -m 755 "${DOMAINS}" "${MANIFESTS}"
+    printf '#!/bin/sh\nexit 0\n' > "${DOMAINS}/demo"; chown root:root "${DOMAINS}/demo"; chmod 750 "${DOMAINS}/demo"
+    printf 'default_enable=no\nadmin_summary=Provision the demo state\n' > "${MANIFESTS}/demo.conf"
+    chown root:root "${MANIFESTS}/demo.conf"; chmod 644 "${MANIFESTS}/demo.conf"
+    atr_run_as_operator "${WITH_SUDO}" admin help
+    if [[ "${OUT}" == *"  demo COMMAND"*"Provision the demo state"* && "${OUT}" != *"(refused:"* \
+          && -z "$(list_calls sudo)" ]]; then
+        pass "the operator's atr admin help lists the trusted fixture domain with its summary"
+    else
+        fail "the trusted fixture domain is not listed: stdout=[${OUT}] stderr=[${ERR}]"
+    fi
+    printf '#!/bin/sh\nexit 0\n' > "${DOMAINS}/weak"; chown root:root "${DOMAINS}/weak"; chmod 770 "${DOMAINS}/weak"
+    atr_run_as_operator "${WITH_SUDO}" admin help
+    if [[ "${OUT}" == *"(refused: a file there is not root's alone"* && "${ERR}" == *MSG-D3P6* ]]; then
+        pass "a group-writable fragment beside it adds the refusal line and its warning"
+    else
+        fail "the refusal line is missing: stdout=[${OUT}] stderr=[${ERR}]"
+    fi
 fi
 
 finish

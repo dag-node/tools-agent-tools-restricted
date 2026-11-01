@@ -155,11 +155,12 @@ make_fixtures() {
 # ── Drivers and readers ───────────────────────────────────────────────────────────
 # run_in <cwd> <args...>: the deployed CLI as the projects user, shim first on PATH, every registry pointed
 # at a fixture, under setsid so no prompt can block. Output captured with stderr, or with stderr written to the file
-# RUN_STDERR names when it is set; RUN_EXTRA_ENV adds NAME=value pairs to the environment.  The inner shell expands $1
-# and $@ itself, which is why they sit in single quotes. With RUN_TTY_ANSWERS set the CLI runs under script(1) instead,
-# on a pseudo-terminal fed that text, for the one question no flag pre-answers: confirm reads /dev/tty, which script
-# makes the controlling terminal and holds the answers on until they are read (the shape unit/msg.sh drives its menus
-# through). Bounded, since a question the answers do not reach would wait on the terminal.
+# RUN_STDERR names when it is set; RUN_EXTRA_ENV adds NAME=value pairs to the environment; RUN_CLI runs another copy
+# of the CLI in its place.  The inner shell expands $1 and $@ itself, which is why they sit in single quotes.
+# With RUN_TTY_ANSWERS set the CLI runs under script(1) instead, on a pseudo-terminal fed that text, for the one
+# question no flag pre-answers: confirm reads /dev/tty, which script makes the controlling terminal and holds
+# the answers on until they are read (the shape unit/msg.sh drives its menus through). Bounded, since a question
+# the answers do not reach would wait on the terminal.
 # shellcheck disable=SC2016
 RUN_EXTRA_ENV=()
 run_in() {
@@ -169,11 +170,11 @@ run_in() {
         AI_TOOLS_OPERATOR_CONF="${CONF}" AI_TOOLS_ALLOWLIST="${AL}" AI_TOOLS_GITCONFIG="${GC}"
         AI_TOOLS_SANDBOX_ROOT="${SBROOT}" "${RUN_EXTRA_ENV[@]}")
     if [[ -n "${RUN_TTY_ANSWERS:-}" ]]; then
-        command+=(bash -c 'cd "$1" && exec script -qec "$2" /dev/null' _ "${cwd}" "$(printf '%q ' "${CLI}" "$@")")
+        command+=(bash -c 'cd "$1" && exec script -qec "$2" /dev/null' _ "${cwd}" "$(printf '%q ' "${RUN_CLI:-${CLI}}" "$@")")
         printf '%b' "${RUN_TTY_ANSWERS}" | timeout 120 "${command[@]}" 2>&1
         return
     fi
-    command+=(bash -c 'cd "$1" && shift && exec setsid -w "$@"' _ "${cwd}" "${CLI}" "$@")
+    command+=(bash -c 'cd "$1" && shift && exec setsid -w "$@"' _ "${cwd}" "${RUN_CLI:-${CLI}}" "$@")
     if [[ -n "${RUN_STDERR:-}" ]]; then
         "${command[@]}" 2>"${RUN_STDERR}"
     else
@@ -1407,6 +1408,30 @@ EOF
     cli_stub_reset; drive cli ai-tools.projects.claim "$(f for)" -x
     expect "another option as --for's value stays refused, with no helper" quiet_rc 1
     assert_msg MSG-B4G2 "${out}" "another option as --for's value is the --for refusal"
+    # A help flag ahead of an invalid or a missing `--for` value is the help request; behind `--` it is an argument,
+    # and the refusal stands.
+    cli_stub_reset; drive cli ai-tools.projects.claim --help "$(f for)" -x
+    expect "a help flag ahead of an invalid --for value is the help request" help_printed
+    cli_stub_reset; drive cli ai-tools.projects.claim --help "$(f for)"
+    expect "a help flag ahead of a missing --for value is the help request" help_printed
+    cli_stub_reset; drive cli ai-tools.projects.claim -- --help "$(f for)" -x
+    expect "a help flag behind -- leaves an invalid --for value refused, with no helper" quiet_rc 1
+    assert_msg MSG-B4G2 "${out}" "a help flag behind -- leaves the --for refusal"
+    # The incident rung runs without help.lib.sh: a copy of the deployed CLI whose library path names an absent file
+    # still reaches the stop helper for a stop with no help flag, and refuses every other line at exit 3 with no helper.
+    nohelp_cli="${CLI_STUB_PATH}/ai-tools-nohelp"
+    sed "s#^readonly HELP_LIB=.*#readonly HELP_LIB=${CLI_STUB_PATH}/absent-help.lib.sh#" "${CLI}" > "${nohelp_cli}"
+    chmod 0755 "${nohelp_cli}"
+    if ! grep -qF "readonly HELP_LIB=${CLI_STUB_PATH}/absent-help.lib.sh" "${nohelp_cli}"; then
+        fail "the copy of the CLI does not carry the rewritten help library path, so its rows prove nothing"
+    else
+        cli_stub_reset; RUN_CLI="${nohelp_cli}" drive cli ai-tools.stop "$(f dry-run)"
+        expect "without help.lib.sh, stop --dry-run reaches the stop helper" cli_called ai-tools-stop "^$(f dry-run)$"
+        cli_stub_reset; RUN_CLI="${nohelp_cli}" drive cli ai-tools.projects.list
+        expect "without help.lib.sh, the listing refuses at exit 3 with no helper" quiet_rc 3
+        cli_stub_reset; RUN_CLI="${nohelp_cli}" drive cli ai-tools.stop --help
+        expect "without help.lib.sh, stop --help refuses at exit 3 with no helper" quiet_rc 3
+    fi
     # A help request on an unknown path is the unknown-command refusal, exit 2, with no helper.
     cli_stub_reset; drive run_in "${R}" projects bogus --help
     expect "a help request on an unknown path is refused with exit 2 and no helper" quiet_rc 2

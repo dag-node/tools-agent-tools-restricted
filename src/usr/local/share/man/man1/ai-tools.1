@@ -798,7 +798,8 @@ or after a collection
 After a command it is that command's argument.
 .TP
 .B \-\-version
-Print the installed version. Answered ahead of every gate, like
+Print the installed version, when it is the first argument, whatever follows
+it. Answered ahead of every gate, like
 .BR \-\-help .
 .TP
 .BR \-y ", " \-\-yes
@@ -949,7 +950,6 @@ refused elsewhere rather than ignored. It cannot be combined with
 .BR "projects unclaim \-\-force" ,
 whose tree has no registry entry naming an owner and is therefore bound to
 the invoking operator.
-.SH EXIT STATUS
 .IP
 A value of
 .B \-h
@@ -957,6 +957,7 @@ or
 .B \-\-help
 is the help option itself: the command prints its help and the run acts
 for no one.
+.SH EXIT STATUS
 .TP
 .B 0
 The command completed.

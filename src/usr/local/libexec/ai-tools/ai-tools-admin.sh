@@ -433,7 +433,24 @@ if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
             fi
             exit 0 ;;
         2)  IFS=' ' read -ra help_words <<<"${help_target}"; set -- "${help_words[@]}" ;;
-        3)  [[ "${1-}" != help ]] || set -- "${@:2}" --help ;;
+        3)  # The domain first, then its help flag ahead of every other word and of any `--`, so the fragment reads
+            # the line as a help request whichever form asked: `help DOMAIN ...`, `--help DOMAIN ...`, `DOMAIN ... -h`.
+            help_words=("${help_target}" --help)
+            help_seen_domain=0 help_seen_delimiter=0 help_first=1
+            for help_word in "$@"; do
+                if (( help_seen_delimiter == 0 )); then
+                    if [[ "${help_word}" == -- ]]; then help_seen_delimiter=1
+                    elif (( help_first == 1 )) && [[ "${help_word}" == help ]]; then help_first=0; continue
+                    elif [[ "${help_word}" == -h || "${help_word}" == --help ]]; then help_first=0; continue
+                    elif (( help_seen_domain == 0 )) && [[ "${help_word}" == "${help_target}" ]]; then
+                        help_seen_domain=1; help_first=0; continue
+                    fi
+                fi
+                help_first=0
+                help_words+=("${help_word}")
+            done
+            set -- "${help_words[@]}"
+            unset help_word help_seen_domain help_seen_delimiter help_first ;;
     esac
     unset help_status help_target help_words
     if [[ "${1-}" == --version ]]; then printf 'ai-tools-admin %s\n' "${AI_TOOLS_VERSION}"; exit 0; fi
@@ -3979,7 +3996,11 @@ system_layout_dispatch() {
         --*)       layout_list "$@" ;;
         *)         local help_command
                    help_command="$(ai_tools_help__format_help_command ai-tools-admin "system layout ${verb}")"
-                   reject_unknown_command MSG-N8R8 "unknown command: system layout ${verb} -- run '${help_command}'" ;;
+                   # The domain's one refusal code, defined at layout_reject_option and printed here as the token, since
+                   # a second definition of it would be a second message under one code.
+                   printf "MSG-R7Y4\nai-tools-admin: unknown command: system layout %s -- run '%s'\n" \
+                       "${verb}" "${help_command}" >&2
+                   exit 2 ;;
     esac
 }
 

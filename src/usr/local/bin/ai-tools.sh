@@ -266,13 +266,21 @@ while (( $# )); do
         _forless_args+=("${FOR_OPERATOR}"); FOR_OPERATOR=""; continue
     fi
     # Both spellings are the same situation -- the flag names the operator the run acts for, and neither an empty value
-    # nor another option in its place is a name -- so they share one refusal, checked once after the branch that read
-    # the value.
-    [[ -n "${FOR_OPERATOR}" && "${FOR_OPERATOR}" != -* ]] \
-        || refuse_early MSG-B4G2 "ai-tools: --for needs an operator name"
+    # nor another option in its place is a name -- so they share one refusal, recorded here and made once the split
+    # ends.
+    [[ -n "${FOR_OPERATOR}" && "${FOR_OPERATOR}" != -* ]] || { _for_value_refused=1; FOR_OPERATOR=""; }
 done
+# The refusal steps aside for a help request, a help flag ahead of the first `--`, which the help resolution answers
+# and which acts for no one.
+if [[ -n "${_for_value_refused:-}" ]]; then
+    for _forless_arg in "${_forless_args[@]+"${_forless_args[@]}"}"; do
+        [[ "${_forless_arg}" != -- ]] || break
+        [[ "${_forless_arg}" != -h && "${_forless_arg}" != --help ]] || _for_value_refused=""
+    done
+    [[ -z "${_for_value_refused}" ]] || refuse_early MSG-B4G2 "ai-tools: --for needs an operator name"
+fi
 set -- "${_forless_args[@]}"
-unset _forless_args
+unset _forless_args _forless_arg _for_value_refused
 
 # ── A verb that moved to ai-tools-admin ──────────────────────────────────────────
 # --relabel is spelled correctly, worked in an earlier release, and is printed as the remedy in release notes that stay

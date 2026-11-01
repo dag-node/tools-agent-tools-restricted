@@ -97,6 +97,18 @@ else
     fail "the ai-tools help is not the stated text: ${top}"
 fi
 
+# The same heading with the trust predicate stubbed, so it runs unprivileged: the discovery splits rows of its own while
+# the renderer is between blocks.
+stubbed="${TESTDIR}/stubbed"
+install -d "${stubbed}"
+: > "${stubbed}/demo"; : > "${stubbed}/stop"
+admin="$(lib "ai_tools_conf__is_trusted() { return 0; }; ai_tools_help__render ai-tools-admin '${stubbed}'" 2>/dev/null)"
+if [[ "${admin}" == *$'  demo COMMAND'*$'\n\nOptions:\n  -h, --help'* ]]; then
+    pass "with a refused base-name fragment after a domain, the block after the domains is headed Options:"
+else
+    fail "the heading after the domain block changed (stubbed predicate): ${admin}"
+fi
+
 if [[ "${EUID}" -eq 0 ]]; then
     fixture="${TESTDIR}/domains"
     MANIFESTS="${TESTDIR}/integrations.d"
@@ -117,6 +129,22 @@ if [[ "${EUID}" -eq 0 ]]; then
     out="$(lib "ai_tools_help__resolve_request ai-tools-admin '${fixture}' -- demo --help" 2>/dev/null)" || status=$?
     if [[ "${status}" -eq 3 && "${out}" == demo ]]; then pass "a help request on a discovered domain is status 3"
     else fail "a help request on a discovered domain: status ${status}, '${out}'"; fi
+    # A domain named with a digit is a domain to the resolver as it is to the discovery.
+    printf '#!/bin/sh\nexit 0\n' > "${fixture}/agent2"; chown root:root "${fixture}/agent2"; chmod 750 "${fixture}/agent2"
+    status=0
+    out="$(lib "ai_tools_help__resolve_request ai-tools-admin '${fixture}' -- agent2 --help" 2>/dev/null)" || status=$?
+    if [[ "${status}" -eq 3 && "${out}" == agent2 ]]; then pass "a help request on a digit-bearing domain is status 3"
+    else fail "a help request on agent2: status ${status}, '${out}'"; fi
+    # A fragment carrying a base name sorts after the trusted ones and is refused; the block after the domains is still
+    # headed Options:, which the discovery's own row reads must not change.
+    printf '#!/bin/sh\nexit 0\n' > "${fixture}/stop"; chown root:root "${fixture}/stop"; chmod 750 "${fixture}/stop"
+    admin="$(lib "ai_tools_help__render ai-tools-admin '${fixture}'" 2>/dev/null)"
+    if [[ "${admin}" == *$'\n\nOptions:\n  -h, --help'* && "$(grep -c '^Incident:$' <<< "${admin}")" -eq 1 ]]; then
+        pass "a refused base-name fragment leaves the Options: heading after the domain block"
+    else
+        fail "the heading after the domain block changed: ${admin}"
+    fi
+    rm -f "${fixture}/agent2" "${fixture}/stop"
     printf '#!/bin/sh\nexit 0\n' > "${fixture}/weak"; chown root:root "${fixture}/weak"; chmod 770 "${fixture}/weak"
     admin="$(lib "ai_tools_help__render ai-tools-admin '${fixture}'" 2>&1)"
     within80 "the ai-tools-admin help with the refusal line" "${admin}"
@@ -164,6 +192,10 @@ resolves ai-tools 1 "" projects claim help
 resolves ai-tools 1 "" projects claim .
 resolves ai-tools 1 "" stop -- --help
 resolves ai-tools 1 "" --version
+resolves ai-tools 1 "" --version --help
+resolves ai-tools 1 "" --version -h
+resolves ai-tools 0 - --help --version
+resolves ai-tools 2 bogus1 bogus1 --help
 resolves ai-tools 1 "" projects bogus
 resolves ai-tools 2 "projects bogus" projects bogus --help
 resolves ai-tools 2 "projects bogus" help projects bogus

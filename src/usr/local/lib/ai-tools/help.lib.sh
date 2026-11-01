@@ -1,3 +1,4 @@
+#!/usr/bin/env bash
 # SPDX-License-Identifier: AGPL-3.0-only
 # /usr/local/lib/ai-tools/help.lib.sh -- the command surface of ai-tools and ai-tools-admin as data, the help each one
 # prints, the reading of a command line as a help request, and the discovery of the admin domains provider packages
@@ -331,18 +332,22 @@ ai_tools_help__render() {
                         closing="${_AI_TOOLS_HELP__CLOSING_AI_TOOLS_ADMIN}" ;;
     esac
     printf '%s\n\nUsage:\n%s\n' "${title}" "${usage}"
+    local row_block
     for row in "${rows[@]}"; do
         _ai_tools_help__split_row "${row}"
-        if [[ "${_AI_TOOLS_HELP__BLOCK}" != "${block}" ]]; then
-            if [[ "${_AI_TOOLS_HELP__BLOCK}" == Options && "${program}" == ai-tools-admin && -n "${commands_dir}" ]]; then
+        # The discovery splits rows of its own into the same fields, so this row's block is kept apart and the row split
+        # again after it.
+        row_block="${_AI_TOOLS_HELP__BLOCK}"
+        if [[ "${row_block}" != "${block}" ]]; then
+            if [[ "${row_block}" == Options && "${program}" == ai-tools-admin && -n "${commands_dir}" ]]; then
                 printf '\n'
                 _ai_tools_help__render_domains "${width}" "${commands_dir}"
-                printf '%s:\n' "${_AI_TOOLS_HELP__BLOCK}"
+                printf '%s:\n' "${row_block}"
                 _ai_tools_help__split_row "${row}"
             else
-                printf '\n%s:\n' "${_AI_TOOLS_HELP__BLOCK}"
+                printf '\n%s:\n' "${row_block}"
             fi
-            block="${_AI_TOOLS_HELP__BLOCK}"
+            block="${row_block}"
         fi
         _ai_tools_help__print_row "${width}"
     done
@@ -420,11 +425,12 @@ ai_tools_help__format_help_command() {
 #   3  the first command word is a contributed domain (ai-tools-admin, discovered from <admin-commands-dir>): prints
 #      the domain, and the caller forwards the line to it
 #
-# A help request is `-h` or `--help` in any position, or the bare word `help` where the grammar expects a command word:
-# first (the prefix form, whose target is the words after it) or after a path other rows extend. The target is
-# the leading run of command words, the help flags left out, consumed while each extends a path the rows hold.
-# After a complete row a further word is that command's argument; after a path other rows extend it is an unknown path,
-# except `list` under a `[list]` row, which names that row. An empty command line is the top help.
+# `--version` in the first slot is the version and not a help request, whatever follows it. A help request is `-h`
+# or `--help` in any position, or the bare word `help` where the grammar expects a command word: first (the prefix form,
+# whose target is the words after it) or after a path other rows extend. The target is the leading run of command words,
+# the help flags left out, consumed while each extends a path the rows hold. After a complete row a further word is
+# that command's argument; after a path other rows extend it is an unknown path, except `list` under a `[list]` row,
+# which names that row. An empty command line is the top help.
 ai_tools_help__resolve_request() {
     local program="$1" commands_dir="" argument path="" word candidate
     local has_flag=0 has_word=0 prefix_form=0 at_first=1
@@ -433,6 +439,7 @@ ai_tools_help__resolve_request() {
     _ai_tools_help__rows "${program}" rows || return 1
     if [[ "${1-}" != -- ]]; then commands_dir="${1-}"; shift; fi
     [[ "${1-}" == -- ]] && shift
+    [[ "${1-}" != --version ]] || return 1
     for argument in "$@"; do
         [[ "${argument}" != -- ]] || break
         case "${argument}" in
@@ -448,7 +455,13 @@ ai_tools_help__resolve_request() {
         if (( at_first == 1 )) && [[ "${word}" == help ]] && (( prefix_form == 0 )); then
             prefix_form=1; has_word=1; continue
         fi
-        [[ "${word}" =~ ^[a-z][a-z-]*$ ]] || break
+        # A first word takes the domain grammar, wider than a command word's by the digits, so a contributed domain such
+        # as `agent2` reaches the discovery; every later word takes the command-word grammar.
+        if [[ -z "${path}" ]]; then
+            [[ "${word}" =~ ^[a-z][a-z0-9-]*$ ]] || break
+        else
+            [[ "${word}" =~ ^[a-z][a-z-]*$ ]] || break
+        fi
         if [[ -n "${path}" ]] && _ai_tools_help__is_extended_path "${program}" "${path}"; then
             if [[ "${word}" == help ]]; then has_word=1; break; fi
         fi

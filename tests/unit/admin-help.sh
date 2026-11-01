@@ -65,7 +65,7 @@ run_as() {
     rm -f "${FIXTURE}/log/calls"
     RC=0
     if [[ "${who}" == root ]]; then
-        env -i PATH="${RUN_PATH}" bash "${program}" "$@" > "${FIXTURE}/out" 2> "${FIXTURE}/err" || RC=$?
+        env -i PATH="${RUN_PATH}" "${RUN_ENV[@]}" bash "${program}" "$@" > "${FIXTURE}/out" 2> "${FIXTURE}/err" || RC=$?
     else
         runuser -u "${PROJECTS_USER}" -- env -i PATH="${RUN_PATH}" bash "${program}" "$@" \
             > "${FIXTURE}/out" 2> "${FIXTURE}/err" < /dev/null || RC=$?
@@ -73,11 +73,12 @@ run_as() {
     OUT="$(cat "${FIXTURE}/out")"; ERR="$(cat "${FIXTURE}/err")"
 }
 calls() { cat "${FIXTURE}/log/calls" 2>/dev/null || true; }
+RUN_ENV=()
 
 # The admin needs the installed help library; a host before that install skips the admin rows on it.
 run_as user "${ADMIN}" --help
 if grep -qx 'MSG-V6F4' <<< "${ERR}"; then
-    skip "ai-tools-admin help rows" "the installed tree lacks a library the checkout's helper sources: ${ERR//$'\n'/ }"
+    skip_required "ai-tools-admin help rows" "the installed tree lacks a library the checkout's helper sources: ${ERR//$'\n'/ }"
 else
     # helps <want> <arg>... : as the projects user, the admin prints <want> on stdout, exits 0, and does not call
     # a tool.
@@ -128,6 +129,39 @@ else
     unknown MSG-D4S7 assets bogus --help
     unknown MSG-N2A5 help bogus
     unknown MSG-N2A5 bogus --help
+
+    # A help request on a contributed domain reaches the fragment with its help flag first, ahead of any `--`, in every
+    # form. The domain here is a recorder in a fixture directory, so a forwarding that dropped the flag records the argv
+    # it passed and does not run the fragment's code.
+    install -d -o root -g root -m 0755 "${FIXTURE}/domains"
+    cat > "${FIXTURE}/domains/dotnet" <<EOF
+#!/bin/bash
+# ai-tools-admin-command: dotnet
+# ai-tools-admin-api-min-version: 1.0
+# ai-tools-admin-verbs: bootstrap tools status
+printf '%s\n' "\$@" > "${FIXTURE}/log/forwarded"
+EOF
+    chown root:root "${FIXTURE}/domains/dotnet"; chmod 0750 "${FIXTURE}/domains/dotnet"
+    RUN_ENV=(AI_TOOLS_ADMIN_COMMANDS_DIR="${FIXTURE}/domains")
+    forwards() {
+        local want="$1"; shift
+        rm -f "${FIXTURE}/log/forwarded"
+        run_as root "${ADMIN}" "$@"
+        local got
+        got="$(paste -sd' ' "${FIXTURE}/log/forwarded" 2>/dev/null || true)"
+        if [[ "${got}" == "${want}" ]]; then
+            pass "ai-tools-admin $* reaches the domain as: ${want}"
+        else
+            fail "ai-tools-admin $*: the domain received [${got}], expected [${want}]; rc=${RC} stderr=[${ERR}]"
+        fi
+    }
+    forwards "--help tools install -- pkg" help dotnet tools install -- pkg
+    forwards "--help tools"                --help dotnet tools
+    forwards "--help tools"                -h dotnet tools
+    forwards "--help"                      dotnet --help
+    forwards "--help tools install pkg"    dotnet tools install pkg -h
+    forwards "tools install -- --help"     dotnet tools install -- --help
+    RUN_ENV=()
 
     # The account-name check answers before `id`, and the control reaches it.
     run_as root "${ADMIN}" operators add --version

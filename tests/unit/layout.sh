@@ -1158,9 +1158,9 @@ refused_option "a format other than tsv is refused"        --check --format json
 refused_option "--format without a value is refused"       --check --format
 refused_option "--check on reconcile is refused"           reconcile --check
 refused_option "--without-rpm on list is refused"          list --without-rpm
-# An unknown verb is the unknown-command refusal, under its own code and naming the domain's help.
+# An unknown verb is the unknown-command line under the domain's refusal code, naming the domain's help.
 out="$(admin_layout bogus)"
-if grep -qx 'MSG-N8R8' <<< "${out}" && grep -qx 'rc=2' <<< "${out}" && grep -q "run 'atr admin system layout help'" <<< "${out}"; then
+if grep -qx 'MSG-R7Y4' <<< "${out}" && grep -qx 'rc=2' <<< "${out}" && grep -q "run 'atr admin system layout help'" <<< "${out}"; then
     pass "an unknown verb is refused as an unknown command"
 else
     fail "an unknown verb is refused as an unknown command: $(tr '\n' '|' <<< "${out}")"
