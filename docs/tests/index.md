@@ -27,12 +27,13 @@ asserting that the state is unreachable to begin with. A host someone has
 already broken is caught by the first; an agent trying to break it is caught
 by the second.
 
-To run several files at once, give `-j` a count. The files that touch shared
-host state then run one at a time after the rest, and the transcript of each
-file that failed is printed at the end:
+The runner takes four files at a time. The files that touch shared host state
+run one at a time after the rest, and the transcript of each file that failed
+is printed at the end. Give `-j` another count, or `-j 1` to run the files one
+after another with each file's output streamed as it runs:
 
 ```bash
-sudo tests/run.sh -j "$(nproc)" all
+sudo tests/run.sh -j 1 all
 ```
 
 The deployment under test may come from `dnf` — a from-source install is not

@@ -47,8 +47,8 @@ sudo tests/run.sh [-j N] [unit|integration|boundary|all]
 ```
 
 Run via `sudo`, not as `root` directly — the harness derives the unprivileged
-project user from `SUDO_USER`. `-j N` runs up to N files at once. What each
-category proves and what a host needs before it runs are
+project user from `SUDO_USER`. `-j N` runs up to N files at once, 4 by default.
+What each category proves and what a host needs before it runs are
 in [`docs/tests/index.md`](docs/tests/index.md); how a test is written is
 in `.claude/rules/tests.rule.md`.
 

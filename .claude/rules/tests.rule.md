@@ -11,30 +11,28 @@ user from `SUDO_USER`). A file that needs root says so itself with `require_root
 the ones that stub what they drive and build fixtures they own — deliberately do not, so they can also be run **directly
 as an unprivileged user** during development; the harness then takes the invoker as the project user. Run as root
 with **no** sudo context it refuses: there is no unprivileged identity to derive, and fixtures built root-owned would be
-skipped by every owner guard under test — a suite that passes with no assertion behind it. It streams each file's output
-live and closes with the failure summary and the `no coverage` notice `tests/run.sh`'s header describes, the notice
-parsed from `finish()`'s result line, so a green exit status cannot hide a failing file in a long run or a run with no
-assertions behind it. Each file runs under a per-file wall-clock budget (`AI_TOOLS_TEST_FILE_TIMEOUT`, default 600s):
-a file that blocks — on a terminal read, a wedged daemon, or a fixture process holding a pipe open — is killed
-and reported as a failure with its transcript, rather than hanging the run. That matters beyond convenience because
-`install.sh` runs this suite as its verification phase, so an unbounded file stalls an install. `AI_TOOLS_TEST_STRICT=1`
-turns the notice into a failure, and strict is the enforcing-host full-install gate
-(`sudo AI_TOOLS_TEST_STRICT=1 tests/run.sh all`), run with no process of the sandbox account live, since
-`integration/selinux.sh` skips its clone label cases while the live-session gate refuses the walk; the container
-selftest stays lenient because SELinux is legitimately absent there, so `selinux.sh`'s all-skip is a documented
-limitation, not a broken prerequisite.
+skipped by every owner guard under test — a suite that passes with no assertion behind it. It closes with the failure
+summary and the `no coverage` notice `tests/run.sh`'s header describes, the notice parsed from `finish()`'s result line,
+so a green exit status cannot hide a failing file in a long run or a run with no assertions behind it. Each file runs
+under a per-file wall-clock budget (`AI_TOOLS_TEST_FILE_TIMEOUT`, default 600s): a file that blocks — on a terminal
+read, a wedged daemon, or a fixture process holding a pipe open — is killed and reported as a failure with its
+transcript, rather than hanging the run. That matters beyond convenience because `install.sh` runs this suite as its
+verification phase, so an unbounded file stalls an install. `AI_TOOLS_TEST_STRICT=1` turns the notice into a failure,
+and strict is the enforcing-host full-install gate (`sudo AI_TOOLS_TEST_STRICT=1 tests/run.sh all`), run with no process
+of the sandbox account live, since `integration/selinux.sh` skips its clone label cases while the live-session gate
+refuses the walk; the container selftest stays lenient because SELinux is legitimately absent there, so `selinux.sh`'s
+all-skip is a documented limitation, not a broken prerequisite.
 
-`tests/run.sh -j N` runs up to N files at once, the form the container selftest takes with one file per CPU;
-the default, 1, is the streamed run, and its output does not change with the option. The pool takes every file that does
-not carry the line `# run.sh: serial` in its header, largest first, each writing to a transcript of its own, and reports
-each file on one line as it finishes. The serial pass then runs the marked files one at a time,
-with `integration/selinux.sh` (`# run.sh: serial last`) after the rest, because its clone label cases skip while a pool
-file holds a process of the sandbox account live. A file carries the marker when it touches host state another file
-reads — a fixed path in the live toolchain or launcher directory, the live daemon, the live units, the installed layout,
-the cgroup root — and names that state in the paragraph after it. Every other file works inside its testdir
-and the fixture names [Fixture names and the residue sweep](#fixture-names-and-the-residue-sweep) gives it, which is
-what lets it run beside any other. The run prints each failed file's transcript at the end and keeps the directory
-`tests/run.sh`'s header names.
+`tests/run.sh -j N` runs up to N files at once, 4 by default, the CPU count of a GitHub-hosted runner, and `-j 1` runs
+them one after another with each file's output streamed live. The pool takes every file that does not carry the line
+`# run.sh: serial` in its header, largest first, each writing to a transcript of its own, and reports each file on one
+line as it finishes. The serial pass then runs the marked files one at a time, with `integration/selinux.sh`
+(`# run.sh: serial last`) after the rest, because its clone label cases skip while a pool file holds a process
+of the sandbox account live. A file carries the marker when it touches host state another file reads — a fixed path
+in the live toolchain or launcher directory, the live daemon, the live units, the installed layout, the cgroup root —
+and names that state in the paragraph after it. Every other file works inside its testdir and the fixture names [Fixture
+names and the residue sweep](#fixture-names-and-the-residue-sweep) gives it, which is what lets it run beside any other.
+The run prints each failed file's transcript at the end and keeps the directory `tests/run.sh`'s header names.
 
 The harness carries a fourth emitter for that reason. `skip` records a check that could not run, and reaching the notice
 is the point of it. `note` records a fact about the run that is not a verdict — `references.sh` names which tool it

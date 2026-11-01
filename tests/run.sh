@@ -21,8 +21,8 @@
 # named by the harness's fixture rule in the places fixtures are born, and the one fixed-name probe -- and reports each
 # removal; a leftover it cannot remove refuses the run. `run.sh residue` runs the sweep alone.
 #
-# `-j N` runs up to N files at once; the default, 1, runs them one after another and streams each file's output live,
-# the run install.sh's verification phase reads. Above 1 the files run in two passes. The pool takes every file
+# `-j N` runs up to N files at once, 4 by default, the CPU count of a GitHub-hosted runner. `-j 1` runs them one
+# after another and streams each file's output live. Above 1 the files run in two passes. The pool takes every file
 # that does not carry the serial marker, largest first by byte count, since the slowest files are the largest; each
 # writes its output to a transcript of its own, and one line reports each file as it finishes (the result word,
 # the file, the seconds it took). The serial pass then runs one file at a time, in category and name order, every file
@@ -44,7 +44,7 @@ set -uo pipefail
 
 readonly HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 usage() { echo "usage: run.sh [-j N] [unit|integration|boundary|all|residue]" >&2; exit 2; }
-JOBS=1
+JOBS=4
 while (( $# > 0 )); do
     case "$1" in
         -j)  (( $# >= 2 )) || usage; JOBS="$2"; shift 2 ;;
