@@ -4053,24 +4053,27 @@ list_unregistered_unclaim_remedy() {
     printf '       %s\n' "atr projects unclaim --force ${p}"
 }
 
-# die_remove_incomplete <dir> <kind> <label-outcome>  -- report a removal whose deletion left paths under <dir>,
-# and die. The warning states what the run verified: <kind>'s own registry entry is removed, a session already running
-# keeps what it holds until it ends, and the files left keep their group grant, since a removal does not hand them
-# back. <label-outcome> is what the label step ahead of the deletion did: `reverted` says the label is reverted;
-# `failed` says it is not, and that the relabel command the failed step printed still applies, since
-# `ai-tools-relabel --remove` does not read the registry the removal has already changed; `skipped` (SELinux off,
-# no sudo or getenforce, or a clone, whose type comes from the policy's file contexts) does not name a label. Any other
-# value is a caller error.
+# die_remove_incomplete <dir> <kind> <label-outcome> [<covering-entry>]  -- report a removal whose deletion left
+# paths under <dir>, and die. The warning states what the run verified: <kind>'s own registry entry is removed and no
+# longer authorizes a launch there, a session already running keeps what it holds until it ends, and the files left
+# keep their group grant, since a removal does not hand them back. <covering-entry> is the enabled project <dir> is
+# nested in, which the launch gate still approves a session under, and the warning names it. <label-outcome> is what
+# the label step ahead of the deletion did: `reverted` says the label is reverted; `failed` says it is not, and that
+# the relabel command the failed step printed still applies, since `ai-tools-relabel --remove` does not read
+# the registry the removal has already changed; `skipped` (SELinux off, no sudo or getenforce, or a clone, whose type
+# comes from the policy's file contexts) does not name a label. Any other value is a caller error.
 # The remedy is the deletion run_as_owner ran, the path in bash's `%q` encoding, named as the target's under `--for`.
 die_remove_incomplete() {
-    local d="$1" kind="$2" label_outcome="$3" label_clause
+    local d="$1" kind="$2" label_outcome="$3" covering_entry="${4-}" label_clause covering_clause=""
     case "${label_outcome}" in
         reverted) label_clause="; the project's SELinux label is reverted" ;;
         failed)   label_clause="; the SELinux label is not reverted, and the relabel command printed above still applies" ;;
         skipped)  label_clause="" ;;
         *)        die "die_remove_incomplete: unknown label outcome: ${label_outcome}" ;;
     esac
-    warn "the deletion did not complete -- the ${kind}'s registry entry is removed and no new session starts from it -- a session already running keeps its access until it ends, and the files left keep their group grant, which a removal does not hand back${label_clause} -- remove what is left by hand:"
+    [[ -z "${covering_entry}" ]] \
+        || covering_clause=" -- a session can still start there under the entry for ${covering_entry}"
+    warn "the deletion did not complete -- the ${kind}'s own registry entry is removed and no longer authorizes a launch there${covering_clause} -- a session already running keeps its access until it ends, and the files left keep their group grant, which a removal does not hand back${label_clause} -- remove what is left by hand:"
     [[ -z "${FOR_OPERATOR}" ]] || say "    As ${FOR_OPERATOR}, run:"
     say  "      ${C_BOLD}rm -rf $(_quote_path "${d}")${C_RST}"
     die "project remove incomplete -- paths were left behind"
@@ -4138,6 +4141,11 @@ cmd_project_remove() {
                 "${remedy[@]}" ;;
     esac
     local removing_state="${CLASS_STATE}"
+    # The enabled project this one is nested in, read from the one record before the registry changes: a tree whose
+    # deletion fails stays launchable under it, since the launch gate approves a directory under any enabled entry and
+    # a removal past the state table is not blocked by a covering line.
+    local covering_entry=""
+    [[ "${CLASS_ENCLOSING_STATE}" != enabled ]] || covering_entry="${CLASS_ENCLOSING}"
 
     # An entry containing other claimed projects is refused (cli.rule.md); the check sees the registry THIS run reads
     # alone, so another operator's nested project is not visible here.
@@ -4240,7 +4248,7 @@ cmd_project_remove() {
     ${cleanup_stopped} || unreg_safedir "${d}" || note_root_failure || true
 
     if ! run_as_owner rm -rf -- "${d}" || [[ -e "${d}" ]]; then
-        die_remove_incomplete "${d}" project "${label_outcome}"
+        die_remove_incomplete "${d}" project "${label_outcome}" "${covering_entry}"
     fi
 
     say ""

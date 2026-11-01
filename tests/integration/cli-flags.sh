@@ -981,6 +981,7 @@ EOF
     expect "the remedy names the target as the account to run it"     out_has_text "As ${FOR_USER}, run:"
     expect "the remedy is one deletion, the path in %q"               out_has_text "rm -rf $(LC_ALL=C printf '%q' "${R}/for 5")"
     expect "the report does not call the tree out of the agent's reach" out_lacks_text "out of the agent's reach"
+    expect "and names no entry it is still under, there being none"   out_lacks_text "still start there"
     # The same report states what the label step did. A getenforce reporting SELinux enforcing puts the CLI
     # on the label step on any host; the stubbed relabel helper fails it, and the same removal with the helper
     # succeeding is the control. A failed reversal asks whether to go on, which no terminal declines, so
@@ -1007,6 +1008,18 @@ EOF
     expect "control: the relabel succeeding, the removal still exits non-zero" rc_not0
     expect "control: the report says the label is reverted"           out_has_text "SELinux label is reverted"
     expect "control: and does not say it is not reverted"             out_lacks_text "not reverted"
+    # A project nested in an enabled project: the tree its failed deletion leaves stays launchable under the parent's
+    # entry, and the report names that entry.
+    mkdir -p "${R}/nest/app/keep"; : > "${R}/nest/app/keep/held"
+    chown -R "${PROJECTS_USER}:${PROJECTS_USER}" "${R}/nest"
+    printf '%s' "${R}/nest/app" > "${rm_stub}/target"
+    RUN_EXTRA_ENV=(PATH="${rm_stub}:${CLI_STUB_PATH}:/usr/local/bin:/usr/bin:/bin")
+    seed "@ ${R}/nest" "@ ${R}/nest/app"; seed_gc "${R}/nest" "${R}/nest/app"
+    drive cli ai-tools.projects.remove.inplace "$(f yes)" "${R}/nest/app"
+    expect "a nested removal whose deletion fails exits non-zero"     rc_not0
+    expect "the nested project's entry was dropped"                   st_is "${R}/nest/app" absent
+    expect "the enclosing project's entry stays"                      st_is "${R}/nest" enabled
+    expect "the report names the entry the tree is still under"       out_has_text "still start there under the entry for ${R}/nest"
     RUN_EXTRA_ENV=()
     printf '%s\n' "${label_al_saved}" > "${AL}"; chown "${PROJECTS_USER}:${PROJECTS_USER}" "${AL}"; cli_stub_reset
     # A hand-back that did not run disables the target's entry through the helper; a disable the helper refuses then

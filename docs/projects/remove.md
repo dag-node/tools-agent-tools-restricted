@@ -75,7 +75,9 @@ and the typed name has no default.
 
 The label and the registry entry go first, then the `safe.directory`
 entry, and the tree is deleted last. A deletion that then fails leaves a tree
-whose registry entry is gone, so no new session starts there from it.
+whose own registry entry is gone and no longer authorizes a launch there.
+Where the project is nested in an enabled project, a session still starts in
+any directory under that project's entry, and the warning names it.
 A session already running keeps its access until it ends, and the files left
 keep their group grant, since the command does not hand them back before
 deleting them. The warning says what the label step did: the project's
