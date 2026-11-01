@@ -175,8 +175,8 @@ an ordinary account read it — a partial view, the file sink being the authorit
   the secret gate before any access-granting step, and offer the traverse and `.git` opt-ins. The model, the blocks
   in run order and what answers each question are under [Claim in place](#claim-in-place); `-y/--yes`, `--format tsv`
   and the exit codes are there and in `ai-tools(1)`. A usage error exits 2.
-- `projects create <path>` — create a **new** project directory and claim it, asking about the traverse grant alone
-  ([Create](#create)).
+- `projects create <path>` — create a **new** project directory and claim it, asking about the traverse grant
+  and the `.git` share ([Create](#create)).
 - `projects remove <path>` — unclaim a project **and delete its directory**; `projects unclaim` stays
   the non-destructive reversal its refusals point at ([Remove](#remove)).
 - `projects unclaim <path>` — unclaim a real project, directory left on disk: revert the label, drop both registries,
@@ -1079,10 +1079,11 @@ idempotent. On a `--for` run the ancestors belong to the target, so the grant ru
 
 ## Create <a id="ref-section-x8s5"></a>
 
-`projects create <path>` makes one directory (`mkdir -m 0750`), runs an empty `git init`, writes a `README.md` naming
-the directory, then runs `cmd_project_claim` unchanged on the result, so there is one implementation of what claiming
-means. Every filesystem step goes through `run_as_owner`, so a create under `--for` produces a target-owned tree —
-the one the claim then accepts under the owner rule. `<path>` is required, since the cwd always exists.
+`projects create <path>` makes one directory (`mkdir -m 0700`, opened to `0750` last), runs an empty `git init`,
+writes a `README.md` naming the directory, then runs `cmd_project_claim` unchanged on the result, so there is one
+implementation of what claiming means. Every filesystem step goes through `run_as_owner`, so a create under `--for`
+produces a target-owned tree — the one the claim then accepts under the owner rule. `<path>` is required, since the cwd
+always exists.
 
 Its refusals keep a create from being a claim in disguise. A path that **already exists** is refused naming
 `projects claim`: the operation that grants an agent access to an existing tree must not be reachable by a typo,
@@ -1098,13 +1099,21 @@ names, and the directory the unreachable-location refusal names is one the looku
 the sandbox account could never enter before anything exists, and names an alternative only after checking it on this
 host, the invoker's own reach included.
 
-The tree is empty by construction, so the claim infers three answers without asking, gated
-on `is_project_tree_pristine`, which the claim re-derives from the tree (no file outside `.git` but `README.md`,
-and an empty object store, since a commit no reference names is still history) rather than trusting the caller's hint,
-since what it gates is the secret scan. The proceed confirm and its warnings are not shown, being false for a directory
-that did not exist a moment ago; the secret gate is skipped, since the tree holds one file this command wrote
-and the scan would cost a sudo password; the `.git` question is inferred yes, since there is no history to expose
-and normalizing keeps later commits readable. The traverse grant still asks: it widens access on ancestors, which exist.
+The tree is empty by construction, so the claim infers two answers without asking, gated on `is_project_tree_pristine`,
+which the owner-side read makes as the tree's owner (no file outside `.git` but `README.md`, and an empty object store,
+since a commit no reference names is still history) rather than trusting the caller's hint, since what it gates
+is the secret scan. The proceed confirm and its warnings are not shown, being false for a directory that did not exist
+a moment ago; the secret gate is skipped, since the tree holds one file this command wrote and the scan would cost
+a sudo password. The `.git` question is asked, under a headline for a repository with no history, with the default
+and the pre-answers the table under [Claim in place](#claim-in-place) gives it: whether the agent reads the commits made
+there later is the owner's choice either way, a service account's operator keeping `.git` their own among them,
+so a create without a terminal ends as a re-claim does. The traverse grant still asks: it widens access on ancestors,
+which exist.
+
+A claim that stops after the `mkdir` — a root step that failed, a gate or an owner-side read that did not complete —
+leaves the directory in place, and the run's EXIT trap names it under `MSG-S3U5` with the claim that finishes it,
+composed by `format_projects_command`, so a `--for` create's line carries the flag. The create sets the name after
+its `mkdir` and the claim clears it where it closes with its line.
 
 No path it seeds is left owner-only: under an `077` umask (the `/etc/login.defs` default on many hosts, which a PAM
 session hands the command) the directory, `.git` and the README would come out `0700`/`0600`, the seal `ai-tools-setgid`
@@ -1113,6 +1122,18 @@ and traverse only, since write comes from the claim's ACL, `0770` would open the
 shared on some hosts, and those are the modes an unclaim normalizes back to. This is a statement, not a prompt: a umask
 is a blanket default, not a seal placed on this directory, so where the umask would have sealed it the create says
 so in a line.
+
+**`.git` stays out of the agent's reach until the `.git` question shares it.** `git init` builds `.git`
+under the owner's umask, so under `022` it carries other bits, and under a setgid parent — the clone area among them —
+in that parent's group, the sandbox group there, with any default ACL the parent carries, the clone area's
+`group:ai-ops` entry among them. The create therefore strips every extended entry and the default ACL under `.git`
+(`setfacl -R -b`), regroups it to the owner's primary group, and clears group write and the other bits, all as the owner
+and before the root opens to `0750`, so the mode bits alone decide who reads `.git` and an operator's access to another
+account's `.git` is that owner's to grant. Group write is cleared explicitly, because `-b` turns the mask it strips
+into the group bits, and a `002` umask, the default a user-private-group login takes, has git build `.git`
+group-writable. The setgid and ACL walks skip `.git`, so a declined share leaves it so, and only
+`ai-tools-setfacl --with-git` opens it. If one of those steps fails, the create warns, and the claim's headline
+for the question says a decline leaves `.git` as git made it, which the agent may be able to read.
 
 ## Remove <a id="ref-section-k3v7"></a>
 

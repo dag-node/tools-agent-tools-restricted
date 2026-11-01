@@ -2386,8 +2386,14 @@ claim_load_libraries() {
     fi
 }
 
-# The fresh-tree hint is projects create's alone, so the run clears what the environment hands it.
+# The fresh-tree hint is projects create's alone, so the run clears what the environment hands it. CREATE_LEFT_TREE
+# names the directory a create made, from its mkdir until the claim closes with its line, so the EXIT trap
+# (remove_run_files) names a tree a create left with its claim unfinished. CREATE_GIT_WITHHELD names the directory whose
+# `.git` the create set to its owner's group and modes, so the claim's `.git` question promises a decline only where
+# that held.
 CLAIM_FRESH_TREE=""
+CREATE_LEFT_TREE=""
+CREATE_GIT_WITHHELD=""
 
 # ensure_claim_work_directory -- create CLAIM_WORK, the private directory (`mktemp -d`, 0700) holding a claim's path
 # lists and the tool output its checks capture, removed by the EXIT trap with the allowlist snapshot.
@@ -3449,6 +3455,7 @@ cmd_project_claim() {
         # With no grant to offer, this prints the blocked-ancestor warning alone, where there is one.
         confirm_ancestor_traversal "${d}"
         claim_scan_rows
+        CREATE_LEFT_TREE=""
         ok "already fully claimed -- nothing to do"
         claim_end
         return 0
@@ -3483,10 +3490,7 @@ cmd_project_claim() {
     elif ${gate_announced}; then
         say "    - scan for secret-named files if you accept a repair -- you will confirm"
     fi
-    if ${need_git}; then
-        if ${fresh}; then say "    - normalize .git so the agent can access git history"
-        else say "    - normalize .git so the agent can access git history -- you will be asked"; fi
-    fi
+    ${need_git} && say "    - normalize .git so the agent can access git history -- you will be asked"
     (( ${#TRAVERSAL_GRANT_PATHS[@]} )) && say "    - grant traverse-only access on ${#TRAVERSAL_GRANT_PATHS[@]} parent path(s) -- you will be asked"
     ${git_unreadable} && say "    - .git history sharing -- not checked, named at the end"
     ${filemode_unreadable} && say "    - git core.filemode -- not checked, named at the end"
@@ -3596,21 +3600,23 @@ cmd_project_claim() {
     # does not, so a wrapper-delegated claim still asks before exposing the repo's full git history.
     local do_git=false
     if ${need_git}; then
-        if ${fresh}; then
-            # Inferred, not asked. The question is about exposing history, and a repository with no commits has none;
-            # normalizing is meanwhile the outcome the operator wants either way, since it is what keeps THEIR later
-            # commits readable by the agent. Asking would offer a choice between one real option and one that costs them
-            # something for no gain.
-            do_git=true
-            say "    .git: normalizing for shared history (new repository -- no history to expose)"
+        # A new repository has no history to expose, and the question is still asked: whether the agent reads the
+        # commits made here from now on is the owner's choice, with a real answer either way -- the posture of a service
+        # account whose agent works the tree while the operator keeps .git -- so a create asks it like a re-claim does.
+        if ${fresh} && [[ "${CREATE_GIT_WITHHELD}" == "${d}" ]]; then
+            headline_warn "Git history: a new repository" \
+                "This repository has no commits yet. Normalizing .git lets the agent read the commits made here from now on. Declining keeps .git out of the agent's reach: the create left it in its owner's group, which the agent is not in, with no access for other accounts. A later re-claim offers the share again, and a chmod on .git withdraws it."
+        elif ${fresh}; then
+            headline_warn "Git history: a new repository" \
+                "This repository has no commits yet. Normalizing .git lets the agent read the commits made here from now on. The create could not set .git to its owner's group and modes (the warning above), so declining leaves .git as git made it, which the agent may be able to read."
         else
             headline_warn "WARNING: git history exposure" \
                 "normalizing .git lets the agent read this repo's full git history"
-            if confirm "Normalize .git so the agent can access git history here?" y; then
-                do_git=true
-            else
-                say "    .git: left as-is (history not accessible to the agent)"
-            fi
+        fi
+        if confirm "Normalize .git so the agent can access git history here?" y; then
+            do_git=true
+        else
+            say "    .git: left as-is -- not shared by the claim"
         fi
     fi
 
@@ -3669,6 +3675,8 @@ cmd_project_claim() {
     # traverse grant offered, and no Apply step. Any other run keeps the plain line, which does not say either way.
     # The ✓ is kept for a claim that left no drift and no capped scan: with a not-fixed or a scan-capped row the claim
     # ends non-zero, and the line takes the mark that status carries.
+    # The claim closes with its line here, so a create's leftover-tree report (remove_run_files) has no tree to name.
+    CREATE_LEFT_TREE=""
     local closing="claimed ${d}"
     if ! ${apply_steps} && [[ "${listed}" == true ]] && ! ${need_gate} && (( ${#TRAVERSAL_GRANT_PATHS[@]} == 0 )); then
         closing+=" -- no change applied"
@@ -3713,9 +3721,10 @@ refuse_unresolved_parent() {
 # cmd_project_create <path>  -- create a NEW project directory and claim it: ONE mkdir, an empty git repository,
 # a README.md, then cmd_project_claim unchanged on the result. <path> is required with no cwd default. Every filesystem
 # step goes through run_as_owner, so a create under `--for` produces a TARGET-owned tree, the one
-# require_claimable_owner then accepts. It does not take `-y`: it does not ask a question a flag could pre-answer,
-# and the traverse grant on an ancestor, the one question that can still appear, is answered by a person at a terminal
-# alone. The refusals, the modes it sets and the claim questions it infers are
+# require_claimable_owner then accepts. It does not take `-y`: the claim's two questions on a new tree, the traverse
+# grant on an ancestor and the `.git` share, are not a flag's to answer, the first answered by a person at a terminal
+# alone and the second by its default where no one is. A claim that stops after the mkdir leaves the tree named, with
+# the claim that finishes it (remove_run_files). The refusals, the modes it sets and the claim questions it infers are
 # cli.rule.md's.
 cmd_project_create() {
     local a path=""
@@ -3854,13 +3863,17 @@ cmd_project_create() {
     # block. ──
     headline "Create project" "${d}" \
         "Creating the directory, an empty git repository in it, and a README.md, then claiming it so the sandbox account can work there."
-    # Mode 0750 set explicitly (`mkdir -m` applies it after creation, so the umask does not mask it): under a 077 umask
-    # the directory would be born 0700, the seal ai-tools-setgid and ai-tools-setfacl honour and skip, and the claim
-    # would register a project the agent cannot enter. 0750 and not 0770: write comes from the claim's ACL, and 0750 is
-    # the mode an unclaim normalizes a directory back to. Why a umask is not a seal is cli.rule.md's.
+    # The directory is made 0700 and opened to 0750 last, once .git and the README carry their modes, so no path inside
+    # it is reachable before then: under the setgid clone area the sandbox group enters a 0750 directory from the moment
+    # it exists. 0750 is set explicitly (`chmod` is not masked by the umask): under a 077 umask the directory would stay
+    # 0700, the seal ai-tools-setgid and ai-tools-setfacl honour and skip, and the claim would register a project
+    # the agent cannot enter. 0750 and not 0770: write comes from the claim's ACL, and 0750 is the mode an unclaim
+    # normalizes a directory back to. Why a umask is not a seal is cli.rule.md's.
     local umask_would_be
     printf -v umask_would_be '%04o' "$(( 0777 & ~0$(umask) ))"
-    run_as_owner mkdir -m 0750 -- "${d}" || die "could not create ${d}"
+    run_as_owner mkdir -m 0700 -- "${d}" || die "could not create ${d}"
+    CREATE_LEFT_TREE="${d}"
+    trap remove_run_files EXIT
     say "    created ${d}"
     if (( (8#${umask_would_be} & 077) == 0 )); then
         say "    ${C_DIM}modes set to 0750/0640 -- your umask ($(umask)) would have made them${C_RST}"
@@ -3872,10 +3885,23 @@ cmd_project_create() {
     # Plain `git init`, so the operator's own init.defaultBranch decides the branch name rather than this tool holding
     # an opinion about it. run_as_owner passes -H, so it is the TARGET's git config that is read on a --for run.
     if run_as_owner git init -q -- "${d}"; then
-        # git builds .git under the caller's umask, so on an 077 host it is born owner-only and the `--with-git` pass
-        # would skip it as a seal. g+rX alone: write comes from the claim's ACL, as for the work tree.
-        run_as_owner chmod -R g+rX -- "${d}/.git" \
-            || warn "could not open .git for the agent -- git history may stay out of its reach"
+        # .git is kept from the agent until the claim's `.git` question shares it: git builds it under the owner's umask
+        # (other bits under 022, group write under the 002 a user-private-group login takes) and, under a setgid parent
+        # such as the clone area, in the parent's group, which can be the sandbox group, with any default ACL the parent
+        # carries -- in the clone area `group:ai-ops:rwx` and its default, which reach every operator. So, as the owner:
+        # every extended entry and the default ACL stripped (`setfacl -b`), the owner's primary group, and no access
+        # for other accounts, so the mode bits alone decide who reads .git, and an operator's access to another
+        # account's .git is that owner's to grant. `-b` writes the mask it strips into the group bits, rwx
+        # under the clone area's default, so g-w takes write back; write comes from the claim's ACL, as for the work
+        # tree. g+rX keeps a .git an 077 umask sealed open to `--with-git`, which skips an owner-only one. The setgid
+        # and ACL walks skip .git, so a declined share leaves it as set here.
+        if run_as_owner setfacl -R -b -- "${d}/.git" \
+                && run_as_owner chgrp -R -- "${OWNER_GROUP}" "${d}/.git" \
+                && run_as_owner chmod -R g-w,g+rX,o-rwx -- "${d}/.git"; then
+            CREATE_GIT_WITHHELD="${d}"
+        else
+            warn "could not set .git to the owner's group and modes -- the agent may be able to read it whatever the .git answer"
+        fi
         say "    git: initialized an empty repository"
     else
         warn "git init failed -- the directory is created but is not a git repository"
@@ -3892,6 +3918,9 @@ cmd_project_create() {
     else
         warn "could not write ${d}/README.md (continuing)"
     fi
+    # chmod keeps a directory's setgid bit under a numeric mode, so a create under the clone area stays setgid.
+    run_as_owner chmod 0750 -- "${d}" \
+        || warn "could not open ${d} to 0750 -- it stays owner-only, and the agent cannot enter it"
 
     # The claim runs unchanged on the new tree; CLAIM_FRESH_TREE is a hint it re-derives (is_project_tree_pristine).
     CLAIM_FRESH_TREE="${d}"
@@ -6864,7 +6893,7 @@ require_runas_target() {
     [[ -n "${FOR_OPERATOR}" ]] || return 0
     local -a needed=()
     case "${COMMAND}" in
-        "projects create") needed=(mkdir git tee chmod setfacl "${SELF_PATH}") ;;
+        "projects create") needed=(mkdir git tee chmod chgrp setfacl "${SELF_PATH}") ;;
         "projects claim")  needed=("${SELF_PATH}") ;;
         "projects remove") needed=(find rm) ;;
         *) return 0 ;;
@@ -6919,8 +6948,14 @@ refresh_target_allowlist_snapshot() {
 }
 
 # remove_run_files -- the EXIT trap: remove the files a run made for itself, the allowlist snapshot and the claim's work
-# directory. One function, since a run has one EXIT trap and either file may be the second one made.
+# directory, and on a non-zero exit name the directory a create made whose claim did not finish (CREATE_LEFT_TREE),
+# with the claim that finishes it. One function, since a run has one EXIT trap and any of the three may come first.
 remove_run_files() {
+    local status=$?
+    if (( status != 0 )) && [[ -n "${CREATE_LEFT_TREE}" ]]; then
+        warn MSG-S3U5 "the directory $(ai_tools_log__sanitize "${CREATE_LEFT_TREE}") was created and its claim did not finish -- the directory stays; finish the claim with:" \
+            "      $(format_projects_command claim "${CREATE_LEFT_TREE}")"
+    fi
     [[ -z "${ALLOWLIST_SNAPSHOT}" ]] || rm -f -- "${ALLOWLIST_SNAPSHOT}"
     [[ -z "${CLAIM_WORK}" ]] || rm -rf -- "${CLAIM_WORK}"
     return 0

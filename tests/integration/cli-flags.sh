@@ -110,7 +110,7 @@ make_fixtures() {
     # token.
     N_SRC="$(ai_test_name src)"; N_C2="$(ai_test_name c2)"; N_C3="$(ai_test_name c3)"
     N_C4="$(ai_test_name c4)"; N_C5="$(ai_test_name c5)"
-    declare -gA N_CL=([077]="$(ai_test_name clone-077)" [027]="$(ai_test_name clone-027)")
+    declare -gA N_CL=([077]="$(ai_test_name clone-077)" [027]="$(ai_test_name clone-027)" [002]="$(ai_test_name clone-002)")
     SRC="${R}/${N_SRC}"
     mk_operator_conf "${CONF}" "${PROJECTS_USER}" "${FOR_USER}"
     printf '%s\n' "${REG_MARKER}" > "${AL}"; printf '%s\n' "${REG_MARKER}" > "${FOR_AL}"; : > "${GC}"
@@ -228,7 +228,7 @@ norm() {
         -e "s#\\b${PROJECTS_GROUP}\\b#\$OPGRP#g" -e "s#\\b${FOR_GROUP}\\b#\$FORGRP#g" \
         -e "s#\\b${SANDBOX_GROUP}\\b#\$SBGRP#g" \
         -e "s#${N_SRC}#\$SRC#g" -e "s#${N_C2}#\$C2#g" -e "s#${N_C3}#\$C3#g" -e "s#${N_C4}#\$C4#g" \
-        -e "s#${N_C5}#\$C5#g" -e "s#${N_CL[077]}#\$CL077#g" -e "s#${N_CL[027]}#\$CL027#g"
+        -e "s#${N_C5}#\$C5#g" -e "s#${N_CL[077]}#\$CL077#g" -e "s#${N_CL[027]}#\$CL027#g" -e "s#${N_CL[002]}#\$CL002#g"
 }
 # state_digest: the registries and the fixture tree (type, mode, path), less the shim, the log and git's internals,
 # hashed. Commit ids and times are left out, since they differ per run.
@@ -688,6 +688,77 @@ drive_rows() {
     expect "create sets the group and setgid"                         cli_called ai-tools-setgid "^${R}/new$"
     expect "create applies the ACL"                                   cli_called ai-tools-setfacl "${R}/new$"
     expect "create skips the secret scan on the tree it just made"   not_called ai-tools-lockdown
+    # The `.git` question is asked on a new tree too, default yes: without a terminal the default shares `.git`,
+    # and at a pseudo-terminal an `n` keeps it out of the ACL step.
+    expect "without a terminal the .git question takes its default, --with-git" cli_called ai-tools-setfacl "^--with-git${T}${R}/new$"
+    cli_stub_reset; drive cli_tty 'n\n' ai-tools.projects.create "${R}/new-nogit"
+    expect "create at a terminal answered n exits 0"                  rc_is 0
+    expect "the ACL step runs without --with-git"                     cli_called ai-tools-setfacl "^${R}/new-nogit$"
+    expect "and is not asked for .git"                                cli_log_lacks ai-tools-setfacl "--with-git"
+    # A declined share leaves .git as the create set it, which the stubbed helpers do not change: no access for other
+    # accounts, the owner's primary group, no group write, and no ACL entry naming the sandbox account or its group --
+    # under a 022 umask, under 002 (the default a user-private-group login takes on RHEL and Fedora) and 000, where git
+    # builds .git group-writable, under a 077 one, and under a setgid parent in the sandbox group, where git builds .git
+    # in that group.
+    git_withheld() {  # git_withheld <dir>: .git carries no other bit, the projects group, no sandbox ACL entry
+        [[ -z "$(find "$1/.git" -perm /o=rwx -print -quit)" ]] \
+            && [[ "$(stat -c %G -- "$1/.git")" == "${PROJECTS_GROUP}" ]] \
+            && [[ -z "$(find "$1/.git" ! -group "${PROJECTS_GROUP}" -print -quit)" ]] \
+            && ! getfacl -R -p -- "$1/.git" 2>/dev/null | grep -qE "^(default:)?(user:${SANDBOX_USER}|group:${SANDBOX_GROUP}):"
+    }
+    git_modes_withheld() {  # git_modes_withheld <dir>: directories 2750 or 750, no path with group write or other bits
+        [[ -z "$(find "$1/.git" -type d ! -perm 2750 ! -perm 750 -print -quit)" ]] \
+            && [[ -z "$(find "$1/.git" -perm /g=w,o=rwx -print -quit)" ]]
+    }
+    expect "the declined .git is withheld from the agent"            git_withheld "${R}/new-nogit"
+    # The file runs under 022 (its header); runuser hands the CLI this shell's umask.
+    cli_stub_reset; drive cli_tty 'n\n' ai-tools.projects.create "${R}/new-nogit-022"
+    expect "under a 022 umask the declined create exits 0"           rc_is 0
+    expect "and its .git is withheld from the agent"                 git_withheld "${R}/new-nogit-022"
+    expect "and the mode bits under .git hold no group write or other bits" git_modes_withheld "${R}/new-nogit-022"
+    local um
+    for um in 002 000 077; do
+        umask "${um}"; cli_stub_reset; drive cli_tty 'n\n' ai-tools.projects.create "${R}/new-nogit-${um}"; umask 022
+        expect "under a ${um} umask the declined create exits 0"     rc_is 0
+        expect "and its .git is withheld from the agent"             git_withheld "${R}/new-nogit-${um}"
+        expect "and the mode bits under .git hold no group write or other bits" git_modes_withheld "${R}/new-nogit-${um}"
+    done
+    expect "and .git stays readable to its group, for a later share" test -z "$(find "${R}/new-nogit-077/.git" ! -perm -g=r -print -quit)"
+    # The parent's default ACL also names a third account and a second group, the shape of the clone area's
+    # `group:ai-ops` entry: the create strips every extended entry and the default ACL under .git, so the mode bits
+    # alone decide who reads it.
+    local sg_parent="${R}/sg-parent" third_group
+    third_group="$(id -gn nobody)"
+    mkdir -p "${sg_parent}"; chown "${PROJECTS_USER}:${SANDBOX_GROUP}" "${sg_parent}"; chmod 2770 "${sg_parent}"
+    setfacl -m "d:g:${SANDBOX_GROUP}:rwx,d:u:nobody:rwx,d:g:${third_group}:rwx" "${sg_parent}"
+    git_acl_stripped() {  # git_acl_stripped <dir>: no named entry and no default entry under .git
+        ! getfacl -R -p -- "$1/.git" 2>/dev/null | grep -qE '^(default:|(user|group):[^:])'
+    }
+    cli_stub_reset; drive cli_tty 'n\n' ai-tools.projects.create "${sg_parent}/new"
+    expect "under a setgid parent in the sandbox group the declined create exits 0" rc_is 0
+    expect "control: the new tree takes the parent's group"          test "$(stat -c %G -- "${sg_parent}/new")" = "${SANDBOX_GROUP}"
+    expect "control: the new tree inherits the parent's named entries" \
+        bash -c 'getfacl -p -- "$1" 2>/dev/null | grep -q "^user:nobody:"' _ "${sg_parent}/new"
+    expect "and its .git is withheld from the agent"                 git_withheld "${sg_parent}/new"
+    expect "and .git carries no named or default ACL entry"         git_acl_stripped "${sg_parent}/new"
+    expect "and the mode bits under .git hold no group write or other bits" git_modes_withheld "${sg_parent}/new"
+    # The boundary half, read by the kernel as the sandbox account: it reads the README in the tree it can enter, and
+    # is refused the declined .git.
+    sandbox_reads() { runuser -u "${SANDBOX_USER}" -- cat -- "$1" >/dev/null 2>&1; }
+    sandbox_refused() { ! sandbox_reads "$1"; }
+    expect "control: the sandbox account reads the new tree's README" sandbox_reads "${sg_parent}/new/README.md"
+    expect "the sandbox account is refused the declined .git"        sandbox_refused "${sg_parent}/new/.git/HEAD"
+    rm -rf "${sg_parent}" "${R}"/new-nogit-{022,002,000,077}
+    # A claim that stops after the create's mkdir: a failed safe.directory step, which no terminal declines to go
+    # past, ends the run 1 with the directory in place, and the run names it and the claim that finishes it.
+    cli_stub_reset; cli_stub_fail ai-tools-safedir
+    drive cli ai-tools.projects.create "${R}/new-stopped"
+    expect "a create whose claim stops after the mkdir exits 1"       rc_is 1
+    expect "the directory stays"                                      test -d "${R}/new-stopped"
+    expect "the run names the tree it left under its code"            out_has_text MSG-S3U5
+    expect "and the claim that finishes it"                           out_has_text "atr projects claim ${R}/new-stopped"
+    cli_stub_reset; drive cli ai-tools.projects.create "${R}/new-done"
+    expect "control: a create that completes does not name a tree left" out_lacks_text MSG-S3U5
     cli_stub_reset; drive cli ai-tools.projects.create "${R}/pa"
     expect "create refuses an existing path"                          rc_not0
     expect "the refused create reaches no helper"                     cli_log_empty
@@ -1253,6 +1324,13 @@ EOF
     expect "that run called the helper once, for the snapshot"        test "$(cli_call_count ai-tools-allowlist)" = 1
     expect "that refusal creates no directory"                        test ! -e "${R}/for-new"
     printf '%s\n' "${for_create_saved}" > "${FOR_AL}"; chown "${PROJECTS_USER}:${PROJECTS_USER}" "${FOR_AL}"
+    # A `--for` create whose claim stops after the mkdir names the claim with `--for`: the shim makes the directory
+    # as the projects user, so the claim's owner rule refuses it once it exists.
+    cli_stub_reset; drive cli ai-tools.projects.create "$(f for)" "${FOR_USER}" "${R}/for-made"
+    expect "a create --for whose claim stops after the mkdir exits 1" rc_is 1
+    expect "the run names the tree it left under its code"            out_has_text MSG-S3U5
+    expect "and the claim with --for that finishes it" out_has_text "atr projects claim --for ${FOR_USER} ${R}/for-made"
+    rm -rf "${R}/for-made"
     for who in root "${SANDBOX_USER}"; do
         cli_stub_reset; drive cli ai-tools.projects.claim "$(f for)" "${who}" "$(f yes)" "${R}/for1"
         expect "--for refuses ${who}"                                 rc_not0
@@ -1525,13 +1603,15 @@ EOF
 
     section "umask independence"
     has_bits() { (( ( 8#$(stat -c '%a' "$1") & 8#$2 ) == 8#$2 )); }
-    for u in 077 027; do
+    for u in 077 027 002; do
         umask "${u}"
         seed; drive cli ai-tools.projects.create "${R}/new-${u}"
         expect "create under umask ${u} exits 0"                        rc_is 0
         expect "create under umask ${u}: the directory is 750"          test "$(perm "${R}/new-${u}")" = 750
         expect "create under umask ${u}: the README is 640"             test "$(perm "${R}/new-${u}/README.md")" = 640
         expect "create under umask ${u}: .git is group r-x"             has_bits "${R}/new-${u}/.git" 050
+        expect "create under umask ${u}: .git holds no group write or other bits" \
+            test -z "$(find "${R}/new-${u}/.git" -perm /g=w,o=rwx -print -quit)"
         if ${HAVE_SBROOT}; then
             RUN_EXTRA_ENV=(PATH="${R}/selinux-off-bin:${CLI_STUB_PATH}:/usr/local/bin:/usr/bin:/bin")
             seed; drive cli ai-tools.projects.clone "$(f dir)" "${N_CL[${u}]}" "${SRC}"

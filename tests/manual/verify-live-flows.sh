@@ -658,7 +658,9 @@ else
         note "the project goes in the shared area, not the workspace: it is created AS ${OTHER_OP},"
         note "who cannot write inside ${HOME}"
         sudo_why "creating a project AS ${OTHER_OP} (sudo -u), and its claim's root steps"
-        FC_OUT="$("${CLI}" projects create --for "${OTHER_OP}" "${FOR_PROJ}" 2>&1)"; FC_RC=$?
+        # The create asks whether the agent may read .git, default yes; AI_TOOLS_ASSUME_YES takes that default, as
+        # an unattended create does, and answers none of the questions that default to no.
+        FC_OUT="$(AI_TOOLS_ASSUME_YES=1 "${CLI}" projects create --for "${OTHER_OP}" "${FOR_PROJ}" 2>&1)"; FC_RC=$?
         printf '%s\n' "${FC_OUT}" | sed 's/^/        /'
         if grep -qi 'holds no sudo grant to run' <<<"${FC_OUT}"; then
             # The refusal this section exists to be able to see: helper grants are not a Runas grant, and a host can

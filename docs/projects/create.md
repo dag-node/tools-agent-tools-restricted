@@ -7,7 +7,7 @@
 docs](../index.md)
 
 How `atr projects create` makes a directory, initializes git in it and claims
-it in one step, what it refuses, and the one question it can still ask you.
+it in one step, what it refuses, and the questions it still asks you.
 
 ```bash
 atr projects create ~/src/newproject
@@ -19,18 +19,31 @@ runs on a tree you already have ([Claim](claim.md)). The `DIRECTORY` is
 required: the current directory exists, so it cannot be the default
 of a command whose subject is a directory that does not exist yet.
 
-## The one question it can ask
+## The questions it asks
 
-The tree is empty when the claim starts, so the claim's questions
+The tree is empty when the claim starts, so two of the claim's questions
 about an existing tree are answered by that: there is no pending step
-to confirm with a warning about modifying permissions throughout the tree, no
-secret-named file to scan a directory the command made a moment ago for, and no
-git history to expose in a repository with no commits. The claim therefore
-proceeds without the proceed confirm, the secret scan or the `.git` question,
-and opens `.git` to the agent so that your own later commits stay readable
-to it.
+to confirm with a warning about modifying permissions throughout the tree, and
+no secret-named file to scan a directory the command made a moment ago for.
+The claim therefore proceeds without the proceed confirm or the secret scan.
 
-The traverse grant is the one question left, because it is about the project's
+```text
+Normalize .git so the agent can access git history here? [Y/n] (default: Yes):
+```
+
+The `.git` question is still asked, where `git init` made a repository.
+A new repository has no history, so yes lets the agent read the commits you
+make there from now on. No keeps `.git` out of the agent's reach: the create
+leaves it in the owner's group with no access for other accounts, which suits
+a service account whose agent works the tree while you commit. If the create
+cannot set those modes, it warns that the agent may be able to read `.git`
+whatever you answer. Enter,
+`AI_TOOLS_ASSUME_YES=1` and a run without a terminal answer yes. A later
+`atr projects claim` offers the share again, and a `chmod` on `.git` withdraws
+it. Where `git init` fails, the create warns and claims the directory without
+a repository, and the question is not asked.
+
+The traverse grant is the other question, because it is about the project's
 **parents** rather than the tree: where the sandbox account cannot enter
 a directory enclosing the new project, the claim asks (default No) whether
 to let it pass through. What the grant permits, and what it prints
@@ -89,7 +102,8 @@ refused before anything exists, and names the clone as the way in.
 
 Every refusal fires before the directory is made. A step that fails after it —
 a root step whose password round did not complete — leaves the directory
-in place, and `atr projects claim` on it finishes the claim.
+in place, and the run names the directory and the `atr projects claim` that
+finishes the claim, with `--for` where the create carried it.
 
 ## For another operator
 

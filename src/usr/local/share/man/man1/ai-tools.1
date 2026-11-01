@@ -247,16 +247,26 @@ example, and then the traverse-only
 that lets you enter the directory, where it belongs to the other operator
 and is not a protected system directory.
 Every refusal fires before the directory
-is made; a step that fails after it leaves the directory in place, and
+is made; a step that fails after it leaves the directory in place, and the run
+names the directory and the
 .B "projects claim"
-on it finishes the claim.
+that finishes the claim.
 .IP
 It does not take options, and asks for no confirmation of its own: the tree it makes is empty,
-so the claim that follows infers the answers its prompts would otherwise ask for \(em
-there are no pre-existing permissions to warn about, no secret-named files to scan a
-brand-new directory for, and no git history to expose in a repository with no commits.
-The one question that can still appear is the traverse grant on a parent directory,
-which widens access on the project's ancestors and is answered only by a person at a terminal.
+so the claim that follows does not show its proceed confirm or run the secret scan \(em
+there are no pre-existing permissions to warn about, and no secret-named files to scan a
+brand-new directory for. Where
+.B "git init"
+made a repository, it asks whether the agent may read
+.B .git
+(default yes): a new repository has no history, so yes shares the commits made there
+from now on, and no keeps
+.B .git
+out of the agent's reach, in the owner's group with no access for other accounts;
+.B AI_TOOLS_ASSUME_YES
+and a run without a terminal answer yes.
+The traverse grant on a parent directory can also appear; it widens access on the project's
+ancestors and is answered only by a person at a terminal.
 .TP
 .B projects claim \fR[\fB\-y\fR] [\fB\-\-format tsv\fR] \fIDIRECTORY\fR
 Claim a real project in place so the agent works your actual tree: register it
