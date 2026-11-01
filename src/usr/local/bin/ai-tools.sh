@@ -4058,18 +4058,20 @@ list_unregistered_unclaim_remedy() {
 # longer authorizes a launch there, a session already running keeps what it holds until it ends, and the files left
 # keep their group grant, since a removal does not hand them back. <covering-entry> is the enabled project <dir> is
 # nested in, which the launch gate still approves a session under, and the warning names it. <label-outcome> is what
-# the label step ahead of the deletion did: `reverted` says the label is reverted; `failed` says it is not, and that
-# the relabel command the failed step printed still applies, since `ai-tools-relabel --remove` does not read
-# the registry the removal has already changed; `skipped` (SELinux off, no sudo or getenforce, or a clone, whose type
-# comes from the policy's file contexts) does not name a label. Any other value is a caller error.
+# the label step ahead of the deletion did: `completed` says the step ran and its helper returned success, which does
+# not read the type the tree carries, since a rule on an ancestor of the project keeps the project type through
+# the step; `failed` says it did not complete, and that the relabel command the failed step printed still applies,
+# since `ai-tools-relabel --remove` does not read the registry the removal has already changed; `skipped` (SELinux off,
+# no sudo or getenforce, or a clone, whose type comes from the policy's file contexts) does not name a label. Any other
+# value is a caller error.
 # The remedy is the deletion run_as_owner ran, the path in bash's `%q` encoding, named as the target's under `--for`.
 die_remove_incomplete() {
     local d="$1" kind="$2" label_outcome="$3" covering_entry="${4-}" label_clause covering_clause=""
     case "${label_outcome}" in
-        reverted) label_clause="; the project's SELinux label is reverted" ;;
-        failed)   label_clause="; the SELinux label is not reverted, and the relabel command printed above still applies" ;;
-        skipped)  label_clause="" ;;
-        *)        die "die_remove_incomplete: unknown label outcome: ${label_outcome}" ;;
+        completed) label_clause="; the SELinux label step completed" ;;
+        failed)    label_clause="; the SELinux label step did not complete, and the relabel command printed above still applies" ;;
+        skipped)   label_clause="" ;;
+        *)         die "die_remove_incomplete: unknown label outcome: ${label_outcome}" ;;
     esac
     [[ -z "${covering_entry}" ]] \
         || covering_clause=" -- a session can still start there under the entry for ${covering_entry}"
@@ -4241,7 +4243,7 @@ cmd_project_remove() {
             say  "      ${C_BOLD}sudo ${RELABEL_BIN} --remove $(_quote_path "${d}")${C_RST}"
             note_root_failure || cleanup_stopped=true
         else
-            label_outcome=reverted
+            label_outcome=completed
         fi
     fi
     unreg_allow "${d}"

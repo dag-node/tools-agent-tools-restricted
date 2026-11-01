@@ -80,12 +80,12 @@ Where the project is nested in an enabled project, a session still starts in
 any directory under that project's entry, and the warning names it.
 A session already running keeps its access until it ends, and the files left
 keep their group grant, since the command does not hand them back before
-deleting them. The warning says what the label step did: the project's
-SELinux label is reverted, or it is not and the relabel command printed with
-the failure still applies to the tree. A host with SELinux disabled has no
-label step. Remove what is left by hand: the command prints the `rm -rf`
-to run, and under `--for` the account to run it as. The reverse order would
-leave a half-deleted tree the agent still reaches.
+deleting them. The warning says whether the label step completed; where it
+did not, the relabel command printed with the failure still applies to the
+tree. A host with SELinux disabled has no label step. Remove what is left by
+hand: the command prints the `rm -rf` to run, and under `--for` the account to
+run it as. The reverse order would leave a half-deleted tree the agent still
+reaches.
 The registry step is the one that has to complete: where the entry cannot be
 removed, the command stops and prints the line to delete by hand.
 

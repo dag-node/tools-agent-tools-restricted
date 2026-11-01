@@ -948,7 +948,7 @@ EOF
                     command -v getenforce >/dev/null 2>&1 && [[ "$(getenforce 2>/dev/null)" != Disabled ]] ); then
                 label_step=yes
             fi
-            label_outcomes_named="$(grep -cE -- 'SELinux label is (not )?reverted' <<<"${out}" || true)"
+            label_outcomes_named="$(grep -cE -- 'SELinux label step (did not )?complete' <<<"${out}" || true)"
             if [[ "${label_step}" == yes && "${label_outcomes_named}" == 1 ]] \
                     || [[ "${label_step}" == no && "${label_outcomes_named}" == 0 ]]; then
                 pass "${key} names the label step's outcome only where the step ran (${label_step})"

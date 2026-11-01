@@ -999,15 +999,15 @@ EOF
     expect "the label reversal reached the relabel helper"            cli_called ai-tools-relabel "^--remove${T}${label_dir}$"
     expect "the entry was dropped ahead of the deletion"              st_is "${label_dir}" absent
     expect "the paths the deletion left are still there"              test -e "${label_dir}/keep/held"
-    expect "the report says the label is not reverted"                out_has_text "SELinux label is not reverted"
-    expect "and does not say it is reverted"                          out_lacks_text "SELinux label is reverted"
+    expect "the report says the label step did not complete"          out_has_text "SELinux label step did not complete"
+    expect "and does not say it completed"                            out_lacks_text "label step completed"
     expect "the relabel command printed with the failure is quoted"   out_has_text "--remove $(LC_ALL=C printf '%q' "${label_dir}")"
     expect "no terminal declines going on, so safe.directory stays"   gc_has "${label_dir}"
     seed "@ \"${label_dir}\""; seed_gc "${label_dir}"
     drive cli ai-tools.projects.remove.inplace "$(f yes)" "${label_dir}"
     expect "control: the relabel succeeding, the removal still exits non-zero" rc_not0
-    expect "control: the report says the label is reverted"           out_has_text "SELinux label is reverted"
-    expect "control: and does not say it is not reverted"             out_lacks_text "not reverted"
+    expect "control: the report says the label step completed"        out_has_text "SELinux label step completed"
+    expect "control: and does not say it did not complete"            out_lacks_text "did not complete"
     # A project nested in an enabled project: the tree its failed deletion leaves stays launchable under the parent's
     # entry, and the report names that entry.
     mkdir -p "${R}/nest/app/keep"; : > "${R}/nest/app/keep/held"
