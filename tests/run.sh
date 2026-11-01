@@ -36,13 +36,14 @@
 # is live, as the pool's files leave one while they run. A second `serial last` file is a usage error before any file
 # runs. At the end the run prints the transcript of each failed file in category and name order.
 #
-# Every run then closes with the failure summary, the SKIP rows and the NOTE rows, each grouped by file,
-# and the no-coverage notice. AI_TOOLS_TEST_TRANSCRIPTS names a directory the run creates, under either `-j`, and keeps:
-# each file's transcript, results.tsv (one row per file: its result, its passed, failed and skipped counts, its
-# milliseconds) and run-info.txt (when the run started and finished, its result and command, the host, the OS,
-# the kernel, the checkout's commit and the installed release). A pooled run without it writes under a /tmp directory
-# named by the harness's fixture rule (group `run`), kept with the same two files when a file failed or the notice fired
-# and removed on an all-green run; the next run's residue sweep removes a kept one.
+# Every run then closes with the NOTE rows, the SKIP rows, the no-coverage notice and the failure summary,
+# in that order, the rows grouped by file, so the failures sit beside the overall line. AI_TOOLS_TEST_TRANSCRIPTS names
+# a directory the run creates, under either `-j`, and keeps: each file's transcript, results.tsv (one row per file: its
+# result, its passed, failed and skipped counts, its milliseconds) and run-info.txt (when the run started and finished,
+# its result and command, the host, the OS, the kernel, the checkout's commit and the installed release). A pooled run
+# without it writes under a /tmp directory named by the harness's fixture rule (group `run`), kept with the same two
+# files when a file failed or the notice fired and removed on an all-green run; the next run's residue sweep removes
+# a kept one.
 
 # The body is one brace group, so bash parses the whole file before it runs a line of it. A script is otherwise read
 # as it runs, and a checkout rewritten under a live run -- a formatter, a commit, a branch switch -- has the running
@@ -391,25 +392,17 @@ else
     esac
 fi
 
-# Failure summary: which files failed and their FAIL lines, so a long run does not have to be scrolled. Printed only
-# when something failed; an all-green run stays quiet.
-if [[ "${rc}" -ne 0 ]]; then
-    printf '\n══════ failures (%d file%s) ══════\n' \
-        "${#_failed[@]}" "$([[ "${#_failed[@]}" -eq 1 ]] || echo s)"
-    cat "${_summary}"
-fi
-
 # plural <count> <word>: `<count> <word>`, with an `s` past one.
 plural() { printf '%d %s%s' "$1" "$2" "$([[ "$1" -eq 1 ]] || echo s)"; }
 
-# The SKIP and the NOTE rows, grouped by file: what the run did not check, and what it recorded beside a verdict.
-if (( _skip_rows > 0 )); then
-    printf '\n══════ skipped (%s in %s) ══════\n' "$(plural "${_skip_rows}" row)" "$(plural "${_skip_files}" file)"
-    cat "${_skipped}"
-fi
+# The NOTE and the SKIP rows, grouped by file: what the run recorded beside a verdict, then what it did not check.
 if (( _note_rows > 0 )); then
     printf '\n══════ notes (%s in %s) ══════\n' "$(plural "${_note_rows}" row)" "$(plural "${_note_files}" file)"
     cat "${_notes}"
+fi
+if (( _skip_rows > 0 )); then
+    printf '\n══════ skipped (%s in %s) ══════\n' "$(plural "${_skip_rows}" row)" "$(plural "${_skip_files}" file)"
+    cat "${_skipped}"
 fi
 
 # No-coverage notice: green-by-status files with no assertion behind them, and empty categories. Lenient by default;
@@ -421,6 +414,14 @@ if [[ ${#_nocoverage[@]} -gt 0 ]]; then
         printf '  AI_TOOLS_TEST_STRICT=1: no-coverage is a failure\n'
         rc=1
     fi
+fi
+
+# Failure summary: which files failed and their FAIL lines, printed last of the blocks, beside the overall line,
+# so a long run does not have to be scrolled. Printed only when a file failed; an all-green run stays quiet.
+if [[ ${#_failed[@]} -gt 0 ]]; then
+    printf '\n══════ failures (%d file%s) ══════\n' \
+        "${#_failed[@]}" "$([[ "${#_failed[@]}" -eq 1 ]] || echo s)"
+    cat "${_summary}"
 fi
 
 # read_checkout_commit: print `<commit> <ref>` for the checkout holding this runner, read from its .git as data,

@@ -36,9 +36,9 @@ after another with each file's output streamed as it runs:
 sudo tests/run.sh -j 1 all
 ```
 
-Every run ends with its failures, its skipped checks and its notes, each listed
-under the file that printed them. To keep a run's full results, name a new
-directory for them:
+Every run ends with its notes, its skipped checks and then its failures, each
+listed under the file that printed them, so the failures are the last block
+before the result. To keep a run's full results, name a new directory for them:
 
 ```bash
 sudo AI_TOOLS_TEST_TRANSCRIPTS="/var/tmp/ai-tools-tests-$(date -u +%Y%m%dT%H%M%SZ)" tests/run.sh all
